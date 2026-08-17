@@ -58,7 +58,8 @@ for (const theme of THEMES) {
       // 隱藏 Next.js 開發工具指示器，避免出現在截圖角落
       await page
         .addStyleTag({
-          content: "nextjs-portal,[data-nextjs-toast]{display:none !important}",
+          content:
+            "nextjs-portal,[data-nextjs-toast],[data-prototype-switcher]{display:none !important}",
         })
         .catch(() => {});
       const file = join(OUT, `${slug(p)}-${theme}-${vp.name}.png`);

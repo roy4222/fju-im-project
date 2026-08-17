@@ -19,7 +19,8 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-heading: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-brand: var(--font-brand);
 
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -92,13 +93,17 @@
   --radius: 0.5rem;
 
   /*
-    字型策略：拉丁字母與數字用 Geist（幾何感、現代），漢字交給系統字。
-    不載 Noto Sans TC webfont —— 繁中全字集約 7MB，會直接打爛 MOC §14.3
-    的 LCP ≤ 2.5s 目標。PingFang TC（macOS/iOS）與微軟正黑（Windows）
-    本身就是高品質的無襯線繁中字型。
+    字型堆疊（理由見 src/lib/fonts.ts）
+      --font-sans     內文與 UI：Geist（拉丁）→ Noto Sans TC（漢字）
+      --font-display  中文標題：Noto Serif TC（思源宋體，字集完整）
+      --font-brand    站名 wordmark 與數字：Kaisei Tokumin（Roy 指定，日系明體）
+    Kaisei Tokumin 繁中缺 產/歷/檔/繳/查/內/辦/錄 等導覽用字，
+    故只用在 wordmark 與拉丁數字，中文標題交給 Noto Serif TC。
   */
-  --font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC",
-    "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), var(--font-sans-tc), "PingFang TC",
+    "Microsoft JhengHei", system-ui, sans-serif;
+  --font-display: var(--font-serif-tc), "Songti TC", "PMingLiU", Georgia, serif;
+  --font-brand: var(--font-kaisei), var(--font-serif-tc), Georgia, serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
   --background: oklch(1 0 0);
@@ -245,22 +250,95 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
-    /* 繁中內文行距：MOC §14.2 要求中文排版可讀 */
-    line-height: 1.7;
+    font-family: var(--font-sans);
+    /* 繁中內文行距（apple-design §15：leading 與字級成反比，內文要鬆） */
+    line-height: 1.75;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  html {
-    @apply font-sans;
-  }
-  /* 中文標題不使用襯線體，行距收緊避免鬆散（見 docs/ANTI-PATTERNS.md） */
+
+  /*
+    字級系統。apple-design §15：tracking 是「尺寸專屬」的，
+    大字要負 tracking、小字要接近 0；全站一個 letter-spacing 一定有地方是錯的。
+    中文標題用 --font-display（明體），字重靠 600/700 建立層級。
+  */
   h1, h2, h3, h4 {
-    @apply font-sans font-semibold tracking-tight;
-    line-height: 1.35;
+    font-family: var(--font-display);
+    font-weight: 600;
+    text-wrap: balance;
   }
-  /* 數字與學號等表格資料用等寬字，避免欄位跳動 */
+}
+
+@layer components {
+  /* 顯示級標題：hero 用 */
+  .type-display {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.2vw, 3.25rem);
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+  }
+
+  /* 區塊標題 */
+  .type-section {
+    font-family: var(--font-display);
+    font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+
+  /* 卡片標題 */
+  .type-card-title {
+    font-family: var(--font-display);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+
+  /* 小型全大寫標籤（拉丁）：小字要正 tracking */
+  .type-eyebrow {
+    font-family: var(--font-brand);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* 站名 wordmark 與大數字 */
+  .type-brand {
+    font-family: var(--font-brand);
+    letter-spacing: 0.01em;
+  }
+
   .tabular {
     font-variant-numeric: tabular-nums;
+    font-family: var(--font-brand);
+  }
+
+  /*
+    捲動邊緣遮罩（apple-design §12：用漸層遮罩取代 1px 分隔線）。
+    僅用於 sticky chrome 與內容重疊處，屬功能性漸層，不是裝飾。
+  */
+  .scroll-edge {
+    mask-image: linear-gradient(to bottom, transparent, black 6px);
+  }
+
+  /* 按下回饋（apple-design §1：回饋在 pointer-down，不是 release） */
+  .press {
+    transition: transform 100ms ease-out;
+  }
+  .press:active {
+    transform: scale(0.985);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .press:active {
+      transform: none;
+    }
   }
 }
