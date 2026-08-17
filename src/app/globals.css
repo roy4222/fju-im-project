@@ -56,6 +56,14 @@
   --color-info-subtle: var(--info-subtle);
   --color-destructive-subtle: var(--destructive-subtle);
 
+  /* -on-subtle 是「淺色底上的文字色」，與 -foreground（實色底上的文字色）不同。
+     兩者混用會直接造成對比不足，見 docs/ANTI-PATTERNS.md 第 19 條。 */
+  --color-brand-on-subtle: var(--brand-on-subtle);
+  --color-success-on-subtle: var(--success-on-subtle);
+  --color-warning-on-subtle: var(--warning-on-subtle);
+  --color-info-on-subtle: var(--info-on-subtle);
+  --color-destructive-on-subtle: var(--destructive-on-subtle);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -124,22 +132,27 @@
   --brand: oklch(0.6683 0.1741 51.05);
   --brand-foreground: oklch(0.9900 0.0080 64.94);
   --brand-subtle: oklch(0.9600 0.0300 64.94);
+  --brand-on-subtle: oklch(0.4300 0.1200 51.05);
 
   --success: oklch(0.5400 0.1200 152);
   --success-foreground: oklch(0.9900 0.0100 152);
   --success-subtle: oklch(0.9550 0.0300 152);
+  --success-on-subtle: oklch(0.3900 0.0950 152);
 
   --warning: oklch(0.6900 0.1500 75);
   --warning-foreground: oklch(0.2600 0.0500 75);
   --warning-subtle: oklch(0.9650 0.0400 85);
+  --warning-on-subtle: oklch(0.4100 0.0900 75);
 
   --info: oklch(0.5400 0.1300 250);
   --info-foreground: oklch(0.9900 0.0060 250);
   --info-subtle: oklch(0.9550 0.0250 250);
+  --info-on-subtle: oklch(0.4100 0.1200 250);
 
   --destructive: oklch(0.5500 0.2000 25);
   --destructive-foreground: oklch(0.9900 0.0100 25);
   --destructive-subtle: oklch(0.9600 0.0250 25);
+  --destructive-on-subtle: oklch(0.4300 0.1600 25);
 
   --chart-1: oklch(0.3233 0.1025 253.89);
   --chart-2: oklch(0.6683 0.1741 51.05);
@@ -190,22 +203,27 @@
   --brand: oklch(0.7300 0.1650 55);
   --brand-foreground: oklch(0.1800 0.0400 55);
   --brand-subtle: oklch(0.3100 0.0700 55);
+  --brand-on-subtle: oklch(0.8800 0.0900 55);
 
   --success: oklch(0.7000 0.1300 152);
   --success-foreground: oklch(0.1700 0.0350 152);
   --success-subtle: oklch(0.2900 0.0550 152);
+  --success-on-subtle: oklch(0.8700 0.0800 152);
 
   --warning: oklch(0.7900 0.1450 80);
   --warning-foreground: oklch(0.2000 0.0450 80);
   --warning-subtle: oklch(0.3100 0.0600 80);
+  --warning-on-subtle: oklch(0.9000 0.0850 80);
 
   --info: oklch(0.7100 0.1250 250);
   --info-foreground: oklch(0.1700 0.0350 250);
   --info-subtle: oklch(0.2900 0.0550 250);
+  --info-on-subtle: oklch(0.8700 0.0750 250);
 
   --destructive: oklch(0.6900 0.1850 25);
   --destructive-foreground: oklch(0.1800 0.0400 25);
   --destructive-subtle: oklch(0.3100 0.0700 25);
+  --destructive-on-subtle: oklch(0.8800 0.0900 25);
 
   --chart-1: oklch(0.7100 0.1150 245);
   --chart-2: oklch(0.7300 0.1650 55);
