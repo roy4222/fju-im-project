@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { IconExternalLink, IconMenu2 } from "@tabler/icons-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -12,7 +13,8 @@ const NAV = [
   { href: "/rules", label: "專題規則" },
   { href: "/industry", label: "產學合作" },
   { href: "/projects", label: "歷屆專題" },
-  { href: "/honors", label: "榮譽與競賽" },
+  { href: "/competitions", label: "競賽資訊" },
+  { href: "/honors", label: "榮譽榜" },
 ];
 
 export function SiteHeader() {
@@ -66,19 +68,20 @@ export function SiteHeader() {
       >
         <div className="mx-auto flex h-[4.5rem] max-w-6xl items-center gap-5 px-5">
           <Link href="/" className="press flex items-center gap-3">
+            <Image
+              src="/brand/fju-im-logo.png"
+              alt="輔仁大學資訊管理學系"
+              width={763}
+              height={187}
+              priority
+              className="h-9 w-auto"
+            />
             <span
               aria-hidden
-              className="type-brand flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-[11px] font-bold leading-none text-primary-foreground"
-            >
-              IM
-            </span>
-            <span className="flex flex-col leading-tight">
-              <span className="type-brand text-[1.0625rem] font-semibold">
-                資管系專題管理平台
-              </span>
-              <span className="type-eyebrow text-muted-foreground">
-                FJU Information Management
-              </span>
+              className="hidden h-8 w-px bg-border sm:block"
+            />
+            <span className="hidden text-[0.9375rem] font-medium text-foreground/80 sm:block">
+              專題管理平台
             </span>
           </Link>
 

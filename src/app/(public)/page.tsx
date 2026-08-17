@@ -5,9 +5,6 @@ import {
   IconFileText,
   IconTrophy,
 } from "@tabler/icons-react";
-import { SiteHeader } from "@/components/public/site-header";
-import { SiteFooter } from "@/components/public/site-footer";
-import { VersionSwitcher } from "@/components/public/version-switcher";
 import { NewsTabs } from "@/components/public/news-tabs";
 import {
   ContentCard,
@@ -31,13 +28,13 @@ import {
 export const metadata = { title: "首頁" };
 
 /**
- * V1「系網延伸」
+ * 公開前台首頁
  *
  * 節奏刻意做成一屏一件事：大圖焦點 → 公告（分類 tab）→ 近期截止 → 產學 →
  * 歷屆成果 → 榮譽。每個區塊一個標題、最多三張卡、一個「查看更多」。
  * 這是系網的節奏，也是 uiuxpro 給的 Portfolio Grid 模式（視覺優先、可分類篩選）。
  */
-export default function HomeV1() {
+export default function HomePage() {
   const pinned = NEWS.find((n) => n.pinned) ?? NEWS[0];
   const upcoming = MANAGED_ITEMS.filter((i) => i.dueAt)
     .sort((a, b) => daysUntil(a.dueAt!) - daysUntil(b.dueAt!))
@@ -45,9 +42,6 @@ export default function HomeV1() {
 
   return (
     <>
-      <SiteHeader />
-
-      <main className="flex-1">
         {/* 焦點區：單張大圖 + 一則焦點公告。不做輪播。 */}
         <section className="border-b border-border bg-primary text-primary-foreground dark:bg-card dark:text-foreground">
           <div className="mx-auto grid max-w-6xl items-center gap-10 px-5 py-14 md:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
@@ -268,10 +262,6 @@ export default function HomeV1() {
             </div>
           </div>
         </Section>
-      </main>
-
-      <SiteFooter />
-      <VersionSwitcher />
     </>
   );
 }

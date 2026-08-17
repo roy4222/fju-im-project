@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 const COLUMNS = [
   {
@@ -7,7 +8,8 @@ const COLUMNS = [
       { href: "/news", label: "最新公告" },
       { href: "/rules", label: "專題規則" },
       { href: "/projects", label: "歷屆專題" },
-      { href: "/honors", label: "榮譽與競賽" },
+      { href: "/competitions", label: "競賽資訊" },
+      { href: "/honors", label: "榮譽榜" },
     ],
   },
   {
@@ -30,10 +32,16 @@ const COLUMNS = [
 export function SiteFooter() {
   return (
     <footer className="mt-16 border-t border-border bg-muted/40">
-      <div className="mx-auto max-w-7xl px-4 py-10">
+      <div className="mx-auto max-w-6xl px-5 py-12">
         <div className="grid gap-8 md:grid-cols-[2fr_1fr_1fr_1fr]">
           <div>
-            <p className="text-sm font-semibold">輔仁大學資訊管理學系</p>
+            <Image
+              src="/brand/fju-im-logo.png"
+              alt="輔仁大學資訊管理學系"
+              width={763}
+              height={187}
+              className="mb-4 h-8 w-auto dark:brightness-110"
+            />
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               新北市新莊區中正路 510 號
               <br />
