@@ -1,0 +1,248 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   FJU IM Project — design tokens
+   品牌色取樣自 https://www.im.fju.edu.tw/ （2026-08-17）：
+     深藍 #003366  → oklch(0.3233 0.1025 253.89)   主色
+     橘   #E56E00  → oklch(0.6683 0.1741 51.05)    品牌強調色
+     暖白 #FFF4EA  → oklch(0.9730 0.0178 64.94)    次要底色
+     文灰 #333333 / #54595F                        內文與弱化文字
+   規格對應：MOC §10.1 視覺方向、§10.2 Design system、TBD-05 色票封板
+--------------------------------------------------------------------------- */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* 品牌強調色：系網的橘。不併入 --accent，因為 shadcn 的 accent 是 hover 底色。 */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-subtle: var(--brand-subtle);
+
+  /* 狀態色：對應 MOC §10.4「空白／載入／錯誤／無權限」與繳交生命週期 */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-destructive-subtle: var(--destructive-subtle);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /*
+    字型策略：拉丁字母與數字用 Geist（幾何感、現代），漢字交給系統字。
+    不載 Noto Sans TC webfont —— 繁中全字集約 7MB，會直接打爛 MOC §14.3
+    的 LCP ≤ 2.5s 目標。PingFang TC（macOS/iOS）與微軟正黑（Windows）
+    本身就是高品質的無襯線繁中字型。
+  */
+  --font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC",
+    "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2600 0.0180 253.89);
+
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+
+  /* 系網深藍 #003366 */
+  --primary: oklch(0.3233 0.1025 253.89);
+  --primary-foreground: oklch(0.9900 0.0040 253.89);
+
+  /* 系網暖白 #FFF4EA 系列 */
+  --secondary: oklch(0.9730 0.0178 64.94);
+  --secondary-foreground: oklch(0.3000 0.0300 60);
+
+  --muted: oklch(0.9700 0.0040 253.89);
+  --muted-foreground: oklch(0.4617 0.0116 252.91);
+
+  /* hover／選取底色：帶一點藍的中性色，不是品牌橘 */
+  --accent: oklch(0.9550 0.0110 253.89);
+  --accent-foreground: var(--primary);
+
+  --border: oklch(0.9180 0.0060 253.89);
+  --input: oklch(0.9020 0.0080 253.89);
+  --ring: oklch(0.3233 0.1025 253.89);
+
+  /* 系網橘 #E56E00 */
+  --brand: oklch(0.6683 0.1741 51.05);
+  --brand-foreground: oklch(0.9900 0.0080 64.94);
+  --brand-subtle: oklch(0.9600 0.0300 64.94);
+
+  --success: oklch(0.5400 0.1200 152);
+  --success-foreground: oklch(0.9900 0.0100 152);
+  --success-subtle: oklch(0.9550 0.0300 152);
+
+  --warning: oklch(0.6900 0.1500 75);
+  --warning-foreground: oklch(0.2600 0.0500 75);
+  --warning-subtle: oklch(0.9650 0.0400 85);
+
+  --info: oklch(0.5400 0.1300 250);
+  --info-foreground: oklch(0.9900 0.0060 250);
+  --info-subtle: oklch(0.9550 0.0250 250);
+
+  --destructive: oklch(0.5500 0.2000 25);
+  --destructive-foreground: oklch(0.9900 0.0100 25);
+  --destructive-subtle: oklch(0.9600 0.0250 25);
+
+  --chart-1: oklch(0.3233 0.1025 253.89);
+  --chart-2: oklch(0.6683 0.1741 51.05);
+  --chart-3: oklch(0.5400 0.0900 210);
+  --chart-4: oklch(0.7000 0.0700 145);
+  --chart-5: oklch(0.4617 0.0116 252.91);
+
+  --sidebar: oklch(0.9880 0.0030 253.89);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.9500 0.0140 253.89);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border: oklch(0.9200 0.0060 253.89);
+  --sidebar-ring: var(--ring);
+}
+
+/*
+  深色主題：MOC §10.1 允許「接近 Discord 質感」，但品牌色仍須是系網的。
+  做法是把中性底色壓成帶藍的炭黑（不是純黑，避免 OLED 上的邊緣鋸齒與過度對比），
+  主色從深藍換成亮藍——深藍 #003366 在深色底上對比不足，直接沿用會看不見。
+*/
+.dark {
+  --background: oklch(0.1900 0.0120 253.89);
+  --foreground: oklch(0.9650 0.0050 253.89);
+
+  --card: oklch(0.2250 0.0140 253.89);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.2450 0.0150 253.89);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.7100 0.1150 245);
+  --primary-foreground: oklch(0.1700 0.0250 253.89);
+
+  --secondary: oklch(0.2750 0.0150 253.89);
+  --secondary-foreground: oklch(0.9500 0.0080 64.94);
+
+  --muted: oklch(0.2650 0.0120 253.89);
+  --muted-foreground: oklch(0.7100 0.0140 253.89);
+
+  --accent: oklch(0.2900 0.0180 253.89);
+  --accent-foreground: oklch(0.9650 0.0050 253.89);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.7100 0.1150 245);
+
+  --brand: oklch(0.7300 0.1650 55);
+  --brand-foreground: oklch(0.1800 0.0400 55);
+  --brand-subtle: oklch(0.3100 0.0700 55);
+
+  --success: oklch(0.7000 0.1300 152);
+  --success-foreground: oklch(0.1700 0.0350 152);
+  --success-subtle: oklch(0.2900 0.0550 152);
+
+  --warning: oklch(0.7900 0.1450 80);
+  --warning-foreground: oklch(0.2000 0.0450 80);
+  --warning-subtle: oklch(0.3100 0.0600 80);
+
+  --info: oklch(0.7100 0.1250 250);
+  --info-foreground: oklch(0.1700 0.0350 250);
+  --info-subtle: oklch(0.2900 0.0550 250);
+
+  --destructive: oklch(0.6900 0.1850 25);
+  --destructive-foreground: oklch(0.1800 0.0400 25);
+  --destructive-subtle: oklch(0.3100 0.0700 25);
+
+  --chart-1: oklch(0.7100 0.1150 245);
+  --chart-2: oklch(0.7300 0.1650 55);
+  --chart-3: oklch(0.6800 0.0900 210);
+  --chart-4: oklch(0.7400 0.0800 145);
+  --chart-5: oklch(0.7100 0.0140 253.89);
+
+  --sidebar: oklch(0.2150 0.0140 253.89);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: oklch(0.7100 0.1150 245);
+  --sidebar-primary-foreground: oklch(0.1700 0.0250 253.89);
+  --sidebar-accent: oklch(0.2850 0.0180 253.89);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* 繁中內文行距：MOC §14.2 要求中文排版可讀 */
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* 中文標題不使用襯線體，行距收緊避免鬆散（見 docs/ANTI-PATTERNS.md） */
+  h1, h2, h3, h4 {
+    @apply font-sans font-semibold tracking-tight;
+    line-height: 1.35;
+  }
+  /* 數字與學號等表格資料用等寬字，避免欄位跳動 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

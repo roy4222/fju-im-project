@@ -1,0 +1,236 @@
+{
+  "generatedAt": "2026-08-17T11:32:17.529Z",
+  "passed": true,
+  "checks": [
+    {
+      "prototype": "public-site",
+      "variant": "A",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "公開前台 UI Prototype｜輔大資管系專題網站",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1636,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "public-site",
+      "variant": "B",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "公開前台 UI Prototype｜輔大資管系專題網站",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1690,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "public-site",
+      "variant": "C",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "公開前台 UI Prototype｜輔大資管系專題網站",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1530,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "public-site",
+      "variant": "C→B keyboard",
+      "viewport": "390x844",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "variant": "B",
+        "bodyWidth": 390,
+        "viewportWidth": 390,
+        "switcher": true
+      }
+    },
+    {
+      "prototype": "student-dashboard",
+      "variant": "A",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "學生 Dashboard 原型 A｜輔大資管專題",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1132,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "student-dashboard",
+      "variant": "B",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "學生 Dashboard 原型 B｜輔大資管專題",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1082,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "student-dashboard",
+      "variant": "C",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "學生 Dashboard 原型 C｜輔大資管專題",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 1215,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "student-dashboard",
+      "variant": "C→B keyboard",
+      "viewport": "390x844",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "variant": "B",
+        "bodyWidth": 390,
+        "viewportWidth": 390,
+        "switcher": true
+      }
+    },
+    {
+      "prototype": "admin-editor",
+      "variant": "A",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "專題事務編輯器｜互動原型",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 835,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "admin-editor",
+      "variant": "B",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "專題事務編輯器｜互動原型",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 753,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "admin-editor",
+      "variant": "C",
+      "viewport": "1440x1000",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "title": "專題事務編輯器｜互動原型",
+        "lang": "zh-Hant",
+        "bodyWidth": 1440,
+        "viewportWidth": 1440,
+        "textLength": 833,
+        "switcher": true,
+        "prototypeLabel": true
+      }
+    },
+    {
+      "prototype": "admin-editor",
+      "variant": "C→B keyboard",
+      "viewport": "390x844",
+      "pass": true,
+      "errors": [],
+      "externalRequests": [],
+      "metrics": {
+        "variant": "B",
+        "bodyWidth": 390,
+        "viewportWidth": 390,
+        "switcher": true
+      }
+    }
+  ],
+  "interactions": [
+    {
+      "prototype": "public-site",
+      "check": "announcement filter + year filter + login preview",
+      "pass": true,
+      "errors": [],
+      "observed": {
+        "stateText": "已開啟唯讀登入入口預覽｜公告：競賽｜作品：2024 屆｜選單已收合",
+        "dialogOpen": true
+      }
+    },
+    {
+      "prototype": "student-dashboard",
+      "check": "task filter + theme + shared-draft version",
+      "pass": true,
+      "errors": [],
+      "observed": {
+        "theme": "dark",
+        "stateContainsFilter": true,
+        "stateContainsVersion": true
+      }
+    },
+    {
+      "prototype": "admin-editor",
+      "check": "add block + change destination + visitor gate + publish receipt",
+      "pass": true,
+      "errors": [],
+      "observed": {
+        "beforeBlocks": 2,
+        "afterBlocks": 3,
+        "visitorGate": true,
+        "receiptHasSubmission": true
+      }
+    }
+  ]
+}

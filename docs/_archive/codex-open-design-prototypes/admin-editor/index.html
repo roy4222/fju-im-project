@@ -1,0 +1,1312 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="輔大資管系管理員統一專題事務編輯器互動原型">
+  <title>專題事務編輯器｜互動原型</title>
+  <style>
+    :root {
+      --brand-navy: #003366;
+      --brand-navy-deep: #012243;
+      --brand-orange: #e56e00;
+      --brand-orange-hover: #c85f00;
+      --brand-orange-soft: #fff4ea;
+      --page: #f6f8fb;
+      --surface: #ffffff;
+      --surface-muted: #f0f4f8;
+      --ink: #1d2939;
+      --ink-secondary: #5c6878;
+      --line: #dce3eb;
+      --line-strong: #b9c5d2;
+      --success: #157f5b;
+      --success-soft: #e8f7f1;
+      --warning: #b95c00;
+      --warning-soft: #fff4e5;
+      --danger: #b42318;
+      --danger-soft: #fff0ee;
+      --info: #175cd3;
+      --info-soft: #eff6ff;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --shadow-card: 0 8px 28px rgba(1, 34, 67, 0.08);
+      --shadow-lift: 0 18px 60px rgba(1, 34, 67, 0.18);
+      --ease: 180ms ease-out;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { background: var(--page); }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      padding-bottom: 84px;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(0, 51, 102, 0.025) 1px, transparent 1px),
+        linear-gradient(rgba(0, 51, 102, 0.025) 1px, transparent 1px),
+        var(--page);
+      background-size: 28px 28px;
+      font-family: Inter, "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button, select, input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 3px solid rgba(23, 92, 211, 0.24);
+      outline-offset: 2px;
+    }
+
+    button:disabled { cursor: not-allowed; opacity: .45; }
+
+    .prototype-ribbon {
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 5px 16px;
+      color: #fff;
+      background: repeating-linear-gradient(135deg, var(--brand-orange), var(--brand-orange) 12px, #d46200 12px, #d46200 24px);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .prototype-ribbon span {
+      opacity: .9;
+      font-weight: 650;
+      letter-spacing: .03em;
+      text-transform: none;
+    }
+
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(260px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      min-height: 76px;
+      padding: 12px clamp(18px, 3vw, 44px);
+      color: #fff;
+      background: rgba(1, 34, 67, .97);
+      box-shadow: 0 1px 0 rgba(255,255,255,.1), 0 8px 24px rgba(1,34,67,.15);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 40px;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 11px;
+      color: var(--brand-orange-soft);
+      background: rgba(255,255,255,.08);
+      font-family: Georgia, serif;
+      font-weight: 800;
+      letter-spacing: -.08em;
+    }
+
+    .brand-lockup strong, .brand-lockup span { display: block; }
+    .brand-lockup strong { font-size: 15px; letter-spacing: .02em; }
+    .brand-lockup span { color: rgba(255,255,255,.68); font-size: 11px; }
+
+    .item-picker label { display: block; margin-bottom: 3px; color: rgba(255,255,255,.62); font-size: 10px; font-weight: 750; letter-spacing: .08em; }
+    .item-picker select {
+      width: 100%;
+      height: 40px;
+      padding: 0 36px 0 12px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      background: #092e52;
+    }
+
+    .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .autosave {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 84px;
+      color: rgba(255,255,255,.78);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .autosave::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #66d6aa; box-shadow: 0 0 0 3px rgba(102,214,170,.12); }
+    .autosave.saving::before { background: #ffc97a; animation: pulse 900ms infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .btn {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      color: var(--ink);
+      background: var(--surface);
+      font-weight: 720;
+      font-size: 13px;
+      transition: transform var(--ease), background var(--ease), border-color var(--ease), box-shadow var(--ease);
+    }
+    .btn:hover { border-color: var(--line-strong); box-shadow: 0 3px 12px rgba(1,34,67,.08); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn.primary { color: #fff; border-color: var(--brand-navy); background: var(--brand-navy); }
+    .btn.primary:hover { background: var(--brand-navy-deep); }
+    .btn.orange { color: #fff; border-color: var(--brand-orange); background: var(--brand-orange); }
+    .btn.orange:hover { background: var(--brand-orange-hover); }
+    .btn.ghost-dark { color: #fff; border-color: rgba(255,255,255,.2); background: rgba(255,255,255,.07); }
+    .btn.ghost-dark:hover { background: rgba(255,255,255,.13); }
+    .btn.small { min-height: 31px; padding: 5px 9px; font-size: 12px; }
+    .btn.icon { width: 32px; min-height: 32px; padding: 0; }
+
+    main { width: min(1540px, 100%); margin: 0 auto; padding: 24px clamp(16px, 2.4vw, 38px) 12px; }
+
+    .context-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+    .eyebrow { margin: 0 0 5px; color: var(--brand-orange); font-size: 11px; font-weight: 820; letter-spacing: .1em; text-transform: uppercase; }
+    .context-bar h1 { margin: 0; color: var(--brand-navy-deep); font-size: clamp(22px, 2vw, 30px); line-height: 1.2; letter-spacing: -.025em; }
+    .context-bar p { margin: 5px 0 0; color: var(--ink-secondary); font-size: 13px; }
+
+    .pill, .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: max-content;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+    .pill { color: var(--brand-navy); background: var(--info-soft); }
+    .status-chip.draft { color: var(--warning); background: var(--warning-soft); }
+    .status-chip.published { color: var(--success); background: var(--success-soft); }
+
+    .preview-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      box-shadow: 0 3px 12px rgba(1,34,67,.05);
+    }
+    .preview-switch span { padding: 0 7px; color: var(--ink-secondary); font-size: 11px; font-weight: 700; }
+    .preview-switch button {
+      min-height: 31px;
+      padding: 5px 10px;
+      border: 0;
+      border-radius: 7px;
+      color: var(--ink-secondary);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 720;
+    }
+    .preview-switch button.active { color: #fff; background: var(--brand-navy); }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--shadow-card);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-head h2, .panel-head h3 { margin: 0; color: var(--brand-navy-deep); font-size: 14px; }
+    .panel-head p { margin: 3px 0 0; color: var(--ink-secondary); font-size: 11px; }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: minmax(210px, 250px) minmax(440px, 1fr) minmax(250px, 290px);
+      align-items: start;
+      gap: 16px;
+    }
+    .palette, .inspector { position: sticky; top: 120px; max-height: calc(100vh - 156px); overflow: auto; }
+
+    .palette-group { padding: 14px; border-bottom: 1px solid var(--line); }
+    .palette-group:last-child { border-bottom: 0; }
+    .palette-group-title { margin: 0 0 9px; color: var(--ink-secondary); font-size: 10px; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
+    .palette-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .palette-button {
+      min-height: 66px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      text-align: left;
+      color: var(--ink);
+      background: var(--surface);
+      transition: all var(--ease);
+    }
+    .palette-button:hover { border-color: #91a7bc; background: var(--surface-muted); transform: translateY(-1px); }
+    .palette-button b, .palette-button span { display: block; }
+    .palette-button b { margin-bottom: 3px; color: var(--brand-navy); font-size: 12px; }
+    .palette-button span { color: var(--ink-secondary); font-size: 10px; }
+
+    .canvas-col { overflow: hidden; }
+    .canvas-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+    .route-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--ink-secondary); font-size: 12px; }
+    .route-line strong { color: var(--brand-navy); }
+    .route-arrow { color: var(--brand-orange); font-weight: 900; }
+    .canonical-badge { color: var(--success); font-size: 11px; font-weight: 760; }
+
+    .document-canvas { min-height: 580px; padding: clamp(16px, 2.5vw, 34px); background: #edf2f7; }
+    .document-paper {
+      width: min(760px, 100%);
+      min-height: 500px;
+      margin: 0 auto;
+      padding: clamp(22px, 4vw, 48px);
+      border: 1px solid #d9e0e8;
+      border-radius: 4px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(31,42,55,.08);
+    }
+    .doc-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--brand-orange); font-size: 11px; font-weight: 820; letter-spacing: .08em; }
+    .document-paper h2 { margin: 0; color: var(--brand-navy-deep); font-family: Georgia, "Noto Serif TC", serif; font-size: clamp(25px, 3.2vw, 38px); line-height: 1.22; letter-spacing: -.025em; }
+    .doc-summary { max-width: 62ch; margin: 13px 0 24px; color: var(--ink-secondary); font-size: 14px; }
+    .doc-info-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+
+    .block-list { display: grid; gap: 10px; }
+    .editor-block {
+      position: relative;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 9px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
+    }
+    .editor-block:hover { border-color: #aebdcb; }
+    .editor-block.selected { border-color: var(--info); box-shadow: 0 0 0 3px rgba(23,92,211,.1); }
+    .drag-handle { color: #98a6b5; font-size: 16px; line-height: 1; letter-spacing: -3px; user-select: none; }
+    .block-copy { min-width: 0; }
+    .block-copy strong { display: block; color: var(--brand-navy-deep); font-size: 13px; }
+    .block-copy small { display: block; margin-top: 3px; color: var(--ink-secondary); font-size: 11px; }
+    .required-mark { margin-left: 4px; color: var(--danger); }
+    .block-actions { display: flex; gap: 4px; }
+    .block-actions button {
+      width: 27px;
+      height: 27px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--ink-secondary);
+      background: #fff;
+    }
+    .block-actions button:hover { color: var(--brand-navy); border-color: #91a7bc; }
+
+    .empty-canvas { padding: 38px 20px; border: 1px dashed #aebdcb; border-radius: 12px; text-align: center; color: var(--ink-secondary); background: #fbfcfe; }
+    .empty-canvas strong { display: block; margin-bottom: 5px; color: var(--brand-navy); }
+
+    .field { display: grid; gap: 6px; margin-bottom: 14px; }
+    .field label, .field-label { color: var(--ink); font-size: 11px; font-weight: 780; }
+    .field input[type="text"], .field input[type="datetime-local"], .field textarea, .field select {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      color: var(--ink);
+      background: #fff;
+    }
+    .field textarea { min-height: 82px; resize: vertical; }
+    .field-help { color: var(--ink-secondary); font-size: 10px; }
+    .form-section { padding: 15px; border-bottom: 1px solid var(--line); }
+    .form-section:last-child { border-bottom: 0; }
+    .form-section h4 { margin: 0 0 12px; color: var(--brand-navy-deep); font-size: 12px; }
+    .check-row { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-secondary); font-size: 11px; }
+    .check-row input { margin-top: 3px; }
+
+    .auto-exposure {
+      padding: 12px;
+      border: 1px solid #b7d9ca;
+      border-radius: 10px;
+      color: #135b43;
+      background: var(--success-soft);
+      font-size: 11px;
+    }
+    .auto-exposure strong { display: block; margin-bottom: 5px; }
+    .auto-exposure ul { margin: 0; padding-left: 17px; }
+
+    .mobile-steps { display: none; }
+
+    /* Variant B: route-first, full-width writing surface */
+    .publish-map { overflow: hidden; margin-bottom: 16px; }
+    .publish-map-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(210px, 270px);
+      gap: 20px;
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(110deg, #fff 0%, #f5f8fb 100%);
+    }
+    .publish-map h2 { margin: 0; color: var(--brand-navy-deep); font-size: 16px; }
+    .publish-map p { margin: 4px 0 0; color: var(--ink-secondary); font-size: 12px; }
+    .location-cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(170px, 1fr));
+      gap: 8px;
+      padding: 14px 18px 18px;
+      overflow-x: auto;
+    }
+    .location-card { position: relative; min-width: 170px; }
+    .location-card input { position: absolute; inset: 12px auto auto 12px; }
+    .location-card label {
+      display: block;
+      min-height: 100px;
+      padding: 12px 12px 12px 34px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      cursor: pointer;
+      transition: all var(--ease);
+    }
+    .location-card label:hover { border-color: #91a7bc; transform: translateY(-1px); }
+    .location-card input:checked + label { border-color: var(--brand-navy); background: var(--info-soft); box-shadow: 0 0 0 2px rgba(0,51,102,.08); }
+    .location-card b, .location-card span { display: block; }
+    .location-card b { color: var(--brand-navy-deep); font-size: 12px; }
+    .location-card span { margin-top: 4px; color: var(--ink-secondary); font-size: 10px; }
+    .wide-layout { overflow: hidden; }
+    .wide-toolbank {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+      background: #fbfcfe;
+    }
+    .wide-toolbank > span { margin-right: 5px; color: var(--ink-secondary); font-size: 11px; font-weight: 760; white-space: nowrap; }
+    .wide-toolbank .btn { flex: 0 0 auto; }
+    .wide-canvas { padding: clamp(18px, 3vw, 40px); background: #e9eff5; }
+    .wide-canvas .document-paper { width: min(920px, 100%); }
+    .inline-settings {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 1fr;
+      gap: 14px;
+      padding: 16px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    .inline-settings .field { margin: 0; }
+    .mobile-meta-button, .mobile-sheet { display: none; }
+
+    /* Variant C: affair inventory + quick-edit drawer */
+    .workbench-grid {
+      display: grid;
+      grid-template-columns: minmax(560px, 1fr) minmax(350px, 430px);
+      align-items: start;
+      gap: 16px;
+    }
+    .list-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .search-box { position: relative; flex: 1; }
+    .search-box input { width: 100%; height: 38px; padding: 8px 12px 8px 34px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+    .search-box::before { content: "⌕"; position: absolute; left: 12px; top: 7px; color: var(--ink-secondary); font-size: 17px; }
+    .affair-table-wrap { overflow-x: auto; }
+    .affair-table { width: 100%; min-width: 720px; border-collapse: collapse; table-layout: fixed; }
+    .affair-table th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; color: var(--ink-secondary); background: #f5f7fa; font-size: 10px; text-align: left; letter-spacing: .04em; }
+    .affair-table td { height: 70px; padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: middle; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .affair-table tbody tr { cursor: pointer; transition: background var(--ease); }
+    .affair-table tbody tr:hover { background: #f8fafc; }
+    .affair-table tbody tr.active { background: var(--info-soft); box-shadow: inset 3px 0 var(--info); }
+    .item-title-cell strong, .item-title-cell span { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .item-title-cell strong { color: var(--brand-navy-deep); }
+    .item-title-cell span { margin-top: 3px; color: var(--ink-secondary); font-size: 10px; }
+    .drawer { position: sticky; top: 120px; max-height: calc(100vh - 156px); overflow: auto; box-shadow: var(--shadow-lift); }
+    .drawer-accent { height: 4px; background: var(--brand-orange); }
+    .drawer .panel-head { position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,.97); backdrop-filter: blur(8px); }
+    .drawer-close { display: none; }
+    .quick-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+    .quick-add select { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+    .mini-block-list { display: grid; gap: 7px; margin-top: 12px; }
+    .mini-block {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+    .mini-block strong { display: block; overflow: hidden; color: var(--brand-navy-deep); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-block small { color: var(--ink-secondary); font-size: 9px; }
+    .mini-block-actions { display: flex; gap: 3px; }
+    .mini-block-actions button { width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+
+    .preview-page { min-height: 450px; }
+    .preview-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px -12px 24px; padding: 10px 12px; border-radius: 8px; color: var(--brand-navy); background: var(--info-soft); font-size: 11px; }
+    .preview-field { margin: 18px 0; }
+    .preview-field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 12px; font-weight: 760; }
+    .preview-field input, .preview-field textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+    .preview-field textarea { min-height: 92px; }
+    .preview-upload { padding: 24px; border: 1px dashed #91a7bc; border-radius: 10px; text-align: center; color: var(--ink-secondary); background: #f8fafc; font-size: 12px; }
+    .preview-attachment { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafc; }
+    .visitor-gate { padding: 50px 20px; text-align: center; }
+    .visitor-gate .lock { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto 15px; border-radius: 50%; color: var(--brand-navy); background: var(--info-soft); font-size: 24px; }
+    .visitor-gate h3 { margin: 0; color: var(--brand-navy-deep); }
+    .visitor-gate p { max-width: 44ch; margin: 8px auto 0; color: var(--ink-secondary); font-size: 13px; }
+
+    .state-panel { margin-top: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; box-shadow: var(--shadow-card); }
+    .state-panel summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 16px; color: var(--brand-navy-deep); font-size: 12px; font-weight: 780; cursor: pointer; }
+    .state-panel summary span { color: var(--ink-secondary); font-size: 10px; font-weight: 600; }
+    .state-panel pre { max-height: 330px; margin: 0; padding: 16px; overflow: auto; border-top: 1px solid var(--line); color: #dcecff; background: #071d33; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .variant-switcher {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      z-index: 80;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      width: min(590px, calc(100vw - 24px));
+      padding: 8px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 16px;
+      color: #fff;
+      background: rgba(1,34,67,.97);
+      box-shadow: 0 14px 48px rgba(1,34,67,.3);
+      transform: translateX(-50%);
+      backdrop-filter: blur(14px);
+    }
+    .variant-switcher .arrow { width: 38px; height: 38px; border: 1px solid rgba(255,255,255,.18); border-radius: 10px; color: #fff; background: rgba(255,255,255,.08); font-size: 18px; }
+    .variant-switcher .arrow:hover { background: rgba(255,255,255,.15); }
+    .variant-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+    .variant-tab { min-height: 38px; padding: 5px 8px; border: 0; border-radius: 9px; color: rgba(255,255,255,.62); background: transparent; font-size: 11px; }
+    .variant-tab b { display: block; color: inherit; font-size: 12px; }
+    .variant-tab.active { color: var(--brand-navy-deep); background: #fff; }
+    .switcher-label { position: absolute; left: 18px; top: -19px; padding: 3px 8px; border-radius: 6px 6px 0 0; color: #fff; background: var(--brand-orange); font-size: 9px; font-weight: 820; letter-spacing: .08em; }
+
+    .receipt-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(1,20,39,.6);
+      backdrop-filter: blur(7px);
+    }
+    .receipt-card { width: min(510px, 100%); overflow: hidden; border-radius: var(--radius-lg); background: #fff; box-shadow: 0 30px 100px rgba(0,0,0,.3); }
+    .receipt-top { padding: 28px; color: #fff; background: var(--brand-navy-deep); }
+    .receipt-check { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 16px; border-radius: 50%; color: #fff; background: var(--success); font-size: 24px; }
+    .receipt-top h2 { margin: 0; font-size: 22px; }
+    .receipt-top p { margin: 7px 0 0; color: rgba(255,255,255,.72); font-size: 12px; }
+    .receipt-body { padding: 22px 28px 26px; }
+    .receipt-grid { display: grid; grid-template-columns: 110px 1fr; gap: 9px 12px; margin-bottom: 18px; font-size: 12px; }
+    .receipt-grid dt { color: var(--ink-secondary); }
+    .receipt-grid dd { margin: 0; color: var(--ink); font-weight: 700; }
+    .receipt-note { padding: 11px 12px; border-radius: 9px; color: #135b43; background: var(--success-soft); font-size: 11px; }
+    .receipt-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 92px;
+      z-index: 90;
+      max-width: min(360px, calc(100vw - 36px));
+      padding: 11px 14px;
+      border: 1px solid #b7d9ca;
+      border-radius: 10px;
+      color: #135b43;
+      background: var(--success-soft);
+      box-shadow: var(--shadow-card);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1080px) {
+      .three-col { grid-template-columns: 210px minmax(400px, 1fr); }
+      .inspector { position: static; grid-column: 1 / -1; max-height: none; }
+      .inspector .form-grid-desktop { display: grid; grid-template-columns: repeat(3, 1fr); }
+      .inspector .form-grid-desktop .form-section { border-right: 1px solid var(--line); }
+      .workbench-grid { grid-template-columns: minmax(470px, 1fr) 360px; }
+      .location-cards { grid-template-columns: repeat(4, 190px); }
+    }
+
+    @media (max-width: 760px) {
+      body { padding-bottom: 98px; }
+      .prototype-ribbon span { display: none; }
+      .app-header { position: relative; grid-template-columns: 1fr auto; gap: 10px; padding: 12px 14px; }
+      .item-picker { grid-column: 1 / -1; grid-row: 2; }
+      .header-actions .autosave { position: absolute; top: 8px; right: 12px; min-width: 0; font-size: 10px; }
+      .header-actions { align-self: end; }
+      .header-actions .preview-header { display: none; }
+      .brand-lockup span { display: none; }
+      main { padding: 18px 12px 10px; }
+      .context-bar { align-items: flex-start; }
+      .context-bar { display: block; }
+      .context-bar .preview-switch { display: inline-flex; margin-top: 12px; }
+      .context-bar h1 { font-size: 22px; }
+      .three-col { display: block; }
+      .mobile-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 12px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+      .mobile-steps button { min-height: 38px; border: 0; border-radius: 8px; color: var(--ink-secondary); background: transparent; font-size: 11px; font-weight: 760; }
+      .mobile-steps button.active { color: #fff; background: var(--brand-navy); }
+      .builder-a .palette, .builder-a .canvas-col, .builder-a .inspector { display: none; position: static; max-height: none; }
+      .builder-a.step-components .palette, .builder-a.step-canvas .canvas-col, .builder-a.step-settings .inspector { display: block; }
+      .palette-buttons { grid-template-columns: 1fr 1fr; }
+      .document-canvas { min-height: 460px; padding: 10px; }
+      .document-paper { min-height: 430px; padding: 22px 17px; }
+      .editor-block { grid-template-columns: 20px minmax(0,1fr); }
+      .block-actions { grid-column: 2; }
+      .inspector .form-grid-desktop { display: block; }
+      .inspector .form-grid-desktop .form-section { border-right: 0; }
+
+      .publish-map-top { display: block; }
+      .publish-map-top .field { margin-top: 13px; }
+      .location-cards { grid-template-columns: repeat(4, 174px); padding: 12px; scroll-snap-type: x mandatory; }
+      .location-card { scroll-snap-align: start; }
+      .wide-canvas { padding: 10px; }
+      .inline-settings { display: none; }
+      .mobile-meta-button { display: inline-flex; margin-left: auto; }
+      .mobile-sheet {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 100;
+        display: block;
+        max-height: 76vh;
+        padding: 0 16px 94px;
+        overflow: auto;
+        border-radius: 20px 20px 0 0;
+        background: #fff;
+        box-shadow: 0 -18px 60px rgba(1,34,67,.24);
+        transform: translateY(105%);
+        transition: transform 220ms ease-out;
+      }
+      .mobile-sheet.open { transform: translateY(0); }
+      .sheet-handle { width: 46px; height: 5px; margin: 9px auto 13px; border-radius: 5px; background: #cad3dd; }
+      .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .sheet-head h3 { margin: 0; color: var(--brand-navy-deep); font-size: 14px; }
+
+      .workbench-grid { display: block; }
+      .affair-table { min-width: 0; }
+      .affair-table thead { display: none; }
+      .affair-table, .affair-table tbody, .affair-table tr, .affair-table td { display: block; width: 100%; }
+      .affair-table tr { position: relative; padding: 13px 44px 13px 14px; border-top: 1px solid var(--line); }
+      .affair-table tr::after { content: "›"; position: absolute; right: 17px; top: 27px; color: var(--ink-secondary); font-size: 24px; }
+      .affair-table td { height: auto; padding: 2px 0; border: 0; white-space: normal; }
+      .affair-table td:nth-child(1) { display: none; }
+      .affair-table td:nth-child(3), .affair-table td:nth-child(4), .affair-table td:nth-child(5) { display: inline-block; width: auto; margin: 7px 6px 0 0; }
+      .affair-table td:nth-child(3)::before { content: "位置："; color: var(--ink-secondary); }
+      .affair-table td:nth-child(4)::before { content: "對象："; color: var(--ink-secondary); }
+      .drawer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        z-index: 100;
+        max-height: 82vh;
+        border-radius: 20px 20px 0 0;
+        transform: translateY(105%);
+        transition: transform 220ms ease-out;
+      }
+      .drawer.open { transform: translateY(0); }
+      .drawer-close { display: inline-flex; }
+      .drawer .panel-head { top: 0; }
+      .variant-switcher { bottom: 9px; border-radius: 14px; }
+      .variant-tab span { display: none; }
+      .variant-switcher .switcher-label { top: -18px; }
+      .receipt-grid { grid-template-columns: 90px 1fr; }
+      .receipt-top, .receipt-body { padding-left: 20px; padding-right: 20px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-ribbon">PROTOTYPE <span>假資料 · 僅供互動與資訊架構驗證</span></div>
+  <div id="app"></div>
+  <script>
+    (() => {
+      "use strict";
+
+      const LOCATION_OPTIONS = [
+        { value: "news", label: "公告／最新消息", short: "消息", description: "公開或登入後消息列表" },
+        { value: "resources", label: "檔案／資源下載", short: "資源", description: "資源列表、說明與附件" },
+        { value: "submission", label: "文件繳交", short: "繳交", description: "學生待辦與組別繳交頁" },
+        { value: "requirements", label: "專題需求", short: "需求", description: "組別共同填寫與查看" },
+        { value: "rules", label: "專題規則", short: "規則", description: "公開長文、附件與版本" },
+        { value: "showcase", label: "歷屆／優秀專題", short: "歷屆", description: "公開專題列表與詳情" },
+        { value: "honors", label: "榮譽／競賽", short: "榮譽", description: "公開卡片、日期與附件" }
+      ];
+
+      const AUDIENCE_OPTIONS = [
+        { value: "public", label: "公開訪客" },
+        { value: "authenticated", label: "所有已登入使用者" },
+        { value: "current_students", label: "本屆學生" },
+        { value: "teachers", label: "全部老師" },
+        { value: "selected_groups", label: "指定組別" }
+      ];
+
+      const BLOCK_LIBRARY = [
+        { kind: "rich_text", label: "說明文字", hint: "內容區塊", icon: "¶", defaultText: "請在此補充項目的完整說明。" },
+        { kind: "section", label: "區段標題", hint: "內容區塊", icon: "H", defaultText: "填寫說明" },
+        { kind: "short_text", label: "短文字", hint: "填寫欄位", icon: "Aa", defaultText: "專題名稱" },
+        { kind: "long_text", label: "長文字", hint: "填寫欄位", icon: "≡", defaultText: "提案摘要" },
+        { kind: "attachment", label: "下載附件", hint: "共用檔案核心", icon: "↓", defaultText: "專題說明附件.pdf" },
+        { kind: "upload", label: "檔案上傳", hint: "組別繳交", icon: "↑", defaultText: "上傳文件" },
+        { kind: "readonly_group", label: "組別資訊", hint: "唯讀系統欄位", icon: "◎", defaultText: "組別、組長、成員與指導老師" }
+      ];
+
+      const seedItems = [
+        {
+          id: "aff-001",
+          type: "公告",
+          title: "114 學年度專題分組說明會",
+          summary: "說明本學期分組原則、重要時程與現場提問方式。",
+          location: "news",
+          audience: "current_students",
+          status: "draft",
+          deadline: "2026-09-08T17:00",
+          groupShared: false,
+          blocks: [
+            { id: "b-001", kind: "rich_text", label: "活動說明", text: "說明會將介紹五人分組原則、產學合作組別與指導老師確認流程。", required: false },
+            { id: "b-002", kind: "attachment", label: "分組時程表", text: "114-1_專題分組時程.pdf", required: false }
+          ]
+        },
+        {
+          id: "aff-002",
+          type: "含附件資源",
+          title: "專題企劃書格式與範例",
+          summary: "提供企劃書範本、封面格式與去年匿名化優良範例。",
+          location: "resources",
+          audience: "current_students",
+          status: "published",
+          deadline: "",
+          groupShared: false,
+          blocks: [
+            { id: "b-101", kind: "rich_text", label: "使用說明", text: "請下載最新版範本，保留既有章節與檔名規則。", required: false },
+            { id: "b-102", kind: "attachment", label: "企劃書 Word 範本", text: "FJU_IM_企劃書範本_v3.docx", required: false },
+            { id: "b-103", kind: "attachment", label: "匿名化優良範例", text: "企劃書優良範例_2025.pdf", required: false }
+          ]
+        },
+        {
+          id: "aff-003",
+          type: "整組文件繳交",
+          title: "第一次專題企劃書繳交",
+          summary: "每組共用一份草稿，由任一組員正式送出即代表全組完成。",
+          location: "submission",
+          audience: "current_students",
+          status: "draft",
+          deadline: "2026-10-02T17:00",
+          groupShared: true,
+          blocks: [
+            { id: "b-201", kind: "readonly_group", label: "本組資料", text: "組別、組長、成員與指導老師", required: false },
+            { id: "b-202", kind: "short_text", label: "專題中文名稱", text: "請輸入正式名稱", required: true },
+            { id: "b-203", kind: "upload", label: "企劃書 PDF", text: "僅接受 PDF，最大 20 MB", required: true },
+            { id: "b-204", kind: "long_text", label: "本次修訂摘要", text: "簡述與前一版的差異", required: true }
+          ]
+        },
+        {
+          id: "aff-004",
+          type: "專題需求",
+          title: "專題方向與設備需求調查",
+          summary: "由組別共同填寫研究方向、預計技術與設備借用需求。",
+          location: "requirements",
+          audience: "current_students",
+          status: "draft",
+          deadline: "2026-09-18T17:00",
+          groupShared: true,
+          blocks: [
+            { id: "b-301", kind: "readonly_group", label: "填寫組別", text: "組別與全體成員", required: false },
+            { id: "b-302", kind: "long_text", label: "專題方向", text: "請以 300 字內說明", required: true },
+            { id: "b-303", kind: "short_text", label: "主要技術", text: "例如：電腦視覺、LLM、資料分析", required: true },
+            { id: "b-304", kind: "long_text", label: "設備需求", text: "無需求請填「無」", required: true }
+          ]
+        }
+      ];
+
+      const getInitialVariant = () => {
+        const candidate = new URLSearchParams(window.location.search).get("variant");
+        return ["A", "B", "C"].includes(candidate) ? candidate : "A";
+      };
+
+      const state = {
+        variant: getInitialVariant(),
+        items: seedItems,
+        currentItemId: seedItems[0].id,
+        selectedBlockId: seedItems[0].blocks[0].id,
+        previewRole: "edit",
+        mobileStep: "canvas",
+        mobileSheetOpen: false,
+        drawerOpen: false,
+        autosave: "已儲存",
+        savedAt: "剛剛",
+        lastChange: "載入假資料",
+        receipt: null,
+        lastReceipt: null,
+        toast: ""
+      };
+
+      let saveTimer = null;
+      let toastTimer = null;
+
+      const esc = (value) => String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+      const currentItem = () => state.items.find((item) => item.id === state.currentItemId) || state.items[0];
+      const locationMeta = (value) => LOCATION_OPTIONS.find((option) => option.value === value) || LOCATION_OPTIONS[0];
+      const audienceMeta = (value) => AUDIENCE_OPTIONS.find((option) => option.value === value) || AUDIENCE_OPTIONS[0];
+      const blockMeta = (kind) => BLOCK_LIBRARY.find((block) => block.kind === kind) || BLOCK_LIBRARY[0];
+
+      const formatDeadline = (value) => {
+        if (!value) return "未設定截止時間";
+        const date = new Date(value);
+        return new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+      };
+
+      const autoExposures = (item) => {
+        const exposures = [];
+        if (item.audience === "public" && ["news", "resources", "rules", "showcase", "honors"].includes(item.location)) exposures.push("首頁摘要（符合精選規則時）");
+        if (item.audience !== "public") exposures.push("登入後 Dashboard");
+        if (item.deadline) exposures.push("Dashboard 截止日元件");
+        exposures.push("站內搜尋");
+        return exposures;
+      };
+
+      const renderHeader = (item) => `
+        <header class="app-header">
+          <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true">IM</div>
+            <div><strong>輔大資管 · 專題事務</strong><span>管理員工作台</span></div>
+          </div>
+          <div class="item-picker">
+            <label for="item-picker">目前編輯的 canonical record</label>
+            <select id="item-picker" data-change="current-item" aria-label="切換專題事務項目">
+              ${state.items.map((entry) => `<option value="${esc(entry.id)}" ${entry.id === item.id ? "selected" : ""}>${esc(entry.type)} · ${esc(entry.title)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="header-actions">
+            <span class="autosave ${state.autosave === "儲存中…" ? "saving" : ""}" data-autosave>${esc(state.autosave)}</span>
+            <button class="btn ghost-dark preview-header" data-action="preview-role" data-role="student">學生預覽</button>
+            <button class="btn orange" data-action="publish">${item.status === "published" ? "再次發布" : "發布"}</button>
+          </div>
+        </header>`;
+
+      const renderContext = (item, title) => `
+        <div class="context-bar">
+          <div>
+            <p class="eyebrow">Variant ${state.variant} · ${esc(item.type)}</p>
+            <h1>${esc(title)}</h1>
+            <p>同一筆內容維護一次，再由主要位置決定前台模板。</p>
+          </div>
+          ${renderPreviewSwitch()}
+        </div>`;
+
+      const renderPreviewSwitch = () => `
+        <div class="preview-switch" role="group" aria-label="切換編輯或預覽視角">
+          <span>視角</span>
+          ${[
+            ["edit", "編輯"], ["visitor", "訪客"], ["student", "學生"]
+          ].map(([role, label]) => `<button class="${state.previewRole === role ? "active" : ""}" data-action="preview-role" data-role="${role}" aria-pressed="${state.previewRole === role}">${label}</button>`).join("")}
+        </div>`;
+
+      const renderLocationOptions = (selected) => LOCATION_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === selected ? "selected" : ""}>${esc(option.label)}</option>`).join("");
+      const renderAudienceOptions = (selected) => AUDIENCE_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === selected ? "selected" : ""}>${esc(option.label)}</option>`).join("");
+
+      const renderAutoExposure = (item) => `
+        <div class="auto-exposure">
+          <strong>↗ 自動曝光，不會建立重複項目</strong>
+          <ul>${autoExposures(item).map((value) => `<li>${esc(value)}</li>`).join("")}</ul>
+        </div>`;
+
+      const renderPalette = () => {
+        const groups = [
+          ["內容", ["rich_text", "section", "attachment"]],
+          ["填寫與繳交", ["short_text", "long_text", "upload", "readonly_group"]]
+        ];
+        return `<aside class="panel palette" data-mobile-panel="components">
+          <div class="panel-head"><div><h2>加入元件</h2><p>點一下加入目前文件尾端</p></div><span class="pill">${BLOCK_LIBRARY.length} 種</span></div>
+          ${groups.map(([name, kinds]) => `<section class="palette-group"><p class="palette-group-title">${name}</p><div class="palette-buttons">${kinds.map((kind) => {
+            const meta = blockMeta(kind);
+            return `<button class="palette-button" data-action="add-block" data-kind="${kind}"><b>${esc(meta.icon)} ${esc(meta.label)}</b><span>${esc(meta.hint)}</span></button>`;
+          }).join("")}</div></section>`).join("")}
+        </aside>`;
+      };
+
+      const renderBlockList = (item, compact = false) => {
+        if (!item.blocks.length) return `<div class="empty-canvas"><strong>文件還沒有內容</strong>從元件庫加入第一個區塊或欄位。</div>`;
+        if (compact) {
+          return `<div class="mini-block-list">${item.blocks.map((block, index) => `<div class="mini-block">
+            <div><strong>${esc(block.label)}</strong><small>${esc(blockMeta(block.kind).label)}${block.required ? " · 必填" : ""}</small></div>
+            <div class="mini-block-actions">
+              <button data-action="move-block" data-direction="up" data-block-id="${esc(block.id)}" ${index === 0 ? "disabled" : ""} aria-label="上移 ${esc(block.label)}">↑</button>
+              <button data-action="move-block" data-direction="down" data-block-id="${esc(block.id)}" ${index === item.blocks.length - 1 ? "disabled" : ""} aria-label="下移 ${esc(block.label)}">↓</button>
+            </div>
+          </div>`).join("")}</div>`;
+        }
+        return `<div class="block-list">${item.blocks.map((block, index) => `<article class="editor-block ${state.selectedBlockId === block.id ? "selected" : ""}" data-action="select-block" data-block-id="${esc(block.id)}" tabindex="0">
+          <div class="drag-handle" aria-hidden="true">⠿</div>
+          <div class="block-copy"><strong>${esc(block.label)}${block.required ? '<span class="required-mark">＊</span>' : ""}</strong><small>${esc(blockMeta(block.kind).label)} · ${esc(block.text)}</small></div>
+          <div class="block-actions">
+            <button data-action="move-block" data-direction="up" data-block-id="${esc(block.id)}" ${index === 0 ? "disabled" : ""} aria-label="上移 ${esc(block.label)}">↑</button>
+            <button data-action="move-block" data-direction="down" data-block-id="${esc(block.id)}" ${index === item.blocks.length - 1 ? "disabled" : ""} aria-label="下移 ${esc(block.label)}">↓</button>
+          </div>
+        </article>`).join("")}</div>`;
+      };
+
+      const renderPreviewBlock = (block) => {
+        const label = `${esc(block.label)}${block.required ? '<span class="required-mark">＊</span>' : ""}`;
+        if (block.kind === "section") return `<h3 style="color:var(--brand-navy-deep);margin:24px 0 8px">${esc(block.text)}</h3>`;
+        if (block.kind === "rich_text") return `<p style="color:var(--ink-secondary);font-size:14px">${esc(block.text)}</p>`;
+        if (block.kind === "attachment") return `<div class="preview-attachment"><div><strong>▣ ${label}</strong><small style="display:block;color:var(--ink-secondary)">${esc(block.text)}</small></div><button class="btn small" disabled>下載</button></div>`;
+        if (block.kind === "upload") return `<div class="preview-field"><label>${label}</label><div class="preview-upload">↑ 拖放檔案或點擊選擇<br><small>${esc(block.text)}</small></div></div>`;
+        if (block.kind === "readonly_group") return `<div class="preview-field"><label>${label}</label><div class="auto-exposure"><strong>第 08 組 · 智慧校園導航</strong>王小安（組長）、林子晴、陳昱廷、許庭瑋、吳珮瑜<br>指導老師：黃教授</div></div>`;
+        if (block.kind === "long_text") return `<div class="preview-field"><label>${label}</label><textarea disabled placeholder="${esc(block.text)}"></textarea></div>`;
+        return `<div class="preview-field"><label>${label}</label><input disabled type="text" placeholder="${esc(block.text)}"></div>`;
+      };
+
+      const renderDocument = (item) => {
+        if (state.previewRole !== "edit") {
+          if (state.previewRole === "visitor" && item.audience !== "public") {
+            return `<div class="document-paper preview-page"><div class="preview-banner"><span>訪客視角預覽</span><strong>${esc(locationMeta(item.location).label)}</strong></div><div class="visitor-gate"><div class="lock">○</div><h3>這份內容只提供${esc(audienceMeta(item.audience).label)}</h3><p>訪客只能看到登入提示，不會取得欄位、附件或組別資料。這是 audience 過濾，不是另一份內容。</p></div></div>`;
+          }
+          return `<div class="document-paper preview-page">
+            <div class="preview-banner"><span>${state.previewRole === "visitor" ? "訪客" : "本屆學生"}視角預覽</span><strong>${esc(locationMeta(item.location).label)}</strong></div>
+            <div class="doc-kicker">${esc(item.type)} · ${esc(audienceMeta(item.audience).label)}</div>
+            <h2>${esc(item.title)}</h2>
+            <p class="doc-summary">${esc(item.summary)}</p>
+            ${item.deadline ? `<div class="doc-info-strip"><span class="pill">截止 ${esc(formatDeadline(item.deadline))}</span>${item.groupShared ? '<span class="pill">整組共用一份</span>' : ""}</div>` : ""}
+            ${item.blocks.map(renderPreviewBlock).join("")}
+            ${item.location === "submission" || item.location === "requirements" ? '<button class="btn primary" style="margin-top:20px" disabled>儲存組別草稿</button>' : ""}
+          </div>`;
+        }
+        return `<div class="document-paper">
+          <div class="doc-kicker">${esc(item.type)} · 內容唯一來源</div>
+          <h2>${esc(item.title)}</h2>
+          <p class="doc-summary">${esc(item.summary)}</p>
+          <div class="doc-info-strip">
+            <span class="status-chip ${item.status}">${item.status === "published" ? "● 已發布" : "○ 草稿"}</span>
+            <span class="pill">${esc(audienceMeta(item.audience).label)}</span>
+            ${item.deadline ? `<span class="pill">截止 ${esc(formatDeadline(item.deadline))}</span>` : ""}
+            ${item.groupShared ? '<span class="pill">整組一份</span>' : ""}
+          </div>
+          ${renderBlockList(item)}
+        </div>`;
+      };
+
+      const renderSelectedBlockSettings = (item) => {
+        const block = item.blocks.find((entry) => entry.id === state.selectedBlockId);
+        if (!block) return `<section class="form-section"><h4>元件設定</h4><p class="field-help">先在 canvas 選取一個區塊。</p></section>`;
+        return `<section class="form-section">
+          <h4>選取元件 · ${esc(blockMeta(block.kind).label)}</h4>
+          <div class="field"><label for="block-label">標籤名稱</label><input id="block-label" type="text" value="${esc(block.label)}" data-change="block-label"></div>
+          <div class="field"><label for="block-text">提示或內容</label><textarea id="block-text" data-change="block-text">${esc(block.text)}</textarea></div>
+          ${["short_text", "long_text", "upload"].includes(block.kind) ? `<label class="check-row"><input type="checkbox" data-change="block-required" ${block.required ? "checked" : ""}> 這是必填欄位；學生預覽會顯示必填標記。</label>` : ""}
+        </section>`;
+      };
+
+      const renderItemSettings = (item, includeBlock = true) => `<div class="form-grid-desktop">
+        <section class="form-section">
+          <h4>基本內容</h4>
+          <div class="field"><label for="item-title">標題</label><input id="item-title" type="text" value="${esc(item.title)}" data-change="item-title"></div>
+          <div class="field"><label for="item-summary">摘要</label><textarea id="item-summary" data-change="item-summary">${esc(item.summary)}</textarea></div>
+        </section>
+        <section class="form-section">
+          <h4>發布規則</h4>
+          <div class="field"><label for="location-select">主要發布位置（單選）</label><select id="location-select" data-change="location">${renderLocationOptions(item.location)}</select><span class="field-help">位置只決定前台模板，不複製內容。</span></div>
+          <div class="field"><label for="audience-select">發布對象</label><select id="audience-select" data-change="audience">${renderAudienceOptions(item.audience)}</select></div>
+          <div class="field"><label for="deadline-input">截止時間</label><input id="deadline-input" type="datetime-local" value="${esc(item.deadline)}" data-change="deadline"></div>
+          ${renderAutoExposure(item)}
+        </section>
+        ${includeBlock ? renderSelectedBlockSettings(item) : ""}
+      </div>`;
+
+      const renderCanvasPanel = (item) => `<section class="panel canvas-col" data-mobile-panel="canvas">
+        <div class="canvas-meta"><div class="route-line"><strong>同一筆資料</strong><span class="route-arrow">→</span><span>${esc(locationMeta(item.location).label)}</span></div><span class="canonical-badge">✓ canonical ${esc(item.id)}</span></div>
+        <div class="document-canvas">${renderDocument(item)}</div>
+      </section>`;
+
+      const renderVariantA = (item) => `
+        ${renderContext(item, "三欄組裝工作台")}
+        <div class="mobile-steps" role="tablist" aria-label="行動版編輯步驟">
+          ${[["components", "1 元件"], ["canvas", "2 內容"], ["settings", "3 設定"]].map(([step, label]) => `<button class="${state.mobileStep === step ? "active" : ""}" data-action="mobile-step" data-step="${step}">${label}</button>`).join("")}
+        </div>
+        <div class="builder-a step-${state.mobileStep}">
+          <div class="three-col">
+            ${renderPalette()}
+            ${renderCanvasPanel(item)}
+            <aside class="panel inspector" data-mobile-panel="settings">
+              <div class="panel-head"><div><h2>設定</h2><p>項目與目前選取元件</p></div><span class="status-chip ${item.status}">${item.status === "published" ? "已發布" : "草稿"}</span></div>
+              ${renderItemSettings(item)}
+            </aside>
+          </div>
+        </div>`;
+
+      const renderVariantB = (item) => {
+        const primaryLocations = LOCATION_OPTIONS.slice(0, 4);
+        return `
+          ${renderContext(item, "發布位置優先的全寬編輯器")}
+          <section class="panel publish-map">
+            <div class="publish-map-top">
+              <div><h2>先決定這筆內容要在哪裡被找到</h2><p>只能選一個主要位置；首頁與 Dashboard 曝光由系統自動引用。</p></div>
+              <div class="field"><label for="b-audience">發布對象</label><select id="b-audience" data-change="audience">${renderAudienceOptions(item.audience)}</select></div>
+            </div>
+            <div class="location-cards" role="radiogroup" aria-label="主要發布位置">
+              ${primaryLocations.map((option) => `<div class="location-card"><input id="loc-${option.value}" type="radio" name="location" value="${option.value}" data-change="location" ${item.location === option.value ? "checked" : ""}><label for="loc-${option.value}"><b>${esc(option.label)}</b><span>${esc(option.description)}</span></label></div>`).join("")}
+            </div>
+          </section>
+          <section class="panel wide-layout">
+            <div class="wide-toolbank"><span>快速加入</span>
+              ${BLOCK_LIBRARY.slice(0, 6).map((meta) => `<button class="btn small" data-action="add-block" data-kind="${meta.kind}">${esc(meta.icon)} ${esc(meta.label)}</button>`).join("")}
+              <button class="btn small mobile-meta-button" data-action="open-mobile-sheet">項目設定</button>
+            </div>
+            <div class="canvas-meta"><div class="route-line"><strong>${esc(locationMeta(item.location).label)}</strong><span class="route-arrow">→</span><span>${esc(audienceMeta(item.audience).label)}</span></div><span class="canonical-badge">單一資料來源 · ${esc(item.id)}</span></div>
+            <div class="wide-canvas">${renderDocument(item)}</div>
+            <div class="inline-settings">
+              <div class="field"><label for="b-title">項目標題</label><input id="b-title" type="text" value="${esc(item.title)}" data-change="item-title"></div>
+              <div class="field"><label for="b-summary">摘要</label><input id="b-summary" type="text" value="${esc(item.summary)}" data-change="item-summary"></div>
+              <div>${renderAutoExposure(item)}</div>
+            </div>
+          </section>
+          <aside class="mobile-sheet ${state.mobileSheetOpen ? "open" : ""}" aria-label="項目設定 bottom sheet">
+            <div class="sheet-handle"></div><div class="sheet-head"><h3>項目設定</h3><button class="btn small" data-action="close-mobile-sheet">完成</button></div>
+            ${renderItemSettings(item)}
+          </aside>`;
+      };
+
+      const renderItemTable = (item) => `<section class="panel item-list">
+        <div class="panel-head"><div><h2>全部專題事務</h2><p>公告、資源、繳交與需求共用一個工作台</p></div><span class="pill">${state.items.length} 筆假資料</span></div>
+        <div class="list-toolbar"><div class="search-box"><input type="search" placeholder="搜尋標題或類型（展示用）" aria-label="搜尋項目"></div><button class="btn primary" data-action="new-item" title="建立一筆新的公告假資料">＋ 新項目</button></div>
+        <div class="affair-table-wrap">
+          <table class="affair-table">
+            <colgroup><col style="width:58px"><col style="width:38%"><col style="width:22%"><col style="width:20%"><col style="width:110px"></colgroup>
+            <thead><tr><th>類型</th><th>項目</th><th>主要位置</th><th>對象</th><th>狀態</th></tr></thead>
+            <tbody>${state.items.map((entry) => `<tr class="${entry.id === item.id ? "active" : ""}" data-action="open-drawer" data-item-id="${esc(entry.id)}" tabindex="0">
+              <td><span class="pill">${esc(entry.type.slice(0, 2))}</span></td>
+              <td class="item-title-cell"><strong>${esc(entry.title)}</strong><span>${esc(entry.id)} · ${entry.blocks.length} 個區塊</span></td>
+              <td>${esc(locationMeta(entry.location).label)}</td>
+              <td>${esc(audienceMeta(entry.audience).label)}</td>
+              <td><span class="status-chip ${entry.status}">${entry.status === "published" ? "● 已發布" : "○ 草稿"}</span></td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </section>`;
+
+      const renderDrawerPreview = (item) => {
+        if (state.previewRole === "visitor" && item.audience !== "public") {
+          return `<section class="form-section"><div class="preview-banner"><span>訪客視角</span><strong>${esc(locationMeta(item.location).label)}</strong></div><div class="visitor-gate" style="padding:24px 8px"><div class="lock">○</div><h3>需要登入才能查看</h3><p>欄位與附件不會提供給公開訪客。</p></div></section>`;
+        }
+        return `<section class="form-section">
+          <div class="preview-banner"><span>${state.previewRole === "visitor" ? "訪客" : "本屆學生"}視角</span><strong>${esc(locationMeta(item.location).label)}</strong></div>
+          <div class="doc-kicker">${esc(item.type)}</div>
+          <h3 style="margin:0;color:var(--brand-navy-deep)">${esc(item.title)}</h3>
+          <p class="doc-summary" style="margin-bottom:14px">${esc(item.summary)}</p>
+          <div class="doc-info-strip"><span class="pill">${item.blocks.length} 個內容／欄位</span>${item.groupShared ? '<span class="pill">整組共用</span>' : ""}</div>
+          ${item.blocks.slice(0, 3).map(renderPreviewBlock).join("")}
+        </section>`;
+      };
+
+      const renderDrawerEditor = (item) => `<section class="form-section">
+          <div class="field"><label for="c-title">標題</label><input id="c-title" type="text" value="${esc(item.title)}" data-change="item-title"></div>
+          <div class="field"><label for="c-summary">摘要</label><textarea id="c-summary" data-change="item-summary">${esc(item.summary)}</textarea></div>
+        </section>
+        <section class="form-section"><h4>前台規則</h4>
+          <div class="field"><label for="c-location">主要發布位置（單選）</label><select id="c-location" data-change="location">${renderLocationOptions(item.location)}</select></div>
+          <div class="field"><label for="c-audience">發布對象</label><select id="c-audience" data-change="audience">${renderAudienceOptions(item.audience)}</select></div>
+          ${renderAutoExposure(item)}
+        </section>
+        <section class="form-section"><h4>區塊與欄位 · ${item.blocks.length}</h4>
+          <div class="quick-add"><select id="quick-kind" aria-label="選擇要加入的元件">${BLOCK_LIBRARY.map((meta) => `<option value="${meta.kind}">${esc(meta.label)}</option>`).join("")}</select><button class="btn primary" data-action="quick-add">加入</button></div>
+          ${renderBlockList(item, true)}
+        </section>
+        <section class="form-section"><button class="btn orange" style="width:100%" data-action="publish">${item.status === "published" ? "再次發布並取得回執" : "發布並取得回執"}</button></section>`;
+
+      const renderDrawer = (item) => `<aside class="panel drawer ${state.drawerOpen ? "open" : ""}">
+        <div class="drawer-accent"></div>
+        <div class="panel-head"><div><h2>${state.previewRole === "edit" ? "快速編輯" : "前台快速預覽"}</h2><p>${esc(item.id)} · canonical record</p></div><button class="btn icon drawer-close" data-action="close-drawer" aria-label="關閉快速編輯">×</button></div>
+        ${state.previewRole === "edit" ? renderDrawerEditor(item) : renderDrawerPreview(item)}
+      </aside>`;
+
+      const renderVariantC = (item) => `
+        ${renderContext(item, "項目清單與快速編輯 drawer")}
+        <div class="workbench-grid">
+          ${renderItemTable(item)}
+          ${renderDrawer(item)}
+        </div>`;
+
+      const renderStatePanel = (item) => {
+        const payload = {
+          prototypeVariant: state.variant,
+          autosave: state.autosave,
+          lastChange: state.lastChange,
+          currentRecord: {
+            id: item.id,
+            type: item.type,
+            title: item.title,
+            primaryLocation: item.location,
+            audience: item.audience,
+            status: item.status,
+            groupShared: item.groupShared,
+            automaticExposure: autoExposures(item),
+            blocks: item.blocks.map(({ id, kind, label, required }) => ({ id, kind, label, required }))
+          },
+          lastReceipt: state.lastReceipt ? { id: state.lastReceipt.id, publishedAt: state.lastReceipt.publishedAt } : null,
+          persistence: "in-memory only; reload resets"
+        };
+        return `<details class="state-panel"><summary>狀態檢視 <span>${esc(state.lastChange)} · ${item.blocks.length} 個區塊</span></summary><pre>${esc(JSON.stringify(payload, null, 2))}</pre></details>`;
+      };
+
+      const renderSwitcher = () => {
+        const labels = { A: "三欄 Builder", B: "全寬 Canvas", C: "列表 Drawer" };
+        return `<nav class="variant-switcher" aria-label="原型切換器">
+          <span class="switcher-label">原型切換器 · ← →</span>
+          <button class="arrow" data-action="variant-prev" aria-label="上一個原型">←</button>
+          <div class="variant-tabs">${["A", "B", "C"].map((variant) => `<button class="variant-tab ${state.variant === variant ? "active" : ""}" data-action="set-variant" data-variant="${variant}" aria-current="${state.variant === variant ? "page" : "false"}"><b>${variant}</b><span>${labels[variant]}</span></button>`).join("")}</div>
+          <button class="arrow" data-action="variant-next" aria-label="下一個原型">→</button>
+        </nav>`;
+      };
+
+      const renderReceipt = () => {
+        if (!state.receipt) return "";
+        const receipt = state.receipt;
+        return `<div class="receipt-backdrop" role="presentation" data-action="close-receipt">
+          <section class="receipt-card" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onclick="event.stopPropagation()">
+            <div class="receipt-top"><div class="receipt-check">✓</div><h2 id="receipt-title">發布完成，這是操作回執</h2><p>不是只有按鈕變色；本次發布已寫入原型狀態。</p></div>
+            <div class="receipt-body">
+              <dl class="receipt-grid">
+                <dt>回執編號</dt><dd>${esc(receipt.id)}</dd>
+                <dt>項目</dt><dd>${esc(receipt.title)}</dd>
+                <dt>主要位置</dt><dd>${esc(locationMeta(receipt.location).label)}</dd>
+                <dt>發布對象</dt><dd>${esc(audienceMeta(receipt.audience).label)}</dd>
+                <dt>發布時間</dt><dd>${esc(receipt.publishedAt)}</dd>
+              </dl>
+              <div class="receipt-note">✓ canonical record 仍只有一筆。${autoExposures(receipt).map((value) => esc(value)).join("、")}會自動引用，不算重複發布。</div>
+              <div class="receipt-actions"><button class="btn primary" data-action="close-receipt">完成</button></div>
+            </div>
+          </section>
+        </div>`;
+      };
+
+      const render = () => {
+        const item = currentItem();
+        const variantContent = state.variant === "A" ? renderVariantA(item) : state.variant === "B" ? renderVariantB(item) : renderVariantC(item);
+        document.getElementById("app").innerHTML = `
+          ${renderHeader(item)}
+          <main>${variantContent}${renderStatePanel(item)}</main>
+          ${renderSwitcher()}
+          ${state.toast ? `<div class="toast" role="status">${esc(state.toast)}</div>` : ""}
+          ${renderReceipt()}`;
+      };
+
+      const scheduleAutosave = (reason) => {
+        clearTimeout(saveTimer);
+        state.autosave = "儲存中…";
+        state.lastChange = reason;
+        render();
+        saveTimer = window.setTimeout(() => {
+          state.autosave = "已儲存";
+          state.savedAt = new Intl.DateTimeFormat("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
+          render();
+        }, 620);
+      };
+
+      const showToast = (message) => {
+        clearTimeout(toastTimer);
+        state.toast = message;
+        render();
+        toastTimer = window.setTimeout(() => { state.toast = ""; render(); }, 2200);
+      };
+
+      const setVariant = (variant) => {
+        if (!["A", "B", "C"].includes(variant)) return;
+        state.variant = variant;
+        state.mobileSheetOpen = false;
+        state.drawerOpen = false;
+        const url = new URL(window.location.href);
+        url.searchParams.set("variant", variant);
+        window.history.replaceState({}, "", url);
+        state.lastChange = `切換至 Variant ${variant}`;
+        render();
+      };
+
+      const cycleVariant = (direction) => {
+        const variants = ["A", "B", "C"];
+        const index = variants.indexOf(state.variant);
+        setVariant(variants[(index + direction + variants.length) % variants.length]);
+      };
+
+      const addBlock = (kind) => {
+        const item = currentItem();
+        const meta = blockMeta(kind);
+        const block = {
+          id: `b-${Date.now().toString(36)}`,
+          kind: meta.kind,
+          label: meta.label,
+          text: meta.defaultText,
+          required: ["short_text", "long_text", "upload"].includes(meta.kind)
+        };
+        item.blocks.push(block);
+        state.selectedBlockId = block.id;
+        state.mobileStep = "canvas";
+        scheduleAutosave(`新增「${meta.label}」`);
+      };
+
+      const moveBlock = (blockId, direction) => {
+        const blocks = currentItem().blocks;
+        const index = blocks.findIndex((block) => block.id === blockId);
+        const target = direction === "up" ? index - 1 : index + 1;
+        if (index < 0 || target < 0 || target >= blocks.length) return;
+        [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+        state.selectedBlockId = blockId;
+        scheduleAutosave(`重排「${blocks[target].label}」`);
+      };
+
+      const publish = () => {
+        const item = currentItem();
+        item.status = "published";
+        const now = new Date();
+        state.autosave = "已儲存";
+        state.lastChange = `發布 ${item.id}`;
+        state.receipt = {
+          id: `PUB-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+          title: item.title,
+          location: item.location,
+          audience: item.audience,
+          deadline: item.deadline,
+          publishedAt: new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeStyle: "medium", hour12: false }).format(now)
+        };
+        state.lastReceipt = { ...state.receipt };
+        render();
+      };
+
+      document.addEventListener("click", (event) => {
+        const trigger = event.target.closest("[data-action]");
+        if (!trigger) return;
+        const action = trigger.dataset.action;
+        if (action === "set-variant") setVariant(trigger.dataset.variant);
+        if (action === "variant-prev") cycleVariant(-1);
+        if (action === "variant-next") cycleVariant(1);
+        if (action === "mobile-step") { state.mobileStep = trigger.dataset.step; render(); }
+        if (action === "add-block") addBlock(trigger.dataset.kind);
+        if (action === "quick-add") {
+          const picker = document.getElementById("quick-kind");
+          if (picker) addBlock(picker.value);
+        }
+        if (action === "select-block") { state.selectedBlockId = trigger.dataset.blockId; render(); }
+        if (action === "move-block") { event.stopPropagation(); moveBlock(trigger.dataset.blockId, trigger.dataset.direction); }
+        if (action === "preview-role") { state.previewRole = trigger.dataset.role; state.mobileStep = "canvas"; render(); }
+        if (action === "publish") publish();
+        if (action === "close-receipt") { state.receipt = null; render(); }
+        if (action === "open-mobile-sheet") { state.mobileSheetOpen = true; render(); }
+        if (action === "close-mobile-sheet") { state.mobileSheetOpen = false; render(); }
+        if (action === "open-drawer") {
+          state.currentItemId = trigger.dataset.itemId;
+          state.selectedBlockId = currentItem().blocks[0]?.id || null;
+          state.drawerOpen = true;
+          state.lastChange = `開啟 ${state.currentItemId} 快速編輯`;
+          render();
+        }
+        if (action === "close-drawer") { state.drawerOpen = false; render(); }
+        if (action === "new-item") {
+          const item = {
+            id: `aff-${String(state.items.length + 1).padStart(3, "0")}`,
+            type: "公告",
+            title: "未命名專題事務",
+            summary: "請補上這筆項目的摘要。",
+            location: "news",
+            audience: "current_students",
+            status: "draft",
+            deadline: "",
+            groupShared: false,
+            blocks: []
+          };
+          state.items.unshift(item);
+          state.currentItemId = item.id;
+          state.drawerOpen = true;
+          scheduleAutosave("新增一筆 canonical record");
+        }
+      });
+
+      document.addEventListener("change", (event) => {
+        const kind = event.target.dataset.change;
+        if (!kind) return;
+        const item = currentItem();
+        if (kind === "current-item") {
+          state.currentItemId = event.target.value;
+          state.selectedBlockId = currentItem().blocks[0]?.id || null;
+          state.previewRole = "edit";
+          state.lastChange = `切換至 ${state.currentItemId}`;
+          render();
+          return;
+        }
+        if (kind === "item-title") item.title = event.target.value;
+        if (kind === "item-summary") item.summary = event.target.value;
+        if (kind === "location") item.location = event.target.value;
+        if (kind === "audience") item.audience = event.target.value;
+        if (kind === "deadline") item.deadline = event.target.value;
+        const block = item.blocks.find((entry) => entry.id === state.selectedBlockId);
+        if (block && kind === "block-label") block.label = event.target.value;
+        if (block && kind === "block-text") block.text = event.target.value;
+        if (block && kind === "block-required") block.required = event.target.checked;
+        const labels = {
+          "item-title": "修改標題", "item-summary": "修改摘要", location: "修改主要發布位置", audience: "修改發布對象", deadline: "修改截止時間",
+          "block-label": "修改元件標籤", "block-text": "修改元件內容", "block-required": "修改必填狀態"
+        };
+        scheduleAutosave(labels[kind] || "修改項目");
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && state.receipt) { state.receipt = null; render(); return; }
+        if (event.key === "Escape" && (state.mobileSheetOpen || state.drawerOpen)) { state.mobileSheetOpen = false; state.drawerOpen = false; render(); return; }
+        const tag = document.activeElement?.tagName;
+        if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+        if (event.key === "ArrowLeft") { event.preventDefault(); cycleVariant(-1); }
+        if (event.key === "ArrowRight") { event.preventDefault(); cycleVariant(1); }
+        if ((event.key === "Enter" || event.key === " ") && document.activeElement?.matches('[data-action="open-drawer"]')) {
+          event.preventDefault();
+          document.activeElement.click();
+        }
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
