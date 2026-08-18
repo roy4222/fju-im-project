@@ -1,36 +1,175 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 輔仁大學資訊管理學系 — 專題管理平台
 
-## Getting Started
+> 讓訪客找得到系上的專題成果，讓學生與老師一登入就知道現在該做什麼，讓管理員在一個一致、好用的後台完成發布、收件、分組、評分與簽核；所有核心資料與檔案都留在校方可控的環境中。
 
-First, run the development server:
+取代使用超過十年的舊專題網站（`project.im.fju.edu.tw`）。**不沿用舊程式碼、不遷移舊資料庫、不接 LDAP。**
+
+---
+
+## ⚠️ 目前狀態：原型階段
+
+**這個 repo 目前沒有資料庫、沒有登入、沒有後端。** 所有畫面讀取的都是
+`src/lib/fixtures.ts` 裡的假資料（虛構的姓名、學號、公司與公告，不含任何真實個資）。
+
+| 範圍 | 狀態 |
+|---|---|
+| 公開前台（首頁、公告、規則、產學、歷屆專題、競賽、榮譽、登入／註冊畫面） | ✅ 完成，靜態／SSG |
+| 設計 token、字體系統、Data Table、Sidebar shell | ✅ 完成 |
+| 三角色 Dashboard | 🟡 首頁與分組總覽已做，視覺待依新設計語言重做 |
+| 專題事務編輯器（拖拉表單） | ❌ 未開始 |
+| 評分工作台、簽核流程、帳號管理、檔案管理 | ❌ 未開始 |
+| PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始 |
+| Docker、校內 VM 部署、備份與還原 | ❌ 未開始 |
+
+畫面上的圖片全部是「照片待提供」的中性佔位，尚未取得系上實際照片。
+
+---
+
+## 快速開始
+
+需要 Node.js 20+ 與 pnpm。
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| 路徑 | 內容 |
+|---|---|
+| `/` | 公開前台首頁 |
+| `/news`、`/news/[id]` | 公告列表與詳情 |
+| `/rules` | 專題規則全文 |
+| `/industry`、`/industry/[id]` | 產學合作（詳情頁示範欄位層級可見性） |
+| `/projects`、`/projects/[id]` | 歷屆專題 |
+| `/competitions`、`/honors` | 競賽資訊、榮譽榜 |
+| `/login`、`/register` | 登入與註冊 |
+| `/dashboard/student`、`/dashboard/teacher`、`/dashboard/admin` | 三角色 Dashboard（右上角可切換角色） |
+| `/dashboard/admin/groups` | 分組總覽（Data Table） |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+其他指令：
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm build                        # production build（公開頁應全為 Static/SSG）
+npx tsc --noEmit                  # 型別檢查
+node scripts/shoot.mjs / --light  # 用本機 Chrome 截圖，支援深淺主題與手機寬度
+```
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 技術棧
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| 項目 | 選擇 | 理由 |
+|---|---|---|
+| 框架 | Next.js 16.3（App Router） | 公開頁需要 SSR／SSG 以滿足 SEO |
+| UI | React 19.2 + Tailwind CSS v4 | v4 的 `@theme` 讓品牌色票變成單一 CSS 檔 |
+| 元件 | shadcn/ui `style: base-nova` + **Base UI** primitives | 與 UX donor 對齊，可整檔移植其 sidebar 與 data-table |
+| 表格 | TanStack Table **v8** | v9 是全新 API，donor 與 shadcn 文件皆為 v8 |
+| Icon | `@tabler/icons-react` | 與 donor 一致 |
+| 套件管理 | pnpm | 校內 VM 只有 8GB RAM，disk 與 build 記憶體都要省 |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**尚未封板**：ORM（傾向 Drizzle）、Auth（傾向 Auth.js v5）、reverse proxy、外部備份目的地、正式網域。
 
-## Deploy on Vercel
+Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
+`indeterminate` 是獨立 prop。細節見 `.design-sync/conventions.md`。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 設計系統
+
+**品牌色票取樣自系網** `im.fju.edu.tw`（2026-08-17）：
+
+| 用途 | 色值 | Token |
+|---|---|---|
+| 主色（深藍） | `#003366` | `--primary` |
+| 品牌強調（橘） | `#E56E00` | `--brand` |
+| 次要底（暖白） | `#FFF4EA` | `--secondary` |
+
+品牌橘刻意**不併入** shadcn 的 `--accent`——`accent` 在 shadcn 語意是 hover 底色，
+塞橘色會讓全站每個 hover 都變橘。
+
+`-subtle` 與 `-on-subtle` 必須成對使用：前者是淺色底、後者是配在那個底上的文字色。
+把 `-foreground`（實色底上的文字）用在 `-subtle` 底上會造成對比不足。
+
+**字體**三層：`--font-sans`（Geist + Noto Sans TC，內文）、`--font-display`
+（Noto Serif TC 思源宋體，中文標題）、`--font-brand`（Kaisei Tokumin，wordmark 與數字）。
+Kaisei Tokumin 是日文字集，繁中缺 產／歷／檔／繳／查／內／辦／錄 等字，
+**只用於拉丁字母與數字**。
+
+全部定義在 `src/app/globals.css`。
+
+### 硬約束
+
+`docs/ANTI-PATTERNS.md` 是從第一版原型被評為「太 AI」後反推出來的 22 條規則，
+涵蓋文案、視覺、資訊密度、元件、Dashboard 與可存取性。**每個新畫面完成後逐條自檢。**
+
+### Claude Design 同步
+
+`.design-sync/` 是把這套元件庫同步到 claude.ai/design 的設定，讓該平台的設計 agent
+使用我們自己的元件與品牌 token。詳細流程與已知陷阱見 `.design-sync/NOTES.md`。
+
+---
+
+## 目錄結構
+
+```
+src/
+├─ app/
+│  ├─ (public)/          公開前台（共用 layout：SiteHeader + SiteFooter）
+│  └─ dashboard/[role]/  登入後 Dashboard，角色由路由參數決定
+├─ components/
+│  ├─ ui/                shadcn 元件（24 檔，130 個匯出）
+│  ├─ public/            前台區塊：SiteHeader、sections、NewsTabs…
+│  ├─ layout/            Dashboard shell：AppSidebar、DashboardHeader
+│  ├─ dashboard/         Panel、StatTile、StateBadge、ProgressBar、EmptyState
+│  └─ data-table/        共用 Data Table（TanStack Table）
+└─ lib/
+   ├─ fixtures.ts        全站共用假資料（三角色讀同一份）
+   ├─ nav-config.ts      角色感知導覽
+   └─ fonts.ts           字體載入策略
+```
+
+**假資料是單一來源**：三個角色的 Dashboard 讀同一份 fixtures，差別只在權限與視角——
+這樣才看得出權限矩陣在畫面上的真實差異。fixtures 的型別刻意貼近規格書的核心資料模型
+（`ManagedItem`、`GroupResponse`、`SubmissionVersion`、`GradingSchemeVersion`…），
+之後接資料庫時可直接對照。
+
+---
+
+## 規格與決策
+
+**產品需求、範圍、名詞、流程與驗收的唯一主規格**是 Obsidian 中的
+`🗺️ 輔大資管系專題網站重構 MOC.md`。會議紀錄、Google Sheet 與舊網站都是來源或歷史證據；
+內容衝突時以該檔目前版本為準。
+
+要改需求：先更新該檔與決策紀錄，再同步 issue、設計、資料模型與程式碼。
+**不可讓程式碼反過來定義產品。**
+
+幾條會直接影響實作的既定決策：
+
+- 登入為 Google OAuth 主用 ＋ Email/密碼備援；名單命中自動核准，否則進人工審核
+- 管理員可重設臨時密碼，但**任何人都不能查看既有密碼**
+- 專題事務以**整組一份**為原則，任一成員送出即代表全組完成，截止前可重送並保留版本
+- 一筆內容只選**一個**主要前台位置，Dashboard 與首頁自動摘要，不複製成多筆
+- 簽核為五位組員逐一線上同意、指導老師最後同意，**全程不下載或上傳簽名檔**
+- 學生在 v1 **完全看不到成績**
+- 前端隱藏按鈕不是權限控制；所有讀寫權限均須在伺服器端依資料庫事實重新驗證
+
+---
+
+## 交付
+
+**2026-09-14** 完成 v1 驗收：公開前台、學生端、老師端、管理員後台，並於校內 Ubuntu VM
+（4 cores / 8GB / 200GB）以限制測試帳號完成跨角色 E2E、真實 PostgreSQL migration、
+檔案儲存與權限、外部備份與至少一次還原演練。
+
+Mock、fixture、單元測試、頁面數量或程式碼行數都不能單獨替代這個 Gate。
+
+---
+
+## 授權與致謝
+
+專案為輔仁大學資訊管理學系內部使用。UI 參考下列 MIT 授權專案，移植時保留其授權聲明：
+
+- [Kiranism/next-shadcn-dashboard-starter](https://github.com/Kiranism/next-shadcn-dashboard-starter) — Dashboard shell 與 Data Table 的 UX donor
+- [hasanharman/form-builder](https://github.com/hasanharman/form-builder) — 拖拉式表單編輯器的 UX 參考（其欄位資料結構不適用，schema 需自行設計）
+- [shadcn/ui](https://ui.shadcn.com/) — UI primitives
