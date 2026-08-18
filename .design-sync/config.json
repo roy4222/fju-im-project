@@ -1,0 +1,16 @@
+{
+  "pkg": "fju-project",
+  "globalName": "FjuIm",
+  "projectId": "dbe4ee71-c22e-446a-a210-1748e8cc9578",
+  "shape": "package",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": ".design-sync/generated/ds.css",
+  "overrides": {
+    "Progress": {
+      "cardMode": "single",
+      "primaryStory": "SubmissionRate"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

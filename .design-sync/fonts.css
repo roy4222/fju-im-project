@@ -1,0 +1,24 @@
+/*
+ * design-sync 專用字體層。
+ *
+ * 應用本體用 next/font 在執行期注入 --font-geist-sans / --font-serif-tc 等變數，
+ * 但 Claude Design 沒有 Next.js，那些變數會是空的、字體全部掉回系統預設。
+ * 這個檔案用遠端 Google Fonts 把同一組字體補回去，讓設計 agent 產生的畫面
+ * 與實際站台看起來一致。
+ *
+ * 字體對應（與 src/lib/fonts.ts 相同）：
+ *   Geist          → 拉丁字母與 UI 內文
+ *   Noto Sans TC   → 中文內文
+ *   Noto Serif TC  → 中文標題（明體）
+ *   Kaisei Tokumin → wordmark 與拉丁展示字（日系明體，繁中字集不全，僅用於此）
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Kaisei+Tokumin:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@400;600;700&display=swap");
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+  --font-sans-tc: "Noto Sans TC";
+  --font-serif-tc: "Noto Serif TC";
+  --font-kaisei: "Kaisei Tokumin";
+}
