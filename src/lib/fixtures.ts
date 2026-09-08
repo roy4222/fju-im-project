@@ -950,3 +950,94 @@ export const SIGNOFF_PROGRESS = GROUPS.map((g, i) => ({
   teacher: [true, true, false, true, false, false, false, false][i % 8] && g.id !== "g-07",
   state: (g.id === "g-07" ? "students" : [true, true, false, true, false, false, false, false][i % 8] ? "complete" : "students") as "students" | "teacher" | "complete" | "revision",
 }));
+
+/* -------------------------------------------------------------------------- */
+/* 表單欄位（規格 §4.4 v1 可用元件）與各組繳交狀態                               */
+/* -------------------------------------------------------------------------- */
+
+export type FieldType =
+  | "text" | "textarea" | "number" | "email" | "url"
+  | "radio" | "checkbox" | "select"
+  | "date" | "time"
+  | "file" | "attachment"
+  | "heading" | "paragraph" | "divider" | "groupinfo";
+
+export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  text: "短文字", textarea: "長文字", number: "數字", email: "Email", url: "網址",
+  radio: "單選", checkbox: "複選", select: "下拉選單",
+  date: "日期", time: "時間",
+  file: "檔案上傳", attachment: "下載附件",
+  heading: "區段標題", paragraph: "說明文字", divider: "分隔線", groupinfo: "組別資訊（唯讀）",
+};
+
+export type FormField = {
+  id: string;
+  type: FieldType;
+  label: string;
+  help?: string;
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+  /** 附件／上傳的說明：檔名或限制 */
+  meta?: string;
+};
+
+export const FORM_SCHEMAS: Record<string, FormField[]> = {
+  "mi-014": [
+    { id: "f1", type: "groupinfo", label: "組別資訊" },
+    { id: "f2", type: "heading", label: "指導老師志願" },
+    { id: "f3", type: "select", label: "第一志願", required: true, options: ["陳建宏", "王雅玲", "李孟儒", "張士豪"] },
+    { id: "f4", type: "select", label: "第二志願", required: true, options: ["陳建宏", "王雅玲", "李孟儒", "張士豪"] },
+    { id: "f5", type: "select", label: "第三志願", required: true, options: ["陳建宏", "王雅玲", "李孟儒", "張士豪"] },
+    { id: "f6", type: "textarea", label: "題目方向", help: "100 字內簡述", required: true, placeholder: "例：校園閒置空間的共享媒合…" },
+    { id: "f7", type: "radio", label: "組別類型", required: true, options: ["一般專題", "產學合作"] },
+    { id: "f8", type: "attachment", label: "指導老師研究領域一覽", meta: "PDF・212 KB" },
+  ],
+  "mi-013": [
+    { id: "f1", type: "groupinfo", label: "組別資訊" },
+    { id: "f2", type: "text", label: "組長學號", required: true },
+    { id: "f3", type: "radio", label: "組別類型", required: true, options: ["一般專題", "產學合作"] },
+    { id: "f4", type: "checkbox", label: "確認事項", required: true, options: ["五位組員皆為本屆學生", "已閱讀專題規則第四節"] },
+  ],
+  "mi-012": [
+    { id: "f1", type: "groupinfo", label: "組別資訊" },
+    { id: "f2", type: "text", label: "中文題目", required: true },
+    { id: "f3", type: "text", label: "英文題目", required: true },
+    { id: "f4", type: "textarea", label: "摘要", help: "300 字內", required: true },
+    { id: "f5", type: "text", label: "預計使用技術", placeholder: "例：Next.js、PostgreSQL" },
+    { id: "f6", type: "text", label: "產學合作單位（如有）" },
+  ],
+  "mi-011": [
+    { id: "f1", type: "groupinfo", label: "組別資訊" },
+    { id: "f2", type: "paragraph", label: "請於截止日前上傳系統驗收簡報與操作說明文件；單檔上限 100 MiB，不接受影片。" },
+    { id: "f3", type: "file", label: "系統驗收簡報", required: true, meta: "PDF・上限 100 MiB" },
+    { id: "f4", type: "file", label: "操作說明文件", required: true, meta: "PDF・上限 100 MiB" },
+    { id: "f5", type: "url", label: "系統展示網址", placeholder: "https://" },
+    { id: "f6", type: "date", label: "希望驗收日期" },
+  ],
+};
+
+export type GroupSubmission = { groupId: string; state: SubmissionState; version?: number; submittedBy?: string; at?: string };
+
+/** 每個收件項目各組狀態；由 progress 數字推出，順序固定，畫面才穩定 */
+export const GROUP_SUBMISSIONS: Record<string, GroupSubmission[]> = Object.fromEntries(
+  MANAGED_ITEMS.filter((i) => i.progress).map((item) => {
+    const { done, overdue } = item.progress!;
+    const rows: GroupSubmission[] = GROUPS.map((g, idx) => {
+      if (idx < done) return { groupId: g.id, state: "submitted", version: ((idx + done) % 2) + 1, submittedBy: g.members[idx % g.members.length].name, at: `2026-08-${String(10 + ((idx * 3) % 7)).padStart(2, "0")} ${String(9 + (idx % 10)).padStart(2, "0")}:${String((idx * 17) % 60).padStart(2, "0")}` };
+      if (idx < done + overdue) return { groupId: g.id, state: "overdue" };
+      return { groupId: g.id, state: idx % 2 === 0 ? "draft" : "todo" };
+    });
+    if (item.myState) rows[0] = { ...rows[0], groupId: "g-07", state: item.myState, ...(item.myState === "submitted" ? { version: 1, submittedBy: "黃詩涵", at: "2026-08-14 16:20" } : {}) };
+    return [item.id, rows];
+  }),
+);
+
+/** 學生視角：某項目的繳交版本 */
+export const SUBMISSION_VERSIONS: Record<string, { version: number; by: string; at: string; schemaVersion: number; note?: string }[]> = {
+  "mi-013": [{ version: 1, by: "黃詩涵", at: "2026-08-14 16:20", schemaVersion: 1 }],
+  "mi-011": [
+    { version: 2, by: "林彥廷", at: "2026-08-12 23:41", schemaVersion: 3, note: "補上操作說明文件" },
+    { version: 1, by: "吳柏諺", at: "2026-08-10 18:02", schemaVersion: 3 },
+  ],
+};
