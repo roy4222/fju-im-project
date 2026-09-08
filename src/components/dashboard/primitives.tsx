@@ -13,7 +13,7 @@ import { STATE_LABEL, type SubmissionState } from "@/lib/fixtures";
 
 export function Panel({ title, icon, description, action, children, className = "", bodyClassName = "" }: { title: string; icon?: ReactNode; description?: string; action?: { href: string; label: string } | ReactNode; children: ReactNode; className?: string; bodyClassName?: string }) {
   return (
-    <section className={`flex flex-col overflow-hidden rounded-xl border border-border bg-card ${className}`}>
+    <section className={`dash-card flex flex-col overflow-hidden ${className}`}>
       <div className="flex items-center justify-between gap-3 px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-2">
           {icon ? <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span> : null}
@@ -29,92 +29,83 @@ export function Panel({ title, icon, description, action, children, className = 
           action
         )}
       </div>
-      <div className={`flex-1 border-t border-border ${bodyClassName}`}>{children}</div>
+      <div className={`flex-1 ${bodyClassName}`}>{children}</div>
     </section>
   );
 }
 
-/** 統計磚：放在 StatRow 裡，彼此用分隔線；數字黑、小圖灰。 */
-export function StatTile({ label, value, unit, hint, trend, chart, tone = "default", href, icon }: { label: string; value: string | number; unit?: string; hint?: string; trend?: { value: number; label?: string }; chart?: ReactNode; tone?: "default" | "warning" | "danger" | "success" | "brand"; href?: string; icon?: ReactNode }) {
-  const dot = { default: "", warning: "bg-warning", danger: "bg-destructive", success: "bg-success", brand: "bg-brand" }[tone];
+/** 統計磚（V1）：白卡、右上彩色 icon 方塊、黑色大數字、底部迷你長條。 */
+export function StatTile({ label, value, unit, hint, trend, chart, tone = "default", href, icon }: { label: string; value: string | number; unit?: string; hint?: string; trend?: { value: number; label?: string }; chart?: ReactNode; tone?: "default" | "warning" | "danger" | "success" | "brand" | "info"; href?: string; icon?: ReactNode }) {
+  const chip = { default: "bg-muted text-muted-foreground", warning: "bg-warning-subtle text-warning-on-subtle", danger: "bg-destructive-subtle text-destructive-on-subtle", success: "bg-success-subtle text-success-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-info-subtle text-info-on-subtle" }[tone];
   const body = (
     <>
-      <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
-        {icon ? <span className="[&_svg]:size-4">{icon}</span> : null}
-        {label}
-        {dot ? <span className={`size-1.5 rounded-full ${dot}`} aria-hidden /> : null}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+        {icon ? <span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-[9px] ${chip} [&_svg]:size-4`}>{icon}</span> : null}
       </div>
-      <div className="mt-3 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="tabular text-[28px] font-bold leading-none tracking-tight">
-            {value}
-            {unit ? <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span> : null}
-          </p>
-          {trend || hint ? (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-              {trend ? (
-                <span className={`inline-flex items-center gap-0.5 font-semibold ${trend.value >= 0 ? "text-success-on-subtle" : "text-destructive"}`}>
-                  {trend.value >= 0 ? <IconArrowUpRight className="size-3.5" /> : <IconArrowDownRight className="size-3.5" />}
-                  {trend.value > 0 ? "+" : ""}{trend.value}
-                </span>
-              ) : null}
-              {hint ? <span className="truncate">{hint}</span> : null}
-            </div>
+      <p className="tabular mt-3.5 text-[30px] font-extrabold leading-none tracking-tight">
+        {value}
+        {unit ? <span className="ml-1 text-[13px] font-medium text-muted-foreground">{unit}</span> : null}
+      </p>
+      <div className="mt-3.5 flex items-end justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {trend ? (
+            <span className={`inline-flex items-center gap-0.5 font-semibold ${trend.value >= 0 ? "text-success-on-subtle" : "text-destructive"}`}>
+              {trend.value >= 0 ? <IconArrowUpRight className="size-3.5" /> : <IconArrowDownRight className="size-3.5" />}
+              {trend.value > 0 ? "+" : ""}{trend.value}
+            </span>
           ) : null}
+          {hint ? <span className="truncate">{hint}</span> : null}
         </div>
-        {chart ? <div className="shrink-0 text-muted-foreground/70">{chart}</div> : null}
+        {chart ? <div className={`shrink-0 ${{ default: "text-muted-foreground", warning: "text-warning", danger: "text-destructive", success: "text-success", brand: "text-brand", info: "text-info" }[tone]}`}>{chart}</div> : null}
       </div>
     </>
   );
-  const cls = "block p-5 transition-colors";
-  return href ? <Link href={href} className={`${cls} hover:bg-accent/50`}>{body}</Link> : <div className={cls}>{body}</div>;
+  const cls = "dash-card block p-5";
+  return href ? <Link href={href} className={`${cls} dash-card-hover`}>{body}</Link> : <div className={cls}>{body}</div>;
 }
 
-/** 一列統計磚：單一容器、分隔線 */
-export function StatRow({ children, cols = 4 }: { children: ReactNode; cols?: 3 | 4 }) {
-  return (
-    <div className={`grid overflow-hidden rounded-xl border border-border bg-card divide-y divide-border sm:grid-cols-2 sm:divide-y-0 ${cols === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"} [&>*:nth-child(odd)]:sm:border-r [&>*]:sm:border-border ${cols === 4 ? "[&>*:not(:last-child)]:xl:border-r" : "[&>*:not(:last-child)]:xl:border-r"} [&>*:nth-child(-n+2)]:sm:border-b [&>*]:xl:border-b-0`}>
-      {children}
-    </div>
-  );
+/** 統計磚一列 */
+export function StatRow({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 }) {
+  return <div className={`grid gap-4 sm:grid-cols-2 ${cols === 4 ? "xl:grid-cols-4" : cols === 3 ? "xl:grid-cols-3" : ""}`}>{children}</div>;
 }
 
-/** 問候列：不是卡片，只有一行名字、一句話、一個主要動作。 */
-export function Greeting({ name, line, cta, aside }: { name: string; line: string; cta: { href: string; label: string }; aside?: ReactNode }) {
+/** 問候列：一行名字、一句話、一顆主要動作（沒事時沒有按鈕）。 */
+export function Greeting({ name, line, cta, aside }: { name: string; line: string; cta?: { href: string; label: string }; aside?: ReactNode }) {
   const h = new Date().getHours();
   const hello = h < 5 ? "晚安" : h < 11 ? "早安" : h < 18 ? "午安" : "晚安";
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-bold tracking-tight">{hello}，{name}</h1>
+        <h1 className="text-[22px] font-extrabold tracking-tight">{hello}，{name}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{line}</p>
       </div>
       <div className="flex shrink-0 items-center gap-3">
         {aside}
-        <Link href={cta.href} className="btn-fju h-10 px-4 text-sm">
-          {cta.label}
-          <IconArrowRight className="size-4" />
-        </Link>
+        {cta ? (
+          <Link href={cta.href} className="btn-fju group h-[38px] rounded-lg px-4 text-[13px]">
+            {cta.label}
+            <IconArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        ) : null}
       </div>
     </div>
   );
 }
 
-/** 需要處理列：名稱、數字、箭頭。沒有 icon 方塊。 */
-export function ActionRow({ label, detail, count, href, cta, tone = "default", icon }: { icon?: ReactNode; label: string; detail?: string; count: number; href: string; cta?: string; tone?: "default" | "warning" | "danger" | "brand" | "info" }) {
-  const dot = { default: "bg-muted-foreground/40", warning: "bg-warning", danger: "bg-destructive", brand: "bg-brand", info: "bg-info" }[tone];
+/** 需要處理列：彩色 icon 方塊、名稱、數字、一顆按鈕。 */
+export function ActionRow({ label, detail, count, href, cta = "查看", tone = "default", icon }: { icon?: ReactNode; label: string; detail?: string; count: number; href: string; cta?: string; tone?: "default" | "warning" | "danger" | "brand" | "info" | "success" }) {
+  const chip = { default: "bg-muted text-muted-foreground", warning: "bg-warning-subtle text-warning-on-subtle", danger: "bg-destructive-subtle text-destructive-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-info-subtle text-info-on-subtle", success: "bg-success-subtle text-success-on-subtle" }[tone];
   return (
     <li>
-      <Link href={href} className="group flex items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-accent/50">
-        <span className={`size-2 shrink-0 rounded-full ${count > 0 ? dot : "bg-muted-foreground/25"}`} aria-hidden />
-        {icon ? <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span> : null}
+      <Link href={href} className="group flex items-center gap-3.5 border-t border-border/70 px-5 py-3.5 transition-colors hover:bg-accent/50">
+        <span className={`inline-flex size-[34px] shrink-0 items-center justify-center rounded-[10px] ${chip} [&_svg]:size-4`}>{icon}</span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{label}</p>
           {detail ? <p className="truncate text-xs text-muted-foreground">{detail}</p> : null}
         </div>
         <span className={`tabular text-lg font-bold ${count > 0 ? "" : "text-muted-foreground/60"}`}>{count}</span>
-        <IconArrowRight className="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-        {cta ? <span className="sr-only">{cta}</span> : null}
+        <span className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-bold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">{cta}</span>
       </Link>
     </li>
   );
@@ -161,6 +152,16 @@ export function ProgressBar({ done, total, overdue = 0, showLabel = true }: { do
         </div>
       </div>
       {showLabel ? <span className="tabular shrink-0 text-xs text-muted-foreground">{done}/{total}</span> : null}
+    </div>
+  );
+}
+
+/** 沒事時的占位：一句話，不放插畫（Roy 2026-09-08 決定不用 AI 生成圖） */
+export function QuietState({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="flex min-h-[160px] flex-col items-center justify-center gap-1.5 rounded-[14px] border-[1.5px] border-dashed border-border px-6 text-center">
+      <p className="text-[15px] font-bold">{title}</p>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

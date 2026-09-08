@@ -79,7 +79,7 @@ export function AppSidebar({ role }: { role: Role }) {
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
-                      className="h-9 rounded-lg transition-colors duration-150 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                      className={`h-9 rounded-lg transition-colors duration-150 ${isActive ? "bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
                       render={
                         <Link href={href}>
                           <Icon className="size-4.5" />
@@ -87,7 +87,7 @@ export function AppSidebar({ role }: { role: Role }) {
                         </Link>
                       }
                     />
-                    {badge ? <SidebarMenuBadge className={`tabular text-[11px] font-semibold ${isActive ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{badge}</SidebarMenuBadge> : null}
+                    {badge ? <SidebarMenuBadge className="tabular rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
