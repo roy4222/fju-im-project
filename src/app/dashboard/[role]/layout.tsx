@@ -15,12 +15,12 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
   return (
     <SidebarProvider>
       <AppSidebar role={role} />
-      <SidebarInset className="bg-muted/40">
+      <SidebarInset className="dash-surface">
         <Suspense fallback={null}>
           <TopLoader top={56} />
         </Suspense>
         <DashboardHeader role={role} />
-        <div className="flex-1 p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1280px] flex-1 p-4 md:p-6 lg:p-8">
           <PageTransition>{children}</PageTransition>
         </div>
       </SidebarInset>

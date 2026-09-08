@@ -57,14 +57,10 @@ export function AppSidebar({ role }: { role: Role }) {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="px-3 pt-3">
-        <Link href={base} className="flex items-center gap-2.5 rounded-md p-1 transition-colors hover:bg-sidebar-accent">
-          <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white ring-1 ring-border">
-            <Image src="/brand/fju-im-logo.png" alt="" width={763} height={187} className="h-5 w-auto" />
-          </span>
-          <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-bold">專題管理平台</span>
-            <span className="truncate text-[11px] text-muted-foreground">{COHORT.label}</span>
-          </span>
+        <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} className="h-7 w-auto group-data-[collapsible=icon]:hidden" />
+          <span className="hidden size-8 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
+          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台・{COHORT.code} 學年度</span>
         </Link>
       </SidebarHeader>
 
@@ -83,7 +79,7 @@ export function AppSidebar({ role }: { role: Role }) {
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
-                      className="h-9 rounded-lg transition-[background-color,color,transform] duration-200 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:shadow-sm hover:translate-x-0.5"
+                      className="h-9 rounded-lg transition-colors duration-150 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
                       render={
                         <Link href={href}>
                           <Icon className="size-4.5" />
@@ -91,7 +87,7 @@ export function AppSidebar({ role }: { role: Role }) {
                         </Link>
                       }
                     />
-                    {badge ? <SidebarMenuBadge className={`rounded-full px-1.5 text-[11px] font-bold ${isActive ? "bg-white/20 text-primary-foreground" : "bg-brand text-brand-foreground"}`}>{badge}</SidebarMenuBadge> : null}
+                    {badge ? <SidebarMenuBadge className={`tabular text-[11px] font-semibold ${isActive ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
