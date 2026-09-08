@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { PageHead, PillLink } from "@/components/public/blocks";
+import { IconAward } from "@tabler/icons-react";
+import { ListState, PageHead, PillLink } from "@/components/public/blocks";
+import { SearchSortBar } from "@/components/public/search-sort-bar";
 import { PhotoDialogGrid, type PhotoEntry } from "@/components/public/photo-dialog-grid";
 import { honorYears, listHonors } from "@/lib/data/catalog";
 
@@ -15,7 +17,17 @@ export default async function HonorsPage({ searchParams }: PageProps<"/honors">)
   const sp = await searchParams;
   const year = typeof sp.year === "string" ? sp.year : "all";
   const open = typeof sp.item === "string" ? sp.item : undefined;
-  const items = await listHonors({ year });
+  const q = typeof sp.q === "string" ? sp.q : "";
+  const sort = typeof sp.sort === "string" ? sp.sort : undefined;
+  const items = await listHonors({ year, q, sort });
+  const keep = (y: string) => {
+    const p = new URLSearchParams();
+    if (y !== "all") p.set("year", y);
+    if (q) p.set("q", q);
+    if (sort) p.set("sort", sort);
+    const s = p.toString();
+    return s ? `/honors?${s}` : "/honors";
+  };
   const entries: PhotoEntry[] = items.map((h) => ({
     id: h.id,
     image: h.image,
@@ -34,13 +46,20 @@ export default async function HonorsPage({ searchParams }: PageProps<"/honors">)
     <>
       <PageHead title="榮譽榜" description="競賽得獎照片與得獎組別。點開卡片為一張圖片加文字；人物照不裁切。" crumbs={[{ label: "榮譽榜" }]} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
-        <nav className="flex flex-wrap gap-2" aria-label="年份篩選">
-          <PillLink href="/honors" active={year === "all"}>全部</PillLink>
-          {honorYears().map((y) => (
-            <PillLink key={y} href={`/honors?year=${y}`} active={year === y}>{y}</PillLink>
-          ))}
-        </nav>
-        <PhotoDialogGrid entries={entries} columns={3} initialOpenId={open} />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <nav className="flex flex-wrap gap-2" aria-label="年份篩選">
+            <PillLink href={keep("all")} active={year === "all"}>全部</PillLink>
+            {honorYears().map((y) => (
+              <PillLink key={y} href={keep(y)} active={year === y}>{y}</PillLink>
+            ))}
+          </nav>
+          <SearchSortBar placeholder="搜尋競賽、獎項、組別" sortOptions={[{ value: "date", label: "日期（新到舊）" }, { value: "date-asc", label: "日期（舊到新）" }]} />
+        </div>
+        {items.length === 0 ? (
+          <ListState icon={<IconAward className="size-8" />} title="找不到符合的紀錄" hint="換個關鍵字，或清除篩選條件。" />
+        ) : (
+          <PhotoDialogGrid entries={entries} columns={3} initialOpenId={open} />
+        )}
       </div>
     </>
   );

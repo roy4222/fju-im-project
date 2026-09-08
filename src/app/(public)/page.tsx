@@ -27,7 +27,7 @@ export default async function HomePage() {
     listNews(viewer),
     listFeaturedProjects(),
     listHonors(),
-    listCompetitions(),
+    listCompetitions({ status: "open" }),
     listWork(viewer),
     listUpcoming(viewer),
     listProjects(viewer, { sort: "cohort" }),

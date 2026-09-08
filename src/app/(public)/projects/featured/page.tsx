@@ -1,10 +1,9 @@
-import Link from "next/link";
 import type { Metadata } from "next";
-import { IconLock } from "@tabler/icons-react";
-import { PageHead, PillLink } from "@/components/public/blocks";
+import { IconCrown } from "@tabler/icons-react";
+import { ListState, PageHead, PillLink } from "@/components/public/blocks";
+import { SearchSortBar } from "@/components/public/search-sort-bar";
 import { PhotoDialogGrid, type PhotoEntry } from "@/components/public/photo-dialog-grid";
 import { listFeaturedProjects, projectCohorts } from "@/lib/data/catalog";
-import { getViewer } from "@/lib/data/viewer";
 
 export const metadata: Metadata = {
   title: "優秀專題",
@@ -13,14 +12,23 @@ export const metadata: Metadata = {
   openGraph: { url: "/projects/featured" },
 };
 
-/** 優秀專題：公開，訪客可點開一圖一文 dialog 與完整詳情（Roy 2026-09-07）。 */
+/** 優秀專題：公開，訪客可點開一圖一文 dialog 與完整詳情（Roy 2026-09-07）；可搜尋排序、不放登入提示（Roy 2026-09-08）。 */
 export default async function FeaturedPage({ searchParams }: PageProps<"/projects/featured">) {
   const sp = await searchParams;
   const cohort = typeof sp.cohort === "string" ? sp.cohort : "all";
   const open = typeof sp.item === "string" ? sp.item : undefined;
-  const viewer = await getViewer();
-  const all = await listFeaturedProjects();
+  const q = typeof sp.q === "string" ? sp.q : "";
+  const sort = typeof sp.sort === "string" ? sp.sort : undefined;
+  const all = await listFeaturedProjects({ q, sort });
   const items = cohort === "all" ? all : all.filter((p) => p.cohort === cohort);
+  const keep = (c: string) => {
+    const p = new URLSearchParams();
+    if (c !== "all") p.set("cohort", c);
+    if (q) p.set("q", q);
+    if (sort) p.set("sort", sort);
+    const s = p.toString();
+    return s ? `/projects/featured?${s}` : "/projects/featured";
+  };
   const entries: PhotoEntry[] = items.map((p) => ({
     id: p.id,
     image: p.image,
@@ -41,25 +49,20 @@ export default async function FeaturedPage({ searchParams }: PageProps<"/project
     <>
       <PageHead title="優秀專題" description="歷屆校級優秀專題與競賽得獎作品。點開卡片看海報、說明與獎項；完整摘要、影片與文件概述在詳情頁。" crumbs={[{ label: "優秀專題" }]} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
-        <nav className="flex flex-wrap gap-2" aria-label="屆別篩選">
-          <PillLink href="/projects/featured" active={cohort === "all"}>全部屆別</PillLink>
-          {projectCohorts().map((c) => (
-            <PillLink key={c} href={`/projects/featured?cohort=${c}`} active={cohort === c}>{c} 屆</PillLink>
-          ))}
-        </nav>
-        <PhotoDialogGrid entries={entries} initialOpenId={open} />
-        {!viewer.isMember ? (
-          <div className="mt-8 flex flex-col items-start gap-4 rounded-xl bg-secondary p-8 text-secondary-foreground sm:flex-row sm:items-center">
-            <IconLock className="size-5 shrink-0 text-brand" aria-hidden />
-            <div className="flex-1">
-              <p className="text-lg font-bold text-foreground">歷屆專題一覽需要登入</p>
-              <p className="text-sm text-muted-foreground">得獎作品公開；全部歷屆作品的題目、摘要、海報與三分鐘影片只提供本系學生與老師作為學習參考。</p>
-            </div>
-            <Link href="/login?returnTo=/projects" className="btn-fju h-11 px-5 text-[15px]">
-              登入查看
-            </Link>
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <nav className="flex flex-wrap gap-2" aria-label="屆別篩選">
+            <PillLink href={keep("all")} active={cohort === "all"}>全部屆別</PillLink>
+            {projectCohorts().map((c) => (
+              <PillLink key={c} href={keep(c)} active={cohort === c}>{c} 屆</PillLink>
+            ))}
+          </nav>
+          <SearchSortBar placeholder="搜尋題目、指導老師、組別" sortOptions={[{ value: "cohort", label: "屆別（新到舊）" }, { value: "title", label: "題目" }]} />
+        </div>
+        {items.length === 0 ? (
+          <ListState icon={<IconCrown className="size-8" />} title="找不到符合的作品" hint="換個關鍵字，或清除篩選條件。" />
+        ) : (
+          <PhotoDialogGrid entries={entries} initialOpenId={open} />
+        )}
       </div>
     </>
   );

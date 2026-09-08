@@ -822,7 +822,7 @@ export type Competition = {
   organizer: string;
   deadline: string;
   eventDate?: string;
-  status: "open" | "closed" | "result";
+  /** 狀態不存欄位：由 deadline／eventDate 與今天推導（catalog.competitionStatus） */
   summary: string;
   image: string;
   link?: string;
@@ -836,7 +836,6 @@ export const COMPETITIONS: Competition[] = [
     title: "第 31 屆全國大專校院資訊應用服務創新競賽",
     organizer: "教育部資訊及科技教育司",
     deadline: "2026-10-03",
-    status: "open",
     summary:
       "分為資訊應用服務創新、行動應用服務創新等組別。欲以專題作品參賽者，請先與指導老師確認資格與授權範圍。",
   },
@@ -847,7 +846,6 @@ export const COMPETITIONS: Competition[] = [
     organizer: "智慧製造推動聯盟",
     deadline: "2026-07-31",
     eventDate: "2026-09-02",
-    status: "result",
     summary: "本系共三組作品入圍決賽，決賽日期為 9 月 2 日。入圍組別請與指導老師確認展示準備。",
   },
   {
@@ -857,7 +855,6 @@ export const COMPETITIONS: Competition[] = [
     organizer: "校內教學發展中心",
     deadline: "2026-06-20",
     eventDate: "2026-07-05",
-    status: "closed",
     summary: "以跨領域合作為主題的校內成果展，本系有兩組作品獲評審推薦。",
   },
 ];

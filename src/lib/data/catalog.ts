@@ -70,9 +70,29 @@ export const NEWS_CATEGORIES = ["全部", "專題事務", "競賽資訊", "活�
 
 /* ------------------------------------------------------------------ 競賽 */
 
-export async function listCompetitions(): Promise<Competition[]> {
+export type CompetitionStatus = "open" | "result" | "closed";
+export type CompetitionSort = "deadline" | "deadline-asc" | "title";
+
+/**
+ * 競賽狀態由日期推導（Roy 2026-09-08）：後台只填截止日與活動日，
+ * 截止日未過＝報名中；活動日未過＝決賽／結果；都過了自動變已結束，不用手動切換。
+ */
+export function competitionStatus(c: Competition): CompetitionStatus {
+  if (daysUntil(c.deadline) >= 0) return "open";
+  if (c.eventDate && daysUntil(c.eventDate) >= 0) return "result";
+  return "closed";
+}
+
+export async function listCompetitions(opts: { status?: string; q?: string; sort?: string } = {}): Promise<(Competition & { status: CompetitionStatus })[]> {
   const order = { open: 0, result: 1, closed: 2 };
-  return [...COMPETITIONS].sort((a, b) => order[a.status] - order[b.status] || b.deadline.localeCompare(a.deadline));
+  const q = opts.q?.trim().toLowerCase();
+  let items = COMPETITIONS.map((c) => ({ ...c, status: competitionStatus(c) }));
+  if (opts.status && opts.status !== "all") items = items.filter((c) => c.status === opts.status);
+  if (q) items = items.filter((c) => [c.title, c.organizer, c.summary].some((t) => t.toLowerCase().includes(q)));
+  const sort = (opts.sort ?? "deadline") as CompetitionSort;
+  if (sort === "title") return items.sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
+  if (sort === "deadline-asc") return items.sort((a, b) => a.deadline.localeCompare(b.deadline));
+  return items.sort((a, b) => order[a.status] - order[b.status] || b.deadline.localeCompare(a.deadline));
 }
 
 /* ------------------------------------------------------------------ 規則 */
@@ -85,8 +105,12 @@ export async function getRules() {
 
 export type ProjectSort = "cohort" | "award" | "title";
 
-export async function listFeaturedProjects(): Promise<ProjectItem[]> {
-  return PROJECTS.filter((p) => p.award).sort((a, b) => b.cohort.localeCompare(a.cohort) || (a.award === "excellent" ? -1 : 1));
+export async function listFeaturedProjects(opts: { q?: string; sort?: string } = {}): Promise<ProjectItem[]> {
+  const q = opts.q?.trim().toLowerCase();
+  let items = PROJECTS.filter((p) => p.award);
+  if (q) items = items.filter((p) => [p.title, p.advisor, p.groupNo, p.field, p.awardLabel ?? ""].some((t) => t.toLowerCase().includes(q)));
+  if (opts.sort === "title") return items.sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
+  return items.sort((a, b) => b.cohort.localeCompare(a.cohort) || (a.award === "excellent" ? -1 : 1));
 }
 
 /** 歷屆專題一覽：登入後（7/22 §6.2）。訪客回空陣列，由頁面顯示需要登入。 */
@@ -135,10 +159,13 @@ export async function getProject(viewer: Viewer, id: string) {
 
 /* ------------------------------------------------------------------ 榮譽 */
 
-export async function listHonors(opts: { year?: string } = {}): Promise<HonorItem[]> {
-  let items = [...HONORS].sort((a, b) => b.date.localeCompare(a.date));
-  if (opts.year && opts.year !== "all") items = items.filter((h) => h.year === opts.year);
-  return items;
+export async function listHonors(opts: { year?: string; q?: string; sort?: string } = {}): Promise<HonorItem[]> {
+  const q = opts.q?.trim().toLowerCase();
+  let items = [...HONORS];
+  if (opts.year && opts.year !== "all") items = items.filter((h) => h.date.startsWith(opts.year!));
+  if (q) items = items.filter((h) => [h.competition, h.award, h.team, h.summary].some((t) => t.toLowerCase().includes(q)));
+  if (opts.sort === "date-asc") return items.sort((a, b) => a.date.localeCompare(b.date));
+  return items.sort((a, b) => b.date.localeCompare(a.date));
 }
 
 export function honorYears(): string[] {
@@ -217,8 +244,10 @@ export type DueEntry = { id: string; title: string; dueAt: string; days: number;
 
 export async function listUpcoming(viewer: Viewer): Promise<DueEntry[]> {
   if (!viewer.isMember) return [];
+  // 截止日由後台項目的 dueAt 帶入；過期的自動不再出現在首頁（Roy 2026-09-08）
   return MANAGED_ITEMS.filter((i) => i.dueAt)
     .map((i) => ({ id: i.id, title: i.title, dueAt: i.dueAt!, days: daysUntil(i.dueAt!), href: `/dashboard/${viewer.role}/affairs` }))
+    .filter((d) => d.days >= 0)
     .sort((a, b) => a.days - b.days)
     .slice(0, 3);
 }

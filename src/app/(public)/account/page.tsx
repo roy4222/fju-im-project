@@ -23,7 +23,7 @@ export default async function AccountPage() {
   const u = viewer.user;
   return (
     <>
-      <PageHead title="個人資料" description="姓名、學號與登入方式。學號與屆別由系辦維護，改動請洽系辦。" crumbs={[{ label: "個人資料" }]} />
+      <PageHead title="個人資料" description="學號與屆別由系辦維護。" crumbs={[{ label: "個人資料" }]} />
       <div className="mx-auto grid max-w-6xl gap-12 px-5 py-10 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex flex-col gap-6">
           <form className="flex flex-col gap-4.5 rounded-xl border border-border bg-card p-7">
@@ -58,16 +58,6 @@ export default async function AccountPage() {
             <p className="text-[13px] leading-relaxed text-muted-foreground">
               {viewer.role === "student" ? `2026-08-14 由名單自動核准。${MY_GROUP.no}組長。` : "由系辦建立並授予角色。"}
             </p>
-          </div>
-          <div className="flex flex-col gap-2.5 rounded-xl border border-border p-5.5">
-            <p className="font-bold">登入裝置</p>
-            <p className="text-[13px] text-muted-foreground">目前 2 個裝置登入中。</p>
-            <button type="button" className="btn-fju-outline h-10 text-sm">登出所有裝置</button>
-            <form method="post" action="/api/proto-role">
-              <input type="hidden" name="role" value="guest" />
-              <input type="hidden" name="returnTo" value="/" />
-              <button type="submit" className="w-full text-sm font-semibold text-muted-foreground hover:text-foreground">登出</button>
-            </form>
           </div>
         </aside>
       </div>

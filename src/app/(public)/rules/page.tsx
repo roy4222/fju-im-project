@@ -10,12 +10,12 @@ export const metadata: Metadata = {
   openGraph: { url: "/rules" },
 };
 
-/** 專題規則：與舊站九節一致（Roy 2026-09-07），文件式全文直接列出，不做歷史版本。 */
+/** 專題規則：與舊站九節一致（Roy 2026-09-07），文件式全文直接列出，不做歷史版本、頁面不顯示版本號（Roy 2026-09-08）。 */
 export default async function RulesPage() {
   const doc = await getRules();
   return (
     <>
-      <PageHead title="專題規則" description={`現行 ${doc.version} 版（${doc.updatedAt} 生效）。全文直接列出，不需逐層點開。`} crumbs={[{ label: "專題規則" }]} />
+      <PageHead title="專題規則" description="全文直接列出，不需逐層點開。" crumbs={[{ label: "專題規則" }]} />
       <div className="mx-auto grid max-w-6xl gap-14 px-5 py-10 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="lg:sticky lg:top-28 lg:self-start">
           <p className="text-[13px] font-bold tracking-wider text-muted-foreground">目錄</p>
@@ -27,8 +27,7 @@ export default async function RulesPage() {
             ))}
           </nav>
           <div className="mt-5 flex flex-col gap-2 rounded-[10px] bg-secondary p-4.5 text-secondary-foreground">
-            <p className="font-bold">版本</p>
-            <p className="text-sm text-muted-foreground">{doc.version}（{doc.updatedAt} 生效）・只顯示現行版本</p>
+            <p className="font-bold">附件</p>
             {doc.attachments.map((a) => (
               <a key={a.name} href="#" className="flex items-center gap-2 text-sm font-semibold text-primary hover:text-brand">
                 <IconFileText className="size-4" />

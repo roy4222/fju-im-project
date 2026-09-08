@@ -24,7 +24,7 @@ export function PrototypeBar({ role }: { role: ViewerRole }) {
       </div>
       {open ? (
         <>
-          <p className="mt-2 opacity-80">切換身分（模擬登入）</p>
+          <p className="mt-2 text-white/90">切換身分（模擬登入）</p>
           <form method="post" action="/api/proto-role" className="mt-1.5 grid grid-cols-4 gap-1.5">
             <input type="hidden" name="returnTo" value={pathname} />
             {ROLES.map((r) => (
@@ -40,7 +40,7 @@ export function PrototypeBar({ role }: { role: ViewerRole }) {
               </button>
             ))}
           </form>
-          <p className="mt-2 text-xs leading-relaxed opacity-60">照片暫用系網素材，資料為虛構示範。後台入口連到後台草稿，另評選。</p>
+          <p className="mt-2 text-xs leading-relaxed text-white/80">照片暫用系網素材，資料為虛構示範。</p>
         </>
       ) : null}
     </div>

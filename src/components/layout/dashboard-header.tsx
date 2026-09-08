@@ -9,13 +9,13 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { navForRole, ROLE_LABEL } from "@/lib/nav-config";
 import type { Role } from "@/lib/fixtures";
 
@@ -74,23 +74,23 @@ export function DashboardHeader({ role }: { role: Role }) {
             }
           />
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>切換檢視角色</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {ROLES.map((r) => (
-              <DropdownMenuItem
-                key={r}
-                onClick={() => switchRole(r)}
-                className={r === role ? "font-semibold" : ""}
-              >
-                {ROLE_LABEL[r]}
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>切換檢視角色</DropdownMenuLabel>
+              {ROLES.map((r) => (
+                <DropdownMenuItem
+                  key={r}
+                  onClick={() => switchRole(r)}
+                  className={r === role ? "font-semibold" : ""}
+                >
+                  {ROLE_LABEL[r]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href="/">回到公開網站</Link>} />
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <ThemeToggle size="icon-lg" />
       </div>
     </header>
   );

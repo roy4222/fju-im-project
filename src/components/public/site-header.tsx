@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { IconChevronDown, IconMenu2 } from "@tabler/icons-react";
+import { IconChevronDown, IconLayoutDashboard, IconLogout, IconMenu2, IconUserCircle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ROLE_LABEL, type ViewerRole } from "@/lib/data/roles";
 
 type NavItem = { label: string; href: string; children?: { label: string; href: string }[]; match: (p: string) => boolean };
@@ -50,6 +50,12 @@ function navFor(role: ViewerRole): NavItem[] {
   ];
 }
 
+/**
+ * 前台導覽列（Roy 2026-09-08）：
+ * - 容器吃滿寬度（最寬 1600px），左 logo、選單靠右，登入後選單變多也不擠。
+ * - 沒有深淺主題切換：學校網站固定白底。
+ * - 右上角頭像是下拉選單（個人資料、後台、登出），不是直接進個人資料。
+ */
 export function SiteHeader({
   role,
   userName,
@@ -62,18 +68,19 @@ export function SiteHeader({
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const nav = navFor(role);
+  const logoutForm = useRef<HTMLFormElement>(null);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">
-      <div className="mx-auto flex h-20 max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-3.5">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} priority className="h-11 w-auto dark:brightness-110" />
+      <div className="mx-auto flex h-20 w-full max-w-[1600px] items-center gap-6 px-5 md:px-8 xl:px-12">
+        <Link href="/" className="flex shrink-0 items-center gap-3.5">
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} priority className="h-11 w-auto" />
           <span aria-hidden className="hidden h-8 w-px bg-border sm:block" />
           <span className="hidden text-[17px] font-bold sm:block">專題管理平台</span>
         </Link>
 
-        {/* 桌機導覽：hover 或鍵盤 focus 展開下拉（系網樣式：白底、上緣 3px 橘線） */}
-        <nav className="hidden items-center gap-7 lg:flex" aria-label="主要導覽">
+        {/* 桌機導覽：靠右；hover 或鍵盤 focus 展開下拉（系網樣式：白底、上緣 3px 橘線） */}
+        <nav className="ml-auto hidden items-center gap-6 xl:gap-8 lg:flex" aria-label="主要導覽">
           {nav.map((item) => {
             const active = item.match(pathname);
             return (
@@ -81,7 +88,7 @@ export function SiteHeader({
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex items-center gap-1 py-7 text-[16px] font-semibold transition-colors duration-300 hover:text-brand ${active ? "text-brand" : "text-foreground"}`}
+                  className={`inline-flex items-center gap-1 py-7 text-[16px] font-semibold whitespace-nowrap transition-colors duration-300 hover:text-brand ${active ? "text-brand" : "text-foreground"}`}
                 >
                   {item.label}
                   {item.children ? <IconChevronDown className="size-3.5" aria-hidden /> : null}
@@ -100,24 +107,49 @@ export function SiteHeader({
           })}
         </nav>
 
-        <div className="flex items-center gap-3">
-          <ThemeToggle size="icon-lg" />
+        <div className="ml-auto flex shrink-0 items-center gap-3 lg:ml-4 xl:ml-6">
           {role === "guest" ? (
             <Link href="/login" className="btn-fju hidden h-10.5 px-5.5 text-[15px] sm:inline-flex">
               登入
             </Link>
           ) : (
             <>
-              <Link href={workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] sm:inline-flex">
+              <Link href={workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap sm:inline-flex">
                 {workbench.label}
               </Link>
-              <Link href="/account" className="hidden items-center gap-2 sm:flex" aria-label="個人資料">
-                <span className="inline-flex size-8.5 items-center justify-center rounded-full bg-brand-subtle font-bold text-brand-on-subtle">{userName?.slice(0, 1)}</span>
-                <span className="hidden flex-col leading-tight md:flex">
-                  <span className="text-sm font-bold">{userName}</span>
-                  <span className="text-xs text-muted-foreground">{ROLE_LABEL[role]}</span>
-                </span>
-              </Link>
+              <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
+                <input type="hidden" name="role" value="guest" />
+                <input type="hidden" name="returnTo" value="/" />
+              </form>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button type="button" className="hidden items-center gap-2 rounded-md py-1 pr-1.5 pl-1 transition-colors hover:bg-accent sm:flex" aria-label="帳號選單">
+                      <span className="inline-flex size-8.5 items-center justify-center rounded-full bg-brand-subtle font-bold text-brand-on-subtle">{userName?.slice(0, 1)}</span>
+                      <span className="hidden flex-col items-start leading-tight md:flex">
+                        <span className="text-sm font-bold whitespace-nowrap">{userName}</span>
+                        <span className="text-xs text-muted-foreground">{ROLE_LABEL[role]}</span>
+                      </span>
+                      <IconChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+                    </button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-52 p-1.5">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">{userName}・{ROLE_LABEL[role]}</DropdownMenuLabel>
+                    <DropdownMenuItem className="h-9 px-2.5 text-[15px]" render={<Link href="/account" />}>
+                      <IconUserCircle /> 個人資料
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="h-9 px-2.5 text-[15px]" render={<Link href={workbench.href} />}>
+                      <IconLayoutDashboard /> {workbench.label}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="h-9 px-2.5 text-[15px]" onClick={() => logoutForm.current?.requestSubmit()}>
+                    <IconLogout /> 登出
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
 
@@ -144,6 +176,9 @@ export function SiteHeader({
                     <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
                       個人資料
                     </Link>
+                    <button type="button" onClick={() => logoutForm.current?.requestSubmit()} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
+                      登出
+                    </button>
                   </>
                 ) : (
                   <>
