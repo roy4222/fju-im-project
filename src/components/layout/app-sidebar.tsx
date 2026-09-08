@@ -59,7 +59,7 @@ export function AppSidebar({ role }: { role: Role }) {
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="px-3 pt-3">
         <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden" style={{ height: "auto" }} />
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
           <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
           <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
         </Link>

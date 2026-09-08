@@ -47,7 +47,7 @@ export function DashThemeRoot({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{ dark, toggle }}>
-      <div className={`${dark ? "dark" : ""} contents`}>
+      <div className={`${dark ? "dark" : ""} contents text-foreground`}>
         {children}
         <div aria-hidden className={`theme-curtain ${curtain === "down" ? "theme-curtain-down" : curtain === "up" ? "theme-curtain-up" : ""}`} style={{ background: dark ? "oklch(0.97 0.004 253.89)" : "oklch(0.19 0.012 253.89)" }} />
       </div>
