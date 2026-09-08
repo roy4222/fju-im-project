@@ -72,24 +72,34 @@ Tailwind CSS v4 + shadcn/ui（`style: base-nova`，primitives 為 **Base UI**，
 
 ## 3. 字體與字級
 
-三層字體，透過 CSS 變數指定，不要直接寫字體名稱：
+全站黑體（2026-09-07 Roy 定案，系網本身就是黑體）。透過 CSS 變數指定，不要直接寫字體名稱：
 
-- `--font-sans`（預設）：Geist + Noto Sans TC — 內文、UI、表格
-- `--font-display`：Noto Serif TC（思源宋體）— 中文標題
-- `--font-brand`：Kaisei Tokumin — wordmark 與數字。**這是日文字集，繁中缺
-  產／歷／檔／繳／查／內／辦／錄 等字，只用在拉丁字母與數字，不要用於中文長文。**
+- `--font-sans`（預設）：Geist（拉丁與數字）+ Noto Sans TC（漢字）— 內文、標題、UI、表格
+- `--font-display`、`--font-brand`：都指回 `--font-sans`，只為相容舊 class 保留。**不要再用襯線體或展示字體**；
+  標題層級靠字重（700／800）與字級。
 
 已編譯的字級工具類（tracking 與 leading 都已依字級調校，直接用，不要自己疊
 `text-4xl tracking-tight`）：
 
 | class | 用途 |
 |---|---|
-| `.type-display` | 首頁焦點區大標 |
-| `.type-section` | 區塊標題、頁面標題 |
+| `.type-display` | 首頁 hero 大標（800，行高 1.3） |
+| `.type-section` | 區塊大標（700，letter-spacing 0.06em，深灰）；系網做法是**第一個字染橘**，用 `<span className="text-brand">` 包首字 |
 | `.type-card-title` | 卡片標題 |
-| `.type-eyebrow` | 小型大寫拉丁標籤 |
-| `.type-brand` | 站名 wordmark |
 | `.tabular` | 數字、學號、日期（等寬數字，避免欄位跳動） |
+
+### 系網版面 utility（公開站用，`globals.css` 已編譯）
+
+| class | 用途 |
+|---|---|
+| `.btn-fju` | 橘實心按鈕，hover 變 `#EE8423`，0.3s；自己加高度與 padding（`h-12 px-7`） |
+| `.btn-fju-outline` | 白底 3px 橘框，hover 反白；「查看更多」用 `h-14 w-full max-w-[680px] text-xl` |
+| `.btn-fju-ghost` | 深色照片上的白框按鈕，hover 白底深藍字 |
+| `.fju-list-item` | 深藍 5px 左線的列表項（系網招生訊息／產業實習） |
+| `.fju-panel-title` | 灰藍圓角標題板，配 `rounded-tr-[40px]`（左）或 `rounded-tl-[40px]`（右） |
+
+照片卡：暖白底 `bg-secondary`、照片 `aspect-video` 在上、日期灰字、標題 `.type-card-title`、橘框標籤
+（`border-brand text-brand`）。區塊之間留白大（`pt-20`／`py-20`），版型交錯不重複同一節奏。
 
 其他兩個行為類：`.press`（按下時輕微縮放，已處理 `prefers-reduced-motion`）、
 `.scroll-edge`（捲動邊緣遮罩，取代 sticky 元素下方的 1px 分隔線）。

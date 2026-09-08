@@ -1,110 +1,61 @@
-import { IconCalendarEvent, IconExternalLink } from "@tabler/icons-react";
-import { PageHeader } from "@/components/public/page-header";
-import { ImagePlaceholder } from "@/components/public/sections";
-import { Badge } from "@/components/ui/badge";
-import { COMPETITIONS, daysUntil, formatDue } from "@/lib/fixtures";
+import Image from "next/image";
+import type { Metadata } from "next";
+import { IconExternalLink } from "@tabler/icons-react";
+import { PageHead, PillLink, Tag } from "@/components/public/blocks";
+import { listCompetitions } from "@/lib/data/catalog";
 
-export const metadata = { title: "競賽資訊" };
-
-const STATUS: Record<
-  string,
-  { label: string; className: string }
-> = {
-  open: {
-    label: "開放報名",
-    className: "border-brand/30 bg-brand-subtle text-brand-on-subtle",
-  },
-  closed: {
-    label: "已結束",
-    className: "text-muted-foreground",
-  },
-  result: {
-    label: "已公布結果",
-    className: "border-success/30 bg-success-subtle text-success-on-subtle",
-  },
+export const metadata: Metadata = {
+  title: "競賽資訊",
+  description: "進行中與近期的競賽資訊、報名連結與本系參賽紀錄。",
+  alternates: { canonical: "/competitions" },
+  openGraph: { url: "/competitions" },
 };
 
-/** 0715 會議紀錄 §9：競賽資訊比照公告卡片。 */
-export default function CompetitionsPage() {
-  const open = COMPETITIONS.filter((c) => c.status === "open");
+const STATUS: Record<string, { label: string; tone: "brand" | "navy" }> = {
+  open: { label: "報名中", tone: "brand" },
+  result: { label: "決賽／結果", tone: "navy" },
+  closed: { label: "已結束", tone: "navy" },
+};
 
+export default async function CompetitionsPage({ searchParams }: PageProps<"/competitions">) {
+  const sp = await searchParams;
+  const filter = typeof sp.status === "string" ? sp.status : "all";
+  const all = await listCompetitions();
+  const items = filter === "all" ? all : all.filter((c) => c.status === filter);
   return (
     <>
-      <PageHeader
-        title="競賽資訊"
-        breadcrumb={[{ href: "/competitions", label: "競賽資訊" }]}
-        description="系上彙整的競賽資訊。系上不代為報名，各組需自行於主辦單位系統完成程序。"
-        meta={
-          <p className="tabular text-sm text-muted-foreground">
-            共 {COMPETITIONS.length} 筆，其中 {open.length} 筆開放報名
-          </p>
-        }
-      />
-
-      <div className="mx-auto max-w-6xl px-5 py-10 md:py-14">
-        <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {COMPETITIONS.map((c) => {
-            const s = STATUS[c.status];
-            const d = daysUntil(c.deadline);
-            return (
-              <li key={c.id}>
-                <article className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card">
-                  <ImagePlaceholder className="aspect-[16/10]" note="競賽宣傳圖待提供" />
-                  <div className="flex flex-1 flex-col p-4">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-[11px] ${s.className}`}>
-                        {s.label}
-                      </Badge>
-                      {c.status === "open" ? (
-                        <span
-                          className={`tabular ml-auto text-xs font-semibold ${
-                            d <= 30 ? "text-brand-on-subtle" : "text-muted-foreground"
-                          }`}
-                        >
-                          {formatDue(c.deadline)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <h2 className="type-card-title mt-2.5">{c.title}</h2>
-                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                      {c.summary}
-                    </p>
-
-                    <dl className="mt-4 space-y-1.5 border-t border-border pt-3 text-xs">
-                      <div className="flex gap-2">
-                        <dt className="w-16 shrink-0 text-muted-foreground">主辦單位</dt>
-                        <dd>{c.organizer}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-16 shrink-0 text-muted-foreground">報名截止</dt>
-                        <dd className="tabular">{c.deadline}</dd>
-                      </div>
-                      {c.eventDate ? (
-                        <div className="flex gap-2">
-                          <dt className="w-16 shrink-0 text-muted-foreground">活動日期</dt>
-                          <dd className="tabular flex items-center gap-1">
-                            <IconCalendarEvent className="size-3.5 text-muted-foreground" />
-                            {c.eventDate}
-                          </dd>
-                        </div>
-                      ) : null}
-                    </dl>
-
-                    {c.status === "open" ? (
-                      <a
-                        href="#"
-                        className="press mt-4 inline-flex h-9 items-center gap-1.5 self-start rounded-full border border-brand/50 px-4 text-xs font-medium text-brand-on-subtle transition-colors hover:bg-brand-subtle"
-                      >
-                        前往主辦單位報名
-                        <IconExternalLink className="size-3.5" />
-                      </a>
-                    ) : null}
+      <PageHead title="競賽資訊" description="進行中與近期的競賽，比照公告卡片；每張卡片含狀態、截止日、說明與報名連結。" crumbs={[{ href: "/news", label: "最新公告" }, { label: "競賽資訊" }]} />
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
+        <nav className="flex flex-wrap gap-2" aria-label="篩選">
+          <PillLink href="/competitions" active={filter === "all"}>全部</PillLink>
+          <PillLink href="/competitions?status=open" active={filter === "open"} tone="brand">報名中</PillLink>
+          <PillLink href="/competitions?status=result" active={filter === "result"}>決賽／結果</PillLink>
+          <PillLink href="/competitions?status=closed" active={filter === "closed"}>已結束</PillLink>
+        </nav>
+        <ul className="grid gap-6 md:grid-cols-2">
+          {items.map((c) => (
+            <li key={c.id} id={c.id} className="scroll-mt-24">
+              <article className="grid h-full overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="relative aspect-video sm:aspect-auto">
+                  <Image src={c.image} alt="" fill sizes="(max-width: 640px) 100vw, 280px" className="object-cover" />
+                </div>
+                <div className="flex flex-col gap-2.5 p-6">
+                  <div className="flex items-center gap-2">
+                    <Tag tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Tag>
+                    <span className="tabular text-[13px] font-semibold text-muted-foreground">{c.status === "open" ? `截止 ${c.deadline}` : c.eventDate ? `活動 ${c.eventDate}` : c.deadline}</span>
                   </div>
-                </article>
-              </li>
-            );
-          })}
+                  <h2 className="text-xl font-bold leading-snug">{c.title}</h2>
+                  <p className="text-[13px] text-muted-foreground">主辦：{c.organizer}</p>
+                  <p className="text-[15px] leading-relaxed text-muted-foreground">{c.summary}</p>
+                  {c.link ? (
+                    <a href={c.link} target="_blank" rel="noreferrer" className="mt-auto inline-flex items-center gap-1 pt-2 text-sm font-bold text-brand hover:underline">
+                      競賽詳情與報名 <IconExternalLink className="size-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            </li>
+          ))}
         </ul>
       </div>
     </>

@@ -1,174 +1,106 @@
 import Link from "next/link";
+import Image from "next/image";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import {
-  IconArrowLeft,
-  IconExternalLink,
-  IconFileText,
-  IconPlayerPlay,
-} from "@tabler/icons-react";
-import { PageHeader } from "@/components/public/page-header";
-import { ImagePlaceholder } from "@/components/public/sections";
-import { Badge } from "@/components/ui/badge";
-import { PROJECTS, PROJECT_DETAIL } from "@/lib/fixtures";
+import { IconFileText, IconPlayerPlay } from "@tabler/icons-react";
+import { AwardBadge, Tag } from "@/components/public/blocks";
+import { NeedLogin } from "@/components/public/need-login";
+import { getProject } from "@/lib/data/catalog";
+import { getViewer } from "@/lib/data/viewer";
+import { PROJECTS } from "@/lib/fixtures";
 
-export function generateStaticParams() {
-  return PROJECTS.map((p) => ({ id: p.id }));
+export async function generateStaticParams() {
+  return PROJECTS.filter((p) => p.award).map((p) => ({ id: p.id }));
 }
 
-export async function generateMetadata({ params }: PageProps<"/projects/[id]">) {
+export async function generateMetadata({ params }: PageProps<"/projects/[id]">): Promise<Metadata> {
   const { id } = await params;
   const p = PROJECTS.find((x) => x.id === id);
-  return { title: p?.title ?? "專題作品" };
+  if (!p) return { title: "找不到作品" };
+  return { title: p.title, description: p.summary, alternates: { canonical: `/projects/${id}` }, openGraph: { url: `/projects/${id}`, images: [p.image] }, robots: p.award ? undefined : { index: false } };
 }
 
+/** 專題詳情：得獎作品公開，其餘登入後（getProject 決定）。 */
 export default async function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   const { id } = await params;
-  const project = PROJECTS.find((p) => p.id === id);
-  if (!project) notFound();
-
-  const detail = PROJECT_DETAIL[project.id];
-  const others = PROJECTS.filter((p) => p.id !== project.id).slice(0, 3);
+  const viewer = await getViewer();
+  const data = await getProject(viewer, id);
+  if (!data) notFound();
+  if (!data.visible) return <NeedLogin returnTo={`/projects/${id}`} what="這件作品" />;
+  const { item, detail, prev, next } = data;
+  const backHref = viewer.isMember ? "/projects" : "/projects/featured";
+  const backLabel = viewer.isMember ? "歷屆專題一覽" : "優秀專題";
 
   return (
-    <>
-      <PageHeader
-        title={project.title}
-        breadcrumb={[{ href: "/projects", label: "歷屆專題" }]}
-        meta={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="tabular text-[11px] text-muted-foreground">
-              {project.cohort} 屆
-            </Badge>
-            <Badge variant="outline" className="text-[11px] text-muted-foreground">
-              {project.field}
-            </Badge>
-            {project.award ? (
-              <Badge
-                variant="outline"
-                className="border-brand/30 bg-brand-subtle text-[11px] text-brand-on-subtle"
-              >
-                {project.award}
-              </Badge>
-            ) : null}
-          </div>
-        }
-      />
-
-      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-10 md:py-14 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <article>
-          {/*
-            作品主視覺。0715 §9 提醒封面圖不可把人像切一半，
-            因此正式版這裡用 object-contain + 留白，而不是 cover 裁切。
-          */}
-          <ImagePlaceholder
-            className="aspect-[16/9] rounded-xl border border-border"
-            note="作品主視覺待提供（以完整顯示為原則，不裁切人像）"
-          />
-
-          <section className="mt-8">
-            <h2 className="type-card-title text-lg">摘要</h2>
-            <p className="mt-3 text-[1.0625rem] leading-[1.9] text-foreground/90">
-              {detail.abstract}
-            </p>
-          </section>
-
-          <section className="mt-9 border-t border-border pt-8">
-            <h2 className="type-card-title text-lg">使用技術</h2>
-            <ul className="mt-3 flex flex-wrap gap-2">
-              {detail.tech.map((t) => (
-                <li key={t}>
-                  <Badge variant="outline" className="text-xs text-muted-foreground">
-                    {t}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="mt-9 border-t border-border pt-8">
-            <h2 className="type-card-title text-lg">相關資料</h2>
-            <ul className="mt-3 space-y-2.5">
-              {detail.videoUrl ? (
-                <li>
-                  <a
-                    href={detail.videoUrl}
-                    className="press inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
-                  >
-                    <IconPlayerPlay className="size-4 text-brand" />
-                    三分鐘影片（系上 YouTube）
-                    <IconExternalLink className="size-3.5 text-muted-foreground" />
-                  </a>
-                </li>
-              ) : null}
-              {detail.hasPoster ? (
-                <li>
-                  <button
-                    type="button"
-                    className="press inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
-                  >
-                    <IconFileText className="size-4 text-primary" />
-                    專題海報（PDF）
-                  </button>
-                </li>
-              ) : null}
-              {!detail.videoUrl && !detail.hasPoster ? (
-                <li className="text-sm text-muted-foreground">此作品目前沒有附加資料。</li>
-              ) : null}
-            </ul>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              影片不上傳系統，一律以系上 YouTube 或校方雲端連結保存。
-            </p>
-          </section>
-
-          <div className="mt-10 border-t border-border pt-6">
-            <Link
-              href="/projects"
-              className="press inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              <IconArrowLeft className="size-4" />
-              回到歷屆專題
-            </Link>
-          </div>
-        </article>
-
-        <aside className="space-y-4 lg:sticky lg:top-28 lg:self-start">
-          <div className="rounded-xl border border-border bg-card p-5">
-            <p className="text-xs font-semibold text-muted-foreground">指導老師</p>
-            <p className="mt-1 text-sm font-medium">{detail.advisor}</p>
-
-            <p className="mt-4 text-xs font-semibold text-muted-foreground">組員</p>
-            <ul className="mt-1.5 space-y-1">
-              {detail.members.map((m) => (
-                <li key={m} className="text-sm">
-                  {m}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              公開頁面僅顯示姓名，不顯示學號、聯絡方式與照片。
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-5">
-            <p className="text-xs font-semibold text-muted-foreground">其他作品</p>
-            <ul className="mt-3 space-y-2.5">
-              {others.map((p) => (
-                <li key={p.id}>
-                  <Link
-                    href={`/projects/${p.id}`}
-                    className="group flex items-baseline gap-2 text-sm hover:underline"
-                  >
-                    <span className="tabular shrink-0 text-xs text-muted-foreground">
-                      {p.cohort}
-                    </span>
-                    <span className="min-w-0 group-hover:text-primary">{p.title}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </aside>
-      </div>
-    </>
+    <div className="mx-auto grid max-w-6xl gap-12 px-5 py-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <article className="flex flex-col gap-5">
+        <nav aria-label="麵包屑" className="text-[13px] text-muted-foreground">
+          <Link href="/" className="hover:text-foreground">首頁</Link> › <Link href={backHref} className="hover:text-foreground">{backLabel}</Link> › {item.cohort} 屆
+        </nav>
+        <div className="flex flex-wrap gap-2">
+          <AwardBadge award={item.award} label={item.awardLabel} />
+          <Tag tone="navy">{item.cohort} 屆</Tag>
+          <Tag tone="navy">{item.field}</Tag>
+        </div>
+        <h1 className="text-[32px] font-extrabold leading-snug">{item.title}</h1>
+        <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
+          <Image src={item.image} alt="" fill priority sizes="(max-width: 1024px) 100vw, 820px" className="object-cover" />
+          {item.hasVideo ? (
+            <>
+              <a href={detail.videoUrl ?? "#"} target="_blank" rel="noreferrer" className="absolute top-1/2 left-1/2 inline-flex size-18 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background/92 text-primary shadow-lg transition-transform hover:scale-105" aria-label="播放三分鐘影片">
+                <IconPlayerPlay className="size-7" />
+              </a>
+              <span className="absolute bottom-4 left-4 rounded bg-black/60 px-2 py-1 text-xs text-white">三分鐘影片・系上 YouTube 不公開連結</span>
+            </>
+          ) : null}
+        </div>
+        <section className="flex flex-col gap-2.5">
+          <h2 className="text-xl font-bold text-primary">摘要</h2>
+          <p className="text-base leading-loose">{detail.abstract}</p>
+        </section>
+        <section className="flex flex-col gap-2.5">
+          <h2 className="text-xl font-bold text-primary">文件概述</h2>
+          <ul className="grid gap-3.5 sm:grid-cols-3">
+            {[["專案計畫書", "PDF・2.1 MB"], ["系統分析與設計文件", "PDF・6.4 MB"], ["成果海報", "PDF・A1・8.9 MB"]].map(([n, s]) => (
+              <li key={n}>
+                <a href="#" className="flex items-center gap-2.5 rounded-[10px] border border-border p-4 hover:border-brand">
+                  <IconFileText className="size-5 text-brand" />
+                  <span className="flex flex-col">
+                    <span className="text-sm font-bold">{n}</span>
+                    <span className="text-xs text-muted-foreground">{s}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          {!viewer.isMember ? <p className="text-[13px] text-muted-foreground">文件下載需登入；優秀專題的摘要、海報與影片公開。</p> : null}
+        </section>
+        <nav className="grid gap-4 border-t border-border pt-5 sm:grid-cols-2" aria-label="上一件與下一件">
+          {prev ? <Link href={`/projects/${prev.id}`} className="flex flex-col gap-1 hover:text-brand"><span className="text-xs text-muted-foreground">‹ 上一件</span><span className="font-bold">{prev.title}</span></Link> : <span />}
+          {next ? <Link href={`/projects/${next.id}`} className="flex flex-col gap-1 text-right hover:text-brand"><span className="text-xs text-muted-foreground">下一件 ›</span><span className="font-bold">{next.title}</span></Link> : null}
+        </nav>
+      </article>
+      <aside className="flex flex-col gap-4 lg:pt-11">
+        <dl className="flex flex-col gap-3 rounded-xl bg-secondary p-5.5 text-secondary-foreground">
+          {[["組別", `${item.groupNo}・${item.field}`], ["指導老師", detail.advisor], ["組員", detail.members.length ? detail.members.join("、") : "（未補登）"], ["使用技術", detail.tech.length ? detail.tech.join("、") : "（未補登）"], ["獎項", item.awardLabel ?? "—"]].map(([k, v]) => (
+            <div key={k} className="flex flex-col gap-0.5">
+              <dt className="text-xs text-muted-foreground">{k}</dt>
+              <dd className="font-bold leading-relaxed text-foreground">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        {item.hasPoster ? (
+          <figure className="flex flex-col items-center gap-2">
+            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted">
+              <Image src={item.image} alt="成果海報" fill sizes="340px" className="object-cover" />
+            </div>
+            <figcaption className="text-[13px] text-muted-foreground">成果海報（點擊放大）</figcaption>
+          </figure>
+        ) : null}
+        <Link href={backHref} className="btn-fju-outline h-12 text-base">
+          回到{backLabel}
+        </Link>
+      </aside>
+    </div>
   );
 }

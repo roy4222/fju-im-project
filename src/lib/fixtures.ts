@@ -90,7 +90,7 @@ export const MY_GROUP: Group = {
   title: "校園閒置空間共享媒合平台",
   type: "GENERAL",
   advisorId: "u-102",
-  status: "active",
+  status: "forming",
   members: [
     { id: "u-401", name: "林彥廷", studentNo: "411410123", isLeader: true, confirmed: true },
     { id: "u-402", name: "黃詩涵", studentNo: "411410145", confirmed: true },
@@ -308,18 +308,6 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     progress: { done: 6, total: 9, overdue: 3 },
     attachments: 2,
   },
-  {
-    id: "mi-010",
-    title: "專題成果授權同意書",
-    placement: "submission",
-    summary: "五位組員與指導老師逐一線上同意，全程不需下載或上傳簽名檔。",
-    publishedAt: "2026-07-15",
-    dueAt: "2026-09-30",
-    audience: "114 學年度學生",
-    status: "published",
-    myState: "resubmit",
-    progress: { done: 3, total: 9, overdue: 0 },
-  },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -334,11 +322,16 @@ export type NewsItem = {
   date: string;
   pinned?: boolean;
   attachments?: number;
+  /** 暫用系網照片，上線前替換 */
+  image: string;
+  /** 發布對象（規格 §4.3）；未填視為公開 */
+  audience?: "public" | "members" | "students" | "teachers";
 };
 
 export const NEWS: NewsItem[] = [
   {
     id: "n-31",
+    image: "/placeholder/students.jpg",
     category: "專題事務",
     title: "114 學年度專題分組作業與指導老師意願調查開始受理",
     summary:
@@ -349,6 +342,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-30",
+    image: "/placeholder/study.jpg",
     category: "規則異動",
     title: "專題規則 2026.1 版修訂：系統驗收評分項目調整為七項",
     summary: "系統驗收評分項目由六項調整為七項，新增「資料安全與隱私處理」；權重配置同步更新。",
@@ -357,6 +351,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-29",
+    image: "/placeholder/atrium.jpg",
     category: "競賽資訊",
     title: "第 31 屆全國大專校院資訊應用服務創新競賽開始報名",
     summary: "報名至 2026 年 10 月 3 日止。欲以專題作品參賽者請先與指導老師確認資格與授權範圍。",
@@ -364,6 +359,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-28",
+    image: "/placeholder/phone.jpg",
     category: "活動",
     title: "雲端服務實務工作坊（8/28）開放登記",
     summary: "由業界講師帶領半日實作，名額 40 人，以 114 學年度專題生優先。",
@@ -371,6 +367,8 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-27",
+    image: "/placeholder/lounge.jpg",
+    audience: "students",
     category: "專題事務",
     title: "系統驗收簡報繳交期限提醒",
     summary: "尚未完成繳交之組別請儘速上傳；逾期組別需由系辦個別重新開放並填具理由。",
@@ -378,6 +376,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-26",
+    image: "/placeholder/present.jpg",
     category: "競賽資訊",
     title: "2026 全國智慧製造大數據分析競賽入圍名單公告",
     summary: "本系共三組作品入圍決賽，決賽日期為 9 月 2 日。",
@@ -385,6 +384,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: "n-25",
+    image: "/placeholder/applause.jpg",
     category: "專題事務",
     title: "產學合作案（第二批）公開瀏覽",
     summary: "本批次共 6 件產學合作需求開放瀏覽，未指派組別者由指導老師直接認領。",
@@ -400,7 +400,11 @@ export type IndustryItem = {
   advisorName: string;
   publishedAt: string;
   linkedGroups: number;
+  /** 認領狀態：由組別關聯推導 */
   status: "open" | "claimed";
+  /** 發布狀態：合作案本身（規格 §6.2） */
+  publishStatus: "draft" | "public" | "unlisted";
+  image?: string;
 };
 
 export const INDUSTRY: IndustryItem[] = [
@@ -413,6 +417,7 @@ export const INDUSTRY: IndustryItem[] = [
     publishedAt: "2026-07-28",
     linkedGroups: 1,
     status: "claimed",
+    publishStatus: "public",
   },
   {
     id: "ind-02",
@@ -423,6 +428,7 @@ export const INDUSTRY: IndustryItem[] = [
     publishedAt: "2026-07-28",
     linkedGroups: 1,
     status: "open",
+    publishStatus: "public",
   },
   {
     id: "ind-03",
@@ -433,6 +439,7 @@ export const INDUSTRY: IndustryItem[] = [
     publishedAt: "2026-07-22",
     linkedGroups: 1,
     status: "open",
+    publishStatus: "public",
   },
   {
     id: "ind-04",
@@ -443,25 +450,43 @@ export const INDUSTRY: IndustryItem[] = [
     publishedAt: "2026-07-15",
     linkedGroups: 0,
     status: "open",
+    publishStatus: "public",
   },
 ];
+
+export type ProjectAward = "excellent" | "merit";
 
 export type ProjectItem = {
   id: string;
   cohort: string;
   title: string;
   field: string;
-  award?: string;
+  /** excellent＝優秀專題（王冠）、merit＝佳作（獎盃）；未得獎不設 */
+  award?: ProjectAward;
+  /** 獎項全名，顯示在卡片與詳情 */
+  awardLabel?: string;
+  groupNo: string;
+  advisor: string;
+  summary: string;
+  image: string;
   hasVideo?: boolean;
+  hasPoster?: boolean;
+};
+
+export const PROJECT_AWARD_LABEL: Record<ProjectAward, string> = {
+  excellent: "優秀專題",
+  merit: "佳作",
 };
 
 export const PROJECTS: ProjectItem[] = [
-  { id: "p-1", cohort: "113", title: "城市微光：公共資訊可讀性改善", field: "資料視覺化", award: "校級優秀專題" },
-  { id: "p-2", cohort: "113", title: "拾語：課堂討論脈絡整理器", field: "AI × 教育", hasVideo: true },
-  { id: "p-3", cohort: "113", title: "安心路徑：校園友善空間指南", field: "服務設計" },
-  { id: "p-4", cohort: "112", title: "備援：中小企業備份稽核工具", field: "資訊安全", award: "全國賽佳作" },
-  { id: "p-5", cohort: "112", title: "菜市場數位帳本", field: "數位轉型", hasVideo: true },
-  { id: "p-6", cohort: "112", title: "無障礙報名流程重構", field: "無障礙設計" },
+  { id: "p-1", cohort: "113", title: "城市微光：公共資訊可讀性改善", field: "資料視覺化", award: "excellent", awardLabel: "113 學年度校級優秀專題", groupNo: "第 07 組", advisor: "王雅玲", summary: "以三個市政開放資料集為例，建立可重複套用的視覺化樣板，並以十二位非資訊背景使用者驗證閱讀效率。", image: "/placeholder/showcase.jpg", hasPoster: true, hasVideo: true },
+  { id: "p-2", cohort: "113", title: "拾語：課堂討論脈絡整理器", field: "AI × 教育", award: "merit", awardLabel: "113 學年度專題發表 佳作", groupNo: "第 03 組", advisor: "陳建宏", summary: "以語音轉文字與主題聚類，把分散的課堂發言整理成可追溯的議題樹，提供教師端重點摘要。", image: "/placeholder/phone.jpg", hasPoster: true, hasVideo: true },
+  { id: "p-3", cohort: "113", title: "安心路徑：校園友善空間指南", field: "服務設計", groupNo: "第 05 組", advisor: "李孟儒", summary: "實地盤點校園無障礙坡道、電梯、哺集乳室與性別友善廁所，提供路徑建議與現場照片。", image: "/placeholder/lounge.jpg", hasPoster: true },
+  { id: "p-7", cohort: "113", title: "校園閒置空間共享媒合平台", field: "共享經濟", award: "merit", awardLabel: "113 學年度專題發表 佳作", groupNo: "第 09 組", advisor: "張士豪", summary: "整合各系所閒置教室與設備的借用流程，以時段媒合減少空間閒置。", image: "/placeholder/present.jpg", hasPoster: true, hasVideo: true },
+  { id: "p-4", cohort: "112", title: "備援：中小企業備份稽核工具", field: "資訊安全", award: "excellent", awardLabel: "112 學年度校級優秀專題・全國賽佳作", groupNo: "第 02 組", advisor: "張士豪", summary: "自動檢查備份完整性、可還原性與保留週期，產出可交付稽核單位的報告。", image: "/placeholder/hackathon.jpg", hasPoster: true, hasVideo: true },
+  { id: "p-5", cohort: "112", title: "菜市場數位帳本", field: "數位轉型", groupNo: "第 06 組", advisor: "王雅玲", summary: "以極簡輸入與語音記帳降低攤商使用門檻，實際導入三個攤位試用兩個月。", image: "/placeholder/study.jpg", hasVideo: true },
+  { id: "p-6", cohort: "112", title: "無障礙報名流程重構", field: "無障礙設計", award: "merit", awardLabel: "112 學年度專題發表 佳作", groupNo: "第 11 組", advisor: "李孟儒", summary: "重新設計符合 WCAG 2.2 AA 的活動報名表單，以螢幕閱讀器與鍵盤操作完成驗證。", image: "/placeholder/atrium.jpg", hasPoster: true },
+  { id: "p-8", cohort: "112", title: "跨境電商稅務試算工具", field: "金融科技", groupNo: "第 04 組", advisor: "陳建宏", summary: "整理十二國進口稅則，讓小型賣家在上架前試算落地成本。", image: "/placeholder/building.jpg", hasPoster: true },
 ];
 
 export type HonorItem = {
@@ -470,13 +495,18 @@ export type HonorItem = {
   competition: string;
   award: string;
   team: string;
+  date: string;
+  image: string;
+  summary: string;
 };
 
 export const HONORS: HonorItem[] = [
-  { id: "h-1", year: "2026", competition: "全國大專資訊應用服務創新競賽", award: "優選", team: "第 04 組" },
-  { id: "h-2", year: "2026", competition: "跨域設計專題成果展", award: "評審推薦", team: "第 02 組" },
-  { id: "h-3", year: "2025", competition: "校級學生專題成果競賽", award: "佳作", team: "第 11 組" },
-  { id: "h-4", year: "2025", competition: "全國智慧製造大數據分析競賽", award: "第三名", team: "第 06 組" },
+  { id: "h-1", year: "2026", competition: "全國大專校院資訊應用服務創新競賽", award: "優等", team: "第 04 組", date: "2026-07-07", image: "/placeholder/applause.jpg", summary: "以「備援：中小企業備份稽核工具」參賽，於資訊應用服務創新組獲優等。" },
+  { id: "h-2", year: "2026", competition: "跨域設計專題成果展", award: "評審團獎", team: "第 02 組", date: "2026-06-15", image: "/placeholder/trophy.jpg", summary: "以跨系合作的服務設計作品獲評審團獎。" },
+  { id: "h-3", year: "2026", competition: "校級學生專題成果競賽", award: "佳作", team: "第 11 組", date: "2026-05-20", image: "/placeholder/present.jpg", summary: "無障礙報名流程重構獲校級佳作。" },
+  { id: "h-4", year: "2025", competition: "全國智慧製造大數據分析競賽", award: "第三名", team: "第 06 組", date: "2025-12-02", image: "/placeholder/atrium.jpg", summary: "以設備稼動率預測模型獲第三名。" },
+  { id: "h-5", year: "2025", competition: "大專校院資訊服務創新競賽 北區賽", award: "佳作", team: "第 07 組", date: "2025-11-14", image: "/placeholder/students.jpg", summary: "城市微光原型於北區賽獲佳作。" },
+  { id: "h-6", year: "2025", competition: "校級學生專題成果競賽", award: "優等", team: "第 03 組", date: "2025-05-22", image: "/placeholder/study.jpg", summary: "拾語：課堂討論脈絡整理器獲校級優等。" },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -751,92 +781,39 @@ export const INDUSTRY_DETAIL: Record<
 export const RULES_DOC = {
   version: "2026.1",
   updatedAt: "2026-08-12",
-  previousVersions: [
-    { version: "2025.2", updatedAt: "2025-09-01" },
-    { version: "2025.1", updatedAt: "2025-02-14" },
-  ],
+  intro: "本規則內容依系上現行專題規則（原專題網站九節）整理，全文直接列出。",
   sections: [
-    {
-      id: "scope",
-      heading: "適用範圍",
-      paragraphs: [
-        "本規則適用於輔仁大學資訊管理學系 114 學年度全體專題組別，自公告日起生效。",
-        "規則修訂時，已完成的評分與簽核不受影響；尚未開始的階段依新版本辦理。",
-      ],
-    },
-    {
-      id: "group",
-      heading: "分組方式",
-      paragraphs: [
-        "專題以五人一組為原則。由組長於系統輸入五位組員學號，五位成員各自登入確認後組別成立。",
-        "非五人組別屬例外情形，須由系辦建立並記錄理由。",
-      ],
-      list: [
-        "同一學生於同一學年度僅能屬於一個有效組別。",
-        "任一成員拒絕或申請逾期，申請退回修改，不會成立不完整的組別。",
-        "組別類型分為一般專題與產學合作，於允許期間內可由組長修改。",
-      ],
-    },
-    {
-      id: "advisor",
-      heading: "指導老師",
-      paragraphs: [
-        "每組於本學年度僅有一位主要指導老師。",
-        "一般專題組別由系辦依抽籤或行政結果指派；產學合作組別若尚未指派，任何一位老師皆可於系統中直接認領。",
-      ],
-      list: [
-        "全體老師皆可查看一般與產學組別，分類不影響可見範圍。",
-        "認領採先成功者取得；同時操作時僅一位成功。",
-        "系辦可覆寫、重新指派或解除指派，並須填具理由。",
-      ],
-    },
-    {
-      id: "submission",
-      heading: "文件繳交",
-      paragraphs: [
-        "各項專題事務以整組一份為原則。同組成員看到同一份草稿，皆可編輯；任一成員正式送出即代表全組完成。",
-        "截止前可重新送出，每次正式送出保留不可變更的版本紀錄。截止後鎖定；如需重新開放，由系辦針對指定組別辦理並填具理由與新期限。",
-      ],
-      list: [
-        "單一檔案上限 100 MiB，實際上限可由各項目個別調整。",
-        "常用可接受格式：PDF、DOCX、XLSX、PPTX、PNG、JPG、ZIP。",
-        "三分鐘影片不上傳系統，請提供系上 YouTube 或雲端連結。",
-      ],
-    },
-    {
-      id: "grade",
-      heading: "成績計算",
-      paragraphs: [
-        "總成績由系統驗收與專題發表兩個階段構成，權重分別為 60% 與 40%。",
-        "系統驗收階段包含七個評分項目，各項目權重合計 100%。期中僅評定通過或不通過，不計入數字成績。",
-        "同一階段有多位評分老師時，以各老師成績的算術平均作為該階段成績。",
-      ],
-      list: [
-        "項目百分成績 = 實得分數 ÷ 項目滿分 × 100",
-        "階段成績 = Σ（項目百分成績 × 項目權重），再取所有評分老師的平均",
-        "最終成績 = Σ（階段成績 × 階段權重）",
-      ],
-    },
-    {
-      id: "signoff",
-      heading: "線上同意",
-      paragraphs: [
-        "需全體同意的文件，由系辦於系統建立版本並指定適用組別。五位組員須各自登入、閱讀後按下同意；五人全數同意後，指導老師才能同意。",
-        "全程不需下載、列印或上傳簽名檔。每一次同意都會記錄操作者、角色、內容版本與時間。",
-        "任一人選擇不同意，須填寫原因並回到修正狀態。文件內容或組員變更時，既有同意失效，須就新版本重新進行。",
-      ],
-    },
-    {
-      id: "privacy",
-      heading: "個人資料",
-      paragraphs: [
-        "未分組學生的「公開找組員」預設關閉，須由本人主動開啟。開啟後僅向同屆已驗證學生、老師與系辦顯示姓名、學號與聯絡 Email，電話不公開。",
-        "產學合作案的公司地址、聯絡人、電話與 Email 預設不公開，僅負責老師與系辦可見。",
-        "學生於本學年度不可查看成績、評語與排名。",
-      ],
-    },
+    { id: "s1", heading: "一、專題課程目的", list: ["促使學生整合應用所學的知識", "提供同學由始至終發展專案的親身體驗", "促進同學對研究主題有更深一層的了解", "培養團隊合作的精神"] },
+    { id: "s2", heading: "二、專題修課限制", list: ["「系統分析與設計」擋修「資訊系統專題一」。", "「資訊系統專題二」成績不及格，需重修「資訊系統專題一」及「資訊系統專題二」。"] },
+    { id: "s3", heading: "三、專題題目及範圍", paragraphs: ["專題題目宜多元化，同時必須與資訊系統有所關聯，並以使用資訊科技為其主要發展工具，而其難易程度與範圍之大小可由指導老師依該組學生程度自行分配，同時必須在提出專案計畫書時確定。"] },
+    { id: "s4", heading: "四、專題分組、選取指導老師", paragraphs: ["資格條件符合之同學，以組別名義報名（每組五人），抽籤決定指導老師。採公開抽籤方式選取專題指導老師，請每組至少派一員參加抽籤。"], notes: ["註一：若單獨個人或少於五人以組別名義報名，則由系上安排分組，不得有異議。", "註二：若該組無人參與抽籤，助教在宣讀該組組員人名三聲後，尚無人抽籤（他人不得代抽），視同放棄權利，遞補抽籤後之餘額，同學不得有異議。", "註三：未繳交志願表者，不得參加抽籤，並遞補抽籤後之餘額。", "註四：若老師有產學合作或其他特別計畫或使命，可優先指定組別，且不限指定組數。"] },
+    { id: "s5", heading: "五、轉組", paragraphs: ["雙方指導老師同意即可，但每小組人數仍應維持五人為原則。需填具「轉組同意書」，由雙方指導老師簽名同意。"] },
+    { id: "s6", heading: "六、上課方式", paragraphs: ["各組上課方式由指導老師自行決定。"] },
+    { id: "s7", heading: "七、課程要求", paragraphs: ["所須呈交的書面文件或系統展示的時間如下："], list: ["第一階段－計畫書發表：於上學期結束前以計畫書發表。", "第二階段－系統驗收：於正式發表前一個月進行，繳交正式系統發展文件及系統驗收。", "第三階段－正式發表：於三下學期末前公開發表。", "繳交專題成品：三下學期末繳交專題系統光碟及文件完稿。"] },
+    { id: "s8", heading: "八、評分方式", list: ["專題學期分數由專題指導老師評訂。", "第一階段－計畫書發表：評審老師提出改進建議。", "第二階段－系統驗收：評分項目包括系統文件、系統功能，佔專題發表分數 60%。", "第三階段－正式發表：評分項目包括專題發表臨場表現及系統驗收後整體系統功能修改程度，佔專題發表分數 40%。", "評分細項請參照專題發表評分標準說明。"] },
+    { id: "s9", heading: "九、獎懲方式", list: ["如指導老師不同意組別或個人參加正式發表，視同專題不及格，需重修專題；如有特殊狀況，得由專題評審委員會討論之。", "優勝隊伍的評選方式是由評審推薦出優秀得獎隊伍，優等組數以 30% 為原則。", "重新發表組別的評選方式是由各組評審老師認定不及格的組別或個人，將於一個月後重新發表。", "重新發表之專題組或個人如評審分數不及格，則重修專題。", "專題作品若涉有舞弊情事，則依輔仁大學學則及考試規則處理。"] },
+  ],
+  attachments: [
+    { name: "專題規則 2026.1 版.pdf", size: "412 KB" },
+    { name: "專題發表評分標準說明.pdf", size: "96 KB" },
   ],
 };
+
+/** 檔案下載（登入後）。共用檔案服務的公開資源視圖，規格 §4.7。 */
+export type FileItem = { id: string; name: string; category: string; size: string; date: string; cohort: string };
+
+export const FILES: FileItem[] = [
+  { id: "f-1", name: "專案計畫書範本 2026.docx", category: "範本與格式", size: "128 KB", date: "2026-08-01", cohort: "114" },
+  { id: "f-2", name: "系統分析與設計文件格式.docx", category: "範本與格式", size: "210 KB", date: "2026-08-01", cohort: "114" },
+  { id: "f-3", name: "成果海報 A1 範本.pptx", category: "範本與格式", size: "3.2 MB", date: "2026-08-05", cohort: "114" },
+  { id: "f-4", name: "專題規則 2026.1 版.pdf", category: "規則與說明", size: "412 KB", date: "2026-08-12", cohort: "114" },
+  { id: "f-5", name: "114 專題分組作業說明.pdf", category: "規則與說明", size: "312 KB", date: "2026-08-14", cohort: "114" },
+  { id: "f-6", name: "指導老師名單與研究領域.pdf", category: "規則與說明", size: "188 KB", date: "2026-08-14", cohort: "114" },
+  { id: "f-7", name: "系統驗收評分項目（七項）說明.pdf", category: "系統驗收", size: "96 KB", date: "2026-08-12", cohort: "114" },
+  { id: "f-8", name: "驗收簡報格式建議.pptx", category: "系統驗收", size: "1.1 MB", date: "2026-08-20", cohort: "114" },
+  { id: "f-9", name: "產學合作保密協議範本.docx", category: "產學合作", size: "76 KB", date: "2026-07-22", cohort: "114" },
+  { id: "f-10", name: "113 學年度專題發表議程.pdf", category: "規則與說明", size: "240 KB", date: "2025-06-01", cohort: "113" },
+];
 
 /** 競賽資訊。0715 §9：比照公告卡片。 */
 export type Competition = {
@@ -847,11 +824,15 @@ export type Competition = {
   eventDate?: string;
   status: "open" | "closed" | "result";
   summary: string;
+  image: string;
+  link?: string;
 };
 
 export const COMPETITIONS: Competition[] = [
   {
     id: "c-1",
+    image: "/placeholder/applause.jpg",
+    link: "https://innoserve.tca.org.tw/",
     title: "第 31 屆全國大專校院資訊應用服務創新競賽",
     organizer: "教育部資訊及科技教育司",
     deadline: "2026-10-03",
@@ -861,6 +842,7 @@ export const COMPETITIONS: Competition[] = [
   },
   {
     id: "c-2",
+    image: "/placeholder/trophy.jpg",
     title: "2026 全國智慧製造大數據分析競賽",
     organizer: "智慧製造推動聯盟",
     deadline: "2026-07-31",
@@ -870,6 +852,7 @@ export const COMPETITIONS: Competition[] = [
   },
   {
     id: "c-3",
+    image: "/placeholder/present.jpg",
     title: "跨域設計專題成果展",
     organizer: "校內教學發展中心",
     deadline: "2026-06-20",
