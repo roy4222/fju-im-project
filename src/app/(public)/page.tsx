@@ -5,6 +5,7 @@ import { IconArrowRight, IconClock, IconPlayerPlay } from "@tabler/icons-react";
 import { Carousel } from "@/components/public/carousel";
 import { ListItem, MoreButton, PanelTitle, PhotoCard, SectionTitle, Tag } from "@/components/public/blocks";
 import { QuickLinks, WorkStrip } from "@/components/public/home-blocks";
+import { Reveal } from "@/components/public/ux/reveal";
 import { listCompetitions, listFeaturedProjects, listHonors, listNews, listProjects, listUpcoming, listWork } from "@/lib/data/catalog";
 import { getViewer, workbenchHref, workbenchLabel } from "@/lib/data/viewer";
 import { AwardBadge } from "@/components/public/blocks";
@@ -67,6 +68,7 @@ export default async function HomePage() {
 
       {/* 最新公告：左兩張照片卡＋右四則列表（系網招生訊息版型） */}
       <section className="mx-auto max-w-6xl px-5 pt-20" aria-labelledby="home-news">
+        <Reveal>
         <div id="home-news">
           <PanelTitle title="最新公告" href="/news" label="查看更多" />
         </div>
@@ -80,10 +82,12 @@ export default async function HomePage() {
             ))}
           </ul>
         </div>
+        </Reveal>
       </section>
 
       {member && archive.length > 0 ? (
         <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive">
+          <Reveal>
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
             <div className="flex flex-col items-center gap-2">
               <SectionTitle>歷屆專題一覽</SectionTitle>
@@ -108,11 +112,13 @@ export default async function HomePage() {
             </div>
             <MoreButton href="/projects">進入歷屆專題一覽</MoreButton>
           </div>
+          </Reveal>
         </section>
       ) : null}
 
       {/* 優秀專題：四欄輪播（系網得獎焦點） */}
       <section className={`py-20 ${member ? "" : "mt-24 bg-muted/50"}`} aria-labelledby="home-featured">
+        <Reveal>
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
           <SectionTitle>優秀專題</SectionTitle>
           <div className="w-full">
@@ -127,10 +133,12 @@ export default async function HomePage() {
           </div>
           <MoreButton href="/projects/featured" />
         </div>
+        </Reveal>
       </section>
 
       {/* 榮譽與競賽：左大照片＋右標題板與列表（系網產業實習鏡射） */}
       <section className="mt-4" aria-labelledby="home-honors">
+        <Reveal>
         <div className="grid lg:grid-cols-[minmax(0,1fr)_760px]">
           <div className="relative min-h-[320px] lg:min-h-[520px]">
             <Image src={honors[0]?.image ?? "/placeholder/applause.jpg"} alt="" fill sizes="(max-width: 1024px) 100vw, 680px" className="object-cover" />
@@ -165,11 +173,12 @@ export default async function HomePage() {
             ))}
           </ul>
         </div>
+        </Reveal>
       </section>
 
-      <div className="mt-24">
+      <Reveal className="mt-24">
         <QuickLinks role={viewer.role} />
-      </div>
+      </Reveal>
     </>
   );
 }

@@ -43,7 +43,7 @@ export function PhotoDialogGrid({ entries, columns = 4, initialOpenId }: { entri
             <button
               type="button"
               onClick={() => setIndex(i)}
-              className="group flex h-full w-full flex-col overflow-hidden rounded-xl bg-secondary text-left shadow-[0_2px_10px_rgba(0,51,102,0.08)] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_22px_rgba(0,51,102,0.14)]"
+              className="group card-lift flex h-full w-full flex-col overflow-hidden rounded-xl bg-secondary text-left shadow-[0_2px_10px_rgba(0,51,102,0.08)]"
               aria-haspopup="dialog"
             >
               <div className="relative aspect-video overflow-hidden bg-muted">

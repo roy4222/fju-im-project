@@ -25,9 +25,9 @@ export function PanelTitle({ title, href, label, side = "left" }: { title: strin
   return (
     <div className={`fju-panel-title w-full max-w-[520px] ${side === "left" ? "rounded-tr-[40px] md:-ml-10" : "rounded-tl-[40px] self-end md:-mr-10"}`}>
       <SectionTitle align="start">{title}</SectionTitle>
-      <Link href={href} className="btn-fju h-10 px-5 text-[15px]">
+      <Link href={href} className="btn-fju group h-10 px-5 text-[15px]">
         {label}
-        <IconArrowRight className="size-4" />
+        <IconArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
       </Link>
     </div>
   );
@@ -36,7 +36,7 @@ export function PanelTitle({ title, href, label, side = "left" }: { title: strin
 /** 置中的橘色外框寬按鈕（系網「查看更多」） */
 export function MoreButton({ href, children = "查看更多" }: { href: string; children?: ReactNode }) {
   return (
-    <Link href={href} className="btn-fju-outline h-14 w-full max-w-[680px] text-xl">
+    <Link href={href} className="btn-fju-outline press h-14 w-full max-w-[680px] text-xl">
       {children}
     </Link>
   );
@@ -92,7 +92,7 @@ export function PhotoCard({
   priority?: boolean;
 }) {
   return (
-    <Link href={href} className="group flex h-full flex-col overflow-hidden rounded-xl bg-secondary shadow-[0_2px_10px_rgba(0,51,102,0.08)] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_22px_rgba(0,51,102,0.14)]">
+    <Link href={href} className="group card-lift flex h-full flex-col overflow-hidden rounded-xl bg-secondary shadow-[0_2px_10px_rgba(0,51,102,0.08)]">
       <div className="relative aspect-video overflow-hidden bg-muted">
         <Image src={image} alt={alt} fill sizes="(max-width: 768px) 100vw, 300px" priority={priority} className="object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
         {children}
@@ -110,7 +110,7 @@ export function PhotoCard({
 export function ListItem({ href, title, meta }: { href: string; title: string; meta: ReactNode }) {
   return (
     <li className="fju-list-item flex flex-col gap-1.5 py-1.5">
-      <Link href={href} className="text-[17px] font-bold leading-snug hover:text-brand">
+      <Link href={href} className="link-ink text-[17px] font-bold leading-snug">
         {title}
       </Link>
       <div className="flex flex-wrap items-center gap-2.5">{meta}</div>
@@ -146,16 +146,7 @@ export function PageHead({ title, description, crumbs }: { title: string; descri
   );
 }
 
-/** pill 篩選（連結版，用 searchParams） */
-export function PillLink({ href, active, children, tone = "navy" }: { href: string; active: boolean; children: ReactNode; tone?: "navy" | "brand" }) {
-  const activeCls = tone === "brand" ? "border-brand bg-brand text-brand-foreground" : "border-primary bg-primary text-primary-foreground";
-  const idleCls = tone === "brand" ? "border-brand text-brand hover:bg-brand-subtle" : "border-border text-foreground hover:bg-accent";
-  return (
-    <Link href={href} className={`inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition-colors ${active ? activeCls : idleCls}`} aria-current={active ? "true" : undefined}>
-      {children}
-    </Link>
-  );
-}
+export { PillLink } from "./pill-link";
 
 /** 列表狀態（規格 §10.3）：空白／無權限／無結果 */
 export function ListState({ icon, title, hint, action }: { icon: ReactNode; title: string; hint: string; action?: ReactNode }) {

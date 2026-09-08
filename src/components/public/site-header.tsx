@@ -88,15 +88,15 @@ export function SiteHeader({
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex items-center gap-1 py-7 text-[16px] font-semibold whitespace-nowrap transition-colors duration-300 hover:text-brand ${active ? "text-brand" : "text-foreground"}`}
+                  className={`nav-ink inline-flex items-center gap-1 py-7 text-[16px] font-semibold whitespace-nowrap transition-colors duration-300 hover:text-brand ${active ? "text-brand" : "text-foreground"}`}
                 >
                   {item.label}
                   {item.children ? <IconChevronDown className="size-3.5" aria-hidden /> : null}
                 </Link>
                 {item.children ? (
-                  <div className="invisible absolute top-full left-0 z-20 flex min-w-60 flex-col border-t-[3px] border-brand bg-popover opacity-0 shadow-[0_2px_6px_rgba(0,0,0,0.1)] transition-opacity duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+                  <div className="nav-dropdown invisible absolute top-full left-0 z-20 flex min-w-60 flex-col border-t-[3px] border-brand bg-popover opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.12)] group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
                     {item.children.map((c) => (
-                      <Link key={c.href} href={c.href} className="border-b border-border px-4.5 py-3.5 text-[15px] hover:bg-brand-subtle hover:text-brand-on-subtle">
+                      <Link key={c.href} href={c.href} className="border-b border-border px-4.5 py-3.5 text-[15px] transition-[background-color,color,padding-left] duration-200 hover:bg-brand-subtle hover:pl-6 hover:text-brand-on-subtle">
                         {c.label}
                       </Link>
                     ))}

@@ -12,21 +12,8 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
         { href: "/rules", label: "專題規則" },
         { href: "/projects/featured", label: "優秀專題" },
         { href: "/honors", label: "榮譽榜" },
+        ...(member ? [{ href: "/projects", label: "歷屆專題一覽" }, { href: "/industry", label: "產學合作" }, { href: "/files", label: "檔案下載" }] : []),
       ],
-    },
-    {
-      title: member ? "登入後" : "本系學生與老師",
-      links: member
-        ? [
-            { href: "/projects", label: "歷屆專題一覽" },
-            { href: "/industry", label: "產學合作" },
-            { href: "/files", label: "檔案下載" },
-          ]
-        : [
-            { href: "/login", label: "登入後可看歷屆專題一覽" },
-            { href: "/login", label: "登入後可看產學合作" },
-            { href: "/login", label: "登入後可下載檔案" },
-          ],
     },
     {
       title: "使用",
@@ -43,8 +30,8 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
     },
   ];
   return (
-    <footer className="bg-primary text-primary-foreground dark:bg-card dark:text-foreground">
-      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
+    <footer className="bg-primary text-primary-foreground">
+      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
         <div>
           <p className="text-lg font-bold">輔仁大學資訊管理學系</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
@@ -61,7 +48,7 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
             <ul className="mt-3 space-y-2.5">
               {col.links.map((l) => (
                 <li key={l.href + l.label}>
-                  <Link href={l.href} className="text-sm opacity-85 hover:underline hover:opacity-100">
+                  <Link href={l.href} className="link-ink text-sm opacity-85 hover:opacity-100 [--brand:var(--color-white)] hover:text-white">
                     {l.label}
                   </Link>
                 </li>
@@ -73,7 +60,6 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
       <div className="border-t border-white/15 dark:border-border">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-4 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 輔仁大學資訊管理學系</p>
-          <p>原型畫面，照片暫用系網素材，資料為虛構示範</p>
         </div>
       </div>
     </footer>

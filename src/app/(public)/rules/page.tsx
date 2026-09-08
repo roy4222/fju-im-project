@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { IconFileText } from "@tabler/icons-react";
 import { PageHead } from "@/components/public/blocks";
 import { getRules } from "@/lib/data/catalog";
 
@@ -10,7 +9,7 @@ export const metadata: Metadata = {
   openGraph: { url: "/rules" },
 };
 
-/** 專題規則：與舊站九節一致（Roy 2026-09-07），文件式全文直接列出，不做歷史版本、頁面不顯示版本號（Roy 2026-09-08）。 */
+/** 專題規則：與舊站九節一致（Roy 2026-09-07），文件式全文直接列出，不做歷史版本、不顯示版本號與附件（附件不公開，Roy 2026-09-08）。 */
 export default async function RulesPage() {
   const doc = await getRules();
   return (
@@ -21,21 +20,11 @@ export default async function RulesPage() {
           <p className="text-[13px] font-bold tracking-wider text-muted-foreground">目錄</p>
           <nav aria-label="規則目錄" className="mt-3 flex flex-col">
             {doc.sections.map((s) => (
-              <a key={s.id} href={`#${s.id}`} className="border-l-[3px] border-border py-2 pl-3.5 text-[15px] hover:border-brand hover:text-brand">
+              <a key={s.id} href={`#${s.id}`} className="border-l-[3px] border-border py-2 pl-3.5 text-[15px] transition-[border-color,color,padding-left] duration-200 hover:border-brand hover:pl-5 hover:text-brand">
                 {s.heading}
               </a>
             ))}
           </nav>
-          <div className="mt-5 flex flex-col gap-2 rounded-[10px] bg-secondary p-4.5 text-secondary-foreground">
-            <p className="font-bold">附件</p>
-            {doc.attachments.map((a) => (
-              <a key={a.name} href="#" className="flex items-center gap-2 text-sm font-semibold text-primary hover:text-brand">
-                <IconFileText className="size-4" />
-                {a.name}
-                <span className="text-xs font-normal text-muted-foreground">{a.size}</span>
-              </a>
-            ))}
-          </div>
         </aside>
         <article className="flex flex-col gap-9">
           {doc.sections.map((s) => (

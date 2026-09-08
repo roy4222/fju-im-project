@@ -356,3 +356,66 @@
     }
   }
 }
+
+/* ========================================================================== */
+/* 互動回饋層（Roy 2026-09-08：「整個網站像是死的」→ 每個動作都要有回應）      */
+/* 全部尊重 prefers-reduced-motion。                                          */
+/* ========================================================================== */
+@layer components {
+  /* 換頁進度條 */
+  .top-loader-idle { transform: scaleX(0); opacity: 0; }
+  .top-loader-run { animation: top-loader-run 6s cubic-bezier(0.1, 0.6, 0.2, 1) forwards; opacity: 1; }
+  .top-loader-done { animation: top-loader-done 420ms ease-out forwards; }
+  @keyframes top-loader-run { from { transform: scaleX(0); } 30% { transform: scaleX(0.6); } to { transform: scaleX(0.92); } }
+  @keyframes top-loader-done { from { transform: scaleX(0.92); opacity: 1; } 60% { transform: scaleX(1); opacity: 1; } to { transform: scaleX(1); opacity: 0; } }
+
+  /* 換頁內容進場 */
+  .page-enter { animation: page-enter 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* 捲動顯現 */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 600ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .reveal[data-shown="true"] { opacity: 1; transform: none; }
+
+  /* 卡片：hover 上浮＋陰影，按下回彈 */
+  .card-lift { transition: transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 300ms ease; }
+  .card-lift:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0, 51, 102, 0.16); }
+  .card-lift:active { transform: translateY(-1px) scale(0.99); transition-duration: 100ms; }
+
+  /* 文字連結：橘色底線從左長出 */
+  .link-ink { background-image: linear-gradient(var(--brand), var(--brand)); background-repeat: no-repeat; background-size: 0% 2px; background-position: 0 100%; transition: background-size 250ms cubic-bezier(0.2, 0.7, 0.2, 1), color 200ms; }
+  .link-ink:hover, .link-ink:focus-visible { background-size: 100% 2px; color: var(--brand); }
+
+  /* 導覽列項目：底部橘線滑入（系網選中態的動態版） */
+  .nav-ink { position: relative; }
+  .nav-ink::after { content: ""; position: absolute; left: 0; right: 0; bottom: 18px; height: 3px; border-radius: 2px; background: var(--brand); transform: scaleX(0); transform-origin: left; transition: transform 250ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .nav-ink:hover::after, .nav-ink[aria-current="page"]::after { transform: scaleX(1); }
+
+  /* 導覽下拉：淡入＋上滑 */
+  .nav-dropdown { transform: translateY(6px); transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0s linear 180ms; }
+  .group:hover > .nav-dropdown, .group:focus-within > .nav-dropdown { transform: none; transition-delay: 0s; }
+
+  /* 主要按鈕：hover 微浮＋陰影，按下回彈；橘外框按鈕同 */
+  .btn-fju, .btn-fju-outline, .btn-fju-ghost { transition: background-color 300ms, color 300ms, border-color 300ms, transform 120ms ease-out, box-shadow 300ms; }
+  .btn-fju:hover { box-shadow: 0 6px 16px rgba(229, 110, 0, 0.32); transform: translateY(-1px); }
+  .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: translateY(0) scale(0.97); box-shadow: none; transition-duration: 80ms; }
+  .btn-fju:focus-visible, .btn-fju-outline:focus-visible, .btn-fju-ghost:focus-visible { outline: 3px solid color-mix(in oklch, var(--brand) 45%, transparent); outline-offset: 2px; }
+
+  /* pill 換頁中的小點 */
+  .pill-dot { width: 0; height: 6px; border-radius: 9999px; background: currentColor; opacity: 0; transition: width 150ms, opacity 150ms; }
+  .pill-dot.is-pending { width: 6px; opacity: 0.8; animation: pill-pulse 800ms ease-in-out infinite; }
+  @keyframes pill-pulse { 50% { opacity: 0.25; } }
+
+  /* 通用：表單控制項與 icon 按鈕的 hover／focus */
+  select, input[type="search"] { transition: border-color 200ms, box-shadow 200ms; }
+  select:hover { border-color: color-mix(in oklch, var(--primary) 40%, transparent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter { animation: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .card-lift, .card-lift:hover, .card-lift:active { transform: none; }
+    .btn-fju:hover, .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: none; }
+    .nav-ink::after, .link-ink, .nav-dropdown { transition: none; }
+    .top-loader-run, .top-loader-done { animation-duration: 1ms; }
+  }
+}

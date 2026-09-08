@@ -109,8 +109,10 @@ export async function listFeaturedProjects(opts: { q?: string; sort?: string } =
   const q = opts.q?.trim().toLowerCase();
   let items = PROJECTS.filter((p) => p.award);
   if (q) items = items.filter((p) => [p.title, p.advisor, p.groupNo, p.field, p.awardLabel ?? ""].some((t) => t.toLowerCase().includes(q)));
-  if (opts.sort === "title") return items.sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
-  return items.sort((a, b) => b.cohort.localeCompare(a.cohort) || (a.award === "excellent" ? -1 : 1));
+  const rank = (p: ProjectItem) => (p.award === "excellent" ? 0 : 1);
+  if (opts.sort === "excellent") return items.sort((a, b) => rank(a) - rank(b) || b.cohort.localeCompare(a.cohort));
+  if (opts.sort === "merit") return items.sort((a, b) => rank(b) - rank(a) || b.cohort.localeCompare(a.cohort));
+  return items.sort((a, b) => b.cohort.localeCompare(a.cohort) || rank(a) - rank(b));
 }
 
 /** 歷屆專題一覽：登入後（7/22 §6.2）。訪客回空陣列，由頁面顯示需要登入。 */

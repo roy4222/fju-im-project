@@ -56,7 +56,7 @@ export default async function FeaturedPage({ searchParams }: PageProps<"/project
               <PillLink key={c} href={keep(c)} active={cohort === c}>{c} 屆</PillLink>
             ))}
           </nav>
-          <SearchSortBar placeholder="搜尋題目、指導老師、組別" sortOptions={[{ value: "cohort", label: "屆別（新到舊）" }, { value: "title", label: "題目" }]} />
+          <SearchSortBar placeholder="搜尋題目、指導老師、組別" sortOptions={[{ value: "cohort", label: "屆別（新到舊）" }, { value: "excellent", label: "優秀專題優先" }, { value: "merit", label: "佳作優先" }]} />
         </div>
         {items.length === 0 ? (
           <ListState icon={<IconCrown className="size-8" />} title="找不到符合的作品" hint="換個關鍵字，或清除篩選條件。" />

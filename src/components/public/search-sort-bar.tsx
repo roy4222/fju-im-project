@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { IconSearch, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconSearch, IconX } from "@tabler/icons-react";
 
 export type SortOption = { value: string; label: string };
 
@@ -31,6 +31,7 @@ export function SearchSortBar({
     setQ(urlQ);
   }
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pending, startTransition] = useTransition();
 
   function push(next: Record<string, string>) {
     const sp = new URLSearchParams(params.toString());
@@ -39,7 +40,7 @@ export function SearchSortBar({
       else sp.delete(k);
     }
     const s = sp.toString();
-    router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
+    startTransition(() => router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false }));
   }
 
   function onInput(v: string) {
@@ -58,10 +59,12 @@ export function SearchSortBar({
           onChange={(e) => onInput(e.target.value)}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="h-10 w-full rounded-md border border-input bg-background pr-9 pl-9 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30"
+          className="h-10 w-full rounded-md border border-input bg-background pr-9 pl-9 text-sm shadow-xs outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary/40 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25"
         />
-        {q ? (
-          <button type="button" onClick={() => onInput("")} className="absolute right-2 inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground" aria-label="清除搜尋">
+        {pending ? (
+          <IconLoader2 className="absolute right-2.5 size-4 animate-spin text-brand" aria-label="搜尋中" />
+        ) : q ? (
+          <button type="button" onClick={() => onInput("")} className="absolute right-2 inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground" aria-label="清除搜尋">
             <IconX className="size-4" />
           </button>
         ) : null}

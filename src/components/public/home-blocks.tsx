@@ -49,7 +49,7 @@ export function WorkStrip({ role, work, due, workbench }: { role: ViewerRole; wo
           <ul className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
             {work.map((w) => (
               <li key={w.key}>
-                <Link href={w.href} className="flex h-full flex-col gap-2.5 rounded-[10px] border border-border bg-card p-5 transition-colors hover:border-brand">
+                <Link href={w.href} className="card-lift flex h-full flex-col gap-2.5 rounded-[10px] border border-border bg-card p-5 hover:border-brand">
                   <span className="text-brand">{WORK_ICONS[w.key]}</span>
                   <span className="text-[17px] font-bold">{w.title}</span>
                   <span className="text-[13px] text-muted-foreground">{w.hint}</span>
@@ -89,10 +89,10 @@ export function WorkStrip({ role, work, due, workbench }: { role: ViewerRole; wo
 export function QuickLinks({ role }: { role: ViewerRole }) {
   const member = role !== "guest";
   const cols = [
-    { icon: <IconBook2 className="size-5.5" />, title: "專題規則", links: [["現行 2026.1 版全文", "/rules"], ["分組與指導老師", "/rules#s4"], ["課程要求與時程", "/rules#s7"], ["評分方式", "/rules#s8"]] },
+    { icon: <IconBook2 className="size-5.5" />, title: "專題規則", links: [["專題課程目的", "/rules#s1"], ["分組與指導老師", "/rules#s4"], ["課程要求", "/rules#s7"], ["評分方式", "/rules#s8"]] },
     member
       ? { icon: <IconKey className="size-5.5" />, title: "我的入口", links: [[role === "teacher" ? "老師工作台" : role === "admin" ? "管理後台" : "我的專題事務", `/dashboard/${role}`], ["檔案下載", "/files"], ["個人資料", "/account"], ["歷屆專題一覽", "/projects"]] }
-      : { icon: <IconKey className="size-5.5" />, title: "使用平台", links: [["登入", "/login"], ["註冊（本屆學生）", "/register"], ["忘記密碼", "/forgot-password"], ["帳號審核說明", "/register/pending"]] },
+      : { icon: <IconKey className="size-5.5" />, title: "使用平台", links: [["登入", "/login"], ["註冊", "/register"], ["忘記密碼", "/forgot-password"]] },
     { icon: <IconMail className="size-5.5" />, title: "系辦聯絡", links: [["新莊區中正路 510 號 利瑪竇大樓", "https://www.im.fju.edu.tw/"], ["電話 +886-2-2905-2696", "tel:+886229052696"], ["im@mail.fju.edu.tw", "mailto:im@mail.fju.edu.tw"], ["系網 im.fju.edu.tw", "https://www.im.fju.edu.tw/"]] },
   ];
   return (
@@ -109,8 +109,8 @@ export function QuickLinks({ role }: { role: ViewerRole }) {
             <ul className="flex flex-col gap-2 px-2">
               {c.links.map(([label, href]) => (
                 <li key={label}>
-                  <Link href={href} className="flex items-center gap-2 text-[15px] hover:text-brand">
-                    <span className="size-1.5 rounded-full bg-brand" aria-hidden />
+                  <Link href={href} className="group flex items-center gap-2 text-[15px] transition-colors hover:text-brand">
+                    <span className="size-1.5 rounded-full bg-brand transition-transform duration-200 group-hover:scale-150" aria-hidden />
                     {label}
                   </Link>
                 </li>
