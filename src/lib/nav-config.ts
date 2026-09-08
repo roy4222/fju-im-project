@@ -22,7 +22,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/affairs", label: "我的專題事務", icon: "affairs", roles: ["student"], badge: { student: 3 } },
       { href: "/affairs", label: "各組繳交狀態", icon: "affairs", roles: ["teacher"] },
-      { href: "/affairs", label: "事務工作台", icon: "affairs", roles: ["admin"] },
+      { href: "/affairs", label: "專題事務", icon: "affairs", roles: ["admin"] },
       { href: "/editor", label: "內容編輯器", icon: "editor", roles: ["admin"] },
       { href: "/files", label: "檔案管理", icon: "files", roles: ["admin"] },
     ],
@@ -38,10 +38,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "評分與簽核",
     items: [
-      { href: "/grading", label: "評分工作台", icon: "grading", roles: ["teacher"], badge: { teacher: 2 } },
+      { href: "/grading", label: "評分", icon: "grading", roles: ["teacher"], badge: { teacher: 2 } },
       { href: "/grading", label: "成績管理", icon: "grading", roles: ["admin"] },
-      { href: "/signoff", label: "待我同意", icon: "signoff", roles: ["student"], badge: { student: 1 } },
-      { href: "/signoff", label: "簽核進度", icon: "signoff", roles: ["teacher", "admin"], badge: { teacher: 1 } },
+      { href: "/signoff", label: "同意書", icon: "signoff", roles: ["student"], badge: { student: 1 } },
+      { href: "/signoff", label: "簽核", icon: "signoff", roles: ["teacher", "admin"], badge: { teacher: 1 } },
     ],
   },
   {

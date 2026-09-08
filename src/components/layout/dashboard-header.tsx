@@ -8,12 +8,13 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { titleFor, ROLE_LABEL } from "@/lib/nav-config";
+import { DashThemeToggle } from "@/components/layout/dash-theme";
 import { CURRENT_USERS, NOTIFICATIONS, type Notification, type Role } from "@/lib/fixtures";
 
 const ROLES: Role[] = ["student", "teacher", "admin"];
 
 const KIND_ICON: Record<Notification["kind"], typeof IconBell> = { due: IconCalendarDue, submission: IconUpload, signoff: IconSignature, grading: IconChecklist, account: IconUserCheck, system: IconSettings };
-const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-warning-subtle text-warning-on-subtle", submission: "bg-success-subtle text-success-on-subtle", signoff: "bg-brand-subtle text-brand-on-subtle", grading: "bg-info-subtle text-info-on-subtle", account: "bg-info-subtle text-info-on-subtle", system: "bg-muted text-muted-foreground" };
+const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-muted text-foreground", submission: "bg-muted text-foreground", signoff: "bg-muted text-foreground", grading: "bg-muted text-foreground", account: "bg-muted text-foreground", system: "bg-muted text-muted-foreground" };
 
 /** 後台頂列：側欄開關、頁名、搜尋、通知、帳號選單（含原型角色切換）。無主題切換：固定白底。 */
 export function DashboardHeader({ role }: { role: Role }) {
@@ -45,6 +46,7 @@ export function DashboardHeader({ role }: { role: Role }) {
           <IconSearch className="size-4.5" />
         </button>
 
+        <DashThemeToggle />
         {/* 通知 */}
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -59,7 +61,7 @@ export function DashboardHeader({ role }: { role: Role }) {
             <DropdownMenuGroup>
               <div className="flex items-center justify-between px-4 py-3">
                 <DropdownMenuLabel className="p-0 text-[15px] font-bold">通知</DropdownMenuLabel>
-                {unread ? <span className="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-brand-foreground">{unread} 則新的</span> : null}
+                {unread ? <span className="text-xs font-semibold text-brand">{unread} 則未讀</span> : null}
               </div>
               <div className="max-h-[360px] overflow-y-auto border-t border-border">
                 {notes.map((n) => {
@@ -82,7 +84,7 @@ export function DashboardHeader({ role }: { role: Role }) {
                 })}
               </div>
               <div className="border-t border-border p-2">
-                <DropdownMenuItem className="h-9 justify-center rounded-lg bg-primary text-[13px] font-semibold text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground" render={<Link href={`/dashboard/${role}/inbox`} />}>
+                <DropdownMenuItem className="h-9 justify-center rounded-lg text-[13px] font-semibold text-primary" render={<Link href={`/dashboard/${role}/inbox`} />}>
                   查看全部通知
                 </DropdownMenuItem>
               </div>

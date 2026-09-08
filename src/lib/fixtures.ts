@@ -1041,3 +1041,35 @@ export const SUBMISSION_VERSIONS: Record<string, { version: number; by: string; 
     { version: 1, by: "吳柏諺", at: "2026-08-10 18:02", schemaVersion: 3 },
   ],
 };
+
+/* -------------------------------------------------------------------------- */
+/* 里程碑（Roy 2026-09-08：完成要有 Steam 成就的滿足感）                          */
+/* -------------------------------------------------------------------------- */
+
+export type Milestone = { id: string; title: string; hint: string; done: boolean; at?: string; current?: boolean };
+
+export const MILESTONES: Record<Role, Milestone[]> = {
+  student: [
+    { id: "m1", title: "帳號核准", hint: "命中本屆名單", done: true, at: "08-13" },
+    { id: "m2", title: "分組名單確認", hint: "第 07 組 v1", done: true, at: "08-14" },
+    { id: "m3", title: "全員確認成組", hint: "還差 2 人", done: false, current: true },
+    { id: "m4", title: "指導老師意願", hint: "08-26 截止", done: false },
+    { id: "m5", title: "題目與摘要", hint: "09-18 截止", done: false },
+    { id: "m6", title: "系統驗收", hint: "60%", done: false },
+    { id: "m7", title: "專題發表", hint: "40%", done: false },
+  ],
+  teacher: [
+    { id: "t1", title: "認領產學組", hint: "第 02 組", done: true, at: "08-16" },
+    { id: "t2", title: "系統驗收評分", hint: "2/4 組送出", done: false, current: true },
+    { id: "t3", title: "同意書簽核", hint: "等學生全數同意", done: false },
+    { id: "t4", title: "專題發表評分", hint: "12 月", done: false },
+  ],
+  admin: [
+    { id: "a1", title: "匯入本屆名單", hint: "v3・52 筆", done: true, at: "08-13" },
+    { id: "a2", title: "分組成立", hint: "44/48 已分組", done: false, current: true },
+    { id: "a3", title: "系統驗收收件", hint: "6/9 組", done: false },
+    { id: "a4", title: "評分完成", hint: "6/10", done: false },
+    { id: "a5", title: "簽核完成", hint: "3/9 組", done: false },
+    { id: "a6", title: "專題發表", hint: "12 月", done: false },
+  ],
+};

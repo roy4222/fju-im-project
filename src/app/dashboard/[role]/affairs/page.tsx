@@ -6,7 +6,8 @@ import { EmptyState, PageTitle, Panel, Pill, ProgressBar, StatTile, StateBadge }
 import { Ring, SegmentBar } from "@/components/dashboard/charts";
 import { PillLink } from "@/components/public/pill-link";
 import { isValidRole } from "@/lib/nav-config";
-import { CURRENT_USERS, GROUPS, GROUP_SUBMISSIONS, MANAGED_ITEMS, PLACEMENT_LABEL, daysUntil, formatDue, type Placement, type Role } from "@/lib/fixtures";
+import { TeacherMatrix } from "./teacher-matrix";
+import { CURRENT_USERS, GROUPS, MANAGED_ITEMS, PLACEMENT_LABEL, daysUntil, formatDue, type Placement, type Role } from "@/lib/fixtures";
 
 export default async function AffairsPage({ params, searchParams }: PageProps<"/dashboard/[role]/affairs">) {
   const { role } = await params;
@@ -75,43 +76,8 @@ function TeacherAffairs({ role }: { role: Role }) {
   return (
     <div className="flex flex-col gap-5">
       <PageTitle title="各組繳交狀態" description={`我的 ${myGroups.length} 個指導組別 × ${items.length} 個收件項目`} />
-      <Panel title="繳交矩陣" icon={<IconClipboardText />} description="點狀態看版本與內容">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="bg-muted/60 text-xs text-muted-foreground">
-              <tr>
-                <th className="sticky left-0 bg-muted/60 px-5 py-2.5 text-left font-semibold">組別</th>
-                {items.map((i) => (
-                  <th key={i.id} className="px-3 py-2.5 text-left font-semibold">
-                    <span className="block truncate">{i.title}</span>
-                    <span className="tabular font-normal">截止 {i.dueAt?.slice(5)}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {myGroups.map((g) => (
-                <tr key={g.id} className="transition-colors hover:bg-accent/40">
-                  <td className="sticky left-0 bg-card px-5 py-3">
-                    <span className="tabular text-xs font-semibold text-muted-foreground">{g.no}</span>
-                    <span className="block truncate font-semibold">{g.title.replace(/（產學：.*）/, "")}</span>
-                  </td>
-                  {items.map((i) => {
-                    const s = GROUP_SUBMISSIONS[i.id]?.find((r) => r.groupId === g.id);
-                    return (
-                      <td key={i.id} className="px-3 py-3">
-                        <Link href={`${base}/affairs/${i.id}?group=${g.id}`} className="inline-flex flex-col gap-1">
-                          <StateBadge state={s?.state ?? "todo"} />
-                          {s?.at ? <span className="tabular text-[11px] text-muted-foreground">v{s.version}・{s.at.slice(5, 10)}</span> : null}
-                        </Link>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Panel title="繳交矩陣" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName="p-4">
+        <TeacherMatrix groups={myGroups} items={items} base={base} />
       </Panel>
     </div>
   );

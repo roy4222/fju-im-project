@@ -7,7 +7,7 @@ import { isValidRole } from "@/lib/nav-config";
 import { NOTIFICATIONS, type Notification } from "@/lib/fixtures";
 
 const KIND_ICON: Record<Notification["kind"], typeof IconBell> = { due: IconCalendarDue, submission: IconUpload, signoff: IconSignature, grading: IconChecklist, account: IconUserCheck, system: IconSettings };
-const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-warning-subtle text-warning-on-subtle", submission: "bg-success-subtle text-success-on-subtle", signoff: "bg-brand-subtle text-brand-on-subtle", grading: "bg-info-subtle text-info-on-subtle", account: "bg-info-subtle text-info-on-subtle", system: "bg-muted text-muted-foreground" };
+const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-muted text-foreground", submission: "bg-muted text-foreground", signoff: "bg-muted text-foreground", grading: "bg-muted text-foreground", account: "bg-muted text-foreground", system: "bg-muted text-muted-foreground" };
 const KIND_LABEL: Record<Notification["kind"], string> = { due: "截止", submission: "繳交", signoff: "簽核", grading: "評分", account: "帳號", system: "系統" };
 
 /** 通知列表（規格：通知放後台，前台不做；Roy 2026-09-07） */
@@ -28,7 +28,7 @@ export default async function InboxPage({ params }: PageProps<"/dashboard/[role]
               const Icon = KIND_ICON[n.kind];
               return (
                 <li key={n.id}>
-                  <Link href={n.href} className={`flex items-start gap-4 px-5 py-4 transition-colors hover:bg-accent/60 ${n.read ? "" : "bg-brand-subtle/30"}`}>
+                  <Link href={n.href} className={`flex items-start gap-4 px-5 py-4 transition-colors hover:bg-accent/60 ${n.read ? "" : "bg-accent/40"}`}>
                     <span className={`mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-lg ${KIND_TONE[n.kind]}`}><Icon className="size-4.5" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">

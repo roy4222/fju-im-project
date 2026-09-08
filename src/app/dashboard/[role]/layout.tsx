@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { TopLoader } from "@/components/public/ux/top-loader";
 import { PageTransition } from "@/components/public/ux/page-transition";
 import { isValidRole } from "@/lib/nav-config";
+import { DashThemeRoot } from "@/components/layout/dash-theme";
 
 /** 後台外框：側欄＋頂列，內容區淡灰底讓白卡浮出來（參考 demos.shadcndashboard.dev）。 */
 export default async function DashboardLayout({ children, params }: LayoutProps<"/dashboard/[role]">) {
@@ -13,6 +14,7 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
   if (!isValidRole(role)) notFound();
 
   return (
+    <DashThemeRoot>
     <SidebarProvider>
       <AppSidebar role={role} />
       <SidebarInset className="dash-surface">
@@ -25,5 +27,6 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </DashThemeRoot>
   );
 }

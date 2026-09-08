@@ -1,11 +1,10 @@
 import { notFound } from "next/navigation";
-import { IconDatabase, IconFile, IconFileText, IconFolders, IconPhoto, IconPresentation, IconUpload } from "@tabler/icons-react";
-import { PageTitle, Panel, Pill, StatTile } from "@/components/dashboard/primitives";
+import { IconDatabase, IconFolders, IconUpload } from "@tabler/icons-react";
+import { PageTitle, Panel, StatTile } from "@/components/dashboard/primitives";
 import { Ring, HBar } from "@/components/dashboard/charts";
-import { PillLink } from "@/components/public/pill-link";
+import { FilesTable } from "./files-table";
 import { isValidRole } from "@/lib/nav-config";
 import { ADMIN_STATS, FILES } from "@/lib/fixtures";
-import { buttonVariants } from "@/components/ui/button";
 
 const KINDS = [
   { key: "all", label: "全部" },
@@ -28,9 +27,7 @@ export default async function FilesPage({ params, searchParams }: PageProps<"/da
     { id: "s-3", name: "第01組_系統驗收簡報_v1.pdf", category: "系統驗收簡報與說明文件", size: "22.7 MB", date: "2026-08-12", cohort: "114", kind: "submission", uploader: "周子瑜", refs: 1 },
     { id: "a-1", name: "114-1 專題時程表.pdf", category: "第一階段時程公告", size: "96 KB", date: "2026-08-10", cohort: "114", kind: "attachment", uploader: "系辦管理員", refs: 2 },
   ];
-  const list = kind === "all" ? rows : rows.filter((r) => r.kind === kind);
   const byKind = KINDS.slice(1).map((k) => ({ ...k, count: rows.filter((r) => r.kind === k.key).length }));
-  const icon = (n: string) => (n.endsWith(".pdf") ? <IconFileText className="size-4 text-destructive" /> : n.endsWith(".pptx") ? <IconPresentation className="size-4 text-brand" /> : n.match(/\.(jpg|png)$/) ? <IconPhoto className="size-4 text-info" /> : <IconFile className="size-4 text-primary" />);
   return (
     <div className="flex flex-col gap-5">
       <PageTitle title="檔案管理" description="公告附件、公開資源、表單上傳與組別繳交共用同一儲存核心。" actions={<button type="button" className="btn-fju h-10 px-4 text-sm"><IconUpload className="size-4" /> 上傳資源</button>} />
@@ -41,25 +38,8 @@ export default async function FilesPage({ params, searchParams }: PageProps<"/da
           <ul className="flex flex-col gap-2.5 px-5 py-3">{byKind.map((k) => <li key={k.key}><HBar label={k.label} value={k.count} total={rows.length} suffix={`${k.count}`} /></li>)}</ul>
         </Panel>
       </div>
-      <Panel title="檔案" icon={<IconFolders />} action={<nav className="flex flex-wrap gap-1.5">{KINDS.map((k) => <PillLink key={k.key} href={k.key === "all" ? `/dashboard/${role}/files` : `/dashboard/${role}/files?kind=${k.key}`} active={kind === k.key}>{k.label}</PillLink>)}</nav>}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-muted/60 text-xs text-muted-foreground"><tr><th className="px-5 py-2.5 text-left font-semibold">檔名</th><th className="px-3 py-2.5 text-left font-semibold">類型／項目</th><th className="px-3 py-2.5 text-left font-semibold">上傳者</th><th className="px-3 py-2.5 text-right font-semibold">大小</th><th className="px-3 py-2.5 text-left font-semibold">日期</th><th className="px-3 py-2.5 text-right font-semibold">引用</th><th className="px-5 py-2.5"></th></tr></thead>
-            <tbody className="divide-y divide-border">
-              {list.map((f) => (
-                <tr key={f.id} className="transition-colors hover:bg-accent/40">
-                  <td className="px-5 py-3"><span className="flex items-center gap-2 font-semibold">{icon(f.name)}<span className="truncate">{f.name}</span></span></td>
-                  <td className="px-3 py-3"><Pill tone={f.kind === "submission" ? "info" : f.kind === "attachment" ? "brand" : "default"}>{KINDS.find((k) => k.key === f.kind)?.label}</Pill><span className="ml-2 text-xs text-muted-foreground">{f.category}</span></td>
-                  <td className="px-3 py-3 text-muted-foreground">{f.uploader}</td>
-                  <td className="tabular px-3 py-3 text-right text-muted-foreground">{f.size}</td>
-                  <td className="tabular px-3 py-3 text-muted-foreground">{f.date}</td>
-                  <td className="tabular px-3 py-3 text-right text-muted-foreground">{f.refs}</td>
-                  <td className="px-5 py-3 text-right"><button type="button" className={buttonVariants({ size: "sm", variant: "ghost", className: "press rounded-lg" })}>下載</button><button type="button" disabled={f.refs > 0} className={buttonVariants({ size: "sm", variant: "ghost", className: "press rounded-lg" })} title={f.refs > 0 ? "仍被引用，不可刪除" : undefined}>刪除</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Panel title="檔案" icon={<IconFolders />} bodyClassName="p-4">
+        <FilesTable rows={rows} initialKind={kind} />
       </Panel>
     </div>
   );

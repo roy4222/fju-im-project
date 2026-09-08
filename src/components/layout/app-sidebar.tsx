@@ -4,8 +4,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
-  IconArrowLeft,
   IconBell,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconBuildingFactory2,
   IconChecklist,
   IconClipboardText,
@@ -29,9 +30,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { navForRole, ROLE_LABEL, type NavIcon } from "@/lib/nav-config";
-import { COHORT, CURRENT_USERS, type Role } from "@/lib/fixtures";
+import { navForRole, type NavIcon } from "@/lib/nav-config";
+import type { Role } from "@/lib/fixtures";
 
 const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   dashboard: IconLayoutDashboard,
@@ -52,15 +54,14 @@ export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
   const groups = navForRole(role);
-  const user = CURRENT_USERS[role];
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="px-3 pt-3">
         <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} className="h-7 w-auto group-data-[collapsible=icon]:hidden" />
-          <span className="hidden size-8 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
-          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台・{COHORT.code} 學年度</span>
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden" style={{ height: "auto" }} />
+          <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
+          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
         </Link>
       </SidebarHeader>
 
@@ -97,19 +98,21 @@ export function AppSidebar({ role }: { role: Role }) {
       </SidebarContent>
 
       <SidebarFooter className="px-3 pb-3">
-        <Link href="/" className="flex items-center gap-2 rounded-lg border border-sidebar-border px-2.5 py-2 text-[13px] font-semibold text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <IconArrowLeft className="size-4 shrink-0" />
-          <span className="group-data-[collapsible=icon]:hidden">回到前台網站</span>
-        </Link>
-        <div className="flex items-center gap-2.5 px-1 pt-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-xs font-bold text-brand-on-subtle">{user.name.slice(0, 1)}</span>
-          <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-semibold">{user.name}</span>
-            <span className="truncate text-[11px] text-muted-foreground">{ROLE_LABEL[role]}{user.studentNo ? `・${user.studentNo}` : ""}</span>
-          </span>
-        </div>
+        <CollapseButton />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+  );
+}
+
+/** 側欄底部的收合／展開鈕（Roy 2026-09-08：左邊要可折疊） */
+function CollapseButton() {
+  const { state, toggleSidebar } = useSidebar();
+  const collapsed = state === "collapsed";
+  return (
+    <button type="button" onClick={toggleSidebar} className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
+      {collapsed ? <IconLayoutSidebarLeftExpand className="size-4.5 shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-4.5 shrink-0" />}
+      <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
+    </button>
   );
 }

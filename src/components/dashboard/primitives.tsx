@@ -36,7 +36,7 @@ export function Panel({ title, icon, description, action, children, className = 
 
 /** 統計磚（V1）：白卡、右上彩色 icon 方塊、黑色大數字、底部迷你長條。 */
 export function StatTile({ label, value, unit, hint, trend, chart, tone = "default", href, icon }: { label: string; value: string | number; unit?: string; hint?: string; trend?: { value: number; label?: string }; chart?: ReactNode; tone?: "default" | "warning" | "danger" | "success" | "brand" | "info"; href?: string; icon?: ReactNode }) {
-  const chip = { default: "bg-muted text-muted-foreground", warning: "bg-warning-subtle text-warning-on-subtle", danger: "bg-destructive-subtle text-destructive-on-subtle", success: "bg-success-subtle text-success-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-info-subtle text-info-on-subtle" }[tone];
+  const chip = { default: "bg-muted text-foreground", warning: "bg-muted text-foreground", danger: "bg-destructive-subtle text-destructive-on-subtle", success: "bg-muted text-foreground", brand: "bg-brand text-brand-foreground", info: "bg-muted text-foreground" }[tone];
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -57,7 +57,7 @@ export function StatTile({ label, value, unit, hint, trend, chart, tone = "defau
           ) : null}
           {hint ? <span className="truncate">{hint}</span> : null}
         </div>
-        {chart ? <div className={`shrink-0 ${{ default: "text-muted-foreground", warning: "text-warning", danger: "text-destructive", success: "text-success", brand: "text-brand", info: "text-info" }[tone]}`}>{chart}</div> : null}
+        {chart ? <div className={`shrink-0 ${tone === "danger" ? "text-destructive" : "text-brand"}`}>{chart}</div> : null}
       </div>
     </>
   );
@@ -95,7 +95,7 @@ export function Greeting({ name, line, cta, aside }: { name: string; line: strin
 
 /** 需要處理列：彩色 icon 方塊、名稱、數字、一顆按鈕。 */
 export function ActionRow({ label, detail, count, href, cta = "查看", tone = "default", icon }: { icon?: ReactNode; label: string; detail?: string; count: number; href: string; cta?: string; tone?: "default" | "warning" | "danger" | "brand" | "info" | "success" }) {
-  const chip = { default: "bg-muted text-muted-foreground", warning: "bg-warning-subtle text-warning-on-subtle", danger: "bg-destructive-subtle text-destructive-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-info-subtle text-info-on-subtle", success: "bg-success-subtle text-success-on-subtle" }[tone];
+  const chip = { default: "bg-muted text-foreground", warning: "bg-muted text-foreground", danger: "bg-destructive-subtle text-destructive-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-muted text-foreground", success: "bg-muted text-foreground" }[tone];
   return (
     <li>
       <Link href={href} className="group flex items-center gap-3.5 border-t border-border/70 px-5 py-3.5 transition-colors hover:bg-accent/50">
@@ -113,9 +113,9 @@ export function ActionRow({ label, detail, count, href, cta = "查看", tone = "
 
 const STATE_STYLE: Record<SubmissionState, string> = {
   todo: "border-border bg-muted text-muted-foreground",
-  draft: "border-info/30 bg-info-subtle text-info-on-subtle",
+  draft: "border-brand/30 bg-brand-subtle text-brand-on-subtle",
   submitted: "border-success/30 bg-success-subtle text-success-on-subtle",
-  resubmit: "border-warning/35 bg-warning-subtle text-warning-on-subtle",
+  resubmit: "border-brand/30 bg-brand-subtle text-brand-on-subtle",
   overdue: "border-destructive/35 bg-destructive-subtle text-destructive-on-subtle",
   locked: "border-border bg-muted text-muted-foreground",
 };
@@ -132,9 +132,9 @@ export function Pill({ children, tone = "default", className = "" }: { children:
   const cls = {
     default: "border-border bg-muted text-muted-foreground",
     success: "border-success/30 bg-success-subtle text-success-on-subtle",
-    warning: "border-warning/35 bg-warning-subtle text-warning-on-subtle",
+    warning: "border-border bg-muted text-foreground",
     danger: "border-destructive/35 bg-destructive-subtle text-destructive-on-subtle",
-    info: "border-info/30 bg-info-subtle text-info-on-subtle",
+    info: "border-border bg-muted text-foreground",
     brand: "border-brand/30 bg-brand-subtle text-brand-on-subtle",
   }[tone];
   return <Badge variant="outline" className={`shrink-0 text-[11px] ${cls} ${className}`}>{children}</Badge>;
@@ -147,7 +147,7 @@ export function ProgressBar({ done, total, overdue = 0, showLabel = true }: { do
     <div className="flex items-center gap-2.5">
       <div className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted" role="img" aria-label={`完成 ${done}／${total}${overdue ? `，逾期 ${overdue}` : ""}`}>
         <div className="flex h-full">
-          <div className="bg-foreground/70" style={{ width: `${pct}%` }} />
+          <div className="bg-brand" style={{ width: `${pct}%` }} />
           <div className="bg-destructive" style={{ width: `${overduePct}%` }} />
         </div>
       </div>

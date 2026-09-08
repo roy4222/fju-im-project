@@ -26,7 +26,7 @@ export function MiniBars({ values, className = "", fill = "currentColor", highli
         <span
           key={i}
           className="block w-1.5 rounded-sm"
-          style={{ height: `${Math.max((v / max) * 100, 8)}%`, background: fill, opacity: highlightLast && i === values.length - 1 ? 1 : 0.35 }}
+          style={{ height: `${Math.max((v / max) * 100, 8)}%`, background: highlightLast && i === values.length - 1 ? fill : "var(--muted-foreground)", opacity: highlightLast && i === values.length - 1 ? 1 : 0.3 }}
         />
       ))}
     </div>
@@ -70,7 +70,7 @@ export function BarChart({ data, className = "", color = "currentColor", highlig
         <div key={d.label} className="group flex flex-1 flex-col items-center gap-1.5">
           <span className="tabular text-[11px] font-semibold text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{d.value}</span>
           <div className="flex h-24 w-full items-end">
-            <span className="block w-full rounded-t-md transition-opacity group-hover:opacity-100" style={{ height: `${Math.max((d.value / max) * 100, 4)}%`, background: color, opacity: highlight === i ? 0.9 : 0.35 }} />
+            <span className="block w-full rounded-t-md transition-opacity group-hover:opacity-100" style={{ height: `${Math.max((d.value / max) * 100, 4)}%`, background: highlight === i ? "var(--brand)" : color, opacity: highlight === i ? 1 : 0.28 }} />
           </div>
           <span className="tabular text-[11px] text-muted-foreground">{d.label}</span>
         </div>
