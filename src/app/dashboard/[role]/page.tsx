@@ -2,39 +2,40 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   IconAlertTriangle,
-  IconArrowRight,
+  IconBriefcase,
+  IconCalendarDue,
   IconCheck,
   IconChecklist,
+  IconClipboardText,
   IconClock,
   IconDatabase,
   IconHandGrab,
   IconInbox,
-  IconPaperclip,
   IconSignature,
+  IconSpeakerphone,
   IconUserCheck,
+  IconUsers,
+  IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  EmptyState,
-  Panel,
-  ProgressBar,
-  StateBadge,
-  StatTile,
-} from "@/components/dashboard/primitives";
+import { ActionRow, EmptyState, Greeting, Panel, Pill, ProgressBar, StatTile, StateBadge } from "@/components/dashboard/primitives";
+import { BarChart, HBar, MiniBars, Ring, SegmentBar, Sparkline } from "@/components/dashboard/charts";
 import { isValidRole } from "@/lib/nav-config";
 import {
   ADMIN_STATS,
-  COHORT,
+  AUDIT_EVENTS,
   CURRENT_USERS,
   EVALUATION_QUEUE,
+  GRADING_PROGRESS,
   GROUPS,
   INDUSTRY,
   MANAGED_ITEMS,
   MY_GROUP,
   NEWS,
   SIGNOFF,
+  SIGNOFF_PROGRESS,
+  SUBMISSION_TREND,
   TEACHERS,
   UNGROUPED,
   daysUntil,
@@ -42,29 +43,17 @@ import {
   type Role,
 } from "@/lib/fixtures";
 
-export default async function DashboardPage({
-  params,
-}: PageProps<"/dashboard/[role]">) {
+export default async function DashboardPage({ params }: PageProps<"/dashboard/[role]">) {
   const { role } = await params;
   if (!isValidRole(role)) notFound();
-
   if (role === "student") return <StudentDashboard role={role} />;
   if (role === "teacher") return <TeacherDashboard role={role} />;
   return <AdminDashboard role={role} />;
 }
 
-/* -------------------------------------------------------------------------- */
-/* 共用：待辦列                                                                */
-/* -------------------------------------------------------------------------- */
-
 function DueChip({ dueAt }: { dueAt: string }) {
   const d = daysUntil(dueAt);
-  const tone =
-    d < 0
-      ? "text-destructive"
-      : d <= 10
-        ? "text-brand"
-        : "text-muted-foreground";
+  const tone = d < 0 ? "text-destructive" : d <= 10 ? "text-brand" : "text-muted-foreground";
   return (
     <span className={`tabular inline-flex items-center gap-1 text-xs font-semibold ${tone}`}>
       <IconClock className="size-3.5" />
@@ -73,237 +62,66 @@ function DueChip({ dueAt }: { dueAt: string }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* 學生                                                                        */
-/* -------------------------------------------------------------------------- */
+/* ============================================================ 學生 */
 
 function StudentDashboard({ role }: { role: Role }) {
   const base = `/dashboard/${role}`;
   const user = CURRENT_USERS.student;
-  const todo = MANAGED_ITEMS.filter(
-    (i) => i.dueAt && i.myState && i.myState !== "submitted",
-  ).sort((a, b) => daysUntil(a.dueAt!) - daysUntil(b.dueAt!));
+  const todo = MANAGED_ITEMS.filter((i) => i.dueAt && i.myState && i.myState !== "submitted").sort((a, b) => daysUntil(a.dueAt!) - daysUntil(b.dueAt!));
   const submitted = MANAGED_ITEMS.filter((i) => i.myState === "submitted");
-  const myPendingApproval = SIGNOFF.studentApprovals.find(
-    (a) => a.name === user.name && !a.approved,
-  );
-  const confirmedCount = MY_GROUP.members.filter((m) => m.confirmed).length;
+  const next = todo.find((i) => daysUntil(i.dueAt!) >= 0);
+  const confirmed = MY_GROUP.members.filter((m) => m.confirmed).length;
+  const approvals = SIGNOFF.studentApprovals.filter((a) => a.approved).length;
+  const myPending = SIGNOFF.studentApprovals.find((a) => a.name === user.name && !a.approved);
 
   return (
-    <div className="space-y-6">
-      {/* 第一眼就是「我現在要做什麼」 */}
-      <Panel
-        title="待完成事項"
-        description={`${todo.length} 項未完成，依截止日排序`}
-        action={{ href: `${base}/affairs`, label: "全部專題事務" }}
-      >
-        {todo.length === 0 ? (
-          <EmptyState
-            title="目前沒有待完成事項"
-            hint="有新的繳交項目時會出現在這裡，並寄送通知。"
-            icon={<IconInbox className="size-8" />}
-          />
-        ) : (
-          <ul className="divide-y divide-border">
-            {todo.map((item) => (
-              <li
-                key={item.id}
-                className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StateBadge state={item.myState!} />
-                    <p className="min-w-0 font-medium leading-snug">{item.title}</p>
-                  </div>
-                  <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-                    {item.summary}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <DueChip dueAt={item.dueAt!} />
-                    <span className="text-xs text-muted-foreground">
-                      截止 {item.dueAt}
-                    </span>
-                    {item.attachments ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <IconPaperclip className="size-3.5" />
-                        {item.attachments} 個附件
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <Link
-                  href={`${base}/affairs/${item.id}`}
-                  className={buttonVariants({
-                    size: "lg",
-                    variant: item.myState === "overdue" ? "outline" : "default",
-                    className: "shrink-0",
-                  })}
-                >
-                  {item.myState === "draft"
-                    ? "繼續填寫"
-                    : item.myState === "overdue"
-                      ? "查看逾期處理"
-                      : item.myState === "resubmit"
-                        ? "修正後重送"
-                        : "開始填寫"}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
-      <div className="grid items-start gap-6 lg:grid-cols-2">
-        {/* 我的組別 */}
-        <Panel
-          title="我的組別"
-          description={`${MY_GROUP.no}・${MY_GROUP.type === "INDUSTRY" ? "產學合作" : "一般專題"}`}
-          action={{ href: `${base}/groups`, label: "組別詳情" }}
-        >
-          <div className="border-b border-border px-4 py-3">
-            <p className="font-medium leading-snug">{MY_GROUP.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              指導老師：
-              {TEACHERS.find((t) => t.id === MY_GROUP.advisorId)?.name ?? "尚未指派"}
-            </p>
-          </div>
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                成員確認進度 {confirmedCount}/5
-              </p>
-              {confirmedCount < 5 ? (
-                <Badge
-                  variant="outline"
-                  className="border-warning/35 bg-warning-subtle text-[11px] text-warning-on-subtle"
-                >
-                  等待 {5 - confirmedCount} 人確認
-                </Badge>
-              ) : (
-                <Badge
-                  variant="outline"
-                  className="border-success/30 bg-success-subtle text-[11px] text-success-on-subtle"
-                >
-                  全員已確認
-                </Badge>
-              )}
-            </div>
-            <ul className="mt-3 space-y-2">
-              {MY_GROUP.members.map((m) => (
-                <li key={m.id} className="flex items-center gap-2.5">
-                  {m.confirmed ? (
-                    <IconCheck className="size-4 shrink-0 text-success" aria-label="已確認" />
-                  ) : (
-                    <IconClock
-                      className="size-4 shrink-0 text-muted-foreground"
-                      aria-label="尚未確認"
-                    />
-                  )}
-                  <span className="text-sm font-medium">{m.name}</span>
-                  <span className="tabular text-xs text-muted-foreground">
-                    {m.studentNo}
-                  </span>
-                  {m.isLeader ? (
-                    <Badge variant="outline" className="text-[10px]">
-                      組長
-                    </Badge>
-                  ) : null}
-                  {m.id === CURRENT_USERS.student.id ? (
-                    <Badge variant="outline" className="text-[10px] text-primary">
-                      我
-                    </Badge>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Panel>
-
-        {/* 待我同意 */}
-        <Panel
-          title="待我同意"
-          description="每個人只能提交自己的同意，不能代替他人"
-          action={{ href: `${base}/signoff`, label: "簽核紀錄" }}
-        >
-          {myPendingApproval ? (
-            <div className="px-4 py-3">
-              <p className="font-medium leading-snug">{SIGNOFF.title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                五位組員需各自同意，全部同意後才輪到指導老師。
-              </p>
-
-              <ul className="mt-3 space-y-2">
-                {SIGNOFF.studentApprovals.map((a) => (
-                  <li key={a.name} className="flex items-center gap-2.5">
-                    {a.approved ? (
-                      <IconCheck className="size-4 shrink-0 text-success" aria-label="已同意" />
-                    ) : (
-                      <IconClock
-                        className="size-4 shrink-0 text-muted-foreground"
-                        aria-label="尚未同意"
-                      />
-                    )}
-                    <span className="text-sm">{a.name}</span>
-                    <span className="tabular ml-auto text-xs text-muted-foreground">
-                      {a.at ?? "—"}
-                    </span>
-                  </li>
-                ))}
-                <li className="flex items-center gap-2.5 border-t border-border pt-2">
-                  <IconSignature
-                    className="size-4 shrink-0 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <span className="text-sm">
-                    指導老師 {SIGNOFF.teacherApproval.name}
-                  </span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    尚未輪到
-                  </span>
-                </li>
-              </ul>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className={buttonVariants({ size: "lg" })}>
-                  <IconCheck /> 我已閱讀並同意
-                </button>
-                <button className={buttonVariants({ variant: "outline", size: "lg" })}>
-                  <IconX /> 不同意並填寫原因
-                </button>
+    <div className="stagger flex flex-col gap-5">
+      <Greeting
+        name={user.name}
+        line={next ? `下一個截止：${next.title}，${formatDue(next.dueAt!)}。` : "目前沒有即將截止的項目。"}
+        cta={next ? { href: `${base}/affairs/${next.id}`, label: next.myState === "draft" ? "繼續填寫" : "開始填寫" } : { href: `${base}/affairs`, label: "查看專題事務" }}
+        aside={
+          next ? (
+            <div className="flex items-center gap-4 rounded-xl border border-border bg-background/80 px-5 py-4">
+              <Ring value={Math.max(0, Math.min(100, 100 - (daysUntil(next.dueAt!) / 30) * 100))} size={64} color="var(--brand)">
+                <span className="tabular text-lg font-extrabold">{daysUntil(next.dueAt!)}</span>
+              </Ring>
+              <div className="text-sm">
+                <p className="font-bold">天後截止</p>
+                <p className="tabular text-muted-foreground">{next.dueAt}</p>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                同意後會記錄你的帳號、時間與內容版本；內容或組員變更時舊同意自動失效。
-              </p>
             </div>
-          ) : (
-            <EmptyState title="沒有待你同意的項目" />
-          )}
-        </Panel>
+          ) : null
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="待完成" icon={<IconClipboardText />} value={todo.length} unit="項" tone={todo.length ? "warning" : "default"} href={`${base}/affairs`} chart={<MiniBars values={[1, 2, 2, 3, 3, 4, todo.length]} fill="var(--warning)" />} />
+        <StatTile label="已繳交" icon={<IconCheck />} value={submitted.length} unit="項" tone="success" href={`${base}/affairs`} chart={<Sparkline values={[0, 0, 1, 1, 1, 1, submitted.length]} stroke="var(--success)" />} />
+        <StatTile label="組員確認" icon={<IconUsersGroup />} value={`${confirmed}/5`} hint={confirmed < 5 ? `還差 ${5 - confirmed} 人` : "全員到齊"} tone={confirmed < 5 ? "warning" : "success"} href={`${base}/groups`} chart={<Ring value={(confirmed / 5) * 100} size={44} stroke={5} color={confirmed < 5 ? "var(--warning)" : "var(--success)"} />} />
+        <StatTile label="同意書" icon={<IconSignature />} value={`${approvals}/5`} hint={myPending ? "等你同意" : "等其他組員"} tone="brand" href={`${base}/signoff`} chart={<Ring value={(approvals / 5) * 100} size={44} stroke={5} color="var(--brand)" />} />
       </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_20rem]">
-        <Panel
-          title="已完成"
-          description={`${submitted.length} 項已繳交，截止前仍可重送`}
-        >
-          {submitted.length === 0 ? (
-            <EmptyState title="尚無已完成項目" />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title="待完成事項" icon={<IconClipboardText />} description="依截止日排序" action={{ href: `${base}/affairs`, label: "全部" }}>
+          {todo.length === 0 ? (
+            <EmptyState icon={<IconInbox />} title="沒有待完成事項" />
           ) : (
             <ul className="divide-y divide-border">
-              {submitted.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-3 px-4 py-3"
-                >
-                  <StateBadge state="submitted" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {item.title}
-                  </span>
-                  <Link
-                    href={`${base}/affairs/${item.id}`}
-                    className="shrink-0 text-xs font-medium text-primary hover:underline"
-                  >
-                    查看版本
+              {todo.map((item) => (
+                <li key={item.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <StateBadge state={item.myState!} />
+                      <p className="truncate font-semibold">{item.title}</p>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+                      <DueChip dueAt={item.dueAt!} />
+                      <span className="tabular">截止 {item.dueAt}</span>
+                    </div>
+                  </div>
+                  <Link href={`${base}/affairs/${item.id}`} className={buttonVariants({ size: "lg", variant: item.myState === "overdue" ? "outline" : "default", className: "press shrink-0 rounded-lg" })}>
+                    {item.myState === "draft" ? "繼續填寫" : item.myState === "overdue" ? "查看" : item.myState === "resubmit" ? "重送" : "開始"}
                   </Link>
                 </li>
               ))}
@@ -311,14 +129,68 @@ function StudentDashboard({ role }: { role: Role }) {
           )}
         </Panel>
 
-        <Panel title="近期公告" action={{ href: "/news", label: "全部" }}>
+        <div className="flex flex-col gap-5">
+          <Panel title="我的組別" icon={<IconUsersGroup />} description={`${MY_GROUP.no}・${MY_GROUP.type === "INDUSTRY" ? "產學合作" : "一般專題"}`} action={{ href: `${base}/groups`, label: "詳情" }}>
+            <div className="px-5 py-4">
+              <p className="font-semibold leading-snug">{MY_GROUP.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">指導老師 {TEACHERS.find((t) => t.id === MY_GROUP.advisorId)?.name ?? "尚未指派"}</p>
+              <ul className="mt-4 flex flex-wrap gap-2">
+                {MY_GROUP.members.map((m) => (
+                  <li key={m.id} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${m.confirmed ? "border-success/30 bg-success-subtle text-success-on-subtle" : "border-border bg-muted text-muted-foreground"}`}>
+                    {m.confirmed ? <IconCheck className="size-3.5" /> : <IconClock className="size-3.5" />}
+                    {m.name}
+                    {m.isLeader ? <span className="opacity-70">組長</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Panel>
+
+          <Panel title="待我同意" icon={<IconSignature />} action={{ href: `${base}/signoff`, label: "紀錄" }}>
+            {myPending ? (
+              <div className="px-5 py-4">
+                <p className="font-semibold leading-snug">{SIGNOFF.title}</p>
+                <div className="mt-3 flex items-center gap-3">
+                  <SegmentBar segments={[{ value: approvals, color: "var(--success)", label: "已同意" }, { value: 5 - approvals, color: "var(--muted)", label: "未同意" }]} className="flex-1" />
+                  <span className="tabular text-xs font-semibold text-muted-foreground">{approvals}/5</span>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Link href={`${base}/signoff`} className={buttonVariants({ size: "lg", className: "press rounded-lg" })}><IconCheck /> 閱讀並同意</Link>
+                  <Link href={`${base}/signoff`} className={buttonVariants({ size: "lg", variant: "outline", className: "press rounded-lg" })}><IconX /> 不同意</Link>
+                </div>
+              </div>
+            ) : (
+              <EmptyState title="沒有待你同意的項目" />
+            )}
+          </Panel>
+        </div>
+      </div>
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title="已繳交" icon={<IconCheck />} description="截止前仍可重送，每次送出保留版本" action={{ href: `${base}/affairs`, label: "全部" }}>
+          {submitted.length === 0 ? (
+            <EmptyState title="尚無已繳交項目" />
+          ) : (
+            <ul className="divide-y divide-border">
+              {submitted.map((item) => (
+                <li key={item.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <StateBadge state="submitted" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span>
+                  <span className="tabular text-xs text-muted-foreground">v{item.schemaVersion}</span>
+                  <Link href={`${base}/affairs/${item.id}`} className="link-ink text-[13px] font-semibold text-primary">版本</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        <Panel title="近期公告" icon={<IconSpeakerphone />} action={{ href: "/news", label: "全部" }}>
           <ul className="divide-y divide-border">
             {NEWS.slice(0, 4).map((n) => (
-              <li key={n.id} className="px-4 py-3">
-                <time className="tabular text-xs text-muted-foreground">{n.date}</time>
-                <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug">
-                  {n.title}
-                </p>
+              <li key={n.id}>
+                <Link href={`/news/${n.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-accent/60">
+                  <time className="tabular shrink-0 text-xs text-muted-foreground">{n.date.slice(5)}</time>
+                  <span className="truncate text-sm font-medium">{n.title}</span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -328,157 +200,107 @@ function StudentDashboard({ role }: { role: Role }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* 老師                                                                        */
-/* -------------------------------------------------------------------------- */
+/* ============================================================ 老師 */
 
 function TeacherDashboard({ role }: { role: Role }) {
   const base = `/dashboard/${role}`;
   const me = CURRENT_USERS.teacher;
   const myGroups = GROUPS.filter((g) => g.advisorId === me.id);
-  const claimable = GROUPS.filter(
-    (g) => g.type === "INDUSTRY" && g.advisorId === null,
-  );
+  const claimable = GROUPS.filter((g) => g.type === "INDUSTRY" && g.advisorId === null);
   const pending = EVALUATION_QUEUE.filter((e) => e.state === "pending");
   const staged = EVALUATION_QUEUE.filter((e) => e.state === "staged");
+  const done = EVALUATION_QUEUE.filter((e) => e.state === "submitted");
+  const teacherSign = SIGNOFF_PROGRESS.filter((s) => s.students === s.total && !s.teacher && GROUPS.find((g) => g.id === s.groupId)?.advisorId === me.id);
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="待評分組別"
-          value={pending.length}
-          unit="組"
-          tone={pending.length > 0 ? "warning" : "default"}
-          href={`${base}/grading`}
-        />
-        <StatTile label="已暫存未送出" value={staged.length} unit="組" href={`${base}/grading`} />
-        <StatTile label="我的指導組別" value={myGroups.length} unit="組" href={`${base}/groups`} />
-        <StatTile
-          label="可認領產學組"
-          value={claimable.length}
-          unit="組"
-          tone={claimable.length > 0 ? "warning" : "default"}
-          href={`${base}/groups`}
-        />
+    <div className="stagger flex flex-col gap-5">
+      <Greeting
+        name={`${me.name} 老師`}
+        line={pending.length ? `系統驗收還有 ${pending.length} 組待評分，送出後鎖定。` : "目前沒有待評分的組別。"}
+        cta={{ href: `${base}/grading`, label: "開始評分" }}
+        aside={
+          <div className="flex items-center gap-4 rounded-xl border border-border bg-background/80 px-5 py-4">
+            <Ring value={(done.length / EVALUATION_QUEUE.length) * 100} size={64} color="var(--success)">
+              <span className="tabular text-sm font-extrabold">{done.length}/{EVALUATION_QUEUE.length}</span>
+            </Ring>
+            <div className="text-sm">
+              <p className="font-bold">已送出評分</p>
+              <p className="text-muted-foreground">系統驗收階段</p>
+            </div>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="待評分" icon={<IconChecklist />} value={pending.length} unit="組" tone={pending.length ? "warning" : "default"} href={`${base}/grading`} chart={<MiniBars values={[4, 4, 3, 3, 2, 2, pending.length]} fill="var(--warning)" />} />
+        <StatTile label="已暫存" icon={<IconClock />} value={staged.length} unit="組" hint="尚未正式送出" href={`${base}/grading`} chart={<Ring value={(staged.length / EVALUATION_QUEUE.length) * 100} size={44} stroke={5} color="var(--info)" />} />
+        <StatTile label="指導組別" icon={<IconUsersGroup />} value={myGroups.length} unit="組" hint={`${myGroups.filter((g) => g.type === "INDUSTRY").length} 組產學`} href={`${base}/groups`} chart={<Ring value={(myGroups.length / GROUPS.length) * 100} size={44} stroke={5} />} />
+        <StatTile label="待我同意" icon={<IconSignature />} value={teacherSign.length} unit="件" tone={teacherSign.length ? "brand" : "default"} href={`${base}/signoff`} chart={<MiniBars values={[0, 1, 1, 0, 1, 1, teacherSign.length]} fill="var(--brand)" />} />
       </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-2">
-        <Panel
-          title="待評分"
-          description="只顯示你被指派的組別與階段"
-          action={{ href: `${base}/grading`, label: "評分工作台" }}
-        >
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title="評分佇列" icon={<IconChecklist />} description="只顯示你被指派的組別" action={{ href: `${base}/grading`, label: "工作台" }}>
           <ul className="divide-y divide-border">
             {EVALUATION_QUEUE.map((e) => (
-              <li key={e.groupId} className="flex items-center gap-3 px-4 py-3.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="tabular text-xs text-muted-foreground">
-                      {e.groupNo}
-                    </span>
-                    {e.state === "pending" ? (
-                      <Badge
-                        variant="outline"
-                        className="border-warning/35 bg-warning-subtle text-[11px] text-warning-on-subtle"
-                      >
-                        未開始
-                      </Badge>
-                    ) : e.state === "staged" ? (
-                      <Badge
-                        variant="outline"
-                        className="border-info/30 bg-info-subtle text-[11px] text-info-on-subtle"
-                      >
-                        已暫存
-                      </Badge>
-                    ) : (
-                      <Badge
-                        variant="outline"
-                        className="border-success/30 bg-success-subtle text-[11px] text-success-on-subtle"
-                      >
-                        已送出・鎖定
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="mt-1 truncate text-sm font-medium">{e.title}</p>
-                </div>
-                <Link
-                  href={`${base}/grading/${e.groupId}`}
-                  className={buttonVariants({
-                    size: "lg",
-                    variant: e.state === "submitted" ? "outline" : "default",
-                    className: "shrink-0",
-                  })}
-                >
-                  {e.state === "submitted" ? "檢視" : e.state === "staged" ? "繼續" : "開始評分"}
+              <li key={e.groupId} className="flex items-center gap-4 px-5 py-3.5">
+                <span className="tabular w-16 shrink-0 text-xs font-semibold text-muted-foreground">{e.groupNo}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.title}</span>
+                {e.state === "pending" ? <Pill tone="warning">未開始</Pill> : e.state === "staged" ? <Pill tone="info">已暫存</Pill> : <Pill tone="success">已送出</Pill>}
+                <Link href={`${base}/grading/${e.groupId}`} className={buttonVariants({ size: "lg", variant: e.state === "submitted" ? "outline" : "default", className: "press shrink-0 rounded-lg" })}>
+                  {e.state === "submitted" ? "檢視" : e.state === "staged" ? "繼續" : "評分"}
                 </Link>
               </li>
             ))}
           </ul>
         </Panel>
 
-        <Panel
-          title="尚未指派的產學組"
-          description="先按先得；同時操作時只有一位會成功"
-          action={{ href: `${base}/groups`, label: "全體分組" }}
-        >
-          {claimable.length === 0 ? (
-            <EmptyState title="目前沒有可認領的產學組" />
-          ) : (
-            <ul className="divide-y divide-border">
-              {claimable.map((g) => (
-                <li key={g.id} className="flex items-center gap-3 px-4 py-3.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="tabular text-xs text-muted-foreground">{g.no}</span>
-                      <Badge
-                        variant="outline"
-                        className="border-brand/30 bg-brand-subtle text-[11px] text-brand-on-subtle"
-                      >
-                        產學合作
-                      </Badge>
-                    </div>
-                    <p className="mt-1 truncate text-sm font-medium">{g.title}</p>
-                  </div>
-                  <button
-                    className={buttonVariants({
-                      variant: "outline",
-                      size: "lg",
-                      className: "shrink-0",
-                    })}
-                  >
-                    <IconHandGrab /> 指定為我的組別
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
+        <div className="flex flex-col gap-5">
+          <Panel title="可認領產學組" icon={<IconHandGrab />} description="先按先得" action={{ href: `${base}/groups`, label: "全部分組" }}>
+            {claimable.length === 0 ? (
+              <EmptyState title="沒有可認領的產學組" />
+            ) : (
+              <ul className="divide-y divide-border">
+                {claimable.map((g) => (
+                  <li key={g.id} className="flex items-center gap-3 px-5 py-3">
+                    <span className="tabular shrink-0 text-xs font-semibold text-muted-foreground">{g.no}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{g.title.replace(/（產學：.*）/, "")}</span>
+                    <Link href={`${base}/groups?claim=${g.id}`} className={buttonVariants({ variant: "outline", size: "sm", className: "press shrink-0 rounded-lg" })}>認領</Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+          <Panel title="待我同意" icon={<IconSignature />} action={{ href: `${base}/signoff`, label: "進度" }}>
+            {teacherSign.length === 0 ? (
+              <EmptyState title="沒有等待你同意的組別" hint="五位學生全數同意後才會輪到老師。" />
+            ) : (
+              <ul className="divide-y divide-border">
+                {teacherSign.map((s) => (
+                  <li key={s.groupId} className="flex items-center gap-3 px-5 py-3">
+                    <span className="tabular shrink-0 text-xs font-semibold text-muted-foreground">{s.groupNo}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{SIGNOFF.title}</span>
+                    <Link href={`${base}/signoff`} className={buttonVariants({ size: "sm", className: "press shrink-0 rounded-lg" })}>同意</Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
       </div>
 
-      <Panel
-        title="我的指導組別與繳交狀態"
-        action={{ href: `${base}/affairs`, label: "各組繳交狀態" }}
-      >
+      <Panel title="指導組別繳交狀態" icon={<IconUsersGroup />} action={{ href: `${base}/affairs`, label: "各組狀態" }}>
         <ul className="divide-y divide-border">
-          {myGroups.map((g) => (
-            <li key={g.id} className="grid gap-2 px-4 py-3.5 sm:grid-cols-[1fr_14rem] sm:items-center sm:gap-4">
+          {myGroups.map((g, i) => (
+            <li key={g.id} className="grid gap-2 px-5 py-3.5 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-center sm:gap-6">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="tabular text-xs text-muted-foreground">{g.no}</span>
-                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                    {g.type === "INDUSTRY" ? "產學合作" : "一般專題"}
-                  </Badge>
+                  <span className="tabular text-xs font-semibold text-muted-foreground">{g.no}</span>
+                  <Pill tone={g.type === "INDUSTRY" ? "brand" : "default"}>{g.type === "INDUSTRY" ? "產學" : "一般"}</Pill>
+                  <p className="truncate text-sm font-semibold">{g.title.replace(/（產學：.*）/, "")}</p>
                 </div>
-                <p className="mt-1 truncate text-sm font-medium">{g.title}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {g.members.map((m) => m.name).join("、")}
-                </p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{g.members.map((m) => m.name).join("、")}</p>
               </div>
-              <div>
-                <p className="mb-1.5 text-xs text-muted-foreground">本屆收件完成度</p>
-                <ProgressBar done={3} total={5} overdue={g.id === "g-07" ? 1 : 0} />
-              </div>
+              <ProgressBar done={[3, 4][i % 2]} total={5} overdue={g.id === "g-07" ? 1 : 0} />
             </li>
           ))}
         </ul>
@@ -487,232 +309,115 @@ function TeacherDashboard({ role }: { role: Role }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* 管理員                                                                      */
-/* -------------------------------------------------------------------------- */
+/* ============================================================ 管理員 */
 
 function AdminDashboard({ role }: { role: Role }) {
   const base = `/dashboard/${role}`;
   const s = ADMIN_STATS;
-  const submissionItems = MANAGED_ITEMS.filter((i) => i.progress);
+  const items = MANAGED_ITEMS.filter((i) => i.progress);
   const unassignedIndustry = INDUSTRY.filter((i) => i.status === "open");
+  const totalStudents = s.groupedStudents + s.ungroupedStudents;
+  const gradingSubmitted = GRADING_PROGRESS.reduce((a, t) => a + t.submitted, 0);
+  const gradingAssigned = GRADING_PROGRESS.reduce((a, t) => a + t.assigned, 0);
+  const signComplete = SIGNOFF_PROGRESS.filter((p) => p.state === "complete").length;
+  const missingTeachers = GRADING_PROGRESS.filter((t) => t.submitted < t.assigned).length;
+  const overdueGroups = items.reduce((a, i) => a + (i.progress?.overdue ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      {/* 需要處理的事情排在統計前面 */}
-      <Panel title="需要處理" description="有明確下一步的事項">
-        <ul className="divide-y divide-border">
-          <ActionRow
-            icon={<IconUserCheck className="size-4 text-warning" />}
-            label="待審核帳號"
-            detail="CSV 名單未命中或以 Email 註冊，需人工核准"
-            count={s.pendingAccounts}
-            href={`${base}/accounts?status=pending`}
-            cta="前往審核"
-          />
-          <ActionRow
-            icon={<IconAlertTriangle className="size-4 text-destructive" />}
-            label="逾期未繳組別"
-            detail="系統驗收簡報與說明文件，需個別重新開放並填理由"
-            count={3}
-            href={`${base}/affairs/mi-011`}
-            cta="處理逾期"
-          />
-          <ActionRow
-            icon={<IconHandGrab className="size-4 text-brand" />}
-            label="產學案未指派組別"
-            detail="老師可自行認領，亦可由系辦直接指派"
-            count={unassignedIndustry.length}
-            href={`${base}/industry?status=open`}
-            cta="查看產學案"
-          />
-          <ActionRow
-            icon={<IconChecklist className="size-4 text-info" />}
-            label="缺評老師"
-            detail="系統驗收階段尚有老師未送出正式評分"
-            count={2}
-            href={`${base}/grading`}
-            cta="查看評分進度"
-          />
-        </ul>
-      </Panel>
+    <div className="stagger flex flex-col gap-5">
+      <Greeting
+        name="系辦"
+        line={`${s.pendingAccounts} 筆帳號待審核、${overdueGroups} 組逾期、${missingTeachers} 位老師缺評。`}
+        cta={{ href: `${base}/accounts?status=pending`, label: "先審核帳號" }}
+        aside={
+          <div className="flex items-center gap-4 rounded-xl border border-border bg-background/80 px-5 py-4">
+            <Ring value={(s.groupedStudents / totalStudents) * 100} size={64}>
+              <span className="tabular text-sm font-extrabold">{Math.round((s.groupedStudents / totalStudents) * 100)}%</span>
+            </Ring>
+            <div className="text-sm">
+              <p className="font-bold">已分組</p>
+              <p className="tabular text-muted-foreground">{s.groupedStudents}/{totalStudents} 人</p>
+            </div>
+          </div>
+        }
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="本屆已分組學生"
-          value={s.groupedStudents}
-          unit="人"
-          hint={`未分組 ${s.ungroupedStudents} 人・例外組 ${s.groupExceptions} 組`}
-          href={`${base}/groups`}
-        />
-        <StatTile
-          label="組別總數"
-          value={GROUPS.length}
-          unit="組"
-          hint={`產學 ${GROUPS.filter((g) => g.type === "INDUSTRY").length} 組`}
-          href={`${base}/groups`}
-        />
-        <StatTile
-          label="檔案儲存量"
-          value={s.storageUsedGiB}
-          unit={`/ ${s.storageTotalGiB} GiB`}
-          hint="校內 VM persistent volume"
-        />
-        <StatTile
-          label="最近成功備份"
-          value={s.lastBackupAt.slice(5)}
-          tone="default"
-          hint={`還原演練：${s.lastRestoreDrillAt}`}
-        />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="待審核帳號" icon={<IconUserCheck />} value={s.pendingAccounts} unit="筆" tone="warning" href={`${base}/accounts?status=pending`} chart={<MiniBars values={[1, 0, 2, 1, 3, 2, s.pendingAccounts]} fill="var(--warning)" />} />
+        <StatTile label="逾期組別" icon={<IconAlertTriangle />} value={overdueGroups} unit="組" tone={overdueGroups ? "danger" : "default"} href={`${base}/affairs/mi-011`} chart={<MiniBars values={[0, 0, 1, 1, 2, 3, overdueGroups]} fill="var(--destructive)" />} />
+        <StatTile label="評分完成" icon={<IconChecklist />} value={`${gradingSubmitted}/${gradingAssigned}`} hint={`${missingTeachers} 位老師缺評`} href={`${base}/grading`} chart={<Ring value={(gradingSubmitted / gradingAssigned) * 100} size={44} stroke={5} color="var(--info)" />} />
+        <StatTile label="簽核完成" icon={<IconSignature />} value={`${signComplete}/${GROUPS.length}`} unit="組" href={`${base}/signoff`} chart={<Ring value={(signComplete / GROUPS.length) * 100} size={44} stroke={5} color="var(--brand)" />} />
       </div>
 
-      {s.lastRestoreDrillAt === "尚未執行" ? (
-        <div className="flex items-start gap-3 rounded-lg border border-warning/35 bg-warning-subtle px-4 py-3">
-          <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-on-subtle" />
-          <div className="text-sm text-warning-on-subtle">
-            <p className="font-medium">尚未完成任何還原演練</p>
-            <p className="mt-0.5 text-xs leading-relaxed opacity-90">
-              上線前必須在全新環境完成至少一次 restore drill，並記錄時間、版本與檔案抽查結果。
-              失敗紀錄不得覆蓋最後成功時間。
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_20rem]">
-        <Panel
-          title="收件項目完成率"
-          description={`${COHORT.label}・共 ${GROUPS.length} 組`}
-          action={{ href: `${base}/affairs`, label: "專題事務工作台" }}
-        >
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title="需要處理" icon={<IconInbox />} description="有明確下一步的事項">
           <ul className="divide-y divide-border">
-            {submissionItems.map((item) => (
-              <li
-                key={item.id}
-                className="grid gap-2 px-4 py-3.5 sm:grid-cols-[1fr_13rem] sm:items-center sm:gap-4"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{item.title}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                      v{item.schemaVersion ?? 1}
-                    </Badge>
-                    {item.dueAt ? <DueChip dueAt={item.dueAt} /> : null}
-                    {item.progress!.overdue > 0 ? (
-                      <span className="text-xs font-medium text-destructive">
-                        逾期 {item.progress!.overdue} 組
-                      </span>
-                    ) : null}
-                  </div>
+            <ActionRow tone="warning" icon={<IconUserCheck />} label="待審核帳號" detail="名單未命中或以 Email 註冊" count={s.pendingAccounts} href={`${base}/accounts?status=pending`} cta="審核" />
+            <ActionRow tone="danger" icon={<IconAlertTriangle />} label="逾期未繳組別" detail="系統驗收簡報與說明文件" count={overdueGroups} href={`${base}/affairs/mi-011`} cta="重新開放" />
+            <ActionRow tone="brand" icon={<IconBriefcase />} label="產學案未指派組別" detail="老師可認領，或由系辦指派" count={unassignedIndustry.length} href={`${base}/industry?status=open`} cta="查看" />
+            <ActionRow tone="info" icon={<IconChecklist />} label="缺評老師" detail="系統驗收階段尚未送出" count={missingTeachers} href={`${base}/grading`} cta="催繳" />
+            <ActionRow tone="default" icon={<IconUsers />} label="例外組別" detail="非五人組，已記錄理由" count={s.groupExceptions} href={`${base}/groups?status=exception`} cta="查看" />
+          </ul>
+        </Panel>
+
+        <Panel title="近 7 天正式繳交" icon={<IconCalendarDue />} description={`共 ${SUBMISSION_TREND.reduce((a, d) => a + d.count, 0)} 件`}>
+          <div className="px-5 pt-5 pb-3">
+            <BarChart data={SUBMISSION_TREND.map((d) => ({ label: d.day.slice(3), value: d.count }))} highlight={SUBMISSION_TREND.length - 1} />
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2 xl:grid-cols-3">
+        <Panel title="收件完成率" icon={<IconClipboardText />} action={{ href: `${base}/affairs`, label: "工作台" }}>
+          <ul className="flex flex-col gap-4 px-5 py-4">
+            {items.map((i) => (
+              <li key={i.id}>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <Link href={`${base}/affairs/${i.id}`} className="link-ink truncate text-sm font-semibold">{i.title}</Link>
+                  <span className="tabular shrink-0 text-xs text-muted-foreground">{i.progress!.done}/{i.progress!.total}</span>
                 </div>
-                <ProgressBar
-                  done={item.progress!.done}
-                  total={item.progress!.total}
-                  overdue={item.progress!.overdue}
-                />
+                <SegmentBar segments={[{ value: i.progress!.done, color: "var(--success)", label: "已繳" }, { value: i.progress!.overdue, color: "var(--destructive)", label: "逾期" }, { value: i.progress!.total - i.progress!.done - i.progress!.overdue, color: "var(--muted)", label: "未繳" }]} />
               </li>
             ))}
           </ul>
         </Panel>
 
-        <div className="space-y-6">
-          <Panel title="未分組學生" action={{ href: `${base}/groups`, label: "分組總覽" }}>
-            <ul className="divide-y divide-border">
-              {UNGROUPED.map((u) => (
-                <li key={u.id} className="flex items-center gap-2 px-4 py-2.5">
-                  <span className="text-sm font-medium">{u.name}</span>
-                  <span className="tabular text-xs text-muted-foreground">
-                    {u.studentNo}
-                  </span>
-                  {u.openToJoin ? (
-                    <Badge
-                      variant="outline"
-                      className="ml-auto border-success/30 bg-success-subtle text-[10px] text-success-on-subtle"
-                    >
-                      公開找組員
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="ml-auto text-[10px] text-muted-foreground">
-                      未公開
-                    </Badge>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Panel>
+        <Panel title="老師評分進度" icon={<IconChecklist />} description="系統驗收階段" action={{ href: `${base}/grading`, label: "成績管理" }}>
+          <ul className="flex flex-col gap-3.5 px-5 py-4">
+            {GRADING_PROGRESS.map((t) => (
+              <li key={t.teacher}>
+                <HBar label={t.teacher} value={t.submitted} total={t.assigned} color={t.submitted === t.assigned ? "var(--success)" : t.submitted === 0 ? "var(--destructive)" : "var(--info)"} />
+              </li>
+            ))}
+          </ul>
+        </Panel>
 
-          <Panel title="系統狀態">
-            <ul className="divide-y divide-border text-sm">
-              <li className="flex items-center gap-2 px-4 py-2.5">
-                <IconDatabase className="size-4 text-muted-foreground" />
-                <span>PostgreSQL</span>
-                <Badge
-                  variant="outline"
-                  className="ml-auto border-success/30 bg-success-subtle text-[10px] text-success-on-subtle"
-                >
-                  正常
-                </Badge>
-              </li>
-              <li className="flex items-center gap-2 px-4 py-2.5">
-                <IconDatabase className="size-4 text-muted-foreground" />
-                <span>檔案 volume</span>
-                <Badge
-                  variant="outline"
-                  className="ml-auto border-success/30 bg-success-subtle text-[10px] text-success-on-subtle"
-                >
-                  正常
-                </Badge>
-              </li>
-              <li className="flex items-center gap-2 px-4 py-2.5">
-                <IconAlertTriangle className="size-4 text-warning" />
-                <span>VM 外部備份目的地</span>
-                <Badge
-                  variant="outline"
-                  className="ml-auto border-warning/35 bg-warning-subtle text-[10px] text-warning-on-subtle"
-                >
-                  未設定
-                </Badge>
-              </li>
-            </ul>
-          </Panel>
-        </div>
+        <Panel title="儲存與備份" icon={<IconDatabase />} action={{ href: `${base}/files`, label: "檔案管理" }}>
+          <div className="flex items-center gap-5 px-5 py-4">
+            <Ring value={(s.storageUsedGiB / s.storageTotalGiB) * 100} size={84} stroke={9}>
+              <span className="tabular text-base font-extrabold">{Math.round((s.storageUsedGiB / s.storageTotalGiB) * 100)}%</span>
+            </Ring>
+            <dl className="grid flex-1 grid-cols-1 gap-2 text-sm">
+              <div className="flex justify-between"><dt className="text-muted-foreground">已用</dt><dd className="tabular font-semibold">{s.storageUsedGiB} / {s.storageTotalGiB} GiB</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">最近備份</dt><dd className="tabular font-semibold">{s.lastBackupAt.slice(5)}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">還原演練</dt><dd className="font-semibold text-warning-on-subtle">{s.lastRestoreDrillAt}</dd></div>
+            </dl>
+          </div>
+        </Panel>
       </div>
+
+      <Panel title="最近高權限操作" icon={<IconUsers />} action={{ href: `${base}/audit`, label: "操作紀錄" }}>
+        <ul className="divide-y divide-border">
+          {AUDIT_EVENTS.slice(0, 5).map((e) => (
+            <li key={e.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+              <time className="tabular w-24 shrink-0 text-xs text-muted-foreground">{e.at.slice(5)}</time>
+              <span className="w-20 shrink-0 truncate font-semibold">{e.actor}</span>
+              <Pill tone={e.role === "admin" ? "brand" : e.role === "system" ? "default" : "info"}>{e.action}</Pill>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{e.target}</span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
     </div>
-  );
-}
-
-function ActionRow({
-  icon,
-  label,
-  detail,
-  count,
-  href,
-  cta,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  detail: string;
-  count: number;
-  href: string;
-  cta: string;
-}) {
-  return (
-    <li className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">
-          {label}
-          <span className="tabular ml-2 text-base font-semibold">{count}</span>
-        </p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{detail}</p>
-      </div>
-      <Link
-        href={href}
-        className={buttonVariants({ variant: "outline", size: "lg", className: "shrink-0" })}
-      >
-        {cta}
-        <IconArrowRight />
-      </Link>
-    </li>
   );
 }

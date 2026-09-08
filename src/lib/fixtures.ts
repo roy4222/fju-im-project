@@ -858,3 +858,95 @@ export const COMPETITIONS: Competition[] = [
     summary: "以跨領域合作為主題的校內成果展，本系有兩組作品獲評審推薦。",
   },
 ];
+
+/* -------------------------------------------------------------------------- */
+/* 後台（2026-09-08）：通知、稽核、帳號、趨勢                                     */
+/* -------------------------------------------------------------------------- */
+
+export type Notification = {
+  id: string;
+  kind: "due" | "submission" | "signoff" | "grading" | "account" | "system";
+  title: string;
+  body: string;
+  at: string;
+  read: boolean;
+  href: string;
+};
+
+export const NOTIFICATIONS: Record<Role, Notification[]> = {
+  student: [
+    { id: "n-s1", kind: "due", title: "指導老師意願調查表 9 天後截止", body: "草稿尚未送出，任一組員送出即完成。", at: "08-17 09:00", read: false, href: "/dashboard/student/affairs/mi-014" },
+    { id: "n-s2", kind: "signoff", title: "專題成果授權同意書等你同意", body: "已有 3 位組員同意。", at: "08-16 21:13", read: false, href: "/dashboard/student/signoff" },
+    { id: "n-s3", kind: "submission", title: "專題分組名單確認表已繳交", body: "黃詩涵於 08-14 送出，版本 v1。", at: "08-14 16:20", read: true, href: "/dashboard/student/affairs/mi-013" },
+    { id: "n-s4", kind: "system", title: "第 07 組還有 2 位成員未確認", body: "蔡育瑄、鄭凱文尚未確認加入。", at: "08-13 10:02", read: true, href: "/dashboard/student/groups" },
+  ],
+  teacher: [
+    { id: "n-t1", kind: "grading", title: "系統驗收：第 07 組待評分", body: "評分表已開放，送出後鎖定。", at: "08-17 08:30", read: false, href: "/dashboard/teacher/grading/g-07" },
+    { id: "n-t2", kind: "signoff", title: "第 08 組同意書等待老師同意", body: "五位學生已全數同意。", at: "08-16 22:05", read: false, href: "/dashboard/teacher/signoff" },
+    { id: "n-t3", kind: "submission", title: "第 02 組送出系統驗收簡報", body: "版本 v2，附件 2 個。", at: "08-15 17:44", read: true, href: "/dashboard/teacher/affairs" },
+    { id: "n-t4", kind: "system", title: "2 個產學組尚未指派老師", body: "第 03 組、第 06 組可認領。", at: "08-12 09:00", read: true, href: "/dashboard/teacher/groups" },
+  ],
+  admin: [
+    { id: "n-a1", kind: "account", title: "4 筆帳號等待審核", body: "名單未命中或以 Email 註冊。", at: "08-17 07:50", read: false, href: "/dashboard/admin/accounts?status=pending" },
+    { id: "n-a2", kind: "due", title: "系統驗收簡報：3 組逾期", body: "需個別重新開放並填理由。", at: "08-16 00:05", read: false, href: "/dashboard/admin/affairs/mi-011" },
+    { id: "n-a3", kind: "grading", title: "系統驗收缺評老師 2 位", body: "李孟儒、張士豪尚未送出。", at: "08-15 18:00", read: false, href: "/dashboard/admin/grading" },
+    { id: "n-a4", kind: "system", title: "每日備份完成", body: "08-17 03:00，18.4 GiB。", at: "08-17 03:02", read: true, href: "/dashboard/admin/files" },
+  ],
+};
+
+export type AuditEvent = { id: string; at: string; actor: string; role: Role | "system"; action: string; target: string; reason?: string };
+
+export const AUDIT_EVENTS: AuditEvent[] = [
+  { id: "ae-01", at: "2026-08-17 09:12", actor: "系辦管理員", role: "admin", action: "重新開放收件", target: "系統驗收簡報與說明文件・第 05 組", reason: "組員住院，延至 08-22" },
+  { id: "ae-02", at: "2026-08-16 22:05", actor: "陳建宏", role: "teacher", action: "認領產學組", target: "第 02 組" },
+  { id: "ae-03", at: "2026-08-16 15:30", actor: "系辦管理員", role: "admin", action: "核准帳號", target: "411410455 高雅筑", reason: "名單姓名有誤字，已確認" },
+  { id: "ae-04", at: "2026-08-15 18:00", actor: "王雅玲", role: "teacher", action: "送出正式評分", target: "系統驗收・第 04 組" },
+  { id: "ae-05", at: "2026-08-15 10:20", actor: "系辦管理員", role: "admin", action: "發布項目", target: "指導老師意願調查表 v2" },
+  { id: "ae-06", at: "2026-08-14 16:20", actor: "黃詩涵", role: "student", action: "正式繳交", target: "專題分組名單確認表・第 07 組 v1" },
+  { id: "ae-07", at: "2026-08-13 09:00", actor: "系統", role: "system", action: "自動核准", target: "411410123 林彥廷（命中名單 v3）" },
+  { id: "ae-08", at: "2026-08-12 14:40", actor: "系辦管理員", role: "admin", action: "建立例外組別", target: "第 09 組（4 人）", reason: "轉系生名額不足" },
+];
+
+export type Account = { id: string; name: string; studentNo?: string; email: string; role: Role; cohort: string; status: "active" | "pending" | "disabled"; createdAt: string; approvedBy?: string };
+
+export const ACCOUNTS: Account[] = [
+  { id: "a-01", name: "林彥廷", studentNo: "411410123", email: "411410123@m365.fju.edu.tw", role: "student", cohort: "114", status: "active", createdAt: "2026-08-13", approvedBy: "名單自動" },
+  { id: "a-02", name: "黃詩涵", studentNo: "411410145", email: "411410145@m365.fju.edu.tw", role: "student", cohort: "114", status: "active", createdAt: "2026-08-13", approvedBy: "名單自動" },
+  { id: "a-03", name: "高雅筑", studentNo: "411410455", email: "yachu.kao@gmail.com", role: "student", cohort: "114", status: "active", createdAt: "2026-08-14", approvedBy: "系辦管理員" },
+  { id: "a-04", name: "許庭瑋", studentNo: "411410466", email: "tingwei@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16" },
+  { id: "a-05", name: "陳冠宇", studentNo: "411410477", email: "411410477@m365.fju.edu.tw", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16" },
+  { id: "a-06", name: "劉思妤", studentNo: "410410312", email: "siyu.liu@gmail.com", role: "student", cohort: "113", status: "pending", createdAt: "2026-08-17" },
+  { id: "a-07", name: "王小明", studentNo: "411410999", email: "wang.xm@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-17" },
+  { id: "a-08", name: "陳建宏", email: "chen.ch@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
+  { id: "a-09", name: "王雅玲", email: "wang.yl@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
+  { id: "a-10", name: "李孟儒", email: "lee.mj@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
+  { id: "a-11", name: "張士豪", email: "chang.sh@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
+  { id: "a-12", name: "周子瑜", studentNo: "411410300", email: "411410300@m365.fju.edu.tw", role: "student", cohort: "114", status: "active", createdAt: "2026-08-13", approvedBy: "名單自動" },
+  { id: "a-13", name: "呂承恩", studentNo: "410410250", email: "410410250@m365.fju.edu.tw", role: "student", cohort: "113", status: "disabled", createdAt: "2025-08-10", approvedBy: "名單自動" },
+  { id: "a-14", name: "郭安琪", studentNo: "410410261", email: "410410261@m365.fju.edu.tw", role: "student", cohort: "113", status: "disabled", createdAt: "2025-08-10", approvedBy: "名單自動" },
+];
+
+/** 近 7 天各日正式繳交件數（管理員／老師趨勢用；真實業務量，不是營收） */
+export const SUBMISSION_TREND = [
+  { day: "08-11", count: 2 }, { day: "08-12", count: 4 }, { day: "08-13", count: 3 }, { day: "08-14", count: 7 },
+  { day: "08-15", count: 5 }, { day: "08-16", count: 8 }, { day: "08-17", count: 3 },
+];
+
+/** 評分階段各老師進度（管理員） */
+export const GRADING_PROGRESS = [
+  { teacher: "陳建宏", assigned: 3, submitted: 3 },
+  { teacher: "王雅玲", assigned: 3, submitted: 2 },
+  { teacher: "李孟儒", assigned: 2, submitted: 0 },
+  { teacher: "張士豪", assigned: 2, submitted: 1 },
+];
+
+/** 簽核各組進度（管理員／老師） */
+export const SIGNOFF_PROGRESS = GROUPS.map((g, i) => ({
+  groupId: g.id,
+  groupNo: g.no,
+  title: g.title,
+  students: g.id === "g-07" ? 3 : [5, 5, 4, 5, 2, 5, 5, 0][i % 8],
+  total: g.members.length,
+  teacher: [true, true, false, true, false, false, false, false][i % 8] && g.id !== "g-07",
+  state: (g.id === "g-07" ? "students" : [true, true, false, true, false, false, false, false][i % 8] ? "complete" : "students") as "students" | "teacher" | "complete" | "revision",
+}));

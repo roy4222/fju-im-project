@@ -14,7 +14,7 @@ export default async function RulesPage() {
   const doc = await getRules();
   return (
     <>
-      <PageHead title="專題規則" description="全文直接列出，不需逐層點開。" crumbs={[{ label: "專題規則" }]} />
+      <PageHead title="專題規則" crumbs={[{ label: "專題規則" }]} />
       <div className="mx-auto grid max-w-6xl gap-14 px-5 py-10 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="lg:sticky lg:top-28 lg:self-start">
           <p className="text-[13px] font-bold tracking-wider text-muted-foreground">目錄</p>

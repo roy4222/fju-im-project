@@ -8,7 +8,7 @@ import { usePathname, useSearchParams } from "next/navigation";
  * 點到站內連結就從導覽列下方長出一條橘線；路由真的換了就補滿並淡出。
  * 不依賴 router event：監聽 document 的 click，pathname／searchParams 變動視為完成。
  */
-export function TopLoader() {
+export function TopLoader({ top = 80 }: { top?: number }) {
   const pathname = usePathname();
   const search = useSearchParams();
   const [state, setState] = useState<"idle" | "loading" | "done">("idle");
@@ -40,7 +40,7 @@ export function TopLoader() {
   }, [routeKey]);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-x-0 top-20 z-[60] h-[3px]">
+    <div aria-hidden className="pointer-events-none fixed inset-x-0 z-[60] h-[3px]" style={{ top }}>
       <div className={`h-full origin-left bg-brand shadow-[0_0_8px_rgba(229,110,0,0.6)] ${state === "loading" ? "top-loader-run" : state === "done" ? "top-loader-done" : "top-loader-idle"}`} />
     </div>
   );

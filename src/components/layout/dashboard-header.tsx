@@ -1,96 +1,130 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { IconSearch, IconSwitchHorizontal } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSearch, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconWorld, IconSettings } from "@tabler/icons-react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
-import { navForRole, ROLE_LABEL } from "@/lib/nav-config";
-import type { Role } from "@/lib/fixtures";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { titleFor, ROLE_LABEL } from "@/lib/nav-config";
+import { CURRENT_USERS, NOTIFICATIONS, type Notification, type Role } from "@/lib/fixtures";
 
 const ROLES: Role[] = ["student", "teacher", "admin"];
 
-/** 頁面標題取自導覽設定，避免同一個名稱在兩處各寫一次而走鐘 */
-function titleFor(role: Role, pathname: string): string {
-  const base = `/dashboard/${role}`;
-  const items = navForRole(role).flatMap((g) => g.items);
-  const match = items
-    .filter((i) => (i.href === "" ? pathname === base : pathname.startsWith(base + i.href)))
-    .sort((a, b) => b.href.length - a.href.length)[0];
-  return match?.label ?? "專題管理平台";
-}
+const KIND_ICON: Record<Notification["kind"], typeof IconBell> = { due: IconCalendarDue, submission: IconUpload, signoff: IconSignature, grading: IconChecklist, account: IconUserCheck, system: IconSettings };
+const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-warning-subtle text-warning-on-subtle", submission: "bg-success-subtle text-success-on-subtle", signoff: "bg-brand-subtle text-brand-on-subtle", grading: "bg-info-subtle text-info-on-subtle", account: "bg-info-subtle text-info-on-subtle", system: "bg-muted text-muted-foreground" };
 
+/** 後台頂列：側欄開關、頁名、搜尋、通知、帳號選單（含原型角色切換）。無主題切換：固定白底。 */
 export function DashboardHeader({ role }: { role: Role }) {
   const router = useRouter();
   const pathname = usePathname();
   const title = titleFor(role, pathname);
+  const user = CURRENT_USERS[role];
+  const notes = NOTIFICATIONS[role];
+  const unread = notes.filter((n) => !n.read).length;
+  const logoutForm = useRef<HTMLFormElement>(null);
 
   function switchRole(next: Role) {
-    // 原型用途：把路徑上的角色換掉，其餘子路徑保留，方便比較同一頁在不同角色的樣子
     router.push(pathname.replace(`/dashboard/${role}`, `/dashboard/${next}`));
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur">
-      <SidebarTrigger />
+    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur md:px-5">
+      <SidebarTrigger className="size-9 rounded-lg" />
       <Separator orientation="vertical" className="mx-1 h-5" />
-      <h1 className="truncate text-sm font-semibold">{title}</h1>
+      <h1 className="truncate text-[15px] font-bold">{title}</h1>
 
-      <div className="ml-auto flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="lg"
-          className="hidden w-56 justify-start gap-2 text-muted-foreground sm:inline-flex"
-        >
+      <div className="ml-auto flex items-center gap-1.5">
+        <button type="button" className="hidden h-9 w-64 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-[13px] text-muted-foreground transition-[border-color,background-color] hover:border-primary/40 hover:bg-background md:inline-flex" aria-label="搜尋">
           <IconSearch className="size-4" />
-          <span className="text-sm">搜尋組別、學生、項目…</span>
-          <kbd className="ml-auto rounded border border-border bg-muted px-1.5 text-[10px] font-medium">
-            ⌘K
-          </kbd>
-        </Button>
+          <span className="flex-1 text-left">搜尋組別、學生、項目</span>
+          <kbd className="rounded border border-border bg-background px-1.5 text-[10px] font-semibold">⌘K</kbd>
+        </button>
+        <button type="button" className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden" aria-label="搜尋">
+          <IconSearch className="size-4.5" />
+        </button>
 
-        {/* 原型專用：正式版的角色切換只在「一個帳號持有多個角色」時出現（MOC §2.1） */}
+        {/* 通知 */}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button variant="outline" size="lg" className="gap-2">
-                <IconSwitchHorizontal className="size-4" />
-                <span className="hidden sm:inline">{ROLE_LABEL[role]}</span>
-                <Badge variant="outline" className="hidden text-[10px] lg:inline-flex">
-                  原型
-                </Badge>
-              </Button>
+              <button type="button" className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={`通知，${unread} 則未讀`}>
+                <IconBell className="size-4.5" />
+                {unread ? <span className="notif-dot absolute top-2 right-2 size-2 rounded-full bg-brand" /> : null}
+              </button>
             }
           />
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-[360px] p-0">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>切換檢視角色</DropdownMenuLabel>
+              <div className="flex items-center justify-between px-4 py-3">
+                <DropdownMenuLabel className="p-0 text-[15px] font-bold">通知</DropdownMenuLabel>
+                {unread ? <span className="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-brand-foreground">{unread} 則新的</span> : null}
+              </div>
+              <div className="max-h-[360px] overflow-y-auto border-t border-border">
+                {notes.map((n) => {
+                  const Icon = KIND_ICON[n.kind];
+                  return (
+                    <DropdownMenuItem key={n.id} className="items-start gap-3 rounded-none px-4 py-3" render={<Link href={n.href} />}>
+                      <span className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${KIND_TONE[n.kind]}`}>
+                        <Icon className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`block truncate text-[13px] ${n.read ? "font-medium" : "font-bold"}`}>{n.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{n.body}</span>
+                      </span>
+                      <span className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="tabular text-[11px] text-muted-foreground">{n.at}</span>
+                        {!n.read ? <span className="size-1.5 rounded-full bg-brand" aria-label="未讀" /> : null}
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+              <div className="border-t border-border p-2">
+                <DropdownMenuItem className="h-9 justify-center rounded-lg bg-primary text-[13px] font-semibold text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground" render={<Link href={`/dashboard/${role}/inbox`} />}>
+                  查看全部通知
+                </DropdownMenuItem>
+              </div>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* 帳號 */}
+        <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
+          <input type="hidden" name="role" value="guest" />
+          <input type="hidden" name="returnTo" value="/" />
+        </form>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button type="button" className="ml-1 inline-flex h-9 items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition-colors hover:bg-accent" aria-label="帳號選單">
+                <span className="inline-flex size-7 items-center justify-center rounded-full bg-brand-subtle text-xs font-bold text-brand-on-subtle">{user.name.slice(0, 1)}</span>
+                <span className="hidden text-[13px] font-semibold sm:inline">{user.name}</span>
+                <IconChevronDown className="hidden size-3.5 text-muted-foreground sm:inline" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end" className="w-56 p-1.5">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">{user.name}・{ROLE_LABEL[role]}</DropdownMenuLabel>
+              <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/account" />}><IconUserCircle /> 個人資料</DropdownMenuItem>
+              <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/" />}><IconWorld /> 回到前台網站</DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground"><IconSwitchHorizontal className="size-3.5" /> 切換角色（原型）</DropdownMenuLabel>
               {ROLES.map((r) => (
-                <DropdownMenuItem
-                  key={r}
-                  onClick={() => switchRole(r)}
-                  className={r === role ? "font-semibold" : ""}
-                >
+                <DropdownMenuItem key={r} onClick={() => switchRole(r)} className={`h-9 px-2.5 text-[14px] ${r === role ? "font-bold text-primary" : ""}`}>
                   {ROLE_LABEL[r]}
+                  {r === role ? <span className="ml-auto text-[11px] text-muted-foreground">目前</span> : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem render={<Link href="/">回到公開網站</Link>} />
+            <DropdownMenuItem className="h-9 px-2.5 text-[14px]" onClick={() => logoutForm.current?.requestSubmit()}><IconLogout /> 登出</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
       </div>
     </header>
   );
