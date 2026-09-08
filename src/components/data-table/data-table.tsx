@@ -40,6 +40,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -155,6 +156,7 @@ export function DataTable<T>({
                 }
               />
               <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuGroup>
                 <DropdownMenuLabel>{facet.label}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {facet.options.map((opt) => (
@@ -171,6 +173,7 @@ export function DataTable<T>({
                     {opt.label}
                   </DropdownMenuCheckboxItem>
                 ))}
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           );
@@ -192,6 +195,7 @@ export function DataTable<T>({
             }
           />
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuGroup>
             <DropdownMenuLabel>顯示欄位</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {table
@@ -210,6 +214,7 @@ export function DataTable<T>({
                     : c.id}
                 </DropdownMenuCheckboxItem>
               ))}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
