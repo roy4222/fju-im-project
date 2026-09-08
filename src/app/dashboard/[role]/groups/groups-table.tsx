@@ -2,13 +2,14 @@
 
 import { useMemo } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconDownload, IconHandGrab, IconUserPlus } from "@tabler/icons-react";
+import { IconDownload } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable, type FacetFilter } from "@/components/data-table/data-table";
 import { TEACHERS, type Group, type Role } from "@/lib/fixtures";
+import { AssignDialog, ClaimDialog } from "@/components/dashboard/group-actions";
 
 type Row = Group & { advisorName: string; memberNames: string };
 
@@ -176,18 +177,10 @@ export function GroupsTable({ groups, role }: { groups: Group[]; role: Role }) {
           const g = row.original;
           const claimable = g.type === "INDUSTRY" && g.advisorId === null;
           if (role === "teacher" && claimable) {
-            return (
-              <Button variant="outline" size="sm" className="gap-1">
-                <IconHandGrab className="size-3.5" /> 指定為我的
-              </Button>
-            );
+            return <ClaimDialog groupNo={g.no} title={g.title} />;
           }
           if (role === "admin") {
-            return (
-              <Button variant="ghost" size="sm" className="gap-1">
-                <IconUserPlus className="size-3.5" /> 指派老師
-              </Button>
-            );
+            return <AssignDialog groupNo={g.no} current={g.advisorId ? g.advisorName : undefined} />;
           }
           return <span className="text-xs text-muted-foreground">—</span>;
         },

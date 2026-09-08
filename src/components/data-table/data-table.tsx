@@ -70,6 +70,7 @@ export function DataTable<T>({
   loading = false,
   emptyTitle = "目前沒有資料",
   emptyHint,
+  initialColumnFilters,
 }: {
   columns: ColumnDef<T, unknown>[];
   data: T[];
@@ -80,9 +81,10 @@ export function DataTable<T>({
   loading?: boolean;
   emptyTitle?: string;
   emptyHint?: string;
+  initialColumnFilters?: ColumnFiltersState;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(initialColumnFilters ?? []);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState({});
   const [search, setSearch] = useState("");
