@@ -584,6 +584,8 @@ export const ADMIN_STATS = {
 
 /** 相對於原型的「今天」，固定為 2026-08-17，避免每次重整數字跳動。 */
 export const TODAY = new Date("2026-08-17T00:00:00+08:00");
+/** 台北時間的今天（yyyy-mm-dd）；不要用 toISOString，UTC 會少一天 */
+export const TODAY_YMD = "2026-08-17";
 
 export function daysUntil(dateStr: string): number {
   const target = new Date(`${dateStr}T00:00:00+08:00`);
@@ -1171,4 +1173,30 @@ export function currentStage(): Stage {
 /** 這個角色在該階段的待辦（未完成、最近截止在前） */
 export function stageTasksFor(stage: Stage, role: Role): StageTask[] {
   return stage.tasks.filter((t) => t.role === role).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9"));
+}
+
+/* ------------------------------------------------------------------ 專題行事曆（Roy 2026-09-09：首頁右邊放本專題專用日曆，系辦設定要顯示的活動、截止、比賽） */
+export type CalendarEvent = { id: string; date: string; title: string; kind: "deadline" | "event" | "competition"; href?: string; time?: string };
+
+export const CALENDAR_EVENTS: CalendarEvent[] = [
+  { id: "c1", date: "2026-08-15", title: "系統驗收簡報與說明文件截止", kind: "deadline", href: "/dashboard/student/affairs/mi-011" },
+  { id: "c2", date: "2026-08-20", title: "114 學年度專題說明會", kind: "event", time: "13:10", href: "/news/n-31" },
+  { id: "c3", date: "2026-08-26", title: "指導老師意願調查表截止", kind: "deadline", href: "/dashboard/student/affairs/mi-014" },
+  { id: "c4", date: "2026-08-28", title: "雲端服務實務工作坊", kind: "event", time: "09:00", href: "/news/n-28" },
+  { id: "c5", date: "2026-09-04", title: "專題分組名單確認表截止", kind: "deadline", href: "/dashboard/student/affairs/mi-013" },
+  { id: "c6", date: "2026-09-11", title: "全國大專資訊應用服務創新競賽報名截止", kind: "competition", href: "/news/n-29" },
+  { id: "c7", date: "2026-09-18", title: "專題題目與摘要初稿截止", kind: "deadline", href: "/dashboard/student/affairs/mi-012" },
+  { id: "c8", date: "2026-09-25", title: "指導老師公開抽籤", kind: "event", time: "15:00", href: "/news" },
+  { id: "c9", date: "2026-10-02", title: "智慧製造大數據分析競賽決賽", kind: "competition", href: "/competitions" },
+];
+
+export const CALENDAR_KIND_LABEL: Record<CalendarEvent["kind"], string> = { deadline: "截止", event: "活動", competition: "競賽" };
+
+/** 本屆進度 0–100：已完成階段數＋現在階段依日期走到哪 */
+export function cohortProgress(): number {
+  const done = SCHEDULE.filter((s) => s.status === "done").length;
+  const cur = currentStage();
+  const span = daysUntil(cur.to) - daysUntil(cur.from);
+  const frac = span > 0 ? Math.min(1, Math.max(0, -daysUntil(cur.from) / span)) : 0;
+  return Math.round(((done + frac) / SCHEDULE.length) * 100);
 }

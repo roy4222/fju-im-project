@@ -2,14 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IconCheck } from "@tabler/icons-react";
 import { PageTitle, Panel, Pill } from "@/components/dashboard/primitives";
-import { StageTasks } from "@/components/dashboard/home-variants";
+import { StageTasks } from "@/components/dashboard/home-widgets";
 import { isValidRole, ROLE_LABEL } from "@/lib/nav-config";
 import { SCHEDULE, SCHEDULE_YEAR, currentStage, daysUntil, formatDue, type Role } from "@/lib/fixtures";
 
 function md(d: string) { return d.slice(5).replace("-", "/"); }
 
 /**
- * 本屆時程（Roy 2026-09-09：里程碑改成獨立一頁，左邊時間軸、右邊該階段要做的事）。
+ * 專題時間軸（Roy 2026-09-09：里程碑改成獨立一頁，左邊時間軸、右邊該階段要做的事）。
  * 階段用 ?stage= 選，預設現在的階段；三個角色看同一條時程、各自的事。
  */
 export default async function TimelinePage({ params, searchParams }: PageProps<"/dashboard/[role]/timeline">) {
@@ -25,7 +25,7 @@ export default async function TimelinePage({ params, searchParams }: PageProps<"
 
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="本屆時程" description={`${SCHEDULE_YEAR.label}・${SCHEDULE.length} 個階段，已完成 ${done} 個；現在是「${cur.title}」。`} />
+      <PageTitle title="專題時間軸" description={`${SCHEDULE_YEAR.label}・${SCHEDULE.length} 個階段，已完成 ${done} 個；現在是「${cur.title}」。`} />
       <div className="grid items-start gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <nav aria-label="階段" className="dash-card p-3">
           <ol className="stage-nav">

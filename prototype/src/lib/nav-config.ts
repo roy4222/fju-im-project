@@ -14,7 +14,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "總覽",
     items: [
       { href: "", label: "首頁", icon: "dashboard", roles: ["student", "teacher", "admin"] },
-      { href: "/timeline", label: "本屆時程", icon: "timeline", roles: ["student", "teacher", "admin"] },
+      { href: "/timeline", label: "專題時間軸", icon: "timeline", roles: ["student", "teacher", "admin"] },
       { href: "/inbox", label: "通知", icon: "inbox", roles: ["student", "teacher", "admin"], badge: { student: 2, teacher: 2, admin: 3 } },
     ],
   },

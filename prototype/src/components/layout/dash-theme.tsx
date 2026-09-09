@@ -1,14 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { IconMoon, IconSun } from "@tabler/icons-react";
-import type { DashVariant } from "@/lib/data/dash-variant";
 
 /**
  * 後台專用深淺色（前台固定白）。
  * 2026-09-09 Roy：窗簾會閃白、「想要奢華沒奢華起來」→ 改成從按鈕位置一圈擴開（View Transitions API）。
  * 不支援的瀏覽器直接切換；reduced-motion 也直接切換。主題存 localStorage `fju-dash-theme`，
- * `dark` class 只加在後台根元素，不影響前台。`data-dash` 是版本評選屬性，定案後拿掉。
+ * `dark` class 只加在後台根元素，不影響前台。
  */
 const KEY = "fju-dash-theme";
 const listeners = new Set<() => void>();
@@ -29,14 +28,9 @@ type DocWithVT = Document & { startViewTransition?: (cb: () => void) => { finish
 
 const Ctx = createContext<{ dark: boolean; toggle: (origin?: { x: number; y: number }) => void }>({ dark: false, toggle: () => {} });
 
-export function DashThemeRoot({ children, variant = "rail" }: { children: ReactNode; variant?: DashVariant }) {
+export function DashThemeRoot({ children }: { children: ReactNode }) {
   const dark = useSyncExternalStore(subscribe, readDark, () => false);
   const busy = useRef(false);
-
-  useEffect(() => {
-    document.documentElement.dataset.dash = variant;
-    return () => { delete document.documentElement.dataset.dash; };
-  }, [variant]);
 
   function toggle(origin?: { x: number; y: number }) {
     if (busy.current) return;
@@ -57,7 +51,7 @@ export function DashThemeRoot({ children, variant = "rail" }: { children: ReactN
 
   return (
     <Ctx.Provider value={{ dark, toggle }}>
-      <div data-dash={variant} className={`${dark ? "dark" : ""} contents text-foreground`}>
+      <div className={`${dark ? "dark" : ""} contents text-foreground`}>
         {children}
       </div>
     </Ctx.Provider>
