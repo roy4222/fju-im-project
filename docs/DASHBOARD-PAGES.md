@@ -1,12 +1,25 @@
 ---
 type: page-inventory
 project: FJU IM Project
-updated: 2026-09-08
-status: v2-module-grid-roy-picked
+updated: 2026-09-09
+status: v3-four-variants-for-roy-to-pick
 ---
 # 🗺️ 後台頁面清單
 
 後台指登入後左側欄工作台 `/dashboard/[role]/…`，三種角色：學生、老師、管理員。2026-09-08 第一版 Roy 覺得「資訊量太大、單調、logo 擠」，改出 Claude Design 畫布評選（[畫布](https://claude.ai/code/artifact/06a0e5a8-03be-43ad-a2cf-70a69491da77)：四個方向 → D 內容區＋C 側欄 → 每角色五個版本），Roy 定案 **V1 模組網格**，不放插畫（怕有人介意 AI 生成圖）。全部讀假資料，身分由路由參數決定（原型）。
+
+## 0. 版本評選（2026-09-09，進行中）
+
+Roy 對 V1 模組網格「沒有到很愛」，改為在 `prototype/` 直接做可點的版本讓他選，不再用 Claude Design 畫布。右下角「後台版本評選」列切換，cookie `fju-dash-variant`，整個後台（含子頁）一起換皮；首頁三個角色各一份資料模型（`home-variants.tsx`），版面依版本渲染。共同規則不變：只有橘一個主軸色、數字黑、選中＝橘左線＋橘 icon、深淺色窗簾、「現在要做」與里程碑固定存在、其他模組有才出現。對應規格 §16.2 Prototype A 的三個方向（A 時間軸、B 狀態優先、C Kiranism 式＝V1）。
+
+| 版本 | 一句話 | 外框 | 首頁 |
+|---|---|---|---|
+| V1 模組網格 | 09-08 定案版原樣 | 淺灰側欄、灰底白卡柔陰影 | 問候 → 四統計磚 → 三欄模組網格 |
+| V2 時間軸 | 截止日當主角、字大、留白多 | 白底、細線外框卡、無陰影、內容窄一點 | 大問候 → 單欄工作單（左側大字倒數天數／件數）→ 有才出現的模組兩欄；右側黏住的統計清單＋里程碑 |
+| V3 控制台 | 狀態優先、資訊密、像工程後台 | 白底、細線分格 bento、圓角小、側欄窄、頂列矮、數字等寬字 | 里程碑橫軌橫跨整排 → 四統計格 → 現在要做占兩欄兩列＋其他模組補位 |
+| V4 系網深藍 | 最像輔大自己的東西 | 深藍 #003366 側欄反白 logo、暖白內容、白卡細邊 | 問候 → 統計一條（四格一卡）→ 兩欄模組（現在要做占兩欄） |
+
+截圖：`prototype/scripts/shoot-variants.mjs` 產出 `prototype/screenshots/variants/`（gitignore）。定案後刪掉其餘版面、`dash-variant*`、`variant-switcher.tsx`、`/api/proto-variant`，第 1 節改寫成定案版規則。
 
 ## 1. 外框與首頁規則（V1 模組網格）
 

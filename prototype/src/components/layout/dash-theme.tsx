@@ -1,12 +1,16 @@
 "use client";
 
-import { createContext, useContext, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { IconMoon, IconSun } from "@tabler/icons-react";
+import type { DashVariant } from "@/lib/data/dash-variant";
 
 /**
  * 後台專用深淺色（前台固定白）。Roy 2026-09-08：切換要像「窗簾從上往下拉」。
  * 做法：先把一塊全螢幕的布從上滑下來蓋住畫面 → 布蓋滿的瞬間換主題 → 布再往下滑走。
  * 主題存在 localStorage `fju-dash-theme`；`dark` class 只加在後台根元素，不影響前台。
+ *
+ * 2026-09-09 加上 `data-dash` 版本屬性（原型評選）：包住整個後台，CSS 依 [data-dash=…] 換皮；
+ * 同時寫到 <html>，讓 portal 出去的手機側欄抽屜、下拉選單也吃得到。
  */
 const KEY = "fju-dash-theme";
 const listeners = new Set<() => void>();
@@ -25,11 +29,16 @@ function writeDark(v: boolean) {
 
 const Ctx = createContext<{ dark: boolean; toggle: () => void }>({ dark: false, toggle: () => {} });
 
-export function DashThemeRoot({ children }: { children: ReactNode }) {
+export function DashThemeRoot({ children, variant = "grid" }: { children: ReactNode; variant?: DashVariant }) {
   // 用 useSyncExternalStore 讀 localStorage：SSR 一律淺色，client 掛載後直接拿到存的值，不在 effect 裡 setState
   const dark = useSyncExternalStore(subscribe, readDark, () => false);
   const [curtain, setCurtain] = useState<"idle" | "down" | "up">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.dash = variant;
+    return () => { delete document.documentElement.dataset.dash; };
+  }, [variant]);
 
   function toggle() {
     if (curtain !== "idle") return;
@@ -47,7 +56,7 @@ export function DashThemeRoot({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{ dark, toggle }}>
-      <div className={`${dark ? "dark" : ""} contents text-foreground`}>
+      <div data-dash={variant} className={`${dark ? "dark" : ""} contents text-foreground`}>
         {children}
         <div aria-hidden className={`theme-curtain ${curtain === "down" ? "theme-curtain-down" : curtain === "up" ? "theme-curtain-up" : ""}`} style={{ background: dark ? "oklch(0.97 0.004 253.89)" : "oklch(0.19 0.012 253.89)" }} />
       </div>

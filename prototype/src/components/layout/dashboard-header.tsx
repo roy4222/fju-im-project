@@ -31,7 +31,7 @@ export function DashboardHeader({ role }: { role: Role }) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur md:px-5">
+    <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur md:px-5">
       <SidebarTrigger className="size-9 rounded-lg" />
       <Separator orientation="vertical" className="mx-1 h-5" />
       <h1 className="truncate text-[15px] font-bold">{title}</h1>

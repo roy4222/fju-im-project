@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { ReactNode } from "react";
 import {
   IconAlertTriangle,
   IconBriefcase,
@@ -16,10 +15,11 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { buttonVariants } from "@/components/ui/button";
-import { ActionRow, Greeting, Panel, Pill, ProgressBar, QuietState, StatRow, StatTile, StateBadge } from "@/components/dashboard/primitives";
-import { BarChart, HBar, MiniBars, Ring, SegmentBar } from "@/components/dashboard/charts";
+import { Panel, Pill, ProgressBar, StateBadge } from "@/components/dashboard/primitives";
+import { BarChart, HBar, Ring, SegmentBar } from "@/components/dashboard/charts";
+import { HomeRenderer, type HomeModel, type Module } from "@/components/dashboard/home-variants";
 import { isValidRole } from "@/lib/nav-config";
-import { Milestones } from "@/components/dashboard/milestones";
+import { getDashVariant } from "@/lib/data/dash-variant-server";
 import {
   ADMIN_STATS,
   AUDIT_EVENTS,
@@ -42,41 +42,20 @@ import {
 } from "@/lib/fixtures";
 
 /**
- * 後台首頁＝模組網格（Roy 2026-09-08 定案 V1）：
- * 問候＋一顆主要動作 → 四張統計磚 → 三欄網格。
- * 網格裡只有「現在要做」固定存在（占兩欄）；其他模組「有才出現」，
- * 完成後自動收起、其他磚補位（grid-auto-flow: dense）；全部沒事時放一句話。
+ * 後台首頁。三個角色各組一份 HomeModel（問候、統計、現在要做、里程碑、有才出現的模組），
+ * 版面由 cookie 的後台版本決定（V1 模組網格／V2 時間軸／V3 控制台／V4 系網深藍），見 home-variants.tsx。
+ * 規則不變：先回答「我現在要做什麼」；只有現在要做與里程碑固定存在；其他模組有才出現。
  */
-type Module = { key: string; present: boolean; span?: 1 | 2 | 3; node: ReactNode };
-
-function ModuleGrid({ modules }: { modules: Module[] }) {
-  const live = modules.filter((m) => m.present);
-  return (
-    <div className="grid grid-flow-dense gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {live.map((m) => (
-        <div key={m.key} className={m.span === 3 ? "md:col-span-2 xl:col-span-3" : m.span === 2 ? "md:col-span-2" : ""}>
-          {m.node}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default async function DashboardPage({ params }: PageProps<"/dashboard/[role]">) {
   const { role } = await params;
   if (!isValidRole(role)) notFound();
-  if (role === "student") return <StudentHome role={role} />;
-  if (role === "teacher") return <TeacherHome role={role} />;
-  return <AdminHome role={role} />;
-}
-
-function Due({ dueAt }: { dueAt: string }) {
-  const d = daysUntil(dueAt);
-  return <span className={`tabular inline-flex items-center gap-1 text-xs font-semibold ${d < 0 ? "text-destructive" : d <= 10 ? "text-brand" : "text-muted-foreground"}`}><IconClock className="size-3.5" />{formatDue(dueAt)}・{dueAt.slice(5)}</span>;
+  const variant = await getDashVariant();
+  const model = role === "student" ? studentHome(role) : role === "teacher" ? teacherHome(role) : adminHome(role);
+  return <HomeRenderer model={model} variant={variant} />;
 }
 
 /* ============================================================ 學生 */
-function StudentHome({ role }: { role: Role }) {
+function studentHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const user = CURRENT_USERS.student;
   const todo = MANAGED_ITEMS.filter((i) => i.dueAt && i.myState && i.myState !== "submitted").sort((a, b) => daysUntil(a.dueAt!) - daysUntil(b.dueAt!));
@@ -87,32 +66,6 @@ function StudentHome({ role }: { role: Role }) {
   const myPending = SIGNOFF.studentApprovals.some((a) => a.name === user.name && !a.approved);
 
   const modules: Module[] = [
-    {
-      key: "todo", present: true, span: 2,
-      node: (
-        <Panel title={todo.length ? "現在要做" : "今天沒有待辦"} description={todo.length ? `${todo.length} 件` : undefined} action={{ href: `${base}/affairs`, label: "全部" }} className="h-full">
-          {todo.length === 0 ? (
-            <div className="px-5 pb-5"><QuietState title="全部完成，做得好" hint="達成的項目記在右邊的里程碑；有新項目會出現在這裡。" /></div>
-          ) : (
-            <ul>
-              {todo.map((item) => (
-                <li key={item.id} className="flex items-center gap-4 border-t border-border/70 px-5 py-3.5">
-                  <span className={`size-2 shrink-0 rounded-full ${item.myState === "overdue" ? "bg-destructive" : item.myState === "draft" ? "bg-brand" : "bg-muted-foreground/40"}`} aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{item.title}</p>
-                    <Due dueAt={item.dueAt!} />
-                  </div>
-                  <StateBadge state={item.myState!} />
-                  <Link href={`${base}/affairs/${item.id}`} className={buttonVariants({ size: "sm", variant: item.myState === "draft" ? "default" : "outline", className: "press rounded-lg" })}>
-                    {item.myState === "draft" ? "繼續填寫" : item.myState === "overdue" ? "查看" : item.myState === "resubmit" ? "重送" : "開始"}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-      ),
-    },
     {
       key: "group", present: confirmed < 5,
       node: (
@@ -146,7 +99,6 @@ function StudentHome({ role }: { role: Role }) {
         </Panel>
       ),
     },
-    { key: "milestones", present: true, node: <Milestones items={MILESTONES.student} /> },
     {
       key: "news", present: true,
       node: (
@@ -173,22 +125,35 @@ function StudentHome({ role }: { role: Role }) {
     },
   ];
 
-  return (
-    <div className="flex flex-col gap-5">
-      <Greeting name={user.name} line={next ? `下一個截止：${next.title}，${formatDue(next.dueAt!)}。` : "目前沒有即將截止的項目。"}  />
-      <StatRow>
-        <StatTile label="待完成" icon={<IconClipboardText />} value={todo.length} unit="項" tone={todo.length ? "brand" : "default"} href={`${base}/affairs`} chart={<MiniBars values={[1, 2, 2, 3, 3, 4, todo.length]} />} />
-        <StatTile label="已繳交" icon={<IconUpload />} value={submitted.length} unit="項" tone="default" href={`${base}/affairs`} chart={<MiniBars values={[0, 0, 1, 1, 1, 1, submitted.length]} />} />
-        <StatTile label="組員確認" icon={<IconUsers />} value={`${confirmed}/5`} tone="default" hint={confirmed < 5 ? `還差 ${5 - confirmed} 人` : "全員到齊"} href={`${base}/groups`} chart={<Ring value={(confirmed / 5) * 100} size={40} stroke={5} color="currentColor" />} />
-        <StatTile label="同意書" icon={<IconSignature />} value={`${approvals}/5`} tone="default" hint={myPending ? "等你同意" : "等其他組員"} href={`${base}/signoff`} chart={<Ring value={(approvals / 5) * 100} size={40} stroke={5} color="currentColor" />} />
-      </StatRow>
-      <ModuleGrid modules={modules} />
-    </div>
-  );
+  return {
+    greeting: { name: user.name, line: next ? `下一個截止：${next.title}，${formatDue(next.dueAt!)}。` : "目前沒有即將截止的項目。" },
+    stats: [
+      { key: "todo", label: "待完成", icon: <IconClipboardText />, value: todo.length, unit: "項", tone: todo.length ? "brand" : "default", href: `${base}/affairs`, bars: [1, 2, 2, 3, 3, 4, todo.length] },
+      { key: "done", label: "已繳交", icon: <IconUpload />, value: submitted.length, unit: "項", href: `${base}/affairs`, bars: [0, 0, 1, 1, 1, 1, submitted.length] },
+      { key: "group", label: "組員確認", icon: <IconUsers />, value: `${confirmed}/5`, hint: confirmed < 5 ? `還差 ${5 - confirmed} 人` : "全員到齊", href: `${base}/groups`, ring: (confirmed / 5) * 100 },
+      { key: "sign", label: "同意書", icon: <IconSignature />, value: `${approvals}/5`, hint: myPending ? "等你同意" : "等其他組員", href: `${base}/signoff`, ring: (approvals / 5) * 100 },
+    ],
+    focus: {
+      title: "現在要做",
+      description: `${todo.length} 件`,
+      action: { href: `${base}/affairs`, label: "全部" },
+      rows: todo.map((item) => ({
+        id: item.id,
+        title: item.title,
+        dueAt: item.dueAt!,
+        dot: item.myState === "overdue" ? "danger" : item.myState === "draft" ? "brand" : "muted",
+        badge: <StateBadge state={item.myState!} />,
+        cta: { href: `${base}/affairs/${item.id}`, primary: item.myState === "draft", label: item.myState === "draft" ? "繼續填寫" : item.myState === "overdue" ? "查看" : item.myState === "resubmit" ? "重送" : "開始" },
+      })),
+      empty: { title: "今天沒有待辦", hint: "達成的項目記在里程碑；有新項目會出現在這裡。" },
+    },
+    milestones: { items: MILESTONES.student, title: "本學期里程碑" },
+    modules,
+  };
 }
 
 /* ============================================================ 老師 */
-function TeacherHome({ role }: { role: Role }) {
+function teacherHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const me = CURRENT_USERS.teacher;
   const myGroups = GROUPS.filter((g) => g.advisorId === me.id);
@@ -200,27 +165,6 @@ function TeacherHome({ role }: { role: Role }) {
   const work = EVALUATION_QUEUE.filter((e) => e.state !== "submitted");
 
   const modules: Module[] = [
-    {
-      key: "queue", present: true, span: 2,
-      node: (
-        <Panel title={work.length ? "現在要做" : "評分都送出了"} description={work.length ? "系統驗收・占總成績 60%" : undefined} action={{ href: `${base}/grading`, label: "工作台" }} className="h-full">
-          {work.length === 0 ? (
-            <div className="px-5 pb-5"><QuietState title="沒有等你的事" hint="有新的評分指派或簽核會出現在這裡。" /></div>
-          ) : (
-            <ul>
-              {EVALUATION_QUEUE.map((e) => (
-                <li key={e.groupId} className="flex items-center gap-4 border-t border-border/70 px-5 py-3.5">
-                  <span className="tabular w-14 shrink-0 text-xs font-semibold text-muted-foreground">{e.groupNo}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.title}</span>
-                  {e.state === "pending" ? <Pill tone="brand">未開始</Pill> : e.state === "staged" ? <Pill tone="default">已暫存</Pill> : <Pill tone="success">已送出</Pill>}
-                  <Link href={`${base}/grading/${e.groupId}`} className={buttonVariants({ size: "sm", variant: e.state === "pending" ? "default" : "outline", className: "press rounded-lg" })}>{e.state === "submitted" ? "檢視" : e.state === "staged" ? "繼續" : "評分"}</Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-      ),
-    },
     {
       key: "claim", present: claimable.length > 0,
       node: (
@@ -245,7 +189,6 @@ function TeacherHome({ role }: { role: Role }) {
         </Panel>
       ),
     },
-    { key: "milestones", present: true, node: <Milestones items={MILESTONES.teacher} title="本學期里程碑" /> },
     {
       key: "progress", present: myGroups.length > 0,
       node: (
@@ -272,22 +215,35 @@ function TeacherHome({ role }: { role: Role }) {
     },
   ];
 
-  return (
-    <div className="flex flex-col gap-5">
-      <Greeting name={`${me.name} 老師`} line={pending.length ? `系統驗收還有 ${pending.length} 組待評分，送出後鎖定。` : "目前沒有待評分的組別。"}  />
-      <StatRow>
-        <StatTile label="待評分" icon={<IconChecklist />} value={pending.length} unit="組" tone={pending.length ? "brand" : "default"} href={`${base}/grading`} chart={<MiniBars values={[4, 4, 3, 3, 2, 2, pending.length]} />} />
-        <StatTile label="已暫存" icon={<IconClock />} value={staged.length} unit="組" tone="default" hint="尚未送出" href={`${base}/grading`} chart={<MiniBars values={[0, 0, 1, 1, 1, 1, staged.length]} />} />
-        <StatTile label="指導組別" icon={<IconUsersGroup />} value={myGroups.length} unit="組" tone="default" hint={`${myGroups.filter((g) => g.type === "INDUSTRY").length} 組產學`} href={`${base}/groups`} chart={<Ring value={(myGroups.length / GROUPS.length) * 100} size={40} stroke={5} color="currentColor" />} />
-        <StatTile label="待我同意" icon={<IconSignature />} value={teacherSign.length} unit="件" tone={teacherSign.length ? "brand" : "default"} href={`${base}/signoff`} chart={<MiniBars values={[0, 1, 1, 0, 1, 1, teacherSign.length]} />} />
-      </StatRow>
-      <ModuleGrid modules={modules} />
-    </div>
-  );
+  return {
+    greeting: { name: `${me.name} 老師`, line: pending.length ? `系統驗收還有 ${pending.length} 組待評分，送出後鎖定。` : "目前沒有待評分的組別。" },
+    stats: [
+      { key: "pending", label: "待評分", icon: <IconChecklist />, value: pending.length, unit: "組", tone: pending.length ? "brand" : "default", href: `${base}/grading`, bars: [4, 4, 3, 3, 2, 2, pending.length] },
+      { key: "staged", label: "已暫存", icon: <IconClock />, value: staged.length, unit: "組", hint: "尚未送出", href: `${base}/grading`, bars: [0, 0, 1, 1, 1, 1, staged.length] },
+      { key: "groups", label: "指導組別", icon: <IconUsersGroup />, value: myGroups.length, unit: "組", hint: `${myGroups.filter((g) => g.type === "INDUSTRY").length} 組產學`, href: `${base}/groups`, ring: (myGroups.length / GROUPS.length) * 100 },
+      { key: "sign", label: "待我同意", icon: <IconSignature />, value: teacherSign.length, unit: "件", tone: teacherSign.length ? "brand" : "default", href: `${base}/signoff`, bars: [0, 1, 1, 0, 1, 1, teacherSign.length] },
+    ],
+    focus: {
+      title: "現在要做",
+      description: "系統驗收・占總成績 60%",
+      action: { href: `${base}/grading`, label: "工作台" },
+      rows: work.length === 0 ? [] : EVALUATION_QUEUE.map((e) => ({
+        id: e.groupId,
+        leading: e.groupNo,
+        title: e.title,
+        detail: e.state === "pending" ? "系統驗收・尚未開始" : e.state === "staged" ? "系統驗收・已暫存" : "系統驗收・已送出",
+        badge: e.state === "pending" ? <Pill tone="brand">未開始</Pill> : e.state === "staged" ? <Pill tone="default">已暫存</Pill> : <Pill tone="success">已送出</Pill>,
+        cta: { href: `${base}/grading/${e.groupId}`, primary: e.state === "pending", label: e.state === "submitted" ? "檢視" : e.state === "staged" ? "繼續" : "評分" },
+      })),
+      empty: { title: "評分都送出了", hint: "有新的評分指派或簽核會出現在這裡。" },
+    },
+    milestones: { items: MILESTONES.teacher, title: "本學期里程碑" },
+    modules,
+  };
 }
 
 /* ============================================================ 管理員 */
-function AdminHome({ role }: { role: Role }) {
+function adminHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const s = ADMIN_STATS;
   const items = MANAGED_ITEMS.filter((i) => i.progress);
@@ -299,22 +255,14 @@ function AdminHome({ role }: { role: Role }) {
   const missingTeachers = GRADING_PROGRESS.filter((t) => t.submitted < t.assigned).length;
   const overdueGroups = items.reduce((a, i) => a + (i.progress?.overdue ?? 0), 0);
   const actions = [
-    { tone: "brand" as const, icon: <IconUserCheck />, label: "待審核帳號", detail: "名單未命中或以 Email 註冊", count: s.pendingAccounts, href: `${base}/accounts?status=pending`, cta: "審核" },
-    { tone: "danger" as const, icon: <IconAlertTriangle />, label: "逾期未繳組別", detail: "系統驗收簡報與說明文件", count: overdueGroups, href: `${base}/affairs/mi-011`, cta: "重新開放" },
-    { tone: "default" as const, icon: <IconBriefcase />, label: "產學案未指派組別", detail: "老師可認領，或由系辦指派", count: unassignedIndustry.length, href: `${base}/industry`, cta: "查看" },
-    { tone: "default" as const, icon: <IconChecklist />, label: "缺評老師", detail: "系統驗收階段尚未送出", count: missingTeachers, href: `${base}/grading`, cta: "催繳" },
-    { tone: "default" as const, icon: <IconUsers />, label: "例外組別", detail: "非五人組，已記錄理由", count: s.groupExceptions, href: `${base}/groups`, cta: "查看" },
+    { iconTone: "brand" as const, icon: <IconUserCheck />, title: "待審核帳號", detail: "名單未命中或以 Email 註冊", count: s.pendingAccounts, href: `${base}/accounts?status=pending`, cta: "審核" },
+    { iconTone: "danger" as const, icon: <IconAlertTriangle />, title: "逾期未繳組別", detail: "系統驗收簡報與說明文件", count: overdueGroups, href: `${base}/affairs/mi-011`, cta: "重新開放" },
+    { iconTone: "default" as const, icon: <IconBriefcase />, title: "產學案未指派組別", detail: "老師可認領，或由系辦指派", count: unassignedIndustry.length, href: `${base}/industry`, cta: "查看" },
+    { iconTone: "default" as const, icon: <IconChecklist />, title: "缺評老師", detail: "系統驗收階段尚未送出", count: missingTeachers, href: `${base}/grading`, cta: "催繳" },
+    { iconTone: "default" as const, icon: <IconUsers />, title: "例外組別", detail: "非五人組，已記錄理由", count: s.groupExceptions, href: `${base}/groups`, cta: "查看" },
   ].filter((a) => a.count > 0);
 
   const modules: Module[] = [
-    {
-      key: "actions", present: true, span: 2,
-      node: (
-        <Panel title={actions.length ? "需要處理" : "沒有待處理事項"} description={actions.length ? `${actions.length} 件` : undefined} className="h-full">
-          {actions.length === 0 ? <div className="px-5 pb-5"><QuietState title="本屆進度正常" hint="有新的審核、逾期或缺評會出現在這裡。" /></div> : <ul>{actions.map((a) => <ActionRow key={a.label} {...a} />)}</ul>}
-        </Panel>
-      ),
-    },
     {
       key: "grouping", present: true,
       node: (
@@ -360,7 +308,6 @@ function AdminHome({ role }: { role: Role }) {
         </Panel>
       ),
     },
-    { key: "milestones", present: true, node: <Milestones items={MILESTONES.admin} title="本屆里程碑" /> },
     {
       key: "storage", present: true,
       node: (
@@ -390,16 +337,21 @@ function AdminHome({ role }: { role: Role }) {
     },
   ];
 
-  return (
-    <div className="flex flex-col gap-5">
-      <Greeting name="系辦" line={actions.length ? `今天有 ${actions.length} 件事需要你處理。` : "沒有待處理事項，本屆進度正常。"}  />
-      <StatRow>
-        <StatTile label="待審核帳號" icon={<IconUserCheck />} value={s.pendingAccounts} unit="筆" tone="brand" href={`${base}/accounts?status=pending`} chart={<MiniBars values={[1, 0, 2, 1, 3, 2, s.pendingAccounts]} />} />
-        <StatTile label="逾期組別" icon={<IconCalendarDue />} value={overdueGroups} unit="組" tone={overdueGroups ? "danger" : "default"} href={`${base}/affairs/mi-011`} chart={<MiniBars values={[0, 0, 1, 1, 2, 3, overdueGroups]} />} />
-        <StatTile label="評分完成" icon={<IconChecklist />} value={`${gradingSubmitted}/${gradingAssigned}`} tone="default" hint={`${missingTeachers} 位老師缺評`} href={`${base}/grading`} chart={<MiniBars values={[1, 2, 3, 4, 4, 5, gradingSubmitted]} />} />
-        <StatTile label="簽核完成" icon={<IconSignature />} value={`${signComplete}/${GROUPS.length}`} unit="組" tone="default" href={`${base}/signoff`} chart={<MiniBars values={[0, 1, 1, 2, 2, 3, signComplete]} />} />
-      </StatRow>
-      <ModuleGrid modules={modules} />
-    </div>
-  );
+  return {
+    greeting: { name: "系辦", line: actions.length ? `今天有 ${actions.length} 件事需要你處理。` : "沒有待處理事項，本屆進度正常。" },
+    stats: [
+      { key: "accounts", label: "待審核帳號", icon: <IconUserCheck />, value: s.pendingAccounts, unit: "筆", tone: "brand", href: `${base}/accounts?status=pending`, bars: [1, 0, 2, 1, 3, 2, s.pendingAccounts] },
+      { key: "overdue", label: "逾期組別", icon: <IconCalendarDue />, value: overdueGroups, unit: "組", tone: overdueGroups ? "danger" : "default", href: `${base}/affairs/mi-011`, bars: [0, 0, 1, 1, 2, 3, overdueGroups] },
+      { key: "grading", label: "評分完成", icon: <IconChecklist />, value: `${gradingSubmitted}/${gradingAssigned}`, hint: `${missingTeachers} 位老師缺評`, href: `${base}/grading`, bars: [1, 2, 3, 4, 4, 5, gradingSubmitted] },
+      { key: "sign", label: "簽核完成", icon: <IconSignature />, value: `${signComplete}/${GROUPS.length}`, unit: "組", href: `${base}/signoff`, bars: [0, 1, 1, 2, 2, 3, signComplete] },
+    ],
+    focus: {
+      title: "需要處理",
+      description: `${actions.length} 件`,
+      rows: actions.map((a) => ({ id: a.title, icon: a.icon, iconTone: a.iconTone, title: a.title, detail: a.detail, count: a.count, cta: { href: a.href, label: a.cta } })),
+      empty: { title: "沒有待處理事項", hint: "有新的審核、逾期或缺評會出現在這裡。" },
+    },
+    milestones: { items: MILESTONES.admin, title: "本屆里程碑" },
+    modules,
+  };
 }

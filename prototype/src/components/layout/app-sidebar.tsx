@@ -56,19 +56,19 @@ export function AppSidebar({ role }: { role: Role }) {
   const groups = navForRole(role);
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
+    <Sidebar collapsible="icon" className="dash-sidebar border-r-0">
       <SidebarHeader className="px-3 pt-3">
         <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="dash-logo w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
           <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
-          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
+          <span className="dash-brand-sub truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
         </Link>
       </SidebarHeader>
 
       <SidebarContent className="px-1.5">
         {groups.map((group) => (
           <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className="text-[11px] tracking-wider">{group.title}</SidebarGroupLabel>
+            <SidebarGroupLabel className="dash-nav-label text-[11px] tracking-wider">{group.title}</SidebarGroupLabel>
             <SidebarMenu>
               {group.items.map((item) => {
                 const href = base + item.href;
@@ -80,7 +80,7 @@ export function AppSidebar({ role }: { role: Role }) {
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
-                      className={`h-9 rounded-lg transition-colors duration-150 ${isActive ? "bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
+                      className={`dash-nav-item h-9 rounded-lg transition-colors duration-150 ${isActive ? "dash-nav-active bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
                       render={
                         <Link href={href}>
                           <Icon className="size-4.5" />
@@ -110,7 +110,7 @@ function CollapseButton() {
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed";
   return (
-    <button type="button" onClick={toggleSidebar} className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
+    <button type="button" onClick={toggleSidebar} className="dash-collapse flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
       {collapsed ? <IconLayoutSidebarLeftExpand className="size-4.5 shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-4.5 shrink-0" />}
       <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
     </button>
