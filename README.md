@@ -13,15 +13,15 @@
 
 | 範圍 | 狀態 |
 |---|---|
-| 公開前台（首頁、公告、規則、產學、歷屆專題、競賽、榮譽、登入／註冊畫面） | ✅ 完成，靜態／SSG |
+| 公開前台 16 個路由（首頁四角色、公告、競賽、規則、優秀專題、歷屆一覽、榮譽榜、產學、檔案下載、帳號、403／404） | ✅ 2026-09-07 依定案設計重做；身分由原型操作列的 cookie 模擬 |
 | 設計 token、字體系統、Data Table、Sidebar shell | ✅ 完成 |
-| 三角色 Dashboard | 🟡 首頁與分組總覽已做，視覺待依新設計語言重做 |
-| 專題事務編輯器（拖拉表單） | ❌ 未開始 |
-| 評分工作台、簽核流程、帳號管理、檔案管理 | ❌ 未開始 |
+| 後台 13 條路由 × 三角色（首頁、通知、專題事務、編輯器、分組、產學、評分、簽核、帳號、檔案、稽核） | ✅ 2026-09-08 一版完成，參考 demos.shadcndashboard.dev；見 `docs/DASHBOARD-PAGES.md` |
+| 專題事務編輯器 | 🟡 簡化版（欄位清單上下排序、右側設定、預覽、發布）；拖拉排序未做 |
+| 評分工作台、簽核流程、帳號管理、檔案管理 | ✅ 畫面完成，讀 fixtures |
 | PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始 |
 | Docker、校內 VM 部署、備份與還原 | ❌ 未開始 |
 
-畫面上的圖片全部是「照片待提供」的中性佔位，尚未取得系上實際照片。
+畫面上的照片暫用系網 im.fju.edu.tw 的素材（`public/placeholder/`），上線前必須換成系辦提供的照片。
 
 ---
 
@@ -36,13 +36,18 @@ pnpm dev          # http://localhost:3000
 
 | 路徑 | 內容 |
 |---|---|
-| `/` | 公開前台首頁 |
-| `/news`、`/news/[id]` | 公告列表與詳情 |
-| `/rules` | 專題規則全文 |
-| `/industry`、`/industry/[id]` | 產學合作（詳情頁示範欄位層級可見性） |
-| `/projects`、`/projects/[id]` | 歷屆專題 |
-| `/competitions`、`/honors` | 競賽資訊、榮譽榜 |
-| `/login`、`/register` | 登入與註冊 |
+| `/` | 前台首頁；登入後多「我的工作」列、近期截止、歷屆一覽區 |
+| `/news`、`/news/[id]` | 公告列表（置頂大卡、分類、搜尋、分頁）與詳情 |
+| `/competitions` | 競賽資訊 |
+| `/rules` | 專題規則（舊站九節全文，只有現行版） |
+| `/projects/featured`、`/projects/[id]` | 優秀專題（公開，一圖一文 dialog）與詳情 |
+| `/projects` | 歷屆專題一覽（登入後；卡片式、依屆別分段、搜尋排序） |
+| `/honors` | 榮譽榜（`?item=` 深連結開 dialog） |
+| `/industry`、`/industry/[id]` | 產學合作（登入後；Data Table 可排序搜尋） |
+| `/files`、`/account` | 檔案下載、個人資料（登入後） |
+| `/login`、`/register`、`/register/pending`、`/forgot-password`、`/403` | 帳號與系統頁 |
+
+右下角「原型操作列」可切換訪客／學生／老師／管理員，這是 cookie 模擬，不是登入。
 | `/dashboard/student`、`/dashboard/teacher`、`/dashboard/admin` | 三角色 Dashboard（右上角可切換角色） |
 | `/dashboard/admin/groups` | 分組總覽（Data Table） |
 
@@ -90,10 +95,10 @@ Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
 `-subtle` 與 `-on-subtle` 必須成對使用：前者是淺色底、後者是配在那個底上的文字色。
 把 `-foreground`（實色底上的文字）用在 `-subtle` 底上會造成對比不足。
 
-**字體**三層：`--font-sans`（Geist + Noto Sans TC，內文）、`--font-display`
-（Noto Serif TC 思源宋體，中文標題）、`--font-brand`（Kaisei Tokumin，wordmark 與數字）。
-Kaisei Tokumin 是日文字集，繁中缺 產／歷／檔／繳／查／內／辦／錄 等字，
-**只用於拉丁字母與數字**。
+**字體**：全站黑體，Geist（拉丁與數字）＋ Noto Sans TC（漢字），標題靠字重與字級分層。
+2026-09-07 Roy 定案，系網本身就是黑體；先前的 Noto Serif TC 與 Kaisei Tokumin 已移除。
+
+公開站版面語言依系網實測（`docs/research/2026-09-07-design-reference.md`）：大標首字橘色、灰藍圓角標題板、暖白照片卡、深藍左線列表、橘色外框「查看更多」。對應的 utility 在 `globals.css` 的 `.btn-fju*`、`.fju-list-item`、`.fju-panel-title`。
 
 全部定義在 `src/app/globals.css`。
 
@@ -114,7 +119,8 @@ Kaisei Tokumin 是日文字集，繁中缺 產／歷／檔／繳／查／內／�
 ```
 src/
 ├─ app/
-│  ├─ (public)/          公開前台（共用 layout：SiteHeader + SiteFooter）
+│  ├─ (public)/          前台（共用 layout：SiteHeader + SiteFooter + PrototypeBar；依 cookie 身分渲染）
+│  ├─ api/proto-role/    原型用：切換身分 cookie（接 Auth 後移除）
 │  └─ dashboard/[role]/  登入後 Dashboard，角色由路由參數決定
 ├─ components/
 │  ├─ ui/                shadcn 元件（24 檔，130 個匯出）
@@ -123,6 +129,7 @@ src/
 │  ├─ dashboard/         Panel、StatTile、StateBadge、ProgressBar、EmptyState
 │  └─ data-table/        共用 Data Table（TanStack Table）
 └─ lib/
+   ├─ data/              前台資料存取層：viewer（身分）、catalog（可見性在這層決定）、roles
    ├─ fixtures.ts        全站共用假資料（三角色讀同一份）
    ├─ nav-config.ts      角色感知導覽
    └─ fonts.ts           字體載入策略

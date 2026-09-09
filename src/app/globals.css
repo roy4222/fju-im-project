@@ -92,18 +92,12 @@
 :root {
   --radius: 0.5rem;
 
-  /*
-    字型堆疊（理由見 src/lib/fonts.ts）
-      --font-sans     內文與 UI：Geist（拉丁）→ Noto Sans TC（漢字）
-      --font-display  中文標題：Noto Serif TC（思源宋體，字集完整）
-      --font-brand    站名 wordmark 與數字：Kaisei Tokumin（Roy 指定，日系明體）
-    Kaisei Tokumin 繁中缺 產/歷/檔/繳/查/內/辦/錄 等導覽用字，
-    故只用在 wordmark 與拉丁數字，中文標題交給 Noto Serif TC。
-  */
+  /* 字型堆疊：全站黑體，理由見 src/lib/fonts.ts */
   --font-sans: var(--font-geist-sans), var(--font-sans-tc), "PingFang TC",
     "Microsoft JhengHei", system-ui, sans-serif;
-  --font-display: var(--font-serif-tc), "Songti TC", "PMingLiU", Georgia, serif;
-  --font-brand: var(--font-kaisei), var(--font-serif-tc), Georgia, serif;
+  /* 2026-09-07：全站黑體。display／brand 都指回 sans，保留變數名以免舊 class 失效。 */
+  --font-display: var(--font-sans);
+  --font-brand: var(--font-sans);
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
   --background: oklch(1 0 0);
@@ -266,8 +260,8 @@
     中文標題用 --font-display（明體），字重靠 600/700 建立層級。
   */
   h1, h2, h3, h4 {
-    font-family: var(--font-display);
-    font-weight: 600;
+    font-family: var(--font-sans);
+    font-weight: 700;
     text-wrap: balance;
   }
 }
@@ -275,28 +269,27 @@
 @layer components {
   /* 顯示級標題：hero 用 */
   .type-display {
-    font-family: var(--font-display);
-    font-size: clamp(2rem, 4.2vw, 3.25rem);
-    font-weight: 700;
-    line-height: 1.18;
-    letter-spacing: -0.02em;
+    font-size: clamp(2rem, 3.6vw, 2.875rem);
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
   }
 
   /* 區塊標題 */
+  /* 區塊大標：系網做法，首字橘色由 <SectionTitle> 負責 */
   .type-section {
-    font-family: var(--font-display);
-    font-size: clamp(1.375rem, 2.2vw, 1.75rem);
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: -0.01em;
+    font-size: clamp(1.5rem, 2.2vw, 1.875rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.06em;
+    color: oklch(0.36 0.01 253.89);
   }
 
   /* 卡片標題 */
   .type-card-title {
-    font-family: var(--font-display);
     font-size: 1.0625rem;
-    font-weight: 600;
-    line-height: 1.5;
+    font-weight: 700;
+    line-height: 1.45;
     letter-spacing: 0;
   }
 
@@ -317,7 +310,28 @@
 
   .tabular {
     font-variant-numeric: tabular-nums;
-    font-family: var(--font-brand);
+  }
+
+  /* 系網按鈕：橘實心 hover 變 #EE8423，0.3s；外框版 hover 反白 */
+  .btn-fju {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] bg-brand px-6 font-bold text-brand-foreground transition-colors duration-300 hover:bg-[oklch(0.7_0.16_55)];
+  }
+  .btn-fju-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] border-[3px] border-brand bg-background font-semibold text-brand transition-colors duration-300 hover:bg-brand hover:text-brand-foreground;
+  }
+  .btn-fju-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] border-[3px] border-white/90 bg-transparent font-bold text-white transition-colors duration-300 hover:bg-white hover:text-primary;
+  }
+  /* 系網列表：深藍左側粗線 */
+  .fju-list-item {
+    @apply border-l-[5px] border-primary rounded-[3px] pl-4;
+  }
+  /* 灰藍圓角標題板（系網招生訊息／產業實習） */
+  .fju-panel-title {
+    @apply flex items-center gap-6 bg-[oklch(0.93_0.008_253.89)] px-10 py-6;
+  }
+  .dark .fju-panel-title {
+    @apply bg-card;
   }
 
   /*
@@ -341,4 +355,116 @@
       transform: none;
     }
   }
+}
+
+/* ========================================================================== */
+/* 互動回饋層（Roy 2026-09-08：「整個網站像是死的」→ 每個動作都要有回應）      */
+/* 全部尊重 prefers-reduced-motion。                                          */
+/* ========================================================================== */
+@layer components {
+  /* 換頁進度條 */
+  .top-loader-idle { transform: scaleX(0); opacity: 0; }
+  .top-loader-run { animation: top-loader-run 6s cubic-bezier(0.1, 0.6, 0.2, 1) forwards; opacity: 1; }
+  .top-loader-done { animation: top-loader-done 420ms ease-out forwards; }
+  @keyframes top-loader-run { from { transform: scaleX(0); } 30% { transform: scaleX(0.6); } to { transform: scaleX(0.92); } }
+  @keyframes top-loader-done { from { transform: scaleX(0.92); opacity: 1; } 60% { transform: scaleX(1); opacity: 1; } to { transform: scaleX(1); opacity: 0; } }
+
+  /* 換頁內容進場 */
+  .page-enter { animation: page-enter 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* 捲動顯現 */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 600ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .reveal[data-shown="true"] { opacity: 1; transform: none; }
+
+  /* 卡片：hover 上浮＋陰影，按下回彈 */
+  .card-lift { transition: transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 300ms ease; }
+  .card-lift:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0, 51, 102, 0.16); }
+  .card-lift:active { transform: translateY(-1px) scale(0.99); transition-duration: 100ms; }
+
+  /* 文字連結：橘色底線從左長出 */
+  .link-ink { background-image: linear-gradient(var(--brand), var(--brand)); background-repeat: no-repeat; background-size: 0% 2px; background-position: 0 100%; transition: background-size 250ms cubic-bezier(0.2, 0.7, 0.2, 1), color 200ms; }
+  .link-ink:hover, .link-ink:focus-visible { background-size: 100% 2px; color: var(--brand); }
+
+  /* 導覽列項目：底部橘線滑入（系網選中態的動態版） */
+  .nav-ink { position: relative; }
+  .nav-ink::after { content: ""; position: absolute; left: 0; right: 0; bottom: 18px; height: 3px; border-radius: 2px; background: var(--brand); transform: scaleX(0); transform-origin: left; transition: transform 250ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .nav-ink:hover::after, .nav-ink[aria-current="page"]::after { transform: scaleX(1); }
+
+  /* 導覽下拉：淡入＋上滑 */
+  .nav-dropdown { transform: translateY(6px); transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0s linear 180ms; }
+  .group:hover > .nav-dropdown, .group:focus-within > .nav-dropdown { transform: none; transition-delay: 0s; }
+
+  /* 主要按鈕：hover 微浮＋陰影，按下回彈；橘外框按鈕同 */
+  .btn-fju, .btn-fju-outline, .btn-fju-ghost { transition: background-color 300ms, color 300ms, border-color 300ms, transform 120ms ease-out, box-shadow 300ms; }
+  .btn-fju:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); transform: translateY(-1px); }
+  .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: translateY(0) scale(0.97); box-shadow: none; transition-duration: 80ms; }
+  .btn-fju:focus-visible, .btn-fju-outline:focus-visible, .btn-fju-ghost:focus-visible { outline: 3px solid color-mix(in oklch, var(--brand) 45%, transparent); outline-offset: 2px; }
+
+  /* pill 換頁中的小點 */
+  .pill-dot { width: 0; height: 6px; border-radius: 9999px; background: currentColor; opacity: 0; transition: width 150ms, opacity 150ms; }
+  .pill-dot.is-pending { width: 6px; opacity: 0.8; animation: pill-pulse 800ms ease-in-out infinite; }
+  @keyframes pill-pulse { 50% { opacity: 0.25; } }
+
+  /* 通用：表單控制項與 icon 按鈕的 hover／focus */
+  select, input[type="search"] { transition: border-color 200ms, box-shadow 200ms; }
+  select:hover { border-color: color-mix(in oklch, var(--primary) 40%, transparent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter { animation: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .card-lift, .card-lift:hover, .card-lift:active { transform: none; }
+    .btn-fju:hover, .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: none; }
+    .nav-ink::after, .link-ink, .nav-dropdown { transition: none; }
+    .top-loader-run, .top-loader-done { animation-duration: 1ms; }
+  }
+}
+
+/* ========================================================================== */
+/* 後台圖表與卡片動畫                                                          */
+/* ========================================================================== */
+@layer components {
+  .chart-bar { }
+  @keyframes chart-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .chart-seg { }
+  @keyframes chart-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .chart-ring { }
+  @keyframes chart-ring { from { stroke-dashoffset: var(--ring-c); } }
+  .chart-line { }
+  @keyframes chart-line { to { stroke-dashoffset: 0; } }
+  .card-in { }
+  .stagger { }
+  .notif-dot { box-shadow: 0 0 0 2px var(--background); }
+  .notif-dot::after { content: ""; position: absolute; inset: 0; border-radius: 9999px; background: inherit; animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+  @keyframes ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .chart-bar, .chart-seg, .chart-ring, .chart-line, .card-in { animation: none; }
+    .chart-line { stroke-dasharray: none; stroke-dashoffset: 0; }
+    .notif-dot::after { animation: none; }
+  }
+}
+
+/* 後台（2026-09-08 定案：V1 模組網格＝D 的內容區＋C 的側欄） */
+@layer components {
+  .dash-surface { background: #f4f6f9; }
+  .dash-card { background: var(--card); border-radius: 14px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.06); }
+  .dash-card-hover { transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease; }
+  .dash-card-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 14px 32px rgba(16, 24, 40, 0.10); }
+  .nav-active { background: var(--brand-subtle); color: var(--primary); box-shadow: inset 3px 0 0 var(--brand); }
+  @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; } }
+}
+
+/* 後台深淺色窗簾（DashThemeRoot） */
+@layer components {
+  .theme-curtain { position: fixed; inset: 0; z-index: 200; pointer-events: none; transform: translateY(-101%); }
+  .theme-curtain-down { animation: curtain-down 480ms cubic-bezier(0.65, 0, 0.35, 1) forwards; pointer-events: auto; }
+  .theme-curtain-up { animation: curtain-up 520ms cubic-bezier(0.65, 0, 0.35, 1) forwards; }
+  @keyframes curtain-down { from { transform: translateY(-101%); } to { transform: translateY(0); } }
+  @keyframes curtain-up { from { transform: translateY(0); } to { transform: translateY(101%); } }
+  .dark .dash-surface { background: var(--background); }
+  .dark .dash-card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25); border: 1px solid var(--border); }
+  /* 成就（Steam 式）：橘色微光徽章 */
+  .achieve { box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 18%, transparent); animation: achieve-pop 600ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both; }
+  @keyframes achieve-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .achieve { animation: none; } .theme-curtain-down, .theme-curtain-up { animation-duration: 1ms; } }
 }

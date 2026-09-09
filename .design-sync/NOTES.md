@@ -52,10 +52,20 @@ DS_CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" 
 
 ## 已知且可接受的 warn
 
-- `[FONT_REMOTE]`：`"Geist"` `"Geist Mono"` `"Songti TC"` `"Kaisei Tokumin"` —— 由
+- `[FONT_REMOTE]`：`"Geist"` `"Geist Mono"` `"Noto Sans TC"` —— 由
   `fonts.css` 的遠端 Google Fonts `@import` 供應，屬預期行為。
-  `"Songti TC"` 是 `--font-display` 的系統 fallback，本來就不會有 `@font-face`。
+  2026-09-07 起全站黑體，Noto Serif TC 與 Kaisei Tokumin 已從 `fonts.css` 與 `src/lib/fonts.ts` 移除。
 - `tokens: 1 missing, below threshold` —— `--tw` 是 Tailwind 內部變數，非我們的 token。
+
+## 2026-09-07 re-sync 紀錄
+
+- 前台全部重寫後 re-sync：130 個匯出不變，`bundle: false`；只有 `styling`（CSS 多了
+  `.btn-fju*`、`.fju-list-item`、`.fju-panel-title` 與新用到的語意色組合）與 `aux`（README／conventions）要上傳。
+- 遠端 anchor 取自主 checkout 的 `ds-bundle/_ds_sync.json`（8/18 首次同步的產物），因為本 session 無法
+  `get_file`。正常做法仍是上傳前重新抓專案的 `_ds_sync.json`。
+- `DesignSync` 在非互動 session 需要先在互動式 Claude Code 跑一次 `/design-login`（在 claude 對話裡打，不是 shell）。
+- 2026-09-07 21:30 上傳完成：547 檔（545 內容＋sentinel＋anchor），無刪除；四個改成 column card 的元件重新評分 good。
+- 新 `[GRID_OVERFLOW]` 處理法：把元件加進 `cfg.overrides.<Name>.cardMode = "column"`，跑 `preview-rebuild.mjs --components`，再跑 driver 評分。
 
 ## Re-sync 風險（下次要注意什麼）
 

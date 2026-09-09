@@ -1,111 +1,87 @@
-import { IconCalendarEvent, IconExternalLink } from "@tabler/icons-react";
-import { PageHeader } from "@/components/public/page-header";
-import { ImagePlaceholder } from "@/components/public/sections";
-import { Badge } from "@/components/ui/badge";
-import { COMPETITIONS, daysUntil, formatDue } from "@/lib/fixtures";
+import Image from "next/image";
+import type { Metadata } from "next";
+import { IconExternalLink, IconTrophy } from "@tabler/icons-react";
+import { ListState, PageHead, PillLink, Tag } from "@/components/public/blocks";
+import { SearchSortBar } from "@/components/public/search-sort-bar";
+import { listCompetitions } from "@/lib/data/catalog";
 
-export const metadata = { title: "競賽資訊" };
-
-const STATUS: Record<
-  string,
-  { label: string; className: string }
-> = {
-  open: {
-    label: "開放報名",
-    className: "border-brand/30 bg-brand-subtle text-brand-on-subtle",
-  },
-  closed: {
-    label: "已結束",
-    className: "text-muted-foreground",
-  },
-  result: {
-    label: "已公布結果",
-    className: "border-success/30 bg-success-subtle text-success-on-subtle",
-  },
+export const metadata: Metadata = {
+  title: "競賽資訊",
+  description: "進行中與近期的競賽資訊、報名連結與本系參賽紀錄。",
+  alternates: { canonical: "/competitions" },
+  openGraph: { url: "/competitions" },
 };
 
-/** 0715 會議紀錄 §9：競賽資訊比照公告卡片。 */
-export default function CompetitionsPage() {
-  const open = COMPETITIONS.filter((c) => c.status === "open");
+const STATUS: Record<string, { label: string; tone: "brand" | "navy" }> = {
+  open: { label: "報名中", tone: "brand" },
+  result: { label: "決賽／結果", tone: "navy" },
+  closed: { label: "已結束", tone: "navy" },
+};
 
+function keep(sp: Record<string, string | string[] | undefined>, patch: Record<string, string>) {
+  const p = new URLSearchParams();
+  for (const k of ["q", "sort"]) if (typeof sp[k] === "string" && sp[k]) p.set(k, sp[k] as string);
+  for (const [k, v] of Object.entries(patch)) v ? p.set(k, v) : p.delete(k);
+  const s = p.toString();
+  return s ? `/competitions?${s}` : "/competitions";
+}
+
+/** 競賽資訊：狀態由日期自動推導；可搜尋、排序（Roy 2026-09-08）。 */
+export default async function CompetitionsPage({ searchParams }: PageProps<"/competitions">) {
+  const sp = await searchParams;
+  const status = typeof sp.status === "string" ? sp.status : "all";
+  const q = typeof sp.q === "string" ? sp.q : "";
+  const sort = typeof sp.sort === "string" ? sp.sort : undefined;
+  const items = await listCompetitions({ status, q, sort });
   return (
     <>
-      <PageHeader
-        title="競賽資訊"
-        breadcrumb={[{ href: "/competitions", label: "競賽資訊" }]}
-        description="系上彙整的競賽資訊。系上不代為報名，各組需自行於主辦單位系統完成程序。"
-        meta={
-          <p className="tabular text-sm text-muted-foreground">
-            共 {COMPETITIONS.length} 筆，其中 {open.length} 筆開放報名
-          </p>
-        }
-      />
-
-      <div className="mx-auto max-w-6xl px-5 py-10 md:py-14">
-        <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {COMPETITIONS.map((c) => {
-            const s = STATUS[c.status];
-            const d = daysUntil(c.deadline);
-            return (
-              <li key={c.id}>
-                <article className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card">
-                  <ImagePlaceholder className="aspect-[16/10]" note="競賽宣傳圖待提供" />
-                  <div className="flex flex-1 flex-col p-4">
+      <PageHead title="競賽資訊" description="進行中與近期的競賽。狀態依截止日與活動日自動更新。" crumbs={[{ href: "/news", label: "最新公告" }, { label: "競賽資訊" }]} />
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <nav className="flex flex-wrap gap-2" aria-label="篩選">
+            <PillLink href={keep(sp, { status: "" })} active={status === "all"}>全部</PillLink>
+            <PillLink href={keep(sp, { status: "open" })} active={status === "open"} tone="brand">報名中</PillLink>
+            <PillLink href={keep(sp, { status: "result" })} active={status === "result"}>決賽／結果</PillLink>
+            <PillLink href={keep(sp, { status: "closed" })} active={status === "closed"}>已結束</PillLink>
+          </nav>
+          <SearchSortBar
+            placeholder="搜尋競賽名稱、主辦單位"
+            sortOptions={[
+              { value: "deadline", label: "截止日（新到舊）" },
+              { value: "deadline-asc", label: "截止日（舊到新）" },
+              { value: "title", label: "名稱" },
+            ]}
+          />
+        </div>
+        {items.length === 0 ? (
+          <ListState icon={<IconTrophy className="size-8" />} title={q ? "找不到符合的競賽" : "目前沒有競賽資訊"} hint={q ? "換個關鍵字，或清除篩選條件。" : "系辦發布競賽資訊後會出現在這裡。"} />
+        ) : (
+          <ul className="grid gap-6 md:grid-cols-2">
+            {items.map((c) => (
+              <li key={c.id} id={c.id} className="scroll-mt-24">
+                <article className="grid h-full overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[280px_minmax(0,1fr)]">
+                  <div className="relative aspect-video sm:aspect-auto">
+                    <Image src={c.image} alt="" fill sizes="(max-width: 640px) 100vw, 280px" className="object-cover" />
+                  </div>
+                  <div className="flex flex-col gap-2.5 p-6">
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-[11px] ${s.className}`}>
-                        {s.label}
-                      </Badge>
-                      {c.status === "open" ? (
-                        <span
-                          className={`tabular ml-auto text-xs font-semibold ${
-                            d <= 30 ? "text-brand-on-subtle" : "text-muted-foreground"
-                          }`}
-                        >
-                          {formatDue(c.deadline)}
-                        </span>
-                      ) : null}
+                      <Tag tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Tag>
+                      <span className="tabular text-[13px] font-semibold text-muted-foreground">{c.status === "open" ? `截止 ${c.deadline}` : c.eventDate ? `活動 ${c.eventDate}` : `截止 ${c.deadline}`}</span>
                     </div>
-
-                    <h2 className="type-card-title mt-2.5">{c.title}</h2>
-                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                      {c.summary}
-                    </p>
-
-                    <dl className="mt-4 space-y-1.5 border-t border-border pt-3 text-xs">
-                      <div className="flex gap-2">
-                        <dt className="w-16 shrink-0 text-muted-foreground">主辦單位</dt>
-                        <dd>{c.organizer}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-16 shrink-0 text-muted-foreground">報名截止</dt>
-                        <dd className="tabular">{c.deadline}</dd>
-                      </div>
-                      {c.eventDate ? (
-                        <div className="flex gap-2">
-                          <dt className="w-16 shrink-0 text-muted-foreground">活動日期</dt>
-                          <dd className="tabular flex items-center gap-1">
-                            <IconCalendarEvent className="size-3.5 text-muted-foreground" />
-                            {c.eventDate}
-                          </dd>
-                        </div>
-                      ) : null}
-                    </dl>
-
-                    {c.status === "open" ? (
-                      <a
-                        href="#"
-                        className="press mt-4 inline-flex h-9 items-center gap-1.5 self-start rounded-full border border-brand/50 px-4 text-xs font-medium text-brand-on-subtle transition-colors hover:bg-brand-subtle"
-                      >
-                        前往主辦單位報名
-                        <IconExternalLink className="size-3.5" />
+                    <h2 className="text-xl font-bold leading-snug">{c.title}</h2>
+                    <p className="text-[13px] text-muted-foreground">主辦：{c.organizer}</p>
+                    <p className="text-[15px] leading-relaxed text-muted-foreground">{c.summary}</p>
+                    {c.link ? (
+                      <a href={c.link} target="_blank" rel="noreferrer" className="mt-auto inline-flex items-center gap-1 pt-2 text-sm font-bold text-brand hover:underline">
+                        競賽詳情與報名 <IconExternalLink className="size-4" />
                       </a>
                     ) : null}
                   </div>
                 </article>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        )}
       </div>
     </>
   );

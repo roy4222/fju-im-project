@@ -40,6 +40,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -70,6 +71,7 @@ export function DataTable<T>({
   loading = false,
   emptyTitle = "目前沒有資料",
   emptyHint,
+  initialColumnFilters,
 }: {
   columns: ColumnDef<T, unknown>[];
   data: T[];
@@ -80,9 +82,10 @@ export function DataTable<T>({
   loading?: boolean;
   emptyTitle?: string;
   emptyHint?: string;
+  initialColumnFilters?: ColumnFiltersState;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(initialColumnFilters ?? []);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState({});
   const [search, setSearch] = useState("");
@@ -153,6 +156,7 @@ export function DataTable<T>({
                 }
               />
               <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuGroup>
                 <DropdownMenuLabel>{facet.label}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {facet.options.map((opt) => (
@@ -169,6 +173,7 @@ export function DataTable<T>({
                     {opt.label}
                   </DropdownMenuCheckboxItem>
                 ))}
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           );
@@ -190,6 +195,7 @@ export function DataTable<T>({
             }
           />
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuGroup>
             <DropdownMenuLabel>顯示欄位</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {table
@@ -208,6 +214,7 @@ export function DataTable<T>({
                     : c.id}
                 </DropdownMenuCheckboxItem>
               ))}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

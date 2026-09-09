@@ -1,76 +1,65 @@
 import Link from "next/link";
-import Image from "next/image";
+import type { ViewerRole } from "@/lib/data/viewer";
 
-const COLUMNS = [
-  {
-    title: "內容",
-    links: [
-      { href: "/news", label: "最新公告" },
-      { href: "/rules", label: "專題規則" },
-      { href: "/projects", label: "歷屆專題" },
-      { href: "/competitions", label: "競賽資訊" },
-      { href: "/honors", label: "榮譽榜" },
-    ],
-  },
-  {
-    title: "產學",
-    links: [
-      { href: "/industry", label: "產學合作列表" },
-      { href: "/industry?status=open", label: "尚未指派組別" },
-    ],
-  },
-  {
-    title: "使用",
-    links: [
-      { href: "/login", label: "登入" },
-      { href: "/register", label: "註冊" },
-      { href: "/dashboard", label: "我的專題事務" },
-    ],
-  },
-];
-
-export function SiteFooter() {
+export function SiteFooter({ role }: { role: ViewerRole }) {
+  const member = role !== "guest";
+  const columns = [
+    {
+      title: "內容",
+      links: [
+        { href: "/news", label: "最新公告" },
+        { href: "/competitions", label: "競賽資訊" },
+        { href: "/rules", label: "專題規則" },
+        { href: "/projects/featured", label: "優秀專題" },
+        { href: "/honors", label: "榮譽榜" },
+        ...(member ? [{ href: "/projects", label: "歷屆專題一覽" }, { href: "/industry", label: "產學合作" }, { href: "/files", label: "檔案下載" }] : []),
+      ],
+    },
+    {
+      title: "使用",
+      links: member
+        ? [
+            { href: "/account", label: "個人資料" },
+            { href: `/dashboard/${role}`, label: role === "teacher" ? "老師工作台" : role === "admin" ? "管理後台" : "我的專題事務" },
+          ]
+        : [
+            { href: "/login", label: "登入" },
+            { href: "/register", label: "註冊" },
+            { href: "/forgot-password", label: "忘記密碼" },
+          ],
+    },
+  ];
   return (
-    <footer className="mt-16 border-t border-border bg-muted/40">
-      <div className="mx-auto max-w-6xl px-5 py-12">
-        <div className="grid gap-8 md:grid-cols-[2fr_1fr_1fr_1fr]">
-          <div>
-            <Image
-              src="/brand/fju-im-logo.png"
-              alt="輔仁大學資訊管理學系"
-              width={763}
-              height={187}
-              className="mb-4 h-8 w-auto dark:brightness-110"
-            />
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              新北市新莊區中正路 510 號
-              <br />
-              專題相關事務請洽系辦公室
-            </p>
-          </div>
-          {COLUMNS.map((col) => (
-            <nav key={col.title} aria-label={col.title}>
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground">
-                {col.title}
-              </p>
-              <ul className="mt-3 space-y-2">
-                {col.links.map((l) => (
-                  <li key={l.href + l.label}>
-                    <Link
-                      href={l.href}
-                      className="text-sm text-foreground/80 hover:text-foreground hover:underline"
-                    >
-                      {l.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ))}
+    <footer className="bg-primary text-primary-foreground">
+      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
+        <div>
+          <p className="text-lg font-bold">輔仁大學資訊管理學系</p>
+          <p className="mt-3 text-[13px] leading-loose opacity-85">
+            242 新北市新莊區中正路 510 號 利瑪竇大樓
+            <br />
+            電話 +886-2-2905-2696
+            <br />
+            專題相關事務請洽系辦公室
+          </p>
         </div>
-        <div className="mt-8 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        {columns.map((col) => (
+          <nav key={col.title} aria-label={col.title}>
+            <p className="text-sm font-bold">{col.title}</p>
+            <ul className="mt-3 space-y-2.5">
+              {col.links.map((l) => (
+                <li key={l.href + l.label}>
+                  <Link href={l.href} className="link-ink text-sm opacity-85 hover:opacity-100 [--brand:var(--color-white)] hover:text-white">
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
+      </div>
+      <div className="border-t border-white/15 dark:border-border">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-4 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 輔仁大學資訊管理學系</p>
-          <p>原型畫面，資料為虛構示範內容</p>
         </div>
       </div>
     </footer>

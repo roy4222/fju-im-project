@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
+  IconBell,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconBuildingFactory2,
   IconChecklist,
   IconClipboardText,
@@ -25,12 +29,15 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { navForRole, ROLE_LABEL, type NavIcon } from "@/lib/nav-config";
-import { COHORT, CURRENT_USERS, type Role } from "@/lib/fixtures";
+import { navForRole, type NavIcon } from "@/lib/nav-config";
+import type { Role } from "@/lib/fixtures";
 
 const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   dashboard: IconLayoutDashboard,
+  inbox: IconBell,
   affairs: IconClipboardText,
   editor: IconPencilPlus,
   groups: IconUsersGroup,
@@ -42,63 +49,46 @@ const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   files: IconFolders,
 };
 
+/** 後台側欄：240px、可收合成 icon；品牌 logo、分組導覽、右下角回前台。 */
 export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
   const groups = navForRole(role);
-  const user = CURRENT_USERS[role];
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent"
-        >
-          <span
-            aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-[9px] font-bold leading-tight text-primary-foreground"
-          >
-            FJU
-            <br />
-            IM
-          </span>
-          <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-semibold">資管系專題</span>
-            <span className="truncate text-xs text-muted-foreground">
-              {COHORT.label}
-            </span>
-          </span>
+    <Sidebar collapsible="icon" className="border-r-0">
+      <SidebarHeader className="px-3 pt-3">
+        <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
+          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
+          <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
+          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="px-1.5">
         {groups.map((group) => (
           <SidebarGroup key={group.title}>
-            <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[11px] tracking-wider">{group.title}</SidebarGroupLabel>
             <SidebarMenu>
               {group.items.map((item) => {
                 const href = base + item.href;
                 const Icon = ICONS[item.icon];
-                const isActive =
-                  item.href === ""
-                    ? pathname === base
-                    : pathname.startsWith(href);
+                const isActive = item.href === "" ? pathname === base : pathname.startsWith(href);
+                const badge = item.badge?.[role];
                 return (
                   <SidebarMenuItem key={item.label + item.href}>
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
+                      className={`h-9 rounded-lg transition-colors duration-150 ${isActive ? "bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
                       render={
                         <Link href={href}>
-                          <Icon />
-                          <span>{item.label}</span>
+                          <Icon className="size-4.5" />
+                          <span className="text-[14px] font-medium">{item.label}</span>
                         </Link>
                       }
                     />
-                    {item.badge ? (
-                      <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>
-                    ) : null}
+                    {badge ? <SidebarMenuBadge className="tabular rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
@@ -107,23 +97,22 @@ export function AppSidebar({ role }: { role: Role }) {
         ))}
       </SidebarContent>
 
-      <SidebarFooter>
-        <div className="flex items-center gap-2.5 rounded-md p-1.5">
-          <span
-            aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-secondary-foreground"
-          >
-            {user.name.slice(0, 1)}
-          </span>
-          <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-medium">{user.name}</span>
-            <span className="truncate text-xs text-muted-foreground">
-              {ROLE_LABEL[role]}
-              {user.studentNo ? `・${user.studentNo}` : ""}
-            </span>
-          </span>
-        </div>
+      <SidebarFooter className="px-3 pb-3">
+        <CollapseButton />
       </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
+  );
+}
+
+/** 側欄底部的收合／展開鈕（Roy 2026-09-08：左邊要可折疊） */
+function CollapseButton() {
+  const { state, toggleSidebar } = useSidebar();
+  const collapsed = state === "collapsed";
+  return (
+    <button type="button" onClick={toggleSidebar} className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
+      {collapsed ? <IconLayoutSidebarLeftExpand className="size-4.5 shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-4.5 shrink-0" />}
+      <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
+    </button>
   );
 }

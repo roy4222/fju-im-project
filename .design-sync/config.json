@@ -10,6 +10,18 @@
     "Progress": {
       "cardMode": "single",
       "primaryStory": "SubmissionRate"
+    },
+    "Alert": {
+      "cardMode": "column"
+    },
+    "Skeleton": {
+      "cardMode": "column"
+    },
+    "Table": {
+      "cardMode": "column"
+    },
+    "Tabs": {
+      "cardMode": "column"
     }
   },
   "readmeHeader": ".design-sync/conventions.md"

@@ -10,21 +10,20 @@ const SITE_DESCRIPTION =
   "輔仁大學資訊管理學系專題入口：專題公告、專題規則、產學合作、歷屆成果與競賽榮譽；學生、指導老師與系辦於同一平台完成分組、繳交、評分與簽核。";
 
 export const metadata: Metadata = {
-  // metadataBase 讓各頁的 canonical 與 Open Graph 自動補上絕對網址（MOC §14.4）
+  // metadataBase 讓各頁的 canonical 與 Open Graph 自動補上絕對網址（規格 §14.4）。
+  // canonical 由各頁自己宣告；root 不設，否則所有子頁都會繼承成首頁。
   metadataBase: new URL(SITE_URL),
   title: {
     default: SITE_NAME,
     template: "%s｜輔大資管系專題",
   },
   description: SITE_DESCRIPTION,
-  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "zh_TW",
     siteName: SITE_NAME,
     title: SITE_NAME,
     description: SITE_DESCRIPTION,
-    url: "/",
   },
   twitter: { card: "summary_large_image" },
   robots: { index: true, follow: true },
@@ -40,7 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
+          forcedTheme="light"
           enableSystem={false}
           disableTransitionOnChange
         >
