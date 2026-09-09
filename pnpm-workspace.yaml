@@ -1,4 +1,14 @@
+packages:
+  - prototype
+
+# 虛擬 store 在根目錄，套件的型別要往上找得到 @types/*（否則 next-themes 等會失去 React 型別）
+publicHoistPattern:
+  - '@types/*'
+
+# 跑 dev／lint 前不要自動 pnpm install（會被 allowBuilds 擋下）
+verifyDepsBeforeRun: false
+
 allowBuilds:
-  '@parcel/watcher': set this to true or false
+  '@parcel/watcher': false
   sharp: false
   unrs-resolver: false
