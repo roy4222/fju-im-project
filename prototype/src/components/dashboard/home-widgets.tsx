@@ -4,7 +4,7 @@ import { IconArrowRight, IconCheck, IconChevronRight } from "@tabler/icons-react
 import { buttonVariants } from "@/components/ui/button";
 import { Panel, Pill } from "@/components/dashboard/primitives";
 import { MiniCalendar } from "@/components/dashboard/mini-calendar";
-import { CALENDAR_EVENTS, CALENDAR_KIND_LABEL, NEWS, SCHEDULE, SCHEDULE_YEAR, TODAY, TODAY_YMD, cohortProgress, currentStage, daysUntil, formatDue, stageTasksFor, type CalendarEvent, type Role, type Stage } from "@/lib/fixtures";
+import { CALENDAR_EVENTS, CALENDAR_KIND_LABEL, NEWS, SCHEDULE, SCHEDULE_YEAR, TODAY_YMD, cohortProgress, currentStage, daysUntil, formatDue, stageTasksFor, type CalendarEvent, type Role, type Stage } from "@/lib/fixtures";
 
 /**
  * 首頁積木（2026-09-09 第三輪，Roy 給的 Ace Academy 參考）：
