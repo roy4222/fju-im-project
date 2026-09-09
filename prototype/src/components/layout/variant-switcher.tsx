@@ -16,14 +16,14 @@ export function VariantSwitcher({ variant }: { variant: DashVariant }) {
   return (
     <div data-prototype-switcher className="fixed right-4 bottom-4 z-[100] w-[300px] rounded-xl bg-[#0f1f33] p-3 text-[13px] text-white shadow-2xl">
       <div className="flex items-center justify-between font-bold">
-        <span>後台版本評選</span>
+        <span>首頁時程做法（V4 底）</span>
         <button type="button" onClick={() => setOpen((v) => !v)} className="rounded border border-white/30 px-2 py-0.5 text-xs" aria-label={open ? "收合" : "展開"}>
           {open ? <IconChevronDown className="size-3.5" /> : <IconChevronUp className="size-3.5" />}
         </button>
       </div>
       {open ? (
         <>
-          <form method="post" action="/api/proto-variant" className="mt-2 grid grid-cols-4 gap-1.5">
+          <form method="post" action="/api/proto-variant" className="mt-2 grid grid-cols-3 gap-1.5">
             <input type="hidden" name="returnTo" value={pathname} />
             {DASH_VARIANTS.map((v) => (
               <button key={v} type="submit" name="variant" value={v} aria-pressed={v === variant} className={`rounded-md border py-1.5 text-[13px] font-semibold transition-colors ${v === variant ? "border-brand bg-brand" : "border-white/15 bg-white/10 hover:bg-white/20"}`}>

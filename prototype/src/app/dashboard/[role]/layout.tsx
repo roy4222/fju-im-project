@@ -9,12 +9,8 @@ import { PageTransition } from "@/components/public/ux/page-transition";
 import { isValidRole } from "@/lib/nav-config";
 import { DashThemeRoot } from "@/components/layout/dash-theme";
 import { getDashVariant } from "@/lib/data/dash-variant-server";
-import type { DashVariant } from "@/lib/data/dash-variant";
 
-/** 各版本的側欄寬度：V3 控制台較窄、V2 時間軸略窄，其餘 256px。 */
-const SIDEBAR_WIDTH: Record<DashVariant, string> = { grid: "16rem", timeline: "15rem", console: "13.5rem", navy: "16rem" };
-
-/** 後台外框：側欄＋頂列；`data-dash` 版本屬性由 DashThemeRoot 掛上，CSS 依版本換皮。 */
+/** 後台外框（V4 系網深藍）：深藍側欄＋白頂列＋暖白內容區。換頁進度條貼在最上緣，不再切在頂列下方。 */
 export default async function DashboardLayout({ children, params }: LayoutProps<"/dashboard/[role]">) {
   const { role } = await params;
   if (!isValidRole(role)) notFound();
@@ -22,11 +18,11 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
 
   return (
     <DashThemeRoot variant={variant}>
-    <SidebarProvider style={{ "--sidebar-width": SIDEBAR_WIDTH[variant] } as React.CSSProperties}>
+    <SidebarProvider style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "3.75rem" } as React.CSSProperties}>
       <AppSidebar role={role} />
       <SidebarInset className="dash-surface">
         <Suspense fallback={null}>
-          <TopLoader top={56} />
+          <TopLoader top={0} />
         </Suspense>
         <DashboardHeader role={role} />
         <div className="dash-content mx-auto w-full max-w-[1280px] flex-1 p-4 md:p-6 lg:p-8">

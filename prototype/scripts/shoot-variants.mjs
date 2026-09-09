@@ -22,8 +22,10 @@ async function shoot(ctx, url, file) {
   const page = await ctx.newPage();
   await page.goto(url, { waitUntil: "networkidle" });
   await page.addStyleTag({ content: hide }).catch(() => {});
+  if (process.env.COLLAPSED) { await page.getByRole("button", { name: "收合選單" }).click().catch(() => {}); await page.waitForTimeout(400); }
+  if (process.env.OPEN_SEARCH) { await page.keyboard.press("Meta+k"); await page.waitForTimeout(500); }
   await page.waitForTimeout(300);
-  await page.screenshot({ path: file, fullPage: true });
+  await page.screenshot({ path: file, fullPage: !process.env.VIEWPORT_ONLY });
   await page.close();
   console.log(file);
 }

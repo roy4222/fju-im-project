@@ -40,8 +40,8 @@ export function TopLoader({ top = 80 }: { top?: number }) {
   }, [routeKey]);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-x-0 z-[60] h-[3px]" style={{ top }}>
-      <div className={`h-full origin-left bg-brand shadow-[0_0_8px_rgba(229,110,0,0.6)] ${state === "loading" ? "top-loader-run" : state === "done" ? "top-loader-done" : "top-loader-idle"}`} />
+    <div aria-hidden className="pointer-events-none fixed inset-x-0 z-[60] h-[2px]" style={{ top }}>
+      <div className={`h-full origin-left bg-brand ${state === "loading" ? "top-loader-run" : state === "done" ? "top-loader-done" : "top-loader-idle"}`} />
     </div>
   );
 }

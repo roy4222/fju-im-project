@@ -8,6 +8,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconBuildingFactory2,
+  IconCalendarTime,
   IconChecklist,
   IconClipboardText,
   IconFolders,
@@ -37,6 +38,7 @@ import type { Role } from "@/lib/fixtures";
 
 const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   dashboard: IconLayoutDashboard,
+  timeline: IconCalendarTime,
   inbox: IconBell,
   affairs: IconClipboardText,
   editor: IconPencilPlus,
@@ -49,7 +51,12 @@ const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   files: IconFolders,
 };
 
-/** 後台側欄：240px、可收合成 icon；品牌 logo、分組導覽、右下角回前台。 */
+/**
+ * 後台側欄（2026-09-09 V4 定案：深藍底）。
+ * - 展開：橫式 logo 反白，下一行「專題管理平台」；收合：只剩 logo 左邊的圖形（同一張圖靠左裁切）。
+ * - 選中＝白色 13% 圓角塊＋橘 icon；不畫左線（Roy：「首頁旁邊有一根線很怪」）。
+ * - 使用者與「回到前台」只在頂列帳號選單。
+ */
 export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
@@ -57,19 +64,24 @@ export function AppSidebar({ role }: { role: Role }) {
 
   return (
     <Sidebar collapsible="icon" className="dash-sidebar border-r-0">
-      <SidebarHeader className="px-3 pt-3">
-        <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="dash-logo w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
-          <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
-          <span className="dash-brand-sub truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
+      <SidebarHeader className="px-3 pt-4 pb-1">
+        <Link href={base} className="flex h-12 items-center rounded-md group-data-[collapsible=icon]:justify-center" aria-label="回首頁">
+          <span className="relative block h-11 w-[184px] overflow-hidden group-data-[collapsible=icon]:hidden">
+            <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" fill sizes="184px" className="dash-logo object-contain object-left" priority />
+          </span>
+          {/* 收合時只露出 logo 最左邊的圖形：同一張圖用 object-cover 靠左裁，不會壓扁 */}
+          <span className="relative hidden size-9 overflow-hidden group-data-[collapsible=icon]:block">
+            <Image src="/brand/fju-im-logo.png" alt="" fill sizes="160px" className="dash-logo object-cover object-left" />
+          </span>
         </Link>
+        <span className="dash-brand-sub truncate pl-0.5 text-[12px] font-semibold group-data-[collapsible=icon]:hidden">專題管理平台</span>
       </SidebarHeader>
 
-      <SidebarContent className="px-1.5">
+      <SidebarContent className="px-2 pt-2">
         {groups.map((group) => (
-          <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className="dash-nav-label text-[11px] tracking-wider">{group.title}</SidebarGroupLabel>
-            <SidebarMenu>
+          <SidebarGroup key={group.title} className="py-1.5">
+            <SidebarGroupLabel className="dash-nav-label h-7 text-[11px] tracking-[0.08em]">{group.title}</SidebarGroupLabel>
+            <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 const href = base + item.href;
                 const Icon = ICONS[item.icon];
@@ -80,15 +92,15 @@ export function AppSidebar({ role }: { role: Role }) {
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
-                      className={`dash-nav-item h-9 rounded-lg transition-colors duration-150 ${isActive ? "dash-nav-active bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
+                      className={`dash-nav-item h-9 rounded-lg px-2.5 transition-colors duration-150 ${isActive ? "dash-nav-active font-bold" : ""}`}
                       render={
                         <Link href={href}>
-                          <Icon className="size-4.5" />
-                          <span className="text-[14px] font-medium">{item.label}</span>
+                          <Icon className="size-[18px]" strokeWidth={isActive ? 2.2 : 1.8} />
+                          <span className="text-[14px]">{item.label}</span>
                         </Link>
                       }
                     />
-                    {badge ? <SidebarMenuBadge className="tabular rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
+                    {badge ? <SidebarMenuBadge className="tabular top-2 rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
@@ -105,13 +117,12 @@ export function AppSidebar({ role }: { role: Role }) {
   );
 }
 
-/** 側欄底部的收合／展開鈕（Roy 2026-09-08：左邊要可折疊） */
 function CollapseButton() {
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed";
   return (
-    <button type="button" onClick={toggleSidebar} className="dash-collapse flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
-      {collapsed ? <IconLayoutSidebarLeftExpand className="size-4.5 shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-4.5 shrink-0" />}
+    <button type="button" onClick={toggleSidebar} className="dash-collapse flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium transition-colors group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
+      {collapsed ? <IconLayoutSidebarLeftExpand className="size-[18px] shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-[18px] shrink-0" />}
       <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
     </button>
   );
