@@ -1,0 +1,99 @@
+- banner:
+  - link "輔仁大學資訊管理學系":
+    - /url: /
+    - img "輔仁大學資訊管理學系"
+  - button "開啟選單":
+- main:
+  - article:
+    - navigation "麵包屑":
+      - link "首頁":
+        - /url: /
+      - text: ›
+      - link "優秀專題":
+        - /url: /projects/featured
+      - text: › 113 屆
+    - generic "113 學年度校級優秀專題":
+      - text: 優秀專題
+    - generic: 113 屆
+    - generic: 資料視覺化
+    - heading "城市微光：公共資訊可讀性改善" [level=1]
+    - link "播放三分鐘影片":
+      - /url: "#"
+    - generic: 三分鐘影片・系上 YouTube 不公開連結
+    - heading "摘要" [level=2]
+    - paragraph: 針對公部門開放資料網站的資訊可讀性問題，重新設計資料呈現流程。以三個實際的市政資料集為例，建立一套可重複套用的視覺化樣板，並邀請十二位非資訊背景使用者進行可用性測試，量測任務完成時間與理解正確率。
+    - heading "文件概述" [level=2]
+    - list:
+      - link "專案計畫書 PDF・2.1 MB":
+        - /url: "#"
+        - generic: 專案計畫書
+        - generic: PDF・2.1 MB
+      - link "系統分析與設計文件 PDF・6.4 MB":
+        - /url: "#"
+        - generic: 系統分析與設計文件
+        - generic: PDF・6.4 MB
+      - link "成果海報 PDF・A1・8.9 MB":
+        - /url: "#"
+        - generic: 成果海報
+        - generic: PDF・A1・8.9 MB
+    - paragraph: 文件下載需登入；優秀專題的摘要、海報與影片公開。
+    - navigation "上一件與下一件":
+      - link "下一件 › 拾語：課堂討論脈絡整理器":
+        - /url: /projects/p-2
+        - generic: 下一件 ›
+        - generic: 拾語：課堂討論脈絡整理器
+  - complementary:
+    - term: 組別
+    - definition: 第 07 組・資料視覺化
+    - term: 指導老師
+    - definition: 王雅玲
+    - term: 組員
+    - definition: 周子瑜、許哲瑋、潘映璇、簡宇軒、邱郁婷
+    - term: 使用技術
+    - definition: Next.js、D3.js、PostgreSQL、使用者測試
+    - term: 獎項
+    - definition: 113 學年度校級優秀專題
+    - figure "成果海報（點擊放大）":
+      - img "成果海報"
+      - generic: 成果海報（點擊放大）
+    - link "回到優秀專題":
+      - /url: /projects/featured
+- contentinfo:
+  - paragraph: 輔仁大學資訊管理學系
+  - paragraph:
+    - text: 242 新北市新莊區中正路 510 號 利瑪竇大樓
+    - text: 電話 +886-2-2905-2696
+    - text: 專題相關事務請洽系辦公室
+  - navigation "內容":
+    - paragraph: 內容
+    - list:
+      - link "最新公告":
+        - /url: /news
+      - link "競賽資訊":
+        - /url: /competitions
+      - link "專題規則":
+        - /url: /rules
+      - link "優秀專題":
+        - /url: /projects/featured
+      - link "榮譽榜":
+        - /url: /honors
+  - navigation "使用":
+    - paragraph: 使用
+    - list:
+      - link "登入":
+        - /url: /login
+      - link "註冊":
+        - /url: /register
+      - link "忘記密碼":
+        - /url: /forgot-password
+  - paragraph: © 2026 輔仁大學資訊管理學系
+- generic: 原型操作列
+- button "收合":
+- paragraph: 切換身分（模擬登入）
+- button "訪客" [pressed]
+- button "學生"
+- button "老師"
+- button "管理員"
+- paragraph: 照片暫用系網素材，資料為虛構示範。
+- button "Open Next.js Dev Tools":
+- alert

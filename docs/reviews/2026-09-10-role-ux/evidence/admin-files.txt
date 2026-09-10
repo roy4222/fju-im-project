@@ -1,0 +1,261 @@
+- link "回首頁":
+  - /url: /dashboard/admin
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/admin
+    - generic: 首頁
+  - link "時間軸設定":
+    - /url: /dashboard/admin/timeline
+    - generic: 時間軸設定
+  - link "通知":
+    - /url: /dashboard/admin/inbox
+    - generic: 通知
+  - generic: "3"
+- generic: 專題事務
+- list:
+  - link "專題事務":
+    - /url: /dashboard/admin/affairs
+    - generic: 專題事務
+  - link "內容編輯器":
+    - /url: /dashboard/admin/editor
+    - generic: 內容編輯器
+  - link "檔案管理":
+    - /url: /dashboard/admin/files
+    - generic: 檔案管理
+- generic: 分組與產學
+- list:
+  - link "分組總覽":
+    - /url: /dashboard/admin/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/admin/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "成績管理":
+    - /url: /dashboard/admin/grading
+    - generic: 成績管理
+  - link "簽核":
+    - /url: /dashboard/admin/signoff
+    - generic: 簽核
+- generic: 系統管理
+- list:
+  - link "帳號管理":
+    - /url: /dashboard/admin/accounts
+    - generic: 帳號管理
+  - generic: "4"
+  - link "操作紀錄":
+    - /url: /dashboard/admin/audit
+    - generic: 操作紀錄
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "檔案管理" [level=1]
+  - button "切換為深色":
+  - button "通知，3 則未讀":
+  - button "帳號選單":
+    - generic: 系
+    - generic: 系辦管理員
+  - heading "檔案管理" [level=1]
+  - paragraph: 公告附件、公開資源、表單上傳與組別繳交共用同一儲存核心。
+  - button "上傳資源":
+    - text: 上傳資源
+  - generic: 儲存用量
+  - paragraph: 18.4/ 200 GiB
+  - generic: 最近備份 08-17 03:00
+  - img "9%":
+    - generic: 9%
+  - generic: 檔案數
+  - paragraph: 14個
+  - generic: 軟刪除，被引用者不可移除
+  - heading "依類型" [level=2]
+  - list:
+    - generic: 公開資源
+    - generic: "10"
+    - generic: 公告附件
+    - generic: "1"
+    - generic: 組別繳交
+    - generic: "3"
+  - heading "檔案" [level=2]
+  - textbox "搜尋檔名"
+  - button "類型"
+  - button "欄位":
+    - generic: 欄位
+  - table:
+    - rowgroup:
+      - row "檔名 類型 項目 上傳者 大小 日期 引用 操作":
+        - columnheader "檔名":
+          - button "檔名":
+            - text: 檔名
+        - columnheader "類型":
+          - button "類型":
+            - text: 類型
+        - columnheader "項目":
+          - button "項目":
+            - text: 項目
+        - columnheader "上傳者":
+          - button "上傳者":
+            - text: 上傳者
+        - columnheader "大小":
+          - button "大小":
+            - text: 大小
+        - columnheader "日期":
+          - button "日期":
+            - text: 日期
+        - columnheader "引用":
+          - button "引用":
+            - text: 引用
+        - columnheader "操作"
+    - rowgroup:
+      - row "專案計畫書範本 2026.docx 公開資源 範本與格式 系辦管理員 128 KB 2026-08-01 1 下載 刪除":
+        - cell "專案計畫書範本 2026.docx":
+          - generic: 專案計畫書範本 2026.docx
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "範本與格式":
+          - generic: 範本與格式
+        - cell "系辦管理員"
+        - cell "128 KB"
+        - cell "2026-08-01"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "系統分析與設計文件格式.docx 公開資源 範本與格式 系辦管理員 210 KB 2026-08-01 1 下載 刪除":
+        - cell "系統分析與設計文件格式.docx":
+          - generic: 系統分析與設計文件格式.docx
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "範本與格式":
+          - generic: 範本與格式
+        - cell "系辦管理員"
+        - cell "210 KB"
+        - cell "2026-08-01"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "成果海報 A1 範本.pptx 公開資源 範本與格式 系辦管理員 3.2 MB 2026-08-05 1 下載 刪除":
+        - cell "成果海報 A1 範本.pptx":
+          - generic: 成果海報 A1 範本.pptx
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "範本與格式":
+          - generic: 範本與格式
+        - cell "系辦管理員"
+        - cell "3.2 MB"
+        - cell "2026-08-05"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "專題規則.pdf 公開資源 規則與說明 系辦管理員 412 KB 2026-08-12 1 下載 刪除":
+        - cell "專題規則.pdf":
+          - generic: 專題規則.pdf
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "規則與說明":
+          - generic: 規則與說明
+        - cell "系辦管理員"
+        - cell "412 KB"
+        - cell "2026-08-12"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "114 專題分組作業說明.pdf 公開資源 規則與說明 系辦管理員 312 KB 2026-08-14 1 下載 刪除":
+        - cell "114 專題分組作業說明.pdf":
+          - generic: 114 專題分組作業說明.pdf
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "規則與說明":
+          - generic: 規則與說明
+        - cell "系辦管理員"
+        - cell "312 KB"
+        - cell "2026-08-14"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "指導老師名單與研究領域.pdf 公開資源 規則與說明 系辦管理員 188 KB 2026-08-14 1 下載 刪除":
+        - cell "指導老師名單與研究領域.pdf":
+          - generic: 指導老師名單與研究領域.pdf
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "規則與說明":
+          - generic: 規則與說明
+        - cell "系辦管理員"
+        - cell "188 KB"
+        - cell "2026-08-14"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "系統驗收評分項目（七項）說明.pdf 公開資源 系統驗收 系辦管理員 96 KB 2026-08-12 1 下載 刪除":
+        - cell "系統驗收評分項目（七項）說明.pdf":
+          - generic: 系統驗收評分項目（七項）說明.pdf
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "系統驗收":
+          - generic: 系統驗收
+        - cell "系辦管理員"
+        - cell "96 KB"
+        - cell "2026-08-12"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "驗收簡報格式建議.pptx 公開資源 系統驗收 系辦管理員 1.1 MB 2026-08-20 1 下載 刪除":
+        - cell "驗收簡報格式建議.pptx":
+          - generic: 驗收簡報格式建議.pptx
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "系統驗收":
+          - generic: 系統驗收
+        - cell "系辦管理員"
+        - cell "1.1 MB"
+        - cell "2026-08-20"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "產學合作保密協議範本.docx 公開資源 產學合作 系辦管理員 76 KB 2026-07-22 1 下載 刪除":
+        - cell "產學合作保密協議範本.docx":
+          - generic: 產學合作保密協議範本.docx
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "產學合作":
+          - generic: 產學合作
+        - cell "系辦管理員"
+        - cell "76 KB"
+        - cell "2026-07-22"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+      - row "113 學年度專題發表議程.pdf 公開資源 規則與說明 系辦管理員 240 KB 2025-06-01 1 下載 刪除":
+        - cell "113 學年度專題發表議程.pdf":
+          - generic: 113 學年度專題發表議程.pdf
+        - cell "公開資源":
+          - generic: 公開資源
+        - cell "規則與說明":
+          - generic: 規則與說明
+        - cell "系辦管理員"
+        - cell "240 KB"
+        - cell "2025-06-01"
+        - cell "1"
+        - cell "下載 刪除":
+          - button "下載":
+          - button "刪除" [disabled]:
+  - paragraph: 共 14 筆
+  - generic: 第 1 / 2 頁
+  - button "上一頁" [disabled]:
+  - button "下一頁":

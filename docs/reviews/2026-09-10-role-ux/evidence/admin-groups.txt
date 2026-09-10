@@ -1,0 +1,294 @@
+- link "回首頁":
+  - /url: /dashboard/admin
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/admin
+    - generic: 首頁
+  - link "時間軸設定":
+    - /url: /dashboard/admin/timeline
+    - generic: 時間軸設定
+  - link "通知":
+    - /url: /dashboard/admin/inbox
+    - generic: 通知
+  - generic: "3"
+- generic: 專題事務
+- list:
+  - link "專題事務":
+    - /url: /dashboard/admin/affairs
+    - generic: 專題事務
+  - link "內容編輯器":
+    - /url: /dashboard/admin/editor
+    - generic: 內容編輯器
+  - link "檔案管理":
+    - /url: /dashboard/admin/files
+    - generic: 檔案管理
+- generic: 分組與產學
+- list:
+  - link "分組總覽" [active]:
+    - /url: /dashboard/admin/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/admin/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "成績管理":
+    - /url: /dashboard/admin/grading
+    - generic: 成績管理
+  - link "簽核":
+    - /url: /dashboard/admin/signoff
+    - generic: 簽核
+- generic: 系統管理
+- list:
+  - link "帳號管理":
+    - /url: /dashboard/admin/accounts
+    - generic: 帳號管理
+  - generic: "4"
+  - link "操作紀錄":
+    - /url: /dashboard/admin/audit
+    - generic: 操作紀錄
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "分組總覽" [level=1]
+  - button "切換為深色":
+  - button "通知，3 則未讀":
+  - button "帳號選單":
+    - generic: 系
+    - generic: 系辦管理員
+  - heading "分組總覽" [level=1]
+  - paragraph: 114 學年度（2026）・分類只影響流程與標示，不限制老師看見哪些組別。
+  - generic: 本屆組別
+  - paragraph: 9組
+  - generic: 44 人已分組
+  - img "92%":
+  - generic: 產學組
+  - paragraph: 3組
+  - generic: 2 組未指派
+  - img "33%":
+  - generic: 未分組學生
+  - paragraph: 4人
+  - generic: 3 人公開找組員
+  - generic: 例外組別
+  - paragraph: 1組
+  - generic: 非五人，已記錄理由
+  - heading "全部組別" [level=2]
+  - generic: ・可搜尋、排序、篩選、勾選匯出
+  - textbox "搜尋專題題目…"
+  - button "類型"
+  - button "指導老師"
+  - button "狀態"
+  - button "欄位":
+    - generic: 欄位
+  - table:
+    - rowgroup:
+      - row "全選本頁 組別 專題題目 類型 指導老師 組員 人數 狀態 操作":
+        - columnheader "全選本頁":
+          - checkbox "全選本頁"
+          - checkbox
+        - columnheader "組別":
+          - button "組別":
+            - text: 組別
+        - columnheader "專題題目":
+          - button "專題題目":
+            - text: 專題題目
+        - columnheader "類型":
+          - button "類型":
+            - text: 類型
+        - columnheader "指導老師":
+          - button "指導老師":
+            - text: 指導老師
+        - columnheader "組員"
+        - columnheader "人數":
+          - button "人數":
+            - text: 人數
+        - columnheader "狀態":
+          - button "狀態":
+            - text: 狀態
+        - columnheader "操作"
+    - rowgroup:
+      - row "選取 第 07 組 第 07 組 校園閒置空間共享媒合平台 一般專題 陳建宏 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 5 人 已成立 重派":
+        - cell "選取 第 07 組":
+          - checkbox "選取 第 07 組"
+          - checkbox
+        - cell "第 07 組"
+        - cell "校園閒置空間共享媒合平台":
+          - generic: 校園閒置空間共享媒合平台
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "陳建宏"
+        - cell "林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文":
+          - generic: 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 01 組 第 01 組 醫療院所排班最佳化系統 一般專題 王雅玲 周子瑜、許哲瑋、潘映璇、簡宇軒、邱郁婷 5 人 已成立 重派":
+        - cell "選取 第 01 組":
+          - checkbox "選取 第 01 組"
+          - checkbox
+        - cell "第 01 組"
+        - cell "醫療院所排班最佳化系統":
+          - generic: 醫療院所排班最佳化系統
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "王雅玲"
+        - cell "周子瑜、許哲瑋、潘映璇、簡宇軒、邱郁婷":
+          - generic: 周子瑜、許哲瑋、潘映璇、簡宇軒、邱郁婷
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 02 組 第 02 組 零售門市補貨預測（產學：宏昇物流） 產學合作 陳建宏 賴威廷、宋佳蓉、馮柏勳、涂雅雯、石承翰 5 人 已成立 重派":
+        - cell "選取 第 02 組":
+          - checkbox "選取 第 02 組"
+          - checkbox
+        - cell "第 02 組"
+        - cell "零售門市補貨預測（產學：宏昇物流）":
+          - generic: 零售門市補貨預測（產學：宏昇物流）
+        - cell "產學合作":
+          - generic: 產學合作
+        - cell "陳建宏"
+        - cell "賴威廷、宋佳蓉、馮柏勳、涂雅雯、石承翰":
+          - generic: 賴威廷、宋佳蓉、馮柏勳、涂雅雯、石承翰
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 03 組 第 03 組 非營利組織捐款流程數位化（產學：光晨社福） 產學合作 尚未指派 方品瑄、游承翰、廖珮綺、康柏融、詹于萱 5 人 已成立 指派老師":
+        - cell "選取 第 03 組":
+          - checkbox "選取 第 03 組"
+          - checkbox
+        - cell "第 03 組"
+        - cell "非營利組織捐款流程數位化（產學：光晨社福）":
+          - generic: 非營利組織捐款流程數位化（產學：光晨社福）
+        - cell "產學合作":
+          - generic: 產學合作
+        - cell "尚未指派"
+        - cell "方品瑄、游承翰、廖珮綺、康柏融、詹于萱":
+          - generic: 方品瑄、游承翰、廖珮綺、康柏融、詹于萱
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "指派老師":
+          - button "指派老師":
+            - text: 指派老師
+      - row "選取 第 04 組 第 04 組 校內活動報名與簽到整合 一般專題 李孟儒 溫子謙、范芷妍、杜宥安、洪思語、莊博凱 5 人 已成立 重派":
+        - cell "選取 第 04 組":
+          - checkbox "選取 第 04 組"
+          - checkbox
+        - cell "第 04 組"
+        - cell "校內活動報名與簽到整合":
+          - generic: 校內活動報名與簽到整合
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "李孟儒"
+        - cell "溫子謙、范芷妍、杜宥安、洪思語、莊博凱":
+          - generic: 溫子謙、范芷妍、杜宥安、洪思語、莊博凱
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 05 組 第 05 組 二手教科書交易平台 一般專題 張士豪 田家瑜、阮柏毅、曾語彤、崔浩然、翁苡榛 5 人 已成立 重派":
+        - cell "選取 第 05 組":
+          - checkbox "選取 第 05 組"
+          - checkbox
+        - cell "第 05 組"
+        - cell "二手教科書交易平台":
+          - generic: 二手教科書交易平台
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "張士豪"
+        - cell "田家瑜、阮柏毅、曾語彤、崔浩然、翁苡榛":
+          - generic: 田家瑜、阮柏毅、曾語彤、崔浩然、翁苡榛
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 06 組 第 06 組 工廠設備稼動率可視化（產學：昱鋼精機） 產學合作 尚未指派 何昀諠、商柏睿、藍怡萱、傅子齊、涂宥辰 5 人 已成立 指派老師":
+        - cell "選取 第 06 組":
+          - checkbox "選取 第 06 組"
+          - checkbox
+        - cell "第 06 組"
+        - cell "工廠設備稼動率可視化（產學：昱鋼精機）":
+          - generic: 工廠設備稼動率可視化（產學：昱鋼精機）
+        - cell "產學合作":
+          - generic: 產學合作
+        - cell "尚未指派"
+        - cell "何昀諠、商柏睿、藍怡萱、傅子齊、涂宥辰":
+          - generic: 何昀諠、商柏睿、藍怡萱、傅子齊、涂宥辰
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "指派老師":
+          - button "指派老師":
+            - text: 指派老師
+      - row "選取 第 08 組 第 08 組 長照機構家屬溝通看板 一般專題 王雅玲 巫佳蓁、郝彥丞、岳庭妤、解軍豪、麥若彤 5 人 已成立 重派":
+        - cell "選取 第 08 組":
+          - checkbox "選取 第 08 組"
+          - checkbox
+        - cell "第 08 組"
+        - cell "長照機構家屬溝通看板":
+          - generic: 長照機構家屬溝通看板
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "王雅玲"
+        - cell "巫佳蓁、郝彥丞、岳庭妤、解軍豪、麥若彤":
+          - generic: 巫佳蓁、郝彥丞、岳庭妤、解軍豪、麥若彤
+        - cell "5 人":
+          - generic: 5 人
+        - cell "已成立":
+          - generic: 已成立
+        - cell "重派":
+          - button "重派":
+            - text: 重派
+      - row "選取 第 09 組 第 09 組 跨境電商稅務試算工具 一般專題 尚未指派 柯亦辰、宮宇薇、潘冠霖、尤思穎 4 人 例外組 指派老師":
+        - cell "選取 第 09 組":
+          - checkbox "選取 第 09 組"
+          - checkbox
+        - cell "第 09 組"
+        - cell "跨境電商稅務試算工具":
+          - generic: 跨境電商稅務試算工具
+        - cell "一般專題":
+          - generic: 一般專題
+        - cell "尚未指派"
+        - cell "柯亦辰、宮宇薇、潘冠霖、尤思穎":
+          - generic: 柯亦辰、宮宇薇、潘冠霖、尤思穎
+        - cell "4 人":
+          - generic: 4 人
+        - cell "例外組":
+          - generic: 例外組
+        - cell "指派老師":
+          - button "指派老師":
+            - text: 指派老師
+  - paragraph: 共 9 筆
+  - generic: 第 1 / 1 頁
+  - button "上一頁" [disabled]:
+  - button "下一頁" [disabled]:
+- button "Open Next.js Dev Tools":
+- alert: 分組總覽

@@ -1,0 +1,150 @@
+- link "回首頁":
+  - /url: /dashboard/admin
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/admin
+    - generic: 首頁
+  - link "時間軸設定":
+    - /url: /dashboard/admin/timeline
+    - generic: 時間軸設定
+  - link "通知":
+    - /url: /dashboard/admin/inbox
+    - generic: 通知
+  - generic: "3"
+- generic: 專題事務
+- list:
+  - link "專題事務":
+    - /url: /dashboard/admin/affairs
+    - generic: 專題事務
+  - link "內容編輯器":
+    - /url: /dashboard/admin/editor
+    - generic: 內容編輯器
+  - link "檔案管理":
+    - /url: /dashboard/admin/files
+    - generic: 檔案管理
+- generic: 分組與產學
+- list:
+  - link "分組總覽":
+    - /url: /dashboard/admin/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/admin/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "成績管理":
+    - /url: /dashboard/admin/grading
+    - generic: 成績管理
+  - link "簽核" [active]:
+    - /url: /dashboard/admin/signoff
+    - generic: 簽核
+- generic: 系統管理
+- list:
+  - link "帳號管理":
+    - /url: /dashboard/admin/accounts
+    - generic: 帳號管理
+  - generic: "4"
+  - link "操作紀錄":
+    - /url: /dashboard/admin/audit
+    - generic: 操作紀錄
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "簽核" [level=1]
+  - button "切換為深色":
+  - button "通知，3 則未讀":
+  - button "帳號選單":
+    - generic: 系
+    - generic: 系辦管理員
+  - heading "簽核管理" [level=1]
+  - paragraph: 專題成果授權同意書・9 組。系辦只能重開或重置，不能代替任何人同意。
+  - button "新增簽核"
+  - heading "整體進度" [level=2]
+  - generic: ・3／9 組完成
+  - application
+  - generic: 33%
+  - text: 完成
+  - list:
+    - generic: 完成
+    - generic: 3 組
+    - generic: 等老師同意
+    - generic: 2 組
+    - generic: 學生未齊
+    - generic: 4 組
+  - paragraph: 學生五人同意
+  - paragraph:
+    - text: "4"
+    - generic: ／9 組
+  - paragraph: 老師同意
+  - paragraph:
+    - text: "3"
+    - generic: ／9 組
+  - button "提醒未同意者"
+  - heading "各組進度" [level=2]
+  - generic: ・五格＝學生、最後一格＝老師
+  - list:
+    - generic: 第 07 組
+    - generic "缺：蔡育瑄、鄭凱文"
+    - generic: 缺 2 位學生
+    - button "重置":
+      - text: 重置
+    - generic: 第 01 組
+    - generic: 完成
+    - button "重置":
+      - text: 重置
+    - generic: 第 02 組
+    - generic "缺：石承翰"
+    - generic: 缺 1 位學生
+    - button "重置":
+      - text: 重置
+    - generic: 第 03 組
+    - generic: 完成
+    - button "重置":
+      - text: 重置
+    - generic: 第 04 組
+    - generic "缺：杜宥安、洪思語、莊博凱"
+    - generic: 缺 3 位學生
+    - button "重置":
+      - text: 重置
+    - generic: 第 05 組
+    - generic: 等老師
+    - button "重置":
+      - text: 重置
+    - generic: 第 06 組
+    - generic: 等老師
+    - button "重置":
+      - text: 重置
+    - generic: 第 08 組
+    - generic "缺：巫佳蓁、郝彥丞、岳庭妤、解軍豪、麥若彤"
+    - generic: 缺 5 位學生
+    - button "重置":
+      - text: 重置
+    - generic: 第 09 組
+    - generic: 完成
+    - button "重置":
+      - text: 重置
+  - heading "同意書檔案" [level=2]
+  - generic: ・學生在後台直接看這份 PDF；換新版會重置所有人的同意
+  - generic: consent-2026.1.pdf
+  - generic: 2026-08-12 上傳
+  - link "預覽":
+    - /url: /docs/consent-2026.1.pdf
+  - button "把新版 PDF 拖進來，或點這裡選檔 只收 PDF，上限 10 MB"
+  - generic: 把新版 PDF 拖進來，或點這裡選檔
+  - generic: 只收 PDF，上限 10 MB
+- button "Open Next.js Dev Tools":
+- button "Open issues overlay":
+  - generic: "0"
+  - generic: "1"
+  - generic: Issue
+- button "Collapse issues badge":
+- alert: 簽核
+- generic: "1"
