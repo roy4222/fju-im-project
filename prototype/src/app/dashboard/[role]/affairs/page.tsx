@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { IconClipboardText, IconClock, IconPencilPlus, IconPaperclip, IconUser, IconUsersGroup } from "@tabler/icons-react";
+import { IconClipboardText, IconClock, IconPaperclip, IconUser, IconUsersGroup } from "@tabler/icons-react";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageTitle, Panel, Pill, ProgressBar, StatTile } from "@/components/dashboard/primitives";
 import { Ring, SegmentBar } from "@/components/dashboard/charts";
 import { PillLink } from "@/components/public/pill-link";
 import { isValidRole } from "@/lib/nav-config";
 import { TeacherMatrix } from "./teacher-matrix";
+import { NewItemDialog } from "@/components/dashboard/new-item-dialog";
 import { CURRENT_USERS, GROUPS, MANAGED_ITEMS, PLACEMENT_LABEL, SUBMISSION_VERSIONS, daysUntil, formatDue, type Placement, type Role } from "@/lib/fixtures";
 
 export default async function AffairsPage({ params, searchParams }: PageProps<"/dashboard/[role]/affairs">) {
@@ -145,7 +146,7 @@ function AdminAffairs({ role, placement }: { role: Role; placement: string }) {
   const overdue = all.reduce((a, i) => a + (i.progress?.overdue ?? 0), 0);
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="專題事務工作台" description="公告、資源、文件繳交、專題需求共用同一個編輯器與生命週期。" actions={<Link href={`${base}/editor/new`} className="btn-fju h-10 px-4 text-sm"><IconPencilPlus className="size-4" /> 新增項目</Link>} />
+      <PageTitle title="專題事務工作台" description="公告、資源、文件繳交、專題需求共用同一個編輯器與生命週期。" actions={<NewItemDialog base={base} />} />
       <div className="grid gap-4 sm:grid-cols-3">
         <StatTile label="發布中" value={published} unit="項" hint={`共 ${all.length} 項`} chart={<Ring value={(published / all.length) * 100} size={44} stroke={5} />} />
         <StatTile label="整體收件" value={`${totalDone}/${totalAll}`} tone="success" chart={<Ring value={(totalDone / totalAll) * 100} size={44} stroke={5} color="var(--success)" />} />
