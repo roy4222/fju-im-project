@@ -444,27 +444,142 @@
   }
 }
 
-/* 後台（2026-09-08 定案：V1 模組網格＝D 的內容區＋C 的側欄） */
+/* 後台外框（2026-09-09 第三輪，Roy 給的 Ace Academy 參考）：淡藍底、白色圓角側欄、內容面板、白卡大圓角 */
 @layer components {
-  .dash-surface { background: #f4f6f9; }
-  .dash-card { background: var(--card); border-radius: 14px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.06); }
+  .dash-frame { --sidebar: oklch(0.955 0.02 250); background: var(--sidebar); }
+  .dash-frame [data-slot="sidebar-inner"] { background: var(--card); border-radius: 22px; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06); }
+  .dash-frame [data-slot="sidebar-container"] { border-right: 0 !important; }
+  .dash-frame [data-slot="sidebar-rail"]::after { display: none; }
+  .dash-surface { background: oklch(0.975 0.008 250) !important; border-radius: 22px !important; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06) !important; overflow: clip; }
+  .dash-header { background: transparent !important; border-bottom: 0 !important; backdrop-filter: none !important; }
+  .dash-card { background: var(--card); border-radius: 18px; border: 1px solid oklch(0.93 0.01 250); }
   .dash-card-hover { transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease; }
-  .dash-card-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 14px 32px rgba(16, 24, 40, 0.10); }
-  .nav-active { background: var(--brand-subtle); color: var(--primary); box-shadow: inset 3px 0 0 var(--brand); }
-  @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; } }
+  .dash-card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0, 51, 102, 0.10); }
+
+  /* 側欄：白底；選中＝淡藍圓角塊＋深藍字 */
+  .dash-nav-item { color: var(--muted-foreground); }
+  .dash-nav-item:hover { background: oklch(0.955 0.012 250); color: var(--foreground); }
+  .dash-nav-active, .dash-nav-active:hover { background: oklch(0.93 0.035 253); color: var(--primary); }
+  .dash-nav-active svg { color: var(--primary); }
+
+  /* 色塊卡（有才出現的模組）：淡色底，圖片放右上 */
+  .tint { --tint: oklch(0.7 0.1 250); background: color-mix(in oklch, var(--tint) 16%, var(--card)); border-color: color-mix(in oklch, var(--tint) 28%, var(--card)); }
+  .tint-sky { --tint: oklch(0.62 0.16 250); }
+  .tint-peach { --tint: oklch(0.72 0.16 55); }
+  .tint-lilac { --tint: oklch(0.62 0.16 300); }
+  .tint-mint { --tint: oklch(0.65 0.13 165); }
+  .tint-sand { --tint: oklch(0.75 0.12 85); }
+  /* 插圖佔位：等 Roy 用 GPT 生 3D 圖後換成 <Image>；現在是一個柔色圓＋大 icon */
+  .spot { display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; background: color-mix(in oklch, var(--tint) 30%, var(--card)); color: color-mix(in oklch, var(--tint) 85%, black); }
+
+  /* 歡迎回來大色塊：系網深藍滿版＋一個淡藍大圓當「3D 感」底；插圖放右邊 */
+  .hero { position: relative; overflow: hidden; border-radius: 22px; background: var(--primary); color: #fff; }
+  .hero::before { content: ""; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 9999px; background: oklch(0.45 0.12 250); opacity: 0.9; }
+  .hero::after { content: ""; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: oklch(0.40 0.11 250); opacity: 0.8; }
+  .hero > * { position: relative; z-index: 1; }
+  .hero-bar { height: 10px; border-radius: 9999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+  .hero-bar > span { display: block; height: 100%; border-radius: 9999px; background: var(--brand); transition: width 800ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+
+  /* 統計一條：一張卡四格 */
+  .strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 1024px) { .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .strip > * { position: relative; }
+  .strip > * + *::before { content: ""; position: absolute; top: 18px; bottom: 18px; left: 0; width: 1px; background: var(--border); }
+  @media (max-width: 1023px) { .strip > :nth-child(3)::before { display: none; } .strip > :nth-child(n+3) { border-top: 1px solid var(--border); } }
+
+  @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; box-shadow: none; } }
 }
 
-/* 後台深淺色窗簾（DashThemeRoot） */
+/* 深色：外框炭黑、面板深灰、色塊卡降飽和 */
 @layer components {
-  .theme-curtain { position: fixed; inset: 0; z-index: 200; pointer-events: none; transform: translateY(-101%); }
-  .theme-curtain-down { animation: curtain-down 480ms cubic-bezier(0.65, 0, 0.35, 1) forwards; pointer-events: auto; }
-  .theme-curtain-up { animation: curtain-up 520ms cubic-bezier(0.65, 0, 0.35, 1) forwards; }
-  @keyframes curtain-down { from { transform: translateY(-101%); } to { transform: translateY(0); } }
-  @keyframes curtain-up { from { transform: translateY(0); } to { transform: translateY(101%); } }
-  .dark .dash-surface { background: var(--background); }
-  .dark .dash-card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25); border: 1px solid var(--border); }
+  .dark .dash-frame { --sidebar: oklch(0.15 0.01 253.89); }
+  .dark .dash-frame [data-slot="sidebar-inner"] { background: oklch(0.205 0.012 253.89); box-shadow: none; }
+  .dark .dash-surface { background: oklch(0.19 0.012 253.89) !important; box-shadow: none !important; }
+  .dark .dash-card { border-color: var(--border); }
+  .dark .dash-nav-item:hover { background: oklch(1 0 0 / 6%); }
+  .dark .dash-nav-active, .dark .dash-nav-active:hover { background: oklch(1 0 0 / 10%); color: #fff; }
+  .dark .dash-nav-active svg { color: var(--brand); }
+  .dark .tint { background: color-mix(in oklch, var(--tint) 12%, var(--card)); border-color: color-mix(in oklch, var(--tint) 22%, var(--card)); }
+  .dark .spot { color: color-mix(in oklch, var(--tint) 85%, white); }
+  .dark .hero { background: oklch(0.28 0.08 253.89); }
   /* 成就（Steam 式）：橘色微光徽章 */
   .achieve { box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 18%, transparent); animation: achieve-pop 600ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both; }
   @keyframes achieve-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .achieve { animation: none; } .theme-curtain-down, .theme-curtain-up { animation-duration: 1ms; } }
+  @media (prefers-reduced-motion: reduce) { .achieve { animation: none; } }
 }
+
+/* 深淺色切換：從按鈕位置一圈擴開（View Transitions）。Roy 2026-09-09：窗簾會閃白，改成這個。 */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: theme-reveal 820ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+::view-transition-group(root) { animation-duration: 820ms; }
+@keyframes theme-reveal {
+  from { clip-path: circle(0px at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+  to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+}
+@media (prefers-reduced-motion: reduce) { ::view-transition-new(root) { animation: none; } }
+
+/* ========================================================================== */
+/* 本屆時程（首頁三種做法＋獨立頁）。只用橘一個色：完成＝深灰、現在＝橘、未來＝淺灰。 */
+/* ========================================================================== */
+@layer components {
+  /* A 軌道：橫向路線圖 */
+  .rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(112px, 1fr); position: relative; }
+  .rail-stop { position: relative; padding-top: 28px; text-align: center; }
+  .rail-stop::before { content: ""; position: absolute; top: 9px; left: 0; right: 0; height: 3px; background: var(--border); }
+  .rail-stop[data-first="true"]::before { left: 50%; }
+  .rail-stop[data-last="true"]::before { right: 50%; }
+  .rail-stop[data-status="done"]::before { background: oklch(0.55 0.01 253.89); }
+  .rail-stop[data-status="current"]::before { background: linear-gradient(to right, oklch(0.55 0.01 253.89) 50%, var(--border) 50%); }
+  .rail-dot { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); width: 15px; height: 15px; border-radius: 9999px; background: var(--card); border: 3px solid var(--border); transition: transform 200ms; }
+  .rail-stop[data-status="done"] .rail-dot { background: oklch(0.55 0.01 253.89); border-color: oklch(0.55 0.01 253.89); }
+  .rail-stop[data-status="current"] .rail-dot { width: 21px; height: 21px; top: 0; border-color: var(--brand); background: var(--card); box-shadow: 0 0 0 5px color-mix(in oklch, var(--brand) 16%, transparent); }
+  .rail-stop[data-status="current"] .rail-dot::after { content: ""; position: absolute; inset: 3px; border-radius: 9999px; background: var(--brand); }
+  .rail-stop:hover .rail-dot { transform: translateX(-50%) scale(1.15); }
+  .dark .rail-stop[data-status="done"]::before, .dark .rail-stop[data-status="done"] .rail-dot { background: oklch(0.72 0.01 253.89); border-color: oklch(0.72 0.01 253.89); }
+
+  /* B 行程：直式行程表 */
+  .agenda { position: relative; }
+  .agenda::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: calc(var(--agenda-date-w, 88px) + 9px); width: 2px; background: var(--border); }
+  .agenda-row { display: grid; grid-template-columns: var(--agenda-date-w, 88px) 20px minmax(0, 1fr); gap: 0 14px; align-items: start; }
+  .agenda-dot { width: 12px; height: 12px; margin: 6px 0 0 4px; border-radius: 9999px; background: var(--card); border: 3px solid var(--border); position: relative; z-index: 1; }
+  .agenda-row[data-status="done"] .agenda-dot { background: oklch(0.55 0.01 253.89); border-color: oklch(0.55 0.01 253.89); }
+  .agenda-row[data-status="current"] .agenda-dot { border-color: var(--brand); box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 16%, transparent); }
+  .agenda-row[data-status="current"] .agenda-dot::after { content: ""; position: absolute; inset: 1px; border-radius: 9999px; background: var(--brand); }
+  @media (max-width: 640px) { .agenda { --agenda-date-w: 56px; } }
+
+  /* C 甘特：月份格＋橫槓 */
+  .gantt { display: grid; grid-template-columns: 132px minmax(0, 1fr); }
+  .gantt-months { display: grid; grid-template-columns: repeat(var(--months, 11), minmax(0, 1fr)); }
+  .gantt-row { display: grid; grid-template-columns: repeat(var(--months, 11), minmax(0, 1fr)); position: relative; height: 40px; align-items: center; }
+  .gantt-row::before { content: ""; position: absolute; inset: 0; background-image: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px calc(100% / var(--months, 11))); opacity: 0.7; }
+  .gantt-bar { position: absolute; height: 14px; border-radius: 7px; background: var(--border); }
+  .gantt-bar[data-status="done"] { background: oklch(0.55 0.01 253.89); }
+  .gantt-bar[data-status="current"] { background: var(--brand); height: 18px; box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 14%, transparent); }
+  .gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--brand); opacity: 0.85; }
+  .gantt-today::before { content: "今天"; position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+  @media (max-width: 767px) { .gantt { grid-template-columns: 96px minmax(0, 1fr); } }
+
+  /* 獨立頁：左側直式時程 */
+  .stage-nav { position: relative; }
+  .stage-nav::before { content: ""; position: absolute; top: 18px; bottom: 18px; left: 15px; width: 2px; background: var(--border); }
+  .stage-link { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 10px 8px 0; border-radius: 10px; transition: background 150ms; }
+  .stage-link:hover { background: var(--accent); }
+  .stage-link[aria-current="true"] { background: var(--brand-subtle); }
+  .stage-link .agenda-dot { margin: 0 0 0 10px; }
+  .stage-link[data-status="done"] .agenda-dot { background: oklch(0.55 0.01 253.89); border-color: oklch(0.55 0.01 253.89); }
+  .stage-link[data-status="current"] .agenda-dot { border-color: var(--brand); }
+  .stage-link[data-status="current"] .agenda-dot::after { content: ""; position: absolute; inset: 1px; border-radius: 9999px; background: var(--brand); }
+}
+
+/* 搜尋面板（⌘K）：一點開就跳出來；大字輸入、柔陰影、背景霧化 */
+@layer components {
+  .palette-overlay { background: rgba(0, 20, 45, 0.28); backdrop-filter: blur(6px); }
+  .palette { box-shadow: 0 24px 80px rgba(0, 20, 45, 0.28), 0 1px 0 rgba(255,255,255,0.6) inset; }
+  .palette [cmdk-input] { font-size: 17px; }
+  .palette [cmdk-item][data-selected="true"] { background: var(--brand-subtle); color: var(--foreground); }
+  .palette [cmdk-item][data-selected="true"] svg { color: var(--brand); }
+  .palette [cmdk-group-heading] { padding: 10px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted-foreground); }
+}
+
+/* 搜尋面板：cmdk item 尾端的勾勾（多選用）在這裡不需要 */
+.palette [cmdk-item] > svg:last-child { display: none; }

@@ -7,62 +7,85 @@ import { Ring, SegmentBar } from "@/components/dashboard/charts";
 import { PillLink } from "@/components/public/pill-link";
 import { isValidRole } from "@/lib/nav-config";
 import { TeacherMatrix } from "./teacher-matrix";
-import { CURRENT_USERS, GROUPS, MANAGED_ITEMS, PLACEMENT_LABEL, daysUntil, formatDue, type Placement, type Role } from "@/lib/fixtures";
+import { CURRENT_USERS, GROUPS, MANAGED_ITEMS, PLACEMENT_LABEL, SUBMISSION_VERSIONS, daysUntil, formatDue, type Placement, type Role } from "@/lib/fixtures";
 
 export default async function AffairsPage({ params, searchParams }: PageProps<"/dashboard/[role]/affairs">) {
   const { role } = await params;
   const sp = await searchParams;
   if (!isValidRole(role)) notFound();
-  if (role === "student") return <StudentAffairs role={role} />;
+  if (role === "student") return <StudentAffairs role={role} tab={typeof sp.tab === "string" ? sp.tab : "all"} />;
   if (role === "teacher") return <TeacherAffairs role={role} />;
   return <AdminAffairs role={role} placement={typeof sp.placement === "string" ? sp.placement : "all"} />;
 }
 
-/* ---------------------------------------------------------------- 學生 */
-function StudentAffairs({ role }: { role: Role }) {
+/* ---------------------------------------------------------------- 學生：作業區 */
+/**
+ * Roy 2026-09-09：學生這頁不是卡片牆，是「作業區」——管理員開出來的每一件作業一列，
+ * 看截止、看狀態、看什麼時候送的、幾版；點進去填寫或重送。
+ */
+const TABS = [
+  { key: "all", label: "全部", filter: () => true },
+  { key: "open", label: "待繳", filter: (s: string) => s === "todo" || s === "draft" || s === "resubmit" },
+  { key: "done", label: "已繳交", filter: (s: string) => s === "submitted" || s === "locked" },
+  { key: "overdue", label: "已逾期", filter: (s: string) => s === "overdue" },
+] as const;
+
+function StudentAffairs({ role, tab = "all" }: { role: Role; tab?: string }) {
   const base = `/dashboard/${role}`;
-  const items = MANAGED_ITEMS.filter((i) => i.myState).sort((a, b) => daysUntil(a.dueAt ?? "2099-01-01") - daysUntil(b.dueAt ?? "2099-01-01"));
-  const groups: { key: string; title: string; filter: (s: string) => boolean }[] = [
-    { key: "open", title: "待完成", filter: (s) => s === "todo" || s === "draft" || s === "resubmit" },
-    { key: "overdue", title: "已逾期", filter: (s) => s === "overdue" },
-    { key: "done", title: "已繳交", filter: (s) => s === "submitted" || s === "locked" },
-  ];
+  const all = MANAGED_ITEMS.filter((i) => i.myState).sort((a, b) => daysUntil(a.dueAt ?? "2099-01-01") - daysUntil(b.dueAt ?? "2099-01-01"));
+  const active = TABS.find((t) => t.key === tab) ?? TABS[0];
+  const list = all.filter((i) => active.filter(i.myState!));
+  const count = (k: string) => all.filter((i) => TABS.find((t) => t.key === k)!.filter(i.myState!)).length;
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="我的專題事務" description="整組共用一份，任一組員送出即代表全組完成。" />
-      {groups.map((g) => {
-        const list = items.filter((i) => g.filter(i.myState!));
-        return (
-          <Panel key={g.key} title={g.title} icon={<IconClipboardText />} description={`${list.length} 項`}>
-            {list.length === 0 ? (
-              <EmptyState title={`沒有${g.title}的項目`} />
-            ) : (
-              <ul className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
-                {list.map((item) => (
-                  <li key={item.id}>
-                    <Link href={`${base}/affairs/${item.id}`} className="card-lift flex h-full flex-col gap-3 rounded-xl border border-border bg-background p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <Pill tone="default">{PLACEMENT_LABEL[item.placement]}</Pill>
-                        <StateBadge state={item.myState!} />
-                      </div>
-                      <p className="text-[15px] font-bold leading-snug">{item.title}</p>
-                      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.summary}</p>
-                      <div className="mt-auto flex items-center justify-between pt-1 text-xs text-muted-foreground">
-                        {item.dueAt ? (
-                          <span className={`tabular inline-flex items-center gap-1 font-semibold ${daysUntil(item.dueAt) < 0 ? "text-destructive" : daysUntil(item.dueAt) <= 10 ? "text-brand" : ""}`}>
-                            <IconClock className="size-3.5" /> {formatDue(item.dueAt)}・{item.dueAt.slice(5)}
-                          </span>
-                        ) : <span />}
-                        {item.attachments ? <span className="inline-flex items-center gap-1"><IconPaperclip className="size-3.5" />{item.attachments}</span> : null}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-        );
-      })}
+      <PageTitle title="作業區" description={`第 07 組共用；任一組員送出即代表全組完成。待繳 ${count("open")}・已繳交 ${count("done")}・逾期 ${count("overdue")}`} />
+      <Panel
+        title={active.label}
+        description={`${list.length} 件`}
+        action={
+          <div className="flex gap-1.5">
+            {TABS.map((t) => <PillLink key={t.key} href={`${base}/affairs${t.key === "all" ? "" : `?tab=${t.key}`}`} active={t.key === active.key}>{t.label}</PillLink>)}
+          </div>
+        }
+      >
+        {list.length === 0 ? (
+          <EmptyState title={`沒有${active.label}的作業`} />
+        ) : (
+          <ol>
+            {list.map((item) => {
+              const state = item.myState!;
+              const d = item.dueAt ? daysUntil(item.dueAt) : null;
+              const versions = SUBMISSION_VERSIONS[item.id] ?? [];
+              const last = versions[versions.length - 1];
+              const submitted = state === "submitted" || state === "locked";
+              return (
+                <li key={item.id}>
+                  <Link href={`${base}/affairs/${item.id}`} className="group grid items-center gap-4 border-t border-border/70 px-5 py-4 transition-colors hover:bg-accent/40 md:grid-cols-[4.5rem_minmax(0,1fr)_auto]">
+                    <div className="tabular leading-none">
+                      <span className="block text-[11px] font-semibold text-muted-foreground">{item.dueAt ? `${Number(item.dueAt.slice(5, 7))} 月` : ""}</span>
+                      <span className={`block text-[26px] font-extrabold tracking-tight ${state === "overdue" ? "text-destructive" : d !== null && d <= 10 && !submitted ? "text-brand" : ""}`}>{item.dueAt ? Number(item.dueAt.slice(8, 10)) : "—"}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-bold">{item.title}</p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>{PLACEMENT_LABEL[item.placement]}</span>
+                        {item.attachments ? <span className="inline-flex items-center gap-1"><IconPaperclip className="size-3.5" />{item.attachments} 個附件</span> : null}
+                        {submitted && last ? <span className="tabular">{last.by} 於 {last.at} 送出・v{last.version}</span> : item.dueAt ? <span className={`tabular ${state === "overdue" ? "text-destructive" : d! <= 10 ? "font-semibold text-brand" : ""}`}>{state === "overdue" ? `逾期 ${Math.abs(d!)} 天` : `${formatDue(item.dueAt)}截止`}</span> : null}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 md:justify-self-end">
+                      <StateBadge state={state} />
+                      <span className={buttonVariants({ size: "sm", variant: state === "draft" || state === "todo" || state === "resubmit" ? "default" : "outline", className: "press rounded-lg" })}>
+                        {state === "draft" ? "繼續填寫" : state === "todo" ? "開始填寫" : state === "resubmit" ? "重送" : submitted ? "查看" : "查看"}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </Panel>
     </div>
   );
 }

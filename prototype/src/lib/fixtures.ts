@@ -584,6 +584,8 @@ export const ADMIN_STATS = {
 
 /** 相對於原型的「今天」，固定為 2026-08-17，避免每次重整數字跳動。 */
 export const TODAY = new Date("2026-08-17T00:00:00+08:00");
+/** 台北時間的今天（yyyy-mm-dd）；不要用 toISOString，UTC 會少一天 */
+export const TODAY_YMD = "2026-08-17";
 
 export function daysUntil(dateStr: string): number {
   const target = new Date(`${dateStr}T00:00:00+08:00`);
@@ -1073,3 +1075,128 @@ export const MILESTONES: Record<Role, Milestone[]> = {
     { id: "a6", title: "專題發表", hint: "12 月", done: false },
   ],
 };
+
+/* ------------------------------------------------------------------ 本屆時程（Roy 2026-09-09：里程碑改成獨立一頁「本屆時程」，首頁用同一份資料畫時間軸） */
+export type StageTask = { role: Role; label: string; href: string; due?: string; done?: boolean };
+export type Stage = {
+  id: string;
+  /** 階段名，名詞 */
+  title: string;
+  /** 一句話說這階段要做什麼 */
+  summary: string;
+  from: string;
+  to: string;
+  /** 依 TODAY 算：done／current／upcoming */
+  status: "done" | "current" | "upcoming";
+  /** 規則 §7／§8 的階段標示，例如「第一階段」「佔 60%」 */
+  tag?: string;
+  tasks: StageTask[];
+};
+
+export const SCHEDULE: Stage[] = [
+  {
+    id: "st-accounts", title: "帳號啟用", summary: "系辦匯入本屆名單，學生以學號註冊、系辦核准。", from: "2026-08-01", to: "2026-08-13", status: "done",
+    tasks: [
+      { role: "student", label: "註冊並等待核准", href: "/account", done: true },
+      { role: "admin", label: "匯入本屆名單 v3・52 筆", href: "/dashboard/admin/accounts", done: true },
+      { role: "admin", label: "審核名單未命中的帳號", href: "/dashboard/admin/accounts?status=pending" },
+    ],
+  },
+  {
+    id: "st-grouping", title: "分組", summary: "五人一組報名，五位成員各自確認後成立；不足五人由系上安排。", from: "2026-08-10", to: "2026-09-04", status: "current", tag: "規則 §4",
+    tasks: [
+      { role: "student", label: "找齊五位組員並各自確認", href: "/dashboard/student/groups" },
+      { role: "student", label: "專題分組名單確認表", href: "/dashboard/student/affairs/mi-013", due: "2026-09-04", done: true },
+      { role: "teacher", label: "認領產學組（先按先得）", href: "/dashboard/teacher/groups" },
+      { role: "admin", label: "處理例外組別與未分組名單", href: "/dashboard/admin/groups" },
+    ],
+  },
+  {
+    id: "st-advisor", title: "指導老師", summary: "填意願調查後公開抽籤；產學組由老師優先指定。", from: "2026-08-20", to: "2026-09-25", status: "upcoming", tag: "規則 §4",
+    tasks: [
+      { role: "student", label: "指導老師意願調查表", href: "/dashboard/student/affairs/mi-014", due: "2026-08-26" },
+      { role: "student", label: "每組至少一人參加公開抽籤", href: "/news", due: "2026-09-25" },
+      { role: "teacher", label: "確認指導組別", href: "/dashboard/teacher/groups", due: "2026-09-25" },
+      { role: "admin", label: "公布抽籤結果、指派指導老師", href: "/dashboard/admin/groups", due: "2026-09-25" },
+    ],
+  },
+  {
+    id: "st-proposal", title: "題目與計畫書", summary: "確定題目與範圍，上學期結束前發表計畫書；只評通過／不通過。", from: "2026-09-18", to: "2027-01-08", status: "upcoming", tag: "第一階段",
+    tasks: [
+      { role: "student", label: "專題題目與摘要初稿", href: "/dashboard/student/affairs/mi-012", due: "2026-09-18" },
+      { role: "student", label: "計畫書發表", href: "/news", due: "2027-01-08" },
+      { role: "teacher", label: "計畫書通過／不通過", href: "/dashboard/teacher/grading", due: "2027-01-08" },
+      { role: "admin", label: "開放計畫書收件與發表場次", href: "/dashboard/admin/affairs", due: "2026-12-01" },
+    ],
+  },
+  {
+    id: "st-docs2", title: "第二次文件繳交", summary: "系統發展文件完稿，供系統驗收前審閱。", from: "2027-03-01", to: "2027-03-20", status: "upcoming",
+    tasks: [
+      { role: "student", label: "系統發展文件", href: "/dashboard/student/affairs", due: "2027-03-20" },
+      { role: "admin", label: "開放文件收件", href: "/dashboard/admin/affairs", due: "2027-02-20" },
+    ],
+  },
+  {
+    id: "st-acceptance", title: "系統驗收", summary: "正式發表前一個月，評系統文件與系統功能。", from: "2027-04-01", to: "2027-04-24", status: "upcoming", tag: "第二階段・佔 60%",
+    tasks: [
+      { role: "student", label: "系統驗收簡報與說明文件", href: "/dashboard/student/affairs/mi-011", due: "2027-04-17" },
+      { role: "student", label: "系統驗收", href: "/news", due: "2027-04-24" },
+      { role: "teacher", label: "評分並正式送出", href: "/dashboard/teacher/grading", due: "2027-04-30" },
+      { role: "admin", label: "指派評審、追蹤缺評", href: "/dashboard/admin/grading", due: "2027-04-30" },
+    ],
+  },
+  {
+    id: "st-final", title: "專題發表", summary: "公開發表；評臨場表現與驗收後的修改程度。", from: "2027-05-01", to: "2027-05-22", status: "upcoming", tag: "第三階段・佔 40%",
+    tasks: [
+      { role: "student", label: "海報、影片與現場展示", href: "/dashboard/student/affairs", due: "2027-05-22" },
+      { role: "teacher", label: "發表評分並正式送出", href: "/dashboard/teacher/grading", due: "2027-05-28" },
+      { role: "admin", label: "公布優秀專題（30% 為原則）", href: "/dashboard/admin/grading", due: "2027-06-05" },
+    ],
+  },
+  {
+    id: "st-archive", title: "成品繳交與同意書", summary: "繳交系統與文件完稿，完成成果授權同意書後封存。", from: "2027-06-01", to: "2027-06-12", status: "upcoming",
+    tasks: [
+      { role: "student", label: "專題成品完稿", href: "/dashboard/student/affairs", due: "2027-06-12" },
+      { role: "student", label: "成果授權同意書", href: "/dashboard/student/signoff", due: "2027-06-12" },
+      { role: "teacher", label: "同意書簽核", href: "/dashboard/teacher/signoff", due: "2027-06-19" },
+      { role: "admin", label: "封存本屆、公開優秀專題", href: "/dashboard/admin/files", due: "2027-06-30" },
+    ],
+  },
+];
+
+export const SCHEDULE_YEAR = { label: "114 學年度", from: "2026-08-01", to: "2027-06-30" };
+
+export function currentStage(): Stage {
+  return SCHEDULE.find((s) => s.status === "current") ?? SCHEDULE[0];
+}
+
+/** 這個角色在該階段的待辦（未完成、最近截止在前） */
+export function stageTasksFor(stage: Stage, role: Role): StageTask[] {
+  return stage.tasks.filter((t) => t.role === role).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9"));
+}
+
+/* ------------------------------------------------------------------ 專題行事曆（Roy 2026-09-09：首頁右邊放本專題專用日曆，系辦設定要顯示的活動、截止、比賽） */
+export type CalendarEvent = { id: string; date: string; title: string; kind: "deadline" | "event" | "competition"; href?: string; time?: string };
+
+export const CALENDAR_EVENTS: CalendarEvent[] = [
+  { id: "c1", date: "2026-08-15", title: "系統驗收簡報與說明文件截止", kind: "deadline", href: "/dashboard/student/affairs/mi-011" },
+  { id: "c2", date: "2026-08-20", title: "114 學年度專題說明會", kind: "event", time: "13:10", href: "/news/n-31" },
+  { id: "c3", date: "2026-08-26", title: "指導老師意願調查表截止", kind: "deadline", href: "/dashboard/student/affairs/mi-014" },
+  { id: "c4", date: "2026-08-28", title: "雲端服務實務工作坊", kind: "event", time: "09:00", href: "/news/n-28" },
+  { id: "c5", date: "2026-09-04", title: "專題分組名單確認表截止", kind: "deadline", href: "/dashboard/student/affairs/mi-013" },
+  { id: "c6", date: "2026-09-11", title: "全國大專資訊應用服務創新競賽報名截止", kind: "competition", href: "/news/n-29" },
+  { id: "c7", date: "2026-09-18", title: "專題題目與摘要初稿截止", kind: "deadline", href: "/dashboard/student/affairs/mi-012" },
+  { id: "c8", date: "2026-09-25", title: "指導老師公開抽籤", kind: "event", time: "15:00", href: "/news" },
+  { id: "c9", date: "2026-10-02", title: "智慧製造大數據分析競賽決賽", kind: "competition", href: "/competitions" },
+];
+
+export const CALENDAR_KIND_LABEL: Record<CalendarEvent["kind"], string> = { deadline: "截止", event: "活動", competition: "競賽" };
+
+/** 本屆進度 0–100：已完成階段數＋現在階段依日期走到哪 */
+export function cohortProgress(): number {
+  const done = SCHEDULE.filter((s) => s.status === "done").length;
+  const cur = currentStage();
+  const span = daysUntil(cur.to) - daysUntil(cur.from);
+  const frac = span > 0 ? Math.min(1, Math.max(0, -daysUntil(cur.from) / span)) : 0;
+  return Math.round(((done + frac) / SCHEDULE.length) * 100);
+}

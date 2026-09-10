@@ -2,18 +2,22 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
   IconBell,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconBuildingFactory2,
+  IconCalendarTime,
   IconChecklist,
   IconClipboardText,
   IconFolders,
   IconHistory,
   IconLayoutDashboard,
+  IconLogout,
   IconPencilPlus,
+  IconSettings,
   IconSignature,
   IconUsers,
   IconUsersGroup,
@@ -37,6 +41,7 @@ import type { Role } from "@/lib/fixtures";
 
 const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   dashboard: IconLayoutDashboard,
+  timeline: IconCalendarTime,
   inbox: IconBell,
   affairs: IconClipboardText,
   editor: IconPencilPlus,
@@ -49,27 +54,35 @@ const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
   files: IconFolders,
 };
 
-/** 後台側欄：240px、可收合成 icon；品牌 logo、分組導覽、右下角回前台。 */
+/**
+ * 後台側欄（2026-09-09 第三輪）：白底圓角面板，選中＝淡藍圓角塊＋深藍字；底部固定「個人設定」「登出」（Roy 喜歡參考站這個位置）。
+ * 收合只剩 logo 最左邊的圖形（同一張圖靠左裁）。
+ */
 export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
   const groups = navForRole(role);
+  const logoutForm = useRef<HTMLFormElement>(null);
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
-      <SidebarHeader className="px-3 pt-3">
-        <Link href={base} className="flex flex-col gap-1.5 rounded-md p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-1">
-          <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={763} height={187} sizes="200px" className="w-[196px] group-data-[collapsible=icon]:hidden dark:[filter:brightness(0)_invert(1)]" style={{ height: "auto" }} />
-          <span className="hidden size-8 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-brand-foreground group-data-[collapsible=icon]:flex" aria-hidden>資</span>
-          <span className="truncate text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
+    <Sidebar collapsible="icon" variant="inset" className="dash-sidebar">
+      <SidebarHeader className="px-4 pt-4 pb-1">
+        <Link href={base} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回首頁">
+          <span className="relative block h-10 w-[172px] overflow-hidden group-data-[collapsible=icon]:hidden">
+            <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" fill sizes="172px" className="object-contain object-left" priority />
+          </span>
+          <span className="relative hidden size-9 overflow-hidden group-data-[collapsible=icon]:block">
+            <Image src="/brand/fju-im-logo.png" alt="" fill sizes="160px" className="object-cover object-left" />
+          </span>
         </Link>
+        <span className="dash-brand-sub truncate pl-0.5 text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>
       </SidebarHeader>
 
-      <SidebarContent className="px-1.5">
+      <SidebarContent className="px-3 pt-2">
         {groups.map((group) => (
-          <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className="text-[11px] tracking-wider">{group.title}</SidebarGroupLabel>
-            <SidebarMenu>
+          <SidebarGroup key={group.title} className="py-0.5">
+            <SidebarGroupLabel className="dash-nav-label h-6 px-3 text-[11px] tracking-[0.08em] text-muted-foreground">{group.title}</SidebarGroupLabel>
+            <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 const href = base + item.href;
                 const Icon = ICONS[item.icon];
@@ -80,15 +93,15 @@ export function AppSidebar({ role }: { role: Role }) {
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.label}
-                      className={`h-9 rounded-lg transition-colors duration-150 ${isActive ? "bg-brand-subtle font-bold text-primary shadow-[inset_3px_0_0_var(--brand)] hover:bg-brand-subtle [&_svg]:text-brand" : ""}`}
+                      className={`dash-nav-item h-9 rounded-xl px-3 transition-colors duration-150 ${isActive ? "dash-nav-active font-bold" : "font-medium"}`}
                       render={
                         <Link href={href}>
-                          <Icon className="size-4.5" />
-                          <span className="text-[14px] font-medium">{item.label}</span>
+                          <Icon className="size-[19px]" strokeWidth={isActive ? 2.2 : 1.8} />
+                          <span className="text-[14.5px]">{item.label}</span>
                         </Link>
                       }
                     />
-                    {badge ? <SidebarMenuBadge className="tabular rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
+                    {badge ? <SidebarMenuBadge className="tabular top-2.5 rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
@@ -98,6 +111,20 @@ export function AppSidebar({ role }: { role: Role }) {
       </SidebarContent>
 
       <SidebarFooter className="px-3 pb-3">
+        <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
+          <input type="hidden" name="role" value="guest" />
+          <input type="hidden" name="returnTo" value="/" />
+        </form>
+        <SidebarMenu className="gap-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton tooltip="個人設定" className="dash-nav-item h-9 rounded-xl px-3 font-medium" render={<Link href="/account"><IconSettings className="size-[19px]" strokeWidth={1.8} /><span className="text-[14.5px]">個人設定</span></Link>} />
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton tooltip="登出" className="dash-nav-item h-9 rounded-xl px-3 font-medium" onClick={() => logoutForm.current?.requestSubmit()}>
+              <IconLogout className="size-[19px]" strokeWidth={1.8} /><span className="text-[14.5px]">登出</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <CollapseButton />
       </SidebarFooter>
       <SidebarRail />
@@ -105,13 +132,12 @@ export function AppSidebar({ role }: { role: Role }) {
   );
 }
 
-/** 側欄底部的收合／展開鈕（Roy 2026-09-08：左邊要可折疊） */
 function CollapseButton() {
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed";
   return (
-    <button type="button" onClick={toggleSidebar} className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
-      {collapsed ? <IconLayoutSidebarLeftExpand className="size-4.5 shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-4.5 shrink-0" />}
+    <button type="button" onClick={toggleSidebar} className="dash-collapse flex h-8 w-full items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
+      {collapsed ? <IconLayoutSidebarLeftExpand className="size-[18px] shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-[18px] shrink-0" />}
       <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
     </button>
   );

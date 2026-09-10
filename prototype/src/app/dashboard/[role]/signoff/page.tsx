@@ -3,15 +3,12 @@ import { IconCheck, IconClock, IconFileText, IconSignature, IconUsersGroup } fro
 import { EmptyState, PageTitle, Panel, Pill, StatTile } from "@/components/dashboard/primitives";
 import { Ring, SegmentBar } from "@/components/dashboard/charts";
 import { ApproveActions, ResetDialog } from "@/components/dashboard/signoff-actions";
+import { ConsentReader, ConsentUpload } from "@/components/dashboard/consent-reader";
 import { isValidRole } from "@/lib/nav-config";
 import { CURRENT_USERS, GROUPS, SIGNOFF, SIGNOFF_PROGRESS } from "@/lib/fixtures";
 
-const CONTENT = [
-  "一、本組同意將專題成果（含題目、摘要、海報、影片與系統展示）授權輔仁大學資訊管理學系於系網、專題管理平台及招生文宣使用。",
-  "二、授權為非專屬、無償、不限地域；本組保留著作權，系方使用時標示組別與指導老師。",
-  "三、涉及產學合作單位之內容，依合作案約定另行處理，不在本同意書範圍。",
-  "四、本同意書以線上逐一同意方式完成，不下載、不簽名、不回傳任何檔案。",
-];
+/** 系辦上傳的同意書 PDF（原型：public/docs 的示範檔） */
+const CONSENT_FILE = { file: "/docs/consent-2026.1.pdf", version: "2026.1", updatedAt: "2026-08-12" };
 
 export default async function SignoffPage({ params }: PageProps<"/dashboard/[role]/signoff">) {
   const { role } = await params;
@@ -25,22 +22,19 @@ function Steps({ students, total, teacher }: { students: number; total: number; 
   return <SegmentBar segments={[{ value: students, color: "var(--success)", label: "學生已同意" }, { value: total - students, color: "var(--muted)", label: "學生未同意" }, { value: 1, color: teacher ? "var(--brand)" : "color-mix(in oklch, var(--brand) 25%, transparent)", label: "老師" }]} />;
 }
 
-/* 學生 */
+/* 學生：直接看系辦上傳的 PDF 原檔，看完再同意（Roy 2026-09-09） */
 function StudentSignoff() {
   const me = CURRENT_USERS.student;
   const approved = SIGNOFF.studentApprovals.filter((a) => a.approved).length;
   const mine = SIGNOFF.studentApprovals.find((a) => a.name === me.name);
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="待我同意" description="每個人只能提交自己的同意；五人全同意後才輪到指導老師。" />
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <Panel title={SIGNOFF.title} icon={<IconFileText />} description={`內容版本 v${SIGNOFF.packageVersion}`}>
-          <div className="flex flex-col gap-4 p-5">
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-              {CONTENT.map((c) => <p key={c} className="mb-2 last:mb-0">{c}</p>)}
-            </div>
+      <PageTitle title="同意書" description="每個人只能提交自己的同意；五人全同意後才輪到指導老師。" />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <Panel title={SIGNOFF.title} icon={<IconFileText />}>
+          <ConsentReader file={CONSENT_FILE.file} version={CONSENT_FILE.version} updatedAt={CONSENT_FILE.updatedAt} alreadyDone={!!mine?.approved}>
             {mine && !mine.approved ? <ApproveActions who={me.name} title={SIGNOFF.title} packageVersion={SIGNOFF.packageVersion} /> : <div className="flex items-center gap-2 rounded-lg bg-success-subtle px-4 py-3 text-sm font-semibold text-success-on-subtle"><IconCheck className="size-4" /> 你已同意（{mine?.at}）</div>}
-          </div>
+          </ConsentReader>
         </Panel>
         <Panel title="進度" icon={<IconUsersGroup />}>
           <div className="flex flex-col gap-4 p-5">
@@ -111,6 +105,9 @@ function AdminSignoff() {
         <StatTile label="等學生" icon={<IconClock />} value={waitingStudents} unit="組" />
         <StatTile label="內容版本" icon={<IconFileText />} value={`v${SIGNOFF.packageVersion}`} hint={SIGNOFF.title} />
       </div>
+      <Panel title="同意書檔案" icon={<IconFileText />} description="學生在後台直接看這份 PDF；換新版會重置所有人的同意">
+        <ConsentUpload current={CONSENT_FILE} />
+      </Panel>
       <Panel title="各組進度" icon={<IconUsersGroup />} description={SIGNOFF.title}>
         <ul className="divide-y divide-border">
           {SIGNOFF_PROGRESS.map((p) => {
