@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,14 +11,14 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build/
 
 # misc
 .DS_Store
@@ -41,10 +41,10 @@ yarn-error.log*
 next-env.d.ts
 screenshots/
 
-# design-sync
-.ds-sync/
-ds-bundle/
-.design-sync/.cache/
-.design-sync/learnings/
-.design-sync/node_modules
-.design-sync/generated/
+# design-sync（prototype/.design-sync 底下的快取與產物）
+**/.ds-sync/
+**/ds-bundle/
+**/.design-sync/.cache/
+**/.design-sync/learnings/
+**/.design-sync/node_modules/
+**/.design-sync/generated/

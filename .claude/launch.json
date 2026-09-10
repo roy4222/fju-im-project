@@ -1,6 +1,20 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "fju-dev", "runtimeExecutable": "pnpm", "runtimeArgs": ["--config.verify-deps-before-run=false", "exec", "next", "dev", "--port", "3100"], "port": 3100 }
+    {
+      "name": "fju-proto",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--config.verify-deps-before-run=false",
+        "-C",
+        "prototype",
+        "exec",
+        "next",
+        "dev",
+        "--port",
+        "3100"
+      ],
+      "port": 3100
+    }
   ]
 }

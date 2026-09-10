@@ -8,8 +8,12 @@
 
 ## ⚠️ 目前狀態：原型階段
 
-**這個 repo 目前沒有資料庫、沒有登入、沒有後端。** 所有畫面讀取的都是
-`src/lib/fixtures.ts` 裡的假資料（虛構的姓名、學號、公司與公告，不含任何真實個資）。
+**這個 repo 目前沒有資料庫、沒有登入、沒有後端。** 所有畫面都在 `prototype/`，讀取的是
+`prototype/src/lib/fixtures.ts` 裡的假資料（虛構的姓名、學號、公司與公告，不含任何真實個資）。
+
+2026-09-09 Roy 定案：`prototype/` 是可點的前端原型，前台樣子已定、後台要出多個版本評選；
+這裡可以自由改。正式程式碼之後從零開始（Better Auth＋Drizzle 垂直切片起頭），
+需要哪一頁再從 prototype 搬並順便拆元件，不把 prototype 整包當正式碼。
 
 | 範圍 | 狀態 |
 |---|---|
@@ -21,7 +25,7 @@
 | PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始 |
 | Docker、校內 VM 部署、備份與還原 | ❌ 未開始 |
 
-畫面上的照片暫用系網 im.fju.edu.tw 的素材（`public/placeholder/`），上線前必須換成系辦提供的照片。
+畫面上的照片暫用系網 im.fju.edu.tw 的素材（`prototype/public/placeholder/`），上線前必須換成系辦提供的照片。
 
 ---
 
@@ -31,7 +35,7 @@
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:3000
+pnpm proto        # http://localhost:3100（prototype）
 ```
 
 | 路徑 | 內容 |
@@ -100,7 +104,7 @@ Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
 
 公開站版面語言依系網實測（`docs/research/2026-09-07-design-reference.md`）：大標首字橘色、灰藍圓角標題板、暖白照片卡、深藍左線列表、橘色外框「查看更多」。對應的 utility 在 `globals.css` 的 `.btn-fju*`、`.fju-list-item`、`.fju-panel-title`。
 
-全部定義在 `src/app/globals.css`。
+全部定義在 `prototype/src/app/globals.css`。
 
 ### 硬約束
 
@@ -117,7 +121,7 @@ Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
 ## 目錄結構
 
 ```
-src/
+prototype/src/
 ├─ app/
 │  ├─ (public)/          前台（共用 layout：SiteHeader + SiteFooter + PrototypeBar；依 cookie 身分渲染）
 │  ├─ api/proto-role/    原型用：切換身分 cookie（接 Auth 後移除）
