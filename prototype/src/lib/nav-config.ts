@@ -4,7 +4,7 @@ import type { Role } from "@/lib/fixtures";
  * 登入後導覽。對應規格 §3.3 的六個核心區域。
  * `roles` 只決定「看不看得到入口」（規格 §2.1：前端隱藏按鈕不是權限控制）。
  */
-export type NavIcon = "dashboard" | "inbox" | "affairs" | "editor" | "groups" | "industry" | "grading" | "signoff" | "accounts" | "audit" | "files";
+export type NavIcon = "dashboard" | "timeline" | "inbox" | "affairs" | "editor" | "groups" | "industry" | "grading" | "signoff" | "accounts" | "audit" | "files";
 
 export type NavItem = { href: string; label: string; icon: NavIcon; roles: Role[]; badge?: Partial<Record<Role, number>> };
 export type NavGroup = { title: string; items: NavItem[] };
@@ -14,14 +14,15 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "總覽",
     items: [
       { href: "", label: "首頁", icon: "dashboard", roles: ["student", "teacher", "admin"] },
+      { href: "/timeline", label: "專題時間軸", icon: "timeline", roles: ["student"] },
+      { href: "/timeline", label: "時間軸設定", icon: "timeline", roles: ["admin"] },
       { href: "/inbox", label: "通知", icon: "inbox", roles: ["student", "teacher", "admin"], badge: { student: 2, teacher: 2, admin: 3 } },
     ],
   },
   {
     title: "專題事務",
     items: [
-      { href: "/affairs", label: "我的專題事務", icon: "affairs", roles: ["student"], badge: { student: 3 } },
-      { href: "/affairs", label: "各組繳交狀態", icon: "affairs", roles: ["teacher"] },
+      { href: "/affairs", label: "作業區", icon: "affairs", roles: ["student"], badge: { student: 2 } },
       { href: "/affairs", label: "專題事務", icon: "affairs", roles: ["admin"] },
       { href: "/editor", label: "內容編輯器", icon: "editor", roles: ["admin"] },
       { href: "/files", label: "檔案管理", icon: "files", roles: ["admin"] },

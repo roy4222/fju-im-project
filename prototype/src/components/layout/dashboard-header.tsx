@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSearch, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconWorld, IconSettings } from "@tabler/icons-react";
-import { Separator } from "@/components/ui/separator";
+import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconSettings } from "@tabler/icons-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { titleFor, ROLE_LABEL } from "@/lib/nav-config";
@@ -12,11 +11,9 @@ import { DashThemeToggle } from "@/components/layout/dash-theme";
 import { CURRENT_USERS, NOTIFICATIONS, type Notification, type Role } from "@/lib/fixtures";
 
 const ROLES: Role[] = ["student", "teacher", "admin"];
-
 const KIND_ICON: Record<Notification["kind"], typeof IconBell> = { due: IconCalendarDue, submission: IconUpload, signoff: IconSignature, grading: IconChecklist, account: IconUserCheck, system: IconSettings };
-const KIND_TONE: Record<Notification["kind"], string> = { due: "bg-muted text-foreground", submission: "bg-muted text-foreground", signoff: "bg-muted text-foreground", grading: "bg-muted text-foreground", account: "bg-muted text-foreground", system: "bg-muted text-muted-foreground" };
 
-/** 後台頂列：側欄開關、頁名、搜尋、通知、帳號選單（含原型角色切換）。無主題切換：固定白底。 */
+/** 後台頂列：側欄開關、頁名、深淺色、通知、帳號選單（個人資料、切換角色（原型）、登出）。2026-09-10 Roy：搜尋全部拿掉、回到前台移到側欄底部。 */
 export function DashboardHeader({ role }: { role: Role }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -31,23 +28,12 @@ export function DashboardHeader({ role }: { role: Role }) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur md:px-5">
+    <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 px-3 md:px-5">
       <SidebarTrigger className="size-9 rounded-lg" />
-      <Separator orientation="vertical" className="mx-1 h-5" />
-      <h1 className="truncate text-[15px] font-bold">{title}</h1>
+      <h1 className="ml-1 truncate text-[15px] font-bold">{title}</h1>
 
       <div className="ml-auto flex items-center gap-1.5">
-        <button type="button" className="hidden h-9 w-64 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-[13px] text-muted-foreground transition-[border-color,background-color] hover:border-primary/40 hover:bg-background md:inline-flex" aria-label="搜尋">
-          <IconSearch className="size-4" />
-          <span className="flex-1 text-left">搜尋組別、學生、項目</span>
-          <kbd className="rounded border border-border bg-background px-1.5 text-[10px] font-semibold">⌘K</kbd>
-        </button>
-        <button type="button" className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden" aria-label="搜尋">
-          <IconSearch className="size-4.5" />
-        </button>
-
         <DashThemeToggle />
-        {/* 通知 */}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -68,9 +54,7 @@ export function DashboardHeader({ role }: { role: Role }) {
                   const Icon = KIND_ICON[n.kind];
                   return (
                     <DropdownMenuItem key={n.id} className="items-start gap-3 rounded-none px-4 py-3" render={<Link href={n.href} />}>
-                      <span className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${KIND_TONE[n.kind]}`}>
-                        <Icon className="size-4" />
-                      </span>
+                      <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground"><Icon className="size-4" /></span>
                       <span className="min-w-0 flex-1">
                         <span className={`block truncate text-[13px] ${n.read ? "font-medium" : "font-bold"}`}>{n.title}</span>
                         <span className="block truncate text-xs text-muted-foreground">{n.body}</span>
@@ -84,15 +68,12 @@ export function DashboardHeader({ role }: { role: Role }) {
                 })}
               </div>
               <div className="border-t border-border p-2">
-                <DropdownMenuItem className="h-9 justify-center rounded-lg text-[13px] font-semibold text-primary" render={<Link href={`/dashboard/${role}/inbox`} />}>
-                  查看全部通知
-                </DropdownMenuItem>
+                <DropdownMenuItem className="h-9 justify-center rounded-lg text-[13px] font-semibold text-primary" render={<Link href={`/dashboard/${role}/inbox`} />}>查看全部通知</DropdownMenuItem>
               </div>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* 帳號 */}
         <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
           <input type="hidden" name="role" value="guest" />
           <input type="hidden" name="returnTo" value="/" />
@@ -111,7 +92,6 @@ export function DashboardHeader({ role }: { role: Role }) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground">{user.name}・{ROLE_LABEL[role]}</DropdownMenuLabel>
               <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/account" />}><IconUserCircle /> 個人資料</DropdownMenuItem>
-              <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/" />}><IconWorld /> 回到前台網站</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>

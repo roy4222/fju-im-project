@@ -47,7 +47,7 @@ export function GradingWorkbench({ role, initialGroupId }: { role: string; initi
   const entry = queue.find((q) => q.groupId === current)!;
   const group = GROUPS.find((g) => g.id === current)!;
   const stage = GRADING_SCHEME.stages[0];
-  const s = scores[current] ?? {};
+  const s = useMemo(() => scores[current] ?? {}, [scores, current]);
   const result = useMemo(() => calc(s), [s]);
   const locked = entry.state === "submitted";
   const complete = result.filled === result.total;
@@ -68,7 +68,6 @@ export function GradingWorkbench({ role, initialGroupId }: { role: string; initi
     setReceipt({ groupNo: entry.groupNo, score: result.score });
   }
 
-  const input = "h-10 w-24 rounded-lg border border-input bg-background px-3 text-right text-sm font-semibold outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 disabled:bg-muted disabled:text-muted-foreground tabular";
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
@@ -84,7 +83,7 @@ export function GradingWorkbench({ role, initialGroupId }: { role: string; initi
             const active = e.groupId === current;
             return (
               <li key={e.groupId}>
-                <Link href={`${base}/${e.groupId}`} onClick={(ev) => { ev.preventDefault(); setCurrent(e.groupId); setSaved("idle"); }} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-[background-color,transform] ${active ? "bg-primary text-primary-foreground shadow-sm" : "hover:translate-x-0.5 hover:bg-accent"}`}>
+                <Link href={`${base}/${e.groupId}`} onClick={(ev) => { ev.preventDefault(); setCurrent(e.groupId); setSaved("idle"); }} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-[background-color,transform] ${active ? "bg-primary text-primary-foreground shadow-sm" : "hover:translate-x-0.5 hover:bg-accent"}`}>
                   <span className="min-w-0 flex-1">
                     <span className={`tabular block text-[11px] ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{e.groupNo}</span>
                     <span className="block truncate text-sm font-semibold">{e.title}</span>
@@ -113,42 +112,43 @@ export function GradingWorkbench({ role, initialGroupId }: { role: string; initi
           </Ring>
         </div>
 
-        <table className="w-full text-sm">
-          <thead className="bg-muted/60 text-xs text-muted-foreground">
-            <tr>
-              <th className="px-5 py-2.5 text-left font-semibold">評分項目</th>
-              <th className="px-3 py-2.5 text-right font-semibold">權重</th>
-              <th className="px-3 py-2.5 text-right font-semibold">滿分</th>
-              <th className="px-5 py-2.5 text-right font-semibold">得分</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {stage.items.map((it) => (
-              <tr key={it.id} className="transition-colors hover:bg-accent/40">
-                <td className="px-5 py-3 font-semibold">{it.name}</td>
-                <td className="tabular px-3 py-3 text-right text-muted-foreground">{it.weight}%</td>
-                <td className="tabular px-3 py-3 text-right text-muted-foreground">{it.input === "letter" ? "A–F" : it.max}</td>
-                <td className="px-5 py-3 text-right">
-                  {it.input === "letter" ? (
-                    <select value={s[it.id] ?? ""} onChange={(e) => set(it.id, e.target.value)} disabled={locked} className={input}>
-                      <option value="">—</option>
-                      {Object.keys(LETTER).map((l) => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                  ) : (
-                    <input type="number" min={0} max={it.max} value={s[it.id] ?? ""} onChange={(e) => set(it.id, e.target.value)} disabled={locked} className={input} placeholder="—" />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-border bg-muted/40">
-              <td className="px-5 py-3 font-bold" colSpan={3}>階段成績 <span className="ml-2 text-xs font-normal text-muted-foreground">Σ（項目百分成績 × 權重）・兩位小數</span></td>
-              <td className="tabular px-5 py-3 text-right text-xl font-extrabold">{complete ? result.score.toFixed(2) : <span className="text-sm font-semibold text-muted-foreground">還差 {result.total - result.filled} 項</span>}</td>
-            </tr>
-          </tfoot>
-        </table>
-
+        {/* Roy 2026-09-10 選畫布 B：一格一項、大數字輸入、A–F 用分段鈕；底部即時總分 */}
+        <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
+          {stage.items.map((it) => {
+            const v = s[it.id] ?? "";
+            const filled = v !== "";
+            return (
+              <div key={it.id} className={`flex flex-col gap-3 rounded-2xl border p-4 transition-colors ${filled ? "border-brand/60 bg-brand-subtle/20" : "border-border bg-card"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0"><p className="text-sm font-bold">{it.name}</p><p className="tabular text-xs text-muted-foreground">占 {it.weight}%</p></div>
+                  {filled ? <IconCheck className="size-4 shrink-0 text-brand" strokeWidth={3} /> : null}
+                </div>
+                {it.input === "letter" ? (
+                  <div className="flex gap-1" role="radiogroup" aria-label={it.name}>
+                    {Object.keys(LETTER).map((l) => (
+                      <button key={l} type="button" role="radio" aria-checked={v === l} disabled={locked} onClick={() => set(it.id, l)} className={`press h-11 flex-1 rounded-lg text-sm font-extrabold transition-colors disabled:opacity-60 ${v === l ? "bg-brand text-brand-foreground" : "bg-muted text-foreground hover:bg-accent"}`}>{l}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-baseline gap-2">
+                    <input type="number" inputMode="numeric" min={0} max={it.max} value={v} onChange={(e) => set(it.id, e.target.value)} disabled={locked} placeholder="–" className={`tabular h-12 w-24 rounded-xl border-0 px-3 text-center text-[24px] font-extrabold outline-none transition-[box-shadow,background-color] focus-visible:ring-3 focus-visible:ring-brand/25 disabled:opacity-70 ${filled ? "bg-brand-subtle text-foreground" : "bg-muted text-muted-foreground"}`} />
+                    <span className="tabular text-sm text-muted-foreground">/ {it.max}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-5 border-t border-border px-5 py-4">
+          <div>
+            <p className="text-xs font-bold text-muted-foreground">即時階段成績</p>
+            <p className="tabular text-[30px] font-extrabold leading-none">{complete ? result.score.toFixed(1) : result.score.toFixed(1)}<span className="ml-1 text-sm font-semibold text-muted-foreground">/ 100</span></p>
+          </div>
+          <div className="min-w-[160px] flex-1">
+            <div className="h-3 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${Math.min(100, result.score)}%` }} /></div>
+            <p className="tabular mt-1 text-[11px] text-muted-foreground">{complete ? "七項都填了，可以正式送出" : `還差 ${result.total - result.filled} 項`}・Σ（項目百分成績 × 權重）</p>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-4">
           <span className="text-xs text-muted-foreground">
             {locked ? "已正式送出；修改需由系辦退回或以更正版本處理。" : saved === "saving" ? "暫存中…" : saved === "saved" ? "已暫存，只有你與系辦看得到。" : "尚未暫存。"}

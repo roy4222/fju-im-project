@@ -2,16 +2,15 @@ import { notFound } from "next/navigation";
 import { IconCheck, IconClock, IconFileText, IconSignature, IconUsersGroup } from "@tabler/icons-react";
 import { EmptyState, PageTitle, Panel, Pill, StatTile } from "@/components/dashboard/primitives";
 import { Ring, SegmentBar } from "@/components/dashboard/charts";
+import { Donut } from "@/components/dashboard/rc-charts";
+import { buttonVariants } from "@/components/ui/button";
 import { ApproveActions, ResetDialog } from "@/components/dashboard/signoff-actions";
+import { ConsentReader, ConsentUpload } from "@/components/dashboard/consent-reader";
 import { isValidRole } from "@/lib/nav-config";
 import { CURRENT_USERS, GROUPS, SIGNOFF, SIGNOFF_PROGRESS } from "@/lib/fixtures";
 
-const CONTENT = [
-  "一、本組同意將專題成果（含題目、摘要、海報、影片與系統展示）授權輔仁大學資訊管理學系於系網、專題管理平台及招生文宣使用。",
-  "二、授權為非專屬、無償、不限地域；本組保留著作權，系方使用時標示組別與指導老師。",
-  "三、涉及產學合作單位之內容，依合作案約定另行處理，不在本同意書範圍。",
-  "四、本同意書以線上逐一同意方式完成，不下載、不簽名、不回傳任何檔案。",
-];
+/** 系辦上傳的同意書 PDF（原型：public/docs 的示範檔） */
+const CONSENT_FILE = { file: "/docs/consent-2026.1.pdf", version: "2026.1", updatedAt: "2026-08-12" };
 
 export default async function SignoffPage({ params }: PageProps<"/dashboard/[role]/signoff">) {
   const { role } = await params;
@@ -25,22 +24,19 @@ function Steps({ students, total, teacher }: { students: number; total: number; 
   return <SegmentBar segments={[{ value: students, color: "var(--success)", label: "學生已同意" }, { value: total - students, color: "var(--muted)", label: "學生未同意" }, { value: 1, color: teacher ? "var(--brand)" : "color-mix(in oklch, var(--brand) 25%, transparent)", label: "老師" }]} />;
 }
 
-/* 學生 */
+/* 學生：直接看系辦上傳的 PDF 原檔，看完再同意（Roy 2026-09-09） */
 function StudentSignoff() {
   const me = CURRENT_USERS.student;
   const approved = SIGNOFF.studentApprovals.filter((a) => a.approved).length;
   const mine = SIGNOFF.studentApprovals.find((a) => a.name === me.name);
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="待我同意" description="每個人只能提交自己的同意；五人全同意後才輪到指導老師。" />
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <Panel title={SIGNOFF.title} icon={<IconFileText />} description={`內容版本 v${SIGNOFF.packageVersion}`}>
-          <div className="flex flex-col gap-4 p-5">
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-              {CONTENT.map((c) => <p key={c} className="mb-2 last:mb-0">{c}</p>)}
-            </div>
+      <PageTitle title="同意書" description="每個人只能提交自己的同意；五人全同意後才輪到指導老師。" />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <Panel title={SIGNOFF.title} icon={<IconFileText />}>
+          <ConsentReader file={CONSENT_FILE.file} version={CONSENT_FILE.version} updatedAt={CONSENT_FILE.updatedAt} alreadyDone={!!mine?.approved}>
             {mine && !mine.approved ? <ApproveActions who={me.name} title={SIGNOFF.title} packageVersion={SIGNOFF.packageVersion} /> : <div className="flex items-center gap-2 rounded-lg bg-success-subtle px-4 py-3 text-sm font-semibold text-success-on-subtle"><IconCheck className="size-4" /> 你已同意（{mine?.at}）</div>}
-          </div>
+          </ConsentReader>
         </Panel>
         <Panel title="進度" icon={<IconUsersGroup />}>
           <div className="flex flex-col gap-4 p-5">
@@ -97,36 +93,56 @@ function TeacherSignoff() {
   );
 }
 
-/* 管理員 */
+/* 管理員（Roy 2026-09-10 選畫布 A，但左邊漏斗換成圓形圖）：左圓形圖＋右各組六格條；同意書檔案在下 */
 function AdminSignoff() {
   const complete = SIGNOFF_PROGRESS.filter((p) => p.state === "complete").length;
   const waitingTeacher = SIGNOFF_PROGRESS.filter((p) => p.students === p.total && !p.teacher).length;
   const waitingStudents = SIGNOFF_PROGRESS.filter((p) => p.students < p.total).length;
+  const total = GROUPS.length;
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="簽核進度" description="系辦只能重開或重置，不能代替任何人同意。" />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="完成" icon={<IconCheck />} value={`${complete}/${GROUPS.length}`} unit="組" tone="success" chart={<Ring value={(complete / GROUPS.length) * 100} size={44} stroke={5} color="var(--success)" />} />
-        <StatTile label="等老師" icon={<IconSignature />} value={waitingTeacher} unit="組" tone="brand" />
-        <StatTile label="等學生" icon={<IconClock />} value={waitingStudents} unit="組" />
-        <StatTile label="內容版本" icon={<IconFileText />} value={`v${SIGNOFF.packageVersion}`} hint={SIGNOFF.title} />
+      <PageTitle title="簽核管理" description={`${SIGNOFF.title}・${total} 組。系辦只能重開或重置，不能代替任何人同意。`} actions={<button type="button" className="btn-fju h-10 px-4 text-sm">新增簽核</button>} />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <Panel title="整體進度" icon={<IconSignature />} description={`${complete}／${total} 組完成`}>
+          <div className="flex flex-col gap-4 px-5 pt-1 pb-5">
+            <div className="flex items-center gap-6">
+              <Donut size={150} thickness={20} data={[{ name: "完成", value: complete, color: "var(--success)" }, { name: "等老師", value: waitingTeacher, color: "var(--brand)" }, { name: "等學生", value: waitingStudents, color: "var(--border)" }]} center={<span className="text-center"><span className="tabular block text-[26px] font-extrabold leading-none">{Math.round((complete / total) * 100)}%</span><span className="text-[10px] text-muted-foreground">完成</span></span>} />
+              <ul className="flex flex-1 flex-col gap-2.5 text-sm">
+                <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2.5 rounded-sm bg-success" />完成</span><b className="tabular">{complete} 組</b></li>
+                <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2.5 rounded-sm bg-brand" />等老師同意</span><b className="tabular">{waitingTeacher} 組</b></li>
+                <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2.5 rounded-sm bg-border" />學生未齊</span><b className="tabular">{waitingStudents} 組</b></li>
+              </ul>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-muted/50 px-4 py-3"><p className="text-[11px] font-bold text-muted-foreground">學生五人同意</p><p className="tabular text-[22px] font-extrabold leading-tight">{SIGNOFF_PROGRESS.filter((p) => p.students === p.total).length}<span className="text-xs font-semibold text-muted-foreground">／{total} 組</span></p></div>
+              <div className="rounded-xl bg-muted/50 px-4 py-3"><p className="text-[11px] font-bold text-muted-foreground">老師同意</p><p className="tabular text-[22px] font-extrabold leading-tight">{complete}<span className="text-xs font-semibold text-muted-foreground">／{total} 組</span></p></div>
+            </div>
+            <button type="button" className={buttonVariants({ variant: "outline", className: "press rounded-lg" })}>提醒未同意者</button>
+          </div>
+        </Panel>
+        <Panel title="各組進度" icon={<IconUsersGroup />} description="五格＝學生、最後一格＝老師">
+          <ul className="flex flex-col gap-3 px-5 py-4">
+            {SIGNOFF_PROGRESS.map((p) => {
+              const g = GROUPS.find((x) => x.id === p.groupId)!;
+              const missing = g.members.slice(p.students).map((m) => m.name);
+              const label = p.state === "complete" ? "完成" : p.students === p.total ? "等老師" : `缺 ${p.total - p.students} 位學生`;
+              return (
+                <li key={p.groupId} className="grid items-center gap-3 md:grid-cols-[4.5rem_minmax(0,1fr)_7rem_auto]">
+                  <span className="tabular text-sm font-bold">{p.groupNo}</span>
+                  <div className="flex gap-0.5" title={missing.length ? `缺：${missing.join("、")}` : undefined}>
+                    {Array.from({ length: p.total }, (_, k) => <span key={k} className={`h-3 flex-1 rounded-sm ${k < p.students ? "bg-primary" : "bg-muted"}`} />)}
+                    <span className={`ml-1 h-3 flex-1 rounded-sm ${p.teacher ? "bg-success" : "bg-muted"}`} />
+                  </div>
+                  <span className={`text-xs ${p.state === "complete" ? "font-semibold text-success" : p.students === p.total ? "font-semibold text-brand" : "text-muted-foreground"}`}>{label}</span>
+                  <div className="md:justify-self-end"><ResetDialog groupNo={p.groupNo} /></div>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
       </div>
-      <Panel title="各組進度" icon={<IconUsersGroup />} description={SIGNOFF.title}>
-        <ul className="divide-y divide-border">
-          {SIGNOFF_PROGRESS.map((p) => {
-            const g = GROUPS.find((x) => x.id === p.groupId)!;
-            const missing = g.members.slice(p.students).map((m) => m.name);
-            return (
-              <li key={p.groupId} className="grid items-center gap-3 px-5 py-3.5 md:grid-cols-[6rem_minmax(0,1fr)_14rem_9rem_auto]">
-                <span className="tabular text-xs font-semibold text-muted-foreground">{p.groupNo}</span>
-                <div className="min-w-0"><p className="truncate text-sm font-semibold">{p.title.replace(/（產學：.*）/, "")}</p>{missing.length && p.state !== "complete" ? <p className="truncate text-xs text-muted-foreground">缺：{missing.join("、")}{p.students === p.total ? "" : ""}</p> : p.state !== "complete" ? <p className="text-xs text-muted-foreground">缺：指導老師</p> : null}</div>
-                <Steps students={p.students} total={p.total} teacher={p.teacher} />
-                <div>{p.state === "complete" ? <Pill tone="success">完成</Pill> : p.students === p.total ? <Pill tone="brand">等老師</Pill> : <Pill tone="default">學生 {p.students}/{p.total}</Pill>}</div>
-                <div className="md:justify-self-end"><ResetDialog groupNo={p.groupNo} /></div>
-              </li>
-            );
-          })}
-        </ul>
+      <Panel title="同意書檔案" icon={<IconFileText />} description="學生在後台直接看這份 PDF；換新版會重置所有人的同意">
+        <ConsentUpload current={CONSENT_FILE} />
       </Panel>
     </div>
   );
