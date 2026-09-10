@@ -6,7 +6,7 @@ import { PageTitle, Panel, Pill, StatTile } from "@/components/dashboard/primiti
 import { Ring } from "@/components/dashboard/charts";
 import { IndustryFormDialog } from "@/components/dashboard/industry-form";
 import { isValidRole } from "@/lib/nav-config";
-import { CURRENT_USERS, GROUPS, INDUSTRY, type Role } from "@/lib/fixtures";
+import { CURRENT_USERS, GROUPS, INDUSTRY } from "@/lib/fixtures";
 
 export default async function IndustryPage({ params }: PageProps<"/dashboard/[role]/industry">) {
   const { role } = await params;

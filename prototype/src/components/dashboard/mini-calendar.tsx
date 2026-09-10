@@ -35,14 +35,14 @@ export function MiniCalendar({ events, today, canEdit = false }: { events: Calen
         <button type="button" onClick={() => setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))} className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="下個月"><IconChevronRight className="size-4" /></button>
       </div>
       <div className="grid grid-cols-7 px-3 text-center text-[11px] font-semibold text-muted-foreground">{WEEK.map((w) => <span key={w} className="py-1">{w}</span>)}</div>
-      <div className="grid grid-cols-7 gap-y-1 px-3 pb-3">
+      <div className="grid grid-cols-7 gap-y-0.5 px-3 pb-2">
         {cells.map((d, i) => {
           if (!d) return <span key={`e${i}`} />;
           const key = ymd(d);
           const evs = byDay.get(key) ?? [];
           const isToday = key === today, isPicked = key === picked;
           return (
-            <button key={key} type="button" onClick={() => setPicked(key)} className={`group relative mx-auto flex h-9 w-9 flex-col items-center justify-center rounded-full text-[13px] transition-colors ${isPicked ? "bg-primary font-bold text-primary-foreground" : isToday ? "bg-brand-subtle font-bold text-brand-on-subtle" : "hover:bg-accent"}`} aria-label={`${key}${evs.length ? `，${evs.length} 件` : ""}`} aria-pressed={isPicked}>
+            <button key={key} type="button" onClick={() => setPicked(key)} className={`group relative mx-auto flex h-8 w-8 flex-col items-center justify-center rounded-full text-[13px] transition-colors ${isPicked ? "bg-primary font-bold text-primary-foreground" : isToday ? "bg-brand-subtle font-bold text-brand-on-subtle" : "hover:bg-accent"}`} aria-label={`${key}${evs.length ? `，${evs.length} 件` : ""}`} aria-pressed={isPicked}>
               <span className="tabular leading-none">{d.getDate()}</span>
               {evs.length ? <span className="mt-0.5 flex gap-0.5">{evs.slice(0, 3).map((e) => <span key={e.id} className={`size-1 rounded-full ${isPicked ? "bg-primary-foreground" : DOT[e.kind]}`} />)}</span> : <span className="mt-0.5 h-1" />}
             </button>

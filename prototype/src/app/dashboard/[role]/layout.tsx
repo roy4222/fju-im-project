@@ -20,12 +20,12 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
     <DashThemeRoot>
     <SidebarProvider className="dash-frame" style={{ "--sidebar-width": "16.5rem", "--sidebar-width-icon": "3.75rem" } as React.CSSProperties}>
       <AppSidebar role={role} />
-      <SidebarInset className="dash-surface">
+      <SidebarInset className="dash-surface min-w-0">
         <Suspense fallback={null}>
           <TopLoader top={0} />
         </Suspense>
         <DashboardHeader role={role} />
-        <div className="dash-content mx-auto w-full max-w-[1320px] flex-1 p-4 md:p-6 lg:px-8 lg:py-7">
+        <div className="dash-content mx-auto w-full min-w-0 max-w-[1320px] flex-1 p-4 md:p-6 lg:px-8 lg:py-7">
           <PageTransition>{children}</PageTransition>
         </div>
       </SidebarInset>

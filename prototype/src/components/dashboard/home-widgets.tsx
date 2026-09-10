@@ -60,9 +60,9 @@ export function Spot({ icon, size = 140, className = "" }: { icon: ReactNode; si
 }
 
 /* ------------------------------------------------------------------ 專題行事曆 */
-export function CalendarCard({ canEdit = false, scroll = false }: { canEdit?: boolean; scroll?: boolean }) {
+export function CalendarCard({ canEdit = false, scroll = false, tint = false }: { canEdit?: boolean; scroll?: boolean; tint?: boolean }) {
   return (
-    <Panel title="專題行事曆" description="系辦設定" className="h-full" bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
+    <Panel title="專題行事曆" description="系辦設定" className={`h-full ${tint ? "tint tint-sky" : ""}`} bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
       <MiniCalendar events={CALENDAR_EVENTS} today={TODAY_YMD} canEdit={canEdit} />
     </Panel>
   );
@@ -235,11 +235,31 @@ export function StatStrip({ stats }: { stats: StatSpec[] }) {
 }
 
 /* ------------------------------------------------------------------ 頁面骨架 */
-export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏；老師：歡迎＋評分進度環＋工作模組（Roy 2026-09-10） */ layout?: "student" | "teacher"; chips?: HeroChip[]; aside?: ReactNode };
+export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏；老師：歡迎＋評分進度環＋工作模組（Roy 2026-09-10） */ layout?: "student" | "teacher" | "admin"; chips?: HeroChip[]; aside?: ReactNode };
 
 export function HomeLayout({ model }: { model: HomeModel }) {
   const base = `/dashboard/${model.role}`;
   const live = model.modules.filter((m) => m.present);
+  if (model.layout === "admin") {
+    /* Roy 2026-09-10 選畫布 A：歡迎 → 四磚 → 大圖＋甜甜圈 → 表格＋我發的公告 */
+    return (
+      <div className="flex flex-col gap-5">
+        <HeroWelcome name={model.name} line={model.line} progress={cohortProgress()} illustration={model.heroIllustration} cta={model.cta} />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {model.stats.map((st) => (
+            <Link key={st.key} href={st.href} className="dash-card dash-card-hover flex flex-col px-5 py-4">
+              <span className="text-[12px] font-semibold text-muted-foreground">{st.label}</span>
+              <span className={`tabular mt-1.5 text-[30px] font-extrabold leading-none tracking-tight ${st.tone === "brand" ? "text-brand" : st.tone === "danger" ? "text-destructive" : ""}`}>{st.value}{st.unit ? <span className="ml-1 text-[13px] font-medium text-muted-foreground">{st.unit}</span> : null}</span>
+              {st.hint ? <span className="mt-1.5 truncate text-[12px] text-muted-foreground">{st.hint}</span> : null}
+            </Link>
+          ))}
+        </div>
+        <div className="grid grid-flow-dense grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
+          {live.map((m) => <div key={m.key} className={`min-w-0 ${m.span === 2 ? "md:col-span-2" : ""}`}>{m.node}</div>)}
+        </div>
+      </div>
+    );
+  }
   if (model.layout === "teacher") {
     /* Roy 2026-09-10：老師不要行事曆／公告／接下來／時間軸，只要評分、簽核、可認領產學組，分組與合作案當摘要。 */
     return (
@@ -263,8 +283,8 @@ export function HomeLayout({ model }: { model: HomeModel }) {
           <div className="min-h-0 flex-1"><NewsCard action={model.newsAction} limit={5} scroll /></div>
         </div>
         <div className="flex min-h-0 min-w-0 flex-col gap-5">
-          <div className="shrink-0"><CalendarCard canEdit={false} /></div>
-          <div className="min-h-0 flex-1"><UpcomingCard role={model.role} base={base} limit={6} scroll /></div>
+          <div className="shrink-0"><CalendarCard canEdit={false} tint /></div>
+          <div className="min-h-0 flex-1"><UpcomingCard role={model.role} base={base} limit={8} scroll /></div>
         </div>
       </div>
     );

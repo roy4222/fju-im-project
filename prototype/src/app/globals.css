@@ -513,8 +513,9 @@
 /* 深淺色切換：從按鈕位置一圈擴開（View Transitions）。Roy 2026-09-09：窗簾會閃白，改成這個。 */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 /* 2026-09-10 Roy：中間會卡一段 → 曲線改成勻速收尾、縮到 560ms，並在 React 端 flushSync 讓快照在 DOM 換色後才拍。 */
-::view-transition-new(root) { animation: theme-reveal 560ms cubic-bezier(0.4, 0, 0.2, 1) both; }
-::view-transition-group(root) { animation-duration: 560ms; }
+/* Roy 第二次：尾段還是卡 → 圓半徑線性長、尾端不減速（ease-in），500ms。 */
+::view-transition-new(root) { animation: theme-reveal 500ms cubic-bezier(0.45, 0, 0.9, 0.6) both; }
+::view-transition-group(root) { animation-duration: 500ms; }
 @keyframes theme-reveal {
   from { clip-path: circle(0px at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
   to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
@@ -574,3 +575,50 @@
   .stage-link[data-status="current"] .agenda-dot::after { content: ""; position: absolute; inset: 1px; border-radius: 9999px; background: var(--brand); }
 }
 
+/* ========================================================================== */
+/* 專題時間軸 B 直立蛇形（Roy 2026-09-10 選定）：三色、CSS 3D、進場動畫 */
+/* ========================================================================== */
+@layer components {
+  .tl-wrap { --tl-navy: var(--primary); --tl-sky: color-mix(in oklch, oklch(0.62 0.16 250) 14%, var(--card)); }
+  .tl-spine { position: absolute; left: 50%; top: 44px; bottom: 44px; width: 6px; transform: translateX(-50%); border-radius: 999px;
+    background: color-mix(in oklch, var(--primary) 14%, var(--card)); box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 5%, transparent); }
+  .tl-spine > span { display: block; width: 100%; border-radius: 999px; background: linear-gradient(180deg, var(--primary), var(--brand));
+    box-shadow: 0 0 18px color-mix(in oklch, var(--brand) 45%, transparent); animation: tl-grow 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both; transform-origin: top; }
+  @keyframes tl-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+  .tl-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); align-items: center; gap: 0 16px; animation: tl-rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both; perspective: 1200px; }
+  @keyframes tl-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .tl-dot { grid-column: 2; justify-self: center; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px;
+    background: var(--card); border: 3px solid color-mix(in oklch, var(--primary) 30%, var(--card)); color: var(--primary-foreground); }
+  .tl-row[data-status="done"] .tl-dot { background: var(--primary); border-color: var(--primary); }
+  .tl-row[data-status="current"] .tl-dot { width: 26px; height: 26px; background: var(--brand); border-color: var(--card); box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 25%, transparent); animation: tl-breathe 2.2s ease-out infinite; }
+  @keyframes tl-breathe { 0%, 100% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 25%, transparent); } 50% { box-shadow: 0 0 0 14px color-mix(in oklch, var(--brand) 0%, transparent); } }
+
+  .tl-connector { grid-row: 1; height: 2px; background: color-mix(in oklch, var(--primary) 30%, var(--card)); animation: tl-draw 500ms 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .tl-left .tl-connector { grid-column: 1; justify-self: end; width: 48px; transform-origin: right; }
+  .tl-right .tl-connector { grid-column: 3; justify-self: start; width: 48px; transform-origin: left; }
+  .tl-row[data-status="done"] .tl-connector { background: var(--primary); }
+  .tl-row[data-status="current"] .tl-connector { background: var(--brand); }
+  @keyframes tl-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .tl-card { grid-row: 1; background: var(--card); border: 1px solid oklch(0.93 0.01 250); border-radius: 18px; width: min(100%, 440px);
+    transition: transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 320ms ease, border-color 200ms; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 10px 30px rgba(0, 51, 102, 0.06); }
+  .tl-left .tl-card { grid-column: 1; justify-self: end; margin-right: 48px; transform: rotateY(6deg); transform-origin: right center; }
+  .tl-right .tl-card { grid-column: 3; justify-self: start; margin-left: 48px; transform: rotateY(-6deg); transform-origin: left center; }
+  .tl-card:hover { transform: rotateY(0) translateY(-3px); box-shadow: 0 14px 36px rgba(0, 51, 102, 0.14); }
+  .tl-row[data-status="upcoming"] .tl-card { opacity: 0.72; }
+  .tl-row[data-status="upcoming"] .tl-card:hover { opacity: 1; }
+  .tl-row[data-status="current"] .tl-card { border-color: var(--brand); box-shadow: 0 14px 40px color-mix(in oklch, var(--brand) 22%, transparent); animation: tl-float 4s ease-in-out infinite; }
+  .tl-card.tl-open { transform: rotateY(0); }
+  @keyframes tl-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -4px; } }
+
+  @media (max-width: 640px) {
+    .tl-spine { left: 20px; }
+    .tl-row { grid-template-columns: 40px minmax(0, 1fr); }
+    .tl-dot { grid-column: 1; }
+    .tl-connector { display: none; }
+    .tl-left .tl-card, .tl-right .tl-card { grid-column: 2; justify-self: stretch; margin: 0; transform: none; width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { .tl-row, .tl-spine > span, .tl-connector, .tl-row[data-status="current"] .tl-card, .tl-row[data-status="current"] .tl-dot { animation: none; } .tl-left .tl-card, .tl-right .tl-card { transform: none; } }
+  .dark .tl-card { border-color: var(--border); }
+}
