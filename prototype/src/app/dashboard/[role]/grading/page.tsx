@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { IconLock } from "@tabler/icons-react";
 import { EmptyState, PageTitle, Panel } from "@/components/dashboard/primitives";
-import { GradingWorkbench } from "@/components/dashboard/grading-workbench";
 import { isValidRole } from "@/lib/nav-config";
+import { EVALUATION_QUEUE } from "@/lib/fixtures";
 import { AdminGrading } from "./admin-grading";
 
 export default async function GradingPage({ params }: PageProps<"/dashboard/[role]/grading">) {
@@ -17,12 +17,8 @@ export default async function GradingPage({ params }: PageProps<"/dashboard/[rol
     );
   }
   if (role === "teacher") {
-    return (
-      <div className="flex flex-col gap-5">
-        <PageTitle title="評分工作台" description="只顯示你被指派的組別。暫存只有你看得到，送出後鎖定。" />
-        <GradingWorkbench role={role} />
-      </div>
-    );
+    /* T-03：目前組別是路由狀態，沒帶 id 就補上隊列第一組 */
+    redirect(`/dashboard/${role}/grading/${EVALUATION_QUEUE[0].groupId}`);
   }
   return <AdminGrading role={role} />;
 }

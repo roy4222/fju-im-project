@@ -181,7 +181,7 @@ export function PageTitle({ title, description, actions }: { title: string; desc
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-[22px] font-bold tracking-tight">{title}</h1>
+        <h1 className="text-[24px] font-extrabold tracking-tight">{title}</h1>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}

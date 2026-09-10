@@ -263,7 +263,7 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     id: "mi-014",
     title: "指導老師意願調查表",
     placement: "submission",
-    summary: "填寫三個志願的指導老師順序，並簡述題目方向。整組共用一份，任一成員送出即代表全組完成。",
+    summary: "填寫三個志願的指導老師順序，並簡述題目方向。整組一份，組別成立後由任一組員送出。",
     publishedAt: "2026-08-11",
     dueAt: "2026-08-26",
     audience: "114 學年度學生",
@@ -910,7 +910,7 @@ export const NOTIFICATIONS: Record<Role, Notification[]> = {
   admin: [
     { id: "n-a1", kind: "account", title: "4 筆帳號等待審核", body: "名單未命中或以 Email 註冊。", at: "08-17 07:50", read: false, href: "/dashboard/admin/accounts?status=pending" },
     { id: "n-a2", kind: "due", title: "分組意向登記：3 組逾期", body: "需個別重新開放並填理由。", at: "08-16 00:05", read: false, href: "/dashboard/admin/affairs/mi-011" },
-    { id: "n-a3", kind: "grading", title: "系統驗收缺評老師 2 位", body: "李孟儒、張士豪尚未送出。", at: "08-15 18:00", read: false, href: "/dashboard/admin/grading" },
+    { id: "n-a3", kind: "grading", title: "系統驗收缺評老師 2 位", body: "陳建宏、李孟儒尚未全部送出。", at: "08-15 18:00", read: false, href: "/dashboard/admin/grading" },
     { id: "n-a4", kind: "system", title: "每日備份完成", body: "08-17 03:00，18.4 GiB。", at: "08-17 03:02", read: true, href: "/dashboard/admin/files" },
   ],
 };
@@ -958,9 +958,9 @@ export const SUBMISSION_TREND = [
 /** 評分階段各老師進度（管理員） */
 export const GRADING_PROGRESS = [
   { teacher: "陳建宏", assigned: 4, submitted: 1 },
-  { teacher: "王雅玲", assigned: 3, submitted: 2 },
+  { teacher: "王雅玲", assigned: 3, submitted: 3 },
   { teacher: "李孟儒", assigned: 2, submitted: 0 },
-  { teacher: "張士豪", assigned: 2, submitted: 1 },
+  { teacher: "張士豪", assigned: 2, submitted: 2 },
 ];
 
 /** 簽核各組進度（管理員／老師）。明寫每組，三個角色算出來的數字才會一致（Codex 09-10 T-04／A-06）。 */
@@ -1041,11 +1041,11 @@ export const FORM_SCHEMAS: Record<string, FormField[]> = {
   ],
   "mi-011": [
     { id: "f1", type: "groupinfo", label: "組別資訊" },
-    { id: "f2", type: "paragraph", label: "請於截止日前上傳系統驗收簡報與操作說明文件；單檔上限 100 MiB，不接受影片。" },
-    { id: "f3", type: "file", label: "系統驗收簡報", required: true, meta: "PDF・上限 100 MiB" },
-    { id: "f4", type: "file", label: "操作說明文件", required: true, meta: "PDF・上限 100 MiB" },
-    { id: "f5", type: "url", label: "系統展示網址", placeholder: "https://" },
-    { id: "f6", type: "date", label: "希望驗收日期" },
+    { id: "f2", type: "paragraph", label: "8/20 專題說明會請至少一位組員出席；暫定組員之後仍可在「分組名單確認表」調整。" },
+    { id: "f3", type: "number", label: "出席人數", required: true, placeholder: "1–5" },
+    { id: "f4", type: "textarea", label: "暫定組員（姓名、學號）", required: true, placeholder: "一行一位" },
+    { id: "f5", type: "radio", label: "意向", required: true, options: ["一般專題", "產學合作"] },
+    { id: "f6", type: "url", label: "先前作品或提案連結", placeholder: "https://" },
   ],
 };
 
@@ -1055,13 +1055,16 @@ export type GroupSubmission = { groupId: string; state: SubmissionState; version
 export const GROUP_SUBMISSIONS: Record<string, GroupSubmission[]> = Object.fromEntries(
   MANAGED_ITEMS.filter((i) => i.progress).map((item) => {
     const { done, overdue } = item.progress!;
-    const rows: GroupSubmission[] = GROUPS.map((g, idx) => {
-      if (idx < done) return { groupId: g.id, state: "submitted", version: ((idx + done) % 2) + 1, submittedBy: g.members[idx % g.members.length].name, at: `2026-08-${String(10 + ((idx * 3) % 7)).padStart(2, "0")} ${String(9 + (idx % 10)).padStart(2, "0")}:${String((idx * 17) % 60).padStart(2, "0")}` };
-      if (idx < done + overdue) return { groupId: g.id, state: "overdue" };
+    // 第 07 組（學生本人的組）先依 myState 定，其餘組別補到 progress 的數字，列表與首頁才會一樣（Codex 09-10 A-05）
+    const mine: GroupSubmission = { groupId: "g-07", state: item.myState ?? "todo", ...(item.myState === "submitted" ? { version: 1, submittedBy: "黃詩涵", at: "2026-08-14 16:20" } : item.myState === "locked" ? { version: 2, submittedBy: "林彥廷", at: "2026-08-12 23:41" } : {}) };
+    const needDone = done - (isSubmittedState(mine.state) ? 1 : 0);
+    const needOverdue = overdue - (mine.state === "overdue" ? 1 : 0);
+    const others = GROUPS.filter((g) => g.id !== "g-07").map((g, idx): GroupSubmission => {
+      if (idx < needDone) return { groupId: g.id, state: "submitted", version: ((idx + done) % 2) + 1, submittedBy: g.members[idx % g.members.length].name, at: `2026-08-${String(10 + ((idx * 3) % 7)).padStart(2, "0")} ${String(9 + (idx % 10)).padStart(2, "0")}:${String((idx * 17) % 60).padStart(2, "0")}` };
+      if (idx < needDone + needOverdue) return { groupId: g.id, state: "overdue" };
       return { groupId: g.id, state: idx % 2 === 0 ? "draft" : "todo" };
     });
-    if (item.myState) rows[0] = { ...rows[0], groupId: "g-07", state: item.myState, ...(item.myState === "submitted" ? { version: 1, submittedBy: "黃詩涵", at: "2026-08-14 16:20" } : item.myState === "locked" ? { version: 2, submittedBy: "林彥廷", at: "2026-08-12 23:41" } : {}) };
-    return [item.id, rows];
+    return [item.id, [mine, ...others]];
   }),
 );
 
@@ -1069,7 +1072,7 @@ export const GROUP_SUBMISSIONS: Record<string, GroupSubmission[]> = Object.fromE
 export const SUBMISSION_VERSIONS: Record<string, { version: number; by: string; at: string; schemaVersion: number; note?: string }[]> = {
   "mi-013": [{ version: 1, by: "黃詩涵", at: "2026-08-14 16:20", schemaVersion: 1 }],
   "mi-011": [
-    { version: 2, by: "林彥廷", at: "2026-08-12 23:41", schemaVersion: 3, note: "補上操作說明文件" },
+    { version: 2, by: "林彥廷", at: "2026-08-12 23:41", schemaVersion: 3, note: "補上第五位組員與提案連結" },
     { version: 1, by: "吳柏諺", at: "2026-08-10 18:02", schemaVersion: 3 },
   ],
 };

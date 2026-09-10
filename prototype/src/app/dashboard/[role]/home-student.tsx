@@ -1,12 +1,13 @@
 import { IconClipboardText, IconSchool, IconUpload } from "@tabler/icons-react";
 import { Spot, type HomeModel } from "@/components/dashboard/home-widgets";
-import { CURRENT_USERS, MANAGED_ITEMS, MY_GROUP, SIGNOFF, currentStage, isSubmittedState, studentOpenItems, type Role } from "@/lib/fixtures";
+import { CURRENT_USERS, MANAGED_ITEMS, MY_GROUP, SIGNOFF, TODAY_YMD, currentStage, isSubmittedState, studentOpenItems, type Role } from "@/lib/fixtures";
 
 /* ============================================================ 學生 */
 export function studentHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const stage = currentStage();
   const open = studentOpenItems();
+  const next = open[0];
   const overdue = open.filter((i) => i.myState === "overdue");
   const submitted = MANAGED_ITEMS.filter((i) => isSubmittedState(i.myState));
   const confirmed = MY_GROUP.members.filter((m) => m.confirmed).length;
@@ -17,8 +18,9 @@ export function studentHome(role: Role): HomeModel {
     role,
     layout: "student",
     name,
-    line: open.length ? `現在是「${stage.title}」。作業區還有 ${open.length} 件沒送出${overdue.length ? `，其中 ${overdue.length} 件已逾期` : ""}。` : `現在是「${stage.title}」。作業區沒有待繳的東西，做得好。`,
-    cta: open.length ? { href: `${base}/affairs?tab=open`, label: "去作業區" } : undefined,
+    line: open.length ? `現在是「${stage.title}」。作業區還有 ${open.length} 件沒送出${overdue.length ? `，其中 ${overdue.length} 件已逾期` : ""}。` : `現在是「${stage.title}」。作業區沒有待繳的東西。`,
+    /* 下一步＝最近截止那件（studentOpenItems 已依截止排序）；有下一步就不再放泛用的「去作業區」 */
+    next: next ? { title: next.title, due: next.dueAt ?? TODAY_YMD, href: `${base}/affairs/${next.id}`, label: next.myState === "draft" ? "繼續填寫" : "去繳交" } : undefined,
     heroIllustration: <Spot icon={<IconSchool className="size-16" strokeWidth={1.4} />} />,
     /* Roy 2026-09-10：作業區／我的組別／同意書不再各占一張卡，縮成歡迎色塊底部三格 */
     chips: [

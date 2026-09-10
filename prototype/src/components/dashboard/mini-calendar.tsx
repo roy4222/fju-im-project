@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { IconCalendarPlus, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { CALENDAR_KIND_LABEL, type CalendarEvent } from "@/lib/fixtures";
+import { IconCalendarPlus, IconChevronDown, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { CALENDAR_KIND_LABEL, daysUntil, type CalendarEvent } from "@/lib/fixtures";
 
 /**
  * 專題行事曆（首頁右欄）。系辦設定的截止、活動、比賽都在這；點日期看當天；「訂閱到 Google 日曆」給 .ics 網址。
@@ -14,10 +14,13 @@ const TINT: Record<CalendarEvent["kind"], string> = { deadline: "bg-brand-subtle
 
 function ymd(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 
-export function MiniCalendar({ events, today, canEdit = false }: { events: CalendarEvent[]; today: string; canEdit?: boolean }) {
+export function MiniCalendar({ events, today, canEdit = false, compactOnMobile = false }: { events: CalendarEvent[]; today: string; canEdit?: boolean; /** 手機預設縮成近期三筆，可展開整月（Codex 09-10 S-05） */ compactOnMobile?: boolean }) {
   const t = new Date(`${today}T00:00:00`);
   const [view, setView] = useState({ y: t.getFullYear(), m: t.getMonth() });
   const [picked, setPicked] = useState<string>(today);
+  const [expanded, setExpanded] = useState(!compactOnMobile);
+  const soon = events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
+  const monthCls = compactOnMobile && !expanded ? "max-md:hidden" : "";
   const first = new Date(view.y, view.m, 1);
   const offset = (first.getDay() + 6) % 7; // 週一開頭
   const days = new Date(view.y, view.m + 1, 0).getDate();
@@ -29,6 +32,30 @@ export function MiniCalendar({ events, today, canEdit = false }: { events: Calen
 
   return (
     <div className="flex flex-col">
+      {compactOnMobile ? (
+        <div className="md:hidden">
+          {!expanded ? (
+            <ul className="flex flex-col divide-y divide-border/70 px-4 pt-1">
+              {soon.map((e) => {
+                const d = daysUntil(e.date);
+                return (
+                  <li key={e.id}>
+                    <Link href={e.href ?? "#"} className="flex min-h-11 items-center gap-3 py-2 text-sm transition-colors hover:bg-accent/60">
+                      <span className="tabular w-12 shrink-0 text-[13px] font-bold">{e.date.slice(5).replace("-", "/")}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{e.title}</span>
+                      <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TINT[e.kind]}`}>{d === 0 ? "今天" : `${d} 天`}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="flex h-11 w-full items-center justify-center gap-1 text-[13px] font-semibold text-primary transition-colors hover:bg-accent/60">
+            {expanded ? "收合成近期三筆" : "展開整月"}<IconChevronDown className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+      ) : null}
+      <div className={`flex flex-col ${monthCls}`}>
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <button type="button" onClick={() => setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))} className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="上個月"><IconChevronLeft className="size-4" /></button>
         <span className="tabular text-sm font-bold">{view.y} 年 {view.m + 1} 月</span>
@@ -71,6 +98,7 @@ export function MiniCalendar({ events, today, canEdit = false }: { events: Calen
         <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-success" />競賽</span>
         <a href="/api/calendar" className="ml-auto inline-flex items-center gap-1 font-semibold text-primary hover:underline"><IconCalendarPlus className="size-3.5" />訂閱到 Google 日曆</a>
         {canEdit ? <Link href="/dashboard/admin/editor/new" className="font-semibold text-brand hover:underline">新增活動</Link> : null}
+      </div>
       </div>
     </div>
   );

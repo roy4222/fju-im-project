@@ -20,7 +20,9 @@ const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
 
 /* ------------------------------------------------------------------ 歡迎回來 */
 export type HeroChip = { label: string; value: string; href: string; hot?: boolean };
-export function HeroWelcome({ name, line, progress, illustration, cta, chips }: { name: string; line: string; progress: number; illustration?: ReactNode; cta?: { href: string; label: string }; chips?: HeroChip[] }) {
+/** 學生的「下一步」：最近截止那件作業（Codex 09-10 S-05），桌面手機都在歡迎區裡，不另做一張卡 */
+export type HeroNext = { title: string; due: string; href: string; label: string };
+export function HeroWelcome({ name, line, progress, illustration, cta, chips, next }: { name: string; line: string; progress: number; illustration?: ReactNode; cta?: { href: string; label: string }; chips?: HeroChip[]; next?: HeroNext }) {
   const [, mm, dd] = TODAY_YMD.split("-").map(Number);
   const today = `${mm} 月 ${dd} 日・星期${WEEKDAY[new Date(`${TODAY_YMD}T00:00:00`).getDay()]}`;
   return (
@@ -31,6 +33,16 @@ export function HeroWelcome({ name, line, progress, illustration, cta, chips }: 
           <h1 className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight md:text-[32px]">歡迎回來，{name}</h1>
           <p className="mt-2 max-w-[44ch] text-[15px] text-white/85">{line}</p>
         </div>
+        {next ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-white/10 px-4 py-3" data-hero-next>
+            <div className="min-w-0 flex-1 basis-[14rem]">
+              <p className="text-[11px] font-bold tracking-[0.06em] text-brand">下一步</p>
+              <p className="text-[15px] font-bold">{next.title}</p>
+              <p className="tabular text-[13px] text-white/80">{md(next.due)} 截止・{formatDue(next.due)}</p>
+            </div>
+            <Link href={next.href} className="btn-fju h-11 rounded-lg px-5 text-[14px] max-sm:w-full">{next.label}<IconArrowRight className="size-4" /></Link>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-4">
           <div className="min-w-[220px] flex-1">
             <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80"><span>{SCHEDULE_YEAR.label} 本屆進度</span><span className="tabular text-[15px] font-extrabold text-white">{progress}%</span></div>
@@ -60,10 +72,10 @@ export function Spot({ icon, size = 140, className = "" }: { icon: ReactNode; si
 }
 
 /* ------------------------------------------------------------------ 專題行事曆 */
-export function CalendarCard({ canEdit = false, scroll = false, tint = false }: { canEdit?: boolean; scroll?: boolean; tint?: boolean }) {
+export function CalendarCard({ canEdit = false, scroll = false, tint = false, compactOnMobile = false }: { canEdit?: boolean; scroll?: boolean; tint?: boolean; compactOnMobile?: boolean }) {
   return (
     <Panel title="專題行事曆" description="系辦設定" className={`h-full ${tint ? "tint tint-sky" : ""}`} bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
-      <MiniCalendar events={CALENDAR_EVENTS} today={TODAY_YMD} canEdit={canEdit} />
+      <MiniCalendar events={CALENDAR_EVENTS} today={TODAY_YMD} canEdit={canEdit} compactOnMobile={compactOnMobile} />
     </Panel>
   );
 }
@@ -98,13 +110,13 @@ export function UpcomingCard({ role, base, limit, scroll = false }: { role: Role
                   const d = daysUntil(u.date);
                   return (
                     <li key={u.id}>
-                      <Link href={u.href} className="dash-card-hover group flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-card">
+                      <Link href={u.href} className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-card">
                         <span className={`tint spot size-11 shrink-0 rounded-xl text-[13px] font-extrabold ${UP_TINT[u.kind]}`} style={{ borderRadius: 12 }}>{d === 0 ? "今" : `${d}天`}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-bold">{u.title}</span>
                           <span className="tabular block truncate text-xs text-muted-foreground">{u.sub}・{md(u.date)}</span>
                         </span>
-                        <IconChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                        <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
                       </Link>
                     </li>
                   );
@@ -235,7 +247,7 @@ export function StatStrip({ stats }: { stats: StatSpec[] }) {
 }
 
 /* ------------------------------------------------------------------ 頁面骨架 */
-export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏；老師：歡迎＋評分進度環＋工作模組（Roy 2026-09-10） */ layout?: "student" | "teacher" | "admin"; chips?: HeroChip[]; aside?: ReactNode };
+export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏；老師：歡迎＋評分進度環＋工作模組（Roy 2026-09-10） */ layout?: "student" | "teacher" | "admin"; chips?: HeroChip[]; aside?: ReactNode; next?: HeroNext };
 
 export function HomeLayout({ model }: { model: HomeModel }) {
   const base = `/dashboard/${model.role}`;
@@ -279,11 +291,11 @@ export function HomeLayout({ model }: { model: HomeModel }) {
     return (
       <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:h-[calc(100dvh-7.5rem)] xl:min-h-[600px] xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-h-0 min-w-0 flex-col gap-5">
-          <HeroWelcome name={model.name} line={model.line} progress={cohortProgress()} illustration={model.heroIllustration} cta={model.cta} chips={model.chips} />
+          <HeroWelcome name={model.name} line={model.line} progress={cohortProgress()} illustration={model.heroIllustration} cta={model.cta} chips={model.chips} next={model.next} />
           <div className="min-h-0 flex-1"><NewsCard action={model.newsAction} limit={5} scroll /></div>
         </div>
         <div className="flex min-h-0 min-w-0 flex-col gap-5">
-          <div className="shrink-0"><CalendarCard canEdit={false} tint /></div>
+          <div className="shrink-0"><CalendarCard canEdit={false} tint compactOnMobile /></div>
           <div className="min-h-0 flex-1"><UpcomingCard role={model.role} base={base} limit={8} scroll /></div>
         </div>
       </div>
