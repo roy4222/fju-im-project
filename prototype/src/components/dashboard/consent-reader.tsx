@@ -7,14 +7,14 @@ import { IconDownload, IconFileTypePdf } from "@tabler/icons-react";
  * 同意書閱讀器（Roy 2026-09-09）：系辦上傳的 PDF 直接在這裡看原檔，看完勾「我已閱讀全文」才出現同意／不同意。
  * 原型用瀏覽器內建 PDF 檢視；正式版可換 pdf.js。
  */
-export function ConsentReader({ file, version, updatedAt, children, alreadyDone }: { file: string; version: string; updatedAt: string; children: ReactNode; alreadyDone?: boolean }) {
+export function ConsentReader({ file, updatedAt, children, alreadyDone }: { file: string; version?: string; updatedAt: string; children: ReactNode; alreadyDone?: boolean }) {
   const [read, setRead] = useState(false);
   return (
     <div className="flex flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-3 text-sm">
         <IconFileTypePdf className="size-5 text-destructive" />
         <span className="font-semibold">{file.split("/").pop()}</span>
-        <span className="tabular text-xs text-muted-foreground">v{version}・{updatedAt} 上傳</span>
+        <span className="tabular text-xs text-muted-foreground">{updatedAt} 系辦上傳</span>
         <a href={file} download className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><IconDownload className="size-3.5" /> 下載 PDF</a>
       </div>
       <iframe src={`${file}#toolbar=0&navpanes=0&view=FitH`} title="同意書全文" className="h-[68vh] w-full bg-muted" />
@@ -43,11 +43,11 @@ export function ConsentUpload({ current }: { current: { file: string; version: s
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
         <IconFileTypePdf className="size-5 text-destructive" />
         <span className="font-semibold">{current.file.split("/").pop()}</span>
-        <span className="tabular text-xs text-muted-foreground">v{done ?? current.version}・{current.updatedAt}</span>
+        <span className="tabular text-xs text-muted-foreground">{done ? "剛剛更新" : `${current.updatedAt} 上傳`}</span>
         <a href={current.file} target="_blank" rel="noreferrer" className="ml-auto text-xs font-semibold text-primary hover:underline">預覽</a>
       </div>
       {done ? (
-        <p className="rounded-lg bg-success-subtle px-4 py-3 text-sm font-semibold text-success-on-subtle">已建立 v{done}，所有組別的同意狀態已重置，學生登入後會看到新版。</p>
+        <p className="rounded-lg bg-success-subtle px-4 py-3 text-sm font-semibold text-success-on-subtle">已更新同意書（{done}），所有組別的同意狀態已重置，學生登入後會看到新的內容。</p>
       ) : (
         <>
           <label className="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border px-4 py-8 text-center transition-colors hover:border-brand/60 hover:bg-brand-subtle/40">

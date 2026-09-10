@@ -2,12 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
   IconBell,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconBuildingFactory2,
   IconCalendarTime,
   IconChecklist,
@@ -15,12 +12,11 @@ import {
   IconFolders,
   IconHistory,
   IconLayoutDashboard,
-  IconLogout,
   IconPencilPlus,
-  IconSettings,
   IconSignature,
   IconUsers,
   IconUsersGroup,
+  IconWorld,
 } from "@tabler/icons-react";
 import {
   Sidebar,
@@ -34,7 +30,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { navForRole, type NavIcon } from "@/lib/nav-config";
 import type { Role } from "@/lib/fixtures";
@@ -55,14 +50,13 @@ const ICONS: Record<NavIcon, typeof IconLayoutDashboard> = {
 };
 
 /**
- * 後台側欄（2026-09-09 第三輪）：白底圓角面板，選中＝淡藍圓角塊＋深藍字；底部固定「個人設定」「登出」（Roy 喜歡參考站這個位置）。
- * 收合只剩 logo 最左邊的圖形（同一張圖靠左裁）。
+ * 後台側欄：白底圓角面板，選中＝淡藍圓角塊＋深藍字。
+ * 2026-09-10 Roy：底部只放「回到前台」；個人資料與登出在右上帳號選單；收合用頂列的開關。收合只剩 logo 最左邊的圖形。
  */
 export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
   const groups = navForRole(role);
-  const logoutForm = useRef<HTMLFormElement>(null);
 
   return (
     <Sidebar collapsible="icon" variant="inset" className="dash-sidebar">
@@ -111,34 +105,13 @@ export function AppSidebar({ role }: { role: Role }) {
       </SidebarContent>
 
       <SidebarFooter className="px-3 pb-3">
-        <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
-          <input type="hidden" name="role" value="guest" />
-          <input type="hidden" name="returnTo" value="/" />
-        </form>
-        <SidebarMenu className="gap-1">
+        <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="個人設定" className="dash-nav-item h-9 rounded-xl px-3 font-medium" render={<Link href="/account"><IconSettings className="size-[19px]" strokeWidth={1.8} /><span className="text-[14.5px]">個人設定</span></Link>} />
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="登出" className="dash-nav-item h-9 rounded-xl px-3 font-medium" onClick={() => logoutForm.current?.requestSubmit()}>
-              <IconLogout className="size-[19px]" strokeWidth={1.8} /><span className="text-[14.5px]">登出</span>
-            </SidebarMenuButton>
+            <SidebarMenuButton tooltip="回到前台" className="dash-nav-item h-9 rounded-xl px-3 font-medium" render={<Link href="/"><IconWorld className="size-[19px]" strokeWidth={1.8} /><span className="text-[14.5px]">回到前台</span></Link>} />
           </SidebarMenuItem>
         </SidebarMenu>
-        <CollapseButton />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
-  );
-}
-
-function CollapseButton() {
-  const { state, toggleSidebar } = useSidebar();
-  const collapsed = state === "collapsed";
-  return (
-    <button type="button" onClick={toggleSidebar} className="dash-collapse flex h-8 w-full items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={collapsed ? "展開選單" : "收合選單"}>
-      {collapsed ? <IconLayoutSidebarLeftExpand className="size-[18px] shrink-0" /> : <IconLayoutSidebarLeftCollapse className="size-[18px] shrink-0" />}
-      <span className="group-data-[collapsible=icon]:hidden">收合選單</span>
-    </button>
   );
 }

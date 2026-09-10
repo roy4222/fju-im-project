@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 
 /**
@@ -45,7 +46,8 @@ export function DashThemeRoot({ children }: { children: ReactNode }) {
     root.style.setProperty("--reveal-y", `${y}px`);
     root.style.setProperty("--reveal-r", `${r}px`);
     busy.current = true;
-    const vt = doc.startViewTransition(() => writeDark(next));
+    // flushSync：讓 React 在快照前就把 dark class 換好，否則圓圈裡先是舊色、結束才跳新色（Roy 說的「卡一段」）。
+    const vt = doc.startViewTransition(() => { flushSync(() => writeDark(next)); });
     vt.finished.finally(() => { busy.current = false; });
   }
 

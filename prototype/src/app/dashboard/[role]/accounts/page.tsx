@@ -22,7 +22,7 @@ export default async function AccountsPage({ params, searchParams }: PageProps<"
         <StatTile label="待審核" icon={<IconUserCheck />} value={pending} unit="筆" tone="warning" href={`/dashboard/${role}/accounts?status=pending`} />
         <StatTile label="已核准" icon={<IconUsers />} value={active} unit="筆" tone="success" chart={<Ring value={(active / ACCOUNTS.length) * 100} size={44} stroke={5} color="var(--success)" />} />
         <StatTile label="已停用" icon={<IconUserOff />} value={disabled} unit="筆" />
-        <StatTile label="名單版本" icon={<IconUsers />} value="v3" hint="52 筆・08-13 匯入" />
+        <StatTile label="已匯入名單" icon={<IconUsers />} value="52" unit="筆" hint="08-13 最近一次匯入" />
       </div>
       <Panel title="全部帳號" icon={<IconUsers />} description="可搜尋、排序、篩選、勾選匯出與批次停用" bodyClassName="p-4">
         <AccountsTable accounts={ACCOUNTS} initialStatus={status} />

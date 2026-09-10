@@ -124,7 +124,7 @@ export function ImportRosterDialog() {
             <button type="button" onClick={() => setStep(2)} className="btn-fju h-10 text-sm">匯入 49 筆</button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 text-center"><span className="inline-flex size-12 items-center justify-center rounded-full bg-success-subtle text-success-on-subtle"><IconCheck className="size-6" /></span><DialogTitle className="text-lg font-extrabold">已匯入 49 筆（名單 v4）</DialogTitle><DialogDescription>之後註冊命中名單者自動核准；比對依據與名單版本已記錄。</DialogDescription></div>
+          <div className="flex flex-col items-center gap-3 text-center"><span className="inline-flex size-12 items-center justify-center rounded-full bg-success-subtle text-success-on-subtle"><IconCheck className="size-6" /></span><DialogTitle className="text-lg font-extrabold">已匯入 49 筆</DialogTitle><DialogDescription>之後註冊命中名單者自動核准；比對依據與匯入時間已記錄。</DialogDescription></div>
         )}
       </DialogContent>
     </Dialog>

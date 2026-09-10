@@ -1,20 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSearch, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconWorld, IconSettings } from "@tabler/icons-react";
+import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconSettings } from "@tabler/icons-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { titleFor, ROLE_LABEL } from "@/lib/nav-config";
 import { DashThemeToggle } from "@/components/layout/dash-theme";
-import { CommandPalette } from "@/components/layout/command-palette";
 import { CURRENT_USERS, NOTIFICATIONS, type Notification, type Role } from "@/lib/fixtures";
 
 const ROLES: Role[] = ["student", "teacher", "admin"];
 const KIND_ICON: Record<Notification["kind"], typeof IconBell> = { due: IconCalendarDue, submission: IconUpload, signoff: IconSignature, grading: IconChecklist, account: IconUserCheck, system: IconSettings };
 
-/** 後台頂列：側欄開關、頁名、搜尋（⌘K 面板）、深淺色、通知、帳號選單（含原型角色切換）。 */
+/** 後台頂列：側欄開關、頁名、深淺色、通知、帳號選單（個人資料、切換角色（原型）、登出）。2026-09-10 Roy：搜尋全部拿掉、回到前台移到側欄底部。 */
 export function DashboardHeader({ role }: { role: Role }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -23,28 +22,17 @@ export function DashboardHeader({ role }: { role: Role }) {
   const notes = NOTIFICATIONS[role];
   const unread = notes.filter((n) => !n.read).length;
   const logoutForm = useRef<HTMLFormElement>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
 
   function switchRole(next: Role) {
     router.push(pathname.replace(`/dashboard/${role}`, `/dashboard/${next}`));
   }
 
   return (
-    <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur md:px-5">
+    <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 px-3 md:px-5">
       <SidebarTrigger className="size-9 rounded-lg" />
       <h1 className="ml-1 truncate text-[15px] font-bold">{title}</h1>
 
       <div className="ml-auto flex items-center gap-1.5">
-        <button type="button" onClick={() => setSearchOpen(true)} className="hidden h-9 w-64 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-[13px] text-muted-foreground transition-[border-color,background-color] hover:border-primary/40 hover:bg-background md:inline-flex" aria-label="搜尋">
-          <IconSearch className="size-4" />
-          <span className="flex-1 text-left">搜尋組別、學生、項目</span>
-          <kbd className="rounded border border-border bg-background px-1.5 text-[10px] font-semibold">⌘K</kbd>
-        </button>
-        <button type="button" onClick={() => setSearchOpen(true)} className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden" aria-label="搜尋">
-          <IconSearch className="size-4.5" />
-        </button>
-        <CommandPalette role={role} open={searchOpen} onOpenChange={setSearchOpen} />
-
         <DashThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -104,7 +92,6 @@ export function DashboardHeader({ role }: { role: Role }) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground">{user.name}・{ROLE_LABEL[role]}</DropdownMenuLabel>
               <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/account" />}><IconUserCircle /> 個人資料</DropdownMenuItem>
-              <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/" />}><IconWorld /> 回到前台網站</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>

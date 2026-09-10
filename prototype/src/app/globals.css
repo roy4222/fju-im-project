@@ -451,7 +451,8 @@
   .dash-frame [data-slot="sidebar-container"] { border-right: 0 !important; }
   .dash-frame [data-slot="sidebar-rail"]::after { display: none; }
   .dash-surface { background: oklch(0.975 0.008 250) !important; border-radius: 22px !important; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06) !important; overflow: clip; }
-  .dash-header { background: transparent !important; border-bottom: 0 !important; backdrop-filter: none !important; }
+  /* 頂列實底：sticky 時內容不會從底下透出來（Roy 2026-09-10：透明會被字蓋掉）。 */
+  .dash-header { background: oklch(0.975 0.008 250); border-bottom: 1px solid oklch(0.93 0.01 250); }
   .dash-card { background: var(--card); border-radius: 18px; border: 1px solid oklch(0.93 0.01 250); }
   .dash-card-hover { transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease; }
   .dash-card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0, 51, 102, 0.10); }
@@ -495,6 +496,7 @@
   .dark .dash-frame { --sidebar: oklch(0.15 0.01 253.89); }
   .dark .dash-frame [data-slot="sidebar-inner"] { background: oklch(0.205 0.012 253.89); box-shadow: none; }
   .dark .dash-surface { background: oklch(0.19 0.012 253.89) !important; box-shadow: none !important; }
+  .dark .dash-header { background: oklch(0.19 0.012 253.89); border-bottom-color: var(--border); }
   .dark .dash-card { border-color: var(--border); }
   .dark .dash-nav-item:hover { background: oklch(1 0 0 / 6%); }
   .dark .dash-nav-active, .dark .dash-nav-active:hover { background: oklch(1 0 0 / 10%); color: #fff; }
@@ -510,8 +512,9 @@
 
 /* 深淺色切換：從按鈕位置一圈擴開（View Transitions）。Roy 2026-09-09：窗簾會閃白，改成這個。 */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
-::view-transition-new(root) { animation: theme-reveal 820ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-::view-transition-group(root) { animation-duration: 820ms; }
+/* 2026-09-10 Roy：中間會卡一段 → 曲線改成勻速收尾、縮到 560ms，並在 React 端 flushSync 讓快照在 DOM 換色後才拍。 */
+::view-transition-new(root) { animation: theme-reveal 560ms cubic-bezier(0.4, 0, 0.2, 1) both; }
+::view-transition-group(root) { animation-duration: 560ms; }
 @keyframes theme-reveal {
   from { clip-path: circle(0px at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
   to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
@@ -571,15 +574,3 @@
   .stage-link[data-status="current"] .agenda-dot::after { content: ""; position: absolute; inset: 1px; border-radius: 9999px; background: var(--brand); }
 }
 
-/* 搜尋面板（⌘K）：一點開就跳出來；大字輸入、柔陰影、背景霧化 */
-@layer components {
-  .palette-overlay { background: rgba(0, 20, 45, 0.28); backdrop-filter: blur(6px); }
-  .palette { box-shadow: 0 24px 80px rgba(0, 20, 45, 0.28), 0 1px 0 rgba(255,255,255,0.6) inset; }
-  .palette [cmdk-input] { font-size: 17px; }
-  .palette [cmdk-item][data-selected="true"] { background: var(--brand-subtle); color: var(--foreground); }
-  .palette [cmdk-item][data-selected="true"] svg { color: var(--brand); }
-  .palette [cmdk-group-heading] { padding: 10px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted-foreground); }
-}
-
-/* 搜尋面板：cmdk item 尾端的勾勾（多選用）在這裡不需要 */
-.palette [cmdk-item] > svg:last-child { display: none; }
