@@ -235,11 +235,25 @@ export function StatStrip({ stats }: { stats: StatSpec[] }) {
 }
 
 /* ------------------------------------------------------------------ 頁面骨架 */
-export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏（Roy 2026-09-10） */ layout?: "student"; chips?: HeroChip[] };
+export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏；老師：歡迎＋評分進度環＋工作模組（Roy 2026-09-10） */ layout?: "student" | "teacher"; chips?: HeroChip[]; aside?: ReactNode };
 
 export function HomeLayout({ model }: { model: HomeModel }) {
   const base = `/dashboard/${model.role}`;
   const live = model.modules.filter((m) => m.present);
+  if (model.layout === "teacher") {
+    /* Roy 2026-09-10：老師不要行事曆／公告／接下來／時間軸，只要評分、簽核、可認領產學組，分組與合作案當摘要。 */
+    return (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <HeroWelcome name={model.name} line={model.line} progress={cohortProgress()} illustration={model.heroIllustration} cta={model.cta} chips={model.chips} />
+        <div className="min-w-0">{model.aside}</div>
+        {live.length ? (
+          <div className="grid grid-flow-dense grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3 xl:col-span-2">
+            {live.map((m) => <div key={m.key} className={`min-w-0 ${m.span === 2 ? "md:col-span-2" : ""}`}>{m.node}</div>)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   if (model.layout === "student") {
     /* Roy 2026-09-10：學生首頁只要歡迎回來、公告、行事曆、接下來四塊，壓在一屏內；作業／組員／同意書縮成歡迎色塊底部三格。 */
     return (

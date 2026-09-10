@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { IconAlertTriangle, IconBriefcase, IconCalendarDue, IconChecklist, IconClipboardText, IconClock, IconHandGrab, IconPencilPlus, IconSchool, IconSignature, IconTrophy, IconUpload, IconUserCheck, IconUsers, IconUsersGroup } from "@tabler/icons-react";
+import { IconAlertTriangle, IconBriefcase, IconCalendarDue, IconChecklist, IconClipboardText, IconHandGrab, IconPencilPlus, IconSchool, IconSignature, IconTrophy, IconUpload, IconUserCheck, IconUsers } from "@tabler/icons-react";
 import { buttonVariants } from "@/components/ui/button";
 import { ActionRow, Panel, Pill } from "@/components/dashboard/primitives";
 import { Ring } from "@/components/dashboard/charts";
@@ -68,36 +68,49 @@ function teacherHome(role: Role): HomeModel {
 
   return {
     role,
+    layout: "teacher",
     name: `${me.name} 老師`,
     line: pending.length ? `現在是「${stage.title}」。系統驗收評分送出 ${submittedQ.length}/${EVALUATION_QUEUE.length} 組，還有 ${pending.length} 組沒開始。` : `現在是「${stage.title}」。評分都送出了。`,
     cta: pending.length ? { href: `${base}/grading`, label: "去評分" } : undefined,
     heroIllustration: <Spot icon={<IconChecklist className="size-20" strokeWidth={1.4} />} size={168} className="tint tint-sky" />,
-    stats: [
-      { key: "pending", label: "待評分", icon: <IconChecklist />, value: pending.length, unit: "組", tone: pending.length ? "brand" : "default", href: `${base}/grading` },
-      { key: "staged", label: "已暫存", icon: <IconClock />, value: staged.length, unit: "組", hint: "尚未送出", href: `${base}/grading` },
-      { key: "groups", label: "指導組別", icon: <IconUsersGroup />, value: myGroups.length, unit: "組", hint: `${myGroups.filter((g) => g.type === "INDUSTRY").length} 組產學`, href: `${base}/groups` },
-      { key: "sign", label: "待我同意", icon: <IconSignature />, value: teacherSign.length, unit: "件", tone: teacherSign.length ? "brand" : "default", href: `${base}/signoff` },
+    chips: [
+      { label: "待評分", value: `${pending.length} 組`, href: `${base}/grading`, hot: pending.length > 0 },
+      { label: "待我同意", value: `${teacherSign.length} 件`, href: `${base}/signoff`, hot: teacherSign.length > 0 },
+      { label: "指導組別", value: `${myGroups.length} 組`, href: `${base}/groups` },
     ],
+    /* 右上：評分進度（Minuto 的「今日目標」位置） */
+    aside: (
+      <Panel title="評分進度" description="系統驗收・占總成績 60%" className="h-full">
+        <div className="flex items-center gap-5 px-5 pt-1 pb-4">
+          <Donut size={116} thickness={14} data={[{ name: "已送出", value: submittedQ.length, color: "var(--success)" }, { name: "已暫存", value: staged.length, color: "var(--brand)" }, { name: "未開始", value: pending.length, color: "var(--border)" }]} center={<span className="text-center"><span className="tabular block text-[22px] font-extrabold leading-none">{gradingPct}%</span><span className="text-[10px] text-muted-foreground">已送出</span></span>} />
+          <ul className="flex flex-1 flex-col gap-2 text-sm">
+            <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-success" />已送出</span><b className="tabular">{submittedQ.length}</b></li>
+            <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-brand" />已暫存</span><b className="tabular">{staged.length}</b></li>
+            <li className="flex items-center justify-between"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-border" />未開始</span><b className="tabular">{pending.length}</b></li>
+          </ul>
+        </div>
+        <div className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">送出後鎖定；要改請系辦退回。</div>
+      </Panel>
+    ),
+    stats: [],
     modules: [
       {
         key: "grading", present: EVALUATION_QUEUE.length > 0, span: 2,
         node: (
-          <TintCard tint="peach" title="評分工作台" description="系統驗收・占總成績 60%" action={{ href: `${base}/grading`, label: "開啟" }}>
-            <div className="grid gap-4 px-5 pt-2 pb-5 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
-              <Donut size={124} data={[{ name: "已送出", value: submittedQ.length, color: "var(--success)" }, { name: "已暫存", value: staged.length, color: "var(--brand)" }, { name: "未開始", value: pending.length, color: "var(--border)" }]} center={<span className="text-center"><span className="tabular block text-[22px] font-extrabold leading-none">{gradingPct}%</span><span className="text-[10px] text-muted-foreground">已送出</span></span>} />
-              <ul className="flex flex-col gap-1">
-                {EVALUATION_QUEUE.map((e) => (
-                  <li key={e.groupId}>
-                    <Link href={`${base}/grading/${e.groupId}`} className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-card/70">
-                      <span className="tabular w-12 shrink-0 text-xs font-semibold text-muted-foreground">{e.groupNo}</span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.title}</span>
-                      {e.state === "pending" ? <Pill tone="brand">未開始</Pill> : e.state === "staged" ? <Pill tone="default">已暫存</Pill> : <Pill tone="success">已送出</Pill>}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </TintCard>
+          <Panel title="評分工作台" description="系統驗收" action={{ href: `${base}/grading`, label: "開啟" }} className="h-full">
+            <ul className="flex flex-col gap-1 px-3 pb-3">
+              {EVALUATION_QUEUE.map((e) => (
+                <li key={e.groupId}>
+                  <Link href={`${base}/grading/${e.groupId}`} className="dash-card-hover flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-accent/40">
+                    <span className="tabular w-14 shrink-0 text-xs font-semibold text-muted-foreground">{e.groupNo}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.title}</span>
+                    {e.state === "pending" ? <Pill tone="brand">未開始</Pill> : e.state === "staged" ? <Pill tone="default">已暫存</Pill> : <Pill tone="success">已送出</Pill>}
+                    <span className={buttonVariants({ size: "sm", variant: e.state === "submitted" ? "outline" : "default", className: "press rounded-lg" })}>{e.state === "pending" ? "開始" : e.state === "staged" ? "繼續" : "查看"}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Panel>
         ),
       },
       {
@@ -125,30 +138,37 @@ function teacherHome(role: Role): HomeModel {
         ),
       },
       {
-        key: "progress", present: myGroups.length > 0,
+        key: "groups", present: myGroups.length > 0,
         node: (
-          <Panel title="指導組別繳交" action={{ href: `${base}/affairs`, label: "各組" }} className="h-full">
-            <div className="px-5 pb-5"><StackedRows rows={myGroups.map((g, i) => ({ label: `${g.no} ${g.title.replace(/（產學：.*）/, "")}`, done: [3, 4][i % 2], overdue: g.id === "g-07" ? 1 : 0, total: 5 }))} /></div>
+          <Panel title="指導組別" description={`${myGroups.length} 組`} action={{ href: `${base}/groups`, label: "總覽" }} className="h-full">
+            <ul className="flex flex-col px-5 pb-4">
+              {myGroups.map((g) => (
+                <li key={g.id} className="flex items-center gap-3 border-t border-border/70 py-2.5 text-sm first:border-t-0">
+                  <span className="tabular w-14 shrink-0 text-xs font-semibold text-muted-foreground">{g.no}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{g.title.replace(/（產學：.*）/, "")}</span>
+                  {g.type === "INDUSTRY" ? <Pill tone="info">產學</Pill> : null}
+                </li>
+              ))}
+            </ul>
           </Panel>
         ),
       },
       {
         key: "industry", present: myCases.length > 0,
         node: (
-          <TintCard tint="sand" title="我的合作案" description={`${myCases.length} 件`} action={{ href: `${base}/industry`, label: "管理" }} illustration={<Spot icon={<IconBriefcase className="size-9" strokeWidth={1.5} />} size={72} />}>
-            <ul className="px-3 pt-2 pb-3">
+          <Panel title="我的合作案" description={`${myCases.length} 件`} action={{ href: `${base}/industry`, label: "管理" }} className="h-full">
+            <ul className="px-5 pb-4">
               {myCases.map((c) => (
-                <li key={c.id} className="flex items-center gap-3 rounded-xl px-2 py-2"><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{c.company}</span><span className="block truncate text-xs text-muted-foreground">{c.title}</span></span>{c.status === "claimed" ? <Pill tone="default">已有 {c.linkedGroups} 組</Pill> : <Pill tone="brand">尚未指派</Pill>}</li>
+                <li key={c.id} className="flex items-center gap-3 border-t border-border/70 py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{c.company}</span><span className="block truncate text-xs text-muted-foreground">{c.title}</span></span>{c.status === "claimed" ? <Pill tone="default">已有 {c.linkedGroups} 組</Pill> : <Pill tone="brand">尚未指派</Pill>}</li>
               ))}
             </ul>
-          </TintCard>
+          </Panel>
         ),
       },
     ],
   };
 }
 
-/* ============================================================ 管理員 */
 function adminHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const s = ADMIN_STATS;
