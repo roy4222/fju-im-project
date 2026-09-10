@@ -251,6 +251,9 @@ export type ManagedItem = {
   /** 管理視角：完成率 */
   progress?: { done: number; total: number; overdue: number };
   attachments?: number;
+  /** 作業區顯示：屬於哪個階段、組別共用還是個人各自填 */
+  stage?: string;
+  form?: "group" | "personal";
 };
 
 export const MANAGED_ITEMS: ManagedItem[] = [
@@ -267,6 +270,8 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     myState: "draft",
     progress: { done: 5, total: 9, overdue: 0 },
     attachments: 1,
+    stage: "指導老師",
+    form: "personal",
   },
   {
     id: "mi-013",
@@ -279,6 +284,8 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     status: "published",
     schemaVersion: 1,
     myState: "submitted",
+    stage: "分組",
+    form: "group",
     progress: { done: 8, total: 9, overdue: 0 },
   },
   {
@@ -292,6 +299,8 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     status: "published",
     schemaVersion: 1,
     myState: "todo",
+    stage: "題目與計畫書",
+    form: "group",
     progress: { done: 2, total: 9, overdue: 0 },
   },
   {
@@ -305,6 +314,8 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     status: "published",
     schemaVersion: 3,
     myState: "overdue",
+    stage: "系統驗收",
+    form: "group",
     progress: { done: 6, total: 9, overdue: 3 },
     attachments: 2,
   },

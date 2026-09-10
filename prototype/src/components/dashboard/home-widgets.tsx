@@ -19,12 +19,13 @@ export function md(d: string) { return d.slice(5).replace("-", "/"); }
 const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
 
 /* ------------------------------------------------------------------ 歡迎回來 */
-export function HeroWelcome({ name, line, progress, illustration, cta }: { name: string; line: string; progress: number; illustration?: ReactNode; cta?: { href: string; label: string } }) {
+export type HeroChip = { label: string; value: string; href: string; hot?: boolean };
+export function HeroWelcome({ name, line, progress, illustration, cta, chips }: { name: string; line: string; progress: number; illustration?: ReactNode; cta?: { href: string; label: string }; chips?: HeroChip[] }) {
   const [, mm, dd] = TODAY_YMD.split("-").map(Number);
   const today = `${mm} 月 ${dd} 日・星期${WEEKDAY[new Date(`${TODAY_YMD}T00:00:00`).getDay()]}`;
   return (
-    <section className="hero flex min-h-[236px] items-stretch">
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-6 p-7 md:p-8">
+    <section className="hero flex min-h-[220px] items-stretch">
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-5 p-6 md:p-7">
         <div>
           <p className="tabular text-[13px] font-semibold text-white/75">{today}</p>
           <h1 className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight md:text-[32px]">歡迎回來，{name}</h1>
@@ -37,6 +38,16 @@ export function HeroWelcome({ name, line, progress, illustration, cta }: { name:
           </div>
           {cta ? <Link href={cta.href} className="btn-fju h-10 rounded-xl px-5 text-[14px]">{cta.label}<IconArrowRight className="size-4" /></Link> : null}
         </div>
+        {chips?.length ? (
+          <div className="flex flex-wrap gap-2" data-hero-chips>
+            {chips.map((c) => (
+              <Link key={c.label} href={c.href} className={`inline-flex h-9 items-center gap-2 rounded-xl px-3 text-[13px] transition-colors ${c.hot ? "bg-brand text-brand-foreground hover:bg-[oklch(0.7_0.16_55)]" : "bg-white/12 text-white/90 hover:bg-white/20"}`}>
+                <span className="font-medium">{c.label}</span>
+                <span className="tabular font-extrabold">{c.value}</span>
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="hidden w-[280px] shrink-0 items-center justify-center pr-6 md:flex" data-illustration="hero">{illustration}</div>
     </section>
@@ -49,9 +60,9 @@ export function Spot({ icon, size = 140, className = "" }: { icon: ReactNode; si
 }
 
 /* ------------------------------------------------------------------ 專題行事曆 */
-export function CalendarCard({ canEdit = false }: { canEdit?: boolean }) {
+export function CalendarCard({ canEdit = false, scroll = false }: { canEdit?: boolean; scroll?: boolean }) {
   return (
-    <Panel title="專題行事曆" description="系辦設定" className="h-full">
+    <Panel title="專題行事曆" description="系辦設定" className="h-full" bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
       <MiniCalendar events={CALENDAR_EVENTS} today={TODAY_YMD} canEdit={canEdit} />
     </Panel>
   );
@@ -69,14 +80,14 @@ export function upcomingFor(role: Role): Upcoming[] {
 
 const UP_TINT: Record<Upcoming["kind"], string> = { task: "tint-peach", deadline: "tint-peach", event: "tint-sky", competition: "tint-mint" };
 
-export function UpcomingCard({ role, base }: { role: Role; base: string }) {
-  const list = upcomingFor(role);
+export function UpcomingCard({ role, base, limit, scroll = false }: { role: Role; base: string; limit?: number; scroll?: boolean }) {
+  const list = limit ? upcomingFor(role).slice(0, limit) : upcomingFor(role);
   const groups: { label: string; items: Upcoming[] }[] = [
     { label: "本週", items: list.filter((u) => daysUntil(u.date) <= 7) },
     { label: "之後", items: list.filter((u) => daysUntil(u.date) > 7) },
   ].filter((g) => g.items.length > 0);
   return (
-    <Panel title="接下來" action={{ href: `${base}/timeline`, label: "全部" }} className="h-full">
+    <Panel title="接下來" action={{ href: `${base}/timeline`, label: "全部" }} className="h-full" bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
       {list.length === 0 ? <p className="px-5 pb-5 text-sm text-muted-foreground">最近沒有要做的事。</p> : (
         <div className="flex flex-col gap-1 px-3 pb-3">
           {groups.map((g) => (
@@ -108,11 +119,11 @@ export function UpcomingCard({ role, base }: { role: Role; base: string }) {
 }
 
 /* ------------------------------------------------------------------ 公告 */
-export function NewsCard({ action }: { action?: ReactNode }) {
+export function NewsCard({ action, limit = 5, scroll = false }: { action?: ReactNode; limit?: number; scroll?: boolean }) {
   return (
-    <Panel title="公告" action={action ?? { href: "/news", label: "全部" }} className="h-full">
+    <Panel title="公告" action={action ?? { href: "/news", label: "全部" }} className="h-full" bodyClassName={scroll ? "min-h-0 overflow-y-auto" : ""}>
       <ul className="px-2 pb-2">
-        {NEWS.slice(0, 5).map((n) => (
+        {NEWS.slice(0, limit).map((n) => (
           <li key={n.id}>
             <Link href={`/news/${n.id}`} className="flex items-center gap-4 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/60">
               <span className="tabular flex w-11 shrink-0 flex-col items-center rounded-xl bg-muted py-1.5 leading-none"><span className="text-[10px] font-semibold text-muted-foreground">{Number(n.date.slice(5, 7))} 月</span><span className="mt-0.5 text-[17px] font-extrabold">{Number(n.date.slice(8, 10))}</span></span>
@@ -224,11 +235,26 @@ export function StatStrip({ stats }: { stats: StatSpec[] }) {
 }
 
 /* ------------------------------------------------------------------ 頁面骨架 */
-export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode };
+export type HomeModel = { role: Role; name: string; line: string; cta?: { href: string; label: string }; heroIllustration: ReactNode; stats: StatSpec[]; modules: { key: string; present: boolean; span?: 1 | 2; node: ReactNode }[]; newsAction?: ReactNode; /** 學生：四塊壓一屏（Roy 2026-09-10） */ layout?: "student"; chips?: HeroChip[] };
 
 export function HomeLayout({ model }: { model: HomeModel }) {
   const base = `/dashboard/${model.role}`;
   const live = model.modules.filter((m) => m.present);
+  if (model.layout === "student") {
+    /* Roy 2026-09-10：學生首頁只要歡迎回來、公告、行事曆、接下來四塊，壓在一屏內；作業／組員／同意書縮成歡迎色塊底部三格。 */
+    return (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:h-[calc(100dvh-7.5rem)] xl:min-h-[600px] xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-5">
+          <HeroWelcome name={model.name} line={model.line} progress={cohortProgress()} illustration={model.heroIllustration} cta={model.cta} chips={model.chips} />
+          <div className="min-h-0 flex-1"><NewsCard action={model.newsAction} limit={5} scroll /></div>
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-col gap-5">
+          <div className="shrink-0"><CalendarCard canEdit={false} /></div>
+          <div className="min-h-0 flex-1"><UpcomingCard role={model.role} base={base} limit={6} scroll /></div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-5">

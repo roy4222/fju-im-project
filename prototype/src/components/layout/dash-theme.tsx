@@ -48,7 +48,8 @@ export function DashThemeRoot({ children }: { children: ReactNode }) {
     busy.current = true;
     // flushSync：讓 React 在快照前就把 dark class 換好，否則圓圈裡先是舊色、結束才跳新色（Roy 說的「卡一段」）。
     const vt = doc.startViewTransition(() => { flushSync(() => writeDark(next)); });
-    vt.finished.finally(() => { busy.current = false; });
+    // 分頁在背景或動畫中途被打斷時 finished 會 reject（InvalidStateError），吞掉即可，主題已經換好。
+    vt.finished.catch(() => {}).finally(() => { busy.current = false; });
   }
 
   return (

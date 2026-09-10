@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { IconAlertTriangle, IconBriefcase, IconCalendarDue, IconChecklist, IconClipboardText, IconClock, IconFileCertificate, IconHandGrab, IconPencilPlus, IconSchool, IconSignature, IconTrophy, IconUpload, IconUserCheck, IconUsers, IconUsersGroup } from "@tabler/icons-react";
+import { IconAlertTriangle, IconBriefcase, IconCalendarDue, IconChecklist, IconClipboardText, IconClock, IconHandGrab, IconPencilPlus, IconSchool, IconSignature, IconTrophy, IconUpload, IconUserCheck, IconUsers, IconUsersGroup } from "@tabler/icons-react";
 import { buttonVariants } from "@/components/ui/button";
-import { ActionRow, Panel, Pill, StateBadge } from "@/components/dashboard/primitives";
+import { ActionRow, Panel, Pill } from "@/components/dashboard/primitives";
 import { Ring } from "@/components/dashboard/charts";
 import { Bars, Donut, StackedRows, TrendArea } from "@/components/dashboard/rc-charts";
 import { HomeLayout, Spot, TintCard, type HomeModel } from "@/components/dashboard/home-widgets";
 import { isValidRole } from "@/lib/nav-config";
-import { ADMIN_STATS, AUDIT_EVENTS, CURRENT_USERS, EVALUATION_QUEUE, GRADING_PROGRESS, GROUPS, INDUSTRY, MANAGED_ITEMS, MY_GROUP, SIGNOFF, SIGNOFF_PROGRESS, SUBMISSION_TREND, TEACHERS, currentStage, daysUntil, formatDue, type Role } from "@/lib/fixtures";
+import { ADMIN_STATS, AUDIT_EVENTS, CURRENT_USERS, EVALUATION_QUEUE, GRADING_PROGRESS, GROUPS, INDUSTRY, MANAGED_ITEMS, MY_GROUP, SIGNOFF, SIGNOFF_PROGRESS, SUBMISSION_TREND, currentStage, daysUntil, type Role } from "@/lib/fixtures";
 
 /**
  * 後台首頁（2026-09-09 第三輪）：
@@ -21,88 +21,38 @@ export default async function DashboardPage({ params }: PageProps<"/dashboard/[r
   return <HomeLayout model={model} />;
 }
 
-function Due({ dueAt }: { dueAt: string }) {
-  const d = daysUntil(dueAt);
-  return <span className={`tabular inline-flex items-center gap-1 text-xs font-semibold ${d < 0 ? "text-destructive" : d <= 10 ? "text-brand" : "text-muted-foreground"}`}><IconClock className="size-3.5" />{formatDue(dueAt)}・{dueAt.slice(5)}</span>;
-}
-
 /* ============================================================ 學生 */
 function studentHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
-  const user = CURRENT_USERS.student;
+  const stage = currentStage();
   const open = MANAGED_ITEMS.filter((i) => i.myState && i.myState !== "submitted" && i.myState !== "locked").sort((a, b) => daysUntil(a.dueAt ?? "2099") - daysUntil(b.dueAt ?? "2099"));
   const overdue = open.filter((i) => i.myState === "overdue");
   const submitted = MANAGED_ITEMS.filter((i) => i.myState === "submitted");
   const confirmed = MY_GROUP.members.filter((m) => m.confirmed).length;
+  const name = CURRENT_USERS.student.name;
   const approvals = SIGNOFF.studentApprovals.filter((a) => a.approved).length;
-  const myPending = SIGNOFF.studentApprovals.some((a) => a.name === user.name && !a.approved);
-  const stage = currentStage();
-
+  const myPending = SIGNOFF.studentApprovals.some((a) => a.name === name && !a.approved);
   return {
     role,
-    name: user.name,
+    layout: "student",
+    name,
     line: open.length ? `現在是「${stage.title}」。作業區還有 ${open.length} 件沒送出${overdue.length ? `，其中 ${overdue.length} 件已逾期` : ""}。` : `現在是「${stage.title}」。作業區沒有待繳的東西，做得好。`,
     cta: open.length ? { href: `${base}/affairs?tab=open`, label: "去作業區" } : undefined,
-    heroIllustration: <Spot icon={<IconSchool className="size-20" strokeWidth={1.4} />} size={168} className="tint tint-sky" />,
+    heroIllustration: <Spot icon={<IconSchool className="size-16" strokeWidth={1.4} />} />,
+    /* Roy 2026-09-10：作業區／我的組別／同意書不再各占一張卡，縮成歡迎色塊底部三格 */
+    chips: [
+      { label: "作業待繳", value: `${open.length} 件`, href: `${base}/affairs?tab=open`, hot: open.length > 0 },
+      { label: "組員確認", value: `${confirmed}/5`, href: `${base}/groups` },
+      { label: "同意書", value: myPending ? "等你同意" : `${approvals}/5`, href: `${base}/signoff` },
+    ],
     stats: [
       { key: "open", label: "待繳", icon: <IconClipboardText />, value: open.length, unit: "件", tone: open.length ? "brand" : "default", href: `${base}/affairs?tab=open` },
-      { key: "done", label: "已繳交", icon: <IconUpload />, value: submitted.length, unit: "件", hint: overdue.length ? `${overdue.length} 件逾期` : undefined, href: `${base}/affairs?tab=done` },
-      { key: "group", label: "組員確認", icon: <IconUsers />, value: `${confirmed}/5`, hint: confirmed < 5 ? `還差 ${5 - confirmed} 人` : "全員到齊", href: `${base}/groups` },
-      { key: "sign", label: "同意書", icon: <IconSignature />, value: `${approvals}/5`, hint: myPending ? "等你同意" : "等其他組員", href: `${base}/signoff` },
+      { key: "done", label: "已繳交", icon: <IconUpload />, value: submitted.length, unit: "件", href: `${base}/affairs?tab=done` },
     ],
-    modules: [
-      {
-        key: "work", present: open.length > 0, span: 2,
-        node: (
-          <TintCard tint="peach" title="作業區" description={`${open.length} 件待繳`} action={{ href: `${base}/affairs?tab=open`, label: "全部" }} illustration={<Spot icon={<IconClipboardText className="size-9" strokeWidth={1.5} />} size={72} />}>
-            <ul className="px-3 pb-3">
-              {open.slice(0, 3).map((i) => (
-                <li key={i.id}>
-                  <Link href={`${base}/affairs/${i.id}`} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-card/70">
-                    <span className="tabular flex w-11 shrink-0 flex-col items-center rounded-xl bg-card py-1 leading-none"><span className="text-[10px] font-semibold text-muted-foreground">{i.dueAt ? `${Number(i.dueAt.slice(5, 7))} 月` : ""}</span><span className={`mt-0.5 text-[17px] font-extrabold ${i.myState === "overdue" ? "text-destructive" : ""}`}>{i.dueAt ? Number(i.dueAt.slice(8, 10)) : "—"}</span></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{i.title}</span>{i.dueAt ? <Due dueAt={i.dueAt} /> : null}</span>
-                    <StateBadge state={i.myState!} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </TintCard>
-        ),
-      },
-      {
-        key: "group", present: confirmed < 5,
-        node: (
-          <TintCard tint="sky" title="我的組別" description={`${confirmed}/5 已確認`} action={{ href: `${base}/groups`, label: "詳情" }} illustration={<Spot icon={<IconUsersGroup className="size-9" strokeWidth={1.5} />} size={72} />}>
-            <div className="px-5 pt-3 pb-5">
-              <p className="text-[15px] font-bold">{MY_GROUP.title}</p>
-              <p className="text-xs text-muted-foreground">指導老師 {TEACHERS.find((t) => t.id === MY_GROUP.advisorId)?.name ?? "尚未指派"}</p>
-              <div className="mt-4 flex -space-x-2">
-                {MY_GROUP.members.map((m) => (
-                  <span key={m.id} title={m.name} className={`inline-flex size-9 items-center justify-center rounded-full text-[11px] font-bold ring-2 ring-card ${m.confirmed ? "bg-primary text-primary-foreground" : "border border-dashed border-muted-foreground/50 bg-card text-muted-foreground"}`}>{m.name.slice(-2)}</span>
-                ))}
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">還差 {5 - confirmed} 人確認才能成立。</p>
-            </div>
-          </TintCard>
-        ),
-      },
-      {
-        key: "sign", present: myPending,
-        node: (
-          <TintCard tint="lilac" title="同意書" description={`${approvals}/5 已同意`} action={{ href: `${base}/signoff`, label: "全文" }} illustration={<Spot icon={<IconFileCertificate className="size-9" strokeWidth={1.5} />} size={72} />}>
-            <div className="px-5 pt-3 pb-5">
-              <p className="text-[15px] font-bold">{SIGNOFF.title}</p>
-              <p className="mt-1 text-xs text-muted-foreground">看完 PDF 全文再按同意；五人全同意後輪到指導老師。</p>
-              <Link href={`${base}/signoff`} className="btn-fju mt-4 h-9 rounded-lg px-4 text-xs">閱讀全文</Link>
-            </div>
-          </TintCard>
-        ),
-      },
-    ],
+    modules: [],
   };
 }
 
-/* ============================================================ 老師 */
 function teacherHome(role: Role): HomeModel {
   const base = `/dashboard/${role}`;
   const me = CURRENT_USERS.teacher;
