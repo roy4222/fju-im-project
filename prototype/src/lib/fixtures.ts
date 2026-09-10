@@ -254,6 +254,8 @@ export type ManagedItem = {
   /** 作業區顯示：屬於哪個階段、組別共用還是個人各自填 */
   stage?: string;
   form?: "group" | "personal";
+  /** 公告類項目對應前台 NEWS 的 id */
+  newsId?: string;
 };
 
 export const MANAGED_ITEMS: ManagedItem[] = [
@@ -271,7 +273,7 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     progress: { done: 5, total: 9, overdue: 0 },
     attachments: 1,
     stage: "指導老師",
-    form: "personal",
+    form: "group",
   },
   {
     id: "mi-013",
@@ -305,20 +307,26 @@ export const MANAGED_ITEMS: ManagedItem[] = [
   },
   {
     id: "mi-011",
-    title: "系統驗收簡報與說明文件",
+    title: "專題說明會出席與分組意向登記",
     placement: "submission",
-    summary: "上傳系統驗收簡報（PDF）與操作說明文件。單檔上限 100 MiB。",
+    summary: "登記 8/20 說明會出席人數，並填暫定組員名單與意向（一般／產學）。整組一份，截止後唯讀。",
     publishedAt: "2026-07-20",
     dueAt: "2026-08-15",
     audience: "114 學年度學生",
     status: "published",
     schemaVersion: 3,
-    myState: "overdue",
-    stage: "系統驗收",
+    myState: "locked",
+    stage: "分組",
     form: "group",
     progress: { done: 6, total: 9, overdue: 3 },
-    attachments: 2,
+    attachments: 1,
   },
+  /* 公告與資源也是同一種 ManagedItem（Codex 09-10 A-04：系辦要能從同一份清單找回公開內容） */
+  { id: "mi-031", title: "114 學年度專題分組作業與指導老師意願調查開始受理", placement: "news", summary: "分組名單確認表與指導老師意願調查表已開放填寫。", publishedAt: "2026-08-14", audience: "公開訪客", status: "published", newsId: "n-31", attachments: 2 },
+  { id: "mi-030", title: "專題規則修訂：系統驗收評分項目調整為七項", placement: "news", summary: "新增「資料安全與隱私處理」；權重配置同步更新。", publishedAt: "2026-08-12", audience: "公開訪客", status: "published", newsId: "n-30", attachments: 1 },
+  { id: "mi-029", title: "第 31 屆全國大專校院資訊應用服務創新競賽開始報名", placement: "news", summary: "報名至 2026 年 10 月 3 日止。", publishedAt: "2026-08-12", audience: "公開訪客", status: "published", newsId: "n-29" },
+  { id: "mi-028", title: "指導老師研究領域一覽", placement: "resource", summary: "四位老師的研究領域與近年指導題目，填意願前先看。", publishedAt: "2026-08-11", audience: "114 學年度學生", status: "published", attachments: 1 },
+  { id: "mi-027", title: "雲端服務實務工作坊（8/28）報名", placement: "news", summary: "業界講師半日實作，名額 40 人。", publishedAt: "2026-08-08", audience: "114 學年度學生", status: "draft", newsId: "n-28" },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -381,8 +389,8 @@ export const NEWS: NewsItem[] = [
     image: "/placeholder/lounge.jpg",
     audience: "students",
     category: "專題事務",
-    title: "系統驗收簡報繳交期限提醒",
-    summary: "尚未完成繳交之組別請儘速上傳；逾期組別需由系辦個別重新開放並填具理由。",
+    title: "說明會出席與分組意向登記期限提醒",
+    summary: "尚未完成登記之組別請儘速送出；逾期組別需由系辦個別重新開放並填具理由。",
     date: "2026-08-05",
   },
   {
@@ -577,7 +585,7 @@ export const SIGNOFF = {
 /* -------------------------------------------------------------------------- */
 
 export const ADMIN_STATS = {
-  pendingAccounts: 4,
+  pendingAccounts: 4, // 畫面請用 pendingAccounts() 算，這個值只是備援
   disabledAccounts: 2,
   groupedStudents: 44,
   ungroupedStudents: 4,
@@ -888,7 +896,7 @@ export type Notification = {
 
 export const NOTIFICATIONS: Record<Role, Notification[]> = {
   student: [
-    { id: "n-s1", kind: "due", title: "指導老師意願調查表 9 天後截止", body: "草稿尚未送出，任一組員送出即完成。", at: "08-17 09:00", read: false, href: "/dashboard/student/affairs/mi-014" },
+    { id: "n-s1", kind: "due", title: "指導老師意願調查表 9 天後截止", body: "草稿尚未送出；組別成立後任一組員送出即完成。", at: "08-17 09:00", read: false, href: "/dashboard/student/affairs/mi-014" },
     { id: "n-s2", kind: "signoff", title: "專題成果授權同意書等你同意", body: "已有 3 位組員同意。", at: "08-16 21:13", read: false, href: "/dashboard/student/signoff" },
     { id: "n-s3", kind: "submission", title: "專題分組名單確認表已繳交", body: "黃詩涵於 08-14 送出，版本 v1。", at: "08-14 16:20", read: true, href: "/dashboard/student/affairs/mi-013" },
     { id: "n-s4", kind: "system", title: "第 07 組還有 2 位成員未確認", body: "蔡育瑄、鄭凱文尚未確認加入。", at: "08-13 10:02", read: true, href: "/dashboard/student/groups" },
@@ -896,12 +904,12 @@ export const NOTIFICATIONS: Record<Role, Notification[]> = {
   teacher: [
     { id: "n-t1", kind: "grading", title: "系統驗收：第 07 組待評分", body: "評分表已開放，送出後鎖定。", at: "08-17 08:30", read: false, href: "/dashboard/teacher/grading/g-07" },
     { id: "n-t2", kind: "signoff", title: "第 08 組同意書等待老師同意", body: "五位學生已全數同意。", at: "08-16 22:05", read: false, href: "/dashboard/teacher/signoff" },
-    { id: "n-t3", kind: "submission", title: "第 02 組送出系統驗收簡報", body: "版本 v2，附件 2 個。", at: "08-15 17:44", read: true, href: "/dashboard/teacher/affairs" },
+    { id: "n-t3", kind: "submission", title: "第 02 組送出分組意向登記", body: "版本 v2，附件 1 個。", at: "08-15 17:44", read: true, href: "/dashboard/teacher/affairs" },
     { id: "n-t4", kind: "system", title: "2 個產學組尚未指派老師", body: "第 03 組、第 06 組可認領。", at: "08-12 09:00", read: true, href: "/dashboard/teacher/groups" },
   ],
   admin: [
     { id: "n-a1", kind: "account", title: "4 筆帳號等待審核", body: "名單未命中或以 Email 註冊。", at: "08-17 07:50", read: false, href: "/dashboard/admin/accounts?status=pending" },
-    { id: "n-a2", kind: "due", title: "系統驗收簡報：3 組逾期", body: "需個別重新開放並填理由。", at: "08-16 00:05", read: false, href: "/dashboard/admin/affairs/mi-011" },
+    { id: "n-a2", kind: "due", title: "分組意向登記：3 組逾期", body: "需個別重新開放並填理由。", at: "08-16 00:05", read: false, href: "/dashboard/admin/affairs/mi-011" },
     { id: "n-a3", kind: "grading", title: "系統驗收缺評老師 2 位", body: "李孟儒、張士豪尚未送出。", at: "08-15 18:00", read: false, href: "/dashboard/admin/grading" },
     { id: "n-a4", kind: "system", title: "每日備份完成", body: "08-17 03:00，18.4 GiB。", at: "08-17 03:02", read: true, href: "/dashboard/admin/files" },
   ],
@@ -910,7 +918,7 @@ export const NOTIFICATIONS: Record<Role, Notification[]> = {
 export type AuditEvent = { id: string; at: string; actor: string; role: Role | "system"; action: string; target: string; reason?: string };
 
 export const AUDIT_EVENTS: AuditEvent[] = [
-  { id: "ae-01", at: "2026-08-17 09:12", actor: "系辦管理員", role: "admin", action: "重新開放收件", target: "系統驗收簡報與說明文件・第 05 組", reason: "組員住院，延至 08-22" },
+  { id: "ae-01", at: "2026-08-17 09:12", actor: "系辦管理員", role: "admin", action: "重新開放收件", target: "專題說明會出席與分組意向登記・第 05 組", reason: "組員住院，延至 08-22" },
   { id: "ae-02", at: "2026-08-16 22:05", actor: "陳建宏", role: "teacher", action: "認領產學組", target: "第 02 組" },
   { id: "ae-03", at: "2026-08-16 15:30", actor: "系辦管理員", role: "admin", action: "核准帳號", target: "411410455 高雅筑", reason: "名單姓名有誤字，已確認" },
   { id: "ae-04", at: "2026-08-15 18:00", actor: "王雅玲", role: "teacher", action: "送出正式評分", target: "系統驗收・第 04 組" },
@@ -920,16 +928,18 @@ export const AUDIT_EVENTS: AuditEvent[] = [
   { id: "ae-08", at: "2026-08-12 14:40", actor: "系辦管理員", role: "admin", action: "建立例外組別", target: "第 09 組（4 人）", reason: "轉系生名額不足" },
 ];
 
-export type Account = { id: string; name: string; studentNo?: string; email: string; role: Role; cohort: string; status: "active" | "pending" | "disabled"; createdAt: string; approvedBy?: string };
+export type Account = { id: string; name: string; studentNo?: string; email: string; role: Role; cohort: string; status: "active" | "pending" | "disabled"; createdAt: string; approvedBy?: string;
+  /** 待審核的比對證據（Codex 09-10 A-05：不能只給一個「姓名不符」徽章） */
+  review?: { reason: string; rosterName?: string; rosterHit: boolean } };
 
 export const ACCOUNTS: Account[] = [
   { id: "a-01", name: "林彥廷", studentNo: "411410123", email: "411410123@m365.fju.edu.tw", role: "student", cohort: "114", status: "active", createdAt: "2026-08-13", approvedBy: "名單自動" },
   { id: "a-02", name: "黃詩涵", studentNo: "411410145", email: "411410145@m365.fju.edu.tw", role: "student", cohort: "114", status: "active", createdAt: "2026-08-13", approvedBy: "名單自動" },
   { id: "a-03", name: "高雅筑", studentNo: "411410455", email: "yachu.kao@gmail.com", role: "student", cohort: "114", status: "active", createdAt: "2026-08-14", approvedBy: "系辦管理員" },
-  { id: "a-04", name: "許庭瑋", studentNo: "411410466", email: "tingwei@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16" },
-  { id: "a-05", name: "陳冠宇", studentNo: "411410477", email: "411410477@m365.fju.edu.tw", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16" },
-  { id: "a-06", name: "劉思妤", studentNo: "410410312", email: "siyu.liu@gmail.com", role: "student", cohort: "113", status: "pending", createdAt: "2026-08-17" },
-  { id: "a-07", name: "王小明", studentNo: "411410999", email: "wang.xm@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-17" },
+  { id: "a-04", name: "許庭瑋", studentNo: "411410466", email: "tingwei@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16", review: { reason: "學號命中名單，姓名不同", rosterName: "許廷瑋", rosterHit: true } },
+  { id: "a-05", name: "陳冠宇", studentNo: "411410477", email: "411410477@m365.fju.edu.tw", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-16", review: { reason: "學號不在名單（名單 v3 缺漏，等 v4）", rosterHit: false } },
+  { id: "a-06", name: "劉思妤", studentNo: "410410312", email: "siyu.liu@gmail.com", role: "student", cohort: "113", status: "pending", createdAt: "2026-08-17", review: { reason: "113 學年度學號，非本屆", rosterHit: false } },
+  { id: "a-07", name: "王小明", studentNo: "411410999", email: "wang.xm@gmail.com", role: "student", cohort: "114", status: "pending", createdAt: "2026-08-17", review: { reason: "學號查無此人，Email 非校方信箱", rosterHit: false } },
   { id: "a-08", name: "陳建宏", email: "chen.ch@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
   { id: "a-09", name: "王雅玲", email: "wang.yl@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
   { id: "a-10", name: "李孟儒", email: "lee.mj@mail.fju.edu.tw", role: "teacher", cohort: "—", status: "active", createdAt: "2026-07-01", approvedBy: "系辦建立" },
@@ -947,22 +957,31 @@ export const SUBMISSION_TREND = [
 
 /** 評分階段各老師進度（管理員） */
 export const GRADING_PROGRESS = [
-  { teacher: "陳建宏", assigned: 3, submitted: 3 },
+  { teacher: "陳建宏", assigned: 4, submitted: 1 },
   { teacher: "王雅玲", assigned: 3, submitted: 2 },
   { teacher: "李孟儒", assigned: 2, submitted: 0 },
   { teacher: "張士豪", assigned: 2, submitted: 1 },
 ];
 
-/** 簽核各組進度（管理員／老師） */
-export const SIGNOFF_PROGRESS = GROUPS.map((g, i) => ({
-  groupId: g.id,
-  groupNo: g.no,
-  title: g.title,
-  students: g.id === "g-07" ? 3 : [5, 5, 4, 5, 2, 5, 5, 0][i % 8],
-  total: g.members.length,
-  teacher: [true, true, false, true, false, false, false, false][i % 8] && g.id !== "g-07",
-  state: (g.id === "g-07" ? "students" : [true, true, false, true, false, false, false, false][i % 8] ? "complete" : "students") as "students" | "teacher" | "complete" | "revision",
-}));
+/** 簽核各組進度（管理員／老師）。明寫每組，三個角色算出來的數字才會一致（Codex 09-10 T-04／A-06）。 */
+const SIGNOFF_SEED: Record<string, { students: number; teacher: boolean }> = {
+  "g-07": { students: 3, teacher: false },
+  "g-01": { students: 5, teacher: true },
+  "g-02": { students: 5, teacher: false }, // 陳建宏可以簽了
+  "g-03": { students: 4, teacher: false },
+  "g-04": { students: 5, teacher: true },
+  "g-05": { students: 2, teacher: false },
+  "g-06": { students: 5, teacher: false }, // 尚未指派老師
+  "g-08": { students: 5, teacher: true },
+  "g-09": { students: 0, teacher: false },
+};
+export type SignoffState = "students" | "teacher" | "complete" | "revision";
+export const SIGNOFF_PROGRESS = GROUPS.map((g) => {
+  const seed = SIGNOFF_SEED[g.id];
+  const total = g.members.length;
+  const state: SignoffState = seed.teacher ? "complete" : seed.students === total ? "teacher" : "students";
+  return { groupId: g.id, groupNo: g.no, title: g.title, students: seed.students, total, teacher: seed.teacher, state, missing: g.members.slice(seed.students).map((m) => m.name) };
+});
 
 /* -------------------------------------------------------------------------- */
 /* 表單欄位（規格 §4.4 v1 可用元件）與各組繳交狀態                               */
@@ -1041,7 +1060,7 @@ export const GROUP_SUBMISSIONS: Record<string, GroupSubmission[]> = Object.fromE
       if (idx < done + overdue) return { groupId: g.id, state: "overdue" };
       return { groupId: g.id, state: idx % 2 === 0 ? "draft" : "todo" };
     });
-    if (item.myState) rows[0] = { ...rows[0], groupId: "g-07", state: item.myState, ...(item.myState === "submitted" ? { version: 1, submittedBy: "黃詩涵", at: "2026-08-14 16:20" } : {}) };
+    if (item.myState) rows[0] = { ...rows[0], groupId: "g-07", state: item.myState, ...(item.myState === "submitted" ? { version: 1, submittedBy: "黃詩涵", at: "2026-08-14 16:20" } : item.myState === "locked" ? { version: 2, submittedBy: "林彥廷", at: "2026-08-12 23:41" } : {}) };
     return [item.id, rows];
   }),
 );
@@ -1150,7 +1169,7 @@ export const SCHEDULE: Stage[] = [
   {
     id: "st-acceptance", title: "系統驗收", summary: "正式發表前一個月，評系統文件與系統功能。", from: "2027-04-01", to: "2027-04-24", status: "upcoming", tag: "第二階段・佔 60%",
     tasks: [
-      { role: "student", label: "系統驗收簡報與說明文件", href: "/dashboard/student/affairs/mi-011", due: "2027-04-17" },
+      { role: "student", label: "系統驗收簡報與說明文件", href: "/dashboard/student/affairs", due: "2027-04-17" },
       { role: "student", label: "系統驗收", href: "/news", due: "2027-04-24" },
       { role: "teacher", label: "評分並正式送出", href: "/dashboard/teacher/grading", due: "2027-04-30" },
       { role: "admin", label: "指派評審、追蹤缺評", href: "/dashboard/admin/grading", due: "2027-04-30" },
@@ -1190,7 +1209,7 @@ export function stageTasksFor(stage: Stage, role: Role): StageTask[] {
 export type CalendarEvent = { id: string; date: string; title: string; kind: "deadline" | "event" | "competition"; href?: string; time?: string };
 
 export const CALENDAR_EVENTS: CalendarEvent[] = [
-  { id: "c1", date: "2026-08-15", title: "系統驗收簡報與說明文件截止", kind: "deadline", href: "/dashboard/student/affairs/mi-011" },
+  { id: "c1", date: "2026-08-15", title: "專題說明會出席與分組意向登記截止", kind: "deadline", href: "/dashboard/student/affairs/mi-011" },
   { id: "c2", date: "2026-08-20", title: "114 學年度專題說明會", kind: "event", time: "13:10", href: "/news/n-31" },
   { id: "c3", date: "2026-08-26", title: "指導老師意願調查表截止", kind: "deadline", href: "/dashboard/student/affairs/mi-014" },
   { id: "c4", date: "2026-08-28", title: "雲端服務實務工作坊", kind: "event", time: "09:00", href: "/news/n-28" },
@@ -1210,4 +1229,64 @@ export function cohortProgress(): number {
   const span = daysUntil(cur.to) - daysUntil(cur.from);
   const frac = span > 0 ? Math.min(1, Math.max(0, -daysUntil(cur.from) / span)) : 0;
   return Math.round(((done + frac) / SCHEDULE.length) * 100);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 統一計數（Codex 09-10：首頁、側欄、頁面的數字要同一個口徑）                       */
+/* -------------------------------------------------------------------------- */
+
+/** 已繳（含截止後鎖定） */
+export function isSubmittedState(s: SubmissionState | undefined): boolean {
+  return s === "submitted" || s === "locked";
+}
+
+/** 學生：還沒送出的作業（草稿、未開始、需重送），依截止日排序 */
+export function studentOpenItems(): ManagedItem[] {
+  return MANAGED_ITEMS.filter((i) => i.myState === "todo" || i.myState === "draft" || i.myState === "resubmit").sort((a, b) => daysUntil(a.dueAt ?? "2099-01-01") - daysUntil(b.dueAt ?? "2099-01-01"));
+}
+
+/** 學生：組別是否已成立（五人各自確認）。未成立不能正式送出整組表單。 */
+export function myGroupEstablished(): boolean {
+  return MY_GROUP.members.length === 5 && MY_GROUP.members.every((m) => m.confirmed);
+}
+
+/** 學生：同意書是否輪到我 */
+export function mySignoffPending(): boolean {
+  const me = CURRENT_USERS.student.name;
+  return SIGNOFF.studentApprovals.some((a) => a.name === me && !a.approved);
+}
+
+/** 老師：評分隊列三個狀態的數量 */
+export function teacherGradingCounts() {
+  const pending = EVALUATION_QUEUE.filter((e) => e.state === "pending").length;
+  const staged = EVALUATION_QUEUE.filter((e) => e.state === "staged").length;
+  const submitted = EVALUATION_QUEUE.filter((e) => e.state === "submitted").length;
+  return { pending, staged, submitted, total: EVALUATION_QUEUE.length, remaining: pending + staged };
+}
+
+/** 老師：我指導的組別 */
+export function teacherGroups(): Group[] {
+  return GROUPS.filter((g) => g.advisorId === CURRENT_USERS.teacher.id);
+}
+
+/** 老師：學生全員同意、輪到我簽的組 */
+export function teacherSignReady() {
+  const mine = new Set(teacherGroups().map((g) => g.id));
+  return SIGNOFF_PROGRESS.filter((p) => mine.has(p.groupId) && p.state === "teacher");
+}
+
+/** 老師：學生還沒同意齊的組 */
+export function teacherSignWaiting() {
+  const mine = new Set(teacherGroups().map((g) => g.id));
+  return SIGNOFF_PROGRESS.filter((p) => mine.has(p.groupId) && p.state === "students");
+}
+
+/** 管理員：待審核帳號 */
+export function pendingAccounts(): Account[] {
+  return ACCOUNTS.filter((a) => a.status === "pending");
+}
+
+/** 管理員：逾期組別總數（各收件項目加總） */
+export function overdueGroupCount(): number {
+  return MANAGED_ITEMS.reduce((a, i) => a + (i.progress?.overdue ?? 0), 0);
 }
