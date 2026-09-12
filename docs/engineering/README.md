@@ -4,9 +4,20 @@
 
 ## GitHub review 入口（2026-09-12）
 
-- 文件 PR：`docs/engineering-spec-2026-09-12` → `main`（編號見 PR 列表；本節在 PR 建立後補上）。
-- 母 spec issue #6：更新為 v3.3 全文，並串起十份子 spec review issue 與五份契約。
-- 十份子 spec review issue：建立後在本節列出編號（模組 01–10）。
+- 文件 PR：[#7](https://github.com/roy4222/fju-im-project/pull/7)（`docs/engineering-spec-2026-09-12` → `main`；文件 commit `2dea682`）。
+- 母 spec：[issue #6](https://github.com/roy4222/fju-im-project/issues/6)（v3.3 全文；頂部表格串起十份子 spec issue 與五份契約）。
+- 十份子 spec review issue（全文，同一 commit）：
+  - 模組 01 帳號與權限：[#8](https://github.com/roy4222/fju-im-project/issues/8)
+  - 模組 02 屆別與年度流程：[#9](https://github.com/roy4222/fju-im-project/issues/9)
+  - 模組 03 分組、指導與產學：[#10](https://github.com/roy4222/fju-im-project/issues/10)
+  - 模組 04 專題事務發布與編輯：[#11](https://github.com/roy4222/fju-im-project/issues/11)
+  - 模組 05 個人與組別繳交：[#12](https://github.com/roy4222/fju-im-project/issues/12)
+  - 模組 06 評分與成績：[#13](https://github.com/roy4222/fju-im-project/issues/13)
+  - 模組 07 線上簽核：[#14](https://github.com/roy4222/fju-im-project/issues/14)
+  - 模組 08 站內通知與日曆：[#15](https://github.com/roy4222/fju-im-project/issues/15)
+  - 模組 09 公開展示與共用介面：[#16](https://github.com/roy4222/fju-im-project/issues/16)
+  - 模組 10 檔案與服務維運：[#17](https://github.com/roy4222/fju-im-project/issues/17)
+- 五份共用契約沒有獨立 issue，在 PR #7 與 issue #6 的表格內連結（`contracts/01–05`）。
 
 閱讀順序：`../ARCHITECTURE.md` → `contracts/01→05` → `modules/01→10` → `slices/00 總圖`、`slices/01 案例責任表` → `verification/2026-09-12-handbook.md` 與 `verification/scripts/` → `operations/`。Codex 從 handbook §1 開始。
 
