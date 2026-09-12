@@ -1,8 +1,8 @@
-> 2026-09-13 文件鏡像（第五輪）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.5（依 Codex 對 PR #7 的第三、四輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
+> 2026-09-13 文件鏡像（第六輪）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.6（依 Codex 對 PR #7 的第三、四、五輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
 
-# 🏗️ 系統架構與資料流（工程母 spec v3.5）
+# 🏗️ 系統架構與資料流（工程母 spec v3.6）
 
-> **狀態（2026-09-13 v3.5）**：整套仍「文件已寫、待 Roy 與 Codex review」，review 通過前不拆 ticket；正式碼 `web/` 不存在，149 個產品案例 145 NOT_RUN、4 DEFERRED，沒有任何功能、保存、權限、VM、部署或校方驗收通過。**版本沿革**：v3.5（2026-09-13，Codex 對 PR #7 第四輪 review）——撤 session 改每人序列化執行器（C1）、移除殘留的 unlink 允許（C2）、S11 建空 `showcase_versions` 讓 FK 成立（C3）、B07 改草稿後按發布才驗涵蓋（C4）、GitHub 能力逐項表與人工 approval（C5）、Google Testing 基本 scope 例外全篇一致（C6）、新增 §9 畫面導覽並在十份子 spec §7 附原型圖對照；v3.4（2026-09-13，Codex 第三輪 A1–A4、B1–B5、O1–O4）——草稿與版本分開、退回鎖序、S11 交付最小精選草稿、插槽 host、前置清單事實等級、合併後整合程序；v3.3（2026-09-12，Codex 第二輪 RR01–RR12）——逐表權限、字典欄位、切片出場分界、簽核只失效、授權涵蓋、劇本前置；v3.2——簽核內容／狀態分表、附錄 B 改歷史參考；v3.1——Roy 五點（DB 權限矩陣、pending 與必須改密的重新登入路徑、責任表移回正文、CSP 選項、測試接縫的決策狀態）；v3——依 Codex v2 審查（R01–R17）以 to-spec 七段結構落在這一份既有文件，**不另生第二份母 spec**。產品規則與案例 ID 只在 [🎯 專案目標](<product/🗺️ 專案目標與產品規劃.md>)；校方待辦在 [校方確認清單](<product/💬 討論與決策/2026-09-12 校方確認清單.md>)。2026-09-07 原稿保留在文末附錄，只作歷史閱讀。
+> **狀態（2026-09-13 v3.6）**：整套仍「文件已寫、待 Roy 與 Codex review」，review 通過前不拆 ticket；正式碼 `web/` 不存在，149 個產品案例 145 NOT_RUN、4 DEFERRED，沒有任何功能、保存、權限、VM、部署或校方驗收通過。**版本沿革**：v3.6（2026-09-13，Codex 對 PR #7 第五輪 review D1）——`session_revocations` 改為「一個狀態事件一筆主工作＋多筆收斂工作」（`trigger`／`reconcile_round`、三條部分唯一、移除 `attempts`），收斂核對改唯讀查詢 Better Auth 寫在 `users.banned` 的套件欄而不呼叫 `auth.api.listUsers`，正常完成的順序保證與逾時後的最終收斂保證分開並附逐列序列（模組 01 v2.4、契約 01 v2.4、契約 03 v2.2、S01／S02 釘版測試）；v3.5（2026-09-13，Codex 對 PR #7 第四輪 review）——撤 session 改每人序列化執行器（C1）、移除殘留的 unlink 允許（C2）、S11 建空 `showcase_versions` 讓 FK 成立（C3）、B07 改草稿後按發布才驗涵蓋（C4）、GitHub 能力逐項表與人工 approval（C5）、Google Testing 基本 scope 例外全篇一致（C6）、新增 §9 畫面導覽並在十份子 spec §7 附原型圖對照；v3.4（2026-09-13，Codex 第三輪 A1–A4、B1–B5、O1–O4）——草稿與版本分開、退回鎖序、S11 交付最小精選草稿、插槽 host、前置清單事實等級、合併後整合程序；v3.3（2026-09-12，Codex 第二輪 RR01–RR12）——逐表權限、字典欄位、切片出場分界、簽核只失效、授權涵蓋、劇本前置；v3.2——簽核內容／狀態分表、附錄 B 改歷史參考；v3.1——Roy 五點（DB 權限矩陣、pending 與必須改密的重新登入路徑、責任表移回正文、CSP 選項、測試接縫的決策狀態）；v3——依 Codex v2 審查（R01–R17）以 to-spec 七段結構落在這一份既有文件，**不另生第二份母 spec**。產品規則與案例 ID 只在 [🎯 專案目標](<product/🗺️ 專案目標與產品規劃.md>)；校方待辦在 [校方確認清單](<product/💬 討論與決策/2026-09-12 校方確認清單.md>)。2026-09-07 原稿保留在文末附錄，只作歷史閱讀。
 
 ## 0. 這份文件是什麼、不是什麼
 
@@ -231,7 +231,7 @@ web/src/
 - **業務狀態閘門放在 Better Auth `hooks.before`**（讀 `users.status` 與 `must_change_password`），不只靠 ActorResolver；ActorResolver 再對業務用例、Route Handler 下載與通知列表做同樣檢查。驗收要包含：pending 帳號登出後再登入仍停在等待審核頁且能修改申請；must-change 帳號 session 到期後再登入直接進改密頁；兩者直接呼叫其他業務 action 與下載都被拒。
 - **內部呼叫辨識**：管理員能力只經 application 用例呼叫伺服器端 `auth.api.banUser／unbanUser／setUserPassword／revokeUserSessions／createUser`；hook 以兩個條件同時成立才視為內部呼叫：`ctx.request` 不存在（官方文件：request「may not exist in server-only endpoints」）**且** composition 的內部包裝器透過 AsyncLocalStorage 設定的 internal marker 存在；不使用可偽造的 header。安裝後以實際版本核對 hook context 欄位，正反向測試：外部 HTTP 打 `admin/*` 被擋、內部包裝呼叫成功、缺 marker 的伺服器呼叫也被擋。`impersonateUser` 永不使用。
 - 帳號連結：`disableImplicitLinking=true`；連結只在登入後、fresh session 內；Google 身分已綁他人拒絕；`freshAge` 設定值以 session-management 文件為準並在安裝時驗證存在。`unlink-account` 路由一併封鎖（unlink 不在產品範圍、`accounts` 無 DELETE；v3.4，A4）。
-- **撤 session 的每人序列化執行器（v3.5，C1；取代 v3.4 的 A3 寫法）**：所有 `banUser`／`unbanUser`／`revokeUserSessions` 只經 `SessionRevocationExecutor.runForUser`（用例 commit 後、worker、手動重試同一入口）。工作列 `session_revocations`：queued→executing（租約 30 秒、`lease_owner`）→done／failed／cancelled；同一使用者同時只有一筆 executing（部分唯一）；新事件只取消 `queued`、**不取消 executing**，而是排在它後面；認領時以當下 `users.status` 決定要呼叫的動作（冪等），完成後若有新 queued 立即接續，所以後到的恢復一定在先前的 ban 結束後才執行；租約過期或逾時標 `outcome_unknown`，完成後與 worker 每 5 分鐘用 `auth.api.listUsers` 的 `banned` 與 `users.status` 收斂核對，不一致再排一次；入口層一律以 `users.status` 拒絕，不等收斂。序列證明與同步屏障測試見模組 01 附錄 A 與 §10。
+- **撤 session 的每人序列化執行器（v3.5，C1；取代 v3.4 的 A3 寫法）**：所有 `banUser`／`unbanUser`／`revokeUserSessions` 只經 `SessionRevocationExecutor.runForUser`（用例 commit 後、worker、手動重試同一入口）。工作列 `session_revocations`：queued→executing（租約 30 秒、`lease_owner`）→done／failed／cancelled；同一使用者同時只有一筆 executing（部分唯一）；新事件只取消 `queued`、**不取消 executing**，而是排在它後面；認領時以當下 `users.status` 決定要呼叫的動作（冪等），完成後若有新 queued 立即接續，所以後到的恢復一定在先前的 ban 結束後才執行；租約過期或逾時標 `outcome_unknown`；完成後與 worker 每 5 分鐘做收斂核對：以 `fju_app` 唯讀查詢讀 Better Auth admin plugin 寫在 `users.banned` 的套件欄（不呼叫 `auth.api.listUsers`，`/admin/*` 維持封鎖）與 `users.status` 比對，不一致就插入一筆**收斂工作**（v3.6，D1：一個狀態事件一筆主工作、收斂工作可多筆並指向同一個真實狀態事件，不造假事件；`reconcile_round` 自動累計到 10 告警；「每人同時最多一筆未結收斂工作」的部分唯一鍵是插入的冪等鍵）。兩種保證分開：前一筆外部呼叫有回傳時，後到事件的呼叫必在其後開始（順序保證）；逾時或租約過期後只保證觀察期內最終收斂或告警（最終保證），入口層自始以 `users.status` 拒絕，不等收斂。逐列序列、同步屏障測試見模組 01 附錄 A 與 §10。
 - **一次性秘密**：發臨時密碼的回應是獨立型別，秘密只在回應本體，不進回執、帳本 fingerprint、audit、log；帳本只記「已核發、時間、核發者、核實方式」；同 requestId 重播與查詢回「已核發，無法取回」；回應遺失依產品規則重新核發並使舊密碼失效。
 - **Turnstile**：門檻由伺服器計數；達門檻的註冊與登入必須附 token，後端向 siteverify 驗證並比對 action 與 hostname；缺、無效、重播、過期回 `TURNSTILE_REQUIRED`；siteverify 故障時 fail closed。
 
@@ -366,6 +366,14 @@ Email 寄送與自助重設、Google Calendar 與外部 .ics、匿名信箱（�
 | 輕量項 | §8、4.12 | 現行版本索引；狀態段改版本沿革；模組 06 §10 錯誤碼分類；SOP 02 加插槽 callback |
 | 圖片 | §9 | 本文新增畫面導覽；十份子 spec §7.1／7.2；issue 全文含圖 |
 
+**Codex 對 PR #7 的第五輪 review 落點（2026-09-13 v3.6）**
+
+| ID | 本文落點 | 要改的地方 |
+|---|---|---|
+| D1 收斂工作違反 CHECK 與唯一鍵 | 4.12 | 模組 01 附錄 A `session_revocations`（`trigger`／`reconcile_reason`／`reconcile_of_id`／`reconcile_round`、三條部分唯一、移除 `attempts`）、規則 1／2／5、兩種保證、逐列序列表（b）；§10 釘版測試（1）–（8）；契約 01 §4.1 套件欄與 §5；契約 03 §2 內部呼叫；S01／S02 自動測試 |
+| worker 讀 banned 的合法方式 | 4.12 | `fju_app` 唯讀 SELECT `users.banned`（套件欄），不用 `auth.api.listUsers`、不擴放 `/admin/*`；安裝後欄名 gate（模組 01 §12） |
+| 輕量項 | — | 子 issue 頂部母 spec 版本標籤改現行；母 issue #6 來源標示改「現行正文全文，歷史附錄見固定版本檔案」；模組 01 §10 重複句去重 |
+
 **Codex v1 審查 E01–E11**：已於 v2 處理，落點見附錄 B 原 §16（保留）。
 
 ## 8. 文件地圖、to-spec 對照與開工順序
@@ -380,7 +388,7 @@ Email 寄送與自助重設、Google Calendar 與外部 .ics、匿名信箱（�
 | Out of Scope | §6 | 第 12 節 |
 | Further Notes | §7 | 第 12 節 |
 
-文件狀態：本文 v3.5（待 review，母 spec 的 review 不代表整套放行；§7 待 Roy 決定事項仍為待決，預設值不是核准）；現行版本索引（2026-09-13）：契約 01 v2.3、02 v2.1、03 v2.1、04 v2.1、05 v2.3；子 spec 01–10 全部 v2.3（附錄 A 資料字典含九張輔助表逐欄；§7 附原型畫面對照）；切片 00 v2.3＋01 案例責任表 v1.2＋S00–S14（S11／S12 v2.3）；SOP 01–06（02、04 修訂）與 00 Roy 前置工作清單 v1.2；操作手冊 v2.3；劇本 P00–P09／B01–B08（P02、B01、B06 v1.2，B07 v1.3，P07、P08、P09、B02–B05 v1.1）。整套待 Roy 與 Codex review；review 通過前不拆 ticket。切片依賴修正（R12）：最小 `cohorts` 與 A1 建屆別設開放註冊移入 S01；`response_rosters` 與 `buildRoster` 由 S04 交付但歸模組 05；總圖加 S06→S07；SUB-03 最終責任在 S07；PUB-11 責任 S04；SUB-18、19 最終在 S08；FIL-05、06 在 S14；S00 的第一支 migration 含 Better Auth 四表、最小 `cohorts` 與基礎表，順序為 Auth 表 → cohorts → 基礎表 → 模組 01 表。正式 ticket 等這輪 review 通過後再拆。
+文件狀態：本文 v3.6（待 review，母 spec 的 review 不代表整套放行；§7 待 Roy 決定事項仍為待決，預設值不是核准）；現行版本索引（2026-09-13）：契約 01 v2.4、02 v2.1、03 v2.2、04 v2.1、05 v2.3；子 spec 01 v2.4、02–10 v2.3（附錄 A 資料字典含九張輔助表逐欄；§7 附原型畫面對照）；切片 00 v2.3＋01 案例責任表 v1.2＋S00–S14（S11／S12 v2.3）；SOP 01–06（02、04 修訂）與 00 Roy 前置工作清單 v1.2；操作手冊 v2.3；劇本 P00–P09／B01–B08（P02、B01、B06 v1.2，B07 v1.3，P07、P08、P09、B02–B05 v1.1）。整套待 Roy 與 Codex review；review 通過前不拆 ticket。切片依賴修正（R12）：最小 `cohorts` 與 A1 建屆別設開放註冊移入 S01；`response_rosters` 與 `buildRoster` 由 S04 交付但歸模組 05；總圖加 S06→S07；SUB-03 最終責任在 S07；PUB-11 責任 S04；SUB-18、19 最終在 S08；FIL-05、06 在 S14；S00 的第一支 migration 含 Better Auth 四表、最小 `cohorts` 與基礎表，順序為 Auth 表 → cohorts → 基礎表 → 模組 01 表。正式 ticket 等這輪 review 通過後再拆。
 
 
 ## 9. 畫面導覽（原型對照；2026-09-13 新增）

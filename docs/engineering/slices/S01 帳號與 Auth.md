@@ -2,7 +2,7 @@
 type: slice
 slice: S01
 project: FJU IM Project
-updated: 2026-09-12
+updated: 2026-09-13
 status: written-v2.1-pending-review
 ---
 # S01｜帳號與 Auth、最小屆別與開放註冊、名單、核准、稽核與帳本
@@ -29,12 +29,12 @@ status: written-v2.1-pending-review
 模組 01 §8；pending 帳號呼叫業務 action `ACCOUNT_PENDING`；停用 `UNAUTHENTICATED`；must-change 帳號業務 action `PASSWORD_CHANGE_REQUIRED`；封鎖端點 403；同 Email Google 登入 `account_not_linked` 文案；沒有開放註冊屆別時 `/register` 顯示「目前未開放註冊」。
 
 ## 重試／回滾／恢復
-核准回應遺失→`getOperationResult`；匯入整批一交易；臨時密碼只顯示一次，遺失就再發（新 audit）；`banUser` 經 `session_revocations` 每人序列化執行器（queued→executing→done／failed；失敗由管理端「重試」或 worker（S02 起）接續並收斂核對）。
+核准回應遺失→`getOperationResult`；匯入整批一交易；臨時密碼只顯示一次，遺失就再發（新 audit）；`banUser` 經 `session_revocations` 每人序列化執行器（queued→executing→done／failed；失敗不重用同一列，由管理端「重試」（`manual_retry` 收斂工作）或 worker（S02 起）的收斂核對接手；模組 01 v2.4 附錄 A 規則 5）。
 
 ## 最終責任案例、子步驟、自動測試、Codex、四欄
 - 最終責任案例：ACC-01、02、03、04、05、06、07、08、09、10、11、14、15、17；ACC-13、16、18（環境：人工 Roy，Codex 只留入口截圖，結果 BLOCKED 直到 Roy 執行）。
 - 子步驟案例（不在此 PASS）：COH-01 的最小屆別建立（最終 S02）。
-- 自動：模組 01 §10 全部；契約 04 §4 的「一次性秘密不入紀錄」掃描。
+- 自動：模組 01 §10 全部；契約 04 §4 的「一次性秘密不入紀錄」掃描。D1 釘版（模組 01 v2.4 §10 第（1）–（8）項，本切片負責執行器、讀取與序列）：`readBanned` 唯讀查詢正向（內部包裝 `banUser` 後 true、`unbanUser` 後 false、無 request context）與反向（`/admin/list-users` 帶管理員 session 仍被擋）、admin plugin 欄名 gate、`session_revocations` 三條部分唯一與 `reconcile_round` 上限（自動 round 10→failed `RECONCILE_LIMIT`＋audit）、逐列序列（b）的列級斷言（含兩個核對者同時插入只留一筆）、owner fencing 與順序保證以同步屏障量測；worker 週期核對本身在 S02。
 - Codex：劇本 P01、P02、B01；四欄證據：註冊回執、待審標示截圖、`SELECT status, must_change_password`、`student_identities` 列、S03 直接請求 S01 資料回應、封鎖端點回應。
 - 切片出場操作起點（v2.1）：總圖「切片出場與年度案例 PASS 的分界」表的 S01 列；證據存 `steps/S01/`；不以案例 PASS 為出場條件。
 
