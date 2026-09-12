@@ -2,9 +2,9 @@
 type: engineering-contract
 project: FJU IM Project
 updated: 2026-09-12
-status: draft-v2.1-pending-review
+status: draft-v2.2-pending-review
 ---
-# 共用契約 05｜CI／CD、部署與維運（v2.1）
+# 共用契約 05｜CI／CD、部署與維運（v2.2）
 
 > 2026-09-12 v2：依母 spec v3.2 §4.16 與 Codex R02、R14、R15、R16 重寫。具體命令只在 `🚀 部署與維運` 的 SOP 維護。已寫、待 review；所有操作 NOT_RUN。
 
@@ -47,7 +47,7 @@ expand／contract（契約 01 §12）；回滾只換映像；CI 用前一映像�
 | owner | `DATABASE_URL_OWNER`（`fju_owner`）只給 `migrate` 與 reset | VM `.env.migrate`（600） |
 | app | `DATABASE_URL`（`fju_app`）給 app 與 worker；`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`、`FILES_ROOT`、`FILE_MAX_BYTES`、`BUSINESS_CLOCK_OVERRIDE_ENABLED` | VM `.env`（600） |
 | backup | `DATABASE_URL_BACKUP`（`fju_backup`：`pg_read_all_data`＋`backup_runs` INSERT，備份結果的唯一寫入通道）、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_BUCKET`、`AGE_RECIPIENTS`（一個以上 age 公鑰，逗號分隔；取代 `AGE_PUBLIC_KEY`）、`ALERT_WEBHOOK_URL`（可空） | VM `.env.backup`（600）；私鑰只在 Roy 密碼管理器（校方第二把鑰匙見前置清單 §4.2） |
-| CI | `VM_SSH_KEY`、`VM_HOST`、`VM_USER`（environment `staging`）；推 GHCR 用 `GITHUB_TOKEN`（不需 `GHCR_TOKEN`）；VM 拉映像用只讀 PAT，只存在 VM 的 docker 設定 | GitHub Environments Secrets |
+| CI | `VM_SSH_KEY`、`VM_HOST`、`VM_USER`（environment `staging`）；推 GHCR 用 `GITHUB_TOKEN`，在推映像的 job 宣告最小 `permissions: {contents: read, packages: write}`（不放大 workflow 預設權限）；VM 拉映像用 **classic** PAT（`read:packages`；Packages 目前不支援 fine-grained token），只存在 VM 的 docker 設定 | GitHub Secrets（方案支援 environments 時放 `staging` environment，否則 repository 層級；見前置清單 §2.1） |
 
 ## 7. 備份、還原與隔離（回覆 R14）
 
@@ -55,6 +55,7 @@ expand／contract（契約 01 §12）；回滾只換映像；CI 用前一映像�
 - 還原演練：獨立 Compose override（不同專案名、`PGDATA` 目錄、DB URL、port、附件目錄副本、worker 關閉、通知不指真實通道）；restore 前以 `docker inspect` 列 mount 與 `SELECT current_database()` 核對隔離；演練寫入與刪除不改變來源樣本 hash；報告寫明附件不在備份範圍；`restore_drills` 記錄。
 - 驗收分支（契約 04 §6）同樣使用隔離副本。
 - 副本一致性窗口（RR11）：驗收分支與演練副本取樣前 `docker compose stop app worker`、確認無在途上傳，再依序 `pg_dump`、複製 `files/`；還原後逐一核對有效 `file_references` 對應檔案存在且 checksum 相符（`pnpm ops:verify-files`）；正式備份仍只備 DB、附件無異地（既定）。
+- 分支副本的對外入口（v2.2，Codex O1）：兩個固定插槽 host `b1.fju.roy422.dev`、`b2.fju.roy422.dev`（Caddy 依 host 轉到副本 app；只用 443；不開任意 port），副本 `BETTER_AUTH_URL`／trusted origins 指向插槽，Google callback 與 Turnstile hostname 預先登記兩個插槽；cookie 依 host 分開，再加獨立瀏覽器 profile（SOP 04 步驟 5）。
 
 ## 8. 監測與告警
 

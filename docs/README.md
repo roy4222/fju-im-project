@@ -17,7 +17,7 @@
 
 ## 工程文件（2026-09-12 起）
 
-Vault「🛠️ 工程開發」的鏡像（2026-09-12 第三輪，依 Codex 第二輪審查 RR01–RR12 修訂）：[工程母 spec v3.3](ARCHITECTURE.md)、[共用契約 01–05 v2.1](<engineering/contracts/>)、[模組實作設計 01–10 v2.1（含資料字典）](<engineering/modules/>)、[實作切片總圖 v2.1](<engineering/slices/00 切片總圖與依賴.md>)、[案例責任表 v1.1](<engineering/slices/01 案例責任表.md>)、S00–S14、[Roy 前置工作清單](<engineering/operations/00 Roy 前置工作清單.md>) 與 [部署 SOP 01–06](<engineering/operations/>)、[操作手冊 v2.1](<engineering/verification/2026-09-12-handbook.md>) 與 [Codex 劇本 P00–P09、B01–B08](<engineering/verification/scripts/>)、[ADR 0001–0005](adr/)。索引、閱讀順序與 GitHub review issue／PR 編號見 [engineering/README.md](engineering/README.md)。狀態：整套「已寫、待 Roy 與 Codex review」，通過後才拆 ticket；正式碼 `web/` 未開始；SOP 執行 NOT_RUN；149 案 NOT_RUN（145 待執行、4 DEFERRED）。同步 receipt：[round3](vault-sync-receipt-2026-09-12-round3.json)、[round2](vault-sync-receipt-2026-09-12-round2.json)、[首輪](vault-sync-receipt-2026-09-12.json)。
+Vault「🛠️ 工程開發」的鏡像（2026-09-13 第四輪，依 Codex 對 PR #7 的第三輪 review A1–A4、B1–B5、O1–O4 修訂）：[工程母 spec v3.4](ARCHITECTURE.md)、[共用契約 01–05（01 v2.2、02 v2.1、03 v2.1、04 v2.1、05 v2.2）](<engineering/contracts/>)、[模組實作設計 01–10（01／06／07／08／09 v2.2，其餘 v2.1；含資料字典）](<engineering/modules/>)、[實作切片總圖 v2.2](<engineering/slices/00 切片總圖與依賴.md>)、[案例責任表 v1.2](<engineering/slices/01 案例責任表.md>)、S00–S14、[Roy 前置工作清單 v1.1](<engineering/operations/00 Roy 前置工作清單.md>) 與 [部署 SOP 01–06](<engineering/operations/>)、[操作手冊 v2.2](<engineering/verification/2026-09-12-handbook.md>) 與 [Codex 劇本 P00–P09、B01–B08](<engineering/verification/scripts/>)、[ADR 0001–0005](adr/)。索引、閱讀順序與 GitHub review issue／PR 編號見 [engineering/README.md](engineering/README.md)。狀態：整套「已寫、待 Roy 與 Codex review」，通過後才拆 ticket；正式碼 `web/` 未開始；SOP 執行 NOT_RUN；149 案 NOT_RUN（145 待執行、4 DEFERRED）。同步 receipt：[round4](vault-sync-receipt-2026-09-13-round4.json)、[round3](vault-sync-receipt-2026-09-12-round3.json)、[round2](vault-sync-receipt-2026-09-12-round2.json)、[首輪](vault-sync-receipt-2026-09-12.json)。
 
 ## 工程接續
 
@@ -27,6 +27,6 @@ Vault「🛠️ 工程開發」的鏡像（2026-09-12 第三輪，依 Codex 第�
 
 Vault現行來源位於「輔大資管系專題網站／🎯 專案目標」，工程來源在「🛠️ 工程開發」。需求先回寫Vault總規格／對應模組與決策，再同步這裡；不能只改repo鏡像。
 
-每次先比對來源與工作樹，保留並整合雙邊改動，再轉換連結並更新 [來源與鏡像hash](vault-sync-manifest.json)。只有本次verified_at更新項已重新核對正文；工程條目只修正搬移路徑時另註，不把舊hash當現在已同步。沒有背景同步。
+每次先比對來源與工作樹，保留並整合雙邊改動，再轉換連結並更新 [來源與鏡像hash](vault-sync-manifest.json)。文件 PR 合併後，主工作副本（`proto/role-ux-round1`）不要只跑裸的 `git checkout -- . && git clean -fd docs`：那只清工作樹、不會把合併後的 `main` 帶進目前分支；完整程序（核對 PR 已合併→保存並逐檔核對本機修改→把合併結果 merge 進原型分支→驗證 spec 與原型都在）見 Vault `🛠️ 工程開發/🧭 文件分工與開發接續.md`「文件 PR 合併後」一節，逐步執行。只有本次verified_at更新項已重新核對正文；工程條目只修正搬移路徑時另註，不把舊hash當現在已同步。沒有背景同步。
 
 原specs/product-v1.md保留相容入口；完整舊規格逐位元組保存在product歷史目錄。此次替換的repo入口原件保存在 [_archive/2026-09-11-before-product-module-split](<_archive/2026-09-11-before-product-module-split/docs/README.md>)。原始會議、圖片、研究、日記與其他歷史不刪除。
