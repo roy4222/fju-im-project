@@ -29,7 +29,7 @@ status: written-v2.1-pending-review
 模組 01 §8；pending 帳號呼叫業務 action `ACCOUNT_PENDING`；停用 `UNAUTHENTICATED`；must-change 帳號業務 action `PASSWORD_CHANGE_REQUIRED`；封鎖端點 403；同 Email Google 登入 `account_not_linked` 文案；沒有開放註冊屆別時 `/register` 顯示「目前未開放註冊」。
 
 ## 重試／回滾／恢復
-核准回應遺失→`getOperationResult`；匯入整批一交易；臨時密碼只顯示一次，遺失就再發（新 audit）；`banUser` 失敗寫 `session_revocations(pending_retry)`，管理端重試或 worker（S02 起）重試。
+核准回應遺失→`getOperationResult`；匯入整批一交易；臨時密碼只顯示一次，遺失就再發（新 audit）；`banUser` 經 `session_revocations` 每人序列化執行器（queued→executing→done／failed；失敗由管理端「重試」或 worker（S02 起）接續並收斂核對）。
 
 ## 最終責任案例、子步驟、自動測試、Codex、四欄
 - 最終責任案例：ACC-01、02、03、04、05、06、07、08、09、10、11、14、15、17；ACC-13、16、18（環境：人工 Roy，Codex 只留入口截圖，結果 BLOCKED 直到 Roy 執行）。

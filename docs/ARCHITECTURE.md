@@ -1,8 +1,8 @@
-> 2026-09-13 文件鏡像（第四輪）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault。工程母 spec v3.4（依 Codex 對 PR #7 的第三輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
+> 2026-09-13 文件鏡像（第五輪）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.5（依 Codex 對 PR #7 的第三、四輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
 
-# 🏗️ 系統架構與資料流（工程母 spec v3.4）
+# 🏗️ 系統架構與資料流（工程母 spec v3.5）
 
-> **狀態（2026-09-13 v3.4）**：v3.4 依 Codex 對 PR #7 的第三輪 review 修正：精選草稿與授權互相等待（4.13：可變草稿 `showcase_drafts`、發布時才凍結不可變版本並綁授權）、退回評分的鎖序（4.7）、過期 ban 重試不得覆蓋已恢復帳號（4.12、模組 01）、`/unlink-account` 封鎖（契約 03）、S11↔S12 循環（S11 交付最小精選草稿能力）、劇本前置（P02 T2、S02 測試事件、B06／B07 封存）、隔離副本的 OAuth 插槽 host（4.16、SOP 04）、前置清單設定值與事實等級、PR 合併後的文件整合程序。v3.3 依 Codex 第二輪審查（RR01–RR12 與六個小項）修正：v3.3 依 Codex 第二輪審查（RR01–RR12 與六個小項）修正：逐表權限矩陣（4.6、契約 01 §5）、資料字典欄位錯配與九張輔助表逐欄（子 spec 附錄 A）、切片出場與年度案例 PASS 分界（§5、切片總圖）、主線 S02 改密碼註冊（P02）、簽核只失效不自動建版（4.7、模組 07）、公開授權涵蓋範圍（4.13、模組 07／09）、分支劇本前置（B01–B07）、撤權與 worker 順序（B07）、S01 最小檔案能力（4.14）、評分預覽 basis_hash（4.7、模組 06）、副本一致性窗口（4.16、SOP 04）、Server Action 邊界（4.3、契約 02）；整套仍待 Roy 與 Codex review，review 通過前不拆 ticket。v3.2 修 Codex 對 v3.1 的兩點（簽核版本內容與狀態分表、附錄 B 改歷史參考）並作為整套契約與子 spec 修訂的基準；依 Codex v2 審查（R01–R17）與 Roy 同日指示改寫；v3.1 修正 Roy 對 v3 的五點（DB 權限矩陣、pending 與必須改密的重新登入路徑、責任表補新表並移回正文、CSP 選項比較、測試接縫的決策狀態）；沿用 to-spec 的七段結構（Problem、Solution、User Stories、Implementation Decisions、Testing Decisions、Out of Scope、Further Notes）落在這一份既有文件，**不另生第二份母 spec**。這是唯一的工程母 spec；五份共用契約與十份子 spec 隨後依本文修訂；切片圖與 SOP 保留並依本文核對。全部仍是「文件已寫、待 review」：正式碼 `web/` 不存在，149 個產品案例全部 NOT_RUN，沒有任何功能、保存、權限、VM、部署或校方驗收通過。產品規則與案例 ID 只在 [🎯 專案目標](<product/🗺️ 專案目標與產品規劃.md>)；校方待辦在 [校方確認清單](<product/💬 討論與決策/2026-09-12 校方確認清單.md>)。2026-09-07 原稿保留在文末附錄，只作歷史閱讀。
+> **狀態（2026-09-13 v3.5）**：整套仍「文件已寫、待 Roy 與 Codex review」，review 通過前不拆 ticket；正式碼 `web/` 不存在，149 個產品案例 145 NOT_RUN、4 DEFERRED，沒有任何功能、保存、權限、VM、部署或校方驗收通過。**版本沿革**：v3.5（2026-09-13，Codex 對 PR #7 第四輪 review）——撤 session 改每人序列化執行器（C1）、移除殘留的 unlink 允許（C2）、S11 建空 `showcase_versions` 讓 FK 成立（C3）、B07 改草稿後按發布才驗涵蓋（C4）、GitHub 能力逐項表與人工 approval（C5）、Google Testing 基本 scope 例外全篇一致（C6）、新增 §9 畫面導覽並在十份子 spec §7 附原型圖對照；v3.4（2026-09-13，Codex 第三輪 A1–A4、B1–B5、O1–O4）——草稿與版本分開、退回鎖序、S11 交付最小精選草稿、插槽 host、前置清單事實等級、合併後整合程序；v3.3（2026-09-12，Codex 第二輪 RR01–RR12）——逐表權限、字典欄位、切片出場分界、簽核只失效、授權涵蓋、劇本前置；v3.2——簽核內容／狀態分表、附錄 B 改歷史參考；v3.1——Roy 五點（DB 權限矩陣、pending 與必須改密的重新登入路徑、責任表移回正文、CSP 選項、測試接縫的決策狀態）；v3——依 Codex v2 審查（R01–R17）以 to-spec 七段結構落在這一份既有文件，**不另生第二份母 spec**。產品規則與案例 ID 只在 [🎯 專案目標](<product/🗺️ 專案目標與產品規劃.md>)；校方待辦在 [校方確認清單](<product/💬 討論與決策/2026-09-12 校方確認清單.md>)。2026-09-07 原稿保留在文末附錄，只作歷史閱讀。
 
 ## 0. 這份文件是什麼、不是什麼
 
@@ -227,11 +227,11 @@ web/src/
 ### 4.12 Better Auth 能力邊界與一次性秘密（回覆 R03、R04、R11）
 
 - 掛載 `app/api/auth/[...all]`，前置白名單；契約 03 改成**矩陣**：每條原生 HTTP 路由 × 業務狀態（pending／active／disabled／must-change）× 允許或拒絕 × 是否需 fresh session。封鎖 HTTP：`update-user`、`forget-password`、`reset-password`、`send-verification-email`、`verify-email`、`change-email`、`delete-user`、`unlink-account`、全部 `admin/*`。
-- **取得 session 與取得 session 後能做什麼分開寫（v3.1 修正）**。取得 session：`sign-in/email`、`sign-in/social`、`callback/*` 對 pending 與 must-change 帳號**允許**建立受限 session，這樣登出或 session 到期後仍能重新登入繼續待審或改密；disabled 帳號由 `banUser` 與 `hooks.before` 拒絕。取得 session 後：pending 只能 `get-session`、`sign-out`、`change-password`（有密碼者）與業務用例「查看自己的申請狀態與退回理由」「修改自己的申請並重新比對」（`RegistrationCommand.revise`）；must-change 只能 `get-session`、`sign-out`、`change-password`；active 才有 `link-social`、`list-accounts`、`unlink-account`（限本人、fresh session）與全部業務用例。
+- **取得 session 與取得 session 後能做什麼分開寫（v3.1 修正）**。取得 session：`sign-in/email`、`sign-in/social`、`callback/*` 對 pending 與 must-change 帳號**允許**建立受限 session，這樣登出或 session 到期後仍能重新登入繼續待審或改密；disabled 帳號由 `banUser` 與 `hooks.before` 拒絕。取得 session 後：pending 只能 `get-session`、`sign-out`、`change-password`（有密碼者）與業務用例「查看自己的申請狀態與退回理由」「修改自己的申請並重新比對」（`RegistrationCommand.revise`）；must-change 只能 `get-session`、`sign-out`、`change-password`；active 才有 `link-social`、`list-accounts`（限本人、fresh session）與全部業務用例；`unlink-account` 對所有狀態封鎖（v3.5，C2；契約 03 §2）。
 - **業務狀態閘門放在 Better Auth `hooks.before`**（讀 `users.status` 與 `must_change_password`），不只靠 ActorResolver；ActorResolver 再對業務用例、Route Handler 下載與通知列表做同樣檢查。驗收要包含：pending 帳號登出後再登入仍停在等待審核頁且能修改申請；must-change 帳號 session 到期後再登入直接進改密頁；兩者直接呼叫其他業務 action 與下載都被拒。
 - **內部呼叫辨識**：管理員能力只經 application 用例呼叫伺服器端 `auth.api.banUser／unbanUser／setUserPassword／revokeUserSessions／createUser`；hook 以兩個條件同時成立才視為內部呼叫：`ctx.request` 不存在（官方文件：request「may not exist in server-only endpoints」）**且** composition 的內部包裝器透過 AsyncLocalStorage 設定的 internal marker 存在；不使用可偽造的 header。安裝後以實際版本核對 hook context 欄位，正反向測試：外部 HTTP 打 `admin/*` 被擋、內部包裝呼叫成功、缺 marker 的伺服器呼叫也被擋。`impersonateUser` 永不使用。
 - 帳號連結：`disableImplicitLinking=true`；連結只在登入後、fresh session 內；Google 身分已綁他人拒絕；`freshAge` 設定值以 session-management 文件為準並在安裝時驗證存在。`unlink-account` 路由一併封鎖（unlink 不在產品範圍、`accounts` 無 DELETE；v3.4，A4）。
-- **撤 session 的重試工作（v3.4，A3）**：外部呼叫（`banUser`／`unbanUser`／`revokeUserSessions`）在 commit 後執行，結果寫 `session_revocations`；**每位使用者只有一筆有效工作**：新的狀態變更（停用、恢復、去識別化）在同交易把該使用者舊的 pending_retry 標 cancelled 再插入新工作，重試前在交易內核對該工作仍對應使用者最新的狀態事件且 `users.status` 等於工作預期的狀態，不符即取消不呼叫；所以「停用（ban 失敗）→恢復成功→舊 ban 工作重試」不會再封鎖帳號。
+- **撤 session 的每人序列化執行器（v3.5，C1；取代 v3.4 的 A3 寫法）**：所有 `banUser`／`unbanUser`／`revokeUserSessions` 只經 `SessionRevocationExecutor.runForUser`（用例 commit 後、worker、手動重試同一入口）。工作列 `session_revocations`：queued→executing（租約 30 秒、`lease_owner`）→done／failed／cancelled；同一使用者同時只有一筆 executing（部分唯一）；新事件只取消 `queued`、**不取消 executing**，而是排在它後面；認領時以當下 `users.status` 決定要呼叫的動作（冪等），完成後若有新 queued 立即接續，所以後到的恢復一定在先前的 ban 結束後才執行；租約過期或逾時標 `outcome_unknown`，完成後與 worker 每 5 分鐘用 `auth.api.listUsers` 的 `banned` 與 `users.status` 收斂核對，不一致再排一次；入口層一律以 `users.status` 拒絕，不等收斂。序列證明與同步屏障測試見模組 01 附錄 A 與 §10。
 - **一次性秘密**：發臨時密碼的回應是獨立型別，秘密只在回應本體，不進回執、帳本 fingerprint、audit、log；帳本只記「已核發、時間、核發者、核實方式」；同 requestId 重播與查詢回「已核發，無法取回」；回應遺失依產品規則重新核發並使舊密碼失效。
 - **Turnstile**：門檻由伺服器計數；達門檻的註冊與登入必須附 token，後端向 siteverify 驗證並比對 action 與 hostname；缺、無效、重播、過期回 `TURNSTILE_REQUIRED`；siteverify 故障時 fail closed。
 
@@ -261,7 +261,7 @@ Upload（串流到 `tmp/`，`uploading`）→ Finalize（checksum、magic bytes�
 ### 4.16 部署、CI／CD 與維運（回覆 R14、R15、R16）
 
 - PR required checks：typecheck、lint（含邊界反例）、單元、真 PostgreSQL 整合（空庫 migration、runtime 角色拒絕測試、用例）、build、煙霧 E2E、`pnpm audit`；schema 變更另跑「前一版映像對新 schema」。
-- CI 在 S00 啟用；CD workflow 只允許手動觸發且預設乾跑，直到選定的第一次 staging 部署階段（建議 S01 後，待 Roy）才接上憑證與 protected environment；main 保護規則未啟用前標 pending。
+- CI 在 S00 啟用；CD workflow 只允許手動觸發且預設乾跑，直到選定的第一次 staging 部署階段（建議 S01 後，待 Roy）才接上憑證與 environment（方案支援時；部署 approval＝Roy 親自 dispatch）；main 保護規則未啟用前標 pending。
 - `deploy.sh`：部署鎖 → 記前版 tag → pull → **`migrate` 先跑** → 成功才 `up` 新 app 與 worker → 健康判定比對 commit、映像 digest、schema 名、worker 版本與 heartbeat 新鮮度 → 失敗切回前版並再核對；DB 不回滾（expand／contract）。停機窗口目前只是估計，第一次 staging 部署要實測記錄，長鎖 migration 另排維護時段。
 - 演練與分支驗收用獨立 Compose override：不同 PGDATA、DB URL、port、附件目錄副本、worker 關閉、通知不指真實通道；restore 前用 inspect 與 `current_database()` 核對。
 - staging→正式（SOP 06）：清庫範圍逐項列 Auth 四表、角色、業務表、帳本、事件、上傳檔與暫存、公開資源與快取，各標刪除、保留或重建；A1 如何重建；舊 session 與舊 requestId 不得生效；人工 Gate，不在 CD。
@@ -353,6 +353,19 @@ Email 寄送與自助重設、Google Calendar 與外部 .ics、匿名信箱（�
 | 事實等級與交接範圍 | — | 前置清單 §0、§1、§2.3、§5.3 |
 | 合併後同步程序 | — | 🧭 文件分工與開發接續、repo `docs/README.md`、PR #7 說明 |
 
+**Codex 對 PR #7 的第四輪 review 落點（2026-09-13 v3.5）**
+
+| ID | 本文落點 | 要改的地方 |
+|---|---|---|
+| C1 已開始的外部 ban | 4.12 | 模組 01 `session_revocations`（executing／租約／收斂核對）與 §10 三個序列；契約 01 §5；手冊 §8 |
+| C2 殘留 unlink 允許 | 4.12 | 本文第二個 bullet；契約 03 §2 已封鎖 |
+| C3 S11 外鍵前置 | §8 | 契約 01 §12；模組 09 §12、附錄 A；S11／S12 卡；總圖 |
+| C4 B07 觸發步驟 | — | B07 步驟 1–3、5 改「儲存草稿成功→發布→拒絕」 |
+| C5 GitHub 能力 | — | 前置清單 §2.1 逐項能力表、§3.6；SOP 02；契約 05 §3；S14 |
+| C6 Google Testing | — | 前置清單 §1 總表、§5.2 全段 |
+| 輕量項 | §8、4.12 | 現行版本索引；狀態段改版本沿革；模組 06 §10 錯誤碼分類；SOP 02 加插槽 callback |
+| 圖片 | §9 | 本文新增畫面導覽；十份子 spec §7.1／7.2；issue 全文含圖 |
+
 **Codex v1 審查 E01–E11**：已於 v2 處理，落點見附錄 B 原 §16（保留）。
 
 ## 8. 文件地圖、to-spec 對照與開工順序
@@ -367,7 +380,67 @@ Email 寄送與自助重設、Google Calendar 與外部 .ics、匿名信箱（�
 | Out of Scope | §6 | 第 12 節 |
 | Further Notes | §7 | 第 12 節 |
 
-文件狀態：本文 v3.4（v3.3 再依 Codex 對 PR #7 的第三輪 review A1–A4、B1–B5、O1–O4 修正；S11 交付最小精選草稿能力、S12 負責發布與閘門；待 review，母 spec 的 review 不代表整套放行；§7 待 Roy 決定事項仍為待決，預設值不是核准）；契約 01–05 v2.1、子 spec 01–10 v2.1（附錄 A 資料字典含九張輔助表逐欄）、切片 00 v2.1＋01 案例責任表＋S00–S14（出場條件改寫）、SOP 01–06（04 v2.1）、操作手冊 v2.1 與劇本 P00–P09／B01–B08（P02、P07、P08、P09、B01–B07 修訂）已依本文修訂完成（2026-09-12），整套待 Roy 與 Codex review；review 通過前不拆 ticket。切片依賴修正（R12）：最小 `cohorts` 與 A1 建屆別設開放註冊移入 S01；`response_rosters` 與 `buildRoster` 由 S04 交付但歸模組 05；總圖加 S06→S07；SUB-03 最終責任在 S07；PUB-11 責任 S04；SUB-18、19 最終在 S08；FIL-05、06 在 S14；S00 的第一支 migration 含 Better Auth 四表、最小 `cohorts` 與基礎表，順序為 Auth 表 → cohorts → 基礎表 → 模組 01 表。正式 ticket 等這輪 review 通過後再拆。
+文件狀態：本文 v3.5（待 review，母 spec 的 review 不代表整套放行；§7 待 Roy 決定事項仍為待決，預設值不是核准）；現行版本索引（2026-09-13）：契約 01 v2.3、02 v2.1、03 v2.1、04 v2.1、05 v2.3；子 spec 01–10 全部 v2.3（附錄 A 資料字典含九張輔助表逐欄；§7 附原型畫面對照）；切片 00 v2.3＋01 案例責任表 v1.2＋S00–S14（S11／S12 v2.3）；SOP 01–06（02、04 修訂）與 00 Roy 前置工作清單 v1.2；操作手冊 v2.3；劇本 P00–P09／B01–B08（P02、B01、B06 v1.2，B07 v1.3，P07、P08、P09、B02–B05 v1.1）。整套待 Roy 與 Codex review；review 通過前不拆 ticket。切片依賴修正（R12）：最小 `cohorts` 與 A1 建屆別設開放註冊移入 S01；`response_rosters` 與 `buildRoster` 由 S04 交付但歸模組 05；總圖加 S06→S07；SUB-03 最終責任在 S07；PUB-11 責任 S04；SUB-18、19 最終在 S08；FIL-05、06 在 S14；S00 的第一支 migration 含 Better Auth 四表、最小 `cohorts` 與基礎表，順序為 Auth 表 → cohorts → 基礎表 → 模組 01 表。正式 ticket 等這輪 review 通過後再拆。
+
+
+## 9. 畫面導覽（原型對照；2026-09-13 新增）
+
+讀本文與子 spec 時可直接對照已完成的原型畫面：圖檔全部沿用產品區 `🎯 專案目標/assets/prototype-2026-09-11`（含 `-supplement`），原型 2026-09-11（commit `8e1cff8`），是 2026-09-12 產品決策前的畫面，只證明畫面存在、不是驗收證據；與 9/12 決策不同之處在各子 spec §7.1 每組的「正式版差異」，沒有原型的流程在 §7.2 明列缺口，不用生成或重拍的示意圖冒充。維運沒有畫面的部分以 SOP 01–06 與契約 05 的流程表達。產品區的逐角色路由清單與逐張索引：[畫面總覽](<product/🗺️ 畫面總覽.md>)、[截圖核對與缺口](<product/🔎 截圖核對與缺口.md>)。
+
+| 模組 | 原型圖數（產品原文） | 代表畫面 | 工程子 spec 的圖文節 | 主要缺口（詳見子 spec 7.2） |
+|---|---|---|---|---|
+| 01 帳號與權限 | 23 | 管理員｜`/dashboard/admin/accounts` | [§7.1／7.2](<engineering/modules/01 帳號與權限.md>)；產品原文 [01 帳號與權限](<product/🧩 功能模組/01 帳號與權限.md>) | 停用後實際拒絕登入的畫面（登入頁「帳號已停用」）；去識別化的影響預覽與二次確認（取代原型「永久刪除」） |
+| 02 屆別與年度流程 | 8 | 管理員｜`/dashboard/admin/timeline` | [§7.1／7.2](<engineering/modules/02 屆別與年度流程.md>)；產品原文 [02 屆別與年度流程](<product/🧩 功能模組/02 屆別與年度流程.md>) | 屆別管理頁 `/dashboard/admin/cohorts`（列表、狀態、預設工作與開放註冊旗標）；封存預覽、封存回執、解封 |
+| 03 分組、指導與產學 | 28 | 管理員｜`/dashboard/admin/groups` | [§7.1／7.2](<engineering/modules/03 分組、指導與產學.md>)；產品原文 [03 分組、指導與產學](<product/🧩 功能模組/03 分組、指導與產學.md>) | 提案建立、逐人確認／拒絕／撤回、到期終止的畫面；例外組建立表單、組別類型變更警告 |
+| 04 專題事務發布與編輯 | 26 | 管理員｜`/dashboard/admin/affairs` | [§7.1／7.2](<engineering/modules/04 專題事務發布與編輯.md>)；產品原文 [04 專題事務發布與編輯](<product/🧩 功能模組/04 專題事務發布與編輯.md>) | 撤回（無回答）與重新發布的回執；下架與重新發布後的前台狀態（404／403 帶下一步） |
+| 05 個人與組別繳交 | 19 | 學生｜`/dashboard/student/affairs/mi-012` | [§7.1／7.2](<engineering/modules/05 個人與組別繳交.md>)；產品原文 [05 個人與組別繳交](<product/🧩 功能模組/05 個人與組別繳交.md>) | 個人收件名單頁與完成率（12／13、免填與恢復）；截止快照與對帳畫面 |
+| 06 評分與成績 | 15 | 老師｜`/dashboard/teacher/grading/g-07` | [§7.1／7.2](<engineering/modules/06 評分與成績.md>)；產品原文 [06 評分與成績](<product/🧩 功能模組/06 評分與成績.md>) | 改派三選一預覽對話框與 `CONFLICT`（預覽過期）；待復核清單與復核操作 |
+| 07 線上簽核 | 13 | 管理員｜`/dashboard/admin/signoff` | [§7.1／7.2](<engineering/modules/07 線上簽核.md>)；產品原文 [07 線上簽核](<product/🧩 功能模組/07 線上簽核.md>) | 版本頁列出授權範圍（`final_document`）；版本歷史與舊頁 `VERSION_SUPERSEDED` 文案（等待管理員建立新版） |
+| 08 站內通知與日曆 | 8 | 學生｜`/dashboard/student/inbox` | [§7.1／7.2](<engineering/modules/08 站內通知與日曆.md>)；產品原文 [08 站內通知與日曆](<product/🧩 功能模組/08 站內通知與日曆.md>) | 失權遮罩「此項目目前無法存取」「來源已撤回」「已封存（唯讀）」；管理員維運頁（投影 pending／failed、重跑、worker 狀態） |
+| 09 公開展示與共用介面 | 42 | 訪客｜`/` | [§7.1／7.2](<engineering/modules/09 公開展示與共用介面.md>)；產品原文 [09 公開展示與共用介面](<product/🧩 功能模組/09 公開展示與共用介面.md>) | `/dashboard/admin/showcase`（新做：草稿、閘門結果、個資檢查、素材核閱、歷屆補登、撤稿）；`AUTHORIZATION_NOT_COVERED`、`PII_DETECTED`、`ASSET_NOT_APPROVED` 的拒絕畫面 |
+| 10 檔案與服務維運 | 10 | 管理員｜`/dashboard/admin/files` | [§7.1／7.2](<engineering/modules/10 檔案與服務維運.md>)；產品原文 [10 檔案與服務維運需求](<product/🧩 功能模組/10 檔案與服務維運需求.md>) | 上傳三種錯誤（類型、大小、中斷）與進度；下載 401／403 |
+
+代表畫面（每模組一張；其餘在子 spec）：
+
+![管理員｜/dashboard/admin/accounts｜帳號管理：已核准／待審核／已停用磚，表格可搜尋篩選](<product/assets/prototype-2026-09-11/admin--dashboard-admin-accounts.png>)
+
+*01 帳號與權限｜管理員｜`/dashboard/admin/accounts`｜帳號管理：已核准／待審核／已停用磚，表格可搜尋篩選｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/01 帳號與權限.md>)*
+
+![管理員｜/dashboard/admin/timeline｜同一條時間軸，每段可編輯日期，並列管理員待辦](<product/assets/prototype-2026-09-11/admin--dashboard-admin-timeline.png>)
+
+*02 屆別與年度流程｜管理員｜`/dashboard/admin/timeline`｜同一條時間軸，每段可編輯日期，並列管理員待辦｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/02 屆別與年度流程.md>)*
+
+![管理員｜/dashboard/admin/groups｜未分組學生與全部組別；每組可重派或指派老師](<product/assets/prototype-2026-09-11/admin--dashboard-admin-groups.png>)
+
+*03 分組、指導與產學｜管理員｜`/dashboard/admin/groups`｜未分組學生與全部組別；每組可重派或指派老師｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/03 分組、指導與產學.md>)*
+
+![管理員｜/dashboard/admin/affairs｜專題事務工作台：所有公告、資源、繳交、需求在同一張表](<product/assets/prototype-2026-09-11/admin--dashboard-admin-affairs.png>)
+
+*04 專題事務發布與編輯｜管理員｜`/dashboard/admin/affairs`｜專題事務工作台：所有公告、資源、繳交、需求在同一張表｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/04 專題事務發布與編輯.md>)*
+
+![學生｜/dashboard/student/affairs/mi-012｜尚未開始的作業：欄位、儲存草稿、正式送出；組別未成立不能送](<product/assets/prototype-2026-09-11/student--dashboard-student-affairs-mi-012.png>)
+
+*05 個人與組別繳交｜學生｜`/dashboard/student/affairs/mi-012`｜尚未開始的作業：欄位、儲存草稿、正式送出；組別未成立不能送｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/05 個人與組別繳交.md>)*
+
+![老師｜/dashboard/teacher/grading/g-07｜評分工作台：左組別清單、右七個項目、即時預覽總分](<product/assets/prototype-2026-09-11/teacher--dashboard-teacher-grading-g-07.png>)
+
+*06 評分與成績｜老師｜`/dashboard/teacher/grading/g-07`｜評分工作台：左組別清單、右七個項目、即時預覽總分｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/06 評分與成績.md>)*
+
+![管理員｜/dashboard/admin/signoff｜整體進度、各組格子、同意書檔案；系辦不能代簽](<product/assets/prototype-2026-09-11/admin--dashboard-admin-signoff.png>)
+
+*07 線上簽核｜管理員｜`/dashboard/admin/signoff`｜整體進度、各組格子、同意書檔案；系辦不能代簽｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/07 線上簽核.md>)*
+
+![學生｜/dashboard/student/inbox｜截止、簽核、繳交、系統四類通知](<product/assets/prototype-2026-09-11/student--dashboard-student-inbox.png>)
+
+*08 站內通知與日曆｜學生｜`/dashboard/student/inbox`｜截止、簽核、繳交、系統四類通知｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/08 站內通知與日曆.md>)*
+
+![訪客｜/｜公開首頁：hero、最新公告、優秀專題、榮譽與競賽、進行中的競賽](<product/assets/prototype-2026-09-11/guest--home.png>)
+
+*09 公開展示與共用介面｜訪客｜`/`｜公開首頁：hero、最新公告、優秀專題、榮譽與競賽、進行中的競賽｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/09 公開展示與共用介面.md>)*
+
+![管理員｜/dashboard/admin/files｜檔案管理：用量、最近備份、引用保護](<product/assets/prototype-2026-09-11/admin--dashboard-admin-files.png>)
+
+*10 檔案與服務維運｜管理員｜`/dashboard/admin/files`｜檔案管理：用量、最近備份、引用保護｜原型 2026-09-11（commit `8e1cff8`）｜對照 [子 spec §7.1](<engineering/modules/10 檔案與服務維運.md>)*
 
 
 ---

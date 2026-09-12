@@ -2,13 +2,15 @@
 type: prerequisites-checklist
 project: FJU IM Project
 updated: 2026-09-12
-status: draft-v1.1-pending-roy
+status: draft-v1.2-pending-roy
 ---
 # 00｜Roy 需要提早介入的前置工作清單（登入、開通、金鑰、校方申請）
 
 > 2026-09-12 v1（Fable 依 Roy 指示提早交付，不等整套 spec 定稿）。本清單只列**要 Roy 本人或校方才能完成**的平台登入、授權、開通與金鑰事項，以及 Fable 可以先準備的設定與腳本；不含產品決策與校方 12 項確認（見 [校方確認清單](<../../product/💬 討論與決策/2026-09-12 校方確認清單.md>)）。四項待 Roy 決定的技術選擇另列在文末，與登入／開通待辦分開。規則來源：[契約 05](<../contracts/05 CI-CD、部署與維運.md>)、[SOP 01](<01 VM 首次設定.md>)、[SOP 02](<02 環境變數、OAuth 與 Secrets 清單.md>)、[SOP 04](<04 備份、還原演練與故障處理.md>)、[SOP 05](<05 監測與告警.md>)。
 
 > 2026-09-13 v1.1（Codex 對 PR #7 第三輪 review O1–O4 與事實等級）：分支副本改用插槽 host 並登記兩組 Google callback／Turnstile hostname（§3.1–3.3）；Turnstile action 統一 `login`／`register`；age 變數統一 `AGE_RECIPIENTS`；GitHub 方案限制（private repo 的 branch protection、environments、required reviewers 需 Pro／Team）與 token 類型（VM 用 classic PAT，workflow 用 job 層 `permissions`）；Google Testing 限制改為只陳述官方規則與本專案 scope 的例外；交接範圍限本專案資源；本機看不到的項目降為「尚未確認」。
+
+> 2026-09-13 v1.2（Codex 第四輪 C5、C6）：GitHub 能力改為逐項表（branch protection／rulesets、environments、required reviewers 各自的方案限制），private repo 的 required reviewers 需 Enterprise，本專案一律用 Roy 親自 dispatch 作 approval；Google Testing 的基本 scope 例外寫進總表與 §5.2 全段，不再斷言名單外使用者必然無法登入。
 
 ## 0. 核對方式與現況等級
 
@@ -22,7 +24,7 @@ status: draft-v1.1-pending-roy
 
 | # | 項目 | 現況（2026-09-12） | 階段 | 最晚完成 | 未完成會阻擋 |
 |---|---|---|---|---|---|
-| 1 | GitHub repo 保護、Environments、Actions 權限 | 已實際確認：無 branch protection、0 secrets、0 variables、0 environments、0 workflows；**帳號方案尚未確認**（Free 的 private repo 不能設 branch protection／environments／required reviewers） | 現在先做 | S00 第一個 `web/` PR 合併前 | 契約 05 §2「main 只接受 PR」只能標 pending 或改為約定 |
+| 1 | GitHub repo 保護、Environments、Actions 權限 | 已實際確認：無 branch protection、0 secrets、0 variables、0 environments、0 workflows；**帳號方案尚未確認**；本 repo 是 private：branch protection／rulesets 與 environments 需 Pro／Team，required reviewers 需 Enterprise（本專案用 Roy 親自 dispatch 取代） | 現在先做 | S00 第一個 `web/` PR 合併前 | 契約 05 §2「main 只接受 PR」只能標 pending 或改為約定 |
 | 2 | Google 測試身分（至少兩個、建議三個 Google 帳號） | 尚未確認 | 現在先做 | B01 R1–R3 與老師 Google 預授權人工測試前 | ACC-13、16、18 永遠 BLOCKED |
 | 3 | Cloudflare 帳號與 `roy422.dev` zone 權限 | 已實際確認 zone 的 NS 在 Cloudflare；wrangler 未登入；帳號持有人僅文件記載 | 現在先做 | DNS 記錄與 R2 之前 | DNS、Turnstile、R2 全部無法開始 |
 | 4 | 校方 VM 可連線、sudo、對外連線、對內 80／443 | 僅文件記載（140.136.155.167、Ubuntu 24.04.4、4 核／7.8 GB／97 GB，2026-09-11 快照）；本機無 SSH 主機設定；連線尚未確認 | 現在先做 | 第一次 staging 部署前（校方開 port 有前置作業時間） | SOP 01 無法開始；staging 不存在 |
@@ -32,25 +34,33 @@ status: draft-v1.1-pending-roy
 | 8 | Cloudflare Turnstile widget | 尚未確認（文件只寫「建立 site」） | 第一次 staging 前 | SOP 02 執行當天 | 註冊頁、登入失敗 5 次後的驗證；local／CI 用測試金鑰不受影響 |
 | 9 | VM 上的三份 `.env` 與資料庫密碼、Better Auth secret | 尚未確認（本輪未連 VM；文件無紀錄） | 第一次 staging 前 | SOP 02 執行當天 | app、worker、migrate 都起不來 |
 | 10 | GHCR 讀取憑證（VM `docker login`）與 Actions 推映像權限 | 尚未確認（token 無 packages scope，本機查不到 GHCR 套件；尚無映像） | 第一次 staging 前 | SOP 03 第一次部署 | `docker compose pull` 失敗 |
-| 11 | GitHub Actions Secrets 與 protected environment（CD 接上時） | 已實際確認：0 secrets、0 environments | 第一次 staging 前（可延到 CD 接上時） | CD 從 dry-run 改為真部署前 | 只影響 CD；手動 `deploy.sh` 不受影響 |
+| 11 | GitHub Actions Secrets 與 environment（CD 接上時；approval 為 Roy 親自 dispatch） | 已實際確認：0 secrets、0 environments | 第一次 staging 前（可延到 CD 接上時） | CD 從 dry-run 改為真部署前 | 只影響 CD；手動 `deploy.sh` 不受影響 |
 | 12 | Cloudflare R2 bucket、lifecycle、API token | 尚未確認（文件記 `fju-db-backup`、30 天；wrangler 未登入無法查） | 備份整合前 | S14 之前，最晚 S12 出場後 | 每日備份、FIL-05 還原演練 |
 | 13 | age 備份加密金鑰對與私鑰保管、校方第二把鑰匙 | 尚未確認（本機無 age 且文件未記任何公鑰；不證明未產生） | 備份整合前 | 同上 | 備份無法加密；還原演練無法解密 |
 | 14 | VM 安裝 rclone、age（SOP 01 補項） | 尚未確認（本輪未連 VM） | 備份整合前 | 同上 | 備份服務容器或 cron 無法跑 |
 | 15 | 維運告警通道（health cron、備份失敗、磁碟） | 僅文件記載（「寄 Roy」但沒有寄送機制） | 備份整合前 | S14 出場前 | SOP 05 無法驗收；契約 05 §8 空談 |
 | 16 | 正式網域與 DNS 控制權（校方，TBD-01） | 僅文件記載（校方網域由玉姐管理） | 正式開放前 | 正式 Gate G7 前 | 正式網址、OAuth 與 Turnstile 的正式 hostname |
-| 17 | OAuth 同意畫面由 Testing 轉正式、校方 Google 帳號歸屬 | 尚未確認 | 正式開放前 | 正式 Gate G7 前 | 非測試名單的學生無法用 Google 登入 |
+| 17 | OAuth 同意畫面由 Testing 轉正式、校方 Google 帳號歸屬 | 尚未確認 | 正式開放前 | 正式 Gate G7 前 | Testing 狀態下名單外使用者能否登入：本專案只要 `openid`／`email`／`profile`，官方明列例外，結果以 staging 實測記錄（NOT_RUN），不預先斷言失敗；正式前仍需轉 In production、核對品牌驗證與校方 Workspace 政策 |
 | 18 | 本專案資源與金鑰交接校方（正式網域記錄、R2、Turnstile、Google Cloud 專案、GitHub repo、VM、密碼管理器條目） | 尚未建立交接文件；接手人員尚未確認 | 正式開放前 | 正式 Gate G6／G7 前 | 校方無法自行維運；備份私鑰只在 Roy 手上 |
 
 ## 2. 現在先做
 
 ### 2.1 GitHub repo 保護、Environments、Actions 權限
-1. **現況**：已實際確認（2026-09-12 `gh`）：`roy4222/fju-im-project` private、default branch `main`、`allow_auto_merge=false`、`delete_branch_on_merge=false`；`branches/main/protection` 回 404；`gh secret list`、`gh variable list`、environments、workflows 全部 0；本機 `gh` 登入 `roy4222`，token scopes `gist, read:org, repo, workflow`。**帳號方案尚未確認**：依 GitHub 官方文件，private repo 的 branch protection／rulesets、environments 與 required reviewers 只在 Pro（個人）或 Team／Enterprise 方案可用，Free 方案只有 public repo 才有；本清單不預設方案。
+1. **現況**：已實際確認（2026-09-12 `gh`）：`roy4222/fju-im-project` private、default branch `main`、`allow_auto_merge=false`、`delete_branch_on_merge=false`；`branches/main/protection` 回 404；`gh secret list`、`gh variable list`、environments、workflows 全部 0；本機 `gh` 登入 `roy4222`，token scopes `gist, read:org, repo, workflow`。**帳號方案尚未確認**；本 repo 是 private，各能力的方案限制不同（依 GitHub 官方「Deployments and environments」與方案說明；2026-09-13 核對）：
+
+| 能力 | public repo | private repo（本專案） | 本專案的做法 |
+|---|---|---|---|
+| branch protection／rulesets | 所有方案 | Pro（個人）／Team／Enterprise；Free 不可 | 方案支援才設；否則書面約定「main 只經 PR、CI 綠燈由 Roy 確認」 |
+| environments、environment secrets、deployment branches | 所有方案 | Pro／Team／Enterprise；Free 不可 | 方案支援才建 `staging`／`production`；否則 Secrets 放 repository 層級 |
+| deployment protection rules：required reviewers、wait timer | 所有方案 | **只有 Enterprise** | 不使用；approval 一律＝Roy 親自觸發 `workflow_dispatch`（或手動 SSH 執行 `deploy.sh`），`cd.yml` 不接 push 觸發 |
+
+本清單不預設方案；先由 Roy 回報方案名稱再決定前兩列。
 2. **帳號**：GitHub `roy4222`（Roy 個人）。交接：正式開放前把 repo 轉到校方 GitHub organization（或校方帳號）並重設 Secrets；轉移後所有 GHCR 映像路徑改變，SOP 03 的 `ghcr.io/<owner>` 隨之更新。
-3. **Roy 親自**：（0）先看 Settings → Billing and plans 確認方案，回報「Free／Pro／Team」；（a）方案支援時：Settings → Branches（或 Rulesets）新增 `main` 規則：require PR、require status checks（S00 的 `ci.yml` 第一次跑過後才能勾選 check 名稱，先勾 require PR）、禁止 force push；**Free 方案**：不設規則、不把 repo 改公開，改為書面約定「main 只經 PR 合併、CI 綠燈由 Roy 確認」，契約 05 §2 標 pending 並註明原因；（b）方案支援時：Settings → Environments 建 `staging`（required reviewers：Roy）與 `production`（等 SOP 06 才用）；Free 方案：不建 environments，Secrets 放 repository 層級，部署 approval 改為人工（Roy 觸發 `workflow_dispatch` 或手動 SSH 執行 `deploy.sh`）；（c）不調整 Actions 的 workflow 預設權限：推映像的 job 在 `cd.yml` 內宣告 `permissions: {contents: read, packages: write}`（Fable 寫）；（d）勾 `delete_branch_on_merge`（可選）。
+3. **Roy 親自**：（0）先看 Settings → Billing and plans 確認方案，回報「Free／Pro／Team／Enterprise」；（a）branch protection：Pro／Team 以上才在 Settings → Branches（或 Rulesets）新增 `main` 規則（require PR、require status checks——S00 的 `ci.yml` 第一次跑過後才能勾選 check 名稱、禁止 force push）；Free 不設規則、不把 repo 改公開，改為書面約定「main 只經 PR 合併、CI 綠燈由 Roy 確認」，契約 05 §2 標 pending 並註明原因；（b）environments：Pro／Team 以上才建 `staging` 與 `production`（等 SOP 06 才用）並把 Secrets 放在 environment；Free 則 Secrets 放 repository 層級；（c）**required reviewers 不設**（private repo 需 Enterprise）：不論方案，部署 approval 都是 Roy 親自觸發 `workflow_dispatch`（或手動 SSH 執行 `deploy.sh`），`cd.yml` 不接 push 觸發；（d）不調整 Actions 的 workflow 預設權限：推映像的 job 在 `cd.yml` 內宣告 `permissions: {contents: read, packages: write}`（Fable 寫）；（e）勾 `delete_branch_on_merge`（可選）。
 4. **Fable 可先備**：S00 的 `ci.yml`（七道 job 名稱固定）、`cd.yml`（`workflow_dispatch`＋`--dry-run`）、`health-cron.yml`；一份 `gh api` 指令稿讓 Roy 貼上執行（不含任何秘密）。
 5. **精確設定值**：required checks 名稱固定為 `typecheck`、`lint`、`unit`、`integration`、`build`、`e2e-smoke`、`audit`（契約 05 §2；S00 的「六道」指前六道，`audit` 也是 required，本輪已統一寫法）；environment 名稱 `staging`、`production`；映像 `ghcr.io/roy4222/fju-web:<sha>`（repo 轉移後改 owner）。
-6. **最晚**：方案確認在 S00 開工前；branch protection（若可用）在 S00 第一個 `web/` PR 合併前；environments（若可用）在 CD 接上前。未完成或方案不支援：契約 05 §2 的「main 只接受 PR」只能標 pending 或改為書面約定。
-7. **驗證與證據**：方案名稱一句話；方案支援時 `gh api repos/roy4222/fju-im-project/branches/main/protection` 回 200 且列出規則、`gh api repos/roy4222/fju-im-project/environments` 列出名稱；Free 方案時記錄「不可用、改書面約定」；輸出（無秘密）貼到 SOP 02 的執行紀錄與 S00 卡「狀態」。
+6. **最晚**：方案確認在 S00 開工前；branch protection（若可用）在 S00 第一個 `web/` PR 合併前；environments（若可用）在 CD 接上前；人工 approval 流程從第一次 staging 部署起生效。未完成或方案不支援：契約 05 §2 的「main 只接受 PR」只能標 pending 或改為書面約定。
+7. **驗證與證據**：方案名稱一句話；方案支援時 `gh api repos/roy4222/fju-im-project/branches/main/protection` 回 200 且列出規則、`gh api repos/roy4222/fju-im-project/environments` 列出名稱；不支援時記錄「不可用、改書面約定」；required reviewers 一律記錄「不使用，approval＝Roy dispatch」；輸出（無秘密）貼到 SOP 02 的執行紀錄與 S00 卡「狀態」。
 
 ### 2.2 Google 測試身分
 1. **現況**：尚未確認。人工案例 ACC-13（Google 註冊）、ACC-16（同人兩種登入方式）、ACC-18（搶綁拒絕與補密碼）與老師 Google 預授權首次登入，都需要真的 Google 帳號；主線改為全部密碼註冊（P02 v1.1），Google 只在分支 B01 由 Roy 執行。
@@ -129,12 +139,12 @@ status: draft-v1.1-pending-roy
 6. **最晚**：SOP 03 第一次部署前。未完成：`docker compose pull` 失敗；可暫以 VM 本地 build 頂替（不建議，7.8 GB RAM）。
 7. **驗證與證據**：`docker pull ghcr.io/roy4222/fju-web:<sha>` 成功輸出（digest）；PAT 到期日記在 SOP 02 執行紀錄。
 
-### 3.6 GitHub Actions Secrets 與 protected environment（CD 接上時）
-1. **現況**：已實際確認 0 secrets、0 environments；environments 與 required reviewers 是否可用取決於 §2.1 的方案確認（Free 方案的 private repo 不可用）。CD 在 S00 只 dry-run，不需要這些值；第一次 staging 部署可以由 Roy 手動 SSH 執行 `deploy.sh`，Secrets 可延到 CD 真正接上。
+### 3.6 GitHub Actions Secrets 與 environment（CD 接上時；approval 為人工 dispatch）
+1. **現況**：已實際確認 0 secrets、0 environments；environments／environment secrets 是否可用取決於 §2.1 的方案（private repo 需 Pro／Team）；required reviewers 在 private repo 只有 Enterprise 才有，本專案不論方案都用 Roy 親自 dispatch 作 approval。CD 在 S00 只 dry-run，不需要這些值；第一次 staging 部署可以由 Roy 手動 SSH 執行 `deploy.sh`，Secrets 可延到 CD 真正接上。
 2. **帳號**：GitHub `roy4222`；SSH 部署金鑰由 Roy 產生（私鑰只放 GitHub Secret，公鑰放 VM `deploy` 使用者）。交接：repo 轉校方後重建。
 3. **Roy 親自**：`ssh-keygen -t ed25519 -f fju-deploy -C fju-deploy`（本機）；公鑰加到 VM `deploy` 的 `authorized_keys`；在 environment `staging`（方案不支援 environments 時放 repository 層級）建 Secrets `VM_SSH_KEY`（私鑰內容）、`VM_HOST`、`VM_USER`；用完刪除本機私鑰檔。
 4. **Fable 可先備**：`cd.yml` 的 environment 綁定與 `--dry-run` 切換；SOP 03。
-5. **精確設定值**：Secrets 名稱固定 `VM_SSH_KEY`、`VM_HOST=140.136.155.167`、`VM_USER=deploy`；`GHCR_TOKEN` 不再需要（改用 `GITHUB_TOKEN`；SOP 02 同步刪除）；environment `staging` required reviewers＝Roy（方案支援時；否則 approval 為人工觸發）。
+5. **精確設定值**：Secrets 名稱固定 `VM_SSH_KEY`、`VM_HOST=140.136.155.167`、`VM_USER=deploy`；`GHCR_TOKEN` 不再需要（改用 `GITHUB_TOKEN`；SOP 02 同步刪除）；不設 required reviewers（private repo 需 Enterprise）；approval＝Roy 親自觸發 `workflow_dispatch`（或手動 SSH 執行 `deploy.sh`），`cd.yml` 不接 push 觸發。
 6. **最晚**：CD 從 dry-run 改真部署前；未完成：只影響 CD，手動部署不受影響。
 7. **驗證與證據**：`gh secret list -R roy4222/fju-im-project -e staging` 列出三個名稱；一次 `workflow_dispatch` 的 dry-run 成功 run URL。
 
@@ -190,10 +200,10 @@ status: draft-v1.1-pending-roy
 ### 5.2 OAuth 同意畫面轉正式與校方 Google 帳號歸屬
 1. **現況**：尚未確認。
 2. **帳號**：Google Cloud（Roy → 校方）。
-3. **Roy 親自**：依 Google 官方說明，Testing 狀態的 app 只開放給 test users（上限 100 人）；refresh token 七天到期的限制對只用 `openid`、`email`、`profile` 的 app 有例外，本專案屬此類，名單外使用者能否登入以 staging 實測為準、不在文件推定。正式開放前把 Publishing status 改為 In production，並核對是否需要品牌驗證（brand verification）與校方 Workspace 的第三方 app 政策（校方帳號可能被組織設定擋下）；不宣稱「完全不需任何驗證」。把校方 Google 帳號加為專案 Owner；正式網域的 origin／redirect URI 加入 client。
+3. **Roy 親自**：依 Google 官方「OAuth app publishing status」：外部 app 在 Testing 狀態一般只開放給 test users（上限 100 人）且 refresh token 七天到期；官方同時明列**基本 scope 例外**——只要求 `openid`、`email`、`profile` 的 app 不受 test-user 名單限制、refresh token 也不會七天到期，本專案屬此類。所以三件事分開記錄：（a）名單外使用者實際能否登入：以 staging 實測為準，結果記入 run manifest（目前 NOT_RUN），文件不預先斷言成功或失敗；（b）品牌驗證（brand verification）：正式開放前核對是否需要，不宣稱「完全不需任何驗證」；（c）校方 Workspace 的第三方 app 管理政策：校方帳號可能被組織設定擋下，需向校方確認。正式開放前把 Publishing status 改為 In production；把校方 Google 帳號加為專案 Owner；正式網域的 origin／redirect URI 加入 client。
 4. **Fable 可先備**：SOP 06 檢核項。
 5. **精確設定值**：同 §3.2 加正式網域。
-6. **最晚**：正式 Gate G7 前。未完成：測試名單外的學生無法 Google 登入（密碼註冊仍可）。
+6. **最晚**：正式 Gate G7 前。未完成：仍是 Testing 狀態；名單外使用者的登入結果只能靠 staging 實測記錄，不預先斷言；密碼註冊不受影響。
 7. **驗證與證據**：consent screen 狀態截圖；一個非測試信箱成功登入到等待審核頁（信箱遮罩）。
 
 ### 5.3 平台帳號與金鑰交接校方

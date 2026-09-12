@@ -2,9 +2,9 @@
 type: engineering-contract
 project: FJU IM Project
 updated: 2026-09-12
-status: draft-v2.2-pending-review
+status: draft-v2.3-pending-review
 ---
-# 共用契約 05｜CI／CD、部署與維運（v2.2）
+# 共用契約 05｜CI／CD、部署與維運（v2.3）
 
 > 2026-09-12 v2：依母 spec v3.2 §4.16 與 Codex R02、R14、R15、R16 重寫。具體命令只在 `🚀 部署與維運` 的 SOP 維護。已寫、待 review；所有操作 NOT_RUN。
 
@@ -26,7 +26,7 @@ typecheck → lint（含邊界反例測試）→ 單元 → 整合（Compose pos
 
 ## 3. CD 啟用時點與部署（回覆 R15）
 
-- S00 只啟用 CI；`cd.yml` 存在但只允許 `workflow_dispatch` 且預設 `--dry-run`；到選定的第一次 staging 部署階段才接上 GitHub Secrets、protected environment 與 VM。
+- S00 只啟用 CI；`cd.yml` 存在但只允許 `workflow_dispatch` 且預設 `--dry-run`；到選定的第一次 staging 部署階段才接上 GitHub Secrets、environment（方案支援時）與 VM；部署 approval 一律是 Roy 親自觸發 `workflow_dispatch`（或手動 SSH 執行 `deploy.sh`），不依賴 environment 的 required reviewers（private repo 需 Enterprise；v2.3，Codex C5）。
 - `deploy.sh <tag>`：`flock` 部署鎖（拿不到即失敗）→ 記 `.deploy/previous_tag`（含 digest）→ `docker compose pull app worker migrate` → **`docker compose run --rm migrate`（新映像；失敗即中止，舊 app 繼續）** → `docker compose up -d app worker` → 健康判定 → 寫 `deploy_log`。
 - **健康判定**：60 秒內 `/api/health` 回 200 **且** `commit`、`imageDigest` 等於本次部署、`schemaVersion` 等於 migrate 輸出的最後名稱、`worker.version` 等於本次、`worker.lastTickAt` 在 60 秒內；任一不符視為失敗。
 - 失敗：`up -d` 回 `previous_tag`，再跑同樣的健康判定並記錄；DB 不回滾（expand／contract）；通知 Roy。
