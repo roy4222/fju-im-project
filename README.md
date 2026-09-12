@@ -22,7 +22,8 @@
 | 後台 13 條路由 × 三角色（首頁、通知、專題事務、編輯器、分組、產學、評分、簽核、帳號、檔案、稽核） | ✅ 2026-09-08 一版完成，參考 demos.shadcndashboard.dev；見 `docs/DASHBOARD-PAGES.md` |
 | 專題事務編輯器 | 🟡 簡化版（欄位清單上下排序、右側設定、預覽、發布）；拖拉排序未做 |
 | 評分工作台、簽核流程、帳號管理、檔案管理 | ✅ 畫面完成，讀 fixtures |
-| PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始 |
+| PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始（正式碼 `web/` 尚不存在） |
+| 工程文件：總 spec、五份共用契約、十份模組 spec、切片 S00–S14、部署 SOP、操作手冊 | 📝 2026-09-12 已寫，待 Codex review；入口 `docs/README.md`、`docs/ARCHITECTURE.md`、`docs/engineering/` |
 | Docker、校內 VM 部署、備份與還原 | ❌ 未開始 |
 
 畫面上的照片暫用系網 im.fju.edu.tw 的素材（`prototype/public/placeholder/`），上線前必須換成系辦提供的照片。
@@ -76,10 +77,10 @@ node scripts/shoot.mjs / --light  # 用本機 Chrome 截圖，支援深淺主題
 | Icon | `@tabler/icons-react` | 與 donor 一致 |
 | 套件管理 | pnpm | 校內 VM 只有 8GB RAM，disk 與 build 記憶體都要省 |
 
-**尚未封板**：ORM（傾向 Drizzle）、Auth（傾向 Auth.js v5）、reverse proxy、外部備份目的地、正式網域。
+**已封板（ADR 0004，2026-09-07）**：Auth 用 Better Auth、ORM 用 Drizzle、reverse proxy 用 Caddy。**已決（2026-09-11）**：只備份資料庫到 Cloudflare R2（每日加密、30 天）、VM 本機快照 7 天、附件不做異地備份；網域暫用 `fju.roy422.dev`，正式網域待校方。歷史上的「傾向 Auth.js」敘述已被取代。
 
 Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
-`indeterminate` 是獨立 prop。細節見 `.design-sync/conventions.md`。
+`indeterminate` 是獨立 prop。細節見 `prototype/.design-sync/conventions.md`。
 
 ---
 
@@ -113,8 +114,8 @@ Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
 
 ### Claude Design 同步
 
-`.design-sync/` 是把這套元件庫同步到 claude.ai/design 的設定，讓該平台的設計 agent
-使用我們自己的元件與品牌 token。詳細流程與已知陷阱見 `.design-sync/NOTES.md`。
+`prototype/.design-sync/` 是把這套元件庫同步到 claude.ai/design 的設定，讓該平台的設計 agent
+使用我們自己的元件與品牌 token。詳細流程與已知陷阱見 `prototype/.design-sync/NOTES.md`。
 
 ---
 
@@ -148,20 +149,18 @@ prototype/src/
 
 ## 規格與決策
 
-**產品需求、範圍、名詞、流程與驗收的唯一主規格**是 Obsidian 中的
-`🗺️ 輔大資管系專題網站重構 MOC.md`。會議紀錄、Google Sheet 與舊網站都是來源或歷史證據；
-內容衝突時以該檔目前版本為準。
+**產品需求、範圍、名詞、流程與驗收的唯一編輯來源**是 Obsidian Vault 的「🎯 專案目標」（產品總規格＋十個功能模組＋年度情境＋接受條件＋討論與決策），repo 鏡像在 `docs/product/`；工程設計在 Vault「🛠️ 工程開發」，鏡像在 `docs/ARCHITECTURE.md`、`docs/engineering/`、`docs/adr/`。舊的「🗺️ 輔大資管系專題網站重構 MOC」是歷史入口。會議紀錄、Google Sheet 與舊網站都是來源或歷史證據；內容衝突時以 Vault 現行文件為準。
 
 要改需求：先更新該檔與決策紀錄，再同步 issue、設計、資料模型與程式碼。
 **不可讓程式碼反過來定義產品。**
 
 幾條會直接影響實作的既定決策：
 
-- 登入為 Google OAuth 主用 ＋ Email/密碼備援；名單命中自動核准，否則進人工審核
+- 登入為 Google OAuth 主用 ＋ Email/密碼備援；**兩種首次註冊都由系辦核實本人後人工核准**，名單比對只協助審核，不自動核准（2026-09-12）
 - 管理員可重設臨時密碼，但**任何人都不能查看既有密碼**
-- 專題事務以**整組一份**為原則，任一成員送出即代表全組完成，截止前可重送並保留版本
+- 收件分**個人**與**組別**兩種單位；組別收件任一成員送出即代表全組完成；截止前可重送並保留不可變版本；截止分鐘含入，以後端收到完整請求的時間判定
 - 一筆內容只選**一個**主要前台位置，Dashboard 與首頁自動摘要，不複製成多筆
-- 簽核為五位組員逐一線上同意、指導老師最後同意，**全程不下載或上傳簽名檔**
+- 簽核按**實際有效成員**逐人線上同意、主指導最後同意；成員、老師或內容改變即開新版本重簽；**全程不下載或上傳簽名檔**；行政採認待校方
 - 學生在 v1 **完全看不到成績**
 - 前端隱藏按鈕不是權限控制；所有讀寫權限均須在伺服器端依資料庫事實重新驗證
 
@@ -169,9 +168,7 @@ prototype/src/
 
 ## 交付
 
-**2026-09-14** 完成 v1 驗收：公開前台、學生端、老師端、管理員後台，並於校內 Ubuntu VM
-（4 cores / 8GB / 200GB）以限制測試帳號完成跨角色 E2E、真實 PostgreSQL migration、
-檔案儲存與權限、外部備份與至少一次還原演練。
+**2026-09-14** 是校內 Ubuntu VM（4 核 / 7.8 GB / 97 GB，2026-09-11 快照）上以測試帳號試用完整產品的目標；正式開放另依 `docs/product/✅ 接受條件/02 正式開放 Gate.md`。年度主線只 seed 一位管理員 A1，其餘資料由介面產生；資料庫每日加密備份到 R2、本機快照 7 天、附件無異地；正式 Gate 前至少一次隔離環境 DB 還原演練。
 
 Mock、fixture、單元測試、頁面數量或程式碼行數都不能單獨替代這個 Gate。
 

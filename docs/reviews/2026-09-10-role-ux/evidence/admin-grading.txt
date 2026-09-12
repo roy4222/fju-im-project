@@ -1,0 +1,208 @@
+- link "回首頁":
+  - /url: /dashboard/admin
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/admin
+    - generic: 首頁
+  - link "時間軸設定":
+    - /url: /dashboard/admin/timeline
+    - generic: 時間軸設定
+  - link "通知":
+    - /url: /dashboard/admin/inbox
+    - generic: 通知
+  - generic: "3"
+- generic: 專題事務
+- list:
+  - link "專題事務":
+    - /url: /dashboard/admin/affairs
+    - generic: 專題事務
+  - link "內容編輯器":
+    - /url: /dashboard/admin/editor
+    - generic: 內容編輯器
+  - link "檔案管理":
+    - /url: /dashboard/admin/files
+    - generic: 檔案管理
+- generic: 分組與產學
+- list:
+  - link "分組總覽":
+    - /url: /dashboard/admin/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/admin/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "成績管理" [active]:
+    - /url: /dashboard/admin/grading
+    - generic: 成績管理
+  - link "簽核":
+    - /url: /dashboard/admin/signoff
+    - generic: 簽核
+- generic: 系統管理
+- list:
+  - link "帳號管理":
+    - /url: /dashboard/admin/accounts
+    - generic: 帳號管理
+  - generic: "4"
+  - link "操作紀錄":
+    - /url: /dashboard/admin/audit
+    - generic: 操作紀錄
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "成績管理" [level=1]
+  - button "切換為深色":
+  - button "通知，3 則未讀":
+  - button "帳號選單":
+    - generic: 系
+    - generic: 系辦管理員
+  - heading "成績管理" [level=1]
+  - paragraph: 方案 系統驗收 60% ＋ 專題發表 40%・已鎖定
+  - button "匯出 CSV"
+  - heading "各階段完成率" [level=2]
+  - generic: ・已送出評分份數／應送出
+  - list:
+    - generic: 系統驗收（60%）
+    - generic: 6/10
+    - generic: 專題發表（40%）
+    - generic: 0/10
+  - heading "老師評分進度" [level=2]
+  - generic: ・系統驗收・王雅玲、李孟儒、張士豪 缺評
+  - application:
+    - generic: 陳建宏
+    - generic: 王雅玲
+    - generic: 李孟儒
+    - generic: 張士豪
+    - generic: "0"
+    - generic: "1"
+    - generic: "2"
+    - generic: "3"
+    - generic: "4"
+  - heading "各組結果" [level=2]
+  - generic: ・平均值在所有正式評分送出後才成立
+  - table:
+    - rowgroup:
+      - row "組別 題目 狀態 階段成績":
+        - columnheader "組別"
+        - columnheader "題目"
+        - columnheader "狀態"
+        - columnheader "階段成績"
+        - columnheader
+    - rowgroup:
+      - row "第 07 組 校園閒置空間共享媒合平台 1／2 位送出 —":
+        - cell "第 07 組"
+        - cell "校園閒置空間共享媒合平台"
+        - cell "1／2 位送出":
+          - generic: 1／2 位送出
+        - cell "—"
+        - cell
+      - row "第 01 組 醫療院所排班最佳化系統 已完成 87.00 更正":
+        - cell "第 01 組"
+        - cell "醫療院所排班最佳化系統"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "87.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+      - row "第 02 組 零售門市補貨預測 已完成 70.00 更正":
+        - cell "第 02 組"
+        - cell "零售門市補貨預測"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "70.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+      - row "第 03 組 非營利組織捐款流程數位化 1／2 位送出 —":
+        - cell "第 03 組"
+        - cell "非營利組織捐款流程數位化"
+        - cell "1／2 位送出":
+          - generic: 1／2 位送出
+        - cell "—"
+        - cell
+      - row "第 04 組 校內活動報名與簽到整合 已完成 96.00 更正":
+        - cell "第 04 組"
+        - cell "校內活動報名與簽到整合"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "96.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+      - row "第 05 組 二手教科書交易平台 已完成 79.00 更正":
+        - cell "第 05 組"
+        - cell "二手教科書交易平台"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "79.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+      - row "第 06 組 工廠設備稼動率可視化 1／2 位送出 —":
+        - cell "第 06 組"
+        - cell "工廠設備稼動率可視化"
+        - cell "1／2 位送出":
+          - generic: 1／2 位送出
+        - cell "—"
+        - cell
+      - row "第 08 組 長照機構家屬溝通看板 已完成 75.00 更正":
+        - cell "第 08 組"
+        - cell "長照機構家屬溝通看板"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "75.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+      - row "第 09 組 跨境電商稅務試算工具 已完成 88.00 更正":
+        - cell "第 09 組"
+        - cell "跨境電商稅務試算工具"
+        - cell "已完成":
+          - generic: 已完成
+        - cell "88.00"
+        - cell "更正":
+          - button "更正":
+            - text: 更正
+  - heading "評分方案" [level=2]
+  - generic: ・已鎖定，改結構需建立新方案・階段權重 合法
+  - paragraph:
+    - text: 系統驗收
+    - generic: 占總成績 60%
+  - generic: 項目 100%
+  - list:
+    - generic: 需求與問題定義
+    - generic: 15%
+    - generic: 系統設計與架構
+    - generic: 20%
+    - generic: 實作完整度
+    - generic: 25%
+    - generic: 資料安全與隱私處理
+    - generic: 10%
+    - generic: 測試與品質
+    - generic: 10%
+    - generic: 文件與可維護性
+    - generic: 10%・A–F
+    - generic: 簡報與答辯
+    - generic: 10%・A–F
+  - paragraph:
+    - text: 專題發表
+    - generic: 占總成績 40%
+  - generic: 尚未建立項目
+  - paragraph: 最終成績 = Σ（階段成績 × 階段權重）；階段成績為所有正式評分老師的算術平均。
+- button "Open Next.js Dev Tools":
+- button "Open issues overlay":
+  - generic: "0"
+  - generic: "1"
+  - generic: Issue
+- button "Collapse issues badge":
+- alert: 輔仁大學資訊管理學系｜專題管理平台
+- generic: "1"

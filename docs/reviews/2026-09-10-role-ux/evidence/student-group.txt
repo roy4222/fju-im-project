@@ -1,0 +1,99 @@
+- link "回首頁":
+  - /url: /dashboard/student
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/student
+    - generic: 首頁
+  - link "專題時間軸":
+    - /url: /dashboard/student/timeline
+    - generic: 專題時間軸
+  - link "通知":
+    - /url: /dashboard/student/inbox
+    - generic: 通知
+  - generic: "2"
+- generic: 專題事務
+- list:
+  - link "作業區":
+    - /url: /dashboard/student/affairs
+    - generic: 作業區
+  - generic: "2"
+- generic: 分組與產學
+- list:
+  - link "我的組別" [active]:
+    - /url: /dashboard/student/groups
+    - generic: 我的組別
+  - link "產學合作":
+    - /url: /dashboard/student/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "同意書":
+    - /url: /dashboard/student/signoff
+    - generic: 同意書
+  - generic: "1"
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "我的組別" [level=1]
+  - button "切換為深色":
+  - button "通知，2 則未讀":
+  - button "帳號選單":
+    - generic: 林
+    - generic: 林彥廷
+  - heading "我的組別" [level=1]
+  - paragraph: 五位成員各自確認後才正式成立。
+  - paragraph: 第 07 組・一般專題
+  - heading "校園閒置空間共享媒合平台" [level=2]
+  - paragraph: 指導老師 陳建宏
+  - generic: 成立中・還差 2 人確認
+  - list:
+    - text: 彥廷
+    - generic: 組長
+    - generic: 林彥廷
+    - generic: 已確認
+    - text: 詩涵
+    - generic: 黃詩涵
+    - generic: 已確認
+    - text: 柏諺
+    - generic: 吳柏諺
+    - generic: 已確認
+    - generic: 育瑄
+    - generic: 蔡育瑄
+    - generic: 待確認
+    - generic: 凱文
+    - generic: 鄭凱文
+    - generic: 待確認
+  - generic: 3/5 已確認
+  - generic: ・每個人用自己的帳號按確認；全員確認後組別成立，之後才能抽籤與繳交。
+  - heading "找組員" [level=2]
+  - generic: ・只顯示本人開啟公開的同屆未分組學生
+  - list:
+    - generic: 宥丞
+    - generic: 應宥丞
+    - generic: "411410411"
+    - link "聯絡":
+      - /url: mailto:411410411@m365.fju.edu.tw
+      - text: 聯絡
+    - generic: 雨萱
+    - generic: 解雨萱
+    - generic: "411410422"
+    - link "聯絡":
+      - /url: mailto:411410422@m365.fju.edu.tw
+      - text: 聯絡
+    - generic: 佳霓
+    - generic: 冷佳霓
+    - generic: "411410444"
+    - link "聯絡":
+      - /url: mailto:411410444@m365.fju.edu.tw
+      - text: 聯絡
+  - paragraph: 電話不公開；完成分組後聯絡資訊立即隱藏。
+- button "Open Next.js Dev Tools":
+- alert: 我的組別

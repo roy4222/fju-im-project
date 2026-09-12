@@ -1,0 +1,612 @@
+[
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "name": "admin--affairs-new-step1",
+  "dialog": true,
+  "dialogText": "新增項目 選類型、寫標題、定對象 1 類型 2 內容 3 發布 公告／最新消息 公告、競賽資訊，可附檔案 檔案／資源下載 給大家下載的檔案或連結 文件繳交 指定組別在截止前上傳或填寫 專題需求 題目、計畫書這類專題需求 標題 對象 本屆學生 全部老師 所有已登入使用者 公開訪客 指定組別 截止日（選填） 公開範圍 登入後學生可見 網際網路公開 上一步 填標題 下一步 Close",
+  "notes": [],
+  "url": "/dashboard/admin/affairs"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "name": "admin--affairs-new-step2",
+  "dialog": true,
+  "dialogText": "新增項目 選類型、寫標題、定對象 1 類型 2 內容 3 發布 公告／最新消息 公告、競賽資訊，可附檔案 檔案／資源下載 給大家下載的檔案或連結 文件繳交 指定組別在截止前上傳或填寫 專題需求 題目、計畫書這類專題需求 標題 對象 本屆學生 全部老師 所有已登入使用者 公開訪客 指定組別 截止日（選填） 公開範圍 登入後學生可見 網際網路公開 上一步 填標題 下一步 Close",
+  "notes": [
+   "step failed: {\"clickText\":\"文件繳交\"} TimeoutError: locator.click: Timeout 4000ms exceeded.",
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/admin/affairs"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "name": "admin--affairs-new-step3",
+  "dialog": true,
+  "dialogText": "新增項目 選類型、寫標題、定對象 1 類型 2 內容 3 發布 公告／最新消息 公告、競賽資訊，可附檔案 檔案／資源下載 給大家下載的檔案或連結 文件繳交 指定組別在截止前上傳或填寫 專題需求 題目、計畫書這類專題需求 標題 對象 本屆學生 全部老師 所有已登入使用者 公開訪客 指定組別 截止日（選填） 公開範圍 登入後學生可見 網際網路公開 上一步 填標題 下一步 Close",
+  "notes": [
+   "step failed: {\"clickText\":\"文件繳交\"} TimeoutError: locator.click: Timeout 4000ms exceeded.",
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded.",
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/admin/affairs"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-011",
+  "name": "admin--affairs-reopen-dialog",
+  "dialog": true,
+  "dialogText": "重新開放 第 06 組 專題說明會出席與分組意向登記 新期限 理由（必填） 原截止 2026-08-15 新截止 （上面選） 目前採計 尚未繳交，重送後為 v1 會通知 何昀諠、商柏睿、藍怡萱、傅子齊、涂宥辰 範圍 只有 第 06 組 可在新期限前重送；其他組別不變。 確認重新開放 Close",
+  "notes": [],
+  "url": "/dashboard/admin/affairs/mi-011"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-012",
+  "name": "admin--affairs-remind-dialog",
+  "dialog": true,
+  "dialogText": "催繳 7 組 專題題目與摘要初稿・2026-09-18 截止 信件標題 ［專題事務］專題題目與摘要初稿 尚未繳交，請於 2026-09-18 前完成 寄給 34 位學生，副本：陳建宏、李孟儒、張士豪、王雅玲 第 07 組 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 第 03 組 方品瑄、游承翰、廖珮綺、康柏融、詹于萱 第 04 組 溫子謙、范芷妍、杜宥安、洪思語、莊博凱 第 05 組 田家瑜、阮柏毅、曾語彤、崔浩然、翁苡榛 第 06 組 何昀諠、商柏睿、藍怡萱、傅子齊、涂宥辰 第 08 組 巫佳蓁、郝彥丞、岳庭妤、解軍豪、麥若彤 第 09 組 柯亦辰、宮宇薇、潘冠霖、尤思穎 確認寄出 Close",
+  "notes": [],
+  "url": "/dashboard/admin/affairs/mi-012"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-011",
+  "name": "admin--affairs-view-submission",
+  "dialog": true,
+  "dialogText": "專題說明會出席與分組意向登記 第 07 組・v2 已鎖定 林彥廷 送出（代表全組） 2026-08-12 23:41 欄位版本 v3 組別資訊 第 07 組・林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 出席人數 5 暫定組員（姓名、學號） 校園閒置空間共享媒合平台：以 Next.js 與 PostgreSQL 實作，預計三個月完成第一版。 意向 一般專題 先前作品或提案連結 https://demo.fju.dev/g-07 版本歷程 v2 林彥廷 2026-08-12 23:41 採計 補上第五位組員與提案連結 v1 吳柏諺 2026-08-10 18:02 要讓這組在截止後重送，先重新開放。 重新開放 Close",
+  "notes": [],
+  "url": "/dashboard/admin/affairs/mi-011"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor",
+  "name": "admin--editor-enable-collect",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/admin/editor/d-mtwxvigw"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor/mi-012",
+  "name": "admin--editor-preview",
+  "dialog": true,
+  "dialogText": "預覽 訪客 學生 老師 專題需求・2026-09-18 23:59 截止 專題題目與摘要初稿 填寫專題中英文題目、300 字摘要、預計使用技術與產學合作單位（如有）。 填寫專題中英文題目、300 字摘要、預計使用技術與產學合作單位（如有）。 組別資訊 第 07 組 校園閒置空間共享媒合平台・林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 中文題目* 英文題目* 摘要*300 字內 預計使用技術 例：Next.js、PostgreSQL 產學合作單位（如有） 儲存草稿 正式送出 發布時會通知：本屆 9 組，44 人 Close",
+  "notes": [],
+  "url": "/dashboard/admin/editor/mi-012"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor/mi-012",
+  "name": "admin--editor-publish-check",
+  "dialog": true,
+  "dialogText": "發布前檢查 標題 專題題目與摘要初稿 對象 本屆學生（9 組、44 位） 截止 2026-09-18 欄位 5 個收件欄位 公開範圍 登入後學生可見 會通知：本屆 9 組，44 人。 取消 確認發布 Close",
+  "notes": [],
+  "url": "/dashboard/admin/editor/mi-012"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor/mi-012",
+  "name": "admin--editor-add-field",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/admin/editor/mi-012"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-review-dialog",
+  "dialog": true,
+  "dialogText": "審核 許庭瑋 學號命中名單，姓名不同 申請姓名 許庭瑋 名冊姓名 許廷瑋與申請姓名不同 學號 411410466 來源 外部 Emailtingwei@gmail.com 屆別 114 送出 2026-08-16 理由 ・退回必填，核准選填 核准 退回 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-import-step1",
+  "dialog": true,
+  "dialogText": "匯入本屆名單 UTF-8 CSV，欄位固定：student_no,name,cohort,email 選擇檔案或拖放 用示範檔預覽 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-import-preview",
+  "dialog": true,
+  "dialogText": "預覽・114 名單 v4.csv 確認後才匯入；不會自動核准衝突筆。 52 總筆數 49 有效 2 重複 1 缺欄 第 17 行 411410466 重複 略過 第 33 行 411410466 重複 略過 第 41 行缺 name 略過 匯入 49 筆 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-disable-dialog",
+  "dialog": true,
+  "dialogText": "停用 林彥廷 停用不是刪除：本人無法登入，但繳交、成績與紀錄都保留。 帳號 411410123@m365.fju.edu.tw 學號 411410123 目前 已核准 理由（選填） 確認停用 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-temp-password",
+  "dialog": true,
+  "dialogText": "重設 林彥廷 的臨時密碼 系統不存可查看的密碼。重設會讓舊密碼立刻失效，新的一次性密碼只顯示一次。 帳號 411410123@m365.fju.edu.tw 角色 學生 產生一次性密碼 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "name": "admin--accounts-new",
+  "dialog": true,
+  "dialogText": "新增帳號 平台角色決定能進哪些頁；學籍資料（學號、屆別）來自名單，只用來比對身分與分組，改角色不會改學籍。 姓名 Email 平台角色 學生 作業區、我的組別、同意書 老師 評分、簽核、分組總覽 管理員 全部管理頁與操作紀錄 學號 屆別 114 學年度 113 學年度 不適用（老師／系辦） 建立並寄送臨時密碼 Close",
+  "notes": [],
+  "url": "/dashboard/admin/accounts"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/groups",
+  "name": "admin--groups-assign-dialog",
+  "dialog": true,
+  "dialogText": "指派指導老師・第 03 組 一般專題由系辦依抽籤結果指派；產學組由老師認領。 老師 陳建宏 王雅玲 李孟儒 張士豪 理由（必填） 確認指派 Close",
+  "notes": [],
+  "url": "/dashboard/admin/groups"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/groups",
+  "name": "admin--groups-reassign-dialog",
+  "dialog": true,
+  "dialogText": "重派指導老師・第 07 組 目前：陳建宏。重派後原老師的評分與簽核指派會一併移轉。 老師 陳建宏（目前） 王雅玲 李孟儒 張士豪 理由（必填） 確認重派 Close",
+  "notes": [],
+  "url": "/dashboard/admin/groups"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/groups",
+  "name": "admin--groups-add-ungrouped",
+  "dialog": true,
+  "dialogText": "把 應宥丞 加入組別 411410411・本人有公開找組員。只列出還不滿五人的組。 組別 第 09 組・4 人・跨境電商稅務試算工具 理由（必填） 確認加入 Close",
+  "notes": [],
+  "url": "/dashboard/admin/groups"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/groups",
+  "name": "admin--groups-detail",
+  "dialog": true,
+  "dialogText": "第 07 組 一般專題 成立中 3/5 校園閒置空間共享媒合平台 成員、老師、產學連結與繳交都在這裡；例外處理在最下面。 成員 3／5 已確認 林彥廷 411410123 已確認 黃詩涵 411410145 已確認 吳柏諺 411410167 已確認 蔡育瑄 411410189 未確認 鄭凱文 411410201 未確認 指導老師 陳建宏 chen.ch@mail.fju.edu.tw 重派 繳交狀態 指導老師意願調查表 草稿 專題分組名單確認表 v1 已繳交 專題題目與摘要初稿 未開始 專題說明會出席與分組意向登記 v2 已鎖定 成果授權同意書 學生 3／5・老師未簽 例外處理 ・各要理由，先列影響 重組 調整人數 解散 Close",
+  "notes": [],
+  "url": "/dashboard/admin/groups"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/grading",
+  "name": "admin--grading-override-dialog",
+  "dialog": true,
+  "dialogText": "更正 第 01 組・系統驗收 階段成績 原始老師輸入不會被覆蓋；更正值另存並附理由。 要更正哪一個 王雅玲 老師的分數 84.00 張士豪 老師的分數 90.00 階段平均 87.00 原值 87.00 新值 理由（必填） 確認更正 Close",
+  "notes": [],
+  "url": "/dashboard/admin/grading"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/grading",
+  "name": "admin--grading-return-dialog",
+  "dialog": true,
+  "dialogText": "退回重評・第 07 組 系統驗收。只退回選定老師的那一份，原值保留在歷程。 退回哪位老師的評分 陳建宏・71.00 理由（必填） 確認退回 Close",
+  "notes": [],
+  "url": "/dashboard/admin/grading"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/grading",
+  "name": "admin--grading-new-scheme",
+  "dialog": true,
+  "dialogText": "建立評分方案 v3 從 v2 複製起草。鎖定後結構不能改，只能再建新版本。 未儲存 1・階段權重 合計 100％ 階段名稱 階段權重 ％ 階段名稱 階段權重 ％ 2・各階段項目 系統驗收 項目合計 100％ 第 1 項名稱 第 1 項權重 輸入型別 0–100 A–F 第 2 項名稱 第 2 項權重 輸入型別 0–100 A–F 第 3 項名稱 第 3 項權重 輸入型別 0–100 A–F 第 4 項名稱 第 4 項權重 輸入型別 0–100 A–F 第 5 項名稱 第 5 項權重 輸入型別 0–100 A–F 第 6 項名稱 第 6 項權重 輸入型別 0–100 A–F 第 7 項名稱 第 7 項權重 輸入型別 0–100 A–F 新增項目 專題發表 尚未建立項目 新增項目 3・評審分配 每組 2 位老師；階段成績＝兩位平均 第 07 組 第 07 組 評審 1 陳建宏 王雅玲 李孟儒 張士豪 第 07 組 評審 2 陳建宏 王雅玲 李孟儒 張士豪 第 01 組 第 01 組 評審 1 陳建宏 王雅玲 李孟儒 張士豪 第 01 組 評審 2 陳建宏 王雅玲 李孟儒 張士豪 第 02 ",
+  "notes": [],
+  "url": "/dashboard/admin/grading"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/signoff",
+  "name": "admin--signoff-missing-popover",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/admin/signoff"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/signoff",
+  "name": "admin--signoff-reset-dialog",
+  "dialog": true,
+  "dialogText": "重置 第 07 組 簽核 系辦不能代替任何人同意，只能重開或重置。重置後所有人要重新同意。 目前版本 v1 將失效的簽署 林彥廷、黃詩涵、吳柏諺 （3 位學生） 指導老師 陳建宏・尚未簽 原因（必填） 確認重置（3 筆簽署失效） Close",
+  "notes": [],
+  "url": "/dashboard/admin/signoff"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/signoff",
+  "name": "admin--signoff-new",
+  "dialog": true,
+  "dialogText": "新增簽核 建立一份要全組逐人同意的文件。系辦只能發布、重開、重置，不能代替學生或老師同意。 標題 版本 對象 本屆全部組別（9） 指定組別 會通知 9 組・44 位學生・4 位老師 上傳同意書 PDF 只收 PDF，上限 10 MB 發布 v2 並通知 Close",
+  "notes": [],
+  "url": "/dashboard/admin/signoff"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/timeline",
+  "name": "admin--timeline-edit-stage",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/admin/timeline"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/timeline",
+  "name": "admin--timeline-new-stage",
+  "dialog": true,
+  "dialogText": "新增階段 學生時間軸與首頁「現在階段」都用這份設定。原型只存本頁。 名稱 開始 結束 一句話說明 關聯事務 ・收件類，會列在這階段的待辦 指導老師意願調查表 08/26 專題分組名單確認表 09/04 專題題目與摘要初稿 09/18 專題說明會出席與分組意向登記 08/15 未儲存 新增階段 學生看到的樣子 第 9 階段 階段名稱 — – — 一句話說明 尚未關聯事務 Close",
+  "notes": [],
+  "url": "/dashboard/admin/timeline"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin",
+  "name": "admin--home-calendar-new-event",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/admin"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/industry",
+  "name": "admin--industry-edit",
+  "dialog": true,
+  "dialogText": "編輯合作案 負責老師與發布日由系統帶入。* 為必填。 公司名稱* （必填） 需求部門* （必填） 專題／合作內容* （必填） 對學生的條件／需求 備註 以下預設只有你與系辦看得到 公司地址 聯絡人 聯絡電話 聯絡 Email 學生可見 登入的學生看得到案件，可在分組時連結；聯絡資訊不顯示。 網際網路公開（含聯絡資訊） 不登入也能在前台看到，地址、聯絡人、電話、Email 一起顯示。 儲存後：登入的學生可見 儲存並開放學生 Close",
+  "notes": [],
+  "url": "/dashboard/admin/industry"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/files",
+  "name": "admin--files-upload",
+  "dialog": true,
+  "dialogText": "上傳資源 拖放檔案到這裡，或點擊選檔 PDF、Office、圖片；單檔上限 100 MiB 原型：用一個假檔案 權限 學生可見 公開 引用位置（選填） 先不引用 指導老師意願調查表 專題分組名單確認表 專題題目與摘要初稿 專題說明會出席與分組意向登記 114 學年度專題分組作業與指導老師意願調查開始受理 專題規則修訂：系統驗收評分項目調整為七項 第 31 屆全國大專校院資訊應用服務創新競賽開始報名 指導老師研究領域一覽 雲端服務實務工作坊（8/28）報名 先選檔案 Close",
+  "notes": [],
+  "url": "/dashboard/admin/files"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/groups",
+  "name": "teacher--groups-claim-dialog",
+  "dialog": true,
+  "dialogText": "認領 第 03 組 非營利組織捐款流程數位化。先按先得；同時操作只有一位會成功。 確認認領 原型：模擬被其他老師先認領 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/groups"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/groups",
+  "name": "teacher--groups-claim-done",
+  "dialog": true,
+  "dialogText": "認領 第 03 組 非營利組織捐款流程數位化。先按先得；同時操作只有一位會成功。 確認認領 原型：模擬被其他老師先認領 Close",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/teacher/groups"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "name": "teacher--grading-filled-draft",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/teacher/grading/g-07"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "name": "teacher--grading-submit-receipt",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded.",
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/teacher/grading/g-07"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "name": "teacher--grading-invalid",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"fillFirst\":\"input[type=number]\",\"value\":\"101\"} TimeoutError: locator.fill: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/teacher/grading/g-07"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/signoff",
+  "name": "teacher--signoff-approved",
+  "dialog": true,
+  "dialogText": "確認同意 專題成果授權同意書・v1。以 陳建宏 老師 的身分同意，只代表你自己的一票。 確認同意 取消 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/signoff"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/signoff",
+  "name": "teacher--signoff-reject-dialog",
+  "dialog": true,
+  "dialogText": "不同意並退回 會回到修正狀態；修正後全組重走一次。 原因（必填） 送出退回 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/signoff"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/industry",
+  "name": "teacher--industry-new",
+  "dialog": true,
+  "dialogText": "新增合作案 負責老師與發布日由系統帶入。* 為必填。 公司名稱* （必填） 需求部門* （必填） 專題／合作內容* （必填） 對學生的條件／需求 備註 以下預設只有你與系辦看得到 公司地址 聯絡人 聯絡電話 聯絡 Email 學生可見 登入的學生看得到案件，可在分組時連結；聯絡資訊不顯示。 網際網路公開（含聯絡資訊） 不登入也能在前台看到，地址、聯絡人、電話、Email 一起顯示。 儲存後：草稿，只有你與系辦看得到 儲存草稿 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/industry"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/industry",
+  "name": "teacher--industry-edit",
+  "dialog": true,
+  "dialogText": "編輯合作案 負責老師與發布日由系統帶入。* 為必填。 公司名稱* （必填） 需求部門* （必填） 專題／合作內容* （必填） 對學生的條件／需求 備註 以下預設只有你與系辦看得到 公司地址 聯絡人 聯絡電話 聯絡 Email 學生可見 登入的學生看得到案件，可在分組時連結；聯絡資訊不顯示。 網際網路公開（含聯絡資訊） 不登入也能在前台看到，地址、聯絡人、電話、Email 一起顯示。 儲存後：登入的學生可見 儲存並開放學生 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/industry"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/affairs",
+  "name": "teacher--affairs-matrix-cell",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/teacher/affairs"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/affairs/mi-012",
+  "name": "teacher--affairs-view",
+  "dialog": true,
+  "dialogText": "專題題目與摘要初稿 第 02 組・v2 已繳交 宋佳蓉 送出（代表全組） 2026-08-13 10:17 欄位版本 v1 組別資訊 第 02 組・賴威廷、宋佳蓉、馮柏勳、涂雅雯、石承翰 中文題目 零售門市補貨預測 英文題目 零售門市補貨預測 摘要 零售門市補貨預測：以 Next.js 與 PostgreSQL 實作，預計三個月完成第一版。 預計使用技術 零售門市補貨… 產學合作單位（如有） 零售門市補貨… 版本歷程 v2 宋佳蓉 2026-08-13 10:17 採計 v1 馮柏勳 2026-08-09 20:11 Close",
+  "notes": [],
+  "url": "/dashboard/teacher/affairs/mi-012"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-012",
+  "name": "student--affairs-draft-saved",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student/affairs/mi-012"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-012",
+  "name": "student--affairs-submit-blocked",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student/affairs/mi-012"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-011",
+  "name": "student--affairs-history-tab",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student/affairs/mi-011"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-013",
+  "name": "student--affairs-resubmit",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student/affairs/mi-013"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/signoff",
+  "name": "student--signoff-approved",
+  "dialog": true,
+  "dialogText": "確認同意 專題成果授權同意書・v1。以 林彥廷 的身分同意，只代表你自己的一票。 確認同意 取消 Close",
+  "notes": [],
+  "url": "/dashboard/student/signoff"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/signoff",
+  "name": "student--signoff-reject-dialog",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student/signoff"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/groups",
+  "name": "student--groups-contact",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student/groups"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "name": "student--home-calendar-subscribe",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "name": "student--home-calendar-month",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [
+   "step failed: {\"click\":{}} TimeoutError: locator.click: Timeout 4000ms exceeded."
+  ],
+  "url": "/dashboard/student"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/inbox",
+  "name": "student--inbox-read-all",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student/inbox"
+ },
+ {
+  "role": "guest",
+  "path": "/register",
+  "name": "guest--register-filled",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/register"
+ },
+ {
+  "role": "guest",
+  "path": "/login",
+  "name": "guest--login-filled",
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/login"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "name": "student--home-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs",
+  "name": "student--affairs-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student/affairs"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-012",
+  "name": "student--affairs-item-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student/affairs/mi-012"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/timeline",
+  "name": "student--timeline-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student/timeline"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "name": "teacher--grading-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/teacher/grading/g-07"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "name": "admin--affairs-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/admin/affairs"
+ },
+ {
+  "role": "guest",
+  "path": "/",
+  "name": "guest--home-mobile",
+  "mobile": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin",
+  "name": "admin--home-dark",
+  "dark": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/admin"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "name": "student--home-dark",
+  "dark": true,
+  "dialog": false,
+  "dialogText": "",
+  "notes": [],
+  "url": "/dashboard/student"
+ }
+]

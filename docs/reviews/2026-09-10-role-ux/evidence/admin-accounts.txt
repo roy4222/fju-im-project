@@ -1,0 +1,340 @@
+- link "回首頁":
+  - /url: /dashboard/admin
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/admin
+    - generic: 首頁
+  - link "時間軸設定":
+    - /url: /dashboard/admin/timeline
+    - generic: 時間軸設定
+  - link "通知":
+    - /url: /dashboard/admin/inbox
+    - generic: 通知
+  - generic: "3"
+- generic: 專題事務
+- list:
+  - link "專題事務":
+    - /url: /dashboard/admin/affairs
+    - generic: 專題事務
+  - link "內容編輯器":
+    - /url: /dashboard/admin/editor
+    - generic: 內容編輯器
+  - link "檔案管理":
+    - /url: /dashboard/admin/files
+    - generic: 檔案管理
+- generic: 分組與產學
+- list:
+  - link "分組總覽":
+    - /url: /dashboard/admin/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/admin/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "成績管理":
+    - /url: /dashboard/admin/grading
+    - generic: 成績管理
+  - link "簽核":
+    - /url: /dashboard/admin/signoff
+    - generic: 簽核
+- generic: 系統管理
+- list:
+  - link "帳號管理" [active]:
+    - /url: /dashboard/admin/accounts
+    - generic: 帳號管理
+  - generic: "4"
+  - link "操作紀錄":
+    - /url: /dashboard/admin/audit
+    - generic: 操作紀錄
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "帳號管理" [level=1]
+  - button "切換為深色":
+  - button "通知，3 則未讀":
+  - button "帳號選單":
+    - generic: 系
+    - generic: 系辦管理員
+  - heading "帳號管理" [level=1]
+  - paragraph: 系統不存在可被查看的密碼；只能重設一次性臨時密碼。
+  - button "新增帳號":
+    - text: 新增帳號
+  - img "57%":
+    - generic: 57%
+  - paragraph: 已核准
+  - paragraph: "8"
+  - paragraph: 名單命中自動 5・人工 5
+  - link "29% 待審核 4 最久 3 天・目標 2 天內":
+    - /url: /dashboard/admin/accounts?status=pending
+    - img "29%":
+      - generic: 29%
+    - paragraph: 待審核
+    - paragraph: "4"
+    - paragraph: 最久 3 天・目標 2 天內
+  - img "14%":
+    - generic: 14%
+  - paragraph: 已停用
+  - paragraph: "2"
+  - paragraph: 休學 1・重複 1
+  - heading "註冊與審核趨勢" [level=2]
+  - generic: ・8/13 匯入名單起・每日新帳號
+  - button "匯入名單 CSV":
+    - text: 匯入名單 CSV
+  - application:
+    - generic: 08/13
+    - generic: 08/14
+    - generic: 08/15
+    - generic: 08/16
+    - generic: 08/17
+    - generic: 08/18
+    - generic: 08/19
+    - generic: "0"
+    - generic: "15"
+    - generic: "30"
+    - generic: "45"
+    - generic: "60"
+  - term: 自動核准
+  - definition: "125"
+  - term: 人工核准
+  - definition: "94"
+  - term: 退回
+  - definition: "3"
+  - term: 平均等待
+  - definition: 0.8 天
+  - heading "全部帳號" [level=2]
+  - generic: ・可搜尋、排序、篩選、勾選匯出與批次停用
+  - textbox "搜尋姓名"
+  - button "狀態"
+  - button "角色"
+  - button "屆別"
+  - button "欄位":
+    - generic: 欄位
+  - table:
+    - rowgroup:
+      - row "全選本頁 姓名 學號 Email 角色 屆別 狀態 建立 操作":
+        - columnheader "全選本頁":
+          - checkbox "全選本頁"
+          - checkbox
+        - columnheader "姓名":
+          - button "姓名":
+            - text: 姓名
+        - columnheader "學號":
+          - button "學號":
+            - text: 學號
+        - columnheader "Email":
+          - button "Email":
+            - text: Email
+        - columnheader "角色":
+          - button "角色":
+            - text: 角色
+        - columnheader "屆別":
+          - button "屆別":
+            - text: 屆別
+        - columnheader "狀態":
+          - button "狀態":
+            - text: 狀態
+        - columnheader "建立":
+          - button "建立":
+            - text: 建立
+        - columnheader "操作"
+    - rowgroup:
+      - row "選取 林彥廷 林 林彥廷 411410123 411410123@m365.fju.edu.tw 學生 114 已核准 2026-08-13 停用":
+        - cell "選取 林彥廷":
+          - checkbox "選取 林彥廷"
+          - checkbox
+        - cell "林 林彥廷":
+          - generic: 林
+          - generic: 林彥廷
+        - cell "411410123"
+        - cell "411410123@m365.fju.edu.tw":
+          - generic: 411410123@m365.fju.edu.tw
+        - cell "學生"
+        - cell "114"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-08-13"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+      - row "選取 黃詩涵 黃 黃詩涵 411410145 411410145@m365.fju.edu.tw 學生 114 已核准 2026-08-13 停用":
+        - cell "選取 黃詩涵":
+          - checkbox "選取 黃詩涵"
+          - checkbox
+        - cell "黃 黃詩涵":
+          - generic: 黃
+          - generic: 黃詩涵
+        - cell "411410145"
+        - cell "411410145@m365.fju.edu.tw":
+          - generic: 411410145@m365.fju.edu.tw
+        - cell "學生"
+        - cell "114"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-08-13"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+      - row "選取 高雅筑 高 高雅筑 411410455 yachu.kao@gmail.com 學生 114 已核准 2026-08-14 停用":
+        - cell "選取 高雅筑":
+          - checkbox "選取 高雅筑"
+          - checkbox
+        - cell "高 高雅筑":
+          - generic: 高
+          - generic: 高雅筑
+        - cell "411410455"
+        - cell "yachu.kao@gmail.com":
+          - generic: yachu.kao@gmail.com
+        - cell "學生"
+        - cell "114"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-08-14"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+      - row "選取 許庭瑋 許 許庭瑋 411410466 tingwei@gmail.com 學生 114 待審核 2026-08-16 審核":
+        - cell "選取 許庭瑋":
+          - checkbox "選取 許庭瑋"
+          - checkbox
+        - cell "許 許庭瑋":
+          - generic: 許
+          - generic: 許庭瑋
+        - cell "411410466"
+        - cell "tingwei@gmail.com":
+          - generic: tingwei@gmail.com
+        - cell "學生"
+        - cell "114"
+        - cell "待審核":
+          - generic: 待審核
+        - cell "2026-08-16"
+        - cell "審核":
+          - button "審核"
+      - row "選取 陳冠宇 陳 陳冠宇 411410477 411410477@m365.fju.edu.tw 學生 114 待審核 2026-08-16 審核":
+        - cell "選取 陳冠宇":
+          - checkbox "選取 陳冠宇"
+          - checkbox
+        - cell "陳 陳冠宇":
+          - generic: 陳
+          - generic: 陳冠宇
+        - cell "411410477"
+        - cell "411410477@m365.fju.edu.tw":
+          - generic: 411410477@m365.fju.edu.tw
+        - cell "學生"
+        - cell "114"
+        - cell "待審核":
+          - generic: 待審核
+        - cell "2026-08-16"
+        - cell "審核":
+          - button "審核"
+      - row "選取 劉思妤 劉 劉思妤 410410312 siyu.liu@gmail.com 學生 113 待審核 2026-08-17 審核":
+        - cell "選取 劉思妤":
+          - checkbox "選取 劉思妤"
+          - checkbox
+        - cell "劉 劉思妤":
+          - generic: 劉
+          - generic: 劉思妤
+        - cell "410410312"
+        - cell "siyu.liu@gmail.com":
+          - generic: siyu.liu@gmail.com
+        - cell "學生"
+        - cell "113"
+        - cell "待審核":
+          - generic: 待審核
+        - cell "2026-08-17"
+        - cell "審核":
+          - button "審核"
+      - row "選取 王小明 王 王小明 411410999 wang.xm@gmail.com 學生 114 待審核 2026-08-17 審核":
+        - cell "選取 王小明":
+          - checkbox "選取 王小明"
+          - checkbox
+        - cell "王 王小明":
+          - generic: 王
+          - generic: 王小明
+        - cell "411410999"
+        - cell "wang.xm@gmail.com":
+          - generic: wang.xm@gmail.com
+        - cell "學生"
+        - cell "114"
+        - cell "待審核":
+          - generic: 待審核
+        - cell "2026-08-17"
+        - cell "審核":
+          - button "審核"
+      - row "選取 陳建宏 陳 陳建宏 — chen.ch@mail.fju.edu.tw 指導老師 — 已核准 2026-07-01 停用":
+        - cell "選取 陳建宏":
+          - checkbox "選取 陳建宏"
+          - checkbox
+        - cell "陳 陳建宏":
+          - generic: 陳
+          - generic: 陳建宏
+        - cell "—"
+        - cell "chen.ch@mail.fju.edu.tw":
+          - generic: chen.ch@mail.fju.edu.tw
+        - cell "指導老師"
+        - cell "—"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-07-01"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+      - row "選取 王雅玲 王 王雅玲 — wang.yl@mail.fju.edu.tw 指導老師 — 已核准 2026-07-01 停用":
+        - cell "選取 王雅玲":
+          - checkbox "選取 王雅玲"
+          - checkbox
+        - cell "王 王雅玲":
+          - generic: 王
+          - generic: 王雅玲
+        - cell "—"
+        - cell "wang.yl@mail.fju.edu.tw":
+          - generic: wang.yl@mail.fju.edu.tw
+        - cell "指導老師"
+        - cell "—"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-07-01"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+      - row "選取 李孟儒 李 李孟儒 — lee.mj@mail.fju.edu.tw 指導老師 — 已核准 2026-07-01 停用":
+        - cell "選取 李孟儒":
+          - checkbox "選取 李孟儒"
+          - checkbox
+        - cell "李 李孟儒":
+          - generic: 李
+          - generic: 李孟儒
+        - cell "—"
+        - cell "lee.mj@mail.fju.edu.tw":
+          - generic: lee.mj@mail.fju.edu.tw
+        - cell "指導老師"
+        - cell "—"
+        - cell "已核准":
+          - generic: 已核准
+        - cell "2026-07-01"
+        - cell "停用":
+          - button "重設臨時密碼":
+          - button "停用"
+  - paragraph: 共 14 筆
+  - generic: 第 1 / 2 頁
+  - button "上一頁" [disabled]:
+  - button "下一頁":
+  - paragraph:
+    - text: 永久刪除為獨立高風險動作：需影響預覽、再次輸入確認文字並產生紀錄。
+    - generic: 了解更多
+- button "Open Next.js Dev Tools":
+- button "Open issues overlay":
+  - generic: "0"
+  - generic: "1"
+  - generic: Issue
+- button "Collapse issues badge":
+- alert: 輔仁大學資訊管理學系｜專題管理平台
+- generic: "0"
