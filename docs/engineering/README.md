@@ -2,9 +2,9 @@
 
 2026-09-12 建立；同日第二輪同步整套 v2 文件；第三輪依 Codex 第二輪審查（RR01–RR12 與六小項）修訂為母 spec v3.3、契約 v2.1、模組 v2.1、切片 v2.1、劇本 v1.1，並新增 `operations/00 Roy 前置工作清單.md`；2026-09-13 第四輪依 Codex 對 PR #7 的第三輪 review（A1–A4、B1–B5、O1–O4）修訂為母 spec v3.4；同日第五輪依第四輪 review（C1–C6）修訂為母 spec v3.5、契約 01／05 v2.3、模組 01–10 v2.3、切片 v2.3、B07 v1.3、前置清單 v1.2，並在母 spec §9 與每份子 spec §7.1／7.2 附上 9/11 原型畫面對照（圖檔 `../product/assets/prototype-2026-09-11[-supplement]/`，commit 8e1cff8；沒有原型的流程列缺口）；同日第六輪依第五輪 review（D1）修訂為母 spec v3.6、契約 01 v2.4、契約 03 v2.2、模組 01 v2.4（`session_revocations` 改為一個狀態事件一筆主工作＋多筆收斂工作，收斂核對改唯讀查詢 `users.banned`，兩種保證分開並附逐列序列）、S01／S02 釘版測試。編輯來源在 Vault；這裡只讀。狀態：整套「已寫、待 Roy 與 Codex review」（通過後才拆 ticket）；正式碼未開始；SOP 執行 NOT_RUN；149 案 NOT_RUN（145 待執行、4 DEFERRED）。轉換規則與逐檔 hash 見 `../vault-sync-receipt-2026-09-13-round6.json`（本輪）、`../vault-sync-receipt-2026-09-13-round5.json`、`../vault-sync-receipt-2026-09-13-round4.json`、`../vault-sync-receipt-2026-09-12-round3.json`、`../vault-sync-receipt-2026-09-12-round2.json`、`../vault-sync-receipt-2026-09-12.json` 與 `../vault-sync-manifest.json`。
 
-## 實作票草稿（2026-09-13，拆票階段，v0.3 全套 S00–S14）
+## 實作票草稿（2026-09-13，拆票階段，v0.3.1 全套 S00–S14）
 
-- spec 基準 `f974bce`（母 spec v3.6）通過後進入拆票；v0.2 全套 158 張經 Codex 集中 review（F01–F15）後修為 **v0.3：166 張（10 張 BLOCKED，待 Roy 產品決策 D-01～D-13）**。入口：[`slices/🎫 票草稿/00 總索引.md`](<slices/🎫 票草稿/00 總索引.md>)、[`01 修訂差異、決策表與覆蓋表 v0.3.md`](<slices/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md>)（每項修訂位置、三類決策表、有效依賴圖、行為子項覆蓋表）＋每切片一份。spec 局部回寫：母 spec v3.7、契約 01 v2.5、模組 02／07／08／09／10 v2.4、切片總圖 v2.4（只回寫 review 導出的資料契約與 port，不重開需求）。待 Codex 集中核對局部差異與 Roy 回覆決策；通過後一次開齊 GitHub backlog（可開始票＋明確 BLOCKED 票），開票不等於開工。同步 receipt：`../vault-sync-receipt-2026-09-13-round9.json`。
+- spec 基準 `f974bce`（母 spec v3.6）通過後進入拆票；v0.2 全套 158 張經 Codex 集中 review（F01–F15）後修為 v0.3，再依 Codex 局部 review R01–R08 修為 **v0.3.1：166 張（10 張直接 BLOCKED，待 Roy 產品決策；D-10 已改工程確認）**；修訂腳本從備份還原後連跑兩次零位元差異，重複段落／表格切斷／舊上限殘留檢查 0。入口：[`slices/🎫 票草稿/00 總索引.md`](<slices/🎫 票草稿/00 總索引.md>)、[`01 修訂差異、決策表與覆蓋表 v0.3.md`](<slices/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md>)（每項修訂位置、三類決策表、有效依賴圖、行為子項覆蓋表）＋每切片一份。spec 局部回寫：母 spec v3.7、契約 01 v2.5、契約 05 v2.4、模組 02／05／07／08／09／10 v2.4、切片總圖 v2.4、SOP 05 步驟 2（只回寫 review 導出的資料契約與 port，不重開需求）。待 Codex 集中核對局部差異與 Roy 回覆決策；通過後一次開齊 GitHub backlog（可開始票＋明確 BLOCKED 票），開票不等於開工。同步 receipt：`../vault-sync-receipt-2026-09-13-round10.json`。
 
 ## GitHub review 入口（2026-09-12）
 

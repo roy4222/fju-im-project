@@ -2,9 +2,9 @@
 type: engineering-contract
 project: FJU IM Project
 updated: 2026-09-12
-status: draft-v2.3-pending-review
+status: draft-v2.4-pending-review
 ---
-# 共用契約 05｜CI／CD、部署與維運（v2.3）
+# 共用契約 05｜CI／CD、部署與維運（v2.4）
 
 > 2026-09-12 v2：依母 spec v3.2 §4.16 與 Codex R02、R14、R15、R16 重寫。具體命令只在 `🚀 部署與維運` 的 SOP 維護。已寫、待 review；所有操作 NOT_RUN。
 
@@ -28,7 +28,7 @@ typecheck → lint（含邊界反例測試）→ 單元 → 整合（Compose pos
 
 - S00 只啟用 CI；`cd.yml` 存在但只允許 `workflow_dispatch` 且預設 `--dry-run`；到選定的第一次 staging 部署階段才接上 GitHub Secrets、environment（方案支援時）與 VM；部署 approval 一律是 Roy 親自觸發 `workflow_dispatch`（或手動 SSH 執行 `deploy.sh`），不依賴 environment 的 required reviewers（private repo 需 Enterprise；v2.3，Codex C5）。
 - `deploy.sh <tag>`：`flock` 部署鎖（拿不到即失敗）→ 記 `.deploy/previous_tag`（含 digest）→ `docker compose pull app worker migrate` → **`docker compose run --rm migrate`（新映像；失敗即中止，舊 app 繼續）** → `docker compose up -d app worker` → 健康判定 → 寫 `deploy_log`。
-- **健康判定**：60 秒內 `/api/health` 回 200 **且** `commit`、`imageDigest` 等於本次部署、`schemaVersion` 等於 migrate 輸出的最後名稱、`worker.version` 等於本次、`worker.lastTickAt` 在 60 秒內；任一不符視為失敗。
+- **健康判定**：60 秒內 `/api/health` 回 200 **且** `commit`、`imageDigest` 等於本次部署、`schemaVersion` 等於 migrate 輸出的最後名稱、`worker.version` 等於本次、`worker.lastTickAt` 在 60 秒內；任一不符視為失敗。**分階段（v2.4，E-19）**：E02 出場前（worker 尚未交付）`deploy.sh` 不帶 `--expect-worker`，只判前四項且 `worker` 欄須為 null，`deploy_log` 記「有限健康條件」；E02 出場後帶 `--expect-worker` 判全部六項；旗標與階段不符即失敗。
 - 失敗：`up -d` 回 `previous_tag`，再跑同樣的健康判定並記錄；DB 不回滾（expand／contract）；通知 Roy。
 - 停機窗口：目前只是估計，第一次 staging 部署實測並記錄；長鎖 migration 另排維護時段。
 
@@ -51,7 +51,7 @@ expand／contract（契約 01 §12）；回滾只換映像；CI 用前一映像�
 
 ## 7. 備份、還原與隔離（回覆 R14）
 
-- 每日 `pg_dump -Fc` → `age` 加密 → `rclone` 到 R2（30 天）→ `backup_runs`；本機 7 天；附件只在 volume，無異地；失敗站內通知管理員＋Roy Email。
+- 每日 `pg_dump -Fc` → `age` 加密 → `rclone` 到 R2（30 天）→ `backup_runs`；本機 7 天；`AGE_RECIPIENTS` 空時 backup 服務啟動前置檢查失敗、不執行 dump、不寫 `backup_runs`（v2.4，E-11）；附件只在 volume，無異地；失敗站內通知管理員＋Roy Email。
 - 還原演練：獨立 Compose override（不同專案名、`PGDATA` 目錄、DB URL、port、附件目錄副本、worker 關閉、通知不指真實通道）；restore 前以 `docker inspect` 列 mount 與 `SELECT current_database()` 核對隔離；演練寫入與刪除不改變來源樣本 hash；報告寫明附件不在備份範圍；`restore_drills` 記錄。
 - 驗收分支（契約 04 §6）同樣使用隔離副本。
 - 副本一致性窗口（RR11）：驗收分支與演練副本取樣前 `docker compose stop app worker`、確認無在途上傳，再依序 `pg_dump`、複製 `files/`；還原後逐一核對有效 `file_references` 對應檔案存在且 checksum 相符（`pnpm ops:verify-files`）；正式備份仍只備 DB、附件無異地（既定）。
