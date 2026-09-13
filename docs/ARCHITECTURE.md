@@ -1,4 +1,4 @@
-> 2026-09-13 文件鏡像（第六輪＋票草稿）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.6（依 Codex 對 PR #7 的第三、四、五輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
+> 2026-09-13 文件鏡像（第六輪＋全套票草稿 v0.2）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.6（依 Codex 對 PR #7 的第三、四、五輪 review 修訂），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
 
 # 🏗️ 系統架構與資料流（工程母 spec v3.6）
 
