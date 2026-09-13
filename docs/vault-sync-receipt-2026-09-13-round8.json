@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-13T04:02:55.297475+00:00",
+  "generated_at": "2026-09-13T04:04:00.826235+00:00",
   "rule": "v2-2026-09-12",
   "round": "2026-09-13 round8 (ticket drafts v0.2 for all slices S00–S14 (🧱 實作切片/🎫 票草稿/00 總索引 + S00–S14); batch-1 draft file removed; spec set unchanged from round6)",
   "rule_description": "relative links normalized; links to unmirrored files → Vault absolute path; wiki links → markdown; engineering docs: product links → docs/product, engineering links → docs/engineering|docs/adr|docs/ARCHITECTURE.md; frontmatter kept except ARCHITECTURE/CONTEXT/FRONTEND copies",
@@ -58,12 +58,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
       "mirror": "docs/ARCHITECTURE.md",
-      "change": "updated",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "1101d6e4ac8d262b6f4a44d45e146a44bbc56ec15f056788cfd3f13e64743b81",
       "mirror_sha256": "eb9f8fd99c6d9573ac357353797c7266ed7cbc34ebe2fb146eea63025b279d1d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": "49e362bcc5af90c5e276bbef6b69805b0ac3bde35aae3ac475c70bb7a9b1d807",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "eb9f8fd99c6d9573ac357353797c7266ed7cbc34ebe2fb146eea63025b279d1d",
       "links_broken": []
     },
     {
@@ -73,7 +73,7 @@
       "kind": "engineering",
       "source_sha256": "29ed13222a71e5d8bffcbd6b405c5b6f1a3e5f102599442bc9c9c654c22ef4ab",
       "mirror_sha256": "261c39085af7ba9c1ad92b365d9a5a2ccdc1c93f1eac1fa737dbc1f8ca2a4ddc",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "261c39085af7ba9c1ad92b365d9a5a2ccdc1c93f1eac1fa737dbc1f8ca2a4ddc",
       "links_broken": []
     },
@@ -84,7 +84,7 @@
       "kind": "engineering",
       "source_sha256": "6f16e59ea1e84f42b29aadb81ea2dc3affafa43ec3b0e3562fff7faa8e9d9751",
       "mirror_sha256": "6f16e59ea1e84f42b29aadb81ea2dc3affafa43ec3b0e3562fff7faa8e9d9751",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "6f16e59ea1e84f42b29aadb81ea2dc3affafa43ec3b0e3562fff7faa8e9d9751",
       "links_broken": []
     },
@@ -95,7 +95,7 @@
       "kind": "engineering",
       "source_sha256": "5e642aa602c6c9a540ef553041c087ad22c15727541f5540724824460901e9f4",
       "mirror_sha256": "5e642aa602c6c9a540ef553041c087ad22c15727541f5540724824460901e9f4",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "5e642aa602c6c9a540ef553041c087ad22c15727541f5540724824460901e9f4",
       "links_broken": []
     },
@@ -106,7 +106,7 @@
       "kind": "engineering",
       "source_sha256": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
       "mirror_sha256": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
       "links_broken": []
     },
@@ -117,7 +117,7 @@
       "kind": "engineering",
       "source_sha256": "ddb610d2a8dc2985125e25f3be6b9581e84969a93f9f0b94c63413e8a42f5026",
       "mirror_sha256": "ddb610d2a8dc2985125e25f3be6b9581e84969a93f9f0b94c63413e8a42f5026",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "ddb610d2a8dc2985125e25f3be6b9581e84969a93f9f0b94c63413e8a42f5026",
       "links_broken": []
     },
@@ -128,7 +128,7 @@
       "kind": "engineering",
       "source_sha256": "1117367a2004ab9763bc2bb867f671e40adfbdef735531e8c9a027408a077c78",
       "mirror_sha256": "1117367a2004ab9763bc2bb867f671e40adfbdef735531e8c9a027408a077c78",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "1117367a2004ab9763bc2bb867f671e40adfbdef735531e8c9a027408a077c78",
       "links_broken": []
     },
@@ -139,7 +139,7 @@
       "kind": "engineering",
       "source_sha256": "b307d06aea3f4feb0295d93744be95474a1bbb5592ab1b7eaba53cee6f97540a",
       "mirror_sha256": "b307d06aea3f4feb0295d93744be95474a1bbb5592ab1b7eaba53cee6f97540a",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b307d06aea3f4feb0295d93744be95474a1bbb5592ab1b7eaba53cee6f97540a",
       "links_broken": []
     },
@@ -150,7 +150,7 @@
       "kind": "engineering",
       "source_sha256": "024add2c88184bd2cc24369438bf2e7a762410acf4e1792ba9acad649332ddbd",
       "mirror_sha256": "024add2c88184bd2cc24369438bf2e7a762410acf4e1792ba9acad649332ddbd",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "024add2c88184bd2cc24369438bf2e7a762410acf4e1792ba9acad649332ddbd",
       "links_broken": []
     },
@@ -161,7 +161,7 @@
       "kind": "engineering",
       "source_sha256": "e5394eb353de74fbfce7668b3f516f54cf9c85bdcd4ed1e5a1d2483fde858d02",
       "mirror_sha256": "e5394eb353de74fbfce7668b3f516f54cf9c85bdcd4ed1e5a1d2483fde858d02",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "e5394eb353de74fbfce7668b3f516f54cf9c85bdcd4ed1e5a1d2483fde858d02",
       "links_broken": []
     },
@@ -172,7 +172,7 @@
       "kind": "engineering",
       "source_sha256": "8858afb103fc8e5162c4cdce085f16dcd5b15ce2defb44e6aec06455d8338f1f",
       "mirror_sha256": "8858afb103fc8e5162c4cdce085f16dcd5b15ce2defb44e6aec06455d8338f1f",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "8858afb103fc8e5162c4cdce085f16dcd5b15ce2defb44e6aec06455d8338f1f",
       "links_broken": []
     },
@@ -183,7 +183,7 @@
       "kind": "engineering",
       "source_sha256": "9b6f6436acb3bd18925438ce23d2f86b708047e56e2c4777fb6dbb4a0e60aeaa",
       "mirror_sha256": "9b6f6436acb3bd18925438ce23d2f86b708047e56e2c4777fb6dbb4a0e60aeaa",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "9b6f6436acb3bd18925438ce23d2f86b708047e56e2c4777fb6dbb4a0e60aeaa",
       "links_broken": []
     },
@@ -194,7 +194,7 @@
       "kind": "engineering",
       "source_sha256": "1e19e8007ed43b7347580f2e9fe9a6477fa53f6d2442bc6889be60a9271599b8",
       "mirror_sha256": "1e19e8007ed43b7347580f2e9fe9a6477fa53f6d2442bc6889be60a9271599b8",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "1e19e8007ed43b7347580f2e9fe9a6477fa53f6d2442bc6889be60a9271599b8",
       "links_broken": []
     },
@@ -205,7 +205,7 @@
       "kind": "engineering",
       "source_sha256": "54d7a95e51fcc3a99e3a5ab27c0d5bdeda1b3a70ded563cbbb87228c419014a2",
       "mirror_sha256": "54d7a95e51fcc3a99e3a5ab27c0d5bdeda1b3a70ded563cbbb87228c419014a2",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "54d7a95e51fcc3a99e3a5ab27c0d5bdeda1b3a70ded563cbbb87228c419014a2",
       "links_broken": []
     },
@@ -216,7 +216,7 @@
       "kind": "engineering",
       "source_sha256": "2d1e85b44565b7a5e0f0db556971a85225a0bf937931e2a5970f64c2f379fb5b",
       "mirror_sha256": "2d1e85b44565b7a5e0f0db556971a85225a0bf937931e2a5970f64c2f379fb5b",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "2d1e85b44565b7a5e0f0db556971a85225a0bf937931e2a5970f64c2f379fb5b",
       "links_broken": []
     },
@@ -227,7 +227,7 @@
       "kind": "engineering",
       "source_sha256": "68501a48c07123dfcfc07753c364f18ad3b9be28e261a2108948d562773ed540",
       "mirror_sha256": "68501a48c07123dfcfc07753c364f18ad3b9be28e261a2108948d562773ed540",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "68501a48c07123dfcfc07753c364f18ad3b9be28e261a2108948d562773ed540",
       "links_broken": []
     },
@@ -238,7 +238,7 @@
       "kind": "engineering",
       "source_sha256": "2de774e44d5dd658bf18e6e87ad08aa4ab5ab0f6ac7b237f6def5c28b47944d6",
       "mirror_sha256": "2de774e44d5dd658bf18e6e87ad08aa4ab5ab0f6ac7b237f6def5c28b47944d6",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "2de774e44d5dd658bf18e6e87ad08aa4ab5ab0f6ac7b237f6def5c28b47944d6",
       "links_broken": []
     },
@@ -249,7 +249,7 @@
       "kind": "engineering",
       "source_sha256": "0e23048f8164c4b12d3e5347fc7993e9e6bdf185c2ce801f95e33bdf6d68484e",
       "mirror_sha256": "0e23048f8164c4b12d3e5347fc7993e9e6bdf185c2ce801f95e33bdf6d68484e",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "0e23048f8164c4b12d3e5347fc7993e9e6bdf185c2ce801f95e33bdf6d68484e",
       "links_broken": []
     },
@@ -260,7 +260,7 @@
       "kind": "engineering",
       "source_sha256": "bc98d1dbfe905122f8b0b962fa047e16685cee5b102e00d7a798690e5eb4e80d",
       "mirror_sha256": "bc98d1dbfe905122f8b0b962fa047e16685cee5b102e00d7a798690e5eb4e80d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "bc98d1dbfe905122f8b0b962fa047e16685cee5b102e00d7a798690e5eb4e80d",
       "links_broken": []
     },
@@ -271,7 +271,7 @@
       "kind": "engineering",
       "source_sha256": "42f869dd1dcbfdf20ab2a2c367e920eb11106dfc1c1d3f7ecabaae7f2be1b6ae",
       "mirror_sha256": "42f869dd1dcbfdf20ab2a2c367e920eb11106dfc1c1d3f7ecabaae7f2be1b6ae",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "42f869dd1dcbfdf20ab2a2c367e920eb11106dfc1c1d3f7ecabaae7f2be1b6ae",
       "links_broken": []
     },
@@ -282,7 +282,7 @@
       "kind": "engineering",
       "source_sha256": "0a66d4a1f28ac48a1b8782521517efaaba46e7f52b63502991a650008b604865",
       "mirror_sha256": "3a1b5f19a04d8f980cebc936ce744b285bd31ce029505645778fa9048beaa57b",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "3a1b5f19a04d8f980cebc936ce744b285bd31ce029505645778fa9048beaa57b",
       "links_broken": []
     },
@@ -293,7 +293,7 @@
       "kind": "engineering",
       "source_sha256": "772dc42ab8dceb3ca9b91ac7c737b6284bd511bc50dfbe51e5f0da667a9e8e79",
       "mirror_sha256": "6e293b5d0548b60a3cc8e1f3b58b6cf3e58c8a642f478c69b178c5d1f9c06d7b",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "6e293b5d0548b60a3cc8e1f3b58b6cf3e58c8a642f478c69b178c5d1f9c06d7b",
       "links_broken": []
     },
@@ -304,7 +304,7 @@
       "kind": "engineering",
       "source_sha256": "11c70985cad9d1aade4d4a9771b204bcd263191d654cf0587ac7171bac7a6f8e",
       "mirror_sha256": "44643120b71fa0463c0674d53a946fa97065a442a7970a74bd2c4c5b75007635",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "44643120b71fa0463c0674d53a946fa97065a442a7970a74bd2c4c5b75007635",
       "links_broken": []
     },
@@ -315,7 +315,7 @@
       "kind": "engineering",
       "source_sha256": "cf2db074d8e1ceb261987081860094c82f9f3556a0a2162aacf19825e87a9d32",
       "mirror_sha256": "59560383f4a8e262ef5b5c5c67d50d107a1aab64f2b7a9b3a17bf2a1a145d38d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "59560383f4a8e262ef5b5c5c67d50d107a1aab64f2b7a9b3a17bf2a1a145d38d",
       "links_broken": []
     },
@@ -326,7 +326,7 @@
       "kind": "engineering",
       "source_sha256": "eadd3344deec62b30abba4c8910e96ceddea215c9adf2f90589a0da7dc432ab8",
       "mirror_sha256": "5354bccb2d1a50a43184acc49ee6e07ea2059c389e6fde473d074189adce7771",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "5354bccb2d1a50a43184acc49ee6e07ea2059c389e6fde473d074189adce7771",
       "links_broken": []
     },
@@ -337,7 +337,7 @@
       "kind": "engineering",
       "source_sha256": "7bc8bdc74c21df9f12b07c73b7c5caece5e5701b877fde5d305a017674726386",
       "mirror_sha256": "7c4a8c09c9332713c159d0c562c199f47c5b12a4bdf4f84947581a9e153c0281",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "7c4a8c09c9332713c159d0c562c199f47c5b12a4bdf4f84947581a9e153c0281",
       "links_broken": []
     },
@@ -348,7 +348,7 @@
       "kind": "engineering",
       "source_sha256": "c84e89cd3235f4bd81589aba9bd904db57877818498e4b8aff46b5f3055d87c9",
       "mirror_sha256": "e59552ee1a183da5886c41259e0bb141cdee6cb8b25eb1d5b80b352975d99f64",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "e59552ee1a183da5886c41259e0bb141cdee6cb8b25eb1d5b80b352975d99f64",
       "links_broken": []
     },
@@ -359,7 +359,7 @@
       "kind": "engineering",
       "source_sha256": "9420e1ae340bcf28993e11b08609b3da3692e0926dd24543908b64873f9ede19",
       "mirror_sha256": "a994e681f3a542088fa5d4262c6f08f28e4f662a7bb923c56792815ec947ee0f",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "a994e681f3a542088fa5d4262c6f08f28e4f662a7bb923c56792815ec947ee0f",
       "links_broken": []
     },
@@ -370,7 +370,7 @@
       "kind": "engineering",
       "source_sha256": "a0c67f283605bf9819992f07d2374e9d66ddb1b9cf31d223ba453b6e14652702",
       "mirror_sha256": "0376aa5c411466e9b17887c3e5064f99220b6281c5e8c8c7bbbd0be346bfef55",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "0376aa5c411466e9b17887c3e5064f99220b6281c5e8c8c7bbbd0be346bfef55",
       "links_broken": []
     },
@@ -381,7 +381,7 @@
       "kind": "engineering",
       "source_sha256": "1c7ccf11f9090c220efcd9ebf5a537c55fbafbe0e6b25ad0f39ca8ed70c7241e",
       "mirror_sha256": "0e804d9fc3c56620c4b427712977fe263ed87e81f44a33890a4e100545ea44ec",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "0e804d9fc3c56620c4b427712977fe263ed87e81f44a33890a4e100545ea44ec",
       "links_broken": []
     },
@@ -392,7 +392,7 @@
       "kind": "engineering",
       "source_sha256": "39c41dc26ce3ff02c4d5112de00534646b91ef307fa87cfe1a5f7f2a136134b4",
       "mirror_sha256": "856473669b8f48679e7ba36f9f9a948480476cf5e3854b0de7bb2d8a8943950c",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "856473669b8f48679e7ba36f9f9a948480476cf5e3854b0de7bb2d8a8943950c",
       "links_broken": []
     },
@@ -403,7 +403,7 @@
       "kind": "engineering",
       "source_sha256": "61a0e6fecbdd690cde676680aaba3da3883a0a4c55f5c06fc3bafa3a9c2973c4",
       "mirror_sha256": "b1b49ef9f3bd6a4a0dd0a5a96b462f3a312adbe8096a56773c6b2215c0b2626a",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b1b49ef9f3bd6a4a0dd0a5a96b462f3a312adbe8096a56773c6b2215c0b2626a",
       "links_broken": []
     },
@@ -414,7 +414,7 @@
       "kind": "engineering",
       "source_sha256": "bb0cd96f31707d1fb3e6d12a905b8b46528284ac667644479774a2f13d725cd0",
       "mirror_sha256": "58c6857cd4e7dcbd4f6dfbdcf862f1b0a459cef1881b115ce6ae3a38ffdcfb9e",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "58c6857cd4e7dcbd4f6dfbdcf862f1b0a459cef1881b115ce6ae3a38ffdcfb9e",
       "links_broken": []
     },
@@ -425,7 +425,7 @@
       "kind": "engineering",
       "source_sha256": "62618ea895b755f75fbcde6d00ac596a4a4c45f3ef68245c24dca5e18252c2fa",
       "mirror_sha256": "0bf445dc1a550bc43d0e96e2f3cf1ebf35920968e76c8f3c40f38465f6820ad6",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "0bf445dc1a550bc43d0e96e2f3cf1ebf35920968e76c8f3c40f38465f6820ad6",
       "links_broken": []
     },
@@ -436,7 +436,7 @@
       "kind": "engineering",
       "source_sha256": "e65bdba0df4b681cf1e34c4ee63fda956922c1a8071a1b2c2521a8e576b535be",
       "mirror_sha256": "e2dff48c3e253d86b0262161f96e77322b0a1b9accc17069631960657c960011",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "e2dff48c3e253d86b0262161f96e77322b0a1b9accc17069631960657c960011",
       "links_broken": []
     },
@@ -447,7 +447,7 @@
       "kind": "engineering",
       "source_sha256": "7b568bf440ad3ac938a74083c95f09dce5fd87d4ab4be33a7570ae3ef7146e89",
       "mirror_sha256": "13c83e5c0867f303de05348295e267fb7da2fc931b532ca319609ccb17f40f71",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "13c83e5c0867f303de05348295e267fb7da2fc931b532ca319609ccb17f40f71",
       "links_broken": []
     },
@@ -458,7 +458,7 @@
       "kind": "engineering",
       "source_sha256": "4d2b4fd197ce48804a2f51f3373301676b2a6ffac10b36da806720216e800fff",
       "mirror_sha256": "b8acc74e872b0a9b2dd3ebdefcfa3681c12f04b05df6c79d1b212126cfa7f906",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b8acc74e872b0a9b2dd3ebdefcfa3681c12f04b05df6c79d1b212126cfa7f906",
       "links_broken": []
     },
@@ -469,7 +469,7 @@
       "kind": "engineering",
       "source_sha256": "f388a36c7d56e2ad35060d24a41c5c169a2013f575cd8f2fdab4393aeac853b0",
       "mirror_sha256": "1c335b8339ab97b98a7bf43c5741b2fb4611478bb288b8cd88451ebc00d3ec7d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "1c335b8339ab97b98a7bf43c5741b2fb4611478bb288b8cd88451ebc00d3ec7d",
       "links_broken": []
     },
@@ -480,7 +480,7 @@
       "kind": "engineering",
       "source_sha256": "547ac208161c2ecdd984a78f7d448fe032a16b33f0488511eef9cdbdaefe1510",
       "mirror_sha256": "8243cc66772d960647d284bd4e4b7eefc7200378383f8bc3dd030368508f2c79",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "8243cc66772d960647d284bd4e4b7eefc7200378383f8bc3dd030368508f2c79",
       "links_broken": []
     },
@@ -491,7 +491,7 @@
       "kind": "engineering",
       "source_sha256": "30a1438125a572deaf5fb3d8e7d8720d67423f04dace0cacbb571b29738af5db",
       "mirror_sha256": "97378f5244151435d6a0995aa1d5873f91996c1a744f59ca01d7c931ec1eff30",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "97378f5244151435d6a0995aa1d5873f91996c1a744f59ca01d7c931ec1eff30",
       "links_broken": []
     },
@@ -502,7 +502,7 @@
       "kind": "engineering",
       "source_sha256": "52aa602bc83009a0c71cf0ed57b917ad848b9793384ed6251e3915369c9a54dd",
       "mirror_sha256": "48c6b3316e80a32a08b7b20a8bf9070fc958c1e5a5b4124357163bd58952b002",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "48c6b3316e80a32a08b7b20a8bf9070fc958c1e5a5b4124357163bd58952b002",
       "links_broken": []
     },
@@ -513,7 +513,7 @@
       "kind": "engineering",
       "source_sha256": "8a9d6ec685409058b841e9688b3fc6c40a25426b0435ef28cbc69d6e01a2616d",
       "mirror_sha256": "0733e7cf04b0291584d9d31f511e43ef2f934d3e65c696cff41eb6becd4dab44",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "0733e7cf04b0291584d9d31f511e43ef2f934d3e65c696cff41eb6becd4dab44",
       "links_broken": []
     },
@@ -524,7 +524,7 @@
       "kind": "engineering",
       "source_sha256": "436d760859eb5efa1a664e4ef7a56ff49f09502ef7460a96ac226fc37e0dd161",
       "mirror_sha256": "436d760859eb5efa1a664e4ef7a56ff49f09502ef7460a96ac226fc37e0dd161",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "436d760859eb5efa1a664e4ef7a56ff49f09502ef7460a96ac226fc37e0dd161",
       "links_broken": []
     },
@@ -535,7 +535,7 @@
       "kind": "engineering",
       "source_sha256": "a4a7feeda5d520172990fd7501f4c0744c99a0f6b5897f94fc2fa288ada027a4",
       "mirror_sha256": "b9a4ee687a8a5cb0dfa9ddb4e6c8c7586d55f5795c48f51ead25a619fff045da",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b9a4ee687a8a5cb0dfa9ddb4e6c8c7586d55f5795c48f51ead25a619fff045da",
       "links_broken": []
     },
@@ -546,7 +546,7 @@
       "kind": "engineering",
       "source_sha256": "8375044298a35cb1cbd58504c25ebd0fa79dac68fe8170a94d5624eb40625b54",
       "mirror_sha256": "8375044298a35cb1cbd58504c25ebd0fa79dac68fe8170a94d5624eb40625b54",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "8375044298a35cb1cbd58504c25ebd0fa79dac68fe8170a94d5624eb40625b54",
       "links_broken": []
     },
@@ -557,7 +557,7 @@
       "kind": "engineering",
       "source_sha256": "b37b9425939c2562f2afb9b43d19ee9e33caba4e99b1e924287600cadaa9d490",
       "mirror_sha256": "b37b9425939c2562f2afb9b43d19ee9e33caba4e99b1e924287600cadaa9d490",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b37b9425939c2562f2afb9b43d19ee9e33caba4e99b1e924287600cadaa9d490",
       "links_broken": []
     },
@@ -568,7 +568,7 @@
       "kind": "engineering",
       "source_sha256": "a5dfb2cfaee1f94ec5198d4bb54e784cc2209c4d7671227035b55e402243af6e",
       "mirror_sha256": "a5dfb2cfaee1f94ec5198d4bb54e784cc2209c4d7671227035b55e402243af6e",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "a5dfb2cfaee1f94ec5198d4bb54e784cc2209c4d7671227035b55e402243af6e",
       "links_broken": []
     },
@@ -579,7 +579,7 @@
       "kind": "engineering",
       "source_sha256": "cf4544ab730ebc84302b1bc10cc9f9607d7d3c93317b72c195799c7b9114ad40",
       "mirror_sha256": "cf4544ab730ebc84302b1bc10cc9f9607d7d3c93317b72c195799c7b9114ad40",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "cf4544ab730ebc84302b1bc10cc9f9607d7d3c93317b72c195799c7b9114ad40",
       "links_broken": []
     },
@@ -590,7 +590,7 @@
       "kind": "engineering",
       "source_sha256": "710e07a7c4563b25cbff8e0da7015da6fadf344173a9390de5acf312b57bb332",
       "mirror_sha256": "a4a4e26611ae61c69ced4d9aef0f3096099da0d0cf99d6e47b1164b6a9e9ffbb",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "a4a4e26611ae61c69ced4d9aef0f3096099da0d0cf99d6e47b1164b6a9e9ffbb",
       "links_broken": []
     },
@@ -601,7 +601,7 @@
       "kind": "engineering",
       "source_sha256": "552e7102449f1303c8f8e50415924a5e1716197d6f84aa3315281f16d25696f6",
       "mirror_sha256": "552e7102449f1303c8f8e50415924a5e1716197d6f84aa3315281f16d25696f6",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "552e7102449f1303c8f8e50415924a5e1716197d6f84aa3315281f16d25696f6",
       "links_broken": []
     },
@@ -612,7 +612,7 @@
       "kind": "engineering",
       "source_sha256": "8f278455421f4c5c467af22dcba33f090b340e4f75f6076ee4af6eeb6b4d934a",
       "mirror_sha256": "8f278455421f4c5c467af22dcba33f090b340e4f75f6076ee4af6eeb6b4d934a",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "8f278455421f4c5c467af22dcba33f090b340e4f75f6076ee4af6eeb6b4d934a",
       "links_broken": []
     },
@@ -623,7 +623,7 @@
       "kind": "engineering",
       "source_sha256": "987999840366ec801c00cd39d4c94c25479c25e787b2ba8ad12c63c6422c6c21",
       "mirror_sha256": "987999840366ec801c00cd39d4c94c25479c25e787b2ba8ad12c63c6422c6c21",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "987999840366ec801c00cd39d4c94c25479c25e787b2ba8ad12c63c6422c6c21",
       "links_broken": []
     },
@@ -634,7 +634,7 @@
       "kind": "engineering",
       "source_sha256": "391f5d18af4f70f18496e86968fa07504d84d711e2864c0e9191e6d82242abf3",
       "mirror_sha256": "391f5d18af4f70f18496e86968fa07504d84d711e2864c0e9191e6d82242abf3",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "391f5d18af4f70f18496e86968fa07504d84d711e2864c0e9191e6d82242abf3",
       "links_broken": []
     },
@@ -645,7 +645,7 @@
       "kind": "engineering",
       "source_sha256": "e7a886643947c2dabf158c1b884954e81a7be8c0d9bb368c1e9c0e113a2d3c3f",
       "mirror_sha256": "e7a886643947c2dabf158c1b884954e81a7be8c0d9bb368c1e9c0e113a2d3c3f",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "e7a886643947c2dabf158c1b884954e81a7be8c0d9bb368c1e9c0e113a2d3c3f",
       "links_broken": []
     },
@@ -656,7 +656,7 @@
       "kind": "engineering",
       "source_sha256": "19fd8b05bb55b692403d3a7adb029e794e2b463cd56cbd8568c2c428d54d65e9",
       "mirror_sha256": "19fd8b05bb55b692403d3a7adb029e794e2b463cd56cbd8568c2c428d54d65e9",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "19fd8b05bb55b692403d3a7adb029e794e2b463cd56cbd8568c2c428d54d65e9",
       "links_broken": []
     },
@@ -667,7 +667,7 @@
       "kind": "engineering",
       "source_sha256": "ba3050f0aa25cb06032974826907e8db65201a481bd964061514421ff558ea0e",
       "mirror_sha256": "ba3050f0aa25cb06032974826907e8db65201a481bd964061514421ff558ea0e",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "ba3050f0aa25cb06032974826907e8db65201a481bd964061514421ff558ea0e",
       "links_broken": []
     },
@@ -678,7 +678,7 @@
       "kind": "engineering",
       "source_sha256": "6f1ef1bea23e32a96e0d43c9dbb3b2c068864e9f110fc92b0cec1b193a2aa11c",
       "mirror_sha256": "6f1ef1bea23e32a96e0d43c9dbb3b2c068864e9f110fc92b0cec1b193a2aa11c",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "6f1ef1bea23e32a96e0d43c9dbb3b2c068864e9f110fc92b0cec1b193a2aa11c",
       "links_broken": []
     },
@@ -689,7 +689,7 @@
       "kind": "engineering",
       "source_sha256": "a0f2fd98c4c10b3bd025c37230ecb3d35d86e383b712b5e3fe0c6e6597cf1477",
       "mirror_sha256": "a0f2fd98c4c10b3bd025c37230ecb3d35d86e383b712b5e3fe0c6e6597cf1477",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "a0f2fd98c4c10b3bd025c37230ecb3d35d86e383b712b5e3fe0c6e6597cf1477",
       "links_broken": []
     },
@@ -700,7 +700,7 @@
       "kind": "engineering",
       "source_sha256": "e778bf3fce41c0a2b14ae11d4db2f76a780cc829aa7b5bddf9618429ec5e37c0",
       "mirror_sha256": "e778bf3fce41c0a2b14ae11d4db2f76a780cc829aa7b5bddf9618429ec5e37c0",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "e778bf3fce41c0a2b14ae11d4db2f76a780cc829aa7b5bddf9618429ec5e37c0",
       "links_broken": []
     },
@@ -711,7 +711,7 @@
       "kind": "engineering",
       "source_sha256": "b43a0363f7e67e7d9e0080632f21df02a51666d6c13a416a5a1642510408f648",
       "mirror_sha256": "b43a0363f7e67e7d9e0080632f21df02a51666d6c13a416a5a1642510408f648",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "b43a0363f7e67e7d9e0080632f21df02a51666d6c13a416a5a1642510408f648",
       "links_broken": []
     },
@@ -722,7 +722,7 @@
       "kind": "engineering",
       "source_sha256": "f0fea41635a8aa488ec37b9ede5da7d399769b347803a98d04f5ce7e09094e2b",
       "mirror_sha256": "f0fea41635a8aa488ec37b9ede5da7d399769b347803a98d04f5ce7e09094e2b",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "f0fea41635a8aa488ec37b9ede5da7d399769b347803a98d04f5ce7e09094e2b",
       "links_broken": []
     },
@@ -733,7 +733,7 @@
       "kind": "engineering",
       "source_sha256": "04079b0cef954ddbe061ce3fe7a337b4de201014f28697169e881a3c99851a0a",
       "mirror_sha256": "04079b0cef954ddbe061ce3fe7a337b4de201014f28697169e881a3c99851a0a",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "04079b0cef954ddbe061ce3fe7a337b4de201014f28697169e881a3c99851a0a",
       "links_broken": []
     },
@@ -744,7 +744,7 @@
       "kind": "engineering",
       "source_sha256": "4d749bdba9a186eb943fe9b348e564b26871ec28bc093c4e51917786e3290ca5",
       "mirror_sha256": "4d749bdba9a186eb943fe9b348e564b26871ec28bc093c4e51917786e3290ca5",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "4d749bdba9a186eb943fe9b348e564b26871ec28bc093c4e51917786e3290ca5",
       "links_broken": []
     },
@@ -755,184 +755,184 @@
       "kind": "engineering",
       "source_sha256": "d378d0a9d7d3f70483ea1c3f8da8632a550a71220d00af330fdaca889e62d070",
       "mirror_sha256": "d378d0a9d7d3f70483ea1c3f8da8632a550a71220d00af330fdaca889e62d070",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
       "prev_mirror_sha256": "d378d0a9d7d3f70483ea1c3f8da8632a550a71220d00af330fdaca889e62d070",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S04 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S04 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "19772c8e1a59b9e6deeb9d045caca353bcde32845832025818181e1d0aa9da07",
       "mirror_sha256": "19772c8e1a59b9e6deeb9d045caca353bcde32845832025818181e1d0aa9da07",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "19772c8e1a59b9e6deeb9d045caca353bcde32845832025818181e1d0aa9da07",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S08 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S08 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "710a601d01fbb237abfaa9ec8bd25f2db66b4f6ff63891be847524eedfee1254",
       "mirror_sha256": "710a601d01fbb237abfaa9ec8bd25f2db66b4f6ff63891be847524eedfee1254",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "710a601d01fbb237abfaa9ec8bd25f2db66b4f6ff63891be847524eedfee1254",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S14 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S14 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "ec786e5eb157898200a04832948cbcd4c88edf9aa5d96ee3928eb317a38d9425",
       "mirror_sha256": "ec786e5eb157898200a04832948cbcd4c88edf9aa5d96ee3928eb317a38d9425",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "ec786e5eb157898200a04832948cbcd4c88edf9aa5d96ee3928eb317a38d9425",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S06 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S06 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "ca45ab99d5799c75a79cdf89275b0b216eb2f733147b1cafbba597ed4bd6cb57",
       "mirror_sha256": "ca45ab99d5799c75a79cdf89275b0b216eb2f733147b1cafbba597ed4bd6cb57",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "ca45ab99d5799c75a79cdf89275b0b216eb2f733147b1cafbba597ed4bd6cb57",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S02 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S02 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "86b26930c2f7e2fd61cb648a11be802b39981981961a0495c2fd327c12dce406",
       "mirror_sha256": "86b26930c2f7e2fd61cb648a11be802b39981981961a0495c2fd327c12dce406",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "86b26930c2f7e2fd61cb648a11be802b39981981961a0495c2fd327c12dce406",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S10 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S10 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "dc5dd5e35f04a4211301ba56e31d3812a2608be9b422780ede131d189ef18b00",
       "mirror_sha256": "dc5dd5e35f04a4211301ba56e31d3812a2608be9b422780ede131d189ef18b00",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "dc5dd5e35f04a4211301ba56e31d3812a2608be9b422780ede131d189ef18b00",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
-      "change": "added",
+      "change": "updated",
       "kind": "engineering",
-      "source_sha256": "bd01bf0afecfaf8849b626830ea57943f180eb4bf8384345bcf991e1a9853345",
-      "mirror_sha256": "bd01bf0afecfaf8849b626830ea57943f180eb4bf8384345bcf991e1a9853345",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "source_sha256": "360386c52d257a15eba87c7e80f32745928a5f510c0f47bb9f8318c6fc7e5eb5",
+      "mirror_sha256": "360386c52d257a15eba87c7e80f32745928a5f510c0f47bb9f8318c6fc7e5eb5",
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "bd01bf0afecfaf8849b626830ea57943f180eb4bf8384345bcf991e1a9853345",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S12 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S12 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "da1e323743033678211d9300dd298f79d25943b349f3cdde19d2a0c212091eab",
       "mirror_sha256": "da1e323743033678211d9300dd298f79d25943b349f3cdde19d2a0c212091eab",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "da1e323743033678211d9300dd298f79d25943b349f3cdde19d2a0c212091eab",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S00 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S00 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "109d891e069dd9e6b82f734a27053feb1e164574a349ea9eb4d9ff3304a0444d",
       "mirror_sha256": "109d891e069dd9e6b82f734a27053feb1e164574a349ea9eb4d9ff3304a0444d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "109d891e069dd9e6b82f734a27053feb1e164574a349ea9eb4d9ff3304a0444d",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S05 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S05 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "59bf18c21253788ff6e70b5d4082eb328f7baf13c5b6580cd37ec255970cf957",
       "mirror_sha256": "59bf18c21253788ff6e70b5d4082eb328f7baf13c5b6580cd37ec255970cf957",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "59bf18c21253788ff6e70b5d4082eb328f7baf13c5b6580cd37ec255970cf957",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S09 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S09 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "3b4093def5914e126fc6c3afa9236f9ad820f07cb09f395dc9529f77b505f832",
       "mirror_sha256": "3b4093def5914e126fc6c3afa9236f9ad820f07cb09f395dc9529f77b505f832",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "3b4093def5914e126fc6c3afa9236f9ad820f07cb09f395dc9529f77b505f832",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S07 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S07 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "ae7181432b196ac8f3fa4c55e79fe6d78f28cdb90424a4217c35ef7cca407663",
       "mirror_sha256": "ae7181432b196ac8f3fa4c55e79fe6d78f28cdb90424a4217c35ef7cca407663",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "ae7181432b196ac8f3fa4c55e79fe6d78f28cdb90424a4217c35ef7cca407663",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S03 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S03 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "5263a8dd4f8fd969ae2cce97c8f7e8fef5c8f3634d28d78e242c44d696cab51a",
       "mirror_sha256": "5263a8dd4f8fd969ae2cce97c8f7e8fef5c8f3634d28d78e242c44d696cab51a",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "5263a8dd4f8fd969ae2cce97c8f7e8fef5c8f3634d28d78e242c44d696cab51a",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S11 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S11 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "ce6fe5c598811f622e94ab16b45cc9e85060075c1745045806f8e231435b7705",
       "mirror_sha256": "ce6fe5c598811f622e94ab16b45cc9e85060075c1745045806f8e231435b7705",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "ce6fe5c598811f622e94ab16b45cc9e85060075c1745045806f8e231435b7705",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S13 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S13 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "6e0c3d02044e8c5d50373b0a7b609b86139df6e3a2c59989d355671bbc03383d",
       "mirror_sha256": "6e0c3d02044e8c5d50373b0a7b609b86139df6e3a2c59989d355671bbc03383d",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "6e0c3d02044e8c5d50373b0a7b609b86139df6e3a2c59989d355671bbc03383d",
       "links_broken": []
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S01 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S01 票草稿.md",
-      "change": "added",
+      "change": "unchanged",
       "kind": "engineering",
       "source_sha256": "210367e9825de2d3b0b916f119967d53a18b8f0533fb70de209bac44aaaff2a0",
       "mirror_sha256": "210367e9825de2d3b0b916f119967d53a18b8f0533fb70de209bac44aaaff2a0",
-      "verified_at": "2026-09-13T04:02:55.297475+00:00",
-      "prev_mirror_sha256": null,
+      "verified_at": "2026-09-13T04:04:00.826235+00:00",
+      "prev_mirror_sha256": "210367e9825de2d3b0b916f119967d53a18b8f0533fb70de209bac44aaaff2a0",
       "links_broken": []
     }
   ],
