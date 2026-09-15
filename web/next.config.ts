@@ -10,6 +10,8 @@ const workspaceRoot = path.join(appRoot, '..')
 //（上傳走 Route Handler 串流，上限由 Caddy 管，契約 02 §6）。
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Compose 的 app 服務跑 standalone 產物（Dockerfile 只複製必要檔案）。
+  output: 'standalone',
   turbopack: { root: workspaceRoot },
   outputFileTracingRoot: workspaceRoot,
 }

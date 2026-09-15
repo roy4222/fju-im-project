@@ -23,6 +23,7 @@
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
+    "@swc/helpers": "0.5.23",
     "better-auth": "1.7.5",
     "decimal.js": "10.6.0",
     "drizzle-orm": "0.45.2",
@@ -50,6 +51,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
-    "vitest": "3.2.4"
+    "vitest": "3.2.4",
+    "yaml": "2.8.2"
   }
 }

@@ -1,0 +1,32 @@
+# 反向代理（契約 03 §5：上傳上限在這裡，不是在 Server Action 的 bodySizeLimit）。
+#
+# 本機用 http://localhost；staging／production 的 host 與憑證由 SOP 04／S14 帶入。
+
+{
+	admin off
+	# 本機不要自動申請憑證。
+	auto_https off
+}
+
+:80 {
+	# 單一檔案上限。超過的請求在這裡就被擋掉，不會進到 app。
+	request_body {
+		max_size 50MB
+	}
+
+	encode zstd gzip
+
+	# 健康檢查不要留存取紀錄，不然 log 會被 cron 洗版。
+	@health path /api/health
+	log_skip @health
+
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

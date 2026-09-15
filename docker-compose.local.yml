@@ -1,0 +1,23 @@
+# 本機覆蓋：只起 postgres（測試與開發用），app 用 `pnpm -C web dev` 跑在 host 上。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d postgres
+#
+# 要在本機跑「完整六個服務」的樣子，就不要帶這個覆蓋檔，改用 docker compose up -d。
+name: fju-im-project
+
+services:
+  postgres:
+    ports:
+      - '${POSTGRES_PORT:-55432}:5432'
+
+  # 本機預設不起這些；需要時明確指名服務啟動。
+  migrate:
+    profiles: ['full']
+  app:
+    profiles: ['full']
+  worker:
+    profiles: ['full']
+  caddy:
+    profiles: ['full']
+  backup:
+    profiles: ['full']
