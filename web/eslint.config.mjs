@@ -131,6 +131,29 @@ export default tseslint.config(
     rules: { 'no-restricted-imports': 'off' },
   },
   {
+    // 實例檔要設定 `hooks.before`，需要 `better-auth/api` 的兩個「寫 hook 用」的匯出。
+    // 這裡只放行這兩個名字——`auth.api.*` 的實際呼叫仍然只能在 wrapper（契約 03 §2）。
+    files: ['src/infrastructure/auth/auth-instance.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['better-auth/api', 'better-auth/api/*'],
+              allowImportNames: ['APIError', 'createAuthMiddleware'],
+              message: '實例檔只能從 better-auth/api 取 APIError 與 createAuthMiddleware；auth.api 的呼叫在 wrapper。',
+            },
+            {
+              group: ['../../../../*'],
+              message: '跨層請用 @/ 別名，不要用多層相對路徑繞過邊界規則。',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/composition/**/*.ts', 'src/infrastructure/**/*.ts'],
     ignores: ['**/*.test.ts', '**/*.integration.test.ts'],
     rules: { 'fju/server-only-header': 'error' },
@@ -151,10 +174,18 @@ export default tseslint.config(
       'e2e/**/*.ts',
       'eslint-rules/**/*.mjs',
       'scripts/**/*.mjs',
+      // schema 產生器的設定入口：它的工作就是把實例建出來給 CLI 讀（見該檔說明）。
+      'scripts/auth-schema-config.ts',
       '*.config.{ts,mjs}',
     ],
     languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
-    rules: { 'boundaries/dependencies': 'off', 'fju/external-packages': 'off' },
+    // 測試要同時打「經包裝器」與「繞過包裝器直接打 auth.handler」兩條路，才證明得了兩層攔截，
+    // 所以測試檔可以 import auth-instance；正式碼仍然被 no-restricted-imports 擋著。
+    rules: {
+      'boundaries/dependencies': 'off',
+      'fju/external-packages': 'off',
+      'no-restricted-imports': 'off',
+    },
   },
   {
     // fixtures 是刻意寫壞的範例，不要因為「宣告沒用到」這種次要問題干擾斷言。

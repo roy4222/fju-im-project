@@ -17,14 +17,15 @@ const CLI_VERSION = '@better-auth/cli@1.5.0-beta.13'
 const SERVER_ONLY_LINE = "import 'server-only'\n"
 const OUTPUT = path.join(webRoot, 'src/infrastructure/db/schema/auth.generated.ts')
 
-const schemaDir = path.join(webRoot, 'src/infrastructure/db/schema')
+const sourceDirs = ['src/infrastructure/db/schema', 'src/infrastructure/auth'].map((d) => path.join(webRoot, d))
 const filesWithServerOnly = [
-  path.join(webRoot, 'src/composition/auth.ts'),
   path.join(webRoot, 'src/infrastructure/db/client.ts'),
-  ...fs
-    .readdirSync(schemaDir)
-    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-    .map((name) => path.join(schemaDir, name)),
+  ...sourceDirs.flatMap((dir) =>
+    fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+      .map((name) => path.join(dir, name)),
+  ),
 ]
 
 const originals = new Map()
@@ -40,7 +41,7 @@ try {
   // 而它只是「產 schema 一次」的工具。版本釘死，輸出與裝成 devDependency 時逐字相同。
   execFileSync(
     'pnpm',
-    ['dlx', CLI_VERSION, 'generate', '--config', 'src/composition/auth.ts', '--output', 'src/infrastructure/db/schema/auth.generated.ts', '--yes'],
+    ['dlx', CLI_VERSION, 'generate', '--config', 'scripts/auth-schema-config.ts', '--output', 'src/infrastructure/db/schema/auth.generated.ts', '--yes'],
     {
       cwd: webRoot,
       stdio: 'inherit',
@@ -60,7 +61,7 @@ try {
 }
 
 const generated = fs.readFileSync(OUTPUT, 'utf8')
-const header = `import 'server-only'\n// 由 \`pnpm auth:generate\` 產生（Better Auth schema 產生器）；不要手改。\n// 這是「套件說它要什麼」的原樣輸出，只作核對基準；實際使用的是同目錄 auth.ts\n// （欄名一致，型別依契約 01 §1 改成 uuid／timestamptz／RESTRICT）。\n// 業務擴充欄在 src/composition/auth.ts 的 additionalFields，改那裡再重跑。\n\n`
+const header = `import 'server-only'\n// 由 \`pnpm auth:generate\` 產生（Better Auth schema 產生器）；不要手改。\n// 這是「套件說它要什麼」的原樣輸出，只作核對基準；實際使用的是 db/schema/auth.ts\n// （欄名一致，型別依契約 01 §1 改成 uuid／timestamptz／RESTRICT）。\n// 業務擴充欄在 src/infrastructure/auth/auth-instance.ts 的 additionalFields，改那裡再重跑。\n\n`
 if (!generated.startsWith("import 'server-only'")) {
   fs.writeFileSync(OUTPUT, header + generated.replace(/^\s*\n/, ''))
 }
