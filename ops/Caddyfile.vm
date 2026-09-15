@@ -1,0 +1,62 @@
+# VM（staging，原地轉正）用的 Caddy 設定（SOP 01 步驟 6–7；票 #187）。
+#
+# 與 repo 根目錄那份 Caddyfile 的差別：
+#   - 根目錄那份是**本機**用的：`:80`、`auto_https off`，不申請憑證。
+#   - 這一份綁真實 host，由 Caddy 自己向 Let's Encrypt 取得憑證（母 spec §4.1）。
+#     所以 DNS 三筆 A 記錄（灰雲，不走 Cloudflare proxy）與校方對內 80／443 必須先就緒，
+#     否則 HTTP-01 驗證會失敗。
+#
+# 放到 VM：/srv/fju/app/Caddyfile
+#
+# b1／b2 是 SOP 04 的**分支副本插槽**：這裡先把 host 與憑證準備好，副本容器由 SOP 04 建立；
+# 副本還沒起來時這兩個 host 會回 502，這是預期行為，不影響主站。
+
+{
+	admin off
+	# 憑證通知信箱；改成 Roy 的信箱（Let's Encrypt 用來寄到期提醒）。
+	email {$ACME_EMAIL:roy422roy@gmail.com}
+}
+
+(common) {
+	# 上傳上限（契約 02 §6、契約 03 §5）：單檔 100MiB 加上 multipart 餘裕。
+	# 擋在 proxy 這一層，不會進到 app；Server Action 的 bodySizeLimit 維持預設 1MB。
+	request_body {
+		max_size {$UPLOAD_MAX_SIZE:105MB}
+	}
+
+	encode zstd gzip
+
+	# 健康檢查每分鐘打一次，不留存取紀錄。
+	@health path /api/health
+	log_skip @health
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+fju.roy422.dev {
+	import common
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# 分支副本插槽 1、2（SOP 04 步驟 5）。只用 443，不對外開任意 port。
+b1.fju.roy422.dev {
+	import common
+	reverse_proxy b1-app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+b2.fju.roy422.dev {
+	import common
+	reverse_proxy b2-app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
