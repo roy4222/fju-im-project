@@ -1,0 +1,64 @@
+{
+  "date": "2026-09-11",
+  "scope": "Documentation decisions only. Only entries with verified_at were rehashed this round; unchanged entries retain their earlier verification dates. No runtime verification.",
+  "files": [
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/🎯 專案目標與範圍.md",
+      "destination": "docs/PROJECT.md",
+      "source_sha256": "73e2240ff20bb4116af7afceed5e8a65f863b05cf7abe01df88d30c51b5f7f1b",
+      "mirror_sha256": "409a8ea4433d306e1f16656fc698e6dc4f0b192be308dc6c47f39eb826ab7f47"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/🏗️ 系統架構與資料流.md",
+      "destination": "docs/ARCHITECTURE.md",
+      "source_sha256": "edcd3e1a74a09490b1c6bbc8e1d0b98bae5765d33adaa6c05bc05483f4c82f2e",
+      "mirror_sha256": "30215fa21f10478a49dfc505f6245b5016b78bfda292dc5c5f257147aa980129",
+      "verified_at": "2026-09-11T00:42:34.551209+00:00"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/adr/0001-school-owned-modular-monolith.md",
+      "destination": "docs/adr/0001-school-owned-modular-monolith.md",
+      "source_sha256": "6afc8f9ff0e94366b0d4b580a6376eb969a75089832db6cf522cbc50bc13574c",
+      "mirror_sha256": "8ec314bdbb0cab97a7c75250f3be320b348f9ec9f14f0a84d7bb214725a25245"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/adr/0003-unified-project-affairs.md",
+      "destination": "docs/adr/0003-unified-project-affairs.md",
+      "source_sha256": "69b11c1e9068d5c9c38abe7ee2b0aef5292b749cbdc90614dfc5335f759da7a1",
+      "mirror_sha256": "34fe3ef4b8fbfb2d41433f6d0a55177a3306b9f41ebd89e1db16b52090f2f4ea"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/adr/0002-new-system-without-legacy-migration.md",
+      "destination": "docs/adr/0002-new-system-without-legacy-migration.md",
+      "source_sha256": "ab19df863b0106d217a9daad01fc3fcb9c3a444f825efc54bdc50820df848242",
+      "mirror_sha256": "6ece189cefccfd6e0d2b49818db0f2ea24ce0a6b68e0583a4c21c497abcbf19c"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/📋 完整產品規格.md",
+      "destination": "docs/specs/product-v1.md",
+      "source_sha256": "4048a7a627b6e71d5ea9e91c6d841d03a7fe28bf6de11cc363209436fda0baac",
+      "mirror_sha256": "c665bd74bc4c16872c06e436cc727728b487481d4275a5f7751e21145b22f94a",
+      "verified_at": "2026-09-11T00:42:34.551209+00:00"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/CONTEXT.md",
+      "destination": "CONTEXT.md",
+      "source_sha256": "32c5acb3701c31d67f73f2db4c2572392673a1d6dfec1b51d37c84b40e4ac88f",
+      "mirror_sha256": "32c5acb3701c31d67f73f2db4c2572392673a1d6dfec1b51d37c84b40e4ac88f",
+      "verified_at": "2026-09-11T00:42:34.551209+00:00"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/adr/0004-better-auth-drizzle-caddy.md",
+      "destination": "docs/adr/0004-better-auth-drizzle-caddy.md",
+      "source_sha256": "90b426f28dd1ade5b2f4e4a435db746b2c12cf948c4760dca3d7cb3598b9cc7d",
+      "mirror_sha256": "f8e2be18c8f9817550628f1a80b50d326a39d41708e037cca2ee78102bf2d4df"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/2026-09-11 Febo 規格交接清單.md",
+      "destination": "docs/specs/2026-09-11-febo-handoff.md",
+      "source_sha256": "5ae08f2413b7eb18d49989f35f00c5b96f87696788248ff6d2f59a1c733ec786",
+      "mirror_sha256": "5ae08f2413b7eb18d49989f35f00c5b96f87696788248ff6d2f59a1c733ec786",
+      "verified_at": "2026-09-11T00:42:34.551209+00:00"
+    }
+  ]
+}

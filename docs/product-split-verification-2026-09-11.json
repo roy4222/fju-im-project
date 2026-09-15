@@ -1,0 +1,18 @@
+{
+  "modules": 10,
+  "sections_per_module": 12,
+  "cases": 126,
+  "case_design_counts": {
+    "可執行設計": 107,
+    "待決": 15,
+    "延後": 4
+  },
+  "all_results": "NOT_RUN",
+  "prior_draft_ids_missing": [],
+  "product_mirror_hash_errors": [],
+  "local_link_errors": [],
+  "unmodified_original_files_verified": 449,
+  "unexpected_original_changes": [],
+  "application_tests": "NOT_RUN",
+  "vm": "NOT_CONNECTED"
+}
