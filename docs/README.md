@@ -1,5 +1,8 @@
 # 文件與開發入口
 
+> **2026-09-15 S00 已實作**：E00（#18）／S00-01–S00-11（#33–#43）完成，停在 [PR #199](https://github.com/roy4222/fju-im-project/pull/199)。正式碼 `web/` 從這一批開始存在，CI 七道實際跑過全綠。T3＝application 用例＋真 PostgreSQL、T2＝CSP 方案 A，由 Roy 定案。證據在 `steps/S00/`。沒有真部署、沒有動線上原型；branch protection 仍 **pending**；149 案狀態不變。
+
+
 > **2026-09-15**：Roy 確認評分不改，補齊名單匯出及系級流程；[本次定案](<product/💬 討論與決策/2026-09-15 名單匯入匯出與系級定案.md>)。GitHub 既有票更新，正式功能未實作。
 
 
