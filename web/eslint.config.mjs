@@ -145,6 +145,7 @@ export default tseslint.config(
       '**/*.test.ts',
       '**/*.integration.test.ts',
       'test/**/*.ts',
+      'e2e/**/*.ts',
       'eslint-rules/**/*.mjs',
       'scripts/**/*.mjs',
       '*.config.{ts,mjs}',

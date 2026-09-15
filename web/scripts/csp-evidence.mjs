@@ -32,7 +32,7 @@ await page.route('**/', async (route) => {
 
 const response = await page.goto(baseURL)
 const headers = response.headers()
-const injectedRan = await page.evaluate(() => window.__injectedRan ?? false)
+const injectedRan = await page.evaluate(() => globalThis.__injectedRan ?? false)
 const heading = await page.locator('h1').textContent()
 
 await page.screenshot({ path: path.join(outDir, 'page-after-injection.png'), fullPage: true })
