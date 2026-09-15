@@ -14,3 +14,10 @@ export type {
 } from '@/application/accounts/actor'
 export { ANONYMOUS, canPerform, hasRole, statusGate } from '@/application/accounts/actor'
 export type { ActorResolver } from '@/application/accounts/ports'
+export type {
+  ChangePasswordInput,
+  ChangePasswordOutcome,
+  PasswordProblem,
+  SelfAccountCommand,
+} from '@/application/accounts/self-account'
+export { MIN_PASSWORD_LENGTH, validateNewPassword } from '@/application/accounts/self-account'

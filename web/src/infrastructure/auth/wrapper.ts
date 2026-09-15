@@ -98,3 +98,36 @@ export const internalAuth = {
 export function getSessionFromHeaders(headers: Headers) {
   return getAuth().api.getSession({ headers })
 }
+
+// ── 本人自己的能力（不需要 marker；這些路由本來就對外開放） ───────────────────
+
+/**
+ * 密碼登入。
+ *
+ * 走 `auth.api.signInEmail` 而不是讓瀏覽器直接打 `/api/auth/sign-in/email`：
+ * 表單是 Server Action（契約 02 §7），cookie 由 `nextCookies()` 外掛帶進回應。
+ */
+export function signInWithPassword(input: { email: string; password: string }) {
+  return getAuth().api.signInEmail({ body: input })
+}
+
+/**
+ * 本人改密碼。
+ *
+ * `revokeOtherSessions: true` 是規格要求（模組 01 §3、契約 03 §2）：改完密碼，
+ * 這個人在**其他裝置**的登入全部失效，目前這一台留著。
+ */
+export function changeOwnPassword(
+  headers: Headers,
+  input: { currentPassword: string; newPassword: string },
+) {
+  return getAuth().api.changePassword({
+    body: { ...input, revokeOtherSessions: true },
+    headers,
+  })
+}
+
+/** 登出目前這一台。 */
+export function signOutCurrent(headers: Headers) {
+  return getAuth().api.signOut({ headers })
+}

@@ -2,6 +2,7 @@ import 'server-only'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
+import { nextCookies } from 'better-auth/next-js'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
@@ -126,7 +127,13 @@ function createAuth() {
         throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
       }),
     },
-    plugins: [admin()],
+    plugins: [
+      admin(),
+      // 一定要放最後（官方要求）：讓 Server Action 裡呼叫 `auth.api.*` 時，
+      // 套件設的 cookie 真的會被帶進回應。登入表單走 Server Action（契約 02 §7），
+      // 沒有它就會「登入成功但沒有 session」。
+      nextCookies(),
+    ],
   })
 }
 
