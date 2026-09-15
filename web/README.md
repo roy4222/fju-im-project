@@ -40,3 +40,38 @@ web/src/
 - `@/shared/time`：`RealClock`／`BusinessClock`、臺灣日界與截止分鐘的換算（母 spec §4.11）。截止是「`receivedBusinessAt < 截止分鐘起點 + 1 分鐘`」，階段結束日含當天。
 - `@/shared/result`：契約 02 §1 的 `Result<R>`＝`Ok`（一定帶 `requestId`、`serverTime`）或 `Err`。
 - `@/shared/errors`：契約 02 §1 的錯誤碼與預設下一步。
+
+## 分層 lint 規則（S00-06）
+
+`pnpm -C web lint` 對正式程式跑；`pnpm -C web lint:boundaries-test` 對 `lint-fixtures/` 的七個反例與三個合法例逐檔斷言，規則被改壞時它會先紅。
+
+| 規則 | 擋什麼 | 來源 |
+|---|---|---|
+| `boundaries/dependencies` | 跨層引用超出 §4.3 矩陣（例如 domain 引用 infrastructure、application 引用 infrastructure、app 直接引用 infrastructure） | 母 spec §4.3 |
+| `fju/external-packages` | domain 引用 `decimal.js` 以外的外部套件；application 與 shared 引用 Next、React、Drizzle、Better Auth、pg | 母 spec §4.3 |
+| `fju/client-server-boundary` | `'use client'` 檔案引用 `composition`、`infrastructure` 或 `server-only` | 契約 02 §7 |
+| `fju/actions-file-contract` | `actions.ts` 沒有檔頭 `'use server'`、匯出非 async 的東西、或多加了 `import 'server-only'` | 契約 02 §7 |
+| `fju/server-only-header` | `composition/`、`infrastructure/` 的檔案沒有 `import 'server-only'` | 母 spec §4.3 |
+| `no-restricted-imports` | 直接引用 Better Auth 原生 API（只有 `infrastructure/auth/wrapper` 可以）；四層以上的相對路徑 | 契約 03、S01-03 |
+| `import/no-cycle` | 循環引用 | 母 spec §4.3 |
+
+Client Component 匯入同目錄 `actions.ts` 是明確例外（compiler 會把匯出轉成 Server Action 參照），`lint-fixtures` 的合法例 1 就是這個情形。
+
+尚未納入：`boundaries/entry-point`（domain／application 對外只露 `index.ts`）。plugin v7 的 `entry-point` 已標記 deprecated 且與現有設定衝突，等 S01 有真正的模組時改用 `boundaries/dependencies` 的 selector 補上。
+
+### fixtures 對照
+
+| fixture | 預期 |
+|---|---|
+| `domain/demo/invalid-domain-imports-framework.ts` | 被 `fju/external-packages` 擋 |
+| `domain/demo/invalid-domain-imports-infrastructure.ts` | 被 `boundaries/dependencies` 擋 |
+| `application/demo/invalid-application-imports-infrastructure.ts` | 被 `boundaries/dependencies` 擋 |
+| `app/demo/invalid-page-imports-infrastructure.tsx` | 被 `boundaries/dependencies` 擋 |
+| `app/demo/invalid-client-imports-composition.tsx` | 被 `fju/client-server-boundary` 擋 |
+| `app/demo/invalid-actions/actions.ts` | 被 `fju/actions-file-contract` 擋 |
+| `application/demo/invalid-direct-auth-api.ts` | 被 `no-restricted-imports` 擋 |
+| `app/demo/valid-actions/form.tsx` | 放行（Client 呼叫同目錄 Server Action） |
+| `application/demo/valid-application-uses-domain.ts` | 放行（application 用本模組 domain 公開入口與 `@/shared`） |
+| `app/demo/valid-page-uses-composition.tsx` | 放行（Server Component 經 composition 取用例） |
+
+fixtures 之間刻意用相對路徑而不是 `@/` 別名：`@/` 指向 `src/`，fixtures 在 `lint-fixtures/src/`，用別名會解析不到、邊界規則也就看不出違規。
