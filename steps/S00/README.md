@@ -46,9 +46,21 @@ docker compose down                       # 停掉，資料保留
 | `pnpm lint` | 綠 |
 | `pnpm lint:boundaries-test` | 10/10 符合預期（七反例被擋且理由正確、三合法例放行） |
 | `pnpm test:unit` | 59 passed |
-| `pnpm test:integration` | 71 passed |
+| `pnpm test:integration` | 81 passed |
 | `pnpm test:e2e` | 6 passed |
-| CI 七道 | 全綠，[run 34948147077](https://github.com/roy4222/fju-im-project/actions/runs/34948147077) |
+| CI 七道 | 全綠 |
+
+## review
+
+Codex 在 PR #199 提了五個 P1，全部已修並在 PR 上逐項回覆、thread 已 resolve：
+
+| # | 問題 | commit |
+|---|---|---|
+| 1 | health 整合測試打未 migrate 的 `public` schema，CI 上必紅 | `3158ce6` |
+| 2 | `<tag>` 沒綁到 Compose 的映像，`--execute` 會部署到錯的版本 | `23f3ed3` |
+| 3 | 回滾沒換回舊映像，掛掉的版本繼續跑卻記 `rollback-done` | `23f3ed3` |
+| 4 | 只傳 `EXPECT_TAG`，四項健康門檻退化成一項 | `23f3ed3` |
+| 5 | 容器永遠回 `imageDigest: null` | `23f3ed3` |
 
 ## 不在這一批
 
