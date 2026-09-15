@@ -167,7 +167,23 @@ $ pnpm audit + audit-check --level high ✅ 沒有影響 web/ 的 high／critica
    測試密碼（S00-03 就是這樣寫的）。本機用同一個資料庫跑整合測試與起站時，跑完整合測試要
    重設密碼站才連得上。CI 不受影響（兩個 job 各自有自己的 postgres）。
 
-## 9. NOT_RUN／沒做什麼
+## 9. CI 抓到的一件事：e2e job 少了 `BETTER_AUTH_SECRET`
+
+本機全綠，CI 的 `e2e-smoke` 紅在 `/403 打得開`：
+
+```
+Expected: 200
+Received: 500
+```
+
+原因是 `/403` 會讀「現在是誰」（才知道「回到自己的首頁」要指到哪），而 Better Auth
+**在建立實例時**就要 secret；CI 的 e2e job 只設了 `DATABASE_URL` 與 `BASE_URL`，
+所以任何會讀 session 的頁面都會 500。S00 的時候沒有這種頁面，所以一直沒發現。
+
+修法：在 `ci.yml` 的 e2e job 補上 `BETTER_AUTH_SECRET` 與 `BETTER_AUTH_URL`（測試用的固定字串）。
+正式環境的值由維運帶進 VM 的 `.env`（契約 05 §6），不放 GitHub Secrets。
+
+## 10. NOT_RUN／沒做什麼
 
 - CI 七道在本 PR 的最新 commit：**待 PR 開出後回填**。
 - **任何表單與功能都沒有**：登入表單 S01-05、註冊表單 S01-09、各對話框各功能票、
