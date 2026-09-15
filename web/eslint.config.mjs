@@ -141,7 +141,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.test.ts', '**/*.integration.test.ts', 'eslint-rules/**/*.mjs', 'scripts/**/*.mjs', '*.config.{ts,mjs}'],
+    files: [
+      '**/*.test.ts',
+      '**/*.integration.test.ts',
+      'test/**/*.ts',
+      'eslint-rules/**/*.mjs',
+      'scripts/**/*.mjs',
+      '*.config.{ts,mjs}',
+    ],
     languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
     rules: { 'boundaries/dependencies': 'off', 'fju/external-packages': 'off' },
   },

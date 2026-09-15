@@ -1,0 +1,32 @@
+# 本專案的本機服務。S00-03 先只有 postgres；app、worker、migrate、caddy、backup 由 S00-07 補齊。
+#
+# 刻意用自己的 project name 與 volume，跟這台機器上其他容器完全分開；
+# 對外埠也不是預設的 5432，避免撞到別的 PostgreSQL。
+name: fju-im-project
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    container_name: fju-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fju_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fju_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-fju}
+      # 測試會大量建、刪 schema；本機不需要 fsync 的耐久保證。
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: UTC
+    command: ['postgres', '-c', 'timezone=UTC', '-c', 'max_connections=200']
+    ports:
+      - '${POSTGRES_PORT:-55432}:5432'
+    volumes:
+      - fju-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-fju_owner} -d ${POSTGRES_DB:-fju}']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  fju-pgdata:
+    name: fju-im-project-pgdata

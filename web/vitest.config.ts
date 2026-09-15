@@ -22,6 +22,17 @@ export default defineConfig({
           environment: 'node',
         },
       },
+      {
+        resolve: { alias },
+        test: {
+          name: 'integration',
+          include: ['src/**/*.integration.test.ts', 'test/**/*.integration.test.ts'],
+          environment: 'node',
+          // 打真的 PostgreSQL，起連線比純運算慢。
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+        },
+      },
     ],
   },
 })

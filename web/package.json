@@ -11,11 +11,14 @@
     "build": "next build",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src eslint-rules scripts",
+    "lint": "eslint src test eslint-rules scripts",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "lint:boundaries-test": "node scripts/lint-boundaries-test.mjs",
-    "auth:generate": "node scripts/auth-generate.mjs"
+    "auth:generate": "node scripts/auth-generate.mjs",
+    "test:integration": "vitest run --project integration",
+    "db:up": "docker compose -f ../docker-compose.yml up -d postgres",
+    "db:down": "docker compose -f ../docker-compose.yml stop postgres"
   },
   "dependencies": {
     "better-auth": "1.7.5",
