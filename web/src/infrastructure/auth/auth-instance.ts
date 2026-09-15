@@ -6,7 +6,8 @@ import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
-import { routeAccess } from '@/infrastructure/auth/route-matrix'
+import { pathHasAnyAllowedMethod, routeAccess } from '@/infrastructure/auth/route-matrix'
+import { isInternalCall } from '@/infrastructure/auth/internal-call'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -102,18 +103,27 @@ function createAuth() {
     },
     hooks: {
       /**
-       * 第二層攔截。
+       * 第二層攔截（S01-02 的路由封鎖 ＋ S01-03 的內部呼叫辨識）。
        *
-       * 只擋「帶著 HTTP request 的呼叫」：`ctx.request` 存在代表這是外部請求。
-       * 官方 hooks 文件寫 request「may not exist in server-only endpoints」，所以
-       * server-only 呼叫在這一層會通過——**S01-03 會再加上內部包裝器的 marker 條件**，
-       * 把「沒有 marker 的伺服器端呼叫」也擋掉（契約 03 §2 的三向測試）。
+       * 判定順序：
+       * 1. 這條路（對這個方法）是不是封鎖的？不是就放行。
+       * 2. 是封鎖的——那只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
+       *    （契約 03 §2）。兩個條件缺一不可，所以外部 HTTP 打不進來，
+       *    沒有經過包裝器的伺服器端呼叫也打不進來。
+       *
+       * server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
+       * 這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
        */
       before: createAuthMiddleware(async (ctx) => {
-        if (!ctx.request) return
-        if (routeAccess(ctx.path, ctx.request.method) === 'blocked') {
-          throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
-        }
+        const isBlocked = ctx.request
+          ? routeAccess(ctx.path, ctx.request.method) === 'blocked'
+          : !pathHasAnyAllowedMethod(ctx.path)
+        if (!isBlocked) return
+
+        const isInternal = !ctx.request && isInternalCall()
+        if (isInternal) return
+
+        throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
       }),
     },
     plugins: [admin()],

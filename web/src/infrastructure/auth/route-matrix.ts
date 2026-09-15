@@ -120,6 +120,18 @@ export function routeAccess(path: string, method: string): RouteAccess {
   return 'blocked'
 }
 
+/**
+ * 這個路徑有沒有**任何**方法是對外開放的。
+ *
+ * server-only 呼叫沒有 HTTP 方法可看（`auth.api.getSession` 不帶 request），
+ * 所以第二層攔截對這種呼叫只能以路徑為準：路徑本身完全不對外開放（例如 `/admin/*`）
+ * 才算「被封鎖的能力」，需要內部包裝器的 marker。
+ */
+export function pathHasAnyAllowedMethod(path: string): boolean {
+  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+  return ALLOWED_PATTERNS.some(({ pattern }) => pattern.test(normalized))
+}
+
 /** 從 Next 的請求 URL 取出 Better Auth 端點的路徑（去掉 `/api/auth` 前綴）。 */
 export function authPathFromUrl(url: string, basePath = '/api/auth'): string {
   const { pathname } = new URL(url)

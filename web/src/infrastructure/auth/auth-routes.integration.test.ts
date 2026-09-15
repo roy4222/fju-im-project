@@ -198,29 +198,32 @@ describe('封鎖路由對外一律 403', () => {
 
 // ── Gate (b)：server-only 呼叫時 ctx.request 不存在 ─────────────────────────
 
-describe('gate (b)：hooks.before 在 server-only 呼叫時 ctx.request 不存在（票 #45）', () => {
-  it('伺服器端直接呼叫被封鎖的端點，不會被「路由封鎖」擋下（代表 hook 看不到 request）', async () => {
+describe('gate (b)：hooks.before 分得出「有沒有 HTTP request」（票 #45，S01-03 已補上 marker）', () => {
+  it('白名單上的端點在伺服器端可以直接呼叫（代表 hook 認得出「沒有 request」）', async () => {
+    // `/get-session` 對外開放，所以不論有沒有 marker 都放行。
+    // 如果 hook 沒有分辨 `ctx.request` 存不存在，這裡會因為「沒有 HTTP 方法」而被誤擋，
+    // ActorResolver 就動不了。
+    await expect(authInstance.api.getSession({ headers: new Headers() })).resolves.toBeNull()
+  })
+
+  it('被封鎖的端點在伺服器端呼叫也被擋——除非經過包裝器（S01-03 的 marker）', async () => {
     let thrown: unknown
     try {
       await authInstance.api.listUsers({ query: { limit: 1 }, headers: new Headers() })
     } catch (error) {
       thrown = error
     }
-    // 一定會失敗（沒有 session），但**不能**是我們的路由封鎖訊息——
-    // 那個訊息只在 ctx.request 存在時才會丟出來。
-    expect(thrown, 'server-only 呼叫仍然應該因為沒有 session 而失敗').toBeDefined()
-    expect(String((thrown as Error)?.message ?? thrown)).not.toContain('這個入口不對外開放')
+    expect(thrown, '沒有 marker 的伺服器端呼叫要被擋').toBeDefined()
+    expect(String((thrown as Error)?.message ?? thrown)).toContain('這個入口不對外開放')
   })
 
-  it('對照組：同一個端點走 HTTP 就是被路由封鎖擋下', async () => {
+  it('對照組：同一個端點走 HTTP 也是被路由封鎖擋下', async () => {
     const response = await authInstance.handler(request('GET', '/admin/list-users'))
     expect(response.status).toBe(403)
     expect(await response.text()).toContain('這個入口不對外開放')
   })
 
-  it('S01-03 之前的已知缺口：沒有 marker 的伺服器端呼叫還沒被擋（三向測試的第三向）', () => {
-    // 這條刻意寫成文件式斷言，提醒 review：marker（AsyncLocalStorage）是 S01-03 的範圍，
-    // 本票只做到「ctx.request 存在就擋」。S01-03 會把這一條改成真的拒絕。
+  it('三向測試的第三向已經補上（詳見 internal-call.integration.test.ts）', () => {
     expect(routeAccess('/admin/list-users', 'GET')).toBe('blocked')
   })
 })
