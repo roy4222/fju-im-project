@@ -10,5 +10,7 @@ verifyDepsBeforeRun: false
 
 allowBuilds:
   '@parcel/watcher': false
+  esbuild: true
   sharp: false
   unrs-resolver: false
+  workerd: true

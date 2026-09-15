@@ -1,6 +1,6 @@
 {
-  "date": "2026-09-13",
-  "scope": "Product module split and mirror, preservation verified. Engineering sources path-remapped only unless explicitly verified. No runtime validation. | 2026-09-12: product decisions from seven grill rounds mirrored (10 modules, matrix 149 cases, CONTEXT, decision logs, school checklist); engineering entries untouched except where noted. | 2026-09-12 full sync after Codex review: product fixes (SHW-11 etc.), engineering docs tree docs/engineering/, ADR 0001-0005, CONTEXT/FRONTEND-PAGES copies, ARCHITECTURE v2; rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round3.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round4.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round5.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round6.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round7.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round9.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round12.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round13.json; committed on branch docs/engineering-spec-2026-09-12",
+  "date": "2026-09-15",
+  "scope": "Product module split and mirror, preservation verified. Engineering sources path-remapped only unless explicitly verified. No runtime validation. | 2026-09-12: product decisions from seven grill rounds mirrored (10 modules, matrix 149 cases, CONTEXT, decision logs, school checklist); engineering entries untouched except where noted. | 2026-09-12 full sync after Codex review: product fixes (SHW-11 etc.), engineering docs tree docs/engineering/, ADR 0001-0005, CONTEXT/FRONTEND-PAGES copies, ARCHITECTURE v2; rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round3.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round4.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round5.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round6.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round7.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round9.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round12.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round13.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-15: roster export and department/class amendment; issue updates only, no runtime acceptance.",
   "files": [
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
@@ -87,11 +87,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
       "destination": "docs/product/🧩 功能模組/01 帳號與權限.md",
-      "source_sha256": "f6fb238a2498377911b18bd69d074e47206a4d6cb8d4ed1bd8e4c4d25a7ba320",
-      "mirror_sha256": "f6fb238a2498377911b18bd69d074e47206a4d6cb8d4ed1bd8e4c4d25a7ba320",
-      "verified_at": "2026-09-12T02:01:38.979180+00:00",
+      "source_sha256": "cae77fa26edf146cf9c0a91bcf84de4fd691900429b2e39b5f1c10a518276a2f",
+      "mirror_sha256": "cae77fa26edf146cf9c0a91bcf84de4fd691900429b2e39b5f1c10a518276a2f",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。"
+      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/02 屆別與年度流程.md",
@@ -132,11 +133,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/06 評分與成績.md",
       "destination": "docs/product/🧩 功能模組/06 評分與成績.md",
-      "source_sha256": "efcf0f910acfcbaec1dd9c87f229ad193b2f2a3f8e97fecaf0dfa4189fd2eb4a",
-      "mirror_sha256": "efcf0f910acfcbaec1dd9c87f229ad193b2f2a3f8e97fecaf0dfa4189fd2eb4a",
-      "verified_at": "2026-09-12T02:01:38.979180+00:00",
+      "source_sha256": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
+      "mirror_sha256": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。"
+      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
@@ -186,11 +188,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📐 產品總規格.md",
       "destination": "docs/product/📐 產品總規格.md",
-      "source_sha256": "db148541734a56be568c6ddeb1883e4f575136e1aaa6106fc7a1be36c3e659a7",
-      "mirror_sha256": "db148541734a56be568c6ddeb1883e4f575136e1aaa6106fc7a1be36c3e659a7",
-      "verified_at": "2026-09-12T02:01:38.979180+00:00",
+      "source_sha256": "17ca8793a4a518a2e810892a55c3138b24748e5b832bd8aedc50695b63e964ba",
+      "mirror_sha256": "bd266aa5c96043f13c17d9fec0c43f27f902d32fc5f88e7a892c0e258a4dca18",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。"
+      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🎯 專案目標與範圍.md",
@@ -321,11 +324,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
       "destination": "docs/product/CONTEXT.md",
-      "source_sha256": "c736a093cc68f36ced8e811862e7e4a91f8284e72d1a9a1fb994d8744ae414df",
-      "mirror_sha256": "c736a093cc68f36ced8e811862e7e4a91f8284e72d1a9a1fb994d8744ae414df",
-      "verified_at": "2026-09-12T02:01:38.979180+00:00",
+      "source_sha256": "7ad2d5fe352ad93c410a6761b5647e7ae2a141ddb8bfdfa3485b21fae8868c12",
+      "mirror_sha256": "e5afd244d0fa69617523024b1580fd62a573523796617ef3aea00674c5dcfdb8",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。"
+      "verification_note": "2026-09-12 grill-with-docs 七輪定案回寫後同步；正文重新核對。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/AGENTS.md",
@@ -460,11 +464,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
       "destination": "CONTEXT.md",
-      "source_sha256": "c736a093cc68f36ced8e811862e7e4a91f8284e72d1a9a1fb994d8744ae414df",
-      "mirror_sha256": "396464f2bc4fffeb7ba376aa19a37f78fd0ba4b6061b7a03bafb281753f26ed4",
-      "verified_at": "2026-09-12T07:29:28.498656+00:00",
+      "source_sha256": "7ad2d5fe352ad93c410a6761b5647e7ae2a141ddb8bfdfa3485b21fae8868c12",
+      "mirror_sha256": "21abb309c9fa2d85784f2610acc941a7fcd8677bf4742f1a9d4d48348df9f395",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-12 全量同步（copy）；updated。"
+      "verification_note": "2026-09-12 全量同步（copy）；updated。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
@@ -1471,11 +1476,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/01 帳號與權限.md",
       "destination": "docs/engineering/modules/01 帳號與權限.md",
-      "source_sha256": "8a9d6ec685409058b841e9688b3fc6c40a25426b0435ef28cbc69d6e01a2616d",
-      "mirror_sha256": "0733e7cf04b0291584d9d31f511e43ef2f934d3e65c696cff41eb6becd4dab44",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "1d7bc6e8a8e5e0516a3087e515e0fff56181c34fc6bf172d61022c30e8244cee",
+      "mirror_sha256": "b7832c7d283598a0919f704f2c3773a4ee2a360c3ad7256cb80bcde25c735b99",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
@@ -1615,11 +1621,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S01 帳號與 Auth.md",
       "destination": "docs/engineering/slices/S01 帳號與 Auth.md",
-      "source_sha256": "e778bf3fce41c0a2b14ae11d4db2f76a780cc829aa7b5bddf9618429ec5e37c0",
-      "mirror_sha256": "e778bf3fce41c0a2b14ae11d4db2f76a780cc829aa7b5bddf9618429ec5e37c0",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "819bda99b9d2dcad3a6cec32b229674f75df25fd1bf1849401efabebe82c4f4b",
+      "mirror_sha256": "819bda99b9d2dcad3a6cec32b229674f75df25fd1bf1849401efabebe82c4f4b",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S03 提案與成組.md",
@@ -1903,11 +1910,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S10 票草稿.md",
       "destination": "docs/engineering/slices/🎫 票草稿/S10 票草稿.md",
-      "source_sha256": "e641591abde63f039429352906d199e0ea15cc1a717ac695eab7000b8fe88497",
-      "mirror_sha256": "e641591abde63f039429352906d199e0ea15cc1a717ac695eab7000b8fe88497",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "7eb27e7bb0652b4a087d3d677079ca9db577448c987db556852e8431652f00c1",
+      "mirror_sha256": "7eb27e7bb0652b4a087d3d677079ca9db577448c987db556852e8431652f00c1",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；updated。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；updated。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
@@ -1993,11 +2001,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S01 票草稿.md",
       "destination": "docs/engineering/slices/🎫 票草稿/S01 票草稿.md",
-      "source_sha256": "c39a7bab76a3124cbd7adc9f9a15ac51cd424598dd45d80a1a55dac86b20bb58",
-      "mirror_sha256": "c39a7bab76a3124cbd7adc9f9a15ac51cd424598dd45d80a1a55dac86b20bb58",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "713bd4c3c9bd0c133d5fbfd7e8e9b1cb62e3b9ab4243b87aa54399073a704155",
+      "mirror_sha256": "713bd4c3c9bd0c133d5fbfd7e8e9b1cb62e3b9ab4243b87aa54399073a704155",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md",
@@ -2056,11 +2065,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/正文/S10 正式正文.md",
       "destination": "docs/engineering/slices/🎫 票草稿/正文/S10 正式正文.md",
-      "source_sha256": "ed0b7ee53d942b63f213c2fb594508b1f45e058f96410f8bd18b0a46da32a2e1",
-      "mirror_sha256": "65a59707048498f7a91d0875bda10961800aa874a56cbe35182d04aed2dfb67d",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "4c6c32fb49ad3e885d6bcfa6eaaea12797de52796880d56d2994c9428a15b05d",
+      "mirror_sha256": "e43b277e2249526a4a6ed67f8551b0b18bc676cb2b32542d9e75e95b6eb70a3e",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/正文/S09 正式正文.md",
@@ -2092,11 +2102,12 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/正文/S01 正式正文.md",
       "destination": "docs/engineering/slices/🎫 票草稿/正文/S01 正式正文.md",
-      "source_sha256": "924d52bbf30ebb72cad467d014c85e2ed2bc3363ead6bbb72d59d8addd442f6e",
-      "mirror_sha256": "1c81567b10089630bb8594cdfefefc1ee2556f9645994cea4b4791216bd65672",
-      "verified_at": "2026-09-13T09:26:58.163343+00:00",
+      "source_sha256": "e77babe960067f1699d3e2eb323a00a12613a8d86531f60070ef28ef25805a42",
+      "mirror_sha256": "2984759552f7d1ced8c724cec9f3c8448cffcd75509f82287b4bb510670c21e6",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。"
+      "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；unchanged。",
+      "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/正文/S04 正式正文.md",
@@ -2160,6 +2171,13 @@
       "verified_at": "2026-09-13T09:26:58.163343+00:00",
       "transform": "v2-2026-09-12",
       "verification_note": "2026-09-13 round13 Codex 第五輪（PR #7）正式上票後加入 GitHub 對照表的整套同步（engineering）；added。"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/💬 討論與決策/2026-09-15 名單匯入匯出與系級定案.md",
+      "destination": "docs/product/💬 討論與決策/2026-09-15 名單匯入匯出與系級定案.md",
+      "source_sha256": "01f4348b0ac35abd6aba1a5a13ebd69b1455f420ae41d7afcdd00b77bd21c098",
+      "mirror_sha256": "01f4348b0ac35abd6aba1a5a13ebd69b1455f420ae41d7afcdd00b77bd21c098",
+      "verified_at": "2026-09-15T06:52:27.413359+00:00"
     }
   ],
   "screenshot_audit": {
