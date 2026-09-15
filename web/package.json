@@ -1,0 +1,32 @@
+{
+  "name": "@fju/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <23"
+  },
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit"
+  },
+  "dependencies": {
+    "decimal.js": "10.6.0",
+    "next": "16.3.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.4",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

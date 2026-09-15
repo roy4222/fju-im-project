@@ -1,5 +1,6 @@
 packages:
   - prototype
+  - web
 
 # 虛擬 store 在根目錄，套件的型別要往上找得到 @types/*（否則 next-themes 等會失去 React 型別）
 publicHoistPattern:
