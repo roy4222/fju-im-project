@@ -118,3 +118,17 @@ permissions:
    Duration  674ms (transform 62ms, setup 0ms, collect 106ms, tests 358ms, environment 0ms, prepare 55ms)
 
 ```
+
+## 證明到哪裡、沒證明到哪裡
+
+| 項目 | 狀態 |
+|---|---|
+| 七個步驟的順序與內容 | dry-run 實際印出，逐項斷言 |
+| 預設就是演練、`--execute` 才會真跑 | 斷言 |
+| 健康判定的比對邏輯（commit／digest／schemaVersion／worker 分階段） | `check-health.mjs` 實際執行各種不符情境，逐項被擋 |
+| `<tag>` 決定要部署哪個映像 | dry-run 印出 `ghcr.io/roy4222/fju-web:<tag>`，並斷言 `APP_IMAGE` 有 export |
+| 回滾會換回舊映像並重跑健康判定 | **只有結構斷言**（讀腳本本體）——沒有實際跑過一次失敗部署 |
+| `IMAGE_DIGEST` 真的會被容器讀到 | **未實測**——本機 build 的映像沒有 registry digest，要有 GHCR 推送才驗得到 |
+
+後兩項要等第一次 staging 部署（S14）才有辦法真的走一遍。本批依指示**只跑 dry-run**：
+沒有 SSH、沒有真部署、CD 沒接上 VM，所以沒有把 `--execute` 跑起來。
