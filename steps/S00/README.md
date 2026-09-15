@@ -9,12 +9,12 @@
 | S00-02 #34 | [column-mapping.md](S00-02/column-mapping.md)（欄名對照表） |
 | S00-03 #35 | [harness.md](S00-03/harness.md)（含 T3 決定） |
 | S00-04 #36 | [empty-db-migration.md](S00-04/empty-db-migration.md) |
-| S00-05 #37 | [roles-and-immutability.md](S00-05/roles-and-immutability.md) |
+| S00-05 #37 | [roles-and-immutability.md](S00-05/roles-and-immutability.md)（矩陣、產生器、突變測試） |
 | S00-06 #38 | [lint-fixtures.md](S00-06/lint-fixtures.md) |
 | S00-07 #39 | [compose.md](S00-07/compose.md) |
 | S00-08 #40 | [health.md](S00-08/health.md) |
 | S00-09 #41 | [ci.md](S00-09/ci.md)、[branch-protection.md](S00-09/branch-protection.md)（未套用） |
-| S00-10 #42 | [deploy-dry-run.md](S00-10/deploy-dry-run.md) |
+| S00-10 #42 | [deploy-dry-run.md](S00-10/deploy-dry-run.md)、[r4-r5-repro.md](S00-10/r4-r5-repro.md)（失敗情境重現與對照） |
 | S00-11 #43 | [csp.md](S00-11/csp.md)、[csp-observed.json](S00-11/csp-observed.json)、[page-after-injection.png](S00-11/page-after-injection.png) |
 
 ## 環境
@@ -44,15 +44,16 @@ docker compose down                       # 停掉，資料保留
 |---|---|
 | `pnpm typecheck` | 綠 |
 | `pnpm lint` | 綠 |
-| `pnpm lint:boundaries-test` | 10/10 符合預期（七反例被擋且理由正確、三合法例放行） |
-| `pnpm test:unit` | 59 passed |
-| `pnpm test:integration` | 81 passed |
+| `pnpm lint:boundaries-test` | 14/14 符合預期（10 反例被擋且理由正確、4 合法例放行） |
+| `pnpm -C web db:grants --check` | migration 的 GRANT 與權限矩陣一致 |
+| `pnpm test:unit` | 74 passed |
+| `pnpm test:integration` | 183 passed |
 | `pnpm test:e2e` | 6 passed |
 | CI 七道 | 全綠 |
 
 ## review
 
-Codex 在 PR #199 提了五個 P1，全部已修並在 PR 上逐項回覆、thread 已 resolve：
+第一輪（Codex 在 PR #199 上）五個 P1，全部已修、thread 已 resolve：
 
 | # | 問題 | commit |
 |---|---|---|
@@ -61,6 +62,18 @@ Codex 在 PR #199 提了五個 P1，全部已修並在 PR 上逐項回覆、thre
 | 3 | 回滾沒換回舊映像，掛掉的版本繼續跑卻記 `rollback-done` | `23f3ed3` |
 | 4 | 只傳 `EXPECT_TAG`，四項健康門檻退化成一項 | `23f3ed3` |
 | 5 | 容器永遠回 `imageDigest: null` | `23f3ed3` |
+
+第二輪（`/private/tmp/fju-pr199-review/REVIEW.md`，R1–R7），全部已修：
+
+| R | 問題 | commit |
+|---|---|---|
+| R1 | 稽核報告沒跑成功（registry 失敗）也 exit 0 | `3b2d546` |
+| R2 | lint 沒落實跨模組 type-only 與公開入口 | `8af1b97` |
+| R3 | postgres 對宿主機所有介面發布 | `b4d79d6` |
+| R4 | 啟動新版失敗會跳過回滾與部署紀錄 | `dea73e7` |
+| R5 | 回滾連帶重跑舊 migration，schema metadata 倒退 | `dea73e7` |
+| R6 | Caddy 上限 50MB，比契約的 105MB 小 | `7d17739` |
+| R7 | 缺權限矩陣產生器與逐格驗證 | `2e66ead` |
 
 ## 不在這一批
 
