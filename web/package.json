@@ -24,7 +24,8 @@
     "test:e2e": "playwright test",
     "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json",
     "stack:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full up -d",
-    "stack:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full down"
+    "stack:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full down",
+    "db:grants": "node scripts/generate-grants.mjs"
   },
   "dependencies": {
     "@swc/helpers": "0.5.23",

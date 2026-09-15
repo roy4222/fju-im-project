@@ -47,8 +47,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter @fju/web...
       - run: pnpm -C web lint
-      # 分層邊界的七反例三合法例：規則被改壞時這一步會紅（契約 05 §2「含邊界反例測試」）。
+      # 分層邊界的正反例：規則被改壞時這一步會紅（契約 05 §2「含邊界反例測試」）。
       - run: pnpm -C web lint:boundaries-test
+      # migration 的 GRANT 必須與權限矩陣一致（契約 01 §5：GRANT 由矩陣產生，不手寫）。
+      - run: pnpm -C web db:grants --check
 
   unit:
     runs-on: ubuntu-latest
