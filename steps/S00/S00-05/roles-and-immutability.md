@@ -78,6 +78,29 @@ CREATE TRIGGER domain_events_immutable_truncate
 另外驗 TRUNCATE／DDL／`SET ROLE fju_owner` 一律拒絕、不可變表的兩個 trigger、
 以及 `fju_backup` 每張表讀得到但寫不進去。
 
+### UPDATE 是逐欄驗的，不是抽樣（review R7 第二輪）
+
+第一版只抽測「允許 `state`、拒絕 `fingerprint`」，其餘欄位沒驗到。現在對**每一張表的每一個欄位**
+逐欄比對矩陣白名單——**11 張表共 117 欄**：
+
+| 表 | 欄數 | 矩陣白名單 |
+|---|---|---|
+| users | 14 | 整列 |
+| accounts | 13 | 整列 |
+| sessions | 10 | 整列 |
+| verifications | 6 | 整列 |
+| cohorts | 12 | 整列 |
+| schema_meta | 3 | 無（全部拒絕） |
+| audit_events | 14 | 無（全部拒絕） |
+| operation_records | 12 | state、receipt、receipt_expires_at、result_ref（其餘 8 欄全部拒絕） |
+| domain_events | 14 | 無（全部拒絕） |
+| event_projections | 7 | 整列 |
+| due_work | 12 | 整列 |
+
+手法是 `update <表> set "<欄>" = "<欄>" where false`：不改任何資料、不會撞到 CHECK 或 NOT NULL，
+但 PostgreSQL 一樣會做欄級權限檢查。這樣才驗得動每一欄，而不是挑一欄代表全部。
+另外有一項會核對「矩陣白名單裡的欄位在資料表裡真的存在」，抓 `matrix.json` 的錯字。
+
 ```
 
  Test Files  1 passed (1)
@@ -95,6 +118,8 @@ R7 的原話是「移除必要 GRANT 或多給 DELETE 仍可能全綠」。實�
 |---|---|---|
 | 拿掉 `GRANT DELETE ON sessions` | exit 1，報告不一致 | `fju_app × sessions > DELETE 允許` 失敗 |
 | 多給 `GRANT DELETE ON due_work` | exit 1，報告不一致 | `這個操作應該被拒絕但成功了：delete from due_work` |
+| 欄級：少給 `receipt_expires_at` | exit 1，報告不一致 | `receipt_expires_at：矩陣有給 UPDATE，卻被拒` |
+| 欄級：多給 `fingerprint` | exit 1，報告不一致 | `fingerprint：矩陣沒給 UPDATE，卻改得動` |
 
 兩層防線：`--check` 抓「SQL 與矩陣不一致」，roles 測試抓「資料庫實際權限與矩陣不一致」。
 
@@ -107,3 +132,14 @@ R7 的原話是「移除必要 GRANT 或多給 DELETE 仍可能全綠」。實�
 ## 票模板
 
 「新增表必擴充權限矩陣與 roles.test」已寫進 `docs/engineering/slices/🎫 票草稿/00 總索引.md` §0 的每票固定欄位。
+
+## 這一輪的測試輸出
+
+```
+
+ Test Files  1 passed (1)
+      Tests  90 passed (90)
+   Start at  19:02:44
+   Duration  2.57s (transform 107ms, setup 0ms, collect 425ms, tests 1.59s, environment 0ms, prepare 164ms)
+
+```

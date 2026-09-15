@@ -32,10 +32,8 @@ let eventId: string
  */
 type Sample = {
   insert: () => { sql: string; values: unknown[] }
-  /** 用來測 UPDATE 的欄位與值；矩陣說 'none' 的表也要給，才能驗證它真的被擋。 */
+  /** 不可變 trigger 的測試要挑一欄來改；UPDATE 權限本身是逐欄自動驗的，不靠這個。 */
   updatable: { column: string; value: unknown }
-  /** 只有欄級 UPDATE 的表要給：一個**不在**白名單裡的欄。 */
-  notUpdatable?: { column: string; value: unknown }
   /** 刪除用的條件；矩陣說不給 DELETE 的表也要能組出語句，才驗得到拒絕。 */
   deleteWhere?: string
 }
@@ -106,7 +104,6 @@ const SAMPLES: Record<string, Sample> = {
       values: [userId],
     }),
     updatable: { column: 'state', value: 'failed' },
-    notUpdatable: { column: 'fingerprint', value: 'tampered' },
   },
   domain_events: {
     insert: () => ({
@@ -161,6 +158,16 @@ afterAll(async () => {
   await owner?.close()
 })
 
+/** 這張表在測試 schema 裡實際有哪些欄位。 */
+async function tableColumns(table: string): Promise<string[]> {
+  const rows = await owner.sql(
+    `select column_name from information_schema.columns
+     where table_schema = $1 and table_name = $2 order by ordinal_position`,
+    [owner.schemaName, table],
+  )
+  return rows.rows.map((r) => String(r.column_name))
+}
+
 async function expectDenied(pool: Pool, sql: string, values: unknown[] = []): Promise<string> {
   try {
     await pool.query(sql, values as never[])
@@ -183,10 +190,13 @@ describe('矩陣與樣本資料同步', () => {
     }
   })
 
-  it('只有欄級 UPDATE 的表要給一個不在白名單裡的欄', () => {
+  it('矩陣白名單裡的欄位都真的存在（抓 matrix.json 的錯字）', async () => {
     for (const row of PERMISSION_MATRIX) {
-      if (Array.isArray(row.update)) {
-        expect(SAMPLES[row.table]?.notUpdatable, `${row.table} 少了 notUpdatable`).toBeTruthy()
+      const allowed = updatableColumns(row)
+      if (allowed === null || allowed.length === 0) continue
+      const columns = await tableColumns(row.table)
+      for (const column of allowed) {
+        expect(columns, `matrix.json 的 ${row.table}.${column} 在資料表裡不存在`).toContain(column)
       }
     }
   })
@@ -213,24 +223,29 @@ describe.each(PERMISSION_MATRIX.map((row) => [row.table, row] as const))('fju_ap
     }
   })
 
-  it(`UPDATE（矩陣：${Array.isArray(row.update) ? row.update.join('/') : row.update}）`, async () => {
-    const { column, value } = sample().updatable
-    const statement = `update ${table} set ${column} = $1`
+  it(`UPDATE 逐欄驗證（矩陣：${Array.isArray(row.update) ? row.update.join('／') : row.update}）`, async () => {
+    const columns = await tableColumns(table)
+    expect(columns.length, `${table} 讀不到欄位`).toBeGreaterThan(0)
     const allowed = updatableColumns(row)
-    const columnAllowed = allowed === null || allowed.includes(column)
-    if (columnAllowed) {
-      await expect(app.query(statement, [value] as never[])).resolves.toBeTruthy()
-    } else {
-      expect(await expectDenied(app, statement, [value])).toMatch(/permission denied/i)
-    }
-  })
 
-  it('沒列在白名單裡的欄不可以改', async () => {
-    const notUpdatable = sample().notUpdatable
-    if (!notUpdatable) return
-    expect(
-      await expectDenied(app, `update ${table} set ${notUpdatable.column} = $1`, [notUpdatable.value]),
-    ).toMatch(/permission denied/i)
+    // `set col = col where false` 只驗權限：不改任何資料，也不會撞到 CHECK 或 NOT NULL，
+    // 但 PostgreSQL 一樣會做欄級權限檢查。這樣才能**每一欄都驗**，不是抽一欄代表全部。
+    const problems: string[] = []
+    for (const column of columns) {
+      const shouldBeAllowed = allowed === null || allowed.includes(column)
+      try {
+        await app.query(`update ${table} set "${column}" = "${column}" where false`)
+        if (!shouldBeAllowed) problems.push(`${column}：矩陣沒給 UPDATE，卻改得動`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (shouldBeAllowed) {
+          problems.push(`${column}：矩陣有給 UPDATE，卻被拒（${message}）`)
+        } else if (!/permission denied/i.test(message)) {
+          problems.push(`${column}：被拒但理由不是權限（${message}）`)
+        }
+      }
+    }
+    expect(problems, `${table} 的欄級 UPDATE 權限與矩陣不符`).toEqual([])
   })
 
   it(`DELETE ${row.delete ? '允許' : '拒絕'}`, async () => {
