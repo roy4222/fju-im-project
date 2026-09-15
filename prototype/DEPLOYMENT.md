@@ -41,3 +41,22 @@ pnpm run start:vinext --port 3101
 - Cloudflare OAuth 完成，已部署；線上 22 個前台／後台 URL 均 HTTP 200（含預期重新導向）。瀏覽器實際切換學生、老師、管理員並進入各自後台成功。
 - 線上 HTTP 初次檢查使用的 Python 憑證庫缺少 issuer，改用 macOS 系統 curl 後全部通過，未關閉 TLS 驗證。
 - 線上入口核對證據：`/private/tmp/fju-prototype-live-smoke.json`；部署輸出：`/private/tmp/fju-prototype-deploy-output.txt`。
+
+## 2026-09-15 依賴升級檢查紀錄（#202）
+
+升級：`next` 16.3.1 → 16.3.5、`eslint-config-next` 同版；workspace overrides 加 `fast-uri: ^3.1.6`。
+`sharp` 由 next 的 optionalDependencies 帶動，0.35.3 → 0.35.4。React、react-dom（19.2.8）、
+react-server-dom-webpack（19.2.8）、vinext（1.0.0-beta.9）、@vinext/cloudflare（1.0.0-beta.7）維持原版本。
+
+- `pnpm audit`：16 件（2 critical、5 high、9 moderate）→ 9 件（全部 moderate）。
+- `pnpm run build`（Next）、`pnpm exec tsc --noEmit`、`pnpm run build:vinext` 通過。
+- `wrangler deploy --config dist/server/wrangler.json --dry-run` 通過，綁定仍只有 ASSETS 與
+  CF_VERSION_METADATA，`wrangler.jsonc` 與 `vite.config.ts` 未改動。
+- 本機 Workers 預覽（`wrangler dev --port 3101`）掃 42 條路由（前台 13＋學生 8＋老師 8＋管理員 13）全部 200；
+  從前台原型操作列點「老師」實際切換 cookie，再由工作台入口進 `/dashboard/teacher`。
+- 升級前後同一組截圖逐張比對：版面與內容相同，唯一差異在 Recharts 圓環圖動畫的擷取時點
+  （同一版連拍兩次也會出現同樣大小的差異）。
+- `pnpm run lint` 仍有 1 個既有 error（`src/hooks/use-mobile.ts` 的 react-hooks/set-state-in-effect），
+  升級前後相同，本次未修。eslint 設定另補上忽略 `dist/`、`.vinext/`、`.wrangler/`，
+  否則跑過 `build:vinext` 之後 lint 會多出數千筆產物噪音。
+- NOT_RUN：線上 https://fju-prototype.roy422roy.workers.dev 未重新部署、未重新驗證。

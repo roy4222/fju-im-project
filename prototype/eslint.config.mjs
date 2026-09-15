@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // vinext／wrangler 的建置產物：跑過 build:vinext 之後才存在，
+    // 不 ignore 的話 `pnpm run lint` 會多出數千筆產物噪音，結果隨建置狀態浮動。
+    "dist/**",
+    ".vinext/**",
+    ".wrangler/**",
   ]),
 ]);
 
