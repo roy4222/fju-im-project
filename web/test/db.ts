@@ -130,6 +130,34 @@ export async function inTransaction<T>(
   }
 }
 
+/**
+ * 以 runtime 角色（`fju_app`／`fju_backup`）連到同一個隔離 schema。
+ *
+ * 角色由 migration 0001 建立但不設密碼（密碼是維運的事，契約 05 §6），
+ * 所以這裡先用 owner 連線幫它設一個本機測試用的密碼再連。
+ */
+export async function poolAsRole(
+  isolated: IsolatedDatabase,
+  role: 'fju_app' | 'fju_backup',
+  password = process.env[`TEST_${role.toUpperCase()}_PASSWORD`] ?? `${role}_local_test`,
+): Promise<Pool> {
+  const admin = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
+  try {
+    await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
+  } finally {
+    await admin.end()
+  }
+
+  const url = new URL(TEST_DATABASE_URL)
+  url.username = role
+  url.password = password
+  return new Pool({
+    connectionString: url.toString(),
+    max: 4,
+    options: `-c search_path=${isolated.schemaName}`,
+  })
+}
+
 /** 測試環境有沒有起 postgres；沒起的話測試要明確失敗，不要靜靜跳過。 */
 export async function assertTestDatabaseReachable(): Promise<void> {
   const probe = new Pool({ connectionString: TEST_DATABASE_URL, max: 1, connectionTimeoutMillis: 3_000 })

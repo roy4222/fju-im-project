@@ -8,6 +8,13 @@
       "when": 1789458556007,
       "tag": "0000_s00_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789458700080,
+      "tag": "0001_s00_roles_and_immutability",
+      "breakpoints": true
     }
   ]
 }
