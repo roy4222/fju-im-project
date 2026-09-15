@@ -1,5 +1,7 @@
 import 'server-only'
 // 由 `pnpm auth:generate` 產生（Better Auth schema 產生器）；不要手改。
+// 這是「套件說它要什麼」的原樣輸出，只作核對基準；實際使用的是同目錄 auth.ts
+// （欄名一致，型別依契約 01 §1 改成 uuid／timestamptz／RESTRICT）。
 // 業務擴充欄在 src/composition/auth.ts 的 additionalFields，改那裡再重跑。
 
 import { relations } from "drizzle-orm";

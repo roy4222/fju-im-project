@@ -12,15 +12,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const webRoot = path.join(import.meta.dirname, '..')
+/** Better Auth 的 schema 產生器。stable 線（1.4.x）鎖的 better-call 與 better-auth 1.7.5 不相容。 */
+const CLI_VERSION = '@better-auth/cli@1.5.0-beta.13'
 const SERVER_ONLY_LINE = "import 'server-only'\n"
 const OUTPUT = path.join(webRoot, 'src/infrastructure/db/schema/auth.generated.ts')
 
+const schemaDir = path.join(webRoot, 'src/infrastructure/db/schema')
 const filesWithServerOnly = [
-  'src/composition/auth.ts',
-  'src/infrastructure/db/client.ts',
-  'src/infrastructure/db/schema/index.ts',
-  'src/infrastructure/db/schema/auth.generated.ts',
-].map((p) => path.join(webRoot, p))
+  path.join(webRoot, 'src/composition/auth.ts'),
+  path.join(webRoot, 'src/infrastructure/db/client.ts'),
+  ...fs
+    .readdirSync(schemaDir)
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+    .map((name) => path.join(schemaDir, name)),
+]
 
 const originals = new Map()
 for (const file of filesWithServerOnly) {
@@ -31,9 +36,11 @@ for (const file of filesWithServerOnly) {
 }
 
 try {
+  // CLI 用 `pnpm dlx` 隔離執行，不進 devDependencies：它會拉進 prisma 與一票有漏洞的舊套件，
+  // 而它只是「產 schema 一次」的工具。版本釘死，輸出與裝成 devDependency 時逐字相同。
   execFileSync(
-    path.join(webRoot, 'node_modules/.bin/better-auth'),
-    ['generate', '--config', 'src/composition/auth.ts', '--output', 'src/infrastructure/db/schema/auth.generated.ts', '--yes'],
+    'pnpm',
+    ['dlx', CLI_VERSION, 'generate', '--config', 'src/composition/auth.ts', '--output', 'src/infrastructure/db/schema/auth.generated.ts', '--yes'],
     {
       cwd: webRoot,
       stdio: 'inherit',

@@ -21,3 +21,8 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
   workerd: true
+
+# eslint 9.39.5 鎖的 @eslint/eslintrc 帶的 js-yaml 有 GHSA-2883-xcg3-v3hh（high）。
+# 4.3.2 起修好且 API 相容，直接 override 掉整個 workspace 的解析結果。
+overrides:
+  js-yaml: '^4.3.2'

@@ -21,14 +21,15 @@
     "db:down": "docker compose -f ../docker-compose.yml stop postgres",
     "db:generate": "node scripts/drizzle-generate.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json"
   },
   "dependencies": {
     "@swc/helpers": "0.5.23",
     "better-auth": "1.7.5",
     "decimal.js": "10.6.0",
     "drizzle-orm": "0.45.2",
-    "next": "16.3.1",
+    "next": "16.3.3",
     "pg": "8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -36,7 +37,6 @@
     "uuidv7": "1.2.1"
   },
   "devDependencies": {
-    "@better-auth/cli": "1.5.0-beta.13",
     "@eslint/js": "9.39.5",
     "@next/eslint-plugin-next": "16.3.1",
     "@playwright/test": "1.63.0",
@@ -53,7 +53,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
-    "vitest": "3.2.4",
+    "vitest": "3.2.6",
     "yaml": "2.8.2"
   }
 }

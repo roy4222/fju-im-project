@@ -54,3 +54,4 @@ screenshots/
 # Playwright 的 trace／截圖等執行產物
 web/e2e/.artifacts/
 web/playwright-report/
+.audit.json

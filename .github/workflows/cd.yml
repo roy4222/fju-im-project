@@ -1,0 +1,53 @@
+# CD（契約 05 §3）。
+#
+# S00 只啟用 CI；這支 workflow 存在，但：
+#   - 只允許 workflow_dispatch（沒有 push／PR 觸發），
+#   - 預設就是 --dry-run，要真的部署必須在觸發時把 mode 改成 execute，
+#   - 還沒接上 GitHub Secrets、environment 與 VM——那是第一次 staging 部署階段的事。
+#
+# 部署 approval 一律是 Roy 親自觸發這支 workflow（或手動 SSH 跑 ops/deploy.sh），
+# 不依賴 environment 的 required reviewers（private repo 需 Enterprise）。
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要部署的 tag（commit SHA）'
+        required: true
+        type: string
+      mode:
+        description: 'dry-run 只印步驟；execute 才真的部署（S00 階段只准 dry-run）'
+        required: true
+        default: dry-run
+        type: choice
+        options: [dry-run, execute]
+      expect_worker:
+        description: 'E02 出場後才勾：健康判定加上 worker.version 與 lastTickAt'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: S00 階段只准演練
+        if: inputs.mode == 'execute'
+        run: |
+          echo "::error::S00 只啟用 CI。真正的部署要等第一次 staging 部署階段接上 Secrets、environment 與 VM（S14）。"
+          exit 1
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.23.2'
+
+      - name: 部署演練
+        run: |
+          ops/deploy.sh "${{ inputs.tag }}" --dry-run \
+            ${{ inputs.expect_worker && '--expect-worker' || '' }}
