@@ -14,21 +14,30 @@
     "lint": "eslint src eslint-rules scripts",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
-    "lint:boundaries-test": "node scripts/lint-boundaries-test.mjs"
+    "lint:boundaries-test": "node scripts/lint-boundaries-test.mjs",
+    "auth:generate": "node scripts/auth-generate.mjs"
   },
   "dependencies": {
+    "better-auth": "1.7.5",
     "decimal.js": "10.6.0",
+    "drizzle-orm": "0.45.2",
     "next": "16.3.1",
+    "pg": "8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "uuidv7": "1.2.1"
   },
   "devDependencies": {
+    "@better-auth/cli": "1.5.0-beta.13",
     "@eslint/js": "9.39.5",
     "@next/eslint-plugin-next": "16.3.1",
     "@types/node": "22.19.4",
+    "@types/pg": "8.23.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.4",
+    "dotenv": "17.4.2",
+    "drizzle-kit": "0.31.10",
     "eslint": "9.39.5",
     "eslint-import-resolver-typescript": "4.4.5",
     "eslint-plugin-boundaries": "7.2.0",
