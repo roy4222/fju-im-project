@@ -61,12 +61,18 @@ web/src/
 | `fju/client-server-boundary` | `'use client'` 檔案引用 `composition`、`infrastructure` 或 `server-only` | 契約 02 §7 |
 | `fju/actions-file-contract` | `actions.ts` 沒有檔頭 `'use server'`、匯出非 async 的東西、或多加了 `import 'server-only'` | 契約 02 §7 |
 | `fju/server-only-header` | `composition/`、`infrastructure/` 的檔案沒有 `import 'server-only'` | 母 spec §4.3 |
+| `fju/module-boundary` | 跨模組直接指到內部檔案（只能經 `index.ts`）；跨模組帶執行期值（只能 `import type`，執行要走 composition 注入的 port）；app 對 application 一律 type-only | 母 spec §4.3 |
 | `no-restricted-imports` | 直接引用 Better Auth 原生 API（只有 `infrastructure/auth/wrapper` 可以）；四層以上的相對路徑 | 契約 03、S01-03 |
 | `import/no-cycle` | 循環引用 | 母 spec §4.3 |
 
 Client Component 匯入同目錄 `actions.ts` 是明確例外（compiler 會把匯出轉成 Server Action 參照），`lint-fixtures` 的合法例 1 就是這個情形。
 
-尚未納入：`boundaries/entry-point`（domain／application 對外只露 `index.ts`）。plugin v7 的 `entry-point` 已標記 deprecated 且與現有設定衝突，等 S01 有真正的模組時改用 `boundaries/dependencies` 的 selector 補上。
+公開入口（domain／application 對外只露 `index.ts`）由 `fju/module-boundary` 落實，不用
+`boundaries/entry-point`——plugin v7 已把它標記 deprecated，而且和現有設定衝突。
+
+S00 卡列的七個反例與三個合法例全部保留且仍然通過；上表另外三個反例與一個合法例是
+母 spec §4.3 的跨模組規則（公開入口、type-only），那兩條只看 layer 判斷不出來，
+原本的七個反例證明不到（review R2）。
 
 ### fixtures 對照
 
@@ -79,8 +85,12 @@ Client Component 匯入同目錄 `actions.ts` 是明確例外（compiler 會把�
 | `app/demo/invalid-client-imports-composition.tsx` | 被 `fju/client-server-boundary` 擋 |
 | `app/demo/invalid-actions/actions.ts` | 被 `fju/actions-file-contract` 擋 |
 | `application/demo/invalid-direct-auth-api.ts` | 被 `no-restricted-imports` 擋 |
+| `application/other/invalid-cross-module-runtime.ts` | 被 `fju/module-boundary` 擋（跨模組帶執行期值） |
+| `app/demo/invalid-imports-module-private.tsx` | 被 `fju/module-boundary` 擋（直接指到別的模組的內部檔案） |
+| `domain/demo/invalid-cross-module-domain-runtime.ts` | 被 `fju/module-boundary` 擋（domain 之間跨模組帶執行期值） |
 | `app/demo/valid-actions/form.tsx` | 放行（Client 呼叫同目錄 Server Action） |
-| `application/demo/valid-application-uses-domain.ts` | 放行（application 用本模組 domain 公開入口與 `@/shared`） |
+| `application/demo/valid-application-uses-domain.ts` | 放行（application 用**本模組**的 domain 公開入口，同模組可以帶執行期值） |
 | `app/demo/valid-page-uses-composition.tsx` | 放行（Server Component 經 composition 取用例） |
+| `application/other/valid-cross-module-type-only.ts` | 放行（跨模組但只帶型別） |
 
 fixtures 之間刻意用相對路徑而不是 `@/` 別名：`@/` 指向 `src/`，fixtures 在 `lint-fixtures/src/`，用別名會解析不到、邊界規則也就看不出違規。

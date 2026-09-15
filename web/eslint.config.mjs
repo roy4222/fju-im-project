@@ -86,6 +86,9 @@ export default tseslint.config(
       ],
       'fju/client-server-boundary': 'error',
       'fju/actions-file-contract': 'error',
+      // 母 spec §4.3：跨模組只能經公開入口 index.ts，而且只能 type-only
+      //（執行期呼叫走 composition 注入的 port）。
+      'fju/module-boundary': 'error',
     },
   },
   {

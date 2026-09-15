@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 /**
  * 本專案自己的 lint 規則。
  *
@@ -198,6 +200,109 @@ const externalPackages = {
   },
 }
 
+
+/**
+ * 跨模組引用規則（母 spec §4.3）。
+ *
+ * §4.3 的矩陣除了「哪一層可以引用哪一層」，還有兩條只看 layer 判斷不出來的限制：
+ *
+ * 1. **公開入口**：每個模組只從自己的 `index.ts` 對外；別的模組不可以直接指到內部檔案。
+ * 2. **跨模組只能 type-only**：跨模組的**執行期**呼叫一律透過 composition 注入的 port
+ *    實例，所以 import 本身只能帶型別。同模組內（例如 application/x 用 domain/x）
+ *    是自己的東西，可以帶執行期值。app 層更嚴：對 application 一律 type-only，
+ *    要執行就得走 composition。
+ *
+ * infrastructure 與 composition 不在此限——前者實作 port、後者負責組裝，本來就要拿到實作。
+ */
+const MODULE_LAYERS = new Set(['domain', 'application'])
+
+/** 把路徑拆成 { layer, module, inner }；不在六層裡就回 null。 */
+function classify(filePath) {
+  const normalized = filePath.replaceAll('\\', '/')
+  const marker = '/src/'
+  const at = normalized.lastIndexOf(marker)
+  if (at === -1) return null
+  const parts = normalized
+    .slice(at + marker.length)
+    .replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '')
+    .split('/')
+    .filter(Boolean)
+  const layer = parts[0]
+  if (!layer) return null
+  if (!MODULE_LAYERS.has(layer)) return { layer, module: null, inner: parts.slice(1) }
+  return { layer, module: parts[1] ?? null, inner: parts.slice(2) }
+}
+
+/** import 的字串解析成路徑；只處理相對路徑與 `@/` 別名。 */
+function resolveSpecifier(context, source) {
+  if (source.startsWith('.')) {
+    const dir = path.posix.dirname((context.filename ?? context.getFilename()).replaceAll('\\', '/'))
+    return path.posix.normalize(path.posix.join(dir, source))
+  }
+  if (source.startsWith('@/')) {
+    // `@/` 指向這個 package 的 src/，對應到 classify 認得的 `/src/` 標記。
+    return `/src/${source.slice(2)}`
+  }
+  return null
+}
+
+const moduleBoundary = {
+  meta: {
+    type: 'problem',
+    docs: { description: '跨模組只能經公開入口，而且只能 type-only' },
+    schema: [],
+    messages: {
+      notEntryPoint:
+        '跨模組只能引用 `{{layer}}/{{module}}` 的公開入口（index.ts），不可以直接指到內部檔案 `{{source}}`（母 spec §4.3）。',
+      notTypeOnly:
+        '跨模組引用只能帶型別：請用 `import type`。執行期呼叫一律走 composition 注入的 port 實例（母 spec §4.3）。',
+      appNeedsTypeOnly:
+        'app 對 application 只能 `import type`；要執行用例請經 composition（母 spec §4.3）。',
+    },
+  },
+  create(context) {
+    const from = classify((context.filename ?? context.getFilename()).replaceAll('\\', '/'))
+    if (!from) return {}
+    // 只管 domain、application 與 app 這三種來源；infrastructure 與 composition 本來就要拿實作。
+    if (!['domain', 'application', 'app'].includes(from.layer)) return {}
+
+    return {
+      ImportDeclaration(node) {
+        const source = node.source.value
+        if (typeof source !== 'string') return
+        const resolved = resolveSpecifier(context, source)
+        if (!resolved) return
+        const to = classify(resolved)
+        if (!to || !MODULE_LAYERS.has(to.layer) || !to.module) return
+
+        const sameModule = from.module !== null && from.module === to.module && from.layer !== 'app'
+
+        // 1. 公開入口：不是自己模組的東西，只能指到 index。
+        const pointsAtIndex = to.inner.length === 0 || (to.inner.length === 1 && to.inner[0] === 'index')
+        if (!sameModule && !pointsAtIndex) {
+          context.report({
+            node,
+            messageId: 'notEntryPoint',
+            data: { layer: to.layer, module: to.module, source },
+          })
+        }
+
+        // 2. type-only：跨模組（以及 app 對 application）一律只能帶型別。
+        if (sameModule) return
+        const typeOnly =
+          node.importKind === 'type' ||
+          (node.specifiers.length > 0 && node.specifiers.every((s) => s.importKind === 'type'))
+        if (!typeOnly) {
+          context.report({
+            node,
+            messageId: from.layer === 'app' ? 'appNeedsTypeOnly' : 'notTypeOnly',
+          })
+        }
+      },
+    }
+  },
+}
+
 export default {
   meta: { name: 'eslint-plugin-fju', version: '0.1.0' },
   rules: {
@@ -205,5 +310,6 @@ export default {
     'actions-file-contract': actionsFileContract,
     'server-only-header': serverOnlyHeader,
     'external-packages': externalPackages,
+    'module-boundary': moduleBoundary,
   },
 }
