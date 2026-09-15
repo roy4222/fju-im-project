@@ -62,6 +62,8 @@ services:
     environment:
       PORT: '3000'
       HOSTNAME: '0.0.0.0'
+      # digest 要 push 之後才知道，沒辦法在 build 時烤進映像；由 ops/deploy.sh 帶進來。
+      IMAGE_DIGEST: ${IMAGE_DIGEST:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,6 +84,8 @@ services:
     command: ['node', '-e', "console.log('[worker] S00 佔位進程，尚未實作到期工作迴圈（S02-06）'); setInterval(() => {}, 1 << 30)"]
     env_file:
       - .env
+    environment:
+      IMAGE_DIGEST: ${IMAGE_DIGEST:-}
     depends_on:
       postgres:
         condition: service_healthy

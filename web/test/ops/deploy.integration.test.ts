@@ -79,6 +79,75 @@ describe('ops/deploy.sh --dry-run', () => {
   it('沒給 tag 就拒絕', async () => {
     await expect(dryRun([])).rejects.toThrow()
   })
+
+  it('tag 會組成要部署的映像參照，不是只拿去比對', async () => {
+    const out = await dryRun(['abc123'])
+    expect(out).toContain('ghcr.io/roy4222/fju-web:abc123')
+  })
+
+  it('健康判定會比對 digest 與 schemaVersion，不是只比 commit', async () => {
+    const out = await dryRun(['abc123'])
+    expect(out).toContain('imageDigest=<pull 到的 digest>')
+    expect(out).toContain('schemaVersion=<migrate 輸出>')
+  })
+})
+
+describe('ops/deploy.sh 的失敗與回滾路徑（讀腳本本體）', () => {
+  const source = fs.readFileSync(deploySh, 'utf8')
+
+  it('APP_IMAGE 由 tag 組出來並 export 給 Compose', () => {
+    expect(source).toMatch(/APP_IMAGE="\$IMAGE_REPO:\$TAG"/)
+    expect(source).toMatch(/export APP_IMAGE/)
+  })
+
+  it('previous_tag 存的是映像參照與 digest，不是只有一個名字', () => {
+    expect(source).toContain('PREVIOUS_APP_IMAGE=')
+    expect(source).toContain('PREVIOUS_IMAGE_DIGEST=')
+  })
+
+  it('回滾會把 APP_IMAGE 換回前一版再 up，而不是原地重啟', () => {
+    const rollback = source.slice(source.indexOf('rollback-start'))
+    expect(rollback).toContain('APP_IMAGE="$PREVIOUS_APP_IMAGE"')
+    expect(rollback).toMatch(/export APP_IMAGE IMAGE_DIGEST/)
+    expect(rollback).toMatch(/\$COMPOSE up -d app worker/)
+  })
+
+  it('回滾後會重跑健康判定，並分別記 healthy／unhealthy', () => {
+    expect(source).toContain('rollback-done')
+    expect(source).toContain('healthy')
+    expect(source).toContain('unhealthy')
+  })
+
+  it('第一次部署沒有前一版時明講，不假裝回滾成功', () => {
+    expect(source).toContain('rollback-skipped')
+    expect(source).toContain('沒有可回滾的版本')
+  })
+
+  it('imageDigest 由部署腳本帶進容器（build 時烤不進去）', () => {
+    expect(source).toMatch(/export IMAGE_DIGEST/)
+    const compose = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8')
+    const parsed = YAML.parse(compose) as {
+      services: Record<string, { environment?: Record<string, string> } | undefined>
+    }
+    // Compose 把它留成待展開的變數；deploy.sh export 之後才有值。
+    expect(parsed.services.app?.environment?.IMAGE_DIGEST).toBe('${IMAGE_DIGEST:-}')
+    expect(parsed.services.worker?.environment?.IMAGE_DIGEST).toBe('${IMAGE_DIGEST:-}')
+  })
+
+  it('migrate 沒有輸出 SCHEMA_VERSION 就中止，不用空值通過健康判定', () => {
+    expect(source).toContain('migrate 沒有輸出 SCHEMA_VERSION')
+    const migrate = fs.readFileSync(path.join(repoRoot, 'web/scripts/migrate.mjs'), 'utf8')
+    expect(migrate).toContain('SCHEMA_VERSION=${latestTag}')
+  })
+
+  it('健康判定的四個期望值都有傳給 check-health.mjs', () => {
+    const start = source.indexOf('await_health() {')
+    const awaitHealth = source.slice(start, source.indexOf('\n}', start))
+    for (const name of ['EXPECT_TAG', 'EXPECT_DIGEST', 'EXPECT_SCHEMA', 'EXPECT_WORKER']) {
+      expect(awaitHealth, `await_health 沒有傳 ${name}`).toContain(name)
+    }
+    expect(source).toContain('await_health "$TAG" "$NEW_DIGEST" "$NEW_SCHEMA" "$EXPECT_WORKER"')
+  })
 })
 
 describe('ops/check-health.mjs：健康判定（契約 05 §3）', () => {

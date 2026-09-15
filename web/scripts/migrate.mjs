@@ -36,6 +36,8 @@ try {
     [latestTag],
   )
   console.log(`migration 完成；schema_meta.schema_version = ${latestTag}`)
+  // ops/deploy.sh 從這一行取出要比對的 schemaVersion（契約 05 §3 健康判定）。
+  console.log(`SCHEMA_VERSION=${latestTag}`)
 } finally {
   await pool.end()
 }
