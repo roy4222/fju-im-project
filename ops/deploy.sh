@@ -8,9 +8,17 @@
 #   2. 記下目前版本到 .deploy/previous_tag（映像參照＋digest），失敗時回滾用
 #   3. docker compose pull app worker migrate（用 <tag> 組出的 APP_IMAGE）
 #   4. docker compose run --rm migrate  ← 新映像；失敗即中止，舊 app 繼續跑
-#   5. docker compose up -d app worker
+#   5. docker compose up -d --no-deps app worker
 #   6. 健康判定
 #   7. 寫 deploy_log
+#
+# 補償：第 5 步啟動失敗與第 6 步健康失敗走**同一條**補償流程（回滾到 previous_tag 記的
+# 映像、重跑健康判定、寫 deploy_log）。啟動失敗可能只換掉一半（app 換了、worker 沒起來），
+# 那比健康失敗更需要回滾，不能讓 set -e 直接把腳本帶走。
+#
+# 回滾只重建 app 與 worker（--no-deps）：第 4 步已經明確跑過 migration，DB 依
+# expand／contract 不回滾。若讓 compose 跟著 depends_on 去滿足 migrate，
+# 會用**舊映像的 migrator** 把 schema_meta 寫回舊 journal 的版本，schema metadata 倒退。
 #
 # 健康判定分階段（契約 05 §3，v2.4／E-19）：
 #   - 不帶 --expect-worker（E02 出場前）：判 /api/health 200、commit、imageDigest、
@@ -153,10 +161,10 @@ fi
 
 # ── 5. 換上新版 ────────────────────────────────────────────
 step '5/7 啟動新版 app 與 worker'
-run $COMPOSE up -d app worker
-
-# ── 6. 健康判定 ────────────────────────────────────────────
-step "6/7 健康判定（${HEALTH_TIMEOUT_SECONDS} 秒內要全部符合）"
+if [ "$DRY_RUN" = 1 ]; then
+  printf '        $ %s up -d postgres\n' "$COMPOSE"
+  printf '        $ %s up -d --no-deps app worker  # --no-deps：migration 第 4 步已經跑過\n' "$COMPOSE"
+fi
 
 # 跑一輪健康判定；符合回 0。呼叫時帶要比對的期望值。
 await_health() {
@@ -176,36 +184,62 @@ await_health() {
   return 1
 }
 
+# 補償流程：啟動失敗與健康失敗共用這一條。
+# $1 是失敗原因，只用來寫 deploy_log 與訊息。
+compensate() {
+  local reason="$1"
+  echo "部署失敗（$reason），回滾到 $PREVIOUS_FILE 記的版本。" >&2
+  printf '%s\trollback-start\t%s\t%s\n' "$(date -u +%FT%TZ)" "$TAG" "$reason" >> "$DEPLOY_LOG"
+
+  if [ ! -s "$PREVIOUS_FILE" ]; then
+    printf '%s\trollback-skipped\tno-previous\t%s\n' "$(date -u +%FT%TZ)" "$reason" >> "$DEPLOY_LOG"
+    echo "沒有可回滾的版本（第一次部署）——需要人介入。" >&2
+    exit 1
+  fi
+
+  # shellcheck disable=SC1090
+  . "$PREVIOUS_FILE"
+  APP_IMAGE="$PREVIOUS_APP_IMAGE"
+  IMAGE_DIGEST="$PREVIOUS_IMAGE_DIGEST"
+  export APP_IMAGE IMAGE_DIGEST
+  log "回滾到 $APP_IMAGE"
+
+  # --no-deps：只重建 app 與 worker。跟著 depends_on 會用**舊映像的 migrator**
+  # 把 schema_meta 寫回舊 journal 的版本（DB 依 expand／contract 不回滾，schema 應該維持新的）。
+  $COMPOSE up -d --no-deps app worker || true
+
+  # 舊 app 要能在新 schema 上跑，所以 schemaVersion 仍然比對 migrate 這次輸出的值；
+  # commit 不比對（回滾目標是前一版，不是這次的 tag）。
+  if await_health "" "$PREVIOUS_IMAGE_DIGEST" "$NEW_SCHEMA" "$EXPECT_WORKER"; then
+    printf '%s\trollback-done\t%s\thealthy\t%s\n' "$(date -u +%FT%TZ)" "$APP_IMAGE" "$reason" >> "$DEPLOY_LOG"
+    echo "已回滾到 $APP_IMAGE 且健康判定通過。" >&2
+  else
+    printf '%s\trollback-done\t%s\tunhealthy\t%s\n' "$(date -u +%FT%TZ)" "$APP_IMAGE" "$reason" >> "$DEPLOY_LOG"
+    echo "回滾後健康判定仍不通過——需要人介入。" >&2
+  fi
+  exit 1
+}
+
+# ── 6. 健康判定 ────────────────────────────────────────────
 if [ "$DRY_RUN" = 1 ]; then
+  step "6/7 健康判定（${HEALTH_TIMEOUT_SECONDS} 秒內要全部符合）"
   printf '        $ curl -sf %s\n' "$HEALTH_URL"
   printf '        $ node ops/check-health.mjs  # 比對 commit=<tag>、imageDigest=<pull 到的 digest>、schemaVersion=<migrate 輸出>%s\n' \
     "$([ "$EXPECT_WORKER" = 1 ] && echo '、worker.version、worker.lastTickAt' || echo '，且 worker 必須是 null')"
+  printf '        # 第 5 步啟動失敗或本步健康失敗 → 同一條補償流程：回滾 + 重跑健康判定 + 寫 deploy_log\n'
 else
-  if ! await_health "$TAG" "$NEW_DIGEST" "$NEW_SCHEMA" "$EXPECT_WORKER"; then
-    echo "健康判定失敗，回滾到 $PREVIOUS_FILE 記的版本。" >&2
-    printf '%s\trollback-start\t%s\n' "$(date -u +%FT%TZ)" "$TAG" >> "$DEPLOY_LOG"
+  # postgres 先確保在跑（app 與 worker 用 --no-deps 起，不會幫忙帶它起來）。
+  if ! $COMPOSE up -d postgres; then
+    compensate 'postgres-start-failed'
+  fi
+  # set -e 之下，這一行失敗會直接把腳本帶走；用 if 攔下來走補償流程（review R4）。
+  if ! $COMPOSE up -d --no-deps app worker; then
+    compensate 'start-failed'
+  fi
 
-    if [ -s "$PREVIOUS_FILE" ]; then
-      # shellcheck disable=SC1090
-      . "$PREVIOUS_FILE"
-      APP_IMAGE="$PREVIOUS_APP_IMAGE"
-      IMAGE_DIGEST="$PREVIOUS_IMAGE_DIGEST"
-      export APP_IMAGE IMAGE_DIGEST
-      log "回滾到 $APP_IMAGE"
-      $COMPOSE up -d app worker || true
-      # DB 不回滾（expand／contract），所以 schema 仍是新的；舊映像要能在新 schema 上跑。
-      if await_health "" "$PREVIOUS_IMAGE_DIGEST" "$NEW_SCHEMA" "$EXPECT_WORKER"; then
-        printf '%s\trollback-done\t%s\thealthy\n' "$(date -u +%FT%TZ)" "$APP_IMAGE" >> "$DEPLOY_LOG"
-        echo "已回滾到 $APP_IMAGE 且健康判定通過。" >&2
-      else
-        printf '%s\trollback-done\t%s\tunhealthy\n' "$(date -u +%FT%TZ)" "$APP_IMAGE" >> "$DEPLOY_LOG"
-        echo "回滾後健康判定仍不通過——需要人介入。" >&2
-      fi
-    else
-      printf '%s\trollback-skipped\tno-previous\n' "$(date -u +%FT%TZ)" >> "$DEPLOY_LOG"
-      echo "沒有可回滾的版本（第一次部署）。" >&2
-    fi
-    exit 1
+  step "6/7 健康判定（${HEALTH_TIMEOUT_SECONDS} 秒內要全部符合）"
+  if ! await_health "$TAG" "$NEW_DIGEST" "$NEW_SCHEMA" "$EXPECT_WORKER"; then
+    compensate 'health-failed'
   fi
 fi
 

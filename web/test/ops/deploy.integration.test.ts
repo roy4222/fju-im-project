@@ -60,7 +60,7 @@ describe('ops/deploy.sh --dry-run', () => {
 
   it('migration 排在啟動新版之前（失敗即中止，舊 app 繼續跑）', async () => {
     const out = await dryRun(['abc123'])
-    expect(out.indexOf('run --rm migrate')).toBeLessThan(out.indexOf('up -d app worker'))
+    expect(out.indexOf('run --rm migrate')).toBeLessThan(out.indexOf('up -d --no-deps app worker'))
   })
 
   it('沒有帶 --expect-worker 時用有限健康條件', async () => {
@@ -106,10 +106,19 @@ describe('ops/deploy.sh 的失敗與回滾路徑（讀腳本本體）', () => {
   })
 
   it('回滾會把 APP_IMAGE 換回前一版再 up，而不是原地重啟', () => {
-    const rollback = source.slice(source.indexOf('rollback-start'))
+    const rollback = source.slice(source.indexOf('compensate() {'))
     expect(rollback).toContain('APP_IMAGE="$PREVIOUS_APP_IMAGE"')
     expect(rollback).toMatch(/export APP_IMAGE IMAGE_DIGEST/)
-    expect(rollback).toMatch(/\$COMPOSE up -d app worker/)
+    // --no-deps：不能讓 compose 跟著 depends_on 把舊映像的 migrator 帶起來（R5）。
+    expect(rollback).toMatch(/\$COMPOSE up -d --no-deps app worker/)
+  })
+
+  it('啟動失敗與健康失敗走同一條補償流程（R4）', () => {
+    expect(source).toMatch(/compensate 'start-failed'/)
+    expect(source).toMatch(/compensate 'health-failed'/)
+    expect(source).toMatch(/compensate 'postgres-start-failed'/)
+    // 這兩行都必須用 if 攔下來，否則 set -e 會在補償之前就把腳本帶走。
+    expect(source).toMatch(/if ! \$COMPOSE up -d --no-deps app worker; then/)
   })
 
   it('回滾後會重跑健康判定，並分別記 healthy／unhealthy', () => {
