@@ -65,7 +65,8 @@ describe('docker compose config', () => {
     expect(mounted).toBe(true)
 
     const caddyfile = fs.readFileSync(path.join(repoRoot, 'Caddyfile'), 'utf8')
-    expect(caddyfile).toMatch(/request_body\s*\{[\s\S]*max_size\s+\d+MB/)
+    // 契約 02 §6 的值；實際擋不擋得住由 test/proxy 的整合測試證明。
+    expect(caddyfile).toMatch(/max_size \{\$UPLOAD_MAX_SIZE:105MB\}/)
   })
 })
 
