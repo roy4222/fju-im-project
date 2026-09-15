@@ -44,10 +44,10 @@ docker compose down                       # 停掉，資料保留
 |---|---|
 | `pnpm typecheck` | 綠 |
 | `pnpm lint` | 綠 |
-| `pnpm lint:boundaries-test` | 14/14 符合預期（10 反例被擋且理由正確、4 合法例放行） |
+| `pnpm lint:boundaries-test` | 19/19 符合預期（13 反例被擋且理由正確、6 合法例放行） |
 | `pnpm -C web db:grants --check` | migration 的 GRANT 與權限矩陣一致 |
 | `pnpm test:unit` | 74 passed |
-| `pnpm test:integration` | 183 passed |
+| `pnpm test:integration` | 172 passed（roles 的 UPDATE 從抽樣改成逐欄，案例數變少、覆蓋變大：11 表 117 欄） |
 | `pnpm test:e2e` | 6 passed |
 | CI 七道 | 全綠 |
 
@@ -74,6 +74,14 @@ docker compose down                       # 停掉，資料保留
 | R5 | 回滾連帶重跑舊 migration，schema metadata 倒退 | `dea73e7` |
 | R6 | Caddy 上限 50MB，比契約的 105MB 小 | `7d17739` |
 | R7 | 缺權限矩陣產生器與逐格驗證 | `2e66ead` |
+
+第三輪（`REVIEW-992aeb1.md`）：R1／R3／R4／R5／R6 結案，另三項 P2 也已修：
+
+| R | 問題 | commit |
+|---|---|---|
+| R2a | `export … from` 繞過公開入口與 type-only | `2431baf` |
+| R2b | infrastructure 被整層豁免，私有入口仍可直接引用 | `2431baf` |
+| R7 | 欄位 UPDATE 只抽樣，沒有逐欄驗收 | `942a575` |
 
 ## 不在這一批
 
