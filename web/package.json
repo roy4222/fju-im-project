@@ -18,7 +18,9 @@
     "auth:generate": "node scripts/auth-generate.mjs",
     "test:integration": "vitest run --project integration",
     "db:up": "docker compose -f ../docker-compose.yml up -d postgres",
-    "db:down": "docker compose -f ../docker-compose.yml stop postgres"
+    "db:down": "docker compose -f ../docker-compose.yml stop postgres",
+    "db:generate": "node scripts/drizzle-generate.mjs",
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.5",

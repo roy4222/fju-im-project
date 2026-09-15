@@ -1,0 +1,181 @@
+import { beforeAll, describe, expect, it } from 'vitest'
+import { assertTestDatabaseReachable, createIsolatedDatabase, withIsolatedDatabase } from '../../../test/db'
+import { applyMigrations, migratedSchema } from '../../../test/migrations'
+
+/**
+ * S00-04：第一支 migration 在**空資料庫**上跑得起來，而且建出契約 01 §12 點名的十一張表。
+ */
+
+beforeAll(async () => {
+  await assertTestDatabaseReachable()
+})
+
+const EXPECTED_TABLES = [
+  'accounts',
+  'audit_events',
+  'cohorts',
+  'domain_events',
+  'due_work',
+  'event_projections',
+  'operation_records',
+  'schema_meta',
+  'sessions',
+  'users',
+  'verifications',
+]
+
+async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
+  const rows = await db.sql(
+    `select table_name from information_schema.tables
+     where table_schema = $1 and table_type = 'BASE TABLE' order by table_name`,
+    [db.schemaName],
+  )
+  return rows.rows.map((r) => String(r.table_name))
+}
+
+describe('空庫 migration', () => {
+  it('在全新的空 schema 上跑得起來，建出十一張表', async () => {
+    await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
+      const before = await tableNames(db)
+      expect(before).toEqual([])
+
+      const tags = await applyMigrations(db)
+      expect(tags[0]).toBe('0000_s00_foundation')
+
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+    })
+  })
+
+  it('建表順序符合契約 01 §12：FK 目標先存在', async () => {
+    await withIsolatedDatabase({ label: 'fk-order' }, async (db) => {
+      await applyMigrations(db)
+      const fks = await db.sql(
+        `select tc.table_name, ccu.table_name as references_table
+         from information_schema.table_constraints tc
+         join information_schema.constraint_column_usage ccu
+           on ccu.constraint_name = tc.constraint_name and ccu.table_schema = tc.table_schema
+         where tc.table_schema = $1 and tc.constraint_type = 'FOREIGN KEY'
+         order by 1, 2`,
+        [db.schemaName],
+      )
+      const pairs = fks.rows.map((r) => `${r.table_name} -> ${r.references_table}`)
+      expect(pairs).toContain('sessions -> users')
+      expect(pairs).toContain('accounts -> users')
+      expect(pairs).toContain('audit_events -> cohorts')
+      expect(pairs).toContain('operation_records -> users')
+      expect(pairs).toContain('event_projections -> domain_events')
+    })
+  })
+})
+
+describe('契約 01 §4 的約束確實建出來了', () => {
+  it('列舉欄用 CHECK 白名單，不用 pgEnum', async () => {
+    await withIsolatedDatabase({ label: 'checks', setup: migratedSchema }, async (db) => {
+      const enums = await db.sql('select typname from pg_type where typtype = $1', ['e'])
+      expect(enums.rowCount).toBe(0)
+
+      await expect(
+        db.sql("insert into cohorts (id, code, name, status, created_by_kind) values (gen_random_uuid(), 'X', 'X', 'nope', 'system')"),
+      ).rejects.toThrow(/cohorts_status_check/)
+    })
+  })
+
+  it('actor 規則：actor_kind=user 必須有 actor_user_id，反之亦然', async () => {
+    await withIsolatedDatabase({ label: 'actor', setup: migratedSchema }, async (db) => {
+      await expect(
+        db.sql(`insert into audit_events (id, actor_kind, action, target_type, scope, real_at, business_at)
+                values (gen_random_uuid(), 'user', 'test', 'user', 'global', now(), now())`),
+      ).rejects.toThrow(/audit_events_actor_check/)
+
+      const ok = await db.sql(`insert into audit_events (id, actor_kind, action, target_type, scope, real_at, business_at)
+              values (gen_random_uuid(), 'system', 'test', 'user', 'global', now(), now()) returning id`)
+      expect(ok.rowCount).toBe(1)
+    })
+  })
+
+  it('scope 規則：scope=cohort 必須有 cohort_id', async () => {
+    await withIsolatedDatabase({ label: 'scope', setup: migratedSchema }, async (db) => {
+      await expect(
+        db.sql(`insert into audit_events (id, actor_kind, action, target_type, scope, real_at, business_at)
+                values (gen_random_uuid(), 'system', 'test', 'user', 'cohort', now(), now())`),
+      ).rejects.toThrow(/audit_events_scope_cohort_check/)
+    })
+  })
+
+  it('只能有一個預設工作屆別、一個開放註冊屆別', async () => {
+    await withIsolatedDatabase({ label: 'cohort-unique', setup: migratedSchema }, async (db) => {
+      await db.sql(`insert into cohorts (id, code, name, is_default_working, created_by_kind)
+                    values (gen_random_uuid(), '115-A', '115 甲', true, 'system')`)
+      await expect(
+        db.sql(`insert into cohorts (id, code, name, is_default_working, created_by_kind)
+                values (gen_random_uuid(), '116-A', '116 甲', true, 'system')`),
+      ).rejects.toThrow(/cohorts_one_default_working/)
+
+      // 不是預設的就可以有很多個。
+      const second = await db.sql(`insert into cohorts (id, code, name, created_by_kind)
+                    values (gen_random_uuid(), '116-A', '116 甲', 'system') returning id`)
+      expect(second.rowCount).toBe(1)
+    })
+  })
+
+  it('operation_records 的去重鍵是（本人、操作種類、requestId）', async () => {
+    await withIsolatedDatabase({ label: 'dedupe', setup: migratedSchema }, async (db) => {
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at)
+         values (gen_random_uuid(), 'A', 'a@example.com', false, now()) returning id`,
+      )
+      const userId = user.rows[0]!.id
+
+      const insert = (requestId: string) =>
+        db.sql(
+          `insert into operation_records
+             (id, actor_user_id, operation_kind, request_id, fingerprint, state, scope, committed_real_at, receipt_expires_at)
+           values (gen_random_uuid(), $1, 'submission.submit', $2, 'abc', 'committed', 'global', now(), now() + interval '30 days')`,
+          [userId, requestId],
+        )
+
+      const requestId = '11111111-1111-4111-8111-111111111111'
+      await insert(requestId)
+      await expect(insert(requestId)).rejects.toThrow(/operation_records_dedupe_key/)
+      await expect(insert('22222222-2222-4222-8222-222222222222')).resolves.toBeTruthy()
+    })
+  })
+
+  it('due_work 的 identity 是（kind、subject、deadline_version）', async () => {
+    await withIsolatedDatabase({ label: 'due-work', setup: migratedSchema }, async (db) => {
+      const subject = '33333333-3333-4333-8333-333333333333'
+      const insert = (version: number) =>
+        db.sql(
+          `insert into due_work (id, kind, subject_type, subject_id, deadline_version, due_business_at)
+           values (gen_random_uuid(), 'deadline_snapshot', 'item', $1, $2, now())`,
+          [subject, version],
+        )
+      await insert(1)
+      await expect(insert(1)).rejects.toThrow(/due_work_identity/)
+      await expect(insert(2)).resolves.toBeTruthy()
+    })
+  })
+
+  it('時間欄都是 timestamptz、主鍵都是 uuid', async () => {
+    await withIsolatedDatabase({ label: 'types', setup: migratedSchema }, async (db) => {
+      const timestamps = await db.sql(
+        `select table_name, column_name, data_type from information_schema.columns
+         where table_schema = $1 and data_type like 'timestamp%'`,
+        [db.schemaName],
+      )
+      expect(timestamps.rowCount).toBeGreaterThan(0)
+      for (const row of timestamps.rows) {
+        expect(row.data_type).toBe('timestamp with time zone')
+      }
+
+      const ids = await db.sql(
+        `select table_name, data_type from information_schema.columns
+         where table_schema = $1 and column_name = 'id'`,
+        [db.schemaName],
+      )
+      for (const row of ids.rows) {
+        expect(row.data_type).toBe('uuid')
+      }
+    })
+  })
+})
