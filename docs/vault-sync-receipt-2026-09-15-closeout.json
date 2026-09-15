@@ -1,0 +1,19 @@
+{
+  "verified_at": "2026-09-15T11:39:22.618971+00:00",
+  "scope": "S00 closeout progress and next-batch handoff only; no product requirements altered",
+  "repo_handoff": "docs/NEXT-BATCH.md",
+  "repo_handoff_sha256": "31280b6a18d44722abc6f4764263274d6231d5aea54339be96bf408aae75a703",
+  "link_conversion": "relative repo links -> GitHub codex/s00-closeout-next-batch",
+  "entries": [
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-15 S00 收尾與下一批交接.md",
+      "before_sha256": null,
+      "after_sha256": "64180f796b0f838a0fad8e6c56fccd08805bdfbdd56fe7d1543f8d4db4f53a59"
+    },
+    {
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📍 目前進度.md",
+      "before_sha256": "dff407b302b9be75985e97b799641aedc758b6609faa6d901c77da21eae328d0",
+      "after_sha256": "cb208aa79ac47ea08439335a92f0c071741191afa69ed21e171f134664d8956f"
+    }
+  ]
+}

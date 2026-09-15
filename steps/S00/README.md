@@ -1,5 +1,7 @@
 # steps/S00｜S00 切片的證據
 
+> 2026-09-15 收尾：#7／#199 已合併，#33–#43 工程票已關閉；#18 保留本人展示待確認。main CI run 34963158736 通過；#41 的負向 run 34963728606 如預期 unit 失敗，PR #200 已關閉未合併。main ruleset 已加入七項 required checks；下方歷史「未套用」描述以本段為準。完整交接見 [NEXT-BATCH](../../docs/NEXT-BATCH.md)。
+
 每張票一份，記錄實際跑出來的東西——指令輸出、資料庫讀回、HTTP 回應、瀏覽器觀測。
 不是計畫，也不是「應該會怎樣」。
 
@@ -26,17 +28,17 @@ Node v22.23.2、pnpm 11.0.9、PostgreSQL 16.10（Docker Desktop 29.1.3）、Next
 ```bash
 nvm use 22
 pnpm install --filter @fju/web...
-docker compose up -d                      # 六個服務
+pnpm -C web stack:up                       # 本機六服務，含 local override 與 full profile
 pnpm -C web typecheck
 pnpm -C web lint
 pnpm -C web lint:boundaries-test
 pnpm -C web test:unit
 pnpm -C web test:integration
 pnpm -C web test:e2e
-docker compose down                       # 停掉，資料保留
+pnpm -C web stack:down                     # 停掉，資料保留
 ```
 
-只要開發伺服器：`docker compose up -d postgres` 再 `pnpm -C web dev`（port 3000）。
+只要開發伺服器：`pnpm -C web db:up` 再 `pnpm -C web dev`（port 3000）。
 
 ## 這一輪的實際結果（2026-09-15）
 

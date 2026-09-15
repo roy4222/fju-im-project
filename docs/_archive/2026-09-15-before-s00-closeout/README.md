@@ -6,92 +6,38 @@
 
 ---
 
-## 目前進度（2026-09-15）
+## ⚠️ 目前狀態：原型階段
 
-**正式程式已完成 S00 工程骨架；帳號登入等業務功能從 S01 開始。**
+**這個 repo 目前沒有資料庫、沒有登入、沒有後端。** 所有畫面都在 `prototype/`，讀取的是
+`prototype/src/lib/fixtures.ts` 裡的假資料（虛構的姓名、學號、公司與公告，不含任何真實個資）。
 
-- 文件 PR [#7](https://github.com/roy4222/fju-im-project/pull/7) 與工程 PR [#199](https://github.com/roy4222/fju-im-project/pull/199) 已合併，main 基線 `3d6741d`。
-- [合併後 CI 七道通過](https://github.com/roy4222/fju-im-project/actions/runs/34963158736)：型別、lint、單元、整合、建置、E2E、依賴稽核。七道已列入 main ruleset 必過條件。
-- `web/` 有真 PostgreSQL 基礎表、資料庫權限、Compose、空殼首頁、健康檢查與安全標頭；[逐票證據](steps/S00/README.md)。
-- **VM 測試站尚未在本次驗證；CD 目前仍是演練。** 真映像部署／回滾、完整帳號流程、完整年度驗收都不能算已完成。
-- 下一批目標：**固定 VM 測試站＋管理員首次登入、強制改密、登出重登**；[交接、票號與停點](docs/NEXT-BATCH.md)。
+2026-09-09 Roy 定案：`prototype/` 是可點的前端原型，前台樣子已定、後台要出多個版本評選；
+這裡可以自由改。正式程式碼之後從零開始（Better Auth＋Drizzle 垂直切片起頭），
+需要哪一頁再從 prototype 搬並順便拆元件，不把 prototype 整包當正式碼。
 
-| 入口 | 用途 |
+| 範圍 | 狀態 |
 |---|---|
-| [線上原型](https://fju-prototype.roy422roy.workers.dev) | 假資料、模擬身分，供看設計；不是正式登入或資料保存驗收 |
-| [產品總規格](<docs/product/📐 產品總規格.md>) | 完整 V1 要做什麼與規則 |
-| [工程架構](docs/ARCHITECTURE.md)／[工程文件](docs/engineering/README.md) | 怎麼實作、資料字典、契約與測試 |
-| [GitHub issues](https://github.com/roy4222/fju-im-project/issues) | 執行中的票與完成狀態 |
-| [S00 證據](steps/S00/README.md) | 指令、資料庫與瀏覽器的實際結果 |
+| 公開前台 16 個路由（首頁四角色、公告、競賽、規則、優秀專題、歷屆一覽、榮譽榜、產學、檔案下載、帳號、403／404） | ✅ 2026-09-07 依定案設計重做；身分由原型操作列的 cookie 模擬 |
+| 設計 token、字體系統、Data Table、Sidebar shell | ✅ 完成 |
+| 後台 13 條路由 × 三角色（首頁、通知、專題事務、編輯器、分組、產學、評分、簽核、帳號、檔案、稽核） | ✅ 2026-09-08 一版完成，參考 demos.shadcndashboard.dev；見 `docs/DASHBOARD-PAGES.md` |
+| 專題事務編輯器 | 🟡 簡化版（欄位清單上下排序、右側設定、預覽、發布）；拖拉排序未做 |
+| 評分工作台、簽核流程、帳號管理、檔案管理 | ✅ 畫面完成，讀 fixtures |
+| PostgreSQL、Auth、檔案儲存、權限驗證 | ❌ 未開始（正式碼 `web/` 尚不存在） |
+| 工程文件：總 spec、五份共用契約、十份模組 spec、切片 S00–S14、部署 SOP、操作手冊 | 📝 2026-09-12 已寫，待 Codex review；入口 `docs/README.md`、`docs/ARCHITECTURE.md`、`docs/engineering/` |
+| Docker、校內 VM 部署、備份與還原 | ❌ 未開始 |
 
-## V1 要完成哪些功能？
+畫面上的照片暫用系網 im.fju.edu.tw 的素材（`prototype/public/placeholder/`），上線前必須換成系辦提供的照片。
 
-目標是讓管理員、老師與學生用同一套系統走完一個專題年度。下表是**規劃範圍，非已完成功能**。
-
-| 功能 | 使用者能做什麼 | 詳細規格 |
-| 帳號與權限 | 註冊、人工審核、登入、停用、名單 CSV 匯入／匯出 | [模組 01](<docs/product/🧩 功能模組/01 帳號與權限.md>) |
-| 屆別與年度 | 建立屆別、安排階段與截止時間 | [模組 02](<docs/product/🧩 功能模組/02 屆別與年度流程.md>) |
-| 分組、指導與產學 | 找組員、確認成組、指導老師認領／指派、合作案 | [模組 03](<docs/product/🧩 功能模組/03 分組、指導與產學.md>) |
-| 專題事務 | 建立公告與收件事項、表單、發布到前台 | [模組 04](<docs/product/🧩 功能模組/04 專題事務發布與編輯.md>) |
-| 個人與組別繳交 | 填報、草稿、上傳、正式送出、版本與老師檢視 | [模組 05](<docs/product/🧩 功能模組/05 個人與組別繳交.md>) |
-| 評分與成績 | 評分方案、指派、計分、退回與成績匯出；學生 V1 不看成績 | [模組 06](<docs/product/🧩 功能模組/06 評分與成績.md>) |
-| 線上簽核 | 有效成員逐人同意、主指導最後同意；版本異動重新簽核 | [模組 07](<docs/product/🧩 功能模組/07 線上簽核.md>) |
-| 通知與日曆 | 站內通知、期限與日曆；外寄 Email／外部日曆整合延後 | [模組 08](<docs/product/🧩 功能模組/08 站內通知與日曆.md>) |
-| 公開展示 | 公告、歷屆、優秀專題、素材授權與公開頁面 | [模組 09](<docs/product/🧩 功能模組/09 公開展示與共用介面.md>) |
-| 檔案與維運 | 逐次授權下載、稽核、備份、還原及健康監測 | [模組 10](<docs/product/🧩 功能模組/10 檔案與服務維運需求.md>) |
-
-最新需求：**評分規則維持既定設計，補齊成績匯出、名單匯入／匯出。** 系級保存「資管二甲／資管二乙」完整文字，與專題屆別分開；[9/15 定案](<docs/product/💬 討論與決策/2026-09-15 名單匯入匯出與系級定案.md>)。
-
-驗收依 [完整年度主線](<docs/product/🔁 年度情境/01 完整年度主線.md>)、[VM 試用條件](<docs/product/✅ 接受條件/01 VM 試用接受條件.md>) 與 [正式開放 Gate](<docs/product/✅ 接受條件/02 正式開放 Gate.md>)。單張票關閉不代表完整年度通過。
-
-## 畫面參考
-
-以下是 **2026-09-11 既有原型截圖**，用來對照設計；不是 S00 正式功能截圖，也不代表已部署到 VM。完整圖片保留在 [原型畫面目錄](docs/product/assets/prototype-2026-09-11/)，頁面對照見 [前台](docs/FRONTEND-PAGES.md)／[後台](docs/DASHBOARD-PAGES.md)。
-
-### 公開首頁
-
-![公開首頁原型](docs/product/assets/prototype-2026-09-11/guest--home.png)
-
-### 學生首頁
-
-![學生首頁原型](docs/product/assets/prototype-2026-09-11/student--dashboard-student.png)
-
-### 老師首頁
-
-![老師首頁原型](docs/product/assets/prototype-2026-09-11/teacher--dashboard-teacher.png)
-
-### 管理員帳號管理
-
-![帳號管理原型](docs/product/assets/prototype-2026-09-11/admin--dashboard-admin-accounts.png)
-
-### 管理員評分工作台
-
-![評分工作台原型](docs/product/assets/prototype-2026-09-11/admin--dashboard-admin-grading.png)
+---
 
 ## 快速開始
 
-正式程式使用 Node 22、pnpm 11；Docker 用於 PostgreSQL 與整合測試。
-
-### 正式程式（S00 空殼）
-
-```bash
-nvm use 22
-pnpm install --frozen-lockfile --filter @fju/web...
-pnpm -C web stack:up   # 本機完整 Compose，http://localhost:8080
-# 看健康狀態：http://localhost:8080/api/health
-pnpm -C web stack:down # 停止服務，保留資料
-```
-
-只開發網站：`pnpm -C web db:up` 後執行 `pnpm -C web dev`（port 3000）。第一次使用必須依 [web/README](web/README.md) 與 [Compose 證據](steps/S00/S00-07/compose.md) 準備環境檔／資料庫；不把密碼提交到 repo。上述指令是本機用途，VM 依部署 SOP。
-
-### 可點原型
+需要 Node.js 20+ 與 pnpm。
 
 ```bash
 pnpm install
 pnpm proto        # http://localhost:3100（prototype）
 ```
-
-以下路由清單是原型，並非目前正式 web 已交付的功能。
 
 | 路徑 | 內容 |
 |---|---|
@@ -114,7 +60,7 @@ pnpm proto        # http://localhost:3100（prototype）
 
 ```bash
 pnpm build                        # production build（公開頁應全為 Static/SSG）
-pnpm -C web typecheck            # 正式程式型別檢查
+npx tsc --noEmit                  # 型別檢查
 node scripts/shoot.mjs / --light  # 用本機 Chrome 截圖，支援深淺主題與手機寬度
 ```
 
@@ -175,18 +121,6 @@ Base UI 不是 Radix：沒有 `asChild`，改用 `render` prop；`Checkbox` 的
 
 ## 目錄結構
 
-| 目錄 | 白話用途 |
-|---|---|
-| `web/src/` | 正式網站與伺服器程式 |
-| `web/drizzle/` | 資料庫 migration：逐版建立／更新表與權限 |
-| `web/src/infrastructure/db/schema/` | 表、欄位、型別與限制的 TypeScript 定義 |
-| `web/test/`、`web/e2e/` | 共用測試工具、整合測試與瀏覽器測試；部分測試與正式碼放一起 |
-| `web/lint-fixtures/` | 故意合法／違規的小程式，用來驗證 lint 會正確放行／阻擋；不是第二套網站 |
-| `steps/S00/S00-xx/` | 對應票的實際驗證紀錄，不是產品功能 |
-| `prototype/` | 假資料原型；以下是原型內部結構 |
-| `docs/` | 規格、架構、案例與操作手冊 |
-
-
 ```
 prototype/src/
 ├─ app/
@@ -232,15 +166,11 @@ prototype/src/
 
 ---
 
-## 交付與節奏
+## 交付
 
-S00–S14 共 **15 個大切片、原始 166 張實作票**。大切片不等於一次交付；之後以可操作流程拆小批。S01 第一批只取 #44–#48，停在管理員登入後台；部署前置另外追蹤。全案若平均每小批 4–6 張，約需 30–40 小批作為粗估，實際依依賴、驗收與修正調整，不是時程承諾。
+**2026-09-14** 是校內 Ubuntu VM（4 核 / 7.8 GB / 97 GB，2026-09-11 快照）上以測試帳號試用完整產品的目標；正式開放另依 `docs/product/✅ 接受條件/02 正式開放 Gate.md`。年度主線只 seed 一位管理員 A1，其餘資料由介面產生；資料庫每日加密備份到 R2、本機快照 7 天、附件無異地；正式 Gate 前至少一次隔離環境 DB 還原演練。
 
-每張票交付：白話前後差異、對應 PR／版本、測試站網址（尚未部署就明寫）、測試帳號取得方式、3–5 步操作與預期結果、證據、未完成項目。基礎票無畫面時提供可理解的資料或 HTTP 示範。
-
-功能關票以完成條件及合併證據為準；需 Roy 操作的項目標明待本人確認，不能由 CI 替代。詳見 [下一批交接](docs/NEXT-BATCH.md)。
-
-舊 README 全文保留於 [9/15 更新前存檔](docs/_archive/2026-09-15-before-s00-closeout/README.md)。圖片、歷史設計與來源未刪除。
+Mock、fixture、單元測試、頁面數量或程式碼行數都不能單獨替代這個 Gate。
 
 ---
 
