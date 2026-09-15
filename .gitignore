@@ -50,3 +50,7 @@ screenshots/
 **/.design-sync/learnings/
 **/.design-sync/node_modules/
 **/.design-sync/generated/
+
+# Playwright 的 trace／截圖等執行產物
+web/e2e/.artifacts/
+web/playwright-report/

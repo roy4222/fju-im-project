@@ -20,7 +20,8 @@
     "db:up": "docker compose -f ../docker-compose.yml up -d postgres",
     "db:down": "docker compose -f ../docker-compose.yml stop postgres",
     "db:generate": "node scripts/drizzle-generate.mjs",
-    "db:migrate": "node scripts/migrate.mjs"
+    "db:migrate": "node scripts/migrate.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@swc/helpers": "0.5.23",
@@ -38,6 +39,7 @@
     "@better-auth/cli": "1.5.0-beta.13",
     "@eslint/js": "9.39.5",
     "@next/eslint-plugin-next": "16.3.1",
+    "@playwright/test": "1.63.0",
     "@types/node": "22.19.4",
     "@types/pg": "8.23.1",
     "@types/react": "19.2.7",
