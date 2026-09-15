@@ -93,6 +93,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter @fju/web...
+      # 三個憑證檔是 gitignore 的（值由維運帶入），但 `docker compose config` 要求檔案存在。
+      # CI 用 .env.example 的空範本補上，只是為了讓 Compose 定義解析得起來。
+      - name: 補上 Compose 需要的空憑證檔
+        run: |
+          cp .env.example .env
+          cp .env.example .env.migrate
+          cp .env.example .env.backup
       # 空庫 migration、fju_app 逐表權限拒絕測試、harness 自測、health、Compose 定義
       # 都在這一道（契約 05 §2）。
       - run: pnpm -C web test:integration
