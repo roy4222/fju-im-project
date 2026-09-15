@@ -4,8 +4,11 @@
 #   - migrate 先跑完且成功，app 與 worker 才會起來（depends_on: service_completed_successfully）。
 #   - migrate 用 owner 連線（.env.migrate）；app 與 worker 用 app 連線（.env）；
 #     backup 用 backup 連線（.env.backup）。三組憑證分檔，互不可見。
-#   - 刻意用自己的 project name 與 volume，跟這台機器上其他容器完全分開；
-#     postgres 對外埠也不是預設的 5432。
+#   - 刻意用自己的 project name 與 volume，跟這台機器上其他容器完全分開。
+#   - **postgres 不對宿主機發布任何 port**：app、worker、migrate、backup 都在同一個
+#     compose 網路裡連得到它，沒有人需要從宿主機連。SOP 01 §4 的 ufw 只開 22/80/443，
+#     這裡若發布 5432 等於在防火牆之外多開一個帶已知 superuser 憑證的入口。
+#     本機要用 psql 或跑整合測試時，用 docker-compose.local.yml 覆蓋（只綁 127.0.0.1）。
 #
 # 本機開發用 docker-compose.local.yml 覆蓋（只起 postgres 與 caddy，app 跑 pnpm dev）。
 name: fju-im-project
@@ -31,8 +34,6 @@ services:
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
       TZ: UTC
     command: ['postgres', '-c', 'timezone=UTC', '-c', 'max_connections=200']
-    ports:
-      - '${POSTGRES_PORT:-55432}:5432'
     volumes:
       - fju-pgdata:/var/lib/postgresql/data
     healthcheck:

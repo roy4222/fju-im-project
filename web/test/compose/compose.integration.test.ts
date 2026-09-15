@@ -15,10 +15,14 @@ const repoRoot = path.join(import.meta.dirname, '..', '..', '..')
  * 不只是寫在 yml 上，而是 Compose 真的會這樣做——所以最後一個案例是實際跑一次注入失敗。
  */
 
-async function composeConfig(): Promise<Record<string, unknown>> {
-  const { stdout } = await exec('docker', ['compose', 'config', '--format', 'json'], { cwd: repoRoot })
+async function composeConfig(files: string[] = ['docker-compose.yml']): Promise<Record<string, unknown>> {
+  const args = files.flatMap((file) => ['-f', file])
+  const { stdout } = await exec('docker', ['compose', ...args, 'config', '--format', 'json'], { cwd: repoRoot })
   return JSON.parse(stdout) as Record<string, unknown>
 }
+
+type PortMapping = { host_ip?: string; published?: string | number; target?: number }
+type ConfiguredServices = Record<string, { ports?: PortMapping[] } | undefined>
 
 describe('docker compose config', () => {
   it('六個服務齊全，名稱固定', async () => {
@@ -67,6 +71,50 @@ describe('docker compose config', () => {
     const caddyfile = fs.readFileSync(path.join(repoRoot, 'Caddyfile'), 'utf8')
     // 契約 02 §6 的值；實際擋不擋得住由 test/proxy 的整合測試證明。
     expect(caddyfile).toMatch(/max_size \{\$UPLOAD_MAX_SIZE:105MB\}/)
+  })
+})
+
+describe('對宿主機發布的 port（R3）', () => {
+  it('基礎 compose 只有 caddy 對外，postgres 完全不發布', async () => {
+    const services = (await composeConfig()).services as ConfiguredServices
+    const published = Object.entries(services)
+      .filter(([, svc]) => (svc?.ports ?? []).length > 0)
+      .map(([name]) => name)
+    // SOP 01 §4 的 ufw 只開 22/80/443；VM 上多發布一個 5432 等於在防火牆之外
+    // 開一個帶已知 superuser 憑證的入口。
+    expect(published).toEqual(['caddy'])
+    expect(services.postgres?.ports ?? []).toEqual([])
+  })
+
+  it('本機覆蓋把 postgres 發布出來，但只綁 127.0.0.1', async () => {
+    const services = (await composeConfig(['docker-compose.yml', 'docker-compose.local.yml']))
+      .services as ConfiguredServices
+    const ports = services.postgres?.ports ?? []
+    expect(ports).toHaveLength(1)
+    expect(ports[0]?.host_ip).toBe('127.0.0.1')
+    expect(Number(ports[0]?.target)).toBe(5432)
+  })
+
+  it('本機覆蓋沒有任何服務綁到 0.0.0.0 的資料庫埠', async () => {
+    const services = (await composeConfig(['docker-compose.yml', 'docker-compose.local.yml']))
+      .services as ConfiguredServices
+    for (const [name, svc] of Object.entries(services)) {
+      for (const port of svc?.ports ?? []) {
+        if (Number(port.target) === 5432) {
+          expect(port.host_ip, `${name} 的 5432 綁到 ${port.host_ip}`).toBe('127.0.0.1')
+        }
+      }
+    }
+  })
+
+  it('本機覆蓋預設只起 postgres，其餘五個要 --profile full', async () => {
+    const raw = YAML.parse(fs.readFileSync(path.join(repoRoot, 'docker-compose.local.yml'), 'utf8')) as {
+      services: Record<string, { profiles?: string[] } | undefined>
+    }
+    for (const name of ['migrate', 'app', 'worker', 'caddy', 'backup']) {
+      expect(raw.services[name]?.profiles, `${name} 少了 full profile`).toEqual(['full'])
+    }
+    expect(raw.services.postgres?.profiles).toBeUndefined()
   })
 })
 

@@ -7,12 +7,16 @@ T3 決定（Roy 2026-09-15，採票上預設）：**自動測試的主要接縫�
 ## 先把資料庫起起來
 
 ```bash
-docker compose up -d postgres     # repo 根；或 pnpm -C web db:up
+pnpm -C web db:up                 # = docker compose -f docker-compose.yml -f docker-compose.local.yml up -d postgres
 docker compose ps postgres        # 應該是 healthy
 ```
 
-只會起本專案自己的 `fju-postgres`（project name `fju-im-project`、對外埠 `55432`、
-volume `fju-im-project-pgdata`），不動這台機器上其他容器。停掉用 `docker compose stop postgres`，
+**一定要帶 `docker-compose.local.yml`**：基礎 `docker-compose.yml` 是 VM 上的樣子，
+postgres 不對宿主機發布 port（SOP 01 §4 的 ufw 只開 22/80/443）。本機覆蓋才會把 5432
+發布出來，而且只綁 `127.0.0.1`——同一台機器連得到，LAN 上的其他人連不到（review R3）。
+
+只會起本專案自己的 `fju-postgres`（project name `fju-im-project`、對外埠 `127.0.0.1:55432`、
+volume `fju-im-project-pgdata`），不動這台機器上其他容器。停掉用 `pnpm -C web db:down`，
 資料保留；要連資料一起清才用 `docker compose down -v`。
 
 ## 跑測試

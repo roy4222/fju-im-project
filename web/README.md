@@ -13,11 +13,20 @@
 從 repo 根執行，或 `cd web` 後拿掉 `-C web`：
 
 ```bash
+pnpm -C web db:up       # 只起 postgres（綁 127.0.0.1:55432）
 pnpm -C web dev         # 本機開發伺服器（http://localhost:3000）
 pnpm -C web typecheck   # tsc --noEmit
 pnpm -C web test:unit   # 不需要資料庫的單元測試
+pnpm -C web test        # 單元＋整合（整合需要 db:up）
 pnpm -C web build       # production build
+
+pnpm -C web stack:up    # 本機跑完整六個服務（http://localhost:8080）
+pnpm -C web stack:down  # 收掉
 ```
+
+`postgres` 在基礎 `docker-compose.yml` 裡**不對宿主機發布 port**——那是 VM 上的樣子，
+SOP 01 §4 的 ufw 只開 22/80/443。本機要連資料庫時用 `docker-compose.local.yml` 覆蓋，
+它只綁 `127.0.0.1`（上面兩個 script 已經帶好兩個檔案）。
 
 ## 六層目錄（母 spec §4.3）
 

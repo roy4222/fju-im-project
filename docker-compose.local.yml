@@ -1,16 +1,24 @@
-# 本機覆蓋：只起 postgres（測試與開發用），app 用 `pnpm -C web dev` 跑在 host 上。
+# 本機覆蓋。基礎 docker-compose.yml 是 VM 上的樣子——postgres 不對宿主機開 port。
+# 本機開發與整合測試需要從宿主機連資料庫，所以在這裡把 5432 發布出來，
+# **而且只綁 127.0.0.1**：同一台機器連得到，LAN 上的其他人連不到（review R3）。
 #
+#   # 只起資料庫（跑整合測試、用 psql 看資料）
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d postgres
 #
-# 要在本機跑「完整六個服務」的樣子，就不要帶這個覆蓋檔，改用 docker compose up -d。
+#   # 本機跑完整六個服務
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml --profile full up -d
+#
+# 不帶這個覆蓋檔的 `docker compose up -d` 就是 VM 上的樣子：六個服務都起，
+# 但 postgres 只在 compose 網路裡看得到。
 name: fju-im-project
 
 services:
   postgres:
     ports:
-      - '${POSTGRES_PORT:-55432}:5432'
+      # 前面的 127.0.0.1 是重點；少了它 Docker 會綁 0.0.0.0。
+      - '127.0.0.1:${POSTGRES_PORT:-55432}:5432'
 
-  # 本機預設不起這些；需要時明確指名服務啟動。
+  # 本機預設只起 postgres；要完整六個服務就加 --profile full。
   migrate:
     profiles: ['full']
   app:

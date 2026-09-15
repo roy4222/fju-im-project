@@ -17,12 +17,14 @@
     "lint:boundaries-test": "node scripts/lint-boundaries-test.mjs",
     "auth:generate": "node scripts/auth-generate.mjs",
     "test:integration": "vitest run --project integration",
-    "db:up": "docker compose -f ../docker-compose.yml up -d postgres",
-    "db:down": "docker compose -f ../docker-compose.yml stop postgres",
+    "db:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml up -d postgres",
+    "db:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml stop postgres",
     "db:generate": "node scripts/drizzle-generate.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "test:e2e": "playwright test",
-    "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json"
+    "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json",
+    "stack:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full up -d",
+    "stack:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full down"
   },
   "dependencies": {
     "@swc/helpers": "0.5.23",
