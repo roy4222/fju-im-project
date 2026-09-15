@@ -173,3 +173,42 @@ export async function assertTestDatabaseReachable(): Promise<void> {
     await probe.end()
   }
 }
+
+/**
+ * 開一個**獨立的資料庫**（不是 schema），跑完丟掉。
+ *
+ * 大部分測試用隔離 schema 就夠了，但「真的用 drizzle migrator 跑一次、再跑一次確認 no-op」
+ * 必須讓 migration SQL 裡寫死的 `"public"."users"` 解析得到，所以要一個自己的資料庫。
+ * `fju_owner` 在本機與 CI 都有 CREATEDB。
+ */
+export async function withTemporaryDatabase<T>(
+  label: string,
+  body: (url: string) => Promise<T>,
+): Promise<T> {
+  const name = nextSchemaName(label)
+  const admin = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
+  try {
+    await admin.query(`CREATE DATABASE "${name}"`)
+  } finally {
+    await admin.end()
+  }
+
+  const url = new URL(TEST_DATABASE_URL)
+  url.pathname = `/${name}`
+
+  try {
+    return await body(url.toString())
+  } finally {
+    const cleanup = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
+    try {
+      // 還連著的話 DROP 會失敗，先把其他連線踢掉。
+      await cleanup.query(
+        `select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()`,
+        [name],
+      )
+      await cleanup.query(`DROP DATABASE IF EXISTS "${name}"`)
+    } finally {
+      await cleanup.end()
+    }
+  }
+}

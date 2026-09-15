@@ -25,6 +25,9 @@ let backup: Pool
 let userId: string
 let cohortId: string
 let eventId: string
+let applicationId: string
+let rosterVersionId: string
+let storedFileId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -128,6 +131,121 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'state', value: 'done' },
   },
+  user_profiles: {
+    insert: () => ({
+      // 每次都連同一個新使用者一起插：user_id 是主鍵，重插同一人會撞 PK 而不是撞權限。
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '個資測試', $1, false, now()) returning id
+            )
+            insert into user_profiles (user_id, display_name, name_normalized, department_class, contact_email)
+            select id, '個資測試', 'geziceshi', '資管二甲', $1 from u`,
+      values: [`${unique('profile')}@example.com`],
+    }),
+    updatable: { column: 'display_name', value: '改過的姓名' },
+  },
+  student_identities: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '占用測試', $2, false, now()) returning id
+            )
+            insert into student_identities (cohort_id, student_no, user_id)
+            select $3, $1, id from u`,
+      values: [unique('sno'), `${unique('ident')}@example.com`, cohortId],
+    }),
+    updatable: { column: 'student_no', value: '409999999' },
+    deleteWhere: 'true',
+  },
+  registration_applications: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '申請測試', $1, false, now()) returning id
+            )
+            insert into registration_applications
+              (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email)
+            select gen_random_uuid(), id, '申請測試', $2, '資管二乙', '0900000000', $1, $1 from u`,
+      values: [`${unique('apply')}@example.com`, unique('sno')],
+    }),
+    updatable: { column: 'state', value: 'rejected' },
+  },
+  application_revisions: {
+    insert: () => ({
+      sql: `insert into application_revisions (id, application_id, revision, snapshot)
+            values (gen_random_uuid(), $1, $2, '{"departmentClass":"資管二甲"}'::jsonb)`,
+      values: [applicationId, (uniqueCounter += 1)],
+    }),
+    updatable: { column: 'snapshot', value: '{"tampered":true}' },
+  },
+  roster_versions: {
+    insert: () => ({
+      sql: `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+            values (gen_random_uuid(), $1, $2, now(), '{"total":0}'::jsonb)`,
+      values: [cohortId, userId],
+    }),
+    updatable: { column: 'summary', value: '{"tampered":true}' },
+  },
+  roster_entries: {
+    insert: () => ({
+      sql: `insert into roster_entries
+              (id, roster_version_id, student_no, name_raw, name_normalized, department_class)
+            values (gen_random_uuid(), $1, $2, '名單測試', 'mingdanceshi', '資管二甲')`,
+      values: [rosterVersionId, unique('sno')],
+    }),
+    updatable: { column: 'name_raw', value: '改過的名字' },
+  },
+  role_assignments: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '角色測試', $1, false, now()) returning id
+            )
+            insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+            select gen_random_uuid(), id, 'student', $2, now() from u`,
+      values: [`${unique('role')}@example.com`, userId],
+    }),
+    updatable: { column: 'reason', value: '撤銷理由' },
+  },
+  user_status_events: {
+    insert: () => ({
+      sql: `insert into user_status_events (id, user_id, from_status, to_status, actor_kind, actor_user_id, real_at)
+            values (gen_random_uuid(), $1, 'pending', 'active', 'user', $1, now())`,
+      values: [userId],
+    }),
+    updatable: { column: 'reason', value: 'tampered' },
+  },
+  session_revocations: {
+    insert: () => ({
+      // 主工作對 status_event_id 有部分唯一鍵，所以每次連同一筆新的狀態事件一起插。
+      sql: `with e as (
+              insert into user_status_events (id, user_id, from_status, to_status, actor_kind, actor_user_id, real_at)
+              values (gen_random_uuid(), $1, 'active', 'disabled', 'user', $1, now()) returning id
+            )
+            insert into session_revocations
+              (id, user_id, status_event_id, kind, expected_user_status, requested_real_at)
+            select gen_random_uuid(), $1, id, 'ban', 'disabled', now() from e`,
+      values: [userId],
+    }),
+    updatable: { column: 'last_error', value: 'boom' },
+  },
+  stored_files: {
+    insert: () => ({
+      sql: `insert into stored_files
+              (id, owner_user_id, scope, purpose, original_name, mime_declared, extension, storage_key, uploaded_real_at)
+            values (gen_random_uuid(), $1, 'global', 'roster_csv', '名單.csv', 'text/csv', 'csv', $2, now())`,
+      values: [userId, unique('key')],
+    }),
+    updatable: { column: 'status', value: 'soft_deleted' },
+  },
+  file_references: {
+    insert: () => ({
+      sql: `insert into file_references (id, file_id, ref_type, ref_id)
+            values (gen_random_uuid(), $1, 'roster_version', gen_random_uuid())`,
+      values: [storedFileId],
+    }),
+    updatable: { column: 'released_at', value: new Date() },
+  },
 }
 
 beforeAll(async () => {
@@ -150,6 +268,34 @@ beforeAll(async () => {
      values (gen_random_uuid(), 'test.seed', 'global', 'item', gen_random_uuid(), 'system', now(), now()) returning id`,
   )
   eventId = String(event.rows[0]!.id)
+
+  // S01 新表的樣本列需要先有一筆申請、一份名單版本與一個檔案當 FK 目標。
+  const applicant = await owner.sql(
+    `insert into users (id, name, email, email_verified, updated_at)
+     values (gen_random_uuid(), '申請人', 'applicant@example.com', false, now()) returning id`,
+  )
+  const application = await owner.sql(
+    `insert into registration_applications
+       (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email)
+     values (gen_random_uuid(), $1, '申請人', '410000001', '資管二甲', '0900000001', 'applicant@example.com', 'applicant@example.com')
+     returning id`,
+    [applicant.rows[0]!.id],
+  )
+  applicationId = String(application.rows[0]!.id)
+  const rosterVersion = await owner.sql(
+    `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+     values (gen_random_uuid(), $1, $2, now(), '{"total":1}'::jsonb) returning id`,
+    [cohortId, userId],
+  )
+  rosterVersionId = String(rosterVersion.rows[0]!.id)
+  const storedFile = await owner.sql(
+    `insert into stored_files
+       (id, owner_user_id, scope, purpose, original_name, mime_declared, extension, storage_key, uploaded_real_at)
+     values (gen_random_uuid(), $1, 'global', 'roster_csv', '名單.csv', 'text/csv', 'csv', 'roles-seed-key', now())
+     returning id`,
+    [userId],
+  )
+  storedFileId = String(storedFile.rows[0]!.id)
 })
 
 afterAll(async () => {
@@ -282,9 +428,8 @@ describe.each(immutableTables.map((row) => [row.table] as const))(
   '不可變表的第二層：%s 的 trigger',
   (table) => {
     it('連 owner 自己都改不動、刪不掉', async () => {
-      await expect(owner.sql(`update ${table} set ${SAMPLES[table]!.updatable.column} = 'tampered'`)).rejects.toThrow(
-        /不可變表/,
-      )
+      const { column, value } = SAMPLES[table]!.updatable
+      await expect(owner.sql(`update ${table} set ${column} = $1`, [value])).rejects.toThrow(/不可變表/)
       await expect(owner.sql(`delete from ${table}`)).rejects.toThrow(/不可變表/)
     })
 
@@ -340,8 +485,9 @@ describe('fju_backup：讀全庫，不能寫', () => {
   it.each(PERMISSION_MATRIX.map((row) => [row.table] as const))('%s 寫不進去', async (table) => {
     const { sql, values } = SAMPLES[table]!.insert()
     expect(await expectDenied(backup, sql, values)).toMatch(/permission denied/i)
-    expect(
-      await expectDenied(backup, `update ${table} set ${SAMPLES[table]!.updatable.column} = $1`, ['x']),
-    ).toMatch(/permission denied/i)
+    const { column, value } = SAMPLES[table]!.updatable
+    expect(await expectDenied(backup, `update ${table} set ${column} = $1`, [value])).toMatch(
+      /permission denied/i,
+    )
   })
 })

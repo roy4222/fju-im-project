@@ -14,6 +14,8 @@ import matrix from '@/infrastructure/db/permissions/matrix.json'
 export type UpdateGrant = 'all' | 'none' | readonly string[]
 
 export type TablePermission = {
+  /** 這張表由哪一支 migration 建；GRANT 也產生到那一支（S00＝0001、S01＝0002）。 */
+  readonly slice: string
   readonly table: string
   readonly select: boolean
   readonly insert: boolean
