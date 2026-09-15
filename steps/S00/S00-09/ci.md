@@ -43,3 +43,10 @@ PR [#199](https://github.com/roy4222/fju-im-project/pull/199)，commit `3158ce69
 check 名稱已經出現，設定準備好了但**尚未套用**——見同目錄 [branch-protection.md](branch-protection.md) 與 [branch-protection.json](branch-protection.json)。
 
 實查：`main` 的 `protected` 目前是 `false`。依契約 05 §2，在 GitHub 真的啟用前，文件一律標 **pending**，不宣稱 main 已受保護。
+
+
+## 2026-09-15 合併後收尾
+
+綠燈：[main run 34963158736](https://github.com/roy4222/fju-im-project/actions/runs/34963158736)。刻意 assertion 失敗的 [PR #200](https://github.com/roy4222/fju-im-project/pull/200) 產生 [run 34963728606](https://github.com/roy4222/fju-im-project/actions/runs/34963728606)：unit FAILURE，其餘六道 SUCCESS；PR 已關閉且未合併。負向測試不在 main。
+
+main 的 active ruleset 23429589 現已要求七道 required checks，strict 模式。使用 `/rules/branches/main` 與 `/rulesets/23429589` 核對；舊 branch-protection REST endpoint 回 404 不代表 ruleset 不存在。上方「未套用」為當時快照。
