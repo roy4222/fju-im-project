@@ -249,55 +249,73 @@ function resolveSpecifier(context, source) {
 const moduleBoundary = {
   meta: {
     type: 'problem',
-    docs: { description: '跨模組只能經公開入口，而且只能 type-only' },
+    docs: { description: '跨模組只能經公開入口，而且（除了 infrastructure 與 composition）只能 type-only' },
     schema: [],
     messages: {
       notEntryPoint:
         '跨模組只能引用 `{{layer}}/{{module}}` 的公開入口（index.ts），不可以直接指到內部檔案 `{{source}}`（母 spec §4.3）。',
       notTypeOnly:
-        '跨模組引用只能帶型別：請用 `import type`。執行期呼叫一律走 composition 注入的 port 實例（母 spec §4.3）。',
+        '跨模組的{{kind}}只能帶型別：請用 `{{fix}}`。執行期呼叫一律走 composition 注入的 port 實例（母 spec §4.3）。',
       appNeedsTypeOnly:
-        'app 對 application 只能 `import type`；要執行用例請經 composition（母 spec §4.3）。',
+        'app 對 application 只能帶型別（`{{fix}}`）；要執行用例請經 composition（母 spec §4.3）。',
     },
   },
   create(context) {
     const from = classify((context.filename ?? context.getFilename()).replaceAll('\\', '/'))
     if (!from) return {}
-    // 只管 domain、application 與 app 這三種來源；infrastructure 與 composition 本來就要拿實作。
-    if (!['domain', 'application', 'app'].includes(from.layer)) return {}
+    // shared 與不在六層裡的檔案不管。其餘五層都要守公開入口；
+    // 「只能 type-only」則只套在 domain、application、app——infrastructure 實作 port、
+    // composition 負責組裝，本來就要拿得到執行期的實作（母 spec §4.3）。
+    const enforcesEntryPoint = ['domain', 'application', 'app', 'infrastructure', 'composition'].includes(from.layer)
+    if (!enforcesEntryPoint) return {}
+    const enforcesTypeOnly = ['domain', 'application', 'app'].includes(from.layer)
+
+    /**
+     * import 與 re-export 走同一條檢查。
+     * `export … from` 一樣會把別的模組的東西接出去，只檢查 import 等於留一個後門。
+     */
+    function check(node, source, typeOnly, kind) {
+      if (typeof source !== 'string') return
+      const resolved = resolveSpecifier(context, source)
+      if (!resolved) return
+      const to = classify(resolved)
+      if (!to || !MODULE_LAYERS.has(to.layer) || !to.module) return
+
+      const sameModule = from.module !== null && from.module === to.module && from.layer !== 'app'
+
+      // 1. 公開入口：不是自己模組的東西，只能指到 index。
+      const pointsAtIndex = to.inner.length === 0 || (to.inner.length === 1 && to.inner[0] === 'index')
+      if (!sameModule && !pointsAtIndex) {
+        context.report({ node, messageId: 'notEntryPoint', data: { layer: to.layer, module: to.module, source } })
+      }
+
+      // 2. type-only：跨模組（以及 app 對 application）一律只能帶型別。
+      if (sameModule || !enforcesTypeOnly || typeOnly) return
+      const fix = kind === 'import' ? 'import type' : 'export type'
+      context.report({
+        node,
+        messageId: from.layer === 'app' ? 'appNeedsTypeOnly' : 'notTypeOnly',
+        data: { kind: kind === 'import' ? '引用' : 're-export', fix },
+      })
+    }
+
+    /** `import type …` / `export type …`，或每個 specifier 都標了 type。 */
+    const allSpecifiersAreType = (node, kindKey) =>
+      node.specifiers.length > 0 && node.specifiers.every((s) => s[kindKey] === 'type')
 
     return {
       ImportDeclaration(node) {
-        const source = node.source.value
-        if (typeof source !== 'string') return
-        const resolved = resolveSpecifier(context, source)
-        if (!resolved) return
-        const to = classify(resolved)
-        if (!to || !MODULE_LAYERS.has(to.layer) || !to.module) return
-
-        const sameModule = from.module !== null && from.module === to.module && from.layer !== 'app'
-
-        // 1. 公開入口：不是自己模組的東西，只能指到 index。
-        const pointsAtIndex = to.inner.length === 0 || (to.inner.length === 1 && to.inner[0] === 'index')
-        if (!sameModule && !pointsAtIndex) {
-          context.report({
-            node,
-            messageId: 'notEntryPoint',
-            data: { layer: to.layer, module: to.module, source },
-          })
-        }
-
-        // 2. type-only：跨模組（以及 app 對 application）一律只能帶型別。
-        if (sameModule) return
-        const typeOnly =
-          node.importKind === 'type' ||
-          (node.specifiers.length > 0 && node.specifiers.every((s) => s.importKind === 'type'))
-        if (!typeOnly) {
-          context.report({
-            node,
-            messageId: from.layer === 'app' ? 'appNeedsTypeOnly' : 'notTypeOnly',
-          })
-        }
+        check(node, node.source.value, node.importKind === 'type' || allSpecifiersAreType(node, 'importKind'), 'import')
+      },
+      // `export { x } from '…'`
+      ExportNamedDeclaration(node) {
+        if (!node.source) return
+        check(node, node.source.value, node.exportKind === 'type' || allSpecifiersAreType(node, 'exportKind'), 'export')
+      },
+      // `export * from '…'` / `export type * from '…'`
+      ExportAllDeclaration(node) {
+        if (!node.source) return
+        check(node, node.source.value, node.exportKind === 'type', 'export')
       },
     }
   },
