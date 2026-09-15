@@ -1,0 +1,120 @@
+- link "回首頁":
+  - /url: /dashboard/teacher
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/teacher
+    - generic: 首頁
+  - link "通知":
+    - /url: /dashboard/teacher/inbox
+    - generic: 通知
+  - generic: "2"
+- generic: 分組與產學
+- list:
+  - link "分組總覽":
+    - /url: /dashboard/teacher/groups
+    - generic: 分組總覽
+  - link "產學合作":
+    - /url: /dashboard/teacher/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "評分":
+    - /url: /dashboard/teacher/grading
+    - generic: 評分
+  - generic: "2"
+  - link "簽核":
+    - /url: /dashboard/teacher/signoff
+    - generic: 簽核
+  - generic: "1"
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "評分" [level=1]
+  - button "切換為深色":
+  - button "通知，2 則未讀":
+  - button "帳號選單":
+    - generic: 陳
+    - generic: 陳建宏
+  - heading "評分工作台" [level=1]
+  - paragraph: 只顯示你被指派的組別。暫存只有你看得到，送出後鎖定。
+  - complementary:
+    - paragraph: 系統驗收
+    - paragraph: 我的 4 組・占總成績 60%
+    - list:
+      - link "第 07 組 校園閒置空間共享媒合平台 1/7" [active]:
+        - /url: /dashboard/teacher/grading/g-07
+        - generic: 第 07 組
+        - generic: 校園閒置空間共享媒合平台
+        - generic: 1/7
+      - link "第 02 組 零售門市補貨預測":
+        - /url: /dashboard/teacher/grading/g-02
+        - generic: 第 02 組
+        - generic: 零售門市補貨預測
+      - link "第 04 組 校內活動報名與簽到整合":
+        - /url: /dashboard/teacher/grading/g-04
+        - generic: 第 04 組
+        - generic: 校內活動報名與簽到整合
+      - link "第 08 組 長照機構家屬溝通看板":
+        - /url: /dashboard/teacher/grading/g-08
+        - generic: 第 08 組
+        - generic: 長照機構家屬溝通看板
+  - generic: 第 07 組
+  - generic: 已暫存
+  - heading "校園閒置空間共享媒合平台" [level=2]
+  - paragraph: 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文
+  - img "14%":
+    - generic: 1/7
+  - paragraph: 需求與問題定義
+  - paragraph: 占 15%
+  - spinbutton: "88"
+  - generic: / 100
+  - paragraph: 系統設計與架構
+  - paragraph: 占 20%
+  - spinbutton
+  - generic: / 100
+  - paragraph: 實作完整度
+  - paragraph: 占 25%
+  - spinbutton
+  - generic: / 100
+  - paragraph: 資料安全與隱私處理
+  - paragraph: 占 10%
+  - spinbutton
+  - generic: / 100
+  - paragraph: 測試與品質
+  - paragraph: 占 10%
+  - spinbutton
+  - generic: / 100
+  - paragraph: 文件與可維護性
+  - paragraph: 占 10%
+  - radiogroup "文件與可維護性":
+    - radio "A"
+    - radio "B"
+    - radio "C"
+    - radio "D"
+    - radio "F"
+  - paragraph: 簡報與答辯
+  - paragraph: 占 10%
+  - radiogroup "簡報與答辯":
+    - radio "A"
+    - radio "B"
+    - radio "C"
+    - radio "D"
+    - radio "F"
+  - paragraph: 即時階段成績
+  - paragraph: 13.2/ 100
+  - paragraph: 還差 6 項・Σ（項目百分成績 × 權重）
+  - generic: 尚未暫存。
+  - button "暫存":
+    - text: 暫存
+  - button "正式送出" [disabled]:
+    - text: 正式送出
+- button "Open Next.js Dev Tools":
+- alert: 評分

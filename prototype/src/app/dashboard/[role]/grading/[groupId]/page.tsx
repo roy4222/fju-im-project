@@ -10,8 +10,8 @@ export default async function GradingGroupPage({ params }: PageProps<"/dashboard
   if (!EVALUATION_QUEUE.some((e) => e.groupId === groupId)) notFound();
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="評分工作台" description="只顯示你被指派的組別。暫存只有你看得到，送出後鎖定。" />
-      <GradingWorkbench role={role} initialGroupId={groupId} />
+      <PageTitle title="評分工作台" description="只有你被指派的組別。暫存只有你看得到，送出後鎖定。" />
+      <GradingWorkbench role={role} groupId={groupId} />
     </div>
   );
 }

@@ -1,0 +1,141 @@
+- link "回首頁":
+  - /url: /dashboard/student
+  - img "輔仁大學資訊管理學系"
+- generic: 專題管理平台
+- generic: 總覽
+- list:
+  - link "首頁":
+    - /url: /dashboard/student
+    - generic: 首頁
+  - link "專題時間軸":
+    - /url: /dashboard/student/timeline
+    - generic: 專題時間軸
+  - link "通知":
+    - /url: /dashboard/student/inbox
+    - generic: 通知
+  - generic: "2"
+- generic: 專題事務
+- list:
+  - link "作業區":
+    - /url: /dashboard/student/affairs
+    - generic: 作業區
+  - generic: "2"
+- generic: 分組與產學
+- list:
+  - link "我的組別":
+    - /url: /dashboard/student/groups
+    - generic: 我的組別
+  - link "產學合作":
+    - /url: /dashboard/student/industry
+    - generic: 產學合作
+- generic: 評分與簽核
+- list:
+  - link "同意書":
+    - /url: /dashboard/student/signoff
+    - generic: 同意書
+  - generic: "1"
+- list:
+  - link "回到前台":
+    - /url: /
+    - generic: 回到前台
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - heading "作業區" [level=1]
+  - button "切換為深色":
+  - button "通知，2 則未讀":
+  - button "帳號選單":
+    - generic: 林
+    - generic: 林彥廷
+  - heading "作業區" [level=1]
+  - paragraph: 第 07 組。待繳 2・已繳交 1・逾期 1
+  - heading "全部" [level=2]
+  - generic: ・4 件・依截止日排序
+  - link "全部":
+    - /url: /dashboard/student/affairs
+  - link "待繳":
+    - /url: /dashboard/student/affairs?tab=open
+  - link "已繳交":
+    - /url: /dashboard/student/affairs?tab=done
+  - link "已逾期":
+    - /url: /dashboard/student/affairs?tab=overdue
+  - table:
+    - rowgroup:
+      - row "作業名稱 形式 狀態 截止":
+        - columnheader "作業名稱"
+        - columnheader "形式"
+        - columnheader "狀態"
+        - columnheader "截止"
+        - columnheader
+    - rowgroup:
+      - row "系統驗收簡報與說明文件 已結束 階段：系統驗收 2 個附件 組別繳交 逾期未繳 08/15 23:59 逾期 2 天 查看":
+        - cell "系統驗收簡報與說明文件 已結束 階段：系統驗收 2 個附件":
+          - link "系統驗收簡報與說明文件 已結束 階段：系統驗收 2 個附件":
+            - /url: /dashboard/student/affairs/mi-011
+            - generic: 系統驗收簡報與說明文件
+            - generic: 已結束
+            - generic: 階段：系統驗收
+            - text: 2 個附件
+        - cell "組別繳交":
+          - text: 組別繳交
+        - cell "逾期未繳"
+        - cell "08/15 23:59 逾期 2 天":
+          - generic: 08/15 23:59
+          - generic: 逾期 2 天
+        - cell "查看":
+          - link "查看":
+            - /url: /dashboard/student/affairs/mi-011
+      - row "指導老師意願調查表 進行中 階段：指導老師 1 個附件 個人填報 草稿 08/26 23:59 剩 9 天 繼續填寫":
+        - cell "指導老師意願調查表 進行中 階段：指導老師 1 個附件":
+          - link "指導老師意願調查表 進行中 階段：指導老師 1 個附件":
+            - /url: /dashboard/student/affairs/mi-014
+            - generic: 指導老師意願調查表
+            - generic: 進行中
+            - generic: 階段：指導老師
+            - text: 1 個附件
+        - cell "個人填報":
+          - text: 個人填報
+        - cell "草稿"
+        - cell "08/26 23:59 剩 9 天":
+          - generic: 08/26 23:59
+          - generic: 剩 9 天
+        - cell "繼續填寫":
+          - link "繼續填寫":
+            - /url: /dashboard/student/affairs/mi-014
+      - row "專題分組名單確認表 進行中 階段：分組 組別繳交 已繳 黃詩涵・08-14 16:20 09/04 23:59 已送出 查看":
+        - cell "專題分組名單確認表 進行中 階段：分組":
+          - link "專題分組名單確認表 進行中 階段：分組":
+            - /url: /dashboard/student/affairs/mi-013
+            - generic: 專題分組名單確認表
+            - generic: 進行中
+            - generic: 階段：分組
+        - cell "組別繳交":
+          - text: 組別繳交
+        - cell "已繳 黃詩涵・08-14 16:20":
+          - text: 已繳
+          - generic: 黃詩涵・08-14 16:20
+        - cell "09/04 23:59 已送出":
+          - generic: 09/04 23:59
+          - generic: 已送出
+        - cell "查看":
+          - link "查看":
+            - /url: /dashboard/student/affairs/mi-013
+      - row "專題題目與摘要初稿 進行中 階段：題目與計畫書 組別繳交 未繳 09/18 23:59 剩 32 天 去繳交":
+        - cell "專題題目與摘要初稿 進行中 階段：題目與計畫書":
+          - link "專題題目與摘要初稿 進行中 階段：題目與計畫書":
+            - /url: /dashboard/student/affairs/mi-012
+            - generic: 專題題目與摘要初稿
+            - generic: 進行中
+            - generic: 階段：題目與計畫書
+        - cell "組別繳交":
+          - text: 組別繳交
+        - cell "未繳"
+        - cell "09/18 23:59 剩 32 天":
+          - generic: 09/18 23:59
+          - generic: 剩 32 天
+        - cell "去繳交":
+          - link "去繳交":
+            - /url: /dashboard/student/affairs/mi-012
+- button "Open Next.js Dev Tools":
+- alert: 輔仁大學資訊管理學系｜專題管理平台

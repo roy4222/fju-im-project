@@ -1,22 +1,43 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { IconArrowLeft } from "@tabler/icons-react";
-import { PageTitle } from "@/components/dashboard/primitives";
-import { ItemEditor } from "@/components/dashboard/item-editor";
+import { DraftEditor } from "@/components/dashboard/item-editor";
 import { isValidRole } from "@/lib/nav-config";
-import { FORM_SCHEMAS, MANAGED_ITEMS } from "@/lib/fixtures";
+import { FORM_SCHEMAS, MANAGED_ITEMS, type ManagedItem } from "@/lib/fixtures";
+import { isDraftId, type Draft } from "@/lib/draft-store";
+
+/** fixtures 的 ManagedItem → 編輯器草稿形狀（發布後再編輯同一件，不重建空白 item） */
+function fromItem(i: ManagedItem): Draft {
+  return {
+    id: i.id,
+    kind: i.placement,
+    title: i.title,
+    summary: i.summary,
+    body: i.summary,
+    audience: i.audience === "公開訪客" ? "公開訪客" : i.audience.includes("老師") ? "全部老師" : "本屆學生",
+    groupIds: [],
+    dueAt: i.dueAt ?? "",
+    visibility: i.audience === "公開訪客" ? "public" : "students",
+    notify: true,
+    fields: FORM_SCHEMAS[i.id] ?? [],
+    attachments: Array.from({ length: i.attachments ?? 0 }, (_, k) => `附件-${k + 1}.pdf`),
+    status: i.status === "published" ? "published" : "draft",
+    updatedAt: `${i.publishedAt} 09:00`,
+    publishedAt: i.status === "published" ? `${i.publishedAt} 09:00` : undefined,
+  };
+}
 
 export default async function EditorPage({ params }: PageProps<"/dashboard/[role]/editor/[id]">) {
   const { role, id } = await params;
   if (!isValidRole(role) || role !== "admin") notFound();
-  const item = id === "new" ? undefined : MANAGED_ITEMS.find((i) => i.id === id);
-  if (id !== "new" && !item) notFound();
   const base = `/dashboard/${role}`;
+  const item = id === "new" || isDraftId(id) ? undefined : MANAGED_ITEMS.find((i) => i.id === id);
+  if (id !== "new" && !isDraftId(id) && !item) notFound();
   return (
-    <div className="flex flex-col gap-4">
-      <Link href={`${base}/affairs`} className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"><IconArrowLeft className="size-4" /> 專題事務工作台</Link>
-      <PageTitle title={item ? "編輯項目" : "新增項目"} description="一個項目只選一個主要發布位置；Dashboard 與首頁自動引用。" />
-      <ItemEditor key={id} item={item ?? {}} initialFields={item ? (FORM_SCHEMAS[item.id] ?? []) : []} hasResponses={!!item?.progress?.done} />
-    </div>
+    <DraftEditor
+      key={id}
+      id={id}
+      base={base}
+      fallback={item ? fromItem(item) : undefined}
+      meta={{ schemaVersion: item?.schemaVersion ?? 1, hasResponses: !!item?.progress?.done, responses: item?.progress?.done ?? 0 }}
+    />
   );
 }
