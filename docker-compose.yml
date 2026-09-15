@@ -1,0 +1,134 @@
+# 本專案的六個服務（契約 05 §1、§6；S00-07）。
+#
+# 規則：
+#   - migrate 先跑完且成功，app 與 worker 才會起來（depends_on: service_completed_successfully）。
+#   - migrate 用 owner 連線（.env.migrate）；app 與 worker 用 app 連線（.env）；
+#     backup 用 backup 連線（.env.backup）。三組憑證分檔，互不可見。
+#   - 刻意用自己的 project name 與 volume，跟這台機器上其他容器完全分開。
+#   - **postgres 不對宿主機發布任何 port**：app、worker、migrate、backup 都在同一個
+#     compose 網路裡連得到它，沒有人需要從宿主機連。SOP 01 §4 的 ufw 只開 22/80/443，
+#     這裡若發布 5432 等於在防火牆之外多開一個帶已知 superuser 憑證的入口。
+#     本機要用 psql 或跑整合測試時，用 docker-compose.local.yml 覆蓋（只綁 127.0.0.1）。
+#
+# 本機開發用 docker-compose.local.yml 覆蓋（只起 postgres 與 caddy，app 跑 pnpm dev）。
+name: fju-im-project
+
+x-app-image: &app-image
+  image: ${APP_IMAGE:-ghcr.io/roy4222/fju-web:local}
+  build:
+    context: .
+    dockerfile: web/Dockerfile
+    args:
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      APP_VERSION: ${APP_VERSION:-0.0.0}
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    container_name: fju-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fju_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fju_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-fju}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: UTC
+    command: ['postgres', '-c', 'timezone=UTC', '-c', 'max_connections=200']
+    volumes:
+      - fju-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-fju_owner} -d ${POSTGRES_DB:-fju}']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # 一次性服務：跑完就結束。失敗（非 0 結束碼）會讓 app 與 worker 不啟動。
+  migrate:
+    <<: *app-image
+    container_name: fju-migrate
+    command: ['node', 'migrate/web/scripts/migrate.mjs']
+    env_file:
+      - .env.migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    <<: *app-image
+    container_name: fju-app
+    command: ['node', 'web/server.js']
+    env_file:
+      - .env
+    environment:
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
+      # digest 要 push 之後才知道，沒辦法在 build 時烤進映像；由 ops/deploy.sh 帶進來。
+      IMAGE_DIGEST: ${IMAGE_DIGEST:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # S00 只是空進程；真正的到期工作迴圈由 S02-06 換上（契約 05 §5）。
+  worker:
+    <<: *app-image
+    container_name: fju-worker
+    command: ['node', '-e', "console.log('[worker] S00 佔位進程，尚未實作到期工作迴圈（S02-06）'); setInterval(() => {}, 1 << 30)"]
+    env_file:
+      - .env
+    environment:
+      IMAGE_DIGEST: ${IMAGE_DIGEST:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: fju-caddy
+    restart: unless-stopped
+    ports:
+      - '${HTTP_PORT:-8080}:80'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - fju-caddy-data:/data
+      - fju-caddy-config:/config
+    depends_on:
+      - app
+
+  # 每日備份到 R2（契約 05 §7）。S00 只是佔位；實際腳本由後續切片。
+  backup:
+    image: postgres:16.10-alpine
+    container_name: fju-backup
+    restart: unless-stopped
+    env_file:
+      - .env.backup
+    entrypoint: ['sh', '-c']
+    command:
+      - "echo '[backup] S00 佔位進程，實際備份腳本由後續切片交付'; sleep infinity"
+    volumes:
+      - fju-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  fju-pgdata:
+    name: fju-im-project-pgdata
+  fju-caddy-data:
+    name: fju-im-project-caddy-data
+  fju-caddy-config:
+    name: fju-im-project-caddy-config
+  fju-backups:
+    name: fju-im-project-backups

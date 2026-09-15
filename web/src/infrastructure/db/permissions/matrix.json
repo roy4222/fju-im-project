@@ -1,0 +1,24 @@
+{
+  "$comment": "契約 01 §5 的逐表權限矩陣。這是唯一正文位置的鏡像：migration 的 GRANT 由 scripts/generate-grants.mjs 從這裡產生，roles 測試也從這裡逐格驗證。新增表就在這裡補一列——不要手寫 GRANT，也不要只在測試裡加。",
+  "roles": {
+    "owner": "fju_owner",
+    "app": "fju_app",
+    "backup": "fju_backup"
+  },
+  "tables": [
+    { "table": "users", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "Better Auth 更新；status／must_change_password／deidentified_at 只由 01 用例改（application 層保證）" },
+    { "table": "accounts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "密碼雜湊更新、Google 連結；不給 DELETE（unlink 不在產品範圍）" },
+    { "table": "sessions", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "套件建立、更新、撤銷；含擴充欄 login_method" },
+    { "table": "verifications", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": false, "note": "套件建立與清除" },
+    { "table": "cohorts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "頭列" },
+    { "table": "schema_meta", "select": true, "insert": false, "update": "none", "delete": false, "immutable": false, "worker": true, "note": "只由 migrate 寫" },
+    { "table": "audit_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變" },
+    { "table": "operation_records", "select": true, "insert": true, "update": ["state", "receipt", "receipt_expires_at", "result_ref"], "delete": false, "immutable": false, "worker": true, "note": "帳本；receipt_purge 清 receipt" },
+    { "table": "domain_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變 outbox" },
+    { "table": "event_projections", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "投影狀態" },
+    { "table": "due_work", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "到期工作" }
+  ],
+  "backupWrites": [
+    { "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }
+  ]
+}

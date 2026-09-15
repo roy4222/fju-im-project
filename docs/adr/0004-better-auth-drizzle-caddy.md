@@ -15,4 +15,6 @@ recorded: 2026-09-07
 
 這三項不改變 §2 的授權模型、§11 的資料所有權與 §13 的部署邊界。外部備份目的地與正式網域仍為 TBD。
 
-來源：完整主規格 §2、§11、§13；2026-09-07 grill-with-docs 討論。本 ADR 記錄選型，不代表實作或驗收已完成。
+> **2026-09-12 補充（不改當時決定）**：外部備份目的地已於 2026-09-11 決定為 Cloudflare R2（DB-only、每日加密、30 天；本機快照 7 天；附件無異地），見 [共用契約 05](<../engineering/contracts/05 CI-CD、部署與維運.md>) §6。正式網域仍暫用 `fju.roy422.dev`，校方網域待定。Better Auth 的能力邊界（端點白名單、admin 只經用例、impersonation 不用、cookieCache 關閉）見 [共用契約 03](<../engineering/contracts/03 安全與隱私.md>) §2。
+
+來源：[完整主規格](<../product/📋 完整產品規格.md>) §2、§11、§13；2026-09-07 grill-with-docs 討論。本 ADR 記錄選型，不代表實作或驗收已完成。

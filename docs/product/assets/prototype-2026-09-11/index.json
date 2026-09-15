@@ -1,0 +1,956 @@
+[
+ {
+  "role": "guest",
+  "path": "/",
+  "finalUrl": "/",
+  "status": 200,
+  "file": "guest--home.png",
+  "h1": "專題公告、規則與歷屆成果",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/news",
+  "finalUrl": "/news",
+  "status": 200,
+  "file": "guest--news.png",
+  "h1": "最新公告",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/news/n-31",
+  "finalUrl": "/news/n-31",
+  "status": 200,
+  "file": "guest--news-n-31.png",
+  "h1": "114 學年度專題分組作業與指導老師意願調查開始受理",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/rules",
+  "finalUrl": "/rules",
+  "status": 200,
+  "file": "guest--rules.png",
+  "h1": "專題規則",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/projects/featured",
+  "finalUrl": "/projects/featured",
+  "status": 200,
+  "file": "guest--projects-featured.png",
+  "h1": "優秀專題",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/projects/p-1",
+  "finalUrl": "/projects/p-1",
+  "status": 200,
+  "file": "guest--projects-p-1.png",
+  "h1": "城市微光：公共資訊可讀性改善",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/honors",
+  "finalUrl": "/honors",
+  "status": 200,
+  "file": "guest--honors.png",
+  "h1": "榮譽榜",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/competitions",
+  "finalUrl": "/competitions",
+  "status": 200,
+  "file": "guest--competitions.png",
+  "h1": "競賽資訊",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/login",
+  "finalUrl": "/login",
+  "status": 200,
+  "file": "guest--login.png",
+  "h1": "登入",
+  "buttons": [
+   "使用 Google 帳號登入",
+   "登入",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/register",
+  "finalUrl": "/register",
+  "status": 200,
+  "file": "guest--register.png",
+  "h1": "註冊",
+  "buttons": [
+   "使用 Google 帳號註冊",
+   "建立帳號",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/register/pending",
+  "finalUrl": "/register/pending",
+  "status": 200,
+  "file": "guest--register-pending.png",
+  "h1": "等待審核",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/forgot-password",
+  "finalUrl": "/forgot-password",
+  "status": 200,
+  "file": "guest--forgot-password.png",
+  "h1": "忘記密碼",
+  "buttons": [
+   "寄送重設連結",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/403",
+  "finalUrl": "/403",
+  "status": 200,
+  "file": "guest--403.png",
+  "h1": "這一頁需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/projects",
+  "finalUrl": "/projects",
+  "status": 200,
+  "file": "guest--projects.png",
+  "h1": "歷屆專題一覽需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/projects",
+  "finalUrl": "/projects",
+  "status": 200,
+  "file": "student--projects.png",
+  "h1": "歷屆專題一覽",
+  "buttons": [
+   "林林彥廷學生",
+   "全部屆別",
+   "113 屆",
+   "112 屆",
+   "只看得獎",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/industry",
+  "finalUrl": "/industry",
+  "status": 200,
+  "file": "guest--industry.png",
+  "h1": "產學合作列表需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/industry",
+  "finalUrl": "/industry",
+  "status": 200,
+  "file": "student--industry.png",
+  "h1": "產學合作",
+  "buttons": [
+   "林林彥廷學生",
+   "全部",
+   "尚未指派組別",
+   "已有組別",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/industry/ind-01",
+  "finalUrl": "/industry/ind-01",
+  "status": 200,
+  "file": "guest--industry-ind-01.png",
+  "h1": "產學合作詳情需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/industry/ind-01",
+  "finalUrl": "/industry/ind-01",
+  "status": 200,
+  "file": "student--industry-ind-01.png",
+  "h1": "零售門市補貨預測與缺貨警示",
+  "buttons": [
+   "林林彥廷學生",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/files",
+  "finalUrl": "/files",
+  "status": 200,
+  "file": "guest--files.png",
+  "h1": "檔案下載需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/files",
+  "finalUrl": "/files",
+  "status": 200,
+  "file": "student--files.png",
+  "h1": "檔案下載",
+  "buttons": [
+   "林林彥廷學生",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "guest",
+  "path": "/account",
+  "finalUrl": "/account",
+  "status": 200,
+  "file": "guest--account.png",
+  "h1": "個人資料需要登入",
+  "buttons": [
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/account",
+  "finalUrl": "/account",
+  "status": 200,
+  "file": "student--account.png",
+  "h1": "個人資料",
+  "buttons": [
+   "林林彥廷學生",
+   "儲存變更",
+   "訪客",
+   "學生",
+   "老師",
+   "管理員"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "finalUrl": "/dashboard/student",
+  "status": 200,
+  "file": "student--dashboard-student.png",
+  "h1": "首頁",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "展開整月",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15",
+   "16",
+   "17",
+   "18",
+   "19",
+   "20",
+   "21",
+   "22",
+   "23",
+   "24",
+   "25",
+   "26",
+   "27",
+   "28",
+   "29",
+   "30",
+   "31"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs",
+  "finalUrl": "/dashboard/student/affairs",
+  "status": 200,
+  "file": "student--dashboard-student-affairs.png",
+  "h1": "作業區",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "全部4",
+   "待繳2",
+   "已繳交2",
+   "逾期未繳0"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-011",
+  "finalUrl": "/dashboard/student/affairs/mi-011",
+  "status": 200,
+  "file": "student--dashboard-student-affairs-mi-011.png",
+  "h1": "作業區",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-013",
+  "finalUrl": "/dashboard/student/affairs/mi-013",
+  "status": 200,
+  "file": "student--dashboard-student-affairs-mi-013.png",
+  "h1": "作業區",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "儲存草稿",
+   "重新送出"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-012",
+  "finalUrl": "/dashboard/student/affairs/mi-012",
+  "status": 200,
+  "file": "student--dashboard-student-affairs-mi-012.png",
+  "h1": "作業區",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "儲存草稿",
+   "正式送出"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/groups",
+  "finalUrl": "/dashboard/student/groups",
+  "status": 200,
+  "file": "student--dashboard-student-groups.png",
+  "h1": "我的組別",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/industry",
+  "finalUrl": "/dashboard/student/industry",
+  "status": 200,
+  "file": "student--dashboard-student-industry.png",
+  "h1": "產學合作",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/grading",
+  "finalUrl": "/dashboard/student/grading",
+  "status": 200,
+  "file": "student--dashboard-student-grading.png",
+  "h1": "專題管理平台",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/signoff",
+  "finalUrl": "/dashboard/student/signoff",
+  "status": 200,
+  "file": "student--dashboard-student-signoff.png",
+  "h1": "同意書",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "我已閱讀並同意",
+   "不同意"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/inbox",
+  "finalUrl": "/dashboard/student/inbox",
+  "status": 200,
+  "file": "student--dashboard-student-inbox.png",
+  "h1": "通知",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "全部標為已讀"
+  ]
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/timeline",
+  "finalUrl": "/dashboard/student/timeline",
+  "status": 200,
+  "file": "student--dashboard-student-timeline.png",
+  "h1": "專題時間軸",
+  "buttons": [
+   "Toggle Sidebar",
+   "林林彥廷",
+   "回到目前階段",
+   "分組08/10 – 09/04進行中"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher",
+  "finalUrl": "/dashboard/teacher",
+  "status": 200,
+  "file": "teacher--dashboard-teacher.png",
+  "h1": "首頁",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/affairs",
+  "finalUrl": "/dashboard/teacher/affairs",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-affairs.png",
+  "h1": "專題管理平台",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "欄位",
+   "組別",
+   "題目",
+   "指導老師意願調查表08-26",
+   "專題分組名單確認表09-04",
+   "專題題目與摘要初稿09-18",
+   "專題說明會出席與分組意向登記08-15"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/affairs/mi-012",
+  "finalUrl": "/dashboard/teacher/affairs/mi-012",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-affairs-mi-012.png",
+  "h1": "專題管理平台",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "未繳 1",
+   "逾期 0",
+   "檢視"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/groups",
+  "finalUrl": "/dashboard/teacher/groups",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-groups.png",
+  "h1": "分組總覽",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "認領",
+   "類型",
+   "指導老師",
+   "狀態",
+   "欄位",
+   "組別",
+   "專題題目",
+   "人數"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/industry",
+  "finalUrl": "/dashboard/teacher/industry",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-industry.png",
+  "h1": "產學合作",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "新增合作案",
+   "編輯",
+   "下架"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading",
+  "finalUrl": "/dashboard/teacher/grading/g-07",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-grading.png",
+  "h1": "評分",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "A",
+   "B",
+   "C",
+   "D",
+   "F",
+   "還差 7 項",
+   "暫存",
+   "正式送出"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "finalUrl": "/dashboard/teacher/grading/g-07",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-grading-g-07.png",
+  "h1": "評分",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "A",
+   "B",
+   "C",
+   "D",
+   "F",
+   "還差 7 項",
+   "暫存",
+   "正式送出"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/signoff",
+  "finalUrl": "/dashboard/teacher/signoff",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-signoff.png",
+  "h1": "簽核",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "我已閱讀並同意",
+   "不同意"
+  ]
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/inbox",
+  "finalUrl": "/dashboard/teacher/inbox",
+  "status": 200,
+  "file": "teacher--dashboard-teacher-inbox.png",
+  "h1": "通知",
+  "buttons": [
+   "Toggle Sidebar",
+   "陳陳建宏",
+   "全部標為已讀"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin",
+  "finalUrl": "/dashboard/admin",
+  "status": 200,
+  "file": "admin--dashboard-admin.png",
+  "h1": "首頁",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "催繳"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "finalUrl": "/dashboard/admin/affairs",
+  "status": 200,
+  "file": "admin--dashboard-admin-affairs.png",
+  "h1": "專題事務",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "新增項目",
+   "全部",
+   "公告",
+   "資源",
+   "文件繳交",
+   "專題需求"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-012",
+  "finalUrl": "/dashboard/admin/affairs/mi-012",
+  "status": 200,
+  "file": "admin--dashboard-admin-affairs-mi-012.png",
+  "h1": "專題事務",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "催繳（7 組）",
+   "未繳 7",
+   "逾期 0",
+   "重新開放",
+   "檢視"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-011",
+  "finalUrl": "/dashboard/admin/affairs/mi-011",
+  "status": 200,
+  "file": "admin--dashboard-admin-affairs-mi-011.png",
+  "h1": "專題事務",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "催繳（3 組）",
+   "未繳 3",
+   "逾期 3",
+   "檢視",
+   "重新開放"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor",
+  "finalUrl": "/dashboard/admin/editor/d-mtwxqpzx",
+  "status": 200,
+  "file": "admin--dashboard-admin-editor.png",
+  "h1": "內容編輯器",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "存草稿",
+   "預覽",
+   "發布",
+   "內容",
+   "欄位",
+   "加附件",
+   "啟用收件（改為文件繳交）",
+   "回去補",
+   "訪客視角",
+   "學生視角",
+   "老師視角"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor/mi-012",
+  "finalUrl": "/dashboard/admin/editor/mi-012",
+  "status": 200,
+  "file": "admin--dashboard-admin-editor-mi-012.png",
+  "h1": "內容編輯器",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "存草稿",
+   "預覽",
+   "發布更新",
+   "內容",
+   "欄位",
+   "發布",
+   "加附件",
+   "新增欄位",
+   "中文題目*",
+   "英文題目*",
+   "摘要*300 字內",
+   "產學合作單位（如有）",
+   "訪客視角",
+   "學生視角",
+   "老師視角"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/groups",
+  "finalUrl": "/dashboard/admin/groups",
+  "status": 200,
+  "file": "admin--dashboard-admin-groups.png",
+  "h1": "分組總覽",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "加入某組",
+   "類型",
+   "指導老師",
+   "狀態",
+   "欄位",
+   "組別",
+   "專題題目",
+   "人數",
+   "第 07 組",
+   "重派",
+   "第 01 組",
+   "第 02 組",
+   "第 03 組",
+   "指派老師",
+   "第 04 組",
+   "第 05 組",
+   "第 06 組",
+   "第 08 組",
+   "第 09 組"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/industry",
+  "finalUrl": "/dashboard/admin/industry",
+  "status": 200,
+  "file": "admin--dashboard-admin-industry.png",
+  "h1": "產學合作",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "新增合作案",
+   "編輯",
+   "下架"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/grading",
+  "finalUrl": "/dashboard/admin/grading",
+  "status": 200,
+  "file": "admin--dashboard-admin-grading.png",
+  "h1": "成績管理",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "建立新方案版本",
+   "催繳缺評（2）",
+   "退回重評",
+   "更正"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/signoff",
+  "finalUrl": "/dashboard/admin/signoff",
+  "status": 200,
+  "file": "admin--dashboard-admin-signoff.png",
+  "h1": "簽核",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "新增簽核",
+   "提醒未同意者（11）",
+   "缺 2 位",
+   "重置",
+   "等 陳建宏",
+   "缺 1 位",
+   "缺 3 位",
+   "等老師（未指派）",
+   "缺 4 位"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "finalUrl": "/dashboard/admin/accounts",
+  "status": 200,
+  "file": "admin--dashboard-admin-accounts.png",
+  "h1": "帳號管理",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "新增帳號",
+   "匯入名單 CSV",
+   "狀態",
+   "角色",
+   "屆別",
+   "欄位",
+   "姓名",
+   "學號",
+   "Email",
+   "建立",
+   "停用",
+   "審核"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/files",
+  "finalUrl": "/dashboard/admin/files",
+  "status": 200,
+  "file": "admin--dashboard-admin-files.png",
+  "h1": "檔案管理",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "上傳資源",
+   "類型",
+   "欄位",
+   "檔名",
+   "引用位置",
+   "上傳者",
+   "大小",
+   "日期",
+   "引用"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/audit",
+  "finalUrl": "/dashboard/admin/audit",
+  "status": 200,
+  "file": "admin--dashboard-admin-audit.png",
+  "h1": "操作紀錄",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "全部 8",
+   "管理員 4",
+   "老師 2",
+   "學生 1",
+   "系統 1"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/inbox",
+  "finalUrl": "/dashboard/admin/inbox",
+  "status": 200,
+  "file": "admin--dashboard-admin-inbox.png",
+  "h1": "通知",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "全部標為已讀"
+  ]
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/timeline",
+  "finalUrl": "/dashboard/admin/timeline",
+  "status": 200,
+  "file": "admin--dashboard-admin-timeline.png",
+  "h1": "時間軸設定",
+  "buttons": [
+   "Toggle Sidebar",
+   "系系辦管理員",
+   "回到目前階段",
+   "新增階段",
+   "編輯階段與日期",
+   "分組08/10 – 09/04進行中"
+  ]
+ }
+]

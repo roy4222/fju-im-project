@@ -1,0 +1,36 @@
+# 只給 S00-07 的注入測試用：把 migrate 換成一定失敗的指令，並把 app 換成不需要建映像的
+# 輕量容器，用來證明「migrate 沒跑成功，app 就不會起來」這條 Compose 規則真的生效。
+name: fju-im-project-migrate-failure-test
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_USER: fju_owner
+      POSTGRES_PASSWORD: throwaway
+      POSTGRES_DB: fju
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fju_owner -d fju']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: postgres:16.10-alpine
+    entrypoint: ['sh', '-c']
+    command: ["echo '[migrate] 注入的失敗' >&2; exit 1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    image: postgres:16.10-alpine
+    entrypoint: ['sh', '-c']
+    command: ['sleep infinity']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'

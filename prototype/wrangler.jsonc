@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fju-prototype",
+  "account_id": "a3b56e4d45bdc130979f99579295538d",
+  "workers_dev": true,
+  "compatibility_date": "2026-09-13",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "main": "vinext/server/fetch-handler",
+  "assets": {
+    "directory": "dist/client",
+    "not_found_handling": "none",
+    "binding": "ASSETS"
+  },
+  "cache": {
+    "enabled": true
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  }
+}

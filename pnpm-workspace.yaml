@@ -1,5 +1,6 @@
 packages:
   - prototype
+  - web
 
 # 虛擬 store 在根目錄，套件的型別要往上找得到 @types/*（否則 next-themes 等會失去 React 型別）
 publicHoistPattern:
@@ -8,7 +9,20 @@ publicHoistPattern:
 # 跑 dev／lint 前不要自動 pnpm install（會被 allowBuilds 擋下）
 verifyDepsBeforeRun: false
 
+# 每個會跑 build script 的套件都要明講 true／false，否則 pnpm install 會失敗。
+# prisma 與 better-sqlite3 是 @better-auth/cli（只用來產 schema）帶進來的，我們不用它們的原生建置。
 allowBuilds:
   '@parcel/watcher': false
+  '@prisma/client': false
+  '@prisma/engines': false
+  better-sqlite3: false
+  esbuild: true
+  prisma: false
   sharp: false
   unrs-resolver: false
+  workerd: true
+
+# eslint 9.39.5 鎖的 @eslint/eslintrc 帶的 js-yaml 有 GHSA-2883-xcg3-v3hh（high）。
+# 4.3.2 起修好且 API 相容，直接 override 掉整個 workspace 的解析結果。
+overrides:
+  js-yaml: '^4.3.2'

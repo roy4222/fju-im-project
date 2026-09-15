@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 範本只有變數名、沒有值，要進版控
+!.env.example
 
 # vercel
 .vercel
@@ -48,3 +50,8 @@ screenshots/
 **/.design-sync/learnings/
 **/.design-sync/node_modules/
 **/.design-sync/generated/
+
+# Playwright 的 trace／截圖等執行產物
+web/e2e/.artifacts/
+web/playwright-report/
+.audit.json

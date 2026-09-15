@@ -1,0 +1,18 @@
+{
+  "url": "http://localhost:8080",
+  "status": 200,
+  "contentSecurityPolicy": "default-src 'self'; script-src 'self' 'nonce-tZm0qT3w5Re3Za5JLg9/zg==' 'strict-dynamic'; style-src 'self' 'nonce-tZm0qT3w5Re3Za5JLg9/zg=='; img-src 'self' blob: data: https://i.ytimg.com; font-src 'self'; frame-src https://www.youtube.com https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "otherSecurityHeaders": {
+    "cross-origin-opener-policy": "same-origin",
+    "permissions-policy": "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY"
+  },
+  "injectedInlineScriptRan": false,
+  "headingStillRendered": "輔仁大學資訊管理學系專題管理平台",
+  "cspViolationsInConsole": [
+    "Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'nonce-tZm0qT3w5Re3Za5JLg9/zg==' 'strict-dynamic''. Either the 'unsafe-inline' keyword, a hash ('sha256-+N4fjhC/YBM8WRg7W1GPZweDsWoQga9mGbM47DfEX/8='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "Loading the script 'https://example.com/evil.js' violates the following Content Security Policy directive: \"script-src 'self' 'nonce-tZm0qT3w5Re3Za5JLg9/zg==' 'strict-dynamic'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+  ]
+}

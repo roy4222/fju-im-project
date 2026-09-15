@@ -1,0 +1,144 @@
+[
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "file": "admin--affairs-new-step1-filled",
+  "dialog": true,
+  "text": "新增項目 選類型、寫標題、定對象 1 類型 2 內容 3 發布 公告／最新消息 公告、競賽資訊，可附檔案 檔案／資源下載 給大家下載的檔案或連結 文件繳交 指定組別在截止前上傳或填寫 專題需求 題目、計畫書這類專題需求 標題 對象 本屆學生 全部老師 所有已登入使用者 公開訪客 指定組別 截止日 公開範圍 登入後學生可見 網際網路公開 上一步 收件類要有截止日 下一步 Close"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs",
+  "name": "newitem",
+  "error": "TimeoutError: locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/timeline",
+  "name": "stage",
+  "error": "TimeoutError: locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin",
+  "name": "event",
+  "error": "TimeoutError: locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/groups",
+  "file": "teacher--groups-claim-done",
+  "dialog": true,
+  "text": "已認領 第 03 組 已指定為你的組別 非營利組織捐款流程數位化。已通知全組與系辦。 Close"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/groups",
+  "file": "teacher--groups-claim-conflict",
+  "dialog": true,
+  "text": "已被其他老師認領 第 03 組 剛由王雅玲老師認領成功。需要調整請洽系辦重派。 Close"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "file": "teacher--grading-filled-draft",
+  "dialog": false,
+  "text": "Toggle Sidebar 評分 陳 陳建宏 評分工作台 只有你被指派的組別。暫存只有你看得到，送出後鎖定。 系統驗收 我的 4 組・占總成績 60% 第 07 組 校園閒置空間共享媒合平台 草稿 7/7 第 02 組 零售門市補貨預測 草稿 7/7 第 04 組 校內活動報名與簽到整合 已送出 第 08 組 長照機構家屬溝通看板 未開始 第 07 組・系統驗收 校園閒置空間共享媒合平台 已儲存 20:41 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 1. 需求與問題定義 滿分 100・占 15% / 100 已填 2. 系統設計與架構 滿分 100・占 20% / 100 已填 3. 實作完整"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "file": "teacher--grading-submit-confirm",
+  "dialog": true,
+  "text": "已收件 第 07 組・系統驗收 收件時間 2026-08-17 20:41 正式採計 83.0 / 100 已鎖定。多位老師時以算術平均計入階段成績；學生看不到分數。 Close"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/grading/g-07",
+  "file": "teacher--grading-invalid",
+  "dialog": false,
+  "text": "Toggle Sidebar 評分 陳 陳建宏 評分工作台 只有你被指派的組別。暫存只有你看得到，送出後鎖定。 系統驗收 我的 4 組・占總成績 60% 第 07 組 校園閒置空間共享媒合平台 未開始 第 02 組 零售門市補貨預測 草稿 7/7 第 04 組 校內活動報名與簽到整合 已送出 第 08 組 長照機構家屬溝通看板 未開始 第 07 組・系統驗收 校園閒置空間共享媒合平台 尚未儲存 林彥廷、黃詩涵、吳柏諺、蔡育瑄、鄭凱文 1. 需求與問題定義 滿分 100・占 15% / 100 第 1 項需介於 0–100 需修正 2. 系統設計與架構 滿分 100・占 20% / 100 未填"
+ },
+ {
+  "role": "teacher",
+  "path": "/dashboard/teacher/affairs",
+  "file": "teacher--affairs-matrix-cell",
+  "dialog": false,
+  "text": "Toggle Sidebar 專題管理平台 陳 陳建宏 專題事務 文件繳交・整組一份・分組階段 專題分組名單確認表 確認五位組員名單、組長與組別類型（一般／產學）。 剩 18 天・2026-09-04 欄位 v1 我的指導組別 ・2 組 未繳 0 逾期 0 第 07 組 校園閒置空間共享媒合平台 已繳交 v1・黃詩涵・08-14 16:20 檢視 第 02 組 零售門市補貨預測 已繳交 v2・宋佳蓉・08-13 10:17 檢視 收件進度 ・9 組 89% 已繳（含鎖定） 8 逾期 0 未繳 1 欄位 ・4 個・版本 1 組長學號 必填 組別類型 必填 確認事項 必填"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/signoff",
+  "file": "student--signoff-reject-dialog",
+  "dialog": true,
+  "text": "不同意並退回 會回到修正狀態；修正後全組重走一次。 原因（必填） 送出退回 Close"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/signoff",
+  "file": "student--signoff-approved-done",
+  "dialog": false,
+  "text": "Toggle Sidebar 同意書 林 林彥廷 同意書 每個人只能提交自己的同意；五人全同意後才輪到指導老師。 專題成果授權同意書 條文摘要 版本 2026.1・2026-08-12 系辦上傳 一、 本組同意將專題成果（系統、文件、海報與影片）授權輔仁大學資訊管理學系作教學、展示與非營利用途。 二、 著作權仍歸組員與指導老師共同所有；系上不得移作商業用途或轉授權第三方。 三、 本組保證成果為原創，引用之程式碼、素材與資料皆已取得合法授權，並負相關責任。 四、 系上公開展示前得遮蔽個資與敏感資料；組員得於發表後一年內申請下架。 五、 同意以線上表態為準；五位組員各自同意後，由指導老師簽核，不需"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/groups",
+  "file": "student--groups-contact",
+  "dialog": false,
+  "text": "Toggle Sidebar 我的組別 林 林彥廷 我的組別 五位成員各自確認後才正式成立。 第 07 組・一般專題 校園閒置空間共享媒合平台 指導老師 陳建宏 成立中・還差 2 人確認 彥廷 組長 林彥廷 已確認 詩涵 黃詩涵 已確認 柏諺 吳柏諺 已確認 育瑄 蔡育瑄 待確認 凱文 鄭凱文 待確認 3/5 已確認 ・每個人用自己的帳號按確認；全員確認後組別成立，之後才能抽籤與繳交。 找組員 ・只顯示本人開啟公開的同屆未分組學生 宥丞 應宥丞 411410411 聯絡 雨萱 解雨萱 411410422 聯絡 佳霓 冷佳霓 411410444 聯絡 電話不公開；完成分組後聯絡資訊立即隱藏。"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "file": "student--home-calendar-subscribe",
+  "dialog": false,
+  "text": "Toggle Sidebar 首頁 林 林彥廷 8 月 17 日・星期一 歡迎回來，林彥廷 現在是「分組」。作業區還有 2 件沒送出。 下一步 指導老師意願調查表 08/26 截止・剩 9 天 繼續填寫 114 學年度 本屆進度 16% 作業待繳 2 件 組員確認 3/5 同意書 等你同意 公告 全部 8 月 14 114 學年度專題分組作業與指導老師意願調查開始受理 專題事務・置頂 8 月 12 專題規則修訂：系統驗收評分項目調整為七項 規則異動 8 月 12 第 31 屆全國大專校院資訊應用服務創新競賽開始報名 競賽資訊 8 月 8 雲端服務實務工作坊（8/28）開放登記 活動 8 月 5"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student",
+  "name": "month",
+  "error": "TimeoutError: locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-011",
+  "file": "student--affairs-history-tab",
+  "dialog": false,
+  "text": "Toggle Sidebar 作業區 林 林彥廷 作業區 專題說明會出席與分組意向登記 整組一份・第 07 組・最後送出 林彥廷・08-12 23:41 已繳 v2・林彥廷 於 2026-08-12 23:41 送出・截止後唯讀。 作業內容 繳交歷史（2） 第幾次 送出者 時間 備註 第 2 次採計 林彥廷 2026-08-12 23:41 補上第五位組員與提案連結 查看內容 第 1 次 吳柏諺 2026-08-10 18:02 — 查看內容"
+ },
+ {
+  "role": "student",
+  "path": "/dashboard/student/affairs/mi-012",
+  "name": "submitblocked",
+  "error": "TimeoutError: locator.fill: Timeout 30000ms exceeded."
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/affairs/mi-011",
+  "file": "admin--affairs-reopen-done",
+  "dialog": false,
+  "text": "Toggle Sidebar 專題事務 系 系辦管理員 專題事務 文件繳交・整組一份・分組階段 專題說明會出席與分組意向登記 登記 8/20 說明會出席人數，並填暫定組員名單與意向（一般／產學）。整組一份，截止後唯讀。 逾期 2 天・2026-08-15 欄位 v3 催繳（3 組） 編輯內容 各組狀態 ・9 組 未繳 3 逾期 3 第 07 組 校園閒置空間共享媒合平台 已鎖定 v2・林彥廷・08-12 23:41 檢視 第 01 組 醫療院所排班最佳化系統 已繳交 v1・周子瑜・08-10 09:00 檢視 第 02 組 零售門市補貨預測 已繳交 v2・宋佳蓉・08-13 10:17 檢視 "
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "file": "admin--accounts-review-approved",
+  "dialog": true,
+  "text": "已核准 許庭瑋 2026-08-17 14:32・比對依據、理由與操作者已寫入紀錄。本人下次登入即可使用。 Close"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/accounts",
+  "file": "admin--accounts-temp-password-generated",
+  "dialog": true,
+  "text": "已重設 林彥廷 的臨時密碼 只顯示這一次，關閉後查不到。2026-08-17 14:32 已寫入操作紀錄；本人登入後必須改密碼。 3t68WbKTPH 複製 Close"
+ },
+ {
+  "role": "admin",
+  "path": "/dashboard/admin/editor/mi-012",
+  "file": "admin--editor-publish-receipt",
+  "dialog": true,
+  "text": "已發布 「專題題目與摘要初稿」已發布給本屆學生（9 組、44 位），出現在專題需求，2026-09-18 23:59 截止。通知會在正式版寄出，原型不寄信。 回列表 繼續編輯 Close"
+ }
+]

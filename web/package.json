@@ -1,0 +1,62 @@
+{
+  "name": "@fju/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <23"
+  },
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test e2e eslint-rules scripts",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "lint:boundaries-test": "node scripts/lint-boundaries-test.mjs",
+    "auth:generate": "node scripts/auth-generate.mjs",
+    "test:integration": "vitest run --project integration",
+    "db:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml up -d postgres",
+    "db:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml stop postgres",
+    "db:generate": "node scripts/drizzle-generate.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "test:e2e": "playwright test",
+    "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json",
+    "stack:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full up -d",
+    "stack:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full down",
+    "db:grants": "node scripts/generate-grants.mjs"
+  },
+  "dependencies": {
+    "@swc/helpers": "0.5.23",
+    "better-auth": "1.7.5",
+    "decimal.js": "10.6.0",
+    "drizzle-orm": "0.45.2",
+    "next": "16.3.3",
+    "pg": "8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "0.0.1",
+    "uuidv7": "1.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@next/eslint-plugin-next": "16.3.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.19.4",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.4",
+    "dotenv": "17.4.2",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.5",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-boundaries": "7.2.0",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "3.2.6",
+    "yaml": "2.8.2"
+  }
+}
