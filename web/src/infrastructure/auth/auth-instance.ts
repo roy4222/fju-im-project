@@ -3,12 +3,33 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 import { nextCookies } from 'better-auth/next-js'
-import { APIError, createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
-import { pathHasAnyAllowedMethod, routeAccess } from '@/infrastructure/auth/route-matrix'
+import {
+  pathHasAnyAllowedMethod,
+  routeAccess,
+  sessionRequirement,
+} from '@/infrastructure/auth/route-matrix'
 import { isInternalCall } from '@/infrastructure/auth/internal-call'
+import {
+  isFullyActive,
+  isUsableSession,
+  readAccountState,
+} from '@/infrastructure/auth/account-state'
+import {
+  checkChangePasswordRate,
+  MIN_PASSWORD_LENGTH,
+  recordPasswordChanged,
+  validateNewPassword,
+} from '@/infrastructure/auth/change-password-rules'
+import {
+  checkSignInRate,
+  clientIpFrom,
+  resetSignInRate,
+  signInKey,
+} from '@/infrastructure/auth/sign-in-rate-limit'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -57,6 +78,35 @@ function createAuth() {
     advanced: {
       // 契約 01 §1：主鍵一律由應用產生 uuidv7，包含 Better Auth 的四張表。
       database: { generateId: () => uuidv7() },
+      /**
+       * 正式環境的 app 在 Caddy 後面，socket 的來源永遠是 proxy。
+       *
+       * 不設這個的話 Better Auth 解析不到用戶端 IP，它自己的限速會**退回全站共用一個桶**
+       * （套件會 warn），而且 `sessions.ip_address` 會全部記成 proxy 的位址。
+       * Caddyfile 帶的就是 `X-Real-IP`（本機直連時退回 `X-Forwarded-For`）。
+       */
+      ipAddress: { ipAddressHeaders: ['x-real-ip', 'x-forwarded-for'] },
+    },
+    /**
+     * 套件自己的限速。
+     *
+     * 它的預設對本專案是錯的：`/sign-in*`、`/sign-up*`、`/change-password*` 的內建規則是
+     * **3 次／10 秒／IP**，而契約 03 §6 要的是「登入 10 次／10 分鐘／IP＋帳號」。
+     * 兩者衝突時先撞到的是套件那一條，等於契約的門檻永遠測不到，而且會擋錯人
+     * ——全系在同一個對外 IP 後面，10 秒 3 次連正常上課時段的登入都擋。
+     *
+     * 所以把契約管的三條路徑放寬到不會蓋掉契約門檻，其餘維持一個寬鬆的全域上限當粗略的
+     * DoS 防護。**精確的門檻由 hooks 裡的 limiter 負責**（那一份看得到帳號，鍵是 IP＋帳號）。
+     */
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 300,
+      customRules: {
+        '/sign-in/email': { window: 600, max: 60 },
+        '/sign-up/email': { window: 3600, max: 30 },
+        '/change-password': { window: 3600, max: 30 },
+      },
     },
     emailAndPassword: { enabled: true },
     socialProviders: {
@@ -96,9 +146,22 @@ function createAuth() {
       },
       session: {
         create: {
-          before: async (session, context) => ({
-            data: { ...session, loginMethod: loginMethodForPath(context?.path) },
-          }),
+          /**
+           * 建 session 的最後一刻擋掉停用帳號（契約 03 §2）。
+           *
+           * 為什麼擋在這裡而不是登入前先查 Email：先查再拒絕等於送對方一個
+           * 「這個帳號存在而且被停用」的探測管道。擋在密碼驗過之後、session 建起來之前，
+           * 外面看到的就只是一次普通的登入失敗。
+           *
+           * 判斷只看 `users.status`，不看 Better Auth 的 `banned`——後者是 commit 後的
+           * 外部呼叫，可能還沒收斂（模組 01 v2.4 規則 6）。
+           */
+          before: async (session, context) => {
+            const state = await readAccountState(String(session.userId))
+            if (!state || !isUsableSession(state)) return false
+
+            return { data: { ...session, loginMethod: loginMethodForPath(context?.path) } }
+          },
         },
       },
     },
@@ -107,24 +170,129 @@ function createAuth() {
        * 第二層攔截（S01-02 的路由封鎖 ＋ S01-03 的內部呼叫辨識）。
        *
        * 判定順序：
-       * 1. 這條路（對這個方法）是不是封鎖的？不是就放行。
-       * 2. 是封鎖的——那只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
+       * 1. 這條路（對這個方法）是不是封鎖的？
+       *    是的話只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
        *    （契約 03 §2）。兩個條件缺一不可，所以外部 HTTP 打不進來，
        *    沒有經過包裝器的伺服器端呼叫也打不進來。
-       *
-       * server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
-       * 這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
+       *    server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
+       *    這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
+       * 2. 路是通的——再看**帳號的業務狀態**（契約 03 §2 的矩陣）。
+       *    這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
+       *    （2026-09-16 review Spec 2）。放在 hook 裡，白名單路由才真的受狀態矩陣管。
        */
       before: createAuthMiddleware(async (ctx) => {
         const isBlocked = ctx.request
           ? routeAccess(ctx.path, ctx.request.method) === 'blocked'
           : !pathHasAnyAllowedMethod(ctx.path)
-        if (!isBlocked) return
 
-        const isInternal = !ctx.request && isInternalCall()
-        if (isInternal) return
+        if (isBlocked) {
+          const isInternal = !ctx.request && isInternalCall()
+          if (isInternal) return
+          throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        }
 
-        throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        // ── 登入限速（契約 03 §6） ────────────────────────────────────────
+        //
+        // 放在這裡而不是只放在 Server Action 門面上：直接打 `/api/auth/sign-in/email`
+        // 也要算同一個桶（2026-09-16 review Spec 4）。
+        if (ctx.path === '/sign-in/email') {
+          const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
+          if (email) {
+            const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
+            if (!checkSignInRate(signInKey(ip, email)).allowed) {
+              // 達到上限之後**連正確的密碼也先擋**——不然「有沒有被擋」就成了
+              // 密碼對不對的訊號。
+              throw new APIError('TOO_MANY_REQUESTS', {
+                code: 'RATE_LIMITED',
+                message: '嘗試過多，請稍後再試。',
+              })
+            }
+          }
+        }
+
+        const requirement = sessionRequirement(ctx.path, ctx.request?.method ?? 'POST')
+        if (requirement === undefined || requirement === 'none') return
+
+        const session = await getAuthoritativeSessionFromCtx(ctx)
+        // 沒有 session 就交給端點自己回 401——這一關只管「有 session 但狀態不對」。
+        if (!session?.user?.id) return
+
+        const state = await readAccountState(String(session.user.id))
+        if (!state || !isUsableSession(state)) {
+          // 停用與去識別化一律當作未登入（契約 03 §2）；不回「你被停用了」，
+          // 那會變成一個可以拿來探測帳號狀態的側通道。
+          throw new APIError('UNAUTHORIZED', { code: 'UNAUTHENTICATED', message: '請重新登入。' })
+        }
+
+        if (requirement === 'active-only' && !isFullyActive(state)) {
+          throw new APIError('FORBIDDEN', {
+            code: state.mustChangePassword ? 'PASSWORD_CHANGE_REQUIRED' : 'ACCOUNT_PENDING',
+            message: state.mustChangePassword ? '請先更改密碼。' : '帳號還在等待審核。',
+          })
+        }
+
+        // ── 第三關：改密碼的業務規則（模組 01 §3、契約 03 §2、§6） ─────────
+        //
+        // 這些規則原本只寫在 SelfAccountCommand 上，直接打 HTTP 就整組繞過去
+        // （2026-09-16 review Spec 3）。放在這裡，兩條路走同一段程式。
+        if (ctx.path === '/change-password') {
+          const body = (ctx.body ?? {}) as { currentPassword?: string; newPassword?: string }
+          const currentPassword = String(body.currentPassword ?? '')
+          const newPassword = String(body.newPassword ?? '')
+
+          const rate = checkChangePasswordRate(String(session.user.id))
+          if (!rate.allowed) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              code: 'VALIDATION_FAILED',
+              message: '改密碼的次數太多，請稍後再試。',
+            })
+          }
+
+          const problem = validateNewPassword(newPassword, currentPassword)
+          if (problem === 'too_short') {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: `新密碼至少要 ${MIN_PASSWORD_LENGTH} 個字元。`,
+            })
+          }
+          if (problem === 'same_as_current') {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: '新密碼不能跟目前的密碼一樣。',
+            })
+          }
+
+          // 契約 03 §2 要求改密一定撤掉其他裝置的登入。**不接受客戶端不傳或傳 false**，
+          // 所以在這裡直接覆寫請求內容，而不是「檢查它有沒有傳」。
+          return { context: { body: { ...body, revokeOtherSessions: true } } }
+        }
+      }),
+
+      /**
+       * 成功之後才做的事。
+       *
+       * - 改密成功：清 must-change 旗標、寫稽核（同一個交易）。
+       * - 登入成功：把限速計數清掉。
+       *
+       * 失敗的請求不會走到這裡（端點丟 APIError 時 `returned` 是那個錯誤）。
+       */
+      after: createAuthMiddleware(async (ctx) => {
+        const returned = ctx.context.returned
+        if (returned instanceof APIError) return
+
+        if (ctx.path === '/change-password') {
+          // **不能**用 `getAuthoritativeSessionFromCtx` 拿使用者：`revokeOtherSessions`
+          // 會把這個人**全部**的 session 刪掉再建一個新的（套件的 update-user.mjs），
+          // 所以此刻請求裡那張 cookie 指向的列已經不存在了。改密的回應本身帶著 user。
+          const userId = (returned as { user?: { id?: string } } | undefined)?.user?.id
+          if (userId) await recordPasswordChanged(String(userId))
+          return
+        }
+
+        if (ctx.path === '/sign-in/email') {
+          const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
+          if (email) resetSignInRate(signInKey(clientIpFrom(ctx.request?.headers ?? ctx.headers), email))
+        }
       }),
     },
     plugins: [

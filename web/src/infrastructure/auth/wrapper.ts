@@ -107,8 +107,9 @@ export function getSessionFromHeaders(headers: Headers) {
  * 走 `auth.api.signInEmail` 而不是讓瀏覽器直接打 `/api/auth/sign-in/email`：
  * 表單是 Server Action（契約 02 §7），cookie 由 `nextCookies()` 外掛帶進回應。
  */
-export function signInWithPassword(input: { email: string; password: string }) {
-  return getAuth().api.signInEmail({ body: input })
+export function signInWithPassword(input: { email: string; password: string }, headers?: Headers) {
+  // `headers` 要傳進去：登入限速在 hook 裡，要靠它取來源 IP（契約 03 §6）。
+  return getAuth().api.signInEmail({ body: input, ...(headers ? { headers } : {}) })
 }
 
 /**
@@ -121,6 +122,8 @@ export function changeOwnPassword(
   headers: Headers,
   input: { currentPassword: string; newPassword: string },
 ) {
+  // `revokeOtherSessions` 仍然在這裡帶一次，但**它不是保證**——保證在 hook 裡
+  // （hook 會直接覆寫請求內容），所以直接打 HTTP 的人也撤得掉其他裝置。
   return getAuth().api.changePassword({
     body: { ...input, revokeOtherSessions: true },
     headers,

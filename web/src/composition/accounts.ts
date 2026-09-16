@@ -3,7 +3,6 @@ import type { ActorResolver, ResolvedActor, SelfAccountCommand } from '@/applica
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent } from '@/infrastructure/auth/wrapper'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
 import { getPool } from '@/infrastructure/db/client'
 
 /**
@@ -38,15 +37,12 @@ export function getSelfAccountCommand(): SelfAccountCommand {
 }
 
 /**
- * 登入（契約 03 §6 的限速就掛在這裡）。
+ * 登入。
  *
- * 鍵是「IP ＋ 帳號」：同一個 IP 對**同一個帳號** 10 分鐘內 10 次。
- * 用 IP＋帳號而不是只用 IP，是因為系上都在同一個對外 IP 後面，只看 IP 會擋到無辜的人；
- * 只看帳號則擋不住從很多 IP 打同一個帳號。達到上限之後**連正確的密碼也先擋**，
- * 不然攻擊者可以用「有沒有被擋」當作密碼對不對的訊號。
+ * **限速不在這裡**：契約 03 §6 的「同一 IP 對同一帳號 10 分鐘 10 次」放在 Better Auth 的
+ * hook 裡（`sign-in-rate-limit.ts`），所以直接打 `/api/auth/sign-in/email` 也算同一個桶
+ * （2026-09-16 review Spec 4）。這裡只負責把來源 IP 傳進去、把結果翻成畫面看得懂的樣子。
  */
-const signInLimiter = createRateLimiter(RATE_LIMITS.signIn)
-
 export type SignInOutcome =
   | {
       readonly ok: true
@@ -61,21 +57,21 @@ export async function signIn(input: {
   password: string
   ip: string
 }): Promise<SignInOutcome> {
-  const key = `sign-in:${input.ip}:${input.email.toLowerCase()}`
-  if (!signInLimiter.hit(key).allowed) {
-    return { ok: false, code: 'RATE_LIMITED', message: '嘗試過多，請稍後再試。' }
-  }
-
   let signedIn: Awaited<ReturnType<typeof signInWithPassword>>
   try {
-    signedIn = await signInWithPassword({ email: input.email, password: input.password })
-  } catch {
-    // 不分辨「沒有這個帳號」與「密碼錯」——分辨了就等於提供一個查帳號存不存在的通道
-    //（模組 01 §3 的統一訊息）。
+    signedIn = await signInWithPassword(
+      { email: input.email, password: input.password },
+      // hook 的限速靠這個標頭取來源；Caddy 在正式環境帶的也是 X-Real-IP。
+      new Headers({ 'x-real-ip': input.ip }),
+    )
+  } catch (error) {
+    if ((error as { status?: string })?.status === 'TOO_MANY_REQUESTS') {
+      return { ok: false, code: 'RATE_LIMITED', message: '嘗試過多，請稍後再試。' }
+    }
+    // 不分辨「沒有這個帳號」「密碼錯」與「帳號已停用」——分辨了就等於提供一個
+    // 查帳號狀態的通道（模組 01 §3 的統一訊息）。
     return { ok: false, code: 'INVALID_CREDENTIALS', message: 'Email 或密碼不正確。' }
   }
-
-  signInLimiter.reset(key)
 
   const userId = signedIn.user.id
   const mustChangePassword = Boolean(
@@ -107,9 +103,7 @@ export async function signOut(headers: Headers): Promise<void> {
 }
 
 /** 測試用：清掉登入的限速計數。 */
-export function resetSignInLimiter(): void {
-  signInLimiter.clear()
-}
+export { resetSignInLimiter } from '@/infrastructure/auth/sign-in-rate-limit'
 
-/** 新密碼的長度下限（規則在 application 層；app 只能經 composition 拿執行期的值）。 */
-export { MIN_PASSWORD_LENGTH } from '@/application/accounts'
+/** 新密碼的長度下限（規則在 hook 層；app 只能經 composition 拿執行期的值）。 */
+export { MIN_PASSWORD_LENGTH } from '@/infrastructure/auth/change-password-rules'

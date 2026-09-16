@@ -24,7 +24,15 @@ import { getSessionFromHeaders } from '@/infrastructure/auth/wrapper'
  */
 export class DbActorResolver implements ActorResolver {
   async resolve(headers: Headers): Promise<ResolvedActor> {
-    const session = await getSessionFromHeaders(headers)
+    // `/get-session` 本身已經受帳號狀態矩陣管（S01-02 的 hook）：停用或去識別化的人
+    // 會被擋成 UNAUTHENTICATED。那對這裡來說就是「沒有有效登入」，不是錯誤，
+    // 所以吞掉例外回 ANONYMOUS——契約 03 §2 的「disabled 一律當作未登入」。
+    let session: Awaited<ReturnType<typeof getSessionFromHeaders>> = null
+    try {
+      session = await getSessionFromHeaders(headers)
+    } catch {
+      return ANONYMOUS
+    }
     if (!session?.user?.id) return ANONYMOUS
 
     const db = getDb()

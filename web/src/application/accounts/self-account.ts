@@ -6,20 +6,14 @@ import type { ErrorCode } from '@/shared/errors'
  * 本切片只做改密碼；連結 Google、設定密碼、改聯絡資料由後面的票補上同一個介面。
  */
 
-/** 新密碼的規則。放在這裡是因為它是規則，不是儲存方式，可以單獨測。 */
-export const MIN_PASSWORD_LENGTH = 12
-
-export type PasswordProblem = 'too_short' | 'same_as_current'
-
-export function validateNewPassword(
-  newPassword: string,
-  currentPassword: string,
-): PasswordProblem | null {
-  if (newPassword.length < MIN_PASSWORD_LENGTH) return 'too_short'
-  // 「改密碼」卻填一樣的，等於沒改——一次性密碼還是有效的，這不是我們要的結果。
-  if (newPassword === currentPassword) return 'same_as_current'
-  return null
-}
+/**
+ * 新密碼的規則**不在這裡**。
+ *
+ * 2026-09-16 review 重現過：規則寫在用例層的話，直接打 `POST /api/auth/change-password`
+ * 就整組繞過去。所以長度、不可與舊密碼相同、限速、撤其他裝置、清 must-change 旗標與稽核
+ * 全部移到 Better Auth 的 hook（`infrastructure/auth/change-password-rules.ts`），
+ * HTTP 與 Server Action 走同一段程式。這個檔只留介面與結果型別。
+ */
 
 export type ChangePasswordInput = {
   readonly currentPassword: string

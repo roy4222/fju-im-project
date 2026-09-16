@@ -103,13 +103,76 @@ expect(statusGate(actor, 'self.session')).toBeNull()
 限速本身有 6 條純邏輯單元測試（固定視窗、剩餘次數、過期重來、鍵互不影響、reset），
 門檻值也有一條測試釘住契約 03 §6 的三組數字。
 
+## 5.5 2026-09-16 review 修正：規則搬進 hook，直接打 HTTP 也繞不過（Spec 3、4／P1、P2）
+
+review 用隔離 PostgreSQL 重現了兩個缺口，根因一樣：**規則只寫在 `SelfAccountCommand` 與
+Server Action 門面上**，`/api/auth/*` 是白名單路由，直接打就整組繞過去。
+
+### Spec 3：直接打 `/api/auth/change-password`
+
+| 情況 | 修正前（review 重現） | 修正後（本機實測） |
+|---|---|---|
+| 送 8 個字元的新密碼 | HTTP 200，密碼被改掉 | **HTTP 400**「新密碼至少要 12 個字元。」 |
+| 不傳 `revokeOtherSessions` | 另一台裝置的登入還在 | **另一台的 cookie 讀不到 session 了** |
+| 稽核 | `account.change_password` 0 筆 | **1 筆** |
+
+實際輸出：
+
+```
+  -- 送 8 字元新密碼、不傳 revokeOtherSessions --
+{"code":"VALIDATION_FAILED","message":"新密碼至少要 12 個字元。"}
+  HTTP 400
+  -- 送合法新密碼、仍不傳 revokeOtherSessions --
+  HTTP 200
+  -- 裝置 B 的 cookie 還能讀到 session 嗎 --
+null
+ change_password_audit
+-----------------------
+                     1
+```
+
+修法：長度、不可與舊密碼相同、限速、**強制覆寫 `revokeOtherSessions: true`** 放進
+`hooks.before`；清 must-change 旗標與寫稽核放進 `hooks.after`（`change-password-rules.ts`）。
+`SelfAccountCommand` 只剩「確認有 session、把錯誤翻成 Result」，不再有第二份規則。
+
+> 一個實作細節值得記下來：`hooks.after` **不能**用 `getAuthoritativeSessionFromCtx` 取使用者。
+> `revokeOtherSessions` 會把這個人**全部**的 session 刪掉再建一個新的（套件的 `update-user.mjs`），
+> 所以那一刻請求裡的 cookie 指向的列已經不存在了。改成從改密的回應本身取 `user.id`。
+
+### Spec 4：直接打 `/api/auth/sign-in/email` 的限速
+
+限速從 composition 門面搬進 `hooks.before`（`sign-in-rate-limit.ts`），兩條路共用同一個桶。
+本機實測（同一 IP＋帳號）：
+
+```
+  第  1–10 次（錯密碼）：HTTP 401
+  第 11 次（**正確**密碼）：HTTP 429   ← review 當時是 200
+  換一個 IP（正確密碼）：HTTP 200      ← 不該被連累
+```
+
+### 一併修掉兩個會在正式環境炸掉的設定
+
+重驗時發現本機 curl 在第 4 次就 429、而且換 IP 也 429 —— 那不是我們的限速，是**套件自己的**：
+
+1. **Better Auth 在 Caddy 後面解析不到用戶端 IP**，它的限速會退回「全站共用一個桶」
+   （套件自己會 warn），`sessions.ip_address` 也會全部記成 proxy 位址。
+   已設 `advanced.ipAddress.ipAddressHeaders = ['x-real-ip', 'x-forwarded-for']`，
+   Caddyfile 帶的就是 `X-Real-IP`。
+2. **套件內建規則是 `/sign-in*`、`/sign-up*`、`/change-password*` 3 次／10 秒／IP**，
+   與契約 03 §6 的「10 次／10 分鐘／IP＋帳號」衝突，而且先撞到的是它——
+   等於契約門檻永遠測不到，而且全系在同一個對外 IP 後面時，10 秒 3 次連正常上課時段的
+   登入都擋。已把契約管的三條路徑放寬到不會蓋掉契約門檻，其餘留一個寬鬆的全域上限當粗略的
+   DoS 防護；**精確門檻由 hook 裡的 limiter 負責**（那一份看得到帳號）。
+
+這兩項是這次修正時才發現的，不在 review 的四項裡，但會直接影響上線第一天。
+
 ## 6. 自動測試
 
 | 檔案 | 條數 | 內容 |
 |---|---|---|
 | `src/shared/rate-limit.test.ts` | 8 | 固定視窗與契約門檻 |
-| `src/application/accounts/self-account.test.ts` | 4 | 新密碼規則（長度、不能跟舊的一樣、中文以字元計） |
-| `src/infrastructure/auth/a1-login.integration.test.ts` | 15 | seed（含冪等與缺值）、六步整條路、改密規則、限速三條 |
+| `src/infrastructure/auth/change-password-rules.test.ts` | 4 | 新密碼規則（長度、不能跟舊的一樣、中文以字元計） |
+| `src/infrastructure/auth/a1-login.integration.test.ts` | 20 | seed（含冪等與缺值）、六步整條路、改密規則、限速三條，**外加 review 那兩項的回歸測試 5 條** |
 | `e2e/a1-first-login.spec.ts` | 4 | 同一條路**用真的表單**走一遍 |
 
 e2e 那四條跑的是使用者看得到的東西：填表單、按按鈕、看錯誤訊息，不是打 API。

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_PASSWORD_LENGTH, validateNewPassword } from '@/application/accounts'
+import { MIN_PASSWORD_LENGTH, validateNewPassword } from '@/infrastructure/auth/change-password-rules'
 
-/** S01-05：新密碼的規則（模組 01 §3）。 */
+/**
+ * S01-05：新密碼的規則（模組 01 §3）。
+ *
+ * 規則住在 hook 層（`change-password-rules.ts`），因為 HTTP 與 Server Action 要共用同一份
+ * ——2026-09-16 review 重現過「只寫在用例層就會被 HTTP 繞過」。
+ */
 
 describe('新密碼', () => {
   it(`至少 ${MIN_PASSWORD_LENGTH} 個字元`, () => {

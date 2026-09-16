@@ -68,9 +68,13 @@ CREATE TABLE "registration_applications" (
 	"reason" text,
 	"assigned_cohort_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_by_kind" text NOT NULL,
+	"created_by_user_id" uuid,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_by_user_id" uuid,
 	CONSTRAINT "registration_applications_state_check" CHECK ("registration_applications"."state" in ('pending','approved','rejected')),
+	CONSTRAINT "registration_applications_created_by_kind_check" CHECK ("registration_applications"."created_by_kind" in ('user','system','worker')),
+	CONSTRAINT "registration_applications_created_by_actor_check" CHECK (("registration_applications"."created_by_kind" = 'user') = ("registration_applications"."created_by_user_id" is not null)),
 	CONSTRAINT "registration_applications_verification_method_check" CHECK ("registration_applications"."verification_method" is null or "registration_applications"."verification_method" in ('id_document','school_channel','other')),
 	CONSTRAINT "registration_applications_approved_verification_check" CHECK ("registration_applications"."state" <> 'approved' or "registration_applications"."verification_method" is not null),
 	CONSTRAINT "registration_applications_other_note_check" CHECK ("registration_applications"."verification_method" is distinct from 'other' or "registration_applications"."verification_note" is not null)
@@ -196,6 +200,7 @@ ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_application
 ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_applications_roster_version_id_roster_versions_id_fk" FOREIGN KEY ("roster_version_id") REFERENCES "public"."roster_versions"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
 ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_applications_decided_by_user_id_users_id_fk" FOREIGN KEY ("decided_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
 ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_applications_assigned_cohort_id_cohorts_id_fk" FOREIGN KEY ("assigned_cohort_id") REFERENCES "public"."cohorts"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
+ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_applications_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
 ALTER TABLE "registration_applications" ADD CONSTRAINT "registration_applications_updated_by_user_id_users_id_fk" FOREIGN KEY ("updated_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
 ALTER TABLE "role_assignments" ADD CONSTRAINT "role_assignments_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint
 ALTER TABLE "role_assignments" ADD CONSTRAINT "role_assignments_granted_by_user_id_users_id_fk" FOREIGN KEY ("granted_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE restrict;--> statement-breakpoint

@@ -43,7 +43,7 @@ beforeAll(async () => {
 
   handlers = (await import('@/infrastructure/auth/wrapper')).authRouteHandlers
   composition = await import('@/composition/accounts')
-  resetChangePasswordLimiter = (await import('@/infrastructure/auth/self-account'))
+  resetChangePasswordLimiter = (await import('@/infrastructure/auth/change-password-rules'))
     .resetChangePasswordLimiter
 })
 
@@ -319,5 +319,162 @@ describe('登入限速（契約 03 §6：同一 IP 對同一帳號 10 分鐘 10 
       expect(wrong.ok).toBe(false)
       if (!wrong.ok) expect(wrong.code).toBe('INVALID_CREDENTIALS')
     }
+  })
+})
+
+// ── 2026-09-16 review 的回歸測試：直接打 HTTP 也要受同一套規則管 ──────────────
+
+describe('直接打 /api/auth/change-password（review Spec 3 的回歸測試）', () => {
+  /**
+   * review 用隔離 PostgreSQL 重現過：持有效 session 直接 POST 這條路由，
+   * 8 個字元的新密碼被接受、另一台裝置的登入還在、稽核一筆都沒有。
+   * 規則搬進 hook 之後，這條路跟 Server Action 走同一段程式。
+   */
+
+  async function twoDevices() {
+    const a = await signInViaHttp(NEW_PASSWORD)
+    const b = await signInViaHttp(NEW_PASSWORD)
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    return { a, b }
+  }
+
+  async function changeViaHttp(cookie: string, body: Record<string, unknown>) {
+    return handlers.POST(
+      new Request(`${BASE_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: BASE_URL, cookie },
+        body: JSON.stringify(body),
+      }),
+    )
+  }
+
+  it('8 個字元的新密碼被擋下，密碼沒有被改掉', async () => {
+    const { a } = await twoDevices()
+    const response = await changeViaHttp(a.cookie, {
+      currentPassword: NEW_PASSWORD,
+      newPassword: 'Eight888',
+    })
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(await response.text()).toContain('至少')
+
+    expect((await signInViaHttp(NEW_PASSWORD)).status, '密碼不該被改掉').toBe(200)
+  })
+
+  it('不傳 revokeOtherSessions 也一樣撤掉其他裝置，而且留下稽核', async () => {
+    const row = await a1Row()
+    const userId = String(row!.id)
+    await db.sql('delete from sessions where user_id = $1', [userId])
+    // audit_events 是不可變表（連 owner 都刪不掉），所以量的是「增加了幾筆」而不是總數。
+    const auditBefore = await db.sql(
+      `select count(*)::int as n from audit_events
+       where action = 'account.change_password' and actor_user_id = $1`,
+      [userId],
+    )
+
+    const { a, b } = await twoDevices()
+    expect(await sessionCount(userId)).toBe(2)
+
+    // 刻意**不傳** revokeOtherSessions——hook 會直接覆寫請求內容。
+    const response = await changeViaHttp(a.cookie, {
+      currentPassword: NEW_PASSWORD,
+      newPassword: 'Http-Path-New-Password-1',
+    })
+    expect(response.status).toBe(200)
+
+    expect(await sessionCount(userId), '另一台的 session 要被撤掉').toBe(1)
+
+    const stillValid = await handlers.GET(
+      new Request(`${BASE_URL}/api/auth/get-session`, { headers: { cookie: b.cookie } }),
+    )
+    const body = (await stillValid.json()) as { user?: unknown } | null
+    expect(body?.user, '另一台的 cookie 不該還能讀到 session').toBeFalsy()
+
+    const auditAfter = await db.sql(
+      `select count(*)::int as n from audit_events
+       where action = 'account.change_password' and actor_user_id = $1`,
+      [userId],
+    )
+    expect(
+      Number(auditAfter.rows[0]!.n) - Number(auditBefore.rows[0]!.n),
+      '要多出一筆稽核',
+    ).toBe(1)
+
+    // 改回去，後面的測試繼續用 NEW_PASSWORD。
+    const back = await signInViaHttp('Http-Path-New-Password-1')
+    await changeViaHttp(back.cookie, {
+      currentPassword: 'Http-Path-New-Password-1',
+      newPassword: NEW_PASSWORD,
+    })
+  })
+
+  it('must-change 的人走 HTTP 改密，旗標一樣被清掉', async () => {
+    const row = await a1Row()
+    const userId = String(row!.id)
+    await db.sql('update users set must_change_password = true where id = $1', [userId])
+
+    const signIn = await signInViaHttp(NEW_PASSWORD)
+    const response = await changeViaHttp(signIn.cookie, {
+      currentPassword: NEW_PASSWORD,
+      newPassword: 'Forced-Http-Password-1',
+    })
+    expect(response.status).toBe(200)
+    expect((await a1Row())!.must_change_password).toBe(false)
+
+    const back = await signInViaHttp('Forced-Http-Password-1')
+    await changeViaHttp(back.cookie, {
+      currentPassword: 'Forced-Http-Password-1',
+      newPassword: NEW_PASSWORD,
+    })
+  })
+})
+
+describe('直接打 /api/auth/sign-in/email 的限速（review Spec 4 的回歸測試）', () => {
+  /**
+   * review 重現過：限速只掛在 Server Action 上，直接打 HTTP 就只剩套件的預設視窗，
+   * 錯 11 次之後正確的密碼照樣放行。現在限速在 hook 裡，兩條路共用同一個桶。
+   */
+  it('同一 IP 同一帳號錯 10 次之後，第 11 次連正確的密碼也被擋', async () => {
+    const ip = '203.0.113.77'
+    const attempt = (password: string) =>
+      handlers.POST(
+        new Request(`${BASE_URL}/api/auth/sign-in/email`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: BASE_URL, 'x-real-ip': ip },
+          body: JSON.stringify({ email: A1_EMAIL, password }),
+        }),
+      )
+
+    for (let i = 1; i <= 10; i += 1) {
+      const wrong = await attempt(`wrong-${i}`)
+      expect(wrong.status, `第 ${i} 次應該是密碼錯而不是被限速`).toBe(401)
+    }
+
+    const correct = await attempt(NEW_PASSWORD)
+    expect(correct.status, '達到上限之後連正確的密碼也要先擋').toBe(429)
+  })
+
+  it('HTTP 與 Server Action 共用同一個桶（不是各算各的）', async () => {
+    const ip = '203.0.113.78'
+    const attempt = (password: string) =>
+      handlers.POST(
+        new Request(`${BASE_URL}/api/auth/sign-in/email`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: BASE_URL, 'x-real-ip': ip },
+          body: JSON.stringify({ email: A1_EMAIL, password }),
+        }),
+      )
+
+    // 五次走 HTTP、五次走 Server Action 門面，加起來就滿了。
+    for (let i = 1; i <= 5; i += 1) expect((await attempt(`wrong-${i}`)).status).toBe(401)
+    for (let i = 1; i <= 5; i += 1) {
+      const viaAction = await composition.signIn({ email: A1_EMAIL, password: 'wrong', ip })
+      expect(viaAction.ok).toBe(false)
+    }
+
+    const viaAction = await composition.signIn({ email: A1_EMAIL, password: NEW_PASSWORD, ip })
+    expect(viaAction.ok).toBe(false)
+    if (viaAction.ok) throw new Error('unreachable')
+    expect(viaAction.code).toBe('RATE_LIMITED')
   })
 })

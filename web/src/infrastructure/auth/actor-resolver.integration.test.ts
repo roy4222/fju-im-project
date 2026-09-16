@@ -84,9 +84,10 @@ describe('沒有 session', () => {
 })
 
 describe('狀態是當下讀的，不是登入當時的快照', () => {
-  const STATUSES: AccountStatus[] = ['pending', 'active', 'disabled']
+  /** 還算「有效登入」的兩個狀態；停用與去識別化在下面另外驗。 */
+  const USABLE: AccountStatus[] = ['pending', 'active']
 
-  it.each(STATUSES)('把 users.status 改成 %s，同一個 cookie 立刻反映', async (status) => {
+  it.each(USABLE)('把 users.status 改成 %s，同一個 cookie 立刻反映', async (status) => {
     const { userId, headers } = await signedInUser()
     await db.sql('update users set status = $2 where id = $1', [userId, status])
 
@@ -96,13 +97,22 @@ describe('狀態是當下讀的，不是登入當時的快照', () => {
     expect(actor.status).toBe(status)
   })
 
-  it('去識別化過的帳號一律當作 deidentified（即使 status 還沒改）', async () => {
+  it('改成 disabled：同一個 cookie 立刻變成「未登入」（契約 03 §2）', async () => {
+    const { userId, headers } = await signedInUser()
+    expect((await resolver.resolve(headers)).kind).toBe('authenticated')
+
+    await db.sql(`update users set status = 'disabled', banned = false where id = $1`, [userId])
+
+    // 停用的人不是「身分是 disabled 的登入者」，而是**當作沒有登入**——
+    // `/get-session` 在 hook 就被擋掉了（S01-02），這裡把它翻譯成 ANONYMOUS。
+    expect((await resolver.resolve(headers)).kind).toBe('anonymous')
+  })
+
+  it('去識別化過的帳號也一律當作未登入（即使 status 還沒改）', async () => {
     const { userId, headers } = await signedInUser()
     await db.sql(`update users set status = 'active', deidentified_at = now() where id = $1`, [userId])
 
-    const actor = await resolver.resolve(headers)
-    if (actor.kind !== 'authenticated') throw new Error('unreachable')
-    expect(actor.status).toBe('deidentified')
+    expect((await resolver.resolve(headers)).kind).toBe('anonymous')
   })
 
   it('must_change_password 也是當下讀的', async () => {
@@ -143,11 +153,12 @@ describe('狀態矩陣：解出來的身分套上閘門，結果與規格一致'
     expect(statusGate(actor, 'registration.viewOwn')).toBe('PASSWORD_CHANGE_REQUIRED')
   })
 
-  it('disabled 一律當作未登入', async () => {
+  it('disabled 一律當作未登入（每一種能力都是 UNAUTHENTICATED）', async () => {
     const { userId, headers } = await signedInUser()
     await db.sql(`update users set status = 'disabled' where id = $1`, [userId])
     const actor = await resolver.resolve(headers)
 
+    expect(actor.kind).toBe('anonymous')
     for (const capability of ['self.session', 'self.changePassword', 'business'] as const) {
       expect(statusGate(actor, capability)).toBe('UNAUTHENTICATED')
     }
