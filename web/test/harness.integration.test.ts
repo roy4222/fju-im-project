@@ -7,6 +7,7 @@ import {
   createIsolatedDatabase,
   inTransaction,
   withIsolatedDatabase,
+  type IsolatedDatabase,
 } from './db'
 import { createBarrier } from './barrier'
 import { enableFaultInjection, failAt, injectFault } from './fault-injection'
@@ -65,6 +66,25 @@ describe('隔離：兩個測試並行寫同名的表', () => {
   })
 })
 
+/**
+ * 等到這個 schema 上出現「正在等鎖」的連線為止。
+ *
+ * 用 `pg_stat_activity` 問資料庫本身，而不是用時間猜：只要有人在 `Lock` 上等，
+ * 就代表第二筆交易確實已經撞上第一筆的 `FOR UPDATE`。
+ */
+async function waitForLockWaiter(db: IsolatedDatabase, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const waiting = await db.sql(
+      `select count(*)::int as n from pg_stat_activity
+       where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`,
+    )
+    if (Number(waiting.rows[0]!.n) > 0) return
+    if (Date.now() > deadline) throw new Error('等了 5 秒都沒有人卡在鎖上——測試前提不成立')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 describe('屏障：兩筆交易在指定點會合', () => {
   it('兩筆交易同時搶同一列，後到的那筆被擋住直到先到的 commit', async () => {
     await withIsolatedDatabase({ label: 'barrier' }, async (db) => {
@@ -82,8 +102,12 @@ describe('屏障：兩筆交易在指定點會合', () => {
           order.push('first-locked')
           // 等第二筆也進到交易裡，確定兩邊真的同時在跑。
           await bothInTransaction.arrive()
-          // 讓第二筆有機會去撞鎖。
-          await new Promise((resolve) => setImmediate(resolve))
+          // 等到第二筆**真的**卡在鎖上才往下走。
+          //
+          // 原本這裡是 `setImmediate`，等於賭「一個 tick 夠第二筆送出 SELECT … FOR UPDATE
+          // 並被擋住」。在負載高的機器（CI）上這個賭注會輸，order 陣列就亂掉——
+          // 2026-09-16 在 CI 上紅過一次。改成問 PostgreSQL：有沒有人正在等鎖。
+          await waitForLockWaiter(db)
           await client.query('update counters set value = value + 1 where id = 1')
           await client.query('commit')
           order.push('first-committed')
