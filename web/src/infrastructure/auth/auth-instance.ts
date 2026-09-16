@@ -8,6 +8,7 @@ import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
 import {
   pathHasAnyAllowedMethod,
+  requirementByPath,
   routeAccess,
   sessionRequirement,
 } from '@/infrastructure/auth/route-matrix'
@@ -149,8 +150,18 @@ function createAuth() {
           throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
         }
 
-        const requirement = sessionRequirement(ctx.path, ctx.request?.method ?? 'POST')
-        if (requirement === undefined || requirement === 'none') return
+        // ── 第二關：帳號的業務狀態（契約 03 §2 的矩陣） ────────────────────
+        //
+        // 這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
+        // （2026-09-16 review Spec 2）。放在 hook 裡，白名單路由才真的受狀態矩陣管。
+        //
+        // **有 request 才用方法查表**；server-only 呼叫沒有方法，就以路徑取最嚴的一條。
+        // 之前是「沒有 request 就當 POST」，而 `/list-accounts` 只註冊 GET，
+        // 於是查不到、整關被跳過（2026-09-16 複核 Spec 2）。
+        const requirement = ctx.request
+          ? sessionRequirement(ctx.path, ctx.request.method)
+          : requirementByPath(ctx.path)
+        if (requirement === undefined || requirement.session === 'none') return
 
         const session = await getAuthoritativeSessionFromCtx(ctx)
         // 沒有 session 就交給端點自己回 401——這一關只管「有 session 但狀態不對」。
@@ -163,11 +174,30 @@ function createAuth() {
           throw new APIError('UNAUTHORIZED', { code: 'UNAUTHENTICATED', message: '請重新登入。' })
         }
 
-        if (requirement === 'active-only' && !isFullyActive(state)) {
+        if (requirement.session === 'active-only' && !isFullyActive(state)) {
           throw new APIError('FORBIDDEN', {
             code: state.mustChangePassword ? 'PASSWORD_CHANGE_REQUIRED' : 'ACCOUNT_PENDING',
             message: state.mustChangePassword ? '請先更改密碼。' : '帳號還在等待審核。',
           })
+        }
+
+        /**
+         * fresh session（契約 03 §2）。
+         *
+         * `session.freshAge` 設了也沒用：安裝版本 1.7.5 只有 `/list-sessions` 掛
+         * `freshSessionMiddleware`，`/link-social` 與 `/list-accounts` 掛的是一般的
+         * `sessionMiddleware`（`dist/api/routes/session.mjs`）——設定值對它們不會被讀到
+         * （2026-09-16 複核 Spec 1）。所以在這裡自己比，判準與套件那支一致：
+         * 現在時間減 `session.createdAt` 要**小於** freshAge。
+         */
+        if (requirement.fresh && FRESH_AGE_SECONDS !== 0) {
+          const createdAt = new Date(session.session.createdAt).getTime()
+          if (!Number.isFinite(createdAt) || Date.now() - createdAt >= FRESH_AGE_SECONDS * 1000) {
+            throw new APIError('FORBIDDEN', {
+              code: 'SESSION_NOT_FRESH',
+              message: '這個操作需要重新登入確認身分。',
+            })
+          }
         }
       }),
     },
