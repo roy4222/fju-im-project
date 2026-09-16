@@ -7,6 +7,7 @@ import {
   createIsolatedDatabase,
   inTransaction,
   withIsolatedDatabase,
+  type IsolatedDatabase,
 } from './db'
 import { createBarrier } from './barrier'
 import { enableFaultInjection, failAt, injectFault } from './fault-injection'
@@ -65,6 +66,33 @@ describe('隔離：兩個測試並行寫同名的表', () => {
   })
 })
 
+/**
+ * 等到指定的那條連線真的卡在鎖上為止。
+ *
+ * 用 `pg_stat_activity` 問那一個 backend 的 `wait_event_type`，不是用時間猜。
+ *
+ * 兩次修錯的紀錄，免得下次又踩：
+ * 1. 一開始用 `setImmediate` 賭一個 tick 夠第二筆去撞鎖——CI 負載高時會輸。
+ * 2. 接著改問「有沒有人在等鎖」，但整個測試庫是共用的，別的測試在等鎖時會提早返回；
+ *    改問「`counters` 這張表上有沒有未授予的鎖」又不成立——`SELECT … FOR UPDATE`
+ *    被擋住時，等的是 `transactionid`／`tuple` 鎖（在等前一筆交易結束），
+ *    **不是** relation 鎖，那張表的 RowShareLock 兩邊都是 granted。
+ *
+ * 所以綁 pid：只看我們自己那條連線有沒有在 `Lock` 上等。
+ */
+async function waitUntilBlocked(db: IsolatedDatabase, pid: number, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const waiting = await db.sql(
+      `select count(*)::int as n from pg_stat_activity where pid = $1 and wait_event_type = 'Lock'`,
+      [pid],
+    )
+    if (Number(waiting.rows[0]!.n) > 0) return
+    if (Date.now() > deadline) throw new Error(`等了 ${timeoutMs}ms，pid ${pid} 都沒有卡在鎖上`)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 describe('屏障：兩筆交易在指定點會合', () => {
   it('兩筆交易同時搶同一列，後到的那筆被擋住直到先到的 commit', async () => {
     await withIsolatedDatabase({ label: 'barrier' }, async (db) => {
@@ -73,6 +101,8 @@ describe('屏障：兩筆交易在指定點會合', () => {
 
       const bothInTransaction = createBarrier(2)
       const order: string[] = []
+      /** 第二筆交易的 backend pid；它在會合之前填好，第一筆會合之後才讀。 */
+      let secondPid = 0
 
       const first = (async () => {
         const client = await db.connect()
@@ -82,8 +112,8 @@ describe('屏障：兩筆交易在指定點會合', () => {
           order.push('first-locked')
           // 等第二筆也進到交易裡，確定兩邊真的同時在跑。
           await bothInTransaction.arrive()
-          // 讓第二筆有機會去撞鎖。
-          await new Promise((resolve) => setImmediate(resolve))
+          // 等到第二筆**真的**卡在鎖上才往下走（原本是賭一個 tick，CI 上會輸）。
+          await waitUntilBlocked(db, secondPid)
           await client.query('update counters set value = value + 1 where id = 1')
           await client.query('commit')
           order.push('first-committed')
@@ -96,6 +126,9 @@ describe('屏障：兩筆交易在指定點會合', () => {
         const client = await db.connect()
         try {
           await client.query('begin')
+          // 先把自己的 backend pid 留給第一筆，它才知道要等誰。
+          const pid = await client.query<{ pid: number }>('select pg_backend_pid() as pid')
+          secondPid = Number(pid.rows[0]!.pid)
           await bothInTransaction.arrive()
           // 這行會卡住，直到第一筆 commit 放開鎖。
           await client.query('select * from counters where id = 1 for update')
