@@ -92,7 +92,8 @@ review 在**沒有連線 VM** 的情況下讀出四個會讓腳本在乾淨機�
 | 4（P2） | curl 失敗時 `%{http_code}` 輸出 `000` 再接 `echo FAIL` 成 `000FAIL`，兩個失敗條件都不等於它，於是印成 OK | 依 curl 的 exit status 判斷，再看 HTTP 狀態 |
 
 另外照 review 的提醒，起基礎設施改用 `--no-deps`：`caddy` 的 `depends_on` 有 `app`，
-不加的話會把 app 與 migrate 一起拉起來——那時 `.env` 還沒填（SOP 02／#188）。
+不加的話會把 app 與 migrate 一起拉起來——映像與 migration 是 SOP 03／#189 的事。
+（原本這裡寫「那時 `.env` 還沒填」，是錯的：`.env` 反而是這一步的前置，見第 3 節的前置關卡。）
 
 ## 2.6 2026-09-16 複核的三項修正
 
@@ -119,6 +120,35 @@ exit=0
 ```
 
 `bash -n ops/vm-setup.sh` 通過。**腳本在 VM 上的實際執行仍是 NOT_RUN。**
+
+## 2.7 2026-09-16 最終複核：把 #188 列為啟動前置（P2）
+
+2.6 修好了**腳本內**的預檢（暫存目錄＋空白佔位 env），但**操作文件**沒跟著改：
+第 3 節仍然要 Roy 在 `/srv/fju/app` 直接跑正式的 `config`／`up`，而那時三份 `.env`
+還不存在。Compose 在做任何事之前會先解析所有服務的 `env_file`
+（`app`／`worker` 的 `.env`、`migrate` 的 `.env.migrate`、`backup` 的 `.env.backup`），
+少一份就整個指令失敗——**`--no-deps` 擋不住**，它只決定啟動哪些服務，不影響設定檔怎麼解析。
+`/srv/fju/app/.env` 還身兼 Compose 的變數插值來源（`${POSTGRES_PASSWORD}` 等等從它來）。
+
+更糟的是我在原本步驟 7 的註解裡寫著「那時 `.env` 還沒填（SOP 02／#188）」——
+等於文件自己說了「這一步執行時 `.env` 不存在」，卻又要求執行需要 `.env` 的指令。
+照著走會拿到 `env file /srv/fju/app/.env not found`，而那**不是**校方 port 沒開的證據。
+
+修法（採用複核給的第一個選項：宣告前置）：
+
+- 第 3 節拆成步驟 6（只放檔案＋跑腳本預檢）、**步驟 7 前置關卡**（三份 `.env` 全 ✓ 才往下）、
+  步驟 8（正式目錄的 `config`）、步驟 9（`up`）。前置關卡明寫「只要還有任何一行是
+  『→ 還沒建立』，就停在這裡」，並點出失敗訊息長什麼樣、不要誤判成校方 port。
+- `ops/vm-setup.sh` 的「接下來 Roy 要做的事」第 5 點加上同一個 ⛔ 關卡，
+  第 6 點的 `logs caddy` 補回兩個 `-f`（原本漏了，會讀不到覆蓋檔的專案）。
+- SOP 01 步驟 6／7 同步，並更正步驟 7 那句自相矛盾的舊註記。
+- `docker-compose.vm.yml` 的檔頭註解同樣更正，並指路到腳本預檢。
+
+腳本內的預檢保留，但它的定位寫清楚了：**只看 ports 合併結果**，讓 Roy 在秘密進 VM 之前
+就能確認覆蓋檔有效；**不能代替**正式目錄的 `config`／`up`。
+
+本機驗證：`bash -n ops/vm-setup.sh` 通過；覆蓋檔改註解後重新解析，
+resolved ports 仍然是 `80`／`443`／`443`（udp），沒有 8080。
 
 本機實測（**不是在 VM 上**）：
 
@@ -174,12 +204,41 @@ dig +short fju.roy422.dev A b1.fju.roy422.dev A b2.fju.roy422.dev A
 > 預期：三行都是 `140.136.155.167`。
 
 ```bash
-# 6. 放設定檔、起資料庫與 Caddy
+# 6. 放設定檔（還不要起任何服務）
 ssh -t roy422roy@140.136.155.167 '
   sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.yml    /srv/fju/app/docker-compose.yml
   sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.vm.yml /srv/fju/app/docker-compose.vm.yml
   sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm          /srv/fju/app/Caddyfile
   sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh             /srv/fju/app/deploy.sh
+  sudo bash /tmp/vm-setup.sh --check'
+```
+> 預期：步驟 6 那一段印出「resolved config 有發布 80 與 443」。
+> 那是腳本用**暫存目錄加空白佔位 env 檔**驗的——只看 ports 合併結果，所以在秘密還沒進 VM
+> 之前就驗得到。**它不能代替下一步**：正式目錄的 `config`／`up` 會讀真正的 `env_file`。
+
+### ⛔ 這裡是前置關卡：先做完 #188，才能往下
+
+步驟 7 以後的每一個 `docker compose` 指令都在 `/srv/fju/app` 裡執行，而 Compose
+**在做任何事之前**會先解析 `docker-compose.yml` 裡所有服務的 `env_file`
+（`app`／`worker` 的 `.env`、`migrate` 的 `.env.migrate`、`backup` 的 `.env.backup`）。
+只要有一份不存在，`config` 與 `up` 都會直接失敗——**`--no-deps` 擋不住這件事**，
+它只影響「要啟動哪些服務」，不影響設定檔怎麼解析。
+`/srv/fju/app/.env` 還身兼 Compose 的變數插值來源（`${POSTGRES_PASSWORD}` 等等從它來）。
+
+所以：
+
+```bash
+# 7. 先把三份 .env 建好（SOP 02／#188；值只在 VM 上輸入，不經過這份文件）
+ssh -t roy422roy@140.136.155.167 'sudo bash /tmp/vm-setup.sh --check'
+```
+> 預期：步驟 5 的三行 `.env`／`.env.migrate`／`.env.backup` 全部是 ✓（600）。
+> **只要還有任何一行是「→ 還沒建立」，就停在這裡**——往下走只會得到
+> `env file /srv/fju/app/.env not found`，那**不是**校方 port 沒開的證據，
+> 只是秘密還沒配置。
+
+```bash
+# 8. 確認帶上覆蓋檔之後真的發布 80／443（這次是正式目錄，讀真的 env_file）
+ssh -t roy422roy@140.136.155.167 '
   cd /srv/fju/app
   sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml config \
     | grep -E "published:" '
@@ -188,7 +247,7 @@ ssh -t roy422roy@140.136.155.167 '
 > 看到 8080 就是覆蓋檔沒被帶上，先停下來檢查，不要往下走。
 
 ```bash
-# 7. 起資料庫與 Caddy（只起這兩個）
+# 9. 起資料庫與 Caddy（只起這兩個）
 ssh -t roy422roy@140.136.155.167 '
   cd /srv/fju/app
   sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
@@ -199,8 +258,9 @@ ssh -t roy422roy@140.136.155.167 '
 > 預期：三個網域各出現一行 `certificate obtained`。
 > 兩個旗標都不能省：`-f … -f docker-compose.vm.yml` 決定有沒有 80／443（基礎檔只發布本機用的
 > `8080:80`），`--no-deps` 決定會不會順手把 `app` 與 `migrate` 一起拉起來——`caddy` 的
-> `depends_on` 有 `app`，而這個時間點 `.env` 還沒填（SOP 02／#188），app 起不來。
+> `depends_on` 有 `app`，而映像與 migration 是 SOP 03／#189 的事，這一步不該碰。
 > **如果校方還沒開對內 80，這一步會失敗**——那就是校方 port 還沒開通的證據，記錄下來即可。
+> （前提是步驟 7 已經全 ✓；否則失敗的原因是 `.env` 不存在，兩者不要混為一談。）
 
 ## 4. 還缺什麼（阻塞項）
 
@@ -209,7 +269,7 @@ ssh -t roy422roy@140.136.155.167 '
 | VM 的 sudo 密碼 | **Roy 親自執行腳本** | SOP 01 步驟 1–4 全部 |
 | Cloudflare `fju`／`b1`／`b2` 三筆 A 記錄 | Roy（dashboard） | Caddy 取不到憑證 → 沒有 HTTPS 測試站 |
 | 校方開放對內 80／443 | Roy 向校方申請（有前置作業時間） | Let's Encrypt HTTP-01 驗證、站台本身 |
-| 三份 `.env` 的值 | Roy（SOP 02／#188，只在 VM 上輸入） | app 與 worker 起不來 |
+| 三份 `.env` 的值 | Roy（SOP 02／#188，只在 VM 上輸入） | **連 `postgres`＋`caddy` 都起不來**——Compose 會先解析所有服務的 `env_file`，少一份就整個指令失敗（`--no-deps` 不影響這件事）。因此它是上面步驟 8／9 的前置，不只是 app 與 worker 的前置 |
 | GHCR 唯讀 PAT | Roy（SOP 02／#188） | VM 拉不到映像 |
 | 部署公鑰貼進 `/home/deploy/.ssh/authorized_keys` | Roy | CD 自動部署（SOP 03／#189） |
 

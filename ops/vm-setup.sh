@@ -170,6 +170,9 @@ done
 # 而 `docker compose config` 會去讀 app／migrate／backup 的 `env_file`，檔案不存在就整個失敗。
 # 所以複製兩份 compose 到暫存目錄、補上「空的」佔位 env 檔再解析——只是要看 ports 合併結果，
 # 不需要任何真實值，也不會碰到 $SRV_ROOT/app 裡既有的秘密檔。
+#
+# **這個預檢不能代替正式目錄的 config／up**：那兩個會讀真正的 env_file，所以仍然要等
+# SOP 02／#188 把三份 .env 建好（見步驟 5 與下方「接下來 Roy 要做的事」第 5 點）。
 if [ -f "$SRV_ROOT/app/docker-compose.yml" ] && [ -f "$SRV_ROOT/app/docker-compose.vm.yml" ] \
    && command -v docker >/dev/null 2>&1; then
   probe=$(mktemp -d)
@@ -238,16 +241,27 @@ cat <<'NOTE'
       sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm          /srv/fju/app/Caddyfile
       sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh             /srv/fju/app/deploy.sh
 5. 三份 .env 的值（SOP 02 / #188）——秘密只在 VM 上輸入，不經聊天、issue、repo。
+
+   ⛔ 這是第 6 步的「前置」，不是可以晚點補的東西。/srv/fju/app 裡的每一個
+      docker compose 指令（config 也算）都會先解析所有服務的 env_file：
+      app/worker 的 .env、migrate 的 .env.migrate、backup 的 .env.backup。
+      少一份就整個指令失敗，--no-deps 也擋不住（它只決定啟動哪些服務，
+      不影響設定檔怎麼解析）。.env 還身兼 Compose 的變數插值來源。
+      重跑 `vm-setup.sh --check`，步驟 5 三行全 ✓ 再往下。
+
 6. 起資料庫與 Caddy，確認三個網域都拿到憑證：
       cd /srv/fju/app
       # 先看 resolved config：caddy 必須同時發布 80 與 443，不然憑證簽不下來
       sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml config \
         | grep -A6 "^  caddy:"
       # --no-deps：這一步只要基礎設施，不要 depends_on 把 app／migrate 一起拉起來
-      #（那時 .env 還沒填，SOP 02／#188）
+      #（映像與 migration 是 SOP 03 / #189 的事）
       sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
         up -d --no-deps postgres caddy
-      sudo -u deploy docker compose logs caddy | grep -i "certificate obtained"
+      sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+        logs caddy | grep -i "certificate obtained"
    預期：resolved config 裡看得到 80:80 與 443:443；三個網域各出現一行 certificate obtained。
+   如果看到 `env file /srv/fju/app/.env not found`，那是第 5 步還沒做完，
+   不是校方 port 沒開——兩者不要混為一談。
 7. 把上面每一段輸出貼進 steps/S14/S14-01/ 與 SOP 01 的執行紀錄表。
 NOTE
