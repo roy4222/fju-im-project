@@ -17,11 +17,24 @@ import 'server-only'
 
 export type RouteAccess = 'allowed' | 'blocked'
 
+/**
+ * 這條路由對「帳號狀態」的要求（契約 03 §2 的矩陣那幾欄）。
+ *
+ * - `none`：不需要 session（註冊、登入、回呼）。停用帳號在**建立 session 的那一刻**被擋，
+ *   不在這裡擋——先查 Email 再拒絕等於送人一個「這個帳號存在且被停用」的探測管道。
+ * - `signed-in`：任何有效 session 都可以（`get-session`、`sign-out`、`change-password`）；
+ *   只有 disabled／deidentified 被擋。**must-change 可以**——改密正是他唯一能做的事。
+ * - `active-only`：只有 active 且**不在 must-change** 的人可以（`link-social`、`list-accounts`）。
+ */
+export type SessionRequirement = 'none' | 'signed-in' | 'active-only'
+
 export type AuthRoutePolicy = {
   /** Better Auth 端點自己的 path，`:param` 是路徑參數（例：`/callback/:id`）。 */
   readonly path: string
   readonly methods: readonly ('GET' | 'POST')[]
   readonly access: RouteAccess
+  /** 帳號狀態的要求（契約 03 §2）。 */
+  readonly session: SessionRequirement
   readonly note: string
 }
 
@@ -34,22 +47,24 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     path: '/sign-up/email',
     methods: ['POST'],
     access: 'allowed',
+    session: 'none',
     note: '密碼註冊；`user.create.before` 注入 status=pending（申請單由 S01-09 建）',
   },
-  { path: '/sign-in/email', methods: ['POST'], access: 'allowed', note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
-  { path: '/sign-in/social', methods: ['POST'], access: 'allowed', note: 'Google 登入入口（S01-14）' },
-  { path: '/callback/:id', methods: ['GET', 'POST'], access: 'allowed', note: 'OAuth 回呼' },
-  { path: '/get-session', methods: ['GET', 'POST'], access: 'allowed', note: '讀目前 session' },
-  { path: '/sign-out', methods: ['POST'], access: 'allowed', note: '登出' },
+  { path: '/sign-in/email', methods: ['POST'], access: 'allowed', session: 'none', note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
+  { path: '/sign-in/social', methods: ['POST'], access: 'allowed', session: 'none', note: 'Google 登入入口（S01-14）' },
+  { path: '/callback/:id', methods: ['GET', 'POST'], access: 'allowed', session: 'none', note: 'OAuth 回呼' },
+  { path: '/get-session', methods: ['GET', 'POST'], access: 'allowed', session: 'signed-in', note: '讀目前 session' },
+  { path: '/sign-out', methods: ['POST'], access: 'allowed', session: 'signed-in', note: '登出' },
   {
     path: '/change-password',
     methods: ['POST'],
     access: 'allowed',
+    session: 'signed-in',
     note: 'must-change 期間唯一可做的業務動作；撤其他 session 由 S01-05 的用例帶 revokeOtherSessions',
   },
-  { path: '/link-social', methods: ['POST'], access: 'allowed', note: '連結 Google；只限 active 且 fresh session' },
-  { path: '/list-accounts', methods: ['GET'], access: 'allowed', note: '本人看自己有哪幾種登入方式' },
-  { path: '/error', methods: ['GET'], access: 'allowed', note: 'OAuth 失敗時套件自己導過來的錯誤頁；不吐任何帳號資料' },
+  { path: '/link-social', methods: ['POST'], access: 'allowed', session: 'active-only', note: '連結 Google；只限 active 且 fresh session' },
+  { path: '/list-accounts', methods: ['GET'], access: 'allowed', session: 'active-only', note: '本人看自己有哪幾種登入方式' },
+  { path: '/error', methods: ['GET'], access: 'allowed', session: 'none', note: 'OAuth 失敗時套件自己導過來的錯誤頁；不吐任何帳號資料' },
 ] as const
 
 /**
@@ -130,6 +145,16 @@ export function routeAccess(path: string, method: string): RouteAccess {
 export function pathHasAnyAllowedMethod(path: string): boolean {
   const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
   return ALLOWED_PATTERNS.some(({ pattern }) => pattern.test(normalized))
+}
+
+/** 這條路由（對這個方法）的帳號狀態要求；不是白名單路由就回 undefined。 */
+export function sessionRequirement(path: string, method: string): SessionRequirement | undefined {
+  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+  const upper = method.toUpperCase()
+  for (const { route, pattern } of ALLOWED_PATTERNS) {
+    if (pattern.test(normalized) && route.methods.includes(upper as 'GET' | 'POST')) return route.session
+  }
+  return undefined
 }
 
 /** 從 Next 的請求 URL 取出 Better Auth 端點的路徑（去掉 `/api/auth` 前綴）。 */

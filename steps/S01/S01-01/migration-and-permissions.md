@@ -32,6 +32,24 @@
 契約 01 §12 要求「同一支內先建檔案表再建 `roster_versions`」——`stored_files`、`file_references`
 排在 migration 最前面，`roster_versions.file_id` 的 FK 目標才存在。
 
+### 2026-09-16 review 修正：`registration_applications` 補建立者欄位
+
+review（Spec 1）指出這張表只有 `created_at`，沒有契約 01 §1 要求的建立欄。已補：
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `created_by_kind` | text NOT NULL | CHECK IN ('user','system','worker') |
+| `created_by_user_id` | uuid NULL | FK users RESTRICT |
+| 配對 CHECK | — | `(created_by_kind = 'user') = (created_by_user_id IS NOT NULL)` |
+
+**刻意不給 default**：`'user'` 配 NULL 會直接違反配對 CHECK，那種預設值等於埋地雷——
+寧可讓每個寫入點明講自己是誰。新增一條反例測試，四個方向都驗：
+`user` 沒帶 id、`system` 卻帶了 id、不在白名單的 kind，都被對應的 CHECK 擋下；
+`('user', id)` 與 `('system', null)` 兩種合法寫法放行。
+
+0002 還沒合併、還沒部署到任何環境，所以直接**重產 0002**（不疊一支 0003 上去）；
+`0001` 一個字都沒動，已用 `git diff` 確認。
+
 ### 逐欄核對
 
 `src/infrastructure/db/s01-accounts.integration.test.ts` 的「逐欄對照附錄 A」把十一張表的

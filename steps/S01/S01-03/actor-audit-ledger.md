@@ -161,6 +161,13 @@
 三個容易寫錯的組合也各有一條測試：停用優先於 must-change；must-change 優先於 pending
 （A1 首次登入就是這一格）；停用**不回** `ACCOUNT_DISABLED`，免得變成探測帳號狀態的側通道。
 
+### 2026-09-16 review 的連帶調整：停用＝未登入
+
+S01-02 補上帳號狀態矩陣之後，`/get-session` 本身就會擋掉停用與去識別化的人。
+`ActorResolver` 因此把那個拒絕翻譯成 `ANONYMOUS` 而不是「身分是 disabled 的登入者」——
+這才是契約 03 §2 寫的「disabled 一律當作未登入」。三條測試跟著改成斷言 `kind === 'anonymous'`，
+`statusGate` 對每一種能力仍然回 `UNAUTHENTICATED`，對呼叫端的結果沒有變。
+
 ### 角色來自 `role_assignments`，不是套件的 `users.role`
 
 有一條測試把 `users.role` 設成 `admin` 但不建任何 `role_assignments`，斷言 `actor.roles` 是空的

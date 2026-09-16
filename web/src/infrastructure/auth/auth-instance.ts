@@ -2,12 +2,21 @@ import 'server-only'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
-import { APIError, createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
-import { pathHasAnyAllowedMethod, routeAccess } from '@/infrastructure/auth/route-matrix'
+import {
+  pathHasAnyAllowedMethod,
+  routeAccess,
+  sessionRequirement,
+} from '@/infrastructure/auth/route-matrix'
 import { isInternalCall } from '@/infrastructure/auth/internal-call'
+import {
+  isFullyActive,
+  isUsableSession,
+  readAccountState,
+} from '@/infrastructure/auth/account-state'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -95,9 +104,22 @@ function createAuth() {
       },
       session: {
         create: {
-          before: async (session, context) => ({
-            data: { ...session, loginMethod: loginMethodForPath(context?.path) },
-          }),
+          /**
+           * 建 session 的最後一刻擋掉停用帳號（契約 03 §2）。
+           *
+           * 為什麼擋在這裡而不是登入前先查 Email：先查再拒絕等於送對方一個
+           * 「這個帳號存在而且被停用」的探測管道。擋在密碼驗過之後、session 建起來之前，
+           * 外面看到的就只是一次普通的登入失敗。
+           *
+           * 判斷只看 `users.status`，不看 Better Auth 的 `banned`——後者是 commit 後的
+           * 外部呼叫，可能還沒收斂（模組 01 v2.4 規則 6）。
+           */
+          before: async (session, context) => {
+            const state = await readAccountState(String(session.userId))
+            if (!state || !isUsableSession(state)) return false
+
+            return { data: { ...session, loginMethod: loginMethodForPath(context?.path) } }
+          },
         },
       },
     },
@@ -106,24 +128,47 @@ function createAuth() {
        * 第二層攔截（S01-02 的路由封鎖 ＋ S01-03 的內部呼叫辨識）。
        *
        * 判定順序：
-       * 1. 這條路（對這個方法）是不是封鎖的？不是就放行。
-       * 2. 是封鎖的——那只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
+       * 1. 這條路（對這個方法）是不是封鎖的？
+       *    是的話只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
        *    （契約 03 §2）。兩個條件缺一不可，所以外部 HTTP 打不進來，
        *    沒有經過包裝器的伺服器端呼叫也打不進來。
-       *
-       * server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
-       * 這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
+       *    server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
+       *    這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
+       * 2. 路是通的——再看**帳號的業務狀態**（契約 03 §2 的矩陣）。
+       *    這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
+       *    （2026-09-16 review Spec 2）。放在 hook 裡，白名單路由才真的受狀態矩陣管。
        */
       before: createAuthMiddleware(async (ctx) => {
         const isBlocked = ctx.request
           ? routeAccess(ctx.path, ctx.request.method) === 'blocked'
           : !pathHasAnyAllowedMethod(ctx.path)
-        if (!isBlocked) return
 
-        const isInternal = !ctx.request && isInternalCall()
-        if (isInternal) return
+        if (isBlocked) {
+          const isInternal = !ctx.request && isInternalCall()
+          if (isInternal) return
+          throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        }
 
-        throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        const requirement = sessionRequirement(ctx.path, ctx.request?.method ?? 'POST')
+        if (requirement === undefined || requirement === 'none') return
+
+        const session = await getAuthoritativeSessionFromCtx(ctx)
+        // 沒有 session 就交給端點自己回 401——這一關只管「有 session 但狀態不對」。
+        if (!session?.user?.id) return
+
+        const state = await readAccountState(String(session.user.id))
+        if (!state || !isUsableSession(state)) {
+          // 停用與去識別化一律當作未登入（契約 03 §2）；不回「你被停用了」，
+          // 那會變成一個可以拿來探測帳號狀態的側通道。
+          throw new APIError('UNAUTHORIZED', { code: 'UNAUTHENTICATED', message: '請重新登入。' })
+        }
+
+        if (requirement === 'active-only' && !isFullyActive(state)) {
+          throw new APIError('FORBIDDEN', {
+            code: state.mustChangePassword ? 'PASSWORD_CHANGE_REQUIRED' : 'ACCOUNT_PENDING',
+            message: state.mustChangePassword ? '請先更改密碼。' : '帳號還在等待審核。',
+          })
+        }
       }),
     },
     plugins: [admin()],
