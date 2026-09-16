@@ -166,7 +166,8 @@ describe('逐欄對照模組 01 v2.4 附錄 A 與模組 10 附錄 A', () => {
       'id', 'user_id', 'revision', 'applied_name', 'student_no', 'department_class', 'phone',
       'contact_email', 'login_email', 'roster_version_id', 'roster_match', 'state',
       'decided_by_user_id', 'decided_real_at', 'verification_method', 'verification_note', 'reason',
-      'assigned_cohort_id', 'created_at', 'updated_at', 'updated_by_user_id',
+      'assigned_cohort_id', 'created_at', 'created_by_kind', 'created_by_user_id',
+      'updated_at', 'updated_by_user_id',
     ],
     application_revisions: ['id', 'application_id', 'revision', 'snapshot', 'created_at'],
     roster_versions: ['id', 'cohort_id', 'imported_by_user_id', 'imported_real_at', 'summary', 'file_id'],
@@ -398,9 +399,10 @@ describe('其他表的約束反例', () => {
       const apply = (state: string) =>
         db.sql(
           `insert into registration_applications
-             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method)
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method,
+              created_by_kind, created_by_user_id)
            values (gen_random_uuid(), $1, '約束測試', '410000002', '0900000002', 'c@example.com', 'c@example.com', $2,
-                   case when $2 = 'approved' then 'id_document' else null end)`,
+                   case when $2 = 'approved' then 'id_document' else null end, 'user', $1)`,
           [userId, state],
         )
       await apply('pending')
@@ -417,8 +419,9 @@ describe('其他表的約束反例', () => {
       await expect(
         db.sql(
           `insert into registration_applications
-             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state)
-           values (gen_random_uuid(), $1, 'X', '410000003', '09', 'c@example.com', 'c@example.com', 'approved')`,
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state,
+              created_by_kind, created_by_user_id)
+           values (gen_random_uuid(), $1, 'X', '410000003', '09', 'c@example.com', 'c@example.com', 'approved', 'user', $1)`,
           [userId],
         ),
       ).rejects.toThrow(/registration_applications_approved_verification_check/)
@@ -426,11 +429,42 @@ describe('其他表的約束反例', () => {
       await expect(
         db.sql(
           `insert into registration_applications
-             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method)
-           values (gen_random_uuid(), $1, 'X', '410000004', '09', 'c@example.com', 'c@example.com', 'approved', 'other')`,
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method,
+              created_by_kind, created_by_user_id)
+           values (gen_random_uuid(), $1, 'X', '410000004', '09', 'c@example.com', 'c@example.com', 'approved', 'other', 'user', $1)`,
           [userId],
         ),
       ).rejects.toThrow(/registration_applications_other_note_check/)
+    })
+  })
+
+  it('registration_applications：建立者的 kind 與 id 要配對（契約 01 §1 的 actor 規則）', async () => {
+    await withIsolatedDatabase({ label: 'created-by', setup: migratedSchema }, async (db) => {
+      const { userId } = await seedForConstraints(db)
+      const insert = (kind: string, actor: string | null) =>
+        db.sql(
+          `insert into registration_applications
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email,
+              created_by_kind, created_by_user_id)
+           values (gen_random_uuid(), $1, 'X', '410000010', '09', 'c@example.com', 'c@example.com', $2, $3)`,
+          [userId, kind, actor],
+        )
+
+      // user 卻沒帶 id、system 卻帶了 id，兩個方向都要被擋。
+      await expect(insert('user', null)).rejects.toThrow(
+        /registration_applications_created_by_actor_check/,
+      )
+      await expect(insert('system', userId)).rejects.toThrow(
+        /registration_applications_created_by_actor_check/,
+      )
+      await expect(insert('nobody', null)).rejects.toThrow(
+        /registration_applications_created_by_kind_check/,
+      )
+
+      // 合法的兩種寫法。
+      await expect(insert('user', userId)).resolves.toBeTruthy()
+      await db.sql(`update registration_applications set state = 'rejected' where user_id = $1`, [userId])
+      await expect(insert('system', null)).resolves.toBeTruthy()
     })
   })
 
@@ -514,8 +548,10 @@ describe('系級（2026-09-15 定案）', () => {
       )
       const application = await db.sql(
         `insert into registration_applications
-           (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, roster_version_id)
-         values (gen_random_uuid(), $1, '甲同學', '410000007', '資管二甲', '0900000003', 'a@example.com', 'a@example.com', $2)
+           (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, roster_version_id,
+            created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, '甲同學', '410000007', '資管二甲', '0900000003', 'a@example.com', 'a@example.com', $2,
+                 'user', $1)
          returning id`,
         [userId, versionId],
       )

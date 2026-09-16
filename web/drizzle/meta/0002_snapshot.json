@@ -1,5 +1,5 @@
 {
-  "id": "e3836d32-7eff-4661-9ce4-516652e8b1e0",
+  "id": "86a93eb8-b046-48c0-add9-06e7e825f455",
   "prevId": "cc0bced4-0972-4ca3-8ad2-67860dfa3176",
   "version": "7",
   "dialect": "postgresql",
@@ -2016,6 +2016,18 @@
           "notNull": true,
           "default": "now()"
         },
+        "created_by_kind": {
+          "name": "created_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -2122,6 +2134,19 @@
           "onDelete": "restrict",
           "onUpdate": "restrict"
         },
+        "registration_applications_created_by_user_id_users_id_fk": {
+          "name": "registration_applications_created_by_user_id_users_id_fk",
+          "tableFrom": "registration_applications",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "restrict"
+        },
         "registration_applications_updated_by_user_id_users_id_fk": {
           "name": "registration_applications_updated_by_user_id_users_id_fk",
           "tableFrom": "registration_applications",
@@ -2143,6 +2168,14 @@
         "registration_applications_state_check": {
           "name": "registration_applications_state_check",
           "value": "\"registration_applications\".\"state\" in ('pending','approved','rejected')"
+        },
+        "registration_applications_created_by_kind_check": {
+          "name": "registration_applications_created_by_kind_check",
+          "value": "\"registration_applications\".\"created_by_kind\" in ('user','system','worker')"
+        },
+        "registration_applications_created_by_actor_check": {
+          "name": "registration_applications_created_by_actor_check",
+          "value": "(\"registration_applications\".\"created_by_kind\" = 'user') = (\"registration_applications\".\"created_by_user_id\" is not null)"
         },
         "registration_applications_verification_method_check": {
           "name": "registration_applications_verification_method_check",
