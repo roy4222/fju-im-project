@@ -67,6 +67,7 @@ sudo: a password is required
 |---|---|
 | [`ops/vm-setup.sh`](../../../ops/vm-setup.sh) | SOP 01 步驟 0–8 的冪等腳本；`--check` 只看不改 |
 | [`ops/Caddyfile.vm`](../../../ops/Caddyfile.vm) | VM 用的 Caddy 設定：三個 host、真憑證（repo 根那份是本機用的 `:80`／`auto_https off`） |
+| [`docker-compose.vm.yml`](../../../docker-compose.vm.yml) | VM 覆蓋檔：把 caddy 的 ports 取代成 `80:80`／`443:443`（2026-09-16 review 補） |
 | [`ops/ssh-config.example`](../../../ops/ssh-config.example) | `~/.ssh/config` 範本（`fju-vm`、`fju-vm-deploy`；不含任何金鑰） |
 
 `vm-setup.sh` 的性質：
@@ -78,6 +79,41 @@ sudo: a password is required
   與 `deploy` 帳號；步驟 5–8 只做**檢查**（.env 權限、設定檔是否就位、DNS、對外連線），
   因為那些的值與操作屬於 SOP 02／#188 與 Roy 本人。
 - 語法已用 `bash -n` 檢查過；**尚未在 VM 上執行**（需要 sudo 密碼）。
+
+## 2.5 2026-09-16 review 的四項修正
+
+review 在**沒有連線 VM** 的情況下讀出四個會讓腳本在乾淨機器上出事的問題，四項都已修：
+
+| # | 問題 | 修法 |
+|---|---|---|
+| 1（P1） | Compose 只發布 `8080:80`，沒有對外的 80／443，Caddy 拿不到憑證 | 新增 `docker-compose.vm.yml`，用 Compose 的 `!override` **取代**（不是附加）成 `80:80`、`443:443`＋HTTP/3 的 `443/udp`；腳本步驟 6 讀 resolved config 確認真的有發布 |
+| 2（P1） | 裝 `docker-compose-plugin`（那是 **Docker 官方 repo** 的套件名），Ubuntu 24.04 來源裡叫 `docker-compose-v2`，乾淨機器會卡住 | 改成單一來源：`docker.io docker-compose-v2 ufw`，不額外加 repo 與 GPG 金鑰 |
+| 3（P2） | `chown -R 1000:1000 /srv/fju` 會把 deploy 擁有的 mode-600 `.env` 改掉；而且 uid 也錯（Dockerfile 實際是 **1001**） | 分開處理：`files`／`tmp`／`postgres` 給容器的 1001:1001，`app`／`backups`／`branches` 給 `deploy` —— **重跑不會動到秘密** |
+| 4（P2） | curl 失敗時 `%{http_code}` 輸出 `000` 再接 `echo FAIL` 成 `000FAIL`，兩個失敗條件都不等於它，於是印成 OK | 依 curl 的 exit status 判斷，再看 HTTP 狀態 |
+
+另外照 review 的提醒，起基礎設施改用 `--no-deps`：`caddy` 的 `depends_on` 有 `app`，
+不加的話會把 app 與 migrate 一起拉起來——那時 `.env` 還沒填（SOP 02／#188）。
+
+本機實測（**不是在 VM 上**）：
+
+```
+$ docker compose -f docker-compose.yml -f docker-compose.vm.yml config | grep -A10 "^  caddy:"
+        target: 80    published: "80"   protocol: tcp
+        target: 443   published: "443"  protocol: tcp
+        target: 443   published: "443"  protocol: udp
+$ …| grep -c '"8080"'
+0                                    ← 本機用的 8080 被 !override 取代掉，沒有多餘曝露
+
+$ # Standards 4 的重現：打一個一定連不到的位址
+  ✗ 連不到（curl 失敗）               ← 修正前這裡會印成 OK
+
+$ bash -n ops/vm-setup.sh             ← 語法通過
+$ docker compose -f docker-compose.yml -f docker-compose.local.yml config   ← 本機覆蓋仍可解析
+```
+
+> **仍然 NOT_RUN**：腳本在 VM 上的實際執行、套件安裝、憑證簽發。上面驗的是
+> 「resolved config 正確」「失敗會被報成失敗」「語法通過」，**不是**「在乾淨 Ubuntu 上裝得起來」。
+> 那一項要等 Roy 以 sudo 執行。
 
 ## 3. Roy 怎麼執行（每一步的預期結果）
 

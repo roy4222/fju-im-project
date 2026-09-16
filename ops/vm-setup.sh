@@ -24,6 +24,9 @@ CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
 DEPLOY_USER=deploy
+# 容器裡的 app 使用者（web/Dockerfile：`adduser -u 1001 -S nextjs -G nodejs`）。
+CONTAINER_UID=1001
+CONTAINER_GID=1001
 SRV_ROOT=/srv/fju
 SRV_DIRS=(files tmp backups postgres app branches)
 MIN_FREE_GB=20
@@ -62,18 +65,21 @@ free -m | sed 's/^/    /'
 printf '    nproc: %s\n' "$(nproc)"
 
 step "步驟 1：Docker 與 ufw"
-if command -v docker >/dev/null 2>&1; then
+#
+# 套件來源只用 Ubuntu 24.04 自己的（2026-09-16 review Standards 2）。
+# 原本寫 `docker.io docker-compose-plugin`，但 `docker-compose-plugin` 是 **Docker 官方 repo**
+# 的套件名，Ubuntu 的來源裡叫 `docker-compose-v2`——乾淨的機器會在這一步直接失敗。
+# 兩種做法都可行，這裡選「單一來源」：不額外加 repo、不引入 GPG 金鑰管理，升級跟著系統走。
+# 若日後需要 Docker 官方的新版，改成官方安裝程序時要**整組**換（repo＋金鑰＋五個套件名）。
+DOCKER_PACKAGES="docker.io docker-compose-v2 ufw"
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   ok "docker 已安裝：$(docker --version)"
-else
-  todo "docker 尚未安裝"
-  run apt-get update
-  run apt-get install -y docker.io docker-compose-plugin ufw
-fi
-if docker compose version >/dev/null 2>&1; then
   ok "compose plugin：$(docker compose version)"
 else
-  todo "compose plugin 尚未安裝"
-  run apt-get install -y docker-compose-plugin
+  todo "docker 或 compose plugin 尚未安裝（將安裝：$DOCKER_PACKAGES）"
+  run apt-get update
+  # shellcheck disable=SC2086
+  run apt-get install -y $DOCKER_PACKAGES
 fi
 if [ "$CHECK_ONLY" = 0 ]; then
   systemctl enable --now docker
@@ -143,10 +149,23 @@ for f in .env .env.migrate .env.backup; do
 done
 
 step "步驟 6：Compose 與 Caddy 設定檔"
-for f in docker-compose.yml Caddyfile deploy.sh; do
+for f in docker-compose.yml docker-compose.vm.yml Caddyfile deploy.sh; do
   if [ -f "$SRV_ROOT/app/$f" ]; then ok "$SRV_ROOT/app/$f"; else todo "$SRV_ROOT/app/$f 還沒放（見下方「Roy 要做的事」）"; fi
 done
 [ -x "$SRV_ROOT/app/deploy.sh" ] && ok "deploy.sh 可執行" || todo "deploy.sh 還要 chmod +x"
+
+# 設定檔齊了才驗得到「80／443 真的有被發布」。
+if [ -f "$SRV_ROOT/app/docker-compose.yml" ] && [ -f "$SRV_ROOT/app/docker-compose.vm.yml" ] \
+   && command -v docker >/dev/null 2>&1; then
+  published=$(cd "$SRV_ROOT/app" \
+    && docker compose -f docker-compose.yml -f docker-compose.vm.yml config 2>/dev/null \
+    | grep -E "published:\s*\"?(80|443)\"?$" | wc -l | tr -d " ")
+  if [ "${published:-0}" -ge 2 ]; then
+    ok "resolved config 有發布 80 與 443（HTTPS 走得通）"
+  else
+    bad "resolved config 沒有同時發布 80 與 443——Caddy 拿不到憑證。檢查 docker-compose.vm.yml 有沒有被帶上"
+  fi
+fi
 
 step "步驟 7：DNS（Roy 在 Cloudflare 做；這裡只驗證）"
 for d in "${DOMAINS[@]}"; do
@@ -161,9 +180,16 @@ for d in "${DOMAINS[@]}"; do
 done
 
 step "步驟 8：對外連線（Let's Encrypt 與 GHCR 都要通）"
+#
+# 依 curl 的 exit status 判斷，不要用字串比對（2026-09-16 review Standards 4）。
+# 原本失敗時 `-w` 會輸出 `000`、再接 `echo FAIL` 變成 `000FAIL`，兩個失敗條件都不等於它，
+# 於是連不到也印成 OK。這裡先看 exit code，再看 HTTP 狀態。
 for url in https://ghcr.io https://accounts.google.com https://acme-v02.api.letsencrypt.org/directory; do
-  line=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || echo "FAIL")
-  if [ "$line" = "FAIL" ] || [ "$line" = "000" ]; then bad "$url 連不到"; else ok "$url → HTTP $line"; fi
+  if code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null); then
+    if [ "$code" = "000" ]; then bad "$url 連不到（沒有回應）"; else ok "$url → HTTP $code"; fi
+  else
+    bad "$url 連不到（curl 失敗）"
+  fi
 done
 
 cat <<'NOTE'
@@ -176,15 +202,24 @@ cat <<'NOTE'
 2. Cloudflare 加三筆 A 記錄（灰雲、TTL auto、content 140.136.155.167）：
       fju / b1 / b2        # 前置清單 §3.1
 3. 向校方申請對這台機器開放 Internet 端的 80 與 443（HTTP-01 簽憑證要用）。
-4. 把 repo 的 ops/ 檔案放到 /srv/fju/app/（在自己的機器上執行）：
-      scp docker-compose.yml ops/Caddyfile.vm ops/deploy.sh <你>@140.136.155.167:/tmp/
-      sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.yml /srv/fju/app/docker-compose.yml
-      sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm      /srv/fju/app/Caddyfile
-      sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh         /srv/fju/app/deploy.sh
+4. 把 repo 的檔案放到 /srv/fju/app/（在自己的機器上執行）：
+      scp docker-compose.yml docker-compose.vm.yml ops/Caddyfile.vm ops/deploy.sh \
+          <你>@140.136.155.167:/tmp/
+      sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.yml    /srv/fju/app/docker-compose.yml
+      sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.vm.yml /srv/fju/app/docker-compose.vm.yml
+      sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm          /srv/fju/app/Caddyfile
+      sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh             /srv/fju/app/deploy.sh
 5. 三份 .env 的值（SOP 02 / #188）——秘密只在 VM 上輸入，不經聊天、issue、repo。
 6. 起資料庫與 Caddy，確認三個網域都拿到憑證：
-      cd /srv/fju/app && sudo -u deploy docker compose up -d postgres caddy
+      cd /srv/fju/app
+      # 先看 resolved config：caddy 必須同時發布 80 與 443，不然憑證簽不下來
+      sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml config \
+        | grep -A6 "^  caddy:"
+      # --no-deps：這一步只要基礎設施，不要 depends_on 把 app／migrate 一起拉起來
+      #（那時 .env 還沒填，SOP 02／#188）
+      sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+        up -d --no-deps postgres caddy
       sudo -u deploy docker compose logs caddy | grep -i "certificate obtained"
-   預期：三個網域各出現一行 certificate obtained。
+   預期：resolved config 裡看得到 80:80 與 443:443；三個網域各出現一行 certificate obtained。
 7. 把上面每一段輸出貼進 steps/S14/S14-01/ 與 SOP 01 的執行紀錄表。
 NOTE
