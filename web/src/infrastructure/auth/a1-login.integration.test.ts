@@ -349,6 +349,33 @@ describe('直接打 /api/auth/change-password（review Spec 3 的回歸測試）
     )
   }
 
+  /**
+   * 改密的限速（契約 03 §6：5 次／小時／**每人**）。
+   *
+   * 2026-09-16 複核 Spec 3 之後，套件那層 IP 桶對 `/change-password` 已經關掉
+   * ——它的鍵不含帳號，系辦發完臨時密碼後一整批人在同一個校園出口改密會互相擋。
+   * 所以現在這條路上**只剩** hook 裡以 userId 為鍵的那一份，得證明它真的會擋。
+   */
+  it('同一個人一小時內改密超過 5 次就被擋（鍵是人，不是 IP）', async () => {
+    const { a } = await twoDevices()
+
+    // 前 5 次都因為新密碼太短被擋在驗證，但一樣算進配額。
+    for (let i = 1; i <= 5; i += 1) {
+      const tooShort = await changeViaHttp(a.cookie, {
+        currentPassword: NEW_PASSWORD,
+        newPassword: 'Eight888',
+      })
+      expect(tooShort.status, `第 ${i} 次應該是驗證失敗而不是限速`).toBe(400)
+    }
+
+    const sixth = await changeViaHttp(a.cookie, {
+      currentPassword: NEW_PASSWORD,
+      newPassword: 'A-Perfectly-Fine-Password-6',
+    })
+    expect(sixth.status, '第 6 次即使新密碼合法也要被擋').toBe(429)
+    expect((await signInViaHttp(NEW_PASSWORD)).status, '密碼不該被改掉').toBe(200)
+  })
+
   it('8 個字元的新密碼被擋下，密碼沒有被改掉', async () => {
     const { a } = await twoDevices()
     const response = await changeViaHttp(a.cookie, {
