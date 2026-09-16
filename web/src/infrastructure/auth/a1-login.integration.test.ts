@@ -477,4 +477,36 @@ describe('直接打 /api/auth/sign-in/email 的限速（review Spec 4 的回歸�
     if (viaAction.ok) throw new Error('unreachable')
     expect(viaAction.code).toBe('RATE_LIMITED')
   })
+
+  /**
+   * 2026-09-16 複核 Spec 3 的回歸測試。
+   *
+   * 上一輪除了 hook 的 IP＋帳號桶，還留著套件的 `/sign-in/email: {window:600,max:60}`。
+   * 套件的鍵（`createRateLimitKey(ip, path)`）**不含帳號**，所以那是一個跨帳號共用的桶：
+   * 同一個對外 IP 後面 60 個不同帳號各錯一次就把它用完，第 61 個人拿正確密碼也被擋。
+   * 全系共用一個校園出口，這條等於隨時可以被任何人（或任何人的手滑）癱瘓掉登入。
+   *
+   * 現在套件那條關掉了，只剩 hook 的 IP＋帳號桶。別人的失敗不會算到你頭上。
+   */
+  it('同一個 IP 上別的帳號失敗很多次，不會擋到這個帳號的第一次登入', async () => {
+    const ip = '203.0.113.79'
+    const signIn = (email: string, password: string) =>
+      handlers.POST(
+        new Request(`${BASE_URL}/api/auth/sign-in/email`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: BASE_URL, 'x-real-ip': ip },
+          body: JSON.stringify({ email, password }),
+        }),
+      )
+
+    // 同一個 IP，60 個**不同**帳號各失敗一次——正好是上一輪那個桶的容量。
+    for (let i = 0; i < 60; i += 1) {
+      const other = await signIn(`neighbour-${i}@example.com`, 'whatever-wrong')
+      expect(other.status, `第 ${i} 個鄰居應該是登入失敗，不是被限速`).not.toBe(429)
+    }
+
+    // A1 自己在這個 IP 上一次都沒錯過，所以他的桶是空的。
+    const mine = await signIn(A1_EMAIL, NEW_PASSWORD)
+    expect(mine.status, '別人的失敗不該擋到我的第一次登入').toBe(200)
+  })
 })

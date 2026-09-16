@@ -96,17 +96,32 @@ function createAuth() {
      * 兩者衝突時先撞到的是套件那一條，等於契約的門檻永遠測不到，而且會擋錯人
      * ——全系在同一個對外 IP 後面，10 秒 3 次連正常上課時段的登入都擋。
      *
-     * 所以把契約管的三條路徑放寬到不會蓋掉契約門檻，其餘維持一個寬鬆的全域上限當粗略的
-     * DoS 防護。**精確的門檻由 hooks 裡的 limiter 負責**（那一份看得到帳號，鍵是 IP＋帳號）。
+     * 上一輪的修法是把那兩條「放寬」成 60 次／10 分鐘，但**放寬不能解決問題**：
+     * 套件的鍵（`rate-limiter/index.mjs` 的 `createRateLimitKey(ip, path)`）只有 IP＋路徑，
+     * 永遠不含帳號，所以它本質上就是一個跨帳號共用的桶。同一個對外 IP 後面，
+     * 60 個不同帳號各錯一次就把桶用完，第 61 個人拿正確密碼也會被擋（2026-09-16 複核 Spec 3）。
+     *
+     * 所以契約管到的兩條直接**關掉**套件的限速（`false` 會讓 `resolveRateLimitConfig` 回 null）：
+     * - `/sign-in/email`：契約門檻＝10 次／10 分鐘／**IP＋帳號**，由 `sign-in-rate-limit.ts` 做，
+     *   它的鍵含帳號，所以別人的失敗不會算到你頭上。
+     * - `/change-password`：契約門檻是**每人**每小時，由 `change-password-rules.ts` 以 userId 為鍵做。
+     *   （這一條同樣不能用 IP 桶：系辦發臨時密碼後一整批人在同一個校園出口改密是正常流程。）
+     *
+     * 契約 03 §6 把粗粒度的那一層明寫成「app 記憶體＋**Caddy**」——跨帳號的 DoS 防護屬於
+     * 反向代理那一層，不是這裡。
+     *
+     * `/sign-up/email` 維持套件的 IP 桶：契約 §6 對註冊本來就寫「5 次／小時／**IP**」（不含帳號），
+     * 鍵的形狀對得上。**門檻仍是 30 而不是 5**——註冊流程是 S01-09 的票，這一批沒有做，
+     * 現在收緊會擋到還沒實作的流程。已記在契約 03 §6 的待決。
      */
     rateLimit: {
       enabled: true,
       window: 60,
       max: 300,
       customRules: {
-        '/sign-in/email': { window: 600, max: 60 },
+        '/sign-in/email': false,
+        '/change-password': false,
         '/sign-up/email': { window: 3600, max: 30 },
-        '/change-password': { window: 3600, max: 30 },
       },
     },
     emailAndPassword: { enabled: true },
