@@ -164,8 +164,9 @@ const SAMPLES: Record<string, Sample> = {
               values (gen_random_uuid(), '申請測試', $1, false, now()) returning id
             )
             insert into registration_applications
-              (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email)
-            select gen_random_uuid(), id, '申請測試', $2, '資管二乙', '0900000000', $1, $1 from u`,
+              (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email,
+               created_by_kind, created_by_user_id)
+            select gen_random_uuid(), id, '申請測試', $2, '資管二乙', '0900000000', $1, $1, 'user', id from u`,
       values: [`${unique('apply')}@example.com`, unique('sno')],
     }),
     updatable: { column: 'state', value: 'rejected' },
@@ -276,8 +277,10 @@ beforeAll(async () => {
   )
   const application = await owner.sql(
     `insert into registration_applications
-       (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email)
-     values (gen_random_uuid(), $1, '申請人', '410000001', '資管二甲', '0900000001', 'applicant@example.com', 'applicant@example.com')
+       (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email,
+        created_by_kind, created_by_user_id)
+     values (gen_random_uuid(), $1, '申請人', '410000001', '資管二甲', '0900000001', 'applicant@example.com', 'applicant@example.com',
+             'user', $1)
      returning id`,
     [applicant.rows[0]!.id],
   )
