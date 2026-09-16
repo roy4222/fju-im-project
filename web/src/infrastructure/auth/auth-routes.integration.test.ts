@@ -444,3 +444,65 @@ describe('白名單路由的帳號狀態矩陣（契約 03 §2）', () => {
     expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
   })
 })
+
+// ── fresh session（2026-09-16 複核 Spec 1 的回歸測試） ────────────────────────
+
+describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
+  /**
+   * 複核重現過：`session.freshAge = 600` 設了也沒有用。
+   *
+   * 安裝版本 1.7.5 只有 `/list-sessions` 掛 `freshSessionMiddleware`，
+   * `/link-social` 與 `/list-accounts` 掛的是一般的 `sessionMiddleware`
+   * （`node_modules/better-auth/dist/api/routes/session.mjs`），設定值對它們根本不會被讀到。
+   * 所以改由路由矩陣宣告、hook 自己比 `session.created_at`。
+   */
+
+  async function activeSignIn() {
+    const { email, password } = await signUp()
+    await db.sql(`update users set status = 'active' where email = $1`, [email])
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    return { email, cookie: signIn.headers.get('set-cookie')?.split(';')[0] ?? '' }
+  }
+
+  /** 把這個人的 session 建立時間往回推，模擬「登入之後過了一段時間」。 */
+  async function ageSession(email: string, minutes: number) {
+    await db.sql(
+      `update sessions set created_at = now() - ($2 || ' minutes')::interval
+         where user_id = (select id from users where email = $1)`,
+      [email, String(minutes)],
+    )
+  }
+
+  it('剛登入（9 分鐘）還算 fresh，list-accounts 通', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 9)
+    expect((await call('GET', '/list-accounts', undefined, { cookie })).status).toBe(200)
+  })
+
+  it('超過 10 分鐘就不是 fresh，list-accounts 被擋', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 11)
+
+    const stale = await call('GET', '/list-accounts', undefined, { cookie })
+    expect(stale.status, '11 分鐘前建立的 session 不該還能列出登入方式').toBe(403)
+    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+  })
+
+  it('link-social 同樣要 fresh', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 11)
+
+    const stale = await call('POST', '/link-social', { provider: 'google' }, { cookie })
+    expect(stale.status).toBe(403)
+    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+  })
+
+  it('不要求 fresh 的路由不受影響——放久了照樣能讀 session 與登出', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 120)
+
+    expect((await call('GET', '/get-session', undefined, { cookie })).status).toBe(200)
+    expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
+  })
+})
