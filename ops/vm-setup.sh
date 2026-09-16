@@ -116,8 +116,18 @@ for dir in "${SRV_DIRS[@]}"; do
     run mkdir -p "$SRV_ROOT/$dir"
   fi
 done
-# 容器內的 app 以 uid 1000 跑（web/Dockerfile），所以宿主機目錄也給 1000:1000。
-run chown -R 1000:1000 "$SRV_ROOT"
+# 擁有者分兩種，不能一把 `chown -R` 掃掉整個 $SRV_ROOT：
+#   - files／tmp／postgres：容器裡的 app 寫進去的，給 CONTAINER_UID（web/Dockerfile 的 1001）。
+#   - app／backups／branches：deploy 用 SSH 放檔與跑 deploy.sh，給 deploy。
+# app/ 裡有 mode-600 的 .env／.env.migrate／.env.backup。之前整包 chown 成 1000:1000 會把
+# 這些秘密檔改成別人的，重跑一次腳本就讓 deploy 讀不到自己的秘密（腳本是冪等的，會重跑）。
+for dir in "${SRV_DIRS[@]}"; do
+  case "$dir" in
+    files|tmp|postgres) owner="$CONTAINER_UID:$CONTAINER_GID" ;;
+    *)                  owner="$DEPLOY_USER:$DEPLOY_USER" ;;
+  esac
+  run chown -R "$owner" "$SRV_ROOT/$dir"
+done
 [ "$CHECK_ONLY" = 0 ] && ls -ld "$SRV_ROOT"/* | sed 's/^/    /'
 
 step "步驟 4：防火牆只開 22 / 80 / 443"
@@ -154,16 +164,34 @@ for f in docker-compose.yml docker-compose.vm.yml Caddyfile deploy.sh; do
 done
 [ -x "$SRV_ROOT/app/deploy.sh" ] && ok "deploy.sh 可執行" || todo "deploy.sh 還要 chmod +x"
 
-# 設定檔齊了才驗得到「80／443 真的有被發布」。
+# 驗「帶上 VM 覆蓋檔之後，80／443 真的有被發布」。
+#
+# 這件事要在 .env 還沒建立時就驗得出來：本腳本（SOP 01）跑完才輪到 SOP 02／#188 填秘密，
+# 而 `docker compose config` 會去讀 app／migrate／backup 的 `env_file`，檔案不存在就整個失敗。
+# 所以複製兩份 compose 到暫存目錄、補上「空的」佔位 env 檔再解析——只是要看 ports 合併結果，
+# 不需要任何真實值，也不會碰到 $SRV_ROOT/app 裡既有的秘密檔。
 if [ -f "$SRV_ROOT/app/docker-compose.yml" ] && [ -f "$SRV_ROOT/app/docker-compose.vm.yml" ] \
    && command -v docker >/dev/null 2>&1; then
-  published=$(cd "$SRV_ROOT/app" \
-    && docker compose -f docker-compose.yml -f docker-compose.vm.yml config 2>/dev/null \
-    | grep -E "published:\s*\"?(80|443)\"?$" | wc -l | tr -d " ")
-  if [ "${published:-0}" -ge 2 ]; then
-    ok "resolved config 有發布 80 與 443（HTTPS 走得通）"
+  probe=$(mktemp -d)
+  cp "$SRV_ROOT/app/docker-compose.yml" "$SRV_ROOT/app/docker-compose.vm.yml" "$probe/"
+  : > "$probe/.env"; : > "$probe/.env.migrate"; : > "$probe/.env.backup"
+  resolved=""
+  config_rc=0
+  resolved=$(cd "$probe" \
+    && docker compose -f docker-compose.yml -f docker-compose.vm.yml config 2>&1) || config_rc=$?
+  rm -rf "$probe"
+  if [ "$config_rc" -ne 0 ]; then
+    # 解析本身失敗（compose 檔語法壞掉、docker daemon 不在……），不是「port 沒開」。
+    bad "docker compose config 解析失敗（exit $config_rc），先看這個錯誤："
+    printf '%s\n' "$resolved" | sed 's/^/      /' | head -20
   else
-    bad "resolved config 沒有同時發布 80 與 443——Caddy 拿不到憑證。檢查 docker-compose.vm.yml 有沒有被帶上"
+    published=$(printf '%s\n' "$resolved" \
+      | grep -cE "published: *\"?(80|443)\"?$" || true)
+    if [ "${published:-0}" -ge 2 ]; then
+      ok "resolved config 有發布 80 與 443（HTTPS 走得通）"
+    else
+      bad "resolved config 沒有同時發布 80 與 443——Caddy 拿不到憑證。檢查 docker-compose.vm.yml 有沒有被帶上"
+    fi
   fi
 fi
 

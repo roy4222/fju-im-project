@@ -94,6 +94,32 @@ review 在**沒有連線 VM** 的情況下讀出四個會讓腳本在乾淨機�
 另外照 review 的提醒，起基礎設施改用 `--no-deps`：`caddy` 的 `depends_on` 有 `app`，
 不加的話會把 app 與 migrate 一起拉起來——那時 `.env` 還沒填（SOP 02／#188）。
 
+## 2.6 2026-09-16 複核的三項修正
+
+上一輪 2.5 的表格把三項都寫成「已修」，複核逐條回去讀程式，抓到其中一項**只寫了文件、程式沒改**：
+
+| # | 複核發現 | 這輪的處理 |
+|---|---|---|
+| 1（P2） | 2.5 第 3 列宣稱 chown 已分開處理，但 `ops/vm-setup.sh` 實際仍是 `chown -R 1000:1000 "$SRV_ROOT"`；新宣告的 `CONTAINER_UID=1001` 從頭到尾沒被用到 | 改成逐目錄指定擁有者：`files`／`tmp`／`postgres` → `$CONTAINER_UID:$CONTAINER_GID`，`app`／`backups`／`branches` → `$DEPLOY_USER`。**2.5 那一列當時不成立，現在才成立。** |
+| 2（P1） | 覆蓋檔本身沒問題，但下面第 3 節「Roy 怎麼執行」的指令既沒把 `docker-compose.vm.yml` 送上去、也沒在起服務時帶 `-f`、沒加 `--no-deps`——照著做仍然只開 8080 | 重寫第 3 節步驟 1／6／7：scp 帶上覆蓋檔，先 `config | grep published` 確認再 `up`，`up` 帶兩個 `-f` 與 `--no-deps`。SOP 01 步驟 6 的檔案清單也補上覆蓋檔 |
+| 3（P2） | 步驟 6 新加的 `docker compose config` 會讀 `env_file`。乾淨主機上 `.env` 還不存在（那是 SOP 02／#188 才做的事），`config` 回 exit 1，`set -euo pipefail` 直接中止整個腳本——本來要給的診斷全看不到 | 改成複製兩份 compose 到 `mktemp -d`、補空的佔位 env 檔再解析。只看 ports 合併結果，不需要真實值，也不會碰到 `app/` 裡既有的秘密檔；解析失敗會印出原始錯誤而不是中止 |
+
+第 3 項的前後對照（本機，**不是 VM**）：
+
+```
+# 舊寫法：暫存目錄只有兩份 compose、沒有 .env
+$ docker compose -f docker-compose.yml -f docker-compose.vm.yml config
+env file /tmp/tmp.u91haMa8Wg/.env not found: ...
+exit=1          ← set -e 會在這裡中止整個 vm-setup.sh
+
+# 新寫法：同一個沒有 .env 的目錄
+  OK  resolved config 有發布 80 與 443（HTTPS 走得通）
+腳本沒有中止，走完了
+exit=0
+```
+
+`bash -n ops/vm-setup.sh` 通過。**腳本在 VM 上的實際執行仍是 NOT_RUN。**
+
 本機實測（**不是在 VM 上**）：
 
 ```
@@ -118,8 +144,9 @@ $ docker compose -f docker-compose.yml -f docker-compose.local.yml config   ← 
 ## 3. Roy 怎麼執行（每一步的預期結果）
 
 ```bash
-# 1. 把腳本與設定送上去
-scp ops/vm-setup.sh ops/Caddyfile.vm ops/deploy.sh docker-compose.yml \
+# 1. 把腳本與設定送上去（docker-compose.vm.yml 一定要跟著上去，少了它就只有 8080）
+scp ops/vm-setup.sh ops/Caddyfile.vm ops/deploy.sh \
+    docker-compose.yml docker-compose.vm.yml \
     roy422roy@140.136.155.167:/tmp/
 
 # 2. 先看現況，什麼都不會改
@@ -149,13 +176,30 @@ dig +short fju.roy422.dev A b1.fju.roy422.dev A b2.fju.roy422.dev A
 ```bash
 # 6. 放設定檔、起資料庫與 Caddy
 ssh -t roy422roy@140.136.155.167 '
-  sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.yml /srv/fju/app/docker-compose.yml
-  sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm       /srv/fju/app/Caddyfile
-  sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh          /srv/fju/app/deploy.sh
-  cd /srv/fju/app && sudo -u deploy docker compose up -d postgres caddy
-  sudo -u deploy docker compose logs caddy | grep -i "certificate obtained"'
+  sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.yml    /srv/fju/app/docker-compose.yml
+  sudo install -o deploy -g deploy -m 644 /tmp/docker-compose.vm.yml /srv/fju/app/docker-compose.vm.yml
+  sudo install -o deploy -g deploy -m 644 /tmp/Caddyfile.vm          /srv/fju/app/Caddyfile
+  sudo install -o deploy -g deploy -m 755 /tmp/deploy.sh             /srv/fju/app/deploy.sh
+  cd /srv/fju/app
+  sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml config \
+    | grep -E "published:" '
+```
+> 預期：只看到 `80`、`443`、`443`（最後一個是 HTTP/3 的 udp），**沒有 8080**。
+> 看到 8080 就是覆蓋檔沒被帶上，先停下來檢查，不要往下走。
+
+```bash
+# 7. 起資料庫與 Caddy（只起這兩個）
+ssh -t roy422roy@140.136.155.167 '
+  cd /srv/fju/app
+  sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+    up -d --no-deps postgres caddy
+  sudo -u deploy docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+    logs caddy | grep -i "certificate obtained"'
 ```
 > 預期：三個網域各出現一行 `certificate obtained`。
+> 兩個旗標都不能省：`-f … -f docker-compose.vm.yml` 決定有沒有 80／443（基礎檔只發布本機用的
+> `8080:80`），`--no-deps` 決定會不會順手把 `app` 與 `migrate` 一起拉起來——`caddy` 的
+> `depends_on` 有 `app`，而這個時間點 `.env` 還沒填（SOP 02／#188），app 起不來。
 > **如果校方還沒開對內 80，這一步會失敗**——那就是校方 port 還沒開通的證據，記錄下來即可。
 
 ## 4. 還缺什麼（阻塞項）
