@@ -3,7 +3,9 @@ import {
   ALLOWED_ROUTES,
   authPathFromUrl,
   BLOCKED_ROUTE_REASONS,
+  requirementByPath,
   routeAccess,
+  sessionRequirement,
 } from '@/infrastructure/auth/route-matrix'
 
 /**
@@ -98,6 +100,46 @@ describe('矩陣本身的健康檢查', () => {
   it('每一條封鎖理由都不是空的', () => {
     for (const [path, reason] of Object.entries(BLOCKED_ROUTE_REASONS)) {
       expect(reason.length, `${path} 沒寫封鎖理由`).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('要求的查詢（複核 Spec 1／2）', () => {
+  it('用錯的方法查 /list-accounts 什麼都查不到——這正是「猜方法」那個 bug 的形狀', () => {
+    expect(sessionRequirement('/list-accounts', 'POST')).toBeUndefined()
+    expect(sessionRequirement('/list-accounts', 'GET')).toEqual({
+      session: 'active-only',
+      fresh: true,
+    })
+  })
+
+  it('以路徑查就不需要猜方法', () => {
+    expect(requirementByPath('/list-accounts')).toEqual({ session: 'active-only', fresh: true })
+    expect(requirementByPath('/link-social')).toEqual({ session: 'active-only', fresh: true })
+    expect(requirementByPath('/get-session')).toEqual({ session: 'signed-in', fresh: false })
+    expect(requirementByPath('/sign-in/email')).toEqual({ session: 'none', fresh: false })
+  })
+
+  it('不在白名單上的路徑回 undefined（那一關由封鎖判定處理）', () => {
+    expect(requirementByPath('/admin/list-users')).toBeUndefined()
+    expect(requirementByPath('/no-such-endpoint')).toBeUndefined()
+  })
+
+  it('同一路徑有多個方法時取最嚴的一條', () => {
+    const strictness = { none: 0, 'signed-in': 1, 'active-only': 2 } as const
+    for (const route of ALLOWED_ROUTES) {
+      const byPath = requirementByPath(route.path)
+      expect(byPath, `${route.path} 應該查得到`).toBeDefined()
+      expect(
+        strictness[byPath!.session],
+        `${route.path} 以路徑查到的要求不該比矩陣上的寬鬆`,
+      ).toBeGreaterThanOrEqual(strictness[route.session])
+    }
+  })
+
+  it('每一條要 fresh 的路由都同時是 active-only（契約 03 §2）', () => {
+    for (const route of ALLOWED_ROUTES) {
+      if (route.fresh) expect(route.session, `${route.path}`).toBe('active-only')
     }
   })
 })

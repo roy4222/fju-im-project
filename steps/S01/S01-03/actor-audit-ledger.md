@@ -201,3 +201,30 @@ S01-02 的 gate (b) 測試原本斷言「伺服器端呼叫被封鎖端點**不�
   本票只交付它會用到的 `internalAuth`。worker 身分的待決事項見第 2 節。
 - 任何頁面：**#47**。
 - VM 部署：**NOT_RUN**（#187–#189）。
+
+## 2026-09-16 複核：server-only 呼叫跳過整個狀態檢查（Spec 2）
+
+複核指出這一票引入的 `ctx.request?.method ?? 'POST'` 有一個安靜的漏洞。
+
+本票把 `hooks.before` 開放給 server-only 呼叫（`auth.api.*` 沒有 `ctx.request`），
+方法就用 `?? 'POST'` 補一個。問題是 **`/list-accounts` 只註冊了 GET**：
+`sessionRequirement('/list-accounts', 'POST')` 回 `undefined`，hook 直接 return
+——HTTP GET 擋得住，`auth.api.listUserAccounts({ headers })` 卻拿得到資料。
+複核實測 `SERVER_PENDING_LIST {"count":1}`。
+
+根本問題是「沒有方法時去猜一個方法」。改成沒有方法就**不用方法查表**：
+`requirementByPath()`（#206 加的）以路徑取所有符合方法裡**最嚴**的一條。
+
+目前沒有任何正式包裝器對外暴露 `listUserAccounts`，所以這不是一個已重現的對外利用，
+而是共同 hook 的契約漏洞——但它就在所有人都會走的那條路上，補在這裡才不會等到有人用到時才發現。
+
+複核把這一項記在 #206／#210；實際引入 `?? 'POST'` 的是本票（#207），所以修在這裡。
+
+### 測試
+
+`auth-routes.integration.test.ts` 3 項：pending 與 must-change 從伺服器端呼叫
+`listUserAccounts` 都被拒（`FORBIDDEN`），active 的人仍然正常（釘住沒有擋過頭）。
+對照組：把 `auth-instance.ts` 還原成 `?? 'POST'`、測試維持新版 → 前兩項紅。
+本檔整合測試共 50 項全綠。
+
+**VM 測試站仍是 NOT_RUN**，以上都是本機。

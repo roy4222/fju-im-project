@@ -447,3 +447,124 @@ describe('白名單路由的帳號狀態矩陣（契約 03 §2）', () => {
     expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
   })
 })
+
+// ── fresh session（2026-09-16 複核 Spec 1 的回歸測試） ────────────────────────
+
+describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
+  /**
+   * 複核重現過：`session.freshAge = 600` 設了也沒有用。
+   *
+   * 安裝版本 1.7.5 只有 `/list-sessions` 掛 `freshSessionMiddleware`，
+   * `/link-social` 與 `/list-accounts` 掛的是一般的 `sessionMiddleware`
+   * （`node_modules/better-auth/dist/api/routes/session.mjs`），設定值對它們根本不會被讀到。
+   * 所以改由路由矩陣宣告、hook 自己比 `session.created_at`。
+   */
+
+  async function activeSignIn() {
+    const { email, password } = await signUp()
+    await db.sql(`update users set status = 'active' where email = $1`, [email])
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    return { email, cookie: signIn.headers.get('set-cookie')?.split(';')[0] ?? '' }
+  }
+
+  /** 把這個人的 session 建立時間往回推，模擬「登入之後過了一段時間」。 */
+  async function ageSession(email: string, minutes: number) {
+    await db.sql(
+      `update sessions set created_at = now() - ($2 || ' minutes')::interval
+         where user_id = (select id from users where email = $1)`,
+      [email, String(minutes)],
+    )
+  }
+
+  it('剛登入（9 分鐘）還算 fresh，list-accounts 通', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 9)
+    expect((await call('GET', '/list-accounts', undefined, { cookie })).status).toBe(200)
+  })
+
+  it('超過 10 分鐘就不是 fresh，list-accounts 被擋', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 11)
+
+    const stale = await call('GET', '/list-accounts', undefined, { cookie })
+    expect(stale.status, '11 分鐘前建立的 session 不該還能列出登入方式').toBe(403)
+    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+  })
+
+  it('link-social 同樣要 fresh', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 11)
+
+    const stale = await call('POST', '/link-social', { provider: 'google' }, { cookie })
+    expect(stale.status).toBe(403)
+    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+  })
+
+  it('不要求 fresh 的路由不受影響——放久了照樣能讀 session 與登出', async () => {
+    const { email, cookie } = await activeSignIn()
+    await ageSession(email, 120)
+
+    expect((await call('GET', '/get-session', undefined, { cookie })).status).toBe(200)
+    expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
+  })
+})
+
+// ── server-only 呼叫也受狀態矩陣管（2026-09-16 複核 Spec 2 的回歸測試） ──────
+
+describe('server-only 呼叫也受狀態矩陣管', () => {
+  /**
+   * `hooks.before` 原本在沒有 `ctx.request` 時把方法當成 `POST`。
+   * `/list-accounts` **只註冊了 GET**，所以 `sessionRequirement('/list-accounts','POST')`
+   * 回 undefined，整個狀態檢查直接跳過——HTTP GET 擋得住，
+   * `auth.api.listUserAccounts({ headers })` 卻拿得到資料。
+   *
+   * 根本問題是「沒有方法時去猜一個方法」。現在沒有方法就不用方法查表，
+   * 改以路徑取最嚴的一條。
+   *
+   * 目前沒有任何正式包裝器對外暴露 `listUserAccounts`，所以這不是一個已重現的對外利用，
+   * 而是共同 hook 的契約漏洞——但它就在所有人都會走的那條路上。
+   */
+
+  function headersWith(cookie: string): Headers {
+    return new Headers({ cookie })
+  }
+
+  /** 先讓他登得進來（建 session 會擋非 usable 狀態），登入後再改成要測的狀態。 */
+  async function signedInCookie(status: string, mustChange = false): Promise<string> {
+    const { email, password } = await signUp()
+    await db.sql(
+      'update users set status = $2, must_change_password = $3, banned = false where email = $1',
+      [email, status === 'pending' ? 'active' : status, mustChange],
+    )
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    if (status === 'pending') {
+      await db.sql(`update users set status = 'pending' where email = $1`, [email])
+    }
+    return signIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+  }
+
+  it('pending 的人從伺服器端呼叫 listUserAccounts 一樣被擋', async () => {
+    const cookie = await signedInCookie('pending')
+
+    // HTTP 那條早就擋住了，這裡確認 server-only 這條也擋。
+    expect((await call('GET', '/list-accounts', undefined, { cookie })).status).toBe(403)
+    await expect(
+      authInstance.api.listUserAccounts({ headers: headersWith(cookie) }),
+    ).rejects.toMatchObject({ status: 'FORBIDDEN' })
+  })
+
+  it('must-change 的人也一樣', async () => {
+    const cookie = await signedInCookie('active', true)
+    await expect(
+      authInstance.api.listUserAccounts({ headers: headersWith(cookie) }),
+    ).rejects.toMatchObject({ status: 'FORBIDDEN' })
+  })
+
+  it('active 且 fresh 的人從伺服器端呼叫仍然正常（沒有擋過頭）', async () => {
+    const cookie = await signedInCookie('active')
+    const accounts = await authInstance.api.listUserAccounts({ headers: headersWith(cookie) })
+    expect(Array.isArray(accounts)).toBe(true)
+  })
+})

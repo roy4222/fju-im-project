@@ -236,3 +236,32 @@ $ pnpm -C web vitest run --project integration src/
 - 內部呼叫包裝器、AsyncLocalStorage marker、三向測試的第三向：**S01-03**。
 - 登入限速、Turnstile、Google 真登入：**S01-05／S01-14／S01-15**，本票沒做。
 - VM 部署：**NOT_RUN**（#187–#189）。
+
+## 2026-09-16 複核：fresh session 根本沒生效（Spec 1）
+
+契約 03 §2 對 `POST /link-social` 與 `GET /list-accounts` 要求 fresh session（10 分鐘）。
+上一輪的作法是設 `session.freshAge = 600`，驗收時確認「這個選項存在於 session 設定」。
+
+**驗選項存在 ≠ 它會生效。** 安裝版本 1.7.5 的 `dist/api/routes/session.mjs` 裡，
+只有 `/list-sessions` 掛了 `freshSessionMiddleware`；`/link-social` 與 `/list-accounts`
+掛的是一般的 `sessionMiddleware`，`freshAge` 對它們從頭到尾不會被讀到。
+實測把 `sessions.created_at` 回推 11 分鐘，`GET /list-accounts` 仍然回 200。
+
+改法：把 fresh 變成**路由矩陣上的一欄**（`route-matrix.ts` 的 `fresh`），由 `hooks.before`
+自己比對 `session.created_at`，判準與套件那支一致（`now - created_at >= freshAge` 即拒絕），
+回 403 `SESSION_NOT_FRESH`。矩陣是單一來源，新路由要不要 fresh 就寫在同一張表上。
+
+順帶把 `sessionRequirement()` 的回傳從單一字串改成 `{ session, fresh }`，
+並加上 `requirementByPath()`——後者是 #207 的 server-only 修正要用的，見那一票。
+
+### 測試
+
+- 整合（`auth-routes.integration.test.ts`）4 項：9 分鐘仍通；11 分鐘的 `list-accounts` 回
+  403 `SESSION_NOT_FRESH`；`link-social` 同樣；**不**要求 fresh 的 `get-session` 與 `sign-out`
+  放 120 分鐘照樣通（釘住「沒有擋過頭」）。
+- 單元（`route-matrix.test.ts`）5 項：矩陣本身的規則，含「要 fresh 的一定是 active-only」。
+
+對照組：把 `auth-instance.ts` 與 `route-matrix.ts` 還原成修正前、**測試維持新版**再跑一次
+——fresh 的 2 項紅，其餘綠。修正後本檔 46 項整合＋19 項單元全綠。
+
+**VM 測試站仍是 NOT_RUN**，以上都是本機。

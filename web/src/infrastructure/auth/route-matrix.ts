@@ -35,6 +35,15 @@ export type AuthRoutePolicy = {
   readonly access: RouteAccess
   /** 帳號狀態的要求（契約 03 §2）。 */
   readonly session: SessionRequirement
+  /**
+   * 這條路由要不要 **fresh session**（契約 03 §2 的 freshAge＝10 分鐘）。
+   *
+   * 不能靠設定 `session.freshAge` 就以為生效：安裝版本 1.7.5 的
+   * `dist/api/routes/session.mjs` 只有 `/list-sessions` 掛 `freshSessionMiddleware`，
+   * `/link-social` 與 `/list-accounts` 掛的是一般的 `sessionMiddleware`
+   * ——`freshAge` 對它們完全沒有作用（2026-09-16 複核 Spec 1）。所以由本表宣告、hook 自己比對。
+   */
+  readonly fresh: boolean
   readonly note: string
 }
 
@@ -48,23 +57,25 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     methods: ['POST'],
     access: 'allowed',
     session: 'none',
+    fresh: false,
     note: '密碼註冊；`user.create.before` 注入 status=pending（申請單由 S01-09 建）',
   },
-  { path: '/sign-in/email', methods: ['POST'], access: 'allowed', session: 'none', note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
-  { path: '/sign-in/social', methods: ['POST'], access: 'allowed', session: 'none', note: 'Google 登入入口（S01-14）' },
-  { path: '/callback/:id', methods: ['GET', 'POST'], access: 'allowed', session: 'none', note: 'OAuth 回呼' },
-  { path: '/get-session', methods: ['GET', 'POST'], access: 'allowed', session: 'signed-in', note: '讀目前 session' },
-  { path: '/sign-out', methods: ['POST'], access: 'allowed', session: 'signed-in', note: '登出' },
+  { path: '/sign-in/email', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
+  { path: '/sign-in/social', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: 'Google 登入入口（S01-14）' },
+  { path: '/callback/:id', methods: ['GET', 'POST'], access: 'allowed', session: 'none', fresh: false, note: 'OAuth 回呼' },
+  { path: '/get-session', methods: ['GET', 'POST'], access: 'allowed', session: 'signed-in', fresh: false, note: '讀目前 session' },
+  { path: '/sign-out', methods: ['POST'], access: 'allowed', session: 'signed-in', fresh: false, note: '登出' },
   {
     path: '/change-password',
     methods: ['POST'],
     access: 'allowed',
     session: 'signed-in',
+    fresh: false,
     note: 'must-change 期間唯一可做的業務動作；撤其他 session 由 S01-05 的用例帶 revokeOtherSessions',
   },
-  { path: '/link-social', methods: ['POST'], access: 'allowed', session: 'active-only', note: '連結 Google；只限 active 且 fresh session' },
-  { path: '/list-accounts', methods: ['GET'], access: 'allowed', session: 'active-only', note: '本人看自己有哪幾種登入方式' },
-  { path: '/error', methods: ['GET'], access: 'allowed', session: 'none', note: 'OAuth 失敗時套件自己導過來的錯誤頁；不吐任何帳號資料' },
+  { path: '/link-social', methods: ['POST'], access: 'allowed', session: 'active-only', fresh: true, note: '連結 Google；只限 active 且 fresh session' },
+  { path: '/list-accounts', methods: ['GET'], access: 'allowed', session: 'active-only', fresh: true, note: '本人看自己有哪幾種登入方式' },
+  { path: '/error', methods: ['GET'], access: 'allowed', session: 'none', fresh: false, note: 'OAuth 失敗時套件自己導過來的錯誤頁；不吐任何帳號資料' },
 ] as const
 
 /**
@@ -143,18 +154,59 @@ export function routeAccess(path: string, method: string): RouteAccess {
  * 才算「被封鎖的能力」，需要內部包裝器的 marker。
  */
 export function pathHasAnyAllowedMethod(path: string): boolean {
-  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
-  return ALLOWED_PATTERNS.some(({ pattern }) => pattern.test(normalized))
+  return ALLOWED_PATTERNS.some(({ pattern }) => pattern.test(normalizePath(path)))
 }
 
-/** 這條路由（對這個方法）的帳號狀態要求；不是白名單路由就回 undefined。 */
-export function sessionRequirement(path: string, method: string): SessionRequirement | undefined {
-  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+/** 這條路由對這個請求的要求；不是白名單路由（或不是白名單的方法）就回 undefined。 */
+export type RouteRequirement = {
+  readonly session: SessionRequirement
+  readonly fresh: boolean
+}
+
+/** 由嚴到寬，用來合併同一路徑上多個方法的要求。 */
+const STRICTNESS: Readonly<Record<SessionRequirement, number>> = {
+  none: 0,
+  'signed-in': 1,
+  'active-only': 2,
+}
+
+function normalizePath(path: string): string {
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+/** 這條路由（對這個方法）的要求；不是白名單路由就回 undefined。 */
+export function sessionRequirement(path: string, method: string): RouteRequirement | undefined {
+  const normalized = normalizePath(path)
   const upper = method.toUpperCase()
   for (const { route, pattern } of ALLOWED_PATTERNS) {
-    if (pattern.test(normalized) && route.methods.includes(upper as 'GET' | 'POST')) return route.session
+    if (pattern.test(normalized) && route.methods.includes(upper as 'GET' | 'POST')) {
+      return { session: route.session, fresh: route.fresh }
+    }
   }
   return undefined
+}
+
+/**
+ * 以**路徑**（不看方法）判定要求，取所有符合的方法裡最嚴的一條。
+ *
+ * 給 server-only 呼叫用：`auth.api.listUserAccounts({ headers })` 這種沒有 HTTP request，
+ * 也就沒有方法可看。之前的寫法是「沒有 request 就當 POST」，而 `/list-accounts` 只註冊了
+ * GET，`sessionRequirement('/list-accounts','POST')` 回 undefined，整個狀態檢查就被跳過
+ * ——pending 的人從伺服器端呼叫仍然拿得到資料（2026-09-16 複核 Spec 2）。
+ * 「猜一個方法」本來就不對：沒有方法時就不該用方法查表。
+ */
+export function requirementByPath(path: string): RouteRequirement | undefined {
+  const normalized = normalizePath(path)
+  let found: RouteRequirement | undefined
+  for (const { route, pattern } of ALLOWED_PATTERNS) {
+    if (!pattern.test(normalized)) continue
+    if (found === undefined || STRICTNESS[route.session] > STRICTNESS[found.session]) {
+      found = { session: route.session, fresh: route.fresh || (found?.fresh ?? false) }
+    } else if (route.fresh) {
+      found = { ...found, fresh: true }
+    }
+  }
+  return found
 }
 
 /** 從 Next 的請求 URL 取出 Better Auth 端點的路徑（去掉 `/api/auth` 前綴）。 */
