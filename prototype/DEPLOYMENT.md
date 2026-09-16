@@ -55,8 +55,8 @@ react-server-dom-webpack（19.2.8）、vinext（1.0.0-beta.9）、@vinext/cloudf
 - 本機 Workers 預覽（`wrangler dev --port 3101`）掃 42 條路由（前台 13＋學生 8＋老師 8＋管理員 13）全部 200；
   從前台原型操作列點「老師」實際切換 cookie，再由工作台入口進 `/dashboard/teacher`。
 - 升級前後同一組截圖逐張比對：抽查未觀察到版面或內容回歸；仍有動態元件（Recharts 圓環圖動畫）
-  與通知圖示、表格邊緣等少量像素差異，未證明逐像素一致。圓環圖那塊在同一版連拍兩次也會出現
-  同樣大小的差異，可判定與升級無關。
+  與通知圖示、表格邊緣等少量像素差異，未證明逐像素一致。圓環圖那塊在同一版連拍兩次
+  亦出現相近量級的差異，支持動畫擷取時點是差異來源之一。
 - `pnpm run lint` 仍有 1 個既有 error（`src/hooks/use-mobile.ts` 的 react-hooks/set-state-in-effect），
   升級前後相同，本次未修。eslint 設定另補上忽略 `dist/`、`.vinext/`、`.wrangler/`，
   否則跑過 `build:vinext` 之後 lint 會多出數千筆產物噪音。
