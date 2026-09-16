@@ -173,6 +173,19 @@ export const registrationApplications = pgTable(
       onUpdate: 'restrict',
     }),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
+    /**
+     * 誰建的（契約 01 §1 的建立欄與 actor 規則）。
+     *
+     * 幾乎都是申請人自己（`user`），但 Google 首次補資料與系辦代建的路徑會是別的 actor，
+     * 所以照通用規則存 kind＋user_id，不假設一定等於 `user_id`。
+     * **刻意不給 default**：`'user'` 配 NULL 會直接違反配對 CHECK，那種預設值等於埋地雷，
+     * 寧可讓每個寫入點明講自己是誰。
+     */
+    createdByKind: text('created_by_kind').notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
     updatedAt: timestamp('updated_at', tz).notNull().defaultNow(),
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'restrict',
@@ -181,6 +194,14 @@ export const registrationApplications = pgTable(
   },
   (t) => [
     check('registration_applications_state_check', sql`${t.state} in ('pending','approved','rejected')`),
+    check(
+      'registration_applications_created_by_kind_check',
+      sql`${t.createdByKind} in ('user','system','worker')`,
+    ),
+    check(
+      'registration_applications_created_by_actor_check',
+      sql`(${t.createdByKind} = 'user') = (${t.createdByUserId} is not null)`,
+    ),
     check(
       'registration_applications_verification_method_check',
       sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other')`,
