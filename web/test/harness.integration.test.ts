@@ -103,6 +103,8 @@ describe('屏障：兩筆交易在指定點會合', () => {
       const order: string[] = []
       /** 第二筆交易的 backend pid；它在會合之前填好，第一筆會合之後才讀。 */
       let secondPid = 0
+      /** 第二筆拿到鎖之後讀到的值。 */
+      let secondSawValue = -1
 
       const first = (async () => {
         const client = await db.connect()
@@ -133,6 +135,12 @@ describe('屏障：兩筆交易在指定點會合', () => {
           // 這行會卡住，直到第一筆 commit 放開鎖。
           await client.query('select * from counters where id = 1 for update')
           order.push('second-acquired-lock')
+          // 解開鎖的那一刻讀到的值，就是「第一筆到底 commit 了沒」的鐵證：
+          // 讀到 1 代表第一筆的 +1 已經落地，讀到 0 代表我們根本沒被擋住。
+          const seen = await client.query<{ value: number }>(
+            'select value from counters where id = 1',
+          )
+          secondSawValue = Number(seen.rows[0]!.value)
           await client.query('update counters set value = value + 10 where id = 1')
           await client.query('commit')
         } finally {
@@ -142,9 +150,21 @@ describe('屏障：兩筆交易在指定點會合', () => {
 
       await Promise.all([first, second])
 
-      expect(order).toEqual(['first-locked', 'first-committed', 'second-acquired-lock'])
+      // 刻意**不**比對三個事件的完整順序。
+      //
+      // 第一筆的 `commit` resolve 與第二筆「被解鎖」的 resolve 是兩個獨立的 task，
+      // 誰的 continuation 先跑由事件迴圈決定——`['first-locked','second-acquired-lock',
+      // 'first-committed']` 是合法的排列，但不代表資料庫的順序錯了。
+      // 2026-09-16 在 CI 上就是這樣紅的。
+      //
+      // 真正要證明的是「第二筆確實被擋到第一筆 commit 之後」，而那件事有鐵證：
+      // 第二筆解鎖後讀到的值。
+      expect(order[0], '第一筆要先拿到鎖').toBe('first-locked')
+      expect(order).toHaveLength(3)
+      expect(secondSawValue, '第二筆解鎖時要看得到第一筆已經 +1（＝它真的被擋住了）').toBe(1)
+
       const value = await db.sql('select value from counters where id = 1')
-      expect(value.rows[0]).toEqual({ value: 11 })
+      expect(value.rows[0], '兩筆都生效且沒有互相覆蓋').toEqual({ value: 11 })
     })
   })
 
