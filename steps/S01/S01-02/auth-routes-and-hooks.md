@@ -92,6 +92,37 @@ TOTAL 45
 **gate 結果：通過。** marker（AsyncLocalStorage）條件是 S01-03 的範圍——本票只做到
 「`ctx.request` 存在就擋」，「缺 marker 的伺服器端呼叫也要擋」是三向測試的第三向，S01-03 補。
 
+## 3.5 2026-09-16 review 修正：白名單路由現在真的受帳號狀態矩陣管（Spec 2／P1）
+
+review 用隔離 PostgreSQL 重現了三個缺口，都是同一個根因：**狀態檢查只做在頁面導向與
+Server Action 上，直接打 `/api/auth/*` 就繞過去了**。
+
+| 重現的情況 | 修正前 | 修正後 |
+|---|---|---|
+| `status='disabled'`、`banned=false`（ban 還沒收斂）的帳號登入 | HTTP 200 | **登入失敗，session 不會被建出來** |
+| 同一個帳號的既有 session 呼叫改密 | `ok: true` | **401** |
+| pending／must-change 打 `/list-accounts` | 都 200 | **都 403** |
+
+修在兩個地方，兩個都在 Better Auth 的 hook 裡，所以 HTTP 與伺服器端呼叫走同一條路：
+
+1. **`hooks.before` 的第二關**：路由通過之後再看帳號狀態。
+   `route-matrix.ts` 的每一條白名單路由多了一個 `session` 欄位（`none`／`signed-in`／`active-only`），
+   對應契約 03 §2 矩陣的那幾欄；`sessionRequirement()` 回答這條路要什麼，
+   hook 用 `getAuthoritativeSessionFromCtx` 拿 session、再回資料庫讀 `users.status`。
+2. **`databaseHooks.session.create.before`**：停用或去識別化的人**建不出 session**，
+   所以登入直接失敗。
+
+兩個判斷都**只看 `users.status`，不看 Better Auth 的 `banned`** —— 後者是 commit 後的外部
+呼叫，可能還沒收斂（模組 01 v2.4 規則 6 寫的就是這個情境）。
+
+**為什麼擋在「建 session 的那一刻」而不是登入前先查 Email**：先查再拒絕，等於送對方一個
+「這個帳號存在而且被停用」的探測管道。擋在密碼驗過之後，外面看到的就只是一次普通的登入失敗。
+同理，被停用的人拿到的是 `UNAUTHENTICATED`／「請重新登入」，不是「你被停用了」。
+
+新增 6 條回歸測試（`auth-routes.integration.test.ts` 最後一組），涵蓋上面三種重現情況、
+「登入後才被停用，同一個 cookie 立刻失效」、以及正向的「active 用得了 `list-accounts`」與
+「must-change 仍然讀得到 session、登得出去」。
+
 ## 4. 真的打進去（本機跑起來的站，不是模擬）
 
 站起在 `http://127.0.0.1:3000`（`pnpm -C web start`，`/api/health` 先綠）：

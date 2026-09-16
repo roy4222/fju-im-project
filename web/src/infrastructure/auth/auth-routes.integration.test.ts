@@ -334,3 +334,113 @@ describe('設定值', () => {
     expect(typeof generate).toBe('function')
   })
 })
+
+// ── 帳號狀態矩陣：白名單路由也要受它管（2026-09-16 review Spec 2 的回歸測試） ──
+
+describe('白名單路由的帳號狀態矩陣（契約 03 §2）', () => {
+  /**
+   * 這一組是回歸測試。
+   *
+   * 原本狀態檢查只做在頁面導向與 Server Action 上，`/api/auth/*` 直接打就繞過去了：
+   * 業務上已停用（`status='disabled'`、`banned` 還沒收斂）的帳號照樣登得進去，
+   * pending 與 must-change 也叫得動 `list-accounts`。現在 hook 裡就擋。
+   */
+
+  async function accountWithStatus(status: string, mustChange = false) {
+    const { email, password } = await signUp()
+    const row = await db.sql('select id from users where email = $1', [email])
+    const userId = String(row.rows[0]!.id)
+    await db.sql('update users set status = $2, must_change_password = $3, banned = false where id = $1', [
+      userId,
+      status,
+      mustChange,
+    ])
+    return { email, password, userId }
+  }
+
+  it('停用的帳號登不進去——即使 Better Auth 的 banned 還沒收斂', async () => {
+    const { email, password, userId } = await accountWithStatus('disabled')
+    const before = await sessionCount(email)
+
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status, '停用帳號不該拿得到 session').toBeGreaterThanOrEqual(400)
+    expect(await sessionCount(email), '不該多出任何 session').toBe(before)
+
+    // 確認我們擋的依據是業務狀態而不是套件的 banned。
+    const banned = await db.sql('select banned from users where id = $1', [userId])
+    expect(banned.rows[0]!.banned).toBe(false)
+  })
+
+  it('去識別化的帳號也登不進去', async () => {
+    const { email, password } = await signUp()
+    await db.sql(`update users set status = 'active', deidentified_at = now() where email = $1`, [email])
+    const before = await sessionCount(email)
+
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBeGreaterThanOrEqual(400)
+    expect(await sessionCount(email)).toBe(before)
+  })
+
+  it('登入之後才被停用：既有 session 立刻失效（get-session 與 change-password 都擋）', async () => {
+    const { email, password } = await signUp()
+    await db.sql(`update users set status = 'active' where email = $1`, [email])
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    const cookie = signIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+
+    // 還沒停用時 get-session 是通的。
+    expect((await call('GET', '/get-session', undefined, { cookie })).status).toBe(200)
+
+    await db.sql(`update users set status = 'disabled', banned = false where email = $1`, [email])
+
+    const session = await call('GET', '/get-session', undefined, { cookie })
+    expect(session.status, '停用之後同一個 cookie 就該失效').toBeGreaterThanOrEqual(400)
+
+    const change = await call(
+      'POST',
+      '/change-password',
+      { currentPassword: password, newPassword: 'Another-Long-Password-1' },
+      { cookie },
+    )
+    expect(change.status, '停用的人不能改密').toBeGreaterThanOrEqual(400)
+  })
+
+  it('pending 與 must-change 叫不動 list-accounts（只有 active 可以）', async () => {
+    const pending = await signUp() // 註冊完就是 pending，而且註冊本身會建 session
+    const pendingCookie = pending.response.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const asPending = await call('GET', '/list-accounts', undefined, { cookie: pendingCookie })
+    expect(asPending.status, 'pending 不能列出登入方式').toBe(403)
+
+    const forced = await accountWithStatus('active', true)
+    const forcedSignIn = await call('POST', '/sign-in/email', {
+      email: forced.email,
+      password: forced.password,
+    })
+    expect(forcedSignIn.status).toBe(200)
+    const forcedCookie = forcedSignIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const asForced = await call('GET', '/list-accounts', undefined, { cookie: forcedCookie })
+    expect(asForced.status, 'must-change 只能改密與登出').toBe(403)
+  })
+
+  it('active 且不必改密的人，list-accounts 正常', async () => {
+    const active = await accountWithStatus('active')
+    const signIn = await call('POST', '/sign-in/email', {
+      email: active.email,
+      password: active.password,
+    })
+    const cookie = signIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+    expect((await call('GET', '/list-accounts', undefined, { cookie })).status).toBe(200)
+  })
+
+  it('pending 與 must-change 仍然可以讀 session、改密、登出（那是他們唯一能做的）', async () => {
+    const forced = await accountWithStatus('active', true)
+    const signIn = await call('POST', '/sign-in/email', {
+      email: forced.email,
+      password: forced.password,
+    })
+    const cookie = signIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+
+    expect((await call('GET', '/get-session', undefined, { cookie })).status).toBe(200)
+    expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
+  })
+})
