@@ -489,7 +489,7 @@ describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
 
     const stale = await call('GET', '/list-accounts', undefined, { cookie })
     expect(stale.status, '11 分鐘前建立的 session 不該還能列出登入方式').toBe(403)
-    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+    expect(await stale.json()).toMatchObject({ code: 'FRESH_SESSION_REQUIRED' })
   })
 
   it('link-social 同樣要 fresh', async () => {
@@ -498,7 +498,7 @@ describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
 
     const stale = await call('POST', '/link-social', { provider: 'google' }, { cookie })
     expect(stale.status).toBe(403)
-    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+    expect(await stale.json()).toMatchObject({ code: 'FRESH_SESSION_REQUIRED' })
   })
 
   it('不要求 fresh 的路由不受影響——放久了照樣能讀 session 與登出', async () => {
