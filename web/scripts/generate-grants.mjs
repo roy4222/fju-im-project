@@ -2,9 +2,13 @@
 /**
  * 從權限矩陣產生 GRANT 與不可變 trigger 的 SQL（契約 01 §5：「migration 由本表產生 GRANT」）。
  *
- *   node scripts/generate-grants.mjs            # 印出 SQL
- *   node scripts/generate-grants.mjs --write    # 寫回 migration 的標記區塊
+ *   node scripts/generate-grants.mjs            # 印出每一支 migration 的 SQL
+ *   node scripts/generate-grants.mjs --write    # 寫回各 migration 的標記區塊
  *   node scripts/generate-grants.mjs --check    # 核對 migration 與矩陣一致（CI 用）
+ *
+ * 矩陣的每一列有 `slice`，決定這張表的 GRANT 產生到哪一支 migration：
+ * S00 的表在 0001、S01 新增的表在 0002。每一支 migration 只處理自己那一批表，
+ * 舊的 migration 不會因為後面切片新增表而被改動（已部署的 migration 不能動）。
  *
  * migration 裡用兩行標記把產生區塊框起來，人不要手改那一段——改矩陣再跑 --write。
  */
@@ -13,7 +17,12 @@ import path from 'node:path'
 
 const webRoot = path.join(import.meta.dirname, '..')
 const matrixPath = path.join(webRoot, 'src/infrastructure/db/permissions/matrix.json')
-const migrationPath = path.join(webRoot, 'drizzle/0001_s00_roles_and_immutability.sql')
+
+/** 切片 → 放 GRANT 產生區塊的 migration。新切片新增表時在這裡補一列。 */
+const MIGRATION_BY_SLICE = {
+  S00: 'drizzle/0001_s00_roles_and_immutability.sql',
+  S01: 'drizzle/0002_s01_accounts_and_files.sql',
+}
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'
 const END = '-- <<< 產生區塊結束 <<<'
@@ -21,11 +30,10 @@ const BREAK = '--> statement-breakpoint'
 
 const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'))
 const { app, backup } = matrix.roles
-const tables = matrix.tables
 
 const list = (rows) => rows.map((r) => r.table).join(', ')
 
-function generate() {
+function generate(tables) {
   const statements = []
 
   statements.push(
@@ -78,32 +86,46 @@ function generate() {
   return `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
 }
 
-const generated = generate()
-const migration = fs.readFileSync(migrationPath, 'utf8')
-const beginAt = migration.indexOf(BEGIN)
-const endAt = migration.indexOf(END)
+const slices = [...new Set(matrix.tables.map((t) => t.slice))].sort()
+const mode = process.argv.includes('--check') ? 'check' : process.argv.includes('--write') ? 'write' : 'print'
+let failed = false
 
-if (beginAt === -1 || endAt === -1) {
-  console.error(`${path.relative(webRoot, migrationPath)} 裡找不到產生區塊的標記。`)
-  process.exit(1)
-}
-
-const current = migration.slice(beginAt, endAt + END.length)
-
-if (process.argv.includes('--check')) {
-  if (current === generated) {
-    console.log('migration 的 GRANT 區塊與權限矩陣一致。')
-    process.exit(0)
+for (const slice of slices) {
+  const relative = MIGRATION_BY_SLICE[slice]
+  if (!relative) {
+    console.error(`matrix.json 有 slice "${slice}"，但 generate-grants.mjs 的 MIGRATION_BY_SLICE 沒有對應的 migration。`)
+    process.exit(1)
   }
-  console.error('migration 的 GRANT 區塊與 permissions/matrix.json 不一致。')
-  console.error('改矩陣之後請跑 `pnpm -C web db:grants --write`，不要手改 migration 的產生區塊。')
-  process.exit(1)
+
+  const migrationPath = path.join(webRoot, relative)
+  const generated = generate(matrix.tables.filter((t) => t.slice === slice))
+  const migration = fs.readFileSync(migrationPath, 'utf8')
+  const beginAt = migration.indexOf(BEGIN)
+  const endAt = migration.indexOf(END)
+
+  if (beginAt === -1 || endAt === -1) {
+    console.error(`${relative} 裡找不到產生區塊的標記。`)
+    process.exit(1)
+  }
+
+  const current = migration.slice(beginAt, endAt + END.length)
+
+  if (mode === 'check') {
+    if (current === generated) {
+      console.log(`${relative} 的 GRANT 區塊與權限矩陣一致（${slice}）。`)
+    } else {
+      console.error(`${relative} 的 GRANT 區塊與 permissions/matrix.json 不一致（${slice}）。`)
+      console.error('改矩陣之後請跑 `pnpm -C web db:grants --write`，不要手改 migration 的產生區塊。')
+      failed = true
+    }
+  } else if (mode === 'write') {
+    fs.writeFileSync(migrationPath, migration.slice(0, beginAt) + generated + migration.slice(endAt + END.length))
+    console.log(`已更新 ${relative} 的產生區塊（${slice}）。`)
+  } else {
+    console.log(`-- ${relative}（${slice}）`)
+    console.log(generated)
+    console.log('')
+  }
 }
 
-if (process.argv.includes('--write')) {
-  fs.writeFileSync(migrationPath, migration.slice(0, beginAt) + generated + migration.slice(endAt + END.length))
-  console.log(`已更新 ${path.relative(webRoot, migrationPath)} 的產生區塊。`)
-  process.exit(0)
-}
-
-console.log(generated)
+process.exit(failed ? 1 : 0)

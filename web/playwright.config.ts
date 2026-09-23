@@ -15,6 +15,8 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   outputDir: './e2e/.artifacts',
+  // 造測試登入狀態時最多會等一個限速視窗（見 e2e/session.ts），所以逾時放寬。
+  timeout: 90_000,
   use: {
     baseURL: process.env.BASE_URL ?? 'http://localhost:8080',
     trace: 'retain-on-failure',

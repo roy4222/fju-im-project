@@ -1,3 +1,5 @@
 import 'server-only'
 export * from '@/infrastructure/db/schema/auth'
 export * from '@/infrastructure/db/schema/base'
+export * from '@/infrastructure/db/schema/files'
+export * from '@/infrastructure/db/schema/accounts'

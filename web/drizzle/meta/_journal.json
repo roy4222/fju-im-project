@@ -15,6 +15,13 @@
       "when": 1789458700080,
       "tag": "0001_s00_roles_and_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789525310218,
+      "tag": "0002_s01_accounts_and_files",
+      "breakpoints": true
     }
   ]
 }
