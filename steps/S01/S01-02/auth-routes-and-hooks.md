@@ -249,7 +249,7 @@ $ pnpm -C web vitest run --project integration src/
 
 改法：把 fresh 變成**路由矩陣上的一欄**（`route-matrix.ts` 的 `fresh`），由 `hooks.before`
 自己比對 `session.created_at`，判準與套件那支一致（`now - created_at >= freshAge` 即拒絕），
-回 403 `SESSION_NOT_FRESH`。矩陣是單一來源，新路由要不要 fresh 就寫在同一張表上。
+回 403 `FRESH_SESSION_REQUIRED`。矩陣是單一來源，新路由要不要 fresh 就寫在同一張表上。
 
 順帶把 `sessionRequirement()` 的回傳從單一字串改成 `{ session, fresh }`，
 並加上 `requirementByPath()`——後者是 #207 的 server-only 修正要用的，見那一票。
@@ -257,7 +257,7 @@ $ pnpm -C web vitest run --project integration src/
 ### 測試
 
 - 整合（`auth-routes.integration.test.ts`）4 項：9 分鐘仍通；11 分鐘的 `list-accounts` 回
-  403 `SESSION_NOT_FRESH`；`link-social` 同樣；**不**要求 fresh 的 `get-session` 與 `sign-out`
+  403 `FRESH_SESSION_REQUIRED`；`link-social` 同樣；**不**要求 fresh 的 `get-session` 與 `sign-out`
   放 120 分鐘照樣通（釘住「沒有擋過頭」）。
 - 單元（`route-matrix.test.ts`）5 項：矩陣本身的規則，含「要 fresh 的一定是 active-only」。
 

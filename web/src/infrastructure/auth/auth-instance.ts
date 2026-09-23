@@ -270,7 +270,7 @@ function createAuth() {
           const createdAt = new Date(session.session.createdAt).getTime()
           if (!Number.isFinite(createdAt) || Date.now() - createdAt >= FRESH_AGE_SECONDS * 1000) {
             throw new APIError('FORBIDDEN', {
-              code: 'SESSION_NOT_FRESH',
+              code: 'FRESH_SESSION_REQUIRED',
               message: '這個操作需要重新登入確認身分。',
             })
           }
