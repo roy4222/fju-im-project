@@ -6,19 +6,30 @@
     "backup": "fju_backup"
   },
   "tables": [
-    { "table": "users", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "Better Auth 更新；status／must_change_password／deidentified_at 只由 01 用例改（application 層保證）" },
-    { "table": "accounts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "密碼雜湊更新、Google 連結；不給 DELETE（unlink 不在產品範圍）" },
-    { "table": "sessions", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "套件建立、更新、撤銷；含擴充欄 login_method" },
-    { "table": "verifications", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": false, "note": "套件建立與清除" },
-    { "table": "cohorts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "頭列" },
-    { "table": "schema_meta", "select": true, "insert": false, "update": "none", "delete": false, "immutable": false, "worker": true, "note": "只由 migrate 寫" },
-    { "table": "audit_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變" },
-    { "table": "operation_records", "select": true, "insert": true, "update": ["state", "receipt", "receipt_expires_at", "result_ref"], "delete": false, "immutable": false, "worker": true, "note": "帳本；receipt_purge 清 receipt" },
-    { "table": "domain_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變 outbox" },
-    { "table": "event_projections", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "投影狀態" },
-    { "table": "due_work", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "到期工作" }
+    { "slice": "S00", "table": "users", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "Better Auth 更新；status／must_change_password／deidentified_at 只由 01 用例改（application 層保證）" },
+    { "slice": "S00", "table": "accounts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "密碼雜湊更新、Google 連結；不給 DELETE（unlink 不在產品範圍）" },
+    { "slice": "S00", "table": "sessions", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "套件建立、更新、撤銷；含擴充欄 login_method" },
+    { "slice": "S00", "table": "verifications", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": false, "note": "套件建立與清除" },
+    { "slice": "S00", "table": "cohorts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "頭列" },
+    { "slice": "S00", "table": "schema_meta", "select": true, "insert": false, "update": "none", "delete": false, "immutable": false, "worker": true, "note": "只由 migrate 寫" },
+    { "slice": "S00", "table": "audit_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變" },
+    { "slice": "S00", "table": "operation_records", "select": true, "insert": true, "update": ["state", "receipt", "receipt_expires_at", "result_ref"], "delete": false, "immutable": false, "worker": true, "note": "帳本；receipt_purge 清 receipt" },
+    { "slice": "S00", "table": "domain_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變 outbox" },
+    { "slice": "S00", "table": "event_projections", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "投影狀態" },
+    { "slice": "S00", "table": "due_work", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "到期工作" },
+    { "slice": "S01", "table": "user_profiles", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "本人與系辦改；系級 department_class 與屆別分開（2026-09-15 定案）" },
+    { "slice": "S01", "table": "student_identities", "select": true, "insert": true, "update": "none", "delete": true, "immutable": false, "worker": false, "note": "占用表：核准插入、停用／去識別化刪除" },
+    { "slice": "S01", "table": "registration_applications", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "待審修改與核准" },
+    { "slice": "S01", "table": "application_revisions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
+    { "slice": "S01", "table": "roster_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
+    { "slice": "S01", "table": "roster_entries", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
+    { "slice": "S01", "table": "role_assignments", "select": true, "insert": true, "update": ["revoked_by_user_id", "revoked_real_at", "reason"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" },
+    { "slice": "S01", "table": "user_status_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
+    { "slice": "S01", "table": "session_revocations", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "撤 session 的可變工作列；收斂核對讀 users.banned 只用 SELECT" },
+    { "slice": "S01", "table": "stored_files", "select": true, "insert": true, "update": ["status", "size_bytes", "checksum", "mime_detected", "finalized_at", "soft_deleted_at", "purged_at", "revision", "updated_at"], "delete": false, "immutable": false, "worker": true, "note": "狀態欄；purge 是狀態加實體檔，不 DELETE 列" },
+    { "slice": "S01", "table": "file_references", "select": true, "insert": true, "update": ["released_at"], "delete": false, "immutable": false, "worker": true, "note": "釋放只設欄位；重新附加插入新列（契約 01 §11）" }
   ],
   "backupWrites": [
-    { "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }
+    { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }
   ]
 }
