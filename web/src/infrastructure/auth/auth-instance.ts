@@ -6,7 +6,13 @@ import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from '
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
-import { routeAccess, sessionRequirement } from '@/infrastructure/auth/route-matrix'
+import {
+  pathHasAnyAllowedMethod,
+  requirementByPath,
+  routeAccess,
+  sessionRequirement,
+} from '@/infrastructure/auth/route-matrix'
+import { isInternalCall } from '@/infrastructure/auth/internal-call'
 import {
   isFullyActive,
   isUsableSession,
@@ -120,20 +126,27 @@ function createAuth() {
     },
     hooks: {
       /**
-       * 第二層攔截。
+       * 第二層攔截（S01-02 的路由封鎖 ＋ S01-03 的內部呼叫辨識）。
        *
-       * 做兩件事：路由開不開（第一關），以及有 session 時帳號狀態准不准（第二關）。
-       *
-       * 只擋「帶著 HTTP request 的呼叫」：`ctx.request` 存在代表這是外部請求。
-       * 官方 hooks 文件寫 request「may not exist in server-only endpoints」，所以
-       * server-only 呼叫在這一層會通過——**S01-03 會再加上內部包裝器的 marker 條件**，
-       * 把「沒有 marker 的伺服器端呼叫」也擋掉（契約 03 §2 的三向測試）。
+       * 判定順序：
+       * 1. 這條路（對這個方法）是不是封鎖的？
+       *    是的話只有「內部呼叫」能過：`ctx.request` 不存在**且**包裝器的 marker 存在
+       *    （契約 03 §2）。兩個條件缺一不可，所以外部 HTTP 打不進來，
+       *    沒有經過包裝器的伺服器端呼叫也打不進來。
+       *    server-only 呼叫沒有 HTTP 方法可看，所以用 `pathHasAnyAllowedMethod` 以路徑判斷；
+       *    這樣 `auth.api.getSession` 這種本來就對外開放的端點在伺服器端仍然可用。
+       * 2. 路是通的——再看**帳號的業務狀態**（契約 03 §2 的矩陣）。
+       *    這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
+       *    （2026-09-16 review Spec 2）。放在 hook 裡，白名單路由才真的受狀態矩陣管。
        */
       before: createAuthMiddleware(async (ctx) => {
-        if (!ctx.request) return
+        const isBlocked = ctx.request
+          ? routeAccess(ctx.path, ctx.request.method) === 'blocked'
+          : !pathHasAnyAllowedMethod(ctx.path)
 
-        // ── 第一關：這條路對外開不開 ──────────────────────────────────────
-        if (routeAccess(ctx.path, ctx.request.method) === 'blocked') {
+        if (isBlocked) {
+          const isInternal = !ctx.request && isInternalCall()
+          if (isInternal) return
           throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
         }
 
@@ -141,7 +154,13 @@ function createAuth() {
         //
         // 這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
         // （2026-09-16 review Spec 2）。放在 hook 裡，白名單路由才真的受狀態矩陣管。
-        const requirement = sessionRequirement(ctx.path, ctx.request.method)
+        //
+        // **有 request 才用方法查表**；server-only 呼叫沒有方法，就以路徑取最嚴的一條。
+        // 之前是「沒有 request 就當 POST」，而 `/list-accounts` 只註冊 GET，
+        // 於是查不到、整關被跳過（2026-09-16 複核 Spec 2）。
+        const requirement = ctx.request
+          ? sessionRequirement(ctx.path, ctx.request.method)
+          : requirementByPath(ctx.path)
         if (requirement === undefined || requirement.session === 'none') return
 
         const session = await getAuthoritativeSessionFromCtx(ctx)
@@ -175,7 +194,7 @@ function createAuth() {
           const createdAt = new Date(session.session.createdAt).getTime()
           if (!Number.isFinite(createdAt) || Date.now() - createdAt >= FRESH_AGE_SECONDS * 1000) {
             throw new APIError('FORBIDDEN', {
-              code: 'SESSION_NOT_FRESH',
+              code: 'FRESH_SESSION_REQUIRED',
               message: '這個操作需要重新登入確認身分。',
             })
           }

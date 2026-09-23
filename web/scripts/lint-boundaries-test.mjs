@@ -32,6 +32,8 @@ const MUST_FAIL = [
   ['lint-fixtures/src/application/other/invalid-reexport-cross-module-runtime.ts', 'fju/module-boundary'],
   ['lint-fixtures/src/app/demo/invalid-reexport-module-private.tsx', 'fju/module-boundary'],
   ['lint-fixtures/src/infrastructure/invalid-imports-module-private.ts', 'fju/module-boundary'],
+  // 包裝器是唯一入口（S01-03）：繞過它直接拿 Better Auth 實例要被擋
+  ['lint-fixtures/src/application/demo/invalid-imports-auth-instance.ts', 'no-restricted-imports'],
 ]
 
 /** 合法例：一個錯都不該有。 */
@@ -44,6 +46,8 @@ const MUST_PASS = [
   // type-only 的 re-export、以及 infrastructure 經公開入口拿執行期實作——都是規格允許的
   'lint-fixtures/src/application/other/valid-reexport-type-only.ts',
   'lint-fixtures/src/infrastructure/valid-uses-module-entry.ts',
+  // 經包裝器呼叫管理員能力是唯一允許的寫法，不可以被誤擋（S01-03）
+  'lint-fixtures/src/infrastructure/valid-uses-auth-wrapper.ts',
 ]
 
 const eslint = new ESLint({ cwd: webRoot })

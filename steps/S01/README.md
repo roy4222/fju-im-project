@@ -10,7 +10,7 @@
 |---|---|
 | S01-01 #44 | [migration-and-permissions.md](S01-01/migration-and-permissions.md)（第二支 migration、新表權限、約束反例、系級欄位） |
 | S01-02 #45 | [auth-routes-and-hooks.md](S01-02/auth-routes-and-hooks.md)（兩層攔截、兩個安裝後 gate、封鎖端點的真實回應） |
-| S01-03 #46 | 尚未開工 |
+| S01-03 #46 | [actor-audit-ledger.md](S01-03/actor-audit-ledger.md)（三向測試、帳本重播、稽核雙時間、狀態矩陣） |
 | S01-04 #47 | 尚未開工 |
 | S01-05 #48 | 尚未開工 |
 

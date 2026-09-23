@@ -198,29 +198,32 @@ describe('封鎖路由對外一律 403', () => {
 
 // ── Gate (b)：server-only 呼叫時 ctx.request 不存在 ─────────────────────────
 
-describe('gate (b)：hooks.before 在 server-only 呼叫時 ctx.request 不存在（票 #45）', () => {
-  it('伺服器端直接呼叫被封鎖的端點，不會被「路由封鎖」擋下（代表 hook 看不到 request）', async () => {
+describe('gate (b)：hooks.before 分得出「有沒有 HTTP request」（票 #45，S01-03 已補上 marker）', () => {
+  it('白名單上的端點在伺服器端可以直接呼叫（代表 hook 認得出「沒有 request」）', async () => {
+    // `/get-session` 對外開放，所以不論有沒有 marker 都放行。
+    // 如果 hook 沒有分辨 `ctx.request` 存不存在，這裡會因為「沒有 HTTP 方法」而被誤擋，
+    // ActorResolver 就動不了。
+    await expect(authInstance.api.getSession({ headers: new Headers() })).resolves.toBeNull()
+  })
+
+  it('被封鎖的端點在伺服器端呼叫也被擋——除非經過包裝器（S01-03 的 marker）', async () => {
     let thrown: unknown
     try {
       await authInstance.api.listUsers({ query: { limit: 1 }, headers: new Headers() })
     } catch (error) {
       thrown = error
     }
-    // 一定會失敗（沒有 session），但**不能**是我們的路由封鎖訊息——
-    // 那個訊息只在 ctx.request 存在時才會丟出來。
-    expect(thrown, 'server-only 呼叫仍然應該因為沒有 session 而失敗').toBeDefined()
-    expect(String((thrown as Error)?.message ?? thrown)).not.toContain('這個入口不對外開放')
+    expect(thrown, '沒有 marker 的伺服器端呼叫要被擋').toBeDefined()
+    expect(String((thrown as Error)?.message ?? thrown)).toContain('這個入口不對外開放')
   })
 
-  it('對照組：同一個端點走 HTTP 就是被路由封鎖擋下', async () => {
+  it('對照組：同一個端點走 HTTP 也是被路由封鎖擋下', async () => {
     const response = await authInstance.handler(request('GET', '/admin/list-users'))
     expect(response.status).toBe(403)
     expect(await response.text()).toContain('這個入口不對外開放')
   })
 
-  it('S01-03 之前的已知缺口：沒有 marker 的伺服器端呼叫還沒被擋（三向測試的第三向）', () => {
-    // 這條刻意寫成文件式斷言，提醒 review：marker（AsyncLocalStorage）是 S01-03 的範圍，
-    // 本票只做到「ctx.request 存在就擋」。S01-03 會把這一條改成真的拒絕。
+  it('三向測試的第三向已經補上（詳見 internal-call.integration.test.ts）', () => {
     expect(routeAccess('/admin/list-users', 'GET')).toBe('blocked')
   })
 })
@@ -486,7 +489,7 @@ describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
 
     const stale = await call('GET', '/list-accounts', undefined, { cookie })
     expect(stale.status, '11 分鐘前建立的 session 不該還能列出登入方式').toBe(403)
-    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+    expect(await stale.json()).toMatchObject({ code: 'FRESH_SESSION_REQUIRED' })
   })
 
   it('link-social 同樣要 fresh', async () => {
@@ -495,7 +498,7 @@ describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
 
     const stale = await call('POST', '/link-social', { provider: 'google' }, { cookie })
     expect(stale.status).toBe(403)
-    expect(await stale.json()).toMatchObject({ code: 'SESSION_NOT_FRESH' })
+    expect(await stale.json()).toMatchObject({ code: 'FRESH_SESSION_REQUIRED' })
   })
 
   it('不要求 fresh 的路由不受影響——放久了照樣能讀 session 與登出', async () => {
@@ -504,5 +507,64 @@ describe('fresh session（契約 03 §2 的 freshAge＝10 分鐘）', () => {
 
     expect((await call('GET', '/get-session', undefined, { cookie })).status).toBe(200)
     expect((await call('POST', '/sign-out', {}, { cookie })).status).toBe(200)
+  })
+})
+
+// ── server-only 呼叫也受狀態矩陣管（2026-09-16 複核 Spec 2 的回歸測試） ──────
+
+describe('server-only 呼叫也受狀態矩陣管', () => {
+  /**
+   * `hooks.before` 原本在沒有 `ctx.request` 時把方法當成 `POST`。
+   * `/list-accounts` **只註冊了 GET**，所以 `sessionRequirement('/list-accounts','POST')`
+   * 回 undefined，整個狀態檢查直接跳過——HTTP GET 擋得住，
+   * `auth.api.listUserAccounts({ headers })` 卻拿得到資料。
+   *
+   * 根本問題是「沒有方法時去猜一個方法」。現在沒有方法就不用方法查表，
+   * 改以路徑取最嚴的一條。
+   *
+   * 目前沒有任何正式包裝器對外暴露 `listUserAccounts`，所以這不是一個已重現的對外利用，
+   * 而是共同 hook 的契約漏洞——但它就在所有人都會走的那條路上。
+   */
+
+  function headersWith(cookie: string): Headers {
+    return new Headers({ cookie })
+  }
+
+  /** 先讓他登得進來（建 session 會擋非 usable 狀態），登入後再改成要測的狀態。 */
+  async function signedInCookie(status: string, mustChange = false): Promise<string> {
+    const { email, password } = await signUp()
+    await db.sql(
+      'update users set status = $2, must_change_password = $3, banned = false where email = $1',
+      [email, status === 'pending' ? 'active' : status, mustChange],
+    )
+    const signIn = await call('POST', '/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    if (status === 'pending') {
+      await db.sql(`update users set status = 'pending' where email = $1`, [email])
+    }
+    return signIn.headers.get('set-cookie')?.split(';')[0] ?? ''
+  }
+
+  it('pending 的人從伺服器端呼叫 listUserAccounts 一樣被擋', async () => {
+    const cookie = await signedInCookie('pending')
+
+    // HTTP 那條早就擋住了，這裡確認 server-only 這條也擋。
+    expect((await call('GET', '/list-accounts', undefined, { cookie })).status).toBe(403)
+    await expect(
+      authInstance.api.listUserAccounts({ headers: headersWith(cookie) }),
+    ).rejects.toMatchObject({ status: 'FORBIDDEN' })
+  })
+
+  it('must-change 的人也一樣', async () => {
+    const cookie = await signedInCookie('active', true)
+    await expect(
+      authInstance.api.listUserAccounts({ headers: headersWith(cookie) }),
+    ).rejects.toMatchObject({ status: 'FORBIDDEN' })
+  })
+
+  it('active 且 fresh 的人從伺服器端呼叫仍然正常（沒有擋過頭）', async () => {
+    const cookie = await signedInCookie('active')
+    const accounts = await authInstance.api.listUserAccounts({ headers: headersWith(cookie) })
+    expect(Array.isArray(accounts)).toBe(true)
   })
 })
