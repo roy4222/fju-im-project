@@ -5,6 +5,7 @@ import { ActionForm, Field, HiddenField } from '@/app/_ui/form'
 import { Card, EmptyState } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { signInAction } from '@/app/login/actions'
+import { safeNextPath } from '@/shared/safe-next'
 
 export const metadata = { title: '登入｜資管系專題平台' }
 
@@ -17,9 +18,10 @@ export const metadata = { title: '登入｜資管系專題平台' }
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>
+  searchParams: Promise<{ next?: string | string[] }>
 }) {
-  const { next } = await searchParams
+  // 不合格的 `next` 當作沒帶：不放進表單、也不顯示「登入後會回到…」。
+  const next = safeNextPath((await searchParams).next)
   const actor = await currentActor()
   if (actor.kind === 'authenticated') {
     redirect(actor.mustChangePassword ? '/account/change-password' : homeFor(actor))

@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { currentActor } from '@/app/_ui/guard'
+import { requireSignedIn } from '@/app/_ui/guard'
 import { ActionForm, Field } from '@/app/_ui/form'
 import { Card } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
@@ -12,11 +11,11 @@ export const metadata = { title: '更改密碼｜資管系專題平台' }
  * 改密碼頁。
  *
  * 這一頁**不能**要求 `business` 能力——被逼改密的人正是要來這裡的，
- * 用那個能力會把他導回自己身上變成無限迴圈。所以只確認有登入。
+ * 用那個能力會把他導回自己身上變成無限迴圈。所以用 `self.changePassword` 的狀態閘門：
+ * pending 與 must-change 都放行，未登入、停用、去識別化導去登入。
  */
 export default async function ChangePasswordPage() {
-  const actor = await currentActor()
-  if (actor.kind === 'anonymous') redirect('/login?next=%2Faccount%2Fchange-password')
+  const actor = await requireSignedIn('/account/change-password', 'self.changePassword')
 
   const forced = actor.mustChangePassword
 

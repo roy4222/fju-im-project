@@ -7,8 +7,8 @@ import { SiteShell } from '@/app/_ui/site-shell'
 export const metadata = { title: '我的帳號｜資管系專題平台' }
 
 /**
- * 本人帳號頁的殼。任何登入者都看得到（包含待審核與被要求改密的人——
- * 他們會先被導走，這裡的 capability 用 `self.session`）。
+ * 本人帳號頁的殼。要 `business` 能力：待審核與被要求改密的人
+ * 會先被導去各自的頁面（待審核頁、改密頁）。
  */
 export default async function AccountPage() {
   await requireSignedIn('/account', 'business')

@@ -2,6 +2,7 @@
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { signIn } from '@/composition/accounts'
+import { safeNextPath } from '@/shared/safe-next'
 
 /**
  * 登入（契約 02 §7：寫用 Server Action）。
@@ -27,7 +28,8 @@ export async function signInAction(_state: { error?: string } | undefined, formD
   if (!result.ok) return { error: result.message }
 
   // 被要求改密的人一律先去改密頁，`next` 不能把他帶去別的地方（票 #48 第 3 節）。
-  // 其他人回原本要去的頁面；`next` 只接受站內路徑，免得變成開放轉址。
-  const wanted = next.startsWith('/') && !next.startsWith('//') ? next : result.destination
+  // 其他人回原本要去的頁面；`next` 只接受站內相對路徑（規則與測試見 shared/safe-next），
+  // 不合格一律回自己的首頁，免得變成開放轉址。
+  const wanted = safeNextPath(next) ?? result.destination
   redirect(result.mustChangePassword ? result.destination : wanted)
 }
