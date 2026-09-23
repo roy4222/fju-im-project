@@ -4,13 +4,15 @@ import { applyMigrations, migratedSchema } from '../../../test/migrations'
 
 /**
  * S00-04：第一支 migration 在**空資料庫**上跑得起來，而且建出契約 01 §12 點名的十一張表。
+ * S01-01：第二支 migration 在它之上**只新增**十一張表；空庫升級與舊庫升版兩條路徑都要通。
  */
 
 beforeAll(async () => {
   await assertTestDatabaseReachable()
 })
 
-const EXPECTED_TABLES = [
+/** S00 建的十一張表（契約 01 §12 第一支 migration）。 */
+const S00_TABLES = [
   'accounts',
   'audit_events',
   'cohorts',
@@ -24,6 +26,25 @@ const EXPECTED_TABLES = [
   'verifications',
 ]
 
+/** S01-01 新增的十一張表：模組 01 附錄 A 九張＋模組 10 最小檔案兩張。 */
+const S01_TABLES = [
+  'application_revisions',
+  'file_references',
+  'registration_applications',
+  'role_assignments',
+  'roster_entries',
+  'roster_versions',
+  'session_revocations',
+  'stored_files',
+  'student_identities',
+  'user_profiles',
+  'user_status_events',
+]
+
+const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES].sort()
+
+const S01_LAST = '0002_s01_accounts_and_files'
+
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
     `select table_name from information_schema.tables
@@ -34,13 +55,14 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出十一張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出二十二張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
 
       const tags = await applyMigrations(db)
       expect(tags[0]).toBe('0000_s00_foundation')
+      expect(tags.at(-1)).toBe(S01_LAST)
 
       expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
     })

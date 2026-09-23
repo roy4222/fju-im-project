@@ -147,6 +147,11 @@ jobs:
       BASE_URL: http://127.0.0.1:3000
       GIT_COMMIT: ${{ github.sha }}
       APP_VERSION: ${{ github.sha }}
+      # Better Auth 在建立實例時就要 secret；少了它，任何會讀 session 的頁面都會 500
+      # （S01-04 的 /403 就是這樣紅的）。CI 的值是測試用的固定字串，正式環境由維運帶入
+      # VM 的 .env（契約 05 §6），不放 GitHub Secrets 也不進 repo 以外的任何地方。
+      BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-32ch
+      BETTER_AUTH_URL: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

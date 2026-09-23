@@ -1,10 +1,63 @@
-:root {
-  color-scheme: light dark;
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   設計 token（S01-04）。
+   取自 prototype/src/app/globals.css，但**收斂成單一主軸色**：
+   Roy 的偏好與票 #47 都寫「配色是系網橘單一主軸」，所以原型裡的深藍不再當 primary，
+   只留作文字與側欄底的深中性色。要強調的地方一律用橘，不再有第二個主色。
+
+   品牌色取樣自 https://www.im.fju.edu.tw/（2026-08-17）：
+     橘 #E56E00 → oklch(0.6683 0.1741 51.05)   主軸
+     深藍 #003366 → oklch(0.3233 0.1025 253.89) 深中性（文字、側欄）
+     暖白 #FFF4EA → oklch(0.9730 0.0178 64.94)  次要底色
+--------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, sans-serif;
+
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.26 0.018 253.89);
+
+  --color-surface: oklch(0.988 0.003 253.89);
+  --color-border: oklch(0.918 0.006 253.89);
+
+  /* 主軸：系網橘 */
+  --color-primary: oklch(0.6683 0.1741 51.05);
+  --color-primary-foreground: oklch(0.99 0.008 64.94);
+  --color-primary-subtle: oklch(0.96 0.03 64.94);
+  --color-primary-on-subtle: oklch(0.43 0.12 51.05);
+
+  /* 深中性（原型的系網深藍，只當文字與側欄底，不當第二主色） */
+  --color-ink: oklch(0.3233 0.1025 253.89);
+  --color-ink-foreground: oklch(0.99 0.004 253.89);
+
+  --color-muted: oklch(0.97 0.004 253.89);
+  --color-muted-foreground: oklch(0.4617 0.0116 252.91);
+
+  --color-danger: oklch(0.55 0.2 25);
+  --color-danger-subtle: oklch(0.96 0.025 25);
+  --color-danger-on-subtle: oklch(0.43 0.16 25);
+
+  --radius-card: 0.5rem;
 }
 
-body {
-  margin: 0;
-  padding: 2rem;
-  font-family: system-ui, -apple-system, 'Noto Sans TC', sans-serif;
-  line-height: 1.6;
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    /* 母 spec 的行動版要求：任何寬度都不出現橫向捲動。 */
+    overflow-x: hidden;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
 }
