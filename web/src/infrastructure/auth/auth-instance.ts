@@ -32,10 +32,12 @@ import {
   signInKey,
 } from '@/infrastructure/auth/sign-in-rate-limit'
 import { checkSignUpRate } from '@/infrastructure/auth/sign-up-rate-limit'
+import { checkSocialSignInRate } from '@/infrastructure/auth/social-sign-in-rate-limit'
 import {
   EMAIL_UNAVAILABLE_CODE,
   EMAIL_UNAVAILABLE_MESSAGE,
   bindPreauthorizedTeacher,
+  isSignInState,
   FRESH_AGE_SECONDS,
   isFreshSession,
   recordLastLoginMethod,
@@ -136,7 +138,8 @@ function createAuth() {
         '/sign-up/email': false,
         // Google 登入入口（票 10）：只產生 state 與授權網址，不驗任何帳密。套件預設的
         // 「10 秒 3 次／IP」會讓同一個校園出口後面的第四個同學按 Google 鈕就吃 429。
-        // 粗粒度的跨帳號防護在 Caddy（契約 03 §6）。登入頁走 Server Action 本來就不經這一層。
+        // 關掉之後改由 `social-sign-in-rate-limit.ts` 在 hook 裡算每 IP 桶（票 10b），
+        // Server Action 與直接打 API 同一個桶。粗粒度的跨帳號防護仍在 Caddy（契約 03 §6）。
         '/sign-in/social': false,
       },
     },
@@ -151,9 +154,13 @@ function createAuth() {
          */
         mapProfileToUser: async (profile) => {
           // 連結流程（已登入的人按「連結 Google」）也會經過這裡；那不是「預授權老師第一次登入」，
-          // 不能順手替別人綁。state 在這之前已由套件解析好，`link` 有值就是連結。
-          const state = await getOAuthState().catch(() => null)
-          if (!(state as { link?: unknown } | null)?.link) await bindPreauthorizedTeacher(profile)
+          // 不能順手替別人綁。state 在這之前已由套件解析好（callback 的 `parseState`），`link` 有值就是連結。
+          //
+          // **失敗要關不要開**（票 10b；票 10 審查建議）：讀不到 state（丟例外、或預設值 null——
+          // 例如 body 帶 `idToken` 那條沒有 redirect 的路，雖然已在 hook 擋掉）一律不綁。
+          // 之前是讀不到就當成「登入」而去綁。
+          const state: unknown = await getOAuthState().catch(() => null)
+          if (isSignInState(state)) await bindPreauthorizedTeacher(profile)
           return {}
         },
       },
@@ -265,6 +272,31 @@ function createAuth() {
           const isInternal = !ctx.request && isInternalCall()
           if (isInternal) return
           throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        }
+
+        // ── Google：只走 redirect＋state（票 10b；票 10 審查建議） ──────────────
+        //
+        // `/sign-in/social` 與 `/link-social` 的請求體還接受 `idToken`：瀏覽器自己拿 Google 的
+        // id_token 丟進來，套件驗簽後直接登入或連結，**不經 redirect、也沒有 state**。
+        // 本產品只用 redirect 流程；state 上的 `link` 判斷（預授權老師綁定只在「登入」時做）與
+        // PKCE 在那條路上都不存在，所以整條路直接關掉，Server Action 與直接打 API 都一樣。
+        if ((ctx.path === '/sign-in/social' || ctx.path === '/link-social') && hasIdToken(ctx.body)) {
+          throw new APIError('BAD_REQUEST', {
+            code: 'ID_TOKEN_NOT_SUPPORTED',
+            message: '請用「使用 Google 帳號登入」按鈕登入。',
+          })
+        }
+
+        // Google 登入入口的每 IP 限速（票 10b）：套件那一層對這條路關掉了，不補就完全不限速，
+        // 而每按一次都寫一列 `verifications`。門檻見 `RATE_LIMITS.signInSocial`。
+        if (ctx.path === '/sign-in/social') {
+          const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
+          if (!checkSocialSignInRate(ip).allowed) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              code: 'RATE_LIMITED',
+              message: '這個網路一小時內的 Google 登入次數已達上限，請稍後再試。',
+            })
+          }
         }
 
         // ── 註冊：限速與密碼長度（契約 03 §6；票 7） ─────────────────────────
@@ -450,6 +482,13 @@ function createAuth() {
 }
 
 export type Auth = ReturnType<typeof createAuth>
+
+/** 請求體有沒有帶 `idToken`（任何非 undefined／null 的值都算，空物件也算）。 */
+function hasIdToken(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false
+  const value = (body as { idToken?: unknown }).idToken
+  return value !== undefined && value !== null
+}
 
 /** 套件丟的 APIError（不同套件實體的類別 `instanceof` 會失敗，所以看形狀）。 */
 function looksLikeApiError(value: unknown): value is { status: unknown; body?: unknown } {

@@ -92,6 +92,16 @@ export async function recordLastLoginMethod(userId: string, method: 'google' | '
   }
 }
 
+/**
+ * 這個 OAuth state 是不是一次「登入」（不是連結）。
+ *
+ * 只有讀得到一個物件、而且 `link` 是空的才算；null、undefined、不是物件一律 false（不綁）。
+ */
+export function isSignInState(state: unknown): boolean {
+  if (typeof state !== 'object' || state === null) return false
+  return !(state as { link?: unknown }).link
+}
+
 // ── 預授權老師第一次用 Google 登入（票 8 × 票 10） ─────────────────────────
 
 /**
