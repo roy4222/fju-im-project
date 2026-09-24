@@ -41,7 +41,8 @@ import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-p
  * - 核發臨時密碼：**先 commit**（帳本、`must_change_password=true`、稽核），**再**呼叫
  *   `setUserPassword` 與 `revokeUserSessions`。反過來排的話，套件那一步成功、我們 commit 失敗，
  *   就會留下一組「有效、沒有強制改密、沒有稽核」的臨時密碼。現在的排法萬一套件失敗，
- *   只是「舊密碼還能用＋下次登入要改密碼」，再補一筆失敗稽核，系辦重新核發即可。
+ *   只是「舊密碼還能用＋下次登入要改密碼」，再補一筆失敗稽核、把帳本標成 failed（同一個請求
+ *   重送不會回「已核發」，票 10b），系辦重新核發即可。
  *
  * **秘密只在回應本體**：帳本的 receipt、fingerprint、稽核的 payload 都不含臨時密碼；
  * 同一個請求重送（帳本重播）只回「已核發」的回執，密碼無法取回（契約 03 §3）。
@@ -93,6 +94,8 @@ function denied(code: ErrorCode): Err {
 }
 
 const EMAIL_TAKEN_MESSAGE = '這個 Email 已經有帳號了，不能再新增一個。'
+
+const TEMP_PASSWORD_FAILED_MESSAGE = '密碼沒有設定成功，這個人的舊密碼仍然有效。請關閉後重新核發一次。'
 
 function isEmailTaken(error: unknown): boolean {
   const e = error as { body?: { code?: string }; code?: string }
@@ -304,6 +307,7 @@ export class PgAccountCommand implements AccountCommand {
 
     const tx = await this.#deps.db().connect()
     let receipt: TemporaryPasswordReceipt
+    let recordId: string
     try {
       await tx.query('begin')
       const begun = await this.#deps.ledger.begin(
@@ -323,9 +327,13 @@ export class PgAccountCommand implements AccountCommand {
       }
       if (begun.outcome === 'replay') {
         await tx.query('commit')
+        // 上次 commit 之後 `setUserPassword` 失敗、帳本已標 failed（票 10b）：不能回「已核發」，
+        // 那組密碼根本沒生效。請系辦重新核發（對話框會換一個新的請求編號）。
+        if (begun.state === 'failed') return err('INTERNAL', TEMP_PASSWORD_FAILED_MESSAGE)
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這組臨時密碼已經核發過了，回執已過期。')
         return ok(begun.receipt as TemporaryPasswordReceipt, meta(now, input.requestId))
       }
+      recordId = begun.recordId
 
       // `for no key update`：之後套件補建 credential 帳號時，`accounts` 的外鍵檢查要對這一列拿
       // key share 鎖；用 `for update` 的話兩邊會互等（雖然我們先 commit 才呼叫，仍不留這個坑）。
@@ -374,8 +382,10 @@ export class PgAccountCommand implements AccountCommand {
       await this.#auth.setUserPassword(authHeaders, { userId: input.userId, newPassword: password })
     } catch (error) {
       console.error('[account] 臨時密碼寫入失敗（稽核已記核發，舊密碼仍有效、下次登入要改密碼）', errorName(error))
-      await this.#appendFailure(actor.userId, input.userId, now).catch(() => undefined)
-      return err('INTERNAL', '密碼沒有設定成功，這個人的舊密碼仍然有效。請關閉後重新核發一次。')
+      await this.#recordFailure(actor.userId, input.userId, recordId, now).catch((failure: unknown) =>
+        console.error('[account] 臨時密碼失敗的稽核／帳本標記寫入失敗', errorName(failure)),
+      )
+      return err('INTERNAL', TEMP_PASSWORD_FAILED_MESSAGE)
     }
     try {
       await this.#auth.revokeUserSessions(authHeaders, { userId: input.userId })
@@ -386,11 +396,15 @@ export class PgAccountCommand implements AccountCommand {
     return secretOnce(password, now, input.requestId, actor.userId)
   }
 
-  /** 套件那一步失敗時補一筆稽核，免得稽核只看得到「已核發」。 */
-  async #appendFailure(actorUserId: string, userId: string, now: Date): Promise<void> {
+  /**
+   * 套件那一步失敗時補一筆稽核，並把帳本那一列標成 failed（票 10b），免得稽核與重播只看得到「已核發」。
+   * 兩件事同一個交易：要嘛都寫進去，要嘛都沒有。
+   */
+  async #recordFailure(actorUserId: string, userId: string, recordId: string, now: Date): Promise<void> {
     const tx = await this.#deps.db().connect()
     try {
       await tx.query('begin')
+      await this.#deps.ledger.markFailed(tx, recordId)
       await this.#deps.audit.append(tx, {
         actorKind: 'user',
         actorUserId,
