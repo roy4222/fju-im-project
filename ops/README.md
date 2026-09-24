@@ -239,7 +239,8 @@ Doppler 網頁 → 專案 **fju-im-capstone** → config **stg** → **Add Secre
 | `E2E_ADMIN_PASSWORD` | **至少 16 個字元**；在自己電腦產生後直接貼進 Doppler（例如 `openssl rand -hex 16`），不要貼到聊天或 issue |
 
 - **只加在 stg**。prd 就算誤加了也不會建（`deploy.sh` 與 `seed-e2e.mjs` 都寫死只認測試站），但部署會印一行提醒你刪掉。
-- 密碼不到 16 字元時，測試站部署會在 migration 後停下（舊版繼續跑），改好 Doppler 再部署一次即可。
+- 建帳號失敗（例如密碼不到 16 字元）**不會擋部署**：新版照常上線，只多一行 `⚠️ 建立 E2E 測試管理員失敗`，
+  `deploy_log` 記一列 `e2e-seed-failed`。改好 Doppler 後，下一次部署會再試（已存在就不動）。
 
 **B. 🖥️ 更新 VM 上的腳本（這次 `ops/deploy.sh` 有改）**：照「repo 的 ops／compose 檔改了之後」那一節做一次。
 

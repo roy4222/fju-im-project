@@ -156,6 +156,8 @@ if [ "$SANDBOX" = workspace-write ]; then
   # 預設沙盒不開網路；要連測試站、要 npx 抓 playwright-cli。
   codex_args+=(-c 'sandbox_workspace_write.network_access=true')
   [ -d "$HOME/.npm" ] && codex_args+=(--add-dir "$HOME/.npm")
+  # Playwright 的瀏覽器快取（macOS）；沒有這個，沙盒裡第一次裝瀏覽器會寫不進去。
+  [ -d "$HOME/Library/Caches/ms-playwright" ] && codex_args+=(--add-dir "$HOME/Library/Caches/ms-playwright")
 fi
 
 # 帳密只以環境變數交給 codex 這一個行程（不 export 給其他指令，也不進指令列）。

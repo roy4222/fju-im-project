@@ -206,7 +206,7 @@ sync_app_db_password() {
     | $COMPOSE exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
 }
 
-# 測試站的 E2E 測試管理員（票 3b）。回傳 0＝建好／已存在／略過，非 0＝seed 失敗。
+# 測試站的 E2E 測試管理員（票 3b）。回傳 0＝建好／已存在／略過，非 0＝seed 失敗（呼叫端只警告，不中止部署）。
 # 正式站一律不建：這裡寫死只認 test，web/scripts/seed-e2e.mjs 也會自己檢查 FJU_SITE（兩道鎖）。
 # 值用 `-e 名稱` 從環境轉交，不進指令列、不印出來（跟 ops/seed-admin.sh 一樣）。
 seed_e2e_admin() {
@@ -256,10 +256,12 @@ else
       exit 1
     fi
     log "        fju_app 密碼已同步成 Doppler 的 APP_DB_PASSWORD"
-    # set -e 之下失敗會直接中止；用 if 攔下來講清楚。migration 已經跑完、舊 app 繼續跑。
+    # 測試帳號只是驗收的方便，失敗不擋部署：印警告、記 deploy_log，照常往下。
+    # （若中止，auto-deploy 會把這個 SHA 記成失敗、不再重試，整個測試站就卡住；
+    #   舊 SHA 的映像沒有 seed-e2e.mjs 時也會失敗。）用 if 攔下來，set -e 才不會直接把腳本帶走。
     if ! seed_e2e_admin; then
-      echo "建立 E2E 測試管理員失敗，中止（migration 已完成，舊 app 繼續跑）。" >&2
-      exit 1
+      echo "⚠️ 建立 E2E 測試管理員失敗（部署照常繼續；看上面 seed-e2e 的訊息，多半是 Doppler stg 的 E2E_ADMIN_* 不對）。" >&2
+      printf '%s\te2e-seed-failed\t%s\n' "$(date -u +%FT%TZ)" "$TAG" >> "$DEPLOY_LOG"
     fi
   fi
 fi

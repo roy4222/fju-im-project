@@ -462,11 +462,13 @@ describe('票 3b：測試站的 E2E 測試管理員', () => {
     expect(result.stdout).not.toContain('E2E')
   })
 
-  it('seed 失敗就中止：不啟動新版（舊 app 繼續跑），講清楚原因', async () => {
+  it('seed 失敗不擋部署：印警告、deploy_log 記 e2e-seed-failed，新版照常上線', async () => {
     const result = await runDeploy('newtag', { e2eKeys: true, failSeed: true })
-    expect(result.code).not.toBe(0)
-    expect(result.stderr).toContain('建立 E2E 測試管理員失敗')
-    expect(upAppCalls(result.calls)).toHaveLength(0)
+    expect(result.code, result.stderr).toBe(0)
+    expect(result.stderr).toContain('建立 E2E 測試管理員失敗（部署照常繼續')
+    expect(result.deployLog).toMatch(/\te2e-seed-failed\tnewtag\n/)
+    expect(upAppCalls(result.calls).length).toBeGreaterThan(0)
+    expect(result.deployLog).toMatch(/\tdeployed\tnewtag\t/)
   })
 
   it('回滾模式不跑 seed', async () => {
