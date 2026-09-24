@@ -32,13 +32,15 @@ while [ $# -gt 0 ]; do
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "不認得的選項：$1" >&2; exit 1 ;;
     *)
-      [ -z "$SITE" ] || { echo "只能指定一個站（已經有 $SITE）" >&2; exit 1; }
+      [ -z "$SITE" ] || { echo "只能指定一個站（已經有 ${SITE}）" >&2; exit 1; }
       SITE="$1"
       ;;
   esac
   shift
 done
 [ -n "$SITE" ] || { echo "用法：ops/seed-admin.sh <test|prod>" >&2; exit 1; }
+# 在 mkdir／鎖檔之前擋掉非 deploy 身分（見 ops/lib/site.sh）。
+require_deploy_user "$APP_ROOT/ops/seed-admin.sh ${ORIG_ARGS[*]:-}"
 site_setup "$SITE" "$APP_ROOT"
 
 if [ "${FJU_SECRETS_LOADED:-}" != "$SITE" ]; then
@@ -71,7 +73,7 @@ if ! flock --nonblock 9; then
   exit 75
 fi
 
-echo "在 $SITE 站（$COMPOSE_PROJECT_NAME，映像 $APP_IMAGE）建立 A1……"
+echo "在 $SITE 站（${COMPOSE_PROJECT_NAME}，映像 ${APP_IMAGE}）建立 A1……"
 # --no-deps：postgres 已經隨 app 在跑；不讓 depends_on 去碰其他服務。
 # -e 名稱（不帶值）：Compose 從目前環境轉交，值不進指令列。
 docker compose run --rm --no-deps \
