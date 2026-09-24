@@ -11,7 +11,7 @@ import {
   DIRECTORY_STATUSES,
   directoryQueryString,
   EVIDENCE_LABEL,
-  getAccountCommand,
+  getAccountDirectoryCommand,
   EVIDENCE_NEEDS_ATTENTION,
   getRegistrationCommand,
   getRosterCommand,
@@ -27,10 +27,18 @@ import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
 import { ImportRosterDialog } from './import-roster-dialog'
 import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
+import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
 
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
+  methods: VERIFICATION_METHODS,
+  methodLabel: VERIFICATION_LABEL,
+  noteRequired: VERIFICATION_NOTE_REQUIRED,
+  noteHint: VERIFICATION_NOTE_HINT,
+}
+
+const VERIFICATION_LABELS: VerificationLabels = {
   methods: VERIFICATION_METHODS,
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
@@ -66,7 +74,7 @@ export default async function AdminAccountsPage({
   const pendingResult = await getRegistrationCommand().listPending(actor)
   const pending = pendingResult.ok ? pendingResult.receipt : null
   const filter = normalizeDirectoryFilter(await searchParams)
-  const accounts = getAccountCommand()
+  const accounts = getAccountDirectoryCommand()
   const directoryResult = await accounts.list(actor, filter)
   const directory = directoryResult.ok ? directoryResult.receipt : null
   const summaryResult = await accounts.summary(actor)
@@ -77,8 +85,13 @@ export default async function AdminAccountsPage({
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/accounts">
-      <PageHeader title="帳號" description="名單匯入、註冊審核、停用與匯出都在這一區。系統不存可查看的密碼。" />
-
+      <PageHeader title="帳號" description="名單匯入、註冊審核、停用、匯出與臨時密碼都在這一區。" />
+      {/* 票 8：新增老師與發臨時密碼（用 Email 找人）。每一列的「發臨時密碼」在下方帳號表格裡。 */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <NewTeacherDialog labels={VERIFICATION_LABELS} />
+        <TemporaryPasswordDialog labels={VERIFICATION_LABELS} />
+        <span className="text-xs text-muted-foreground">系統不存可查看的密碼，只能核發一次性臨時密碼。</span>
+      </div>
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Tile
           label="待審核"
@@ -253,6 +266,7 @@ export default async function AdminAccountsPage({
               roleLabel={ROLE_LABEL}
               sortHeaders={sortHeaders(filter)}
               bulkMaxChars={BULK_MAX_CHARS}
+              verificationLabels={VERIFICATION_LABELS}
             />
             <nav className="mt-3 flex items-center justify-between text-sm text-muted-foreground" aria-label="分頁">
               <span>

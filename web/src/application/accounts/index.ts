@@ -91,6 +91,27 @@ export {
 } from '@/application/accounts/registration'
 export type {
   AccountCommand,
+  AccountLookup,
+  NormalizedTeacherAccount,
+  TeacherAccountInput,
+  TeacherAccountReceipt,
+  TeacherCreatedWithSecret,
+  TeacherCreationMode,
+  TeacherProfileInput,
+  TeacherProfileView,
+  TeacherSetupCommand,
+  TemporaryPasswordReceipt,
+} from '@/application/accounts/teachers'
+export {
+  accountAdminDenied,
+  normalizeTeacherAccountInput,
+  normalizeTeacherProfile,
+  normalizeTemporaryPasswordRequest,
+  TEACHER_NAME_MAX_LENGTH,
+  teacherSetupDenied,
+} from '@/application/accounts/teachers'
+export type {
+  AccountDirectoryCommand,
   AccountRow,
   AccountSummary,
   AdminRequestContext,
@@ -112,7 +133,6 @@ export type {
 } from '@/application/accounts/directory'
 export {
   ACCOUNT_STATUS_LABEL,
-  accountAdminDenied,
   BULK_MAX_CHARS,
   BULK_MAX_LINES,
   buildAccountsCsv,

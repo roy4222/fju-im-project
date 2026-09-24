@@ -33,6 +33,7 @@ import { isRequestId, type CohortStatusQuery } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { signUpWithPassword } from '@/infrastructure/auth/wrapper'
@@ -91,6 +92,14 @@ export type RegistrationCommandDeps = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** 待審清單一次最多列幾筆（一屆幾百人，不需要分頁）。 */
 const PENDING_LIST_LIMIT = 500
+
+/** 待審修改的限速（每人；頁面與直接呼叫用同一份，見 `sharedRateLimiter`）。 */
+const reviseLimiter = sharedRateLimiter('registration-revise', RATE_LIMITS.reviseApplication)
+
+/** 測試用：清掉修改申請的限速計數。 */
+export function resetReviseLimiter(): void {
+  reviseLimiter.clear()
+}
 
 function meta(now: Date, requestId = uuidv7()) {
   return { requestId, serverTime: now.toISOString() }
@@ -256,7 +265,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     actor: ResolvedActor,
     input: ApplicationFields,
     expectedRevision: number | null,
-  ): Promise<Result<RevisionReceipt>> {
+  ): Promise<Result<RevisionReceipt> | RateLimited> {
     const blocked = ownApplicationDenied(actor, 'registration.reviseOwn')
     if (blocked || actor.kind !== 'authenticated') {
       return denied(blocked ?? 'UNAUTHENTICATED', '帳號已經開通；學號與屆別要更正請聯絡系辦。')
@@ -267,6 +276,9 @@ export class PgRegistrationCommand implements RegistrationCommand {
     const normalized = normalizeApplicationFields(input)
     if (!normalized.ok) return normalized
     const fields = normalized.value
+    if (!reviseLimiter.hit(`revise:${actor.userId}`).allowed) {
+      return { ok: false, code: 'RATE_LIMITED', message: '一小時內修改太多次了，請稍後再試。' }
+    }
 
     const now = this.#clock.now()
     const tx = await this.#deps.db().connect()
@@ -750,15 +762,24 @@ export class PgRegistrationCommand implements RegistrationCommand {
     applicationId: string,
     revision: number,
   ): Promise<{ ok: true; row: ApplicationRow } | Err> {
-    const rows = await tx.query<ApplicationRow & { user_status: string }>(
-      `select ${APPLICATION_COLUMNS}, u.status as user_status
+    // 鎖的順序固定是「先 users、再 registration_applications」，跟 `reviseMine` 一樣。
+    // 原本一句 `for update of ra, u` 鎖兩張表，實際先鎖哪一張看執行計畫；學生同時送出修改時
+    // 兩邊可能各拿一半互等（死鎖；票 7 審查建議）。`user_id` 建立後不會變，先不鎖地讀出來沒問題。
+    const owner = await tx.query<{ user_id: string }>('select user_id from registration_applications where id = $1', [
+      applicationId,
+    ])
+    const userId = owner.rows[0]?.user_id
+    if (!userId) return err('CONFLICT', '找不到這筆申請，請重新整理頁面。')
+    const user = await tx.query<{ status: string }>('select status from users where id = $1 for update', [userId])
+    const rows = await tx.query<ApplicationRow>(
+      `select ${APPLICATION_COLUMNS}
          from registration_applications ra
-         join users u on u.id = ra.user_id
         where ra.id = $1
-        for update of ra, u`,
+        for update`,
       [applicationId],
     )
-    const row = rows.rows[0]
+    const found = rows.rows[0]
+    const row = found && user.rows[0] ? { ...found, user_status: user.rows[0].status } : undefined
     if (!row) return err('CONFLICT', '找不到這筆申請，請重新整理頁面。')
     if (row.state !== 'pending' || row.user_status !== 'pending') {
       return err('CONFLICT', '這筆申請剛剛已經被處理過了，請重新整理頁面。')

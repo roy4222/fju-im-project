@@ -3,7 +3,7 @@ import { StageBanner } from '@/app/dashboard/_stage'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState, PageHeader, Tile } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { getAccountCommand } from '@/composition/accounts'
+import { getAccountDirectoryCommand } from '@/composition/accounts'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
@@ -13,7 +13,7 @@ export default async function AdminHomePage() {
   // layout 丟掉 children 或 redirect 都來不及——那一頁已經被做出來、跟著 payload 送走了。
   const actor = await requireRole('/dashboard/admin', 'admin')
   const working = await getCohortStatusQuery().defaultWorking()
-  const summaryResult = await getAccountCommand().summary(actor)
+  const summaryResult = await getAccountDirectoryCommand().summary(actor)
   const summary = summaryResult.ok ? summaryResult.receipt : null
 
   return (

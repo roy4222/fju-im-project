@@ -575,3 +575,43 @@ describe('系辦審核', () => {
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
   })
 })
+
+describe('票 7 審查建議（票 8 順手）', () => {
+  it('待審修改有每人限速：一小時 20 次，第 21 次擋下且不留新版本；別人不受影響', async () => {
+    const { resetReviseLimiter } = await import('@/infrastructure/accounts/registration-command')
+    resetReviseLimiter()
+    const userId = await register({ studentNo: '411588801' })
+    const fields = { appliedName: '王小明', studentNo: '411588801', departmentClass: '資管二甲', phone: '0912345678', contactEmail: 'x@example.com' }
+    for (let revision = 1; revision <= 20; revision += 1) {
+      const result = await command.reviseMine(pendingActor(userId), { ...fields, phone: `09123456${String(revision).padStart(2, '0')}` }, revision)
+      expect(result, `第 ${revision} 次應該放行`).toMatchObject({ ok: true })
+    }
+    const blocked = await command.reviseMine(pendingActor(userId), fields, 21)
+    expect(blocked).toMatchObject({ ok: false, code: 'RATE_LIMITED' })
+    expect(await one(`select revision from registration_applications where user_id = $1 and state = 'pending'`, [userId])).toEqual({ revision: 21 })
+
+    const other = await register({ studentNo: '411588802' })
+    expect(await command.reviseMine(pendingActor(other), { ...fields, studentNo: '411588802' }, 1)).toMatchObject({ ok: true })
+    resetReviseLimiter()
+  })
+
+  it('核准與本人修改同時進來不會死鎖：兩邊都先鎖 users，一個成功、另一個得到明確的 CONFLICT', async () => {
+    const userId = await register({ studentNo: '411588803' })
+    const { id } = await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [userId])
+    const fields = { appliedName: '王小明', studentNo: '411588803', departmentClass: '資管二甲', phone: '0912345000', contactEmail: 'y@example.com' }
+    for (let round = 0; round < 5; round += 1) {
+      const current = await one<{ revision: number; state: string }>(`select revision, state from registration_applications where id = $1`, [id])
+      if (current.state !== 'pending') break
+      const [approved, revised] = await Promise.all([
+        command.approve(activeActor(adminId, ['admin']), {
+          applicationId: id, revision: current.revision, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort115, requestId: requestId(),
+        }),
+        command.reviseMine(pendingActor(userId), { ...fields, phone: `091234500${round}` }, current.revision),
+      ])
+      // 先拿到鎖的那一邊成功；另一邊看到的是新狀態（CONFLICT），不是資料庫死鎖錯誤（會直接 throw）。
+      expect([approved.ok, revised.ok].filter(Boolean)).toHaveLength(1)
+      if (!approved.ok) expect(approved).toMatchObject({ code: 'CONFLICT' })
+      if (!revised.ok) expect(revised).toMatchObject({ code: 'CONFLICT' })
+    }
+  })
+})

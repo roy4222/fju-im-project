@@ -42,9 +42,18 @@ export const cohorts = pgTable(
     isRegistrationOpen: boolean('is_registration_open').notNull().default(false),
     /**
      * 年度結束日（臺灣日期，含當天；模組 02 附錄 A，票 11）。籌備中可以還沒設；
-     * 「轉進行中必須有」由 activate 用例把關——舊屆別升版後是 NULL，不在 DB 加 CHECK。
+     * 「進行中一定要有」由 activate 用例把關，DB 另有 `cohorts_active_year_end_check`
+     * （票 13 的 0004 以 `NOT VALID` 加：只檢查之後的寫入，既有列等 A1 補齊再 VALIDATE）。
      */
     yearEndDate: date('year_end_date', { mode: 'string' }),
+    /** 提案預設有效天數（模組 02 附錄 A `proposal_default_days`；票 13）。到期＝min(發起＋天數, 成組截止)。 */
+    proposalDefaultDays: integer('proposal_default_days').notNull().default(7),
+    /**
+     * 每組人數（2026-09-24 Roy 定案，取代「例外組」；票 13 建欄、讀取，票 14 用在管理員調整組員）。
+     * 學生提案的人數（含自己）要落在 [最少, 最多]；預設都是 5。
+     */
+    groupSizeMin: integer('group_size_min').notNull().default(5),
+    groupSizeMax: integer('group_size_max').notNull().default(5),
     revision: integer('revision').notNull().default(1),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
     createdByKind: text('created_by_kind').notNull(),
@@ -60,6 +69,13 @@ export const cohorts = pgTable(
   },
   (t) => [
     check('cohorts_status_check', sql`${t.status} in ('preparing','active','archived')`),
+    // 0004 以 NOT VALID 加（見 yearEndDate 的註解）；drizzle 不會產 NOT VALID，migration 手動補上。
+    check('cohorts_active_year_end_check', sql`${t.status} <> 'active' or ${t.yearEndDate} is not null`),
+    check('cohorts_proposal_default_days_check', sql`${t.proposalDefaultDays} > 0`),
+    check(
+      'cohorts_group_size_check',
+      sql`${t.groupSizeMin} >= 1 and ${t.groupSizeMin} <= ${t.groupSizeMax}`,
+    ),
     check('cohorts_created_by_kind_check', sql`${t.createdByKind} in ('user','system','worker')`),
     check(
       'cohorts_created_by_actor_check',

@@ -3,60 +3,80 @@ import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
   accountAdminDenied,
-  buildAccountsCsv,
-  classifyBulk,
-  DIRECTORY_PAGE_SIZE,
-  EXPORT_MAX_ROWS,
-  isUserId,
-  likePattern,
-  normalizeStatusReason,
-  parseBulkStudentNos,
-  sameTargets,
+  normalizeTeacherAccountInput,
+  normalizeTemporaryPasswordRequest,
   type AccountCommand,
-  type AccountRow,
-  type AccountStatus,
-  type AccountSummary,
-  type AdminRequestContext,
-  type BulkCandidate,
-  type BulkDisableReceipt,
-  type BulkPreview,
-  type DirectoryFilter,
-  type DirectoryPage,
-  type ExportSelection,
+  type AccountLookup,
   type ResolvedActor,
   type Role,
-  type StatusChange,
-  type StatusChangeReceipt,
+  type TeacherAccountInput,
+  type TeacherAccountReceipt,
+  type TeacherCreatedWithSecret,
+  type TemporaryPasswordReceipt,
 } from '@/application/accounts'
 import { isRequestId } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
-import { err, ok, type Err, type Result } from '@/shared/result'
+import { err, ok, type Err, type Result, type SecretOnce } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
-import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
-import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
+import { internalAuth } from '@/infrastructure/auth/wrapper'
+import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-password'
 
 /**
- * 帳號列表、停用／恢復、批次停用與匯出（工程模組 01 §3 active⇄disabled、§5 `AccountCommand`；票 9）。
+ * 老師帳號與臨時密碼（工程模組 01 §3「臨時密碼」「老師建立／預授權」、§5 `AccountCommand`；
+ * 契約 03 §2、§3；票 8）。
  *
- * 每個方法第一件事是授權（`accountAdminDenied`，規則在 application 層）；
- * 停用與恢復在一個交易裡寫完狀態、狀態事件、學號占用、撤 session 工作、稽核與帳本，
- * commit 之後才呼叫 Better Auth（經 `SessionRevocationExecutor`）。全程用 `fju_app` 的權限就做得完。
+ * 每個方法第一件事是授權（`accountAdminDenied`，規則在 application 層），第二件事是驗證輸入。
+ * 全程用 `fju_app` 的權限（整合測試以 `fju_app` 跑）。
  *
- * **學號占用表的大小寫**：`student_identities` 的主鍵 `(cohort_id, student_no)` 是大小寫敏感的，
- * 但所有比對都用 `upper()`。不改 schema 的前提下，寫入一律存大寫（`occupyStudentNo`），
- * 並在寫入前用 `upper()` 再查一次（擋住正規化以前寫進去的小寫舊列）。
- * 顯示用的學號（`user_profiles`、`registration_applications`）照本人填的原樣保存，不動。
+ * **Better Auth 的呼叫與我們的交易怎麼排**（兩邊是不同的連線，沒辦法同一個交易）：
+ *
+ * - 新增老師：交易開著的時候呼叫 `createUser`（套件用自己的連線 insert `users` 並 commit），
+ *   再在同一個交易裡把狀態改成 active、給老師角色、寫狀態事件與稽核、寫帳本，最後 commit。
+ *   套件那一步成功、我們這一步失敗的話，會留下一個「待審、沒有角色、沒人知道密碼」的帳號，
+ *   Email 被占住但沒有人登得進去；系辦重試會看到「這個 Email 已經有帳號」。跟學生註冊的
+ *   兩步一樣（`registration-command.ts` 檔頭），不做自動認領——自動認領就等於讓別人
+ *   先註冊一個同 Email 的帳號、再等系辦把它變成老師。
+ * - 核發臨時密碼：**先 commit**（帳本、`must_change_password=true`、稽核），**再**呼叫
+ *   `setUserPassword` 與 `revokeUserSessions`。反過來排的話，套件那一步成功、我們 commit 失敗，
+ *   就會留下一組「有效、沒有強制改密、沒有稽核」的臨時密碼。現在的排法萬一套件失敗，
+ *   只是「舊密碼還能用＋下次登入要改密碼」，再補一筆失敗稽核，系辦重新核發即可。
+ *
+ * **秘密只在回應本體**：帳本的 receipt、fingerprint、稽核的 payload 都不含臨時密碼；
+ * 同一個請求重送（帳本重播）只回「已核發」的回執，密碼無法取回（契約 03 §3）。
  */
+
+/** 這支用例會碰到的 Better Auth 管理員能力（預設走 `internalAuth`；測試可以換掉來模擬失敗）。 */
+export type AccountAuthCalls = {
+  createUser(headers: Headers, input: { email: string; name: string; password?: string }): Promise<{ userId: string }>
+  setUserPassword(headers: Headers, input: { userId: string; newPassword: string }): Promise<void>
+  revokeUserSessions(headers: Headers, input: { userId: string }): Promise<void>
+}
+
+export const betterAuthAccountCalls: AccountAuthCalls = {
+  async createUser(headers, input) {
+    const created = await internalAuth.createUser(headers, input)
+    return { userId: String(created.user.id) }
+  },
+  async setUserPassword(headers, input) {
+    await internalAuth.setUserPassword(headers, input)
+  },
+  async revokeUserSessions(headers, input) {
+    await internalAuth.revokeUserSessions(headers, input)
+  },
+}
 
 export type AccountCommandDeps = {
   readonly audit: AuditWriter<PoolClient>
   readonly ledger: OperationLedger<PoolClient>
   readonly db: () => Pool
-  readonly revocations?: SessionRevocationExecutor
+  readonly auth?: AccountAuthCalls
+  readonly generatePassword?: () => string
   readonly clock?: Clock
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function meta(now: Date, requestId = uuidv7()) {
   return { requestId, serverTime: now.toISOString() }
@@ -72,284 +92,51 @@ function denied(code: ErrorCode): Err {
   return err(code, messages[code] ?? '無法執行這個動作。', { next: defaultNextStep(code) })
 }
 
-type Queryable = Pick<Pool, 'query'> | PoolClient
+const EMAIL_TAKEN_MESSAGE = '這個 Email 已經有帳號了，不能再新增一個。'
 
-// ── 查詢 ────────────────────────────────────────────────────────────────────
-
-/**
- * 每個帳號一列。待審的人沒有 `user_profiles`，資料取他最新一筆註冊申請（lateral）；
- * 有 profile 的人一律以 profile 為準（`on up.user_id is null` 讓申請那一邊只在沒有 profile 時接上）。
- */
-const DIRECTORY_BASE = `
-  select u.id as user_id,
-         u.email as login_email,
-         case when u.deidentified_at is not null then 'deidentified' else u.status end as status,
-         u.created_at,
-         coalesce(up.display_name, ra.applied_name, u.name) as name,
-         coalesce(up.student_no, ra.student_no) as student_no,
-         coalesce(up.department_class, ra.department_class) as department_class,
-         coalesce(up.phone, ra.phone) as phone,
-         coalesce(up.contact_email, ra.contact_email) as contact_email,
-         up.cohort_id,
-         c.code as cohort_code,
-         c.name as cohort_name,
-         ra.state as application_state,
-         coalesce(
-           (select array_agg(r.role order by r.role)
-              from role_assignments r
-             where r.user_id = u.id and r.revoked_real_at is null),
-           '{}'::text[]
-         ) as roles
-    from users u
-    left join user_profiles up on up.user_id = u.id
-    left join lateral (
-      select x.applied_name, x.student_no, x.department_class, x.phone, x.contact_email, x.state
-        from registration_applications x
-       where x.user_id = u.id
-       order by x.created_at desc, x.id desc
-       limit 1
-    ) ra on up.user_id is null
-    left join cohorts c on c.id = up.cohort_id`
-
-/** 排序鍵 → SQL（白名單；外面帶進來的字串永遠不會直接進 ORDER BY）。 */
-const ORDER_BY: Record<DirectoryFilter['sort'], string> = {
-  createdAt: 'created_at',
-  studentNo: 'upper(student_no)',
-  cohort: 'cohort_code',
-  status: `case status when 'pending' then 1 when 'active' then 2 when 'disabled' then 3 else 4 end`,
+function isEmailTaken(error: unknown): boolean {
+  const e = error as { body?: { code?: string }; code?: string }
+  return (
+    e?.body?.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' ||
+    e?.body?.code === 'USER_ALREADY_EXISTS' ||
+    e?.code === '23505'
+  )
 }
-
-type DirectoryRow = {
-  user_id: string
-  login_email: string
-  status: AccountStatus
-  created_at: Date
-  name: string
-  student_no: string | null
-  department_class: string | null
-  phone: string | null
-  contact_email: string | null
-  cohort_id: string | null
-  cohort_code: string | null
-  cohort_name: string | null
-  application_state: 'pending' | 'approved' | 'rejected' | null
-  roles: Role[]
-  total?: string
-}
-
-function toAccountRow(r: DirectoryRow): AccountRow {
-  return {
-    userId: r.user_id,
-    name: r.name,
-    studentNo: r.student_no,
-    departmentClass: r.department_class,
-    cohortId: r.cohort_id,
-    cohortCode: r.cohort_code,
-    cohortName: r.cohort_name,
-    phone: r.phone,
-    loginEmail: r.login_email,
-    contactEmail: r.contact_email,
-    roles: r.roles,
-    status: r.status,
-    applicationState: r.application_state === 'pending' || r.application_state === 'rejected' ? r.application_state : null,
-    createdAt: new Date(r.created_at).toISOString(),
-  }
-}
-
-/** 篩選 → WHERE 子句與參數（參數從 `$1` 起）。 */
-function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] } {
-  const conditions: string[] = []
-  const params: unknown[] = []
-  const add = (value: unknown) => {
-    params.push(value)
-    return `$${params.length}`
-  }
-  if (filter.q) {
-    const p = add(likePattern(filter.q))
-    conditions.push(
-      `(name ilike ${p} escape '\\' or student_no ilike ${p} escape '\\' or login_email ilike ${p} escape '\\' or contact_email ilike ${p} escape '\\')`,
-    )
-  }
-  if (filter.role) conditions.push(`${add(filter.role)} = any(roles)`)
-  if (filter.cohortId) conditions.push(`cohort_id = ${add(filter.cohortId)}::uuid`)
-  if (filter.status) conditions.push(`status = ${add(filter.status)}`)
-  return { clause: conditions.length > 0 ? `where ${conditions.join(' and ')}` : '', params }
-}
-
-function orderOf(filter: DirectoryFilter): string {
-  const dir = filter.dir === 'asc' ? 'asc' : 'desc'
-  // 空值（沒學號、沒屆別）一律排最後，不管升降冪；同值再依建立時間與 ID，分頁才穩定。
-  return `order by ${ORDER_BY[filter.sort]} ${dir} nulls last, created_at desc, user_id desc`
-}
-
-// ── 用例 ────────────────────────────────────────────────────────────────────
 
 export class PgAccountCommand implements AccountCommand {
   readonly #deps: AccountCommandDeps
   readonly #clock: Clock
-  readonly #revocations: SessionRevocationExecutor
+  readonly #auth: AccountAuthCalls
+  readonly #generatePassword: () => string
 
   constructor(deps: AccountCommandDeps) {
     this.#deps = deps
     this.#clock = deps.clock ?? new RealClock()
-    this.#revocations = deps.revocations ?? new SessionRevocationExecutor({ db: deps.db, clock: this.#clock })
+    this.#auth = deps.auth ?? betterAuthAccountCalls
+    this.#generatePassword = deps.generatePassword ?? (() => generateTemporaryPassword())
   }
 
-  async list(actor: ResolvedActor, filter: DirectoryFilter): Promise<Result<DirectoryPage>> {
-    const blocked = accountAdminDenied(actor)
-    if (blocked) return denied(blocked)
+  // ── 新增老師 ──────────────────────────────────────────────────────────────
 
-    const db = this.#deps.db()
-    const { clause, params } = whereOf(filter)
-    const offset = (filter.page - 1) * DIRECTORY_PAGE_SIZE
-    const rows = await db.query<DirectoryRow>(
-      `select d.*, count(*) over () as total
-         from (${DIRECTORY_BASE}) d
-         ${clause}
-         ${orderOf(filter)}
-        limit ${DIRECTORY_PAGE_SIZE} offset ${offset}`,
-      params,
-    )
-    // 翻到超過最後一頁時，`count(*) over ()` 拿不到總數；另外算一次。
-    const total =
-      rows.rows.length > 0
-        ? Number(rows.rows[0]!.total)
-        : Number((await db.query<{ n: string }>(`select count(*) as n from (${DIRECTORY_BASE}) d ${clause}`, params)).rows[0]!.n)
-    const cohorts = await db.query<{ id: string; code: string; name: string }>(
-      `select id, code, name from cohorts order by created_at desc, code desc`,
-    )
-    return ok(
-      { rows: rows.rows.map(toAccountRow), total, page: filter.page, pageSize: DIRECTORY_PAGE_SIZE, cohorts: cohorts.rows },
-      meta(this.#clock.now()),
-    )
-  }
-
-  async summary(actor: ResolvedActor): Promise<Result<AccountSummary>> {
-    const blocked = accountAdminDenied(actor)
-    if (blocked) return denied(blocked)
-
-    const row = (
-      await this.#deps.db().query<Record<keyof AccountSummary, string>>(
-        `select
-           (select count(*) from registration_applications ra join users x on x.id = ra.user_id
-             where ra.state = 'pending' and x.status = 'pending') as "pendingApplications",
-           count(*) filter (where u.status = 'pending' and u.deidentified_at is null) as "pending",
-           count(*) filter (where u.status = 'active' and u.deidentified_at is null) as "active",
-           count(*) filter (where u.status = 'disabled' and u.deidentified_at is null) as "disabled",
-           count(*) filter (
-             where u.status = 'active' and u.deidentified_at is null
-               and exists (select 1 from role_assignments r
-                            where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
-           ) as "activeStudents"
-         from users u`,
-      )
-    ).rows[0]!
-    return ok(
-      {
-        pendingApplications: Number(row.pendingApplications),
-        pending: Number(row.pending),
-        active: Number(row.active),
-        disabled: Number(row.disabled),
-        activeStudents: Number(row.activeStudents),
-      },
-      meta(this.#clock.now()),
-    )
-  }
-
-  async exportCsv(actor: ResolvedActor, selection: ExportSelection): Promise<Result<{ csv: string; count: number }>> {
-    const blocked = accountAdminDenied(actor)
-    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
-
-    const db = this.#deps.db()
-    let rows: DirectoryRow[]
-    if (selection.kind === 'ids') {
-      rows = (
-        await db.query<DirectoryRow>(
-          `select d.* from (${DIRECTORY_BASE}) d where user_id = any($1::uuid[]) ${orderOf({ sort: 'studentNo', dir: 'asc' } as DirectoryFilter)}`,
-          [selection.userIds],
-        )
-      ).rows
-    } else {
-      const { clause, params } = whereOf(selection.filter)
-      rows = (
-        await db.query<DirectoryRow>(
-          `select d.* from (${DIRECTORY_BASE}) d ${clause} ${orderOf(selection.filter)} limit ${EXPORT_MAX_ROWS + 1}`,
-          params,
-        )
-      ).rows
-    }
-    if (rows.length > EXPORT_MAX_ROWS) {
-      return err('VALIDATION_FAILED', `一次最多匯出 ${EXPORT_MAX_ROWS} 筆，請先篩選再匯出。`)
-    }
-    if (rows.length === 0) return err('VALIDATION_FAILED', '沒有符合的帳號可以匯出。')
-
-    const now = this.#clock.now()
-    const tx = await db.connect()
-    try {
-      await tx.query('begin')
-      // 匯出稽核（2026-09-15 定案：匯出留紀錄）。只記範圍與筆數，不記個資、不記搜尋字（可能是姓名）。
-      await this.#deps.audit.append(tx, {
-        actorKind: 'user',
-        actorUserId: actor.userId,
-        role: 'admin',
-        action: 'account.export',
-        targetType: 'account_directory',
-        scope: 'global',
-        realAt: now,
-        businessAt: now,
-        payload:
-          selection.kind === 'ids'
-            ? { kind: 'ids', requested: selection.userIds.length, count: rows.length }
-            : {
-                kind: 'filter',
-                count: rows.length,
-                hasSearch: selection.filter.q.length > 0,
-                role: selection.filter.role,
-                cohortId: selection.filter.cohortId,
-                status: selection.filter.status,
-              },
-      })
-      await tx.query('commit')
-    } catch (error) {
-      await tx.query('rollback').catch(() => undefined)
-      throw error
-    } finally {
-      tx.release()
-    }
-    return ok({ csv: buildAccountsCsv(rows.map(toAccountRow)), count: rows.length }, meta(now))
-  }
-
-  // ── 停用與恢復 ────────────────────────────────────────────────────────────
-
-  async disable(actor: ResolvedActor, input: StatusChange, context: AdminRequestContext): Promise<Result<StatusChangeReceipt>> {
-    return this.#changeStatus(actor, input, context, 'disable')
-  }
-
-  async restore(actor: ResolvedActor, input: StatusChange, context: AdminRequestContext): Promise<Result<StatusChangeReceipt>> {
-    return this.#changeStatus(actor, input, context, 'restore')
-  }
-
-  async #changeStatus(
+  async createTeacher(
     actor: ResolvedActor,
-    input: StatusChange,
-    context: AdminRequestContext,
-    action: 'disable' | 'restore',
-  ): Promise<Result<StatusChangeReceipt>> {
+    authHeaders: Headers,
+    input: TeacherAccountInput & { requestId: string },
+  ): Promise<Result<TeacherAccountReceipt> | TeacherCreatedWithSecret> {
     const blocked = accountAdminDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
-    if (!isUserId(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
-    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
-    const reason = normalizeStatusReason(input.reason)
-    if (!reason.ok) return reason
-    // 不可停用自己（工程模組 01 §3）；恢復自己也不會發生——停用的人進不來。
-    if (input.userId === actor.userId) return err('FORBIDDEN', '不能停用自己的帳號。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新打開對話框再試。')
+    const normalized = normalizeTeacherAccountInput(input)
+    if (!normalized.ok) return normalized
+    const account = normalized.value
 
-    const operationKind = action === 'disable' ? 'account.disable' : 'account.restore'
     const now = this.#clock.now()
-    const fingerprint = sha256(canonicalJson({ userId: input.userId, reason: reason.value }))
+    const fingerprint = sha256(
+      canonicalJson({ mode: account.mode, email: account.email, name: account.name, verification: account.verification }),
+    )
+    const operationKind = account.mode === 'direct' ? 'account.create_teacher' : 'account.preauthorize_teacher'
 
     const tx = await this.#deps.db().connect()
-    let receipt: StatusChangeReceipt
     try {
       await tx.query('begin')
       const begun = await this.#deps.ledger.begin(
@@ -359,151 +146,221 @@ export class PgAccountCommand implements AccountCommand {
       )
       if (begun.outcome === 'mismatch') {
         await tx.query('rollback')
-        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新打開對話框再試。')
       }
       if (begun.outcome === 'replay') {
         await tx.query('commit')
-        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
-        return ok(begun.receipt as StatusChangeReceipt, meta(now, input.requestId))
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這個老師帳號已經建好了，回執已過期。')
+        // 重播沒有秘密：直接新增的臨時密碼無法取回，畫面會請系辦重新核發。
+        return ok(begun.receipt as TeacherAccountReceipt, meta(now, input.requestId))
       }
 
-      const locked = await lockAccounts(tx, [input.userId])
-      const target = locked.get(input.userId)
-      const from = action === 'disable' ? 'active' : 'disabled'
-      if (!target) {
+      const existing = await tx.query('select 1 from users where lower(email) = $1', [account.email])
+      if (existing.rowCount) {
         await tx.query('rollback')
-        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
-      }
-      if (target.status !== from) {
-        await tx.query('rollback')
-        return err('CONFLICT', statusConflictMessage(action, target.status))
+        return err('VALIDATION_FAILED', EMAIL_TAKEN_MESSAGE, { details: { field: 'email' } })
       }
 
-      if (action === 'restore') {
-        const occupied = await this.#occupyStudentNo(tx, target, now)
-        if (!occupied.ok) {
-          await tx.query('rollback')
-          return occupied
-        }
+      const password = account.mode === 'direct' ? this.#generatePassword() : undefined
+      let userId: string
+      try {
+        // 預授權沒填姓名時，先用 Email 當 `users.name`（欄位不能空）；老師第一次登入會補正式姓名。
+        const created = await this.#auth.createUser(authHeaders, {
+          email: account.email,
+          name: account.name ?? account.email,
+          ...(password ? { password } : {}),
+        })
+        userId = created.userId
+      } catch (error) {
+        await tx.query('rollback').catch(() => undefined)
+        if (isEmailTaken(error)) return err('VALIDATION_FAILED', EMAIL_TAKEN_MESSAGE, { details: { field: 'email' } })
+        throw error
       }
-      await this.#applyStatus(tx, actor.userId, target, action, reason.value, now, null)
 
-      receipt = {
-        userId: target.userId,
-        name: target.name,
-        status: action === 'disable' ? 'disabled' : 'active',
-        changedAt: now.toISOString(),
-        revocation: 'pending',
-      }
-      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
-      await tx.query('commit')
-    } catch (error) {
-      await tx.query('rollback').catch(() => undefined)
-      throw error
-    } finally {
-      tx.release()
-    }
-
-    // commit 之後才碰 Better Auth（附錄 A 規則 1–4）。失敗不影響已經生效的停用／恢復。
-    const revocation = await this.#runRevocation(input.userId, context)
-    return ok({ ...receipt, revocation }, meta(now, input.requestId))
-  }
-
-  // ── 批次停用 ──────────────────────────────────────────────────────────────
-
-  async previewBulkDisable(actor: ResolvedActor, text: string): Promise<Result<BulkPreview>> {
-    const blocked = accountAdminDenied(actor)
-    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
-    const parsed = parseBulkStudentNos(typeof text === 'string' ? text : '')
-    if (!parsed.ok) return parsed
-    const candidates = await bulkCandidates(this.#deps.db(), parsed.entries.map((e) => e.studentNo))
-    return ok(classifyBulk(parsed, candidates, actor.userId), meta(this.#clock.now()))
-  }
-
-  async bulkDisable(
-    actor: ResolvedActor,
-    input: { text: string; expectedUserIds: readonly string[]; reason: string; requestId: string },
-    context: AdminRequestContext,
-  ): Promise<Result<BulkDisableReceipt>> {
-    const blocked = accountAdminDenied(actor)
-    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
-    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
-    if (!Array.isArray(input.expectedUserIds) || !input.expectedUserIds.every(isUserId)) {
-      return err('VALIDATION_FAILED', '預覽資料不完整，請重新預覽。')
-    }
-    const reason = normalizeStatusReason(input.reason)
-    if (!reason.ok) return reason
-    const parsed = parseBulkStudentNos(typeof input.text === 'string' ? input.text : '')
-    if (!parsed.ok) return parsed
-
-    const expected = [...new Set(input.expectedUserIds)].sort()
-    const now = this.#clock.now()
-    const fingerprint = sha256(canonicalJson({ userIds: expected, reason: reason.value }))
-
-    const tx = await this.#deps.db().connect()
-    let receipt: BulkDisableReceipt
-    let targets: string[]
-    try {
-      await tx.query('begin')
-      const begun = await this.#deps.ledger.begin(
-        tx,
-        { actorUserId: actor.userId, operationKind: 'account.bulk_disable', requestId: input.requestId, fingerprint, scope: 'global' },
-        now,
+      // 套件的 `user.create.before` 一律把新帳號壓成 pending（契約 03 §2）；老師由系辦建立，直接開通。
+      await tx.query(
+        `update users set status = 'active', must_change_password = $2, updated_at = $3 where id = $1`,
+        [userId, account.mode === 'direct', now],
       )
-      if (begun.outcome === 'mismatch') {
-        await tx.query('rollback')
-        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新預覽後再試。')
-      }
-      if (begun.outcome === 'replay') {
-        await tx.query('commit')
-        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次批次停用已經完成，回執已過期；請看帳號列表。')
-        return ok(begun.receipt as BulkDisableReceipt, meta(now, input.requestId))
-      }
-
-      // 先鎖住預覽時看到的那群人，再用同一份 TXT 重算一次：跟預覽不同就請系辦重新預覽。
-      const locked = await lockAccounts(tx, expected)
-      const preview = classifyBulk(parsed, await bulkCandidates(tx, parsed.entries.map((e) => e.studentNo)), actor.userId)
-      targets = preview.hits.map((h) => h.userId)
-      if (targets.length === 0) {
-        await tx.query('rollback')
-        return err('VALIDATION_FAILED', '沒有要停用的帳號。')
-      }
-      if (!sameTargets(expected, targets) || targets.some((id) => locked.get(id)?.status !== 'active')) {
-        await tx.query('rollback')
-        return err('CONFLICT', '名單剛剛有變動（有人被停用或恢復了），請重新預覽後再確認。')
-      }
-
-      const bulkId = uuidv7()
-      for (const id of targets) {
-        await this.#applyStatus(tx, actor.userId, locked.get(id)!, 'disable', reason.value, now, bulkId)
-      }
+      await tx.query(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+         values ($1, $2, 'teacher', $3, $4, $5)`,
+        [uuidv7(), userId, actor.userId, now, account.mode === 'direct' ? '系辦新增老師' : '系辦預授權老師'],
+      )
+      await tx.query(
+        `insert into user_status_events
+           (id, user_id, from_status, to_status, reason, verification_method, actor_kind, actor_user_id, real_at)
+         values ($1, $2, 'pending', 'active', $3, $4, 'user', $5, $6)`,
+        [
+          uuidv7(),
+          userId,
+          account.mode === 'direct' ? '系辦新增老師' : '系辦預授權老師',
+          account.verification?.verificationMethod ?? null,
+          actor.userId,
+          now,
+        ],
+      )
       await this.#deps.audit.append(tx, {
         actorKind: 'user',
         actorUserId: actor.userId,
         role: 'admin',
-        action: 'account.bulk_disable',
+        action: operationKind,
         targetType: 'user',
-        targetId: bulkId,
+        targetId: userId,
         scope: 'global',
-        reason: reason.value,
+        verificationMethod: account.verification?.verificationMethod ?? null,
         realAt: now,
         businessAt: now,
+        // 不含臨時密碼（契約 03 §3）；只記「有沒有發」。
         payload: {
-          disabled: targets.length,
-          alreadyDisabled: preview.alreadyDisabled.length,
-          notFound: preview.notFound.length,
-          duplicates: preview.duplicates.length,
-          skipped: preview.skipped.length,
-          userIds: targets,
+          email: account.email,
+          mode: account.mode,
+          temporaryPasswordIssued: account.mode === 'direct',
+          verificationNote: account.verification?.verificationNote ?? null,
         },
       })
-      receipt = {
-        disabled: targets.length,
-        names: preview.hits.slice(0, 20).map((h) => h.name),
-        changedAt: now.toISOString(),
-        revocationFailed: 0,
+
+      const receipt: TeacherAccountReceipt = {
+        userId,
+        email: account.email,
+        name: account.name,
+        mode: account.mode,
+        createdAt: now.toISOString(),
+        temporaryPasswordIssued: account.mode === 'direct',
       }
-      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { bulkId } })
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId } })
+      await tx.query('commit')
+
+      if (!password) return ok(receipt, meta(now, input.requestId))
+      return { ...secretOnce(password, now, input.requestId, actor.userId), account: receipt }
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  // ── 查帳號 ────────────────────────────────────────────────────────────────
+
+  async lookupByEmail(actor: ResolvedActor, email: string): Promise<Result<AccountLookup>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked) return denied(blocked)
+    const wanted = email.trim().toLowerCase()
+    if (!wanted || wanted.length > 254) {
+      return err('VALIDATION_FAILED', '請輸入要發臨時密碼的登入 Email。', { details: { field: 'email' } })
+    }
+    const found = await this.#deps.db().query<{
+      id: string
+      name: string
+      email: string
+      status: AccountLookup['status']
+      deidentified_at: Date | null
+      roles: Role[] | null
+    }>(
+      `select u.id, u.name, u.email, u.status, u.deidentified_at,
+              array_remove(array_agg(ra.role order by ra.role), null) as roles
+         from users u
+         left join role_assignments ra on ra.user_id = u.id and ra.revoked_real_at is null
+        where lower(u.email) = $1
+        group by u.id`,
+      [wanted],
+    )
+    const row = found.rows[0]
+    if (!row) return err('VALIDATION_FAILED', '找不到這個 Email 的帳號。', { details: { field: 'email' } })
+    return ok(
+      {
+        userId: row.id,
+        name: row.name,
+        email: row.email,
+        roles: row.roles ?? [],
+        status: row.deidentified_at ? 'deidentified' : row.status,
+      },
+      meta(this.#clock.now()),
+    )
+  }
+
+  // ── 臨時密碼 ──────────────────────────────────────────────────────────────
+
+  async issueTemporaryPassword(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: { userId: string; verificationMethod: string; verificationNote: string; reason: string; requestId: string },
+  ): Promise<Result<TemporaryPasswordReceipt> | SecretOnce> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新查詢。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新打開對話框再試。')
+    if (input.userId === actor.userId) {
+      // 替自己發會把自己目前的登入撤掉；要改自己的密碼走「更改密碼」。
+      return err('VALIDATION_FAILED', '不能替自己發臨時密碼；要換自己的密碼請到「更改密碼」。')
+    }
+    const decision = normalizeTemporaryPasswordRequest(input)
+    if (!decision.ok) return decision
+
+    const now = this.#clock.now()
+    // 指紋只含「對誰、依什麼核實」；臨時密碼是之後才產生的，本來就不在裡面。
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, ...decision.value }))
+
+    const tx = await this.#deps.db().connect()
+    let receipt: TemporaryPasswordReceipt
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        {
+          actorUserId: actor.userId,
+          operationKind: 'account.issue_temporary_password',
+          requestId: input.requestId,
+          fingerprint,
+          scope: 'global',
+        },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新打開對話框再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這組臨時密碼已經核發過了，回執已過期。')
+        return ok(begun.receipt as TemporaryPasswordReceipt, meta(now, input.requestId))
+      }
+
+      // `for no key update`：之後套件補建 credential 帳號時，`accounts` 的外鍵檢查要對這一列拿
+      // key share 鎖；用 `for update` 的話兩邊會互等（雖然我們先 commit 才呼叫，仍不留這個坑）。
+      const target = await tx.query<{ id: string; status: string; deidentified_at: Date | null }>(
+        'select id, status, deidentified_at from users where id = $1 for no key update',
+        [input.userId],
+      )
+      const row = target.rows[0]
+      if (!row) {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', '找不到這個帳號，請重新查詢。')
+      }
+      if (row.deidentified_at || row.status === 'disabled') {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', '這個帳號已停用，登不進來；要發臨時密碼請先還原帳號。')
+      }
+
+      await tx.query('update users set must_change_password = true, updated_at = $2 where id = $1', [row.id, now])
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.issue_temporary_password',
+        targetType: 'user',
+        targetId: row.id,
+        scope: 'global',
+        reason: decision.value.reason,
+        verificationMethod: decision.value.verificationMethod,
+        realAt: now,
+        businessAt: now,
+        // 不含臨時密碼（契約 03 §3）。
+        payload: { verificationNote: decision.value.verificationNote },
+      })
+      receipt = { userId: row.id, verificationMethod: decision.value.verificationMethod, issuedAt: now.toISOString() }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: row.id } })
       await tx.query('commit')
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -512,160 +369,62 @@ export class PgAccountCommand implements AccountCommand {
       tx.release()
     }
 
-    let revocationFailed = 0
-    for (const id of targets) {
-      if ((await this.#runRevocation(id, context)) === 'failed') revocationFailed += 1
-    }
-    return ok({ ...receipt, revocationFailed }, meta(now, input.requestId))
-  }
-
-  // ── 內部 ──────────────────────────────────────────────────────────────────
-
-  /**
-   * 一次狀態變更的全部寫入（同一個交易）：`users.status`、狀態事件、學號占用、撤 session 主工作、稽核。
-   * 恢復時的學號占用由呼叫端先做（它可能失敗而要整體回滾）。
-   */
-  async #applyStatus(
-    tx: PoolClient,
-    actorUserId: string,
-    target: LockedAccount,
-    action: 'disable' | 'restore',
-    reason: string,
-    now: Date,
-    bulkId: string | null,
-  ): Promise<void> {
-    const to = action === 'disable' ? 'disabled' : 'active'
-    await tx.query(`update users set status = $2, updated_at = $3 where id = $1`, [target.userId, to, now])
-    const statusEventId = uuidv7()
-    await tx.query(
-      `insert into user_status_events (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
-       values ($1, $2, $3, $4, $5, 'user', $6, $7)`,
-      [statusEventId, target.userId, target.status, to, reason, actorUserId, now],
-    )
-    // 停用釋出有效學號（附錄 A：停用或去識別化時 DELETE）；停用不動角色。
-    if (action === 'disable') await tx.query('delete from student_identities where user_id = $1', [target.userId])
-    await this.#revocations.enqueue(tx, { userId: target.userId, statusEventId, expected: to, now, actorUserId })
-    await this.#deps.audit.append(tx, {
-      actorKind: 'user',
-      actorUserId,
-      role: 'admin',
-      action: action === 'disable' ? 'account.disable' : 'account.restore',
-      targetType: 'user',
-      targetId: target.userId,
-      scope: target.cohortId ? 'cohort' : 'global',
-      cohortId: target.cohortId,
-      reason,
-      realAt: now,
-      businessAt: now,
-      payload: { statusEventId, from: target.status, to, ...(bulkId ? { bulkId } : {}) },
-    })
-  }
-
-  /**
-   * 恢復時重新占用有效學號（工程模組 01 §3 disabled→active：唯一違反→`STUDENT_NO_TAKEN`）。
-   * 只有學生（有屆別、有學號）才占用；老師與管理員沒有學號。
-   */
-  async #occupyStudentNo(tx: PoolClient, target: LockedAccount, now: Date): Promise<{ ok: true } | Err> {
-    if (!target.isStudent || !target.cohortId || !target.studentNo) return { ok: true }
-    const taken = await studentNoHolder(tx, target.cohortId, target.studentNo, target.userId)
-    if (taken) {
-      return err(
-        'STUDENT_NO_TAKEN',
-        `學號 ${target.studentNo} 在這一屆已經有另一個有效帳號（${taken}），不能恢復。請先確認是不是同一個人重複註冊。`,
-      )
-    }
-    await tx.query('delete from student_identities where user_id = $1', [target.userId])
+    const password = this.#generatePassword()
     try {
-      await occupyStudentNo(tx, target.cohortId, target.studentNo, target.userId, now)
+      await this.#auth.setUserPassword(authHeaders, { userId: input.userId, newPassword: password })
     } catch (error) {
-      if ((error as { code?: string })?.code !== '23505') throw error
-      return err('STUDENT_NO_TAKEN', `學號 ${target.studentNo} 在這一屆已經有另一個有效帳號，不能恢復。`)
+      console.error('[account] 臨時密碼寫入失敗（稽核已記核發，舊密碼仍有效、下次登入要改密碼）', errorName(error))
+      await this.#appendFailure(actor.userId, input.userId, now).catch(() => undefined)
+      return err('INTERNAL', '密碼沒有設定成功，這個人的舊密碼仍然有效。請關閉後重新核發一次。')
     }
-    return { ok: true }
-  }
-
-  async #runRevocation(userId: string, context: AdminRequestContext) {
     try {
-      return await this.#revocations.runForUser(userId, context.headers)
+      await this.#auth.revokeUserSessions(authHeaders, { userId: input.userId })
     } catch (error) {
-      // 工作列留在資料庫裡，收斂工作（票 12）會接手；這裡只記錄，不讓已生效的停用變成錯誤。
-      console.error('[accounts] 撤 session 執行失敗，留給收斂工作', error)
-      return 'failed' as const
+      // 不回錯：舊登入已經被 must-change 限制成只能改密碼，而改密碼要知道這組新的臨時密碼。
+      console.error('[account] 撤銷舊登入失敗（已被 must-change 限制）', errorName(error))
+    }
+    return secretOnce(password, now, input.requestId, actor.userId)
+  }
+
+  /** 套件那一步失敗時補一筆稽核，免得稽核只看得到「已核發」。 */
+  async #appendFailure(actorUserId: string, userId: string, now: Date): Promise<void> {
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId,
+        role: 'admin',
+        action: 'account.issue_temporary_password_failed',
+        targetType: 'user',
+        targetId: userId,
+        scope: 'global',
+        realAt: now,
+        businessAt: now,
+        payload: {},
+      })
+      await tx.query('commit')
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
     }
   }
 }
 
-// ── 共用小工具 ──────────────────────────────────────────────────────────────
-
-type LockedAccount = {
-  userId: string
-  name: string
-  status: AccountStatus
-  cohortId: string | null
-  studentNo: string | null
-  isStudent: boolean
-}
-
-/** 依 ID 順序鎖住幾個帳號（固定順序，兩個批次同時跑也不會互等成死結）。 */
-async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise<Map<string, LockedAccount>> {
-  const result = new Map<string, LockedAccount>()
-  if (userIds.length === 0) return result
-  const rows = await tx.query<{
-    id: string
-    name: string
-    status: string
-    deidentified_at: Date | null
-    cohort_id: string | null
-    student_no: string | null
-    is_student: boolean
-  }>(
-    `select u.id, coalesce(up.display_name, u.name) as name, u.status, u.deidentified_at,
-            up.cohort_id, up.student_no,
-            exists (select 1 from role_assignments r
-                     where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null) as is_student
-       from users u
-       left join user_profiles up on up.user_id = u.id
-      where u.id = any($1::uuid[])
-      order by u.id
-      for update of u`,
-    [[...userIds]],
-  )
-  for (const r of rows.rows) {
-    result.set(r.id, {
-      userId: r.id,
-      name: r.name,
-      status: r.deidentified_at ? 'deidentified' : (r.status as AccountStatus),
-      cohortId: r.cohort_id,
-      studentNo: r.student_no,
-      isStudent: r.is_student,
-    })
+function secretOnce(secret: string, now: Date, requestId: string, issuedBy: string): SecretOnce {
+  return {
+    ok: true,
+    secret,
+    issuedAt: now.toISOString(),
+    expiresAt: null,
+    receipt: { requestId, kind: 'temp_password', issuedBy },
   }
-  return result
 }
 
-/** 批次停用的比對來源：核准過的學生資料（學號忽略大小寫）。 */
-async function bulkCandidates(db: Queryable, studentNos: readonly string[]): Promise<BulkCandidate[]> {
-  if (studentNos.length === 0) return []
-  const rows = await db.query<{ id: string; name: string; student_no: string; cohort_code: string | null; status: string; deidentified_at: Date | null }>(
-    `select u.id, up.display_name as name, up.student_no, c.code as cohort_code, u.status, u.deidentified_at
-       from user_profiles up
-       join users u on u.id = up.user_id
-       left join cohorts c on c.id = up.cohort_id
-      where up.student_no is not null and upper(up.student_no) = any($1::text[])
-      order by c.code desc nulls last, u.created_at`,
-    [[...new Set(studentNos.map((s) => s.toUpperCase()))]],
-  )
-  return rows.rows
-    .filter((r) => !r.deidentified_at)
-    .map((r) => ({ userId: r.id, name: r.name, studentNo: r.student_no, cohortCode: r.cohort_code, status: r.status as AccountStatus }))
-}
-
-function statusConflictMessage(action: 'disable' | 'restore', current: AccountStatus): string {
-  if (action === 'disable') {
-    if (current === 'disabled') return '這個帳號已經是停用狀態了，請重新整理頁面。'
-    if (current === 'pending') return '待審核的帳號不是用停用處理，請在待審核清單裡退回。'
-    return '這個帳號目前不能停用，請重新整理頁面。'
-  }
-  if (current === 'active') return '這個帳號已經恢復了，請重新整理頁面。'
-  return '這個帳號目前不能恢復，請重新整理頁面。'
+/** log 只記錯誤的名字，不記內容：套件的錯誤物件可能帶著請求內容（含新密碼）。 */
+function errorName(error: unknown): string {
+  const e = error as { name?: string; status?: string; body?: { code?: string } }
+  return [e?.name, e?.status, e?.body?.code].filter(Boolean).join(' ') || 'unknown error'
 }

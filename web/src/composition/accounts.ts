@@ -6,10 +6,14 @@ import type {
   ResolvedActor,
   RosterCommand,
   SelfAccountCommand,
+  TeacherSetupCommand,
 } from '@/application/accounts'
 import { accountAdminDenied, normalizeExportSelection } from '@/application/accounts'
+import type { AccountDirectoryCommand } from '@/application/accounts'
 import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
+import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
+import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
@@ -78,7 +82,7 @@ export function getRegistrationCommand(): RegistrationCommand {
   return registrationCommand
 }
 
-/** 帳號列表、停用／恢復、批次停用與匯出（票 9）。 */
+/** 老師帳號與臨時密碼（票 8）：稽核＋帳本由這裡注入；Better Auth 的管理員能力走 wrapper。 */
 let accountCommand: AccountCommand | undefined
 
 export function getAccountCommand(): AccountCommand {
@@ -88,6 +92,29 @@ export function getAccountCommand(): AccountCommand {
     db: getPool,
   })
   return accountCommand
+}
+
+/** 老師第一次登入補資料（票 8）。 */
+let teacherSetupCommand: TeacherSetupCommand | undefined
+
+export function getTeacherSetupCommand(): TeacherSetupCommand {
+  teacherSetupCommand ??= new PgTeacherSetupCommand({ audit: getAuditWriter(), db: getPool })
+  return teacherSetupCommand
+}
+
+/** 老師第一次登入補資料頁的路徑（登入後導向、老師首頁都用這一個）。 */
+export const TEACHER_SETUP_PATH = '/account/setup'
+
+/** 帳號列表、停用／恢復、批次停用與匯出（票 9）。 */
+let accountDirectoryCommand: AccountDirectoryCommand | undefined
+
+export function getAccountDirectoryCommand(): AccountDirectoryCommand {
+  accountDirectoryCommand ??= new PgAccountDirectoryCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+  })
+  return accountDirectoryCommand
 }
 
 /**
@@ -103,7 +130,7 @@ export async function exportAccounts(
   if (blocked) return err(blocked, blocked === 'UNAUTHENTICATED' ? '請先登入。' : '只有系辦可以匯出帳號名單。')
   const selection = normalizeExportSelection(body)
   if (!selection.ok) return selection
-  const result = await getAccountCommand().exportCsv(actor, selection.value)
+  const result = await getAccountDirectoryCommand().exportCsv(actor, selection.value)
   if (!result.ok) return result
   const t = taipeiParts(new Date(result.receipt.serverTime))
   const two = (n: number) => String(n).padStart(2, '0')
@@ -133,6 +160,7 @@ export {
   EVIDENCE_NEEDS_ATTENTION,
   PASSWORD_MIN_LENGTH,
   REASON_MAX_LENGTH,
+  TEACHER_NAME_MAX_LENGTH,
   VERIFICATION_LABEL,
   VERIFICATION_METHODS,
   VERIFICATION_NOTE_HINT,
@@ -198,8 +226,14 @@ export async function signIn(input: {
   return { ok: true, destination, mustChangePassword }
 }
 
-/** 這個人登入後預設看哪一個後台。角色來自 `role_assignments`（不是套件的 `users.role`）。 */
-async function homeForUser(userId: string): Promise<string> {
+/**
+ * 這個人登入後預設看哪一個後台。角色來自 `role_assignments`（不是套件的 `users.role`）。
+ *
+ * 還沒補資料的老師先去補資料頁（票 8），不論他是不是也有管理員角色——補完才進首頁。
+ * 改完密碼之後也用這個決定去哪（那時候 cookie 剛換新，還不能靠 session 判斷是誰）。
+ */
+export async function homeForUser(userId: string): Promise<string> {
+  if (await getTeacherSetupCommand().needsSetup(userId)) return TEACHER_SETUP_PATH
   const rows = await getPool().query<{ role: string }>(
     `select role from role_assignments where user_id = $1 and revoked_real_at is null`,
     [userId],

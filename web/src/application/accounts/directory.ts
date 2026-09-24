@@ -1,8 +1,7 @@
-import { hasRole, statusGate, type AccountStatus, type ResolvedActor, type Role } from '@/application/accounts/actor'
+import type { AccountStatus, ResolvedActor, Role } from '@/application/accounts/actor'
 import { STUDENT_NO_PATTERN } from '@/application/accounts/roster'
 import { REASON_MAX_LENGTH } from '@/application/accounts/registration'
 import { toCsvLine } from '@/shared/csv'
-import type { ErrorCode } from '@/shared/errors'
 import { err, type Err, type Result } from '@/shared/result'
 
 /**
@@ -12,15 +11,6 @@ import { err, type Err, type Result } from '@/shared/result'
  * 這個檔是純邏輯：網址上的篩選怎麼收成合法值、CSV 長什麼樣、TXT 怎麼拆、
  * 批次預覽怎麼分類、誰能做。查表與交易在 `infrastructure/accounts/account-command.ts`。
  */
-
-// ── 授權 ────────────────────────────────────────────────────────────────────
-
-/** 帳號列表、停用、恢復、批次、匯出：只有狀態正常的管理員（契約 03 §1「帳號」列）。 */
-export function accountAdminDenied(actor: ResolvedActor): ErrorCode | null {
-  const blocked = statusGate(actor, 'business')
-  if (blocked) return blocked
-  return hasRole(actor, 'admin') ? null : 'FORBIDDEN'
-}
 
 // ── 顯示用標籤 ──────────────────────────────────────────────────────────────
 
@@ -434,7 +424,8 @@ export type BulkDisableReceipt = {
  */
 export type AdminRequestContext = { readonly headers: Headers }
 
-export type AccountCommand = {
+/** 帳號列表、停用／恢復、批次停用、匯出（票 9）。授權用 `teachers.ts` 的 `accountAdminDenied`。 */
+export type AccountDirectoryCommand = {
   list(actor: ResolvedActor, filter: DirectoryFilter): Promise<Result<DirectoryPage>>
   summary(actor: ResolvedActor): Promise<Result<AccountSummary>>
   /** 匯出（每次重新授權、寫稽核）。回 CSV 全文。 */

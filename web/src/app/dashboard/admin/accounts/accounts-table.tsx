@@ -5,6 +5,7 @@ import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } 
 import { cn } from '@/shared/cn'
 import { BulkDisableDialog } from './bulk-disable-dialog'
 import { StatusDialog } from './status-dialog'
+import { TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
 
 /**
  * 帳號表格（票 9；原型 `/dashboard/admin/accounts` 的 AccountsTable）。
@@ -30,6 +31,8 @@ export type AccountsTableProps = {
   readonly roleLabel: Record<Role, string>
   readonly sortHeaders: Record<DirectorySort, SortHeader>
   readonly bulkMaxChars: number
+  /** 票 8 的「發臨時密碼」對話框要用的核實方式標籤（app 對 application 只能帶型別，值由頁面傳進來）。 */
+  readonly verificationLabels: VerificationLabels
 }
 
 const STATUS_TONE: Record<AccountStatus, string> = {
@@ -219,19 +222,29 @@ export function AccountsTable(props: AccountsTableProps) {
                     {r.createdAt.slice(0, 10)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
-                    {(r.status === 'active' || r.status === 'disabled') && r.userId !== currentUserId ? (
-                      <StatusDialog
-                        account={{
-                          userId: r.userId,
-                          name: r.name,
-                          loginEmail: r.loginEmail,
-                          studentNo: r.studentNo,
-                          status: r.status,
-                        }}
-                      />
-                    ) : r.status === 'pending' && r.applicationState === 'pending' ? (
-                      <span className="text-xs text-muted-foreground">在上方待審核清單審核</span>
-                    ) : null}
+                    <span className="flex items-center gap-1">
+                      {(r.status === 'active' || r.status === 'disabled') && r.userId !== currentUserId ? (
+                        <StatusDialog
+                          account={{
+                            userId: r.userId,
+                            name: r.name,
+                            loginEmail: r.loginEmail,
+                            studentNo: r.studentNo,
+                            status: r.status,
+                          }}
+                        />
+                      ) : null}
+                      {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
+                      {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (
+                        <TemporaryPasswordDialog
+                          labels={props.verificationLabels}
+                          target={{ userId: r.userId, name: r.name, email: r.loginEmail, roles: r.roles, status: r.status }}
+                        />
+                      ) : null}
+                      {r.status === 'pending' && r.applicationState === 'pending' ? (
+                        <span className="text-xs text-muted-foreground">在上方待審核清單審核</span>
+                      ) : null}
+                    </span>
                   </td>
                 </tr>
               ))

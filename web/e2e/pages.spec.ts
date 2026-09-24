@@ -192,12 +192,14 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
     '/dashboard/admin': '待審的註冊、已開通的學生與目前在忙的屆別',
-    '/dashboard/admin/accounts': '名單匯入、註冊審核、停用與匯出',
+    '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
     '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
+    '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
+    '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -210,6 +212,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/timeline', wrongRole: 'teacher' },
     // 模擬業務鐘只在測試站存在（CI 的 e2e 開著 BUSINESS_CLOCK_OVERRIDE_ENABLED）。
     { path: '/dashboard/admin/clock', wrongRole: 'student' },
+    { path: '/dashboard/admin/groups', wrongRole: 'student' },
+    { path: '/dashboard/student/groups', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {
