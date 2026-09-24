@@ -18,6 +18,8 @@ export type FaultPointName =
   | 'projection.after-notifications'
   | 'revocation.before-call'
   | 'file.after-upload'
+  /** 票 13：組別、成員、組長寫好、占用刪掉，還沒發事件與 commit（證明成立是單一交易、測並發時卡住成立中的交易）。 */
+  | 'group.establish.after-release'
 
 export type FaultHandler = () => void | Promise<void>
 

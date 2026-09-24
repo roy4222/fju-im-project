@@ -4,11 +4,13 @@ import type { Pool, PoolClient } from 'pg'
 import { RECONCILE_INTERVAL_SECONDS } from '@/application/accounts'
 import type { DueWorkHandlers } from '@/application/notifications'
 import { getBusinessClock } from '@/composition/cohorts'
+import { getProposalExpiryHandler } from '@/composition/groups'
 import { businessClockOverrideEnabled, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter } from '@/composition/ops'
 import { SqlBanStateGateway } from '@/infrastructure/accounts/ban-state'
 import { PgSessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation-executor'
 import { getPool } from '@/infrastructure/db/client'
+import { proposalExpiryDueWorkHandler } from '@/infrastructure/notifications/due-work-handlers'
 import { PgDueWorkRunner, testNoopHandler } from '@/infrastructure/notifications/pg-due-work-runner'
 import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
 import {
@@ -22,7 +24,7 @@ import {
  *
  * 三個迴圈，都由同一個進程跑，同一時間整個資料庫只有一個進程在跑（advisory lock）：
  * - 投影：每 5 秒把事件投影成通知；每一輪都寫心跳（`/api/health` 的 `worker.lastTickAt`）。
- * - 到期工作：每 30 秒看業務鐘，撿到期的工作交給 handler（目前只有測試站的 `test_noop`）。
+ * - 到期工作：每 30 秒看業務鐘，撿到期的工作交給 handler（提案到期；測試站另有 `test_noop`）。
  * - 撤 session 收斂：每 5 分鐘回收過期租約、做掉排著的工作、核對停用／恢復是否真的生效。
  *
  * 啟動時三個迴圈都先立刻跑一次：部署的健康判定只等 60 秒，心跳要在那之前出現。
@@ -48,18 +50,12 @@ export type RunningWorker = {
 const defaultLog = (message: string, detail?: Record<string, unknown>) =>
   console.log(`[worker] ${new Date().toISOString()} ${message}`, detail ? JSON.stringify(detail) : '')
 
-/** 測試站才註冊 `test_noop`（契約 01 §4.7）；真實 handler 由後面的票加在這裡。 */
+/** 到期工作的處理器註冊表。測試站才註冊 `test_noop`（契約 01 §4.7）；真實 handler 由各票加在這裡。 */
 export function dueWorkHandlers(log: WorkerOptions['log'] = defaultLog): DueWorkHandlers<PoolClient> {
   const handlers: DueWorkHandlers<PoolClient> = {}
   if (businessClockOverrideEnabled()) handlers.test_noop = testNoopHandler(log ?? defaultLog)
-  // 票 13（PR #249）合併後在這裡接提案到期（它自己開交易、終止時自己把工作改成 cancelled）：
-  //   handlers.proposal_expiry = {
-  //     mode: 'own_transaction',
-  //     handle: async (work) => {
-  //       const result = await getProposalExpiryHandler().expire(work.subject.id, work.deadlineVersion)
-  //       return result === 'not_due' ? { kind: 'defer', reason: '模擬鐘往回撥，還沒到期' } : { kind: 'done' }
-  //     },
-  //   }
+  // 提案到期（票 13）：它自己開交易、終止時自己把工作改成 cancelled。
+  handlers.proposal_expiry = proposalExpiryDueWorkHandler(getProposalExpiryHandler())
   return handlers
 }
 

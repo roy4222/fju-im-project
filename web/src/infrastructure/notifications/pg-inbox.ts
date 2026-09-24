@@ -66,6 +66,9 @@ const SOURCE_RESOLVERS: Record<string, (ref: { id: string }) => NotificationSour
   domain_event: () => ({ state: 'ok', href: null }),
   due_work: () => ({ state: 'ok', href: null }),
   user: () => ({ state: 'ok', href: null }),
+  // 分組（票 13）：收件人都是提案或組別的學生，點進「我的組別」；那一頁自己再依本人身分查、重驗權限。
+  group_proposal: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
+  group: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
 }
 
 export function resolveSource(row: Pick<Row, 'source_ref' | 'cohort_status'>): NotificationSourceState {

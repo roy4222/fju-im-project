@@ -49,6 +49,11 @@ export const userProfiles = pgTable(
     cohortId: uuid('cohort_id').references(() => cohorts.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
     phone: text('phone'),
     contactEmail: text('contact_email').notNull(),
+    /**
+     * 「公開找組員」（產品模組 03 §5.1；票 13）。預設關閉、只有本人能開。開著時同屆已驗證學生、
+     * 老師與管理員看得到姓名、學號、聯絡 Email（電話永不公開）；成組或停用後查詢自動不列。
+     */
+    openToJoin: boolean('open_to_join').notNull().default(false),
     /** 只是列表顯示用；判定一律看 `sessions.login_method`（模組 01 §2）。 */
     loginMethodLast: text('login_method_last'),
     profileCompletedAt: timestamp('profile_completed_at', tz),

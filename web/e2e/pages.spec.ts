@@ -200,6 +200,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/inbox': '跟你有關的事件都會出現在這裡',
     '/dashboard/teacher/inbox': '跟你有關的事件都會出現在這裡',
     '/dashboard/student/inbox': '跟你有關的事件都會出現在這裡',
+    '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
+    '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -216,6 +218,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/inbox', wrongRole: 'student' },
     { path: '/dashboard/teacher/inbox', wrongRole: 'student' },
     { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/groups', wrongRole: 'student' },
+    { path: '/dashboard/student/groups', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

@@ -29,6 +29,13 @@
       "when": 1790233479212,
       "tag": "0003_s02_timeline_and_events",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790237516220,
+      "tag": "0004_s03_groups",
+      "breakpoints": true
     }
   ]
 }

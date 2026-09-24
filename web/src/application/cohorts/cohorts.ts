@@ -28,6 +28,11 @@ export type Cohort = {
   readonly isRegistrationOpen: boolean
   /** 年度結束日（臺灣日期，含當天）；還沒設是 null。 */
   readonly yearEndDate: string | null
+  /** 提案預設有效天數（票 13；預設 7）。 */
+  readonly proposalDefaultDays: number
+  /** 每組人數下限與上限（2026-09-24 定案；預設都是 5）。學生提案的人數（含自己）要落在這個範圍。 */
+  readonly groupSizeMin: number
+  readonly groupSizeMax: number
   readonly revision: number
   readonly createdAt: Date
 }
@@ -148,4 +153,67 @@ export function describeActivateReceipt(receipt: ActivateCohortReceipt): string 
   return receipt.alreadyActive
     ? `${receipt.code} 本來就是進行中。`
     : `已把 ${receipt.code} 轉為進行中，狀態紀錄多了一筆。`
+}
+
+/**
+ * 分組設定（票 13；2026-09-24 Roy 定案＋產品模組 03「提案終止」）：每組最少／最多人數、提案預設天數。
+ *
+ * 欄位在 `cohorts` 上（模組 02 附錄 A `proposal_default_days`，加上每組人數兩欄）。
+ * 上限只是防呆：人數最多 10、天數最多 60；到期時間本來就會被「成組截止」截短。
+ */
+export const GROUP_SIZE_LIMIT = 10
+export const PROPOSAL_DAYS_LIMIT = 60
+
+export type GroupingSettingsInput = {
+  readonly groupSizeMin: number
+  readonly groupSizeMax: number
+  readonly proposalDefaultDays: number
+}
+
+export type SetGroupingSettingsReceipt = {
+  readonly cohortId: string
+  readonly code: string
+  readonly groupSizeMin: number
+  readonly groupSizeMax: number
+  readonly proposalDefaultDays: number
+}
+
+function wholeNumber(value: number): boolean {
+  return Number.isInteger(value)
+}
+
+export function normalizeGroupingSettings(
+  input: GroupingSettingsInput,
+): { ok: true; value: GroupingSettingsInput } | Err {
+  const { groupSizeMin, groupSizeMax, proposalDefaultDays } = input
+  if (!wholeNumber(groupSizeMin) || groupSizeMin < 1 || groupSizeMin > GROUP_SIZE_LIMIT) {
+    return err('VALIDATION_FAILED', `每組最少人數要是 1 到 ${GROUP_SIZE_LIMIT} 的整數。`, {
+      details: { field: 'groupSizeMin' },
+    })
+  }
+  if (!wholeNumber(groupSizeMax) || groupSizeMax < 1 || groupSizeMax > GROUP_SIZE_LIMIT) {
+    return err('VALIDATION_FAILED', `每組最多人數要是 1 到 ${GROUP_SIZE_LIMIT} 的整數。`, {
+      details: { field: 'groupSizeMax' },
+    })
+  }
+  if (groupSizeMin > groupSizeMax) {
+    return err('VALIDATION_FAILED', `最少人數（${groupSizeMin}）不能比最多人數（${groupSizeMax}）多。`, {
+      details: { field: 'groupSizeMin' },
+    })
+  }
+  if (!wholeNumber(proposalDefaultDays) || proposalDefaultDays < 1 || proposalDefaultDays > PROPOSAL_DAYS_LIMIT) {
+    return err('VALIDATION_FAILED', `提案預設天數要是 1 到 ${PROPOSAL_DAYS_LIMIT} 的整數。`, {
+      details: { field: 'proposalDefaultDays' },
+    })
+  }
+  return { ok: true, value: { groupSizeMin, groupSizeMax, proposalDefaultDays } }
+}
+
+/** 「每組 5 人」或「每組 3–5 人」。 */
+export function describeGroupSize(min: number, max: number): string {
+  return min === max ? `每組 ${min} 人` : `每組 ${min}–${max} 人`
+}
+
+export function describeGroupingSettingsReceipt(receipt: SetGroupingSettingsReceipt): string {
+  return `已儲存 ${receipt.code} 的分組設定：${describeGroupSize(receipt.groupSizeMin, receipt.groupSizeMax)}、提案 ${receipt.proposalDefaultDays} 天內要全員確認。`
 }

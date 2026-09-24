@@ -12,11 +12,15 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/accounts', label: '帳號' },
   { href: '/dashboard/admin/cohorts', label: '屆別' },
   { href: '/dashboard/admin/timeline', label: '時間軸' },
+  { href: '/dashboard/admin/groups', label: '分組' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [{ href: '/dashboard/teacher', label: '首頁' }]
 
-export const STUDENT_NAV: readonly NavItem[] = [{ href: '/dashboard/student', label: '首頁' }]
+export const STUDENT_NAV: readonly NavItem[] = [
+  { href: '/dashboard/student', label: '首頁' },
+  { href: '/dashboard/student/groups', label: '我的組別' },
+]
 
 /**
  * 每一條後台路由需要的角色。
@@ -29,10 +33,12 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/accounts', role: 'admin' },
   { path: '/dashboard/admin/cohorts', role: 'admin' },
   { path: '/dashboard/admin/timeline', role: 'admin' },
+  { path: '/dashboard/admin/groups', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
   { path: '/dashboard/teacher', role: 'teacher' },
   { path: '/dashboard/student', role: 'student' },
+  { path: '/dashboard/student/groups', role: 'student' },
   // 通知匣（票 12）：入口是頂列的鈴鐺，不放側欄。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
