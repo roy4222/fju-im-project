@@ -1,19 +1,29 @@
 import 'server-only'
 import type {
+  AccountCommand,
   ActorResolver,
   RegistrationCommand,
   ResolvedActor,
   RosterCommand,
   SelfAccountCommand,
+  TeacherSetupCommand,
 } from '@/application/accounts'
+import { accountAdminDenied, normalizeExportSelection } from '@/application/accounts'
+import type { AccountDirectoryCommand } from '@/application/accounts'
+import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
+import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
+import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
-import { signInWithPassword, signOutCurrent } from '@/infrastructure/auth/wrapper'
+import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
+import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { err, type Result } from '@/shared/result'
+import { taipeiParts } from '@/shared/time'
 
 /**
  * 模組 01 的實例組裝（母 spec §4.3：執行期的實作一律由 composition 注入）。
@@ -38,7 +48,7 @@ export function resolveActor(headers: Headers): Promise<ResolvedActor> {
 
 export { hasRole as actorHasRole, statusGate as checkStatus } from '@/application/accounts'
 
-/** 本人帳號用例（S01-05 只做改密碼）。 */
+/** 本人帳號用例（S01-05 改密碼；票 10 看帳號、改聯絡資料、連結 Google、設密碼）。 */
 let selfAccountCommand: SelfAccountCommand | undefined
 
 export function getSelfAccountCommand(): SelfAccountCommand {
@@ -73,6 +83,76 @@ export function getRegistrationCommand(): RegistrationCommand {
   return registrationCommand
 }
 
+/** 老師帳號與臨時密碼（票 8）：稽核＋帳本由這裡注入；Better Auth 的管理員能力走 wrapper。 */
+let accountCommand: AccountCommand | undefined
+
+export function getAccountCommand(): AccountCommand {
+  accountCommand ??= new PgAccountCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+  })
+  return accountCommand
+}
+
+/** 老師第一次登入補資料（票 8）。 */
+let teacherSetupCommand: TeacherSetupCommand | undefined
+
+export function getTeacherSetupCommand(): TeacherSetupCommand {
+  teacherSetupCommand ??= new PgTeacherSetupCommand({ audit: getAuditWriter(), db: getPool })
+  return teacherSetupCommand
+}
+
+/** 老師第一次登入補資料頁的路徑（登入後導向、老師首頁都用這一個）。 */
+export const TEACHER_SETUP_PATH = '/account/setup'
+
+/** 帳號列表、停用／恢復、批次停用與匯出（票 9）。 */
+let accountDirectoryCommand: AccountDirectoryCommand | undefined
+
+export function getAccountDirectoryCommand(): AccountDirectoryCommand {
+  accountDirectoryCommand ??= new PgAccountDirectoryCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+  })
+  return accountDirectoryCommand
+}
+
+/**
+ * `POST /api/admin/accounts/export` 的門面：每次重新認人、重新授權（契約 03 §4），
+ * 授權**先於**驗證（沒登入的人不該從錯誤訊息知道請求格式對不對）。
+ */
+export async function exportAccounts(
+  headers: Headers,
+  body: unknown,
+): Promise<Result<{ csv: string; count: number; fileName: string }>> {
+  const actor = await resolveActor(headers)
+  const blocked = accountAdminDenied(actor)
+  if (blocked) return err(blocked, blocked === 'UNAUTHENTICATED' ? '請先登入。' : '只有系辦可以匯出帳號名單。')
+  const selection = normalizeExportSelection(body)
+  if (!selection.ok) return selection
+  const result = await getAccountDirectoryCommand().exportCsv(actor, selection.value)
+  if (!result.ok) return result
+  const t = taipeiParts(new Date(result.receipt.serverTime))
+  const two = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}`
+  return { ...result, receipt: { ...result.receipt, fileName: `帳號名單-${stamp}.csv` } }
+}
+
+/** 帳號列表畫面要用的標籤、篩選正規化與匯出規則（app 對 application 只能帶型別，執行期的值經這裡）。 */
+export {
+  ACCOUNT_STATUS_LABEL,
+  BULK_MAX_CHARS,
+  DIRECTORY_ROLES,
+  DIRECTORY_SORT_LABEL,
+  DIRECTORY_SORTS,
+  DIRECTORY_STATUSES,
+  directoryQueryString,
+  normalizeDirectoryFilter,
+  ROLE_LABEL,
+  SEARCH_MAX_LENGTH,
+} from '@/application/accounts'
+
 /** 註冊與審核畫面要用的標籤與上限（app 對 application 只能帶型別，執行期的值經這裡）。 */
 export {
   APPLIED_NAME_MAX_LENGTH,
@@ -81,6 +161,7 @@ export {
   EVIDENCE_NEEDS_ATTENTION,
   PASSWORD_MIN_LENGTH,
   REASON_MAX_LENGTH,
+  TEACHER_NAME_MAX_LENGTH,
   VERIFICATION_LABEL,
   VERIFICATION_METHODS,
   VERIFICATION_NOTE_HINT,
@@ -146,8 +227,14 @@ export async function signIn(input: {
   return { ok: true, destination, mustChangePassword }
 }
 
-/** 這個人登入後預設看哪一個後台。角色來自 `role_assignments`（不是套件的 `users.role`）。 */
-async function homeForUser(userId: string): Promise<string> {
+/**
+ * 這個人登入後預設看哪一個後台。角色來自 `role_assignments`（不是套件的 `users.role`）。
+ *
+ * 還沒補資料的老師先去補資料頁（票 8），不論他是不是也有管理員角色——補完才進首頁。
+ * 改完密碼之後也用這個決定去哪（那時候 cookie 剛換新，還不能靠 session 判斷是誰）。
+ */
+export async function homeForUser(userId: string): Promise<string> {
+  if (await getTeacherSetupCommand().needsSetup(userId)) return TEACHER_SETUP_PATH
   const rows = await getPool().query<{ role: string }>(
     `select role from role_assignments where user_id = $1 and revoked_real_at is null`,
     [userId],
@@ -163,6 +250,39 @@ async function homeForUser(userId: string): Promise<string> {
 /** 登出目前這一台。 */
 export async function signOut(headers: Headers): Promise<void> {
   await signOutCurrent(headers)
+}
+
+/**
+ * 開始 Google 登入（票 10）：回傳要導去的 Google 授權網址。
+ *
+ * - 成功與失敗都回到 `landing`（登入頁或註冊頁）。登入頁對「已經登入的人」會依狀態分流
+ *   （待審 → 等待審核頁、被要求改密 → 改密頁、其他 → `next` 或自己的首頁），所以 callback
+ *   不必自己判斷該去哪；失敗時套件在後面補 `?error=<代碼>`，頁面再翻成一句話。
+ * - `next` **一律先經 `safeNextPath`**，不合格就當沒帶，不會被塞進 callbackURL。
+ * - 第一次用 Google 進來的人（新帳號）直接到等待審核頁補學號、系級、手機。
+ */
+export type GoogleSignInOutcome = { readonly ok: true; readonly url: string } | { readonly ok: false; readonly message: string }
+
+export async function beginGoogleSignIn(input: {
+  from: 'login' | 'register'
+  next: unknown
+  headers: Headers
+}): Promise<GoogleSignInOutcome> {
+  const next = safeNextPath(input.next)
+  const base = input.from === 'register' ? '/register' : '/login'
+  const landing = next ? `${base}?next=${encodeURIComponent(next)}` : base
+  try {
+    const started = await startGoogleSignIn(input.headers, {
+      callbackURL: next ? `/login?next=${encodeURIComponent(next)}` : '/login',
+      errorCallbackURL: landing,
+      newUserCallbackURL: '/register/pending?via=google',
+    })
+    if (!started.url) return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
+    return { ok: true, url: started.url }
+  } catch (error) {
+    console.error('[auth] 開始 Google 登入失敗', error)
+    return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
+  }
 }
 
 /** 測試用：清掉登入的限速計數。 */

@@ -15,6 +15,24 @@ export type EventConsumer = 'notifications' | 'digest' | 'showcase'
 export const EVENT_CONSUMERS: readonly EventConsumer[] = ['notifications', 'digest', 'showcase']
 
 /**
+ * 通知匣裡的分類標籤（原型的「截止／繳交／簽核／評分／帳號／系統」）。
+ * 真實業務事件由各自的票加進目錄時選一種；目前只有系統類。
+ */
+export type NotificationKind = 'due' | 'submission' | 'signoff' | 'grading' | 'account' | 'group' | 'system'
+
+/** 事件投影成通知時的樣子：分類與沒有帶標題時的預設標題。 */
+export type NotificationPresentation = {
+  readonly kind: NotificationKind
+  readonly defaultTitle: string
+}
+
+type CatalogEntry = {
+  readonly consumers: readonly EventConsumer[]
+  /** 有 `notifications` 消費者的事件必填：投影成通知時用。 */
+  readonly notification?: NotificationPresentation
+}
+
+/**
  * 事件型別目錄（模組 08 §4：實作以產品事件矩陣為準，在這裡對照）。
  *
  * 每種事件在這裡登記一次，並寫明寫入時要替哪些消費者建「待投影」列。
@@ -33,33 +51,66 @@ export const EVENT_CATALOG = {
    */
   'calendar.changed': { consumers: [] },
   /**
-   * 投影驗收用的測試事件（模組實作設計 08 §6；收件人由發送者指定）。票 11 只登記，
-   * 讓「發事件→待投影」這條路現在就測得到；管理端「發一則測試通知」的入口與環境限制在票 12。
+   * 投影驗收用的測試事件（模組實作設計 08 §6；收件人由發送者指定）。
+   * 管理端「發一則測試通知」只在測試站（`BUSINESS_CLOCK_OVERRIDE_ENABLED=true`）開放（票 12）。
    */
-  'test.notification': { consumers: ['notifications'] },
+  'test.notification': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '測試通知' },
+  },
+  /**
+   * 背景工作的維運告警（票 12；模組實作設計 08 §6「≥5 標 failed＋管理員告警事件」、
+   * 模組 01 附錄 A 規則 5「自動收斂到上限告警」）。收件人是發生當下所有有效的管理員。
+   * 產品矩陣「備份失敗通知管理員」同一類：全站維運事件，用真實時間。
+   */
+  'ops.worker_alert': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '背景工作需要處理' },
+  },
   /**
    * 分組邀請（票 13；產品模組 08 §4「等待本人同意（分組邀請）→本人」）。收件人＝提案全員（含提案人，
    * 提案人也要按確認）。payload 帶 `title`、提案 id、到期時間，不帶其他人的聯絡資料。
    */
-  'proposal.invited': { consumers: ['notifications'] },
+  'proposal.invited': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你收到一份分組邀請' },
+  },
   /** 組別成立（票 13；產品模組 08 §4「組別成立→成立後全員一則」）。收件人＝全體成員。 */
-  'group.established': { consumers: ['notifications'] },
+  'group.established': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你的組別已成立' },
+  },
   /**
    * 提案終止（票 13；產品模組 08 §4「提案終止→提案人與全部被邀請者，按使用者去重」）。
    * payload 帶終止種類，**不帶管理員作廢的理由**（S03-07：學生看到的通知不含內部備註）。
    */
-  'proposal.terminated': { consumers: ['notifications'] },
+  'proposal.terminated': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '分組提案已終止' },
+  },
   /**
-   * 專題事務發布（票 15；產品模組 08 §4「重要公告發布→受眾」「新收件發布→收件名單成員」）。
-   * 收件：收件人＝名單展開（個人收件＝本人；組別收件＝該組有效成員），一定發；
-   * 公告／資源：管理員選要通知才發，收件人＝對象展開（本屆學生、指定組別成員、全部老師；
-   * 公開與所有登入者不展開，只留事件）。發布更新時新加入收件名單的人也收這一種。
+   * 新收件發布（票 15；產品模組 08 §4「新收件發布→收件名單成員：個人收件通知本人，組別收件展開通知該組有效成員」）。
+   * 一定發；發布更新時新加入收件名單的人也收這一種（「加入收件名單→與發布時同一種新收件通知」）。
    * payload 只帶項目 id、標題、位置與截止，不帶正文。
    */
-  'item.published': { consumers: ['notifications'] },
+  'item.published': {
+    consumers: ['notifications'],
+    notification: { kind: 'submission', defaultTitle: '有一份新的收件' },
+  },
+  /**
+   * 公告、資源發布（票 15；產品模組 08 §4「重要公告發布→受眾」）：管理員選要通知才發。
+   * 收件人＝對象展開（本屆學生、指定組別成員、全部老師）；公開與所有登入者不展開，只留事件。
+   */
+  'item.announced': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '有新的專題事務公告' },
+  },
   /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
-  'item.updated': { consumers: ['notifications'] },
-} as const satisfies Record<string, { consumers: readonly EventConsumer[] }>
+  'item.updated': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '專題事務已更新' },
+  },
+} as const satisfies Record<string, CatalogEntry>
 
 export type EventType = keyof typeof EVENT_CATALOG
 
@@ -69,6 +120,12 @@ export function isEventType(value: string): value is EventType {
 
 export function consumersOf(type: EventType): readonly EventConsumer[] {
   return EVENT_CATALOG[type].consumers
+}
+
+/** 這種事件投影成通知時的樣子；不進通知匣的事件回 null。 */
+export function notificationPresentationOf(type: EventType): NotificationPresentation | null {
+  const entry: CatalogEntry = EVENT_CATALOG[type]
+  return entry.notification ?? null
 }
 
 export type EventActor =

@@ -64,12 +64,13 @@ async function signIn(page: Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await page.getByRole('button', { name: '登入' }).click()
+  await page.getByRole('button', { name: '登入', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 })
 }
 
 function pendingRow(page: Page, name: string) {
-  return page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
+  // 帳號頁下方還有「全部帳號」表格（票 9），待審的人兩邊都有；這裡只看上方的待審核清單。
+  return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
 async function openReview(page: Page, name: string) {

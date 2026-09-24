@@ -33,7 +33,7 @@ on:
         type: choice
         options: [dry-run, execute]
       expect_worker:
-        description: 'E02 出場後才勾：健康判定加上 worker.version 與 lastTickAt'
+        description: '一定要有 worker 心跳（完整六項）；不勾時 worker 有回報也會一起比對'
         required: false
         default: false
         type: boolean

@@ -545,7 +545,7 @@ describe('公告與資源', () => {
     expect(receipt).toMatchObject({ rosterCount: 0, notifiedCount: 0, dueAt: null })
     expect(await count('select count(*) as n from response_rosters where item_id = $1', [item.itemId])).toBe(0)
     expect(await count('select count(*) as n from due_work where subject_id = $1', [item.itemId])).toBe(0)
-    expect(await events(item.itemId, 'item.published')).toHaveLength(0)
+    expect(await events(item.itemId, 'item.announced')).toHaveLength(0)
     expect((await owner.sql('select notify from item_publications where item_id = $1', [item.itemId])).rows).toEqual([
       { notify: false },
     ])
@@ -555,12 +555,12 @@ describe('公告與資源', () => {
     const { cohortId } = await newCohort()
     const teachers = await mustCreate(cohortId, { placement: 'news', audienceKind: 'teachers' })
     await mustPublish(teachers.itemId, 1, true)
-    expect((await events(teachers.itemId, 'item.published'))[0]!.recipients).toEqual([teacherId])
+    expect((await events(teachers.itemId, 'item.announced'))[0]!.recipients).toEqual([teacherId])
 
     const open = await mustCreate(cohortId, { placement: 'resource', audienceKind: 'public' })
     const receipt = await mustPublish(open.itemId, 1, true)
     expect(receipt.notifiedCount).toBe(0)
-    expect((await events(open.itemId, 'item.published'))[0]!.recipients).toEqual([])
+    expect((await events(open.itemId, 'item.announced'))[0]!.recipients).toEqual([])
   })
 
   it('正文存的是清理過的 HTML', async () => {

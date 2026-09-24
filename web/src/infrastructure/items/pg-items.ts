@@ -416,7 +416,7 @@ export class PgItemCommand implements ItemCommand {
       const recipients = notify ? expanded.notifyUserIds : []
       if (notify) {
         await this.#events.publish(tx, {
-          type: 'item.published',
+          type: collects ? 'item.published' : 'item.announced',
           scope: 'cohort',
           cohortId: item.cohort_id,
           source: { type: SUBJECT_TYPE, id: itemId, version: contentVersionNo },

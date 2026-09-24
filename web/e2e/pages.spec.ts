@@ -78,12 +78,13 @@ test.describe('以 A1（管理員）', () => {
     )
   })
 
-  test('點進「帳號」與「屆別」都是空狀態，不是假資料', async ({ page }) => {
+  test('點進「帳號」與「屆別」打得開，是真的列表而不是假資料', async ({ page }) => {
     await signInAs(page, 'admin')
 
+    // 帳號頁在票 9 已經是真功能（見 accounts.spec.ts）；這裡只確認打得開、有真的列表。
     await page.goto('/dashboard/admin/accounts')
     await expect(page.getByRole('heading', { name: '帳號', exact: true })).toBeVisible()
-    await expect(page.getByText('這個功能還沒做').first()).toBeVisible()
+    await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
 
     // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
     await page.goto('/dashboard/admin/cohorts')
@@ -190,13 +191,16 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
-    '/dashboard/admin': '這一批只做骨架',
-    '/dashboard/admin/accounts': '名單匯入、註冊審核、停用與臨時密碼',
+    '/dashboard/admin': '待審的註冊、已開通的學生與目前在忙的屆別',
+    '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
     '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
+    '/dashboard/admin/inbox': '跟你有關的事件都會出現在這裡',
+    '/dashboard/teacher/inbox': '跟你有關的事件都會出現在這裡',
+    '/dashboard/student/inbox': '跟你有關的事件都會出現在這裡',
     '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
     '/dashboard/admin/affairs': '公告、資源下載、文件繳交都從這裡建立、發布與修改',
@@ -213,6 +217,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/timeline', wrongRole: 'teacher' },
     // 模擬業務鐘只在測試站存在（CI 的 e2e 開著 BUSINESS_CLOCK_OVERRIDE_ENABLED）。
     { path: '/dashboard/admin/clock', wrongRole: 'student' },
+    // 通知匣（票 12）。
+    { path: '/dashboard/admin/inbox', wrongRole: 'student' },
+    { path: '/dashboard/teacher/inbox', wrongRole: 'student' },
+    { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
     { path: '/dashboard/admin/affairs', wrongRole: 'student' },
@@ -236,6 +244,16 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
       expect([302, 303, 307, 308]).toContain(response.status())
       expect(response.headers()['location']).toContain('/403')
       expect(await response.text(), '回應裡不該有這一頁的內容').not.toContain(FINGERPRINTS[path]!)
+    })
+
+    // 反向對照：有權限的人打開，指紋**一定要在**。不然頁面文字改了、指紋沒跟著改，
+    // 上面兩條「不該有」就永遠成立、形同空轉（票 9 審查意見）。
+    test(`${path}：有權限的人看得到指紋字串（上面兩條不是空轉）`, async ({ request }) => {
+      const role = path.startsWith('/dashboard/admin') ? 'admin' : path.startsWith('/dashboard/teacher') ? 'teacher' : 'student'
+      const session = await sharedTestSession(request, role)
+      const response = await request.get(path, { headers: { cookie: session.cookie }, maxRedirects: 0 })
+      expect(response.status()).toBe(200)
+      expect(await response.text()).toContain(FINGERPRINTS[path]!)
     })
   }
 })

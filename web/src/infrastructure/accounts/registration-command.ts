@@ -33,9 +33,12 @@ import { isRequestId, type CohortStatusQuery } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { signUpWithPassword } from '@/infrastructure/auth/wrapper'
+import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
+import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 
 /**
  * 學生註冊與審核（工程模組 01 §3 狀態表、§5 `RegistrationCommand`、§6 核准交易；票 7）。
@@ -67,7 +70,13 @@ export const betterAuthAccountCreator: AccountCreator = async (input, clientIp) 
   } catch (error) {
     const e = error as { status?: string; body?: { code?: string; message?: string } }
     if (e?.status === 'TOO_MANY_REQUESTS') return { ok: false, reason: 'rate_limited' }
-    if (e?.body?.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' || e?.body?.code === 'USER_ALREADY_EXISTS') {
+    // Better Auth 的 hook（after）已經把「Email 已被用過／格式不對」統一成 EMAIL_UNAVAILABLE（票 10）；
+    // 套件原本的兩個代碼留著當保險。
+    if (
+      e?.body?.code === EMAIL_UNAVAILABLE_CODE ||
+      e?.body?.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' ||
+      e?.body?.code === 'USER_ALREADY_EXISTS'
+    ) {
       return { ok: false, reason: 'email_taken' }
     }
     if (e?.status === 'BAD_REQUEST' || e?.status === 'UNPROCESSABLE_ENTITY') {
@@ -90,6 +99,14 @@ export type RegistrationCommandDeps = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** 待審清單一次最多列幾筆（一屆幾百人，不需要分頁）。 */
 const PENDING_LIST_LIMIT = 500
+
+/** 待審修改的限速（每人；頁面與直接呼叫用同一份，見 `sharedRateLimiter`）。 */
+const reviseLimiter = sharedRateLimiter('registration-revise', RATE_LIMITS.reviseApplication)
+
+/** 測試用：清掉修改申請的限速計數。 */
+export function resetReviseLimiter(): void {
+  reviseLimiter.clear()
+}
 
 function meta(now: Date, requestId = uuidv7()) {
   return { requestId, serverTime: now.toISOString() }
@@ -214,7 +231,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED', '帳號已經開通，沒有待審的申請。')
 
     const db = this.#deps.db()
-    const user = await db.query<{ email: string }>('select email from users where id = $1', [actor.userId])
+    const user = await db.query<{ email: string; name: string }>('select email, name from users where id = $1', [actor.userId])
     const loginEmail = user.rows[0]?.email ?? ''
     const latest = await this.#latestApplication(db, actor.userId)
 
@@ -231,6 +248,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     return ok(
       {
         loginEmail,
+        accountName: user.rows[0]?.name ?? '',
         state,
         current: latest
           ? {
@@ -255,7 +273,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     actor: ResolvedActor,
     input: ApplicationFields,
     expectedRevision: number | null,
-  ): Promise<Result<RevisionReceipt>> {
+  ): Promise<Result<RevisionReceipt> | RateLimited> {
     const blocked = ownApplicationDenied(actor, 'registration.reviseOwn')
     if (blocked || actor.kind !== 'authenticated') {
       return denied(blocked ?? 'UNAUTHENTICATED', '帳號已經開通；學號與屆別要更正請聯絡系辦。')
@@ -266,6 +284,9 @@ export class PgRegistrationCommand implements RegistrationCommand {
     const normalized = normalizeApplicationFields(input)
     if (!normalized.ok) return normalized
     const fields = normalized.value
+    if (!reviseLimiter.hit(`revise:${actor.userId}`).allowed) {
+      return { ok: false, code: 'RATE_LIMITED', message: '一小時內修改太多次了，請稍後再試。' }
+    }
 
     const now = this.#clock.now()
     const tx = await this.#deps.db().connect()
@@ -474,18 +495,18 @@ export class PgRegistrationCommand implements RegistrationCommand {
       const cohortChoice = cohorts.find((c) => c.id === cohort.cohortId)!
 
       // 占用有效學號：同屆同學號只能有一個有效學生（唯一違反 → STUDENT_NO_TAKEN，整體回滾）。
+      // 占用表一律存大寫、寫入前以 upper() 再查一次（票 9；說明見 student-identities.ts）。
+      const takenMessage = `學號 ${row.student_no} 在 ${cohortChoice.name} 已經有一個有效的帳號，不能再核准一個。請先確認是不是同一個人重複註冊。`
+      if (await studentNoHolder(tx, cohort.cohortId, row.student_no, row.user_id)) {
+        await tx.query('rollback')
+        return err('STUDENT_NO_TAKEN', takenMessage)
+      }
       try {
-        await tx.query(
-          `insert into student_identities (cohort_id, student_no, user_id, created_at) values ($1, $2, $3, $4)`,
-          [cohort.cohortId, row.student_no, row.user_id, now],
-        )
+        await occupyStudentNo(tx, cohort.cohortId, row.student_no, row.user_id, now)
       } catch (error) {
         if (!isUniqueViolation(error)) throw error
         await tx.query('rollback')
-        return err(
-          'STUDENT_NO_TAKEN',
-          `學號 ${row.student_no} 在 ${cohortChoice.name} 已經有一個有效的帳號，不能再核准一個。請先確認是不是同一個人重複註冊。`,
-        )
+        return err('STUDENT_NO_TAKEN', takenMessage)
       }
 
       await tx.query(`update users set status = 'active', name = $2, updated_at = $3 where id = $1`, [
@@ -497,7 +518,15 @@ export class PgRegistrationCommand implements RegistrationCommand {
         `insert into user_profiles
            (user_id, display_name, name_normalized, student_no, department_class, cohort_id, phone, contact_email,
             login_method_last, created_at, updated_at, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'password', $9, $9, $10)
+         values ($1, $2, $3, $4, $5, $6, $7, $8,
+                 -- 申請人最近一次的登入方式（票 10；顯示用）：最近一個 session 的 login_method；
+                 -- session 都過期被清掉了，就看帳號上有沒有密碼。
+                 coalesce(
+                   (select s.login_method from sessions s where s.user_id = $1 order by s.created_at desc limit 1),
+                   case when exists (select 1 from accounts a where a.user_id = $1 and a.provider_id = 'credential')
+                        then 'password' else 'google' end
+                 ),
+                 $9, $9, $10)
          on conflict (user_id) do update set
            display_name = excluded.display_name,
            name_normalized = excluded.name_normalized,
@@ -506,6 +535,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
            cohort_id = excluded.cohort_id,
            phone = excluded.phone,
            contact_email = excluded.contact_email,
+           login_method_last = excluded.login_method_last,
            revision = user_profiles.revision + 1,
            updated_at = excluded.updated_at,
            updated_by_user_id = excluded.updated_by_user_id`,
@@ -749,15 +779,24 @@ export class PgRegistrationCommand implements RegistrationCommand {
     applicationId: string,
     revision: number,
   ): Promise<{ ok: true; row: ApplicationRow } | Err> {
-    const rows = await tx.query<ApplicationRow & { user_status: string }>(
-      `select ${APPLICATION_COLUMNS}, u.status as user_status
+    // 鎖的順序固定是「先 users、再 registration_applications」，跟 `reviseMine` 一樣。
+    // 原本一句 `for update of ra, u` 鎖兩張表，實際先鎖哪一張看執行計畫；學生同時送出修改時
+    // 兩邊可能各拿一半互等（死鎖；票 7 審查建議）。`user_id` 建立後不會變，先不鎖地讀出來沒問題。
+    const owner = await tx.query<{ user_id: string }>('select user_id from registration_applications where id = $1', [
+      applicationId,
+    ])
+    const userId = owner.rows[0]?.user_id
+    if (!userId) return err('CONFLICT', '找不到這筆申請，請重新整理頁面。')
+    const user = await tx.query<{ status: string }>('select status from users where id = $1 for update', [userId])
+    const rows = await tx.query<ApplicationRow>(
+      `select ${APPLICATION_COLUMNS}
          from registration_applications ra
-         join users u on u.id = ra.user_id
         where ra.id = $1
-        for update of ra, u`,
+        for update`,
       [applicationId],
     )
-    const row = rows.rows[0]
+    const found = rows.rows[0]
+    const row = found && user.rows[0] ? { ...found, user_status: user.rows[0].status } : undefined
     if (!row) return err('CONFLICT', '找不到這筆申請，請重新整理頁面。')
     if (row.state !== 'pending' || row.user_status !== 'pending') {
       return err('CONFLICT', '這筆申請剛剛已經被處理過了，請重新整理頁面。')

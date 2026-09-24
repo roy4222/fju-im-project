@@ -35,7 +35,9 @@ export function cspDirectives({ nonce, development = false }: CspOptions): [stri
     ['connect-src', "'self' https://challenges.cloudflare.com"],
     ['object-src', "'none'"],
     ['base-uri', "'self'"],
-    ['form-action', "'self'"],
+    // Google 登入與連結（票 10）：表單送 Server Action，伺服器回 303 導去 Google 授權頁。
+    // Chrome 對「表單送出後的轉址」也套 form-action，只寫 'self' 會把這一跳擋掉。
+    ['form-action', "'self' https://accounts.google.com"],
     ['frame-ancestors', "'none'"],
   ]
 }

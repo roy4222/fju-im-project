@@ -152,6 +152,10 @@ jobs:
       # VM 的 .env（契約 05 §6），不放 GitHub Secrets 也不進 repo 以外的任何地方。
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-32ch
       BETTER_AUTH_URL: http://127.0.0.1:3000
+      # Google 登入按鈕要組得出授權網址（票 10）。e2e 只驗按鈕與導向、在瀏覽器端攔下
+      # 往 accounts.google.com 的請求，不會真的打到 Google，所以用假值；真的 client 在 Doppler。
+      GOOGLE_CLIENT_ID: ci-only-client-id.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ci-only-client-secret
       # e2e 跑的是測試站的樣子：模擬業務鐘開著（票 11 的 timeline.spec 要用）。
       # 正式站（false）的拒絕由整合測試 pg-business-clock.integration.test.ts 證明。
       BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true'
@@ -174,15 +178,20 @@ jobs:
         run: psql "$DATABASE_URL_OWNER" -c "ALTER ROLE fju_app PASSWORD 'fju_ci_app'"
       - run: pnpm -C web build
       - run: pnpm -C web exec playwright install --with-deps chromium
-      - name: 起 app 並等 health 綠
+      - name: 起 app 與背景工作，並等 health 綠
         run: |
           pnpm -C web start &
+          # 背景工作（票 12）：通知匣的 e2e 要靠它把事件投影成通知。`pnpm -C web build` 已經打包好。
+          pnpm -C web worker > /tmp/fju-worker.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf "$BASE_URL/api/health" > /dev/null; then echo "app ready"; exit 0; fi
             sleep 2
           done
           echo "app 在 120 秒內沒有起來"; exit 1
       - run: pnpm -C web test:e2e
+      - name: 背景工作的 log（失敗時看）
+        if: failure()
+        run: cat /tmp/fju-worker.log || true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

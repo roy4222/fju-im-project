@@ -78,11 +78,12 @@ services:
       retries: 6
       start_period: 20s
 
-  # S00 只是空進程；真正的到期工作迴圈由 S02-06 換上（契約 05 §5）。
+  # 背景工作（票 12；契約 05 §5）：投影通知、到期工作、撤 session 收斂。單一實例靠資料庫 advisory lock，
+  # 第二個起來的拿不到鎖會自己結束。心跳寫 worker_heartbeat，/api/health 的 worker 欄讀它。
   worker:
     <<: *app-image
     container_name: fju-worker
-    command: ['node', '-e', "console.log('[worker] S00 佔位進程，尚未實作到期工作迴圈（S02-06）'); setInterval(() => {}, 1 << 30)"]
+    command: ['node', 'migrate/web/dist/worker.mjs']
     env_file:
       - .env
     environment:
