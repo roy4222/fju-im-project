@@ -1,0 +1,78 @@
+# 還原演練副本（票 27，2026-09-24）。只給 ops/restore-drill.sh 用，不要直接下 docker compose。
+#
+# 這是**獨立**的 Compose 檔，不疊在 docker-compose.yml／docker-compose.vm.yml 上面：
+# 那兩份的 volume 有寫死或帶站台的名字（fju-im-project-pgdata、fju-<站>-pgdata），
+# 疊上去就可能掛到真的資料庫。這裡的東西全部叫 fju-drill-*：
+#
+#   - project：fju-drill；容器：fju-drill-postgres、fju-drill-app（app 只有 --with-app 才起）
+#   - volume：fju-drill-pgdata（跟兩站的 fju-test-pgdata／fju-prod-pgdata 完全分開）
+#   - 網路：fju-drill（自己一個），**不接 fju-edge**，Caddy 找不到它、沒有對外網址
+#   - **不發布任何 port**；看畫面用 SSH port-forward 到容器 IP（ops/README.md「還原演練」）
+#   - 不起 worker、不起 migrate：還原進來的資料庫已經是 migration 後的樣子，
+#     副本也不該自己跑到期工作或寄任何東西
+#   - 不掛附件目錄：附件不在備份範圍，副本裡下載附件會失敗是預期的
+#
+# 密碼都是 restore-drill.sh 每次隨機產生、只放在那一次執行的環境變數裡，不寫檔。
+name: fju-drill
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    container_name: fju-drill-postgres
+    environment:
+      POSTGRES_USER: fju_drill_owner
+      POSTGRES_PASSWORD: ${DRILL_PG_PASSWORD:?要用 ops/restore-drill.sh 執行}
+      POSTGRES_DB: fju_drill
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: UTC
+    command: ['postgres', '-c', 'timezone=UTC']
+    volumes:
+      - fju-drill-pgdata:/var/lib/postgresql/data
+    networks: [drill]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fju_drill_owner -d fju_drill']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # 看畫面用（restore-drill.sh --with-app）。映像沿用來源站目前在跑的那一版。
+  app:
+    profiles: ['with-app']
+    image: ${DRILL_APP_IMAGE:?要用 ops/restore-drill.sh --with-app 執行}
+    container_name: fju-drill-app
+    command: ['node', 'web/server.js']
+    environment:
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
+      DATABASE_URL: postgres://fju_app:${DRILL_APP_DB_PASSWORD:?}@postgres:5432/fju_drill
+      # 每次演練隨機產生；來源站的 session 在副本裡一律無效，要重新登入。
+      BETTER_AUTH_SECRET: ${DRILL_AUTH_SECRET:?}
+      # 透過 SSH port-forward 在自己電腦的 http://localhost:3999 看。
+      BETTER_AUTH_URL: http://localhost:3999
+      # 副本不接 Google：用假值，Google 登入按鈕會失敗；用帳號密碼登入。
+      GOOGLE_CLIENT_ID: drill-disabled
+      GOOGLE_CLIENT_SECRET: drill-disabled
+      # 附件不在備份裡：放在容器自己的暫存目錄，容器刪掉就沒了。
+      FILES_ROOT: /tmp/fju-drill-files
+      FILE_MAX_BYTES: '104857600'
+      # 沿用來源站的設定（SOP 04）：測試站 true、正式站 false。
+      BUSINESS_CLOCK_OVERRIDE_ENABLED: ${DRILL_CLOCK_OVERRIDE:?}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [drill]
+    healthcheck:
+      # 副本沒有 worker，/api/health 會因為心跳過期回 503；這裡只看 app 有沒有在回應。
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/health').then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+volumes:
+  fju-drill-pgdata:
+    name: fju-drill-pgdata
+
+networks:
+  drill:
+    name: fju-drill

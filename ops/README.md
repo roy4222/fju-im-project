@@ -26,7 +26,7 @@
 
 ```bash
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 ```
 
 預期：最後一行是 `total size is …`，沒有 error。（`fju-vm` 是 `ops/ssh-config.example` 那個 SSH 別名。）
@@ -279,14 +279,77 @@ ops/codex-e2e.sh e2e/acceptance/station-1-login.md
 
 清單怎麼寫見 [`e2e/acceptance/README.md`](../e2e/acceptance/README.md)。
 
-### 手動備份
+### 手動備份（票 27）
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy /srv/fju/app/ops/backup.sh --site prod
 sudo ls -lh /srv/fju/prod/backups/
 ```
 
-備份檔只存在這台 VM（`/srv/fju/<站>/backups/`，只有 deploy 讀得到）；不排程、不上傳、附件目錄不在內。
+預期最後印 `✓ 完成：…、… 個項目，sha256 …` 與 `紀錄已寫入 /srv/fju/prod/backups/records.jsonl`。
+
+- 備份檔只存在這台 VM（`/srv/fju/<站>/backups/fju-<站>-<UTC 時間>.dump`，目錄 700、檔案 600，只有 deploy 讀得到）；不排程、不上傳。
+- **只備份資料庫**；附件（`/srv/fju/<站>/files`）不在備份裡，VM 硬碟壞了附件救不回來（Roy 已接受）。
+- 每次都在同一目錄的 `records.jsonl` 加一筆紀錄（成功：檔名、大小、sha256、各表筆數；失敗：哪一步、錯誤訊息）。
+  紀錄只往後加，**失敗不會蓋掉上一次成功**。舊備份檔要清的話手動 `sudo -u deploy rm`，紀錄不用動。
+
+看最近一次成功備份與成功演練（不需要秘密）：
+
+```bash
+sudo -u deploy /srv/fju/app/ops/backup.sh --site prod --status
+```
+
+### 還原演練（票 27）
+
+把某一份備份還原到一個**獨立的演練副本**（Compose project `fju-drill`），比對筆數後寫一筆紀錄。
+副本有自己的資料庫 volume（`fju-drill-pgdata`）與網路（`fju-drill`）、**不發布任何 port、不接 Caddy、沒有 worker**；
+兩站的資料庫與 volume 都不會被寫入。不需要 Doppler。
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/restore-drill.sh --site prod --backup latest
+```
+
+預期：
+
+```
+✓ 隔離核對：只掛 fju-drill-pgdata、只接網路 fju-drill、沒有發布 port、資料庫 fju_drill。
+抽查（還原後 vs 備份當下）：
+  ✓ 帳號 …  ✓ 組別 …  ✓ 回答版本 …  ✓ 回答內容 md5 相同
+  全部 N 張表的筆數都跟備份當下一樣。
+✓ 還原演練成功，紀錄已寫入 /srv/fju/prod/backups/records.jsonl
+演練副本已移除（要保留看畫面，下次加 --keep --with-app）。
+```
+
+- 比對基準是**備份當下**量的各表筆數（記在備份紀錄裡），不是站台現在的資料，所以備份之後有人操作不影響結果。
+  評分、簽核的表還沒建；建了之後會自動列進抽查。
+- `--backup` 可以給檔名（`fju-prod-20260924T120000Z.dump`）或 `latest`；只接受該站 `backups/` 目錄裡的檔案。
+  檔案的 sha256 跟備份當下不同會直接拒絕。
+- 票 27 之前做的舊備份沒有紀錄：會改拿站台「現在」的筆數比（唯讀查詢），之後有新資料就會對不上——那種結果要人看過再判斷。
+- 失敗也會寫紀錄；沒帶 `--keep` 時，成功或失敗都會把副本整個刪掉（副本裡是真實資料）。
+
+**要看畫面**（例如確認 A1 能登入）：加 `--keep --with-app`。app 用來源站目前在跑的映像，接演練資料庫：
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/restore-drill.sh --site prod --backup latest --keep --with-app
+```
+
+最後會印一行 `ssh -N -L 3999:<容器 IP>:3000 fju-vm`。**在 💻 Mac 另開一個終端機**貼上那行（它會停著不動，是正常的），
+再用瀏覽器開 http://localhost:3999/login 。port-forward 走 SSH，VM 防火牆不用開任何 port。
+
+- 副本裡只能用**帳號密碼**登入（Google 登入是假值、會失敗）；來源站的登入狀態在副本裡無效。
+- 附件不在備份裡，副本裡下載附件會失敗，這是預期的。
+- 只想查資料庫、不用 port-forward：`sudo -u deploy docker exec -it fju-drill-postgres psql -U fju_drill_owner -d fju_drill`。
+
+看完**一定要移除**（副本裡是真實資料；副本還在時也不能開下一次演練）：
+
+```bash
+sudo -u deploy /srv/fju/app/ops/restore-drill.sh --remove
+```
+
+預期：`✓ 已移除演練副本（fju-drill 的容器、網路與 volume fju-drill-pgdata）。`；Mac 那邊的 ssh 之後連不到東西，按 Ctrl-C 關掉。
 
 ### 看狀態與 log
 
@@ -321,7 +384,7 @@ sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml logs --tai
 ```bash
 # 💻 Mac
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 # 🖥️ VM
 sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
@@ -338,7 +401,10 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 | `ops/vm-setup.sh` | VM 設定（冪等；`--check` 只看不改） |
 | `ops/deploy.sh` | 部署／回滾某一站（`--site test|prod`） |
 | `ops/auto-deploy.sh` | timer 呼叫：GHCR `:main` 有新 SHA 就部署到測試站 |
-| `ops/backup.sh` | 手動備份某一站的資料庫 |
+| `ops/backup.sh` | 手動備份某一站的資料庫、寫備份紀錄；`--status` 看最近成功備份／演練 |
+| `ops/restore-drill.sh` | 把備份還原到演練副本（`fju-drill`）、抽查、寫演練紀錄；`--remove` 移除副本 |
+| `docker-compose.drill.yml` | 演練副本（獨立的 Compose 檔，不疊在站台設定上；不發布 port、不接 Caddy） |
+| `ops/lib/backup-common.sh`、`ops/lib/backup-record.mjs` | 上面兩支共用：抽查 SQL、紀錄檔讀寫與比對 |
 | `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
 | `web/scripts/seed-e2e.mjs` | `deploy.sh --site test` 在 migration 後跑：建 E2E 測試管理員（只限測試站；已存在不動） |
@@ -355,6 +421,6 @@ VM 上的目錄：
 /srv/fju/secrets/             doppler-test.token、doppler-prod.token（700／600）
 /srv/fju/test/  /srv/fju/prod/
     files/                    附件（容器裡的 app 寫）
-    backups/                  手動備份
+    backups/                  手動備份（*.dump）與 records.jsonl（備份／演練紀錄，600）
     deploy/                   deploy_log、previous_tag、自動部署紀錄與暫停檔
 ```
