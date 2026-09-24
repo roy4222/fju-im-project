@@ -55,3 +55,6 @@ screenshots/
 web/e2e/.artifacts/
 web/playwright-report/
 .audit.json
+
+# Codex 驗收（ops/codex-e2e.sh）的截圖與報告：只留在本機
+e2e/acceptance/.out/

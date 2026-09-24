@@ -118,6 +118,18 @@ describe('ops/deploy.sh 兩站（2026-09-24）', () => {
     expect(prod).toContain('https://fju.roy422.dev/api/health')
   })
 
+  it('E2E 測試管理員：test 站演練會列出 seed-e2e，prod 站只說一律不建', async () => {
+    const test = await dryRun(['abc123'])
+    expect(test).toContain('migrate node migrate/web/scripts/seed-e2e.mjs')
+
+    const { stdout: prod } = await exec('bash', [deploySh, '--site', 'prod', 'abc123'], {
+      cwd: repoRoot,
+      env: { ...process.env, DEPLOY_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'fju-deploy-')) },
+    })
+    expect(prod).not.toContain('seed-e2e')
+    expect(prod).toContain('E2E 測試帳號：正式站一律不建')
+  })
+
   it('演練不需要 Doppler token，也不碰 /srv/fju（CI 的 cd.yml 也是這樣跑）', async () => {
     const out = await dryRun(['abc123'])
     expect(out).toContain('doppler run --no-fallback')
