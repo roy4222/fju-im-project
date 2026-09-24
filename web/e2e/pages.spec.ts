@@ -80,9 +80,10 @@ test.describe('以 A1（管理員）', () => {
     await expect(page.getByRole('heading', { name: '帳號', exact: true })).toBeVisible()
     await expect(page.getByText('這個功能還沒做').first()).toBeVisible()
 
+    // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
     await page.goto('/dashboard/admin/cohorts')
     await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-    await expect(page.getByText('這個功能還沒做').first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: '新增屆別' })).toBeVisible()
   })
 
   test('開老師與學生的後台會被帶到 403，下一步指回自己的首頁', async ({ page }) => {
