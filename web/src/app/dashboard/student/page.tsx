@@ -16,14 +16,14 @@ export default async function StudentHomePage() {
       <PageHeader title="我的專題" description="組別、要交的東西與截止日都會出現在這裡。" />
       <StageBanner actor={actor} perspective="student" showStages />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Tile label="我的組別" value="—" hint="S03 之後才有資料" />
-        <Tile label="待繳交" value="—" hint="S05／S07 之後才有數字" />
+        <Tile label="我的組別" value="—" hint="分組功能開放後會顯示" />
+        <Tile label="待繳交" value="—" hint="繳交功能開放後會顯示" />
       </div>
       <div className="mt-6">
         <EmptyState
           pending
           title="學生的功能還沒做"
-          description="分組提案、個人繳交、組別繳交分別由 S03、S05、S07 掛上來。"
+          description="分組提案、個人繳交與組別繳交會陸續開放，開放後會出現在這裡。"
         />
       </div>
     </DashboardShell>

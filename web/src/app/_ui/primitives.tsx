@@ -61,17 +61,33 @@ export function Tile({
   label,
   value,
   hint,
+  href,
+  active = false,
 }: {
   label: string
   value: ReactNode
   hint?: string
+  /** 有給就整塊是連結（例如點「已停用」就篩出已停用的帳號）。 */
+  href?: string
+  active?: boolean
 }) {
-  return (
-    <div className="rounded-card border border-border bg-surface p-4">
+  const body = (
+    <>
       <div className="text-sm text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-ink tabular-nums">{value}</div>
       {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
-    </div>
+    </>
+  )
+  const base = 'block rounded-card border bg-surface p-4'
+  if (!href) return <div className={cn(base, 'border-border')}>{body}</div>
+  return (
+    <Link
+      href={href}
+      aria-current={active ? 'true' : undefined}
+      className={cn(base, 'transition-colors hover:border-primary', active ? 'border-primary ring-1 ring-primary' : 'border-border')}
+    >
+      {body}
+    </Link>
   )
 }
 
