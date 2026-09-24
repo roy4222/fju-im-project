@@ -64,6 +64,11 @@ case "$1" in
         write_health
         exit 0
         ;;
+      exec)
+        # fju_app 密碼同步：SQL 從 stdin 進來，存起來給測試檢查。
+        cat > "$EXEC_STDIN"
+        exit 0
+        ;;
       *) exit 0 ;;
     esac
     ;;
@@ -72,8 +77,30 @@ esac
 `
 
 const FAKE_FLOCK = `#!/usr/bin/env bash
+[ "\${FLOCK_BUSY:-0}" = 1 ] && exit 1
 exit 0
 `
+
+/**
+ * 已經在 Doppler 環境裡的樣子（ops/lib/site.sh 的 FJU_SECRETS_LOADED 讓 deploy.sh 不再 re-exec）。
+ * 全是假值；APP_DB_PASSWORD 故意帶單引號，驗證 SQL 有正確跳脫。
+ */
+const FAKE_SECRETS: Record<string, string> = {
+  FJU_SECRETS_LOADED: 'test',
+  POSTGRES_USER: 'fake_owner',
+  POSTGRES_PASSWORD: 'fake-owner-pw',
+  POSTGRES_DB: 'fju',
+  DATABASE_URL: 'postgres://fju_app:fake@postgres:5432/fju',
+  DATABASE_URL_OWNER: 'postgres://fake_owner:fake@postgres:5432/fju',
+  APP_DB_PASSWORD: "fake'app'pw",
+  BETTER_AUTH_SECRET: 'fake',
+  BETTER_AUTH_URL: 'https://test.fju.roy422.dev',
+  GOOGLE_CLIENT_ID: 'fake',
+  GOOGLE_CLIENT_SECRET: 'fake',
+  FILES_ROOT: '/srv/fju/files',
+  FILE_MAX_BYTES: '104857600',
+  BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true',
+}
 
 const FAKE_CURL = `#!/usr/bin/env bash
 if [ -s "$HEALTH_FILE" ]; then cat "$HEALTH_FILE"; exit 0; fi
@@ -86,11 +113,21 @@ type Scenario = {
   failPull?: boolean
   failPg?: boolean
   badHealth?: boolean
+  /** 部署鎖被別人拿著。 */
+  lockBusy?: boolean
   /** 有沒有前一版可以回滾。 */
   previous?: string | false
 }
 
-type Result = { code: number; stdout: string; stderr: string; calls: string[]; deployLog: string }
+type Result = {
+  code: number
+  stdout: string
+  stderr: string
+  calls: string[]
+  deployLog: string
+  /** `docker compose exec` 從 stdin 收到的內容（fju_app 密碼同步的 SQL）。 */
+  execStdin: string
+}
 
 let dir: string
 
@@ -110,8 +147,10 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
 
   const callsLog = path.join(dir, 'calls.log')
   const healthFile = path.join(dir, 'health.json')
+  const execStdin = path.join(dir, 'exec-stdin.txt')
   fs.writeFileSync(callsLog, '')
   fs.writeFileSync(healthFile, '')
+  fs.writeFileSync(execStdin, '')
 
   for (const [name, body] of [
     ['docker', FAKE_DOCKER],
@@ -126,7 +165,10 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
   const previous = scenario.previous === undefined ? 'ghcr.io/roy4222/fju-web:oldtag' : scenario.previous
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...FAKE_SECRETS,
     PATH: `${bin}:${process.env.PATH ?? ''}`,
+    EXEC_STDIN: execStdin,
+    FLOCK_BUSY: scenario.lockBusy ? '1' : '0',
     DEPLOY_DIR: deployDir,
     HEALTH_TIMEOUT_SECONDS: '4',
     HEALTH_URL: 'http://127.0.0.1:9/api/health',
@@ -146,7 +188,7 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
   let stdout = ''
   let stderr = ''
   try {
-    const out = await exec('bash', [deploySh, tag, '--execute', ...args], { env, cwd: repoRoot })
+    const out = await exec('bash', [deploySh, '--site', 'test', tag, '--execute', ...args], { env, cwd: repoRoot })
     stdout = out.stdout
     stderr = out.stderr
   } catch (error) {
@@ -163,6 +205,7 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
     stderr,
     calls: fs.readFileSync(callsLog, 'utf8').split('\n').filter(Boolean),
     deployLog: fs.existsSync(deployLogPath) ? fs.readFileSync(deployLogPath, 'utf8') : '',
+    execStdin: fs.readFileSync(execStdin, 'utf8'),
   }
 }
 
@@ -267,5 +310,81 @@ describe('更前面的步驟失敗就不會動到 app', () => {
     expect(result.code).not.toBe(0)
     expect(result.calls.some((c) => c.startsWith('compose run --rm migrate'))).toBe(false)
     expect(upAppCalls(result.calls)).toHaveLength(0)
+  })
+})
+
+describe('fju_app 密碼同步（第一次部署靠它連上資料庫）', () => {
+  it('migrate 之後、啟動 app 之前，把 APP_DB_PASSWORD 從 stdin 餵給 psql', async () => {
+    const result = await runDeploy('newtag')
+    expect(result.code, result.stderr).toBe(0)
+    const migrateAt = result.calls.findIndex((c) => c.startsWith('compose run --rm migrate'))
+    const execAt = result.calls.findIndex((c) => c.startsWith('compose exec -T postgres'))
+    const upAt = result.calls.findIndex((c) => /^compose up .*app worker/.test(c))
+    expect(migrateAt).toBeGreaterThanOrEqual(0)
+    expect(execAt).toBeGreaterThan(migrateAt)
+    expect(upAt).toBeGreaterThan(execAt)
+    // 單引號要雙寫，不能把 SQL 字串提早結束。
+    expect(result.execStdin).toContain("ALTER ROLE fju_app PASSWORD 'fake''app''pw';")
+  })
+
+  it('密碼只走 stdin：任何一次 docker 呼叫的指令列、stdout、stderr 都看不到它', async () => {
+    const result = await runDeploy('newtag')
+    for (const call of result.calls) {
+      expect(call).not.toContain("fake'app'pw")
+      expect(call).not.toContain('fake-owner-pw')
+    }
+    expect(result.stdout).not.toContain("fake'app'pw")
+    expect(result.stderr).not.toContain("fake'app'pw")
+  })
+
+  it('少了必要的鍵就在動任何東西之前停下，只印鍵名', async () => {
+    const bin = path.join(dir, 'bin')
+    fs.mkdirSync(bin, { recursive: true })
+    const fakeDocker = path.join(bin, 'docker')
+    fs.writeFileSync(fakeDocker, '#!/usr/bin/env bash\necho "docker 不該被呼叫" >&2\nexit 99\n')
+    fs.chmodSync(fakeDocker, 0o755)
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...FAKE_SECRETS,
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      DEPLOY_DIR: path.join(dir, 'deploy'),
+    }
+    delete env.APP_DB_PASSWORD
+    delete env.GOOGLE_CLIENT_SECRET
+    let stderr = ''
+    let code = 0
+    try {
+      await exec('bash', [deploySh, '--site', 'test', 'newtag', '--execute'], { env, cwd: repoRoot })
+    } catch (error) {
+      const e = error as { code?: number; stderr?: string }
+      code = typeof e.code === 'number' ? e.code : 1
+      stderr = e.stderr ?? ''
+    }
+    expect(code).not.toBe(0)
+    expect(stderr).toMatch(/少了這些鍵.*APP_DB_PASSWORD.*GOOGLE_CLIENT_SECRET/)
+    expect(stderr).not.toContain('docker 不該被呼叫')
+  })
+})
+
+describe('--rollback：指定舊 tag 重部署', () => {
+  it('不跑 migrate、不同步密碼，換上舊映像並記 rolled-back', async () => {
+    const result = await runDeploy('oldtag2', {}, ['--rollback'])
+    expect(result.code, result.stderr).toBe(0)
+    expect(result.calls.filter((c) => /^compose run\b/.test(c))).toHaveLength(0)
+    expect(result.calls.some((c) => c.startsWith('compose exec'))).toBe(false)
+    expect(result.calls.some((c) => c.startsWith('compose pull app worker'))).toBe(true)
+    expect(result.calls.some((c) => /^compose pull .*migrate/.test(c))).toBe(false)
+    for (const call of upAppCalls(result.calls)) expect(call).toContain('--no-deps')
+    expect(result.deployLog).toMatch(/\trolled-back\toldtag2\t/)
+    expect(result.deployLog).toContain('unchanged')
+  })
+})
+
+describe('部署鎖', () => {
+  it('拿不到鎖就以 75 結束，什麼都不動（auto-deploy 看到 75 會下一輪再試）', async () => {
+    const result = await runDeploy('newtag', { lockBusy: true })
+    expect(result.code).toBe(75)
+    expect(result.calls.some((c) => c.startsWith('compose pull'))).toBe(false)
+    expect(result.deployLog).toBe('')
   })
 })

@@ -1,0 +1,44 @@
+# 兩站共用的反向代理（2026-09-24 兩站版）。
+#
+# 一台 VM 只有一組 80／443，所以 Caddy 獨立成一個 project（fju-edge），
+# 依主機名分流到兩站，並自動向 Let's Encrypt 取得兩張憑證：
+#
+#   fju.roy422.dev       → fju-prod-app:3000
+#   test.fju.roy422.dev  → fju-test-app:3000
+#
+# 兩站的 app 會加入外部網路 fju-edge（vm-setup.sh 建立），Caddy 用容器名稱找到它們。
+# 某一站還沒部署時，那個網址回 502，另一站不受影響。這個 project 不需要任何秘密。
+#
+#   sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml up -d
+#   sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml logs caddy
+#
+# 改了 ops/Caddyfile.vm 之後要 `restart caddy`（admin API 關掉了，不能 reload）。
+name: fju-edge
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: fju-edge-caddy
+    restart: unless-stopped
+    ports:
+      # 只發布 TCP，跟 ufw 一致（vm-setup.sh 只開 80/tcp、443/tcp）。
+      # 不開 HTTP/3（443/udp）；Caddyfile.vm 也關掉 h3，瀏覽器不會先去撞 UDP。
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./ops/Caddyfile.vm:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+
+volumes:
+  caddy-data:
+    name: fju-edge-caddy-data
+  caddy-config:
+    name: fju-edge-caddy-config
+
+networks:
+  edge:
+    external: true
+    name: fju-edge
