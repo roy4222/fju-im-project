@@ -3,7 +3,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 import { nextCookies } from 'better-auth/next-js'
-import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx, getOAuthState } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
@@ -150,7 +150,10 @@ function createAuth() {
          * 第一次用 Google 登入」（見 `bindPreauthorizedTeacher` 的條件）；不改任何使用者欄位。
          */
         mapProfileToUser: async (profile) => {
-          await bindPreauthorizedTeacher(profile)
+          // 連結流程（已登入的人按「連結 Google」）也會經過這裡；那不是「預授權老師第一次登入」，
+          // 不能順手替別人綁。state 在這之前已由套件解析好，`link` 有值就是連結。
+          const state = await getOAuthState().catch(() => null)
+          if (!(state as { link?: unknown } | null)?.link) await bindPreauthorizedTeacher(profile)
           return {}
         },
       },

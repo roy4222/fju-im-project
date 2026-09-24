@@ -402,6 +402,16 @@ describe('系辦預授權的老師第一次用 Google 登入（票 8 × 票 10�
     expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [t.userId])).toEqual({ n: 0 })
   })
 
+  it('別人按「連結 Google」時用了預授權老師 Email 的 Google → 不替老師綁、連結也被拒', async () => {
+    const t = await preauthorizedTeacher()
+    const other = await passwordAccount('active')
+    const start = await post('/link-social', { provider: 'google', callbackURL: '/account?linked=google', errorCallbackURL: '/account' }, other.cookie)
+    const result = await finishAtGoogle(start, { sub: `sub-linkpre-${seq}`, email: t.email, name: '陳老師' }, other.cookie)
+    expect(result.location).toBe('/account?error=email_does_not_match')
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1`, [t.userId])).toEqual({ n: 0 })
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [other.userId])).toEqual({ n: 0 })
+  })
+
   it('沒有老師角色、或不是 active 的無登入方式帳號 → 不綁', async () => {
     const noRole = await preauthorizedTeacher({ role: false })
     expect((await googleSignIn({ sub: `sub-norole-${seq}`, email: noRole.email, name: '無角色' })).location).toBe('/login?error=account_not_linked')
