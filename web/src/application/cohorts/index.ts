@@ -10,7 +10,9 @@ export type {
   CohortStatus,
   CreateCohortInput,
   CreateCohortReceipt,
+  GroupingSettingsInput,
   SetCohortFlagReceipt,
+  SetGroupingSettingsReceipt,
 } from '@/application/cohorts/cohorts'
 export {
   canManageCohorts,
@@ -21,9 +23,14 @@ export {
   COHORT_STATUS_LABEL,
   describeActivateReceipt,
   describeFlagReceipt,
+  describeGroupingSettingsReceipt,
+  describeGroupSize,
+  GROUP_SIZE_LIMIT,
   isCohortId,
   isRequestId,
   normalizeCreateInput,
+  normalizeGroupingSettings,
+  PROPOSAL_DAYS_LIMIT,
 } from '@/application/cohorts/cohorts'
 export type {
   CohortSchedule,
@@ -35,6 +42,7 @@ export type {
 } from '@/application/cohorts/stages'
 export {
   describeStagePosition,
+  groupingDeadline,
   normalizeScheduleInput,
   planStageVersions,
   STAGE_COUNT,
