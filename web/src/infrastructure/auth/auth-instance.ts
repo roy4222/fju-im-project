@@ -2,6 +2,7 @@ import 'server-only'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
+import { nextCookies } from 'better-auth/next-js'
 import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
@@ -18,6 +19,18 @@ import {
   isUsableSession,
   readAccountState,
 } from '@/infrastructure/auth/account-state'
+import {
+  checkChangePasswordRate,
+  MIN_PASSWORD_LENGTH,
+  recordPasswordChanged,
+  validateNewPassword,
+} from '@/infrastructure/auth/change-password-rules'
+import {
+  checkSignInRate,
+  clientIpFrom,
+  resetSignInRate,
+  signInKey,
+} from '@/infrastructure/auth/sign-in-rate-limit'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -66,6 +79,50 @@ function createAuth() {
     advanced: {
       // 契約 01 §1：主鍵一律由應用產生 uuidv7，包含 Better Auth 的四張表。
       database: { generateId: () => uuidv7() },
+      /**
+       * 正式環境的 app 在 Caddy 後面，socket 的來源永遠是 proxy。
+       *
+       * 不設這個的話 Better Auth 解析不到用戶端 IP，它自己的限速會**退回全站共用一個桶**
+       * （套件會 warn），而且 `sessions.ip_address` 會全部記成 proxy 的位址。
+       * Caddyfile 帶的就是 `X-Real-IP`（本機直連時退回 `X-Forwarded-For`）。
+       */
+      ipAddress: { ipAddressHeaders: ['x-real-ip', 'x-forwarded-for'] },
+    },
+    /**
+     * 套件自己的限速。
+     *
+     * 它的預設對本專案是錯的：`/sign-in*`、`/sign-up*`、`/change-password*` 的內建規則是
+     * **3 次／10 秒／IP**，而契約 03 §6 要的是「登入 10 次／10 分鐘／IP＋帳號」。
+     * 兩者衝突時先撞到的是套件那一條，等於契約的門檻永遠測不到，而且會擋錯人
+     * ——全系在同一個對外 IP 後面，10 秒 3 次連正常上課時段的登入都擋。
+     *
+     * 上一輪的修法是把那兩條「放寬」成 60 次／10 分鐘，但**放寬不能解決問題**：
+     * 套件的鍵（`rate-limiter/index.mjs` 的 `createRateLimitKey(ip, path)`）只有 IP＋路徑，
+     * 永遠不含帳號，所以它本質上就是一個跨帳號共用的桶。同一個對外 IP 後面，
+     * 60 個不同帳號各錯一次就把桶用完，第 61 個人拿正確密碼也會被擋（2026-09-16 複核 Spec 3）。
+     *
+     * 所以契約管到的兩條直接**關掉**套件的限速（`false` 會讓 `resolveRateLimitConfig` 回 null）：
+     * - `/sign-in/email`：契約門檻＝10 次／10 分鐘／**IP＋帳號**，由 `sign-in-rate-limit.ts` 做，
+     *   它的鍵含帳號，所以別人的失敗不會算到你頭上。
+     * - `/change-password`：契約門檻是**每人**每小時，由 `change-password-rules.ts` 以 userId 為鍵做。
+     *   （這一條同樣不能用 IP 桶：系辦發臨時密碼後一整批人在同一個校園出口改密是正常流程。）
+     *
+     * 契約 03 §6 把粗粒度的那一層明寫成「app 記憶體＋**Caddy**」——跨帳號的 DoS 防護屬於
+     * 反向代理那一層，不是這裡。
+     *
+     * `/sign-up/email` 維持套件的 IP 桶：契約 §6 對註冊本來就寫「5 次／小時／**IP**」（不含帳號），
+     * 鍵的形狀對得上。**門檻仍是 30 而不是 5**——註冊流程是 S01-09 的票，這一批沒有做，
+     * 現在收緊會擋到還沒實作的流程。已記在契約 03 §6 的待決。
+     */
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 300,
+      customRules: {
+        '/sign-in/email': false,
+        '/change-password': false,
+        '/sign-up/email': { window: 3600, max: 30 },
+      },
     },
     emailAndPassword: { enabled: true },
     socialProviders: {
@@ -150,6 +207,25 @@ function createAuth() {
           throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
         }
 
+        // ── 登入限速（契約 03 §6） ────────────────────────────────────────
+        //
+        // 放在這裡而不是只放在 Server Action 門面上：直接打 `/api/auth/sign-in/email`
+        // 也要算同一個桶（2026-09-16 review Spec 4）。
+        if (ctx.path === '/sign-in/email') {
+          const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
+          if (email) {
+            const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
+            if (!checkSignInRate(signInKey(ip, email)).allowed) {
+              // 達到上限之後**連正確的密碼也先擋**——不然「有沒有被擋」就成了
+              // 密碼對不對的訊號。
+              throw new APIError('TOO_MANY_REQUESTS', {
+                code: 'RATE_LIMITED',
+                message: '嘗試過多，請稍後再試。',
+              })
+            }
+          }
+        }
+
         // ── 第二關：帳號的業務狀態（契約 03 §2 的矩陣） ────────────────────
         //
         // 這一關原本只做在頁面導向與 Server Action 上，所以直接打 `/api/auth/*` 就繞過去了
@@ -199,9 +275,78 @@ function createAuth() {
             })
           }
         }
+
+        // ── 第三關：改密碼的業務規則（模組 01 §3、契約 03 §2、§6） ─────────
+        //
+        // 這些規則原本只寫在 SelfAccountCommand 上，直接打 HTTP 就整組繞過去
+        // （2026-09-16 review Spec 3）。放在這裡，兩條路走同一段程式。
+        if (ctx.path === '/change-password') {
+          const body = (ctx.body ?? {}) as { currentPassword?: string; newPassword?: string }
+          const currentPassword = String(body.currentPassword ?? '')
+          const newPassword = String(body.newPassword ?? '')
+
+          const rate = checkChangePasswordRate(String(session.user.id))
+          if (!rate.allowed) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              code: 'VALIDATION_FAILED',
+              message: '改密碼的次數太多，請稍後再試。',
+            })
+          }
+
+          const problem = validateNewPassword(newPassword, currentPassword)
+          if (problem === 'too_short') {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: `新密碼至少要 ${MIN_PASSWORD_LENGTH} 個字元。`,
+            })
+          }
+          if (problem === 'same_as_current') {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: '新密碼不能跟目前的密碼一樣。',
+            })
+          }
+
+          // 契約 03 §2 要求改密一定撤掉其他裝置的登入。**不接受客戶端不傳或傳 false**，
+          // 所以在這裡直接覆寫請求內容，而不是「檢查它有沒有傳」。
+          return { context: { body: { ...body, revokeOtherSessions: true } } }
+        }
+      }),
+
+      /**
+       * 成功之後才做的事。
+       *
+       * - 改密成功：清 must-change 旗標、寫稽核（同一個交易）。
+       * - 登入成功：把限速計數清掉。
+       *
+       * 失敗的請求不會走到這裡（端點丟 APIError 時 `returned` 是那個錯誤）。
+       */
+      after: createAuthMiddleware(async (ctx) => {
+        const returned = ctx.context.returned
+        if (returned instanceof APIError) return
+
+        if (ctx.path === '/change-password') {
+          // **不能**用 `getAuthoritativeSessionFromCtx` 拿使用者：`revokeOtherSessions`
+          // 會把這個人**全部**的 session 刪掉再建一個新的（套件的 update-user.mjs），
+          // 所以此刻請求裡那張 cookie 指向的列已經不存在了。改密的回應本身帶著 user。
+          const userId = (returned as { user?: { id?: string } } | undefined)?.user?.id
+          if (userId) await recordPasswordChanged(String(userId))
+          return
+        }
+
+        if (ctx.path === '/sign-in/email') {
+          const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
+          if (email) resetSignInRate(signInKey(clientIpFrom(ctx.request?.headers ?? ctx.headers), email))
+        }
       }),
     },
-    plugins: [admin()],
+    plugins: [
+      admin(),
+      // 一定要放最後（官方要求）：讓 Server Action 裡呼叫 `auth.api.*` 時，
+      // 套件設的 cookie 真的會被帶進回應。登入表單走 Server Action（契約 02 §7），
+      // 沒有它就會「登入成功但沒有 session」。
+      nextCookies(),
+    ],
   })
 }
 

@@ -25,7 +25,8 @@
     "audit": "pnpm -w audit --json > .audit.json || true; node scripts/audit-check.mjs --level high < .audit.json",
     "stack:up": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full up -d",
     "stack:down": "docker compose -f ../docker-compose.yml -f ../docker-compose.local.yml --profile full down",
-    "db:grants": "node scripts/generate-grants.mjs"
+    "db:grants": "node scripts/generate-grants.mjs",
+    "seed:a1": "node scripts/seed-a1.mjs"
   },
   "dependencies": {
     "@swc/helpers": "0.5.23",

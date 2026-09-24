@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-15",
+  "round": "s01-batch1",
+  "scope": "2026-09-15 S01 第一小批（#44–#48）：模組 01 附錄 A 補 department_class 三欄與 §12 的安裝後 gate 結果；契約 03 §2 依 better-auth 1.7.5 實際 route table 更名 /forget-password → /request-password-reset、補預設拒絕說明與 admin plugin 要求 admin session 的發現。來源與鏡像皆已更新並逐行核對（僅餘連結轉換差異）。",
+  "files": [
+    "docs/engineering/modules/01 帳號與權限.md",
+    "docs/engineering/contracts/03 安全與隱私.md"
+  ],
+  "direction": "mirror → source（實作時發現的規格不符，先改 spec 再回寫 Vault）",
+  "runtime_validation": "本批的規格改動都有對應的自動測試；VM 部署 NOT_RUN。",
+  "verified_at": "2026-09-15T13:42:09.961706+00:00"
+}
