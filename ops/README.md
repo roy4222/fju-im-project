@@ -380,6 +380,78 @@ sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml logs --tai
 看 worker 有沒有在跑：`curl -s https://test.fju.roy422.dev/api/health` 的 `worker.lastTickAt` 應該是幾秒內的時間；
 把 worker 停掉超過 5 分鐘，`ok` 會變 `false`（回 503）。
 
+### 健康判定改成完整六項（票 28）上線時要做的一次同步
+
+票 28 起 `deploy.sh` **預設**就判完整六項：HTTP 200、`commit`、`imageDigest`、`schemaVersion`、
+`worker.version`（＝這次的 SHA）、`worker.lastTickAt`（60 秒內）。任一項不符＝部署失敗、自動回滾。
+
+- **不同步也不會出事**：`/api/health` 的欄位完全沒變；VM 上舊的 `check-health.mjs` 看到新映像有 worker 心跳，
+  本來就會一起比對 worker 兩項，所以合併後的第一次自動部署照舊會過。
+- **同步之後**（照下一節做一次）才真的變成「worker 沒起來一定判失敗」。timer 環境若設過 `AUTO_DEPLOY_EXPECT_WORKER=1`
+  可以留著（`--expect-worker` 現在等於預設，無害），也可以拿掉。
+- 只有要**回滾到票 12 之前**（還沒有 worker）的舊映像時才加 `--allow-no-worker`：只判前四項，而且 worker 兩欄必須是 null；
+  映像其實有 worker 卻帶了這個旗標，一樣判失敗。`deploy_log` 第四欄會記 `limited-no-worker`（平常是 `full`）。
+
+同步之後確認一次：
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$(sudo -u deploy docker inspect --format '{{.Config.Image}}' fju-test-app | sed 's/.*://')"
+```
+
+預期：演練輸出裡有「健康條件：完整六項」，最後一行 `$ echo "<時間>	deployed	<SHA>	full" …`（這是演練，什麼都不會做）。
+
+### 磁碟用量（票 28）
+
+背景工作每小時量一次附件目錄（`FILES_ROOT`）所在的磁碟，部署後 worker 一起來也會先量一次。
+結果顯示在系辦首頁「儲存與備份」磚：用量百分比、等級（正常／**警戒 ≥80%**／危險 ≥90%）、已用／可用、量測時間。
+**只看站內、不推播**：到 80% 不發站內通知、不寄信（D-04）。超過 3 小時沒有新量測，磚上會標「量測過期」（多半是 worker 停了）。
+
+- 資料庫在另一個 volume，worker 看不到那顆的剩餘空間，只記資料庫大小；VM 上兩者在同一顆系統碟，所以磚上的百分比就是整顆碟。
+- 量測暫存在 `audit_events`（`action='storage.measured'`），等之後建 `storage_stats` 表再搬過去。
+- 想立刻重量一次：`sudo -u deploy /srv/fju/app/ops/site.sh test docker compose exec -T worker node migrate/web/dist/worker.mjs --measure-storage-once`
+
+### 故障演練（票 28，只准測試站）
+
+四種故障各一個指令。每次跑完（成功或失敗）都在 `/srv/fju/test/drills/fault-drills.log` 加一行：
+時間、演練、pass／fail、映像、細節。**先不帶 `--execute` 看一次步驟**（誰都能跑、什麼都不做），再帶 `--execute` 真的跑。
+演練期間腳本拿著測試站的部署鎖，自動部署那一輪會記 `busy`、下一輪再試。`--site prod` 一律拒絕。
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test restart --execute        # 約 1 分鐘
+sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test worker-stall --execute   # 約 6 分鐘（要等心跳過期）
+sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test poison --execute         # 約 3 分鐘
+sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80 --execute         # 約 30 秒
+```
+
+| 演練 | 做什麼 | 通過的樣子 |
+|---|---|---|
+| `restart` 服務重啟 | `docker compose restart app worker` | 2 分鐘內完整六項再次通過，`commit` 與 `worker.version` 還是原本那一版 |
+| `worker-stall` 背景工作停擺 | 停掉 worker，每 10 秒看一次 `/api/health`；最多等 330 秒後再啟動 | 停掉約 5 分鐘後 `/api/health` 回 **503**、`ok:false`；重新啟動後完整六項恢復 |
+| `poison` 毒事件 | 用 psql 插兩件 `test_noop` 到期工作：一件對象種類是 `fault_drill_poison`（處理器一定失敗），一件正常 | 正常那件幾十秒內 `done`；毒工作退避 2／4／8／16 秒後第 5 次標 `failed`，管理員收到 1 則「到期工作失敗 5 次」告警 |
+| `disk80` 磁碟 80% | 開一顆 16 MiB 的**記憶體磁碟**塞 14 MiB（~88%），在上面量一次（**不碰真的硬碟**，演練完就刪） | 最新量測是「警戒」、標著演練；通知數沒變。打開 https://test.fju.roy422.dev/dashboard/admin ，「儲存與備份」磚顯示 ~88%、第一段「警戒（≥80%）」、結尾「（故障演練）」 |
+
+`disk80` 看完磚之後把數字換回真的：
+
+```bash
+sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80-restore --execute
+```
+
+（不跑也沒關係，下一個整點 worker 自己會量一次蓋過去。）
+
+- `poison` 需要測試站的 `BUSINESS_CLOCK_OVERRIDE_ENABLED=true`（`test_noop` 只在測試站有處理器）。插進去的兩件工作留在資料庫裡當證據，不影響任何人。
+- `worker-stall` 中途按 Ctrl-C 也會把 worker 重新啟動。
+- 跑完把紀錄貼回 Vault：`sudo cat /srv/fju/test/drills/fault-drills.log`，四行都是 `pass` 就把 SOP 05 的執行紀錄與票 28 第 3 點打勾。
+
+**💻 在自己電腦先模擬一次（不碰 VM）**：同一支腳本、同一個映像，對一個本機的獨立模擬站（`fju-faultsim-*`，跟本機開發的資料庫分開）跑：
+
+```bash
+docker build -f web/Dockerfile --build-arg GIT_COMMIT=faultsim -t fju-web:faultsim .
+ops/fault-drill-local.sh                 # 五個照順序全跑，約 8 分鐘；跑完自動拆掉模擬站
+ops/fault-drill-local.sh disk80 --keep   # 只跑一個、留著看畫面（http://127.0.0.1:3928）
+```
+
 ### repo 的 ops／compose 檔改了之後
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：
@@ -407,6 +479,8 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 | `ops/backup.sh` | 手動備份某一站的資料庫、寫備份紀錄；`--status` 看最近成功備份／演練 |
 | `ops/restore-drill.sh` | 把備份還原到演練副本（`fju-drill`）、抽查、寫演練紀錄；`--remove` 移除副本 |
 | `docker-compose.drill.yml` | 演練副本（獨立的 Compose 檔，不疊在站台設定上；不發布 port、不接 Caddy） |
+| `ops/fault-drill.sh` | 四種故障演練（只准測試站；`--execute` 才真的跑），結果寫 `/srv/fju/test/drills/fault-drills.log` |
+| `ops/fault-drill-local.sh`、`docker-compose.faultsim.yml` | 💻 Mac 用：在本機的獨立模擬站跑同一支 `fault-drill.sh` |
 | `ops/lib/backup-common.sh`、`ops/lib/backup-record.mjs` | 上面兩支共用：抽查 SQL、紀錄檔讀寫與比對 |
 | `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
@@ -425,5 +499,6 @@ VM 上的目錄：
 /srv/fju/test/  /srv/fju/prod/
     files/                    附件（容器裡的 app 寫）
     backups/                  手動備份（*.dump）與 records.jsonl（備份／演練紀錄，600）
+    drills/                   故障演練紀錄 fault-drills.log（只有 test）
     deploy/                   deploy_log、previous_tag、自動部署紀錄與暫停檔
 ```

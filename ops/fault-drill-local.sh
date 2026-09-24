@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --image) IMAGE="${2:?--image 後面要接映像名稱}"; shift ;;
     --keep) KEEP=1 ;;
-    -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "不認得的選項：$1" >&2; exit 1 ;;
     *) CASES+=("$1") ;;
   esac
