@@ -3,12 +3,22 @@ import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
   accountAdminDenied,
+  adminGrantProblem,
+  isOrphan,
+  normalizeOrphanRepair,
+  normalizeRoleChange,
   normalizeTeacherAccountInput,
   normalizeTemporaryPasswordRequest,
+  remainingEffectiveAdmins,
   type AccountCommand,
   type AccountLookup,
+  type AccountStatus,
+  type OrphanRepairInput,
+  type OrphanRepairReceipt,
   type ResolvedActor,
   type Role,
+  type RoleChangeInput,
+  type RoleChangeReceipt,
   type TeacherAccountInput,
   type TeacherAccountReceipt,
   type TeacherCreatedWithSecret,
@@ -396,6 +406,251 @@ export class PgAccountCommand implements AccountCommand {
     return secretOnce(password, now, input.requestId, actor.userId)
   }
 
+  // ── 管理員角色（票 10b） ────────────────────────────────────────────────
+
+  async grantRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>> {
+    return this.#changeAdminRole(actor, input, 'grant')
+  }
+
+  async revokeRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>> {
+    return this.#changeAdminRole(actor, input, 'revoke')
+  }
+
+  /**
+   * 授予／取消管理員。
+   *
+   * 一個交易裡：鎖住全部有效的管理員角色列（`lockAdmins`）→ 確認操作者此刻仍是有效管理員 →
+   * 鎖目標帳號 → 寫 `role_assignments` 與 `users.role` → 稽核 → 帳本。
+   *
+   * **為什麼要先鎖全部管理員列**：兩位管理員同時互相取消時，各自只看目標的話兩邊都會成功，
+   * 系統就一位管理員都不剩。先鎖同一組列，後到的那一個會等前一個 commit，醒來時重讀
+   * （READ COMMITTED 的 `for update` 會重新評估條件），就看得到自己已經不是管理員，然後被擋下。
+   *
+   * 不撤對方的 session：`ActorResolver` 每次請求重讀 `role_assignments`，而 cookie 快取關著
+   * （`auth-instance.ts`），套件每次也是重讀 `users.role`——取消的下一個請求就沒有管理員權限了。
+   */
+  async #changeAdminRole(
+    actor: ResolvedActor,
+    input: RoleChangeInput,
+    action: 'grant' | 'revoke',
+  ): Promise<Result<RoleChangeReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    const change = normalizeRoleChange(input)
+    if (!change.ok) return change
+    if (input.userId === actor.userId) {
+      return err(
+        'FORBIDDEN',
+        action === 'grant' ? '不能替自己設定角色。' : '不能取消自己的管理員角色；請另一位管理員操作。',
+      )
+    }
+
+    const now = this.#clock.now()
+    const operationKind = action === 'grant' ? 'account.grant_role' : 'account.revoke_role'
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, role: change.value.role, reason: change.value.reason }))
+
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind, requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
+        return ok(begun.receipt as RoleChangeReceipt, meta(now, input.requestId))
+      }
+
+      const admins = await lockAdmins(tx)
+      if (!isEffectiveAdmin(admins, actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
+      const target = await lockRoleTarget(tx, input.userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+
+      if (action === 'grant') {
+        const problem = adminGrantProblem(target)
+        if (problem) {
+          await tx.query('rollback')
+          return problem
+        }
+        await tx.query(
+          `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+           values ($1, $2, 'admin', $3, $4, $5)`,
+          [uuidv7(), target.userId, actor.userId, now, change.value.reason],
+        )
+        // Better Auth admin plugin 的套件欄：套件自己的管理員能力（停用撤 session、發臨時密碼、新增老師）看這一欄。
+        await tx.query(`update users set role = 'admin', updated_at = $2 where id = $1`, [target.userId, now])
+      } else {
+        if (!target.roles.includes('admin')) {
+          await tx.query('rollback')
+          return err('CONFLICT', '這個帳號已經不是管理員了，請重新整理頁面。')
+        }
+        if (remainingEffectiveAdmins(admins, target.userId) < 1) {
+          await tx.query('rollback')
+          return err('CONFLICT', '這是最後一位管理員，不能取消；請先把另一個帳號設為管理員。')
+        }
+        await tx.query(
+          `update role_assignments
+              set revoked_by_user_id = $2, revoked_real_at = $3, reason = $4
+            where user_id = $1 and role = 'admin' and revoked_real_at is null`,
+          [target.userId, actor.userId, now, change.value.reason],
+        )
+        // 套件欄改回預設值（跟新增老師時套件給的一樣）。
+        await tx.query(`update users set role = 'user', updated_at = $2 where id = $1`, [target.userId, now])
+      }
+
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: operationKind,
+        targetType: 'user',
+        targetId: target.userId,
+        scope: 'global',
+        reason: change.value.reason,
+        realAt: now,
+        businessAt: now,
+        payload: { role: change.value.role },
+      })
+      const receipt: RoleChangeReceipt = {
+        userId: target.userId,
+        name: target.name,
+        role: change.value.role,
+        granted: action === 'grant',
+        changedAt: now.toISOString(),
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
+      await tx.query('commit')
+      return ok(receipt, meta(now, input.requestId))
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  // ── 孤兒帳號（票 10b） ──────────────────────────────────────────────────
+
+  /**
+   * 孤兒帳號補建角色。
+   *
+   * 等於把「新增老師」交易的後半段補做完（`createTeacher` 檔頭講的那種套件成功、我方失敗）：
+   * 待審的一併開通（狀態事件）、補角色、稽核、帳本。補成管理員時跟 `grantRole` 一樣先鎖管理員列、
+   * 同時寫 `users.role`。
+   *
+   * 不發密碼：系辦直接新增失敗留下的帳號有一組沒人知道的密碼，要用的話接著按「發臨時密碼」；
+   * 預授權或用 Google 註冊的，本人用 Google 登入即可。
+   */
+  async repairOrphan(actor: ResolvedActor, input: OrphanRepairInput): Promise<Result<OrphanRepairReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    const repair = normalizeOrphanRepair(input)
+    if (!repair.ok) return repair
+    if (input.userId === actor.userId) return err('FORBIDDEN', '不能替自己設定角色。')
+
+    const now = this.#clock.now()
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, role: repair.value.role, reason: repair.value.reason }))
+
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind: 'account.repair_orphan', requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
+        return ok(begun.receipt as OrphanRepairReceipt, meta(now, input.requestId))
+      }
+
+      if (repair.value.role === 'admin' && !isEffectiveAdmin(await lockAdmins(tx), actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
+      const target = await lockRoleTarget(tx, input.userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+      // 鎖住之後重新判一次：本人剛好送出了申請、或別的管理員剛補好，就不是孤兒了。
+      if (!isOrphan(target)) {
+        await tx.query('rollback')
+        return err('CONFLICT', '這個帳號已經不是孤兒帳號了（有角色、申請或個人資料），請重新整理頁面。')
+      }
+
+      const activated = target.status === 'pending'
+      if (activated) {
+        await tx.query(`update users set status = 'active', updated_at = $2 where id = $1`, [target.userId, now])
+        await tx.query(
+          `insert into user_status_events
+             (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
+           values ($1, $2, 'pending', 'active', $3, 'user', $4, $5)`,
+          [uuidv7(), target.userId, `孤兒帳號補建角色：${repair.value.reason}`, actor.userId, now],
+        )
+      }
+      await tx.query(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [uuidv7(), target.userId, repair.value.role, actor.userId, now, repair.value.reason],
+      )
+      if (repair.value.role === 'admin') {
+        await tx.query(`update users set role = 'admin', updated_at = $2 where id = $1`, [target.userId, now])
+      }
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.repair_orphan',
+        targetType: 'user',
+        targetId: target.userId,
+        scope: 'global',
+        reason: repair.value.reason,
+        realAt: now,
+        businessAt: now,
+        payload: { role: repair.value.role, activated },
+      })
+      const receipt: OrphanRepairReceipt = {
+        userId: target.userId,
+        name: target.name,
+        role: repair.value.role,
+        activated,
+        changedAt: now.toISOString(),
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
+      await tx.query('commit')
+      return ok(receipt, meta(now, input.requestId))
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
   /**
    * 套件那一步失敗時補一筆稽核，並把帳本那一列標成 failed（票 10b），免得稽核與重播只看得到「已核發」。
    * 兩件事同一個交易：要嘛都寫進去，要嘛都沒有。
@@ -424,6 +679,72 @@ export class PgAccountCommand implements AccountCommand {
     } finally {
       tx.release()
     }
+  }
+}
+
+// ── 鎖 ──────────────────────────────────────────────────────────────────────
+
+export type LockedAdmin = { readonly userId: string; readonly effective: boolean }
+
+/**
+ * 鎖住**全部**有效的管理員角色列（依 id 排序，兩個交易不會以不同順序互等），順便算出每一位是不是
+ * 有效管理員（帳號 active、沒有去識別化）。授予、取消、補建成管理員都先經過這裡（見 `#changeAdminRole`）。
+ *
+ * 管理員就幾個人，鎖整組的成本可以忽略。
+ */
+export async function lockAdmins(tx: PoolClient): Promise<LockedAdmin[]> {
+  const rows = await tx.query<{ user_id: string; effective: boolean }>(
+    `select ra.user_id, (u.status = 'active' and u.deidentified_at is null) as effective
+       from role_assignments ra
+       join users u on u.id = ra.user_id
+      where ra.role = 'admin' and ra.revoked_real_at is null
+      order by ra.id
+      for update of ra`,
+  )
+  return rows.rows.map((r) => ({ userId: r.user_id, effective: r.effective }))
+}
+
+/** 這個人在鎖住的管理員列裡、而且帳號此刻仍是 active（不是只信請求開始時解析出來的 actor）。 */
+export function isEffectiveAdmin(admins: readonly LockedAdmin[], userId: string): boolean {
+  return admins.some((a) => a.userId === userId && a.effective)
+}
+
+type RoleTargetRow = {
+  readonly userId: string
+  readonly name: string
+  readonly status: AccountStatus
+  readonly roles: Role[]
+  readonly activeRoles: number
+  readonly applications: number
+  readonly hasProfile: boolean
+}
+
+/** 鎖目標帳號並讀出判斷授予與孤兒需要的事實。`for no key update`：跟發臨時密碼同一個理由。 */
+async function lockRoleTarget(tx: PoolClient, userId: string): Promise<RoleTargetRow | null> {
+  const locked = await tx.query<{ id: string; name: string; status: AccountStatus; deidentified_at: Date | null }>(
+    'select id, name, status, deidentified_at from users where id = $1 for no key update',
+    [userId],
+  )
+  const row = locked.rows[0]
+  if (!row) return null
+  const facts = await tx.query<{ roles: Role[] | null; applications: number; display_name: string | null; has_profile: boolean }>(
+    `select (select array_agg(r.role order by r.role) from role_assignments r
+              where r.user_id = $1 and r.revoked_real_at is null) as roles,
+            (select count(*)::int from registration_applications a where a.user_id = $1) as applications,
+            (select p.display_name from user_profiles p where p.user_id = $1) as display_name,
+            exists (select 1 from user_profiles p where p.user_id = $1) as has_profile`,
+    [userId],
+  )
+  const f = facts.rows[0]!
+  const roles = f.roles ?? []
+  return {
+    userId: row.id,
+    name: f.display_name ?? row.name,
+    status: row.deidentified_at ? 'deidentified' : row.status,
+    roles,
+    activeRoles: roles.length,
+    applications: f.applications,
+    hasProfile: f.has_profile,
   }
 }
 
