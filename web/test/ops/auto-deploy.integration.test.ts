@@ -46,8 +46,9 @@ case "$1" in
       exec) cat > /dev/null ;;
       up)
         if printf '%s ' "$@" | grep -q ' postgres'; then exit 0; fi
-        printf '{"ok":true,"commit":"%s","imageDigest":"%s","schemaVersion":"0002_test_migration","worker":{"version":null,"lastTickAt":null}}' \\
-          "\${APP_IMAGE##*:}" "\${IMAGE_DIGEST:-}" > "$HEALTH_FILE"
+        # 跑起來的 worker 回報自己的版本與剛剛的心跳（票 28 起部署預設判完整六項）。
+        printf '{"ok":true,"commit":"%s","imageDigest":"%s","schemaVersion":"0002_test_migration","worker":{"version":"%s","lastTickAt":"%s"}}' \\
+          "\${APP_IMAGE##*:}" "\${IMAGE_DIGEST:-}" "\${APP_IMAGE##*:}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$HEALTH_FILE"
         ;;
       *) exit 0 ;;
     esac
