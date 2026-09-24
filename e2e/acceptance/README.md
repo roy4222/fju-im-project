@@ -15,6 +15,9 @@ Codex 會用 Playwright skill 在 **https://test.fju.roy422.dev**（測試站）
 
 `.out/` 已經 gitignore，不會進 repo。怎麼設定帳密見 [ops/README.md](../../ops/README.md) 的「測試站自動驗收」。
 
+注意：腳本只會掃出並遮掉**密碼**；E2E 帳號的 **email 會出現在登入頁的截圖裡**（測試專用信箱，可接受，但截圖別貼到公開的地方）。
+第一次實跑後，也請照 ops/README.md 看一眼 `~/.codex/log/` 有沒有帶到密碼。
+
 > 跟 `web/e2e/` 不一樣：那裡是 CI 跑的 Playwright 測試程式；這裡是寫給 Codex 看的**白話步驟**，
 > 對著真的測試站跑，用來取代 Roy 手動點一遍。
 

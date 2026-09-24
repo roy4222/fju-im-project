@@ -13,7 +13,10 @@ const script = path.join(repoRoot, 'ops/codex-e2e.sh')
  * 票 3b（#244）：ops/codex-e2e.sh 怎麼把帳密交給 Codex。
  *
  * 不碰真的 Doppler 與 Codex：假 `doppler` 從環境變數回假值，假 `codex` 把收到的參數記下來、
- * 記下「有沒有拿到帳密環境變數」（不記值），再照 `-o` 寫一份報告。
+ * 記下「有沒有拿到帳密環境變數」與它拿到的環境變數名稱（不記值），再照 `-o` 寫一份報告。
+ *
+ * 腳本交給 codex 的環境是白名單，所以假 `codex` 不能靠環境變數拿測試旋鈕：
+ * 記錄檔與控制檔（ctl/leak、ctl/exit）的路徑直接寫進假 codex 的內容。
  */
 
 const EMAIL = 'e2e-secret@example.test'
@@ -21,6 +24,7 @@ const PASSWORD = 'e2e-very-secret-password-123'
 
 const FAKE_DOPPLER = `#!/usr/bin/env bash
 printf 'doppler %s\\n' "$*" >> "$CALLS_LOG"
+printf 'DOPPLER_ENV version_check=%s\\n' "\${DOPPLER_ENABLE_VERSION_CHECK:-unset}" >> "$CALLS_LOG"
 [ "\${FAIL_DOPPLER:-0}" = 1 ] && { echo "Doppler Error: you must be logged in" >&2; exit 1; }
 case "$3" in
   E2E_ADMIN_EMAIL) printf '%s\\n' "$FAKE_EMAIL" ;;
@@ -29,7 +33,10 @@ case "$3" in
 esac
 `
 
-const FAKE_CODEX = `#!/usr/bin/env bash
+const fakeCodex = (dir: string) => `#!/usr/bin/env bash
+CALLS_LOG='${dir}/calls.log'
+PROMPT_LOG='${dir}/prompt.txt'
+env | cut -d= -f1 | sort > '${dir}/codex-env.txt'
 report=""
 prev=""
 for arg in "$@"; do
@@ -41,9 +48,9 @@ for arg in "$@"; do
 done
 printf 'CODEX_ENV email=%s password=%s\\n' "\${E2E_ADMIN_EMAIL:+set}" "\${E2E_ADMIN_PASSWORD:+set}" >> "$CALLS_LOG"
 body="# 驗收報告\\n\\n總結：通過 7、不通過 0\\n"
-if [ "\${LEAK:-0}" = 1 ]; then body="$body\\n密碼是 $E2E_ADMIN_PASSWORD\\n"; fi
+if [ -f '${dir}/ctl/leak' ]; then body="$body\\n密碼是 $E2E_ADMIN_PASSWORD\\n"; fi
 printf "$body" > "$report"
-exit "\${CODEX_EXIT:-0}"
+exit "$(cat '${dir}/ctl/exit' 2>/dev/null || echo 0)"
 `
 
 let dir: string
@@ -53,7 +60,8 @@ beforeEach(() => {
   const bin = path.join(dir, 'bin')
   fs.mkdirSync(bin)
   fs.writeFileSync(path.join(bin, 'doppler'), FAKE_DOPPLER, { mode: 0o755 })
-  fs.writeFileSync(path.join(bin, 'codex'), FAKE_CODEX, { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, 'codex'), fakeCodex(dir), { mode: 0o755 })
+  fs.mkdirSync(path.join(dir, 'ctl'))
   const skill = path.join(dir, 'home', '.codex', 'skills', 'playwright')
   fs.mkdirSync(skill, { recursive: true })
   fs.writeFileSync(path.join(skill, 'SKILL.md'), '# fake')
@@ -64,9 +72,17 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-async function run(env: Record<string, string> = {}, checklist = path.join(dir, 'checklist.md')) {
+type Knobs = { leak?: boolean; codexExit?: number }
+
+async function run(
+  env: Record<string, string> = {},
+  checklist = path.join(dir, 'checklist.md'),
+  knobs: Knobs = {},
+) {
   const callsLog = path.join(dir, 'calls.log')
   fs.writeFileSync(callsLog, '')
+  if (knobs.leak) fs.writeFileSync(path.join(dir, 'ctl', 'leak'), '')
+  if (knobs.codexExit !== undefined) fs.writeFileSync(path.join(dir, 'ctl', 'exit'), String(knobs.codexExit))
   let code = 0
   let stdout = ''
   let stderr = ''
@@ -97,6 +113,10 @@ async function run(env: Record<string, string> = {}, checklist = path.join(dir, 
   const calls = fs.readFileSync(callsLog, 'utf8').split('\n').filter(Boolean)
   const args = calls.filter((c) => c.startsWith('ARG ')).map((c) => c.slice(4))
   return { code, stdout, stderr, calls, args }
+}
+
+function codexEnvNames(): string[] {
+  return fs.readFileSync(path.join(dir, 'codex-env.txt'), 'utf8').split('\n').filter(Boolean)
 }
 
 function reportFiles(): string[] {
@@ -134,6 +154,37 @@ describe('ops/codex-e2e.sh', () => {
       expect(text).not.toContain(PASSWORD)
       expect(text).not.toContain(EMAIL)
     }
+  })
+
+  it('交給 codex 的環境只留白名單：Mac 上的其他秘密（例如 SOME_SECRET_TOKEN）進不去', async () => {
+    const r = await run({ SOME_SECRET_TOKEN: 'leak-me', OPENAI_API_KEY: 'sk-leak', LC_ALL: 'zh_TW.UTF-8' })
+    expect(r.code, r.stderr).toBe(0)
+    const names = codexEnvNames()
+    expect(names).not.toContain('SOME_SECRET_TOKEN')
+    expect(names).not.toContain('OPENAI_API_KEY')
+    expect(names).not.toContain('FAKE_PASSWORD')
+    expect(names).not.toContain('NODE_ENV')
+    for (const kept of ['PATH', 'HOME', 'LC_ALL', 'E2E_ADMIN_EMAIL', 'E2E_ADMIN_PASSWORD']) {
+      expect(names).toContain(kept)
+    }
+    // 名單外只允許 shell 自己補的變數（bash 會自動設 PWD、SHLVL、_ 與 OLDPWD）。
+    const allowed = /^(PATH|HOME|USER|SHELL|TMPDIR|LANG|LC_.*|CODEX_HOME|E2E_ADMIN_EMAIL|E2E_ADMIN_PASSWORD|PWD|OLDPWD|SHLVL|_)$/
+    expect(names.filter((n) => !allowed.test(n))).toEqual([])
+  })
+
+  it('codex 開的 shell 也用同一份白名單（shell_environment_policy.include_only）', async () => {
+    const r = await run()
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.args).toContain('shell_environment_policy.inherit="all"')
+    expect(r.args).toContain(
+      'shell_environment_policy.include_only=["PATH","HOME","USER","SHELL","TMPDIR","LANG","LC_*","CODEX_HOME","E2E_ADMIN_EMAIL","E2E_ADMIN_PASSWORD"]',
+    )
+  })
+
+  it('問 Doppler 時關掉版本檢查，免得更新提示混進取到的值', async () => {
+    const r = await run()
+    const checks = r.calls.filter((c) => c.startsWith('DOPPLER_ENV '))
+    expect(checks).toEqual(['DOPPLER_ENV version_check=false', 'DOPPLER_ENV version_check=false'])
   })
 
   it('提示只准打測試站、禁止正式站與印出密碼，並附上清單內容', async () => {
@@ -179,7 +230,7 @@ describe('ops/codex-e2e.sh', () => {
   })
 
   it('報告裡出現密碼：遮掉、以非 0 結束，而且錯誤訊息本身不含密碼', async () => {
-    const r = await run({ LEAK: '1' })
+    const r = await run({}, undefined, { leak: true })
     expect(r.code).not.toBe(0)
     expect(r.stderr).toContain('輸出裡出現了密碼')
     expect(r.stderr).not.toContain(PASSWORD)
@@ -190,7 +241,7 @@ describe('ops/codex-e2e.sh', () => {
   })
 
   it('codex 失敗就以非 0 結束', async () => {
-    const r = await run({ CODEX_EXIT: '3' })
+    const r = await run({}, undefined, { codexExit: 3 })
     expect(r.code).not.toBe(0)
     expect(r.stderr).toContain('codex exec 以 3 結束')
   })
