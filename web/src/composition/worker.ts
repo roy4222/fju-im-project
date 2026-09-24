@@ -171,7 +171,14 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
       storageSkipLogged = true
       return
     }
-    await measureAndRecordStorage(pool, root, log)
+    try {
+      await measureAndRecordStorage(pool, root, log)
+    } catch (error) {
+      // 目錄還沒建（例如 CI 還沒有人上傳過檔案）：不是故障，記一次就好，下個整點再量。
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (!storageSkipLogged) log('FILES_ROOT 目錄還不存在，這次不量磁碟', { root })
+      storageSkipLogged = true
+    }
   })
 
   log('背景工作已啟動（拿到單一實例鎖）', { version: options.version })

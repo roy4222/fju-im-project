@@ -125,7 +125,7 @@ if [ "$DRY_RUN" = 1 ]; then
     disk80)
       plan "docker volume create --opt type=tmpfs --opt o=size=16m,uid=1001 $DRILL_VOLUME"
       plan "$COMPOSE run --rm --no-deps -v $DRILL_VOLUME:/drill-disk worker sh -c 'dd 14 MiB 到 /drill-disk && node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill'"
-      plan "psql：最新一筆量測要是 alert_level=warn80、drill=true；通知數沒有變"
+      plan "psql：最新一筆量測要是 alert_level=warn80、drill=true；演練期間沒有任何跟磁碟有關的事件（＝不會有通知）"
       plan "docker volume rm $DRILL_VOLUME"
       ;;
     disk80-restore)
@@ -279,7 +279,9 @@ SQL
     ;;
 
   disk80)
-    notifications_before="$(printf 'select count(*) from notifications;\n' | psql_owner)"
+    # 「不推播」怎麼驗：站內通知一定是從事件投影來的，所以看演練期間有沒有跟磁碟有關的事件。
+    # 不直接數通知：前一個演練（poison）的告警可能剛好在這幾秒內投影成通知，會誤判。
+    since="$(printf 'select now();\n' | psql_owner)"
     trap 'rm -f "$HEALTH_BODY"; docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1 || true' EXIT
     docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1 || true
     # 16 MiB 的記憶體磁碟，擁有者是容器裡的 nextjs（1001）；演練完就刪，真的硬碟一個位元組都不寫。
@@ -291,13 +293,13 @@ SQL
     printf '%s\n' "$out" | grep STORAGE_MEASURED || true
     latest="$(printf "select payload->>'used_percent', payload->>'alert_level', payload->>'drill' from audit_events where action = 'storage.measured' order by real_at desc, id desc limit 1;\n" | psql_owner)"
     IFS='|' read -r used level drill <<< "$latest"
-    notifications_after="$(printf 'select count(*) from notifications;\n' | psql_owner)"
+    storage_events="$(printf "select count(*) from domain_events where occurred_real_at >= '%s' and (type ilike '%%storage%%' or type ilike '%%disk%%' or source_type = 'storage' or payload::text ilike '%%storage%%');\n" "$since" | psql_owner)"
     [ "$level" = warn80 ] || [ "$level" = critical ] || fail "最新量測是 ${used}%／${level}，不是警戒"
     [ "$drill" = true ] || fail "最新量測不是演練寫的那一筆（${latest}）"
-    [ "$notifications_before" = "$notifications_after" ] || fail "量到 ${used}% 時多了通知（${notifications_before} → ${notifications_after}），違反「不推播」"
+    [ "$storage_events" = 0 ] || fail "量到 ${used}% 時發了 ${storage_events} 個跟磁碟有關的事件（會變成通知），違反「不推播」"
     say "現在打開 https://$SITE_HOST/dashboard/admin ：「儲存與備份」磚應該是 ${used}%、說明第一段「警戒（≥80%）」、最後標「（故障演練）」。"
     say "看完跑：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/fault-drill.sh --site test disk80-restore --execute（不跑的話下一個整點也會自己蓋過去）"
-    pass "量到 ${used}%，記成 ${level}（演練），通知數沒變（${notifications_after}）"
+    pass "量到 ${used}%，記成 ${level}（演練），沒有發任何跟磁碟有關的事件／通知"
     ;;
 
   disk80-restore)

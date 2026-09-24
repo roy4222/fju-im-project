@@ -430,7 +430,7 @@ sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80 --execute     
 | `restart` 服務重啟 | `docker compose restart app worker` | 2 分鐘內完整六項再次通過，`commit` 與 `worker.version` 還是原本那一版 |
 | `worker-stall` 背景工作停擺 | 停掉 worker，每 10 秒看一次 `/api/health`；最多等 330 秒後再啟動 | 停掉約 5 分鐘後 `/api/health` 回 **503**、`ok:false`；重新啟動後完整六項恢復 |
 | `poison` 毒事件 | 用 psql 插兩件 `test_noop` 到期工作：一件對象種類是 `fault_drill_poison`（處理器一定失敗），一件正常 | 正常那件幾十秒內 `done`；毒工作退避 2／4／8／16 秒後第 5 次標 `failed`，管理員收到 1 則「到期工作失敗 5 次」告警 |
-| `disk80` 磁碟 80% | 開一顆 16 MiB 的**記憶體磁碟**塞 14 MiB（~88%），在上面量一次（**不碰真的硬碟**，演練完就刪） | 最新量測是「警戒」、標著演練；通知數沒變。打開 https://test.fju.roy422.dev/dashboard/admin ，「儲存與備份」磚顯示 ~88%、第一段「警戒（≥80%）」、結尾「（故障演練）」 |
+| `disk80` 磁碟 80% | 開一顆 16 MiB 的**記憶體磁碟**塞 14 MiB（~88%），在上面量一次（**不碰真的硬碟**，演練完就刪） | 最新量測是「警戒」、標著演練；沒有發任何跟磁碟有關的事件（＝不推播）。打開 https://test.fju.roy422.dev/dashboard/admin ，「儲存與備份」磚顯示 ~88%、第一段「警戒（≥80%）」、結尾「（故障演練）」 |
 
 `disk80` 看完磚之後把數字換回真的：
 
