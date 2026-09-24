@@ -178,15 +178,20 @@ jobs:
         run: psql "$DATABASE_URL_OWNER" -c "ALTER ROLE fju_app PASSWORD 'fju_ci_app'"
       - run: pnpm -C web build
       - run: pnpm -C web exec playwright install --with-deps chromium
-      - name: 起 app 並等 health 綠
+      - name: 起 app 與背景工作，並等 health 綠
         run: |
           pnpm -C web start &
+          # 背景工作（票 12）：通知匣的 e2e 要靠它把事件投影成通知。`pnpm -C web build` 已經打包好。
+          pnpm -C web worker > /tmp/fju-worker.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf "$BASE_URL/api/health" > /dev/null; then echo "app ready"; exit 0; fi
             sleep 2
           done
           echo "app 在 120 秒內沒有起來"; exit 1
       - run: pnpm -C web test:e2e
+      - name: 背景工作的 log（失敗時看）
+        if: failure()
+        run: cat /tmp/fju-worker.log || true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

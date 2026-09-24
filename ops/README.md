@@ -299,6 +299,21 @@ sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml logs --tai
 
 `site.sh` 會擋掉 `docker compose config`、`env` 這類會把秘密印出來的指令。
 
+### 背景工作（票 12）上線時要做的一次同步
+
+票 12 起 `worker` 容器是真的背景工作（通知投影、到期工作、停用／恢復核對），`/api/health` 的 `worker` 欄會回報版本與心跳。
+**合併票 12 之後、下一次測試站自動部署之前**，照下一節「repo 的 ops／compose 檔改了之後」同步一次，原因有兩個：
+
+1. `docker-compose.yml` 裡 worker 的啟動指令在 VM 那份檔案上；不同步的話，VM 會繼續跑舊的「空進程」，健康檢查看不到心跳。
+2. 舊版 `ops/check-health.mjs` 在沒帶 `--expect-worker` 時要求 worker 欄必須是 null；新映像會回報心跳，舊腳本會判失敗並自動回滾。
+   新版改成「worker 有回報就一起比對版本與心跳（有心跳即健康），兩欄都是 null（還沒有 worker 的舊映像）才略過」。
+
+來不及同步時的暫時做法：在 fju-auto-deploy 的 timer 環境加 `AUTO_DEPLOY_EXPECT_WORKER=1`（舊腳本帶 `--expect-worker` 也能判過新映像）。
+同步完、第一次部署綠了之後，建議保留 `AUTO_DEPLOY_EXPECT_WORKER=1`，讓「worker 沒起來」一定判失敗。
+
+看 worker 有沒有在跑：`curl -s https://test.fju.roy422.dev/api/health` 的 `worker.lastTickAt` 應該是幾秒內的時間；
+把 worker 停掉超過 5 分鐘，`ok` 會變 `false`（回 503）。
+
 ### repo 的 ops／compose 檔改了之後
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：

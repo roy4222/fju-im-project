@@ -2,7 +2,7 @@
 #
 # app、worker、migrate 共用這一個映像（契約 05 §1：ghcr.io/<owner>/fju-web:<sha>）。
 #   app     → node web/server.js（Next standalone）
-#   worker  → S02-06 換上真的到期工作迴圈
+#   worker  → node migrate/web/dist/worker.mjs（票 12：投影、到期工作、撤 session 收斂）
 #   migrate → node web/scripts/migrate.mjs（需要 pg 與 drizzle-orm，所以另外裝 production 依賴）
 #   seed:a1 → node migrate/web/scripts/seed-a1.mjs（ops/seed-admin.sh，一次性）
 #   seed:e2e → node migrate/web/scripts/seed-e2e.mjs（ops/deploy.sh，只在測試站）
@@ -53,6 +53,9 @@ COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/migrate.mjs ./migrate/
 COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-a1.mjs ./migrate/web/scripts/seed-a1.mjs
 # 測試站的 E2E 測試管理員（ops/deploy.sh --site test 在 migration 後跑；腳本自己拒絕 test 以外的站）。
 COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-e2e.mjs ./migrate/web/scripts/seed-e2e.mjs
+# 背景工作進程（票 12）：`pnpm -C web build` 打包出的單一檔案。第三方套件沒打包進去，
+# 跟 migrate 腳本一樣從下面的 production node_modules 解析，所以放在 migrate/web/ 底下。
+COPY --from=build --chown=nextjs:nodejs /repo/web/dist/worker.mjs ./migrate/web/dist/worker.mjs
 COPY --from=proddeps --chown=nextjs:nodejs /repo/node_modules ./migrate/node_modules
 COPY --from=proddeps --chown=nextjs:nodejs /repo/web/node_modules ./migrate/web/node_modules
 

@@ -69,6 +69,36 @@ describe('資料庫正常時', () => {
   })
 })
 
+describe('背景工作的心跳（票 12）', () => {
+  it('還沒有心跳：worker 兩欄 null、ok 仍是 true（還沒部署 worker 的環境）', async () => {
+    await db.sql('delete from worker_heartbeat')
+    const snapshot = await snapshotWith(migratedUrl)
+    expect(snapshot.worker).toEqual({ version: null, lastTickAt: null })
+    expect(snapshot.ok).toBe(true)
+  })
+
+  it('worker 在跑：回報版本與最後一次心跳', async () => {
+    const tick = new Date(Date.now() - 3_000)
+    await db.sql(
+      `insert into worker_heartbeat (id, version, last_tick_real_at, updated_at) values (1, 'abc123', $1, $1)
+       on conflict (id) do update set version = excluded.version, last_tick_real_at = excluded.last_tick_real_at`,
+      [tick],
+    )
+    const snapshot = await snapshotWith(migratedUrl)
+    expect(snapshot.worker).toEqual({ version: 'abc123', lastTickAt: tick.toISOString() })
+    expect(snapshot.ok).toBe(true)
+  })
+
+  it('worker 停掉超過 5 分鐘：ok 變 false（Route Handler 回 503），lastTickAt 停在停機前', async () => {
+    const tick = new Date(Date.now() - 6 * 60_000)
+    await db.sql(`update worker_heartbeat set last_tick_real_at = $1 where id = 1`, [tick])
+    const snapshot = await snapshotWith(migratedUrl)
+    expect(snapshot.ok).toBe(false)
+    expect(snapshot.worker.lastTickAt).toBe(tick.toISOString())
+    await db.sql('delete from worker_heartbeat')
+  })
+})
+
 describe('資料庫不可用時', () => {
   // 連到一個沒有人在聽的埠，模擬 DB 掛掉。
   const deadUrl = 'postgres://fju_app:whatever@127.0.0.1:1/fju'

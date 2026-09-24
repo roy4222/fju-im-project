@@ -7,7 +7,8 @@
  *   EXPECT_TAG     這次部署的 tag（commit）
  *   EXPECT_DIGEST  這次部署的映像 digest（有給才比對）
  *   EXPECT_SCHEMA  migrate 輸出的最後一支 migration 名稱（有給才比對）
- *   EXPECT_WORKER  '1' 表示 E02 出場後，要連 worker 兩欄一起判
+ *   EXPECT_WORKER  '1'＝一定要有 worker 心跳（完整六項）；其他值＝worker 有回報就一起判、
+ *                  兩欄都是 null（還沒有 worker 的舊映像）才只判前四項
  *
  * 全部符合回 0，否則印出不符的項目並回 1。
  */
@@ -38,8 +39,9 @@ if (expectSchema && health.schemaVersion !== expectSchema) {
 }
 
 const worker = health.worker ?? {}
-if (expectWorker) {
-  // E02 出場後：worker 必須是這次的版本，而且最近 60 秒有心跳。
+
+/** worker 有心跳時要符合的兩項：版本＝這次部署、最近 60 秒內有心跳。 */
+function checkWorkerBeat() {
   if (expectTag && worker.version !== expectTag) {
     problems.push(`worker.version 是 ${worker.version}，不是這次部署的 ${expectTag}`)
   }
@@ -51,14 +53,15 @@ if (expectWorker) {
       problems.push(`worker.lastTickAt (${worker.lastTickAt}) 不在 60 秒內`)
     }
   }
-} else {
-  // E02 出場前：worker 還沒交付，兩欄必須是 null。旗標與階段不符就是失敗。
-  if (worker.version !== null || worker.lastTickAt !== null) {
-    problems.push(
-      `沒有帶 --expect-worker，但 worker 欄不是 null（${JSON.stringify(worker)}）——` +
-        'worker 已經交付的話請加上旗標',
-    )
-  }
+}
+
+if (expectWorker) {
+  // 完整六項（--expect-worker）：worker 必須是這次的版本，而且最近 60 秒有心跳。
+  checkWorkerBeat()
+} else if (worker.version !== null || worker.lastTickAt !== null) {
+  // 沒帶旗標（票 12 起的預設相容模式）：worker 已經回報心跳，就跟完整模式一樣要求「有心跳即健康」；
+  // 兩欄都是 null 只會出現在還沒有 worker 的舊映像（例如回滾到票 12 之前的版本），那時照舊只判前四項。
+  checkWorkerBeat()
 }
 
 if (problems.length > 0) {

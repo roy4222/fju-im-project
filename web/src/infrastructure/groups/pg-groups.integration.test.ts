@@ -14,6 +14,8 @@ import type { ResolvedActor } from '@/application/accounts'
 import type { GroupType } from '@/application/groups'
 import { PgCohortCommand, PgCohortStatusQuery } from '@/infrastructure/cohorts/pg-cohorts'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
+import { proposalExpiryDueWorkHandler } from '@/infrastructure/notifications/due-work-handlers'
+import { PgDueWorkRunner } from '@/infrastructure/notifications/pg-due-work-runner'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
@@ -542,6 +544,42 @@ describe('終止與釋放', () => {
     businessNow = new Date(businessNow.getTime() + 8 * DAY)
     expect(await groups.expire(established, 1)).toBe('not_open')
     expect(await groups.expire(randomUUID(), 1)).toBe('not_found')
+  })
+
+  it('背景工作的到期迴圈（票 12）：業務鐘推過到期時間，下一輪恰好終止一次；工作維持 cancelled；還沒到期的留著重試', async () => {
+    const runner = new PgDueWorkRunner({
+      pool: () => app,
+      handlers: { proposal_expiry: proposalExpiryDueWorkHandler(groups) },
+      events: new PgEventPublisher(),
+      businessClock,
+      log: () => undefined,
+    })
+    const cohortId = await newCohort()
+    const members = await students(cohortId, 5)
+    const proposalId = await mustPropose(members[0]!, members.slice(1))
+
+    await runner.runOnce() // 還沒到期：迴圈不會撿
+    expect(await proposalRow(proposalId)).toMatchObject({ state: 'open' })
+    expect(await dueWorkState(proposalId)).toBe('pending')
+
+    businessNow = new Date(businessNow.getTime() + 8 * DAY)
+    await runner.runOnce()
+    await runner.runOnce()
+    expect(await proposalRow(proposalId)).toMatchObject({ state: 'terminated', termination_kind: 'expired', closed_by_kind: 'worker' })
+    expect(await dueWorkState(proposalId)).toBe('cancelled') // 處理器自己收尾，迴圈不蓋成 done
+    expect(
+      await count(`select count(*) as n from domain_events where type = 'proposal.terminated' and source_id = $1`, [proposalId]),
+    ).toBe(1)
+
+    // 模擬鐘被往回撥的情況：工作的到期時間已過，但提案本身還沒到期 → not_due → 保持 pending、次數不累計。
+    businessNow = new Date('2026-09-20T02:00:00Z')
+    const early = await mustPropose(members[0]!, members.slice(1))
+    await owner.sql(`update due_work set due_business_at = $2 where subject_id = $1`, [early, new Date(businessNow.getTime() - DAY)])
+    await runner.runOnce()
+    expect(await proposalRow(early)).toMatchObject({ state: 'open' })
+    const row = await owner.sql('select state, attempts, next_attempt_at from due_work where subject_id = $1', [early])
+    expect(row.rows[0]).toMatchObject({ state: 'pending', attempts: 0 })
+    expect(row.rows[0]!.next_attempt_at).not.toBeNull()
   })
 
   it('過期但背景工作還沒收的提案不會卡住人：發起新提案時先把它以逾期終止', async () => {

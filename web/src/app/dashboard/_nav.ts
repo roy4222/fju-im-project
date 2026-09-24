@@ -39,4 +39,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/teacher', role: 'teacher' },
   { path: '/dashboard/student', role: 'student' },
   { path: '/dashboard/student/groups', role: 'student' },
+  // 通知匣（票 12）：入口是頂列的鈴鐺，不放側欄。
+  { path: '/dashboard/admin/inbox', role: 'admin' },
+  { path: '/dashboard/teacher/inbox', role: 'teacher' },
+  { path: '/dashboard/student/inbox', role: 'student' },
 ]

@@ -9,11 +9,12 @@ import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publis
  *
  * 後面每一張會發通知或排截止的票（13 提案、15 發布、17 送出…）都從這裡拿，
  * 在自己用例的交易裡呼叫，不要自己寫 `domain_events`／`due_work`。
+ * 通知匣與測試通知在 `composition/inbox.ts`，背景工作進程在 `composition/worker.ts`（票 12）。
  */
 let eventPublisher: EventPublisher<PoolClient> | undefined
 let dueWorkScheduler: DueWorkScheduler<PoolClient> | undefined
 
-/** 測試站才有的東西（模擬業務鐘、`test_noop`）都看這一個開關（契約 05 §1）。 */
+/** 測試站才有的東西（模擬業務鐘、`test_noop`、測試通知）都看這一個開關（契約 05 §1）。 */
 export function businessClockOverrideEnabled(): boolean {
   return process.env.BUSINESS_CLOCK_OVERRIDE_ENABLED === 'true'
 }
