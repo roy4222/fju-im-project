@@ -124,7 +124,7 @@ else
     fi
     if ! gpg --batch --show-keys --with-colons "$DOPPLER_KEYRING" 2>/dev/null \
         | awk -F: '$1=="fpr"{print $10}' | grep -q "${DOPPLER_KEY_ID}\$"; then
-      bad "Doppler 金鑰指紋對不上 $DOPPLER_KEY_ID，停止（不安裝來路不明的套件）。"
+      bad "Doppler 金鑰指紋對不上 ${DOPPLER_KEY_ID}，停止（不安裝來路不明的套件）。"
       rm -f "$DOPPLER_KEYRING"
       exit 3
     fi
@@ -186,10 +186,10 @@ for spec in "${DIR_SPECS[@]}"; do
     want_gid=$(getent group "${owner##*:}" | cut -d: -f3 || true)
     [ -n "$want_gid" ] || want_gid="${owner##*:}"
     if [ "$now" = "$want_uid:$want_gid $mode" ]; then
-      ok "$dir（$owner $mode）"
+      ok "${dir}（$owner ${mode}）"
       continue
     fi
-    todo "$dir 目前是 $now，要改成 $owner $mode"
+    todo "$dir 目前是 ${now}，要改成 $owner $mode"
   else
     todo "$dir 不存在"
   fi
@@ -234,9 +234,9 @@ for site in "${SITES[@]}"; do
     meta=$(stat -c '%a %U:%G %s' "$f")
     read -r fmode fowner fsize <<<"$meta"
     if [ "$fmode" = 600 ] && [ "$fowner" = "$DEPLOY_USER:$DEPLOY_USER" ] && [ "$fsize" -gt 0 ]; then
-      ok "$f（600 $fowner）"
+      ok "${f}（600 ${fowner}）"
     else
-      bad "$f 是 $fmode $fowner、$fsize bytes；要 600、$DEPLOY_USER:$DEPLOY_USER、非空"
+      bad "$f 是 $fmode ${fowner}、$fsize bytes；要 600、$DEPLOY_USER:${DEPLOY_USER}、非空"
     fi
   else
     todo "$f 還沒貼 → ops/README.md 第 5 步（Doppler $config 的唯讀 service token）"
@@ -288,19 +288,19 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
       COMPOSE_FILE="$APP_DIR/docker-compose.yml:$APP_DIR/docker-compose.vm.yml" \
       docker compose config --format json 2>&1) || rc=$?
     if [ "$rc" -ne 0 ]; then
-      bad "fju-$site 的 compose 設定解析失敗（exit $rc）："
+      bad "fju-$site 的 compose 設定解析失敗（exit ${rc}）："
       printf '%s\n' "$resolved" | sed 's/^/      /' | head -20
       continue
     fi
     if printf '%s' "$resolved" | grep -q '"published"'; then
       bad "fju-$site 有服務對宿主機發布 port——站台 project 不該有，對外只能經過 fju-edge 的 Caddy"
     else
-      ok "fju-$site：沒有發布任何 port"
+      ok "fju-${site}：沒有發布任何 port"
     fi
     if printf '%s' "$resolved" | grep -q "\"name\": \"fju-$site-pgdata\""; then
-      ok "fju-$site：資料庫 volume 是 fju-$site-pgdata"
+      ok "fju-${site}：資料庫 volume 是 fju-$site-pgdata"
     else
-      bad "fju-$site：資料庫 volume 名稱不是 fju-$site-pgdata——兩站可能共用資料庫，停下來檢查"
+      bad "fju-${site}：資料庫 volume 名稱不是 fju-$site-pgdata——兩站可能共用資料庫，停下來檢查"
     fi
   done
   edge=""
@@ -329,11 +329,11 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
   elif printf '%s' "$drill" | grep -q '"published"'; then
     bad "fju-drill 有發布 port——演練副本不能對外"
   elif printf '%s' "$drill" | grep -q "\"$EDGE_NETWORK\""; then
-    bad "fju-drill 接到了 $EDGE_NETWORK——演練副本不能被 Caddy 找到"
+    bad "fju-drill 接到了 ${EDGE_NETWORK}——演練副本不能被 Caddy 找到"
   elif ! printf '%s' "$drill" | grep -q '"name": "fju-drill-pgdata"'; then
     bad "fju-drill 的資料庫 volume 不是 fju-drill-pgdata"
   else
-    ok "fju-drill：不發布 port、不接 $EDGE_NETWORK、volume 是 fju-drill-pgdata"
+    ok "fju-drill：不發布 port、不接 ${EDGE_NETWORK}、volume 是 fju-drill-pgdata"
   fi
 fi
 
@@ -405,9 +405,9 @@ for d in "${DOMAINS[@]}"; do
   if [ "$got" = "$VM_IP" ]; then
     ok "$d → $got"
   elif [ -n "$got" ]; then
-    bad "$d → $got（預期 $VM_IP）"
+    bad "$d → ${got}（預期 ${VM_IP}）"
   else
-    todo "$d 還沒有 A 記錄（Cloudflare：type A、僅 DNS、content $VM_IP）"
+    todo "$d 還沒有 A 記錄（Cloudflare：type A、僅 DNS、content ${VM_IP}）"
   fi
 done
 

@@ -81,6 +81,8 @@ async function runSeed(args: string[], env: Record<string, string | undefined>) 
         PATH: `${path.join(dir, 'bin')}:${process.env.PATH ?? ''}`,
         DEPLOY_DIR: path.join(dir, 'deploy'),
         CALLS_LOG: callsLog,
+        // 腳本會擋掉非 deploy 身分（ops/lib/site.sh 的 require_deploy_user）；測試用目前的帳號當 deploy。
+        FJU_DEPLOY_USER: os.userInfo().username,
         ...env,
       },
     })
