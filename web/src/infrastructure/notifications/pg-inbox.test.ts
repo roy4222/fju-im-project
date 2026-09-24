@@ -15,10 +15,13 @@ const row = (patch: Record<string, unknown>) => ({
 })
 
 describe('專題事務通知的連結', () => {
-  it('個人收件：本人還在名單上 → 作業區那一份；被移出或組別收件 → 不給連結', () => {
+  it('收件：本人（整組一份：本人此刻的組）還在名單上 → 作業區那一份；被移出 → 不給連結', () => {
     expect(resolveSource(row({}))).toEqual({ state: 'ok', href: `/dashboard/student/affairs/${ID}` })
     expect(resolveSource(row({ item_on_roster: false }))).toEqual({ state: 'ok', href: null })
-    expect(resolveSource(row({ item_receiver_unit: 'group' }))).toEqual({ state: 'ok', href: null })
+    // 票 21：組別收件（例如「組員已正式送出」的通知）連到作業區那一份。
+    expect(resolveSource(row({ item_receiver_unit: 'group' }))).toEqual({ state: 'ok', href: `/dashboard/student/affairs/${ID}` })
+    expect(resolveSource(row({ item_receiver_unit: 'group', item_on_roster: false }))).toEqual({ state: 'ok', href: null })
+    expect(resolveSource(row({ item_receiver_unit: 'none' }))).toEqual({ state: 'ok', href: null })
   })
 
   it('公告 → 前台內容頁（下架、撤回也連，由那一頁告知下一步）；資源、規則 → 前台清單頁；其他種類不給', () => {

@@ -195,6 +195,8 @@ beforeAll(async () => {
     audit: new PgAuditWriter(),
     ledger: new PgOperationLedger(() => app),
     businessClock,
+    files: storage,
+    events: new PgEventPublisher(),
     pool: () => app,
   })
   query = new PgSubmissionQuery(() => app)
@@ -509,7 +511,9 @@ describe('有人作答後，票 15 的收件單位鎖定真的生效', () => {
     ])
     expect(saved.ok && switched.ok).toBe(false)
     if (saved.ok) expect(switched).toMatchObject({ code: 'ITEM_HAS_RESPONSES' })
-    else expect(saved).toMatchObject({ code: 'NOT_IN_ROSTER' })
+    // 管理員先切成整組一份：這位學生沒有組別 → NOT_MEMBER（票 21 起組別收件先看組員身分）；
+    // 切換還沒看到就讀到舊名單列的情形 → NOT_IN_ROSTER。兩種都是「沒存進去」。
+    else expect(['NOT_MEMBER', 'NOT_IN_ROSTER']).toContain(saved.code)
   })
 })
 

@@ -1,7 +1,8 @@
 import 'server-only'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { users } from '@/infrastructure/db/schema/auth'
+import { storedFiles } from '@/infrastructure/db/schema/files'
 import { formSchemaVersions, managedItems } from '@/infrastructure/db/schema/items'
 
 /**
@@ -100,5 +101,61 @@ export const submissionVersions = pgTable(
     ),
     check('submission_versions_deadline_version_check', sql`${t.deadlineVersionAtSubmit} >= 1`),
     index('submission_versions_item_idx').on(t.itemId),
+  ],
+)
+
+/**
+ * 每一次正式送出帶了哪些檔案（附錄 A `submission_files`，不可變；第九支 migration，票 21）。
+ *
+ * 一個檔案欄位一個檔（`answers[field_key]` 就是檔案 ID），所以 `(submission_version_id, field_key)` 也唯一。
+ * `checksum` 抄送出當下 `stored_files.checksum`：之後就算檔案列被動過，也對得出那一版交的是哪一份位元組
+ * （產品模組 05 SUB-09「第 1 次內容與 hash 不變」）。檔案本身另由 `file_references`（`submission_version`）保護不被回收。
+ */
+export const submissionFiles = pgTable(
+  'submission_files',
+  {
+    submissionVersionId: uuid('submission_version_id')
+      .notNull()
+      .references(() => submissionVersions.id, restrict),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => storedFiles.id, restrict),
+    fieldKey: text('field_key').notNull(),
+    checksum: text('checksum').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'submission_files_pk', columns: [t.submissionVersionId, t.fileId] }),
+    unique('submission_files_field_unique').on(t.submissionVersionId, t.fieldKey),
+    check('submission_files_checksum_check', sql`${t.checksum} ~ '^[0-9a-f]{64}$'`),
+    index('submission_files_file_idx').on(t.fileId),
+  ],
+)
+
+/**
+ * 主指導閱覽設定（附錄 A `advisor_visibility_settings`，不可變；票 21 建表）。
+ *
+ * 只插不改：每改一次設定插一列，「目前的設定」＝這個項目 `set_at` 最新的那一列；沒有任何一列＝沒開放。
+ * `effective_from_version_no` 對的是**欄位版本**（`form_schema_versions.version_no`）：主指導只看得到
+ * 用這個欄位版本以後送出的正式版本——學生填寫前看到「主指導可查看」的告知是跟著欄位版本走的，
+ * 已經收到的舊回答不因為後來改設定而擴大給老師看（產品模組 05 §4「誰看得到個人回答」、SUB-24）。
+ * 只管**個人回答**；組別正式版本的主指導閱覽看目前有效的指導關係（契約 03 §1）。
+ */
+export const advisorVisibilitySettings = pgTable(
+  'advisor_visibility_settings',
+  {
+    id: uuid('id').primaryKey(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => managedItems.id, restrict),
+    enabled: boolean('enabled').notNull(),
+    effectiveFromVersionNo: integer('effective_from_version_no').notNull(),
+    setByUserId: uuid('set_by_user_id')
+      .notNull()
+      .references(() => users.id, restrict),
+    setAt: timestamp('set_at', tz).notNull(),
+  },
+  (t) => [
+    check('advisor_visibility_settings_effective_check', sql`${t.effectiveFromVersionNo} >= 1`),
+    index('advisor_visibility_settings_item_idx').on(t.itemId, t.setAt),
   ],
 )

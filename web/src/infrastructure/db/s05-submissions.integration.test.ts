@@ -264,7 +264,9 @@ describe('約束反例', () => {
           /不可變表/,
         )
         await expect(db.sql('delete from submission_versions where id = $1', [id])).rejects.toThrow(/不可變表/)
-        await expect(db.sql('truncate submission_versions')).rejects.toThrow(/不可變表/)
+        // 0008（票 21）起 `submission_files` 指向這張表：一般 TRUNCATE 先被外鍵擋；帶 CASCADE 繞過外鍵，照樣撞到 trigger。
+        await expect(db.sql('truncate submission_versions')).rejects.toThrow()
+        await expect(db.sql('truncate submission_versions cascade')).rejects.toThrow(/不可變表/)
       } finally {
         await app.end()
       }

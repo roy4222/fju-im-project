@@ -1,7 +1,7 @@
 import { requireRole } from '@/app/_ui/guard'
 import { StageBanner } from '@/app/dashboard/_stage'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { EmptyState, PageHeader, Tile } from '@/app/_ui/primitives'
+import { PageHeader, Tile } from '@/app/_ui/primitives'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { StudentCalendar } from '@/app/dashboard/student/_calendar'
 import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
@@ -47,14 +47,6 @@ export default async function StudentHomePage() {
           value={<span data-testid="home-pending">{pending} 件</span>}
           hint="還在開放、還沒正式送出的收件；點進作業區看每一份"
           href="/dashboard/student/affairs?tab=open"
-        />
-      </div>
-      <div className="mt-6">
-        <EmptyState
-          pending
-          title="組別繳交還沒做"
-          description="個人收件已經可以在「作業區」填寫與正式送出；整組一份的繳交會陸續開放。"
-          action={{ href: '/dashboard/student/affairs', label: '去作業區' }}
         />
       </div>
 

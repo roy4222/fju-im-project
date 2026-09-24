@@ -8,7 +8,7 @@ import { cohorts } from '@/infrastructure/db/schema/base'
  * 模組 10 的最小檔案能力（附錄 A `stored_files`、`file_references`）。
  *
  * 契約 01 §12 要求 S01 這支 migration 先建這兩張表、再建 `roster_versions`，
- * 因為名單原檔的 FK 指過來。S07 之後只會再加 GC 相關索引，不動欄位。
+ * 因為名單原檔的 FK 指過來。S07（票 21，0008）只加 GC 相關索引，不動欄位。
  */
 
 const tz = { withTimezone: true } as const
@@ -66,6 +66,14 @@ export const storedFiles = pgTable(
     ),
     index('stored_files_status_finalized_idx').on(t.status, t.finalizedAt),
     index('stored_files_owner_idx').on(t.ownerUserId),
+    // 回收索引（票 21，S07；模組 10 §2：GC 只碰超過 24 小時的 uploading 殘留、7 天後永久刪除軟刪除檔）。
+    // 上傳中斷、類型不符、太大時暫存檔當場刪，`uploading` 列留給回收，靠這兩條找得到，不用掃整張表。
+    index('stored_files_uploading_gc_idx')
+      .on(t.uploadedRealAt)
+      .where(sql`${t.status} = 'uploading'`),
+    index('stored_files_soft_deleted_gc_idx')
+      .on(t.softDeletedAt)
+      .where(sql`${t.status} = 'soft_deleted'`),
   ],
 )
 

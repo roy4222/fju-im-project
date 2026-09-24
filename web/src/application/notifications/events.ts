@@ -148,6 +148,15 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'system', defaultTitle: '有新的專題事務公告' },
   },
+  /**
+   * 組別正式送出（票 21；產品模組 05 §4.6「每次正式送出版本通知其他有效組員；暫存不通知；老師不收」）。
+   * 收件人＝送出當下的有效組員扣掉送出者本人（送出者拿的是收件章回執）。個人收件不發（本人就是送出者）。
+   * payload 帶項目 id、標題、第幾次、送出者名字與組別代號，**不帶回答內容與檔名**。
+   */
+  'submission.submitted': {
+    consumers: ['notifications'],
+    notification: { kind: 'submission', defaultTitle: '你的組別已正式送出一份繳交' },
+  },
   /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
   'item.updated': {
     consumers: ['notifications'],
