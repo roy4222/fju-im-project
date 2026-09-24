@@ -22,7 +22,8 @@ import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, 
  * 票 19：管理員指派、重派、解除指導老師（原型 `AssignDialog`），以及批次指派 CSV（原型沒有，模組實作設計 03 §7.2 缺口）。
  *
  * 規則都在用例裡判；這裡只顯示伺服器回來的預覽與回饋。重派對話框先列原老師在本組的評分指派
- * （評分還沒做，清單是空的），預設都不勾——原型寫的「評分與簽核指派會一併移轉」是舊文案，正式版不移轉。
+ * （票 23 接上真的查詢：階段與未填／暫存／已正式送出）——只列、不移轉：原型寫的「評分與簽核指派會一併移轉」
+ * 是舊文案，正式版新主指導不自動取得評分權限；要移除或改派評分老師（保留／替換／新增三選一）在票 24。
  */
 
 /** 批次指派 Server Action 的回傳（型別放這裡：`actions.ts` 只能匯出 async 函式）。 */
@@ -165,22 +166,22 @@ export function AdvisorCell({
             <section aria-label="原老師在本組的評分指派" className="space-y-1 rounded-md border border-border px-3 py-2">
               <h3 className="text-sm font-semibold text-ink">{current.name} 在本組的評分指派</h3>
               {grading.length > 0 ? (
-                <ul className="space-y-1 text-sm">
+                <ul data-testid="grading-assignments" className="space-y-1 text-sm">
                   {grading.map((g) => (
-                    <li key={g.id}>
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" name="gradingSelections" value={g.id} />
-                        {g.stageName}・{GRADING_STATE_LABEL[g.state]}
-                      </label>
+                    <li key={g.id} className="flex items-center justify-between gap-2">
+                      <span className="text-ink">{g.stageName}</span>
+                      <span className="text-muted-foreground">{GRADING_STATE_LABEL[g.state]}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p data-testid="grading-assignments-empty" className="text-sm text-muted-foreground">
-                  目前沒有評分指派（評分功能開放後會列在這裡，預設都不勾）。
+                  目前沒有評分指派。
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">沒勾的評分指派維持原老師；新老師不會自動取得評分權限。</p>
+              <p className="text-xs text-muted-foreground">
+                重派只換指導老師：評分指派維持原老師，新老師不會自動取得評分權限。要調整評分老師請到「評分」頁。
+              </p>
             </section>
           ) : null}
           <TeacherSelect id={`advisor-teacher-${group.id}`} teachers={teachers} exclude={current?.userId ?? null} />

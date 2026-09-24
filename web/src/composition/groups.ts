@@ -9,6 +9,7 @@ import type {
   ProposalExpiryHandler,
 } from '@/application/groups'
 import { getBusinessClock } from '@/composition/cohorts'
+import { getAssignmentsForTeacherQuery } from '@/composition/grading'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { PgAdvisorCommand } from '@/infrastructure/groups/pg-advisors'
@@ -55,13 +56,12 @@ export function getAdvisorCommand(): AdvisorCommand {
 }
 
 /**
- * 重派對話框要列的「原老師在本組的評分指派」（模組 06 `listAssignmentsForTeacher`）。
- * 評分模組還沒做：現在一律空清單。評分的票接上時，在這裡換成真的查詢。
+ * 重派對話框要列的「原老師在本組的評分指派」（模組 06 `AssignmentsForTeacherQuery.listForGroup`；票 23 接上）。
+ * 只列、不移轉：新主指導不會自動取得評分權限，勾選處理評分指派（保留／替換／新增）在票 24。
  */
-const NO_GRADING_YET: AdvisorGradingLookup = { assignmentsFor: async () => [] }
-
 export function getAdvisorGradingLookup(): AdvisorGradingLookup {
-  return NO_GRADING_YET
+  const assignments = getAssignmentsForTeacherQuery()
+  return { assignmentsFor: (groupId, teacherUserId) => assignments.listForGroup(groupId, teacherUserId) }
 }
 
 // ── 產學合作案、組別連結、改類型、組別名單匯出（票 20） ──

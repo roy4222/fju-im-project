@@ -54,7 +54,16 @@
     { "slice": "S06", "table": "industry_opportunities", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "合作案頭列（票 20 才寫）；下架只改狀態，不刪列" },
     { "slice": "S06", "table": "opportunity_links", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "連結有效區間列：只更新結束欄（解除、換案）" },
     { "slice": "S07", "table": "submission_files", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：每次正式送出帶的檔案與當時 checksum" },
-    { "slice": "S07", "table": "advisor_visibility_settings", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：主指導閱覽設定只插不改，最新一列是目前的設定" }
+    { "slice": "S07", "table": "advisor_visibility_settings", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：主指導閱覽設定只插不改，最新一列是目前的設定" },
+    { "slice": "S10", "table": "grading_schemes", "select": true, "insert": true, "update": ["name", "current_version_id", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": false, "note": "評分方案頭列（一屆一個）：只改名稱、目前版本與通用欄；屆別寫了就不動，不刪列" },
+    { "slice": "S10", "table": "grading_scheme_versions", "select": true, "insert": true, "update": ["status", "locked_at"], "delete": false, "immutable": false, "worker": false, "note": "方案版本：內容不可變，只改狀態與鎖定時間（trigger 另擋內容變更與狀態倒退）" },
+    { "slice": "S10", "table": "stage_requirements", "select": true, "insert": true, "update": ["required_count", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": false, "note": "每組每階段要求份數：只改份數與通用欄；組別與階段寫了就不動，不刪列" },
+    { "slice": "S10", "table": "evaluator_assignments", "select": true, "insert": true, "update": ["valid_to", "removal_choice", "reason", "ended_real_at", "ended_by_user_id", "revision", "updated_at"], "delete": false, "immutable": false, "worker": false, "note": "評分指派有效區間列：只更新結束欄（移除、改派）與通用欄" },
+    { "slice": "S10", "table": "evaluations", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：老師每次暫存與正式送出的原始輸入" },
+    { "slice": "S10", "table": "evaluation_status", "select": true, "insert": true, "update": ["state", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": false, "note": "評分狀態頭列：只改狀態與通用欄（trigger 另擋不合規的轉換）" },
+    { "slice": "S10", "table": "evaluation_status_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：評分狀態的每一次變化" },
+    { "slice": "S10", "table": "grade_overrides", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：管理員對最終結果的更正（原值、新值、理由）" },
+    { "slice": "S10", "table": "override_review_state", "select": true, "insert": true, "update": ["state", "resolved_by_user_id", "resolved_at", "revision", "updated_at"], "delete": false, "immutable": false, "worker": false, "note": "更正的復核狀態頭列：只改狀態、處理人、處理時間與通用欄" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

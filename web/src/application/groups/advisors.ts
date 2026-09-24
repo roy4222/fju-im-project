@@ -7,8 +7,8 @@ import { parseCsv } from '@/shared/csv'
  * - 一般組（`general`）由管理員依抽籤／行政結果指派，老師不能自己認領。
  * - 管理員可逐組指派、重派、解除（理由必填）；也可上傳 `group_code,teacher_login_email` CSV 批次指派。
  * - 每組同時只有一位有效主指導；重派是結束舊的、插一列新的，歷史保留。
- * - 重派時先列原老師在本組的評分指派（評分模組還沒做，清單一定是空的），預設都不勾；
- *   新主指導不自動取得評分權限。
+ * - 重派時先列原老師在本組的評分指派（票 23 接上評分模組的查詢）；只列、不移轉，
+ *   新主指導不自動取得評分權限（勾選處理評分指派在票 24）。
  *
  * 這個檔沒有資料庫：CSV 怎麼拆、每一列分到六類的哪一類、能不能執行，都在這裡單獨測。
  */
@@ -38,8 +38,8 @@ export type TeacherOption = {
 }
 
 /**
- * 原老師在本組的評分指派（重派對話框要先列出來；模組 06 的 `listAssignmentsForTeacher`）。
- * 評分模組還沒做，所以現在永遠是空清單；欄位先照產品「至少顯示階段與未填／暫存／已正式送出」。
+ * 原老師在本組的評分指派（重派對話框要先列出來；模組 06 的 `AssignmentsForTeacherQuery.listForGroup`，票 23）。
+ * 欄位照產品「至少顯示階段與未填／暫存／已正式送出」。
  */
 export type GradingAssignmentSummary = {
   readonly id: string
@@ -57,7 +57,7 @@ export type AssignAdvisorInput = {
   readonly revision: number
   readonly teacherUserId: string
   readonly reason: string
-  /** 重派時勾選要一併處理的評分指派 id。評分還沒做，只能是空的。 */
+  /** 重派時勾選要一併處理的評分指派 id。處理方式（保留／替換／新增）在票 24，現在只能是空的。 */
   readonly gradingSelections: readonly string[]
 }
 

@@ -32,6 +32,10 @@ let proposalId: string
 let groupId: string
 let itemId: string
 let schemaVersionId: string
+let schemeId: string
+let schemeVersionIdForGrading: string
+let assignmentId: string
+let evaluationId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -535,6 +539,92 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'enabled', value: false },
   },
+  // 票 23（S10）：評分九表。方案一屆一個，所以方案頭列每次連同一個新屆別一起插；版本、指派、輸入、狀態
+  // 掛在 beforeAll 先建好的方案版本與指派上。狀態樣本用 draft（對一筆 draft 輸入），重複插也不會撞「同指派一筆採計」。
+  grading_schemes: {
+    insert: () => ({
+      sql: `with c as (
+              insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, '評分權限', 'system') returning id
+            )
+            insert into grading_schemes (id, cohort_id, name, created_by_kind) select gen_random_uuid(), id, '評分方案', 'system' from c`,
+      values: [unique('GS')],
+    }),
+    updatable: { column: 'name', value: '改過的方案' },
+  },
+  grading_scheme_versions: {
+    insert: () => ({
+      sql: `insert into grading_scheme_versions (id, scheme_id, version_no, stages, created_by_user_id)
+            values (gen_random_uuid(), $1, (select coalesce(max(version_no), 0) + 1 from grading_scheme_versions where scheme_id = $1),
+                    '[]'::jsonb, $2)`,
+      values: [schemeId, userId],
+    }),
+    updatable: { column: 'stages', value: JSON.stringify([{ key: 'hacked' }]) },
+  },
+  stage_requirements: {
+    insert: () => ({
+      sql: `insert into stage_requirements (group_id, stage_key, required_count, created_by_user_id) values ($1, $2, 2, $3)`,
+      values: [groupId, unique('st'), userId],
+    }),
+    updatable: { column: 'required_count', value: 3 },
+  },
+  evaluator_assignments: {
+    insert: () => ({
+      sql: `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+            values (gen_random_uuid(), $1, $2, $3, now(), $3)`,
+      values: [groupId, unique('st'), userId],
+    }),
+    updatable: { column: 'valid_to', value: new Date() },
+  },
+  evaluations: {
+    insert: () => ({
+      sql: `insert into evaluations
+              (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id)
+            values (gen_random_uuid(), $1, 'draft', $2, '{"i1": 80}'::jsonb, now(), now(), gen_random_uuid())`,
+      values: [assignmentId, schemeVersionIdForGrading],
+    }),
+    updatable: { column: 'scores', value: { i1: 100 } },
+  },
+  evaluation_status: {
+    insert: () => ({
+      sql: `with e as (
+              insert into evaluations
+                (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id)
+              values (gen_random_uuid(), $1, 'draft', $2, '{}'::jsonb, now(), now(), gen_random_uuid()) returning id
+            )
+            insert into evaluation_status (evaluation_id, assignment_id, state) select id, $1, 'draft' from e`,
+      values: [assignmentId, schemeVersionIdForGrading],
+    }),
+    updatable: { column: 'state', value: 'historical' },
+  },
+  evaluation_status_events: {
+    insert: () => ({
+      sql: `insert into evaluation_status_events (id, evaluation_id, from_state, to_state, actor_kind, actor_user_id, real_at)
+            values (gen_random_uuid(), $1, null, 'draft', 'user', $2, now())`,
+      values: [evaluationId, userId],
+    }),
+    updatable: { column: 'to_state', value: 'counted' },
+  },
+  grade_overrides: {
+    insert: () => ({
+      sql: `insert into grade_overrides
+              (id, group_id, scheme_version_id, original_value, new_value, basis_hash, reason, actor_user_id, real_at)
+            values (gen_random_uuid(), $1, $2, 82.145, 85, 'hash', '更正理由', $3, now())`,
+      values: [groupId, schemeVersionIdForGrading, userId],
+    }),
+    updatable: { column: 'new_value', value: 99 },
+  },
+  override_review_state: {
+    insert: () => ({
+      sql: `with o as (
+              insert into grade_overrides
+                (id, group_id, scheme_version_id, original_value, new_value, basis_hash, reason, actor_user_id, real_at)
+              values (gen_random_uuid(), $1, $2, 80, 81, 'hash', '更正理由', $3, now()) returning id
+            )
+            insert into override_review_state (override_id) select id from o`,
+      values: [groupId, schemeVersionIdForGrading, userId],
+    }),
+    updatable: { column: 'state', value: 'pending_review' },
+  },
 }
 
 beforeAll(async () => {
@@ -615,6 +705,30 @@ beforeAll(async () => {
     [itemId, userId],
   )
   schemaVersionId = String(schemaVersion.rows[0]!.id)
+  // S10 的版本、指派、輸入、狀態、更正樣本列要一個方案、一個已發布版本、一筆指派與一筆輸入。
+  const scheme = await owner.sql(
+    `insert into grading_schemes (id, cohort_id, name, created_by_kind) values (gen_random_uuid(), $1, '權限方案', 'system') returning id`,
+    [cohortId],
+  )
+  schemeId = String(scheme.rows[0]!.id)
+  const schemeVersion = await owner.sql(
+    `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
+     values (gen_random_uuid(), $1, 1000, '[]'::jsonb, 'published', $2) returning id`,
+    [schemeId, userId],
+  )
+  schemeVersionIdForGrading = String(schemeVersion.rows[0]!.id)
+  const assignment = await owner.sql(
+    `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+     values (gen_random_uuid(), $1, 'roles-stage', $2, now(), $2) returning id`,
+    [groupId, userId],
+  )
+  assignmentId = String(assignment.rows[0]!.id)
+  const evaluation = await owner.sql(
+    `insert into evaluations (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id)
+     values (gen_random_uuid(), $1, 'draft', $2, '{}'::jsonb, now(), now(), gen_random_uuid()) returning id`,
+    [assignmentId, schemeVersionIdForGrading],
+  )
+  evaluationId = String(evaluation.rows[0]!.id)
 })
 
 afterAll(async () => {
@@ -782,8 +896,22 @@ describe.each(immutableTables.map((row) => [row.table] as const))(
   },
 )
 
+/**
+ * 「部分可改」的表：可以更新，但有手寫的狀態機 trigger（0009 檔尾；票 23）。
+ * 方案版本只前進、評分狀態只走規定的轉換、結束的指派不能復活；三張都不能刪。行為在 s10-grading.integration.test.ts 驗。
+ */
+const GUARDED_TABLES: Record<string, string[]> = {
+  evaluation_status: ['evaluation_status_guard', 'evaluation_status_no_delete', 'evaluation_status_no_truncate'],
+  evaluator_assignments: ['evaluator_assignments_guard', 'evaluator_assignments_no_delete', 'evaluator_assignments_no_truncate'],
+  grading_scheme_versions: [
+    'grading_scheme_versions_guard',
+    'grading_scheme_versions_no_delete',
+    'grading_scheme_versions_no_truncate',
+  ],
+}
+
 describe('可變表不該掛不可變 trigger', () => {
-  it('只有矩陣標 immutable 的表有 trigger', async () => {
+  it('只有矩陣標 immutable 的表、以及明列的狀態機表有 trigger', async () => {
     const triggers = await owner.sql(
       `select c.relname from pg_trigger t
        join pg_class c on c.oid = t.tgrelid
@@ -792,7 +920,22 @@ describe('可變表不該掛不可變 trigger', () => {
        group by c.relname order by c.relname`,
       [owner.schemaName],
     )
-    expect(triggers.rows.map((r) => String(r.relname))).toEqual(immutableTables.map((row) => row.table).sort())
+    expect(triggers.rows.map((r) => String(r.relname))).toEqual(
+      [...immutableTables.map((row) => row.table), ...Object.keys(GUARDED_TABLES)].sort(),
+    )
+  })
+
+  it.each(Object.entries(GUARDED_TABLES))('%s 掛的是狀態機 trigger，不是整張不可變', async (table, expected) => {
+    expect(immutableTables.some((row) => row.table === table), `${table} 在矩陣裡不該標 immutable`).toBe(false)
+    const triggers = await owner.sql(
+      `select t.tgname from pg_trigger t
+       join pg_class c on c.oid = t.tgrelid
+       join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = $1 and c.relname = $2 and not t.tgisinternal
+       order by t.tgname`,
+      [owner.schemaName, table],
+    )
+    expect(triggers.rows.map((r) => String(r.tgname))).toEqual([...expected].sort())
   })
 })
 

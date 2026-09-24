@@ -92,6 +92,9 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   item: resolveItem,
   // 合作案（票 20）：換案、解除的通知點進合作案頁；那一頁自己依登入身分與合作案狀態決定看得到什麼。
   industry_opportunity: (ref) => ({ state: 'ok', href: `/industry/${ref.id}` }),
+  // 評分指派（票 23）：點進老師的評分工作台；那一頁自己再依本人身分查有效指派（被移除的指派看不到）。
+  grading_assignment: (ref) =>
+    ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' },
 }
 
 /**
