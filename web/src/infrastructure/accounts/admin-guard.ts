@@ -20,15 +20,24 @@ export type LockedAdmin = { readonly userId: string; readonly effective: boolean
  * （帳號 active、沒有去識別化；停用的管理員登不進來，不算）。
  */
 export async function lockAdmins(tx: PoolClient): Promise<LockedAdmin[]> {
-  const rows = await tx.query<{ user_id: string; effective: boolean }>(
-    `select ra.user_id, (u.status = 'active' and u.deidentified_at is null) as effective
-       from role_assignments ra
-       join users u on u.id = ra.user_id
-      where ra.role = 'admin' and ra.revoked_real_at is null
-      order by ra.id
-      for update of ra`,
+  const locked = await tx.query<{ user_id: string }>(
+    `select user_id from role_assignments
+      where role = 'admin' and revoked_real_at is null
+      order by id
+      for update`,
   )
-  return rows.rows.map((r) => ({ userId: r.user_id, effective: r.effective }))
+  const ids = locked.rows.map((r) => r.user_id)
+  if (ids.length === 0) return []
+  // **鎖到手之後才讀狀態，而且要另一個 statement**：READ COMMITTED 每個 statement 一個新快照。
+  // 同一個 statement 裡 join 出來的 `users` 欄位是等鎖之前的舊快照——只有被鎖的列自己被改過才會重讀
+  // （EvalPlanQual），而停用只改 `users`、不改 `role_assignments`，等鎖的那一方會拿到停用前的狀態，
+  // 兩位管理員互相停用就會兩邊都成功（票 10b 審查時抓到）。
+  const fresh = await tx.query<{ id: string; effective: boolean }>(
+    `select id, (status = 'active' and deidentified_at is null) as effective from users where id = any($1::uuid[])`,
+    [ids],
+  )
+  const effective = new Map(fresh.rows.map((r) => [r.id, r.effective]))
+  return ids.map((userId) => ({ userId, effective: effective.get(userId) ?? false }))
 }
 
 /** 這個人在鎖住的管理員列裡、而且帳號此刻仍是 active（不是只信請求開始時解析出來的 actor）。 */

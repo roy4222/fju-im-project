@@ -644,7 +644,13 @@ type LockedAccount = {
   isOrphan: boolean
 }
 
-/** 依 ID 順序鎖住幾個帳號（固定順序，兩個批次同時跑也不會互等成死結）。 */
+/**
+ * 依 ID 順序鎖住幾個帳號（固定順序，兩個批次同時跑也不會互等成死結）。
+ *
+ * 用 `for no key update`（票 10b）：只改狀態欄、不動主鍵，不需要最強的 `for update`。
+ * `for update` 會跟外鍵檢查拿的 key share 鎖互斥——另一個交易剛以這個人為 actor 寫了帳本
+ * （`operation_records.actor_user_id` 外鍵），兩位管理員互相停用時就會死結。
+ */
 async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise<Map<string, LockedAccount>> {
   const result = new Map<string, LockedAccount>()
   if (userIds.length === 0) return result
@@ -667,7 +673,7 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
        left join user_profiles up on up.user_id = u.id
       where u.id = any($1::uuid[])
       order by u.id
-      for update of u`,
+      for no key update of u`,
     [[...userIds]],
   )
   for (const r of rows.rows) {

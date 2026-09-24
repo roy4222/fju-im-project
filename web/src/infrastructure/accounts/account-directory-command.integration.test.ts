@@ -504,6 +504,11 @@ describe('最後一位管理員保護：停用（票 10b）', () => {
     }
     const a = await make('ga')
     const b = await make('gb')
+    // 先把連線池暖好兩條連線：不然第二個呼叫要現開一條 TCP 連線，等它開好第一個交易早就 commit 了，
+    // 兩邊根本沒有真的同時搶鎖——測試會因為時間差而通過，證明不了鎖的效果。
+    const [c1, c2] = await Promise.all([app.connect(), app.connect()])
+    c1.release()
+    c2.release()
     const [ab, ba] = await Promise.all([
       command.disable(a.actor, { userId: b.userId, reason: '互相停用', requestId: requestId() }, { headers: a.headers }),
       command.disable(b.actor, { userId: a.userId, reason: '互相停用', requestId: requestId() }, { headers: b.headers }),

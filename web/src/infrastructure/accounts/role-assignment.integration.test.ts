@@ -88,6 +88,13 @@ async function account(opts: { status?: 'pending' | 'active' | 'disabled'; roles
   return { userId, email, cookie: cookieOf(response), actor: actorOf(userId, roles), headers: new Headers({ cookie: cookieOf(response) }) }
 }
 
+/** 讓連線池先有兩條閒置連線，並行的兩個呼叫才會真的同時搶鎖。 */
+async function warmPool() {
+  const [c1, c2] = await Promise.all([app.connect(), app.connect()])
+  c1.release()
+  c2.release()
+}
+
 const validAdmins = (userId: string) =>
   one<{ n: number }>(`select count(*)::int as n from role_assignments where user_id = $1 and role = 'admin' and revoked_real_at is null`, [userId])
 
@@ -261,6 +268,8 @@ describe('取消管理員', () => {
       )
     expect(await effective()).toEqual({ n: 2 })
 
+    // 先暖好兩條連線：不然第二個呼叫要現開 TCP 連線，第一個交易早就 commit 了，證明不了鎖。
+    await warmPool()
     const [ab, ba] = await Promise.all([
       command.revokeRole(a.actor, { userId: b.userId, role: 'admin', reason: '互相取消', requestId: requestId() }),
       command.revokeRole(b.actor, { userId: a.userId, role: 'admin', reason: '互相取消', requestId: requestId() }),
@@ -277,6 +286,33 @@ describe('取消管理員', () => {
       code: 'FORBIDDEN',
     })
     expect(await effective()).toEqual({ n: 1 })
+  })
+
+  it('最後一位管理員保護：A 取消 B 的同時 B 停用 A（取消與停用兩條路共用同一把鎖），只有一個成功', async () => {
+    const { PgAccountDirectoryCommand } = await import('@/infrastructure/accounts/account-directory-command')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
+    const directory = new PgAccountDirectoryCommand({ audit: new PgAuditWriter(), ledger: new PgOperationLedger(() => app), db: () => app })
+    await db.sql(
+      `update users set status = 'disabled'
+        where id in (select user_id from role_assignments where role = 'admin' and revoked_real_at is null)`,
+    )
+    const a = await account({ roles: ['admin'] })
+    const b = await account({ roles: ['admin'] })
+
+    await warmPool()
+    const [revoked, disabled] = await Promise.all([
+      command.revokeRole(a.actor, { userId: b.userId, role: 'admin', reason: '同時', requestId: requestId() }),
+      directory.disable(b.actor, { userId: a.userId, reason: '同時', requestId: requestId() }, { headers: b.headers }),
+    ])
+    expect([revoked, disabled].filter((r) => r.ok)).toHaveLength(1)
+    expect([revoked, disabled].find((r) => !r.ok)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(
+      await one(
+        `select count(*)::int as n from role_assignments ra join users u on u.id = ra.user_id
+          where ra.role = 'admin' and ra.revoked_real_at is null and u.status = 'active' and u.deidentified_at is null`,
+      ),
+    ).toEqual({ n: 1 })
   })
 })
 
