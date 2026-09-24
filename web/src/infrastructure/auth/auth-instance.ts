@@ -3,7 +3,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 import { nextCookies } from 'better-auth/next-js'
-import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx, getOAuthState } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
@@ -32,6 +32,16 @@ import {
   signInKey,
 } from '@/infrastructure/auth/sign-in-rate-limit'
 import { checkSignUpRate } from '@/infrastructure/auth/sign-up-rate-limit'
+import {
+  EMAIL_UNAVAILABLE_CODE,
+  EMAIL_UNAVAILABLE_MESSAGE,
+  bindPreauthorizedTeacher,
+  FRESH_AGE_SECONDS,
+  isFreshSession,
+  recordLastLoginMethod,
+  recordLoginMethodAdded,
+  SIGN_UP_EMAIL_ERROR_CODES,
+} from '@/infrastructure/auth/login-methods'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -46,8 +56,8 @@ import { checkSignUpRate } from '@/infrastructure/auth/sign-up-rate-limit'
  * 4. 設定值：uuidv7 主鍵、關掉隱含帳號合併、關掉 cookie 快取、fresh session 10 分鐘。
  */
 
-/** 契約 03 §2：fresh session＝10 分鐘內登入過。 */
-export const FRESH_AGE_SECONDS = 10 * 60
+/** 契約 03 §2：fresh session＝10 分鐘內登入過（數字與判準在 `login-methods.ts`，設密碼的用例共用）。 */
+export { FRESH_AGE_SECONDS }
 
 /**
  * 從端點路徑推這次的登入方式。
@@ -124,6 +134,10 @@ function createAuth() {
         '/sign-in/email': false,
         '/change-password': false,
         '/sign-up/email': false,
+        // Google 登入入口（票 10）：只產生 state 與授權網址，不驗任何帳密。套件預設的
+        // 「10 秒 3 次／IP」會讓同一個校園出口後面的第四個同學按 Google 鈕就吃 429。
+        // 粗粒度的跨帳號防護在 Caddy（契約 03 §6）。登入頁走 Server Action 本來就不經這一層。
+        '/sign-in/social': false,
       },
     },
     emailAndPassword: { enabled: true },
@@ -131,12 +145,38 @@ function createAuth() {
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID ?? '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+        /**
+         * Google 身分剛換到、套件還沒開始找使用者的那一刻。只用來處理「系辦預授權的老師
+         * 第一次用 Google 登入」（見 `bindPreauthorizedTeacher` 的條件）；不改任何使用者欄位。
+         */
+        mapProfileToUser: async (profile) => {
+          // 連結流程（已登入的人按「連結 Google」）也會經過這裡；那不是「預授權老師第一次登入」，
+          // 不能順手替別人綁。state 在這之前已由套件解析好，`link` 有值就是連結。
+          const state = await getOAuthState().catch(() => null)
+          if (!(state as { link?: unknown } | null)?.link) await bindPreauthorizedTeacher(profile)
+          return {}
+        },
       },
     },
     account: {
+      /**
+       * 帳號連結（模組 01 §2.3 Q-ACC02；契約 03 §3；票 10）。
+       *
+       * - `disableImplicitLinking`：未登入時用 Google 登入、Email 跟既有帳號相同，**不自動合併**。
+       *   唯一例外是系辦預授權、還沒有任何登入方式的老師帳號（見 Google 設定的 `mapProfileToUser`）。
+       *   套件會把人導回 `errorCallbackURL?error=account_not_linked`，登入頁提示「用原方式登入後再連結」。
+       *   連結只能走 `/link-social`（本人、active、fresh session，路由矩陣與下面的 hook 管）。
+       * - `allowDifferentEmails: false`：連結的 Google 帳號 Email 必須等於登入 Email。
+       *   登入 Email 本人不能換（§2.3 Q3），連一個別的 Email 的 Google 進來等於多一個登入身分，先不開。
+       * - `updateUserInfoOnLink: false`：連結不改姓名、頭像，更不改 Email。
+       *
+       * 三個值都是套件預設（除了第一個），寫出來是為了讓「為什麼」留在設定旁邊，也讓測試直接讀來斷言。
+       */
       accountLinking: {
-        // 契約 03 §3：同 Email 不自動合併；連結只能由本人在 fresh session 主動發起。
+        enabled: true,
         disableImplicitLinking: true,
+        allowDifferentEmails: false,
+        updateUserInfoOnLink: false,
       },
     },
     session: {
@@ -179,6 +219,24 @@ function createAuth() {
             if (!state || !isUsableSession(state)) return false
 
             return { data: { ...session, loginMethod: loginMethodForPath(context?.path) } }
+          },
+          /** 帳號最近一次的登入方式（列表顯示用；不作判定）。 */
+          after: async (session) => {
+            const method = (session as { loginMethod?: string }).loginMethod
+            if (method === 'google' || method === 'password') {
+              await recordLastLoginMethod(String(session.userId), method)
+            }
+          },
+        },
+      },
+      account: {
+        create: {
+          /**
+           * 本人新增了第二種登入方式（連結 Google、替 Google 帳號設密碼）就留一筆稽核
+           * （ACC-16／18 的「連結紀錄」）。註冊建的第一列不算。
+           */
+          after: async (account) => {
+            await recordLoginMethodAdded(String(account.userId), String(account.providerId))
           },
         },
       },
@@ -290,14 +348,11 @@ function createAuth() {
          * （2026-09-16 複核 Spec 1）。所以在這裡自己比，判準與套件那支一致：
          * 現在時間減 `session.createdAt` 要**小於** freshAge。
          */
-        if (requirement.fresh && FRESH_AGE_SECONDS !== 0) {
-          const createdAt = new Date(session.session.createdAt).getTime()
-          if (!Number.isFinite(createdAt) || Date.now() - createdAt >= FRESH_AGE_SECONDS * 1000) {
-            throw new APIError('FORBIDDEN', {
-              code: 'FRESH_SESSION_REQUIRED',
-              message: '這個操作需要重新登入確認身分。',
-            })
-          }
+        if (requirement.fresh && !isFreshSession(session.session.createdAt)) {
+          throw new APIError('FORBIDDEN', {
+            code: 'FRESH_SESSION_REQUIRED',
+            message: '這個操作需要重新登入確認身分。',
+          })
         }
 
         // ── 第三關：改密碼的業務規則（模組 01 §3、契約 03 §2、§6） ─────────
@@ -347,6 +402,26 @@ function createAuth() {
        */
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned
+
+        // ── 註冊：Email 已被用過不透露（票 7 遺留；工程模組 01 §3 `USER_EXISTS` 統一訊息） ──
+        //
+        // 套件對已註冊的 Email 回 422 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`，跟其他錯誤一眼分得出來。
+        // 這裡把它和「Email 格式不對」統一成同一個 400＋代碼＋訊息（跟註冊頁那一句一樣），
+        // 直接打 HTTP 與 Server Action 走的是同一段。
+        // HTTP 狀態碼 hook 改不動（套件沿用端點原本的 422），由 `wrapper.ts` 的外層統一成 400。
+        // 限制：註冊**成功**本身（200＋登入 cookie）跟失敗仍然分得出來——要完全分不出來得關掉
+        // 「註冊完就登入」或改寄驗證信；大量探測由 30 次／小時／IP 的註冊限速擋。
+        // `instanceof` 不可靠：端點丟的 APIError 來自 `@better-auth/core`，跟這裡 import 的不一定是同一個類別。
+        if (ctx.path === '/sign-up/email' && looksLikeApiError(returned)) {
+          const body = (returned.body ?? {}) as { code?: unknown; message?: unknown }
+          const code = String(body.code ?? '')
+          // 格式錯誤是套件的 zod 驗證（`VALIDATION_ERROR`，訊息以 `[body.email]` 開頭）。
+          const emailFormat = code === 'VALIDATION_ERROR' && String(body.message ?? '').startsWith('[body.email]')
+          if (SIGN_UP_EMAIL_ERROR_CODES.has(code) || emailFormat) {
+            throw new APIError('BAD_REQUEST', { code: EMAIL_UNAVAILABLE_CODE, message: EMAIL_UNAVAILABLE_MESSAGE })
+          }
+        }
+
         if (returned instanceof APIError) return
 
         if (ctx.path === '/change-password') {
@@ -375,3 +450,11 @@ function createAuth() {
 }
 
 export type Auth = ReturnType<typeof createAuth>
+
+/** 套件丟的 APIError（不同套件實體的類別 `instanceof` 會失敗，所以看形狀）。 */
+function looksLikeApiError(value: unknown): value is { status: unknown; body?: unknown } {
+  return (
+    value instanceof APIError ||
+    (value instanceof Error && value.name === 'APIError' && 'status' in value)
+  )
+}

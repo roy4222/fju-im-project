@@ -17,8 +17,13 @@ export type { ActorResolver } from '@/application/accounts/ports'
 export type {
   ChangePasswordInput,
   ChangePasswordOutcome,
+  ContactInput,
+  MyAccount,
   SelfAccountCommand,
+  SelfAccountOutcome,
+  SetPasswordInput,
 } from '@/application/accounts/self-account'
+export { checkNewOwnPassword } from '@/application/accounts/self-account'
 export type {
   CohortOption,
   CohortValueMatch,
@@ -75,6 +80,7 @@ export {
   matchRoster,
   normalizeApplicationFields,
   normalizeApproval,
+  normalizeContactFields,
   normalizeRegistrationInput,
   normalizeRejection,
   ownApplicationDenied,

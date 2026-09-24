@@ -17,7 +17,8 @@ import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
-import { signInWithPassword, signOutCurrent } from '@/infrastructure/auth/wrapper'
+import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
+import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
@@ -47,7 +48,7 @@ export function resolveActor(headers: Headers): Promise<ResolvedActor> {
 
 export { hasRole as actorHasRole, statusGate as checkStatus } from '@/application/accounts'
 
-/** 本人帳號用例（S01-05 只做改密碼）。 */
+/** 本人帳號用例（S01-05 改密碼；票 10 看帳號、改聯絡資料、連結 Google、設密碼）。 */
 let selfAccountCommand: SelfAccountCommand | undefined
 
 export function getSelfAccountCommand(): SelfAccountCommand {
@@ -249,6 +250,39 @@ export async function homeForUser(userId: string): Promise<string> {
 /** 登出目前這一台。 */
 export async function signOut(headers: Headers): Promise<void> {
   await signOutCurrent(headers)
+}
+
+/**
+ * 開始 Google 登入（票 10）：回傳要導去的 Google 授權網址。
+ *
+ * - 成功與失敗都回到 `landing`（登入頁或註冊頁）。登入頁對「已經登入的人」會依狀態分流
+ *   （待審 → 等待審核頁、被要求改密 → 改密頁、其他 → `next` 或自己的首頁），所以 callback
+ *   不必自己判斷該去哪；失敗時套件在後面補 `?error=<代碼>`，頁面再翻成一句話。
+ * - `next` **一律先經 `safeNextPath`**，不合格就當沒帶，不會被塞進 callbackURL。
+ * - 第一次用 Google 進來的人（新帳號）直接到等待審核頁補學號、系級、手機。
+ */
+export type GoogleSignInOutcome = { readonly ok: true; readonly url: string } | { readonly ok: false; readonly message: string }
+
+export async function beginGoogleSignIn(input: {
+  from: 'login' | 'register'
+  next: unknown
+  headers: Headers
+}): Promise<GoogleSignInOutcome> {
+  const next = safeNextPath(input.next)
+  const base = input.from === 'register' ? '/register' : '/login'
+  const landing = next ? `${base}?next=${encodeURIComponent(next)}` : base
+  try {
+    const started = await startGoogleSignIn(input.headers, {
+      callbackURL: next ? `/login?next=${encodeURIComponent(next)}` : '/login',
+      errorCallbackURL: landing,
+      newUserCallbackURL: '/register/pending?via=google',
+    })
+    if (!started.url) return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
+    return { ok: true, url: started.url }
+  } catch (error) {
+    console.error('[auth] 開始 Google 登入失敗', error)
+    return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
+  }
 }
 
 /** 測試用：清掉登入的限速計數。 */

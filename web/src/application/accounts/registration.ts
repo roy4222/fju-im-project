@@ -119,6 +119,24 @@ export function normalizeApplicationFields(input: ApplicationFields): { ok: true
   return { ok: true, value: { appliedName, studentNo, departmentClass, phone, contactEmail } }
 }
 
+/**
+ * 已開通的人在帳號頁改的兩個欄位：手機與聯絡 Email（票 10；§2.3 登入 Email 不在內）。
+ * 規則與註冊、修改申請同一套。
+ */
+export function normalizeContactFields(input: {
+  phone: string
+  contactEmail: string
+}): { ok: true; value: { phone: string; contactEmail: string } } | Err {
+  const phone = input.phone.trim()
+  const contactEmail = input.contactEmail.trim().toLowerCase()
+  if (!phone) return invalid('phone', '請填手機。')
+  const digits = phone.replace(/\D/g, '').length
+  if (!PHONE_PATTERN.test(phone) || digits < 8 || digits > 15) return invalid('phone', '手機號碼的格式不對。')
+  const emailProblem = checkEmail(contactEmail, 'contactEmail', '聯絡 Email')
+  if (emailProblem) return emailProblem
+  return { ok: true, value: { phone, contactEmail } }
+}
+
 /** 註冊表單：申請欄位＋登入 Email＋密碼。聯絡 Email 預設等於登入 Email，不要求重填（§2.4）。 */
 export function normalizeRegistrationInput(
   input: RegistrationInput,
@@ -458,6 +476,8 @@ export function ownApplicationDenied(actor: ResolvedActor, capability: 'registra
 /** 申請人自己看到的樣子。**沒有比對結果**（見檔頭第 2 條）。 */
 export type MyApplication = {
   readonly loginEmail: string
+  /** 帳號上的姓名（Google 首次進來時是 Google 給的名字）；還沒送申請時拿來預填。 */
+  readonly accountName: string
   /**
    * - `none`：帳號建好了但還沒有申請資料（第二步寫入失敗，或直接打 API 註冊的人）。
    * - `pending`：待審。

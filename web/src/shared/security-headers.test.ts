@@ -31,7 +31,7 @@ describe('CSP 指令與契約 03 §6 一致（T2 方案 A）', () => {
     expect(directive(csp, 'frame-src')).toBe('https://www.youtube.com https://challenges.cloudflare.com')
     expect(directive(csp, 'object-src')).toBe("'none'")
     expect(directive(csp, 'base-uri')).toBe("'self'")
-    expect(directive(csp, 'form-action')).toBe("'self'")
+    expect(directive(csp, 'form-action')).toBe("'self' https://accounts.google.com")
     expect(directive(csp, 'frame-ancestors')).toBe("'none'")
   })
 

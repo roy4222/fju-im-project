@@ -141,12 +141,13 @@ export default tseslint.config(
           patterns: [
             {
               group: ['better-auth/api', 'better-auth/api/*'],
-              // 三個都是「寫 hook 用」的匯出，不是 `auth.api.*` 的能力呼叫：
+              // 四個都是「寫 hook 用」的匯出，不是 `auth.api.*` 的能力呼叫：
               // getAuthoritativeSessionFromCtx 只是在 hook 裡把 session 從 DB 讀回來，
-              // 業務狀態閘門需要它（契約 03 §2）。
-              allowImportNames: ['APIError', 'createAuthMiddleware', 'getAuthoritativeSessionFromCtx'],
+              // 業務狀態閘門需要它（契約 03 §2）；getOAuthState 只讀這一趟 OAuth 的 state
+              // （分辨登入還是連結，票 10 預授權老師綁定用）。
+              allowImportNames: ['APIError', 'createAuthMiddleware', 'getAuthoritativeSessionFromCtx', 'getOAuthState'],
               message:
-                '實例檔只能從 better-auth/api 取 APIError、createAuthMiddleware 與 getAuthoritativeSessionFromCtx；auth.api 的呼叫在 wrapper。',
+                '實例檔只能從 better-auth/api 取 APIError、createAuthMiddleware、getAuthoritativeSessionFromCtx 與 getOAuthState；auth.api 的呼叫在 wrapper。',
             },
             {
               group: ['../../../../*'],

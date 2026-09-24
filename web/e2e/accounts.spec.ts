@@ -148,7 +148,7 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
   // 也不能再用密碼登入。
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await studentPage.getByRole('button', { name: '登入' }).click()
+  await studentPage.getByRole('button', { name: '登入', exact: true }).click()
   await expect(studentPage.getByRole('alert')).toBeVisible()
   await expect(studentPage).toHaveURL(/\/login/)
 
@@ -164,7 +164,7 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
   await studentPage.goto('/login')
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await studentPage.getByRole('button', { name: '登入' }).click()
+  await studentPage.getByRole('button', { name: '登入', exact: true }).click()
   await studentPage.waitForURL(/\/dashboard\/student/, { timeout: 15_000 })
   await studentContext.close()
 })
