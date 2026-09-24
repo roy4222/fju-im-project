@@ -1,0 +1,16 @@
+student_no,name,cohort,email,department_class
+411500001,王小明,115,s01@example.edu.tw,資管二甲
+411500002,林小華,115,s02@example.edu.tw,資管二甲
+411500003,陳大文,115,s03@example.edu.tw,資管二乙
+411500004,李美玲,115,s04@example.edu.tw,資管二乙
+411500005,張志豪,115,s05@example.edu.tw,資管二甲
+411500006,黃怡君,115,s06@example.edu.tw,
+411500007,吳建宏,115,s07@example.edu.tw,資管二乙
+411500008,劉雅婷,115,s08@example.edu.tw,資管二甲
+411500009,蔡宗翰,115,,資管二乙
+411500010,楊淑芬,115,s10@example.edu.tw,資管二甲
+411500011,許家豪,115,s11@example.edu.tw,資管二乙
+411500012,鄭佳穎,115,s12@example.edu.tw,資管二甲
+411500013,"Nguyen, Van An",115,s13@example.edu.tw,資管二乙
+411500003,陳大文,115,s03@example.edu.tw,資管二乙
+411500014,,115,s14@example.edu.tw,資管二甲

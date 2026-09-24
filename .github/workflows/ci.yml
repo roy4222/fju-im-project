@@ -152,6 +152,9 @@ jobs:
       # VM 的 .env（契約 05 §6），不放 GitHub Secrets 也不進 repo 以外的任何地方。
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-32ch
       BETTER_AUTH_URL: http://127.0.0.1:3000
+      # 上傳檔案的存放根目錄（票 6）。CI 用 runner 上的暫存目錄；正式環境是 VM 的獨立 volume。
+      FILES_ROOT: /tmp/fju-files
+      FILE_MAX_BYTES: '104857600'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

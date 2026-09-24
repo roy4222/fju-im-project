@@ -143,7 +143,17 @@ export async function poolAsRole(
 ): Promise<Pool> {
   const admin = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
   try {
-    await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
+    // 好幾個測試檔同時跑時會同時 ALTER 同一個角色，PostgreSQL 回 `tuple concurrently updated`。
+    // 設的是同一個密碼，重試一次就好。
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
+        break
+      } catch (error) {
+        if (attempt >= 5 || !/tuple concurrently updated/.test(String((error as Error)?.message))) throw error
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt))
+      }
+    }
   } finally {
     await admin.end()
   }
