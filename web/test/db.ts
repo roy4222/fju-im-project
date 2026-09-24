@@ -143,7 +143,14 @@ export async function poolAsRole(
 ): Promise<Pool> {
   const admin = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
   try {
-    await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
+    // 好幾個測試檔並行時會同時 ALTER 同一個角色，PostgreSQL 會回「tuple concurrently updated」。
+    // 用一把跨程序的 advisory lock 讓它們排隊（同一條連線上鎖、改、解鎖）。
+    await admin.query(`select pg_advisory_lock(hashtext('test.poolAsRole'))`)
+    try {
+      await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
+    } finally {
+      await admin.query(`select pg_advisory_unlock(hashtext('test.poolAsRole'))`)
+    }
   } finally {
     await admin.end()
   }

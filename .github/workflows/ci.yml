@@ -152,6 +152,9 @@ jobs:
       # VM 的 .env（契約 05 §6），不放 GitHub Secrets 也不進 repo 以外的任何地方。
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-32ch
       BETTER_AUTH_URL: http://127.0.0.1:3000
+      # e2e 跑的是測試站的樣子：模擬業務鐘開著（票 11 的 timeline.spec 要用）。
+      # 正式站（false）的拒絕由整合測試 pg-business-clock.integration.test.ts 證明。
+      BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

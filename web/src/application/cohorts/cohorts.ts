@@ -7,9 +7,8 @@ import { err, type Err } from '@/shared/result'
  * 這個檔沒有資料庫也沒有框架：代碼怎麼驗、誰能管理屆別、兩個旗標叫什麼，
  * 都是規則問題，放在這裡單獨測。寫入與交易在 infrastructure。
  *
- * 票 5 的範圍只有「建立屆別」與「設預設工作屆別／開放註冊屆別」。
- * 籌備中→進行中要留狀態事件（`cohort_status_events`），那張表由票 11 的 migration 建，
- * 所以轉進行中、封存、解封都不在這裡。
+ * 票 5 交付「建立屆別」與「設預設工作屆別／開放註冊屆別」；票 11 加上「轉進行中」
+ * （留 `cohort_status_events`）、階段與活動。封存與解封在後面的票（S13）。
  */
 
 export type CohortStatus = 'preparing' | 'active' | 'archived'
@@ -27,6 +26,8 @@ export type Cohort = {
   readonly status: CohortStatus
   readonly isDefaultWorking: boolean
   readonly isRegistrationOpen: boolean
+  /** 年度結束日（臺灣日期，含當天）；還沒設是 null。 */
+  readonly yearEndDate: string | null
   readonly revision: number
   readonly createdAt: Date
 }
@@ -133,4 +134,18 @@ export function describeFlagReceipt(receipt: SetCohortFlagReceipt): string {
     return `已把 ${receipt.code} 設為${label}；${receipt.previousCode} 的${label}已自動取消。`
   }
   return `已把 ${receipt.code} 設為${label}。`
+}
+
+/** 轉進行中的回執。 */
+export type ActivateCohortReceipt = {
+  readonly cohortId: string
+  readonly code: string
+  /** 原本就是進行中：沒有改任何資料、也沒有多一筆狀態紀錄。 */
+  readonly alreadyActive: boolean
+}
+
+export function describeActivateReceipt(receipt: ActivateCohortReceipt): string {
+  return receipt.alreadyActive
+    ? `${receipt.code} 本來就是進行中。`
+    : `已把 ${receipt.code} 轉為進行中，狀態紀錄多了一筆。`
 }

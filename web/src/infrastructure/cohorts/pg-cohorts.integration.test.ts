@@ -13,6 +13,10 @@ import type { ResolvedActor } from '@/application/accounts'
 import { PgCohortCommand, PgCohortStatusQuery } from '@/infrastructure/cohorts/pg-cohorts'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+
+/** 這個檔不測業務鐘；用真實時間就好（業務鐘的測試在 pg-business-clock.integration.test.ts）。 */
+const realBusinessClock = { now: async () => new Date() }
 
 /**
  * 票 5：建立屆別與兩個旗標（模組 02 §4「11.3」「開放註冊屆別」；模組實作設計 02 §3）。
@@ -55,6 +59,8 @@ beforeAll(async () => {
   command = new PgCohortCommand({
     audit: new PgAuditWriter(),
     ledger: new PgOperationLedger(() => app),
+    events: new PgEventPublisher(),
+    businessClock: realBusinessClock,
     pool: () => app,
   })
   query = new PgCohortStatusQuery(() => app)
@@ -302,6 +308,8 @@ describe('預設工作屆別與開放註冊屆別', () => {
     const racing = new PgCohortCommand({
       audit: new PgAuditWriter(),
       ledger: new PgOperationLedger(() => app),
+      events: new PgEventPublisher(),
+      businessClock: realBusinessClock,
       pool: () => ({ connect: () => connectMeetingAt(barrier) }),
     })
 

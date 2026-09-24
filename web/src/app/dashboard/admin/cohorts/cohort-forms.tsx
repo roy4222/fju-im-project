@@ -1,6 +1,6 @@
 'use client'
-import { useActionState } from 'react'
-import { createCohortAction, setCohortFlagAction } from './actions'
+import { useActionState, useState } from 'react'
+import { activateCohortAction, createCohortAction, setCohortFlagAction } from './actions'
 import { DataTable } from '@/app/_ui/primitives'
 import { cn } from '@/shared/cn'
 
@@ -99,10 +99,12 @@ export type CohortRow = {
   code: string
   name: string
   statusLabel: string
+  /** 籌備中的屆別才有「轉為進行中」按鈕（票 11）。 */
+  canActivate: boolean
   isDefaultWorking: boolean
   isRegistrationOpen: boolean
   /** 每顆按鈕各自一個請求編號；成功後頁面重整會換新的。 */
-  requestIds: { defaultWorking: string; registrationOpen: string }
+  requestIds: { defaultWorking: string; registrationOpen: string; activate: string }
 }
 
 type Flag = 'defaultWorking' | 'registrationOpen'
@@ -124,7 +126,38 @@ export function CohortTable({
   rows: readonly CohortRow[]
   flagLabels: Record<Flag, string>
 }) {
-  const [state, formAction, pending] = useActionState(setCohortFlagAction, undefined)
+  const [flagState, formAction, pending] = useActionState(setCohortFlagAction, undefined)
+  const [activateState, activateAction, activating] = useActionState(activateCohortAction, undefined)
+  // 兩種動作共用表格上方那一句回饋：顯示最近一次的。
+  const [latest, setLatest] = useState<'flag' | 'activate' | null>(null)
+  const [seen, setSeen] = useState({ flagState, activateState })
+  if (seen.flagState !== flagState || seen.activateState !== activateState) {
+    setSeen({ flagState, activateState })
+    setLatest(seen.activateState !== activateState ? 'activate' : 'flag')
+  }
+  const state = latest === 'activate' ? activateState : flagState
+
+  function statusCell(row: CohortRow) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="whitespace-nowrap">{row.statusLabel}</span>
+        {row.canActivate ? (
+          <form action={activateAction}>
+            <input type="hidden" name="cohortId" value={row.id} />
+            <input type="hidden" name="requestId" value={row.requestIds.activate} />
+            <button
+              type="submit"
+              disabled={activating}
+              aria-label={`把 ${row.code} 轉為進行中`}
+              className="whitespace-nowrap rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted disabled:opacity-60"
+            >
+              轉為進行中
+            </button>
+          </form>
+        ) : null}
+      </div>
+    )
+  }
 
   function flagCell(row: CohortRow, flag: Flag) {
     const held = flag === 'defaultWorking' ? row.isDefaultWorking : row.isRegistrationOpen
@@ -162,9 +195,7 @@ export function CohortTable({
             {row.code}
           </span>,
           row.name,
-          <span key="status" className="whitespace-nowrap">
-            {row.statusLabel}
-          </span>,
+          <div key="status">{statusCell(row)}</div>,
           flagCell(row, 'defaultWorking'),
           flagCell(row, 'registrationOpen'),
         ])}

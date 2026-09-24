@@ -183,3 +183,59 @@ export function formatTaipeiMinute(instant: Date): string {
   const p = taipeiParts(instant)
   return `${pad(p.year, 4)}/${pad(p.month)}/${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`
 }
+
+/** 精確到秒的臺灣時間字串，例如 `2026/11/15 23:59:59`（模擬業務鐘要能看到秒）。 */
+export function formatTaipeiSecond(instant: Date): string {
+  const p = taipeiParts(instant)
+  return `${formatTaipeiMinute(instant)}:${pad(p.second)}`
+}
+
+/** 臺灣日期換成畫面用的 `2026/11/15`。 */
+export function formatTaipeiDate(date: TaipeiDate): string {
+  const { year, month, day } = parseDate(date)
+  return `${pad(year, 4)}/${pad(month)}/${pad(day)}`
+}
+
+/** `YYYY-MM-DD` 是不是一個真的存在的日期（擋掉 2026-02-30 這種）。 */
+export function isValidTaipeiDate(value: string): value is TaipeiDate {
+  const m = DATE_PATTERN.exec(value)
+  if (!m) return false
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const probe = new Date(Date.UTC(year, month - 1, day))
+  return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day
+}
+
+/** 臺灣日期加減天數（負數往前）。 */
+export function addTaipeiDays(date: TaipeiDate, days: number): TaipeiDate {
+  return taipeiDateOf(new Date(taipeiDayStart(date).getTime() + days * DAY_MS))
+}
+
+const LOCAL_DATE_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/
+
+/**
+ * 把 `<input type="datetime-local">` 送來的值（`YYYY-MM-DDTHH:mm` 或帶秒）當成**臺灣時間**，
+ * 換成 UTC 瞬間。格式或日期不對回 `null`。
+ */
+export function parseTaipeiDateTime(value: string): Date | null {
+  const m = LOCAL_DATE_TIME.exec(value.trim())
+  if (!m) return null
+  const [, date, hh, mm, ss] = m
+  if (!isValidTaipeiDate(date!)) return null
+  const hour = Number(hh)
+  const minute = Number(mm)
+  const second = ss === undefined ? 0 : Number(ss)
+  if (hour > 23 || minute > 59 || second > 59) return null
+  return new Date(taipeiDayStart(date!).getTime() + ((hour * 60 + minute) * 60 + second) * 1000)
+}
+
+/** `parseTaipeiDateTime` 的反向：給 `datetime-local` 預填用，帶秒。 */
+export function toTaipeiDateTimeInput(instant: Date): string {
+  const p = taipeiParts(instant)
+  return `${taipeiDateOf(instant)}T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`
+}
+
+/** 瞬間在臺灣時鐘上的 `HH:mm`。 */
+export function taipeiTimeOf(instant: Date): TaipeiTimeOfDay {
+  const p = taipeiParts(instant)
+  return `${pad(p.hour)}:${pad(p.minute)}`
+}
