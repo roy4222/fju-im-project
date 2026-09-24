@@ -41,7 +41,9 @@ fi
 
 export FAULTSIM_IMAGE="$IMAGE"
 export FAULTSIM_PORT="${FAULTSIM_PORT:-3928}"
-COMPOSE="docker compose -f $APP_ROOT/docker-compose.faultsim.yml"
+# -p 一定要寫：fault-drill.sh 會 export COMPOSE_PROJECT_NAME=fju-test（ops/lib/site.sh），
+# 那個環境變數比 Compose 檔裡的 name: 優先；只有 -p 蓋得過它。
+COMPOSE="docker compose -p fju-faultsim -f $APP_ROOT/docker-compose.faultsim.yml"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fju-faultsim.XXXXXX")"
 
 # shellcheck disable=SC2329  # 由下面的 trap 在結束時呼叫。

@@ -175,13 +175,21 @@ health_code() {
 health_json() { cat "$HEALTH_BODY"; }
 json_field() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=process.argv[1].split(".").reduce((o,k)=>o?.[k],JSON.parse(s));process.stdout.write(v==null?"":String(v))}catch{}})' "$1"; }
 
+# 心跳（worker.lastTickAt）是不是晚於某個時間點（epoch 秒）：證明是重啟後的新 worker 在跳。
+tick_after() {
+  local since="$1" at
+  at="$(health_json | json_field worker.lastTickAt)"
+  [ -n "$at" ] && node -e 'process.exit(Date.parse(process.argv[1]) > Number(process.argv[2]) * 1000 ? 0 : 1)' "$at" "$since"
+}
+
 # 部署用的完整六項判定（ops/check-health.mjs），等到通過或逾時。
+# 第二個參數（epoch 秒，可省略）：心跳還要晚於這個時間點才算數。
 await_full_health() {
-  local tag="$1" deadline
+  local tag="$1" since="${2:-0}" deadline
   deadline=$(( $(date +%s) + HEALTH_TIMEOUT_SECONDS ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if [ "$(health_code)" = 200 ] && HEALTH_JSON="$(health_json)" EXPECT_TAG="$tag" EXPECT_WORKER=1 \
-      node "$APP_ROOT/ops/check-health.mjs" >/dev/null 2>&1; then
+      node "$APP_ROOT/ops/check-health.mjs" >/dev/null 2>&1 && tick_after "$since"; then
       return 0
     fi
     sleep 2
@@ -195,14 +203,19 @@ psql_owner() {
   $COMPOSE exec -T postgres sh -c 'psql -q -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 }
 
+# 對的 Compose project 裡真的有站台在跑，才演練（避免對著空的 project 重啟、誤判通過）。
+[ -n "$IMAGE" ] || fail "Compose project ${COMPOSE_PROJECT_NAME} 裡沒有在跑的 app，先確認站台是起來的"
+
 case "$CASE" in
   restart)
     [ "$(health_code)" = 200 ] || fail "演練前 /api/health 就不是 200，先把站台修好再演練"
     tag="$(health_json | json_field commit)"
     say "演練前：commit ${tag}，健康。重啟 app 與 worker……"
+    restarted_at="$(date +%s)"
     $COMPOSE restart app worker
-    if await_full_health "$tag"; then
-      pass "重啟後 ${HEALTH_TIMEOUT_SECONDS} 秒內完整六項通過，commit 與 worker.version 仍是 ${tag}"
+    # 心跳要晚於「重啟那一刻」：證明是重啟後的新 worker 在跳，不是重啟前留下的那一拍。
+    if await_full_health "$tag" "$restarted_at"; then
+      pass "重啟後 ${HEALTH_TIMEOUT_SECONDS} 秒內完整六項通過、心跳來自重啟後的 worker，commit 與 worker.version 仍是 ${tag}"
     fi
     fail "重啟後 ${HEALTH_TIMEOUT_SECONDS} 秒內完整六項沒有通過：$(health_json)"
     ;;
