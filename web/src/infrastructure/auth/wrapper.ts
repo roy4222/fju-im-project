@@ -102,12 +102,16 @@ export const internalAuth = {
     runAsInternalCall(() => getAuth().api.revokeUserSessions({ body: input, headers })),
 
   /**
-   * 系辦建立老師帳號（伺服器端建立，不經註冊流程）。
+   * 系辦建立老師帳號（伺服器端建立，不經註冊流程；票 8）。
    *
    * `role` 是 admin plugin 自己的欄（'user' | 'admin'）；本專案的業務角色在
    * `role_assignments`，所以這裡刻意不開放帶 role，一律讓套件給預設值。
+   *
+   * `password` 可以不帶：預授權的老師先不給密碼，套件就不建 credential 帳號
+   * （1.7.5 `admin/routes.mjs` 的 createUser），沒有人能用密碼登入這個帳號。
+   * 之後系辦發臨時密碼時，`setUserPassword` 會自己補建 credential 帳號。
    */
-  createUser: (headers: Headers, input: { email: string; password: string; name: string }) =>
+  createUser: (headers: Headers, input: { email: string; password?: string; name: string }) =>
     runAsInternalCall(() => getAuth().api.createUser({ body: input, headers })),
 } as const
 

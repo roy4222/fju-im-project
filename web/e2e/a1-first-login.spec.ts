@@ -57,8 +57,8 @@ test('設定新密碼之後進得了管理員首頁', async ({ page }) => {
   await page.getByLabel('再輸入一次新密碼').fill(NEW_PASSWORD)
   await page.getByRole('button', { name: '設定新密碼' }).click()
 
-  // 改完之後回首頁；再開後台就進得去了。
-  await expect(page).toHaveURL(/\/$/)
+  // 改完之後直接回自己的後台（票 8 起：改密後導向本人首頁，不再回公開首頁）。
+  await expect(page).toHaveURL(/\/dashboard\/admin$/)
   await page.goto('/dashboard/admin')
   await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
   await expect(page.getByRole('link', { name: '屆別', exact: true })).toBeVisible()

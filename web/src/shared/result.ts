@@ -23,13 +23,22 @@ export type Result<R> = Ok<R> | Err
 /**
  * 一次性秘密（母 spec §4.12、契約 02 §1）。刻意不是 Result：
  * 秘密只活在這個型別裡，不進帳本、audit 或 log。
+ *
+ * `expiresAt`：契約寫的是 string，但 Better Auth 的密碼沒有到期機制，要做到期得加欄位
+ * （migration），票 8 不能加；所以目前一律 `null`＝「用到本人改掉為止」——本人登入後
+ * 一定被逼著改密碼，改完這組就失效。
  */
 export type SecretOnce = {
   ok: true
   secret: string
   issuedAt: string
-  expiresAt: string
+  expiresAt: string | null
   receipt: { requestId: string; kind: 'temp_password'; issuedBy: string }
+}
+
+/** 這個回應是不是一次性秘密（跟 Result 分開判斷）。 */
+export function isSecretOnce(value: unknown): value is SecretOnce {
+  return typeof value === 'object' && value !== null && typeof (value as { secret?: unknown }).secret === 'string'
 }
 
 export function ok<R>(payload: R, meta: { requestId: string; serverTime: string }): Ok<R> {
