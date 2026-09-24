@@ -96,6 +96,7 @@ if [ "$running" = "$IMAGE_REPO:$sha" ]; then
 fi
 
 say "main 有新映像：${sha}（測試站目前：${running:-沒有在跑}），開始部署到 fju-test。"
+# 票 28 起 deploy.sh 預設就是完整六項；AUTO_DEPLOY_EXPECT_WORKER=1 仍會帶 --expect-worker（現在等於預設，無害）。
 extra=()
 [ "${AUTO_DEPLOY_EXPECT_WORKER:-0}" = 1 ] && extra+=(--expect-worker)
 
