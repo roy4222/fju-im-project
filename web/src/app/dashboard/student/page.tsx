@@ -1,13 +1,13 @@
 import { requireRole } from '@/app/_ui/guard'
 import { StageBanner } from '@/app/dashboard/_stage'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { PageHeader, Tile } from '@/app/_ui/primitives'
+import { EmptyState, PageHeader, Tile } from '@/app/_ui/primitives'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { StudentCalendar } from '@/app/dashboard/student/_calendar'
 import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
 import { getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { getPublicItemQuery } from '@/composition/items'
-import { formatTaipeiDate, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
+import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '學生首頁｜資管系專題平台' }
 
@@ -18,7 +18,10 @@ export default async function StudentHomePage() {
 
   // 行事曆（票 16）：屆別活動（票 11）＋收件截止（票 15），都是現有資料組出來的，不另外存。
   // 看哪一屆跟頂端的階段一樣：自己所屬的屆別。「今天」用業務鐘（測試站撥模擬鐘，月曆跟著走）。
-  const cohortId = actor.kind === 'authenticated' ? (actor.cohortMemberships.find((m) => m.role === 'student') ?? actor.cohortMemberships[0])?.cohortId : undefined
+  const cohortId =
+    actor.kind === 'authenticated'
+      ? (actor.cohortMemberships.find((m) => m.role === 'student') ?? actor.cohortMemberships[0])?.cohortId
+      : undefined
   const [activities, deadlines, now] = await Promise.all([
     cohortId ? getTimelineQuery().activities(cohortId) : Promise.resolve([]),
     getPublicItemQuery().myDeadlines(actor),
@@ -27,8 +30,6 @@ export default async function StudentHomePage() {
   const today = taipeiDateOf(now)
   const entries = calendarEntries(activities, deadlines)
   const next = upcoming(entries, today)
-  // 截止含那一分鐘（母 spec §4.11），跟其他地方一樣用 isDeadlinePassed 判斷。
-  const openDeadlines = deadlines.filter((d) => !isDeadlinePassed(now, d.dueAt)).length
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student">
@@ -36,7 +37,15 @@ export default async function StudentHomePage() {
       <StageBanner actor={actor} perspective="student" showStages />
       <div className="grid gap-4 sm:grid-cols-2">
         <Tile label="我的組別" value="—" hint="分組功能開放後會顯示" />
-        <Tile label="還沒到的收件截止" value={`${openDeadlines} 件`} hint="日期與時間都是臺灣時間" />
+        <Tile label="待繳交" value="—" hint="到「作業區」看每一份收件的狀態" href="/dashboard/student/affairs" />
+      </div>
+      <div className="mt-6">
+        <EmptyState
+          pending
+          title="首頁的待辦數字與組別繳交還沒做"
+          description="個人收件已經可以在「作業區」填寫與正式送出；首頁待繳數字與整組一份的繳交會陸續開放。"
+          action={{ href: '/dashboard/student/affairs', label: '去作業區' }}
+        />
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">

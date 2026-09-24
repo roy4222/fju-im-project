@@ -47,7 +47,9 @@
     { "slice": "S04", "table": "form_schema_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：收件欄位結構版本" },
     { "slice": "S04", "table": "item_attachments", "select": true, "insert": true, "update": ["sort"], "delete": true, "immutable": false, "worker": false, "note": "附件集合：只改排序；移除即 DELETE 並釋放 file_references" },
     { "slice": "S04", "table": "item_publications", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：發布、發布更新、撤回、下架、重新發布的紀錄" },
-    { "slice": "S04", "table": "response_rosters", "select": true, "insert": true, "update": ["eligible_to_business_at", "removed_reason", "exempt", "exempt_reason", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": true, "note": "收件名單區間列（表歸模組 05）：只改結束欄、免填與通用欄；收件者、項目、起始時間寫了就不動，不刪列" }
+    { "slice": "S04", "table": "response_rosters", "select": true, "insert": true, "update": ["eligible_to_business_at", "removed_reason", "exempt", "exempt_reason", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": true, "note": "收件名單區間列（表歸模組 05）：只改結束欄、免填與通用欄；收件者、項目、起始時間寫了就不動，不刪列" },
+    { "slice": "S05", "table": "submission_drafts", "select": true, "insert": true, "update": ["schema_version_id", "answers", "legacy_answers", "file_ids", "migration_state", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": false, "note": "收件者的草稿（附錄 A drafts）：只改內容與通用欄；項目與收件者寫了就不動，不刪列" },
+    { "slice": "S05", "table": "submission_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變：每次正式送出一列；截止快照 worker 只讀" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

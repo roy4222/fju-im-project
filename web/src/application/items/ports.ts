@@ -130,8 +130,8 @@ export type ItemReview = {
 /**
  * 「這份收件有沒有人作答」（模組實作設計 05 §5 `SubmissionQuery.hasAnyResponse`）。
  *
- * 回答表（草稿、正式版本）在票 17 才建，所以票 15 的實作一律回 false；
- * 票 17 換成真的查詢時，收件單位鎖定等規則不用改。吃呼叫端的 `tx`，在發布更新的交易裡判斷。
+ * 實作在模組 05（`infrastructure/submissions/pg-response-presence.ts`，票 17）：有任何草稿或正式版本就算。
+ * 吃呼叫端的 `tx`，在發布更新的交易裡判斷。
  */
 export interface ResponsePresence<Tx = unknown> {
   hasAnyResponse(tx: Tx, itemId: string): Promise<boolean>
@@ -181,7 +181,7 @@ export type ItemDetail = {
   readonly schemaVersionNo: number | null
   readonly rosterCount: number
   readonly updatedAt: Date
-  /** 票 17 之前一律 false（見 `ResponsePresence`）。 */
+  /** 已有人存過草稿或正式送出（見 `ResponsePresence`）：收件單位、對象、欄位結構鎖定。 */
   readonly hasResponses: boolean
   /** 發布、發布更新的紀錄，新的在前。 */
   readonly publications: readonly {

@@ -21,6 +21,8 @@ export const TEACHER_NAV: readonly NavItem[] = [{ href: '/dashboard/teacher', la
 export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student', label: '首頁' },
   { href: '/dashboard/student/groups', label: '我的組別' },
+  // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
+  { href: '/dashboard/student/affairs', label: '作業區' },
 ]
 
 /**
@@ -43,6 +45,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/teacher', role: 'teacher' },
   { path: '/dashboard/student', role: 'student' },
   { path: '/dashboard/student/groups', role: 'student' },
+  // 作業區與內容頁（票 17）；`/dashboard/student/affairs/<id>` 同一個守衛。
+  { path: '/dashboard/student/affairs', role: 'student' },
   // 通知匣（票 12）：入口是頂列的鈴鐺，不放側欄。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },

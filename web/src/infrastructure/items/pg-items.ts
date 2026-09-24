@@ -1302,10 +1302,11 @@ export class PgItemQuery implements ItemQuery {
   readonly #reader: () => Pick<Pool, 'query'>
   readonly #responses: { hasAnyResponse(itemId: string): Promise<boolean> }
 
-  constructor(
-    reader: () => Pick<Pool, 'query'> = getPool,
-    responses: { hasAnyResponse(itemId: string): Promise<boolean> } = { hasAnyResponse: async () => false },
-  ) {
+  /**
+   * `responses`：編輯器顯示「已有人作答、收件單位鎖定」用（票 17 的真查詢，由 composition 注入）。
+   * 刻意沒有預設值——漏接就是恆 false，鎖定在畫面上永遠不亮。
+   */
+  constructor(reader: () => Pick<Pool, 'query'>, responses: { hasAnyResponse(itemId: string): Promise<boolean> }) {
     this.#reader = reader
     this.#responses = responses
   }
