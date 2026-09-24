@@ -2,7 +2,7 @@ import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import { PASSWORD_MIN_LENGTH } from '@/application/accounts'
 import { getPool } from '@/infrastructure/db/client'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * 改密碼的業務規則（模組 01 §3、契約 03 §2、§6）。
@@ -29,7 +29,8 @@ export function validateNewPassword(
   return null
 }
 
-const limiter = createRateLimiter(RATE_LIMITS.changePassword)
+// 改密頁（Server Action）與直接打 API 在不同的 chunk，限速器要共用同一份（見 sharedRateLimiter）。
+const limiter = sharedRateLimiter('change-password', RATE_LIMITS.changePassword)
 
 /** 契約 03 §6：每人每小時 5 次。 */
 export function checkChangePasswordRate(userId: string) {

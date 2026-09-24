@@ -55,13 +55,15 @@ export default async function AdminAccountsPage() {
         <DataTable
           columns={['姓名', '學號', '系級', '比對結果', '最後更新', '操作']}
           rows={(pending?.applications ?? []).map((a) => [
-            <span key="n" className="font-medium text-ink">
+            <span key="n" className="whitespace-nowrap font-medium text-ink">
               {a.appliedName}
             </span>,
             <span key="s" className="tabular-nums">
               {a.studentNo}
             </span>,
-            a.departmentClass || '—',
+            <span key="d" className="whitespace-nowrap">
+              {a.departmentClass || '—'}
+            </span>,
             <EvidencePills key="f" flags={a.flags} labels={REVIEW_LABELS} />,
             <span key="t" className="whitespace-nowrap tabular-nums text-muted-foreground">
               {formatTaipeiMinute(new Date(a.updatedAt))}

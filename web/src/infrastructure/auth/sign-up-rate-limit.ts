@@ -1,5 +1,5 @@
 import 'server-only'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * 註冊限速（契約 03 §6：同一個 IP 每小時 30 次；2026-09-23 Roy 定案，取代舊的 5 次）。
@@ -17,7 +17,8 @@ import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
  * 那種不會打到端點，也就不算——打錯字的學生不會把全班的額度用完。
  */
 
-const limiter = createRateLimiter(RATE_LIMITS.register)
+// 註冊頁（Server Action）與直接打 API 在不同的 chunk，限速器要共用同一份（見 sharedRateLimiter）。
+const limiter = sharedRateLimiter('sign-up', RATE_LIMITS.register)
 
 export function signUpKey(ip: string): string {
   return `sign-up:${ip}`

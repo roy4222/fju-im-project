@@ -58,12 +58,18 @@ export async function createTestSession(
    * 順帶一提：這個預設值對正式環境太緊（全系在同一個對外 IP 後面，一分鐘只有 10 次
    * 就會擋到正常登入）。契約 03 §6 的逐路由限速由 S01-05／S01-15 實作，屆時一併調整。
    */
+  // 每次註冊帶一個隨機的來源 IP：註冊限速是每 IP 每小時 30 次（票 7），CI 直連 app 時
+  // 沒帶標頭的請求全部落在同一個「unknown」桶，e2e 一多就會互相吃掉額度。
+  // 經過 Caddy（本機 8080）時這個標頭會被 Caddy 覆寫成真的來源，等於沒帶——那是正確的行為。
+  const headers = { 'x-real-ip': `10.250.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` }
   let response = await request.post('/api/auth/sign-up/email', {
+    headers,
     data: { email, password: 'E2e-Password-Correct-9', name: `e2e ${role ?? 'pending'}` },
   })
   if (response.status() === 429) {
     await new Promise((resolve) => setTimeout(resolve, 61_000))
     response = await request.post('/api/auth/sign-up/email', {
+      headers,
       data: { email, password: 'E2e-Password-Correct-9', name: `e2e ${role ?? 'pending'}` },
     })
   }

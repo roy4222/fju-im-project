@@ -71,7 +71,7 @@ function Compare({
     verdict === 'same' ? '相同' : verdict === 'different' ? '不同' : verdict === 'roster_blank' ? '名單未填' : null
   return (
     <tr className="border-t border-border">
-      <th scope="row" className="py-2 pr-3 text-left font-normal text-muted-foreground">
+      <th scope="row" className="whitespace-nowrap py-2 pr-3 text-left font-normal text-muted-foreground">
         {label}
       </th>
       <td className="break-all py-2 pr-3 font-medium text-ink">{applied || '—'}</td>
@@ -101,6 +101,9 @@ export function ReviewDialog({
 }) {
   const router = useRouter()
   const dialogRef = useRef<HTMLDialogElement>(null)
+  // 關著的時候不渲染內容：待審清單每一列都有一個對話框，全部先畫出來會讓整頁變很重，
+  // 而且隱藏的內容（屆別選單等）會混進那一列的文字裡。
+  const [isOpen, setIsOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>({ kind: 'form' })
   const [method, setMethod] = useState<VerificationMethod | ''>('')
   const [note, setNote] = useState('')
@@ -125,6 +128,7 @@ export function ReviewDialog({
     setCohortId(a.suggestedCohortId ?? '')
     setError(null)
     setRequestId(crypto.randomUUID())
+    setIsOpen(true)
     dialogRef.current?.showModal()
   }
 
@@ -138,6 +142,7 @@ export function ReviewDialog({
    * 系辦還沒看到回執就沒了。
    */
   function onClosed() {
+    setIsOpen(false)
     if (phase.kind !== 'form') router.refresh()
   }
 
@@ -195,27 +200,26 @@ export function ReviewDialog({
     }
   }
 
-  const titleId = `review-title-${a.applicationId}`
-
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, PRIMARY, 'px-3 py-1.5')} aria-label={`審核 ${a.appliedName}`}>
+      <button type="button" onClick={open} className={cn(BUTTON, PRIMARY, 'whitespace-nowrap px-3 py-1.5')} aria-label={`審核 ${a.appliedName}`}>
         審核
       </button>
 
       <dialog
         ref={dialogRef}
         onClose={onClosed}
-        aria-labelledby={titleId}
+        // 名稱固定：對話框從表單換成回執時，輔助科技（與測試）找的仍是同一個對話框。
+        aria-label={`審核 ${a.appliedName}`}
         className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
       >
         <div className="max-h-[85vh] overflow-y-auto p-5">
-          {phase.kind === 'done' ? (
+          {!isOpen ? null : phase.kind === 'done' ? (
             <div className="space-y-3 text-center" role="status">
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
                 {phase.receipt.decision === 'approved' ? '已核准' : '已退回'}
               </p>
-              <h2 id={titleId} className="text-lg font-semibold text-ink">
+              <h2 className="text-lg font-semibold text-ink">
                 {phase.receipt.appliedName}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -229,7 +233,7 @@ export function ReviewDialog({
             </div>
           ) : phase.kind === 'stale' ? (
             <div className="space-y-3">
-              <h2 id={titleId} className="text-lg font-semibold text-ink">
+              <h2 className="text-lg font-semibold text-ink">
                 資料已經變了
               </h2>
               <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
@@ -244,7 +248,7 @@ export function ReviewDialog({
           ) : (
             <div className="space-y-4">
               <div>
-                <h2 id={titleId} className="text-lg font-semibold text-ink">
+                <h2 className="text-lg font-semibold text-ink">
                   審核 {a.appliedName}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">

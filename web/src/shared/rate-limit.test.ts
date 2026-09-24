@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { createRateLimiter, RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /** S01-05：契約 03 §6 的限速。 */
 
@@ -83,5 +83,16 @@ describe('契約 03 §6 的門檻值', () => {
     expect(limiter.hit('register:203.0.113.10').allowed).toBe(true)
     now = 3_600_000
     expect(limiter.hit('register:203.0.113.9').allowed).toBe(true)
+  })
+})
+
+describe('sharedRateLimiter：同一個程序只有一份', () => {
+  it('同名拿到同一個計數（Route Handler 與 Server Action 在不同 chunk 也共用），不同名互不影響', () => {
+    const a = sharedRateLimiter('test-shared', { max: 1, windowMs: 60_000 })
+    const b = sharedRateLimiter('test-shared', { max: 1, windowMs: 60_000 })
+    expect(a).toBe(b)
+    expect(a.hit('k').allowed).toBe(true)
+    expect(b.hit('k').allowed).toBe(false)
+    expect(sharedRateLimiter('test-other', { max: 1, windowMs: 60_000 }).hit('k').allowed).toBe(true)
   })
 })
