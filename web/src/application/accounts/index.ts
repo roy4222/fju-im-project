@@ -89,6 +89,27 @@ export {
   VERIFICATION_NOTE_REQUIRED,
 } from '@/application/accounts/registration'
 export type {
+  AccountCommand,
+  AccountLookup,
+  NormalizedTeacherAccount,
+  TeacherAccountInput,
+  TeacherAccountReceipt,
+  TeacherCreatedWithSecret,
+  TeacherCreationMode,
+  TeacherProfileInput,
+  TeacherProfileView,
+  TeacherSetupCommand,
+  TemporaryPasswordReceipt,
+} from '@/application/accounts/teachers'
+export {
+  accountAdminDenied,
+  normalizeTeacherAccountInput,
+  normalizeTeacherProfile,
+  normalizeTemporaryPasswordRequest,
+  TEACHER_NAME_MAX_LENGTH,
+  teacherSetupDenied,
+} from '@/application/accounts/teachers'
+export type {
   ReconcileReason,
   RevocationKind,
   RevocationTargetStatus,

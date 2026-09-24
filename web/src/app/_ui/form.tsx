@@ -48,6 +48,7 @@ export function Field({
   autoComplete,
   hint,
   defaultValue,
+  optional = false,
 }: {
   label: string
   name: string
@@ -55,6 +56,8 @@ export function Field({
   autoComplete?: string
   hint?: string
   defaultValue?: string
+  /** 選填欄位（預設必填）。 */
+  optional?: boolean
 }) {
   const id = `field-${name}`
   return (
@@ -68,7 +71,7 @@ export function Field({
         type={type}
         autoComplete={autoComplete}
         defaultValue={defaultValue}
-        required
+        required={!optional}
         className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
       {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
