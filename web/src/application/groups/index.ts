@@ -1,6 +1,6 @@
 /**
  * 模組 03 分組、指導與產學的公開入口（母 spec §4.3）。票 13：找組員、提案與成組；票 14：管理員調整組員與換組長；
- * 票 19：指導老師指派、認領與重派。
+ * 票 19：指導老師指派、認領與重派；票 20：產學合作案、組別連結、組長改類型、組別名單匯出。
  *
  * 跨模組只能從這裡引用，而且只能帶型別；執行期的實作由 composition 注入。
  */
@@ -96,6 +96,77 @@ export {
 } from '@/application/groups/advisors'
 export { describeGroupHistory } from '@/application/groups/history'
 export type {
+  ChangeGroupTypeInput,
+  CreateOpportunityInput,
+  GroupOpportunityLink,
+  GroupTypeReceipt,
+  LeaderTypeChangeFacts,
+  LinkChange,
+  LinkedGroupRef,
+  LinkOpportunityInput,
+  LinkReceipt,
+  ManagedOpportunity,
+  NormalizedOpportunity,
+  NotesVisibility,
+  OpportunityAction,
+  OpportunityCard,
+  OpportunityContact,
+  OpportunityDetail,
+  OpportunityField,
+  OpportunityInput,
+  OpportunityPage,
+  OpportunityReceipt,
+  OpportunityStatus,
+  OpportunityStatusInput,
+  UnlinkOpportunityInput,
+  UpdateOpportunityInput,
+} from '@/application/groups/opportunities'
+export {
+  canManageOpportunity,
+  canViewOpportunities,
+  describeGroupTypeReceipt,
+  describeLinkReceipt,
+  describeOpportunityReceipt,
+  leaderTypeChangeBlockers,
+  normalizeLinkReason,
+  normalizeOpportunityInput,
+  NOTES_VISIBILITY_LABEL,
+  OPPORTUNITY_FIELD_LABEL,
+  OPPORTUNITY_LIMITS,
+  OPPORTUNITY_STATUS_LABEL,
+  opportunityName,
+  opportunitySummary,
+  parseGroupType,
+} from '@/application/groups/opportunities'
+export type {
+  RosterDirection,
+  RosterExportFormat,
+  RosterExportRequest,
+  RosterFilter,
+  RosterSort,
+  RosterStatusFilter,
+  RosterTypeFilter,
+} from '@/application/groups/roster'
+export {
+  applyRosterFilter,
+  buildRosterCsv,
+  DEFAULT_ROSTER_FILTER,
+  groupEmailList,
+  normalizeRosterExportRequest,
+  normalizeRosterFilter,
+  ROSTER_EXPORT_COLUMNS,
+  ROSTER_EXPORT_MAX_GROUPS,
+  ROSTER_SEARCH_MAX_LENGTH,
+  ROSTER_SORT_LABEL,
+  ROSTER_SORTS,
+  ROSTER_STATUS_FILTER_LABEL,
+  ROSTER_STATUS_FILTERS,
+  ROSTER_TYPE_FILTER_LABEL,
+  ROSTER_TYPE_FILTERS,
+  rosterExportRows,
+  rosterQueryString,
+} from '@/application/groups/roster'
+export type {
   AdvisorCommand,
   AdvisorGradingLookup,
   CohortGroupingOverview,
@@ -104,6 +175,12 @@ export type {
   GroupMember,
   GroupQuery,
   GroupSummary,
+  GroupRosterExporter,
+  LeaderPanel,
+  OpportunityCommand,
+  OpportunityListFilter,
+  OpportunityQuery,
+  RosterExportResult,
   ProposalExpiryHandler,
   ProposalInvitation,
   ProposalSummary,

@@ -8,11 +8,13 @@ import { describeGroupingSettingsReceipt, getCohortCommand } from '@/composition
 import {
   describeAdvisorBatchReceipt,
   describeAdvisorChangeReceipt,
+  describeGroupTypeReceipt,
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,
   getAdvisorCommand,
   getGroupCommand,
+  getOpportunityCommand,
 } from '@/composition/groups'
 import type { Result } from '@/shared/result'
 
@@ -200,4 +202,25 @@ export async function executeAdvisorBatchAction(input: {
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, data: { receipt: result.receipt, message: describeAdvisorBatchReceipt(result.receipt) } }
+}
+
+// ── 改組別類型（票 20）：系辦處理組長自己改不了的情況，理由必填，既有主指導與合作案連結保留 ──
+
+export async function changeGroupTypeAdminAction(
+  _state: AdminGroupActionState,
+  formData: FormData,
+): Promise<AdminGroupActionState> {
+  const result = await getOpportunityCommand().changeGroupType(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      groupType: text(formData, 'groupType'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeGroupTypeReceipt(result.receipt) }
 }

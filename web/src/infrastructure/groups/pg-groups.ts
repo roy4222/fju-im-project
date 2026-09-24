@@ -20,6 +20,7 @@ import {
   normalizeProposeInput,
   normalizeReason,
   normalizeVoidReason,
+  opportunityName,
   proposalExpiry,
   studentCohortOf,
   TERMINATION_KIND_LABEL,
@@ -37,6 +38,7 @@ import {
   type InvitationState,
   type LeaderChangeReceipt,
   type MemberChangeReceipt,
+  type OpportunityStatus,
   type ProposalExpiryHandler,
   type ProposalState,
   type ProposalSummary,
@@ -195,7 +197,12 @@ function authorizeStudent(actor: ResolvedActor): { ok: true; userId: string; coh
   return { ok: true, userId: actor.userId, cohortId }
 }
 
-async function loadSchedule(tx: PoolClient, cohortId: string, yearEndDate: string | null): Promise<CohortSchedule> {
+/** 一屆的階段表（成組期判斷用）。票 20 的組長改類型（`pg-opportunities.ts`）也用這一份。 */
+export async function loadSchedule(
+  tx: Pick<PoolClient, 'query'>,
+  cohortId: string,
+  yearEndDate: string | null,
+): Promise<CohortSchedule> {
   const stages = await tx.query<{ seq: number; name: string; start_date: string; deadline_version: number }>(
     `select seq, name, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
        from cohort_stages where cohort_id = $1 order by seq`,
@@ -1628,10 +1635,19 @@ export class PgGroupQuery implements GroupQuery {
     )
     if (groups.rows.length === 0) return []
     const ids = groups.rows.map((g) => g.id)
-    const members = await db.query<{ group_id: string; user_id: string; name: string; student_no: string | null; is_leader: boolean }>(
+    const members = await db.query<{
+      group_id: string
+      user_id: string
+      name: string
+      student_no: string | null
+      is_leader: boolean
+      login_email: string | null
+    }>(
+      // 登入信箱（票 20 複製本組信箱、匯出）只在管理員的查詢裡 select；學生與老師的查詢連這一欄都不讀。
       `select m.group_id, m.user_id, coalesce(p.display_name, u.name) as name, p.student_no,
               exists (select 1 from group_leaders l
-                       where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader
+                       where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
+              ${forAdmin ? 'u.email' : 'null::text'} as login_email
          from group_memberships m
          join users u on u.id = m.user_id
          left join user_profiles p on p.user_id = m.user_id
@@ -1660,6 +1676,32 @@ export class PgGroupQuery implements GroupQuery {
         { teacherUserId: a.teacher_user_id, teacherName: a.teacher_name, source: a.source, since: a.valid_from },
       ]),
     )
+    // 目前連結的合作案（票 20）：只帶名稱（公司＋部門，登入者可見的公開欄位）與狀態。
+    const links = await db.query<{
+      group_id: string
+      link_id: string
+      opportunity_id: string
+      company_name: string
+      department: string
+      status: OpportunityStatus
+    }>(
+      `select l.group_id, l.id as link_id, o.id as opportunity_id, o.company_name, o.department, o.status
+         from opportunity_links l
+         join industry_opportunities o on o.id = l.opportunity_id
+        where l.group_id = any($1::uuid[]) and l.valid_to is null`,
+      [ids],
+    )
+    const linkOf = new Map(
+      links.rows.map((l) => [
+        l.group_id,
+        {
+          linkId: l.link_id,
+          opportunityId: l.opportunity_id,
+          name: opportunityName({ companyName: l.company_name, department: l.department }),
+          status: l.status,
+        },
+      ]),
+    )
     const history = await this.#history(ids, forAdmin)
     return groups.rows.map((g) => ({
       id: g.id,
@@ -1670,8 +1712,15 @@ export class PgGroupQuery implements GroupQuery {
       revision: g.revision,
       members: members.rows
         .filter((m) => m.group_id === g.id)
-        .map((m) => ({ userId: m.user_id, name: m.name, studentNo: m.student_no, isLeader: m.is_leader })),
+        .map((m) => ({
+          userId: m.user_id,
+          name: m.name,
+          studentNo: m.student_no,
+          isLeader: m.is_leader,
+          loginEmail: forAdmin ? m.login_email : null,
+        })),
       advisor: advisorOf.get(g.id) ?? null,
+      opportunity: linkOf.get(g.id) ?? null,
       history: history.get(g.id) ?? [],
     }))
   }
@@ -1742,7 +1791,11 @@ export class PgGroupQuery implements GroupQuery {
     )
 
     const entries = new Map<string, { sortKey: number; entry: GroupHistoryEntry }[]>()
-    const push = (groupId: string, sortKey: Date, entry: GroupHistoryEntry) => {
+    // 票 20 加的兩欄（類型變更前後、換案前的合作案）只有自己的種類會帶；其他種類一律 null。
+    type EntryInput = Omit<GroupHistoryEntry, 'groupTypes' | 'previousOpportunityName'> &
+      Partial<Pick<GroupHistoryEntry, 'groupTypes' | 'previousOpportunityName'>>
+    const push = (groupId: string, sortKey: Date, input: EntryInput) => {
+      const entry: GroupHistoryEntry = { groupTypes: null, previousOpportunityName: null, ...input }
       const list = entries.get(groupId) ?? []
       list.push({ sortKey: sortKey.getTime(), entry })
       entries.set(groupId, list)
@@ -1843,6 +1896,100 @@ export class PgGroupQuery implements GroupQuery {
           previousAdvisorName: null,
           byName: admin(a.ended_by_name),
           reason: admin(a.end_reason),
+        })
+      }
+    }
+
+    // 組別類型變更（票 20）：沒有歷史表（不加 migration），事實記在稽核 `group.type.change`（payload 帶前後類型）。
+    // 組長自己改的，操作者就是組長本人，學生也看得到是誰改的；系辦改的只在管理員的查詢裡帶名字與理由。
+    const typeChanges = await db.query<{
+      group_id: string
+      from_type: GroupType
+      to_type: GroupType
+      business_at: Date
+      real_at: Date
+      role: string | null
+      actor_name: string | null
+      reason: string | null
+    }>(
+      `select a.target_id as group_id, a.payload->>'from' as from_type, a.payload->>'to' as to_type,
+              a.business_at, a.real_at, a.role, a.reason,
+              coalesce(nullif(btrim(p.display_name), ''), u.name) as actor_name
+         from audit_events a
+         left join users u on u.id = a.actor_user_id
+         left join user_profiles p on p.user_id = a.actor_user_id
+        where a.target_type = 'group' and a.action = 'group.type.change' and a.target_id = any($1::uuid[])`,
+      [groupIds],
+    )
+    for (const t of typeChanges.rows) {
+      const byAdmin = t.role === 'admin'
+      push(t.group_id, t.real_at, {
+        kind: 'type_changed',
+        at: t.business_at,
+        userName: byAdmin ? '系辦' : (t.actor_name ?? ''),
+        previousLeaderName: null,
+        previousAdvisorName: null,
+        byName: byAdmin ? admin(t.actor_name) : null,
+        reason: admin(t.reason),
+        groupTypes: { from: t.from_type, to: t.to_type },
+      })
+    }
+
+    // 合作案連結（票 20）：每一列的開始是一次連結（首次或換案，換案的新列用 `previous_link_id` 指向舊列）；
+    // 結束了、又沒有被任何一列接手的，就是被解除。和主指導同一套做法。
+    const opportunityLinks = await db.query<{
+      id: string
+      group_id: string
+      name: string
+      valid_from: Date
+      valid_to: Date | null
+      created_at: Date
+      ended_real_at: Date | null
+      previous_link_id: string | null
+      end_reason: string | null
+      by_name: string | null
+      ended_by_name: string | null
+    }>(
+      `select l.id, l.group_id, o.company_name || '・' || o.department as name, l.valid_from, l.valid_to, l.created_at,
+              l.ended_real_at, l.previous_link_id, l.end_reason,
+              coalesce(nullif(btrim(bp.display_name), ''), bu.name) as by_name,
+              coalesce(nullif(btrim(ep.display_name), ''), eu.name) as ended_by_name
+         from opportunity_links l
+         join industry_opportunities o on o.id = l.opportunity_id
+         left join users bu on bu.id = l.linked_by_user_id
+         left join user_profiles bp on bp.user_id = l.linked_by_user_id
+         left join users eu on eu.id = l.ended_by_user_id
+         left join user_profiles ep on ep.user_id = l.ended_by_user_id
+        where l.group_id = any($1::uuid[])`,
+      [groupIds],
+    )
+    const linkName = new Map(opportunityLinks.rows.map((l) => [l.id, l.name]))
+    const linkById = new Map(opportunityLinks.rows.map((l) => [l.id, l]))
+    const replacedLinks = new Set(
+      opportunityLinks.rows.map((l) => l.previous_link_id).filter((id): id is string => id !== null),
+    )
+    for (const l of opportunityLinks.rows) {
+      const previous = l.previous_link_id ? linkById.get(l.previous_link_id) : undefined
+      push(l.group_id, l.created_at, {
+        kind: 'opportunity_linked',
+        at: l.valid_from,
+        userName: l.name,
+        previousLeaderName: null,
+        previousAdvisorName: null,
+        byName: admin(l.by_name),
+        // 換案的理由記在被結束的那一列（`end_reason`）。
+        reason: admin(previous?.end_reason ?? null),
+        previousOpportunityName: l.previous_link_id ? (linkName.get(l.previous_link_id) ?? null) : null,
+      })
+      if (l.valid_to && l.ended_real_at && !replacedLinks.has(l.id)) {
+        push(l.group_id, l.ended_real_at, {
+          kind: 'opportunity_unlinked',
+          at: l.valid_to,
+          userName: l.name,
+          previousLeaderName: null,
+          previousAdvisorName: null,
+          byName: admin(l.ended_by_name),
+          reason: admin(l.end_reason),
         })
       }
     }

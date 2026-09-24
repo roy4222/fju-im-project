@@ -32,6 +32,22 @@ import type {
   TerminateReceipt,
   TerminationKind,
 } from '@/application/groups/proposals'
+import type {
+  ChangeGroupTypeInput,
+  CreateOpportunityInput,
+  GroupOpportunityLink,
+  GroupTypeReceipt,
+  LinkOpportunityInput,
+  LinkReceipt,
+  ManagedOpportunity,
+  OpportunityCard,
+  OpportunityPage,
+  OpportunityReceipt,
+  OpportunityStatusInput,
+  UnlinkOpportunityInput,
+  UpdateOpportunityInput,
+} from '@/application/groups/opportunities'
+import type { RosterExportFormat, RosterExportRequest } from '@/application/groups/roster'
 import type { Result } from '@/shared/result'
 
 /**
@@ -140,6 +156,11 @@ export type GroupMember = {
   readonly name: string
   readonly studentNo: string | null
   readonly isLeader: boolean
+  /**
+   * 帳號登入信箱（票 20 C18「複製本組信箱」、匯出）。**只有管理員的查詢**（`overview`）填；
+   * 學生與老師的查詢一律 null——同組學生看不到彼此的登入信箱（5.1 沒授權這件事）。
+   */
+  readonly loginEmail: string | null
 }
 
 /**
@@ -148,8 +169,19 @@ export type GroupMember = {
  * `reason` 只在管理員的查詢裡帶，學生的查詢一律 null（和作廢理由同一政策）。
  */
 export type GroupHistoryEntry = {
-  /** 票 19 加兩種：主指導指派（首次、認領或重派）與解除。 */
-  readonly kind: 'member_added' | 'member_removed' | 'leader_changed' | 'advisor_assigned' | 'advisor_removed'
+  /**
+   * 票 19 加兩種：主指導指派（首次、認領或重派）與解除。
+   * 票 20 加三種：組別類型變更、連結（首次或換案）合作案、解除合作案連結。
+   */
+  readonly kind:
+    | 'member_added'
+    | 'member_removed'
+    | 'leader_changed'
+    | 'advisor_assigned'
+    | 'advisor_removed'
+    | 'type_changed'
+    | 'opportunity_linked'
+    | 'opportunity_unlinked'
   /** 業務時間。 */
   readonly at: Date
   /** 加入／移出的人，或新組長。 */
@@ -161,6 +193,10 @@ export type GroupHistoryEntry = {
   /** 操作的管理員；學生的查詢一律 null。 */
   readonly byName: string | null
   readonly reason: string | null
+  /** 類型變更（票 20）：改之前、改之後；其他種類是 null。 */
+  readonly groupTypes: { readonly from: GroupType; readonly to: GroupType } | null
+  /** 換案（票 20）：原本的合作案名稱；首次連結與解除是 null（合作案名稱放在 `userName`）。 */
+  readonly previousOpportunityName: string | null
 }
 
 export type GroupSummary = {
@@ -174,6 +210,8 @@ export type GroupSummary = {
   readonly members: readonly GroupMember[]
   /** 目前的主指導（票 19）；還沒指派是 null。 */
   readonly advisor: AdvisorInfo | null
+  /** 目前連結的合作案（票 20；只帶公開欄位的名稱與狀態）；沒有連結是 null。 */
+  readonly opportunity: GroupOpportunityLink | null
   readonly history: readonly GroupHistoryEntry[]
 }
 
@@ -248,4 +286,93 @@ export interface GroupQuery {
   teacherOptions(): Promise<TeacherOption[]>
   /** 這位老師目前指導幾組（未封存的屆別）。 */
   advisedGroupCount(teacherUserId: string): Promise<number>
+}
+
+// ── 產學合作案（票 20） ────────────────────────────────────────────────────────
+
+/**
+ * 合作案的建立、編輯、發布、下架、重新發布；組別連結、換案、解除；組別類型變更
+ * （模組實作設計 03 §5 `OpportunityCommand`；產品 03 §4「5.3」「6.1–6.3」）。
+ *
+ * 共同規則：寫入的 port 自己做授權；帶版本（合作案或組別的 `revision`），別人先改過 `CONFLICT`；
+ * 同一個請求編號重送只做一次（操作帳本）。
+ */
+export interface OpportunityCommand {
+  /** 老師建立（案主＝本人）；可以直接發布或存草稿。管理員不建立（案主一定是老師）。 */
+  create(actor: ResolvedActor, input: CreateOpportunityInput, requestId: string): Promise<Result<OpportunityReceipt>>
+  /** 案主或系辦編輯。已下架的不能改（組員看到的是下架前發布的內容），要改先重新發布。 */
+  update(actor: ResolvedActor, input: UpdateOpportunityInput, requestId: string): Promise<Result<OpportunityReceipt>>
+  /** 發布草稿，或重新發布已下架的（不恢復以前解除的連結）。 */
+  publish(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>>
+  /** 下架：列表不再顯示、不接受新連結；既有連結保留。 */
+  withdraw(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>>
+  /**
+   * 組長（或系辦）把已成立的產學組連結到已發布的合作案；已經連著別的就是換案（理由必填）。
+   * 一般組、別人的組、未發布或已下架的案 `OPPORTUNITY_NOT_LINKABLE`／`FORBIDDEN`。
+   * 換案通知全組與新舊兩位案主；首次連結不在產品通知矩陣裡，只留事件與稽核。
+   */
+  link(actor: ResolvedActor, input: LinkOpportunityInput, requestId: string): Promise<Result<LinkReceipt>>
+  /** 案主或系辦解除（理由必填）；通知該組全員與案主。 */
+  unlink(actor: ResolvedActor, input: UnlinkOpportunityInput, requestId: string): Promise<Result<LinkReceipt>>
+  /**
+   * 改組別類型。組長：在成組期內、尚未指派主指導、未連結合作案三個條件都成立才可以，否則 `FORBIDDEN`
+   * 並說明是哪一條、請聯絡系辦。系辦：理由必填，既有主指導與合作案連結**保留**（不靜默刪關聯），回執列出來。
+   */
+  changeGroupType(actor: ResolvedActor, input: ChangeGroupTypeInput, requestId: string): Promise<Result<GroupTypeReceipt>>
+}
+
+/** 學生「我的組別」的合作案與類型區塊要的資料。 */
+export type LeaderPanel = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly groupType: GroupType
+  readonly revision: number
+  readonly isLeader: boolean
+  readonly link: GroupOpportunityLink | null
+  /** 組長自己改類型不符合的條件（空＝可以改）。 */
+  readonly typeChangeBlockers: readonly string[]
+  /** 可以連結的合作案（已發布；已經連著的那一案不列）。 */
+  readonly linkable: readonly OpportunityCard[]
+}
+
+export type OpportunityListFilter = {
+  /** `open` 尚未有組別連結、`linked` 已有組別。 */
+  readonly linked?: 'open' | 'linked'
+  readonly ownerUserId?: string
+  readonly q?: string
+  readonly sort?: 'newest' | 'oldest' | 'company'
+}
+
+/**
+ * 合作案的查詢。**查詢本身看 actor**（不是呼叫端守門）：回的是別人的公司聯絡資料，
+ * 訪客一律拿不到東西、聯絡資訊只有案主與系辦的查詢會去 select。
+ */
+export interface OpportunityQuery {
+  /** 已發布的合作案列表（登入者）；訪客與沒有角色的帳號回空陣列。 */
+  list(actor: ResolvedActor, filter?: OpportunityListFilter): Promise<OpportunityCard[]>
+  /** 打開一案（見 `OpportunityPage` 的五種結果）。 */
+  open(actor: ResolvedActor, opportunityId: string): Promise<OpportunityPage>
+  /** 老師看自己的全部合作案（含草稿、下架）；系辦看全部。其他人回空陣列。 */
+  manageList(actor: ResolvedActor): Promise<ManagedOpportunity[]>
+  /** 學生本人的組別在合作案與類型區塊要的資料；沒有組別回 null。 */
+  leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null>
+}
+
+/** 組別名單匯出的結果（票 20；#105）：檔案內容與筆數，檔名由呼叫端依時間組。 */
+export type RosterExportResult = {
+  readonly format: RosterExportFormat
+  readonly cohortCode: string
+  /** 匯出了幾組、幾列（每位組員一列）。 */
+  readonly groupCount: number
+  readonly rowCount: number
+  /** CSV 是字串（含 BOM），XLSX 是位元組。 */
+  readonly body: string | Uint8Array
+}
+
+/**
+ * 管理員匯出本屆組別名單（CSV／XLSX，帶登入信箱）。每次重新授權、重新查詢，只信「勾選的組別」或「篩選條件」，
+ * 不收瀏覽器算好的列；寫一筆稽核（只記範圍與筆數，不記個資）。
+ */
+export interface GroupRosterExporter {
+  exportRoster(actor: ResolvedActor, request: RosterExportRequest): Promise<Result<RosterExportResult>>
 }

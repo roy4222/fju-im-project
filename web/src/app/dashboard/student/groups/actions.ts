@@ -2,7 +2,14 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { GroupActionState } from '@/app/dashboard/student/groups/group-forms'
-import { describeConfirmReceipt, describeTerminateReceipt, getGroupCommand } from '@/composition/groups'
+import {
+  describeConfirmReceipt,
+  describeGroupTypeReceipt,
+  describeLinkReceipt,
+  describeTerminateReceipt,
+  getGroupCommand,
+  getOpportunityCommand,
+} from '@/composition/groups'
 
 /**
  * 「我的組別」頁的動作（票 13；契約 02 §7）：公開找組員開關、發起提案、確認、拒絕、撤回同意、撤回提案。
@@ -66,4 +73,45 @@ export async function terminateAction(_state: GroupActionState, formData: FormDa
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeTerminateReceipt(result.receipt) }
+}
+
+// ── 組長：連結合作案、改組別類型（票 20） ─────────────────────────────────────────
+
+const whole = (formData: FormData, name: string) => {
+  const raw = text(formData, name).trim()
+  return raw === '' ? Number.NaN : Number(raw)
+}
+
+/** 組長把組別連結到合作案；已經連著別的就是換案（理由必填）。組長、類型、合作案狀態全部在用例裡判。 */
+export async function linkOpportunityAction(_state: GroupActionState, formData: FormData): Promise<GroupActionState> {
+  const result = await getOpportunityCommand().link(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      opportunityId: text(formData, 'opportunityId'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeLinkReceipt(result.receipt) }
+}
+
+/** 組長改組別類型：成組期內、沒有主指導、沒有合作案三個條件都成立才可以（用例判；不符合時回原因）。 */
+export async function changeGroupTypeAction(_state: GroupActionState, formData: FormData): Promise<GroupActionState> {
+  const result = await getOpportunityCommand().changeGroupType(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      groupType: text(formData, 'groupType'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeGroupTypeReceipt(result.receipt) }
 }
