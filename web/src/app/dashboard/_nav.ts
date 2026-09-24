@@ -18,6 +18,9 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/industry', label: '合作案' },
   // 評分（票 23）：方案版本、要求份數、指派評分老師。
   { href: '/dashboard/admin/grading', label: '評分' },
+  // 簽核（票 25）：建簽核版本、各組目前版本；精選（票 25）：替各組建精選草稿（不發布）。
+  { href: '/dashboard/admin/signoff', label: '簽核' },
+  { href: '/dashboard/admin/showcase', label: '精選' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
@@ -30,6 +33,8 @@ export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher/industry', label: '我的合作案' },
   // 評分工作台（票 23）：只有被指派的組別。
   { href: '/dashboard/teacher/grading', label: '評分' },
+  // 簽核（票 25）：此刻指導的組的簽核版本（老師同意在票 26）。
+  { href: '/dashboard/teacher/signoff', label: '簽核' },
 ]
 
 export const STUDENT_NAV: readonly NavItem[] = [
@@ -39,6 +44,8 @@ export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student/affairs', label: '作業區' },
   // 成績（票 23）：只有一句「學生不會看到分數」，不查任何評分資料。
   { href: '/dashboard/student/grading', label: '成績' },
+  // 簽核（票 25）：自己組別的簽核版本全文（逐人同意在票 26）。
+  { href: '/dashboard/student/signoff', label: '簽核' },
 ]
 
 /**
@@ -78,4 +85,9 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 合作案管理（票 20）。前台的 `/industry` 不在這裡：它是「登入後」內容，不分角色（頁面自己顯示登入提示）。
   { path: '/dashboard/teacher/industry', role: 'teacher' },
   { path: '/dashboard/admin/industry', role: 'admin' },
+  // 簽核與精選（票 25）；版本頁 `/dashboard/{admin,teacher}/signoff/<版本>` 同一個守衛。
+  { path: '/dashboard/admin/signoff', role: 'admin' },
+  { path: '/dashboard/admin/showcase', role: 'admin' },
+  { path: '/dashboard/teacher/signoff', role: 'teacher' },
+  { path: '/dashboard/student/signoff', role: 'student' },
 ]
