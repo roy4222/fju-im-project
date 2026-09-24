@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-16",
+  "round": "S14-01 review 修正（Standards）",
+  "direction": "repo → Vault",
+  "rule": "v2-2026-09-12",
+  "files": [
+    {
+      "destination": "docs/engineering/operations/01 VM 首次設定.md",
+      "change": "步驟 6 的檔案清單補 docker-compose.vm.yml 與 config | grep published 的預期；步驟 6／7 宣告三份 .env（SOP 02／#188）為啟動前置，並更正步驟 7 那句自相矛盾的舊註記",
+      "line_by_line_identical": "僅餘既有的相對連結轉換差異（第 9 行）"
+    }
+  ],
+  "not_run": [
+    "VM 上的任何實際執行（Docker、deploy 帳號、/srv/fju、DNS、憑證）",
+    "#188、#189"
+  ]
+}
