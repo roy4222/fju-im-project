@@ -6,7 +6,7 @@ import { googleLinkErrorMessage } from '@/app/_ui/oauth-messages'
 import { SignOutButton } from '@/app/_ui/sign-out'
 import { Card, EmptyState } from '@/app/_ui/primitives'
 import { SiteShell } from '@/app/_ui/site-shell'
-import { getSelfAccountCommand, PASSWORD_MIN_LENGTH } from '@/composition/accounts'
+import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
 import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm } from './account-forms'
 
 export const metadata = { title: '我的帳號｜資管系專題平台', robots: { index: false } }
@@ -29,7 +29,7 @@ export default async function AccountPage({
 }: {
   searchParams: Promise<{ saved?: string; linked?: string; password?: string; error?: string | string[] }>
 }) {
-  await requireSignedIn('/account', 'business')
+  const actor = await requireSignedIn('/account', 'business')
   const me = await getSelfAccountCommand().viewMine(await headers())
   if (!me) redirect(`/login?next=${encodeURIComponent('/account')}`)
 
@@ -101,10 +101,19 @@ export default async function AccountPage({
                 revision={me.profile.revision}
               />
             ) : (
-              <EmptyState
-                title="基本資料還沒建立"
-                description="系辦建立你的資料之後，這裡就能改手機與聯絡 Email。"
-              />
+              actorHasRole(actor, 'teacher') ? (
+                // 系辦建的老師帳號第一次登入要先補資料（票 8 的 /account/setup）。
+                <EmptyState
+                  title="基本資料還沒補"
+                  description="第一次登入請先補上姓名與聯絡資料，補完之後這裡就能改手機與聯絡 Email。"
+                  action={{ href: TEACHER_SETUP_PATH, label: '去補資料' }}
+                />
+              ) : (
+                <EmptyState
+                  title="基本資料還沒建立"
+                  description="系辦建立你的資料之後，這裡就能改手機與聯絡 Email。"
+                />
+              )
             )}
           </div>
         </Card>

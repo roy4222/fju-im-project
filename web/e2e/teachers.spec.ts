@@ -39,7 +39,7 @@ async function signIn(page: Page, email: string, password: string) {
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('密碼', { exact: true }).fill(password)
-  await page.getByRole('button', { name: '登入' }).click()
+  await page.getByRole('button', { name: '登入', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 })
 }
 
@@ -107,7 +107,7 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   await teacher.goto('/login')
   await teacher.getByLabel('Email').fill(email)
   await teacher.getByLabel('密碼', { exact: true }).fill(secret)
-  await teacher.getByRole('button', { name: '登入' }).click()
+  await teacher.getByRole('button', { name: '登入', exact: true }).click()
   await expect(teacher.getByText('Email 或密碼不正確')).toBeVisible()
   await signIn(teacher, email, NEW_PASSWORD)
   await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
@@ -213,7 +213,7 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
     await student.goto('/login')
     await student.getByLabel('Email').fill(session.email)
     await student.getByLabel('密碼', { exact: true }).fill(stale)
-    await student.getByRole('button', { name: '登入' }).click()
+    await student.getByRole('button', { name: '登入', exact: true }).click()
     await expect(student.getByText('Email 或密碼不正確')).toBeVisible()
   }
   await signIn(student, session.email, second)

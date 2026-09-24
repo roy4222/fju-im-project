@@ -387,6 +387,55 @@ describe('系辦預授權的老師第一次用 Google 登入（票 8 × 票 10�
     expect(await one(`select count(*)::int as n from audit_events where action = 'account.bind_google_preauthorized' and target_id = $1`, [t.userId])).toEqual({ n: 1 })
   })
 
+  it('用票 8 真的「只用 Email 預授權」建的老師：Google 首次登入綁定後仍要先補資料（/account/setup），補完才放行', async () => {
+    const { PgAccountCommand } = await import('@/infrastructure/accounts/account-command')
+    const { PgTeacherSetupCommand } = await import('@/infrastructure/accounts/teacher-setup')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
+    const accounts = new PgAccountCommand({ audit: new PgAuditWriter(), ledger: new PgOperationLedger(() => app), db: () => app })
+    const setup = new PgTeacherSetupCommand({ audit: new PgAuditWriter(), db: () => app })
+
+    // 真的管理員 session（admin plugin 要 users.role='admin'）。
+    const a1 = await passwordAccount('active')
+    await db.sql(`update users set role = 'admin' where id = $1`, [a1.userId])
+    await db.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'admin', $1, now())`,
+      [a1.userId],
+    )
+    const adminActor: ResolvedActor = { kind: 'authenticated', userId: a1.userId, roles: ['admin'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+
+    const email = uniq('t08-preauth')
+    const created = await accounts.createTeacher(adminActor, headersOf(a1.cookie), {
+      mode: 'preauthorize',
+      email,
+      name: '',
+      verificationMethod: '',
+      verificationNote: '',
+      requestId: requestId(),
+    })
+    expect(created).toMatchObject({ ok: true })
+    const teacherId = String((await one<{ id: string }>(`select id from users where email = $1`, [email])).id)
+    // 票 8 的預授權確實一種登入方式都沒有——這正是綁定條件 3。
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1`, [teacherId])).toEqual({ n: 0 })
+    expect(await setup.needsSetup(teacherId)).toBe(true)
+
+    const who = { sub: `sub-t08-${seq}`, email, name: 'Google 陳老師' }
+    const result = await googleSignIn(who)
+    expect(result.location).toBe('/login')
+    expect(await self.viewMine(headersOf(result.cookie))).toMatchObject({ userId: teacherId, status: 'active', loginMethods: { google: true, password: false } })
+    // 綁好了，但還沒補資料：老師頁的 guard（requireRole teacher）會把他導去 /account/setup。
+    expect(await setup.needsSetup(teacherId)).toBe(true)
+
+    const teacher: ResolvedActor = { kind: 'authenticated', userId: teacherId, roles: ['teacher'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+    expect(await setup.complete(teacher, { displayName: '陳預授權老師', phone: '', contactEmail: email })).toMatchObject({ ok: true })
+    expect(await setup.needsSetup(teacherId)).toBe(false)
+
+    // 之後用 Google 登入：同一個帳號，最近登入方式記 google。
+    const later = await googleSignIn(who)
+    expect(later.cookie).toContain('session_token')
+    expect(await one(`select login_method_last from user_profiles where user_id = $1`, [teacherId])).toEqual({ login_method_last: 'google' })
+  })
+
   it('Google 沒驗證這個 Email → 不綁，照舊 account_not_linked', async () => {
     const t = await preauthorizedTeacher()
     const result = await googleSignIn({ sub: `sub-unverified-${seq}`, email: t.email, name: '未驗證', emailVerified: false })
