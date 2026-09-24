@@ -76,7 +76,7 @@ disable()                         // 清掉註冊並還原旗標
 
 目前約定的注入點：`uow.before-commit`、`uow.after-commit`、`outbox.after-insert`、
 `worker.before-claim`、`worker.after-claim`、`worker.before-handler`、`file.after-upload`、
-`group.establish.after-release`、`group.member.add.before-insert`。
+`group.establish.after-release`、`group.member.add.before-insert`、`item.publish.after-roster`。
 要加新的注入點就改 `@/shared/fault-points` 的 `FaultPointName`。
 沒開旗標時 `injectFault` 會直接丟錯，避免注入行為不小心留在 production 路徑上。
 

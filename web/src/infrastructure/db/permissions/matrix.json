@@ -40,7 +40,14 @@
     { "slice": "S03", "table": "proposal_occupancy", "select": true, "insert": true, "update": "none", "delete": true, "immutable": false, "worker": true, "note": "占用表：發起插入、成立或終止刪除" },
     { "slice": "S03", "table": "groups", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "組別頭列" },
     { "slice": "S03", "table": "group_memberships", "select": true, "insert": true, "update": ["valid_to", "removal_reason", "updated_at"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" },
-    { "slice": "S03", "table": "group_leaders", "select": true, "insert": true, "update": ["valid_to"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" }
+    { "slice": "S03", "table": "group_leaders", "select": true, "insert": true, "update": ["valid_to"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" },
+    { "slice": "S04", "table": "managed_items", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "專題事務頭列（工作副本＋目前生效的發布設定）；截止快照 worker 只讀" },
+    { "slice": "S04", "table": "item_audience_groups", "select": true, "insert": true, "update": "none", "delete": true, "immutable": false, "worker": false, "note": "指定組別的受眾集合：換對象時刪了重插" },
+    { "slice": "S04", "table": "item_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：每次發布或發布更新切一版內容" },
+    { "slice": "S04", "table": "form_schema_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：收件欄位結構版本" },
+    { "slice": "S04", "table": "item_attachments", "select": true, "insert": true, "update": ["sort"], "delete": true, "immutable": false, "worker": false, "note": "附件集合：只改排序；移除即 DELETE 並釋放 file_references" },
+    { "slice": "S04", "table": "item_publications", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：發布、發布更新、撤回、下架、重新發布的紀錄" },
+    { "slice": "S04", "table": "response_rosters", "select": true, "insert": true, "update": ["eligible_to_business_at", "removed_reason", "exempt", "exempt_reason", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": true, "note": "收件名單區間列（表歸模組 05）：只改結束欄、免填與通用欄；收件者、項目、起始時間寫了就不動，不刪列" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

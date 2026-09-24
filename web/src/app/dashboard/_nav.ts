@@ -13,6 +13,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/cohorts', label: '屆別' },
   { href: '/dashboard/admin/timeline', label: '時間軸' },
   { href: '/dashboard/admin/groups', label: '分組' },
+  { href: '/dashboard/admin/affairs', label: '專題事務' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [{ href: '/dashboard/teacher', label: '首頁' }]
@@ -34,6 +35,9 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/cohorts', role: 'admin' },
   { path: '/dashboard/admin/timeline', role: 'admin' },
   { path: '/dashboard/admin/groups', role: 'admin' },
+  // 專題事務工作台與完整編輯器（票 15）；既有項目的 `/dashboard/admin/editor/<id>` 同一個守衛。
+  { path: '/dashboard/admin/affairs', role: 'admin' },
+  { path: '/dashboard/admin/editor/new', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
   { path: '/dashboard/teacher', role: 'teacher' },

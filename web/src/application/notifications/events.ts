@@ -110,6 +110,28 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'group', defaultTitle: '你的組別換了組長' },
   },
+  /**
+   * 新收件發布（票 15；產品模組 08 §4「新收件發布→收件名單成員：個人收件通知本人，組別收件展開通知該組有效成員」）。
+   * 一定發；發布更新時新加入收件名單的人也收這一種（「加入收件名單→與發布時同一種新收件通知」）。
+   * payload 只帶項目 id、標題、位置與截止，不帶正文。
+   */
+  'item.published': {
+    consumers: ['notifications'],
+    notification: { kind: 'submission', defaultTitle: '有一份新的收件' },
+  },
+  /**
+   * 公告、資源發布（票 15；產品模組 08 §4「重要公告發布→受眾」）：管理員選要通知才發。
+   * 收件人＝對象展開（本屆學生、指定組別成員、全部老師）；公開與所有登入者不展開，只留事件。
+   */
+  'item.announced': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '有新的專題事務公告' },
+  },
+  /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
+  'item.updated': {
+    consumers: ['notifications'],
+    notification: { kind: 'system', defaultTitle: '專題事務已更新' },
+  },
 } as const satisfies Record<string, CatalogEntry>
 
 export type EventType = keyof typeof EVENT_CATALOG

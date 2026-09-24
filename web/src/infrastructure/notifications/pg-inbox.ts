@@ -69,6 +69,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: { id: string }) => NotificationSour
   // 分組（票 13）：收件人都是提案或組別的學生，點進「我的組別」；那一頁自己再依本人身分查、重驗權限。
   group_proposal: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
   group: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
+  // 專題事務（票 15）：學生端的內容頁與作業區在票 16／17，在那之前通知只顯示標題、不給連結。
+  item: () => ({ state: 'ok', href: null }),
 }
 
 export function resolveSource(row: Pick<Row, 'source_ref' | 'cohort_status'>): NotificationSourceState {

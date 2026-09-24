@@ -36,6 +36,13 @@
       "when": 1790237516220,
       "tag": "0004_s03_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790244894864,
+      "tag": "0005_s04_items",
+      "breakpoints": true
     }
   ]
 }

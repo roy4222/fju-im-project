@@ -22,6 +22,8 @@ export type FaultPointName =
   | 'group.establish.after-release'
   /** 票 14：管理員加人查完資格、還沒寫組員列（測加人與發起／確認提案的並發）。 */
   | 'group.member.add.before-insert'
+  /** 票 15：發布時名單已展開寫入，還沒排到期工作、發事件與 commit（證明發布是單一交易）。 */
+  | 'item.publish.after-roster'
 
 export type FaultHandler = () => void | Promise<void>
 
