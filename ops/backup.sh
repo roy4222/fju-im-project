@@ -32,7 +32,7 @@ done
 site_setup "$SITE" "$APP_ROOT"
 
 if [ "${FJU_SECRETS_LOADED:-}" != "$SITE" ]; then
-  site_exec_with_secrets bash "${BASH_SOURCE[0]}" "${ORIG_ARGS[@]}"
+  site_exec_with_secrets bash "$APP_ROOT/ops/backup.sh" "${ORIG_ARGS[@]}"
 fi
 site_verify_secrets
 

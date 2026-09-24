@@ -43,7 +43,7 @@ for arg in "$@"; do
 done
 
 if [ "${FJU_SECRETS_LOADED:-}" != "$SITE" ]; then
-  site_exec_with_secrets bash "${BASH_SOURCE[0]}" "$SITE" "$@"
+  site_exec_with_secrets bash "$APP_ROOT/ops/site.sh" "$SITE" "$@"
 fi
 
 site_verify_secrets

@@ -85,7 +85,8 @@ site_setup "$SITE" "$REPO_ROOT"
 
 # 真的執行時，先進到這一站的 Doppler 環境再重跑自己（只會發生一次）。
 if [ "$DRY_RUN" = 0 ] && [ "${FJU_SECRETS_LOADED:-}" != "$SITE" ]; then
-  site_exec_with_secrets bash "${BASH_SOURCE[0]}" "${ORIG_ARGS[@]}"
+  # 用絕對路徑：上面已經 cd 過，相對路徑的 $0 在這裡會找不到自己。
+  site_exec_with_secrets bash "$REPO_ROOT/ops/deploy.sh" "${ORIG_ARGS[@]}"
 fi
 if [ "$DRY_RUN" = 0 ]; then
   site_verify_secrets
