@@ -20,6 +20,8 @@ export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher', label: '首頁' },
   // 分組（票 19）：產學組認領與全部組別。
   { href: '/dashboard/teacher/groups', label: '分組' },
+  // 各組繳交狀態（票 22）：自己此刻指導的組 × 整組收件的矩陣，點進去看版本。
+  { href: '/dashboard/teacher/affairs', label: '各組繳交' },
 ]
 
 export const STUDENT_NAV: readonly NavItem[] = [
@@ -49,6 +51,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/clock', role: 'admin' },
   { path: '/dashboard/teacher', role: 'teacher' },
   { path: '/dashboard/teacher/groups', role: 'teacher' },
+  // 各組繳交狀態與收件頁（票 22）；`/dashboard/teacher/affairs/<id>` 同一個守衛。
+  { path: '/dashboard/teacher/affairs', role: 'teacher' },
   { path: '/dashboard/student', role: 'student' },
   { path: '/dashboard/student/groups', role: 'student' },
   // 作業區與內容頁（票 17）；`/dashboard/student/affairs/<id>` 同一個守衛。

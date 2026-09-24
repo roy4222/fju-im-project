@@ -614,7 +614,7 @@ describe('下載授權：本組有效組員、目前主指導、管理員；其�
     expect(await download({ kind: 'anonymous' } as ResolvedActor, fileId)).toBe('UNAUTHENTICATED')
   })
 
-  it('正式版本的檔：目前主指導可以；改派之後舊老師被拒、新老師可以；被移出的組員被拒', async () => {
+  it('正式版本的檔：目前主指導可以；改派之後舊老師被拒、新老師可以；被移出的組員只拿得到送出當下自己在組裡的那一版', async () => {
     const { s1, s2, s6, g1, itemId } = await scenario()
     const fileId = await mustUpload(s1, itemId, 'report', 'r.pdf', PDF)
     const saved = await mustSave(s1, itemId, 0, { topic: 't', report: fileId })
@@ -629,8 +629,15 @@ describe('下載授權：本組有效組員、目前主指導、管理員；其�
     expect(await download(teacherActor(t3), fileId)).toBe('ok')
 
     await owner.sql(`update group_memberships set valid_to = now(), removal_reason = '轉組' where group_id = $1 and user_id = $2`, [g1, s2.id])
-    expect(await download(studentActor(s2), fileId)).toBe('FORBIDDEN')
+    // 票 22：S2 送出當下在組裡（`membership_snapshot`），被移出後仍可唯讀這一版與它的附件（契約 03 §1「被移出後」）；
+    // 移出之後才送的版本拿不到——在 `pg-history-matrix.integration.test.ts` 驗。
+    expect(await download(studentActor(s2), fileId)).toBe('ok')
     expect(await download(studentActor(s1), fileId)).toBe('ok')
+    // 只剩草稿引用的新檔：被移出的人拿不到（共用草稿只給此刻的組員）。
+    const next = await mustUpload(s1, itemId, 'report', 'r2.pdf', PDF)
+    await mustSave(s1, itemId, saved.revision, { topic: 't', report: next })
+    expect(await download(studentActor(s2), next)).toBe('FORBIDDEN')
+    expect(await download(studentActor(s1), next)).toBe('ok')
   })
 
   it('個人回答的附件：主指導只在項目開放閱覽、而且這一版在生效欄位版本以後才拿得到（舊回答不擴權）', async () => {

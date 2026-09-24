@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
+import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/version-parts'
 import { SubmissionForm } from '@/app/dashboard/student/affairs/[id]/submission-form'
 import { BANNER_CLASS } from '@/app/dashboard/student/affairs/tone'
 import type { FileMeta } from '@/app/dashboard/student/affairs/types'
@@ -35,7 +36,7 @@ export default async function StudentAffairPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ tab?: string | string[]; version?: string | string[] }>
+  searchParams: Promise<{ tab?: string | string[]; version?: string | string[]; record?: string | string[] }>
 }) {
   const { id } = await params
   const actor = await requireRole(`/dashboard/student/affairs${UUID.test(id) ? `/${id}` : ''}`, 'student')
@@ -46,6 +47,45 @@ export default async function StudentAffairPage({
   const versionNo = Number(typeof search.version === 'string' ? search.version : NaN)
 
   const query = getSubmissionQuery()
+
+  // 我的繳交紀錄（票 22）：已經不在作業區、本人讀得到的正式版本（`?record=<收件者>`）。唯讀；一版都讀不到就 404。
+  const record = typeof search.record === 'string' ? search.record : undefined
+  if (record !== undefined) {
+    if (!UUID.test(record)) notFound()
+    const detail = await query.myRecord(userId, id, record)
+    if (!detail) notFound()
+    const recordBase = `/dashboard/student/affairs/${id}?record=${record}`
+    const shown = typeof search.version === 'string' ? await query.myRecordVersion(userId, id, record, versionNo) : null
+    if (typeof search.version === 'string' && !shown) notFound()
+    return (
+      <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
+        <Link href="/dashboard/student/affairs" className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
+          ← 作業區
+        </Link>
+        <article className="overflow-hidden rounded-card border border-border bg-background" data-testid="record-view">
+          <header className="px-5 pb-3 pt-5">
+            <h1 className="text-xl font-bold text-ink">{detail.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {detail.receiverKind === 'group' ? `整組一份（${detail.groupCode ?? ''}）` : '個人一份'}・我的繳交紀錄（唯讀）
+            </p>
+          </header>
+          <p className="mx-5 mb-4 rounded-md bg-muted px-4 py-3 text-sm font-semibold text-ink" data-testid="record-banner">
+            {detail.receiverKind === 'group'
+              ? '你已經不在這一組：只看得到你還在組裡時送出的版本與附件，不能再填寫或送出。'
+              : '你已經不在這份收件的名單上：只看得到自己正式送出過的回答，不能再填寫或送出。'}
+          </p>
+          <div className="border-t border-border p-5">
+            {shown ? (
+              <VersionContent version={shown} backHref={recordBase} backLabel="繳交紀錄" />
+            ) : (
+              <VersionTable versions={detail.versions} hrefOf={(no) => `${recordBase}&version=${no}`} label="繳交紀錄" />
+            )}
+          </div>
+        </article>
+      </DashboardShell>
+    )
+  }
+
   const [item, businessNow] = await Promise.all([query.myItem(userId, id), getBusinessClock().now()])
   if (!item) notFound()
   const version = tab === 'history' && Number.isInteger(versionNo) && versionNo > 0 ? await query.myVersion(userId, id, versionNo) : null
