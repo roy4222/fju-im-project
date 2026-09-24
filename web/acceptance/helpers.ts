@@ -28,10 +28,11 @@ export function adminCredentials(): { email: string; password: string } {
 export function screenshotter(station: string) {
   const runId = process.env.ACCEPTANCE_RUN_ID ?? 'manual'
   const dir = path.join(OUT_ROOT, runId, station)
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   let n = 0
   return async (page: Page, name: string) => {
     if (!/^[a-z0-9-]+$/.test(name)) throw new Error(`截圖名稱只能用小寫英數與連字號：${name}`)
+    // 第一次拍才建資料夾：`--list` 只載入 spec，不該留下空資料夾。
+    if (n === 0) fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     n += 1
     await page.screenshot({ path: path.join(dir, `${String(n).padStart(2, '0')}-${name}.png`), fullPage: true })
   }

@@ -65,9 +65,12 @@ async function newPage(browser: Browser): Promise<Page> {
   return context.newPage()
 }
 
-/** 伺服器回來的那一句回饋；限定在 `<main>`，避開 Next 的換頁播報器。 */
-function feedback(page: Page, role: 'status' | 'alert') {
-  return page.getByRole('main').getByRole(role)
+/**
+ * 伺服器回來的那一句成功回饋。限定在 `<main>`（避開 Next 的換頁播報器），再用文字挑：
+ * 屆別頁的新增表單與表格各有自己的回饋，同一頁可能同時掛著兩句。
+ */
+async function expectStatus(page: Page, text: string) {
+  await expect(page.getByRole('main').getByRole('status').filter({ hasText: text })).toBeVisible()
 }
 
 function cohortRow(page: Page, code: string) {
@@ -113,7 +116,7 @@ test.afterAll(async () => {
       const button = admin.getByRole('button', { name: `把 ${flag} 設為${label}` })
       if ((await button.count()) > 0) {
         await button.click()
-        await expect(feedback(admin, 'status')).toContainText(`已把 ${flag} 設為${label}`)
+        await expectStatus(admin, `已把 ${flag} 設為${label}`)
       }
     }
     await admin.context().close()
@@ -140,18 +143,19 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   await expect(admin.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
   previousFlags.registrationOpen = await flagHolder(admin, '開放註冊中')
   previousFlags.defaultWorking = await flagHolder(admin, '預設工作中')
+  console.log(`跑之前：開放註冊屆別＝${previousFlags.registrationOpen ?? '（無）'}、預設工作屆別＝${previousFlags.defaultWorking ?? '（無）'}`)
 
   await admin.getByLabel('代碼').fill(COHORT_CODE)
   await admin.getByLabel('名稱').fill(COHORT_NAME)
   await admin.getByRole('button', { name: '新增屆別' }).click()
-  await expect(feedback(admin, 'status')).toContainText(`已新增屆別 ${COHORT_CODE}`)
+  await expectStatus(admin, `已新增屆別 ${COHORT_CODE}`)
   await expect(cohortRow(admin, COHORT_CODE)).toContainText('籌備中')
   await shot(admin, 'cohort-created')
 
   await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為開放註冊屆別` }).click()
-  await expect(feedback(admin, 'status')).toContainText(`已把 ${COHORT_CODE} 設為開放註冊屆別`)
+  await expectStatus(admin, `已把 ${COHORT_CODE} 設為開放註冊屆別`)
   await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為預設工作屆別` }).click()
-  await expect(feedback(admin, 'status')).toContainText(`已把 ${COHORT_CODE} 設為預設工作屆別`)
+  await expectStatus(admin, `已把 ${COHORT_CODE} 設為預設工作屆別`)
 
   // 重新整理：存進資料庫；兩個旗標各只有一個。
   await admin.reload()
