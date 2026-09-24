@@ -71,8 +71,8 @@ export async function createTestSession(
     if (!userId) throw new Error(`找不到剛註冊的帳號 ${email}`)
 
     if (role) {
-      // 管理員另外要 `users.role='admin'`（admin plugin 的套件欄）：票 8 的新增老師、發臨時密碼
-      // 走 Better Auth 的管理員能力，套件自己會驗呼叫端是不是它認得的管理員（seed-a1 也這樣設）。
+      // 管理員另外要 `users.role='admin'`（admin plugin 的套件欄）：票 8 的新增老師、發臨時密碼、
+      // 票 9 的停用／恢復（banUser／unbanUser）都走 Better Auth 的管理員能力，套件自己會驗呼叫端是不是它認得的管理員（seed-a1 也這樣設）。
       await pool.query(`update users set status = 'active', role = $2 where id = $1`, [
         userId,
         role === 'admin' ? 'admin' : 'user',

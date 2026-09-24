@@ -8,7 +8,10 @@ import type {
   SelfAccountCommand,
   TeacherSetupCommand,
 } from '@/application/accounts'
+import { accountAdminDenied, normalizeExportSelection } from '@/application/accounts'
+import type { AccountDirectoryCommand } from '@/application/accounts'
 import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
+import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
 import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
@@ -19,6 +22,8 @@ import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { err, type Result } from '@/shared/result'
+import { taipeiParts } from '@/shared/time'
 
 /**
  * 模組 01 的實例組裝（母 spec §4.3：執行期的實作一律由 composition 注入）。
@@ -100,6 +105,53 @@ export function getTeacherSetupCommand(): TeacherSetupCommand {
 
 /** 老師第一次登入補資料頁的路徑（登入後導向、老師首頁都用這一個）。 */
 export const TEACHER_SETUP_PATH = '/account/setup'
+
+/** 帳號列表、停用／恢復、批次停用與匯出（票 9）。 */
+let accountDirectoryCommand: AccountDirectoryCommand | undefined
+
+export function getAccountDirectoryCommand(): AccountDirectoryCommand {
+  accountDirectoryCommand ??= new PgAccountDirectoryCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+  })
+  return accountDirectoryCommand
+}
+
+/**
+ * `POST /api/admin/accounts/export` 的門面：每次重新認人、重新授權（契約 03 §4），
+ * 授權**先於**驗證（沒登入的人不該從錯誤訊息知道請求格式對不對）。
+ */
+export async function exportAccounts(
+  headers: Headers,
+  body: unknown,
+): Promise<Result<{ csv: string; count: number; fileName: string }>> {
+  const actor = await resolveActor(headers)
+  const blocked = accountAdminDenied(actor)
+  if (blocked) return err(blocked, blocked === 'UNAUTHENTICATED' ? '請先登入。' : '只有系辦可以匯出帳號名單。')
+  const selection = normalizeExportSelection(body)
+  if (!selection.ok) return selection
+  const result = await getAccountDirectoryCommand().exportCsv(actor, selection.value)
+  if (!result.ok) return result
+  const t = taipeiParts(new Date(result.receipt.serverTime))
+  const two = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}`
+  return { ...result, receipt: { ...result.receipt, fileName: `帳號名單-${stamp}.csv` } }
+}
+
+/** 帳號列表畫面要用的標籤、篩選正規化與匯出規則（app 對 application 只能帶型別，執行期的值經這裡）。 */
+export {
+  ACCOUNT_STATUS_LABEL,
+  BULK_MAX_CHARS,
+  DIRECTORY_ROLES,
+  DIRECTORY_SORT_LABEL,
+  DIRECTORY_SORTS,
+  DIRECTORY_STATUSES,
+  directoryQueryString,
+  normalizeDirectoryFilter,
+  ROLE_LABEL,
+  SEARCH_MAX_LENGTH,
+} from '@/application/accounts'
 
 /** 註冊與審核畫面要用的標籤與上限（app 對 application 只能帶型別，執行期的值經這裡）。 */
 export {

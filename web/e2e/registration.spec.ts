@@ -69,7 +69,8 @@ async function signIn(page: Page, email: string) {
 }
 
 function pendingRow(page: Page, name: string) {
-  return page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
+  // 帳號頁下方還有「全部帳號」表格（票 9），待審的人兩邊都有；這裡只看上方的待審核清單。
+  return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
 async function openReview(page: Page, name: string) {

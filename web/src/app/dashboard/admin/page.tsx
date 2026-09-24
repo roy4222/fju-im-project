@@ -3,6 +3,7 @@ import { StageBanner } from '@/app/dashboard/_stage'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState, PageHeader, Tile } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { getAccountDirectoryCommand } from '@/composition/accounts'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
@@ -12,21 +13,38 @@ export default async function AdminHomePage() {
   // layout 丟掉 children 或 redirect 都來不及——那一頁已經被做出來、跟著 payload 送走了。
   const actor = await requireRole('/dashboard/admin', 'admin')
   const working = await getCohortStatusQuery().defaultWorking()
+  const summaryResult = await getAccountDirectoryCommand().summary(actor)
+  const summary = summaryResult.ok ? summaryResult.receipt : null
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin">
-      <PageHeader title="系辦首頁" description="這一批只做骨架；數字與待辦由後面的切片填。" />
+      <PageHeader title="系辦首頁" description="待審的註冊、已開通的學生與目前在忙的屆別。" />
       <StageBanner actor={actor} perspective="staff" />
       <div className="grid gap-4 sm:grid-cols-3">
-        <Tile label="待審核申請" value="—" hint="S01-11 之後才有數字" />
-        <Tile label="已核准學生" value="—" hint="S01-11 之後才有數字" />
-        <Tile label="目前工作屆別" value={working?.code ?? '未設定'} hint="在「屆別」頁指定預設工作屆別" />
+        <Tile
+          label="待審核申請"
+          value={summary?.pendingApplications ?? '—'}
+          hint={summary && summary.pendingApplications > 0 ? '到「帳號」頁審核' : '目前沒有要審的申請'}
+          href="/dashboard/admin/accounts"
+        />
+        <Tile
+          label="已核准學生"
+          value={summary?.activeStudents ?? '—'}
+          hint="帳號正常、有學生身分的人"
+          href="/dashboard/admin/accounts?status=active&role=student"
+        />
+        <Tile
+          label="目前工作屆別"
+          value={working?.code ?? '未設定'}
+          hint={working ? working.name : '到「屆別」頁指定預設工作屆別'}
+          href="/dashboard/admin/cohorts"
+        />
       </div>
       <div className="mt-6">
         <EmptyState
           pending
-          title="今天要處理的事還沒接上"
-          description="待審申請、到期提醒與通知匣會出現在這裡。側欄的「帳號」還是空狀態；「屆別」與「時間軸」已經可以用。"
+          title="到期提醒與通知匣還沒做"
+          description="之後這裡會列出今天到期的事與新通知。現在請從側欄的「帳號」「屆別」「時間軸」進去處理。"
         />
       </div>
     </DashboardShell>
