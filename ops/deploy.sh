@@ -18,6 +18,7 @@
 #   3. docker compose pull app worker migrate（用 <tag> 組出的 APP_IMAGE）
 #   4. docker compose run --rm migrate  ← 新映像；失敗即中止，舊 app 繼續跑
 #      接著把 fju_app 的密碼同步成 Doppler 的 APP_DB_PASSWORD（冪等；第一次部署靠這步）
+#      只有測試站：Doppler stg 有 E2E_ADMIN_EMAIL／E2E_ADMIN_PASSWORD 就建 E2E 測試管理員（冪等）
 #   5. docker compose up -d --no-deps app worker
 #   6. 健康判定
 #   7. 寫 deploy_log
@@ -205,6 +206,24 @@ sync_app_db_password() {
     | $COMPOSE exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
 }
 
+# 測試站的 E2E 測試管理員（票 3b）。回傳 0＝建好／已存在／略過，非 0＝seed 失敗（呼叫端只警告，不中止部署）。
+# 正式站一律不建：這裡寫死只認 test，web/scripts/seed-e2e.mjs 也會自己檢查 FJU_SITE（兩道鎖）。
+# 值用 `-e 名稱` 從環境轉交，不進指令列、不印出來（跟 ops/seed-admin.sh 一樣）。
+seed_e2e_admin() {
+  if [ "$SITE" != test ]; then
+    if [ -n "${E2E_ADMIN_EMAIL:-}" ] || [ -n "${E2E_ADMIN_PASSWORD:-}" ]; then
+      log "        E2E 測試帳號：$SITE 站一律不建（Doppler $SITE_DOPPLER_CONFIG 不該有 E2E_ADMIN_* 鍵，請刪掉）"
+    fi
+    return 0
+  fi
+  if [ -z "${E2E_ADMIN_EMAIL:-}" ] || [ -z "${E2E_ADMIN_PASSWORD:-}" ]; then
+    log "        E2E 測試帳號：略過（Doppler $SITE_DOPPLER_CONFIG 沒有 E2E_ADMIN_EMAIL／E2E_ADMIN_PASSWORD）"
+    return 0
+  fi
+  $COMPOSE run --rm --no-deps -e E2E_ADMIN_EMAIL -e E2E_ADMIN_PASSWORD -e FJU_SITE \
+    migrate node migrate/web/scripts/seed-e2e.mjs
+}
+
 # ── 4. 先跑 migration ──────────────────────────────────────
 NEW_SCHEMA=""
 if [ "$ROLLBACK" = 1 ]; then
@@ -217,6 +236,11 @@ else
   if [ "$DRY_RUN" = 1 ]; then
     printf '        $ %s run --rm migrate  # 從輸出取最後一支 migration 名稱\n' "$COMPOSE"
     printf '        $ （stdin）ALTER ROLE fju_app PASSWORD <APP_DB_PASSWORD> | %s exec -T postgres psql\n' "$COMPOSE"
+    if [ "$SITE" = test ]; then
+      printf '        $ %s run --rm --no-deps -e E2E_ADMIN_EMAIL -e E2E_ADMIN_PASSWORD -e FJU_SITE migrate node migrate/web/scripts/seed-e2e.mjs  # Doppler 有這兩個鍵才跑\n' "$COMPOSE"
+    else
+      printf '        # E2E 測試帳號：正式站一律不建\n'
+    fi
   else
     migrate_output="$($COMPOSE run --rm migrate)"
     printf '%s\n' "$migrate_output"
@@ -232,6 +256,13 @@ else
       exit 1
     fi
     log "        fju_app 密碼已同步成 Doppler 的 APP_DB_PASSWORD"
+    # 測試帳號只是驗收的方便，失敗不擋部署：印警告、記 deploy_log，照常往下。
+    # （若中止，auto-deploy 會把這個 SHA 記成失敗、不再重試，整個測試站就卡住；
+    #   舊 SHA 的映像沒有 seed-e2e.mjs 時也會失敗。）用 if 攔下來，set -e 才不會直接把腳本帶走。
+    if ! seed_e2e_admin; then
+      echo "⚠️ 建立 E2E 測試管理員失敗（部署照常繼續；看上面 seed-e2e 的訊息，多半是 Doppler stg 的 E2E_ADMIN_* 不對）。" >&2
+      printf '%s\te2e-seed-failed\t%s\n' "$(date -u +%FT%TZ)" "$TAG" >> "$DEPLOY_LOG"
+    fi
   fi
 fi
 
