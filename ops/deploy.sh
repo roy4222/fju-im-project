@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
     -h|--help) usage 0 ;;
     -*) echo "不認得的選項：$1" >&2; usage 1 ;;
     *)
-      if [ -n "$TAG" ]; then echo "只能給一個 tag（已經有 $TAG）" >&2; exit 1; fi
+      if [ -n "$TAG" ]; then echo "只能給一個 tag（已經有 ${TAG}）" >&2; exit 1; fi
       TAG="$1"
       ;;
   esac
@@ -80,6 +80,12 @@ fi
 if ! printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
   echo "tag 格式不對：$TAG" >&2
   exit 1
+fi
+
+# 真的執行才會寫 /srv/fju（部署鎖、previous_tag、deploy_log）：先擋掉非 deploy 身分。
+# 演練（dry-run）什麼都不寫，任何人都能跑。
+if [ "$DRY_RUN" = 0 ]; then
+  require_deploy_user "$REPO_ROOT/ops/deploy.sh ${ORIG_ARGS[*]:-}"
 fi
 
 site_setup "$SITE" "$REPO_ROOT"
@@ -126,10 +132,10 @@ image_digest() {
   docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$1" 2>/dev/null || true
 }
 
-log "站台：$SITE（Compose project $COMPOSE_PROJECT_NAME、$SITE_HOST、Doppler $SITE_DOPPLER_CONFIG）"
+log "站台：${SITE}（Compose project ${COMPOSE_PROJECT_NAME}、${SITE_HOST}、Doppler ${SITE_DOPPLER_CONFIG}）"
 log "部署 tag：$TAG$([ "$ROLLBACK" = 1 ] && echo '（回滾模式）')"
 log "映像：$APP_IMAGE"
-log "健康檢查端點：$HEALTH_URL（逾時 ${HEALTH_TIMEOUT_SECONDS}s）"
+log "健康檢查端點：${HEALTH_URL}（逾時 ${HEALTH_TIMEOUT_SECONDS}s）"
 if [ "$EXPECT_WORKER" = 1 ]; then
   log "健康條件：完整六項（含 worker.version 與 worker.lastTickAt）"
 else
@@ -151,14 +157,14 @@ if [ "$DRY_RUN" = 1 ]; then
 else
   exec 9>"$LOCK_FILE"
   if ! flock --nonblock 9; then
-    echo "拿不到部署鎖 $LOCK_FILE，可能有另一次部署正在跑。" >&2
+    echo "拿不到部署鎖 ${LOCK_FILE}，可能有另一次部署正在跑。" >&2
     # 75＝EX_TEMPFAIL：ops/auto-deploy.sh 看到它就知道「這次沒部署、下一輪再試」。
     exit 75
   fi
 fi
 
 # ── 2. 記下目前版本 ────────────────────────────────────────
-step "2/7 記下目前版本到 $PREVIOUS_FILE（映像參照＋digest）"
+step "2/7 記下目前版本到 ${PREVIOUS_FILE}（映像參照＋digest）"
 if [ "$DRY_RUN" = 1 ]; then
   printf '        $ 讀目前 app 容器的映像與 digest，寫成 PREVIOUS_APP_IMAGE／PREVIOUS_IMAGE_DIGEST\n'
 else
@@ -200,7 +206,7 @@ sync_app_db_password() {
   # 單引號雙寫。用變數而不是 \' 跳脫：bash 3.2 與 5.x 對替換字串裡的反斜線處理不同。
   local q="'"
   local escaped="${APP_DB_PASSWORD//$q/$q$q}"
-  # 單引號是刻意的：$POSTGRES_USER／$POSTGRES_DB 要在容器裡展開。
+  # 單引號是刻意的：${POSTGRES_USER}／$POSTGRES_DB 要在容器裡展開。
   # shellcheck disable=SC2016
   printf "ALTER ROLE fju_app PASSWORD '%s';\n" "$escaped" \
     | $COMPOSE exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
@@ -295,7 +301,7 @@ await_health() {
 # $1 是失敗原因，只用來寫 deploy_log 與訊息。
 compensate() {
   local reason="$1"
-  echo "部署失敗（$reason），回滾到 $PREVIOUS_FILE 記的版本。" >&2
+  echo "部署失敗（${reason}），回滾到 $PREVIOUS_FILE 記的版本。" >&2
   printf '%s\trollback-start\t%s\t%s\n' "$(date -u +%FT%TZ)" "$TAG" "$reason" >> "$DEPLOY_LOG"
 
   if [ ! -s "$PREVIOUS_FILE" ]; then
@@ -355,7 +361,7 @@ else
 fi
 
 # ── 7. 記錄 ────────────────────────────────────────────────
-step "7/7 寫 deploy_log（$DEPLOY_LOG）"
+step "7/7 寫 deploy_log（${DEPLOY_LOG}）"
 condition="$([ "$EXPECT_WORKER" = 1 ] && echo 'full' || echo 'worker-if-present')"
 event="$([ "$ROLLBACK" = 1 ] && echo 'rolled-back' || echo 'deployed')"
 if [ "$DRY_RUN" = 1 ]; then
@@ -369,5 +375,5 @@ log ""
 if [ "$DRY_RUN" = 1 ]; then
   log "這是演練，什麼都沒有執行。要真的部署請加 --execute（在 VM 上以 deploy 身分執行）。"
 else
-  log "部署完成：$SITE ← $TAG（$event，健康條件：$condition）"
+  log "部署完成：$SITE ← ${TAG}（${event}，健康條件：${condition}）"
 fi

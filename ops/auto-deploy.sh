@@ -25,6 +25,9 @@ cd "$APP_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
 . "$APP_ROOT/ops/lib/site.sh"
 
+# 在 mkdir／鎖檔／寫紀錄之前擋掉非 deploy 身分（見 ops/lib/site.sh）。
+require_deploy_user "$APP_ROOT/ops/auto-deploy.sh"
+
 # 固定測試站，不接受參數。
 site_setup test "$APP_ROOT"
 
@@ -44,7 +47,7 @@ if [ -e "$PAUSE_FILE" ]; then
   exit 0
 fi
 if [ ! -f "$SITE_TOKEN_FILE" ]; then
-  say "測試站的 Doppler token 還沒貼（$SITE_TOKEN_FILE），略過。"
+  say "測試站的 Doppler token 還沒貼（${SITE_TOKEN_FILE}），略過。"
   exit 0
 fi
 if ! grep -qE $'\t(deployed|rolled-back)\t' "$DEPLOY_LOG" 2>/dev/null; then
@@ -61,7 +64,7 @@ fi
 
 # 只拉 manifest 有變的層；沒變時幾乎不花流量。
 if ! docker pull --quiet "$IMAGE_REPO:$CHANNEL_TAG" >/dev/null; then
-  say "拉不到 $IMAGE_REPO:$CHANNEL_TAG（GHCR 登入過期或網路問題？）。"
+  say "拉不到 $IMAGE_REPO:${CHANNEL_TAG}（GHCR 登入過期或網路問題？）。"
   record pull-failed "$CHANNEL_TAG"
   exit 1
 fi
@@ -81,18 +84,18 @@ fi
 
 last="$(cat "$LAST_FILE" 2>/dev/null || true)"
 if [ "$sha" = "$last" ]; then
-  say "已是最新（$sha），不動作。"
+  say "已是最新（${sha}），不動作。"
   exit 0
 fi
 
 running="$(docker inspect --format '{{.Config.Image}}' "fju-test-app" 2>/dev/null || true)"
 if [ "$running" = "$IMAGE_REPO:$sha" ]; then
-  say "測試站已經在跑 $sha，只更新紀錄。"
+  say "測試站已經在跑 ${sha}，只更新紀錄。"
   printf '%s\n' "$sha" > "$LAST_FILE"
   exit 0
 fi
 
-say "main 有新映像：$sha（測試站目前：${running:-沒有在跑}），開始部署到 fju-test。"
+say "main 有新映像：${sha}（測試站目前：${running:-沒有在跑}），開始部署到 fju-test。"
 extra=()
 [ "${AUTO_DEPLOY_EXPECT_WORKER:-0}" = 1 ] && extra+=(--expect-worker)
 
@@ -112,7 +115,7 @@ if [ "$rc" = 0 ]; then
   say "部署成功：$sha"
   record deployed "$sha"
 else
-  say "部署失敗（exit $rc）：$sha。deploy.sh 已依 previous_tag 回滾，細節看 $DEPLOY_LOG。"
+  say "部署失敗（exit ${rc}）：${sha}。deploy.sh 已依 previous_tag 回滾，細節看 ${DEPLOY_LOG}。"
   record failed "$sha"
 fi
 exit "$rc"

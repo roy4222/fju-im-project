@@ -7,7 +7,7 @@
 #
 #   --backup <檔名|latest>  /srv/fju/<站>/backups/ 裡的備份檔（只接受該目錄裡的檔案）
 #   --keep                  演練完保留副本（預設：抽查完就整個刪掉，包括 volume）
-#   --with-app              也起一個 app 看畫面（用來源站目前的映像）；看法見 ops/README.md
+#   --with-app              也起一個 app 看畫面（用來源站目前的映像；要搭配 --keep）；看法見 ops/README.md
 #
 # 副本是獨立的 Compose project `fju-drill`（docker-compose.drill.yml）：自己的 volume 與網路、
 # 不發布 port、不接 Caddy、沒有 worker。來源站的資料庫與 volume 不會被寫入——只有在備份檔沒有
@@ -16,6 +16,7 @@
 # 紀錄寫在 /srv/fju/<站>/backups/records.jsonl（kind=drill），成功或失敗都寫。
 set -euo pipefail
 
+ORIG_ARGS=("$@")
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
@@ -42,6 +43,14 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# --with-app 的 app 要留著才看得到畫面；沒帶 --keep 會起了又馬上拆掉，白等健康檢查。
+if [ "$WITH_APP" = 1 ] && [ "$KEEP" = 0 ]; then
+  echo "--with-app 要搭配 --keep（不保留的話 app 起來後馬上就被拆掉，看不到畫面）。請改用：--keep --with-app" >&2
+  exit 1
+fi
+# 在任何 docker 操作、mktemp、寫紀錄之前擋掉非 deploy 身分（見 ops/lib/site.sh）。
+require_deploy_user "$APP_ROOT/ops/restore-drill.sh ${ORIG_ARGS[*]:-}"
 
 DRILL_PROJECT=fju-drill
 DRILL_VOLUME=fju-drill-pgdata
@@ -81,7 +90,7 @@ drill_down() {
 if [ "$REMOVE" = 1 ]; then
   if drill_exists; then
     drill_down
-    echo "✓ 已移除演練副本（$DRILL_PROJECT 的容器、網路與 volume $DRILL_VOLUME）。"
+    echo "✓ 已移除演練副本（$DRILL_PROJECT 的容器、網路與 volume ${DRILL_VOLUME}）。"
   else
     echo "沒有演練副本，不用移除。"
   fi
@@ -102,10 +111,14 @@ SOURCE_APP="fju-$SITE-app"
 [ "$SITE" = test ] && DRILL_CLOCK_OVERRIDE=true
 
 # ---- 找備份檔：只接受該站備份目錄裡、名字是 fju-<站>-*.dump 的檔案 ----
+if [ ! -d "$BACKUP_DIR" ]; then
+  echo "${SITE} 站還沒有備份目錄（${BACKUP_DIR}）＝還沒備份過。先跑：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/backup.sh --site ${SITE}" >&2
+  exit 1
+fi
 if [ "$BACKUP_ARG" = latest ]; then
   # 檔名帶 UTC 時間，字典序就是時間序。
   BACKUP_FILE="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name "fju-$SITE-*.dump" | sort | tail -n 1)"
-  [ -n "$BACKUP_FILE" ] || { echo "$BACKUP_DIR 裡沒有 $SITE 站的備份，先跑 ops/backup.sh --site $SITE。" >&2; exit 1; }
+  [ -n "$BACKUP_FILE" ] || { echo "$BACKUP_DIR 裡沒有 $SITE 站的備份，先跑 ops/backup.sh --site ${SITE}。" >&2; exit 1; }
 else
   case "$BACKUP_ARG" in
     */*) BACKUP_FILE="$BACKUP_ARG" ;;
@@ -117,7 +130,7 @@ if [ ! -f "$BACKUP_FILE" ]; then
   exit 1
 fi
 if [ "$(cd "$(dirname "$BACKUP_FILE")" && pwd -P)" != "$(cd "$BACKUP_DIR" && pwd -P)" ]; then
-  echo "備份檔必須在 $BACKUP_DIR 裡（收到：$BACKUP_FILE）。" >&2
+  echo "備份檔必須在 $BACKUP_DIR 裡（收到：${BACKUP_FILE}）。" >&2
   exit 1
 fi
 BACKUP_NAME="$(basename "$BACKUP_FILE")"
@@ -128,7 +141,7 @@ esac
 
 # 上一次 --keep 的副本還在就不動它（不算一次演練，也不寫紀錄）。
 if drill_exists; then
-  echo "上一個演練副本還在（project $DRILL_PROJECT 或 volume $DRILL_VOLUME）。先移除：ops/restore-drill.sh --remove" >&2
+  echo "上一個演練副本還在（project $DRILL_PROJECT 或 volume ${DRILL_VOLUME}）。先移除：ops/restore-drill.sh --remove" >&2
   exit 1
 fi
 
@@ -161,9 +174,9 @@ on_exit() {
       baseline="$BASELINE" isolation="file:$work/isolation.json" \
       counts="file:$work/counts.json" result="file:$work/result.json" \
       kept="json:$kept" app_started="json:$APP_STARTED" \
-      error="${STEP}失敗（結束碼 $code）${detail:+：$detail}" \
-      || echo "（連失敗紀錄都寫不進 $RECORDS）" >&2
-    echo "✗ 還原演練失敗（$STEP），已寫入失敗紀錄：$RECORDS" >&2
+      error="${STEP}失敗（結束碼 ${code}）${detail:+：$detail}" \
+      || echo "（連失敗紀錄都寫不進 ${RECORDS}）" >&2
+    echo "✗ 還原演練失敗（${STEP}），已寫入失敗紀錄：$RECORDS" >&2
     [ -z "$detail" ] || echo "  錯誤：$detail" >&2
   fi
   if [ "$CREATED" = 1 ] && [ "$KEEP" = 0 ]; then
@@ -195,13 +208,13 @@ if [ -s "$work/backup-record.json" ]; then
   if [ "$(cat "$work/expected-sha")" != "$sha" ]; then
     fail "備份檔的 sha256 跟備份當下記的不一樣——檔案被改過或壞了，不拿它演練。"
   fi
-  echo "備份檔 $BACKUP_NAME：sha256 與備份紀錄相符；比對基準＝備份當下量的筆數。"
+  echo "備份檔 ${BACKUP_NAME}：sha256 與備份紀錄相符；比對基準＝備份當下量的筆數。"
 else
   # 舊備份（這支上線前做的）沒有紀錄：退而求其次，對來源站跑一次唯讀的筆數查詢。
   # 備份之後才新增的資料會算成「對不上」，所以這種情況的結果要人看過再判斷。
   BASELINE=live
-  echo "⚠️ $BACKUP_NAME 沒有備份紀錄，改用來源站「現在」的筆數當基準（唯讀查詢 $SOURCE_PG）。"
-  # 單引號是刻意的：$POSTGRES_USER／$POSTGRES_DB 要在容器裡展開。
+  echo "⚠️ $BACKUP_NAME 沒有備份紀錄，改用來源站「現在」的筆數當基準（唯讀查詢 ${SOURCE_PG}）。"
+  # 單引號是刻意的：${POSTGRES_USER}／$POSTGRES_DB 要在容器裡展開。
   # shellcheck disable=SC2016
   printf '%s\n' "BEGIN READ ONLY;" "$SPOT_COUNTS_SQL" "COMMIT;" \
     | docker exec -i "$SOURCE_PG" sh -c 'psql -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' 2>>"$errlog" \
@@ -218,7 +231,7 @@ fi
 # ---- 起演練資料庫 ----
 step "起演練資料庫"
 CREATED=1
-echo "起演練副本（project $DRILL_PROJECT，不發布 port、不接 Caddy）…"
+echo "起演練副本（project ${DRILL_PROJECT}，不發布 port、不接 Caddy）…"
 drill_compose up -d --wait postgres >/dev/null 2>>"$errlog"
 
 drill_psql() {
@@ -242,10 +255,10 @@ while IFS= read -r m; do
 done <<< "$mounts"
 [ "$networks" = "$DRILL_NETWORK" ] || fail "演練副本接到其他網路：$(echo "$networks" | tr '\n' ' ')"
 [ -z "$ports" ] || fail "演練副本發布了 port：$ports"
-[ "$db" = "$DRILL_DB" ] || fail "連到的資料庫是 $db，不是 $DRILL_DB"
+[ "$db" = "$DRILL_DB" ] || fail "連到的資料庫是 ${db}，不是 $DRILL_DB"
 printf '{"container":"%s","volumes":"%s","networks":"%s","published_ports":"none","database":"%s"}\n' \
   "fju-drill-postgres" "${mount_names# }" "$networks" "$db" > "$work/isolation.json"
-echo "✓ 隔離核對：只掛 $DRILL_VOLUME、只接網路 $DRILL_NETWORK、沒有發布 port、資料庫 $db。"
+echo "✓ 隔離核對：只掛 ${DRILL_VOLUME}、只接網路 ${DRILL_NETWORK}、沒有發布 port、資料庫 ${db}。"
 
 # ---- 還原 ----
 step "建立備份裡用到的角色"
@@ -287,7 +300,7 @@ if [ "$WITH_APP" = 1 ]; then
   step "起 app（看畫面用）"
   q="'"
   printf "ALTER ROLE fju_app LOGIN PASSWORD '%s';\n" "${DRILL_APP_DB_PASSWORD//$q/$q$q}" | drill_psql >/dev/null 2>>"$errlog"
-  echo "起 app（映像 $DRILL_APP_IMAGE，沒有 worker）…"
+  echo "起 app（映像 ${DRILL_APP_IMAGE}，沒有 worker）…"
   drill_compose --profile with-app up -d --wait app >/dev/null 2>>"$errlog"
   APP_STARTED=true
 fi

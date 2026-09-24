@@ -106,7 +106,7 @@ read -r -d '' PROMPT <<EOF || true
 你是資管系專題平台的驗收測試員。請依最下面 <checklist> 區塊裡的驗收清單，在測試站逐步操作瀏覽器並回報結果。
 
 ## 工具
-- 使用 Playwright skill：先讀 ~/.codex/skills/playwright/SKILL.md，照它的方式用 \$PWCLI（wrapper script）操作瀏覽器。
+- 使用 Playwright skill：先讀 ~/.codex/skills/playwright/SKILL.md，照它的方式用 \${PWCLI}（wrapper script）操作瀏覽器。
 - 目前目錄就是這次的輸出目錄。每一步做完都截圖，存到 screenshots/NN-<英文短名>.png（NN 是兩位數步驟編號，例如 screenshots/01-login-page.png）。
 
 ## 只准打測試站
