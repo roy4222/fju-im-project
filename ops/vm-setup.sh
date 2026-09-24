@@ -330,6 +330,7 @@ Wants=network-online.target docker.service
 Type=oneshot
 User=$DEPLOY_USER
 Group=$DEPLOY_USER
+WorkingDirectory=$APP_DIR
 ExecStart=$APP_DIR/ops/auto-deploy.sh
 TimeoutStartSec=20min
 SyslogIdentifier=fju-auto-deploy

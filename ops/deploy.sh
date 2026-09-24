@@ -25,6 +25,8 @@ set -euo pipefail
 
 ORIG_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `sudo -u deploy` 會沿用呼叫者的目錄（例如 Roy 的家目錄，deploy 讀不到），先換到自己的目錄。
+cd "$REPO_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
 . "$REPO_ROOT/ops/lib/site.sh"
 

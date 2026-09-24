@@ -13,6 +13,7 @@
 腳本用它把秘密放進記憶體裡的環境變數交給容器——不寫成 `.env` 檔、不印到螢幕、不進 repo。
 
 > 下面每個指令框都可以整段複製貼上。標「💻 Mac」的在你自己的電腦跑，標「🖥️ VM」的先 `ssh fju-vm` 再跑。
+> `sudo -u deploy …` 會沿用你目前的目錄，而 deploy 讀不到你的家目錄，所以第 4 步以後的指令框開頭都先 `cd /srv/fju/app`。
 > 要換成你自己的值的地方用 `<尖括號>` 標出來。
 
 ---
@@ -65,12 +66,14 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 回到 VM 貼上（畫面不會顯示你貼的內容，貼完按 Enter）：
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy bash -c 'umask 077; read -rsp "貼上 stg 的 token 後按 Enter：" t; echo; printf "%s\n" "$t" > /srv/fju/secrets/doppler-test.token && echo 已存檔'
 ```
 
 同樣產生 config **prd** 的 token（名稱 `vm-prod`），再貼：
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy bash -c 'umask 077; read -rsp "貼上 prd 的 token 後按 Enter：" t; echo; printf "%s\n" "$t" > /srv/fju/secrets/doppler-prod.token && echo 已存檔'
 ```
 
@@ -89,6 +92,7 @@ sudo ls -l /srv/fju/secrets/
 名稱 `fju-vm-ghcr-pull`、只勾 **read:packages**、到期 90 天（記到行事曆）。複製 token。
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy docker login ghcr.io -u roy4222
 ```
 
@@ -125,6 +129,7 @@ sudo -u deploy /srv/fju/app/ops/site.sh prod check
 ### 8. 🖥️ 起共用的 Caddy，確認兩張憑證
 
 ```bash
+cd /srv/fju/app
 sudo bash /srv/fju/app/ops/vm-setup.sh --check
 sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml up -d
 sleep 30
@@ -163,6 +168,7 @@ journalctl -u fju-auto-deploy.service -n 20 --no-pager
 在測試站看過、覺得可以之後：
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy docker inspect --format '{{.Config.Image}}' fju-test-app
 sudo -u deploy /srv/fju/app/ops/deploy.sh --site prod <上一行冒號後面的SHA> --execute
 curl -s https://fju.roy422.dev/api/health
@@ -210,6 +216,7 @@ sudo ls -lh /srv/fju/prod/backups/
 ### 看狀態與 log
 
 ```bash
+cd /srv/fju/app
 sudo -u deploy /srv/fju/app/ops/site.sh test docker compose ps
 sudo -u deploy /srv/fju/app/ops/site.sh test docker compose logs --tail 100 app
 sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml logs --tail 50 caddy

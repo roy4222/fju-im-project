@@ -307,6 +307,36 @@ describe('cd.yml：只能手動觸發、預設演練（契約 05 §3）', () => 
   })
 })
 
+describe('image.yml：main 合併後推 GHCR（2026-09-24）', () => {
+  const image = YAML.parse(fs.readFileSync(path.join(repoRoot, '.github/workflows/image.yml'), 'utf8')) as {
+    on: Record<string, unknown>
+    jobs: Record<
+      string,
+      { if?: string; permissions?: Record<string, string>; steps: { uses?: string; with?: Record<string, string> }[] }
+    >
+  }
+  const publish = image.jobs.publish
+  const build = publish?.steps.find((s) => s.uses?.startsWith('docker/build-push-action'))
+
+  it('只在 main 上發布（別的分支手動觸發也不會把 :main 指過去）', () => {
+    expect((image.on.push as { branches: string[] }).branches).toEqual(['main'])
+    expect(publish?.if).toBe("github.ref == 'refs/heads/main'")
+  })
+
+  it('tag 是完整 SHA（等於 /api/health 的 commit）與 :main；GIT_COMMIT 也是完整 SHA', () => {
+    expect(build?.with?.tags).toContain('ghcr.io/roy4222/fju-web:${{ github.sha }}')
+    expect(build?.with?.tags).toContain('ghcr.io/roy4222/fju-web:main')
+    expect(build?.with?.['build-args']).toContain('GIT_COMMIT=${{ github.sha }}')
+    // auto-deploy.sh 從這個 label 讀出 :main 對應的 SHA。
+    expect(build?.with?.labels).toContain('org.opencontainers.image.revision=${{ github.sha }}')
+  })
+
+  it('只有這個 job 有 packages: write，workflow 預設仍是唯讀', () => {
+    expect((image as unknown as { permissions: Record<string, string> }).permissions).toEqual({ contents: 'read' })
+    expect(publish?.permissions).toEqual({ contents: 'read', packages: 'write' })
+  })
+})
+
 describe('ci.yml：契約 05 §2 的七道門檻', () => {
   const ci = YAML.parse(fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')) as {
     jobs: Record<string, unknown>

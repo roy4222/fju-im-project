@@ -21,6 +21,7 @@
 set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
 . "$APP_ROOT/ops/lib/site.sh"
 

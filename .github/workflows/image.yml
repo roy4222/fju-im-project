@@ -31,6 +31,9 @@ permissions:
 
 jobs:
   publish:
+    # 只發布 main：手動從別的分支觸發會把 :main 指到非 main 的 SHA，
+    # 幾分鐘後測試站就會自動部署那個分支。
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # 只有這個 job 能寫 GHCR（SOP 02：推映像用 GITHUB_TOKEN，不放大 workflow 預設權限）。
     permissions:

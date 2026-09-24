@@ -13,6 +13,8 @@ set -euo pipefail
 
 ORIG_ARGS=("$@")
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `sudo -u deploy` 會沿用呼叫者的目錄（deploy 可能讀不到），先換到自己的目錄。
+cd "$APP_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
 . "$APP_ROOT/ops/lib/site.sh"
 
