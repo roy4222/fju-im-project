@@ -8,11 +8,13 @@ import {
   createTeacher,
   disableAccount,
   expectStatus,
+  firstLine,
   newPage,
   pendingRow,
   readFlags,
   registerStudent,
   restoreFlags,
+  retireAccount,
   screenshotter,
   signIn,
   teacherFirstLogin,
@@ -85,6 +87,13 @@ let opportunityId = ''
 let previousFlags: Flags = { registrationOpen: null, defaultWorking: null }
 /** 跑之前的業務鐘：null＝沒有模擬；否則是「業務時間 − 真實時間」。 */
 let previousClockOffset: number | null = null
+/** 這一輪動過業務鐘了沒：動過才需要還原。 */
+let clockTouched = false
+/** 送出註冊的學生姓名（收尾用：待審就退回、已核准就停用）。 */
+const registered = new Set<string>()
+let teachersCreated = false
+/** 合作案發布成功了沒：一成功就記下，後面的步驟失敗也會下架。 */
+let opportunityPublished = false
 
 // ── 時間（全部是臺灣時間） ─────────────────────────────────────────────────
 
@@ -190,16 +199,34 @@ async function closeContext(page: Page | undefined) {
   if (page && !page.isClosed()) await page.context().close()
 }
 
-function firstLine(error: unknown): string {
-  return error instanceof Error ? error.message.split('\n')[0]! : '未知錯誤'
-}
-
 // ── 收尾 ───────────────────────────────────────────────────────────────────
 
-test.afterAll(async () => {
+test.afterAll(async ({ browser }) => {
   test.setTimeout(300_000)
+  const touchedSite = clockTouched || previousFlags.registrationOpen !== null || previousFlags.defaultWorking !== null
+  const leftovers = itemIds.news || itemIds.personal || itemIds.group || opportunityPublished || registered.size > 0 || teachersCreated
+  // 管理員分頁掛了也要有人收尾：重登一個（全站狀態不能留著）。
+  if ((touchedSite || leftovers) && (!admin || admin.isClosed())) {
+    try {
+      admin = await adminPage(browser)
+    } catch (error) {
+      console.log(`收尾：管理員重登失敗，全站狀態沒還（${firstLine(error)}）`)
+    }
+  }
   if (admin && !admin.isClosed()) {
-    // 1. 下架這一輪發布的項目（下架不需要「沒人作答」，公開公告也就不會留在前台）。
+    // 先還全站狀態（業務鐘、旗標）：它們會影響別人；這一輪的帳號與項目只是帶前綴的殘留，排在後面。
+    // 1. 業務鐘撥回跑之前的樣子：原本有模擬就還原當時的偏移，原本沒有就撥回真實時間（偏移 0）。
+    if (clockTouched) {
+      try {
+        const offset = previousClockOffset ?? 0
+        await setClock(admin, Date.now() + offset, offset === 0 ? '站驗收收尾：撥回真實時間' : '站驗收收尾：還原跑之前的模擬時間')
+      } catch (error) {
+        console.log(`收尾：業務鐘沒撥回（${firstLine(error)}）`)
+      }
+    }
+    // 2. 兩個全系唯一的旗標還給原本的屆別。
+    await restoreFlags(admin, previousFlags, CODE).catch((error: unknown) => console.log(`收尾：旗標沒還成功（${firstLine(error)}）`))
+    // 3. 下架這一輪發布的項目（下架不需要「沒人作答」，公開公告也就不會留在前台）。
     for (const id of Object.values(itemIds).filter(Boolean)) {
       try {
         await admin.goto(`/dashboard/admin/editor/${id}`)
@@ -212,8 +239,8 @@ test.afterAll(async () => {
         console.log(`收尾：項目 ${id} 沒下架成功（${firstLine(error)}）`)
       }
     }
-    // 2. 下架這一輪的合作案。
-    if (opportunityId) {
+    // 4. 下架這一輪的合作案（按這一輪的公司名找按鈕）。
+    if (opportunityPublished) {
       try {
         await admin.goto('/dashboard/admin/industry')
         await admin.getByRole('button', { name: `下架：${OPPORTUNITY}`, exact: true }).click()
@@ -223,17 +250,9 @@ test.afterAll(async () => {
         console.log(`收尾：合作案沒下架成功（${firstLine(error)}）`)
       }
     }
-    // 3. 停用這一輪的帳號（只認這一輪的姓名標籤）。
-    for (const name of [...STUDENTS.map((s) => s.name), TEACHER_A.name, TEACHER_B.name]) await disableAccount(admin, name)
-    // 4. 業務鐘撥回跑之前的樣子：原本有模擬就還原當時的偏移，原本沒有就撥回真實時間。
-    try {
-      const offset = previousClockOffset !== null && Math.abs(previousClockOffset) >= 10 * 60_000 ? previousClockOffset : 0
-      await setClock(admin, Date.now() + offset, offset === 0 ? '站驗收收尾：撥回真實時間' : '站驗收收尾：還原跑之前的模擬時間')
-    } catch (error) {
-      console.log(`收尾：業務鐘沒撥回（${firstLine(error)}）`)
-    }
-    // 5. 兩個全系唯一的旗標還給原本的屆別。
-    await restoreFlags(admin, previousFlags, CODE).catch((error: unknown) => console.log(`收尾：旗標沒還成功（${firstLine(error)}）`))
+    // 5. 收掉這一輪的帳號（只認這一輪的姓名標籤）：還在待審就退回，已核准就停用。
+    for (const name of [...registered]) await retireAccount(admin, name)
+    if (teachersCreated) for (const name of [TEACHER_A.name, TEACHER_B.name]) await disableAccount(admin, name)
   }
   await closeContext(admin)
   await closeContext(teacherA)
@@ -257,6 +276,7 @@ test('0 前置：背景工作在跑、測試站有模擬業務鐘；管理員登
   const business = parseTaipeiSecond(await admin.getByLabel('目前業務時間').innerText())
   const simulated = await admin.getByText('模擬中：').count()
   previousClockOffset = simulated > 0 ? business - Date.now() : null
+  clockTouched = true
   console.log(`跑之前的業務鐘：${previousClockOffset === null ? '沒有模擬' : `模擬中，偏移 ${Math.round(previousClockOffset / 60_000)} 分鐘`}`)
   await setClock(admin, Date.now(), '站驗收：開始前撥回真實時間')
   await shot(admin, 'clock-reset')
@@ -354,6 +374,7 @@ test('票 6／7 匯入名單、4 位學生註冊、管理員核准、學生登�
 
   for (const s of STUDENTS) {
     const page = await newPage(browser)
+    registered.add(s.name)
     await registerStudent(page, s)
     students.push({ ...s, page })
   }
@@ -374,6 +395,7 @@ test('票 6／7 匯入名單、4 位學生註冊、管理員核准、學生登�
 })
 
 test('票 8 新增兩位老師；甲老師第一次登入改密、補資料', async ({ browser }) => {
+  teachersCreated = true
   const temporary = await createTeacher(admin, TEACHER_A)
   await createTeacher(admin, TEACHER_B)
   teacherA = await newPage(browser)
@@ -502,10 +524,13 @@ test('票 15 三步驟發布公開公告（附 PDF）', async () => {
   await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
   await dialog.getByRole('button', { name: '發布', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText(`「${PUBLIC_NEWS}」已發布`)
+  // 一發布就記下 id：後面任一步失敗，收尾也會把這則公開公告下架。
+  const tune = dialog.getByRole('link', { name: '細調欄位' })
+  itemIds.news = /\/dashboard\/admin\/editor\/([0-9a-f-]{36})$/.exec((await tune.getAttribute('href')) ?? '')?.[1] ?? ''
+  expect(itemIds.news, '拿不到公告的 id').not.toBe('')
   await shot(admin, 'news-published')
-  await dialog.getByRole('link', { name: '細調欄位' }).click()
-  await expect(admin).toHaveURL(/\/dashboard\/admin\/editor\/[0-9a-f-]{36}$/)
-  itemIds.news = new URL(admin.url()).pathname.split('/').pop()!
+  await tune.click()
+  await expect(admin).toHaveURL(new RegExp(`/dashboard/admin/editor/${itemIds.news}$`))
   await expect(admin.getByTestId('item-status')).toHaveText('發布中')
 })
 
@@ -689,6 +714,7 @@ test('票 20 甲老師建立並發布合作案；組長（學生 2）把組別�
   await dialog.getByLabel('聯絡人').fill('驗收聯絡人')
   await dialog.getByRole('button', { name: '儲存並發布' }).click()
   await expect(teacherA.getByRole('status').filter({ hasText: `已發布「${OPPORTUNITY}」` })).toBeAttached()
+  opportunityPublished = true
   await teacherA.goto('/industry')
   const card = teacherA.getByTestId('opportunity-card').filter({ hasText: COMPANY })
   opportunityId = ((await card.getAttribute('href')) ?? '').split('/').pop() ?? ''

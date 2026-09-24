@@ -4,14 +4,17 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import {
   accountRow,
   adminCredentials,
+  adminPage,
   cohortRow,
   disableAccount,
   expectStatus,
   fillSecret,
+  firstLine,
   newPage,
   pendingRow,
   readFlags,
   restoreFlags,
+  retireAccount,
   screenshotter,
   searchAccounts,
   signIn,
@@ -29,7 +32,7 @@ import {
  * - 註冊限速每 IP 每小時 30 次，而且 Caddy 會覆寫來源 IP：整套只註冊**一個**學生。
  * - 管理員只用表單登入一次，整條流程共用那個分頁（登入限速 10 分鐘 10 次）。
  * - 開放註冊／預設工作兩個旗標是全系唯一的狀態：跑完把它們還給原本的屆別。
- * - 收尾（不論成敗）：停用這一輪的學生與老師（只認這一輪的姓名標籤）；屆別與名單版本後台沒有刪除，留著。
+ * - 收尾（不論成敗）：先還旗標，再收掉這一輪的學生（待審就退回、已核准就停用）與老師（只認這一輪的姓名標籤）；屆別與名單版本後台沒有刪除，留著。
  * - 前一步失敗，後面就跳過（serial）。
  */
 
@@ -72,20 +75,33 @@ let student: Page
 let teacherTempPassword = ''
 /** 跑之前握著兩個旗標的屆別代碼；跑完還回去。 */
 let previousFlags: Flags = { registrationOpen: null, defaultWorking: null }
+let previousFlagsRead = false
+let studentRegistered = false
+let teacherCreated = false
 
 test.beforeAll(async ({ browser }) => {
   studentContext = await browser.newContext()
   student = await studentContext.newPage()
 })
 
-test.afterAll(async () => {
+test.afterAll(async ({ browser }) => {
   test.setTimeout(180_000)
+  // 管理員分頁掛了也要有人收尾：重登一個（旗標是全站狀態，不能留著）。
+  if (previousFlagsRead && (!admin || admin.isClosed())) {
+    try {
+      admin = await adminPage(browser)
+    } catch (error) {
+      console.log(`收尾：管理員重登失敗，旗標沒還（${firstLine(error)}）`)
+    }
+  }
   if (admin && !admin.isClosed()) {
-    // 收尾：停用這一輪建的學生與老師（只認這一輪的姓名標籤），再把兩個全系唯一的旗標還給原本的屆別。
-    for (const name of [STUDENT.name, TEACHER.name]) await disableAccount(admin, name)
+    // 先把兩個全系唯一的旗標還給原本的屆別，再收掉這一輪的學生與老師（只認這一輪的姓名標籤）：
+    // 學生還在待審就退回、已核准就停用。
     await restoreFlags(admin, previousFlags, COHORT_CODE).catch((error: unknown) => {
-      console.log(`收尾：旗標沒還成功（${error instanceof Error ? error.message.split('\n')[0] : '未知錯誤'}）`)
+      console.log(`收尾：旗標沒還成功（${firstLine(error)}）`)
     })
+    if (studentRegistered) await retireAccount(admin, STUDENT.name)
+    if (teacherCreated) await disableAccount(admin, TEACHER.name)
     await admin.context().close()
   }
   await studentContext?.close()
@@ -107,6 +123,7 @@ test('0 管理員登入（整條流程共用這個分頁）', async ({ browser }
 
 test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   previousFlags = await readFlags(admin)
+  previousFlagsRead = true
   console.log(`跑之前：開放註冊屆別＝${previousFlags.registrationOpen ?? '（無）'}、預設工作屆別＝${previousFlags.defaultWorking ?? '（無）'}`)
 
   await admin.getByLabel('代碼').fill(COHORT_CODE)
@@ -177,6 +194,7 @@ test('票 7 新學生用密碼註冊，停在等待審核頁', async () => {
   await fillSecret(student.getByLabel('密碼', { exact: true }), STUDENT.password)
   await fillSecret(student.getByLabel('確認密碼'), STUDENT.password)
   await shot(student, 'register-form')
+  studentRegistered = true
   await student.getByRole('button', { name: '送出註冊' }).click()
 
   await expect(student).toHaveURL(/\/register\/pending$/)
@@ -231,11 +249,13 @@ test('票 8 直接新增老師，拿到只顯示一次的臨時密碼', async ()
   await dialog.getByLabel('登入 Email').fill(TEACHER.email)
   await dialog.getByLabel('姓名').fill(TEACHER.name)
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  teacherCreated = true
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
 
   await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
   teacherTempPassword = (await dialog.getByTestId('temporary-password').innerText()).trim()
-  expect(teacherTempPassword).toMatch(/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/)
+  // 不用 `toMatch`：斷言失敗時 Received 會把臨時密碼印出來。只比布林值。
+  expect(/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/.test(teacherTempPassword), '臨時密碼格式不對（值不印出）').toBe(true)
   await dialog.getByRole('button', { name: '關閉' }).click()
 
   // 關掉就拿不回來：重新打開是空白表單。截圖在關掉之後拍，臨時密碼不落地。

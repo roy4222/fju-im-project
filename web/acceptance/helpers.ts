@@ -206,7 +206,8 @@ export async function createTeacher(admin: Page, teacher: { name: string; email:
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
   await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
   const temporary = (await dialog.getByTestId('temporary-password').innerText()).trim()
-  expect(temporary).toMatch(/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/)
+  // 不用 `toMatch`：斷言失敗時 Received 會把臨時密碼印出來。只比布林值。
+  expect(/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/.test(temporary), '臨時密碼格式不對（值不印出）').toBe(true)
   await dialog.getByRole('button', { name: '關閉' }).click()
   return temporary
 }
@@ -223,6 +224,10 @@ export async function teacherFirstLogin(page: Page, email: string, temporary: st
   await page.getByLabel('手機').fill('0911-111-111')
   await page.getByRole('button', { name: '儲存並進入老師首頁' }).click()
   await expect(page).toHaveURL(/\/dashboard\/teacher$/)
+}
+
+export function firstLine(error: unknown): string {
+  return error instanceof Error ? error.message.split('\n')[0]! : '未知錯誤'
 }
 
 /**
@@ -244,7 +249,33 @@ export async function disableAccount(admin: Page, name: string): Promise<boolean
     await dialog.getByRole('button', { name: '關閉' }).click()
     return true
   } catch (error) {
-    console.log(`收尾：停用「${name}」沒成功（${error instanceof Error ? error.message.split('\n')[0] : '未知錯誤'}）`)
+    console.log(`收尾：停用「${name}」沒成功（${firstLine(error)}）`)
     return false
   }
+}
+
+/**
+ * 收尾：還在待審清單上的這一輪申請（註冊成功、核准前就失敗）用審核對話框「退回」收掉。
+ * 待審帳號沒有「停用」可按；只認姓名完全相同的那一列。
+ */
+export async function rejectPending(admin: Page, name: string): Promise<boolean> {
+  try {
+    await admin.goto('/dashboard/admin/accounts')
+    if ((await pendingRow(admin, name).count()) !== 1) return false
+    await admin.getByRole('button', { name: `審核 ${name}`, exact: true }).click()
+    const dialog = admin.getByRole('dialog', { name: `審核 ${name}` })
+    await dialog.getByRole('textbox', { name: /^理由/ }).fill('站驗收收尾：這是自動測試建的申請，退回收掉')
+    await dialog.getByRole('button', { name: '退回', exact: true }).click()
+    await expect(dialog.getByRole('status')).toContainText('已退回')
+    await dialog.getByRole('button', { name: '關閉' }).click()
+    return true
+  } catch (error) {
+    console.log(`收尾：退回「${name}」的申請沒成功（${firstLine(error)}）`)
+    return false
+  }
+}
+
+/** 收尾：這一輪的帳號不論停在哪一步，都收掉（待審就退回，已核准就停用）。 */
+export async function retireAccount(admin: Page, name: string) {
+  if (!(await rejectPending(admin, name))) await disableAccount(admin, name)
 }
