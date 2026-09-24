@@ -396,6 +396,10 @@ export type DownloadPolicies = Partial<Record<FilePurpose, DownloadPolicy>>
 
 // ── port ────────────────────────────────────────────────────────────────────
 
+export type AttachExpectation =
+  | { readonly purpose: FilePurpose; readonly ownerUserId: string | readonly string[] }
+  | { readonly purpose: FilePurpose; readonly heldBy: FileRef }
+
 export type UploadTicket = {
   readonly ticket: string
   readonly fileId: string
@@ -452,8 +456,15 @@ export interface FileStorage<Tx = unknown> {
   /** 讀回自己上傳的某個用途的小檔（例如預覽名單）。不是自己的、用途不對、還沒 stored 一律拒絕。 */
   readOwned(ownerUserId: string, fileId: string, purpose: FilePurpose, maxBytes: number): Promise<Result<StoredFileContent>>
 
-  /** 在業務交易裡把檔案綁到一筆資料上（鎖住檔案列再檢查）。 */
-  attach(tx: Tx, fileId: string, ref: FileRef, expect: { ownerUserId: string; purpose: FilePurpose }): Promise<Result<{ referenceId: string; checksum: string }>>
+  /**
+   * 在業務交易裡把檔案綁到一筆資料上（鎖住檔案列再檢查）。
+   *
+   * 「這個檔能不能綁」有兩種證明（`expect`）：
+   * - `ownerUserId`：上傳者是這個人（或這幾個人之一——組別共用草稿時是此刻的有效組員，票 21）。
+   * - `heldBy`：這個檔已經被某個引用者有效引用著（例如正式送出時，把草稿上已經附好的檔再綁到正式版本；
+   *   上傳它的組員之後被移出也一樣送得出去）。
+   */
+  attach(tx: Tx, fileId: string, ref: FileRef, expect: AttachExpectation): Promise<Result<{ referenceId: string; checksum: string }>>
 
   /** 解除引用：只設 `released_at`，之後同一個引用者可以再附回來（契約 01 §11）。 */
   release(tx: Tx, fileId: string, ref: FileRef): Promise<void>

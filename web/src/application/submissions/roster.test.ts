@@ -60,6 +60,17 @@ describe('完成率＝已正式送出／應交數', () => {
     })
   })
 
+  it('模擬鐘倒撥到開放前：已交的仍算分子（狀態字顯示尚未開放，但完成率不看狀態字；票 18 遺留，票 21 修）', () => {
+    const later = { opensAt: new Date('2026-12-01T00:00:00Z'), dueAt: new Date('2026-12-31T15:59:00Z') }
+    expect(receiverStatus(later, submitted, before).headline).toBe('尚未開放')
+    expect(completionOf(later, [submitted, submitted, waiting], before)).toMatchObject({ required: 3, done: 2, pending: 1, overdue: 0 })
+  })
+
+  it('整組一份：一組一列，同組誰送都只算這一組一份', () => {
+    // 名單上 3 組、其中 2 組交過（每組只有一個「最後一次正式送出」），完成率 2／3。
+    expect(completionOf(window, [entry({ latestVersionNo: 3 }), submitted, waiting], before)).toMatchObject({ required: 3, done: 2 })
+  })
+
   it('截止後沒交的算逾期；草稿不算已交；分母 0 時百分比是 null', () => {
     const entries = [submitted, entry({ hasDraft: true }), waiting]
     expect(completionOf(window, entries, before)).toMatchObject({ required: 3, done: 1, pending: 2, overdue: 0, percent: 33 })

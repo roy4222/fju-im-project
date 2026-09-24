@@ -1,15 +1,16 @@
 'use server'
 import { currentActor } from '@/app/_ui/guard'
-import type { AffairOutcome, ReceiptView } from '@/app/dashboard/student/affairs/types'
-import { describeReceipt, getSubmissionCommand } from '@/composition/submissions'
+import type { AffairOutcome, ReceiptView, UploadGrant } from '@/app/dashboard/student/affairs/types'
+import { describeReceipt, getSubmissionCommand, requestSubmissionUpload } from '@/composition/submissions'
 import type { Result } from '@/shared/result'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
 /**
- * 作業區的 Server Action（票 17）：存草稿、正式送出。
+ * 作業區的 Server Action（票 17 個人收件；票 21 組別收件與上傳）：存草稿、正式送出、要上傳憑證。
  *
- * 規則與授權全在用例裡判（名單、開放、截止、樂觀鎖、帳本冪等）；這裡只把瀏覽器送來的東西收斂成用例要的形狀、
+ * 規則與授權全在用例裡判（名單、組員、開放、截止、樂觀鎖、帳本冪等、檔案歸屬）；這裡只把瀏覽器送來的東西收斂成用例要的形狀、
  * 把結果翻成畫面要的回饋。請求編號由畫面產生：同一次送出（連點、斷線重試）帶同一個編號，伺服器只算一次。
+ * 收件者（本人或本組）不從畫面帶，由用例依登入者推出來。
  */
 
 function fail<T>(result: Result<T> & { ok: false }): AffairOutcome<never> {
@@ -66,6 +67,28 @@ export async function submitAction(itemId: string, draftRevision: number, reques
       schemaVersionNo: r.schemaVersionNo,
       receiptNo: r.requestId,
       sentence: describeReceipt(r),
+      groupCode: r.groupCode,
+      files: r.files.map((f) => ({ fieldKey: f.fieldKey, name: f.name, checksumShort: f.checksum.slice(0, 12) })),
     },
   }
+}
+
+/**
+ * 替檔案欄位要一張上傳憑證（票 21）。拿到之後瀏覽器把檔案位元組直接 POST 到 `/api/files/upload?ticket=`
+ * （串流、邊傳邊驗類型與大小）；傳完的檔要再存一次草稿才算附上。
+ */
+export async function requestUploadAction(
+  itemId: string,
+  fieldKey: string,
+  fileName: string,
+  declaredMime: string,
+  declaredSize: number,
+): Promise<AffairOutcome<UploadGrant>> {
+  const result = await requestSubmissionUpload(await currentActor(), str(itemId), str(fieldKey, 60), {
+    fileName: str(fileName, 500),
+    declaredMime: str(declaredMime, 200),
+    declaredSize: Number(declaredSize),
+  })
+  if (!result.ok) return result.code === 'RATE_LIMITED' ? { ok: false, code: result.code, message: result.message } : fail(result)
+  return { ok: true, data: { ticket: result.receipt.ticket, fileId: result.receipt.fileId, maxBytes: result.receipt.maxBytes } }
 }

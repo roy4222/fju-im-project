@@ -260,7 +260,7 @@ test('作業區只列自己名單上的個人收件，狀態分成尚未開放�
   await expect(page.getByTestId(`affair-${itemIds.later}`)).toContainText('尚未開放')
   await expect(page.getByTestId(`affair-${itemIds.later}`)).toContainText('開放')
   await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toContainText('逾期未繳')
-  // 別屆的、整組一份的都不在這裡。
+  // 別屆的、自己不在的組別的整組一份都不在這裡（s1 不是 G01 的組員）。
   await expect(page.getByText(`${CODE} 別屆的收件`)).toHaveCount(0)
   await expect(page.getByText(`${CODE} 整組一份的報告`)).toHaveCount(0)
 

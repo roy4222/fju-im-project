@@ -2,11 +2,14 @@ import Link from 'next/link'
 import type { FormField } from '@/application/items'
 import type { Completion, ItemWindow, MyVersionDetail, ReceiverDetail, RosterEntry } from '@/application/submissions'
 import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
-import { answerFields, categoryOf, receiverStatus } from '@/composition/submissions'
+import { answerFields, categoryOf, isFileField, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
-/** 收件名單頁的幾塊畫面（票 18）。全部是 server component，沒有互動狀態：切換靠網址參數。 */
+/**
+ * 收件名單頁的幾塊畫面（票 18；票 21 補上整組一份：組別完成率、點進組別看版本與附件）。
+ * 全部是 server component，沒有互動狀態：切換靠網址參數。
+ */
 
 export type ListKey = 'current' | 'exempt' | 'removed'
 
@@ -139,15 +142,13 @@ function RosterRow({
         </span>
         <span className="block text-xs text-muted-foreground tabular-nums">{detail}</span>
       </span>
-      {individual ? (
-        <Link
-          href={`${base}?person=${entry.receiverId}`}
-          className="inline-flex h-10 shrink-0 items-center rounded-md border border-border px-3 text-sm font-medium text-ink hover:bg-muted"
-          aria-label={`查看 ${entry.name} 的回答`}
-        >
-          查看
-        </Link>
-      ) : null}
+      <Link
+        href={`${base}?person=${entry.receiverId}`}
+        className="inline-flex h-10 shrink-0 items-center rounded-md border border-border px-3 text-sm font-medium text-ink hover:bg-muted"
+        aria-label={individual ? `查看 ${entry.name} 的回答` : `查看 ${entry.name} 組的繳交`}
+      >
+        查看
+      </Link>
     </li>
   )
 }
@@ -181,18 +182,8 @@ function Ring({ percent }: { percent: number | null }) {
 }
 
 export function CompletionPanel({ completion, individual }: { completion: Completion; individual: boolean }) {
-  if (!individual) {
-    return (
-      <section aria-labelledby="progress-title" className="rounded-card border border-border bg-background p-5">
-        <h2 id="progress-title" className="text-base font-semibold text-ink">
-          收件進度
-        </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          整組一份：名單上有 {completion.required} 組應交。組別繳交與組別完成率會在組別繳交上線後顯示。
-        </p>
-      </section>
-    )
-  }
+  // 整組一份的單位是「組」：同組五人誰送都只算這一組一份（產品模組 05 §4「組別完成率以符合資格的組別為單位」）。
+  const unit = individual ? '人' : '組'
   const rows: [string, number, string?][] = [
     ['已正式送出', completion.done],
     ['未繳（還沒截止）', completion.pending],
@@ -209,7 +200,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
           <p className="text-2xl font-semibold text-ink tabular-nums" data-testid="completion-rate">
             {completion.done}／{completion.required}
           </p>
-          <p className="text-xs text-muted-foreground">已正式送出／應交人數</p>
+          <p className="text-xs text-muted-foreground">已正式送出／應交{individual ? '人數' : '組數'}</p>
         </div>
       </div>
       <dl className="mt-4 grid gap-1.5 text-sm">
@@ -221,7 +212,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
         ))}
       </dl>
       <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground tabular-nums">
-        不計入：免填 {completion.exempt} 人・已移出 {completion.removed} 人
+        不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
       </p>
     </section>
   )
@@ -352,7 +343,9 @@ export function ReceiverView({
         )}
         <p className="mt-3 text-xs text-muted-foreground">
           {detail.draftUpdatedAt
-            ? `另有一份草稿（最後儲存 ${formatTaipeiMinute(detail.draftUpdatedAt)}）。草稿只有本人看得到；這裡只列正式送出的版本。`
+            ? `另有一份草稿（最後儲存 ${formatTaipeiMinute(detail.draftUpdatedAt)}）。草稿只有${
+                entry.receiverKind === 'group' ? '組員' : '本人'
+              }看得到；這裡只列正式送出的版本。`
             : '沒有草稿。'}
         </p>
       </section>
@@ -410,11 +403,25 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
       <dl className="divide-y divide-border">
         {fields.map((f) => {
           const value = version.answers[f.key]
-          const text = value === undefined ? '' : typeof value === 'string' ? value : value.join('、')
+          const file = isFileField(f) ? version.files.find((x) => x.fieldKey === f.key) : undefined
+          const text = value === undefined || isFileField(f) ? '' : typeof value === 'string' ? value : value.join('、')
           return (
             <div key={f.key} className="grid gap-1 py-3 sm:grid-cols-[12rem_1fr] sm:gap-6">
               <dt className="text-sm font-semibold">{f.label}</dt>
-              <dd className="whitespace-pre-wrap text-sm">{text || <span className="text-muted-foreground">（未填）</span>}</dd>
+              <dd className="whitespace-pre-wrap text-sm">
+                {file ? (
+                  <span className="flex flex-wrap items-center gap-x-3">
+                    <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
+                      {file.name}
+                    </a>
+                    <span className="font-mono text-[11px] text-muted-foreground" title={file.checksum}>
+                      sha256 {file.checksum.slice(0, 12)}…
+                    </span>
+                  </span>
+                ) : (
+                  text || <span className="text-muted-foreground">（未填）</span>
+                )}
+              </dd>
             </div>
           )
         })}

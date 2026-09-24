@@ -3,18 +3,13 @@ import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
-import { PersonalForm } from '@/app/dashboard/student/affairs/[id]/personal-form'
+import { SubmissionForm } from '@/app/dashboard/student/affairs/[id]/submission-form'
 import { BANNER_CLASS } from '@/app/dashboard/student/affairs/tone'
-import type { Answers, MyItemDetail, MyVersionDetail } from '@/application/submissions'
+import type { FileMeta } from '@/app/dashboard/student/affairs/types'
+import type { AnswerFile, Answers, GroupSummary, MyItemDetail, MyVersionDetail } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { renderBodyHtml } from '@/composition/items'
-import {
-  answerFields,
-  FILE_UPLOAD_PENDING_MESSAGE,
-  getSubmissionQuery,
-  phaseOf,
-  statusOf,
-} from '@/composition/submissions'
+import { answerFields, getSubmissionQuery, isFileField, phaseOf, statusOf } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
@@ -28,11 +23,12 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * 學生作業內容頁（票 17；原型 `/dashboard/student/affairs/[id]` 的個人版）：「作業內容」與「繳交歷史」兩個分頁。
+ * 學生作業內容頁（票 17 個人版；票 21 組別版：原型 `/dashboard/student/affairs/[id]` 的共用表單、上傳進度、收件章回執）：
+ * 「作業內容」與「繳交歷史」兩個分頁。
  *
- * 只有自己在目前收件名單上才看得到（不在名單上一律 404，不透露這份收件存在）。
- * 內容頁：截止、階段、附件、重送規則 → 作業說明 → 欄位（儲存草稿、正式送出、收件章回執）。
- * 繳交歷史：本人每一次正式送出（第幾次、時間、回執編號），點進去看那一次的內容（唯讀）。
+ * 只有自己（整組一份：自己此刻所在的組）在目前收件名單上才看得到（不在名單上一律 404，不透露這份收件存在）。
+ * 內容頁：組別資訊（整組一份）→ 截止、階段、附件、重送規則 → 作業說明 → 欄位（上傳、儲存草稿、正式送出、收件章回執）。
+ * 繳交歷史：每一次正式送出（第幾次、送出者、時間、回執編號），點進去看那一次的內容與附件（唯讀）。
  */
 export default async function StudentAffairPage({
   params,
@@ -74,7 +70,10 @@ export default async function StudentAffairPage({
         ? '已截止・唯讀；需要補交請聯絡系辦重新開放。'
         : null
   // 截止後、尚未開放：欄位顯示草稿（沒有草稿就顯示最後一次送出的內容）。
-  const shown: Answers = item.draft?.answers ?? (latest ? ((await query.myVersion(userId, id, latest.versionNo))?.answers ?? {}) : {})
+  const latestVersion = !item.draft && latest ? await query.myVersion(userId, id, latest.versionNo) : null
+  const shown: Answers = item.draft?.answers ?? latestVersion?.answers ?? {}
+  const shownFiles: readonly AnswerFile[] = item.draft?.files ?? latestVersion?.files ?? []
+  const group = item.group
 
   const info: [string, string][] = [
     ['截止時間', item.dueAt ? `${formatTaipeiMinute(item.dueAt)}（含此分鐘）` : '無'],
@@ -91,7 +90,10 @@ export default async function StudentAffairPage({
       <article className="overflow-hidden rounded-card border border-border bg-background">
         <header className="px-5 pb-3 pt-5">
           <h1 className="text-xl font-bold text-ink">{item.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">個人一份・每位同學各自填寫</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {group ? '整組一份・同組共用一份草稿，任一位組員正式送出就代表全組' : '個人一份・每位同學各自填寫'}
+          </p>
+          {group ? <GroupBar group={group} /> : null}
         </header>
         <p className={cn('mx-5 mb-4 rounded-md px-4 py-3 text-sm font-semibold', BANNER_CLASS[status.tone])} data-testid="affair-banner">
           {banner}
@@ -152,16 +154,27 @@ export default async function StudentAffairPage({
               <h2 id="sec-fill" className="mb-3 text-base font-semibold text-ink">
                 {status.editable ? (latest ? '重送' : '填寫與繳交') : '填寫內容（唯讀）'}
               </h2>
-              <PersonalForm
+              {item.advisorCanView ? (
+                <p className="mb-3 rounded-md bg-muted px-3 py-2 text-sm text-ink" data-testid="advisor-notice">
+                  你的主指導老師可以查看這份收件<strong>正式送出</strong>的回答（草稿不會給老師看）。
+                </p>
+              ) : null}
+              {group && item.draft?.updatedByName ? (
+                <p className="mb-3 text-xs text-muted-foreground" data-testid="draft-updated-by">
+                  共用草稿最後由 {item.draft.updatedByName} 於 {formatTaipeiMinute(item.draft.updatedAt)} 儲存
+                </p>
+              ) : null}
+              <SubmissionForm
                 itemId={item.itemId}
                 fields={item.fields}
                 initialAnswers={toValues(shown)}
+                initialFiles={toFileMeta(shownFiles)}
                 initialRevision={item.draft?.revision ?? 0}
                 initialSavedText={item.draft ? formatTaipeiMinute(item.draft.updatedAt) : null}
                 editable={status.editable}
                 lockedText={lockedText}
                 submittedVersion={latest?.versionNo ?? null}
-                filePendingMessage={FILE_UPLOAD_PENDING_MESSAGE}
+                groupCode={group?.code ?? null}
               />
             </section>
           </div>
@@ -179,6 +192,23 @@ function toValues(answers: Answers): Record<string, string | string[]> {
   return Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, typeof v === 'string' ? v : [...v]]))
 }
 
+function toFileMeta(files: readonly AnswerFile[]): Record<string, FileMeta> {
+  return Object.fromEntries(files.map((f) => [f.fileId, { name: f.name, sizeBytes: f.sizeBytes }]))
+}
+
+/** 組別資訊列（原型 `groupinfo`）：組別代號、組長、組員、指導老師。 */
+function GroupBar({ group }: { group: GroupSummary }) {
+  const leader = group.members.find((m) => m.isLeader)
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border pt-3 text-sm" data-testid="group-bar">
+      <span className="font-semibold text-ink">{group.code}</span>
+      {leader ? <span>組長 {leader.name}</span> : null}
+      <span className="text-muted-foreground">{group.members.map((m) => m.name).join('、')}</span>
+      <span className="text-muted-foreground">指導老師 {group.advisorName ?? '尚未指派'}</span>
+    </div>
+  )
+}
+
 function History({ item }: { item: MyItemDetail }) {
   if (item.versions.length === 0) {
     return <p className="px-5 py-10 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
@@ -190,6 +220,9 @@ function History({ item }: { item: MyItemDetail }) {
           <tr>
             <th scope="col" className="py-2 font-medium">
               第幾次
+            </th>
+            <th scope="col" className="py-2 font-medium">
+              送出者
             </th>
             <th scope="col" className="py-2 font-medium">
               收件時間（臺灣時間）
@@ -211,6 +244,7 @@ function History({ item }: { item: MyItemDetail }) {
                   <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] text-primary-on-subtle">採計</span>
                 ) : null}
               </td>
+              <td className="py-3">{v.submittedByName}</td>
               <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
               <td className="py-3 font-mono text-xs text-muted-foreground">{v.requestId}</td>
               <td className="py-1 text-right">
@@ -274,11 +308,26 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
       <dl className="divide-y divide-border">
         {fields.map((f) => {
           const value = version.answers[f.key]
-          const text = value === undefined ? '' : typeof value === 'string' ? value : value.join('、')
+          const file = isFileField(f) ? version.files.find((x) => x.fieldKey === f.key) : undefined
+          const text = value === undefined || isFileField(f) ? '' : typeof value === 'string' ? value : value.join('、')
           return (
             <div key={f.key} className="grid gap-1 py-3 sm:grid-cols-[12rem_1fr] sm:gap-6">
               <dt className="text-sm font-semibold">{f.label}</dt>
-              <dd className="whitespace-pre-wrap text-sm">{text || <span className="text-muted-foreground">（未填）</span>}</dd>
+              <dd className="whitespace-pre-wrap text-sm">
+                {file ? (
+                  <span className="flex flex-wrap items-center gap-x-3">
+                    <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
+                      {file.name}
+                    </a>
+                    <span className="text-xs text-muted-foreground tabular-nums">{formatSize(file.sizeBytes)}</span>
+                    <span className="font-mono text-[11px] text-muted-foreground" title={file.checksum}>
+                      sha256 {file.checksum.slice(0, 12)}…
+                    </span>
+                  </span>
+                ) : (
+                  text || <span className="text-muted-foreground">（未填）</span>
+                )}
+              </dd>
             </div>
           )
         })}

@@ -16,6 +16,7 @@ import {
   isUuid,
   storageKeyFor,
   tempKeyFor,
+  type AttachExpectation,
   type DeclaredUpload,
   type DownloadPolicies,
   type FileDownload,
@@ -45,7 +46,7 @@ import { issueTicket, verifyTicket } from '@/infrastructure/ops/upload-ticket'
  * 下載一律經 `authorizeDownload`（`/api/files/[id]`）每次重新授權。
  *
  * 上傳失敗（類型不符、太大、中斷）時暫存檔當場刪掉；`uploading` 的檔案列留著，
- * 超過 24 小時由 GC 收（GC 在 S07／S12，本票不做）。
+ * 超過 24 小時由 GC 收（回收工作在 S12；票 21 的 0008 已建好回收索引，`reclaimableFiles` 列得出候選）。
  */
 
 export type FileStorageOptions = {
@@ -295,7 +296,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     tx: PoolClient,
     fileId: string,
     ref: FileRef,
-    expect: { ownerUserId: string; purpose: FilePurpose },
+    expect: AttachExpectation,
   ): Promise<Result<{ referenceId: string; checksum: string }>> {
     const now = this.#clock.now()
     if (!isUuid(fileId)) return err('VALIDATION_FAILED', '檔案編號不正確。')
@@ -305,7 +306,18 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       [fileId],
     )
     const row = found.rows[0]
-    if (!row || row.owner_user_id !== expect.ownerUserId || row.purpose !== expect.purpose) {
+    let allowed = row !== undefined && row.purpose === expect.purpose
+    if (allowed && 'heldBy' in expect) {
+      const held = await tx.query(
+        `select 1 from file_references where file_id = $1 and ref_type = $2 and ref_id = $3 and released_at is null`,
+        [fileId, expect.heldBy.refType, expect.heldBy.refId],
+      )
+      allowed = (held.rowCount ?? 0) > 0
+    } else if (allowed && 'ownerUserId' in expect) {
+      const owners = typeof expect.ownerUserId === 'string' ? [expect.ownerUserId] : expect.ownerUserId
+      allowed = owners.includes(row!.owner_user_id)
+    }
+    if (!row || !allowed) {
       return err('FILE_NOT_OWNED', '找不到你上傳的這個檔案，請重新上傳。')
     }
     if (row.status !== 'stored' || !row.checksum) return err('FILE_NOT_READY', '檔案還沒上傳完成，請重新上傳。')
@@ -398,4 +410,34 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       meta(now),
     )
   }
+}
+
+/** 回收的門檻（模組 10 §2：超過 24 小時才碰）。 */
+export const RECLAIM_AFTER_MS = 24 * 60 * 60 * 1000
+
+export type ReclaimCandidate = { readonly id: string; readonly status: 'uploading' | 'stored'; readonly ownerUserId: string }
+
+/**
+ * 回收候選（模組 10 §2、§3；票 21 建索引，回收工作本身在 S12）。
+ *
+ * - `uploading` 超過 24 小時：上傳中斷、類型不符、太大被擋時暫存檔已經刪了，只剩這一列（走 `stored_files_uploading_gc_idx`）。
+ * - `stored` 超過 24 小時而且沒有任何有效引用：傳完了卻沒存進草稿、或從草稿拿掉之後沒人再用（走 `(status, finalized_at)`）。
+ *
+ * 只列不刪：真正刪檔要照契約 01 §6 的鎖序（檔案列 `FOR UPDATE` 後再確認沒有引用），那是回收工作的事。
+ */
+export async function reclaimableFiles(
+  db: Pick<Pool, 'query'>,
+  now: Date,
+  olderThanMs: number = RECLAIM_AFTER_MS,
+): Promise<ReclaimCandidate[]> {
+  const cutoff = new Date(now.getTime() - olderThanMs)
+  const rows = await db.query<{ id: string; status: 'uploading' | 'stored'; owner_user_id: string }>(
+    `select id, status, owner_user_id from stored_files where status = 'uploading' and uploaded_real_at < $1
+     union all
+     select f.id, f.status, f.owner_user_id from stored_files f
+      where f.status = 'stored' and f.finalized_at < $1
+        and not exists (select 1 from file_references r where r.file_id = f.id and r.released_at is null)`,
+    [cutoff],
+  )
+  return rows.rows.map((r) => ({ id: r.id, status: r.status, ownerUserId: r.owner_user_id }))
 }

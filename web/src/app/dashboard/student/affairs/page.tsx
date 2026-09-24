@@ -4,6 +4,7 @@ import { EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
+import type { MyItemRow } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -23,9 +24,9 @@ type TabKey = (typeof TABS)[number]['key']
 /**
  * 學生作業區（票 17；原型 `/dashboard/student/affairs`）：一列一件，欄位是「作業名稱／形式／狀態／截止」。
  *
- * 只列**自己在目前收件名單上**的個人收件（發布中）。狀態字（尚未開放／未繳／已繳 vN／逾期未繳）由 application
- * 的 `statusOf` 算，列表與內容頁同一個口徑；開放與截止都看業務時鐘（測試站可以撥）。
- * 整組一份的收件在票 21 併進來。
+ * 只列**自己在目前收件名單上**的收件（發布中）：個人一份看本人、整組一份看自己此刻所在的組（票 21）。
+ * 狀態字（尚未開放／未繳／已繳 vN／逾期未繳）由 application 的 `statusOf` 算，列表與內容頁同一個口徑；
+ * 開放與截止都看業務時鐘（測試站可以撥）。整組一份時任一位組員送出，全組的這一列都變成已繳。
  */
 export default async function StudentAffairsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -75,7 +76,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
       {list.length === 0 ? (
         <EmptyState
           title={tab === 'all' ? '目前沒有要交的收件' : `沒有${TABS.find((t) => t.key === tab)!.label}的收件`}
-          description="系辦發布個人收件、而且你在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。"
+          description="系辦發布收件、而且你（或你的組別）在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。整組一份的收件要先成立組別。"
         />
       ) : (
         <>
@@ -92,7 +93,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                 </p>
                 <div className="flex items-center gap-3">
                   <span className="min-w-0 flex-1 text-xs text-muted-foreground tabular-nums">
-                    截止 {dueText(row.dueAt)}・個人一份
+                    截止 {dueText(row.dueAt)}・{unitText(row)}
                   </span>
                   <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} />
                 </div>
@@ -134,7 +135,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                         {row.attachmentCount > 0 ? `・${row.attachmentCount} 個附件` : ''}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">個人一份</td>
+                    <td className="whitespace-nowrap px-4 py-3">{unitText(row)}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span className={cn('block font-semibold', TONE_CLASS[status.tone])}>{status.headline}</span>
                       <span className="block text-xs text-muted-foreground">{status.detail}</span>
@@ -169,4 +170,9 @@ function ActionLink({ itemId, label, primary }: { itemId: string; label: string;
       {label}
     </Link>
   )
+}
+
+/** 形式欄：個人一份，或整組一份（帶自己組別的代號）。 */
+function unitText(row: MyItemRow): string {
+  return row.receiverUnit === 'group' ? `整組一份${row.groupCode ? `（${row.groupCode}）` : ''}` : '個人一份'
 }

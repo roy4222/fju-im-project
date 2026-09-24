@@ -26,10 +26,29 @@ export function answerFields(fields: readonly FormField[]): FormField[] {
 }
 
 /**
- * 檔案欄位：個人收件的上傳在票 21 才接（組別共用上傳一起做），票 17 畫面顯示「尚未開放」、
- * 送出時必填的檔案欄位擋下並說明，不假裝收到了。
+ * 檔案欄位（票 21）：一個檔案欄位放**一個**檔，答案存的是檔案 ID（`stored_files.id`）。
+ * 檔案先經上傳憑證串流上傳、驗過類型與大小變成 `stored`，存草稿時才綁到草稿上；
+ * 這裡只看形狀（是不是 uuid），是不是本人或本組上傳、類型大小合不合欄位規則，由存草稿的交易在鎖內檢查。
  */
-export const FILE_UPLOAD_PENDING_MESSAGE = '檔案上傳功能尚未開放（會與組別繳交一起上線）；需要上傳的收件目前無法正式送出，請先聯絡系辦。'
+const FILE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export function isFileField(field: Pick<FormField, 'type'>): boolean {
+  return field.type === 'file'
+}
+
+/** 答案裡的檔案（欄位代號 → 檔案 ID），依欄位順序。 */
+export function fileAnswers(fields: readonly FormField[], answers: Answers): { fieldKey: string; fileId: string }[] {
+  const out: { fieldKey: string; fileId: string }[] = []
+  for (const field of fields) {
+    if (!isFileField(field)) continue
+    const value = answers[field.key]
+    if (typeof value === 'string' && FILE_ID.test(value)) out.push({ fieldKey: field.key, fileId: value })
+  }
+  return out
+}
+
+/** 位元組數換成 MiB 上限（欄位設定用整數 MiB）。 */
+export const MIB = 1024 * 1024
 
 /** 單行欄位最多幾個字；長文字另計。 */
 export const LINE_MAX_LENGTH = 500
@@ -67,7 +86,7 @@ function cleanText(value: string): string {
  * - 只留目前欄位版本裡的輸入欄位；沒填的欄位不存。
  * - 形狀要對：選項只能是欄位列出的、複選是字串陣列、長度有上限。形狀不對＝前端被竄改或頁面太舊，直接拒絕。
  * - 格式（Email、網址、數字、日期、時間）在草稿不擋：填到一半的內容也要存得住，送出時才檢查。
- * - 檔案欄位：上傳還沒開放，草稿不收任何值。
+ * - 檔案欄位：只收一個檔案 ID（uuid）；檔案是誰的、合不合規則在存草稿的交易裡檢查。
  */
 export function normalizeAnswers(fields: readonly FormField[], raw: unknown): NormalizedAnswers {
   const source = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
@@ -75,7 +94,14 @@ export function normalizeAnswers(fields: readonly FormField[], raw: unknown): No
   for (const field of answerFields(fields)) {
     const value = source[field.key]
     if (value === undefined || value === null) continue
-    if (field.type === 'file') continue
+    if (isFileField(field)) {
+      if (value === '') continue
+      if (typeof value !== 'string' || !FILE_ID.test(value.toLowerCase())) {
+        return issue(field, `「${field.label}」的檔案資料不對，請重新上傳。`)
+      }
+      out[field.key] = value.toLowerCase()
+      continue
+    }
     if (field.type === 'checkbox') {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
         return issue(field, `「${field.label}」的資料不對，請重新整理頁面。`)
@@ -127,7 +153,7 @@ function isEmpty(value: AnswerValue | undefined): boolean {
 }
 
 function missingMessage(field: FormField): string {
-  if (field.type === 'file') return `「${field.label}」需要上傳檔案；${FILE_UPLOAD_PENDING_MESSAGE}`
+  if (field.type === 'file') return `請上傳「${field.label}」`
   if (field.type === 'radio' || field.type === 'select') return `請選擇「${field.label}」`
   if (field.type === 'checkbox') return `請勾選「${field.label}」`
   return `請填寫「${field.label}」`
@@ -255,11 +281,13 @@ export function statusOf(facts: StatusFacts): ItemStatusView {
 
 // ── 回執 ────────────────────────────────────────────────────────────────────
 
-/** 收件章上的一句話（伺服器產生，畫面只顯示）。 */
+/** 收件章上的一句話（伺服器產生，畫面只顯示）。整組一份時寫明「代表 G01 組」：一人送出＝全組已繳。 */
 export function describeReceipt(receipt: {
   readonly title: string
   readonly versionNo: number
   readonly receivedBusinessAt: string
+  readonly groupCode?: string | null
 }): string {
-  return `「${receipt.title}」已收件：第 ${receipt.versionNo} 次正式送出，收件時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
+  const who = receipt.groupCode ? `代表 ${receipt.groupCode} 組` : ''
+  return `「${receipt.title}」已收件：${who}第 ${receipt.versionNo} 次正式送出，收件時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
 }
