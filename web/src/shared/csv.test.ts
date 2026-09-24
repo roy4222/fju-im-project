@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseCsv, toCsvCell, toCsvLine } from '@/shared/csv'
 
-const opts = { maxCellLength: 50, maxRows: 100 }
+const opts = { maxCellLength: 50, maxRows: 100, maxCellsPerRow: 10 }
 
 function cells(text: string) {
   const parsed = parseCsv(text, opts)
@@ -47,6 +47,16 @@ describe('parseCsv（RFC 4180）', () => {
     expect(parseCsv('a,b"c', opts)).toMatchObject({ ok: false, reason: 'stray_quote' })
     expect(parseCsv(`a,${'x'.repeat(51)}`, opts)).toMatchObject({ ok: false, reason: 'cell_too_long' })
     expect(parseCsv('a\n'.repeat(101), opts)).toMatchObject({ ok: false, reason: 'too_many_rows' })
+  })
+
+  it('每列欄數有上限：一整列都是逗號時直接退件，不在記憶體裡堆出大量空字串（票 6 審查建議）', () => {
+    // 剛好 10 格可以；第 11 格就擋，並指出是哪一行。
+    expect(parseCsv(','.repeat(9), opts)).toMatchObject({ ok: true })
+    expect(parseCsv(`h\n${','.repeat(10)}`, opts)).toMatchObject({ ok: false, reason: 'too_many_cells', line: 2 })
+    // 2 MiB 全逗號：很快回錯，不會先拆完整列。
+    const started = Date.now()
+    expect(parseCsv(','.repeat(2 * 1024 * 1024), opts)).toMatchObject({ ok: false, reason: 'too_many_cells' })
+    expect(Date.now() - started).toBeLessThan(1000)
   })
 })
 

@@ -1,5 +1,12 @@
 import 'server-only'
-import type { ActorResolver, ResolvedActor, RosterCommand, SelfAccountCommand } from '@/application/accounts'
+import type {
+  ActorResolver,
+  RegistrationCommand,
+  ResolvedActor,
+  RosterCommand,
+  SelfAccountCommand,
+} from '@/application/accounts'
+import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
@@ -52,6 +59,45 @@ export function getRosterCommand(): RosterCommand {
   })
   return rosterCommand
 }
+
+/** 學生註冊與審核（票 7）：稽核＋帳本＋模組 02 的屆別查詢由這裡注入。 */
+let registrationCommand: RegistrationCommand | undefined
+
+export function getRegistrationCommand(): RegistrationCommand {
+  registrationCommand ??= new PgRegistrationCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+    cohorts: getCohortStatusQuery(),
+  })
+  return registrationCommand
+}
+
+/** 註冊與審核畫面要用的標籤與上限（app 對 application 只能帶型別，執行期的值經這裡）。 */
+export {
+  APPLIED_NAME_MAX_LENGTH,
+  DEPARTMENT_CLASS_MAX_LENGTH,
+  EVIDENCE_LABEL,
+  EVIDENCE_NEEDS_ATTENTION,
+  PASSWORD_MIN_LENGTH,
+  REASON_MAX_LENGTH,
+  VERIFICATION_LABEL,
+  VERIFICATION_METHODS,
+  VERIFICATION_NOTE_HINT,
+  VERIFICATION_NOTE_REQUIRED,
+} from '@/application/accounts'
+
+/**
+ * 這次請求的來源 IP（契約 03 §6 的限速鍵）。
+ *
+ * 正式環境 Caddy 以 `header_up X-Real-IP {remote_host}` **覆寫** `X-Real-IP`，使用者自己帶的
+ * 同名標頭到不了 app，所以優先讀它；沒有它（本機直連）才退回 `X-Forwarded-For` 的第一段。
+ * 與 Better Auth hook 裡取 IP 的是同一個函式，Server Action 與直接打 API 算的是同一個人。
+ */
+export { clientIpFrom } from '@/infrastructure/auth/sign-in-rate-limit'
+
+/** 測試用：清掉註冊的限速計數。 */
+export { resetSignUpLimiter } from '@/infrastructure/auth/sign-up-rate-limit'
 
 /**
  * 登入。

@@ -10,7 +10,7 @@
 
 export type CsvParseError = {
   readonly ok: false
-  readonly reason: 'unterminated_quote' | 'cell_too_long' | 'too_many_rows' | 'stray_quote'
+  readonly reason: 'unterminated_quote' | 'cell_too_long' | 'too_many_rows' | 'too_many_cells' | 'stray_quote'
   /** 從 1 起算的行號（實體行，不是資料列）。 */
   readonly line: number
 }
@@ -26,6 +26,11 @@ export type CsvParseOptions = {
   readonly maxCellLength: number
   /** 資料列（含表頭）上限。 */
   readonly maxRows: number
+  /**
+   * 每列最多幾格。不設的話，一份 2 MiB 全是逗號的檔案會在一列裡堆出約 200 萬個空字串
+   * （票 6 審查建議）；超過就整份退件，不繼續往下拆。
+   */
+  readonly maxCellsPerRow: number
 }
 
 /**
@@ -49,6 +54,7 @@ export function parseCsv(text: string, options: CsvParseOptions): CsvParsed | Cs
 
   const pushCell = (): CsvParseError | null => {
     if (cell.length > options.maxCellLength) return { ok: false, reason: 'cell_too_long', line: rowStartLine }
+    if (cells.length >= options.maxCellsPerRow) return { ok: false, reason: 'too_many_cells', line: rowStartLine }
     cells.push(cell)
     cell = ''
     quotedCell = false
