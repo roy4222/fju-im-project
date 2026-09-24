@@ -156,6 +156,57 @@ describe('執行器：主工作', () => {
   })
 })
 
+describe('票 9（PR #253）用例留下的失敗列：背景工作重試到成功', () => {
+  /** 照 #253 `SessionRevocationExecutor.#complete` 寫失敗的樣子：failed、last_error、outcome_unknown=false。 */
+  async function failLikeTicket9(jobId: string) {
+    await owner.sql(
+      `update session_revocations set state = 'failed', last_error = '403 FORBIDDEN', outcome_unknown = false,
+              completed_real_at = now(), updated_at = now()
+        where id = $1`,
+      [jobId],
+    )
+  }
+
+  it('停用時封鎖失敗：下一輪週期核對把 banned 補成 true、舊 session 刪掉', async () => {
+    const userId = await newUser('active')
+    await addSession(userId)
+    const { jobId } = await statusEvent(userId, 'disabled')
+    await failLikeTicket9(jobId)
+
+    await executor().periodic()
+    expect(await readBanned(app, userId)).toBe(true)
+    expect(Number((await owner.sql('select count(*) as n from sessions where user_id = $1', [userId])).rows[0]!.n)).toBe(0)
+    expect((await rows(userId)).at(-1)).toMatchObject({ trigger: 'reconcile', reconcile_reason: 'periodic', kind: 'ban', state: 'done' })
+  })
+
+  it('恢復時解除封鎖失敗（本人暫時登不進去）：下一輪週期核對把 banned 改回 false', async () => {
+    const userId = await newUser('disabled', true)
+    const { jobId } = await statusEvent(userId, 'active')
+    await failLikeTicket9(jobId)
+    expect(await readBanned(app, userId)).toBe(true)
+
+    await executor().periodic()
+    expect(await readBanned(app, userId)).toBe(false)
+    expect((await rows(userId)).at(-1)).toMatchObject({ trigger: 'reconcile', kind: 'unban', expected_user_status: 'active', state: 'done' })
+  })
+
+  it('外部一直失敗：每輪核對只多一筆收斂工作（不在同一輪把 10 輪額度燒完）', async () => {
+    const userId = await newUser('active')
+    const { jobId } = await statusEvent(userId, 'disabled')
+    await failLikeTicket9(jobId)
+    const failing: BanStateGateway = { apply: async () => Promise.reject(new Error('Better Auth 掛了')) }
+
+    await executor({ gateway: failing }).periodic()
+    await executor({ gateway: failing }).periodic()
+    const reconciles = (await rows(userId)).filter((r) => r.trigger === 'reconcile')
+    expect(reconciles.map((r) => r.reconcile_round)).toEqual([1, 2])
+    expect(reconciles.every((r) => r.state === 'failed')).toBe(true)
+
+    await executor().periodic() // Better Auth 恢復了
+    expect(await readBanned(app, userId)).toBe(true)
+  })
+})
+
 describe('過期回收與租約', () => {
   it('租約過期還在 executing 的列：回收成 failed（lease_expired、結果未知），接著核對收斂', async () => {
     const userId = await newUser('active')
