@@ -8,6 +8,7 @@ import { applyMigrations, migratedSchema } from '../../../test/migrations'
  * 票 11（S02-01）：第三支再新增七張表（細節在 s02-timeline.integration.test.ts）。
  * 票 13（S03-01）：第四支再新增六張分組表（細節在 s03-groups.integration.test.ts）。
  * 票 15（S04-01）：第五支再新增專題事務六表與收件名單表（細節在 s04-items.integration.test.ts）。
+ * 票 17（S05）：第六支再新增草稿與正式版本兩表（細節在 s05-submissions.integration.test.ts）。
  */
 
 beforeAll(async () => {
@@ -76,9 +77,12 @@ const S04_TABLES = [
   'response_rosters',
 ]
 
-const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES, ...S02_TABLES, ...S03_TABLES, ...S04_TABLES].sort()
+/** 票 17（S05）新增的兩張表：模組 05 附錄 A 的草稿與正式版本。 */
+const S05_TABLES = ['submission_drafts', 'submission_versions']
 
-const LATEST = '0005_s04_items'
+const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES, ...S02_TABLES, ...S03_TABLES, ...S04_TABLES, ...S05_TABLES].sort()
+
+const LATEST = '0006_s05_submissions'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -90,7 +94,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出四十二張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出四十四張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])

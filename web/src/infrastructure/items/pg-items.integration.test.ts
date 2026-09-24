@@ -10,13 +10,13 @@ import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
 import { EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/application/items'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
-import { NoResponsesYet } from '@/infrastructure/items/no-responses-yet'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 
 /**
  * 票 15：專題事務建立與發布（模組實作設計 04 §3、§6、§10；模組 05 §5 `buildRoster`；
@@ -261,14 +261,14 @@ beforeAll(async () => {
     events: new PgEventPublisher(),
     dueWork: new PgDueWorkScheduler({ testKindsEnabled: false }),
     files: storage,
-    responses: new NoResponsesYet(),
+    responses: new PgResponsePresence(),
     businessClock,
     pool: () => app,
   }
   items = new PgItemCommand(deps)
-  // 票 17 之後才會有真的回答；這個替身假裝「已經有人作答」，證明鎖定規則已經接好。
+  // 替身假裝「已經有人作答」，不用真的去造回答就能逐條驗鎖定規則（真查詢的鎖定在 pg-submissions 的整合測試）。
   lockedItems = new PgItemCommand({ ...deps, responses: { hasAnyResponse: async () => true } })
-  query = new PgItemQuery(() => app)
+  query = new PgItemQuery(() => app, responsePresenceReader(() => app))
 })
 
 afterEach(() => {

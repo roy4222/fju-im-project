@@ -3,8 +3,9 @@ import type { ItemCommand, ItemQuery } from '@/application/items'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
-import { NoResponsesYet } from '@/infrastructure/items/no-responses-yet'
+import { getPool } from '@/infrastructure/db/client'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
+import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 
 /** 模組 04 專題事務的實例組裝（票 15：建立、編輯、發布、發布更新）。 */
 let itemCommand: ItemCommand | undefined
@@ -17,15 +18,15 @@ export function getItemCommand(): ItemCommand {
     events: getEventPublisher(),
     dueWork: getDueWorkScheduler(),
     files: getFileStorage(),
-    // 回答表在票 17；在那之前一律「沒有人作答」（見 NoResponsesYet 的說明）。
-    responses: new NoResponsesYet(),
+    // 有人存過草稿或正式送出後，收件單位、對象、欄位結構鎖定（票 17 接上的真查詢）。
+    responses: new PgResponsePresence(),
     businessClock: getBusinessClock(),
   })
   return itemCommand
 }
 
 export function getItemQuery(): ItemQuery {
-  itemQuery ??= new PgItemQuery()
+  itemQuery ??= new PgItemQuery(getPool, responsePresenceReader(getPool))
   return itemQuery
 }
 

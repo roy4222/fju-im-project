@@ -17,13 +17,14 @@ export default async function StudentHomePage() {
       <StageBanner actor={actor} perspective="student" showStages />
       <div className="grid gap-4 sm:grid-cols-2">
         <Tile label="我的組別" value="—" hint="分組功能開放後會顯示" />
-        <Tile label="待繳交" value="—" hint="繳交功能開放後會顯示" />
+        <Tile label="待繳交" value="—" hint="到「作業區」看每一份收件的狀態" href="/dashboard/student/affairs" />
       </div>
       <div className="mt-6">
         <EmptyState
           pending
-          title="學生的功能還沒做"
-          description="分組提案、個人繳交與組別繳交會陸續開放，開放後會出現在這裡。"
+          title="首頁的待辦數字與組別繳交還沒做"
+          description="個人收件已經可以在「作業區」填寫與正式送出；首頁待繳數字與整組一份的繳交會陸續開放。"
+          action={{ href: '/dashboard/student/affairs', label: '去作業區' }}
         />
       </div>
     </DashboardShell>
