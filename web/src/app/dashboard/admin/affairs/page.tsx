@@ -161,11 +161,18 @@ export default async function AffairsPage({
                 : '—'}
           </span>,
           <span key="roster" className="tabular-nums text-sm">
-            {collectsResponses(r.placement)
-              ? r.status === 'draft'
-                ? RECEIVER_UNIT_LABEL[r.receiverUnit]
-                : `${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`
-              : '—'}
+            {collectsResponses(r.placement) ? (
+              r.status === 'draft' ? (
+                RECEIVER_UNIT_LABEL[r.receiverUnit]
+              ) : (
+                // 收件名單頁（票 18）：三類名單、完成率、點人看回答。
+                <Link href={`/dashboard/admin/affairs/${r.id}`} className="font-medium text-primary-on-subtle hover:underline">
+                  {`${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`}
+                </Link>
+              )
+            ) : (
+              '—'
+            )}
           </span>,
           <Link key="edit" href={`/dashboard/admin/editor/${r.id}`} className="whitespace-nowrap text-sm font-medium text-primary hover:underline">
             編輯

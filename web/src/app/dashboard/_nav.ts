@@ -37,7 +37,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/cohorts', role: 'admin' },
   { path: '/dashboard/admin/timeline', role: 'admin' },
   { path: '/dashboard/admin/groups', role: 'admin' },
-  // 專題事務工作台與完整編輯器（票 15）；既有項目的 `/dashboard/admin/editor/<id>` 同一個守衛。
+  // 專題事務工作台與完整編輯器（票 15）；既有項目的 `/dashboard/admin/editor/<id>` 與收件名單頁
+  // `/dashboard/admin/affairs/<id>`（票 18，roster.spec 驗學生與老師被擋）同一個守衛。
   { path: '/dashboard/admin/affairs', role: 'admin' },
   { path: '/dashboard/admin/editor/new', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。

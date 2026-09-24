@@ -1,5 +1,5 @@
 import type { ResolvedActor } from '@/application/accounts'
-import type { FormField } from '@/application/items'
+import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
 import type { Answers } from '@/application/submissions/submissions'
 import type { Result } from '@/shared/result'
 
@@ -109,4 +109,82 @@ export interface SubmissionQuery {
   myItem(userId: string, itemId: string): Promise<MyItemDetail | null>
   /** 某一次正式送出的內容（唯讀）。只回自己的。 */
   myVersion(userId: string, itemId: string, versionNo: number): Promise<MyVersionDetail | null>
+}
+
+// ── 收件名單（票 18，管理員）─────────────────────────────────────────────────
+
+/** 名單頁頂端的項目資訊。 */
+export type RosterItem = {
+  readonly itemId: string
+  readonly cohortId: string
+  readonly cohortCode: string
+  readonly title: string
+  readonly status: ItemStatus
+  readonly receiverUnit: ReceiverUnit
+  readonly stageName: string | null
+  readonly opensAt: Date | null
+  readonly dueAt: Date | null
+  /** 目前發布中的欄位版本（還沒發布過是 null）。 */
+  readonly schemaVersionNo: number | null
+  readonly fields: readonly FormField[]
+}
+
+/** 名單上的一位收件者（人或組）。同一收件者有多列時只取「目前那一列」，沒有目前的就取最後一次移出的那一列。 */
+export type RosterEntry = {
+  readonly receiverKind: 'user' | 'group'
+  readonly receiverId: string
+  /** 人：顯示名稱；組：組別代號。 */
+  readonly name: string
+  readonly studentNo: string | null
+  /** 人目前所在的組（本屆）；組別收件就是自己的代號。 */
+  readonly groupCode: string | null
+  /** 這一列的資格生效時間（業務時間）。 */
+  readonly eligibleFrom: Date
+  /** 移出時間；null＝還在名單上。 */
+  readonly eligibleTo: Date | null
+  /** 自動展開或管理員加入。 */
+  readonly source: 'auto' | 'admin'
+  readonly exempt: boolean
+  readonly exemptReason: string | null
+  readonly removedReason: string | null
+  readonly hasDraft: boolean
+  readonly latestVersionNo: number | null
+  readonly latestReceivedAt: Date | null
+  readonly latestSubmittedByName: string | null
+}
+
+export type ItemRoster = { readonly item: RosterItem; readonly entries: readonly RosterEntry[] }
+
+/** 名單列的歷史（加入、免填、移出；新的在前）。 */
+export type RosterSpan = {
+  readonly eligibleFrom: Date
+  readonly eligibleTo: Date | null
+  readonly source: 'auto' | 'admin'
+  readonly exempt: boolean
+  readonly exemptReason: string | null
+  readonly removedReason: string | null
+}
+
+export type ReceiverDetail = {
+  readonly item: RosterItem
+  readonly entry: RosterEntry
+  readonly spans: readonly RosterSpan[]
+  /** 草稿只給「有沒有、最後存的時間」：管理員看的是正式送出的版本，草稿內容不在名單頁出現。 */
+  readonly draftUpdatedAt: Date | null
+  /** 每一次正式送出，新的在前。已移出的人也列（回答保留）。 */
+  readonly versions: readonly VersionSummary[]
+}
+
+/**
+ * 收件名單頁的查詢（模組實作設計 05 §5 `SubmissionQuery` 的管理員部分）。
+ *
+ * 每個方法自己再判一次授權（只有系辦管理員；老師與學生一律拿不到，回 null）——頁面的角色守衛不是唯一的一道。
+ * 主指導閱覽正式回答在票 21／22 才接。
+ */
+export interface RosterQuery {
+  roster(actor: ResolvedActor, itemId: string): Promise<ItemRoster | null>
+  /** 某一位收件者的名單歷史與正式版本。不在這份收件的名單上（從來沒在過）回 null。 */
+  receiver(actor: ResolvedActor, itemId: string, receiverId: string): Promise<ReceiverDetail | null>
+  /** 某一位收件者某一次正式送出的內容（唯讀）。 */
+  receiverVersion(actor: ResolvedActor, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null>
 }

@@ -7,6 +7,7 @@ import { StudentCalendar } from '@/app/dashboard/student/_calendar'
 import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
 import { getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { getPublicItemQuery } from '@/composition/items'
+import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '學生首頁｜資管系專題平台' }
@@ -22,14 +23,18 @@ export default async function StudentHomePage() {
     actor.kind === 'authenticated'
       ? (actor.cohortMemberships.find((m) => m.role === 'student') ?? actor.cohortMemberships[0])?.cohortId
       : undefined
-  const [activities, deadlines, now] = await Promise.all([
+  // 待繳交（票 18）：跟作業區「待繳」、管理員名單頁「未繳」同一份查詢（`myItems`）、同一個狀態函式。
+  const userId = actor.kind === 'authenticated' ? actor.userId : ''
+  const [activities, deadlines, myItems, now] = await Promise.all([
     cohortId ? getTimelineQuery().activities(cohortId) : Promise.resolve([]),
     getPublicItemQuery().myDeadlines(actor),
+    getSubmissionQuery().myItems(userId),
     getBusinessClock().now(),
   ])
   const today = taipeiDateOf(now)
   const entries = calendarEntries(activities, deadlines)
   const next = upcoming(entries, today)
+  const pending = pendingCount(myItems, now)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student">
@@ -37,13 +42,18 @@ export default async function StudentHomePage() {
       <StageBanner actor={actor} perspective="student" showStages />
       <div className="grid gap-4 sm:grid-cols-2">
         <Tile label="我的組別" value="—" hint="分組功能開放後會顯示" />
-        <Tile label="待繳交" value="—" hint="到「作業區」看每一份收件的狀態" href="/dashboard/student/affairs" />
+        <Tile
+          label="待繳交"
+          value={<span data-testid="home-pending">{pending} 件</span>}
+          hint="還在開放、還沒正式送出的收件；點進作業區看每一份"
+          href="/dashboard/student/affairs?tab=open"
+        />
       </div>
       <div className="mt-6">
         <EmptyState
           pending
-          title="首頁的待辦數字與組別繳交還沒做"
-          description="個人收件已經可以在「作業區」填寫與正式送出；首頁待繳數字與整組一份的繳交會陸續開放。"
+          title="組別繳交還沒做"
+          description="個人收件已經可以在「作業區」填寫與正式送出；整組一份的繳交會陸續開放。"
           action={{ href: '/dashboard/student/affairs', label: '去作業區' }}
         />
       </div>
