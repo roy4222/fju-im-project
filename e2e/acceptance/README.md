@@ -18,8 +18,8 @@ doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_P
   `fju.roy422.dev`）會在設定檔載入時直接失敗，一個請求都不送。
 - 帳密只從 `doppler run` 注入的環境變數讀：不印、不寫檔、不進截圖檔名。不開 trace、不錄影、只用 list 報告
   （trace 與 HTML 報告會存下填表的值）。跑完會掃一遍輸出資料夾，出現密碼就刪檔並報錯。
-- 每一步的截圖在 `web/acceptance/.out/<時間>/station-N/NN-*.png`（gitignore）。E2E 管理員的 email 會出現在
-  登入頁截圖裡（測試專用信箱，可接受，但截圖別貼到公開的地方）。
+- 每一步的截圖在 `web/acceptance/.out/<時間>/station-N/NN-*.png`（gitignore）。帳號頁的截圖（帳號列表有 Email 欄）
+  會拍到 E2E 管理員與測試站上其他帳號的 email——截圖別貼到公開的地方。
 - 終端機的 list 報告就是結果：每一行一步，✓ 通過、✘ 失敗；失敗的那一步後面同一站的步驟會跳過。
 
 **兩站各測什麼**
