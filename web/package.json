@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "next dev --port 3000",
-    "build": "next build",
+    "build": "next build && node scripts/build-worker.mjs",
+    "worker:build": "node scripts/build-worker.mjs",
+    "worker": "node dist/worker.mjs",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test e2e eslint-rules scripts",
@@ -54,6 +56,7 @@
     "@types/react-dom": "19.2.4",
     "dotenv": "17.4.2",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.25.12",
     "eslint": "9.39.5",
     "eslint-import-resolver-typescript": "4.4.5",
     "eslint-plugin-boundaries": "7.2.0",

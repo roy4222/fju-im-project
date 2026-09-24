@@ -156,3 +156,21 @@ export {
   sameTargets,
   SEARCH_MAX_LENGTH,
 } from '@/application/accounts/directory'
+export type {
+  ReconcileReason,
+  RevocationKind,
+  RevocationTargetStatus,
+} from '@/application/accounts/session-revocation'
+export {
+  expectedBannedFor,
+  nextReconcileRound,
+  reachesReconcileLimit,
+  RECONCILE_INTERVAL_SECONDS,
+  RECONCILE_RECENT_HOURS,
+  RECONCILE_ROUND_LIMIT,
+  RECONCILE_UNKNOWN_OUTCOME_DAYS,
+  REVOCATION_CALL_TIMEOUT_MS,
+  REVOCATION_LEASE_SECONDS,
+  revocationKindFor,
+  revocationTargetOf,
+} from '@/application/accounts/session-revocation'

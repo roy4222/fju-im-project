@@ -63,11 +63,10 @@ describe('ops/deploy.sh --dry-run', () => {
     expect(out.indexOf('run --rm migrate')).toBeLessThan(out.indexOf('up -d --no-deps app worker'))
   })
 
-  it('沒有帶 --expect-worker 時用有限健康條件', async () => {
+  it('沒有帶 --expect-worker 時：worker 有回報心跳就一併比對（票 12 起）', async () => {
     const out = await dryRun(['abc123'])
-    expect(out).toContain('有限四項')
-    expect(out).toContain('worker 欄必須是 null')
-    expect(out).toContain('limited-no-worker')
+    expect(out).toContain('worker 有回報心跳時一併比對')
+    expect(out).toContain('worker-if-present')
   })
 
   it('帶 --expect-worker 時改用完整六項', async () => {
@@ -231,7 +230,7 @@ describe('ops/check-health.mjs：健康判定（契約 05 §3）', () => {
     worker: { version: null, lastTickAt: null },
   }
 
-  it('四項都符合、worker 是 null → 通過（E02 出場前）', async () => {
+  it('四項都符合、worker 是 null → 通過（還沒有 worker 的舊映像，例如回滾到票 12 之前）', async () => {
     const { stdout } = await run(good, {
       EXPECT_TAG: 'abc123',
       EXPECT_DIGEST: 'sha256:aaa',
@@ -261,13 +260,34 @@ describe('ops/check-health.mjs：健康判定（契約 05 §3）', () => {
     await expect(run({ ...good, ok: false }, { EXPECT_TAG: 'abc123' })).rejects.toThrow(/ok 是 false/)
   })
 
-  it('旗標與階段不符：沒帶 --expect-worker 但 worker 已經有值 → 失敗', async () => {
+  it('沒帶 --expect-worker、worker 有心跳而且是這次的版本 → 通過（有心跳即健康）', async () => {
+    const { stdout } = await run(
+      { ...good, worker: { version: 'abc123', lastTickAt: new Date().toISOString() } },
+      { EXPECT_TAG: 'abc123', EXPECT_WORKER: '0' },
+    )
+    expect(stdout).toContain('健康判定通過')
+  })
+
+  it('沒帶 --expect-worker、worker 回報的是舊版本（新 worker 還沒起來）→ 失敗，等下一次探測', async () => {
     await expect(
       run(
-        { ...good, worker: { version: 'abc123', lastTickAt: new Date().toISOString() } },
+        { ...good, worker: { version: 'old999', lastTickAt: new Date().toISOString() } },
         { EXPECT_TAG: 'abc123', EXPECT_WORKER: '0' },
       ),
-    ).rejects.toThrow(/worker 欄不是 null/)
+    ).rejects.toThrow(/worker.version 是 old999/)
+  })
+
+  it('沒帶 --expect-worker、worker 心跳停了超過 60 秒 → 失敗', async () => {
+    await expect(
+      run(
+        { ...good, worker: { version: 'abc123', lastTickAt: new Date(Date.now() - 120_000).toISOString() } },
+        { EXPECT_TAG: 'abc123', EXPECT_WORKER: '0' },
+      ),
+    ).rejects.toThrow(/lastTickAt/)
+  })
+
+  it('帶 --expect-worker 但 worker 兩欄都是 null → 失敗', async () => {
+    await expect(run(good, { EXPECT_TAG: 'abc123', EXPECT_WORKER: '1' })).rejects.toThrow(/lastTickAt 是空的/)
   })
 
   it('帶 --expect-worker：worker 版本相符且心跳在 60 秒內 → 通過', async () => {

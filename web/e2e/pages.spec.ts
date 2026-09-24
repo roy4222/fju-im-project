@@ -198,6 +198,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student': '組別、要交的東西與截止日',
     '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
+    '/dashboard/admin/inbox': '跟你有關的事件都會出現在這裡',
+    '/dashboard/teacher/inbox': '跟你有關的事件都會出現在這裡',
+    '/dashboard/student/inbox': '跟你有關的事件都會出現在這裡',
     '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
   }
@@ -212,6 +215,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/timeline', wrongRole: 'teacher' },
     // 模擬業務鐘只在測試站存在（CI 的 e2e 開著 BUSINESS_CLOCK_OVERRIDE_ENABLED）。
     { path: '/dashboard/admin/clock', wrongRole: 'student' },
+    // 通知匣（票 12）。
+    { path: '/dashboard/admin/inbox', wrongRole: 'student' },
+    { path: '/dashboard/teacher/inbox', wrongRole: 'student' },
+    { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
   ]
@@ -233,6 +240,16 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
       expect([302, 303, 307, 308]).toContain(response.status())
       expect(response.headers()['location']).toContain('/403')
       expect(await response.text(), '回應裡不該有這一頁的內容').not.toContain(FINGERPRINTS[path]!)
+    })
+
+    // 反向對照：有權限的人打開，指紋**一定要在**。不然頁面文字改了、指紋沒跟著改，
+    // 上面兩條「不該有」就永遠成立、形同空轉（票 9 審查意見）。
+    test(`${path}：有權限的人看得到指紋字串（上面兩條不是空轉）`, async ({ request }) => {
+      const role = path.startsWith('/dashboard/admin') ? 'admin' : path.startsWith('/dashboard/teacher') ? 'teacher' : 'student'
+      const session = await sharedTestSession(request, role)
+      const response = await request.get(path, { headers: { cookie: session.cookie }, maxRedirects: 0 })
+      expect(response.status()).toBe(200)
+      expect(await response.text()).toContain(FINGERPRINTS[path]!)
     })
   }
 })

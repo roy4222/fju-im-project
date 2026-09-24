@@ -51,6 +51,9 @@ screenshots/
 **/.design-sync/node_modules/
 **/.design-sync/generated/
 
+# 背景工作的打包產物（web/scripts/build-worker.mjs；`pnpm -C web build` 會產生）
+web/dist/
+
 # Playwright 的 trace／截圖等執行產物
 web/e2e/.artifacts/
 web/playwright-report/
