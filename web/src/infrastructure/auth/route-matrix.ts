@@ -61,8 +61,22 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     note: '密碼註冊；`user.create.before` 注入 status=pending；限速 30 次／小時／IP 與密碼長度在 hook；申請單由 RegistrationCommand 接著建（票 7），直接打 API 的人登入後在等待審核頁補送',
   },
   { path: '/sign-in/email', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
-  { path: '/sign-in/social', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: 'Google 登入入口（S01-14）' },
-  { path: '/callback/:id', methods: ['GET', 'POST'], access: 'allowed', session: 'none', fresh: false, note: 'OAuth 回呼' },
+  {
+    path: '/sign-in/social',
+    methods: ['POST'],
+    access: 'allowed',
+    session: 'none',
+    fresh: false,
+    note: 'Google 登入入口（票 10）；state＋PKCE 由套件做，callbackURL 由登入頁的 Server Action 經 safeNextPath 組',
+  },
+  {
+    path: '/callback/:id',
+    methods: ['GET', 'POST'],
+    access: 'allowed',
+    session: 'none',
+    fresh: false,
+    note: 'OAuth 回呼；同 Email 不自動合併（account_not_linked）、首次一律 pending、停用在建 session 時擋',
+  },
   { path: '/get-session', methods: ['GET', 'POST'], access: 'allowed', session: 'signed-in', fresh: false, note: '讀目前 session' },
   { path: '/sign-out', methods: ['POST'], access: 'allowed', session: 'signed-in', fresh: false, note: '登出' },
   {
@@ -117,7 +131,7 @@ export const BLOCKED_ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/revoke-other-sessions': '同上；改密時由用例帶 revokeOtherSessions（S01-05）',
   '/update-session': '同上',
   '/verify-password': '沒有對外用途；重新驗證密碼的流程不在 V1 範圍',
-  '/set-password': '設密碼只由本人用例發起（S01-14 的 SelfAccountCommand.setPassword）',
+  '/set-password': '設密碼只由本人用例發起（票 10 的 SelfAccountCommand.setPassword；active＋fresh＋長度在用例裡判）',
   '/ok': '套件自己的探活端點；健康檢查一律看 /api/health（契約 05 §3）',
 }
 
@@ -153,7 +167,7 @@ export function routeAccess(path: string, method: string): RouteAccess {
  * 所以第二層攔截對這種呼叫只能以路徑為準：路徑本身完全不對外開放（例如 `/admin/*`）
  * 才算「被封鎖的能力」，需要內部包裝器的 marker。
  */
-export function pathHasAnyAllowedMethod(path: string): boolean {
+export function pathHasAnyAllowedMethod(path: string | undefined): boolean {
   return ALLOWED_PATTERNS.some(({ pattern }) => pattern.test(normalizePath(path)))
 }
 
@@ -170,7 +184,15 @@ const STRICTNESS: Readonly<Record<SessionRequirement, number>> = {
   'active-only': 2,
 }
 
-function normalizePath(path: string): string {
+/**
+ * 去掉結尾的 `/`。
+ *
+ * `path` 可能是 `undefined`：`createAuthEndpoint.serverOnly` 的端點（例如 `setPassword`）沒有路徑，
+ * hook 裡的 `ctx.path` 就是 `undefined`。當成空字串——空字串不在白名單，所以這種呼叫
+ * 一律當作「封鎖的能力」，要經內部包裝器的 marker 才過得去（票 10）。
+ */
+function normalizePath(path: string | undefined): string {
+  if (typeof path !== 'string') return ''
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
@@ -195,7 +217,7 @@ export function sessionRequirement(path: string, method: string): RouteRequireme
  * ——pending 的人從伺服器端呼叫仍然拿得到資料（2026-09-16 複核 Spec 2）。
  * 「猜一個方法」本來就不對：沒有方法時就不該用方法查表。
  */
-export function requirementByPath(path: string): RouteRequirement | undefined {
+export function requirementByPath(path: string | undefined): RouteRequirement | undefined {
   const normalized = normalizePath(path)
   let found: RouteRequirement | undefined
   for (const { route, pattern } of ALLOWED_PATTERNS) {

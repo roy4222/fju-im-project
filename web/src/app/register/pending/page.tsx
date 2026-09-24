@@ -30,7 +30,7 @@ export const metadata = { title: '等待審核｜資管系專題平台', robots:
 export default async function RegisterPendingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ updated?: string | string[] }>
+  searchParams: Promise<{ updated?: string | string[]; via?: string | string[] }>
 }) {
   const actor = await requireSignedIn('/register/pending', 'registration.viewOwn')
   // 已開通的人沒有待審申請可看，回自己的首頁。`homeFor` 對「已開通但還沒有角色」的人
@@ -42,7 +42,8 @@ export default async function RegisterPendingPage({
   const viewed = await getRegistrationCommand().viewMine(actor)
   if (!viewed.ok) redirect(elsewhere)
   const mine = viewed.receipt
-  const updated = (await searchParams).updated
+  const { updated, via } = await searchParams
+  const viaGoogle = via === 'google'
   const updatedRevision = typeof updated === 'string' && /^\d+$/.test(updated) ? Number(updated) : null
 
   const limits = {
@@ -59,7 +60,7 @@ export default async function RegisterPendingPage({
         phone: current.phone,
         contactEmail: current.contactEmail,
       }
-    : { appliedName: '', studentNo: '', departmentClass: '', phone: '', contactEmail: mine.loginEmail }
+    : { appliedName: mine.accountName, studentNo: '', departmentClass: '', phone: '', contactEmail: mine.loginEmail }
 
   return (
     <NarrowShell wide>
@@ -99,7 +100,10 @@ export default async function RegisterPendingPage({
               </p>
             </>
           ) : (
-            <p className="text-ink">帳號已經建立，但申請資料還沒送到系辦。請填好下面的資料送出，才會進入待審核。</p>
+            <p className="text-ink" data-testid="application-missing">
+              帳號已經建立，但申請資料還沒送到系辦。請填好下面的姓名、學號、系級與手機送出，才會進入待審核。
+              {viaGoogle ? '（你是用 Google 第一次登入，所以還沒有這些資料。）' : null}
+            </p>
           )}
         </div>
 

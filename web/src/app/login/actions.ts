@@ -1,7 +1,7 @@
 'use server'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { signIn } from '@/composition/accounts'
+import { beginGoogleSignIn, signIn } from '@/composition/accounts'
 import { safeNextPath } from '@/shared/safe-next'
 
 /**
@@ -32,4 +32,18 @@ export async function signInAction(_state: { error?: string } | undefined, formD
   // 不合格一律回自己的首頁，免得變成開放轉址。
   const wanted = safeNextPath(next) ?? result.destination
   redirect(result.mustChangePassword ? result.destination : wanted)
+}
+
+/**
+ * 用 Google 登入或註冊（票 10）。
+ *
+ * 只取兩個欄位：`from`（登入頁或註冊頁）與 `next`（登入後要回去的頁面）。`next` 在 composition
+ * 裡經 `safeNextPath`，不合格就當沒帶。成功就導去 Google；Google 回來後由套件的 callback
+ * 建 session，再導回登入頁分流（見 `beginGoogleSignIn`）。
+ */
+export async function googleSignInAction(_state: { error?: string } | undefined, formData: FormData) {
+  const from = formData.get('from') === 'register' ? 'register' : 'login'
+  const result = await beginGoogleSignIn({ from, next: formData.get('next'), headers: await headers() })
+  if (!result.ok) return { error: result.message }
+  redirect(result.url)
 }

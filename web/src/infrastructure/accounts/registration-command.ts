@@ -36,6 +36,7 @@ import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { signUpWithPassword } from '@/infrastructure/auth/wrapper'
+import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 
 /**
  * 學生註冊與審核（工程模組 01 §3 狀態表、§5 `RegistrationCommand`、§6 核准交易；票 7）。
@@ -67,7 +68,13 @@ export const betterAuthAccountCreator: AccountCreator = async (input, clientIp) 
   } catch (error) {
     const e = error as { status?: string; body?: { code?: string; message?: string } }
     if (e?.status === 'TOO_MANY_REQUESTS') return { ok: false, reason: 'rate_limited' }
-    if (e?.body?.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' || e?.body?.code === 'USER_ALREADY_EXISTS') {
+    // Better Auth 的 hook（after）已經把「Email 已被用過／格式不對」統一成 EMAIL_UNAVAILABLE（票 10）；
+    // 套件原本的兩個代碼留著當保險。
+    if (
+      e?.body?.code === EMAIL_UNAVAILABLE_CODE ||
+      e?.body?.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' ||
+      e?.body?.code === 'USER_ALREADY_EXISTS'
+    ) {
       return { ok: false, reason: 'email_taken' }
     }
     if (e?.status === 'BAD_REQUEST' || e?.status === 'UNPROCESSABLE_ENTITY') {
@@ -214,7 +221,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED', '帳號已經開通，沒有待審的申請。')
 
     const db = this.#deps.db()
-    const user = await db.query<{ email: string }>('select email from users where id = $1', [actor.userId])
+    const user = await db.query<{ email: string; name: string }>('select email, name from users where id = $1', [actor.userId])
     const loginEmail = user.rows[0]?.email ?? ''
     const latest = await this.#latestApplication(db, actor.userId)
 
@@ -231,6 +238,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     return ok(
       {
         loginEmail,
+        accountName: user.rows[0]?.name ?? '',
         state,
         current: latest
           ? {
@@ -497,7 +505,15 @@ export class PgRegistrationCommand implements RegistrationCommand {
         `insert into user_profiles
            (user_id, display_name, name_normalized, student_no, department_class, cohort_id, phone, contact_email,
             login_method_last, created_at, updated_at, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'password', $9, $9, $10)
+         values ($1, $2, $3, $4, $5, $6, $7, $8,
+                 -- 申請人最近一次的登入方式（票 10；顯示用）：最近一個 session 的 login_method；
+                 -- session 都過期被清掉了，就看帳號上有沒有密碼。
+                 coalesce(
+                   (select s.login_method from sessions s where s.user_id = $1 order by s.created_at desc limit 1),
+                   case when exists (select 1 from accounts a where a.user_id = $1 and a.provider_id = 'credential')
+                        then 'password' else 'google' end
+                 ),
+                 $9, $9, $10)
          on conflict (user_id) do update set
            display_name = excluded.display_name,
            name_normalized = excluded.name_normalized,
@@ -506,6 +522,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
            cohort_id = excluded.cohort_id,
            phone = excluded.phone,
            contact_email = excluded.contact_email,
+           login_method_last = excluded.login_method_last,
            revision = user_profiles.revision + 1,
            updated_at = excluded.updated_at,
            updated_by_user_id = excluded.updated_by_user_id`,

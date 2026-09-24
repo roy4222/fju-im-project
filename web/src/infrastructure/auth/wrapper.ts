@@ -3,6 +3,7 @@ import { toNextJsHandler } from 'better-auth/next-js'
 import { getAuth } from '@/infrastructure/auth/auth-instance'
 import { authPathFromUrl, routeAccess } from '@/infrastructure/auth/route-matrix'
 import { runAsInternalCall } from '@/infrastructure/auth/internal-call'
+import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 
 /**
  * Better Auth 的唯一入口（契約 03 §2）。
@@ -30,8 +31,29 @@ function guard(handler: (request: Request) => Promise<Response>) {
   return async (request: Request): Promise<Response> => {
     const path = authPathFromUrl(request.url)
     if (routeAccess(path, request.method) === 'blocked') return blocked()
-    return handler(request)
+    const response = await handler(request)
+    if (path === '/sign-up/email' && response.status === 422) return unifySignUpStatus(response)
+    return response
   }
+}
+
+/**
+ * 註冊時「Email 已被用過」的 HTTP 狀態碼統一成 400（票 7 遺留）。
+ *
+ * 內容已經由 `hooks.after` 換成統一訊息，但套件回應時沿用端點原本的 422——
+ * 光看狀態碼就分得出「Email 已被用過」與「Email 格式不對」（400）。
+ * 只改本來就是統一訊息的那種回應，其他 422 原樣放行。
+ */
+async function unifySignUpStatus(response: Response): Promise<Response> {
+  const text = await response.clone().text()
+  let code: unknown
+  try {
+    code = (JSON.parse(text) as { code?: unknown }).code
+  } catch {
+    return response
+  }
+  if (code !== EMAIL_UNAVAILABLE_CODE) return response
+  return new Response(text, { status: 400, headers: response.headers })
 }
 
 /**
@@ -149,4 +171,56 @@ export function changeOwnPassword(
 /** 登出目前這一台。 */
 export function signOutCurrent(headers: Headers) {
   return getAuth().api.signOut({ headers })
+}
+
+// ── Google 登入與帳號連結（票 10） ────────────────────────────────────────────
+
+/**
+ * 三個導回網址：成功、首次建帳號、失敗。**一律是站內相對路徑**，由呼叫端（登入頁的
+ * Server Action）以 `safeNextPath` 組好；套件自己的 origin check 也會再擋一次站外網址。
+ * 失敗時套件在 `errorCallbackURL` 後面補 `?error=<代碼>`。
+ */
+export type OAuthRedirects = {
+  readonly callbackURL: string
+  readonly errorCallbackURL: string
+  readonly newUserCallbackURL?: string
+}
+
+/**
+ * 開始 Google 登入：回傳要把瀏覽器導去的 Google 授權網址。
+ *
+ * state 與 PKCE 都由套件產生：state 存在 `verifications` 一列＋簽章 cookie（`nextCookies()`
+ * 把 cookie 帶進 Server Action 的回應），code_verifier 跟著 state 存，授權網址只帶 S256 challenge。
+ * `disableRedirect` 讓套件只回網址，由 Server Action 自己 `redirect()`。
+ */
+export function startGoogleSignIn(headers: Headers, redirects: OAuthRedirects) {
+  return getAuth().api.signInSocial({
+    body: { provider: 'google', disableRedirect: true, ...redirects },
+    headers,
+  })
+}
+
+/**
+ * 本人把 Google 連到目前這個帳號：回傳 Google 授權網址。
+ *
+ * `/link-social` 在路由矩陣是 active-only＋fresh，這個伺服器端呼叫一樣經 `hooks.before`
+ * （沒有 request 時以路徑查表），所以待審、被要求改密、session 超過 10 分鐘的人都會被擋，
+ * 錯誤碼 `FRESH_SESSION_REQUIRED`。
+ */
+export function startGoogleLink(headers: Headers, redirects: Omit<OAuthRedirects, 'newUserCallbackURL'>) {
+  return getAuth().api.linkSocialAccount({
+    body: { provider: 'google', disableRedirect: true, ...redirects },
+    headers,
+  })
+}
+
+/**
+ * 替只有 Google 的帳號設一組密碼（套件的 `setPassword`，server-only）。
+ *
+ * 套件的 `/set-password` 對外封鎖，所以要在內部呼叫的 context 裡跑。hook 對內部呼叫**不再做**
+ * 帳號狀態與 fresh 的檢查（內部呼叫在封鎖判定那一步就放行了），所以 active、fresh、
+ * 長度、「還沒有密碼」由呼叫端（`SelfAccountCommand.setPassword`）先判。
+ */
+export function setOwnPassword(headers: Headers, input: { newPassword: string }) {
+  return runAsInternalCall(() => getAuth().api.setPassword({ body: input, headers }))
 }
