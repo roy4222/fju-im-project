@@ -512,6 +512,38 @@ describe('找組員名單（票 13 審查：顯示名稱空白時退回帳號名
     const listing = await query.teammates(studentActor(viewer), cohortId)
     expect(listing.find((t) => t.studentNo === blank.studentNo)?.name).toBe(blank.name)
   })
+
+  it('成員列、歷程、事件標題也一樣（票 14 審查建議：統一走 personName）', async () => {
+    const cohortId = await newCohort()
+    const members = await students(cohortId, 5)
+    const { groupId } = await establishGroup(members)
+    const newcomer = await newStudent(cohortId, { displayName: '' })
+    expect((await addMember(groupId, await revisionOf(groupId), newcomer)).ok).toBe(true)
+    // 組員的顯示名稱事後被清成空白（例如資料修正）也一樣。
+    const leader = members[1]!
+    await owner.sql(`update user_profiles set display_name = '   ' where user_id = $1`, [leader.id])
+    expect((await groups.changeLeader(adminActor(), { groupId, revision: await revisionOf(groupId), newLeaderUserId: leader.id, reason: '換人' }, randomUUID())).ok).toBe(true)
+
+    const [added] = await eventsOf('group.members_changed', groupId)
+    expect(String(added!.payload.title)).toContain(newcomer.name)
+    const [changed] = await eventsOf('group.leader_changed', groupId)
+    expect(String(changed!.payload.title)).toBe(`組別 ${(await query.overview(cohortId)).groups.find((g) => g.id === groupId)!.code} 的組長換成 ${leader.name}`)
+
+    const group = (await query.overview(cohortId)).groups.find((g) => g.id === groupId)!
+    const names = group.members.map((m) => m.name)
+    expect(names).toContain(newcomer.name)
+    expect(names).toContain(leader.name)
+    expect(names.every((n) => n.trim().length > 0)).toBe(true)
+    expect(group.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'member_added', userName: newcomer.name }),
+        expect.objectContaining({ kind: 'leader_changed', userName: leader.name }),
+      ]),
+    )
+    const mine = (await query.studentView(newcomer.id, cohortId)).group!
+    expect(mine.members.map((m) => m.name).every((n) => n.trim().length > 0)).toBe(true)
+    expect(mine.history.map((h) => h.userName)).toEqual(expect.arrayContaining([newcomer.name, leader.name]))
+  })
 })
 
 describe('並發', () => {

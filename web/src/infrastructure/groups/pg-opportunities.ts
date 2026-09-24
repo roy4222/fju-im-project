@@ -17,6 +17,7 @@ import {
   parseGroupType,
   type ChangeGroupTypeInput,
   type CreateOpportunityInput,
+  type GroupingPeriodState,
   type GroupOpportunityLink,
   type GroupType,
   type GroupTypeReceipt,
@@ -44,6 +45,7 @@ import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personName } from '@/infrastructure/db/person-name'
 import { loadSchedule } from '@/infrastructure/groups/pg-groups'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { err, type Err, type Result } from '@/shared/result'
@@ -116,7 +118,7 @@ type Deps = {
  * 所有對「看的人不一定是案主」的查詢都只用這一段。
  */
 const PUBLIC_SELECT = `
-  select o.id, o.owner_teacher_user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as owner_name,
+  select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name,
          o.company_name, o.department, o.content, o.requirements,
          case when o.notes_visibility = 'signed_in' then o.notes end as notes,
          o.notes_visibility, o.status, o.published_business_at, o.withdrawn_business_at, o.revision,
@@ -562,29 +564,36 @@ export class PgOpportunityCommand implements OpportunityCommand {
     const businessNow = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
-      const found = await tx.query<{ group_id: string }>('select group_id from opportunity_links where id = $1', [input.linkId])
-      const groupId = found.rows[0]?.group_id
-      if (!groupId) return err('VALIDATION_FAILED', '找不到這個連結，請重新整理頁面。')
-      const locked = await lockGroup(tx, groupId)
+      // 先（不上鎖）看是誰的案、判權限：不是案主也不是系辦就直接拒絕，不去鎖別人的組別列（PR #266 審查建議）。
+      // 案主（`owner_teacher_user_id`）建立後不會換人，所以鎖之前讀到的就是判斷依據。
+      const found = await tx.query<{ group_id: string; owner_teacher_user_id: string }>(
+        `select l.group_id, o.owner_teacher_user_id
+           from opportunity_links l join industry_opportunities o on o.id = l.opportunity_id
+          where l.id = $1`,
+        [input.linkId],
+      )
+      const target = found.rows[0]
+      if (!target) return err('VALIDATION_FAILED', '找不到這個連結，請重新整理頁面。')
+      if (!canManageOpportunity(actor, target.owner_teacher_user_id)) {
+        return err('FORBIDDEN', '只有這個合作案的負責老師與系辦可以解除連結。')
+      }
+      // 鎖序跟連結、換案一樣：先組別列、再連結列。
+      const locked = await lockGroup(tx, target.group_id)
       if (!locked) return groupNotFound()
       const { group, cohort } = locked
       const link = await tx.query<{
         id: string
         valid_to: Date | null
         opportunity_id: string
-        owner_teacher_user_id: string
         company_name: string
         department: string
       }>(
-        `select l.id, l.valid_to, o.id as opportunity_id, o.owner_teacher_user_id, o.company_name, o.department
+        `select l.id, l.valid_to, o.id as opportunity_id, o.company_name, o.department
            from opportunity_links l join industry_opportunities o on o.id = l.opportunity_id
           where l.id = $1 for update of l`,
         [input.linkId],
       )
       const row = link.rows[0]!
-      if (!canManageOpportunity(actor, row.owner_teacher_user_id)) {
-        return err('FORBIDDEN', '只有這個合作案的負責老師與系辦可以解除連結。')
-      }
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -613,8 +622,8 @@ export class PgOpportunityCommand implements OpportunityCommand {
         cohortId: group.cohort_id,
         source: { type: 'industry_opportunity', id: row.opportunity_id, version: revision },
         actor: { kind: 'user', userId: actorId },
-        recipients: [...memberIds, row.owner_teacher_user_id],
-        recipientBasis: { groupId: group.id, basis: 'group_memberships+opportunity_owner', revision, ownerUserId: row.owner_teacher_user_id },
+        recipients: [...memberIds, target.owner_teacher_user_id],
+        recipientBasis: { groupId: group.id, basis: 'group_memberships+opportunity_owner', revision, ownerUserId: target.owner_teacher_user_id },
         payload: {
           title: `組別 ${group.code} 與「${name}」的連結已解除`,
           groupId: group.id,
@@ -705,7 +714,7 @@ export class PgOpportunityCommand implements OpportunityCommand {
       if (group.group_type === to) return err('VALIDATION_FAILED', `${group.code} 已經是${GROUP_TYPE_LABEL[to]}。`)
 
       const advisor = await tx.query<{ name: string }>(
-        `select coalesce(nullif(btrim(p.display_name), ''), u.name) as name
+        `select ${personName('p', 'u')} as name
            from advisor_assignments a join users u on u.id = a.teacher_user_id
            left join user_profiles p on p.user_id = a.teacher_user_id
           where a.group_id = $1 and a.valid_to is null`,
@@ -714,7 +723,7 @@ export class PgOpportunityCommand implements OpportunityCommand {
       const link = await activeLink(tx, group.id)
       if (!admin) {
         const blockers = leaderTypeChangeBlockers({
-          inGroupingPeriod: await inGroupingPeriod(tx, group.cohort_id, businessNow),
+          groupingPeriod: await groupingPeriodAt(tx, group.cohort_id, businessNow),
           hasAdvisor: advisor.rows.length > 0,
           hasLink: link !== null,
         })
@@ -934,8 +943,8 @@ async function activeMemberIds(tx: Pick<PoolClient, 'query'>, groupId: string): 
   return rows.rows.map((r) => r.user_id)
 }
 
-/** 成組期內：階段已設定、已經開始、還沒到成組截止（第 2 階段開始日 00:00）。 */
-async function inGroupingPeriod(db: Pick<PoolClient, 'query'>, cohortId: string, businessNow: Date): Promise<boolean> {
+/** 此刻相對於成組期的位置：階段沒設定、還沒開始、成組期內、已過成組截止（第 2 階段開始日 00:00）。 */
+async function groupingPeriodAt(db: Pick<PoolClient, 'query'>, cohortId: string, businessNow: Date): Promise<GroupingPeriodState> {
   const yearEnd = await db.query<{ year_end_date: string | null }>(
     `select to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
     [cohortId],
@@ -943,8 +952,9 @@ async function inGroupingPeriod(db: Pick<PoolClient, 'query'>, cohortId: string,
   const schedule = await loadSchedule(db, cohortId, yearEnd.rows[0]?.year_end_date ?? null)
   const deadline = groupingDeadline(schedule)
   const position = stagePositionAt(schedule, businessNow)
-  if (!deadline || position.kind === 'unconfigured' || position.kind === 'not_started') return false
-  return businessNow.getTime() < deadline.getTime()
+  if (!deadline || position.kind === 'unconfigured') return 'unconfigured'
+  if (position.kind === 'not_started') return 'not_started'
+  return businessNow.getTime() < deadline.getTime() ? 'open' : 'ended'
 }
 
 // ── 查詢 ──────────────────────────────────────────────────────────────────────
@@ -972,7 +982,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
       const n = values.length
       where.push(
         `(o.company_name ilike $${n} or o.department ilike $${n} or o.content ilike $${n}
-          or coalesce(nullif(btrim(p.display_name), ''), u.name) ilike $${n})`,
+          or ${personName('p', 'u')} ilike $${n})`,
       )
     }
     const order =
@@ -1071,7 +1081,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
       withdrawn_business_at: Date | null
     }>(
       // 老師只拿到自己是案主的列（where 條件在 SQL 裡），系辦拿全部。
-      `select o.id, o.owner_teacher_user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as owner_name,
+      `select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name,
               o.company_name, o.department, o.content, o.requirements, o.notes, o.notes_visibility,
               o.address, o.contact_name, o.contact_phone, o.contact_email,
               o.status, o.revision, o.published_business_at, o.withdrawn_business_at
@@ -1122,7 +1132,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
     const link = await activeLink(db, group.id)
     const advisor = await db.query('select 1 from advisor_assignments where group_id = $1 and valid_to is null', [group.id])
     const blockers = leaderTypeChangeBlockers({
-      inGroupingPeriod: await inGroupingPeriod(db, cohortId, await this.#businessClock.now()),
+      groupingPeriod: await groupingPeriodAt(db, cohortId, await this.#businessClock.now()),
       hasAdvisor: advisor.rows.length > 0,
       hasLink: link !== null,
     })

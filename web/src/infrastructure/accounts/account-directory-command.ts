@@ -12,6 +12,7 @@ import {
   normalizeStatusReason,
   remainingEffectiveAdmins,
   parseBulkStudentNos,
+  revocationTargetOf,
   sameTargets,
   type AccountDirectoryCommand,
   type AccountRow,
@@ -415,19 +416,22 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         return err('CONFLICT', '這是最後一位管理員，不能停用。')
       }
 
-      if (action === 'restore') {
+      // 恢復＝回到停用前的狀態（PR #257 審查建議）：待審的孤兒停用後恢復要回待審，才能自己補送申請；
+      // 其他（停用前是 active）照舊回 active 並重新占用學號。
+      const to = action === 'disable' ? 'disabled' : await statusBeforeDisable(tx, target.userId)
+      if (to === 'active') {
         const occupied = await this.#occupyStudentNo(tx, target, now)
         if (!occupied.ok) {
           await tx.query('rollback')
           return occupied
         }
       }
-      await this.#applyStatus(tx, actor.userId, target, action, reason.value, now, null)
+      await this.#applyStatus(tx, actor.userId, target, action, to, reason.value, now, null)
 
       receipt = {
         userId: target.userId,
         name: target.name,
-        status: action === 'disable' ? 'disabled' : 'active',
+        status: to,
         changedAt: now.toISOString(),
         revocation: 'pending',
       }
@@ -511,7 +515,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 
       const bulkId = uuidv7()
       for (const id of targets) {
-        await this.#applyStatus(tx, actor.userId, locked.get(id)!, 'disable', reason.value, now, bulkId)
+        await this.#applyStatus(tx, actor.userId, locked.get(id)!, 'disable', 'disabled', reason.value, now, bulkId)
       }
       await this.#deps.audit.append(tx, {
         actorKind: 'user',
@@ -566,11 +570,11 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     actorUserId: string,
     target: LockedAccount,
     action: 'disable' | 'restore',
+    to: 'disabled' | 'active' | 'pending',
     reason: string,
     now: Date,
     bulkId: string | null,
   ): Promise<void> {
-    const to = action === 'disable' ? 'disabled' : 'active'
     await tx.query(`update users set status = $2, updated_at = $3 where id = $1`, [target.userId, to, now])
     const statusEventId = uuidv7()
     await tx.query(
@@ -580,7 +584,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     )
     // 停用釋出有效學號（附錄 A：停用或去識別化時 DELETE）；停用不動角色。
     if (action === 'disable') await tx.query('delete from student_identities where user_id = $1', [target.userId])
-    await this.#revocations.enqueue(tx, { userId: target.userId, statusEventId, expected: to, now, actorUserId })
+    // Better Auth 那一層：停用＝封鎖；恢復（不論回 active 或待審）＝解除封鎖（`revocationTargetOf`，待審也不該被封鎖）。
+    await this.#revocations.enqueue(tx, { userId: target.userId, statusEventId, expected: revocationTargetOf(to)!, now, actorUserId })
     await this.#deps.audit.append(tx, {
       actorKind: 'user',
       actorUserId,
@@ -705,6 +710,19 @@ async function bulkCandidates(db: Queryable, studentNos: readonly string[]): Pro
   return rows.rows
     .filter((r) => !r.deidentified_at)
     .map((r) => ({ userId: r.id, name: r.name, studentNo: r.student_no, cohortCode: r.cohort_code, status: r.status as AccountStatus }))
+}
+
+/**
+ * 恢復要回到的狀態：最後一次「→ disabled」事件的 `from_status`。停用前是待審（只有孤兒帳號會這樣，票 10b）就回待審，
+ * 其他一律回 active（找不到事件的舊資料也是 active，跟以前一樣）。
+ */
+async function statusBeforeDisable(tx: PoolClient, userId: string): Promise<'active' | 'pending'> {
+  const found = await tx.query<{ from_status: string }>(
+    `select from_status from user_status_events
+      where user_id = $1 and to_status = 'disabled' order by real_at desc, id desc limit 1`,
+    [userId],
+  )
+  return found.rows[0]?.from_status === 'pending' ? 'pending' : 'active'
 }
 
 function statusConflictMessage(action: 'disable' | 'restore', current: AccountStatus): string {
