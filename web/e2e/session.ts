@@ -71,12 +71,25 @@ export async function createTestSession(
     if (!userId) throw new Error(`找不到剛註冊的帳號 ${email}`)
 
     if (role) {
-      await pool.query(`update users set status = 'active' where id = $1`, [userId])
+      // 管理員另外要 `users.role='admin'`（admin plugin 的套件欄）：票 8 的新增老師、發臨時密碼
+      // 走 Better Auth 的管理員能力，套件自己會驗呼叫端是不是它認得的管理員（seed-a1 也這樣設）。
+      await pool.query(`update users set status = 'active', role = $2 where id = $1`, [
+        userId,
+        role === 'admin' ? 'admin' : 'user',
+      ])
       await pool.query(
         `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
          values (gen_random_uuid(), $1, $2, $1, now())`,
         [userId, role],
       )
+      if (role === 'teacher') {
+        // 老師第一次登入要先補資料（票 8）；扮老師的測試帳號當作已經補過。
+        await pool.query(
+          `insert into user_profiles (user_id, display_name, name_normalized, contact_email, profile_completed_at)
+           values ($1, 'e2e 老師', 'e2e 老師', $2, now())`,
+          [userId, email],
+        )
+      }
     }
     return { cookie, email, userId }
   } finally {

@@ -89,6 +89,6 @@ export async function reviseApplicationAction(
     },
     expectedRevision,
   )
-  if (!result.ok) return failed(state, result.message, values, result.details)
+  if (!result.ok) return failed(state, result.message, values, 'details' in result ? result.details : undefined)
   redirect(`/register/pending?updated=${result.receipt.revision}`)
 }

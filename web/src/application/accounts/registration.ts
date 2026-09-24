@@ -33,11 +33,23 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const EMAIL_MAX_LENGTH = 254
 /** 手機：數字、空白、`+`、`-`、括號；數字要 8～15 碼。不猜格式，只擋明顯不是電話的東西。 */
 const PHONE_PATTERN = /^[0-9+\-() ]{8,25}$/
+
+/** Email 的格式檢查（註冊與老師帳號共用；模組內部用，不從 index 對外）。 */
+export function isValidEmail(value: string): boolean {
+  return value.length <= EMAIL_MAX_LENGTH && EMAIL_PATTERN.test(value) && !hasControlChars(value)
+}
+
+/** 手機的格式檢查（註冊與老師補資料共用）。 */
+export function isValidPhone(value: string): boolean {
+  const digits = value.replace(/\D/g, '').length
+  return PHONE_PATTERN.test(value) && digits >= 8 && digits <= 15
+}
+
 /**
  * 有沒有控制字元（含換行）。這些欄位會出現在名單、匯出與稽核裡，一律不收。
  * `allowLineBreaks` 給理由這種多行文字用：只放行換行與 tab。
  */
-function hasControlChars(value: string, allowLineBreaks = false): boolean {
+export function hasControlChars(value: string, allowLineBreaks = false): boolean {
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i)
     if (allowLineBreaks && (code === 0x0a || code === 0x0d || code === 0x09)) continue
@@ -73,9 +85,7 @@ function invalid(field: Field, message: string): Err {
 
 function checkEmail(value: string, field: 'loginEmail' | 'contactEmail', label: string): Err | null {
   if (!value) return invalid(field, `請填${label}。`)
-  if (value.length > EMAIL_MAX_LENGTH || !EMAIL_PATTERN.test(value) || hasControlChars(value)) {
-    return invalid(field, `${label}的格式不對。`)
-  }
+  if (!isValidEmail(value)) return invalid(field, `${label}的格式不對。`)
   return null
 }
 
@@ -102,8 +112,7 @@ export function normalizeApplicationFields(input: ApplicationFields): { ok: true
     return invalid('departmentClass', `系級最多 ${DEPARTMENT_CLASS_MAX_LENGTH} 個字。`)
   }
   if (!phone) return invalid('phone', '請填手機。')
-  const digits = phone.replace(/\D/g, '').length
-  if (!PHONE_PATTERN.test(phone) || digits < 8 || digits > 15) return invalid('phone', '手機號碼的格式不對。')
+  if (!isValidPhone(phone)) return invalid('phone', '手機號碼的格式不對。')
   const emailProblem = checkEmail(contactEmail, 'contactEmail', '聯絡 Email')
   if (emailProblem) return emailProblem
 
@@ -347,12 +356,17 @@ export function normalizeApproval(input: {
       { details: { field: 'verificationNote' } },
     )
   }
-  if (note.length > REASON_MAX_LENGTH) {
-    return err('VALIDATION_FAILED', `核實說明最多 ${REASON_MAX_LENGTH} 個字。`, { details: { field: 'verificationNote' } })
+  // 說明與理由會進稽核與匯出：除了換行與 tab，控制字元一律不收（票 7 審查建議）。
+  if (note.length > REASON_MAX_LENGTH || hasControlChars(note, true)) {
+    return err('VALIDATION_FAILED', `核實說明最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
+      details: { field: 'verificationNote' },
+    })
   }
   const reason = input.reason.trim()
-  if (reason.length > REASON_MAX_LENGTH) {
-    return err('VALIDATION_FAILED', `理由最多 ${REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
+  if (reason.length > REASON_MAX_LENGTH || hasControlChars(reason, true)) {
+    return err('VALIDATION_FAILED', `理由最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
+      details: { field: 'reason' },
+    })
   }
   return { ok: true, value: { verificationMethod: method, verificationNote: note || null, reason: reason || null } }
 }
@@ -497,7 +511,10 @@ export type DecisionReceipt = {
   readonly decidedAt: string
 }
 
-/** 註冊被限速擋下（契約 03 §6：每 IP 每小時 30 次）。不是 ErrorCode，跟上傳限速同一個形狀。 */
+/**
+ * 被限速擋下。不是 ErrorCode，跟上傳限速同一個形狀。
+ * 註冊：契約 03 §6 每 IP 每小時 30 次；待審修改：每人每小時 20 次（`RATE_LIMITS.reviseApplication`）。
+ */
 export type RateLimited = { readonly ok: false; readonly code: 'RATE_LIMITED'; readonly message: string }
 
 export interface RegistrationCommand {
@@ -511,7 +528,11 @@ export interface RegistrationCommand {
    * `expectedRevision` 是畫面上看到的版本；另一個分頁先改過就回 `CONFLICT`，不默默蓋掉。
    * 待審申請不存在時（`none`／`rejected`）建立新的一筆，`expectedRevision` 傳 `null`。
    */
-  reviseMine(actor: ResolvedActor, input: ApplicationFields, expectedRevision: number | null): Promise<Result<RevisionReceipt>>
+  reviseMine(
+    actor: ResolvedActor,
+    input: ApplicationFields,
+    expectedRevision: number | null,
+  ): Promise<Result<RevisionReceipt> | RateLimited>
   /** 系辦看待審清單（比對結果即時算）。 */
   listPending(actor: ResolvedActor): Promise<Result<PendingList>>
   approve(
