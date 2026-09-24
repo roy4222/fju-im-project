@@ -6,6 +6,8 @@ import type {
   BulkDisableReceipt,
   BulkPreview,
   DecisionReceipt,
+  OrphanRepairReceipt,
+  RoleChangeReceipt,
   RosterImportReceipt,
   RosterPreview,
   RosterUploadTicket,
@@ -313,4 +315,38 @@ export async function issueTemporaryPasswordAction(input: {
   const outcome = toOutcome(result)
   // 重播：已經核發過，密碼無法取回（畫面會請系辦重新核發）。
   return outcome.ok ? { ok: true, data: { temporaryPassword: null, issuedAt: outcome.data.issuedAt } } : outcome
+}
+
+// ── 管理員角色與孤兒帳號（票 10b） ───────────────────────────────────────────
+//
+// 授權、理由必填、不能對自己、最後一位管理員、孤兒帳號的定義都在用例裡。
+// 不在這裡 revalidate：對話框先顯示回執，關掉後才由畫面自己刷新列表（同停用對話框）。
+
+type RoleActionInput = { userId: string; reason: string; requestId: string }
+
+function roleInput(input: RoleActionInput, role: string) {
+  return {
+    userId: text(input?.userId, 100) ?? '',
+    role,
+    reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+    requestId: text(input?.requestId, 100) ?? '',
+  }
+}
+
+export async function grantAdminAction(input: RoleActionInput): Promise<ActionOutcome<RoleChangeReceipt>> {
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountCommand().grantRole(actor, roleInput(input, 'admin')))
+}
+
+export async function revokeAdminAction(input: RoleActionInput): Promise<ActionOutcome<RoleChangeReceipt>> {
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountCommand().revokeRole(actor, roleInput(input, 'admin')))
+}
+
+export async function repairOrphanAction(
+  input: RoleActionInput & { role: string },
+): Promise<ActionOutcome<OrphanRepairReceipt>> {
+  const role = input?.role === 'teacher' || input?.role === 'admin' ? input.role : ''
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountCommand().repairOrphan(actor, roleInput(input, role)))
 }

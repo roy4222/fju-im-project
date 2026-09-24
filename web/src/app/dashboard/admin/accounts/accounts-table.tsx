@@ -4,6 +4,7 @@ import Link from 'next/link'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { BulkDisableDialog } from './bulk-disable-dialog'
+import { AdminRoleDialog, OrphanRepairDialog, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
 import { TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
 
@@ -217,13 +218,25 @@ export function AccountsTable(props: AccountsTableProps) {
                     {r.status === 'pending' && r.applicationState === 'rejected' ? (
                       <span className="ml-1 text-xs text-muted-foreground">已退回</span>
                     ) : null}
+                    {r.orphan ? (
+                      <span
+                        className="ml-1 text-xs text-muted-foreground"
+                        title="只有登入身分：沒有角色、沒有註冊申請、沒有個人資料"
+                        data-testid="orphan-badge"
+                      >
+                        孤兒帳號
+                      </span>
+                    ) : null}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">
                     {r.createdAt.slice(0, 10)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
                     <span className="flex items-center gap-1">
-                      {(r.status === 'active' || r.status === 'disabled') && r.userId !== currentUserId ? (
+                      {/* 票 10b：孤兒帳號先補建角色（或停用）。 */}
+                      {r.orphan && r.userId !== currentUserId ? <OrphanRepairDialog account={roleTarget(r, roleLabel)} /> : null}
+                      {(r.status === 'active' || r.status === 'disabled' || (r.status === 'pending' && r.orphan)) &&
+                      r.userId !== currentUserId ? (
                         <StatusDialog
                           account={{
                             userId: r.userId,
@@ -233,6 +246,17 @@ export function AccountsTable(props: AccountsTableProps) {
                             status: r.status,
                           }}
                         />
+                      ) : null}
+                      {/* 票 10b：老師或職員設為管理員、取消管理員（不能對自己；學生不能設）。 */}
+                      {r.userId !== currentUserId && r.roles.includes('admin') ? (
+                        <AdminRoleDialog account={roleTarget(r, roleLabel)} mode="revoke" />
+                      ) : null}
+                      {r.userId !== currentUserId &&
+                      r.status === 'active' &&
+                      !r.orphan &&
+                      !r.roles.includes('admin') &&
+                      !r.roles.includes('student') ? (
+                        <AdminRoleDialog account={roleTarget(r, roleLabel)} mode="grant" />
                       ) : null}
                       {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
                       {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (
@@ -263,5 +287,16 @@ function filterParams(filter: DirectoryFilter): Record<string, string> {
   if (filter.role) params.role = filter.role
   if (filter.cohortId) params.cohort = filter.cohortId
   if (filter.status) params.status = filter.status
+  if (filter.orphan) params.orphan = '1'
   return params
+}
+
+/** 角色對話框要顯示的那一列（票 10b）。 */
+function roleTarget(r: AccountRow, roleLabel: Record<Role, string>): RoleTargetView {
+  return {
+    userId: r.userId,
+    name: r.name,
+    loginEmail: r.loginEmail,
+    rolesText: r.roles.length > 0 ? r.roles.map((role) => roleLabel[role]).join('、') : '沒有角色',
+  }
 }
