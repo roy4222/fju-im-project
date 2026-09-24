@@ -11,8 +11,11 @@
  * 3. 以固定的假 origin 解析後，origin 必須不變。
  * 4. 原字串**解碼一次後**也要通過 1–3：query 裡的 `%5C`、`%2F`、`%0A`
  *    不管在哪一層被解碼，都不能變成站外位址。
- *
- * 回傳的是解析後的 `pathname + search`（正規化過），不是原字串。
+ * 5. 回傳的是解析後的 `pathname + search`（正規化過），而這個**回傳值本身**也要
+ *    通過 1–4、且再正規化一次不變。WHATWG 會折掉 `.`／`..` 段、把 `\` 換成 `/`，
+ *    所以 `/.//evil.com`、`/dashboard/..//evil.com`、`/a\..\\evil.com`、`/%2e//evil.com`
+ *    原字串過得了 2，正規化後卻是 protocol-relative 的 `//evil.com`
+ *    （PR #210 第 2 次合併 review）。檢查的是最後寫進 `Location` 的那個字串。
  */
 const BASE = 'http://next.invalid'
 
@@ -32,7 +35,7 @@ function passes(candidate: string): URL | null {
   return url.origin === BASE ? url : null
 }
 
-export function safeNextPath(raw: unknown): string | null {
+function normalize(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw === '') return null
 
   let decoded: string
@@ -45,4 +48,10 @@ export function safeNextPath(raw: unknown): string | null {
 
   const url = passes(raw)
   return url ? `${url.pathname}${url.search}` : null
+}
+
+export function safeNextPath(raw: unknown): string | null {
+  const out = normalize(raw)
+  if (out === null) return null
+  return normalize(out) === out ? out : null
 }

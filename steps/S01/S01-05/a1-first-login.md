@@ -200,12 +200,17 @@ $ pnpm -C web test:e2e                  ✅ 37 條
    地方；其他人進自己的後台（角色來自 `role_assignments`）。`next` 只接受站內相對路徑，
    由 `web/src/shared/safe-next.ts` 的 `safeNextPath` 判斷（登入 Server Action 與登入頁共用）：
    不可含控制字元、必須單一 `/` 開頭且第二字元不是 `/` 或 `\`、以固定 origin 解析後
-   origin 不變，而且解碼一次後的字串也要通過同樣檢查；不合格一律回自己的首頁。
+   origin 不變，而且解碼一次後的字串也要通過同樣檢查；回傳值（正規化後的 `pathname+search`）
+   本身還要再過一次同樣檢查、且再正規化不變，擋掉靠 `.`／`..`／`\` 折疊成 `//` 開頭的
+   `/.//evil.com`、`/dashboard/..//evil.com`、`/a\..\\evil.com`、`/%2e//evil.com`
+   （PR #210 第 2 次合併 review）；不合格一律回自己的首頁。
    （初版只擋 `//` 前綴，`/\evil.com`、`/\/evil.com`、query 裡的 `%5C` 會被解析成
    `https://evil.com/`——PR #210 合併 review 指出後修正。）
    測試：`web/src/shared/safe-next.test.ts`（`//evil.com`、`/\evil.com`、`/\/evil.com`、
    `%5C`／`%2F`／`%0A` 編碼、`https://evil.com`、`javascript:`、含 `\t`／`\n` 的變形、
-   空字串都回預設）。
+   `/.//evil.com`／`/..//evil.com`／`/%2e//evil.com`／`/dashboard/..//evil.com`／
+   `/a\..\\evil.com`／`/./\evil.com` 這一族點段折疊、空字串都回預設；另有一條性質測試：
+   被接受的回傳值不以 `//` 或 `/\` 開頭，且丟回去原樣通過）。
 3. **改密的順序**：先呼叫 Better Auth 改密，成功了才清 `must_change_password`。反過來的話，
    萬一改密失敗就會變成「密碼沒換卻放行」。現在最壞的情況是「密碼換了但旗標還在」，
    使用者被要求再改一次——這個方向是安全的。
