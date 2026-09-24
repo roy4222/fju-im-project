@@ -449,6 +449,30 @@ describe('系辦審核', () => {
     expect(await command.approve(admin(), { ...input, requestId: requestId() })).toMatchObject({ ok: false, code: 'CONFLICT' })
   })
 
+  it('學號占用表一律存大寫；同屆只差大小寫（含正規化以前的小寫舊列）→ STUDENT_NO_TAKEN（票 9）', async () => {
+    const approveInto114 = async (applicationUserId: string) => {
+      const listed = await command.listPending(admin())
+      if (!listed.ok) throw new Error(listed.message)
+      const row = listed.receipt.applications.find((a) => a.userId === applicationUserId)!
+      return command.approve(admin(), {
+        applicationId: row.applicationId, revision: row.revision, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort114, requestId: requestId(),
+      })
+    }
+    const first = await register({ studentNo: 'b411400077', appliedName: '大小寫甲' })
+    expect(await approveInto114(first)).toMatchObject({ ok: true })
+    expect(await one(`select student_no from student_identities where user_id = $1`, [first])).toEqual({ student_no: 'B411400077' })
+    // 顯示用的學號照本人填的原樣。
+    expect(await one(`select student_no from user_profiles where user_id = $1`, [first])).toEqual({ student_no: 'b411400077' })
+
+    const second = await register({ studentNo: 'B411400077', appliedName: '大小寫乙' })
+    expect(await approveInto114(second)).toMatchObject({ ok: false, code: 'STUDENT_NO_TAKEN' })
+
+    // 正規化以前寫進去的小寫舊列：主鍵擋不到，要靠 upper() 先查。
+    await db.sql(`update student_identities set student_no = lower(student_no) where user_id = $1`, [first])
+    expect(await approveInto114(second)).toMatchObject({ ok: false, code: 'STUDENT_NO_TAKEN' })
+    expect(await one(`select status from users where id = $1`, [second])).toEqual({ status: 'pending' })
+  })
+
   it('ACC-03：未命中要系辦指定屆別；沒有開放註冊屆別時伺服器不代選', async () => {
     const userId = await register({ studentNo: '411566666', appliedName: '沒在名單' })
     const listed = await command.listPending(admin())

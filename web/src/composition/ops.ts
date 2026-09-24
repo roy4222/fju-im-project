@@ -1,6 +1,6 @@
 import 'server-only'
 import type { PoolClient } from 'pg'
-import { rosterAccessDenied } from '@/application/accounts'
+import { rosterFileDownloadable } from '@/application/accounts'
 import type { AuditWriter, DownloadPolicies, FileStorage, OperationLedger } from '@/application/ops'
 import { getPool } from '@/infrastructure/db/client'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
@@ -48,8 +48,9 @@ function ticketSecret(): string {
  * 沒登記的用途一律「無法存取」。附件（S04）、繳交（S07）各自加一列。
  */
 export const DOWNLOAD_POLICIES: DownloadPolicies = {
-  // 名單原檔：只有狀態正常的管理員（契約 03 §1「帳號」列）。
-  roster_csv: (actor) => rosterAccessDenied(actor) === null,
+  // 名單原檔：只有狀態正常的管理員（契約 03 §1「帳號」列），而且檔案已經匯入成某個名單版本。
+  // 上傳了但沒匯入的原檔誰都拿不到（票 6 審查建議 3）。
+  roster_csv: (actor, file) => rosterFileDownloadable(actor, file.references),
 }
 
 export function getFileStorage(): FileStorage<PoolClient> {

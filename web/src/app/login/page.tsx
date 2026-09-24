@@ -46,7 +46,7 @@ export default async function LoginPage({
         <EmptyState
           pending
           title="Google 登入還沒接"
-          description="用 Google 登入由 S01-14 掛上來。忘記密碼不寄信，請找系辦發臨時密碼。"
+          description="用 Google 登入還在做，請先用 Email 與密碼登入。忘記密碼不寄信，請找系辦發臨時密碼。"
         />
       </div>
 

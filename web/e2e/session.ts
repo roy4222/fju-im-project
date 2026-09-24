@@ -71,7 +71,9 @@ export async function createTestSession(
     if (!userId) throw new Error(`找不到剛註冊的帳號 ${email}`)
 
     if (role) {
-      await pool.query(`update users set status = 'active' where id = $1`, [userId])
+      // 管理員另外要有 Better Auth admin plugin 的 `users.role='admin'`：停用／恢復在 commit 後
+      // 以這位管理員的 session 呼叫 banUser／unbanUser（見 wrapper），沒有它那一層會被套件擋下。
+      await pool.query(`update users set status = 'active'${role === 'admin' ? `, role = 'admin'` : ''} where id = $1`, [userId])
       await pool.query(
         `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
          values (gen_random_uuid(), $1, $2, $1, now())`,

@@ -36,6 +36,7 @@ import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { signUpWithPassword } from '@/infrastructure/auth/wrapper'
+import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 
 /**
  * 學生註冊與審核（工程模組 01 §3 狀態表、§5 `RegistrationCommand`、§6 核准交易；票 7）。
@@ -474,18 +475,18 @@ export class PgRegistrationCommand implements RegistrationCommand {
       const cohortChoice = cohorts.find((c) => c.id === cohort.cohortId)!
 
       // 占用有效學號：同屆同學號只能有一個有效學生（唯一違反 → STUDENT_NO_TAKEN，整體回滾）。
+      // 占用表一律存大寫、寫入前以 upper() 再查一次（票 9；說明見 student-identities.ts）。
+      const takenMessage = `學號 ${row.student_no} 在 ${cohortChoice.name} 已經有一個有效的帳號，不能再核准一個。請先確認是不是同一個人重複註冊。`
+      if (await studentNoHolder(tx, cohort.cohortId, row.student_no, row.user_id)) {
+        await tx.query('rollback')
+        return err('STUDENT_NO_TAKEN', takenMessage)
+      }
       try {
-        await tx.query(
-          `insert into student_identities (cohort_id, student_no, user_id, created_at) values ($1, $2, $3, $4)`,
-          [cohort.cohortId, row.student_no, row.user_id, now],
-        )
+        await occupyStudentNo(tx, cohort.cohortId, row.student_no, row.user_id, now)
       } catch (error) {
         if (!isUniqueViolation(error)) throw error
         await tx.query('rollback')
-        return err(
-          'STUDENT_NO_TAKEN',
-          `學號 ${row.student_no} 在 ${cohortChoice.name} 已經有一個有效的帳號，不能再核准一個。請先確認是不是同一個人重複註冊。`,
-        )
+        return err('STUDENT_NO_TAKEN', takenMessage)
       }
 
       await tx.query(`update users set status = 'active', name = $2, updated_at = $3 where id = $1`, [

@@ -16,14 +16,14 @@ export default async function TeacherHomePage() {
       <PageHeader title="老師首頁" description="指導的組別、要評分的項目與待簽核都會出現在這裡。" />
       <StageBanner actor={actor} perspective="staff" />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Tile label="指導中的組別" value="—" hint="S06 之後才有數字" />
-        <Tile label="待評分" value="—" hint="S10 之後才有數字" />
+        <Tile label="指導中的組別" value="—" hint="指導功能開放後會顯示" />
+        <Tile label="待評分" value="—" hint="評分功能開放後會顯示" />
       </div>
       <div className="mt-6">
         <EmptyState
           pending
           title="老師的功能還沒做"
-          description="指導關係、組別繳交、評分與簽核分別由 S06、S07、S10、S11 掛上來。"
+          description="指導關係、組別繳交、評分與簽核會陸續開放，開放後會出現在這裡。"
         />
       </div>
     </DashboardShell>
