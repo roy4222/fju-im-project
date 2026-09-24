@@ -117,6 +117,8 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 - `APP_DB_PASSWORD` 每次部署都會被設成 `fju_app` 的密碼，所以它必須跟 `DATABASE_URL` 裡的密碼一樣。
 - **`A1_EMAIL`、`A1_INITIAL_PASSWORD` 兩個鍵在 stg 與 prd 都要存在**（第 10、12 步建第一位管理員用）。
   這裡只看**鍵名在不在**，不要把值貼到任何地方；一次性密碼至少 12 個字元。`A1_NAME` 可有可無（沒有就叫「系辦管理員」）。
+- **`E2E_ADMIN_EMAIL`、`E2E_ADMIN_PASSWORD` 只放 stg、絕對不要放 prd**（測試站自動驗收用，見下面「測試站自動驗收」）。
+  可以先不加；沒有的話部署只會印一行「略過」。
 
 核對完跑：
 
@@ -223,6 +225,57 @@ sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused      # 恢復
 自動部署的紀錄：`sudo cat /srv/fju/test/deploy/auto-deploy.log`（每行：時間、結果、SHA）。
 某個版本自動部署失敗後，同一個 SHA **不會**再自動重試；要重試就 `sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.last`。
 
+### 測試站自動驗收（E2E 測試管理員＋Codex）
+
+目的：讓 Codex 自己上測試站照驗收清單點一遍、截圖、出報告，Roy 只看最後的報告。
+
+**A. 🌐 在 Doppler stg 加兩個鍵（一次）**
+
+Doppler 網頁 → 專案 **fju-im-capstone** → config **stg** → **Add Secret**：
+
+| 鍵 | 要求 |
+|---|---|
+| `E2E_ADMIN_EMAIL` | 一個**不是任何真人在用**的 email（不會寄信給它，只拿來登入） |
+| `E2E_ADMIN_PASSWORD` | **至少 16 個字元**；在自己電腦產生後直接貼進 Doppler（例如 `openssl rand -hex 16`），不要貼到聊天或 issue |
+
+- **只加在 stg**。prd 就算誤加了也不會建（`deploy.sh` 與 `seed-e2e.mjs` 都寫死只認測試站），但部署會印一行提醒你刪掉。
+- 建帳號失敗（例如密碼不到 16 字元）**不會擋部署**：新版照常上線，只多一行 `⚠️ 建立 E2E 測試管理員失敗`，
+  `deploy_log` 記一列 `e2e-seed-failed`。改好 Doppler 後，下一次部署會再試（已存在就不動）。
+
+**B. 🖥️ 更新 VM 上的腳本（這次 `ops/deploy.sh` 有改）**：照「repo 的 ops／compose 檔改了之後」那一節做一次。
+
+**C. 等下一次測試站部署**（自動，或手動 `deploy.sh --site test <SHA> --execute`）。第 4 步會多一行：
+
+```
+E2E 測試管理員已建立：status=active、must_change_password=false、角色 admin（只在測試站）。
+```
+
+之後每次部署都會印 `E2E 測試管理員已存在（status=active），不做任何事。`——**已存在就不動**，不會改密碼。
+這個帳號名稱是「E2E 測試管理員」，在後台帳號列表一眼認得出來；不需要改密碼就能直接登入。
+
+**D. 💻 在 Mac 跑驗收**
+
+第一次要先裝 Doppler CLI 並登入（你自己的帳號要讀得到 stg）：
+
+```bash
+brew install dopplerhq/cli/doppler
+doppler login
+```
+
+之後每次（在 repo 根目錄）：
+
+```bash
+ops/codex-e2e.sh e2e/acceptance/station-1-login.md
+```
+
+- 腳本用 `doppler secrets get` 取兩個值，只交給 `codex exec` 這一個行程的環境變數；不印、不寫檔、不進 git。
+- Codex（`gpt-6-sol`＋`~/.codex/skills/playwright`）只打 `https://test.fju.roy422.dev`；清單裡出現正式站網址會直接拒絕。
+- 結果在 `e2e/acceptance/.out/<時間>-<清單名>/`：`report.md`（每步通過／不通過＋截圖路徑，最後一行 `總結：…`）與 `screenshots/`。這個資料夾已 gitignore。
+- 跑完會掃一遍輸出，萬一報告裡出現密碼會自動遮掉並報錯；那時請在 Doppler stg 換**新的 email＋新密碼**（下次部署會建一個新帳號），再到測試站後台停用舊的 E2E 測試管理員。
+- 如果 Codex 回報瀏覽器在沙盒裡開不起來：`CODEX_E2E_SANDBOX=danger-full-access ops/codex-e2e.sh <清單>`（Codex 不再受沙盒限制，只在你自己的 Mac 用）。
+
+清單怎麼寫見 [`e2e/acceptance/README.md`](../e2e/acceptance/README.md)。
+
 ### 手動備份
 
 ```bash
@@ -270,6 +323,8 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 | `ops/backup.sh` | 手動備份某一站的資料庫 |
 | `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
+| `web/scripts/seed-e2e.mjs` | `deploy.sh --site test` 在 migration 後跑：建 E2E 測試管理員（只限測試站；已存在不動） |
+| `ops/codex-e2e.sh` | 💻 Mac 用：Codex 照 `e2e/acceptance/*.md` 在測試站驗收、出報告 |
 | `ops/lib/site.sh` | 上面幾支共用：站台設定、Doppler 取值 |
 | `docker-compose.vm.yml` | 疊在 `docker-compose.yml` 上的站台設定 |
 | `docker-compose.edge.yml`、`ops/Caddyfile.vm` | 兩站共用的 Caddy |
