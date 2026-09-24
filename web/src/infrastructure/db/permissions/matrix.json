@@ -34,7 +34,13 @@
     { "slice": "S02", "table": "cohort_status_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
     { "slice": "S02", "table": "notifications", "select": true, "insert": true, "update": ["read_at"], "delete": false, "immutable": false, "worker": true, "note": "worker 建立、本人已讀" },
     { "slice": "S02", "table": "digest_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變" },
-    { "slice": "S02", "table": "worker_heartbeat", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "單列 upsert" }
+    { "slice": "S02", "table": "worker_heartbeat", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "單列 upsert" },
+    { "slice": "S03", "table": "group_proposals", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "提案頭列；worker 做到期終止" },
+    { "slice": "S03", "table": "proposal_invitations", "select": true, "insert": true, "update": ["state", "decided_real_at"], "delete": false, "immutable": false, "worker": true, "note": "狀態列；成立或終止後不再變" },
+    { "slice": "S03", "table": "proposal_occupancy", "select": true, "insert": true, "update": "none", "delete": true, "immutable": false, "worker": true, "note": "占用表：發起插入、成立或終止刪除" },
+    { "slice": "S03", "table": "groups", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "組別頭列" },
+    { "slice": "S03", "table": "group_memberships", "select": true, "insert": true, "update": ["valid_to", "removal_reason", "updated_at"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" },
+    { "slice": "S03", "table": "group_leaders", "select": true, "insert": true, "update": ["valid_to"], "delete": false, "immutable": false, "worker": false, "note": "有效區間列：只更新結束欄" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

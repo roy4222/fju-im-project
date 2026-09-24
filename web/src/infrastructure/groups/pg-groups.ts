@@ -1,0 +1,1128 @@
+import 'server-only'
+import { uuidv7 } from 'uuidv7'
+import type { Pool, PoolClient } from 'pg'
+import { statusGate, type ResolvedActor } from '@/application/accounts'
+import {
+  groupingDeadline,
+  stagePositionAt,
+  type BusinessClockSource,
+  type CohortSchedule,
+  type CohortStatus,
+} from '@/application/cohorts'
+import {
+  canViewTeammates,
+  GROUP_TYPE_LABEL,
+  isUuid,
+  nextGroupCode,
+  normalizeProposeInput,
+  normalizeVoidReason,
+  proposalExpiry,
+  studentCohortOf,
+  TERMINATION_KIND_LABEL,
+  type CohortGroupingOverview,
+  type ConfirmReceipt,
+  type ExpireOutcome,
+  type GroupCommand,
+  type GroupQuery,
+  type GroupSummary,
+  type GroupType,
+  type InvitationState,
+  type ProposalExpiryHandler,
+  type ProposalState,
+  type ProposalSummary,
+  type ProposeInput,
+  type ProposeReceipt,
+  type SetOpenToJoinReceipt,
+  type StudentGroupView,
+  type TeammateListing,
+  type TerminateReceipt,
+  type TerminationKind,
+  type UngroupedStudent,
+} from '@/application/groups'
+import type { DueWorkScheduler, EventPublisher } from '@/application/notifications'
+import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
+import {
+  authorizeAdmin,
+  badRequestId,
+  inTransaction,
+  replayed,
+  type PoolSource,
+} from '@/infrastructure/cohorts/shared'
+import { getPool } from '@/infrastructure/db/client'
+import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { reachFaultPoint } from '@/shared/fault-points'
+import { err, type Err, type Result } from '@/shared/result'
+import { formatTaipeiDate, formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
+
+/**
+ * 找組員、提案與成組（票 13；模組實作設計 03 §3、§6；產品模組 03 §5.1、§5.2、「提案終止」「組長」）。
+ *
+ * 每個寫入都是同一個形狀（契約 01 §8）：開交易 → 鎖 → 帳本 `begin` → 業務寫入 → 事件／到期工作／稽核
+ * → 帳本 `commit` → COMMIT。回 `Err` 整筆回滾。業務時間在開交易**之前**讀一次（票 11 審查建議）。
+ *
+ * 鎖的順序照契約 01 §6：`cohorts FOR SHARE` → `group_proposals FOR UPDATE` → 邀請列 →（成立時）
+ * 組別代碼的 advisory lock。兩位成員同時按確認會在提案列排隊，後到的看到的是前者寫完的樣子。
+ *
+ * 「同一時間只能一個」都由資料庫守：
+ * - 占用表 `proposal_occupancy` 主鍵是 user_id：兩個提案同時邀同一人，後到的撞到 → `INVITED_ELSEWHERE`。
+ * - `group_memberships_one_active`：成立瞬間發現有人已在別組 → 回到 savepoint、整份以 `conflict` 終止。
+ * 發起時**先插占用、再查有沒有組**：若同一人正好在別的提案成立中，插占用會等那筆交易結束，
+ * 之後的查詢就看得到剛成立的組員資格（READ COMMITTED 每句重新取快照），不會留下一份註定衝突的提案。
+ */
+
+const DUE_KIND = 'proposal_expiry' as const
+const SUBJECT_TYPE = 'group_proposal'
+
+type ProposalRow = {
+  id: string
+  cohort_id: string
+  proposer_user_id: string
+  group_type: GroupType
+  expires_business_at: Date
+  state: ProposalState
+  termination_kind: TerminationKind | null
+  deadline_version: number
+  established_group_id: string | null
+}
+
+type InvitationRow = { user_id: string; state: InvitationState }
+
+type CohortRow = {
+  id: string
+  code: string
+  status: CohortStatus
+  group_size_min: number
+  group_size_max: number
+  proposal_default_days: number
+}
+
+type Closer = { readonly kind: 'user'; readonly userId: string; readonly role: 'student' | 'admin' } | { readonly kind: 'worker' | 'system' }
+
+type Deps = {
+  audit: AuditWriter<PoolClient>
+  ledger: OperationLedger<PoolClient>
+  events: EventPublisher<PoolClient>
+  dueWork: DueWorkScheduler<PoolClient>
+  businessClock: BusinessClockSource
+  pool?: PoolSource
+  realClock?: Clock
+}
+
+function proposalNotFound(): Err {
+  return err('VALIDATION_FAILED', '找不到這份提案，請重新整理頁面。')
+}
+
+function proposalNotOpen(): Err {
+  return err('PROPOSAL_NOT_OPEN', '這份提案已經成立或終止了，請重新整理頁面看最新狀態。')
+}
+
+function proposalOverdue(expiresAt: Date): Err {
+  return err(
+    'PROPOSAL_NOT_OPEN',
+    `這份提案已經過了到期時間（${formatTaipeiMinute(expiresAt)}），系統會把它終止並釋放所有人。`,
+  )
+}
+
+/** 學生用例的門：帳號狀態 → 角色 → 屆別。 */
+function authorizeStudent(actor: ResolvedActor): { ok: true; userId: string; cohortId: string } | Err {
+  const blocked = statusGate(actor, 'business')
+  if (blocked) return err(blocked, '請先登入並完成帳號設定。')
+  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) {
+    return err('FORBIDDEN', '只有學生可以分組。')
+  }
+  const cohortId = studentCohortOf(actor)
+  if (!cohortId) return err('VALIDATION_FAILED', '你的帳號還沒有屆別，請聯絡系辦。', { next: { kind: 'contact_office' } })
+  return { ok: true, userId: actor.userId, cohortId }
+}
+
+async function loadSchedule(tx: PoolClient, cohortId: string, yearEndDate: string | null): Promise<CohortSchedule> {
+  const stages = await tx.query<{ seq: number; name: string; start_date: string; deadline_version: number }>(
+    `select seq, name, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
+       from cohort_stages where cohort_id = $1 order by seq`,
+    [cohortId],
+  )
+  return {
+    stages: stages.rows.map((r) => ({ seq: r.seq, name: r.name, startDate: r.start_date, deadlineVersion: r.deadline_version })),
+    yearEndDate,
+  }
+}
+
+export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
+  readonly #audit: AuditWriter<PoolClient>
+  readonly #ledger: OperationLedger<PoolClient>
+  readonly #events: EventPublisher<PoolClient>
+  readonly #dueWork: DueWorkScheduler<PoolClient>
+  readonly #businessClock: BusinessClockSource
+  readonly #pool: PoolSource
+  readonly #realClock: Clock
+
+  constructor(deps: Deps) {
+    this.#audit = deps.audit
+    this.#ledger = deps.ledger
+    this.#events = deps.events
+    this.#dueWork = deps.dueWork
+    this.#businessClock = deps.businessClock
+    this.#pool = deps.pool ?? getPool
+    this.#realClock = deps.realClock ?? new RealClock()
+  }
+
+  // ── 公開找組員 ──────────────────────────────────────────────────────────────
+
+  async setOpenToJoin(actor: ResolvedActor, open: boolean, requestId: string): Promise<Result<SetOpenToJoinReceipt>> {
+    const who = authorizeStudent(actor)
+    if (!who.ok) return who
+    if (!isUuid(requestId)) return badRequestId()
+    const { userId, cohortId } = who
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'group.set_open_to_join',
+          requestId,
+          fingerprint: sha256(canonicalJson({ open })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<SetOpenToJoinReceipt>(begun)
+
+      const profile = await tx.query<{ open_to_join: boolean }>(
+        'select open_to_join from user_profiles where user_id = $1 for update',
+        [userId],
+      )
+      if (!profile.rows[0]) return err('VALIDATION_FAILED', '找不到你的個人資料，請聯絡系辦。')
+
+      if (open && (await this.#activeMembers(tx, cohortId, [userId])).length > 0) {
+        return err('ALREADY_MEMBER', '你已經有組別了，不需要公開找組員。')
+      }
+
+      if (profile.rows[0].open_to_join !== open) {
+        await tx.query(
+          'update user_profiles set open_to_join = $2, updated_at = $3, updated_by_user_id = $1 where user_id = $1',
+          [userId, open, realAt],
+        )
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: userId,
+          role: 'student',
+          action: 'group.set_open_to_join',
+          targetType: 'user',
+          targetId: userId,
+          scope: 'cohort',
+          cohortId,
+          realAt,
+          businessAt,
+          payload: { openToJoin: open },
+        })
+      }
+
+      const receipt = { openToJoin: open, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  // ── 發起提案 ────────────────────────────────────────────────────────────────
+
+  async propose(actor: ResolvedActor, input: ProposeInput, requestId: string): Promise<Result<ProposeReceipt>> {
+    const who = authorizeStudent(actor)
+    if (!who.ok) return who
+    if (!isUuid(requestId)) return badRequestId()
+    const { userId: proposerId, cohortId } = who
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const cohort = await this.#shareCohort(tx, cohortId)
+      if (!cohort) return err('VALIDATION_FAILED', '找不到你的屆別，請聯絡系辦。')
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: proposerId,
+          operationKind: 'group.propose',
+          requestId,
+          fingerprint: sha256(
+            canonicalJson({ groupType: input.groupType, members: input.memberStudentNos.map((n) => n.trim()) }),
+          ),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ProposeReceipt>(begun)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，不能再分組。`)
+
+      const me = await tx.query<{ student_no: string | null; name: string }>(
+        `select p.student_no, coalesce(p.display_name, u.name) as name
+           from users u left join user_profiles p on p.user_id = u.id where u.id = $1`,
+        [proposerId],
+      )
+      const proposerName = me.rows[0]?.name ?? ''
+      const normalized = normalizeProposeInput(
+        input,
+        { min: cohort.group_size_min, max: cohort.group_size_max },
+        me.rows[0]?.student_no ?? null,
+      )
+      if (!normalized.ok) return normalized
+      const { groupType, memberStudentNos } = normalized.value
+
+      // 成組期：第 1 階段；截止＝第 2 階段開始日 00:00（見 groupingDeadline 的說明）。
+      const yearEnd = await tx.query<{ year_end_date: string | null }>(
+        `select to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
+        [cohortId],
+      )
+      const schedule = await loadSchedule(tx, cohortId, yearEnd.rows[0]?.year_end_date ?? null)
+      const deadline = groupingDeadline(schedule)
+      const position = stagePositionAt(schedule, businessNow)
+      if (!deadline || position.kind === 'unconfigured') {
+        return err('VALIDATION_FAILED', '系辦還沒設定本屆的成組期，暫時不能發起提案。', { next: { kind: 'contact_office' } })
+      }
+      if (businessNow.getTime() >= deadline.getTime()) {
+        return err('DEADLINE_PASSED', `成組期已經結束（${formatTaipeiMinute(deadline)} 截止），不能再發起提案；需要分組請聯絡系辦。`)
+      }
+      if (position.kind === 'not_started') {
+        return err('VALIDATION_FAILED', `成組期從 ${formatTaipeiDate(position.firstStartDate)} 才開始。`)
+      }
+
+      // 其他組員：同屆、有效學號（student_identities＝已核准）、帳號正常、目前是學生。
+      const found = await tx.query<{ user_id: string; student_no: string; name: string }>(
+        `select si.user_id, si.student_no, coalesce(p.display_name, u.name) as name
+           from student_identities si
+           join users u on u.id = si.user_id
+           left join user_profiles p on p.user_id = si.user_id
+          where si.cohort_id = $1 and si.student_no = any($2::text[])
+            and u.status = 'active' and u.deidentified_at is null
+            and exists (select 1 from role_assignments r
+                         where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)`,
+        [cohortId, memberStudentNos],
+      )
+      const byNo = new Map(found.rows.map((r) => [r.student_no, r]))
+      const missing = memberStudentNos.filter((no) => !byNo.has(no))
+      if (missing.length > 0) {
+        return err('VALIDATION_FAILED', `找不到這些同屆同學：${missing.join('、')}。請確認學號，對方要是本屆已核准的學生。`, {
+          details: { field: 'memberStudentNos', studentNos: missing },
+        })
+      }
+      const members = memberStudentNos.map((no) => byNo.get(no)!).filter((m) => m.user_id !== proposerId)
+      const everyone = [proposerId, ...members.map((m) => m.user_id)]
+      const nameOf = new Map<string, string>([[proposerId, proposerName], ...members.map((m) => [m.user_id, m.name] as const)])
+
+      // 過了到期時間、背景工作還沒收的提案：先終止並釋放（不然這些人會被一份死掉的提案卡住）。
+      await this.#expireOverdueOccupying(tx, everyone, businessNow)
+
+      const proposalId = uuidv7()
+      const expiresAt = proposalExpiry(businessNow, cohort.proposal_default_days, deadline)
+      await tx.query(
+        `insert into group_proposals
+           (id, cohort_id, proposer_user_id, group_type, expires_business_at, state, deadline_version,
+            created_real_at, created_business_at, updated_at)
+         values ($1, $2, $3, $4, $5, 'open', 1, $6, $7, $6)`,
+        [proposalId, cohortId, proposerId, groupType, expiresAt, realAt, businessNow],
+      )
+
+      // 先占住，再查組員資格（見檔頭）。依 id 排序插入，兩個提案互邀時不會互相死鎖。
+      const sorted = [...everyone].sort()
+      const occupied = await tx.query<{ user_id: string }>(
+        `insert into proposal_occupancy (user_id, proposal_id, created_at)
+         select u, $2, $3 from unnest($1::uuid[]) as u
+         on conflict (user_id) do nothing
+         returning user_id`,
+        [sorted, proposalId, realAt],
+      )
+      if (occupied.rowCount !== everyone.length) {
+        const got = new Set(occupied.rows.map((r) => r.user_id))
+        const taken = everyone.filter((id) => !got.has(id))
+        if (taken.includes(proposerId)) {
+          return err('INVITED_ELSEWHERE', '你已經在另一份進行中的提案裡，要先等它結束（或撤回）才能再發起。')
+        }
+        return err('INVITED_ELSEWHERE', `${taken.map((id) => nameOf.get(id)).join('、')} 正在別的提案裡等確認，現在不能邀請。`, {
+          details: { userIds: taken },
+        })
+      }
+
+      const grouped = await this.#activeMembers(tx, cohortId, everyone)
+      if (grouped.length > 0) {
+        if (grouped.includes(proposerId)) return err('ALREADY_MEMBER', '你已經有組別了，不能再發起提案。')
+        return err('ALREADY_MEMBER', `${grouped.map((id) => nameOf.get(id)).join('、')} 已經有組別了。`, {
+          details: { userIds: grouped },
+        })
+      }
+
+      await tx.query(
+        `insert into proposal_invitations (id, proposal_id, user_id, state, created_at)
+         select gen_random_uuid(), $1, u, 'pending', $3 from unnest($2::uuid[]) as u`,
+        [proposalId, everyone, realAt],
+      )
+      await this.#dueWork.schedule(tx, {
+        kind: DUE_KIND,
+        subject: { type: SUBJECT_TYPE, id: proposalId },
+        deadlineVersion: 1,
+        dueBusinessAt: expiresAt,
+      })
+      await this.#events.publish(tx, {
+        type: 'proposal.invited',
+        scope: 'cohort',
+        cohortId,
+        source: { type: SUBJECT_TYPE, id: proposalId, version: 1 },
+        actor: { kind: 'user', userId: proposerId },
+        recipients: everyone,
+        recipientBasis: { proposalId, basis: 'proposal_invitations' },
+        payload: {
+          title: `${proposerName} 邀請你組成${GROUP_TYPE_LABEL[groupType]}組別，請在 ${formatTaipeiMinute(expiresAt)} 前確認`,
+          proposalId,
+          expiresBusinessAt: expiresAt.toISOString(),
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: proposerId,
+        role: 'student',
+        action: 'group.proposal.create',
+        targetType: SUBJECT_TYPE,
+        targetId: proposalId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt: businessNow,
+        payload: { groupType, memberUserIds: everyone, expiresBusinessAt: expiresAt.toISOString() },
+      })
+
+      const receipt = {
+        proposalId,
+        memberCount: everyone.length,
+        expiresBusinessAt: expiresAt.toISOString(),
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  // ── 確認與成立 ──────────────────────────────────────────────────────────────
+
+  async confirm(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<ConfirmReceipt>> {
+    const who = authorizeStudent(actor)
+    if (!who.ok) return who
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(proposalId)) return proposalNotFound()
+    const { userId } = who
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockProposal(tx, proposalId)
+      if (!locked) return proposalNotFound()
+      const { proposal, invitations } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'group.proposal.confirm',
+          requestId,
+          fingerprint: sha256(canonicalJson({ proposalId })),
+          scope: 'cohort',
+          cohortId: proposal.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ConfirmReceipt>(begun)
+
+      const mine = invitations.find((i) => i.user_id === userId)
+      if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
+
+      const total = invitations.length
+      const countConfirmed = () => invitations.filter((i) => i.state === 'confirmed').length
+      const receiptOf = (outcome: ConfirmReceipt['outcome'], confirmedCount: number, groupCode: string | null) => ({
+        proposalId,
+        outcome,
+        confirmedCount,
+        memberCount: total,
+        groupCode,
+        requestId,
+        serverTime: realAt.toISOString(),
+      })
+
+      // 按兩次（或網路重送但換了請求編號）：不是錯誤，回目前的樣子。
+      if (mine.state === 'confirmed') {
+        const code = proposal.established_group_id ? await this.#groupCode(tx, proposal.established_group_id) : null
+        const receipt = receiptOf('already_confirmed', countConfirmed(), code)
+        await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
+        return { ok: true as const, receipt }
+      }
+      if (proposal.state !== 'open' || mine.state !== 'pending') return proposalNotOpen()
+      if (businessNow.getTime() >= proposal.expires_business_at.getTime()) return proposalOverdue(proposal.expires_business_at)
+
+      await tx.query(
+        `update proposal_invitations set state = 'confirmed', decided_real_at = $3
+          where proposal_id = $1 and user_id = $2`,
+        [proposalId, userId, realAt],
+      )
+      mine.state = 'confirmed'
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'student',
+        action: 'group.proposal.confirm',
+        targetType: SUBJECT_TYPE,
+        targetId: proposalId,
+        scope: 'cohort',
+        cohortId: proposal.cohort_id,
+        realAt,
+        businessAt: businessNow,
+      })
+
+      const confirmed = countConfirmed()
+      let receipt: ReturnType<typeof receiptOf>
+      if (confirmed < total) {
+        receipt = receiptOf('confirmed', confirmed, null)
+      } else {
+        const established = await this.#establish(tx, proposal, invitations, userId, realAt, businessNow)
+        receipt = established.ok
+          ? receiptOf('established', confirmed, established.code)
+          : receiptOf('conflict', confirmed, null)
+      }
+
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  /**
+   * 成立（在最後一位確認的那筆交易裡）：組別＋全員 membership＋組長（提案人）一起寫，提案轉成立、
+   * 占用釋放、到期工作取消、全員收到成立通知。
+   *
+   * 成立前先查一次「有沒有人已經在別組」；萬一還是撞到 `group_memberships_one_active`
+   * （極端的並發），回到 savepoint，整份以 `conflict` 終止——不會留下半套組別。
+   */
+  async #establish(
+    tx: PoolClient,
+    proposal: ProposalRow,
+    invitations: InvitationRow[],
+    confirmerId: string,
+    realAt: Date,
+    businessNow: Date,
+  ): Promise<{ ok: true; code: string } | { ok: false }> {
+    const everyone = invitations.map((i) => i.user_id)
+    const conflict = async () => {
+      await this.#terminate(tx, proposal, everyone, {
+        kind: 'conflict',
+        closer: { kind: 'user', userId: confirmerId, role: 'student' },
+        realAt,
+        businessAt: businessNow,
+      })
+      return { ok: false as const }
+    }
+
+    // 同一屆的組別代碼排隊配（屆別內遞增），兩組同時成立不會搶到同一個號碼。
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [`groups.code:${proposal.cohort_id}`])
+    if ((await this.#activeMembers(tx, proposal.cohort_id, everyone)).length > 0) return conflict()
+
+    const groupId = uuidv7()
+    const existing = await tx.query<{ code: string }>('select code from groups where cohort_id = $1', [proposal.cohort_id])
+    const code = nextGroupCode(existing.rows.map((r) => r.code))
+
+    await tx.query('savepoint establish_group')
+    try {
+      await tx.query(
+        `insert into groups
+           (id, cohort_id, code, group_type, status, established_real_at, established_business_at,
+            created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
+         values ($1, $2, $3, $4, 'active', $5, $6, $5, 'user', $7, $5, $7)`,
+        [groupId, proposal.cohort_id, code, proposal.group_type, realAt, businessNow, confirmerId],
+      )
+      // 組員資格的「加入者」是提案人（模組 03 附錄 A：提案成立＝user（提案人））。
+      await tx.query(
+        `insert into group_memberships
+           (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
+         select gen_random_uuid(), $1, $2, u, $3, 'user', $4, $5, $5 from unnest($6::uuid[]) as u`,
+        [groupId, proposal.cohort_id, businessNow, proposal.proposer_user_id, realAt, everyone],
+      )
+      await tx.query(
+        `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, created_at)
+         values ($1, $2, $3, $4, $3, $5)`,
+        [uuidv7(), groupId, proposal.proposer_user_id, businessNow, realAt],
+      )
+      await tx.query('release savepoint establish_group')
+    } catch (error) {
+      const pgError = error as { code?: string; constraint?: string }
+      if (pgError?.code === '23505' && pgError.constraint === 'group_memberships_one_active') {
+        await tx.query('rollback to savepoint establish_group')
+        return conflict()
+      }
+      throw error
+    }
+
+    await tx.query(
+      `update group_proposals
+          set state = 'established', established_group_id = $2, closed_real_at = $3, closed_business_at = $4,
+              closed_by_kind = 'user', closed_by_user_id = $5, revision = revision + 1, updated_at = $3
+        where id = $1`,
+      [proposal.id, groupId, realAt, businessNow, confirmerId],
+    )
+    await tx.query('delete from proposal_occupancy where proposal_id = $1', [proposal.id])
+    await reachFaultPoint('group.establish.after-release')
+    await this.#dueWork.cancel(tx, {
+      kind: DUE_KIND,
+      subject: { type: SUBJECT_TYPE, id: proposal.id },
+      deadlineVersion: proposal.deadline_version,
+    })
+    await this.#events.publish(tx, {
+      type: 'group.established',
+      scope: 'cohort',
+      cohortId: proposal.cohort_id,
+      source: { type: 'group', id: groupId, version: 1 },
+      actor: { kind: 'user', userId: confirmerId },
+      recipients: everyone,
+      recipientBasis: { groupId, proposalId: proposal.id, basis: 'group_memberships' },
+      payload: { title: `組別 ${code} 成立了`, groupId, code, proposalId: proposal.id },
+      occurredRealAt: realAt,
+      occurredBusinessAt: businessNow,
+    })
+    await this.#audit.append(tx, {
+      actorKind: 'user',
+      actorUserId: confirmerId,
+      role: 'student',
+      action: 'group.establish',
+      targetType: 'group',
+      targetId: groupId,
+      scope: 'cohort',
+      cohortId: proposal.cohort_id,
+      realAt,
+      businessAt: businessNow,
+      payload: { code, proposalId: proposal.id, memberUserIds: everyone, leaderUserId: proposal.proposer_user_id },
+    })
+    return { ok: true, code }
+  }
+
+  // ── 終止：拒絕、撤回同意、提案人撤回、管理員作廢 ──────────────────────────────
+
+  decline(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
+    return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.decline', (proposal, mine, userId) => {
+      if (proposal.proposer_user_id === userId) {
+        return err('VALIDATION_FAILED', '你是提案人：要結束這份提案請按「撤回提案」。')
+      }
+      if (mine.state === 'confirmed') {
+        return err('VALIDATION_FAILED', '你已經確認了；要改變主意請按「撤回同意」。')
+      }
+      return { kind: 'declined', myState: 'declined' }
+    })
+  }
+
+  withdrawConfirmation(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
+    return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.withdraw_confirmation', (proposal, mine, userId) => {
+      if (proposal.proposer_user_id === userId) {
+        return err('VALIDATION_FAILED', '你是提案人：要結束這份提案請按「撤回提案」。')
+      }
+      if (mine.state !== 'confirmed') return err('VALIDATION_FAILED', '你還沒確認，不需要撤回；不想加入請按「拒絕」。')
+      return { kind: 'member_withdrew', myState: 'withdrawn' }
+    })
+  }
+
+  withdrawProposal(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
+    return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.withdraw', (proposal, _mine, userId) => {
+      if (proposal.proposer_user_id !== userId) return err('FORBIDDEN', '只有提案人可以撤回整份提案。')
+      return { kind: 'proposer_withdrew', myState: 'withdrawn' }
+    })
+  }
+
+  async #studentTerminate(
+    actor: ResolvedActor,
+    proposalId: string,
+    requestId: string,
+    operationKind: string,
+    decide: (
+      proposal: ProposalRow,
+      mine: InvitationRow,
+      userId: string,
+    ) => Err | { kind: TerminationKind; myState: 'declined' | 'withdrawn' },
+  ): Promise<Result<TerminateReceipt>> {
+    const who = authorizeStudent(actor)
+    if (!who.ok) return who
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(proposalId)) return proposalNotFound()
+    const { userId } = who
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockProposal(tx, proposalId)
+      if (!locked) return proposalNotFound()
+      const { proposal, invitations } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind,
+          requestId,
+          fingerprint: sha256(canonicalJson({ proposalId })),
+          scope: 'cohort',
+          cohortId: proposal.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<TerminateReceipt>(begun)
+
+      const mine = invitations.find((i) => i.user_id === userId)
+      if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
+      if (proposal.state !== 'open') {
+        return proposal.state === 'established'
+          ? err('PROPOSAL_NOT_OPEN', '組別已經成立了；成立後的成員異動要請系辦處理。')
+          : proposalNotOpen()
+      }
+      if (businessNow.getTime() >= proposal.expires_business_at.getTime()) return proposalOverdue(proposal.expires_business_at)
+
+      const decision = decide(proposal, mine, userId)
+      if ('ok' in decision) return decision
+
+      await this.#terminate(tx, proposal, invitations.map((i) => i.user_id), {
+        kind: decision.kind,
+        closer: { kind: 'user', userId, role: 'student' },
+        own: { userId, state: decision.myState },
+        realAt,
+        businessAt: businessNow,
+      })
+
+      const receipt = { proposalId, terminationKind: decision.kind, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  async voidProposal(
+    actor: ResolvedActor,
+    proposalId: string,
+    reason: string,
+    requestId: string,
+  ): Promise<Result<TerminateReceipt>> {
+    const denied = authorizeAdmin(actor, '作廢提案')
+    if (denied) return denied
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(proposalId)) return proposalNotFound()
+    const normalized = normalizeVoidReason(reason)
+    if (!normalized.ok) return normalized
+    const userId = actor.kind === 'authenticated' ? actor.userId : ''
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockProposal(tx, proposalId)
+      if (!locked) return proposalNotFound()
+      const { proposal, invitations } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'group.proposal.void',
+          requestId,
+          fingerprint: sha256(canonicalJson({ proposalId, reason: normalized.value })),
+          scope: 'cohort',
+          cohortId: proposal.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<TerminateReceipt>(begun)
+      if (proposal.state !== 'open') return proposalNotOpen()
+
+      await this.#terminate(tx, proposal, invitations.map((i) => i.user_id), {
+        kind: 'admin_voided',
+        closer: { kind: 'user', userId, role: 'admin' },
+        reason: normalized.value,
+        realAt,
+        businessAt: businessNow,
+      })
+
+      const receipt = { proposalId, terminationKind: 'admin_voided' as const, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  // ── 到期（背景工作呼叫） ─────────────────────────────────────────────────────
+
+  async expire(proposalId: string, deadlineVersion: number): Promise<ExpireOutcome> {
+    if (!isUuid(proposalId)) return 'not_found'
+    const businessNow = await this.#businessClock.now()
+
+    const client = await this.#pool().connect()
+    try {
+      await client.query('begin')
+      const outcome = await this.#expireLocked(client, proposalId, deadlineVersion, businessNow)
+      await client.query('commit')
+      return outcome
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async #expireLocked(
+    tx: PoolClient,
+    proposalId: string,
+    deadlineVersion: number | null,
+    businessNow: Date,
+    closer: Closer = { kind: 'worker' },
+  ): Promise<ExpireOutcome> {
+    const locked = await this.#lockProposal(tx, proposalId)
+    if (!locked) return 'not_found'
+    const { proposal, invitations } = locked
+    if (proposal.state !== 'open') return 'not_open'
+    if (deadlineVersion !== null && proposal.deadline_version !== deadlineVersion) return 'stale_version'
+    if (businessNow.getTime() < proposal.expires_business_at.getTime()) return 'not_due'
+
+    await this.#terminate(tx, proposal, invitations.map((i) => i.user_id), {
+      kind: 'expired',
+      closer,
+      realAt: this.#realClock.now(),
+      businessAt: businessNow,
+    })
+    return 'expired'
+  }
+
+  /** 發起前：這些人若被「已過期、還沒被背景工作收掉」的提案占住，先把那些提案以逾期終止。 */
+  async #expireOverdueOccupying(tx: PoolClient, userIds: string[], businessNow: Date): Promise<void> {
+    const overdue = await tx.query<{ proposal_id: string }>(
+      `select distinct o.proposal_id from proposal_occupancy o
+         join group_proposals p on p.id = o.proposal_id
+        where o.user_id = any($1::uuid[]) and p.state = 'open' and p.expires_business_at <= $2
+        order by o.proposal_id`,
+      [userIds, businessNow],
+    )
+    for (const row of overdue.rows) {
+      await this.#expireLocked(tx, row.proposal_id, null, businessNow, { kind: 'system' })
+    }
+  }
+
+  // ── 共用 ────────────────────────────────────────────────────────────────────
+
+  /**
+   * 整份終止：本人那一列標拒絕／撤回，其他還在等或已確認的轉「釋放」（不覆寫他們的確認時間），
+   * 提案轉終止、占用全刪、到期工作取消、提案人與全部被邀請者各一則終止通知（事件層去重）。
+   */
+  async #terminate(
+    tx: PoolClient,
+    proposal: ProposalRow,
+    everyone: string[],
+    change: {
+      kind: TerminationKind
+      closer: Closer
+      own?: { userId: string; state: 'declined' | 'withdrawn' }
+      reason?: string
+      realAt: Date
+      businessAt: Date
+    },
+  ): Promise<void> {
+    const { kind, closer, own, realAt, businessAt } = change
+    if (own) {
+      await tx.query(
+        `update proposal_invitations set state = $3, decided_real_at = $4 where proposal_id = $1 and user_id = $2`,
+        [proposal.id, own.userId, own.state, realAt],
+      )
+    }
+    await tx.query(
+      `update proposal_invitations set state = 'released'
+        where proposal_id = $1 and state in ('pending','confirmed')`,
+      [proposal.id],
+    )
+    const closedByUser = closer.kind === 'user' ? closer.userId : null
+    await tx.query(
+      `update group_proposals
+          set state = 'terminated', termination_kind = $2, reason = $3, closed_real_at = $4, closed_business_at = $5,
+              closed_by_kind = $6, closed_by_user_id = $7, revision = revision + 1, updated_at = $4
+        where id = $1`,
+      [proposal.id, kind, change.reason ?? null, realAt, businessAt, closer.kind, closedByUser],
+    )
+    await tx.query('delete from proposal_occupancy where proposal_id = $1', [proposal.id])
+    await this.#dueWork.cancel(tx, {
+      kind: DUE_KIND,
+      subject: { type: SUBJECT_TYPE, id: proposal.id },
+      deadlineVersion: proposal.deadline_version,
+    })
+    await this.#events.publish(tx, {
+      type: 'proposal.terminated',
+      scope: 'cohort',
+      cohortId: proposal.cohort_id,
+      source: { type: SUBJECT_TYPE, id: proposal.id, version: null },
+      actor: closer.kind === 'user' ? { kind: 'user', userId: closer.userId } : { kind: closer.kind },
+      recipients: [proposal.proposer_user_id, ...everyone],
+      recipientBasis: { proposalId: proposal.id, basis: 'proposal_invitations' },
+      // 管理員作廢的理由不進 payload：學生的通知只說「管理員作廢」。
+      payload: {
+        title: `分組提案已終止（${TERMINATION_KIND_LABEL[kind]}），所有人都已釋放`,
+        proposalId: proposal.id,
+        terminationKind: kind,
+      },
+      occurredRealAt: realAt,
+      occurredBusinessAt: businessAt,
+    })
+    await this.#audit.append(tx, {
+      actorKind: closer.kind,
+      actorUserId: closedByUser,
+      role: closer.kind === 'user' ? closer.role : null,
+      action: 'group.proposal.terminate',
+      targetType: SUBJECT_TYPE,
+      targetId: proposal.id,
+      scope: 'cohort',
+      cohortId: proposal.cohort_id,
+      reason: change.reason ?? null,
+      realAt,
+      businessAt,
+      payload: { terminationKind: kind, memberUserIds: everyone },
+    })
+  }
+
+  async #shareCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
+    const found = await tx.query<CohortRow>(
+      `select id, code, status, group_size_min, group_size_max, proposal_default_days
+         from cohorts where id = $1 for share`,
+      [cohortId],
+    )
+    return found.rows[0] ?? null
+  }
+
+  /** 鎖順序：屆別 FOR SHARE → 提案 FOR UPDATE → 邀請列 FOR UPDATE。 */
+  async #lockProposal(
+    tx: PoolClient,
+    proposalId: string,
+  ): Promise<{ proposal: ProposalRow; invitations: InvitationRow[] } | null> {
+    const owner = await tx.query<{ cohort_id: string }>('select cohort_id from group_proposals where id = $1', [proposalId])
+    const cohortId = owner.rows[0]?.cohort_id
+    if (!cohortId) return null
+    await tx.query('select 1 from cohorts where id = $1 for share', [cohortId])
+    const found = await tx.query<ProposalRow>(
+      `select id, cohort_id, proposer_user_id, group_type, expires_business_at, state, termination_kind,
+              deadline_version, established_group_id
+         from group_proposals where id = $1 for update`,
+      [proposalId],
+    )
+    const proposal = found.rows[0]
+    if (!proposal) return null
+    const invitations = await tx.query<InvitationRow>(
+      'select user_id, state from proposal_invitations where proposal_id = $1 order by user_id for update',
+      [proposalId],
+    )
+    return { proposal, invitations: invitations.rows }
+  }
+
+  async #activeMembers(tx: PoolClient, cohortId: string, userIds: string[]): Promise<string[]> {
+    const rows = await tx.query<{ user_id: string }>(
+      `select user_id from group_memberships
+        where cohort_id = $1 and user_id = any($2::uuid[]) and valid_to is null`,
+      [cohortId, userIds],
+    )
+    return rows.rows.map((r) => r.user_id)
+  }
+
+  async #groupCode(tx: PoolClient, groupId: string): Promise<string | null> {
+    const rows = await tx.query<{ code: string }>('select code from groups where id = $1', [groupId])
+    return rows.rows[0]?.code ?? null
+  }
+
+  #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
+    return inTransaction(this.#pool, 'groups', body, (constraint) =>
+      constraint === 'group_memberships_one_active'
+        ? err('ALREADY_MEMBER', '有成員剛剛已經加入別的組，請重新整理頁面。')
+        : err('CONFLICT', '剛剛有人同時修改了這份提案，請重新整理頁面再試一次。'),
+    )
+  }
+}
+
+// ── 查詢 ──────────────────────────────────────────────────────────────────────
+
+type ProposalListRow = {
+  id: string
+  cohort_id: string
+  group_type: GroupType
+  state: ProposalState
+  proposer_user_id: string
+  proposer_name: string
+  expires_business_at: Date
+  created_business_at: Date
+  closed_business_at: Date | null
+  termination_kind: TerminationKind | null
+  reason: string | null
+  group_code: string | null
+}
+
+type InvitationListRow = {
+  proposal_id: string
+  user_id: string
+  name: string
+  student_no: string | null
+  state: InvitationState
+  decided_real_at: Date | null
+}
+
+const PROPOSAL_SELECT = `
+  select p.id, p.cohort_id, p.group_type, p.state, p.proposer_user_id,
+         coalesce(pp.display_name, pu.name) as proposer_name,
+         p.expires_business_at, p.created_business_at, p.closed_business_at, p.termination_kind, p.reason,
+         g.code as group_code
+    from group_proposals p
+    join users pu on pu.id = p.proposer_user_id
+    left join user_profiles pp on pp.user_id = p.proposer_user_id
+    left join groups g on g.id = p.established_group_id`
+
+export class PgGroupQuery implements GroupQuery {
+  readonly #reader: () => Pick<Pool, 'query'>
+
+  constructor(reader: () => Pick<Pool, 'query'> = getPool) {
+    this.#reader = reader
+  }
+
+  async studentView(userId: string, cohortId: string): Promise<StudentGroupView> {
+    const db = this.#reader()
+    const membership = await db.query<{ group_id: string }>(
+      `select group_id from group_memberships where user_id = $1 and cohort_id = $2 and valid_to is null`,
+      [userId, cohortId],
+    )
+    const groupId = membership.rows[0]?.group_id
+    const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId]))[0] ?? null) : null
+
+    const mine = await this.#proposals(
+      `where p.cohort_id = $1 and exists (select 1 from proposal_invitations i where i.proposal_id = p.id and i.user_id = $2)
+       order by p.created_real_at desc limit 20`,
+      [cohortId, userId],
+      false,
+    )
+    const profile = await db.query<{ open_to_join: boolean }>('select open_to_join from user_profiles where user_id = $1', [userId])
+
+    return {
+      cohortId,
+      group,
+      openProposal: mine.find((p) => p.state === 'open') ?? null,
+      history: mine.filter((p) => p.state !== 'open'),
+      openToJoin: profile.rows[0]?.open_to_join ?? false,
+    }
+  }
+
+  async teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]> {
+    if (!isUuid(cohortId) || !canViewTeammates(actor, cohortId)) return []
+    const viewer = actor.kind === 'authenticated' ? actor.userId : null
+    const rows = await this.#reader().query<{ name: string; student_no: string; contact_email: string }>(
+      `select p.display_name as name, p.student_no, p.contact_email
+         from user_profiles p
+         join users u on u.id = p.user_id
+        where p.cohort_id = $1 and p.open_to_join and p.student_no is not null
+          and u.status = 'active' and u.deidentified_at is null
+          and ($2::uuid is null or u.id <> $2)
+          and exists (select 1 from role_assignments r
+                       where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
+          and not exists (select 1 from group_memberships m
+                           where m.user_id = u.id and m.cohort_id = $1 and m.valid_to is null)
+        order by p.student_no`,
+      [cohortId, viewer],
+    )
+    // 白名單三欄：就算上面的 SQL 被改成多選幾欄，也不會流到畫面。
+    return rows.rows.map((r) => ({ name: r.name, studentNo: r.student_no, contactEmail: r.contact_email }))
+  }
+
+  async overview(cohortId: string): Promise<CohortGroupingOverview> {
+    if (!isUuid(cohortId)) return { groups: [], openProposals: [], closedProposals: [], ungrouped: [] }
+    const groups = await this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId])
+    const openProposals = await this.#proposals(`where p.cohort_id = $1 and p.state = 'open' order by p.expires_business_at`, [cohortId], true)
+    const closedProposals = await this.#proposals(
+      `where p.cohort_id = $1 and p.state = 'terminated' order by p.closed_real_at desc limit 20`,
+      [cohortId],
+      true,
+    )
+    const ungrouped = await this.#reader().query<{ name: string; student_no: string; open_to_join: boolean; in_proposal: boolean }>(
+      `select coalesce(p.display_name, u.name) as name, p.student_no, p.open_to_join,
+              exists (select 1 from proposal_occupancy o where o.user_id = u.id) as in_proposal
+         from user_profiles p
+         join users u on u.id = p.user_id
+        where p.cohort_id = $1 and p.student_no is not null
+          and u.status = 'active' and u.deidentified_at is null
+          and exists (select 1 from role_assignments r
+                       where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
+          and not exists (select 1 from group_memberships m
+                           where m.user_id = u.id and m.cohort_id = $1 and m.valid_to is null)
+        order by p.student_no`,
+      [cohortId],
+    )
+    return {
+      groups,
+      openProposals,
+      closedProposals,
+      ungrouped: ungrouped.rows.map(
+        (r): UngroupedStudent => ({ name: r.name, studentNo: r.student_no, openToJoin: r.open_to_join, inProposal: r.in_proposal }),
+      ),
+    }
+  }
+
+  async #groups(where: string, values: unknown[]): Promise<GroupSummary[]> {
+    const db = this.#reader()
+    const groups = await db.query<{ id: string; cohort_id: string; code: string; group_type: GroupType; established_business_at: Date }>(
+      `select g.id, g.cohort_id, g.code, g.group_type, g.established_business_at from groups g where ${where} order by g.code`,
+      values,
+    )
+    if (groups.rows.length === 0) return []
+    const members = await db.query<{ group_id: string; user_id: string; name: string; student_no: string | null; is_leader: boolean }>(
+      `select m.group_id, m.user_id, coalesce(p.display_name, u.name) as name, p.student_no,
+              exists (select 1 from group_leaders l
+                       where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader
+         from group_memberships m
+         join users u on u.id = m.user_id
+         left join user_profiles p on p.user_id = m.user_id
+        where m.group_id = any($1::uuid[]) and m.valid_to is null
+        order by is_leader desc, p.student_no`,
+      [groups.rows.map((g) => g.id)],
+    )
+    return groups.rows.map((g) => ({
+      id: g.id,
+      cohortId: g.cohort_id,
+      code: g.code,
+      groupType: g.group_type,
+      establishedBusinessAt: g.established_business_at,
+      members: members.rows
+        .filter((m) => m.group_id === g.id)
+        .map((m) => ({ userId: m.user_id, name: m.name, studentNo: m.student_no, isLeader: m.is_leader })),
+    }))
+  }
+
+  async #proposals(tail: string, values: unknown[], withReason: boolean): Promise<ProposalSummary[]> {
+    const db = this.#reader()
+    const proposals = await db.query<ProposalListRow>(`${PROPOSAL_SELECT} ${tail}`, values)
+    if (proposals.rows.length === 0) return []
+    const invitations = await db.query<InvitationListRow>(
+      `select i.proposal_id, i.user_id, coalesce(p.display_name, u.name) as name, p.student_no, i.state, i.decided_real_at
+         from proposal_invitations i
+         join users u on u.id = i.user_id
+         left join user_profiles p on p.user_id = i.user_id
+        where i.proposal_id = any($1::uuid[])
+        order by i.proposal_id, (i.user_id = (select proposer_user_id from group_proposals where id = i.proposal_id)) desc,
+                 p.student_no`,
+      [proposals.rows.map((p) => p.id)],
+    )
+    return proposals.rows.map((p) => ({
+      id: p.id,
+      cohortId: p.cohort_id,
+      groupType: p.group_type,
+      state: p.state,
+      proposerUserId: p.proposer_user_id,
+      proposerName: p.proposer_name,
+      expiresBusinessAt: p.expires_business_at,
+      createdBusinessAt: p.created_business_at,
+      closedBusinessAt: p.closed_business_at,
+      terminationKind: p.termination_kind,
+      reason: withReason ? p.reason : null,
+      establishedGroupCode: p.group_code,
+      invitations: invitations.rows
+        .filter((i) => i.proposal_id === p.id)
+        .map((i) => ({ userId: i.user_id, name: i.name, studentNo: i.student_no, state: i.state, decidedRealAt: i.decided_real_at })),
+    }))
+  }
+}
