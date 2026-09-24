@@ -33,11 +33,14 @@ export default async function RegisterPendingPage({
   searchParams: Promise<{ updated?: string | string[] }>
 }) {
   const actor = await requireSignedIn('/register/pending', 'registration.viewOwn')
-  // 已開通的人沒有待審申請可看，回自己的首頁。
-  if (actor.status !== 'pending') redirect(homeFor(actor))
+  // 已開通的人沒有待審申請可看，回自己的首頁。`homeFor` 對「已開通但還沒有角色」的人
+  // （例如票 8 的預授權老師）也會回這一頁，那種情況改回首頁，免得無限導向。
+  const home = homeFor(actor)
+  const elsewhere = home === '/register/pending' ? '/' : home
+  if (actor.status !== 'pending') redirect(elsewhere)
 
   const viewed = await getRegistrationCommand().viewMine(actor)
-  if (!viewed.ok) redirect(homeFor(actor))
+  if (!viewed.ok) redirect(elsewhere)
   const mine = viewed.receipt
   const updated = (await searchParams).updated
   const updatedRevision = typeof updated === 'string' && /^\d+$/.test(updated) ? Number(updated) : null
