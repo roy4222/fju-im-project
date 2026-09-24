@@ -1,7 +1,22 @@
 import fs from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
-import { adminCredentials, screenshotter, signIn } from './helpers'
+import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import {
+  accountRow,
+  adminCredentials,
+  cohortRow,
+  disableAccount,
+  expectStatus,
+  fillSecret,
+  newPage,
+  pendingRow,
+  readFlags,
+  restoreFlags,
+  screenshotter,
+  searchAccounts,
+  signIn,
+  type Flags,
+} from './helpers'
 
 /**
  * 第 2 站：帳號與身分（票 5–10、10b「做完的樣子」），對測試站走一次真實流程。
@@ -14,6 +29,7 @@ import { adminCredentials, screenshotter, signIn } from './helpers'
  * - 註冊限速每 IP 每小時 30 次，而且 Caddy 會覆寫來源 IP：整套只註冊**一個**學生。
  * - 管理員只用表單登入一次，整條流程共用那個分頁（登入限速 10 分鐘 10 次）。
  * - 開放註冊／預設工作兩個旗標是全系唯一的狀態：跑完把它們還給原本的屆別。
+ * - 收尾（不論成敗）：停用這一輪的學生與老師（只認這一輪的姓名標籤）；屆別與名單版本後台沒有刪除，留著。
  * - 前一步失敗，後面就跳過（serial）。
  */
 
@@ -55,48 +71,7 @@ let studentContext: BrowserContext
 let student: Page
 let teacherTempPassword = ''
 /** 跑之前握著兩個旗標的屆別代碼；跑完還回去。 */
-const previousFlags: { registrationOpen: string | null; defaultWorking: string | null } = {
-  registrationOpen: null,
-  defaultWorking: null,
-}
-
-async function newPage(browser: Browser): Promise<Page> {
-  const context = await browser.newContext()
-  return context.newPage()
-}
-
-/**
- * 伺服器回來的那一句成功回饋。限定在 `<main>`（避開 Next 的換頁播報器），再用文字挑：
- * 屆別頁的新增表單與表格各有自己的回饋，同一頁可能同時掛著兩句。
- */
-async function expectStatus(page: Page, text: string) {
-  await expect(page.getByRole('main').getByRole('status').filter({ hasText: text })).toBeVisible()
-}
-
-function cohortRow(page: Page, code: string) {
-  return page.getByRole('row').filter({ has: page.getByRole('cell', { name: code, exact: true }) })
-}
-
-function pendingRow(page: Page, name: string) {
-  // 帳號頁下方還有「帳號列表」，待審的人兩邊都有；這裡只看上方的待審核清單。
-  return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
-}
-
-function accountRow(page: Page, name: string): Locator {
-  return page.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
-}
-
-async function searchAccounts(page: Page, q: string) {
-  await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(q)}`)
-  await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
-}
-
-/** 某個旗標目前在哪一屆（沒有就 null）。 */
-async function flagHolder(page: Page, held: '開放註冊中' | '預設工作中'): Promise<string | null> {
-  const row = page.getByRole('row').filter({ hasText: held })
-  if ((await row.count()) === 0) return null
-  return (await row.first().getByRole('cell').first().innerText()).trim()
-}
+let previousFlags: Flags = { registrationOpen: null, defaultWorking: null }
 
 test.beforeAll(async ({ browser }) => {
   studentContext = await browser.newContext()
@@ -104,21 +79,13 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async () => {
-  // 把兩個全系唯一的旗標還給原本的屆別（原本沒有就留在這一輪的屆別上）。
+  test.setTimeout(180_000)
   if (admin && !admin.isClosed()) {
-    await admin.goto('/dashboard/admin/cohorts').catch(() => undefined)
-    for (const [held, flag] of [
-      ['開放註冊中', previousFlags.registrationOpen],
-      ['預設工作中', previousFlags.defaultWorking],
-    ] as const) {
-      if (!flag || flag === COHORT_CODE) continue
-      const label = held === '開放註冊中' ? '開放註冊屆別' : '預設工作屆別'
-      const button = admin.getByRole('button', { name: `把 ${flag} 設為${label}` })
-      if ((await button.count()) > 0) {
-        await button.click()
-        await expectStatus(admin, `已把 ${flag} 設為${label}`)
-      }
-    }
+    // 收尾：停用這一輪建的學生與老師（只認這一輪的姓名標籤），再把兩個全系唯一的旗標還給原本的屆別。
+    for (const name of [STUDENT.name, TEACHER.name]) await disableAccount(admin, name)
+    await restoreFlags(admin, previousFlags, COHORT_CODE).catch((error: unknown) => {
+      console.log(`收尾：旗標沒還成功（${error instanceof Error ? error.message.split('\n')[0] : '未知錯誤'}）`)
+    })
     await admin.context().close()
   }
   await studentContext?.close()
@@ -139,10 +106,7 @@ test('0 管理員登入（整條流程共用這個分頁）', async ({ browser }
 })
 
 test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
-  await admin.goto('/dashboard/admin/cohorts')
-  await expect(admin.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-  previousFlags.registrationOpen = await flagHolder(admin, '開放註冊中')
-  previousFlags.defaultWorking = await flagHolder(admin, '預設工作中')
+  previousFlags = await readFlags(admin)
   console.log(`跑之前：開放註冊屆別＝${previousFlags.registrationOpen ?? '（無）'}、預設工作屆別＝${previousFlags.defaultWorking ?? '（無）'}`)
 
   await admin.getByLabel('代碼').fill(COHORT_CODE)
@@ -210,8 +174,8 @@ test('票 7 新學生用密碼註冊，停在等待審核頁', async () => {
   await student.getByLabel('系級').fill(STUDENT.dept)
   await student.getByLabel('手機').fill('0912-345-678')
   await student.getByLabel('登入 Email').fill(STUDENT.email)
-  await student.getByLabel('密碼', { exact: true }).fill(STUDENT.password)
-  await student.getByLabel('確認密碼').fill(STUDENT.password)
+  await fillSecret(student.getByLabel('密碼', { exact: true }), STUDENT.password)
+  await fillSecret(student.getByLabel('確認密碼'), STUDENT.password)
   await shot(student, 'register-form')
   await student.getByRole('button', { name: '送出註冊' }).click()
 
@@ -293,9 +257,9 @@ test('票 8 老師用臨時密碼登入被強制改密，補資料後進老師�
     await expect(teacher).toHaveURL(/\/account\/change-password$/)
     await shot(teacher, 'teacher-must-change-password')
 
-    await teacher.getByLabel('目前的一次性密碼').fill(teacherTempPassword)
-    await teacher.getByLabel('新密碼', { exact: true }).fill(TEACHER.newPassword)
-    await teacher.getByLabel('再輸入一次新密碼').fill(TEACHER.newPassword)
+    await fillSecret(teacher.getByLabel('目前的一次性密碼'), teacherTempPassword)
+    await fillSecret(teacher.getByLabel('新密碼', { exact: true }), TEACHER.newPassword)
+    await fillSecret(teacher.getByLabel('再輸入一次新密碼'), TEACHER.newPassword)
     await teacher.getByRole('button', { name: '設定新密碼' }).click()
 
     await expect(teacher).toHaveURL(/\/account\/setup$/)
