@@ -35,6 +35,7 @@ import { checkSignUpRate } from '@/infrastructure/auth/sign-up-rate-limit'
 import {
   EMAIL_UNAVAILABLE_CODE,
   EMAIL_UNAVAILABLE_MESSAGE,
+  bindPreauthorizedTeacher,
   FRESH_AGE_SECONDS,
   isFreshSession,
   recordLastLoginMethod,
@@ -144,6 +145,14 @@ function createAuth() {
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID ?? '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+        /**
+         * Google 身分剛換到、套件還沒開始找使用者的那一刻。只用來處理「系辦預授權的老師
+         * 第一次用 Google 登入」（見 `bindPreauthorizedTeacher` 的條件）；不改任何使用者欄位。
+         */
+        mapProfileToUser: async (profile) => {
+          await bindPreauthorizedTeacher(profile)
+          return {}
+        },
       },
     },
     account: {
@@ -151,6 +160,7 @@ function createAuth() {
        * 帳號連結（模組 01 §2.3 Q-ACC02；契約 03 §3；票 10）。
        *
        * - `disableImplicitLinking`：未登入時用 Google 登入、Email 跟既有帳號相同，**不自動合併**。
+       *   唯一例外是系辦預授權、還沒有任何登入方式的老師帳號（見 Google 設定的 `mapProfileToUser`）。
        *   套件會把人導回 `errorCallbackURL?error=account_not_linked`，登入頁提示「用原方式登入後再連結」。
        *   連結只能走 `/link-social`（本人、active、fresh session，路由矩陣與下面的 hook 管）。
        * - `allowDifferentEmails: false`：連結的 Google 帳號 Email 必須等於登入 Email。

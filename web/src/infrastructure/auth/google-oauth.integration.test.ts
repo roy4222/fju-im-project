@@ -38,7 +38,7 @@ let adminId: string
 let cohortId: string
 
 /** 假 Google 這一輪要回的身分；token 端點的替身讀這個。 */
-let nextIdentity: { sub: string; email: string; name: string } | null = null
+let nextIdentity: { sub: string; email: string; name: string; emailVerified?: boolean } | null = null
 /** 最後一次打 token 端點帶的表單（拿來驗 PKCE 的 code_verifier）。 */
 let lastTokenRequest: URLSearchParams | null = null
 const realFetch = globalThis.fetch
@@ -84,7 +84,7 @@ beforeAll(async () => {
         aud: CLIENT_ID,
         sub: who.sub,
         email: who.email,
-        email_verified: true,
+        email_verified: who.emailVerified ?? true,
         name: who.name,
         iat: now,
         exp: now + 3600,
@@ -173,7 +173,7 @@ function post(path: string, body: unknown, cookie = ''): Promise<Response> {
 /** 假裝使用者在 Google 同意後被導回來：帶著 state 與（瀏覽器上的）state cookie 打 callback。 */
 async function finishAtGoogle(
   start: Response,
-  who: { sub: string; email: string; name: string } | null,
+  who: { sub: string; email: string; name: string; emailVerified?: boolean } | null,
   cookie = '',
 ): Promise<{ location: string; cookie: string; authorize: URL }> {
   expect(start.status, await start.clone().text()).toBe(200)
@@ -190,7 +190,7 @@ async function finishAtGoogle(
   return { location: callback.headers.get('location') ?? '', cookie: cookiesFrom(callback), authorize }
 }
 
-function googleSignIn(who: { sub: string; email: string; name: string } | null, overrides: Record<string, string> = {}) {
+function googleSignIn(who: { sub: string; email: string; name: string; emailVerified?: boolean } | null, overrides: Record<string, string> = {}) {
   return post('/sign-in/social', {
     provider: 'google',
     callbackURL: '/login',
@@ -332,6 +332,82 @@ describe('Google 首次登入（ACC-13）', () => {
     expect(result.location).toMatch(/^\/login\?error=/)
     expect(result.cookie).not.toContain('session_token')
     expect(await one(`select count(*)::int as n from sessions s join users u on u.id = s.user_id where u.email = $1`, [email])).toEqual({ n: 0 })
+  })
+})
+
+// ── ACC-07 × 票 10：預授權老師第一次用 Google 登入 ─────────────────────────
+
+describe('系辦預授權的老師第一次用 Google 登入（票 8 × 票 10）', () => {
+  /** 票 8 預授權建出來的樣子：active、有效 teacher 角色、一種登入方式都沒有。 */
+  async function preauthorizedTeacher(overrides: { status?: string; role?: boolean; withPassword?: boolean } = {}) {
+    const email = uniq('preauth')
+    const userId = String(
+      (
+        await db.sql(
+          `insert into users (id, name, email, email_verified, updated_at, status)
+           values (gen_random_uuid(), $1, $1, false, now(), $2) returning id`,
+          [email, overrides.status ?? 'active'],
+        )
+      ).rows[0]!.id,
+    )
+    if (overrides.role !== false) {
+      await db.sql(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+         values (gen_random_uuid(), $1, 'teacher', $2, now(), '系辦預授權老師')`,
+        [userId, adminId],
+      )
+    }
+    if (overrides.withPassword) {
+      await db.sql(
+        `insert into accounts (id, account_id, provider_id, user_id, password, created_at, updated_at)
+         values (gen_random_uuid(), $1::text, 'credential', $1::uuid, 'hash', now(), now())`,
+        [userId],
+      )
+    }
+    return { email, userId }
+  }
+
+  it('同 Email、Google 已驗證 → 綁到預授權帳號並登入（帳號 ID 不變、不建第二個帳號、留稽核）', async () => {
+    const t = await preauthorizedTeacher()
+    const who = { sub: `sub-preauth-${seq}`, email: t.email.toUpperCase(), name: 'Google 陳老師' }
+    const result = await googleSignIn(who)
+    expect(result.location).toBe('/login')
+    expect(result.cookie).toContain('session_token')
+    expect(await one(`select count(*)::int as n from users where lower(email) = $1`, [t.email])).toEqual({ n: 1 })
+    expect(await one(`select user_id from accounts where provider_id = 'google' and account_id = $1`, [who.sub])).toEqual({ user_id: t.userId })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.bind_google_preauthorized' and target_id = $1`, [t.userId])).toEqual({ n: 1 })
+    expect(await self.viewMine(headersOf(result.cookie))).toMatchObject({ userId: t.userId, status: 'active', loginMethods: { google: true, password: false } })
+    // 姓名不被 Google 改掉（老師之後在補資料頁自己填）。
+    expect(await one(`select name from users where id = $1`, [t.userId])).toEqual({ name: t.email })
+
+    // 第二次登入走一般的已連結路徑，不再補、不再多一筆稽核。
+    const again = await googleSignIn(who)
+    expect(again.cookie).toContain('session_token')
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1`, [t.userId])).toEqual({ n: 1 })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.bind_google_preauthorized' and target_id = $1`, [t.userId])).toEqual({ n: 1 })
+  })
+
+  it('Google 沒驗證這個 Email → 不綁，照舊 account_not_linked', async () => {
+    const t = await preauthorizedTeacher()
+    const result = await googleSignIn({ sub: `sub-unverified-${seq}`, email: t.email, name: '未驗證', emailVerified: false })
+    expect(result.location).toMatch(/error=/)
+    expect(result.cookie).not.toContain('session_token')
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1`, [t.userId])).toEqual({ n: 0 })
+  })
+
+  it('已經有密碼的老師（系辦直接新增的）→ 不綁，照舊 account_not_linked：要先用密碼登入再連結', async () => {
+    const t = await preauthorizedTeacher({ withPassword: true })
+    const result = await googleSignIn({ sub: `sub-direct-${seq}`, email: t.email, name: '直接新增' })
+    expect(result.location).toBe('/login?error=account_not_linked')
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [t.userId])).toEqual({ n: 0 })
+  })
+
+  it('沒有老師角色、或不是 active 的無登入方式帳號 → 不綁', async () => {
+    const noRole = await preauthorizedTeacher({ role: false })
+    expect((await googleSignIn({ sub: `sub-norole-${seq}`, email: noRole.email, name: '無角色' })).location).toBe('/login?error=account_not_linked')
+    const disabled = await preauthorizedTeacher({ status: 'disabled' })
+    expect((await googleSignIn({ sub: `sub-disabled-t-${seq}`, email: disabled.email, name: '停用' })).location).toBe('/login?error=account_not_linked')
+    expect(await one(`select count(*)::int as n from accounts where user_id in ($1, $2)`, [noRole.userId, disabled.userId])).toEqual({ n: 0 })
   })
 })
 

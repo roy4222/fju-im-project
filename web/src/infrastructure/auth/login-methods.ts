@@ -92,6 +92,85 @@ export async function recordLastLoginMethod(userId: string, method: 'google' | '
   }
 }
 
+// ── 預授權老師第一次用 Google 登入（票 8 × 票 10） ─────────────────────────
+
+/**
+ * 系辦「只用 Email 預授權」的老師（票 8）：`users` 列已建好、狀態 active、有有效的 teacher 角色，
+ * 但**一種登入方式都沒有**（`accounts` 沒有任何一列）。
+ *
+ * 這種帳號第一次用同 Email 的 Google 登入時要能直接進來。平常 `disableImplicitLinking` 會把
+ * 「同 Email 已有帳號」一律擋成 `account_not_linked`——那是為了不讓別人用同 Email 的 Google
+ * 接管一個**已經有登入方式**的帳號。預授權帳號沒有任何登入方式，沒有東西可以被接管；
+ * 系辦預授權的意思就是「這個 Email 的主人就是這位老師」，而 Google 已驗證對方擁有這個 Email。
+ *
+ * 所以在套件查帳號之前（Google provider 的 `mapProfileToUser`，此時 Google 身分已由授權碼換到、
+ * 還沒開始找使用者），符合**全部**條件就先替這個帳號補上 Google 那一列，套件接著就把它當成
+ * 「已連結的 Google」正常登入：
+ * - Google 回報 `email_verified = true`；
+ * - 同 Email（不分大小寫）的帳號狀態 active、沒有去識別化、有有效的 teacher 角色；
+ * - 這個帳號**沒有任何** `accounts` 列（有密碼或已連過 Google 的一律不碰，照舊 account_not_linked）；
+ * - 這個 Google 身分沒有綁在任何帳號上。
+ *
+ * 鎖 `users` 那一列再判，兩個分頁同時回來只會補一次。留一筆稽核。
+ * 寫不進去只記 log：結果就是套件照舊回 account_not_linked，老師可以請系辦發臨時密碼。
+ */
+export async function bindPreauthorizedTeacher(profile: {
+  sub?: unknown
+  email?: unknown
+  email_verified?: unknown
+}): Promise<void> {
+  const sub = typeof profile.sub === 'string' ? profile.sub : ''
+  const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : ''
+  if (!sub || !email || profile.email_verified !== true) return
+
+  const client = await getPool().connect()
+  try {
+    await client.query('begin')
+    const found = await client.query<{ id: string }>(
+      `select u.id from users u
+        where lower(u.email) = $1
+          and u.status = 'active'
+          and u.deidentified_at is null
+          and exists (select 1 from role_assignments r
+                       where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
+        for update`,
+      [email],
+    )
+    const userId = found.rows[0]?.id
+    if (!userId) {
+      await client.query('rollback')
+      return
+    }
+    const blocked = await client.query(
+      `select 1 from accounts
+        where user_id = $1 or (provider_id = 'google' and account_id = $2)
+        limit 1`,
+      [userId, sub],
+    )
+    if (blocked.rowCount) {
+      await client.query('rollback')
+      return
+    }
+    await client.query(
+      `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
+       values ($1, $2, 'google', $3, now(), now())`,
+      [uuidv7(), sub, userId],
+    )
+    await client.query(
+      `insert into audit_events
+         (id, actor_kind, actor_user_id, action, target_type, target_id, scope, real_at, business_at, payload)
+       values ($1, 'user', $2, 'account.bind_google_preauthorized', 'user', $2, 'global', now(), now(), '{}'::jsonb)`,
+      [uuidv7(), userId],
+    )
+    await client.query('commit')
+  } catch (error) {
+    await client.query('rollback').catch(() => undefined)
+    console.error('[auth] 預授權老師綁定 Google 失敗', error)
+  } finally {
+    client.release()
+  }
+}
+
 // ── 註冊時 Email 已被用過（票 7 遺留） ─────────────────────────────────────
 
 /**
