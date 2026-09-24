@@ -18,7 +18,7 @@
 
 ---
 
-## 第一次設定（照順序做，共 11 步）
+## 第一次設定（照順序做，共 12 步）
 
 ### 1. 💻 把檔案送上 VM
 
@@ -115,6 +115,8 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 - 密碼只用英數字（例如 `openssl rand -hex 24` 產生），連線字串就不用處理特殊字元。
 - `POSTGRES_USER`／`POSTGRES_PASSWORD`／`POSTGRES_DB` **只在第一次建資料庫時生效**；之後改 Doppler 不會改到資料庫。
 - `APP_DB_PASSWORD` 每次部署都會被設成 `fju_app` 的密碼，所以它必須跟 `DATABASE_URL` 裡的密碼一樣。
+- **`A1_EMAIL`、`A1_INITIAL_PASSWORD` 兩個鍵在 stg 與 prd 都要存在**（第 10、12 步建第一位管理員用）。
+  這裡只看**鍵名在不在**，不要把值貼到任何地方；一次性密碼至少 12 個字元。`A1_NAME` 可有可無（沒有就叫「系辦管理員」）。
 
 核對完跑：
 
@@ -124,7 +126,7 @@ sudo -u deploy /srv/fju/app/ops/site.sh prod check
 ```
 
 預期各印一行 `✓ … 站：token 對應 Doppler config stg／prd，必要的 13 個鍵都有值。`
-（`A1_*` 三個鍵這次還沒用到，不在檢查裡。）
+（`A1_*` 不在這個檢查裡；少了它們的話，第 10 步的 `seed-admin.sh` 會列出缺的鍵名後停下。）
 
 ### 8. 🖥️ 起共用的 Caddy，確認兩張憑證
 
@@ -153,7 +155,22 @@ curl -s https://test.fju.roy422.dev/api/health
 預期：最後印 `部署完成：test ← <SHA>`；`/api/health` 回 `"ok":true` 且 `commit` 是那個 SHA。
 第一次部署沒有前一版可以退，失敗會印「需要人介入」——把整段輸出存下來再處理。
 
-### 10. 🖥️ 確認測試站自動部署在跑
+### 10. 🖥️ 建立測試站的第一位管理員（A1）
+
+剛部署好的資料庫是空的，一個帳號都沒有。用 Doppler stg 的 `A1_EMAIL`／`A1_INITIAL_PASSWORD` 建第一位管理員：
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/seed-admin.sh test
+```
+
+預期：`A1 已建立：status=active、must_change_password=true、角色 admin。`
+接著用那組 email＋一次性密碼登入 https://test.fju.roy422.dev ，會被直接帶去改密碼；改完一次性密碼就失效。
+
+重跑是安全的：帳號已經存在就只印 `A1 已存在（…），不做任何事。`，不會改密碼。
+（忘了一次性密碼、或已經改過密碼又忘了，請用系辦的「臨時密碼」功能，不要重跑這步。）
+
+### 11. 🖥️ 確認測試站自動部署在跑
 
 ```bash
 systemctl list-timers fju-auto-deploy.timer
@@ -163,7 +180,7 @@ journalctl -u fju-auto-deploy.service -n 20 --no-pager
 預期：timer 有「下次執行時間」；journal 最後幾行是 `[auto-deploy] 已是最新（<SHA>），不動作。`
 之後每次 main 合併，Image workflow 推完映像幾分鐘內，journal 會出現 `main 有新映像：… 開始部署到 fju-test`。
 
-### 11. 🖥️ 把同一個版本推上正式站
+### 12. 🖥️ 把同一個版本推上正式站，並建正式站的 A1
 
 在測試站看過、覺得可以之後：
 
@@ -172,9 +189,11 @@ cd /srv/fju/app
 sudo -u deploy docker inspect --format '{{.Config.Image}}' fju-test-app
 sudo -u deploy /srv/fju/app/ops/deploy.sh --site prod <上一行冒號後面的SHA> --execute
 curl -s https://fju.roy422.dev/api/health
+sudo -u deploy /srv/fju/app/ops/seed-admin.sh prod
 ```
 
-預期：`部署完成：prod ← <SHA>`，`/api/health` 的 `commit` 跟測試站相同。**正式站永遠不會自動更新。**
+預期：`部署完成：prod ← <SHA>`，`/api/health` 的 `commit` 跟測試站相同；最後一行 `A1 已建立`（用 Doppler **prd** 的 A1 值，跟測試站是不同的一次性密碼也沒關係）。
+**正式站永遠不會自動更新。**
 
 ---
 
@@ -249,6 +268,7 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 | `ops/deploy.sh` | 部署／回滾某一站（`--site test|prod`） |
 | `ops/auto-deploy.sh` | timer 呼叫：GHCR `:main` 有新 SHA 就部署到測試站 |
 | `ops/backup.sh` | 手動備份某一站的資料庫 |
+| `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
 | `ops/lib/site.sh` | 上面幾支共用：站台設定、Doppler 取值 |
 | `docker-compose.vm.yml` | 疊在 `docker-compose.yml` 上的站台設定 |

@@ -255,7 +255,7 @@ fi
 step "步驟 8：app 檔案（${APP_DIR}）與 Compose 設定預檢"
 APP_FILES=(docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml
   ops/Caddyfile.vm ops/check-health.mjs ops/lib/site.sh
-  ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh)
+  ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh ops/seed-admin.sh)
 app_ready=1
 for f in "${APP_FILES[@]}"; do
   if [ -f "$APP_DIR/$f" ]; then
@@ -265,7 +265,7 @@ for f in "${APP_FILES[@]}"; do
     app_ready=0
   fi
 done
-for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh; do
+for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh ops/seed-admin.sh; do
   if [ -f "$APP_DIR/$f" ] && [ ! -x "$APP_DIR/$f" ]; then
     bad "$APP_DIR/$f 不能執行（rsync 應該保留 +x；或 chmod +x）"
   fi
