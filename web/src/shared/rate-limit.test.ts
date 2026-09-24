@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { createRateLimiter, RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /** S01-05：契約 03 §6 的限速。 */
 
@@ -69,8 +69,30 @@ describe('契約 03 §6 的門檻值', () => {
     expect(RATE_LIMITS.signIn).toEqual({ max: 10, windowMs: 600_000 })
   })
 
-  it('改密 5 次／小時、註冊 5 次／小時', () => {
+  it('改密 5 次／小時', () => {
     expect(RATE_LIMITS.changePassword).toEqual({ max: 5, windowMs: 3_600_000 })
-    expect(RATE_LIMITS.register).toEqual({ max: 5, windowMs: 3_600_000 })
+  })
+
+  it('註冊 30 次／小時（2026-09-23 定案，取代 5 次）：第 30 次放行、第 31 次擋，一小時後重新計算', () => {
+    expect(RATE_LIMITS.register).toEqual({ max: 30, windowMs: 3_600_000 })
+    let now = 0
+    const limiter = createRateLimiter({ ...RATE_LIMITS.register, now: () => now })
+    for (let i = 1; i <= 30; i += 1) expect(limiter.hit('register:203.0.113.9').allowed).toBe(true)
+    expect(limiter.hit('register:203.0.113.9').allowed).toBe(false)
+    // 別的 IP 不受影響。
+    expect(limiter.hit('register:203.0.113.10').allowed).toBe(true)
+    now = 3_600_000
+    expect(limiter.hit('register:203.0.113.9').allowed).toBe(true)
+  })
+})
+
+describe('sharedRateLimiter：同一個程序只有一份', () => {
+  it('同名拿到同一個計數（Route Handler 與 Server Action 在不同 chunk 也共用），不同名互不影響', () => {
+    const a = sharedRateLimiter('test-shared', { max: 1, windowMs: 60_000 })
+    const b = sharedRateLimiter('test-shared', { max: 1, windowMs: 60_000 })
+    expect(a).toBe(b)
+    expect(a.hit('k').allowed).toBe(true)
+    expect(b.hit('k').allowed).toBe(false)
+    expect(sharedRateLimiter('test-other', { max: 1, windowMs: 60_000 }).hit('k').allowed).toBe(true)
   })
 })
