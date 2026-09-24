@@ -1,0 +1,87 @@
+# 故障演練的本機模擬站（票 28）。只給 ops/fault-drill-local.sh 用，不要直接下 docker compose。
+#
+# 目的：Roy 在 VM 測試站實跑 ops/fault-drill.sh 之前，先在自己的電腦用**同一支腳本、同一個映像**
+# 把四種演練跑一遍。跟 docker-compose.drill.yml 一樣是**獨立**的 Compose 檔，不疊在
+# docker-compose.yml 上：那份的容器名與 volume 名是寫死的（fju-postgres、fju-im-project-pgdata），
+# 疊上去會撞到本機開發用的資料庫。這裡的東西全部叫 fju-faultsim-*：
+#
+#   - project：fju-faultsim；容器：fju-faultsim-postgres／-app／-worker
+#   - volume：fju-faultsim-pgdata、fju-faultsim-files（跟本機開發與兩站完全分開）
+#   - postgres 不發布 port；app 只綁 127.0.0.1:${FAULTSIM_PORT:-3928}
+#   - 服務名跟站台一樣是 postgres、migrate、app、worker，fault-drill.sh 不用改就能對它跑
+#
+# 密碼是固定的假值：這個站只活在本機、跑完 ops/fault-drill-local.sh 就整個刪掉。
+name: fju-faultsim
+
+x-image: &image
+  image: ${FAULTSIM_IMAGE:?要用 ops/fault-drill-local.sh 執行}
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://fju_app:faultsim_app@postgres:5432/fju
+  BETTER_AUTH_SECRET: faultsim-only-secret-faultsim-only-secret
+  BETTER_AUTH_URL: http://127.0.0.1:${FAULTSIM_PORT:-3928}
+  GOOGLE_CLIENT_ID: faultsim-disabled
+  GOOGLE_CLIENT_SECRET: faultsim-disabled
+  FILES_ROOT: /srv/fju/files
+  FILE_MAX_BYTES: '104857600'
+  # 跟測試站一樣：模擬業務鐘開著，test_noop（毒事件演練用）才有處理器。
+  BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true'
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    container_name: fju-faultsim-postgres
+    environment:
+      POSTGRES_USER: fju_owner
+      POSTGRES_PASSWORD: faultsim_owner
+      POSTGRES_DB: fju
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: UTC
+    command: ['postgres', '-c', 'timezone=UTC']
+    volumes:
+      - fju-faultsim-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fju_owner -d fju']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *image
+    container_name: fju-faultsim-migrate
+    command: ['node', 'migrate/web/scripts/migrate.mjs']
+    environment:
+      DATABASE_URL_OWNER: postgres://fju_owner:faultsim_owner@postgres:5432/fju
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    <<: *image
+    container_name: fju-faultsim-app
+    command: ['node', 'web/server.js']
+    environment:
+      <<: *app-env
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
+    ports:
+      - '127.0.0.1:${FAULTSIM_PORT:-3928}:3000'
+    volumes:
+      - fju-faultsim-files:/srv/fju/files
+    restart: unless-stopped
+
+  worker:
+    <<: *image
+    container_name: fju-faultsim-worker
+    command: ['node', 'migrate/web/dist/worker.mjs']
+    environment: *app-env
+    volumes:
+      - fju-faultsim-files:/srv/fju/files
+    restart: unless-stopped
+
+volumes:
+  fju-faultsim-pgdata:
+    name: fju-faultsim-pgdata
+  fju-faultsim-files:
+    name: fju-faultsim-files
