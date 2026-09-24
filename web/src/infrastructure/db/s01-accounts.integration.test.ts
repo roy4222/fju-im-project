@@ -168,6 +168,8 @@ describe('逐欄對照模組 01 v2.4 附錄 A 與模組 10 附錄 A', () => {
       'user_id', 'display_name', 'name_normalized', 'student_no', 'department_class', 'cohort_id',
       'phone', 'contact_email', 'login_method_last', 'profile_completed_at',
       'revision', 'created_at', 'updated_at', 'updated_by_user_id',
+      // 票 13（0004）加的「公開找組員」旗標；這裡套的是全部 migration。
+      'open_to_join',
     ],
     student_identities: ['cohort_id', 'student_no', 'user_id', 'created_at'],
     registration_applications: [

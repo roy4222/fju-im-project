@@ -6,6 +6,7 @@ import {
   isCohortId,
   isRequestId,
   normalizeCreateInput,
+  normalizeGroupingSettings,
   type ActivateCohortReceipt,
   type BusinessClockSource,
   type Cohort,
@@ -15,7 +16,9 @@ import {
   type CohortStatusQuery,
   type CreateCohortInput,
   type CreateCohortReceipt,
+  type GroupingSettingsInput,
   type SetCohortFlagReceipt,
+  type SetGroupingSettingsReceipt,
 } from '@/application/cohorts'
 import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
@@ -26,6 +29,7 @@ import {
   cohortNotFound,
   inTransaction,
   replayed,
+  staleRevision,
   type PoolSource,
 } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
@@ -49,12 +53,16 @@ type Row = {
   is_default_working: boolean
   is_registration_open: boolean
   year_end_date: string | null
+  proposal_default_days: number
+  group_size_min: number
+  group_size_max: number
   revision: number
   created_at: Date
 }
 
 const COLUMNS =
-  "id, code, name, status, is_default_working, is_registration_open, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date, revision, created_at"
+  "id, code, name, status, is_default_working, is_registration_open, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date, " +
+  'proposal_default_days, group_size_min, group_size_max, revision, created_at'
 
 function toCohort(row: Row): Cohort {
   return {
@@ -65,6 +73,9 @@ function toCohort(row: Row): Cohort {
     isDefaultWorking: row.is_default_working,
     isRegistrationOpen: row.is_registration_open,
     yearEndDate: row.year_end_date,
+    proposalDefaultDays: row.proposal_default_days,
+    groupSizeMin: row.group_size_min,
+    groupSizeMax: row.group_size_max,
     revision: row.revision,
     createdAt: row.created_at,
   }
@@ -122,10 +133,11 @@ export class PgCohortCommand implements CohortCommand {
     if (!normalized.ok) return normalized
     const { code, name } = normalized.value
     const userId = actorUserId(actor)
+    // 業務時間在開交易**之前**讀：業務鐘自己也借連線，交易裡再借一條會跟別的寫入互等（票 11 審查建議）。
+    const businessAt = await this.#businessClock.now()
 
     return this.#inTransaction(async (tx) => {
       const realAt = this.#realClock.now()
-      const businessAt = await this.#businessClock.now()
       const begun = await this.#ledger.begin(
         tx,
         {
@@ -208,6 +220,7 @@ export class PgCohortCommand implements CohortCommand {
     if (!isCohortId(cohortId)) return cohortNotFound()
     const userId = actorUserId(actor)
     const column = FLAG_COLUMN[flag]
+    const businessAt = await this.#businessClock.now()
 
     return this.#inTransaction(async (tx) => {
       await tx.query('select pg_advisory_xact_lock(hashtext($1))', [`cohorts.${column}`])
@@ -263,7 +276,7 @@ export class PgCohortCommand implements CohortCommand {
           scope: 'cohort',
           cohortId,
           realAt,
-          businessAt: await this.#businessClock.now(),
+          businessAt,
           payload: { flag, previousCohortId: previous?.id ?? null, previousCode: previous?.code ?? null },
         })
       }
@@ -300,6 +313,7 @@ export class PgCohortCommand implements CohortCommand {
     if (!isRequestId(requestId)) return badRequestId()
     if (!isCohortId(cohortId)) return cohortNotFound()
     const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
 
     return this.#inTransaction(async (tx) => {
       const found = await tx.query<Row>(`select ${COLUMNS} from cohorts where id = $1 for update`, [cohortId])
@@ -307,7 +321,6 @@ export class PgCohortCommand implements CohortCommand {
       if (!target) return cohortNotFound()
 
       const realAt = this.#realClock.now()
-      const businessAt = await this.#businessClock.now()
       const begun = await this.#ledger.begin(
         tx,
         {
@@ -377,6 +390,85 @@ export class PgCohortCommand implements CohortCommand {
         requestId,
         serverTime: realAt.toISOString(),
       }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  /**
+   * 分組設定（票 13）：每組最少／最多人數、提案預設天數。
+   *
+   * `cohorts FOR UPDATE`＋畫面帶來的 revision：兩個管理員同時改，後到的看到版本變了回 `CONFLICT`。
+   * 只影響**之後**發起的提案：已經在等確認的提案人數與到期時間不變（大家確認的是發起時的內容）。
+   */
+  async setGroupingSettings(
+    actor: ResolvedActor,
+    cohortId: string,
+    input: GroupingSettingsInput,
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<SetGroupingSettingsReceipt>> {
+    const denied = authorizeAdmin(actor, '設定分組')
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    if (!isCohortId(cohortId)) return cohortNotFound()
+    const normalized = normalizeGroupingSettings(input)
+    if (!normalized.ok) return normalized
+    const settings = normalized.value
+    const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
+
+    return this.#inTransaction(async (tx) => {
+      const found = await tx.query<Row>(`select ${COLUMNS} from cohorts where id = $1 for update`, [cohortId])
+      const target = found.rows[0]
+      if (!target) return cohortNotFound()
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'cohort.set_grouping_settings',
+          requestId,
+          fingerprint: sha256(canonicalJson({ cohortId, ...settings, expectedRevision })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<SetGroupingSettingsReceipt>(begun)
+      if (target.status === 'archived') return err('COHORT_ARCHIVED', `${target.code} 已封存，不能再改分組設定。`)
+      if (target.revision !== expectedRevision) return staleRevision()
+
+      await tx.query(
+        `update cohorts
+            set group_size_min = $2, group_size_max = $3, proposal_default_days = $4,
+                revision = revision + 1, updated_at = $5, updated_by_user_id = $6
+          where id = $1`,
+        [cohortId, settings.groupSizeMin, settings.groupSizeMax, settings.proposalDefaultDays, realAt, userId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: 'cohort.set_grouping_settings',
+        targetType: 'cohort',
+        targetId: cohortId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: {
+          before: {
+            groupSizeMin: target.group_size_min,
+            groupSizeMax: target.group_size_max,
+            proposalDefaultDays: target.proposal_default_days,
+          },
+          after: settings,
+        },
+      })
+
+      const receipt = { cohortId, code: target.code, ...settings, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
       return { ok: true as const, receipt }
     })
