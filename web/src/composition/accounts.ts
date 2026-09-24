@@ -5,6 +5,7 @@ import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent } from '@/infrastructure/auth/wrapper'
 import { getPool } from '@/infrastructure/db/client'
+import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 
 /**
@@ -47,6 +48,7 @@ export function getRosterCommand(): RosterCommand {
     audit: getAuditWriter(),
     ledger: getOperationLedger(),
     db: getPool,
+    cohorts: getCohortStatusQuery(),
   })
   return rosterCommand
 }

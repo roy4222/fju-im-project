@@ -16,6 +16,7 @@ import {
   type RosterUploadTicket,
   type RosterVersionRow,
 } from '@/application/accounts'
+import type { CohortStatusQuery } from '@/application/cohorts'
 import {
   canonicalJson,
   type AuditWriter,
@@ -59,6 +60,8 @@ export type RosterCommandDeps = {
   readonly audit: AuditWriter<PoolClient>
   readonly ledger: OperationLedger<PoolClient>
   readonly db: () => Pool
+  /** 模組 02 的屆別查詢（工程模組 01 §5 依賴 `CohortStatusQuery`）。 */
+  readonly cohorts: CohortStatusQuery
   readonly clock?: Clock
 }
 
@@ -329,24 +332,17 @@ export class PgRosterCommand implements RosterCommand {
     return { ok: true, file: read.receipt, text, cohorts }
   }
 
+  /** 可以匯入的屆別：經模組 02 的 `CohortStatusQuery`（票 5），已封存的不列。 */
   async #cohorts(): Promise<CohortOption[]> {
-    const rows = await this.#deps.db().query<{
-      id: string
-      code: string
-      name: string
-      is_registration_open: boolean
-      is_default_working: boolean
-    }>(
-      `select id, code, name, is_registration_open, is_default_working
-         from cohorts where status <> 'archived'
-        order by created_at desc, code desc`,
-    )
-    return rows.rows.map((r) => ({
-      id: r.id,
-      code: r.code,
-      name: r.name,
-      isRegistrationOpen: r.is_registration_open,
-      isDefaultWorking: r.is_default_working,
-    }))
+    const cohorts = await this.#deps.cohorts.list()
+    return cohorts
+      .filter((c) => c.status !== 'archived')
+      .map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        isRegistrationOpen: c.isRegistrationOpen,
+        isDefaultWorking: c.isDefaultWorking,
+      }))
   }
 }

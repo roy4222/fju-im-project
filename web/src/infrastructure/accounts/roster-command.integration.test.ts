@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { rosterAccessDenied, type ResolvedActor } from '@/application/accounts'
 import type { AuditWriter } from '@/application/ops'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
+import { PgCohortStatusQuery } from '@/infrastructure/cohorts/pg-cohorts'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -40,6 +41,7 @@ function command(audit: AuditWriter<PoolClient> = new PgAuditWriter()) {
     audit,
     ledger: new PgOperationLedger(() => app),
     db: () => app,
+    cohorts: new PgCohortStatusQuery(() => app),
   })
 }
 
@@ -92,6 +94,10 @@ beforeAll(async () => {
     )
   cohort115 = await cohort('115', true)
   cohort114 = await cohort('114', false)
+  // 已封存的屆別不能再匯入名單，選單裡也不列。
+  await db.sql(
+    `insert into cohorts (id, code, name, created_by_kind, status) values (gen_random_uuid(), '113', '113 學年度專題', 'system', 'archived')`,
+  )
 
   storage = new FsFileStorage({
     root: () => root,
