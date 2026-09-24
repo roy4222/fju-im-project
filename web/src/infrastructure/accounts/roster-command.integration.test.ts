@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Pool, PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { rosterAccessDenied, type ResolvedActor } from '@/application/accounts'
+import { rosterFileDownloadable, type ResolvedActor } from '@/application/accounts'
 import type { AuditWriter } from '@/application/ops'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { PgCohortStatusQuery } from '@/infrastructure/cohorts/pg-cohorts'
@@ -103,7 +103,8 @@ beforeAll(async () => {
     root: () => root,
     environmentMaxBytes: () => 100 * 1024 * 1024,
     ticketSecret: () => 'integration-secret-integration-secret',
-    policies: { roster_csv: (a) => rosterAccessDenied(a) === null },
+    // 與 composition/ops.ts 的 DOWNLOAD_POLICIES 同一條規則。
+    policies: { roster_csv: (a, f) => rosterFileDownloadable(a, f.references) },
     db: () => app,
   })
 })
@@ -252,5 +253,29 @@ describe('匯入（整批一交易）', () => {
       counts: expect.objectContaining({ valid: 13 }),
     })
     expect(await command().listVersions(actor(studentId, ['student']))).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+})
+
+describe('原檔下載（票 6 審查建議 3，票 9 收）', () => {
+  it('上傳了但沒匯入的原檔：誰都下載不到（包括上傳者與別的管理員）；匯入後管理員才拿得到', async () => {
+    const otherAdmin = String(
+      (
+        await db.sql(
+          `insert into users (id, name, email, email_verified, updated_at, status)
+           values (gen_random_uuid(), '系辦 A2', 'a2-download@example.com', false, now(), 'active') returning id`,
+        )
+      ).rows[0]!.id,
+    )
+    const fileId = await uploadFixture(adminId)
+    expect(await storage.authorizeDownload(actor(adminId, ['admin']), fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await storage.authorizeDownload(actor(otherAdmin, ['admin']), fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+
+    const imported = await command().importRoster(actor(adminId, ['admin']), { fileId, cohortId: cohort115, requestId: requestId() })
+    expect(imported.ok).toBe(true)
+
+    const downloaded = await storage.authorizeDownload(actor(otherAdmin, ['admin']), fileId)
+    expect(downloaded.ok).toBe(true)
+    if (downloaded.ok) await downloaded.receipt.body.cancel()
+    expect(await storage.authorizeDownload(actor(studentId, ['student']), fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
 })

@@ -3,13 +3,23 @@ import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import type {
   AccountLookup,
+  BulkDisableReceipt,
+  BulkPreview,
   DecisionReceipt,
   RosterImportReceipt,
   RosterPreview,
   RosterUploadTicket,
+  StatusChangeReceipt,
   TeacherAccountReceipt,
 } from '@/application/accounts'
-import { getAccountCommand, getRegistrationCommand, getRosterCommand, resolveActor } from '@/composition/accounts'
+import {
+  BULK_MAX_CHARS,
+  getAccountCommand,
+  getAccountDirectoryCommand,
+  getRegistrationCommand,
+  getRosterCommand,
+  resolveActor,
+} from '@/composition/accounts'
 import { isSecretOnce, type Result } from '@/shared/result'
 
 /**
@@ -143,6 +153,85 @@ export async function rejectRegistrationAction(input: {
     }),
   )
   return outcome
+}
+
+// ── 帳號停用／恢復與批次停用（票 9） ─────────────────────────────────────────
+//
+// 授權、理由必填、不可停用自己、狀態檢查都在用例裡。發動者的 headers 一路帶進去：
+// commit 之後撤 session 要以這位管理員的身分呼叫 Better Auth（見 wrapper 的說明）。
+
+export async function disableAccountAction(input: {
+  userId: string
+  reason: string
+  requestId: string
+}): Promise<ActionOutcome<StatusChangeReceipt>> {
+  const requestHeaders = await headers()
+  const actor = await resolveActor(requestHeaders)
+  return toOutcome(
+    await getAccountDirectoryCommand().disable(
+      actor,
+      {
+        userId: text(input?.userId, 100) ?? '',
+        reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+        requestId: text(input?.requestId, 100) ?? '',
+      },
+      { headers: requestHeaders },
+    ),
+  )
+}
+
+export async function restoreAccountAction(input: {
+  userId: string
+  reason: string
+  requestId: string
+}): Promise<ActionOutcome<StatusChangeReceipt>> {
+  const requestHeaders = await headers()
+  const actor = await resolveActor(requestHeaders)
+  return toOutcome(
+    await getAccountDirectoryCommand().restore(
+      actor,
+      {
+        userId: text(input?.userId, 100) ?? '',
+        reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+        requestId: text(input?.requestId, 100) ?? '',
+      },
+      { headers: requestHeaders },
+    ),
+  )
+}
+
+export async function previewBulkDisableAction(input: { text: string }): Promise<ActionOutcome<BulkPreview>> {
+  const body = text(input?.text ?? '', BULK_MAX_CHARS)
+  if (body === null) return { ok: false, code: 'VALIDATION_FAILED', message: '檔案太大了，請分批處理。' }
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountDirectoryCommand().previewBulkDisable(actor, body))
+}
+
+export async function bulkDisableAction(input: {
+  text: string
+  expectedUserIds: string[]
+  reason: string
+  requestId: string
+}): Promise<ActionOutcome<BulkDisableReceipt>> {
+  const body = text(input?.text ?? '', BULK_MAX_CHARS)
+  if (body === null) return { ok: false, code: 'VALIDATION_FAILED', message: '檔案太大了，請分批處理。' }
+  const expectedUserIds = Array.isArray(input?.expectedUserIds)
+    ? input.expectedUserIds.filter((id): id is string => typeof id === 'string').slice(0, 5000)
+    : []
+  const requestHeaders = await headers()
+  const actor = await resolveActor(requestHeaders)
+  return toOutcome(
+    await getAccountDirectoryCommand().bulkDisable(
+      actor,
+      {
+        text: body,
+        expectedUserIds,
+        reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+        requestId: text(input?.requestId, 100) ?? '',
+      },
+      { headers: requestHeaders },
+    ),
+  )
 }
 
 // ── 老師帳號與臨時密碼（票 8） ───────────────────────────────────────────────

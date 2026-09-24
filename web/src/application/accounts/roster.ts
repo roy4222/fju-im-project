@@ -350,6 +350,20 @@ export function rosterAccessDenied(actor: ResolvedActor): ErrorCode | null {
   return hasRole(actor, 'admin') ? null : 'FORBIDDEN'
 }
 
+/**
+ * 名單原檔能不能下載（票 6 審查建議 3；票 9 收）。
+ *
+ * 除了「狀態正常的管理員」，檔案還要**已經綁在某個名單版本上**（有效的 `roster_version` 引用）。
+ * 上傳了但沒按下匯入的原檔不是任何紀錄的一部分，任何人（包括上傳者自己、其他管理員）
+ * 都不能經下載網址拿到；上傳者預覽時讀的是 `readOwned`，不走這條。
+ */
+export function rosterFileDownloadable(
+  actor: ResolvedActor,
+  references: readonly { readonly refType: string }[],
+): boolean {
+  return rosterAccessDenied(actor) === null && references.some((r) => r.refType === 'roster_version')
+}
+
 // ── port ────────────────────────────────────────────────────────────────────
 
 export type RosterUploadTicket = {
