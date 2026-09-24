@@ -2,7 +2,7 @@ import 'server-only'
 import type { FileDownload, StoredFileReceipt } from '@/application/ops'
 import { createRateLimiter } from '@/shared/rate-limit'
 import type { Result } from '@/shared/result'
-import { resolveActor } from '@/composition/accounts'
+import { checkStatus, resolveActor } from '@/composition/accounts'
 import { getFileStorage } from '@/composition/ops'
 
 /**
@@ -27,6 +27,9 @@ export async function uploadFile(
 ): Promise<UploadOutcome> {
   const actor = await resolveActor(headers)
   if (actor.kind === 'anonymous') return { ok: false, code: 'UNAUTHENTICATED', message: '請先登入。' }
+  // 與下載端對稱：拿到 ticket 之後才被停用、被要求改密或還在待審的人，不能把檔傳成 stored（票 6 審查建議）。
+  const blocked = checkStatus(actor, 'business')
+  if (blocked) return { ok: false, code: blocked, message: blocked === 'UNAUTHENTICATED' ? '請先登入。' : '目前的帳號狀態不能上傳檔案。' }
   const verdict = uploadLimiter.hit(actor.userId)
   if (!verdict.allowed) {
     return { ok: false, code: 'RATE_LIMITED', message: '上傳太頻繁，請稍後再試。', retryAfterMs: verdict.retryAfterMs }

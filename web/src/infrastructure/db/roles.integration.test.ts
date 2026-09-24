@@ -247,6 +247,74 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'released_at', value: new Date() },
   },
+  // 票 11（S02-01）的七張表。
+  cohort_stages: {
+    insert: () => {
+      // (cohort_id, seq) 與 (cohort_id, start_date) 都唯一：每次換一個序號與日期。
+      const n = (uniqueCounter += 1)
+      return {
+        sql: `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+              values (gen_random_uuid(), $1, $2, '權限測試階段', date '2030-01-01' + $2::int, 'system')`,
+        values: [cohortId, n],
+      }
+    },
+    updatable: { column: 'name', value: '改過的階段' },
+  },
+  project_events: {
+    insert: () => ({
+      sql: `insert into project_events (id, cohort_id, title, starts_at, audience_kind, created_by_kind)
+            values (gen_random_uuid(), $1, '權限測試活動', now(), 'cohort_students', 'system')`,
+      values: [cohortId],
+    }),
+    updatable: { column: 'status', value: 'cancelled' },
+  },
+  business_clock_overrides: {
+    insert: () => ({
+      sql: `insert into business_clock_overrides (id, environment, business_at, real_at, set_by_user_id, reason)
+            values (gen_random_uuid(), 'staging', now(), now(), $1, '權限測試')`,
+      values: [userId],
+    }),
+    updatable: { column: 'reason', value: 'tampered' },
+  },
+  cohort_status_events: {
+    insert: () => ({
+      sql: `insert into cohort_status_events (id, cohort_id, from_status, to_status, actor_user_id, real_at, business_at)
+            values (gen_random_uuid(), $1, 'preparing', 'active', $2, now(), now())`,
+      values: [cohortId, userId],
+    }),
+    updatable: { column: 'reason', value: 'tampered' },
+  },
+  notifications: {
+    insert: () => ({
+      // (event_id, recipient_user_id) 唯一：每次連同一個新收件人一起插。
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '通知測試', $1, false, now()) returning id
+            )
+            insert into notifications (id, event_id, recipient_user_id, scope, kind, title)
+            select gen_random_uuid(), $2, id, 'global', 'test', '權限測試通知' from u`,
+      values: [`${unique('notify')}@example.com`, eventId],
+    }),
+    updatable: { column: 'read_at', value: new Date() },
+  },
+  digest_events: {
+    insert: () => ({
+      sql: `insert into digest_events (id, kind, subject_id, deadline_version, count, payload, event_id, generated_business_at)
+            values (gen_random_uuid(), 'overdue', gen_random_uuid(), 1, 0, '{}'::jsonb, $1, now())`,
+      values: [eventId],
+    }),
+    updatable: { column: 'count', value: 99 },
+  },
+  worker_heartbeat: {
+    insert: () => ({
+      // 固定一列：心跳就是 upsert。ON CONFLICT DO UPDATE 本身也要 UPDATE 權限，矩陣有給。
+      sql: `insert into worker_heartbeat (id, version, last_tick_real_at, updated_at)
+            values (1, 'roles-test', now(), now())
+            on conflict (id) do update set last_tick_real_at = excluded.last_tick_real_at, updated_at = excluded.updated_at`,
+      values: [],
+    }),
+    updatable: { column: 'version', value: 'tampered' },
+  },
 }
 
 beforeAll(async () => {

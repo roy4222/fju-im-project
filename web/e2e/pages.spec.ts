@@ -26,7 +26,7 @@ async function signInAs(page: Page, role: TestRole | null) {
 }
 
 test.describe('不登入', () => {
-  const publicRoutes = ['/', '/login', '/register', '/register/pending', '/403']
+  const publicRoutes = ['/', '/login', '/register', '/403']
 
   for (const route of publicRoutes) {
     test(`${route} 打得開`, async ({ page }) => {
@@ -51,6 +51,11 @@ test.describe('不登入', () => {
   test('/account 需要登入', async ({ page }) => {
     await page.goto('/account')
     await expect(page).toHaveURL(/\/login\?next=/)
+  })
+
+  test('/register/pending 需要登入（票 7：看的是自己的申請）', async ({ page }) => {
+    await page.goto('/register/pending')
+    await expect(page).toHaveURL(/\/login\?next=%2Fregister%2Fpending/)
   })
 })
 
@@ -137,7 +142,8 @@ test.describe('待審核的人（有 session 但還沒核准）', () => {
     await signInAs(page, null)
     await page.goto('/dashboard/student')
     await expect(page).toHaveURL(/\/register\/pending$/)
-    await expect(page.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
+    // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁請他補送（票 7）。
+    await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
   })
 })
 
@@ -189,6 +195,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
+    '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
+    '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -198,6 +206,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/cohorts', wrongRole: 'teacher' },
     { path: '/dashboard/teacher', wrongRole: 'student' },
     { path: '/dashboard/student', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/timeline', wrongRole: 'teacher' },
+    // 模擬業務鐘只在測試站存在（CI 的 e2e 開著 BUSINESS_CLOCK_OVERRIDE_ENABLED）。
+    { path: '/dashboard/admin/clock', wrongRole: 'student' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {
