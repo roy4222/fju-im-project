@@ -160,6 +160,33 @@ export const EVENT_CATALOG = {
   'item.withdrawn': { consumers: [] },
   'item.archived': { consumers: [] },
   'item.republished': { consumers: [] },
+
+  // ── 產學合作案（票 20；產品 08 §4「合作案解除／換案→受影響的組員與案主」） ──
+  /**
+   * 合作案發布、下架、重新發布、組別類型變更（票 20）。產品事件矩陣沒有這幾種的通知：
+   * 發布後列表就看得到；下架後已連結的組員點進去看到「合作案已下架」；類型變更記在組別歷程。事件只留紀錄。
+   */
+  'opportunity.published': { consumers: [] },
+  'opportunity.withdrawn': { consumers: [] },
+  'group.type_changed': { consumers: [] },
+  /**
+   * 組長（或系辦）首次把組別連結到合作案（票 20）。產品 08 矩陣只有「解除／換案」，首次連結不通知，
+   * 事件只留紀錄（連結不代表企業或老師承諾合作，案主在自己的合作案頁看得到）。
+   */
+  'opportunity.linked': { consumers: [] },
+  /**
+   * 換案（票 20；GRP-19「站內通知 G2 全員、C1 與 C2 案主」）。收件人＝組別目前全體成員＋原案主＋新案主。
+   * payload 帶組別、兩案名稱，不帶理由。
+   */
+  'opportunity.switched': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '組別換了合作案' },
+  },
+  /** 案主或系辦解除連結（票 20；GRP-19「案主解除需理由並通知該組」）。收件人＝該組全體成員＋案主。不帶理由。 */
+  'opportunity.unlinked': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '組別與合作案的連結已解除' },
+  },
 } as const satisfies Record<string, CatalogEntry>
 
 export type EventType = keyof typeof EVENT_CATALOG

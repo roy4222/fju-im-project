@@ -1,4 +1,5 @@
 import type { GroupHistoryEntry } from '@/application/groups/ports'
+import { GROUP_TYPE_LABEL } from '@/application/groups/proposals'
 
 /**
  * 組別歷程一筆的顯示文字（學生「我的組別」、老師「分組」、管理員組別詳情共用）。
@@ -19,5 +20,15 @@ export function describeGroupHistory(entry: GroupHistoryEntry): string {
         : `指導老師：${entry.userName}${by}`
     case 'advisor_removed':
       return `解除指導老師 ${entry.userName}${by}`
+    case 'type_changed':
+      return entry.groupTypes
+        ? `組別類型 ${GROUP_TYPE_LABEL[entry.groupTypes.from]} → ${GROUP_TYPE_LABEL[entry.groupTypes.to]}（${entry.userName}）${by}`
+        : `組別類型變更（${entry.userName}）${by}`
+    case 'opportunity_linked':
+      return entry.previousOpportunityName
+        ? `合作案 ${entry.previousOpportunityName} → ${entry.userName}${by}`
+        : `連結合作案：${entry.userName}${by}`
+    case 'opportunity_unlinked':
+      return `解除合作案連結：${entry.userName}${by}`
   }
 }

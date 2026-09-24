@@ -9,10 +9,14 @@ import {
   ProposeForm,
   type MyProposalRole,
 } from '@/app/dashboard/student/groups/group-forms'
+import { IndustryPanel } from '@/app/dashboard/student/groups/industry-panel'
 import { describeGroupSize, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
+  CHANGE_REASON_MAX_LENGTH,
   describeGroupHistory,
   getGroupQuery,
+  getOpportunityQuery,
+  opportunityName,
   GROUP_TYPE_LABEL,
   GROUP_TYPES,
   INVITATION_STATE_LABEL,
@@ -31,7 +35,11 @@ export const metadata = { title: '我的組別｜資管系專題平台' }
  * 上半：已有組別就顯示組別與組長；有進行中的提案就顯示每人確認狀態與確切到期時間；
  * 兩者都沒有就是發起提案的表單（人數照本屆設定）。下半：公開找組員開關與同屆名單、提案紀錄。
  */
-export default async function StudentGroupsPage() {
+export default async function StudentGroupsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ opportunity?: string | string[] }>
+}) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/student/groups', 'student')
   const userId = actor.kind === 'authenticated' ? actor.userId : ''
@@ -52,11 +60,14 @@ export default async function StudentGroupsPage() {
   }
 
   const groupQuery = getGroupQuery()
-  const [view, teammates, businessNow] = await Promise.all([
+  const [view, teammates, businessNow, panel] = await Promise.all([
     groupQuery.studentView(userId, cohortId),
     groupQuery.teammates(actor, cohortId),
     getBusinessClock().now(),
+    // 組別類型與合作案（票 20）：組長能不能改類型、可以連哪些合作案，由查詢依本人身分算。
+    getOpportunityQuery().leaderPanel(actor, cohortId),
   ])
+  const preselect = (await searchParams).opportunity
   const proposal = view.openProposal
   const mine = proposal?.invitations.find((i) => i.userId === userId)
   const overdue = proposal ? businessNow.getTime() >= proposal.expiresBusinessAt.getTime() : false
@@ -120,7 +131,9 @@ export default async function StudentGroupsPage() {
                 ))}
               </ol>
             ) : null}
-            <p className="mt-3 text-xs text-muted-foreground">成立後的成員異動、換組長、指導老師指派由系辦處理。</p>
+            <p className="mt-3 text-xs text-muted-foreground">
+              成立後的成員異動、換組長、指導老師指派由系辦處理；組別類型與合作案見下方。
+            </p>
           </div>
         ) : proposal ? (
           <div>
@@ -176,6 +189,25 @@ export default async function StudentGroupsPage() {
           <ProposalActions proposal={role} requestIds={{ confirm: randomUUID(), terminate: randomUUID() }} />
         </div>
       </section>
+
+      {view.group && panel ? (
+        <IndustryPanel
+          groupId={panel.groupId}
+          groupCode={panel.groupCode}
+          revision={panel.revision}
+          isLeader={panel.isLeader}
+          groupType={panel.groupType}
+          typeLabels={GROUP_TYPE_LABEL}
+          typeChangeBlockers={panel.typeChangeBlockers}
+          link={
+            panel.link ? { opportunityId: panel.link.opportunityId, name: panel.link.name, withdrawn: panel.link.status === 'withdrawn' } : null
+          }
+          linkable={panel.linkable.map((o) => ({ id: o.id, name: opportunityName(o), ownerName: o.ownerName }))}
+          preselect={typeof preselect === 'string' ? preselect : null}
+          requestIds={{ link: randomUUID(), type: randomUUID() }}
+          reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+        />
+      ) : null}
 
       <Card
         title="找組員"
