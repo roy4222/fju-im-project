@@ -64,7 +64,7 @@ async function signIn(page: Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await page.getByRole('button', { name: '登入' }).click()
+  await page.getByRole('button', { name: '登入', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 })
 }
 

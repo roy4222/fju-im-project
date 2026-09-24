@@ -1,9 +1,11 @@
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { ActionForm, Field } from '@/app/_ui/form'
 import { Card } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { changePasswordAction } from '@/app/account/change-password/actions'
-import { MIN_PASSWORD_LENGTH } from '@/composition/accounts'
+import { getSelfAccountCommand, MIN_PASSWORD_LENGTH } from '@/composition/accounts'
 
 export const metadata = { title: '更改密碼｜資管系專題平台' }
 
@@ -18,6 +20,11 @@ export default async function ChangePasswordPage() {
   const actor = await requireSignedIn('/account/change-password', 'self.changePassword')
 
   const forced = actor.mustChangePassword
+  // 只有 Google 的帳號沒有「目前的密碼」可填；請他到帳號頁「設定密碼」（票 10）。
+  if (!forced) {
+    const me = await getSelfAccountCommand().viewMine(await headers())
+    if (me && !me.loginMethods.password) redirect('/account')
+  }
 
   return (
     <NarrowShell>

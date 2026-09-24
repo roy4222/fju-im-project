@@ -26,7 +26,7 @@ async function signIn(page: import('@playwright/test').Page, password: string) {
   await page.goto('/login')
   await page.getByLabel('Email').fill(A1_EMAIL)
   await page.getByLabel('密碼', { exact: true }).fill(password)
-  await page.getByRole('button', { name: '登入' }).click()
+  await page.getByRole('button', { name: '登入', exact: true }).click()
   // 等到真的離開登入頁（或看到錯誤訊息）再往下，不然後面的 goto 會跟這次導向搶。
   await Promise.race([
     page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 }),

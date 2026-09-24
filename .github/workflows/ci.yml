@@ -152,6 +152,10 @@ jobs:
       # VM 的 .env（契約 05 §6），不放 GitHub Secrets 也不進 repo 以外的任何地方。
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-32ch
       BETTER_AUTH_URL: http://127.0.0.1:3000
+      # Google 登入按鈕要組得出授權網址（票 10）。e2e 只驗按鈕與導向、在瀏覽器端攔下
+      # 往 accounts.google.com 的請求，不會真的打到 Google，所以用假值；真的 client 在 Doppler。
+      GOOGLE_CLIENT_ID: ci-only-client-id.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ci-only-client-secret
       # e2e 跑的是測試站的樣子：模擬業務鐘開著（票 11 的 timeline.spec 要用）。
       # 正式站（false）的拒絕由整合測試 pg-business-clock.integration.test.ts 證明。
       BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true'
