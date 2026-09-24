@@ -1,0 +1,11 @@
+{
+  "date": "2026-09-16",
+  "round": "s01-review-fixes",
+  "scope": "SOP 01 步驟 1／3／7 依 2026-09-16 review 修正後回寫 Vault：Ubuntu 套件名（docker-compose-v2）、目錄擁有者（資料目錄 1001:1001、設定與秘密歸 deploy）、VM 覆蓋檔與 --no-deps。",
+  "files": [
+    "docs/engineering/operations/01 VM 首次設定.md"
+  ],
+  "direction": "mirror → source（實作與 review 發現正文有誤，先改 spec 再回寫 Vault）",
+  "runtime_validation": "本機驗過 resolved compose config 與腳本語法；SOP 在 VM 上的執行仍是 NOT_RUN。",
+  "verified_at": "2026-09-16T02:48:24.637410+00:00"
+}

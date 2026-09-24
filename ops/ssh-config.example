@@ -1,0 +1,21 @@
+# ~/.ssh/config 範本（前置清單 §2.4；票 #187）。
+#
+# 貼到自己機器的 ~/.ssh/config 後，就可以用 `ssh fju-vm` 連線。
+# 這裡**不含任何金鑰**；IdentityFile 指到你自己的私鑰路徑。
+
+Host fju-vm
+  HostName 140.136.155.167
+  User roy422roy
+  # 換成自己的私鑰；預設 ~/.ssh/id_ed25519
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  ServerAliveInterval 30
+  ServerAliveCountMax 4
+
+# 自動部署用的帳號（SOP 03 才會用到；公鑰要先貼到 VM 的
+# /home/deploy/.ssh/authorized_keys，私鑰同時放進 GitHub Secrets）。
+Host fju-vm-deploy
+  HostName 140.136.155.167
+  User deploy
+  IdentityFile ~/.ssh/fju_deploy_ed25519
+  IdentitiesOnly yes

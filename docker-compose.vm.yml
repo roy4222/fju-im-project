@@ -1,0 +1,30 @@
+# VM 覆蓋檔（S14-01；2026-09-16 review Standards 1）。
+#
+# 基礎 docker-compose.yml 的 caddy 只發布 `${HTTP_PORT:-8080}:80`，那是**本機**用的：
+# 本機不簽憑證，也不該佔用 80／443。VM 上要對外提供 HTTPS，就必須把 80 與 443 都發布出來
+# ——80 是 Let's Encrypt HTTP-01 驗證要走的，443 是網站本身。
+#
+#   cd /srv/fju/app
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml config     # 先看 resolved
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --no-deps postgres caddy
+#
+# `--no-deps` 是刻意的：這一步只要基礎設施（資料庫與反向代理），不要因為 depends_on
+# 把 app 與 migrate 一起拉起來——映像與 migration 是 SOP 03／#189 的事。
+#
+# **這兩個指令都要等 SOP 02／#188 把三份 .env 建好才跑得動。** Compose 在做任何事之前
+# 會先解析所有服務的 `env_file`（app／worker 的 .env、migrate 的 .env.migrate、
+# backup 的 .env.backup），少一份就整個指令失敗，`--no-deps` 擋不住——它只決定啟動哪些
+# 服務，不影響設定檔怎麼解析。`.env` 還身兼 Compose 的變數插值來源（${POSTGRES_PASSWORD} 等）。
+# 想在秘密進 VM 之前就確認 ports 合併結果，跑 `ops/vm-setup.sh --check` 的步驟 6——
+# 那一段是在暫存目錄用空白佔位 env 檔驗的。
+name: fju-im-project
+
+services:
+  caddy:
+    # `!override` 是取代而不是附加：Compose 合併 `ports` 的預設行為是兩邊相加，
+    # 那樣 VM 上會連本機用的 8080 一起發布出去（ufw 雖然沒開，但沒必要綁在宿主機上）。
+    ports: !override
+      - '80:80'
+      - '443:443'
+      # Caddy 的 HTTP/3；沒有它 QUIC 走不通，但不影響 HTTPS 本身。
+      - '443:443/udp'
