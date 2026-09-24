@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # 兩站共用設定（2026-09-24 兩站版）。由 ops/site.sh、ops/deploy.sh、ops/backup.sh、
-# ops/auto-deploy.sh 用 `. ops/lib/site.sh` 載入，不單獨執行。
+# ops/auto-deploy.sh、ops/seed-admin.sh 用 `. ops/lib/site.sh` 載入，不單獨執行。
 #
 #   站台   Compose project   網址                     Doppler config
 #   test   fju-test          test.fju.roy422.dev      stg
