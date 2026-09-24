@@ -1,5 +1,5 @@
 import 'server-only'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * 登入限速（契約 03 §6：同一個 IP 對同一個帳號，10 分鐘 10 次）。
@@ -12,7 +12,8 @@ import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
  * 只看帳號則擋不住從很多 IP 打同一個帳號。
  */
 
-const limiter = createRateLimiter(RATE_LIMITS.signIn)
+// 登入表單（Server Action）與直接打 API 在不同的 chunk，限速器要共用同一份（見 sharedRateLimiter）。
+const limiter = sharedRateLimiter('sign-in', RATE_LIMITS.signIn)
 
 export function signInKey(ip: string, email: string): string {
   return `sign-in:${ip}:${email.toLowerCase()}`

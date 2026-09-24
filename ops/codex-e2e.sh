@@ -7,6 +7,9 @@
 # 做法：
 #   1. 從 Doppler（fju-im-capstone／stg）取 E2E_ADMIN_EMAIL、E2E_ADMIN_PASSWORD，
 #      只放進這支腳本的變數，再以環境變數交給 `codex exec` 這一個行程——不 export、不 echo、不寫檔。
+#      交給 codex 的環境是白名單（CODEX_ENV_WHITELIST）：codex 行程本身先把名單外的變數全部拿掉，
+#      codex 開的 shell 再用 shell_environment_policy.include_only 過濾一次——Mac 上的 API key、token
+#      不會進到 Codex 或它開的 shell。
 #   2. `codex exec` 在輸出目錄裡跑（e2e/acceptance/.out/<時間>-<清單名>/，gitignore 掉），
 #      依清單在 https://test.fju.roy422.dev 逐步操作、每步截圖到 screenshots/，
 #      最後一則訊息（Markdown 報告）寫到 report.md。
@@ -30,8 +33,14 @@ MODEL="${CODEX_E2E_MODEL:-gpt-6-sol}"
 SANDBOX="${CODEX_E2E_SANDBOX:-workspace-write}"
 OUT_ROOT="${CODEX_E2E_OUT:-$REPO_ROOT/e2e/acceptance/.out}"
 
+# 交給 codex（與它開的 shell）的環境變數白名單；可用 case 萬用字元（LC_*）。
+# npx／Playwright 只靠 PATH＋HOME（~/.npm、~/Library/Caches/ms-playwright 都從 HOME 推得）；
+# CODEX_HOME 有設才會帶（Codex 找登入資料、Playwright skill 找 wrapper 都看它）。
+# 第一次實跑若 npx／Playwright 缺了什麼，再把那個變數名加進來。
+CODEX_ENV_WHITELIST=(PATH HOME USER SHELL TMPDIR LANG 'LC_*' CODEX_HOME E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD)
+
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -46,7 +55,7 @@ while [ $# -gt 0 ]; do
     -h|--help) usage 0 ;;
     -*) echo "不認得的選項：$1" >&2; usage 1 ;;
     *)
-      [ -z "$CHECKLIST" ] || die "只能給一份驗收清單（已經有 $CHECKLIST）"
+      [ -z "$CHECKLIST" ] || die "只能給一份驗收清單（已經有 ${CHECKLIST}）"
       CHECKLIST="$1"
       ;;
   esac
@@ -59,12 +68,12 @@ done
 
 # 正式站防呆：fju.roy422.dev 前面不是「test.」（或其他子網域）的就是正式站。
 if grep -Eq '(^|[^A-Za-z0-9.-])fju\.roy422\.dev' "$CHECKLIST"; then
-  die "驗收清單裡有正式站網址（fju.roy422.dev）。自動驗收只打測試站 $TARGET_URL，請改清單。"
+  die "驗收清單裡有正式站網址（fju.roy422.dev）。自動驗收只打測試站 ${TARGET_URL}，請改清單。"
 fi
 
 case "$SANDBOX" in
   read-only|workspace-write|danger-full-access) ;;
-  *) die "CODEX_E2E_SANDBOX 只能是 read-only、workspace-write 或 danger-full-access（收到：$SANDBOX）" ;;
+  *) die "CODEX_E2E_SANDBOX 只能是 read-only、workspace-write 或 danger-full-access（收到：${SANDBOX}）" ;;
 esac
 
 command -v codex >/dev/null 2>&1 || die "找不到 codex 指令——先安裝 Codex CLI 並登入。"
@@ -73,13 +82,14 @@ command -v doppler >/dev/null 2>&1 || die "找不到 doppler 指令——先 bre
 
 # ── 取帳密：一次一個鍵，值只留在這支腳本的變數裡 ──────────────
 # `doppler secrets get` 的錯誤訊息不含秘密值，照常顯示在 stderr。
+# DOPPLER_ENABLE_VERSION_CHECK=false：免得「有新版」提示混進 --plain 的輸出（同 ops/lib/site.sh）。
 fetch_secret() {
-  doppler secrets get "$1" --plain --project "$DOPPLER_PROJECT" --config "$DOPPLER_CONFIG"
+  DOPPLER_ENABLE_VERSION_CHECK=false doppler secrets get "$1" --plain --project "$DOPPLER_PROJECT" --config "$DOPPLER_CONFIG"
 }
 e2e_email="$(fetch_secret E2E_ADMIN_EMAIL)" \
-  || die "從 Doppler $DOPPLER_PROJECT／$DOPPLER_CONFIG 取不到 E2E_ADMIN_EMAIL（先 doppler login；鍵要 Roy 在 stg 新增，見 ops/README.md）。"
+  || die "從 Doppler ${DOPPLER_PROJECT}／$DOPPLER_CONFIG 取不到 E2E_ADMIN_EMAIL（先 doppler login；鍵要 Roy 在 stg 新增，見 ops/README.md）。"
 e2e_password="$(fetch_secret E2E_ADMIN_PASSWORD)" \
-  || die "從 Doppler $DOPPLER_PROJECT／$DOPPLER_CONFIG 取不到 E2E_ADMIN_PASSWORD（先 doppler login；鍵要 Roy 在 stg 新增，見 ops/README.md）。"
+  || die "從 Doppler ${DOPPLER_PROJECT}／$DOPPLER_CONFIG 取不到 E2E_ADMIN_PASSWORD（先 doppler login；鍵要 Roy 在 stg 新增，見 ops/README.md）。"
 [ -n "$e2e_email" ] || die "Doppler $DOPPLER_CONFIG 的 E2E_ADMIN_EMAIL 是空的。"
 [ -n "$e2e_password" ] || die "Doppler $DOPPLER_CONFIG 的 E2E_ADMIN_PASSWORD 是空的。"
 [ "${#e2e_password}" -ge "$MIN_PASSWORD_LENGTH" ] \
@@ -138,8 +148,12 @@ EOF
 echo "驗收清單：$CHECKLIST"
 echo "測試站：$TARGET_URL"
 echo "輸出目錄：$RUN_DIR"
-echo "Codex：模型 $MODEL、沙盒 $SANDBOX"
+echo "Codex：模型 ${MODEL}、沙盒 $SANDBOX"
 echo ""
+
+# 白名單轉成 TOML 陣列給 include_only：["PATH","HOME",...]
+include_only="$(printf '"%s",' "${CODEX_ENV_WHITELIST[@]}")"
+include_only="[${include_only%,}]"
 
 codex_args=(
   exec
@@ -149,7 +163,9 @@ codex_args=(
   --skip-git-repo-check
   --ephemeral
   --color never
+  # Codex 開的 shell：從完整環境出發（inherit=all），但只留白名單上的變數。
   -c 'shell_environment_policy.inherit="all"'
+  -c "shell_environment_policy.include_only=$include_only"
   -o "$REPORT"
 )
 if [ "$SANDBOX" = workspace-write ]; then
@@ -160,10 +176,22 @@ if [ "$SANDBOX" = workspace-write ]; then
   [ -d "$HOME/Library/Caches/ms-playwright" ] && codex_args+=(--add-dir "$HOME/Library/Caches/ms-playwright")
 fi
 
+# 在子 shell 裡把白名單外的環境變數全部 unset，再 exec codex。
+# 不用 `env -i 名稱=值 codex`：那樣帳密會出現在 env 的指令列（ps 看得到）。
 # 帳密只以環境變數交給 codex 這一個行程（不 export 給其他指令，也不進指令列）。
 codex_status=0
-E2E_ADMIN_EMAIL="$e2e_email" E2E_ADMIN_PASSWORD="$e2e_password" \
-  codex "${codex_args[@]}" "$PROMPT" < /dev/null || codex_status=$?
+(
+  while IFS= read -r name; do
+    keep=0
+    for pattern in "${CODEX_ENV_WHITELIST[@]}"; do
+      # shellcheck disable=SC2254  # pattern 要當萬用字元比對（LC_*）
+      case "$name" in $pattern) keep=1; break ;; esac
+    done
+    [ "$keep" = 1 ] || unset "$name" 2>/dev/null || true
+  done < <(compgen -e)
+  E2E_ADMIN_EMAIL="$e2e_email" E2E_ADMIN_PASSWORD="$e2e_password" \
+    exec codex "${codex_args[@]}" "$PROMPT" < /dev/null
+) || codex_status=$?
 
 # ── 洩漏檢查：輸出目錄的文字檔裡不能有密碼 ─────────────────────
 # 密碼從 process substitution 餵給 grep -f（printf 是 shell 內建，不會出現在 ps 裡）。

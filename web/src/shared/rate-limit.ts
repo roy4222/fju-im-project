@@ -64,12 +64,37 @@ export function createRateLimiter(options: {
   }
 }
 
+/**
+ * 同一個程序裡**只有一份**的限速器（以名稱區分）。
+ *
+ * 為什麼不直接在模組頂層 `createRateLimiter`：Next 正式建置會把 Route Handler
+ * （`/api/auth/*`）與頁面／Server Action 打包成**不同的 chunk**，各自載入一份模組，
+ * 模組頂層的變數因此有兩份。票 7 的 e2e 抓到：直接打 API 註冊 30 次之後，
+ * 從註冊頁（Server Action）還能再註冊——兩條路各算各的桶，門檻等於變兩倍。
+ * 掛在 `globalThis` 上，兩個 chunk 拿到的就是同一個計數。
+ */
+export function sharedRateLimiter(
+  name: string,
+  options: { max: number; windowMs: number },
+): RateLimiter {
+  const registry = ((globalThis as { __fjuRateLimiters?: Map<string, RateLimiter> }).__fjuRateLimiters ??= new Map())
+  let limiter = registry.get(name)
+  if (!limiter) {
+    limiter = createRateLimiter(options)
+    registry.set(name, limiter)
+  }
+  return limiter
+}
+
 /** 契約 03 §6 的門檻，寫在一起才不會散落在各處。 */
 export const RATE_LIMITS = {
   /** 登入：同一個 IP 對同一個帳號，10 分鐘內 10 次。 */
   signIn: { max: 10, windowMs: 10 * 60 * 1000 },
   /** 改密：同一個使用者每小時 5 次。 */
   changePassword: { max: 5, windowMs: 60 * 60 * 1000 },
-  /** 註冊：同一個 IP 每小時 5 次。 */
-  register: { max: 5, windowMs: 60 * 60 * 1000 },
+  /**
+   * 註冊：同一個 IP 每小時 30 次（2026-09-23 Roy 定案，取代舊的 5 次：
+   * 全班可能共用一個對外 IP，而且每一筆註冊都要系辦人工核准）。
+   */
+  register: { max: 30, windowMs: 60 * 60 * 1000 },
 } as const

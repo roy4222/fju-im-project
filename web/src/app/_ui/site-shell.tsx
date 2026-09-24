@@ -33,11 +33,15 @@ export function SiteShell({ children }: { children: ReactNode }) {
   )
 }
 
-/** 登入、註冊這類「只有一張卡」的頁面。 */
-export function NarrowShell({ children }: { children: ReactNode }) {
+/**
+ * 登入、註冊這類「只有一張卡」的頁面。
+ *
+ * `wide` 給欄位比較多的表單（註冊、等待審核頁）：兩欄並排，跟原型的 560px 卡片一樣寬。
+ */
+export function NarrowShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
     <div className="min-h-dvh bg-surface">
-      <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
+      <div className={cn('mx-auto flex min-h-dvh flex-col justify-center px-4 py-10', wide ? 'max-w-xl' : 'max-w-md')}>
         <Link href="/" className="mb-6 block text-center text-sm font-semibold text-ink">
           輔仁大學資訊管理學系專題管理平台
         </Link>

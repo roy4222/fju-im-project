@@ -22,9 +22,8 @@ let counter = 0
 /**
  * 每個角色只註冊一次，全檔共用。
  *
- * Better Auth 內建的限速對 `/api/auth/*` 是全域的（正式模式預設開著），
- * 每個測試都註冊一個新帳號會很快撞到 429——那是套件的保護在正常運作，不是 bug。
- * 契約 03 §6 自己的逐路由限速由 S01-05／S01-15 實作。
+ * 註冊有限速（契約 03 §6：每 IP 每小時 30 次），每個測試都註冊一個新帳號是浪費額度；
+ * 同一個角色重用同一個帳號就夠了。
  */
 const shared = new Map<string, Promise<TestSession>>()
 
@@ -50,23 +49,15 @@ export async function createTestSession(
   counter += 1
   const email = `e2e-${role ?? 'pending'}-${Date.now()}-${counter}@example.com`
 
-  /**
-   * Better Auth 內建的限速是**全域**的（預設 10 次／60 秒／IP，涵蓋整個 `/api/auth/*`）。
-   * 一次 CI 跑只註冊四個帳號不會撞到；但在本機連續重跑時會。
-   * 這裡最多等一個視窗再試一次——**不是**把限速關掉，那是真的保護。
-   *
-   * 順帶一提：這個預設值對正式環境太緊（全系在同一個對外 IP 後面，一分鐘只有 10 次
-   * 就會擋到正常登入）。契約 03 §6 的逐路由限速由 S01-05／S01-15 實作，屆時一併調整。
-   */
-  let response = await request.post('/api/auth/sign-up/email', {
+  // 每次註冊帶一個隨機的來源 IP：註冊限速是每 IP 每小時 30 次（契約 03 §6；票 7 起由 app 自己算，
+  // 套件那一層對 `/sign-up/email` 關掉了）。CI 直連 app 時，沒帶標頭的請求全部落在同一個
+  // 「unknown」桶，e2e 一多就會互相吃掉額度。經過 Caddy（本機 8080）時這個標頭會被 Caddy
+  // 覆寫成真的來源，等於沒帶——那是正確的行為；撞到上限就要等一小時，不重試。
+  const headers = { 'x-real-ip': `10.250.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` }
+  const response = await request.post('/api/auth/sign-up/email', {
+    headers,
     data: { email, password: 'E2e-Password-Correct-9', name: `e2e ${role ?? 'pending'}` },
   })
-  if (response.status() === 429) {
-    await new Promise((resolve) => setTimeout(resolve, 61_000))
-    response = await request.post('/api/auth/sign-up/email', {
-      data: { email, password: 'E2e-Password-Correct-9', name: `e2e ${role ?? 'pending'}` },
-    })
-  }
   if (!response.ok()) throw new Error(`註冊失敗（${response.status()}）：${await response.text()}`)
 
   const setCookie = response.headers()['set-cookie'] ?? ''

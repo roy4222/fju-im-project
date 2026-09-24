@@ -113,6 +113,22 @@ export function signInWithPassword(input: { email: string; password: string }, h
 }
 
 /**
+ * 學生用密碼註冊（票 7）。
+ *
+ * 走 `auth.api.signUpEmail`（`/sign-up/email` 本來就是白名單路由，不需要 marker）：
+ * 帳號由套件建（密碼雜湊用套件的，不自己做），`user.create.before` 把狀態壓成 pending，
+ * `nextCookies()` 把登入 cookie 帶進 Server Action 的回應——註冊完就是受限 session，
+ * 直接到等待審核頁。
+ *
+ * `headers` 要帶 `x-real-ip`：註冊限速在 hook 裡，要靠它取來源 IP（契約 03 §6）。
+ * 申請資料（學號、手機、系級）不經套件——套件只存它自己宣告過的欄位——由
+ * `RegistrationCommand` 在同一個請求裡接著寫。
+ */
+export function signUpWithPassword(input: { email: string; password: string; name: string }, headers: Headers) {
+  return getAuth().api.signUpEmail({ body: input, headers })
+}
+
+/**
  * 本人改密碼。
  *
  * `revokeOtherSessions: true` 是規格要求（模組 01 §3、契約 03 §2）：改完密碼，

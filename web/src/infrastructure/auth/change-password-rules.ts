@@ -1,7 +1,8 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
+import { PASSWORD_MIN_LENGTH } from '@/application/accounts'
 import { getPool } from '@/infrastructure/db/client'
-import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * 改密碼的業務規則（模組 01 §3、契約 03 §2、§6）。
@@ -13,8 +14,8 @@ import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
  * 寫在 hook 裡，HTTP 與 Server Action 走的是同一段程式。
  */
 
-/** 新密碼長度下限。 */
-export const MIN_PASSWORD_LENGTH = 12
+/** 新密碼長度下限；與註冊（票 7）共用 application 層的同一個數字。 */
+export const MIN_PASSWORD_LENGTH = PASSWORD_MIN_LENGTH
 
 export type PasswordProblem = 'too_short' | 'same_as_current'
 
@@ -28,7 +29,8 @@ export function validateNewPassword(
   return null
 }
 
-const limiter = createRateLimiter(RATE_LIMITS.changePassword)
+// 改密頁（Server Action）與直接打 API 在不同的 chunk，限速器要共用同一份（見 sharedRateLimiter）。
+const limiter = sharedRateLimiter('change-password', RATE_LIMITS.changePassword)
 
 /** 契約 03 §6：每人每小時 5 次。 */
 export function checkChangePasswordRate(userId: string) {
