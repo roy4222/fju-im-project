@@ -30,6 +30,7 @@ let rosterVersionId: string
 let storedFileId: string
 let proposalId: string
 let groupId: string
+let itemId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -382,6 +383,76 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'valid_to', value: new Date() },
   },
+  // 票 15（S04-01）：專題事務六表＋收件名單。複合主鍵的表每次連同新的組別／檔案一起插。
+  managed_items: {
+    insert: () => ({
+      sql: `insert into managed_items (id, cohort_id, placement, audience_kind, title, created_by_kind)
+            values (gen_random_uuid(), $1, 'news', 'public', '權限測試公告', 'system')`,
+      values: [cohortId],
+    }),
+    updatable: { column: 'title', value: '改過的標題' },
+  },
+  item_audience_groups: {
+    insert: () => ({
+      sql: `with g as (
+              insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+              values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id
+            )
+            insert into item_audience_groups (item_id, group_id) select $3, id from g`,
+      values: [cohortId, unique('GA'), itemId],
+    }),
+    updatable: { column: 'group_id', value: null },
+    deleteWhere: 'true',
+  },
+  item_versions: {
+    insert: () => ({
+      sql: `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+            select gen_random_uuid(), $1, coalesce(max(version_no), 0) + 1, 't', '', '', $2
+              from item_versions where item_id = $1`,
+      values: [itemId, userId],
+    }),
+    updatable: { column: 'title', value: 'tampered' },
+  },
+  form_schema_versions: {
+    insert: () => ({
+      sql: `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+            select gen_random_uuid(), $1, coalesce(max(version_no), 0) + 1, '{"fields":[]}'::jsonb, $2
+              from form_schema_versions where item_id = $1`,
+      values: [itemId, userId],
+    }),
+    updatable: { column: 'version_no', value: 999 },
+  },
+  item_attachments: {
+    insert: () => ({
+      sql: `with f as (
+              insert into stored_files
+                (id, owner_user_id, scope, purpose, original_name, mime_declared, extension, storage_key, uploaded_real_at)
+              values (gen_random_uuid(), $1, 'global', 'attachment', '附件.pdf', 'application/pdf', 'pdf', $2, now())
+              returning id
+            )
+            insert into item_attachments (item_id, file_id, sort) select $3, id, 1 from f`,
+      values: [userId, unique('attach-key'), itemId],
+    }),
+    updatable: { column: 'sort', value: 2 },
+    deleteWhere: 'true',
+  },
+  item_publications: {
+    insert: () => ({
+      sql: `insert into item_publications (id, item_id, action, notify, actor_user_id, real_at, business_at)
+            values (gen_random_uuid(), $1, 'content_change', false, $2, now(), now())`,
+      values: [itemId, userId],
+    }),
+    updatable: { column: 'notify', value: true },
+  },
+  response_rosters: {
+    insert: () => ({
+      sql: `insert into response_rosters
+              (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, created_by_kind)
+            values (gen_random_uuid(), $1, $2, 'user', gen_random_uuid(), now(), 'auto', 'system')`,
+      values: [itemId, cohortId],
+    }),
+    updatable: { column: 'source', value: 'admin' },
+  },
 }
 
 beforeAll(async () => {
@@ -448,6 +519,13 @@ beforeAll(async () => {
     [cohortId],
   )
   groupId = String(group.rows[0]!.id)
+  // S04 的受眾、版本、附件、發布紀錄、名單樣本列需要一個項目當 FK 目標。
+  const item = await owner.sql(
+    `insert into managed_items (id, cohort_id, placement, audience_kind, title, created_by_kind)
+     values (gen_random_uuid(), $1, 'news', 'public', '權限測試項目', 'system') returning id`,
+    [cohortId],
+  )
+  itemId = String(item.rows[0]!.id)
 })
 
 afterAll(async () => {

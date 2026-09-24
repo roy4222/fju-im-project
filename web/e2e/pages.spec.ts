@@ -199,6 +199,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
     '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
+    '/dashboard/admin/affairs': '公告、資源下載、文件繳交都從這裡建立、發布與修改',
+    '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -213,6 +215,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/clock', wrongRole: 'student' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/affairs', wrongRole: 'student' },
+    { path: '/dashboard/admin/editor/new', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

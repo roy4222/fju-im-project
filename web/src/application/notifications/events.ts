@@ -49,6 +49,16 @@ export const EVENT_CATALOG = {
    * payload 帶終止種類，**不帶管理員作廢的理由**（S03-07：學生看到的通知不含內部備註）。
    */
   'proposal.terminated': { consumers: ['notifications'] },
+  /**
+   * 專題事務發布（票 15；產品模組 08 §4「重要公告發布→受眾」「新收件發布→收件名單成員」）。
+   * 收件：收件人＝名單展開（個人收件＝本人；組別收件＝該組有效成員），一定發；
+   * 公告／資源：管理員選要通知才發，收件人＝對象展開（本屆學生、指定組別成員、全部老師；
+   * 公開與所有登入者不展開，只留事件）。發布更新時新加入收件名單的人也收這一種。
+   * payload 只帶項目 id、標題、位置與截止，不帶正文。
+   */
+  'item.published': { consumers: ['notifications'] },
+  /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
+  'item.updated': { consumers: ['notifications'] },
 } as const satisfies Record<string, { consumers: readonly EventConsumer[] }>
 
 export type EventType = keyof typeof EVENT_CATALOG
