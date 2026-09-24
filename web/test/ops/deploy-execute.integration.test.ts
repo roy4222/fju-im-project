@@ -47,6 +47,14 @@ case "$1" in
       ps)   printf '%s\\n' "\${PREV_IMAGE:-}" ;;
       pull) [ "\${FAIL_PULL:-0}" = 1 ] && exit 7; exit 0 ;;
       run)
+        if printf '%s ' "$@" | grep -q 'seed-e2e.mjs'; then
+          # E2E 測試管理員：只記「有沒有拿到值」，不記值本身。
+          printf 'SEED_ENV site=%s email=%s password=%s\\n' "\${FJU_SITE:-}" \\
+            "\${E2E_ADMIN_EMAIL:+set}" "\${E2E_ADMIN_PASSWORD:+set}" >> "$CALLS_LOG"
+          [ "\${FAIL_SEED:-0}" = 1 ] && { echo "seed 爆炸" >&2; exit 5; }
+          echo "E2E 測試管理員已建立"
+          exit 0
+        fi
         [ "\${FAIL_MIGRATE:-0}" = 1 ] && { echo "migrate 爆炸" >&2; exit 3; }
         echo "migration 完成；schema_meta.schema_version = \${FAKE_SCHEMA}"
         echo "SCHEMA_VERSION=\${FAKE_SCHEMA}"
@@ -117,7 +125,15 @@ type Scenario = {
   lockBusy?: boolean
   /** 有沒有前一版可以回滾。 */
   previous?: string | false
+  /** 部署到哪一站（預設 test）。 */
+  site?: 'test' | 'prod'
+  /** Doppler 裡有沒有 E2E_ADMIN_EMAIL／E2E_ADMIN_PASSWORD。 */
+  e2eKeys?: boolean
+  failSeed?: boolean
 }
+
+const E2E_EMAIL = 'e2e-secret@example.test'
+const E2E_PASSWORD = 'e2e-very-secret-password-123'
 
 type Result = {
   code: number
@@ -163,9 +179,13 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
   }
 
   const previous = scenario.previous === undefined ? 'ghcr.io/roy4222/fju-web:oldtag' : scenario.previous
+  const site = scenario.site ?? 'test'
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...FAKE_SECRETS,
+    FJU_SECRETS_LOADED: site,
+    ...(scenario.e2eKeys ? { E2E_ADMIN_EMAIL: E2E_EMAIL, E2E_ADMIN_PASSWORD: E2E_PASSWORD } : {}),
+    FAIL_SEED: scenario.failSeed ? '1' : '0',
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     EXEC_STDIN: execStdin,
     FLOCK_BUSY: scenario.lockBusy ? '1' : '0',
@@ -188,7 +208,7 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
   let stdout = ''
   let stderr = ''
   try {
-    const out = await exec('bash', [deploySh, '--site', 'test', tag, '--execute', ...args], { env, cwd: repoRoot })
+    const out = await exec('bash', [deploySh, '--site', site, tag, '--execute', ...args], { env, cwd: repoRoot })
     stdout = out.stdout
     stderr = out.stderr
   } catch (error) {
@@ -386,5 +406,72 @@ describe('部署鎖', () => {
     expect(result.code).toBe(75)
     expect(result.calls.some((c) => c.startsWith('compose pull'))).toBe(false)
     expect(result.deployLog).toBe('')
+  })
+})
+
+describe('票 3b：測試站的 E2E 測試管理員', () => {
+  const seedCalls = (calls: string[]) => calls.filter((c) => c.includes('seed-e2e.mjs'))
+
+  it('測試站、Doppler 有兩個鍵：migration 與密碼同步之後、啟動 app 之前建帳號', async () => {
+    const result = await runDeploy('newtag', { e2eKeys: true })
+    expect(result.code, result.stderr).toBe(0)
+    const migrateAt = result.calls.findIndex((c) => c.startsWith('compose run --rm migrate'))
+    const execAt = result.calls.findIndex((c) => c.startsWith('compose exec -T postgres'))
+    const seedAt = result.calls.findIndex((c) => c.includes('seed-e2e.mjs'))
+    const upAt = result.calls.findIndex((c) => /^compose up .*app worker/.test(c))
+    expect(seedAt).toBeGreaterThan(migrateAt)
+    expect(seedAt).toBeGreaterThan(execAt)
+    expect(upAt).toBeGreaterThan(seedAt)
+    expect(seedCalls(result.calls)).toEqual([
+      'compose run --rm --no-deps -e E2E_ADMIN_EMAIL -e E2E_ADMIN_PASSWORD -e FJU_SITE migrate node migrate/web/scripts/seed-e2e.mjs',
+    ])
+    // 容器確實拿到值（由 Compose 從環境轉交），而且知道自己在 test 站。
+    expect(result.calls).toContain('SEED_ENV site=test email=set password=set')
+    expect(result.stdout).toContain('E2E 測試管理員已建立')
+  })
+
+  it('帳密不進任何指令列、不印出來', async () => {
+    const result = await runDeploy('newtag', { e2eKeys: true })
+    for (const text of [...result.calls, result.stdout, result.stderr, result.deployLog]) {
+      expect(text).not.toContain(E2E_PASSWORD)
+      expect(text).not.toContain(E2E_EMAIL)
+    }
+  })
+
+  it('測試站、Doppler 沒這兩個鍵：略過並印一行提示，部署照常完成', async () => {
+    const result = await runDeploy('newtag')
+    expect(result.code, result.stderr).toBe(0)
+    expect(seedCalls(result.calls)).toEqual([])
+    expect(result.stdout).toMatch(/E2E 測試帳號：略過.*E2E_ADMIN_EMAIL.*E2E_ADMIN_PASSWORD/)
+    expect(result.deployLog).toContain('deployed')
+  })
+
+  it('正式站：就算 Doppler 有這兩個鍵也一律不建', async () => {
+    const result = await runDeploy('newtag', { site: 'prod', e2eKeys: true })
+    expect(result.code, result.stderr).toBe(0)
+    expect(seedCalls(result.calls)).toEqual([])
+    expect(result.calls.some((c) => c.startsWith('SEED_ENV'))).toBe(false)
+    expect(result.stdout).toContain('prod 站一律不建')
+    expect(result.deployLog).toContain('deployed')
+  })
+
+  it('正式站、沒有鍵：安安靜靜，不提 E2E', async () => {
+    const result = await runDeploy('newtag', { site: 'prod' })
+    expect(result.code, result.stderr).toBe(0)
+    expect(seedCalls(result.calls)).toEqual([])
+    expect(result.stdout).not.toContain('E2E')
+  })
+
+  it('seed 失敗就中止：不啟動新版（舊 app 繼續跑），講清楚原因', async () => {
+    const result = await runDeploy('newtag', { e2eKeys: true, failSeed: true })
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('建立 E2E 測試管理員失敗')
+    expect(upAppCalls(result.calls)).toHaveLength(0)
+  })
+
+  it('回滾模式不跑 seed', async () => {
+    const result = await runDeploy('oldtag2', { e2eKeys: true }, ['--rollback'])
+    expect(result.code, result.stderr).toBe(0)
+    expect(seedCalls(result.calls)).toEqual([])
   })
 })
