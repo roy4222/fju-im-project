@@ -1,5 +1,6 @@
 /**
- * 模組 04 專題事務發布與編輯的公開入口（母 spec §4.3）。票 15：建立、編輯、發布、發布更新。
+ * 模組 04 專題事務發布與編輯的公開入口（母 spec §4.3）。票 15：建立、編輯、發布、發布更新；
+ * 票 16：撤回、下架、重新發布、前台內容頁與日曆的截止。
  *
  * 跨模組只能從這裡引用，而且只能帶型別；執行期的實作由 composition 注入。
  */
@@ -63,6 +64,15 @@ export {
 } from '@/application/items/items'
 export { plainTextToHtml, renderBodyHtml, sanitizeBody } from '@/application/items/rich-text'
 export { describePublishReceipt, describeUpdateReceipt } from '@/application/items/receipts'
+export type { LifecycleAction, LifecycleReceipt, LifecycleRefusal, PublicAccess } from '@/application/items/lifecycle'
+export {
+  describeLifecycleReceipt,
+  describeRepublishExpired,
+  LIFECYCLE_LABEL,
+  LIFECYCLE_NEXT_STATUS,
+  lifecycleCheck,
+  publicAccessOf,
+} from '@/application/items/lifecycle'
 export type {
   EditorOptions,
   ItemCommand,
@@ -71,6 +81,11 @@ export type {
   ItemListRow,
   ItemQuery,
   ItemReview,
+  MyDeadline,
+  PublicItemCard,
+  PublicItemPage,
+  PublicItemQuery,
+  PublicListFilter,
   PublishReceipt,
   RecipientGroup,
   RecipientPerson,

@@ -1,31 +1,70 @@
 import Link from 'next/link'
+import { currentActor, homeFor } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SignOutButton } from '@/app/_ui/sign-out'
 import type { ReactNode } from 'react'
 import { cn } from '@/shared/cn'
 
+/** 前台主導覽（票 16；產品模組 09 §9.2）。檔案下載要登入，訪客點進去會看到登入提示。 */
+const PUBLIC_NAV: readonly NavItem[] = [
+  { href: '/news', label: '最新公告' },
+  { href: '/rules', label: '專題規則' },
+  { href: '/files', label: '檔案下載' },
+]
+
 /**
- * 公開頁與登入前頁面的外殼：頂部一條，內容單欄置中。
+ * 公開頁與登入前頁面的外殼：頂部一條（站名、主導覽、登入或回後台），內容單欄置中。
+ *
+ * 右上角看登入狀態：沒登入給「登入／註冊」，登入了給「我的首頁」（回自己角色的後台）。
+ * `current` 是目前所在的前台區塊，導覽會標出來。
  */
-export function SiteShell({ children }: { children: ReactNode }) {
+export async function SiteShell({ children, current }: { children: ReactNode; current?: string }) {
+  const actor = await currentActor()
+  const signedIn = actor.kind === 'authenticated'
   return (
     <div className="min-h-dvh bg-background">
       <header className="border-b border-border">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
           <Link href="/" className="text-sm font-semibold text-ink">
             輔仁大學資訊管理學系專題管理平台
           </Link>
-          <nav className="flex items-center gap-1 text-sm">
-            <Link href="/login" className="rounded-md px-3 py-1.5 text-ink hover:bg-muted">
-              登入
-            </Link>
-            <Link
-              href="/register"
-              className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90"
-            >
-              註冊
-            </Link>
-          </nav>
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            <nav aria-label="主導覽" className="flex flex-wrap items-center gap-1">
+              {PUBLIC_NAV.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={current === item.href ? 'page' : undefined}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 hover:bg-muted',
+                    current === item.href ? 'font-semibold text-primary' : 'text-ink',
+                  )}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+            {signedIn ? (
+              <Link
+                href={homeFor(actor)}
+                className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90"
+              >
+                我的首頁
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className="rounded-md px-3 py-1.5 text-ink hover:bg-muted">
+                  登入
+                </Link>
+                <Link
+                  href="/register"
+                  className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90"
+                >
+                  註冊
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>

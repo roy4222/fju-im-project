@@ -70,4 +70,6 @@
   .prose-item h3, .prose-item h4 { font-weight: 600; }
   .prose-item a { color: var(--color-primary-on-subtle); text-decoration: underline; }
   .prose-item blockquote { border-left: 3px solid var(--color-border); padding-left: 0.75rem; color: var(--color-muted-foreground); }
+  .prose-item table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+  .prose-item th, .prose-item td { border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; text-align: left; }
 }

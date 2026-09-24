@@ -9,7 +9,11 @@ import {
   describeFailedChecks,
   failedChecks,
   ITEM_UPLOAD,
+  describeRepublishExpired,
   isUuid,
+  LIFECYCLE_LABEL,
+  LIFECYCLE_NEXT_STATUS,
+  lifecycleCheck,
   normalizeItemInput,
   publishChecks,
   sanitizeBody,
@@ -26,6 +30,8 @@ import {
   type ItemQuery,
   type ItemReview,
   type ItemStatus,
+  type LifecycleAction,
+  type LifecycleReceipt,
   type Placement,
   type PublishReceipt,
   type ReceiverUnit,
@@ -52,7 +58,7 @@ import { expandRecipients, memberUserIds, type ExpandedRecipients } from '@/infr
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
-import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
+import { formatTaipeiMinute, isDeadlinePassed, RealClock, type Clock } from '@/shared/time'
 
 /**
  * 專題事務的建立、存草稿、發布、發布更新（票 15；模組實作設計 04 §3、§6；模組 05 §5 `buildRoster`）。
@@ -68,6 +74,13 @@ import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 const SUBJECT_TYPE = 'item'
 const FILE_REF_TYPE = 'item_attachment' as const
 const ROSTER_REMOVED_BY_SETTINGS = '發布對象或收件單位變更'
+const ROSTER_REMOVED_BY_WITHDRAW = '項目撤回成草稿'
+const LIFECYCLE_ACTIONS: readonly LifecycleAction[] = ['withdraw', 'archive', 'republish']
+const LIFECYCLE_EVENT: Readonly<Record<LifecycleAction, 'item.withdrawn' | 'item.archived' | 'item.republished'>> = {
+  withdraw: 'item.withdrawn',
+  archive: 'item.archived',
+  republish: 'item.republished',
+}
 /** 封面允許的內容類型（`stored_files.mime_detected`，內容檢查後的正規值）。 */
 const COVER_MIMES: readonly string[] = ['image/png', 'image/jpeg']
 
@@ -801,6 +814,188 @@ export class PgItemCommand implements ItemCommand {
     }
   }
 
+  // ── 撤回、下架、重新發布（票 16） ────────────────────────────────────────────
+
+  /**
+   * 生命週期三個動作（產品模組 04 §4.5）。交易形狀同 `publish`：業務時間先讀 → 鎖屆別與項目 → 帳本 →
+   * 檢查（屆別封存、revision、狀態、撤回時有沒有回答）→ 寫入 → 發布紀錄、事件、稽核 → 帳本 commit。
+   *
+   * 三個動作都**不動** `actual_opened_at`、不切新內容／欄位版本（重新發布恢復的就是下架前那一版）。
+   *
+   * 撤回（→ 草稿）：
+   * - 結束目前的收件名單（寫結束時間與理由，不刪列）：草稿沒有名單；再發布時 `publish` 依當下的對象重建。
+   *   不這樣做的話，再發布插新名單會撞 `response_rosters_one_current`。
+   * - 取消還沒到的截止工作，並把期限版本 +1：`due_work` 的識別鍵含期限版本、排程是 `ON CONFLICT DO NOTHING`，
+   *   沿用舊版本再排會拿回那一列「已取消」的工作，等於沒排。撤回只在沒有任何回答時才允許，換版本不影響任何人。
+   *
+   * 下架：名單、回答、截止工作全部保留（PUB-11「既有回答與 audit 保留」；截止快照對結案的收件仍有意義）。
+   * 重新發布：只把狀態改回發布中；截止工作照原本的期限版本補排一次（已經在就不重複）。
+   */
+  async changeStatus(
+    actor: ResolvedActor,
+    itemId: string,
+    revision: number,
+    action: LifecycleAction,
+    requestId: string,
+  ): Promise<Result<LifecycleReceipt>> {
+    if (!LIFECYCLE_ACTIONS.includes(action)) return err('VALIDATION_FAILED', '不認得這個動作，請重新整理頁面。')
+    const denied = authorizeAdmin(actor, `${LIFECYCLE_LABEL[action]}專題事務`)
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId)) return itemNotFound()
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lock(tx, itemId)
+      if (!locked) return itemNotFound()
+      const { item } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: `item.${action}`,
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, revision, action })),
+          scope: 'cohort',
+          cohortId: item.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<LifecycleReceipt>(begun)
+      if (locked.cohortStatus === 'archived') return cohortArchived()
+      if (item.revision !== revision) return staleRevision()
+
+      // 「有沒有人作答」只有撤回要問（票 17 接上的真查詢：有人存過草稿或正式送出就算）。
+      const hasResponses = action === 'withdraw' ? await this.#responses.hasAnyResponse(tx, itemId) : false
+      const allowed = lifecycleCheck(action, item.status, hasResponses)
+      if (!allowed.ok) return err(allowed.code, allowed.message)
+
+      if (action === 'republish') {
+        // 重新發布＝回到發布中，所以發布前檢查照樣要過（開放時間用第一次的實際開放時間）；
+        // 下架期間組別可能解散、階段可能被改，引用也再驗一次。
+        const failed = failedChecks(publishChecks(this.#stateOf(item, locked.groupIds), item.actual_opened_at ?? businessAt))
+        if (failed.length > 0) {
+          return err('VALIDATION_FAILED', describeFailedChecks(failed).replace('還不能發布', '還不能重新發布'), {
+            details: { checks: failed.map((c) => c.key) },
+          })
+        }
+        // 已經截止的收件不能直接回到發布中（學生會看到一份收不了的收件）。
+        if (collectsResponses(item.placement) && item.due_at && isDeadlinePassed(businessAt, item.due_at)) {
+          return err('VALIDATION_FAILED', describeRepublishExpired(item.due_at), { details: { checks: ['due'] } })
+        }
+        const refs = await this.#checkReferences(tx, {
+          cohortId: item.cohort_id,
+          stageId: item.stage_id,
+          groupIds: locked.groupIds,
+          placement: item.placement,
+        })
+        if (refs) return refs
+      }
+
+      const status = LIFECYCLE_NEXT_STATUS[action]
+      let deadlineVersion = item.deadline_version
+      let rosterClosed = 0
+      if (action === 'withdraw') {
+        const closed = await tx.query(
+          `update response_rosters
+              set eligible_to_business_at = greatest($2::timestamptz, eligible_from_business_at), removed_reason = $3,
+                  revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+            where item_id = $1 and eligible_to_business_at is null`,
+          [itemId, businessAt, ROSTER_REMOVED_BY_WITHDRAW, realAt, userId],
+        )
+        rosterClosed = closed.rowCount ?? 0
+        if (item.due_at) {
+          await this.#dueWork.cancel(tx, {
+            kind: 'deadline_snapshot',
+            subject: { type: SUBJECT_TYPE, id: itemId },
+            deadlineVersion: item.deadline_version,
+          })
+          deadlineVersion = item.deadline_version + 1
+        }
+      }
+      if (action === 'republish' && item.due_at) {
+        await this.#dueWork.schedule(tx, {
+          kind: 'deadline_snapshot',
+          subject: { type: SUBJECT_TYPE, id: itemId },
+          deadlineVersion: item.deadline_version,
+          dueBusinessAt: snapshotDueAt(item.due_at),
+        })
+      }
+
+      await tx.query(
+        `update managed_items
+            set status = $2, deadline_version = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+          where id = $1`,
+        [itemId, status, deadlineVersion, realAt, userId],
+      )
+      const contentVersionNo = await this.#currentVersionNo(tx, 'item_versions', item.current_content_version_id)
+      const schemaVersionNo = await this.#currentVersionNo(tx, 'form_schema_versions', item.current_schema_version_id)
+      await this.#insertPublication(
+        tx,
+        itemId,
+        action,
+        { contentVersionNo, schemaVersionNo },
+        deadlineVersion !== item.deadline_version ? deadlineVersion : null,
+        false,
+        userId,
+        realAt,
+        businessAt,
+      )
+
+      await this.#events.publish(tx, {
+        type: LIFECYCLE_EVENT[action],
+        scope: 'cohort',
+        cohortId: item.cohort_id,
+        source: { type: SUBJECT_TYPE, id: itemId, version: contentVersionNo },
+        actor: { kind: 'user', userId },
+        // 產品事件矩陣沒有這三種通知：不發給任何人，事件只留紀錄。
+        recipients: [],
+        payload: { ...this.#eventPayload(item), from: item.status, to: status },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessAt,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: `item.${action}`,
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId: item.cohort_id,
+        realAt,
+        businessAt,
+        payload: {
+          placement: item.placement,
+          from: item.status,
+          to: status,
+          contentVersionNo,
+          schemaVersionNo,
+          rosterClosed,
+          deadlineVersion,
+          actualOpenedAt: item.actual_opened_at?.toISOString() ?? null,
+        },
+      })
+
+      const receipt = {
+        itemId,
+        title: item.title,
+        action,
+        status,
+        revision: item.revision + 1,
+        actualOpenedAt: item.actual_opened_at?.toISOString() ?? null,
+        rosterClosed,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   #normalize(input: ItemInput): { ok: true; value: ItemDraft } | Err {
@@ -1003,7 +1198,7 @@ export class PgItemCommand implements ItemCommand {
   async #insertPublication(
     tx: PoolClient,
     itemId: string,
-    action: 'publish' | 'content_change' | 'schema_change' | 'settings_change' | 'deadline_change',
+    action: 'publish' | 'content_change' | 'schema_change' | 'settings_change' | 'deadline_change' | LifecycleAction,
     versions: { contentVersionNo?: number; schemaVersionNo?: number },
     deadlineVersion: number | null,
     notify: boolean,

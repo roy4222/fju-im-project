@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import {
+  changeItemStatusAction,
   createItemAction,
   publishItemAction,
   reviewItemAction,
@@ -43,6 +44,32 @@ type Status = 'draft' | 'published' | 'archived'
 
 const STATUS_LABEL: Record<Status, string> = { draft: '草稿', published: '發布中', archived: '已下架' }
 
+type LifecycleAction = 'withdraw' | 'archive' | 'republish'
+
+/** 撤回、下架、重新發布的確認文案（票 16；產品模組 04 §4.5）。規則由伺服器判，這裡只說清楚會發生什麼。 */
+const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain: string; confirm: string }> = {
+  withdraw: {
+    label: '撤回',
+    title: '撤回成草稿？',
+    explain:
+      '撤回後受眾看不到這個項目（前台網址會顯示「已撤回」），收件名單會結束。改好後按「發布」恢復同一個項目，實際開放時間不會重設。只有還沒有任何人作答時可以撤回。',
+    confirm: '確認撤回',
+  },
+  archive: {
+    label: '下架',
+    title: '下架這個項目？',
+    explain: '下架後前台網址會顯示「已下架」與下一步；既有回答、收件名單與紀錄都保留。之後可以「重新發布」，實際開放時間不會重設。',
+    confirm: '確認下架',
+  },
+  republish: {
+    label: '重新發布',
+    title: '重新發布？',
+    explain:
+      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間，這次不發通知。發布前檢查會再跑一次：已經截止的收件不能直接重新發布。',
+    confirm: '確認重新發布',
+  },
+}
+
 export function ItemEditor({
   initial,
   itemId: initialItemId,
@@ -74,7 +101,45 @@ export function ItemEditor({
   // 對話框打開那一刻是「發布」還是「發布更新」；發布成功後狀態變了，對話框標題不跟著換。
   const [dialogTitle, setDialogTitle] = useState('發布前檢查')
   const dialog = useRef<HTMLDialogElement>(null)
-  const requestIds = useRef<{ save: string; publish: string }>({ save: newRequestId(), publish: newRequestId() })
+  const requestIds = useRef<{ save: string; publish: string; lifecycle: string }>({
+    save: newRequestId(),
+    publish: newRequestId(),
+    lifecycle: newRequestId(),
+  })
+  const lifecycleDialog = useRef<HTMLDialogElement>(null)
+  const [lifecycle, setLifecycle] = useState<LifecycleAction | null>(null)
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+
+  function openLifecycle(action: LifecycleAction) {
+    setLifecycle(action)
+    setLifecycleError(null)
+    setMessage(null)
+    requestIds.current.lifecycle = newRequestId()
+    lifecycleDialog.current?.showModal()
+  }
+
+  async function confirmLifecycle() {
+    if (!lifecycle || !itemId) return
+    setBusy(`${LIFECYCLE[lifecycle].label}中…`)
+    setLifecycleError(null)
+    try {
+      const result = await changeItemStatusAction(itemId, revision, lifecycle, requestIds.current.lifecycle)
+      if (!result.ok) {
+        setLifecycleError(result.message)
+        return
+      }
+      setRevision(result.data.revision)
+      setStatus(result.data.status)
+      setMessage({ tone: 'ok', text: result.message ?? '已完成。' })
+      requestIds.current.lifecycle = newRequestId()
+      lifecycleDialog.current?.close()
+      router.refresh()
+    } catch {
+      setLifecycleError('連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const collects = state.placement === 'submission'
   const published = status !== 'draft'
@@ -223,10 +288,31 @@ export function ItemEditor({
             存草稿
           </button>
         ) : null}
-        <button type="button" className={PRIMARY} onClick={openPublish} disabled={busy !== null || status === 'archived'}>
-          {published ? '發布更新' : '發布'}
-        </button>
+        {status === 'published' && !hasResponses ? (
+          <button type="button" className={SECONDARY} onClick={() => openLifecycle('withdraw')} disabled={busy !== null}>
+            撤回
+          </button>
+        ) : null}
+        {status === 'published' ? (
+          <button type="button" className={SECONDARY} onClick={() => openLifecycle('archive')} disabled={busy !== null}>
+            下架
+          </button>
+        ) : null}
+        {status === 'archived' ? (
+          <button type="button" className={PRIMARY} onClick={() => openLifecycle('republish')} disabled={busy !== null}>
+            重新發布
+          </button>
+        ) : (
+          <button type="button" className={PRIMARY} onClick={openPublish} disabled={busy !== null}>
+            {published ? '發布更新' : '發布'}
+          </button>
+        )}
       </div>
+      {status === 'archived' ? (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-ink">
+          已下架：前台網址顯示「已下架」，內容不能在這裡改；要修改請先重新發布。
+        </p>
+      ) : null}
 
       {message ? <Feedback tone={message.tone}>{message.text}</Feedback> : null}
 
@@ -427,6 +513,24 @@ export function ItemEditor({
             </>
           )}
         </div>
+      </dialog>
+
+      <dialog ref={lifecycleDialog} aria-label={lifecycle ? LIFECYCLE[lifecycle].title : '確認'} className={DIALOG}>
+        {lifecycle ? (
+          <div className="space-y-4 p-5">
+            <h2 className="text-base font-semibold text-ink">{LIFECYCLE[lifecycle].title}</h2>
+            <p className="text-sm text-ink">{LIFECYCLE[lifecycle].explain}</p>
+            {lifecycleError ? <Feedback tone="error">{lifecycleError}</Feedback> : null}
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <button type="button" className={SECONDARY} onClick={() => lifecycleDialog.current?.close()}>
+                取消
+              </button>
+              <button type="button" className={PRIMARY} onClick={confirmLifecycle} disabled={busy !== null}>
+                {LIFECYCLE[lifecycle].confirm}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </dialog>
     </div>
   )

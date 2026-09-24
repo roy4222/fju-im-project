@@ -384,8 +384,11 @@ export type FileFacts = {
  *
  * 每次下載都呼叫（契約 03 §4：uuid 猜不到但不當授權）。回 false 一律變成「無法存取」，
  * 不告訴對方是「沒有這個檔」還是「不是你的」。
+ *
+ * `actor` 可能是**訪客**（票 16：公開公告的附件訪客也能下載）。政策沒有明說放行訪客就是拒絕，
+ * 訪客被拒絕時回 401（請先登入），已登入被拒絕回 403。待審、必須改密的人在政策之前就被擋。
  */
-export type DownloadPolicy = (actor: ResolvedActor & { kind: 'authenticated' }, file: FileFacts) => Promise<boolean> | boolean
+export type DownloadPolicy = (actor: ResolvedActor, file: FileFacts) => Promise<boolean> | boolean
 
 /** 用途 → 下載政策。沒登記的用途一律拒絕（預設拒絕，不是預設放行）。 */
 export type DownloadPolicies = Partial<Record<FilePurpose, DownloadPolicy>>

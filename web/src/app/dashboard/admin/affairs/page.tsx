@@ -24,6 +24,7 @@ const FILTERS = [
   { key: 'news', label: '公告' },
   { key: 'resource', label: '資源' },
   { key: 'submission', label: '文件繳交' },
+  { key: 'rules', label: '專題規則' },
 ] as const
 
 /**
@@ -31,7 +32,7 @@ const FILTERS = [
  *
  * 公告、資源、文件繳交全部從這裡建立：日常用「新增項目」三步驟，要細調欄位、附件、封面再進完整編輯器
  * （同一個項目 ID）。編輯器不另放側欄入口（產品模組 04「單一入口」）。
- * 撤回、下架、重新發布與前台頁在票 16；收件進度與名單頁在票 18。
+ * 撤回、下架、重新發布在完整編輯器的頂列（票 16）；收件進度與名單頁在票 18。
  */
 export default async function AffairsPage({
   searchParams,

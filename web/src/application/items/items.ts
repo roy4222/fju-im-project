@@ -15,8 +15,11 @@ import { formatTaipeiMinute, parseTaipeiDateTime } from '@/shared/time'
 /** 附錄 A 的七種主要發布位置（CHECK 全放）。 */
 export type Placement = 'news' | 'resource' | 'submission' | 'requirement' | 'rules' | 'showcase' | 'honor'
 
-/** 票 15 開放建立的三種：公告、資源、文件繳交（其餘位置在後面的票）。 */
-export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission'] as const
+/**
+ * 開放建立的位置：公告、資源、文件繳交（票 15），加上專題規則（票 16：前台 `/rules` 的內容也走同一個發布流程，
+ * 產品模組 04 §4.2）。其餘位置在後面的票。
+ */
+export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission', 'rules'] as const
 export type EditablePlacement = (typeof EDITABLE_PLACEMENTS)[number]
 
 export const PLACEMENT_LABEL: Readonly<Record<Placement, string>> = {
@@ -33,6 +36,7 @@ export const PLACEMENT_HINT: Readonly<Record<EditablePlacement, string>> = {
   news: '公告、說明會、競賽資訊，可附檔案',
   resource: '給大家下載的範本或參考文件',
   submission: '學生在截止前填寫或上傳（個人一份或整組一份）',
+  rules: '前台「專題規則」頁的一節（長文）',
 }
 
 export type AudienceKind = 'public' | 'signed_in' | 'cohort_students' | 'teachers' | 'groups'
@@ -300,7 +304,7 @@ export function normalizeSchema(rawFields: readonly unknown[]): Normalized<FormF
 export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (!isUuid(input.cohortId)) return invalid('請選擇屆別。', 'cohortId')
   const placement = String(input.placement) as EditablePlacement
-  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源或文件繳交。', 'placement')
+  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源、文件繳交或專題規則。', 'placement')
 
   const title = cleanLine(input.title)
   if (title === '') return invalid('請填標題。', 'title')

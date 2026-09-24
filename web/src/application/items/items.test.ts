@@ -61,9 +61,13 @@ describe('normalizeItemInput：位置、對象、收件單位', () => {
     expect(news.ok && news.value.stageId).toBeNull()
   })
 
-  it('票 15 只開公告、資源、文件繳交三種位置', () => {
-    expect(normalizeItemInput(input({ placement: 'rules' })).ok).toBe(false)
+  it('開放公告、資源、文件繳交（票 15）與專題規則（票 16）；其餘位置還不能建', () => {
+    expect(normalizeItemInput(input({ placement: 'showcase' })).ok).toBe(false)
+    expect(normalizeItemInput(input({ placement: 'requirement' })).ok).toBe(false)
     expect(normalizeItemInput(input({ placement: 'resource', audienceKind: 'signed_in' })).ok).toBe(true)
+    // 規則不收件：收件單位與欄位一律丟掉，對象可以是公開。
+    const rules = normalizeItemInput(input({ placement: 'rules', audienceKind: 'public' }))
+    expect(rules.ok && { unit: rules.value.receiverUnit, fields: rules.value.fields.length }).toEqual({ unit: 'none', fields: 0 })
   })
 
   it('指定組別以外的對象會丟掉組別清單；組別清單去重', () => {

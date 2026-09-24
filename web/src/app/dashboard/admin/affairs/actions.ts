@@ -2,11 +2,12 @@
 import { currentActor } from '@/app/_ui/guard'
 import type { ItemInput, ItemReview, SaveReceipt } from '@/application/items'
 import type { UploadTicket } from '@/application/ops'
-import { describePublishReceipt, describeUpdateReceipt, getItemCommand } from '@/composition/items'
+import { describeLifecycleReceipt, describePublishReceipt, describeUpdateReceipt, getItemCommand } from '@/composition/items'
 import type { Result } from '@/shared/result'
 
 /**
- * 專題事務的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket。
+ * 專題事務的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket；
+ * 票 16：撤回、下架、重新發布。
  *
  * 規則與授權全在用例裡判（只有狀態正常的管理員）；這裡只把瀏覽器送來的東西整理成用例要的形狀、
  * 把結果翻成畫面要的回饋。檔案位元組不走 Server Action，由瀏覽器直接 POST 到 `/api/files/upload`。
@@ -125,6 +126,34 @@ export async function updatePublishedAction(
   return toOutcome(
     result,
     (r) => ({ itemId: r.receipt.itemId, revision: r.receipt.revision, sentence: describeUpdateReceipt(r.receipt) }),
+    (d) => d.sentence,
+  )
+}
+
+/** 撤回、下架、重新發布（票 16）。規則在用例（撤回只有沒有回答時、重新發布不重設開放時間）。 */
+export async function changeItemStatusAction(
+  itemId: string,
+  revision: number,
+  action: string,
+  requestId: string,
+): Promise<ItemActionOutcome<{ itemId: string; revision: number; status: 'draft' | 'published' | 'archived' }>> {
+  const known = action === 'withdraw' || action === 'archive' || action === 'republish' ? action : null
+  if (!known) return { ok: false, code: 'VALIDATION_FAILED', message: '不認得這個動作，請重新整理頁面。' }
+  const result = await getItemCommand().changeStatus(
+    await currentActor(),
+    str(itemId, 100),
+    Number(revision),
+    known,
+    str(requestId, 100),
+  )
+  return toOutcome(
+    result,
+    (r) => ({
+      itemId: r.receipt.itemId,
+      revision: r.receipt.revision,
+      status: r.receipt.status,
+      sentence: describeLifecycleReceipt(r.receipt),
+    }),
     (d) => d.sentence,
   )
 }

@@ -340,12 +340,17 @@ export class FsFileStorage implements FileStorage<PoolClient> {
 
   async authorizeDownload(actor: ResolvedActor, fileId: string): Promise<Result<FileDownload>> {
     const now = this.#clock.now()
-    if (actor.kind === 'anonymous') return err('UNAUTHENTICATED', '請先登入。')
-    const blocked = statusGate(actor, 'business')
-    if (blocked === 'UNAUTHENTICATED') return err('UNAUTHENTICATED', '請先登入。')
-    // 待審、必須改密的人一律「無法存取」，不另外說明原因。
-    if (blocked) return err('FORBIDDEN', DENIED)
-    if (!isUuid(fileId)) return err('FORBIDDEN', DENIED)
+    // 沒登入的人（含停用，resolver 已經當成沒登入）照樣走到下載政策：只有政策明說「訪客也可以」的檔
+    // （目前只有公開公告、資源、規則的附件，票 16）放行；其他一律 401，而且「沒有這個檔」也是 401，不給人探測。
+    const anonymous = actor.kind === 'anonymous'
+    const denied = () => (anonymous ? err('UNAUTHENTICATED', '請先登入。') : err('FORBIDDEN', DENIED))
+    if (!anonymous) {
+      const blocked = statusGate(actor, 'business')
+      if (blocked === 'UNAUTHENTICATED') return err('UNAUTHENTICATED', '請先登入。')
+      // 待審、必須改密的人一律「無法存取」，不另外說明原因。
+      if (blocked) return err('FORBIDDEN', DENIED)
+    }
+    if (!isUuid(fileId)) return denied()
 
     const found = await this.#options.db().query<FileRow>(
       `select id, owner_user_id, purpose, scope, cohort_id, status, storage_key, original_name, extension,
@@ -355,7 +360,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     )
     const row = found.rows[0]
     // 「沒有這個檔」與「不是你的」回同一句話，不給人拿來探測檔案存不存在。
-    if (!row) return err('FORBIDDEN', DENIED)
+    if (!row) return denied()
 
     const refs = await this.#options.db().query<{ ref_type: FileRef['refType']; ref_id: string }>(
       `select ref_type, ref_id from file_references where file_id = $1 and released_at is null`,
@@ -372,7 +377,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
         cohortId: row.cohort_id,
         references: refs.rows.map((r) => ({ refType: r.ref_type, refId: r.ref_id })),
       }))
-    if (!allowed) return err('FORBIDDEN', DENIED)
+    if (!allowed) return denied()
 
     const fullPath = this.#resolve(row.storage_key)
     try {
