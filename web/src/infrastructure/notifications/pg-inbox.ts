@@ -40,7 +40,7 @@ type Row = {
   item_placement: string | null
   item_status: string | null
   item_receiver_unit: string | null
-  /** 本人目前在這份收件的名單上（個人一份）。 */
+  /** 本人目前在這份收件的名單上（個人一份：本人；整組一份：本人此刻所在的組，票 21）。 */
   item_on_roster: boolean | null
 }
 
@@ -100,8 +100,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
  * - 公告 → 前台內容頁 `/news/<id>`（票 16）。已下架、已撤回也照樣連過去：那一頁自己依登入身分與項目狀態
  *   顯示內容或「已下架／已撤回」的下一步（不是 404）。
  * - 資源 → `/files`、專題規則 → `/rules`（票 16 的前台清單頁；資源與規則沒有單篇頁，`/news/<id>` 只收公告）。
- * - 個人收件：發布中而且本人現在還在名單上 → 作業區的那一份（`/dashboard/student/affairs/<id>`，那一頁自己再驗名單）。
- *   已被移出、組別收件（作業區在票 21 才收）、沒有在發布中 → 不給連結，只顯示標題。
+ * - 收件：發布中而且本人現在還在名單上（整組一份：本人此刻是名單上那一組的有效組員）→ 作業區的那一份
+ *   （`/dashboard/student/affairs/<id>`，那一頁自己再驗名單）。已被移出、沒有在發布中 → 不給連結，只顯示標題。
  * - 項目不在了或其他種類 → 不給連結。
  */
 function resolveItem(ref: { id: string }, context: SourceContext): NotificationSourceState {
@@ -113,7 +113,9 @@ function resolveItem(ref: { id: string }, context: SourceContext): NotificationS
     case 'rules':
       return { state: 'ok', href: '/rules' }
     case 'submission':
-      return context.item_status === 'published' && context.item_receiver_unit === 'individual' && context.item_on_roster
+      return context.item_status === 'published' &&
+        (context.item_receiver_unit === 'individual' || context.item_receiver_unit === 'group') &&
+        context.item_on_roster
         ? { state: 'ok', href: `/dashboard/student/affairs/${ref.id}` }
         : { state: 'ok', href: null }
     default:
@@ -179,8 +181,12 @@ export class PgInbox implements InboxQuery, InboxCommand {
               n.source_ref, n.created_at, n.read_at,
               mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
               exists (select 1 from response_rosters rr
-                       where rr.item_id = mi.id and rr.receiver_kind = 'user' and rr.receiver_id = $1
-                         and rr.eligible_to_business_at is null) as item_on_roster
+                       where rr.item_id = mi.id and rr.eligible_to_business_at is null
+                         and ((rr.receiver_kind = 'user' and rr.receiver_id = $1)
+                           or (rr.receiver_kind = 'group' and exists (
+                                 select 1 from group_memberships gm join groups g on g.id = gm.group_id
+                                  where gm.group_id = rr.receiver_id and gm.user_id = $1 and gm.valid_to is null
+                                    and g.status = 'active')))) as item_on_roster
          from notifications n
          left join cohorts c on c.id = n.cohort_id
          left join managed_items mi

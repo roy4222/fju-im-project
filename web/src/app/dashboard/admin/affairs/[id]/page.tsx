@@ -29,7 +29,7 @@ function one(value: string | string[] | undefined): string | undefined {
  *   已移出的人回答保留，一樣點得進去。草稿內容不在這裡顯示，只標「有草稿、最後儲存時間」。
  * - 只有系辦管理員看得到：頁面守角色，查詢本身再判一次（老師、學生拿到的是 null → 404）。
  *   免填、移出、加回、個別重開、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
- * - 整組一份：名單三類照樣列出組別；組別完成率與組別版本在票 21、22 接上。
+ * - 整組一份（票 21）：名單三類列組別；完成率以組為單位（同組誰送都算一份）；點一組看它每一次正式送出與附件。
  */
 export default async function RosterPage({
   params,
@@ -83,8 +83,8 @@ export default async function RosterPage({
     </DashboardShell>
   )
 
-  // 點一個人：名單紀錄＋每一次正式送出；帶版本號就看那一次的內容。
-  if (personId && individual) {
+  // 點一個人（整組一份：一組）：名單紀錄＋每一次正式送出；帶版本號就看那一次的內容。
+  if (personId) {
     if (!UUID.test(personId)) notFound()
     const detail = await rosterQuery.receiver(actor, item.itemId, personId)
     if (!detail) notFound()

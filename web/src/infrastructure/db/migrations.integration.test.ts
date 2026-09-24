@@ -10,6 +10,7 @@ import { applyMigrations, migratedSchema } from '../../../test/migrations'
  * 票 15（S04-01）：第五支再新增專題事務六表與收件名單表（細節在 s04-items.integration.test.ts）。
  * 票 17（S05）：第六支再新增草稿與正式版本兩表（細節在 s05-submissions.integration.test.ts）。
  * 票 19（S06）：第七支再新增主指導、合作案、合作案連結三表（細節在 s06-advisors.integration.test.ts）。
+ * 票 21（S07）：第八支再新增繳交附件、主指導閱覽設定兩表與檔案回收索引（細節在 s07-group-submissions.integration.test.ts）。
  */
 
 beforeAll(async () => {
@@ -84,9 +85,21 @@ const S05_TABLES = ['submission_drafts', 'submission_versions']
 /** 票 19（S06）新增的三張表：模組 03 附錄 A 的主指導、合作案、合作案連結。 */
 const S06_TABLES = ['advisor_assignments', 'industry_opportunities', 'opportunity_links']
 
-const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES, ...S02_TABLES, ...S03_TABLES, ...S04_TABLES, ...S05_TABLES, ...S06_TABLES].sort()
+/** 票 21（S07）新增的兩張表：模組 05 附錄 A 的繳交附件與主指導閱覽設定。 */
+const S07_TABLES = ['advisor_visibility_settings', 'submission_files']
 
-const LATEST = '0007_s06_advisors'
+const EXPECTED_TABLES = [
+  ...S00_TABLES,
+  ...S01_TABLES,
+  ...S02_TABLES,
+  ...S03_TABLES,
+  ...S04_TABLES,
+  ...S05_TABLES,
+  ...S06_TABLES,
+  ...S07_TABLES,
+].sort()
+
+const LATEST = '0008_s07_group_submissions'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -98,7 +111,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出四十七張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出四十九張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])

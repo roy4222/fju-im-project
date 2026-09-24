@@ -511,6 +511,30 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'valid_to', value: new Date() },
   },
+  // 票 21（S07）：繳交附件與主指導閱覽設定（兩張都不可變）。附件列每次連同一個新的正式版本一起插。
+  submission_files: {
+    insert: () => ({
+      sql: `with v as (
+              insert into submission_versions
+                (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+                 received_real_at, received_business_at, request_id, deadline_version_at_submit)
+              values (gen_random_uuid(), $1, 'user', gen_random_uuid(), 1, $2, '{}'::jsonb, $3, now(), now(), gen_random_uuid(), 1)
+              returning id
+            )
+            insert into submission_files (submission_version_id, file_id, field_key, checksum)
+            select id, $4, 'report', repeat('a', 64) from v`,
+      values: [itemId, schemaVersionId, userId, storedFileId],
+    }),
+    updatable: { column: 'checksum', value: 'b'.repeat(64) },
+  },
+  advisor_visibility_settings: {
+    insert: () => ({
+      sql: `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
+            values (gen_random_uuid(), $1, true, 1, $2, now())`,
+      values: [itemId, userId],
+    }),
+    updatable: { column: 'enabled', value: false },
+  },
 }
 
 beforeAll(async () => {

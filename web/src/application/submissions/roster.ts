@@ -11,6 +11,7 @@ import { phaseOf, statusOf, type ItemStatusView, type Phase } from '@/applicatio
  *   同一個人移出後又加回，有「目前的那一列」就只算目前那一類，不會同時出現在兩個清單。
  *
  * 分子＝目前名單裡已經正式送出過（有任何一個正式版本）的數量。已移出者即使交過也不算（8／10 移出一位已交者變 7／9）。
+ * 整組一份時收件者是組：同組五人誰送都算這一組一份（產品模組 05 §4「組別完成率以符合資格的組別為單位」）。
  * 每一列的「已繳／未繳／逾期未繳」用學生作業區**同一個** `statusOf` 算，所以學生首頁、作業區、名單頁的口徑一致。
  */
 
@@ -84,9 +85,13 @@ export function completionOf(window: ItemWindow, entries: readonly ReceiverFacts
       continue
     }
     required += 1
-    const status = receiverStatus(window, entry, businessNow)
-    if (status.submitted) done += 1
-    else if (status.overdue) overdue += 1
+    // 分子只看「有沒有正式版本」，不經過狀態字：狀態字在「尚未開放」時不說已繳（模擬鐘倒撥到開放前，
+    // 已經交過的人會被 `statusOf` 顯示成尚未開放），完成率不能因此把已交的人算成未繳（票 18 遺留，票 21 修）。
+    if (entry.latestVersionNo !== null) {
+      done += 1
+      continue
+    }
+    if (receiverStatus(window, entry, businessNow).overdue) overdue += 1
   }
   return {
     required,

@@ -52,7 +52,9 @@
     { "slice": "S05", "table": "submission_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變：每次正式送出一列；截止快照 worker 只讀" },
     { "slice": "S06", "table": "advisor_assignments", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "主指導有效區間列：只更新結束欄（解除、重派）" },
     { "slice": "S06", "table": "industry_opportunities", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "合作案頭列（票 20 才寫）；下架只改狀態，不刪列" },
-    { "slice": "S06", "table": "opportunity_links", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "連結有效區間列：只更新結束欄（解除、換案）" }
+    { "slice": "S06", "table": "opportunity_links", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "連結有效區間列：只更新結束欄（解除、換案）" },
+    { "slice": "S07", "table": "submission_files", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：每次正式送出帶的檔案與當時 checksum" },
+    { "slice": "S07", "table": "advisor_visibility_settings", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：主指導閱覽設定只插不改，最新一列是目前的設定" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

@@ -14,4 +14,14 @@ export type ReceiptView = {
   /** 回執編號＝送出時的請求編號；繳交歷史也列得到。 */
   receiptNo: string
   sentence: string
+  /** 整組一份時的組別代號（「代表全組」）；個人收件是 null。 */
+  groupCode: string | null
+  /** 這一版帶的附件：欄位、檔名、sha256 前 12 碼。 */
+  files: { fieldKey: string; name: string; checksumShort: string }[]
 }
+
+/** 上傳前向伺服器要的憑證（`requestUploadAction`）。 */
+export type UploadGrant = { ticket: string; fileId: string; maxBytes: number }
+
+/** 畫面上一個已附上的檔。 */
+export type FileMeta = { name: string; sizeBytes: number }

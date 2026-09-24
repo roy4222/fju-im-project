@@ -3,6 +3,7 @@ import type { FormField } from '@/application/items'
 import {
   answerFields,
   describeReceipt,
+  fileAnswers,
   isAnswerField,
   normalizeAnswers,
   phaseOf,
@@ -70,10 +71,24 @@ describe('存草稿的整理', () => {
     expect(normalizeAnswers(FIELDS, { name: 42 })).toMatchObject({ ok: false, issue: { key: 'name' } })
   })
 
-  it('檔案欄位在票 17 不收值；不是物件的輸入當成空的', () => {
-    expect(normalizeAnswers(FIELDS, { doc: 'C:\\fake.pdf' })).toEqual({ ok: true, value: {} })
+  it('檔案欄位只收一個檔案 ID（票 21）：路徑、檔名、陣列一律拒絕；空字串＝沒附；不是物件的輸入當成空的', () => {
+    const fileId = '0192d6a0-0000-7000-8000-00000000000A'
+    expect(normalizeAnswers(FIELDS, { doc: fileId })).toEqual({ ok: true, value: { doc: fileId.toLowerCase() } })
+    expect(normalizeAnswers(FIELDS, { doc: '' })).toEqual({ ok: true, value: {} })
+    expect(normalizeAnswers(FIELDS, { doc: 'C:\\fake.pdf' })).toMatchObject({ ok: false, issue: { key: 'doc' } })
+    expect(normalizeAnswers(FIELDS, { doc: [fileId] })).toMatchObject({ ok: false, issue: { key: 'doc' } })
     expect(normalizeAnswers(FIELDS, ['a'])).toEqual({ ok: true, value: {} })
     expect(normalizeAnswers(FIELDS, null)).toEqual({ ok: true, value: {} })
+  })
+
+  it('答案裡的檔案依欄位順序列出，非檔案欄位的值不算', () => {
+    const a = '0192d6a0-0000-7000-8000-00000000000a'
+    const fields: FormField[] = [
+      { key: 'report', type: 'file', label: '報告', required: true },
+      { key: 'name', type: 'text', label: '姓名', required: false },
+      { key: 'slides', type: 'file', label: '簡報', required: false },
+    ]
+    expect(fileAnswers(fields, { name: a, slides: a, report: '' })).toEqual([{ fieldKey: 'slides', fileId: a }])
   })
 })
 
@@ -103,10 +118,11 @@ describe('送出前檢查', () => {
     ).toEqual([])
   })
 
-  it('必填的檔案欄位擋下並說明上傳尚未開放（不假裝收到）', () => {
+  it('必填的檔案欄位沒附就擋下（票 21：上傳已開放，說清楚要上傳哪一欄）；附了就過', () => {
     const withFile: FormField[] = [{ key: 'report', type: 'file', label: '報告 PDF', required: true }]
     const [only] = submitIssues(withFile, {})
-    expect(only?.message).toMatch(/報告 PDF.*上傳功能尚未開放/)
+    expect(only).toMatchObject({ key: 'report', message: '請上傳「報告 PDF」' })
+    expect(submitIssues(withFile, { report: '0192d6a0-0000-7000-8000-00000000000a' })).toEqual([])
   })
 })
 

@@ -1,13 +1,15 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
+import type { DeclaredUpload, UploadTicket } from '@/application/ops'
 import type { Answers } from '@/application/submissions/submissions'
 import type { Result } from '@/shared/result'
 
 /**
- * 模組 05 對外的 port（模組實作設計 05 §5 的 `SubmissionCommand`／`SubmissionQuery`，票 17 個人收件的部分）。
+ * 模組 05 對外的 port（模組實作設計 05 §5 的 `SubmissionCommand`／`SubmissionQuery`；票 17 個人收件、票 21 組別收件與上傳）。
  *
- * 寫入的 port 自己做授權（在目前收件名單上、帳號正常、不是免填）；查詢的 port 只回「這個人自己的」，
- * 呼叫它的頁面另外守角色。名單管理、免填、重開、組別收件、上傳在後面的票（18、21、S08）。
+ * 寫入的 port 自己做授權（在目前收件名單上、帳號正常、不是免填；組別收件還要此刻是那一組的有效組員）；
+ * 收件者（本人或本組）一律由伺服器從登入者推出來，畫面不能指定。
+ * 查詢的 port 只回「這個人自己的（或自己這一組的）」，呼叫它的頁面另外守角色。名單管理、免填、重開在後面的票（S08）。
  */
 
 export type DraftReceipt = {
@@ -30,6 +32,10 @@ export type SubmitReceipt = {
   /** 照哪一版欄位填的。 */
   readonly schemaVersionNo: number
   readonly draftRevision: number
+  /** 整組一份時的組別代號（回執寫「代表全組」）；個人收件是 null。 */
+  readonly groupCode: string | null
+  /** 這一版帶的附件（欄位、檔名、送出當下的 sha256）。 */
+  readonly files: readonly { readonly fieldKey: string; readonly name: string; readonly checksum: string }[]
 }
 
 export interface SubmissionCommand {
@@ -43,6 +49,12 @@ export interface SubmissionCommand {
    * 同一個 `requestId` 重送（連點、斷線重試）只算一次，回第一次的回執。
    */
   submit(actor: ResolvedActor, itemId: string, draftRevision: number, requestId: string): Promise<Result<SubmitReceipt>>
+  /**
+   * 替某個檔案欄位要一張上傳憑證（票 21；模組 10 §5 `issueUploadTicket`）。先判這個人現在能不能填這份收件
+   * （名單、組員、開放、截止），再用那個欄位的規則（允許類型、大小上限）發 ticket。
+   * 上傳本身走 `/api/files/upload`；上傳完成的檔案要在下一次存草稿時才綁到草稿上。
+   */
+  requestUpload(actor: ResolvedActor, itemId: string, fieldKey: string, declared: DeclaredUpload): Promise<Result<UploadTicket>>
 }
 
 // ── 查詢 ──────────────────────────────────────────────────────────────────────
@@ -59,9 +71,31 @@ export type MyItemRow = {
   readonly hasDraft: boolean
   readonly latestVersionNo: number | null
   readonly latestReceivedAt: Date | null
+  /** 個人一份或整組一份。 */
+  readonly receiverUnit: 'individual' | 'group'
+  /** 整組一份時是自己這一組的代號。 */
+  readonly groupCode: string | null
 }
 
 export type SubmissionFile = { readonly fileId: string; readonly name: string; readonly sizeBytes: number }
+
+/** 繳交裡的一個附件（草稿或正式版本）。 */
+export type AnswerFile = {
+  readonly fieldKey: string
+  readonly fileId: string
+  readonly name: string
+  readonly sizeBytes: number
+  /** sha256（hex）；正式版本是送出當下抄下來的那一個。 */
+  readonly checksum: string
+}
+
+/** 整組一份時畫面上方的組別資訊（原型 `groupinfo`）。 */
+export type GroupSummary = {
+  readonly groupId: string
+  readonly code: string
+  readonly members: readonly { readonly userId: string; readonly name: string; readonly isLeader: boolean }[]
+  readonly advisorName: string | null
+}
 
 export type VersionSummary = {
   readonly versionNo: number
@@ -86,10 +120,18 @@ export type MyItemDetail = {
   readonly schemaVersionNo: number
   readonly fields: readonly FormField[]
   readonly exempt: boolean
+  readonly receiverUnit: 'individual' | 'group'
+  /** 整組一份：自己這一組；個人一份是 null。 */
+  readonly group: GroupSummary | null
+  /** 個人回答開放主指導閱覽（填寫前要明示，產品模組 05 SUB-24）。 */
+  readonly advisorCanView: boolean
   readonly draft: {
     readonly answers: Answers
     readonly revision: number
     readonly updatedAt: Date
+    /** 最後存的人（組別共用草稿會是任何一位組員）。 */
+    readonly updatedByName: string | null
+    readonly files: readonly AnswerFile[]
   } | null
   /** 本人每一次正式送出，新的在前。 */
   readonly versions: readonly VersionSummary[]
@@ -100,14 +142,15 @@ export type MyVersionDetail = VersionSummary & {
   /** 送出當時的欄位（那一版的欄位結構）。 */
   readonly fields: readonly FormField[]
   readonly answers: Answers
+  readonly files: readonly AnswerFile[]
 }
 
 export interface SubmissionQuery {
-  /** 作業區：自己在目前收件名單上的個人收件（發布中），依截止排序。 */
+  /** 作業區：自己（個人收件）或自己此刻所在的組（組別收件）在目前收件名單上的收件（發布中），依截止排序。 */
   myItems(userId: string): Promise<MyItemRow[]>
-  /** 內容頁：不在目前名單上（或不是個人收件、沒發布）回 null。 */
+  /** 內容頁：不在目前名單上（或不是這一組的有效組員、沒發布）回 null。 */
   myItem(userId: string, itemId: string): Promise<MyItemDetail | null>
-  /** 某一次正式送出的內容（唯讀）。只回自己的。 */
+  /** 某一次正式送出的內容（唯讀）。只回自己的（組別收件：自己此刻所在那一組的）。 */
   myVersion(userId: string, itemId: string, versionNo: number): Promise<MyVersionDetail | null>
 }
 
