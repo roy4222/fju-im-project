@@ -36,7 +36,9 @@ doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_P
 - 每跑一次只註冊**一個**帳號（註冊限速每 IP 每小時 30 次），管理員只登入一次（登入限速同 IP 同帳號 10 分鐘 10 次）。
   一小時內別連跑二、三十次。
 
-這個資料夾放**給 Codex 看的驗收清單**。每一站做完，照下面的格式寫一份 `station-<N>-<主題>.md`，
+## Codex 白話清單（ops/codex-e2e.sh）
+
+這個資料夾也放**給 Codex 看的驗收清單**。每一站做完，照下面的格式寫一份 `station-<N>-<主題>.md`，
 在 Mac 上跑：
 
 ```bash
