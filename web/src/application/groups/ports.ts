@@ -1,5 +1,18 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type {
+  AdvisorBatchPreview,
+  AdvisorBatchReceipt,
+  AdvisorChangeReceipt,
+  AdvisorInfo,
+  AdvisorUploadTicket,
+  AssignAdvisorInput,
+  ClaimInput,
+  ExecuteBatchInput,
+  GradingAssignmentSummary,
+  TeacherOption,
+  UnassignAdvisorInput,
+} from '@/application/groups/advisors'
+import type {
   AddMemberInput,
   ChangeLeaderInput,
   LeaderChangeReceipt,
@@ -73,6 +86,46 @@ export interface GroupCommand {
 }
 
 /**
+ * 主指導的指派、認領與重派（票 19；模組實作設計 03 §5 `GroupCommand` 的 `assignAdvisor`、`reassignAdvisor`、
+ * `unassignAdvisor`、`claimGroup`、`batchAssign`）。
+ *
+ * 共同規則：每組同時只有一位有效主指導（資料庫部分唯一）；每次變更都把組別版本加一（批次預覽、指派對話框
+ * 帶這個版本，別人先改過就 `CONFLICT`）；屆別封存 `COHORT_ARCHIVED`；已解散 `GROUP_DISSOLVED`。
+ * 首次指派或認領通知全組與新老師；重派另通知原老師；解除通知全組與原老師。沒有實際變更不發通知。
+ */
+export interface AdvisorCommand {
+  /**
+   * 老師認領「尚未指派的產學組」。一般組 `FORBIDDEN`（由系辦指派）；已經有主指導（含兩位同時搶、晚到的那位）
+   * `ALREADY_CLAIMED`，訊息點名是誰先認領。
+   */
+  claim(actor: ResolvedActor, input: ClaimInput, requestId: string): Promise<Result<AdvisorChangeReceipt>>
+  /** 管理員逐組指派；組別已經有別的主指導就是重派（結束舊的、插新的）。理由必填；同一位老師 `VALIDATION_FAILED`。 */
+  assign(actor: ResolvedActor, input: AssignAdvisorInput, requestId: string): Promise<Result<AdvisorChangeReceipt>>
+  /** 管理員解除主指導（理由必填）。 */
+  unassign(actor: ResolvedActor, input: UnassignAdvisorInput, requestId: string): Promise<Result<AdvisorChangeReceipt>>
+  /** 批次指派：拿一張只能傳 CSV 的上傳 ticket（共用檔案能力，同名單匯入）。 */
+  startBatchUpload(
+    actor: ResolvedActor,
+    input: { fileName: string; declaredMime: string; declaredSize: number },
+  ): Promise<Result<AdvisorUploadTicket>>
+  /** 讀伺服器上的原檔，依所選屆別分成六類；不寫任何資料。 */
+  previewBatch(actor: ResolvedActor, input: { fileId: string; cohortId: string }): Promise<Result<AdvisorBatchPreview>>
+  /**
+   * 重新分析同一份原檔後逐列執行（每列一個交易）。有錯誤列、沒填理由、有重派卻沒勾確認就整批不做；
+   * 預覽之後被改過的組別（版本不符）那一列 `CONFLICT`、其他列照做。同一個請求編號重送不會重複指派或通知。
+   */
+  executeBatch(actor: ResolvedActor, input: ExecuteBatchInput, requestId: string): Promise<Result<AdvisorBatchReceipt>>
+}
+
+/**
+ * 原老師在本組的評分指派（模組 06 `listAssignmentsForTeacher`；重派對話框要先列）。
+ * 評分模組還沒做：composition 注入的實作永遠回空清單，等評分的票接上。
+ */
+export interface AdvisorGradingLookup {
+  assignmentsFor(groupId: string, teacherUserId: string): Promise<readonly GradingAssignmentSummary[]>
+}
+
+/**
  * `due_work(kind='proposal_expiry')` 的處理器（模組 08 §6 到期迴圈 → 03）。
  *
  * 由背景工作（票 12）在工作到期時呼叫；以 worker 身分終止，不經帳本（沒有使用者）。
@@ -95,13 +148,16 @@ export type GroupMember = {
  * `reason` 只在管理員的查詢裡帶，學生的查詢一律 null（和作廢理由同一政策）。
  */
 export type GroupHistoryEntry = {
-  readonly kind: 'member_added' | 'member_removed' | 'leader_changed'
+  /** 票 19 加兩種：主指導指派（首次、認領或重派）與解除。 */
+  readonly kind: 'member_added' | 'member_removed' | 'leader_changed' | 'advisor_assigned' | 'advisor_removed'
   /** 業務時間。 */
   readonly at: Date
   /** 加入／移出的人，或新組長。 */
   readonly userName: string
   /** 換組長時的前任組長。 */
   readonly previousLeaderName: string | null
+  /** 重派時的原主指導（首次指派、解除是 null；解除的原老師放在 `userName`）。 */
+  readonly previousAdvisorName: string | null
   /** 操作的管理員；學生的查詢一律 null。 */
   readonly byName: string | null
   readonly reason: string | null
@@ -116,6 +172,8 @@ export type GroupSummary = {
   /** 樂觀鎖版本：管理員調整組員、換組長時帶回來。 */
   readonly revision: number
   readonly members: readonly GroupMember[]
+  /** 目前的主指導（票 19）；還沒指派是 null。 */
+  readonly advisor: AdvisorInfo | null
   readonly history: readonly GroupHistoryEntry[]
 }
 
@@ -181,4 +239,13 @@ export interface GroupQuery {
   teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]>
   /** 管理員分組總覽（呼叫端守門）。 */
   overview(cohortId: string): Promise<CohortGroupingOverview>
+  /**
+   * 一屆已成立的組別、成員與主指導（老師的「分組」頁；所有老師都可查看一般與產學組別，呼叫端守門）。
+   * 歷程不帶理由與操作者。
+   */
+  cohortGroups(cohortId: string): Promise<GroupSummary[]>
+  /** 管理員指派對話框的老師選項：帳號正常、目前是老師。 */
+  teacherOptions(): Promise<TeacherOption[]>
+  /** 這位老師目前指導幾組（未封存的屆別）。 */
+  advisedGroupCount(teacherUserId: string): Promise<number>
 }

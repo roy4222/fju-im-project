@@ -90,8 +90,8 @@ export const EVENT_CATALOG = {
   },
   /**
    * 管理員加入或移出組員（票 14；產品模組 08 §4「成員加入／移出→異動前後成員的聯集與目前主指導」）。
-   * 收件人＝異動**後**的全體成員（加入時含新成員）；被移出的人改收下面的 `group.member_removed`，
-   * 兩則合起來就是前後聯集。主指導在 S06 才有，到時候補進收件人。payload 帶 `title`、組別與異動的人，**不帶理由**。
+   * 收件人＝異動**後**的全體成員（加入時含新成員）＋目前主指導（票 19 補上）；被移出的人改收下面的
+   * `group.member_removed`，兩則合起來就是前後聯集。payload 帶 `title`、組別與異動的人，**不帶理由**。
    *
    * 這也是**重簽的掛點**：成員集合改變時，模組 07（S11）的 `supersedeForParticipantChange` 要讓目前簽核版本失效。
    * 簽核還沒做，所以現在只有通知消費者；只換組長不發這個事件（不重簽）。
@@ -109,6 +109,27 @@ export const EVENT_CATALOG = {
   'group.leader_changed': {
     consumers: ['notifications'],
     notification: { kind: 'group', defaultTitle: '你的組別換了組長' },
+  },
+  /**
+   * 主指導首次指派、認領或重派後的新老師（票 19；產品模組 08 §4「指導指派／認領→該組全員與新老師」）。
+   * 收件人＝組別目前全體成員＋新主指導。重派時原老師另收下面的 `advisor.replaced`。payload 不帶理由。
+   */
+  'advisor.assigned': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '組別的指導老師有更新' },
+  },
+  /** 重派時的原主指導（票 19；產品 08 §4「重派另通知原老師」）：只說他不再指導哪一組，不帶理由。 */
+  'advisor.replaced': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你不再是這組的指導老師' },
+  },
+  /**
+   * 管理員解除主指導（票 19）。產品 08 矩陣沒有這一列，比照重派：通知全組與原老師（組別頁會變成「尚未指派」，
+   * 不通知會讓人以為資料壞了）。payload 不帶理由。
+   */
+  'advisor.unassigned': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '組別目前沒有指導老師' },
   },
   /**
    * 新收件發布（票 15；產品模組 08 §4「新收件發布→收件名單成員：個人收件通知本人，組別收件展開通知該組有效成員」）。

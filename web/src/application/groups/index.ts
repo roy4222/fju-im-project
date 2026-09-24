@@ -1,5 +1,6 @@
 /**
- * 模組 03 分組、指導與產學的公開入口（母 spec §4.3）。票 13：找組員、提案與成組；票 14：管理員調整組員與換組長。
+ * 模組 03 分組、指導與產學的公開入口（母 spec §4.3）。票 13：找組員、提案與成組；票 14：管理員調整組員與換組長；
+ * 票 19：指導老師指派、認領與重派。
  *
  * 跨模組只能從這裡引用，而且只能帶型別；執行期的實作由 composition 注入。
  */
@@ -53,6 +54,50 @@ export {
   normalizeReason,
 } from '@/application/groups/members'
 export type {
+  AdvisorBatchAnalysis,
+  AdvisorBatchCounts,
+  AdvisorBatchKind,
+  AdvisorBatchOutcome,
+  AdvisorBatchPreview,
+  AdvisorBatchReceipt,
+  AdvisorBatchRow,
+  AdvisorBatchRowResult,
+  AdvisorChangeKind,
+  AdvisorChangeReceipt,
+  AdvisorCsvFormatError,
+  AdvisorInfo,
+  AdvisorSource,
+  AdvisorUploadTicket,
+  AssignAdvisorInput,
+  BatchGroupFact,
+  BatchStep,
+  BatchLookup,
+  BatchTeacherFact,
+  ClaimInput,
+  ExecuteBatchInput,
+  GradingAssignmentSummary,
+  TeacherOption,
+  UnassignAdvisorInput,
+} from '@/application/groups/advisors'
+export {
+  ADVISOR_BATCH_KIND_LABEL,
+  ADVISOR_BATCH_KINDS,
+  ADVISOR_BATCH_OUTCOME_LABEL,
+  ADVISOR_CSV_COLUMNS,
+  ADVISOR_CSV_MAX_BYTES,
+  ADVISOR_SOURCE_LABEL,
+  analyzeAdvisorCsv,
+  describeAdvisorBatchReceipt,
+  describeAdvisorChangeReceipt,
+  isBatchError,
+  normalizeEmail,
+  normalizeGroupCode,
+  planBatch,
+} from '@/application/groups/advisors'
+export { describeGroupHistory } from '@/application/groups/history'
+export type {
+  AdvisorCommand,
+  AdvisorGradingLookup,
   CohortGroupingOverview,
   GroupHistoryEntry,
   GroupCommand,

@@ -16,7 +16,11 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/affairs', label: '專題事務' },
 ]
 
-export const TEACHER_NAV: readonly NavItem[] = [{ href: '/dashboard/teacher', label: '首頁' }]
+export const TEACHER_NAV: readonly NavItem[] = [
+  { href: '/dashboard/teacher', label: '首頁' },
+  // 分組（票 19）：產學組認領與全部組別。
+  { href: '/dashboard/teacher/groups', label: '分組' },
+]
 
 export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student', label: '首頁' },
@@ -44,6 +48,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
   { path: '/dashboard/teacher', role: 'teacher' },
+  { path: '/dashboard/teacher/groups', role: 'teacher' },
   { path: '/dashboard/student', role: 'student' },
   { path: '/dashboard/student/groups', role: 'student' },
   // 作業區與內容頁（票 17）；`/dashboard/student/affairs/<id>` 同一個守衛。
