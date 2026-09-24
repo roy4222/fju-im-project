@@ -177,6 +177,8 @@ export default tseslint.config(
       '**/*.integration.test.ts',
       'test/**/*.ts',
       'e2e/**/*.ts',
+      // 站驗收（對已部署的測試站跑，不進 CI）：跟 e2e 一樣是測試程式。
+      'acceptance/**/*.ts',
       'eslint-rules/**/*.mjs',
       'scripts/**/*.mjs',
       // schema 產生器的設定入口：它的工作就是把實例建出來給 CLI 讀（見該檔說明）。

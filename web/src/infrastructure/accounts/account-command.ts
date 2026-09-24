@@ -3,12 +3,22 @@ import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
   accountAdminDenied,
+  adminGrantProblem,
+  isOrphan,
+  normalizeOrphanRepair,
+  normalizeRoleChange,
   normalizeTeacherAccountInput,
   normalizeTemporaryPasswordRequest,
+  remainingEffectiveAdmins,
   type AccountCommand,
   type AccountLookup,
+  type AccountStatus,
+  type OrphanRepairInput,
+  type OrphanRepairReceipt,
   type ResolvedActor,
   type Role,
+  type RoleChangeInput,
+  type RoleChangeReceipt,
   type TeacherAccountInput,
   type TeacherAccountReceipt,
   type TeacherCreatedWithSecret,
@@ -22,6 +32,7 @@ import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { internalAuth } from '@/infrastructure/auth/wrapper'
 import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-password'
+import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 
 /**
  * 老師帳號與臨時密碼（工程模組 01 §3「臨時密碼」「老師建立／預授權」、§5 `AccountCommand`；
@@ -41,7 +52,8 @@ import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-p
  * - 核發臨時密碼：**先 commit**（帳本、`must_change_password=true`、稽核），**再**呼叫
  *   `setUserPassword` 與 `revokeUserSessions`。反過來排的話，套件那一步成功、我們 commit 失敗，
  *   就會留下一組「有效、沒有強制改密、沒有稽核」的臨時密碼。現在的排法萬一套件失敗，
- *   只是「舊密碼還能用＋下次登入要改密碼」，再補一筆失敗稽核，系辦重新核發即可。
+ *   只是「舊密碼還能用＋下次登入要改密碼」，再補一筆失敗稽核、把帳本標成 failed（同一個請求
+ *   重送不會回「已核發」，票 10b），系辦重新核發即可。
  *
  * **秘密只在回應本體**：帳本的 receipt、fingerprint、稽核的 payload 都不含臨時密碼；
  * 同一個請求重送（帳本重播）只回「已核發」的回執，密碼無法取回（契約 03 §3）。
@@ -93,6 +105,8 @@ function denied(code: ErrorCode): Err {
 }
 
 const EMAIL_TAKEN_MESSAGE = '這個 Email 已經有帳號了，不能再新增一個。'
+
+const TEMP_PASSWORD_FAILED_MESSAGE = '密碼沒有設定成功，這個人的舊密碼仍然有效。請關閉後重新核發一次。'
 
 function isEmailTaken(error: unknown): boolean {
   const e = error as { body?: { code?: string }; code?: string }
@@ -304,6 +318,7 @@ export class PgAccountCommand implements AccountCommand {
 
     const tx = await this.#deps.db().connect()
     let receipt: TemporaryPasswordReceipt
+    let recordId: string
     try {
       await tx.query('begin')
       const begun = await this.#deps.ledger.begin(
@@ -323,9 +338,13 @@ export class PgAccountCommand implements AccountCommand {
       }
       if (begun.outcome === 'replay') {
         await tx.query('commit')
+        // 上次 commit 之後 `setUserPassword` 失敗、帳本已標 failed（票 10b）：不能回「已核發」，
+        // 那組密碼根本沒生效。請系辦重新核發（對話框會換一個新的請求編號）。
+        if (begun.state === 'failed') return err('INTERNAL', TEMP_PASSWORD_FAILED_MESSAGE)
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這組臨時密碼已經核發過了，回執已過期。')
         return ok(begun.receipt as TemporaryPasswordReceipt, meta(now, input.requestId))
       }
+      recordId = begun.recordId
 
       // `for no key update`：之後套件補建 credential 帳號時，`accounts` 的外鍵檢查要對這一列拿
       // key share 鎖；用 `for update` 的話兩邊會互等（雖然我們先 commit 才呼叫，仍不留這個坑）。
@@ -374,8 +393,10 @@ export class PgAccountCommand implements AccountCommand {
       await this.#auth.setUserPassword(authHeaders, { userId: input.userId, newPassword: password })
     } catch (error) {
       console.error('[account] 臨時密碼寫入失敗（稽核已記核發，舊密碼仍有效、下次登入要改密碼）', errorName(error))
-      await this.#appendFailure(actor.userId, input.userId, now).catch(() => undefined)
-      return err('INTERNAL', '密碼沒有設定成功，這個人的舊密碼仍然有效。請關閉後重新核發一次。')
+      await this.#recordFailure(actor.userId, input.userId, recordId, now).catch((failure: unknown) =>
+        console.error('[account] 臨時密碼失敗的稽核／帳本標記寫入失敗', errorName(failure)),
+      )
+      return err('INTERNAL', TEMP_PASSWORD_FAILED_MESSAGE)
     }
     try {
       await this.#auth.revokeUserSessions(authHeaders, { userId: input.userId })
@@ -386,11 +407,260 @@ export class PgAccountCommand implements AccountCommand {
     return secretOnce(password, now, input.requestId, actor.userId)
   }
 
-  /** 套件那一步失敗時補一筆稽核，免得稽核只看得到「已核發」。 */
-  async #appendFailure(actorUserId: string, userId: string, now: Date): Promise<void> {
+  // ── 管理員角色（票 10b） ────────────────────────────────────────────────
+
+  async grantRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>> {
+    return this.#changeAdminRole(actor, input, 'grant')
+  }
+
+  async revokeRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>> {
+    return this.#changeAdminRole(actor, input, 'revoke')
+  }
+
+  /**
+   * 授予／取消管理員。
+   *
+   * 一個交易裡：鎖住全部有效的管理員角色列（`lockAdmins`）→ 確認操作者此刻仍是有效管理員 →
+   * 鎖目標帳號 → 寫 `role_assignments` 與 `users.role` → 稽核 → 帳本。
+   *
+   * **為什麼要先鎖全部管理員列**：兩位管理員同時互相取消時，各自只看目標的話兩邊都會成功，
+   * 系統就一位管理員都不剩。先鎖同一組列，後到的那一個會等前一個 commit，醒來時重讀
+   * （READ COMMITTED 的 `for update` 會重新評估條件），就看得到自己已經不是管理員，然後被擋下。
+   *
+   * 不撤對方的 session：`ActorResolver` 每次請求重讀 `role_assignments`，而 cookie 快取關著
+   * （`auth-instance.ts`），套件每次也是重讀 `users.role`——取消的下一個請求就沒有管理員權限了。
+   */
+  async #changeAdminRole(
+    actor: ResolvedActor,
+    input: RoleChangeInput,
+    action: 'grant' | 'revoke',
+  ): Promise<Result<RoleChangeReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    const change = normalizeRoleChange(input)
+    if (!change.ok) return change
+    if (input.userId === actor.userId) {
+      return err(
+        'FORBIDDEN',
+        action === 'grant' ? '不能替自己設定角色。' : '不能取消自己的管理員角色；請另一位管理員操作。',
+      )
+    }
+
+    const now = this.#clock.now()
+    const operationKind = action === 'grant' ? 'account.grant_role' : 'account.revoke_role'
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, role: change.value.role, reason: change.value.reason }))
+
     const tx = await this.#deps.db().connect()
     try {
       await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind, requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
+        return ok(begun.receipt as RoleChangeReceipt, meta(now, input.requestId))
+      }
+
+      const admins = await lockAdmins(tx)
+      if (!isEffectiveAdmin(admins, actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
+      const target = await lockRoleTarget(tx, input.userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+
+      if (action === 'grant') {
+        const problem = adminGrantProblem(target)
+        if (problem) {
+          await tx.query('rollback')
+          return problem
+        }
+        await tx.query(
+          `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+           values ($1, $2, 'admin', $3, $4, $5)`,
+          [uuidv7(), target.userId, actor.userId, now, change.value.reason],
+        )
+        // Better Auth admin plugin 的套件欄：套件自己的管理員能力（停用撤 session、發臨時密碼、新增老師）看這一欄。
+        await tx.query(`update users set role = 'admin', updated_at = $2 where id = $1`, [target.userId, now])
+      } else {
+        if (!target.roles.includes('admin')) {
+          await tx.query('rollback')
+          return err('CONFLICT', '這個帳號已經不是管理員了，請重新整理頁面。')
+        }
+        if (remainingEffectiveAdmins(admins, target.userId) < 1) {
+          await tx.query('rollback')
+          return err('CONFLICT', '這是最後一位管理員，不能取消；請先把另一個帳號設為管理員。')
+        }
+        await tx.query(
+          `update role_assignments
+              set revoked_by_user_id = $2, revoked_real_at = $3, reason = $4
+            where user_id = $1 and role = 'admin' and revoked_real_at is null`,
+          [target.userId, actor.userId, now, change.value.reason],
+        )
+        // 套件欄改回預設值（跟新增老師時套件給的一樣）。
+        await tx.query(`update users set role = 'user', updated_at = $2 where id = $1`, [target.userId, now])
+      }
+
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: operationKind,
+        targetType: 'user',
+        targetId: target.userId,
+        scope: 'global',
+        reason: change.value.reason,
+        realAt: now,
+        businessAt: now,
+        payload: { role: change.value.role },
+      })
+      const receipt: RoleChangeReceipt = {
+        userId: target.userId,
+        name: target.name,
+        role: change.value.role,
+        granted: action === 'grant',
+        changedAt: now.toISOString(),
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
+      await tx.query('commit')
+      return ok(receipt, meta(now, input.requestId))
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  // ── 孤兒帳號（票 10b） ──────────────────────────────────────────────────
+
+  /**
+   * 孤兒帳號補建角色。
+   *
+   * 等於把「新增老師」交易的後半段補做完（`createTeacher` 檔頭講的那種套件成功、我方失敗）：
+   * 待審的一併開通（狀態事件）、補角色、稽核、帳本。補成管理員時跟 `grantRole` 一樣先鎖管理員列、
+   * 同時寫 `users.role`。
+   *
+   * 不發密碼：系辦直接新增失敗留下的帳號有一組沒人知道的密碼，要用的話接著按「發臨時密碼」；
+   * 預授權或用 Google 註冊的，本人用 Google 登入即可。
+   */
+  async repairOrphan(actor: ResolvedActor, input: OrphanRepairInput): Promise<Result<OrphanRepairReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    const repair = normalizeOrphanRepair(input)
+    if (!repair.ok) return repair
+    if (input.userId === actor.userId) return err('FORBIDDEN', '不能替自己設定角色。')
+
+    const now = this.#clock.now()
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, role: repair.value.role, reason: repair.value.reason }))
+
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind: 'account.repair_orphan', requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
+        return ok(begun.receipt as OrphanRepairReceipt, meta(now, input.requestId))
+      }
+
+      if (repair.value.role === 'admin' && !isEffectiveAdmin(await lockAdmins(tx), actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
+      const target = await lockRoleTarget(tx, input.userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+      // 鎖住之後重新判一次：本人剛好送出了申請、或別的管理員剛補好，就不是孤兒了。
+      if (!isOrphan(target)) {
+        await tx.query('rollback')
+        return err('CONFLICT', '這個帳號已經不是孤兒帳號了（有角色、申請或個人資料），請重新整理頁面。')
+      }
+
+      const activated = target.status === 'pending'
+      if (activated) {
+        await tx.query(`update users set status = 'active', updated_at = $2 where id = $1`, [target.userId, now])
+        await tx.query(
+          `insert into user_status_events
+             (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
+           values ($1, $2, 'pending', 'active', $3, 'user', $4, $5)`,
+          [uuidv7(), target.userId, `孤兒帳號補建角色：${repair.value.reason}`, actor.userId, now],
+        )
+      }
+      await tx.query(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [uuidv7(), target.userId, repair.value.role, actor.userId, now, repair.value.reason],
+      )
+      if (repair.value.role === 'admin') {
+        await tx.query(`update users set role = 'admin', updated_at = $2 where id = $1`, [target.userId, now])
+      }
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.repair_orphan',
+        targetType: 'user',
+        targetId: target.userId,
+        scope: 'global',
+        reason: repair.value.reason,
+        realAt: now,
+        businessAt: now,
+        payload: { role: repair.value.role, activated },
+      })
+      const receipt: OrphanRepairReceipt = {
+        userId: target.userId,
+        name: target.name,
+        role: repair.value.role,
+        activated,
+        changedAt: now.toISOString(),
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
+      await tx.query('commit')
+      return ok(receipt, meta(now, input.requestId))
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  /**
+   * 套件那一步失敗時補一筆稽核，並把帳本那一列標成 failed（票 10b），免得稽核與重播只看得到「已核發」。
+   * 兩件事同一個交易：要嘛都寫進去，要嘛都沒有。
+   */
+  async #recordFailure(actorUserId: string, userId: string, recordId: string, now: Date): Promise<void> {
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      await this.#deps.ledger.markFailed(tx, recordId)
       await this.#deps.audit.append(tx, {
         actorKind: 'user',
         actorUserId,
@@ -410,6 +680,47 @@ export class PgAccountCommand implements AccountCommand {
     } finally {
       tx.release()
     }
+  }
+}
+
+// ── 鎖 ──────────────────────────────────────────────────────────────────────
+
+type RoleTargetRow = {
+  readonly userId: string
+  readonly name: string
+  readonly status: AccountStatus
+  readonly roles: Role[]
+  readonly activeRoles: number
+  readonly applications: number
+  readonly hasProfile: boolean
+}
+
+/** 鎖目標帳號並讀出判斷授予與孤兒需要的事實。`for no key update`：跟發臨時密碼同一個理由。 */
+async function lockRoleTarget(tx: PoolClient, userId: string): Promise<RoleTargetRow | null> {
+  const locked = await tx.query<{ id: string; name: string; status: AccountStatus; deidentified_at: Date | null }>(
+    'select id, name, status, deidentified_at from users where id = $1 for no key update',
+    [userId],
+  )
+  const row = locked.rows[0]
+  if (!row) return null
+  const facts = await tx.query<{ roles: Role[] | null; applications: number; display_name: string | null; has_profile: boolean }>(
+    `select (select array_agg(r.role order by r.role) from role_assignments r
+              where r.user_id = $1 and r.revoked_real_at is null) as roles,
+            (select count(*)::int from registration_applications a where a.user_id = $1) as applications,
+            (select p.display_name from user_profiles p where p.user_id = $1) as display_name,
+            exists (select 1 from user_profiles p where p.user_id = $1) as has_profile`,
+    [userId],
+  )
+  const f = facts.rows[0]!
+  const roles = f.roles ?? []
+  return {
+    userId: row.id,
+    name: f.display_name ?? row.name,
+    status: row.deidentified_at ? 'deidentified' : row.status,
+    roles,
+    activeRoles: roles.length,
+    applications: f.applications,
+    hasProfile: f.has_profile,
   }
 }
 
