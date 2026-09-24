@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { CompletionPanel, FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from '@/app/dashboard/admin/affairs/[id]/roster-views'
+import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from '@/app/dashboard/admin/affairs/[id]/roster-views'
+import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
+import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { RosterEntry } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
@@ -30,6 +33,7 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 只有系辦管理員看得到：頁面守角色，查詢本身再判一次（老師、學生拿到的是 null → 404）。
  *   免填、移出、加回、個別重開、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
  * - 整組一份（票 21）：名單三類列組別；完成率以組為單位（同組誰送都算一份）；點一組看它每一次正式送出與附件。
+ * - 個人一份（票 22）：右欄多一塊「主指導閱覽」開關（SUB-24）；已經有人作答就不能開。
  */
 export default async function RosterPage({
   params,
@@ -102,13 +106,33 @@ export default async function RosterPage({
     )
   }
 
+  // 主指導閱覽（個人一份才有）：發布前就要能開好，所以「還沒發布」的畫面也放。
+  const visibility = individual ? await rosterQuery.advisorVisibility(actor, item.itemId) : null
+  const visibilityPanel = visibility ? (
+    <VisibilityPanel
+      itemId={item.itemId}
+      enabled={visibility.current?.enabled ?? false}
+      effectiveFromVersionNo={visibility.current?.effectiveFromVersionNo ?? null}
+      changedText={
+        visibility.current
+          ? `${visibility.current.setByName} 於 ${formatTaipeiMinute(visibility.current.setAt)} ${visibility.current.enabled ? '開放' : '關閉'}`
+          : null
+      }
+      hasResponses={visibility.hasResponses}
+      requestId={randomUUID()}
+    />
+  ) : null
+
   if (item.status === 'draft' && entries.length === 0) {
     return shell(
-      <EmptyState
-        title="還沒發布，還沒有收件名單"
-        description="發布時才依對象建立收件名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
-        action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
-      />,
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <EmptyState
+          title="還沒發布，還沒有收件名單"
+          description="發布時才依對象建立收件名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
+          action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
+        />
+        {visibilityPanel}
+      </div>,
     )
   }
 
@@ -121,6 +145,7 @@ export default async function RosterPage({
       <RosterList base={base} list={list} grouped={grouped} window={item} businessNow={businessNow} individual={individual} />
       <div className="flex flex-col gap-5">
         <CompletionPanel completion={completion} individual={individual} />
+        {visibilityPanel}
         <FieldsPanel fields={item.fields} schemaVersionNo={item.schemaVersionNo} />
       </div>
     </div>,
