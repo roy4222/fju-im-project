@@ -57,6 +57,8 @@ export type DirectoryFilter = {
   readonly dir: SortDirection
   /** 從 1 起算。 */
   readonly page: number
+  /** 只看孤兒帳號（票 10b；定義見 `roles.ts` 的 `isOrphan`）。網址上是 `?orphan=1`。 */
+  readonly orphan: boolean
 }
 
 export const DEFAULT_DIRECTORY_FILTER: DirectoryFilter = {
@@ -67,6 +69,7 @@ export const DEFAULT_DIRECTORY_FILTER: DirectoryFilter = {
   sort: 'createdAt',
   dir: 'desc',
   page: 1,
+  orphan: false,
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -102,6 +105,7 @@ export function normalizeDirectoryFilter(raw: Record<string, unknown>): Director
     sort: oneOf(first(raw.sort), DIRECTORY_SORTS) ?? DEFAULT_DIRECTORY_FILTER.sort,
     dir: oneOf(first(raw.dir), ['asc', 'desc'] as const) ?? DEFAULT_DIRECTORY_FILTER.dir,
     page: Number.isInteger(page) && page >= 1 && page <= 10_000 ? page : 1,
+    orphan: first(raw.orphan) === '1',
   }
 }
 
@@ -113,6 +117,7 @@ export function directoryQueryString(filter: DirectoryFilter, overrides: Partial
   if (f.role) params.set('role', f.role)
   if (f.cohortId) params.set('cohort', f.cohortId)
   if (f.status) params.set('status', f.status)
+  if (f.orphan) params.set('orphan', '1')
   if (f.sort !== DEFAULT_DIRECTORY_FILTER.sort || f.dir !== DEFAULT_DIRECTORY_FILTER.dir) {
     params.set('sort', f.sort)
     params.set('dir', f.dir)
@@ -151,6 +156,11 @@ export type AccountRow = {
   /** 待審的人最新一筆申請的狀態（被退回的人仍是待審帳號）。 */
   readonly applicationState: 'pending' | 'rejected' | null
   readonly createdAt: string
+  /**
+   * 孤兒帳號（票 10b）：登入身分在，但我方沒有角色、申請、個人資料（定義見 `roles.ts` 的 `isOrphan`）。
+   * 列表上可以補建角色或停用。
+   */
+  readonly orphan: boolean
 }
 
 export type CohortFilterOption = { readonly id: string; readonly code: string; readonly name: string }
@@ -173,6 +183,8 @@ export type AccountSummary = {
   readonly disabled: number
   /** 已核准且有學生角色的人。 */
   readonly activeStudents: number
+  /** 孤兒帳號（票 10b）。 */
+  readonly orphans: number
 }
 
 // ── 匯出 ────────────────────────────────────────────────────────────────────

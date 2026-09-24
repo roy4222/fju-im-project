@@ -1,0 +1,37 @@
+import 'server-only'
+import type { PoolClient } from 'pg'
+
+/**
+ * 「系統至少留一位有效管理員」的鎖（票 10b）。
+ *
+ * 會讓管理員變少的動作——取消管理員（`account-command.ts`）、停用帳號（`account-directory-command.ts`）——
+ * 以及補建管理員，都在交易一開頭先經過 `lockAdmins`，**再**鎖目標帳號。固定這個順序，兩條路互相也不會死結。
+ *
+ * 為什麼要鎖整組：兩位管理員同時互相取消（或互相停用）時，各自只看目標的話兩邊都會成功，系統就一位
+ * 管理員都不剩。先鎖同一組列，後到的那一個會等前一個 commit，醒來時重讀（READ COMMITTED 的
+ * `for update` 會重新評估條件），就看得到自己已經不是有效管理員，然後被擋下。
+ * 管理員就幾個人，鎖整組的成本可以忽略。
+ */
+
+export type LockedAdmin = { readonly userId: string; readonly effective: boolean }
+
+/**
+ * 鎖住**全部**有效的管理員角色列（依 id 排序），順便算出每一位是不是有效管理員
+ * （帳號 active、沒有去識別化；停用的管理員登不進來，不算）。
+ */
+export async function lockAdmins(tx: PoolClient): Promise<LockedAdmin[]> {
+  const rows = await tx.query<{ user_id: string; effective: boolean }>(
+    `select ra.user_id, (u.status = 'active' and u.deidentified_at is null) as effective
+       from role_assignments ra
+       join users u on u.id = ra.user_id
+      where ra.role = 'admin' and ra.revoked_real_at is null
+      order by ra.id
+      for update of ra`,
+  )
+  return rows.rows.map((r) => ({ userId: r.user_id, effective: r.effective }))
+}
+
+/** 這個人在鎖住的管理員列裡、而且帳號此刻仍是 active（不是只信請求開始時解析出來的 actor）。 */
+export function isEffectiveAdmin(admins: readonly LockedAdmin[], userId: string): boolean {
+  return admins.some((a) => a.userId === userId && a.effective)
+}

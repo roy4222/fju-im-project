@@ -10,6 +10,7 @@ import {
   isUserId,
   likePattern,
   normalizeStatusReason,
+  remainingEffectiveAdmins,
   parseBulkStudentNos,
   sameTargets,
   type AccountDirectoryCommand,
@@ -36,6 +37,7 @@ import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
+import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 
 /**
  * 帳號列表、停用／恢復、批次停用與匯出（工程模組 01 §3 active⇄disabled、§5 `AccountCommand`／`UserDirectoryQuery`；票 9）。
@@ -79,6 +81,18 @@ type Queryable = Pick<Pool, 'query'> | PoolClient
 // ── 查詢 ────────────────────────────────────────────────────────────────────
 
 /**
+ * 孤兒帳號的 SQL 條件（票 10b），與 application 層 `isOrphan` 是同一個定義：
+ * 沒有停用或去識別化、沒有有效角色、沒有任何註冊申請、沒有個人資料。
+ * `u` 是 `users` 的別名。
+ */
+function orphanCondition(u: string): string {
+  return `(${u}.deidentified_at is null and ${u}.status in ('pending','active')
+    and not exists (select 1 from role_assignments r where r.user_id = ${u}.id and r.revoked_real_at is null)
+    and not exists (select 1 from registration_applications x where x.user_id = ${u}.id)
+    and not exists (select 1 from user_profiles p where p.user_id = ${u}.id))`
+}
+
+/**
  * 每個帳號一列。待審的人沒有 `user_profiles`，資料取他最新一筆註冊申請（lateral）；
  * 有 profile 的人一律以 profile 為準（`on up.user_id is null` 讓申請那一邊只在沒有 profile 時接上）。
  */
@@ -101,7 +115,8 @@ const DIRECTORY_BASE = `
               from role_assignments r
              where r.user_id = u.id and r.revoked_real_at is null),
            '{}'::text[]
-         ) as roles
+         ) as roles,
+         ${orphanCondition('u')} as is_orphan
     from users u
     left join user_profiles up on up.user_id = u.id
     left join lateral (
@@ -136,6 +151,7 @@ type DirectoryRow = {
   cohort_name: string | null
   application_state: 'pending' | 'approved' | 'rejected' | null
   roles: Role[]
+  is_orphan: boolean
   total?: string
 }
 
@@ -155,6 +171,7 @@ function toAccountRow(r: DirectoryRow): AccountRow {
     status: r.status,
     applicationState: r.application_state === 'pending' || r.application_state === 'rejected' ? r.application_state : null,
     createdAt: new Date(r.created_at).toISOString(),
+    orphan: r.is_orphan,
   }
 }
 
@@ -175,6 +192,7 @@ function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] }
   if (filter.role) conditions.push(`${add(filter.role)} = any(roles)`)
   if (filter.cohortId) conditions.push(`cohort_id = ${add(filter.cohortId)}::uuid`)
   if (filter.status) conditions.push(`status = ${add(filter.status)}`)
+  if (filter.orphan) conditions.push('is_orphan')
   return { clause: conditions.length > 0 ? `where ${conditions.join(' and ')}` : '', params }
 }
 
@@ -242,7 +260,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
              where u.status = 'active' and u.deidentified_at is null
                and exists (select 1 from role_assignments r
                             where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
-           ) as "activeStudents"
+           ) as "activeStudents",
+           count(*) filter (where ${orphanCondition('u')}) as "orphans"
          from users u`,
       )
     ).rows[0]!
@@ -253,6 +272,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         active: Number(row.active),
         disabled: Number(row.disabled),
         activeStudents: Number(row.activeStudents),
+        orphans: Number(row.orphans),
       },
       meta(this.#clock.now()),
     )
@@ -369,6 +389,14 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         return ok(begun.receipt as StatusChangeReceipt, meta(now, input.requestId))
       }
 
+      // 最後一位管理員保護（票 10b）：停用會讓管理員變少，先鎖整組管理員列、確認操作者此刻仍是有效管理員，
+      // **再**鎖目標（順序與取消管理員相同，見 admin-guard.ts）。兩位管理員同時互相停用只會成功一個。
+      const admins = action === 'disable' ? await lockAdmins(tx) : null
+      if (admins && !isEffectiveAdmin(admins, actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
       const locked = await lockAccounts(tx, [input.userId])
       const target = locked.get(input.userId)
       const from = action === 'disable' ? 'active' : 'disabled'
@@ -376,9 +404,15 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         await tx.query('rollback')
         return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
       }
-      if (target.status !== from) {
+      // 孤兒帳號（票 10b）待審也可以停用：它沒有申請可以退回，停用是唯一的收尾方式。
+      const orphanDisable = action === 'disable' && target.status === 'pending' && target.isOrphan
+      if (target.status !== from && !orphanDisable) {
         await tx.query('rollback')
         return err('CONFLICT', statusConflictMessage(action, target.status))
+      }
+      if (admins && remainingEffectiveAdmins(admins, target.userId) < 1) {
+        await tx.query('rollback')
+        return err('CONFLICT', '這是最後一位管理員，不能停用。')
       }
 
       if (action === 'restore') {
@@ -606,6 +640,8 @@ type LockedAccount = {
   cohortId: string | null
   studentNo: string | null
   isStudent: boolean
+  /** 孤兒帳號（票 10b）：待審也可以停用。 */
+  isOrphan: boolean
 }
 
 /** 依 ID 順序鎖住幾個帳號（固定順序，兩個批次同時跑也不會互等成死結）。 */
@@ -620,11 +656,13 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
     cohort_id: string | null
     student_no: string | null
     is_student: boolean
+    is_orphan: boolean
   }>(
     `select u.id, coalesce(up.display_name, u.name) as name, u.status, u.deidentified_at,
             up.cohort_id, up.student_no,
             exists (select 1 from role_assignments r
-                     where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null) as is_student
+                     where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null) as is_student,
+            ${orphanCondition('u')} as is_orphan
        from users u
        left join user_profiles up on up.user_id = u.id
       where u.id = any($1::uuid[])
@@ -640,6 +678,7 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
       cohortId: r.cohort_id,
       studentNo: r.student_no,
       isStudent: r.is_student,
+      isOrphan: r.is_orphan,
     })
   }
   return result

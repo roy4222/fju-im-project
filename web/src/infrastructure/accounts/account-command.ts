@@ -32,6 +32,7 @@ import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { internalAuth } from '@/infrastructure/auth/wrapper'
 import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-password'
+import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 
 /**
  * 老師帳號與臨時密碼（工程模組 01 §3「臨時密碼」「老師建立／預授權」、§5 `AccountCommand`；
@@ -683,31 +684,6 @@ export class PgAccountCommand implements AccountCommand {
 }
 
 // ── 鎖 ──────────────────────────────────────────────────────────────────────
-
-export type LockedAdmin = { readonly userId: string; readonly effective: boolean }
-
-/**
- * 鎖住**全部**有效的管理員角色列（依 id 排序，兩個交易不會以不同順序互等），順便算出每一位是不是
- * 有效管理員（帳號 active、沒有去識別化）。授予、取消、補建成管理員都先經過這裡（見 `#changeAdminRole`）。
- *
- * 管理員就幾個人，鎖整組的成本可以忽略。
- */
-export async function lockAdmins(tx: PoolClient): Promise<LockedAdmin[]> {
-  const rows = await tx.query<{ user_id: string; effective: boolean }>(
-    `select ra.user_id, (u.status = 'active' and u.deidentified_at is null) as effective
-       from role_assignments ra
-       join users u on u.id = ra.user_id
-      where ra.role = 'admin' and ra.revoked_real_at is null
-      order by ra.id
-      for update of ra`,
-  )
-  return rows.rows.map((r) => ({ userId: r.user_id, effective: r.effective }))
-}
-
-/** 這個人在鎖住的管理員列裡、而且帳號此刻仍是 active（不是只信請求開始時解析出來的 actor）。 */
-export function isEffectiveAdmin(admins: readonly LockedAdmin[], userId: string): boolean {
-  return admins.some((a) => a.userId === userId && a.effective)
-}
 
 type RoleTargetRow = {
   readonly userId: string

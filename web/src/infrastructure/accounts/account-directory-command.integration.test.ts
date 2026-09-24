@@ -280,8 +280,16 @@ describe('停用即失效、恢復可再登入（做完的樣子 2；ACC-09）',
     expect(await signIn(s.email)).toBe(200)
   })
 
-  it('待審的帳號不用停用處理（請退回）', async () => {
-    const p = await signUp(uniqueEmail('p2'), '待審丙')
+  it('有註冊申請的待審帳號不用停用處理（請退回）', async () => {
+    const email = uniqueEmail('p2')
+    const p = await signUp(email, '待審丙')
+    // 有申請就不是孤兒帳號（票 10b）：沒有申請的待審帳號見下方「孤兒帳號」。
+    await db.sql(
+      `insert into registration_applications
+         (id, user_id, applied_name, student_no, phone, contact_email, login_email, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, '待審丙', '0411400199', '0922-222-222', $2, $2, 'user', $1)`,
+      [p.userId, email],
+    )
     expect(await command.disable(adminActor(), { userId: p.userId, reason: 'x', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
       ok: false, code: 'CONFLICT',
     })
@@ -431,5 +439,88 @@ describe('匯出 CSV（做完的樣子 3；ACC-15）', () => {
     if (!listed.ok || !exported.ok) return
     expect(exported.receipt.count).toBe(listed.receipt.total)
     expect(exported.receipt.csv).not.toContain('"114"')
+  })
+})
+
+describe('孤兒帳號（票 10b）', () => {
+  it('列表認得出來、可以只看孤兒、統計有數字；待審的孤兒可以停用（停用後登不進來、不再是孤兒）', async () => {
+    const orphanEmail = uniqueEmail('orphan')
+    const orphan = await signUp(orphanEmail, '孤兒甲')
+    const applicantEmail = uniqueEmail('applicant')
+    const applicant = await signUp(applicantEmail, '申請者')
+    await db.sql(
+      `insert into registration_applications
+         (id, user_id, applied_name, student_no, phone, contact_email, login_email, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, '申請者', '0411400177', '0922-222-222', $2, $2, 'user', $1)`,
+      [applicant.userId, applicantEmail],
+    )
+
+    const listed = await command.list(adminActor(), filter({ orphan: true }))
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) return
+    const ids = listed.receipt.rows.map((r) => r.userId)
+    expect(ids).toContain(orphan.userId)
+    expect(ids).not.toContain(applicant.userId)
+    expect(ids).not.toContain(teacherId)
+    expect(ids).not.toContain(admin.userId)
+    expect(listed.receipt.rows.every((r) => r.orphan)).toBe(true)
+    expect(listed.receipt.rows.find((r) => r.userId === orphan.userId)).toMatchObject({ status: 'pending', roles: [], applicationState: null })
+
+    // 一般列表也標得出來。
+    const all = await command.list(adminActor(), filter({ q: orphanEmail }))
+    expect(all.ok && all.receipt.rows[0]).toMatchObject({ userId: orphan.userId, orphan: true })
+
+    const summary = await command.summary(adminActor())
+    expect(summary.ok && summary.receipt.orphans).toBe(listed.receipt.total)
+
+    // 待審的孤兒沒有申請可以退回，所以可以直接停用。
+    const disabled = await command.disable(
+      adminActor(),
+      { userId: orphan.userId, reason: '建帳號時系統出錯留下的', requestId: requestId() },
+      { headers: admin.headers },
+    )
+    expect(disabled).toMatchObject({ ok: true, receipt: { status: 'disabled' } })
+    expect(await one(`select from_status, to_status from user_status_events where user_id = $1`, [orphan.userId])).toEqual({
+      from_status: 'pending',
+      to_status: 'disabled',
+    })
+    expect(await signIn(orphanEmail)).not.toBe(200)
+    const after = await command.list(adminActor(), filter({ orphan: true }))
+    expect(after.ok && after.receipt.rows.map((r) => r.userId)).not.toContain(orphan.userId)
+  })
+})
+
+describe('最後一位管理員保護：停用（票 10b）', () => {
+  it('兩位管理員同時互相停用，只有一個成功——不會一位有效管理員都不剩', async () => {
+    const make = async (tag: string) => {
+      const a = await signUp(uniqueEmail(tag), `管理員 ${tag}`)
+      await db.sql(`update users set status = 'active', role = 'admin' where id = $1`, [a.userId])
+      await db.sql(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'admin', $1, now())`,
+        [a.userId],
+      )
+      const actor: ResolvedActor = { kind: 'authenticated', userId: a.userId, roles: ['admin'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+      return { ...a, actor, headers: new Headers({ cookie: a.cookie }) }
+    }
+    const a = await make('ga')
+    const b = await make('gb')
+    const [ab, ba] = await Promise.all([
+      command.disable(a.actor, { userId: b.userId, reason: '互相停用', requestId: requestId() }, { headers: a.headers }),
+      command.disable(b.actor, { userId: a.userId, reason: '互相停用', requestId: requestId() }, { headers: b.headers }),
+    ])
+    expect([ab, ba].filter((r) => r.ok)).toHaveLength(1)
+    expect([ab, ba].find((r) => !r.ok)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    const statuses = await db.sql(`select status from users where id = any($1::uuid[]) order by status`, [[a.userId, b.userId]])
+    expect(statuses.rows.map((r) => r.status)).toEqual(['active', 'disabled'])
+  })
+
+  it('已經不是管理員的人（actor 過期）不能再停用別人', async () => {
+    const s = await student('0411400188', '被停用對象')
+    const stale: ResolvedActor = { kind: 'authenticated', userId: teacherId, roles: ['admin'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+    expect(await command.disable(stale, { userId: s.userId, reason: 'x', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(await one(`select status from users where id = $1`, [s.userId])).toEqual({ status: 'active' })
   })
 })
