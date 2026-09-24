@@ -202,3 +202,16 @@ export function planStageVersions(
     }
   })
 }
+
+/**
+ * 成組截止（票 13）：第 1 階段（成組期）結束的那一刻＝第 2 階段開始日的 00:00（臺灣時間）。
+ *
+ * 規格只寫「到期＝min(預設天數, 成組截止)」「成組截止來自 S02 階段」（工程確認 E-20：
+ * 成組階段結束＝下一階段開始日）；四個階段的第 1 段就是成組期（年度主線與驗收劇本都這樣排）。
+ * 還沒設階段回 null。
+ */
+export function groupingDeadline(schedule: CohortSchedule): Date | null {
+  const sorted = [...schedule.stages].sort((a, b) => a.seq - b.seq)
+  if (sorted.length === 0 || !schedule.yearEndDate) return null
+  return taipeiDayEndExclusive(stageLastDate(sorted, schedule.yearEndDate, 0))
+}

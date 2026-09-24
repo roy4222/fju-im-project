@@ -6,7 +6,9 @@ import type {
   Cohort,
   CreateCohortInput,
   CreateCohortReceipt,
+  GroupingSettingsInput,
   SetCohortFlagReceipt,
+  SetGroupingSettingsReceipt,
 } from '@/application/cohorts/cohorts'
 import type { CohortSchedule, ScheduleInput, StagePosition } from '@/application/cohorts/stages'
 import type { Result } from '@/shared/result'
@@ -38,6 +40,17 @@ export interface CohortCommand {
    * 同一筆交易寫 `cohort_status_events`、發 `cohort.activated` 事件、留稽核。
    */
   activate(actor: ResolvedActor, cohortId: string, requestId: string): Promise<Result<ActivateCohortReceipt>>
+  /**
+   * 分組設定（票 13；模組 02 §5 `setProposalDefaultDays` 加上每組人數）：管理員限定、
+   * `expectedRevision` 是畫面讀到的屆別 revision，別人先改過回 `CONFLICT`。已封存的屆別不能改。
+   */
+  setGroupingSettings(
+    actor: ResolvedActor,
+    cohortId: string,
+    input: GroupingSettingsInput,
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<SetGroupingSettingsReceipt>>
 }
 
 /**
