@@ -155,6 +155,9 @@ jobs:
       # e2e 跑的是測試站的樣子：模擬業務鐘開著（票 11 的 timeline.spec 要用）。
       # 正式站（false）的拒絕由整合測試 pg-business-clock.integration.test.ts 證明。
       BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true'
+      # 上傳檔案的存放根目錄（票 6）。CI 用 runner 上的暫存目錄；正式環境是 VM 的獨立 volume。
+      FILES_ROOT: /tmp/fju-files
+      FILE_MAX_BYTES: '104857600'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

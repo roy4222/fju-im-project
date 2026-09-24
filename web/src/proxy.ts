@@ -39,5 +39,8 @@ export function proxy(request: NextRequest): NextResponse {
 
 export const config = {
   // 靜態資源與圖片最佳化不需要 CSP（它們不是 HTML 文件）。
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // `api/files/upload` 也排除：只要經過 proxy，Next 就會先把請求 body 緩衝進記憶體，
+  // 超過 `proxyClientMaxBodySize`（預設 10MB）的部分**靜靜截斷**而不報錯——大檔案會被存成半截。
+  // 那條路由回的是 JSON，自己帶 nosniff 與 no-store，不需要這裡的 CSP。
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/files/upload).*)'],
 }

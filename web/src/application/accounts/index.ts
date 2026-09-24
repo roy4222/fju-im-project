@@ -19,3 +19,25 @@ export type {
   ChangePasswordOutcome,
   SelfAccountCommand,
 } from '@/application/accounts/self-account'
+export type {
+  CohortOption,
+  CohortValueMatch,
+  RosterAnalysis,
+  RosterCommand,
+  RosterCounts,
+  RosterEntryDraft,
+  RosterImportReceipt,
+  RosterIssue,
+  RosterIssueKind,
+  RosterPreview,
+  RosterUploadTicket,
+  RosterVersionRow,
+} from '@/application/accounts/roster'
+export {
+  analyzeRoster,
+  normalizeName,
+  pickCohort,
+  ROSTER_MAX_BYTES,
+  ROSTER_MAX_ROWS,
+  rosterAccessDenied,
+} from '@/application/accounts/roster'

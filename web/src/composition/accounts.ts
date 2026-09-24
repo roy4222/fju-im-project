@@ -1,9 +1,12 @@
 import 'server-only'
-import type { ActorResolver, ResolvedActor, SelfAccountCommand } from '@/application/accounts'
+import type { ActorResolver, ResolvedActor, RosterCommand, SelfAccountCommand } from '@/application/accounts'
+import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent } from '@/infrastructure/auth/wrapper'
 import { getPool } from '@/infrastructure/db/client'
+import { getCohortStatusQuery } from '@/composition/cohorts'
+import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 
 /**
  * 模組 01 的實例組裝（母 spec §4.3：執行期的實作一律由 composition 注入）。
@@ -34,6 +37,20 @@ let selfAccountCommand: SelfAccountCommand | undefined
 export function getSelfAccountCommand(): SelfAccountCommand {
   selfAccountCommand ??= new BetterAuthSelfAccountCommand()
   return selfAccountCommand
+}
+
+/** 名單匯入（票 6）：共用檔案能力＋稽核＋帳本由這裡注入。 */
+let rosterCommand: RosterCommand | undefined
+
+export function getRosterCommand(): RosterCommand {
+  rosterCommand ??= new PgRosterCommand({
+    files: getFileStorage(),
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    db: getPool,
+    cohorts: getCohortStatusQuery(),
+  })
+  return rosterCommand
 }
 
 /**
