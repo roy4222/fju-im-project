@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SignOutButton } from '@/app/_ui/sign-out'
 import type { ReactNode } from 'react'
 import { cn } from '@/shared/cn'
@@ -72,9 +73,13 @@ export function DashboardShell({
           <Link href="/" className="text-sm font-semibold">
             資管系專題平台
           </Link>
-          <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-            {roleLabel}
-          </span>
+          <div className="flex items-center gap-2">
+            {/* 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。 */}
+            <InboxBell href={`${current.split('/').slice(0, 3).join('/')}/inbox`} />
+            <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+              {roleLabel}
+            </span>
+          </div>
         </div>
 
         {/* 行動版：收合選單。桌機版：md 以上直接展開，details 的開合不影響。 */}

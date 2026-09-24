@@ -15,6 +15,8 @@ export type FaultPointName =
   | 'worker.before-claim'
   | 'worker.after-claim'
   | 'worker.before-handler'
+  | 'projection.after-notifications'
+  | 'revocation.before-call'
   | 'file.after-upload'
 
 export type FaultHandler = () => void | Promise<void>
