@@ -51,6 +51,9 @@ type Deps = {
 
 const HOUR_MS = 60 * 60 * 1000
 
+/** 自己開交易的 handler：交易外呼叫期間，這件工作被往後推多久（期間 worker 崩潰，過了就重撿）。 */
+const OWN_TRANSACTION_HOLD_MS = 2 * 60 * 1000
+
 export class PgDueWorkRunner {
   readonly #pool: () => Pick<Pool, 'connect'>
   readonly #handlers: DueWorkHandlers<PoolClient>
@@ -120,6 +123,42 @@ export class PgDueWorkRunner {
         attempts: row.attempts,
       }
       const handler = this.#handlers[row.kind]
+
+      if (handler?.mode === 'own_transaction') {
+        // 自己開交易的 handler（例如票 13 的提案到期，它會在自己的交易裡把這件工作改成 cancelled）：
+        // 先把這件往後推一段持有期再 commit 放鎖，交易外呼叫，之後另開交易寫回——
+        // 不然 handler 要改同一列時會卡在我們的 FOR UPDATE 上。持有期內 worker 若崩潰，過了就會被重撿。
+        await client.query('update due_work set next_attempt_at = $2 where id = $1', [
+          row.id,
+          new Date(realNow.getTime() + OWN_TRANSACTION_HOLD_MS),
+        ])
+        await client.query('commit')
+
+        let result: DueWorkRunResult
+        let lastError: string | null = null
+        try {
+          await reachFaultPoint('worker.before-handler')
+          const outcome = await handler.handle(work)
+          result = outcome.kind === 'done' ? { kind: 'done', resultRef: outcome.resultRef } : { kind: 'defer' }
+          if (outcome.kind === 'defer') this.#log('到期工作前置未就緒，稍後再看', { id: row.id, kind: row.kind, reason: outcome.reason })
+        } catch (error) {
+          result = { kind: 'error' }
+          lastError = errorText(error)
+        }
+
+        await client.query('begin')
+        const current = await client.query<{ state: string }>('select state from due_work where id = $1 for update', [row.id])
+        if (current.rows[0]?.state !== 'pending') {
+          // handler 已經自己收尾（例如終止提案時把工作改成 cancelled）：不覆蓋。
+          await client.query('commit')
+          this.#log('到期工作由處理器自己收尾', { id: row.id, kind: row.kind, state: current.rows[0]?.state })
+          return 'done'
+        }
+        const outcome = await this.#apply(client, row, result, lastError, realNow, businessNow)
+        await client.query('commit')
+        return outcome
+      }
+
       let result: DueWorkRunResult
       let lastError: string | null = null
       if (!handler) {
@@ -139,46 +178,59 @@ export class PgDueWorkRunner {
         }
       }
 
-      const next = dueWorkTransition(result, row.attempts, realNow)
-      if (next.state === 'done') {
-        await client.query(
-          `update due_work set state = 'done', done_at = $2, result_ref = $3::jsonb, next_attempt_at = null, last_error = null
-            where id = $1`,
-          [row.id, realNow, JSON.stringify(next.resultRef)],
-        )
-        this.#log('到期工作完成', { id: row.id, kind: row.kind, subjectId: row.subject_id, deadlineVersion: row.deadline_version })
-      } else if (next.state === 'pending') {
-        await client.query(
-          `update due_work set attempts = $2, next_attempt_at = $3, last_error = coalesce($4, last_error) where id = $1`,
-          [row.id, next.attempts, next.nextAttemptAt, lastError],
-        )
-        if (lastError) this.#log(`到期工作失敗（第 ${next.attempts} 次），稍後重試`, { id: row.id, kind: row.kind, error: lastError })
-      } else {
-        await client.query(`update due_work set state = 'failed', attempts = $2, last_error = $3 where id = $1`, [
-          row.id,
-          next.attempts,
-          lastError,
-        ])
-        this.#log('到期工作失敗 5 次，已停止重試', { id: row.id, kind: row.kind, error: lastError })
-        await publishWorkerAlert(client, this.#events, {
-          title: '有一件到期工作失敗 5 次，已停止重試',
-          source: { type: 'due_work', id: row.id },
-          detail: { reason: 'due_work_failed', dueWorkId: row.id, kind: row.kind },
-          realAt: realNow,
-          businessAt: businessNow,
-        })
-      }
+      const outcome = await this.#apply(client, row, result, lastError, realNow, businessNow)
       await client.query('commit')
-
-      if (next.state === 'done') return 'done'
-      if (next.state === 'failed') return 'failed'
-      return result.kind === 'error' ? 'retried' : 'waiting'
+      return outcome
     } catch (error) {
       await client.query('rollback').catch(() => undefined)
       throw error
     } finally {
       client.release()
     }
+  }
+
+  /** 依生命週期規則寫回狀態（在呼叫端的交易裡；只改仍是 pending 的列）。 */
+  async #apply(
+    client: PoolClient,
+    row: Row,
+    result: DueWorkRunResult,
+    lastError: string | null,
+    realNow: Date,
+    businessNow: Date,
+  ): Promise<keyof DueWorkSummary> {
+    const next = dueWorkTransition(result, row.attempts, realNow)
+    if (next.state === 'done') {
+      await client.query(
+        `update due_work set state = 'done', done_at = $2, result_ref = $3::jsonb, next_attempt_at = null, last_error = null
+          where id = $1 and state = 'pending'`,
+        [row.id, realNow, JSON.stringify(next.resultRef)],
+      )
+      this.#log('到期工作完成', { id: row.id, kind: row.kind, subjectId: row.subject_id, deadlineVersion: row.deadline_version })
+      return 'done'
+    }
+    if (next.state === 'pending') {
+      await client.query(
+        `update due_work set attempts = $2, next_attempt_at = $3, last_error = coalesce($4, last_error)
+          where id = $1 and state = 'pending'`,
+        [row.id, next.attempts, next.nextAttemptAt, lastError],
+      )
+      if (lastError) this.#log(`到期工作失敗（第 ${next.attempts} 次），稍後重試`, { id: row.id, kind: row.kind, error: lastError })
+      return result.kind === 'error' ? 'retried' : 'waiting'
+    }
+    await client.query(`update due_work set state = 'failed', attempts = $2, last_error = $3 where id = $1 and state = 'pending'`, [
+      row.id,
+      next.attempts,
+      lastError,
+    ])
+    this.#log('到期工作失敗 5 次，已停止重試', { id: row.id, kind: row.kind, error: lastError })
+    await publishWorkerAlert(client, this.#events, {
+      title: '有一件到期工作失敗 5 次，已停止重試',
+      source: { type: 'due_work', id: row.id },
+      detail: { reason: 'due_work_failed', dueWorkId: row.id, kind: row.kind },
+      realAt: realNow,
+      businessAt: businessNow,
+    })
+    return 'failed'
   }
 
   #logUnregistered(kind: string, realNow: Date) {

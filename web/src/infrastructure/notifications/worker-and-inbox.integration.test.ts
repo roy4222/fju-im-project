@@ -290,6 +290,40 @@ describe('到期工作迴圈', () => {
     expect(await state(id)).toMatchObject({ state: 'pending', attempts: 0 })
   })
 
+  it('自己開交易的 handler（票 13 提案到期的掛法）：它自己把工作改成 cancelled 就不覆蓋；回 defer 保持等待', async () => {
+    businessNow.value = new Date('2027-05-01T00:00:00Z')
+    const cancelledByHandler = await schedule('deadline_snapshot', new Date('2027-04-30T00:00:00Z'))
+    let seenLocked = true
+    const terminating: DueWorkHandler<PoolClient> = {
+      mode: 'own_transaction',
+      handle: async (work) => {
+        // 用另一條連線改同一列：worker 若還拿著 FOR UPDATE，這裡會卡住（lock_timeout 讓它直接失敗）。
+        const other = await app.connect()
+        try {
+          await other.query('begin')
+          await other.query(`set local lock_timeout = '2s'`)
+          await other.query(`update due_work set state = 'cancelled' where id = $1 and state = 'pending'`, [work.id])
+          await other.query('commit')
+          seenLocked = false
+        } finally {
+          other.release()
+        }
+        return { kind: 'done' }
+      },
+    }
+    await runner({ deadline_snapshot: terminating }).runOnce()
+    expect(seenLocked).toBe(false)
+    expect((await state(cancelledByHandler)).state).toBe('cancelled')
+
+    const notDue = await schedule('deadline_snapshot', new Date('2027-04-30T00:00:00Z'))
+    let calls = 0
+    await runner({
+      deadline_snapshot: { mode: 'own_transaction', handle: async () => ((calls += 1), { kind: 'defer', reason: 'not_due' }) },
+    }).runOnce()
+    expect(calls).toBe(1)
+    expect(await state(notDue)).toMatchObject({ state: 'pending', attempts: 0 })
+  })
+
   it('handler 例外：它寫一半的東西回滾；次數累計，第 5 次 failed＋告警', async () => {
     const id = await schedule('deadline_snapshot', new Date('2027-04-30T00:00:00Z'))
     const boom: DueWorkHandler<PoolClient> = {

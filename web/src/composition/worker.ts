@@ -52,6 +52,14 @@ const defaultLog = (message: string, detail?: Record<string, unknown>) =>
 export function dueWorkHandlers(log: WorkerOptions['log'] = defaultLog): DueWorkHandlers<PoolClient> {
   const handlers: DueWorkHandlers<PoolClient> = {}
   if (businessClockOverrideEnabled()) handlers.test_noop = testNoopHandler(log ?? defaultLog)
+  // 票 13（PR #249）合併後在這裡接提案到期（它自己開交易、終止時自己把工作改成 cancelled）：
+  //   handlers.proposal_expiry = {
+  //     mode: 'own_transaction',
+  //     handle: async (work) => {
+  //       const result = await getProposalExpiryHandler().expire(work.subject.id, work.deadlineVersion)
+  //       return result === 'not_due' ? { kind: 'defer', reason: '模擬鐘往回撥，還沒到期' } : { kind: 'done' }
+  //     },
+  //   }
   return handlers
 }
 

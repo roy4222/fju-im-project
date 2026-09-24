@@ -104,12 +104,24 @@ export type DueWorkOutcome =
   | { readonly kind: 'defer'; readonly reason: string }
 
 /**
- * 一種到期工作的處理器。`tx` 是 worker 開的交易：handler 的業務寫入與「標 done」同一筆 commit，
- * 所以 worker 中途崩潰重啟，不會出現「做了一半卻標成做完」或「做完了卻沒標、又做一次」。
+ * 一種到期工作的處理器，兩種掛法：
+ *
+ * - 預設（`mode` 不寫或 `'in_transaction'`）：`tx` 是 worker 開的交易，handler 的業務寫入與「標 done」
+ *   同一筆 commit，worker 中途崩潰重啟不會「做了一半卻標成做完」或「做完了卻沒標、又做一次」。
+ * - `'own_transaction'`：handler 是別的模組的用例、自己開交易（例如票 13 的提案到期
+ *   `getProposalExpiryHandler().expire(subjectId, deadlineVersion)`，終止時會在自己的交易裡把這件工作改成
+ *   cancelled）。worker 認領後先放鎖再呼叫它；回來時工作若已不是 pending（被它收尾了）就不覆蓋，
+ *   仍是 pending 才照結果寫回。handler 必須自己冪等（重跑同一件不會重做）；「還沒到期」請回 `defer`。
  */
-export interface DueWorkHandler<Tx = unknown> {
-  handle(tx: Tx, work: ClaimedDueWork): Promise<DueWorkOutcome>
-}
+export type DueWorkHandler<Tx = unknown> =
+  | {
+      readonly mode?: 'in_transaction'
+      handle(tx: Tx, work: ClaimedDueWork): Promise<DueWorkOutcome>
+    }
+  | {
+      readonly mode: 'own_transaction'
+      handle(work: ClaimedDueWork): Promise<DueWorkOutcome>
+    }
 
 /** 種類 → handler。沒有列在這裡的種類＝還沒有切片掛上 handler。 */
 export type DueWorkHandlers<Tx = unknown> = Partial<Record<DueWorkKind, DueWorkHandler<Tx>>>
