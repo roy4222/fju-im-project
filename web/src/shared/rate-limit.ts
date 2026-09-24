@@ -103,4 +103,15 @@ export const RATE_LIMITS = {
    * 正常人改幾次就夠，這個門檻只擋腳本灌版本。
    */
   reviseApplication: { max: 20, windowMs: 60 * 60 * 1000 },
+  /**
+   * Google 登入入口 `/sign-in/social`：同一個 IP 每小時 120 次（票 10b）。
+   *
+   * 思路跟註冊一樣（每 IP、Server Action 與直接打 API 同一個桶），但數字不能照抄 30：
+   * 註冊是每人一輩子一次、還要系辦人工核准；Google 登入是**每天都在做**的事，
+   * 一間電腦教室五、六十人同一個對外 IP，上課前幾分鐘一起按、有人按兩次，30 會把後面的人擋在門外。
+   * 這一層只擋腳本灌 `verifications`（每按一次寫一列 state），120 次／小時綽綽有餘；
+   * 過期的 state 由套件在每次 callback 查 state 時順手清掉（`findVerificationValue` 的 cleanup）。
+   * 跨帳號的粗粒度防護仍在 Caddy（契約 03 §6）。
+   */
+  signInSocial: { max: 120, windowMs: 60 * 60 * 1000 },
 } as const

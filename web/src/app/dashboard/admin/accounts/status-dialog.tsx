@@ -23,13 +23,14 @@ export type StatusTarget = {
   readonly name: string
   readonly loginEmail: string
   readonly studentNo: string | null
-  readonly status: 'active' | 'disabled'
+  /** `pending` 只會是孤兒帳號（票 10b）：沒有申請可以退回，停用是唯一的收尾。 */
+  readonly status: 'active' | 'disabled' | 'pending'
 }
 
 export function StatusDialog({ account: a }: { account: StatusTarget }) {
   const router = useRouter()
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const disabling = a.status === 'active'
+  const disabling = a.status !== 'disabled'
   const verb = disabling ? '停用' : '恢復'
   const [isOpen, setIsOpen] = useState(false)
   const [reason, setReason] = useState('')

@@ -41,11 +41,25 @@ export type LedgerOperation = {
   readonly cohortId?: string | null
 }
 
+/** 帳本列的狀態（`operation_records.state`；CHECK 只允許這兩個）。 */
+export type LedgerState = 'committed' | 'failed'
+
 export type LedgerBeginResult =
   /** 第一次看到這個 requestId：繼續執行用例。 */
   | { readonly outcome: 'fresh'; readonly recordId: string }
   /** 同編號同內容：回原本那份回執，不要再做一次。 */
-  | { readonly outcome: 'replay'; readonly recordId: string; readonly receipt: unknown; readonly resultRef: unknown; readonly receiptExpired: boolean }
+  | {
+      readonly outcome: 'replay'
+      readonly recordId: string
+      readonly receipt: unknown
+      readonly resultRef: unknown
+      readonly receiptExpired: boolean
+      /**
+       * `failed`＝交易已 commit，但之後的外部步驟（例如 Better Auth）失敗了（`markFailed`）。
+       * 用例看到它就不能回「已完成」的回執（票 10b）。
+       */
+      readonly state: LedgerState
+    }
   /** 同編號不同內容：拒絕（契約 01 §8）。 */
   | { readonly outcome: 'mismatch' }
 

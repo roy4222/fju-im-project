@@ -5,6 +5,7 @@ import {
   receiptExpiryFrom,
   type LedgerBeginResult,
   type LedgerOperation,
+  type LedgerState,
   type OperationLedger,
 } from '@/application/ops'
 import type { Pool } from 'pg'
@@ -72,8 +73,9 @@ export class PgOperationLedger implements OperationLedger<PoolClient> {
       fingerprint: string
       receipt: unknown
       result_ref: unknown
+      state: LedgerState
     }>(
-      `select id, fingerprint, receipt, result_ref
+      `select id, fingerprint, receipt, result_ref, state
        from operation_records
        where actor_user_id = $1 and operation_kind = $2 and request_id = $3`,
       [operation.actorUserId, operation.operationKind, operation.requestId],
@@ -93,6 +95,7 @@ export class PgOperationLedger implements OperationLedger<PoolClient> {
       receipt: row.receipt,
       resultRef: row.result_ref,
       receiptExpired: row.receipt === null,
+      state: row.state,
     }
   }
 
@@ -108,6 +111,14 @@ export class PgOperationLedger implements OperationLedger<PoolClient> {
     )
   }
 
+  /**
+   * 標成失敗（票 10b）：用例已 commit，之後的外部步驟失敗。回執與結果參照留著（稽核要看得到
+   * 「曾經核發過、沒有成功」），只改 `state`——欄級 GRANT 允許（契約 01 §5）。
+   */
+  async markFailed(tx: PoolClient, recordId: string): Promise<void> {
+    await tx.query(`update operation_records set state = 'failed' where id = $1`, [recordId])
+  }
+
   /** 查回執：只回本人的紀錄（契約 01 §8）。 */
   async get(actorUserId: string, operationKind: string, requestId: string): Promise<LedgerBeginResult> {
     const rows = await this.#reader().query<{
@@ -115,8 +126,9 @@ export class PgOperationLedger implements OperationLedger<PoolClient> {
       fingerprint: string
       receipt: unknown
       result_ref: unknown
+      state: LedgerState
     }>(
-      `select id, fingerprint, receipt, result_ref
+      `select id, fingerprint, receipt, result_ref, state
        from operation_records
        where actor_user_id = $1 and operation_kind = $2 and request_id = $3`,
       [actorUserId, operationKind, requestId],
@@ -131,6 +143,7 @@ export class PgOperationLedger implements OperationLedger<PoolClient> {
       resultRef: row.result_ref,
       // 回執被 worker 清掉了；結果參照仍在（契約 01 §4.4）。
       receiptExpired: row.receipt === null,
+      state: row.state,
     }
   }
 }

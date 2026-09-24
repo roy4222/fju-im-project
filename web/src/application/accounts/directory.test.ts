@@ -48,7 +48,13 @@ describe('名單原檔下載政策（票 6 審查建議）', () => {
 describe('網址篩選', () => {
   it('認不得的值當作沒指定，排序只收白名單', () => {
     const f = normalizeDirectoryFilter({ q: '  王  小明 ', role: 'root', status: 'disabled', sort: 'name; drop table', dir: 'up', page: '-3', cohort: 'x' })
-    expect(f).toEqual({ q: '王 小明', role: null, cohortId: null, status: 'disabled', sort: 'createdAt', dir: 'desc', page: 1 })
+    expect(f).toEqual({ q: '王 小明', role: null, cohortId: null, status: 'disabled', sort: 'createdAt', dir: 'desc', page: 1, orphan: false })
+  })
+  it('孤兒帳號篩選：只認 orphan=1，轉回網址時帶上（票 10b）', () => {
+    expect(normalizeDirectoryFilter({ orphan: '1' }).orphan).toBe(true)
+    expect(normalizeDirectoryFilter({ orphan: 'true' }).orphan).toBe(false)
+    expect(normalizeDirectoryFilter({}).orphan).toBe(false)
+    expect(directoryQueryString(normalizeDirectoryFilter({ orphan: '1', status: 'pending' }))).toBe('?status=pending&orphan=1')
   })
   it('合法值原樣保留，轉回網址時預設值不寫', () => {
     const cohort = '0190a0a0-0000-7000-8000-00000000000c'
@@ -95,6 +101,7 @@ function row(patch: Partial<AccountRow>): AccountRow {
     status: 'active',
     applicationState: null,
     createdAt: '2026-09-01T00:00:00.000Z',
+    orphan: false,
     ...patch,
   }
 }

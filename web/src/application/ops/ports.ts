@@ -16,6 +16,11 @@ export interface OperationLedger<Tx = unknown> {
   begin(tx: Tx, operation: LedgerOperation, committedRealAt: Date): Promise<LedgerBeginResult>
   /** 用例成功後把回執與結果參照補上去。 */
   commit(tx: Tx, recordId: string, payload: { receipt: unknown; resultRef: unknown }): Promise<void>
+  /**
+   * 已 commit 的用例，之後的外部步驟失敗了（契約 01 §8：「`state='failed'` 只用在已 commit 但後續外部步驟失敗」）。
+   * 同一個 requestId 重送時 `begin` 會回 `state: 'failed'`，用例不能再回「已完成」（票 10b）。
+   */
+  markFailed(tx: Tx, recordId: string): Promise<void>
   /** 查回執：只回本人的紀錄；回執過期回 `RECEIPT_EXPIRED` 與 `result_ref`。 */
   get(actorUserId: string, operationKind: string, requestId: string): Promise<LedgerBeginResult>
 }

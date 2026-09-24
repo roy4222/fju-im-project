@@ -60,7 +60,23 @@ test('登入頁：Google 大鈕導去 Google（state＋PKCE），next 經過 saf
     errorURL: '/login?next=%2Faccount',
     newUserURL: '/register/pending?via=google',
   })
+  await expectStateCookie(context)
 })
+
+/**
+ * 瀏覽器真的收到簽章過的 state cookie（票 10b；票 10 審查建議）。
+ *
+ * 登入頁是 Server Action 裡 `redirect()` 到 Google，cookie 靠 `nextCookies()` 帶進那個 303 回應。
+ * 少了它，真的 Google 回來時套件比對不到 cookie，一律 `state_mismatch`——整合測試是自己把 cookie
+ * 塞進 callback，看不到這一段，只有瀏覽器走一次才驗得到。
+ */
+async function expectStateCookie(context: BrowserContext) {
+  const cookies = await context.cookies(BASE_URL)
+  const state = cookies.find((c) => /(^|\.)state$/.test(c.name))
+  expect(state, `沒有 state cookie；收到的是 ${cookies.map((c) => c.name).join(', ') || '（無）'}`).toBeDefined()
+  expect(state!.value.length).toBeGreaterThan(20)
+  expect(state!.httpOnly).toBe(true)
+}
 
 test('登入頁：站外的 next 不會被帶進 Google 的導回網址', async ({ page, context }) => {
   const google = await interceptGoogle(context)
@@ -80,6 +96,16 @@ test('註冊頁：Google 註冊鈕也導去 Google，失敗回註冊頁', async 
   expectGoogleAuthorizeUrl(google())
   const stored = await storedCallback(google()!.searchParams.get('state')!)
   expect(stored).toMatchObject({ errorURL: '/register', newUserURL: '/register/pending?via=google' })
+  await expectStateCookie(context)
+})
+
+test('直接打 API 帶 idToken（不經 redirect）→ 400，只走 redirect＋state（票 10b）', async ({ request }) => {
+  const response = await request.post('/api/auth/sign-in/social', {
+    headers: { origin: BASE_URL },
+    data: { provider: 'google', callbackURL: '/login', idToken: { token: 'header.payload.signature' } },
+  })
+  expect(response.status()).toBe(400)
+  expect(await response.json()).toMatchObject({ code: 'ID_TOKEN_NOT_SUPPORTED' })
 })
 
 test('Google 回來說同 Email 已有帳號：提示用原方式登入後再連結', async ({ page }) => {
@@ -113,6 +139,7 @@ test.describe('帳號頁', () => {
     expectGoogleAuthorizeUrl(google())
     const stored = await storedCallback(google()!.searchParams.get('state')!)
     expect(stored).toMatchObject({ callbackURL: '/account?linked=google', errorURL: '/account' })
+    await expectStateCookie(page.context())
   })
 
   test('登入超過 10 分鐘：連結前要重新登入確認身分', async () => {
