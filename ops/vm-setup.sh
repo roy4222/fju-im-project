@@ -212,6 +212,8 @@ if command -v ufw >/dev/null 2>&1; then
     ufw status verbose | sed 's/^/    /'
     ok "ufw 已啟用"
   fi
+elif [ "$CHECK_ONLY" = 1 ]; then
+  todo "ufw 還沒裝（實際執行時步驟 1 會裝），會執行：ufw limit 22/tcp、allow 80/tcp、allow 443/tcp、enable"
 else
   bad "ufw 沒裝（步驟 1 應該會裝）"
 fi
@@ -237,7 +239,7 @@ for site in "${SITES[@]}"; do
       bad "$f 是 $fmode $fowner、$fsize bytes；要 600、$DEPLOY_USER:$DEPLOY_USER、非空"
     fi
   else
-    todo "$f 還沒貼 → ops/README.md 第 4 步（Doppler $config 的唯讀 service token）"
+    todo "$f 還沒貼 → ops/README.md 第 5 步（Doppler $config 的唯讀 service token）"
   fi
 done
 
@@ -247,7 +249,7 @@ docker_cfg="/home/$DEPLOY_USER/.docker/config.json"
 if [ -f "$docker_cfg" ] && grep -q '"ghcr.io"' "$docker_cfg"; then
   ok "deploy 已登入 ghcr.io"
 else
-  todo "deploy 還沒登入 ghcr.io → ops/README.md 第 5 步（classic PAT，只勾 read:packages）"
+  todo "deploy 還沒登入 ghcr.io → ops/README.md 第 6 步（classic PAT，只勾 read:packages）"
 fi
 
 step "步驟 8：app 檔案（${APP_DIR}）與 Compose 設定預檢"
@@ -259,7 +261,7 @@ for f in "${APP_FILES[@]}"; do
   if [ -f "$APP_DIR/$f" ]; then
     ok "$APP_DIR/$f"
   else
-    todo "$APP_DIR/$f 還沒放 → ops/README.md 第 3 步"
+    todo "$APP_DIR/$f 還沒放 → ops/README.md 第 4 步"
     app_ready=0
   fi
 done
