@@ -20,6 +20,8 @@ export type FaultPointName =
   | 'file.after-upload'
   /** 票 13：組別、成員、組長寫好、占用刪掉，還沒發事件與 commit（證明成立是單一交易、測並發時卡住成立中的交易）。 */
   | 'group.establish.after-release'
+  /** 票 14：管理員加人查完資格、還沒寫組員列（測加人與發起／確認提案的並發）。 */
+  | 'group.member.add.before-insert'
 
 export type FaultHandler = () => void | Promise<void>
 

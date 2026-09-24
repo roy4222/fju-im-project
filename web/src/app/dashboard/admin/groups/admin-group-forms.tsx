@@ -9,17 +9,17 @@ import { cn } from '@/shared/cn'
 
 export type AdminGroupActionState = { ok: boolean; message: string } | undefined
 
-const PRIMARY =
+export const PRIMARY =
   'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium ' +
   'text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-const SECONDARY =
+export const SECONDARY =
   'inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 ' +
   'text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-const LABEL = 'block text-sm font-medium text-ink'
-const DIALOG = 'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40'
+export const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
+export const LABEL = 'block text-sm font-medium text-ink'
+export const DIALOG = 'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40'
 
-function Feedback({ state }: { state: AdminGroupActionState }) {
+export function Feedback({ state }: { state: AdminGroupActionState }) {
   if (!state) return null
   return (
     <p
@@ -34,14 +34,14 @@ function Feedback({ state }: { state: AdminGroupActionState }) {
   )
 }
 
-function useDialog() {
+export function useDialog() {
   const ref = useRef<HTMLDialogElement>(null)
   const open = useCallback(() => ref.current?.showModal(), [])
   const close = useCallback(() => ref.current?.close(), [])
   return { ref, open, close }
 }
 
-function useCloseOnSuccess(state: AdminGroupActionState, close: () => void) {
+export function useCloseOnSuccess(state: AdminGroupActionState, close: () => void) {
   useEffect(() => {
     if (state?.ok) close()
   }, [state, close])

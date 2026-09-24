@@ -5,7 +5,7 @@ import { getDueWorkScheduler, getEventPublisher } from '@/composition/notificati
 import { getAuditWriter, getOperationLedger } from '@/composition/ops'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
 
-/** 模組 03 分組的實例組裝（票 13：找組員、提案與成組）。 */
+/** 模組 03 分組的實例組裝（票 13：找組員、提案與成組；票 14：管理員調整組員與換組長）。 */
 let groupCommand: PgGroupCommand | undefined
 let groupQuery: GroupQuery | undefined
 
@@ -39,10 +39,14 @@ export function getProposalExpiryHandler(): ProposalExpiryHandler {
 
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
 export {
+  CHANGE_REASON_MAX_LENGTH,
   describeConfirmReceipt,
+  describeLeaderChangeReceipt,
+  describeMemberChangeReceipt,
   describeTerminateReceipt,
   GROUP_TYPE_LABEL,
   GROUP_TYPES,
+  groupSizeWarning,
   INVITATION_STATE_LABEL,
   PROPOSAL_STATE_LABEL,
   STUDENT_NO_MAX_LENGTH,

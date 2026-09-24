@@ -3,10 +3,16 @@ import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { AdminGroupActionState } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { describeGroupingSettingsReceipt, getCohortCommand } from '@/composition/cohorts'
-import { describeTerminateReceipt, getGroupCommand } from '@/composition/groups'
+import {
+  describeLeaderChangeReceipt,
+  describeMemberChangeReceipt,
+  describeTerminateReceipt,
+  getGroupCommand,
+} from '@/composition/groups'
 
 /**
- * 管理員「分組總覽」的動作（票 13）：分組設定（每組人數、提案預設天數）、作廢提案。
+ * 管理員「分組總覽」的動作：分組設定（每組人數、提案預設天數）、作廢提案（票 13）；
+ * 加入組員、移出組員、換組長（票 14）。
  * 規則全在用例裡判；這裡只翻譯表單與回饋。
  */
 
@@ -49,4 +55,53 @@ export async function voidProposalAction(
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeTerminateReceipt(result.receipt) }
+}
+
+export async function addMemberAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getGroupCommand().addMember(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      studentNo: text(formData, 'studentNo'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeMemberChangeReceipt(result.receipt) }
+}
+
+export async function removeMemberAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getGroupCommand().removeMember(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      userId: text(formData, 'userId'),
+      reason: text(formData, 'reason'),
+      successorLeaderUserId: text(formData, 'successorLeaderUserId') || null,
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeMemberChangeReceipt(result.receipt) }
+}
+
+export async function changeLeaderAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getGroupCommand().changeLeader(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      newLeaderUserId: text(formData, 'newLeaderUserId'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeLeaderChangeReceipt(result.receipt) }
 }

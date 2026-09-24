@@ -11,27 +11,37 @@ import {
 } from '@/application/cohorts'
 import {
   canViewTeammates,
+  decideLeaderChange,
+  decideRemoval,
   GROUP_TYPE_LABEL,
+  groupSizeWarning,
   isUuid,
   nextGroupCode,
   normalizeProposeInput,
+  normalizeReason,
   normalizeVoidReason,
   proposalExpiry,
   studentCohortOf,
   TERMINATION_KIND_LABEL,
+  type AddMemberInput,
+  type ChangeLeaderInput,
   type CohortGroupingOverview,
   type ConfirmReceipt,
   type ExpireOutcome,
   type GroupCommand,
+  type GroupHistoryEntry,
   type GroupQuery,
   type GroupSummary,
   type GroupType,
   type InvitationState,
+  type LeaderChangeReceipt,
+  type MemberChangeReceipt,
   type ProposalExpiryHandler,
   type ProposalState,
   type ProposalSummary,
   type ProposeInput,
   type ProposeReceipt,
+  type RemoveMemberInput,
   type SetOpenToJoinReceipt,
   type StudentGroupView,
   type TeammateListing,
@@ -46,6 +56,7 @@ import {
   badRequestId,
   inTransaction,
   replayed,
+  staleRevision,
   type PoolSource,
 } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
@@ -68,10 +79,26 @@ import { formatTaipeiDate, formatTaipeiMinute, RealClock, type Clock } from '@/s
  * - `group_memberships_one_active`：成立瞬間發現有人已在別組 → 回到 savepoint、整份以 `conflict` 終止。
  * 發起時**先插占用、再查有沒有組**：若同一人正好在別的提案成立中，插占用會等那筆交易結束，
  * 之後的查詢就看得到剛成立的組員資格（READ COMMITTED 每句重新取快照），不會留下一份註定衝突的提案。
+ *
+ * 票 14 管理員加人：「發起」與「加人」各自先寫自己的表再查對方的表，單靠 READ COMMITTED 兩邊可能都看不到對方
+ * 還沒 commit 的那筆。所以兩邊都先拿**每位學生一把**的 advisory lock（`groups.student:<id>`，依 id 排序），
+ * 後到的等前者 commit 再查：發起那邊看到他已有組 → `ALREADY_MEMBER`；加人那邊看到他被占住 → `INVITED_ELSEWHERE`。
+ * 成立（最後一位確認）不拿這把鎖：它只動已被占住的人，而加人遇到被占住的人一律拒絕。
  */
 
 const DUE_KIND = 'proposal_expiry' as const
 const SUBJECT_TYPE = 'group_proposal'
+
+/** 一屆裡「這個學生的分組狀態」的鎖（見檔頭）。 */
+async function lockStudents(tx: PoolClient, userIds: readonly string[]): Promise<void> {
+  for (const id of [...new Set(userIds)].sort()) {
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [`groups.student:${id}`])
+  }
+}
+
+function cohortArchived(): Err {
+  return err('COHORT_ARCHIVED', '這一屆已封存，分組資料只能查看。')
+}
 
 type ProposalRow = {
   id: string
@@ -94,6 +121,37 @@ type CohortRow = {
   group_size_min: number
   group_size_max: number
   proposal_default_days: number
+}
+
+type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved'; revision: number }
+
+function groupNotFound(): Err {
+  return err('VALIDATION_FAILED', '找不到這個組別，請重新整理頁面。')
+}
+
+/** 管理員調整組員／換組長的共同前置（不碰資料庫）：授權、請求編號、組別 id、版本、理由。 */
+function prepareGroupChange(
+  actor: ResolvedActor,
+  input: { readonly groupId: string; readonly revision: number; readonly reason: string },
+  requestId: string,
+  what: string,
+): { ok: true; adminId: string; reason: string } | Err {
+  const denied = authorizeAdmin(actor, what)
+  if (denied) return denied
+  if (!isUuid(requestId)) return badRequestId()
+  if (!isUuid(String(input.groupId ?? ''))) return groupNotFound()
+  if (!Number.isInteger(input.revision)) return staleRevision()
+  const reason = normalizeReason(String(input.reason ?? ''), what)
+  if (!reason.ok) return reason
+  return { ok: true, adminId: actor.kind === 'authenticated' ? actor.userId : '', reason: reason.value }
+}
+
+/** 鎖到組別之後的共同拒絕：屆別封存、組別已解散、版本過舊。 */
+function groupWriteBlocked(cohort: CohortRow, group: GroupRow, revision: number): Err | null {
+  if (cohort.status === 'archived') return cohortArchived()
+  if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再調整。`)
+  if (group.revision !== revision) return staleRevision()
+  return null
 }
 
 type Closer = { readonly kind: 'user'; readonly userId: string; readonly role: 'student' | 'admin' } | { readonly kind: 'worker' | 'system' }
@@ -313,6 +371,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       const everyone = [proposerId, ...members.map((m) => m.user_id)]
       const nameOf = new Map<string, string>([[proposerId, proposerName], ...members.map((m) => [m.user_id, m.name] as const)])
 
+      // 和管理員加人互斥（見檔頭）。
+      await lockStudents(tx, everyone)
       // 過了到期時間、背景工作還沒收的提案：先終止並釋放（不然這些人會被一份死掉的提案卡住）。
       await this.#expireOverdueOccupying(tx, everyone, businessNow)
 
@@ -436,6 +496,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ConfirmReceipt>(begun)
+      if (locked.cohortStatus === 'archived') return cohortArchived()
 
       const mine = invitations.find((i) => i.user_id === userId)
       if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
@@ -672,6 +733,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<TerminateReceipt>(begun)
+      if (locked.cohortStatus === 'archived') return cohortArchived()
 
       const mine = invitations.find((i) => i.user_id === userId)
       if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
@@ -733,6 +795,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<TerminateReceipt>(begun)
+      if (locked.cohortStatus === 'archived') return cohortArchived()
       if (proposal.state !== 'open') return proposalNotOpen()
 
       await this.#terminate(tx, proposal, invitations.map((i) => i.user_id), {
@@ -747,6 +810,444 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
       return { ok: true as const, receipt }
     })
+  }
+
+  // ── 管理員調整組員與換組長（票 14） ─────────────────────────────────────────────
+
+  async addMember(actor: ResolvedActor, input: AddMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>> {
+    const prepared = prepareGroupChange(actor, input, requestId, '加入組員')
+    if (!prepared.ok) return prepared
+    const studentNo = String(input.studentNo ?? '').trim()
+    if (!studentNo) return err('VALIDATION_FAILED', '請選要加入的學生。', { details: { field: 'studentNo' } })
+    const { adminId, reason } = prepared
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: adminId,
+          operationKind: 'group.member.add',
+          requestId,
+          fingerprint: sha256(canonicalJson({ groupId: group.id, revision: input.revision, studentNo, reason })),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<MemberChangeReceipt>(begun)
+      const blocked = groupWriteBlocked(cohort, group, input.revision)
+      if (blocked) return blocked
+
+      // 同屆、已核准（有 student_identities）、帳號正常、目前是學生——和發起提案同一條條件。
+      const found = await tx.query<{ user_id: string; name: string }>(
+        `select si.user_id, coalesce(p.display_name, u.name) as name
+           from student_identities si
+           join users u on u.id = si.user_id
+           left join user_profiles p on p.user_id = si.user_id
+          where si.cohort_id = $1 and si.student_no = $2
+            and u.status = 'active' and u.deidentified_at is null
+            and exists (select 1 from role_assignments r
+                         where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)`,
+        [group.cohort_id, studentNo],
+      )
+      const student = found.rows[0]
+      if (!student) {
+        return err('VALIDATION_FAILED', `找不到 ${cohort.code} 已核准、帳號正常的學生「${studentNo}」。`, {
+          details: { field: 'studentNo' },
+        })
+      }
+
+      // 和發起提案互斥（見檔頭）；逾期還沒被收掉的提案先收掉，不讓死掉的提案卡住人。
+      await lockStudents(tx, [student.user_id])
+      await this.#expireOverdueOccupying(tx, [student.user_id], businessNow)
+
+      const occupying = await tx.query<{ proposer_name: string }>(
+        `select coalesce(pp.display_name, pu.name) as proposer_name
+           from proposal_occupancy o
+           join group_proposals gp on gp.id = o.proposal_id
+           join users pu on pu.id = gp.proposer_user_id
+           left join user_profiles pp on pp.user_id = gp.proposer_user_id
+          where o.user_id = $1`,
+        [student.user_id],
+      )
+      if (occupying.rows[0]) {
+        // 不替他終止那份提案（會連帶釋放其他同學）：請管理員先作廢，理由另外記。
+        return err(
+          'INVITED_ELSEWHERE',
+          `${student.name} 正在 ${occupying.rows[0].proposer_name} 發起的提案裡等確認。要加入請先在「進行中的提案」作廢那份提案，或等它結束。`,
+        )
+      }
+
+      const current = await tx.query<{ group_id: string; code: string }>(
+        `select m.group_id, g.code from group_memberships m join groups g on g.id = m.group_id
+          where m.user_id = $1 and m.cohort_id = $2 and m.valid_to is null`,
+        [student.user_id, group.cohort_id],
+      )
+      if (current.rows[0]) {
+        return err(
+          'ALREADY_MEMBER',
+          current.rows[0].group_id === group.id
+            ? `${student.name} 已經是 ${group.code} 的成員了。`
+            : `${student.name} 已經在 ${current.rows[0].code}，一人同屆只能在一組；要換組請先從原組移出。`,
+        )
+      }
+
+      await reachFaultPoint('group.member.add.before-insert')
+      const membershipId = uuidv7()
+      await tx.query(
+        `insert into group_memberships
+           (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, 'user', $6, $7, $7)`,
+        [membershipId, group.id, group.cohort_id, student.user_id, businessNow, adminId, realAt],
+      )
+      const revision = await this.#bumpGroup(tx, group.id, adminId, realAt)
+      const members = await this.#currentMembers(tx, group.id)
+      const sizeWarning = groupSizeWarning(members.length, { min: cohort.group_size_min, max: cohort.group_size_max })
+
+      await this.#events.publish(tx, {
+        type: 'group.members_changed',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'group', id: group.id, version: revision },
+        actor: { kind: 'user', userId: adminId },
+        recipients: members.map((m) => m.user_id),
+        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        payload: {
+          title: `系辦把 ${student.name} 加入組別 ${group.code}`,
+          groupId: group.id,
+          code: group.code,
+          change: 'added',
+          userId: student.user_id,
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: adminId,
+        role: 'admin',
+        action: 'group.member.add',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        reason,
+        realAt,
+        businessAt: businessNow,
+        payload: { userId: student.user_id, membershipId, memberCount: members.length, sizeWarning },
+      })
+
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        change: 'added' as const,
+        memberName: student.name,
+        memberCount: members.length,
+        sizeWarning,
+        newLeaderName: null,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, membershipId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  async removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>> {
+    const prepared = prepareGroupChange(actor, input, requestId, '移出組員')
+    if (!prepared.ok) return prepared
+    if (!isUuid(String(input.userId ?? ''))) return err('VALIDATION_FAILED', '請選要移出的成員。', { details: { field: 'userId' } })
+    const successorId = input.successorLeaderUserId ? String(input.successorLeaderUserId) : null
+    if (successorId && !isUuid(successorId)) {
+      return err('VALIDATION_FAILED', '請選接任的組長。', { details: { field: 'successorLeaderUserId' } })
+    }
+    const { adminId, reason } = prepared
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: adminId,
+          operationKind: 'group.member.remove',
+          requestId,
+          fingerprint: sha256(
+            canonicalJson({ groupId: group.id, revision: input.revision, userId: input.userId, successorId, reason }),
+          ),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<MemberChangeReceipt>(begun)
+      const blocked = groupWriteBlocked(cohort, group, input.revision)
+      if (blocked) return blocked
+
+      const before = await this.#currentMembers(tx, group.id)
+      const leader = await this.#currentLeader(tx, group.id)
+      const decision = decideRemoval({
+        memberIds: before.map((m) => m.user_id),
+        leaderId: leader?.user_id ?? null,
+        targetId: input.userId,
+        successorId,
+      })
+      if (!decision.ok) return decision
+      const target = before.find((m) => m.user_id === input.userId)!
+      const nameOf = new Map(before.map((m) => [m.user_id, m.name]))
+
+      // 先換組長再結束組員資格：任何時刻這組都恰有一位有效組長，而且是有效成員。
+      if (decision.leaderChange && leader && successorId) {
+        await this.#replaceLeader(tx, group.id, leader.id, successorId, adminId, reason, realAt, businessNow)
+      }
+      await tx.query(
+        `update group_memberships set valid_to = greatest(valid_from, $2), removal_reason = $3, updated_at = $4
+          where id = $1`,
+        [target.id, businessNow, reason, realAt],
+      )
+      const revision = await this.#bumpGroup(tx, group.id, adminId, realAt)
+      const after = before.filter((m) => m.user_id !== target.user_id)
+      const sizeWarning = groupSizeWarning(after.length, { min: cohort.group_size_min, max: cohort.group_size_max })
+      const newLeaderName = decision.leaderChange && successorId ? (nameOf.get(successorId) ?? null) : null
+
+      await this.#events.publish(tx, {
+        type: 'group.members_changed',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'group', id: group.id, version: revision },
+        actor: { kind: 'user', userId: adminId },
+        recipients: after.map((m) => m.user_id),
+        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        payload: {
+          title: `系辦把 ${target.name} 移出組別 ${group.code}${newLeaderName ? `，組長改由 ${newLeaderName} 接任` : ''}`,
+          groupId: group.id,
+          code: group.code,
+          change: 'removed',
+          userId: target.user_id,
+          ...(decision.leaderChange ? { leaderUserId: successorId } : {}),
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      // 被移出的人只收本人的異動說明（產品 08 §4），不帶組別內容與理由。
+      await this.#events.publish(tx, {
+        type: 'group.member_removed',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'group', id: group.id, version: revision },
+        actor: { kind: 'user', userId: adminId },
+        recipients: [target.user_id],
+        recipientBasis: { groupId: group.id, basis: 'removed_member', membershipId: target.id },
+        payload: { title: `系辦已把你移出組別 ${group.code}；有疑問請聯絡系辦`, groupId: group.id, code: group.code },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: adminId,
+        role: 'admin',
+        action: 'group.member.remove',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        reason,
+        realAt,
+        businessAt: businessNow,
+        payload: {
+          userId: target.user_id,
+          membershipId: target.id,
+          memberCount: after.length,
+          sizeWarning,
+          successorLeaderUserId: decision.leaderChange ? successorId : null,
+        },
+      })
+
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        change: 'removed' as const,
+        memberName: target.name,
+        memberCount: after.length,
+        sizeWarning,
+        newLeaderName,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, membershipId: target.id } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  async changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>> {
+    const prepared = prepareGroupChange(actor, input, requestId, '換組長')
+    if (!prepared.ok) return prepared
+    if (!isUuid(String(input.newLeaderUserId ?? ''))) {
+      return err('VALIDATION_FAILED', '請選新組長。', { details: { field: 'newLeaderUserId' } })
+    }
+    const { adminId, reason } = prepared
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: adminId,
+          operationKind: 'group.leader.change',
+          requestId,
+          fingerprint: sha256(
+            canonicalJson({ groupId: group.id, revision: input.revision, newLeaderUserId: input.newLeaderUserId, reason }),
+          ),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<LeaderChangeReceipt>(begun)
+      const blocked = groupWriteBlocked(cohort, group, input.revision)
+      if (blocked) return blocked
+
+      const members = await this.#currentMembers(tx, group.id)
+      const leader = await this.#currentLeader(tx, group.id)
+      const decision = decideLeaderChange({
+        memberIds: members.map((m) => m.user_id),
+        leaderId: leader?.user_id ?? null,
+        newLeaderId: input.newLeaderUserId,
+      })
+      if (!decision.ok) return decision
+      const nameOf = new Map(members.map((m) => [m.user_id, m.name]))
+      const leaderName = nameOf.get(input.newLeaderUserId)!
+      const previousLeaderName = leader ? (nameOf.get(leader.user_id) ?? null) : null
+
+      await this.#replaceLeader(tx, group.id, leader?.id ?? null, input.newLeaderUserId, adminId, reason, realAt, businessNow)
+      const revision = await this.#bumpGroup(tx, group.id, adminId, realAt)
+
+      // 成員集合沒變：不發 group.members_changed（不重簽）。
+      await this.#events.publish(tx, {
+        type: 'group.leader_changed',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'group', id: group.id, version: revision },
+        actor: { kind: 'user', userId: adminId },
+        recipients: members.map((m) => m.user_id),
+        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        payload: {
+          title: `組別 ${group.code} 的組長換成 ${leaderName}`,
+          groupId: group.id,
+          code: group.code,
+          leaderUserId: input.newLeaderUserId,
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: adminId,
+        role: 'admin',
+        action: 'group.leader.change',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        reason,
+        realAt,
+        businessAt: businessNow,
+        payload: { previousLeaderUserId: leader?.user_id ?? null, leaderUserId: input.newLeaderUserId },
+      })
+
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        previousLeaderName,
+        leaderName,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  /** 鎖順序：屆別 FOR SHARE → 組別 FOR UPDATE（模組實作設計 03 §6「成員異動：groups FOR UPDATE」）。 */
+  async #lockGroup(tx: PoolClient, groupId: string): Promise<{ group: GroupRow; cohort: CohortRow } | null> {
+    const owner = await tx.query<{ cohort_id: string }>('select cohort_id from groups where id = $1', [groupId])
+    const cohortId = owner.rows[0]?.cohort_id
+    if (!cohortId) return null
+    const cohort = await this.#shareCohort(tx, cohortId)
+    const found = await tx.query<GroupRow>('select id, cohort_id, code, status, revision from groups where id = $1 for update', [
+      groupId,
+    ])
+    const group = found.rows[0]
+    if (!group || !cohort) return null
+    return { group, cohort }
+  }
+
+  async #currentMembers(tx: PoolClient, groupId: string): Promise<{ id: string; user_id: string; name: string }[]> {
+    const rows = await tx.query<{ id: string; user_id: string; name: string }>(
+      `select m.id, m.user_id, coalesce(p.display_name, u.name) as name
+         from group_memberships m
+         join users u on u.id = m.user_id
+         left join user_profiles p on p.user_id = m.user_id
+        where m.group_id = $1 and m.valid_to is null
+        order by p.student_no, m.user_id`,
+      [groupId],
+    )
+    return rows.rows
+  }
+
+  async #currentLeader(tx: PoolClient, groupId: string): Promise<{ id: string; user_id: string } | null> {
+    const rows = await tx.query<{ id: string; user_id: string }>(
+      'select id, user_id from group_leaders where group_id = $1 and valid_to is null',
+      [groupId],
+    )
+    return rows.rows[0] ?? null
+  }
+
+  /** 結束舊組長列、插入新組長列（同一交易；部分唯一保證同時最多一位）。 */
+  async #replaceLeader(
+    tx: PoolClient,
+    groupId: string,
+    currentLeaderRowId: string | null,
+    newLeaderId: string,
+    adminId: string,
+    reason: string,
+    realAt: Date,
+    businessNow: Date,
+  ): Promise<void> {
+    if (currentLeaderRowId) {
+      await tx.query('update group_leaders set valid_to = greatest(valid_from, $2) where id = $1', [
+        currentLeaderRowId,
+        businessNow,
+      ])
+    }
+    await tx.query(
+      `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, reason, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [uuidv7(), groupId, newLeaderId, businessNow, adminId, reason, realAt],
+    )
+  }
+
+  async #bumpGroup(tx: PoolClient, groupId: string, adminId: string, realAt: Date): Promise<number> {
+    const rows = await tx.query<{ revision: number }>(
+      `update groups set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1 returning revision`,
+      [groupId, realAt, adminId],
+    )
+    return rows.rows[0]!.revision
   }
 
   // ── 到期（背景工作呼叫） ─────────────────────────────────────────────────────
@@ -897,11 +1398,11 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
   async #lockProposal(
     tx: PoolClient,
     proposalId: string,
-  ): Promise<{ proposal: ProposalRow; invitations: InvitationRow[] } | null> {
+  ): Promise<{ proposal: ProposalRow; invitations: InvitationRow[]; cohortStatus: CohortStatus } | null> {
     const owner = await tx.query<{ cohort_id: string }>('select cohort_id from group_proposals where id = $1', [proposalId])
     const cohortId = owner.rows[0]?.cohort_id
     if (!cohortId) return null
-    await tx.query('select 1 from cohorts where id = $1 for share', [cohortId])
+    const cohort = await tx.query<{ status: CohortStatus }>('select status from cohorts where id = $1 for share', [cohortId])
     const found = await tx.query<ProposalRow>(
       `select id, cohort_id, proposer_user_id, group_type, expires_business_at, state, termination_kind,
               deadline_version, established_group_id
@@ -914,7 +1415,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       'select user_id, state from proposal_invitations where proposal_id = $1 order by user_id for update',
       [proposalId],
     )
-    return { proposal, invitations: invitations.rows }
+    return { proposal, invitations: invitations.rows, cohortStatus: cohort.rows[0]?.status ?? 'archived' }
   }
 
   async #activeMembers(tx: PoolClient, cohortId: string, userIds: string[]): Promise<string[]> {
@@ -990,7 +1491,7 @@ export class PgGroupQuery implements GroupQuery {
       [userId, cohortId],
     )
     const groupId = membership.rows[0]?.group_id
-    const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId]))[0] ?? null) : null
+    const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId], false))[0] ?? null) : null
 
     const mine = await this.#proposals(
       `where p.cohort_id = $1 and exists (select 1 from proposal_invitations i where i.proposal_id = p.id and i.user_id = $2)
@@ -1013,7 +1514,8 @@ export class PgGroupQuery implements GroupQuery {
     if (!isUuid(cohortId) || !canViewTeammates(actor, cohortId)) return []
     const viewer = actor.kind === 'authenticated' ? actor.userId : null
     const rows = await this.#reader().query<{ name: string; student_no: string; contact_email: string }>(
-      `select p.display_name as name, p.student_no, p.contact_email
+      // display_name 欄是 NOT NULL，但可能是空字串：空的就退回帳號名稱（票 13 審查建議），名單不會出現空名字。
+      `select coalesce(nullif(btrim(p.display_name), ''), u.name) as name, p.student_no, p.contact_email
          from user_profiles p
          join users u on u.id = p.user_id
         where p.cohort_id = $1 and p.open_to_join and p.student_no is not null
@@ -1032,7 +1534,7 @@ export class PgGroupQuery implements GroupQuery {
 
   async overview(cohortId: string): Promise<CohortGroupingOverview> {
     if (!isUuid(cohortId)) return { groups: [], openProposals: [], closedProposals: [], ungrouped: [] }
-    const groups = await this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId])
+    const groups = await this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], true)
     const openProposals = await this.#proposals(`where p.cohort_id = $1 and p.state = 'open' order by p.expires_business_at`, [cohortId], true)
     const closedProposals = await this.#proposals(
       `where p.cohort_id = $1 and p.state = 'terminated' order by p.closed_real_at desc limit 20`,
@@ -1063,13 +1565,23 @@ export class PgGroupQuery implements GroupQuery {
     }
   }
 
-  async #groups(where: string, values: unknown[]): Promise<GroupSummary[]> {
+  /** `forAdmin`：歷程帶理由與操作的管理員；學生看的一律不帶（和作廢理由同一政策）。 */
+  async #groups(where: string, values: unknown[], forAdmin: boolean): Promise<GroupSummary[]> {
     const db = this.#reader()
-    const groups = await db.query<{ id: string; cohort_id: string; code: string; group_type: GroupType; established_business_at: Date }>(
-      `select g.id, g.cohort_id, g.code, g.group_type, g.established_business_at from groups g where ${where} order by g.code`,
+    const groups = await db.query<{
+      id: string
+      cohort_id: string
+      code: string
+      group_type: GroupType
+      established_business_at: Date
+      revision: number
+    }>(
+      `select g.id, g.cohort_id, g.code, g.group_type, g.established_business_at, g.revision
+         from groups g where ${where} order by g.code`,
       values,
     )
     if (groups.rows.length === 0) return []
+    const ids = groups.rows.map((g) => g.id)
     const members = await db.query<{ group_id: string; user_id: string; name: string; student_no: string | null; is_leader: boolean }>(
       `select m.group_id, m.user_id, coalesce(p.display_name, u.name) as name, p.student_no,
               exists (select 1 from group_leaders l
@@ -1079,18 +1591,142 @@ export class PgGroupQuery implements GroupQuery {
          left join user_profiles p on p.user_id = m.user_id
         where m.group_id = any($1::uuid[]) and m.valid_to is null
         order by is_leader desc, p.student_no`,
-      [groups.rows.map((g) => g.id)],
+      [ids],
     )
+    const history = await this.#history(ids, forAdmin)
     return groups.rows.map((g) => ({
       id: g.id,
       cohortId: g.cohort_id,
       code: g.code,
       groupType: g.group_type,
       establishedBusinessAt: g.established_business_at,
+      revision: g.revision,
       members: members.rows
         .filter((m) => m.group_id === g.id)
         .map((m) => ({ userId: m.user_id, name: m.name, studentNo: m.student_no, isLeader: m.is_leader })),
+      history: history.get(g.id) ?? [],
     }))
+  }
+
+  /**
+   * 組別歷程：成立後的組員加入／移出（`group_memberships`）與組長更換（`group_leaders` 第二列起）。
+   * 依真實時間排序（業務鐘可能被撥回，用它排會亂）。`group_memberships` 沒有「加入理由」欄（票 14 不加 migration），
+   * 所以管理員加入的理由記在稽核（`audit_events.reason`，payload 帶 membershipId），
+   * 「這筆是成立後由管理員加入的」也以那筆稽核為準；移出理由在 `removal_reason`、換組長理由在 `group_leaders.reason`。
+   */
+  async #history(groupIds: string[], forAdmin: boolean): Promise<Map<string, GroupHistoryEntry[]>> {
+    const db = this.#reader()
+    const memberships = await db.query<{
+      group_id: string
+      name: string
+      valid_from: Date
+      valid_to: Date | null
+      created_at: Date
+      updated_at: Date
+      added_after_establish: boolean
+      added_by_name: string | null
+      add_reason: string | null
+      removal_reason: string | null
+      removed_by_name: string | null
+    }>(
+      `select m.group_id, coalesce(p.display_name, u.name) as name, m.valid_from, m.valid_to, m.created_at, m.updated_at,
+              exists (select 1 from audit_events a
+                       where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.add'
+                         and a.payload->>'membershipId' = m.id::text) as added_after_establish,
+              coalesce(ap.display_name, au.name) as added_by_name,
+              m.removal_reason,
+              (select a.reason from audit_events a
+                where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.add'
+                  and a.payload->>'membershipId' = m.id::text
+                limit 1) as add_reason,
+              (select coalesce(rp.display_name, ru.name) from audit_events a
+                 join users ru on ru.id = a.actor_user_id
+                 left join user_profiles rp on rp.user_id = ru.id
+                where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.remove'
+                  and a.payload->>'membershipId' = m.id::text
+                limit 1) as removed_by_name
+         from group_memberships m
+         join users u on u.id = m.user_id
+         left join user_profiles p on p.user_id = m.user_id
+         left join users au on au.id = m.added_by_user_id
+         left join user_profiles ap on ap.user_id = m.added_by_user_id
+        where m.group_id = any($1::uuid[])`,
+      [groupIds],
+    )
+    const leaders = await db.query<{
+      group_id: string
+      name: string
+      valid_from: Date
+      created_at: Date
+      reason: string | null
+      by_name: string | null
+    }>(
+      `select l.group_id, coalesce(p.display_name, u.name) as name, l.valid_from, l.created_at, l.reason,
+              coalesce(bp.display_name, bu.name) as by_name
+         from group_leaders l
+         join users u on u.id = l.user_id
+         left join user_profiles p on p.user_id = l.user_id
+         left join users bu on bu.id = l.changed_by_user_id
+         left join user_profiles bp on bp.user_id = l.changed_by_user_id
+        where l.group_id = any($1::uuid[])
+        order by l.group_id, l.created_at, l.id`,
+      [groupIds],
+    )
+
+    const entries = new Map<string, { sortKey: number; entry: GroupHistoryEntry }[]>()
+    const push = (groupId: string, sortKey: Date, entry: GroupHistoryEntry) => {
+      const list = entries.get(groupId) ?? []
+      list.push({ sortKey: sortKey.getTime(), entry })
+      entries.set(groupId, list)
+    }
+    const admin = <T>(value: T): T | null => (forAdmin ? value : null)
+
+    for (const m of memberships.rows) {
+      if (m.added_after_establish) {
+        push(m.group_id, m.created_at, {
+          kind: 'member_added',
+          at: m.valid_from,
+          userName: m.name,
+          previousLeaderName: null,
+          byName: admin(m.added_by_name),
+          reason: admin(m.add_reason),
+        })
+      }
+      if (m.valid_to) {
+        push(m.group_id, m.updated_at, {
+          kind: 'member_removed',
+          at: m.valid_to,
+          userName: m.name,
+          previousLeaderName: null,
+          byName: admin(m.removed_by_name),
+          reason: admin(m.removal_reason),
+        })
+      }
+    }
+    // 第一列是成立時的組長（提案人），不算「更換」。
+    let previous: { groupId: string; name: string } | null = null
+    for (const l of leaders.rows) {
+      if (previous && previous.groupId === l.group_id) {
+        push(l.group_id, l.created_at, {
+          kind: 'leader_changed',
+          at: l.valid_from,
+          userName: l.name,
+          previousLeaderName: previous.name,
+          byName: admin(l.by_name),
+          reason: admin(l.reason),
+        })
+      }
+      previous = { groupId: l.group_id, name: l.name }
+    }
+
+    const result = new Map<string, GroupHistoryEntry[]>()
+    for (const [groupId, list] of entries) {
+      result.set(
+        groupId,
+        list.sort((a, b) => a.sortKey - b.sortKey).map((x) => x.entry),
+      )
+    }
+    return result
   }
 
   async #proposals(tail: string, values: unknown[], withReason: boolean): Promise<ProposalSummary[]> {
