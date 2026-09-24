@@ -1,30 +1,97 @@
-# VM 覆蓋檔（S14-01；2026-09-16 review Standards 1）。
+# VM 站台覆蓋檔（兩站版，2026-09-24）。
 #
-# 基礎 docker-compose.yml 的 caddy 只發布 `${HTTP_PORT:-8080}:80`，那是**本機**用的：
-# 本機不簽憑證，也不該佔用 80／443。VM 上要對外提供 HTTPS，就必須把 80 與 443 都發布出來
-# ——80 是 Let's Encrypt HTTP-01 驗證要走的，443 是網站本身。
+# 同一台 VM 跑兩站，各是一個 Compose project，自己的 PostgreSQL、volume、秘密：
 #
-#   cd /srv/fju/app
-#   docker compose -f docker-compose.yml -f docker-compose.vm.yml config     # 先看 resolved
-#   docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --no-deps postgres caddy
+#   站台   project    網址                     Doppler config
+#   test   fju-test   test.fju.roy422.dev      stg
+#   prod   fju-prod   fju.roy422.dev           prd
 #
-# `--no-deps` 是刻意的：這一步只要基礎設施（資料庫與反向代理），不要因為 depends_on
-# 把 app 與 migrate 一起拉起來——映像與 migration 是 SOP 03／#189 的事。
+# 這份檔案疊在基礎 docker-compose.yml 上面用，**不要直接下 docker compose**——一律透過
+# ops/site.sh、ops/deploy.sh、ops/backup.sh。它們會設好三個變數再呼叫 Compose：
 #
-# **這兩個指令都要等 SOP 02／#188 把三份 .env 建好才跑得動。** Compose 在做任何事之前
-# 會先解析所有服務的 `env_file`（app／worker 的 .env、migrate 的 .env.migrate、
-# backup 的 .env.backup），少一份就整個指令失敗，`--no-deps` 擋不住——它只決定啟動哪些
-# 服務，不影響設定檔怎麼解析。`.env` 還身兼 Compose 的變數插值來源（${POSTGRES_PASSWORD} 等）。
-# 想在秘密進 VM 之前就確認 ports 合併結果，跑 `ops/vm-setup.sh --check` 的步驟 6——
-# 那一段是在暫存目錄用空白佔位 env 檔驗的。
-name: fju-im-project
+#   COMPOSE_FILE=<app>/docker-compose.yml:<app>/docker-compose.vm.yml
+#   COMPOSE_PROJECT_NAME=fju-<站台>
+#   FJU_SITE=<站台>
+#
+# 並用 Doppler 唯讀 service token 把秘密放進**程序環境**（doppler run），不寫成檔案。
+# 所以這裡把基礎檔的 env_file 全部拿掉，改成逐項列出每個服務要的變數：
+#   - migrate 只拿 owner 連線（DATABASE_URL_OWNER）
+#   - app 與 worker 只拿 app 組
+#   - 其他服務一個秘密都拿不到
+# 變數用 `${X:?…}`：少一個就整個指令失敗，不會用空值把容器重建起來。
+#
+# ⚠️ 帶著真秘密跑 `docker compose config` 會把值印到螢幕上，ops/site.sh 會擋。
+#    要看 resolved config，用 `sudo bash ops/vm-setup.sh --check`（假值）。
+#
+# 共用的反向代理不在這裡：Caddy 是另一個 project（docker-compose.edge.yml，fju-edge），
+# 透過外部網路 fju-edge 找到兩站的 app（fju-test-app、fju-prod-app）。
 
 services:
+  postgres:
+    container_name: fju-${FJU_SITE:?要用 ops/site.sh 或 ops/deploy.sh 執行，不要直接下 docker compose}-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Doppler 少了 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Doppler 少了 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Doppler 少了 POSTGRES_DB}
+
+  migrate:
+    container_name: fju-${FJU_SITE:?}-migrate
+    env_file: !reset []
+    environment:
+      DATABASE_URL_OWNER: ${DATABASE_URL_OWNER:?Doppler 少了 DATABASE_URL_OWNER}
+
+  app:
+    container_name: fju-${FJU_SITE:?}-app
+    env_file: !reset []
+    environment: &app-secrets
+      DATABASE_URL: ${DATABASE_URL:?Doppler 少了 DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Doppler 少了 BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Doppler 少了 BETTER_AUTH_URL}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Doppler 少了 GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Doppler 少了 GOOGLE_CLIENT_SECRET}
+      FILES_ROOT: ${FILES_ROOT:?Doppler 少了 FILES_ROOT}
+      FILE_MAX_BYTES: ${FILE_MAX_BYTES:?Doppler 少了 FILE_MAX_BYTES}
+      BUSINESS_CLOCK_OVERRIDE_ENABLED: ${BUSINESS_CLOCK_OVERRIDE_ENABLED:?Doppler 少了 BUSINESS_CLOCK_OVERRIDE_ENABLED}
+    volumes:
+      # 附件放在 VM 上該站自己的目錄（vm-setup.sh 建好，擁有者是容器裡的 1001）。
+      # 容器內的路徑就是 Doppler 的 FILES_ROOT，兩站可以用同一個值。
+      - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
+    networks:
+      default: {}
+      edge: {}
+
+  worker:
+    container_name: fju-${FJU_SITE:?}-worker
+    env_file: !reset []
+    environment: *app-secrets
+    volumes:
+      - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
+
+  # 兩站共用 fju-edge 那一個 Caddy；站台 project 裡的 caddy 永遠不啟動。
   caddy:
-    # `!override` 是取代而不是附加：Compose 合併 `ports` 的預設行為是兩邊相加，
-    # 那樣 VM 上會連本機用的 8080 一起發布出去（ufw 雖然沒開，但沒必要綁在宿主機上）。
-    ports: !override
-      - '80:80'
-      - '443:443'
-      # Caddy 的 HTTP/3；沒有它 QUIC 走不通，但不影響 HTTPS 本身。
-      - '443:443/udp'
+    profiles: ['local-only']
+    container_name: fju-${FJU_SITE:?}-unused-caddy
+    ports: !reset []
+
+  # 備份改成需要時手動跑 ops/backup.sh（直接在 postgres 容器裡 pg_dump），這個佔位服務不啟動。
+  backup:
+    profiles: ['local-only']
+    container_name: fju-${FJU_SITE:?}-unused-backup
+    env_file: !reset []
+
+# 基礎檔的 volume 有寫死的 name（fju-im-project-*），寫死的名字不會跟著 project name 分開——
+# 不覆蓋的話兩站會共用同一顆資料庫 volume。這裡一律換成帶站台名的。
+volumes:
+  fju-pgdata:
+    name: fju-${FJU_SITE:?}-pgdata
+  fju-caddy-data:
+    name: fju-${FJU_SITE:?}-unused-caddy-data
+  fju-caddy-config:
+    name: fju-${FJU_SITE:?}-unused-caddy-config
+  fju-backups:
+    name: fju-${FJU_SITE:?}-unused-backups
+
+networks:
+  edge:
+    external: true
+    name: fju-edge

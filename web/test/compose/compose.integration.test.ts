@@ -139,22 +139,150 @@ describe('.env.example', () => {
       'BETTER_AUTH_URL',
       'GOOGLE_CLIENT_ID',
       'GOOGLE_CLIENT_SECRET',
-      'TURNSTILE_SITE_KEY',
-      'TURNSTILE_SECRET_KEY',
       'FILES_ROOT',
       'FILE_MAX_BYTES',
       'BUSINESS_CLOCK_OVERRIDE_ENABLED',
       'DATABASE_URL_OWNER',
       'DATABASE_URL_BACKUP',
-      'R2_ACCOUNT_ID',
-      'R2_ACCESS_KEY_ID',
-      'R2_SECRET_ACCESS_KEY',
-      'R2_BUCKET',
-      'AGE_RECIPIENTS',
-      'ALERT_WEBHOOK_URL',
     ]) {
       expect(names, `少了 ${name}`).toContain(name)
     }
+  })
+
+  it('不用的服務（Turnstile、R2、age、告警 webhook）不再列（Roy 2026-09-23 定案）', () => {
+    const names = lines.map((l) => l.slice(0, -1))
+    for (const prefix of ['TURNSTILE_', 'R2_', 'AGE_', 'ALERT_WEBHOOK']) {
+      expect(names.filter((n) => n.startsWith(prefix)), `${prefix}* 應該拿掉`).toEqual([])
+    }
+  })
+})
+
+/** VM 上 doppler run 放進環境的鍵（全是假值）。 */
+const FAKE_SITE_SECRETS: Record<string, string> = {
+  POSTGRES_USER: 'fake_owner',
+  POSTGRES_PASSWORD: 'fake',
+  POSTGRES_DB: 'fju',
+  DATABASE_URL: 'postgres://fju_app:fake@postgres:5432/fju',
+  DATABASE_URL_OWNER: 'postgres://fake_owner:fake@postgres:5432/fju',
+  BETTER_AUTH_SECRET: 'fake',
+  BETTER_AUTH_URL: 'https://test.fju.roy422.dev',
+  GOOGLE_CLIENT_ID: 'fake',
+  GOOGLE_CLIENT_SECRET: 'fake',
+  FILES_ROOT: '/srv/fju/files',
+  FILE_MAX_BYTES: '104857600',
+  BUSINESS_CLOCK_OVERRIDE_ENABLED: 'true',
+}
+
+type SiteService = {
+  container_name?: string
+  env_file?: unknown
+  environment?: Record<string, string>
+  ports?: PortMapping[]
+  networks?: Record<string, unknown>
+  volumes?: { source: string; target: string }[]
+}
+
+/** 跟 ops/lib/site.sh 一樣的方式解析某一站（COMPOSE_FILE＋COMPOSE_PROJECT_NAME＋FJU_SITE）。 */
+async function siteConfig(site: 'test' | 'prod', secrets: Record<string, string> = FAKE_SITE_SECRETS) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...secrets,
+    FJU_SITE: site,
+    COMPOSE_PROJECT_NAME: `fju-${site}`,
+    COMPOSE_FILE: `${path.join(repoRoot, 'docker-compose.yml')}:${path.join(repoRoot, 'docker-compose.vm.yml')}`,
+  }
+  const { stdout } = await exec('docker', ['compose', 'config', '--format', 'json'], { cwd: repoRoot, env })
+  return JSON.parse(stdout) as {
+    name: string
+    services: Record<string, SiteService>
+    volumes: Record<string, { name: string }>
+    networks: Record<string, { name?: string; external?: boolean }>
+  }
+}
+
+describe('VM 兩站（docker-compose.vm.yml，2026-09-24）', () => {
+  it('兩站是不同的 project，資料庫 volume 各自一顆（不會共用 fju-im-project-pgdata）', async () => {
+    const [test, prod] = await Promise.all([siteConfig('test'), siteConfig('prod')])
+    expect(test.name).toBe('fju-test')
+    expect(prod.name).toBe('fju-prod')
+    expect(test.volumes['fju-pgdata']?.name).toBe('fju-test-pgdata')
+    expect(prod.volumes['fju-pgdata']?.name).toBe('fju-prod-pgdata')
+    const testNames = Object.values(test.services).map((s) => s.container_name)
+    const prodNames = Object.values(prod.services).map((s) => s.container_name)
+    expect(testNames.filter((n) => prodNames.includes(n))).toEqual([])
+  })
+
+  it('站台只起 postgres、migrate、app、worker；caddy 與 backup 不在站台 project 裡跑', async () => {
+    const test = await siteConfig('test')
+    expect(Object.keys(test.services).sort()).toEqual(['app', 'migrate', 'postgres', 'worker'])
+  })
+
+  it('站台 project 對宿主機不發布任何 port（對外只有共用的 Caddy）', async () => {
+    const test = await siteConfig('test')
+    for (const [name, svc] of Object.entries(test.services)) {
+      expect(svc.ports ?? [], `${name} 不該發布 port`).toEqual([])
+    }
+  })
+
+  it('不讀任何 .env 檔；秘密逐項給，app 看不到 owner 連線、migrate 看不到 app 組', async () => {
+    const test = await siteConfig('test')
+    for (const name of ['migrate', 'app', 'worker']) {
+      expect(test.services[name]?.env_file ?? [], `${name} 還有 env_file`).toEqual([])
+    }
+    expect(Object.keys(test.services.migrate?.environment ?? {})).toEqual(['DATABASE_URL_OWNER'])
+    for (const name of ['app', 'worker']) {
+      const keys = Object.keys(test.services[name]?.environment ?? {})
+      expect(keys).toContain('DATABASE_URL')
+      expect(keys).toContain('BETTER_AUTH_SECRET')
+      expect(keys).not.toContain('DATABASE_URL_OWNER')
+      expect(keys).not.toContain('POSTGRES_PASSWORD')
+    }
+  })
+
+  it('少一個秘密就整個失敗，不會用空值把容器建起來', async () => {
+    const partial = { ...FAKE_SITE_SECRETS }
+    delete partial.DATABASE_URL
+    await expect(siteConfig('test', partial)).rejects.toThrow(/Doppler 少了 DATABASE_URL/)
+  })
+
+  it('app 加入外部網路 fju-edge，名字是 fju-<站台>-app（Caddyfile.vm 靠它找到）', async () => {
+    const [test, prod] = await Promise.all([siteConfig('test'), siteConfig('prod')])
+    expect(test.services.app?.container_name).toBe('fju-test-app')
+    expect(prod.services.app?.container_name).toBe('fju-prod-app')
+    expect(Object.keys(test.services.app?.networks ?? {})).toContain('edge')
+    expect(test.networks.edge).toMatchObject({ name: 'fju-edge', external: true })
+    // postgres 只在站台自己的網路，另一站與 Caddy 都連不到。
+    expect(Object.keys(test.services.postgres?.networks ?? {})).toEqual(['default'])
+  })
+
+  it('附件目錄是該站自己的 /srv/fju/<站台>/files', async () => {
+    const test = await siteConfig('test')
+    const mount = test.services.app?.volumes?.find((v) => v.target === FAKE_SITE_SECRETS.FILES_ROOT)
+    expect(mount?.source).toBe('/srv/fju/test/files')
+  })
+})
+
+describe('共用 Caddy（docker-compose.edge.yml）', () => {
+  it('只有 caddy，只發布 80／443 的 TCP（跟 ufw 一致，不開 443/udp）', async () => {
+    const config = await composeConfig(['docker-compose.edge.yml'])
+    expect(config.name).toBe('fju-edge')
+    const services = config.services as Record<string, SiteService>
+    expect(Object.keys(services)).toEqual(['caddy'])
+    const ports = (services.caddy?.ports ?? []).map((p) => `${p.published}:${p.target}/${(p as { protocol?: string }).protocol}`)
+    expect(ports.sort()).toEqual(['443:443/tcp', '80:80/tcp'])
+  })
+
+  it('掛 ops/Caddyfile.vm：兩個網址分到兩站，b1／b2 插槽已拿掉', async () => {
+    const config = await composeConfig(['docker-compose.edge.yml'])
+    const caddy = (config.services as Record<string, SiteService>).caddy
+    const mounted = caddy?.volumes?.find((v) => v.target === '/etc/caddy/Caddyfile')
+    expect(mounted?.source).toBe(path.join(repoRoot, 'ops/Caddyfile.vm'))
+
+    const caddyfile = fs.readFileSync(path.join(repoRoot, 'ops/Caddyfile.vm'), 'utf8')
+    expect(caddyfile).toMatch(/^fju\.roy422\.dev \{[\s\S]*?reverse_proxy fju-prod-app:3000/m)
+    expect(caddyfile).toMatch(/^test\.fju\.roy422\.dev \{[\s\S]*?reverse_proxy fju-test-app:3000/m)
+    expect(caddyfile).not.toMatch(/b[12]\.fju/)
+    expect(caddyfile).toMatch(/max_size \{\$UPLOAD_MAX_SIZE:105MB\}/)
   })
 })
 

@@ -5,6 +5,10 @@
 
 > **本票尚未完成。** 這份記的是「重新探測的現況」與「Fable 準備好、等 Roy 以 sudo 執行的腳本」。
 > SOP 01 的執行紀錄表仍是 NOT_RUN——腳本還沒在 VM 上跑過。
+>
+> **2026-09-24 更新：** 下面寫的是單站＋`b1`／`b2` 插槽的舊版。VM 已改成兩站（`fju-test`／`fju-prod`，
+> 共用 Caddy、秘密走 Doppler、測試站自動部署），腳本與操作步驟以 [`ops/README.md`](../../../ops/README.md) 為準；
+> 本檔保留為 9/15–9/16 的探測與審查紀錄。
 
 ## 1. 重新探測（2026-09-15）
 
@@ -186,7 +190,7 @@ ssh roy422roy@140.136.155.167 'sudo bash /tmp/vm-setup.sh --check'
 > 磁碟 85 GB 標「✓」。**不會安裝任何東西。**
 
 ```bash
-# 3. 實際設定（會裝 docker.io、docker-compose-plugin、ufw）
+# 3. 實際設定（會裝 docker.io、docker-compose-v2、ufw）
 ssh -t roy422roy@140.136.155.167 'sudo bash /tmp/vm-setup.sh'
 ```
 > 預期：步驟 1–4 全部變成 ✓；最後印出「接下來 Roy 要做的事」七點。

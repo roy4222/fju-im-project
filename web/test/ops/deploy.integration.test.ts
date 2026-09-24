@@ -22,7 +22,7 @@ const checkHealth = path.join(repoRoot, 'ops/check-health.mjs')
 async function dryRun(args: string[]): Promise<string> {
   const deployDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fju-deploy-'))
   try {
-    const { stdout } = await exec('bash', [deploySh, ...args], {
+    const { stdout } = await exec('bash', [deploySh, '--site', 'test', ...args], {
       cwd: repoRoot,
       env: { ...process.env, DEPLOY_DIR: deployDir },
     })
@@ -89,6 +89,51 @@ describe('ops/deploy.sh --dry-run', () => {
     const out = await dryRun(['abc123'])
     expect(out).toContain('imageDigest=<pull 到的 digest>')
     expect(out).toContain('schemaVersion=<migrate 輸出>')
+  })
+})
+
+describe('ops/deploy.sh 兩站（2026-09-24）', () => {
+  it('沒給 --site 就拒絕，不會默默部署到某一站', async () => {
+    await expect(exec('bash', [deploySh, 'abc123'], { cwd: repoRoot })).rejects.toThrow(/缺少 --site/)
+  })
+
+  it('--site 只收 test 或 prod', async () => {
+    await expect(exec('bash', [deploySh, '--site', 'staging', 'abc123'], { cwd: repoRoot })).rejects.toThrow(
+      /test 或 prod/,
+    )
+  })
+
+  it('test 對應 fju-test、stg、test.fju.roy422.dev；prod 對應 fju-prod、prd、fju.roy422.dev', async () => {
+    const test = await dryRun(['abc123'])
+    expect(test).toContain('Compose project fju-test')
+    expect(test).toContain('Doppler stg')
+    expect(test).toContain('https://test.fju.roy422.dev/api/health')
+
+    const { stdout: prod } = await exec('bash', [deploySh, '--site', 'prod', 'abc123'], {
+      cwd: repoRoot,
+      env: { ...process.env, DEPLOY_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'fju-deploy-')) },
+    })
+    expect(prod).toContain('Compose project fju-prod')
+    expect(prod).toContain('Doppler prd')
+    expect(prod).toContain('https://fju.roy422.dev/api/health')
+  })
+
+  it('演練不需要 Doppler token，也不碰 /srv/fju（CI 的 cd.yml 也是這樣跑）', async () => {
+    const out = await dryRun(['abc123'])
+    expect(out).toContain('doppler run --no-fallback')
+    expect(out).toContain('這是演練，什麼都沒有執行')
+  })
+
+  it('--rollback 演練：不跑 migrate、健康判定不比 schemaVersion、記 rolled-back', async () => {
+    const out = await dryRun(['oldtag', '--rollback'])
+    expect(out).toContain('4/7 略過 migration')
+    expect(out).not.toContain('run --rm migrate')
+    expect(out).toContain('schemaVersion 不比對')
+    expect(out).toContain('rolled-back')
+  })
+
+  it('tag 只收 docker tag 合法的字元', async () => {
+    await expect(dryRun(['abc;rm -rf /'])).rejects.toThrow(/tag 格式不對/)
   })
 })
 
@@ -259,6 +304,36 @@ describe('cd.yml：只能手動觸發、預設演練（契約 05 §3）', () => 
   it('實際執行的那一步帶 --dry-run', () => {
     const deployStep = cd.jobs.deploy?.steps.find((s) => s.run?.includes('ops/deploy.sh'))
     expect(deployStep?.run).toContain('--dry-run')
+  })
+})
+
+describe('image.yml：main 合併後推 GHCR（2026-09-24）', () => {
+  const image = YAML.parse(fs.readFileSync(path.join(repoRoot, '.github/workflows/image.yml'), 'utf8')) as {
+    on: Record<string, unknown>
+    jobs: Record<
+      string,
+      { if?: string; permissions?: Record<string, string>; steps: { uses?: string; with?: Record<string, string> }[] }
+    >
+  }
+  const publish = image.jobs.publish
+  const build = publish?.steps.find((s) => s.uses?.startsWith('docker/build-push-action'))
+
+  it('只在 main 上發布（別的分支手動觸發也不會把 :main 指過去）', () => {
+    expect((image.on.push as { branches: string[] }).branches).toEqual(['main'])
+    expect(publish?.if).toBe("github.ref == 'refs/heads/main'")
+  })
+
+  it('tag 是完整 SHA（等於 /api/health 的 commit）與 :main；GIT_COMMIT 也是完整 SHA', () => {
+    expect(build?.with?.tags).toContain('ghcr.io/roy4222/fju-web:${{ github.sha }}')
+    expect(build?.with?.tags).toContain('ghcr.io/roy4222/fju-web:main')
+    expect(build?.with?.['build-args']).toContain('GIT_COMMIT=${{ github.sha }}')
+    // auto-deploy.sh 從這個 label 讀出 :main 對應的 SHA。
+    expect(build?.with?.labels).toContain('org.opencontainers.image.revision=${{ github.sha }}')
+  })
+
+  it('只有這個 job 有 packages: write，workflow 預設仍是唯讀', () => {
+    expect((image as unknown as { permissions: Record<string, string> }).permissions).toEqual({ contents: 'read' })
+    expect(publish?.permissions).toEqual({ contents: 'read', packages: 'write' })
   })
 })
 

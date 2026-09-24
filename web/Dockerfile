@@ -4,6 +4,7 @@
 #   app     → node web/server.js（Next standalone）
 #   worker  → S02-06 換上真的到期工作迴圈
 #   migrate → node web/scripts/migrate.mjs（需要 pg 與 drizzle-orm，所以另外裝 production 依賴）
+#   seed:a1 → node migrate/web/scripts/seed-a1.mjs（ops/seed-admin.sh，一次性）
 
 FROM node:22.23.2-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
@@ -46,6 +47,9 @@ COPY --from=build --chown=nextjs:nodejs /repo/web/.next/static ./web/.next/stati
 # migrate 服務要用的東西：純 SQL、執行腳本，以及 production 依賴。
 COPY --from=build --chown=nextjs:nodejs /repo/web/drizzle ./migrate/web/drizzle
 COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/migrate.mjs ./migrate/web/scripts/migrate.mjs
+# 第一位管理員 A1（ops/seed-admin.sh 用 migrate 服務跑它）。依賴 pg、uuidv7、better-auth
+# 都是 production 依賴，已經在下面的 migrate/node_modules 裡。
+COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-a1.mjs ./migrate/web/scripts/seed-a1.mjs
 COPY --from=proddeps --chown=nextjs:nodejs /repo/node_modules ./migrate/node_modules
 COPY --from=proddeps --chown=nextjs:nodejs /repo/web/node_modules ./migrate/web/node_modules
 

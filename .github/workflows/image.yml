@@ -1,0 +1,86 @@
+# 映像發布（2026-09-24 兩站版）。
+#
+# main 每合併一次，就把 web 映像（app、worker、migrate 共用）建好推到 GHCR：
+#
+#   ghcr.io/roy4222/fju-web:<完整 commit SHA>   ← 部署用這個；ops/deploy.sh 的 <tag>
+#   ghcr.io/roy4222/fju-web:main                 ← 永遠指向 main 最新的一個；測試站自動部署看它
+#
+# tag 一定是**完整** SHA：映像裡的 GIT_COMMIT 也是它，/api/health 回的 commit 要跟 tag 相同，
+# 健康判定才會過（短 SHA 會被判成版本不符）。
+#
+# 這裡只負責「推映像」，不碰 VM：
+#   - 測試站：VM 上的 fju-auto-deploy.timer 每 2 分鐘看一次 :main，有新的就自己部署（ops/auto-deploy.sh）。
+#   - 正式站：Roy 在 VM 上手動 `ops/deploy.sh --site prod <SHA> --execute`。
+# 所以 GitHub 上不放任何 VM 的 SSH 金鑰。
+#
+# 不放進 ci.yml：那裡的 job 名稱固定是七道 required checks（契約 05 §2）。
+name: Image
+
+on:
+  push:
+    branches: [main]
+  # 手動重推某個 commit（例如 GHCR 那次失敗）：從 Actions 頁面選 main 觸發。
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # 只發布 main：手動從別的分支觸發會把 :main 指到非 main 的 SHA，
+    # 幾分鐘後測試站就會自動部署那個分支。
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # 只有這個 job 能寫 GHCR（SOP 02：推映像用 GITHUB_TOKEN，不放大 workflow 預設權限）。
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 建置並推送 ghcr.io/roy4222/fju-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web/Dockerfile
+          push: true
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ github.sha }}
+          tags: |
+            ghcr.io/roy4222/fju-web:${{ github.sha }}
+            ghcr.io/roy4222/fju-web:main
+          # source 讓 GHCR 的套件掛到這個 repo（權限跟著 repo 走）；
+          # revision 讓 VM 的 auto-deploy.sh 從 :main 讀出對應的 SHA。
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 摘要
+        run: |
+          {
+            echo "### 映像已推到 GHCR"
+            echo ""
+            echo "- \`ghcr.io/roy4222/fju-web:${GITHUB_SHA}\`"
+            echo "- \`ghcr.io/roy4222/fju-web:main\`（同一個映像）"
+            echo ""
+            echo "測試站會在幾分鐘內自動部署。正式站要 Roy 在 VM 上手動執行："
+            echo ""
+            echo "\`\`\`"
+            echo "sudo -u deploy /srv/fju/app/ops/deploy.sh --site prod ${GITHUB_SHA} --execute"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
