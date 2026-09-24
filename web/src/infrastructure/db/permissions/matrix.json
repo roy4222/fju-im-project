@@ -27,7 +27,14 @@
     { "slice": "S01", "table": "user_status_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
     { "slice": "S01", "table": "session_revocations", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "撤 session 的可變工作列；收斂核對讀 users.banned 只用 SELECT" },
     { "slice": "S01", "table": "stored_files", "select": true, "insert": true, "update": ["status", "size_bytes", "checksum", "mime_detected", "finalized_at", "soft_deleted_at", "purged_at", "revision", "updated_at"], "delete": false, "immutable": false, "worker": true, "note": "狀態欄；purge 是狀態加實體檔，不 DELETE 列" },
-    { "slice": "S01", "table": "file_references", "select": true, "insert": true, "update": ["released_at"], "delete": false, "immutable": false, "worker": true, "note": "釋放只設欄位；重新附加插入新列（契約 01 §11）" }
+    { "slice": "S01", "table": "file_references", "select": true, "insert": true, "update": ["released_at"], "delete": false, "immutable": false, "worker": true, "note": "釋放只設欄位；重新附加插入新列（契約 01 §11）" },
+    { "slice": "S02", "table": "cohort_stages", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "階段開始日" },
+    { "slice": "S02", "table": "project_events", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "活動；取消只改 status，不刪列" },
+    { "slice": "S02", "table": "business_clock_overrides", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "模擬業務鐘紀錄；只寫不改、取最新" },
+    { "slice": "S02", "table": "cohort_status_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變" },
+    { "slice": "S02", "table": "notifications", "select": true, "insert": true, "update": ["read_at"], "delete": false, "immutable": false, "worker": true, "note": "worker 建立、本人已讀" },
+    { "slice": "S02", "table": "digest_events", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變" },
+    { "slice": "S02", "table": "worker_heartbeat", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "單列 upsert" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

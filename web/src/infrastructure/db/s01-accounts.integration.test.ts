@@ -5,7 +5,13 @@ import {
   withTemporaryDatabase,
   type IsolatedDatabase,
 } from '../../../test/db'
-import { applyMigration, applyMigrations, migratedSchema, runDrizzleMigrator } from '../../../test/migrations'
+import {
+  applyMigration,
+  applyMigrations,
+  migratedSchema,
+  migrationTags,
+  runDrizzleMigrator,
+} from '../../../test/migrations'
 
 /**
  * S01-01：第二支 migration（模組 01 v2.4 附錄 A 九張表＋模組 10 最小檔案兩張）。
@@ -126,7 +132,8 @@ describe('S00→S01 升級', () => {
   it('用正式那支 migrator 跑第二次是 no-op，資料不動', async () => {
     await withTemporaryDatabase('migrator-rerun', async (url) => {
       const firstRun = await runDrizzleMigrator(url)
-      expect(firstRun).toBe(3)
+      // 後面的切片會再加 migration；這裡驗「journal 裡的每一支都套到了」，不寫死支數。
+      expect(firstRun).toBe(migrationTags().length)
 
       const { Pool } = await import('pg')
       const pool = new Pool({ connectionString: url, max: 1 })
@@ -145,7 +152,8 @@ describe('S00→S01 升級', () => {
           `select count(*)::int as n from information_schema.tables
            where table_schema = 'public' and table_type = 'BASE TABLE' and table_name <> '__drizzle_migrations'`,
         )
-        expect(tables.rows[0].n).toBe(22)
+        // S00＋S01 共二十二張；之後的切片只會多，不會少。
+        expect(tables.rows[0].n).toBeGreaterThanOrEqual(22)
       } finally {
         await pool.end()
       }

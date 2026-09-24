@@ -1,0 +1,116 @@
+import type { ActorKind, Scope } from '@/application/ops'
+
+/**
+ * 「發事件」的型別與純規則（模組 08 §2、§5；契約 01 §4.5、§9；產品模組 08 §4「去重、補建與保存」）。
+ *
+ * 事件寫進去就改不掉（`domain_events` 不可變），而且**收件人在寫入當下就固定**：
+ * 之後補建通知只能照這份名單，不能重新展開成另一批人。
+ * 事件跟業務寫入在同一筆交易（`EventPublisher.publish(tx, …)`），交易回滾事件就一起消失，
+ * 不會有「動作沒成功卻通知了人」。
+ */
+
+/** 事件的下游消費者（`event_projections.consumer` 的 CHECK 白名單）。 */
+export type EventConsumer = 'notifications' | 'digest' | 'showcase'
+
+export const EVENT_CONSUMERS: readonly EventConsumer[] = ['notifications', 'digest', 'showcase']
+
+/**
+ * 事件型別目錄（模組 08 §4：實作以產品事件矩陣為準，在這裡對照）。
+ *
+ * 每種事件在這裡登記一次，並寫明寫入時要替哪些消費者建「待投影」列。
+ * **沒登記的型別一律拒絕寫入**——後面的票新增事件時，要先在這裡補一列並對照產品矩陣，
+ * 才不會有人隨手發一種 worker 不認得、或不該進通知匣的事件。
+ */
+export const EVENT_CATALOG = {
+  /**
+   * 屆別從籌備中轉進行中（票 11）。產品矩陣沒有這一列：狀態變化不另發通知，
+   * 進入該屆時直接顯示目前狀態（模組 08 §4「封存／解封」同理）。事件只留紀錄。
+   */
+  'cohort.activated': { consumers: [] },
+  /**
+   * 獨立活動新增、改期、取消（票 11；模組實作設計 02 §3「event upsert／cancel」）。
+   * 站內日曆是查詢組出來的，不靠通知；產品矩陣也沒有「活動異動」通知，所以沒有消費者。
+   */
+  'calendar.changed': { consumers: [] },
+  /**
+   * 投影驗收用的測試事件（模組實作設計 08 §6；收件人由發送者指定）。票 11 只登記，
+   * 讓「發事件→待投影」這條路現在就測得到；管理端「發一則測試通知」的入口與環境限制在票 12。
+   */
+  'test.notification': { consumers: ['notifications'] },
+} as const satisfies Record<string, { consumers: readonly EventConsumer[] }>
+
+export type EventType = keyof typeof EVENT_CATALOG
+
+export function isEventType(value: string): value is EventType {
+  return Object.hasOwn(EVENT_CATALOG, value)
+}
+
+export function consumersOf(type: EventType): readonly EventConsumer[] {
+  return EVENT_CATALOG[type].consumers
+}
+
+export type EventActor =
+  | { readonly kind: 'user'; readonly userId: string }
+  | { readonly kind: Exclude<ActorKind, 'user'> }
+
+/** 業務動作要發的一個事件。 */
+export type DomainEventInput = {
+  readonly type: EventType
+  readonly scope: Scope
+  /** `scope='cohort'` 時必填；`global` 時必須是空的（契約 01 §1 scope 規則）。 */
+  readonly cohortId?: string | null
+  /** 事件的來源物件與版本，例如 `{ type: 'project_event', id, version: 3 }`。 */
+  readonly source: { readonly type: string; readonly id: string; readonly version?: number | null }
+  readonly actor: EventActor
+  /** 寫入當下就固定的收件人 user id。重複的會合併，順序不重要。 */
+  readonly recipients: readonly string[]
+  /** 收件人是怎麼算出來的（membership、名單版本、指派版本 ID），追溯用。 */
+  readonly recipientBasis?: Record<string, unknown>
+  /** 只放 ID 與標題；**不放私有正文**（契約 01 §4.5）。 */
+  readonly payload?: Record<string, unknown>
+  /** 真實時間與業務時間都要存（契約 01 §1）。 */
+  readonly occurredRealAt: Date
+  readonly occurredBusinessAt: Date
+}
+
+/** 寫入前整理好的事件：收件人已去重排序、消費者已依目錄決定。 */
+export type NormalizedDomainEvent = Omit<DomainEventInput, 'recipients' | 'cohortId'> & {
+  readonly cohortId: string | null
+  readonly recipients: readonly string[]
+  readonly consumers: readonly EventConsumer[]
+}
+
+/**
+ * 事件內容不合規則。這是**程式寫錯**（型別不在目錄、scope 與屆別對不上），
+ * 不是使用者輸入錯——所以丟例外讓整筆交易回滾，而不是回一個給使用者看的 Result。
+ */
+export class DomainEventRejected extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DomainEventRejected'
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function normalizeDomainEvent(input: DomainEventInput): NormalizedDomainEvent {
+  if (!isEventType(input.type)) {
+    throw new DomainEventRejected(`事件型別 ${String(input.type)} 沒有在 EVENT_CATALOG 登記`)
+  }
+  const cohortId = input.cohortId ?? null
+  if ((input.scope === 'cohort') !== (cohortId !== null)) {
+    throw new DomainEventRejected('scope=cohort 必須帶 cohortId；scope=global 不可以帶')
+  }
+  if (!UUID.test(input.source.id)) throw new DomainEventRejected('事件來源 id 必須是 uuid')
+  for (const recipient of input.recipients) {
+    if (!UUID.test(recipient)) throw new DomainEventRejected(`收件人 ${recipient} 不是 uuid`)
+  }
+  if (input.actor.kind === 'user' && !UUID.test(input.actor.userId)) {
+    throw new DomainEventRejected('操作者 id 必須是 uuid')
+  }
+
+  // 同一人兼具多個收件身分也只收一則（產品模組 08 §4「去重」）：在寫入時就合併。
+  const recipients = [...new Set(input.recipients.map((id) => id.toLowerCase()))].sort()
+
+  return { ...input, cohortId, recipients, consumers: consumersOf(input.type) }
+}

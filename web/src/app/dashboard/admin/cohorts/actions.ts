@@ -2,10 +2,10 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { CohortActionState } from '@/app/dashboard/admin/cohorts/cohort-forms'
-import { describeFlagReceipt, getCohortCommand } from '@/composition/cohorts'
+import { describeActivateReceipt, describeFlagReceipt, getCohortCommand } from '@/composition/cohorts'
 
 /**
- * 屆別頁的兩個動作（票 5；契約 02 §7）。
+ * 屆別頁的動作（票 5：新增、設旗標；票 11：轉進行中；契約 02 §7）。
  *
  * 這裡只做「表單 → 用例 → 畫面回饋」的翻譯；誰能做、代碼怎麼驗、旗標怎麼切換，
  * 全部在用例裡判（直接打這個 Server Action 的人一樣會被用例擋下）。
@@ -50,4 +50,19 @@ export async function setCohortFlagAction(
 
   refresh()
   return { ok: true, message: describeFlagReceipt(result.receipt) }
+}
+
+export async function activateCohortAction(
+  _state: CohortActionState,
+  formData: FormData,
+): Promise<CohortActionState> {
+  const result = await getCohortCommand().activate(
+    await currentActor(),
+    String(formData.get('cohortId') ?? ''),
+    String(formData.get('requestId') ?? ''),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+
+  refresh()
+  return { ok: true, message: describeActivateReceipt(result.receipt) }
 }

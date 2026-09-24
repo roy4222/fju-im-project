@@ -5,6 +5,7 @@ import { applyMigrations, migratedSchema } from '../../../test/migrations'
 /**
  * S00-04：第一支 migration 在**空資料庫**上跑得起來，而且建出契約 01 §12 點名的十一張表。
  * S01-01：第二支 migration 在它之上**只新增**十一張表；空庫升級與舊庫升版兩條路徑都要通。
+ * 票 11（S02-01）：第三支再新增七張表（細節在 s02-timeline.integration.test.ts）。
  */
 
 beforeAll(async () => {
@@ -41,9 +42,20 @@ const S01_TABLES = [
   'user_status_events',
 ]
 
-const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES].sort()
+/** 票 11（S02-01）新增的七張表：模組 02 附錄 A 四張＋模組 08 附錄 A 三張。 */
+const S02_TABLES = [
+  'business_clock_overrides',
+  'cohort_stages',
+  'cohort_status_events',
+  'digest_events',
+  'notifications',
+  'project_events',
+  'worker_heartbeat',
+]
 
-const S01_LAST = '0002_s01_accounts_and_files'
+const EXPECTED_TABLES = [...S00_TABLES, ...S01_TABLES, ...S02_TABLES].sort()
+
+const LATEST = '0003_s02_timeline_and_events'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -55,14 +67,14 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出二十二張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出二十九張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
 
       const tags = await applyMigrations(db)
       expect(tags[0]).toBe('0000_s00_foundation')
-      expect(tags.at(-1)).toBe(S01_LAST)
+      expect(tags.at(-1)).toBe(LATEST)
 
       expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
     })
@@ -190,9 +202,10 @@ describe('契約 01 §4 的約束確實建出來了', () => {
         expect(row.data_type).toBe('timestamp with time zone')
       }
 
+      // worker_heartbeat 是固定一列的心跳表（模組 08 附錄 A：`id smallint CHECK (id = 1)`），不是業務實體。
       const ids = await db.sql(
         `select table_name, data_type from information_schema.columns
-         where table_schema = $1 and column_name = 'id'`,
+         where table_schema = $1 and column_name = 'id' and table_name <> 'worker_heartbeat'`,
         [db.schemaName],
       )
       for (const row of ids.rows) {
