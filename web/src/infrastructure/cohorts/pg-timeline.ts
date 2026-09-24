@@ -151,6 +151,8 @@ export class PgTimelineCommand implements TimelineCommand {
     if (!normalized.ok) return normalized
     const next = normalized.value
     const userId = actorUserId(actor)
+    // 業務時間在開交易**之前**讀：業務鐘自己也借連線，交易裡再借一條會跟別的寫入互等（票 11 審查建議）。
+    const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
       const found = await tx.query<CohortRow>(
@@ -231,7 +233,7 @@ export class PgTimelineCommand implements TimelineCommand {
         scope: 'cohort',
         cohortId,
         realAt,
-        businessAt: await this.#businessClock.now(),
+        businessAt,
         payload: {
           before: { stages: current.stages.map(({ seq, name, startDate }) => ({ seq, name, startDate })), yearEndDate: current.yearEndDate },
           after: { stages: next.stages, yearEndDate: next.yearEndDate },
@@ -259,6 +261,7 @@ export class PgTimelineCommand implements TimelineCommand {
     if (!normalized.ok) return normalized
     const activity = normalized.value
     const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
       const cohort = await this.#shareCohort(tx, cohortId)
@@ -289,7 +292,7 @@ export class PgTimelineCommand implements TimelineCommand {
         [id, cohortId, activity.title, activity.description, activity.startsAt, activity.endsAt, activity.allDay,
           activity.audienceKind, userId, realAt],
       )
-      await this.#recordChange(tx, { cohortId, activityId: id, version: 1, action: 'created', userId, realAt, before: null, after: activity })
+      await this.#recordChange(tx, { cohortId, activityId: id, version: 1, action: 'created', userId, realAt, businessAt, before: null, after: activity })
 
       const receipt = { activityId: id, title: activity.title, action: 'created' as const, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { activityId: id } })
@@ -312,6 +315,7 @@ export class PgTimelineCommand implements TimelineCommand {
     if (!normalized.ok) return normalized
     const activity = normalized.value
     const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
       const locked = await this.#lockActivity(tx, activityId)
@@ -351,6 +355,7 @@ export class PgTimelineCommand implements TimelineCommand {
         action: 'updated',
         userId,
         realAt,
+        businessAt,
         before: toActivity(row),
         after: activity,
       })
@@ -372,6 +377,7 @@ export class PgTimelineCommand implements TimelineCommand {
     if (!isRequestId(requestId)) return badRequestId()
     if (!isCohortId(activityId)) return activityNotFound()
     const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
       const locked = await this.#lockActivity(tx, activityId)
@@ -408,6 +414,7 @@ export class PgTimelineCommand implements TimelineCommand {
         action: 'cancelled',
         userId,
         realAt,
+        businessAt,
         before: toActivity(row),
         after: null,
       })
@@ -450,11 +457,12 @@ export class PgTimelineCommand implements TimelineCommand {
       action: ActivityReceipt['action']
       userId: string
       realAt: Date
+      businessAt: Date
       before: Activity | null
       after: NormalizedActivity | null
     },
   ): Promise<void> {
-    const businessAt = await this.#businessClock.now()
+    const businessAt = change.businessAt
     const summary = (a: Activity | NormalizedActivity | null) =>
       a && {
         title: a.title,

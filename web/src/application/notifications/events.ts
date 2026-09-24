@@ -37,6 +37,18 @@ export const EVENT_CATALOG = {
    * 讓「發事件→待投影」這條路現在就測得到；管理端「發一則測試通知」的入口與環境限制在票 12。
    */
   'test.notification': { consumers: ['notifications'] },
+  /**
+   * 分組邀請（票 13；產品模組 08 §4「等待本人同意（分組邀請）→本人」）。收件人＝提案全員（含提案人，
+   * 提案人也要按確認）。payload 帶 `title`、提案 id、到期時間，不帶其他人的聯絡資料。
+   */
+  'proposal.invited': { consumers: ['notifications'] },
+  /** 組別成立（票 13；產品模組 08 §4「組別成立→成立後全員一則」）。收件人＝全體成員。 */
+  'group.established': { consumers: ['notifications'] },
+  /**
+   * 提案終止（票 13；產品模組 08 §4「提案終止→提案人與全部被邀請者，按使用者去重」）。
+   * payload 帶終止種類，**不帶管理員作廢的理由**（S03-07：學生看到的通知不含內部備註）。
+   */
+  'proposal.terminated': { consumers: ['notifications'] },
 } as const satisfies Record<string, { consumers: readonly EventConsumer[] }>
 
 export type EventType = keyof typeof EVENT_CATALOG

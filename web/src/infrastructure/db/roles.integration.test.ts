@@ -28,6 +28,8 @@ let eventId: string
 let applicationId: string
 let rosterVersionId: string
 let storedFileId: string
+let proposalId: string
+let groupId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -315,6 +317,71 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'version', value: 'tampered' },
   },
+  // 票 13（S03-01）的六張分組表。占用與有效區間列都有唯一性，每次連同一個新使用者（或新組別）一起插。
+  group_proposals: {
+    insert: () => ({
+      sql: `insert into group_proposals
+              (id, cohort_id, proposer_user_id, group_type, expires_business_at, created_real_at, created_business_at)
+            values (gen_random_uuid(), $1, $2, 'general', now() + interval '7 days', now(), now())`,
+      values: [cohortId, userId],
+    }),
+    updatable: { column: 'group_type', value: 'industry' },
+  },
+  proposal_invitations: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '邀請測試', $1, false, now()) returning id
+            )
+            insert into proposal_invitations (id, proposal_id, user_id) select gen_random_uuid(), $2, id from u`,
+      values: [`${unique('invite')}@example.com`, proposalId],
+    }),
+    updatable: { column: 'state', value: 'confirmed' },
+  },
+  proposal_occupancy: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '占用測試', $1, false, now()) returning id
+            )
+            insert into proposal_occupancy (user_id, proposal_id) select id, $2 from u`,
+      values: [`${unique('occupy')}@example.com`, proposalId],
+    }),
+    updatable: { column: 'proposal_id', value: null },
+    deleteWhere: 'true',
+  },
+  groups: {
+    insert: () => ({
+      sql: `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+            values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system')`,
+      values: [cohortId, unique('G')],
+    }),
+    updatable: { column: 'group_type', value: 'industry' },
+  },
+  group_memberships: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at)
+              values (gen_random_uuid(), '組員測試', $1, false, now()) returning id
+            )
+            insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind)
+            select gen_random_uuid(), $2, $3, id, now(), 'system' from u`,
+      values: [`${unique('member')}@example.com`, groupId, cohortId],
+    }),
+    updatable: { column: 'valid_to', value: new Date() },
+  },
+  group_leaders: {
+    insert: () => ({
+      sql: `with g as (
+              insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+              values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id
+            )
+            insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id)
+            select gen_random_uuid(), id, $3, now(), $3 from g`,
+      values: [cohortId, unique('GL'), userId],
+    }),
+    updatable: { column: 'valid_to', value: new Date() },
+  },
 }
 
 beforeAll(async () => {
@@ -367,6 +434,20 @@ beforeAll(async () => {
     [userId],
   )
   storedFileId = String(storedFile.rows[0]!.id)
+  // S03 的邀請、占用、組員樣本列需要一份提案與一個組別當 FK 目標。
+  const proposal = await owner.sql(
+    `insert into group_proposals
+       (id, cohort_id, proposer_user_id, group_type, expires_business_at, created_real_at, created_business_at)
+     values (gen_random_uuid(), $1, $2, 'general', now() + interval '7 days', now(), now()) returning id`,
+    [cohortId, userId],
+  )
+  proposalId = String(proposal.rows[0]!.id)
+  const group = await owner.sql(
+    `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+     values (gen_random_uuid(), $1, 'G-ROLES', 'general', now(), now(), 'system') returning id`,
+    [cohortId],
+  )
+  groupId = String(group.rows[0]!.id)
 })
 
 afterAll(async () => {
