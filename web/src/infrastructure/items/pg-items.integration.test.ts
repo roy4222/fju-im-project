@@ -12,6 +12,7 @@ import { EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/appli
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { NoResponsesYet } from '@/infrastructure/items/no-responses-yet'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
+import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
@@ -38,6 +39,7 @@ const businessClock = { now: async () => new Date(businessNow.getTime()) }
 let items: PgItemCommand
 let lockedItems: PgItemCommand
 let query: PgItemQuery
+let publicQuery: PgPublicItemQuery
 let storage: FsFileStorage
 
 const PDF = new TextEncoder().encode('%PDF-1.4\n% 測試附件\n')
@@ -269,6 +271,7 @@ beforeAll(async () => {
   // 票 17 之後才會有真的回答；這個替身假裝「已經有人作答」，證明鎖定規則已經接好。
   lockedItems = new PgItemCommand({ ...deps, responses: { hasAnyResponse: async () => true } })
   query = new PgItemQuery(() => app)
+  publicQuery = new PgPublicItemQuery(() => app)
 })
 
 afterEach(() => {
@@ -914,5 +917,332 @@ describe('查詢', () => {
     const options = await query.editorOptions(cohortId)
     expect(options.stages.map((s) => s.name)).toEqual(['成組期', '期中'])
     expect(options.groups.map((x) => x.code)).toEqual(['G05'])
+  })
+})
+
+// ── 票 16 ──────────────────────────────────────────────────────────────────────
+
+async function mustChange(itemId: string, revision: number, action: 'withdraw' | 'archive' | 'republish') {
+  const changed = await items.changeStatus(adminActor(), itemId, revision, action, randomUUID())
+  if (!changed.ok) throw new Error(`${changed.code} ${changed.message}`)
+  return changed.receipt
+}
+
+async function publicationActions(itemId: string): Promise<string[]> {
+  return (
+    await owner.sql('select action from item_publications where item_id = $1 order by real_at, id', [itemId])
+  ).rows.map((r) => String(r.action))
+}
+
+async function dueWork(itemId: string) {
+  return (
+    await owner.sql(
+      `select deadline_version, state from due_work where kind = 'deadline_snapshot' and subject_id = $1 order by deadline_version`,
+      [itemId],
+    )
+  ).rows
+}
+
+describe('撤回、下架、重新發布（票 16；PUB-07、PUB-11）', () => {
+  it('撤回：沒人作答時回到草稿、名單結束、截止工作取消並換版；再發布恢復同一個項目，實際開放時間不重設', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const item = await mustCreate(cohortId, { stageId })
+    const published = await mustPublish(item.itemId, 1)
+    const opened = (await itemRow(item.itemId)).actual_opened_at as Date
+
+    businessNow = new Date('2026-09-25T02:00:00Z')
+    const withdrawn = await mustChange(item.itemId, published.revision, 'withdraw')
+    expect(withdrawn).toMatchObject({ status: 'draft', action: 'withdraw', rosterClosed: 1 })
+    const row = await itemRow(item.itemId)
+    expect(row.status).toBe('draft')
+    expect(row.actual_opened_at).toEqual(opened)
+    expect(row.deadline_version).toBe(2)
+    expect(await currentRoster(item.itemId)).toEqual([])
+    expect((await rosterRows(item.itemId))[0]).toMatchObject({ removed_reason: '項目撤回成草稿' })
+    expect(await dueWork(item.itemId)).toEqual([{ deadline_version: 1, state: 'cancelled' }])
+    const withdrawEvents = await events(item.itemId, 'item.withdrawn')
+    expect(withdrawEvents).toHaveLength(1)
+    expect(withdrawEvents[0]!.recipients).toEqual([])
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.withdraw'`, [item.itemId])).toBe(1)
+    // 學生的日曆不再有撤回的收件。
+    expect(await publicQuery.myDeadlines(studentActor(s1))).toEqual([])
+
+    // 改好再發布：同一個 ID、實際開放時間不變、名單照當下對象重建、截止工作用新版本排上。
+    businessNow = new Date('2026-09-26T02:00:00Z')
+    const again = await mustPublish(item.itemId, withdrawn.revision)
+    expect(again.actualOpenedAt).toBe(opened.toISOString())
+    expect((await itemRow(item.itemId)).actual_opened_at).toEqual(opened)
+    expect(await currentRoster(item.itemId)).toEqual([s1.id])
+    expect(await dueWork(item.itemId)).toEqual([
+      { deadline_version: 1, state: 'cancelled' },
+      { deadline_version: 2, state: 'pending' },
+    ])
+    expect(await publicationActions(item.itemId)).toEqual(['publish', 'withdraw', 'publish'])
+    expect((await publicQuery.myDeadlines(studentActor(s1))).map((d) => d.itemId)).toEqual([item.itemId])
+  })
+
+  it('已經有人作答：不能撤回（ITEM_HAS_RESPONSES），什麼都不改；下架仍可以', async () => {
+    const { cohortId, stageId } = await newCohort()
+    await newStudent(cohortId)
+    const item = await mustCreate(cohortId, { stageId })
+    const published = await mustPublish(item.itemId, 1)
+    const refused = await lockedItems.changeStatus(adminActor(), item.itemId, published.revision, 'withdraw', randomUUID())
+    expect(refused.ok || refused.code).toBe('ITEM_HAS_RESPONSES')
+    expect((await itemRow(item.itemId)).status).toBe('published')
+    expect(await currentRoster(item.itemId)).toHaveLength(1)
+    expect(await publicationActions(item.itemId)).toEqual(['publish'])
+
+    const archived = await lockedItems.changeStatus(adminActor(), item.itemId, published.revision, 'archive', randomUUID())
+    expect(archived.ok).toBe(true)
+  })
+
+  it('下架保留名單與截止工作；已下架不能發布更新；重新發布不切新版本、不重設實際開放時間', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const item = await mustCreate(cohortId, { stageId })
+    const published = await mustPublish(item.itemId, 1)
+    const opened = (await itemRow(item.itemId)).actual_opened_at as Date
+
+    businessNow = new Date('2026-10-01T02:00:00Z')
+    const archived = await mustChange(item.itemId, published.revision, 'archive')
+    expect(archived.status).toBe('archived')
+    expect(await currentRoster(item.itemId)).toEqual([s1.id])
+    expect(await dueWork(item.itemId)).toEqual([{ deadline_version: 1, state: 'pending' }])
+    expect(await publicQuery.myDeadlines(studentActor(s1))).toEqual([])
+    const update = await items.updatePublished(
+      adminActor(),
+      item.itemId,
+      archived.revision,
+      input(cohortId, { stageId, title: '改標題' }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(update.ok || update.message).toContain('重新發布')
+
+    const republished = await mustChange(item.itemId, archived.revision, 'republish')
+    expect(republished).toMatchObject({ status: 'published', actualOpenedAt: opened.toISOString() })
+    const row = await itemRow(item.itemId)
+    expect(row.actual_opened_at).toEqual(opened)
+    expect(row.deadline_version).toBe(1)
+    expect(await count('select count(*) as n from item_versions where item_id = $1', [item.itemId])).toBe(1)
+    expect(await dueWork(item.itemId)).toEqual([{ deadline_version: 1, state: 'pending' }])
+    expect(await publicationActions(item.itemId)).toEqual(['publish', 'archive', 'republish'])
+    expect(await events(item.itemId, 'item.archived')).toHaveLength(1)
+    expect(await events(item.itemId, 'item.republished')).toHaveLength(1)
+    expect((await query.get(item.itemId))?.publications.map((p) => p.action)).toEqual(['republish', 'archive', 'publish'])
+  })
+
+  it('狀態不對、舊 revision、非管理員、封存的屆別：一律拒絕，什麼都不改；同一個請求重送回同一份回執', async () => {
+    const { cohortId } = await newCohort()
+    const student = await newStudent(cohortId)
+    const item = await mustCreate(cohortId, { placement: 'news', audienceKind: 'public', receiverUnit: 'none' })
+
+    const draftWithdraw = await items.changeStatus(adminActor(), item.itemId, 1, 'withdraw', randomUUID())
+    expect(draftWithdraw.ok || draftWithdraw.code).toBe('VALIDATION_FAILED')
+    const draftArchive = await items.changeStatus(adminActor(), item.itemId, 1, 'archive', randomUUID())
+    expect(draftArchive.ok || draftArchive.code).toBe('VALIDATION_FAILED')
+
+    const published = await mustPublish(item.itemId, 1, false)
+    const republishPublished = await items.changeStatus(adminActor(), item.itemId, published.revision, 'republish', randomUUID())
+    expect(republishPublished.ok || republishPublished.code).toBe('VALIDATION_FAILED')
+    const stale = await items.changeStatus(adminActor(), item.itemId, published.revision - 1, 'archive', randomUUID())
+    expect(stale.ok || stale.code).toBe('CONFLICT')
+    const byStudent = await items.changeStatus(studentActor(student), item.itemId, published.revision, 'archive', randomUUID())
+    expect(byStudent.ok || byStudent.code).toBe('FORBIDDEN')
+
+    const requestId = randomUUID()
+    const first = await items.changeStatus(adminActor(), item.itemId, published.revision, 'archive', requestId)
+    const replay = await items.changeStatus(adminActor(), item.itemId, published.revision, 'archive', requestId)
+    expect(first.ok && replay.ok && replay.receipt.revision).toBe(first.ok && first.receipt.revision)
+    expect(await publicationActions(item.itemId)).toEqual(['publish', 'archive'])
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const closed = await items.changeStatus(adminActor(), item.itemId, published.revision + 1, 'republish', randomUUID())
+    expect(closed.ok || closed.code).toBe('COHORT_ARCHIVED')
+    expect((await itemRow(item.itemId)).status).toBe('archived')
+  })
+})
+
+describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-10）', () => {
+  const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
+
+  function pendingActor(userId: string): ResolvedActor {
+    return { kind: 'authenticated', userId, roles: [], status: 'pending', mustChangePassword: false, cohortMemberships: [] }
+  }
+
+  async function publishedNews(cohortId: string, patch: Partial<ItemInput>) {
+    const item = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', ...patch })
+    const published = await mustPublish(item.itemId, 1, false)
+    return { itemId: item.itemId, revision: published.revision }
+  }
+
+  it('列表依看的人過濾：訪客只有公開；登入者多看到登入可見、自己的屆別、自己的組；老師看到給老師的；草稿與下架都不在', async () => {
+    const { cohortId } = await newCohort()
+    const other = await newCohort()
+    const inGroup = await newStudent(cohortId)
+    const plain = await newStudent(cohortId)
+    const outsider = await newStudent(other.cohortId)
+    const g1 = await newGroup(cohortId, [inGroup], 'G01')
+    const tag = randomUUID().slice(0, 8)
+    const pub = await publishedNews(cohortId, { title: `${tag} 公開`, audienceKind: 'public' })
+    await publishedNews(cohortId, { title: `${tag} 登入`, audienceKind: 'signed_in' })
+    await publishedNews(cohortId, { title: `${tag} 本屆`, audienceKind: 'cohort_students' })
+    await publishedNews(cohortId, { title: `${tag} 組別`, audienceKind: 'groups', groupIds: [g1] })
+    await publishedNews(cohortId, { title: `${tag} 老師`, audienceKind: 'teachers' })
+    await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public', title: `${tag} 草稿` })
+    const gone = await publishedNews(cohortId, { title: `${tag} 下架`, audienceKind: 'public' })
+    await mustChange(gone.itemId, gone.revision, 'archive')
+
+    const seen = async (actor: ResolvedActor) =>
+      (await publicQuery.list(actor, 'news', { q: tag })).map((c) => c.title.replace(`${tag} `, '')).sort()
+    expect(await seen(ANONYMOUS)).toEqual(['公開'])
+    expect(await seen(pendingActor(plain.id))).toEqual(['公開'])
+    expect(await seen(studentActor(inGroup))).toEqual(['公開', '本屆', '登入', '組別'].sort())
+    expect(await seen(studentActor(plain))).toEqual(['公開', '本屆', '登入'].sort())
+    expect(await seen(studentActor(outsider))).toEqual(['公開', '登入'].sort())
+    expect(await seen(teacherActor())).toEqual(['公開', '登入', '老師'].sort())
+    expect(await seen(adminActor())).toEqual(['公開', '本屆', '登入', '組別', '老師'].sort())
+
+    // 前台卡片只帶公開欄位。
+    const [card] = await publicQuery.list(ANONYMOUS, 'news', { q: `${tag} 公開` })
+    expect(Object.keys(card!).sort()).toEqual(
+      ['attachments', 'audienceKind', 'category', 'cover', 'id', 'placement', 'publishedAt', 'summary', 'title'].sort(),
+    )
+    expect(card!.id).toBe(pub.itemId)
+    // 別的位置不混進來。
+    expect(await publicQuery.list(ANONYMOUS, 'resource', { q: tag })).toEqual([])
+  })
+
+  it('打開單篇：公開給內容（正文重清一次）；要登入、已下架、已撤回、找不到各自不同，都不帶標題', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const other = await newCohort()
+    const outsider = await newStudent(other.cohortId)
+    const pub = await publishedNews(cohortId, { audienceKind: 'public', body: '<p>說明會在 LM503</p>' })
+    // 就算資料庫被人直接改過，前台輸出仍然是清理過的（renderBodyHtml）。
+    await owner.sql(`update managed_items set body_html = $2 where id = $1`, [
+      pub.itemId,
+      '<p>說明會在 LM503</p><script>alert(1)</script><img src=x onerror="alert(2)">',
+    ])
+    const opened = await publicQuery.open(ANONYMOUS, pub.itemId, 'news')
+    expect(opened.access).toBe('visible')
+    expect(opened.access === 'visible' && opened.item.bodyHtml).toBe('<p>說明會在 LM503</p>')
+
+    const cohortOnly = await publishedNews(cohortId, { audienceKind: 'cohort_students' })
+    expect(await publicQuery.open(ANONYMOUS, cohortOnly.itemId, 'news')).toEqual({ access: 'need_login', placement: 'news' })
+    expect((await publicQuery.open(studentActor(s1), cohortOnly.itemId, 'news')).access).toBe('visible')
+    expect(await publicQuery.open(studentActor(outsider), cohortOnly.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+
+    const archived = await publishedNews(cohortId, { audienceKind: 'public' })
+    await mustChange(archived.itemId, archived.revision, 'archive')
+    expect(await publicQuery.open(ANONYMOUS, archived.itemId, 'news')).toEqual({ access: 'archived', placement: 'news' })
+
+    const withdrawn = await publishedNews(cohortId, { audienceKind: 'public' })
+    await mustChange(withdrawn.itemId, withdrawn.revision, 'withdraw')
+    expect(await publicQuery.open(ANONYMOUS, withdrawn.itemId, 'news')).toEqual({ access: 'withdrawn', placement: 'news' })
+
+    const draft = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public' })
+    expect(await publicQuery.open(adminActor(), draft.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+    // 位置不對（公告的 ID 拿去資源頁）也是找不到。
+    expect((await publicQuery.open(ANONYMOUS, pub.itemId, 'resource')).access).toBe('not_found')
+    expect((await publicQuery.open(ANONYMOUS, 'not-a-uuid', 'news')).access).toBe('not_found')
+  })
+
+  it('分類與搜尋：分類只列看得到的；搜尋字裡的 % 不當萬用字元', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    await publishedNews(cohortId, { title: `${tag} 競賽 100%`, audienceKind: 'public', category: `競賽-${tag}` })
+    await publishedNews(cohortId, { title: `${tag} 內部`, audienceKind: 'signed_in', category: `內部-${tag}` })
+    const categories = await publicQuery.categories(ANONYMOUS, 'news')
+    expect(categories).toContain(`競賽-${tag}`)
+    expect(categories).not.toContain(`內部-${tag}`)
+    expect((await publicQuery.list(ANONYMOUS, 'news', { category: `競賽-${tag}` })).map((c) => c.title)).toEqual([`${tag} 競賽 100%`])
+    expect(await publicQuery.list(ANONYMOUS, 'news', { q: `${tag} %` })).toEqual([])
+    expect(await publicQuery.list(ANONYMOUS, 'news', { q: `${tag} 競賽 100%` })).toHaveLength(1)
+  })
+
+  it('日曆的截止：只有本人或本人所在組別在目前名單上的發布中收件', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const a = await newStudent(cohortId)
+    const b = await newStudent(cohortId)
+    const g1 = await newGroup(cohortId, [a], 'G01')
+    await newGroup(cohortId, [b], 'G02')
+    const groupItem = await mustCreate(cohortId, {
+      stageId,
+      title: 'G01 的收件',
+      receiverUnit: 'group',
+      audienceKind: 'groups',
+      groupIds: [g1],
+    })
+    await mustPublish(groupItem.itemId, 1)
+    const everyone = await mustCreate(cohortId, { stageId, title: '全屆個人收件', dueAt: '2026-10-30T17:00' })
+    await mustPublish(everyone.itemId, 1)
+    await mustCreate(cohortId, { stageId, title: '還是草稿' })
+
+    const titles = async (actor: ResolvedActor) => (await publicQuery.myDeadlines(actor)).map((d) => d.title)
+    expect(await titles(studentActor(a))).toEqual(['全屆個人收件', 'G01 的收件'])
+    expect(await titles(studentActor(b))).toEqual(['全屆個人收件'])
+    expect(await titles(ANONYMOUS)).toEqual([])
+    const [deadline] = await publicQuery.myDeadlines(studentActor(b))
+    expect(deadline).toMatchObject({ cohortId, receiverUnit: 'individual' })
+    expect(deadline!.dueAt.toISOString()).toBe('2026-10-30T09:00:00.000Z')
+  })
+
+  it('訪客下載：只有發布中、公開對象、目前有效引用的附件；其他一律 401（沒有這個檔也是 401）', async () => {
+    const { cohortId } = await newCohort()
+    const canDownload = async (actor: ResolvedActor, id: string) => {
+      const result = await storage.authorizeDownload(actor, id)
+      if (result.ok) await result.receipt.body.cancel()
+      return result.ok ? 'ok' : result.code
+    }
+    const publicFile = await uploadPdf(adminId, cohortId)
+    const cover = await uploadPdf(adminId, cohortId, 'png')
+    const pub = await mustCreate(cohortId, {
+      placement: 'news',
+      receiverUnit: 'none',
+      audienceKind: 'public',
+      attachmentFileIds: [publicFile],
+      coverFileId: cover,
+    })
+    expect(await canDownload(ANONYMOUS, publicFile)).toBe('UNAUTHENTICATED')
+    const published = await mustPublish(pub.itemId, 1, false)
+    expect(await canDownload(ANONYMOUS, publicFile)).toBe('ok')
+    expect(await canDownload(ANONYMOUS, cover)).toBe('ok')
+
+    const signedFile = await uploadPdf(adminId, cohortId)
+    const signed = await mustCreate(cohortId, {
+      placement: 'resource',
+      receiverUnit: 'none',
+      audienceKind: 'signed_in',
+      attachmentFileIds: [signedFile],
+    })
+    await mustPublish(signed.itemId, 1, false)
+    expect(await canDownload(ANONYMOUS, signedFile)).toBe('UNAUTHENTICATED')
+    expect(await canDownload(teacherActor(), signedFile)).toBe('ok')
+
+    // 待審的人：在政策之前就被擋（403），不會因為對象是公開而放行。
+    const pending = await newStudent(cohortId, { status: 'pending' })
+    expect(await canDownload(pendingActor(pending.id), publicFile)).toBe('FORBIDDEN')
+    expect(await canDownload(ANONYMOUS, randomUUID())).toBe('UNAUTHENTICATED')
+    expect(await canDownload(ANONYMOUS, 'nope')).toBe('UNAUTHENTICATED')
+
+    // 下架後訪客就拿不到；重新發布又可以。
+    const archived = await mustChange(pub.itemId, published.revision, 'archive')
+    expect(await canDownload(ANONYMOUS, publicFile)).toBe('UNAUTHENTICATED')
+    const back = await mustChange(pub.itemId, archived.revision, 'republish')
+    expect(await canDownload(ANONYMOUS, publicFile)).toBe('ok')
+
+    // 從項目拿掉（引用釋放）的舊附件：訪客也拿不到。
+    const updated = await items.updatePublished(
+      adminActor(),
+      pub.itemId,
+      back.revision,
+      input(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public', attachmentFileIds: [], coverFileId: cover }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(updated.ok).toBe(true)
+    expect(await canDownload(ANONYMOUS, publicFile)).toBe('UNAUTHENTICATED')
   })
 })

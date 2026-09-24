@@ -9,6 +9,7 @@ import type {
   PublishCheck,
   ReceiverUnit,
 } from '@/application/items/items'
+import type { LifecycleAction, LifecycleReceipt, PublicAccess } from '@/application/items/lifecycle'
 import type { UploadTicket } from '@/application/ops'
 import type { Result } from '@/shared/result'
 
@@ -16,7 +17,8 @@ import type { Result } from '@/shared/result'
  * 模組 04 對外的 port（模組實作設計 04 §5 的 `ItemCommand`／`ItemQuery`、`ReceiverResolver`，票 15 的部分）。
  *
  * 寫入的 port 自己做授權（只有管理員）；查詢的 port 不做授權——呼叫它的頁面自己守門。
- * 撤回、下架、重新發布、改結構與受眾變更的影響預覽在後面的票（16、S08）。
+ * 撤回、下架、重新發布在票 16（`changeStatus`）；改結構與受眾變更的影響預覽在後面的票（S08）。
+ * 前台內容頁與站內日曆的查詢是 `PublicItemQuery`：它**自己**依看的人過濾（前台沒有頁面守門可以依靠）。
  */
 
 export type SaveReceipt = { readonly itemId: string; readonly revision: number; readonly status: ItemStatus }
@@ -98,6 +100,19 @@ export interface ItemCommand {
    * 清理正文給預覽用。`itemId` 給的話，已發布項目用第一次的實際開放時間判斷截止。只有管理員（名單有學生姓名）。
    */
   review(actor: ResolvedActor, input: ItemInput, itemId: string | null): Promise<Result<ItemReview>>
+  /**
+   * 撤回（發布中→草稿，只有還沒有任何回答時）、下架（發布中→已下架）、重新發布（已下架→發布中）。票 16。
+   *
+   * 三個動作都不動實際開放時間、不切新內容版本，只寫一列發布紀錄（`item_publications`）、稽核與事件（不發通知）。
+   * 撤回另外結束目前的收件名單（再發布時照當下對象重建）並取消還沒到的截止工作；下架保留名單、回答與截止工作。
+   */
+  changeStatus(
+    actor: ResolvedActor,
+    itemId: string,
+    revision: number,
+    action: LifecycleAction,
+    requestId: string,
+  ): Promise<Result<LifecycleReceipt>>
 }
 
 export type ItemReview = {
@@ -224,4 +239,78 @@ export interface ItemQuery {
   editorOptions(cohortId: string): Promise<EditorOptions>
   /** 依對象展開實際的收件者（發布前預覽；與發布時建名單用同一段查詢）。 */
   previewRecipients(input: RecipientQueryInput): Promise<RecipientPreview>
+}
+
+// ── 前台與日曆（票 16） ────────────────────────────────────────────────────────
+
+/** 前台列表的一張卡：只有公開欄位（標題、摘要、分類、封面、附件、發布日），沒有對象細節、名單或欄位。 */
+export type PublicItemCard = {
+  readonly id: string
+  readonly placement: Placement
+  readonly title: string
+  readonly summary: string
+  readonly category: string | null
+  /** 對象不是「公開訪客」時，卡片標「登入可見」。 */
+  readonly audienceKind: AudienceKind
+  readonly cover: ItemFileSummary | null
+  readonly attachments: readonly ItemFileSummary[]
+  /** 第一次發布的時間（實際開放時間；重新發布不改）。 */
+  readonly publishedAt: Date
+}
+
+/**
+ * 打開一個前台內容頁的結果（`publicAccessOf` 的四種狀態）。只有 `visible` 帶內容；
+ * 已下架、已撤回、要登入、找不到都**不帶標題與內容**，只帶位置讓頁面給對的下一步。
+ */
+export type PublicItemPage =
+  | {
+      readonly access: 'visible'
+      readonly item: PublicItemCard & {
+        /** 正文：**已經過 `renderBodyHtml` 清理**（伺服器端），畫面直接輸出這一段。 */
+        readonly bodyHtml: string
+      }
+    }
+  | { readonly access: Exclude<PublicAccess, 'visible'>; readonly placement: Placement | null }
+
+export type PublicListFilter = {
+  readonly category?: string
+  /** 標題或摘要包含這段字（不分大小寫）。 */
+  readonly q?: string
+  readonly limit?: number
+  /** 預設新的在前；規則頁用 `oldest`（先發布的章節在前）。 */
+  readonly order?: 'newest' | 'oldest'
+}
+
+/** 學生行事曆上的一個收件截止（來源就是收件項目的截止，不另外存）。 */
+export type MyDeadline = {
+  readonly itemId: string
+  readonly cohortId: string
+  readonly title: string
+  readonly dueAt: Date
+  readonly receiverUnit: ReceiverUnit
+}
+
+/**
+ * 前台內容頁與站內日曆的查詢（產品模組 09 §9.1、08「站內日曆」）。
+ *
+ * 跟 `ItemQuery` 不同，這個 port **自己依看的人過濾**：沒登入、待審、停用、必須改密的人都當訪客；
+ * 登入者依角色、學生屆別與目前所在組別套 `canViewItem`。前台只列發布中的項目，跨屆別、新的在前。
+ */
+export interface PublicItemQuery {
+  /** 某個前台位置（公告、資源、規則）看得到的項目。 */
+  list(actor: ResolvedActor, placement: Placement, filter?: PublicListFilter): Promise<PublicItemCard[]>
+  /**
+   * 整頁全文（規則頁）：這個位置看得到的項目**連同正文**，先發布的在前。
+   * 正文同樣已經過 `renderBodyHtml` 清理。
+   */
+  fullText(actor: ResolvedActor, placement: Placement): Promise<(PublicItemCard & { readonly bodyHtml: string })[]>
+  /** 這個位置看得到的項目用了哪些分類（篩選用）。 */
+  categories(actor: ResolvedActor, placement: Placement): Promise<string[]>
+  /** 打開某一個項目（只認這個位置的；別的位置的 ID 一律 `not_found`）。 */
+  open(actor: ResolvedActor, itemId: string, placement: Placement): Promise<PublicItemPage>
+  /**
+   * 這位學生目前要交的收件截止：本人或本人所在組別在**目前的**收件名單上、項目發布中、有截止。
+   * 可見範圍跟收件名單一致（產品 08：可見範圍跟來源一致，不把別組的截止給他看）。
+   */
+  myDeadlines(actor: ResolvedActor): Promise<MyDeadline[]>
 }

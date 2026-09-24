@@ -132,6 +132,13 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'system', defaultTitle: '專題事務已更新' },
   },
+  /**
+   * 撤回、下架、重新發布（票 16；產品模組 04 §4.5）。產品事件矩陣沒有這三種的通知：
+   * 舊通知點進去時由來源重驗顯示「來源已撤回」或「已下架」（模組 08「舊通知與失權」），不另發通知。事件只留紀錄。
+   */
+  'item.withdrawn': { consumers: [] },
+  'item.archived': { consumers: [] },
+  'item.republished': { consumers: [] },
 } as const satisfies Record<string, CatalogEntry>
 
 export type EventType = keyof typeof EVENT_CATALOG
