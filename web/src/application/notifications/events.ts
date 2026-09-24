@@ -89,6 +89,28 @@ export const EVENT_CATALOG = {
     notification: { kind: 'group', defaultTitle: '分組提案已終止' },
   },
   /**
+   * 管理員加入或移出組員（票 14；產品模組 08 §4「成員加入／移出→異動前後成員的聯集與目前主指導」）。
+   * 收件人＝異動**後**的全體成員（加入時含新成員）；被移出的人改收下面的 `group.member_removed`，
+   * 兩則合起來就是前後聯集。主指導在 S06 才有，到時候補進收件人。payload 帶 `title`、組別與異動的人，**不帶理由**。
+   *
+   * 這也是**重簽的掛點**：成員集合改變時，模組 07（S11）的 `supersedeForParticipantChange` 要讓目前簽核版本失效。
+   * 簽核還沒做，所以現在只有通知消費者；只換組長不發這個事件（不重簽）。
+   */
+  'group.members_changed': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你的組別成員有異動' },
+  },
+  /** 被移出的本人（票 14；產品 08 §4「被移出者只取得本人異動說明」）：只說他離開了哪一組，不帶組別內容與理由。 */
+  'group.member_removed': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你已被移出組別' },
+  },
+  /** 換組長（票 14；產品 08 §4「組長更換→全組，清楚列出新組長」）。收件人＝全體成員；不帶理由。 */
+  'group.leader_changed': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你的組別換了組長' },
+  },
+  /**
    * 新收件發布（票 15；產品模組 08 §4「新收件發布→收件名單成員：個人收件通知本人，組別收件展開通知該組有效成員」）。
    * 一定發；發布更新時新加入收件名單的人也收這一種（「加入收件名單→與發布時同一種新收件通知」）。
    * payload 只帶項目 id、標題、位置與截止，不帶正文。

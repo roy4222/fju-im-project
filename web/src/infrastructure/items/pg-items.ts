@@ -68,6 +68,8 @@ import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 const SUBJECT_TYPE = 'item'
 const FILE_REF_TYPE = 'item_attachment' as const
 const ROSTER_REMOVED_BY_SETTINGS = '發布對象或收件單位變更'
+/** 封面允許的內容類型（`stored_files.mime_detected`，內容檢查後的正規值）。 */
+const COVER_MIMES: readonly string[] = ['image/png', 'image/jpeg']
 
 type ItemRow = {
   id: string
@@ -937,6 +939,18 @@ export class PgItemCommand implements ItemCommand {
     next: Pick<ItemDraft, 'attachmentFileIds' | 'coverFileId'>,
   ): Promise<Err | null> {
     const ref: FileRef = { refType: FILE_REF_TYPE, refId: itemId }
+    // 封面只接受圖片：上傳 ticket 已經限 png／jpg，但附件也是同一個用途，這裡以內容檢查後的類型再擋一次，
+    // 不讓一份 PDF 附件被指成封面。
+    if (next.coverFileId && next.coverFileId !== current.cover) {
+      const cover = await tx.query<{ mime_detected: string | null }>(
+        `select mime_detected from stored_files where id = $1 and status = 'stored'`,
+        [next.coverFileId],
+      )
+      const mime = cover.rows[0]?.mime_detected
+      if (!mime || !COVER_MIMES.includes(mime)) {
+        return err('FILE_TYPE_REJECTED', '封面只能用圖片（PNG 或 JPG），請重新上傳封面。', { details: { field: 'cover' } })
+      }
+    }
     const before = fileSet(current.attachments, current.cover)
     const after = fileSet(next.attachmentFileIds, next.coverFileId)
     for (const fileId of after.filter((id) => !before.includes(id))) {

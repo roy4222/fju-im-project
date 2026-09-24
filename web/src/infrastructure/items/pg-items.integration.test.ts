@@ -41,6 +41,7 @@ let query: PgItemQuery
 let storage: FsFileStorage
 
 const PDF = new TextEncoder().encode('%PDF-1.4\n% 測試附件\n')
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
 
 type Person = { id: string; name: string; cohortId: string; studentNo: string }
 
@@ -166,13 +167,16 @@ async function mustPublish(itemId: string, revision: number, notify = true) {
   return published.receipt
 }
 
-async function uploadPdf(ownerUserId = adminId, cohortId?: string): Promise<string> {
+async function uploadPdf(ownerUserId = adminId, cohortId?: string, kind: 'pdf' | 'png' = 'pdf'): Promise<string> {
+  const bytes = kind === 'png' ? PNG : PDF
   const issued = await storage.issueUploadTicket(
     ownerUserId,
-    { fileName: '說明.pdf', declaredMime: 'application/pdf', declaredSize: PDF.length },
+    kind === 'png'
+      ? { fileName: '封面.png', declaredMime: 'image/png', declaredSize: bytes.length }
+      : { fileName: '說明.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length },
     {
       purpose: 'attachment',
-      allowedTypes: ['pdf'],
+      allowedTypes: [kind],
       maxBytes: 1024 * 1024,
       scope: cohortId ? { kind: 'cohort', cohortId } : { kind: 'global' },
     },
@@ -180,11 +184,11 @@ async function uploadPdf(ownerUserId = adminId, cohortId?: string): Promise<stri
   if (!issued.ok) throw new Error(issued.message)
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(PDF)
+      controller.enqueue(bytes)
       controller.close()
     },
   })
-  const stored = await storage.upload(ownerUserId, issued.receipt.ticket, stream, PDF.length)
+  const stored = await storage.upload(ownerUserId, issued.receipt.ticket, stream, bytes.length)
   if (!stored.ok) throw new Error(stored.message)
   return stored.receipt.fileId
 }
@@ -770,6 +774,32 @@ describe('附件與封面（共用檔案能力；下載依對象）', () => {
     expect(await count('select count(*) as n from managed_items where cohort_id = $1', [cohortId])).toBe(0)
   })
 
+  it('封面只接受圖片：把 PDF 附件指成封面被拒，整筆不寫；PNG 可以', async () => {
+    const { cohortId } = await newCohort()
+    const pdf = await uploadPdf(adminId, cohortId)
+    const png = await uploadPdf(adminId, cohortId, 'png')
+    const rejected = await items.create(
+      adminActor(),
+      input(cohortId, { placement: 'news', audienceKind: 'public', coverFileId: pdf }),
+      randomUUID(),
+    )
+    expect(rejected.ok || rejected.code).toBe('FILE_TYPE_REJECTED')
+    expect(await count('select count(*) as n from managed_items where cohort_id = $1', [cohortId])).toBe(0)
+    expect(await count(`select count(*) as n from file_references where file_id = $1`, [pdf])).toBe(0)
+
+    const item = await mustCreate(cohortId, { placement: 'news', audienceKind: 'public', coverFileId: png })
+    expect((await itemRow(item.itemId)).cover_file_id).toBe(png)
+    const swapped = await items.saveDraft(
+      adminActor(),
+      item.itemId,
+      1,
+      input(cohortId, { placement: 'news', audienceKind: 'public', coverFileId: pdf }),
+      randomUUID(),
+    )
+    expect(swapped.ok || swapped.code).toBe('FILE_TYPE_REJECTED')
+    expect((await itemRow(item.itemId)).cover_file_id).toBe(png)
+  })
+
   it('上傳 ticket：附件只收文件與圖片、封面只收圖片', async () => {
     const { cohortId } = await newCohort()
     const cover = await items.startUpload(adminActor(), {
@@ -796,7 +826,7 @@ describe('附件與封面（共用檔案能力；下載依對象）', () => {
     const other = await newCohort()
     const stranger = await newStudent(other.cohortId)
     const fileId = await uploadPdf(adminId, cohortId)
-    const coverId = await uploadPdf(adminId, cohortId)
+    const coverId = await uploadPdf(adminId, cohortId, 'png')
     const item = await mustCreate(cohortId, {
       placement: 'news',
       audienceKind: 'cohort_students',

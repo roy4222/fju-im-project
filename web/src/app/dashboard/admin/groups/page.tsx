@@ -5,6 +5,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { DataTable, EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
 import {
   COHORT_STATUS_LABEL,
   describeGroupSize,
@@ -13,9 +14,12 @@ import {
   GROUP_SIZE_LIMIT,
   PROPOSAL_DAYS_LIMIT,
 } from '@/composition/cohorts'
+import type { GroupHistoryEntry } from '@/application/groups'
 import {
+  CHANGE_REASON_MAX_LENGTH,
   getGroupQuery,
   GROUP_TYPE_LABEL,
+  groupSizeWarning,
   INVITATION_STATE_LABEL,
   TERMINATION_KIND_LABEL,
   VOID_REASON_MAX_LENGTH,
@@ -30,8 +34,20 @@ export const metadata = { title: '分組總覽｜資管系專題平台' }
  *
  * 一頁看完一屆的分組：分組設定（每組人數、提案預設天數）、進行中的提案（可作廢，理由必填）、
  * 已成立的組別與組長、還沒分組的學生（誰公開找組員、誰正被提案占住）、最近終止的提案。
- * 管理員直接加入／移出組員、換組長在票 14。
+ * 票 14：未分組學生「加入某組」；組別「詳情」裡移出組員（組長要指定接任）、換組長、看異動歷程。
+ * 人數和設定不符時標示「與設定不符」但允許（2026-09-24 定案：管理員調整就是特殊情況的處理方式）。
  */
+
+function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
+  const by = h.byName ? `（${h.byName}）` : ''
+  const text =
+    h.kind === 'member_added'
+      ? `${h.userName} 加入${by}`
+      : h.kind === 'member_removed'
+        ? `${h.userName} 移出${by}`
+        : `組長 ${h.previousLeaderName ?? '—'} → ${h.userName}${by}`
+  return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text, reason: h.reason }
+}
 export default async function AdminGroupsPage({
   searchParams,
 }: {
@@ -64,6 +80,7 @@ export default async function AdminGroupsPage({
 
   const [overview, businessNow] = await Promise.all([getGroupQuery().overview(cohort.id), getBusinessClock().now()])
   const grouped = overview.groups.reduce((sum, g) => sum + g.members.length, 0)
+  const size = { min: cohort.groupSizeMin, max: cohort.groupSizeMax }
 
   return shell(
     <>
@@ -148,43 +165,49 @@ export default async function AdminGroupsPage({
       <section aria-label="全部組別" className="mb-6 space-y-2">
         <h2 className="text-base font-semibold text-ink">全部組別</h2>
         <DataTable
-          columns={['組別', '類型', '組員', '人數', '成立時間']}
-          rows={overview.groups.map((g) => [
-            <span key="code" className="font-semibold tabular-nums">
-              {g.code}
-            </span>,
-            GROUP_TYPE_LABEL[g.groupType],
-            g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、'),
-            <span
-              key="count"
-              className={cn(
-                'tabular-nums',
-                (g.members.length < cohort.groupSizeMin || g.members.length > cohort.groupSizeMax) && 'font-semibold text-danger',
-              )}
-            >
-              {g.members.length} 人
-            </span>,
-            <span key="at" className="tabular-nums">
-              {formatTaipeiMinute(g.establishedBusinessAt)}
-            </span>,
-          ])}
+          columns={['組別', '類型', '組員', '人數', '成立時間', '']}
+          rows={overview.groups.map((g) => {
+            const mismatch = groupSizeWarning(g.members.length, size) !== null
+            return [
+              <span key="code" className="font-semibold tabular-nums">
+                {g.code}
+              </span>,
+              GROUP_TYPE_LABEL[g.groupType],
+              g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、'),
+              <span key="count" className={cn('tabular-nums', mismatch && 'font-semibold text-danger')}>
+                {g.members.length} 人{mismatch ? '（與設定不符）' : ''}
+              </span>,
+              <span key="at" className="tabular-nums">
+                {formatTaipeiMinute(g.establishedBusinessAt)}
+              </span>,
+              <GroupDetailButton
+                key="detail"
+                group={{
+                  id: g.id,
+                  code: g.code,
+                  revision: g.revision,
+                  typeLabel: GROUP_TYPE_LABEL[g.groupType],
+                  members: g.members.map((m) => ({ ...m })),
+                  history: g.history.map(historyItem),
+                }}
+                size={size}
+                requestIds={{ remove: randomUUID(), leader: randomUUID() }}
+                reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+              />,
+            ]
+          })}
           empty="本屆還沒有成立的組別。全員確認後，組別會自動出現在這裡。"
         />
       </section>
 
       <section aria-label="未分組學生" className="mb-6 space-y-2">
         <h2 className="text-base font-semibold text-ink">未分組學生</h2>
-        <DataTable
-          columns={['姓名', '學號', '找組員', '提案']}
-          rows={overview.ungrouped.map((u) => [
-            u.name,
-            <span key="no" className="tabular-nums">
-              {u.studentNo}
-            </span>,
-            u.openToJoin ? '公開找組員' : '未公開',
-            u.inProposal ? '提案等待確認中' : '—',
-          ])}
-          empty="本屆學生都分好組了。"
+        <UngroupedStudents
+          students={overview.ungrouped.map((u) => ({ ...u }))}
+          groups={overview.groups.map((g) => ({ id: g.id, code: g.code, revision: g.revision, memberCount: g.members.length }))}
+          size={size}
+          requestId={randomUUID()}
+          reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
         />
       </section>
 

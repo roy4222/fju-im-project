@@ -179,11 +179,15 @@ GRANT SELECT ON managed_items, item_audience_groups, item_versions, form_schema_
 GRANT INSERT ON managed_items, item_audience_groups, item_versions, form_schema_versions, item_attachments, item_publications, response_rosters TO fju_app;
 --> statement-breakpoint
 
-GRANT UPDATE ON managed_items, response_rosters TO fju_app;
+GRANT UPDATE ON managed_items TO fju_app;
 --> statement-breakpoint
 
 -- 附件集合：只改排序；移除即 DELETE 並釋放 file_references
 GRANT UPDATE (sort) ON item_attachments TO fju_app;
+--> statement-breakpoint
+
+-- 收件名單區間列（表歸模組 05）：只改結束欄、免填與通用欄；收件者、項目、起始時間寫了就不動，不刪列
+GRANT UPDATE (eligible_to_business_at, removed_reason, exempt, exempt_reason, revision, updated_at, updated_by_user_id) ON response_rosters TO fju_app;
 --> statement-breakpoint
 
 GRANT DELETE ON item_audience_groups, item_attachments TO fju_app;
