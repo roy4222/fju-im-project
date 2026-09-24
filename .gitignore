@@ -56,6 +56,8 @@ web/dist/
 
 # Playwright 的 trace／截圖等執行產物
 web/e2e/.artifacts/
+# 站驗收（web/acceptance）的截圖與執行產物：只留在本機
+web/acceptance/.out/
 web/playwright-report/
 .audit.json
 
