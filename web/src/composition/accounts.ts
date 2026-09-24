@@ -280,6 +280,10 @@ export async function beginGoogleSignIn(input: {
     if (!started.url) return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
     return { ok: true, url: started.url }
   } catch (error) {
+    // 每 IP 限速（票 10b）：跟其他失敗分開說，不然大家以為 Google 壞了。
+    if ((error as { status?: string })?.status === 'TOO_MANY_REQUESTS') {
+      return { ok: false, message: '這個網路一小時內的 Google 登入次數已達上限，請稍後再試或改用 Email 與密碼。' }
+    }
     console.error('[auth] 開始 Google 登入失敗', error)
     return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
   }

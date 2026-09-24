@@ -1,6 +1,44 @@
 # 驗收清單（給 Codex 在測試站跑）
 
-這個資料夾放**給 Codex 看的驗收清單**。每一站做完，照下面的格式寫一份 `station-<N>-<主題>.md`，
+> **站驗收現在改用 Playwright 直接跑**（Codex 在沙盒裡開不起瀏覽器）。程式在
+> [`web/acceptance/`](../../web/acceptance/)，下面「如何在 Mac 跑站驗收」。這裡的白話清單留著當步驟說明。
+
+## 如何在 Mac 跑站驗收（Playwright）
+
+第一次先裝好 Doppler CLI 並 `doppler login`（見 [ops/README.md](../../ops/README.md)「測試站自動驗收」A、D），
+再在 repo 根目錄 `pnpm install`、`pnpm -C web exec playwright install chromium`。之後每次（repo 根目錄）：
+
+```bash
+doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_PASSWORD -- pnpm -C web acceptance
+```
+
+只跑某一站：最後加檔名，例如 `... -- pnpm -C web acceptance station-1`。
+
+- **只打測試站** `https://test.fju.roy422.dev`。`ACCEPTANCE_BASE_URL` 可以不設；設成別的網域（包括正式站
+  `fju.roy422.dev`）會在設定檔載入時直接失敗，一個請求都不送。
+- 帳密只從 `doppler run` 注入的環境變數讀：不印、不寫檔、不進截圖檔名。不開 trace、不錄影、只用 list 報告
+  （trace 與 HTML 報告會存下填表的值）。跑完會掃一遍輸出資料夾，出現密碼就刪檔並報錯。
+- 每一步的截圖在 `web/acceptance/.out/<時間>/station-N/NN-*.png`（gitignore）。帳號頁的截圖（帳號列表有 Email 欄）
+  會拍到 E2E 管理員與測試站上其他帳號的 email——截圖別貼到公開的地方。
+- 終端機的 list 報告就是結果：每一行一步，✓ 通過、✘ 失敗；失敗的那一步後面同一站的步驟會跳過。
+
+**兩站各測什麼**
+
+| 檔案 | 流程 |
+|---|---|
+| `station-1.spec.ts` | E2E 管理員登入 → 系辦首頁 → 登出 → 看不到後台 → 重登 → 登出 → 錯誤密碼被擋（只試一次） |
+| `station-2.spec.ts` | 建屆別並設開放註冊＋預設工作 → 匯入名單 CSV（預覽、匯入、下載原檔）→ 新學生註冊 → 待審頁 → 管理員比對、選核實方式核准 → 學生登入學生首頁 → 直接新增老師拿臨時密碼 → 老師被逼改密 → 補資料 → 老師首頁 → 帳號列表搜尋／篩選 → 停用學生（舊分頁被登出）→ 恢復 → 匯出勾選 CSV（BOM、學號前導零）→ 老師設為／取消管理員、自己那列不能取消 → Google 按鈕導去 accounts.google.com（瀏覽器端攔下，不真的登入） |
+
+**跑一次會在測試站留下什麼**
+
+- 一個屆別 `ACC<時間戳>`（含一份 2 人名單）、一個學生、一個老師（姓名都以「驗收<數字>」開頭，搜尋得到）。
+- 開放註冊與預設工作屆別會暫時移到這個新屆別；跑完（不論成敗）會還給原本的屆別。原本沒有就留在新屆別上。
+- 每跑一次只註冊**一個**帳號（註冊限速每 IP 每小時 30 次），管理員只登入一次（登入限速同 IP 同帳號 10 分鐘 10 次）。
+  一小時內別連跑二、三十次。
+
+## Codex 白話清單（ops/codex-e2e.sh）
+
+這個資料夾也放**給 Codex 看的驗收清單**。每一站做完，照下面的格式寫一份 `station-<N>-<主題>.md`，
 在 Mac 上跑：
 
 ```bash

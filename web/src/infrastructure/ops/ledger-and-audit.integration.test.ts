@@ -136,6 +136,23 @@ describe('帳本：同一個請求編號只做一次', () => {
     expect(b.outcome).toBe('fresh')
   })
 
+  it('已 commit 之後標 failed：重播與查回執都看得到 state=failed，回執內容保留（票 10b）', async () => {
+    const requestId = nextRequestId()
+    const recordId = await inTx(async (tx) => {
+      const begun = await ledger.begin(tx, operation(requestId, { y: 1 }), new Date())
+      if (begun.outcome !== 'fresh') throw new Error('應該是第一次')
+      await ledger.commit(tx, begun.recordId, { receipt: { issued: true }, resultRef: { id: 'r' } })
+      return begun.recordId
+    })
+    const committed = await inTx((tx) => ledger.begin(tx, operation(requestId, { y: 1 }), new Date()))
+    expect(committed).toMatchObject({ outcome: 'replay', state: 'committed' })
+
+    await inTx((tx) => ledger.markFailed(tx, recordId))
+    const replay = await inTx((tx) => ledger.begin(tx, operation(requestId, { y: 1 }), new Date()))
+    expect(replay).toMatchObject({ outcome: 'replay', state: 'failed', receipt: { issued: true }, receiptExpired: false })
+    expect(await ledger.get(userId, 'account.approve', requestId)).toMatchObject({ outcome: 'replay', state: 'failed' })
+  })
+
   it('用例的交易回滾時，帳本列也跟著不見（不留 failed 列）', async () => {
     const requestId = nextRequestId()
     await inTx(async (tx) => {

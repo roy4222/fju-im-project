@@ -81,7 +81,7 @@ export default async function AdminAccountsPage({
   const summary = summaryResult.ok ? summaryResult.receipt : null
   const totalPages = directory ? Math.max(1, Math.ceil(directory.total / directory.pageSize)) : 1
   const statusHref = (status: DirectoryFilter['status']) =>
-    `${BASE}${directoryQueryString({ ...filter, status: filter.status === status ? null : status, page: 1 })}`
+    `${BASE}${directoryQueryString({ ...filter, status: filter.status === status ? null : status, orphan: false, page: 1 })}`
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/accounts">
@@ -92,7 +92,7 @@ export default async function AdminAccountsPage({
         <TemporaryPasswordDialog labels={VERIFICATION_LABELS} />
         <span className="text-xs text-muted-foreground">系統不存可查看的密碼，只能核發一次性臨時密碼。</span>
       </div>
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tile
           label="待審核"
           value={summary?.pending ?? '—'}
@@ -113,6 +113,14 @@ export default async function AdminAccountsPage({
           hint="停用不是刪除，可以恢復"
           href={statusHref('disabled')}
           active={filter.status === 'disabled'}
+        />
+        {/* 票 10b：只有登入身分、我方什麼都沒有的帳號（建帳號時系統出錯留下的，或註冊了還沒送申請的）。 */}
+        <Tile
+          label="孤兒帳號"
+          value={summary?.orphans ?? '—'}
+          hint="沒有角色與申請，要補建角色或停用"
+          href={`${BASE}${directoryQueryString({ ...filter, status: null, orphan: !filter.orphan, page: 1 })}`}
+          active={filter.orphan}
         />
       </div>
 
@@ -194,7 +202,13 @@ export default async function AdminAccountsPage({
       </Card>
 
       <Card
-        title={filter.status ? `${ACCOUNT_STATUS_LABEL[filter.status]}帳號` : '全部帳號'}
+        title={
+          filter.orphan
+            ? `孤兒帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
+            : filter.status
+              ? `${ACCOUNT_STATUS_LABEL[filter.status]}帳號`
+              : '全部帳號'
+        }
         description="搜尋、篩選、排序；勾選或全選篩選結果後匯出 CSV。停用的人下一個動作就會被登出。"
       >
         <form method="get" action={BASE} className="mb-4 flex flex-wrap items-end gap-3" role="search" aria-label="篩選帳號">
@@ -245,6 +259,7 @@ export default async function AdminAccountsPage({
           {/* 換篩選時保留目前的排序。 */}
           <input type="hidden" name="sort" value={filter.sort} />
           <input type="hidden" name="dir" value={filter.dir} />
+          {filter.orphan ? <input type="hidden" name="orphan" value="1" /> : null}
           <button type="submit" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             套用
           </button>

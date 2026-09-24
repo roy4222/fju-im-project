@@ -67,7 +67,7 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     access: 'allowed',
     session: 'none',
     fresh: false,
-    note: 'Google 登入入口（票 10）；state＋PKCE 由套件做，callbackURL 由登入頁的 Server Action 經 safeNextPath 組',
+    note: 'Google 登入入口（票 10）；state＋PKCE 由套件做，callbackURL 由登入頁的 Server Action 經 safeNextPath 組；body 帶 idToken 一律拒絕、每 IP 限速在 hook（票 10b）',
   },
   {
     path: '/callback/:id',
@@ -87,7 +87,7 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     fresh: false,
     note: 'must-change 期間唯一可做的業務動作；撤其他 session 由 S01-05 的用例帶 revokeOtherSessions',
   },
-  { path: '/link-social', methods: ['POST'], access: 'allowed', session: 'active-only', fresh: true, note: '連結 Google；只限 active 且 fresh session' },
+  { path: '/link-social', methods: ['POST'], access: 'allowed', session: 'active-only', fresh: true, note: '連結 Google；只限 active 且 fresh session；body 帶 idToken 一律拒絕（票 10b）' },
   { path: '/list-accounts', methods: ['GET'], access: 'allowed', session: 'active-only', fresh: true, note: '本人看自己有哪幾種登入方式' },
   { path: '/error', methods: ['GET'], access: 'allowed', session: 'none', fresh: false, note: 'OAuth 失敗時套件自己導過來的錯誤頁；不吐任何帳號資料' },
 ] as const

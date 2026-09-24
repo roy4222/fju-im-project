@@ -8,6 +8,12 @@ import {
   type ApprovalDecision,
   type VerificationMethod,
 } from '@/application/accounts/registration'
+import type {
+  OrphanRepairInput,
+  OrphanRepairReceipt,
+  RoleChangeInput,
+  RoleChangeReceipt,
+} from '@/application/accounts/roles'
 import type { ErrorCode } from '@/shared/errors'
 import { err, type Err, type Result, type SecretOnce } from '@/shared/result'
 
@@ -207,6 +213,20 @@ export interface AccountCommand {
     authHeaders: Headers,
     input: { userId: string; verificationMethod: string; verificationNote: string; reason: string; requestId: string },
   ): Promise<Result<TemporaryPasswordReceipt> | SecretOnce>
+  /**
+   * 把老師或職員設為管理員（票 10b）：同一個交易寫 `role_assignments` 與套件的 `users.role='admin'`、
+   * 稽核與帳本；理由必填；不能對自己做。
+   */
+  grantRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>>
+  /**
+   * 取消管理員（票 10b）：結束 `role_assignments` 那一列、`users.role` 改回 `'user'`；
+   * 不能取消自己、不能取消最後一位有效管理員。
+   */
+  revokeRole(actor: ResolvedActor, input: RoleChangeInput): Promise<Result<RoleChangeReceipt>>
+  /**
+   * 孤兒帳號補建角色（票 10b）：補老師或管理員角色，待審的一併開通；帳號仍須是孤兒（見 `isOrphan`）。
+   */
+  repairOrphan(actor: ResolvedActor, input: OrphanRepairInput): Promise<Result<OrphanRepairReceipt>>
 }
 
 /** 老師補資料頁要顯示的內容。 */

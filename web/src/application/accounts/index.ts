@@ -180,3 +180,22 @@ export {
   revocationKindFor,
   revocationTargetOf,
 } from '@/application/accounts/session-revocation'
+export type {
+  GrantableRole,
+  OrphanFacts,
+  OrphanRepairInput,
+  OrphanRepairReceipt,
+  OrphanRole,
+  RoleChange,
+  RoleChangeInput,
+  RoleChangeReceipt,
+  RoleTarget,
+} from '@/application/accounts/roles'
+export {
+  adminGrantProblem,
+  isOrphan,
+  normalizeOrphanRepair,
+  normalizeRoleChange,
+  ORPHAN_ROLES,
+  remainingEffectiveAdmins,
+} from '@/application/accounts/roles'

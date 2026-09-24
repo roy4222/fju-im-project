@@ -34,6 +34,7 @@ let self: SelfAccountCommand
 let registration: RegistrationCommand
 let resetSignUpLimiter: () => void
 let resetSignInLimiter: () => void
+let resetSocialSignInLimiter: () => void
 let adminId: string
 let cohortId: string
 
@@ -98,6 +99,7 @@ beforeAll(async () => {
   handlers = (await import('@/infrastructure/auth/wrapper')).authRouteHandlers
   resetSignUpLimiter = (await import('@/infrastructure/auth/sign-up-rate-limit')).resetSignUpLimiter
   resetSignInLimiter = (await import('@/infrastructure/auth/sign-in-rate-limit')).resetSignInLimiter
+  resetSocialSignInLimiter = (await import('@/infrastructure/auth/social-sign-in-rate-limit')).resetSocialSignInLimiter
   const { BetterAuthSelfAccountCommand } = await import('@/infrastructure/auth/self-account')
   self = new BetterAuthSelfAccountCommand()
   const { PgRegistrationCommand } = await import('@/infrastructure/accounts/registration-command')
@@ -139,6 +141,7 @@ afterAll(async () => {
 beforeEach(() => {
   resetSignUpLimiter()
   resetSignInLimiter()
+  resetSocialSignInLimiter()
   nextIdentity = null
   lastTokenRequest = null
 })
@@ -237,6 +240,36 @@ describe('Google 首次登入（ACC-13）', () => {
       )
       expect(start.status).toBe(200)
     }
+  })
+
+  it('Google 鈕每 IP 限速（票 10b）：同一個 IP 一小時 120 次，第 121 次 429；換 IP 不受影響；Server Action 那條路算同一個桶', async () => {
+    const hit = (ip: string) =>
+      handlers.POST(
+        new Request(`${BASE_URL}/api/auth/sign-in/social`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: BASE_URL, 'x-real-ip': ip },
+          body: JSON.stringify({ provider: 'google', callbackURL: '/login' }),
+        }),
+      )
+    const before = await one<{ n: number }>(`select count(*)::int as n from verifications`)
+    for (let i = 0; i < 119; i += 1) expect((await hit('198.51.100.200')).status).toBe(200)
+
+    // 第 120 次走 Server Action 會用的伺服器端呼叫（composition 的 beginGoogleSignIn），同一個 IP。
+    const { beginGoogleSignIn } = await import('@/composition/accounts')
+    const viaAction = await beginGoogleSignIn({ from: 'login', next: null, headers: new Headers({ 'x-real-ip': '198.51.100.200' }) })
+    expect(viaAction).toMatchObject({ ok: true })
+
+    const blocked = await hit('198.51.100.200')
+    expect(blocked.status).toBe(429)
+    expect(await blocked.json()).toMatchObject({ code: 'RATE_LIMITED' })
+    // 被擋的那一次不再寫 state。
+    expect(await one(`select count(*)::int as n from verifications`)).toEqual({ n: before.n + 120 })
+    // 伺服器端呼叫也被同一個桶擋，畫面給的是限速那一句，不是「Google 壞了」。
+    expect(await beginGoogleSignIn({ from: 'login', next: null, headers: new Headers({ 'x-real-ip': '198.51.100.200' }) })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('次數已達上限'),
+    })
+    expect((await hit('198.51.100.201')).status).toBe(200)
   })
 
   it('state＋PKCE：授權網址帶 S256 challenge，換 token 時帶的 verifier 對得上', async () => {
@@ -461,6 +494,34 @@ describe('系辦預授權的老師第一次用 Google 登入（票 8 × 票 10�
     expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [other.userId])).toEqual({ n: 0 })
   })
 
+  it('body 帶 idToken（不經 redirect、沒有 state）→ 一律 400，不替預授權老師綁、不建帳號、不給 session（票 10b）', async () => {
+    const t = await preauthorizedTeacher()
+    const now = Math.floor(Date.now() / 1000)
+    const token = `${b64url({ alg: 'RS256', typ: 'JWT' })}.${b64url({
+      iss: 'https://accounts.google.com',
+      aud: CLIENT_ID,
+      sub: `sub-idtoken-${seq}`,
+      email: t.email,
+      email_verified: true,
+      iat: now,
+      exp: now + 3600,
+    })}.sig`
+    for (const idToken of [{ token }, { token, nonce: 'n' }, {}]) {
+      const response = await post('/sign-in/social', { provider: 'google', callbackURL: '/login', idToken })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'ID_TOKEN_NOT_SUPPORTED' })
+      expect(cookiesFrom(response)).not.toContain('session_token')
+    }
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1`, [t.userId])).toEqual({ n: 0 })
+    expect(await one(`select count(*)::int as n from users where lower(email) = $1`, [t.email])).toEqual({ n: 1 })
+
+    // 沒有預授權的新 Email 也一樣：不建帳號。
+    const stranger = uniq('idtoken-new')
+    const fresh = await post('/sign-in/social', { provider: 'google', idToken: { token: token.replace(t.email, stranger) } })
+    expect(fresh.status).toBe(400)
+    expect(await one(`select count(*)::int as n from users where email = $1`, [stranger])).toEqual({ n: 0 })
+  })
+
   it('沒有老師角色、或不是 active 的無登入方式帳號 → 不綁', async () => {
     const noRole = await preauthorizedTeacher({ role: false })
     expect((await googleSignIn({ sub: `sub-norole-${seq}`, email: noRole.email, name: '無角色' })).location).toBe('/login?error=account_not_linked')
@@ -527,6 +588,16 @@ describe('連結 Google（ACC-16）', () => {
     expect(result.location).toBe('/account?error=account_already_linked_to_different_user')
     expect(await one(`select user_id from accounts where provider_id = 'google' and account_id = $1`, [sub])).toEqual({ user_id: owner.userId })
     expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [thief.userId])).toEqual({ n: 0 })
+  })
+
+  it('/link-social 帶 idToken（active＋fresh session 也一樣）→ 400，不連結（票 10b）', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    const response = await post('/link-social', { provider: 'google', callbackURL: '/account', idToken: { token: `x.${b64url({ email })}.y` } }, cookie)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'ID_TOKEN_NOT_SUPPORTED' })
+    expect(await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [userId])).toEqual({ n: 0 })
+    // 同一個人走正常的 redirect 連結仍然可以開始。
+    expect((await post('/link-social', { provider: 'google', callbackURL: '/account' }, cookie)).status).toBe(200)
   })
 
   it('Google 帳號 Email 跟登入 Email 不同 → 拒絕（登入身分不因連結而多出一個 Email）', async () => {

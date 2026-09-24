@@ -409,7 +409,7 @@ describe('核發臨時密碼（ACC-08、ACC-18）', () => {
     ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
 
-  it('套件設密碼失敗：回錯、補一筆失敗稽核，舊密碼仍然有效（只多了下次要改密碼）', async () => {
+  it('套件設密碼失敗：回錯、補一筆失敗稽核、帳本標 failed；同一個請求重送不回「已核發」；舊密碼仍然有效（票 10b）', async () => {
     const email = uniqueEmail('s10')
     const student = await signUp(email)
     const failing = makeCommand({
@@ -421,16 +421,33 @@ describe('核發臨時密碼（ACC-08、ACC-18）', () => {
       },
       revokeUserSessions: async () => undefined,
     })
-    const result = await failing.issueTemporaryPassword(admin(), adminHeaders, {
+    const input = {
       userId: student.userId,
       verificationMethod: 'id_document',
       verificationNote: '',
       reason: '',
       requestId: requestId(),
-    })
+    }
+    const result = await failing.issueTemporaryPassword(admin(), adminHeaders, input)
     expect(result).toMatchObject({ ok: false, code: 'INTERNAL' })
     expect(await one(`select count(*)::int as n from audit_events where action = 'account.issue_temporary_password_failed' and target_id = $1`, [student.userId])).toEqual({ n: 1 })
+    expect(
+      await one(`select state from operation_records where operation_kind = 'account.issue_temporary_password' and request_id = $1`, [input.requestId]),
+    ).toEqual({ state: 'failed' })
     expect((await signIn(email, PASSWORD)).status).toBe(200)
+
+    // 回應在路上掉了、對話框用同一個請求編號重送：不能拿到「已核發」的回執（那組密碼根本沒生效）。
+    // 用正常的指令重送也一樣——帳本說 failed 就是 failed，不會偷偷再設一次。
+    for (const again of [failing, command]) {
+      const replay = await again.issueTemporaryPassword(admin(), adminHeaders, input)
+      expect(replay).toMatchObject({ ok: false, code: 'INTERNAL', message: expect.stringContaining('重新核發') })
+      expect(replay).not.toHaveProperty('receipt')
+    }
+    expect((await signIn(email, PASSWORD)).status, '重播沒有偷偷設密碼').toBe(200)
+
+    // 換一個新的請求編號重新核發：成功、拿得到秘密。
+    const retry = remember(await command.issueTemporaryPassword(admin(), adminHeaders, { ...input, requestId: requestId() }))
+    expect(retry).toMatchObject({ ok: true, secret: expect.any(String) })
   })
 
   it('用 Email 查帳號：只有管理員；查得到角色與狀態，查不到回欄位錯誤', async () => {

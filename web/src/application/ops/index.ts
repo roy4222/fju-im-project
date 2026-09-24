@@ -7,6 +7,7 @@ export type {
   ActorKind,
   AuditEventInput,
   LedgerBeginResult,
+  LedgerState,
   LedgerOperation,
   Scope,
   VerificationMethod,
