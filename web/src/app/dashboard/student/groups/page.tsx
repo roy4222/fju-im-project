@@ -11,6 +11,7 @@ import {
 } from '@/app/dashboard/student/groups/group-forms'
 import { describeGroupSize, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
+  describeGroupHistory,
   getGroupQuery,
   GROUP_TYPE_LABEL,
   GROUP_TYPES,
@@ -82,6 +83,16 @@ export default async function StudentGroupsPage() {
             <p className="mt-1 text-sm text-muted-foreground tabular-nums">
               {formatTaipeiMinute(view.group.establishedBusinessAt)} 成立・{view.group.members.length} 人
             </p>
+            <p data-testid="my-advisor" className="mt-2 text-sm text-ink">
+              指導老師：
+              {view.group.advisor ? (
+                <span className="font-semibold">{view.group.advisor.teacherName}</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  尚未指派（{view.group.groupType === 'industry' ? '產學組由老師認領或系辦指派' : '一般組由系辦依抽籤結果指派'}）
+                </span>
+              )}
+            </p>
             <ul aria-label="組員" className="mt-4 flex flex-wrap gap-2">
               {view.group.members.map((m) => (
                 <li
@@ -104,16 +115,12 @@ export default async function StudentGroupsPage() {
                 {view.group.history.map((h, index) => (
                   <li key={index}>
                     <span className="mr-2 text-xs text-muted-foreground tabular-nums">{formatTaipeiMinute(h.at)}</span>
-                    {h.kind === 'member_added'
-                      ? `${h.userName} 加入`
-                      : h.kind === 'member_removed'
-                        ? `${h.userName} 移出`
-                        : `組長 ${h.previousLeaderName ?? '—'} → ${h.userName}`}
+                    {describeGroupHistory(h)}
                   </li>
                 ))}
               </ol>
             ) : null}
-            <p className="mt-3 text-xs text-muted-foreground">成立後的成員異動、換組長由系辦處理。</p>
+            <p className="mt-3 text-xs text-muted-foreground">成立後的成員異動、換組長、指導老師指派由系辦處理。</p>
           </div>
         ) : proposal ? (
           <div>

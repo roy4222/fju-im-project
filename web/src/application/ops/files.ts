@@ -20,6 +20,7 @@ export type FilePurpose =
   | 'submission'
   | 'attachment'
   | 'roster_csv'
+  | 'advisor_csv'
   | 'poster'
   | 'photo'
   | 'export'

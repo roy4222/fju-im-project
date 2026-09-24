@@ -26,6 +26,7 @@ const MIGRATION_BY_SLICE = {
   S03: 'drizzle/0004_s03_groups.sql',
   S04: 'drizzle/0005_s04_items.sql',
   S05: 'drizzle/0006_s05_submissions.sql',
+  S06: 'drizzle/0007_s06_advisors.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'

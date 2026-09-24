@@ -1,6 +1,6 @@
 import 'server-only'
 import type { Pool } from 'pg'
-import { statusGate, type ResolvedActor } from '@/application/accounts'
+import { statusGate, type ResolvedActor, type Role } from '@/application/accounts'
 import {
   decodeInboxCursor,
   encodeInboxCursor,
@@ -70,14 +70,25 @@ function filterSql(filter: InboxFilter, firstParam: number): { sql: string; valu
  * 在這裡登記自己的來源種類怎麼重驗。沒登記的種類一律當「此項目目前無法存取」——寧可擋也不露。
  * 屆別已封存的通知顯示「已封存（唯讀）」，仍可標已讀（產品模組 08 §4）。
  */
-const SOURCE_RESOLVERS: Record<string, (ref: { id: string }, context: SourceContext) => NotificationSourceState> = {
+type SourceRef = { readonly id: string; readonly roles: readonly Role[] }
+
+/** 組別的通知點進哪一頁：學生看「我的組別」，老師看「分組」，管理員看「分組總覽」（票 19：主指導的通知也發給老師）。 */
+function groupPageFor(roles: readonly Role[]): string {
+  if (roles.includes('student')) return '/dashboard/student/groups'
+  if (roles.includes('teacher')) return '/dashboard/teacher/groups'
+  if (roles.includes('admin')) return '/dashboard/admin/groups'
+  return '/dashboard/student/groups'
+}
+
+const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) => NotificationSourceState> = {
   test: () => ({ state: 'ok', href: null }),
   domain_event: () => ({ state: 'ok', href: null }),
   due_work: () => ({ state: 'ok', href: null }),
   user: () => ({ state: 'ok', href: null }),
-  // 分組（票 13）：收件人都是提案或組別的學生，點進「我的組別」；那一頁自己再依本人身分查、重驗權限。
+  // 分組（票 13）：提案的收件人都是學生，點進「我的組別」；那一頁自己再依本人身分查、重驗權限。
   group_proposal: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
-  group: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
+  // 組別：學生、主指導老師（票 19）、管理員各自進自己的分組頁。
+  group: (ref) => ({ state: 'ok', href: groupPageFor(ref.roles) }),
   item: resolveItem,
 }
 
@@ -112,17 +123,18 @@ const NO_CONTEXT: SourceContext = { item_placement: null, item_status: null, ite
 
 export function resolveSource(
   row: Pick<Row, 'source_ref' | 'cohort_status'> & Partial<SourceContext>,
+  roles: readonly Role[] = [],
 ): NotificationSourceState {
   const type = row.source_ref?.type
   const id = row.source_ref?.id
   const resolver = type ? SOURCE_RESOLVERS[type] : undefined
   if (!resolver || !id) return { state: 'forbidden' }
-  const resolved = resolver({ id }, { ...NO_CONTEXT, ...row })
+  const resolved = resolver({ id, roles }, { ...NO_CONTEXT, ...row })
   if (resolved.state === 'ok' && row.cohort_status === 'archived') return { state: 'archived', href: resolved.href }
   return resolved
 }
 
-function toItem(row: Row): InboxItem {
+function toItem(row: Row, roles: readonly Role[]): InboxItem {
   return {
     id: row.id,
     kind: row.kind,
@@ -132,7 +144,7 @@ function toItem(row: Row): InboxItem {
     cohortCode: row.cohort_code,
     createdAt: row.created_at,
     readAt: row.read_at,
-    source: resolveSource(row),
+    source: resolveSource(row, roles),
   }
 }
 
@@ -178,7 +190,8 @@ export class PgInbox implements InboxQuery, InboxCommand {
         limit $${values.length}`,
       values,
     )
-    const page = rows.rows.slice(0, INBOX_PAGE_SIZE).map(toItem)
+    const roles = actor.kind === 'authenticated' ? actor.roles : []
+    const page = rows.rows.slice(0, INBOX_PAGE_SIZE).map((row) => toItem(row, roles))
     const hasMore = rows.rows.length > INBOX_PAGE_SIZE
     const last = page.at(-1)
     return { items: page, nextCursor: hasMore && last ? encodeInboxCursor({ createdAt: last.createdAt, id: last.id }) : null }
