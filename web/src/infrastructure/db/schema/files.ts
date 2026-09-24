@@ -49,7 +49,7 @@ export const storedFiles = pgTable(
     check('stored_files_scope_cohort_check', sql`(${t.scope} = 'cohort') = (${t.cohortId} is not null)`),
     check(
       'stored_files_purpose_check',
-      sql`${t.purpose} in ('submission','attachment','roster_csv','poster','photo','export','signoff_attachment')`,
+      sql`${t.purpose} in ('submission','attachment','roster_csv','advisor_csv','poster','photo','export','signoff_attachment')`,
     ),
     check(
       'stored_files_status_check',

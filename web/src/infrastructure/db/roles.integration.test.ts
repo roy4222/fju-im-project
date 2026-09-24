@@ -473,6 +473,44 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'answers', value: { note: '竄改' } },
   },
+  // 票 19（S06）：主指導、合作案、合作案連結。一組同時只有一列有效，所以每次連同新的組別一起插。
+  advisor_assignments: {
+    insert: () => ({
+      sql: `with g as (
+              insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+              values (gen_random_uuid(), $1, $2, 'industry', now(), now(), 'system') returning id
+            )
+            insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id)
+            select gen_random_uuid(), id, $3, 'claim', now(), $3 from g`,
+      values: [cohortId, unique('GAD'), userId],
+    }),
+    updatable: { column: 'valid_to', value: new Date() },
+  },
+  industry_opportunities: {
+    insert: () => ({
+      sql: `insert into industry_opportunities
+              (id, owner_teacher_user_id, company_name, department, content, requirements, created_by_kind, created_by_user_id)
+            values (gen_random_uuid(), $1, '權限測試公司', '資訊部', '內容', '條件', 'user', $1)`,
+      values: [userId],
+    }),
+    updatable: { column: 'company_name', value: '改過的公司' },
+  },
+  opportunity_links: {
+    insert: () => ({
+      sql: `with g as (
+              insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+              values (gen_random_uuid(), $1, $2, 'industry', now(), now(), 'system') returning id
+            ), o as (
+              insert into industry_opportunities
+                (id, owner_teacher_user_id, company_name, department, content, requirements, created_by_kind, created_by_user_id)
+              values (gen_random_uuid(), $3, '連結測試公司', '資訊部', '內容', '條件', 'user', $3) returning id
+            )
+            insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id)
+            select gen_random_uuid(), g.id, o.id, now(), $3 from g, o`,
+      values: [cohortId, unique('GOL'), userId],
+    }),
+    updatable: { column: 'valid_to', value: new Date() },
+  },
 }
 
 beforeAll(async () => {

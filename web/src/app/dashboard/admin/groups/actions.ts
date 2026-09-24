@@ -2,17 +2,23 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { AdminGroupActionState } from '@/app/dashboard/admin/groups/admin-group-forms'
+import type { BatchActionOutcome } from '@/app/dashboard/admin/groups/advisor-forms'
+import type { AdvisorBatchPreview, AdvisorBatchReceipt, AdvisorUploadTicket } from '@/application/groups'
 import { describeGroupingSettingsReceipt, getCohortCommand } from '@/composition/cohorts'
 import {
+  describeAdvisorBatchReceipt,
+  describeAdvisorChangeReceipt,
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,
+  getAdvisorCommand,
   getGroupCommand,
 } from '@/composition/groups'
+import type { Result } from '@/shared/result'
 
 /**
  * 管理員「分組總覽」的動作：分組設定（每組人數、提案預設天數）、作廢提案（票 13）；
- * 加入組員、移出組員、換組長（票 14）。
+ * 加入組員、移出組員、換組長（票 14）；指派、重派、解除指導老師與批次指派 CSV（票 19）。
  * 規則全在用例裡判；這裡只翻譯表單與回饋。
  */
 
@@ -104,4 +110,94 @@ export async function changeLeaderAction(_state: AdminGroupActionState, formData
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeLeaderChangeReceipt(result.receipt) }
+}
+
+// ── 指導老師（票 19）─────────────────────────────────────────────────────────
+
+export async function assignAdvisorAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getAdvisorCommand().assign(
+    await currentActor(),
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      teacherUserId: text(formData, 'teacherUserId'),
+      reason: text(formData, 'reason'),
+      gradingSelections: formData.getAll('gradingSelections').map(String),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeAdvisorChangeReceipt(result.receipt) }
+}
+
+export async function unassignAdvisorAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getAdvisorCommand().unassign(
+    await currentActor(),
+    { groupId: text(formData, 'groupId'), revision: whole(formData, 'revision'), reason: text(formData, 'reason') },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeAdvisorChangeReceipt(result.receipt) }
+}
+
+// 批次指派：檔案本身不走 Server Action（位元組由瀏覽器直接 POST 到 `/api/files/upload`，同名單匯入）；
+// 這裡只發 ticket、要預覽、確認執行。授權與所有規則都在用例裡。
+
+function field(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.length <= max ? value : null
+}
+
+function outcome<T>(result: Result<T>): BatchActionOutcome<T> {
+  return result.ok ? { ok: true, data: result.receipt } : { ok: false, message: result.message }
+}
+
+export async function startAdvisorUploadAction(input: {
+  fileName: string
+  declaredMime: string
+  declaredSize: number
+}): Promise<BatchActionOutcome<AdvisorUploadTicket>> {
+  const fileName = field(input?.fileName, 500)
+  const declaredMime = field(input?.declaredMime ?? '', 200)
+  const declaredSize = typeof input?.declaredSize === 'number' ? input.declaredSize : Number.NaN
+  if (fileName === null || declaredMime === null) return { ok: false, message: '檔案資訊不正確。' }
+  return outcome(await getAdvisorCommand().startBatchUpload(await currentActor(), { fileName, declaredMime, declaredSize }))
+}
+
+export async function previewAdvisorBatchAction(input: {
+  fileId: string
+  cohortId: string
+}): Promise<BatchActionOutcome<AdvisorBatchPreview>> {
+  const fileId = field(input?.fileId, 100)
+  const cohortId = field(input?.cohortId, 100)
+  if (!fileId || !cohortId) return { ok: false, message: '請重新選擇檔案。' }
+  return outcome(await getAdvisorCommand().previewBatch(await currentActor(), { fileId, cohortId }))
+}
+
+export async function executeAdvisorBatchAction(input: {
+  fileId: string
+  cohortId: string
+  reason: string
+  confirmReassign: boolean
+  revisions: Record<string, number>
+  requestId: string
+}): Promise<BatchActionOutcome<{ receipt: AdvisorBatchReceipt; message: string }>> {
+  const fileId = field(input?.fileId, 100)
+  const cohortId = field(input?.cohortId, 100)
+  const requestId = field(input?.requestId, 100)
+  const reason = field(input?.reason ?? '', 1000)
+  if (!fileId || !cohortId || !requestId || reason === null) return { ok: false, message: '請重新上傳檔案。' }
+  const revisions: Record<string, number> = {}
+  for (const [groupId, revision] of Object.entries(input?.revisions ?? {}).slice(0, 2000)) {
+    if (typeof revision === 'number' && Number.isInteger(revision)) revisions[groupId] = revision
+  }
+  const result = await getAdvisorCommand().executeBatch(
+    await currentActor(),
+    { fileId, cohortId, reason, confirmReassign: input?.confirmReassign === true, revisions },
+    requestId,
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, data: { receipt: result.receipt, message: describeAdvisorBatchReceipt(result.receipt) } }
 }

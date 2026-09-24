@@ -24,6 +24,7 @@ import {
   studentCohortOf,
   TERMINATION_KIND_LABEL,
   type AddMemberInput,
+  type AdvisorSource,
   type ChangeLeaderInput,
   type CohortGroupingOverview,
   type ConfirmReceipt,
@@ -44,6 +45,7 @@ import {
   type RemoveMemberInput,
   type SetOpenToJoinReceipt,
   type StudentGroupView,
+  type TeacherOption,
   type TeammateListing,
   type TerminateReceipt,
   type TerminationKind,
@@ -909,6 +911,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       const revision = await this.#bumpGroup(tx, group.id, adminId, realAt)
       const members = await this.#currentMembers(tx, group.id)
       const sizeWarning = groupSizeWarning(members.length, { min: cohort.group_size_min, max: cohort.group_size_max })
+      const advisorId = await this.#currentAdvisorId(tx, group.id)
 
       await this.#events.publish(tx, {
         type: 'group.members_changed',
@@ -916,8 +919,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         cohortId: group.cohort_id,
         source: { type: 'group', id: group.id, version: revision },
         actor: { kind: 'user', userId: adminId },
-        recipients: members.map((m) => m.user_id),
-        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        // 異動後全體成員＋目前主指導（產品 08 §4；票 19 補上主指導）。
+        recipients: [...members.map((m) => m.user_id), ...(advisorId ? [advisorId] : [])],
+        recipientBasis: { groupId: group.id, basis: 'group_memberships+advisor', revision, advisorUserId: advisorId },
         payload: {
           title: `系辦把 ${student.name} 加入組別 ${group.code}`,
           groupId: group.id,
@@ -1019,6 +1023,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       const after = before.filter((m) => m.user_id !== target.user_id)
       const sizeWarning = groupSizeWarning(after.length, { min: cohort.group_size_min, max: cohort.group_size_max })
       const newLeaderName = decision.leaderChange && successorId ? (nameOf.get(successorId) ?? null) : null
+      const advisorId = await this.#currentAdvisorId(tx, group.id)
 
       await this.#events.publish(tx, {
         type: 'group.members_changed',
@@ -1026,8 +1031,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         cohortId: group.cohort_id,
         source: { type: 'group', id: group.id, version: revision },
         actor: { kind: 'user', userId: adminId },
-        recipients: after.map((m) => m.user_id),
-        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        // 異動後全體成員＋目前主指導（產品 08 §4；票 19 補上主指導）；被移出的人收下面那一則。
+        recipients: [...after.map((m) => m.user_id), ...(advisorId ? [advisorId] : [])],
+        recipientBasis: { groupId: group.id, basis: 'group_memberships+advisor', revision, advisorUserId: advisorId },
         payload: {
           title: `系辦把 ${target.name} 移出組別 ${group.code}${newLeaderName ? `，組長改由 ${newLeaderName} 接任` : ''}`,
           groupId: group.id,
@@ -1208,6 +1214,15 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       [groupId],
     )
     return rows.rows
+  }
+
+  /** 目前的主指導（票 19 `advisor_assignments`）；還沒指派是 null。 */
+  async #currentAdvisorId(tx: PoolClient, groupId: string): Promise<string | null> {
+    const rows = await tx.query<{ teacher_user_id: string }>(
+      'select teacher_user_id from advisor_assignments where group_id = $1 and valid_to is null',
+      [groupId],
+    )
+    return rows.rows[0]?.teacher_user_id ?? null
   }
 
   async #currentLeader(tx: PoolClient, groupId: string): Promise<{ id: string; user_id: string } | null> {
@@ -1565,6 +1580,37 @@ export class PgGroupQuery implements GroupQuery {
     }
   }
 
+  async cohortGroups(cohortId: string): Promise<GroupSummary[]> {
+    if (!isUuid(cohortId)) return []
+    return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false)
+  }
+
+  async teacherOptions(): Promise<TeacherOption[]> {
+    const rows = await this.#reader().query<{ user_id: string; name: string; email: string }>(
+      `select u.id as user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name, u.email
+         from users u
+         left join user_profiles p on p.user_id = u.id
+        where u.status = 'active' and u.deidentified_at is null
+          and exists (select 1 from role_assignments r
+                       where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
+        order by name, u.email`,
+    )
+    return rows.rows.map((r) => ({ userId: r.user_id, name: r.name, loginEmail: r.email }))
+  }
+
+  async advisedGroupCount(teacherUserId: string): Promise<number> {
+    if (!isUuid(teacherUserId)) return 0
+    const rows = await this.#reader().query<{ n: string }>(
+      `select count(*) as n
+         from advisor_assignments a
+         join groups g on g.id = a.group_id
+         join cohorts c on c.id = g.cohort_id
+        where a.teacher_user_id = $1 and a.valid_to is null and g.status = 'active' and c.status <> 'archived'`,
+      [teacherUserId],
+    )
+    return Number(rows.rows[0]?.n ?? 0)
+  }
+
   /** `forAdmin`：歷程帶理由與操作的管理員；學生看的一律不帶（和作廢理由同一政策）。 */
   async #groups(where: string, values: unknown[], forAdmin: boolean): Promise<GroupSummary[]> {
     const db = this.#reader()
@@ -1593,6 +1639,27 @@ export class PgGroupQuery implements GroupQuery {
         order by is_leader desc, p.student_no`,
       [ids],
     )
+    const advisors = await db.query<{
+      group_id: string
+      teacher_user_id: string
+      teacher_name: string
+      source: AdvisorSource
+      valid_from: Date
+    }>(
+      `select a.group_id, a.teacher_user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
+              a.source, a.valid_from
+         from advisor_assignments a
+         join users u on u.id = a.teacher_user_id
+         left join user_profiles p on p.user_id = a.teacher_user_id
+        where a.group_id = any($1::uuid[]) and a.valid_to is null`,
+      [ids],
+    )
+    const advisorOf = new Map(
+      advisors.rows.map((a) => [
+        a.group_id,
+        { teacherUserId: a.teacher_user_id, teacherName: a.teacher_name, source: a.source, since: a.valid_from },
+      ]),
+    )
     const history = await this.#history(ids, forAdmin)
     return groups.rows.map((g) => ({
       id: g.id,
@@ -1604,6 +1671,7 @@ export class PgGroupQuery implements GroupQuery {
       members: members.rows
         .filter((m) => m.group_id === g.id)
         .map((m) => ({ userId: m.user_id, name: m.name, studentNo: m.student_no, isLeader: m.is_leader })),
+      advisor: advisorOf.get(g.id) ?? null,
       history: history.get(g.id) ?? [],
     }))
   }
@@ -1688,6 +1756,7 @@ export class PgGroupQuery implements GroupQuery {
           at: m.valid_from,
           userName: m.name,
           previousLeaderName: null,
+          previousAdvisorName: null,
           byName: admin(m.added_by_name),
           reason: admin(m.add_reason),
         })
@@ -1698,6 +1767,7 @@ export class PgGroupQuery implements GroupQuery {
           at: m.valid_to,
           userName: m.name,
           previousLeaderName: null,
+          previousAdvisorName: null,
           byName: admin(m.removed_by_name),
           reason: admin(m.removal_reason),
         })
@@ -1712,11 +1782,69 @@ export class PgGroupQuery implements GroupQuery {
           at: l.valid_from,
           userName: l.name,
           previousLeaderName: previous.name,
+          previousAdvisorName: null,
           byName: admin(l.by_name),
           reason: admin(l.reason),
         })
       }
       previous = { groupId: l.group_id, name: l.name }
+    }
+
+    // 主指導（票 19）：每一列的開始是一次指派（首次、認領或重派）；重派的新列用 `previous_assignment_id`
+    // 指向它接手的那一列。結束了、又沒有被任何一列接手的，就是被解除。
+    const advisors = await db.query<{
+      id: string
+      group_id: string
+      name: string
+      source: AdvisorSource
+      valid_from: Date
+      valid_to: Date | null
+      created_at: Date
+      ended_real_at: Date | null
+      previous_assignment_id: string | null
+      reason: string | null
+      end_reason: string | null
+      by_name: string | null
+      ended_by_name: string | null
+    }>(
+      `select a.id, a.group_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name, a.source,
+              a.valid_from, a.valid_to, a.created_at, a.ended_real_at, a.previous_assignment_id, a.reason, a.end_reason,
+              coalesce(bp.display_name, bu.name) as by_name,
+              coalesce(ep.display_name, eu.name) as ended_by_name
+         from advisor_assignments a
+         join users u on u.id = a.teacher_user_id
+         left join user_profiles p on p.user_id = a.teacher_user_id
+         left join users bu on bu.id = a.assigned_by_user_id
+         left join user_profiles bp on bp.user_id = a.assigned_by_user_id
+         left join users eu on eu.id = a.ended_by_user_id
+         left join user_profiles ep on ep.user_id = a.ended_by_user_id
+        where a.group_id = any($1::uuid[])`,
+      [groupIds],
+    )
+    const advisorName = new Map(advisors.rows.map((a) => [a.id, a.name]))
+    const replacedIds = new Set(advisors.rows.map((a) => a.previous_assignment_id).filter((id): id is string => id !== null))
+    for (const a of advisors.rows) {
+      push(a.group_id, a.created_at, {
+        kind: 'advisor_assigned',
+        at: a.valid_from,
+        userName: a.name,
+        previousLeaderName: null,
+        previousAdvisorName: a.previous_assignment_id ? (advisorName.get(a.previous_assignment_id) ?? null) : null,
+        // 認領是老師自己：「誰操作」就是他本人，不另外列。
+        byName: a.source === 'claim' ? null : admin(a.by_name),
+        reason: admin(a.reason),
+      })
+      if (a.valid_to && a.ended_real_at && !replacedIds.has(a.id)) {
+        push(a.group_id, a.ended_real_at, {
+          kind: 'advisor_removed',
+          at: a.valid_to,
+          userName: a.name,
+          previousLeaderName: null,
+          previousAdvisorName: null,
+          byName: admin(a.ended_by_name),
+          reason: admin(a.end_reason),
+        })
+      }
     }
 
     const result = new Map<string, GroupHistoryEntry[]>()

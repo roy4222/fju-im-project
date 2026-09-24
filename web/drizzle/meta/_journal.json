@@ -50,6 +50,13 @@
       "when": 1790261739034,
       "tag": "0006_s05_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790265171397,
+      "tag": "0007_s06_advisors",
+      "breakpoints": true
     }
   ]
 }

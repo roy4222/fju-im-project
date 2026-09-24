@@ -5,6 +5,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { DataTable, EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
 import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
 import {
   COHORT_STATUS_LABEL,
@@ -16,7 +17,12 @@ import {
 } from '@/composition/cohorts'
 import type { GroupHistoryEntry } from '@/application/groups'
 import {
+  ADVISOR_BATCH_KIND_LABEL,
+  ADVISOR_BATCH_OUTCOME_LABEL,
+  ADVISOR_CSV_MAX_BYTES,
   CHANGE_REASON_MAX_LENGTH,
+  describeGroupHistory,
+  getAdvisorGradingLookup,
   getGroupQuery,
   GROUP_TYPE_LABEL,
   groupSizeWarning,
@@ -36,17 +42,11 @@ export const metadata = { title: '分組總覽｜資管系專題平台' }
  * 已成立的組別與組長、還沒分組的學生（誰公開找組員、誰正被提案占住）、最近終止的提案。
  * 票 14：未分組學生「加入某組」；組別「詳情」裡移出組員（組長要指定接任）、換組長、看異動歷程。
  * 人數和設定不符時標示「與設定不符」但允許（2026-09-24 定案：管理員調整就是特殊情況的處理方式）。
+ * 票 19：每組的指導老師（指派、重派、解除，理由必填），以及批次指派 CSV（六類預覽後逐列執行）。
  */
 
 function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
-  const by = h.byName ? `（${h.byName}）` : ''
-  const text =
-    h.kind === 'member_added'
-      ? `${h.userName} 加入${by}`
-      : h.kind === 'member_removed'
-        ? `${h.userName} 移出${by}`
-        : `組長 ${h.previousLeaderName ?? '—'} → ${h.userName}${by}`
-  return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text, reason: h.reason }
+  return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text: describeGroupHistory(h), reason: h.reason }
 }
 export default async function AdminGroupsPage({
   searchParams,
@@ -78,7 +78,20 @@ export default async function AdminGroupsPage({
     )
   }
 
-  const [overview, businessNow] = await Promise.all([getGroupQuery().overview(cohort.id), getBusinessClock().now()])
+  const [overview, businessNow, teachers] = await Promise.all([
+    getGroupQuery().overview(cohort.id),
+    getBusinessClock().now(),
+    getGroupQuery().teacherOptions(),
+  ])
+  const grading = getAdvisorGradingLookup()
+  const gradingOf = new Map(
+    await Promise.all(
+      overview.groups
+        .filter((g) => g.advisor)
+        .map(async (g) => [g.id, [...(await grading.assignmentsFor(g.id, g.advisor!.teacherUserId))]] as const),
+    ),
+  )
+  const unassigned = overview.groups.filter((g) => !g.advisor).length
   const grouped = overview.groups.reduce((sum, g) => sum + g.members.length, 0)
   const size = { min: cohort.groupSizeMin, max: cohort.groupSizeMax }
 
@@ -116,6 +129,9 @@ export default async function AdminGroupsPage({
           <p data-testid="grouping-settings" className="mt-0.5 text-sm text-muted-foreground tabular-nums">
             {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認・
             進行中提案 {overview.openProposals.length} 份
+          </p>
+          <p data-testid="advisor-summary" className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+            指導老師：{overview.groups.length - unassigned} 組已指派・{unassigned} 組尚未指派
           </p>
         </div>
         <GroupingSettingsEditor
@@ -163,9 +179,19 @@ export default async function AdminGroupsPage({
       </section>
 
       <section aria-label="全部組別" className="mb-6 space-y-2">
-        <h2 className="text-base font-semibold text-ink">全部組別</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-ink">全部組別</h2>
+          <BatchAssignDialog
+            cohortId={cohort.id}
+            cohortCode={cohort.code}
+            kindLabels={ADVISOR_BATCH_KIND_LABEL}
+            outcomeLabels={ADVISOR_BATCH_OUTCOME_LABEL}
+            maxBytes={ADVISOR_CSV_MAX_BYTES}
+            reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+          />
+        </div>
         <DataTable
-          columns={['組別', '類型', '組員', '人數', '成立時間', '']}
+          columns={['組別', '類型', '組員', '人數', '指導老師', '成立時間', '']}
           rows={overview.groups.map((g) => {
             const mismatch = groupSizeWarning(g.members.length, size) !== null
             return [
@@ -177,6 +203,20 @@ export default async function AdminGroupsPage({
               <span key="count" className={cn('tabular-nums', mismatch && 'font-semibold text-danger')}>
                 {g.members.length} 人{mismatch ? '（與設定不符）' : ''}
               </span>,
+              <AdvisorCell
+                key="advisor"
+                group={{
+                  id: g.id,
+                  code: g.code,
+                  revision: g.revision,
+                  typeLabel: GROUP_TYPE_LABEL[g.groupType],
+                  advisor: g.advisor ? { userId: g.advisor.teacherUserId, name: g.advisor.teacherName } : null,
+                }}
+                teachers={teachers}
+                grading={gradingOf.get(g.id) ?? []}
+                requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
+                reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+              />,
               <span key="at" className="tabular-nums">
                 {formatTaipeiMinute(g.establishedBusinessAt)}
               </span>,
