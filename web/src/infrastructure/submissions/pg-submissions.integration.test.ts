@@ -12,6 +12,8 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
+import { categoryOf, completionOf, pendingCount, receiverStatus } from '@/application/submissions'
+import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
 /**
@@ -464,6 +466,33 @@ describe('有人作答後，票 15 的收件單位鎖定真的生效', () => {
     expect((await query.myItem(student.id, itemId))?.title).toBe('分組意向登記（更正）')
   })
 
+  it('完全空白的草稿不算作答（票 18）：打開就按存草稿不會把收件單位鎖住；填了一欄才鎖', async () => {
+    const { stageId, student, itemId } = await scenario()
+    // 畫面全空時按「正式送出」：先存一份空草稿，再被必填擋下。
+    const blank = await mustSave(student, itemId, 0, { topic: '   ', kind: '' })
+    expect(await submissions.submit(studentActor(student), itemId, blank.revision, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    expect((await owner.sql('select answers from submission_drafts where item_id = $1', [itemId])).rows[0]!.answers).toEqual({})
+    expect((await itemQuery.get(itemId))?.hasResponses).toBe(false)
+
+    const head = await itemQuery.get(itemId)
+    const switched = await items.updatePublished(
+      adminActor(),
+      itemId,
+      head!.revision,
+      input(head!.cohortId, stageId, { fields: [...FIELDS, { key: 'extra', type: 'text', label: '多一欄', required: false }] }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(switched).toMatchObject({ ok: true })
+
+    // 空白草稿之後照新欄位存得進去；有內容之後就鎖。
+    await mustSave(student, itemId, blank.revision, { extra: '新欄位' })
+    expect((await itemQuery.get(itemId))?.hasResponses).toBe(true)
+  })
+
   it('學生第一次存草稿與管理員切單位同時發生：兩邊不會都成功', async () => {
     const { stageId, student, itemId } = await scenario()
     const head = await itemQuery.get(itemId)
@@ -481,5 +510,145 @@ describe('有人作答後，票 15 的收件單位鎖定真的生效', () => {
     expect(saved.ok && switched.ok).toBe(false)
     if (saved.ok) expect(switched).toMatchObject({ code: 'ITEM_HAS_RESPONSES' })
     else expect(saved).toMatchObject({ code: 'NOT_IN_ROSTER' })
+  })
+})
+
+describe('收件名單頁（票 18）：三類分開、完成率、點人看版本', () => {
+  /** 一屆五位學生＋一份已發布的個人收件，做出每一種情況。 */
+  async function rosterScenario() {
+    const { cohortId, stageId } = await newCohort()
+    const done = await newStudent(cohortId)
+    const drafting = await newStudent(cohortId)
+    const exempted = await newStudent(cohortId)
+    const removed = await newStudent(cohortId)
+    const readded = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId)
+
+    // 交了兩次（重送）。
+    const first = await mustSave(done, itemId, 0, COMPLETE)
+    expect((await submissions.submit(studentActor(done), itemId, first.revision, randomUUID())).ok).toBe(true)
+    const second = await mustSave(done, itemId, first.revision, { ...COMPLETE, topic: '改過的題目' })
+    expect((await submissions.submit(studentActor(done), itemId, second.revision, randomUUID())).ok).toBe(true)
+    // 只存了草稿。
+    await mustSave(drafting, itemId, 0, { topic: '還在想' })
+    // 交過之後被移出、交過之後移出又加回。
+    for (const s of [removed, readded]) {
+      const saved = await mustSave(s, itemId, 0, COMPLETE)
+      expect((await submissions.submit(studentActor(s), itemId, saved.revision, randomUUID())).ok).toBe(true)
+    }
+    // 免填與移出由之後的票做成操作；這裡用 owner 連線直接寫成那個樣子。
+    await owner.sql(`update response_rosters set exempt = true, exempt_reason = '休學' where item_id = $1 and receiver_id = $2`, [
+      itemId,
+      exempted.id,
+    ])
+    await owner.sql(
+      `update response_rosters set eligible_to_business_at = eligible_from_business_at + interval '1 day', removed_reason = '轉系'
+        where item_id = $1 and receiver_id = any($2::uuid[])`,
+      [itemId, [removed.id, readded.id]],
+    )
+    await owner.sql(
+      `insert into response_rosters
+         (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, $2, 'user', $3, $5::timestamptz + interval '2 days', 'admin', 'user', $4)`,
+      [itemId, cohortId, readded.id, adminId, businessNow],
+    )
+    return { cohortId, itemId, done, drafting, exempted, removed, readded }
+  }
+
+  it('每位收件者只出現一次：目前名單、免填、已移出分開；分子只算目前名單裡交過的', async () => {
+    const { itemId, done, drafting, exempted, removed, readded } = await rosterScenario()
+    const roster = new PgRosterQuery(() => app)
+    const result = await roster.roster(adminActor(), itemId)
+    expect(result?.item).toMatchObject({ itemId, title: '分組意向登記', receiverUnit: 'individual', schemaVersionNo: 1 })
+    const entries = result!.entries
+    expect(entries).toHaveLength(5)
+    const byId = new Map(entries.map((e) => [e.receiverId, e]))
+    expect(entries.map((e) => categoryOf(e)).sort()).toEqual(['current', 'current', 'current', 'exempt', 'removed'])
+    expect(byId.get(done.id)).toMatchObject({ latestVersionNo: 2, latestSubmittedByName: done.name, eligibleTo: null, source: 'auto' })
+    expect(byId.get(done.id)?.studentNo).toMatch(/^41700/)
+    expect(byId.get(drafting.id)).toMatchObject({ hasDraft: true, latestVersionNo: null })
+    expect(byId.get(exempted.id)).toMatchObject({ exempt: true, exemptReason: '休學' })
+    expect(byId.get(removed.id)).toMatchObject({ removedReason: '轉系', latestVersionNo: 1 })
+    expect(byId.get(removed.id)?.eligibleTo).toBeInstanceOf(Date)
+    // 加回的那一位：取目前那一列（管理員加入），回答仍算。
+    expect(byId.get(readded.id)).toMatchObject({ eligibleTo: null, source: 'admin', latestVersionNo: 1 })
+
+    // 分母＝done、drafting、readded；分子＝done、readded。
+    expect(completionOf(result!.item, entries, businessNow)).toMatchObject({
+      required: 3,
+      done: 2,
+      pending: 1,
+      exempt: 1,
+      removed: 1,
+      percent: 67,
+    })
+  })
+
+  it('學生作業區（首頁待繳數的來源）與名單頁對同一個人算出同一個狀態', async () => {
+    const { itemId, done, drafting } = await rosterScenario()
+    const entries = (await new PgRosterQuery(() => app).roster(adminActor(), itemId))!.entries
+    for (const s of [done, drafting]) {
+      const mine = (await query.myItems(s.id)).find((r) => r.itemId === itemId)!
+      const entry = entries.find((e) => e.receiverId === s.id)!
+      expect(receiverStatus(mine, mine, businessNow)).toEqual(receiverStatus(mine, entry, businessNow))
+      expect(pendingCount([mine], businessNow)).toBe(s === drafting ? 1 : 0)
+    }
+  })
+
+  it('點一個人：名單歷史、每一次正式送出與內容；已移出的人回答保留、仍查得到', async () => {
+    const { itemId, done, removed, readded } = await rosterScenario()
+    const roster = new PgRosterQuery(() => app)
+
+    const detail = await roster.receiver(adminActor(), itemId, done.id)
+    expect(detail?.versions.map((v) => v.versionNo)).toEqual([2, 1])
+    expect(detail?.draftUpdatedAt).toBeInstanceOf(Date)
+    expect(await roster.receiverVersion(adminActor(), itemId, done.id, 1)).toMatchObject({
+      versionNo: 1,
+      isLatest: false,
+      answers: COMPLETE,
+    })
+    expect((await roster.receiverVersion(adminActor(), itemId, done.id, 2))?.answers).toMatchObject({ topic: '改過的題目' })
+
+    const gone = await roster.receiver(adminActor(), itemId, removed.id)
+    expect(gone?.entry).toMatchObject({ removedReason: '轉系' })
+    expect(gone?.versions).toHaveLength(1)
+    expect((await roster.receiverVersion(adminActor(), itemId, removed.id, 1))?.answers).toEqual(COMPLETE)
+
+    const back = await roster.receiver(adminActor(), itemId, readded.id)
+    expect(back?.spans.map((s) => [s.source, s.removedReason])).toEqual([
+      ['admin', null],
+      ['auto', '轉系'],
+    ])
+  })
+
+  it('整組一份的收件也列得出名單（組別代號），還沒有任何組別版本', async () => {
+    const { cohortId, stageId } = await newCohort()
+    await owner.sql(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, 'G01', 'general', now(), now(), 'system')`,
+      [cohortId],
+    )
+    const itemId = await published(cohortId, stageId, { receiverUnit: 'group', title: '整組一份的報告' })
+    const result = await new PgRosterQuery(() => app).roster(adminActor(), itemId)
+    expect(result?.item.receiverUnit).toBe('group')
+    expect(result?.entries).toEqual([
+      expect.objectContaining({ receiverKind: 'group', name: 'G01', groupCode: 'G01', studentNo: null, latestVersionNo: null }),
+    ])
+    expect(completionOf(result!.item, result!.entries, businessNow)).toMatchObject({ required: 1, done: 0 })
+  })
+
+  it('只有管理員拿得到：老師、學生（連本人）都是 null；不在名單上的人、別的項目也是 null', async () => {
+    const { itemId, done } = await rosterScenario()
+    const other = await scenario()
+    const roster = new PgRosterQuery(() => app)
+    const anonymous: ResolvedActor = { kind: 'anonymous' }
+    for (const actor of [teacherActor(), studentActor(done), anonymous]) {
+      expect(await roster.roster(actor, itemId)).toBeNull()
+      expect(await roster.receiver(actor, itemId, done.id)).toBeNull()
+      expect(await roster.receiverVersion(actor, itemId, done.id, 1)).toBeNull()
+    }
+    expect(await roster.receiver(adminActor(), itemId, other.student.id)).toBeNull()
+    expect(await roster.receiverVersion(adminActor(), other.itemId, done.id, 1)).toBeNull()
+    expect(await roster.roster(adminActor(), 'not-a-uuid')).toBeNull()
   })
 })

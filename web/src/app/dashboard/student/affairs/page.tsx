@@ -5,7 +5,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
 import { getBusinessClock } from '@/composition/cohorts'
-import { getSubmissionQuery, phaseOf, statusOf } from '@/composition/submissions'
+import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -35,19 +35,8 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   const tab: TabKey = TABS.find((t) => t.key === params.tab)?.key ?? 'all'
 
   const [rows, businessNow] = await Promise.all([getSubmissionQuery().myItems(userId), getBusinessClock().now()])
-  const items = rows.map((row) => {
-    const phase = phaseOf({ opensAt: row.opensAt, dueAt: row.dueAt }, businessNow)
-    return {
-      row,
-      status: statusOf({
-        phase,
-        opensAt: row.opensAt,
-        latestVersionNo: row.latestVersionNo,
-        hasDraft: row.hasDraft,
-        exempt: row.exempt,
-      }),
-    }
-  })
+  // 狀態字與首頁待繳數、管理員名單頁同一個函式（票 18）。
+  const items = rows.map((row) => ({ row, status: receiverStatus(row, row, businessNow) }))
   const inTab = (key: TabKey) =>
     items.filter(({ status }) =>
       key === 'open' ? status.pending : key === 'done' ? status.submitted : key === 'overdue' ? status.overdue : true,

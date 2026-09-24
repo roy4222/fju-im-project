@@ -346,7 +346,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function isUuid(value: unknown): value is string {
+export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID.test(value)
 }
 
@@ -367,7 +367,7 @@ type ListRow = {
   latest_received_at: Date | null
 }
 
-type VersionRow = {
+export type VersionRow = {
   version_no: number
   received_business_at: Date
   received_real_at: Date
@@ -376,16 +376,36 @@ type VersionRow = {
   request_id: string
 }
 
-const VERSION_COLUMNS = `
+export const VERSION_COLUMNS = `
   v.version_no, v.received_business_at, v.received_real_at, v.request_id,
   coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no`
 
-const VERSION_JOINS = `
+export const VERSION_JOINS = `
   join users u on u.id = v.submitted_by_user_id
   left join user_profiles p on p.user_id = v.submitted_by_user_id
   join form_schema_versions sv on sv.id = v.schema_version_id`
 
-function toSummary(row: VersionRow): VersionSummary {
+/**
+ * 某個收件者在某個項目上「有沒有草稿」「最後一次正式送出」（票 18）。
+ *
+ * 學生作業區（`myItems`，也是學生首頁待繳數的來源）與管理員名單頁用**同一段**，
+ * 再經 application 同一個 `receiverStatus` 算狀態——兩邊的「已繳／未繳」不會各算各的。
+ * 帶出的欄位：`facts.has_draft`、`latest.version_no`、`latest.received_business_at`、`latest.submitted_by_user_id`。
+ */
+export function receiverFactsJoin(item: string, kind: string, receiver: string): string {
+  return `
+  left join lateral (
+    select exists (select 1 from submission_drafts d
+                    where d.item_id = ${item} and d.receiver_kind = ${kind} and d.receiver_id = ${receiver}) as has_draft
+  ) facts on true
+  left join lateral (
+    select v.version_no, v.received_business_at, v.submitted_by_user_id from submission_versions v
+     where v.item_id = ${item} and v.receiver_kind = ${kind} and v.receiver_id = ${receiver}
+     order by v.version_no desc limit 1
+  ) latest on true`
+}
+
+export function toSummary(row: VersionRow): VersionSummary {
   return {
     versionNo: row.version_no,
     receivedBusinessAt: row.received_business_at,
@@ -408,17 +428,11 @@ export class PgSubmissionQuery implements SubmissionQuery {
     const rows = await this.#reader().query<ListRow>(
       `select m.id, m.title, s.name as stage_name, m.opens_at, m.due_at, r.exempt,
               (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
-              exists (select 1 from submission_drafts d
-                       where d.item_id = m.id and d.receiver_kind = 'user' and d.receiver_id = $1) as has_draft,
-              latest.version_no as latest_version_no, latest.received_business_at as latest_received_at
+              facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at
          from response_rosters r
          join managed_items m on m.id = r.item_id
          left join cohort_stages s on s.id = m.stage_id
-         left join lateral (
-           select v.version_no, v.received_business_at from submission_versions v
-            where v.item_id = m.id and v.receiver_kind = 'user' and v.receiver_id = $1
-            order by v.version_no desc limit 1
-         ) latest on true
+         ${receiverFactsJoin('m.id', 'r.receiver_kind', 'r.receiver_id')}
         where r.receiver_kind = 'user' and r.receiver_id = $1 and r.eligible_to_business_at is null
           and m.status = 'published' and m.receiver_unit = 'individual'
         order by m.due_at nulls last, m.title`,
@@ -503,18 +517,29 @@ export class PgSubmissionQuery implements SubmissionQuery {
   }
 
   async myVersion(userId: string, itemId: string, versionNo: number): Promise<MyVersionDetail | null> {
-    if (!isUuid(userId) || !isUuid(itemId) || !Number.isInteger(versionNo) || versionNo < 1) return null
     // 只看「自己的」版本：收件者就是本人。不另外要求目前還在名單上——本人唯讀自己的正式版本（產品模組 05 §8）。
-    const found = await this.#reader().query<VersionRow & { answers: Answers; schema: { fields?: FormField[] }; latest: number }>(
-      `select ${VERSION_COLUMNS}, v.answers, sv.schema,
-              (select max(x.version_no) from submission_versions x
-                where x.item_id = v.item_id and x.receiver_kind = 'user' and x.receiver_id = v.receiver_id) as latest
-         from submission_versions v ${VERSION_JOINS}
-        where v.item_id = $1 and v.receiver_kind = 'user' and v.receiver_id = $2 and v.version_no = $3`,
-      [itemId, userId, versionNo],
-    )
-    const row = found.rows[0]
-    if (!row) return null
-    return { ...toSummary(row), isLatest: row.latest === row.version_no, fields: row.schema.fields ?? [], answers: row.answers }
+    return versionDetail(this.#reader(), itemId, 'user', userId, versionNo)
   }
+}
+
+/** 某個收件者某一次正式送出的內容（本人的繳交歷史與管理員名單頁共用）。 */
+export async function versionDetail(
+  db: Pick<Pool, 'query'>,
+  itemId: string,
+  receiverKind: 'user' | 'group',
+  receiverId: string,
+  versionNo: number,
+): Promise<MyVersionDetail | null> {
+  if (!isUuid(receiverId) || !isUuid(itemId) || !Number.isInteger(versionNo) || versionNo < 1) return null
+  const found = await db.query<VersionRow & { answers: Answers; schema: { fields?: FormField[] }; latest: number }>(
+    `select ${VERSION_COLUMNS}, v.answers, sv.schema,
+            (select max(x.version_no) from submission_versions x
+              where x.item_id = v.item_id and x.receiver_kind = v.receiver_kind and x.receiver_id = v.receiver_id) as latest
+       from submission_versions v ${VERSION_JOINS}
+      where v.item_id = $1 and v.receiver_kind = $2 and v.receiver_id = $3 and v.version_no = $4`,
+    [itemId, receiverKind, receiverId, versionNo],
+  )
+  const row = found.rows[0]
+  if (!row) return null
+  return { ...toSummary(row), isLatest: row.latest === row.version_no, fields: row.schema.fields ?? [], answers: row.answers }
 }

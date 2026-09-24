@@ -36,7 +36,16 @@ type Row = {
   source_ref: { type?: string; id?: string; version?: number | null } | null
   created_at: Date
   read_at: Date | null
+  /** 來源是專題事務時，顯示當下的項目狀態（左接 `managed_items`；不是項目或項目不在了就是 null）。 */
+  item_placement: string | null
+  item_status: string | null
+  item_receiver_unit: string | null
+  /** 本人目前在這份收件的名單上（個人一份）。 */
+  item_on_roster: boolean | null
 }
+
+/** 解析來源時能用的「當下」事實（每次顯示都重查，不看通知寫入當時）。 */
+type SourceContext = Pick<Row, 'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster'>
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -61,7 +70,7 @@ function filterSql(filter: InboxFilter, firstParam: number): { sql: string; valu
  * 在這裡登記自己的來源種類怎麼重驗。沒登記的種類一律當「此項目目前無法存取」——寧可擋也不露。
  * 屆別已封存的通知顯示「已封存（唯讀）」，仍可標已讀（產品模組 08 §4）。
  */
-const SOURCE_RESOLVERS: Record<string, (ref: { id: string }) => NotificationSourceState> = {
+const SOURCE_RESOLVERS: Record<string, (ref: { id: string }, context: SourceContext) => NotificationSourceState> = {
   test: () => ({ state: 'ok', href: null }),
   domain_event: () => ({ state: 'ok', href: null }),
   due_work: () => ({ state: 'ok', href: null }),
@@ -69,17 +78,46 @@ const SOURCE_RESOLVERS: Record<string, (ref: { id: string }) => NotificationSour
   // 分組（票 13）：收件人都是提案或組別的學生，點進「我的組別」；那一頁自己再依本人身分查、重驗權限。
   group_proposal: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
   group: () => ({ state: 'ok', href: '/dashboard/student/groups' }),
-  // 專題事務（票 15）：通知只顯示標題、不給連結。前台公告頁已有（票 16），但這裡只拿得到 ID、
-  // 分不出公告（/news/<id>）與收件（作業區，票 17），也還沒回來源重驗撤回／下架；接上時一起做。
-  item: () => ({ state: 'ok', href: null }),
+  item: resolveItem,
 }
 
-export function resolveSource(row: Pick<Row, 'source_ref' | 'cohort_status'>): NotificationSourceState {
+/**
+ * 專題事務的通知點進哪裡（票 18 補上；票 15 時只顯示標題）。看的是**現在**的項目與本人身分：
+ *
+ * - 公告 → 前台內容頁 `/news/<id>`（票 16）。已下架、已撤回也照樣連過去：那一頁自己依登入身分與項目狀態
+ *   顯示內容或「已下架／已撤回」的下一步（不是 404）。
+ * - 資源 → `/files`、專題規則 → `/rules`（票 16 的前台清單頁；資源與規則沒有單篇頁，`/news/<id>` 只收公告）。
+ * - 個人收件：發布中而且本人現在還在名單上 → 作業區的那一份（`/dashboard/student/affairs/<id>`，那一頁自己再驗名單）。
+ *   已被移出、組別收件（作業區在票 21 才收）、沒有在發布中 → 不給連結，只顯示標題。
+ * - 項目不在了或其他種類 → 不給連結。
+ */
+function resolveItem(ref: { id: string }, context: SourceContext): NotificationSourceState {
+  switch (context.item_placement) {
+    case 'news':
+      return { state: 'ok', href: `/news/${ref.id}` }
+    case 'resource':
+      return { state: 'ok', href: '/files' }
+    case 'rules':
+      return { state: 'ok', href: '/rules' }
+    case 'submission':
+      return context.item_status === 'published' && context.item_receiver_unit === 'individual' && context.item_on_roster
+        ? { state: 'ok', href: `/dashboard/student/affairs/${ref.id}` }
+        : { state: 'ok', href: null }
+    default:
+      return { state: 'ok', href: null }
+  }
+}
+
+const NO_CONTEXT: SourceContext = { item_placement: null, item_status: null, item_receiver_unit: null, item_on_roster: null }
+
+export function resolveSource(
+  row: Pick<Row, 'source_ref' | 'cohort_status'> & Partial<SourceContext>,
+): NotificationSourceState {
   const type = row.source_ref?.type
   const id = row.source_ref?.id
   const resolver = type ? SOURCE_RESOLVERS[type] : undefined
   if (!resolver || !id) return { state: 'forbidden' }
-  const resolved = resolver({ id })
+  const resolved = resolver({ id }, { ...NO_CONTEXT, ...row })
   if (resolved.state === 'ok' && row.cohort_status === 'archived') return { state: 'archived', href: resolved.href }
   return resolved
 }
@@ -124,9 +162,17 @@ export class PgInbox implements InboxQuery, InboxCommand {
 
     const rows = await this.#db().query<Row>(
       `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.status as cohort_status,
-              n.source_ref, n.created_at, n.read_at
+              n.source_ref, n.created_at, n.read_at,
+              mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
+              exists (select 1 from response_rosters rr
+                       where rr.item_id = mi.id and rr.receiver_kind = 'user' and rr.receiver_id = $1
+                         and rr.eligible_to_business_at is null) as item_on_roster
          from notifications n
          left join cohorts c on c.id = n.cohort_id
+         left join managed_items mi
+           on n.source_ref->>'type' = 'item'
+          and mi.id = case when n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                           then (n.source_ref->>'id')::uuid end
         where n.recipient_user_id = $1 ${cursorSql} ${f.sql}
         order by n.created_at desc, n.id desc
         limit $${values.length}`,
