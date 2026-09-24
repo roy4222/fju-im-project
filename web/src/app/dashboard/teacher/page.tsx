@@ -25,7 +25,7 @@ export default async function TeacherHomePage() {
         <EmptyState
           pending
           title="其他老師功能還沒做"
-          description="組別繳交、評分與簽核會陸續開放，開放後會出現在這裡。"
+          description="評分與簽核會陸續開放，開放後會出現在這裡。指導組別的繳交狀態請看側欄「各組繳交」。"
         />
       </div>
     </DashboardShell>

@@ -18,6 +18,7 @@ import {
 } from '@/application/ops'
 import {
   advisorMayReadIndividual,
+  canReadSubmission,
   describeIssues,
   fileAnswers,
   MIB,
@@ -30,15 +31,20 @@ import {
   type GroupSummary,
   type MyItemDetail,
   type MyItemRow,
+  type MyRecordDetail,
+  type MyRecordRow,
   type MyVersionDetail,
   type SubmissionCommand,
   type SubmissionQuery,
   type SubmitReceipt,
   type VersionSummary,
+  type VisibilityReceipt,
 } from '@/application/submissions'
-import { badRequestId, inTransaction, replayed, type PoolSource } from '@/infrastructure/cohorts/shared'
+import { authorizeAdmin, badRequestId, inTransaction, replayed, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
+import { holderOf, VERSION_ACCESS_COLUMNS, viewerForUser, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 
@@ -489,6 +495,91 @@ export class PgSubmissionCommand implements SubmissionCommand {
     })
   }
 
+  async setAdvisorVisibility(actor: ResolvedActor, itemId: string, enabled: boolean, requestId: string): Promise<Result<VisibilityReceipt>> {
+    const denied = authorizeAdmin(actor, '設定主指導閱覽')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId) || typeof enabled !== 'boolean') return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      // 鎖序：屆別（共享）→ 項目（獨占）。學生存草稿與送出拿項目的共享鎖，所以「看有沒有人作答」到「插設定」之間
+      // 不會有人剛好交進來（否則那個人沒看到告知，回答卻開給老師）。
+      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1', [itemId])
+      const cohortId = head.rows[0]?.cohort_id
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
+      const found = await tx.query<{ receiver_unit: string; schema_version_no: number | null }>(
+        `select m.receiver_unit, sv.version_no as schema_version_no
+           from managed_items m left join form_schema_versions sv on sv.id = m.current_schema_version_id
+          where m.id = $1 for update of m`,
+        [itemId],
+      )
+      const item = found.rows[0]
+      if (!item) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'submission.set_advisor_visibility',
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, enabled })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<VisibilityReceipt>(begun)
+
+      if (item.receiver_unit !== 'individual') {
+        return err('VALIDATION_FAILED', '主指導閱覽只用在「個人一份」的收件；整組一份的正式版本本來就給目前主指導看。')
+      }
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再改設定。')
+      const latest = await tx.query<{ enabled: boolean; effective_from_version_no: number }>(
+        `select enabled, effective_from_version_no from advisor_visibility_settings
+          where item_id = $1 order by set_at desc, id desc limit 1`,
+        [itemId],
+      )
+      const current = latest.rows[0] ?? null
+      if ((current?.enabled ?? false) === enabled) {
+        return err('VALIDATION_FAILED', enabled ? '這份收件已經開放主指導閱覽了。' : '這份收件目前沒有開放主指導閱覽。')
+      }
+      if (enabled && (await new PgResponsePresence().hasAnyResponse(tx, itemId))) {
+        return err(
+          'ITEM_HAS_RESPONSES',
+          '已經有人作答，不能直接開放主指導閱覽：那些同學填寫時沒看到「主指導可查看」的告知，舊回答不能因此給老師看。' +
+            '需要老師看的話，請另建一份收件並在發布前開好（改欄位版本的功能在後續版本）。',
+        )
+      }
+      // 生效版本＝目前的欄位版本（還沒發布過就是第 1 版）；關閉時沿用上一列的生效版本，只把開關關掉。
+      const effectiveFromVersionNo = enabled ? (item.schema_version_no ?? 1) : (current?.effective_from_version_no ?? 1)
+      await tx.query(
+        `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [uuidv7(), itemId, enabled, effectiveFromVersionNo, userId, realAt],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: enabled ? 'submission.advisor_visibility.enable' : 'submission.advisor_visibility.disable',
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: { enabled, effectiveFromVersionNo, previous: current ? { enabled: current.enabled, effectiveFromVersionNo: current.effective_from_version_no } : null },
+      })
+      const receipt = { itemId, enabled, effectiveFromVersionNo, setAt: realAt.toISOString(), requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId, enabled, effectiveFromVersionNo } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   /** 授權 → 屆別與組別 → 項目狀態 → 時間。回 null＝通過。 */
@@ -928,7 +1019,93 @@ export class PgSubmissionQuery implements SubmissionQuery {
     if (row.receiver_unit === 'group') return row.group_id ? versionDetail(db, itemId, 'group', row.group_id, versionNo) : null
     return versionDetail(db, itemId, 'user', userId, versionNo)
   }
+
+  async myRecords(userId: string): Promise<MyRecordRow[]> {
+    if (!isUuid(userId)) return []
+    const db = this.#reader()
+    const [rows, viewer] = await Promise.all([
+      db.query<RecordVersionRow>(`${RECORD_VERSIONS} order by v.item_id, v.receiver_id, v.version_no desc`, [userId, null, null]),
+      viewerForUser(db, userId, STUDENT),
+    ])
+    const out = new Map<string, MyRecordRow>()
+    for (const row of rows.rows) {
+      // 作業區已經列著的（此刻還在那一組、名單上）不重複列；讀不到的版本（移出之後才送的）不算。
+      if (row.in_workspace || !canReadSubmission(viewer, holderOf(row))) continue
+      const key = `${row.item_id}:${row.receiver_id}`
+      const seen = out.get(key)
+      if (seen) {
+        out.set(key, { ...seen, versionCount: seen.versionCount + 1 })
+        continue
+      }
+      out.set(key, {
+        itemId: row.item_id,
+        title: row.title,
+        receiverKind: row.receiver_kind,
+        receiverId: row.receiver_id,
+        groupCode: row.group_code,
+        versionCount: 1,
+        latestVersionNo: row.version_no,
+        latestReceivedAt: row.received_business_at,
+      })
+    }
+    return [...out.values()].sort((a, b) => b.latestReceivedAt.getTime() - a.latestReceivedAt.getTime())
+  }
+
+  async myRecord(userId: string, itemId: string, receiverId: string): Promise<MyRecordDetail | null> {
+    if (!isUuid(userId) || !isUuid(itemId) || !isUuid(receiverId)) return null
+    const db = this.#reader()
+    const [rows, viewer] = await Promise.all([
+      db.query<RecordVersionRow>(`${RECORD_VERSIONS} order by v.version_no desc`, [userId, itemId, receiverId]),
+      viewerForUser(db, userId, STUDENT),
+    ])
+    const visible = rows.rows.filter((row) => canReadSubmission(viewer, holderOf(row)))
+    const first = visible[0]
+    if (!first) return null
+    return {
+      itemId,
+      title: first.title,
+      receiverKind: first.receiver_kind,
+      receiverId,
+      groupCode: first.group_code,
+      versions: visible.map(toSummary),
+    }
+  }
+
+  async myRecordVersion(userId: string, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null> {
+    if (!isUuid(userId) || !isUuid(itemId) || !isUuid(receiverId) || !Number.isInteger(versionNo) || versionNo < 1) return null
+    const db = this.#reader()
+    const [rows, viewer] = await Promise.all([
+      db.query<RecordVersionRow>(`${RECORD_VERSIONS} and v.version_no = $4`, [userId, itemId, receiverId, versionNo]),
+      viewerForUser(db, userId, STUDENT),
+    ])
+    const row = rows.rows[0]
+    if (!row || !canReadSubmission(viewer, holderOf(row))) return null
+    return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo)
+  }
 }
+
+const STUDENT = { isAdmin: false, isTeacher: false } as const
+
+type RecordVersionRow = VersionRow &
+  VersionAccessRow & { item_id: string; title: string; group_code: string | null; in_workspace: boolean }
+
+/**
+ * 我的繳交紀錄的候選版本（票 22）：自己的個人回答，或送出當下自己在組裡的組別版本（`membership_snapshot`）。
+ * 能不能讀由呼叫端再經 `canReadSubmission` 判（跟附件下載同一段事實）；`in_workspace`＝作業區已經列著（`MY_ROSTER_ROW`）。
+ * `$1`＝本人、`$2`＝只看某一份收件、`$3`＝只看某一位收件者（null＝全部）。
+ */
+const RECORD_VERSIONS = `
+  select v.item_id, m.title, g.code as group_code, ${VERSION_COLUMNS}, ${VERSION_ACCESS_COLUMNS},
+         exists (select 1 from response_rosters r
+                  where r.item_id = v.item_id and r.receiver_kind = v.receiver_kind and r.receiver_id = v.receiver_id
+                    and ${MY_ROSTER_ROW}) as in_workspace
+    from submission_versions v ${VERSION_JOINS}
+    join managed_items m on m.id = v.item_id
+    left join groups g on v.receiver_kind = 'group' and g.id = v.receiver_id
+   where ((v.receiver_kind = 'user' and v.receiver_id = $1)
+          or (v.receiver_kind = 'group' and v.membership_snapshot ? ($1::uuid)::text))
+     and ($2::uuid is null or v.item_id = $2::uuid)
+     and ($3::uuid is null or v.receiver_id = $3::uuid)`
 
 /** 某個收件者某一次正式送出的內容（本人的繳交歷史與管理員名單頁共用）。附件照 `submission_files`（送出當下的 checksum）。 */
 export async function versionDetail(

@@ -25,6 +25,7 @@ const groupVersion: SubmissionHolder = {
   schemaVersionNo: 1,
   currentAdvisorUserId: T1,
   visibility: null,
+  membershipSnapshot: [S1, 'user-s2'],
 }
 const personalVersion = (patch: Partial<Extract<SubmissionHolder, { kind: 'version' }>> = {}): SubmissionHolder => ({
   kind: 'version',
@@ -33,6 +34,7 @@ const personalVersion = (patch: Partial<Extract<SubmissionHolder, { kind: 'versi
   schemaVersionNo: 2,
   currentAdvisorUserId: T1,
   visibility: { enabled: true, effectiveFromVersionNo: 2 },
+  membershipSnapshot: null,
   ...patch,
 })
 
@@ -56,6 +58,55 @@ describe('組別正式版本', () => {
     // 老師角色被撤銷了，就算還掛著主指導也不行；沒有主指導時誰都不是。
     expect(canReadSubmission(viewer({ userId: T1, isTeacher: false }), groupVersion)).toBe(false)
     expect(canReadSubmission(viewer({ userId: T1, isTeacher: true }), { ...groupVersion, currentAdvisorUserId: null })).toBe(false)
+  })
+})
+
+describe('被移出的人（票 22；契約 03 §1「被移出／解散後」、產品模組 05 SUB-20、25）', () => {
+  const S2 = 'user-s2'
+  // S2 被移出 G1：此刻不是任何組的組員。第 1 版送出時 S2 在組裡；第 3 版是移出之後組裡再送的。
+  const removed = viewer({ userId: S2, memberOfGroupIds: [] })
+  const v1 = { ...groupVersion, membershipSnapshot: [S1, S2] } as const
+  const v3 = { ...groupVersion, membershipSnapshot: [S1] } as const
+
+  it('只讀得到自己還在組裡時送出的版本；移出之後的版本與共用草稿都不行', () => {
+    expect(canReadSubmission(removed, v1)).toBe(true)
+    expect(canReadSubmission(removed, v3)).toBe(false)
+    expect(canReadSubmission(removed, groupDraft)).toBe(false)
+  })
+
+  it('換到別組也一樣：舊組只看快照裡有自己的那幾版，新組照有效組員', () => {
+    const moved = viewer({ userId: S2, memberOfGroupIds: [G2] })
+    expect(canReadSubmission(moved, v1)).toBe(true)
+    expect(canReadSubmission(moved, v3)).toBe(false)
+    expect(canReadSubmission(moved, { ...groupVersion, receiverId: G2, membershipSnapshot: [S6] })).toBe(true)
+  })
+
+  it('此刻的有效組員看得到全部版本（包含自己加入之前送的）', () => {
+    const joinedLater = viewer({ userId: 'user-s5', memberOfGroupIds: [G1] })
+    expect(canReadSubmission(joinedLater, v1)).toBe(true)
+    expect(canReadSubmission(joinedLater, v3)).toBe(true)
+  })
+
+  it('快照只對組別版本有意義：老師、別組的人不會因為別人的快照拿到', () => {
+    expect(canReadSubmission(viewer({ userId: T3, isTeacher: true }), v1)).toBe(false)
+    expect(canReadSubmission(viewer({ userId: S6, memberOfGroupIds: [G2] }), v1)).toBe(false)
+  })
+})
+
+describe('授權矩陣逐角色（契約 03 §1；同一份組別正式版本、同一份共用草稿）', () => {
+  // [誰, 看的人, 共用草稿, 正式版本]
+  const table: [string, SubmissionViewer, boolean, boolean][] = [
+    ['本組有效組員', viewer({ memberOfGroupIds: [G1] }), true, true],
+    ['目前主指導', viewer({ userId: T1, isTeacher: true }), false, true],
+    ['換掉的舊老師', viewer({ userId: T3, isTeacher: true }), false, false],
+    ['系辦管理員', viewer({ userId: 'admin', isAdmin: true }), true, true],
+    ['別組學生', viewer({ userId: S6, memberOfGroupIds: [G2] }), false, false],
+    ['被移出、快照裡有他', viewer({ userId: 'user-s2' }), false, true],
+    ['被移出、快照裡沒有他', viewer({ userId: 'user-s7' }), false, false],
+  ]
+  it.each(table)('%s', (_label, who, draft, version) => {
+    expect(canReadSubmission(who, groupDraft)).toBe(draft)
+    expect(canReadSubmission(who, groupVersion)).toBe(version)
   })
 })
 
