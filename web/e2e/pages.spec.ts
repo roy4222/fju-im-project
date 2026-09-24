@@ -209,6 +209,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/affairs': '公告、資源下載、文件繳交都從這裡建立、發布與修改',
     '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
+    '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
     '/dashboard/teacher/grading': '暫存只有你和系辦看得到，正式送出後鎖定',
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
@@ -234,6 +235,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/editor/new', wrongRole: 'teacher' },
     // 作業區（票 17）。
     { path: '/dashboard/student/affairs', wrongRole: 'admin' },
+    // 老師各組繳交狀態（票 22）：學生拿到的回應裡不能有矩陣。
+    { path: '/dashboard/teacher/affairs', wrongRole: 'student' },
     // 合作案管理（票 20）。
     { path: '/dashboard/teacher/industry', wrongRole: 'student' },
     { path: '/dashboard/admin/industry', wrongRole: 'teacher' },

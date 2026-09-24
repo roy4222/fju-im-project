@@ -4,7 +4,7 @@ import { EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
-import type { MyItemRow } from '@/application/submissions'
+import type { MyItemRow, MyRecordRow } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -27,6 +27,7 @@ type TabKey = (typeof TABS)[number]['key']
  * 只列**自己在目前收件名單上**的收件（發布中）：個人一份看本人、整組一份看自己此刻所在的組（票 21）。
  * 狀態字（尚未開放／未繳／已繳 vN／逾期未繳）由 application 的 `statusOf` 算，列表與內容頁同一個口徑；
  * 開放與截止都看業務時鐘（測試站可以撥）。整組一份時任一位組員送出，全組的這一列都變成已繳。
+ * 最下面「我的繳交紀錄」（票 22）：已經不在作業區、但本人讀得到的正式版本（被移出組別或名單的人唯讀）。
  */
 export default async function StudentAffairsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -35,7 +36,8 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   const params = await searchParams
   const tab: TabKey = TABS.find((t) => t.key === params.tab)?.key ?? 'all'
 
-  const [rows, businessNow] = await Promise.all([getSubmissionQuery().myItems(userId), getBusinessClock().now()])
+  const query = getSubmissionQuery()
+  const [rows, records, businessNow] = await Promise.all([query.myItems(userId), query.myRecords(userId), getBusinessClock().now()])
   // 狀態字與首頁待繳數、管理員名單頁同一個函式（票 18）。
   const items = rows.map((row) => ({ row, status: receiverStatus(row, row, businessNow) }))
   const inTab = (key: TabKey) =>
@@ -154,7 +156,45 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
           </div>
         </>
       )}
+
+      {records.length > 0 ? <Records records={records} /> : null}
     </DashboardShell>
+  )
+}
+
+/**
+ * 我的繳交紀錄（票 22；產品模組 05 SUB-20、25）：已經不在作業區、但本人讀得到的正式版本。
+ * 被移出組別的人只看得到自己還在組裡時送出的版本；被移出個人收件名單的人看得到自己的回答。唯讀。
+ */
+function Records({ records }: { records: readonly MyRecordRow[] }) {
+  return (
+    <section aria-labelledby="records-title" className="mt-8 space-y-2">
+      <h2 id="records-title" className="text-base font-semibold text-ink">
+        我的繳交紀錄（唯讀）
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        已經不在你作業區的收件。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
+      </p>
+      <ul className="divide-y divide-border rounded-card border border-border bg-background" aria-label="我的繳交紀錄" data-testid="my-records">
+        {records.map((r) => (
+          <li key={`${r.itemId}:${r.receiverId}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold text-ink">{r.title}</span>
+              <span className="block text-xs text-muted-foreground tabular-nums">
+                {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一版 v
+                {r.latestVersionNo} 於 {formatTaipeiMinute(r.latestReceivedAt)}
+              </span>
+            </span>
+            <Link
+              href={`/dashboard/student/affairs/${r.itemId}?record=${r.receiverId}`}
+              className="inline-flex h-10 shrink-0 items-center rounded-md border border-border px-4 text-sm font-medium text-ink hover:bg-muted"
+            >
+              查看紀錄
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

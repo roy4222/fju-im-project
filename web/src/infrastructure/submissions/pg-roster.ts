@@ -3,6 +3,7 @@ import type { Pool } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
 import type {
+  AdvisorVisibilityView,
   ItemRoster,
   MyVersionDetail,
   ReceiverDetail,
@@ -13,6 +14,7 @@ import type {
 } from '@/application/submissions'
 import { authorizeAdmin } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 import {
   isUuid,
   receiverFactsJoin,
@@ -27,7 +29,7 @@ import {
  * 收件名單頁的查詢（票 18；產品模組 05 §4「個人填報與收件名單」：目前名單、免填、已移出分開，完成率的分子分母）。
  *
  * - 授權：每個方法先判「系辦管理員」（帳號正常＋管理員角色），不是就回 null——頁面的角色守衛不是唯一的一道。
- *   老師預設看不到個人回答；主指導閱覽在票 21／22 接上。
+ *   老師預設看不到個人回答；主指導看繳交在 `pg-advisor-submissions`（票 22）。
  * - 名單：同一個收件者可能有多列（移出後又加回）。取「目前那一列」；沒有目前的，取最後一次移出的那一列。
  *   分類與完成率由 application 的 `categoryOf`／`completionOf` 算（畫面呼叫），這裡只給事實。
  * - 草稿、最後一次正式送出用 `receiverFactsJoin`：與學生作業區同一段 SQL。
@@ -50,7 +52,7 @@ type ItemHead = {
   schema: { fields?: FormField[] } | null
 }
 
-type EntryRow = {
+export type EntryRow = {
   receiver_kind: 'user' | 'group'
   receiver_id: string
   name: string | null
@@ -100,7 +102,7 @@ const ENTRIES = `
     left join user_profiles sp on sp.user_id = latest.submitted_by_user_id
    order by (r.eligible_to_business_at is not null), r.exempt, group_code nulls last, student_no nulls last, name`
 
-function toEntry(row: EntryRow): RosterEntry {
+export function toEntry(row: EntryRow): RosterEntry {
   return {
     receiverKind: row.receiver_kind,
     receiverId: row.receiver_id,
@@ -199,31 +201,60 @@ export class PgRosterQuery implements RosterQuery {
     return versionDetail(this.#reader(), itemId, kind, receiverId, versionNo)
   }
 
-  async #item(itemId: string): Promise<RosterItem | null> {
-    const found = await this.#reader().query<ItemHead>(
-      `select m.id, m.cohort_id, c.code as cohort_code, m.title, m.status, m.receiver_unit, s.name as stage_name,
-              m.opens_at, m.due_at, sv.version_no as schema_version_no, sv.schema
-         from managed_items m
-         join cohorts c on c.id = m.cohort_id
-         left join cohort_stages s on s.id = m.stage_id
-         left join form_schema_versions sv on sv.id = m.current_schema_version_id
-        where m.id = $1 and m.receiver_unit <> 'none'`,
-      [itemId],
-    )
-    const row = found.rows[0]
-    if (!row) return null
+  async advisorVisibility(actor: ResolvedActor, itemId: string): Promise<AdvisorVisibilityView | null> {
+    if (authorizeAdmin(actor) || !isUuid(itemId)) return null
+    const db = this.#reader()
+    const found = await db.query<{ receiver_unit: string }>('select receiver_unit from managed_items where id = $1', [itemId])
+    if (found.rows[0]?.receiver_unit !== 'individual') return null
+    const [latest, hasResponses] = await Promise.all([
+      db.query<{ enabled: boolean; effective_from_version_no: number; set_at: Date; set_by_name: string }>(
+        `select s.enabled, s.effective_from_version_no, s.set_at, coalesce(p.display_name, u.name) as set_by_name
+           from advisor_visibility_settings s
+           join users u on u.id = s.set_by_user_id left join user_profiles p on p.user_id = s.set_by_user_id
+          where s.item_id = $1 order by s.set_at desc, s.id desc limit 1`,
+        [itemId],
+      ),
+      responsePresenceReader(this.#reader).hasAnyResponse(itemId),
+    ])
+    const row = latest.rows[0]
     return {
-      itemId: row.id,
-      cohortId: row.cohort_id,
-      cohortCode: row.cohort_code,
-      title: row.title,
-      status: row.status,
-      receiverUnit: row.receiver_unit,
-      stageName: row.stage_name,
-      opensAt: row.opens_at,
-      dueAt: row.due_at,
-      schemaVersionNo: row.schema_version_no,
-      fields: row.schema?.fields ?? [],
+      current: row
+        ? { enabled: row.enabled, effectiveFromVersionNo: row.effective_from_version_no, setAt: row.set_at, setByName: row.set_by_name }
+        : null,
+      hasResponses,
     }
+  }
+
+  async #item(itemId: string): Promise<RosterItem | null> {
+    return rosterItemOf(this.#reader(), itemId)
+  }
+}
+
+/** 名單頁（管理員）與老師的收件頁頂端共用的項目資訊。沒有收件（`receiver_unit='none'`）或不存在回 null。 */
+export async function rosterItemOf(db: Pick<Pool, 'query'>, itemId: string): Promise<RosterItem | null> {
+  const found = await db.query<ItemHead>(
+    `select m.id, m.cohort_id, c.code as cohort_code, m.title, m.status, m.receiver_unit, s.name as stage_name,
+            m.opens_at, m.due_at, sv.version_no as schema_version_no, sv.schema
+       from managed_items m
+       join cohorts c on c.id = m.cohort_id
+       left join cohort_stages s on s.id = m.stage_id
+       left join form_schema_versions sv on sv.id = m.current_schema_version_id
+      where m.id = $1 and m.receiver_unit <> 'none'`,
+    [itemId],
+  )
+  const row = found.rows[0]
+  if (!row) return null
+  return {
+    itemId: row.id,
+    cohortId: row.cohort_id,
+    cohortCode: row.cohort_code,
+    title: row.title,
+    status: row.status,
+    receiverUnit: row.receiver_unit,
+    stageName: row.stage_name,
+    opensAt: row.opens_at,
+    dueAt: row.due_at,
+    schemaVersionNo: row.schema_version_no,
+    fields: row.schema?.fields ?? [],
   }
 }
