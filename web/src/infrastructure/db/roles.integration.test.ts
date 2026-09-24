@@ -31,6 +31,7 @@ let storedFileId: string
 let proposalId: string
 let groupId: string
 let itemId: string
+let schemaVersionId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -453,6 +454,25 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'source', value: 'admin' },
   },
+  // 票 17（S05）：草稿與正式版本。草稿每個收件者一份，每次用新的收件者 id 插。
+  submission_drafts: {
+    insert: () => ({
+      sql: `insert into submission_drafts (id, item_id, receiver_kind, receiver_id, schema_version_id, created_by_kind)
+            values (gen_random_uuid(), $1, 'user', gen_random_uuid(), $2, 'system')`,
+      values: [itemId, schemaVersionId],
+    }),
+    updatable: { column: 'answers', value: { note: '改過' } },
+  },
+  submission_versions: {
+    insert: () => ({
+      sql: `insert into submission_versions
+              (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+               received_real_at, received_business_at, request_id, deadline_version_at_submit)
+            values (gen_random_uuid(), $1, 'user', gen_random_uuid(), 1, $2, '{}'::jsonb, $3, now(), now(), gen_random_uuid(), 1)`,
+      values: [itemId, schemaVersionId, userId],
+    }),
+    updatable: { column: 'answers', value: { note: '竄改' } },
+  },
 }
 
 beforeAll(async () => {
@@ -526,6 +546,13 @@ beforeAll(async () => {
     [cohortId],
   )
   itemId = String(item.rows[0]!.id)
+  // S05 的草稿與正式版本要指一個欄位版本。
+  const schemaVersion = await owner.sql(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+     values (gen_random_uuid(), $1, 1000, '{"fields":[]}'::jsonb, $2) returning id`,
+    [itemId, userId],
+  )
+  schemaVersionId = String(schemaVersion.rows[0]!.id)
 })
 
 afterAll(async () => {
