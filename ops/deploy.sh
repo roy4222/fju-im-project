@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # 部署腳本（契約 05 §3；2026-09-24 兩站版）。預設就是 --dry-run，要真的跑必須明確帶 --execute。
 #
-#   ops/deploy.sh --site <test|prod> <tag> [--execute] [--expect-worker] [--rollback]
+#   ops/deploy.sh --site <test|prod> <tag> [--execute] [--rollback] [--allow-no-worker]
 #
 #   <tag>          GHCR 映像 tag＝完整 commit SHA（.github/workflows/image.yml 推的）
 #   --site         部署到哪一站：test＝fju-test（test.fju.roy422.dev）、prod＝fju-prod（fju.roy422.dev）
 #   --rollback     回滾到指定的舊 tag：跳過 migration（DB 不回滾），只換 app 與 worker
 #   --execute      真的執行；沒帶就只印步驟
+#   健康判定預設是完整六項（票 28）：HTTP 200、commit、imageDigest、schemaVersion、worker.version、
+#   worker.lastTickAt（60 秒內）。`--expect-worker` 仍然收（舊的寫法，現在就是預設）。
+#   --allow-no-worker  只判前四項、worker 兩欄必須是 null：只有回滾到票 12 之前（還沒有 worker）的
+#                      舊映像才用；映像其實有 worker 心跳會判失敗
 #
 # 在 VM 上要用 deploy 身分跑：sudo -u deploy /srv/fju/app/ops/deploy.sh --site test <tag> --execute
 # 秘密由這一站的 Doppler token 放進程序環境（ops/lib/site.sh），不寫檔、不印。
@@ -38,11 +42,12 @@ COMPOSE="${COMPOSE:-docker compose}"
 TAG=""
 SITE=""
 DRY_RUN=1
-EXPECT_WORKER=0
+# 1＝完整六項（預設）；none＝--allow-no-worker（見 ops/check-health.mjs）。
+EXPECT_WORKER=1
 ROLLBACK=0
 
 usage() {
-  sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -50,7 +55,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --execute) DRY_RUN=0 ;;
     --dry-run) DRY_RUN=1 ;;
-    --expect-worker) EXPECT_WORKER=1 ;;
+    --expect-worker) ;; # 票 28 起就是預設；ops/auto-deploy.sh 的 AUTO_DEPLOY_EXPECT_WORKER=1 仍會帶它
+    --allow-no-worker) EXPECT_WORKER=none ;;
     --rollback) ROLLBACK=1 ;;
     --site)
       [ $# -ge 2 ] || { echo "--site 後面要接 test 或 prod" >&2; exit 1; }
@@ -73,7 +79,7 @@ if [ -z "$SITE" ]; then
   exit 1
 fi
 if [ -z "$TAG" ]; then
-  echo "缺少 tag。用法：ops/deploy.sh --site <test|prod> <tag> [--execute] [--expect-worker] [--rollback]" >&2
+  echo "缺少 tag。用法：ops/deploy.sh --site <test|prod> <tag> [--execute] [--rollback] [--allow-no-worker]" >&2
   exit 1
 fi
 # tag 會被拼進映像參照與 deploy_log，只收 docker tag 合法的字元。
@@ -137,9 +143,9 @@ log "部署 tag：$TAG$([ "$ROLLBACK" = 1 ] && echo '（回滾模式）')"
 log "映像：$APP_IMAGE"
 log "健康檢查端點：${HEALTH_URL}（逾時 ${HEALTH_TIMEOUT_SECONDS}s）"
 if [ "$EXPECT_WORKER" = 1 ]; then
-  log "健康條件：完整六項（含 worker.version 與 worker.lastTickAt）"
+  log "健康條件：完整六項（HTTP 200、commit、imageDigest、schemaVersion、worker.version、worker.lastTickAt 在 60 秒內）"
 else
-  log "健康條件：四項（HTTP 200、commit、imageDigest、schemaVersion）；worker 有回報心跳時一併比對 worker.version 與 worker.lastTickAt（沒有 worker 的舊映像兩欄是 null 才略過）"
+  log "健康條件：有限四項（HTTP 200、commit、imageDigest、schemaVersion）且 worker 兩欄必須是 null（--allow-no-worker：只給還沒有 worker 的舊映像）"
 fi
 if [ "$DRY_RUN" = 1 ]; then
   log "秘密：執行時以 $SITE_TOKEN_FILE 的 Doppler token 跑 doppler run --no-fallback（不寫檔、不印值）"
@@ -341,7 +347,7 @@ if [ "$DRY_RUN" = 1 ]; then
     printf '        $ node ops/check-health.mjs  # 比對 commit=<tag>、imageDigest=<pull 到的 digest>；schemaVersion 不比對（回滾模式）\n'
   else
     printf '        $ node ops/check-health.mjs  # 比對 commit=<tag>、imageDigest=<pull 到的 digest>、schemaVersion=<migrate 輸出>%s\n' \
-      "$([ "$EXPECT_WORKER" = 1 ] && echo '、worker.version、worker.lastTickAt' || echo '；worker 有心跳就比對 worker.version、worker.lastTickAt')"
+      "$([ "$EXPECT_WORKER" = 1 ] && echo '、worker.version=<tag>、worker.lastTickAt 在 60 秒內' || echo '；worker 兩欄必須是 null（--allow-no-worker）')"
   fi
   printf '        # 第 5 步啟動失敗或本步健康失敗 → 同一條補償流程：回滾 + 重跑健康判定 + 寫 deploy_log\n'
 else
@@ -362,7 +368,7 @@ fi
 
 # ── 7. 記錄 ────────────────────────────────────────────────
 step "7/7 寫 deploy_log（${DEPLOY_LOG}）"
-condition="$([ "$EXPECT_WORKER" = 1 ] && echo 'full' || echo 'worker-if-present')"
+condition="$([ "$EXPECT_WORKER" = 1 ] && echo 'full' || echo 'limited-no-worker')"
 event="$([ "$ROLLBACK" = 1 ] && echo 'rolled-back' || echo 'deployed')"
 if [ "$DRY_RUN" = 1 ]; then
   printf '        $ echo "<時間>\t%s\t%s\t%s" >> %s\n' "$event" "$TAG" "$condition" "$DEPLOY_LOG"

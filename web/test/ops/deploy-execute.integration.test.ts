@@ -32,8 +32,9 @@ write_health() {
   if [ "\${FORCE_BAD_HEALTH:-0}" = 1 ] && [ "$image" = "\${NEW_IMAGE:-}" ]; then
     commit="stale-commit"
   fi
-  printf '{"ok":true,"version":"1","commit":"%s","imageDigest":"%s","schemaVersion":"%s","worker":{"version":null,"lastTickAt":null}}' \\
-    "$commit" "\${IMAGE_DIGEST:-}" "\${FAKE_SCHEMA}" > "$HEALTH_FILE"
+  # 跑起來的 worker 回報自己的版本與剛剛的心跳（票 28 起部署預設判完整六項）。
+  printf '{"ok":true,"version":"1","commit":"%s","imageDigest":"%s","schemaVersion":"%s","worker":{"version":"%s","lastTickAt":"%s"}}' \\
+    "$commit" "\${IMAGE_DIGEST:-}" "\${FAKE_SCHEMA}" "\${image##*:}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$HEALTH_FILE"
 }
 
 case "$1" in
