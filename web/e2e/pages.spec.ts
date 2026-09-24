@@ -26,7 +26,7 @@ async function signInAs(page: Page, role: TestRole | null) {
 }
 
 test.describe('不登入', () => {
-  const publicRoutes = ['/', '/login', '/register', '/register/pending', '/403']
+  const publicRoutes = ['/', '/login', '/register', '/403']
 
   for (const route of publicRoutes) {
     test(`${route} 打得開`, async ({ page }) => {
@@ -51,6 +51,11 @@ test.describe('不登入', () => {
   test('/account 需要登入', async ({ page }) => {
     await page.goto('/account')
     await expect(page).toHaveURL(/\/login\?next=/)
+  })
+
+  test('/register/pending 需要登入（票 7：看的是自己的申請）', async ({ page }) => {
+    await page.goto('/register/pending')
+    await expect(page).toHaveURL(/\/login\?next=%2Fregister%2Fpending/)
   })
 })
 
@@ -137,7 +142,8 @@ test.describe('待審核的人（有 session 但還沒核准）', () => {
     await signInAs(page, null)
     await page.goto('/dashboard/student')
     await expect(page).toHaveURL(/\/register\/pending$/)
-    await expect(page.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
+    // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁請他補送（票 7）。
+    await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
   })
 })
 

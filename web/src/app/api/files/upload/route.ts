@@ -15,6 +15,8 @@ export const dynamic = 'force-dynamic'
 const STATUS: Partial<Record<ErrorCode | 'RATE_LIMITED', number>> = {
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
+  ACCOUNT_PENDING: 403,
+  PASSWORD_CHANGE_REQUIRED: 403,
   FILE_TOO_LARGE: 413,
   FILE_TYPE_REJECTED: 415,
   VALIDATION_FAILED: 400,

@@ -32,8 +32,14 @@ export const ROSTER_MAX_BYTES = 2 * 1024 * 1024
 /** 資料列上限（不含表頭）；契約 03 §5「每列長度上限」一併在這裡擋。 */
 export const ROSTER_MAX_ROWS = 5000
 export const ROSTER_MAX_CELL_LENGTH = 200
+/**
+ * 每列最多幾格。固定欄位只有 5 欄，給一點餘裕讓「欄位比表頭多」照樣能逐列報出來；
+ * 超過這個數就是整份檔案格式不對（例如一整列都是逗號），直接退件，不在記憶體裡堆出幾百萬個空字串。
+ */
+export const ROSTER_MAX_CELLS_PER_ROW = 20
 
-const STUDENT_NO_PATTERN = /^[0-9A-Za-z]{1,20}$/
+/** 學號只收英數（1～20 碼）；註冊表單（票 7）共用同一條。 */
+export const STUDENT_NO_PATTERN = /^[0-9A-Za-z]{1,20}$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // ── 姓名正規化 ──────────────────────────────────────────────────────────────
@@ -149,13 +155,18 @@ export function analyzeRoster(
   cohorts: readonly CohortOption[],
   selectedCohortId: string | null,
 ): { ok: true; analysis: RosterAnalysis } | RosterFormatError {
-  const parsed = parseCsv(text, { maxCellLength: ROSTER_MAX_CELL_LENGTH, maxRows: ROSTER_MAX_ROWS + 1 })
+  const parsed = parseCsv(text, {
+    maxCellLength: ROSTER_MAX_CELL_LENGTH,
+    maxRows: ROSTER_MAX_ROWS + 1,
+    maxCellsPerRow: ROSTER_MAX_CELLS_PER_ROW,
+  })
   if (!parsed.ok) {
     const reasons: Record<typeof parsed.reason, string> = {
       unterminated_quote: `第 ${parsed.line} 行的引號沒有收尾。`,
       stray_quote: `第 ${parsed.line} 行有多餘的引號。`,
       cell_too_long: `第 ${parsed.line} 行有欄位超過 ${ROSTER_MAX_CELL_LENGTH} 個字。`,
       too_many_rows: `名單超過 ${ROSTER_MAX_ROWS} 列，請分批匯入。`,
+      too_many_cells: `第 ${parsed.line} 行的欄位超過 ${ROSTER_MAX_CELLS_PER_ROW} 欄，檔案格式不對。`,
     }
     return { ok: false, message: reasons[parsed.reason] }
   }

@@ -70,6 +70,9 @@ export const RATE_LIMITS = {
   signIn: { max: 10, windowMs: 10 * 60 * 1000 },
   /** 改密：同一個使用者每小時 5 次。 */
   changePassword: { max: 5, windowMs: 60 * 60 * 1000 },
-  /** 註冊：同一個 IP 每小時 5 次。 */
-  register: { max: 5, windowMs: 60 * 60 * 1000 },
+  /**
+   * 註冊：同一個 IP 每小時 30 次（2026-09-23 Roy 定案，取代舊的 5 次：
+   * 全班可能共用一個對外 IP，而且每一筆註冊都要系辦人工核准）。
+   */
+  register: { max: 30, windowMs: 60 * 60 * 1000 },
 } as const

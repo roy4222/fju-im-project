@@ -31,6 +31,7 @@ import {
   resetSignInRate,
   signInKey,
 } from '@/infrastructure/auth/sign-in-rate-limit'
+import { checkSignUpRate } from '@/infrastructure/auth/sign-up-rate-limit'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -110,9 +111,10 @@ function createAuth() {
      * 契約 03 §6 把粗粒度的那一層明寫成「app 記憶體＋**Caddy**」——跨帳號的 DoS 防護屬於
      * 反向代理那一層，不是這裡。
      *
-     * `/sign-up/email` 維持套件的 IP 桶：契約 §6 對註冊本來就寫「5 次／小時／**IP**」（不含帳號），
-     * 鍵的形狀對得上。**門檻仍是 30 而不是 5**——註冊流程是 S01-09 的票，這一批沒有做，
-     * 現在收緊會擋到還沒實作的流程。已記在契約 03 §6 的待決。
+     * - `/sign-up/email`：契約門檻＝**30 次／小時／IP**（2026-09-23 Roy 定案，取代 5 次）。
+     *   套件那一層只看得到 HTTP 請求，註冊頁的 Server Action 在伺服器端呼叫 `auth.api.signUpEmail`
+     *   根本不經過它——兩條路會變成各算各的。所以也關掉，改由 `sign-up-rate-limit.ts` 在
+     *   `hooks.before` 裡算（hook 對兩條路都會跑），一個桶、一個門檻（票 7）。
      */
     rateLimit: {
       enabled: true,
@@ -121,7 +123,7 @@ function createAuth() {
       customRules: {
         '/sign-in/email': false,
         '/change-password': false,
-        '/sign-up/email': { window: 3600, max: 30 },
+        '/sign-up/email': false,
       },
     },
     emailAndPassword: { enabled: true },
@@ -205,6 +207,28 @@ function createAuth() {
           const isInternal = !ctx.request && isInternalCall()
           if (isInternal) return
           throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+        }
+
+        // ── 註冊：限速與密碼長度（契約 03 §6；票 7） ─────────────────────────
+        //
+        // 跟登入一樣放在 hook：註冊頁的 Server Action（伺服器端呼叫）與直接打
+        // `/api/auth/sign-up/email` 走同一段程式、算同一個桶。密碼長度也在這裡擋，
+        // 不然直接打 HTTP 就能用套件預設的 8 個字元註冊。
+        if (ctx.path === '/sign-up/email') {
+          const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
+          if (!checkSignUpRate(ip).allowed) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              code: 'RATE_LIMITED',
+              message: '這個網路一小時內的註冊次數已達上限，請稍後再試。',
+            })
+          }
+          const password = String(((ctx.body ?? {}) as { password?: unknown }).password ?? '')
+          if (password.length < MIN_PASSWORD_LENGTH) {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: `密碼至少要 ${MIN_PASSWORD_LENGTH} 個字元。`,
+            })
+          }
         }
 
         // ── 登入限速（契約 03 §6） ────────────────────────────────────────

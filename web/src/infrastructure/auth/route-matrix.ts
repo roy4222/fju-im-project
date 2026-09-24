@@ -58,7 +58,7 @@ export const ALLOWED_ROUTES: readonly AuthRoutePolicy[] = [
     access: 'allowed',
     session: 'none',
     fresh: false,
-    note: '密碼註冊；`user.create.before` 注入 status=pending（申請單由 S01-09 建）',
+    note: '密碼註冊；`user.create.before` 注入 status=pending；限速 30 次／小時／IP 與密碼長度在 hook；申請單由 RegistrationCommand 接著建（票 7），直接打 API 的人登入後在等待審核頁補送',
   },
   { path: '/sign-in/email', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: '密碼登入；限速與 Turnstile 由 S01-05／S01-15' },
   { path: '/sign-in/social', methods: ['POST'], access: 'allowed', session: 'none', fresh: false, note: 'Google 登入入口（S01-14）' },

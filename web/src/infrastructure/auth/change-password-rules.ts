@@ -1,5 +1,6 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
+import { PASSWORD_MIN_LENGTH } from '@/application/accounts'
 import { getPool } from '@/infrastructure/db/client'
 import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
 
@@ -13,8 +14,8 @@ import { createRateLimiter, RATE_LIMITS } from '@/shared/rate-limit'
  * 寫在 hook 裡，HTTP 與 Server Action 走的是同一段程式。
  */
 
-/** 新密碼長度下限。 */
-export const MIN_PASSWORD_LENGTH = 12
+/** 新密碼長度下限；與註冊（票 7）共用 application 層的同一個數字。 */
+export const MIN_PASSWORD_LENGTH = PASSWORD_MIN_LENGTH
 
 export type PasswordProblem = 'too_short' | 'same_as_current'
 
