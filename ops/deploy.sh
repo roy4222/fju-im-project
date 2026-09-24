@@ -133,7 +133,7 @@ log "健康檢查端點：$HEALTH_URL（逾時 ${HEALTH_TIMEOUT_SECONDS}s）"
 if [ "$EXPECT_WORKER" = 1 ]; then
   log "健康條件：完整六項（含 worker.version 與 worker.lastTickAt）"
 else
-  log "健康條件：有限四項（HTTP 200、commit、imageDigest、schemaVersion）；worker 欄必須是 null"
+  log "健康條件：四項（HTTP 200、commit、imageDigest、schemaVersion）；worker 有回報心跳時一併比對 worker.version 與 worker.lastTickAt（沒有 worker 的舊映像兩欄是 null 才略過）"
 fi
 if [ "$DRY_RUN" = 1 ]; then
   log "秘密：執行時以 $SITE_TOKEN_FILE 的 Doppler token 跑 doppler run --no-fallback（不寫檔、不印值）"
@@ -335,7 +335,7 @@ if [ "$DRY_RUN" = 1 ]; then
     printf '        $ node ops/check-health.mjs  # 比對 commit=<tag>、imageDigest=<pull 到的 digest>；schemaVersion 不比對（回滾模式）\n'
   else
     printf '        $ node ops/check-health.mjs  # 比對 commit=<tag>、imageDigest=<pull 到的 digest>、schemaVersion=<migrate 輸出>%s\n' \
-      "$([ "$EXPECT_WORKER" = 1 ] && echo '、worker.version、worker.lastTickAt' || echo '，且 worker 必須是 null')"
+      "$([ "$EXPECT_WORKER" = 1 ] && echo '、worker.version、worker.lastTickAt' || echo '；worker 有心跳就比對 worker.version、worker.lastTickAt')"
   fi
   printf '        # 第 5 步啟動失敗或本步健康失敗 → 同一條補償流程：回滾 + 重跑健康判定 + 寫 deploy_log\n'
 else
@@ -356,7 +356,7 @@ fi
 
 # ── 7. 記錄 ────────────────────────────────────────────────
 step "7/7 寫 deploy_log（$DEPLOY_LOG）"
-condition="$([ "$EXPECT_WORKER" = 1 ] && echo 'full' || echo 'limited-no-worker')"
+condition="$([ "$EXPECT_WORKER" = 1 ] && echo 'full' || echo 'worker-if-present')"
 event="$([ "$ROLLBACK" = 1 ] && echo 'rolled-back' || echo 'deployed')"
 if [ "$DRY_RUN" = 1 ]; then
   printf '        $ echo "<時間>\t%s\t%s\t%s" >> %s\n' "$event" "$TAG" "$condition" "$DEPLOY_LOG"
