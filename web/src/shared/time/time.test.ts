@@ -4,7 +4,13 @@ import {
   FixedClock,
   RealClock,
   TAIPEI_UTC_OFFSET_MINUTES,
+  addTaipeiDays,
+  formatTaipeiDate,
   formatTaipeiMinute,
+  formatTaipeiSecond,
+  isValidTaipeiDate,
+  parseTaipeiDateTime,
+  toTaipeiDateTimeInput,
   isDeadlinePassed,
   isOnTime,
   isWithinDateRange,
@@ -134,5 +140,33 @@ describe('時鐘', () => {
 describe('畫面格式', () => {
   it('截止顯示用臺灣時間到分鐘', () => {
     expect(formatTaipeiMinute(taipeiMinuteStart('2026-11-15', '23:59'))).toBe('2026/11/15 23:59')
+  })
+})
+
+describe('票 11 補的日期工具', () => {
+  it('isValidTaipeiDate 擋掉不存在的日期', () => {
+    expect(isValidTaipeiDate('2028-02-29')).toBe(true)
+    expect(isValidTaipeiDate('2027-02-29')).toBe(false)
+    expect(isValidTaipeiDate('2026-13-01')).toBe(false)
+    expect(isValidTaipeiDate('2026-9-1')).toBe(false)
+  })
+
+  it('addTaipeiDays 跨月、跨年都對', () => {
+    expect(addTaipeiDays('2026-11-01', -1)).toBe('2026-10-31')
+    expect(addTaipeiDays('2026-12-31', 1)).toBe('2027-01-01')
+  })
+
+  it('parseTaipeiDateTime 當臺灣時間解讀、可帶秒；toTaipeiDateTimeInput 是它的反向', () => {
+    const instant = parseTaipeiDateTime('2027-03-01T10:00:59')!
+    expect(instant.toISOString()).toBe('2027-03-01T02:00:59.000Z')
+    expect(toTaipeiDateTimeInput(instant)).toBe('2027-03-01T10:00:59')
+    expect(parseTaipeiDateTime('2027-03-01T10:00')!.toISOString()).toBe('2027-03-01T02:00:00.000Z')
+    expect(parseTaipeiDateTime('2027-03-01 10:00')).toBeNull()
+    expect(parseTaipeiDateTime('2027-03-01T10:60')).toBeNull()
+  })
+
+  it('畫面格式到秒、日期', () => {
+    expect(formatTaipeiSecond(new Date('2027-03-01T02:00:59Z'))).toBe('2027/03/01 10:00:59')
+    expect(formatTaipeiDate('2026-09-15')).toBe('2026/09/15')
   })
 })

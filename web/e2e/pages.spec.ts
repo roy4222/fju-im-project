@@ -195,6 +195,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
+    '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
+    '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -204,6 +206,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/cohorts', wrongRole: 'teacher' },
     { path: '/dashboard/teacher', wrongRole: 'student' },
     { path: '/dashboard/student', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/timeline', wrongRole: 'teacher' },
+    // 模擬業務鐘只在測試站存在（CI 的 e2e 開著 BUSINESS_CLOCK_OVERRIDE_ENABLED）。
+    { path: '/dashboard/admin/clock', wrongRole: 'student' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

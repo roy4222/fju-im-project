@@ -1,12 +1,13 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
-import { statusGate, type ResolvedActor } from '@/application/accounts'
+import type { ResolvedActor } from '@/application/accounts'
 import {
-  canManageCohorts,
   isCohortId,
   isRequestId,
   normalizeCreateInput,
+  type ActivateCohortReceipt,
+  type BusinessClockSource,
   type Cohort,
   type CohortCommand,
   type CohortFlag,
@@ -16,14 +17,24 @@ import {
   type CreateCohortReceipt,
   type SetCohortFlagReceipt,
 } from '@/application/cohorts'
+import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
+import {
+  actorUserId,
+  authorizeAdmin,
+  badRequestId,
+  cohortNotFound,
+  inTransaction,
+  replayed,
+  type PoolSource,
+} from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
-import { err, type Err, type Receipt, type Result } from '@/shared/result'
-import { BusinessClock, RealClock, type Clock } from '@/shared/time'
+import { err, type Result } from '@/shared/result'
+import { RealClock, type Clock } from '@/shared/time'
 
 /**
- * 屆別的寫入與查詢（票 5；模組實作設計 02 §3「create → preparing」「設旗標」）。
+ * 屆別的寫入與查詢（票 5；模組實作設計 02 §3「create → preparing」「設旗標」；票 11「preparing → active」）。
  *
  * 每個寫入都是同一個形狀（契約 01 §8）：
  * 開交易 → 帳本 `begin`（同一個請求編號重送只做一次）→ 業務寫入 → 稽核 → 帳本 `commit` → COMMIT。
@@ -37,12 +48,13 @@ type Row = {
   status: CohortStatus
   is_default_working: boolean
   is_registration_open: boolean
+  year_end_date: string | null
   revision: number
   created_at: Date
 }
 
 const COLUMNS =
-  'id, code, name, status, is_default_working, is_registration_open, revision, created_at'
+  "id, code, name, status, is_default_working, is_registration_open, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date, revision, created_at"
 
 function toCohort(row: Row): Cohort {
   return {
@@ -52,6 +64,7 @@ function toCohort(row: Row): Cohort {
     status: row.status,
     isDefaultWorking: row.is_default_working,
     isRegistrationOpen: row.is_registration_open,
+    yearEndDate: row.year_end_date,
     revision: row.revision,
     createdAt: row.created_at,
   }
@@ -71,25 +84,29 @@ const FLAG_OPERATION: Record<CohortFlag, string> = {
 type Deps = {
   audit: AuditWriter<PoolClient>
   ledger: OperationLedger<PoolClient>
+  events: EventPublisher<PoolClient>
+  /** 全站唯一的業務時間來源（測試站會被模擬鐘推開）。 */
+  businessClock: BusinessClockSource
   /** 預設用應用連線池；整合測試傳自己的隔離 schema 進來。 */
-  pool?: () => Pick<Pool, 'connect'>
+  pool?: PoolSource
   realClock?: Clock
-  businessClock?: Clock
 }
 
 export class PgCohortCommand implements CohortCommand {
   readonly #audit: AuditWriter<PoolClient>
   readonly #ledger: OperationLedger<PoolClient>
-  readonly #pool: () => Pick<Pool, 'connect'>
+  readonly #events: EventPublisher<PoolClient>
+  readonly #pool: PoolSource
   readonly #realClock: Clock
-  readonly #businessClock: Clock
+  readonly #businessClock: BusinessClockSource
 
   constructor(deps: Deps) {
     this.#audit = deps.audit
     this.#ledger = deps.ledger
+    this.#events = deps.events
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
-    this.#businessClock = deps.businessClock ?? new BusinessClock()
+    this.#businessClock = deps.businessClock
   }
 
   async create(
@@ -97,17 +114,18 @@ export class PgCohortCommand implements CohortCommand {
     input: CreateCohortInput,
     requestId: string,
   ): Promise<Result<CreateCohortReceipt>> {
-    const denied = authorize(actor)
+    const denied = authorizeAdmin(actor)
     if (denied) return denied
     if (!isRequestId(requestId)) return badRequestId()
 
     const normalized = normalizeCreateInput(input)
     if (!normalized.ok) return normalized
     const { code, name } = normalized.value
-    const userId = actor.kind === 'authenticated' ? actor.userId : ''
+    const userId = actorUserId(actor)
 
     return this.#inTransaction(async (tx) => {
       const realAt = this.#realClock.now()
+      const businessAt = await this.#businessClock.now()
       const begun = await this.#ledger.begin(
         tx,
         {
@@ -132,6 +150,8 @@ export class PgCohortCommand implements CohortCommand {
          values ($1, $2, $3, 'preparing', 'user', $4, $5, $5, $4)`,
         [id, code, name, userId, realAt],
       )
+      // 票 11 起，建立也留一筆狀態紀錄（from_status 為 NULL＝建立；模組實作設計 02 §3）。
+      await insertStatusEvent(tx, { cohortId: id, from: null, to: 'preparing', userId, realAt, businessAt })
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: userId,
@@ -142,7 +162,7 @@ export class PgCohortCommand implements CohortCommand {
         scope: 'cohort',
         cohortId: id,
         realAt,
-        businessAt: this.#businessClock.now(),
+        businessAt,
         payload: { code, name, status: 'preparing' },
       })
 
@@ -182,11 +202,11 @@ export class PgCohortCommand implements CohortCommand {
     flag: CohortFlag,
     requestId: string,
   ): Promise<Result<SetCohortFlagReceipt>> {
-    const denied = authorize(actor)
+    const denied = authorizeAdmin(actor)
     if (denied) return denied
     if (!isRequestId(requestId)) return badRequestId()
     if (!isCohortId(cohortId)) return cohortNotFound()
-    const userId = actor.kind === 'authenticated' ? actor.userId : ''
+    const userId = actorUserId(actor)
     const column = FLAG_COLUMN[flag]
 
     return this.#inTransaction(async (tx) => {
@@ -243,7 +263,7 @@ export class PgCohortCommand implements CohortCommand {
           scope: 'cohort',
           cohortId,
           realAt,
-          businessAt: this.#businessClock.now(),
+          businessAt: await this.#businessClock.now(),
           payload: { flag, previousCohortId: previous?.id ?? null, previousCode: previous?.code ?? null },
         })
       }
@@ -263,29 +283,132 @@ export class PgCohortCommand implements CohortCommand {
     })
   }
 
-  /** 成功才 COMMIT；回 `Err` 或丟例外都 ROLLBACK，帳本與稽核一起消失。 */
-  async #inTransaction<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
-    const client = await this.#pool().connect()
-    try {
-      await client.query('begin')
-      const result = await body(client)
-      await client.query(result.ok ? 'commit' : 'rollback')
-      return result
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined)
-      // 唯一鍵被同時送出的另一筆搶先（代碼、或兩個旗標的部分唯一索引）：回衝突，請使用者重載。
-      const pgError = error as { code?: string; constraint?: string }
-      if (pgError?.code === '23505') {
-        return pgError.constraint === 'cohorts_code_unique'
-          ? err('CONFLICT', '這個屆別代碼剛剛被別人用了，請換一個。', { details: { field: 'code' } })
-          : err('CONFLICT', '剛剛有人同時修改了屆別，請重新整理頁面再試一次。')
+  /**
+   * 籌備中→進行中（票 11；模組實作設計 02 §3「preparing → active」）。
+   *
+   * 前置：已設好階段與年度結束日（S02 起的規則；缺了回 `VALIDATION_FAILED` 並說去哪裡設）。
+   * 同一筆交易：改狀態、寫 `cohort_status_events`、發 `cohort.activated` 事件、稽核、帳本。
+   * 已經是進行中就照樣回成功但什麼都不寫（按兩次不該多一筆狀態紀錄）。
+   */
+  async activate(
+    actor: ResolvedActor,
+    cohortId: string,
+    requestId: string,
+  ): Promise<Result<ActivateCohortReceipt>> {
+    const denied = authorizeAdmin(actor)
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    if (!isCohortId(cohortId)) return cohortNotFound()
+    const userId = actorUserId(actor)
+
+    return this.#inTransaction(async (tx) => {
+      const found = await tx.query<Row>(`select ${COLUMNS} from cohorts where id = $1 for update`, [cohortId])
+      const target = found.rows[0]
+      if (!target) return cohortNotFound()
+
+      const realAt = this.#realClock.now()
+      const businessAt = await this.#businessClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'cohort.activate',
+          requestId,
+          fingerprint: sha256(canonicalJson({ cohortId })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ActivateCohortReceipt>(begun)
+
+      if (target.status === 'archived') {
+        return err('COHORT_ARCHIVED', `${target.code} 已封存，要先解封才能轉為進行中。`)
       }
-      console.error('[cohorts] 寫入失敗', error)
-      return err('INTERNAL', '系統暫時無法處理，請稍後再試。')
-    } finally {
-      client.release()
-    }
+
+      const alreadyActive = target.status === 'active'
+      if (!alreadyActive) {
+        const stages = await tx.query('select 1 from cohort_stages where cohort_id = $1', [cohortId])
+        if (!stages.rowCount || !target.year_end_date) {
+          return err(
+            'VALIDATION_FAILED',
+            `${target.code} 還沒設定階段與年度結束日。先到「時間軸」把四個階段的開始日與年度結束日填好，再轉為進行中。`,
+          )
+        }
+
+        await tx.query(
+          `update cohorts
+              set status = 'active', revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+            where id = $1`,
+          [cohortId, realAt, userId],
+        )
+        await insertStatusEvent(tx, { cohortId, from: 'preparing', to: 'active', userId, realAt, businessAt })
+        await this.#events.publish(tx, {
+          type: 'cohort.activated',
+          scope: 'cohort',
+          cohortId,
+          source: { type: 'cohort', id: cohortId, version: target.revision + 1 },
+          actor: { kind: 'user', userId },
+          // 產品矩陣沒有「屆別轉進行中」的通知：不發給任何人，事件只留紀錄。
+          recipients: [],
+          payload: { code: target.code, from: 'preparing', to: 'active' },
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessAt,
+        })
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: userId,
+          role: 'admin',
+          action: 'cohort.activate',
+          targetType: 'cohort',
+          targetId: cohortId,
+          scope: 'cohort',
+          cohortId,
+          realAt,
+          businessAt,
+          payload: { code: target.code, from: 'preparing', to: 'active' },
+        })
+      }
+
+      const receipt = {
+        cohortId,
+        code: target.code,
+        alreadyActive,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
+      return { ok: true as const, receipt }
+    })
   }
+
+  /** 唯一鍵被同時送出的另一筆搶先（代碼、或兩個旗標的部分唯一索引）：回衝突，請使用者重載。 */
+  #inTransaction<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
+    return inTransaction(this.#pool, 'cohorts', body, (constraint) =>
+      constraint === 'cohorts_code_unique'
+        ? err('CONFLICT', '這個屆別代碼剛剛被別人用了，請換一個。', { details: { field: 'code' } })
+        : err('CONFLICT', '剛剛有人同時修改了屆別，請重新整理頁面再試一次。'),
+    )
+  }
+}
+
+/** 屆別狀態紀錄（`cohort_status_events`；不可變）。 */
+async function insertStatusEvent(
+  tx: PoolClient,
+  event: {
+    cohortId: string
+    from: CohortStatus | null
+    to: CohortStatus
+    userId: string
+    realAt: Date
+    businessAt: Date
+  },
+): Promise<void> {
+  await tx.query(
+    `insert into cohort_status_events (id, cohort_id, from_status, to_status, actor_user_id, real_at, business_at)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [uuidv7(), event.cohortId, event.from, event.to, event.userId, event.realAt, event.businessAt],
+  )
 }
 
 export class PgCohortStatusQuery implements CohortStatusQuery {
@@ -302,6 +425,12 @@ export class PgCohortStatusQuery implements CohortStatusQuery {
     return rows.rows.map(toCohort)
   }
 
+  async get(cohortId: string): Promise<Cohort | null> {
+    if (!isCohortId(cohortId)) return null
+    const rows = await this.#reader().query<Row>(`select ${COLUMNS} from cohorts where id = $1`, [cohortId])
+    return rows.rows[0] ? toCohort(rows.rows[0]) : null
+  }
+
   async defaultWorking(): Promise<Cohort | null> {
     const rows = await this.#reader().query<Row>(`select ${COLUMNS} from cohorts where is_default_working`)
     return rows.rows[0] ? toCohort(rows.rows[0]) : null
@@ -313,35 +442,6 @@ export class PgCohortStatusQuery implements CohortStatusQuery {
   }
 }
 
-// ── 共用的結果 ──────────────────────────────────────────────────────────────
-
-/** 先過帳號狀態閘門（停用、待審、必須改密），再看角色（契約 03 §1：授權在用例層）。 */
-function authorize(actor: ResolvedActor): Err | null {
-  const blocked = statusGate(actor, 'business')
-  if (blocked) return err(blocked, '請先登入並完成帳號設定。')
-  if (!canManageCohorts(actor)) return err('FORBIDDEN', '只有系辦管理員可以管理屆別。')
-  return null
-}
-
-function badRequestId(): Err {
-  return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
-}
-
-function cohortNotFound(): Err {
-  return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
-}
-
-function codeTaken(code: string): Err {
+function codeTaken(code: string) {
   return err('CONFLICT', `屆別代碼 ${code} 已經有人用了，請換一個。`, { details: { field: 'code' } })
-}
-
-/** 同一個請求編號第二次送達：回第一次的回執，不再做一次（契約 01 §8）。 */
-function replayed<R>(
-  begun: { outcome: 'replay'; receipt: unknown; receiptExpired: boolean } | { outcome: 'mismatch' },
-): Result<R> {
-  if (begun.outcome === 'mismatch') {
-    return err('REQUEST_MISMATCH', '這個請求編號已經用在別的內容上，請重新整理頁面再送一次。')
-  }
-  if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這個動作之前已經處理過了。')
-  return { ok: true, receipt: begun.receipt as Receipt<R> }
 }

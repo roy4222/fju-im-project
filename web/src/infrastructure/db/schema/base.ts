@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -39,6 +40,11 @@ export const cohorts = pgTable(
     status: text('status').notNull().default('preparing'),
     isDefaultWorking: boolean('is_default_working').notNull().default(false),
     isRegistrationOpen: boolean('is_registration_open').notNull().default(false),
+    /**
+     * 年度結束日（臺灣日期，含當天；模組 02 附錄 A，票 11）。籌備中可以還沒設；
+     * 「轉進行中必須有」由 activate 用例把關——舊屆別升版後是 NULL，不在 DB 加 CHECK。
+     */
+    yearEndDate: date('year_end_date', { mode: 'string' }),
     revision: integer('revision').notNull().default(1),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
     createdByKind: text('created_by_kind').notNull(),
