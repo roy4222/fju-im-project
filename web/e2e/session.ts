@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
 import { Pool } from 'pg'
 import type { APIRequestContext } from '@playwright/test'
 
@@ -96,4 +98,26 @@ export function toPlaywrightCookie(cookie: string, baseUrl: string) {
   const [name, ...rest] = cookie.split('=')
   const { hostname } = new URL(baseUrl)
   return { name: name!, value: rest.join('='), domain: hostname, path: '/' }
+}
+
+/**
+ * 跑真的 `scripts/seed-a1.mjs` 建第一位管理員（S01-05）。
+ *
+ * 用子程序跑真的腳本而不是在這裡自己插資料：這樣 e2e 驗到的就是 Roy 會執行的那一支。
+ * 一次性密碼只在這個程序的環境變數裡，不寫進任何檔案。
+ */
+export function seedA1(email: string, oneTimePassword: string): string {
+  if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能跑 seed:a1')
+  const webRoot = path.join(import.meta.dirname, '..')
+  return execFileSync('node', ['scripts/seed-a1.mjs'], {
+    cwd: webRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DATABASE_URL_OWNER: ownerUrl,
+      A1_EMAIL: email,
+      A1_INITIAL_PASSWORD: oneTimePassword,
+      A1_NAME: '系辦管理員',
+    },
+  })
 }

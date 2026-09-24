@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-16",
+  "round": "S01 複核修正（Standards 3 + Spec 3）",
+  "direction": "repo → Vault",
+  "rule": "v2-2026-09-12",
+  "files": [
+    {
+      "destination": "docs/engineering/contracts/03 安全與隱私.md",
+      "change": "§2 fresh 要求的欄位改寫＋覆核註記；§6 限速補充與 /sign-up/email 待決",
+      "line_by_line_identical": true
+    },
+    {
+      "destination": "docs/engineering/operations/01 VM 首次設定.md",
+      "change": "步驟 6 的檔案清單補 docker-compose.vm.yml 與 config | grep published 的預期",
+      "line_by_line_identical": "僅餘既有的相對連結轉換差異（第 9 行）",
+      "branch": "claude/s14-01-vm-prep"
+    }
+  ],
+  "not_run": [
+    "VM 上的任何實際執行（Docker、deploy 帳號、/srv/fju、DNS、憑證）",
+    "#188、#189"
+  ]
+}

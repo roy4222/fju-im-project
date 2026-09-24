@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { SignOutButton } from '@/app/_ui/sign-out'
 import type { ReactNode } from 'react'
 import { cn } from '@/shared/cn'
 
@@ -87,10 +88,11 @@ export function DashboardShell({
           <NavList items={items} current={current} />
         </div>
 
-        <div className="border-t border-white/10 px-4 py-3 text-sm">
+        <div className="space-y-1 border-t border-white/10 px-4 py-3 text-sm">
           <Link href="/account" className="block rounded-md px-2 py-1.5 hover:bg-white/10">
             我的帳號
           </Link>
+          <SignOutButton className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-white/10" />
         </div>
       </aside>
 

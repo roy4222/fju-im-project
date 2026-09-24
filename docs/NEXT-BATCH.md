@@ -38,6 +38,45 @@
 
 停在此處交付 review 與 Roy 操作，**不要接著實作 #49–#59、S02 或整個 S14**。產品規則沿既定設計：評分不改、系級與屆別分開、名單匯出由 #59 承接。
 
+## 2026-09-15 本小批進度（#44–#48 已交付待 review）
+
+五張功能票都已實作並開 PR，**每個 PR 的最新 commit CI 七道全綠**。PR 是疊起來的，
+下面的 base 依序是上面那一個，所以每個 PR 的 diff 只有自己那張票的改動：
+
+| 票 | PR | 狀態 | 證據 |
+|---|---|---|---|
+| #44 S01-01 資料庫增量 | [#204](https://github.com/roy4222/fju-im-project/pull/204) | 待 review | [steps/S01/S01-01](../steps/S01/S01-01/migration-and-permissions.md) |
+| #45 S01-02 掛上 Better Auth | [#206](https://github.com/roy4222/fju-im-project/pull/206) | 待 review | [steps/S01/S01-02](../steps/S01/S01-02/auth-routes-and-hooks.md) |
+| #46 S01-03 身分、稽核、帳本 | [#207](https://github.com/roy4222/fju-im-project/pull/207) | 待 review | [steps/S01/S01-03](../steps/S01/S01-03/actor-audit-ledger.md) |
+| #47 S01-04 頁面骨架 | [#209](https://github.com/roy4222/fju-im-project/pull/209) | 待 review | [steps/S01/S01-04](../steps/S01/S01-04/page-skeleton.md) |
+| #48 S01-05 A1 首次登入 | [#210](https://github.com/roy4222/fju-im-project/pull/210) | 待 review | [steps/S01/S01-05](../steps/S01/S01-05/a1-first-login.md) |
+| #187 S14-01 VM 前置 | [#205](https://github.com/roy4222/fju-im-project/pull/205) | 腳本備妥，**待 Roy 以 sudo 執行** | [steps/S14/S14-01](../steps/S14/S14-01/vm-baseline-and-scripts.md) |
+
+### 停在哪裡
+
+「VM 測試站上的 A1 首次登入→強制改密→管理員首頁→登出重登」**還沒做到**：
+整條路在**本機**已經走得通（e2e 與整合測試都綠），但 **VM 上還沒有東西**——
+重新探測的結果是 Docker 未安裝、`deploy` 帳號與 `/srv/fju` 不存在、三筆 DNS A 記錄都沒有、
+sudo 需要密碼。#188、#189 因此尚未開工。
+
+### 實作時發現、已回寫規格的三件事
+
+1. **契約 03 §2 的 `/forget-password` 在 better-auth 1.7.5 不存在**，實際是
+   `/request-password-reset` 與 `/reset-password/:token`；另有 11 條端點原本沒列到，
+   一律封鎖並逐條寫理由。路由改成**預設拒絕**，套件升級長出新端點不會靜靜對外開。
+2. **admin plugin 的每個 `/admin/*` 都要求呼叫端帶著 role=admin 的 session**。
+   所以內部包裝器的五個能力要帶「發動者的 headers」。**待決**：worker 週期執行
+   `SessionRevocationExecutor` 時沒有 session，用什麼身分尚未定案，留給 S02 的 worker 票。
+3. **模組 01 附錄 A 補上 `department_class` 三欄**（名單列、註冊申請、個人資料）與
+   §12 的安裝後 gate 結果表。
+
+### 實作時修掉的一個授權漏洞（不是規格問題，是寫法問題）
+
+把角色檢查放在 Next 的 layout 是**擋不住的**：App Router 把 layout 與底下的 page 並行渲染，
+layout 丟掉 `children` 或 `redirect()` 都來不及，那一頁的內容已經跟著 RSC payload 送到瀏覽器。
+修法是把檢查放進**每一頁自己**，並加了逐路由的洩漏回歸測試。
+**後續每一張有真實資料的頁面票都要照這個寫法。**
+
 ## 給實作者的接續 prompt
 
 > 先讀本檔、docs/README.md、#201、#44–#48 與 #187–#189 的最新正文，以及工作區 AGENTS。從最新 main 建立隔離分支，保存既有改動；不要在有大量未提交改動的 proto/role-ux-round1 上直接開工。按專案要求核對 Matt skills 上游，開發採合適技能與相依套件本機文件。
