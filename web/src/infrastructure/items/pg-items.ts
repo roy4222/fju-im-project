@@ -9,6 +9,7 @@ import {
   describeFailedChecks,
   failedChecks,
   ITEM_UPLOAD,
+  describeRepublishExpired,
   isUuid,
   LIFECYCLE_LABEL,
   LIFECYCLE_NEXT_STATUS,
@@ -57,7 +58,7 @@ import { expandRecipients, memberUserIds, type ExpandedRecipients } from '@/infr
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
-import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
+import { formatTaipeiMinute, isDeadlinePassed, RealClock, type Clock } from '@/shared/time'
 
 /**
  * 專題事務的建立、存草稿、發布、發布更新（票 15；模組實作設計 04 §3、§6；模組 05 §5 `buildRoster`）。
@@ -867,10 +868,32 @@ export class PgItemCommand implements ItemCommand {
       if (locked.cohortStatus === 'archived') return cohortArchived()
       if (item.revision !== revision) return staleRevision()
 
-      // 「有沒有人作答」只有撤回要問（票 17 之前一律沒有；規則接點見 NoResponsesYet）。
+      // 「有沒有人作答」只有撤回要問（票 17 接上的真查詢：有人存過草稿或正式送出就算）。
       const hasResponses = action === 'withdraw' ? await this.#responses.hasAnyResponse(tx, itemId) : false
       const allowed = lifecycleCheck(action, item.status, hasResponses)
       if (!allowed.ok) return err(allowed.code, allowed.message)
+
+      if (action === 'republish') {
+        // 重新發布＝回到發布中，所以發布前檢查照樣要過（開放時間用第一次的實際開放時間）；
+        // 下架期間組別可能解散、階段可能被改，引用也再驗一次。
+        const failed = failedChecks(publishChecks(this.#stateOf(item, locked.groupIds), item.actual_opened_at ?? businessAt))
+        if (failed.length > 0) {
+          return err('VALIDATION_FAILED', describeFailedChecks(failed).replace('還不能發布', '還不能重新發布'), {
+            details: { checks: failed.map((c) => c.key) },
+          })
+        }
+        // 已經截止的收件不能直接回到發布中（學生會看到一份收不了的收件）。
+        if (collectsResponses(item.placement) && item.due_at && isDeadlinePassed(businessAt, item.due_at)) {
+          return err('VALIDATION_FAILED', describeRepublishExpired(item.due_at), { details: { checks: ['due'] } })
+        }
+        const refs = await this.#checkReferences(tx, {
+          cohortId: item.cohort_id,
+          stageId: item.stage_id,
+          groupIds: locked.groupIds,
+          placement: item.placement,
+        })
+        if (refs) return refs
+      }
 
       const status = LIFECYCLE_NEXT_STATUS[action]
       let deadlineVersion = item.deadline_version

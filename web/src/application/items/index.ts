@@ -67,6 +67,7 @@ export { describePublishReceipt, describeUpdateReceipt } from '@/application/ite
 export type { LifecycleAction, LifecycleReceipt, LifecycleRefusal, PublicAccess } from '@/application/items/lifecycle'
 export {
   describeLifecycleReceipt,
+  describeRepublishExpired,
   LIFECYCLE_LABEL,
   LIFECYCLE_NEXT_STATUS,
   lifecycleCheck,

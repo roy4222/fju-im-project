@@ -61,6 +61,14 @@ export function lifecycleCheck(
   }
 }
 
+/**
+ * 已經截止的收件不能直接重新發布（回到發布中卻收不了件，學生只會看到一份「已截止」的待辦）。
+ * 下架的項目不能改截止，所以提示的下一步是另建一份或維持下架留紀錄。
+ */
+export function describeRepublishExpired(dueAt: Date): string {
+  return `這份收件的截止（${formatTaipeiMinute(dueAt)}，臺灣時間）已經過了，不能直接重新發布。要再收件請另建一份新的收件並設新的截止；只是要保留紀錄的話維持下架即可。`
+}
+
 function refuse(message: string): LifecycleRefusal {
   return { ok: false, code: 'VALIDATION_FAILED', message }
 }

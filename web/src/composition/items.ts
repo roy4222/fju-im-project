@@ -34,7 +34,7 @@ export function getItemQuery(): ItemQuery {
 
 /** 前台內容頁與學生日曆：自己依看的人過濾（頁面不用再守門，但也不能繞過它自己查表）。 */
 export function getPublicItemQuery(): PublicItemQuery {
-  publicItemQuery ??= new PgPublicItemQuery()
+  publicItemQuery ??= new PgPublicItemQuery(getBusinessClock())
   return publicItemQuery
 }
 

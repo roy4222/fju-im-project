@@ -271,7 +271,7 @@ beforeAll(async () => {
   // 替身假裝「已經有人作答」，不用真的去造回答就能逐條驗鎖定規則（真查詢的鎖定在 pg-submissions 的整合測試）。
   lockedItems = new PgItemCommand({ ...deps, responses: { hasAnyResponse: async () => true } })
   query = new PgItemQuery(() => app, responsePresenceReader(() => app))
-  publicQuery = new PgPublicItemQuery(() => app)
+  publicQuery = new PgPublicItemQuery(businessClock, () => app)
 })
 
 afterEach(() => {
@@ -1033,6 +1033,33 @@ describe('撤回、下架、重新發布（票 16；PUB-07、PUB-11）', () => {
     expect((await query.get(item.itemId))?.publications.map((p) => p.action)).toEqual(['republish', 'archive', 'publish'])
   })
 
+  it('重新發布照樣跑發布前檢查：已經截止的收件、下架期間解散的組別都擋下，什麼都不改', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const a = await newStudent(cohortId)
+    const g = await newGroup(cohortId, [a], 'G09')
+    const item = await mustCreate(cohortId, { stageId, receiverUnit: 'group', audienceKind: 'groups', groupIds: [g] })
+    const published = await mustPublish(item.itemId, 1)
+    const archived = await mustChange(item.itemId, published.revision, 'archive')
+
+    // 截止 2026/11/15 23:59（含這一分鐘）；隔天才要重新發布。
+    businessNow = new Date('2026-11-15T16:00:00Z')
+    const expired = await items.changeStatus(adminActor(), item.itemId, archived.revision, 'republish', randomUUID())
+    expect(expired.ok || expired.code).toBe('VALIDATION_FAILED')
+    expect(expired.ok || expired.message).toContain('截止（2026/11/15 23:59，臺灣時間）已經過了')
+    expect((await itemRow(item.itemId)).status).toBe('archived')
+    // 截止那一分鐘之內還可以。
+    businessNow = new Date('2026-11-15T15:59:30Z')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [g])
+    const dissolved = await items.changeStatus(adminActor(), item.itemId, archived.revision, 'republish', randomUUID())
+    expect(dissolved.ok || dissolved.code).toBe('VALIDATION_FAILED')
+    expect(dissolved.ok || dissolved.message).toContain('組別')
+    expect(await publicationActions(item.itemId)).toEqual(['publish', 'archive'])
+
+    await owner.sql(`update groups set status = 'active', dissolved_real_at = null, dissolve_reason = null where id = $1`, [g])
+    const ok = await items.changeStatus(adminActor(), item.itemId, archived.revision, 'republish', randomUUID())
+    expect(ok.ok).toBe(true)
+  })
+
   it('狀態不對、舊 revision、非管理員、封存的屆別：一律拒絕，什麼都不改；同一個請求重送回同一份回執', async () => {
     const { cohortId } = await newCohort()
     const student = await newStudent(cohortId)
@@ -1187,6 +1214,10 @@ describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-
     const [deadline] = await publicQuery.myDeadlines(studentActor(b))
     expect(deadline).toMatchObject({ cohortId, receiverUnit: 'individual' })
     expect(deadline!.dueAt.toISOString()).toBe('2026-10-30T09:00:00.000Z')
+
+    // 名單列從發布那一刻起算：業務鐘撥回發布之前，那兩份收件還不算他的。
+    businessNow = new Date('2026-09-20T02:00:00Z')
+    expect(await titles(studentActor(a))).toEqual([])
   })
 
   it('訪客下載：只有發布中、公開對象、目前有效引用的附件；其他一律 401（沒有這個檔也是 401）', async () => {

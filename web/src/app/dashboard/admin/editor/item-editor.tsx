@@ -64,7 +64,8 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
   republish: {
     label: '重新發布',
     title: '重新發布？',
-    explain: '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間，這次不發通知。',
+    explain:
+      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間，這次不發通知。發布前檢查會再跑一次：已經截止的收件不能直接重新發布。',
     confirm: '確認重新發布',
   },
 }

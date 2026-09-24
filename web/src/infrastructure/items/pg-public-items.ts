@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Pool } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
+import type { BusinessClockSource } from '@/application/cohorts'
 import {
   canViewItem,
   isUuid,
@@ -80,8 +81,11 @@ function likePattern(q: string): string {
 
 export class PgPublicItemQuery implements PublicItemQuery {
   readonly #reader: () => Pick<Pool, 'query'>
+  readonly #businessClock: BusinessClockSource
 
-  constructor(reader: () => Pick<Pool, 'query'> = getPool) {
+  /** `businessClock`：「現在」用業務時間（名單列從哪一刻起算要看它）。 */
+  constructor(businessClock: BusinessClockSource, reader: () => Pick<Pool, 'query'> = getPool) {
+    this.#businessClock = businessClock
     this.#reader = reader
   }
 
@@ -166,15 +170,19 @@ export class PgPublicItemQuery implements PublicItemQuery {
     const db = this.#reader()
     const viewer = await viewerOf(db, actor)
     if (viewer.kind === 'anonymous' || actor.kind !== 'authenticated') return []
+    // 目前有效＝還沒結束（eligible_to 為空），而且已經起算（eligible_from ≤ 現在的業務時間）：
+    // 模擬鐘撥回名單建立之前時，那份收件還不算他的。
+    const now = await this.#businessClock.now()
     const rows = await db.query<{ id: string; cohort_id: string; title: string; due_at: Date; receiver_unit: ReceiverUnit }>(
       `select distinct m.id, m.cohort_id, m.title, m.due_at, m.receiver_unit
          from managed_items m
-         join response_rosters r on r.item_id = m.id and r.eligible_to_business_at is null
+         join response_rosters r on r.item_id = m.id
+          and r.eligible_to_business_at is null and r.eligible_from_business_at <= $3
         where m.status = 'published' and m.due_at is not null
           and ((r.receiver_kind = 'user' and r.receiver_id = $1)
             or (r.receiver_kind = 'group' and r.receiver_id = any($2::uuid[])))
         order by m.due_at, m.id`,
-      [actor.userId, viewer.groupIds],
+      [actor.userId, viewer.groupIds, now],
     )
     return rows.rows.map((r) => ({
       itemId: r.id,

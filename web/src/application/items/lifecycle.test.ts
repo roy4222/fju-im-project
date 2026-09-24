@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   describeLifecycleReceipt,
+  describeRepublishExpired,
   lifecycleCheck,
   publicAccessOf,
   type AudienceKind,
@@ -31,6 +32,14 @@ describe('lifecycleCheck：撤回、下架、重新發布只在對的狀態', ()
     const draft = lifecycleCheck('republish', 'draft', false)
     expect(draft.ok || draft.message).toContain('發布')
     expect(lifecycleCheck('republish', 'published', false).ok).toBe(false)
+  })
+})
+
+describe('describeRepublishExpired：已截止的收件不能直接重新發布', () => {
+  it('寫出截止時間（臺灣時間）與下一步', () => {
+    const text = describeRepublishExpired(new Date('2026-11-15T15:59:00Z'))
+    expect(text).toContain('2026/11/15 23:59，臺灣時間')
+    expect(text).toContain('另建一份新的收件')
   })
 })
 
