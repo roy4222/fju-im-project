@@ -242,12 +242,23 @@ export class PgDueWorkRunner {
 }
 
 /**
+ * 故障演練的「毒工作」（票 28）：`test_noop` 的對象種類是這個字時，處理器一定丟例外。
+ * 用來證明處理不了的到期工作會退避、第 5 次標 failed＋告警，而且不會卡住其他到期工作。
+ * `ops/fault-drill.sh --site test poison` 直接用 psql 插一列這種工作。
+ */
+export const FAULT_DRILL_POISON_SUBJECT_TYPE = 'fault_drill_poison'
+
+/**
  * `test_noop`：只給測試站驗收到期迴圈（契約 01 §4.7）。什麼都不做，只回 done 並留一行 log。
  * 組裝層只在 `BUSINESS_CLOCK_OVERRIDE_ENABLED=true` 時註冊它；正式站沒有這個 handler。
+ * 對象種類是 `fault_drill_poison` 的例外：一定失敗（故障演練的毒工作，見上）。
  */
 export function testNoopHandler(log: (message: string, detail?: Record<string, unknown>) => void) {
   return {
     async handle(_tx: PoolClient, work: ClaimedDueWork) {
+      if (work.subject.type === FAULT_DRILL_POISON_SUBJECT_TYPE) {
+        throw new Error('故障演練的毒工作：刻意處理不了')
+      }
       log('test_noop 已處理', { id: work.id, subjectId: work.subject.id, deadlineVersion: work.deadlineVersion })
       return { kind: 'done' as const, resultRef: { noop: true } }
     },

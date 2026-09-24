@@ -18,6 +18,8 @@ import {
   WORKER_LOCK_NAME,
   writeHeartbeat,
 } from '@/infrastructure/notifications/worker-runtime'
+import { STORAGE_MEASURE_INTERVAL_MS, storageAlertLabel } from '@/application/ops'
+import { measureStorage, recordStorageMeasurement } from '@/infrastructure/ops/storage-stats'
 
 /**
  * 背景工作進程的組裝與迴圈（票 12；模組實作設計 08 §6；契約 05 §5；ADR 0005）。
@@ -26,8 +28,11 @@ import {
  * - 投影：每 5 秒把事件投影成通知；每一輪都寫心跳（`/api/health` 的 `worker.lastTickAt`）。
  * - 到期工作：每 30 秒看業務鐘，撿到期的工作交給 handler（提案到期；測試站另有 `test_noop`）。
  * - 撤 session 收斂：每 5 分鐘回收過期租約、做掉排著的工作、核對停用／恢復是否真的生效。
+ * - 磁碟量測（票 28）：每小時量一次 `FILES_ROOT` 所在的檔案系統，寫一筆量測（系辦首頁「儲存與備份」磚讀）。
+ *   只寫量測，≥80% 也不推播（D-04）。
  *
- * 啟動時三個迴圈都先立刻跑一次：部署的健康判定只等 60 秒，心跳要在那之前出現。
+ * 啟動時每個迴圈都先立刻跑一次：部署的健康判定只等 60 秒，心跳要在那之前出現；
+ * 每次部署也因此都會有一筆新的磁碟量測。
  */
 
 export type WorkerOptions = {
@@ -38,6 +43,9 @@ export type WorkerOptions = {
   projectionIntervalMs?: number
   dueWorkIntervalMs?: number
   reconcileIntervalMs?: number
+  storageIntervalMs?: number
+  /** 要量哪個目錄所在的檔案系統；預設讀 `FILES_ROOT`。沒有值就不量（只記一次 log）。 */
+  storageRoot?: () => string | undefined
   /** 拿著鎖的連線斷了：鎖已經不在，進程要結束讓 Compose 重啟（不然可能兩個 worker 同時跑）。 */
   onLockLost?: (error: unknown) => void
   log?: (message: string, detail?: Record<string, unknown>) => void
@@ -57,6 +65,27 @@ export function dueWorkHandlers(log: WorkerOptions['log'] = defaultLog): DueWork
   // 提案到期（票 13）：它自己開交易、終止時自己把工作改成 cancelled。
   handlers.proposal_expiry = proposalExpiryDueWorkHandler(getProposalExpiryHandler())
   return handlers
+}
+
+/**
+ * 量一次磁碟並寫入（背景工作每小時一次；`worker.mjs --measure-storage-once` 也走這裡）。
+ * `drill`：故障演練寫的量測，畫面標「演練」。
+ */
+export async function measureAndRecordStorage(
+  pool: Pick<Pool, 'query'>,
+  root: string,
+  log: NonNullable<WorkerOptions['log']> = defaultLog,
+  options: { drill?: boolean } = {},
+) {
+  const measurement = await measureStorage({ root, db: pool, drill: options.drill })
+  await recordStorageMeasurement(pool, measurement)
+  log('磁碟量測', {
+    path: measurement.path,
+    usedPercent: measurement.usedPercent,
+    level: storageAlertLabel(measurement.alertLevel),
+    drill: measurement.drill,
+  })
+  return measurement
 }
 
 /** 拿到鎖就開始跑並回傳控制把手；拿不到（已有另一個 worker）回 null。 */
@@ -131,6 +160,18 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
     if (summary.leasesRecovered + summary.usersRun + summary.reconcileInserted + summary.limits > 0) {
       log('撤 session 收斂完成一輪', summary)
     }
+  })
+
+  const storageRoot = options.storageRoot ?? (() => process.env.FILES_ROOT || undefined)
+  let storageSkipLogged = false
+  every('磁碟量測', options.storageIntervalMs ?? STORAGE_MEASURE_INTERVAL_MS, async () => {
+    const root = storageRoot()
+    if (!root) {
+      if (!storageSkipLogged) log('沒有設 FILES_ROOT，不量磁碟')
+      storageSkipLogged = true
+      return
+    }
+    await measureAndRecordStorage(pool, root, log)
   })
 
   log('背景工作已啟動（拿到單一實例鎖）', { version: options.version })
