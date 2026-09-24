@@ -35,6 +35,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$SITE" ] || { echo "缺少 --site test|prod" >&2; exit 1; }
+# 在任何 mkdir／mktemp／寫紀錄之前擋掉非 deploy 身分（見 ops/lib/site.sh）。
+require_deploy_user "$APP_ROOT/ops/backup.sh ${ORIG_ARGS[*]:-}"
 site_setup "$SITE" "$APP_ROOT"
 
 BACKUP_DIR="$SITE_ROOT/backups"
@@ -42,6 +44,10 @@ RECORDS="$(backup_records_file "$BACKUP_DIR")"
 RECORD_TOOL="$APP_ROOT/ops/lib/backup-record.mjs"
 
 if [ "$STATUS_ONLY" = 1 ]; then
+  if [ ! -d "$BACKUP_DIR" ]; then
+    echo "${SITE} 站還沒有備份目錄（${BACKUP_DIR}）＝還沒備份過。先跑：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/backup.sh --site ${SITE}"
+    exit 0
+  fi
   node "$RECORD_TOOL" status "$RECORDS"
   exit 0
 fi
@@ -70,8 +76,8 @@ if [ "${FJU_SECRETS_LOADED:-}" != "$SITE" ]; then
     node "$RECORD_TOOL" append "$RECORDS" \
       kind=backup status=failed site="$SITE" project="$COMPOSE_PROJECT_NAME" \
       started_at="$STARTED_AT" finished_at="$(utc_now)" step="取得 Doppler 秘密" \
-      error="取得 Doppler 秘密失敗（結束碼 $code）：$(tail -c 600 "$launch_err" | tr '\n' ' ')" \
-      || echo "（連失敗紀錄都寫不進 $RECORDS）" >&2
+      error="取得 Doppler 秘密失敗（結束碼 ${code}）：$(tail -c 600 "$launch_err" | tr '\n' ' ')" \
+      || echo "（連失敗紀錄都寫不進 ${RECORDS}）" >&2
     echo "✗ 備份沒有開始（取不到秘密），已寫入失敗紀錄：$RECORDS" >&2
   fi
   rm -f "$marker" "$launch_err"
@@ -95,7 +101,7 @@ record_failure() {
     kind=backup status=failed site="$SITE" project="$COMPOSE_PROJECT_NAME" \
     started_at="$STARTED_AT" finished_at="$(utc_now)" \
     step="$STEP" error="$message" \
-    || echo "（連失敗紀錄都寫不進 $RECORDS）" >&2
+    || echo "（連失敗紀錄都寫不進 ${RECORDS}）" >&2
   RECORDED=1
 }
 
@@ -108,8 +114,8 @@ on_exit() {
   if [ "$code" -ne 0 ] && [ "$RECORDED" = 0 ]; then
     local detail
     detail="$(tail -c 600 "$errlog" 2>/dev/null | tr '\n' ' ' || true)"
-    record_failure "${STEP}失敗（結束碼 $code）${detail:+：$detail}"
-    echo "✗ 備份失敗（$STEP），已寫入失敗紀錄：$RECORDS" >&2
+    record_failure "${STEP}失敗（結束碼 ${code}）${detail:+：$detail}"
+    echo "✗ 備份失敗（${STEP}），已寫入失敗紀錄：$RECORDS" >&2
     [ -z "$detail" ] || echo "  錯誤：$detail" >&2
   fi
   rm -rf "$work"
@@ -124,7 +130,7 @@ site_verify_secrets 2>>"$errlog" || { cat "$errlog" >&2; exit 1; }
 
 # 在來源站的 postgres 容器裡跑唯讀查詢，輸出一行 JSON（筆數＋回答內容 md5）。
 spot_counts_source() {
-  # 單引號是刻意的：$POSTGRES_USER／$POSTGRES_DB 要在容器裡展開。
+  # 單引號是刻意的：${POSTGRES_USER}／$POSTGRES_DB 要在容器裡展開。
   # shellcheck disable=SC2016
   printf '%s\n' "BEGIN READ ONLY;" "$SPOT_COUNTS_SQL" "COMMIT;" \
     | docker compose exec -T postgres sh -c 'psql -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
@@ -132,7 +138,7 @@ spot_counts_source() {
 }
 
 cd "$APP_ROOT"
-echo "備份 $SITE 站（$COMPOSE_PROJECT_NAME）的資料庫 → $out"
+echo "備份 $SITE 站（${COMPOSE_PROJECT_NAME}）的資料庫 → $out"
 
 step "備份前量筆數"
 spot_counts_source > "$work/counts-before.json" 2>>"$errlog"

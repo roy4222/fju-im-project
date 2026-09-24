@@ -14,6 +14,8 @@
 
 > 下面每個指令框都可以整段複製貼上。標「💻 Mac」的在你自己的電腦跑，標「🖥️ VM」的先 `ssh fju-vm` 再跑。
 > `sudo -u deploy …` 會沿用你目前的目錄，而 deploy 讀不到你的家目錄，所以第 4 步以後的指令框開頭都先 `cd /srv/fju/app`。
+> `deploy.sh --execute`、`seed-admin.sh`、`auto-deploy.sh`、`site.sh`、`backup.sh`、`restore-drill.sh` 不是 deploy 身分就一開始停下（什麼都不寫），
+> 並提示改用 `sudo -u deploy …`——免得用 root 跑留下 deploy 寫不進去的檔。`deploy.sh` 的演練（不帶 `--execute`）與各腳本的 `--help` 誰都能跑。
 > 要換成你自己的值的地方用 `<尖括號>` 標出來。
 
 ---
@@ -325,11 +327,12 @@ sudo -u deploy /srv/fju/app/ops/restore-drill.sh --site prod --backup latest
 - 比對基準是**備份當下**量的各表筆數（記在備份紀錄裡），不是站台現在的資料，所以備份之後有人操作不影響結果。
   評分、簽核的表還沒建；建了之後會自動列進抽查。
 - `--backup` 可以給檔名（`fju-prod-20260924T120000Z.dump`）或 `latest`；只接受該站 `backups/` 目錄裡的檔案。
+  該站還沒備份過（沒有 `backups/`）會直接說「先跑 `ops/backup.sh`」。
   檔案的 sha256 跟備份當下不同會直接拒絕。
 - 票 27 之前做的舊備份沒有紀錄：會改拿站台「現在」的筆數比（唯讀查詢），之後有新資料就會對不上——那種結果要人看過再判斷。
 - 失敗也會寫紀錄；沒帶 `--keep` 時，成功或失敗都會把副本整個刪掉（副本裡是真實資料）。
 
-**要看畫面**（例如確認 A1 能登入）：加 `--keep --with-app`。app 用來源站目前在跑的映像，接演練資料庫：
+**要看畫面**（例如確認 A1 能登入）：加 `--keep --with-app`（`--with-app` 一定要搭配 `--keep`，只帶 `--with-app` 會直接拒絕）。app 用來源站目前在跑的映像，接演練資料庫：
 
 ```bash
 cd /srv/fju/app

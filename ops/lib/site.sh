@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# 兩站共用設定（2026-09-24 兩站版）。由 ops/site.sh、ops/deploy.sh、ops/backup.sh、
+# 兩站共用設定（2026-09-24 兩站版）。由 ops/site.sh、ops/deploy.sh、ops/backup.sh、ops/restore-drill.sh、
 # ops/auto-deploy.sh、ops/seed-admin.sh 用 `. ops/lib/site.sh` 載入，不單獨執行。
 #
 #   站台   Compose project   網址                     Doppler config
@@ -20,6 +20,20 @@ FJU_ROOT="${FJU_ROOT:-/srv/fju}"
 FJU_SECRETS_DIR="${FJU_SECRETS_DIR:-$FJU_ROOT/secrets}"
 FJU_DOPPLER_PROJECT="fju-im-capstone"
 FJU_DEPLOY_USER="${FJU_DEPLOY_USER:-deploy}"
+
+# 身分守門：/srv/fju 底下的東西都歸 deploy。忘了 `sudo -u deploy` 直接用 root（或自己的帳號）跑，
+# 會留下別人擁有的紀錄檔、鎖檔與暫存目錄，之後 deploy 反而寫不進去。所以會寫 /srv/fju 的腳本
+# 在任何 mkdir／mktemp／寫紀錄之前先呼叫這個。FJU_DEPLOY_USER 只給本機測試改（sudo 會清掉環境）。
+# 用法：require_deploy_user "<這支腳本的完整指令，給提示用>"
+require_deploy_user() {
+  local me
+  me="$(id -un)"
+  if [ "$me" != "$FJU_DEPLOY_USER" ]; then
+    echo "這支腳本要用 ${FJU_DEPLOY_USER} 身分執行（現在是 ${me}），什麼都還沒做。" >&2
+    echo "請改用：sudo -u ${FJU_DEPLOY_USER} ${1:-<這支腳本> …}" >&2
+    exit 1
+  fi
+}
 
 # docker-compose.vm.yml 要的鍵（Doppler 各 config 裡必須有）。只列名字。
 FJU_REQUIRED_SECRETS=(
@@ -53,17 +67,17 @@ site_setup() {
 site_check_token_file() {
   local file="$SITE_TOKEN_FILE" mode owner
   if [ ! -f "$file" ]; then
-    echo "找不到 $file——Roy 要先把 $FJU_SITE 站的 Doppler service token 貼進去（ops/README.md）。" >&2
+    echo "找不到 ${file}——Roy 要先把 $FJU_SITE 站的 Doppler service token 貼進去（ops/README.md）。" >&2
     return 1
   fi
   mode="$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")"
   owner="$(stat -c '%U' "$file" 2>/dev/null || stat -f '%Su' "$file")"
   if [ "$mode" != 600 ]; then
-    echo "$file 的權限是 $mode，必須是 600：chmod 600 $file" >&2
+    echo "$file 的權限是 ${mode}，必須是 600：chmod 600 $file" >&2
     return 1
   fi
   if [ "$owner" != "$(id -un)" ]; then
-    echo "$file 的擁有者是 $owner，要用擁有者（$FJU_DEPLOY_USER）執行：sudo -u $FJU_DEPLOY_USER …" >&2
+    echo "$file 的擁有者是 ${owner}，要用擁有者（${FJU_DEPLOY_USER}）執行：sudo -u $FJU_DEPLOY_USER …" >&2
     return 1
   fi
 }
@@ -92,11 +106,11 @@ site_exec_with_secrets() {
 # 在 doppler run 裡面呼叫：確認 token 是這一站的，且必要的鍵都有值。只印鍵名。
 site_verify_secrets() {
   if [ -n "${DOPPLER_CONFIG:-}" ] && [ "$DOPPLER_CONFIG" != "$SITE_DOPPLER_CONFIG" ]; then
-    echo "這把 token 是 Doppler config「$DOPPLER_CONFIG」的，但 $FJU_SITE 站要用「$SITE_DOPPLER_CONFIG」——token 貼錯檔了。" >&2
+    echo "這把 token 是 Doppler config「${DOPPLER_CONFIG}」的，但 $FJU_SITE 站要用「${SITE_DOPPLER_CONFIG}」——token 貼錯檔了。" >&2
     return 1
   fi
   if [ -n "${DOPPLER_PROJECT:-}" ] && [ "$DOPPLER_PROJECT" != "$FJU_DOPPLER_PROJECT" ]; then
-    echo "這把 token 屬於 Doppler 專案「$DOPPLER_PROJECT」，不是 $FJU_DOPPLER_PROJECT。" >&2
+    echo "這把 token 屬於 Doppler 專案「${DOPPLER_PROJECT}」，不是 ${FJU_DOPPLER_PROJECT}。" >&2
     return 1
   fi
   local name missing=()

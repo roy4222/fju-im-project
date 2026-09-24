@@ -67,6 +67,8 @@ exit 0
 
 const FAKE_SECRETS: Record<string, string> = {
   FJU_SECRETS_LOADED: 'test',
+  // 腳本會擋掉非 deploy 身分（ops/lib/site.sh 的 require_deploy_user）；測試用目前的帳號當 deploy。
+  FJU_DEPLOY_USER: os.userInfo().username,
   POSTGRES_USER: 'fake_owner',
   POSTGRES_PASSWORD: 'fake',
   POSTGRES_DB: 'fju',

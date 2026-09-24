@@ -27,6 +27,10 @@ if [ $# -lt 2 ]; then
   exit 1
 fi
 
+# 跟其他 ops 腳本一樣先擋掉非 deploy 身分（見 ops/lib/site.sh）；
+# 就算沒擋，後面 token 檔的擁有者檢查也會停，這裡只是讓訊息一致、更早。
+require_deploy_user "$APP_ROOT/ops/site.sh $*"
+
 SITE="$1"
 shift
 site_setup "$SITE" "$APP_ROOT"
@@ -35,7 +39,7 @@ site_setup "$SITE" "$APP_ROOT"
 for arg in "$@"; do
   case "$arg" in
     config|env|printenv|set|export)
-      echo "「$arg」會把秘密印出來，ops/site.sh 不執行它。" >&2
+      echo "「${arg}」會把秘密印出來，ops/site.sh 不執行它。" >&2
       echo "要看 compose 的合併結果：sudo bash $APP_ROOT/ops/vm-setup.sh --check（用假值）。" >&2
       exit 1
       ;;
@@ -49,7 +53,7 @@ fi
 site_verify_secrets
 
 if [ "$1" = check ]; then
-  echo "✓ $SITE 站：token 對應 Doppler config $SITE_DOPPLER_CONFIG，必要的 ${#FJU_REQUIRED_SECRETS[@]} 個鍵都有值。"
+  echo "✓ $SITE 站：token 對應 Doppler config ${SITE_DOPPLER_CONFIG}，必要的 ${#FJU_REQUIRED_SECRETS[@]} 個鍵都有值。"
   exit 0
 fi
 
