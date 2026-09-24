@@ -15,10 +15,18 @@ import {
 import { formatTaipeiMinute } from '@/shared/time'
 import { ImportRosterDialog } from './import-roster-dialog'
 import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
+import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
 
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
+  methods: VERIFICATION_METHODS,
+  methodLabel: VERIFICATION_LABEL,
+  noteRequired: VERIFICATION_NOTE_REQUIRED,
+  noteHint: VERIFICATION_NOTE_HINT,
+}
+
+const VERIFICATION_LABELS: VerificationLabels = {
   methods: VERIFICATION_METHODS,
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
@@ -41,6 +49,12 @@ export default async function AdminAccountsPage() {
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/accounts">
       <PageHeader title="帳號" description="名單匯入、註冊審核、停用與臨時密碼都在這一區。" />
+      {/* 票 8：新增老師與發臨時密碼的觸發按鈕。帳號列表與表格由票 9 擁有，這裡不排版列表。 */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <NewTeacherDialog labels={VERIFICATION_LABELS} />
+        <TemporaryPasswordDialog labels={VERIFICATION_LABELS} />
+        <span className="text-xs text-muted-foreground">系統不存可查看的密碼，只能核發一次性臨時密碼。</span>
+      </div>
 
       <Card
         title={`待審核${pending ? `（${pending.applications.length}）` : ''}`}
@@ -128,7 +142,7 @@ export default async function AdminAccountsPage() {
         <EmptyState
           pending
           title="帳號管理動作還沒做"
-          description="停用／還原、發臨時密碼、匯出名單分別由票 9、票 8 掛上來。"
+          description="停用／還原、匯出名單由票 9 掛上來。"
         />
       </div>
     </DashboardShell>

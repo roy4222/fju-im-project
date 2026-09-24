@@ -1,9 +1,16 @@
 'use server'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import type { DecisionReceipt, RosterImportReceipt, RosterPreview, RosterUploadTicket } from '@/application/accounts'
-import { getRegistrationCommand, getRosterCommand, resolveActor } from '@/composition/accounts'
-import type { Result } from '@/shared/result'
+import type {
+  AccountLookup,
+  DecisionReceipt,
+  RosterImportReceipt,
+  RosterPreview,
+  RosterUploadTicket,
+  TeacherAccountReceipt,
+} from '@/application/accounts'
+import { getAccountCommand, getRegistrationCommand, getRosterCommand, resolveActor } from '@/composition/accounts'
+import { isSecretOnce, type Result } from '@/shared/result'
 
 /**
  * 名單匯入的三個 Server Action（契約 02 §7）。檔案本身**不走** Server Action——
@@ -136,4 +143,85 @@ export async function rejectRegistrationAction(input: {
     }),
   )
   return outcome
+}
+
+// ── 老師帳號與臨時密碼（票 8） ───────────────────────────────────────────────
+//
+// 授權（只有狀態正常的管理員）、欄位規則（核實方式必選）都在用例裡。
+// 臨時密碼只在這一次回應裡出現：這裡不 log、不 revalidate 帶著它的頁面，
+// 也不放進任何會被快取的地方（契約 03 §3）。
+
+type TeacherCreationOutcome = { account: TeacherAccountReceipt; temporaryPassword: string | null }
+
+export async function createTeacherAction(input: {
+  mode: string
+  email: string
+  name: string
+  verificationMethod: string
+  verificationNote: string
+  requestId: string
+}): Promise<ActionOutcome<TeacherCreationOutcome>> {
+  const mode = input?.mode === 'direct' || input?.mode === 'preauthorize' ? input.mode : null
+  const email = text(input?.email ?? '', 300)
+  const name = text(input?.name ?? '', 200)
+  const verificationMethod = text(input?.verificationMethod ?? '', 50)
+  const verificationNote = text(input?.verificationNote ?? '', 2000)
+  const requestId = text(input?.requestId, 100) ?? ''
+  if (!mode || email === null || name === null || verificationMethod === null || verificationNote === null) {
+    return { ok: false, code: 'VALIDATION_FAILED', message: '欄位內容不正確，請檢查後再送出。' }
+  }
+
+  const incoming = await headers()
+  const actor = await resolveActor(incoming)
+  const result = await getAccountCommand().createTeacher(actor, new Headers(incoming), {
+    mode,
+    email,
+    name,
+    verificationMethod,
+    verificationNote,
+    requestId,
+  })
+  if (isSecretOnce(result)) return { ok: true, data: { account: result.account, temporaryPassword: result.secret } }
+  const outcome = toOutcome(result)
+  return outcome.ok ? { ok: true, data: { account: outcome.data, temporaryPassword: null } } : outcome
+}
+
+export async function lookupAccountAction(input: { email: string }): Promise<ActionOutcome<AccountLookup>> {
+  const email = text(input?.email ?? '', 300)
+  if (email === null) return { ok: false, code: 'VALIDATION_FAILED', message: 'Email 太長了。', field: 'email' }
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountCommand().lookupByEmail(actor, email))
+}
+
+type TemporaryPasswordOutcome = { temporaryPassword: string | null; issuedAt: string }
+
+export async function issueTemporaryPasswordAction(input: {
+  userId: string
+  verificationMethod: string
+  verificationNote: string
+  reason: string
+  requestId: string
+}): Promise<ActionOutcome<TemporaryPasswordOutcome>> {
+  const userId = text(input?.userId, 100) ?? ''
+  const requestId = text(input?.requestId, 100) ?? ''
+  const verificationMethod = text(input?.verificationMethod ?? '', 50) ?? ''
+  const verificationNote = text(input?.verificationNote ?? '', 2000)
+  const reason = text(input?.reason ?? '', 2000)
+  if (verificationNote === null || reason === null) {
+    return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
+  }
+
+  const incoming = await headers()
+  const actor = await resolveActor(incoming)
+  const result = await getAccountCommand().issueTemporaryPassword(actor, new Headers(incoming), {
+    userId,
+    verificationMethod,
+    verificationNote,
+    reason,
+    requestId,
+  })
+  if (isSecretOnce(result)) return { ok: true, data: { temporaryPassword: result.secret, issuedAt: result.issuedAt } }
+  const outcome = toOutcome(result)
+  // 重播：已經核發過，密碼無法取回（畫面會請系辦重新核發）。
+  return outcome.ok ? { ok: true, data: { temporaryPassword: null, issuedAt: outcome.data.issuedAt } } : outcome
 }
