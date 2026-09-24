@@ -253,9 +253,9 @@ else
 fi
 
 step "步驟 8：app 檔案（${APP_DIR}）與 Compose 設定預檢"
-APP_FILES=(docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml
-  ops/Caddyfile.vm ops/check-health.mjs ops/lib/site.sh
-  ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh ops/seed-admin.sh)
+APP_FILES=(docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml
+  ops/Caddyfile.vm ops/check-health.mjs ops/lib/site.sh ops/lib/backup-common.sh ops/lib/backup-record.mjs
+  ops/deploy.sh ops/site.sh ops/backup.sh ops/restore-drill.sh ops/auto-deploy.sh ops/seed-admin.sh)
 app_ready=1
 for f in "${APP_FILES[@]}"; do
   if [ -f "$APP_DIR/$f" ]; then
@@ -265,7 +265,7 @@ for f in "${APP_FILES[@]}"; do
     app_ready=0
   fi
 done
-for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/auto-deploy.sh ops/seed-admin.sh; do
+for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/restore-drill.sh ops/auto-deploy.sh ops/seed-admin.sh; do
   if [ -f "$APP_DIR/$f" ] && [ ! -x "$APP_DIR/$f" ]; then
     bad "$APP_DIR/$f 不能執行（rsync 應該保留 +x；或 chmod +x）"
   fi
@@ -316,6 +316,24 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     else
       bad "fju-edge 發布的是「${published}」（應該只有 80 443 TCP）"
     fi
+  fi
+  # 還原演練副本（票 27）：不能發布 port、不能接 fju-edge、volume 只能是 fju-drill-pgdata。
+  drill=""
+  rc=0
+  drill=$(cd "$APP_DIR" && env -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME \
+    DRILL_PG_PASSWORD=check DRILL_APP_DB_PASSWORD=check DRILL_AUTH_SECRET=check DRILL_APP_IMAGE=check DRILL_CLOCK_OVERRIDE=false \
+    docker compose -p fju-drill -f docker-compose.drill.yml --profile with-app config --format json 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    bad "fju-drill 的 compose 設定解析失敗："
+    printf '%s\n' "$drill" | sed 's/^/      /' | head -20
+  elif printf '%s' "$drill" | grep -q '"published"'; then
+    bad "fju-drill 有發布 port——演練副本不能對外"
+  elif printf '%s' "$drill" | grep -q "\"$EDGE_NETWORK\""; then
+    bad "fju-drill 接到了 $EDGE_NETWORK——演練副本不能被 Caddy 找到"
+  elif ! printf '%s' "$drill" | grep -q '"name": "fju-drill-pgdata"'; then
+    bad "fju-drill 的資料庫 volume 不是 fju-drill-pgdata"
+  else
+    ok "fju-drill：不發布 port、不接 $EDGE_NETWORK、volume 是 fju-drill-pgdata"
   fi
 fi
 
