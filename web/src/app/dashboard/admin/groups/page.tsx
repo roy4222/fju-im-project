@@ -7,6 +7,8 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
 import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
+import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
+import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
   COHORT_STATUS_LABEL,
   describeGroupSize,
@@ -15,9 +17,10 @@ import {
   GROUP_SIZE_LIMIT,
   PROPOSAL_DAYS_LIMIT,
 } from '@/composition/cohorts'
-import type { GroupHistoryEntry } from '@/application/groups'
+import type { GroupHistoryEntry, RosterFilter, RosterSort } from '@/application/groups'
 import {
   ADVISOR_BATCH_KIND_LABEL,
+  applyRosterFilter,
   ADVISOR_BATCH_OUTCOME_LABEL,
   ADVISOR_CSV_MAX_BYTES,
   CHANGE_REASON_MAX_LENGTH,
@@ -27,6 +30,13 @@ import {
   GROUP_TYPE_LABEL,
   groupSizeWarning,
   INVITATION_STATE_LABEL,
+  normalizeRosterFilter,
+  ROSTER_SEARCH_MAX_LENGTH,
+  ROSTER_STATUS_FILTER_LABEL,
+  ROSTER_STATUS_FILTERS,
+  ROSTER_TYPE_FILTER_LABEL,
+  ROSTER_TYPE_FILTERS,
+  rosterQueryString,
   TERMINATION_KIND_LABEL,
   VOID_REASON_MAX_LENGTH,
 } from '@/composition/groups'
@@ -43,21 +53,112 @@ export const metadata = { title: '分組總覽｜資管系專題平台' }
  * 票 14：未分組學生「加入某組」；組別「詳情」裡移出組員（組長要指定接任）、換組長、看異動歷程。
  * 人數和設定不符時標示「與設定不符」但允許（2026-09-24 定案：管理員調整就是特殊情況的處理方式）。
  * 票 19：每組的指導老師（指派、重派、解除，理由必填），以及批次指派 CSV（六類預覽後逐列執行）。
+ * 票 20：組別名單依類型、狀態、老師篩選與搜尋，表頭排序（都在網址上、伺服器算）；每組的組員登入信箱與
+ * 「複製本組信箱」；勾選或整份篩選結果匯出 CSV／XLSX（帶信箱）；系辦改組別類型（保留既有關聯）。
  */
 
 function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
   return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text: describeGroupHistory(h), reason: h.reason }
 }
+/** 表頭排序連結：點同一欄切換升降冪，換欄從升冪開始。篩選條件與屆別跟著帶。 */
+function rosterColumns(cohortId: string, filter: RosterFilter): RosterColumn[] {
+  const sortable = (label: string, sort: RosterSort): RosterColumn => {
+    const active = filter.sort === sort ? filter.dir : null
+    const dir = active === 'asc' ? 'desc' : 'asc'
+    const query = rosterQueryString(filter, { sort, dir })
+    return { label, sortHref: `/dashboard/admin/groups?cohort=${cohortId}${query ? `&${query}` : ''}`, active }
+  }
+  return [
+    sortable('組別', 'code'),
+    sortable('類型', 'type'),
+    { label: '組員' },
+    sortable('人數', 'members'),
+    sortable('指導老師', 'advisor'),
+    sortable('成立時間', 'established'),
+    { label: '' },
+  ]
+}
+
+/** 篩選列：GET 表單（網址可以分享、重新整理不會丟），伺服器照網址算。 */
+function RosterFilterForm({
+  cohortId,
+  filter,
+  teachers,
+}: {
+  cohortId: string
+  filter: RosterFilter
+  teachers: readonly { userId: string; name: string }[]
+}) {
+  const select = 'h-9 rounded-md border border-border bg-background px-2 text-sm'
+  return (
+    <form action="/dashboard/admin/groups" role="search" aria-label="篩選組別" className="flex flex-wrap items-end gap-2">
+      <input type="hidden" name="cohort" value={cohortId} />
+      {filter.sort !== 'code' ? <input type="hidden" name="sort" value={filter.sort} /> : null}
+      {filter.dir !== 'asc' ? <input type="hidden" name="dir" value={filter.dir} /> : null}
+      <label className="text-xs text-muted-foreground">
+        類型
+        <select name="type" defaultValue={filter.type} className={cn(select, 'block')}>
+          {ROSTER_TYPE_FILTERS.map((t) => (
+            <option key={t} value={t}>
+              {ROSTER_TYPE_FILTER_LABEL[t]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs text-muted-foreground">
+        狀態
+        <select name="status" defaultValue={filter.status} className={cn(select, 'block')}>
+          {ROSTER_STATUS_FILTERS.map((t) => (
+            <option key={t} value={t}>
+              {ROSTER_STATUS_FILTER_LABEL[t]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs text-muted-foreground">
+        指導老師
+        <select name="advisor" defaultValue={filter.advisor} className={cn(select, 'block')}>
+          <option value="all">全部老師</option>
+          <option value="none">尚未指派</option>
+          {teachers.map((t) => (
+            <option key={t.userId} value={t.userId}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs text-muted-foreground">
+        搜尋
+        <input
+          name="q"
+          defaultValue={filter.q}
+          maxLength={ROSTER_SEARCH_MAX_LENGTH}
+          placeholder="組別、姓名、學號、信箱"
+          className="block h-9 w-52 rounded-md border border-border bg-background px-3 text-sm"
+        />
+      </label>
+      <button type="submit" className="h-9 rounded-md bg-muted px-3 text-sm font-medium text-ink hover:bg-border">
+        套用
+      </button>
+      <Link href={`/dashboard/admin/groups?cohort=${cohortId}`} className="h-9 px-2 text-sm leading-9 text-primary hover:underline">
+        清除
+      </Link>
+    </form>
+  )
+}
+
 export default async function AdminGroupsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cohort?: string | string[] }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   await requireRole('/dashboard/admin/groups', 'admin')
 
   const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
-  const wanted = (await searchParams).cohort
+  const params = await searchParams
+  const wanted = params.cohort
+  const filter: RosterFilter = normalizeRosterFilter(params)
   const cohort =
     cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
 
@@ -91,6 +192,7 @@ export default async function AdminGroupsPage({
         .map(async (g) => [g.id, [...(await grading.assignmentsFor(g.id, g.advisor!.teacherUserId))]] as const),
     ),
   )
+  const roster = applyRosterFilter(overview.groups, filter)
   const unassigned = overview.groups.filter((g) => !g.advisor).length
   const grouped = overview.groups.reduce((sum, g) => sum + g.members.length, 0)
   const size = { min: cohort.groupSizeMin, max: cohort.groupSizeMax }
@@ -190,53 +292,90 @@ export default async function AdminGroupsPage({
             reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
           />
         </div>
-        <DataTable
-          columns={['組別', '類型', '組員', '人數', '指導老師', '成立時間', '']}
-          rows={overview.groups.map((g) => {
+        <RosterFilterForm cohortId={cohort.id} filter={filter} teachers={teachers} />
+        <GroupRosterTable
+          cohortId={cohort.id}
+          total={overview.groups.length}
+          filter={{ type: filter.type, status: filter.status, advisor: filter.advisor, q: filter.q, sort: filter.sort, dir: filter.dir }}
+          columns={rosterColumns(cohort.id, filter)}
+          empty={
+            overview.groups.length === 0
+              ? '本屆還沒有成立的組別。全員確認後，組別會自動出現在這裡。'
+              : '沒有符合篩選條件的組別；換個條件或清除篩選。'
+          }
+          rows={roster.map((g) => {
             const mismatch = groupSizeWarning(g.members.length, size) !== null
-            return [
-              <span key="code" className="font-semibold tabular-nums">
-                {g.code}
-              </span>,
-              GROUP_TYPE_LABEL[g.groupType],
-              g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、'),
-              <span key="count" className={cn('tabular-nums', mismatch && 'font-semibold text-danger')}>
-                {g.members.length} 人{mismatch ? '（與設定不符）' : ''}
-              </span>,
-              <AdvisorCell
-                key="advisor"
-                group={{
-                  id: g.id,
-                  code: g.code,
-                  revision: g.revision,
-                  typeLabel: GROUP_TYPE_LABEL[g.groupType],
-                  advisor: g.advisor ? { userId: g.advisor.teacherUserId, name: g.advisor.teacherName } : null,
-                }}
-                teachers={teachers}
-                grading={gradingOf.get(g.id) ?? []}
-                requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
-                reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
-              />,
-              <span key="at" className="tabular-nums">
-                {formatTaipeiMinute(g.establishedBusinessAt)}
-              </span>,
-              <GroupDetailButton
-                key="detail"
-                group={{
-                  id: g.id,
-                  code: g.code,
-                  revision: g.revision,
-                  typeLabel: GROUP_TYPE_LABEL[g.groupType],
-                  members: g.members.map((m) => ({ ...m })),
-                  history: g.history.map(historyItem),
-                }}
-                size={size}
-                requestIds={{ remove: randomUUID(), leader: randomUUID() }}
-                reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
-              />,
-            ]
+            return {
+              id: g.id,
+              code: g.code,
+              emails: g.members.map((m) => m.loginEmail).filter((e): e is string => typeof e === 'string' && e.length > 0),
+              cells: [
+                <span key="code" className="font-semibold tabular-nums">
+                  {g.code}
+                </span>,
+                <GroupTypeCell
+                  key="type"
+                  group={{
+                    id: g.id,
+                    code: g.code,
+                    revision: g.revision,
+                    groupType: g.groupType,
+                    advisorName: g.advisor?.teacherName ?? null,
+                    opportunityName: g.opportunity?.name ?? null,
+                  }}
+                  typeLabels={GROUP_TYPE_LABEL}
+                  requestId={randomUUID()}
+                  reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+                />,
+                <span key="members">
+                  {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
+                  {g.opportunity ? (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      合作案：
+                      <Link href={`/industry/${g.opportunity.opportunityId}`} className="text-primary hover:underline">
+                        {g.opportunity.name}
+                      </Link>
+                      {g.opportunity.status === 'withdrawn' ? '（已下架）' : ''}
+                    </span>
+                  ) : null}
+                </span>,
+                <span key="count" className={cn('tabular-nums', mismatch && 'font-semibold text-danger')}>
+                  {g.members.length} 人{mismatch ? '（與設定不符）' : ''}
+                </span>,
+                <AdvisorCell
+                  key="advisor"
+                  group={{
+                    id: g.id,
+                    code: g.code,
+                    revision: g.revision,
+                    typeLabel: GROUP_TYPE_LABEL[g.groupType],
+                    advisor: g.advisor ? { userId: g.advisor.teacherUserId, name: g.advisor.teacherName } : null,
+                  }}
+                  teachers={teachers}
+                  grading={gradingOf.get(g.id) ?? []}
+                  requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
+                  reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+                />,
+                <span key="at" className="tabular-nums">
+                  {formatTaipeiMinute(g.establishedBusinessAt)}
+                </span>,
+                <GroupDetailButton
+                  key="detail"
+                  group={{
+                    id: g.id,
+                    code: g.code,
+                    revision: g.revision,
+                    typeLabel: GROUP_TYPE_LABEL[g.groupType],
+                    members: g.members.map((m) => ({ ...m })),
+                    history: g.history.map(historyItem),
+                  }}
+                  size={size}
+                  requestIds={{ remove: randomUUID(), leader: randomUUID() }}
+                  reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+                />,
+              ],
+            }
           })}
-          empty="本屆還沒有成立的組別。全員確認後，組別會自動出現在這裡。"
         />
       </section>
 

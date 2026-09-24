@@ -198,7 +198,7 @@ describe('回執與歷程的文字', () => {
 
   it('主指導的歷程：首次、重派、解除', () => {
     const at = new Date('2026-09-25T02:00:00Z')
-    const base = { at, previousLeaderName: null, byName: null, reason: null }
+    const base = { at, previousLeaderName: null, byName: null, reason: null, groupTypes: null, previousOpportunityName: null }
     expect(describeGroupHistory({ ...base, kind: 'advisor_assigned', userName: '王老師', previousAdvisorName: null })).toBe('指導老師：王老師')
     expect(
       describeGroupHistory({ ...base, kind: 'advisor_assigned', userName: '王老師', previousAdvisorName: '李老師', byName: '系辦' }),

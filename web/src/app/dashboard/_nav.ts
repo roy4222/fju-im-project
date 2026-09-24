@@ -14,12 +14,16 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/timeline', label: '時間軸' },
   { href: '/dashboard/admin/groups', label: '分組' },
   { href: '/dashboard/admin/affairs', label: '專題事務' },
+  // 合作案（票 20）：全部合作案與組別連結。
+  { href: '/dashboard/admin/industry', label: '合作案' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher', label: '首頁' },
   // 分組（票 19）：產學組認領與全部組別。
   { href: '/dashboard/teacher/groups', label: '分組' },
+  // 我的合作案（票 20）：建立、發布、下架自己的產學合作案。
+  { href: '/dashboard/teacher/industry', label: '我的合作案' },
 ]
 
 export const STUDENT_NAV: readonly NavItem[] = [
@@ -57,4 +61,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
   { path: '/dashboard/student/inbox', role: 'student' },
+  // 合作案管理（票 20）。前台的 `/industry` 不在這裡：它是「登入後」內容，不分角色（頁面自己顯示登入提示）。
+  { path: '/dashboard/teacher/industry', role: 'teacher' },
+  { path: '/dashboard/admin/industry', role: 'admin' },
 ]

@@ -10,6 +10,8 @@ const PUBLIC_NAV: readonly NavItem[] = [
   { href: '/news', label: '最新公告' },
   { href: '/rules', label: '專題規則' },
   { href: '/files', label: '檔案下載' },
+  // 產學合作（票 20）：登入後內容，訪客點進去看到登入提示。
+  { href: '/industry', label: '產學合作' },
 ]
 
 /**

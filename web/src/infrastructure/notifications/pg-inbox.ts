@@ -90,6 +90,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   // 組別：學生、主指導老師（票 19）、管理員各自進自己的分組頁。
   group: (ref) => ({ state: 'ok', href: groupPageFor(ref.roles) }),
   item: resolveItem,
+  // 合作案（票 20）：換案、解除的通知點進合作案頁；那一頁自己依登入身分與合作案狀態決定看得到什麼。
+  industry_opportunity: (ref) => ({ state: 'ok', href: `/industry/${ref.id}` }),
 }
 
 /**
