@@ -1,4 +1,5 @@
 import type { ResolvedActor } from '@/application/accounts'
+import { CHANGE_REASON_MAX_LENGTH, normalizeReason } from '@/application/groups/members'
 import { err, type Err } from '@/shared/result'
 
 /**
@@ -51,7 +52,7 @@ export const TERMINATION_KIND_LABEL: Record<TerminationKind, string> = {
   conflict: '成員已在其他組',
 }
 
-export const VOID_REASON_MAX_LENGTH = 200
+export const VOID_REASON_MAX_LENGTH = CHANGE_REASON_MAX_LENGTH
 export const STUDENT_NO_MAX_LENGTH = 20
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -126,14 +127,9 @@ export function proposalExpiry(businessNow: Date, defaultDays: number, groupingD
   return byDays.getTime() <= groupingDeadline.getTime() ? byDays : new Date(groupingDeadline.getTime())
 }
 
-/** 管理員作廢的理由：必填、去前後空白、有長度上限。 */
+/** 管理員作廢的理由：必填、去前後空白、有長度上限（和其他管理員動作同一條規則）。 */
 export function normalizeVoidReason(reason: string): { ok: true; value: string } | Err {
-  const trimmed = reason.trim()
-  if (!trimmed) return err('VALIDATION_FAILED', '作廢一定要填理由。', { details: { field: 'reason' } })
-  if (trimmed.length > VOID_REASON_MAX_LENGTH) {
-    return err('VALIDATION_FAILED', `理由最多 ${VOID_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
-  }
-  return { ok: true, value: trimmed }
+  return normalizeReason(reason, '作廢')
 }
 
 /** 學生的屆別（模組 01：學生的屆別在個人資料；老師與管理員沒有）。 */

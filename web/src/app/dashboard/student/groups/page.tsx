@@ -99,6 +99,20 @@ export default async function StudentGroupsPage() {
                 </li>
               ))}
             </ul>
+            {view.group.history.length > 0 ? (
+              <ol aria-label="組別異動" className="mt-4 space-y-1 text-sm text-ink">
+                {view.group.history.map((h, index) => (
+                  <li key={index}>
+                    <span className="mr-2 text-xs text-muted-foreground tabular-nums">{formatTaipeiMinute(h.at)}</span>
+                    {h.kind === 'member_added'
+                      ? `${h.userName} 加入`
+                      : h.kind === 'member_removed'
+                        ? `${h.userName} 移出`
+                        : `組長 ${h.previousLeaderName ?? '—'} → ${h.userName}`}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
             <p className="mt-3 text-xs text-muted-foreground">成立後的成員異動、換組長由系辦處理。</p>
           </div>
         ) : proposal ? (

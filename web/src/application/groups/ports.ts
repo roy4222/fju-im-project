@@ -1,5 +1,12 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type {
+  AddMemberInput,
+  ChangeLeaderInput,
+  LeaderChangeReceipt,
+  MemberChangeReceipt,
+  RemoveMemberInput,
+} from '@/application/groups/members'
+import type {
   ConfirmReceipt,
   ExpireOutcome,
   GroupType,
@@ -45,6 +52,24 @@ export interface GroupCommand {
     reason: string,
     requestId: string,
   ): Promise<Result<TerminateReceipt>>
+
+  // ── 管理員調整組員與換組長（票 14） ──
+  // 共同規則：只有管理員；理由必填；帶組別版本（別人先改過 `CONFLICT`）；屆別封存 `COHORT_ARCHIVED`；
+  // 已解散 `GROUP_DISSOLVED`。人數和設定不符只在回執裡提醒，不擋。
+
+  /**
+   * 把學生加入某組：同屆、已核准、未停用、沒有其他有效組別（`ALREADY_MEMBER`）。
+   * 學生正在某份進行中提案裡 → `INVITED_ELSEWHERE`（**不**替他終止那份提案：請管理員先作廢，理由另填）。
+   * 成員集合改變：發 `group.members_changed`（簽核模組的重簽掛點）。
+   */
+  addMember(actor: ResolvedActor, input: AddMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
+  /**
+   * 從某組移出：移出最後一人要走解散（解散之後才開放，先拒絕）；移出組長要同時指定接任。
+   * 被移出的人只收到本人的異動說明（`group.member_removed`），其他人收 `group.members_changed`。
+   */
+  removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
+  /** 換組長：新組長要是有效成員；全組收 `group.leader_changed`。成員集合沒變，不觸發重簽。 */
+  changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>>
 }
 
 /**
@@ -64,13 +89,34 @@ export type GroupMember = {
   readonly isLeader: boolean
 }
 
+/**
+ * 組別歷程的一筆（票 14「組別頁看得到歷史」）：成立後的組員加入／移出、組長更換，舊的在前。
+ * 事實（誰、何時）來自有效區間列 `group_memberships`／`group_leaders`。
+ * `reason` 只在管理員的查詢裡帶，學生的查詢一律 null（和作廢理由同一政策）。
+ */
+export type GroupHistoryEntry = {
+  readonly kind: 'member_added' | 'member_removed' | 'leader_changed'
+  /** 業務時間。 */
+  readonly at: Date
+  /** 加入／移出的人，或新組長。 */
+  readonly userName: string
+  /** 換組長時的前任組長。 */
+  readonly previousLeaderName: string | null
+  /** 操作的管理員；學生的查詢一律 null。 */
+  readonly byName: string | null
+  readonly reason: string | null
+}
+
 export type GroupSummary = {
   readonly id: string
   readonly cohortId: string
   readonly code: string
   readonly groupType: GroupType
   readonly establishedBusinessAt: Date
+  /** 樂觀鎖版本：管理員調整組員、換組長時帶回來。 */
+  readonly revision: number
   readonly members: readonly GroupMember[]
+  readonly history: readonly GroupHistoryEntry[]
 }
 
 export type ProposalInvitation = {
