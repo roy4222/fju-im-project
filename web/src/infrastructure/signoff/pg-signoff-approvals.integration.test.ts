@@ -899,6 +899,19 @@ describe('換老師後舊老師失權含看不到（產品 07 §8；2026-09-25 R
     expect(await query.versionDetail(student(removed), v2.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect((await query.teacherView(newTeacher)).map((c) => c.groupId)).toContain(s.groupId)
 
+    // 三處同一個判斷（契約 03 §1「附件版本同讀」）：建版之後才加入的現任組員讀得到舊版的版本頁，
+    // 也就下載得到那一版的附件與凍結海報（統一前只有快照學生下載得到）。
+    const newcomer = await newUser('後來加入', 'student', s.cohortId)
+    const added = await groups.addMember(
+      admin(),
+      { groupId: s.groupId, revision: await revisionOf(s.groupId), studentNo: newcomer.studentNo!, reason: '加入' },
+      randomUUID(),
+    )
+    expect(added.ok).toBe(true)
+    expect(await canOpen(student(newcomer), mid.versionId)).toBe(true)
+    expect(await canDownload(student(newcomer), fileId)).toBe(true)
+    expect(await canDownload(student(newcomer), draft.posterFileId)).toBe(true)
+
     // 改派回原來的老師：他又是此刻的主指導，讀得到（判斷每次重查，不是永久封鎖）。
     const back = await advisors.assign(
       admin(),
