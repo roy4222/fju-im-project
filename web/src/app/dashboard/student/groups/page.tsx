@@ -38,10 +38,10 @@ const SEAT_COLS: Record<number, string> = {
   3: 'grid-cols-3',
   4: 'grid-cols-4',
   5: 'grid-cols-5',
-  6: 'grid-cols-6',
 }
 
-type Seat = { key: string; name: string; sub: string; confirmed: boolean; leader: boolean; me: boolean; note?: string }
+/** 一個座位：姓名、學號（同名同學分得出來）、狀態一行。 */
+type Seat = { key: string; name: string; studentNo: string; state: string; confirmed: boolean; leader: boolean; me: boolean }
 
 /**
  * 學生「我的組別」（票 13；原型 `/dashboard/student/groups`，票 38 換成原型版型：「不要像儀表板，像一張組員名單」）。
@@ -102,7 +102,8 @@ export default async function StudentGroupsPage({
     ? view.group.members.map((m) => ({
         key: m.userId,
         name: m.name,
-        sub: m.studentNo ?? '',
+        studentNo: m.studentNo ?? '',
+        state: m.isLeader ? '組長' : '組員',
         confirmed: true,
         leader: m.isLeader,
         me: m.userId === userId,
@@ -111,11 +112,11 @@ export default async function StudentGroupsPage({
       ? proposal.invitations.map((i) => ({
           key: i.userId,
           name: i.name,
-          sub: INVITATION_STATE_LABEL[i.state],
+          studentNo: i.studentNo ?? '',
+          state: `${INVITATION_STATE_LABEL[i.state]}${i.userId === proposal.proposerUserId ? '・提案人' : ''}`,
           confirmed: i.state === 'confirmed',
           leader: false,
           me: i.userId === userId,
-          note: i.userId === proposal.proposerUserId ? '提案人' : undefined,
         }))
       : []
 
@@ -295,7 +296,11 @@ export default async function StudentGroupsPage({
  */
 function Seats({ seats, label }: { seats: Seat[]; label: string }) {
   return (
-    <ol aria-label={label} className={cn('grid gap-2 px-6 pt-7 pb-6 sm:gap-4', SEAT_COLS[seats.length] ?? 'grid-cols-5')}>
+    // 五人以內照原型一排；本屆設定超過五人（最多 10）時換行，390 寬才不會被頭像撐出去。
+    <ol
+      aria-label={label}
+      className={cn('grid gap-2 px-6 pt-7 pb-6 sm:gap-4', seats.length <= 5 ? SEAT_COLS[seats.length] : 'grid-cols-4 sm:grid-cols-5')}
+    >
       {seats.map((m) => (
         <li key={m.key} className="flex min-w-0 flex-col items-center text-center">
           <span
@@ -323,10 +328,8 @@ function Seats({ seats, label }: { seats: Seat[]; label: string }) {
             {m.name}
             {m.me ? <span className="sr-only">（你）</span> : null}
           </span>
-          <span className="tabular max-w-full truncate text-[11px] text-muted-foreground">
-            {m.sub}
-            {m.note ? `・${m.note}` : ''}
-          </span>
+          {m.studentNo ? <span className="tabular max-w-full truncate text-[11px] text-muted-foreground">{m.studentNo}</span> : null}
+          <span className="max-w-full truncate text-[11px] text-muted-foreground">{m.state}</span>
         </li>
       ))}
     </ol>
