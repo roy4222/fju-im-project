@@ -12,6 +12,8 @@ import { PgGradeExporter } from '@/infrastructure/grading/pg-grade-export'
 import { PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+import { PgInbox } from '@/infrastructure/notifications/pg-inbox'
+import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 
@@ -585,6 +587,145 @@ describe('移除／改派三選一（GRD-13）', () => {
     expect(
       await results.removeAssignment(adminActor(), { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, reason: '出國', basisHash: p.basisHash }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+  })
+})
+
+describe('移出評分指派的通知（票 43；產品 08 §4「評分指派→解除通知原老師」、NTF-07）', () => {
+  const projector = () => new PgNotificationProjector({ pool: () => app, events: new PgEventPublisher(), businessClock, log: () => undefined })
+  const inbox = new PgInbox({ db: () => app })
+
+  /** 背景工作投影到沒有待處理的列為止（同一個 schema 裡其他測試留下的事件一起處理）。 */
+  async function project() {
+    for (let i = 0; i < 20; i += 1) {
+      const summary = await projector().runOnce()
+      if (summary.done + summary.retried + summary.failed === 0) return
+    }
+  }
+
+  async function noticesOf(userId: string, groupId: string) {
+    const rows = await owner.sql(
+      `select e.type, n.title, n.kind from notifications n join domain_events e on e.id = n.event_id
+        where n.recipient_user_id = $1 and e.payload->>'groupId' = $2 order by n.created_at, n.id`,
+      [userId, groupId],
+    )
+    return rows.rows.map((r) => ({ type: String(r.type), title: String(r.title), kind: String(r.kind) }))
+  }
+
+  async function scenario() {
+    const cohortId = await newCohort()
+    await scheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G07')
+    const [t1, t2, t3] = [await newUser('T1', 'teacher'), await newUser('T2', 'teacher'), await newUser('T3', 'teacher')]
+    await requirement(groupId, 'mid', 2)
+    const a1 = await assign(groupId, t1)
+    const a3 = await assign(groupId, t3)
+    await submit(t1, a1, '80')
+    await submit(t3, a3, '90')
+    await project() // 指派通知先投影掉，下面只看移出之後新增的
+    return { cohortId, groupId, t1, t2, t3, a1, a3 }
+  }
+
+  const removed = (code: string, stage: string, reason: string) => ({
+    type: 'grading.assignment_ended',
+    title: `你已被移出 ${code}「${stage}」的評分指派：${reason}`,
+    kind: 'grading',
+  })
+
+  it('保留：被移出的 T1 收一則（組別、階段、理由；沒有分數）；T2 不收虛構的補評通知、同組 T3 不收', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    const r = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, reason: '出國交換', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(r.ok).toBe(true)
+    await project()
+    expect(await noticesOf(s.t1, s.groupId)).toEqual([expect.objectContaining({ type: 'grading.assigned' }), removed('G07', '期中', '出國交換')])
+    expect(await noticesOf(s.t2, s.groupId)).toEqual([])
+    expect((await noticesOf(s.t3, s.groupId)).map((n) => n.type)).toEqual(['grading.assigned'])
+
+    // 事件本身：收件人固定只有 T1；payload 沒有任何分數欄位或分數值。
+    const event = await owner.sql(`select recipients, payload from domain_events where type = 'grading.assignment_ended' and source_id = $1`, [s.a1])
+    expect(event.rows).toHaveLength(1)
+    expect(event.rows[0]!.recipients).toEqual([s.t1])
+    const payload = event.rows[0]!.payload as Record<string, unknown>
+    expect(payload).toMatchObject({ code: 'G07', stageName: '期中', reason: '出國交換', choice: 'keep' })
+    expect(Object.keys(payload).filter((k) => /score|value|average|final/i.test(k))).toEqual([])
+  })
+
+  it('替換給 T2：舊的 T1 收移出通知、新的 T2 收指派通知；各一則，T3 什麼都不收', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    const r = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'replace', newTeacherUserId: s.t2, reason: 'T1 請長假', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(r.ok).toBe(true)
+    await project()
+    expect((await noticesOf(s.t1, s.groupId)).slice(1)).toEqual([removed('G07', '期中', 'T1 請長假')])
+    expect(await noticesOf(s.t2, s.groupId)).toEqual([
+      { type: 'grading.assigned', title: '你被指派評分：G07「期中」', kind: 'grading' },
+    ])
+    expect((await noticesOf(s.t3, s.groupId)).map((n) => n.type)).toEqual(['grading.assigned'])
+  })
+
+  it('新增：被換下的 T1 收移出通知、新增的 T2 收指派通知', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    const r = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '加一位評審', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(r.ok).toBe(true)
+    await project()
+    expect((await noticesOf(s.t1, s.groupId)).map((n) => n.type)).toEqual(['grading.assigned', 'grading.assignment_ended'])
+    expect((await noticesOf(s.t2, s.groupId)).map((n) => n.type)).toEqual(['grading.assigned'])
+    expect((await noticesOf(s.t3, s.groupId)).map((n) => n.type)).toEqual(['grading.assigned'])
+  })
+
+  it('冪等：同一個 requestId 重送不再發事件；投影重跑不多一則；已經結束的指派再移一次被擋、也不發', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    const requestId = randomUUID()
+    const input = { assignmentId: s.a1, choice: 'keep' as const, newTeacherUserId: null, reason: '出國', basisHash: p.basisHash }
+    expect((await results.removeAssignment(adminActor(), input, requestId)).ok).toBe(true)
+    expect((await results.removeAssignment(adminActor(), input, requestId)).ok).toBe(true)
+    expect(await results.removeAssignment(adminActor(), input, randomUUID())).toMatchObject({ ok: false })
+    await project()
+    await project()
+    // 投影列重設回 pending 再跑一次（模擬補建）：（事件、收件人）唯一，還是一則。
+    await owner.sql(
+      `update event_projections set state = 'pending', done_at = null, claimed_at = null where consumer = 'notifications'
+          and event_id in (select id from domain_events where type = 'grading.assignment_ended' and source_id = $1)`,
+      [s.a1],
+    )
+    await project()
+    const events = await owner.sql(`select count(*)::int as n from domain_events where type = 'grading.assignment_ended' and source_id = $1`, [s.a1])
+    expect(events.rows[0]!.n).toBe(1)
+    expect((await noticesOf(s.t1, s.groupId)).filter((n) => n.type === 'grading.assignment_ended')).toHaveLength(1)
+  })
+
+  it('通知匣：那一組已不在 T1 的評分清單 → 只有文字、不給連結；T1 還評同組別的階段 → 連到評分清單', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    expect(
+      (await results.removeAssignment(adminActor(), { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, reason: '出國', basisHash: p.basisHash }, randomUUID()))
+        .ok,
+    ).toBe(true)
+    await project()
+    const title = '你已被移出 G07「期中」的評分指派：出國'
+    const find = async () => (await inbox.list(teacher(s.t1), { kind: 'all' }, null)).items.find((i) => i.title === title)
+    expect(await find()).toMatchObject({ kind: 'grading', source: { state: 'ok', href: null } })
+    // 其他老師讀不到 T1 的通知。
+    expect((await inbox.list(teacher(s.t3), { kind: 'all' }, null)).items.some((i) => i.title === title)).toBe(false)
+
+    // T1 之後被指派同組期末：這一組又在他的評分清單上，舊通知也給連結（連結頁自己再依有效指派顯示）。
+    await requirement(s.groupId, 'fin', 1)
+    await assign(s.groupId, s.t1, 'fin')
+    expect(await find()).toMatchObject({ source: { state: 'ok', href: '/dashboard/teacher/grading' } })
   })
 })
 

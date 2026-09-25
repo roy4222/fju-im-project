@@ -326,7 +326,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   const fill = async () => {
     await page.getByTestId('choice-replace').getByRole('radio').check()
     await page.getByLabel('接手的評分老師（不選＝只移除，之後再指派）').selectOption({ label: NAMES[3]! })
-    await page.getByLabel('理由（必填，留在指派紀錄裡）').fill('評一老師請長假')
+    await page.getByLabel('理由（必填，留在指派紀錄裡；被移出的老師看得到）').fill('評一老師請長假')
     await page.getByRole('button', { name: '確認執行' }).click()
   }
   await fill()
@@ -350,6 +350,26 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await signIn(page, teachers[0]!)
   await page.goto(`/dashboard/teacher/grading/${g1}`)
   await expect(page.getByRole('heading', { name: '你沒有被指派評這一組' })).toBeVisible()
+
+  // 票 43（NTF-07）：評一收到一則移出通知（組別、階段、理由；沒有分數）。G01 已不在他的評分清單，所以只是文字、不給連結。
+  const removedTitle = `你已被移出 G01「期中」的評分指派：評一老師請長假`
+  await expect(async () => {
+    await page.goto('/dashboard/teacher/inbox')
+    await expect(page.getByTestId('inbox-item').filter({ hasText: removedTitle })).toHaveCount(1, { timeout: 2_000 })
+  }).toPass({ timeout: 45_000 })
+  const removedItem = page.getByTestId('inbox-item').filter({ hasText: removedTitle })
+  await expect(removedItem.getByRole('link')).toHaveCount(0)
+
+  // 接手的評四收到的是指派通知（點得進評分清單），沒有移出通知；同組另一位評分老師評三沒有移出通知。
+  await signIn(page, teachers[3]!)
+  await expect(async () => {
+    await page.goto('/dashboard/teacher/inbox')
+    await expect(page.getByRole('link', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 45_000 })
+  await expect(page.getByTestId('inbox-item').filter({ hasText: '被移出' })).toHaveCount(0)
+  await signIn(page, teachers[2]!)
+  await page.goto('/dashboard/teacher/inbox')
+  await expect(page.getByTestId('inbox-item').filter({ hasText: '被移出' })).toHaveCount(0)
 })
 
 test('評四送出期中 85 → 系辦復核「沿用原更正值」→ 採用 88.00、待復核清單清空', async ({ page }) => {

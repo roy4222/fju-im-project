@@ -276,7 +276,7 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
         </label>
       ) : null}
       <label className={LABEL}>
-        理由（必填，留在指派紀錄裡）
+        理由（必填，留在指派紀錄裡；被移出的老師看得到）
         <textarea name="reason" required maxLength={500} rows={2} className={TEXTAREA} disabled={done} />
       </label>
       {preview.hasEffectiveOverride && choice !== 'keep' ? (
