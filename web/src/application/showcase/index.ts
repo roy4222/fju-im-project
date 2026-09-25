@@ -15,6 +15,15 @@ export {
 export type {
   CreateDraftReceipt,
   PosterUploadInput,
+  PublicShowcaseCard,
+  PublicShowcasePage,
+  PublicShowcaseQuery,
+  ShowcaseArchive,
+  ShowcaseListFilter,
+  ShowcaseNeighbor,
+  ShowcasePeople,
+  ShowcaseSort,
+  SignedInShowcaseCard,
   ShowcaseBoard,
   ShowcaseCommand,
   ShowcaseDraftView,
@@ -22,4 +31,10 @@ export type {
   UpdateDraftInput,
   UpdateDraftReceipt,
 } from '@/application/showcase/ports'
+export {
+  parseShowcaseSort,
+  PLACEHOLDER_IMAGES,
+  placeholderImageFor,
+  SHOWCASE_SORT_OPTIONS,
+} from '@/application/showcase/public'
 export { describeCreateDraftReceipt, describeUpdateDraftReceipt } from '@/application/showcase/receipts'

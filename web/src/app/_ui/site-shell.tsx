@@ -4,18 +4,63 @@ import type { ResolvedActor } from '@/application/accounts'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
-import { SiteHeader } from '@/app/_ui/site-header'
+import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
 import { cn } from '@/shared/cn'
 
-/** 前台主導覽（票 16；產品模組 09 §9.2）。檔案下載要登入，訪客點進去會看到登入提示。 */
-const PUBLIC_NAV: readonly NavItem[] = [
-  { href: '/news', label: '最新公告' },
-  { href: '/rules', label: '專題規則' },
-  { href: '/files', label: '檔案下載' },
-  // 產學合作（票 20）：登入後內容，訪客點進去看到登入提示。
-  { href: '/industry', label: '產學合作' },
+/**
+ * 前台主導覽（產品模組 09 §9.2「首頁 hero 與導覽」；順序照原型 `components/public/site-header.tsx`）：
+ * - 訪客：最新公告（下拉：公告列表／競賽資訊）、專題規則、優秀專題、榮譽榜——優秀專題與榮譽榜提到頂層。
+ * - 登入後：最新公告（同上）、專題規則、歷屆專題（下拉：歷屆專題一覽／優秀專題／榮譽榜）、產學合作、檔案下載。
+ */
+const NEWS_NAV: HeaderNavItem = {
+  href: '/news',
+  label: '最新公告',
+  children: [
+    { href: '/news', label: '公告列表' },
+    { href: '/competitions', label: '競賽資訊' },
+  ],
+  match: ['/news', '/competitions'],
+}
+const RULES_NAV: HeaderNavItem = { href: '/rules', label: '專題規則' }
+
+const GUEST_NAV: readonly HeaderNavItem[] = [
+  NEWS_NAV,
+  RULES_NAV,
+  { href: '/projects/featured', label: '優秀專題', match: ['/projects'] },
+  { href: '/honors', label: '榮譽榜' },
 ]
+
+const MEMBER_NAV: readonly HeaderNavItem[] = [
+  NEWS_NAV,
+  RULES_NAV,
+  {
+    href: '/projects',
+    label: '歷屆專題',
+    children: [
+      { href: '/projects', label: '歷屆專題一覽' },
+      { href: '/projects/featured', label: '優秀專題' },
+      { href: '/honors', label: '榮譽榜' },
+    ],
+    match: ['/projects', '/honors'],
+  },
+  { href: '/industry', label: '產學合作' },
+  { href: '/files', label: '檔案下載' },
+]
+
+/** 頁尾「內容」欄（原型 site-footer）：導覽攤平、不重複。 */
+function footerLinks(nav: readonly HeaderNavItem[]): NavItem[] {
+  const seen = new Set<string>()
+  const links: NavItem[] = []
+  for (const item of nav) {
+    for (const l of item.children ?? [item]) {
+      if (seen.has(l.href)) continue
+      seen.add(l.href)
+      links.push({ href: l.href, label: l.href === '/news' ? '最新公告' : l.label })
+    }
+  }
+  return links
+}
 
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
@@ -41,7 +86,7 @@ export async function SiteShell({ children, current, bare = false }: { children:
   const viewer = viewerOf(actor)
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <SiteHeader nav={PUBLIC_NAV} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
+      <SiteHeader nav={viewer ? MEMBER_NAV : GUEST_NAV} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
       <SiteFooter viewer={viewer} />
@@ -52,7 +97,7 @@ export async function SiteShell({ children, current, bare = false }: { children:
 /** 深藍頁尾（原型 `site-footer.tsx`）：系所資訊＋兩欄連結。只連 web 已經有的頁。 */
 function SiteFooter({ viewer }: { viewer: ReturnType<typeof viewerOf> }) {
   const columns = [
-    { title: '內容', links: PUBLIC_NAV },
+    { title: '內容', links: footerLinks(viewer ? MEMBER_NAV : GUEST_NAV) },
     {
       title: '使用',
       links: viewer
@@ -63,6 +108,7 @@ function SiteFooter({ viewer }: { viewer: ReturnType<typeof viewerOf> }) {
         : [
             { href: '/login', label: '登入' },
             { href: '/register', label: '註冊' },
+            { href: '/forgot-password', label: '忘記密碼' },
           ],
     },
   ]

@@ -1,13 +1,27 @@
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
-import { IconMenu2 } from '@tabler/icons-react'
+import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
 import { AccountMenu } from '@/app/_ui/account-menu'
 import { Button } from '@/app/_ui/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/app/_ui/ui/sheet'
 import { cn } from '@/shared/cn'
 
-type NavItem = { href: string; label: string }
+/**
+ * 一個導覽項目。`children` 是下拉（原型：最新公告 → 公告列表／競賽資訊；歷屆專題 → 一覽／優秀專題／榮譽榜）；
+ * `match` 是「目前在哪些路徑底下時這一項要標亮」，沒給就是自己的 `href`。
+ */
+export type NavItem = {
+  readonly href: string
+  readonly label: string
+  readonly children?: readonly { readonly href: string; readonly label: string }[]
+  readonly match?: readonly string[]
+}
+
+function isActive(item: NavItem, current: string | undefined): boolean {
+  if (!current) return false
+  return (item.match ?? [item.href]).some((p) => current === p || current.startsWith(`${p}/`))
+}
 
 /**
  * 前台導覽列（原型 `components/public/site-header.tsx`）：
@@ -41,19 +55,35 @@ export function SiteHeader({
 
         <nav className="ml-auto hidden items-center gap-6 lg:flex xl:gap-8" aria-label="主導覽">
           {nav.map((item) => {
-            const active = current === item.href
+            const active = isActive(item, current)
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'nav-ink inline-flex items-center gap-1 py-7 text-[16px] font-semibold whitespace-nowrap transition-colors duration-300 hover:text-primary',
-                  active ? 'text-primary' : 'text-foreground',
-                )}
-              >
-                {item.label}
-              </Link>
+              <div key={item.label} className="group relative">
+                <Link
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'nav-ink inline-flex items-center gap-1 py-7 text-[16px] font-semibold whitespace-nowrap transition-colors duration-300 hover:text-primary',
+                    active ? 'text-primary' : 'text-foreground',
+                  )}
+                >
+                  {item.label}
+                  {item.children ? <IconChevronDown className="size-3.5" aria-hidden /> : null}
+                </Link>
+                {item.children ? (
+                  // 系網樣式的下拉：白底、上緣 3px 橘線；hover 或鍵盤 focus 展開。
+                  <div className="nav-dropdown invisible absolute top-full left-0 z-20 flex min-w-60 flex-col border-t-[3px] border-primary bg-popover opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.12)] group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+                    {item.children.map((c) => (
+                      <Link
+                        key={c.href}
+                        href={c.href}
+                        className="border-b border-border px-4.5 py-3.5 text-[15px] text-foreground transition-[background-color,color,padding-left] duration-200 hover:bg-primary-subtle hover:pl-6 hover:text-primary-on-subtle"
+                      >
+                        {c.label}
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             )
           })}
         </nav>
@@ -92,17 +122,27 @@ export function SiteHeader({
             <SheetContent side="right" className="w-80">
               <SheetTitle className="px-4 pt-4 text-base">選單</SheetTitle>
               <nav className="mt-2 flex flex-col p-2" aria-label="主導覽（手機）">
-                {nav.map((item) => (
+                {nav.flatMap((item) => [
                   <Link
-                    key={item.href}
+                    key={item.label}
                     href={item.href}
                     onClick={() => setOpen(false)}
-                    aria-current={current === item.href ? 'page' : undefined}
+                    aria-current={isActive(item, current) ? 'page' : undefined}
                     className="rounded-lg px-3 py-3 text-[15px] font-semibold hover:bg-accent aria-[current=page]:text-primary"
                   >
                     {item.label}
-                  </Link>
-                ))}
+                  </Link>,
+                  ...(item.children ?? []).map((c) => (
+                    <Link
+                      key={`${item.label}-${c.href}`}
+                      href={c.href}
+                      onClick={() => setOpen(false)}
+                      className="rounded-lg py-2.5 pr-3 pl-7 text-sm text-muted-foreground hover:bg-accent"
+                    >
+                      {c.label}
+                    </Link>
+                  )),
+                ])}
                 {viewer ? (
                   <>
                     <Link href={viewer.workbench.href} onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
