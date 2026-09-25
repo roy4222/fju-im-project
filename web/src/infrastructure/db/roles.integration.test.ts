@@ -36,6 +36,9 @@ let schemeId: string
 let schemeVersionIdForGrading: string
 let assignmentId: string
 let evaluationId: string
+let signoffPackageId: string
+let signoffVersionId: string
+let showcaseEntryId: string
 
 /**
  * 每張表的樣本資料：怎麼插一列、改哪一欄是「允許的」、改哪一欄是「不該被允許的」。
@@ -625,6 +628,95 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'state', value: 'pending_review' },
   },
+
+  // 票 25（S11）：簽核五表與精選三表。簽核包「一組一用途一個」、狀態列「一版一列」、同意「一人一票」、草稿「一條目一份」，
+  // 所以這幾種樣本每次連同新的組別／版本／使用者／條目一起插；版本、匯出、精選版本掛在 beforeAll 先建好的簽核包與條目上。
+  signoff_packages: {
+    insert: () => ({
+      sql: `with g as (
+              insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+              values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id
+            )
+            insert into signoff_packages (id, group_id, cohort_id, purpose, created_by_user_id)
+            select gen_random_uuid(), id, $1, 'result_confirmation', $3 from g`,
+      values: [cohortId, unique('G'), userId],
+    }),
+    updatable: { column: 'revision', value: 2 },
+  },
+  signoff_package_versions: {
+    insert: () => ({
+      sql: `insert into signoff_package_versions
+              (id, package_id, version_no, content_text, content_checksum, participants, created_by_user_id, created_real_at, created_business_at)
+            values (gen_random_uuid(), $1, (select coalesce(max(version_no), 0) + 1 from signoff_package_versions where package_id = $1),
+                    '<p>全文</p>', encode(sha256(convert_to('<p>全文</p>', 'UTF8')), 'hex'), '{"students":[]}'::jsonb, $2, now(), now())`,
+      values: [signoffPackageId, userId],
+    }),
+    updatable: { column: 'content_text', value: '<p>改過的全文</p>' },
+  },
+  signoff_version_status: {
+    insert: () => ({
+      sql: `with v as (
+              insert into signoff_package_versions
+                (id, package_id, version_no, content_text, content_checksum, participants, created_by_user_id, created_real_at, created_business_at)
+              values (gen_random_uuid(), $1, (select coalesce(max(version_no), 0) + 1 from signoff_package_versions where package_id = $1),
+                      'x', encode(sha256(convert_to('x', 'UTF8')), 'hex'), '{"students":[]}'::jsonb, $2, now(), now()) returning id
+            )
+            insert into signoff_version_status (version_id, state) select id, 'collecting' from v`,
+      values: [signoffPackageId, userId],
+    }),
+    updatable: { column: 'state', value: 'teacher_pending' },
+  },
+  approvals: {
+    insert: () => ({
+      sql: `with u as (
+              insert into users (id, name, email, email_verified, updated_at) values (gen_random_uuid(), '簽核學生', $1, false, now()) returning id
+            )
+            insert into approvals
+              (id, version_id, user_id, role, display_name_at, student_no_at, result, login_method, button_text,
+               event_id, request_id, real_at, business_at)
+            select gen_random_uuid(), $2, id, 'student', '簽核學生', '411000001', 'agree', 'password', '我已閱讀並同意',
+                   $3, gen_random_uuid(), now(), now() from u`,
+      values: [`${unique('ap')}@example.com`, signoffVersionId, eventId],
+    }),
+    updatable: { column: 'result', value: 'disagree' },
+  },
+  signoff_exports: {
+    insert: () => ({
+      sql: `insert into signoff_exports (id, version_id, format, file_id, exported_by_user_id, real_at)
+            values (gen_random_uuid(), $1, 'csv', $2, $3, now())`,
+      values: [signoffVersionId, storedFileId, userId],
+    }),
+    updatable: { column: 'format', value: 'printable' },
+  },
+  showcase_entries: {
+    insert: () => ({
+      // 沒有組別（歷屆補登的形狀）才不會撞「一組一屆一個」。
+      sql: `insert into showcase_entries (id, cohort_id, created_by_user_id) values (gen_random_uuid(), $1, $2)`,
+      values: [cohortId, userId],
+    }),
+    updatable: { column: 'revision', value: 2 },
+  },
+  showcase_drafts: {
+    insert: () => ({
+      sql: `with e as (
+              insert into showcase_entries (id, cohort_id, created_by_user_id) values (gen_random_uuid(), $1, $2) returning id
+            )
+            insert into showcase_drafts (entry_id, title, summary_checksum) select id, '精選題目', $3 from e`,
+      values: [cohortId, userId, 'a'.repeat(64)],
+    }),
+    updatable: { column: 'title', value: '改過的題目' },
+  },
+  showcase_versions: {
+    insert: () => ({
+      sql: `insert into showcase_versions
+              (id, entry_id, version_no, title, summary, summary_checksum, authorization_kind, authorization_ref, pii_check,
+               created_by_user_id, created_real_at)
+            values (gen_random_uuid(), $1, (select coalesce(max(version_no), 0) + 1 from showcase_versions where entry_id = $1),
+                    '題目', '摘要', $2, 'signoff', gen_random_uuid(), '{"passed":true}'::jsonb, $3, now())`,
+      values: [showcaseEntryId, 'a'.repeat(64), userId],
+    }),
+    updatable: { column: 'title', value: '改過的題目' },
+  },
 }
 
 beforeAll(async () => {
@@ -729,6 +821,26 @@ beforeAll(async () => {
     [assignmentId, schemeVersionIdForGrading],
   )
   evaluationId = String(evaluation.rows[0]!.id)
+  // S11 的版本、狀態、同意、匯出樣本列要一個簽核包與一個版本；精選版本要一個條目。
+  const signoffPackage = await owner.sql(
+    `insert into signoff_packages (id, group_id, cohort_id, purpose, created_by_user_id)
+     values (gen_random_uuid(), $1, $2, 'result_confirmation', $3) returning id`,
+    [groupId, cohortId, userId],
+  )
+  signoffPackageId = String(signoffPackage.rows[0]!.id)
+  const signoffVersion = await owner.sql(
+    `insert into signoff_package_versions
+       (id, package_id, version_no, content_text, content_checksum, participants, created_by_user_id, created_real_at, created_business_at)
+     values (gen_random_uuid(), $1, 1000, 'seed', encode(sha256(convert_to('seed', 'UTF8')), 'hex'), '{"students":[]}'::jsonb, $2, now(), now())
+     returning id`,
+    [signoffPackageId, userId],
+  )
+  signoffVersionId = String(signoffVersion.rows[0]!.id)
+  const showcaseEntry = await owner.sql(
+    `insert into showcase_entries (id, cohort_id, created_by_user_id) values (gen_random_uuid(), $1, $2) returning id`,
+    [cohortId, userId],
+  )
+  showcaseEntryId = String(showcaseEntry.rows[0]!.id)
 })
 
 afterAll(async () => {
@@ -888,13 +1000,20 @@ describe.each(immutableTables.map((row) => [row.table] as const))(
          order by t.tgname`,
         [owner.schemaName, table],
       )
-      expect(triggers.rows.map((r) => String(r.tgname))).toEqual([
-        `${table}_immutable_row`,
-        `${table}_immutable_truncate`,
-      ])
+      expect(triggers.rows.map((r) => String(r.tgname))).toEqual(
+        [`${table}_immutable_row`, `${table}_immutable_truncate`, ...(INSERT_GUARDS[table] ?? [])].sort(),
+      )
     })
   },
 )
+
+/**
+ * 不可變表另外掛的 INSERT 檢查（不影響「寫了就不能改」）：
+ * 簽核版本的授權範圍要和用途對得上（0010 檔尾；票 25）。行為在 s11-signoff-showcase.integration.test.ts 驗。
+ */
+const INSERT_GUARDS: Record<string, string[]> = {
+  signoff_package_versions: ['signoff_package_versions_scope_guard'],
+}
 
 /**
  * 「部分可改」的表：可以更新，但有手寫的狀態機 trigger（0009 檔尾；票 23）。
@@ -908,6 +1027,8 @@ const GUARDED_TABLES: Record<string, string[]> = {
     'grading_scheme_versions_no_delete',
     'grading_scheme_versions_no_truncate',
   ],
+  // 票 25（0010 檔尾）：簽核版本狀態新建只能收集中、作廢是終點、已失效只能再作廢；不能刪。
+  signoff_version_status: ['signoff_version_status_guard', 'signoff_version_status_no_delete', 'signoff_version_status_no_truncate'],
 }
 
 describe('可變表不該掛不可變 trigger', () => {

@@ -55,6 +55,7 @@ import {
 } from '@/application/groups'
 import type { DueWorkScheduler, EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
+import type { SignoffParticipantHook } from '@/application/signoff'
 import {
   authorizeAdmin,
   badRequestId,
@@ -167,6 +168,11 @@ type Deps = {
   events: EventPublisher<PoolClient>
   dueWork: DueWorkScheduler<PoolClient>
   businessClock: BusinessClockSource
+  /**
+   * 票 25：成員集合改變時，同一筆交易讓這一組目前的簽核版本失效（模組 07 §5 `supersedeForParticipantChange`）。
+   * 可以不給（票 13／14 的舊測試不需要簽核）；正式組裝一定有（`composition/groups.ts`）。
+   */
+  signoff?: SignoffParticipantHook<PoolClient>
   pool?: PoolSource
   realClock?: Clock
 }
@@ -223,6 +229,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
   readonly #businessClock: BusinessClockSource
   readonly #pool: PoolSource
   readonly #realClock: Clock
+  readonly #signoff: SignoffParticipantHook<PoolClient> | undefined
 
   constructor(deps: Deps) {
     this.#audit = deps.audit
@@ -232,6 +239,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
     this.#businessClock = deps.businessClock
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
+    this.#signoff = deps.signoff
   }
 
   // ── 公開找組員 ──────────────────────────────────────────────────────────────
@@ -940,6 +948,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
+      // 成員集合變了：這一組目前的簽核版本同交易失效（舊同意留歷史、不自動建新版；票 25）。
+      const signoff = await this.#supersedeSignoff(tx, group.id, adminId, realAt, businessNow)
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
@@ -952,7 +962,13 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         reason,
         realAt,
         businessAt: businessNow,
-        payload: { userId: student.user_id, membershipId, memberCount: members.length, sizeWarning },
+        payload: {
+          userId: student.user_id,
+          membershipId,
+          memberCount: members.length,
+          sizeWarning,
+          supersededSignoffVersionIds: signoff,
+        },
       })
 
       const receipt = {
@@ -1066,6 +1082,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
+      // 成員集合變了：這一組目前的簽核版本同交易失效（舊同意留歷史、不自動建新版；票 25）。
+      const signoff = await this.#supersedeSignoff(tx, group.id, adminId, realAt, businessNow)
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
@@ -1084,6 +1102,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
           memberCount: after.length,
           sizeWarning,
           successorLeaderUserId: decision.leaderChange ? successorId : null,
+          supersededSignoffVersionIds: signoff,
         },
       })
 
@@ -1101,6 +1120,19 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, membershipId: target.id } })
       return { ok: true as const, receipt }
     })
+  }
+
+  /** 票 25：成員集合改變 → 目前簽核版本失效（沒注入簽核時什麼都不做）。回傳失效的版本 id，記進稽核。 */
+  async #supersedeSignoff(tx: PoolClient, groupId: string, adminId: string, realAt: Date, businessAt: Date): Promise<readonly string[]> {
+    if (!this.#signoff) return []
+    const result = await this.#signoff.supersedeForParticipantChange(tx, {
+      groupId,
+      cause: 'member_change',
+      actorUserId: adminId,
+      realAt,
+      businessAt,
+    })
+    return result.supersededVersionIds
   }
 
   async changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>> {
