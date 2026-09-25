@@ -377,4 +377,18 @@ export interface AdvisorSubmissionQuery {
   item(actor: ResolvedActor, itemId: string): Promise<AdvisorItemView | null>
   receiver(actor: ResolvedActor, itemId: string, receiverId: string): Promise<AdvisorReceiverView | null>
   receiverVersion(actor: ResolvedActor, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null>
+  /**
+   * 票 24（S10-03）：老師看某一組的**正式繳交**（整組一份的收件，每一版都列；只列經 `canReadSubmission` 讀得到的）。
+   * 評分老師在評閱桌用：本組有效評分指派的老師讀得到；主指導本來就讀得到。不是老師回 null。
+   */
+  groupVersions(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionEntry[] | null>
+}
+
+/** 一組的一個正式版本（評閱桌「本組正式繳交」一列）。 */
+export type GroupVersionEntry = {
+  readonly itemId: string
+  readonly title: string
+  readonly versionNo: number
+  readonly receivedBusinessAt: Date
+  readonly submittedByName: string
 }

@@ -1,7 +1,10 @@
 # 驗收清單（給 Codex 在測試站跑）
 
-> **站驗收現在改用 Playwright 直接跑**（Codex 在沙盒裡開不起瀏覽器）。程式在
-> [`web/acceptance/`](../../web/acceptance/)，下面「如何在 Mac 跑站驗收」。這裡的白話清單留著當步驟說明。
+> **兩種跑法，分工不同**：
+> - **Playwright 站驗收**（[`web/acceptance/`](../../web/acceptance/)，下面「如何在 Mac 跑站驗收」）：固定的程式，快、每次結果一樣，
+>   每站收尾或想快速回歸時跑。
+> - **Codex 詳測**（這個資料夾的白話清單＋`ops/codex-e2e.sh`，下面「Codex 白話清單」）：Codex 像真人一樣照清單點、截圖、寫報告，
+>   用在大張票完成、一站收尾，以及**外觀對照原型**這種程式不好判斷的檢查（開發計畫 §5.3）。
 
 ## 如何在 Mac 跑站驗收（Playwright）
 
@@ -47,23 +50,65 @@ doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_P
 
 ## Codex 白話清單（ops/codex-e2e.sh）
 
-這個資料夾也放**給 Codex 看的驗收清單**。每一站做完，照下面的格式寫一份 `station-<N>-<主題>.md`，
-在 Mac 上跑：
+這個資料夾放**給 Codex 看的驗收清單**：
+
+| 清單 | 測什麼 | 步驟數 | 會在測試站留下什麼 |
+|---|---|---|---|
+| [`station-1-login.md`](station-1-login.md) | 第一站：E2E 管理員登入、進後台、登出、錯誤密碼被擋 | 7 | 不改資料 |
+| [`station-2-accounts.md`](station-2-accounts.md) | 第二站（票 5–10、10b）：屆別與兩個旗標、名單匯入、學生註冊與審核、老師臨時密碼與強制改密、帳號列表／停用／恢復／匯出、設為／取消管理員、Google 按鈕在、本人帳號頁 | 24＋收尾 3 | 屆別 `CODEX-S2-<時間>`（含名單）、一位學生、一位老師（收尾停用；旗標還原） |
+| [`station-3-semester.md`](station-3-semester.md) | 第三站（票 11–22）：時間軸與模擬業務鐘、通知匣、找組員與成組、管理員調整組員、老師認領、公告／規則／資源／收件發布與撤回、個人填報、組別共用草稿與代表送出、完成率、老師矩陣與重派後的下載授權、合作案、組別名單匯出 | 46＋收尾 7 | 屆別 `CODEX-S3-<時間>`（含階段、活動、組別、繳交紀錄）、4 位學生、2 位老師、6 個專題事務、1 個合作案（收尾下架、停用；旗標與業務鐘還原） |
+| [`ui-vs-prototype.md`](ui-vs-prototype.md) | 外觀對照：前台 7 頁＋帳號頁、系辦 10 頁、老師 6 頁、學生 5 頁，各在 1440 與 390 寬截原型與測試站並排比，分「明顯不同／小差異／一致」，最後一張彙整表 | 4 準備＋29 頁＋收尾 2 | 一位老師、一位學生（收尾停用） |
+
+- 清單建的東西一律用 `CODEX-` 開頭（屆別、姓名、標題、公司名），要清理時在帳號頁、專題事務工作台搜尋 `CODEX-` 就找得到。
+  屆別、組別、繳交紀錄、名單版本後台沒有刪除功能，會留著；帳號是停用不是刪除。
+- 測試站沒有現成的學生／老師測試帳號：清單自己註冊學生（管理員核准）、由管理員建老師（臨時密碼→改密）。
+  Codex 自己編的測試密碼與老師的臨時密碼不寫進報告；Google 實際登入不讓 Codex 做（只看按鈕在不在），由 Roy 自己測。
+- 第 2、3 站會動到全站狀態（開放註冊／預設工作旗標、模擬業務鐘）：清單第一步先記下原本的狀態，收尾一定還原；報告裡會寫出記下的值。
+  **不要和 Playwright 站驗收或另一份 Codex 清單同時跑**，也不要在有人手動操作測試站時跑。
+- 限速：管理員每份清單只登入一次（同 IP 同帳號 10 分鐘 10 次）；學生註冊第 2 站 1 位、第 3 站 4 位、外觀對照 1 位（每 IP 每小時 30 次）。
+
+### 怎麼跑
+
+第一次先照 [ops/README.md](../../ops/README.md)「測試站自動驗收」設好 Doppler 與 Codex（`~/.codex/skills/playwright`）。在 repo 根目錄，**一次一份**：
 
 ```bash
 ops/codex-e2e.sh e2e/acceptance/station-1-login.md
+ops/codex-e2e.sh e2e/acceptance/station-2-accounts.md
+ops/codex-e2e.sh e2e/acceptance/station-3-semester.md
+ops/codex-e2e.sh e2e/acceptance/ui-vs-prototype.md
 ```
 
-Codex 會用 Playwright skill 在 **https://test.fju.roy422.dev**（測試站）一步一步照做、每步截圖，
-最後在 `e2e/acceptance/.out/<時間>-<清單名>/` 留下：
+要連跑幾份就一份一份接著跑（前一份失敗也繼續）：
 
-- `report.md`：每一步「通過／不通過」、看到什麼、截圖路徑，最後一行 `總結：通過 N、不通過 M`
-- `screenshots/NN-*.png`：每一步的截圖
+```bash
+for f in station-2-accounts station-3-semester ui-vs-prototype; do
+  ops/codex-e2e.sh "e2e/acceptance/$f.md"
+done
+```
 
-`.out/` 已經 gitignore，不會進 repo。怎麼設定帳密見 [ops/README.md](../../ops/README.md) 的「測試站自動驗收」。
+**Codex 在沙盒裡開不起 Chrome 時**（報告寫瀏覽器啟動失敗、`playwright-cli` 起不來、權限被拒）：
 
-注意：腳本只會掃出並遮掉**密碼**；E2E 帳號的 **email 會出現在登入頁的截圖裡**（測試專用信箱，可接受，但截圖別貼到公開的地方）。
-第一次實跑後，也請照 ops/README.md 看一眼 `~/.codex/log/` 有沒有帶到密碼。
+```bash
+CODEX_E2E_SANDBOX=danger-full-access ops/codex-e2e.sh e2e/acceptance/station-2-accounts.md
+```
+
+`danger-full-access` 讓 Codex 不受沙盒限制（可以起瀏覽器、寫 Playwright 快取）。只在你自己的 Mac 用；帳密的保護不變
+（環境白名單、跑完掃密碼都照做）。預設的 `workspace-write` 只准寫輸出目錄與 npm／Playwright 快取，開網路。
+
+Codex 會用 Playwright skill 一步一步照做、每步截圖，最後在 `e2e/acceptance/.out/<時間>-<清單名>/` 留下：
+
+- `report.md`：每一步的結果、看到什麼、截圖路徑，最後一行 `總結：……`（站驗收是「通過 N、不通過 M」；外觀對照是「明顯不同 A、小差異 B、一致 C」，前面另有一張差異彙整表）
+- `screenshots/NN-*.png`：每一步的截圖（外觀對照每頁 4 張：原型／測試站 × 1440／390）
+
+`.out/` 已經 gitignore，不會進 repo。
+
+### 腳本擋什麼
+
+- 清單裡的 http(s) 網址只准兩種：測試站 `https://test.fju.roy422.dev`、原型 `https://fju-prototype.roy422roy.workers.dev`。
+  其他網域（包括正式站 `fju.roy422.dev`、Google 登入頁）一出現就拒絕執行，一個請求都不送。
+- 原型是**唯讀對照**：Codex 只准開頁面、截圖、用原型的「切換角色」，不登入、不填表、不送出（給 Codex 的指示裡寫死）。
+- 腳本只會掃出並遮掉**密碼**；E2E 帳號的 **email 會出現在登入頁與帳號頁的截圖裡**（測試專用信箱，可接受，但截圖別貼到公開的地方）。
+  第一次實跑後，也請照 ops/README.md 看一眼 `~/.codex/log/` 有沒有帶到密碼。
 
 > 跟 `web/e2e/` 不一樣：那裡是 CI 跑的 Playwright 測試程式；這裡是寫給 Codex 看的**白話步驟**，
 > 對著真的測試站跑，用來取代 Roy 手動點一遍。
@@ -90,8 +135,9 @@ Codex 會用 Playwright skill 在 **https://test.fju.roy422.dev**（測試站）
 
 ## 寫清單的規則
 
-- **只寫相對路徑或測試站網址**（`/login`、`https://test.fju.roy422.dev/login`）。
-  清單裡出現正式站網址，`ops/codex-e2e.sh` 會直接拒絕執行。
+- **只寫相對路徑、測試站網址或原型網址**（`/login`、`https://test.fju.roy422.dev/login`、`https://fju-prototype.roy422roy.workers.dev/login`）。
+  清單裡出現其他網址（包括正式站、Google），`ops/codex-e2e.sh` 會直接拒絕執行。要提到外部網站就只寫名字，不寫 `https://`。
+- **建資料一律 `CODEX-` 開頭**，並寫「收尾」段把建的帳號停用、發布的東西下架；動到全站狀態（旗標、業務鐘）要先記、後還原。
 - **不寫帳密**。要登入就寫「用 E2E 管理員登入」；Codex 從環境變數 `E2E_ADMIN_EMAIL`、`E2E_ADMIN_PASSWORD` 取值。
   要測「錯誤密碼」就寫「用錯誤密碼」，Codex 會自己編一個。
 - **預期要看得見**：寫畫面上會出現的字（例如標題「系辦首頁」）或網址，不寫「應該正常」這種判斷不了的話。

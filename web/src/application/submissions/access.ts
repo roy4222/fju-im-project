@@ -12,7 +12,9 @@
  *   - 組別：此刻有效組員；該組**目前**主指導（換老師後舊老師就不行，契約 03 §1）；
  *     以及**送出當下在組裡**的人（`membership_snapshot`，票 22）：被移出的人只讀得到自己還在組裡時送出的版本，
  *     移出之後組裡再送的版本拿不到（契約 03 §1「被移出／解散後：本人唯讀自己的正式版本」；產品模組 05 SUB-20、25）。
- * - 受指派評分老師：第四站（評分）再接，這裡先一律拒絕。
+ * - 受指派評分老師（票 24、S10-03）：**該組此刻有效**的評分指派（`evaluator_assignments.valid_to IS NULL`）的老師，
+ *   可以讀該組的**正式版本**與附件（評分要看作品）；草稿、個人回答一律不行。指派一結束（移除、改派）就立刻讀不到，
+ *   不看歷史指派；主指導關係另外算，兩種身分互不影響（產品 06 §4「7.4」「移除的是該組該階段的評分授權」）。
  */
 
 export type SubmissionViewer = {
@@ -39,6 +41,8 @@ export type SubmissionHolder =
       readonly visibility: AdvisorVisibility | null
       /** 組別：送出當下的有效組員（`membership_snapshot`）；個人是 null。 */
       readonly membershipSnapshot: readonly string[] | null
+      /** 組別：此刻在這一組有有效評分指派的老師（任一階段）；個人是空的。 */
+      readonly activeEvaluatorUserIds: readonly string[]
     }
 
 /** 個人回答的主指導閱覽：設定開著，而且這一版是在生效的欄位版本以後送出的（舊回答不擴權）。 */
@@ -54,6 +58,8 @@ export function canReadSubmission(viewer: SubmissionViewer, holder: SubmissionHo
   if (holder.kind === 'draft') return false
   // 送出當下在組裡：被移出後仍可唯讀這一版（只看這一版的快照，不看「曾經是組員」）。
   if (holder.receiverKind === 'group' && holder.membershipSnapshot?.includes(viewer.userId)) return true
+  // 受指派的評分老師：只有整組的正式版本（個人回答仍只給本人與開了閱覽的主指導）。
+  if (viewer.isTeacher && holder.receiverKind === 'group' && holder.activeEvaluatorUserIds.includes(viewer.userId)) return true
   if (!viewer.isTeacher || holder.currentAdvisorUserId === null || holder.currentAdvisorUserId !== viewer.userId) return false
   return holder.receiverKind === 'group' || advisorMayReadIndividual(holder.visibility, holder.schemaVersionNo)
 }
