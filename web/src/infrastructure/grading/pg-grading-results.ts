@@ -61,6 +61,7 @@ import {
   isUuid,
   lockCohort,
   lockGroupAndScheme,
+  MAX_REQUIRED_COUNT,
   noScheme,
   notAssigned,
   runGrading,
@@ -131,6 +132,11 @@ function staleBasis(): Err {
 
 function staleFinal(): Err {
   return err('CONFLICT', '這一組的成績剛有變動，請重新整理頁面，看過最新的最終成績再處理。')
+}
+
+/** 「新增」會讓要求份數 +1；已經到上限（和設定份數同一個上限）就不能再新增。 */
+function addOverLimit(required: number): string {
+  return `要求份數已經是 ${required} 份（上限 ${MAX_REQUIRED_COUNT}），不能再新增評分老師；請改選「保留」或「替換」。`
 }
 
 function finalIncomplete(code: string): Err {
@@ -417,6 +423,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       }
       if (choice === 'add' && !requirement) {
         return err('VALIDATION_FAILED', '這一組這一階段還沒設定要求份數；請先設定份數再新增評分老師。')
+      }
+      if (choice === 'add' && requirement && requirement.required_count >= MAX_REQUIRED_COUNT) {
+        // 份數在鎖內讀（`stage_requirements FOR UPDATE`），和改份數排隊；「新增」會 +1，不能超過設定份數的上限。
+        return err('VALIDATION_FAILED', addOverLimit(requirement.required_count))
       }
       const stageName = (stages ? stageOf(stages, target.stage_key)?.name : null) ?? target.stage_key
       const oldTeacher = await tx.query<{ name: string }>(
@@ -1322,7 +1332,9 @@ export class PgGradebookQuery implements GradebookQuery {
           ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
           : choice === 'add' && required === null
             ? '這一組這一階段還沒設定要求份數。'
-            : null
+            : choice === 'add' && required !== null && required >= MAX_REQUIRED_COUNT
+              ? addOverLimit(required)
+              : null
       return {
         choice,
         blockedReason,

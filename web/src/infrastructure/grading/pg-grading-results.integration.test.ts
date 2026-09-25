@@ -518,6 +518,38 @@ describe('移除／改派三選一（GRD-13）', () => {
     expect(g.result.stages[0]).toMatchObject({ required: 3, averageDisplay: '85.00', status: 'incomplete' })
   })
 
+  it('要求份數已到上限 10：預覽「新增」標不能用、執行被拒、份數不變；保留與替換照常', async () => {
+    const s = await scenario()
+    await requirement(s.groupId, 'mid', 10)
+    const p = await preview(s.a1)
+    const byChoice = Object.fromEntries(p.options.map((o) => [o.choice, o]))
+    expect(byChoice.add!.blockedReason).toContain('上限 10')
+    expect(byChoice.keep!.blockedReason).toBeNull()
+    expect(byChoice.replace!.blockedReason).toBeNull()
+    const over = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '請 T2 加評', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(over).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!over.ok) expect(over.message).toContain('上限 10')
+    const req = await owner.sql(`select required_count from stage_requirements where group_id = $1 and stage_key = 'mid'`, [s.groupId])
+    expect(req.rows[0]!.required_count).toBe(10)
+    expect((await owner.sql('select valid_to from evaluator_assignments where id = $1', [s.a1])).rows[0]!.valid_to).toBeNull()
+
+    // 份數 9：新增後剛好 10，可以。
+    await requirement(s.groupId, 'mid', 9)
+    const p9 = await preview(s.a1)
+    expect(p9.options.find((o) => o.choice === 'add')!.blockedReason).toBeNull()
+    expect(
+      await results.removeAssignment(
+        adminActor(),
+        { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '請 T2 加評', basisHash: p9.basisHash },
+        randomUUID(),
+      ),
+    ).toMatchObject({ ok: true, receipt: { requiredCount: 10 } })
+  })
+
   it('沒有正式分數的老師：只能「替換」（可以只移除），暫存標失效並保留內容；重新指派不復活舊暫存', async () => {
     const cohortId = await newCohort()
     await scheme(cohortId)
