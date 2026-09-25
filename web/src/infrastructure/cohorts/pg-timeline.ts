@@ -22,6 +22,7 @@ import {
   type ScheduleInput,
   type Stage,
   type StagePosition,
+  type StudentTimeline,
   type TimelineCommand,
   type TimelineQuery,
 } from '@/application/cohorts'
@@ -531,5 +532,20 @@ export class PgTimelineQuery implements TimelineQuery {
 
   async currentStage(cohortId: string, businessAt: Date): Promise<StagePosition> {
     return stagePositionAt(await this.schedule(cohortId), businessAt)
+  }
+
+  async studentSchedule(actor: ResolvedActor): Promise<StudentTimeline | null> {
+    if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('student')) return null
+    // 屆別只從登入者推（actor 由 session 在伺服器端解析，來源是資料庫的歸屬屆別）。
+    const cohortId = actor.cohortMemberships.find((m) => m.role === 'student')?.cohortId
+    if (!cohortId || !isCohortId(cohortId)) return null
+    const db = this.#reader()
+    const cohort = await db.query<{ code: string; year_end_date: string | null }>(
+      `select code, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
+      [cohortId],
+    )
+    const row = cohort.rows[0]
+    if (!row) return null
+    return { cohortId, cohortCode: row.code, schedule: { stages: await loadStages(db, cohortId), yearEndDate: row.year_end_date } }
   }
 }

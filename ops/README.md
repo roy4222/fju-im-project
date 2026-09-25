@@ -281,6 +281,59 @@ ops/codex-e2e.sh e2e/acceptance/station-1-login.md
 
 清單怎麼寫見 [`e2e/acceptance/README.md`](../e2e/acceptance/README.md)。
 
+### 測試站示範資料（票 32）
+
+目的：讓測試站的前後台跟原型（https://fju-prototype.roy422roy.workers.dev ）一樣有內容。內容照原型的假資料
+（公告、規則、檔案、產學合作案、9 組、繳交、評分、簽核……），**全部掛在一個「示範 114 屆」（代碼 `DEMO-114`）底下**；
+示範老師與學生的 Email 一律是 `@demo.invalid`、沒有密碼，**登不進來**。正式站永遠不建（`deploy.sh`、`ops/seed-demo.sh`、
+`web/scripts/seed-demo.mjs` 三處都寫死只認測試站）。
+
+**A. 🖥️ 更新 VM 上的腳本（一次）**：這次 `ops/deploy.sh` 有改、多了 `ops/seed-demo.sh`，照「repo 的 ops／compose 檔改了之後」那一節做一次。
+之後每次測試站部署（自動或手動）第 4 步都會跑一次，第一次會印：
+
+```
+示範資料已建立（DEMO-114「示範 114 屆」，日期平移 39 天，以 2026-09-25 當原型的 2026-08-17）：帳號 59、……
+封面與附件 23 個已寫進 FILES_ROOT。
+示範屆別 id：<一串 id>（後台各頁加 ?cohort=<一串 id> 直接看這一屆）。
+```
+
+之後每次部署都只印 `示範資料已存在（DEMO-114），不做任何事。`——**已存在就不動**。
+不想等下一次部署，同步完腳本就可以直接建：
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/seed-demo.sh test
+```
+
+- 日期：原型的「今天」是 2026-08-17，第一次建的時候整批平移到當天（截止日才會是「剩 9 天」而不是全部逾期）。之後不再跟著移動。
+- 建失敗**不會擋部署**：只多一行 `⚠️ 建立示範資料失敗`，`deploy_log` 記一列 `demo-seed-failed`；下次部署再試。
+
+**B. 看得到什麼**
+
+- 不用登入：首頁與 `/news` 的公告（有封面照片與附件）、`/rules` 九節規則。
+- 登入後：`/files` 的範本與說明（示範 PDF）、`/industry` 四件產學合作案。
+- 後台（管理員）：分組、專題事務、評分、簽核、精選、時間軸的屆別選單選「示範 114 屆」（或網址加 `?cohort=<id>`）；帳號頁有 4 筆示範的待審申請。
+- 系辦／老師首頁的「現在階段」與「目前工作屆別」只跟著**預設工作屆別**走，示範資料**不會**動這個旗標。想讓首頁也顯示示範屆別：
+  屆別頁按「把 DEMO-114 設為預設工作屆別」；看完按回原本那一屆。（Codex 驗收清單會自己記下並還原這個旗標，不受影響。）
+- 老師與學生的首頁要用示範帳號登入才看得到，而示範帳號刻意登不進來；那兩個視角請看原型，或用自己的測試帳號。
+
+**C. 清掉（想要乾淨的測試站時）**
+
+```bash
+cd /srv/fju/app
+sudo -u deploy /srv/fju/app/ops/seed-demo.sh test --remove
+```
+
+預期：`示範資料已清除：……` 與 `已留下 /srv/fju/test/deploy/demo-seed.off`。有這個檔，之後的自動部署就**不會**再建；
+要建回來就跑一次不帶 `--remove` 的 `ops/seed-demo.sh test`（會先拿掉那個檔）。
+
+- 清的範圍：示範屆別底下的一切、`@demo.invalid` 的帳號、示範檔案（連 `/srv/fju/test/files` 裡的實體檔）；
+  以及管理員在示範屆別裡操作過留下的稽核、事件、通知（它們掛的屆別就是示範屆）。其他屆別與真的帳號一列都不動。
+- 如果把示範帳號拉進了真的組別、或把真的學生核准進示範屆別，清除會**整批停下、什麼都不刪**，並印出是哪一條外鍵；
+  先在後台解除那筆關係再跑一次。
+- 技術註記：版本、評分、稽核這些不可變表有「連 owner 都擋」的 trigger。清除時只在那一筆交易裡以 owner 身分暫時關掉、
+  刪完再打開（外鍵照樣檢查、交易失敗就整批回滾）；沒有改任何 GRANT。
+
 ### 手動備份（票 27）
 
 ```bash
@@ -490,6 +543,8 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 | `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
 | `web/scripts/seed-e2e.mjs` | `deploy.sh --site test` 在 migration 後跑：建 E2E 測試管理員（只限測試站；已存在不動） |
+| `web/scripts/seed-demo.mjs`、`web/scripts/demo/` | `deploy.sh --site test` 在 seed-e2e 之後跑：照原型灌示範資料（只限測試站；已存在不動；`--remove` 清掉） |
+| `ops/seed-demo.sh` | 手動建立或清掉測試站的示範資料（`--remove` 同時讓自動部署不再重建） |
 | `ops/codex-e2e.sh` | 💻 Mac 用：Codex 照 `e2e/acceptance/*.md` 在測試站驗收、出報告 |
 | `ops/lib/site.sh` | 上面幾支共用：站台設定、Doppler 取值 |
 | `docker-compose.vm.yml` | 疊在 `docker-compose.yml` 上的站台設定 |
