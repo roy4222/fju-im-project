@@ -4,10 +4,10 @@ import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail
 import type { MyDeadline } from '@/application/items'
 import { actorHasRole } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
-import { FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
+import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { getBusinessClock } from '@/composition/cohorts'
-import { getPublicItemQuery } from '@/composition/items'
+import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -36,8 +36,16 @@ export default async function HomePage() {
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
     items.list(actor, 'honor', { limit: 4 }),
-    items.list(actor, 'news', { category: COMPETITION_CATEGORY, limit: 3 }),
+    items.list(actor, 'news', { category: COMPETITION_CATEGORY, limit: 30 }),
   ])
+  // 競賽狀態跟 /competitions 同一個函式、同一個「今天」（業務鐘）：報名中／決賽／已結束。
+  const today = taipeiDateOf(await getBusinessClock().now())
+  // 「進行中的競賽」照原型先放報名中、再放決賽／結果，最後才是已結束或沒填日期的；取前 3 則。
+  const rank = { open: 0, result: 1, closed: 2 } as const
+  const competitionCards = competitions
+    .map((c) => ({ ...c, status: competitionStatus(c, today) }))
+    .sort((a, b) => (a.status ? rank[a.status] : 3) - (b.status ? rank[b.status] : 3))
+    .slice(0, 3)
   // 歷屆專題一覽（登入後）：`/projects` 同一份查詢；沒開通的人查詢本身就回 need_login。
   const archive = member ? await getPublicShowcaseQuery().archive(actor) : null
   const archiveCards = archive?.access === 'visible' ? archive.cards.slice(0, 3) : []
@@ -170,6 +178,7 @@ export default async function HomePage() {
                     <PhotoCard
                       href={`/projects/featured?item=${encodeURIComponent(p.id)}`}
                       image={imageSrc(p.id, p.posterFileId)}
+                      badge={<AwardBadge award={p.award} label={p.awardLabel} className="absolute top-3 left-3 shadow-md" />}
                       title={p.title}
                       tags={
                         <>
@@ -218,9 +227,10 @@ export default async function HomePage() {
                       title={h.title}
                       meta={
                         <>
-                          <time dateTime={h.publishedAt.toISOString()} className="text-[13px] font-semibold text-muted-foreground tabular-nums">
-                            {publishedDate(h)}
-                          </time>
+                          {/* 得獎日期（0011）；沒填退回發布日，跟 /honors 一樣。 */}
+                          <span className="text-[13px] font-semibold text-muted-foreground tabular-nums">
+                            {h.awardedOn ?? taipeiDateOf(h.publishedAt)}
+                          </span>
                           <Tag>榮譽榜</Tag>
                           {h.category ? <Tag tone="ink">{h.category}</Tag> : null}
                         </>
@@ -239,24 +249,24 @@ export default async function HomePage() {
               全部競賽資訊 →
             </Link>
           </div>
-          {competitions.length === 0 ? (
+          {competitionCards.length === 0 ? (
             <div className="flex min-h-24 items-center gap-3 rounded-[10px] border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
               <IconClock className="size-5 shrink-0" aria-hidden />
               目前沒有競賽資訊。系辦發布競賽資訊後會出現在這裡。
             </div>
           ) : (
             <ul className="grid gap-4 md:grid-cols-3" data-testid="home-competitions">
-              {competitions.map((c) => (
+              {competitionCards.map((c) => (
                 <li key={c.id}>
                   <Link
                     href={`/news/${c.id}`}
                     className="flex h-full flex-col gap-1.5 rounded-[10px] border border-border bg-card p-4.5 transition-colors hover:border-primary"
                   >
-                    <span className="flex items-center gap-2">
-                      <Tag>競賽資訊</Tag>
+                    <span className="flex flex-wrap items-center gap-2">
+                      {c.status ? <Tag tone={COMPETITION_STATUS[c.status].tone}>{COMPETITION_STATUS[c.status].label}</Tag> : <Tag>{COMPETITION_CATEGORY}</Tag>}
                       <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground tabular-nums">
                         <IconClock className="size-3.5" aria-hidden />
-                        {publishedDate(c)}
+                        {competitionDate(c)}
                       </span>
                     </span>
                     <span className="text-[15px] leading-snug font-bold text-foreground">{c.title}</span>
@@ -273,11 +283,23 @@ export default async function HomePage() {
   )
 }
 
-/** 競賽資訊是公告的一個分類（跟 `/competitions` 同一個字）。 */
-const COMPETITION_CATEGORY = '競賽資訊'
+/** 競賽狀態標籤（跟 /competitions 的 `STATUS` 同一套）：報名中橘、其他深藍。 */
+const COMPETITION_STATUS = {
+  open: { label: '報名中', tone: 'brand' },
+  result: { label: '決賽／結果', tone: 'ink' },
+  closed: { label: '已結束', tone: 'ink' },
+} as const
+
+/** 競賽卡上的日期（原型）：報名中看截止、有活動日看活動日；都沒有就是發布日。 */
+function competitionDate(c: { status: string | null; registrationDeadline: string | null; eventDate: string | null; publishedAt: Date }): string {
+  if (c.status === 'open' && c.registrationDeadline) return `截止 ${c.registrationDeadline.slice(5).replace('-', '/')}`
+  if (c.eventDate) return `活動 ${c.eventDate.slice(5).replace('-', '/')}`
+  if (c.registrationDeadline) return `截止 ${c.registrationDeadline.slice(5).replace('-', '/')}`
+  return `發布 ${formatTaipeiDate(taipeiDateOf(c.publishedAt))}`
+}
 
 /** 暖白照片卡（原型 `PhotoCard`；首頁優秀專題）。 */
-function PhotoCard({ href, image, title, tags }: { href: string; image: string; title: string; tags: ReactNode }) {
+function PhotoCard({ href, image, title, tags, badge }: { href: string; image: string; title: string; tags: ReactNode; badge?: ReactNode }) {
   return (
     <Link
       href={href}
@@ -286,6 +308,7 @@ function PhotoCard({ href, image, title, tags }: { href: string; image: string; 
       <div className="relative aspect-video overflow-hidden bg-muted">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={image} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+        {badge}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4.5">
         <span className="type-card-title text-foreground transition-colors group-hover:text-primary">{title}</span>
