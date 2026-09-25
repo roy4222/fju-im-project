@@ -2,7 +2,7 @@
    專題時間軸 B 直立蛇形（原型 prototype/src/app/globals.css 的 tl-* 區塊，票 38 搬進來）。
    細線脊椎、書籤頁籤、無循環動畫；手機（<768px）單側直線，標記在左。
 
-   色名照正式碼（globals.css 檔頭）：原型 `--primary`（深藍）→ `--ink`；原型 `--brand`（橘）不變。
+   色名照正式碼（globals.css 檔頭）：原型 `--primary`（深藍）→ `--ink`；原型 `--brand`（橘）→ `--primary`（正式碼只有 Tailwind 的 `brand` 別名，沒有 `--brand` 變數）。
    脊椎已過的長度用 SVG 屬性畫（正式站 CSP 不收 style 屬性），所以沒有原型的 `.tl-spine > span`。
    ========================================================================== */
 @layer components {
@@ -14,21 +14,21 @@
   .tl-dot { grid-column: 2; grid-row: 1; justify-self: center; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px;
     background: var(--card); border: 2px solid var(--tl-line); color: var(--success-foreground); }
   .tl-row[data-status="done"] .tl-dot { background: var(--success); border-color: var(--success); }
-  .tl-row[data-status="current"] .tl-dot { width: 18px; height: 18px; background: var(--brand); border-color: var(--card); box-shadow: 0 0 0 2px var(--brand); }
+  .tl-row[data-status="current"] .tl-dot { width: 18px; height: 18px; background: var(--primary); border-color: var(--card); box-shadow: 0 0 0 2px var(--primary); }
 
   .tl-connector { grid-row: 1; height: 2px; width: 20px; background: var(--tl-line); }
   .tl-left .tl-connector { grid-column: 1; justify-self: end; }
   .tl-right .tl-connector { grid-column: 3; justify-self: start; }
   .tl-row[data-status="done"] .tl-connector { background: var(--ink); }
-  .tl-row[data-status="current"] .tl-connector { background: var(--brand); }
+  .tl-row[data-status="current"] .tl-connector { background: var(--primary); }
 
   .tl-card { position: relative; grid-row: 1; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: min(100%, 520px); transition: background-color 150ms, border-color 150ms; }
   .tl-left .tl-card { grid-column: 1; justify-self: end; margin-right: 20px; }
   .tl-right .tl-card { grid-column: 3; justify-self: start; margin-left: 20px; }
   .tl-card:hover { background: color-mix(in oklch, var(--accent) 50%, var(--card)); }
-  .tl-row[data-status="current"] .tl-card { border-color: var(--brand); }
+  .tl-row[data-status="current"] .tl-card { border-color: var(--primary); }
   /* 書籤：目前階段卡片左上一小塊橘色頁籤 */
-  .tl-tab { position: absolute; top: -1px; left: 14px; padding: 2px 8px 3px; border-radius: 0 0 6px 6px; background: var(--brand); color: var(--brand-foreground); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.2; }
+  .tl-tab { position: absolute; top: -1px; left: 14px; padding: 2px 8px 3px; border-radius: 0 0 6px 6px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.2; }
   .tl-row[data-status="current"] .tl-card > button { padding-top: 18px; }
 
   /* 展開：180ms 過渡；reduced-motion 直接切 */
