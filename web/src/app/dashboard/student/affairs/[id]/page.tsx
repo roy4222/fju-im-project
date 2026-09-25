@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { IconArrowLeft, IconPaperclip, IconUser, IconUsers, IconUsersGroup } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
@@ -59,29 +60,32 @@ export default async function StudentAffairPage({
     if (typeof search.version === 'string' && !shown) notFound()
     return (
       <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
-        <Link href="/dashboard/student/affairs" className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
-          ← 作業區
-        </Link>
-        <article className="overflow-hidden rounded-card border border-border bg-background" data-testid="record-view">
-          <header className="px-5 pb-3 pt-5">
-            <h1 className="text-xl font-bold text-ink">{detail.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {detail.receiverKind === 'group' ? `整組一份（${detail.groupCode ?? ''}）` : '個人一份'}・我的繳交紀錄（唯讀）
+        <div className="flex flex-col gap-5">
+          <BackLink />
+          <article className="dash-card overflow-hidden" data-testid="record-view">
+            <header className="px-6 pt-5 pb-3">
+              <h1 className="text-[22px] font-extrabold tracking-tight">{detail.title}</h1>
+              <p className="mt-1 flex items-start gap-1.5 text-[13px] text-muted-foreground">
+                {detail.receiverKind === 'group' ? <UnitIcon group /> : <UnitIcon group={false} />}
+                <span className="tabular">
+                  {detail.receiverKind === 'group' ? `整組一份（${detail.groupCode ?? ''}）` : '個人一份'}・我的繳交紀錄（唯讀）
+                </span>
+              </p>
+            </header>
+            <p className="mx-6 mb-4 rounded-lg bg-muted px-4 py-3 text-sm font-semibold text-ink" data-testid="record-banner">
+              {detail.receiverKind === 'group'
+                ? '你已經不在這一組：只看得到你還在組裡時送出的版本與附件，不能再填寫或送出。'
+                : '你已經不在這份收件的名單上：只看得到自己正式送出過的回答，不能再填寫或送出。'}
             </p>
-          </header>
-          <p className="mx-5 mb-4 rounded-md bg-muted px-4 py-3 text-sm font-semibold text-ink" data-testid="record-banner">
-            {detail.receiverKind === 'group'
-              ? '你已經不在這一組：只看得到你還在組裡時送出的版本與附件，不能再填寫或送出。'
-              : '你已經不在這份收件的名單上：只看得到自己正式送出過的回答，不能再填寫或送出。'}
-          </p>
-          <div className="border-t border-border p-5">
-            {shown ? (
-              <VersionContent version={shown} backHref={recordBase} backLabel="繳交紀錄" />
-            ) : (
-              <VersionTable versions={detail.versions} hrefOf={(no) => `${recordBase}&version=${no}`} label="繳交紀錄" />
-            )}
-          </div>
-        </article>
+            <div className="border-t border-border p-6">
+              {shown ? (
+                <VersionContent version={shown} backHref={recordBase} backLabel="繳交紀錄" />
+              ) : (
+                <VersionTable versions={detail.versions} hrefOf={(no) => `${recordBase}&version=${no}`} label="繳交紀錄" />
+              )}
+            </div>
+          </article>
+        </div>
       </DashboardShell>
     )
   }
@@ -122,110 +126,147 @@ export default async function StudentAffairPage({
     ['重送', phase === 'closed' ? '截止後唯讀' : '截止前可重送，以最後一次為準'],
   ]
 
+  // 右上角的主要按鈕（原型）：還能填就跳到下方表單；已繳的寫「重送」，截止或免填就不放。
+  const cta = status.editable ? (latest ? '重送' : status.action) : null
+  // 橫幅顏色照原型：已繳綠、草稿橘、逾期紅、還沒動的待繳用藍色提示。
+  const bannerTone = status.pending && status.tone === 'muted' ? 'info' : status.tone
+
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
-      <Link href="/dashboard/student/affairs" className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
-        ← 作業區
-      </Link>
-      <article className="overflow-hidden rounded-card border border-border bg-background">
-        <header className="px-5 pb-3 pt-5">
-          <h1 className="text-xl font-bold text-ink">{item.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {group ? '整組一份・同組共用一份草稿，任一位組員正式送出就代表全組' : '個人一份・每位同學各自填寫'}
+      <div className="flex flex-col gap-5">
+        <BackLink />
+        <article className="dash-card overflow-hidden">
+          <header className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-3">
+            <div className="min-w-0">
+              <h1 className="text-[22px] font-extrabold tracking-tight">{item.title}</h1>
+              <p className="mt-1 flex items-start gap-1.5 text-[13px] text-muted-foreground">
+                <UnitIcon group={Boolean(group)} />
+                <span className="tabular">
+                  {group ? '整組一份・同組共用一份草稿，任一位組員正式送出就代表全組' : '個人一份・每位同學各自填寫'}
+                </span>
+              </p>
+            </div>
+            {cta && tab === 'content' ? (
+              <a href="#submit" className="btn-fju h-11 rounded-lg px-5 text-sm">
+                {cta}
+              </a>
+            ) : null}
+          </header>
+          <p className={cn('mx-6 mb-4 rounded-lg px-4 py-3 text-sm font-semibold', BANNER_CLASS[bannerTone])} data-testid="affair-banner">
+            {banner}
           </p>
-          {group ? <GroupBar group={group} /> : null}
-        </header>
-        <p className={cn('mx-5 mb-4 rounded-md px-4 py-3 text-sm font-semibold', BANNER_CLASS[status.tone])} data-testid="affair-banner">
-          {banner}
-        </p>
-        <nav className="flex gap-1 border-b border-border px-3" aria-label="作業分頁">
-          {(
-            [
-              ['content', '作業內容'],
-              ['history', `繳交歷史${item.versions.length ? `（${item.versions.length}）` : ''}`],
-            ] as const
-          ).map(([key, label]) => (
-            <Link
-              key={key}
-              href={`/dashboard/student/affairs/${item.itemId}${key === 'history' ? '?tab=history' : ''}`}
-              aria-current={tab === key ? 'page' : undefined}
-              className={cn(
-                '-mb-px inline-flex h-11 items-center border-b-2 px-4 text-sm font-semibold',
-                tab === key ? 'border-primary text-ink' : 'border-transparent text-muted-foreground hover:text-ink',
-              )}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
+          <nav className="flex gap-1 border-b border-border px-4" aria-label="作業分頁">
+            {(
+              [
+                ['content', '作業內容'],
+                ['history', `繳交歷史${item.versions.length ? `（${item.versions.length}）` : ''}`],
+              ] as const
+            ).map(([key, label]) => (
+              <Link
+                key={key}
+                href={`/dashboard/student/affairs/${item.itemId}${key === 'history' ? '?tab=history' : ''}`}
+                aria-current={tab === key ? 'page' : undefined}
+                className={cn(
+                  '-mb-px inline-flex h-11 items-center border-b-2 px-4 text-sm font-semibold transition-colors',
+                  tab === key ? 'border-brand text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
 
-        {tab === 'content' ? (
-          <div className="space-y-6 p-5">
-            <dl className="grid gap-x-8 gap-y-2 border-b border-border pb-4 text-sm sm:grid-cols-2">
-              {info.map(([k, v]) => (
-                <div key={k} className="flex gap-4">
-                  <dt className="w-16 shrink-0 text-muted-foreground">{k}</dt>
-                  <dd className="font-semibold tabular-nums">{v}</dd>
-                </div>
-              ))}
-            </dl>
-            <section aria-labelledby="sec-brief">
-              <h2 id="sec-brief" className="mb-2 text-base font-semibold text-ink">
-                作業說明
-              </h2>
-              {item.summary ? <p className="mb-2 text-sm text-muted-foreground">{item.summary}</p> : null}
-              {item.bodyHtml ? (
-                <div className="prose-item space-y-2 text-sm leading-7" dangerouslySetInnerHTML={{ __html: renderBodyHtml(item.bodyHtml) }} />
-              ) : null}
-              {item.attachments.length > 0 ? (
-                <ul className="mt-3 space-y-1.5">
-                  {item.attachments.map((file) => (
-                    <li key={file.fileId}>
-                      <a href={`/api/files/${file.fileId}`} className="text-sm font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
-                        {file.name}
-                      </a>
-                      <span className="ml-2 text-xs text-muted-foreground">{formatSize(file.sizeBytes)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-            <section aria-labelledby="sec-fill">
-              <h2 id="sec-fill" className="mb-3 text-base font-semibold text-ink">
-                {status.editable ? (latest ? '重送' : '填寫與繳交') : '填寫內容（唯讀）'}
-              </h2>
-              {item.advisorCanView ? (
-                <p className="mb-3 rounded-md bg-muted px-3 py-2 text-sm text-ink" data-testid="advisor-notice">
-                  你的主指導老師可以查看這份收件<strong>正式送出</strong>的回答（草稿不會給老師看）。
-                </p>
-              ) : null}
-              {group && item.draft?.updatedByName ? (
-                <p className="mb-3 text-xs text-muted-foreground" data-testid="draft-updated-by">
-                  共用草稿最後由 {item.draft.updatedByName} 於 {formatTaipeiMinute(item.draft.updatedAt)} 儲存
-                </p>
-              ) : null}
-              <SubmissionForm
-                itemId={item.itemId}
-                fields={item.fields}
-                initialAnswers={toValues(shown)}
-                initialFiles={toFileMeta(shownFiles)}
-                initialRevision={item.draft?.revision ?? 0}
-                initialSavedText={item.draft ? formatTaipeiMinute(item.draft.updatedAt) : null}
-                editable={status.editable}
-                lockedText={lockedText}
-                submittedVersion={latest?.versionNo ?? null}
-                groupCode={group?.code ?? null}
-              />
-            </section>
-          </div>
-        ) : version ? (
-          <VersionView item={item} version={version} />
-        ) : (
-          <History item={item} />
-        )}
-      </article>
+          {tab === 'content' ? (
+            <div className="flex flex-col gap-6 p-6">
+              <dl className="grid gap-x-8 gap-y-2 border-b border-border pb-4 text-sm sm:grid-cols-2">
+                {info.map(([k, v]) => (
+                  <div key={k} className="flex gap-4">
+                    <dt className="w-16 shrink-0 text-muted-foreground">{k}</dt>
+                    <dd className="tabular font-semibold">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              <section aria-labelledby="sec-brief">
+                <h2 id="sec-brief" className="mb-2 text-[15px] font-bold">
+                  作業說明
+                </h2>
+                {item.summary ? <p className="mb-2 text-sm leading-7">{item.summary}</p> : null}
+                {item.bodyHtml ? (
+                  <div className="prose-item space-y-2 text-sm leading-7" dangerouslySetInnerHTML={{ __html: renderBodyHtml(item.bodyHtml) }} />
+                ) : null}
+                {item.attachments.length > 0 ? (
+                  <ul className="mt-3 flex flex-col gap-1.5">
+                    {item.attachments.map((file) => (
+                      <li key={file.fileId}>
+                        <a
+                          href={`/api/files/${file.fileId}`}
+                          className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink transition-colors hover:text-brand"
+                        >
+                          <IconPaperclip className="size-4" aria-hidden />
+                          {file.name}
+                        </a>
+                        <span className="ml-2 text-xs text-muted-foreground">{formatSize(file.sizeBytes)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section id="submit" aria-labelledby="sec-fill" className="scroll-mt-4">
+                <h2 id="sec-fill" className="mb-3 text-[15px] font-bold">
+                  {status.editable ? (latest ? '重送' : '填寫與繳交') : '填寫內容（唯讀）'}
+                </h2>
+                {group ? <GroupBar group={group} /> : null}
+                {item.advisorCanView ? (
+                  <p className="mb-3 rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" data-testid="advisor-notice">
+                    你的主指導老師可以查看這份收件<strong>正式送出</strong>的回答（草稿不會給老師看）。
+                  </p>
+                ) : null}
+                {group && item.draft?.updatedByName ? (
+                  <p className="mb-3 text-xs text-muted-foreground" data-testid="draft-updated-by">
+                    共用草稿最後由 {item.draft.updatedByName} 於 {formatTaipeiMinute(item.draft.updatedAt)} 儲存
+                  </p>
+                ) : null}
+                <SubmissionForm
+                  itemId={item.itemId}
+                  fields={item.fields}
+                  initialAnswers={toValues(shown)}
+                  initialFiles={toFileMeta(shownFiles)}
+                  initialRevision={item.draft?.revision ?? 0}
+                  initialSavedText={item.draft ? formatTaipeiMinute(item.draft.updatedAt) : null}
+                  editable={status.editable}
+                  lockedText={lockedText}
+                  submittedVersion={latest?.versionNo ?? null}
+                  groupCode={group?.code ?? null}
+                />
+              </section>
+            </div>
+          ) : version ? (
+            <VersionView item={item} version={version} />
+          ) : (
+            <History item={item} />
+          )}
+        </article>
+      </div>
     </DashboardShell>
   )
+}
+
+/** 回作業區（原型：左箭頭＋灰字）。 */
+function BackLink() {
+  return (
+    <Link
+      href="/dashboard/student/affairs"
+      className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <IconArrowLeft className="size-4" aria-hidden /> 作業區
+    </Link>
+  )
+}
+
+/** 填寫單位的小圖示：整組一份／個人一份。 */
+function UnitIcon({ group }: { group: boolean }) {
+  const Icon = group ? IconUsersGroup : IconUser
+  return <Icon className="mt-0.5 size-4 shrink-0 text-ink" aria-hidden />
 }
 
 function toValues(answers: Answers): Record<string, string | string[]> {
@@ -240,8 +281,11 @@ function toFileMeta(files: readonly AnswerFile[]): Record<string, FileMeta> {
 function GroupBar({ group }: { group: GroupSummary }) {
   const leader = group.members.find((m) => m.isLeader)
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border pt-3 text-sm" data-testid="group-bar">
-      <span className="font-semibold text-ink">{group.code}</span>
+    <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border pb-3 text-sm" data-testid="group-bar">
+      <span className="inline-flex items-center gap-1.5 font-bold">
+        <IconUsers className="size-4 text-ink" aria-hidden />
+        {group.code}
+      </span>
       {leader ? <span>組長 {leader.name}</span> : null}
       <span className="text-muted-foreground">{group.members.map((m) => m.name).join('、')}</span>
       <span className="text-muted-foreground">指導老師 {group.advisorName ?? '尚未指派'}</span>
@@ -251,12 +295,12 @@ function GroupBar({ group }: { group: GroupSummary }) {
 
 function History({ item }: { item: MyItemDetail }) {
   if (item.versions.length === 0) {
-    return <p className="px-5 py-10 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
+    return <p className="px-6 py-10 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
   }
   return (
-    <div className="overflow-x-auto p-5">
+    <div className="overflow-x-auto p-6">
       <table className="w-full min-w-[36rem] text-sm" aria-label="繳交歷史">
-        <thead className="text-left text-xs text-muted-foreground">
+        <thead className="text-left text-[12px] text-muted-foreground">
           <tr>
             <th scope="col" className="py-2 font-medium">
               第幾次
@@ -277,11 +321,11 @@ function History({ item }: { item: MyItemDetail }) {
         </thead>
         <tbody>
           {item.versions.map((v, index) => (
-            <tr key={v.versionNo} className="border-t border-border">
+            <tr key={v.versionNo} className="border-t border-border/70">
               <td className="py-3 font-semibold tabular-nums">
                 第 {v.versionNo} 次
                 {index === 0 ? (
-                  <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] text-primary-on-subtle">採計</span>
+                  <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
                 ) : null}
               </td>
               <td className="py-3">{v.submittedByName}</td>
@@ -290,7 +334,7 @@ function History({ item }: { item: MyItemDetail }) {
               <td className="py-1 text-right">
                 <Link
                   href={`/dashboard/student/affairs/${item.itemId}?tab=history&version=${v.versionNo}`}
-                  className="inline-flex h-10 items-center rounded-md px-3 text-sm font-semibold text-primary-on-subtle hover:bg-muted"
+                  className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-accent"
                 >
                   查看內容
                 </Link>
@@ -306,13 +350,13 @@ function History({ item }: { item: MyItemDetail }) {
 function VersionView({ item, version }: { item: MyItemDetail; version: MyVersionDetail }) {
   const fields = answerFields(version.fields)
   return (
-    <div className="space-y-5 p-5" data-testid="version-view">
+    <div className="flex flex-col gap-5 p-6" data-testid="version-view">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link
           href={`/dashboard/student/affairs/${item.itemId}?tab=history`}
-          className="text-sm font-medium text-muted-foreground hover:text-ink"
+          className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
         >
-          ← 繳交歷史
+          <IconArrowLeft className="size-4" aria-hidden /> 繳交歷史
         </Link>
         <span className="text-xs text-muted-foreground">唯讀・這是第 {version.versionNo} 次送出當時的內容</span>
       </div>
@@ -322,7 +366,7 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
           <dd className="font-semibold tabular-nums">
             第 {version.versionNo} 次
             {version.isLatest ? (
-              <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] text-primary-on-subtle">採計</span>
+              <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
             ) : (
               <span className="ml-2 text-xs font-normal text-muted-foreground">已被後來的版本取代</span>
             )}
@@ -345,7 +389,7 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
           <dd className="break-all font-mono text-xs">{version.requestId}</dd>
         </div>
       </dl>
-      <dl className="divide-y divide-border">
+      <dl className="flex flex-col divide-y divide-border/70">
         {fields.map((f) => {
           const value = version.answers[f.key]
           const file = isFileField(f) ? version.files.find((x) => x.fieldKey === f.key) : undefined
@@ -356,7 +400,7 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
               <dd className="whitespace-pre-wrap text-sm">
                 {file ? (
                   <span className="flex flex-wrap items-center gap-x-3">
-                    <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
+                    <a href={`/api/files/${file.fileId}`} className="inline-flex items-center gap-1.5 break-all font-semibold text-ink underline-offset-2 hover:underline">
                       {file.name}
                     </a>
                     <span className="text-xs text-muted-foreground tabular-nums">{formatSize(file.sizeBytes)}</span>

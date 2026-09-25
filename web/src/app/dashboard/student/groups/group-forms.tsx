@@ -12,14 +12,15 @@ import { cn } from '@/shared/cn'
 
 export type GroupActionState = { ok: boolean; message: string } | undefined
 
-const PRIMARY =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium ' +
-  'text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
+// 外觀照原型（票 38）：主要動作系網橘實心、次要白底細框、輸入框 44px 高與橘色焦點環。
+const PRIMARY = 'btn-fju h-11 rounded-lg px-5 text-sm disabled:opacity-60'
 const SECONDARY =
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border px-3 py-2 ' +
-  'text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-const LABEL = 'block text-sm font-medium text-ink'
+  'press inline-flex h-11 items-center justify-center whitespace-nowrap rounded-lg border border-border bg-background px-4 ' +
+  'text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60'
+const INPUT =
+  'mt-1.5 h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] ' +
+  'focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
+const LABEL = 'block text-sm font-semibold'
 
 export function Feedback({ state }: { state: GroupActionState }) {
   if (!state) return null
@@ -27,8 +28,8 @@ export function Feedback({ state }: { state: GroupActionState }) {
     <p
       role={state.ok ? 'status' : 'alert'}
       className={cn(
-        'rounded-md px-3 py-2 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
+        'rounded-lg px-4 py-2.5 text-sm',
+        state.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
       )}
     >
       {state.message}
@@ -45,7 +46,7 @@ export function OpenToJoinToggle({ open, requestId }: { open: boolean; requestId
       <input type="hidden" name="requestId" value={requestId} />
       <input type="hidden" name="open" value={open ? 'false' : 'true'} />
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-ink">
+        <span className="text-sm">
           公開找組員：<strong>{open ? '已公開' : '未公開'}</strong>
         </span>
         <button type="submit" disabled={pending} className={open ? SECONDARY : PRIMARY}>
@@ -80,10 +81,13 @@ export function ProposeForm({
       <input type="hidden" name="requestId" value={requestId} />
       <fieldset>
         <legend className={LABEL}>組別類型</legend>
-        <div className="mt-2 flex flex-wrap gap-4">
+        <div className="mt-2 flex flex-wrap gap-2">
           {groupTypes.map((type, index) => (
-            <label key={type.value} className="inline-flex items-center gap-2 text-sm text-ink">
-              <input type="radio" name="groupType" value={type.value} defaultChecked={index === 0} />
+            <label
+              key={type.value}
+              className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors has-checked:border-brand has-checked:bg-brand-subtle/50"
+            >
+              <input type="radio" name="groupType" value={type.value} defaultChecked={index === 0} className="accent-[var(--primary)]" />
               {type.label}
             </label>
           ))}
@@ -207,15 +211,15 @@ export function ProposalActions({
         <dialog
           ref={dialog.ref}
           aria-label={copy.title}
-          className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
+          className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-0 shadow-xl backdrop:bg-ink/40"
         >
-          <form action={terminateFormAction} onSubmit={() => setLast('terminate')} className="p-5">
-            <h2 className="text-base font-semibold text-ink">{copy.title}</h2>
+          <form action={terminateFormAction} onSubmit={() => setLast('terminate')} className="p-6">
+            <h2 className="text-lg font-extrabold">{copy.title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{copy.body}</p>
             <input type="hidden" name="proposalId" value={proposal.proposalId} />
             <input type="hidden" name="requestId" value={requestIds.terminate} />
             <input type="hidden" name="kind" value={kind} />
-            <div className="mt-4 flex justify-end gap-2 border-t border-border pt-4">
+            <div className="mt-5 flex justify-end gap-2">
               <button type="button" className={SECONDARY} onClick={dialog.close}>
                 先不要
               </button>
