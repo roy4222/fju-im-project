@@ -17,12 +17,13 @@ import { cn } from '@/shared/cn'
 /** 頁標題：24px 特粗，一行灰字說明，右邊放主要動作。 */
 export function PageTitle({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div className="min-w-0">
+    // 桌面：標題與說明在左、動作固定在右（說明再長也不把按鈕擠到下一行）；手機：動作排在說明下面。
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0 flex-1">
         <h1 className="text-[24px] leading-tight font-extrabold tracking-tight text-foreground">{title}</h1>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   )
 }
@@ -196,14 +197,15 @@ export function FilterTag({ label, count, clearHref }: { label: ReactNode; count
 export function CohortPills({ cohorts, currentId, hrefFor }: { cohorts: readonly { id: string; code: string }[]; currentId: string; hrefFor: (id: string) => string }) {
   if (cohorts.length <= 1) return null
   return (
-    <nav aria-label="選擇屆別" className="inline-flex flex-wrap gap-1 self-start rounded-xl border border-border bg-card p-1">
+    // 屆別多的時候（測試站累積很多）不換行、在框內橫向捲，不把頁面往下推。
+    <nav aria-label="選擇屆別" className="inline-flex max-w-full gap-1 self-start overflow-x-auto rounded-xl border border-border bg-card p-1">
       {cohorts.map((c) => (
         <Link
           key={c.id}
           href={hrefFor(c.id)}
           aria-current={c.id === currentId ? 'page' : undefined}
           className={cn(
-            'tabular inline-flex h-8 items-center rounded-lg px-3 text-sm font-semibold transition-colors',
+            'tabular inline-flex h-8 shrink-0 items-center rounded-lg px-3 text-sm font-semibold whitespace-nowrap transition-colors',
             c.id === currentId ? 'bg-ink text-ink-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
         >

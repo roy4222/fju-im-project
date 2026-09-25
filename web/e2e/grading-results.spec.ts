@@ -224,6 +224,19 @@ async function submitScore(page: Page, teacher: TestSession, stageKey: string, s
   await receipt.getByRole('button', { name: '知道了' }).click()
 }
 
+/**
+ * 原型 Data Table 的篩選鈕（票 36）：按下去開選單、選一個就換頁。
+ * 剛換完頁時按鈕可能還沒接上事件，所以「按鈕→看到選項」整段重試到成功為止。
+ */
+async function pickFacet(page: Page, label: string, option: string | RegExp) {
+  const item = page.getByRole('menuitemradio', { name: option })
+  await expect(async () => {
+    if (!(await item.isVisible())) await page.getByRole('button', { name: `篩選${label}` }).click()
+    await expect(item).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await item.click()
+}
+
 test('成績表：期中 82.15 已完成、期末未達份數標尚未完成；期末送出 90 後最終 85.29，計算明細列出算式', async ({ page }) => {
   await openGrading(page)
   const g1 = bookRow(page, 'G01')
@@ -394,8 +407,7 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
   expect(sheet).toContain(`<c r="C2" t="inlineStr"><is><t xml:space="preserve">${studentNos[0]}</t></is></c>`)
   expect(sheet).toContain('>88.32<')
 
-  await page.getByRole('button', { name: '篩選完成狀態' }).click()
-  await page.getByRole('menuitemradio', { name: '尚未完成' }).click()
+  await pickFacet(page, '完成狀態', '尚未完成')
   await expect(page).toHaveURL(/fstatus=incomplete/)
   await expect(page.getByTestId('gradebook-count')).toHaveText('顯示 1／2 組')
   const [filtered] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])

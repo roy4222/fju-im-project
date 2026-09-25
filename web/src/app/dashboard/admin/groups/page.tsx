@@ -308,10 +308,12 @@ export default async function AdminGroupsPage({
                     requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
                     reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
                   />,
-                  <span key="members" className="block max-w-[16rem] text-sm text-muted-foreground">
-                    {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
+                  <span key="members" className="block max-w-[15rem] text-sm text-muted-foreground">
+                    <span className="block truncate" title={g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}>
+                      {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
+                    </span>
                     {g.opportunity ? (
-                      <span className="mt-1 block text-xs">
+                      <span className="block truncate text-xs">
                         合作案：
                         <Link href={`/industry/${g.opportunity.opportunityId}`} className="font-semibold text-primary hover:underline">
                           {g.opportunity.name}

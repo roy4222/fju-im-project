@@ -38,6 +38,19 @@ async function adminPage(browser: Browser): Promise<Page> {
   return page
 }
 
+/**
+ * 原型 Data Table 的篩選鈕（票 36）：按下去開選單、選一個就換頁。
+ * 剛換完頁時按鈕可能還沒接上事件，所以「按鈕→看到選項」整段重試到成功為止。
+ */
+async function pickFacet(page: Page, label: string, option: string | RegExp) {
+  const item = page.getByRole('menuitemradio', { name: option })
+  await expect(async () => {
+    if (!(await item.isVisible())) await page.getByRole('button', { name: `篩選${label}` }).click()
+    await expect(item).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await item.click()
+}
+
 function rowOf(page: Page, name: string) {
   return page.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
@@ -106,14 +119,11 @@ test('做完的樣子 1：三個磚、搜尋、篩選、排序', async ({ browse
   await form.getByRole('searchbox', { name: '搜尋' }).fill(tag)
   await form.getByRole('searchbox', { name: '搜尋' }).press('Enter')
   await expect(page).toHaveURL(/q=/)
-  await page.getByRole('button', { name: '篩選角色' }).click()
-  await page.getByRole('menuitemradio', { name: '學生' }).click()
+  await pickFacet(page, '角色', '學生')
   await expect(page).toHaveURL(/role=student/)
-  await page.getByRole('button', { name: '篩選屆別' }).click()
-  await page.getByRole('menuitemradio', { name: new RegExp(cohortCode) }).click()
+  await pickFacet(page, '屆別', new RegExp(cohortCode))
   await expect(page).toHaveURL(new RegExp(`cohort=${cohortId}`))
-  await page.getByRole('button', { name: '篩選狀態' }).click()
-  await page.getByRole('menuitemradio', { name: '已核准' }).click()
+  await pickFacet(page, '狀態', '已核准')
   await expect(page).toHaveURL(/status=active/)
   await expect(page).toHaveURL(/role=student/)
   await expect(page.getByRole('table', { name: '帳號列表' }).getByRole('row')).toHaveCount(5)

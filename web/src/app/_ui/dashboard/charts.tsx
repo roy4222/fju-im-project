@@ -79,7 +79,7 @@ export function HBar({ label, value, total, suffix, barClassName = 'fill-foregro
         <rect width="100%" height="8" rx="4" className="fill-muted" />
         {p > 0 ? <rect width={`${p}%`} height="8" rx="4" className={barClassName} /> : null}
       </svg>
-      <span className="tabular w-14 shrink-0 text-right text-xs text-muted-foreground">{suffix ?? `${value}/${total}`}</span>
+      <span className="tabular w-24 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">{suffix ?? `${value}/${total}`}</span>
     </div>
   )
 }

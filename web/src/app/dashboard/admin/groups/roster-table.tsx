@@ -59,25 +59,27 @@ export function CopyEmailsButton({ code, emails }: { code: string; emails: reado
   if (emails.length === 0) return <span className="text-xs text-muted-foreground">沒有信箱</span>
   const joined = emails.join(', ')
   return (
-    <div className="space-y-1">
+    <div className="relative">
       <button
         type="button"
-        className={GHOST_SM}
+        className={cn(GHOST_SM, 'px-1.5')}
+        title="複製本組信箱"
         aria-label={`複製本組信箱：${code}`}
         onClick={async () => {
           const ok = await copyText(joined)
           setMessage(
             ok
               ? { ok: true, text: `已複製 ${emails.length} 個信箱，可以直接貼到收件人欄。` }
-              : { ok: false, text: '瀏覽器不允許複製，請手動選取上面的信箱。' },
+              : { ok: false, text: '瀏覽器不允許複製，請手動選取旁邊的信箱。' },
           )
+          // 提示浮在表格上，成功的過幾秒自己收起來；失敗的留著，讓人照著做。
+          if (ok) setTimeout(() => setMessage(null), 5000)
         }}
       >
         <IconCopy className="size-3.5" aria-hidden />
-        複製本組信箱
       </button>
       {message ? (
-        <p role="status" className={cn('text-xs', message.ok ? 'text-brand-on-subtle' : 'text-destructive')}>
+        <p role="status" className={cn('absolute top-full right-0 z-10 mt-1 w-56 rounded-lg bg-popover p-2 text-xs shadow-md ring-1 ring-foreground/10', message.ok ? 'text-brand-on-subtle' : 'text-destructive')}>
           {message.text}
         </p>
       ) : null}
@@ -238,14 +240,19 @@ export function GroupRosterTable({
                     </td>
                   ))}
                   <td className={DT.td}>
-                    <ul aria-label={`${row.code} 組員信箱`} className="mb-1.5 max-w-[16rem] space-y-0.5 text-xs text-muted-foreground">
-                      {row.emails.map((email) => (
-                        <li key={email} className="truncate" title={email}>
-                          {email}
-                        </li>
-                      ))}
-                    </ul>
-                    <CopyEmailsButton code={row.code} emails={row.emails} />
+                    {/* 原型的列是單行：信箱排成一行、太長就截斷（滑過看全部），旁邊一顆複製鈕。 */}
+                    <div className="flex items-center gap-1">
+                      <ul
+                        aria-label={`${row.code} 組員信箱`}
+                        title={row.emails.join(', ')}
+                        className="max-w-[13rem] truncate text-xs text-muted-foreground [&>li]:inline [&>li+li]:before:content-['、']"
+                      >
+                        {row.emails.map((email) => (
+                          <li key={email}>{email}</li>
+                        ))}
+                      </ul>
+                      <CopyEmailsButton code={row.code} emails={row.emails} />
+                    </div>
                   </td>
                 </tr>
               ))

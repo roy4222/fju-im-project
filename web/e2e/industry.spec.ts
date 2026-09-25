@@ -201,6 +201,19 @@ async function createOpportunity(page: Page, session: TestSession, company: stri
   await expect(page.getByRole('status').filter({ hasText: publish ? `已發布「${company}・資訊部」` : `已儲存草稿「${company}・資訊部」` })).toBeAttached()
 }
 
+/**
+ * 原型 Data Table 的篩選鈕（票 36）：按下去開選單、選一個就換頁。
+ * 剛換完頁時按鈕可能還沒接上事件，所以「按鈕→看到選項」整段重試到成功為止。
+ */
+async function pickFacet(page: Page, label: string, option: string | RegExp) {
+  const item = page.getByRole('menuitemradio', { name: option })
+  await expect(async () => {
+    if (!(await item.isVisible())) await page.getByRole('button', { name: `篩選${label}` }).click()
+    await expect(item).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await item.click()
+}
+
 test('老師建立合作案（先存草稿再發布）；下架、重新發布；聯絡資訊只有案主與系辦看得到', async ({ page }) => {
   await createOpportunity(page, owner, COMPANY, false)
   const item = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })
@@ -383,8 +396,7 @@ test('管理員組別名單：篩選、排序、組員信箱欄與「複製本�
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(memberEmails.get('G01')!.join(', '))
 
   // 篩選：只看產學組（G02 剛被改回一般）。
-  await page.getByRole('button', { name: '篩選類型' }).click()
-  await page.getByRole('menuitemradio', { name: '產學合作' }).click()
+  await pickFacet(page, '類型', '產學合作')
   await expect(page).toHaveURL(/type=industry/)
   await expect(page.getByTestId('roster-count')).toContainText('顯示 2／3 組')
   await expect(table.getByTestId('roster-row')).toHaveCount(2)
