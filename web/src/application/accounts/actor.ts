@@ -24,6 +24,12 @@ export type Actor = {
   readonly status: AccountStatus
   readonly mustChangePassword: boolean
   readonly cohortMemberships: readonly CohortMembership[]
+  /**
+   * 這次 session 實際使用的登入方式（契約 01 §4.1 `sessions.login_method`；契約 02 §2 `OperationContext.loginMethod`）。
+   * 由 actor resolver 從**同一個 session** 讀出來，不從帳號綁定推論、也不收呼叫端傳入的值（票 26：同意紀錄要記這一欄）。
+   * 測試自己組的 actor 可以不帶；需要它的用例（簽核表態）沒有就拒絕。
+   */
+  readonly loginMethod?: 'google' | 'password'
 }
 
 /** 沒有有效 session 時的結果。刻意是明確的值，不是 `null`，呼叫端就漏不掉。 */
