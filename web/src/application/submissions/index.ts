@@ -43,6 +43,7 @@ export type {
   AdvisorMatrixItem,
   AdvisorReceiverView,
   AdvisorSubmissionQuery,
+  GroupVersionEntry,
   AdvisorVisibilityView,
   AnswerFile,
   DraftReceipt,

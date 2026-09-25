@@ -272,7 +272,7 @@ ops/codex-e2e.sh e2e/acceptance/station-1-login.md
 
 - 腳本用 `doppler secrets get` 取兩個值，只交給 `codex exec` 這一個行程的環境變數；不印、不寫檔、不進 git。
 - 交給 Codex 的環境只留白名單（`PATH`、`HOME`、`USER`、`SHELL`、`TMPDIR`、`LANG`、`LC_*`、`CODEX_HOME`＋兩個 E2E 鍵）：Codex 行程本身先拿掉名單外的變數，它開的 shell 再用 `shell_environment_policy.include_only` 過濾一次，Mac 上其他 API key、token 不會進去。實跑時 npx／Playwright 若缺了哪個變數，加進腳本的 `CODEX_ENV_WHITELIST`。（codex-cli 0.156.1 已把 `include_only` 標為舊鍵；日後若被拿掉會被靜默忽略，但 Codex 行程本身的環境已先剝過，保護不變。）
-- Codex（`gpt-6-sol`＋`~/.codex/skills/playwright`）只打 `https://test.fju.roy422.dev`；清單裡出現正式站網址會直接拒絕。
+- Codex（`gpt-6-sol`＋`~/.codex/skills/playwright`）只打 `https://test.fju.roy422.dev`；外觀對照清單另外可以**唯讀**開原型 `https://fju-prototype.roy422roy.workers.dev`（只看、截圖）。清單裡出現其他網址（包括正式站）會直接拒絕。四份清單與跑法見 [e2e/acceptance/README.md](../e2e/acceptance/README.md)。
 - 結果在 `e2e/acceptance/.out/<時間>-<清單名>/`：`report.md`（每步通過／不通過＋截圖路徑，最後一行 `總結：…`）與 `screenshots/`。這個資料夾已 gitignore。
 - 跑完會掃一遍輸出，萬一報告裡出現密碼會自動遮掉並報錯；那時請在 Doppler stg 換**新的 email＋新密碼**（下次部署會建一個新帳號），再到測試站後台停用舊的 E2E 測試管理員。
 - 只掃、只遮**密碼**：E2E 帳號的 **email 會出現在登入頁截圖裡**（填表那一步）。它是測試專用信箱，可以接受，但截圖不要貼到公開的地方。

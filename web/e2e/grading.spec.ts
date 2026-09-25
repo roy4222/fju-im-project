@@ -319,8 +319,9 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立方案 v2（草稿）' })).toBeVisible()
   const v2 = page.getByRole('table', { name: '方案版本' }).getByRole('row').filter({ hasText: 'v2' })
-  await expect(v2.getByRole('button', { name: '發布 v2' })).toBeDisabled()
-  await expect(v2).toContainText('v1 已鎖定，不能直接換版本')
+  // 票 24：鎖定後的新版本不能直接發布，只能「看影響並套用」（先看重算預覽再確認）。
+  await expect(v2.getByRole('button', { name: '發布 v2' })).toHaveCount(0)
+  await expect(v2.getByRole('link', { name: '看影響並套用 v2' })).toBeVisible()
 })
 
 test('學生：「成績」頁只有一句說明；直接開評分管理、工作台網址都被擋', async ({ page }) => {
