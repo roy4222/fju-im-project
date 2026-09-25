@@ -4,6 +4,7 @@ import {
   normalizeScheduleInput,
   planStageVersions,
   stagePositionAt,
+  timelineView,
   type CohortSchedule,
   type ScheduleInput,
 } from '@/application/cohorts/stages'
@@ -159,5 +160,51 @@ describe('planStageVersions：日期範圍變了才換期限版本', () => {
     const plan = planStageVersions(SCHEDULE, { ...renamed, stages: renamed.stages.map((s) => ({ ...s, name: `${s.name}（改名）` })) })
     expect(plan.every((p) => !p.rangeChanged)).toBe(true)
     expect(plan.map((p) => p.deadlineVersion)).toEqual([1, 1, 1, 1])
+  })
+})
+
+describe('timelineView：專題時間軸每一段的狀態（票 38）', () => {
+  it('期中第 1 天：成組期已過、期中進行中、其後尚未開始；時間進度 0%、剩到期中最後一天的天數', () => {
+    const view = timelineView(SCHEDULE, tw('2026-11-01T00:00:00'))!
+    expect(view.stages.map((s) => [s.name, s.status])).toEqual([
+      ['成組期', 'done'],
+      ['期中', 'current'],
+      ['期末', 'upcoming'],
+      ['成果', 'upcoming'],
+    ])
+    expect(view.stages[1]!.lastDate).toBe('2027-01-09')
+    expect(view.current).toEqual({ seq: 2, elapsedPercent: 0, daysLeft: 69 })
+  })
+
+  it('最後一天：時間進度 100%、剩 0 天', () => {
+    const view = timelineView(SCHEDULE, tw('2027-01-09T23:59:59'))!
+    expect(view.current).toEqual({ seq: 2, elapsedPercent: 100, daysLeft: 0 })
+  })
+
+  it('只有一天的段（下一段隔天開始）：當天就是最後一天，100%、剩 0 天', () => {
+    const oneDay: CohortSchedule = {
+      stages: [
+        { seq: 1, name: '報名', startDate: '2026-09-15', deadlineVersion: 1 },
+        { seq: 2, name: '期中', startDate: '2026-09-16', deadlineVersion: 1 },
+      ],
+      yearEndDate: '2027-06-30',
+    }
+    const view = timelineView(oneDay, tw('2026-09-15T10:00:00'))!
+    expect(view.stages[0]).toMatchObject({ startDate: '2026-09-15', lastDate: '2026-09-15', status: 'current' })
+    expect(view.current).toEqual({ seq: 1, elapsedPercent: 100, daysLeft: 0 })
+  })
+
+  it('尚未開始全部是尚未開始、年度結束後全部已過；兩者都沒有目前這一段', () => {
+    const before = timelineView(SCHEDULE, tw('2026-09-14T23:59:59'))!
+    expect(before.stages.every((s) => s.status === 'upcoming')).toBe(true)
+    expect(before.current).toBeNull()
+    const after = timelineView(SCHEDULE, tw('2027-07-01T00:00:00'))!
+    expect(after.stages.every((s) => s.status === 'done')).toBe(true)
+    expect(after.current).toBeNull()
+  })
+
+  it('沒設階段或年度結束日：null（畫面顯示尚未設定）', () => {
+    expect(timelineView({ stages: [], yearEndDate: null }, tw('2026-10-01T00:00:00'))).toBeNull()
+    expect(timelineView({ stages: SCHEDULE.stages, yearEndDate: null }, tw('2026-10-01T00:00:00'))).toBeNull()
   })
 })

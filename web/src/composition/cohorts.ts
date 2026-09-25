@@ -105,4 +105,5 @@ export {
   STAGE_NAME_MAX_LENGTH,
   stageLastDate,
   stagePositionAt,
+  timelineView,
 } from '@/application/cohorts'

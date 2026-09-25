@@ -1,11 +1,13 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import type { ResolvedActor } from '@/application/accounts'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
-import { currentActor, homeFor } from '@/app/_ui/guard'
+import { homeFor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
 import { cn } from '@/shared/cn'
 
 /**
@@ -65,13 +67,14 @@ function footerLinks(nav: readonly HeaderNavItem[]): NavItem[] {
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
-function viewerOf(actor: ResolvedActor): { roleLabel: string; workbench: { href: string; label: string } } | null {
+function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
-  if (href === '/dashboard/admin') return { roleLabel: '系辦', workbench: { href, label: '管理後台' } }
-  if (href === '/dashboard/teacher') return { roleLabel: '老師', workbench: { href, label: '老師工作台' } }
-  if (href === '/dashboard/student') return { roleLabel: '學生', workbench: { href, label: '我的專題事務' } }
-  return { roleLabel: '待審核', workbench: { href, label: '申請進度' } }
+  const name = actor.displayName
+  if (href === '/dashboard/admin') return { roleLabel: '系辦', name, workbench: { href, label: '管理後台' } }
+  if (href === '/dashboard/teacher') return { roleLabel: '老師', name, workbench: { href, label: '老師工作台' } }
+  if (href === '/dashboard/student') return { roleLabel: '學生', name, workbench: { href, label: '我的專題事務' } }
+  return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' } }
 }
 
 /**
@@ -82,7 +85,7 @@ function viewerOf(actor: ResolvedActor): { roleLabel: string; workbench: { href:
  * `bare`：內容自己決定寬度與留白（首頁、登入卡片）；預設是置中的內容欄。
  */
 export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
-  const actor = await currentActor()
+  const actor = await shellViewer()
   const viewer = viewerOf(actor)
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -172,7 +175,7 @@ export type NavItem = { href: string; label: string }
  * 外觀在 `DashboardFrame`（client：側欄收合、手機抽屜、帳號下拉），
  * 這裡只放伺服器才做得到的：通知鈴鐺的未讀數、登出表單。
  */
-export function DashboardShell({
+export async function DashboardShell({
   roleLabel,
   items,
   current,
@@ -185,11 +188,18 @@ export function DashboardShell({
 }) {
   const base = current.split('/').slice(0, 3).join('/')
   const signOutFormId = 'dashboard-sign-out'
+  // 頭像的姓名：跟鈴鐺共用同一次身分解析（`shellViewer`），不另外查；只讀本人這一列。
+  const [viewer, jar] = await Promise.all([shellViewer(), cookies()])
+  const name = viewer.kind === 'authenticated' ? viewer.displayName : undefined
+  // 側欄上次是收合還是展開（瀏覽器切換時寫的 cookie）。
+  const sidebarOpen = sidebarOpenFromCookie(jar.get(SIDEBAR_COOKIE_NAME)?.value)
   return (
     <>
       <SignOutForm id={signOutFormId} />
       <DashboardFrame
         roleLabel={roleLabel}
+        userName={name}
+        sidebarOpen={sidebarOpen}
         items={items}
         current={current}
         homeHref={base}

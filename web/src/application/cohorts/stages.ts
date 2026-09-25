@@ -3,6 +3,7 @@ import {
   addTaipeiDays,
   formatTaipeiDate,
   isValidTaipeiDate,
+  taipeiDateOf,
   taipeiDayEndExclusive,
   taipeiDayStart,
   type TaipeiDate,
@@ -214,4 +215,65 @@ export function groupingDeadline(schedule: CohortSchedule): Date | null {
   const sorted = [...schedule.stages].sort((a, b) => a.seq - b.seq)
   if (sorted.length === 0 || !schedule.yearEndDate) return null
   return taipeiDayEndExclusive(stageLastDate(sorted, schedule.yearEndDate, 0))
+}
+
+// ── 專題時間軸（票 38；原型 `/dashboard/student/timeline` 的蛇形時間軸） ──────────────────
+
+export type StageStatus = 'done' | 'current' | 'upcoming'
+
+export type TimelineStage = {
+  readonly seq: number
+  readonly name: string
+  readonly startDate: TaipeiDate
+  /** 這一段的最後一天（含當天）。 */
+  readonly lastDate: TaipeiDate
+  readonly status: StageStatus
+}
+
+export type TimelineView = {
+  readonly stages: readonly TimelineStage[]
+  /** 目前所在的那一段；尚未開始、年度已結束時是 null。 */
+  readonly current: {
+    readonly seq: number
+    /** 這一段的時間已經過了幾成（0–100，講的是時間，不是誰做完了什麼）。 */
+    readonly elapsedPercent: number
+    /** 到這一段最後一天還剩幾天（最後一天當天是 0）。 */
+    readonly daysLeft: number
+  } | null
+}
+
+const DAY = 24 * 60 * 60 * 1000
+
+function daysBetween(from: TaipeiDate, to: TaipeiDate): number {
+  return Math.round((taipeiDayStart(to).getTime() - taipeiDayStart(from).getTime()) / DAY)
+}
+
+/**
+ * 時間軸每一段的狀態（已過／進行中／尚未開始）與目前這一段的時間進度。
+ * 跟首頁的「現在階段」同一個判定（`stagePositionAt`）；沒設階段或年度結束日時回 null。
+ */
+export function timelineView(schedule: CohortSchedule, businessAt: Date): TimelineView | null {
+  const position = stagePositionAt(schedule, businessAt)
+  if (position.kind === 'unconfigured' || !schedule.yearEndDate) return null
+  const yearEnd = schedule.yearEndDate
+  const sorted = [...schedule.stages].sort((a, b) => a.seq - b.seq)
+  const currentSeq = position.kind === 'in_stage' ? position.seq : null
+  const stages = sorted.map((stage, index): TimelineStage => {
+    const lastDate = stageLastDate(sorted, yearEnd, index)
+    const status: StageStatus =
+      position.kind === 'ended' || (currentSeq !== null && stage.seq < currentSeq)
+        ? 'done'
+        : stage.seq === currentSeq
+          ? 'current'
+          : 'upcoming'
+    return { seq: stage.seq, name: stage.name, startDate: stage.startDate, lastDate, status }
+  })
+  const cur = stages.find((s) => s.status === 'current')
+  if (!cur) return { stages, current: null }
+  const today = taipeiDateOf(businessAt)
+  // 只有一天的段（開始日＝最後一天）：那一天就是最後一天，算 100%（跟多天段的最後一天一致）。
+  const total = daysBetween(cur.startDate, cur.lastDate)
+  const elapsedPercent =
+    total <= 0 ? 100 : Math.min(100, Math.max(0, Math.round((daysBetween(cur.startDate, today) / total) * 100)))
+  return { stages, current: { seq: cur.seq, elapsedPercent, daysLeft: Math.max(0, daysBetween(today, cur.lastDate)) } }
 }
