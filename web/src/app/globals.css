@@ -1,64 +1,358 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------------
-   設計 token（S01-04）。
-   取自 prototype/src/app/globals.css，但**收斂成單一主軸色**：
-   Roy 的偏好與票 #47 都寫「配色是系網橘單一主軸」，所以原型裡的深藍不再當 primary，
-   只留作文字與側欄底的深中性色。要強調的地方一律用橘，不再有第二個主色。
+   設計 token（S01-04 起；2026-09-25 對齊原型 prototype/src/app/globals.css）。
+
+   結構照原型：`:root`／`.dark` 放實際色值，`@theme inline` 把它們接成 Tailwind 的色名，
+   所以深淺色只要換 class 就整套換掉。
+
+   **命名跟原型不一樣的地方（刻意的）**：原型 `primary`＝系網深藍、`brand`＝系網橘；
+   正式碼從 S01-04 起就是 `primary`＝系網橘（Roy：配色只留系網橘一個主軸），深藍叫 `ink`，
+   只當文字、頁尾、歡迎色塊這種「深中性色」。全站頁面都照這個名字寫，不改。
+   為了讓從原型搬來的元件少改幾個字，`brand` 也保留成橘色的別名（跟 `primary` 同值）。
+   從原型搬程式碼時：原型的 `bg-primary`／`text-primary`（深藍）要換成 `bg-ink`／`text-ink`。
 
    品牌色取樣自 https://www.im.fju.edu.tw/（2026-08-17）：
      橘 #E56E00 → oklch(0.6683 0.1741 51.05)   主軸
-     深藍 #003366 → oklch(0.3233 0.1025 253.89) 深中性（文字、側欄）
+     深藍 #003366 → oklch(0.3233 0.1025 253.89) 深中性（文字、頁尾、色塊）
      暖白 #FFF4EA → oklch(0.9730 0.0178 64.94)  次要底色
 --------------------------------------------------------------------------- */
 
-@theme {
-  --font-sans: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, sans-serif;
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 
-  --color-background: oklch(1 0 0);
-  --color-foreground: oklch(0.26 0.018 253.89);
-
-  --color-surface: oklch(0.988 0.003 253.89);
-  --color-border: oklch(0.918 0.006 253.89);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
   /* 主軸：系網橘 */
-  --color-primary: oklch(0.6683 0.1741 51.05);
-  --color-primary-foreground: oklch(0.99 0.008 64.94);
-  --color-primary-subtle: oklch(0.96 0.03 64.94);
-  --color-primary-on-subtle: oklch(0.43 0.12 51.05);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-on-subtle: var(--primary-on-subtle);
+  /* 原型的色名，跟 primary 同值（見檔頭）。 */
+  --color-brand: var(--primary);
+  --color-brand-foreground: var(--primary-foreground);
+  --color-brand-subtle: var(--primary-subtle);
+  --color-brand-on-subtle: var(--primary-on-subtle);
 
-  /* 深中性（原型的系網深藍，只當文字與側欄底，不當第二主色） */
-  --color-ink: oklch(0.3233 0.1025 253.89);
-  --color-ink-foreground: oklch(0.99 0.004 253.89);
+  /* 深中性：系網深藍 */
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
 
-  --color-muted: oklch(0.97 0.004 253.89);
-  --color-muted-foreground: oklch(0.4617 0.0116 252.91);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  --color-danger: oklch(0.55 0.2 25);
-  --color-danger-subtle: oklch(0.96 0.025 25);
-  --color-danger-on-subtle: oklch(0.43 0.16 25);
+  /* 狀態色。-on-subtle 是「淺色底上的文字色」，-foreground 是「實色底上的文字色」，兩者不能混用。 */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-on-subtle: var(--success-on-subtle);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-on-subtle: var(--warning-on-subtle);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-on-subtle: var(--info-on-subtle);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-on-subtle: var(--destructive-on-subtle);
+  /* 正式碼早期的色名（danger）＝shadcn 的 destructive。 */
+  --color-danger: var(--destructive);
+  --color-danger-foreground: var(--destructive-foreground);
+  --color-danger-subtle: var(--destructive-subtle);
+  --color-danger-on-subtle: var(--destructive-on-subtle);
 
-  --radius-card: 0.5rem;
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* 卡片圓角：前台 12px；後台外框裡（.dash-frame）照原型放大成 18px。 */
+  --radius-card: var(--card-radius);
+}
+
+:root {
+  --radius: 0.5rem;
+  --card-radius: 0.75rem;
+
+  /* 全站黑體（原型 2026-09-07 定案）。原型用 next/font 載 Geist＋Noto Sans TC；
+     正式碼先用系統字（CSP 與 build 不必連外），字重與字級照原型。 */
+  --font-sans: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', monospace;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.26 0.018 253.89);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.6683 0.1741 51.05);
+  --primary-foreground: oklch(0.99 0.008 64.94);
+  --primary-subtle: oklch(0.96 0.03 64.94);
+  --primary-on-subtle: oklch(0.43 0.12 51.05);
+
+  --ink: oklch(0.3233 0.1025 253.89);
+  --ink-foreground: oklch(0.99 0.004 253.89);
+
+  --secondary: oklch(0.973 0.0178 64.94);
+  --secondary-foreground: oklch(0.3 0.03 60);
+  --muted: oklch(0.97 0.004 253.89);
+  --muted-foreground: oklch(0.4617 0.0116 252.91);
+  /* hover／選取底色：帶一點藍的中性色，不是橘。 */
+  --accent: oklch(0.955 0.011 253.89);
+  --accent-foreground: var(--ink);
+  --surface: oklch(0.988 0.003 253.89);
+
+  --border: oklch(0.918 0.006 253.89);
+  --input: oklch(0.902 0.008 253.89);
+  --ring: oklch(0.6683 0.1741 51.05);
+
+  --success: oklch(0.54 0.12 152);
+  --success-foreground: oklch(0.99 0.01 152);
+  --success-subtle: oklch(0.955 0.03 152);
+  --success-on-subtle: oklch(0.39 0.095 152);
+  --warning: oklch(0.69 0.15 75);
+  --warning-foreground: oklch(0.26 0.05 75);
+  --warning-subtle: oklch(0.965 0.04 85);
+  --warning-on-subtle: oklch(0.41 0.09 75);
+  --info: oklch(0.54 0.13 250);
+  --info-foreground: oklch(0.99 0.006 250);
+  --info-subtle: oklch(0.955 0.025 250);
+  --info-on-subtle: oklch(0.41 0.12 250);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.99 0.01 25);
+  --destructive-subtle: oklch(0.96 0.025 25);
+  --destructive-on-subtle: oklch(0.43 0.16 25);
+
+  --chart-1: oklch(0.3233 0.1025 253.89);
+  --chart-2: oklch(0.6683 0.1741 51.05);
+  --chart-3: oklch(0.54 0.09 210);
+  --chart-4: oklch(0.7 0.07 145);
+  --chart-5: oklch(0.4617 0.0116 252.91);
+
+  --sidebar: oklch(0.988 0.003 253.89);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--ink-foreground);
+  --sidebar-accent: oklch(0.95 0.014 253.89);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: oklch(0.92 0.006 253.89);
+  --sidebar-ring: var(--ring);
+}
+
+/*
+  深色（原型只給後台用，前台固定白底）：中性底壓成帶藍的炭黑，
+  深藍 ink 在深色底上看不見，換成接近白的淺色；橘稍微提亮。
+  切換開關等頁面逐一在深色下核對過再開（見 PR 說明），這裡先把 token 放好。
+*/
+.dark {
+  --background: oklch(0.19 0.012 253.89);
+  --foreground: oklch(0.965 0.005 253.89);
+  --card: oklch(0.225 0.014 253.89);
+  --popover: oklch(0.245 0.015 253.89);
+
+  --primary: oklch(0.73 0.165 55);
+  --primary-foreground: oklch(0.18 0.04 55);
+  --primary-subtle: oklch(0.31 0.07 55);
+  --primary-on-subtle: oklch(0.88 0.09 55);
+
+  --ink: oklch(0.93 0.02 253.89);
+  --ink-foreground: oklch(0.17 0.025 253.89);
+
+  --secondary: oklch(0.275 0.015 253.89);
+  --secondary-foreground: oklch(0.95 0.008 64.94);
+  --muted: oklch(0.265 0.012 253.89);
+  --muted-foreground: oklch(0.71 0.014 253.89);
+  --accent: oklch(0.29 0.018 253.89);
+  --accent-foreground: oklch(0.965 0.005 253.89);
+  --surface: oklch(0.215 0.014 253.89);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.73 0.165 55);
+
+  --success: oklch(0.7 0.13 152);
+  --success-foreground: oklch(0.17 0.035 152);
+  --success-subtle: oklch(0.29 0.055 152);
+  --success-on-subtle: oklch(0.87 0.08 152);
+  --warning: oklch(0.79 0.145 80);
+  --warning-foreground: oklch(0.2 0.045 80);
+  --warning-subtle: oklch(0.31 0.06 80);
+  --warning-on-subtle: oklch(0.9 0.085 80);
+  --info: oklch(0.71 0.125 250);
+  --info-foreground: oklch(0.17 0.035 250);
+  --info-subtle: oklch(0.29 0.055 250);
+  --info-on-subtle: oklch(0.87 0.075 250);
+  --destructive: oklch(0.69 0.185 25);
+  --destructive-foreground: oklch(0.18 0.04 25);
+  --destructive-subtle: oklch(0.31 0.07 25);
+  --destructive-on-subtle: oklch(0.88 0.09 25);
+
+  --chart-1: oklch(0.71 0.115 245);
+  --chart-2: oklch(0.73 0.165 55);
+  --chart-3: oklch(0.68 0.09 210);
+  --chart-4: oklch(0.74 0.08 145);
+  --chart-5: oklch(0.71 0.014 253.89);
+
+  --sidebar: oklch(0.215 0.014 253.89);
+  --sidebar-primary: oklch(0.71 0.115 245);
+  --sidebar-primary-foreground: oklch(0.17 0.025 253.89);
+  --sidebar-accent: oklch(0.285 0.018 253.89);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(1 0 0 / 12%);
+}
+
+/* ---------------------------------------------------------------------------
+   shadcn 元件用的 variant（取自 shadcn/dist/tailwind.css 的前段）。
+   不把整個 shadcn 套件加進 web：它是 CLI，帶一大串依賴，web 只需要這幾個 variant。
+--------------------------------------------------------------------------- */
+
+@theme inline {
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height, var(--accordion-panel-height, auto)); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height, var(--accordion-panel-height, auto)); }
+    to { height: 0; }
+  }
+}
+
+@custom-variant data-open {
+  &:where([data-state='open']),
+  &:where([data-open]:not([data-open='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-state='closed']),
+  &:where([data-closed]:not([data-closed='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-checked {
+  &:where([data-state='checked']),
+  &:where([data-checked]:not([data-checked='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-unchecked {
+  &:where([data-state='unchecked']),
+  &:where([data-unchecked]:not([data-unchecked='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-selected {
+  &:where([data-selected='true']) {
+    @slot;
+  }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled='true']),
+  &:where([data-disabled]:not([data-disabled='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-active {
+  &:where([data-state='active']),
+  &:where([data-active]:not([data-active='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-horizontal {
+  &:where([data-orientation='horizontal']) {
+    @slot;
+  }
+}
+@custom-variant data-vertical {
+  &:where([data-orientation='vertical']) {
+    @slot;
+  }
+}
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
   html {
     color-scheme: light;
   }
 
   body {
     margin: 0;
-    background: var(--color-background);
-    color: var(--color-foreground);
+    background: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
-    line-height: 1.6;
+    /* 繁中內文行距要鬆（原型 1.75）。 */
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     /* 母 spec 的行動版要求：任何寬度都不出現橫向捲動。 */
     overflow-x: hidden;
   }
 
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
   :focus-visible {
-    outline: 2px solid var(--color-primary);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  /* 側欄寬度（shadcn 原本用 style 屬性帶，正式站 CSP 會擋，改放這裡）。 */
+  [data-slot='sidebar-wrapper'] {
+    --sidebar-width: 16rem;
+    --sidebar-width-icon: 3rem;
+    --sidebar-width-mobile: 18rem;
   }
 }
 
@@ -68,8 +362,138 @@
   .prose-item ol { list-style: decimal; padding-left: 1.25rem; }
   .prose-item h2 { font-size: 1.125rem; font-weight: 600; }
   .prose-item h3, .prose-item h4 { font-weight: 600; }
-  .prose-item a { color: var(--color-primary-on-subtle); text-decoration: underline; }
-  .prose-item blockquote { border-left: 3px solid var(--color-border); padding-left: 0.75rem; color: var(--color-muted-foreground); }
+  .prose-item a { color: var(--primary-on-subtle); text-decoration: underline; }
+  .prose-item blockquote { border-left: 3px solid var(--border); padding-left: 0.75rem; color: var(--muted-foreground); }
   .prose-item table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
-  .prose-item th, .prose-item td { border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; text-align: left; }
+  .prose-item th, .prose-item td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; text-align: left; }
+}
+
+/* ---------------------------------------------------------------------------
+   原型的共用樣式（prototype/src/app/globals.css）。只搬「外殼與共用元件」用得到的；
+   時間軸、甘特這類單頁的樣式等那一頁對齊時再搬。深藍一律寫 var(--ink)。
+--------------------------------------------------------------------------- */
+
+@layer components {
+  /* 字級：顯示級標題、區塊標題、卡片標題 */
+  .type-display {
+    font-size: clamp(2rem, 3.6vw, 2.875rem);
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
+  }
+  .type-section {
+    font-size: clamp(1.5rem, 2.2vw, 1.875rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.06em;
+    color: oklch(0.36 0.01 253.89);
+  }
+  .type-card-title {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 系網按鈕：橘實心 hover 變亮、外框版 hover 反白、深底上的白框版 */
+  .btn-fju {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] bg-primary px-6 font-bold text-primary-foreground transition-colors duration-300 hover:bg-[oklch(0.7_0.16_55)];
+  }
+  .btn-fju-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] border-[3px] border-primary bg-background font-semibold text-primary transition-colors duration-300 hover:bg-primary hover:text-primary-foreground;
+  }
+  .btn-fju-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] border-[3px] border-white/90 bg-transparent font-bold text-white transition-colors duration-300 hover:bg-white hover:text-ink;
+  }
+  /* 系網列表：深藍左側粗線 */
+  .fju-list-item {
+    @apply rounded-[3px] border-l-[5px] border-ink pl-4;
+  }
+  /* 灰藍圓角標題板 */
+  .fju-panel-title {
+    @apply flex items-center gap-6 bg-[oklch(0.93_0.008_253.89)] px-10 py-6;
+  }
+
+  /* 按下回饋 */
+  .press { transition: transform 100ms ease-out; }
+  .press:active { transform: scale(0.985); }
+
+  /* 卡片：hover 上浮＋陰影 */
+  .card-lift { transition: transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 300ms ease; }
+  .card-lift:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0, 51, 102, 0.16); }
+  .card-lift:active { transform: translateY(-1px) scale(0.99); transition-duration: 100ms; }
+
+  /* 文字連結：橘色底線從左長出 */
+  .link-ink { background-image: linear-gradient(var(--primary), var(--primary)); background-repeat: no-repeat; background-size: 0% 2px; background-position: 0 100%; transition: background-size 250ms cubic-bezier(0.2, 0.7, 0.2, 1), color 200ms; }
+  .link-ink:hover, .link-ink:focus-visible { background-size: 100% 2px; color: var(--primary); }
+
+  /* 導覽列項目：底部橘線滑入 */
+  .nav-ink { position: relative; }
+  .nav-ink::after { content: ''; position: absolute; left: 0; right: 0; bottom: 18px; height: 3px; border-radius: 2px; background: var(--primary); transform: scaleX(0); transform-origin: left; transition: transform 250ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .nav-ink:hover::after, .nav-ink[aria-current='page']::after { transform: scaleX(1); }
+
+  /* 主要按鈕：hover 微浮＋陰影，按下回彈 */
+  .btn-fju, .btn-fju-outline, .btn-fju-ghost { transition: background-color 300ms, color 300ms, border-color 300ms, transform 120ms ease-out, box-shadow 300ms; }
+  .btn-fju:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); transform: translateY(-1px); }
+  .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: translateY(0) scale(0.97); box-shadow: none; transition-duration: 80ms; }
+  .btn-fju:focus-visible, .btn-fju-outline:focus-visible, .btn-fju-ghost:focus-visible { outline: 3px solid color-mix(in oklch, var(--primary) 45%, transparent); outline-offset: 2px; }
+  .btn-fju:disabled { pointer-events: none; opacity: 0.6; }
+
+  /* 通知小紅點外圈 */
+  .notif-dot { box-shadow: 0 0 0 2px var(--background); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .press:active, .card-lift, .card-lift:hover, .card-lift:active { transform: none; }
+    .btn-fju:hover, .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: none; }
+    .nav-ink::after, .link-ink { transition: none; }
+  }
+}
+
+/* 後台外框（原型 2026-09-09 第三輪）：淡藍底、白色圓角側欄、內容區是另一塊圓角面板、白卡大圓角 */
+@layer components {
+  .dash-frame {
+    --sidebar: oklch(0.955 0.02 250);
+    --sidebar-width: 16.5rem;
+    --sidebar-width-icon: 3.75rem;
+    --card-radius: 18px;
+    background: var(--sidebar);
+  }
+  .dash-frame [data-slot='sidebar-inner'] { background: var(--card); border-radius: 22px; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06); }
+  .dash-frame [data-slot='sidebar-container'] { border-right: 0 !important; }
+  .dash-frame [data-slot='sidebar-rail']::after { display: none; }
+  .dash-surface { background: oklch(0.975 0.008 250) !important; border-radius: 22px !important; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06) !important; overflow: clip; }
+  @media (max-width: 767px) {
+    .dash-surface { border-radius: 0 !important; box-shadow: none !important; }
+  }
+  /* 頂列實底：sticky 時內容不會從底下透出來。 */
+  .dash-header { background: oklch(0.975 0.008 250); border-bottom: 1px solid oklch(0.93 0.01 250); }
+  .dash-card { background: var(--card); border-radius: 18px; border: 1px solid oklch(0.93 0.01 250); }
+  .dash-card-hover { transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease; }
+  .dash-card-hover:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 51, 102, 0.08); }
+
+  /* 側欄：白底；選中＝淡藍圓角塊＋深藍字 */
+  .dash-nav-item { color: var(--muted-foreground); }
+  .dash-nav-item:hover { background: oklch(0.955 0.012 250); color: var(--foreground); }
+  .dash-nav-active, .dash-nav-active:hover { background: oklch(0.93 0.035 253); color: var(--ink); }
+  .dash-nav-active svg { color: var(--ink); }
+
+  /* 歡迎色塊：系網深藍滿版＋兩個淡藍大圓 */
+  .hero { position: relative; overflow: hidden; border-radius: 22px; background: var(--ink); color: #fff; }
+  .hero::before { content: ''; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 9999px; background: oklch(0.45 0.12 250); opacity: 0.9; }
+  .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: oklch(0.4 0.11 250); opacity: 0.8; }
+  .hero > * { position: relative; z-index: 1; }
+
+  @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; box-shadow: none; } }
+
+  .dark .dash-frame { --sidebar: oklch(0.15 0.01 253.89); }
+  .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.205 0.012 253.89); box-shadow: none; }
+  .dark .dash-surface { background: oklch(0.19 0.012 253.89) !important; box-shadow: none !important; }
+  .dark .dash-header { background: oklch(0.19 0.012 253.89); border-bottom-color: var(--border); }
+  .dark .dash-card { border-color: var(--border); }
+  .dark .dash-nav-item:hover { background: oklch(1 0 0 / 6%); }
+  .dark .dash-nav-active, .dark .dash-nav-active:hover { background: oklch(1 0 0 / 10%); color: #fff; }
+  .dark .dash-nav-active svg { color: var(--primary); }
+  .dark .hero { background: oklch(0.28 0.08 253.89); }
 }

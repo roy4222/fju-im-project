@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { ActionForm, Field, HiddenField } from '@/app/_ui/form'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
-import { Card } from '@/app/_ui/primitives'
+import { AuthCard } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { signInAction } from '@/app/login/actions'
 import { GoogleButton } from '@/app/login/google-button'
@@ -36,7 +36,7 @@ export default async function LoginPage({
 
   return (
     <NarrowShell>
-      <Card title="登入" description="學生、老師與系辦使用同一個入口。">
+      <AuthCard title="登入" description="學生、老師與系辦使用同一個入口。">
         {next ? (
           <p className="mb-4 rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
             登入後會回到你原本要去的頁面。
@@ -50,7 +50,7 @@ export default async function LoginPage({
 
         <GoogleButton from="login" next={next} label="使用 Google 帳號登入" />
 
-        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="my-5 flex items-center gap-3 text-[13px] text-muted-foreground">
           <span className="h-px flex-1 bg-border" />
           或使用 Email 與密碼
           <span className="h-px flex-1 bg-border" />
@@ -64,11 +64,13 @@ export default async function LoginPage({
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
           忘記密碼不寄信，請找系辦核對身分後發臨時密碼。
         </p>
-      </Card>
-
-      <p className="mt-4 text-center text-sm text-muted-foreground">
-        還沒有帳號？<Link className="underline" href="/register">註冊</Link>
-      </p>
+        <p className="mt-4 text-center text-[13px] text-muted-foreground">
+          還沒有帳號？
+          <Link className="font-bold text-primary hover:underline" href="/register">
+            註冊
+          </Link>
+        </p>
+      </AuthCard>
     </NarrowShell>
   )
 }
