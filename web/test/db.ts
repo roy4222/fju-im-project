@@ -11,10 +11,9 @@ import { Pool, type PoolClient } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from '@/infrastructure/db/schema'
 
-export const TEST_DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL_OWNER ??
-  'postgres://fju_owner:fju_local_dev@127.0.0.1:55432/fju'
+import { TEST_DATABASE_URL, runtimeRolePassword, type RuntimeRole } from './runtime-roles'
+
+export { TEST_DATABASE_URL }
 
 let counter = 0
 
@@ -133,31 +132,16 @@ export async function inTransaction<T>(
 /**
  * 以 runtime 角色（`fju_app`／`fju_backup`）連到同一個隔離 schema。
  *
- * 角色由 migration 0001 建立但不設密碼（密碼是維運的事，契約 05 §6），
- * 所以這裡先用 owner 連線幫它設一個本機測試用的密碼再連。
+ * 角色由 migration 0001 建立但不設密碼（密碼是維運的事，契約 05 §6）。
+ * 測試用的密碼由 `test/global-setup.ts` 在整套開始前設好一次；這裡只負責連線，
+ * **不再每個測試檔都 `ALTER ROLE`**——那會讓同一個資料庫上跑著的 app／worker 登入失敗，
+ * 並行時也會撞 `tuple concurrently updated`。
  */
 export async function poolAsRole(
   isolated: IsolatedDatabase,
-  role: 'fju_app' | 'fju_backup',
-  password = process.env[`TEST_${role.toUpperCase()}_PASSWORD`] ?? `${role}_local_test`,
+  role: RuntimeRole,
+  password = runtimeRolePassword(role),
 ): Promise<Pool> {
-  const admin = new Pool({ connectionString: TEST_DATABASE_URL, max: 1 })
-  try {
-    // 好幾個測試檔同時跑時會同時 ALTER 同一個角色，PostgreSQL 回 `tuple concurrently updated`。
-    // 設的是同一個密碼，重試一次就好。
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        await admin.query(`ALTER ROLE ${role} PASSWORD '${password.replaceAll("'", "''")}'`)
-        break
-      } catch (error) {
-        if (attempt >= 5 || !/tuple concurrently updated/.test(String((error as Error)?.message))) throw error
-        await new Promise((resolve) => setTimeout(resolve, 50 * attempt))
-      }
-    }
-  } finally {
-    await admin.end()
-  }
-
   const url = new URL(TEST_DATABASE_URL)
   url.username = role
   url.password = password

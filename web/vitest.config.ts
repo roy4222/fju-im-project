@@ -28,6 +28,8 @@ export default defineConfig({
           name: 'integration',
           include: ['src/**/*.integration.test.ts', 'test/**/*.integration.test.ts'],
           environment: 'node',
+          // 整套開始前建好 runtime 角色、設好測試密碼（只一次）。見 test/global-setup.ts。
+          globalSetup: ['./test/global-setup.ts'],
           // 打真的 PostgreSQL，起連線比純運算慢。
           testTimeout: 30_000,
           hookTimeout: 30_000,
