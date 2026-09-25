@@ -96,7 +96,9 @@ test('新密碼太短或跟目前的一樣會被擋下', async ({ page }) => {
 test('登出之後：舊的一次性密碼失效，新密碼登得回來', async ({ page }) => {
   await signIn(page, NEW_PASSWORD)
   await page.goto('/dashboard/admin')
-  await page.getByRole('button', { name: '登出' }).click()
+  // 登出在右上角的帳號選單裡（原型的頭像下拉）。
+  await page.getByRole('button', { name: '帳號選單' }).click()
+  await page.getByRole('menuitem', { name: '登出' }).click()
   await expect(page).toHaveURL(/\/login$/)
 
   // 未登入不能直接進後台。

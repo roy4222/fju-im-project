@@ -77,9 +77,18 @@ export type AdvisorChangeReceipt = {
   readonly teacherName: string | null
   /** 原本的主指導（重派、解除時）；首次指派是 null。 */
   readonly previousTeacherName: string | null
+  /** 票 26：這次改主指導讓幾個目前的簽核版本失效（舊回執沒有這一欄）。 */
+  readonly supersededSignoffCount?: number
 }
 
 export function describeAdvisorChangeReceipt(receipt: AdvisorChangeReceipt): string {
+  const signoff = receipt.supersededSignoffCount
+    ? `簽核目前版本已失效（指導老師變更），請到「簽核」建立新版。`
+    : ''
+  return describeChange(receipt) + signoff
+}
+
+function describeChange(receipt: AdvisorChangeReceipt): string {
   switch (receipt.change) {
     case 'claimed':
       return `${receipt.groupCode} 已指定為你的組別；全組已收到通知。`

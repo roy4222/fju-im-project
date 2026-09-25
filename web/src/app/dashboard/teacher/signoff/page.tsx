@@ -4,7 +4,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { StateBadge } from '@/app/dashboard/_signoff/version-view'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
-import { describeCause, getSignoffQuery, PURPOSE_LABEL } from '@/composition/signoff'
+import type { TeacherSignoffCard } from '@/application/signoff'
+import { describeCause, getSignoffQuery, PURPOSE_LABEL, STATE_LABEL } from '@/composition/signoff'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '簽核｜資管系專題平台' }
@@ -13,8 +14,25 @@ export const metadata = { title: '簽核｜資管系專題平台' }
  * 老師「簽核」（票 25；原型 `/dashboard/teacher/signoff`）：**此刻**指導的每一組、每個簽核包的目前那一版一張卡，
  * 點進去讀全文、附件、授權範圍與參與者。換掉的老師這裡就看不到那一組（查詢只看有效的主指導）。
  *
- * 老師同意／退回在票 26（學生全員同意後才輪到老師）；這一頁先把狀態與全文入口擺好。
+ * 卡片寫「輪到你」「等待學生 N 位」「已完成」「已退回修正」；同意或退回在版本頁（學生全員同意後才出現按鈕）。
  */
+/** 卡片的一句話狀態（原型「輪到你」「等待學生 2 人」）。 */
+function cardStatus(c: TeacherSignoffCard): string {
+  const p = c.current.progress
+  switch (c.current.state) {
+    case 'collecting':
+      return `等待學生 ${p.total - p.agreed} 位`
+    case 'teacher_pending':
+      return c.mine.isSnapshotAdvisor ? '輪到你' : '學生都已同意，等主指導'
+    case 'complete':
+      return '已完成'
+    case 'revision':
+      return '已退回修正'
+    default:
+      return STATE_LABEL[c.current.state]
+  }
+}
+
 export default async function TeacherSignoffPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/teacher/signoff', 'teacher')
@@ -44,15 +62,19 @@ export default async function TeacherSignoffPage() {
                   </div>
                   <StateBadge state={c.current.state} />
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  v{c.current.versionNo}・{c.current.studentCount} 位學生＋你・{formatTaipeiMinute(c.current.createdAt)} 建立
+                <p className="mt-2 text-sm font-medium text-ink" data-testid="teacher-card-status">
+                  {cardStatus(c)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  v{c.current.versionNo}・學生 {c.current.progress.agreed}／{c.current.progress.total} 已同意・
+                  {formatTaipeiMinute(c.current.createdAt)} 建立
                   {c.current.state === 'superseded' && cause ? `・已失效（${cause}），等待系辦建立新版` : ''}
                 </p>
                 <Link
                   href={`/dashboard/teacher/signoff/${c.current.versionId}`}
                   className="mt-3 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline"
                 >
-                  閱讀全文與參與者
+                  {c.current.state === 'teacher_pending' && c.mine.isSnapshotAdvisor && !c.mine.voted ? '閱讀全文並表態' : '閱讀全文與進度'}
                 </Link>
               </li>
             )

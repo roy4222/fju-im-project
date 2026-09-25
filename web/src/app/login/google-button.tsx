@@ -26,7 +26,7 @@ export function GoogleButton({
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md border border-border bg-background text-sm font-semibold text-ink transition-colors hover:bg-muted disabled:opacity-60"
+        className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md border border-border bg-background text-[15px] font-bold text-foreground transition-colors hover:bg-accent disabled:opacity-60"
       >
         <GoogleIcon />
         {pending ? '前往 Google…' : label}

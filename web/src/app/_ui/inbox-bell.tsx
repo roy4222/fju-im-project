@@ -1,9 +1,10 @@
 import Link from 'next/link'
+import { IconBell } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
 import { getInboxQuery } from '@/composition/inbox'
 
 /**
- * 頂列的通知鈴鐺（票 12；原型 `dashboard-header.tsx` 的鈴鐺）。徽章＝本人未讀數，點下去到通知匣。
+ * 頂列的通知鈴鐺（票 12；原型 `dashboard-header.tsx` 的鈴鐺，位置與樣式照原型）。徽章＝本人未讀數，點下去到通知匣。
  *
  * 是 server component：每次換頁重新算一次，沒有 client JS，也就不必為了它放寬 CSP。
  * 讀不到（資料庫暫時有問題）就只顯示鈴鐺、不顯示數字，不要讓整個後台跟著壞。
@@ -23,16 +24,13 @@ export async function InboxBell({ href }: { href: string }) {
       aria-label={label}
       title={label}
       data-testid="inbox-bell"
-      className="relative inline-flex size-8 items-center justify-center rounded-md hover:bg-white/10"
+      className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
-      <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="size-4.5">
-        <path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6" />
-        <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
-      </svg>
+      <IconBell aria-hidden className="size-4.5" />
       {unread > 0 ? (
         <span
           data-testid="inbox-bell-count"
-          className="absolute -top-1 -right-1 min-w-4.5 rounded-full bg-primary px-1 text-center text-[11px] leading-4.5 font-semibold text-primary-foreground tabular-nums"
+          className="notif-dot absolute top-0.5 right-0.5 min-w-4.5 rounded-full bg-primary px-1 text-center text-[11px] leading-4.5 font-semibold text-primary-foreground tabular-nums"
         >
           {unread > 99 ? '99+' : unread}
         </span>

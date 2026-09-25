@@ -23,7 +23,7 @@ export function ActionForm({
   const [state, formAction, pending] = useActionState(action, undefined)
 
   return (
-    <form action={formAction} className={cn('space-y-4', className)}>
+    <form action={formAction} className={cn('flex flex-col gap-4.5', className)}>
       {children}
       {state?.error ? (
         <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
@@ -33,7 +33,7 @@ export function ActionForm({
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+        className="btn-fju h-12 w-full text-base"
       >
         {pending ? '處理中…' : submitLabel}
       </button>
@@ -61,8 +61,9 @@ export function Field({
 }) {
   const id = `field-${name}`
   return (
-    <div>
-      <label htmlFor={id} className="block text-sm font-medium text-ink">
+    // 原型 auth-card 的 Field：粗體標籤、44px 高的輸入框。
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-semibold text-foreground">
         {label}
       </label>
       <input
@@ -72,9 +73,9 @@ export function Field({
         autoComplete={autoComplete}
         defaultValue={defaultValue}
         required={!optional}
-        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20"
       />
-      {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }

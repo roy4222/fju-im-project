@@ -18,6 +18,8 @@ import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf } from '@/shared/tim
  * 只講時間，不講誰做完了什麼——進入期中不代表已交期中報告（產品模組 02 §4）。
  *
  * 看哪一屆：學生看自己所屬的屆別；老師與管理員看預設工作屆別（切換屆別在後面的票）。
+ *
+ * 外觀是原型首頁頂端的深藍歡迎色塊（`.hero`，2026-09-25 對齊）；橘色只標「現在」這一格。
  */
 export async function StageBanner({
   actor,
@@ -43,12 +45,12 @@ export async function StageBanner({
 
   if (!cohort) {
     return (
-      <section aria-label="現在階段" className="mb-6 rounded-card border border-border bg-background px-5 py-4">
-        <p className="text-xs text-muted-foreground tabular-nums">{today}</p>
-        <p className="mt-1 text-base font-medium text-ink">
+      <section aria-label="現在階段" className="hero mb-6 px-6 py-6 md:px-8">
+        <p className="text-[13px] font-semibold tabular-nums opacity-80">{today}</p>
+        <p className="mt-1.5 text-[22px] leading-tight font-extrabold">
           {isStudent ? '你還沒有歸屬的屆別' : '還沒有設定預設工作屆別'}
         </p>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1.5 max-w-xl text-sm opacity-85">
           {isStudent ? '帳號核准並歸到某一屆之後，這裡會顯示那一屆現在在哪個階段。' : '系辦在屆別頁指定預設工作屆別後，這裡會顯示它現在在哪個階段。'}
         </p>
       </section>
@@ -60,28 +62,28 @@ export async function StageBanner({
   const currentSeq = position.kind === 'in_stage' ? position.seq : null
 
   return (
-    <section aria-label="現在階段" className="mb-6 rounded-card border border-border bg-background px-5 py-4">
-      <p className="text-xs text-muted-foreground tabular-nums">
+    <section aria-label="現在階段" className="hero mb-6 px-6 py-6 md:px-8">
+      <p className="text-[13px] font-semibold tabular-nums opacity-80">
         {cohort.code}・{today}
       </p>
-      <p className="mt-1 text-xl font-semibold text-ink" data-testid="stage-text">
+      <p className="mt-1.5 text-[26px] leading-tight font-extrabold" data-testid="stage-text">
         {describeStagePosition(position)}
       </p>
       {position.kind === 'in_stage' ? (
-        <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">這個階段到 {formatTaipeiDate(position.lastDate)}</p>
+        <p className="mt-1.5 text-sm tabular-nums opacity-85">這個階段到 {formatTaipeiDate(position.lastDate)}</p>
       ) : position.kind === 'not_started' ? (
-        <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">第 1 階段從 {formatTaipeiDate(position.firstStartDate)} 開始</p>
+        <p className="mt-1.5 text-sm tabular-nums opacity-85">第 1 階段從 {formatTaipeiDate(position.firstStartDate)} 開始</p>
       ) : null}
 
       {showStages && schedule.yearEndDate && schedule.stages.length > 0 ? (
-        <ol aria-label="本屆階段" className="mt-3 grid gap-2 sm:grid-cols-4">
+        <ol aria-label="本屆階段" className="mt-5 grid gap-2 sm:grid-cols-4">
           {schedule.stages.map((stage, index) => (
             <li
               key={stage.seq}
               aria-current={stage.seq === currentSeq ? 'step' : undefined}
               className={cn(
-                'rounded-md border px-3 py-2 text-sm',
-                stage.seq === currentSeq ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border text-ink',
+                'rounded-xl px-3.5 py-2.5 text-sm',
+                stage.seq === currentSeq ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white',
               )}
             >
               <p className="font-medium">

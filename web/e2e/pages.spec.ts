@@ -157,8 +157,11 @@ test.describe('手機寬度', () => {
     await signInAs(page, 'student')
     await page.goto('/dashboard/student')
 
-    // 側欄的桌機版導覽在窄螢幕是收起來的；只剩一個「選單」。
-    await expect(page.getByText('選單', { exact: true })).toBeVisible()
+    // 側欄的桌機版導覽在窄螢幕是收起來的；只剩頂列一顆「側欄選單」，按了才從左邊滑出來。
+    await expect(page.getByRole('navigation', { name: '後台導覽' })).toBeHidden()
+    await page.getByRole('button', { name: '側欄選單' }).click()
+    await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '我的組別' })).toBeVisible()
+    await page.keyboard.press('Escape')
 
     const overflows = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,

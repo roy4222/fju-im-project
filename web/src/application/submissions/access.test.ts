@@ -26,6 +26,7 @@ const groupVersion: SubmissionHolder = {
   currentAdvisorUserId: T1,
   visibility: null,
   membershipSnapshot: [S1, 'user-s2'],
+  activeEvaluatorUserIds: [],
 }
 const personalVersion = (patch: Partial<Extract<SubmissionHolder, { kind: 'version' }>> = {}): SubmissionHolder => ({
   kind: 'version',
@@ -35,6 +36,7 @@ const personalVersion = (patch: Partial<Extract<SubmissionHolder, { kind: 'versi
   currentAdvisorUserId: T1,
   visibility: { enabled: true, effectiveFromVersionNo: 2 },
   membershipSnapshot: null,
+  activeEvaluatorUserIds: [],
   ...patch,
 })
 
@@ -107,6 +109,31 @@ describe('授權矩陣逐角色（契約 03 §1；同一份組別正式版本、
   it.each(table)('%s', (_label, who, draft, version) => {
     expect(canReadSubmission(who, groupDraft)).toBe(draft)
     expect(canReadSubmission(who, groupVersion)).toBe(version)
+  })
+})
+
+describe('受指派的評分老師（票 24、S10-03；產品 06 §4「7.4」）', () => {
+  const T5 = 'user-t5'
+  const evaluated = { ...groupVersion, activeEvaluatorUserIds: [T5] } as const
+
+  it('本組有效評分指派的老師可以讀整組的正式版本（與附件）；指派結束（清單裡沒有他）就不行', () => {
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), evaluated)).toBe(true)
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), groupVersion)).toBe(false)
+  })
+
+  it('草稿、個人回答一律不行；老師角色被撤銷也不行；別的老師不會因為別人的指派拿到', () => {
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), groupDraft)).toBe(false)
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), personalVersion({ activeEvaluatorUserIds: [T5], visibility: null }))).toBe(
+      false,
+    )
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: false }), evaluated)).toBe(false)
+    expect(canReadSubmission(viewer({ userId: T3, isTeacher: true }), evaluated)).toBe(false)
+  })
+
+  it('同時是主指導與評分老師：移除評分指派後仍以主指導身分讀得到（兩種授權分開撤銷，GRD-14）', () => {
+    const both = { ...groupVersion, currentAdvisorUserId: T5, activeEvaluatorUserIds: [T5] } as const
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), both)).toBe(true)
+    expect(canReadSubmission(viewer({ userId: T5, isTeacher: true }), { ...both, activeEvaluatorUserIds: [] })).toBe(true)
   })
 })
 
