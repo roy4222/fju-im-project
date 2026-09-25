@@ -15,6 +15,7 @@ import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publis
 import { PgAuditWriter, sha256 } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgShowcaseCommand } from '@/infrastructure/showcase/pg-showcase'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { PgSignoffCommand, PgSignoffQuery } from '@/infrastructure/signoff/pg-signoff'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
@@ -31,6 +32,8 @@ import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submiss
  * - 提醒：收件人＝還沒表態的人（含還沒輪到的老師），24 小時內不重複。
  * - 匯出：CSV 明細欄位齊全、防公式注入、沒有 IP／瀏覽器欄；可列印頁逸出；每次匯出存檔並留一筆紀錄。
  * - 附件下載：被簽核版本引用的附件，該版參與學生可下載；換掉的快照主指導不行。
+ * - 換老師後舊老師失權含看不到（2026-09-25 Roy 定）：版本頁、簽核附件、凍結海報三處同一個判斷，舊老師一律拒；
+ *   新老師、被移出的快照學生、管理員照樣讀得到。
  */
 
 let owner: IsolatedDatabase
@@ -41,6 +44,7 @@ let signoff: PgSignoffCommand
 let query: PgSignoffQuery
 let groups: PgGroupCommand
 let advisors: PgAdvisorCommand
+let showcase: PgShowcaseCommand
 let adminId: string
 const businessClock = { now: async () => new Date('2027-01-05T02:00:00Z') }
 /** 可以撥的真實時鐘（提醒的 24 小時用）。 */
@@ -170,6 +174,32 @@ async function submittedFile(s: Scenario, name = '期末報告.pdf'): Promise<st
   return fileId
 }
 
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+
+/** 這一組的精選草稿（含 PNG 海報），給 `final_document` 版本凍結授權範圍用。 */
+async function showcaseDraftWithPoster(s: Scenario): Promise<{ entryId: string; posterFileId: string; revision: number }> {
+  const created = await showcase.createDraft(admin(), { groupId: s.groupId }, randomUUID())
+  if (!created.ok) throw new Error(created.message)
+  const entryId = created.receipt.entryId
+  const ticket = await showcase.requestPosterUpload(admin(), { entryId, fileName: 'poster.png', declaredMime: 'image/png', declaredSize: PNG.length })
+  if (!ticket.ok) throw new Error(ticket.message)
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(PNG)
+      controller.close()
+    },
+  })
+  const uploaded = await storage.upload(adminId, ticket.receipt.ticket, body, PNG.length)
+  if (!uploaded.ok) throw new Error(uploaded.message)
+  const saved = await showcase.updateDraft(
+    admin(),
+    { entryId, revision: 1, title: '智慧校園導覽', summary: '用室內定位帶新生認識校園。', videoUrl: '', posterFileId: uploaded.receipt.fileId },
+    randomUUID(),
+  )
+  if (!saved.ok) throw new Error(saved.message)
+  return { entryId, posterFileId: uploaded.receipt.fileId, revision: saved.receipt.revision }
+}
+
 function input(s: Scenario, overrides: Partial<CreateVersionInput> = {}): CreateVersionInput {
   return {
     groupId: s.groupId,
@@ -251,6 +281,7 @@ beforeAll(async () => {
   query = new PgSignoffQuery({ pool: () => app })
   groups = new PgGroupCommand({ ...common, events: new PgEventPublisher(), dueWork: new PgDueWorkScheduler({ testKindsEnabled: false }), signoff })
   advisors = new PgAdvisorCommand({ ...common, events: new PgEventPublisher(), files: storage, signoff })
+  showcase = new PgShowcaseCommand({ ...common, files: storage })
 })
 
 afterAll(async () => {
@@ -795,5 +826,88 @@ describe('附件下載：被簽核版本引用的檔案（#272 存疑點 5）', 
     await advisors.assign(admin(), { groupId: s.groupId, revision: await revisionOf(s.groupId), teacherUserId: next.id, reason: '改派', gradingSelections: [] }, randomUUID())
     expect(await storage.authorizeDownload(teacherOf(s), fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect((await storage.authorizeDownload(actor(next.id, ['teacher']), fileId)).ok).toBe(true)
+  })
+})
+
+describe('換老師後舊老師失權含看不到（產品 07 §8；2026-09-25 Roy 定）', () => {
+  it('改派主指導後：舊老師讀版本頁、下載簽核附件、看凍結海報一律被拒；新老師、被移出的快照學生、管理員照樣讀得到', async () => {
+    const s = await scenario({ size: 4 })
+    const fileId = await submittedFile(s)
+    const draft = await showcaseDraftWithPoster(s)
+    const mid = await mustCreate(s, { attachmentFileIds: [fileId] })
+    const fin = await mustCreate(s, { purpose: 'final_document', showcaseEntryId: draft.entryId })
+    // 草稿換掉海報：之後那張海報只剩簽核版本的凍結引用撐著，才測得到海報政策的 signoff_version 那一條。
+    const released = await showcase.updateDraft(
+      admin(),
+      { entryId: draft.entryId, revision: draft.revision, title: '智慧校園導覽', summary: '用室內定位帶新生認識校園。', videoUrl: '', posterFileId: null },
+      randomUUID(),
+    )
+    expect(released.ok).toBe(true)
+    // 附件同理：拿掉那一版繳交的引用，只剩簽核版本的引用（不靠繳交政策的「目前主指導」那一條）。
+    await owner.sql(`update file_references set released_at = now() where file_id = $1 and ref_type = 'submission_version'`, [fileId])
+
+    const oldTeacher = teacherOf(s)
+    const canDownload = async (who: ResolvedActor, id: string) => {
+      const r = await storage.authorizeDownload(who, id)
+      if (r.ok) await r.receipt.body.cancel()
+      return r.ok
+    }
+    const canOpen = async (who: ResolvedActor, versionId: string) => (await query.versionDetail(who, versionId)).ok
+
+    // 改派前：快照主指導三處都讀得到。
+    expect(await canOpen(oldTeacher, mid.versionId)).toBe(true)
+    expect(await canOpen(oldTeacher, fin.versionId)).toBe(true)
+    expect(await canDownload(oldTeacher, fileId)).toBe(true)
+    expect(await canDownload(oldTeacher, draft.posterFileId)).toBe(true)
+
+    // 移出一位快照學生，再改派主指導。
+    const removed = s.members[3]!
+    await groups.removeMember(
+      admin(),
+      { groupId: s.groupId, revision: await revisionOf(s.groupId), userId: removed.id, successorLeaderUserId: null, reason: '退選' },
+      randomUUID(),
+    )
+    const next = await newUser('接手老師', 'teacher')
+    const reassigned = await advisors.assign(
+      admin(),
+      { groupId: s.groupId, revision: await revisionOf(s.groupId), teacherUserId: next.id, reason: '改派', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(reassigned.ok).toBe(true)
+    const v2 = await mustCreate(s)
+
+    // 舊老師：舊版（他在快照裡）、新版的版本頁都 FORBIDDEN；附件、海報都 FORBIDDEN。
+    for (const versionId of [mid.versionId, fin.versionId, v2.versionId]) {
+      expect(await query.versionDetail(oldTeacher, versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    }
+    expect(await storage.authorizeDownload(oldTeacher, fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await storage.authorizeDownload(oldTeacher, draft.posterFileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    // 老師頁也不再列出這一組。
+    expect(await query.teacherView(oldTeacher)).toEqual([])
+
+    // 新老師（此刻的主指導）、被移出的快照學生、管理員：舊版的版本頁、附件、海報都讀得到。
+    const newTeacher = actor(next.id, ['teacher'])
+    for (const who of [newTeacher, student(removed), admin()]) {
+      expect(await canOpen(who, mid.versionId)).toBe(true)
+      expect(await canOpen(who, fin.versionId)).toBe(true)
+      expect(await canDownload(who, fileId)).toBe(true)
+      expect(await canDownload(who, draft.posterFileId)).toBe(true)
+    }
+    // 新版：新老師與管理員讀得到；被移出的學生不在新版快照、也不是現任組員，讀不到。
+    expect(await canOpen(newTeacher, v2.versionId)).toBe(true)
+    expect(await canOpen(admin(), v2.versionId)).toBe(true)
+    expect(await query.versionDetail(student(removed), v2.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect((await query.teacherView(newTeacher)).map((c) => c.groupId)).toContain(s.groupId)
+
+    // 改派回原來的老師：他又是此刻的主指導，讀得到（判斷每次重查，不是永久封鎖）。
+    const back = await advisors.assign(
+      admin(),
+      { groupId: s.groupId, revision: await revisionOf(s.groupId), teacherUserId: s.teacher.id, reason: '改回', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(back.ok).toBe(true)
+    expect(await canOpen(oldTeacher, mid.versionId)).toBe(true)
+    expect(await canDownload(oldTeacher, draft.posterFileId)).toBe(true)
+    expect(await query.versionDetail(newTeacher, mid.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
 })
