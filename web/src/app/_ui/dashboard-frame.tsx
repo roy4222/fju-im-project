@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import {
+  IconAward,
   IconBell,
   IconBuildingFactory2,
   IconCalendarTime,
@@ -55,6 +56,8 @@ const SEGMENTS: Record<string, { group: Group; icon: Icon }> = {
   affairs: { group: '專題事務', icon: IconClipboardText },
   editor: { group: '專題事務', icon: IconPencilPlus },
   files: { group: '專題事務', icon: IconFolders },
+  // 公開精選（票 25）：成果發布，放在專題事務。
+  showcase: { group: '專題事務', icon: IconAward },
   groups: { group: '分組與產學', icon: IconUsersGroup },
   industry: { group: '分組與產學', icon: IconBuildingFactory2 },
   grading: { group: '評分與簽核', icon: IconChecklist },
