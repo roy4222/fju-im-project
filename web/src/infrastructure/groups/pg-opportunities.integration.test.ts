@@ -293,6 +293,38 @@ describe('聯絡資訊只有案主與系辦看得到（6.2；查詢層擋）', (
     expect(await query.list(pending)).toEqual([])
   })
 
+  it('學生後台「產學合作」卡片（票 38）：只有已發布的案；草稿、已下架不在；每張卡只有公開欄位；別屆學生看到同一份', async () => {
+    const t = await newTeacher('案主己')
+    const cohortA = await newCohort()
+    const cohortB = await newCohort()
+    const s = await newStudent(cohortA.id)
+    const other = await newStudent(cohortB.id)
+    const published = await createOpportunity(t, { overrides: { companyName: '學生頁公司' } })
+    const draft = await createOpportunity(t, { publish: false, overrides: { companyName: '學生頁草稿' } })
+    const gone = await createOpportunity(t, { overrides: { companyName: '學生頁下架' } })
+    const withdrawn = await command.withdraw(actor(t, ['teacher']), { opportunityId: gone, revision: await opportunityRevision(gone) }, randomUUID())
+    expect(withdrawn.ok).toBe(true)
+
+    const cards = await query.list(actor(s.id, ['student']))
+    const ids = cards.map((c) => c.id)
+    expect(ids).toContain(published)
+    expect(ids).not.toContain(draft)
+    expect(ids).not.toContain(gone)
+    expect(cards.every((c) => c.status === 'published')).toBe(true)
+    // 欄位白名單：多出任何欄位（聯絡資料、內部備註、原始內容）這裡就會紅。
+    for (const card of cards) {
+      expect(Object.keys(card).sort()).toEqual(
+        ['companyName', 'department', 'id', 'linkedGroupCount', 'ownerName', 'ownerUserId', 'publishedAt', 'status', 'summary'].sort(),
+      )
+    }
+    const text = JSON.stringify(cards)
+    for (const secret of Object.values(CONTACT)) expect(text).not.toContain(secret)
+    expect(text).not.toContain('學生頁草稿')
+    expect(text).not.toContain('學生頁下架')
+    // 合作案不分屆：別屆學生看到的是同一份已發布清單。
+    expect((await query.list(actor(other.id, ['student']))).map((c) => c.id)).toEqual(ids)
+  })
+
   it('詳情：案主與系辦有 contact 與內部備註；其他老師、學生是 null 而且整個結果裡找不到那幾個值；訪客要登入', async () => {
     const t = await newTeacher('案主己')
     const other = await newTeacher('其他老師')
