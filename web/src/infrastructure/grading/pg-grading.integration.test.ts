@@ -223,6 +223,90 @@ describe('評分方案版本（GRD-01）', () => {
   })
 })
 
+describe('代號不重用（審查 P1）：刪掉階段或項目再新增，不會繼承舊的要求份數、指派、暫存', () => {
+  it('刪掉有要求份數與指派的 s1、新增一個階段：新階段拿 s3；發布被擋（舊指派不會默默接到新階段）', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const teacher = await newUser('老師', 'teacher')
+    await command.setRequirement(adminActor(), { groupId, stageKey: 's1', requiredCount: 2, revision: 0 }, randomUUID())
+    await assignOk(groupId, teacher, 's1')
+
+    const v2 = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[1]!, key: 's2', weight: 50 }, { ...STAGES[0]!, name: '新的驗收', weight: 50 }] },
+      randomUUID(),
+    )
+    expect(v2.ok).toBe(true)
+    const stored = await owner.sql('select stages from grading_scheme_versions where id = $1', [v2.ok ? v2.receipt.versionId : ''])
+    const keys = (stored.rows[0]!.stages as { key: string; items: { key: string }[] }[]).map((st) => st.key)
+    expect(keys).toEqual(['s2', 's3'])
+    const blocked = await command.publishScheme(adminActor(), { versionId: v2.ok ? v2.receipt.versionId : '' }, randomUUID())
+    expect(blocked).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!blocked.ok) expect(blocked.message).toContain('「系統驗收」')
+  })
+
+  it('刪掉沒在用的 s1（份數 0）再新增：發布成功，新階段沒有任何要求份數、指派；新項目代號不撞舊項目', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    await command.setRequirement(adminActor(), { groupId, stageKey: 's1', requiredCount: 0, revision: 0 }, randomUUID())
+
+    const v2 = await command.createSchemeVersion(
+      adminActor(),
+      {
+        cohortId,
+        stages: [
+          { key: 's2', name: '專題發表', weight: 50, items: [{ name: '新發表項目', type: 'number', max: 100, weight: 100 }] },
+          { name: '新的驗收', weight: 50, items: [{ name: '新項目', type: 'number', max: 100, weight: 100 }] },
+        ],
+      },
+      randomUUID(),
+    )
+    const published = await command.publishScheme(adminActor(), { versionId: v2.ok ? v2.receipt.versionId : '' }, randomUUID())
+    expect(published).toMatchObject({ ok: true, receipt: { versionNo: 2 } })
+    const board = await query.adminBoard(adminActor(), cohortId)
+    if (!board.ok) throw new Error(board.message)
+    const current = board.receipt.current!
+    expect(current.stages.map((st) => st.key)).toEqual(['s2', 's3'])
+    // v1 的項目是 i1、i2（系統驗收）、i3（專題發表）；新項目都是新代號。
+    expect(current.stages.flatMap((st) => st.items.map((i) => i.key))).toEqual(['i4', 'i5'])
+    expect(board.receipt.requirements.filter((r) => r.stageKey === 's3')).toEqual([])
+    expect(board.receipt.assignments.filter((a) => a.stageKey === 's3')).toEqual([])
+  })
+})
+
+describe('第一位老師開始填就鎖定方案（產品 7.5「開始填」，GRD-09）', () => {
+  it('第一份暫存就把目前版本鎖定；之後直接發布新版本 SCHEME_LOCKED，暫存照原版本的結構保留', async () => {
+    const cohortId = await newCohort()
+    const { versionId } = await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const a1 = await assignOk(groupId, t1)
+
+    // 還沒有人開始填：可以直接換版本前的狀態是 published。
+    expect((await owner.sql('select status from grading_scheme_versions where id = $1', [versionId])).rows[0]!.status).toBe('published')
+    const saved = await command.saveDraft(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '70' } }, randomUUID())
+    expect(saved.ok).toBe(true)
+    const row = await owner.sql('select status, locked_at from grading_scheme_versions where id = $1', [versionId])
+    expect(row.rows[0]!.status).toBe('locked')
+    expect(row.rows[0]!.locked_at).not.toBeNull()
+
+    const v2 = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[0]!, key: 's1', items: [{ key: 'i1', name: '功能完整', type: 'number', max: 50, weight: 100 }] }, { ...STAGES[1]!, key: 's2' }] },
+      randomUUID(),
+    )
+    expect(v2.ok).toBe(true)
+    const blocked = await command.publishScheme(adminActor(), { versionId: v2.ok ? v2.receipt.versionId : '' }, randomUUID())
+    expect(blocked).toMatchObject({ ok: false, code: 'SCHEME_LOCKED' })
+    if (!blocked.ok) expect(blocked.message).toContain('開始評分')
+    const bench = await query.teacherBench(teacherActor({ id: t1 }), groupId)
+    expect(bench.ok && bench.receipt.entries[0]).toMatchObject({ state: 'draft', scores: { i1: '70' }, draftFromOlderVersion: false })
+    expect(bench.ok && bench.receipt.entries[0]!.stage.items[0]).toMatchObject({ key: 'i1', max: 100 })
+  })
+})
+
 describe('要求份數與指派（GRD-02）', () => {
   it('設份數（版本號樂觀鎖）→ 指派 T1 → 老師收到評分指派通知；重複指派被拒；T1 的佇列只有自己的指派', async () => {
     const cohortId = await newCohort()

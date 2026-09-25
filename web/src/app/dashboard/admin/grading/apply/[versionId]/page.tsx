@@ -79,7 +79,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
                   <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
                     <td className="px-4 py-2 font-semibold">
                       {g.code}
-                      {g.hasOverride && g.changed ? <span className="ml-2 text-xs font-normal text-danger">更正會進待復核</span> : null}
+                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">更正會進待復核</span> : null}
                     </td>
                     {g.stages.map((s) => (
                       <td key={s.name} className="px-4 py-2 text-right tabular-nums">

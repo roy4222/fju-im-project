@@ -164,8 +164,8 @@ export default async function AdminGradingPage({
             <p className="mt-0.5 text-sm text-muted-foreground">
               {current
                 ? locked
-                  ? '已有老師正式送出評分，結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
-                  : '還沒有老師正式送出評分：可以建立新版本並發布取代目前版本。第一份正式評分送出後就鎖定。'
+                  ? '已有老師開始評分（暫存或正式送出），結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
+                  : '還沒有老師開始評分：可以建立新版本並發布取代目前版本。第一位老師暫存或送出評分後就鎖定。'
                 : '先建立方案並發布，才能設定要求份數與指派老師。'}
             </p>
           </div>
@@ -287,7 +287,8 @@ export default async function AdminGradingPage({
                       ?.result.stages.find((s) => s.key === stage.key)
                     const counted = stageResult?.counted.length ?? mine.filter((a) => a.state === 'counted').length
                     const keptFromEnded = stageResult?.counted.filter((c) => c.assignmentEnded) ?? []
-                    const assigned = new Set(mine.map((a) => a.teacherUserId))
+                    // 已有採計中評分的老師（含改派時保留的舊分）不能再被指派：同一人不算兩票。
+                    const assigned = new Set([...mine.map((a) => a.teacherUserId), ...keptFromEnded.map((c) => c.teacherUserId)])
                     return (
                       <tr key={g.id} className="border-t border-border align-top" data-testid={`grading-row-${g.code}`}>
                         <td className="px-4 py-3">
@@ -480,8 +481,8 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                       const adopted = adoptedFinal(g.result, g.override)
                       const notes = [
                         describeOverride(g.override),
-                        ...g.missing.filter((m) => m.teacherInactive).map(describeMissing),
-                        ...unassignedSlots(g),
+                        ...g.missing.filter((m) => m.teacherInactive && (filter.stageKey === 'all' || m.stageKey === filter.stageKey)).map(describeMissing),
+                        ...unassignedSlots(g, filter.stageKey),
                       ].filter(Boolean)
                       return (
                         <tr key={g.id} className="border-t border-border align-top" data-testid={`gradebook-row-${g.code}`}>

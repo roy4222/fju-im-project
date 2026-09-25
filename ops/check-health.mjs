@@ -7,8 +7,14 @@
  *   EXPECT_TAG     這次部署的 tag（commit）
  *   EXPECT_DIGEST  這次部署的映像 digest（有給才比對）
  *   EXPECT_SCHEMA  migrate 輸出的最後一支 migration 名稱（有給才比對）
- *   EXPECT_WORKER  '1'＝一定要有 worker 心跳（完整六項）；其他值＝worker 有回報就一起判、
- *                  兩欄都是 null（還沒有 worker 的舊映像）才只判前四項
+ *   EXPECT_WORKER  沒給或 '1'＝完整六項（票 28 起 deploy.sh 的預設）：worker.version＝這次部署、
+ *                  worker.lastTickAt 在 60 秒內，兩項都要符合。
+ *                  'none'＝有限四項（只給 `deploy.sh --allow-no-worker`，回滾到票 12 之前、
+ *                  還沒有 worker 的舊映像用）：worker 兩欄必須都是 null；舊映像卻回報了心跳＝
+ *                  旗標與版本不符，一樣判失敗（契約 05 §3「旗標與階段不符即失敗」）。
+ *                  '0'＝票 12～27 的舊 deploy.sh 沒帶旗標時傳的值，保留原本的意思（worker 有回報
+ *                  就一起判，兩欄都是 null 才只判前四項）。只為了 VM 同步 ops 那一刻新舊檔混用時
+ *                  不誤判；新的 deploy.sh 不會再傳它。
  *
  * 全部符合回 0，否則印出不符的項目並回 1。
  */
@@ -16,7 +22,8 @@ const raw = process.env.HEALTH_JSON ?? ''
 const expectTag = process.env.EXPECT_TAG ?? ''
 const expectDigest = process.env.EXPECT_DIGEST ?? ''
 const expectSchema = process.env.EXPECT_SCHEMA ?? ''
-const expectWorker = process.env.EXPECT_WORKER === '1'
+// 沒給就是完整六項：少傳一個環境變數不能讓判定默默變寬鬆。
+const workerMode = { none: 'none', 0: 'if-present' }[process.env.EXPECT_WORKER ?? ''] ?? 'full'
 
 const problems = []
 let health
@@ -55,13 +62,17 @@ function checkWorkerBeat() {
   }
 }
 
-if (expectWorker) {
-  // 完整六項（--expect-worker）：worker 必須是這次的版本，而且最近 60 秒有心跳。
+if (workerMode === 'full') {
+  // 完整六項（預設）：worker 必須是這次的版本，而且最近 60 秒有心跳。
   checkWorkerBeat()
 } else if (worker.version !== null || worker.lastTickAt !== null) {
-  // 沒帶旗標（票 12 起的預設相容模式）：worker 已經回報心跳，就跟完整模式一樣要求「有心跳即健康」；
-  // 兩欄都是 null 只會出現在還沒有 worker 的舊映像（例如回滾到票 12 之前的版本），那時照舊只判前四項。
-  checkWorkerBeat()
+  if (workerMode === 'none') {
+    // 有限四項只給「還沒有 worker 的舊映像」用；回報了心跳就代表旗標用錯了，照契約判失敗。
+    problems.push('帶了 --allow-no-worker，但這個映像有 worker 心跳：請拿掉旗標，用完整六項判定')
+  } else {
+    // 舊 deploy.sh 的相容模式：worker 已經回報心跳，就跟完整模式一樣比對。
+    checkWorkerBeat()
+  }
 }
 
 if (problems.length > 0) {

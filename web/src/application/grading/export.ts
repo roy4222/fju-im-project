@@ -88,9 +88,10 @@ export function describeMissing(m: MissingEvaluation): string {
   return m.teacherInactive ? `${m.stageName}：${m.teacherName}（老師已停用，缺評待處理）` : `${m.stageName}：${m.teacherName}（未送出）`
 }
 
-/** 要求份數比「已採計＋有效指派」還多：還缺幾位評分老師（替換後還沒指派新老師）。 */
-export function unassignedSlots(g: GradebookGroup): string[] {
+/** 要求份數比「已採計＋有效指派」還多：還缺幾位評分老師（替換後還沒指派新老師）。`stageKey` 給了就只看那一階段。 */
+export function unassignedSlots(g: GradebookGroup, stageKey = 'all'): string[] {
   return g.result.stages.flatMap((s) => {
+    if (stageKey !== 'all' && s.key !== stageKey) return []
     if (s.required === null || s.required <= 0) return []
     const pending = g.missing.filter((m) => m.stageKey === s.key).length
     const short = s.required - s.counted.length - pending
@@ -136,7 +137,7 @@ export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup
     const adopted = adoptedFinal(g.result, g.override)
     const missing = [
       ...g.missing.filter((m) => filter.stageKey === 'all' || m.stageKey === filter.stageKey).map(describeMissing),
-      ...unassignedSlots(g),
+      ...unassignedSlots(g, filter.stageKey),
     ].join('；')
     const tail = [
       g.result.finalDisplay ?? '尚未完成',

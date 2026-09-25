@@ -7,7 +7,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  *
  * 1. 管理員建評分方案版本（階段、項目、滿分、權重）；權重不合 100 不能建立、不能發布。
  * 2. 管理員設每組每階段要幾份評分並指派老師，老師收到通知；票 19 重派對話框列出原老師在本組的評分指派。
- * 3. 老師工作台只看到自己的指派；填 0–100 暫存（只有本人與管理員看得到）；正式送出後鎖定，方案自此鎖定結構。
+ * 3. 老師工作台只看到自己的指派；填 0–100 暫存（只有本人與管理員看得到）；正式送出後鎖定。
+ *    方案在第一位老師開始填（第一份暫存）時鎖定結構（產品 06 §4「7.5」）。
  * 4. 學生的「成績」頁只有一句說明；學生零可見的全面掃描在 student-zero-visibility.spec.ts。
  *
  * 併發只一筆採計、同請求編號重送、學生呼叫任何評分用例 FORBIDDEN、資料庫 trigger 由整合測試證明
@@ -238,7 +239,7 @@ test('重派對話框：列出原老師（評一）在 G01 的評分指派，只
   await expect(grading).toContainText('新老師不會自動取得評分權限')
 })
 
-test('老師工作台只看到自己的指派；101 標紅擋住；合法分數暫存後重新整理還在；管理員看到「未正式」；評三開 G01 被拒', async ({ page }) => {
+test('老師工作台只看到自己的指派；101 標紅擋住；合法分數暫存後重新整理還在；管理員看到「未正式」、方案鎖定；評三開 G01 被拒', async ({ page }) => {
   await signIn(page, t1)
   await page.goto('/dashboard/teacher/grading')
   const queue = page.getByRole('list', { name: '評分佇列' })
@@ -263,8 +264,9 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   await page.reload()
   await expect(page.getByRole('region', { name: 'G01「系統驗收」評分表' }).getByLabel('1. 功能完整度')).toHaveValue('80')
 
-  // 管理員：這一格是暫存、未正式。
+  // 管理員：這一格是暫存、未正式；第一位老師開始填，方案就鎖定（產品 7.5）。
   await openAdminGrading(page)
+  await expect(page.getByTestId('scheme-status')).toHaveText('v1・已鎖定')
   await expect(row(page, 'G01')).toContainText('暫存中（未正式）・1／2 項')
   await expect(row(page, 'G01')).toContainText('40.00（未正式）')
   await expect(row(page, 'G01')).toContainText('已正式送出 0／2 份')
@@ -276,7 +278,7 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   await expect(page.locator('body')).not.toContainText('40.00')
 })
 
-test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；方案 v1 自此鎖定，新版本不能直接發布', async ({ page }) => {
+test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；方案 v1 已鎖定，新版本不能直接發布', async ({ page }) => {
   await signIn(page, t1)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
   const bench = page.getByRole('region', { name: 'G01「系統驗收」評分表' })

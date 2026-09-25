@@ -440,6 +440,31 @@ describe('移除／改派三選一（GRD-13）', () => {
     expect(await command.saveDraft(teacher(s.t1), { assignmentId: s.a1, scores: { i1: '1' } }, randomUUID())).toMatchObject({ code: 'NOT_ASSIGNED' })
   })
 
+  it('同一位老師不算兩票：T1 選「保留」後，再指派 T1、或改派／新增給 T1 都被擋；接手名單也沒有 T1', async () => {
+    const s = await scenario()
+    const p = await preview(s.a1)
+    expect(
+      (await results.removeAssignment(adminActor(), { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, reason: '出國', basisHash: p.basisHash }, randomUUID()))
+        .ok,
+    ).toBe(true)
+    const again = await command.assign(adminActor(), { groupId: s.groupId, stageKey: 'mid', teacherUserId: s.t1 }, randomUUID())
+    expect(again).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!again.ok) expect(again.message).toContain('不能再算一票')
+
+    const p3 = await preview(s.a3)
+    expect(p3.teachers.map((t) => t.userId)).not.toContain(s.t1)
+    expect(p3.teachers.map((t) => t.userId)).toContain(s.t2)
+    const viaAdd = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a3, choice: 'add', newTeacherUserId: s.t1, reason: '加評', basisHash: p3.basisHash },
+      randomUUID(),
+    )
+    expect(viaAdd).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!viaAdd.ok) expect(viaAdd.message).toContain('不能再算一票')
+    const g = await groupRow(s.cohortId, s.groupId)
+    expect(g.result.stages[0]!.counted).toHaveLength(2)
+  })
+
   it('（b）替換：舊 80 改為歷史；T2 收到指派通知、送出後重算；T1 的暫存失效、不轉給 T2', async () => {
     const s = await scenario()
     const p = await preview(s.a1)
@@ -720,6 +745,52 @@ describe('方案鎖定後套用新版本（GRD-09）', () => {
     expect(v1Rows.rows[0]!.n).toBeGreaterThanOrEqual(3)
   })
 
+  it('數字沒變也提示「更正會進待復核」（方案版本是計算基礎）；已經待復核的不算在提示裡', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    await submit(s.t2, s.a2, '90')
+    const g = await groupRow(s.cohortId, s.groupId)
+    const o = await results.override(adminActor(), { groupId: s.groupId, newValue: '88', reason: '補考', basisHash: g.basisHash }, randomUUID())
+    // 同樣的權重另建一版：數字不變。
+    const same = await command.createSchemeVersion(adminActor(), { cohortId: s.cohortId, stages: STAGES }, randomUUID())
+    const sameId = same.ok ? same.receipt.versionId : ''
+    const p = await book.previewSchemeVersion(adminActor(), sameId)
+    expect(p.ok && p.receipt.groups.find((x) => x.groupId === s.groupId)).toMatchObject({ changed: false, hasOverride: true })
+    expect((await results.applySchemeVersion(adminActor(), { versionId: sameId, token: p.ok ? p.receipt.token : '' }, randomUUID())).ok).toBe(true)
+    expect(await overrideState(o.ok ? o.receipt.overrideId : '')).toBe('pending_review')
+    // 已經待復核：再套用一版不會「再進」待復核，提示就不再出現。
+    const next = await command.createSchemeVersion(adminActor(), { cohortId: s.cohortId, stages: STAGES }, randomUUID())
+    const p2 = await book.previewSchemeVersion(adminActor(), next.ok ? next.receipt.versionId : '')
+    expect(p2.ok && p2.receipt.groups.find((x) => x.groupId === s.groupId)?.hasOverride).toBe(false)
+  })
+
+  it('只有暫存就已鎖定（票 23：第一位老師開始填就鎖）：直接發布 SCHEME_LOCKED，改走套用；沒有採計所以成績不變，暫存保留、提示照舊版本填的', async () => {
+    const s = await standard()
+    const draft = await command.saveDraft(teacher(s.t1), { assignmentId: s.a1, scores: { i1: '70' } }, randomUUID())
+    expect(draft.ok).toBe(true)
+    const v2 = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId: s.cohortId, stages: [{ ...STAGES[0]!, weight: 50 }, { ...STAGES[1]!, weight: 50 }] },
+      randomUUID(),
+    )
+    const versionId = v2.ok ? v2.receipt.versionId : ''
+    expect(await command.publishScheme(adminActor(), { versionId }, randomUUID())).toMatchObject({ ok: false, code: 'SCHEME_LOCKED' })
+    const p = await book.previewSchemeVersion(adminActor(), versionId)
+    expect(p.ok && p.receipt.blockers).toEqual([])
+    expect(p.ok && p.receipt.groups.every((g) => !g.changed)).toBe(true)
+    expect(await results.applySchemeVersion(adminActor(), { versionId, token: p.ok ? p.receipt.token : '' }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { versionNo: 2, status: 'locked' },
+    })
+    const bench = await query.teacherBench(teacher(s.t1), s.groupId)
+    expect(bench.ok && bench.receipt.entries.find((e) => e.stage.key === 'mid')).toMatchObject({
+      state: 'draft',
+      scores: { i1: '70' },
+      draftFromOlderVersion: true,
+    })
+  })
+
   it('已有正式評分的階段在新版本對不上（多了項目、滿分比已給的低）：列出原因、不能套用', async () => {
     const s = await standard()
     await submit(s.t1, s.a1, '80')
@@ -772,6 +843,20 @@ describe('匯出（GRD-10）', () => {
     expect(lines[1]).toContain('"G01","0412345","甲生","2／2","82.15","已完成","1／1","90.00","已完成","85.29","85.287","88.00","已更正：原 85.29 → 88.00（口試補考）"')
     expect(lines[2]).toContain('"\'=HYPERLINK(""http://x"")"')
     expect(lines[3]).toContain('"G02","","","0／1","","尚未完成（0／1）"')
+
+    // 「尚缺幾位評分老師」依階段篩：G02 只有期中要一份、沒有指派；只匯出期末時不該出現期中的缺額。
+    const finOnly = await exporter.exportGrades(adminActor(), {
+      cohortId: s.cohortId,
+      format: 'csv',
+      filter: { stageKey: 'fin', groupId: other, status: 'all' },
+    })
+    expect(finOnly.ok && String(finOnly.receipt.body)).not.toContain('尚缺')
+    const midOnly = await exporter.exportGrades(adminActor(), {
+      cohortId: s.cohortId,
+      format: 'csv',
+      filter: { stageKey: 'mid', groupId: other, status: 'all' },
+    })
+    expect(midOnly.ok && String(midOnly.receipt.body)).toContain('期中：尚缺 1 位評分老師（待指派）')
 
     const filtered = await exporter.exportGrades(adminActor(), {
       cohortId: s.cohortId,

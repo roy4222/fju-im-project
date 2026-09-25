@@ -191,9 +191,9 @@ export interface GradingCommand {
   setRequirement(actor: ResolvedActor, input: SetRequirementInput, requestId: string): Promise<Result<RequirementReceipt>>
   /** 指派評分老師；老師收到「評分指派」通知。同組同階段同老師重複 → `VALIDATION_FAILED`。 */
   assign(actor: ResolvedActor, input: AssignEvaluatorInput, requestId: string): Promise<Result<AssignEvaluatorReceipt>>
-  /** 受指派老師暫存（可以沒填完）。不是本人的有效指派 → `NOT_ASSIGNED`。 */
+  /** 受指派老師暫存（可以沒填完）。不是本人的有效指派 → `NOT_ASSIGNED`。第一位老師開始填時方案版本鎖定（產品 7.5）。 */
   saveDraft(actor: ResolvedActor, input: ScoresInput, requestId: string): Promise<Result<DraftReceipt>>
-  /** 受指派老師正式送出；同指派已有正式評分 → `CONFLICT`（需先退回）。第一份正式評分同時鎖定方案版本。 */
+  /** 受指派老師正式送出；同指派已有正式評分 → `CONFLICT`（需先退回）。方案版本在第一位老師開始填時鎖定（見 saveDraft）。 */
   submitFinal(actor: ResolvedActor, input: ScoresInput, requestId: string): Promise<Result<FinalReceipt>>
 }
 
@@ -420,6 +420,7 @@ export type SchemeApplyPreview = {
     readonly finalAfter: string | null
     readonly stages: readonly { readonly name: string; readonly before: string | null; readonly after: string | null }[]
     readonly changed: boolean
+    /** 有生效中的更正：套用後一定進待復核（方案版本是計算基礎的一部分），和數字變不變無關。 */
     readonly hasOverride: boolean
   }[]
   /** 執行時帶回來比對（方案、採計或份數在預覽後變了 → `CONFLICT`）。 */

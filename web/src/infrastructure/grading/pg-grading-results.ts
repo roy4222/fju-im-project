@@ -53,6 +53,7 @@ import {
 } from '@/infrastructure/grading/facts'
 import {
   alreadyAssigned,
+  alreadyCounted,
   archived,
   dissolved,
   eligibleTeacher,
@@ -438,6 +439,11 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
           const dup = alreadyAssigned(newTeacher.name, group.code, stageName)
           return err('VALIDATION_FAILED', `${dup.message}請先處理重複的指派。`, { details: { field: 'newTeacherUserId' } })
         }
+        if (facts.counted.some((c) => c.stageKey === target.stage_key && c.teacherUserId === newTeacher!.userId)) {
+          // 已結束的指派上還掛著他採計中的分數（之前改派選了保留）：再接手就一人兩票。
+          const counted = alreadyCounted(newTeacher.name, group.code, stageName)
+          return err('VALIDATION_FAILED', counted.message, { details: { field: 'newTeacherUserId' } })
+        }
       }
 
       await reachFaultPoint('grading.reassign.before-write')
@@ -806,7 +812,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (target.status !== 'draft') return err('VALIDATION_FAILED', `v${target.version_no} 已經套用或發布過了，不需要再套用。`)
       const current = scheme.current_version_id ? await versionRow(tx, scheme.current_version_id) : null
       if (current?.status !== 'locked') {
-        return err('VALIDATION_FAILED', '目前的版本還沒鎖定（還沒有老師正式送出），直接按「發布」換版本就好。')
+        return err('VALIDATION_FAILED', '目前的版本還沒鎖定（還沒有老師開始評分），直接按「發布」換版本就好。')
       }
 
       const preview = await buildSchemePreview(tx, cohortId, current, target)
@@ -907,9 +913,10 @@ async function buildSchemePreview(
     db,
     groups.rows.map((g) => g.id),
   )
+  // 套用只會把「生效中」的更正改成待復核（方案版本在 basis 裡，一定會變）；已經待復核的維持待復核。
   const overrides = await db.query<{ group_id: string }>(
     `select distinct o.group_id from grade_overrides o join override_review_state r on r.override_id = o.id
-       join groups g on g.id = o.group_id where g.cohort_id = $1 and r.state <> 'superseded'`,
+       join groups g on g.id = o.group_id where g.cohort_id = $1 and r.state = 'effective'`,
     [cohortId],
   )
   const withOverride = new Set(overrides.rows.map((r) => r.group_id))
@@ -1345,7 +1352,10 @@ export class PgGradebookQuery implements GradebookQuery {
         finalBefore,
         hasEffectiveOverride: (override.rowCount ?? 0) > 0,
         options,
-        teachers: teachers.rows.filter((t) => t.id !== target.teacher_user_id).map((t) => ({ userId: t.id, name: t.name })),
+        // 接手的人不能是本人，也不能是在這一階段已有採計中評分的老師（改派時保留的舊分），否則一人兩票。
+        teachers: teachers.rows
+          .filter((t) => t.id !== target.teacher_user_id && !facts.counted.some((c) => c.stageKey === stage.key && c.teacherUserId === t.id))
+          .map((t) => ({ userId: t.id, name: t.name })),
         basisHash: stageBasisHash(version.id, stage.key, facts),
       },
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
