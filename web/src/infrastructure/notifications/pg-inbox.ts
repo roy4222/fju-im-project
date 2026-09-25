@@ -95,6 +95,9 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   // 評分指派（票 23）：點進老師的評分工作台；那一頁自己再依本人身分查有效指派（被移除的指派看不到）。
   grading_assignment: (ref) =>
     ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' },
+  // 簽核版本（票 25）：「輪到你同意」點進學生的簽核頁；那一頁自己再依本人此刻所在組別查目前版本（失效的版本會標示原因）。
+  signoff_version: (ref) =>
+    ref.roles.includes('student') ? { state: 'ok', href: '/dashboard/student/signoff' } : { state: 'forbidden' },
 }
 
 /**

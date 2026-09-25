@@ -12,6 +12,7 @@ import { getBusinessClock } from '@/composition/cohorts'
 import { getAssignmentsForTeacherQuery } from '@/composition/grading'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { getSignoffParticipantHook } from '@/composition/signoff'
 import { PgAdvisorCommand } from '@/infrastructure/groups/pg-advisors'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
 import { PgOpportunityCommand, PgOpportunityQuery } from '@/infrastructure/groups/pg-opportunities'
@@ -31,6 +32,8 @@ function command(): PgGroupCommand {
     events: getEventPublisher(),
     dueWork: getDueWorkScheduler(),
     businessClock: getBusinessClock(),
+    // 票 25：加入／移出組員時同交易讓目前簽核版本失效。
+    signoff: getSignoffParticipantHook(),
   })
   return groupCommand
 }
