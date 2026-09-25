@@ -498,3 +498,58 @@
   .dark .dash-nav-active svg { color: var(--primary); }
   .dark .hero { background: oklch(0.28 0.08 253.89); }
 }
+
+/* ---------------------------------------------------------------------------
+   後台深淺色切換（票 35；原型 globals.css 同名段落）：從按鈕位置一圈擴開（View Transitions）。
+   圓心、半徑由 `_ui/dash-theme.tsx` 用 CSSOM 寫進 `--reveal-*`。
+--------------------------------------------------------------------------- */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: theme-reveal 500ms cubic-bezier(0.45, 0, 0.9, 0.6) both; }
+::view-transition-group(root) { animation-duration: 500ms; }
+@keyframes theme-reveal {
+  from { clip-path: circle(0px at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+  to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+}
+@media (prefers-reduced-motion: reduce) { ::view-transition-new(root) { animation: none; } }
+
+/* ---------------------------------------------------------------------------
+   時間軸「直立蛇形」（票 35；原型 `timeline-zigzag.tsx` 與 globals.css 同名段落）。
+   原型的 `--brand` 在這裡就是 `--primary`。脊椎的進度用 SVG 畫（不用 style 屬性，正式站 CSP 會擋）。
+--------------------------------------------------------------------------- */
+@layer components {
+  .tl-wrap { --tl-line: color-mix(in oklch, var(--primary) 22%, var(--card)); }
+  .tl-spine { position: absolute; left: 50%; top: 32px; bottom: 32px; width: 2px; height: calc(100% - 64px); transform: translateX(-50%); background: var(--tl-line); }
+
+  .tl-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: center; gap: 0 4px; }
+  .tl-dot { grid-column: 2; grid-row: 1; justify-self: center; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px;
+    background: var(--card); border: 2px solid var(--tl-line); color: var(--success-foreground); }
+  .tl-row[data-status='done'] .tl-dot { background: var(--success); border-color: var(--success); }
+  .tl-row[data-status='current'] .tl-dot { width: 18px; height: 18px; background: var(--primary); border-color: var(--card); box-shadow: 0 0 0 2px var(--primary); }
+
+  .tl-connector { grid-row: 1; height: 2px; width: 20px; background: var(--tl-line); }
+  .tl-left .tl-connector { grid-column: 1; justify-self: end; }
+  .tl-right .tl-connector { grid-column: 3; justify-self: start; }
+  .tl-row[data-status='done'] .tl-connector { background: var(--primary); }
+  .tl-row[data-status='current'] .tl-connector { background: var(--primary); }
+
+  .tl-card { position: relative; grid-row: 1; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: min(100%, 520px); transition: background-color 150ms, border-color 150ms; }
+  .tl-left .tl-card { grid-column: 1; justify-self: end; margin-right: 20px; }
+  .tl-right .tl-card { grid-column: 3; justify-self: start; margin-left: 20px; }
+  .tl-card:hover { background: color-mix(in oklch, var(--accent) 50%, var(--card)); }
+  .tl-row[data-status='current'] .tl-card { border-color: var(--primary); }
+  .tl-tab { position: absolute; top: -1px; left: 14px; padding: 2px 8px 3px; border-radius: 0 0 6px 6px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.2; }
+  .tl-row[data-status='current'] .tl-card > button { padding-top: 18px; }
+
+  .tl-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .tl-body[data-open='true'] { grid-template-rows: 1fr; }
+
+  @media (max-width: 767px) {
+    .tl-spine { left: 23px; top: 24px; bottom: 24px; height: calc(100% - 48px); }
+    .tl-row { grid-template-columns: 30px minmax(0, 1fr); gap: 0 12px; }
+    .tl-dot { grid-column: 1; justify-self: center; }
+    .tl-connector { display: none; }
+    .tl-left .tl-card, .tl-right .tl-card { grid-column: 2; justify-self: stretch; margin: 0; width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { .tl-body, .tl-card { transition: none; } }
+}

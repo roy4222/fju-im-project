@@ -1,11 +1,13 @@
 'use client'
 import { useActionState, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { IconPencil } from '@tabler/icons-react'
 import {
   cancelActivityAction,
   createActivityAction,
   saveScheduleAction,
   updateActivityAction,
 } from './actions'
+import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, INPUT as KIT_INPUT } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
@@ -17,14 +19,11 @@ import { cn } from '@/shared/cn'
 
 export type TimelineActionState = { ok: boolean; message: string } | undefined
 
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-const LABEL = 'block text-sm font-medium text-ink'
-const PRIMARY =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium ' +
-  'text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-const SECONDARY =
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 ' +
-  'text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
+// 外觀照原型（票 35）：輸入框、按鈕與對話框跟原型 `stage-edit-dialog` 一樣。
+const INPUT = cn(KIT_INPUT, 'mt-1.5')
+const LABEL = 'block text-sm font-semibold'
+const PRIMARY = BTN_PRIMARY
+const SECONDARY = BTN_OUTLINE
 
 export function Feedback({ state }: { state: TimelineActionState }) {
   if (!state) return null
@@ -32,8 +31,8 @@ export function Feedback({ state }: { state: TimelineActionState }) {
     <p
       role={state.ok ? 'status' : 'alert'}
       className={cn(
-        'rounded-md px-3 py-2 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
+        'rounded-lg px-3 py-2 text-sm font-semibold',
+        state.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
       )}
     >
       {state.message}
@@ -42,7 +41,7 @@ export function Feedback({ state }: { state: TimelineActionState }) {
 }
 
 /** 原生 `<dialog>`：自帶 modal、Esc 關閉與焦點鎖。成功時由呼叫端關掉。 */
-function useDialog() {
+export function useDialog() {
   const ref = useRef<HTMLDialogElement>(null)
   // 開關函式要穩定：下面「成功就關」的 effect 只該在回饋換新時跑，不能每次重畫都跑
   // （否則成功過一次之後，再打開對話框打字就會被關掉）。
@@ -56,20 +55,18 @@ function Dialog({
   title,
   description,
   children,
+  wide = false,
 }: {
   dialog: ReturnType<typeof useDialog>
   title: string
   description?: string
   children: ReactNode
+  wide?: boolean
 }) {
   return (
-    <dialog
-      ref={dialog.ref}
-      aria-label={title}
-      className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
-    >
-      <div className="p-5">
-        <h2 className="text-base font-semibold text-ink">{title}</h2>
+    <dialog ref={dialog.ref} aria-label={title} className={cn(DIALOG, wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(36rem,calc(100vw-2rem))]')}>
+      <div className="px-6 py-5">
+        <h2 className="text-lg font-extrabold">{title}</h2>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
         <div className="mt-4">{children}</div>
       </div>
@@ -96,6 +93,7 @@ export function ScheduleEditor({
   stages,
   yearEndDate,
   nameMaxLength,
+  dialog: external,
 }: {
   cohortId: string
   cohortCode: string
@@ -104,9 +102,12 @@ export function ScheduleEditor({
   stages: StageDraft[]
   yearEndDate: string
   nameMaxLength: number
+  /** 時間軸卡片上每一段的「編輯階段與日期」也打開同一個對話框：由外面把對話框交進來。 */
+  dialog?: ReturnType<typeof useDialog>
 }) {
   const [state, formAction, pending] = useActionState(saveScheduleAction, undefined)
-  const dialog = useDialog()
+  const own = useDialog()
+  const dialog = external ?? own
   const [draft, setDraft] = useState({ stages, yearEndDate })
   const [seenRevision, setSeenRevision] = useState(revision)
   useCloseOnSuccess(state, dialog.close)
@@ -122,85 +123,127 @@ export function ScheduleEditor({
     setDraft((d) => ({ ...d, stages: d.stages.map((s, i) => (i === index ? { ...s, ...patch } : s)) }))
 
   return (
-    <div className="space-y-3">
-      <button type="button" className={PRIMARY} onClick={dialog.open}>
-        編輯階段與日期
+    <>
+      <button type="button" className={cn(PRIMARY, 'h-11 px-5')} onClick={dialog.open}>
+        <IconPencil aria-hidden /> 編輯階段與日期
       </button>
-      <Feedback state={state?.ok ? state : undefined} />
+      {state?.ok ? (
+        <div className="basis-full">
+          <Feedback state={state} />
+        </div>
+      ) : null}
       <Dialog
         dialog={dialog}
+        wide
         title={`編輯 ${cohortCode} 的階段與日期`}
         description="每個階段只填開始日，要一段比一段晚；下一段開始那天 00:00 起就換段。年度結束日當天仍算在年度內。"
       >
-        <form action={formAction} className="space-y-4">
+        <form action={formAction} className="grid gap-5 md:grid-cols-[minmax(0,1fr)_240px]">
           <input type="hidden" name="cohortId" value={cohortId} />
           <input type="hidden" name="revision" value={revision} />
           <input type="hidden" name="requestId" value={requestId} />
-          <ol className="space-y-3">
-            {draft.stages.map((stage, index) => {
-              const seq = index + 1
-              return (
-                <li key={seq} className="grid gap-3 sm:grid-cols-[1fr_11rem]">
-                  <div>
-                    <label htmlFor={`stage${seq}-name`} className={LABEL}>
-                      第 {seq} 階段名稱
-                    </label>
-                    <input
-                      id={`stage${seq}-name`}
-                      name={`stage${seq}.name`}
-                      value={stage.name}
-                      onChange={(e) => setStage(index, { name: e.target.value })}
-                      maxLength={nameMaxLength}
-                      required
-                      autoComplete="off"
-                      className={INPUT}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor={`stage${seq}-start`} className={LABEL}>
-                      第 {seq} 階段開始日
-                    </label>
-                    <input
-                      id={`stage${seq}-start`}
-                      name={`stage${seq}.startDate`}
-                      type="date"
-                      value={stage.startDate}
-                      onChange={(e) => setStage(index, { startDate: e.target.value })}
-                      required
-                      className={INPUT}
-                    />
-                  </div>
-                </li>
-              )
-            })}
-          </ol>
-          <div className="sm:w-44">
-            <label htmlFor="year-end-date" className={LABEL}>
-              年度結束日
-            </label>
-            <input
-              id="year-end-date"
-              name="yearEndDate"
-              type="date"
-              value={draft.yearEndDate}
-              onChange={(e) => setDraft((d) => ({ ...d, yearEndDate: e.target.value }))}
-              required
-              className={INPUT}
-            />
+          <div className="flex flex-col gap-4">
+            <ol className="flex flex-col gap-3">
+              {draft.stages.map((stage, index) => {
+                const seq = index + 1
+                return (
+                  <li key={seq} className="grid gap-3 sm:grid-cols-[1fr_11rem]">
+                    <div>
+                      <label htmlFor={`stage${seq}-name`} className={LABEL}>
+                        第 {seq} 階段名稱
+                      </label>
+                      <input
+                        id={`stage${seq}-name`}
+                        name={`stage${seq}.name`}
+                        value={stage.name}
+                        onChange={(e) => setStage(index, { name: e.target.value })}
+                        maxLength={nameMaxLength}
+                        required
+                        autoComplete="off"
+                        placeholder="例：系統驗收"
+                        className={INPUT}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`stage${seq}-start`} className={LABEL}>
+                        第 {seq} 階段開始日
+                      </label>
+                      <input
+                        id={`stage${seq}-start`}
+                        name={`stage${seq}.startDate`}
+                        type="date"
+                        value={stage.startDate}
+                        onChange={(e) => setStage(index, { startDate: e.target.value })}
+                        required
+                        className={INPUT}
+                      />
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+            <div className="sm:w-44">
+              <label htmlFor="year-end-date" className={LABEL}>
+                年度結束日
+              </label>
+              <input
+                id="year-end-date"
+                name="yearEndDate"
+                type="date"
+                value={draft.yearEndDate}
+                onChange={(e) => setDraft((d) => ({ ...d, yearEndDate: e.target.value }))}
+                required
+                className={INPUT}
+              />
+            </div>
+            <Feedback state={state?.ok ? undefined : state} />
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <button type="button" className={SECONDARY} onClick={dialog.close}>
+                先不改
+              </button>
+              <button type="submit" disabled={pending} className={PRIMARY}>
+                {pending ? '處理中…' : '儲存'}
+              </button>
+            </div>
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
-            <button type="button" className={SECONDARY} onClick={dialog.close}>
-              先不改
-            </button>
-            <button type="submit" disabled={pending} className={PRIMARY}>
-              {pending ? '處理中…' : '儲存'}
-            </button>
-          </div>
+          {/* 原型 stage-edit-dialog 右欄：學生看到的樣子（只看畫面上正在填的值）。 */}
+          <aside className="flex flex-col gap-3 rounded-xl bg-muted/40 p-4" aria-label="學生看到的樣子">
+            <p className="text-[11px] font-bold tracking-[0.06em] text-muted-foreground">學生看到的樣子</p>
+            <ol className="flex flex-col gap-2">
+              {draft.stages.map((stage, index) => {
+                const next = draft.stages[index + 1]
+                const last = next?.startDate ? dayBefore(next.startDate) : draft.yearEndDate
+                return (
+                  <li key={index} className="dash-card px-3.5 py-2.5">
+                    <p className="text-[11px] font-bold tracking-[0.06em] text-muted-foreground tabular-nums">第 {index + 1} 階段</p>
+                    <p className="mt-0.5 text-[15px] font-extrabold tracking-tight">
+                      {stage.name.trim() || <span className="text-muted-foreground">階段名稱</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {slash(stage.startDate)} – {slash(last)}
+                    </p>
+                  </li>
+                )
+              })}
+            </ol>
+          </aside>
         </form>
       </Dialog>
-    </div>
+    </>
   )
+}
+
+/** 預覽用：`2026-11-01` → `2026/11/01`；空的顯示「—」。 */
+function slash(date: string) {
+  return date ? date.replaceAll('-', '/') : '—'
+}
+
+/** 預覽用：前一天（只拿來顯示「這一段到哪天」，規則仍由伺服器判）。 */
+function dayBefore(date: string) {
+  const d = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return ''
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
 }
 
 // ── 活動 ────────────────────────────────────────────────────────────────────
@@ -276,12 +319,13 @@ function ActivityFields({
             className={INPUT}
           />
         </div>
-        <label className="flex items-center gap-2 pb-2 text-sm text-ink">
+        <label className="flex h-10 items-center gap-2 text-sm font-semibold">
           <input
             type="checkbox"
             name="allDay"
             checked={draft.allDay}
             onChange={(e) => onChange({ allDay: e.target.checked })}
+            className="size-4 accent-primary"
           />
           全天
         </label>

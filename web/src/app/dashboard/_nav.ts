@@ -11,9 +11,13 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin', label: '首頁' },
   { href: '/dashboard/admin/accounts', label: '帳號' },
   { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
+  // 時間軸設定、通知（票 35 照原型：側欄「總覽」組；通知仍保留頂列鈴鐺）。
+  { href: '/dashboard/admin/timeline', label: '時間軸設定' },
+  { href: '/dashboard/admin/inbox', label: '通知' },
   { href: '/dashboard/admin/groups', label: '分組' },
   { href: '/dashboard/admin/affairs', label: '專題事務' },
+  // 檔案管理（票 35；原型 `/dashboard/admin/files`）：全站檔案的檢視（下載、引用位置），不另做一套檔案系統。
+  { href: '/dashboard/admin/files', label: '檔案管理' },
   // 合作案（票 20）：全部合作案與組別連結。
   { href: '/dashboard/admin/industry', label: '合作案' },
   // 評分（票 23）：方案版本、要求份數、指派評分老師。
@@ -64,6 +68,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // `/dashboard/admin/affairs/<id>`（票 18，roster.spec 驗學生與老師被擋）同一個守衛。
   { path: '/dashboard/admin/affairs', role: 'admin' },
   { path: '/dashboard/admin/editor/new', role: 'admin' },
+  // 檔案管理（票 35）。
+  { path: '/dashboard/admin/files', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
   // 評分（票 23）；老師的評閱桌 `/dashboard/teacher/grading/<組別>` 同一個守衛。
@@ -78,7 +84,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/student/groups', role: 'student' },
   // 作業區與內容頁（票 17）；`/dashboard/student/affairs/<id>` 同一個守衛。
   { path: '/dashboard/student/affairs', role: 'student' },
-  // 通知匣（票 12）：入口是頂列的鈴鐺，不放側欄。
+  // 通知匣（票 12）：入口是頂列的鈴鐺；系辦側欄另有「通知」（票 35 照原型）。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
   { path: '/dashboard/student/inbox', role: 'student' },

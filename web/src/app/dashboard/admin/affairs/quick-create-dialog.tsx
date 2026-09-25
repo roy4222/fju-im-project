@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
+import { IconAlignLeft, IconArrowLeft, IconArrowRight, IconCalendar, IconCheck, IconCursorText, IconFileUpload, IconLink, IconPencilPlus, type Icon } from '@tabler/icons-react'
 import { createItemAction, publishItemAction, reviewItemAction, saveDraftAction } from './actions'
 import {
   AttachmentPicker,
@@ -32,15 +33,19 @@ import { cn } from '@/shared/cn'
  * 「學生看到的樣子」都是伺服器算的。發布後可以「回列表」或「細調欄位」（進完整編輯器，同一個 ID）。
  */
 
-const QUICK_FIELDS: { type: string; label: string }[] = [
-  { type: 'file', label: '檔案上傳' },
-  { type: 'text', label: '短文字' },
-  { type: 'textarea', label: '長文字' },
-  { type: 'url', label: '網址' },
-  { type: 'date', label: '日期' },
+const QUICK_FIELDS: { type: string; label: string; icon: Icon }[] = [
+  { type: 'file', label: '檔案上傳', icon: IconFileUpload },
+  { type: 'text', label: '短文字', icon: IconCursorText },
+  { type: 'textarea', label: '長文字', icon: IconAlignLeft },
+  { type: 'url', label: '網址', icon: IconLink },
+  { type: 'date', label: '日期', icon: IconCalendar },
 ]
 
 const STEPS = ['類型', '內容', '發布'] as const
+
+/** 原型「上一步」是 ghost 鈕。 */
+const GHOST =
+  'press inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-muted disabled:opacity-40'
 
 function emptyState(cohortId: string): EditorState {
   return {
@@ -158,16 +163,19 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
 
   return (
     <>
-      <button type="button" className={PRIMARY} onClick={open}>
-        新增項目
+      <button type="button" className={cn(PRIMARY, 'h-10')} onClick={open}>
+        <IconPencilPlus aria-hidden /> 新增項目
       </button>
       {/* 關掉時刷新列表（建立、存草稿、發布都可能改了列表）。 */}
       <dialog ref={dialog} aria-label="新增項目" className={DIALOG} onClose={() => router.refresh()}>
         {done ? (
-          <div className="space-y-4 p-6 text-center">
-            <h2 className="text-lg font-semibold text-ink">已發布</h2>
+          <div className="flex flex-col items-center gap-3 px-8 py-10 text-center">
+            <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-subtle text-success-on-subtle">
+              <IconCheck aria-hidden className="size-7" />
+            </span>
+            <h2 className="text-xl font-extrabold">已發布</h2>
             <Feedback tone="ok">{done}</Feedback>
-            <div className="flex justify-center gap-2">
+            <div className="mt-1 flex justify-center gap-2">
               <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()}>
                 回列表
               </button>
@@ -178,45 +186,53 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
           </div>
         ) : (
           <div className="flex max-h-[85vh] flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
               <div>
-                <h2 className="text-base font-semibold text-ink">新增項目</h2>
-                <p className="text-sm text-muted-foreground">{['選類型、寫標題、定對象', '內容與附件', '發布前檢查'][step]}</p>
+                <h2 className="text-lg font-extrabold">新增項目</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">{['選類型、寫標題、定對象', '內容與附件', '發布前檢查'][step]}</p>
               </div>
-              <ol className="flex items-center gap-2 text-xs font-semibold" aria-label="步驟">
+              <ol className="flex shrink-0 items-center gap-2 whitespace-nowrap" aria-label="步驟">
                 {STEPS.map((label, i) => (
-                  <li key={label} aria-current={i === step ? 'step' : undefined} className="flex items-center gap-1">
+                  <li key={label} aria-current={i === step ? 'step' : undefined} className="flex items-center gap-2 text-xs font-semibold">
                     <span
                       className={cn(
                         'inline-flex size-6 items-center justify-center rounded-full',
-                        i < step ? 'bg-ink text-ink-foreground' : i === step ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                        i < step ? 'bg-success text-success-foreground' : i === step ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
                       )}
                     >
-                      {i < step ? '✓' : i + 1}
+                      {i < step ? <IconCheck aria-hidden className="size-3.5" strokeWidth={3} /> : i + 1}
                     </span>
-                    <span className={i === step ? 'text-ink' : 'text-muted-foreground'}>{label}</span>
+                    <span className={i === step ? '' : 'text-muted-foreground'}>{label}</span>
+                    {i < STEPS.length - 1 ? <span aria-hidden className="h-px w-5 bg-border" /> : null}
                   </li>
                 ))}
               </ol>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <div className="flex min-h-[340px] flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
               {step === 0 ? (
-                <>
-                  <div>
-                    <label htmlFor="qc-title" className={LABEL}>
-                      標題
-                    </label>
-                    <input
-                      id="qc-title"
-                      className={INPUT}
-                      value={state.title}
-                      onChange={(e) => patch({ title: e.target.value })}
-                      placeholder="例：114 學年度專題說明會"
-                    />
-                  </div>
-                  <SettingsFields state={state} onChange={patch} vocabulary={vocabulary} published={false} unitLocked={false} idPrefix="qc" />
-                </>
+                <SettingsFields
+                  state={state}
+                  onChange={patch}
+                  vocabulary={vocabulary}
+                  published={false}
+                  unitLocked={false}
+                  idPrefix="qc"
+                  afterPlacement={
+                    <>
+                      <label htmlFor="qc-title" className={LABEL}>
+                        標題
+                      </label>
+                      <input
+                        id="qc-title"
+                        className={INPUT}
+                        value={state.title}
+                        onChange={(e) => patch({ title: e.target.value })}
+                        placeholder="例：114 學年度專題說明會"
+                      />
+                    </>
+                  }
+                />
               ) : null}
 
               {step === 1 ? (
@@ -246,10 +262,13 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   </div>
                   {collects ? (
                     <fieldset>
-                      <legend className={LABEL}>要學生交什麼（勾幾個就有幾個欄位；要細調再進完整編輯器）</legend>
-                      <div className="mt-1 flex flex-wrap gap-2">
+                      <legend className={LABEL}>
+                        要學生交什麼 <span className="font-normal text-muted-foreground">・勾幾個就有幾個欄位；要細調再進完整編輯器</span>
+                      </legend>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
                         {QUICK_FIELDS.map((f) => {
                           const on = state.fields.some((x) => x.type === f.type)
+                          const FieldIcon = f.icon
                           return (
                             <button
                               key={f.type}
@@ -257,10 +276,11 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                               aria-pressed={on}
                               onClick={() => toggleQuickField(f.type, f.label)}
                               className={cn(
-                                'rounded-md border px-3 py-1.5 text-sm font-medium',
-                                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-ink hover:bg-muted',
+                                'press inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors',
+                                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/40',
                               )}
                             >
+                              <FieldIcon aria-hidden className="size-4" />
                               {f.label}
                             </button>
                           )
@@ -268,7 +288,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                       </div>
                     </fieldset>
                   ) : (
-                    <p className="text-sm text-muted-foreground">這是公告或資源，不收資料；要收件請回上一步改成「文件繳交」。</p>
+                    <p className="text-xs text-muted-foreground">這是公告或資源，不收資料；要收件請回上一步改成「文件繳交」。</p>
                   )}
                 </>
               ) : null}
@@ -283,10 +303,10 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   <RecipientList recipients={review.recipients} />
                   <StudentView state={state} review={review} vocabulary={vocabulary} />
                   {collects ? (
-                    <p className="text-sm text-ink">新收件一定會通知收件名單上的人（站內通知）。</p>
+                    <p className="text-sm">新收件一定會通知收件名單上的人（站內通知）。</p>
                   ) : (
-                    <label className="flex items-center gap-2 text-sm text-ink">
-                      <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+                    <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
+                      <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
                       發布時通知對象（站內通知）
                     </label>
                   )}
@@ -296,14 +316,18 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
               {error ? <Feedback tone="error">{error}</Feedback> : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-6 py-4">
               <button
                 type="button"
-                className={SECONDARY}
+                className={GHOST}
                 onClick={() => (step === 0 ? dialog.current?.close() : setStep((s) => s - 1))}
                 disabled={busy !== null}
               >
-                {step === 0 ? '取消' : '上一步'}
+                {step === 0 ? '取消' : (
+                  <>
+                    <IconArrowLeft aria-hidden className="size-4" /> 上一步
+                  </>
+                )}
               </button>
               <div className="flex items-center gap-2">
                 {busy ? <span className="text-xs text-muted-foreground">{busy}</span> : null}
@@ -313,11 +337,11 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   </button>
                 ) : null}
                 {step < 2 ? (
-                  <button type="button" className={PRIMARY} onClick={next} disabled={busy !== null || !canNext}>
-                    下一步
+                  <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={next} disabled={busy !== null || !canNext}>
+                    下一步 <IconArrowRight aria-hidden className="size-4" />
                   </button>
                 ) : (
-                  <button type="button" className={PRIMARY} onClick={publish} disabled={busy !== null || failing > 0}>
+                  <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={publish} disabled={busy !== null || failing > 0}>
                     {failing > 0 ? `還缺 ${failing} 項` : '發布'}
                   </button>
                 )}
