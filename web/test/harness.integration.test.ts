@@ -6,9 +6,11 @@ import {
   assertTestDatabaseReachable,
   createIsolatedDatabase,
   inTransaction,
+  poolAsRole,
   withIsolatedDatabase,
   type IsolatedDatabase,
 } from './db'
+import { migratedSchema } from './migrations'
 import { createBarrier } from './barrier'
 import { enableFaultInjection, failAt, injectFault } from './fault-injection'
 import { buildRunManifest, writeRunManifest } from './run-manifest'
@@ -19,6 +21,7 @@ import { reachFaultPoint } from '@/shared/fault-points'
  * 1. 兩個測試並行寫同名的表不會互相污染。
  * 2. 屏障能讓兩筆交易在指定點會合，重現真正的鎖等待。
  * 3. 故障注入點在沒開旗標時是 no-op，開了才會生效。
+ * 4. 好幾個 schema 同時套 migration 不會互撞（角色由 globalSetup 先建好）。
  */
 
 beforeAll(async () => {
@@ -92,6 +95,29 @@ async function waitUntilBlocked(db: IsolatedDatabase, pid: number, timeoutMs = 1
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
+
+describe('並行套 migration：runtime 角色由 globalSetup 先建好', () => {
+  // 角色是 cluster 共用的。0001 的「IF NOT EXISTS 再 CREATE ROLE」在乾淨庫上被好幾個
+  // schema 同時跑時會撞 pg_authid_rolname_index（23505）；test/global-setup.ts 先建好就不會。
+  it('六個 schema 同時套完整 migration 都成功，fju_app 用測試密碼連得上', async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, (_, i) => createIsolatedDatabase({ label: `parallel_mig_${i}`, setup: migratedSchema })),
+    )
+    const opened = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    try {
+      expect(results.filter((r) => r.status === 'rejected').map((r) => String((r as PromiseRejectedResult).reason))).toEqual([])
+      const app = await poolAsRole(opened[0]!, 'fju_app')
+      try {
+        expect((await app.query('select current_user as u')).rows[0]).toEqual({ u: 'fju_app' })
+      } finally {
+        await app.end()
+      }
+    } finally {
+      // 一個一個丟：同時 DROP SCHEMA CASCADE 好幾份完整 schema 會用光鎖表（out of shared memory）。
+      for (const db of opened) await db.close()
+    }
+  })
+})
 
 describe('屏障：兩筆交易在指定點會合', () => {
   it('兩筆交易同時搶同一列，後到的那筆被擋住直到先到的 commit', async () => {
