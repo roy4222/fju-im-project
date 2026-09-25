@@ -22,6 +22,7 @@ type Queryable = Pick<Pool, 'query'> | PoolClient
 /**
  * 上面規則（不含管理員）的 SQL 布林式，給要在同一句查詢裡判斷的地方用（例如通知匣逐列重驗）。
  * `versionMatch` 是篩出版本的條件（別名 `v`），`userId` 是本人 ID 的 SQL 式（例如 `$2`）。
+ * 兩個參數都直接拼進 SQL：只能傳程式裡寫死的字面或參數佔位符，**絕不能**來自使用者輸入（值一律走參數綁定）。
  */
 export function signoffVersionReadableSql(versionMatch: string, userId: string): string {
   return `exists (
