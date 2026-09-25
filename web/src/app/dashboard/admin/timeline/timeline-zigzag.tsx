@@ -12,7 +12,15 @@ import { ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admi
  * 原型每段各自編輯；正式碼四段一起填（Vault 02 階段模型），所以每個按鈕打開的都是同一個對話框。
  */
 
-export type AdminStage = { seq: number; name: string; range: string; status: 'done' | 'current' | 'upcoming'; detail: string }
+export type AdminStage = {
+  seq: number
+  name: string
+  /** 一句話說明（0011）；沒填是空字串。 */
+  description: string
+  range: string
+  status: 'done' | 'current' | 'upcoming'
+  detail: string
+}
 
 export type ScheduleEditorProps = {
   cohortId: string
@@ -22,6 +30,7 @@ export type ScheduleEditorProps = {
   stages: StageDraft[]
   yearEndDate: string
   nameMaxLength: number
+  descriptionMaxLength: number
 }
 
 export function AdminTimeline({
@@ -44,7 +53,7 @@ export function AdminTimeline({
     title: s.name,
     rangeText: s.range,
     status: s.status,
-    summary: `第 ${s.seq} 階段・${s.detail}`,
+    summary: s.description ? `${s.description}（${s.detail}）` : `第 ${s.seq} 階段・${s.detail}`,
     tasks: [],
   }))
   const stageActions = Object.fromEntries(

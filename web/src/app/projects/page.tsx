@@ -3,10 +3,10 @@ import type { Metadata } from 'next'
 import { IconFileText, IconPlayerPlay, IconSearchOff } from '@tabler/icons-react'
 import type { SignedInShowcaseCard } from '@/application/showcase'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { imageSrc, ListEmpty, NeedLogin, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
+import { AwardBadge, imageSrc, ListEmpty, NeedLogin, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
-import { getPublicShowcaseQuery, parseShowcaseSort, SHOWCASE_SORT_OPTIONS } from '@/composition/showcase'
+import { ARCHIVE_SORT_OPTIONS, getPublicShowcaseQuery, parseShowcaseSort } from '@/composition/showcase'
 
 export const metadata: Metadata = {
   title: '歷屆專題一覽｜資管系專題平台',
@@ -33,6 +33,7 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
           loading="lazy"
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
+        <AwardBadge award={p.award} label={p.awardLabel} className="absolute top-3 left-3 shadow-md" />
         {p.groupCode ? (
           <span className="absolute bottom-3 left-3 rounded bg-background/95 px-2 py-0.5 text-xs font-semibold text-foreground">{p.groupCode}</span>
         ) : null}
@@ -64,12 +65,13 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
  * 歷屆專題一覽（原型 `/projects`；產品模組 09 §9.1「登入後的學習參考庫」、SHW-04）：**登入後**內容。
  *
  * 卡片依屆別分段，多了組員與指導老師（查詢只給能正常使用平台的登入者）。
- * 資料目前和優秀專題同一批（已發布的精選條目）：兩者要分開需要「是否精選」的欄位，列為待決（見 PR）。
+ * 這裡是**全部**已發布的作品；有獎項等級的另外公開在優秀專題（0011，票 39）。王冠是優秀專題、獎盃是佳作，
+ * 「只看得獎」＝`?award=1`。
  */
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cohort?: string | string[]; q?: string | string[]; sort?: string | string[] }>
+  searchParams: Promise<{ cohort?: string | string[]; q?: string | string[]; sort?: string | string[]; award?: string | string[] }>
 }) {
   const actor = await currentActor()
   if (actor.kind !== 'authenticated') {
@@ -85,10 +87,11 @@ export default async function ProjectsPage({
   const cohort = one(sp.cohort).slice(0, 20)
   const q = one(sp.q).trim().slice(0, 100)
   const rawSort = one(sp.sort)
-  const sort = parseShowcaseSort(rawSort)
+  const sort = parseShowcaseSort(rawSort, ARCHIVE_SORT_OPTIONS)
+  const awardOnly = one(sp.award) === '1'
   const query = getPublicShowcaseQuery()
   const [archive, cohorts] = await Promise.all([
-    query.archive(actor, { cohort: cohort || undefined, q: q || undefined, sort }),
+    query.archive(actor, { cohort: cohort || undefined, q: q || undefined, sort, awardOnly }),
     query.cohorts(),
   ])
   if (archive.access !== 'visible') {
@@ -99,29 +102,30 @@ export default async function ProjectsPage({
     )
   }
   const cards = archive.cards
-  const keep = (c: string) => {
+  const keep = (c: string, award = awardOnly) => {
     const p = new URLSearchParams()
     if (c) p.set('cohort', c)
+    if (award) p.set('award', '1')
     if (q) p.set('q', q)
     if (rawSort && sort !== 'cohort') p.set('sort', sort)
     const s = p.toString()
     return s ? `/projects?${s}` : '/projects'
   }
   const sections =
-    sort === 'title'
+    sort !== 'cohort'
       ? [{ key: 'all', label: '', items: cards }]
       : [...new Set(cards.map((c) => c.cohortCode))].map((code) => ({
           key: code,
           label: `${code} 屆`,
           items: cards.filter((c) => c.cohortCode === code),
         }))
-  const filtered = Boolean(cohort || q)
+  const filtered = Boolean(cohort || q || awardOnly)
 
   return (
     <SiteShell current="/projects" bare>
       <PublicPageHead
         title="歷屆專題一覽"
-        description="本系學生與老師的學習參考庫：題目、摘要、海報與三分鐘影片。"
+        description="本系學生與老師的學習參考庫：題目、摘要、海報與三分鐘影片。王冠是優秀專題，獎盃是佳作。"
         crumbs={[{ label: '歷屆專題一覽' }]}
       />
       <div className="mx-auto flex max-w-6xl flex-col gap-7 px-5 py-10">
@@ -135,8 +139,11 @@ export default async function ProjectsPage({
                 {c} 屆
               </PillLink>
             ))}
+            <PillLink href={keep(cohort, !awardOnly)} active={awardOnly} tone="brand">
+              只看得獎
+            </PillLink>
           </nav>
-          <SearchSortBar placeholder="搜尋題目、組別、指導老師" sortOptions={SHOWCASE_SORT_OPTIONS} />
+          <SearchSortBar placeholder="搜尋題目、組別、指導老師" sortOptions={ARCHIVE_SORT_OPTIONS} />
         </div>
 
         {cards.length === 0 ? (

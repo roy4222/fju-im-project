@@ -2,7 +2,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { IconArrowRight, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
-import { Tag } from '@/app/_ui/public-content'
+import { AwardBadge, Tag } from '@/app/_ui/public-content'
+import type { ShowcaseAward } from '@/application/showcase'
 import { Dialog, DialogContent, DialogTitle } from '@/app/_ui/ui/dialog'
 import { cn } from '@/shared/cn'
 
@@ -13,6 +14,9 @@ export type PhotoEntry = {
   readonly title: string
   readonly date?: string
   readonly tags: readonly { readonly label: string; readonly tone?: 'brand' | 'ink' }[]
+  /** 優秀專題的獎項徽章（原型 `award`／`awardLabel`）；榮譽榜不用。 */
+  readonly award?: ShowcaseAward | null
+  readonly awardLabel?: string | null
   readonly facts: readonly { readonly label: string; readonly value: string }[]
   readonly summary: string
   readonly moreHref?: string
@@ -61,6 +65,7 @@ export function PhotoDialogGrid({
                   loading="lazy"
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                 />
+                <AwardBadge award={e.award} label={e.awardLabel} className="absolute top-3 left-3 shadow-md" />
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4.5">
                 {e.date ? <span className="tabular text-[13px] font-semibold text-muted-foreground">{e.date}</span> : null}
@@ -91,6 +96,7 @@ export function PhotoDialogGrid({
               </div>
               <div className="flex flex-col gap-3.5 p-7">
                 <div className="flex flex-wrap gap-1.5">
+                  <AwardBadge award={current.award} label={current.awardLabel} />
                   {current.tags.map((t) => (
                     <Tag key={t.label} tone={t.tone ?? 'brand'}>
                       {t.label}

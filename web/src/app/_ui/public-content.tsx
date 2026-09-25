@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconFileText, IconLock, IconSearch, IconSearchOff } from '@tabler/icons-react'
+import { IconCrown, IconFileText, IconLock, IconSearch, IconSearchOff, IconTrophy } from '@tabler/icons-react'
 import type { ItemFileSummary, PublicItemCard } from '@/application/items'
+import type { ShowcaseAward } from '@/application/showcase'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -112,6 +113,29 @@ export function Tag({ children, tone = 'brand', className }: { children: ReactNo
       )}
     >
       {children}
+    </span>
+  )
+}
+
+/**
+ * 獎項徽章（原型 `AwardBadge`）：優秀專題＝橘底王冠、佳作＝深藍底獎盃；沒有等級不畫。
+ * `label` 是獎項全名，放在 title 讓滑過看得到。
+ */
+export function AwardBadge({ award, label, className }: { award: ShowcaseAward | null | undefined; label?: string | null; className?: string }) {
+  if (!award) return null
+  const excellent = award === 'excellent'
+  return (
+    <span
+      className={cn(
+        'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-bold',
+        excellent ? 'bg-primary text-primary-foreground' : 'bg-ink text-ink-foreground',
+        className,
+      )}
+      title={label ?? undefined}
+      data-testid="award-badge"
+    >
+      {excellent ? <IconCrown className="size-3.5" aria-hidden /> : <IconTrophy className="size-3.5" aria-hidden />}
+      {excellent ? '優秀專題' : '佳作'}
     </span>
   )
 }

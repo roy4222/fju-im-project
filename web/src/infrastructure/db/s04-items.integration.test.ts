@@ -139,6 +139,8 @@ describe('逐欄對照模組 04／05 附錄 A', () => {
       'updated_by_user_id',
       // 票 15：草稿工作副本（附錄 A 沒定正文放哪；發布時切進 item_versions／form_schema_versions）。
       'body_html', 'cover_file_id', 'category', 'draft_schema',
+      // 票 39（0011）：競賽資訊的報名截止與活動日、榮譽的得獎日期（發布設定，不進 item_versions）。
+      'registration_deadline', 'event_date', 'awarded_on',
     ],
     item_audience_groups: ['item_id', 'group_id', 'created_at'],
     item_versions: [

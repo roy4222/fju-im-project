@@ -103,6 +103,8 @@ type ItemRow = {
   body_html: string
   cover_file_id: string | null
   category: string | null
+  registration_deadline: string | null
+  event_date: string | null
   draft_schema: { fields: FormField[] }
   revision: number
 }
@@ -220,9 +222,10 @@ export class PgItemCommand implements ItemCommand {
         `insert into managed_items
            (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, due_at,
             title, summary, body_html, cover_file_id, category, draft_schema,
-            created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
+            created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id,
+            registration_deadline, event_date)
          values ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11, $12, $13, $14::jsonb,
-                 $15, 'user', $16, $15, $16)`,
+                 $15, 'user', $16, $15, $16, $17, $18)`,
         [
           itemId,
           draft.cohortId,
@@ -240,6 +243,8 @@ export class PgItemCommand implements ItemCommand {
           JSON.stringify({ fields: draft.fields }),
           realAt,
           userId,
+          draft.registrationDeadline,
+          draft.eventDate,
         ],
       )
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
@@ -553,7 +558,10 @@ export class PgItemCommand implements ItemCommand {
       const audienceChanged = draft.audienceKind !== item.audience_kind || !sameSet(draft.groupIds, groupIds)
       const stageChanged = draft.stageId !== item.stage_id
       const deadlineChanged = !sameTime(draft.dueAt, item.due_at)
-      const settingsChanged = unitChanged || audienceChanged || stageChanged
+      // 競賽資訊的報名截止／活動日（0011）：發布設定，跟階段一樣記成「設定變更」。
+      const competitionDatesChanged =
+        draft.registrationDeadline !== item.registration_deadline || draft.eventDate !== item.event_date
+      const settingsChanged = unitChanged || audienceChanged || stageChanged || competitionDatesChanged
       if (!contentChanged && !schemaChanged && !settingsChanged && !deadlineChanged) {
         return err('VALIDATION_FAILED', '沒有任何修改。')
       }
@@ -595,6 +603,8 @@ export class PgItemCommand implements ItemCommand {
         receiver_unit: draft.receiverUnit,
         stage_id: draft.stageId,
         due_at: draft.dueAt,
+        registration_deadline: draft.registrationDeadline,
+        event_date: draft.eventDate,
         deadline_version: deadlineVersion,
       }
       let contentVersionNo = await this.#currentVersionNo(tx, 'item_versions', item.current_content_version_id)
@@ -1040,7 +1050,8 @@ export class PgItemCommand implements ItemCommand {
     const found = await tx.query<ItemRow>(
       `select id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, actual_opened_at, due_at,
               deadline_version, current_content_version_id, current_schema_version_id, title, summary, body_html,
-              cover_file_id, category, draft_schema, revision
+              cover_file_id, category, to_char(registration_deadline, 'YYYY-MM-DD') as registration_deadline,
+              to_char(event_date, 'YYYY-MM-DD') as event_date, draft_schema, revision
          from managed_items where id = $1 for update`,
       [itemId],
     )
@@ -1089,6 +1100,7 @@ export class PgItemCommand implements ItemCommand {
           set placement = $2, audience_kind = $3, receiver_unit = $4, stage_id = $5, opens_at = $6, due_at = $7,
               title = $8, summary = $9, body_html = $10, cover_file_id = $11, category = $12, draft_schema = $13::jsonb,
               deadline_version = coalesce($14, deadline_version),
+              registration_deadline = $17, event_date = $18,
               revision = revision + 1, updated_at = $15, updated_by_user_id = $16
         where id = $1`,
       [
@@ -1108,6 +1120,8 @@ export class PgItemCommand implements ItemCommand {
         deadlineVersion ?? null,
         realAt,
         userId,
+        draft.registrationDeadline,
+        draft.eventDate,
       ],
     )
   }
@@ -1367,9 +1381,18 @@ export class PgItemQuery implements ItemQuery {
     if (!isUuid(itemId)) return null
     const db = this.#reader()
     const found = await db.query<
-      ItemRow & { updated_at: Date; content_no: number | null; schema_no: number | null; roster_count: string }
+      Omit<ItemRow, 'registration_deadline' | 'event_date'> & {
+        updated_at: Date
+        content_no: number | null
+        schema_no: number | null
+        roster_count: string
+        registration_deadline_day: string | null
+        event_date_day: string | null
+      }
     >(
       `select m.*, cv.version_no as content_no, sv.version_no as schema_no,
+              to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline_day,
+              to_char(m.event_date, 'YYYY-MM-DD') as event_date_day,
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
                 as roster_count
          from managed_items m
@@ -1423,6 +1446,8 @@ export class PgItemQuery implements ItemQuery {
       opensAt: item.opens_at,
       actualOpenedAt: item.actual_opened_at,
       dueAt: item.due_at,
+      registrationDeadline: item.registration_deadline_day,
+      eventDate: item.event_date_day,
       deadlineVersion: item.deadline_version,
       fields: item.draft_schema.fields ?? [],
       revision: item.revision,

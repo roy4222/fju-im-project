@@ -166,6 +166,28 @@ describe('階段與年度結束日', () => {
     ])
   })
 
+  it('一句話說明（票 39，0011）：存得進、讀得回；只改說明不換期限版本', async () => {
+    const cohort = await newCohort()
+    const described = {
+      ...SCHEDULE,
+      stages: SCHEDULE.stages.map((s, i) => (i === 0 ? { ...s, description: '五人一組報名，各自確認後成立。' } : s)),
+    }
+    await timeline.saveSchedule(actor(adminId), cohort.id, described, cohort.revision, randomUUID())
+    const first = await timelineQuery.schedule(cohort.id)
+    expect(first.stages.map((s) => s.description)).toEqual(['五人一組報名，各自確認後成立。', '', '', ''])
+
+    const edited = { ...SCHEDULE, stages: SCHEDULE.stages.map((s, i) => (i === 1 ? { ...s, description: '期中報告與簡報。' } : s)) }
+    const result = await timeline.saveSchedule(actor(adminId), cohort.id, edited, await revisionOf(cohort.id), randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [] } })
+    const second = await timelineQuery.schedule(cohort.id)
+    expect(second.stages.map((s) => [s.description, s.deadlineVersion])).toEqual([
+      ['', 1],
+      ['期中報告與簡報。', 1],
+      ['', 1],
+      ['', 1],
+    ])
+  })
+
   it('畫面上的版本過期（別人先改過）：CONFLICT', async () => {
     const cohort = await newCohort()
     await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, randomUUID())

@@ -2,6 +2,7 @@ import type { EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-m
 import {
   AUDIENCE_LABEL,
   COLLECTION_AUDIENCES,
+  COMPETITION_CATEGORY,
   EDITABLE_PLACEMENTS,
   EMPTY_COLLECTION_MESSAGE,
   FIELD_TYPE_LABEL,
@@ -46,6 +47,7 @@ export async function editorVocabulary(cohortId: string): Promise<EditorVocabula
     fileTypes: [...SUBMISSION_FILE_TYPES],
     fileMaxMiB: FILE_FIELD_MAX_MIB,
     emptyCollectionMessage: EMPTY_COLLECTION_MESSAGE,
+    competitionCategory: COMPETITION_CATEGORY,
     uploads: {
       attachment: {
         accept: ITEM_UPLOAD.attachment.allowedTypes.map((t) => EXTENSION[t]).join(','),

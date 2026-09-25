@@ -23,6 +23,7 @@ import {
   getCohortStatusQuery,
   getTimelineQuery,
   STAGE_COUNT,
+  STAGE_DESCRIPTION_MAX_LENGTH,
   STAGE_NAME_MAX_LENGTH,
   stageLastDate,
   stagePositionAt,
@@ -85,7 +86,7 @@ export default async function AdminTimelinePage({
 
   const stageDrafts = Array.from({ length: STAGE_COUNT }, (_, i) => {
     const stage = schedule.stages.find((s) => s.seq === i + 1)
-    return { name: stage?.name ?? '', startDate: stage?.startDate ?? '' }
+    return { name: stage?.name ?? '', startDate: stage?.startDate ?? '', description: stage?.description ?? '' }
   })
   const audiences: AudienceOption[] = ACTIVITY_AUDIENCES.map((value) => ({ value, label: ACTIVITY_AUDIENCE_LABEL[value] }))
   const limits = {
@@ -114,6 +115,7 @@ export default async function AdminTimelinePage({
         return {
           seq: stage.seq,
           name: stage.name,
+          description: stage.description,
           range: `${formatTaipeiDate(stage.startDate)} – ${formatTaipeiDate(last)}`,
           status: isCurrent ? 'current' : isPast ? 'done' : 'upcoming',
           detail,
@@ -169,6 +171,7 @@ export default async function AdminTimelinePage({
           stages: stageDrafts,
           yearEndDate: schedule.yearEndDate ?? '',
           nameMaxLength: STAGE_NAME_MAX_LENGTH,
+          descriptionMaxLength: STAGE_DESCRIPTION_MAX_LENGTH,
         }}
         extraActions={
           businessClockOverrideEnabled() ? (

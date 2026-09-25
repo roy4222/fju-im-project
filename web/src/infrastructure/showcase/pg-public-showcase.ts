@@ -6,6 +6,7 @@ import type {
   PublicShowcasePage,
   PublicShowcaseQuery,
   ShowcaseArchive,
+  ShowcaseAward,
   ShowcaseListFilter,
   ShowcasePeople,
   SignedInShowcaseCard,
@@ -21,7 +22,11 @@ import { personName } from '@/infrastructure/db/person-name'
  * `showcase_versions`。草稿（`showcase_drafts`）一個欄位都不碰——草稿可以隨時改，沒有經過發布閘門。
  * 撤稿（`withdrawn`）的條目列表不出現、詳情告訴他已下架。
  *
- * 白名單：題目、摘要、海報、影片連結、屆別、組別代碼、版本時間。授權參照、個資檢查結果、草稿內容都不出現。
+ * 白名單：題目、摘要、海報、影片連結、屆別、組別代碼、版本時間、獎項。授權參照、個資檢查結果、草稿內容都不出現。
+ *
+ * **優秀專題與歷屆一覽的界線（0011，票 39）**：公開的只有 `showcase_entries.award_level` 有值（優秀、佳作）的
+ * 已發布作品；沒有等級的只給能正常使用平台的登入者（列表、詳情、上一件／下一件、屆別 pill 都照這條）。
+ * 等級預設 NULL，所以 S12 的歷屆補登、一般發布不標等級就不會出現在公開頁。
  * 組員與主指導只給**能正常使用平台**的登入者（`statusGate` 通過：待審、必須改密、停用都當訪客），
  * 而且只給「目前有效」的那幾列（`valid_to IS NULL`），換組、重派之後的舊人不會掛在作品上。
  *
@@ -40,6 +45,8 @@ type Row = {
   video_url: string | null
   poster_file_id: string | null
   created_real_at: Date
+  award_level: ShowcaseAward | null
+  award_label: string | null
 }
 
 const FROM = `
@@ -51,12 +58,22 @@ const FROM = `
  where e.status = 'published'`
 
 const COLUMNS = `e.id, c.code as cohort_code, e.group_id, g.code as group_code, v.title, v.summary, v.video_url,
-       f.id as poster_file_id, v.created_real_at`
+       f.id as poster_file_id, v.created_real_at, e.award_level, e.award_label`
+
+/** 公開（訪客也看得到）的那一批：有獎項等級的。 */
+const FEATURED = `e.award_level is not null`
+
+/** 得獎排序：優秀 → 佳作 → 沒得獎（原型 `awardRank`）；「佳作優先」把前兩個對調。 */
+const EXCELLENT_FIRST = `case e.award_level when 'excellent' then 0 when 'merit' then 1 else 2 end`
+const MERIT_FIRST = `case e.award_level when 'merit' then 0 when 'excellent' then 1 else 2 end`
 
 const ORDER: Record<NonNullable<ShowcaseListFilter['sort']>, string> = {
-  cohort: `c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
-  'cohort-asc': `c.code asc, g.code asc nulls last, v.title asc, e.id asc`,
+  cohort: `c.code desc, ${EXCELLENT_FIRST}, g.code asc nulls last, v.title asc, e.id asc`,
+  'cohort-asc': `c.code asc, ${EXCELLENT_FIRST}, g.code asc nulls last, v.title asc, e.id asc`,
   title: `v.title asc, c.code desc, e.id asc`,
+  award: `${EXCELLENT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
+  excellent: `${EXCELLENT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
+  merit: `${MERIT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
 }
 
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
@@ -74,6 +91,8 @@ function toCard(r: Row): PublicShowcaseCard {
     videoUrl: r.video_url,
     posterFileId: r.poster_file_id,
     publishedAt: r.created_real_at,
+    award: r.award_level,
+    awardLabel: r.award_label,
   }
 }
 
@@ -92,7 +111,7 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
   }
 
   async featured(filter: ShowcaseListFilter = {}): Promise<PublicShowcaseCard[]> {
-    const rows = await this.#rows(filter, false)
+    const rows = await this.#rows({ ...filter, awardOnly: true }, false)
     return rows.map(toCard)
   }
 
@@ -107,8 +126,10 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
     return { access: 'visible', cards }
   }
 
-  async cohorts(): Promise<string[]> {
-    const rows = await this.#reader().query<{ code: string }>(`select distinct c.code ${FROM} order by c.code desc`)
+  async cohorts(options: { readonly featuredOnly?: boolean } = {}): Promise<string[]> {
+    const rows = await this.#reader().query<{ code: string }>(
+      `select distinct c.code ${FROM} ${options.featuredOnly ? `and ${FEATURED}` : ''} order by c.code desc`,
+    )
     return rows.rows.map((r) => r.code)
   }
 
@@ -126,16 +147,19 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
     const found = await db.query<Row>(`select ${COLUMNS} ${FROM} and e.id = $1`, [entryId])
     const row = found.rows[0]
     if (!row) return { access: 'not_found' }
+    const member = isMember(actor)
+    // 沒得獎的只在登入後的歷屆一覽：訪客（含待審、必須改密）不給內容，連題目都不給。
+    if (row.award_level === null && !member) return { access: 'need_login' }
 
-    // 上一件／下一件：照優秀專題列表的預設順序（屆別新到舊）。
+    // 上一件／下一件：照列表的預設順序（屆別新到舊）；訪客只在優秀專題之間跳，登入者走整個歷屆一覽。
     const order = await db.query<{ id: string; title: string }>(
-      `select e.id, v.title ${FROM} order by ${ORDER.cohort} limit ${MAX_ROWS}`,
+      `select e.id, v.title ${FROM} ${member ? '' : `and ${FEATURED}`} order by ${ORDER.cohort} limit ${MAX_ROWS}`,
     )
     const index = order.rows.findIndex((r) => r.id === entryId)
     const prev = index > 0 ? order.rows[index - 1]! : null
     const next = index >= 0 && index < order.rows.length - 1 ? order.rows[index + 1]! : null
 
-    const people = isMember(actor)
+    const people = member
       ? ((row.group_id ? (await this.#people([row.group_id])).get(row.group_id) : undefined) ?? NO_PEOPLE)
       : null
     return { access: 'visible', item: toCard(row), people, prev, next }
@@ -143,7 +167,8 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
 
   async #rows(filter: ShowcaseListFilter, signedIn: boolean): Promise<Row[]> {
     const values: unknown[] = []
-    const where: string[] = []
+    // 訪客那一邊（`signedIn=false`）一律只有得獎的；不靠呼叫的人記得傳 `awardOnly`。
+    const where: string[] = filter.awardOnly || !signedIn ? [FEATURED] : []
     const cohort = filter.cohort?.trim()
     if (cohort) {
       values.push(cohort)

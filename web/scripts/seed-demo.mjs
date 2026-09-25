@@ -19,7 +19,7 @@
  *   - 產學合作案的案主是示範老師；封面與附件的檔案擁有者是「系辦管理員（示範）」。
  *   - 每個 id 都由固定的 key 算出來（`demoId`），重跑產生一樣的 id。
  *
- * 冪等：示範屆別已經在就不寫任何東西（只把遺失的封面／附件檔案補回 FILES_ROOT）。整批寫入是同一筆交易，
+ * 冪等：示範屆別已經在就不再建（只把遺失的封面／附件檔案補回 FILES_ROOT，並補票 39 加的欄位——只填空著的）。整批寫入是同一筆交易，
  * 不會留下半套。日期照原型（原型的今天是 2026-08-17）平移到第一次種子當天的業務時間，截止日才會是「剩 9 天」。
  *
  * 不寫的東西（刻意）：
@@ -296,6 +296,53 @@ async function seededAnchor(db, now) {
   const offset = r.rows[0]?.payload?.offsetDays
   if (typeof offset !== 'number') return process.env.DEMO_ANCHOR_DATE || taipeiYmd(now)
   return new Date(Date.parse(`${demo.PROTOTYPE_TODAY}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10)
+}
+
+/**
+ * 票 39（#295，migration 0011）加的欄位：階段說明、歷屆專題的獎項等級、榮譽的得獎日期、競賽公告的報名截止與活動日。
+ *
+ * 新建時在 `seed` 的最後補；**已經灌過的測試站**（示範資料已存在、不再建）每次跑也補，所以部署 0011 之後
+ * 下一次 `seed-demo` 就把新欄位補上。只填**還空著的**（說明是空字串、日期與等級是 NULL），系辦在後台改過的值不覆蓋；
+ * 重跑第二次什麼都不會變（冪等）。競賽日期跟公告同一條時間線（`day` 平移），得獎日期是歷史日期不平移。
+ * 回傳這次補了幾列。
+ */
+async function fillShowcaseStageFields(db, day) {
+  let filled = 0
+  const run = async (sql, values) => {
+    filled += (await db.query(sql, values)).rowCount ?? 0
+  }
+  for (const s of demo.STAGES) {
+    if (!s.description) continue
+    await run(`update cohort_stages set description = $3 where cohort_id = $1 and seq = $2 and description = ''`, [
+      COHORT_ID,
+      s.seq,
+      s.description,
+    ])
+  }
+  for (const pr of demo.PROJECTS) {
+    if (!pr.award) continue
+    await run(
+      `update showcase_entries set award_level = $2, award_label = $3, revision = revision + 1
+        where id = $1 and award_level is null`,
+      [demoId(`history-showcase:${pr.key}`), pr.award, pr.awardLabel ?? null],
+    )
+  }
+  for (const h of demo.HONORS) {
+    await run(
+      `update managed_items set awarded_on = $2, revision = revision + 1
+        where id = $1 and placement = 'honor' and awarded_on is null`,
+      [demoId(`item:honor-${h.key}`), h.date],
+    )
+  }
+  for (const c of [...demo.NEWS, ...demo.COMPETITION_NEWS]) {
+    if (!c.registrationDeadline && !c.eventDate) continue
+    await run(
+      `update managed_items set registration_deadline = $2, event_date = $3, revision = revision + 1
+        where id = $1 and placement = 'news' and registration_deadline is null and event_date is null`,
+      [demoId(`item:${c.key}`), c.registrationDeadline ? day(c.registrationDeadline) : null, c.eventDate ? day(c.eventDate) : null],
+    )
+  }
+  return filled
 }
 
 /** 歷史日期（不平移）：原型的「日期 時:分」臺灣時間。 */
@@ -1404,6 +1451,8 @@ async function seed(db, phases) {
 
   if (phases.current) await seedCurrent()
   if (phases.history) await seedHistory()
+  // 票 39 的欄位：這一批剛建的、以及早就在的另一批，都在同一筆交易裡補（見 `fillShowcaseStageFields`）。
+  count('票 39 補欄', await fillShowcaseStageFields(db, day))
 
   // 稽核：全系範圍一筆（不掛屆別，才不會擋住 --remove 刪屆別）。
   await insert(db, 'audit_events', {
@@ -1625,8 +1674,22 @@ try {
       console.error('歷屆示範屆別只剩一部分（有人手動改過？）；先跑 --remove 清乾淨再建。')
       exitCode = 1
     } else if (!phases.current && !phases.history) {
+      // 兩批都在：不再建，只補票 39（0011）加的欄位（只填空著的，重跑不變）。平移天數照第一批當初的。
+      await client.query('begin')
+      let filled
+      try {
+        const { day } = makeClock(await seededAnchor(client, await businessNow(client)))
+        filled = await fillShowcaseStageFields(client, day)
+        await client.query('commit')
+      } catch (error) {
+        await client.query('rollback')
+        throw error
+      }
       const repaired = await writeMissingFiles(client)
-      console.log(`示範資料已存在（${demo.COHORT.code}），不做任何事${repaired > 0 ? `；補回 ${repaired} 個遺失的示範檔案` : ''}。`)
+      const did = [filled > 0 ? `補上票 39 的欄位 ${filled} 列` : '', repaired > 0 ? `補回 ${repaired} 個遺失的示範檔案` : '']
+        .filter(Boolean)
+        .join('；')
+      console.log(`示範資料已存在（${demo.COHORT.code}），${did || '不做任何事'}。`)
     } else {
       const taken = phases.current
         ? (await client.query('select count(*)::int as n from users where email like $1', [`%@${demo.EMAIL_DOMAIN}`])).rows[0].n

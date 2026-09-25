@@ -23,8 +23,18 @@ import {
 /** 票 11：管理員替屆別設四個階段（開發計畫票 11；年度劇本的四段只是測試資料，名稱由管理員填）。 */
 export const STAGE_COUNT = 4
 export const STAGE_NAME_MAX_LENGTH = 20
+/** 階段說明（0011，票 39；原型 `Stage.summary`「一句話說這階段要做什麼」）的長度上限，DB CHECK 同一個數。 */
+export const STAGE_DESCRIPTION_MAX_LENGTH = 200
 
-export type StageInput = { readonly name: string; readonly startDate: string }
+export type StageInput = {
+  readonly name: string
+  readonly startDate: string
+  /** 一句話說這階段要做什麼（學生時間軸顯示）；選填，沒給＝空字串。 */
+  readonly description?: string
+}
+
+/** 整理過的階段：說明一定有值（沒填是空字串）。 */
+export type NormalizedStageInput = { readonly name: string; readonly startDate: TaipeiDate; readonly description: string }
 
 export type ScheduleInput = {
   readonly stages: readonly StageInput[]
@@ -34,6 +44,8 @@ export type ScheduleInput = {
 export type Stage = {
   readonly seq: number
   readonly name: string
+  /** 一句話說這階段要做什麼；沒填是空字串。 */
+  readonly description: string
   readonly startDate: TaipeiDate
   /** 這一段的日期範圍每改一次 +1（契約 01 §4.7 的期限版本）。 */
   readonly deadlineVersion: number
@@ -47,20 +59,27 @@ export type CohortSchedule = {
 /** 整理並驗證「階段與年度結束日」的輸入。錯誤訊息指出是哪一段、哪一個日期。 */
 export function normalizeScheduleInput(
   input: ScheduleInput,
-): { ok: true; value: { stages: StageInput[]; yearEndDate: TaipeiDate } } | Err {
+): { ok: true; value: { stages: NormalizedStageInput[]; yearEndDate: TaipeiDate } } | Err {
   if (input.stages.length !== STAGE_COUNT) {
     return err('VALIDATION_FAILED', `要剛好設定 ${STAGE_COUNT} 個階段。`)
   }
 
-  const stages: StageInput[] = []
+  const stages: NormalizedStageInput[] = []
   for (const [index, raw] of input.stages.entries()) {
     const seq = index + 1
     const name = raw.name.trim()
     const startDate = raw.startDate.trim()
+    // 換行、連續空白收成一個空格：說明是時間軸上的一句話。
+    const description = (raw.description ?? '').replace(/\s+/g, ' ').trim()
     if (!name) return err('VALIDATION_FAILED', `請填第 ${seq} 階段的名稱。`, { details: { field: `stage${seq}.name` } })
     if (name.length > STAGE_NAME_MAX_LENGTH) {
       return err('VALIDATION_FAILED', `第 ${seq} 階段的名稱最多 ${STAGE_NAME_MAX_LENGTH} 個字。`, {
         details: { field: `stage${seq}.name` },
+      })
+    }
+    if (description.length > STAGE_DESCRIPTION_MAX_LENGTH) {
+      return err('VALIDATION_FAILED', `第 ${seq} 階段的說明最多 ${STAGE_DESCRIPTION_MAX_LENGTH} 個字。`, {
+        details: { field: `stage${seq}.description` },
       })
     }
     if (!isValidTaipeiDate(startDate)) {
@@ -74,7 +93,7 @@ export function normalizeScheduleInput(
         { details: { field: `stage${seq}.startDate` } },
       )
     }
-    stages.push({ name, startDate })
+    stages.push({ name, startDate, description })
   }
 
   const yearEndDate = input.yearEndDate.trim()
@@ -155,6 +174,7 @@ export function describeStagePosition(position: StagePosition): string {
 export type StagePlan = {
   readonly seq: number
   readonly name: string
+  readonly description: string
   readonly startDate: TaipeiDate
   /** 新的期限版本；範圍沒變就沿用舊的。 */
   readonly deadlineVersion: number
@@ -167,11 +187,11 @@ export type StagePlan = {
  * 比對新舊設定，算出每一段的新期限版本。
  *
  * 一段的範圍＝（開始日、最後一天）。改第 3 段的開始日，第 2 段的最後一天也跟著變，
- * 所以兩段都要 +1；只改名稱不動日期則版本不變。
+ * 所以兩段都要 +1；只改名稱或說明、不動日期則版本不變。
  */
 export function planStageVersions(
   current: CohortSchedule,
-  next: { stages: readonly StageInput[]; yearEndDate: TaipeiDate },
+  next: { stages: readonly NormalizedStageInput[]; yearEndDate: TaipeiDate },
 ): StagePlan[] {
   const oldBySeq = new Map(current.stages.map((stage) => [stage.seq, stage]))
   const oldSorted = [...current.stages].sort((a, b) => a.seq - b.seq)
@@ -184,6 +204,7 @@ export function planStageVersions(
       return {
         seq,
         name: stage.name,
+        description: stage.description,
         startDate: stage.startDate,
         deadlineVersion: old ? old.deadlineVersion + 1 : 1,
         rangeChanged: true,
@@ -196,6 +217,7 @@ export function planStageVersions(
     return {
       seq,
       name: stage.name,
+      description: stage.description,
       startDate: stage.startDate,
       deadlineVersion: rangeChanged ? old.deadlineVersion + 1 : old.deadlineVersion,
       rangeChanged,
@@ -224,6 +246,8 @@ export type StageStatus = 'done' | 'current' | 'upcoming'
 export type TimelineStage = {
   readonly seq: number
   readonly name: string
+  /** 一句話說這階段要做什麼（0011）；沒填是空字串。 */
+  readonly description: string
   readonly startDate: TaipeiDate
   /** 這一段的最後一天（含當天）。 */
   readonly lastDate: TaipeiDate
@@ -266,7 +290,7 @@ export function timelineView(schedule: CohortSchedule, businessAt: Date): Timeli
         : stage.seq === currentSeq
           ? 'current'
           : 'upcoming'
-    return { seq: stage.seq, name: stage.name, startDate: stage.startDate, lastDate, status }
+    return { seq: stage.seq, name: stage.name, description: stage.description, startDate: stage.startDate, lastDate, status }
   })
   const cur = stages.find((s) => s.status === 'current')
   if (!cur) return { stages, current: null }

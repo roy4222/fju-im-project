@@ -51,6 +51,8 @@ function toItemInput(raw: unknown): ItemInput {
     stageId: typeof r.stageId === 'string' && r.stageId !== '' ? r.stageId.slice(0, 100) : null,
     opensAt: str(r.opensAt, 40),
     dueAt: str(r.dueAt, 40),
+    registrationDeadline: str(r.registrationDeadline, 20),
+    eventDate: str(r.eventDate, 20),
     fields: Array.isArray(r.fields) ? r.fields.slice(0, 200) : [],
   }
 }

@@ -28,7 +28,8 @@ import { viewerOf } from '@/infrastructure/items/viewer'
  * 前台沒有頁面守門可以依靠，所以**這裡自己依看的人過濾**：
  * - SQL 先用對象條件縮小（訪客只拿得到 `public`），列出來的每一筆再用 `canViewItem` 複核一次，
  *   兩層任何一層寫錯都不會多露資料。
- * - 只回公開欄位：標題、摘要、分類、封面、附件、發布日；正文只在打開單篇時給，而且已經過 `renderBodyHtml`。
+ * - 只回公開欄位：標題、摘要、分類、封面、附件、發布日，以及競賽的報名截止／活動日、榮譽的得獎日期（0011）；
+ *   正文只在打開單篇時給，而且已經過 `renderBodyHtml`。
  * - 對象細節（哪幾組）、收件名單、欄位、作者都不出現在前台的回應裡。
  */
 
@@ -47,10 +48,16 @@ type Row = {
   cover_file_id: string | null
   actual_opened_at: Date | null
   group_ids: string[] | null
+  registration_deadline: string | null
+  event_date: string | null
+  awarded_on: string | null
 }
 
 const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id,
        m.cover_file_id, m.actual_opened_at,
+       to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline,
+       to_char(m.event_date, 'YYYY-MM-DD') as event_date,
+       to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on,
        array(select a.group_id from item_audience_groups a where a.item_id = m.id) as group_ids`
 
 /**
@@ -231,6 +238,9 @@ export class PgPublicItemQuery implements PublicItemQuery {
         attachments: attachments.rows.filter((a) => a.item_id === r.id).map(summary),
         // 發布中與已下架的一定有實際開放時間（DB 的 managed_items_published_check）。
         publishedAt: r.actual_opened_at ?? new Date(0),
+        registrationDeadline: r.registration_deadline,
+        eventDate: r.event_date,
+        awardedOn: r.awarded_on,
       }
     })
   }

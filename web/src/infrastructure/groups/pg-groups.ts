@@ -210,13 +210,19 @@ export async function loadSchedule(
   cohortId: string,
   yearEndDate: string | null,
 ): Promise<CohortSchedule> {
-  const stages = await tx.query<{ seq: number; name: string; start_date: string; deadline_version: number }>(
-    `select seq, name, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
+  const stages = await tx.query<{ seq: number; name: string; description: string; start_date: string; deadline_version: number }>(
+    `select seq, name, description, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
        from cohort_stages where cohort_id = $1 order by seq`,
     [cohortId],
   )
   return {
-    stages: stages.rows.map((r) => ({ seq: r.seq, name: r.name, startDate: r.start_date, deadlineVersion: r.deadline_version })),
+    stages: stages.rows.map((r) => ({
+      seq: r.seq,
+      name: r.name,
+      description: r.description,
+      startDate: r.start_date,
+      deadlineVersion: r.deadline_version,
+    })),
     yearEndDate,
   }
 }
