@@ -8,6 +8,7 @@ import {
   publicAccessOf,
   renderBodyHtml,
   type AudienceKind,
+  type CompetitionStatus,
   type ItemFileSummary,
   type ItemStatus,
   type MyDeadline,
@@ -81,6 +82,28 @@ function visibilityOf(row: Row) {
   return { status: row.status, audienceKind: row.audience_kind, cohortId: row.cohort_id, groupIds: row.group_ids ?? [] }
 }
 
+/**
+ * 競賽狀態的 SQL 條件，跟 `competitionStatus`（application）同一套規則：截止日（含）以前＝報名中；
+ * 否則活動日（含）以前＝決賽／結果；兩個都過了＝已結束；兩個都沒填沒有狀態（不符合任何一種）。
+ * `today` 是參數佔位符（例如 `$3::date`）。
+ */
+function competitionStatusSql(status: CompetitionStatus, today: string): string {
+  const deadlinePassed = `(m.registration_deadline is null or m.registration_deadline < ${today})`
+  if (status === 'open') return `(m.registration_deadline is not null and m.registration_deadline >= ${today})`
+  if (status === 'result') return `(${deadlinePassed} and m.event_date is not null and m.event_date >= ${today})`
+  return `((m.registration_deadline is not null or m.event_date is not null) and ${deadlinePassed}
+           and (m.event_date is null or m.event_date < ${today}))`
+}
+
+/** 列表排序。得獎日期沒填的退回發布日的臺灣日期（與榮譽榜畫面同一個「日期」）。 */
+const AWARDED_DAY = `coalesce(m.awarded_on, (m.actual_opened_at at time zone 'Asia/Taipei')::date)`
+const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
+  newest: 'm.actual_opened_at desc, m.id desc',
+  oldest: 'm.actual_opened_at asc, m.id asc',
+  awarded: `${AWARDED_DAY} desc, m.actual_opened_at desc, m.id desc`,
+  'awarded-asc': `${AWARDED_DAY} asc, m.actual_opened_at asc, m.id asc`,
+}
+
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
 function likePattern(q: string): string {
   return `%${q.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
@@ -128,6 +151,12 @@ export class PgPublicItemQuery implements PublicItemQuery {
       values.push(likePattern(q))
       where.push(`(m.title ilike $${values.length} or m.summary ilike $${values.length})`)
     }
+    if (filter.competition) {
+      if (filter.competition.statuses.length === 0) return []
+      values.push(filter.competition.today)
+      const today = `$${values.length}::date`
+      where.push(`(${filter.competition.statuses.map((st) => competitionStatusSql(st, today)).join(' or ')})`)
+    }
     const audience = audienceSql(viewer, values.length + 1)
     values.push(...audience.values)
     where.push(audience.sql)
@@ -137,7 +166,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     const rows = await db.query<Row & { body_html: string }>(
       `select ${COLUMNS}, m.body_html from managed_items m
         where ${where.join(' and ')}
-        order by ${filter.order === 'oldest' ? 'm.actual_opened_at asc, m.id asc' : 'm.actual_opened_at desc, m.id desc'}
+        order by ${ORDER_SQL[filter.order ?? 'newest']}
         limit $${values.length}`,
       values,
     )

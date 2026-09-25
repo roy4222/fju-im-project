@@ -121,7 +121,7 @@ export function normalizeActivityInput(input: ActivityInput): { ok: true; value:
   return { ok: true, value: { ...base, startsAt, endsAt, allDay: false } }
 }
 
-/** 畫面用的活動時間，例如 `2026/12/20（全天）`、`2026/12/20 14:00–16:00`。 */
+/** 畫面用的活動時間，例如 `2026-12-20（全天）`、`2026-12-20 14:00–16:00`。 */
 export function formatActivityWhen(activity: Pick<Activity, 'startsAt' | 'endsAt' | 'allDay'>): string {
   const day = formatTaipeiDate(taipeiDateOf(activity.startsAt))
   if (activity.allDay) return `${day}（全天）`

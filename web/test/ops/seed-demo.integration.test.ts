@@ -388,6 +388,12 @@ describe('seed-demo.mjs', () => {
                    where placement = 'rules' and cohort_id in (select id from cohorts where code = 'DEMO-114')`)
     await db.sql(`update managed_items set body_html = '<p>系辦改過的規則</p>'
                    where placement = 'rules' and title = '一、專題課程目的' and cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    // 第四節已經有第 2 版（例如系辦改過又改回舊內文）：新版本號要接在最大版本號後面，不能撞 UNIQUE(item_id, version_no)。
+    await db.sql(`insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+                  select gen_random_uuid(), v.item_id, 2, v.title, v.summary, v.body_html, v.created_by_user_id
+                    from item_versions v join managed_items m on m.id = v.item_id
+                   where m.placement = 'rules' and m.title like '四、%' and v.version_no = 1
+                     and m.cohort_id in (select id from cohorts where code = 'DEMO-114')`)
     const versionsBefore = Number((await db.sql(`select count(*)::int as n from item_versions`)).rows[0]!.n)
 
     const r = runSeed()
@@ -407,6 +413,10 @@ describe('seed-demo.mjs', () => {
                                      where m.placement = 'rules' and v.body_html <> m.body_html
                                        and m.title <> '一、專題課程目的'`)
     expect(mismatch.rows[0]!.n).toBe(0)
+    const fourth = await db.sql(`select v.version_no from managed_items m join item_versions v on v.id = m.current_content_version_id
+                                  where m.placement = 'rules' and m.title like '四、%'
+                                    and m.cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    expect(fourth.rows[0]!.version_no).toBe(3)
 
     const again = runSeed()
     expect(again.code, again.stderr).toBe(0)

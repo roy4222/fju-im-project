@@ -1,6 +1,7 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type {
   AudienceKind,
+  CompetitionStatus,
   FormField,
   ItemFileKind,
   ItemInput,
@@ -12,6 +13,7 @@ import type {
 import type { LifecycleAction, LifecycleReceipt, PublicAccess } from '@/application/items/lifecycle'
 import type { UploadTicket } from '@/application/ops'
 import type { Result } from '@/shared/result'
+import type { TaipeiDate } from '@/shared/time'
 
 /**
  * 模組 04 對外的 port（模組實作設計 04 §5 的 `ItemCommand`／`ItemQuery`、`ReceiverResolver`，票 15 的部分）。
@@ -289,8 +291,16 @@ export type PublicListFilter = {
   /** 標題或摘要包含這段字（不分大小寫）。 */
   readonly q?: string
   readonly limit?: number
-  /** 預設新的在前；規則頁用 `oldest`（先發布的章節在前）。 */
-  readonly order?: 'newest' | 'oldest'
+  /**
+   * 預設新的在前；規則頁用 `oldest`（先發布的章節在前）。
+   * 榮譽用 `awarded`／`awarded-asc`：依得獎日期（沒填退回發布日的臺灣日期）排，**排好才取 `limit` 筆**。
+   */
+  readonly order?: 'newest' | 'oldest' | 'awarded' | 'awarded-asc'
+  /**
+   * 競賽狀態篩選：在 SQL 裡依 `today` 推狀態（與 `competitionStatus` 同一套規則），**篩完才取 `limit` 筆**，
+   * 較早發布但還在報名中的競賽不會被截掉。
+   */
+  readonly competition?: { readonly today: TaipeiDate; readonly statuses: readonly CompetitionStatus[] }
 }
 
 /** 學生行事曆上的一個收件截止（來源就是收件項目的截止，不另外存）。 */

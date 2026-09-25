@@ -80,14 +80,23 @@ export function isMember(actor: ResolvedActor): boolean {
 }
 
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
+const WORKBENCH: Record<string, { roleLabel: string; label: string }> = {
+  '/dashboard/admin': { roleLabel: '系辦', label: '管理後台' },
+  '/dashboard/teacher': { roleLabel: '老師', label: '老師工作台' },
+  '/dashboard/student': { roleLabel: '學生', label: '我的專題事務' },
+}
+
 function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
   const name = actor.displayName
-  if (href === '/dashboard/admin') return { roleLabel: '系辦', name, workbench: { href, label: '管理後台' } }
-  if (href === '/dashboard/teacher') return { roleLabel: '老師', name, workbench: { href, label: '老師工作台' } }
-  if (href === '/dashboard/student') return { roleLabel: '學生', name, workbench: { href, label: '我的專題事務' } }
-  return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' } }
+  const known = WORKBENCH[href]
+  if (!known) return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' } }
+  // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」（身分照角色標）。
+  if (checkStatus(actor, 'business') === 'PASSWORD_CHANGE_REQUIRED') {
+    return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' } }
+  }
+  return { roleLabel: known.roleLabel, name, workbench: { href, label: known.label } }
 }
 
 /**

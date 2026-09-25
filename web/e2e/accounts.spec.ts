@@ -219,6 +219,12 @@ test('做完的樣子 3：勾選部分與全部篩選結果匯出 UTF-8 CSV，�
   const [all] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /匯出全部篩選結果（4 筆）/ }).click()])
   const text = (await fs.readFile(await all.path())).toString('utf8')
   expect(text.slice(1).trimEnd().split('\r\n')).toHaveLength(5)
+
+  // 換篩選（同一頁內導航，勾選狀態還在）：篩掉的人不算勾選，批次列跟著消失，不會匯出看不到的人。
+  await pickFacet(page, '角色', '老師')
+  await expect(page).toHaveURL(/role=teacher/)
+  await expect(page.getByTestId('selected-count')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '匯出勾選的 CSV' })).toHaveCount(0)
 })
 
 test('匯出每次重新授權：未登入 401、學生 403', async ({ playwright, browser }) => {

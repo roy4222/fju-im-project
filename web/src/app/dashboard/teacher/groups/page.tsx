@@ -6,6 +6,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { TeacherGroupsBoard, type ClaimRow, type GroupRow } from '@/app/dashboard/teacher/groups/claim-button'
+import { teacherFilterOptions } from '@/app/dashboard/teacher/groups/teacher-options'
 import { COHORT_STATUS_LABEL, getCohortStatusQuery } from '@/composition/cohorts'
 import { getGroupQuery, GROUP_TYPE_LABEL } from '@/composition/groups'
 import { cn } from '@/shared/cn'
@@ -79,10 +80,8 @@ export default async function TeacherGroupsPage({
     mine: g.advisor?.teacherUserId === me,
     claimable: g.groupType === 'industry' && !g.advisor,
   }))
-  // 篩選用老師的帳號 ID 當值、姓名只當標籤：同名的兩位老師不會被併成一個選項。
-  const teacherOptions = [...new Map(groups.flatMap((g) => (g.advisor ? [[g.advisor.teacherUserId, g.advisor.teacherName] as const] : []))).entries()]
-    .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
+  // 篩選用老師的帳號 ID 當值、姓名當標籤；同名的老師標籤後面加指導的組別好分辨。
+  const teacherOptions = teacherFilterOptions(groups)
 
   return shell(
     <>

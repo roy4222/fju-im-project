@@ -115,8 +115,8 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
 
   const list = page.getByRole('list', { name: '本屆階段' })
   await expect(list).toContainText('成組期')
-  await expect(list).toContainText('2026/11/01 – 2027/01/09')
-  await expect(list).toContainText('2027/03/01 – 2027/06/30')
+  await expect(list).toContainText('2026-11-01 – 2027-01-09')
+  await expect(list).toContainText('2027-03-01 – 2027-06-30')
 
   // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變。
   await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
@@ -127,7 +127,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await dialog.getByRole('button', { name: '先不改' }).click()
 
   await page.reload()
-  await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027/01/10 – 2027/02/28')
+  await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027-01-10 – 2027-02-28')
   // 說明存進去了：重新打開對話框還在。
   await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
   await expect(dialog.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
@@ -148,14 +148,14 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
   await expect(feedback(page, 'status')).toContainText('已新增活動「期中發表會」')
 
   const scheduled = page.getByRole('region', { name: '已排定的活動' })
-  await expect(scheduled).toContainText('2026/12/20 14:00–16:00')
+  await expect(scheduled).toContainText('2026-12-20 14:00–16:00')
 
   await scheduled.getByRole('button', { name: '改期：期中發表會' }).click()
   const edit = page.getByRole('dialog', { name: '改期：期中發表會' })
   await edit.getByLabel('日期', { exact: true }).fill('2026-12-22')
   await edit.getByRole('button', { name: '儲存改期' }).click()
   await expect(edit).toBeHidden()
-  await expect(scheduled).toContainText('2026/12/22 14:00–16:00')
+  await expect(scheduled).toContainText('2026-12-22 14:00–16:00')
 
   await scheduled.getByRole('button', { name: '取消活動：期中發表會' }).click()
   await page.getByRole('dialog', { name: '取消「期中發表會」？' }).getByRole('button', { name: '確定取消' }).click()

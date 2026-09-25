@@ -8,7 +8,7 @@ import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type I
 import { enableFaultInjection, failAt } from '../../../test/fault-injection'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
-import { EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/application/items'
+import { competitionStatus, EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/application/items'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
@@ -1369,5 +1369,86 @@ describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-
     )
     expect(updated.ok).toBe(true)
     expect(await canDownload(ANONYMOUS, publicFile)).toBe('UNAUTHENTICATED')
+  })
+})
+
+describe('前台列表：先篩狀態、先依得獎日期排，再取筆數（#305、#307）', () => {
+  const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
+
+  /** 發布一則公開項目，再把發布時間與日期直接改成測試要的樣子（發布順序跟狀態／得獎順序刻意不同）。 */
+  async function published(
+    cohortId: string,
+    placement: 'news' | 'honor',
+    title: string,
+    openedAt: string,
+    dates: { registration_deadline?: string | null; event_date?: string | null; awarded_on?: string | null },
+  ) {
+    // 榮譽不從編輯器建（示範資料與匯入直接寫）：先建成公告，再把位置改成榮譽。
+    const item = await mustCreate(cohortId, {
+      placement: 'news',
+      title,
+      category: placement === 'news' ? '競賽資訊' : '',
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      dueAt: '',
+      fields: [],
+    })
+    await mustPublish(item.itemId, 1, false)
+    await owner.sql(
+      `update managed_items set placement = $6, actual_opened_at = $2, registration_deadline = $3, event_date = $4, awarded_on = $5 where id = $1`,
+      [item.itemId, openedAt, dates.registration_deadline ?? null, dates.event_date ?? null, dates.awarded_on ?? null, placement],
+    )
+    return item.itemId
+  }
+
+  it('競賽狀態在 SQL 裡篩：最早發布但還在報名中的那一則，limit 比總數小也拿得到；各狀態與 competitionStatus 一致', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const today = '2026-10-10'
+    await published(cohortId, 'news', `${tag} 報名中（最早發布）`, '2026-01-01T00:00:00Z', { registration_deadline: '2026-10-10' })
+    await published(cohortId, 'news', `${tag} 決賽`, '2026-02-01T00:00:00Z', { registration_deadline: '2026-10-01', event_date: '2026-10-20' })
+    await published(cohortId, 'news', `${tag} 只填活動日`, '2026-02-15T00:00:00Z', { event_date: '2026-10-10' })
+    await published(cohortId, 'news', `${tag} 已結束 1`, '2026-03-01T00:00:00Z', { registration_deadline: '2026-09-01', event_date: '2026-09-09' })
+    await published(cohortId, 'news', `${tag} 已結束 2`, '2026-04-01T00:00:00Z', { registration_deadline: '2026-10-09' })
+    await published(cohortId, 'news', `${tag} 沒填日期`, '2026-05-01T00:00:00Z', {})
+
+    const list = async (statuses: readonly ('open' | 'result' | 'closed')[], limit = 1) =>
+      (await publicQuery.list(ANONYMOUS, 'news', { q: tag, category: '競賽資訊', competition: { today, statuses }, limit })).map((c) =>
+        c.title.replace(`${tag} `, ''),
+      )
+    // 沒篩狀態時 limit 1 只拿到最新發布的那一則，篩了才拿得到報名中的。
+    expect((await publicQuery.list(ANONYMOUS, 'news', { q: tag, limit: 1 })).map((c) => c.title)).toEqual([`${tag} 沒填日期`])
+    expect(await list(['open'])).toEqual(['報名中（最早發布）'])
+    expect(await list(['result'], 10)).toEqual(['只填活動日', '決賽'])
+    expect(await list(['closed'], 10)).toEqual(['已結束 2', '已結束 1'])
+    expect(await list(['open', 'result'], 10)).toEqual(['只填活動日', '決賽', '報名中（最早發布）'])
+    expect(await list([], 10)).toEqual([])
+    // SQL 與 application 的 competitionStatus 同一套規則。
+    const all = await publicQuery.list(ANONYMOUS, 'news', { q: tag, limit: 10 })
+    for (const status of ['open', 'result', 'closed'] as const) {
+      expect((await list([status], 10)).sort()).toEqual(
+        all
+          .filter((c) => competitionStatus(c, today) === status)
+          .map((c) => c.title.replace(`${tag} `, ''))
+          .sort(),
+      )
+    }
+  })
+
+  it('榮譽依得獎日期排（沒填退回發布日的臺灣日期）再取筆數：較早發布但得獎較新的一則排在前面', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    await published(cohortId, 'honor', `${tag} 最新得獎（最早發布）`, '2026-01-01T00:00:00Z', { awarded_on: '2026-09-01' })
+    await published(cohortId, 'honor', `${tag} 較早得獎`, '2026-06-01T00:00:00Z', { awarded_on: '2025-12-01' })
+    // 沒填得獎日期：用發布日的臺灣日期（2026-03-01；UTC 還是 2 月 28 日）。
+    await published(cohortId, 'honor', `${tag} 沒填得獎日`, '2026-02-28T17:00:00Z', {})
+
+    const titles = async (order: 'awarded' | 'awarded-asc', limit: number) =>
+      (await publicQuery.list(ANONYMOUS, 'honor', { q: tag, order, limit })).map((c) => c.title.replace(`${tag} `, ''))
+    expect(await titles('awarded', 1)).toEqual(['最新得獎（最早發布）'])
+    expect(await titles('awarded', 3)).toEqual(['最新得獎（最早發布）', '沒填得獎日', '較早得獎'])
+    expect(await titles('awarded-asc', 1)).toEqual(['較早得獎'])
+    // 發布日的臺灣日期（2026-03-01）排在 2026-03-01 以前得獎的後面、以後的前面。
+    expect(await titles('awarded-asc', 3)).toEqual(['較早得獎', '沒填得獎日', '最新得獎（最早發布）'])
   })
 })
