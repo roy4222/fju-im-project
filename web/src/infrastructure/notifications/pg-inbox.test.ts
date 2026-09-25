@@ -39,3 +39,19 @@ describe('專題事務通知的連結', () => {
     expect(resolveSource(row({ cohort_status: 'archived' }))).toEqual({ state: 'archived', href: `/dashboard/student/affairs/${ID}` })
   })
 })
+
+describe('簽核版本通知的連結（2026-09-25 Roy 定：換掉的舊主指導失權含看不到）', () => {
+  const signoff = (patch: Record<string, unknown>) => ({ source_ref: { type: 'signoff_version', id: ID }, cohort_status: 'active', ...patch })
+
+  it('老師：此刻讀得到那一版 → 版本頁；讀不到（被換掉的舊主指導）→ 無法存取，不給連結', () => {
+    expect(resolveSource(signoff({ signoff_readable: true }), ['teacher'])).toEqual({ state: 'ok', href: `/dashboard/teacher/signoff/${ID}` })
+    expect(resolveSource(signoff({ signoff_readable: false }), ['teacher'])).toEqual({ state: 'forbidden' })
+    expect(resolveSource(signoff({}), ['teacher'])).toEqual({ state: 'forbidden' })
+  })
+
+  it('學生進自己的簽核頁、管理員進管理版本頁（不看老師那一條）', () => {
+    expect(resolveSource(signoff({ signoff_readable: false }), ['student'])).toEqual({ state: 'ok', href: '/dashboard/student/signoff' })
+    expect(resolveSource(signoff({ signoff_readable: false }), ['admin'])).toEqual({ state: 'ok', href: `/dashboard/admin/signoff/${ID}` })
+    expect(resolveSource(signoff({ signoff_readable: false }), ['teacher', 'admin'])).toEqual({ state: 'ok', href: `/dashboard/admin/signoff/${ID}` })
+  })
+})
