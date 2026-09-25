@@ -12,6 +12,7 @@ import { PgAdvisorCommand } from '@/infrastructure/groups/pg-advisors'
 import { PgGroupCommand } from '@/infrastructure/groups/pg-groups'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+import { PgInbox } from '@/infrastructure/notifications/pg-inbox'
 import { PgAuditWriter, sha256 } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -884,6 +885,19 @@ describe('換老師後舊老師失權含看不到（產品 07 §8；2026-09-25 R
     expect(await storage.authorizeDownload(oldTeacher, draft.posterFileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     // 老師頁也不再列出這一組。
     expect(await query.teacherView(oldTeacher)).toEqual([])
+    // 通知匣：舊老師手上那則簽核通知遮成「無法存取」、不給連結；新老師同一則照常點得進版本頁。
+    const event = (await owner.sql(`select id from domain_events where type = 'signoff.superseded' and source_id = $1`, [mid.versionId])).rows[0]!
+    for (const who of [s.teacher.id, next.id]) {
+      await owner.sql(
+        `insert into notifications (id, event_id, recipient_user_id, scope, kind, title, source_ref)
+         values (gen_random_uuid(), $1, $2, 'global', 'signoff', 'G01 簽核輪到你', $3::jsonb)`,
+        [event.id, who, JSON.stringify({ type: 'signoff_version', id: mid.versionId })],
+      )
+    }
+    const inbox = new PgInbox({ db: () => app })
+    const sourceOf = async (who: ResolvedActor) => (await inbox.list(who, { kind: 'all' }, null)).items.map((i) => i.source)
+    expect(await sourceOf(oldTeacher)).toEqual([{ state: 'forbidden' }])
+    expect(await sourceOf(actor(next.id, ['teacher']))).toEqual([{ state: 'ok', href: `/dashboard/teacher/signoff/${mid.versionId}` }])
 
     // 新老師（此刻的主指導）、被移出的快照學生、管理員：舊版的版本頁、附件、海報都讀得到。
     const newTeacher = actor(next.id, ['teacher'])

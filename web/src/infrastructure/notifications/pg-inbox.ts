@@ -15,6 +15,7 @@ import {
   type NotificationSourceState,
 } from '@/application/notifications'
 import { getPool } from '@/infrastructure/db/client'
+import { signoffVersionReadableSql } from '@/infrastructure/signoff/version-read-access'
 import { err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 
@@ -42,10 +43,12 @@ type Row = {
   item_receiver_unit: string | null
   /** 本人目前在這份收件的名單上（個人一份：本人；整組一份：本人此刻所在的組，票 21）。 */
   item_on_roster: boolean | null
+  /** 來源是簽核版本時，本人此刻讀不讀得到那一版（跟版本頁同一個判斷；不是簽核版本就是 null）。 */
+  signoff_readable: boolean | null
 }
 
 /** 解析來源時能用的「當下」事實（每次顯示都重查，不看通知寫入當時）。 */
-type SourceContext = Pick<Row, 'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster'>
+type SourceContext = Pick<Row, 'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster' | 'signoff_readable'>
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -98,11 +101,12 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   // 成績更正待復核（票 24）：只有管理員點得進評分頁（那一頁的「待復核」清單就是管理待辦）。
   grade_override: (ref) => (ref.roles.includes('admin') ? { state: 'ok', href: '/dashboard/admin/grading' } : { state: 'forbidden' }),
   // 簽核版本（票 25、26）：學生點進自己的簽核頁（那一頁依本人此刻所在組別查目前版本，失效的版本會標示原因）；
-  // 老師（輪到你、完成、提醒）與系辦（失效、退回）點進各自的版本頁，版本頁每次再驗讀取權限（換掉的老師新舊版都看不到）。
-  signoff_version: (ref) =>
+  // 老師（輪到你、完成、提醒）與系辦（失效、退回）點進各自的版本頁，版本頁每次再驗讀取權限。
+  // 老師這裡先照版本頁的判斷重驗：換掉的舊主指導失權含看不到（2026-09-25 Roy 定），通知遮成「無法存取」、不給連結。
+  signoff_version: (ref, context) =>
     ref.roles.includes('student')
       ? { state: 'ok', href: '/dashboard/student/signoff' }
-      : ref.roles.includes('teacher')
+      : ref.roles.includes('teacher') && context.signoff_readable === true
         ? { state: 'ok', href: `/dashboard/teacher/signoff/${ref.id}` }
         : ref.roles.includes('admin')
           ? { state: 'ok', href: `/dashboard/admin/signoff/${ref.id}` }
@@ -138,7 +142,13 @@ function resolveItem(ref: { id: string }, context: SourceContext): NotificationS
   }
 }
 
-const NO_CONTEXT: SourceContext = { item_placement: null, item_status: null, item_receiver_unit: null, item_on_roster: null }
+const NO_CONTEXT: SourceContext = {
+  item_placement: null,
+  item_status: null,
+  item_receiver_unit: null,
+  item_on_roster: null,
+  signoff_readable: null,
+}
 
 export function resolveSource(
   row: Pick<Row, 'source_ref' | 'cohort_status'> & Partial<SourceContext>,
@@ -201,7 +211,10 @@ export class PgInbox implements InboxQuery, InboxCommand {
                            or (rr.receiver_kind = 'group' and exists (
                                  select 1 from group_memberships gm join groups g on g.id = gm.group_id
                                   where gm.group_id = rr.receiver_id and gm.user_id = $1 and gm.valid_to is null
-                                    and g.status = 'active')))) as item_on_roster
+                                    and g.status = 'active')))) as item_on_roster,
+              case when n.source_ref->>'type' = 'signoff_version'
+                        and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                   then ${signoffVersionReadableSql(`v.id = (n.source_ref->>'id')::uuid`, '$1')} end as signoff_readable
          from notifications n
          left join cohorts c on c.id = n.cohort_id
          left join managed_items mi
