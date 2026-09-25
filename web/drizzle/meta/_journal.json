@@ -71,6 +71,13 @@
       "when": 1790280120350,
       "tag": "0009_s10_grading",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790284827325,
+      "tag": "0010_s11_signoff_showcase",
+      "breakpoints": true
     }
   ]
 }

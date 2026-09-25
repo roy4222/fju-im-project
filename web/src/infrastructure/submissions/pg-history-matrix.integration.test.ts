@@ -376,6 +376,35 @@ describe('2. 附件下載授權（逐角色）', () => {
     }
   })
 
+  it('單一版本跟列表走同一條路：收件下架後列表拿不到，直接打版本也拿不到（不靠頁面先呼叫 receiver 擋；PR #267 審查建議）', async () => {
+    const { g1, itemId } = await groupScenario()
+    expect(await advisor.receiverVersion(teacherActor(t1), itemId, g1, 1)).not.toBeNull()
+    const revision = Number((await owner.sql('select revision from managed_items where id = $1', [itemId])).rows[0]!.revision)
+    const archived = await items.changeStatus(adminActor(), itemId, revision, 'archive', randomUUID())
+    expect(archived.ok).toBe(true)
+    expect(await advisor.receiver(teacherActor(t1), itemId, g1)).toBeNull()
+    expect(await advisor.receiverVersion(teacherActor(t1), itemId, g1, 1)).toBeNull()
+    // 系辦仍看得到（名單頁不受老師範圍影響）。
+    expect(await rosterQuery.receiverVersion(adminActor(), itemId, g1, 1)).not.toBeNull()
+  })
+
+  it('整組一份與個人一份同一個規則：此刻在這一屆沒指導任何組＝null（404）；有指導組但都不在名單上＝空名單（PR #267 審查建議）', async () => {
+    const { cohortId, stageId, g1, g2 } = await groupScenario()
+    // 只收 G2 的整組收件：T1 在這一屆有指導 G1，但 G1 不在名單上 → 空名單，不是 404；直接打 G2 拿不到。
+    const onlyG2 = await published(cohortId, stageId, { audienceKind: 'groups', groupIds: [g2], title: '只收 G2' })
+    expect(await advisor.item(teacherActor(t1), onlyG2)).toMatchObject({ entries: [] })
+    expect(await advisor.receiver(teacherActor(t1), onlyG2, g2)).toBeNull()
+    expect(await advisor.receiver(teacherActor(t1), onlyG2, g1)).toBeNull()
+    // 這一屆沒指導任何組的老師：整組一份、個人一份都是 null。
+    const outsider = await newUser('別屆老師', 'teacher')
+    expect(await advisor.item(teacherActor(outsider), onlyG2)).toBeNull()
+    const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
+    expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
+    await publish(personal.itemId, personal.revision)
+    expect(await advisor.item(teacherActor(outsider), personal.itemId)).toBeNull()
+    expect((await advisor.item(teacherActor(t1), personal.itemId))!.entries.length).toBeGreaterThan(0)
+  })
+
   it('學生、管理員拿老師查詢一律 null（老師查詢只給老師）', async () => {
     const { s1, g1, itemId } = await groupScenario()
     expect(await advisor.matrix(studentActor(s1))).toBeNull()
@@ -442,6 +471,12 @@ describe('4. 被移出的人只看得到自己還在組裡時的版本', () => {
     expect(record.versions.map((v) => v.versionNo)).toEqual([2, 1])
     expect((await query.myRecordVersion(s2.id, itemId, g1, 1))!.files.map((f) => f.fileId)).toEqual([f1])
     expect(await query.myRecordVersion(s2.id, itemId, g1, 3)).toBeNull()
+    // 「是不是最新」只跟自己讀得到的比：v2 對 S2 是最新，不會顯示「已被後來的版本取代」而透露有 v3（PR #267 審查建議）。
+    expect((await query.myRecordVersion(s2.id, itemId, g1, 2))!.isLatest).toBe(true)
+    expect((await query.myRecordVersion(s2.id, itemId, g1, 1))!.isLatest).toBe(false)
+    // 還在組裡的人讀得到全部，最新是 v3。
+    expect((await query.myVersion(s1.id, itemId, 3))!.isLatest).toBe(true)
+    expect((await query.myVersion(s1.id, itemId, 2))!.isLatest).toBe(false)
 
     expect(await download(studentActor(s2), f1)).toBe('ok')
     expect(await download(studentActor(s2), f2)).toBe('ok')
@@ -515,7 +550,8 @@ describe('4. 個人回答：老師預設看不到；管理員開主指導閱覽�
 
     await assignAdvisor(g1, t3)
     expect(await advisor.receiverVersion(teacherActor(t1), itemId, s1.id, 1)).toBeNull()
-    expect(await advisor.item(teacherActor(t1), itemId)).toMatchObject({ entries: [] })
+    // T1 在這一屆已經沒有指導的組：跟整組一份一樣是 null（404），不是空名單。
+    expect(await advisor.item(teacherActor(t1), itemId)).toBeNull()
     expect((await advisor.receiverVersion(teacherActor(t3), itemId, s1.id, 1))!.answers).toEqual({ wish: '請注意時程' })
 
     const closed = await submissions.setAdvisorVisibility(adminActor(), itemId, false, randomUUID())
