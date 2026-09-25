@@ -8,18 +8,36 @@ import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
+import { checkStatus } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 
-/** 前台主導覽（票 16；產品模組 09 §9.2）。檔案下載要登入，訪客點進去會看到登入提示。 */
-const PUBLIC_NAV: readonly NavItem[] = [
+/**
+ * 前台主導覽（票 16；產品模組 09 §9.2；項目與順序照原型 `site-header.tsx`）。
+ *
+ * 原型訪客看到：最新公告、專題規則、優秀專題、榮譽榜；登入後：最新公告、專題規則、歷屆專題、產學合作、檔案下載。
+ * 優秀專題、榮譽榜、歷屆專題、競賽資訊的頁面還沒做，先不列（做好再照原型的位置補上）。
+ */
+const GUEST_NAV: readonly NavItem[] = [
   { href: '/news', label: '最新公告' },
   { href: '/rules', label: '專題規則' },
-  { href: '/files', label: '檔案下載' },
-  // 產學合作（票 20）：登入後內容，訪客點進去看到登入提示。
+]
+const MEMBER_NAV: readonly NavItem[] = [
+  ...GUEST_NAV,
   { href: '/industry', label: '產學合作' },
+  { href: '/files', label: '檔案下載' },
 ]
 
 const SIGN_OUT_FORM_ID = 'site-sign-out'
+
+/**
+ * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
+ * 已開通、進得了自己後台的人：過得了 business 狀態閘門（臨時密碼還沒改的不算），而且有角色。
+ * 待審核、必須先改密碼的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
+ * 導覽與首頁共用這一個判斷。
+ */
+export function isMember(actor: ResolvedActor): boolean {
+  return actor.kind === 'authenticated' && checkStatus(actor, 'business') === null && homeFor(actor).startsWith('/dashboard/')
+}
 
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
 function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null {
@@ -42,20 +60,21 @@ function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; wor
 export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
   const actor = await shellViewer()
   const viewer = viewerOf(actor)
+  const nav = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <SiteHeader nav={PUBLIC_NAV} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
+      <SiteHeader nav={nav} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} />
+      <SiteFooter viewer={viewer} nav={nav} />
     </div>
   )
 }
 
 /** 深藍頁尾（原型 `site-footer.tsx`）：系所資訊＋兩欄連結。只連 web 已經有的頁。 */
-function SiteFooter({ viewer }: { viewer: ReturnType<typeof viewerOf> }) {
+function SiteFooter({ viewer, nav }: { viewer: ReturnType<typeof viewerOf>; nav: readonly NavItem[] }) {
   const columns = [
-    { title: '內容', links: PUBLIC_NAV },
+    { title: '內容', links: nav },
     {
       title: '使用',
       links: viewer
