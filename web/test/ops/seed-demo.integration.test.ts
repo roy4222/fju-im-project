@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ANONYMOUS } from '@/application/accounts'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
+import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 import { assertTestDatabaseReachable, createIsolatedDatabase, TEST_DATABASE_URL, type IsolatedDatabase } from '../db'
 import { migratedSchema } from '../migrations'
 
@@ -214,6 +215,15 @@ describe('seed-demo.mjs', () => {
       `select count(*)::int as n from showcase_entries e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.status = 'draft'`,
     )
     expect(Number(drafts.rows[0]!.n)).toBe(9)
+
+    // 前台（#293）直接查：訪客的優秀專題就是這八件、都有海報，草稿不混進來；屆別 pill 只有兩個歷屆。
+    const showcaseQuery = new PgPublicShowcaseQuery(() => db.pool)
+    const featured = await showcaseQuery.featured()
+    expect(featured.map((c) => c.title).sort()).toEqual(showcase.rows.map((x) => String(x.title)).sort())
+    expect(featured.every((c) => c.posterFileId !== null)).toBe(true)
+    expect(await showcaseQuery.cohorts()).toEqual(['DEMO-113', 'DEMO-112'])
+    const detail = await showcaseQuery.entry(ANONYMOUS, featured[0]!.id)
+    expect(detail.access === 'visible' && detail.people).toBeNull()
 
     // 榮譽榜與競賽資訊：訪客看得到（榮譽有封面，發布日＝原型的得獎日，年份不平移）。
     const query = new PgPublicItemQuery(clock, () => db.pool)

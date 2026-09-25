@@ -81,3 +81,74 @@ export interface ShowcaseQuery {
   /** 管理員的精選頁；不是管理員 → `FORBIDDEN`。 */
   adminBoard(actor: ResolvedActor, cohortId: string): Promise<Result<ShowcaseBoard>>
 }
+
+// ── 前台（公開優秀專題與登入後的歷屆一覽） ──────────────────────────────────
+
+/**
+ * 前台卡片：**白名單欄位**（模組實作設計 09 §5 `PublicContentQuery`；產品模組 09「公開授權與素材來源」）。
+ *
+ * 只從**已發布**條目的**目前版本**（`showcase_entries.current_version_id`）讀：題目、摘要、海報、影片連結，
+ * 加上屆別與組別代碼。草稿內容、授權參照、個資檢查結果、組員、老師都不在這裡。
+ */
+export type PublicShowcaseCard = {
+  /** 條目 ID（詳情頁網址用）。 */
+  readonly id: string
+  readonly cohortCode: string
+  /** 歷屆補登可以沒有組別。 */
+  readonly groupCode: string | null
+  readonly title: string
+  readonly summary: string
+  readonly videoUrl: string | null
+  readonly posterFileId: string | null
+  /** 這個版本凍結的時間。 */
+  readonly publishedAt: Date
+}
+
+/** 登入後才給的欄位：目前有效組員與主指導（訪客永遠拿不到，型別上就分開）。 */
+export type ShowcasePeople = {
+  readonly advisorName: string | null
+  readonly memberNames: readonly string[]
+}
+
+export type SignedInShowcaseCard = PublicShowcaseCard & ShowcasePeople
+
+export type ShowcaseSort = 'cohort' | 'cohort-asc' | 'title'
+
+export type ShowcaseListFilter = {
+  /** 屆別代碼；空＝全部。 */
+  readonly cohort?: string
+  /** 關鍵字：題目、摘要、組別（登入後的歷屆一覽另外比對指導老師）。 */
+  readonly q?: string
+  readonly sort?: ShowcaseSort
+}
+
+export type ShowcaseArchive =
+  | { readonly access: 'visible'; readonly cards: readonly SignedInShowcaseCard[] }
+  | { readonly access: 'need_login' }
+
+export type ShowcaseNeighbor ={ readonly id: string; readonly title: string }
+
+export type PublicShowcasePage =
+  | {
+      readonly access: 'visible'
+      readonly item: PublicShowcaseCard
+      /** 訪客是 null（組員與老師「登入後顯示」）。 */
+      readonly people: ShowcasePeople | null
+      readonly prev: ShowcaseNeighbor | null
+      readonly next: ShowcaseNeighbor | null
+    }
+  /** 曾經發布、現在撤下：告訴他已下架，不帶內容（SHW-06）。 */
+  | { readonly access: 'withdrawn' }
+  /** 沒有這筆、或從沒發布過（草稿）：和「沒有」一樣，不給人探測草稿存在。 */
+  | { readonly access: 'not_found' }
+
+export interface PublicShowcaseQuery {
+  /** 優秀專題（公開）：任何人，只回白名單欄位。 */
+  featured(filter?: ShowcaseListFilter): Promise<PublicShowcaseCard[]>
+  /** 歷屆專題一覽（登入後）：沒登入、或帳號還不能用（待審、必須改密） → `need_login`，一筆都不回。 */
+  archive(actor: ResolvedActor, filter?: ShowcaseListFilter): Promise<ShowcaseArchive>
+  /** 有已發布作品的屆別代碼（新到舊），給屆別篩選 pill。 */
+  cohorts(): Promise<string[]>
+  /** 專題詳情：已發布的任何人都看得到；組員與老師只給登入者。 */
+  entry(actor: ResolvedActor, entryId: string): Promise<PublicShowcasePage>
+}

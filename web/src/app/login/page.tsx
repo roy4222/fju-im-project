@@ -62,7 +62,10 @@ export default async function LoginPage({
           {next ? <HiddenField name="next" value={next} /> : null}
         </ActionForm>
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-          忘記密碼不寄信，請找系辦核對身分後發臨時密碼。
+          <Link className="font-bold text-primary hover:underline" href="/forgot-password">
+            忘記密碼？
+          </Link>{' '}
+          不寄信，請找系辦核對身分後發臨時密碼。
         </p>
         <p className="mt-4 text-center text-[13px] text-muted-foreground">
           還沒有帳號？

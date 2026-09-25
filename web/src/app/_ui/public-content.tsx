@@ -246,9 +246,14 @@ export function placeholderPhoto(id: string): string {
   return `/placeholder/${PLACEHOLDER_PHOTOS[hash % PLACEHOLDER_PHOTOS.length]}.jpg`
 }
 
+/** 圖片網址：有檔案就走共用下載能力（每次重驗權限），沒有就用依 id 挑的示意照片（精選海報、榮譽封面共用）。 */
+export function imageSrc(id: string, fileId: string | null | undefined): string {
+  return fileId ? `/api/files/${fileId}` : placeholderPhoto(id)
+}
+
 /** 公告的封面網址：有上傳封面就走共用下載能力（每次重驗權限），沒有就用示意照片。 */
 export function coverSrc(card: Pick<PublicItemCard, 'id' | 'cover'>): string {
-  return card.cover ? `/api/files/${card.cover.fileId}` : placeholderPhoto(card.id)
+  return imageSrc(card.id, card.cover?.fileId)
 }
 
 /** 深藍左線列表項（原型 `ListItem`；首頁右欄、內容頁側欄）。 */
