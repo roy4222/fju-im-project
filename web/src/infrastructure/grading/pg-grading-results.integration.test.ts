@@ -971,6 +971,26 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     const b = await book.gradebook(adminActor(), s.cohortId)
     expect(b.ok && b.receipt.version?.versionNo).toBe(2)
     expect(b.ok && b.receipt.groups.find((x) => x.code === 'G02')?.versionNo).toBe(2)
+
+  })
+
+  it('兩個鎖定版本的鎖定時間剛好一樣、都不晚於解散：釘版本號大的（後換上的那一版）', async () => {
+    const cohortId = await newCohort()
+    const v1 = await scheme(cohortId)
+    const lockedAt = new Date('2026-06-01T00:00:00Z')
+    for (const no of [2, 3]) {
+      await owner.sql(
+        `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, locked_at, created_by_user_id)
+         select gen_random_uuid(), scheme_id, $2, stages, 'locked', $3, $4 from grading_scheme_versions where id = $1`,
+        [v1, no, lockedAt, adminId],
+      )
+    }
+    const g = await newGroup(cohortId, 'G11')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = '測試' where id = $1`, [
+      g,
+      new Date('2026-06-02T00:00:00Z'),
+    ])
+    expect((await groupRow(cohortId, g)).versionNo).toBe(3)
   })
 
   it('解散的組有正式評分的階段不能從方案拿掉（凍結的資料要匯得出）；解散前沒有任何評分的組照目前版本顯示', async () => {

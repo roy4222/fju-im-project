@@ -1081,7 +1081,7 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
  *
  * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
  * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
- * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本。解散的組只要有任何評分，解散前一定鎖定過。
+ * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本（同一時間戳記取版本號大的，版本號只增不減）。解散的組只要有任何評分，解散前一定鎖定過。
  *
  * 解散前還沒鎖定過（沒有任何老師開始評分）：那時的目前版本是「已發布」、沒有時間戳記，換過幾次查不出來；
  * 但它後來若被鎖定，就是第一個鎖定的版本（鎖的一定是目前版本），所以取第一個鎖定版本——解散後、第一次鎖定前
@@ -1098,6 +1098,7 @@ async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds:
           where x.scheme_id = s.id and x.status = 'locked'
           order by x.locked_at <= g.dissolved_real_at desc,
                    case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
+                   case when x.locked_at <= g.dissolved_real_at then x.version_no end desc,
                    x.locked_at, x.version_no
           limit 1
        ) v on true
