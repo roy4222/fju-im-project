@@ -134,8 +134,8 @@ export interface AdvisorCommand {
 }
 
 /**
- * 原老師在本組的評分指派（模組 06 `listAssignmentsForTeacher`；重派對話框要先列）。
- * 評分模組還沒做：composition 注入的實作永遠回空清單，等評分的票接上。
+ * 原老師在本組的評分指派（模組 06 `AssignmentsForTeacherQuery.listForGroup`；重派對話框要先列）。
+ * composition 注入評分模組的查詢（票 23）。
  */
 export interface AdvisorGradingLookup {
   assignmentsFor(groupId: string, teacherUserId: string): Promise<readonly GradingAssignmentSummary[]>

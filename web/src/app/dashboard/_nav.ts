@@ -16,6 +16,8 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/affairs', label: '專題事務' },
   // 合作案（票 20）：全部合作案與組別連結。
   { href: '/dashboard/admin/industry', label: '合作案' },
+  // 評分（票 23）：方案版本、要求份數、指派評分老師。
+  { href: '/dashboard/admin/grading', label: '評分' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
@@ -26,6 +28,8 @@ export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher/affairs', label: '各組繳交' },
   // 我的合作案（票 20）：建立、發布、下架自己的產學合作案。
   { href: '/dashboard/teacher/industry', label: '我的合作案' },
+  // 評分工作台（票 23）：只有被指派的組別。
+  { href: '/dashboard/teacher/grading', label: '評分' },
 ]
 
 export const STUDENT_NAV: readonly NavItem[] = [
@@ -33,6 +37,8 @@ export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student/groups', label: '我的組別' },
   // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
   { href: '/dashboard/student/affairs', label: '作業區' },
+  // 成績（票 23）：只有一句「學生不會看到分數」，不查任何評分資料。
+  { href: '/dashboard/student/grading', label: '成績' },
 ]
 
 /**
@@ -53,6 +59,10 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/editor/new', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
+  // 評分（票 23）；老師的評閱桌 `/dashboard/teacher/grading/<組別>` 同一個守衛。
+  { path: '/dashboard/admin/grading', role: 'admin' },
+  { path: '/dashboard/teacher/grading', role: 'teacher' },
+  { path: '/dashboard/student/grading', role: 'student' },
   { path: '/dashboard/teacher', role: 'teacher' },
   { path: '/dashboard/teacher/groups', role: 'teacher' },
   // 各組繳交狀態與收件頁（票 22）；`/dashboard/teacher/affairs/<id>` 同一個守衛。

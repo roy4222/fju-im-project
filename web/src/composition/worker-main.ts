@@ -1,5 +1,5 @@
 import 'server-only'
-import { startWorker } from '@/composition/worker'
+import { measureAndRecordStorage, startWorker } from '@/composition/worker'
 import { getPool } from '@/infrastructure/db/client'
 
 /**
@@ -12,7 +12,30 @@ import { getPool } from '@/infrastructure/db/client'
  * - 拿鎖的連線斷掉：立刻結束（exit 1），讓 Compose 重啟後重新搶鎖。
  * - 收到 SIGTERM／SIGINT（`docker compose stop`）：等這一輪跑完、放鎖後結束。
  */
+/**
+ * 只量一次磁碟就結束（票 28 故障演練與手動重量用；不拿單一實例鎖、不跑其他迴圈）：
+ *
+ *   node migrate/web/dist/worker.mjs --measure-storage-once [--path <目錄>] [--drill]
+ *
+ * `--path` 預設 `FILES_ROOT`；`--drill` 讓這筆量測在畫面上標「演練」（ops/fault-drill.sh disk80 用）。
+ */
+async function measureOnce(argv: readonly string[]) {
+  const pathAt = argv.indexOf('--path')
+  const root = pathAt >= 0 ? argv[pathAt + 1] : process.env.FILES_ROOT
+  if (!root) throw new Error('沒有 --path，也沒有 FILES_ROOT：不知道要量哪裡')
+  const measurement = await measureAndRecordStorage(getPool(), root, undefined, { drill: argv.includes('--drill') })
+  console.log(
+    `STORAGE_MEASURED used_percent=${measurement.usedPercent} level=${measurement.alertLevel} drill=${measurement.drill}`,
+  )
+  await getPool().end()
+}
+
 async function main() {
+  const argv = process.argv.slice(2)
+  if (argv.includes('--measure-storage-once')) {
+    await measureOnce(argv)
+    return
+  }
   const version = process.env.GIT_COMMIT ?? 'unknown'
   const worker = await startWorker({
     version,

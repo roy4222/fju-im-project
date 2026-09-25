@@ -1,12 +1,21 @@
 import 'server-only'
 import type { PoolClient } from 'pg'
-import { rosterFileDownloadable } from '@/application/accounts'
-import type { AuditWriter, DownloadPolicies, FileStorage, OperationLedger } from '@/application/ops'
+import { rosterFileDownloadable, type ResolvedActor } from '@/application/accounts'
+import {
+  storageTileText,
+  type AuditWriter,
+  type DownloadPolicies,
+  type FileStorage,
+  type OperationLedger,
+  type StorageMeasurement,
+} from '@/application/ops'
+import { formatTaipeiMinute } from '@/shared/time'
 import { getPool } from '@/infrastructure/db/client'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
 
 /** 模組 10 的共用 port（稽核、帳本、檔案）。 */
@@ -58,6 +67,29 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 繳交附件（票 21）：共用草稿＝此刻有效組員（個人＝本人）；正式版本再加目前主指導（個人回答要項目開放閱覽）；管理員。
   // 沒被任何草稿或版本引用的檔（剛傳完還沒存、從草稿拿掉）一律拒絕。
   submission: createSubmissionFilePolicy(getPool),
+}
+
+/**
+ * 維運狀態查詢（模組 10 §5 `OpsStatusQuery`；票 28 先做 `storage()`）。只給管理員：
+ * 非管理員一律回 null（頁面本身已經先擋過一次）。
+ */
+export function getOpsStatusQuery() {
+  return {
+    /** 最新一筆磁碟量測；還沒量過回 null。 */
+    async storage(actor: ResolvedActor): Promise<StorageMeasurement | null> {
+      if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
+      return readLatestStorage(getPool())
+    },
+    /** 系辦首頁「儲存與備份」磚的數字與說明（時間以台北時區顯示）。 */
+    async storageTile(actor: ResolvedActor): Promise<{ value: string; hint: string }> {
+      const measurement = await this.storage(actor)
+      return storageTileText(
+        measurement,
+        new Date(),
+        measurement ? formatTaipeiMinute(measurement.measuredRealAt) : '',
+      )
+    },
+  }
 }
 
 export function getFileStorage(): FileStorage<PoolClient> {
