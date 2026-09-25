@@ -7,6 +7,8 @@ import { homeFor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
+import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
 import { checkStatus } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
@@ -205,6 +207,9 @@ export async function DashboardShell({
   const name = viewer.kind === 'authenticated' ? viewer.displayName : undefined
   // 側欄上次是收合還是展開（瀏覽器切換時寫的 cookie）。
   const sidebarOpen = sidebarOpenFromCookie(jar.get(SIDEBAR_COOKIE_NAME)?.value)
+  // 側欄數字徽章（票 30）：只算本人、輪到本人做的事；同一次渲染只查一次（nav-badges.ts）。
+  const role = roleOfBase(base)
+  const badges = role ? badgeMap(role, items.map((i) => i.href), await navBadgeCounts(role)) : {}
   return (
     <>
       <SignOutForm id={signOutFormId} />
@@ -212,6 +217,7 @@ export async function DashboardShell({
         roleLabel={roleLabel}
         userName={name}
         sidebarOpen={sidebarOpen}
+        badges={badges}
         items={items}
         current={current}
         homeHref={base}

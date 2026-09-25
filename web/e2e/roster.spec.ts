@@ -177,6 +177,9 @@ async function homePending(page: Page): Promise<string> {
   return (await page.getByTestId('home-pending').textContent()) ?? ''
 }
 
+/** 側欄「作業區」的數字徽章（票 30）；0 時不顯示。 */
+const affairsBadge = (page: Page) => page.getByTestId('nav-badge-/dashboard/student/affairs')
+
 test('名單頁三類分開；完成率＝已正式送出／應交數（免填與已移出不算）', async ({ page }) => {
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
@@ -211,6 +214,8 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
 test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名單頁完成率 1／2 且那個人顯示已繳', async ({ page }) => {
   await signIn(page, doer)
   expect(await homePending(page)).toBe('1 件')
+  // 側欄徽章（票 30）跟首頁待繳同一個數。
+  await expect(affairsBadge(page)).toHaveText('1')
   await page.goto('/dashboard/student/affairs')
   await expect(page.getByRole('navigation', { name: '篩選' }).getByRole('link', { name: /待繳\s*1/ })).toBeVisible()
 
@@ -222,11 +227,18 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await page.getByRole('button', { name: '關閉' }).click()
 
   expect(await homePending(page)).toBe('0 件')
+  // 送出後是 0：徽章不顯示。
+  await expect(affairsBadge(page)).toHaveCount(0)
   // 被免填的人首頁也是 0，不會被算進待繳。
   await signIn(page, exempted)
   expect(await homePending(page)).toBe('0 件')
+  await expect(affairsBadge(page)).toHaveCount(0)
+  // 別人送出不影響自己的數字：還沒交的人仍是 1（看不到別人的數）。
   await signIn(page, waiter)
   expect(await homePending(page)).toBe('1 件')
+  await expect(affairsBadge(page)).toHaveText('1')
+  // waiter 有一則未讀的收件通知：側欄「通知」也有徽章。
+  await expect(page.getByTestId('nav-badge-/dashboard/student/inbox')).toBeVisible()
 
   await signIn(page, admin)
   await page.goto(rosterPath())
