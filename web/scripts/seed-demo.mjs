@@ -115,6 +115,26 @@ function bullets(list) {
   return `<ul>${list.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`
 }
 
+function numbered(list) {
+  return `<ol>${list.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ol>`
+}
+
+/**
+ * 一節規則的正文（原型 `/rules`）：段落 → 編號清單 → 註解（灰底框＝`<blockquote>`，正文白名單本來就允許）。
+ * 早期版本（#290）的清單是項目符號、註解是一般段落；`oldRuleHtml` 留著給 `fillRuleFormat` 認出沒被改過的舊內文。
+ */
+function ruleHtml(s) {
+  return [
+    s.paragraphs ? paragraphs(s.paragraphs) : '',
+    s.list ? numbered(s.list) : '',
+    s.notes ? `<blockquote>${paragraphs(s.notes)}</blockquote>` : '',
+  ].join('')
+}
+
+function oldRuleHtml(s) {
+  return [s.paragraphs ? paragraphs(s.paragraphs) : '', s.list ? bullets(s.list) : '', s.notes ? paragraphs(s.notes) : ''].join('')
+}
+
 /** 摘要正規化（同 `application/showcase/draft.ts` 的 normalizeSummary）。 */
 function normalizeSummary(summary) {
   return summary
@@ -341,6 +361,34 @@ async function fillShowcaseStageFields(db, day) {
         where id = $1 and placement = 'news' and registration_deadline is null and event_date is null`,
       [demoId(`item:${c.key}`), c.registrationDeadline ? day(c.registrationDeadline) : null, c.eventDate ? day(c.eventDate) : null],
     )
+  }
+  return filled
+}
+
+/**
+ * 規則內文照原型改成編號清單＋灰底註解框（票 33）。新建時 `ruleHtml` 直接是新格式，這裡是給**已經灌過的測試站**：
+ * 只換還是舊格式（`oldRuleHtml`）、沒被系辦改過的節。版本表不可變，所以跟正式的「改內容」一樣多一個版本（第 2 版），
+ * 項目指到它。重跑第二次什麼都不會變（冪等）。回傳這次換了幾節。
+ */
+async function fillRuleFormat(db) {
+  let filled = 0
+  for (const r of demo.RULES.sections) {
+    const itemId = demoId(`item:rule-${r.key}`)
+    const next = ruleHtml(r)
+    const found = await db.query('select body_html from managed_items where id = $1', [itemId])
+    if (found.rowCount === 0 || found.rows[0].body_html !== oldRuleHtml(r) || next === oldRuleHtml(r)) continue
+    const versionId = demoId(`item-version:rule-${r.key}:2`)
+    await db.query(
+      `insert into item_versions (id, item_id, version_no, title, summary, body_html, cover_file_id, category, created_by_user_id, created_at)
+       select $2, m.id, 2, m.title, m.summary, $3, m.cover_file_id, m.category, $4, now() from managed_items m where m.id = $1
+       on conflict (id) do nothing`,
+      [itemId, versionId, next, OFFICE_ID],
+    )
+    filled += (await db.query(
+      `update managed_items set body_html = $2, current_content_version_id = $3, revision = revision + 1, updated_at = now()
+        where id = $1 and body_html = $4`,
+      [itemId, next, versionId, oldRuleHtml(r)],
+    )).rowCount ?? 0
   }
   return filled
 }
@@ -866,11 +914,7 @@ async function seed(db, phases) {
 
   // 規則：一節一個項目，照順序發布（前台規則頁先發布的在前）。
   for (const [i, s] of demo.RULES.sections.entries()) {
-    const html = [
-      s.paragraphs ? paragraphs(s.paragraphs) : '',
-      s.list ? bullets(s.list) : '',
-      s.notes ? paragraphs(s.notes) : '',
-    ].join('')
+    const html = ruleHtml(s)
     await publishItem({
       key: `rule-${s.key}`,
       placement: 'rules',
@@ -1453,6 +1497,9 @@ async function seed(db, phases) {
   if (phases.history) await seedHistory()
   // 票 39 的欄位：這一批剛建的、以及早就在的另一批，都在同一筆交易裡補（見 `fillShowcaseStageFields`）。
   count('票 39 補欄', await fillShowcaseStageFields(db, day))
+  // 第一批早就在（只建第二批）時，它的規則內文可能還是舊格式；新建的本來就是新格式，換 0 節。
+  const ruleFormat = await fillRuleFormat(db)
+  if (ruleFormat > 0) count('規則格式', ruleFormat)
 
   // 稽核：全系範圍一筆（不掛屆別，才不會擋住 --remove 刪屆別）。
   await insert(db, 'audit_events', {
@@ -1677,16 +1724,21 @@ try {
       // 兩批都在：不再建，只補票 39（0011）加的欄位（只填空著的，重跑不變）。平移天數照第一批當初的。
       await client.query('begin')
       let filled
+      let rules
       try {
         const { day } = makeClock(await seededAnchor(client, await businessNow(client)))
         filled = await fillShowcaseStageFields(client, day)
+        rules = await fillRuleFormat(client)
         await client.query('commit')
       } catch (error) {
         await client.query('rollback')
         throw error
       }
       const repaired = await writeMissingFiles(client)
-      const did = [filled > 0 ? `補上票 39 的欄位 ${filled} 列` : '', repaired > 0 ? `補回 ${repaired} 個遺失的示範檔案` : '']
+      const did = [
+        filled > 0 ? `補上票 39 的欄位 ${filled} 列` : '',
+        rules > 0 ? `規則內文換成編號清單與註解框 ${rules} 節` : '',
+        repaired > 0 ? `補回 ${repaired} 個遺失的示範檔案` : '']
         .filter(Boolean)
         .join('；')
       console.log(`示範資料已存在（${demo.COHORT.code}），${did || '不做任何事'}。`)
