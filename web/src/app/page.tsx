@@ -177,9 +177,14 @@ export default async function HomePage() {
             />
           ) : (
             <>
-              <ul className="grid w-full gap-6 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-featured-list">
+              {/* 手機（< md）照原型一次一張：橫向滑動、捲動貼齊（純 CSS，不加 JS 輪播）；md 以上維持格狀靜態卡。 */}
+              <ul
+                className="no-scrollbar -mx-5 flex w-[calc(100%+2.5rem)] snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-5 px-5 md:mx-0 md:grid md:w-full md:grid-cols-2 md:gap-6 md:overflow-visible md:px-0 lg:grid-cols-4"
+                data-testid="home-featured-list"
+                aria-label="優秀專題（手機可左右滑動）"
+              >
                 {featured.slice(0, 4).map((p) => (
-                  <li key={p.id}>
+                  <li key={p.id} className="w-full shrink-0 snap-start md:w-auto">
                     <PhotoCard
                       href={`/projects/featured?item=${encodeURIComponent(p.id)}`}
                       image={imageSrc(p.id, p.posterFileId)}
@@ -195,6 +200,11 @@ export default async function HomePage() {
                   </li>
                 ))}
               </ul>
+              {Math.min(featured.length, 4) > 1 ? (
+                <p className="-mt-5 text-[13px] text-muted-foreground md:hidden" data-testid="home-featured-hint">
+                  左右滑動看其他 {Math.min(featured.length, 4) - 1} 件
+                </p>
+              ) : null}
               <MoreButton href="/projects/featured" />
             </>
           )}
@@ -543,6 +553,7 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
             links: [
               { label: '登入', href: '/login' },
               { label: '註冊', href: '/register' },
+              { label: '忘記密碼', href: '/forgot-password' },
             ],
           },
     {
@@ -557,9 +568,10 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
   ]
   return (
     <section className="relative mt-24 overflow-hidden bg-background" aria-label="快速入口">
+      {/* 原型：淡化的建築照（約三成），只在上下緣淡進背景；裝飾圖不 lazy，免得整頁截圖時還沒載入。 */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/placeholder/building.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-10" loading="lazy" />
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background" aria-hidden />
+      <img src="/placeholder/building.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" data-testid="quicklinks-photo" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-transparent to-background/80" aria-hidden />
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 py-18 md:grid-cols-3">
         {cols.map((c) => (
           <div key={c.title} className="flex flex-col gap-3.5">
