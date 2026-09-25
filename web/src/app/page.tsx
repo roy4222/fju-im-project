@@ -1,15 +1,15 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy, IconUpload } from '@tabler/icons-react'
-import type { MyDeadline } from '@/application/items'
 import { actorHasRole } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
+import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { getBusinessClock } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
-import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
+import { getSubmissionQuery, pendingCount, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -376,8 +376,11 @@ function PanelTitle({
 type MyWork = {
   /** 學生：還在開放、還沒正式送出的收件數（跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
   readonly pending: number | null
-  /** 還沒到的收件截止，近的在前（學生首頁行事曆同一份 `myDeadlines`；只查收件名單，老師、系辦的截止不在裡面）。 */
-  readonly deadlines: readonly MyDeadline[]
+  /**
+   * 收件截止三筆（學生首頁行事曆同一份 `myDeadlines`；只查收件名單，老師、系辦的截止不在裡面）：
+   * 還沒到的＋已逾期但還沒交的，依截止時間排（`homeDeadlines`）。
+   */
+  readonly deadlines: readonly HomeDeadline[]
 }
 
 /** 首頁「我的工作」要的資料：都是學生首頁已經在用的查詢，這裡只取前幾筆。 */
@@ -389,13 +392,19 @@ async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<
     student ? getSubmissionQuery().myItems(actor.userId) : Promise.resolve([]),
     getBusinessClock().now(),
   ])
+  // 逾期還沒交（跟作業區「逾期未繳」同一個判斷）：首頁照前台頁面清單列出來、標紅。
+  const overdue = new Set(items.filter((row) => receiverStatus(row, row, now).overdue).map((row) => row.itemId))
   return {
     pending: student ? pendingCount(items, now) : null,
-    deadlines: deadlines
-      .filter((d) => d.dueAt.getTime() >= now.getTime())
-      .sort((x, y) => x.dueAt.getTime() - y.dueAt.getTime())
-      .slice(0, 3),
+    deadlines: homeDeadlines(deadlines, overdue, now),
   }
+}
+
+/** 倒數顏色（原型 `WorkStrip`）：逾期紅、10 天內橘、其他灰。 */
+const DEADLINE_TONE: Record<DeadlineTone, string> = {
+  overdue: 'text-destructive',
+  soon: 'text-primary',
+  later: 'text-muted-foreground',
 }
 
 /** 登入後的「我的工作」列＋近期截止（原型 `WorkStrip`）。 */
@@ -463,9 +472,15 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                     </span>
                     <span className="min-w-0 text-base leading-snug font-bold break-words">{d.title}</span>
                   </Link>
-                  <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground tabular-nums">
+                  <span
+                    data-tone={d.tone}
+                    className={cn(
+                      'inline-flex items-center gap-1 text-[13px] font-semibold tabular-nums',
+                      DEADLINE_TONE[d.tone],
+                    )}
+                  >
                     <IconClock className="size-3.5" aria-hidden />
-                    截止 {formatTaipeiDate(taipeiDateOf(d.dueAt))}
+                    截止 {formatTaipeiDate(taipeiDateOf(d.dueAt))}・{d.countdown}
                   </span>
                 </li>
               ))}
