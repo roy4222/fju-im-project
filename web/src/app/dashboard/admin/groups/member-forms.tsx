@@ -284,7 +284,7 @@ export function GroupDetailButton({
       {/* 原型：點組別代碼打開詳情（成員、老師、異動與例外處理）。 */}
       <button
         type="button"
-        className="tabular rounded-md text-sm font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+        className="tabular rounded-md text-sm font-bold whitespace-nowrap text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
         aria-label={`${group.code} 詳情`}
         onClick={dialog.open}
       >

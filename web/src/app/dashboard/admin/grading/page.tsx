@@ -175,10 +175,10 @@ export default async function AdminGradingPage({
   const description = current ? (
     <>
       方案 v{current.versionNo}・{current.stages.map((s) => `${s.name} ${s.weight}%`).join(' ＋ ')}・{SCHEME_STATUS_LABEL[current.status]}。
-      {stage ? `現在看「${stage.name}」。` : ''}分數只有老師與系辦看得到。
+      {stage ? `現在看「${stage.name}」。` : ''}評分方案、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到。
     </>
   ) : (
-    '還沒有發布的評分方案：先建立方案並發布，才能設定要求份數與指派老師。分數只有老師與系辦看得到。'
+    '還沒有發布的評分方案：先建立方案並發布，才能設定每組要幾份評分、指派哪位老師評。分數只有老師與系辦看得到。'
   )
 
   return shell(

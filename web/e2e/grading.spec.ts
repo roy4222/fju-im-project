@@ -147,7 +147,7 @@ async function signIn(page: Page, session: TestSession) {
 async function openAdminGrading(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '評分', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '成績管理', exact: true })).toBeVisible()
 }
 
 const row = (page: Page, code: string) => page.getByTestId(`grading-row-${code}`)

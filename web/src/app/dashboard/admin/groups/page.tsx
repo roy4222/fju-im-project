@@ -166,7 +166,7 @@ export default async function AdminGroupsPage({
       </span>
       <span className="block" data-testid="grouping-settings">
         {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認・進行中提案{' '}
-        {overview.openProposals.length} 份。分類只影響流程與標示，不限制老師看見哪些組別。
+        {overview.openProposals.length} 份。學生自行提案、全員確認後成組；分類只影響流程與標示，不限制老師看見哪些組別。
       </span>
     </>
   )

@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/app/_ui/ui/badge'
 import { Button } from '@/app/_ui/ui/button'
@@ -34,9 +35,11 @@ export function FacetMenu({
   allValue?: string
 }) {
   const router = useRouter()
+  const [open, setOpen] = useState(false)
   const active = value !== allValue
   return (
-    <DropdownMenu>
+    // 單選項目預設不會自己關（base-ui 的 RadioItem），選了就關掉再換頁，不留下擋住畫面的遮罩。
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
           <Button variant="outline" size="lg" className="gap-1.5" aria-label={`篩選${label}`}>
@@ -57,6 +60,7 @@ export function FacetMenu({
             value={value}
             onValueChange={(next) => {
               const hit = options.find((o) => o.value === next)
+              setOpen(false)
               if (hit) router.push(hit.href)
             }}
           >

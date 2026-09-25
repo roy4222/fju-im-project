@@ -1,4 +1,5 @@
 'use client'
+import { IconPlus } from '@tabler/icons-react'
 import { useActionState, useState } from 'react'
 import {
   assignEvaluatorAction,
@@ -126,6 +127,7 @@ export function SchemeEditor({
         disabled={disabledReason !== null}
         title={disabledReason ?? undefined}
       >
+        <IconPlus className="size-4" aria-hidden />
         建立新方案版本
       </button>
       <Feedback state={state?.ok ? state : undefined} />

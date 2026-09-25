@@ -201,7 +201,7 @@ async function asAdmin(page: Page) {
 async function openGrading(page: Page) {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '評分', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '成績管理', exact: true })).toBeVisible()
 }
 
 async function openDetail(page: Page, code = 'G01') {
@@ -394,8 +394,9 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
   expect(sheet).toContain(`<c r="C2" t="inlineStr"><is><t xml:space="preserve">${studentNos[0]}</t></is></c>`)
   expect(sheet).toContain('>88.32<')
 
-  await page.getByLabel('完成狀態').selectOption({ label: '尚未完成' })
-  await page.getByRole('button', { name: '套用篩選' }).click()
+  await page.getByRole('button', { name: '篩選完成狀態' }).click()
+  await page.getByRole('menuitemradio', { name: '尚未完成' }).click()
+  await expect(page).toHaveURL(/fstatus=incomplete/)
   await expect(page.getByTestId('gradebook-count')).toHaveText('顯示 1／2 組')
   const [filtered] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
   const filteredText = fs.readFileSync((await filtered.path())!, 'utf8')

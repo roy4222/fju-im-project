@@ -204,7 +204,7 @@ export function CohortPills({ cohorts, currentId, hrefFor }: { cohorts: readonly
           aria-current={c.id === currentId ? 'page' : undefined}
           className={cn(
             'tabular inline-flex h-8 items-center rounded-lg px-3 text-sm font-semibold transition-colors',
-            c.id === currentId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            c.id === currentId ? 'bg-ink text-ink-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
         >
           {c.code}

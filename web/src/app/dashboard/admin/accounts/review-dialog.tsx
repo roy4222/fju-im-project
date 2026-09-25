@@ -204,7 +204,7 @@ export function ReviewDialog({
 
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, PRIMARY, 'h-7 px-2.5 text-[0.8rem] font-medium', 'rounded-lg')} aria-label={`審核 ${a.appliedName}`}>
+      <button type="button" onClick={open} className={cn(BUTTON, 'h-7 rounded-lg bg-ink px-2.5 text-[0.8rem] font-medium text-ink-foreground hover:bg-ink/85')} aria-label={`審核 ${a.appliedName}`}>
         審核
       </button>
 

@@ -20,7 +20,8 @@ export function Ring({
   stroke = 7,
   className,
   trackClassName = 'stroke-muted',
-  barClassName = 'stroke-primary',
+  // 原型 Ring 預設 var(--primary)＝系網深藍，正式碼叫 ink。
+  barClassName = 'stroke-ink',
   label,
   decorative = false,
   children,
@@ -194,7 +195,7 @@ export function Bars({ data, height = 150 }: { data: readonly { label: string; v
                 width={`${barW}%`}
                 height={h}
                 rx="8"
-                className={d.hot ? 'fill-brand' : 'fill-primary opacity-30'}
+                className={d.hot ? 'fill-brand' : 'fill-ink opacity-30'}
               />
             )
           })}

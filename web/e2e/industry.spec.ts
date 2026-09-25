@@ -383,9 +383,9 @@ test('管理員組別名單：篩選、排序、組員信箱欄與「複製本�
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(memberEmails.get('G01')!.join(', '))
 
   // 篩選：只看產學組（G02 剛被改回一般）。
-  const filter = page.getByRole('search', { name: '篩選組別' })
-  await filter.getByLabel('類型').selectOption('industry')
-  await filter.getByRole('button', { name: '套用' }).click()
+  await page.getByRole('button', { name: '篩選類型' }).click()
+  await page.getByRole('menuitemradio', { name: '產學合作' }).click()
+  await expect(page).toHaveURL(/type=industry/)
   await expect(page.getByTestId('roster-count')).toContainText('顯示 2／3 組')
   await expect(table.getByTestId('roster-row')).toHaveCount(2)
   // 排序：組別代碼反向。

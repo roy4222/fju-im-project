@@ -100,15 +100,22 @@ test('做完的樣子 1：三個磚、搜尋、篩選、排序', async ({ browse
   await expect(temp.getByRole('heading', { name: `發臨時密碼給 ${students[1]!.name}` })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // 篩選：用表單選屆別＋角色＋狀態。
+  // 篩選：搜尋框（Enter 送出）＋角色、屆別、狀態三顆篩選鈕；條件都在網址上、互相保留。
   await page.goto('/dashboard/admin/accounts')
   const form = page.getByRole('search', { name: '篩選帳號' })
   await form.getByRole('searchbox', { name: '搜尋' }).fill(tag)
-  await form.locator('select[name=role]').selectOption('student')
-  await form.locator('select[name=cohort]').selectOption(cohortId)
-  await form.locator('select[name=status]').selectOption('active')
-  await form.getByRole('button', { name: '套用' }).click()
+  await form.getByRole('searchbox', { name: '搜尋' }).press('Enter')
+  await expect(page).toHaveURL(/q=/)
+  await page.getByRole('button', { name: '篩選角色' }).click()
+  await page.getByRole('menuitemradio', { name: '學生' }).click()
+  await expect(page).toHaveURL(/role=student/)
+  await page.getByRole('button', { name: '篩選屆別' }).click()
+  await page.getByRole('menuitemradio', { name: new RegExp(cohortCode) }).click()
+  await expect(page).toHaveURL(new RegExp(`cohort=${cohortId}`))
+  await page.getByRole('button', { name: '篩選狀態' }).click()
+  await page.getByRole('menuitemradio', { name: '已核准' }).click()
   await expect(page).toHaveURL(/status=active/)
+  await expect(page).toHaveURL(/role=student/)
   await expect(page.getByRole('table', { name: '帳號列表' }).getByRole('row')).toHaveCount(5)
 
   // 排序：點「學號」升冪，再點一次降冪。

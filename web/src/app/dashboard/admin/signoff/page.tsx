@@ -41,7 +41,8 @@ function toOption(g: AdminGroupRow): GroupOption {
 }
 
 const CELL_TONE = {
-  agree: 'bg-primary',
+  // 原型：同意＝深藍格（原型的 primary）、老師同意＝綠。
+  agree: 'bg-ink',
   disagree: 'bg-destructive',
   return: 'bg-destructive',
 } as const
@@ -91,7 +92,7 @@ function PackageCell({ purpose, summary }: { purpose: string; summary: VersionSu
       <div className="flex flex-wrap items-center gap-2 md:justify-self-end">
         <Link
           href={`/dashboard/admin/signoff/${summary.versionId}`}
-          className="tabular text-sm font-bold text-primary underline-offset-4 hover:underline"
+          className="tabular text-sm font-bold text-ink underline-offset-4 hover:underline"
         >
           v{summary.versionNo}
         </Link>
@@ -199,7 +200,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
                 </li>
               ))}
               <li className="flex items-center justify-between gap-3 border-t border-border/70 pt-2 text-muted-foreground">
-                <span>母數（各組兩個用途目前的版本）</span>
+                <span title="各組兩個用途目前的版本">母數</span>
                 <b className="tabular">{total} 個</b>
               </li>
             </ul>

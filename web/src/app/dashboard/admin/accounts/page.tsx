@@ -174,7 +174,7 @@ export default async function AdminAccountsPage({
             hint={summary ? `學生 ${summary.activeStudents} 人` : ''}
             href={statusHref('active')}
             active={filter.status === 'active'}
-            barClassName="stroke-primary"
+            barClassName="stroke-ink"
           />
           <RingTile
             label="已停用"

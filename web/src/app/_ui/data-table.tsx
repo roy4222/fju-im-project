@@ -72,7 +72,7 @@ export function ClearFilters({ href, label = '清除條件' }: { href: string; l
 /** 批次動作列：只在有勾選時出現（原型：橘色細框、淡橘底）。 */
 export function BulkBar({ children, className, ...rest }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('flex flex-wrap items-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2', className)} {...rest}>
+    <div className={cn('flex flex-wrap items-center gap-2 rounded-lg border border-ink/25 bg-ink/5 px-3 py-2', className)} {...rest}>
       {children}
     </div>
   )
@@ -122,7 +122,8 @@ export function EmptyRow({ colSpan, title, hint, action }: { colSpan: number; ti
   return (
     <tr>
       <td colSpan={colSpan} className={DT.empty}>
-        <div className="space-y-1 px-4">
+        {/* 表格很寬（手機要橫向捲）時，說明文字黏在看得到的那一段，不跟著置中到畫面外。 */}
+        <div className="sticky left-0 w-[min(100%,calc(100vw-5rem))] space-y-1 px-4">
           <p className="text-sm font-medium text-foreground">{title}</p>
           {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
           {action ? <div className="mt-2">{action}</div> : null}
