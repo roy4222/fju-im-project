@@ -75,10 +75,14 @@ export default async function TeacherGroupsPage({
     members: g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、'),
     memberCount: g.members.length,
     advisorName: g.advisor?.teacherName ?? null,
+    advisorUserId: g.advisor?.teacherUserId ?? null,
     mine: g.advisor?.teacherUserId === me,
     claimable: g.groupType === 'industry' && !g.advisor,
   }))
-  const teacherNames = [...new Set(groups.flatMap((g) => (g.advisor ? [g.advisor.teacherName] : [])))].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  // 篩選用老師的帳號 ID 當值、姓名只當標籤：同名的兩位老師不會被併成一個選項。
+  const teacherOptions = [...new Map(groups.flatMap((g) => (g.advisor ? [[g.advisor.teacherUserId, g.advisor.teacherName] as const] : []))).entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))
 
   return shell(
     <>
@@ -107,7 +111,7 @@ export default async function TeacherGroupsPage({
           ))}
         </nav>
       ) : null}
-      <TeacherGroupsBoard claimRows={claimRows} groups={rows} teacherNames={teacherNames} requestId={randomUUID()} />
+      <TeacherGroupsBoard claimRows={claimRows} groups={rows} teacherOptions={teacherOptions} requestId={randomUUID()} />
     </>,
   )
 }
