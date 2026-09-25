@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { barHeight } from '@/app/_ui/dashboard/bar-height'
 import { cn } from '@/shared/cn'
 
 /**
@@ -186,7 +187,8 @@ export function Bars({ data, height = 150 }: { data: readonly { label: string; v
         </svg>
         <svg width="100%" height={chartH} className="min-w-0 flex-1" aria-hidden>
           {data.map((d, i) => {
-            const h = Math.max(4, (d.value / max) * (chartH - 8))
+            const h = barHeight(d.value, max, chartH - 8)
+            if (h === 0) return null
             return (
               <rect
                 key={`${d.label}-${i}`}
