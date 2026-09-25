@@ -143,7 +143,7 @@ async function signIn(page: Page, session: TestSession) {
 async function openTeacherPage(page: Page, session: TestSession) {
   await signIn(page, session)
   await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '分組', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '分組總覽', exact: true })).toBeVisible()
 }
 
 async function openAdminPage(page: Page) {
