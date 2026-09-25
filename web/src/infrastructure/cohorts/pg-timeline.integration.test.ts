@@ -231,6 +231,73 @@ describe('現在第幾階段看注入的業務鐘', () => {
   })
 })
 
+describe('學生專題時間軸：只讀得到自己那一屆（票 38）', () => {
+  function student(cohortId: string | null, overrides: Partial<Extract<ResolvedActor, { kind: 'authenticated' }>> = {}): ResolvedActor {
+    return {
+      kind: 'authenticated',
+      userId: randomUUID(),
+      roles: ['student'],
+      status: 'active',
+      mustChangePassword: false,
+      cohortMemberships: cohortId ? [{ cohortId, role: 'student' }] : [],
+      ...overrides,
+    }
+  }
+
+  it('兩屆各自設不同的階段：學生只拿到自己歸屬那一屆的代號與階段', async () => {
+    const mine = await newCohort('STU-A')
+    const other = await newCohort('STU-B')
+    await timeline.saveSchedule(actor(adminId), mine.id, SCHEDULE, mine.revision, randomUUID())
+    const otherSchedule = {
+      stages: [
+        { name: '別屆一', startDate: '2027-09-15' },
+        { name: '別屆二', startDate: '2027-11-01' },
+        { name: '別屆三', startDate: '2028-01-10' },
+        { name: '別屆四', startDate: '2028-03-01' },
+      ],
+      yearEndDate: '2028-06-30',
+    }
+    const saved = await timeline.saveSchedule(actor(adminId), other.id, otherSchedule, other.revision, randomUUID())
+    expect(saved.ok).toBe(true)
+
+    const got = await timelineQuery.studentSchedule(student(mine.id))
+    expect(got).not.toBeNull()
+    expect(got!.cohortId).toBe(mine.id)
+    expect(got!.cohortCode).toBe(mine.code)
+    expect(got!.schedule).toEqual(await timelineQuery.schedule(mine.id))
+    expect(got!.schedule.stages.map((s) => s.name)).toEqual(['成組期', '期中', '期末', '成果'])
+    expect(JSON.stringify(got)).not.toContain('別屆')
+
+    const theirs = await timelineQuery.studentSchedule(student(other.id))
+    expect(theirs!.schedule.stages.map((s) => s.name)).toEqual(['別屆一', '別屆二', '別屆三', '別屆四'])
+  })
+
+  it('還沒歸屬屆別、不是學生、帳號不是啟用中、屆別不存在：一律 null，不退回任何一屆', async () => {
+    const cohort = await newCohort('STU-C')
+    await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, randomUUID())
+    // 預設工作屆別也不給沒有歸屬的學生（不像老師、管理員首頁會退回預設屆別）。
+    await owner.sql('update cohorts set is_default_working = (id = $1)', [cohort.id])
+
+    expect(await timelineQuery.studentSchedule(student(null))).toBeNull()
+    expect(await timelineQuery.studentSchedule(student(cohort.id, { roles: ['teacher'] }))).toBeNull()
+    expect(await timelineQuery.studentSchedule(student(cohort.id, { roles: ['admin'] }))).toBeNull()
+    expect(await timelineQuery.studentSchedule(student(cohort.id, { status: 'pending' }))).toBeNull()
+    expect(await timelineQuery.studentSchedule(student(cohort.id, { status: 'disabled' }))).toBeNull()
+    expect(await timelineQuery.studentSchedule(student(randomUUID()))).toBeNull()
+    expect(await timelineQuery.studentSchedule({ kind: 'anonymous' })).toBeNull()
+    // 屆別成員關係的角色不是學生（例如之後的助教）：不算。
+    expect(
+      await timelineQuery.studentSchedule(student(null, { cohortMemberships: [{ cohortId: cohort.id, role: 'teacher' }] })),
+    ).toBeNull()
+  })
+
+  it('屆別還沒設階段：回屆別、階段是空的（畫面顯示尚未設定）', async () => {
+    const cohort = await newCohort('STU-D')
+    const got = await timelineQuery.studentSchedule(student(cohort.id))
+    expect(got).toEqual({ cohortId: cohort.id, cohortCode: cohort.code, schedule: { stages: [], yearEndDate: null } })
+  })
+})
+
 describe('屆別轉進行中', () => {
   it('還沒設階段：VALIDATION_FAILED，狀態不變、沒有狀態紀錄', async () => {
     const cohort = await newCohort()

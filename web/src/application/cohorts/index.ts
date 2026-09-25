@@ -39,6 +39,9 @@ export type {
   StageInput,
   StagePlan,
   StagePosition,
+  StageStatus,
+  TimelineStage,
+  TimelineView,
 } from '@/application/cohorts/stages'
 export {
   describeStagePosition,
@@ -49,6 +52,7 @@ export {
   STAGE_NAME_MAX_LENGTH,
   stageLastDate,
   stagePositionAt,
+  timelineView,
 } from '@/application/cohorts/stages'
 export type {
   Activity,
@@ -79,6 +83,7 @@ export type {
   CohortStatusQuery,
   SaveScheduleReceipt,
   SetBusinessClockReceipt,
+  StudentTimeline,
   TimelineCommand,
   TimelineQuery,
 } from '@/application/cohorts/ports'
