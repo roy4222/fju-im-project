@@ -87,6 +87,8 @@ const GUARDED: Array<[string, string[]]> = [
   ['seed-admin.sh', ['test']],
   ['auto-deploy.sh', []],
   ['site.sh', ['test', 'check']],
+  ['fault-drill.sh', ['--site', 'test', 'restart', '--execute']],
+  ['fault-drill.sh', ['--site', 'test', 'disk80', '--execute']],
 ]
 
 describe('身分守門：不是 deploy 就什麼都不做', () => {
@@ -107,10 +109,47 @@ describe('身分守門：不是 deploy 就什麼都不做', () => {
   })
 
   it('--help 不需要 deploy 身分', () => {
-    for (const script of ['backup.sh', 'restore-drill.sh', 'seed-admin.sh', 'deploy.sh']) {
+    for (const script of ['backup.sh', 'restore-drill.sh', 'seed-admin.sh', 'deploy.sh', 'fault-drill.sh']) {
       const r = run(script, ['--help'])
       expect(r.code, script).toBe(0)
     }
+  })
+})
+
+describe('fault-drill.sh（票 28）：只准測試站、預設只印步驟', () => {
+  it('--site prod：就算是 deploy 身分、帶了 --execute，也在動任何東西之前拒絕', () => {
+    for (const drill of ['restart', 'worker-stall', 'poison', 'disk80', 'disk80-restore']) {
+      const r = run('fault-drill.sh', ['--site', 'prod', drill, '--execute'], { user: me })
+      expect(r.code, drill).not.toBe(0)
+      expect(r.stderr).toContain('只准對測試站')
+      expect(r.calls).toEqual([])
+      expect(r.written).toEqual([])
+    }
+  })
+
+  it('沒給站台、給了別的站台、不認得的演練：都拒絕', () => {
+    expect(run('fault-drill.sh', ['restart'], { user: me }).stderr).toContain('缺少 --site')
+    expect(run('fault-drill.sh', ['--site', 'staging', 'restart'], { user: me }).stderr).toContain('站台只能是 test')
+    expect(run('fault-drill.sh', ['--site', 'test', 'fill-disk'], { user: me }).stderr).toContain('不認得的演練')
+    expect(run('fault-drill.sh', ['--site', 'test'], { user: me }).stderr).toContain('缺少要跑的演練')
+  })
+
+  it.each(['restart', 'worker-stall', 'poison', 'disk80', 'disk80-restore'])(
+    '%s 不帶 --execute：任何人都能跑，只印步驟，不呼叫 docker、不寫檔',
+    (drill) => {
+      const r = run('fault-drill.sh', ['--site', 'test', drill])
+      expect(r.code).toBe(0)
+      expect(r.stdout).toContain('這是演練，什麼都沒有執行')
+      expect(r.stdout).toContain('Compose project fju-test')
+      expect(r.calls).toEqual([])
+      expect(r.written).toEqual([])
+    },
+  )
+
+  it('disk80 只在記憶體磁碟上塞檔案，不碰真的附件目錄', () => {
+    const r = run('fault-drill.sh', ['--site', 'test', 'disk80'])
+    expect(r.stdout).toContain('--opt type=tmpfs')
+    expect(r.stdout).toContain('--path /drill-disk --drill')
   })
 })
 

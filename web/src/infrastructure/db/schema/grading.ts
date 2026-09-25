@@ -82,7 +82,7 @@ export const gradingSchemes = pgTable(
 
 /**
  * 方案版本（附錄 A `grading_scheme_versions`）。`stages` 寫了就不動（trigger 擋），改結構＝建新版本。
- * 狀態只前進：draft → published → locked（第一筆正式評分送出時鎖）。權重合計由用例驗。
+ * 狀態只前進：draft → published → locked（第一位老師開始填——第一份暫存或正式送出——時鎖；產品 7.5）。權重合計由用例驗。
  */
 export const gradingSchemeVersions = pgTable(
   'grading_scheme_versions',

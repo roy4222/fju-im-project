@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeScores, summarizeScores } from '@/application/grading/evaluation'
-import { normalizeSchemeStages, readSchemeStages, type SchemeStageInput } from '@/application/grading/scheme'
+import { collectSchemeKeys, normalizeSchemeStages, readSchemeStages, type SchemeStageInput } from '@/application/grading/scheme'
 import { averageScore, formatScore, parseItemScore, teacherStageScore } from '@/shared/score'
 
 /**
@@ -66,6 +66,33 @@ describe('方案權重（GRD-01）', () => {
       ),
     )
     expect(result.ok && result.value.map((s) => s.key)).toEqual(['s2', 's1'])
+  })
+
+  it('刪掉的代號不會重用：歷來版本用過 s1、i1，新增的階段與項目拿新的代號（審查 P1）', () => {
+    const v1 = normalizeSchemeStages(
+      stages(
+        { name: '系統驗收', weight: 60, items: [number('功能', 50), number('文件', 50)] },
+        { name: '專題發表', weight: 40, items: [number('發表', 100)] },
+      ),
+    )
+    if (!v1.ok) throw new Error('fixture')
+    expect(v1.value.map((s) => s.key)).toEqual(['s1', 's2'])
+    // 項目代號整個方案不重複：第二階段的項目接著編。
+    expect(v1.value.flatMap((s) => s.items.map((i) => i.key))).toEqual(['i1', 'i2', 'i3'])
+
+    // v2：刪掉 s1、保留 s2 但刪掉它的項目，各新增一個——都不能拿回 s1／i1／i3。
+    const v2 = normalizeSchemeStages(
+      stages(
+        { key: 's2', name: '專題發表', weight: 50, items: [number('新發表項目', 100)] },
+        { name: '新的階段', weight: 50, items: [number('新項目', 100)] },
+      ),
+      collectSchemeKeys([v1.value]),
+    )
+    if (!v2.ok) throw new Error(v2.message)
+    expect(v2.value.map((s) => s.key)).toEqual(['s2', 's3'])
+    const newItemKeys = v2.value.flatMap((s) => s.items.map((i) => i.key))
+    expect(newItemKeys).toEqual(['i4', 'i5'])
+    for (const old of ['i1', 'i2', 'i3']) expect(newItemKeys).not.toContain(old)
   })
 
   it('等第項目：帶版本化的對照表（沒給用預設）；對照表要由 A 到 F 遞減', () => {

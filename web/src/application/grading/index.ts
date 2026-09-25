@@ -10,8 +10,10 @@ export type {
   SchemeStage,
   SchemeStageInput,
   SchemeVersionStatus,
+  ReservedSchemeKeys,
 } from '@/application/grading/scheme'
 export {
+  collectSchemeKeys,
   DEFAULT_LETTER_MAP,
   describeFormula,
   ITEM_TYPE_LABEL,

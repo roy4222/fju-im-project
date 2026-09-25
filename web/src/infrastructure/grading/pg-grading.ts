@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg'
 import { hasRole, statusGate, type ResolvedActor } from '@/application/accounts'
 import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
 import {
+  collectSchemeKeys,
   normalizeSchemeStages,
   normalizeScores,
   readSchemeStages,
@@ -55,7 +56,7 @@ import { RealClock, type Clock } from '@/shared/time'
  *
  * 鎖順序（契約 01 §6：cohorts → groups → 頭列）：`cohorts FOR SHARE` → `groups FOR SHARE` →
  * `grading_schemes`（發布拿 `FOR UPDATE`，其他拿 `FOR SHARE`）→ `evaluator_assignments FOR UPDATE`（暫存、正式送出）。
- * - 發布新版本和「第一份正式評分」在方案頭列上排隊：不會發生「剛鎖定就被換掉版本」。
+ * - 發布新版本和「第一位老師開始填」（第一份暫存或正式送出，鎖定方案）在方案頭列上排隊：不會發生「剛鎖定就被換掉版本」。
  * - 同一個指派同時兩個不同請求編號正式送出：在指派列上排隊，後到的醒來看到已有採計 → `CONFLICT`（需先退回）。
  *   資料庫的部分唯一 `evaluation_status_one_counted` 是後備防線，繞過鎖也只會有一筆成功。
  *
@@ -158,6 +159,7 @@ export class PgGradingCommand implements GradingCommand {
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.cohortId)) return err('VALIDATION_FAILED', '請先選屆別。')
+    // 先驗一次（不用開交易就能擋掉權重不合）；代號在鎖內依歷來版本再補一次。
     const normalized = normalizeSchemeStages(input.stages)
     if (!normalized.ok) return normalized
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
@@ -200,11 +202,16 @@ export class PgGradingCommand implements GradingCommand {
         [scheme.id],
       )
       const versionNo = Number(next.rows[0]!.n)
+      // 新增的階段、項目拿「歷來所有版本都沒用過」的代號：刪掉 s1 再新增，不會又發一個 s1，
+      // 舊的要求份數、評分指派、暫存分數就不會接到不相干的新階段或新項目上（在方案頭列鎖內讀，兩人同時建也一致）。
+      const history = await tx.query<{ stages: unknown }>('select stages from grading_scheme_versions where scheme_id = $1', [scheme.id])
+      const keyed = normalizeSchemeStages(input.stages, collectSchemeKeys(history.rows.map((r) => readSchemeStages(r.stages))))
+      if (!keyed.ok) return keyed
       const versionId = uuidv7()
       await tx.query(
         `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_at, created_by_user_id)
          values ($1, $2, $3, $4::jsonb, 'draft', $5, $6)`,
-        [versionId, scheme.id, versionNo, JSON.stringify(normalized.value), realAt, adminId],
+        [versionId, scheme.id, versionNo, JSON.stringify(keyed.value), realAt, adminId],
       )
       await tx.query('update grading_schemes set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1', [
         scheme.id,
@@ -222,7 +229,7 @@ export class PgGradingCommand implements GradingCommand {
         cohortId: cohort.id,
         realAt,
         businessAt: businessNow,
-        payload: { schemeId: scheme.id, versionNo, stageKeys: normalized.value.map((s) => s.key) },
+        payload: { schemeId: scheme.id, versionNo, stageKeys: keyed.value.map((s) => s.key) },
       })
       const receipt = { schemeId: scheme.id, versionId, versionNo, status: 'draft' as const }
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
@@ -288,7 +295,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的 v${current.version_no} 已有老師正式送出評分，方案已鎖定，不能直接換成新版本；改結構要走「套用新版本」（先看重算預覽，下一階段開放）。`,
+          `目前的 v${current.version_no} 已有老師開始評分（暫存或正式送出），方案已鎖定，不能直接換成新版本；改結構要走「套用新版本」（先看重算預覽，下一階段開放）。`,
         )
       }
 
@@ -593,9 +600,10 @@ export class PgGradingCommand implements GradingCommand {
         [uuidv7(), evaluationId, state, teacherId, realAt],
       )
 
-      // 第一份正式評分：目前方案版本鎖定（之後改結構只能走新版本）。已鎖定的就不動。
+      // 第一位老師**開始填**（第一份暫存或正式送出）：目前方案版本鎖定，之後改結構只能走新版本
+      // （產品模組 06 §4「7.5」：「第一位老師開始填任何正式方案後，該方案結構即鎖定」；GRD-09）。已鎖定的就不動。
       let lockedNow = false
-      if (kind === 'final' && versionStatus === 'published') {
+      if (versionStatus === 'published') {
         const updated = await tx.query(
           `update grading_scheme_versions set status = 'locked', locked_at = $2 where id = $1 and status = 'published'`,
           [versionId, realAt],
