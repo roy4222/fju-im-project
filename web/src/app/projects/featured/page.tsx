@@ -2,10 +2,9 @@ import type { Metadata } from 'next'
 import { IconCrown } from '@tabler/icons-react'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
 import { PillLink } from '@/app/_ui/pill-link'
-import { ListState, PageBand } from '@/app/_ui/public-blocks'
+import { fileImage, ListState, PageBand } from '@/app/_ui/public-blocks'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
-import { showcaseImage } from '@/app/projects/_image'
 import { getPublicShowcaseQuery, parseShowcaseSort, SHOWCASE_SORT_OPTIONS } from '@/composition/showcase'
 
 export const metadata: Metadata = {
@@ -47,7 +46,7 @@ export default async function FeaturedPage({
   }
   const entries: PhotoEntry[] = cards.map((p) => ({
     id: p.id,
-    image: showcaseImage(p),
+    image: fileImage(p.posterFileId),
     title: p.title,
     tags: [{ label: `${p.cohortCode} 屆`, tone: 'navy' }, ...(p.groupCode ? [{ label: p.groupCode }] : [])],
     summary: p.summary,

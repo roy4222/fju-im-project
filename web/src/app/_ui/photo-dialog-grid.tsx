@@ -2,14 +2,14 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { IconArrowRight, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
-import { ToneTag, type TagTone } from '@/app/_ui/public-blocks'
+import { CoverImage, ToneTag, type TagTone } from '@/app/_ui/public-blocks'
 import { Dialog, DialogContent, DialogTitle } from '@/app/_ui/ui/dialog'
 import { cn } from '@/shared/cn'
 
 export type PhotoEntry = {
   readonly id: string
-  /** 已經算好的圖片網址（`/api/files/<id>` 或佔位圖）。 */
-  readonly image: string
+  /** 已經算好的圖片網址（`/api/files/<id>`）；沒有圖是 null（畫深藍色塊）。 */
+  readonly image: string | null
   readonly title: string
   readonly date?: string
   readonly tags: readonly { readonly label: string; readonly tone?: TagTone }[]
@@ -23,7 +23,7 @@ export type PhotoEntry = {
  * 「一圖一文」卡片格（原型 `components/public/photo-dialog-grid.tsx`；0715 §9 榮譽榜／優秀專題「點開是一張圖片＋文字」）。
  * 卡片點開 dialog，圖用 contain 不裁切（人物照不裁）；dialog 內可上一件／下一件。`initialOpenId` 給 `?item=` 深連結。
  *
- * 圖片用一般 `<img>`：`next/image` 會輸出 style 屬性，被正式站 CSP 擋。
+ * 圖片走 `CoverImage`（一般 `<img>`，沒圖畫色塊）。
  */
 export function PhotoDialogGrid({
   entries,
@@ -54,13 +54,7 @@ export function PhotoDialogGrid({
               aria-haspopup="dialog"
             >
               <div className="relative aspect-video overflow-hidden bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={e.image}
-                  alt=""
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                />
+                <CoverImage src={e.image} className="transition-transform duration-500 group-hover:scale-[1.03]" />
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4.5">
                 {e.date ? <span className="tabular text-[13px] font-semibold text-muted-foreground">{e.date}</span> : null}
@@ -86,8 +80,7 @@ export function PhotoDialogGrid({
           {current ? (
             <>
               <div className="relative min-h-[260px] bg-[#0b1a2b] md:min-h-[440px]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={current.image} alt={current.title} className="absolute inset-0 h-full w-full object-contain" />
+                <CoverImage src={current.image} alt={current.title} fit="contain" />
               </div>
               <div className="flex flex-col gap-3.5 p-7">
                 <div className="flex flex-wrap gap-1.5">

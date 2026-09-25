@@ -2,11 +2,10 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconArrowRight, IconTrophy } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
-import { ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
+import { CoverImage, fileImage, ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
-import { placeholderImageFor } from '@/composition/showcase'
 import { taipeiDateOf } from '@/shared/time'
 
 export const metadata: Metadata = {
@@ -80,15 +79,8 @@ export default async function CompetitionsPage({
                   data-testid="competition-card"
                   className="grid h-full overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[280px_minmax(0,1fr)]"
                 >
-                  <div className="relative aspect-video sm:aspect-auto">
-                    {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={c.cover ? `/api/files/${c.cover.fileId}` : placeholderImageFor(c.id)}
-                      alt=""
-                      loading="lazy"
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
+                  <div className="relative aspect-video overflow-hidden sm:aspect-auto sm:min-h-52">
+                    <CoverImage src={fileImage(c.cover?.fileId)} />
                   </div>
                   <div className="flex flex-col gap-2.5 p-6">
                     <div className="flex items-center gap-2">

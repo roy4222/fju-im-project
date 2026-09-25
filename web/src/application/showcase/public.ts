@@ -16,25 +16,3 @@ export const SHOWCASE_SORT_OPTIONS: readonly { readonly value: ShowcaseSort; rea
 export function parseShowcaseSort(value: unknown): ShowcaseSort {
   return SHOWCASE_SORT_OPTIONS.find((o) => o.value === value)?.value ?? 'cohort'
 }
-
-/** 前台還沒有真照片時的佔位圖（`public/placeholder/*.jpg`；Q-SHW01 素材到位前）。同一個 ID 永遠拿到同一張。 */
-export const PLACEHOLDER_IMAGES = [
-  'showcase',
-  'present',
-  'students',
-  'study',
-  'hackathon',
-  'applause',
-  'trophy',
-  'campus',
-  'building',
-  'atrium',
-  'lounge',
-  'phone',
-] as const
-
-export function placeholderImageFor(id: string): string {
-  let hash = 0
-  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
-  return `/placeholder/${PLACEHOLDER_IMAGES[hash % PLACEHOLDER_IMAGES.length]}.jpg`
-}

@@ -3,11 +3,10 @@ import { IconAward } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
 import { PillLink } from '@/app/_ui/pill-link'
-import { ListState, PageBand } from '@/app/_ui/public-blocks'
+import { fileImage, ListState, PageBand } from '@/app/_ui/public-blocks'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
-import { placeholderImageFor } from '@/composition/showcase'
 import { taipeiDateOf } from '@/shared/time'
 
 export const metadata: Metadata = {
@@ -58,7 +57,7 @@ export default async function HonorsPage({
     const date = taipeiDateOf(h.publishedAt)
     return {
       id: h.id,
-      image: h.cover ? `/api/files/${h.cover.fileId}` : placeholderImageFor(h.id),
+      image: fileImage(h.cover?.fileId),
       title: h.title,
       date,
       tags: [{ label: '榮譽榜' }, ...(h.category ? [{ label: h.category, tone: 'navy' as const }] : [])],

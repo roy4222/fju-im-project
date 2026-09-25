@@ -4,11 +4,10 @@ import { IconFileText, IconPlayerPlay, IconSearchOff } from '@tabler/icons-react
 import type { SignedInShowcaseCard } from '@/application/showcase'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
 import { PillLink } from '@/app/_ui/pill-link'
-import { ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
+import { CoverImage, fileImage, ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
 import { NeedLogin } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
-import { showcaseImage } from '@/app/projects/_image'
 import { getPublicShowcaseQuery, parseShowcaseSort, SHOWCASE_SORT_OPTIONS } from '@/composition/showcase'
 
 export const metadata: Metadata = {
@@ -28,14 +27,7 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
       className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_22px_rgba(0,51,102,0.14)]"
     >
       <div className="relative aspect-video overflow-hidden bg-muted">
-        {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={showcaseImage(p)}
-          alt=""
-          loading="lazy"
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-        />
+        <CoverImage src={fileImage(p.posterFileId)} className="transition-transform duration-500 group-hover:scale-[1.03]" />
         {p.groupCode ? (
           <span className="absolute bottom-3 left-3 rounded bg-background/95 px-2 py-0.5 text-xs font-semibold text-foreground">{p.groupCode}</span>
         ) : null}

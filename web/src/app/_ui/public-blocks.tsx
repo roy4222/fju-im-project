@@ -54,6 +54,45 @@ export function PageBand({
   )
 }
 
+/**
+ * 卡片／詳情的圖：有檔案就走共用下載（`/api/files/<id>`，每次重驗權限），沒有就是深藍色塊（同 `NewsCard`）。
+ * 不放佔位照片：素材要有來源與授權（Q-SHW01），示範圖由示範資料當附件上傳，不進 `web/public`。
+ * 用一般 `<img>`：`next/image` 會輸出 style 屬性，被正式站 CSP 擋。放在 `relative` 的容器裡、鋪滿。
+ */
+export function CoverImage({
+  src,
+  alt = '',
+  fit = 'cover',
+  className,
+}: {
+  src: string | null
+  alt?: string
+  fit?: 'cover' | 'contain'
+  className?: string
+}) {
+  if (!src) {
+    return (
+      <div aria-hidden className="absolute inset-0 flex items-center justify-center bg-ink text-sm font-bold tracking-widest text-ink-foreground/80">
+        輔大資管專題
+      </div>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className={cn('absolute inset-0 h-full w-full', fit === 'cover' ? 'object-cover' : 'object-contain', className)}
+    />
+  )
+}
+
+/** 檔案 ID → 圖片網址（沒有就 null，交給 `CoverImage` 畫色塊）。 */
+export function fileImage(fileId: string | null | undefined): string | null {
+  return fileId ? `/api/files/${fileId}` : null
+}
+
 export type TagTone = 'brand' | 'navy'
 
 /** 細框標籤：橘＝要注意的／類別，深藍＝屆別、組別這類一般資訊。 */

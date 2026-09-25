@@ -40,7 +40,6 @@ export {
   describeUpdateDraftReceipt,
   GATE_PLACEHOLDER,
   parseShowcaseSort,
-  placeholderImageFor,
   POSTER_UPLOAD,
   SHOWCASE_LIMITS,
   SHOWCASE_SORT_OPTIONS,
