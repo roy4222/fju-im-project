@@ -9,6 +9,7 @@ import { err, type Err, type Result } from '@/shared/result'
  *
  * - 只有管理員；每次重新授權、重新查詢、重新算（伺服器只收「屆別＋篩選」，不收瀏覽器算好的列）。
  * - 篩選：階段、組別、完成狀態（選了階段＝看那一階段完成沒；沒選＝看最終完成沒）。
+ * - 各階段依序是份數、每位採計中老師的姓名與分數（S10-11「各階段每位老師 counted 值」）、平均、狀態。
  * - 每位組員一列（學號是文字：XLSX 用文字儲存格保留前導零；CSV 內容照原樣寫出前導零）。
  * - 數字與畫面同一份計算（`computeGroupResult`）與同一種捨入（兩位小數）；另外帶「原始精度」可追查。
  * - 更正後結果、更正註記（原值、理由；待復核）、缺評待處理（老師停用時「老師已停用，缺評待處理」）都寫進去。
@@ -104,13 +105,28 @@ function stagesOf(book: Gradebook, filter: GradeExportFilter) {
   return filter.stageKey === 'all' ? stages : stages.filter((s) => s.key === filter.stageKey)
 }
 
-export function gradeExportHeader(book: Gradebook, filter: GradeExportFilter): string[] {
+/**
+ * 每個階段要幾組「老師／分數」欄：這次匯出的組別裡，該階段採計中評分最多的份數（至少一組，欄位才固定）。
+ * 同一份匯出每一列欄數一樣；老師依正式送出的先後排（和計算明細同一個順序）。
+ */
+function teacherSlots(groups: readonly GradebookGroup[], stageKey: string): number {
+  let most = 1
+  for (const g of groups) most = Math.max(most, g.result.stages.find((s) => s.key === stageKey)?.counted.length ?? 0)
+  return most
+}
+
+export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGroup[], filter: GradeExportFilter): string[] {
   return [
     '屆別',
     '組別',
     '學號',
     '姓名',
-    ...stagesOf(book, filter).flatMap((s) => [`${s.name} 份數`, `${s.name} 平均`, `${s.name} 狀態`]),
+    ...stagesOf(book, filter).flatMap((s) => [
+      `${s.name} 份數`,
+      ...Array.from({ length: teacherSlots(groups, s.key) }, (_, i) => [`${s.name} 老師${i + 1}`, `${s.name} 老師${i + 1} 分數`]).flat(),
+      `${s.name} 平均`,
+      `${s.name} 狀態`,
+    ]),
     '最終成績（計算）',
     '最終成績（原始精度）',
     '最終成績（採用）',
@@ -120,20 +136,31 @@ export function gradeExportHeader(book: Gradebook, filter: GradeExportFilter): s
   ]
 }
 
-/** 每位組員一列；沒有組員的組別也留一列（學號、姓名空白）。 */
+/**
+ * 每位組員一列；沒有組員的組別也留一列（學號、姓名空白）。
+ * 各階段在份數後面依序是每位採計中老師的姓名與分數（兩位小數，同計算明細）；改派時保留的舊分數標「已改派保留」。
+ */
 export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup[], filter: GradeExportFilter): string[][] {
-  const stageKeys = new Set(stagesOf(book, filter).map((s) => s.key))
+  const stages = stagesOf(book, filter)
+  const slots = new Map(stages.map((s) => [s.key, teacherSlots(groups, s.key)]))
   const versionLabel = book.version ? `v${book.version.versionNo}` : ''
   const rows: string[][] = []
   for (const g of groups) {
-    const stageCells = g.result.stages
-      .filter((s) => stageKeys.has(s.key))
-      .flatMap((s) => [
+    const stageCells = stages.flatMap((stage) => {
+      const s = g.result.stages.find((x) => x.key === stage.key)
+      const teachers = Array.from({ length: slots.get(stage.key)! }, (_, i) => {
+        const c = s?.counted[i]
+        return c ? [c.assignmentEnded ? `${c.teacherName}（已改派保留）` : c.teacherName, c.display] : ['', '']
+      }).flat()
+      if (!s) return ['', ...teachers, '', '']
+      return [
         // 全形斜線：半形的「1/2」在 Excel 會被當成日期。
         `${s.counted.length}／${s.required ?? '未設定'}`,
+        ...teachers,
         s.averageDisplay ?? '',
         describeStageStatus(s),
-      ])
+      ]
+    })
     const adopted = adoptedFinal(g.result, g.override)
     const missing = [
       ...g.missing.filter((m) => filter.stageKey === 'all' || m.stageKey === filter.stageKey).map(describeMissing),
