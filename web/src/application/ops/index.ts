@@ -27,6 +27,7 @@ export type {
   FileRefType,
   FileStorage,
   FileTypeId,
+  GeneratedFile,
   StoredFileContent,
   StoredFileReceipt,
   UploadRules,
