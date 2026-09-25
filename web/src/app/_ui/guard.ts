@@ -1,5 +1,6 @@
 import 'server-only'
 import { headers } from 'next/headers'
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import type { Capability, ResolvedActor, Role } from '@/application/accounts'
 import {
@@ -22,6 +23,14 @@ import {
 export async function currentActor(): Promise<ResolvedActor> {
   return resolveActor(await headers())
 }
+
+/**
+ * 外殼（頂列頭像、通知鈴鐺）用的「這次請求是誰」：同一次渲染只解析一次，頭像與鈴鐺共用。
+ *
+ * 刻意**不**把 `currentActor` 本身包 `cache`：Server Action 會在同一個請求裡先改狀態
+ * （改密、登出）再重畫，快取住的舊身分可能被拿去做判斷。這裡只給顯示用，不做授權。
+ */
+export const shellViewer = cache(currentActor)
 
 /** 三種後台各自的首頁；403 頁的「回到自己的首頁」也用這個。 */
 export function homeFor(actor: ResolvedActor): string {

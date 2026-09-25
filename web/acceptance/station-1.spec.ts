@@ -40,7 +40,7 @@ test('1＋2 打開登入頁，用 E2E 管理員登入', async () => {
 
 test('3 進到後台：系辦首頁、右上角帳號選單有我的帳號與登出', async () => {
   await page.goto('/dashboard/admin')
-  await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await shot(page, 'admin-dashboard')
   await page.getByRole('button', { name: '帳號選單' }).click()
   await expect(page.getByRole('menuitem', { name: '我的帳號' })).toBeVisible()
@@ -60,7 +60,7 @@ test('5 再登入一次，看得到系辦首頁', async () => {
   await signIn(page, email, password)
   await expect(page).not.toHaveURL(/\/login/)
   await page.goto('/dashboard/admin')
-  await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await shot(page, 'signed-in-again')
 })
 

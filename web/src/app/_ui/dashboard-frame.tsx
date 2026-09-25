@@ -93,6 +93,8 @@ function grouped(items: readonly Item[]): { title: Group; items: (Item & { icon:
  */
 export function DashboardFrame({
   roleLabel,
+  userName,
+  sidebarOpen = true,
   items,
   current,
   homeHref,
@@ -101,6 +103,10 @@ export function DashboardFrame({
   children,
 }: {
   roleLabel: string
+  /** 本人姓名（頂列頭像）；取不到就顯示角色。 */
+  userName?: string
+  /** 側欄初始是否展開（伺服器從 cookie 讀）。 */
+  sidebarOpen?: boolean
   items: readonly Item[]
   current: string
   homeHref: string
@@ -118,7 +124,7 @@ export function DashboardFrame({
   return (
     // 側欄收合成圖示時，每一項 hover 會出現名稱提示（原型在根 layout 包 TooltipProvider）。
     <TooltipProvider>
-    <SidebarProvider className="dash-frame">
+    <SidebarProvider className="dash-frame" defaultOpen={sidebarOpen}>
       <Sidebar collapsible="icon" variant="inset">
         <SidebarHeader className="px-4 pt-4 pb-1">
           <Link href={homeHref} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回後台首頁">
@@ -191,7 +197,7 @@ export function DashboardFrame({
           <p className="ml-1 truncate text-[15px] font-bold">{title}</p>
           <div className="ml-auto flex items-center gap-1.5">
             {bell}
-            <AccountMenu roleLabel={roleLabel} links={accountLinks} signOutFormId={signOutFormId} compact />
+            <AccountMenu roleLabel={roleLabel} name={userName} links={accountLinks} signOutFormId={signOutFormId} compact />
           </div>
         </header>
         <div className="mx-auto w-full max-w-[1320px] min-w-0 flex-1 p-4 md:p-6 lg:px-8 lg:py-7">{children}</div>

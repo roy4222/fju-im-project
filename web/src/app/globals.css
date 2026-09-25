@@ -486,8 +486,20 @@
   .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: oklch(0.4 0.11 250); opacity: 0.8; }
   .hero > * { position: relative; z-index: 1; }
 
+  /* 首頁色塊卡（原型 home-widgets，2026-09-25 對齊）：淡色底，只用在原型用到的地方——
+     學生行事曆（sky）、老師的可認領產學組（mint）與同意書（lilac）、「接下來」的天數方塊。其他地方不要拿來裝飾。 */
+  .tint { --tint: oklch(0.7 0.1 250); background: color-mix(in oklch, var(--tint) 16%, var(--card)); border-color: color-mix(in oklch, var(--tint) 28%, var(--card)); }
+  .tint-sky { --tint: oklch(0.62 0.16 250); }
+  .tint-peach { --tint: oklch(0.72 0.16 55); }
+  .tint-lilac { --tint: oklch(0.62 0.16 300); }
+  .tint-mint { --tint: oklch(0.65 0.13 165); }
+  /* 首頁的圖示圓（原型的插圖佔位：柔色圓＋大圖示，不放 AI 生成圖）。 */
+  .spot { display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; background: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 30%, var(--card)); color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, black); }
+
   @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; box-shadow: none; } }
 
+  .dark .tint { background: color-mix(in oklch, var(--tint) 12%, var(--card)); border-color: color-mix(in oklch, var(--tint) 22%, var(--card)); }
+  .dark .spot { color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, white); }
   .dark .dash-frame { --sidebar: oklch(0.15 0.01 253.89); }
   .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.205 0.012 253.89); box-shadow: none; }
   .dark .dash-surface { background: oklch(0.19 0.012 253.89) !important; box-shadow: none !important; }
