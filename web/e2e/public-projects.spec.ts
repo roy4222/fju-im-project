@@ -270,6 +270,32 @@ test('首頁（訪客）：優秀專題、榮譽與競賽接真的資料（不�
   await expect(page.getByRole('link', { name: '查看優秀專題' })).toHaveAttribute('href', '/projects/featured')
 })
 
+test('首頁手機（390）：優秀專題一次一張、左右滑動；快速入口的建築照看得到、有忘記密碼', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  const list = page.getByTestId('home-featured-list')
+  await list.scrollIntoViewIfNeeded()
+  const layout = await list.evaluate((el) => ({
+    overflowX: getComputedStyle(el).overflowX,
+    scrollable: el.scrollWidth > el.clientWidth,
+    first: (el.firstElementChild as HTMLElement).getBoundingClientRect().width,
+    viewport: el.clientWidth,
+  }))
+  expect(layout.overflowX).toBe('auto')
+  // 精選不只一件時才滑得動；一張卡大約佔滿可視寬度（扣掉左右留白）。
+  if ((await list.getByRole('listitem').count()) > 1) expect(layout.scrollable).toBe(true)
+  expect(layout.first).toBeGreaterThan(layout.viewport * 0.8)
+  // 頁面本身不橫向捲動。
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+
+  const quick = page.getByRole('region', { name: '快速入口' })
+  const photo = quick.getByTestId('quicklinks-photo')
+  await photo.scrollIntoViewIfNeeded()
+  await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+  expect(Number(await photo.evaluate((el) => getComputedStyle(el).opacity))).toBeGreaterThanOrEqual(0.25)
+  await expect(quick.getByRole('link', { name: '忘記密碼' })).toHaveAttribute('href', '/forgot-password')
+})
+
 test('訪客導覽：最新公告（含競賽資訊）、專題規則、優秀專題、榮譽榜；登入頁連到忘記密碼', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
