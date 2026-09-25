@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { currentActor } from '@/app/_ui/guard'
-import { AttachmentList, CleanBody, GoneNotice, NeedLogin, publishedDate, Tag } from '@/app/_ui/public-content'
+import { AttachmentList, CleanBody, Crumbs, GoneNotice, ListItem, NeedLogin, publishedDate, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
 
@@ -55,63 +55,52 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <SiteShell current="/news">
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_320px]">
         <article className="flex min-w-0 flex-col gap-5" aria-labelledby="news-title">
-          <nav aria-label="麵包屑" className="text-xs text-muted-foreground">
-            <Link href="/" className="hover:text-ink">
-              首頁
-            </Link>
-            {' › '}
-            <Link href="/news" className="hover:text-ink">
-              最新公告
-            </Link>
-            {item.category ? (
-              <>
-                {' › '}
-                <Link href={`/news?category=${encodeURIComponent(item.category)}`} className="hover:text-ink">
-                  {item.category}
-                </Link>
-              </>
-            ) : null}
-          </nav>
-          <div className="flex flex-wrap items-center gap-2">
+          <Crumbs
+            items={[
+              { href: '/news', label: '最新公告' },
+              ...(item.category ? [{ href: `/news?category=${encodeURIComponent(item.category)}`, label: item.category }] : []),
+            ]}
+          />
+          <div className="flex flex-wrap items-center gap-2.5">
             {item.category ? <Tag>{item.category}</Tag> : null}
-            {item.audienceKind !== 'public' ? <Tag tone="brand">登入可見</Tag> : null}
-            <time dateTime={item.publishedAt.toISOString()} className="text-xs font-semibold text-muted-foreground tabular-nums">
+            {item.audienceKind !== 'public' ? <Tag tone="ink">登入可見</Tag> : null}
+            <time dateTime={item.publishedAt.toISOString()} className="text-[13px] font-semibold text-muted-foreground tabular-nums">
               {publishedDate(item)}
             </time>
           </div>
-          <h1 id="news-title" className="text-2xl font-semibold leading-snug text-ink">
+          <h1 id="news-title" className="text-[26px] leading-snug font-extrabold break-words text-foreground sm:text-[32px]">
             {item.title}
           </h1>
           {item.cover ? (
-            <div className="aspect-video overflow-hidden rounded-card bg-muted">
-              {/* 封面走共用下載能力（每次重驗權限）。 */}
+            <div className="aspect-video overflow-hidden rounded-xl bg-muted">
+              {/* 封面走共用下載能力（每次重驗權限）。直式海報不裁切，所以用 contain。 */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={`/api/files/${item.cover.fileId}`} alt="" className="h-full w-full object-contain" />
             </div>
           ) : null}
-          {item.summary ? <p className="text-base text-muted-foreground">{item.summary}</p> : null}
-          <CleanBody html={item.bodyHtml} />
+          {item.summary ? <p className="text-[17px] leading-relaxed text-muted-foreground">{item.summary}</p> : null}
+          <CleanBody html={item.bodyHtml} className="space-y-4 text-[17px]" />
           <AttachmentList files={item.attachments} />
         </article>
-        <aside className="flex flex-col gap-3 lg:pt-8">
+        <aside className="flex flex-col gap-4 lg:pt-11">
           {related.length > 0 ? (
             <>
-              <h2 className="text-base font-semibold text-ink">同分類公告</h2>
-              <ul className="space-y-3">
+              <h2 className="text-lg font-bold text-foreground">同分類公告</h2>
+              <ul className="flex flex-col gap-4">
                 {related.map((r) => (
-                  <li key={r.id}>
-                    <Link href={`/news/${r.id}`} className="block text-sm font-medium text-ink hover:text-primary">
-                      {r.title}
-                    </Link>
-                    <span className="text-xs text-muted-foreground tabular-nums">{publishedDate(r)}</span>
-                  </li>
+                  <ListItem
+                    key={r.id}
+                    href={`/news/${r.id}`}
+                    title={r.title}
+                    meta={<span className="text-[13px] font-semibold text-muted-foreground tabular-nums">{publishedDate(r)}</span>}
+                  />
                 ))}
               </ul>
             </>
           ) : null}
-          <Link href="/news" className="mt-2 rounded-md border-2 border-primary px-4 py-2 text-center text-sm font-semibold text-primary hover:bg-primary-subtle">
+          <Link href="/news" className="btn-fju-outline mt-2 h-12 text-base">
             回到公告列表
           </Link>
         </aside>

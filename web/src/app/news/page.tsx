@@ -1,10 +1,8 @@
-import Link from 'next/link'
 import type { Metadata } from 'next'
 import { currentActor } from '@/app/_ui/guard'
-import { ListEmpty, NewsCard, PublicPageHead } from '@/app/_ui/public-content'
+import { ListEmpty, NewsCard, PillLink, PublicPage, SearchField } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
-import { cn } from '@/shared/cn'
 
 export const metadata: Metadata = {
   title: '最新公告｜資管系專題平台',
@@ -44,57 +42,35 @@ export default async function NewsPage({
   }
 
   return (
-    <SiteShell current="/news">
-      <PublicPageHead title="最新公告" description="專題事務、競賽資訊、活動與規則異動，依發布日期排序。" />
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <nav aria-label="公告分類" className="flex flex-wrap gap-2">
-          {['', ...categories].map((c) => (
-            <Link
-              key={c || 'all'}
-              href={link({ category: c })}
-              aria-current={c === category ? 'page' : undefined}
-              className={cn(
-                'rounded-full border px-3 py-1 text-sm',
-                c === category ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-ink hover:bg-muted',
-              )}
-            >
-              {c || '全部'}
-            </Link>
-          ))}
-        </nav>
-        <form action="/news" role="search" className="flex gap-2">
-          {category ? <input type="hidden" name="category" value={category} /> : null}
-          <label htmlFor="news-q" className="sr-only">
-            搜尋公告
-          </label>
-          <input
-            id="news-q"
-            name="q"
-            defaultValue={q}
-            placeholder="搜尋公告"
-            className="h-9 w-56 rounded-md border border-border bg-background px-3 text-sm"
-          />
-          <button type="submit" className="h-9 rounded-md bg-muted px-3 text-sm font-medium text-ink hover:bg-border">
-            搜尋
-          </button>
-        </form>
-      </div>
+    <SiteShell current="/news" bare>
+      <PublicPage title="最新公告" description="專題事務、競賽資訊、活動與規則異動，依發布日期排序。" className="flex flex-col gap-8">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <nav aria-label="公告分類" className="flex flex-wrap gap-2">
+            {['', ...categories].map((c) => (
+              <PillLink key={c || 'all'} href={link({ category: c })} active={c === category} tone="brand">
+                {c || '全部'}
+              </PillLink>
+            ))}
+          </nav>
+          <SearchField action="/news" id="news-q" label="搜尋公告" placeholder="搜尋公告" defaultValue={q} keep={{ category }} />
+        </div>
 
-      {cards.length === 0 ? (
-        <ListEmpty
-          title={q ? `找不到符合「${q}」的公告` : category ? '這個分類目前沒有公告' : '目前還沒有公告'}
-          hint={q || category ? '換個關鍵字，或清除篩選條件。' : actor.kind === 'anonymous' ? '部分公告登入後才看得到。' : '系辦發布公告後會出現在這裡。'}
-          clearHref={q || category ? '/news' : undefined}
-        />
-      ) : (
-        <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {cards.map((card) => (
-            <li key={card.id}>
-              <NewsCard card={card} />
-            </li>
-          ))}
-        </ul>
-      )}
+        {cards.length === 0 ? (
+          <ListEmpty
+            title={q ? `找不到符合「${q}」的公告` : category ? '這個分類目前沒有公告' : '目前還沒有公告'}
+            hint={q || category ? '換個關鍵字，或清除篩選條件。' : actor.kind === 'anonymous' ? '部分公告登入後才看得到。' : '系辦發布公告後會出現在這裡。'}
+            clearHref={q || category ? '/news' : undefined}
+          />
+        ) : (
+          <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map((card, index) => (
+              <li key={card.id}>
+                <NewsCard card={card} priority={index < 3} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </PublicPage>
     </SiteShell>
   )
 }
