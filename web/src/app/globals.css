@@ -486,8 +486,20 @@
   .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: oklch(0.4 0.11 250); opacity: 0.8; }
   .hero > * { position: relative; z-index: 1; }
 
+  /* 首頁色塊卡（原型 home-widgets，2026-09-25 對齊）：淡色底，只用在原型用到的地方——
+     學生行事曆（sky）、老師的可認領產學組（mint）與同意書（lilac）、「接下來」的天數方塊。其他地方不要拿來裝飾。 */
+  .tint { --tint: oklch(0.7 0.1 250); background: color-mix(in oklch, var(--tint) 16%, var(--card)); border-color: color-mix(in oklch, var(--tint) 28%, var(--card)); }
+  .tint-sky { --tint: oklch(0.62 0.16 250); }
+  .tint-peach { --tint: oklch(0.72 0.16 55); }
+  .tint-lilac { --tint: oklch(0.62 0.16 300); }
+  .tint-mint { --tint: oklch(0.65 0.13 165); }
+  /* 首頁的圖示圓（原型的插圖佔位：柔色圓＋大圖示，不放 AI 生成圖）。 */
+  .spot { display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; background: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 30%, var(--card)); color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, black); }
+
   @media (prefers-reduced-motion: reduce) { .dash-card-hover:hover { transform: none; box-shadow: none; } }
 
+  .dark .tint { background: color-mix(in oklch, var(--tint) 12%, var(--card)); border-color: color-mix(in oklch, var(--tint) 22%, var(--card)); }
+  .dark .spot { color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, white); }
   .dark .dash-frame { --sidebar: oklch(0.15 0.01 253.89); }
   .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.205 0.012 253.89); box-shadow: none; }
   .dark .dash-surface { background: oklch(0.19 0.012 253.89) !important; box-shadow: none !important; }
@@ -512,45 +524,3 @@
   to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
 }
 @media (prefers-reduced-motion: reduce) { ::view-transition-new(root) { animation: none; } }
-
-/* ---------------------------------------------------------------------------
-   時間軸「直立蛇形」（票 35；原型 `timeline-zigzag.tsx` 與 globals.css 同名段落）。
-   原型的 `--brand`（系網橘）在這裡是 `--primary`，原型的 `--primary`（系網深藍）在這裡是 `--ink`。
-   脊椎的進度用 SVG 畫（不用 style 屬性，正式站 CSP 會擋）。
---------------------------------------------------------------------------- */
-@layer components {
-  .tl-wrap { --tl-line: color-mix(in oklch, var(--ink) 22%, var(--card)); }
-  .tl-spine { position: absolute; left: 50%; top: 32px; bottom: 32px; width: 2px; height: calc(100% - 64px); transform: translateX(-50%); background: var(--tl-line); }
-
-  .tl-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: center; gap: 0 4px; }
-  .tl-dot { grid-column: 2; grid-row: 1; justify-self: center; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px;
-    background: var(--card); border: 2px solid var(--tl-line); color: var(--success-foreground); }
-  .tl-row[data-status='done'] .tl-dot { background: var(--success); border-color: var(--success); }
-  .tl-row[data-status='current'] .tl-dot { width: 18px; height: 18px; background: var(--primary); border-color: var(--card); box-shadow: 0 0 0 2px var(--primary); }
-
-  .tl-connector { grid-row: 1; height: 2px; width: 20px; background: var(--tl-line); }
-  .tl-left .tl-connector { grid-column: 1; justify-self: end; }
-  .tl-right .tl-connector { grid-column: 3; justify-self: start; }
-  .tl-row[data-status='done'] .tl-connector { background: var(--ink); }
-  .tl-row[data-status='current'] .tl-connector { background: var(--primary); }
-
-  .tl-card { position: relative; grid-row: 1; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: min(100%, 520px); transition: background-color 150ms, border-color 150ms; }
-  .tl-left .tl-card { grid-column: 1; justify-self: end; margin-right: 20px; }
-  .tl-right .tl-card { grid-column: 3; justify-self: start; margin-left: 20px; }
-  .tl-card:hover { background: color-mix(in oklch, var(--accent) 50%, var(--card)); }
-  .tl-row[data-status='current'] .tl-card { border-color: var(--primary); }
-  .tl-tab { position: absolute; top: -1px; left: 14px; padding: 2px 8px 3px; border-radius: 0 0 6px 6px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.2; }
-  .tl-row[data-status='current'] .tl-card > button { padding-top: 18px; }
-
-  .tl-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms cubic-bezier(0.2, 0.7, 0.2, 1); }
-  .tl-body[data-open='true'] { grid-template-rows: 1fr; }
-
-  @media (max-width: 767px) {
-    .tl-spine { left: 23px; top: 24px; bottom: 24px; height: calc(100% - 48px); }
-    .tl-row { grid-template-columns: 30px minmax(0, 1fr); gap: 0 12px; }
-    .tl-dot { grid-column: 1; justify-self: center; }
-    .tl-connector { display: none; }
-    .tl-left .tl-card, .tl-right .tl-card { grid-column: 2; justify-self: stretch; margin: 0; width: 100%; }
-  }
-  @media (prefers-reduced-motion: reduce) { .tl-body, .tl-card { transition: none; } }
-}

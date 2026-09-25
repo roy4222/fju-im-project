@@ -45,16 +45,16 @@
 
 1. **管理員登入**（工作階段 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/login` 用 E2E 管理員登入，再打開 `https://test.fju.roy422.dev/dashboard/admin`。
-   - 預期：看到「系辦首頁」。
+   - 預期：看到歡迎色塊「歡迎回來，E2E 測試管理員」。
 2. **建一位老師**（工作階段 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/dashboard/admin/accounts`，按「新增老師」，「登入 Email」填 `codex-ui-<T>-teacher@example.com`、「姓名」填 `CODEX-UI-<T>老師`，勾「當面核對學生證或其他身分證件」，按「建立並產生臨時密碼」；把臨時密碼**只記在心裡**，按「關閉」。**臨時密碼顯示時不要截圖。**
    - 預期：出現「只顯示這一次」與臨時密碼。
 3. **老師第一次登入**（工作階段 `teacher`）
    - 做：`/login` 用老師的 Email 與臨時密碼登入；改密頁「目前的一次性密碼」填臨時密碼、「新密碼」「再輸入一次新密碼」填測試密碼，按「設定新密碼」；補資料頁「手機」填 `0911-111-111`，按「儲存並進入老師首頁」。
-   - 預期：最後到 `/dashboard/teacher`，標題「老師首頁」。
+   - 預期：最後到 `/dashboard/teacher`，標題「歡迎回來，CODEX-UI-<T>老師」。
 4. **建一位學生**（工作階段 `student`，核准用 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/register`，填姓名 `CODEX-UI-<T>學生`、學號 `9<T>01`、系級 `資管二甲`、手機 `0912-345-678`、登入 Email `codex-ui-<T>-student@example.com`、密碼與確認密碼填測試密碼，按「送出註冊」。接著 `admin` 在帳號頁按「審核 CODEX-UI-<T>學生」，勾「當面核對學生證或其他身分證件」；這位學生不在名單上，要指定屆別：有預選就用預選的那一屆，沒有預選就選一個 `CODEX-` 開頭的屆別（都沒有就選列表第一個），**不要去改屆別旗標**。按「核准」再「關閉」。最後把 `student` 工作階段 `close` 再重新 `open`（換掉待審時的登入狀態），用學生的 Email 與測試密碼登入。
-   - 預期：學生登入後到 `/dashboard/student`，標題「我的專題」。
+   - 預期：學生登入後到 `/dashboard/student`，標題「歡迎回來，CODEX-UI-<T>學生」。
 
 ## 前台（原型與測試站路由相同）
 
@@ -100,13 +100,17 @@
 31. **作業區**：`/dashboard/student/affairs`（`student-affairs`）
 32. **成績**：`/dashboard/student/grading`（`student-grading`）
 33. **通知匣**：`/dashboard/student/inbox`（`student-inbox`）
+34. **專題時間軸**：`/dashboard/student/timeline`（`student-timeline`；票 38 新頁）。點一下目前階段以外的一張卡片看展開，再點回來。
+35. **作業內容**：作業區有收件的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
+36. **產學合作**：`/dashboard/student/industry`（`student-industry`；票 38 新頁）
+37. **同意書**：`/dashboard/student/signoff`（`student-signoff`）。**不要勾「已完整閱讀」或按同意／不同意。**
 
 ## 收尾（不論前面成敗，一定要做）
 
-34. **停用這一輪的老師與學生**（工作階段 `admin`）
+38. **停用這一輪的老師與學生**（工作階段 `admin`）
     - 做：打開 `https://test.fju.roy422.dev/dashboard/admin/accounts?q=CODEX-UI-<T>`。學生若還在待審核清單，按「審核」→ 理由填 `CODEX 外觀對照收尾` → 「退回」；已核准的老師與學生各按「停用」，理由填 `CODEX 外觀對照收尾：停用測試帳號`，按「確認停用」。**只動姓名完全等於 `CODEX-UI-<T>老師`、`CODEX-UI-<T>學生` 的兩位。**
     - 預期：兩位都是「已停用」（或學生是「已退回」）。
-35. **登出**
+39. **登出**
     - 做：`admin` 按「登出」。
     - 預期：回到登入頁或首頁。
 
@@ -114,7 +118,7 @@
 
 - 第 1 步不通過：後台頁都做不了；前台（第 5–11 步）照做，其餘略過。
 - 第 2–3 步不通過：老師頁（第 23–28 步）略過，記「沒有老師身分」。
-- 第 4 步不通過：學生頁（第 29–33 步）略過，記「沒有學生身分」。
+- 第 4 步不通過：學生頁（第 29–37 步）略過，記「沒有學生身分」。
 - 某一頁打不開（測試站 404／500、原型 404）：照「每一頁怎麼比」的第 4 點記「明顯不同」並寫原因，繼續下一頁。
-- 收尾第 34–35 步一定要做。
+- 收尾第 38–39 步一定要做。
 - 管理員只登入**一次**、整條流程共用 `admin` 工作階段（登入限速：同 IP 同帳號 10 分鐘 10 次）。

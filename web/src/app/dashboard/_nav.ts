@@ -48,15 +48,25 @@ export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher/signoff', label: '簽核' },
 ]
 
+/**
+ * 學生側欄照原型的順序與字（票 38）：總覽（首頁、專題時間軸、通知）→ 作業區 → 我的組別、產學合作 → 成績、同意書。
+ * 原型學生側欄沒有「成績」；正式碼保留這一列（Vault 後台頁面清單：學生 `/grading` 是明確頁面），列在 PR 衝突清單。
+ */
 export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student', label: '首頁' },
-  { href: '/dashboard/student/groups', label: '我的組別' },
+  // 專題時間軸（票 38）：本屆階段與日期，唯讀。
+  { href: '/dashboard/student/timeline', label: '專題時間軸' },
+  // 通知匣（票 12）：頂列鈴鐺之外，原型學生側欄也有一列。
+  { href: '/dashboard/student/inbox', label: '通知' },
   // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
   { href: '/dashboard/student/affairs', label: '作業區' },
+  { href: '/dashboard/student/groups', label: '我的組別' },
+  // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
+  { href: '/dashboard/student/industry', label: '產學合作' },
   // 成績（票 23）：只有一句「學生不會看到分數」，不查任何評分資料。
   { href: '/dashboard/student/grading', label: '成績' },
-  // 簽核（票 25）：自己組別的簽核版本全文（逐人同意在票 26）。
-  { href: '/dashboard/student/signoff', label: '簽核' },
+  // 同意書（票 25、26；原型學生側欄叫「同意書」）：自己組別的簽核版本全文與逐人同意。
+  { href: '/dashboard/student/signoff', label: '同意書' },
 ]
 
 /**
@@ -91,7 +101,10 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/student/groups', role: 'student' },
   // 作業區與內容頁（票 17）；`/dashboard/student/affairs/<id>` 同一個守衛。
   { path: '/dashboard/student/affairs', role: 'student' },
-  // 通知匣（票 12）：入口是頂列的鈴鐺；系辦側欄另有「通知」（票 35 照原型）。
+  // 專題時間軸與產學合作（票 38）。
+  { path: '/dashboard/student/timeline', role: 'student' },
+  { path: '/dashboard/student/industry', role: 'student' },
+  // 通知匣（票 12）：頂列鈴鐺之外，三個角色的側欄也有「通知」（票 35／38 照原型）。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
   { path: '/dashboard/student/inbox', role: 'student' },

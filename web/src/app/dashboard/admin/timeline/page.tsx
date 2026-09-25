@@ -7,7 +7,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { ActivityActions, CreateActivityForm, type AudienceOption } from '@/app/dashboard/admin/timeline/timeline-forms'
-import { TimelineZigzag, type ZigzagStage, type ZigzagSummary } from '@/app/dashboard/admin/timeline/timeline-zigzag'
+import type { TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
+import { AdminTimeline, type AdminStage } from '@/app/dashboard/admin/timeline/timeline-zigzag'
 import {
   ACTIVITY_AUDIENCE_LABEL,
   ACTIVITY_AUDIENCES,
@@ -97,7 +98,7 @@ export default async function AdminTimelinePage({
 
   // 各階段的狀態與日期（伺服器用業務鐘算好；卡片只負責畫）。
   const configured = schedule.stages.length > 0 && schedule.yearEndDate !== null
-  const stages: ZigzagStage[] = configured
+  const stages: AdminStage[] = configured
     ? schedule.stages.map((stage, index) => {
         const last = stageLastDate(schedule.stages, schedule.yearEndDate!, index)
         const isCurrent = stage.seq === currentSeq
@@ -129,18 +130,18 @@ export default async function AdminTimelinePage({
     progress = `時間已過 ${elapsed}%・剩 ${Math.max(0, Math.floor((end - now.getTime()) / DAY))} 天`
   }
   const done = stages.filter((s) => s.status === 'done').length
-  const summary: ZigzagSummary = {
-    eyebrow: `目前・${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}`,
+  const summary: TimelineSummary = {
+    label: `目前・${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}`,
     title: current ? current.name : describeStagePosition(position),
-    range: current?.range,
-    progress,
-    meta: `業務時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
-      schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
-    }`,
+    rangeText: current?.range,
+    progressText: progress,
   }
+  const meta = `業務時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+    schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
+  }`
 
   return shell(
-    configured ? `${cohort.code}・${stages.length} 個階段，已過 ${done} 個` : `${cohort.code}・還沒設定階段`,
+    `${configured ? `${cohort.code}・${stages.length} 個階段，已過 ${done} 個` : `${cohort.code}・還沒設定階段`}・${meta}`,
     <>
       {cohorts.length > 1 ? (
         <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
@@ -157,7 +158,7 @@ export default async function AdminTimelinePage({
         </nav>
       ) : null}
 
-      <TimelineZigzag
+      <AdminTimeline
         stages={stages}
         summary={summary}
         editor={{

@@ -60,7 +60,7 @@ test('設定新密碼之後進得了管理員首頁', async ({ page }) => {
   // 改完之後直接回自己的後台（票 8 起：改密後導向本人首頁，不再回公開首頁）。
   await expect(page).toHaveURL(/\/dashboard\/admin$/)
   await page.goto('/dashboard/admin')
-  await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '屆別', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '帳號管理', exact: true })).toBeVisible()
 })
@@ -112,5 +112,5 @@ test('登出之後：舊的一次性密碼失效，新密碼登得回來', async
   // 新密碼可以，而且**直接進管理員首頁**、不再被要求改密。
   await signIn(page, NEW_PASSWORD)
   await expect(page).toHaveURL(/\/dashboard\/admin$/)
-  await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 })

@@ -66,7 +66,8 @@ test.describe('以 A1（管理員）', () => {
     const response = await page.goto('/dashboard/admin')
     expect(response?.status()).toBe(200)
 
-    await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+    // 首頁頂端是歡迎色塊（2026-09-25 對齊原型），h1 是「歡迎回來，<姓名>」。
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
     // 票 28：儲存用量磚（背景工作量到了就是百分比，還沒量到是「—」）。
     await expect(page.getByText('儲存與備份', { exact: true })).toBeVisible()
     // 側欄有兩份：行動版收在 <details> 裡、桌機版直接展開。
@@ -123,7 +124,7 @@ test.describe('以 S01（學生）', () => {
   test('自己的後台與帳號頁都打得開', async ({ page }) => {
     await signInAs(page, 'student')
     expect((await page.goto('/dashboard/student'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '我的專題' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
@@ -134,7 +135,7 @@ test.describe('以 T1（老師）', () => {
   test('老師首頁與帳號頁都打得開', async ({ page }) => {
     await signInAs(page, 'teacher')
     expect((await page.goto('/dashboard/teacher'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '老師首頁' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
@@ -217,11 +218,11 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
-    '/dashboard/admin': '待審的註冊、已開通的學生與目前在忙的屆別',
+    '/dashboard/admin': '各收件項目完成率',
     '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
-    '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
-    '/dashboard/student': '組別、要交的東西與截止日',
+    '/dashboard/teacher': '可認領產學組',
+    '/dashboard/student': '專題行事曆',
     // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
     '/dashboard/admin/timeline': '編輯階段與日期',
@@ -248,6 +249,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/showcase': '草稿不會公開',
     '/dashboard/teacher/signoff': '你此刻指導的組別的簽核版本',
     '/dashboard/student/signoff': '每個人只代表自己一票',
+    // 專題時間軸與產學合作（票 38）。
+    '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
+    '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -286,6 +290,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
     { path: '/dashboard/teacher/signoff', wrongRole: 'student' },
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
+    // 專題時間軸與產學合作（票 38）。
+    { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
+    { path: '/dashboard/student/industry', wrongRole: 'admin' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

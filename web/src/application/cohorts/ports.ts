@@ -129,6 +129,19 @@ export interface TimelineQuery {
   activities(cohortId: string): Promise<Activity[]>
   /** 某個業務時間落在哪一段。 */
   currentStage(cohortId: string, businessAt: Date): Promise<StagePosition>
+  /**
+   * 學生「專題時間軸」（票 38）：登入學生**自己所屬那一屆**的階段。這是本 port 唯一看登入者的查詢——
+   * 屆別只從登入者推，不接受外部帶屆別 ID，所以學生沒有辦法用它讀到別屆。
+   * 不是學生、帳號不是啟用中、還沒有歸屬屆別時回 null。
+   */
+  studentSchedule(actor: ResolvedActor): Promise<StudentTimeline | null>
+}
+
+/** 學生看得到的時間軸：自己那一屆的代號與階段。 */
+export type StudentTimeline = {
+  readonly cohortId: string
+  readonly cohortCode: string
+  readonly schedule: CohortSchedule
 }
 
 /**

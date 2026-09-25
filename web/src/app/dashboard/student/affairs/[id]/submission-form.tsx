@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
+import { IconCloudUpload, IconDeviceFloppy, IconPaperclip, IconSend } from '@tabler/icons-react'
 import { requestUploadAction, saveDraftAction, submitAction } from '@/app/dashboard/student/affairs/actions'
 import type { FileMeta, ReceiptView } from '@/app/dashboard/student/affairs/types'
 import type { FormField } from '@/application/items'
@@ -25,13 +26,14 @@ type Value = string | string[]
 
 type UploadState = { status: 'uploading'; percent: number; name: string } | { status: 'error'; message: string }
 
-const PRIMARY =
-  'inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground ' +
-  'hover:bg-primary/90 disabled:opacity-50'
+// 外觀照原型 `group-form.tsx`（票 38）：主要動作是系網橘實心（btn-fju），次要是白底細框；輸入框 44px 高、橘色焦點環。
+const PRIMARY = 'btn-fju h-11 rounded-lg px-5 text-sm disabled:opacity-50'
 const SECONDARY =
-  'inline-flex h-11 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium ' +
-  'text-ink hover:bg-muted disabled:opacity-50'
-const CONTROL = 'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:bg-muted disabled:text-muted-foreground'
+  'press inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-medium ' +
+  'text-foreground transition-colors hover:bg-muted disabled:opacity-50 [&_svg]:size-4'
+const CONTROL =
+  'h-11 w-full rounded-lg border bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] ' +
+  'focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 disabled:bg-muted disabled:text-muted-foreground'
 
 const UPLOAD_ERRORS: Record<number, string> = {
   401: '登入已過期，請重新登入後再上傳。',
@@ -262,7 +264,7 @@ export function SubmissionForm({
   return (
     <form
       noValidate
-      className="space-y-5"
+      className="flex flex-col gap-5"
       aria-label="填寫與繳交"
       onSubmit={(e) => {
         e.preventDefault()
@@ -270,13 +272,13 @@ export function SubmissionForm({
       }}
     >
       {lockedText ? (
-        <p className="rounded-md bg-muted px-3 py-2 text-sm text-ink" role="status">
+        <p className="rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" role="status">
           {lockedText}
         </p>
       ) : null}
 
       {conflict ? (
-        <div role="alert" className="rounded-md border border-danger/40 bg-danger-subtle px-4 py-3 text-sm text-danger-on-subtle">
+        <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive-subtle px-4 py-3 text-sm text-destructive-on-subtle">
           <p className="font-semibold">{conflict}</p>
           <button type="button" className={cn(SECONDARY, 'mt-3 h-10')} onClick={() => window.location.reload()}>
             重新載入
@@ -285,7 +287,7 @@ export function SubmissionForm({
       ) : null}
 
       {unknown ? (
-        <div role="alert" className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-ink">
+        <div role="alert" className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-ink">
           <p className="font-semibold">連線中斷；結果尚未確認。</p>
           <p className="mt-1 text-muted-foreground">
             可能已經收到了。先到「繳交歷史」查回執；沒有看到這一次，再按「再送一次」——同一次送出重送也只算一次。
@@ -306,8 +308,8 @@ export function SubmissionForm({
         <p
           role={message.tone === 'ok' ? 'status' : 'alert'}
           className={cn(
-            'rounded-md px-3 py-2 text-sm',
-            message.tone === 'ok' ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
+            'rounded-lg px-4 py-2.5 text-sm',
+            message.tone === 'ok' ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
           )}
         >
           {message.text}
@@ -339,30 +341,35 @@ export function SubmissionForm({
         ),
       )}
 
-      <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-3 rounded-card border border-border bg-background/95 p-3">
+      <div className="sticky bottom-4 z-10 mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background/95 p-3 backdrop-blur">
         <span className="inline-flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite" data-testid="save-status">
           <span
             aria-hidden
-            className={cn('inline-block size-2 rounded-full', !dirty && savedText ? 'bg-primary' : 'border border-muted-foreground')}
+            className={cn(
+              'inline-block size-2 rounded-full border-2',
+              !dirty && savedText ? 'border-success bg-success' : 'border-muted-foreground/60',
+            )}
           />
           {status}
         </span>
         {editable ? (
           <div className="ml-auto flex flex-wrap gap-2">
             <button type="button" className={SECONDARY} onClick={onSave} disabled={busy !== null || readOnly}>
-              儲存草稿
+              <IconDeviceFloppy aria-hidden /> 儲存草稿
             </button>
             <button type="submit" className={PRIMARY} disabled={busy !== null || readOnly}>
-              {submittedVersion ? '重新送出' : groupCode ? '代表全組正式送出' : '正式送出'}
+              <IconSend className="size-4" aria-hidden /> {submittedVersion ? '重新送出' : groupCode ? '代表全組正式送出' : '正式送出'}
             </button>
           </div>
-        ) : null}
+        ) : (
+          <span className="ml-auto text-xs font-semibold text-muted-foreground">{lockedText ? '唯讀' : ''}</span>
+        )}
       </div>
 
       <dialog
         ref={dialog}
         aria-labelledby="receipt-title"
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-6 backdrop:bg-ink/40"
+        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-6 shadow-xl backdrop:bg-ink/40"
         onClose={() => router.refresh()}
       >
         {receipt ? <ReceiptStamp receipt={receipt} onClose={closeReceipt} /> : null}
@@ -377,12 +384,12 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
     <div className="flex flex-col items-center gap-4 text-center" data-testid="receipt">
       <span
         aria-hidden
-        className="inline-flex -rotate-2 items-center rounded-lg border-[3px] border-primary px-4 py-1.5 text-base font-extrabold tracking-[0.2em] text-primary"
+        className="inline-flex rotate-[-2deg] items-center rounded-lg border-[3px] border-brand px-4 py-1.5 text-[15px] font-extrabold tracking-[0.2em] text-brand duration-200 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-110"
       >
         已收件
       </span>
       <div>
-        <h2 id="receipt-title" className="text-xl font-bold text-ink">
+        <h2 id="receipt-title" className="text-xl font-extrabold">
           已正式送出
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">{receipt.title}</p>
@@ -421,12 +428,12 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
         {receipt.groupCode ? '全組已繳；其他組員會收到一則通知。' : ''}截止前可重送，以最後一次為準。每一次的回執都記在「繳交歷史」。
       </p>
       <div className="flex w-full gap-2">
-        <Link href="/dashboard/student/affairs" className={cn(SECONDARY, 'flex-1')}>
-          回作業區
-        </Link>
-        <button type="button" className={cn(PRIMARY, 'flex-1')} onClick={onClose}>
+        <button type="button" className={cn(SECONDARY, 'flex-1')} onClick={onClose}>
           關閉
         </button>
+        <Link href="/dashboard/student/affairs" className={cn(PRIMARY, 'flex-1')}>
+          回作業區
+        </Link>
       </div>
     </div>
   )
@@ -434,10 +441,10 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
 
 function FieldLabel({ field, htmlFor }: { field: FormField; htmlFor: string }) {
   return (
-    <label htmlFor={htmlFor} className="block text-sm font-medium text-ink">
+    <label htmlFor={htmlFor} className="block text-sm font-semibold">
       {field.label}
       {field.required ? (
-        <span className="ml-1 text-danger" aria-hidden>
+        <span className="ml-1 text-destructive" aria-hidden>
           *
         </span>
       ) : null}
@@ -472,11 +479,12 @@ function FileInput({
   const hint = `${rules.allowedTypes.map((t) => t.toUpperCase()).join('、')}・單檔 ${rules.maxMiB} MiB 以內`
   const attached = fileId ? meta[fileId] : undefined
   return (
-    <div data-testid={`file-field-${field.key}`}>
+    <div className="flex flex-col gap-1.5" data-testid={`file-field-${field.key}`}>
       <FieldLabel field={field} htmlFor={id} />
       {attached ? (
-        <div className={cn('mt-1 flex flex-wrap items-center gap-3 rounded-md border px-3 py-2.5 text-sm', bad ? 'border-danger' : 'border-border')}>
-          <a href={`/api/files/${fileId}`} className="min-w-0 break-all font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
+        <div className={cn('flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm', bad ? 'border-destructive' : 'border-border')}>
+          <IconPaperclip className="size-4 shrink-0 text-brand" aria-hidden />
+          <a href={`/api/files/${fileId}`} className="min-w-0 break-all font-semibold text-ink underline-offset-2 hover:underline">
             {attached.name}
           </a>
           <span className="text-xs text-muted-foreground tabular-nums">{formatSize(attached.sizeBytes)}</span>
@@ -495,11 +503,12 @@ function FileInput({
       ) : (
         <label
           className={cn(
-            'mt-1 flex min-h-11 items-center gap-3 rounded-md border border-dashed px-4 py-3 text-sm',
-            bad ? 'border-danger' : 'border-border',
-            readOnly ? 'cursor-not-allowed bg-muted text-muted-foreground' : 'cursor-pointer hover:border-primary hover:bg-primary-subtle/40',
+            'flex min-h-11 items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors',
+            bad ? 'border-destructive' : 'border-border',
+            readOnly ? 'pointer-events-none cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-brand hover:bg-brand-subtle/30',
           )}
         >
+          <IconCloudUpload className="size-5 shrink-0 text-brand" aria-hidden />
           <span className="font-semibold">{readOnly ? '沒有附檔' : '點擊選擇檔案上傳'}</span>
           <span className="text-xs text-muted-foreground">{hint}</span>
           <input
@@ -515,18 +524,18 @@ function FileInput({
         </label>
       )}
       {upload?.status === 'uploading' ? (
-        <div className="mt-2" role="status" aria-live="polite" data-testid={`upload-progress-${field.key}`}>
+        <div className="mt-1" role="status" aria-live="polite" data-testid={`upload-progress-${field.key}`}>
           <div className="flex justify-between text-xs text-muted-foreground">
             <span className="truncate">正在上傳 {upload.name}</span>
             <span className="tabular-nums">{upload.percent}%</span>
           </div>
           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${upload.percent}%` }} />
+            <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${upload.percent}%` }} />
           </div>
         </div>
       ) : null}
       {upload?.status === 'error' ? (
-        <p role="alert" className="mt-2 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle" data-testid={`upload-error-${field.key}`}>
+        <p role="alert" className="rounded-lg bg-destructive-subtle px-4 py-2.5 text-sm text-destructive-on-subtle" data-testid={`upload-error-${field.key}`}>
           {upload.message}
         </p>
       ) : null}
@@ -550,23 +559,23 @@ function FieldInput({
   const id = `field-${field.key}`
   const text = typeof value === 'string' ? value : ''
   const picked = Array.isArray(value) ? value : []
-  const border = bad ? 'border-danger' : 'border-border'
+  const border = bad ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/25' : 'border-input'
   const aria = { 'aria-invalid': bad || undefined, 'aria-required': field.required || undefined }
   const label = <FieldLabel field={field} htmlFor={id} />
 
   switch (field.type) {
     case 'heading':
-      return <h3 className="border-b border-border pb-2 pt-2 text-base font-semibold text-ink">{field.label}</h3>
+      return <h3 className="mt-2 border-b border-border pb-2 text-base font-bold">{field.label}</h3>
     case 'paragraph':
       return <p className="border-l-[3px] border-border pl-3 text-sm leading-relaxed text-muted-foreground">{field.label}</p>
     case 'textarea':
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           {label}
           <textarea
             id={id}
             rows={5}
-            className={cn(CONTROL, border)}
+            className={cn(CONTROL, 'h-auto resize-y py-2.5', border)}
             value={text}
             disabled={readOnly}
             onChange={(e) => onChange(e.target.value)}
@@ -577,24 +586,24 @@ function FieldInput({
     case 'radio':
     case 'checkbox':
       return (
-        <fieldset aria-invalid={bad || undefined}>
-          <legend className="text-sm font-medium text-ink">
+        <fieldset aria-invalid={bad || undefined} className="flex flex-col gap-2">
+          <legend className="mb-2 text-sm font-semibold">
             {field.label}
             {field.required ? (
-              <span className="ml-1 text-danger" aria-hidden>
+              <span className="ml-1 text-destructive" aria-hidden>
                 *
               </span>
             ) : null}
           </legend>
-          <div className={cn('mt-1 flex flex-wrap gap-2 rounded-md', bad ? 'ring-1 ring-danger' : '')}>
+          <div className="flex flex-wrap gap-2">
             {(field.options ?? []).map((option, index) => {
               const checked = field.type === 'radio' ? text === option : picked.includes(option)
               return (
                 <label
                   key={option}
                   className={cn(
-                    'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm',
-                    checked ? 'border-primary bg-primary-subtle' : 'border-border',
+                    'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                    checked ? 'border-brand bg-brand-subtle/50' : bad ? 'border-destructive' : 'border-border',
                   )}
                 >
                   <input
@@ -623,7 +632,7 @@ function FieldInput({
       )
     case 'select':
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           {label}
           <select id={id} className={cn(CONTROL, border)} value={text} disabled={readOnly} onChange={(e) => onChange(e.target.value)} {...aria}>
             <option value="">請選擇</option>
@@ -638,7 +647,7 @@ function FieldInput({
     default: {
       const type = { number: 'text', email: 'email', url: 'url', date: 'date', time: 'time' }[field.type as string] ?? 'text'
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           {label}
           <input
             id={id}
