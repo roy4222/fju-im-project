@@ -2,17 +2,17 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { IconArrowRight, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
-import { CoverImage, ToneTag, type TagTone } from '@/app/_ui/public-blocks'
+import { Tag } from '@/app/_ui/public-content'
 import { Dialog, DialogContent, DialogTitle } from '@/app/_ui/ui/dialog'
 import { cn } from '@/shared/cn'
 
 export type PhotoEntry = {
   readonly id: string
-  /** 已經算好的圖片網址（`/api/files/<id>`）；沒有圖是 null（畫深藍色塊）。 */
-  readonly image: string | null
+  /** 已經算好的圖片網址（`/api/files/<id>` 或示意照片，見 `imageSrc`）。 */
+  readonly image: string
   readonly title: string
   readonly date?: string
-  readonly tags: readonly { readonly label: string; readonly tone?: TagTone }[]
+  readonly tags: readonly { readonly label: string; readonly tone?: 'brand' | 'ink' }[]
   readonly facts: readonly { readonly label: string; readonly value: string }[]
   readonly summary: string
   readonly moreHref?: string
@@ -23,7 +23,7 @@ export type PhotoEntry = {
  * 「一圖一文」卡片格（原型 `components/public/photo-dialog-grid.tsx`；0715 §9 榮譽榜／優秀專題「點開是一張圖片＋文字」）。
  * 卡片點開 dialog，圖用 contain 不裁切（人物照不裁）；dialog 內可上一件／下一件。`initialOpenId` 給 `?item=` 深連結。
  *
- * 圖片走 `CoverImage`（一般 `<img>`，沒圖畫色塊）。
+ * 圖片用一般 `<img>`：`next/image` 會輸出 style 屬性，被正式站 CSP 擋。
  */
 export function PhotoDialogGrid({
   entries,
@@ -54,16 +54,22 @@ export function PhotoDialogGrid({
               aria-haspopup="dialog"
             >
               <div className="relative aspect-video overflow-hidden bg-muted">
-                <CoverImage src={e.image} className="transition-transform duration-500 group-hover:scale-[1.03]" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={e.image}
+                  alt=""
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                />
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4.5">
                 {e.date ? <span className="tabular text-[13px] font-semibold text-muted-foreground">{e.date}</span> : null}
                 <span className="type-card-title text-foreground group-hover:text-primary">{e.title}</span>
                 <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
                   {e.tags.map((t) => (
-                    <ToneTag key={t.label} tone={t.tone ?? 'brand'}>
+                    <Tag key={t.label} tone={t.tone ?? 'brand'}>
                       {t.label}
-                    </ToneTag>
+                    </Tag>
                   ))}
                 </div>
               </div>
@@ -80,14 +86,15 @@ export function PhotoDialogGrid({
           {current ? (
             <>
               <div className="relative min-h-[260px] bg-[#0b1a2b] md:min-h-[440px]">
-                <CoverImage src={current.image} alt={current.title} fit="contain" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={current.image} alt={current.title} className="absolute inset-0 h-full w-full object-contain" />
               </div>
               <div className="flex flex-col gap-3.5 p-7">
                 <div className="flex flex-wrap gap-1.5">
                   {current.tags.map((t) => (
-                    <ToneTag key={t.label} tone={t.tone ?? 'brand'}>
+                    <Tag key={t.label} tone={t.tone ?? 'brand'}>
                       {t.label}
-                    </ToneTag>
+                    </Tag>
                   ))}
                 </div>
                 <DialogTitle className="pr-8 text-2xl leading-snug font-extrabold text-foreground">{current.title}</DialogTitle>

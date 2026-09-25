@@ -90,11 +90,13 @@ export function SiteHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-3 lg:ml-4 xl:ml-6">
           {viewer ? (
+            // 登入後的「回後台」＋頭像要到 lg 才放得下（跟主導覽同一個斷點）；更窄時都收在右側抽屜裡，
+            // 不然 640–1023px 三樣擠在一起會把漢堡推出畫面（#277 審查建議 1）。
             <>
-              <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap sm:inline-flex">
+              <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap lg:inline-flex">
                 {viewer.workbench.label}
               </Link>
-              <span className="hidden sm:inline-flex">
+              <span className="hidden lg:inline-flex">
                 <AccountMenu
                   roleLabel={viewer.roleLabel}
                   name={viewer.name}

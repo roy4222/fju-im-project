@@ -69,7 +69,7 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
               <label
                 key={p.value}
                 className={cn(
-                  'cursor-pointer rounded-md border px-3 py-2 text-sm',
+                  'cursor-pointer rounded-lg border px-3 py-2 text-sm',
                   purpose === p.value ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border',
                 )}
               >
@@ -90,8 +90,8 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
       </div>
 
       {group ? (
-        <div data-testid="impact-preview" className="rounded-md bg-surface px-4 py-3 text-sm">
-          <p className="font-medium text-ink">
+        <div data-testid="impact-preview" className="rounded-lg bg-surface px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">
             參與者：{group.members.length} 位學生＋主指導 {group.advisorName ?? '（尚未指派）'}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -127,7 +127,7 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
               <li key={f.fileId}>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" name="attachmentFileIds" value={f.fileId} />
-                  <span className="font-medium text-ink">{f.name}</span>
+                  <span className="font-medium text-foreground">{f.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {f.itemTitle} 第 {f.versionNo} 次正式送出
                   </span>
@@ -141,7 +141,7 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
       </fieldset>
 
       {purpose === 'final_document' && group ? (
-        <div className="rounded-md border border-border px-4 py-3 text-sm" data-testid="showcase-pick">
+        <div className="rounded-lg border border-border px-4 py-3 text-sm" data-testid="showcase-pick">
           {group.showcase ? (
             <label className="flex items-start gap-2">
               <input type="checkbox" name="showcaseEntryId" value={group.showcase.entryId} defaultChecked key={group.showcase.entryId} />

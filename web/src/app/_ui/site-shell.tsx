@@ -8,6 +8,7 @@ import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
+import { checkStatus } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 
 /**
@@ -66,6 +67,16 @@ function footerLinks(nav: readonly HeaderNavItem[]): NavItem[] {
 
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
+/**
+ * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
+ * 已開通、進得了自己後台的人：過得了 business 狀態閘門（臨時密碼還沒改的不算），而且有角色。
+ * 待審核、必須先改密碼的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
+ * 導覽與首頁共用這一個判斷。
+ */
+export function isMember(actor: ResolvedActor): boolean {
+  return actor.kind === 'authenticated' && checkStatus(actor, 'business') === null && homeFor(actor).startsWith('/dashboard/')
+}
+
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
 function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null {
   if (actor.kind !== 'authenticated') return null
@@ -87,20 +98,21 @@ function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; wor
 export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
   const actor = await shellViewer()
   const viewer = viewerOf(actor)
+  const nav: readonly HeaderNavItem[] = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <SiteHeader nav={viewer ? MEMBER_NAV : GUEST_NAV} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
+      <SiteHeader nav={nav} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} />
+      <SiteFooter viewer={viewer} nav={nav} />
     </div>
   )
 }
 
 /** 深藍頁尾（原型 `site-footer.tsx`）：系所資訊＋兩欄連結。只連 web 已經有的頁。 */
-function SiteFooter({ viewer }: { viewer: ReturnType<typeof viewerOf> }) {
+function SiteFooter({ viewer, nav }: { viewer: ReturnType<typeof viewerOf>; nav: readonly HeaderNavItem[] }) {
   const columns = [
-    { title: '內容', links: footerLinks(viewer ? MEMBER_NAV : GUEST_NAV) },
+    { title: '內容', links: footerLinks(nav) },
     {
       title: '使用',
       links: viewer

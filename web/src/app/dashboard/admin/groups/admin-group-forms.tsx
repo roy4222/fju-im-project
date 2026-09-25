@@ -1,7 +1,9 @@
 'use client'
 import { useActionState, useCallback, useEffect, useRef, useState } from 'react'
 import { saveGroupingSettingsAction, voidProposalAction } from './actions'
-import { cn } from '@/shared/cn'
+import { ALERT, DIALOG as LOOK_DIALOG, DIALOG_TITLE, INPUT as LOOK_INPUT, NOTE } from '@/app/_ui/dashboard/look'
+import { buttonVariants } from '@/app/_ui/ui/button'
+import { IconSettings } from '@tabler/icons-react'
 
 /**
  * 分組總覽會動的部分（票 13）：分組設定對話框、作廢提案對話框。回饋一律是伺服器回的句子。
@@ -9,26 +11,18 @@ import { cn } from '@/shared/cn'
 
 export type AdminGroupActionState = { ok: boolean; message: string } | undefined
 
-export const PRIMARY =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium ' +
-  'text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-export const SECONDARY =
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 ' +
-  'text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
-export const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-export const LABEL = 'block text-sm font-medium text-ink'
-export const DIALOG = 'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40'
+// 外觀照原型（票 36）：橘色主要動作、白框次要動作、h-10 輸入框、原型 Dialog 的圓角與淡灰遮罩。
+// 這幾個常數分組、評分、簽核、精選、學生與老師的簽核表態都在用，改這裡會一起換樣子。
+export const PRIMARY = 'btn-fju h-10 px-5 text-sm disabled:pointer-events-none disabled:opacity-60'
+export const SECONDARY = buttonVariants({ variant: 'outline', size: 'lg', className: 'press rounded-lg px-3 disabled:opacity-60' })
+export const INPUT = `mt-1.5 min-h-10 py-2 ${LOOK_INPUT.replace('h-10 ', '')}`
+export const LABEL = 'block text-sm font-semibold text-foreground'
+export const DIALOG = LOOK_DIALOG.lg
 
 export function Feedback({ state }: { state: AdminGroupActionState }) {
   if (!state) return null
   return (
-    <p
-      role={state.ok ? 'status' : 'alert'}
-      className={cn(
-        'rounded-md px-3 py-2 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
-      )}
-    >
+    <p role={state.ok ? 'status' : 'alert'} className={state.ok ? NOTE : ALERT}>
       {state.message}
     </p>
   )
@@ -98,13 +92,14 @@ export function GroupingSettingsEditor({
 
   return (
     <div className="space-y-3">
-      <button type="button" className={PRIMARY} onClick={dialog.open}>
+      <button type="button" className={SECONDARY} onClick={dialog.open}>
+        <IconSettings aria-hidden />
         分組設定
       </button>
       <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label={`${cohortCode} 的分組設定`} className={DIALOG}>
         <form action={formAction} className="space-y-4 p-5">
-          <h2 className="text-base font-semibold text-ink">{cohortCode} 的分組設定</h2>
+          <h2 className={DIALOG_TITLE}>{cohortCode} 的分組設定</h2>
           <p className="text-sm text-muted-foreground">
             學生提案的人數（含自己）要落在最少到最多之間；只影響之後發起的提案。特殊情況由系辦直接調整組員。
           </p>
@@ -117,7 +112,7 @@ export function GroupingSettingsEditor({
             {field('proposalDefaultDays', '提案預設天數', daysLimit, '到期不會超過成組期')}
           </div>
           <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不改
             </button>
@@ -155,7 +150,7 @@ export function VoidProposalButton({
       <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label={`作廢${label}？`} className={DIALOG}>
         <form action={formAction} className="space-y-4 p-5">
-          <h2 className="text-base font-semibold text-ink">作廢{label}？</h2>
+          <h2 className={DIALOG_TITLE}>作廢{label}？</h2>
           <p className="text-sm text-muted-foreground">
             作廢後整份提案終止、所有人釋放。理由只留在系辦紀錄，學生的通知只會說「管理員作廢」。
           </p>
@@ -174,7 +169,7 @@ export function VoidProposalButton({
             />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
             </button>

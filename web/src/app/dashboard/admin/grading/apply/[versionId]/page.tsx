@@ -28,11 +28,11 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
   const back = preview.ok ? `/dashboard/admin/grading?cohort=${preview.receipt.cohortId}` : '/dashboard/admin/grading'
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/grading">
-      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
+      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-foreground">
         ← 評分
       </Link>
       <header className="mb-5">
-        <h1 className="text-xl font-semibold text-ink">套用新評分方案</h1>
+        <h1 className="text-xl font-semibold text-foreground">套用新評分方案</h1>
       </header>
       {children}
     </DashboardShell>
@@ -49,7 +49,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
         description={`已正式送出的分數照 v${p.versionNo} 的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
       >
         {p.blockers.length > 0 ? (
-          <div role="alert" className="mb-4 space-y-1 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+          <div role="alert" className="mb-4 space-y-1 rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
             <p className="font-semibold">不能套用：</p>
             <ul className="list-disc pl-5">
               {p.blockers.map((b) => (

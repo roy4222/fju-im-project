@@ -1,8 +1,7 @@
 import type { Metadata } from 'next'
 import { IconCrown } from '@tabler/icons-react'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
-import { PillLink } from '@/app/_ui/pill-link'
-import { fileImage, ListState, PageBand } from '@/app/_ui/public-blocks'
+import { imageSrc, ListEmpty, PillLink, PublicPageHead } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicShowcaseQuery, parseShowcaseSort, SHOWCASE_SORT_OPTIONS } from '@/composition/showcase'
@@ -46,9 +45,9 @@ export default async function FeaturedPage({
   }
   const entries: PhotoEntry[] = cards.map((p) => ({
     id: p.id,
-    image: fileImage(p.posterFileId),
+    image: imageSrc(p.id, p.posterFileId),
     title: p.title,
-    tags: [{ label: `${p.cohortCode} 屆`, tone: 'navy' }, ...(p.groupCode ? [{ label: p.groupCode }] : [])],
+    tags: [{ label: `${p.cohortCode} 屆`, tone: 'ink' }, ...(p.groupCode ? [{ label: p.groupCode }] : [])],
     summary: p.summary,
     facts: [
       { label: '屆別', value: `${p.cohortCode} 屆` },
@@ -62,7 +61,7 @@ export default async function FeaturedPage({
 
   return (
     <SiteShell current="/projects/featured" bare>
-      <PageBand
+      <PublicPageHead
         title="優秀專題"
         description="歷屆優秀專題作品。點開卡片看海報與說明；完整摘要與影片在詳情頁。"
         crumbs={[{ label: '優秀專題' }]}
@@ -82,10 +81,11 @@ export default async function FeaturedPage({
           <SearchSortBar placeholder="搜尋題目、摘要、組別" sortOptions={SHOWCASE_SORT_OPTIONS} />
         </div>
         {entries.length === 0 ? (
-          <ListState
-            icon={<IconCrown className="size-8" />}
+          <ListEmpty
+            icon={<IconCrown className="size-8" aria-hidden />}
             title={filtered ? '找不到符合的作品' : '目前還沒有優秀專題'}
             hint={filtered ? '換個關鍵字，或清除篩選條件。' : '系辦發布優秀專題後會出現在這裡。'}
+            clearHref={filtered ? '/projects/featured' : undefined}
           />
         ) : (
           <PhotoDialogGrid entries={entries} initialOpenId={open} />

@@ -2,7 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconArrowRight, IconTrophy } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
-import { CoverImage, fileImage, ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
+import { imageSrc, ListEmpty, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
@@ -49,7 +49,7 @@ export default async function CompetitionsPage({
 
   return (
     <SiteShell current="/competitions" bare>
-      <PageBand
+      <PublicPageHead
         title="競賽資訊"
         description="近期的競賽與報名說明。點開看公告全文、報名連結與附件。"
         crumbs={[{ href: '/news', label: '最新公告' }, { label: '競賽資訊' }]}
@@ -66,10 +66,11 @@ export default async function CompetitionsPage({
           />
         </div>
         {items.length === 0 ? (
-          <ListState
-            icon={<IconTrophy className="size-8" />}
+          <ListEmpty
+            icon={<IconTrophy className="size-8" aria-hidden />}
             title={q ? '找不到符合的競賽' : '目前沒有競賽資訊'}
             hint={q ? '換個關鍵字，或清除篩選條件。' : '系辦發布競賽資訊後會出現在這裡。'}
+            clearHref={q ? '/competitions' : undefined}
           />
         ) : (
           <ul className="grid gap-6 md:grid-cols-2">
@@ -80,12 +81,14 @@ export default async function CompetitionsPage({
                   className="grid h-full overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[280px_minmax(0,1fr)]"
                 >
                   <div className="relative aspect-video overflow-hidden sm:aspect-auto sm:min-h-52">
-                    <CoverImage src={fileImage(c.cover?.fileId)} />
+                    {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imageSrc(c.id, c.cover?.fileId)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
                   </div>
                   <div className="flex flex-col gap-2.5 p-6">
                     <div className="flex items-center gap-2">
-                      <ToneTag tone="brand">{COMPETITION_CATEGORY}</ToneTag>
-                      {c.audienceKind !== 'public' ? <ToneTag tone="navy">登入可見</ToneTag> : null}
+                      <Tag tone="brand">{COMPETITION_CATEGORY}</Tag>
+                      {c.audienceKind !== 'public' ? <Tag tone="ink">登入可見</Tag> : null}
                       <span className="tabular text-[13px] font-semibold text-muted-foreground">發布 {taipeiDateOf(c.publishedAt)}</span>
                     </div>
                     <h2 className="text-xl leading-snug font-bold text-foreground">{c.title}</h2>

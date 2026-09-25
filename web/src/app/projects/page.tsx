@@ -3,9 +3,7 @@ import type { Metadata } from 'next'
 import { IconFileText, IconPlayerPlay, IconSearchOff } from '@tabler/icons-react'
 import type { SignedInShowcaseCard } from '@/application/showcase'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { PillLink } from '@/app/_ui/pill-link'
-import { CoverImage, fileImage, ListState, PageBand, ToneTag } from '@/app/_ui/public-blocks'
-import { NeedLogin } from '@/app/_ui/public-content'
+import { imageSrc, ListEmpty, NeedLogin, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicShowcaseQuery, parseShowcaseSort, SHOWCASE_SORT_OPTIONS } from '@/composition/showcase'
@@ -27,7 +25,14 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
       className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_22px_rgba(0,51,102,0.14)]"
     >
       <div className="relative aspect-video overflow-hidden bg-muted">
-        <CoverImage src={fileImage(p.posterFileId)} className="transition-transform duration-500 group-hover:scale-[1.03]" />
+        {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageSrc(p.id, p.posterFileId)}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+        />
         {p.groupCode ? (
           <span className="absolute bottom-3 left-3 rounded bg-background/95 px-2 py-0.5 text-xs font-semibold text-foreground">{p.groupCode}</span>
         ) : null}
@@ -38,16 +43,16 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
         {p.summary ? <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{p.summary}</p> : null}
         <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
           {p.posterFileId ? (
-            <ToneTag tone="navy">
+            <Tag tone="ink">
               <IconFileText className="mr-1 size-3.5" />
               海報
-            </ToneTag>
+            </Tag>
           ) : null}
           {p.videoUrl ? (
-            <ToneTag tone="navy">
+            <Tag tone="ink">
               <IconPlayerPlay className="mr-1 size-3.5" />
               影片
-            </ToneTag>
+            </Tag>
           ) : null}
         </div>
       </div>
@@ -114,7 +119,7 @@ export default async function ProjectsPage({
 
   return (
     <SiteShell current="/projects" bare>
-      <PageBand
+      <PublicPageHead
         title="歷屆專題一覽"
         description="本系學生與老師的學習參考庫：題目、摘要、海報與三分鐘影片。"
         crumbs={[{ label: '歷屆專題一覽' }]}
@@ -135,17 +140,11 @@ export default async function ProjectsPage({
         </div>
 
         {cards.length === 0 ? (
-          <ListState
-            icon={<IconSearchOff className="size-9" />}
+          <ListEmpty
+            icon={<IconSearchOff className="size-9" aria-hidden />}
             title={q ? `找不到符合「${q}」的作品` : filtered ? '沒有符合條件的作品' : '目前還沒有歷屆專題'}
             hint={filtered ? '換個關鍵字，或清除篩選條件。' : '系辦補登或發布作品後會出現在這裡。'}
-            action={
-              filtered ? (
-                <Link href="/projects" className="font-bold text-primary hover:underline">
-                  清除條件
-                </Link>
-              ) : undefined
-            }
+            clearHref={filtered ? '/projects' : undefined}
           />
         ) : (
           sections.map((g) => (

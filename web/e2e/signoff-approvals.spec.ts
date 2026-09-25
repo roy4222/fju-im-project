@@ -131,7 +131,8 @@ async function asAdmin(page: Page) {
 async function createVersion(page: Page, groupCode: string) {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  const form = page.getByRole('form', { name: '建立簽核版本' })
+  await page.getByRole('button', { name: '新增簽核' }).click()
+  const form = page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })
   await form.getByLabel('組別').selectOption({ label: groupCode })
   await form.getByLabel('全文').fill(`${CONTENT}${groupCode}`)
   await form.getByRole('button', { name: '建立簽核版本' }).click()

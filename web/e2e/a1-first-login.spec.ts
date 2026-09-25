@@ -62,7 +62,7 @@ test('設定新密碼之後進得了管理員首頁', async ({ page }) => {
   await page.goto('/dashboard/admin')
   await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '屆別', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: '帳號', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '帳號管理', exact: true })).toBeVisible()
 })
 
 test('新密碼太短或跟目前的一樣會被擋下', async ({ page }) => {

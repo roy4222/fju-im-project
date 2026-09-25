@@ -47,6 +47,19 @@ export {
   tempKeyFor,
   typeForExtension,
 } from '@/application/ops/files'
+export type { AuditLog, AuditLogEntry, AuditWhoFilter } from '@/application/ops/audit-log'
+export {
+  AUDIT_EXCLUDED_ACTIONS,
+  AUDIT_PAGE_LIMIT,
+  AUDIT_WHO_FILTERS,
+  AUDIT_WHO_LABEL,
+  AUDIT_WINDOW_DAYS,
+  auditActionLabel,
+  auditTargetTypeLabel,
+  auditWhoOf,
+  describeAuditTarget,
+  normalizeAuditWho,
+} from '@/application/ops/audit-log'
 export type { StorageAlertLevel, StorageMeasurement } from '@/application/ops/storage'
 export {
   formatGiB,

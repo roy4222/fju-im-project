@@ -4,8 +4,7 @@ import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { IconLock, IconPlayerPlay } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
-import { CoverImage, fileImage, ToneTag } from '@/app/_ui/public-blocks'
-import { GoneNotice } from '@/app/_ui/public-content'
+import { GoneNotice, imageSrc, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 
@@ -47,7 +46,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const member = people !== null
   const backHref = member ? '/projects' : '/projects/featured'
   const backLabel = member ? '歷屆專題一覽' : '優秀專題'
-  const image = fileImage(item.posterFileId)
+  const image = imageSrc(item.id, item.posterFileId)
   const facts: [string, string][] = member
     ? [
         ['屆別', `${item.cohortCode} 屆`],
@@ -75,12 +74,14 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             {` › ${item.cohortCode} 屆`}
           </nav>
           <div className="flex flex-wrap gap-2">
-            <ToneTag tone="navy">{item.cohortCode} 屆</ToneTag>
-            {item.groupCode ? <ToneTag tone="navy">{item.groupCode}</ToneTag> : null}
+            <Tag tone="ink">{item.cohortCode} 屆</Tag>
+            {item.groupCode ? <Tag tone="ink">{item.groupCode}</Tag> : null}
           </div>
           <h1 className="text-[26px] leading-snug font-extrabold text-foreground sm:text-[32px]">{item.title}</h1>
           <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
-            <CoverImage src={image} />
+            {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
             {item.videoUrl ? (
               <>
                 <a
@@ -143,10 +144,11 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               </div>
             ))}
           </dl>
-          {image ? (
+          {item.posterFileId ? (
             <figure className="flex flex-col items-center gap-2">
               <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted">
-                <CoverImage src={image} alt="成果海報" fit="contain" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt="成果海報" className="absolute inset-0 h-full w-full object-contain" />
               </div>
               <figcaption className="text-[13px] text-muted-foreground">成果海報</figcaption>
             </figure>

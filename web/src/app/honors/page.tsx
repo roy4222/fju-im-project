@@ -2,8 +2,7 @@ import type { Metadata } from 'next'
 import { IconAward } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
-import { PillLink } from '@/app/_ui/pill-link'
-import { fileImage, ListState, PageBand } from '@/app/_ui/public-blocks'
+import { imageSrc, ListEmpty, PillLink, PublicPageHead } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
@@ -57,10 +56,10 @@ export default async function HonorsPage({
     const date = taipeiDateOf(h.publishedAt)
     return {
       id: h.id,
-      image: fileImage(h.cover?.fileId),
+      image: imageSrc(h.id, h.cover?.fileId),
       title: h.title,
       date,
-      tags: [{ label: '榮譽榜' }, ...(h.category ? [{ label: h.category, tone: 'navy' as const }] : [])],
+      tags: [{ label: '榮譽榜' }, ...(h.category ? [{ label: h.category, tone: 'ink' as const }] : [])],
       summary: h.summary,
       facts: [...(h.category ? [{ label: '分類', value: h.category }] : []), { label: '日期', value: date }],
     }
@@ -69,7 +68,7 @@ export default async function HonorsPage({
 
   return (
     <SiteShell current="/honors" bare>
-      <PageBand title="榮譽榜" description="競賽得獎照片與得獎組別。點開卡片為一張圖片加文字；人物照不裁切。" crumbs={[{ label: '榮譽榜' }]} />
+      <PublicPageHead title="榮譽榜" description="競賽得獎照片與得獎組別。點開卡片為一張圖片加文字；人物照不裁切。" crumbs={[{ label: '榮譽榜' }]} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <nav className="flex flex-wrap gap-2" aria-label="年份篩選">
@@ -91,10 +90,11 @@ export default async function HonorsPage({
           />
         </div>
         {entries.length === 0 ? (
-          <ListState
-            icon={<IconAward className="size-8" />}
+          <ListEmpty
+            icon={<IconAward className="size-8" aria-hidden />}
             title={filtered ? '找不到符合的紀錄' : '目前還沒有榮譽紀錄'}
             hint={filtered ? '換個關鍵字，或清除篩選條件。' : '系辦發布得獎紀錄後會出現在這裡。'}
+            clearHref={filtered ? '/honors' : undefined}
           />
         ) : (
           <PhotoDialogGrid entries={entries} columns={3} initialOpenId={open} />
