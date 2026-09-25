@@ -238,7 +238,17 @@ export type GradebookGroup = {
   readonly id: string
   readonly code: string
   readonly advisorName: string | null
-  /** 此刻的有效組員（匯出每人一列；學號是文字）。 */
+  /**
+   * 已解散（產品模組 03 §4「解散：原組別資料凍結，管理員可查與匯出」）：唯讀列出，不再有缺評、待指派，
+   * 成績用解散當下套用的方案版本算（之後套用新版本不重算它）。
+   */
+  readonly dissolved: boolean
+  /** 這一組的數字用哪個方案版本算：進行中的組＝目前版本；解散的組＝解散當下的版本。 */
+  readonly versionNo: number | null
+  /**
+   * 組員（匯出每人一列；學號是文字）：進行中的組是此刻的有效組員；解散的組是解散當下的組員快照
+   * （解散前就被移出的人不列）。
+   */
   readonly members: readonly { readonly name: string; readonly studentNo: string | null }[]
   readonly result: GroupResult
   /** 最新一筆沒被取代的更正（生效中或待復核）；沒有是 null。 */

@@ -395,10 +395,14 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
   const csv = fs.readFileSync((await csvDownload.path())!, 'utf8')
   const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
   expect(lines).toHaveLength(5)
-  expect(lines[0]).toContain('"學號","姓名","期中 份數","期中 平均"')
+  expect(lines[0]).toContain('"學號","姓名","期中 份數","期中 老師1","期中 老師1 分數","期中 老師2","期中 老師2 分數","期中 平均"')
   expect(lines[1]).toContain(`"G01","${studentNos[0]}"`)
   expect(studentNos[0]!.startsWith('0')).toBe(true)
-  expect(lines[1]).toContain('"2／2","84.65","已完成","1／1","92.00","已完成","88.32","88.3225","88.32","更正待復核')
+  // 各老師分數（S10-11）：期中照送出先後是評三 84.29、評四 85（評一被替換，不在採計裡）。
+  expect(lines[1]).toContain(
+    `"2／2","${NAMES[2]}","84.29","${NAMES[3]}","85.00","84.65","已完成","1／1","${NAMES[1]}","92.00","92.00","已完成","88.32","88.3225","88.32","更正待復核`,
+  )
+  expect(lines[1]).not.toContain(NAMES[0]!)
   expect(lines[3]).toContain('期中：')
   expect(lines[3]).toContain('（老師已停用，缺評待處理）')
 
@@ -424,4 +428,18 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
     expect(response.status()).toBe(403)
     expect(await response.text()).not.toContain('88.32')
   }
+})
+
+test('封存的屆別：成績頁仍選得到，只能看與匯出——建立方案、設份數、指派、改派都停用', async ({ page }) => {
+  await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+  await openGrading(page)
+  await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 已封存，只能查看與匯出`)
+  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
+  await expect(page.getByRole('button', { name: '建立新方案版本' })).toBeDisabled()
+  const assignRow = page.getByTestId('grading-row-G01')
+  await expect(assignRow).toContainText('已封存，不能指派')
+  await expect(assignRow.getByRole('button')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /移除或改派/ })).toHaveCount(0)
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
+  expect(fs.readFileSync((await csv.path())!, 'utf8')).toContain('"G01"')
 })

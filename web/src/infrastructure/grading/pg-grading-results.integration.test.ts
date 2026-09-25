@@ -518,6 +518,38 @@ describe('移除／改派三選一（GRD-13）', () => {
     expect(g.result.stages[0]).toMatchObject({ required: 3, averageDisplay: '85.00', status: 'incomplete' })
   })
 
+  it('要求份數已到上限 10：預覽「新增」標不能用、執行被拒、份數不變；保留與替換照常', async () => {
+    const s = await scenario()
+    await requirement(s.groupId, 'mid', 10)
+    const p = await preview(s.a1)
+    const byChoice = Object.fromEntries(p.options.map((o) => [o.choice, o]))
+    expect(byChoice.add!.blockedReason).toContain('上限 10')
+    expect(byChoice.keep!.blockedReason).toBeNull()
+    expect(byChoice.replace!.blockedReason).toBeNull()
+    const over = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '請 T2 加評', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(over).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!over.ok) expect(over.message).toContain('上限 10')
+    const req = await owner.sql(`select required_count from stage_requirements where group_id = $1 and stage_key = 'mid'`, [s.groupId])
+    expect(req.rows[0]!.required_count).toBe(10)
+    expect((await owner.sql('select valid_to from evaluator_assignments where id = $1', [s.a1])).rows[0]!.valid_to).toBeNull()
+
+    // 份數 9：新增後剛好 10，可以。
+    await requirement(s.groupId, 'mid', 9)
+    const p9 = await preview(s.a1)
+    expect(p9.options.find((o) => o.choice === 'add')!.blockedReason).toBeNull()
+    expect(
+      await results.removeAssignment(
+        adminActor(),
+        { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '請 T2 加評', basisHash: p9.basisHash },
+        randomUUID(),
+      ),
+    ).toMatchObject({ ok: true, receipt: { requiredCount: 10 } })
+  })
+
   it('沒有正式分數的老師：只能「替換」（可以只移除），暫存標失效並保留內容；重新指派不復活舊暫存', async () => {
     const cohortId = await newCohort()
     await scheme(cohortId)
@@ -825,6 +857,228 @@ describe('方案鎖定後套用新版本（GRD-09）', () => {
   })
 })
 
+describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結，管理員可查與匯出」）', () => {
+  /**
+   * G01 期中 80／84.29、期末 90（最終 85.29）＋更正 88 後解散；S3 在解散前就被移出，另一位期末老師還沒送（指派沒結束）。
+   * 解散時甲生的組員資格在「業務時間」結束（模擬鐘比真實時間早），真實時間寫在 `updated_at`；
+   * 另一位組員的資格沒結束（兩種解散寫法都要列得出來）。G02 還在進行，只有期中。
+   */
+  async function dissolvedScenario() {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    await submit(s.t2, s.a2, '90')
+    const t4 = await newUser('丁老師', 'teacher')
+    await requirement(s.groupId, 'fin', 2)
+    await assign(s.groupId, t4, 'fin')
+    await requirement(s.groupId, 'fin', 1)
+    const g = await groupRow(s.cohortId, s.groupId)
+    const o = await results.override(adminActor(), { groupId: s.groupId, newValue: '88', reason: '口試補考', basisHash: g.basisHash }, randomUUID())
+    if (!o.ok) throw new Error(o.message)
+    const s3 = await newUser('早走生', 'student', '0499999')
+    await owner.sql(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, valid_to, added_by_kind, removal_reason, updated_at)
+       values (gen_random_uuid(), $1, $2, $3, now() - interval '10 days', now() - interval '5 days', 'system', '轉組', now() - interval '5 days')`,
+      [s.groupId, s.cohortId, s3],
+    )
+    const g2 = await newGroup(s.cohortId, 'G02')
+    await requirement(g2, 'mid', 1)
+    await submit(s.t1, await assign(g2, s.t1), '70')
+
+    // 解散：兩個時間都由這一端的時鐘給（和鎖定方案用的真實鐘同一個），不依賴資料庫容器的時鐘。
+    const dissolvedAt = new Date()
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = '測試' where id = $1`, [
+      s.groupId,
+      dissolvedAt,
+    ])
+    await owner.sql(
+      `update group_memberships set valid_to = greatest(valid_from, '2026-01-01'::timestamptz), updated_at = $2
+        where group_id = $1 and valid_to is null and user_id in (select user_id from user_profiles where student_no = '0412345')`,
+      [s.groupId, dissolvedAt],
+    )
+    return { ...s, g2, t4, overrideId: o.receipt.overrideId }
+  }
+
+  it('成績表以唯讀列出：解散當下的組員（解散前移出的不列）、成績照舊、沒有缺評與待指派；匯出寫「已解散」', async () => {
+    const s = await dissolvedScenario()
+    const b = await book.gradebook(adminActor(), s.cohortId)
+    if (!b.ok) throw new Error(b.message)
+    expect(b.receipt.groups.map((g) => [g.code, g.dissolved])).toEqual([
+      ['G02', false],
+      ['G01', true],
+    ])
+    const g = b.receipt.groups.find((x) => x.id === s.groupId)!
+    expect(g.members.map((m) => m.studentNo)).toEqual(['0412345', '0412346'])
+    expect([g.result.finalDisplay, g.versionNo, g.override?.newValue]).toEqual(['85.29', 1, '88'])
+    expect(g.missing).toEqual([])
+
+    const csv = await exporter.exportGrades(adminActor(), { cohortId: s.cohortId, format: 'csv', filter: DEFAULT_GRADE_EXPORT_FILTER })
+    expect(csv).toMatchObject({ ok: true, receipt: { groupCount: 2, rowCount: 3 } })
+    const lines = (csv.ok ? String(csv.receipt.body) : '').replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const g01 = lines.filter((l) => l.includes('"G01"'))
+    expect(g01).toHaveLength(2)
+    for (const l of g01) {
+      expect(l).toContain('"85.29","85.287","88.00"')
+      expect(l.endsWith('"","v1","已解散"')).toBe(true)
+    }
+    expect(lines.join('\n')).not.toContain('0499999')
+    expect(lines.find((l) => l.includes('"G02"'))!.endsWith('"v1","進行中"')).toBe(true)
+    // 只匯出這一組也可以（篩選照常）。
+    const only = await exporter.exportGrades(adminActor(), {
+      cohortId: s.cohortId,
+      format: 'csv',
+      filter: { stageKey: 'all', groupId: s.groupId, status: 'complete' },
+    })
+    expect(only).toMatchObject({ ok: true, receipt: { groupCount: 1, rowCount: 2 } })
+
+    // 解散前就待復核的更正：解散後不能復核，所以不放進待復核清單（那一組的列仍帶著更正狀態）。
+    await owner.sql(`update override_review_state set state = 'pending_review' where override_id = $1`, [s.overrideId])
+    const again = await book.gradebook(adminActor(), s.cohortId)
+    expect(again.ok && again.receipt.pendingReviews).toEqual([])
+    expect(again.ok && again.receipt.groups.find((x) => x.id === s.groupId)?.override?.state).toBe('pending_review')
+  })
+
+  it('套用新方案版本不重算解散的組：數字、方案版本、更正都停在解散當下；計算明細同一份；新加的階段匯出留白', async () => {
+    const s = await dissolvedScenario()
+    const oral: SchemeStageInput = { key: 'oral', name: '口試', weight: 20, items: [{ key: 'i1', name: '總分', type: 'number', max: 100, weight: 100 }] }
+    const v2 = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId: s.cohortId, stages: [{ ...STAGES[0]!, weight: 50 }, { ...STAGES[1]!, weight: 30 }, oral] },
+      randomUUID(),
+    )
+    const versionId = v2.ok ? v2.receipt.versionId : ''
+    const p = await book.previewSchemeVersion(adminActor(), versionId)
+    if (!p.ok) throw new Error(p.message)
+    expect(p.receipt.blockers).toEqual([])
+    // 預覽只列會受影響的（進行中的）組。
+    expect(p.receipt.groups.map((g) => g.code)).toEqual(['G02'])
+    expect(await results.applySchemeVersion(adminActor(), { versionId, token: p.receipt.token }, randomUUID())).toMatchObject({ ok: true })
+
+    const g = await groupRow(s.cohortId, s.groupId)
+    expect([g.result.finalExact, g.result.finalDisplay, g.versionNo]).toEqual(['85.287', '85.29', 1])
+    expect(g.result.stages.map((x) => x.key)).toEqual(['mid', 'fin'])
+    const csv = await exporter.exportGrades(adminActor(), { cohortId: s.cohortId, format: 'csv', filter: DEFAULT_GRADE_EXPORT_FILTER })
+    const lines = (csv.ok ? String(csv.receipt.body) : '').replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const width = (l: string) => l.slice(1, -1).split('","').length
+    expect(lines[0]).toContain('"口試 份數","口試 老師1","口試 老師1 分數","口試 平均","口試 狀態"')
+    expect(new Set(lines.map(width))).toEqual(new Set([width(lines[0]!)]))
+    expect(lines.find((l) => l.includes('"G01"'))).toContain('"已完成（v1：期末 40%）","","","","","","85.29","85.287","88.00"')
+    expect(await overrideState(s.overrideId)).toBe('effective')
+    const detail = await book.groupDetail(adminActor(), s.groupId)
+    if (!detail.ok) throw new Error(detail.message)
+    expect([detail.receipt.version?.versionNo, detail.receipt.result.finalExact, detail.receipt.group.dissolved]).toEqual([1, '85.287', true])
+    expect(detail.receipt.missing).toEqual([])
+    const b = await book.gradebook(adminActor(), s.cohortId)
+    expect(b.ok && b.receipt.version?.versionNo).toBe(2)
+    expect(b.ok && b.receipt.groups.find((x) => x.code === 'G02')?.versionNo).toBe(2)
+
+  })
+
+  it('兩個鎖定版本的鎖定時間剛好一樣、都不晚於解散：釘版本號大的（後換上的那一版）', async () => {
+    const cohortId = await newCohort()
+    const v1 = await scheme(cohortId)
+    const lockedAt = new Date('2026-06-01T00:00:00Z')
+    for (const no of [2, 3]) {
+      await owner.sql(
+        `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, locked_at, created_by_user_id)
+         select gen_random_uuid(), scheme_id, $2, stages, 'locked', $3, $4 from grading_scheme_versions where id = $1`,
+        [v1, no, lockedAt, adminId],
+      )
+    }
+    const g = await newGroup(cohortId, 'G11')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = '測試' where id = $1`, [
+      g,
+      new Date('2026-06-02T00:00:00Z'),
+    ])
+    expect((await groupRow(cohortId, g)).versionNo).toBe(3)
+  })
+
+  it('解散的組有正式評分的階段不能從方案拿掉（凍結的資料要匯得出）；解散前沒有任何評分的組照目前版本顯示', async () => {
+    const s = await dissolvedScenario()
+    // v2 只剩期中：進行中的 G02 沒用到期末，但解散的 G01 期末有正式評分。
+    const v2 = await command.createSchemeVersion(adminActor(), { cohortId: s.cohortId, stages: [{ ...STAGES[0]!, weight: 100 }] }, randomUUID())
+    const p = await book.previewSchemeVersion(adminActor(), v2.ok ? v2.receipt.versionId : '')
+    if (!p.ok) throw new Error(p.message)
+    expect(p.receipt.blockers.join('')).toContain('「期末」')
+    expect(
+      await results.applySchemeVersion(adminActor(), { versionId: v2.ok ? v2.receipt.versionId : '', token: p.receipt.token }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+
+    // 還沒有老師開始評分就解散的組（方案沒鎖過）：沒有要凍結的分數，照目前版本。
+    const cohortId = await newCohort()
+    await scheme(cohortId)
+    const empty = await newGroup(cohortId, 'G09')
+    await requirement(empty, 'mid', 1)
+    await requirement(empty, 'fin', 1)
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = '測試' where id = $1`, [empty, new Date()])
+    const row = await groupRow(cohortId, empty)
+    expect([row.dissolved, row.versionNo, row.result.stages[0]!.status]).toEqual([true, 1, 'incomplete'])
+    expect(row.missing).toEqual([])
+
+    // 之後別組的老師開始評分（v1 鎖定）、再套用 v2：解散的組留在 v1（解散當下的版本後來成了第一個鎖定版本）。
+    const other = await newGroup(cohortId, 'G10')
+    await requirement(other, 'mid', 1)
+    const t = await newUser('戊老師', 'teacher')
+    await submit(t, await assign(other, t), '75')
+    const next = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[0]!, name: '期中報告', weight: 50 }, { ...STAGES[1]!, weight: 50 }] },
+      randomUUID(),
+    )
+    const p2 = await book.previewSchemeVersion(adminActor(), next.ok ? next.receipt.versionId : '')
+    if (!p2.ok) throw new Error(p2.message)
+    expect(
+      await results.applySchemeVersion(adminActor(), { versionId: next.ok ? next.receipt.versionId : '', token: p2.receipt.token }, randomUUID()),
+    ).toMatchObject({ ok: true })
+    const frozen = await groupRow(cohortId, empty)
+    expect([frozen.versionNo, frozen.result.stages[0]!.name, frozen.result.stages[0]!.weight]).toEqual([1, '期中', 60])
+    expect((await groupRow(cohortId, other)).versionNo).toBe(2)
+
+    // 解散的 G09 只設了期末份數（沒有分數）、進行中的 G10 沒用到期末：期末仍不能從方案拿掉。
+    const onlyMid = await command.createSchemeVersion(adminActor(), { cohortId, stages: [{ ...STAGES[0]!, weight: 100 }] }, randomUUID())
+    const p3 = await book.previewSchemeVersion(adminActor(), onlyMid.ok ? onlyMid.receipt.versionId : '')
+    expect(p3.ok && p3.receipt.blockers.join('')).toContain('「期末」')
+  })
+})
+
+describe('封存的屆別（產品模組 02 §11.3「封存後各角色都不能直接修改；管理員可查與匯出」）', () => {
+  it('成績表、評分管理頁、計算明細、匯出照常；設份數、指派、更正、套用都 COHORT_ARCHIVED', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    await submit(s.t2, s.a2, '90')
+    const before = await groupRow(s.cohortId, s.groupId)
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [s.cohortId])
+
+    const b = await book.gradebook(adminActor(), s.cohortId)
+    expect(b).toMatchObject({ ok: true, receipt: { cohort: { archived: true } } })
+    expect(b.ok && b.receipt.groups[0]!.result.finalDisplay).toBe('85.29')
+    expect(await query.adminBoard(adminActor(), s.cohortId)).toMatchObject({ ok: true, receipt: { cohort: { archived: true } } })
+    expect(await book.groupDetail(adminActor(), s.groupId)).toMatchObject({ ok: true, receipt: { group: { archived: true } } })
+    const csv = await exporter.exportGrades(adminActor(), { cohortId: s.cohortId, format: 'csv', filter: DEFAULT_GRADE_EXPORT_FILTER })
+    expect(csv).toMatchObject({ ok: true, receipt: { groupCount: 1, rowCount: 2 } })
+    expect(csv.ok && String(csv.receipt.body)).toContain('"85.29","85.287"')
+
+    const t4 = await newUser('丁老師', 'teacher')
+    expect(
+      await command.setRequirement(adminActor(), { groupId: s.groupId, stageKey: 'mid', requiredCount: 3, revision: 1 }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await command.assign(adminActor(), { groupId: s.groupId, stageKey: 'mid', teacherUserId: t4 }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+    expect(
+      await results.override(adminActor(), { groupId: s.groupId, newValue: '90', reason: '補考', basisHash: before.basisHash }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    const v2 = await owner.sql(
+      `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
+       select gen_random_uuid(), scheme_id, 2, stages, 'draft', $2 from grading_scheme_versions where id = $1 returning id`,
+      [s.versionId, adminId],
+    )
+    expect(await book.previewSchemeVersion(adminActor(), String(v2.rows[0]!.id))).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+  })
+})
+
 describe('匯出（GRD-10）', () => {
   it('CSV：每位組員一列、學號前導零、兩位小數與畫面一致、更正註記、公式字首加 \'；XLSX：學號是文字儲存格', async () => {
     const s = await standard()
@@ -841,11 +1095,15 @@ describe('匯出（GRD-10）', () => {
     const text = csv.ok ? String(csv.receipt.body) : ''
     const lines = text.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
     expect(lines[0]).toBe(
-      '"屆別","組別","學號","姓名","期中 份數","期中 平均","期中 狀態","期末 份數","期末 平均","期末 狀態","最終成績（計算）","最終成績（原始精度）","最終成績（採用）","更正註記","缺評待處理","方案版本"',
+      '"屆別","組別","學號","姓名","期中 份數","期中 老師1","期中 老師1 分數","期中 老師2","期中 老師2 分數","期中 平均","期中 狀態",' +
+        '"期末 份數","期末 老師1","期末 老師1 分數","期末 平均","期末 狀態","最終成績（計算）","最終成績（原始精度）","最終成績（採用）","更正註記","缺評待處理","方案版本","組別狀態"',
     )
-    expect(lines[1]).toContain('"G01","0412345","甲生","2／2","82.15","已完成","1／1","90.00","已完成","85.29","85.287","88.00","已更正：原 85.29 → 88.00（口試補考）"')
+    // 各老師分數（S10-11）：照送出先後，兩位小數和計算明細一致。
+    expect(lines[1]).toContain(
+      '"G01","0412345","甲生","2／2","甲老師","80.00","丙老師","84.29","82.15","已完成","1／1","乙老師","90.00","90.00","已完成","85.29","85.287","88.00","已更正：原 85.29 → 88.00（口試補考）"',
+    )
     expect(lines[2]).toContain('"\'=HYPERLINK(""http://x"")"')
-    expect(lines[3]).toContain('"G02","","","0／1","","尚未完成（0／1）"')
+    expect(lines[3]).toContain('"G02","","","0／1","","","","","","尚未完成（0／1）"')
 
     // 「尚缺幾位評分老師」依階段篩：G02 只有期中要一份、沒有指派；只匯出期末時不該出現期中的缺額。
     const finOnly = await exporter.exportGrades(adminActor(), {
