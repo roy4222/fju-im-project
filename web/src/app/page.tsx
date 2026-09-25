@@ -457,7 +457,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                 <li key={d.itemId} className="fju-list-item flex flex-col gap-1 py-1.5">
                   <Link href="/dashboard/student/affairs" className="flex items-center gap-3 hover:text-primary">
                     <span className="text-[22px] font-extrabold text-ink tabular-nums">
-                      {formatTaipeiDate(taipeiDateOf(d.dueAt)).slice(5)}
+                      {formatTaipeiDate(taipeiDateOf(d.dueAt)).slice(5).replace('-', '/')}
                     </span>
                     <span className="min-w-0 text-base leading-snug font-bold break-words">{d.title}</span>
                   </Link>

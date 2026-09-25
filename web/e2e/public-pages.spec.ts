@@ -410,7 +410,7 @@ test('公開首頁「我的工作」：學生看到自己要交的收件截止�
   await page.goto('/')
   const work = page.getByRole('region', { name: '我的工作' })
   await expect(work.getByTestId('home-deadlines')).toContainText(SUBMISSION)
-  await expect(work.getByTestId('home-deadlines')).toContainText(`截止 ${ymd(due).replaceAll('-', '/')}`)
+  await expect(work.getByTestId('home-deadlines')).toContainText(`截止 ${ymd(due)}`)
   await expect(work).not.toContainText('近期沒有要截止的項目')
   await expect(work.getByTestId('home-work-pending')).toHaveText(/^待繳交 [1-9]\d* 件$/)
 })
