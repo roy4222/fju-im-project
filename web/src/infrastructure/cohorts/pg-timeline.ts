@@ -57,7 +57,7 @@ import { RealClock, type Clock } from '@/shared/time'
 
 type CohortRow = { id: string; code: string; status: CohortStatus; revision: number; year_end_date: string | null }
 
-type StageRow = { seq: number; name: string; start_date: string; deadline_version: number }
+type StageRow = { seq: number; name: string; description: string; start_date: string; deadline_version: number }
 
 type ActivityRow = {
   id: string
@@ -76,7 +76,13 @@ const ACTIVITY_COLUMNS =
   'id, cohort_id, title, description, starts_at, ends_at, all_day, audience_kind, status, revision'
 
 function toStage(row: StageRow): Stage {
-  return { seq: row.seq, name: row.name, startDate: row.start_date, deadlineVersion: row.deadline_version }
+  return {
+    seq: row.seq,
+    name: row.name,
+    description: row.description,
+    startDate: row.start_date,
+    deadlineVersion: row.deadline_version,
+  }
 }
 
 function toActivity(row: ActivityRow): Activity {
@@ -96,7 +102,7 @@ function toActivity(row: ActivityRow): Activity {
 
 async function loadStages(db: Pick<Pool, 'query'> | PoolClient, cohortId: string, lock = false) {
   const rows = await db.query<StageRow>(
-    `select seq, name, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
+    `select seq, name, description, to_char(start_date, 'YYYY-MM-DD') as start_date, deadline_version
        from cohort_stages where cohort_id = $1 order by seq${lock ? ' for update' : ''}`,
     [cohortId],
   )
@@ -201,18 +207,23 @@ export class PgTimelineCommand implements TimelineCommand {
         if (!old) {
           await tx.query(
             `insert into cohort_stages
-               (id, cohort_id, seq, name, start_date, deadline_version, created_by_kind, created_by_user_id,
+               (id, cohort_id, seq, name, description, start_date, deadline_version, created_by_kind, created_by_user_id,
                 created_at, updated_at, updated_by_user_id)
-             values ($1, $2, $3, $4, $5, $6, 'user', $7, $8, $8, $7)`,
-            [uuidv7(), cohortId, p.seq, p.name, p.startDate, p.deadlineVersion, userId, realAt],
+             values ($1, $2, $3, $4, $9, $5, $6, 'user', $7, $8, $8, $7)`,
+            [uuidv7(), cohortId, p.seq, p.name, p.startDate, p.deadlineVersion, userId, realAt, p.description],
           )
-        } else if (old.name !== p.name || old.startDate !== p.startDate || old.deadlineVersion !== p.deadlineVersion) {
+        } else if (
+          old.name !== p.name ||
+          old.description !== p.description ||
+          old.startDate !== p.startDate ||
+          old.deadlineVersion !== p.deadlineVersion
+        ) {
           await tx.query(
             `update cohort_stages
-                set name = $3, start_date = $4, deadline_version = $5, revision = revision + 1,
+                set name = $3, description = $8, start_date = $4, deadline_version = $5, revision = revision + 1,
                     updated_at = $6, updated_by_user_id = $7
               where cohort_id = $1 and seq = $2`,
-            [cohortId, p.seq, p.name, p.startDate, p.deadlineVersion, realAt, userId],
+            [cohortId, p.seq, p.name, p.startDate, p.deadlineVersion, realAt, userId, p.description],
           )
         }
       }
@@ -236,7 +247,10 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
         businessAt,
         payload: {
-          before: { stages: current.stages.map(({ seq, name, startDate }) => ({ seq, name, startDate })), yearEndDate: current.yearEndDate },
+          before: {
+            stages: current.stages.map(({ seq, name, startDate, description }) => ({ seq, name, startDate, description })),
+            yearEndDate: current.yearEndDate,
+          },
           after: { stages: next.stages, yearEndDate: next.yearEndDate },
           changedStages,
         },

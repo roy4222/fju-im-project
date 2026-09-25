@@ -129,6 +129,8 @@ export const auditEvents = pgTable(
     index('audit_events_target_idx').on(t.targetType, t.targetId),
     index('audit_events_cohort_real_at_idx').on(t.cohortId, t.realAt),
     index('audit_events_actor_real_at_idx').on(t.actorUserId, t.realAt),
+    // 操作紀錄頁（全部範圍、依時間新到舊）要用；0011 補（#296 審查 P2）。
+    index('audit_events_real_at_idx').on(t.realAt),
   ],
 )
 

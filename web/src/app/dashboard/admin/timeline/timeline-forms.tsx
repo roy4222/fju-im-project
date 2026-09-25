@@ -7,7 +7,7 @@ import {
   saveScheduleAction,
   updateActivityAction,
 } from './actions'
-import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, INPUT as KIT_INPUT } from '@/app/_ui/dashboard-kit'
+import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, INPUT as KIT_INPUT, TEXTAREA as KIT_TEXTAREA } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
@@ -21,6 +21,7 @@ export type TimelineActionState = { ok: boolean; message: string } | undefined
 
 // 外觀照原型（票 35）：輸入框、按鈕與對話框跟原型 `stage-edit-dialog` 一樣。
 const INPUT = cn(KIT_INPUT, 'mt-1.5')
+const TEXTAREA = cn(KIT_TEXTAREA, 'mt-1.5')
 const LABEL = 'block text-sm font-semibold'
 const PRIMARY = BTN_PRIMARY
 const SECONDARY = BTN_OUTLINE
@@ -83,7 +84,7 @@ function useCloseOnSuccess(state: TimelineActionState, close: () => void) {
 
 // ── 階段與日期 ──────────────────────────────────────────────────────────────
 
-export type StageDraft = { name: string; startDate: string }
+export type StageDraft = { name: string; startDate: string; description: string }
 
 export function ScheduleEditor({
   cohortId,
@@ -93,6 +94,7 @@ export function ScheduleEditor({
   stages,
   yearEndDate,
   nameMaxLength,
+  descriptionMaxLength,
   dialog: external,
 }: {
   cohortId: string
@@ -102,6 +104,7 @@ export function ScheduleEditor({
   stages: StageDraft[]
   yearEndDate: string
   nameMaxLength: number
+  descriptionMaxLength: number
   /** 時間軸卡片上每一段的「編輯階段與日期」也打開同一個對話框：由外面把對話框交進來。 */
   dialog?: ReturnType<typeof useDialog>
 }) {
@@ -178,6 +181,22 @@ export function ScheduleEditor({
                         className={INPUT}
                       />
                     </div>
+                    {/* 原型 stage-edit-dialog 的「一句話說明」（0011，票 39）：學生時間軸卡片上顯示。 */}
+                    <div className="sm:col-span-2">
+                      <label htmlFor={`stage${seq}-description`} className={LABEL}>
+                        第 {seq} 階段一句話說明 <span className="text-xs font-normal text-muted-foreground">選填</span>
+                      </label>
+                      <textarea
+                        id={`stage${seq}-description`}
+                        name={`stage${seq}.description`}
+                        rows={2}
+                        value={stage.description}
+                        onChange={(e) => setStage(index, { description: e.target.value })}
+                        maxLength={descriptionMaxLength}
+                        placeholder="這階段要做什麼，學生會在卡片上看到。"
+                        className={TEXTAREA}
+                      />
+                    </div>
                   </li>
                 )
               })}
@@ -222,6 +241,7 @@ export function ScheduleEditor({
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {slash(stage.startDate)} – {slash(last)}
                     </p>
+                    {stage.description.trim() ? <p className="mt-1 text-xs leading-relaxed">{stage.description.trim()}</p> : null}
                   </li>
                 )
               })}

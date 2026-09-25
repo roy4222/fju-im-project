@@ -22,7 +22,8 @@ const one = (value: string | string[] | undefined) => (typeof value === 'string'
  *
  * 資料是專題事務發布位置「榮譽／競賽」（`managed_items.placement = 'honor'`）的已發布項目，
  * 走前台共用的 `PublicItemQuery`：誰看得到什麼由查詢依對象判斷（訪客只有「公開訪客」的）。
- * 卡片一格一格，點開一張圖＋文字；`?item=` 可深連結。年份照發布日（臺灣日期）分。
+ * 卡片一格一格，點開一張圖＋文字；`?item=` 可深連結。年份篩選與排序看**得獎日期**（0011，票 39；原型 `HonorItem.date`），
+ * 沒填得獎日期的舊紀錄退回發布日（臺灣日期）。
  */
 export default async function HonorsPage({
   searchParams,
@@ -38,11 +39,14 @@ export default async function HonorsPage({
   const query = getPublicItemQuery()
   const [all, matched] = await Promise.all([
     query.list(actor, 'honor', { limit: 200 }),
-    query.list(actor, 'honor', { q: q || undefined, order: sort === 'date-asc' ? 'oldest' : 'newest', limit: 200 }),
+    query.list(actor, 'honor', { q: q || undefined, limit: 200 }),
   ])
-  const yearOf = (d: Date) => taipeiDateOf(d).slice(0, 4)
-  const years = [...new Set(all.map((h) => yearOf(h.publishedAt)))].sort((a, b) => b.localeCompare(a))
-  const items = year ? matched.filter((h) => yearOf(h.publishedAt) === year) : matched
+  const dateOf = (h: (typeof all)[number]) => h.awardedOn ?? taipeiDateOf(h.publishedAt)
+  const yearOf = (h: (typeof all)[number]) => dateOf(h).slice(0, 4)
+  const years = [...new Set(all.map(yearOf))].sort((a, b) => b.localeCompare(a))
+  const items = (year ? matched.filter((h) => yearOf(h) === year) : [...matched]).sort((a, b) =>
+    sort === 'date-asc' ? dateOf(a).localeCompare(dateOf(b)) : dateOf(b).localeCompare(dateOf(a)),
+  )
 
   const keep = (y: string) => {
     const p = new URLSearchParams()
@@ -53,7 +57,7 @@ export default async function HonorsPage({
     return s ? `/honors?${s}` : '/honors'
   }
   const entries: PhotoEntry[] = items.map((h) => {
-    const date = taipeiDateOf(h.publishedAt)
+    const date = dateOf(h)
     return {
       id: h.id,
       image: imageSrc(h.id, h.cover?.fileId),

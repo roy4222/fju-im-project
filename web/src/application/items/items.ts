@@ -1,6 +1,6 @@
 import type { ResolvedActor, Role } from '@/application/accounts'
 import type { FileTypeId } from '@/application/ops'
-import { formatTaipeiMinute, parseTaipeiDateTime } from '@/shared/time'
+import { formatTaipeiMinute, isValidTaipeiDate, parseTaipeiDateTime, type TaipeiDate } from '@/shared/time'
 
 /**
  * 專題事務的純規則（票 15；產品模組 04 §4.1–4.4、「單一入口與收件單位」「發布檢查與時間邊界」；
@@ -147,6 +147,30 @@ export const CATEGORY_MAX_LENGTH = 40
 export const MAX_ATTACHMENTS = 20
 export const MAX_AUDIENCE_GROUPS = 200
 
+/**
+ * 競賽資訊是公告的一個分類（產品模組 09 §9.2；`PLACEMENT_HINT.news`）。分類填這個字的公告出現在前台 `/competitions`，
+ * 而且可以填報名截止日與活動日（0011，票 39），前台用這兩天推「報名中／決賽／已結束」（`competitionStatus`）。
+ */
+export const COMPETITION_CATEGORY = '競賽資訊'
+
+/** 競賽狀態（原型 `CompetitionStatus`；Roy 2026-09-08：狀態由日期推導，後台只填兩個日期、不手動切換）。 */
+export type CompetitionStatus = 'open' | 'result' | 'closed'
+
+/**
+ * 截止日（含當天）還沒過＝報名中；活動日（含當天）還沒過＝決賽／結果；都過了＝已結束（原型 `competitionStatus`）。
+ * 只填一個就只看那一個；兩個都沒填回 null（畫面不放狀態 pill，歸在「全部」；原型假設一定有截止日）。
+ */
+export function competitionStatus(
+  dates: { readonly registrationDeadline: TaipeiDate | null; readonly eventDate: TaipeiDate | null },
+  today: TaipeiDate,
+): CompetitionStatus | null {
+  const { registrationDeadline, eventDate } = dates
+  if (registrationDeadline === null && eventDate === null) return null
+  if (registrationDeadline !== null && today <= registrationDeadline) return 'open'
+  if (eventDate !== null && today <= eventDate) return 'result'
+  return 'closed'
+}
+
 /** 表單送來的原樣（字串為主，時間是 `datetime-local` 的臺灣時間）。 */
 export type ItemInput = {
   readonly cohortId: string
@@ -165,6 +189,10 @@ export type ItemInput = {
   readonly opensAt: string
   /** `datetime-local`（臺灣時間）；秒數捨去，存截止分鐘的起點。 */
   readonly dueAt: string
+  /** 競賽資訊的報名截止日（`YYYY-MM-DD`；空＝沒填）。只有分類「競賽資訊」的公告會留，其他一律清掉。 */
+  readonly registrationDeadline?: string
+  /** 競賽資訊的活動日（決賽、展出；`YYYY-MM-DD`；空＝沒填）。 */
+  readonly eventDate?: string
   readonly fields: readonly unknown[]
 }
 
@@ -184,6 +212,9 @@ export type ItemDraft = {
   readonly stageId: string | null
   readonly opensAt: Date | null
   readonly dueAt: Date | null
+  /** 競賽資訊的兩個日期（臺灣日曆日）；不是「公告＋分類競賽資訊」一律 null。 */
+  readonly registrationDeadline: TaipeiDate | null
+  readonly eventDate: TaipeiDate | null
   readonly fields: readonly FormField[]
 }
 
@@ -362,6 +393,21 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
     fields = schema.value
   }
 
+  // 競賽資訊的日期：只有「公告＋分類競賽資訊」才留（換位置或改分類就清掉，不留看不到的值）。
+  let registrationDeadline: TaipeiDate | null = null
+  let eventDate: TaipeiDate | null = null
+  if (placement === 'news' && category === COMPETITION_CATEGORY) {
+    const deadline = parseDay(input.registrationDeadline, '報名截止日', 'registrationDeadline')
+    if (!deadline.ok) return deadline
+    const event = parseDay(input.eventDate, '活動日', 'eventDate')
+    if (!event.ok) return event
+    registrationDeadline = deadline.value
+    eventDate = event.value
+    if (registrationDeadline && eventDate && eventDate < registrationDeadline) {
+      return invalid('活動日不能早於報名截止日。', 'eventDate')
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -379,9 +425,19 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       stageId,
       opensAt,
       dueAt,
+      registrationDeadline,
+      eventDate,
       fields,
     },
   }
+}
+
+/** `YYYY-MM-DD`（`<input type="date">`）→ 臺灣日曆日；空＝null。 */
+function parseDay(value: unknown, label: string, field: string): Normalized<TaipeiDate | null> {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '') return { ok: true, value: null }
+  if (!isValidTaipeiDate(text)) return invalid(`${label}的格式不對，請重新選擇日期。`, field)
+  return { ok: true, value: text }
 }
 
 // ── 發布前檢查 ──────────────────────────────────────────────────────────────

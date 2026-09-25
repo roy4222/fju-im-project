@@ -43,6 +43,8 @@ export {
   AUDIENCE_LABEL,
   COLLECTION_AUDIENCES,
   collectsResponses,
+  COMPETITION_CATEGORY,
+  competitionStatus,
   describeDeadline,
   describeLifecycleReceipt,
   describePublishReceipt,
