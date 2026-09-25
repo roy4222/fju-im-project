@@ -61,11 +61,11 @@ export default async function GroupGradeDetailPage({
   const back = detail.ok ? `/dashboard/admin/grading?cohort=${detail.receipt.group.cohortId}` : '/dashboard/admin/grading'
   const shell = (title: string, children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/grading">
-      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
+      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-foreground">
         ← 評分
       </Link>
       <header className="mb-5">
-        <h1 className="text-xl font-semibold text-ink">{title}</h1>
+        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
       </header>
       {children}
     </DashboardShell>
@@ -117,7 +117,7 @@ export default async function GroupGradeDetailPage({
     `${d.group.code} 計算明細`,
     <div className="space-y-6">
       {notice ? (
-        <p role="status" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+        <p role="status" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
           {notice}
         </p>
       ) : null}
@@ -129,7 +129,7 @@ export default async function GroupGradeDetailPage({
       <Card title="最終成績">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p data-testid="adopted-final" className="text-3xl font-extrabold tabular-nums text-ink">
+            <p data-testid="adopted-final" className="text-3xl font-extrabold tabular-nums text-foreground">
               {adopted.value ?? '尚未完成'}
             </p>
             {adopted.source === 'override' && current ? (
@@ -173,12 +173,12 @@ export default async function GroupGradeDetailPage({
         <Card key={s.key} title={`${s.name}（占 ${s.weight}%）`}>
           <div className="space-y-3" data-testid={`detail-stage-${s.key}`}>
             <p className="text-sm">
-              <span className={cn('font-semibold', s.complete ? 'text-ink' : 'text-danger')}>{describeStageStatus(s)}</span>
+              <span className={cn('font-semibold', s.complete ? 'text-foreground' : 'text-danger')}>{describeStageStatus(s)}</span>
               <span className="ml-2 tabular-nums text-muted-foreground">
                 採計 {s.counted.length}／要求 {s.required ?? '未設定'}
               </span>
             </p>
-            <p className="text-sm tabular-nums text-ink" data-testid="stage-formula">
+            <p className="text-sm tabular-nums text-foreground" data-testid="stage-formula">
               {describeStageFormula(s)}
             </p>
             {s.counted.length > 0 ? (
@@ -278,7 +278,7 @@ export default async function GroupGradeDetailPage({
           <ul className="space-y-1 text-sm">
             {d.assignments.map((a) => (
               <li key={a.id} className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-medium text-ink">{a.stageName}・{a.teacherName}</span>
+                <span className="font-medium text-foreground">{a.stageName}・{a.teacherName}</span>
                 {a.active ? (
                   <>
                     <span className="text-xs text-primary">有效</span>

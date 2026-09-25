@@ -17,6 +17,8 @@ import {
   unassignAdvisorAction,
 } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
+import { IconUserPlus } from '@tabler/icons-react'
+import { BTN_ROW as ROW, BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
 
 /**
  * 票 19：管理員指派、重派、解除指導老師（原型 `AssignDialog`），以及批次指派 CSV（原型沒有，模組實作設計 03 §7.2 缺口）。
@@ -129,17 +131,18 @@ export function AdvisorCell({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 whitespace-nowrap">
         {current ? (
-          <span className="text-sm text-ink">{current.name}</span>
+          <span className="text-sm text-foreground">{current.name}</span>
         ) : (
-          <span className="text-sm font-semibold text-danger">尚未指派</span>
+          <span className="text-sm font-semibold text-destructive">尚未指派</span>
         )}
-        <button type="button" className={SECONDARY} aria-label={`${verb}指導老師：${group.code}`} onClick={assignDialog.open}>
+        <button type="button" className={current ? ROW_GHOST : ROW} aria-label={`${verb}指導老師：${group.code}`} onClick={assignDialog.open}>
+          <IconUserPlus aria-hidden />
           {current ? '重派' : '指派老師'}
         </button>
         {current ? (
-          <button type="button" className={SECONDARY} aria-label={`解除指導老師：${group.code}`} onClick={unassignDialog.open}>
+          <button type="button" className={ROW_GHOST} aria-label={`解除指導老師：${group.code}`} onClick={unassignDialog.open}>
             解除
           </button>
         ) : null}
@@ -150,7 +153,7 @@ export function AdvisorCell({
         <form key={group.revision} onSubmit={submitWithoutReset(assignAction)} className="space-y-4 p-5">
           <div>
             <p className="text-xs font-semibold text-primary">{group.typeLabel}</p>
-            <h2 className="text-base font-semibold text-ink">
+            <h2 className="text-lg font-extrabold text-foreground">
               {verb} {group.code} 的指導老師
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -163,13 +166,13 @@ export function AdvisorCell({
           <input type="hidden" name="revision" value={group.revision} />
           <input type="hidden" name="requestId" value={requestIds.assign} />
           {current ? (
-            <section aria-label="原老師在本組的評分指派" className="space-y-1 rounded-md border border-border px-3 py-2">
-              <h3 className="text-sm font-semibold text-ink">{current.name} 在本組的評分指派</h3>
+            <section aria-label="原老師在本組的評分指派" className="space-y-1 rounded-lg border border-border px-3 py-2">
+              <h3 className="text-sm font-semibold text-foreground">{current.name} 在本組的評分指派</h3>
               {grading.length > 0 ? (
                 <ul data-testid="grading-assignments" className="space-y-1 text-sm">
                   {grading.map((g) => (
                     <li key={g.id} className="flex items-center justify-between gap-2">
-                      <span className="text-ink">{g.stageName}</span>
+                      <span className="text-foreground">{g.stageName}</span>
                       <span className="text-muted-foreground">{GRADING_STATE_LABEL[g.state]}</span>
                     </li>
                   ))}
@@ -205,7 +208,7 @@ export function AdvisorCell({
       {current ? (
         <dialog ref={unassignDialog.ref} aria-label={`解除 ${group.code} 的指導老師？`} className={DIALOG}>
           <form key={group.revision} onSubmit={submitWithoutReset(unassignAction)} className="space-y-4 p-5">
-            <h2 className="text-base font-semibold text-ink">解除 {group.code} 的指導老師？</h2>
+            <h2 className="text-lg font-extrabold text-foreground">解除 {group.code} 的指導老師？</h2>
             <p className="text-sm text-muted-foreground">
               解除 {current.name} 之後，這組會變成「尚未指派」；全組與 {current.name} 會收到通知，理由只留在系辦紀錄。
             </p>
@@ -346,7 +349,7 @@ export function BatchAssignDialog({
       <dialog ref={dialog.ref} aria-label="批次指派指導老師" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <div className="max-h-[85vh] space-y-4 overflow-y-auto p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">批次指派指導老師・{cohortCode}</h2>
+            <h2 className="text-lg font-extrabold text-foreground">批次指派指導老師・{cohortCode}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               UTF-8 CSV，欄位固定 <code className="rounded bg-muted px-1">group_code,teacher_login_email</code>
               ；老師用<strong>登入 Email</strong>，不能用聯絡 Email。要換屆別請先在頁面上方切換。
@@ -360,7 +363,7 @@ export function BatchAssignDialog({
                 busy && 'pointer-events-none opacity-60',
               )}
             >
-              <span className="font-medium text-ink">{busy ?? '選擇 CSV 檔'}</span>
+              <span className="font-medium text-foreground">{busy ?? '選擇 CSV 檔'}</span>
               <span className="text-xs text-muted-foreground">
                 上限 {Math.round(maxBytes / 1024)} KiB；先看預覽，確認後才逐列執行
               </span>
@@ -397,7 +400,7 @@ export function BatchAssignDialog({
           )}
 
           {error ? (
-            <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+            <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
               {error}
             </p>
           ) : null}
@@ -445,18 +448,18 @@ function BatchPreview({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-ink">預覽・{preview.fileName}</h3>
+      <h3 className="text-sm font-semibold text-foreground">預覽・{preview.fileName}</h3>
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {kinds.map((kind) => (
           <div
             key={kind}
             className={cn(
-              'rounded-md border px-3 py-2',
+              'rounded-lg border px-3 py-2',
               ERROR_KINDS.includes(kind) && counts[kind] > 0 ? 'border-danger bg-danger-subtle' : 'border-border',
             )}
           >
             <dt className="text-xs text-muted-foreground">{kindLabels[kind]}</dt>
-            <dd data-testid={`advisor-batch-count-${kind}`} className="text-lg font-semibold text-ink tabular-nums">
+            <dd data-testid={`advisor-batch-count-${kind}`} className="text-lg font-extrabold text-foreground tabular-nums">
               {counts[kind]}
             </dd>
           </div>
@@ -491,12 +494,12 @@ function BatchPreview({
       </div>
 
       {errors > 0 ? (
-        <p className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+        <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
           有 {errors} 列錯誤：請修正檔案後重新上傳，錯誤都修好才能執行。
         </p>
       ) : null}
       {counts.reassign > 0 ? (
-        <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-sm text-ink">
+        <label className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground">
           <input
             type="checkbox"
             checked={confirmReassign}
@@ -545,15 +548,15 @@ function BatchDone({
 }) {
   return (
     <div className="space-y-3">
-      <p role="status" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+      <p role="status" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
         {message}
       </p>
       <ul aria-label="逐列結果" className="divide-y divide-border rounded-card border border-border text-sm">
         {receipt.results.map((r) => (
           <li key={r.line} data-testid={`advisor-batch-result-${r.line}`} className="flex flex-wrap gap-x-3 px-3 py-2">
             <span className="tabular-nums text-muted-foreground">第 {r.line} 行</span>
-            <span className="font-semibold tabular-nums text-ink">{r.groupCode}</span>
-            <span className={cn(r.outcome === 'conflict' || r.outcome === 'failed' ? 'text-danger' : 'text-ink')}>
+            <span className="font-semibold tabular-nums text-foreground">{r.groupCode}</span>
+            <span className={cn(r.outcome === 'conflict' || r.outcome === 'failed' ? 'text-danger' : 'text-foreground')}>
               {outcomeLabels[r.outcome]}
             </span>
             <span className="text-muted-foreground">{r.message}</span>

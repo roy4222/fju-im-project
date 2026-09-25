@@ -12,7 +12,13 @@ import {
   useDialog,
   type AdminGroupActionState,
 } from './admin-group-forms'
-import { DataTable } from '@/app/_ui/primitives'
+import { IconUserPlus } from '@tabler/icons-react'
+import { PANEL_TABLE_HEAD, PANEL_TABLE_ROW, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
+import { BTN_ROW } from '@/app/_ui/dashboard/look'
+
+/** 組別詳情：原型是從右邊滑出的側板（Sheet）；這裡用同一個原生對話框，只把它放到右側、滿高。 */
+const SHEET =
+  'm-0 ml-auto h-dvh max-h-dvh w-[min(30rem,100vw)] overflow-y-auto border-0 border-l border-border bg-popover p-0 text-sm text-popover-foreground shadow-xl backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
 /**
  * 票 14：管理員加入組員、組別詳情（移出、換組長、異動歷程）。原型 `JoinGroupDialog`、`group-detail-sheet`。
@@ -33,7 +39,7 @@ function sizeHint(count: number, size: Size): string | null {
 function SizeReminder({ text }: { text: string | null }) {
   if (!text) return null
   return (
-    <p className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+    <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
       {text}；系辦調整允許，但請確認這是特殊情況。
     </p>
   )
@@ -112,7 +118,7 @@ function Actions({
   onCancel: () => void
 }) {
   return (
-    <div className="flex justify-end gap-2 border-t border-border pt-4">
+    <div className="flex justify-end gap-2 pt-1">
       <button type="button" className={SECONDARY} onClick={onCancel}>
         {cancel}
       </button>
@@ -157,33 +163,57 @@ export function UngroupedStudents({
   }
 
   return (
-    <div className="space-y-2">
-      <Feedback state={state?.ok ? state : undefined} />
-      <DataTable
-        columns={['姓名', '學號', '找組員', '提案', '']}
-        rows={students.map((u) => [
-          u.name,
-          <span key="no" className="tabular-nums">
-            {u.studentNo}
-          </span>,
-          u.openToJoin ? '公開找組員' : '未公開',
-          u.inProposal ? '提案等待確認中' : '—',
-          <button key="add" type="button" className={SECONDARY} aria-label={`加入某組：${u.name}`} onClick={() => pick(u)}>
-            加入某組
-          </button>,
-        ])}
-        empty="本屆學生都分好組了。"
-      />
+    <div>
+      {state?.ok ? (
+        <div className="px-5 pb-3">
+          <Feedback state={state} />
+        </div>
+      ) : null}
+      {students.length === 0 ? (
+        <PanelEmpty title="本屆學生都分好組了" />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead>
+              <tr className={PANEL_TABLE_HEAD}>
+                <th scope="col" className="px-5 py-2.5 font-semibold">姓名</th>
+                <th scope="col" className="px-4 py-2.5 font-semibold">學號</th>
+                <th scope="col" className="px-4 py-2.5 font-semibold">找組員</th>
+                <th scope="col" className="px-4 py-2.5 font-semibold">提案</th>
+                <th scope="col" className="px-5 py-2.5">
+                  <span className="sr-only">動作</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((u) => (
+                <tr key={u.studentNo} className={PANEL_TABLE_ROW}>
+                  <td className="px-5 py-2.5 font-semibold">{u.name}</td>
+                  <td className="tabular px-4 py-2.5">{u.studentNo}</td>
+                  <td className="px-4 py-2.5">{u.openToJoin ? <Pill tone="brand">公開找組員</Pill> : <Pill>未公開</Pill>}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{u.inProposal ? '提案等待確認中' : '—'}</td>
+                  <td className="px-5 py-2.5 text-right">
+                    <button type="button" className={BTN_ROW} aria-label={`加入某組：${u.name}`} onClick={() => pick(u)}>
+                      <IconUserPlus aria-hidden />
+                      加入某組
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <dialog ref={dialog.ref} aria-label={student ? `把 ${student.name} 加入組別` : '加入組別'} className={DIALOG}>
         {student ? (
           <form key={`${student.studentNo}-${requestId}`} action={formAction} className="space-y-4 p-5">
-            <h2 className="text-base font-semibold text-ink">把 {student.name} 加入組別</h2>
+            <h2 className="text-lg font-extrabold text-foreground">把 {student.name} 加入組別</h2>
             <p className="text-sm text-muted-foreground">
               {student.studentNo}・{student.openToJoin ? '本人有公開找組員' : '本人沒有公開找組員，加入前請先聯絡'}。
               加入後全組會收到通知；成員改變，之後的簽核要重簽。
             </p>
             {student.inProposal ? (
-              <p className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+              <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
                 這位同學正在某份提案裡等確認：要加入請先在「進行中的提案」作廢那份提案（理由另填），或等它結束。
               </p>
             ) : null}
@@ -251,14 +281,20 @@ export function GroupDetailButton({
 
   return (
     <div>
-      <button type="button" className={SECONDARY} aria-label={`${group.code} 詳情`} onClick={dialog.open}>
-        詳情
+      {/* 原型：點組別代碼打開詳情（成員、老師、異動與例外處理）。 */}
+      <button
+        type="button"
+        className="tabular rounded-md text-sm font-bold whitespace-nowrap text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+        aria-label={`${group.code} 詳情`}
+        onClick={dialog.open}
+      >
+        {group.code}
       </button>
-      <dialog ref={dialog.ref} aria-label={`${group.code} 詳情`} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={`${group.code} 詳情`} className={SHEET}>
         <div className="space-y-4 p-5">
           <div>
             <p className="text-xs font-semibold text-primary">{group.typeLabel}</p>
-            <h2 className="text-base font-semibold text-ink tabular-nums">
+            <h2 className="text-lg font-extrabold text-foreground tabular-nums">
               {group.code}・{group.members.length} 人
             </h2>
           </div>
@@ -267,7 +303,7 @@ export function GroupDetailButton({
 
           <section aria-label="成員" className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-ink">成員</h3>
+              <h3 className="text-sm font-semibold text-foreground">成員</h3>
               {single ? null : (
                 <ChangeLeaderDialog
                   group={group}
@@ -278,22 +314,22 @@ export function GroupDetailButton({
                 />
               )}
             </div>
-            <ul aria-label="成員名單" className="divide-y divide-border rounded-card border border-border">
+            <ul aria-label="成員名單" className="divide-y divide-border rounded-lg border border-border">
               {group.members.map((m) => (
                 <li key={m.userId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                  <span className="text-ink">
+                  <span className="text-foreground">
                     {m.name}
                     <span className="ml-1 text-xs text-muted-foreground tabular-nums">{m.studentNo}</span>
                     {m.isLeader ? (
-                      <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                      <Pill tone="brand" className="ml-2">
                         組長
-                      </span>
+                      </Pill>
                     ) : null}
                   </span>
                   {single ? null : (
                     <button
                       type="button"
-                      className={SECONDARY}
+                      className={BTN_ROW}
                       aria-label={`移出：${m.name}`}
                       onClick={() => {
                         setRemoving(m)
@@ -322,12 +358,12 @@ export function GroupDetailButton({
           </section>
 
           <section aria-label="異動歷程" className="space-y-2">
-            <h3 className="text-sm font-semibold text-ink">異動歷程</h3>
+            <h3 className="text-sm font-semibold text-foreground">異動歷程</h3>
             {group.history.length > 0 ? (
               <ol className="space-y-2 text-sm">
                 {group.history.map((h) => (
-                  <li key={h.key} className="rounded-md border border-border px-3 py-2">
-                    <p className="text-ink">
+                  <li key={h.key} className="rounded-lg border border-border px-3 py-2">
+                    <p className="text-foreground">
                       <span className="mr-2 text-xs text-muted-foreground tabular-nums">{h.atLabel}</span>
                       {h.text}
                     </p>
@@ -340,7 +376,7 @@ export function GroupDetailButton({
             )}
           </section>
 
-          <div className="flex justify-end border-t border-border pt-4">
+          <div className="flex justify-end pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               關閉
             </button>
@@ -387,7 +423,7 @@ function RemoveMemberDialog({
     <dialog ref={handle.ref} aria-label={member ? `把 ${member.name} 移出 ${group.code}？` : '移出組員'} className={DIALOG}>
       {member ? (
         <form key={`${member.userId}-${group.revision}`} action={formAction} className="space-y-4 p-5">
-          <h2 className="text-base font-semibold text-ink">
+          <h2 className="text-lg font-extrabold text-foreground">
             把 {member.name} 移出 {group.code}？
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -437,12 +473,12 @@ function ChangeLeaderDialog({
 
   return (
     <div>
-      <button type="button" className={SECONDARY} onClick={dialog.open}>
+      <button type="button" className={BTN_ROW} onClick={dialog.open}>
         換組長
       </button>
       <dialog ref={dialog.ref} aria-label={`換 ${group.code} 的組長`} className={DIALOG}>
         <form key={group.revision} action={formAction} className="space-y-4 p-5">
-          <h2 className="text-base font-semibold text-ink">換 {group.code} 的組長</h2>
+          <h2 className="text-lg font-extrabold text-foreground">換 {group.code} 的組長</h2>
           <p className="text-sm text-muted-foreground">
             目前組長：{leader?.name ?? '（沒有）'}。成員沒變，不需要重簽；全組會收到通知，歷程會記下這次更換。
           </p>

@@ -107,6 +107,19 @@ test.afterAll(async ({ browser }) => {
   await studentContext?.close()
 })
 
+/**
+ * 原型 Data Table 的篩選鈕（票 36）：按下去開選單、選一個就換頁。
+ * 剛換完頁時按鈕可能還沒接上事件，所以「按鈕→看到選項」整段重試到成功為止。
+ */
+async function pickFacet(page: Page, label: string, option: string | RegExp) {
+  const item = page.getByRole('menuitemradio', { name: option })
+  await expect(async () => {
+    if (!(await item.isVisible())) await page.getByRole('button', { name: `篩選${label}` }).click()
+    await expect(item).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await item.click()
+}
+
 test('0 管理員登入（整條流程共用這個分頁）', async ({ browser }) => {
   const { email, password } = adminCredentials()
   admin = await newPage(browser)
@@ -317,10 +330,13 @@ test('票 9 帳號列表：三個磚、搜尋、篩選', async () => {
   await admin.goto('/dashboard/admin/accounts')
   const form = admin.getByRole('search', { name: '篩選帳號' })
   await form.getByRole('searchbox', { name: '搜尋' }).fill(TAG)
-  await form.locator('select[name=role]').selectOption('student')
-  await form.locator('select[name=cohort]').selectOption({ label: `${COHORT_NAME}（${COHORT_CODE}）` })
-  await form.locator('select[name=status]').selectOption('active')
-  await form.getByRole('button', { name: '套用' }).click()
+  await form.getByRole('searchbox', { name: '搜尋' }).press('Enter')
+  await expect(admin).toHaveURL(/q=/)
+  await pickFacet(admin, '角色', '學生')
+  await expect(admin).toHaveURL(/role=student/)
+  await pickFacet(admin, '屆別', `${COHORT_NAME}（${COHORT_CODE}）`)
+  await expect(admin).toHaveURL(/cohort=/)
+  await pickFacet(admin, '狀態', '已核准')
   await expect(admin).toHaveURL(/status=active/)
   await expect(table.locator('tbody tr')).toHaveCount(1)
   await expect(accountRow(admin, STUDENT.name)).toBeVisible()

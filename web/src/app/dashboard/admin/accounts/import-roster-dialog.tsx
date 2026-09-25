@@ -1,4 +1,5 @@
 'use client'
+import { IconUpload } from '@tabler/icons-react'
 import { useRef, useState, useTransition } from 'react'
 import type { RosterImportReceipt, RosterPreview } from '@/application/accounts'
 import { cn } from '@/shared/cn'
@@ -17,9 +18,10 @@ type Step =
   | { kind: 'done'; receipt: RosterImportReceipt }
 
 const BUTTON =
-  'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50'
-const PRIMARY = 'bg-primary text-primary-foreground hover:bg-primary/90'
-const SECONDARY = 'bg-muted text-foreground hover:bg-border'
+  // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
+  'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+const PRIMARY = 'btn-fju rounded-[4px]'
+const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
 
 function newRequestId(): string {
   return crypto.randomUUID()
@@ -126,13 +128,14 @@ export function ImportRosterDialog() {
   return (
     <>
       <button type="button" onClick={open} className={cn(BUTTON, SECONDARY)}>
+        <IconUpload aria-hidden />
         匯入名單 CSV
       </button>
 
       <dialog
         ref={dialogRef}
         aria-labelledby="import-roster-title"
-        className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
+        className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="max-h-[85vh] overflow-y-auto p-5">
           {step.kind === 'choose' ? (
@@ -153,7 +156,7 @@ export function ImportRosterDialog() {
           )}
 
           {error ? (
-            <p role="alert" className="mt-4 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+            <p role="alert" className="mt-4 rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
               {error}
             </p>
           ) : null}
@@ -172,7 +175,7 @@ function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File
   return (
     <div className="space-y-4">
       <div>
-        <h2 id="import-roster-title" className="text-base font-semibold text-ink">
+        <h2 id="import-roster-title" className="text-lg font-extrabold text-foreground">
           匯入本屆名單
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -186,7 +189,7 @@ function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File
           busy && 'pointer-events-none opacity-60',
         )}
       >
-        <span className="font-medium text-ink">{busy ?? '選擇 CSV 檔'}</span>
+        <span className="font-medium text-foreground">{busy ?? '選擇 CSV 檔'}</span>
         <span className="text-xs text-muted-foreground">上限 2 MiB；先看預覽，確認後才匯入</span>
         <input
           type="file"
@@ -224,17 +227,17 @@ function PreviewStep({
     (v) => v.cohortId === null || (preview.selectedCohortId !== null && v.cohortId !== preview.selectedCohortId),
   )
   const tiles: [string, number, string][] = [
-    ['總筆數', counts.total, 'text-ink'],
-    ['有效', counts.valid, 'text-ink'],
-    ['重複', counts.duplicate, counts.duplicate ? 'text-primary-on-subtle' : 'text-ink'],
-    ['缺欄', counts.missing, counts.missing ? 'text-danger-on-subtle' : 'text-ink'],
-    ['衝突', counts.conflict, counts.conflict ? 'text-danger-on-subtle' : 'text-ink'],
+    ['總筆數', counts.total, 'text-foreground'],
+    ['有效', counts.valid, 'text-foreground'],
+    ['重複', counts.duplicate, counts.duplicate ? 'text-primary-on-subtle' : 'text-foreground'],
+    ['缺欄', counts.missing, counts.missing ? 'text-danger-on-subtle' : 'text-foreground'],
+    ['衝突', counts.conflict, counts.conflict ? 'text-danger-on-subtle' : 'text-foreground'],
   ]
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 id="import-roster-title" className="text-base font-semibold text-ink">
+        <h2 id="import-roster-title" className="text-lg font-extrabold text-foreground">
           預覽・{preview.fileName}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">確認後才匯入。名單只協助審核比對，不會自動核准任何人。</p>
@@ -252,7 +255,7 @@ function PreviewStep({
       </dl>
 
       <div>
-        <label htmlFor="roster-cohort" className="block text-sm font-medium text-ink">
+        <label htmlFor="roster-cohort" className="block text-sm font-medium text-foreground">
           匯入到哪一屆
         </label>
         {preview.cohorts.length === 0 ? (
@@ -269,7 +272,7 @@ function PreviewStep({
             value={preview.selectedCohortId ?? ''}
             disabled={Boolean(busy)}
             onChange={(event) => event.currentTarget.value && onCohort(event.currentTarget.value)}
-            className="mt-1 h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
           >
             <option value="" disabled>
               請選擇屆別
@@ -297,7 +300,7 @@ function PreviewStep({
 
       {preview.issues.length > 0 ? (
         <div>
-          <h3 className="text-sm font-medium text-ink">需要注意的列</h3>
+          <h3 className="text-sm font-medium text-foreground">需要注意的列</h3>
           <ul className="mt-1 max-h-48 overflow-y-auto rounded-card border border-border text-xs" aria-label="需要注意的列">
             {preview.issues.map((issue, index) => (
               <li key={`${issue.line}-${issue.kind}-${index}`} className="flex justify-between gap-3 border-b border-border px-3 py-1.5 last:border-b-0">
@@ -360,10 +363,10 @@ function PreviewStep({
 function DoneStep({ receipt }: { receipt: RosterImportReceipt }) {
   return (
     <div className="flex flex-col items-center gap-3 py-3 text-center" role="status">
-      <span className="inline-flex -rotate-2 items-center rounded-md border-2 border-primary px-3 py-1 text-sm font-bold tracking-widest text-primary-on-subtle">
+      <span className="inline-flex -rotate-2 items-center rounded-lg border-2 border-primary px-3 py-1 text-sm font-bold tracking-widest text-primary-on-subtle">
         已匯入
       </span>
-      <h2 id="import-roster-title" className="text-base font-semibold text-ink">
+      <h2 id="import-roster-title" className="text-lg font-extrabold text-foreground">
         {receipt.cohortName}・{receipt.counts.valid} 筆名單
       </h2>
       <p className="max-w-sm text-sm text-muted-foreground">

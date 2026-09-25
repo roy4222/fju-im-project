@@ -1,4 +1,5 @@
 'use client'
+import { IconKey, IconPlus } from '@tabler/icons-react'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AccountLookup, TeacherAccountReceipt, VerificationMethod } from '@/application/accounts'
@@ -24,19 +25,21 @@ export type VerificationLabels = {
 }
 
 const BUTTON =
-  'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50'
-const PRIMARY = 'bg-primary text-primary-foreground hover:bg-primary/90'
-const SECONDARY = 'bg-muted text-foreground hover:bg-border'
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-normal'
+  // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
+  'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+const PRIMARY = 'btn-fju rounded-[4px]'
+const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
+const INPUT =
+  'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
 const DIALOG =
-  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40'
+  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
 type FieldError = { message: string; field?: string } | null
 
 function ErrorNote({ error }: { error: FieldError }) {
   if (!error) return null
   return (
-    <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+    <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
       {error.message}
     </p>
   )
@@ -62,17 +65,17 @@ function VerificationFields({
 }) {
   return (
     <fieldset className="space-y-2">
-      <legend className="text-sm font-medium text-ink">
+      <legend className="text-sm font-medium text-foreground">
         怎麼確認是本人 <span className="font-normal text-muted-foreground">・必選，會寫進操作紀錄</span>
       </legend>
       {labels.methods.map((m) => (
-        <label key={m} className="flex items-start gap-2 text-sm text-ink">
+        <label key={m} className="flex items-start gap-2 text-sm text-foreground">
           <input type="radio" name={name} value={m} checked={method === m} onChange={() => onMethod(m)} className="mt-1" />
           {labels.methodLabel[m]}
         </label>
       ))}
       {method ? (
-        <label className="block text-sm font-medium text-ink">
+        <label className="block text-sm font-medium text-foreground">
           核實說明
           <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
           <textarea
@@ -93,8 +96,8 @@ function VerificationFields({
 function SecretBox({ secret }: { secret: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-4 py-3">
-      <code data-testid="temporary-password" className="flex-1 break-all text-left text-lg font-semibold tracking-wider text-ink">
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-4 py-3">
+      <code data-testid="temporary-password" className="flex-1 break-all text-left text-lg font-semibold tracking-wider text-foreground">
         {secret}
       </code>
       <button
@@ -197,6 +200,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
   return (
     <>
       <button type="button" onClick={open} className={cn(BUTTON, PRIMARY)}>
+        <IconPlus aria-hidden />
         新增老師
       </button>
       <dialog ref={dialog.ref} onClose={onClosed} aria-label="新增老師" className={DIALOG}>
@@ -206,7 +210,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
                 {done.account.mode === 'direct' ? '已建立' : '已建立預授權'}
               </p>
-              <h2 className="text-lg font-semibold text-ink">{done.account.name ?? done.account.email}</h2>
+              <h2 className="text-lg font-extrabold text-foreground">{done.account.name ?? done.account.email}</h2>
               {done.account.mode === 'preauthorize' ? (
                 <p className="text-sm text-muted-foreground">
                   {done.account.email} 已經保留給這位老師，別人不能拿它註冊。老師第一次登入時補姓名與聯絡資料；
@@ -215,13 +219,13 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
               ) : done.temporaryPassword ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    臨時密碼<strong className="text-ink">只顯示這一次</strong>，關掉就查不到。請交給老師本人；
+                    臨時密碼<strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。請交給老師本人；
                     老師用 {done.account.email} 登入後必須先改密碼，再補聯絡資料。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
               ) : (
-                <p role="alert" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+                <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
                   帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組會失效）。
                 </p>
               )}
@@ -234,12 +238,12 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
           ) : (
             <form onSubmit={submit} className="space-y-4" noValidate>
               <div>
-                <h2 className="text-lg font-semibold text-ink">新增老師</h2>
+                <h2 className="text-lg font-extrabold text-foreground">新增老師</h2>
                 <p className="mt-1 text-sm text-muted-foreground">老師不需要學號，也不用等審核。系統不存可查看的密碼。</p>
               </div>
 
               <fieldset className="grid gap-2 sm:grid-cols-2">
-                <legend className="mb-1 text-sm font-medium text-ink">新增方式</legend>
+                <legend className="mb-1 text-sm font-medium text-foreground">新增方式</legend>
                 {(
                   [
                     ['direct', '直接新增', '現在發一次性臨時密碼，老師用 Email＋密碼登入'],
@@ -249,11 +253,11 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                   <label
                     key={value}
                     className={cn(
-                      'flex cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 text-sm',
+                      'flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm',
                       mode === value ? 'border-primary bg-primary-subtle/40' : 'border-border',
                     )}
                   >
-                    <span className="flex items-center gap-2 font-medium text-ink">
+                    <span className="flex items-center gap-2 font-medium text-foreground">
                       <input type="radio" name="teacher-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />
                       {label}
                     </span>
@@ -262,7 +266,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                 ))}
               </fieldset>
 
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 登入 Email
                 <input
                   type="email"
@@ -276,7 +280,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                   className={INPUT}
                 />
               </label>
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 姓名{mode === 'preauthorize' ? <span className="font-normal text-muted-foreground">・選填，老師登入後會自己補</span> : null}
                 <input
                   value={name}
@@ -430,9 +434,14 @@ export function TemporaryPasswordDialog({
       <button
         type="button"
         onClick={open}
-        className={cn(BUTTON, SECONDARY)}
+        className={cn(
+          BUTTON,
+          SECONDARY,
+          presetTarget ? 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted' : undefined,
+        )}
         aria-label={presetTarget ? `發臨時密碼給 ${presetTarget.name}` : undefined}
       >
+        <IconKey aria-hidden />
         發臨時密碼
       </button>
       <dialog ref={dialog.ref} onClose={onClosed} aria-label="發臨時密碼" className={DIALOG}>
@@ -442,17 +451,17 @@ export function TemporaryPasswordDialog({
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
                 已核發
               </p>
-              <h2 className="text-lg font-semibold text-ink">{target?.name} 的臨時密碼</h2>
+              <h2 className="text-lg font-extrabold text-foreground">{target?.name} 的臨時密碼</h2>
               {done.temporaryPassword ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    <strong className="text-ink">只顯示這一次</strong>，關掉就查不到。舊密碼已經失效，舊的登入也會被登出；
+                    <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼已經失效，舊的登入也會被登出；
                     本人用這組登入後必須先改密碼。核實方式與操作者、時間已寫入紀錄。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
               ) : (
-                <p role="alert" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+                <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
                   這次已經核發過了，但密碼無法再顯示。要的話請重新核發，舊的那組會失效。
                 </p>
               )}
@@ -468,12 +477,12 @@ export function TemporaryPasswordDialog({
           ) : !target ? (
             <form onSubmit={lookup} className="space-y-4" noValidate>
               <div>
-                <h2 className="text-lg font-semibold text-ink">發臨時密碼</h2>
+                <h2 className="text-lg font-extrabold text-foreground">發臨時密碼</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   系統不存可查看的密碼，只能核發一組新的一次性密碼。先用登入 Email 找到這個帳號。
                 </p>
               </div>
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 登入 Email
                 <input
                   type="email"
@@ -500,23 +509,23 @@ export function TemporaryPasswordDialog({
           ) : (
             <form onSubmit={issue} className="space-y-4" noValidate>
               <div>
-                <h2 className="text-lg font-semibold text-ink">發臨時密碼給 {target.name}</h2>
+                <h2 className="text-lg font-extrabold text-foreground">發臨時密碼給 {target.name}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   舊密碼會立刻失效、舊的登入會被登出；新的一次性密碼只顯示一次，本人登入後必須改密碼。
                 </p>
               </div>
-              <dl className="grid grid-cols-[4.5rem_1fr] gap-y-1 rounded-md bg-muted px-4 py-3 text-sm">
+              <dl className="grid grid-cols-[4.5rem_1fr] gap-y-1 rounded-lg bg-muted px-4 py-3 text-sm">
                 <dt className="text-muted-foreground">帳號</dt>
-                <dd className="break-all font-medium text-ink">{target.email}</dd>
+                <dd className="break-all font-medium text-foreground">{target.email}</dd>
                 <dt className="text-muted-foreground">角色</dt>
-                <dd className="font-medium text-ink">
+                <dd className="font-medium text-foreground">
                   {target.roles.length ? target.roles.map((r) => ROLE_LABEL[r]).join('、') : '尚無（待審核）'}
                 </dd>
                 <dt className="text-muted-foreground">狀態</dt>
-                <dd className="font-medium text-ink">{STATUS_LABEL[target.status]}</dd>
+                <dd className="font-medium text-foreground">{STATUS_LABEL[target.status]}</dd>
               </dl>
               {unusable ? (
-                <p role="note" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+                <p role="note" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
                   這個帳號已停用，登不進來；要發臨時密碼請先還原帳號。
                 </p>
               ) : (
@@ -536,7 +545,7 @@ export function TemporaryPasswordDialog({
                     }}
                     error={error}
                   />
-                  <label className="block text-sm font-medium text-ink">
+                  <label className="block text-sm font-medium text-foreground">
                     理由 <span className="font-normal text-muted-foreground">・選填，例如「忘記密碼，9/24 到系辦」</span>
                     <textarea
                       rows={2}

@@ -81,42 +81,44 @@
 20. **產學合作**：原型 `/dashboard/admin/industry`、測試站 `/dashboard/admin/industry`（`admin-industry`）
 21. **成績管理／評分**：原型 `/dashboard/admin/grading`、測試站 `/dashboard/admin/grading`（`admin-grading`）
 22. **通知匣**：原型 `/dashboard/admin/inbox`、測試站 `/dashboard/admin/inbox`（`admin-inbox`）。**不要按「發送測試通知」。**
+23. **簽核管理**：原型 `/dashboard/admin/signoff`、測試站 `/dashboard/admin/signoff`（`admin-signoff`；票 36）。「各組進度」上方的兩個用途分頁各看一次。**不要按「新增簽核」裡的建立。**
+24. **操作紀錄**：原型 `/dashboard/admin/audit`、測試站 `/dashboard/admin/audit`（`admin-audit`；票 36 新頁）。點「管理員」分頁看一次。
 
 ## 老師後台（原型 `/dashboard/teacher/…`；測試站用 `teacher` 工作階段）
 
-23. **老師首頁**：`/dashboard/teacher`（`teacher-home`）
-24. **分組**：`/dashboard/teacher/groups`（`teacher-groups`）。**不要按「認領」。**
-25. **各組繳交**：`/dashboard/teacher/affairs`（`teacher-affairs`）
-26. **我的合作案**：`/dashboard/teacher/industry`（`teacher-industry`）。**不要新增合作案。**
-27. **評分**：`/dashboard/teacher/grading`（`teacher-grading`）
-28. **通知匣**：`/dashboard/teacher/inbox`（`teacher-inbox`）
+25. **老師首頁**：`/dashboard/teacher`（`teacher-home`）
+26. **分組**：`/dashboard/teacher/groups`（`teacher-groups`）。**不要按「認領」。**
+27. **各組繳交**：`/dashboard/teacher/affairs`（`teacher-affairs`）
+28. **我的合作案**：`/dashboard/teacher/industry`（`teacher-industry`）。**不要新增合作案。**
+29. **評分**：`/dashboard/teacher/grading`（`teacher-grading`）
+30. **通知匣**：`/dashboard/teacher/inbox`（`teacher-inbox`）
 
 ## 學生後台（原型 `/dashboard/student/…`；測試站用 `student` 工作階段；第 4 步不通過就全部略過）
 
-29. **學生首頁（含行事曆）**：`/dashboard/student`（`student-home`）
-30. **我的組別**：`/dashboard/student/groups`（`student-groups`）。**不要按「公開找組員」或發起提案。**
-31. **作業區**：`/dashboard/student/affairs`（`student-affairs`）
-32. **成績**：`/dashboard/student/grading`（`student-grading`）
-33. **通知匣**：`/dashboard/student/inbox`（`student-inbox`）
-34. **專題時間軸**：`/dashboard/student/timeline`（`student-timeline`；票 38 新頁）。點一下目前階段以外的一張卡片看展開，再點回來。
-35. **作業內容**：作業區有收件的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
-36. **產學合作**：`/dashboard/student/industry`（`student-industry`；票 38 新頁）
-37. **同意書**：`/dashboard/student/signoff`（`student-signoff`）。**不要勾「已完整閱讀」或按同意／不同意。**
+31. **學生首頁（含行事曆）**：`/dashboard/student`（`student-home`）
+32. **我的組別**：`/dashboard/student/groups`（`student-groups`）。**不要按「公開找組員」或發起提案。**
+33. **作業區**：`/dashboard/student/affairs`（`student-affairs`）
+34. **成績**：`/dashboard/student/grading`（`student-grading`）
+35. **通知匣**：`/dashboard/student/inbox`（`student-inbox`）
+36. **專題時間軸**：`/dashboard/student/timeline`（`student-timeline`；票 38 新頁）。點一下目前階段以外的一張卡片看展開，再點回來。
+37. **作業內容**：作業區有收件的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
+38. **產學合作**：`/dashboard/student/industry`（`student-industry`；票 38 新頁）
+39. **同意書**：`/dashboard/student/signoff`（`student-signoff`）。**不要勾「已完整閱讀」或按同意／不同意。**
 
 ## 收尾（不論前面成敗，一定要做）
 
-38. **停用這一輪的老師與學生**（工作階段 `admin`）
+40. **停用這一輪的老師與學生**（工作階段 `admin`）
     - 做：打開 `https://test.fju.roy422.dev/dashboard/admin/accounts?q=CODEX-UI-<T>`。學生若還在待審核清單，按「審核」→ 理由填 `CODEX 外觀對照收尾` → 「退回」；已核准的老師與學生各按「停用」，理由填 `CODEX 外觀對照收尾：停用測試帳號`，按「確認停用」。**只動姓名完全等於 `CODEX-UI-<T>老師`、`CODEX-UI-<T>學生` 的兩位。**
     - 預期：兩位都是「已停用」（或學生是「已退回」）。
-39. **登出**
+41. **登出**
     - 做：`admin` 按「登出」。
     - 預期：回到登入頁或首頁。
 
 ## 失敗時
 
 - 第 1 步不通過：後台頁都做不了；前台（第 5–11 步）照做，其餘略過。
-- 第 2–3 步不通過：老師頁（第 23–28 步）略過，記「沒有老師身分」。
-- 第 4 步不通過：學生頁（第 29–37 步）略過，記「沒有學生身分」。
+- 第 2–3 步不通過：老師頁（第 25–30 步）略過，記「沒有老師身分」。
+- 第 4 步不通過：學生頁（第 31–39 步）略過，記「沒有學生身分」。
 - 某一頁打不開（測試站 404／500、原型 404）：照「每一頁怎麼比」的第 4 點記「明顯不同」並寫原因，繼續下一頁。
-- 收尾第 38–39 步一定要做。
+- 收尾第 40–41 步一定要做。
 - 管理員只登入**一次**、整條流程共用 `admin` 工作階段（登入限速：同 IP 同帳號 10 分鐘 10 次）。
