@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { IconChevronDown, IconLayoutDashboard, IconLogout, IconUserCircle, IconWorld } from '@tabler/icons-react'
+import { IconChevronDown, IconLayoutDashboard, IconLogout, IconSwitchHorizontal, IconUserCircle, IconWorld } from '@tabler/icons-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,9 +12,9 @@ import {
 } from '@/app/_ui/ui/dropdown-menu'
 import { cn } from '@/shared/cn'
 
-export type AccountLink = { href: string; label: string; icon: 'account' | 'workbench' | 'site' }
+export type AccountLink = { href: string; label: string; icon: 'account' | 'workbench' | 'site' | 'switch' }
 
-const ICONS = { account: IconUserCircle, workbench: IconLayoutDashboard, site: IconWorld } as const
+const ICONS = { account: IconUserCircle, workbench: IconLayoutDashboard, site: IconWorld, switch: IconSwitchHorizontal } as const
 
 /**
  * 右上角的帳號選單（原型 `site-header`／`dashboard-header` 的頭像下拉）。
