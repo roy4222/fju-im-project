@@ -161,7 +161,10 @@ export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup
         `${s.counted.length}／${s.required ?? '未設定'}`,
         ...teachers,
         s.averageDisplay ?? '',
-        describeStageStatus(s),
+        // 解散的組照解散當下的版本算：階段名稱或權重和表頭（目前版本）不同時註明，最終成績才對得起來。
+        s.name !== stage.name || s.weight !== stage.weight
+          ? `${describeStageStatus(s)}（v${g.versionNo}：${s.name} ${s.weight}%）`
+          : describeStageStatus(s),
       ]
     })
     const adopted = adoptedFinal(g.result, g.override)

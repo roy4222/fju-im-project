@@ -962,7 +962,7 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     const width = (l: string) => l.slice(1, -1).split('","').length
     expect(lines[0]).toContain('"口試 份數","口試 老師1","口試 老師1 分數","口試 平均","口試 狀態"')
     expect(new Set(lines.map(width))).toEqual(new Set([width(lines[0]!)]))
-    expect(lines.find((l) => l.includes('"G01"'))).toContain('"已完成","","","","","","85.29","85.287","88.00"')
+    expect(lines.find((l) => l.includes('"G01"'))).toContain('"已完成（v1：期末 40%）","","","","","","85.29","85.287","88.00"')
     expect(await overrideState(s.overrideId)).toBe('effective')
     const detail = await book.groupDetail(adminActor(), s.groupId)
     if (!detail.ok) throw new Error(detail.message)

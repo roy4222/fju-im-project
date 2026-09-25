@@ -129,4 +129,15 @@ describe('解散的組別', () => {
       ['', 'v3', '已解散'],
     ])
   })
+
+  it('解散組的階段名稱或權重和目前版本不同：狀態格註明它自己的版本', () => {
+    const current = { ...book([]), version: { id: 'v2', versionNo: 2, stages: [stage('mid', '期中報告', 50), stage('fin', '期末', 50)] } }
+    const gone = { ...group('G02', { mid: 1, fin: 1 }, [counted('mid', '甲老師', '80'), counted('fin', '乙老師', '90')]), dissolved: true, versionNo: 1 }
+    const b = { ...current, groups: [gone] }
+    const header = gradeExportHeader(b, DEFAULT_GRADE_EXPORT_FILTER)
+    const row = gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER)[0]!
+    expect(row[header.indexOf('期中報告 狀態')]).toBe('已完成（v1：期中 60%）')
+    expect(row[header.indexOf('期末 狀態')]).toBe('已完成（v1：期末 40%）')
+    expect(row[header.indexOf('最終成績（計算）')]).toBe('84.00')
+  })
 })
