@@ -152,7 +152,15 @@ async function itemByTitle(title: string) {
 /** 三步驟快速建立＋發布（票 15 的表單）。 */
 async function quickPublish(
   page: Page,
-  options: { placement: RegExp; title: string; audience: string; body: string; file?: { name: string; buffer: Buffer } },
+  options: {
+    placement: RegExp
+    title: string
+    audience: string
+    body: string
+    file?: { name: string; buffer: Buffer }
+    /** 勾「重要公告」逐人通知（Roy 2026-09-25）；公開與所有登入者預設不勾。 */
+    important?: boolean
+  },
 ) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   await page.getByRole('button', { name: '新增項目' }).click()
@@ -167,7 +175,15 @@ async function quickPublish(
     await expect(dialog.getByRole('link', { name: options.file.name })).toBeVisible()
   }
   await dialog.getByRole('button', { name: '下一步' }).click()
+  // 等第 3 步真的出來（檢查清單）再看勾選；只看 data-ok="no" 為 0 在切換前就會成立。
+  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
   await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
+  const important = dialog.getByRole('checkbox', { name: /重要公告/ })
+  if (await important.count()) {
+    // 公開、所有登入者的公告預設不逐人通知；其他對象預設通知。
+    if (options.audience === 'public' || options.audience === 'signed_in') await expect(important).not.toBeChecked()
+    await important.setChecked(options.important === true)
+  }
   await dialog.getByRole('button', { name: '發布', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText(`「${options.title}」已發布`)
   const item = await itemByTitle(options.title)
@@ -188,7 +204,39 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
   publicFileId = (
     await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [itemIds[PUBLIC_NEWS]])
   ).rows[0]!.file_id
-  await quickPublish(page, { placement: /公告/, title: MEMBER_NEWS, audience: 'signed_in', body: '只給本系成員看的公告內容。' })
+  await quickPublish(page, {
+    placement: /公告/,
+    title: MEMBER_NEWS,
+    audience: 'signed_in',
+    body: '只給本系成員看的公告內容。',
+    important: true,
+  })
+  // 重要公告逐人通知（Roy 2026-09-25）：登入可見＋重要 → 全站有效帳號各一則（背景工作投影）；
+  // 沒勾重要的公開公告只留發布紀錄、不發事件。
+  const announced = async (itemId: string) =>
+    (
+      await pool.query<{ recipients: string[] }>(
+        `select recipients from domain_events where source_type = 'item' and source_id = $1 and type = 'item.announced'`,
+        [itemId],
+      )
+    ).rows
+  expect(await announced(itemIds[PUBLIC_NEWS]!)).toHaveLength(0)
+  const [memberEvent] = await announced(itemIds[MEMBER_NEWS]!)
+  expect(memberEvent!.recipients).toContain(student.userId)
+  await expect
+    .poll(
+      async () =>
+        Number(
+          (
+            await pool.query<{ n: string }>(
+              `select count(*) as n from notifications where recipient_user_id = $1 and source_ref->>'id' = $2`,
+              [student.userId, itemIds[MEMBER_NEWS]],
+            )
+          ).rows[0]!.n,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(1)
   await quickPublish(page, {
     placement: /專題規則/,
     title: RULE,
