@@ -61,6 +61,9 @@ export class DbActorResolver implements ActorResolver {
       .where(and(eq(roleAssignments.userId, row.id), isNull(roleAssignments.revokedRealAt)))
 
     const roles = assignments.map((a) => a.role as Role)
+    // 這次登入實際用的方式（hook 建 session 時依端點寫入 `sessions.login_method`）；讀不到就不帶，需要它的用例會拒絕。
+    const method = (session.session as { loginMethod?: unknown } | undefined)?.loginMethod
+    const loginMethod = method === 'google' || method === 'password' ? method : undefined
 
     return {
       kind: 'authenticated',
@@ -74,6 +77,7 @@ export class DbActorResolver implements ActorResolver {
         ? roles.filter((r) => r === 'student').map((role) => ({ cohortId: row.cohortId as string, role }))
         : [],
       displayName: (row.displayName ?? row.name).trim() || undefined,
+      ...(loginMethod ? { loginMethod } : {}),
     }
   }
 }

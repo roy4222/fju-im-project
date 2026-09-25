@@ -80,7 +80,9 @@ export default async function StudentHomePage() {
           hot: true,
         }
       : { label: '我的組別', value: '還沒分組', href: `${BASE}/groups` }
-  const collecting = signoff.versions.filter((v) => v.isCurrent && v.state === 'collecting').length
+  // 同意書（票 26）：輪到我表態的版本數；沒有就顯示目前有幾份。
+  const current = signoff.versions.filter((v) => v.isCurrent)
+  const mine = current.filter((v) => v.viewer.canRespond).length
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
   const line = pending ? `作業區還有 ${pending} 件沒送出。` : '作業區沒有待繳的東西。'
@@ -101,7 +103,7 @@ export default async function StudentHomePage() {
             chips={[
               { label: '作業待繳', value: `${pending} 件`, href: `${BASE}/affairs?tab=open`, hot: pending > 0, testId: 'home-pending' },
               groupChip,
-              { label: '同意書', value: collecting ? `${collecting} 份進行中` : `${signoff.versions.filter((v) => v.isCurrent).length} 份`, href: `${BASE}/signoff` },
+              { label: '同意書', value: mine ? '等你同意' : `${current.length} 份`, href: `${BASE}/signoff`, hot: mine > 0 },
             ]}
           />
 

@@ -57,7 +57,7 @@ function ticketSecret(): string {
 
 /**
  * 每個用途的下載政策（模組 10 §5 `authorizeDownload`）。**新用途要在這裡登記**，
- * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）、精選海報（票 25）已加。
+ * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）、精選海報（票 25）、匯出（票 26）已加。
  */
 export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 名單原檔：只有狀態正常的管理員（契約 03 §1「帳號」列），而且檔案已經匯入成某個名單版本。
@@ -71,6 +71,13 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 精選海報（票 25）：管理員；草稿上的＝那一組此刻的組員與主指導；簽核版本凍結的＝那一版的參與者。
   // 公開頁的海報走 S12 的公開閘門，不是這一條。
   poster: createPosterPolicy(getPool),
+  // 匯出檔（票 26 簽核匯出）：只有有效的管理員；而且要真的被某筆匯出紀錄引用著。
+  // 匯出當下已經直接串流給按的人，這一條是事後從檔案編號再拿一次用的。
+  export: (actor, file) =>
+    actor.kind === 'authenticated' &&
+    actor.status === 'active' &&
+    actor.roles.includes('admin') &&
+    file.references.some((r) => r.refType === 'export'),
 }
 
 /**

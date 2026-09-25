@@ -2,6 +2,7 @@ import 'server-only'
 import type { Pool } from 'pg'
 import type { DownloadPolicy } from '@/application/ops'
 import { canReadSubmission, type SubmissionHolder } from '@/application/submissions'
+import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-access'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 
 /**
@@ -17,6 +18,13 @@ import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } fro
  *
  * 只看目前有效的引用（共用檔案能力先篩好 `released_at IS NULL`）：從草稿拿掉、也沒進任何正式版本的檔，誰都下載不到
  * （管理員也一樣——沒有引用的檔不屬於任何一份繳交）。剛傳完還沒存進草稿的檔同理。
+ *
+ * 票 26：被**簽核版本**引用的附件（建版時綁上的 `signoff_version` 引用）再加一條：讀得到那一版的人就下載得到
+ * （契約 03 §1「附件版本同讀」）——判斷是 `canReadSignoffVersions`，版本頁、精選海報政策（`poster-policy.ts`）同一個：
+ * - 快照裡的學生：可以（含之後被移出的人——那是他參與過、讀過的版本）。解決「繳交送出後才加入、建版前已在組裡」的
+ *   參與者點附件被擋（#272 存疑點 5）。這一組此刻的有效組員也可以（版本頁讀得到全文，附件同讀）。
+ * - 老師：只有此刻仍是這一組的主指導才可以。換掉的老師失權，**含看不到**（產品 07 §8「換老師後舊老師失權」、
+ *   票 22「換老師後舊老師立刻拿不到」；2026-09-25 Roy 定：失權含看不到版本頁、簽核附件與凍結海報）。
  */
 
 export function createSubmissionFilePolicy(reader: () => Pick<Pool, 'query'>): DownloadPolicy {
@@ -24,10 +32,13 @@ export function createSubmissionFilePolicy(reader: () => Pick<Pool, 'query'>): D
     if (actor.kind !== 'authenticated') return false
     const draftIds = file.references.filter((r) => r.refType === 'draft').map((r) => r.refId)
     const versionIds = file.references.filter((r) => r.refType === 'submission_version').map((r) => r.refId)
-    if (draftIds.length === 0 && versionIds.length === 0) return false
+    const signoffIds = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
+    if (draftIds.length === 0 && versionIds.length === 0 && signoffIds.length === 0) return false
     if (actor.roles.includes('admin')) return true
 
     const db = reader()
+    if (signoffIds.length > 0 && (await canReadSignoffVersions(db, actor, signoffIds))) return true
+    if (draftIds.length === 0 && versionIds.length === 0) return false
     const [drafts, versions, viewer] = await Promise.all([
       draftIds.length > 0
         ? db.query<{ receiver_kind: 'user' | 'group'; receiver_id: string }>(

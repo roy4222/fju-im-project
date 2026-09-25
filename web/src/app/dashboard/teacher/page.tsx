@@ -43,7 +43,8 @@ export default async function TeacherHomePage() {
     counted: queue.filter((e) => e.state === 'counted').length,
   }
   const remaining = counts.empty + counts.draft
-  const ready = signCards.filter((c) => c.current.state === 'teacher_pending')
+  // 待我同意＝輪到老師、而且我是這一版的主指導、還沒表態（票 26 卡片的「輪到你」）。
+  const ready = signCards.filter((c) => c.current.state === 'teacher_pending' && c.mine.isSnapshotAdvisor && c.mine.voted === null)
   const waiting = signCards.filter((c) => c.current.state === 'collecting')
   const claimable = groups.filter((g) => g.groupType === 'industry' && g.advisor === null)
   const myGroups = groups.filter((g) => g.advisor?.teacherUserId === me)
