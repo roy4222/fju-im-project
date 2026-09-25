@@ -101,9 +101,15 @@ export default async function AdminGradingPage({
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole(BASE, 'admin')
 
-  const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
+  // 封存的屆別也可選（產品模組 02 §11.3「封存後…管理員可查與匯出」）：只能看與匯出，寫入的控制都停用。
+  const cohorts = await getCohortStatusQuery().list()
   const params = await searchParams
-  const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
+  const cohort =
+    cohorts.find((c) => c.id === params.cohort) ??
+    cohorts.find((c) => c.isDefaultWorking) ??
+    cohorts.find((c) => c.status !== 'archived') ??
+    cohorts[0] ??
+    null
 
   const shell = (children: React.ReactNode, title?: { description: React.ReactNode; actions?: React.ReactNode }) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
@@ -141,6 +147,9 @@ export default async function AdminGradingPage({
   // 成績表的篩選與匯出同一份（屆別＋階段＋組別＋完成狀態；伺服器重新算）。
   const filter = normalizeGradeExportFilter({ stage: params.fstage, group: params.fgroup, status: params.fstatus })
   const { current, versions, groups, requirements, assignments, teachers } = board.receipt
+  // 伺服器端的屆別狀態為準（寫入的用例本身也會以 COHORT_ARCHIVED 拒絕）。
+  const archived = board.receipt.cohort.archived
+  const archivedReason = archived ? `${board.receipt.cohort.code} 已封存，只能查看與匯出；要修改請先解封。` : null
   const latest = versions[0] ?? null
   const locked = current?.status === 'locked'
   const stages = current?.stages ?? []
@@ -185,7 +194,16 @@ export default async function AdminGradingPage({
 
   return shell(
     <>
-      <CohortPills cohorts={cohorts} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
+      <CohortPills
+        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${c.code}・已封存` : c.code }))}
+        currentId={cohort.id}
+        hrefFor={(id) => `${BASE}?cohort=${id}`}
+      />
+      {archivedReason ? (
+        <p role="status" data-testid="cohort-archived" className="rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+          {archivedReason}
+        </p>
+      ) : null}
 
       {current && params.applied === String(current.versionNo) ? (
         <p role="status" className="rounded-lg bg-brand-subtle px-4 py-2.5 text-sm text-brand-on-subtle">
@@ -294,7 +312,7 @@ export default async function AdminGradingPage({
                     </td>
                     <td className="tabular px-4 py-2.5 text-muted-foreground">{formatTaipeiMinute(v.createdAt)}</td>
                     <td className="px-5 py-2.5 text-right">
-                      {v.status === 'draft' && locked ? (
+                      {v.status === 'draft' && archived ? null : v.status === 'draft' && locked ? (
                         <Link href={`${BASE}/apply/${v.id}`} className={LINK_BUTTON}>
                           看影響並套用 v{v.versionNo}
                         </Link>
@@ -378,16 +396,18 @@ export default async function AdminGradingPage({
                           <p className="text-xs text-muted-foreground">指導：{g.advisorName ?? '尚未指派'}</p>
                         </td>
                         <td className="px-4 py-3">
-                          <RequirementForm
-                            groupId={g.id}
-                            groupCode={g.code}
-                            stageKey={stage.key}
-                            stageName={stage.name}
-                            count={requirement?.requiredCount ?? null}
-                            revision={requirement?.revision ?? 0}
-                            requestId={randomUUID()}
-                            max={MAX_REQUIRED_COUNT}
-                          />
+                          {archived ? null : (
+                            <RequirementForm
+                              groupId={g.id}
+                              groupCode={g.code}
+                              stageKey={stage.key}
+                              stageName={stage.name}
+                              count={requirement?.requiredCount ?? null}
+                              revision={requirement?.revision ?? 0}
+                              requestId={randomUUID()}
+                              max={MAX_REQUIRED_COUNT}
+                            />
+                          )}
                           <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                             {requirement ? `已正式送出 ${counted}／${requirement.requiredCount} 份` : '未設定份數'}
                             {requirement && mine.length > requirement.requiredCount ? `・指派 ${mine.length} 位，多於要求` : ''}
@@ -397,7 +417,7 @@ export default async function AdminGradingPage({
                           {mine.length > 0 ? (
                             <ul className="space-y-1">
                               {mine.map((a) => (
-                                <AssignmentLine key={a.id} a={a} editable={!board.receipt.cohort.archived} />
+                                <AssignmentLine key={a.id} a={a} editable={!archived} />
                               ))}
                             </ul>
                           ) : (
@@ -410,14 +430,18 @@ export default async function AdminGradingPage({
                           ) : null}
                         </td>
                         <td className="px-5 py-3">
-                          <AssignEvaluatorForm
-                            groupId={g.id}
-                            groupCode={g.code}
-                            stageKey={stage.key}
-                            stageName={stage.name}
-                            teachers={teachers.filter((t) => !assigned.has(t.userId))}
-                            requestId={randomUUID()}
-                          />
+                          {archived ? (
+                            <span className="text-xs text-muted-foreground">已封存，不能指派</span>
+                          ) : (
+                            <AssignEvaluatorForm
+                              groupId={g.id}
+                              groupCode={g.code}
+                              stageKey={stage.key}
+                              stageName={stage.name}
+                              teachers={teachers.filter((t) => !assigned.has(t.userId))}
+                              requestId={randomUUID()}
+                            />
+                          )}
                         </td>
                       </tr>
                     )
@@ -440,7 +464,7 @@ export default async function AdminGradingPage({
           base={current?.stages ?? latest?.stages ?? []}
           baseLabel={current ? `v${current.versionNo}` : latest ? `v${latest.versionNo}` : null}
           requestId={randomUUID()}
-          disabledReason={null}
+          disabledReason={archivedReason}
         />
       ),
     },

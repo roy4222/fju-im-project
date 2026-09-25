@@ -987,6 +987,44 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
   })
 })
 
+describe('封存的屆別（產品模組 02 §11.3「封存後各角色都不能直接修改；管理員可查與匯出」）', () => {
+  it('成績表、評分管理頁、計算明細、匯出照常；設份數、指派、更正、套用都 COHORT_ARCHIVED', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    await submit(s.t2, s.a2, '90')
+    const before = await groupRow(s.cohortId, s.groupId)
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [s.cohortId])
+
+    const b = await book.gradebook(adminActor(), s.cohortId)
+    expect(b).toMatchObject({ ok: true, receipt: { cohort: { archived: true } } })
+    expect(b.ok && b.receipt.groups[0]!.result.finalDisplay).toBe('85.29')
+    expect(await query.adminBoard(adminActor(), s.cohortId)).toMatchObject({ ok: true, receipt: { cohort: { archived: true } } })
+    expect(await book.groupDetail(adminActor(), s.groupId)).toMatchObject({ ok: true, receipt: { group: { archived: true } } })
+    const csv = await exporter.exportGrades(adminActor(), { cohortId: s.cohortId, format: 'csv', filter: DEFAULT_GRADE_EXPORT_FILTER })
+    expect(csv).toMatchObject({ ok: true, receipt: { groupCount: 1, rowCount: 2 } })
+    expect(csv.ok && String(csv.receipt.body)).toContain('"85.29","85.287"')
+
+    const t4 = await newUser('丁老師', 'teacher')
+    expect(
+      await command.setRequirement(adminActor(), { groupId: s.groupId, stageKey: 'mid', requiredCount: 3, revision: 1 }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await command.assign(adminActor(), { groupId: s.groupId, stageKey: 'mid', teacherUserId: t4 }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+    expect(
+      await results.override(adminActor(), { groupId: s.groupId, newValue: '90', reason: '補考', basisHash: before.basisHash }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    const v2 = await owner.sql(
+      `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
+       select gen_random_uuid(), scheme_id, 2, stages, 'draft', $2 from grading_scheme_versions where id = $1 returning id`,
+      [s.versionId, adminId],
+    )
+    expect(await book.previewSchemeVersion(adminActor(), String(v2.rows[0]!.id))).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+  })
+})
+
 describe('匯出（GRD-10）', () => {
   it('CSV：每位組員一列、學號前導零、兩位小數與畫面一致、更正註記、公式字首加 \'；XLSX：學號是文字儲存格', async () => {
     const s = await standard()

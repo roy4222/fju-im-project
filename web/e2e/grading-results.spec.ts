@@ -429,3 +429,17 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
     expect(await response.text()).not.toContain('88.32')
   }
 })
+
+test('封存的屆別：成績頁仍選得到，只能看與匯出——建立方案、設份數、指派、改派都停用', async ({ page }) => {
+  await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+  await openGrading(page)
+  await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 已封存，只能查看與匯出`)
+  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
+  await expect(page.getByRole('button', { name: '建立新方案版本' })).toBeDisabled()
+  const assignRow = page.getByTestId('grading-row-G01')
+  await expect(assignRow).toContainText('已封存，不能指派')
+  await expect(assignRow.getByRole('button')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /移除或改派/ })).toHaveCount(0)
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
+  expect(fs.readFileSync((await csv.path())!, 'utf8')).toContain('"G01"')
+})
