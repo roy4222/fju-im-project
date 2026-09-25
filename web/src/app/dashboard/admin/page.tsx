@@ -13,13 +13,13 @@ import { getGroupQuery } from '@/composition/groups'
 import { collectsResponses, getItemQuery } from '@/composition/items'
 import { getOpsStatusQuery } from '@/composition/ops'
 import { getSignoffQuery } from '@/composition/signoff'
-import { completionOf, getRosterQuery, receiverStatus } from '@/composition/submissions'
+import { completionOf, getRosterQuery, overdueReceiverIds } from '@/composition/submissions'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
 
 const BASE = '/dashboard/admin'
-/** 首頁的完成率最多列幾份收件（每份要讀一次名單）；更多的到「專題事務」看。 */
+/** 首頁的完成率列表最多列幾份收件；更多的到「專題事務」看。逾期磚不受這個限制（掃全部發布中的收件）。 */
 const INTAKE_LIMIT = 6
 
 /**
@@ -50,24 +50,21 @@ export default async function AdminHomePage() {
   const grading = gradingResult?.ok ? gradingResult.receipt : null
   const signoff = signoffResult?.ok ? signoffResult.receipt : null
 
-  // 各收件項目完成率：發布中的收件，跟名單頁同一份名單、同一個 `completionOf`（分母不含免填與移出）。
-  const intakeItems = items.filter((i) => collectsResponses(i.placement) && i.status === 'published').slice(0, INTAKE_LIMIT)
+  // 發布中的收件全部讀名單：逾期磚要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
+  // 跟名單頁同一份名單、同一個 `completionOf`（分母不含免填與移出）。
+  const publishedIntake = items.filter((i) => collectsResponses(i.placement) && i.status === 'published')
   const rosterQuery = getRosterQuery()
-  const rosters = (await Promise.all(intakeItems.map((i) => rosterQuery.roster(actor, i.id)))).filter((r) => r !== null)
-  const intake: { id: string; title: string; unit: string; completion: Completion }[] = rosters.map((r) => ({
+  const rosters = (await Promise.all(publishedIntake.map((i) => rosterQuery.roster(actor, i.id)))).filter((r) => r !== null)
+  const allIntake: { id: string; title: string; unit: string; completion: Completion }[] = rosters.map((r) => ({
     id: r.item.itemId,
     title: r.item.title,
     unit: r.item.receiverUnit === 'individual' ? '人' : '組',
     completion: completionOf(r.item, r.entries, ctx.businessNow),
   }))
-  // 逾期：任何一份收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
-  const overdueReceivers = new Set<string>()
-  for (const r of rosters) {
-    for (const e of r.entries) {
-      if (e.eligibleTo === null && !e.exempt && receiverStatus(r.item, e, ctx.businessNow).overdue) overdueReceivers.add(e.receiverId)
-    }
-  }
-  const worstOverdue = [...intake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
+  const intake = allIntake.slice(0, INTAKE_LIMIT)
+  // 逾期：全部發布中收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
+  const overdueReceivers = overdueReceiverIds(rosters, ctx.businessNow)
+  const worstOverdue = [...allIntake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
 
   // 本屆分組
   const groups = overview?.groups ?? []
@@ -78,9 +75,9 @@ export default async function AdminHomePage() {
   const students = groups.reduce((a, g) => a + g.members.length, 0)
 
   // 評分：以老師為單位（被指派幾份、正式送出幾份），停用的老師也列出來。
-  const byTeacher = new Map<string, { name: string; assigned: number; counted: number; inactive: boolean }>()
+  const byTeacher = new Map<string, { userId: string; name: string; assigned: number; counted: number; inactive: boolean }>()
   for (const a of grading?.assignments ?? []) {
-    const row = byTeacher.get(a.teacherUserId) ?? { name: a.teacherName, assigned: 0, counted: 0, inactive: a.teacherInactive }
+    const row = byTeacher.get(a.teacherUserId) ?? { userId: a.teacherUserId, name: a.teacherName, assigned: 0, counted: 0, inactive: a.teacherInactive }
     row.assigned += 1
     if (a.state === 'counted') row.counted += 1
     byTeacher.set(a.teacherUserId, row)
@@ -130,7 +127,7 @@ export default async function AdminHomePage() {
             icon={<IconAlertTriangle />}
             tone={overdueReceivers.size > 0 ? 'danger' : 'default'}
             value={overdueReceivers.size}
-            of={`${intake.length} 份收件`}
+            of={`${allIntake.length} 份收件`}
             hint={worstOverdue && worstOverdue.completion.overdue > 0 ? worstOverdue.title : '目前沒有逾期的收件'}
             href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}
           />
@@ -266,7 +263,7 @@ export default async function AdminHomePage() {
                     </thead>
                     <tbody>
                       {teachers.map((t) => (
-                        <tr key={t.name} className="border-t border-border/70">
+                        <tr key={t.userId} className="border-t border-border/70">
                           <td className="px-5 py-2.5 font-semibold">
                             {t.name}
                             {t.inactive ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">（已停用）</span> : null}
