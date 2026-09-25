@@ -6,6 +6,7 @@ import { currentActor, homeFor } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { checkStatus } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 
 /**
@@ -28,11 +29,12 @@ const SIGN_OUT_FORM_ID = 'site-sign-out'
 
 /**
  * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
- * 已開通、進得了自己後台的人。待審核（還沒有角色）的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
+ * 已開通、進得了自己後台的人：過得了 business 狀態閘門（臨時密碼還沒改的不算），而且有角色。
+ * 待審核、必須先改密碼的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
  * 導覽與首頁共用這一個判斷。
  */
 export function isMember(actor: ResolvedActor): boolean {
-  return actor.kind === 'authenticated' && homeFor(actor).startsWith('/dashboard/')
+  return actor.kind === 'authenticated' && checkStatus(actor, 'business') === null && homeFor(actor).startsWith('/dashboard/')
 }
 
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */

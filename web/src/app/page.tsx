@@ -211,7 +211,7 @@ function PanelTitle({
 type MyWork = {
   /** 學生：還在開放、還沒正式送出的收件數（跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
   readonly pending: number | null
-  /** 還沒到的收件截止，近的在前（學生首頁行事曆同一份 `myDeadlines`；老師、系辦是空的）。 */
+  /** 還沒到的收件截止，近的在前（學生首頁行事曆同一份 `myDeadlines`；只查收件名單，老師、系辦的截止不在裡面）。 */
   readonly deadlines: readonly MyDeadline[]
 }
 
@@ -305,7 +305,18 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                 </li>
               ))}
             </ul>
+          ) : work.pending === null ? (
+            // 老師、系辦的截止（要審、要評、要簽）還沒有查詢撐著，不能說「沒有」，指回後台。
+            <p className="flex flex-1 flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="home-deadlines-elsewhere">
+              <IconClock className="size-4 shrink-0" aria-hidden />
+              要審、要評、要簽的截止事項在
+              <Link href={home} className="font-semibold text-primary hover:underline">
+                後台首頁
+              </Link>
+              。
+            </p>
           ) : (
+            // 只有學生（有 myDeadlines 這份真的查詢撐著）才說「沒有」。
             <p className="flex flex-1 items-center gap-2 text-sm text-muted-foreground">
               <IconClock className="size-4 shrink-0" aria-hidden />
               近期沒有要截止的項目。
@@ -341,10 +352,13 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
         }
       : home
         ? {
-            // 待審核：登入了但還沒開通，只給申請進度。
+            // 登入了但還不能用業務功能：待審核只給申請進度；臨時密碼還沒改的只給改密碼。
             icon: <IconKey className="size-5.5" aria-hidden />,
             title: '我的入口',
-            links: [{ label: '申請進度', href: home }],
+            links:
+              home === '/register/pending'
+                ? [{ label: '申請進度', href: home }]
+                : [{ label: '更改密碼', href: '/account/change-password' }],
           }
         : {
             icon: <IconKey className="size-5.5" aria-hidden />,
