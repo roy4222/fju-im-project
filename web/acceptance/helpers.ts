@@ -80,11 +80,11 @@ export async function signOut(page: Page) {
   await page.waitForURL((url) => url.pathname === '/login' || url.pathname === '/', { timeout: 20_000 })
 }
 
-/** 未登入開後台會被帶去登入頁，看不到「系辦首頁」。 */
+/** 未登入開後台會被帶去登入頁，看不到系辦首頁（首頁 h1 是「歡迎回來，<姓名>」）。 */
 export async function expectDashboardBlocked(page: Page) {
   await page.goto('/dashboard/admin')
   await expect(page).toHaveURL(/\/login(\?|$)/)
-  await expect(page.getByRole('heading', { name: '系辦首頁' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '現在階段' })).toHaveCount(0)
 }
 
 /** 開一個全新的瀏覽器工作階段（不帶任何 cookie）。 */

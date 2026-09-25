@@ -63,25 +63,57 @@ export function LinkButton({
 
 // ── 磚（數字卡） ────────────────────────────────────────────────────────────
 
+const TILE_ICON_TONE = {
+  default: 'bg-muted text-foreground',
+  brand: 'bg-primary text-primary-foreground',
+  danger: 'bg-destructive-subtle text-destructive-on-subtle',
+} as const
+
 export function Tile({
   label,
   value,
+  of,
   hint,
   href,
+  icon,
+  tone = 'default',
   active = false,
 }: {
   label: string
   value: ReactNode
+  /** 數字旁的母數（原型管理員首頁「4／14 筆」）。 */
+  of?: string
   hint?: string
   /** 有給就整塊是連結（例如點「已停用」就篩出已停用的帳號）。 */
   href?: string
+  /** 右上角的圖示方塊（原型 StatTile）。 */
+  icon?: ReactNode
+  /** 只有「要你動手」的數字才用橘（brand）或紅（danger）；其他一律黑字灰底。 */
+  tone?: keyof typeof TILE_ICON_TONE
   active?: boolean
 }) {
-  // 原型 StatTile：白卡、小字標籤、黑色大數字、底下一行說明。
+  // 原型 StatTile：白卡、小字標籤（右上圖示方塊）、黑色大數字、底下一行說明。
   const body = (
     <>
-      <div className="text-[13px] font-medium text-muted-foreground">{label}</div>
-      <div className="mt-3 text-[28px] leading-none font-extrabold tracking-tight text-foreground tabular-nums">{value}</div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+        {icon ? (
+          <span aria-hidden className={cn('inline-flex size-8 shrink-0 items-center justify-center rounded-[9px] [&_svg]:size-4', TILE_ICON_TONE[tone])}>
+            {icon}
+          </span>
+        ) : null}
+      </div>
+      <div className={cn('flex items-baseline gap-1.5', icon ? 'mt-2.5' : 'mt-3')}>
+        <span
+          className={cn(
+            'text-[28px] leading-none font-extrabold tracking-tight tabular-nums',
+            tone === 'brand' ? 'text-primary' : tone === 'danger' ? 'text-destructive' : 'text-foreground',
+          )}
+        >
+          {value}
+        </span>
+        {of ? <span className="text-[13px] font-medium text-muted-foreground tabular-nums">／{of}</span> : null}
+      </div>
       {hint ? <div className="mt-3 text-xs text-muted-foreground">{hint}</div> : null}
     </>
   )
