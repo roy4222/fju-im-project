@@ -38,7 +38,7 @@ process.env.ACCEPTANCE_RUN_ID ??= new Date().toISOString().replace(/[-:]/g, '').
 
 export default defineConfig({
   testDir: '.',
-  testMatch: 'station-*.spec.ts',
+  testMatch: ['station-*.spec.ts', 'acc149-*.spec.ts'],
   // 真實流程一步接一步，而且註冊有限速（每 IP 每小時 30 次）：不平行、不重試。
   fullyParallel: false,
   workers: 1,
