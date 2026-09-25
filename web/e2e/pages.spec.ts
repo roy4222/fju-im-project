@@ -148,6 +148,17 @@ test.describe('待審核的人（有 session 但還沒核准）', () => {
     // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁請他補送（票 7）。
     await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
   })
+
+  test('公開首頁跟訪客一樣：沒有「我的工作」、歷屆專題，也沒有產學合作與檔案下載的入口', async ({ page }) => {
+    await signInAs(page, null)
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '歷屆專題一覽' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '檔案下載' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '產學合作' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '申請進度' }).first()).toHaveAttribute('href', '/register/pending')
+  })
 })
 
 test.describe('手機寬度', () => {

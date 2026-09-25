@@ -1,11 +1,16 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy } from '@tabler/icons-react'
+import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy, IconUpload } from '@tabler/icons-react'
+import type { MyDeadline } from '@/application/items'
+import { actorHasRole } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { FirstCharAccent, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
-import { SiteShell } from '@/app/_ui/site-shell'
+import { isMember, SiteShell } from '@/app/_ui/site-shell'
+import { getBusinessClock } from '@/composition/cohorts'
 import { getPublicItemQuery } from '@/composition/items'
+import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
+import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 /**
  * 公開首頁（票 16；產品模組 09 §9.2：重要消息優先、每區幾筆再進完整列表）。
@@ -13,16 +18,19 @@ import { cn } from '@/shared/cn'
  * 版型、區塊順序照原型首頁（2026-09-07 方向 A；2026-09-25 對齊）：
  * hero → [登入後：我的工作＋近期截止] → 最新公告 → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
  *
- * 目前只有「最新公告」有資料；其他區塊版型先照原型擺好、內容是空狀態（Roy 2026-09-25），
+ * 「最新公告」與學生的「我的工作／近期截止」有資料；其他區塊版型先照原型擺好、內容是空狀態（Roy 2026-09-25），
  * 那些資料做出來（開發計畫第 6 節）再接上。還沒有的頁面（優秀專題、榮譽榜、競賽、歷屆專題）不放「查看更多」。
  * 照片用原型的示意照（`public/placeholder/`）。
  */
 export default async function HomePage() {
   const actor = await currentActor()
   const signedIn = actor.kind === 'authenticated'
+  // 登入後的區塊（我的工作、歷屆專題、我的入口）跟導覽用同一個判斷：待審核的人跟訪客一樣。
+  const member = isMember(actor)
   const home = signedIn ? homeFor(actor) : null
   const latest = await getPublicItemQuery().list(actor, 'news', { limit: 6 })
   const [cards, rest] = [latest.slice(0, 2), latest.slice(2)]
+  const work = member ? await myWork(actor) : null
 
   return (
     <SiteShell bare>
@@ -59,7 +67,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {home ? <WorkStrip home={home} /> : null}
+      {member && home && work ? <WorkStrip home={home} work={work} /> : null}
 
       {/* 最新公告：灰藍標題板＋左兩張照片卡＋右側列表（系網招生訊息版型）。 */}
       <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-news">
@@ -96,7 +104,7 @@ export default async function HomePage() {
         )}
       </section>
 
-      {signedIn ? (
+      {member ? (
         <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
             <div className="flex flex-col items-center gap-2 text-center">
@@ -114,7 +122,7 @@ export default async function HomePage() {
       ) : null}
 
       {/* 優秀專題（系網得獎焦點）。 */}
-      <section className={cn('py-20', signedIn ? '' : 'mt-24 bg-muted/50')} aria-labelledby="home-featured">
+      <section className={cn('py-20', member ? '' : 'mt-24 bg-muted/50')} aria-labelledby="home-featured">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
           <SectionTitle id="home-featured">優秀專題</SectionTitle>
           <ListEmpty
@@ -154,7 +162,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <QuickLinks home={home} />
+      <QuickLinks home={home} member={member} />
     </SiteShell>
   )
 }
@@ -200,8 +208,33 @@ function PanelTitle({
   )
 }
 
-/** 登入後的「我的工作」列＋近期截止（原型 `WorkStrip`）。工作清單還沒接上，先給後台入口。 */
-function WorkStrip({ home }: { home: string }) {
+type MyWork = {
+  /** 學生：還在開放、還沒正式送出的收件數（跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
+  readonly pending: number | null
+  /** 還沒到的收件截止，近的在前（學生首頁行事曆同一份 `myDeadlines`；老師、系辦是空的）。 */
+  readonly deadlines: readonly MyDeadline[]
+}
+
+/** 首頁「我的工作」要的資料：都是學生首頁已經在用的查詢，這裡只取前幾筆。 */
+async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<MyWork> {
+  if (actor.kind !== 'authenticated') return { pending: null, deadlines: [] }
+  const student = actorHasRole(actor, 'student')
+  const [deadlines, items, now] = await Promise.all([
+    getPublicItemQuery().myDeadlines(actor),
+    student ? getSubmissionQuery().myItems(actor.userId) : Promise.resolve([]),
+    getBusinessClock().now(),
+  ])
+  return {
+    pending: student ? pendingCount(items, now) : null,
+    deadlines: deadlines
+      .filter((d) => d.dueAt.getTime() >= now.getTime())
+      .sort((x, y) => x.dueAt.getTime() - y.dueAt.getTime())
+      .slice(0, 3),
+  }
+}
+
+/** 登入後的「我的工作」列＋近期截止（原型 `WorkStrip`）。 */
+function WorkStrip({ home, work }: { home: string; work: MyWork }) {
   return (
     <section className="border-b border-border bg-muted/50" aria-label="我的工作">
       <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -212,19 +245,72 @@ function WorkStrip({ home }: { home: string }) {
               進入我的首頁 <IconArrowRight className="size-4" aria-hidden />
             </Link>
           </div>
-          <ListEmpty
-            className="min-h-40 py-8"
-            icon={<IconLayoutGrid className="size-8" aria-hidden />}
-            title="待辦會列在這裡"
-            hint="要填的表單、要交的文件與要簽的名單，先到我的首頁查看。"
-          />
+          {work.pending !== null ? (
+            <ul className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+              <li>
+                <Link
+                  href="/dashboard/student/affairs?tab=open"
+                  className="card-lift flex h-full flex-col gap-2.5 rounded-[10px] border border-border bg-card p-5 hover:border-primary"
+                >
+                  <IconUpload className="size-5 text-primary" aria-hidden />
+                  <span className="text-[17px] font-bold text-foreground" data-testid="home-work-pending">
+                    待繳交 {work.pending} 件
+                  </span>
+                  <span className="text-[13px] text-muted-foreground">還在開放、還沒正式送出的收件</span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={home}
+                  className="card-lift flex h-full flex-col gap-2.5 rounded-[10px] border border-border bg-card p-5 hover:border-primary"
+                >
+                  <IconLayoutGrid className="size-5 text-primary" aria-hidden />
+                  <span className="text-[17px] font-bold text-foreground">我的專題</span>
+                  <span className="text-[13px] text-muted-foreground">組別、行事曆與階段</span>
+                </Link>
+              </li>
+            </ul>
+          ) : (
+            <ListEmpty
+              className="min-h-40 py-8"
+              icon={<IconLayoutGrid className="size-8" aria-hidden />}
+              title="待辦在後台"
+              hint="要審的申請、要評的分數與要簽的名單，都在後台首頁。"
+            />
+          )}
         </div>
         <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card px-5.5 py-4.5">
-          <h2 className="text-lg font-bold text-foreground">近期截止</h2>
-          <p className="flex flex-1 items-center gap-2 text-sm text-muted-foreground">
-            <IconClock className="size-4 shrink-0" aria-hidden />
-            近期沒有要截止的項目。
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-foreground">近期截止</h2>
+            {work.pending !== null ? (
+              <Link href="/dashboard/student/affairs" className="text-[13px] font-semibold text-primary hover:underline">
+                全部 →
+              </Link>
+            ) : null}
+          </div>
+          {work.deadlines.length > 0 ? (
+            <ul className="flex flex-col gap-3.5" data-testid="home-deadlines">
+              {work.deadlines.map((d) => (
+                <li key={d.itemId} className="fju-list-item flex flex-col gap-1 py-1.5">
+                  <Link href="/dashboard/student/affairs" className="flex items-center gap-3 hover:text-primary">
+                    <span className="text-[22px] font-extrabold text-ink tabular-nums">
+                      {formatTaipeiDate(taipeiDateOf(d.dueAt)).slice(5)}
+                    </span>
+                    <span className="min-w-0 text-base leading-snug font-bold break-words">{d.title}</span>
+                  </Link>
+                  <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground tabular-nums">
+                    <IconClock className="size-3.5" aria-hidden />
+                    截止 {formatTaipeiDate(taipeiDateOf(d.dueAt))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="flex flex-1 items-center gap-2 text-sm text-muted-foreground">
+              <IconClock className="size-4 shrink-0" aria-hidden />
+              近期沒有要截止的項目。
+            </p>
+          )}
         </div>
       </div>
     </section>
@@ -232,7 +318,7 @@ function WorkStrip({ home }: { home: string }) {
 }
 
 /** 頁尾前的三欄快速入口（原型 `home-blocks` 的 QuickLinks；只連已經有的頁）。 */
-function QuickLinks({ home }: { home: string | null }) {
+function QuickLinks({ home, member }: { home: string | null; member: boolean }) {
   const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[] }[] = [
     {
       icon: <IconBook2 className="size-5.5" aria-hidden />,
@@ -242,7 +328,7 @@ function QuickLinks({ home }: { home: string | null }) {
         { label: '最新公告', href: '/news' },
       ],
     },
-    home
+    member && home
       ? {
           icon: <IconKey className="size-5.5" aria-hidden />,
           title: '我的入口',
@@ -253,14 +339,21 @@ function QuickLinks({ home }: { home: string | null }) {
             { label: '產學合作', href: '/industry' },
           ],
         }
-      : {
-          icon: <IconKey className="size-5.5" aria-hidden />,
-          title: '使用平台',
-          links: [
-            { label: '登入', href: '/login' },
-            { label: '註冊', href: '/register' },
-          ],
-        },
+      : home
+        ? {
+            // 待審核：登入了但還沒開通，只給申請進度。
+            icon: <IconKey className="size-5.5" aria-hidden />,
+            title: '我的入口',
+            links: [{ label: '申請進度', href: home }],
+          }
+        : {
+            icon: <IconKey className="size-5.5" aria-hidden />,
+            title: '使用平台',
+            links: [
+              { label: '登入', href: '/login' },
+              { label: '註冊', href: '/register' },
+            ],
+          },
     {
       icon: <IconMail className="size-5.5" aria-hidden />,
       title: '系辦聯絡',

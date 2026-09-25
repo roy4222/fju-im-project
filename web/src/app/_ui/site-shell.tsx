@@ -26,6 +26,15 @@ const MEMBER_NAV: readonly NavItem[] = [
 
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
+/**
+ * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
+ * 已開通、進得了自己後台的人。待審核（還沒有角色）的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
+ * 導覽與首頁共用這一個判斷。
+ */
+export function isMember(actor: ResolvedActor): boolean {
+  return actor.kind === 'authenticated' && homeFor(actor).startsWith('/dashboard/')
+}
+
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
 function viewerOf(actor: ResolvedActor): { roleLabel: string; workbench: { href: string; label: string } } | null {
   if (actor.kind !== 'authenticated') return null
@@ -46,8 +55,7 @@ function viewerOf(actor: ResolvedActor): { roleLabel: string; workbench: { href:
 export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
   const actor = await currentActor()
   const viewer = viewerOf(actor)
-  // 已開通、進得了後台的人才看到登入後的項目；待審核的人跟訪客一樣（產學、檔案他還打不開）。
-  const nav = viewer?.workbench.href.startsWith('/dashboard/') ? MEMBER_NAV : GUEST_NAV
+  const nav = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <SiteHeader nav={nav} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
