@@ -337,8 +337,9 @@ test('自動檢查傳輸失敗：說連線中斷，不會一直停在「檢查�
     route.request().method() === 'POST' && route.request().headers()['next-action'] ? route.abort('failed') : route.continue(),
   )
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await expect(page.getByText('自動檢查連線中斷；請按「檢查與預覽」再試一次。')).toBeVisible()
-  await expect(page.getByText('檢查中…', { exact: true })).toHaveCount(0)
+  const preview = page.getByRole('region', { name: '預覽確認' })
+  await expect(preview.getByRole('alert')).toHaveText('自動檢查連線中斷；請按「檢查與預覽」再試一次。')
+  await expect(preview.getByText('檢查中…', { exact: true })).toHaveCount(0)
 })
 
 test('截止早於開放：存草稿就被擋下，給明確的錯誤', async ({ page }) => {
