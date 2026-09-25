@@ -16,7 +16,7 @@ import {
   PLACEMENT_LABEL,
   RECEIVER_UNIT_LABEL,
 } from '@/composition/items'
-import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf } from '@/shared/time'
+import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '專題事務｜資管系專題平台' }
 
@@ -95,7 +95,8 @@ export default async function AffairsPage({
       // 原型這一欄只寫日期；截止多寫到分鐘（23:59 截止跟 00:00 截止差一天）。
       date: r.dueAt ? formatTaipeiMinute(r.dueAt) : r.actualOpenedAt ? formatTaipeiDate(taipeiDateOf(r.actualOpenedAt)) : '—',
       isDue: r.dueAt !== null,
-      overdue: r.dueAt !== null && r.dueAt.getTime() < businessNow.getTime(),
+      // 截止含當分鐘（Vault 04 §4）：跟收件判定用同一個 helper。
+      overdue: r.dueAt !== null && isDeadlinePassed(businessNow, r.dueAt),
       // 收件名單頁（票 18）：數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
       roster: collects
         ? r.status === 'draft'

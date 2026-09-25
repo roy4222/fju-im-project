@@ -14,7 +14,7 @@ import type { RosterEntry } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery } from '@/composition/submissions'
-import { formatTaipeiMinute } from '@/shared/time'
+import { formatTaipeiMinute, isDeadlinePassed } from '@/shared/time'
 
 export const metadata = { title: '收件名單｜資管系專題平台' }
 
@@ -60,7 +60,8 @@ export default async function RosterPage({
   const individual = item.receiverUnit === 'individual'
   const base = `/dashboard/admin/affairs/${item.itemId}`
 
-  const overdue = item.dueAt !== null && item.dueAt.getTime() < businessNow.getTime()
+  // 截止含當分鐘（Vault 04 §4）：跟收件判定用同一個 helper。
+  const overdue = item.dueAt !== null && isDeadlinePassed(businessNow, item.dueAt)
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
       <div className="flex flex-col gap-5">
