@@ -78,6 +78,13 @@
       "when": 1790284827325,
       "tag": "0010_s11_signoff_showcase",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790319658212,
+      "tag": "0011_t39_showcase_stage_fields",
+      "breakpoints": true
     }
   ]
 }

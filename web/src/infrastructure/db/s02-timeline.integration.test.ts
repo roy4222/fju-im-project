@@ -141,6 +141,8 @@ describe('逐欄對照模組 02、08 附錄 A', () => {
     cohort_stages: [
       'id', 'cohort_id', 'seq', 'name', 'start_date', 'deadline_version', 'revision',
       'created_at', 'created_by_kind', 'created_by_user_id', 'updated_at', 'updated_by_user_id',
+      // 票 39（0011）：一句話說明（原型 `Stage.summary`）。
+      'description',
     ],
     project_events: [
       'id', 'cohort_id', 'title', 'description', 'starts_at', 'ends_at', 'all_day', 'audience_kind', 'status',

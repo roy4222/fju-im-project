@@ -1156,10 +1156,23 @@ describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-
     expect(await seen(teacherActor())).toEqual(['公開', '登入', '老師'].sort())
     expect(await seen(adminActor())).toEqual(['公開', '本屆', '登入', '組別', '老師'].sort())
 
-    // 前台卡片只帶公開欄位。
+    // 前台卡片只帶公開欄位（票 39 加競賽的兩個日期與榮譽的得獎日期）。
     const [card] = await publicQuery.list(ANONYMOUS, 'news', { q: `${tag} 公開` })
     expect(Object.keys(card!).sort()).toEqual(
-      ['attachments', 'audienceKind', 'category', 'cover', 'id', 'placement', 'publishedAt', 'summary', 'title'].sort(),
+      [
+        'attachments',
+        'audienceKind',
+        'awardedOn',
+        'category',
+        'cover',
+        'eventDate',
+        'id',
+        'placement',
+        'publishedAt',
+        'registrationDeadline',
+        'summary',
+        'title',
+      ].sort(),
     )
     expect(card!.id).toBe(pub.itemId)
     // 別的位置不混進來。

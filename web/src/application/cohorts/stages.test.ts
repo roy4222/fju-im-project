@@ -3,6 +3,7 @@ import {
   describeStagePosition,
   normalizeScheduleInput,
   planStageVersions,
+  STAGE_DESCRIPTION_MAX_LENGTH,
   stagePositionAt,
   timelineView,
   type CohortSchedule,
@@ -21,10 +22,10 @@ const input = (dates: string[], yearEndDate = '2027-06-30'): ScheduleInput => ({
 
 const SCHEDULE: CohortSchedule = {
   stages: [
-    { seq: 1, name: '成組期', startDate: '2026-09-15', deadlineVersion: 1 },
-    { seq: 2, name: '期中', startDate: '2026-11-01', deadlineVersion: 1 },
-    { seq: 3, name: '期末', startDate: '2027-01-10', deadlineVersion: 1 },
-    { seq: 4, name: '成果', startDate: '2027-03-01', deadlineVersion: 1 },
+    { seq: 1, name: '成組期', description: '', startDate: '2026-09-15', deadlineVersion: 1 },
+    { seq: 2, name: '期中', description: '', startDate: '2026-11-01', deadlineVersion: 1 },
+    { seq: 3, name: '期末', description: '', startDate: '2027-01-10', deadlineVersion: 1 },
+    { seq: 4, name: '成果', description: '', startDate: '2027-03-01', deadlineVersion: 1 },
   ],
   yearEndDate: '2027-06-30',
 }
@@ -161,6 +162,37 @@ describe('planStageVersions：日期範圍變了才換期限版本', () => {
     expect(plan.every((p) => !p.rangeChanged)).toBe(true)
     expect(plan.map((p) => p.deadlineVersion)).toEqual([1, 1, 1, 1])
   })
+
+  it('只改一句話說明（票 39）：說明帶進計畫、版本不變', () => {
+    const described = next(['2026-09-15', '2026-11-01', '2027-01-10', '2027-03-01'])
+    const plan = planStageVersions(SCHEDULE, {
+      ...described,
+      stages: described.stages.map((s, i) => ({ ...s, description: i === 0 ? '五人一組報名。' : '' })),
+    })
+    expect(plan.map((p) => p.description)).toEqual(['五人一組報名。', '', '', ''])
+    expect(plan.every((p) => !p.rangeChanged)).toBe(true)
+    expect(plan.map((p) => p.deadlineVersion)).toEqual([1, 1, 1, 1])
+  })
+})
+
+describe('normalizeScheduleInput：一句話說明（票 39）', () => {
+  const dates = ['2026-09-15', '2026-11-01', '2027-01-10', '2027-03-01']
+  const withDescription = (description: string | undefined): ScheduleInput => ({
+    stages: dates.map((startDate, i) => ({ name: `第${i + 1}段`, startDate, ...(i === 0 ? { description } : {}) })),
+    yearEndDate: '2027-06-30',
+  })
+
+  it('選填：沒給是空字串；換行與連續空白收成一個空格', () => {
+    const none = normalizeScheduleInput(withDescription(undefined))
+    expect(none.ok && none.value.stages.map((s) => s.description)).toEqual(['', '', '', ''])
+    const messy = normalizeScheduleInput(withDescription('  五人一組\n報名，   各自確認。 '))
+    expect(messy.ok && messy.value.stages[0]!.description).toBe('五人一組 報名， 各自確認。')
+  })
+
+  it(`超過 ${STAGE_DESCRIPTION_MAX_LENGTH} 字：擋下並指出是哪一段`, () => {
+    const long = normalizeScheduleInput(withDescription('字'.repeat(STAGE_DESCRIPTION_MAX_LENGTH + 1)))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.description')
+  })
 })
 
 describe('timelineView：專題時間軸每一段的狀態（票 38）', () => {
@@ -184,8 +216,8 @@ describe('timelineView：專題時間軸每一段的狀態（票 38）', () => {
   it('只有一天的段（下一段隔天開始）：當天就是最後一天，100%、剩 0 天', () => {
     const oneDay: CohortSchedule = {
       stages: [
-        { seq: 1, name: '報名', startDate: '2026-09-15', deadlineVersion: 1 },
-        { seq: 2, name: '期中', startDate: '2026-09-16', deadlineVersion: 1 },
+        { seq: 1, name: '報名', description: '', startDate: '2026-09-15', deadlineVersion: 1 },
+        { seq: 2, name: '期中', description: '', startDate: '2026-09-16', deadlineVersion: 1 },
       ],
       yearEndDate: '2027-06-30',
     }
