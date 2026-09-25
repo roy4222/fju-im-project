@@ -1,4 +1,5 @@
 'use client'
+import { IconPlus } from '@tabler/icons-react'
 import { useActionState, useState } from 'react'
 import {
   assignEvaluatorAction,
@@ -126,13 +127,14 @@ export function SchemeEditor({
         disabled={disabledReason !== null}
         title={disabledReason ?? undefined}
       >
+        <IconPlus className="size-4" aria-hidden />
         建立新方案版本
       </button>
       <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label="建立評分方案版本" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <form action={action} className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">建立評分方案版本</h2>
+            <h2 className="text-lg font-extrabold text-foreground">建立評分方案版本</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {baseLabel ? `從 ${baseLabel} 複製起草。` : '第一版從範本起草。'}
               階段占總成績合計要 100%、每個階段的項目權重合計也要 100%；建好是草稿，按「發布」後老師才會用。
@@ -154,7 +156,7 @@ export function SchemeEditor({
               const itemSum = stage.items.filter((i) => i.type !== 'passfail').reduce((sum, i) => sum + num(i.weight), 0)
               const hasLetter = stage.items.some((i) => i.type === 'letter')
               return (
-                <li key={si} aria-label={`第 ${si + 1} 個階段`} className="space-y-3 rounded-md border border-border p-3">
+                <li key={si} aria-label={`第 ${si + 1} 個階段`} className="space-y-3 rounded-lg border border-border p-3">
                   <div className="grid gap-3 sm:grid-cols-[1fr_8rem_auto] sm:items-end">
                     <div>
                       <label htmlFor={`stage-${si}-name`} className={LABEL}>
@@ -204,7 +206,7 @@ export function SchemeEditor({
                               aria-label={`第 ${si + 1} 階段第 ${ii + 1} 項名稱`}
                               value={item.name}
                               onChange={(e) => updateItem(si, ii, { name: e.target.value })}
-                              className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                              className="w-full rounded-lg border border-border bg-background px-2 py-1.5"
                             />
                           </td>
                           <td className="py-1 pr-2">
@@ -212,7 +214,7 @@ export function SchemeEditor({
                               aria-label={`第 ${si + 1} 階段第 ${ii + 1} 項型態`}
                               value={item.type}
                               onChange={(e) => updateItem(si, ii, { type: e.target.value as SchemeItemType })}
-                              className="rounded-md border border-border bg-background px-2 py-1.5"
+                              className="rounded-lg border border-border bg-background px-2 py-1.5"
                             >
                               {ITEM_TYPES.map((t) => (
                                 <option key={t.value} value={t.value}>
@@ -228,7 +230,7 @@ export function SchemeEditor({
                                 inputMode="numeric"
                                 value={item.max}
                                 onChange={(e) => updateItem(si, ii, { max: e.target.value })}
-                                className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                                className="w-full rounded-lg border border-border bg-background px-2 py-1.5"
                               />
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
@@ -243,7 +245,7 @@ export function SchemeEditor({
                                 inputMode="numeric"
                                 value={item.weight}
                                 onChange={(e) => updateItem(si, ii, { weight: e.target.value })}
-                                className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                                className="w-full rounded-lg border border-border bg-background px-2 py-1.5"
                               />
                             )}
                           </td>
@@ -278,7 +280,7 @@ export function SchemeEditor({
                             inputMode="numeric"
                             value={stage.letterMap[g] ?? ''}
                             onChange={(e) => update(si, { letterMap: { ...stage.letterMap, [g]: e.target.value } })}
-                            className="w-14 rounded-md border border-border bg-background px-2 py-1"
+                            className="w-14 rounded-lg border border-border bg-background px-2 py-1"
                           />
                         </label>
                       ))}
@@ -378,7 +380,7 @@ export function RequirementForm({
           defaultValue={count ?? ''}
           placeholder="未設定"
           aria-label={`${groupCode}「${stageName}」要求份數`}
-          className="w-20 rounded-md border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
+          className="w-20 rounded-lg border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
         />
         <button type="submit" className={SECONDARY} disabled={pending}>
           {pending ? '…' : '儲存'}
@@ -417,7 +419,7 @@ export function AssignEvaluatorForm({
           required
           defaultValue=""
           aria-label={`${groupCode}「${stageName}」評分老師`}
-          className="min-w-32 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          className="min-w-32 rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
         >
           <option value="" disabled>
             選老師…

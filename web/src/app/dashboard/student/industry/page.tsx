@@ -41,9 +41,10 @@ export default async function StudentIndustryPage() {
         {cards.length === 0 ? (
           <EmptyState title="目前沒有發布中的合作案" description="老師建立並發布合作案後會出現在這裡。" />
         ) : (
-          <ul className="grid gap-4 md:grid-cols-2" aria-label="合作案">
+          // grid-cols-1＋li min-w-0：不然格子被一行不換行的摘要撐開，390 寬整頁會橫向捲動。
+          <ul className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="合作案">
             {cards.map((card) => (
-              <li key={card.id}>
+              <li key={card.id} className="min-w-0">
                 <Link
                   href={`/industry/${card.id}`}
                   data-testid="student-opportunity-card"

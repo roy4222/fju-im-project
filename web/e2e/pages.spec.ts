@@ -87,7 +87,7 @@ test.describe('以 A1（管理員）', () => {
 
     // 帳號頁在票 9 已經是真功能（見 accounts.spec.ts）；這裡只確認打得開、有真的列表。
     await page.goto('/dashboard/admin/accounts')
-    await expect(page.getByRole('heading', { name: '帳號', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '帳號管理', exact: true })).toBeVisible()
     await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
 
     // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
@@ -246,6 +246,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
     // 簽核與精選（票 25）。
     '/dashboard/admin/signoff': '系辦不能代替任何人同意',
+    // 操作紀錄（票 36）。
+    '/dashboard/admin/audit': '誰、何時、對哪個對象、做了什麼、為什麼',
     '/dashboard/admin/showcase': '草稿不會公開',
     '/dashboard/teacher/signoff': '你此刻指導的組別的簽核版本',
     '/dashboard/student/signoff': '每個人只代表自己一票',
@@ -290,6 +292,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
     { path: '/dashboard/teacher/signoff', wrongRole: 'student' },
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
+    // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
+    { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
     // 專題時間軸與產學合作（票 38）。
     { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
     { path: '/dashboard/student/industry', wrongRole: 'admin' },

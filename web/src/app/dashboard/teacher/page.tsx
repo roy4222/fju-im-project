@@ -5,6 +5,7 @@ import { HomeHero, loadStage } from '@/app/dashboard/_stage'
 import { Donut, LegendRow, ListRow, Panel, PanelEmpty, Pill } from '@/app/dashboard/_home'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
+import { teacherSignoffSummary } from '@/app/dashboard/teacher/signoff-summary'
 import { getGradingQuery } from '@/composition/grading'
 import { getGroupQuery, getOpportunityQuery } from '@/composition/groups'
 import { getSignoffQuery, PURPOSE_LABEL } from '@/composition/signoff'
@@ -43,9 +44,8 @@ export default async function TeacherHomePage() {
     counted: queue.filter((e) => e.state === 'counted').length,
   }
   const remaining = counts.empty + counts.draft
-  // 待我同意＝輪到老師、而且我是這一版的主指導、還沒表態（票 26 卡片的「輪到你」）。
-  const ready = signCards.filter((c) => c.current.state === 'teacher_pending' && c.mine.isSnapshotAdvisor && c.mine.voted === null)
-  const waiting = signCards.filter((c) => c.current.state === 'collecting')
+  // 待我同意／等待學生：清單一包一列，數字依組別去重（一組可能有兩個簽核包；見 signoff-summary.ts）。
+  const { ready, waiting, readyGroups, waitingGroups } = teacherSignoffSummary(signCards)
   const claimable = groups.filter((g) => g.groupType === 'industry' && g.advisor === null)
   const myGroups = groups.filter((g) => g.advisor?.teacherUserId === me)
   const myCases = cases.filter((c) => c.ownerUserId === me && c.status !== 'withdrawn')
@@ -70,7 +70,7 @@ export default async function TeacherHomePage() {
             { label: '未開始', value: `${counts.empty} 份`, href: `${BASE}/grading` },
             { label: '暫存', value: `${counts.draft} 份`, href: `${BASE}/grading` },
             { label: '已送出', value: `${counts.counted} 份`, href: `${BASE}/grading` },
-            { label: '待我同意', value: `${ready.length} 組`, href: `${BASE}/signoff`, hot: ready.length > 0 },
+            { label: '待我同意', value: `${readyGroups} 組`, href: `${BASE}/signoff`, hot: readyGroups > 0 },
           ]}
         />
 
@@ -175,7 +175,7 @@ export default async function TeacherHomePage() {
           <div className="min-w-0">
             <Panel
               title="同意書"
-              description={`待我同意 ${ready.length} 組・等待學生 ${waiting.length} 組`}
+              description={`待我同意 ${readyGroups} 組・等待學生 ${waitingGroups} 組`}
               action={{ href: `${BASE}/signoff`, label: '進度' }}
               tint="lilac"
               className="h-full"

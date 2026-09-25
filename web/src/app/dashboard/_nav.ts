@@ -7,7 +7,7 @@ import type { Role } from '@/application/accounts'
  * 分組、順序、名稱照原型 `prototype/src/lib/nav-config.ts`（票 35 對齊系辦與老師；學生在票 38）。
  * 分組與圖示由 `_ui/dashboard-frame.tsx` 依網址最後一段對應；這裡的順序就是同一組內的順序。
  * 只放已經做出來的頁：沒做的功能不要先放上去，不然使用者會點進去撲空
- * （原型的「內容編輯器」依 Vault 04「單一入口」不放；「操作紀錄」等票 36 做出頁面再加）。
+ * （原型的「內容編輯器」依 Vault 04「單一入口」不放）。
  */
 export const ADMIN_NAV: readonly NavItem[] = [
   // 總覽
@@ -32,6 +32,8 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/accounts', label: '帳號管理' },
   // 屆別（票 5）：原型併在時間軸頁；正式碼另一頁，放系統管理組。
   { href: '/dashboard/admin/cohorts', label: '屆別' },
+  // 操作紀錄（票 36）：稽核紀錄唯讀清單，只給管理員。
+  { href: '/dashboard/admin/audit', label: '操作紀錄' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
@@ -114,6 +116,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 簽核與精選（票 25）；版本頁 `/dashboard/{admin,teacher}/signoff/<版本>` 同一個守衛。
   { path: '/dashboard/admin/signoff', role: 'admin' },
   { path: '/dashboard/admin/showcase', role: 'admin' },
+  // 操作紀錄（票 36）：誰、何時、對哪個對象、做了什麼、為什麼；只有管理員讀得到。
+  { path: '/dashboard/admin/audit', role: 'admin' },
   { path: '/dashboard/teacher/signoff', role: 'teacher' },
   { path: '/dashboard/student/signoff', role: 'student' },
 ]
