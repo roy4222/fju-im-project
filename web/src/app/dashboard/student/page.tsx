@@ -96,6 +96,7 @@ export default async function StudentHomePage() {
             line={line}
             next={next}
             showStages
+            showProgress
             icon={<IconSchool strokeWidth={1.4} />}
             chips={[
               { label: '作業待繳', value: `${pending} 件`, href: `${BASE}/affairs?tab=open`, hot: pending > 0, testId: 'home-pending' },

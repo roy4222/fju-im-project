@@ -61,54 +61,6 @@ export function PanelEmpty({ children }: { children: ReactNode }) {
   return <p className="px-5 pb-5 text-sm text-muted-foreground">{children}</p>
 }
 
-// ── 需要處理 ────────────────────────────────────────────────────────────────
-
-const ACTION_TONE = {
-  default: 'bg-muted text-foreground',
-  brand: 'bg-primary-subtle text-primary-on-subtle',
-  danger: 'bg-destructive-subtle text-destructive-on-subtle',
-} as const
-
-/**
- * 「需要處理」一列（原型 ActionRow）：圖示方塊、名稱與一行說明、數字、一顆「去處理」。
- * 整列是連結；數字是 0 的列由呼叫端決定要不要放（首頁只放有事的）。
- */
-export function ActionRow({
-  icon,
-  label,
-  detail,
-  count,
-  href,
-  cta = '查看',
-  tone = 'default',
-}: {
-  icon: ReactNode
-  label: string
-  detail?: string
-  count: number
-  href: string
-  cta?: string
-  tone?: keyof typeof ACTION_TONE
-}) {
-  return (
-    <li>
-      <Link href={href} className="group flex items-center gap-3.5 border-t border-border/70 px-5 py-3 transition-colors hover:bg-accent/50">
-        <span aria-hidden className={cn('inline-flex size-[34px] shrink-0 items-center justify-center rounded-[10px] [&_svg]:size-4', ACTION_TONE[tone])}>
-          {icon}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-foreground">{label}</span>
-          {detail ? <span className="block truncate text-xs text-muted-foreground">{detail}</span> : null}
-        </span>
-        <span className={cn('text-lg font-bold tabular-nums', tone === 'danger' ? 'text-destructive' : 'text-foreground')}>{count}</span>
-        <span className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-bold text-foreground transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-          {cta}
-        </span>
-      </Link>
-    </li>
-  )
-}
-
 // ── 小圖表 ──────────────────────────────────────────────────────────────────
 
 /** 甜甜圈（原型 Donut）：每段是一個 stroke-dasharray 圓弧。全部是 0 時只畫底圈。 */

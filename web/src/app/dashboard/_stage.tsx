@@ -127,7 +127,8 @@ export function HomeHero({
   compact?: boolean
 }) {
   const eyebrow = [heroDate(ctx.today), ctx.cohort?.code].filter(Boolean).join('・')
-  const simulated = ctx.simulated ? `（模擬業務時間 ${formatTaipeiMinute(ctx.businessNow)}）` : ''
+  // 測試站撥過模擬鐘時註明（短，免得手機上換行）。
+  const simulated = ctx.simulated ? `・模擬鐘 ${formatTaipeiMinute(ctx.businessNow).slice(5)}` : ''
   const ctaLink = cta ? (
     <Link href={cta.href} className="btn-fju h-10 shrink-0 rounded-xl px-4 text-[14px]">
       {cta.label}
@@ -187,6 +188,25 @@ export function HomeHero({
           </div>
         ) : null}
 
+        {progress !== null || cta ? (
+          <div className="flex flex-wrap items-center gap-4">
+            {progress !== null ? (
+              <div className="min-w-[220px] flex-1">
+                <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80">
+                  <span>{ctx.cohort?.code} 本屆進度</span>
+                  <span className="text-[15px] font-extrabold text-white tabular-nums">{progress}%</span>
+                </div>
+                {/* 進度條用 SVG 屬性畫寬度：正式站 CSP 不收 style 屬性。 */}
+                <svg className="block h-2.5 w-full" role="img" aria-label={`本屆進度 ${progress}%`}>
+                  <rect width="100%" height="100%" rx="5" fill="rgb(255 255 255 / 0.18)" />
+                  <rect width={`${Math.max(progress, 2)}%`} height="100%" rx="5" fill="var(--primary)" />
+                </svg>
+              </div>
+            ) : null}
+            {ctaLink}
+          </div>
+        ) : null}
+
         {showStages && schedule?.yearEndDate && schedule.stages.length > 0 ? (
           <div>
             <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort?.code} 本屆階段</p>
@@ -209,25 +229,6 @@ export function HomeHero({
                 </li>
               ))}
             </ol>
-          </div>
-        ) : null}
-
-        {progress !== null || cta ? (
-          <div className="flex flex-wrap items-center gap-4">
-            {progress !== null ? (
-              <div className="min-w-[220px] flex-1">
-                <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80">
-                  <span>{ctx.cohort?.code} 本屆進度</span>
-                  <span className="text-[15px] font-extrabold text-white tabular-nums">{progress}%</span>
-                </div>
-                {/* 進度條用 SVG 屬性畫寬度：正式站 CSP 不收 style 屬性。 */}
-                <svg className="block h-2.5 w-full" role="img" aria-label={`本屆進度 ${progress}%`}>
-                  <rect width="100%" height="100%" rx="5" fill="rgb(255 255 255 / 0.18)" />
-                  <rect width={`${Math.max(progress, 2)}%`} height="100%" rx="5" fill="var(--primary)" />
-                </svg>
-              </div>
-            ) : null}
-            {ctaLink}
           </div>
         ) : null}
 

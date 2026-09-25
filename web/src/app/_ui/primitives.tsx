@@ -77,7 +77,6 @@ export function Tile({
   href,
   icon,
   tone = 'default',
-  testId,
   active = false,
 }: {
   label: string
@@ -91,7 +90,6 @@ export function Tile({
   icon?: ReactNode
   /** 只有「要你動手」的數字才用橘（brand）或紅（danger）；其他一律黑字灰底。 */
   tone?: keyof typeof TILE_ICON_TONE
-  testId?: string
   active?: boolean
 }) {
   // 原型 StatTile：白卡、小字標籤（右上圖示方塊）、黑色大數字、底下一行說明。
@@ -120,11 +118,10 @@ export function Tile({
     </>
   )
   const base = 'dash-card block p-5'
-  if (!href) return <div className={base} data-testid={testId}>{body}</div>
+  if (!href) return <div className={base}>{body}</div>
   return (
     <Link
       href={href}
-      data-testid={testId}
       aria-current={active ? 'true' : undefined}
       className={cn(base, 'dash-card-hover', active ? 'border-primary ring-1 ring-primary' : '')}
     >
