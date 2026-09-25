@@ -1075,12 +1075,14 @@ export class PgSubmissionQuery implements SubmissionQuery {
     if (!isUuid(userId) || !isUuid(itemId) || !isUuid(receiverId) || !Number.isInteger(versionNo) || versionNo < 1) return null
     const db = this.#reader()
     const [rows, viewer] = await Promise.all([
-      db.query<RecordVersionRow>(`${RECORD_VERSIONS} and v.version_no = $4`, [userId, itemId, receiverId, versionNo]),
+      db.query<RecordVersionRow>(`${RECORD_VERSIONS} order by v.version_no desc`, [userId, itemId, receiverId]),
       viewerForUser(db, userId, STUDENT),
     ])
-    const row = rows.rows[0]
-    if (!row || !canReadSubmission(viewer, holderOf(row))) return null
-    return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo)
+    // 跟 `myRecord` 同一份清單：讀得到的版本才點得開；「是不是最新」也只跟讀得到的比（移出之後的新版本不透露）。
+    const visible = rows.rows.filter((row) => canReadSubmission(viewer, holderOf(row)))
+    const row = visible.find((r) => r.version_no === versionNo)
+    if (!row) return null
+    return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo, visible[0]!.version_no)
   }
 }
 
@@ -1107,13 +1109,20 @@ const RECORD_VERSIONS = `
      and ($2::uuid is null or v.item_id = $2::uuid)
      and ($3::uuid is null or v.receiver_id = $3::uuid)`
 
-/** 某個收件者某一次正式送出的內容（本人的繳交歷史與管理員名單頁共用）。附件照 `submission_files`（送出當下的 checksum）。 */
+/**
+ * 某個收件者某一次正式送出的內容（本人的繳交歷史與管理員名單頁共用）。附件照 `submission_files`（送出當下的 checksum）。
+ *
+ * `latestVisibleVersionNo`：看的人**讀得到的**版本裡最新的一版。只讀得到部分版本的人（被移出的組員只讀得到快照含自己的版本、
+ * 老師只讀得到開放閱覽之後的版本）一定要傳，`isLatest` 才只跟他讀得到的比——不然打開 v2 會看到「已被後來的版本取代」，
+ * 等於透露之後還有他看不到的版本（PR #267 審查建議）。讀得到全部版本的人（組員、管理員）不傳，就跟全部版本比。
+ */
 export async function versionDetail(
   db: Pick<Pool, 'query'>,
   itemId: string,
   receiverKind: 'user' | 'group',
   receiverId: string,
   versionNo: number,
+  latestVisibleVersionNo?: number,
 ): Promise<MyVersionDetail | null> {
   if (!isUuid(receiverId) || !isUuid(itemId) || !Number.isInteger(versionNo) || versionNo < 1) return null
   const found = await db.query<VersionRow & { id: string; answers: Answers; schema: { fields?: FormField[] }; latest: number }>(
@@ -1134,7 +1143,7 @@ export async function versionDetail(
   )
   return {
     ...toSummary(row),
-    isLatest: row.latest === row.version_no,
+    isLatest: (latestVisibleVersionNo ?? row.latest) === row.version_no,
     fields: row.schema.fields ?? [],
     answers: row.answers,
     files: files.rows.map((f) => ({

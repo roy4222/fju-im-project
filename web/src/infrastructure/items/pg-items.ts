@@ -1341,7 +1341,7 @@ export class PgItemQuery implements ItemQuery {
               m.updated_at,
               (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
                 where a.item_id = m.id) as group_codes,
-              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null)
+              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
                 as roster_count
          from managed_items m
         where m.cohort_id = $1
@@ -1370,7 +1370,7 @@ export class PgItemQuery implements ItemQuery {
       ItemRow & { updated_at: Date; content_no: number | null; schema_no: number | null; roster_count: string }
     >(
       `select m.*, cv.version_no as content_no, sv.version_no as schema_no,
-              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null)
+              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
                 as roster_count
          from managed_items m
          left join item_versions cv on cv.id = m.current_content_version_id

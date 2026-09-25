@@ -180,8 +180,8 @@ async function homePending(page: Page): Promise<string> {
 test('名單頁三類分開；完成率＝已正式送出／應交數（免填與已移出不算）', async ({ page }) => {
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  // 工作台的「收件名單」欄（目前在名單上的人數，含免填）點得進名單頁。
-  await page.getByRole('row').filter({ hasText: TITLE }).getByRole('link', { name: /3 位/ }).click()
+  // 工作台的「收件名單」欄是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
+  await page.getByRole('row').filter({ hasText: TITLE }).getByRole('link', { name: /應交 2 位/ }).click()
   await expect(page).toHaveURL(new RegExp(`${rosterPath()}$`))
   await expect(page.getByRole('heading', { name: TITLE })).toBeVisible()
 

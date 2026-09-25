@@ -152,7 +152,10 @@ export type ItemListRow = {
   readonly dueAt: Date | null
   readonly actualOpenedAt: Date | null
   readonly updatedAt: Date
-  /** 目前收件名單的數量（個人＝人、組別＝組）；不是收件就是 0。 */
+  /**
+   * 應交數（個人＝人、組別＝組）：目前名單、不含免填與已移出，跟收件名單頁完成率的分母同一個口徑
+   * （`application/submissions/roster.ts`）；不是收件就是 0。
+   */
   readonly rosterCount: number
 }
 
@@ -179,6 +182,7 @@ export type ItemDetail = {
   readonly revision: number
   readonly contentVersionNo: number | null
   readonly schemaVersionNo: number | null
+  /** 應交數：同 `ItemListRow.rosterCount`（不含免填與已移出）。 */
   readonly rosterCount: number
   readonly updatedAt: Date
   /** 已有人存過草稿或正式送出（見 `ResponsePresence`）：收件單位、對象、欄位結構鎖定。 */
