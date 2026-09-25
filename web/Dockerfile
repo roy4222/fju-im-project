@@ -6,6 +6,7 @@
 #   migrate → node web/scripts/migrate.mjs（需要 pg 與 drizzle-orm，所以另外裝 production 依賴）
 #   seed:a1 → node migrate/web/scripts/seed-a1.mjs（ops/seed-admin.sh，一次性）
 #   seed:e2e → node migrate/web/scripts/seed-e2e.mjs（ops/deploy.sh，只在測試站）
+#   seed:demo → node migrate/web/scripts/seed-demo.mjs（ops/deploy.sh 與 ops/seed-demo.sh，只在測試站）
 
 FROM node:22.23.2-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
@@ -55,6 +56,10 @@ COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/migrate.mjs ./migrate/
 COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-a1.mjs ./migrate/web/scripts/seed-a1.mjs
 # 測試站的 E2E 測試管理員（ops/deploy.sh --site test 在 migration 後跑；腳本自己拒絕 test 以外的站）。
 COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-e2e.mjs ./migrate/web/scripts/seed-e2e.mjs
+# 測試站的示範資料（ops/deploy.sh --site test 在 seed-e2e 之後跑；腳本自己拒絕 test 以外的站）。
+# demo/ 是內容與公告封面圖，只放在 migrate 底下，不進 web/public（正式站不會多出 /placeholder 這種路徑）。
+COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/seed-demo.mjs ./migrate/web/scripts/seed-demo.mjs
+COPY --from=build --chown=nextjs:nodejs /repo/web/scripts/demo ./migrate/web/scripts/demo
 # 背景工作進程（票 12）：`pnpm -C web build` 打包出的單一檔案。第三方套件沒打包進去，
 # 跟 migrate 腳本一樣從下面的 production node_modules 解析，所以放在 migrate/web/ 底下。
 COPY --from=build --chown=nextjs:nodejs /repo/web/dist/worker.mjs ./migrate/web/dist/worker.mjs
