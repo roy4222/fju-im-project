@@ -2,6 +2,8 @@
 import { startTransition, useActionState, useState, type FormEvent } from 'react'
 import { changeGroupTypeAdminAction } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
+import { Pill } from '@/app/_ui/dashboard/primitives'
+import { BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
 
 /**
  * 分組總覽每一組的「類型」格（票 20；產品 5.3「任一條件不成立，只能由管理員修改」、GRP-14）。
@@ -46,8 +48,12 @@ export function GroupTypeCell({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span>{typeLabels[group.groupType]}</span>
-        <button type="button" className={SECONDARY} aria-label={`改組別類型：${group.code}`} onClick={dialog.open}>
+        {group.groupType === 'industry' ? (
+          <Pill tone="brand">{typeLabels[group.groupType]}</Pill>
+        ) : (
+          <Pill className="bg-transparent">{typeLabels[group.groupType]}</Pill>
+        )}
+        <button type="button" className={ROW_GHOST} aria-label={`改組別類型：${group.code}`} onClick={dialog.open}>
           改類型
         </button>
       </div>
@@ -55,17 +61,17 @@ export function GroupTypeCell({
       <dialog ref={dialog.ref} aria-label={`改 ${group.code} 的組別類型`} className={DIALOG}>
         <form key={group.revision} onSubmit={submit} className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">
+            <h2 className="text-lg font-extrabold text-foreground">
               {group.code}：{typeLabels[group.groupType]} → {typeLabels[to]}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               組長在成組期內、沒有指導老師與合作案時可以自己改；其他情況由系辦在這裡處理。全組看得到這筆紀錄。
             </p>
           </div>
-          <section aria-label="改類型的影響" className="rounded-md border border-border px-3 py-2 text-sm">
-            <h3 className="font-semibold text-ink">既有關聯（會保留，不會自動刪除）</h3>
+          <section aria-label="改類型的影響" className="rounded-lg border border-border px-3 py-2 text-sm">
+            <h3 className="font-semibold text-foreground">既有關聯（會保留，不會自動刪除）</h3>
             {kept.length > 0 ? (
-              <ul className="mt-1 list-disc pl-5 text-ink">
+              <ul className="mt-1 list-disc pl-5 text-foreground">
                 {kept.map((k) => (
                   <li key={k}>{k}</li>
                 ))}

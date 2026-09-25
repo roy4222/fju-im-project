@@ -4,23 +4,25 @@ import type { Role } from '@/application/accounts'
 /**
  * 三種後台的側欄掛載點與**受保護路由清單**（票 #47）。
  *
- * 管理員側欄現在有「帳號」「屆別」「時間軸」——名單、分組、繳交、評分、簽核
+ * 管理員側欄現在有「帳號管理」「屆別」「時間軸」——名單、分組、繳交、評分、簽核
  * 各自由自己的切片加進來。沒做的功能不要先放上去，不然使用者會點進去撲空。
  */
 export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin', label: '首頁' },
-  { href: '/dashboard/admin/accounts', label: '帳號' },
+  { href: '/dashboard/admin/accounts', label: '帳號管理' },
   { href: '/dashboard/admin/cohorts', label: '屆別' },
   { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/groups', label: '分組' },
+  { href: '/dashboard/admin/groups', label: '分組總覽' },
   { href: '/dashboard/admin/affairs', label: '專題事務' },
   // 合作案（票 20）：全部合作案與組別連結。
-  { href: '/dashboard/admin/industry', label: '合作案' },
+  { href: '/dashboard/admin/industry', label: '產學合作' },
   // 評分（票 23）：方案版本、要求份數、指派評分老師。
-  { href: '/dashboard/admin/grading', label: '評分' },
+  { href: '/dashboard/admin/grading', label: '成績管理' },
   // 簽核（票 25）：建簽核版本、各組目前版本；精選（票 25）：替各組建精選草稿（不發布）。
   { href: '/dashboard/admin/signoff', label: '簽核' },
   { href: '/dashboard/admin/showcase', label: '精選' },
+  // 操作紀錄（票 36）：稽核紀錄唯讀清單，只給管理員。
+  { href: '/dashboard/admin/audit', label: '操作紀錄' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
@@ -88,6 +90,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 簽核與精選（票 25）；版本頁 `/dashboard/{admin,teacher}/signoff/<版本>` 同一個守衛。
   { path: '/dashboard/admin/signoff', role: 'admin' },
   { path: '/dashboard/admin/showcase', role: 'admin' },
+  // 操作紀錄（票 36）：誰、何時、對哪個對象、做了什麼、為什麼；只有管理員讀得到。
+  { path: '/dashboard/admin/audit', role: 'admin' },
   { path: '/dashboard/teacher/signoff', role: 'teacher' },
   { path: '/dashboard/student/signoff', role: 'student' },
 ]

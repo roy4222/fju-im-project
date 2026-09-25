@@ -36,8 +36,8 @@ function affectedVotes(v: VersionDetail): string[] {
 function Manage({ v }: { v: VersionDetail }) {
   const kind = restartKindFor(v.state)
   return (
-    <section aria-label="系辦管理" className="space-y-4 rounded-md border border-border p-4" data-testid="signoff-manage">
-      <h3 className="text-sm font-semibold text-ink">系辦管理</h3>
+    <section aria-label="系辦管理" className="space-y-4 rounded-lg border border-border p-4" data-testid="signoff-manage">
+      <h3 className="text-sm font-semibold text-foreground">系辦管理</h3>
       {v.isCurrent ? (
         <div className="flex flex-wrap items-start gap-4">
           <RemindButton versionId={v.versionId} requestId={randomUUID()} blockedReason={remindBlocked(v, new Date())} />
@@ -56,12 +56,12 @@ function Manage({ v }: { v: VersionDetail }) {
       )}
 
       <div className="space-y-2 border-t border-border pt-3">
-        <p className="text-sm font-medium text-ink">匯出同意紀錄</p>
+        <p className="text-sm font-medium text-foreground">匯出同意紀錄</p>
         <div className="flex flex-wrap gap-2">
           {(['printable', 'csv'] as const).map((format) => (
             <form key={format} method="post" action={`/api/admin/signoff/${v.versionId}/export`} target="_blank">
               <input type="hidden" name="format" value={format} />
-              <button type="submit" className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-ink hover:bg-muted">
+              <button type="submit" className="inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
                 匯出{FORMAT_LABEL[format]}
               </button>
             </form>
@@ -102,7 +102,7 @@ export default async function AdminSignoffVersionPage({
         ← 回簽核
       </Link>
       {detail.ok && (restarted === 'reset' || restarted === 'reopen') ? (
-        <p role="status" className="mb-4 rounded-md bg-primary-subtle px-4 py-3 text-sm text-primary-on-subtle">
+        <p role="status" className="mb-4 rounded-lg bg-primary-subtle px-4 py-3 text-sm text-primary-on-subtle">
           已{RESTART_LABEL[restarted]}：這是新建的 v{detail.receipt.versionNo}
           {/^\d+$/.test(from ?? '') ? `（內容與 v${from} 相同）` : ''}，參與者依此刻重新計算；舊版與舊的表態留作歷史、不計入新版，
           每位參與學生已收到「輪到你同意」。

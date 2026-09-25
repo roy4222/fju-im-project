@@ -22,7 +22,7 @@ import { cn } from '@/shared/cn'
 /** 失敗時多帶錯誤碼：遇到 `CONFLICT`（預覽過期）才知道要請使用者重新預覽。 */
 export type ResultsActionState = { ok: boolean; message: string; code?: string } | undefined
 
-const TEXTAREA = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
+const TEXTAREA = 'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm'
 
 function StaleHint({ state, label = '重新預覽' }: { state: ResultsActionState; label?: string }) {
   const router = useRouter()
@@ -60,7 +60,7 @@ export function ReturnForm({
       <dialog ref={dialog.ref} aria-label="退回評分" className={DIALOG}>
         <form action={action} className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">退回 {teacherName} 老師的「{stageName}」評分</h2>
+            <h2 className="text-lg font-extrabold text-foreground">退回 {teacherName} 老師的「{stageName}」評分</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               只退回這一份。老師會收到通知與理由，修改後重新正式送出；重送前這一份不算完成，舊紀錄保留。
             </p>
@@ -116,9 +116,9 @@ export function OverrideForm({
       <dialog ref={dialog.ref} aria-label="更正最終成績" className={DIALOG}>
         <form action={action} className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">更正 {groupCode} 的最終成績</h2>
+            <h2 className="text-lg font-extrabold text-foreground">更正 {groupCode} 的最終成績</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              算出來的最終成績是 <b className="tabular-nums text-ink">{computed ?? '—'}</b>。更正值另存一筆（原值、理由、操作者、時間、方案版本），
+              算出來的最終成績是 <b className="tabular-nums text-foreground">{computed ?? '—'}</b>。更正值另存一筆（原值、理由、操作者、時間、方案版本），
               老師的原始輸入不會被改；之後採計分數或方案改變，這筆更正會進「待復核」。
             </p>
           </div>
@@ -170,8 +170,8 @@ export function ResolveReviewForm({
   const [state, action, pending] = useActionState(resolveReviewAction, undefined)
   const [decision, setDecision] = useState<'keep' | 'new'>('keep')
   return (
-    <form action={action} className="space-y-3 rounded-md border border-border p-4" aria-label="復核更正">
-      <p className="text-sm text-ink">
+    <form action={action} className="space-y-3 rounded-lg border border-border p-4" aria-label="復核更正">
+      <p className="text-sm text-foreground">
         計算基礎改變後，新的計算結果是 <b className="tabular-nums">{computed ?? '尚未完成'}</b>；原更正值 <b className="tabular-nums">{previousValue}</b>。
         確認之前，更正不套用在新的計算基礎上。
       </p>
@@ -225,18 +225,18 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
       <input type="hidden" name="basisHash" value={preview.basisHash} />
       <input type="hidden" name="requestId" value={requestId} />
       <fieldset className="grid gap-3 md:grid-cols-3" disabled={done}>
-        <legend className="mb-2 text-sm font-medium text-ink">舊分數怎麼算（選一個）</legend>
+        <legend className="mb-2 text-sm font-medium text-foreground">舊分數怎麼算（選一個）</legend>
         {preview.options.map((o) => (
           <label
             key={o.choice}
             data-testid={`choice-${o.choice}`}
             className={cn(
-              'block cursor-pointer space-y-1 rounded-md border p-3 text-sm',
+              'block cursor-pointer space-y-1 rounded-lg border p-3 text-sm',
               choice === o.choice ? 'border-primary ring-1 ring-primary' : 'border-border',
               o.blockedReason ? 'cursor-not-allowed opacity-60' : '',
             )}
           >
-            <span className="flex items-center gap-2 font-semibold text-ink">
+            <span className="flex items-center gap-2 font-semibold text-foreground">
               <input
                 type="radio"
                 name="choice"
@@ -251,7 +251,7 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
             {o.blockedReason ? (
               <span className="block text-xs text-danger">{o.blockedReason}</span>
             ) : (
-              <span className="block tabular-nums text-ink">
+              <span className="block tabular-nums text-foreground">
                 之後：{o.countedAfter.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有採計'}
                 <br />
                 份數 {o.countedAfter.length}／{o.requiredAfter ?? '未設定'}・平均 {o.averageAfter ?? '—'}・{o.stageStatusAfter}
@@ -425,7 +425,7 @@ export function GradeExportButtons({
         <p
           role={message.tone === 'ok' ? 'status' : 'alert'}
           className={cn(
-            'rounded-md px-3 py-2 text-sm',
+            'rounded-lg px-3 py-2 text-sm',
             message.tone === 'ok' ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
           )}
         >

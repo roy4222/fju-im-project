@@ -1,8 +1,12 @@
 'use client'
-import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
+import { IconCopy, IconDownload } from '@tabler/icons-react'
+import { BulkBar, DataTableFrame, DT, EmptyRow, SortLink } from '@/app/_ui/data-table'
+import { ALERT, BTN_ROW, BTN_ROW_GHOST, NOTE } from '@/app/_ui/dashboard/look'
 import { cn } from '@/shared/cn'
-import { SECONDARY } from './admin-group-forms'
+
+const SECONDARY_SM = BTN_ROW
+const GHOST_SM = BTN_ROW_GHOST
 
 /**
  * 分組總覽的組別名單（票 20；原型 `/dashboard/admin/groups` 的 Data Table；#96、#105、執行手冊 C18）。
@@ -58,7 +62,7 @@ export function CopyEmailsButton({ code, emails }: { code: string; emails: reado
     <div className="space-y-1">
       <button
         type="button"
-        className={SECONDARY}
+        className={GHOST_SM}
         aria-label={`複製本組信箱：${code}`}
         onClick={async () => {
           const ok = await copyText(joined)
@@ -69,10 +73,11 @@ export function CopyEmailsButton({ code, emails }: { code: string; emails: reado
           )
         }}
       >
+        <IconCopy className="size-3.5" aria-hidden />
         複製本組信箱
       </button>
       {message ? (
-        <p role="status" className={cn('text-xs', message.ok ? 'text-primary-on-subtle' : 'text-danger')}>
+        <p role="status" className={cn('text-xs', message.ok ? 'text-brand-on-subtle' : 'text-destructive')}>
           {message.text}
         </p>
       ) : null}
@@ -150,96 +155,92 @@ export function GroupRosterTable({
     }
   }
 
+  const exportButton = (label: string, format: 'csv' | 'xlsx', scope: 'ids' | 'filter', disabled: boolean) => (
+    <button type="button" className={SECONDARY_SM} disabled={busy || disabled} onClick={() => exportRoster(format, scope)}>
+      <IconDownload className="size-3.5" aria-hidden />
+      {label}
+    </button>
+  )
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-border bg-background px-3 py-2">
-        <p className="text-sm text-muted-foreground tabular-nums" data-testid="roster-count">
-          顯示 {rows.length}／{total} 組・已勾選 {visibleSelected.length} 組
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={SECONDARY} disabled={busy || visibleSelected.length === 0} onClick={() => exportRoster('csv', 'ids')}>
-            匯出勾選（CSV）
-          </button>
-          <button type="button" className={SECONDARY} disabled={busy || visibleSelected.length === 0} onClick={() => exportRoster('xlsx', 'ids')}>
-            匯出勾選（XLSX）
-          </button>
-          <button type="button" className={SECONDARY} disabled={busy || rows.length === 0} onClick={() => exportRoster('csv', 'filter')}>
-            匯出篩選結果（CSV）
-          </button>
-          <button type="button" className={SECONDARY} disabled={busy || rows.length === 0} onClick={() => exportRoster('xlsx', 'filter')}>
-            匯出篩選結果（XLSX）
-          </button>
-        </div>
-      </div>
+    <div className="space-y-3">
+      {/* 批次動作列（原型：有勾選才出現，橘色細框）：匯出勾選的組別。 */}
+      {visibleSelected.length > 0 ? (
+        <BulkBar>
+          <span className="tabular text-sm font-medium">已選 {visibleSelected.length} 組</span>
+          <span className="text-xs text-muted-foreground">（目前篩選結果共 {rows.length} 組）</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            {exportButton('匯出勾選（CSV）', 'csv', 'ids', false)}
+            {exportButton('匯出勾選（XLSX）', 'xlsx', 'ids', false)}
+            <button type="button" className={GHOST_SM} onClick={() => setSelected(new Set())}>
+              取消選取
+            </button>
+          </div>
+        </BulkBar>
+      ) : null}
       {message ? (
-        <p
-          role={message.tone === 'ok' ? 'status' : 'alert'}
-          className={cn(
-            'rounded-md px-3 py-2 text-sm',
-            message.tone === 'ok' ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
-          )}
-        >
+        <p role={message.tone === 'ok' ? 'status' : 'alert'} className={message.tone === 'ok' ? NOTE : ALERT}>
           {message.text}
         </p>
       ) : null}
-      <div className="overflow-x-auto rounded-card border border-border">
-        <table className="w-full min-w-[56rem] border-collapse text-sm">
-          <thead className="bg-muted text-left text-muted-foreground">
+      <DataTableFrame>
+        <table className={`${DT.table} min-w-[64rem]`}>
+          <thead className={DT.thead}>
             <tr>
-              <th scope="col" className="w-10 px-3 py-2">
+              <th scope="col" className={`${DT.th} w-10`}>
                 <input
                   type="checkbox"
+                  className="size-4 accent-brand align-middle"
                   aria-label="全選目前顯示的組別"
                   checked={allChecked}
                   onChange={(e) => setSelected(e.target.checked ? new Set([...selected, ...ids]) : new Set([...selected].filter((id) => !ids.includes(id))))}
                 />
               </th>
               {columns.map((c) => (
-                <th key={c.label} scope="col" className="px-3 py-2 font-medium" aria-sort={c.active === 'asc' ? 'ascending' : c.active === 'desc' ? 'descending' : undefined}>
-                  {c.sortHref ? (
-                    <Link href={c.sortHref} className="inline-flex items-center gap-1 hover:text-ink">
-                      {c.label}
-                      <span aria-hidden className="text-xs">
-                        {c.active === 'asc' ? '▲' : c.active === 'desc' ? '▼' : '↕'}
-                      </span>
-                    </Link>
-                  ) : (
-                    c.label
-                  )}
+                <th
+                  key={c.label || 'actions'}
+                  scope="col"
+                  className={DT.th}
+                  aria-sort={c.active === 'asc' ? 'ascending' : c.active === 'desc' ? 'descending' : undefined}
+                >
+                  {c.sortHref ? <SortLink label={c.label} href={c.sortHref} active={c.active ?? null} /> : c.label}
                 </th>
               ))}
-              <th scope="col" className="px-3 py-2 font-medium">
+              <th scope="col" className={DT.th}>
                 組員信箱
               </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-muted-foreground">
-                  {empty}
-                </td>
-              </tr>
+              <EmptyRow colSpan={columns.length + 2} title={empty} />
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="border-t border-border align-top" data-testid="roster-row" data-code={row.code}>
-                  <td className="px-3 py-2">
+                <tr
+                  key={row.id}
+                  className={`${DT.tr} align-top`}
+                  data-testid="roster-row"
+                  data-code={row.code}
+                  data-state={selected.has(row.id) ? 'selected' : undefined}
+                >
+                  <td className={DT.td}>
                     <input
                       type="checkbox"
+                      className="size-4 accent-brand align-middle"
                       aria-label={`勾選 ${row.code}`}
                       checked={selected.has(row.id)}
                       onChange={(e) => toggle(row.id, e.target.checked)}
                     />
                   </td>
                   {row.cells.map((cell, index) => (
-                    <td key={index} className="px-3 py-2">
+                    <td key={index} className={DT.td}>
                       {cell}
                     </td>
                   ))}
-                  <td className="px-3 py-2">
-                    <ul aria-label={`${row.code} 組員信箱`} className="mb-2 space-y-0.5 text-xs text-ink">
+                  <td className={DT.td}>
+                    <ul aria-label={`${row.code} 組員信箱`} className="mb-1.5 max-w-[16rem] space-y-0.5 text-xs text-muted-foreground">
                       {row.emails.map((email) => (
-                        <li key={email} className="break-all">
+                        <li key={email} className="truncate" title={email}>
                           {email}
                         </li>
                       ))}
@@ -251,6 +252,16 @@ export function GroupRosterTable({
             )}
           </tbody>
         </table>
+      </DataTableFrame>
+      {/* 表格底部（原型：左「共 N 筆」）；匯出整份篩選結果放右邊。 */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="tabular text-xs text-muted-foreground" data-testid="roster-count">
+          顯示 {rows.length}／{total} 組・已勾選 {visibleSelected.length} 組
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {exportButton('匯出篩選結果（CSV）', 'csv', 'filter', rows.length === 0)}
+          {exportButton('匯出篩選結果（XLSX）', 'xlsx', 'filter', rows.length === 0)}
+        </div>
       </div>
     </div>
   )
