@@ -23,6 +23,7 @@
 #   4. docker compose run --rm migrate  ← 新映像；失敗即中止，舊 app 繼續跑
 #      接著把 fju_app 的密碼同步成 Doppler 的 APP_DB_PASSWORD（冪等；第一次部署靠這步）
 #      只有測試站：Doppler stg 有 E2E_ADMIN_EMAIL／E2E_ADMIN_PASSWORD 就建 E2E 測試管理員（冪等）
+#      只有測試站：照原型灌示範資料（web/scripts/seed-demo.mjs，已存在就不動；deploy/demo-seed.off 在就略過）
 #   5. docker compose up -d --no-deps app worker
 #   6. 健康判定
 #   7. 寫 deploy_log
@@ -236,6 +237,23 @@ seed_e2e_admin() {
     migrate node migrate/web/scripts/seed-e2e.mjs
 }
 
+# 測試站的示範資料（票 32，#281）：照原型的假資料建一個「示範 114 屆」與它底下的一切。回傳 0＝建好／已存在／略過，
+# 非 0＝seed 失敗（呼叫端只警告，不中止部署）。正式站一律不建：這裡寫死只認 test，seed-demo.mjs 也會自己檢查 FJU_SITE。
+# 封面與附件要寫進這一站的附件目錄，所以把 VM 上的 files 目錄掛進 migrate 容器（跟 app 掛的是同一個）。
+# Roy 用 ops/seed-demo.sh test --remove 清掉之後會留下 demo-seed.off，自動部署就不再重建（ops/seed-demo.sh test 會拿掉它）。
+DEMO_SEED_OFF="$DEPLOY_DIR/demo-seed.off"
+seed_demo_data() {
+  if [ "$SITE" != test ]; then
+    return 0
+  fi
+  if [ -e "$DEMO_SEED_OFF" ]; then
+    log "        示範資料：略過（$DEMO_SEED_OFF 在；要重建請跑 ops/seed-demo.sh test）"
+    return 0
+  fi
+  $COMPOSE run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v "$SITE_ROOT/files:$FILES_ROOT" \
+    migrate node migrate/web/scripts/seed-demo.mjs
+}
+
 # ── 4. 先跑 migration ──────────────────────────────────────
 NEW_SCHEMA=""
 if [ "$ROLLBACK" = 1 ]; then
@@ -250,8 +268,10 @@ else
     printf '        $ （stdin）ALTER ROLE fju_app PASSWORD <APP_DB_PASSWORD> | %s exec -T postgres psql\n' "$COMPOSE"
     if [ "$SITE" = test ]; then
       printf '        $ %s run --rm --no-deps -e E2E_ADMIN_EMAIL -e E2E_ADMIN_PASSWORD -e FJU_SITE migrate node migrate/web/scripts/seed-e2e.mjs  # Doppler 有這兩個鍵才跑\n' "$COMPOSE"
+      printf '        $ %s run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v %s/files:<FILES_ROOT> migrate node migrate/web/scripts/seed-demo.mjs  # 示範資料；已存在就不動，%s 在就略過\n' "$COMPOSE" "$SITE_ROOT" "$DEMO_SEED_OFF"
     else
       printf '        # E2E 測試帳號：正式站一律不建\n'
+      printf '        # 示範資料：正式站一律不建\n'
     fi
   else
     migrate_output="$($COMPOSE run --rm migrate)"
@@ -274,6 +294,11 @@ else
     if ! seed_e2e_admin; then
       echo "⚠️ 建立 E2E 測試管理員失敗（部署照常繼續；看上面 seed-e2e 的訊息，多半是 Doppler stg 的 E2E_ADMIN_* 不對）。" >&2
       printf '%s\te2e-seed-failed\t%s\n' "$(date -u +%FT%TZ)" "$TAG" >> "$DEPLOY_LOG"
+    fi
+    # 示範資料也一樣：只是讓測試站看起來有內容，失敗不擋部署。
+    if ! seed_demo_data; then
+      echo "⚠️ 建立示範資料失敗（部署照常繼續；看上面 seed-demo 的訊息）。" >&2
+      printf '%s\tdemo-seed-failed\t%s\n' "$(date -u +%FT%TZ)" "$TAG" >> "$DEPLOY_LOG"
     fi
   fi
 fi
