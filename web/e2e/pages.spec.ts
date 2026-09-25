@@ -214,7 +214,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/affairs': '專題事務',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '被引用的檔案不能刪',
-    '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
+    '/dashboard/admin/editor/new': '新增專題事務',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
