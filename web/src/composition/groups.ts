@@ -54,6 +54,8 @@ export function getAdvisorCommand(): AdvisorCommand {
     events: getEventPublisher(),
     files: getFileStorage(),
     businessClock: getBusinessClock(),
+    // 票 26：改主指導時同交易讓目前簽核版本失效。
+    signoff: getSignoffParticipantHook(),
   })
   return advisorCommand
 }

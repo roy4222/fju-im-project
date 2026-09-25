@@ -471,4 +471,22 @@ export interface FileStorage<Tx = unknown> {
 
   /** 每次下載都重新授權；通過才回串流。 */
   authorizeDownload(actor: ResolvedActor, fileId: string): Promise<Result<FileDownload>>
+
+  /**
+   * 伺服器自己產生的檔（例如簽核匯出，票 26）：不經上傳 ticket，直接寫進檔案根目錄並建一筆 `stored` 的檔案列，
+   * 同一交易綁上 `ref`。檔案列與引用跟著呼叫端的交易走（回滾就沒有列）；本體若因回滾變成沒有列指向的孤兒，
+   * 只佔磁碟、誰都下載不到。
+   */
+  storeGenerated(tx: Tx, input: GeneratedFile): Promise<StoredFileReceipt>
+}
+
+/** `storeGenerated` 的輸入：誰產生、什麼用途、檔名與內容。 */
+export type GeneratedFile = {
+  readonly ownerUserId: string
+  readonly purpose: FilePurpose
+  readonly scope: { readonly kind: 'global' } | { readonly kind: 'cohort'; readonly cohortId: string }
+  readonly fileName: string
+  readonly mime: string
+  readonly bytes: Uint8Array
+  readonly ref: FileRef
 }

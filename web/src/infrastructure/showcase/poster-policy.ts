@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Pool } from 'pg'
 import type { DownloadPolicy } from '@/application/ops'
+import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-access'
 
 /**
  * 精選海報的下載政策（`DOWNLOAD_POLICIES.poster`；票 25，前台補頁加上「已發布版本的海報公開」）。
@@ -9,8 +10,10 @@ import type { DownloadPolicy } from '@/application/ops'
  * - 任何人（含訪客）：這張是某個**發布中**條目**目前版本**的海報（前台優秀專題、專題詳情要用）。
  * - 管理員：草稿上、或被簽核版本凍結的海報都可以（編輯與核對要用）。
  * - 綁在精選草稿上（`showcase_draft`）：那一組**此刻**的有效組員與主指導（草稿是這一組的作品介紹）。
- * - 綁在簽核版本上（`signoff_version`，建版時凍結的授權範圍素材）：那一版的參與者（快照裡的學生與主指導）——
- *   授權範圍列在全文之後讓參與者讀完再同意，他們要看得到自己同意公開的那張海報。
+ * - 綁在簽核版本上（`signoff_version`，建版時凍結的授權範圍素材）：讀得到那一版的人（`canReadSignoffVersions`，
+ *   跟版本頁、簽核附件同一個判斷）——授權範圍列在全文之後讓參與者讀完再同意，他們要看得到自己同意公開的那張海報。
+ *   快照學生含之後被移出的人；老師只有此刻仍是這一組的主指導才可以，**換掉的舊主指導看不到**
+ *   （產品 07 §8「換老師後舊老師失權」；2026-09-25 Roy 定：失權含看不到，收回票 25 對快照主指導較寬的做法）。
  * - 其他人、沒被任何草稿或版本引用的檔（剛上傳還沒存、換圖後被放掉的）一律拒絕。
  *
  * 只看目前有效的引用（`released_at IS NULL`，共用檔案能力先篩好）；每次下載都重查（契約 03 §4）。
@@ -51,18 +54,7 @@ export function createPosterPolicy(reader: () => Pick<Pool, 'query'>): DownloadP
       )
       if ((member.rowCount ?? 0) > 0) return true
     }
-    if (versionIds.length > 0) {
-      const participant = await db.query(
-        `select 1
-           from signoff_package_versions v
-          where v.id = any($1::uuid[])
-            and (v.participants -> 'advisor' ->> 'userId' = $2
-                 or exists (select 1 from jsonb_array_elements(v.participants -> 'students') s where s ->> 'userId' = $2))
-          limit 1`,
-        [versionIds, actor.userId],
-      )
-      if ((participant.rowCount ?? 0) > 0) return true
-    }
+    if (versionIds.length > 0 && (await canReadSignoffVersions(db, actor, versionIds))) return true
     return false
   }
 }
