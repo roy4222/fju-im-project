@@ -118,7 +118,8 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="tabular min-w-0 flex-1 text-[13px] text-muted-foreground">
-                        {row.dueAt ? `${dueText(row.dueAt)} 截止${status.pending ? `・${dueHint(row.dueAt, status).text}` : ''}` : '無截止'}・
+                        {/* 手機只寫月日（原型）；完整的截止分鐘在內容頁。 */}
+                        {row.dueAt ? `${dueText(row.dueAt).slice(5, 10)} 截止${status.pending ? `・${dueHint(row.dueAt, status).text}` : ''}` : '無截止'}・
                         {unitText(row)}
                       </span>
                       <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} className="h-11" />
