@@ -272,12 +272,45 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
    * 單一版本：跟版本列表走同一條路（`#scope` → 這個收件者的名單列、種類 → `canReadSubmission`），
    * 列表列得出來的才點得開，不靠頁面先呼叫 `receiver()` 擋（PR #267 審查建議）。
    * `isLatest` 只跟老師讀得到的版本比。
+   *
+   * 票 24（S10-03）：受指派的評分老師不一定指導這一組（`#scope` 只給此刻的主指導），所以主指導那條拿不到時，
+   * 再走一次「本組有效評分指派」——只收整組一份、已發布的收件，而且只算 `canReadSubmission` 因**評分指派**放行的版本
+   * （`evaluators` 含本人）。沒有指導關係也沒有評分指派的老師兩條都拿不到，照舊 null。
    */
   async receiverVersion(actor: ResolvedActor, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null> {
     if (!isTeacher(actor) || !isUuid(itemId) || !isUuid(receiverId) || !Number.isInteger(versionNo) || versionNo < 1) return null
     const listed = await this.#readableVersions(actor, itemId, receiverId)
-    if (!listed || !listed.versions.some((v) => v.version_no === versionNo)) return null
-    return versionDetail(this.#reader(), itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
+    if (listed && listed.versions.some((v) => v.version_no === versionNo)) {
+      return versionDetail(this.#reader(), itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
+    }
+    const evaluated = await this.#evaluatorVersions(actor, itemId, receiverId)
+    if (!evaluated.some((v) => v.version_no === versionNo)) return null
+    return versionDetail(this.#reader(), itemId, 'group', receiverId, versionNo, evaluated[0]!.version_no)
+  }
+
+  /**
+   * 評分老師讀得到的某組、某份整組收件的正式版本（新到舊）：已發布、整組一份、而且是因「本組有效評分指派」放行
+   * （同一段 `VERSION_ACCESS_COLUMNS` 事實＋`canReadSubmission`，跟附件下載、`groupVersions` 一致）。
+   */
+  async #evaluatorVersions(
+    actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
+    itemId: string,
+    groupId: string,
+  ): Promise<(VersionRow & VersionAccessRow)[]> {
+    const db = this.#reader()
+    const item = await rosterItemOf(db, itemId)
+    if (!item || item.status !== 'published' || item.receiverUnit !== 'group') return []
+    const viewer = await viewerOf(db, actor)
+    if (!viewer) return []
+    const rows = await db.query<VersionRow & VersionAccessRow>(
+      `select ${VERSION_COLUMNS}, ${VERSION_ACCESS_COLUMNS}
+         from submission_versions v ${VERSION_JOINS}
+         join managed_items m on m.id = v.item_id
+        where v.item_id = $1 and v.receiver_kind = 'group' and v.receiver_id = $2
+        order by v.version_no desc`,
+      [itemId, groupId],
+    )
+    return readable(viewer, rows.rows).filter((r) => (r.evaluators ?? []).includes(actor.userId))
   }
 
   /** 老師看得到的某個收件者＋他讀得到的正式版本（新到舊）。不在老師的範圍裡回 null。 */
@@ -320,7 +353,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
          join form_schema_versions sv on sv.id = v.schema_version_id
          join users su on su.id = v.submitted_by_user_id
          left join user_profiles sp on sp.user_id = v.submitted_by_user_id
-        where v.receiver_kind = 'group' and v.receiver_id = $1
+        where v.receiver_kind = 'group' and v.receiver_id = $1 and m.status = 'published'
         order by m.title, v.item_id, v.version_no desc`,
       [groupId],
     )

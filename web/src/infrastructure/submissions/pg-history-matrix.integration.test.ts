@@ -555,6 +555,26 @@ describe('5. 受指派的評分老師（票 24、S10-03）讀得到該組正式�
     expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 1)).toBeNull()
   })
 
+  it('純評分老師（沒指導任何組）打得開內容、isLatest 正確；無關的老師（沒指導也沒評分、或只指導別組）一律 null', async () => {
+    const { g1, g2, itemId } = await groupScenario()
+    const evaluator = await newUser('只評分的老師', 'teacher')
+    const outsider = await newUser('無關的老師', 'teacher')
+    await evaluate(g1, evaluator)
+    // 評分老師這一屆沒有指導任何組（#271 之後主指導那條路給 null），仍然打得開本組每一版。
+    expect(await advisor.item(teacherActor(evaluator), itemId)).toBeNull()
+    const v2 = await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 2)
+    const v1 = await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 1)
+    expect([v2?.versionNo, v2?.isLatest, v1?.versionNo, v1?.isLatest]).toEqual([2, true, 1, false])
+    expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 3)).toBeNull()
+    // 無關的老師：沒有指導也沒有評分指派 → null；只指導別組（T3 指導 G2）→ G1 仍是 null。
+    expect(await advisor.receiverVersion(teacherActor(outsider), itemId, g1, 1)).toBeNull()
+    expect(await advisor.groupVersions(teacherActor(outsider), g1)).toEqual([])
+    expect(await advisor.receiverVersion(teacherActor(t3), itemId, g1, 1)).toBeNull()
+    expect(await advisor.receiverVersion(teacherActor(t3), itemId, g2, 1)).not.toBeNull()
+    // 評分老師對別組（沒有評分指派）也是 null。
+    expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g2, 1)).toBeNull()
+  })
+
   it('同時是主指導與評分老師：移除評分指派後仍以主指導身分讀得到（GRD-14）', async () => {
     const { g1, f1 } = await groupScenario()
     const assignmentId = await evaluate(g1, t1)
