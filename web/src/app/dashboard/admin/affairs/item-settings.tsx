@@ -48,6 +48,7 @@ export function SettingsFields({
   unitLocked,
   idPrefix,
   afterPlacement,
+  placementAs = 'cards',
 }: {
   state: EditorState
   onChange: (patch: Partial<EditorState>) => void
@@ -59,15 +60,73 @@ export function SettingsFields({
   idPrefix: string
   /** 放在發布位置卡片下面的欄位（快速建立的「標題」：原型順序是類型→標題→對象）。 */
   afterPlacement?: ReactNode
+  /** 發布位置的樣子：快速建立用類型卡片（原型「新增項目」）；完整編輯器用下拉，跟「發布對象」並排（原型編輯器第 3 段）。 */
+  placementAs?: 'cards' | 'select'
 }) {
   const collects = state.placement === 'submission'
   const audiences = collects
     ? vocabulary.audiences.filter((a) => vocabulary.collectionAudiences.includes(a.value))
     : vocabulary.audiences
   const id = (name: string) => `${idPrefix}-${name}`
+  const choosePlacement = (value: string) => {
+    const toCollect = value === 'submission'
+    onChange({
+      placement: value,
+      // 收件只能發給本屆學生或指定組別；換成收件時把不合的對象改回本屆學生。
+      ...(toCollect && !vocabulary.collectionAudiences.includes(state.audienceKind) ? { audienceKind: 'cohort_students' } : {}),
+      receiverUnit: toCollect ? (state.receiverUnit === 'none' ? 'group' : state.receiverUnit) : 'none',
+    })
+  }
+  const placementHint = vocabulary.placements.find((p) => p.value === state.placement)?.hint
+
+  const audienceField = (
+    <div>
+      <label htmlFor={id('audience')} className={LABEL}>
+        發布對象
+      </label>
+      <select
+        id={id('audience')}
+        className={INPUT}
+        value={state.audienceKind}
+        disabled={unitLocked}
+        onChange={(e) => onChange({ audienceKind: e.target.value })}
+      >
+        {audiences.map((a) => (
+          <option key={a.value} value={a.value}>
+            {a.label}
+          </option>
+        ))}
+      </select>
+      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">收件只能發給本屆學生或指定組別。</p> : null}
+    </div>
+  )
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
+      {placementAs === 'select' ? (
+        <>
+          <div>
+            <label htmlFor={id('placement')} className={LABEL}>
+              發布位置
+            </label>
+            <select
+              id={id('placement')}
+              className={INPUT}
+              value={state.placement}
+              disabled={published}
+              onChange={(e) => choosePlacement(e.target.value)}
+            >
+              {vocabulary.placements.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            {placementHint ? <p className="mt-1.5 text-xs text-muted-foreground">{placementHint}</p> : null}
+          </div>
+          {audienceField}
+        </>
+      ) : (
       <fieldset className="sm:col-span-2">
         <legend className={cn(LABEL, 'mb-1.5')}>發布位置（單選）</legend>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -101,17 +160,7 @@ export function SettingsFields({
                       checked={on}
                       disabled={published}
                       className="size-4 accent-primary"
-                      onChange={() => {
-                        const toCollect = p.value === 'submission'
-                        onChange({
-                          placement: p.value,
-                          // 收件只能發給本屆學生或指定組別；換成收件時把不合的對象改回本屆學生。
-                          ...(toCollect && !vocabulary.collectionAudiences.includes(state.audienceKind)
-                            ? { audienceKind: 'cohort_students' }
-                            : {}),
-                          receiverUnit: toCollect ? (state.receiverUnit === 'none' ? 'group' : state.receiverUnit) : 'none',
-                        })
-                      }}
+                      onChange={() => choosePlacement(p.value)}
                     />
                     {p.label}
                   </span>
@@ -122,6 +171,7 @@ export function SettingsFields({
           })}
         </div>
       </fieldset>
+      )}
 
       {afterPlacement ? <div className="sm:col-span-2">{afterPlacement}</div> : null}
 
@@ -154,25 +204,7 @@ export function SettingsFields({
         </fieldset>
       ) : null}
 
-      <div>
-        <label htmlFor={id('audience')} className={LABEL}>
-          發布對象
-        </label>
-        <select
-          id={id('audience')}
-          className={INPUT}
-          value={state.audienceKind}
-          disabled={unitLocked}
-          onChange={(e) => onChange({ audienceKind: e.target.value })}
-        >
-          {audiences.map((a) => (
-            <option key={a.value} value={a.value}>
-              {a.label}
-            </option>
-          ))}
-        </select>
-        {collects ? <p className="mt-1.5 text-xs text-muted-foreground">收件只能發給本屆學生或指定組別。</p> : null}
-      </div>
+      {placementAs === 'cards' ? audienceField : null}
 
       {collects ? (
         <div>
