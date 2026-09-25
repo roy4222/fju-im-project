@@ -440,11 +440,16 @@ sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80-restore --exec
 
 （不跑也沒關係，下一個整點 worker 自己會量一次蓋過去。）
 
-- `poison` 需要測試站的 `BUSINESS_CLOCK_OVERRIDE_ENABLED=true`（`test_noop` 只在測試站有處理器）。插進去的兩件工作留在資料庫裡當證據，不影響任何人。
-- `worker-stall` 中途按 Ctrl-C 也會把 worker 重新啟動。
+- 腳本會先從正在跑的 `fju-test-app` 容器讀出目前部署的映像（印一行「目前部署的映像：…」），之後每個 `docker compose` 指令都用那一版；`disk80` 不會去 pull 或 build。
+- `worker-stall` 用 `docker start` 把**同一個** worker 容器帶回來（不用 `docker compose start／up`：worker 在 Compose 裡依賴 migrate，而 migrate 是 `run --rm` 跑的、沒有容器）。
+  **不管怎麼結束**（通過、失敗、出錯、Ctrl-C）都會把 worker 帶回並寫一行紀錄；真的帶不回來會印出要手動跑的 `docker start` 指令。
+- `worker-stall`、`poison` 開始前先確認 worker 在跑、60 秒內有心跳；`poison` 另外確認 worker 容器的 `BUSINESS_CLOCK_OVERRIDE_ENABLED=true`（`test_noop` 只在測試站有處理器）。不符就直接記「前置不符」並提示怎麼恢復，不會白等 5 分鐘。
+  插進去的兩件工作留在資料庫裡當證據，不影響任何人。
+- 萬一 worker 被上一次演練留在停止狀態：`sudo -u deploy docker start fju-test-worker`，等 `/api/health` 的 `worker.lastTickAt` 是幾秒內再跑。
 - 跑完把紀錄貼回 Vault：`sudo cat /srv/fju/test/drills/fault-drills.log`，四行都是 `pass` 就把 SOP 05 的執行紀錄與票 28 第 3 點打勾。
 
-**💻 在自己電腦先模擬一次（不碰 VM）**：同一支腳本、同一個映像，對一個本機的獨立模擬站（`fju-faultsim-*`，跟本機開發的資料庫分開）跑：
+**💻 在自己電腦先模擬一次（不碰 VM）**：同一支腳本、同一個映像，對一個本機的模擬站（`fju-faultsim-*`，跟本機開發的資料庫分開）跑。
+模擬站跟 VM 一樣是疊在 `docker-compose.yml` 上（worker 依賴 migrate、沒設 `APP_IMAGE` 會退回 `:local`），演練時也不給 `APP_IMAGE`：
 
 ```bash
 docker build -f web/Dockerfile --build-arg GIT_COMMIT=faultsim -t fju-web:faultsim .
