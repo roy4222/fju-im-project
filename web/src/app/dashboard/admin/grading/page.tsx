@@ -170,7 +170,9 @@ export default async function AdminGradingPage({
     return { key: s.key, label: `${s.name}（${s.weight}%）`, done, total }
   })
   // 原型「老師評分進度」：目前選的階段，每位老師被指派的份數與已正式送出的份數。
-  const stageAssignments = stage ? assignments.filter((a) => a.stageKey === stage.key) : []
+  // 只算進行中的組（`groups` 只有進行中的組）：解散的組評分已停止，沒結束的指派也不算缺評。
+  const activeGroupIds = new Set(groups.map((g) => g.id))
+  const stageAssignments = stage ? assignments.filter((a) => a.stageKey === stage.key && activeGroupIds.has(a.groupId)) : []
   const byTeacher = new Map<string, { name: string; assigned: number; counted: number }>()
   for (const a of stageAssignments) {
     const t = byTeacher.get(a.teacherUserId) ?? { name: a.teacherName, assigned: 0, counted: 0 }
@@ -626,6 +628,12 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                                 <p className="mt-0.5">
                                   <Pill tone={s.complete ? 'success' : s.counted.length > 0 ? 'brand' : 'default'}>{describeStageStatus(s)}</Pill>
                                 </p>
+                                {s.name !== v.name || s.weight !== v.weight ? (
+                                  // 解散的組照解散當下的版本算：階段名稱或權重和表頭不同時註明，最終成績才對得起來。
+                                  <p className="mt-0.5 text-xs text-muted-foreground">
+                                    v{g.versionNo}：{s.name} {s.weight}%
+                                  </p>
+                                ) : null}
                               </td>
                             )
                           })}

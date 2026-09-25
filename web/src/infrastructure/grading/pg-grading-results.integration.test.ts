@@ -993,6 +993,25 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     const row = await groupRow(cohortId, empty)
     expect([row.dissolved, row.versionNo, row.result.stages[0]!.status]).toEqual([true, 1, 'incomplete'])
     expect(row.missing).toEqual([])
+
+    // 之後別組的老師開始評分（v1 鎖定）、再套用 v2：解散的組留在 v1（解散當下的版本後來成了第一個鎖定版本）。
+    const other = await newGroup(cohortId, 'G10')
+    await requirement(other, 'mid', 1)
+    const t = await newUser('戊老師', 'teacher')
+    await submit(t, await assign(other, t), '75')
+    const next = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[0]!, name: '期中報告', weight: 50 }, { ...STAGES[1]!, weight: 50 }] },
+      randomUUID(),
+    )
+    const p2 = await book.previewSchemeVersion(adminActor(), next.ok ? next.receipt.versionId : '')
+    if (!p2.ok) throw new Error(p2.message)
+    expect(
+      await results.applySchemeVersion(adminActor(), { versionId: next.ok ? next.receipt.versionId : '', token: p2.receipt.token }, randomUUID()),
+    ).toMatchObject({ ok: true })
+    const frozen = await groupRow(cohortId, empty)
+    expect([frozen.versionNo, frozen.result.stages[0]!.name, frozen.result.stages[0]!.weight]).toEqual([1, '期中', 60])
+    expect((await groupRow(cohortId, other)).versionNo).toBe(2)
   })
 })
 

@@ -1081,8 +1081,11 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
  *
  * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
  * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
- * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本。解散的組只要有任何評分，解散前一定鎖定過；
- * 查不到（解散前沒有任何老師開始評分）就沒有分數要凍結，照目前版本顯示。
+ * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本。解散的組只要有任何評分，解散前一定鎖定過。
+ *
+ * 解散前還沒鎖定過（沒有任何老師開始評分）：那時的目前版本是「已發布」、沒有時間戳記，換過幾次查不出來；
+ * 但它後來若被鎖定，就是第一個鎖定的版本（鎖的一定是目前版本），所以取第一個鎖定版本——解散後、第一次鎖定前
+ * 又發布過別的版本時才會不準（這種組沒有任何分數，只影響階段名稱與份數的顯示）。連鎖定都沒有過就照目前版本。
  */
 async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, NonNullable<CurrentVersion>>> {
   if (groupIds.length === 0) return new Map()
@@ -1092,8 +1095,10 @@ async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds:
        join grading_schemes s on s.cohort_id = g.cohort_id
        join lateral (
          select x.id, x.version_no, x.stages from grading_scheme_versions x
-          where x.scheme_id = s.id and x.status = 'locked' and x.locked_at <= g.dissolved_real_at
-          order by x.locked_at desc, x.version_no desc
+          where x.scheme_id = s.id and x.status = 'locked'
+          order by x.locked_at <= g.dissolved_real_at desc,
+                   case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
+                   x.locked_at, x.version_no
           limit 1
        ) v on true
       where g.id = any($1::uuid[]) and g.status = 'dissolved'`,
