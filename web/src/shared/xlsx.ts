@@ -14,7 +14,7 @@ import { strToU8, zipSync } from 'fflate'
 
 /** XML 1.0 不允許的字元：除了 \t \n \r 以外的 C0 控制字元，以及 U+FFFE、U+FFFF、落單的代理字元。 */
 // eslint-disable-next-line no-control-regex
-const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
 
 export function escapeXmlText(value: string): string {
   return value

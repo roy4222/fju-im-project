@@ -417,7 +417,8 @@ export type RevocationOutcome = 'done' | 'failed' | 'pending'
 export type StatusChangeReceipt = {
   readonly userId: string
   readonly name: string
-  readonly status: 'active' | 'disabled'
+  /** 變更後的狀態。恢復＝回到停用前的狀態：一般是 active；待審的孤兒帳號停用後恢復回 pending（票 10b 審查建議）。 */
+  readonly status: 'active' | 'disabled' | 'pending'
   readonly changedAt: string
   readonly revocation: RevocationOutcome
 }

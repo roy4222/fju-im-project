@@ -918,6 +918,25 @@ describe('查詢', () => {
     expect(options.stages.map((s) => s.name)).toEqual(['成組期', '期中'])
     expect(options.groups.map((x) => x.code)).toEqual(['G05'])
   })
+
+  it('工作台的「N 位」是應交數：不含免填與已移出，跟收件名單頁完成率的分母同一個口徑（PR #261 審查建議）', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const [a, b, c] = [await newStudent(cohortId), await newStudent(cohortId), await newStudent(cohortId)]
+    const collect = await mustCreate(cohortId, { stageId })
+    expect((await mustPublish(collect.itemId, 1)).rosterCount).toBe(3)
+    await owner.sql(
+      `update response_rosters set exempt = true, exempt_reason = '休學' where item_id = $1 and receiver_id = $2`,
+      [collect.itemId, a.id],
+    )
+    await owner.sql(
+      `update response_rosters set eligible_to_business_at = eligible_from_business_at + interval '1 minute', removed_reason = '轉系'
+        where item_id = $1 and receiver_id = $2`,
+      [collect.itemId, b.id],
+    )
+    expect((await query.list(cohortId)).find((r) => r.id === collect.itemId)?.rosterCount).toBe(1)
+    expect((await query.get(collect.itemId))?.rosterCount).toBe(1)
+    expect(c.id).toBeTruthy()
+  })
 })
 
 // ── 票 16 ──────────────────────────────────────────────────────────────────────
@@ -1042,11 +1061,17 @@ describe('撤回、下架、重新發布（票 16；PUB-07、PUB-11）', () => {
     const archived = await mustChange(item.itemId, published.revision, 'archive')
 
     // 截止 2026/11/15 23:59（含這一分鐘）；隔天才要重新發布。
+    const dueWorkBefore = await count('select count(*) as n from due_work where subject_id = $1', [item.itemId])
     businessNow = new Date('2026-11-15T16:00:00Z')
     const expired = await items.changeStatus(adminActor(), item.itemId, archived.revision, 'republish', randomUUID())
     expect(expired.ok || expired.code).toBe('VALIDATION_FAILED')
     expect(expired.ok || expired.message).toContain('截止（2026/11/15 23:59，臺灣時間）已經過了')
-    expect((await itemRow(item.itemId)).status).toBe('archived')
+    expect(expired.ok || expired.details).toEqual({ checks: ['due'] })
+    // 被拒就什麼都沒改（PR #260 審查建議補的整合案例）：狀態、revision、發布紀錄、事件、截止工作都跟拒絕前一樣。
+    expect(await itemRow(item.itemId)).toMatchObject({ status: 'archived', revision: archived.revision })
+    expect(await publicationActions(item.itemId)).toEqual(['publish', 'archive'])
+    expect(await events(item.itemId, 'item.republished')).toHaveLength(0)
+    expect(await count('select count(*) as n from due_work where subject_id = $1', [item.itemId])).toBe(dueWorkBefore)
     // 截止那一分鐘之內還可以。
     businessNow = new Date('2026-11-15T15:59:30Z')
     await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [g])

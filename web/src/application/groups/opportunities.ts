@@ -257,14 +257,26 @@ export function normalizeLinkReason(reason: string, what: '換案' | '解除連�
  * （「組別已成立」由有組別這件事本身保證）。回不符合的條件，全部符合回空陣列。
  */
 export type LeaderTypeChangeFacts = {
-  readonly inGroupingPeriod: boolean
+  /**
+   * 此刻相對於成組期的位置：`unconfigured`＝系辦還沒設定這一屆的階段；`not_started`＝第 1 階段還沒開始；
+   * `open`＝成組期內；`ended`＝已過成組截止（第 2 階段開始日 00:00）。
+   */
+  readonly groupingPeriod: GroupingPeriodState
   readonly hasAdvisor: boolean
   readonly hasLink: boolean
 }
 
+export type GroupingPeriodState = 'unconfigured' | 'not_started' | 'open' | 'ended'
+
+const GROUPING_PERIOD_BLOCKER: Readonly<Record<Exclude<GroupingPeriodState, 'open'>, string>> = {
+  unconfigured: '這一屆還沒設定成組期',
+  not_started: '成組期還沒開始',
+  ended: '成組期已結束',
+}
+
 export function leaderTypeChangeBlockers(facts: LeaderTypeChangeFacts): string[] {
   const blockers: string[] = []
-  if (!facts.inGroupingPeriod) blockers.push('成組期已結束')
+  if (facts.groupingPeriod !== 'open') blockers.push(GROUPING_PERIOD_BLOCKER[facts.groupingPeriod])
   if (facts.hasAdvisor) blockers.push('已經有指導老師')
   if (facts.hasLink) blockers.push('已經連結合作案')
   return blockers

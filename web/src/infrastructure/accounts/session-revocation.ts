@@ -178,7 +178,7 @@ export class SessionRevocationExecutor {
         return null
       }
 
-      // 以認領當下的 users.status 為準覆寫要做的事（規則 2 最後一句）。
+      // 以認領當下的 users.status 為準覆寫要做的事（規則 2 最後一句）。待審跟 active 一樣＝解除封鎖（`revocationTargetOf`）。
       const row = user.rows[0]
       const expected: ExpectedUserStatus | null = !row
         ? null
@@ -186,7 +186,7 @@ export class SessionRevocationExecutor {
           ? 'deidentified'
           : row.status === 'disabled'
             ? 'disabled'
-            : row.status === 'active'
+            : row.status === 'active' || row.status === 'pending'
               ? 'active'
               : null
       if (!expected) {
