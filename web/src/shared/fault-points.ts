@@ -26,6 +26,8 @@ export type FaultPointName =
   | 'advisor.claim.before-insert'
   /** 票 15：發布時名單已展開寫入，還沒排到期工作、發事件與 commit（證明發布是單一交易）。 */
   | 'item.publish.after-roster'
+  /** 票 23：正式送出驗完「同指派還沒有採計」與分數、還沒寫評分列（測兩個請求編號同時送出）。 */
+  | 'grading.final.before-insert'
 
 export type FaultHandler = () => void | Promise<void>
 
