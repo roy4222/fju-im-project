@@ -1,9 +1,33 @@
 import 'server-only'
-import type { FileDownload, StoredFileReceipt } from '@/application/ops'
+import type { ResolvedActor } from '@/application/accounts'
+import { formatGiB, type FileDownload, type FileListRow, type StoredFileReceipt } from '@/application/ops'
 import { createRateLimiter } from '@/shared/rate-limit'
 import type { Result } from '@/shared/result'
 import { checkStatus, resolveActor } from '@/composition/accounts'
-import { getFileStorage } from '@/composition/ops'
+import { getFileStorage, getOpsStatusQuery } from '@/composition/ops'
+import { getPool } from '@/infrastructure/db/client'
+import { listStoredFiles } from '@/infrastructure/ops/file-list'
+
+/**
+ * 檔案管理頁（票 35）：全站已存好的檔案與引用位置。只有啟用中的系辦拿得到（其他人回 null → 頁面 404）；
+ * 下載一樣走 `/api/files/<id>`，每次重新授權，這一頁不放寬任何下載權限。
+ */
+export function getFileListQuery() {
+  return {
+    async list(actor: ResolvedActor): Promise<FileListRow[] | null> {
+      if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
+      return listStoredFiles(getPool())
+    },
+    /** 頁首「用量 X／Y」：最新一筆磁碟量測（票 28）；還沒量過回 null。 */
+    async usage(actor: ResolvedActor): Promise<{ used: string; total: string; measuredAt: Date } | null> {
+      const m = await getOpsStatusQuery().storage(actor)
+      if (!m) return null
+      return { used: formatGiB(m.usedBytes), total: formatGiB(m.usedBytes + m.freeBytes), measuredAt: m.measuredRealAt }
+    },
+  }
+}
+
+export { FILE_LIST_LIMIT } from '@/infrastructure/ops/file-list'
 
 /**
  * 檔案上傳與下載兩條 Route Handler 的門面（契約 02 §6）。

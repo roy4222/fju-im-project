@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
-import { PageHeader } from '@/app/_ui/primitives'
+import { IconHistory } from '@tabler/icons-react'
+import { Panel } from '@/app/_ui/dashboard-kit'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { fieldFromSchema, type EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
@@ -66,31 +67,33 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <PageHeader
-        title="編輯專題事務"
-        description={`${cohort?.code ?? ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
-      />
-      <ItemEditor
-        initial={initial}
-        itemId={item.id}
-        revision={item.revision}
-        status={item.status}
-        hasResponses={item.hasResponses}
-        vocabulary={await editorVocabulary(item.cohortId)}
-      />
-      {item.publications.length > 0 ? (
-        <section aria-label="發布紀錄" className="mt-6 space-y-2">
-          <h2 className="text-base font-semibold text-ink">發布紀錄</h2>
-          <ul className="space-y-1 text-sm text-muted-foreground">
-            {item.publications.map((p, index) => (
-              <li key={index} className="tabular-nums">
-                {formatTaipeiMinute(p.realAt)}・{p.actorName}・{ACTION_LABEL[p.action] ?? p.action}
-                {p.notify ? '・有通知' : '・未通知'}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <div className="flex flex-col gap-5">
+        <ItemEditor
+          initial={initial}
+          itemId={item.id}
+          revision={item.revision}
+          status={item.status}
+          hasResponses={item.hasResponses}
+          vocabulary={await editorVocabulary(item.cohortId)}
+          heading="編輯專題事務"
+          meta={`${cohort?.code ?? ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
+        />
+        {item.publications.length > 0 ? (
+          <Panel title="發布紀錄" icon={<IconHistory />} description={`${item.publications.length} 筆`} aria-label="發布紀錄">
+            <ul className="divide-y divide-border border-t border-border text-sm">
+              {item.publications.map((p, index) => (
+                <li key={index} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 tabular-nums">
+                  <span className="font-semibold">{ACTION_LABEL[p.action] ?? p.action}</span>
+                  <span className="text-muted-foreground">
+                    {formatTaipeiMinute(p.realAt)}・{p.actorName}
+                    {p.notify ? '・有通知' : '・未通知'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        ) : null}
+      </div>
     </DashboardShell>
   )
 }

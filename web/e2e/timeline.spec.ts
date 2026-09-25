@@ -89,11 +89,11 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
 test('時間軸：填四個階段開始日與年度結束日；不遞增被拒，原日期保留', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/timeline')
-  await expect(page.getByRole('heading', { name: '時間軸', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: '目前階段' })).toContainText(CODE)
+  await expect(page.getByRole('heading', { name: '時間軸設定', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '時間軸' })).toContainText(CODE)
   await expect(page.getByText('這一屆還沒設定階段')).toBeVisible()
 
-  await page.getByRole('button', { name: '編輯階段與日期' }).click()
+  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 的階段與日期` })
   const stages = [
     ['成組期', '2026-09-15'],
@@ -110,13 +110,13 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(feedback(page, 'status')).toContainText(`已儲存 ${CODE} 的階段與日期`)
   await expect(dialog).toBeHidden()
 
-  const list = page.getByRole('list', { name: '階段' })
-  await expect(list).toContainText('第 1 階段：成組期')
+  const list = page.getByRole('list', { name: '本屆階段' })
+  await expect(list).toContainText('成組期')
   await expect(list).toContainText('2026/11/01 – 2027/01/09')
   await expect(list).toContainText('2027/03/01 – 2027/06/30')
 
   // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變。
-  await page.getByRole('button', { name: '編輯階段與日期' }).click()
+  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
   await dialog.getByLabel('第 3 階段開始日').fill('2026-10-01')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(dialog.getByRole('alert')).toContainText('第 3 階段的開始日')
@@ -124,7 +124,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await dialog.getByRole('button', { name: '先不改' }).click()
 
   await page.reload()
-  await expect(page.getByRole('list', { name: '階段' })).toContainText('2027/01/10 – 2027/02/28')
+  await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027/01/10 – 2027/02/28')
 })
 
 test('活動：新增、改期、取消；取消後留在「已取消」、不在已排定清單', async ({ page }) => {

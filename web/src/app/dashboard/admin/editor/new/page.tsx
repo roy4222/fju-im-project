@@ -1,5 +1,6 @@
 import { requireRole } from '@/app/_ui/guard'
-import { EmptyState, PageHeader } from '@/app/_ui/primitives'
+import { PageTitle } from '@/app/_ui/dashboard-kit'
+import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import type { EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
@@ -22,18 +23,20 @@ export default async function NewItemPage({ searchParams }: { searchParams: Prom
 
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <PageHeader title="新增專題事務" description="寫內容、設收件欄位與發布對象，檢查過再發布；存草稿之前沒有人看得到。" />
       {children}
     </DashboardShell>
   )
 
   if (!cohort) {
     return shell(
-      <EmptyState
+      <div className="flex flex-col gap-5">
+        <PageTitle title="新增專題事務" description="寫內容、設收件欄位與發布對象，檢查過再發布；存草稿之前沒有人看得到。" />
+        <EmptyState
         title="還沒有屆別"
         description="專題事務要綁在某一屆；先到屆別頁新增一屆。"
         action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }}
-      />,
+        />
+      </div>,
     )
   }
 
@@ -56,16 +59,15 @@ export default async function NewItemPage({ searchParams }: { searchParams: Prom
   }
 
   return shell(
-    <>
-      <p className="mb-3 text-sm text-muted-foreground">綁定屆別：{cohort.code}（建立後不能換）</p>
-      <ItemEditor
-        initial={initial}
-        itemId={null}
-        revision={0}
-        status="draft"
-        hasResponses={false}
-        vocabulary={await editorVocabulary(cohort.id)}
-      />
-    </>,
+    <ItemEditor
+      initial={initial}
+      itemId={null}
+      revision={0}
+      status="draft"
+      hasResponses={false}
+      vocabulary={await editorVocabulary(cohort.id)}
+      heading="新增專題事務"
+      meta={`綁定屆別：${cohort.code}（建立後不能換）・存草稿之前沒有人看得到`}
+    />,
   )
 }

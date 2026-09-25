@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { requireSignedIn } from '@/app/_ui/guard'
+import { DashThemeRoot } from '@/app/_ui/dash-theme'
 
 /**
  * 學生後台的第一道：**要登入**。
@@ -11,5 +12,6 @@ import { requireSignedIn } from '@/app/_ui/guard'
  */
 export default async function StudentLayout({ children }: { children: ReactNode }) {
   await requireSignedIn('/dashboard/student', 'self.session')
-  return <>{children}</>
+  // 後台深淺色（票 35）：放在 layout，換頁不重掛。
+  return <DashThemeRoot>{children}</DashThemeRoot>
 }
