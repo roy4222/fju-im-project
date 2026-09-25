@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconAlertTriangle, IconChecklist, IconScale, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { IconAlertTriangle, IconChecklist, IconHistory, IconScale, IconUserCheck, IconUsers } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Bars, HBar, StackedRows } from '@/app/_ui/dashboard/charts'
 import { ClearFilters, DataTableFrame, DataTableToolbar, DT, EmptyRow } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
+import { SectionDialog } from '@/app/_ui/dashboard/section-dialog'
+import { BTN_ROW_GHOST } from '@/app/_ui/dashboard/look'
+import { buttonVariants } from '@/app/_ui/ui/button'
 import { CohortPills, PageTitle, Panel, PANEL_TABLE_HEAD, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import {
@@ -45,7 +48,8 @@ const BASE = '/dashboard/admin/grading'
  *
  * 外觀照原型（票 36，Roy 選的畫布 A「圖在上、表在下、方案最後」）：標題列（方案版本、階段權重、右上建立新方案版本）→
  * 各階段完成率＋老師評分進度兩張圖 → 待復核的更正 → 成績表（票 24：各組各階段平均、最終、完成狀態、篩選與匯出）→
- * 評分方案（目前版本、公式、版本清單與發布／套用新版本）→ 評分要求與指派（原型沒有，放最後）。
+ * 評分方案（目前版本、公式）。原型主畫面只有圖、成績表與方案，設定放在對話框裡（「建立新方案版本」的第 3 段
+ * 是評審分配），所以「評分要求與指派」收進標題右側的對話框、版本清單收進評分方案標題列的「版本紀錄」對話框。
  * 兩張圖的數字都從同一份 board／gradebook 算，不另外查。
  * 計算明細、退回、更正與復核在 `/dashboard/admin/grading/<組別>`。
  * 暫存只有本人與管理員看得到：這一頁是管理員頁，所以列出暫存分數並標「未正式」。
@@ -96,6 +100,7 @@ export default async function AdminGradingPage({
     fgroup?: string | string[]
     fstatus?: string | string[]
     applied?: string | string[]
+    dialog?: string | string[]
   }>
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -154,6 +159,8 @@ export default async function AdminGradingPage({
   const locked = current?.status === 'locked'
   const stages = current?.stages ?? []
   const stage = stages.find((s) => s.key === params.stage) ?? stages[0] ?? null
+  // 對話框的深連結（`?dialog=assign`、`?dialog=versions`）：換階段、發布後回來時保持打開。
+  const dialogParam = Array.isArray(params.dialog) ? params.dialog[0] : params.dialog
 
   // 原型「各階段完成率」：每階段已正式送出（採計中）的份數／要求份數，從成績表同一份資料算。
   const stageRows = stages.map((s) => {
@@ -251,6 +258,53 @@ export default async function AdminGradingPage({
         icon={<IconScale />}
         description={current ? (locked ? '已鎖定，改結構請建立新方案版本' : '還沒有老師開始評分，可以發布新版本取代') : undefined}
         aria-label="評分方案"
+        action={
+          versions.length > 0 ? (
+            <SectionDialog
+              label={`版本紀錄（${versions.length}）`}
+              icon={<IconHistory aria-hidden />}
+              title="評分方案版本"
+              description="每一版的狀態與建立時間；草稿在這裡發布，方案鎖定後的新版本要先看影響再套用。"
+              openParam="versions"
+              defaultOpen={dialogParam === 'versions'}
+              size="xl"
+              triggerClassName={BTN_ROW_GHOST}
+            >
+          <div className="overflow-x-auto">
+            <table aria-label="方案版本" className="w-full min-w-[28rem] text-sm">
+              <thead>
+                <tr className={PANEL_TABLE_HEAD}>
+                  <th className="px-5 py-2.5 font-semibold">版本</th>
+                  <th className="px-4 py-2.5 font-semibold">狀態</th>
+                  <th className="px-4 py-2.5 font-semibold">建立時間</th>
+                  <th className="px-5 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map((v) => (
+                  <tr key={v.id} className="border-t border-border/70">
+                    <td className="tabular px-5 py-2.5 font-semibold">v{v.versionNo}</td>
+                    <td className="px-4 py-2.5">
+                      <Pill tone={v.isCurrent ? 'brand' : 'default'}>{versionLabel(v, current)}</Pill>
+                    </td>
+                    <td className="tabular px-4 py-2.5 text-muted-foreground">{formatTaipeiMinute(v.createdAt)}</td>
+                    <td className="px-5 py-2.5 text-right">
+                      {v.status === 'draft' && archived ? null : v.status === 'draft' && locked ? (
+                        <Link href={`${BASE}/apply/${v.id}`} className={LINK_BUTTON}>
+                          看影響並套用 v{v.versionNo}
+                        </Link>
+                      ) : v.status === 'draft' ? (
+                        <PublishButton versionId={v.id} versionNo={v.versionNo} requestId={randomUUID()} disabledReason={null} />
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+            </SectionDialog>
+          ) : null
+        }
       >
         {current ? (
           <>
@@ -294,40 +348,6 @@ export default async function AdminGradingPage({
           <PanelEmpty title="還沒有發布的方案" hint="按右上「建立新方案版本」設定階段、項目、滿分與權重，再發布。" />
         )}
 
-        {versions.length > 0 ? (
-          <div className="overflow-x-auto border-t border-border/70">
-            <table aria-label="方案版本" className="w-full min-w-[28rem] text-sm">
-              <thead>
-                <tr className={PANEL_TABLE_HEAD}>
-                  <th className="px-5 py-2.5 font-semibold">版本</th>
-                  <th className="px-4 py-2.5 font-semibold">狀態</th>
-                  <th className="px-4 py-2.5 font-semibold">建立時間</th>
-                  <th className="px-5 py-2.5" />
-                </tr>
-              </thead>
-              <tbody>
-                {versions.map((v) => (
-                  <tr key={v.id} className="border-t border-border/70">
-                    <td className="tabular px-5 py-2.5 font-semibold">v{v.versionNo}</td>
-                    <td className="px-4 py-2.5">
-                      <Pill tone={v.isCurrent ? 'brand' : 'default'}>{versionLabel(v, current)}</Pill>
-                    </td>
-                    <td className="tabular px-4 py-2.5 text-muted-foreground">{formatTaipeiMinute(v.createdAt)}</td>
-                    <td className="px-5 py-2.5 text-right">
-                      {v.status === 'draft' && archived ? null : v.status === 'draft' && locked ? (
-                        <Link href={`${BASE}/apply/${v.id}`} className={LINK_BUTTON}>
-                          看影響並套用 v{v.versionNo}
-                        </Link>
-                      ) : v.status === 'draft' ? (
-                        <PublishButton versionId={v.id} versionNo={v.versionNo} requestId={randomUUID()} disabledReason={null} />
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
         <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
           {current
             ? locked
@@ -337,20 +357,29 @@ export default async function AdminGradingPage({
         </p>
       </Panel>
 
-      {current && stage ? (
-        <Panel
-          title="評分要求與指派"
-          icon={<IconUserCheck />}
-          description="每組每個階段要幾份評分、由哪幾位老師評；老師被指派後會收到通知"
-          aria-label="評分要求與指派"
-        >
+    </>,
+    {
+      description,
+      actions: (
+        <>
+          {current && stage ? (
+            <SectionDialog
+              label="評分要求與指派"
+              icon={<IconUserCheck aria-hidden />}
+              title="評分要求與指派"
+              description="每組每個階段要幾份評分、由哪幾位老師評；老師被指派後會收到通知。"
+              openParam="assign"
+              defaultOpen={dialogParam === 'assign'}
+              size="wide"
+              triggerClassName={buttonVariants({ variant: 'outline', size: 'lg', className: 'press h-10 rounded-lg px-4' })}
+            >
           <nav aria-label="選擇階段" className="flex flex-wrap items-center gap-1 border-b border-border px-3">
             {stages.map((s) => {
               const on = s.key === stage.key
               return (
                 <Link
                   key={s.key}
-                  href={`${BASE}?cohort=${cohort.id}&stage=${s.key}`}
+                  href={`${BASE}?cohort=${cohort.id}&stage=${s.key}&dialog=assign`}
                   aria-current={on ? 'page' : undefined}
                   className={cn(
                     'relative inline-flex h-10 items-center px-3 text-sm font-semibold transition-colors',
@@ -455,19 +484,16 @@ export default async function AdminGradingPage({
           <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
             移除或改派已正式送出的老師時，逐筆選舊分數怎麼算（保留／替換／新增），先看預覽再執行。
           </p>
-        </Panel>
-      ) : null}
-    </>,
-    {
-      description,
-      actions: (
-        <SchemeEditor
+            </SectionDialog>
+          ) : null}
+          <SchemeEditor
           cohortId={cohort.id}
           base={current?.stages ?? latest?.stages ?? []}
           baseLabel={current ? `v${current.versionNo}` : latest ? `v${latest.versionNo}` : null}
           requestId={randomUUID()}
           disabledReason={archivedReason}
-        />
+          />
+        </>
       ),
     },
   )
