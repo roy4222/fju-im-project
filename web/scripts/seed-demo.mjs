@@ -79,6 +79,11 @@ function demoId(key) {
 
 const COHORT_ID = demoId('cohort')
 const OFFICE_ID = demoId(`user:${demo.OFFICE.key}`)
+/** 第一批的示範屆別是 DEMO-114（`COHORT_ID`）；第二批加兩個已封存的歷屆示範屆別。 */
+const cohortIdOf = (code) => (code === demo.COHORT.code ? COHORT_ID : demoId(`cohort:${code}`))
+const HISTORY_COHORT_IDS = demo.HISTORY_COHORTS.map((c) => cohortIdOf(c.code))
+const ALL_COHORT_IDS = [COHORT_ID, ...HISTORY_COHORT_IDS]
+const ALL_COHORT_CODES = [demo.COHORT.code, ...demo.HISTORY_COHORTS.map((c) => c.code)]
 
 function sha256(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex')
@@ -211,6 +216,16 @@ function fileSpecs() {
       specs.push({ key: `file:${c.key}:att${i}`, itemKey: c.key, name, kind: 'pdf', source: `${c.key}-${i + 1}`, date: c.published })
     }
   }
+  // 第二批：補上的競賽公告封面、榮譽榜封面、歷屆專題海報（歷史的日期不平移）。
+  for (const c of demo.COMPETITION_NEWS) {
+    specs.push({ key: `file:${c.key}:cover`, itemKey: c.key, name: c.image, kind: 'jpg', source: c.image, cover: true, date: c.date })
+  }
+  for (const h of demo.HONORS) {
+    specs.push({ key: `file:${h.key}:cover`, itemKey: `honor-${h.key}`, name: h.image, kind: 'jpg', source: h.image, cover: true, date: h.date, unshifted: true, cohort: h.cohort })
+  }
+  for (const pr of demo.PROJECTS) {
+    specs.push({ key: `file:${pr.key}:poster`, entryKey: pr.key, name: `${pr.title}（海報）.jpg`, kind: 'jpg', source: pr.image, purpose: 'poster', date: pr.published, unshifted: true, cohort: pr.cohort })
+  }
   return specs.map((s) => ({ ...s, id: demoId(s.key) }))
 }
 
@@ -234,8 +249,8 @@ async function writeMissingFiles(db) {
   if (!filesRoot) return 0
   const specs = new Map(fileSpecs().map((s) => [s.id, s]))
   const rows = await db.query(
-    `select id, storage_key, checksum from stored_files where cohort_id = $1 and owner_user_id = $2 and status = 'stored'`,
-    [COHORT_ID, OFFICE_ID],
+    `select id, storage_key, checksum from stored_files where owner_user_id = $1 and status = 'stored'`,
+    [OFFICE_ID],
   )
   let written = 0
   for (const row of rows.rows) {
@@ -266,9 +281,34 @@ const email = (local) => `${local}@${demo.EMAIL_DOMAIN}`
 const userId = (key) => demoId(`user:${key}`)
 const groupId = (key) => demoId(`group:${key}`)
 
-async function seed(db) {
+/**
+ * 第一批已經建好、只補第二批時，第二批唯一要平移的那則公告要跟第一批用同一個平移天數：
+ * 從第一批寫的 `demo.seed` 稽核讀回 `offsetDays`（不可變，不會被後台改掉）。讀不到才退回用現在。
+ */
+async function seededAnchor(db, now) {
+  const r = await db.query(
+    // 最近一次「建了第一批」的那筆（清掉重建過的話，要的是資料庫裡現在這一批的平移；#290 的稽核沒有 phases 欄＝第一批）。
+    `select payload from audit_events
+      where action = 'demo.seed' and target_id = $1 and coalesce(payload -> 'phases' ->> 'current', 'true') = 'true'
+      order by real_at desc, id desc limit 1`,
+    [COHORT_ID],
+  )
+  const offset = r.rows[0]?.payload?.offsetDays
+  if (typeof offset !== 'number') return process.env.DEMO_ANCHOR_DATE || taipeiYmd(now)
+  return new Date(Date.parse(`${demo.PROTOTYPE_TODAY}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10)
+}
+
+/** 歷史日期（不平移）：原型的「日期 時:分」臺灣時間。 */
+const history = (ymd, hm = '10:00') => new Date(`${ymd}T${hm}:00+08:00`)
+
+/**
+ * `phases.current`：第一批（DEMO-114 與它底下的一切，#290）；`phases.history`：第二批（歷屆示範屆別、
+ * 已發布的歷屆專題、榮譽榜、補上的競賽公告）。兩批各有自己的「已存在」判斷，所以第一批已經在測試站上的，
+ * 下一次部署只會補第二批。
+ */
+async function seed(db, phases) {
   const now = await businessNow(db)
-  const anchor = process.env.DEMO_ANCHOR_DATE || taipeiYmd(now)
+  const anchor = phases.current ? process.env.DEMO_ANCHOR_DATE || taipeiYmd(now) : await seededAnchor(db, now)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) throw new Error(`DEMO_ANCHOR_DATE 要是 YYYY-MM-DD，收到 ${anchor}`)
   const { offsetDays, day, at, stamp } = makeClock(anchor)
   const realNow = new Date()
@@ -320,6 +360,141 @@ async function seed(db) {
     })
   }
 
+  // ── 共用：檔案（封面、附件、海報）與「發布一個項目」──
+  const specs = fileSpecs()
+  const pendingWrites = []
+  /**
+   * 一個示範檔：寫 `stored_files`（擁有者是系辦管理員（示範））與有效引用。專題事務的封面與附件引用項目；
+   * 精選海報（`purpose='poster'`）同時引用草稿與發布的那一版（#293：之後換草稿海報，已發布那張才不會變成沒有引用）。
+   */
+  const addFile = async (spec, poster = null) => {
+    const bytes = await fileBytes(spec)
+    const uploaded = spec.unshifted ? history(spec.date, '09:30') : at(spec.date, '09:30')
+    const key = storageKeyFor(spec.id, uploaded)
+    const checksum = createHash('sha256').update(bytes).digest('hex')
+    await insert(db, 'stored_files', {
+      id: spec.id,
+      owner_user_id: OFFICE_ID,
+      scope: 'cohort',
+      cohort_id: cohortIdOf(spec.cohort ?? demo.COHORT.code),
+      purpose: spec.purpose ?? 'attachment',
+      original_name: spec.name,
+      size_bytes: bytes.length,
+      mime_declared: spec.kind === 'jpg' ? 'image/jpeg' : 'application/pdf',
+      mime_detected: spec.kind === 'jpg' ? 'image/jpeg' : 'application/pdf',
+      extension: spec.kind,
+      checksum,
+      status: 'stored',
+      storage_key: key,
+      uploaded_real_at: uploaded,
+      finalized_at: uploaded,
+      created_at: uploaded,
+      updated_at: uploaded,
+      updated_by_user_id: OFFICE_ID,
+    })
+    const refs = poster
+      ? [
+          ['showcase_draft', poster.entryId],
+          ['showcase_version', poster.versionId],
+        ]
+      : [['item_attachment', demoId(`item:${spec.itemKey}`)]]
+    for (const [i, [refType, refId]] of refs.entries()) {
+      await insert(db, 'file_references', {
+        id: demoId(i === 0 ? `file-ref:${spec.key}` : `file-ref:${spec.key}:${refType}`),
+        file_id: spec.id,
+        ref_type: refType,
+        ref_id: refId,
+        created_at: uploaded,
+      })
+    }
+    pendingWrites.push({ key, bytes })
+    count('檔案')
+    return { checksum }
+  }
+
+  /**
+   * 一個已發布的項目：頭列先以草稿插入 → 內容與欄位各切 v1 → 頭列改成發布中並指向 v1 → 發布紀錄。
+   * （跟 pg-items 的發布同一個順序；不發通知、不排到期工作。）
+   */
+  const publishItem = async (item) => {
+    const id = demoId(`item:${item.key}`)
+    const opened = item.openedAt
+    const itemFiles = filesRoot ? specs.filter((s) => s.itemKey === item.key) : []
+    const cover = itemFiles.find((s) => s.cover) ?? null
+    await insert(db, 'managed_items', {
+      id,
+      cohort_id: item.cohortId ?? COHORT_ID,
+      placement: item.placement,
+      audience_kind: item.audience,
+      receiver_unit: item.receiverUnit ?? 'none',
+      stage_id: item.stage ? demoId(`stage:${item.stage}`) : null,
+      status: 'draft',
+      due_at: item.dueAt ?? null,
+      title: item.title,
+      summary: item.summary ?? '',
+      body_html: item.bodyHtml ?? '',
+      category: item.category ?? null,
+      draft_schema: json({ fields: item.fields ?? [] }),
+      created_at: opened,
+      created_by_kind: 'user',
+      created_by_user_id: OFFICE_ID,
+      updated_at: opened,
+      updated_by_user_id: OFFICE_ID,
+    })
+    for (const spec of itemFiles) await addFile(spec)
+    if (cover) await db.query('update managed_items set cover_file_id = $2 where id = $1', [id, cover.id])
+    let sort = 0
+    for (const spec of itemFiles.filter((s) => !s.cover)) {
+      await insert(db, 'item_attachments', { item_id: id, file_id: spec.id, sort: sort++, created_at: opened })
+    }
+    const contentId = demoId(`item-version:${item.key}:1`)
+    const schemaId = demoId(`item-schema:${item.key}:1`)
+    await insert(db, 'item_versions', {
+      id: contentId,
+      item_id: id,
+      version_no: 1,
+      title: item.title,
+      summary: item.summary ?? '',
+      body_html: item.bodyHtml ?? '',
+      cover_file_id: cover?.id ?? null,
+      category: item.category ?? null,
+      created_by_user_id: OFFICE_ID,
+      created_at: opened,
+    })
+    await insert(db, 'form_schema_versions', {
+      id: schemaId,
+      item_id: id,
+      version_no: 1,
+      schema: json({ fields: item.fields ?? [] }),
+      created_by_user_id: OFFICE_ID,
+      created_at: opened,
+    })
+    await db.query(
+      `update managed_items
+          set status = 'published', actual_opened_at = $2, current_content_version_id = $3, current_schema_version_id = $4,
+              revision = revision + 1
+        where id = $1`,
+      [id, opened, contentId, schemaId],
+    )
+    await insert(db, 'item_publications', {
+      id: demoId(`item-publication:${item.key}:1`),
+      item_id: id,
+      action: 'publish',
+      content_version_id: contentId,
+      schema_version_id: schemaId,
+      deadline_version: item.dueAt ? 1 : null,
+      notify: false,
+      actor_user_id: OFFICE_ID,
+      real_at: opened,
+      business_at: opened,
+    })
+    return { id, schemaId }
+  }
+
+  const teacherName = new Map(demo.TEACHERS.map((t) => [t.key, t.name]))
+
+  // ═══ 第一批：DEMO-114 與它底下的一切（#290）═══
+  const seedCurrent = async () => {
   // 建立者（系辦管理員（示範））：停用、沒有角色、沒有密碼。
   const officeCreated = at('2026-07-01', '09:00')
   await addUser(demo.OFFICE.key, demo.OFFICE.name, demo.OFFICE.email, { status: 'disabled', createdAt: officeCreated })
@@ -626,121 +801,6 @@ async function seed(db) {
   }
 
   // ── 專題事務：公告、規則、資源、收件 ──
-  const specs = fileSpecs()
-  const pendingWrites = []
-  const addFile = async (spec) => {
-    const bytes = await fileBytes(spec)
-    const uploaded = at(spec.date, '09:30')
-    const key = storageKeyFor(spec.id, uploaded)
-    await insert(db, 'stored_files', {
-      id: spec.id,
-      owner_user_id: OFFICE_ID,
-      scope: 'cohort',
-      cohort_id: COHORT_ID,
-      purpose: 'attachment',
-      original_name: spec.name,
-      size_bytes: bytes.length,
-      mime_declared: spec.kind === 'jpg' ? 'image/jpeg' : 'application/pdf',
-      mime_detected: spec.kind === 'jpg' ? 'image/jpeg' : 'application/pdf',
-      extension: spec.kind,
-      checksum: createHash('sha256').update(bytes).digest('hex'),
-      status: 'stored',
-      storage_key: key,
-      uploaded_real_at: uploaded,
-      finalized_at: uploaded,
-      created_at: uploaded,
-      updated_at: uploaded,
-      updated_by_user_id: OFFICE_ID,
-    })
-    await insert(db, 'file_references', {
-      id: demoId(`file-ref:${spec.key}`),
-      file_id: spec.id,
-      ref_type: 'item_attachment',
-      ref_id: demoId(`item:${spec.itemKey}`),
-      created_at: uploaded,
-    })
-    pendingWrites.push({ key, bytes })
-    count('檔案')
-  }
-
-  /**
-   * 一個已發布的項目：頭列先以草稿插入 → 內容與欄位各切 v1 → 頭列改成發布中並指向 v1 → 發布紀錄。
-   * （跟 pg-items 的發布同一個順序；不發通知、不排到期工作。）
-   */
-  const publishItem = async (item) => {
-    const id = demoId(`item:${item.key}`)
-    const opened = item.openedAt
-    const itemFiles = filesRoot ? specs.filter((s) => s.itemKey === item.key) : []
-    const cover = itemFiles.find((s) => s.cover) ?? null
-    await insert(db, 'managed_items', {
-      id,
-      cohort_id: COHORT_ID,
-      placement: item.placement,
-      audience_kind: item.audience,
-      receiver_unit: item.receiverUnit ?? 'none',
-      stage_id: item.stage ? demoId(`stage:${item.stage}`) : null,
-      status: 'draft',
-      due_at: item.dueAt ?? null,
-      title: item.title,
-      summary: item.summary ?? '',
-      body_html: item.bodyHtml ?? '',
-      category: item.category ?? null,
-      draft_schema: json({ fields: item.fields ?? [] }),
-      created_at: opened,
-      created_by_kind: 'user',
-      created_by_user_id: OFFICE_ID,
-      updated_at: opened,
-      updated_by_user_id: OFFICE_ID,
-    })
-    for (const spec of itemFiles) await addFile(spec)
-    if (cover) await db.query('update managed_items set cover_file_id = $2 where id = $1', [id, cover.id])
-    let sort = 0
-    for (const spec of itemFiles.filter((s) => !s.cover)) {
-      await insert(db, 'item_attachments', { item_id: id, file_id: spec.id, sort: sort++, created_at: opened })
-    }
-    const contentId = demoId(`item-version:${item.key}:1`)
-    const schemaId = demoId(`item-schema:${item.key}:1`)
-    await insert(db, 'item_versions', {
-      id: contentId,
-      item_id: id,
-      version_no: 1,
-      title: item.title,
-      summary: item.summary ?? '',
-      body_html: item.bodyHtml ?? '',
-      cover_file_id: cover?.id ?? null,
-      category: item.category ?? null,
-      created_by_user_id: OFFICE_ID,
-      created_at: opened,
-    })
-    await insert(db, 'form_schema_versions', {
-      id: schemaId,
-      item_id: id,
-      version_no: 1,
-      schema: json({ fields: item.fields ?? [] }),
-      created_by_user_id: OFFICE_ID,
-      created_at: opened,
-    })
-    await db.query(
-      `update managed_items
-          set status = 'published', actual_opened_at = $2, current_content_version_id = $3, current_schema_version_id = $4,
-              revision = revision + 1
-        where id = $1`,
-      [id, opened, contentId, schemaId],
-    )
-    await insert(db, 'item_publications', {
-      id: demoId(`item-publication:${item.key}:1`),
-      item_id: id,
-      action: 'publish',
-      content_version_id: contentId,
-      schema_version_id: schemaId,
-      deadline_version: item.dueAt ? 1 : null,
-      notify: false,
-      actor_user_id: OFFICE_ID,
-      real_at: opened,
-      business_at: opened,
-    })
-    return { id, schemaId }
-  }
 
   // 同一天的公告照原型的順序（列表是新的在前）：排在前面的晚幾分鐘發布。
   for (const [i, n] of demo.NEWS.entries()) {
@@ -791,7 +851,6 @@ async function seed(db) {
   // 收件：每組一份；各組狀態照原型 GROUP_SUBMISSIONS 的算法排。
   const groupsByKey = new Map(demo.GROUPS.map((g) => [g.key, g]))
   const others = demo.GROUPS.filter((g) => g.key !== 'g-07')
-  const teacherName = new Map(demo.TEACHERS.map((t) => [t.key, t.name]))
   const answersFor = (collection, g, partial) => {
     const leader = g.members[0]
     const typeLabel = g.type === 'industry' ? '產學合作' : '一般專題'
@@ -1168,6 +1227,184 @@ async function seed(db) {
     count('簽核版本')
   }
 
+  }
+
+  // ═══ 第二批：歷屆專題（已發布的精選）、榮譽榜、補上的競賽公告（#293 前台補六頁）═══
+  const seedHistory = async () => {
+    for (const hc of demo.HISTORY_COHORTS) {
+      const created = history(hc.created, '09:00')
+      await insert(db, 'cohorts', {
+        id: cohortIdOf(hc.code),
+        code: hc.code,
+        name: hc.name,
+        status: 'archived',
+        is_default_working: false,
+        is_registration_open: false,
+        year_end_date: hc.yearEndDate,
+        proposal_default_days: 7,
+        group_size_min: demo.COHORT.groupSizeMin,
+        group_size_max: demo.COHORT.groupSizeMax,
+        created_at: created,
+        created_by_kind: 'user',
+        created_by_user_id: OFFICE_ID,
+        updated_at: created,
+        updated_by_user_id: OFFICE_ID,
+      })
+      count('歷屆屆別')
+    }
+
+    // 歷屆專題：一件一組（組員、組長、主指導）＋一個已發布的精選條目（草稿、第 1 版、海報）。
+    // 組員是畢業的學長姐：學生身分、歸在那一屆、帳號停用（跟原型 113 屆的停用帳號一樣）。
+    for (const [pi, pr] of demo.PROJECTS.entries()) {
+      const hc = demo.HISTORY_COHORTS.find((c) => c.code === pr.cohort)
+      const cid = cohortIdOf(hc.code)
+      const gid = demoId(`history-group:${pr.key}`)
+      const est = history(`${hc.created.slice(0, 4)}-09-15`, '17:00')
+      await insert(db, 'groups', {
+        id: gid,
+        cohort_id: cid,
+        code: pr.code,
+        group_type: 'general',
+        status: 'active',
+        established_real_at: est,
+        established_business_at: est,
+        created_at: est,
+        created_by_kind: 'user',
+        created_by_user_id: OFFICE_ID,
+        updated_at: est,
+        updated_by_user_id: OFFICE_ID,
+      })
+      const joined = history(hc.created, '09:00')
+      for (const [i, name] of pr.members.entries()) {
+        const key = `alum:${pr.key}:${i}`
+        const studentNo = `${hc.studentPrefix}${String(pi * 10 + i).padStart(2, '0')}`
+        const uid = await addUser(key, name, studentNo, { status: 'disabled', createdAt: joined })
+        await role(uid, 'student', joined)
+        await profile(uid, name, email(studentNo), { completedAt: joined, studentNo, departmentClass: '資管四甲', cohortId: cid })
+        await insert(db, 'group_memberships', {
+          id: demoId(`history-membership:${pr.key}:${i}`),
+          group_id: gid,
+          cohort_id: cid,
+          user_id: uid,
+          valid_from: est,
+          added_by_kind: 'user',
+          added_by_user_id: OFFICE_ID,
+          created_at: est,
+          updated_at: est,
+        })
+        if (i === 0) {
+          await insert(db, 'group_leaders', {
+            id: demoId(`history-leader:${pr.key}`),
+            group_id: gid,
+            user_id: uid,
+            valid_from: est,
+            changed_by_user_id: OFFICE_ID,
+            reason: '提案人成為組長',
+            created_at: est,
+          })
+        }
+      }
+      await insert(db, 'advisor_assignments', {
+        id: demoId(`history-advisor:${pr.key}`),
+        group_id: gid,
+        teacher_user_id: userId(pr.advisor),
+        source: 'admin',
+        valid_from: est,
+        assigned_by_user_id: OFFICE_ID,
+        reason: '示範：歷屆指導老師',
+        created_at: est,
+      })
+      count('歷屆組別')
+
+      const entryId = demoId(`history-showcase:${pr.key}`)
+      const versionId = demoId(`history-showcase:${pr.key}:1`)
+      const published = history(pr.published, '10:00')
+      const summary = normalizeSummary(pr.summary)
+      const content = {
+        title: pr.title,
+        summary,
+        summary_checksum: sha256(summary),
+        video_url: pr.video ?? null,
+        poster_file_id: null,
+        poster_checksum: null,
+        authorization_kind: 'external',
+        authorization_ref: demoId(`external-authorization:${pr.key}`),
+      }
+      await insert(db, 'showcase_entries', {
+        id: entryId,
+        cohort_id: cid,
+        group_id: gid,
+        status: 'draft',
+        created_at: published,
+        created_by_user_id: OFFICE_ID,
+        updated_at: published,
+        updated_by_user_id: OFFICE_ID,
+      })
+      const posterSpec = filesRoot ? specs.find((x) => x.entryKey === pr.key) : null
+      if (posterSpec) {
+        const { checksum } = await addFile(posterSpec, { entryId, versionId })
+        content.poster_file_id = posterSpec.id
+        content.poster_checksum = checksum
+      }
+      await insert(db, 'showcase_drafts', {
+        entry_id: entryId,
+        ...content,
+        created_at: published,
+        updated_at: published,
+        updated_by_user_id: OFFICE_ID,
+      })
+      // 發布時凍結的第 1 版（不可變）：外部授權（歷屆作品沒有站內簽核）、個資檢查通過。
+      await insert(db, 'showcase_versions', {
+        id: versionId,
+        entry_id: entryId,
+        version_no: 1,
+        ...content,
+        pii_check: json({ ranAt: published.toISOString(), patterns: [], passed: true }),
+        created_by_user_id: OFFICE_ID,
+        created_real_at: published,
+      })
+      await db.query(
+        `update showcase_entries set status = 'published', current_version_id = $2, revision = revision + 1 where id = $1`,
+        [entryId, versionId],
+      )
+      count('已發布精選')
+    }
+
+    // 榮譽榜：已發布、公開；發布日＝得獎日（#293 的年份篩選看它）。
+    for (const h of demo.HONORS) {
+      await publishItem({
+        key: `honor-${h.key}`,
+        cohortId: cohortIdOf(h.cohort),
+        placement: 'honor',
+        audience: 'public',
+        title: h.competition,
+        summary: `${h.award}・${h.team}｜${h.summary}`,
+        bodyHtml: paragraphs([`${h.competition}：${h.award}（${h.team}）`, h.summary]),
+        category: h.category,
+        openedAt: history(h.date, '10:00'),
+      })
+    }
+    count('榮譽', demo.HONORS.length)
+
+    // 競賽資訊：補原型還沒有的那一則（跟第一批的公告同一條時間線，照同一個平移）。
+    for (const c of demo.COMPETITION_NEWS) {
+      await publishItem({
+        key: c.key,
+        placement: 'news',
+        audience: 'public',
+        title: c.title,
+        summary: c.summary,
+        bodyHtml: paragraphs(c.body),
+        category: c.category,
+        openedAt: at(c.date, '10:00'),
+      })
+    }
+    count('競賽公告', demo.COMPETITION_NEWS.length)
+  }
+
+  if (phases.current) await seedCurrent()
+  if (phases.history) await seedHistory()
+
   // 稽核：全系範圍一筆（不掛屆別，才不會擋住 --remove 刪屆別）。
   await insert(db, 'audit_events', {
     id: demoId(`audit:seed:${realNow.toISOString()}`),
@@ -1178,7 +1415,7 @@ async function seed(db) {
     scope: 'global',
     real_at: realNow,
     business_at: now,
-    payload: json({ source: 'seed:demo', site: 'test', cohortCode: demo.COHORT.code, offsetDays, counts }),
+    payload: json({ source: 'seed:demo', site: 'test', cohortCode: demo.COHORT.code, offsetDays, phases, counts }),
   })
 
   return { counts, pendingWrites, offsetDays, anchor }
@@ -1192,72 +1429,72 @@ async function seed(db) {
  */
 const REMOVE_STEPS = [
   // 簽核與精選
-  [`update signoff_packages set current_version_id = null where cohort_id = $1`],
-  [`delete from approvals where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = $1)`],
-  [`delete from signoff_exports where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = $1)`],
-  [`delete from signoff_version_status where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = $1)`],
-  [`delete from signoff_package_versions where package_id in (select id from signoff_packages where cohort_id = $1)`],
-  [`delete from signoff_packages where cohort_id = $1`],
-  [`update showcase_entries set current_version_id = null where cohort_id = $1`],
-  [`delete from showcase_versions where entry_id in (select id from showcase_entries where cohort_id = $1)`],
-  [`delete from showcase_drafts where entry_id in (select id from showcase_entries where cohort_id = $1)`],
-  [`delete from showcase_entries where cohort_id = $1`],
+  [`update signoff_packages set current_version_id = null where cohort_id = any($1::uuid[])`],
+  [`delete from approvals where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = any($1::uuid[]))`],
+  [`delete from signoff_exports where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = any($1::uuid[]))`],
+  [`delete from signoff_version_status where version_id in (select v.id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.cohort_id = any($1::uuid[]))`],
+  [`delete from signoff_package_versions where package_id in (select id from signoff_packages where cohort_id = any($1::uuid[]))`],
+  [`delete from signoff_packages where cohort_id = any($1::uuid[])`],
+  [`update showcase_entries set status = 'draft', current_version_id = null where cohort_id = any($1::uuid[])`],
+  [`delete from showcase_versions where entry_id in (select id from showcase_entries where cohort_id = any($1::uuid[]))`],
+  [`delete from showcase_drafts where entry_id in (select id from showcase_entries where cohort_id = any($1::uuid[]))`],
+  [`delete from showcase_entries where cohort_id = any($1::uuid[])`],
   // 評分
-  [`delete from evaluation_status_events where evaluation_id in (select e.id from evaluations e join evaluator_assignments a on a.id = e.assignment_id join groups g on g.id = a.group_id where g.cohort_id = $1)`],
-  [`delete from evaluation_status where assignment_id in (select a.id from evaluator_assignments a join groups g on g.id = a.group_id where g.cohort_id = $1)`],
-  [`delete from evaluations where assignment_id in (select a.id from evaluator_assignments a join groups g on g.id = a.group_id where g.cohort_id = $1)`],
-  [`delete from override_review_state where override_id in (select o.id from grade_overrides o join groups g on g.id = o.group_id where g.cohort_id = $1)`],
-  [`delete from grade_overrides where group_id in (select id from groups where cohort_id = $1)`],
-  [`update evaluator_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from evaluator_assignments where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from stage_requirements where group_id in (select id from groups where cohort_id = $1)`],
-  [`update grading_schemes set current_version_id = null where cohort_id = $1`],
-  [`delete from grading_scheme_versions where scheme_id in (select id from grading_schemes where cohort_id = $1)`],
-  [`delete from grading_schemes where cohort_id = $1`],
+  [`delete from evaluation_status_events where evaluation_id in (select e.id from evaluations e join evaluator_assignments a on a.id = e.assignment_id join groups g on g.id = a.group_id where g.cohort_id = any($1::uuid[]))`],
+  [`delete from evaluation_status where assignment_id in (select a.id from evaluator_assignments a join groups g on g.id = a.group_id where g.cohort_id = any($1::uuid[]))`],
+  [`delete from evaluations where assignment_id in (select a.id from evaluator_assignments a join groups g on g.id = a.group_id where g.cohort_id = any($1::uuid[]))`],
+  [`delete from override_review_state where override_id in (select o.id from grade_overrides o join groups g on g.id = o.group_id where g.cohort_id = any($1::uuid[]))`],
+  [`delete from grade_overrides where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`update evaluator_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from evaluator_assignments where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from stage_requirements where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`update grading_schemes set current_version_id = null where cohort_id = any($1::uuid[])`],
+  [`delete from grading_scheme_versions where scheme_id in (select id from grading_schemes where cohort_id = any($1::uuid[]))`],
+  [`delete from grading_schemes where cohort_id = any($1::uuid[])`],
   // 繳交與專題事務
-  [`delete from submission_files where submission_version_id in (select v.id from submission_versions v join managed_items m on m.id = v.item_id where m.cohort_id = $1)`],
-  [`delete from submission_versions where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from submission_drafts where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from advisor_visibility_settings where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from response_rosters where cohort_id = $1 or item_id in (select id from managed_items where cohort_id = $1)`],
+  [`delete from submission_files where submission_version_id in (select v.id from submission_versions v join managed_items m on m.id = v.item_id where m.cohort_id = any($1::uuid[]))`],
+  [`delete from submission_versions where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from submission_drafts where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from advisor_visibility_settings where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from response_rosters where cohort_id = any($1::uuid[]) or item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   // 到期工作沒有外鍵：趁項目、提案、組別都還在的時候先刪（管理員改過示範項目的截止就會有截止快照）。
-  [`delete from due_work where subject_id in (select id from managed_items where cohort_id = $1 union select id from group_proposals where cohort_id = $1 union select id from groups where cohort_id = $1)`],
-  [`delete from item_publications where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from item_attachments where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from item_audience_groups where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`update managed_items set status = 'draft', current_content_version_id = null, current_schema_version_id = null, cover_file_id = null where cohort_id = $1`],
-  [`delete from item_versions where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from form_schema_versions where item_id in (select id from managed_items where cohort_id = $1)`],
-  [`delete from managed_items where cohort_id = $1`],
+  [`delete from due_work where subject_id in (select id from managed_items where cohort_id = any($1::uuid[]) union select id from group_proposals where cohort_id = any($1::uuid[]) union select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from item_publications where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from item_attachments where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from item_audience_groups where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`update managed_items set status = 'draft', current_content_version_id = null, current_schema_version_id = null, cover_file_id = null where cohort_id = any($1::uuid[])`],
+  [`delete from item_versions where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from form_schema_versions where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
+  [`delete from managed_items where cohort_id = any($1::uuid[])`],
   // 產學、主指導、組別、提案
-  [`update opportunity_links set previous_link_id = null where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from opportunity_links where group_id in (select id from groups where cohort_id = $1)`],
+  [`update opportunity_links set previous_link_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from opportunity_links where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from industry_opportunities where owner_teacher_user_id in (select id from users where email like $2)`],
-  [`update advisor_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from advisor_assignments where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from group_leaders where group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from group_memberships where cohort_id = $1 or group_id in (select id from groups where cohort_id = $1)`],
-  [`delete from proposal_occupancy where proposal_id in (select id from group_proposals where cohort_id = $1)`],
-  [`delete from proposal_invitations where proposal_id in (select id from group_proposals where cohort_id = $1)`],
-  [`delete from group_proposals where cohort_id = $1`],
-  [`delete from groups where cohort_id = $1`],
+  [`update advisor_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from advisor_assignments where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from group_leaders where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from group_memberships where cohort_id = any($1::uuid[]) or group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from proposal_occupancy where proposal_id in (select id from group_proposals where cohort_id = any($1::uuid[]))`],
+  [`delete from proposal_invitations where proposal_id in (select id from group_proposals where cohort_id = any($1::uuid[]))`],
+  [`delete from group_proposals where cohort_id = any($1::uuid[])`],
+  [`delete from groups where cohort_id = any($1::uuid[])`],
   // 時間軸
-  [`delete from project_events where cohort_id = $1`],
-  [`delete from cohort_stages where cohort_id = $1`],
-  [`delete from cohort_status_events where cohort_id = $1`],
+  [`delete from project_events where cohort_id = any($1::uuid[])`],
+  [`delete from cohort_stages where cohort_id = any($1::uuid[])`],
+  [`delete from cohort_status_events where cohort_id = any($1::uuid[])`],
   // 管理員在示範屆別裡操作留下的事件、通知、稽核、操作帳本
-  [`delete from notifications where cohort_id = $1 or recipient_user_id in (select id from users where email like $2) or event_id in (select id from domain_events where cohort_id = $1)`],
-  [`delete from digest_events where cohort_id = $1 or event_id in (select id from domain_events where cohort_id = $1)`],
-  [`delete from event_projections where event_id in (select id from domain_events where cohort_id = $1)`],
-  [`delete from domain_events where cohort_id = $1`],
-  [`delete from audit_events where cohort_id = $1`],
-  [`delete from operation_records where cohort_id = $1`],
+  [`delete from notifications where cohort_id = any($1::uuid[]) or recipient_user_id in (select id from users where email like $2) or event_id in (select id from domain_events where cohort_id = any($1::uuid[]))`],
+  [`delete from digest_events where cohort_id = any($1::uuid[]) or event_id in (select id from domain_events where cohort_id = any($1::uuid[]))`],
+  [`delete from event_projections where event_id in (select id from domain_events where cohort_id = any($1::uuid[]))`],
+  [`delete from domain_events where cohort_id = any($1::uuid[])`],
+  [`delete from audit_events where cohort_id = any($1::uuid[])`],
+  [`delete from operation_records where cohort_id = any($1::uuid[])`],
   // 示範帳號
-  [`delete from student_identities where cohort_id = $1 or user_id in (select id from users where email like $2)`],
+  [`delete from student_identities where cohort_id = any($1::uuid[]) or user_id in (select id from users where email like $2)`],
   [`delete from application_revisions where application_id in (select id from registration_applications where user_id in (select id from users where email like $2))`],
   [`delete from registration_applications where user_id in (select id from users where email like $2)`],
-  [`delete from roster_entries where roster_version_id in (select id from roster_versions where cohort_id = $1)`],
-  [`delete from roster_versions where cohort_id = $1`],
+  [`delete from roster_entries where roster_version_id in (select id from roster_versions where cohort_id = any($1::uuid[]))`],
+  [`delete from roster_versions where cohort_id = any($1::uuid[])`],
   [`delete from role_assignments where user_id in (select id from users where email like $2)`],
   [`delete from session_revocations where user_id in (select id from users where email like $2)`],
   [`delete from user_status_events where user_id in (select id from users where email like $2)`],
@@ -1265,15 +1502,15 @@ const REMOVE_STEPS = [
   [`delete from accounts where user_id in (select id from users where email like $2)`],
   [`delete from user_profiles where user_id in (select id from users where email like $2)`],
   // 檔案（實體檔在交易之後刪）
-  [`delete from file_references where file_id in (select id from stored_files where cohort_id = $1 or owner_user_id in (select id from users where email like $2))`],
-  [`delete from stored_files where cohort_id = $1 or owner_user_id in (select id from users where email like $2) returning storage_key`, 'files'],
-  [`delete from cohorts where id = $1`],
+  [`delete from file_references where file_id in (select id from stored_files where cohort_id = any($1::uuid[]) or owner_user_id in (select id from users where email like $2))`],
+  [`delete from stored_files where cohort_id = any($1::uuid[]) or owner_user_id in (select id from users where email like $2) returning storage_key`, 'files'],
+  [`delete from cohorts where id = any($1::uuid[])`],
   [`delete from users where email like $2`],
 ]
 
 async function remove(db) {
   const emailPattern = `%@${demo.EMAIL_DOMAIN}`
-  const cohort = await db.query('select id, code, name from cohorts where id = $1', [COHORT_ID])
+  const cohort = await db.query('select id from cohorts where id = any($1::uuid[])', [ALL_COHORT_IDS])
   const users = await db.query('select count(*)::int as n from users where email like $1', [emailPattern])
   if (cohort.rowCount === 0 && users.rows[0].n === 0) return null
 
@@ -1295,7 +1532,7 @@ async function remove(db) {
     const usesCohort = sql.includes('$1')
     const usesEmail = sql.includes('$2')
     const r = usesCohort
-      ? await db.query(sql, usesEmail ? [COHORT_ID, emailPattern] : [COHORT_ID])
+      ? await db.query(sql, usesEmail ? [ALL_COHORT_IDS, emailPattern] : [ALL_COHORT_IDS])
       : await db.query(sql.replaceAll('$2', '$1'), [emailPattern])
     const table = /^(?:delete from|update) (\w+)/.exec(sql)[1]
     if (sql.startsWith('delete') && r.rowCount > 0) removed[table] = (removed[table] ?? 0) + r.rowCount
@@ -1370,29 +1607,44 @@ try {
       }
     }
   } else {
-    const existing = await client.query('select id, code from cohorts where id = $1 or code = $2', [COHORT_ID, demo.COHORT.code])
-    if (existing.rows.some((r) => r.id === COHORT_ID)) {
+    // 兩批各自判斷「已存在」：第一批看 DEMO-114、第二批看歷屆示範屆別（第一批已經在測試站上時，只補第二批）。
+    // `DEMO_PHASES=current` 只建第一批（整合測試用來重現「#290 已經灌過」的測試站）。
+    const onlyCurrent = process.env.DEMO_PHASES === 'current'
+    const existing = await client.query('select id, code from cohorts where id = any($1::uuid[]) or code = any($2::text[])', [
+      ALL_COHORT_IDS,
+      ALL_COHORT_CODES,
+    ])
+    const has = (id) => existing.rows.some((r) => r.id === id)
+    const clash = existing.rows.filter((r) => !ALL_COHORT_IDS.includes(r.id))
+    const historyCount = HISTORY_COHORT_IDS.filter((id) => has(id)).length
+    const phases = { current: !has(COHORT_ID), history: !onlyCurrent && historyCount === 0 }
+    if (clash.length > 0) {
+      console.error(`屆別代碼 ${clash.map((r) => r.code).join('、')} 已經被別的屆別用了，示範資料不建。`)
+      exitCode = 1
+    } else if (historyCount > 0 && historyCount < HISTORY_COHORT_IDS.length) {
+      console.error('歷屆示範屆別只剩一部分（有人手動改過？）；先跑 --remove 清乾淨再建。')
+      exitCode = 1
+    } else if (!phases.current && !phases.history) {
       const repaired = await writeMissingFiles(client)
       console.log(`示範資料已存在（${demo.COHORT.code}），不做任何事${repaired > 0 ? `；補回 ${repaired} 個遺失的示範檔案` : ''}。`)
-    } else if (existing.rowCount > 0) {
-      console.error(`屆別代碼 ${demo.COHORT.code} 已經被別的屆別用了，示範資料不建。`)
-      exitCode = 1
     } else {
-      const taken = await client.query('select count(*)::int as n from users where email like $1', [`%@${demo.EMAIL_DOMAIN}`])
-      if (taken.rows[0].n > 0) {
+      const taken = phases.current
+        ? (await client.query('select count(*)::int as n from users where email like $1', [`%@${demo.EMAIL_DOMAIN}`])).rows[0].n
+        : 0
+      if (taken > 0) {
         console.error(`已經有 @${demo.EMAIL_DOMAIN} 的帳號但沒有示範屆別；先跑 --remove 清乾淨再建。`)
         exitCode = 1
       } else {
         await client.query('begin')
         let result
         try {
-          result = await seed(client)
+          result = await seed(client, phases)
           await client.query('commit')
         } catch (error) {
           await client.query('rollback')
           throw error
         }
-        // 交易成功後才寫實體檔；寫失敗的下次重跑會補（示範屆別已存在時只補檔）。
+        // 交易成功後才寫實體檔；寫失敗的下次重跑會補（都已存在時只補檔）。
         let written = 0
         if (filesRoot) {
           for (const w of result.pendingWrites) {
@@ -1402,14 +1654,22 @@ try {
             written += 1
           }
         }
+        // 第一批早就在、這次只補第二批時，第一批的檔案也順便檢查一次。
+        const repaired = phases.current ? 0 : await writeMissingFiles(client)
         const summary = Object.entries(result.counts)
           .map(([k, n]) => `${k} ${n}`)
           .join('、')
-        console.log(`示範資料已建立（${demo.COHORT.code}「${demo.COHORT.name}」，日期平移 ${result.offsetDays} 天，以 ${result.anchor} 當原型的 ${demo.PROTOTYPE_TODAY}）：${summary}。`)
+        if (phases.current) {
+          console.log(
+            `示範資料已建立（${demo.COHORT.code}「${demo.COHORT.name}」，日期平移 ${result.offsetDays} 天，以 ${result.anchor} 當原型的 ${demo.PROTOTYPE_TODAY}）：${summary}。`,
+          )
+        } else {
+          console.log(`示範資料已存在（${demo.COHORT.code}）；補上第二批（歷屆專題、榮譽榜、競賽）：${summary}。`)
+        }
         console.log(
           filesRoot
-            ? `封面與附件 ${written} 個已寫進 FILES_ROOT。`
-            : '沒有 FILES_ROOT：公告封面與附件略過（其他資料照建）。',
+            ? `封面、附件與海報 ${written} 個已寫進 FILES_ROOT${repaired > 0 ? `（另補回 ${repaired} 個遺失的）` : ''}。`
+            : '沒有 FILES_ROOT：封面、附件與海報略過（其他資料照建）。',
         )
         console.log(`示範屆別 id：${COHORT_ID}（後台各頁加 ?cohort=${COHORT_ID} 直接看這一屆）。`)
       }

@@ -14,10 +14,11 @@ import { bulkDisableAction, previewBulkDisableAction } from './actions'
  */
 
 const BUTTON =
-  'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50'
-const PRIMARY = 'bg-primary text-primary-foreground hover:bg-primary/90'
-const SECONDARY = 'bg-muted text-foreground hover:bg-border'
-const DANGER = 'bg-danger text-white hover:bg-danger/90'
+  // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
+  'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+const PRIMARY = 'btn-fju rounded-[4px]'
+const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
+const DANGER = 'bg-destructive/10 text-destructive hover:bg-destructive/20'
 
 type Phase =
   | { kind: 'input' }
@@ -113,14 +114,14 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
 
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, SECONDARY, 'px-3 py-1.5')}>
+      <button type="button" onClick={open} className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}>
         批次停用（TXT）
       </button>
       <dialog
         ref={dialogRef}
         onClose={onClosed}
         aria-label="批次停用"
-        className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
+        className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="max-h-[85vh] overflow-y-auto p-5">
           {!isOpen ? null : phase.kind === 'done' ? (
@@ -128,12 +129,12 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
                 已停用
               </p>
-              <h2 className="text-lg font-semibold text-ink">{phase.receipt.disabled} 個帳號</h2>
+              <h2 className="text-lg font-extrabold text-foreground">{phase.receipt.disabled} 個帳號</h2>
               <p className="text-sm text-muted-foreground">
                 他們在任何分頁做下一個動作就會被登出；資料與紀錄都保留，可以逐一恢復。理由、操作者與時間已寫入紀錄。
               </p>
               {phase.receipt.revocationFailed > 0 ? (
-                <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
                   有 {phase.receipt.revocationFailed} 個帳號的封鎖同步沒有完成（已留紀錄）；停用已經生效，他們已經進不來。
                 </p>
               ) : null}
@@ -160,13 +161,13 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
           ) : (
             <div className="space-y-4">
               <div>
-                <h2 className="text-lg font-semibold text-ink">批次停用</h2>
+                <h2 className="text-lg font-extrabold text-foreground">批次停用</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  UTF-8 的 TXT，<strong className="font-medium text-ink">一行一個學號</strong>，可以有空白行，不要加逗號或姓名。
+                  UTF-8 的 TXT，<strong className="font-medium text-foreground">一行一個學號</strong>，可以有空白行，不要加逗號或姓名。
                   下一步會先預覽，不會馬上停用。
                 </p>
               </div>
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 選擇 TXT 檔
                 <input
                   type="file"
@@ -175,7 +176,7 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
                   className="mt-1 block w-full text-sm font-normal"
                 />
               </label>
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 或直接貼上學號
                 <textarea
                   rows={6}
@@ -185,11 +186,11 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
                     setError(null)
                   }}
                   placeholder={'411400001\n411400002'}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm font-normal"
+                  className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 font-mono text-sm font-normal"
                 />
               </label>
               {error ? (
-                <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+                <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
                   {error}
                 </p>
               ) : null}
@@ -211,8 +212,8 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
 
 function Count({ label, value, testId }: { label: string; value: number; testId: string }) {
   return (
-    <div className="rounded-md bg-muted px-3 py-3 text-center" data-testid={testId}>
-      <p className="text-2xl font-semibold tabular-nums text-ink">{value}</p>
+    <div className="rounded-lg bg-muted px-3 py-3 text-center" data-testid={testId}>
+      <p className="text-2xl font-semibold tabular-nums text-foreground">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )
@@ -238,7 +239,7 @@ function PreviewStep({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-ink">批次停用預覽</h2>
+        <h2 className="text-lg font-extrabold text-foreground">批次停用預覽</h2>
         <p className="mt-1 text-sm text-muted-foreground">只會停用「將停用」那幾位；其他的不動。預設停用，不是刪除。</p>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -250,11 +251,11 @@ function PreviewStep({
 
       {p.hits.length > 0 ? (
         <section aria-label="將停用">
-          <h3 className="mb-1 text-sm font-medium text-ink">將停用</h3>
-          <ul className="max-h-40 overflow-y-auto rounded-md border border-border text-sm">
+          <h3 className="mb-1 text-sm font-medium text-foreground">將停用</h3>
+          <ul className="max-h-40 overflow-y-auto rounded-lg border border-border text-sm">
             {p.hits.map((h) => (
               <li key={h.userId} className="flex justify-between gap-3 border-b border-border px-3 py-1.5 last:border-0">
-                <span className="text-ink">{h.name}</span>
+                <span className="text-foreground">{h.name}</span>
                 <span className="tabular-nums text-muted-foreground">
                   {h.studentNo}
                   {h.cohortCode ? `・${h.cohortCode}` : ''}
@@ -267,8 +268,8 @@ function PreviewStep({
 
       {p.notFound.length + p.duplicates.length + p.alreadyDisabled.length + p.skipped.length > 0 ? (
         <section aria-label="不會停用的列">
-          <h3 className="mb-1 text-sm font-medium text-ink">不會停用的列</h3>
-          <ul className="max-h-40 overflow-y-auto rounded-md border border-border text-xs">
+          <h3 className="mb-1 text-sm font-medium text-foreground">不會停用的列</h3>
+          <ul className="max-h-40 overflow-y-auto rounded-lg border border-border text-xs">
             {p.skipped.map((s) => (
               <li key={`s-${s.line}`} className="flex justify-between gap-3 border-b border-border px-3 py-1.5 last:border-0">
                 <span className="tabular-nums">第 {s.line} 行 {s.studentNo}</span>
@@ -298,22 +299,22 @@ function PreviewStep({
       ) : null}
 
       {p.hits.length > 0 ? (
-        <label className="block text-sm font-medium text-ink">
+        <label className="block text-sm font-medium text-foreground">
           理由 <span className="font-normal text-muted-foreground">・必填，會寫入每一位的紀錄</span>
           <textarea
             rows={2}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="例：113 學年度畢業"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-normal"
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 text-sm font-normal"
           />
         </label>
       ) : (
-        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">沒有需要停用的帳號。</p>
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">沒有需要停用的帳號。</p>
       )}
 
       {error ? (
-        <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+        <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
           {error}
         </p>
       ) : null}

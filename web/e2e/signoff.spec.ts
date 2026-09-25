@@ -195,7 +195,9 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
   await expect(page.getByRole('link', { name: '簽核', exact: true })).toHaveAttribute('href', '/dashboard/admin/signoff')
   await expect(page.getByRole('link', { name: '精選', exact: true })).toHaveAttribute('href', '/dashboard/admin/showcase')
   await expect(page.getByText('尚未建立簽核')).toBeVisible()
-  await expect(page.getByRole('form', { name: '建立簽核版本' })).toBeVisible()
+  await page.getByRole('button', { name: '新增簽核' }).click()
+  await expect(page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })).toBeVisible()
+  await page.keyboard.press('Escape')
   // 系辦沒有任何替人同意的入口。
   await expect(page.getByRole('button', { name: /同意/ })).toHaveCount(0)
 
@@ -280,7 +282,8 @@ test('精選草稿：海報換成非圖片被拒、原海報保留；兩個分�
 test('建簽核版本：全文空、沒選精選草稿被拒；選好後回執含參與者；版本頁全文後列授權範圍與採認待確認標示', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  const form = page.getByRole('form', { name: '建立簽核版本' })
+  await page.getByRole('button', { name: '新增簽核' }).click()
+  const form = page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })
   await form.getByLabel('組別').selectOption({ label: 'G01' })
   await form.getByText('最終文件授權', { exact: true }).click()
   await expect(form.getByTestId('impact-preview')).toContainText(`參與者：3 位學生＋主指導 ${TEACHER_NAME}`)
@@ -343,7 +346,8 @@ test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「�
   await expect(page.getByTestId('scope-title')).toHaveText(TITLE_1)
 
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  const form = page.getByRole('form', { name: '建立簽核版本' })
+  await page.getByRole('button', { name: '新增簽核' }).click()
+  const form = page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })
   await form.getByText('最終文件授權', { exact: true }).click()
   await expect(form.getByTestId('impact-preview')).toContainText('目前的 v1 會失效')
   await form.getByLabel('全文').fill(`${CONTENT_1}（第二版）`)

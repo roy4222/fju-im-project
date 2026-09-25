@@ -62,13 +62,13 @@ export function RestartButton({
           <input type="hidden" name="versionId" value={versionId} />
           <input type="hidden" name="requestId" value={requestId} />
           <input type="hidden" name="kind" value={kind} />
-          <h2 className="text-base font-semibold text-ink">{label}？</h2>
+          <h2 className="text-lg font-extrabold text-foreground">{label}？</h2>
           <p className="text-sm text-muted-foreground">
             以這一版相同的全文、附件與授權範圍建立新版本，參與者依此刻的組員與主指導重新計算，每個人都要重新同意。舊版與舊的表態留作歷史，不計入新版。
           </p>
           {affected.length > 0 ? (
-            <div className="rounded-md bg-surface px-3 py-2 text-sm" data-testid="restart-affected">
-              <p className="font-medium text-ink">將失效的簽署（{affected.length}）</p>
+            <div className="rounded-lg bg-surface px-3 py-2 text-sm" data-testid="restart-affected">
+              <p className="font-medium text-foreground">將失效的簽署（{affected.length}）</p>
               <p className="text-xs text-muted-foreground">{affected.join('、')}</p>
             </div>
           ) : null}
@@ -108,7 +108,7 @@ export function VoidButton({ versionId, requestId, reasonMaxLength }: { versionI
         <form action={formAction} className="space-y-4 p-5">
           <input type="hidden" name="versionId" value={versionId} />
           <input type="hidden" name="requestId" value={requestId} />
-          <h2 className="text-base font-semibold text-ink">作廢這一版？</h2>
+          <h2 className="text-lg font-extrabold text-foreground">作廢這一版？</h2>
           <p className="text-sm text-muted-foreground">作廢後誰都不能再表態；已完成的版本作廢，等於撤回這一份同意。之後要重新簽核請按「重開新版」。</p>
           <div>
             <label htmlFor={`void-reason-${versionId}`} className={LABEL}>

@@ -2,7 +2,9 @@ import 'server-only'
 import type { PoolClient } from 'pg'
 import { rosterFileDownloadable, type ResolvedActor } from '@/application/accounts'
 import {
+  normalizeAuditWho,
   storageTileText,
+  type AuditLog,
   type AuditWriter,
   type DownloadPolicies,
   type FileStorage,
@@ -13,11 +15,23 @@ import { formatTaipeiMinute } from '@/shared/time'
 import { getPool } from '@/infrastructure/db/client'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
+import { readAuditLog } from '@/infrastructure/ops/pg-audit-log'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
+
+// 操作紀錄頁（票 36）要的顯示規則：app 對 application 只能帶型別，值經 composition 轉出去。
+export {
+  AUDIT_PAGE_LIMIT,
+  AUDIT_WHO_FILTERS,
+  AUDIT_WHO_LABEL,
+  AUDIT_WINDOW_DAYS,
+  auditActionLabel,
+  auditWhoOf,
+  describeAuditTarget,
+} from '@/application/ops'
 
 /** 模組 10 的共用 port（稽核、帳本、檔案）。 */
 let auditWriter: AuditWriter<PoolClient> | undefined
@@ -99,6 +113,19 @@ export function getOpsStatusQuery() {
         new Date(),
         measurement ? formatTaipeiMinute(measurement.measuredRealAt) : '',
       )
+    },
+  }
+}
+
+/**
+ * 「操作紀錄」頁（票 36；模組 10「系辦進操作紀錄」、FIL-07「一般學生不可讀管理稽核」）。
+ * 只給狀態正常的管理員：其他人一律回 null（頁面本身已經先用 `requireRole` 擋過一次）。
+ */
+export function getAuditLogQuery() {
+  return {
+    async recent(actor: ResolvedActor, who: unknown): Promise<AuditLog | null> {
+      if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
+      return readAuditLog(getPool(), normalizeAuditWho(who))
     },
   }
 }

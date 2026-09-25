@@ -1,6 +1,8 @@
 'use client'
 import { startTransition, useActionState, useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { NormalizedOpportunity, OpportunityField } from '@/application/groups'
+import { IconEyeOff, IconPlus } from '@tabler/icons-react'
+import { ALERT, BTN_OUTLINE_TALL, BTN_ROW, BTN_ROW_GHOST, BTN_SUBMIT, DIALOG, DIALOG_TITLE, INPUT as INPUT_BASE, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
 import { cn } from '@/shared/cn'
 import { changeOpportunityStatusAction, saveOpportunityAction, unlinkOpportunityAction } from './actions'
 
@@ -13,24 +15,21 @@ import { changeOpportunityStatusAction, saveOpportunityAction, unlinkOpportunity
 
 export type IndustryActionState = { ok: boolean; message: string; field?: string } | undefined
 
-const PRIMARY =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-const SECONDARY =
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
-const INPUT = 'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm'
-const LABEL = 'block text-sm font-medium text-ink'
-const DIALOG = 'm-auto w-[min(40rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40'
+// 外觀照原型 `industry-form.tsx`（票 36）：h-11 輸入框、橘色主要動作、白框次要動作、原型 Dialog 的圓角與遮罩。
+const PRIMARY = BTN_SUBMIT
+const SECONDARY = BTN_OUTLINE_TALL
+const ROW_BUTTON = BTN_ROW
+const ROW_GHOST = BTN_ROW_GHOST
+const INPUT = `mt-1.5 ${INPUT_BASE} h-11`
+const AREA = `mt-1.5 ${TEXTAREA}`
+const LABEL = 'block text-sm font-semibold text-foreground'
+const DIALOG_BOX = DIALOG['2xl']
+const DIALOG_SMALL = DIALOG.md
 
 export function IndustryFeedback({ state }: { state: IndustryActionState }) {
   if (!state) return null
   return (
-    <p
-      role={state.ok ? 'status' : 'alert'}
-      className={cn(
-        'rounded-md px-3 py-2 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
-      )}
-    >
+    <p role={state.ok ? 'status' : 'alert'} className={state.ok ? NOTE : ALERT}>
       {state.message}
     </p>
   )
@@ -98,13 +97,13 @@ export function OpportunityFormDialog({
       defaultValue: value(name) ?? '',
       maxLength: labels.limits[name],
       'aria-invalid': invalid || undefined,
-      className: cn(INPUT, invalid ? 'border-danger' : 'border-border', options.textarea && 'resize-y'),
+      className: cn(options.textarea ? AREA : INPUT, invalid && 'border-destructive', options.textarea && 'resize-y'),
     }
     return (
       <div className={options.span ? 'sm:col-span-2' : undefined}>
         <label htmlFor={id} className={LABEL}>
           {labels.fields[name]}
-          {options.required ? <span className="ml-0.5 text-danger">＊</span> : null}
+          {options.required ? <span className="ml-0.5 text-destructive">*</span> : null}
         </label>
         {options.textarea ? <textarea rows={options.rows ?? 3} {...common} /> : <input type={options.type ?? 'text'} {...common} />}
       </div>
@@ -114,11 +113,12 @@ export function OpportunityFormDialog({
   return (
     <>
       {editing ? (
-        <button type="button" className={SECONDARY} onClick={dialog.open} aria-label={`編輯：${initial!.name}`}>
+        <button type="button" className={ROW_BUTTON} onClick={dialog.open} aria-label={`編輯：${initial!.name}`}>
           編輯
         </button>
       ) : (
-        <button type="button" className={PRIMARY} onClick={dialog.open}>
+        <button type="button" className="btn-fju h-10 px-4 text-sm" onClick={dialog.open}>
+          <IconPlus className="size-4" aria-hidden />
           新增合作案
         </button>
       )}
@@ -127,11 +127,13 @@ export function OpportunityFormDialog({
           {state.message}
         </span>
       ) : null}
-      <dialog ref={dialog.ref} aria-label={editing ? `編輯合作案：${initial!.name}` : '新增合作案'} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={editing ? `編輯合作案：${initial!.name}` : '新增合作案'} className={DIALOG_BOX}>
         <form ref={formRef} key={`${initial?.revision ?? 0}-${version}`} onSubmit={submitWithoutReset(action)} className="flex flex-col">
-          <div className="border-b border-border px-5 py-4">
-            <h2 className="text-base font-semibold text-ink">{editing ? '編輯合作案' : '新增合作案'}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">負責老師與發布日由系統帶入。＊為必填。內容可以分段落，直接換行即可。</p>
+          <div className="border-b border-border px-6 py-4">
+            <h2 className={DIALOG_TITLE}>{editing ? '編輯合作案' : '新增合作案'}</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              負責老師與發布日由系統帶入。<span className="text-destructive">*</span> 為必填。內容可以分段落，直接換行即可。
+            </p>
           </div>
           <input type="hidden" name="requestId" value={requestId} />
           {initial ? (
@@ -140,7 +142,7 @@ export function OpportunityFormDialog({
               <input type="hidden" name="revision" value={initial.revision} />
             </>
           ) : null}
-          <div className="grid max-h-[60vh] gap-4 overflow-y-auto px-5 py-4 sm:grid-cols-2">
+          <div className="grid max-h-[60vh] gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
             {field('companyName', { required: true })}
             {field('department', { required: true })}
             {field('content', { required: true, textarea: true, rows: 5, span: true })}
@@ -148,18 +150,18 @@ export function OpportunityFormDialog({
             {field('notes', { textarea: true, rows: 2, span: true })}
             <fieldset className="sm:col-span-2">
               <legend className={LABEL}>備註給誰看</legend>
-              <div className="mt-1 flex flex-wrap gap-4 text-sm text-ink">
+              <div className="mt-1.5 flex flex-wrap gap-4 text-sm text-foreground">
                 <label className="flex items-center gap-2">
-                  <input type="radio" name="notesVisibility" value="internal" defaultChecked={(initial?.values.notesVisibility ?? 'internal') === 'internal'} />
+                  <input type="radio" className="accent-brand" name="notesVisibility" value="internal" defaultChecked={(initial?.values.notesVisibility ?? 'internal') === 'internal'} />
                   只有我與系辦
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="radio" name="notesVisibility" value="signed_in" defaultChecked={initial?.values.notesVisibility === 'signed_in'} />
+                  <input type="radio" className="accent-brand" name="notesVisibility" value="signed_in" defaultChecked={initial?.values.notesVisibility === 'signed_in'} />
                   登入的學生與老師
                 </label>
               </div>
             </fieldset>
-            <p className="rounded-md bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground sm:col-span-2">
+            <p className="mt-1 rounded-lg bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground sm:col-span-2">
               以下只有你（負責老師）與系辦看得到，不會因為發布而公開。
             </p>
             {field('address', { span: true })}
@@ -167,7 +169,7 @@ export function OpportunityFormDialog({
             {field('contactPhone', { type: 'tel' })}
             {field('contactEmail', { type: 'email', span: true })}
           </div>
-          <div className="space-y-3 border-t border-border px-5 py-4">
+          <div className="space-y-3 border-t border-border px-6 py-4">
             <IndustryFeedback state={state?.ok ? undefined : state} />
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" className={SECONDARY} onClick={dialog.close}>
@@ -225,13 +227,13 @@ export function OpportunityStatusButton({
         : '發布後登入的學生與老師看得到公司、部門、內容與條件；聯絡資訊仍只有你與系辦看得到。'
   return (
     <>
-      <button type="button" className={SECONDARY} onClick={dialog.open} aria-label={`${label}：${name}`}>
+      <button type="button" className={ROW_BUTTON} onClick={dialog.open} aria-label={`${label}：${name}`}>
         {label}
       </button>
       <IndustryFeedback state={state?.ok ? state : undefined} />
-      <dialog ref={dialog.ref} aria-label={`${label}「${name}」`} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={`${label}「${name}」`} className={DIALOG_SMALL}>
         <form action={action} className="space-y-4 p-5">
-          <h2 className="text-base font-semibold text-ink">
+          <h2 className={DIALOG_TITLE}>
             {label}「{name}」？
           </h2>
           <p className="text-sm text-muted-foreground">{explain}</p>
@@ -240,7 +242,7 @@ export function OpportunityStatusButton({
           <input type="hidden" name="kind" value={kind === 'withdraw' ? 'withdraw' : 'publish'} />
           <input type="hidden" name="requestId" value={requestId} />
           <IndustryFeedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
             </button>
@@ -264,8 +266,11 @@ export function LinkedGroupsCell({
   opportunityName,
   requestId,
   reasonMaxLength,
+  header,
 }: {
   links: readonly { linkId: string; groupCode: string; cohortCode: string }[]
+  /** 格子最上面一行（系辦頁放負責老師；原型的中間欄）。 */
+  header?: React.ReactNode
   opportunityName: string
   requestId: string
   reasonMaxLength: number
@@ -279,20 +284,24 @@ export function LinkedGroupsCell({
   }, [state, dialog])
 
   return (
-    <div className="text-sm">
-      <p className="text-xs font-semibold text-muted-foreground">連結的組別</p>
+    <div className="min-w-0 text-xs text-muted-foreground">
+      {header}
+      <p className="sr-only">連結的組別</p>
       {links.length === 0 ? (
-        <p className="mt-1 text-muted-foreground">尚無組別連結</p>
+        <span className="inline-flex items-center gap-1">
+          <IconEyeOff className="size-3.5" aria-hidden />
+          尚無組別連結
+        </span>
       ) : (
-        <ul className="mt-1 space-y-2">
+        <ul className="space-y-1">
           {links.map((l) => (
-            <li key={l.linkId} className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-semibold text-ink tabular-nums">
+            <li key={l.linkId} className="flex flex-wrap items-center gap-2">
+              <span className="truncate font-semibold text-foreground tabular-nums">
                 {l.cohortCode}・{l.groupCode}
               </span>
               <button
                 type="button"
-                className={SECONDARY}
+                className={ROW_GHOST}
                 aria-label={`解除連結：${l.groupCode}`}
                 onClick={() => {
                   setTarget({ linkId: l.linkId, groupCode: l.groupCode })
@@ -309,10 +318,10 @@ export function LinkedGroupsCell({
       <div className="mt-2">
         <IndustryFeedback state={state?.ok ? state : undefined} />
       </div>
-      <dialog ref={dialog.ref} aria-label={`解除 ${target?.groupCode ?? ''} 的連結`} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={`解除 ${target?.groupCode ?? ''} 的連結`} className={DIALOG_SMALL}>
         <form onSubmit={submitWithoutReset(action)} className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold text-ink">
+            <h2 className={DIALOG_TITLE}>
               解除 {target?.groupCode} 與「{opportunityName}」的連結
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">解除後該組組員與案主會收到通知；歷程保留解除原因。</p>
@@ -331,11 +340,11 @@ export function LinkedGroupsCell({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="例：企業暫停這個題目"
-              className={cn(INPUT, 'border-border')}
+              className={AREA}
             />
           </div>
           <IndustryFeedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
             </button>
