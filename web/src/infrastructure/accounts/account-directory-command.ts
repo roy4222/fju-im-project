@@ -584,6 +584,23 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     )
     // 停用釋出有效學號（附錄 A：停用或去識別化時 DELETE）；停用不動角色。
     if (action === 'disable') await tx.query('delete from student_identities where user_id = $1', [target.userId])
+    /**
+     * 撤掉這個人的全部 session，**在業務交易裡**做（模組 01 §2「停用立即撤 session」；契約 03 §3）。
+     *
+     * 原本只靠 commit 後的 `banUser` 刪 session 列。那一步失敗、逾時、或被 worker 認領（這邊回 pending）時，
+     * 列就留著；入口層靠 `users.status` 擋住它，但**恢復一把 status 改回來，同一個 cookie 就直接復活**，
+     * 沒重新登入就是登入狀態（e2e accounts.spec「恢復後可以再登入」的偶發失敗）。
+     *
+     * - 停用：跟狀態同一個交易刪，commit 那一刻就沒有有效 session；Better Auth 的 `banned` 仍由 commit 後的
+     *   `banUser` 補上（附錄 A 規則 1–5 不變，它刪 session 那一步變成冪等的第二層）。
+     * - 恢復：也刪一次。停用中的帳號不可能有合法的 session（`session.create.before` 對停用一律拒絕），
+     *   這裡清掉的只會是漏網的舊列——例如登入跟停用同時發生、在停用 commit 前剛寫進去的那一筆。
+     *   恢復後一律要重新登入。
+     *
+     * 本專案沒開 secondary storage 與 cookie 快取（auth-instance.ts），session 只在 `sessions` 表，
+     * 刪列就等於撤銷；`fju_app` 對 `sessions` 本來就有 DELETE（migration 0001）。
+     */
+    await tx.query('delete from sessions where user_id = $1', [target.userId])
     // Better Auth 那一層：停用＝封鎖；恢復（不論回 active 或待審）＝解除封鎖（`revocationTargetOf`，待審也不該被封鎖）。
     await this.#revocations.enqueue(tx, { userId: target.userId, statusEventId, expected: revocationTargetOf(to)!, now, actorUserId })
     await this.#deps.audit.append(tx, {
