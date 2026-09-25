@@ -65,7 +65,8 @@ test.describe('以 A1（管理員）', () => {
     const response = await page.goto('/dashboard/admin')
     expect(response?.status()).toBe(200)
 
-    await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+    // 首頁頂端是歡迎色塊（2026-09-25 對齊原型），h1 是「歡迎回來，<姓名>」。
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
     // 票 28：儲存用量磚（背景工作量到了就是百分比，還沒量到是「—」）。
     await expect(page.getByText('儲存與備份', { exact: true })).toBeVisible()
     // 側欄有兩份：行動版收在 <details> 裡、桌機版直接展開。
@@ -196,11 +197,11 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
-    '/dashboard/admin': '待審的註冊、已開通的學生與目前在忙的屆別',
+    '/dashboard/admin': '各收件項目完成率',
     '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
-    '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
-    '/dashboard/student': '組別、要交的東西與截止日',
+    '/dashboard/teacher': '可認領產學組',
+    '/dashboard/student': '專題行事曆',
     '/dashboard/admin/timeline': '屆別的四個階段與獨立活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
     '/dashboard/admin/inbox': '跟你有關的事件都會出現在這裡',

@@ -189,7 +189,7 @@ test('老師認領產學組：按「指定為我的組別」後看到回執；�
   expect(await recipientsOf('advisor.assigned', 'G01')).toEqual([sorted(...memberIds.get('G01')!, teacherA.userId)])
 
   await page.goto('/dashboard/teacher')
-  await expect(page.getByText('指導中的組別').locator('..')).toContainText('1')
+  await expect(page.getByTestId('home-advised')).toContainText('我的 1 組')
 })
 
 async function claimPage(browser: Browser, session: TestSession) {

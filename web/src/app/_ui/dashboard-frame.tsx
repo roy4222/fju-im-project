@@ -94,6 +94,7 @@ function grouped(items: readonly Item[]): { title: Group; items: (Item & { icon:
 export function DashboardFrame({
   roleLabel,
   userName,
+  sidebarOpen = true,
   items,
   current,
   homeHref,
@@ -104,6 +105,8 @@ export function DashboardFrame({
   roleLabel: string
   /** 本人姓名（頂列頭像）；取不到就顯示角色。 */
   userName?: string
+  /** 側欄初始是否展開（伺服器從 cookie 讀）。 */
+  sidebarOpen?: boolean
   items: readonly Item[]
   current: string
   homeHref: string
@@ -121,7 +124,7 @@ export function DashboardFrame({
   return (
     // 側欄收合成圖示時，每一項 hover 會出現名稱提示（原型在根 layout 包 TooltipProvider）。
     <TooltipProvider>
-    <SidebarProvider className="dash-frame">
+    <SidebarProvider className="dash-frame" defaultOpen={sidebarOpen}>
       <Sidebar collapsible="icon" variant="inset">
         <SidebarHeader className="px-4 pt-4 pb-1">
           <Link href={homeHref} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回後台首頁">

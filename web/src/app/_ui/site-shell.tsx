@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import type { ResolvedActor } from '@/application/accounts'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
@@ -6,6 +7,7 @@ import { homeFor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
 import { cn } from '@/shared/cn'
 
 /** 前台主導覽（票 16；產品模組 09 §9.2）。檔案下載要登入，訪客點進去會看到登入提示。 */
@@ -141,14 +143,17 @@ export async function DashboardShell({
   const base = current.split('/').slice(0, 3).join('/')
   const signOutFormId = 'dashboard-sign-out'
   // 頭像的姓名：跟鈴鐺共用同一次身分解析（`shellViewer`），不另外查；只讀本人這一列。
-  const viewer = await shellViewer()
+  const [viewer, jar] = await Promise.all([shellViewer(), cookies()])
   const name = viewer.kind === 'authenticated' ? viewer.displayName : undefined
+  // 側欄上次是收合還是展開（瀏覽器切換時寫的 cookie）。
+  const sidebarOpen = sidebarOpenFromCookie(jar.get(SIDEBAR_COOKIE_NAME)?.value)
   return (
     <>
       <SignOutForm id={signOutFormId} />
       <DashboardFrame
         roleLabel={roleLabel}
         userName={name}
+        sidebarOpen={sidebarOpen}
         items={items}
         current={current}
         homeHref={base}
