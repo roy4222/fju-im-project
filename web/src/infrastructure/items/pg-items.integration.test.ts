@@ -558,7 +558,7 @@ describe('公告與資源', () => {
     ])
   })
 
-  it('勾通知：全部老師的公告寫給老師；公開公告只留事件、不展開全站', async () => {
+  it('勾「重要」：全部老師的公告寫給老師；公開公告展開到全站有效帳號（Roy 2026-09-25）', async () => {
     const { cohortId } = await newCohort()
     const teachers = await mustCreate(cohortId, { placement: 'news', audienceKind: 'teachers' })
     await mustPublish(teachers.itemId, 1, true)
@@ -566,8 +566,16 @@ describe('公告與資源', () => {
 
     const open = await mustCreate(cohortId, { placement: 'resource', audienceKind: 'public' })
     const receipt = await mustPublish(open.itemId, 1, true)
-    expect(receipt.notifiedCount).toBe(0)
-    expect((await events(open.itemId, 'item.announced'))[0]!.recipients).toEqual([])
+    const active = await count(`select count(*) as n from users where status = 'active' and deidentified_at is null`)
+    expect(receipt.notifiedCount).toBe(active)
+    const recipients = (await events(open.itemId, 'item.announced'))[0]!.recipients as string[]
+    expect(recipients).toHaveLength(active)
+    expect(recipients).toEqual(expect.arrayContaining([adminId, otherAdminId, teacherId]))
+
+    // 沒勾「重要」的一般公開公告：只留發布紀錄，不發事件。
+    const plain = await mustCreate(cohortId, { placement: 'news', audienceKind: 'signed_in' })
+    expect((await mustPublish(plain.itemId, 1, false)).notifiedCount).toBe(0)
+    expect(await events(plain.itemId, 'item.announced')).toHaveLength(0)
   })
 
   it('正文存的是清理過的 HTML', async () => {

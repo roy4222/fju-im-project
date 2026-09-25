@@ -38,6 +38,16 @@ export const INPUT =
   'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none ' +
   'transition-[border-color,box-shadow] focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/25 disabled:opacity-60'
 export const LABEL = 'block text-sm font-semibold'
+
+/**
+ * 公告、資源發布時的「重要」勾選（Roy 2026-09-25 定）：勾了才逐人發站內通知給對象，一般公告只留發布紀錄。
+ * 公開與所有登入者的對象＝全站有效帳號，預設不勾；其他對象（本屆學生、指定組別、全部老師）維持預設勾。
+ */
+export const IMPORTANT_LABEL = '重要公告：逐人發站內通知給對象'
+
+export function broadAudience(audienceKind: string): boolean {
+  return audienceKind === 'public' || audienceKind === 'signed_in'
+}
 export const DIALOG = cn(KIT_DIALOG, 'w-[min(44rem,calc(100vw-2rem))]')
 
 // ── 上傳 ────────────────────────────────────────────────────────────────────
@@ -343,7 +353,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
   }
   return (
     <p className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
-      {recipients.notifyCount > 0 ? `通知會寫給 ${recipients.notifyCount} 位。` : '這個對象不逐人通知（公開或所有登入者只留發布紀錄）。'}
+      {recipients.notifyCount > 0 ? `通知會寫給 ${recipients.notifyCount} 位。` : '這個對象目前沒有可以通知的人。'}
     </p>
   )
 }

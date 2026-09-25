@@ -138,6 +138,7 @@ export async function changeItemStatusAction(
   revision: number,
   action: string,
   requestId: string,
+  notify = false,
 ): Promise<ItemActionOutcome<{ itemId: string; revision: number; status: 'draft' | 'published' | 'archived' }>> {
   const known = action === 'withdraw' || action === 'archive' || action === 'republish' ? action : null
   if (!known) return { ok: false, code: 'VALIDATION_FAILED', message: '不認得這個動作，請重新整理頁面。' }
@@ -147,6 +148,7 @@ export async function changeItemStatusAction(
     Number(revision),
     known,
     str(requestId, 100),
+    { notify: notify === true },
   )
   return toOutcome(
     result,

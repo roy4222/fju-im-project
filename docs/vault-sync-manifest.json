@@ -156,11 +156,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
       "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
-      "source_sha256": "f595862b28eb94d5f84823b7244526ffe1bb8b4248a7da6668b7d0ab4b738ba0",
-      "mirror_sha256": "f595862b28eb94d5f84823b7244526ffe1bb8b4248a7da6668b7d0ab4b738ba0",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "d52516d132d0b71b96f5813c6cf909ad06a80f443afe034a8978e3ca14c42864",
+      "mirror_sha256": "d52516d132d0b71b96f5813c6cf909ad06a80f443afe034a8978e3ca14c42864",
+      "verified_at": "2026-09-25T12:30:05.111772+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-09-25 重要公告逐人通知（Roy 定）：Vault 回寫後重新轉換鏡像。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
@@ -1555,11 +1555,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/08 站內通知與日曆.md",
       "destination": "docs/engineering/modules/08 站內通知與日曆.md",
-      "source_sha256": "6a22b1dd4d934e58d7736cb468ca880c17b538bb2a9c63c3b1e69734abd70ec6",
-      "mirror_sha256": "4aa888dccca429d21e038b36fbad552aedd7fbdc4f399b733bf2c21c27520397",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "131116918e5d993450ca41610d91500b43a889a38335c7e0ea61e43309385d72",
+      "mirror_sha256": "9c02abe1503bd2e0208de52addece4892b5973c9b7128672b53b8a2dd473f7f7",
+      "verified_at": "2026-09-25T12:30:05.111772+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-09-25 重要公告逐人通知（Roy 定）：Vault 回寫後重新轉換鏡像。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/10 檔案與服務維運.md",
