@@ -186,19 +186,11 @@ export default async function AdminTimelinePage({
       />
 
       <Panel
-        title="獨立活動"
-        icon={<IconCalendarEvent />}
-        description="說明會、成果發表這類活動；作業截止會從收件項目自動帶進日曆"
-        bodyClassName="border-t border-border px-5 py-4"
-      >
-        <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />
-      </Panel>
-
-      <Panel
         title="已排定的活動"
         icon={<IconCalendarEvent />}
-        description={`${scheduled.length} 個`}
+        description={`${scheduled.length} 個・說明會、成果發表這類獨立活動`}
         aria-label="已排定的活動"
+        action={<CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />}
       >
         {scheduled.length === 0 ? (
           <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">還沒有活動。</p>

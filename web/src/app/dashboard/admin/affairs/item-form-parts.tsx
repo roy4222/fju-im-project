@@ -258,7 +258,7 @@ export function CoverPicker({
 
 // ── 發布前檢查與名單 ────────────────────────────────────────────────────────
 
-export function CheckList({ checks }: { checks: readonly PublishCheck[] }) {
+export function CheckList({ checks, onFix }: { checks: readonly PublishCheck[]; onFix?: (key: string) => void }) {
   return (
     <ul aria-label="發布前檢查" className="divide-y divide-border rounded-xl border border-border text-sm">
       {checks.map((c) => (
@@ -279,6 +279,15 @@ export function CheckList({ checks }: { checks: readonly PublishCheck[] }) {
           </span>
           <span className="w-16 shrink-0 text-muted-foreground">{c.label}</span>
           <span className={cn('min-w-0 flex-1 font-semibold', !c.ok && 'text-destructive')}>{c.ok ? '沒問題' : c.fix}</span>
+          {!c.ok && onFix ? (
+            <button
+              type="button"
+              onClick={() => onFix(c.key)}
+              className="shrink-0 text-xs font-semibold text-destructive underline-offset-2 hover:underline"
+            >
+              回去補<span className="sr-only">：{c.label}</span>
+            </button>
+          ) : null}
         </li>
       ))}
     </ul>
