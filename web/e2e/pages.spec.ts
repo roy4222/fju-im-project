@@ -129,6 +129,19 @@ test.describe('以 S01（學生）', () => {
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
   })
+
+  test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
+    await signInAs(page, 'student')
+    const top = async (text: string) =>
+      (await page.getByRole('region', { name: '基本資料' }).getByText(text, { exact: true }).first().boundingBox())!.y
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/account')
+    // 第一列：姓名｜下一格（這個測試帳號沒有個人資料，下一格是登入 Email）。
+    expect(Math.abs((await top('姓名')) - (await top('登入 Email')))).toBeLessThan(2)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/account')
+    expect((await top('登入 Email')) - (await top('姓名'))).toBeGreaterThan(20)
+  })
 })
 
 test.describe('以 T1（老師）', () => {

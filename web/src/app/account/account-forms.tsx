@@ -1,5 +1,5 @@
 'use client'
-import { useActionState } from 'react'
+import { useActionState, type ReactNode } from 'react'
 import {
   linkGoogleAction,
   reconfirmAction,
@@ -57,17 +57,24 @@ export function ContactForm({
   phone,
   contactEmail,
   revision,
+  leading,
+  leadingCount = 0,
 }: {
   phone: string
   contactEmail: string
   revision: number
+  /** 排在前面的唯讀欄位（姓名、學號…登入 Email）：跟手機、聯絡 Email 放在同一個兩欄格裡（原型成對排列）。 */
+  leading?: ReactNode
+  /** 唯讀欄位有幾格：單數時最後一格跟「手機」同一列、聯絡 Email 自己一整列（原型「屆別｜手機」→「聯絡 Email」）。 */
+  leadingCount?: number
 }) {
   const [state, formAction, pending] = useActionState(updateContactAction, undefined)
   const values = state?.values ?? { phone, contactEmail }
   return (
     <form key={state?.attempt ?? 0} action={formAction} className="space-y-4">
       <input type="hidden" name="expectedRevision" value={String(revision)} />
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-x-3.5 gap-y-4 sm:grid-cols-2">
+        {leading}
         <div>
           <label htmlFor="field-phone" className={LABEL}>
             手機
@@ -85,7 +92,7 @@ export function ContactForm({
             className={INPUT}
           />
         </div>
-        <div>
+        <div className={leadingCount % 2 === 1 ? 'sm:col-span-2' : undefined}>
           <label htmlFor="field-contactEmail" className={LABEL}>
             聯絡 Email
           </label>

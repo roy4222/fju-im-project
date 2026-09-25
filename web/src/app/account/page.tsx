@@ -47,6 +47,24 @@ export default async function AccountPage({
 
   const roleLabels = (['admin', 'teacher', 'student'] as const).filter((r) => actorHasRole(actor, r)).map((r) => ROLE_LABEL[r])
 
+  // 原型：基本資料是兩欄成對排列（唯讀的灰底框、可改的白底框混在同一個格裡）。
+  // 系辦維護的欄位在前、登入 Email 接著，手機與聯絡 Email 在後（見 ContactForm 的 leadingCount）。
+  const readOnlyCells = [
+    <ReadOnlyField key="name" label="姓名" value={me.profile?.displayName ?? me.name} />,
+    me.profile?.studentNo ? <ReadOnlyField key="no" label="學號" value={me.profile.studentNo} hint="由系辦維護" numeric /> : null,
+    me.profile?.departmentClass ? <ReadOnlyField key="class" label="系級" value={me.profile.departmentClass} hint="由系辦維護" /> : null,
+    me.profile?.cohortName ? <ReadOnlyField key="cohort" label="屆別" value={me.profile.cohortName} hint="由系辦維護" /> : null,
+    <div key="login" className="flex min-w-0 flex-col gap-1.5" data-testid="login-email">
+      <span className="text-sm font-semibold text-foreground">登入 Email</span>
+      <div className="flex min-h-11 flex-wrap items-center gap-x-2 rounded-md border border-input bg-muted px-3 py-2 text-sm break-all text-muted-foreground">
+        {me.loginEmail}
+      </div>
+      <span className="text-xs text-muted-foreground">不能自行更換</span>
+    </div>,
+  ].filter(Boolean)
+  const readOnly = <>{readOnlyCells}</>
+  const readOnlyCount = readOnlyCells.length
+
   return (
     <SiteShell bare>
       <PublicPage title="我的帳號" description="姓名、學號、系級與屆別由系辦維護；手機與聯絡 Email 可以自己改。">
@@ -63,58 +81,53 @@ export default async function AccountPage({
               </p>
             ) : null}
 
-            <PublicCard title="基本資料">
-              <dl className="grid gap-3.5 sm:grid-cols-2" aria-label="系辦維護的資料">
-                <ReadOnlyField label="姓名" value={me.profile?.displayName ?? me.name} />
-                {me.profile?.studentNo ? <ReadOnlyField label="學號" value={me.profile.studentNo} hint="由系辦維護" numeric /> : null}
-                {me.profile?.departmentClass ? <ReadOnlyField label="系級" value={me.profile.departmentClass} hint="由系辦維護" /> : null}
-                {me.profile?.cohortName ? <ReadOnlyField label="屆別" value={me.profile.cohortName} hint="由系辦維護" /> : null}
-                <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-                  <dt className="text-sm font-semibold text-foreground">登入 Email</dt>
-                  <dd className="flex min-h-11 flex-wrap items-center gap-x-2 rounded-md border border-input bg-muted px-3 py-2 text-sm break-all text-muted-foreground" data-testid="login-email">
-                    {me.loginEmail}
-                    <span className="text-xs text-muted-foreground/80">不能自行更換</span>
-                  </dd>
-                </div>
-              </dl>
+            <PublicCard title="基本資料" aria-label="基本資料">
               {me.profile ? (
                 <ContactForm
                   key={me.profile.revision}
                   phone={me.profile.phone ?? ''}
                   contactEmail={me.profile.contactEmail}
                   revision={me.profile.revision}
+                  leading={readOnly}
+                  leadingCount={readOnlyCount}
                 />
-              ) : actorHasRole(actor, 'teacher') ? (
-                // 系辦建的老師帳號第一次登入要先補資料（票 8 的 /account/setup）。
-                <QuietNote title="基本資料還沒補" action={{ href: TEACHER_SETUP_PATH, label: '去補資料' }}>
-                  第一次登入請先補上姓名與聯絡資料，補完之後這裡就能改手機與聯絡 Email。
-                </QuietNote>
               ) : (
-                <QuietNote title="基本資料還沒建立">系辦建立你的資料之後，這裡就能改手機與聯絡 Email。</QuietNote>
+                <>
+                  <div className="grid gap-x-3.5 gap-y-4 sm:grid-cols-2" aria-label="系辦維護的資料" role="group">
+                    {readOnly}
+                  </div>
+                  {actorHasRole(actor, 'teacher') ? (
+                    // 系辦建的老師帳號第一次登入要先補資料（票 8 的 /account/setup）。
+                    <QuietNote title="基本資料還沒補" action={{ href: TEACHER_SETUP_PATH, label: '去補資料' }}>
+                      第一次登入請先補上姓名與聯絡資料，補完之後這裡就能改手機與聯絡 Email。
+                    </QuietNote>
+                  ) : (
+                    <QuietNote title="基本資料還沒建立">系辦建立你的資料之後，這裡就能改手機與聯絡 Email。</QuietNote>
+                  )}
+                </>
               )}
             </PublicCard>
 
-            <PublicCard title="登入方式" description="同一個帳號可以同時用 Google 與密碼登入；兩種方式看到的是同一份資料。">
-              <ul className="flex flex-col" aria-label="登入方式">
+            {/* 原型：標題下直接兩列「方式＋帳號／說明」＋右邊狀態或動作，不放說明段。 */}
+            <PublicCard title="登入方式">
+              <ul className="-mt-1.5 flex flex-col" aria-label="登入方式">
                 <li className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3" data-testid="method-google">
-                  <span className="font-semibold text-foreground">Google</span>
-                  {me.loginMethods.google ? (
-                    <Tag tone="ink">已連結</Tag>
-                  ) : me.sessionFresh ? (
-                    <LinkGoogleForm />
-                  ) : (
-                    <span className="text-sm text-muted-foreground">未連結</span>
-                  )}
+                  <span className="min-w-0 font-semibold break-all text-foreground">
+                    Google
+                    <span className="ml-3 font-normal text-muted-foreground">{me.loginMethods.google ? me.loginEmail : '未連結'}</span>
+                  </span>
+                  {me.loginMethods.google ? <Tag tone="ink">已連結</Tag> : me.sessionFresh ? <LinkGoogleForm /> : null}
                 </li>
                 <li className="flex flex-wrap items-center justify-between gap-3 py-3" data-testid="method-password">
-                  <span className="font-semibold text-foreground">Email／密碼</span>
+                  <span className="min-w-0 font-semibold text-foreground">
+                    Email／密碼
+                    <span className="ml-3 font-normal text-muted-foreground">{me.loginMethods.password ? '用登入 Email 與密碼登入' : '未設定'}</span>
+                  </span>
                   {me.loginMethods.password ? (
                     <Link href="/account/change-password" className="font-semibold text-primary hover:underline">
                       更改密碼
                     </Link>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">未設定</span>
-                  )}
+                  ) : null}
                 </li>
               </ul>
 
@@ -167,10 +180,10 @@ const ROLE_LABEL = { admin: '系辦', teacher: '老師', student: '學生' } as 
 function ReadOnlyField({ label, value, hint, numeric = false }: { label: string; value: string; hint?: string; numeric?: boolean }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <dt className="text-sm font-semibold text-foreground">{label}</dt>
-      <dd className={`flex min-h-11 items-center rounded-md border border-input bg-muted px-3 py-2 text-sm break-all text-muted-foreground ${numeric ? 'tabular-nums' : ''}`}>
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+      <div className={`flex min-h-11 items-center rounded-md border border-input bg-muted px-3 py-2 text-sm break-all text-muted-foreground ${numeric ? 'tabular-nums' : ''}`}>
         {value}
-      </dd>
+      </div>
       {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
     </div>
   )
