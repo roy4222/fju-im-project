@@ -23,6 +23,7 @@ export function calendarEntries(activities: readonly Activity[], deadlines: read
       title: a.title,
       kind: 'event' as const,
       cancelled: a.status === 'cancelled',
+      href: null,
     }))
   const dues: CalendarEntry[] = deadlines.map((d) => ({
     id: `due-${d.itemId}`,
@@ -31,6 +32,8 @@ export function calendarEntries(activities: readonly Activity[], deadlines: read
     title: `${d.title} 截止`,
     kind: 'deadline' as const,
     cancelled: false,
+    // 截止點下去就是作業區那一份（個人與組別收件都在作業區，票 21）。
+    href: `/dashboard/student/affairs/${d.itemId}`,
   }))
   // 同一天：全天的排最前，其餘照時間。
   const key = (e: CalendarEntry) => `${e.date} ${e.time === '全天' ? '00:00' : e.time}`

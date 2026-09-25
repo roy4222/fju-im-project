@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { IconBell } from '@tabler/icons-react'
-import { currentActor } from '@/app/_ui/guard'
+import { shellViewer } from '@/app/_ui/guard'
 import { getInboxQuery } from '@/composition/inbox'
 
 /**
@@ -12,7 +12,7 @@ import { getInboxQuery } from '@/composition/inbox'
 export async function InboxBell({ href }: { href: string }) {
   let unread = 0
   try {
-    unread = await getInboxQuery().unreadCount(await currentActor())
+    unread = await getInboxQuery().unreadCount(await shellViewer())
   } catch (error) {
     console.error('[inbox-bell] 讀不到未讀數', error)
   }
