@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconArrowRight, IconCheck, IconX } from '@tabler/icons-react'
+import { IconArrowRight, IconX } from '@tabler/icons-react'
 import { Badge } from '@/app/_ui/ui/badge'
 import { cn } from '@/shared/cn'
 
@@ -213,37 +213,6 @@ export function CohortPills({ cohorts, currentId, hrefFor }: { cohorts: readonly
         </Link>
       ))}
     </nav>
-  )
-}
-
-/**
- * 「收件章」：送出成功的回執（原型 `stamp.tsx`）。一次的印章感：-2deg、綠框、一次淡入。
- * 原型的版本綁 base-ui Dialog 的標題；正式碼的對話框是原生 `<dialog>`，所以這裡是一般標題。
- */
-export function Stamp({
-  label,
-  title,
-  description,
-  children,
-  headingLevel = 2,
-}: {
-  label: string
-  title: ReactNode
-  description?: ReactNode
-  children?: ReactNode
-  headingLevel?: 2 | 3
-}) {
-  const Heading = headingLevel === 3 ? 'h3' : 'h2'
-  return (
-    <div className="flex flex-col items-center gap-3 px-2 py-3 text-center" role="status">
-      <span className="inline-flex -rotate-2 items-center gap-1.5 rounded-lg border-2 border-success px-3 py-1 text-[13px] font-extrabold tracking-[0.08em] text-success-on-subtle duration-200 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-90">
-        <IconCheck className="size-4" strokeWidth={3} />
-        {label}
-      </span>
-      <Heading className="text-lg font-extrabold text-foreground">{title}</Heading>
-      {description ? <div className="max-w-sm text-sm text-muted-foreground">{description}</div> : null}
-      {children}
-    </div>
   )
 }
 
