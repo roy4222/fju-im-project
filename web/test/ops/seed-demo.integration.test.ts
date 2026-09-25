@@ -160,11 +160,35 @@ describe('seed-demo.mjs', () => {
          from users u where u.email = 'office@demo.invalid'`,
     )
     expect(office.rows[0]).toMatchObject({ status: 'disabled', roles: 0 })
-    // 沒發任何通知、沒排任何到期工作。
+    // 沒發任何通知、沒排任何到期工作；唯一的事件是簽核逐人同意必須掛的 vote_recorded，而且沒有投影（背景工作不碰）。
     const quiet = await db.sql(
-      `select (select count(*) from domain_events)::int as events, (select count(*) from due_work)::int as due, (select count(*) from notifications)::int as notes`,
+      `select (select count(*) from event_projections)::int as projections, (select count(*) from due_work)::int as due,
+              (select count(*) from notifications)::int as notes,
+              (select count(*) from domain_events where type <> 'signoff.vote_recorded')::int as other_events`,
     )
-    expect(quiet.rows[0]).toMatchObject({ events: 0, due: 0, notes: 0 })
+    expect(quiet.rows[0]).toMatchObject({ projections: 0, due: 0, notes: 0, other_events: 0 })
+
+    // 簽核狀態跟逐人同意一致：已完成＝學生全同意＋主指導同意；等待指導老師＝學生全同意；其他＝收集中。
+    const signoff = await db.sql(
+      `select g.code, s.state,
+              (select count(*) from approvals a where a.version_id = v.id and a.role = 'student' and a.result = 'agree')::int as students,
+              (select count(*) from approvals a where a.version_id = v.id and a.role = 'advisor')::int as advisor,
+              jsonb_array_length(v.participants -> 'students') as total
+         from signoff_package_versions v join signoff_packages p on p.id = v.package_id join groups g on g.id = p.group_id
+         join signoff_version_status s on s.version_id = v.id order by g.code`,
+    )
+    for (const row of signoff.rows) {
+      const expected = Number(row.advisor) > 0 ? 'complete' : row.students === row.total ? 'teacher_pending' : 'collecting'
+      expect(row.state, String(row.code)).toBe(expected)
+    }
+    expect(signoff.rows.map((r) => `${r.code}:${r.state}`)).toEqual([
+      'G01:complete',
+      'G02:teacher_pending',
+      'G04:complete',
+      'G05:collecting',
+      'G07:collecting',
+      'G08:complete',
+    ])
   })
 
   it('訪客在前台看得到示範公告（照原型順序）與封面，封面檔真的在 FILES_ROOT', async () => {

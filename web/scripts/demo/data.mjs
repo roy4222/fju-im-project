@@ -558,7 +558,9 @@ export const GRADING = {
 /**
  * 簽核（原型 `SIGNOFF`＋`SIGNOFF_SEED`）：專題成果授權同意書＝最終文件授權。
  * 只有有主指導的組建得出簽核版本（第 03、06、09 組還沒有主指導，不建）。
- * 狀態：collecting＝收集學生同意中、teacher_pending＝等待指導老師、complete＝已完成。
+ * `approvals`：哪幾位學生已同意（數字＝照學號順序前 n 位）、主指導同意了沒；版本狀態由它推出來
+ * （學生沒同意齊＝收集學生同意中、學生齊了＝等待指導老師、老師也同意＝已完成），跟逐人同意一致。
+ * 第 07 組照原型：黃詩涵、吳柏諺、蔡育瑄已同意，林彥廷、鄭凱文還沒。
  */
 export const SIGNOFF = {
   title: '專題成果授權同意書',
@@ -568,7 +570,21 @@ export const SIGNOFF = {
     '授權範圍以下方列出的題目與摘要為準；之後若修改內容，需重新建立簽核版本並重新同意。',
     '涉及產學合作案的作品，公開前另需取得合作單位同意。',
   ],
-  states: { 'g-07': 'collecting', 'g-01': 'complete', 'g-02': 'teacher_pending', 'g-04': 'complete', 'g-05': 'collecting', 'g-08': 'complete' },
+  approvals: {
+    'g-07': {
+      students: [
+        { key: 'u-402', at: '2026-08-15 19:05' },
+        { key: 'u-403', at: '2026-08-16 09:41' },
+        { key: 'u-404', at: '2026-08-16 21:13' },
+      ],
+      teacher: null,
+    },
+    'g-01': { students: 5, teacher: '2026-08-16 20:30' },
+    'g-02': { students: 5, teacher: null },
+    'g-04': { students: 5, teacher: '2026-08-16 18:10' },
+    'g-05': { students: 2, teacher: null },
+    'g-08': { students: 5, teacher: '2026-08-16 22:05' },
+  },
 }
 
 /** 各組精選草稿的摘要（題目用組別題目）。 */

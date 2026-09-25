@@ -23,8 +23,8 @@
  * 不會留下半套。日期照原型（原型的今天是 2026-08-17）平移到第一次種子當天的業務時間，截止日才會是「剩 9 天」。
  *
  * 不寫的東西（刻意）：
- *   - `domain_events`／通知：不可變，而且背景工作會把它投影成真的通知；示範資料不該發通知給任何人。
- *   - 簽核的逐人同意（`approvals`）：一定要掛一筆 domain event，而且畫面還沒讀它（票 26）；簽核只設版本狀態。
+ *   - 通知：不排任何事件投影（`event_projections`），背景工作不會把示範資料變成誰的通知。
+ *     唯一寫的 domain event 是簽核逐人同意必須指著的 `signoff.vote_recorded`（跟 pg-signoff 一樣：不通知任何人）。
  *   - `due_work`（截止快照、提案到期）：不讓背景工作去動示範資料。
  *   - 稽核：只在最後寫一筆全系範圍（`scope='global'`）的 `demo.seed`，不寫屆別範圍的稽核（會擋住 --remove 刪屆別）。
  *
@@ -1049,8 +1049,8 @@ async function seed(db) {
     })
     count('精選草稿')
 
-    const state = demo.SIGNOFF.states[g.key]
-    if (!state || !g.advisor) continue
+    const spec = demo.SIGNOFF.approvals[g.key]
+    if (!spec || !g.advisor) continue
     const packageId = demoId(`signoff:${g.key}`)
     const versionId = demoId(`signoff:${g.key}:1`)
     await insert(db, 'signoff_packages', {
@@ -1102,11 +1102,66 @@ async function seed(db) {
       updated_at: signoffAt,
       updated_by_user_id: OFFICE_ID,
     })
+
+    // 逐人同意：每一票一筆 approvals＋它必須指著的那筆 domain event（`signoff.vote_recorded`，跟 pg-signoff 一樣不通知任何人）。
+    // 事件不排投影（event_projections），背景工作不會碰它。版本狀態照票數推。
+    const agreed = Array.isArray(spec.students)
+      ? spec.students
+      : participants.students.slice(0, spec.students).map((s, i) => ({
+          key: g.members.find((m) => userId(m.key) === s.userId).key,
+          at: null,
+          offsetHours: 3 + i * 5,
+        }))
+    const votes = agreed.map((v) => ({
+      role: 'student',
+      member: g.members.find((m) => m.key === v.key),
+      at: v.at ? stamp(v.at) : new Date(signoffAt.getTime() + v.offsetHours * 3600_000),
+    }))
+    const allStudents = votes.length === g.members.length
+    if (spec.teacher && allStudents) votes.push({ role: 'advisor', member: null, at: stamp(spec.teacher) })
+    for (const vote of votes) {
+      const voterId = vote.role === 'student' ? userId(vote.member.key) : userId(g.advisor)
+      const eventId = demoId(`signoff-vote-event:${g.key}:${voterId}`)
+      await insert(db, 'domain_events', {
+        id: eventId,
+        type: 'signoff.vote_recorded',
+        scope: 'cohort',
+        cohort_id: COHORT_ID,
+        source_type: 'signoff_version',
+        source_id: versionId,
+        source_version: 1,
+        actor_kind: 'user',
+        actor_user_id: voterId,
+        occurred_real_at: vote.at,
+        occurred_business_at: vote.at,
+        recipient_basis: json({ basis: 'none' }),
+        payload: json({ groupId: groupId(g.key), code: g.code, purpose: 'final_document', versionNo: 1, role: vote.role, result: 'agree' }),
+      })
+      await insert(db, 'approvals', {
+        id: demoId(`signoff-vote:${g.key}:${voterId}`),
+        version_id: versionId,
+        user_id: voterId,
+        role: vote.role,
+        display_name_at: vote.role === 'student' ? vote.member.name : teacherName.get(g.advisor),
+        student_no_at: vote.role === 'student' ? vote.member.studentNo : null,
+        result: 'agree',
+        reason: null,
+        login_method: 'password',
+        button_text: vote.role === 'student' ? '我已閱讀並同意' : '以指導老師身分同意',
+        event_id: eventId,
+        request_id: demoId(`signoff-vote-request:${g.key}:${voterId}`),
+        real_at: vote.at,
+        business_at: vote.at,
+      })
+      count('簽核同意')
+    }
+    const teacherVote = votes.find((v) => v.role === 'advisor')
+    const state = teacherVote ? 'complete' : allStudents ? 'teacher_pending' : 'collecting'
     if (state !== 'collecting') {
-      const done = at('2026-08-16', '22:05')
+      const when = teacherVote?.at ?? votes.at(-1).at
       await db.query(
         `update signoff_version_status set state = $2, completed_real_at = $3, revision = revision + 1, updated_at = $4 where version_id = $1`,
-        [versionId, state, state === 'complete' ? done : null, done],
+        [versionId, state, state === 'complete' ? when : null, when],
       )
     }
     await db.query('update signoff_packages set current_version_id = $2 where id = $1', [packageId, versionId])
