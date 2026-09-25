@@ -234,6 +234,8 @@ describe('屆別成員關係', () => {
     const actor = await resolver.resolve(headers)
     if (actor.kind !== 'authenticated') throw new Error('unreachable')
     expect(actor.cohortMemberships).toEqual([{ cohortId, role: 'student' }])
+    // 外殼頭像的姓名：有個人資料列就用它的姓名，不用帳號名稱。
+    expect(actor.displayName).toBe('學生')
   })
 
   it('沒有 profile 的人（老師、管理員）沒有屆別成員關係', async () => {
@@ -246,5 +248,7 @@ describe('屆別成員關係', () => {
     const actor = await resolver.resolve(headers)
     if (actor.kind !== 'authenticated') throw new Error('unreachable')
     expect(actor.cohortMemberships).toEqual([])
+    // 沒有個人資料列：姓名退回帳號名稱。
+    expect(actor.displayName).toBe('身分測試')
   })
 })
