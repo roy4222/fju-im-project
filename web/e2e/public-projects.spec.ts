@@ -186,6 +186,25 @@ test('榮譽榜與競賽資訊列出已發布的公開項目；忘記密碼頁�
   await expect(page.locator('body')).not.toContainText('已寄出')
 })
 
+test('首頁（訪客）：優秀專題、榮譽與競賽接真的資料（不是寫死的空狀態），各有「查看更多」；hero 第二顆是「查看優秀專題」', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  // 上面的測試已經發布了精選、榮譽與競賽；首頁跟各自的前台頁同一份查詢，至少要有一筆，而且不能說「還沒有」。
+  const featured = page.getByRole('region', { name: '優秀專題' })
+  await expect(featured.getByTestId('home-featured-list').getByRole('link').first()).toHaveAttribute('href', /^\/projects\/featured\?item=/)
+  await expect(featured).not.toContainText('優秀專題還沒公開')
+  await expect(featured.getByRole('link', { name: '查看更多' })).toHaveAttribute('href', '/projects/featured')
+
+  const honors = page.getByRole('region', { name: '榮譽與競賽' })
+  await expect(honors.getByTestId('home-honors-list').getByRole('link').first()).toHaveAttribute('href', /^\/honors\?item=/)
+  await expect(honors).not.toContainText('還沒有榮譽榜')
+  await expect(honors.getByRole('link', { name: '查看更多' })).toHaveAttribute('href', '/honors')
+  await expect(honors.getByTestId('home-competitions').getByRole('link').first()).toHaveAttribute('href', /^\/news\//)
+  await expect(honors.getByRole('link', { name: /全部競賽資訊/ })).toHaveAttribute('href', '/competitions')
+
+  await expect(page.getByRole('link', { name: '查看優秀專題' })).toHaveAttribute('href', '/projects/featured')
+})
+
 test('訪客導覽：最新公告（含競賽資訊）、專題規則、優秀專題、榮譽榜；登入頁連到忘記密碼', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
@@ -195,5 +214,6 @@ test('訪客導覽：最新公告（含競賽資訊）、專題規則、優秀�
   await nav.getByRole('link', { name: '最新公告', exact: true }).hover()
   await expect(nav.getByRole('link', { name: '競賽資訊' })).toHaveAttribute('href', '/competitions')
   await page.goto('/login')
-  await expect(page.getByRole('link', { name: '忘記密碼？' })).toHaveAttribute('href', '/forgot-password')
+  // 頁尾也有一個忘記密碼；這裡看的是登入卡片裡、密碼標籤旁那一個。
+  await expect(page.getByRole('main').getByRole('link', { name: '忘記密碼', exact: true })).toHaveAttribute('href', '/forgot-password')
 })
