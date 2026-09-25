@@ -175,6 +175,10 @@ test.describe('臨時密碼還沒改的人', () => {
       'href',
       '/account/change-password',
     )
+    // 頁首右上角的入口也是「更改密碼」，不是會被導走的「我的專題事務」。
+    const banner = page.getByRole('banner')
+    await expect(banner.getByRole('link', { name: '更改密碼' }).first()).toHaveAttribute('href', '/account/change-password')
+    await expect(banner.getByRole('link', { name: '我的專題事務' })).toHaveCount(0)
   })
 })
 
