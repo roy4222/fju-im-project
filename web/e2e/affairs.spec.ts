@@ -222,7 +222,7 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
 
   // 列表看得到這一筆。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await expect(page.getByRole('row').filter({ hasText: title })).toContainText('發布中')
+  await expect(page.getByTestId('affair-row').filter({ hasText: title })).toContainText('發布中')
 })
 
 test('完整編輯器建立整組收件：空收件擋下；展開名單看到實際組員；發布建名單、排截止、發事件', async ({ page }) => {

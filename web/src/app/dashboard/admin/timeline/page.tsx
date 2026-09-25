@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
+import { BTN_OUTLINE, PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { Card, EmptyState, PageHeader } from '@/app/_ui/primitives'
+import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import {
-  ActivityActions,
-  CreateActivityForm,
-  ScheduleEditor,
-  type AudienceOption,
-} from '@/app/dashboard/admin/timeline/timeline-forms'
+import { ActivityActions, CreateActivityForm, type AudienceOption } from '@/app/dashboard/admin/timeline/timeline-forms'
+import type { TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
+import { AdminTimeline, type AdminStage } from '@/app/dashboard/admin/timeline/timeline-zigzag'
 import {
   ACTIVITY_AUDIENCE_LABEL,
   ACTIVITY_AUDIENCES,
@@ -29,9 +28,11 @@ import {
   stagePositionAt,
 } from '@/composition/cohorts'
 import { cn } from '@/shared/cn'
-import { formatTaipeiDate, formatTaipeiSecond } from '@/shared/time'
+import { formatTaipeiDate, formatTaipeiSecond, taipeiDayEndExclusive, taipeiDayStart } from '@/shared/time'
 
-export const metadata = { title: '時間軸｜資管系專題平台' }
+const DAY = 86_400_000
+
+export const metadata = { title: '時間軸設定｜資管系專題平台' }
 
 /**
  * 時間軸設定（票 11；原型 `/dashboard/admin/timeline`）。
@@ -53,15 +54,18 @@ export default async function AdminTimelinePage({
   const cohort =
     cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
 
-  const shell = (children: React.ReactNode) => (
+  const shell = (description: string, children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
-      <PageHeader title="時間軸" description="屆別的四個階段與獨立活動。學生、老師首頁的「現在階段」都照這份設定。" />
-      {children}
+      <div className="flex flex-col gap-5">
+        <PageTitle title="時間軸設定" description={description} />
+        {children}
+      </div>
     </DashboardShell>
   )
 
   if (!cohort) {
     return shell(
+      '屆別的四個階段與獨立活動。學生、老師首頁的「現在階段」都照這份設定。',
       <EmptyState
         title="還沒有可以設定的屆別"
         description="先到屆別頁新增一屆，再回來設定它的階段與活動。"
@@ -75,7 +79,8 @@ export default async function AdminTimelinePage({
     getTimelineQuery().schedule(cohort.id),
     getTimelineQuery().activities(cohort.id),
   ])
-  const position = stagePositionAt(schedule, clock.businessNow)
+  const now = clock.businessNow
+  const position = stagePositionAt(schedule, now)
   const currentSeq = position.kind === 'in_stage' ? position.seq : null
 
   const stageDrafts = Array.from({ length: STAGE_COUNT }, (_, i) => {
@@ -91,19 +96,61 @@ export default async function AdminTimelinePage({
   const scheduled = activities.filter((a) => a.status === 'scheduled')
   const cancelled = activities.filter((a) => a.status === 'cancelled')
 
+  // 各階段的狀態與日期（伺服器用業務鐘算好；卡片只負責畫）。
+  const configured = schedule.stages.length > 0 && schedule.yearEndDate !== null
+  const stages: AdminStage[] = configured
+    ? schedule.stages.map((stage, index) => {
+        const last = stageLastDate(schedule.stages, schedule.yearEndDate!, index)
+        const isCurrent = stage.seq === currentSeq
+        const isPast = position.kind === 'ended' || (currentSeq !== null && stage.seq < currentSeq)
+        const start = taipeiDayStart(stage.startDate)
+        const end = taipeiDayEndExclusive(last)
+        const days = Math.round((end.getTime() - start.getTime()) / DAY)
+        const detail = isCurrent
+          ? `共 ${days} 天，剩 ${Math.max(0, Math.floor((end.getTime() - now.getTime()) / DAY))} 天`
+          : isPast
+            ? `共 ${days} 天，已結束`
+            : `共 ${days} 天，還有 ${Math.max(0, Math.ceil((start.getTime() - now.getTime()) / DAY))} 天開始`
+        return {
+          seq: stage.seq,
+          name: stage.name,
+          range: `${formatTaipeiDate(stage.startDate)} – ${formatTaipeiDate(last)}`,
+          status: isCurrent ? 'current' : isPast ? 'done' : 'upcoming',
+          detail,
+        }
+      })
+    : []
+  const current = stages.find((s) => s.status === 'current')
+  const currentIndex = current ? schedule.stages.findIndex((s) => s.seq === current.seq) : -1
+  let progress: string | undefined
+  if (current && currentIndex >= 0) {
+    const start = taipeiDayStart(schedule.stages[currentIndex]!.startDate).getTime()
+    const end = taipeiDayEndExclusive(stageLastDate(schedule.stages, schedule.yearEndDate!, currentIndex)).getTime()
+    const elapsed = Math.min(100, Math.max(0, Math.round(((now.getTime() - start) / (end - start)) * 100)))
+    progress = `時間已過 ${elapsed}%・剩 ${Math.max(0, Math.floor((end - now.getTime()) / DAY))} 天`
+  }
+  const done = stages.filter((s) => s.status === 'done').length
+  const summary: TimelineSummary = {
+    label: `目前・${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}`,
+    title: current ? current.name : describeStagePosition(position),
+    rangeText: current?.range,
+    progressText: progress,
+  }
+  const meta = `業務時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+    schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
+  }`
+
   return shell(
+    `${configured ? `${cohort.code}・${stages.length} 個階段，已過 ${done} 個` : `${cohort.code}・還沒設定階段`}・${meta}`,
     <>
       {cohorts.length > 1 ? (
-        <nav aria-label="選擇屆別" className="mb-4 flex flex-wrap gap-2">
+        <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
           {cohorts.map((c) => (
             <Link
               key={c.id}
               href={`/dashboard/admin/timeline?cohort=${c.id}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
-              className={cn(
-                'rounded-full border px-3 py-1 text-sm',
-                c.id === cohort.id ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border text-ink hover:bg-muted',
-              )}
+              className={pillClass(c.id === cohort.id)}
             >
               {c.code}
             </Link>
@@ -111,111 +158,63 @@ export default async function AdminTimelinePage({
         </nav>
       ) : null}
 
-      <section
-        aria-label="目前階段"
-        className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-card border border-border bg-background px-5 py-4"
-      >
-        <div>
-          <p className="text-xs font-semibold text-primary">
-            {cohort.code}・{COHORT_STATUS_LABEL[cohort.status]}
-          </p>
-          <p className="mt-0.5 text-xl font-semibold text-ink">{describeStagePosition(position)}</p>
-          <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
-            業務時間 {formatTaipeiSecond(clock.businessNow)}
-            {clock.latest ? '（模擬中）' : ''}
-            {schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {businessClockOverrideEnabled() ? (
-            <Link href="/dashboard/admin/clock" className="text-sm font-medium text-primary hover:underline">
-              調整模擬業務鐘
+      <AdminTimeline
+        stages={stages}
+        summary={summary}
+        editor={{
+          cohortId: cohort.id,
+          cohortCode: cohort.code,
+          revision: cohort.revision,
+          requestId: randomUUID(),
+          stages: stageDrafts,
+          yearEndDate: schedule.yearEndDate ?? '',
+          nameMaxLength: STAGE_NAME_MAX_LENGTH,
+        }}
+        extraActions={
+          businessClockOverrideEnabled() ? (
+            <Link href="/dashboard/admin/clock" className={cn(BTN_OUTLINE, 'h-11 px-3.5')}>
+              <IconClock aria-hidden /> 調整模擬業務鐘
             </Link>
-          ) : null}
-          <ScheduleEditor
-            cohortId={cohort.id}
-            cohortCode={cohort.code}
-            revision={cohort.revision}
-            requestId={randomUUID()}
-            stages={stageDrafts}
-            yearEndDate={schedule.yearEndDate ?? ''}
-            nameMaxLength={STAGE_NAME_MAX_LENGTH}
-          />
-        </div>
-      </section>
-
-      {schedule.stages.length === 0 || !schedule.yearEndDate ? (
-        <div className="mb-8">
+          ) : null
+        }
+        empty={
           <EmptyState
             title="這一屆還沒設定階段"
             description={`按「編輯階段與日期」填 ${STAGE_COUNT} 個階段的名稱與開始日，以及年度結束日。設好之後才能在屆別頁轉為進行中。`}
           />
-        </div>
-      ) : (
-        <ol aria-label="階段" className="mb-8 space-y-3 border-l-2 border-border pl-5">
-          {schedule.stages.map((stage, index) => {
-            const isCurrent = stage.seq === currentSeq
-            const isPast =
-              position.kind === 'ended' || (currentSeq !== null && stage.seq < currentSeq)
-            const status = isCurrent ? '現在' : isPast ? '已過' : '尚未開始'
-            return (
-              <li
-                key={stage.seq}
-                className={cn(
-                  'relative rounded-card border bg-background px-4 py-3',
-                  isCurrent ? 'border-primary' : 'border-border',
-                )}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    'absolute top-4 -left-[1.6rem] size-3 rounded-full border-2',
-                    isCurrent ? 'border-primary bg-primary' : isPast ? 'border-ink bg-ink' : 'border-border bg-background',
-                  )}
-                />
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold text-ink">
-                    第 {stage.seq} 階段：{stage.name}
-                  </p>
-                  <span
-                    className={cn(
-                      'rounded-full px-2 py-0.5 text-xs font-medium',
-                      isCurrent ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {status}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
-                  {formatTaipeiDate(stage.startDate)} – {formatTaipeiDate(stageLastDate(schedule.stages, schedule.yearEndDate!, index))}
-                </p>
-              </li>
-            )
-          })}
-        </ol>
-      )}
+        }
+      />
 
-      <Card title="獨立活動" description="說明會、成果發表這類活動。作業截止會從收件項目自動帶進日曆，不用在這裡加。" className="mb-6">
+      <Panel
+        title="獨立活動"
+        icon={<IconCalendarEvent />}
+        description="說明會、成果發表這類活動；作業截止會從收件項目自動帶進日曆"
+        bodyClassName="border-t border-border px-5 py-4"
+      >
         <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />
-      </Card>
+      </Panel>
 
-      <section aria-label="已排定的活動" className="mb-6 space-y-3">
-        <h2 className="text-base font-semibold text-ink">已排定的活動</h2>
+      <Panel
+        title="已排定的活動"
+        icon={<IconCalendarEvent />}
+        description={`${scheduled.length} 個`}
+        aria-label="已排定的活動"
+      >
         {scheduled.length === 0 ? (
-          <p className="text-sm text-muted-foreground">還沒有活動。</p>
+          <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">還沒有活動。</p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="divide-y divide-border border-t border-border">
             {scheduled.map((activity) => (
               <li
                 key={activity.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-card border border-border bg-background px-4 py-3"
+                className="flex flex-wrap items-start justify-between gap-3 px-5 py-3 transition-colors hover:bg-accent/40"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-ink">{activity.title}</p>
+                  <p className="text-[15px] font-bold">{activity.title}</p>
                   <p className="text-sm text-muted-foreground tabular-nums">
                     {formatActivityWhen(activity)}・{ACTIVITY_AUDIENCE_LABEL[activity.audienceKind]}
                   </p>
-                  {activity.description ? <p className="mt-1 text-sm text-ink">{activity.description}</p> : null}
+                  {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
                 </div>
                 <ActivityActions
                   activityId={activity.id}
@@ -229,20 +228,20 @@ export default async function AdminTimelinePage({
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
       {cancelled.length > 0 ? (
-        <section aria-label="已取消的活動" className="space-y-2">
-          <h2 className="text-base font-semibold text-ink">已取消</h2>
-          <ul className="space-y-2">
+        <Panel title="已取消" icon={<IconCalendarOff />} description={`${cancelled.length} 個`} aria-label="已取消的活動">
+          <ul className="divide-y divide-border border-t border-border">
             {cancelled.map((activity) => (
-              <li key={activity.id} className="rounded-card border border-dashed border-border px-4 py-2 text-sm text-muted-foreground">
-                <span className="mr-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">已取消</span>
-                <span className="line-through">{activity.title}</span>・{formatActivityWhen(activity)}
+              <li key={activity.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm text-muted-foreground">
+                <Pill>已取消</Pill>
+                <span className="line-through">{activity.title}</span>
+                <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
               </li>
             ))}
           </ul>
-        </section>
+        </Panel>
       ) : null}
     </>,
   )

@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
-import { EmptyState, LinkButton } from '@/app/_ui/primitives'
+import { IconClock } from '@tabler/icons-react'
+import { BackLink, BTN_INK, PageTitle, Pill } from '@/app/_ui/dashboard-kit'
+import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from '@/app/dashboard/admin/affairs/[id]/roster-views'
@@ -12,7 +14,7 @@ import type { RosterEntry } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery } from '@/composition/submissions'
-import { formatTaipeiMinute } from '@/shared/time'
+import { formatTaipeiMinute, isDeadlinePassed } from '@/shared/time'
 
 export const metadata = { title: '收件名單｜資管系專題平台' }
 
@@ -58,32 +60,40 @@ export default async function RosterPage({
   const individual = item.receiverUnit === 'individual'
   const base = `/dashboard/admin/affairs/${item.itemId}`
 
+  // 截止含當分鐘（Vault 04 §4）：跟收件判定用同一個 helper。
+  const overdue = item.dueAt !== null && isDeadlinePassed(businessNow, item.dueAt)
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <Link
-        href={`/dashboard/admin/affairs?cohort=${item.cohortId}`}
-        className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink"
-      >
-        ← 專題事務
-      </Link>
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-primary">
-            {item.cohortCode}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
-            {item.stageName ? `・${item.stageName}` : ''}
-          </p>
-          <h1 className="mt-0.5 text-xl font-semibold text-ink">{item.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground tabular-nums">
-            {ITEM_STATUS_LABEL[item.status]}
-            {item.dueAt ? `・${formatTaipeiMinute(item.dueAt)} 截止（含此分鐘）` : '・沒有截止'}
-            {item.schemaVersionNo ? `・欄位 v${item.schemaVersionNo}` : ''}
-          </p>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-3">
+          <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}`} label="專題事務" />
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground">
+              {item.cohortCode}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
+              {item.stageName ? `・${item.stageName}` : ''}
+            </p>
+            <PageTitle
+              title={item.title}
+              description={`${ITEM_STATUS_LABEL[item.status]}${item.dueAt ? `・${formatTaipeiMinute(item.dueAt)} 截止（含此分鐘）` : '・沒有截止'}`}
+              actions={
+                <>
+                  {item.dueAt ? (
+                    <Pill tone={overdue ? 'danger' : 'brand'}>
+                      <IconClock aria-hidden />
+                      {overdue ? '已截止' : '收件中'}・{formatTaipeiMinute(item.dueAt)}
+                    </Pill>
+                  ) : null}
+                  {item.schemaVersionNo ? <Pill>欄位 v{item.schemaVersionNo}</Pill> : null}
+                  <Link href={`/dashboard/admin/editor/${item.itemId}`} className={BTN_INK}>
+                    編輯內容
+                  </Link>
+                </>
+              }
+            />
+          </div>
         </div>
-        <LinkButton href={`/dashboard/admin/editor/${item.itemId}`} variant="secondary">
-          編輯內容
-        </LinkButton>
-      </header>
-      {children}
+        {children}
+      </div>
     </DashboardShell>
   )
 

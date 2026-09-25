@@ -298,7 +298,7 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
 
   // 時間軸編輯的是預設工作屆別。第 1 階段從十天前開始：今天是成組期。
   await admin.goto('/dashboard/admin/timeline')
-  await expect(admin.getByRole('region', { name: '目前階段' })).toContainText(CODE)
+  await expect(admin.getByRole('region', { name: '時間軸' })).toContainText(CODE)
   await admin.getByRole('button', { name: '編輯階段與日期' }).click()
   const dialog = admin.getByRole('dialog', { name: `編輯 ${CODE} 的階段與日期` })
   for (const [i, [name, offset]] of ([
@@ -313,7 +313,7 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
   await dialog.getByLabel('年度結束日').fill(ymd(300))
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expectStatus(admin, `已儲存 ${CODE} 的階段與日期`)
-  await expect(admin.getByRole('list', { name: '階段' })).toContainText('第 1 階段：成組期')
+  await expect(admin.getByRole('list', { name: '本屆階段' })).toContainText('成組期')
 
   await admin.getByLabel('活動名稱').fill(ACTIVITY)
   await admin.getByLabel('日期', { exact: true }).fill(ymd(3))

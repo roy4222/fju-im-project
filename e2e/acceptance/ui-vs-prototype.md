@@ -81,6 +81,8 @@
 20. **產學合作**：原型 `/dashboard/admin/industry`、測試站 `/dashboard/admin/industry`（`admin-industry`）
 21. **成績管理／評分**：原型 `/dashboard/admin/grading`、測試站 `/dashboard/admin/grading`（`admin-grading`）
 22. **通知匣**：原型 `/dashboard/admin/inbox`、測試站 `/dashboard/admin/inbox`（`admin-inbox`）。**不要按「發送測試通知」。**
+22a. **檔案管理**（票 35）：原型 `/dashboard/admin/files`、測試站 `/dashboard/admin/files`（`admin-files`）。測試站沒有「上傳資源」與刪除鈕是已知的規則差異（檔案工作台／回收排在之後），不算「明顯不同」。**不要點下載以外的東西。**
+22b. **後台深色模式**（票 35）：兩邊都按頂列右上的月亮鈕切成深色，各截一次 `/dashboard/admin/timeline`（`admin-timeline-dark`）與 `/dashboard/admin/affairs`（`admin-affairs-dark`）；比完再按一次（太陽鈕）切回淺色。
 23. **簽核管理**：原型 `/dashboard/admin/signoff`、測試站 `/dashboard/admin/signoff`（`admin-signoff`；票 36）。「各組進度」上方的兩個用途分頁各看一次。**不要按「新增簽核」裡的建立。**
 24. **操作紀錄**：原型 `/dashboard/admin/audit`、測試站 `/dashboard/admin/audit`（`admin-audit`；票 36 新頁）。點「管理員」分頁看一次。
 

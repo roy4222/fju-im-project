@@ -1,6 +1,7 @@
 'use client'
 import { useActionState } from 'react'
 import { markAllReadAction, markReadAction } from './actions'
+import { BTN_OUTLINE } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
@@ -16,8 +17,8 @@ function Feedback({ state }: { state: InboxActionState }) {
     <p
       role={state.ok ? 'status' : 'alert'}
       className={cn(
-        'rounded-md px-3 py-1.5 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
+        'rounded-lg px-3 py-1.5 text-sm font-semibold',
+        state.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
       )}
     >
       {state.message}
@@ -34,7 +35,7 @@ export function MarkAllReadButton({ cohort, disabled }: { cohort: string; disabl
       <button
         type="submit"
         disabled={pending || disabled}
-        className="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-ink hover:bg-muted disabled:opacity-50"
+        className={BTN_OUTLINE}
       >
         {pending ? '處理中…' : '全部標為已讀'}
       </button>
@@ -51,7 +52,7 @@ export function MarkReadButton({ notificationId, title }: { notificationId: stri
         type="submit"
         disabled={pending}
         aria-label={`把「${title}」標為已讀`}
-        className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-subtle disabled:opacity-50"
+        className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition-colors hover:bg-accent disabled:opacity-50"
       >
         {pending ? '處理中…' : '標為已讀'}
       </button>

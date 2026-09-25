@@ -510,3 +510,17 @@
   .dark .dash-nav-active svg { color: var(--primary); }
   .dark .hero { background: oklch(0.28 0.08 253.89); }
 }
+
+/* ---------------------------------------------------------------------------
+   後台深淺色切換（票 35；原型 globals.css 同名段落）：從按鈕位置一圈擴開（View Transitions）。
+   圓心、半徑由 `_ui/dash-theme.tsx` 用 CSSOM 寫進 `--reveal-*`。
+--------------------------------------------------------------------------- */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: theme-reveal 500ms cubic-bezier(0.45, 0, 0.9, 0.6) both; }
+::view-transition-group(root) { animation-duration: 500ms; }
+@keyframes theme-reveal {
+  from { clip-path: circle(0px at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+  to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
+}
+@media (prefers-reduced-motion: reduce) { ::view-transition-new(root) { animation: none; } }

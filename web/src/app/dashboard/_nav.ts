@@ -4,38 +4,49 @@ import type { Role } from '@/application/accounts'
 /**
  * 三種後台的側欄掛載點與**受保護路由清單**（票 #47）。
  *
- * 管理員側欄現在有「帳號管理」「屆別」「時間軸」——名單、分組、繳交、評分、簽核
- * 各自由自己的切片加進來。沒做的功能不要先放上去，不然使用者會點進去撲空。
+ * 分組、順序、名稱照原型 `prototype/src/lib/nav-config.ts`（票 35 對齊系辦與老師；學生在票 38）。
+ * 分組與圖示由 `_ui/dashboard-frame.tsx` 依網址最後一段對應；這裡的順序就是同一組內的順序。
+ * 只放已經做出來的頁：沒做的功能不要先放上去，不然使用者會點進去撲空
+ * （原型的「內容編輯器」依 Vault 04「單一入口」不放）。
  */
 export const ADMIN_NAV: readonly NavItem[] = [
+  // 總覽
   { href: '/dashboard/admin', label: '首頁' },
-  { href: '/dashboard/admin/accounts', label: '帳號管理' },
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/groups', label: '分組總覽' },
+  { href: '/dashboard/admin/timeline', label: '時間軸設定' },
+  // 通知（票 12）：頂列鈴鐺之外，原型側欄也有入口。
+  { href: '/dashboard/admin/inbox', label: '通知' },
+  // 專題事務
   { href: '/dashboard/admin/affairs', label: '專題事務' },
-  // 合作案（票 20）：全部合作案與組別連結。
-  { href: '/dashboard/admin/industry', label: '產學合作' },
-  // 評分（票 23）：方案版本、要求份數、指派評分老師。
-  { href: '/dashboard/admin/grading', label: '成績管理' },
-  // 簽核（票 25）：建簽核版本、各組目前版本；精選（票 25）：替各組建精選草稿（不發布）。
-  { href: '/dashboard/admin/signoff', label: '簽核' },
+  // 檔案管理（票 35）：全站檔案的檢視（下載、引用位置），不另做一套檔案系統。
+  { href: '/dashboard/admin/files', label: '檔案管理' },
+  // 精選（票 25）：替各組建精選草稿（不發布）。原型沒有這一項，放在專題事務組。
   { href: '/dashboard/admin/showcase', label: '精選' },
+  // 分組與產學
+  { href: '/dashboard/admin/groups', label: '分組總覽' },
+  // 產學合作（票 20）：全部合作案與組別連結。
+  { href: '/dashboard/admin/industry', label: '產學合作' },
+  // 評分與簽核：成績管理（票 23／24）＝方案版本、指派、成績表；簽核（票 25／26）。
+  { href: '/dashboard/admin/grading', label: '成績管理' },
+  { href: '/dashboard/admin/signoff', label: '簽核' },
+  // 系統管理
+  { href: '/dashboard/admin/accounts', label: '帳號管理' },
+  // 屆別（票 5）：原型併在時間軸頁；正式碼另一頁，放系統管理組。
+  { href: '/dashboard/admin/cohorts', label: '屆別' },
   // 操作紀錄（票 36）：稽核紀錄唯讀清單，只給管理員。
   { href: '/dashboard/admin/audit', label: '操作紀錄' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
+  // 總覽
   { href: '/dashboard/teacher', label: '首頁' },
-  // 分組（票 19）：產學組認領與全部組別。
-  { href: '/dashboard/teacher/groups', label: '分組' },
-  // 各組繳交狀態（票 22）：自己此刻指導的組 × 整組收件的矩陣，點進去看版本。
+  { href: '/dashboard/teacher/inbox', label: '通知' },
+  // 各組繳交狀態（票 22）：原型側欄沒有這一項（入口在首頁），正式碼保留，放專題事務組。
   { href: '/dashboard/teacher/affairs', label: '各組繳交' },
-  // 我的合作案（票 20）：建立、發布、下架自己的產學合作案。
-  { href: '/dashboard/teacher/industry', label: '我的合作案' },
-  // 評分工作台（票 23）：只有被指派的組別。
+  // 分組與產學：分組總覽（票 19，產學組認領與全部組別）、產學合作（票 20，自己的合作案）。
+  { href: '/dashboard/teacher/groups', label: '分組總覽' },
+  { href: '/dashboard/teacher/industry', label: '產學合作' },
+  // 評分與簽核：評分工作台（票 23，只有被指派的組別）、簽核（票 25／26）。
   { href: '/dashboard/teacher/grading', label: '評分' },
-  // 簽核（票 25）：此刻指導的組的簽核版本（老師同意在票 26）。
   { href: '/dashboard/teacher/signoff', label: '簽核' },
 ]
 
@@ -76,6 +87,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // `/dashboard/admin/affairs/<id>`（票 18，roster.spec 驗學生與老師被擋）同一個守衛。
   { path: '/dashboard/admin/affairs', role: 'admin' },
   { path: '/dashboard/admin/editor/new', role: 'admin' },
+  // 檔案管理（票 35）。
+  { path: '/dashboard/admin/files', role: 'admin' },
   // 模擬業務鐘：只有測試站有（正式站整頁 404）；有的時候一樣只給管理員。
   { path: '/dashboard/admin/clock', role: 'admin' },
   // 評分（票 23）；老師的評閱桌 `/dashboard/teacher/grading/<組別>` 同一個守衛。
@@ -93,6 +106,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 專題時間軸與產學合作（票 38）。
   { path: '/dashboard/student/timeline', role: 'student' },
   { path: '/dashboard/student/industry', role: 'student' },
+  // 通知匣（票 12）：頂列鈴鐺之外，三個角色的側欄也有「通知」（票 35／38 照原型）。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
   { path: '/dashboard/student/inbox', role: 'student' },

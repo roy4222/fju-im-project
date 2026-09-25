@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { requireRole } from '@/app/_ui/guard'
-import { Card, PageHeader } from '@/app/_ui/primitives'
+import { IconFlask } from '@tabler/icons-react'
+import { Panel } from '@/app/_ui/dashboard-kit'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { InboxView } from '@/app/dashboard/_inbox/inbox-view'
@@ -28,22 +29,26 @@ export default async function AdminInboxPage({ searchParams }: { searchParams: S
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/inbox">
-      <PageHeader title="通知" description="跟你有關的事件都會出現在這裡。已讀狀態跟著帳號，換裝置、重新登入都還在。" />
-      {testCommand.enabled ? (
-        <Card
-          title="發一則測試通知"
-          description="測試站專用：選一位收件人發出去，背景工作幾秒內就會把它送進對方的通知匣。正式站沒有這個功能。"
-          className="mb-6"
-        >
-          <TestNotificationForm
-            requestId={randomUUID()}
-            recipients={recipients}
-            cohorts={cohorts.map((c) => ({ cohortId: c.id, code: c.code }))}
-            titleMaxLength={TEST_NOTIFICATION_TITLE_MAX_LENGTH}
-          />
-        </Card>
-      ) : null}
-      <InboxView actor={actor} basePath="/dashboard/admin/inbox" cohortParam={first(params.cohort)} cursor={first(params.cursor)} />
+      <InboxView actor={actor} basePath="/dashboard/admin/inbox" cohortParam={first(params.cohort)} cursor={first(params.cursor)}>
+        {testCommand.enabled ? (
+          <Panel
+            title="發一則測試通知"
+            icon={<IconFlask />}
+            description="測試站專用；正式站沒有這個功能"
+            bodyClassName="border-t border-border px-5 py-4"
+          >
+            <p className="mb-3 text-[13px] text-muted-foreground">
+              選一位收件人發出去，背景工作幾秒內就會把它送進對方的通知匣。
+            </p>
+            <TestNotificationForm
+              requestId={randomUUID()}
+              recipients={recipients}
+              cohorts={cohorts.map((c) => ({ cohortId: c.id, code: c.code }))}
+              titleMaxLength={TEST_NOTIFICATION_TITLE_MAX_LENGTH}
+            />
+          </Panel>
+        ) : null}
+      </InboxView>
     </DashboardShell>
   )
 }

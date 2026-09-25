@@ -22,6 +22,7 @@ export type {
   DownloadPolicy,
   FileDownload,
   FileFacts,
+  FileListRow,
   FilePurpose,
   FileRef,
   FileRefType,

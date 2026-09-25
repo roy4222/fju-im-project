@@ -1,6 +1,7 @@
 'use client'
 import { useActionState } from 'react'
 import { sendTestNotificationAction } from './actions'
+import { BTN_PRIMARY, INPUT as KIT_INPUT } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
@@ -14,7 +15,7 @@ export type TestNotificationState =
   | { ok: boolean; message: string; values?: { recipientUserId: string; cohortId: string; title: string } }
   | undefined
 
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
+const INPUT = cn(KIT_INPUT, 'mt-1.5')
 
 export function TestNotificationForm({
   requestId,
@@ -35,7 +36,7 @@ export function TestNotificationForm({
       <input type="hidden" name="requestId" value={requestId} />
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor="test-recipient" className="block text-sm font-medium text-ink">
+          <label htmlFor="test-recipient" className="block text-sm font-semibold">
             收件人
           </label>
           <select
@@ -57,7 +58,7 @@ export function TestNotificationForm({
           </select>
         </div>
         <div>
-          <label htmlFor="test-cohort" className="block text-sm font-medium text-ink">
+          <label htmlFor="test-cohort" className="block text-sm font-semibold">
             屆別
           </label>
           <select
@@ -77,7 +78,7 @@ export function TestNotificationForm({
         </div>
       </div>
       <div>
-        <label htmlFor="test-title" className="block text-sm font-medium text-ink">
+        <label htmlFor="test-title" className="block text-sm font-semibold">
           標題
         </label>
         <input
@@ -95,7 +96,7 @@ export function TestNotificationForm({
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          className={BTN_PRIMARY}
         >
           {pending ? '處理中…' : '發送測試通知'}
         </button>
@@ -105,8 +106,8 @@ export function TestNotificationForm({
         <p
           role={state.ok ? 'status' : 'alert'}
           className={cn(
-            'rounded-md px-3 py-2 text-sm',
-            state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
+            'rounded-lg px-3 py-2 text-sm font-semibold',
+            state.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
           )}
         >
           {state.message}

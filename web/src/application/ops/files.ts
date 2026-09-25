@@ -490,3 +490,27 @@ export type GeneratedFile = {
   readonly bytes: Uint8Array
   readonly ref: FileRef
 }
+
+/**
+ * 檔案管理頁（票 35；產品模組 10「檔案管理」）的一列：已存好的檔案、誰傳的、被誰引用。
+ *
+ * 只給系辦看（composition 守門）。`where` 是「引用位置」：附件／封面指到專題事務項目，
+ * 繳交檔案指到那一份收件；其他用途（名單匯入、精選素材、簽核附件、匯出）沒有可點的項目頁。
+ */
+export type FileListRow = {
+  readonly id: string
+  readonly name: string
+  readonly sizeBytes: number
+  readonly purpose: FilePurpose
+  readonly uploadedAt: Date
+  readonly uploaderName: string
+  readonly cohortCode: string | null
+  /** 目前有效的引用數（`file_references.released_at is null`）。 */
+  readonly activeRefs: number
+  readonly where: {
+    readonly kind: 'item_attachment' | 'item_cover' | 'submission'
+    readonly itemId: string
+    readonly title: string
+    readonly placement: string
+  } | null
+}

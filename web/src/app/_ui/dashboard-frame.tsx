@@ -37,6 +37,7 @@ import {
   SidebarTrigger,
 } from '@/app/_ui/ui/sidebar'
 import { TooltipProvider } from '@/app/_ui/ui/tooltip'
+import { DashThemeToggle } from '@/app/_ui/dash-theme'
 
 type Item = { href: string; label: string }
 
@@ -196,6 +197,8 @@ export function DashboardFrame({
           <SidebarTrigger className="size-9 rounded-lg" />
           <p className="ml-1 truncate text-[15px] font-bold">{title}</p>
           <div className="ml-auto flex items-center gap-1.5">
+            {/* 深淺色切換（票 35；原型頂列在鈴鐺左邊）。 */}
+            <DashThemeToggle />
             {bell}
             <AccountMenu roleLabel={roleLabel} name={userName} links={accountLinks} signOutFormId={signOutFormId} compact />
           </div>
