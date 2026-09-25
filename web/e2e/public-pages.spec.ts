@@ -189,7 +189,13 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
     await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [itemIds[PUBLIC_NEWS]])
   ).rows[0]!.file_id
   await quickPublish(page, { placement: /公告/, title: MEMBER_NEWS, audience: 'signed_in', body: '只給本系成員看的公告內容。' })
-  await quickPublish(page, { placement: /專題規則/, title: RULE, audience: 'public', body: '專題是資管系的畢業門檻課程。' })
+  await quickPublish(page, {
+    placement: /專題規則/,
+    title: RULE,
+    audience: 'public',
+    // 原型 /rules 的內文：段落、編號清單、灰底註解框（<blockquote>）。
+    body: '<p>專題是資管系的畢業門檻課程。</p><ol><li>整合所學</li><li>培養團隊合作</li></ol><blockquote><p>註一：依系上公告辦理。</p></blockquote>',
+  })
   await quickPublish(page, {
     placement: /資源下載/,
     title: RESOURCE,
@@ -273,6 +279,14 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
   await page.goto('/rules')
   await expect(page.getByRole('navigation', { name: '規則目錄' })).toContainText(RULE)
   await expect(page.getByRole('region', { name: RULE })).toContainText('專題是資管系的畢業門檻課程。')
+  // 照原型：編號清單是數字、註解是灰底框（消毒後標籤還在，規則頁給樣子）。
+  const rule = page.getByRole('region', { name: RULE })
+  await expect(rule.locator('ol > li')).toHaveCount(2)
+  expect(await rule.locator('ol').evaluate((el) => getComputedStyle(el).listStyleType)).toBe('decimal')
+  const note = rule.locator('blockquote')
+  await expect(note).toContainText('註一：依系上公告辦理。')
+  expect(await note.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await note.evaluate((el) => getComputedStyle(el).borderLeftWidth)).toBe('0px')
 
   // 檔案下載：這一頁要登入。
   await page.goto('/files')

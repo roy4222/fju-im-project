@@ -333,6 +333,10 @@ describe('seed-demo.mjs', () => {
     const rules = await query.fullText(ANONYMOUS, 'rules')
     expect(rules.map((r) => r.title)[0]).toBe('一、專題課程目的')
     expect(rules).toHaveLength(9)
+    // 原型 /rules：清單是編號清單、註解是灰底框（<blockquote>），而且消毒後還在。
+    expect(rules[0]!.bodyHtml).toContain('<ol><li>')
+    expect(rules[0]!.bodyHtml).not.toContain('<ul>')
+    expect(rules.find((r) => r.title.startsWith('四、'))!.bodyHtml).toMatch(/<blockquote><p>註一/)
 
     const stored = await db.sql(`select storage_key, checksum from stored_files where status = 'stored'`)
     expect(stored.rowCount).toBeGreaterThan(0)
@@ -372,6 +376,37 @@ describe('seed-demo.mjs', () => {
     const query = new PgPublicItemQuery(clock, () => db.pool)
     const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
     expect(competitions.map((c) => competitionStatus(c, ANCHOR))).toEqual(['open', 'result', 'closed'])
+
+    const again = runSeed()
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('不做任何事')
+  })
+
+  it('早期灌過的測試站（規則還是項目符號＋一般段落）：再跑換成編號清單與註解框、多一個版本；系辦改過的節不動；重跑不變', async () => {
+    // 模擬舊格式：把 <ol> 換回 <ul>、拿掉註解框（#290 當時的內文）。第一節當成系辦改過。
+    await db.sql(`update managed_items set body_html = replace(replace(replace(replace(body_html, '<ol>', '<ul>'), '</ol>', '</ul>'), '<blockquote>', ''), '</blockquote>', '')
+                   where placement = 'rules' and cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    await db.sql(`update managed_items set body_html = '<p>系辦改過的規則</p>'
+                   where placement = 'rules' and title = '一、專題課程目的' and cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    const versionsBefore = Number((await db.sql(`select count(*)::int as n from item_versions`)).rows[0]!.n)
+
+    const r = runSeed()
+    expect(r.code, r.stderr).toBe(0)
+    // 9 節裡 8 節換掉（第一節系辦改過不動）；第三節只有段落、沒有清單與註解，新舊一樣也不算。
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const rules = await query.fullText(ANONYMOUS, 'rules')
+    expect(rules[0]!.bodyHtml).toBe('<p>系辦改過的規則</p>')
+    expect(rules.find((x) => x.title.startsWith('四、'))!.bodyHtml).toMatch(/<blockquote><p>註一/)
+    expect(rules.slice(1).every((x) => !x.bodyHtml.includes('<ul>'))).toBe(true)
+    const changed = Number(/規則內文換成編號清單與註解框 (\d+) 節/.exec(r.stdout)?.[1] ?? 0)
+    expect(changed).toBeGreaterThan(0)
+    const versionsAfter = Number((await db.sql(`select count(*)::int as n from item_versions`)).rows[0]!.n)
+    expect(versionsAfter - versionsBefore).toBe(changed)
+    // 項目指到新版本，新版本的內文跟項目一樣（跟正式的「改內容」一致）。
+    const mismatch = await db.sql(`select count(*)::int as n from managed_items m join item_versions v on v.id = m.current_content_version_id
+                                     where m.placement = 'rules' and v.body_html <> m.body_html
+                                       and m.title <> '一、專題課程目的'`)
+    expect(mismatch.rows[0]!.n).toBe(0)
 
     const again = runSeed()
     expect(again.code, again.stderr).toBe(0)
