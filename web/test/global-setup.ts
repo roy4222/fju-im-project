@@ -15,7 +15,7 @@
  *    CI 的 integration 與 e2e-smoke 各自有一個 PostgreSQL service，互不影響。
  */
 import { Client } from 'pg'
-import { TEST_DATABASE_URL, runtimeRolePassword, type RuntimeRole } from './runtime-roles'
+import { assertLocalTestDatabaseUrl, TEST_DATABASE_URL, runtimeRolePassword, type RuntimeRole } from './runtime-roles'
 
 /** 跟其他同時啟動的整合測試（例如另一個終端機也在跑）錯開；值只要固定就好。 */
 const SETUP_LOCK_KEY = 0x66_6a_75_01
@@ -36,6 +36,8 @@ async function canLogin(role: RuntimeRole, password: string): Promise<boolean> {
 }
 
 export default async function setup(): Promise<void> {
+  // 3. 只准連本機：下面會建角色、改密碼，不能打到別的環境的資料庫。
+  assertLocalTestDatabaseUrl(TEST_DATABASE_URL)
   const owner = new Client({ connectionString: TEST_DATABASE_URL, connectionTimeoutMillis: 3_000 })
   try {
     await owner.connect()

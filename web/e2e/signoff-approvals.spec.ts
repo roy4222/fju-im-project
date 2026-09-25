@@ -291,7 +291,7 @@ test('匯出：可列印頁（新分頁）與 CSV 明細；每次匯出都留紀
   // 只看標題列：資料列裡有隨機屆別代碼（`T26-<base36>`，例如 T26-MUGIPQBF），碰巧含 "IP" 就會誤判。
   const header = text.replace(/^\uFEFF/, '').split('\r\n')[0]!
   expect(header).toContain('"按鈕原文"')
-  expect(header).not.toMatch(/IP|User-Agent|瀏覽器/)
+  expect(header).not.toMatch(/IP|User-Agent|瀏覽器/i)
 
   await page.reload()
   await expect(page.getByTestId('signoff-exports').getByRole('listitem')).toHaveCount(2)
