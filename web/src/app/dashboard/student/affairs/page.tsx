@@ -1,9 +1,11 @@
 import Link from 'next/link'
+import { IconHistory, IconPaperclip, IconUser, IconUsersGroup } from '@tabler/icons-react'
+import { PageTitle, Panel, PanelEmpty } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
-import { EmptyState, PageHeader } from '@/app/_ui/primitives'
+import { buttonVariants } from '@/app/_ui/ui/button'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
-import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
+import { STUDENT_TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
 import type { MyItemRow, MyRecordRow } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
@@ -23,6 +25,7 @@ type TabKey = (typeof TABS)[number]['key']
 
 /**
  * 學生作業區（票 17；原型 `/dashboard/student/affairs`）：一列一件，欄位是「作業名稱／形式／狀態／截止」。
+ * 外觀照原型（票 38）：頁標題一行數字、一張白卡裡是篩選 pill、桌面表格／手機一件一張卡。
  *
  * 只列**自己在目前收件名單上**的收件（發布中）：個人一份看本人、整組一份看自己此刻所在的組（票 21）。
  * 狀態字（尚未開放／未繳／已繳 vN／逾期未繳）由 application 的 `statusOf` 算，列表與內容頁同一個口徑；
@@ -46,118 +49,156 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
     )
   const list = inTab(tab)
   const count = (key: TabKey) => inTab(key).length
+  const active = TABS.find((t) => t.key === tab)!
+  // 原型標題下一行先寫組別代號（整組一份的收件才知道是哪一組）。
+  const groupCode = rows.find((row) => row.groupCode)?.groupCode ?? null
 
-  const dueText = (dueAt: Date | null) => (dueAt ? formatTaipeiMinute(dueAt) : '無截止')
+  const dueText = (dueAt: Date) => formatTaipeiMinute(dueAt)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
-      <PageHeader
-        title="作業區"
-        description={`你在收件名單上的每一份收件、狀態與截止。待繳 ${count('open')}・已繳交 ${count('done')}${
-          count('overdue') ? `・逾期未繳 ${count('overdue')}` : ''
-        }`}
-      />
-
-      <nav aria-label="篩選" className="mb-4 flex gap-2 overflow-x-auto pb-1">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={t.key === 'all' ? '/dashboard/student/affairs' : `/dashboard/student/affairs?tab=${t.key}`}
-            aria-current={t.key === tab ? 'page' : undefined}
-            className={cn(
-              'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm font-medium',
-              t.key === tab ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-ink hover:bg-muted',
-            )}
-          >
-            {t.label}
-            <span className="tabular-nums text-xs opacity-80">{count(t.key)}</span>
-          </Link>
-        ))}
-      </nav>
-
-      {list.length === 0 ? (
-        <EmptyState
-          title={tab === 'all' ? '目前沒有要交的收件' : `沒有${TABS.find((t) => t.key === tab)!.label}的收件`}
-          description="系辦發布收件、而且你（或你的組別）在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。整組一份的收件要先成立組別。"
+      <div className="flex flex-col gap-5">
+        <PageTitle
+          title="作業區"
+          description={`${groupCode ? `${groupCode}・` : ''}待繳 ${count('open')}・已繳交 ${count('done')}${
+            count('overdue') ? `・逾期未繳 ${count('overdue')}` : ''
+          }`}
         />
-      ) : (
-        <>
-          {/* 手機：一件一張卡 */}
-          <ul className="divide-y divide-border rounded-card border border-border bg-background sm:hidden" aria-label="收件列表">
-            {list.map(({ row, status }) => (
-              <li key={row.itemId} className="flex flex-col gap-2 px-4 py-4">
-                <Link href={`/dashboard/student/affairs/${row.itemId}`} className="text-base font-semibold text-ink">
-                  {row.title}
+
+        <Panel title={active.label} description={`${list.length} 件・你在收件名單上的收件`}>
+          <nav aria-label="篩選" className="-mx-1 flex gap-1.5 overflow-x-auto border-b border-border/70 px-5 pb-3 [scrollbar-width:none]">
+            {TABS.map((t) => {
+              const on = t.key === tab
+              return (
+                <Link
+                  key={t.key}
+                  href={t.key === 'all' ? '/dashboard/student/affairs' : `/dashboard/student/affairs?tab=${t.key}`}
+                  aria-current={on ? 'page' : undefined}
+                  scroll={false}
+                  className={cn(
+                    'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm font-semibold whitespace-nowrap transition-colors',
+                    // 原型選中的篩選是深藍實心（原型 primary＝深藍，正式碼叫 ink）。
+                    on ? 'border-ink bg-ink text-ink-foreground' : 'border-border text-foreground hover:bg-accent',
+                  )}
+                >
+                  {t.label}
+                  <span className={cn('tabular text-xs', on ? 'text-ink-foreground/80' : 'text-muted-foreground')}>{count(t.key)}</span>
                 </Link>
-                <p className="text-sm">
-                  <span className={cn('font-semibold', TONE_CLASS[status.tone])}>{status.headline}</span>
-                  <span className="ml-2 text-muted-foreground">{status.detail}</span>
-                </p>
-                <div className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1 text-xs text-muted-foreground tabular-nums">
-                    截止 {dueText(row.dueAt)}・{unitText(row)}
-                  </span>
-                  <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} />
-                </div>
-              </li>
-            ))}
-          </ul>
+              )
+            })}
+          </nav>
 
-          {/* 桌面：表格 */}
-          <div className="hidden overflow-x-auto rounded-card border border-border bg-background sm:block">
-            <table className="w-full min-w-[40rem] text-sm">
-              <thead className="bg-muted text-left text-muted-foreground">
-                <tr>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    作業名稱
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    形式
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    狀態
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    截止
-                  </th>
-                  <th scope="col" className="px-4 py-2">
-                    <span className="sr-only">動作</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+          {list.length === 0 ? (
+            <PanelEmpty
+              title={tab === 'all' ? '目前沒有要交的收件' : `沒有${active.label}的收件`}
+              hint="系辦發布收件、而且你（或你的組別）在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。整組一份的收件要先成立組別。"
+            />
+          ) : (
+            <>
+              {/* 手機：一件一列的卡片 */}
+              <ul className="divide-y divide-border/70 sm:hidden" aria-label="收件列表">
                 {list.map(({ row, status }) => (
-                  <tr key={row.itemId} className="border-t border-border" data-testid={`affair-${row.itemId}`}>
-                    <td className="px-4 py-3">
-                      <Link href={`/dashboard/student/affairs/${row.itemId}`} className="block font-semibold text-ink">
-                        {row.title}
-                      </Link>
-                      <span className="text-xs text-muted-foreground">
-                        階段：{row.stageName ?? '未指定'}
-                        {row.attachmentCount > 0 ? `・${row.attachmentCount} 個附件` : ''}
+                  <li key={row.itemId} className="flex flex-col gap-2 px-5 py-4">
+                    <Link href={`/dashboard/student/affairs/${row.itemId}`} className="text-[15px] font-bold">
+                      {row.title}
+                    </Link>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+                      <span className={cn('font-semibold', STUDENT_TONE_CLASS[status.tone])}>{status.headline}</span>
+                      <span className="text-muted-foreground">{status.detail}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="tabular min-w-0 flex-1 text-[13px] text-muted-foreground">
+                        {row.dueAt ? `${dueText(row.dueAt)} 截止` : '無截止'}・{unitText(row)}
                       </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">{unitText(row)}</td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className={cn('block font-semibold', TONE_CLASS[status.tone])}>{status.headline}</span>
-                      <span className="block text-xs text-muted-foreground">{status.detail}</span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums">
-                      {dueText(row.dueAt)}
-                      {row.dueAt ? <span className="block text-xs text-muted-foreground">含此分鐘，臺灣時間</span> : null}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} />
-                    </td>
-                  </tr>
+                      <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} className="h-11" />
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+              </ul>
 
-      {records.length > 0 ? <Records records={records} /> : null}
+              {/* 桌面：表格 */}
+              <div className="hidden overflow-x-auto sm:block">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="bg-muted/40 text-left text-[12px] text-muted-foreground">
+                      <th scope="col" className="px-5 py-2.5 font-semibold">
+                        作業名稱
+                      </th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">
+                        形式
+                      </th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">
+                        狀態
+                      </th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">
+                        截止
+                      </th>
+                      <th scope="col" className="px-5 py-2.5">
+                        <span className="sr-only">動作</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map(({ row, status }) => (
+                      <tr
+                        key={row.itemId}
+                        className="border-t border-border/70 transition-colors hover:bg-accent/40"
+                        data-testid={`affair-${row.itemId}`}
+                      >
+                        <td className="px-5 py-3.5">
+                          <Link href={`/dashboard/student/affairs/${row.itemId}`} className="block">
+                            <span className="block text-[15px] font-bold">{row.title}</span>
+                            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                              <span>階段：{row.stageName ?? '未指定'}</span>
+                              {row.attachmentCount > 0 ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <IconPaperclip className="size-3.5" />
+                                  {row.attachmentCount} 個附件
+                                </span>
+                              ) : null}
+                            </span>
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5">
+                            {row.receiverUnit === 'group' ? (
+                              <IconUsersGroup className="size-4 text-ink" aria-hidden />
+                            ) : (
+                              <IconUser className="size-4 text-ink" aria-hidden />
+                            )}
+                            {unitText(row)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span className={cn('block font-semibold', STUDENT_TONE_CLASS[status.tone])}>{status.headline}</span>
+                          <span className="block text-[12px] text-muted-foreground">{status.detail}</span>
+                        </td>
+                        <td className="tabular px-4 py-3.5 whitespace-nowrap">
+                          {row.dueAt ? (
+                            <>
+                              <span className="block">{dueText(row.dueAt)}</span>
+                              <span className={cn('block text-[12px]', status.overdue ? 'text-destructive' : 'text-muted-foreground')}>
+                                含此分鐘，臺灣時間
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">無截止</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} className="h-10" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {records.length > 0 ? <Records records={records} /> : null}
+      </div>
     </DashboardShell>
   )
 }
@@ -165,21 +206,19 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
 /**
  * 我的繳交紀錄（票 22；產品模組 05 SUB-20、25）：已經不在作業區、但本人讀得到的正式版本。
  * 被移出組別的人只看得到自己還在組裡時送出的版本；被移出個人收件名單的人看得到自己的回答。唯讀。
+ * 原型沒有這一塊；外觀用同一種白卡（Panel）。
  */
 function Records({ records }: { records: readonly MyRecordRow[] }) {
   return (
-    <section aria-labelledby="records-title" className="mt-8 space-y-2">
-      <h2 id="records-title" className="text-base font-semibold text-ink">
-        我的繳交紀錄（唯讀）
-      </h2>
-      <p className="text-sm text-muted-foreground">
+    <Panel title="我的繳交紀錄（唯讀）" icon={<IconHistory />} description="已經不在你作業區的收件">
+      <p className="px-5 pb-3 text-[13px] text-muted-foreground">
         已經不在你作業區的收件。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
       </p>
-      <ul className="divide-y divide-border rounded-card border border-border bg-background" aria-label="我的繳交紀錄" data-testid="my-records">
+      <ul className="divide-y divide-border/70 border-t border-border/70" aria-label="我的繳交紀錄" data-testid="my-records">
         {records.map((r) => (
-          <li key={`${r.itemId}:${r.receiverId}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+          <li key={`${r.itemId}:${r.receiverId}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5">
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold text-ink">{r.title}</span>
+              <span className="block truncate text-[15px] font-bold">{r.title}</span>
               <span className="block text-xs text-muted-foreground tabular-nums">
                 {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一版 v
                 {r.latestVersionNo} 於 {formatTaipeiMinute(r.latestReceivedAt)}
@@ -187,25 +226,27 @@ function Records({ records }: { records: readonly MyRecordRow[] }) {
             </span>
             <Link
               href={`/dashboard/student/affairs/${r.itemId}?record=${r.receiverId}`}
-              className="inline-flex h-10 shrink-0 items-center rounded-md border border-border px-4 text-sm font-medium text-ink hover:bg-muted"
+              className="press inline-flex h-10 shrink-0 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
             >
               查看紀錄
             </Link>
           </li>
         ))}
       </ul>
-    </section>
+    </Panel>
   )
 }
 
-function ActionLink({ itemId, label, primary }: { itemId: string; label: string; primary: boolean }) {
+/** 列尾的按鈕：待繳用橘色實心（原型 btn-fju），其他用白底細框。 */
+function ActionLink({ itemId, label, primary, className }: { itemId: string; label: string; primary: boolean; className?: string }) {
   return (
     <Link
       href={`/dashboard/student/affairs/${itemId}`}
-      className={cn(
-        'inline-flex h-10 shrink-0 items-center rounded-md px-4 text-sm font-medium',
-        primary ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-border text-ink hover:bg-muted',
-      )}
+      className={
+        primary
+          ? cn('btn-fju shrink-0 rounded-lg px-4 text-sm', className)
+          : buttonVariants({ variant: 'outline', className: cn('press shrink-0 rounded-lg px-4 text-sm', className) })
+      }
     >
       {label}
     </Link>
