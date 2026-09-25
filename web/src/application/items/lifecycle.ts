@@ -90,6 +90,8 @@ export type LifecycleReceipt = {
   readonly actualOpenedAt: string | null
   /** 撤回時結束了幾列收件名單（再發布時照當下的對象重建）。 */
   readonly rosterClosed: number
+  /** 重新發布時勾了「重要」逐人通知了幾位（其他動作都是 0；舊回執沒有這欄）。 */
+  readonly notifiedCount?: number
 }
 
 /** 回執 → 畫面上的一句話（伺服器產生，畫面只顯示）。 */
@@ -104,8 +106,10 @@ export function describeLifecycleReceipt(receipt: LifecycleReceipt): string {
     }
     case 'archive':
       return `「${receipt.title}」已下架。前台網址會顯示「已下架」與下一步；既有回答與紀錄都保留。`
-    case 'republish':
-      return `「${receipt.title}」已重新發布，對象又看得到了。${opened}`
+    case 'republish': {
+      const notified = receipt.notifiedCount ? `已通知 ${receipt.notifiedCount} 位（站內通知）。` : ''
+      return `「${receipt.title}」已重新發布，對象又看得到了。${notified}${opened}`
+    }
   }
 }
 

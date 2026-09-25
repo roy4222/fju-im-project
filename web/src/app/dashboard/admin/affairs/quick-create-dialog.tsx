@@ -21,6 +21,8 @@ import {
   type EditorState,
   type EditorVocabulary,
   type FieldDraft,
+  IMPORTANT_LABEL,
+  broadAudience,
 } from './item-form-parts'
 import { SettingsFields } from './item-settings'
 import { BTN_INK } from '@/app/_ui/dashboard-kit'
@@ -127,6 +129,8 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
           return
         }
         setReview(checked.data)
+        // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
+        setNotify(!broadAudience(state.audienceKind))
       }
       setStep((s) => s + 1)
     } catch {
@@ -310,7 +314,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   ) : (
                     <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
                       <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
-                      發布時通知對象（站內通知）
+                      {IMPORTANT_LABEL}
                     </label>
                   )}
                 </>

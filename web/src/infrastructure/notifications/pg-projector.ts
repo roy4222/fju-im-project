@@ -26,6 +26,9 @@ import { RealClock, type Clock } from '@/shared/time'
  * 第 5 次標 failed，同一筆交易發 `ops.worker_alert` 給管理員（告警事件自己失敗就只記 log，不再告警）。
  */
 
+/** 一句 insert 最多寫幾位收件人。 */
+const INSERT_CHUNK = 500
+
 type ClaimRow = { event_id: string; attempts: number }
 
 type EventRow = {
@@ -107,21 +110,26 @@ export class PgNotificationProjector {
       )
       const row = event.rows[0]!
       const drafts = notificationsFor(toProjectable(row))
-      for (const draft of drafts) {
+      // 批次寫入：全站公告的收件人可能上千位，一則一句 insert 太慢；每 500 位一句（unnest 陣列），
+      // 同一個唯一鍵擋重複，所以重跑、補建一樣只會有一則。
+      for (let start = 0; start < drafts.length; start += INSERT_CHUNK) {
+        const chunk = drafts.slice(start, start + INSERT_CHUNK)
+        const first = chunk[0]!
         await client.query(
           `insert into notifications
              (id, event_id, recipient_user_id, scope, cohort_id, kind, title, source_ref, created_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+           select r.id, $3, r.recipient, $4, $5, $6, $7, $8::jsonb, $9
+             from unnest($1::uuid[], $2::uuid[]) as r(id, recipient)
            on conflict on constraint notifications_event_recipient_unique do nothing`,
           [
-            uuidv7(),
-            draft.eventId,
-            draft.recipientUserId,
-            draft.scope,
-            draft.cohortId,
-            draft.kind,
-            draft.title,
-            JSON.stringify(draft.sourceRef),
+            chunk.map(() => uuidv7()),
+            chunk.map((d) => d.recipientUserId),
+            first.eventId,
+            first.scope,
+            first.cohortId,
+            first.kind,
+            first.title,
+            JSON.stringify(first.sourceRef),
             // 通知的時間＝事件發生的時間：worker 停機後補建，排序仍照事件先後。
             row.occurred_real_at,
           ],

@@ -107,6 +107,9 @@ export interface ItemCommand {
    *
    * 三個動作都不動實際開放時間、不切新內容版本，只寫一列發布紀錄（`item_publications`）、稽核與事件（不發通知）。
    * 撤回另外結束目前的收件名單（再發布時照當下對象重建）並取消還沒到的截止工作；下架保留名單、回答與截止工作。
+   *
+   * 例外：重新發布公告／資源時勾了「重要」（`options.notify`），同一筆交易另發 `item.announced`，
+   * 依當下對象逐人通知（Roy 2026-09-25 定）。收件項目、撤回、下架都不理會這個選項。
    */
   changeStatus(
     actor: ResolvedActor,
@@ -114,6 +117,7 @@ export interface ItemCommand {
     revision: number,
     action: LifecycleAction,
     requestId: string,
+    options?: { readonly notify?: boolean },
   ): Promise<Result<LifecycleReceipt>>
 }
 
@@ -222,7 +226,7 @@ export type RecipientGroup = {
 /**
  * 發布前的名單預覽（產品模組 04：要能展開看到實際的人／組，不只總數）。
  * 收件：`people`（個人收件）或 `groups`（組別收件）就是會進名單的對象；
- * 公告／資源：只算通知會寫給幾個人（`public`／`signed_in` 不展開通知）。
+ * 公告／資源：只算勾「重要」時通知會寫給幾個人（`public`／`signed_in`＝全站有效帳號）。
  */
 export type RecipientPreview = {
   readonly receiverUnit: ReceiverUnit
