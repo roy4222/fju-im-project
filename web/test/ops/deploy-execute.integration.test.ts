@@ -48,6 +48,13 @@ case "$1" in
       ps)   printf '%s\\n' "\${PREV_IMAGE:-}" ;;
       pull) [ "\${FAIL_PULL:-0}" = 1 ] && exit 7; exit 0 ;;
       run)
+        if printf '%s ' "$@" | grep -q 'seed-demo.mjs'; then
+          # 示範資料：記下站台與 FILES_ROOT 有沒有轉交進去。
+          printf 'DEMO_ENV site=%s files=%s\\n' "\${FJU_SITE:-}" "\${FILES_ROOT:+set}" >> "$CALLS_LOG"
+          [ "\${FAIL_DEMO:-0}" = 1 ] && { echo "demo 爆炸" >&2; exit 6; }
+          echo "示範資料已建立"
+          exit 0
+        fi
         if printf '%s ' "$@" | grep -q 'seed-e2e.mjs'; then
           # E2E 測試管理員：只記「有沒有拿到值」，不記值本身。
           printf 'SEED_ENV site=%s email=%s password=%s\\n' "\${FJU_SITE:-}" \\
@@ -133,6 +140,10 @@ type Scenario = {
   /** Doppler 裡有沒有 E2E_ADMIN_EMAIL／E2E_ADMIN_PASSWORD。 */
   e2eKeys?: boolean
   failSeed?: boolean
+  /** 示範資料那一步失敗。 */
+  failDemo?: boolean
+  /** 部署目錄裡已經有 demo-seed.off（Roy 清過示範資料）。 */
+  demoOff?: boolean
 }
 
 const E2E_EMAIL = 'e2e-secret@example.test'
@@ -163,6 +174,7 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
   const deployDir = path.join(dir, 'deploy')
   fs.mkdirSync(bin, { recursive: true })
   fs.mkdirSync(deployDir, { recursive: true })
+  if (scenario.demoOff) fs.writeFileSync(path.join(deployDir, 'demo-seed.off'), '')
 
   const callsLog = path.join(dir, 'calls.log')
   const healthFile = path.join(dir, 'health.json')
@@ -189,6 +201,7 @@ async function runDeploy(tag: string, scenario: Scenario = {}, args: string[] = 
     FJU_SECRETS_LOADED: site,
     ...(scenario.e2eKeys ? { E2E_ADMIN_EMAIL: E2E_EMAIL, E2E_ADMIN_PASSWORD: E2E_PASSWORD } : {}),
     FAIL_SEED: scenario.failSeed ? '1' : '0',
+    FAIL_DEMO: scenario.failDemo ? '1' : '0',
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     EXEC_STDIN: execStdin,
     FLOCK_BUSY: scenario.lockBusy ? '1' : '0',
@@ -294,7 +307,8 @@ describe('R5：回滾不可以重跑舊 migration', () => {
   it('整個回滾過程沒有再執行過 migrate', async () => {
     const result = await runDeploy('newtag', { badHealth: true })
     // migrator 只有第 4 步那一次明確執行（`compose pull … migrate` 只是拉映像，不算執行）。
-    const executed = result.calls.filter((c) => /^compose run\b/.test(c))
+    // 測試站的示範資料（seed-demo.mjs）也借 migrate 服務的容器跑，但跑的是種子腳本、不是 migration，不算。
+    const executed = result.calls.filter((c) => /^compose run\b/.test(c) && !/seed-(e2e|demo)\.mjs/.test(c))
     expect(executed).toHaveLength(1)
     expect(executed[0]).toMatch(/^compose run --rm migrate/)
     // 任何 `up` 都不能把 migrate 帶起來。
@@ -478,5 +492,61 @@ describe('票 3b：測試站的 E2E 測試管理員', () => {
     const result = await runDeploy('oldtag2', { e2eKeys: true }, ['--rollback'])
     expect(result.code, result.stderr).toBe(0)
     expect(seedCalls(result.calls)).toEqual([])
+  })
+})
+
+describe('票 32：測試站的示範資料', () => {
+  const demoCalls = (calls: string[]) => calls.filter((c) => c.includes('seed-demo.mjs'))
+
+  it('測試站：seed-e2e 之後、啟動 app 之前跑一次，附件目錄掛進去、站台與 FILES_ROOT 以名稱轉交', async () => {
+    const result = await runDeploy('newtag', { e2eKeys: true })
+    expect(result.code, result.stderr).toBe(0)
+    const e2eAt = result.calls.findIndex((c) => c.includes('seed-e2e.mjs'))
+    const demoAt = result.calls.findIndex((c) => c.includes('seed-demo.mjs'))
+    const upAt = result.calls.findIndex((c) => /^compose up .*app worker/.test(c))
+    expect(demoAt).toBeGreaterThan(e2eAt)
+    expect(upAt).toBeGreaterThan(demoAt)
+    // FJU_ROOT 沒設時是 /srv/fju；FILES_ROOT 是 Doppler 的值（容器裡的路徑）。
+    expect(demoCalls(result.calls)).toEqual([
+      'compose run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v /srv/fju/test/files:/srv/fju/files migrate node migrate/web/scripts/seed-demo.mjs',
+    ])
+    expect(result.calls).toContain('DEMO_ENV site=test files=set')
+    expect(result.stdout).toContain('示範資料已建立')
+  })
+
+  it('Doppler 沒有 E2E 鍵也照樣跑（兩件事互不相干）', async () => {
+    const result = await runDeploy('newtag')
+    expect(result.code, result.stderr).toBe(0)
+    expect(demoCalls(result.calls)).toHaveLength(1)
+  })
+
+  it('正式站：一律不跑', async () => {
+    const result = await runDeploy('newtag', { site: 'prod', e2eKeys: true })
+    expect(result.code, result.stderr).toBe(0)
+    expect(demoCalls(result.calls)).toEqual([])
+    expect(result.calls.some((c) => c.startsWith('DEMO_ENV'))).toBe(false)
+  })
+
+  it('deploy/demo-seed.off 在（Roy 清過）：略過並說明怎麼建回來', async () => {
+    const result = await runDeploy('newtag', { demoOff: true })
+    expect(result.code, result.stderr).toBe(0)
+    expect(demoCalls(result.calls)).toEqual([])
+    expect(result.stdout).toContain('示範資料：略過')
+    expect(result.stdout).toContain('ops/seed-demo.sh test')
+  })
+
+  it('失敗不擋部署：印警告、deploy_log 記 demo-seed-failed，新版照常上線', async () => {
+    const result = await runDeploy('newtag', { failDemo: true })
+    expect(result.code, result.stderr).toBe(0)
+    expect(result.stderr).toContain('建立示範資料失敗（部署照常繼續')
+    expect(result.deployLog).toMatch(/\tdemo-seed-failed\tnewtag\n/)
+    expect(upAppCalls(result.calls).length).toBeGreaterThan(0)
+    expect(result.deployLog).toMatch(/\tdeployed\tnewtag\t/)
+  })
+
+  it('回滾模式不跑', async () => {
+    const result = await runDeploy('oldtag2', {}, ['--rollback'])
+    expect(result.code, result.stderr).toBe(0)
+    expect(demoCalls(result.calls)).toEqual([])
   })
 })
