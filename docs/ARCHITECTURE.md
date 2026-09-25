@@ -1,5 +1,9 @@
-> 2026-09-13 文件鏡像（v3.7＋票草稿 v0.3.1＋正式正文層＋GitHub 對照）。編輯來源：[Vault 正文](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md>)。連結已轉為 repo 路徑，未鏡像的檔案指向 Vault；§9 與子 spec §7.1 的原型圖指向 `docs/product/assets/`。工程母 spec v3.7（v3.6 通過後依票草稿集中 review 局部回寫），整套工程文件待 Roy 與 Codex review；同版文件在文件 PR #7，母 spec issue #6 串起十份子 spec review issue #8–#17 與五份契約。
-
+---
+type: system-architecture
+project: FJU IM Project
+updated: 2026-09-13
+status: draft-v3.7-master-spec-pending-review
+---
 # 🏗️ 系統架構與資料流（工程母 spec v3.7）
 
 > **狀態（2026-09-13 v3.7）**：spec 基準已通過（v3.6，`f974bce`）並進入拆票；v3.7 只做票草稿集中 review 導出的局部回寫，不重開需求；正式碼 `web/` 不存在，149 個產品案例 145 NOT_RUN、4 DEFERRED，沒有任何功能、保存、權限、VM、部署或校方驗收通過。**版本沿革**：v3.7（2026-09-13，票草稿集中 review F02／F04／F05／F14／F15 的局部回寫）——契約 01 v2.5（`due_work` identity、生命週期、失敗上限統一 5）、契約 05 v2.4（分階段健康判定、備份前置檢查）、模組 05 v2.4（`syncRoster` 簽章與 `syncRosterForMember`）、模組 08 v2.4（到期工作生命週期表）、模組 10 v2.4（`showcase_draft` 引用）、模組 02 v2.4（`proposal_default_days`）、模組 07 v2.4（`remind`）、模組 09 v2.4（`search`）、總圖 v2.4（S10、S11→S13；schema 前置）；v3.6（2026-09-13，Codex 對 PR #7 第五輪 review D1）——`session_revocations` 改為「一個狀態事件一筆主工作＋多筆收斂工作」（`trigger`／`reconcile_round`、三條部分唯一、移除 `attempts`），收斂核對改唯讀查詢 Better Auth 寫在 `users.banned` 的套件欄而不呼叫 `auth.api.listUsers`，正常完成的順序保證與逾時後的最終收斂保證分開並附逐列序列（模組 01 v2.4、契約 01 v2.4、契約 03 v2.2、S01／S02 釘版測試）；v3.5（2026-09-13，Codex 對 PR #7 第四輪 review）——撤 session 改每人序列化執行器（C1）、移除殘留的 unlink 允許（C2）、S11 建空 `showcase_versions` 讓 FK 成立（C3）、B07 改草稿後按發布才驗涵蓋（C4）、GitHub 能力逐項表與人工 approval（C5）、Google Testing 基本 scope 例外全篇一致（C6）、新增 §9 畫面導覽並在十份子 spec §7 附原型圖對照；v3.4（2026-09-13，Codex 第三輪 A1–A4、B1–B5、O1–O4）——草稿與版本分開、退回鎖序、S11 交付最小精選草稿、插槽 host、前置清單事實等級、合併後整合程序；v3.3（2026-09-12，Codex 第二輪 RR01–RR12）——逐表權限、字典欄位、切片出場分界、簽核只失效、授權涵蓋、劇本前置；v3.2——簽核內容／狀態分表、附錄 B 改歷史參考；v3.1——Roy 五點（DB 權限矩陣、pending 與必須改密的重新登入路徑、責任表移回正文、CSP 選項、測試接縫的決策狀態）；v3——依 Codex v2 審查（R01–R17）以 to-spec 七段結構落在這一份既有文件，**不另生第二份母 spec**。產品規則與案例 ID 只在 [🎯 專案目標](<product/🗺️ 專案目標與產品規劃.md>)；校方待辦在 [校方確認清單](<product/💬 討論與決策/2026-09-12 校方確認清單.md>)。2026-09-07 原稿保留在文末附錄，只作歷史閱讀。
@@ -483,7 +487,7 @@ Email 寄送與自助重設、Google Calendar 與外部 .ics、匿名信箱（�
 | 延後範圍 | Email 寄送、自助 Email 重設、Google Calendar／外部 .ics、匿名信箱；保留 port 與 outbox，不做假寄達 | 產品總規格 §1 |
 | 備份 | DB 每日加密備份到 R2 保留 30 天；VM 本機快照 7 天；附件無異地，Roy 已接受 | 產品總規格 §6、ADR 0001／0004 補充 |
 | 監測 | `/api/health` 加 GitHub Actions cron，失敗寄 Roy；磁碟 80% 告警；備份失敗站內通知管理員 | 9/11 定案、模組 10 |
-| 反人機與限速 | Turnstile 只在密碼註冊、忘記密碼、連續登入失敗後；伺服器端限速覆蓋登入、註冊、重設、上傳 | 9/11 定案、契約 03 |
+| 反人機與限速 | ~~Turnstile 只在密碼註冊、忘記密碼、連續登入失敗後；~~（2026-09-23 拿掉）伺服器端限速覆蓋登入、註冊（每 IP 每小時 30 次，9/23）、重設、上傳 | 9/11 定案、契約 03；9/23 變更見 05 執行手冊 C12、C13 |
 
 ### 2. 技術棧
 
@@ -1000,6 +1004,6 @@ flowchart TB
 
 [完整主規格](<product/📋 完整產品規格.md>)
 
-[專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🎯 專案目標與範圍](<product/🎯 專案目標與範圍.md>)
+[🎯 專案目標與範圍](<product/🎯 專案目標與範圍.md>)
 
-[專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧭 文件分工與開發接續](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧭 文件分工與開發接續.md>)
+[🧭 文件分工與開發接續](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧭 文件分工與開發接續.md>)

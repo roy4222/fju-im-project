@@ -1,8 +1,8 @@
 ---
 type: prerequisites-checklist
 project: FJU IM Project
-updated: 2026-09-12
-status: draft-v1.2-pending-roy
+updated: 2026-09-23
+status: draft-v1.3-pending-roy
 ---
 # 00｜Roy 需要提早介入的前置工作清單（登入、開通、金鑰、校方申請）
 
@@ -11,6 +11,8 @@ status: draft-v1.2-pending-roy
 > 2026-09-13 v1.1（Codex 對 PR #7 第三輪 review O1–O4 與事實等級）：分支副本改用插槽 host 並登記兩組 Google callback／Turnstile hostname（§3.1–3.3）；Turnstile action 統一 `login`／`register`；age 變數統一 `AGE_RECIPIENTS`；GitHub 方案限制（private repo 的 branch protection、environments、required reviewers 需 Pro／Team）與 token 類型（VM 用 classic PAT，workflow 用 job 層 `permissions`）；Google Testing 限制改為只陳述官方規則與本專案 scope 的例外；交接範圍限本專案資源；本機看不到的項目降為「尚未確認」。
 
 > 2026-09-13 v1.2（Codex 第四輪 C5、C6）：GitHub 能力改為逐項表（branch protection／rulesets、environments、required reviewers 各自的方案限制），private repo 的 required reviewers 需 Enterprise，本專案一律用 Roy 親自 dispatch 作 approval；Google Testing 的基本 scope 例外寫進總表與 §5.2 全段，不再斷言名單外使用者必然無法登入。
+
+> 2026-09-23 v1.3（Roy 定案，[主控台交接](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2、4 節；變更總表見 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6、Roy 待辦見其 §5）：同一台 VM 兩站（正式 `fju.roy422.dev`、測試 `test.fju.roy422.dev`，Compose project `fju-prod`／`fju-test`，各自 PostgreSQL、volume、`.env`，共用 Caddy）；**Cloudflare 只當 DNS**，Turnstile（§3.3）、R2（§4.1）不做；`b1`／`b2` 插槽取消；備份只放 VM、不做異地，age（§4.2）、rclone（§4.3）、告警 webhook 不用；秘密值存 Doppler 專案 `fju-im-capstone`（`stg`／`prd`／`dev`），VM 取值方式由 0-C 設計；DNS 兩筆 A 記錄與 Google OAuth client 9/23 已完成。各節開頭加 v1.3 註記；被取代的原文保留，現行以註記與執行手冊為準。本清單「現在先做」的日期排序改看執行手冊 §5。
 
 ## 0. 核對方式與現況等級
 
@@ -26,22 +28,22 @@ status: draft-v1.2-pending-roy
 |---|---|---|---|---|---|
 | 1 | GitHub repo 保護、Environments、Actions 權限 | 已實際確認：無 branch protection、0 secrets、0 variables、0 environments、0 workflows；**帳號方案尚未確認**；本 repo 是 private：branch protection／rulesets 與 environments 需 Pro／Team，required reviewers 需 Enterprise（本專案用 Roy 親自 dispatch 取代） | 現在先做 | S00 第一個 `web/` PR 合併前 | 契約 05 §2「main 只接受 PR」只能標 pending 或改為約定 |
 | 2 | Google 測試身分（至少兩個、建議三個 Google 帳號） | 尚未確認 | 現在先做 | B01 R1–R3 與老師 Google 預授權人工測試前 | ACC-13、16、18 永遠 BLOCKED |
-| 3 | Cloudflare 帳號與 `roy422.dev` zone 權限 | 已實際確認 zone 的 NS 在 Cloudflare；wrangler 未登入；帳號持有人僅文件記載 | 現在先做 | DNS 記錄與 R2 之前 | DNS、Turnstile、R2 全部無法開始 |
+| 3 | Cloudflare 帳號與 `roy422.dev` zone 權限 | v1.3：只剩 DNS 用途；兩筆 A 記錄 9/23 已完成。原：已實際確認 zone 的 NS 在 Cloudflare；wrangler 未登入；帳號持有人僅文件記載 | 現在先做 | DNS 記錄與 R2 之前 | DNS、Turnstile、R2 全部無法開始 |
 | 4 | 校方 VM 可連線、sudo、對外連線、對內 80／443 | 僅文件記載（140.136.155.167、Ubuntu 24.04.4、4 核／7.8 GB／97 GB，2026-09-11 快照）；本機無 SSH 主機設定；連線尚未確認 | 現在先做 | 第一次 staging 部署前（校方開 port 有前置作業時間） | SOP 01 無法開始；staging 不存在 |
-| 5 | 決定第一次 staging 部署時點 | 待 Roy（預設 S01 出場後） | 現在先做 | S01 出場前 | 切片 S02 起的瀏覽器驗收環境不確定 |
-| 6 | DNS `fju.roy422.dev` A 記錄（灰雲） | 已實際確認：無 A／AAAA 記錄 | 第一次 staging 前 | SOP 01 執行當天 | Caddy 拿不到憑證；OAuth redirect 無法驗證 |
-| 7 | Google Cloud 專案與 OAuth client | 尚未確認（本機無 gcloud；文件只記 redirect URI 與「Roy 帳號建立」） | 第一次 staging 前 | SOP 02 執行當天 | Google 登入、連結、Roy 人工三案 |
-| 8 | Cloudflare Turnstile widget | 尚未確認（文件只寫「建立 site」） | 第一次 staging 前 | SOP 02 執行當天 | 註冊頁、登入失敗 5 次後的驗證；local／CI 用測試金鑰不受影響 |
-| 9 | VM 上的三份 `.env` 與資料庫密碼、Better Auth secret | 尚未確認（本輪未連 VM；文件無紀錄） | 第一次 staging 前 | SOP 02 執行當天 | app、worker、migrate 都起不來 |
-| 10 | GHCR 讀取憑證（VM `docker login`）與 Actions 推映像權限 | 尚未確認（token 無 packages scope，本機查不到 GHCR 套件；尚無映像） | 第一次 staging 前 | SOP 03 第一次部署 | `docker compose pull` 失敗 |
+| 5 | 決定第一次 staging 部署時點 | v1.3：已定為 TP1，測試站 `test.fju.roy422.dev`，目標 9/27。原：待 Roy（預設 S01 出場後） | 現在先做 | S01 出場前 | 切片 S02 起的瀏覽器驗收環境不確定 |
+| 6 | DNS `fju.roy422.dev` A 記錄（灰雲） | v1.3：✅ 9/23 `fju`、`test.fju` 兩筆 A→140.136.155.167（僅 DNS）已 dig 驗證；`b1`／`b2` 取消。原：已實際確認：無 A／AAAA 記錄 | 第一次 staging 前 | SOP 01 執行當天 | Caddy 拿不到憑證；OAuth redirect 無法驗證 |
+| 7 | Google Cloud 專案與 OAuth client | v1.3：✅ 9/23 專案 `fju-im-capstone`、用戶端 `fju-web` 已建，3 組 origin／redirect 已核對；IAM 第二擁有者與發布狀態待確認。原：尚未確認（本機無 gcloud；文件只記 redirect URI 與「Roy 帳號建立」） | 第一次 staging 前 | SOP 02 執行當天 | Google 登入、連結、Roy 人工三案 |
+| 8 | ~~Cloudflare Turnstile widget~~ | v1.3：**不做**（#58 後續）。原：尚未確認（文件只寫「建立 site」） | 第一次 staging 前 | SOP 02 執行當天 | 註冊頁、登入失敗 5 次後的驗證；local／CI 用測試金鑰不受影響 |
+| 9 | VM 上的三份 `.env` 與資料庫密碼、Better Auth secret | v1.3：改為兩站各一組；值已存 Doppler `stg`／`prd`（各 16 key，9/23 確認）；VM 取值方式由 0-C 設計。**2026-09-24：0-C 已設計（PR #211、SOP 02 v3）——每站一把唯讀 service token 放 `/srv/fju/secrets/doppler-<test|prod>.token`（600），`doppler run` 取值不寫檔；Roy 待貼 token。** 原：尚未確認（本輪未連 VM；文件無紀錄） | 第一次 staging 前 | SOP 02 執行當天 | app、worker、migrate 都起不來 |
+| 10 | GHCR 讀取憑證（VM `docker login`）與 Actions 推映像權限 | 尚未確認（token 無 packages scope，本機查不到 GHCR 套件；尚無映像）。**2026-09-24：推映像的 `image.yml` 已在 PR #211（`GITHUB_TOKEN`，合併後才有第一個映像）；VM 端仍待 Roy 建 `read:packages` PAT 並以 deploy 登入（`ops/README.md` 第 6 步）。** | 第一次 staging 前 | SOP 03 第一次部署 | `docker compose pull` 失敗 |
 | 11 | GitHub Actions Secrets 與 environment（CD 接上時；approval 為 Roy 親自 dispatch） | 已實際確認：0 secrets、0 environments | 第一次 staging 前（可延到 CD 接上時） | CD 從 dry-run 改為真部署前 | 只影響 CD；手動 `deploy.sh` 不受影響 |
-| 12 | Cloudflare R2 bucket、lifecycle、API token | 尚未確認（文件記 `fju-db-backup`、30 天；wrangler 未登入無法查） | 備份整合前 | S14 之前，最晚 S12 出場後 | 每日備份、FIL-05 還原演練 |
-| 13 | age 備份加密金鑰對與私鑰保管、校方第二把鑰匙 | 尚未確認（本機無 age 且文件未記任何公鑰；不證明未產生） | 備份整合前 | 同上 | 備份無法加密；還原演練無法解密 |
-| 14 | VM 安裝 rclone、age（SOP 01 補項） | 尚未確認（本輪未連 VM） | 備份整合前 | 同上 | 備份服務容器或 cron 無法跑 |
-| 15 | 維運告警通道（health cron、備份失敗、磁碟） | 僅文件記載（「寄 Roy」但沒有寄送機制） | 備份整合前 | S14 出場前 | SOP 05 無法驗收；契約 05 §8 空談 |
+| 12 | ~~Cloudflare R2 bucket、lifecycle、API token~~ | v1.3：**不做**（備份只放 VM）。原：尚未確認（文件記 `fju-db-backup`、30 天；wrangler 未登入無法查） | 備份整合前 | S14 之前，最晚 S12 出場後 | 每日備份、FIL-05 還原演練 |
+| 13 | ~~age 備份加密金鑰對與私鑰保管、校方第二把鑰匙~~ | v1.3：**不做**。原：尚未確認（本機無 age 且文件未記任何公鑰；不證明未產生） | 備份整合前 | 同上 | 備份無法加密；還原演練無法解密 |
+| 14 | ~~VM 安裝 rclone、age（SOP 01 補項）~~ | v1.3：**不做**。原：尚未確認（本輪未連 VM） | 備份整合前 | 同上 | 備份服務容器或 cron 無法跑 |
+| 15 | 維運告警通道（health cron、備份失敗、磁碟） | v1.3：只用 GitHub Actions 通知信＋站內通知，不設 webhook。原：僅文件記載（「寄 Roy」但沒有寄送機制） | 備份整合前 | S14 出場前 | SOP 05 無法驗收；契約 05 §8 空談 |
 | 16 | 正式網域與 DNS 控制權（校方，TBD-01） | 僅文件記載（校方網域由玉姐管理） | 正式開放前 | 正式 Gate G7 前 | 正式網址、OAuth 與 Turnstile 的正式 hostname |
 | 17 | OAuth 同意畫面由 Testing 轉正式、校方 Google 帳號歸屬 | 尚未確認 | 正式開放前 | 正式 Gate G7 前 | Testing 狀態下名單外使用者能否登入：本專案只要 `openid`／`email`／`profile`，官方明列例外，結果以 staging 實測記錄（NOT_RUN），不預先斷言失敗；正式前仍需轉 In production、核對品牌驗證與校方 Workspace 政策 |
-| 18 | 本專案資源與金鑰交接校方（正式網域記錄、R2、Turnstile、Google Cloud 專案、GitHub repo、VM、密碼管理器條目） | 尚未建立交接文件；接手人員尚未確認 | 正式開放前 | 正式 Gate G6／G7 前 | 校方無法自行維運；備份私鑰只在 Roy 手上 |
+| 18 | 本專案資源與金鑰交接校方（正式網域記錄、~~R2、Turnstile、~~Google Cloud 專案、GitHub repo、VM、~~密碼管理器條目~~ Doppler 專案；v1.3） | 尚未建立交接文件；接手人員尚未確認 | 正式開放前 | 正式 Gate G6／G7 前 | 校方無法自行維運；備份私鑰只在 Roy 手上 |
 
 ## 2. 現在先做
 
@@ -72,6 +74,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：B01 R0–R3 的畫面截圖（信箱遮罩）與 `accounts` 表 provider 欄輸出（無 token）。
 
 ### 2.3 Cloudflare 帳號與 `roy422.dev` zone 權限
+> **2026-09-23 v1.3**：Cloudflare 只當 DNS；Turnstile、R2 不做，交接範圍只剩 DNS 記錄（`fju`、`test.fju`）。
+
 1. **現況**：已實際確認 `dig roy422.dev NS` → `harmony.ns.cloudflare.com`、`james.ns.cloudflare.com`（zone 在 Cloudflare）；`wrangler 4.4.0` 已裝但 `wrangler whoami` 為 Not logged in（Codex 同日相同結果）；本機無 `CLOUDFLARE_*`／`CF_*` 環境變數；zone 屬於哪個 Cloudflare 帳號**僅文件記載**（推定 Roy 個人帳號）。
 2. **帳號**：Cloudflare（Roy 個人）。交接範圍只限**本專案資源**：正式網域（校方網域）的 DNS 記錄、R2 bucket `fju-db-backup`、Turnstile widget；`roy422.dev` 是 Roy 的個人 zone，不列入交接，正式改用校方網域後只需移除 `fju`／`b1`／`b2` 三筆記錄。校方若自建 Cloudflare 帳號，由 Roy 依本清單重建資源。
 3. **Roy 親自**：登入 Cloudflare dashboard，確認 `roy422.dev` 在自己帳號下且可編輯 DNS；不需要現在建立 API token（DNS 記錄、Turnstile、R2 都可在 dashboard 手動完成；若 Roy 想用 `wrangler`，`wrangler login` 由 Roy 在自己終端機執行，登入狀態只在 Roy 的機器）。
@@ -90,11 +94,15 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：`ssh fju-vm 'uname -a; sudo -n true && echo sudo-ok; curl -sI https://ghcr.io | head -1'` 的輸出（去掉主機金鑰指紋以外的敏感內容）貼入 SOP 01 執行紀錄；校方開 port 的回覆信件日期。
 
 ### 2.5 決定第一次 staging 部署時點
+> **2026-09-23 v1.3**：已定——第一次部署＝TP1，目標測試站 `test.fju.roy422.dev`、目標日 9/27（見 05 執行手冊）。
+
 待 Roy 決定；預設 S01 出場後（契約 04 §5、契約 05 §1）。Codex 建議先把 S01 的 local 操作證據做齊再接 VM。決定後 Fable 更新契約 04 §5、切片總圖與 S14 卡。這是排程決定，不是本文的四項技術選擇之一。
 
 ## 3. 第一次 staging 部署前（SOP 01–03）
 
 ### 3.1 DNS `fju.roy422.dev` A 記錄
+> **2026-09-23 v1.3**：✅ 9/23 Roy 已建 `fju.roy422.dev`（正式站）、`test.fju.roy422.dev`（測試站）兩筆 A→`140.136.155.167`，僅 DNS，已 dig 驗證。下方「staging 與正式共用此名稱（原地轉正，SOP 06）」與 `b1`／`b2` 兩筆插槽**取消**。Caddy 憑證取得的證據待兩站服務起來後補。
+
 1. **現況**：已實際確認 `dig +short fju.roy422.dev A／AAAA` 皆為空；`staging.fju.roy422.dev` 也無記錄；`curl -I https://fju.roy422.dev` 無回應。
 2. **帳號**：Cloudflare（Roy）。交接：正式網域由校方 DNS（§5.1）。
 3. **Roy 親自**：在 Cloudflare dashboard 新增 A 記錄。
@@ -104,6 +112,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：`dig +short fju.roy422.dev A`、`dig +short b1.fju.roy422.dev A`、`dig +short b2.fju.roy422.dev A` 都回 `140.136.155.167`；`docker compose logs caddy` 出現 certificate obtained；兩段輸出貼入 SOP 01 執行紀錄。
 
 ### 3.2 Google Cloud 專案與 OAuth client
+> **2026-09-23 v1.3**：✅ 9/23 專案 `fju-im-capstone`、用戶端 `fju-web` 由專用帳號建立；3 組 origin／redirect 已核對（`b1`／`b2` 不再需要）；ID／Secret 存 Doppler。待確認：IAM 第二擁有者、TP2 前切 In production 並實測。
+
 1. **現況**：尚未確認（本機沒有 gcloud，無法查；文件只記 redirect URI 與「以 Roy 帳號建立」）。
 2. **帳號**：Google Cloud（Roy 個人 Google 帳號）。交接：正式前把專案擁有者加上校方 Google 帳號（或校方另建 client 後換 `.env`）；client secret 在交接時輪換。
 3. **Roy 親自**：（a）建立 Google Cloud 專案；（b）OAuth consent screen：User type External、App name 「輔大資管系專題網站（測試）」、support email 與 developer contact 用 Roy 信箱、scopes 只勾 `openid`、`email`、`profile`、Publishing status 先 **Testing** 並加入 §2.2 的測試信箱為 test users；（c）Credentials → OAuth client ID → Web application；（d）把 client ID 與 client secret 交到 VM `.env`（SOP 02，Roy 在 VM 上編輯，不經聊天）。
@@ -113,6 +123,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：staging 上以測試信箱 A 走一次 Google 登入到等待審核頁的截圖（信箱遮罩）；consent screen 的 Testing 狀態截圖；client ID 可記錄（公開值），secret 不記。
 
 ### 3.3 Cloudflare Turnstile
+> **2026-09-23 v1.3**：**不做**。人機驗證拿掉、只保留限速；#58 標「後續／不做」。`TURNSTILE_*` 變數從範本拿掉（`.env.example` 由 0-C 改）。
+
 1. **現況**：尚未確認（無法從本機查詢；文件只寫「建立 site，填 site key／secret」）。
 2. **帳號**：Cloudflare（Roy）。交接：同 §2.3。
 3. **Roy 親自**：Turnstile → Add widget → hostname `fju.roy422.dev`、`b1.fju.roy422.dev`、`b2.fju.roy422.dev`（正式網域時再加）、widget mode **Managed**；把 site key 與 secret key 填入 VM `.env`。
@@ -122,6 +134,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：staging 註冊頁 widget 顯示與一次成功註冊的回執（含 requestId）；Cloudflare Turnstile analytics 有計數的截圖。
 
 ### 3.4 VM 上的三份 `.env`、資料庫密碼、Better Auth secret
+> **2026-09-23 v1.3**：改為兩站（`fju-test`、`fju-prod`）各一組 `.env`／`.env.migrate`；值已存 Doppler 專案 `fju-im-capstone`（`stg`＝測試站、`prd`＝正式站，各 16 key：`BETTER_AUTH_URL`、`BETTER_AUTH_SECRET`、`GOOGLE_CLIENT_ID/SECRET`、`POSTGRES_USER/PASSWORD/DB`、`APP_DB_PASSWORD`、`DATABASE_URL`、`DATABASE_URL_OWNER`、`A1_EMAIL/NAME/INITIAL_PASSWORD`、`FILES_ROOT`、`FILE_MAX_BYTES`、`BUSINESS_CLOCK_OVERRIDE_ENABLED`），不用密碼管理器備註。VM 取值方式、檔案路徑與 `.env.backup` 是否保留由 0-C 設計；建議每站一把唯讀 service token，由 Roy 9/25 親貼 VM（600）。`TURNSTILE_*`、`R2_*`、`AGE_RECIPIENTS`、`ALERT_WEBHOOK_URL` 不用。
+
 1. **現況**：尚未確認（本輪未連 VM；文件沒有任何 env 紀錄；本機工具缺失不證明 VM 上不存在）。
 2. **帳號**：VM `deploy` 使用者（Roy 建立）；密碼與 secret 只在 VM 檔案（600）與 Roy 密碼管理器。交接：正式前輪換三個 DB 密碼與 `BETTER_AUTH_SECRET` 並交給校方。
 3. **Roy 親自**：在 VM 上執行 SOP 02 腳本產生三個 DB 密碼與 `BETTER_AUTH_SECRET`（`openssl rand -base64 32`），寫入 `/srv/fju/app/.env.migrate`、`.env`、`.env.backup`（600），並把值存入密碼管理器；填入 §3.2、§3.3 的 Google 與 Turnstile 值。
@@ -149,8 +163,12 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：`gh secret list -R roy4222/fju-im-project -e staging` 列出三個名稱；一次 `workflow_dispatch` 的 dry-run 成功 run URL。
 
 ## 4. 備份整合前（S14 之前，最晚 S12 出場後；SOP 04）
+> **2026-09-23 v1.3**：備份只放 VM、不做異地；§4.1–§4.3 不做，§4.4 只用 Actions 通知信＋站內通知。「管理員下載整份資料」列候選，不進 beta。
+
 
 ### 4.1 Cloudflare R2 bucket、lifecycle、API token
+> **2026-09-23 v1.3**：**不做**（備份只放 VM）。
+
 1. **現況**：尚未確認（wrangler 未登入無法列 bucket；文件記 bucket `fju-db-backup`、lifecycle 30 天、「唯寫 token」）。
 2. **帳號**：Cloudflare（Roy）；R2 需先在帳號啟用（可能要求綁付款方式，免費額度 10 GB 儲存，每日一份 DB 備份 30 天遠低於此）。交接：正式前把 bucket 移到校方帳號或由校方重建，舊備份 30 天內自然到期。
 3. **Roy 親自**：（a）R2 → Create bucket `fju-db-backup`，location hint Asia-Pacific；（b）Settings → Object lifecycle rules：delete objects after 30 days；（c）R2 API token：權限 **Object Read & Write**、只限此 bucket（`rclone copy` 需要 list 與 put，純唯寫不可行，本輪修正文件用語）、TTL 一年並記到行事曆；（d）把 Account ID、Access Key ID、Secret Access Key 填入 VM `.env.backup`。
@@ -160,6 +178,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：`rclone lsd r2:` 列出 bucket；第一次備份後 `backup_runs` 有 success 列且 R2 物件列表截圖（鍵名可見，無 token）。
 
 ### 4.2 age 備份加密金鑰對、私鑰保管、校方第二把鑰匙
+> **2026-09-23 v1.3**：**不做**（不做異地上傳，不加密）。
+
 1. **現況**：尚未確認（本機無 `age` 且文件未記錄任何公鑰；不證明 Roy 未產生過）。
 2. **帳號**：無平台帳號；私鑰在 Roy 密碼管理器＋離線副本。交接：建議備份同時加密給兩個收件者（`age -r <Roy 公鑰> -r <校方公鑰>`），校方公鑰由校方指定人員自行 `age-keygen` 產生並只交出公鑰；這樣交接時不必重加密舊備份。
 3. **Roy 親自**：本機 `brew install age`；`age-keygen -o fju-backup.key`；公鑰行貼到 VM `.env.backup` 的 `AGE_RECIPIENTS`；私鑰內容存密碼管理器與離線媒體後刪除本機檔；向校方要一把公鑰（可延到正式前）。
@@ -169,6 +189,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：以 1 KB 測試檔 `age -r` 加密後 `age -d` 還原成功的輸出；第一次還原演練 `restore_drills` 列。
 
 ### 4.3 VM 安裝 rclone、age（SOP 01 補項）
+> **2026-09-23 v1.3**：**不做**。
+
 1. **現況**：尚未確認（本輪未連 VM；SOP 01 目前只裝 docker、compose plugin、ufw；backup 容器內也可自帶，二選一）。
 2. **帳號**：VM sudo（Roy）。
 3. **Roy 親自**：執行 SOP 01 補項 `sudo apt install -y rclone age`（或採 backup 容器映像自帶，Fable 在 S14 定案）。
@@ -178,6 +200,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：`docker compose run --rm backup --check` 輸出三個工具版本。
 
 ### 4.4 維運告警通道
+> **2026-09-23 v1.3**：不設第二通道 webhook；GitHub Actions 通知信（Roy）＋站內通知管理員。
+
 1. **現況**：僅文件記載（SOP 05：health cron「寄 Roy」、磁碟 80％ 站內通知＋Email、備份失敗站內通知＋Roy Email），但沒有任何寄送機制，產品 Email 又延後；契約 05 §8 要求「告警通道與產品 Email 分開」。
 2. **帳號**：GitHub（Actions 通知信）＋ Roy 決定的第二通道。交接：通道改指校方人員。
 3. **Roy 親自**：（a）GitHub Settings → Notifications → Actions：開啟「Send notifications for failed workflows only」（health-cron 失敗即寄信，零設定）；（b）決定第二通道：Discord webhook（免費、5 分鐘可設）或不設；若設，webhook URL 放 GitHub Secret `ALERT_WEBHOOK_URL` 與 VM `.env.backup`。
@@ -207,6 +231,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：consent screen 狀態截圖；一個非測試信箱成功登入到等待審核頁（信箱遮罩）。
 
 ### 5.3 平台帳號與金鑰交接校方
+> **2026-09-23 v1.3**：交接範圍去掉 R2、Turnstile、age 私鑰；密碼管理器條目改為 Doppler 專案 `fju-im-capstone`。
+
 1. **現況**：尚未建立任何交接文件。
 2. **帳號**：Cloudflare 上本專案的資源（正式網域記錄、R2 bucket、Turnstile widget；`roy422.dev` 個人 zone 不在範圍）、Google Cloud 專案、GitHub repo 與 GHCR、VM 帳號、密碼管理器條目（A1、三個 DB 密碼、Better Auth secret、age 私鑰、PAT）。
 3. **Roy 親自**：與校方確定接手人員與帳號；逐項轉移或重建；輪換所有秘密；移除 Roy 的 key 與 token。
@@ -216,6 +242,8 @@ status: draft-v1.2-pending-roy
 7. **驗證與證據**：校方人員執行 SOP 03、04 的執行紀錄。
 
 ## 6. 推薦順序（Roy 本人操作，估計時間）
+> **2026-09-23 v1.3**：本節已被 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §5 Roy 待辦取代；第 2 步 `b1`／`b2`、第 5 步 Turnstile、第 7 步 R2／age 取消。
+
 
 1. §2.1 先確認 GitHub 方案，再依方案設保護與 environments 或改書面約定（10 分鐘）。
 2. §2.3 Cloudflare 登入確認 zone → §3.1 新增 `fju`、`b1`、`b2` 三筆 A 記錄（5 分鐘；提早做無害）。
