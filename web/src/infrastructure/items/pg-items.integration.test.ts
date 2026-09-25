@@ -579,6 +579,62 @@ describe('公告與資源', () => {
     })
     expect((await itemRow(item.itemId)).body_html).toBe('<p>說明會</p>')
   })
+
+  it('競賽資訊（票 39，0011）：報名截止與活動日存進頭列、前台卡片看得到；只改日期的發布更新記成設定變更', async () => {
+    const { cohortId } = await newCohort()
+    const news = {
+      placement: 'news',
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      category: '競賽資訊',
+      title: '競賽日期測試',
+      dueAt: '',
+      fields: [],
+      registrationDeadline: '2026-10-03',
+    }
+    const item = await mustCreate(cohortId, news)
+    const published = await mustPublish(item.itemId, 1, false)
+    const [card] = await publicQuery.list({ kind: 'anonymous' }, 'news', { category: '競賽資訊', q: '競賽日期測試' })
+    expect(card).toMatchObject({ registrationDeadline: '2026-10-03', eventDate: null, awardedOn: null })
+
+    const updated = await items.updatePublished(
+      adminActor(),
+      item.itemId,
+      published.revision,
+      input(cohortId, { ...news, eventDate: '2026-11-20' }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(updated).toMatchObject({ ok: true, receipt: { changes: ['settings'] } })
+    expect((await query.get(item.itemId))).toMatchObject({ registrationDeadline: '2026-10-03', eventDate: '2026-11-20' })
+
+    // 分類改掉：日期一起清掉（不留前台看不到的值）。
+    const again = await items.updatePublished(
+      adminActor(),
+      item.itemId,
+      (await query.get(item.itemId))!.revision,
+      input(cohortId, { ...news, category: '活動', eventDate: '2026-11-20' }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(again.ok).toBe(true)
+    expect(await query.get(item.itemId)).toMatchObject({ registrationDeadline: null, eventDate: null })
+  })
+
+  it('DB 擋放錯位置的日期：競賽日期只給公告、得獎日期只給榮譽、活動日不早於截止', async () => {
+    const { cohortId } = await newCohort()
+    const item = await mustCreate(cohortId, { placement: 'resource', audienceKind: 'public', receiverUnit: 'none', dueAt: '', fields: [] })
+    await expect(owner.sql(`update managed_items set event_date = '2026-10-01' where id = $1`, [item.itemId])).rejects.toThrow(
+      /managed_items_competition_dates_check/,
+    )
+    await expect(owner.sql(`update managed_items set awarded_on = '2026-10-01' where id = $1`, [item.itemId])).rejects.toThrow(
+      /managed_items_awarded_on_check/,
+    )
+    const news = await mustCreate(cohortId, { placement: 'news', audienceKind: 'public', receiverUnit: 'none', dueAt: '', fields: [] })
+    await expect(
+      owner.sql(`update managed_items set registration_deadline = '2026-10-03', event_date = '2026-10-01' where id = $1`, [news.itemId]),
+    ).rejects.toThrow(/managed_items_event_after_deadline_check/)
+  })
 })
 
 describe('發布更新（小幅修改自選通知；PUB-06 收件單位鎖定）', () => {
