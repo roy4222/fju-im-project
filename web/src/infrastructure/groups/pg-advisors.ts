@@ -31,6 +31,7 @@ import {
   type UnassignAdvisorInput,
 } from '@/application/groups'
 import type { EventPublisher } from '@/application/notifications'
+import type { SignoffParticipantHook } from '@/application/signoff'
 import { canonicalJson, type AuditWriter, type FileStorage, type OperationLedger, type UploadRules } from '@/application/ops'
 import {
   authorizeAdmin,
@@ -89,6 +90,8 @@ type Deps = {
   events: EventPublisher<PoolClient>
   files: FileStorage<PoolClient>
   businessClock: BusinessClockSource
+  /** 票 26：主指導改變時同交易讓這一組目前的簽核版本失效（模組 07 §5 `supersedeForParticipantChange`）。 */
+  signoff?: SignoffParticipantHook<PoolClient>
   pool?: PoolSource
   realClock?: Clock
 }
@@ -145,6 +148,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
   readonly #events: EventPublisher<PoolClient>
   readonly #files: FileStorage<PoolClient>
   readonly #businessClock: BusinessClockSource
+  readonly #signoff: SignoffParticipantHook<PoolClient> | undefined
   readonly #pool: PoolSource
   readonly #realClock: Clock
 
@@ -154,6 +158,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
     this.#events = deps.events
     this.#files = deps.files
     this.#businessClock = deps.businessClock
+    this.#signoff = deps.signoff
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
   }
@@ -557,6 +562,20 @@ export class PgAdvisorCommand implements AdvisorCommand {
       [group.id, realAt, actorUserId],
     )
     const revision = bumped.rows[0]!.revision
+    // 票 26：主指導改變（重派、解除；首次指派與認領時沒有進行中的版本，什麼都不會動）→ 這一組目前的簽核版本同交易失效，
+    // 不自動建新版；舊頁顯示「此版本已失效（指導老師變更），等待管理員建立新版」，失效通知只發系辦（Roy 2026-09-25）。
+    // 組別列已經 FOR NO KEY UPDATE 鎖著（和表態的 FOR SHARE 互斥），鎖序 groups → signoff_packages → 狀態列和建版一致。
+    const supersededSignoff = this.#signoff
+      ? (
+          await this.#signoff.supersedeForParticipantChange(tx, {
+            groupId: group.id,
+            cause: 'advisor_change',
+            actorUserId,
+            realAt,
+            businessAt,
+          })
+        ).supersededVersionIds
+      : []
     const members = await tx.query<{ user_id: string }>(
       'select user_id from group_memberships where group_id = $1 and valid_to is null',
       [group.id],
@@ -632,6 +651,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
         previousAssignmentId: previous?.id ?? null,
         previousTeacherUserId: previous?.teacher_user_id ?? null,
         revision,
+        supersededSignoffVersionIds: supersededSignoff,
         ...change.auditExtra,
       },
     })
@@ -642,6 +662,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
       change: change.kind,
       teacherName: teacher?.name ?? null,
       previousTeacherName: previous?.teacher_name ?? null,
+      supersededSignoffCount: supersededSignoff.length,
     }
   }
 

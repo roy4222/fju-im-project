@@ -8,8 +8,9 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { CreateVersionForm, type GroupOption } from '@/app/dashboard/admin/signoff/signoff-forms'
 import type { AdminGroupRow, SignoffPurpose, VersionSummary } from '@/application/signoff'
 import { getCohortStatusQuery } from '@/composition/cohorts'
-import { describeCause, getSignoffQuery, SIGNOFF_PURPOSES } from '@/composition/signoff'
+import { describeCause, getSignoffQuery, SIGNOFF_PURPOSES, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
+import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '簽核管理｜資管系專題平台' }
 
@@ -17,9 +18,8 @@ export const metadata = { title: '簽核管理｜資管系專題平台' }
  * 管理員「簽核」（票 25；原型 `/dashboard/admin/signoff`）。
  *
  * 一頁兩件事：上面建立簽核版本（貼全文、選附件、參與者快照；最終文件授權從精選草稿凍結範圍），
- * 下面每組兩個用途目前那一版的狀態，點進版本頁看全文、附件、授權範圍、參與者與版本歷史。
- * 逐人進度格、提醒、重置、作廢、匯出在票 26——這裡不放按了沒反應的按鈕，只寫清楚還沒開放。
- * 系辦沒有任何「替人同意」的入口。
+ * 下面每組兩個用途目前那一版的狀態與逐人進度（缺誰可展開、最後事件時間），點進版本頁看全文與歷史，
+ * 在那裡提醒、重置、重開、作廢、匯出（票 26）。系辦沒有任何「替人同意」的入口。
  */
 
 function toOption(g: AdminGroupRow): GroupOption {
@@ -37,17 +37,54 @@ function toOption(g: AdminGroupRow): GroupOption {
   }
 }
 
+const CELL_TONE = {
+  agree: 'bg-primary',
+  disagree: 'bg-danger',
+  return: 'bg-danger',
+} as const
+
+/**
+ * 一格一個版本（原型「每格＝一位學生、右邊短格＝老師；點『缺 N 位』看是誰」）：
+ * 版本號、狀態、逐人小格、缺誰（展開）、最後事件時間。資料和學生頁、老師頁是同一份進度。
+ */
 function PackageCell({ summary }: { summary: VersionSummary | null }) {
   if (!summary) return <span className="text-muted-foreground">尚未建立</span>
   const cause = describeCause(summary.cause)
+  const p = summary.progress
   return (
-    <span className="flex flex-wrap items-center gap-2">
-      <Link href={`/dashboard/admin/signoff/${summary.versionId}`} className="font-medium text-primary underline-offset-2 hover:underline">
-        v{summary.versionNo}
-      </Link>
-      <StateBadge state={summary.state} />
-      {summary.state === 'superseded' && cause ? <span className="text-xs text-muted-foreground">{cause}，待建新版</span> : null}
-    </span>
+    <div className="space-y-1.5" data-testid="package-cell">
+      <span className="flex flex-wrap items-center gap-2">
+        <Link href={`/dashboard/admin/signoff/${summary.versionId}`} className="font-medium text-primary underline-offset-2 hover:underline">
+          v{summary.versionNo}
+        </Link>
+        <StateBadge state={summary.state} />
+        {summary.state === 'superseded' && cause ? <span className="text-xs text-muted-foreground">{cause}，待建新版</span> : null}
+        {summary.state === 'revision' && cause ? <span className="text-xs text-muted-foreground">理由：{cause}</span> : null}
+      </span>
+      <span className="flex items-center gap-1" aria-label={`學生 ${p.agreed}／${p.total} 已同意`}>
+        {p.students.map((s) => (
+          <span
+            key={s.userId}
+            title={`${s.displayName}：${s.result ? VOTE_RESULT_LABEL[s.result] : '尚未表態'}`}
+            className={cn('size-3 rounded-sm', s.result ? CELL_TONE[s.result] : 'bg-muted')}
+          />
+        ))}
+        <span
+          title={`${p.advisor.displayName}（主指導）：${p.advisor.result ? VOTE_RESULT_LABEL[p.advisor.result] : '尚未表態'}`}
+          className={cn('ml-1 h-3 w-1.5 rounded-sm', p.advisor.result ? CELL_TONE[p.advisor.result] : 'bg-muted')}
+        />
+        <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+          {p.agreed}／{p.total}
+        </span>
+      </span>
+      {p.missing.length > 0 ? (
+        <details className="text-xs" data-testid="missing-details">
+          <summary className="cursor-pointer text-primary">缺 {p.missing.length} 位</summary>
+          <p className="mt-1 text-muted-foreground">{p.missing.join('、')}</p>
+        </details>
+      ) : null}
+      <span className="block text-xs text-muted-foreground">最後事件 {formatTaipeiMinute(summary.lastEventAt)}</span>
+    </div>
   )
 }
 
@@ -78,8 +115,9 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
   if (!board.ok) return shell(<EmptyState title="讀不到簽核資料" description={board.message} />)
   const { groups } = board.receipt
   const summaries = groups.flatMap((g) => SIGNOFF_PURPOSES.map((p) => g.packages[p]).filter((s): s is VersionSummary => s !== null))
-  const collecting = summaries.filter((s) => s.state === 'collecting' || s.state === 'teacher_pending').length
-  const superseded = summaries.filter((s) => s.state === 'superseded').length
+  const collecting = summaries.filter((s) => s.state === 'collecting').length
+  const teacherPending = summaries.filter((s) => s.state === 'teacher_pending').length
+  const needsAdmin = summaries.filter((s) => s.state === 'superseded' || s.state === 'revision').length
   const complete = summaries.filter((s) => s.state === 'complete').length
 
   return shell(
@@ -103,10 +141,10 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
       ) : null}
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="組別" value={groups.length} hint={cohort.code} />
-        <Tile label="收集同意中" value={collecting} hint="版本數" />
-        <Tile label="已完成" value={complete} hint="版本數" />
-        <Tile label="已失效待重建" value={superseded} hint="組員或老師變更" />
+        <Tile label="已完成" value={complete} hint={`共 ${summaries.length} 個目前版本`} />
+        <Tile label="學生已齊、等老師" value={teacherPending} hint="版本數" />
+        <Tile label="學生未齊" value={collecting} hint="版本數" />
+        <Tile label="退回或失效" value={needsAdmin} hint="等系辦重開新版" />
       </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
@@ -142,7 +180,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
             empty="這一屆還沒有組別。"
           />
           <p className="text-xs text-muted-foreground">
-            逐人進度與缺誰、提醒未同意者、重置與作廢、匯出可列印頁與 CSV 在下一階段開放。
+            每格一位學生、右邊短格是主指導；點版本號進版本頁可以提醒未同意者、重置或重開新版、作廢、匯出可列印頁與 CSV。系辦不能替任何人表態。
           </p>
         </section>
       </div>

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { SignoffState, VersionDetail } from '@/application/signoff'
-import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, STATE_LABEL } from '@/composition/signoff'
+import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, STATE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -29,8 +29,22 @@ export function StateBadge({ state }: { state: SignoffState }) {
   )
 }
 
-/** 失效或作廢時放在最上面的說明；舊頁看到的就是這一句（模組 07 §7「等待管理員建立新版」）。 */
+/** 失效、作廢、退回時放在最上面的說明；舊頁看到的就是這一句（模組 07 §7「等待管理員建立新版」）。 */
 function Invalidated({ v }: { v: VersionDetail }) {
+  if (v.state === 'revision') {
+    return (
+      <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-danger-subtle px-4 py-3 text-sm text-danger-on-subtle">
+        這一版已退回修正（理由：{v.cause ?? '未填'}），等系辦重開新版後大家再重新閱讀；舊的表態留作紀錄、不計入新版。
+      </p>
+    )
+  }
+  if (!v.isCurrent && v.state === 'complete') {
+    return (
+      <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-muted px-4 py-3 text-sm text-ink">
+        這是歷史版本的完成紀錄；目前已有新版本，請以新版為準。
+      </p>
+    )
+  }
   if (v.state !== 'superseded' && v.state !== 'void') return null
   const cause = describeCause(v.cause)
   const text =
@@ -49,12 +63,15 @@ function Invalidated({ v }: { v: VersionDetail }) {
 export function VersionView({
   v,
   historyHref,
+  action,
   footnote,
 }: {
   v: VersionDetail
   /** 給了就列出同一個簽核包的版本歷史，連到各版本頁。 */
   historyHref?: (versionId: string) => string
-  /** 放在最下方的一句說明（例如「同意按鈕在下一階段開放」）。 */
+  /** 放在進度下方的操作（本人表態、系辦管理）。 */
+  action?: React.ReactNode
+  /** 放在最下方的一句說明。 */
   footnote?: string
 }) {
   const scope = v.authorizationScope
@@ -137,24 +154,9 @@ export function VersionView({
         </section>
       ) : null}
 
-      <section aria-label="參與者">
-        <h3 className="mb-2 text-sm font-semibold text-ink">
-          參與者：{v.participants.students.length} 位學生＋主指導
-        </h3>
-        <ul className="flex flex-wrap gap-2 text-sm" data-testid="signoff-participants">
-          {v.participants.students.map((s) => (
-            <li key={s.userId} className="rounded-md border border-border px-2.5 py-1">
-              {s.displayName}
-              {s.studentNo ? <span className="ml-1 text-xs text-muted-foreground">{s.studentNo}</span> : null}
-            </li>
-          ))}
-          <li className="rounded-md border border-primary/40 px-2.5 py-1">
-            {v.participants.advisor.displayName}
-            <span className="ml-1 text-xs text-muted-foreground">主指導</span>
-          </li>
-        </ul>
-        <p className="mt-2 text-xs text-muted-foreground">全部學生各自同意後，才輪到主指導；任何人都不能替別人同意，系辦也不行。</p>
-      </section>
+      <ProgressPanel v={v} />
+
+      {action}
 
       {historyHref && v.history.length > 1 ? (
         <section aria-label="版本歷史">
@@ -170,6 +172,9 @@ export function VersionView({
                   </Link>
                 )}
                 <StateBadge state={h.state} />
+                {h.cause && (h.state === 'superseded' || h.state === 'void' || h.state === 'revision') ? (
+                  <span className="text-xs text-muted-foreground">{describeCause(h.cause)}</span>
+                ) : null}
                 <span className="text-xs text-muted-foreground">{formatTaipeiMinute(h.createdAt)}</span>
               </li>
             ))}
@@ -179,5 +184,90 @@ export function VersionView({
 
       {footnote ? <p className="border-t border-border pt-3 text-xs text-muted-foreground">{footnote}</p> : null}
     </article>
+  )
+}
+
+const RESULT_TONE = {
+  agree: 'text-primary',
+  disagree: 'text-danger',
+  return: 'text-danger',
+} as const
+
+/**
+ * 逐人進度（票 26；原型「進度」卡：每位學生一列、最後一列是老師）。三個角色都是這一份，數字與缺誰一致（SGN-10）。
+ * 人數照快照（三人組就 3／3）；老師那一列寫清楚「全部學生同意後輪到老師」。
+ */
+export function ProgressPanel({ v }: { v: VersionDetail }) {
+  const p = v.progress
+  const advisorTurn = v.state === 'teacher_pending'
+  return (
+    <section aria-label="進度" data-testid="signoff-progress">
+      <h3 className="mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold text-ink">
+        進度
+        <span data-testid="signoff-agreed" className="tabular-nums text-primary">
+          學生 {p.agreed}／{p.total} 已同意
+        </span>
+      </h3>
+      <ul className="divide-y divide-border rounded-md border border-border text-sm" data-testid="signoff-participants">
+        {p.students.map((s) => (
+          <li key={s.userId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" data-testid="progress-row">
+            <span className={cn('font-medium', s.userId === v.viewer.userId && 'font-bold')}>
+              {s.displayName}
+              {s.userId === v.viewer.userId ? '（你）' : ''}
+            </span>
+            {s.studentNo ? <span className="text-xs text-muted-foreground tabular-nums">{s.studentNo}</span> : null}
+            <span className={cn('ml-auto text-xs', s.result ? RESULT_TONE[s.result] : 'text-muted-foreground')}>
+              {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!)}` : '尚未表態'}
+            </span>
+            {s.reason ? <span className="w-full text-xs text-muted-foreground">理由：{s.reason}</span> : null}
+          </li>
+        ))}
+        <li className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface px-3 py-2" data-testid="progress-advisor">
+          <span className="font-medium">{p.advisor.displayName}</span>
+          <span className="text-xs text-muted-foreground">主指導</span>
+          <span className={cn('ml-auto text-xs', p.advisor.result ? RESULT_TONE[p.advisor.result] : 'text-muted-foreground')}>
+            {p.advisor.result
+              ? `${VOTE_RESULT_LABEL[p.advisor.result]}・${formatTaipeiMinute(p.advisor.at!)}`
+              : advisorTurn
+                ? '輪到老師'
+                : `全部 ${p.total} 位學生同意後輪到老師`}
+          </span>
+          {p.advisor.reason ? <span className="w-full text-xs text-muted-foreground">理由：{p.advisor.reason}</span> : null}
+        </li>
+      </ul>
+      {p.missing.length > 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="signoff-missing">
+          還沒表態：{p.missing.join('、')}
+        </p>
+      ) : null}
+      <p className="mt-2 text-xs text-muted-foreground">全部學生各自同意後，才輪到主指導；任何人都不能替別人同意，系辦也不行。</p>
+    </section>
+  )
+}
+
+/**
+ * 參與者本人在版本頁上看到的「我的表態」區塊（票 26）：按得下去就出表單；投過了顯示自己那一票；
+ * 其他情況（還沒輪到老師、已失效、已不是參與者）只寫一句為什麼不能按——不放按了沒反應的按鈕。
+ */
+export function MyResponse({ v, form }: { v: VersionDetail; form: React.ReactNode }) {
+  const { role, voted, canRespond, eligible } = v.viewer
+  if (role === null) return null
+  if (canRespond) return <>{form}</>
+  let text: string
+  if (voted) {
+    const at = role === 'student' ? v.progress.students.find((s) => s.userId === v.viewer.userId)?.at : v.progress.advisor.at
+    text = `你已${VOTE_RESULT_LABEL[voted]}${at ? `（${formatTaipeiMinute(at)}）` : ''}；每人一票，不能改票。`
+  } else if (!eligible) {
+    text = role === 'student' ? '你已不在這一組，不能再對這一版表態。' : '你已不是這一組的指導老師，不能再對這一版表態。'
+  } else if (role === 'advisor' && v.state === 'collecting') {
+    const left = v.progress.total - v.progress.agreed
+    text = `還有 ${left} 位學生沒同意；全部學生同意後才輪到你。`
+  } else {
+    return null
+  }
+  return (
+    <p role="status" data-testid="my-response" className="rounded-md bg-surface px-4 py-3 text-sm text-ink">
+      {text}
+    </p>
   )
 }
