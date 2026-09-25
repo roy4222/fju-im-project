@@ -7,7 +7,7 @@
 ## 步驟
 
 1. **打開登入頁**
-   - 做：打開 `https://test.fju.roy422.dev/login`。
+   - 做：先打開 `https://test.fju.roy422.dev/api/health`，在「看到什麼」寫 `commit=<前 8 碼>`（測試站版本）；再打開 `https://test.fju.roy422.dev/login`。
    - 預期：看到標題「登入」、Email 欄、密碼欄、「登入」按鈕。
 2. **用 E2E 管理員登入**
    - 做：Email 填 E2E 管理員的 email、密碼填 E2E 管理員的密碼，按「登入」。

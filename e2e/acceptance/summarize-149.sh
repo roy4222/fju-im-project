@@ -77,8 +77,9 @@ BEGIN {
       if (stepcell !~ /^[0-9]+/) continue
       step = stepcell; sub(/[^0-9].*/, "", step); step += 0
       result[name, step] = res
-      if (step == 1 && match(r, /[Cc]ommit[^0-9a-f]*[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/)) {
-        h = substr(r, RSTART, RLENGTH); sub(/.*[^0-9a-f]/, "", h); commit[name] = substr(h, 1, 7)
+      # 清單要 Codex 在第 1 步寫 `commit=<前 8 碼>`；只取那 8 碼十六進位，不取同一格的其他字。
+      if (step == 1 && match(r, /[Cc]ommit[^0-9a-f]*[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/)) {
+        h = substr(r, RSTART, RLENGTH); commit[name] = substr(h, length(h) - 7, 8)
       }
     }
     close(path)
