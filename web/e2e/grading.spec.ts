@@ -152,6 +152,16 @@ async function openAdminGrading(page: Page) {
 
 const row = (page: Page, code: string) => page.getByTestId(`grading-row-${code}`)
 
+/** 票 36：評分要求與指派、方案版本表照原型收進對話框；要操作先打開。 */
+async function openAssign(page: Page) {
+  await page.getByRole('button', { name: '評分要求與指派' }).click()
+  await expect(page.getByRole('dialog', { name: '評分要求與指派' })).toBeVisible()
+}
+async function openVersions(page: Page) {
+  await page.getByRole('button', { name: /^版本紀錄/ }).click()
+  await expect(page.getByRole('dialog', { name: '評分方案版本' })).toBeVisible()
+}
+
 test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；改成 60／40、項目 50／50 建成 v1 草稿，發布後重新整理仍是已發布', async ({ page }) => {
   await openAdminGrading(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('還沒有發布的方案')
@@ -178,6 +188,7 @@ test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；�
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立方案 v1（草稿）' })).toBeVisible()
 
+  await openVersions(page)
   const table = page.getByRole('table', { name: '方案版本' })
   await expect(table.getByRole('row').filter({ hasText: 'v1' })).toContainText('草稿')
   await table.getByRole('button', { name: '發布 v1' }).click()
@@ -190,6 +201,7 @@ test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；�
 
 test('設要求份數並指派：G01「系統驗收」要 2 份、指派評一與評二；G02 指派評三；老師收到評分指派通知', async ({ page }) => {
   await openAdminGrading(page)
+  await openAssign(page)
   await expect(page.getByRole('navigation', { name: '選擇階段' }).getByRole('link', { name: '系統驗收' })).toHaveAttribute('aria-current', 'page')
 
   await row(page, 'G01').getByLabel('G01「系統驗收」要求份數').fill('2')
@@ -206,6 +218,7 @@ test('設要求份數並指派：G01「系統驗收」要 2 份、指派評一�
   await expect(row(page, 'G02').getByRole('status')).toContainText(`已指派 ${NAME_3} 老師評 G02「系統驗收」`)
 
   await page.reload()
+  await openAssign(page)
   await expect(row(page, 'G01').getByTestId('evaluator')).toHaveCount(2)
   await expect(row(page, 'G01')).toContainText(`${NAME_1}未開始`)
   // 已指派的老師不在下拉裡，不能重複指派（伺服器另外也擋，見整合測試）。
@@ -318,6 +331,7 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   await expect(dialog).toContainText('從 v1 複製起草')
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立方案 v2（草稿）' })).toBeVisible()
+  await openVersions(page)
   const v2 = page.getByRole('table', { name: '方案版本' }).getByRole('row').filter({ hasText: 'v2' })
   // 票 24：鎖定後的新版本不能直接發布，只能「看影響並套用」（先看重算預覽再確認）。
   await expect(v2.getByRole('button', { name: '發布 v2' })).toHaveCount(0)

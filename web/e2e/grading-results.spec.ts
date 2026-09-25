@@ -204,6 +204,16 @@ async function openGrading(page: Page) {
   await expect(page.getByRole('heading', { name: '成績管理', exact: true })).toBeVisible()
 }
 
+/** 票 36：評分要求與指派、方案版本表照原型收進對話框；要操作先打開。 */
+async function openAssign(page: Page) {
+  await page.getByRole('button', { name: '評分要求與指派' }).click()
+  await expect(page.getByRole('dialog', { name: '評分要求與指派' })).toBeVisible()
+}
+async function openVersions(page: Page) {
+  await page.getByRole('button', { name: /^版本紀錄/ }).click()
+  await expect(page.getByRole('dialog', { name: '評分方案版本' })).toBeVisible()
+}
+
 async function openDetail(page: Page, code = 'G01') {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/grading/${groupIds.get(code)}`)
@@ -302,6 +312,7 @@ test('更正：最終 86.09 更正為 88（保留原值、理由；老師輸入�
 
 test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重做；選替換換評四 → 1／2 尚未完成、更正進待復核、評一不能再評', async ({ page }) => {
   await openGrading(page)
+  await openAssign(page)
   await page.getByRole('link', { name: `移除或改派 ${NAMES[0]} 老師` }).click()
   await expect(page.getByRole('heading', { name: '移除或改派評分老師' })).toBeVisible()
   await expect(page.getByTestId('reassign-before')).toContainText('2／2')
@@ -330,7 +341,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
 
   await openGrading(page)
   await expect(bookRow(page, 'G01').getByTestId('stage-mid')).toContainText('尚未完成（1／2）')
-  // 下面「評分要求與指派」的份數和成績表同一份。
+  // 「評分要求與指派」（對話框）的份數和成績表同一份。
   await expect(page.getByTestId('grading-row-G01')).toContainText('已正式送出 1／2 份')
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('尚未完成')
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('更正待復核')
@@ -363,6 +374,7 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立方案 v2（草稿）' })).toBeVisible()
 
+  await openVersions(page)
   await page.getByRole('link', { name: '看影響並套用 v2' }).click()
   await expect(page.getByRole('heading', { name: '套用新評分方案' })).toBeVisible()
   // 期中 (84.29＋85)／2＝84.645；期末 92。60／40 → 87.587（87.59）；50／50 → 88.3225（88.32）。
@@ -371,6 +383,7 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
   await page.getByRole('link', { name: '取消（不重算）' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('v1・已鎖定')
 
+  await openVersions(page)
   await page.getByRole('link', { name: '看影響並套用 v2' }).click()
   await page.getByRole('button', { name: '確認套用 v2' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已套用方案 v2' })).toBeVisible()
@@ -436,10 +449,13 @@ test('封存的屆別：成績頁仍選得到，只能看與匯出——建立�
   await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 已封存，只能查看與匯出`)
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
   await expect(page.getByRole('button', { name: '建立新方案版本' })).toBeDisabled()
+  await openAssign(page)
   const assignRow = page.getByTestId('grading-row-G01')
   await expect(assignRow).toContainText('已封存，不能指派')
   await expect(assignRow.getByRole('button')).toHaveCount(0)
   await expect(page.getByRole('link', { name: /移除或改派/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: '評分要求與指派' })).toHaveCount(0)
   const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
   expect(fs.readFileSync((await csv.path())!, 'utf8')).toContain('"G01"')
 })
