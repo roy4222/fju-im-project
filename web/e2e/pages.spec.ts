@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
+import { Pool } from 'pg'
+import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
 /**
  * S01-04：頁面骨架、側欄與授權導向（票 #47 第 3 節那張表）。
@@ -139,6 +140,42 @@ test.describe('以 T1（老師）', () => {
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
   })
+
+  test('公開首頁的「近期截止」不斷言「沒有」：老師的截止在後台，指回後台首頁', async ({ page }) => {
+    await signInAs(page, 'teacher')
+    await page.goto('/')
+    const work = page.getByRole('region', { name: '我的工作' })
+    await expect(work.getByTestId('home-deadlines-elsewhere').getByRole('link', { name: '後台首頁' })).toHaveAttribute(
+      'href',
+      '/dashboard/teacher',
+    )
+    await expect(work).not.toContainText('近期沒有要截止的項目')
+  })
+})
+
+test.describe('臨時密碼還沒改的人', () => {
+  test('公開首頁跟訪客一樣：沒有「我的工作」，也沒有產學合作與檔案下載的入口', async ({ page }) => {
+    const ownerUrl = process.env.DATABASE_URL_OWNER
+    if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能把測試帳號改成必須改密')
+    // 不用共用帳號：這一條要把帳號改成必須改密，會影響別的測試。
+    const session = await createTestSession(page.request, 'student')
+    const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+    try {
+      await pool.query('update users set must_change_password = true where id = $1', [session.userId])
+    } finally {
+      await pool.end()
+    }
+    await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '檔案下載' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '產學合作' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: '快速入口' }).getByRole('link', { name: '更改密碼' })).toHaveAttribute(
+      'href',
+      '/account/change-password',
+    )
+  })
 })
 
 test.describe('待審核的人（有 session 但還沒核准）', () => {
@@ -148,6 +185,17 @@ test.describe('待審核的人（有 session 但還沒核准）', () => {
     await expect(page).toHaveURL(/\/register\/pending$/)
     // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁請他補送（票 7）。
     await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
+  })
+
+  test('公開首頁跟訪客一樣：沒有「我的工作」、歷屆專題，也沒有產學合作與檔案下載的入口', async ({ page }) => {
+    await signInAs(page, null)
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '歷屆專題一覽' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '檔案下載' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '產學合作' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '申請進度' }).first()).toHaveAttribute('href', '/register/pending')
   })
 })
 
