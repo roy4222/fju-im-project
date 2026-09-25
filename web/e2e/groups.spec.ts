@@ -149,7 +149,8 @@ test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Emai
 
   await openStudentPage(page, 0)
   const list = page.getByRole('region', { name: '找組員名單' })
-  const row = list.getByRole('row').filter({ hasText: students[1]!.name })
+  // 票 38：名單照原型改成一人一列的清單（不是表格）。
+  const row = list.getByRole('listitem').filter({ hasText: students[1]!.name })
   await expect(row).toContainText(students[1]!.studentNo)
   await expect(row).toContainText(students[1]!.contactEmail)
   expect(await page.content()).not.toContain(PHONE)
