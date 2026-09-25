@@ -367,8 +367,8 @@ test('三個角色看同一份：學生頁有全文與授權範圍、老師卡�
   await expect(page.getByTestId('signoff-content')).toContainText('（第二版）')
   await expect(page.getByTestId('scope-title')).toHaveText('改過的題目')
   await expect(page.getByTestId('signoff-participants')).toContainText(`組員甲${stamp.slice(-3)}`)
-  // 票 25 還沒有同意按鈕，只有說明；也不能開管理員的版本頁。
-  await expect(page.getByRole('button', { name: /同意/ })).toHaveCount(0)
+  // 票 26 起學生頁有本人的表態按鈕（逐人同意的完整流程在 signoff-approvals.spec）；學生不能開管理員的版本頁。
+  await expect(page.getByRole('button', { name: '我已閱讀並同意' })).toBeDisabled()
   await page.goto(`/dashboard/admin/signoff/${finalV1}`)
   await expect(page).toHaveURL(/\/403/)
 
@@ -376,7 +376,7 @@ test('三個角色看同一份：學生頁有全文與授權範圍、老師卡�
   await page.goto('/dashboard/teacher/signoff')
   const card = page.getByTestId('teacher-signoff-card').filter({ hasText: 'G01・最終文件授權' })
   await expect(card).toContainText('收集學生同意中')
-  await card.getByRole('link', { name: '閱讀全文與參與者' }).click()
+  await card.getByRole('link', { name: '閱讀全文與進度' }).click()
   await expect(page.getByTestId('signoff-content')).toContainText('（第二版）')
   const versionUrl = page.url()
 

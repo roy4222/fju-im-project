@@ -11,9 +11,11 @@ import {
   checkDeclaredUpload,
   createContentInspector,
   effectiveMaxBytes,
+  extensionOf,
   FILE_TYPES,
   formatBytes,
   isUuid,
+  sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,
   type AttachExpectation,
@@ -23,6 +25,7 @@ import {
   type FilePurpose,
   type FileRef,
   type FileStorage,
+  type GeneratedFile,
   type StoredFileContent,
   type StoredFileReceipt,
   type UploadRules,
@@ -409,6 +412,54 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       },
       meta(now),
     )
+  }
+
+  /**
+   * 伺服器產生的檔（見 port 說明）：先把本體寫到正式位置（`wx`，不覆蓋），再在呼叫端交易裡建 `stored` 列與引用。
+   * 寫列失敗就把剛寫的本體刪掉；交易之後才回滾的話，本體留作沒有列指向的孤兒（誰都下載不到）。
+   */
+  async storeGenerated(tx: PoolClient, input: GeneratedFile): Promise<StoredFileReceipt> {
+    const now = this.#clock.now()
+    const fileId = uuidv7()
+    const storageKey = storageKeyFor(fileId, now)
+    const displayName = sanitizeDisplayName(input.fileName)
+    const extension = extensionOf(displayName)
+    const checksum = createHash('sha256').update(input.bytes).digest('hex')
+    const fullPath = this.#resolve(storageKey)
+    await fs.mkdir(path.dirname(fullPath), { recursive: true })
+    await fs.writeFile(fullPath, input.bytes, { flag: 'wx', mode: 0o600 })
+    try {
+      await tx.query(
+        `insert into stored_files
+           (id, owner_user_id, scope, cohort_id, purpose, original_name, size_bytes, mime_declared, mime_detected, extension,
+            checksum, status, storage_key, uploaded_real_at, finalized_at, updated_by_user_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, 'stored', $11, $12, $12, $2)`,
+        [
+          fileId,
+          input.ownerUserId,
+          input.scope.kind,
+          input.scope.kind === 'cohort' ? input.scope.cohortId : null,
+          input.purpose,
+          displayName,
+          input.bytes.byteLength,
+          input.mime,
+          extension,
+          checksum,
+          storageKey,
+          now,
+        ],
+      )
+      await tx.query(`insert into file_references (id, file_id, ref_type, ref_id) values ($1, $2, $3, $4)`, [
+        uuidv7(),
+        fileId,
+        input.ref.refType,
+        input.ref.refId,
+      ])
+    } catch (error) {
+      await fs.rm(fullPath, { force: true })
+      throw error
+    }
+    return { fileId, originalName: displayName, sizeBytes: input.bytes.byteLength, checksum, mimeDetected: input.mime }
   }
 }
 

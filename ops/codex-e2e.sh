@@ -70,18 +70,39 @@ done
 [ -f "$CHECKLIST" ] && [ -r "$CHECKLIST" ] || die "找不到驗收清單：$CHECKLIST"
 [ -s "$CHECKLIST" ] || die "驗收清單是空的：$CHECKLIST"
 
+# 網址檢查一律 LC_ALL=C（逐位元組比對，不看呼叫者的 locale）、不分大小寫（網域與 scheme 本來就不分）。
 # 正式站防呆：fju.roy422.dev 前面不是「test.」（或其他子網域）的就是正式站。
-if grep -Eq '(^|[^A-Za-z0-9.-])fju\.roy422\.dev' "$CHECKLIST"; then
+if LC_ALL=C grep -iEq '(^|[^A-Za-z0-9.-])fju\.roy422\.dev' "$CHECKLIST"; then
   die "驗收清單裡有正式站網址（fju.roy422.dev）。自動驗收只打測試站 ${TARGET_URL}，請改清單。"
 fi
 
 # 清單裡的網址只准測試站與原型：其他網域（例如 Google 登入頁）一律不讓 Codex 去。
+# 照瀏覽器（WHATWG URL）的切法：scheme 後面到第一個 / ? # \ 或空白為止是 authority。
+# authority 裡有 @ 就是「userinfo@主機」——`https://test.fju.roy422.dev(@evil.com/` 真正連的是 evil.com——一律擋。
+# 沒有 @ 的，去掉結尾的反引號、括號、引號與中文標點後，必須「完全等於」兩個准許的網域之一：
+# port（:443）、%2E、.evil.com、全形字（瀏覽器會把全形 Ｘ 轉成 x）都不等於，都擋。scheme 只准 https。
+# `https:evil.com`、`https:\\evil.com` 這種少斜線的寫法瀏覽器也當網址，一併抓進來（統一改寫成 https:// 再比）。
+url_authorities() {
+  LC_ALL=C grep -iEo 'https?:[/\\]*[^[:space:]/?#\\]*' "$CHECKLIST" \
+    | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+    | LC_ALL=C sed -E 's#^(https?):[/\\]*#\1://#'
+}
 while IFS= read -r url; do
   case "$url" in
-    "$TARGET_URL"|"$TARGET_URL"/*|"$PROTOTYPE_URL"|"$PROTOTYPE_URL"/*) ;;
-    *) die "驗收清單裡有不准打的網址：${url}（只准 ${TARGET_URL} 與原型 ${PROTOTYPE_URL}）。" ;;
+    *@*) die "驗收清單裡的網址帶了 @（瀏覽器會把 @ 後面當成真正要連的主機）：${url}" ;;
   esac
-done < <(grep -Eo 'https?://[^[:space:]`)<>"'"'"'，。、）」]+' "$CHECKLIST" || true)
+  origin="$(printf '%s\n' "$url" | LC_ALL=C sed -E "s/([]\`)>\"'*,.;]|，|。|、|）|」)+\$//")"
+  case "$origin" in
+    "$TARGET_URL"|"$PROTOTYPE_URL") ;;
+    *) die "驗收清單裡有不准打的網址：${url}（只准 ${TARGET_URL} 與原型 ${PROTOTYPE_URL}，網域後面接 / ? # 或空白）。" ;;
+  esac
+done < <(url_authorities || true)
+
+# 空白隔開的 `https://test.fju.roy422.dev @evil.com/` 也可能被讀成一個網址（主機是 evil.com）：
+# 網址的 authority 後面隔著空白直接接 @ 也擋。
+if LC_ALL=C grep -iEq 'https?:[/\\]*[^[:space:]/?#\\]*[[:space:]]+@' "$CHECKLIST"; then
+  die "驗收清單裡有網址後面隔著空白接 @ 的寫法，請改寫（瀏覽器可能把 @ 後面當成要連的主機）。"
+fi
 
 case "$SANDBOX" in
   read-only|workspace-write|danger-full-access) ;;
@@ -209,6 +230,7 @@ codex_status=0
 ) || codex_status=$?
 
 # ── 洩漏檢查：輸出目錄的文字檔裡不能有密碼 ─────────────────────
+# E2E 管理員密碼（先掃：它是唯一會讓這支腳本報錯的洩漏）：
 # 密碼從 process substitution 餵給 grep -f（printf 是 shell 內建，不會出現在 ps 裡）。
 # 檔名一行一個（輸出目錄的檔名是 Codex 照提示取的英文短名）；不用 -Z，macOS 上的 grep 不一定支援。
 leaked=()
@@ -223,6 +245,29 @@ if [ "${#leaked[@]}" -gt 0 ]; then
   echo "   密碼可能已進了 Codex 的對話：在 Doppler stg 換一組新的 E2E_ADMIN_EMAIL＋E2E_ADMIN_PASSWORD（下次部署會建新帳號），" >&2
   echo "   再到測試站後台把舊的 E2E 測試管理員停用。" >&2
   exit 1
+fi
+
+# 老師的臨時密碼（Codex 從畫面讀來的）格式固定：4 組 4 碼，字母表同
+# web/src/infrastructure/accounts/temporary-password.ts。出現就遮掉並警告；說明格式用的 XXXX-XXXX-XXXX-XXXX 不算。
+# 臨時密碼改密後就失效、收尾也會停用那個帳號，所以只警告、不算失敗。
+# Codex 自編的測試密碼沒有固定格式，這裡掃不到——靠清單要求它不寫進報告。
+temp_pw='[A-HJ-NP-Za-hjkmnp-z2-9]{4}(-[A-HJ-NP-Za-hjkmnp-z2-9]{4}){3}'
+temp_leaked=()
+# grep -l 只列檔名（輸出目錄路徑含 : 也不會切錯）；真的有沒有命中由 perl 判斷：有遮就結束碼 0、沒有就 3。
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  temp_status=0
+  TEMP_PW="$temp_pw" perl -pi -e \
+    '$n += s/(?<![A-Za-z0-9-])(?!(?:XXXX-){3}XXXX(?![A-Za-z0-9-]))$ENV{TEMP_PW}(?![A-Za-z0-9-])/[已遮蔽]/g; END { exit($n ? 0 : 3) }' \
+    "$file" || temp_status=$?
+  case "$temp_status" in
+    0) temp_leaked+=("$file") ;;
+    3) ;;
+    *) echo "⚠️ 沒辦法檢查 ${file} 裡有沒有臨時密碼（perl 以 ${temp_status} 結束），請自己看一眼。" >&2 ;;
+  esac
+done < <(LC_ALL=C grep -rIlE "$temp_pw" "$RUN_DIR" 2>/dev/null || true)
+if [ "${#temp_leaked[@]}" -gt 0 ]; then
+  echo "⚠️ 輸出裡有像老師臨時密碼的字串，已遮蔽這些檔案：${temp_leaked[*]}（臨時密碼改密後即失效；若那位老師沒改密成功，確認收尾已停用他）" >&2
 fi
 
 if [ "$codex_status" -ne 0 ]; then
