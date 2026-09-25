@@ -77,6 +77,7 @@ import { authorizeAdmin, badRequestId, inTransaction, replayed, type PoolSource 
 import { getPool } from '@/infrastructure/db/client'
 import { activeAdminIds } from '@/infrastructure/notifications/worker-alerts'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-access'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 
@@ -1701,20 +1702,12 @@ export class PgSignoffQuery implements SignoffQuery {
 }
 
 /**
- * 誰讀得到某個版本（契約 03 §1「簽核：當前版本參與者、管理員」）：
- * 管理員；這一版的參與者（快照裡的學生與主指導，含之後被移出或換掉的人——那是他們參與過的紀錄）；
- * 這一組**此刻**的有效組員與主指導（新加入的人要看得到失效原因與新版）。帳號狀態不對的人在呼叫前就被擋。
+ * 誰讀得到某個版本：規則在 `canReadSignoffVersions`（`version-read-access.ts`），版本頁、附件、海報三處共用。
+ * 換掉的舊主指導連舊版也看不到（產品 07 §8；2026-09-25 Roy 定：失權含看不到）；被移出的快照學生仍讀得到。
+ * 帳號狀態不對的人在呼叫前就被擋。
  */
-async function canRead(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authenticated' }>, row: VersionRow): Promise<boolean> {
-  if (actor.roles.includes('admin')) return true
-  const participants = readParticipants(row.participants)
-  if (participants?.advisor.userId === actor.userId || participants?.students.some((s) => s.userId === actor.userId)) return true
-  const now = await db.query(
-    `select 1 where exists (select 1 from group_memberships where group_id = $1 and user_id = $2 and valid_to is null)
-                 or exists (select 1 from advisor_assignments where group_id = $1 and teacher_user_id = $2 and valid_to is null)`,
-    [row.group_id, actor.userId],
-  )
-  return (now.rowCount ?? 0) > 0
+function canRead(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authenticated' }>, row: VersionRow): Promise<boolean> {
+  return canReadSignoffVersions(db, actor, [row.version_id])
 }
 
 async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
