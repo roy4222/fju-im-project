@@ -103,3 +103,23 @@ export function completionOf(window: ItemWindow, entries: readonly ReceiverFacts
     percent: required === 0 ? null : Math.round((done / required) * 100),
   }
 }
+
+/**
+ * 系辦首頁「逾期未繳」磚：好幾份收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
+ *
+ * 口徑跟 `completionOf` 的逾期一樣：只看目前名單（不含免填與已移出）、還沒有任何正式版本、狀態字是逾期。
+ * 呼叫端要把**全部**發布中的收件傳進來——首頁完成率列表只列前幾份，逾期數不能跟著只算那幾份。
+ */
+export function overdueReceiverIds(
+  rosters: readonly { readonly item: ItemWindow; readonly entries: readonly (ReceiverFacts & { readonly receiverId: string })[] }[],
+  businessNow: Date,
+): Set<string> {
+  const ids = new Set<string>()
+  for (const { item, entries } of rosters) {
+    for (const entry of entries) {
+      if (categoryOf(entry) !== 'current' || entry.latestVersionNo !== null) continue
+      if (receiverStatus(item, entry, businessNow).overdue) ids.add(entry.receiverId)
+    }
+  }
+  return ids
+}

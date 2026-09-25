@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { categoryOf, completionOf, pendingCount, receiverStatus, type ReceiverFacts } from '@/application/submissions'
+import { categoryOf, completionOf, overdueReceiverIds, pendingCount, receiverStatus, type ReceiverFacts } from '@/application/submissions'
 
 /**
  * 票 18 的純規則：名單三類、完成率的分子分母（產品模組 05 §4「個人填報與收件名單」、SUB-02／20／22），
@@ -95,5 +95,32 @@ describe('學生首頁待繳數與名單頁同一個口徑', () => {
     expect(receiverStatus(window, waiting, before)).toMatchObject({ headline: '未繳', pending: true })
     expect(receiverStatus(window, waiting, after)).toMatchObject({ headline: '逾期未繳', overdue: true })
     expect(receiverStatus(window, submitted, after)).toMatchObject({ headline: '已繳 v1', submitted: true })
+  })
+})
+
+describe('系辦首頁逾期磚：全部收件的逾期收件者，同一位只算一次', () => {
+  const later = { opensAt: null, dueAt: new Date('2026-12-15T15:59:00Z') }
+  const row = (receiverId: string, patch: Partial<ReceiverFacts> = {}) => ({ receiverId, ...entry(patch) })
+
+  it('第 7 份以後的收件逾期也算得到（呼叫端傳全部，函式本身不設上限）', () => {
+    const rosters = Array.from({ length: 8 }, (_, i) => ({
+      item: window,
+      entries: [i === 7 ? row('late') : row(`ok-${i}`, { latestVersionNo: 1 })],
+    }))
+    expect([...overdueReceiverIds(rosters, after)]).toEqual(['late'])
+  })
+
+  it('同一位在兩份收件都逾期只算一次；已送出、免填、已移出、還沒截止的都不算', () => {
+    const rosters = [
+      { item: window, entries: [row('a'), row('b', { latestVersionNo: 1 }), row('c', { exempt: true }), row('d', { eligibleTo: removedAt })] },
+      { item: window, entries: [row('a'), row('e')] },
+      { item: later, entries: [row('f')] },
+    ]
+    expect([...overdueReceiverIds(rosters, after)].sort()).toEqual(['a', 'e'])
+  })
+
+  it('跟 completionOf 的逾期數同口徑（單份收件時兩者相等）', () => {
+    const entries = [row('a'), row('b'), row('c', { latestVersionNo: 2 }), row('d', { exempt: true })]
+    expect(overdueReceiverIds([{ item: window, entries }], after).size).toBe(completionOf(window, entries, after).overdue)
   })
 })
