@@ -19,12 +19,15 @@ export const COHORT = {
   groupSizeMax: 5,
 }
 
-/** 票 11：剛好四個階段（原型的八段併成四段，名稱 20 字內）。 */
+/**
+ * 票 11：剛好四個階段（原型的八段併成四段，名稱 20 字內）。
+ * `description`（票 39，0011）＝原型 `Stage.summary` 的一句話說明，四段各自併原型對應幾段的說明。
+ */
 export const STAGES = [
-  { seq: 1, name: '分組與指導老師', startDate: '2026-08-01' },
-  { seq: 2, name: '題目與計畫書', startDate: '2026-09-18' },
-  { seq: 3, name: '系統驗收', startDate: '2027-03-01' },
-  { seq: 4, name: '專題發表與成品', startDate: '2027-05-01' },
+  { seq: 1, name: '分組與指導老師', startDate: '2026-08-01', description: '五人一組報名，五位成員各自確認後成立；填指導老師意願調查，產學組由老師優先指定。' },
+  { seq: 2, name: '題目與計畫書', startDate: '2026-09-18', description: '確定題目與範圍，上學期結束前發表計畫書；只評通過／不通過。' },
+  { seq: 3, name: '系統驗收', startDate: '2027-03-01', description: '系統發展文件完稿後，正式發表前一個月驗收系統文件與系統功能。' },
+  { seq: 4, name: '專題發表與成品', startDate: '2027-05-01', description: '公開發表；之後繳交系統與文件完稿，完成成果授權同意書後封存。' },
 ]
 
 /** 所有示範資料的「建立者」：不能登入（停用、沒有密碼、沒有角色）。 */
@@ -286,6 +289,8 @@ export const NEWS = [
     key: 'n-29',
     image: 'atrium.jpg',
     category: '競賽資訊',
+    // 票 39：原型 c-1 的報名截止（沒有活動日）；跟公告同一條時間線平移。
+    registrationDeadline: '2026-10-03',
     title: '第 31 屆全國大專校院資訊應用服務創新競賽開始報名',
     summary: '報名至 2026 年 10 月 3 日止。欲以專題作品參賽者請先與指導老師確認資格與授權範圍。',
     date: '2026-08-12',
@@ -321,6 +326,9 @@ export const NEWS = [
     key: 'n-26',
     image: 'present.jpg',
     category: '競賽資訊',
+    // 票 39：原型 c-2 的報名截止與決賽日。
+    registrationDeadline: '2026-07-31',
+    eventDate: '2026-09-02',
     title: '2026 全國智慧製造大數據分析競賽入圍名單公告',
     summary: '本系共三組作品入圍決賽，決賽日期為 9 月 2 日。',
     date: '2026-08-01',
@@ -613,11 +621,13 @@ export const HISTORY_COHORTS = [
 /**
  * 歷屆專題（原型 `PROJECTS`＋`PROJECT_DETAIL`）：一件一組、一個已發布的精選條目（海報＝原型的卡片圖）。
  * 組員只有原型詳情有列的幾件才有（p-7、p-8 原型沒有組員名單）；主指導照原型。
- * 原型的「優秀專題／佳作」等級正式碼沒有欄位（#293 表格第 1 點），所以八件都發布：優秀專題與歷屆一覽是同一批。
+ * 八件都發布（歷屆一覽）；`award`／`awardLabel` 照原型（票 39，0011 的 `showcase_entries.award_level`／`award_label`）：
+ * 有等級的五件才出現在公開的優秀專題，p-3、p-5、p-8 只在登入後的歷屆一覽。
  */
 export const PROJECTS = [
   {
     key: 'p-1', cohort: 'DEMO-113', code: 'G07', advisor: 'u-103', image: 'showcase.jpg', published: '2026-06-20',
+    award: 'excellent', awardLabel: '113 學年度校級優秀專題',
     title: '城市微光：公共資訊可讀性改善',
     summary: '針對公部門開放資料網站的資訊可讀性問題，重新設計資料呈現流程。以三個實際的市政資料集為例，建立一套可重複套用的視覺化樣板，並邀請十二位非資訊背景使用者進行可用性測試，量測任務完成時間與理解正確率。',
     video: 'https://www.youtube.com/@fjuim',
@@ -625,6 +635,7 @@ export const PROJECTS = [
   },
   {
     key: 'p-2', cohort: 'DEMO-113', code: 'G03', advisor: 'u-102', image: 'phone.jpg', published: '2026-06-20',
+    award: 'merit', awardLabel: '113 學年度專題發表 佳作',
     title: '拾語：課堂討論脈絡整理器',
     summary: '課堂討論常因發言分散而難以整理脈絡。本作品以語音轉文字與主題聚類，將討論內容整理成可追溯的議題樹，並提供教師端的重點摘要與未回應問題清單。',
     video: 'https://www.youtube.com/@fjuim',
@@ -638,6 +649,7 @@ export const PROJECTS = [
   },
   {
     key: 'p-7', cohort: 'DEMO-113', code: 'G09', advisor: 'u-105', image: 'present.jpg', published: '2026-06-20',
+    award: 'merit', awardLabel: '113 學年度專題發表 佳作',
     title: '校園閒置空間共享媒合平台',
     summary: '整合各系所閒置教室與設備的借用流程，以時段媒合減少空間閒置。',
     video: 'https://www.youtube.com/@fjuim',
@@ -645,6 +657,7 @@ export const PROJECTS = [
   },
   {
     key: 'p-4', cohort: 'DEMO-112', code: 'G02', advisor: 'u-105', image: 'hackathon.jpg', published: '2025-06-18',
+    award: 'excellent', awardLabel: '112 學年度校級優秀專題・全國賽佳作',
     title: '備援：中小企業備份稽核工具',
     summary: '中小企業常無專責資訊人員，備份策略難以驗證。本作品建立一套備份稽核工具，自動檢查備份完整性、可還原性與保留週期，並產出可交付稽核單位的報告。',
     video: 'https://www.youtube.com/@fjuim',
@@ -659,6 +672,7 @@ export const PROJECTS = [
   },
   {
     key: 'p-6', cohort: 'DEMO-112', code: 'G11', advisor: 'u-104', image: 'atrium.jpg', published: '2025-06-18',
+    award: 'merit', awardLabel: '112 學年度專題發表 佳作',
     title: '無障礙報名流程重構',
     summary: '以校內活動報名流程為對象，重新設計符合 WCAG 2.2 AA 的表單與流程，並以螢幕閱讀器與鍵盤操作完成完整驗證。',
     members: ['柯亦辰', '宮宇薇', '潘冠霖', '尤思穎', '方品瑄'],
@@ -673,7 +687,8 @@ export const PROJECTS = [
 
 /**
  * 榮譽榜（原型 `HONORS`）：placement `honor` 的已發布公開項目。標題＝競賽、摘要帶獎項與組別、分類是右邊那顆標籤。
- * 年份篩選看發布日（#293），所以發布日＝原型的得獎日。2026 年的掛在示範 113 屆、2025 年的掛在示範 112 屆。
+ * 得獎日期＝原型的 `date`（票 39 起年份篩選看 `managed_items.awarded_on`）；發布日也照它。2026 年的掛在示範 113 屆、
+ * 2025 年的掛在示範 112 屆。
  */
 export const HONORS = [
   { key: 'h-1', cohort: 'DEMO-113', date: '2026-07-07', competition: '全國大專校院資訊應用服務創新競賽', award: '優等', team: '第 04 組', image: 'applause.jpg', category: '校外競賽', summary: '以「備援：中小企業備份稽核工具」參賽，於資訊應用服務創新組獲優等。' },
@@ -693,6 +708,9 @@ export const COMPETITION_NEWS = [
     key: 'c-3',
     image: 'present.jpg',
     category: '競賽資訊',
+    // 票 39：原型 c-3 的報名截止與展出日。
+    registrationDeadline: '2026-06-20',
+    eventDate: '2026-07-05',
     title: '跨域設計專題成果展',
     summary: '以跨領域合作為主題的校內成果展，本系有兩組作品獲評審推薦。',
     date: '2026-06-01',

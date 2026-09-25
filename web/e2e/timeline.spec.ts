@@ -105,6 +105,9 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
     await dialog.getByLabel(`第 ${i + 1} 階段名稱`).fill(name!)
     await dialog.getByLabel(`第 ${i + 1} 階段開始日`).fill(date!)
   }
+  // 票 39：一句話說明（選填），右欄預覽跟著顯示。
+  await dialog.getByLabel('第 1 階段一句話說明').fill('五人一組報名，各自確認後成立。')
+  await expect(dialog.getByRole('complementary', { name: '學生看到的樣子' })).toContainText('五人一組報名，各自確認後成立。')
   await dialog.getByLabel('年度結束日').fill('2027-06-30')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(feedback(page, 'status')).toContainText(`已儲存 ${CODE} 的階段與日期`)
@@ -125,6 +128,10 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
 
   await page.reload()
   await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027/01/10 – 2027/02/28')
+  // 說明存進去了：重新打開對話框還在。
+  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
+  await expect(dialog.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
+  await dialog.getByRole('button', { name: '先不改' }).click()
 })
 
 test('活動：新增、改期、取消；取消後留在「已取消」、不在已排定清單', async ({ page }) => {

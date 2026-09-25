@@ -55,6 +55,8 @@ export default async function NewItemPage({ searchParams }: { searchParams: Prom
     stageId: '',
     opensAt: '',
     dueAt: '',
+    registrationDeadline: '',
+    eventDate: '',
     fields: [],
   }
 

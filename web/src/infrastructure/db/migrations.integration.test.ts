@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, withIsolatedDatabase } from '../../../test/db'
-import { applyMigrations, migratedSchema } from '../../../test/migrations'
+import { applyMigration, applyMigrations, migratedSchema } from '../../../test/migrations'
+import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 
 /**
  * S00-04：第一支 migration 在**空資料庫**上跑得起來，而且建出契約 01 §12 點名的十一張表。
@@ -13,6 +14,7 @@ import { applyMigrations, migratedSchema } from '../../../test/migrations'
  * 票 21（S07）：第八支再新增繳交附件、主指導閱覽設定兩表與檔案回收索引（細節在 s07-group-submissions.integration.test.ts）。
  * 票 23（S10）：第十支再新增評分九表（細節在 s10-grading.integration.test.ts）。
  * 票 25（S11）：第十一支再新增簽核五表與精選三表（細節在 s11-signoff-showcase.integration.test.ts）。
+ * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -128,7 +130,7 @@ const EXPECTED_TABLES = [
   ...S11_TABLES,
 ].sort()
 
-const LATEST = '0010_s11_signoff_showcase'
+const LATEST = '0011_t39_showcase_stage_fields'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -284,6 +286,57 @@ describe('契約 01 §4 的約束確實建出來了', () => {
       for (const row of ids.rows) {
         expect(row.data_type).toBe('uuid')
       }
+    })
+  })
+})
+
+describe('0011（票 39）：已套 0010、有資料的庫升版', () => {
+  it('舊列拿到預設（說明空字串、日期與獎項 NULL）；原本已發布的作品升版後不在公開的優秀專題', async () => {
+    await withIsolatedDatabase({ label: 't39-upgrade' }, async (db) => {
+      await applyMigrations(db, '0010_s11_signoff_showcase')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at) values (gen_random_uuid(), '系辦', 't39@example.com', true, now()) returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '113', '113', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      await db.sql(
+        `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind) values (gen_random_uuid(), $1, 1, '分組', '2026-09-01', 'system')`,
+        [cohortId],
+      )
+      await db.sql(
+        `insert into managed_items (id, cohort_id, placement, audience_kind, title, category, created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, 'news', 'public', '舊競賽公告', '競賽資訊', 'user', $2)`,
+        [cohortId, userId],
+      )
+      const entry = await db.sql(
+        `insert into showcase_entries (id, cohort_id, status, created_by_user_id) values (gen_random_uuid(), $1, 'draft', $2) returning id`,
+        [cohortId, userId],
+      )
+      const entryId = String(entry.rows[0]!.id)
+      const version = await db.sql(
+        `insert into showcase_versions (id, entry_id, version_no, title, summary, summary_checksum, authorization_kind, authorization_ref,
+                                        pii_check, created_by_user_id, created_real_at)
+         values (gen_random_uuid(), $1, 1, '舊作品', '', encode(sha256(''::bytea), 'hex'), 'external', gen_random_uuid(), '{}'::jsonb, $2, now())
+         returning id`,
+        [entryId, userId],
+      )
+      await db.sql(`update showcase_entries set status = 'published', current_version_id = $2 where id = $1`, [entryId, version.rows[0]!.id])
+
+      await applyMigration(db, '0011_t39_showcase_stage_fields')
+
+      expect((await db.sql(`select description from cohort_stages`)).rows).toEqual([{ description: '' }])
+      expect((await db.sql(`select registration_deadline, event_date, awarded_on from managed_items`)).rows).toEqual([
+        { registration_deadline: null, event_date: null, awarded_on: null },
+      ])
+      expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
+      const query = new PgPublicShowcaseQuery(() => db.pool)
+      expect(await query.featured()).toEqual([])
+      expect(await query.entry({ kind: 'anonymous' }, entryId)).toEqual({ access: 'need_login' })
+      const index = await db.sql(`select 1 from pg_indexes where schemaname = $1 and indexname = 'audit_events_real_at_idx'`, [db.schemaName])
+      expect(index.rowCount).toBe(1)
     })
   })
 })

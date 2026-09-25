@@ -53,6 +53,14 @@ export const showcaseEntries = pgTable(
     /** 歷屆補登（S12）可以沒有組別。 */
     groupId: uuid('group_id').references(() => groups.id, restrict),
     status: text('status').notNull().default('draft'),
+    /**
+     * 獎項等級（0011，票 39）：excellent＝優秀專題、merit＝佳作；NULL＝沒有得獎。
+     * **有等級才會出現在公開的「優秀專題」**，沒有等級的已發布作品只在登入後的「歷屆一覽」
+     * （產品模組 09 §9.1「歷屆一覽與優秀專題分開」）。預設 NULL：補登或新發布的作品不會自己跑到公開頁。
+     */
+    awardLevel: text('award_level'),
+    /** 獎項全名（例如「113 學年度校級優秀專題」），卡片與詳情顯示；沒有等級就不能有。 */
+    awardLabel: text('award_label'),
     /** 已發布才有（S12）。 */
     currentVersionId: uuid('current_version_id').references((): AnyPgColumn => showcaseVersions.id, restrict),
     revision: integer('revision').notNull().default(1),
@@ -69,6 +77,11 @@ export const showcaseEntries = pgTable(
       .on(t.cohortId, t.groupId)
       .where(sql`${t.groupId} is not null`),
     check('showcase_entries_status_check', sql`${t.status} in ('draft','published','withdrawn')`),
+    check('showcase_entries_award_level_check', sql`${t.awardLevel} is null or ${t.awardLevel} in ('excellent','merit')`),
+    check(
+      'showcase_entries_award_label_check',
+      sql`${t.awardLabel} is null or (${t.awardLevel} is not null and length(${t.awardLabel}) between 1 and 100)`,
+    ),
     check(
       'showcase_entries_published_check',
       sql`${t.status} <> 'published' or ${t.currentVersionId} is not null`,

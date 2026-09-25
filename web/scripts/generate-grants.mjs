@@ -11,6 +11,11 @@
  * 舊的 migration 不會因為後面切片新增表而被改動（已部署的 migration 不能動）。
  *
  * migration 裡用兩行標記把產生區塊框起來，人不要手改那一段——改矩陣再跑 --write。
+ *
+ * 舊表後來加欄（例如票 39 的 0011 給 `showcase_entries` 加獎項欄）：列的 `update` 陣列寫**最後**的樣子
+ * （roles 測試照它逐欄驗），新加的欄另外記在 `updateAddedIn: { "<切片>": [欄...] }`。
+ * 原切片的 migration 產生時扣掉這些欄（已部署的 0010 一字不變），新切片的 migration 只產生
+ * `GRANT UPDATE (新欄) ON 表`——不 REVOKE、不碰其他權限。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,6 +35,7 @@ const MIGRATION_BY_SLICE = {
   S07: 'drizzle/0008_s07_group_submissions.sql',
   S10: 'drizzle/0009_s10_grading.sql',
   S11: 'drizzle/0010_s11_signoff_showcase.sql',
+  T39: 'drizzle/0011_t39_showcase_stage_fields.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'
@@ -40,6 +46,25 @@ const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'))
 const { app, backup } = matrix.roles
 
 const list = (rows) => rows.map((r) => r.table).join(', ')
+
+/** 這一列在 `slice` 之後的切片才加的可更新欄。 */
+const addedLater = (row) => new Set(Object.values(row.updateAddedIn ?? {}).flat())
+
+/** 原切片看到的列：可更新欄扣掉之後才加的（`'all'`／`'none'` 不受影響）。 */
+function asOfOwnSlice(row) {
+  if (!Array.isArray(row.update)) return row
+  const later = addedLater(row)
+  return { ...row, update: row.update.filter((c) => !later.has(c)) }
+}
+
+/** 只有「舊表加欄」的切片：逐表補 UPDATE 欄權限，其他一律不動。 */
+function generateAmendments(amendments) {
+  const statements = amendments.map(
+    ({ row, columns }) =>
+      `-- ${row.table}（${row.slice} 建）加欄後補的可更新欄；其餘權限照 ${row.slice} 的產生區塊\nGRANT UPDATE (${columns.join(', ')}) ON ${row.table} TO ${app};`,
+  )
+  return `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
+}
 
 function generate(tables) {
   const statements = []
@@ -94,7 +119,24 @@ function generate(tables) {
   return `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
 }
 
-const slices = [...new Set(matrix.tables.map((t) => t.slice))].sort()
+for (const row of matrix.tables) {
+  for (const [slice, columns] of Object.entries(row.updateAddedIn ?? {})) {
+    const missing = columns.filter((c) => !Array.isArray(row.update) || !row.update.includes(c))
+    if (missing.length > 0) {
+      console.error(`matrix.json 的 ${row.table}.updateAddedIn.${slice} 有 ${missing.join('、')}，但 update 陣列裡沒有。`)
+      process.exit(1)
+    }
+  }
+}
+
+const amendmentsOf = (slice) =>
+  matrix.tables
+    .filter((t) => t.updateAddedIn?.[slice]?.length)
+    .map((row) => ({ row, columns: row.updateAddedIn[slice] }))
+
+const slices = [
+  ...new Set([...matrix.tables.map((t) => t.slice), ...matrix.tables.flatMap((t) => Object.keys(t.updateAddedIn ?? {}))]),
+].sort()
 const mode = process.argv.includes('--check') ? 'check' : process.argv.includes('--write') ? 'write' : 'print'
 let failed = false
 
@@ -106,7 +148,13 @@ for (const slice of slices) {
   }
 
   const migrationPath = path.join(webRoot, relative)
-  const generated = generate(matrix.tables.filter((t) => t.slice === slice))
+  const own = matrix.tables.filter((t) => t.slice === slice).map(asOfOwnSlice)
+  const amendments = amendmentsOf(slice)
+  if (own.length > 0 && amendments.length > 0) {
+    console.error(`切片 ${slice} 同時建新表又給舊表加欄；產生器目前只支援其中一種，請分開。`)
+    process.exit(1)
+  }
+  const generated = own.length > 0 ? generate(own) : generateAmendments(amendments)
   const migration = fs.readFileSync(migrationPath, 'utf8')
   const beginAt = migration.indexOf(BEGIN)
   const endAt = migration.indexOf(END)

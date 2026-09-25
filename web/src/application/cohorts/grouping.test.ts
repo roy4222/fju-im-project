@@ -27,7 +27,7 @@ describe('分組設定（票 13）', () => {
 })
 
 describe('成組截止＝第 2 階段開始日 00:00（臺灣）', () => {
-  const stage = (seq: number, startDate: string) => ({ seq, name: `s${seq}`, startDate, deadlineVersion: 1 })
+  const stage = (seq: number, startDate: string) => ({ seq, name: `s${seq}`, description: '', startDate, deadlineVersion: 1 })
 
   it('四段都設好：第 2 段開始那天 00:00（UTC 前一天 16:00）', () => {
     const schedule = {

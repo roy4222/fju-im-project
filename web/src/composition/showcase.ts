@@ -36,11 +36,12 @@ export function getPublicShowcaseQuery(): PublicShowcaseQuery {
 
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
 export {
+  ARCHIVE_SORT_OPTIONS,
   describeCreateDraftReceipt,
   describeUpdateDraftReceipt,
+  FEATURED_SORT_OPTIONS,
   GATE_PLACEHOLDER,
   parseShowcaseSort,
   POSTER_UPLOAD,
   SHOWCASE_LIMITS,
-  SHOWCASE_SORT_OPTIONS,
 } from '@/application/showcase'

@@ -474,6 +474,36 @@ export function ItemEditor({
               </label>
               <input id="ed-category" className={INPUT} value={state.category} onChange={(e) => patch({ category: e.target.value })} />
             </div>
+            {state.placement === 'news' && state.category.trim() === vocabulary.competitionCategory ? (
+              // 競賽資訊（0011，票 39）：前台 /competitions 依這兩天自動顯示報名中／決賽／已結束，不用手動切換。
+              <div className="grid gap-4 sm:grid-cols-2" data-testid="competition-dates">
+                <div>
+                  <label htmlFor="ed-registration-deadline" className={LABEL}>
+                    報名截止日 <span className="text-xs font-normal text-muted-foreground">當天以前顯示「報名中」</span>
+                  </label>
+                  <input
+                    id="ed-registration-deadline"
+                    type="date"
+                    className={INPUT}
+                    value={state.registrationDeadline}
+                    onChange={(e) => patch({ registrationDeadline: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ed-event-date" className={LABEL}>
+                    活動日 <span className="text-xs font-normal text-muted-foreground">決賽、展出；截止後到這天顯示「決賽／結果」</span>
+                  </label>
+                  <input
+                    id="ed-event-date"
+                    type="date"
+                    className={INPUT}
+                    value={state.eventDate}
+                    min={state.registrationDeadline || undefined}
+                    onChange={(e) => patch({ eventDate: e.target.value })}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-2">
               <p className={LABEL}>
                 封面 <span className="text-xs font-normal text-muted-foreground">選填</span>

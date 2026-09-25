@@ -64,6 +64,8 @@ function emptyState(cohortId: string): EditorState {
     stageId: '',
     opensAt: '',
     dueAt: '',
+    registrationDeadline: '',
+    eventDate: '',
     fields: [],
   }
 }
