@@ -6,6 +6,7 @@ import { Pill } from '@/app/_ui/dashboard/primitives'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { BulkDisableDialog } from './bulk-disable-dialog'
+import { DeidentifyDialog } from './deidentify-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
 import { TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
@@ -268,6 +269,10 @@ export function AccountsTable(props: AccountsTableProps) {
                             status: r.status,
                           }}
                         />
+                      ) : null}
+                      {/* 票 40：去識別化（已核准或已停用；前置條件與二次確認在對話框與伺服器）。 */}
+                      {(r.status === 'active' || r.status === 'disabled') && r.userId !== currentUserId ? (
+                        <DeidentifyDialog account={{ userId: r.userId, name: r.name }} />
                       ) : null}
                       {/* 票 10b：老師或職員設為管理員、取消管理員（不能對自己；學生不能設）。 */}
                       {r.userId !== currentUserId && r.roles.includes('admin') ? (

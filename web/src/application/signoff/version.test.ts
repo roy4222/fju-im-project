@@ -6,7 +6,9 @@ import {
   freezeAuthorizationScope,
   hasVisibleText,
   isTerminal,
+  participantUserIds,
   scopeContent,
+  withPseudonyms,
   type DraftSnapshot,
   type StudentParticipant,
 } from '@/application/signoff/version'
@@ -102,5 +104,27 @@ describe('全文有沒有字', () => {
     expect(hasVisibleText('<p> </p><p>&nbsp;</p>')).toBe(false)
     expect(hasVisibleText('')).toBe(false)
     expect(hasVisibleText('<p>同意</p>')).toBe(true)
+  })
+})
+
+describe('去識別化的參與者顯示代稱（票 40）', () => {
+  const snapshot = { students: [student(1), student(2)], advisor }
+
+  it('只換已去識別化的人，學號一併拿掉；快照物件本身不動', () => {
+    const shown = withPseudonyms(snapshot, new Map([['u2', '已去識別化使用者 AAAAAA']]))
+    expect(shown.students[0]).toEqual(student(1))
+    expect(shown.students[1]).toEqual({ ...student(2), displayName: '已去識別化使用者 AAAAAA', studentNo: null })
+    expect(shown.advisor).toEqual(advisor)
+    expect(snapshot.students[1]!.displayName).toBe('學生2')
+  })
+
+  it('主指導也會換；沒有人去識別化就原樣回傳', () => {
+    expect(withPseudonyms(snapshot, new Map([['t1', '代稱']])).advisor.displayName).toBe('代稱')
+    expect(withPseudonyms(snapshot, new Map())).toBe(snapshot)
+  })
+
+  it('參與者 ID 清單（空的主指導不算）', () => {
+    expect(participantUserIds(snapshot)).toEqual(['u1', 'u2', 't1'])
+    expect(participantUserIds({ students: [], advisor: { userId: '', displayName: '（無）', assignmentId: '' } })).toEqual([])
   })
 })

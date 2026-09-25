@@ -27,7 +27,9 @@ import {
   normalizeReason,
   PURPOSE_LABEL,
   readAuthorizationScope,
+  participantUserIds,
   readParticipants,
+  withPseudonyms,
   remindable,
   remindRecipients,
   RESTART_LABEL,
@@ -1032,8 +1034,12 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const row = (await tx.query<VersionRow>(`${VERSION_SELECT} where v.id = $1`, [input.versionId])).rows[0]
       if (!row) return versionNotFound()
       const realAt = this.#realClock.now()
-      const participants = readParticipants(row.participants)
-      if (!participants) return versionNotFound()
+      const snapshot = readParticipants(row.participants)
+      if (!snapshot) return versionNotFound()
+      // 匯出也照代稱（票 40）：快照與表態當時的姓名不改寫，產出檔案前才換。
+      const votes = await exportVotes(tx, row.version_id)
+      const pseudonyms = await deidentifiedNames(tx, [...participantUserIds(snapshot), ...votes.map((v) => v.userId)])
+      const participants = withPseudonyms(snapshot, pseudonyms)
       const data: SignoffExportData = {
         cohortCode: row.cohort_code,
         groupCode: row.group_code,
@@ -1048,7 +1054,10 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         state: row.state,
         cause: row.cause,
         isCurrent: row.current_version_id === row.version_id,
-        votes: await exportVotes(tx, row.version_id),
+        votes: votes.map((v) => {
+          const name = pseudonyms.get(v.userId)
+          return name === undefined ? v : { ...v, displayNameAt: name, studentNoAt: null }
+        }),
         lifecycle: await exportLifecycle(tx, row.version_id),
         exportedAt: realAt,
         exportedByName: (await identityAt(tx, adminId, null)).name,
@@ -1492,6 +1501,31 @@ const VERSION_SELECT = `
 
 const NO_PARTICIPANTS: Participants = { students: [], advisor: { userId: '', displayName: '（無）', assignmentId: '' } }
 
+/**
+ * 這些人裡已去識別化的 → 代稱（票 40）。`users.name` 在去識別化時就換成代稱了，直接讀它。
+ * 快照不改寫，讀出來給人看之前用 `withPseudonyms` 換掉。
+ */
+async function deidentifiedNames(db: Queryable, userIds: readonly string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter((id) => id !== ''))]
+  if (ids.length === 0) return new Map()
+  const rows = await db.query<{ id: string; name: string }>(
+    `select id, name from users where id = any($1::uuid[]) and deidentified_at is not null`,
+    [ids],
+  )
+  return new Map(rows.rows.map((r) => [r.id, r.name]))
+}
+
+/** 一批參與者快照（jsonb 原樣）裡，已去識別化的人 → 代稱。 */
+function pseudonymsForSnapshots(db: Queryable, raws: readonly unknown[]): Promise<Map<string, string>> {
+  return deidentifiedNames(
+    db,
+    raws.flatMap((raw) => {
+      const p = readParticipants(raw)
+      return p ? participantUserIds(p) : []
+    }),
+  )
+}
+
 type SummaryRow = {
   version_id: string
   version_no: number
@@ -1503,8 +1537,12 @@ type SummaryRow = {
 }
 
 /** 目前版本的摘要＋逐人進度（三個角色共用同一段，數字與缺誰一致，SGN-10）。 */
-function summaryOf(r: SummaryRow, votes: readonly (VoteRecord & { versionId: string })[]): VersionSummary {
-  const participants = readParticipants(r.participants) ?? NO_PARTICIPANTS
+function summaryOf(
+  r: SummaryRow,
+  votes: readonly (VoteRecord & { versionId: string })[],
+  pseudonyms: ReadonlyMap<string, string>,
+): VersionSummary {
+  const participants = withPseudonyms(readParticipants(r.participants) ?? NO_PARTICIPANTS, pseudonyms)
   const mine = votes.filter((v) => v.versionId === r.version_id)
   const times = [r.created_real_at, r.status_updated_at, ...mine.map((v) => v.realAt)].map((d) => new Date(d).getTime())
   return {
@@ -1595,11 +1633,15 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         packages.rows.map((p) => p.version_id),
       )
+      const pseudonyms = await pseudonymsForSnapshots(
+        db,
+        packages.rows.map((p) => p.participants),
+      )
       const rows: AdminGroupRow[] = groups.map((g) => {
         const entry = showcase.rows.find((s) => s.group_id === g.id)
         const current = (purpose: SignoffPurpose): VersionSummary | null => {
           const p = packages.rows.find((r) => r.group_id === g.id && r.purpose === purpose)
-          return p ? summaryOf(p, votes) : null
+          return p ? summaryOf(p, votes, pseudonyms) : null
         }
         return {
           groupId: g.id,
@@ -1685,8 +1727,12 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         rows.rows.map((r) => r.version_id),
       )
+      const pseudonyms = await pseudonymsForSnapshots(
+        db,
+        rows.rows.map((r) => r.participants),
+      )
       return rows.rows.map((r) => {
-        const current = summaryOf(r, votes)
+        const current = summaryOf(r, votes, pseudonyms)
         const isSnapshotAdvisor = readParticipants(r.participants)?.advisor.userId === actor.userId
         return {
           groupId: r.group_id,
@@ -1717,7 +1763,10 @@ async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedA
       where v.package_id = $1 order by v.version_no desc`,
     [row.package_id],
   )
-  const participants = readParticipants(row.participants) ?? NO_PARTICIPANTS
+  const participants = withPseudonyms(
+    readParticipants(row.participants) ?? NO_PARTICIPANTS,
+    await pseudonymsForSnapshots(db, [row.participants]),
+  )
   const votes = await votesOf(db, [row.version_id])
   const progress = buildProgress(participants, votes, row.state)
   const isCurrent = row.current_version_id === row.version_id
