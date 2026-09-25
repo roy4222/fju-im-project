@@ -57,15 +57,16 @@ doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_P
 | [`station-1-login.md`](station-1-login.md) | 第一站：E2E 管理員登入、進後台、登出、錯誤密碼被擋 | 7 | 不改資料 |
 | [`station-2-accounts.md`](station-2-accounts.md) | 第二站（票 5–10、10b）：屆別與兩個旗標、名單匯入、學生註冊與審核、老師臨時密碼與強制改密、帳號列表／停用／恢復／匯出、設為／取消管理員、Google 按鈕在、本人帳號頁 | 24＋收尾 3 | 屆別 `CODEX-S2-<時間>`（含名單）、一位學生、一位老師（收尾停用；旗標還原） |
 | [`station-3-semester.md`](station-3-semester.md) | 第三站（票 11–22）：時間軸與模擬業務鐘、通知匣、找組員與成組、管理員調整組員、老師認領、公告／規則／資源／收件發布與撤回、個人填報、組別共用草稿與代表送出、完成率、老師矩陣與重派後的下載授權、合作案、組別名單匯出 | 46＋收尾 7 | 屆別 `CODEX-S3-<時間>`（含階段、活動、組別、繳交紀錄）、4 位學生、2 位老師、6 個專題事務、1 個合作案（收尾下架、停用；旗標與業務鐘還原） |
+| [`station-4-grading-signoff.md`](station-4-grading-signoff.md) | 第四站（票 23–26）：評分方案與權重、指派評分老師、老師暫存與正式送出、學生看不到分數、成績表與計算明細、退回與重送、更正、改派三選一預覽、成績匯出 CSV／XLSX（含各老師分數）、精選草稿、簽核建版、學生逐人同意／不同意、老師同意、系辦提醒／重置／重開／作廢、匯出同意紀錄、換主指導後舊主指導新舊版本都看不到（版本頁、海報、通知連結）、新主指導看得到、停用學生後舊登入失效 | 67＋收尾 4 | 屆別 `CODEX-S4-<T>`（含階段、組別、評分方案 v1、成績與更正、精選草稿、簽核 v1–v4）、3 位學生、2 位老師（收尾停用；旗標與業務鐘還原；沒有發布到前台的東西） |
 | [`ui-vs-prototype.md`](ui-vs-prototype.md) | 外觀對照：前台 7 頁＋帳號頁、系辦 12 頁、老師 6 頁、學生 9 頁，各在 1440 與 390 寬截原型與測試站並排比，分「明顯不同／小差異／一致」，最後一張彙整表 | 4 準備＋35 頁＋收尾 2 | 一位老師、一位學生（收尾停用） |
 
 - 清單建的東西一律用 `CODEX-` 開頭（屆別、姓名、標題、公司名），要清理時在帳號頁、專題事務工作台搜尋 `CODEX-` 就找得到。
   屆別、組別、繳交紀錄、名單版本後台沒有刪除功能，會留著；帳號是停用不是刪除。
 - 測試站沒有現成的學生／老師測試帳號：清單自己註冊學生（管理員核准）、由管理員建老師（臨時密碼→改密）。
   Codex 自己編的測試密碼與老師的臨時密碼不寫進報告；Google 實際登入不讓 Codex 做（只看按鈕在不在），由 Roy 自己測。
-- 第 2、3 站會動到全站狀態（開放註冊／預設工作旗標、模擬業務鐘）：清單第一步先記下原本的狀態，收尾一定還原；報告裡會寫出記下的值。
+- 第 2、3、4 站會動到全站狀態（開放註冊／預設工作旗標、模擬業務鐘）：清單第一步先記下原本的狀態，收尾一定還原；報告裡會寫出記下的值。
   **不要和 Playwright 站驗收或另一份 Codex 清單同時跑**，也不要在有人手動操作測試站時跑。
-- 限速：管理員每份清單只登入一次（同 IP 同帳號 10 分鐘 10 次）；學生註冊第 2 站 1 位、第 3 站 4 位、外觀對照 1 位（每 IP 每小時 30 次）。
+- 限速：管理員每份清單只登入一次（同 IP 同帳號 10 分鐘 10 次）；學生註冊第 2 站 1 位、第 3 站 4 位、第 4 站 3 位、外觀對照 1 位（每 IP 每小時 30 次）。
 
 ### 怎麼跑
 
@@ -75,13 +76,14 @@ doppler run -p fju-im-capstone -c stg --only-secrets E2E_ADMIN_EMAIL,E2E_ADMIN_P
 ops/codex-e2e.sh e2e/acceptance/station-1-login.md
 ops/codex-e2e.sh e2e/acceptance/station-2-accounts.md
 ops/codex-e2e.sh e2e/acceptance/station-3-semester.md
+ops/codex-e2e.sh e2e/acceptance/station-4-grading-signoff.md
 ops/codex-e2e.sh e2e/acceptance/ui-vs-prototype.md
 ```
 
 要連跑幾份就一份一份接著跑（前一份失敗也繼續）：
 
 ```bash
-for f in station-2-accounts station-3-semester ui-vs-prototype; do
+for f in station-2-accounts station-3-semester station-4-grading-signoff ui-vs-prototype; do
   ops/codex-e2e.sh "e2e/acceptance/$f.md"
 done
 ```
