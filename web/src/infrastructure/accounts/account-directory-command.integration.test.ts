@@ -319,7 +319,59 @@ describe('停用即失效、恢復可再登入（做完的樣子 2；ACC-09）',
     expect(await one(`select state, last_error, outcome_unknown from session_revocations where user_id = $1`, [s.userId])).toEqual({
       state: 'failed', last_error: 'UNAUTHORIZED', outcome_unknown: false,
     })
-    // 入口層只看 users.status：session 還在，但已經是未登入。
+    // session 列在停用的同一個交易裡就刪了，不靠 Better Auth 那一層成功。
+    expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId])).toEqual({ n: 0 })
+    expect(await resolver.resolve(new Headers({ cookie: s.cookie }))).toEqual({ kind: 'anonymous' })
+  })
+
+  it('撤 session 沒做成（Better Auth 失敗或被別人認領）時恢復：舊 session 不會跟著復活，要重新登入', async () => {
+    // e2e「停用後…恢復後可以再登入」偶發失敗的根因：停用只改 `users.status`，session 列要等 commit 後的
+    // banUser 才刪；那一步失敗或回 pending 時列還在，入口層靠 status 擋住它——恢復把 status 改回 active，
+    // 同一個 cookie 就直接變回有效，登入頁把人導走。
+    for (const [i, call] of [
+      async () => {
+        throw Object.assign(new Error('boom'), { status: 'UNAUTHORIZED' })
+      },
+      // 什麼都不做：等同外部呼叫回傳了卻沒刪到（或被 worker 認領、這一邊回 pending）。
+      async () => undefined,
+    ].entries()) {
+      const flaky = makeCommand(call)
+      const s = await student(`041140080${i + 1}`, `復活${i + 1}`)
+      expect(await resolver.resolve(new Headers({ cookie: s.cookie }))).toMatchObject({ kind: 'authenticated' })
+
+      expect(await flaky.disable(adminActor(), { userId: s.userId, reason: '休學', requestId: requestId() }, { headers: admin.headers })).toMatchObject({ ok: true })
+      expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId]), '停用的交易裡就要撤掉全部 session').toEqual({ n: 0 })
+
+      // 停用期間拿正確密碼登入：被拒，而且不留任何 session 列。
+      expect(await signIn(s.email)).not.toBe(200)
+      expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId])).toEqual({ n: 0 })
+
+      expect(await command.restore(adminActor(), { userId: s.userId, reason: '復學', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+        ok: true, receipt: { status: 'active' },
+      })
+      // 恢復後舊分頁的 cookie 仍是未登入，要重新登入才進得去。
+      expect(await resolver.resolve(new Headers({ cookie: s.cookie })), '恢復不能讓停用前的 session 復活').toEqual({ kind: 'anonymous' })
+      expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId])).toEqual({ n: 0 })
+      expect(await signIn(s.email)).toBe(200)
+    }
+  })
+
+  it('停用中還留著的 session 列（例如登入跟停用同時發生、停用 commit 前剛寫進去的）：恢復時一併清掉', async () => {
+    const s = await student('0411400901', '漏網甲')
+    // 直接把狀態改成停用、保留 session 列，模擬「停用交易刪 session 之後、commit 之前」有人剛好登入成功。
+    await db.sql(`update users set status = 'disabled' where id = $1`, [s.userId])
+    await db.sql(
+      `insert into user_status_events (id, user_id, from_status, to_status, actor_kind, actor_user_id, real_at)
+       values (gen_random_uuid(), $1, 'active', 'disabled', 'user', $2, now())`,
+      [s.userId, admin.userId],
+    )
+    await db.sql('delete from student_identities where user_id = $1', [s.userId])
+    expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId])).toEqual({ n: 1 })
+
+    expect(await command.restore(adminActor(), { userId: s.userId, reason: '復學', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+      ok: true, receipt: { status: 'active' },
+    })
+    expect(await one('select count(*)::int as n from sessions where user_id = $1', [s.userId])).toEqual({ n: 0 })
     expect(await resolver.resolve(new Headers({ cookie: s.cookie }))).toEqual({ kind: 'anonymous' })
   })
 
