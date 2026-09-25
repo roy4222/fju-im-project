@@ -121,7 +121,7 @@ export default async function AdminHomePage() {
             icon={<IconUserQuestion />}
             tone={pendingApps > 0 ? 'brand' : 'default'}
             value={summary ? pendingApps : '—'}
-            of={summary ? `${summary.pending} 筆待審` : undefined}
+            of={summary ? `${summary.pending + summary.active + summary.disabled} 個帳號` : undefined}
             hint={summary ? `已核准學生 ${summary.activeStudents} 位` : '讀不到帳號統計'}
             href={`${BASE}/accounts?status=pending`}
           />

@@ -49,7 +49,9 @@ export default async function TeacherHomePage() {
   const myGroups = groups.filter((g) => g.advisor?.teacherUserId === me)
   const myCases = cases.filter((c) => c.ownerUserId === me && c.status !== 'withdrawn')
 
-  const name = actor.kind === 'authenticated' && actor.displayName ? `${actor.displayName} 老師` : '老師'
+  // 原型「歡迎回來，陳建宏 老師」；姓名本身已經以「老師」結尾就不再加。
+  const own = actor.kind === 'authenticated' ? actor.displayName : undefined
+  const name = own ? (own.endsWith('老師') ? own : `${own} 老師`) : '老師'
   const line = remaining ? `評分還有 ${remaining} 份沒正式送出：未開始 ${counts.empty}、暫存 ${counts.draft}。` : queue.length ? '評分都正式送出了。' : ''
 
   return (
