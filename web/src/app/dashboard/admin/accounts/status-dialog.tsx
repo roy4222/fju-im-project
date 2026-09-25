@@ -1,15 +1,18 @@
 'use client'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { StatusChangeReceipt } from '@/application/accounts'
+import type { StatusChangeReceipt, SuccessionOption } from '@/application/accounts'
 import { cn } from '@/shared/cn'
-import { disableAccountAction, restoreAccountAction } from './actions'
+import { disableAccountAction, restoreAccountAction, successionOptionsAction } from './actions'
 
 /**
  * 停用／恢復一個帳號（票 9；原型 `/dashboard/admin/accounts` 的 ToggleStatusDialog）。
  *
  * 先講影響、理由必填，送出後顯示回執；關掉對話框才刷新列表（同審核對話框的作法）。
  * 規則都在伺服器：這裡只把輸入送過去、把結果照實顯示。
+ *
+ * 票 42：停用時先問伺服器「他是不是組長」。是組長就要在同一個對話框指定接任的組長
+ * （產品模組 03「組長」；GRP-18：沒指定接任不能停用），停用與接任在伺服器同一筆交易完成。
  */
 
 const BUTTON =
@@ -39,15 +42,34 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
   const [busy, setBusy] = useState(false)
   const [receipt, setReceipt] = useState<StatusChangeReceipt | null>(null)
   const [requestId, setRequestId] = useState('')
+  /** 停用時：null＝還在查；陣列＝他擔任組長的組（空＝不是組長）。 */
+  const [leaderships, setLeaderships] = useState<readonly SuccessionOption[] | null>(null)
+  const [successors, setSuccessors] = useState<Record<string, string>>({})
+
+  async function loadLeaderships() {
+    setLeaderships(null)
+    try {
+      const result = await successionOptionsAction({ userId: a.userId })
+      if (result.ok) setLeaderships(result.data.leaderships)
+      else setError(result.message)
+    } catch {
+      setError('查不到這個帳號的組長資料，請關閉後重新整理再試。')
+    }
+  }
 
   function open() {
     setReason('')
     setError(null)
     setReceipt(null)
+    setSuccessors({})
     setRequestId(crypto.randomUUID())
     setIsOpen(true)
     dialogRef.current?.showModal()
+    if (disabling) void loadLeaderships()
   }
+
+  const stuck = leaderships?.filter((l) => l.candidates.length === 0) ?? []
+  const ready = !disabling || (leaderships !== null && stuck.length === 0)
 
   function onClosed() {
     setIsOpen(false)
@@ -60,11 +82,24 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
       setError(`請寫${verb}的理由。`)
       return
     }
+    const missing = disabling ? (leaderships ?? []).find((l) => !successors[l.groupId]) : undefined
+    if (missing) {
+      setError(`請選接任 ${missing.groupCode} 組長的同學。`)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const action = disabling ? disableAccountAction : restoreAccountAction
-      const result = await action({ userId: a.userId, reason, requestId })
+      const result = disabling
+        ? await disableAccountAction({
+            userId: a.userId,
+            reason,
+            requestId,
+            ...(leaderships && leaderships.length > 0
+              ? { successorLeaders: leaderships.map((l) => ({ groupId: l.groupId, userId: successors[l.groupId]! })) }
+              : {}),
+          })
+        : await restoreAccountAction({ userId: a.userId, reason, requestId })
       if (result.ok) setReceipt(result.data)
       else setError(result.message)
     } catch {
@@ -105,6 +140,11 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
                     : '本人現在可以重新登入，角色與學籍資料不變。'}
                 理由、操作者與時間已寫入紀錄。
               </p>
+              {receipt.successions?.map((s) => (
+                <p key={s.groupCode} className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+                  {s.groupCode} 的組長已改由 {s.leaderName} 接任，全組已收到通知。
+                </p>
+              ))}
               {receipt.revocation === 'failed' ? (
                 <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
                   {receipt.status === 'disabled'
@@ -134,6 +174,45 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
                 <dt className="text-muted-foreground">學號</dt>
                 <dd className="font-medium tabular-nums text-foreground">{a.studentNo ?? '—'}</dd>
               </dl>
+              {disabling && leaderships === null && !error ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  正在確認他是不是組長…
+                </p>
+              ) : null}
+              {disabling
+                ? leaderships?.map((l) =>
+                    l.candidates.length === 0 ? (
+                      <p key={l.groupId} role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+                        他是 {l.groupCode} 的組長，但這組沒有其他可以接任的成員。請先到「分組總覽」處理這組（加入組員或解散）再停用。
+                      </p>
+                    ) : (
+                      <label key={l.groupId} className="block text-sm font-medium text-foreground">
+                        接任 {l.groupCode} 組長 <span className="font-normal text-muted-foreground">・必填，他是這組的組長</span>
+                        <select
+                          value={successors[l.groupId] ?? ''}
+                          onChange={(e) => {
+                            setSuccessors((prev) => ({ ...prev, [l.groupId]: e.target.value }))
+                            setError(null)
+                          }}
+                          className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25"
+                        >
+                          <option value="" disabled>
+                            請選一位留在組裡的成員
+                          </option>
+                          {l.candidates.map((c) => (
+                            <option key={c.userId} value={c.userId}>
+                              {c.name}
+                              {c.studentNo ? `（${c.studentNo}）` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          停用與換組長一起完成；組員不變，不需要重簽。
+                        </span>
+                      </label>
+                    ),
+                  )
+                : null}
               <label className="block text-sm font-medium text-foreground">
                 理由 <span className="font-normal text-muted-foreground">・必填，會寫入紀錄</span>
                 <textarea
@@ -157,7 +236,7 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
                 <button type="button" onClick={() => dialogRef.current?.close()} className={cn(BUTTON, SECONDARY)} disabled={busy}>
                   取消
                 </button>
-                <button type="submit" className={cn(BUTTON, disabling ? DANGER : PRIMARY)} disabled={busy}>
+                <button type="submit" className={cn(BUTTON, disabling ? DANGER : PRIMARY)} disabled={busy || !ready}>
                   {busy ? '處理中…' : `確認${verb}`}
                 </button>
               </div>

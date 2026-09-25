@@ -21,6 +21,7 @@ import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrast
 import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
+import { getLeaderSuccessionHook } from '@/composition/groups'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { err, type Result } from '@/shared/result'
 import { taipeiParts } from '@/shared/time'
@@ -114,6 +115,8 @@ export function getAccountDirectoryCommand(): AccountDirectoryCommand {
     audit: getAuditWriter(),
     ledger: getOperationLedger(),
     db: getPool,
+    // 票 42：停用組長時同交易指定接任。
+    leaders: getLeaderSuccessionHook(),
   })
   return accountDirectoryCommand
 }
