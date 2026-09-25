@@ -116,7 +116,8 @@ describe('並行套 migration：runtime 角色由 globalSetup 先建好', () => 
       // 一個一個丟：同時 DROP SCHEMA CASCADE 好幾份完整 schema 會用光鎖表（out of shared memory）。
       for (const db of opened) await db.close()
     }
-  })
+    // 整套並行時本機實測 7–20 秒（六份完整 migration＋逐一 DROP）；CI runner 更慢，放寬到 120 秒。
+  }, 120_000)
 })
 
 describe('屏障：兩筆交易在指定點會合', () => {
