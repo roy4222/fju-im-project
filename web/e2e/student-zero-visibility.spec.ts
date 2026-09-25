@@ -14,6 +14,7 @@ import { scanBody, type ScanHit } from './visibility-scan'
  * 2. 以該組**學生本人**的登入狀態走遍學生可達的每一頁（側欄自動發現＋固定清單）與 API，
  *    每頁抓兩種原始回應：HTML（含內嵌 RSC payload）與 RSC 請求（`RSC: 1` 的 flight 資料），掃已知數值與評分欄位名。
  * 3. 學生直接開管理員、老師的評分網址：一律導去 /403；打管理員的匯出：一律 401／403；回應裡都沒有數值。
+ *    票 24 加上：成績表的計算明細、改派三選一預覽、套用新方案預覽三個管理員頁，以及成績匯出 `/api/admin/grading/export`。
  * 4. 對照組：同一批數值在管理員頁、老師評閱桌**看得到**（證明掃描不是空轉），掃描器對故意放的分數欄位**抓得到**。
  *
  * 報告寫到 `e2e/.artifacts/student-zero-visibility.json`（也附在 Playwright 報告裡），終端機印一行摘要。
@@ -36,6 +37,8 @@ const KNOWN_VALUES = ['77.31', '63.47', '70.39', '91.73', '45.87', '45.865', '88
 let pool: Pool
 let cohortId: string
 let groupId: string
+let versionId: string
+let assignmentId: string
 let studentSession: TestSession
 let teacher1: TestSession
 
@@ -54,8 +57,8 @@ const FIXED_PAGES = [
   '/dashboard/student/grading',
 ]
 const APIS = ['/api/health', '/api/auth/get-session']
-/** 管理員的匯出（票 20 組別名單、票 6 帳號）：學生從本站頁面送出（同源）也要被拒，回應不能帶任何資料。 */
-const EXPORTS = ['/api/admin/groups/export', '/api/admin/accounts/export']
+/** 管理員的匯出（票 20 組別名單、票 6 帳號、票 24 成績）：學生從本站頁面送出（同源）也要被拒，回應不能帶任何資料。 */
+const EXPORTS = ['/api/admin/groups/export', '/api/admin/accounts/export', '/api/admin/grading/export']
 
 type Target = {
   url: string
@@ -144,7 +147,7 @@ test.beforeAll(async () => {
      values (gen_random_uuid(), $1, 1, $2::jsonb, 'published', $3) returning id`,
     [scheme.rows[0]!.id, stages, adminId],
   )
-  const versionId = version.rows[0]!.id
+  versionId = version.rows[0]!.id
   await pool.query('update grading_schemes set current_version_id = $2 where id = $1', [scheme.rows[0]!.id, versionId])
   await pool.query(`insert into stage_requirements (group_id, stage_key, required_count, created_by_user_id) values ($1, 's1', 2, $2)`, [groupId, adminId])
 
@@ -168,7 +171,8 @@ test.beforeAll(async () => {
       kind === 'final' ? 'counted' : 'draft',
     ])
   }
-  await evaluate(await assign(teacher1.userId), 'final', { i1: '77.31', i2: '63.47' })
+  assignmentId = await assign(teacher1.userId)
+  await evaluate(assignmentId, 'final', { i1: '77.31', i2: '63.47' })
   await evaluate(await assign(teacher2.userId), 'draft', { i1: '91.73' })
   await pool.query(`update grading_scheme_versions set status = 'locked', locked_at = now() where id = $1`, [versionId])
   const override = await pool.query<{ id: string }>(
@@ -212,6 +216,10 @@ test('對照組：同一批數值在管理員頁與老師評閱桌看得到（�
   const adminPage = await fetchTarget(request, admin.cookie, `/dashboard/admin/grading?cohort=${cohortId}`, 'html')
   expect(adminPage.status).toBe(200)
   expect(adminPage.hits.map((h) => h.match)).toEqual(expect.arrayContaining(['70.39', '45.87']))
+  // 票 24：計算明細頁看得到每一份分數與平均。
+  const detail = await fetchTarget(request, admin.cookie, `/dashboard/admin/grading/${groupId}`, 'html')
+  expect(detail.status).toBe(200)
+  expect(detail.hits.map((h) => h.match)).toEqual(expect.arrayContaining(['77.31', '63.47', '70.39']))
 
   const bench = await fetchTarget(request, teacher1.cookie, `/dashboard/teacher/grading/${groupId}`, 'html')
   expect(bench.status).toBe(200)
@@ -236,6 +244,9 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
 
   const forbiddenUrls = [
     `/dashboard/admin/grading?cohort=${cohortId}`,
+    `/dashboard/admin/grading/${groupId}`,
+    `/dashboard/admin/grading/reassign/${assignmentId}`,
+    `/dashboard/admin/grading/apply/${versionId}`,
     '/dashboard/teacher/grading',
     `/dashboard/teacher/grading/${groupId}`,
   ]
@@ -258,7 +269,7 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
   for (const url of EXPORTS) {
     const response = await request.post(url, {
       headers: { cookie, origin: BASE_URL, 'content-type': 'application/json' },
-      data: { cohortId, format: 'csv' },
+      data: { cohortId, format: 'csv', filter: {} },
       maxRedirects: 0,
     })
     const body = await response.text()
@@ -274,7 +285,7 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
 
   const hitCount = [...targets, ...forbidden, ...exportsDenied].reduce((sum, t) => sum + t.hits.length, 0)
   const report = {
-    ticket: '票 23（#234）學生零可見掃描',
+    ticket: '票 23（#234）＋票 24（#235）學生零可見掃描',
     generatedAt: new Date().toISOString(),
     baseUrl: BASE_URL,
     cohortCode: CODE,
