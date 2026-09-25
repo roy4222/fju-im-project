@@ -30,6 +30,7 @@ import {
   type EditorVocabulary,
 } from '@/app/dashboard/admin/affairs/item-form-parts'
 import { FieldsEditor, SettingsFields } from '@/app/dashboard/admin/affairs/item-settings'
+import { sectionOfField } from '@/app/dashboard/admin/editor/field-section'
 import type { ItemReview } from '@/application/items'
 import { cn } from '@/shared/cn'
 
@@ -76,9 +77,9 @@ const FIELD_CHECK_LABEL: Record<string, string> = {
   groupIds: '指定組別',
   attachments: '附件',
   cover: '封面',
+  registrationDeadline: '報名截止日',
+  eventDate: '活動日',
 }
-/** 這些欄位在第 1 段（內容）。 */
-const CONTENT_KEYS = new Set(['title', 'summary', 'body', 'category', 'attachments', 'cover'])
 
 /** 段落標題：數字圓＋名詞＋一句灰字（原型 `sectionHead`）。 */
 function SectionHead({ n, id, title, hint, right }: { n: number; id: string; title: string; hint?: string; right?: ReactNode }) {
@@ -352,7 +353,7 @@ export function ItemEditor({
 
   /** 檢查表「回去補」：跳到該補的那一段（手機切到那一個分頁）。 */
   function goFix(key: string) {
-    const target: SectionKey = CONTENT_KEYS.has(key) ? 'content' : key === 'fields' ? 'fields' : 'publish'
+    const target: SectionKey = sectionOfField(key)
     setTab(target)
     requestAnimationFrame(() => document.getElementById(`sec-${target}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
