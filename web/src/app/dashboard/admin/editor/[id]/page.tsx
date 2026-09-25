@@ -56,6 +56,8 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
     stageId: item.stageId ?? '',
     opensAt: minuteInput(item.opensAt),
     dueAt: minuteInput(item.dueAt),
+    registrationDeadline: item.registrationDeadline ?? '',
+    eventDate: item.eventDate ?? '',
     fields: item.fields.map(fieldFromSchema),
   }
 

@@ -19,6 +19,8 @@ export type EditorVocabulary = {
   readonly fileTypes: readonly string[]
   readonly fileMaxMiB: number
   readonly emptyCollectionMessage: string
+  /** 公告分類填這個字（「競賽資訊」）才出現報名截止日與活動日兩格（0011，票 39）。 */
+  readonly competitionCategory: string
   readonly uploads: {
     readonly attachment: { readonly accept: string; readonly maxMiB: number }
     readonly cover: { readonly accept: string; readonly maxMiB: number }
@@ -57,6 +59,9 @@ export type EditorState = {
   stageId: string
   opensAt: string
   dueAt: string
+  /** 競賽資訊的報名截止日與活動日（`YYYY-MM-DD`；空＝沒填）。 */
+  registrationDeadline: string
+  eventDate: string
   fields: FieldDraft[]
 }
 
@@ -111,6 +116,9 @@ export function toPayload(state: EditorState) {
     stageId: collects && state.stageId ? state.stageId : null,
     opensAt: collects ? state.opensAt : '',
     dueAt: collects ? state.dueAt : '',
+    // 只有「公告＋分類競賽資訊」會留（伺服器再判一次；不是就清掉）。
+    registrationDeadline: state.placement === 'news' ? state.registrationDeadline : '',
+    eventDate: state.placement === 'news' ? state.eventDate : '',
     fields: collects
       ? state.fields.map((f) => ({
           key: f.key,

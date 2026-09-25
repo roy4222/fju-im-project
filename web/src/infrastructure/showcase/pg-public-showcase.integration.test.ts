@@ -22,6 +22,9 @@ import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
  *
  * 驗：未發布（草稿）與撤稿的不外洩；訪客只拿到白名單欄位、拿不到組員與老師、也不能用老師名字搜；
  * 發布後再改草稿，前台仍是發布那一版；歷屆一覽要能正常使用平台的登入者；海報只有「發布中目前版本」那張公開。
+ *
+ * 票 39（0011）：優秀專題只有**有獎項等級**的。另放一件已發布、沒標等級的（`plain`，115 屆）：訪客的列表、詳情、
+ * 上一件／下一件、屆別 pill、海報都碰不到它；登入者在歷屆一覽看得到。獎項由 `fju_app` 直接寫（驗 GRANT 補欄）。
  */
 
 let owner: IsolatedDatabase
@@ -90,6 +93,7 @@ async function newGroup(cohortId: string, code: string, memberNames: string[], a
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
 const PNG2 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x53])
+const PNG3 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x54])
 
 function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -159,6 +163,7 @@ let published: { entryId: string; posterFileId: string | null }
 let other: { entryId: string; posterFileId: string | null }
 let drafted: { entryId: string; posterFileId: string | null }
 let withdrawn: { entryId: string; posterFileId: string | null }
+let plain: { entryId: string; posterFileId: string | null }
 
 beforeAll(async () => {
   await assertTestDatabaseReachable()
@@ -185,10 +190,12 @@ beforeAll(async () => {
   const c114 = await newCohort('114')
   const c113 = await newCohort('113')
   const c112 = await newCohort('112')
+  const c115 = await newCohort('115')
   s1 = await newGroup(c114, 'G01', ['王小明', '李小華'], '陳指導')
   const s2 = await newGroup(c113, 'G03', ['張同學'], '林老師')
   const s3 = await newGroup(c114, 'G02', ['草稿組員'], '草稿老師')
   const s4 = await newGroup(c112, 'G05', ['撤稿組員'], '撤稿老師')
+  const s5 = await newGroup(c115, 'G04', ['一般組員'], '一般老師')
 
   published = await draft(s1.groupId, { title: '城市微光', summary: '公共資訊可讀性改善', poster: PNG })
   await publish(published.entryId)
@@ -198,6 +205,15 @@ beforeAll(async () => {
   withdrawn = await draft(s4.groupId, { title: '已撤稿作品', summary: '撤掉了' })
   await publish(withdrawn.entryId)
   await owner.sql(`update showcase_entries set status = 'withdrawn' where id = $1`, [withdrawn.entryId])
+  plain = await draft(s5.groupId, { title: '菜市場帳本', summary: '沒得獎的一般作品', poster: PNG3 })
+  await publish(plain.entryId)
+
+  // 獎項等級（0011）：以執行角色 fju_app 寫，GRANT 少了補欄這裡直接紅。撤稿的也標，證明撤稿照樣不出現。
+  const award = (entryId: string, level: string, label: string | null) =>
+    app.query(`update showcase_entries set award_level = $2, award_label = $3 where id = $1`, [entryId, level, label])
+  await award(published.entryId, 'excellent', '114 學年度校級優秀專題')
+  await award(other.entryId, 'merit', null)
+  await award(withdrawn.entryId, 'excellent', '112 學年度校級優秀專題')
 })
 
 afterAll(async () => {
@@ -207,17 +223,39 @@ afterAll(async () => {
 })
 
 describe('優秀專題（公開）', () => {
-  it('訪客只看到發布中的；草稿與撤稿的一筆都不出現，回應裡也找不到它們的字', async () => {
+  it('訪客只看到發布中、有獎項等級的；草稿、撤稿、沒標等級的一筆都不出現，回應裡也找不到它們的字', async () => {
     const cards = await query.featured()
     expect(cards.map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
     const json = JSON.stringify(cards)
-    expect(json).not.toMatch(/機密草稿題目|還沒發布的摘要|已撤稿作品/)
+    expect(json).not.toMatch(/機密草稿題目|還沒發布的摘要|已撤稿作品|菜市場帳本|沒得獎的一般作品/)
+    // 呼叫端就算沒傳 awardOnly、甚至想傳 false，優秀專題也只有得獎的。
+    expect((await query.featured({ awardOnly: false })).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+    expect(await query.featured({ q: '菜市場' })).toEqual([])
+  })
+
+  it('獎項等級與全名在卡片上；排序：優秀專題優先、佳作優先', async () => {
+    const cards = await query.featured()
+    expect(cards.map((c) => [c.title, c.award, c.awardLabel])).toEqual([
+      ['城市微光', 'excellent', '114 學年度校級優秀專題'],
+      ['安心路徑', 'merit', null],
+    ])
+    expect((await query.featured({ sort: 'excellent' })).map((c) => c.award)).toEqual(['excellent', 'merit'])
+    expect((await query.featured({ sort: 'merit' })).map((c) => c.award)).toEqual(['merit', 'excellent'])
+  })
+
+  it('DB 擋非法的獎項：不認得的等級、有全名卻沒等級', async () => {
+    await expect(app.query(`update showcase_entries set award_level = 'gold' where id = $1`, [plain.entryId])).rejects.toThrow(
+      /showcase_entries_award_level_check/,
+    )
+    await expect(app.query(`update showcase_entries set award_label = '佳作' where id = $1`, [plain.entryId])).rejects.toThrow(
+      /showcase_entries_award_label_check/,
+    )
   })
 
   it('只有白名單欄位：沒有組員、老師、授權參照、個資檢查', async () => {
     const [card] = await query.featured({ cohort: '114' })
     expect(Object.keys(card!).sort()).toEqual(
-      ['cohortCode', 'groupCode', 'id', 'posterFileId', 'publishedAt', 'summary', 'title', 'videoUrl'].sort(),
+      ['award', 'awardLabel', 'cohortCode', 'groupCode', 'id', 'posterFileId', 'publishedAt', 'summary', 'title', 'videoUrl'].sort(),
     )
     expect(card).toMatchObject({ cohortCode: '114', groupCode: 'G01', videoUrl: 'https://youtu.be/demo' })
     expect(card!.posterFileId).toBe(published.posterFileId)
@@ -233,8 +271,9 @@ describe('優秀專題（公開）', () => {
     expect((await query.featured({ sort: 'cohort-asc' })).map((c) => c.cohortCode)).toEqual(['113', '114'])
   })
 
-  it('屆別 pill 只列有發布作品的屆（撤稿的 112 不算）', async () => {
-    expect(await query.cohorts()).toEqual(['114', '113'])
+  it('屆別 pill 只列有發布作品的屆（撤稿的 112 不算）；優秀專題頁只算有獎項等級的（只有沒得獎作品的 115 不算）', async () => {
+    expect(await query.cohorts()).toEqual(['115', '114', '113'])
+    expect(await query.cohorts({ featuredOnly: true })).toEqual(['114', '113'])
   })
 
   it('發布後再改草稿：前台仍是發布那一版', async () => {
@@ -272,6 +311,20 @@ describe('歷屆專題一覽（登入後）', () => {
     const byTeacher = await query.archive(viewer, { q: '林老師' })
     expect(byTeacher.access === 'visible' && byTeacher.cards.map((c) => c.title)).toEqual(['安心路徑'])
   })
+
+  it('歷屆一覽是全部已發布的（含沒得獎的）；只看得獎、得獎優先', async () => {
+    const viewer = actor(await newUser('看一覽的學生', 'student'), ['student'])
+    const all = await query.archive(viewer)
+    expect(all.access === 'visible' && all.cards.map((c) => [c.title, c.award])).toEqual([
+      ['菜市場帳本', null],
+      ['城市微光', 'excellent'],
+      ['安心路徑', 'merit'],
+    ])
+    const awarded = await query.archive(viewer, { awardOnly: true })
+    expect(awarded.access === 'visible' && awarded.cards.map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+    const ranked = await query.archive(viewer, { sort: 'award' })
+    expect(ranked.access === 'visible' && ranked.cards.map((c) => c.title)).toEqual(['城市微光', '安心路徑', '菜市場帳本'])
+  })
 })
 
 describe('專題詳情', () => {
@@ -293,6 +346,19 @@ describe('專題詳情', () => {
     expect(pending.access === 'visible' && pending.people).toBeNull()
   })
 
+  it('沒得獎的作品：訪客與待審帳號 need_login（不帶題目）；能正常使用平台的登入者看得到；前後件照看的人的列表', async () => {
+    expect(await query.entry(ANON, plain.entryId)).toEqual({ access: 'need_login' })
+    expect(await query.entry(actor(s1.members[0]!, ['student'], 'pending'), plain.entryId)).toEqual({ access: 'need_login' })
+    const student = actor(await newUser('看詳情的學生', 'student'), ['student'])
+    const seen = await query.entry(student, plain.entryId)
+    expect(seen.access === 'visible' && seen.item).toMatchObject({ title: '菜市場帳本', award: null })
+    // 登入者的上一件／下一件走整個歷屆一覽（115 的沒得獎作品在最前）；訪客只在優秀專題之間跳。
+    const memberView = await query.entry(student, published.entryId)
+    expect(memberView.access === 'visible' && memberView.prev).toEqual({ id: plain.entryId, title: '菜市場帳本' })
+    const guestView = await query.entry(ANON, published.entryId)
+    expect(guestView.access === 'visible' && guestView.prev).toBeNull()
+  })
+
   it('草稿、不存在、亂寫的 ID 一律 not_found；撤稿的 withdrawn（不帶內容）', async () => {
     expect(await query.entry(ANON, drafted.entryId)).toEqual({ access: 'not_found' })
     expect(await query.entry(actor(admin, ['admin']), drafted.entryId)).toEqual({ access: 'not_found' })
@@ -307,6 +373,11 @@ describe('海報下載政策', () => {
     expect(await download(ANON, published.posterFileId!)).toBe('ok')
     expect(await download(ANON, drafted.posterFileId!)).toBe('UNAUTHENTICATED')
     expect(await download(actor(await newUser('路人學生', 'student'), ['student']), drafted.posterFileId!)).toBe('FORBIDDEN')
+  })
+
+  it('沒得獎作品的海報：訪客拿不到（跟詳情一樣要登入）；能正常使用平台的登入者可以', async () => {
+    expect(await download(ANON, plain.posterFileId!)).toBe('UNAUTHENTICATED')
+    expect(await download(actor(await newUser('看海報的學生', 'student'), ['student']), plain.posterFileId!)).toBe('ok')
   })
 
   it('撤稿之後同一張海報就不再公開', async () => {

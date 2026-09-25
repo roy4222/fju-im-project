@@ -33,6 +33,7 @@ export async function saveScheduleAction(
   const stages = Array.from({ length: STAGE_COUNT }, (_, i) => ({
     name: text(formData, `stage${i + 1}.name`),
     startDate: text(formData, `stage${i + 1}.startDate`),
+    description: text(formData, `stage${i + 1}.description`),
   }))
   const result = await getTimelineCommand().saveSchedule(
     await currentActor(),

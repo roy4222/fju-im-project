@@ -20,6 +20,11 @@ export type TablePermission = {
   readonly select: boolean
   readonly insert: boolean
   readonly update: UpdateGrant
+  /**
+   * 表建好之後才加、而且可更新的欄：`{ 切片: [欄...] }`（例如票 39 的 0011）。
+   * `update` 陣列已經含這些欄；產生器在原切片扣掉、在新切片只補 `GRANT UPDATE (欄)`。
+   */
+  readonly updateAddedIn?: Readonly<Record<string, readonly string[]>>
   readonly delete: boolean
   /** 不可變表：除了不給 UPDATE／DELETE，另加 trigger 當第二層。 */
   readonly immutable: boolean

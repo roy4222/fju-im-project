@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -80,6 +81,14 @@ export const managedItems = pgTable(
     bodyHtml: text('body_html').notNull().default(''),
     coverFileId: uuid('cover_file_id').references(() => storedFiles.id, restrict),
     category: text('category'),
+    /**
+     * 競賽資訊（公告分類「競賽資訊」）的報名截止日與活動日（0011，票 39；臺灣日曆日）。
+     * 前台依這兩天與今天推「報名中／決賽／已結束」，狀態本身不存（原型 `competitionStatus`）。只有公告能填。
+     */
+    registrationDeadline: date('registration_deadline', { mode: 'string' }),
+    eventDate: date('event_date', { mode: 'string' }),
+    /** 榮譽榜的得獎日期（0011，票 39；臺灣日曆日）：年份篩選與排序用它，沒填才退回發布日。只有榮譽能填。 */
+    awardedOn: date('awarded_on', { mode: 'string' }),
     /** 收件欄位的工作副本 `{ fields: [...] }`；發布時切成 `form_schema_versions`。 */
     draftSchema: jsonb('draft_schema').notNull().default(sql`'{"fields":[]}'::jsonb`),
     revision: integer('revision').notNull().default(1),
@@ -124,6 +133,15 @@ export const managedItems = pgTable(
           and ${t.currentContentVersionId} is not null and ${t.currentSchemaVersionId} is not null)`,
     ),
     check('managed_items_deadline_version_check', sql`${t.deadlineVersion} >= 1`),
+    check(
+      'managed_items_competition_dates_check',
+      sql`(${t.registrationDeadline} is null and ${t.eventDate} is null) or ${t.placement} = 'news'`,
+    ),
+    check(
+      'managed_items_event_after_deadline_check',
+      sql`${t.eventDate} is null or ${t.registrationDeadline} is null or ${t.eventDate} >= ${t.registrationDeadline}`,
+    ),
+    check('managed_items_awarded_on_check', sql`${t.awardedOn} is null or ${t.placement} = 'honor'`),
     check(
       'managed_items_draft_schema_check',
       sql`coalesce(jsonb_typeof(${t.draftSchema} -> 'fields'), 'missing') = 'array'`,

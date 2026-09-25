@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { IconLock, IconPlayerPlay } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
-import { GoneNotice, imageSrc, Tag } from '@/app/_ui/public-content'
+import { AwardBadge, GoneNotice, imageSrc, NeedLogin, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 
@@ -14,11 +14,13 @@ const load = cache(async (id: string) => getPublicShowcaseQuery().entry(await cu
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
   const page = await load(id)
-  // 看不到內容的狀態（已下架、找不到）不在標題裡露出原本的題目。
+  // 看不到內容的狀態（要登入、已下架、找不到）不在標題裡露出原本的題目。
   if (page.access !== 'visible') return { title: '專題作品｜資管系專題平台', robots: { index: false } }
   return {
     title: `${page.item.title}｜資管系專題平台`,
     description: page.item.summary.slice(0, 160) || undefined,
+    // 沒得獎的作品只在登入後的歷屆一覽，不給搜尋引擎收（原型：`robots: award ? undefined : { index: false }`）。
+    ...(page.item.award ? {} : { robots: { index: false } }),
     alternates: { canonical: `/projects/${id}` },
     openGraph: { url: `/projects/${id}` },
   }
@@ -27,13 +29,20 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * 專題詳情（原型 `/projects/[id]`；產品模組 09「訪客看摘要、海報預覽與影片入口，組員與老師登入後顯示」、SHW-03）。
  *
- * 已發布的作品任何人都看得到白名單欄位；組員與指導老師只給登入者（查詢層就不給訪客，不是畫面藏起來）。
- * 撤稿的告訴他已下架（SHW-06），草稿與不存在一律 404。
+ * 有獎項等級的已發布作品任何人都看得到白名單欄位；沒得獎的只給登入者（訪客看到「需要登入」，0011）。
+ * 組員與指導老師只給登入者（查詢層就不給訪客，不是畫面藏起來）。撤稿的告訴他已下架（SHW-06），草稿與不存在一律 404。
  */
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const page = await load(id)
   if (page.access === 'not_found') notFound()
+  if (page.access === 'need_login') {
+    return (
+      <SiteShell current="/projects">
+        <NeedLogin next={`/projects/${id}`} what="這件作品" />
+      </SiteShell>
+    )
+  }
   if (page.access === 'withdrawn') {
     return (
       <SiteShell current="/projects/featured">
@@ -47,15 +56,18 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const backHref = member ? '/projects' : '/projects/featured'
   const backLabel = member ? '歷屆專題一覽' : '優秀專題'
   const image = imageSrc(item.id, item.posterFileId)
+  const awardText = item.awardLabel ?? (item.award === 'excellent' ? '優秀專題' : item.award === 'merit' ? '佳作' : '—')
   const facts: [string, string][] = member
     ? [
         ['屆別', `${item.cohortCode} 屆`],
         ['組別', item.groupCode ?? '（歷屆補登）'],
         ['指導老師', people.advisorName ?? '（未指派）'],
         ['組員', people.memberNames.length ? people.memberNames.join('、') : '（未補登）'],
+        ['獎項', awardText],
       ]
     : [
         ['屆別', `${item.cohortCode} 屆${item.groupCode ? `・${item.groupCode}` : ''}`],
+        ['獎項', awardText],
         ['組員與老師', '登入後顯示'],
       ]
 
@@ -74,6 +86,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             {` › ${item.cohortCode} 屆`}
           </nav>
           <div className="flex flex-wrap gap-2">
+            <AwardBadge award={item.award} label={item.awardLabel} />
             <Tag tone="ink">{item.cohortCode} 屆</Tag>
             {item.groupCode ? <Tag tone="ink">{item.groupCode}</Tag> : null}
           </div>
