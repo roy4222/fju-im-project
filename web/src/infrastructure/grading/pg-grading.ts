@@ -324,6 +324,7 @@ export class PgGradingCommand implements GradingCommand {
         )
       }
 
+      // 只有目前版本還沒鎖定才走得到這裡（上面擋了 SCHEME_LOCKED）。解散組別釘版本（`pg-grading-results.ts` 的 `dissolvedVersions`）靠這條：目前版本鎖定後，只會經套用換成同時鎖定的新版本。
       await tx.query(`update grading_scheme_versions set status = 'published' where id = $1`, [version.id])
       await tx.query(
         `update grading_schemes set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
@@ -615,6 +616,7 @@ export class PgGradingCommand implements GradingCommand {
 
       // 第一位老師**開始填**（第一份暫存或正式送出）：目前方案版本鎖定，之後改結構只能走新版本
       // （產品模組 06 §4「7.5」：「第一位老師開始填任何正式方案後，該方案結構即鎖定」；GRD-09）。已鎖定的就不動。
+      // 鎖的一定是目前版本，`locked_at`＝鎖定時間。解散組別釘版本（`pg-grading-results.ts` 的 `dissolvedVersions`）靠這條：目前版本鎖定後，只會經套用換成同時鎖定的新版本。
       let lockedNow = false
       if (versionStatus === 'published') {
         const updated = await tx.query(
