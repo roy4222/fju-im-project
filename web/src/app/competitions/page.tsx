@@ -47,15 +47,14 @@ export default async function CompetitionsPage({
   const q = one(sp.q).trim().slice(0, 100)
   const sort: Sort = (['deadline', 'deadline-asc', 'title'] as const).find((s) => s === one(sp.sort)) ?? 'deadline'
   const status = isStatus(one(sp.status)) ? (one(sp.status) as CompetitionStatus) : null
-  const [cards, now] = await Promise.all([
-    getPublicItemQuery().list(await currentActor(), 'news', {
-      category: COMPETITION_CATEGORY,
-      q: q || undefined,
-      limit: 200,
-    }),
-    getBusinessClock().now(),
-  ])
-  const today = taipeiDateOf(now)
+  const today = taipeiDateOf(await getBusinessClock().now())
+  // 狀態篩選在查詢裡做（先篩再取 200 筆）：較早發布但還在報名中的競賽不會被截掉。
+  const cards = await getPublicItemQuery().list(await currentActor(), 'news', {
+    category: COMPETITION_CATEGORY,
+    q: q || undefined,
+    limit: 200,
+    competition: status ? { today, statuses: [status] } : undefined,
+  })
   // 沒填截止日的用發布日排（舊公告、只填活動日的）。
   const deadlineOf = (c: (typeof cards)[number]) => c.registrationDeadline ?? c.eventDate ?? taipeiDateOf(c.publishedAt)
   const withStatus = cards.map((c) => ({ ...c, status: competitionStatus(c, today) }))

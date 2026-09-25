@@ -239,7 +239,7 @@ export function ScheduleEditor({
                       {stage.name.trim() || <span className="text-muted-foreground">階段名稱</span>}
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      {slash(stage.startDate)} – {slash(last)}
+                      {shown(stage.startDate)} – {shown(last)}
                     </p>
                     {stage.description.trim() ? <p className="mt-1 text-xs leading-relaxed">{stage.description.trim()}</p> : null}
                   </li>
@@ -253,9 +253,9 @@ export function ScheduleEditor({
   )
 }
 
-/** 預覽用：`2026-11-01` → `2026/11/01`；空的顯示「—」。 */
-function slash(date: string) {
-  return date ? date.replaceAll('-', '/') : '—'
+/** 預覽用：日期照全站格式 `2026-11-01` 原樣顯示；空的顯示「—」。 */
+function shown(date: string) {
+  return date || '—'
 }
 
 /** 預覽用：前一天（只拿來顯示「這一段到哪天」，規則仍由伺服器判）。 */

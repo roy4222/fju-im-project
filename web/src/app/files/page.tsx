@@ -64,7 +64,7 @@ export default async function FilesPage({
         <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-12">
           <aside>
             <p className="text-[13px] font-bold tracking-wider text-muted-foreground">分類</p>
-            <nav aria-label="檔案分類" className="mt-2 flex flex-wrap gap-1 lg:flex-col">
+            <nav aria-label="檔案分類" className="mt-2 flex flex-col gap-1">
               {['', ...categories].map((c) => (
                 <Link
                   key={c || 'all'}

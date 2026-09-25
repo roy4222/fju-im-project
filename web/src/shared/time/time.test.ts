@@ -167,6 +167,6 @@ describe('票 11 補的日期工具', () => {
 
   it('畫面格式到秒、日期', () => {
     expect(formatTaipeiSecond(new Date('2027-03-01T02:00:59Z'))).toBe('2027/03/01 10:00:59')
-    expect(formatTaipeiDate('2026-09-15')).toBe('2026/09/15')
+    expect(formatTaipeiDate('2026-09-15')).toBe('2026-09-15')
   })
 })

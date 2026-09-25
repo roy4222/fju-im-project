@@ -24,7 +24,7 @@ describe('normalizeActivityInput', () => {
     expect(result.value.startsAt.toISOString()).toBe('2026-12-20T06:00:00.000Z')
     expect(result.value.endsAt?.toISOString()).toBe('2026-12-20T08:00:00.000Z')
     expect(result.value.description).toBeNull()
-    expect(formatActivityWhen(result.value)).toBe('2026/12/20 14:00–16:00')
+    expect(formatActivityWhen(result.value)).toBe('2026-12-20 14:00–16:00')
   })
 
   it('全天：從臺灣 00:00 開始、沒有結束時間，時間欄忽略', () => {
@@ -33,7 +33,7 @@ describe('normalizeActivityInput', () => {
     if (!result.ok) return
     expect(result.value.startsAt.toISOString()).toBe('2026-12-19T16:00:00.000Z')
     expect(result.value.endsAt).toBeNull()
-    expect(formatActivityWhen(result.value)).toBe('2026/12/20（全天）')
+    expect(formatActivityWhen(result.value)).toBe('2026-12-20（全天）')
   })
 
   it('拒絕：沒名稱、日期不存在、不是全天又沒開始時間、結束早於開始、受眾不認得', () => {

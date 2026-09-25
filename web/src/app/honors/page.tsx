@@ -37,9 +37,10 @@ export default async function HonorsPage({
   const open = one(sp.item) || undefined
   const actor = await currentActor()
   const query = getPublicItemQuery()
+  // 依得獎日期排好才取 200 筆（查詢裡排）：發布順序跟得獎順序不同時，也拿得到最新（或最舊）的那一批。
   const [all, matched] = await Promise.all([
-    query.list(actor, 'honor', { limit: 200 }),
-    query.list(actor, 'honor', { q: q || undefined, limit: 200 }),
+    query.list(actor, 'honor', { limit: 200, order: 'awarded' }),
+    query.list(actor, 'honor', { q: q || undefined, limit: 200, order: sort === 'date-asc' ? 'awarded-asc' : 'awarded' }),
   ])
   const dateOf = (h: (typeof all)[number]) => h.awardedOn ?? taipeiDateOf(h.publishedAt)
   const yearOf = (h: (typeof all)[number]) => dateOf(h).slice(0, 4)

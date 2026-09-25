@@ -29,7 +29,8 @@ pnpm -C web test               # 兩個都跑
 
 連線字串預設 `postgres://fju_owner:fju_local_dev@127.0.0.1:55432/fju`，
 可用 `TEST_DATABASE_URL` 覆寫。連不到時測試會**明確失敗**並告訴你去跑 `docker compose up -d postgres`，
-不會靜靜跳過。
+不會靜靜跳過。連線字串的主機**不是本機**（localhost／127.0.0.1／::1）時 globalSetup 直接拒絕，
+免得 shell 裡沿用了別的環境的 `DATABASE_URL_OWNER` 就去建角色、改密碼。
 
 ### runtime 角色與密碼（globalSetup）
 

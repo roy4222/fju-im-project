@@ -190,10 +190,13 @@ export function formatTaipeiSecond(instant: Date): string {
   return `${formatTaipeiMinute(instant)}:${pad(p.second)}`
 }
 
-/** 臺灣日期換成畫面用的 `2026/11/15`。 */
+/**
+ * 臺灣日期換成畫面用的 `2026-11-15`（跟原型一樣用 `YYYY-MM-DD`；前台競賽、榮譽本來就直接顯示這個格式）。
+ * 精確到分、秒的時間（`formatTaipeiMinute`／`formatTaipeiSecond`）仍照契約 02 §3 的 `2026/11/15 23:59`。
+ */
 export function formatTaipeiDate(date: TaipeiDate): string {
   const { year, month, day } = parseDate(date)
-  return `${pad(year, 4)}/${pad(month)}/${pad(day)}`
+  return `${pad(year, 4)}-${pad(month)}-${pad(day)}`
 }
 
 /** `YYYY-MM-DD` 是不是一個真的存在的日期（擋掉 2026-02-30 這種）。 */

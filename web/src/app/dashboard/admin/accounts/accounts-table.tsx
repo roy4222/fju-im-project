@@ -55,6 +55,8 @@ export function AccountsTable(props: AccountsTableProps) {
   const [message, setMessage] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null)
 
   const pageIds = rows.map((r) => r.userId)
+  // 篩選、排序、換頁之後，不在畫面上的帳號不算勾選（比照分組表；避免匯出看不到的人）。
+  const visibleSelected = pageIds.filter((id) => selected.has(id))
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const someOnPage = pageIds.some((id) => selected.has(id))
 
@@ -137,10 +139,10 @@ export function AccountsTable(props: AccountsTableProps) {
       </DataTableToolbar>
 
       {/* 批次動作列：只在有勾選時出現（原型：橘色細框、淡橘底）。 */}
-      {selected.size > 0 ? (
+      {visibleSelected.length > 0 ? (
         <BulkBar role="toolbar" aria-label="批次動作">
           <span className="tabular text-sm font-medium" data-testid="selected-count">
-            已勾選 {selected.size} 筆
+            已勾選 {visibleSelected.length} 筆
           </span>
           <span className="text-xs text-muted-foreground">（目前篩選結果共 {total} 筆）</span>
           <div className="ml-auto flex flex-wrap gap-2">
@@ -148,7 +150,7 @@ export function AccountsTable(props: AccountsTableProps) {
               type="button"
               className={cn(BUTTON, SECONDARY, small)}
               disabled={busy}
-              onClick={() => exportCsv({ kind: 'ids', userIds: [...selected] })}
+              onClick={() => exportCsv({ kind: 'ids', userIds: visibleSelected })}
             >
               <IconDownload aria-hidden />
               匯出勾選的 CSV

@@ -367,8 +367,8 @@ async function fillShowcaseStageFields(db, day) {
 
 /**
  * 規則內文照原型改成編號清單＋灰底註解框（票 33）。新建時 `ruleHtml` 直接是新格式，這裡是給**已經灌過的測試站**：
- * 只換還是舊格式（`oldRuleHtml`）、沒被系辦改過的節。版本表不可變，所以跟正式的「改內容」一樣多一個版本（第 2 版），
- * 項目指到它。重跑第二次什麼都不會變（冪等）。回傳這次換了幾節。
+ * 只換還是舊格式（`oldRuleHtml`）、沒被系辦改過的節。版本表不可變，所以跟正式的「改內容」一樣多一個版本
+ * （版本號取這一項目現有最大版本號＋1，不寫死第 2 版：避免撞 `UNIQUE(item_id, version_no)`），項目指到它。重跑第二次什麼都不會變（冪等）。回傳這次換了幾節。
  */
 async function fillRuleFormat(db) {
   let filled = 0
@@ -380,7 +380,8 @@ async function fillRuleFormat(db) {
     const versionId = demoId(`item-version:rule-${r.key}:2`)
     await db.query(
       `insert into item_versions (id, item_id, version_no, title, summary, body_html, cover_file_id, category, created_by_user_id, created_at)
-       select $2, m.id, 2, m.title, m.summary, $3, m.cover_file_id, m.category, $4, now() from managed_items m where m.id = $1
+       select $2, m.id, (select coalesce(max(v.version_no), 0) + 1 from item_versions v where v.item_id = m.id),
+              m.title, m.summary, $3, m.cover_file_id, m.category, $4, now() from managed_items m where m.id = $1
        on conflict (id) do nothing`,
       [itemId, versionId, next, OFFICE_ID],
     )
