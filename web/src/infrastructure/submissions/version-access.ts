@@ -16,6 +16,7 @@ import type { AdvisorVisibility, SubmissionHolder, SubmissionViewer } from '@/ap
  *   （組別要沒解散、屆別要跟項目同一屆——契約 03 §1「cohort_id 必比對」，跨屆的新老師看不到以前的回答）。
  * - 閱覽設定：這份收件最新的一列（只插不改）。
  * - 送出當下的組員：`membership_snapshot`。
+ * - 此刻的評分老師（票 24、S10-03）：組別收件才有，該組 `evaluator_assignments.valid_to IS NULL` 的老師（屆別要跟項目同一屆）。
  */
 export const VERSION_ACCESS_COLUMNS = `
   v.receiver_kind, v.receiver_id, sv.version_no as schema_version_no, v.membership_snapshot,
@@ -30,7 +31,13 @@ export const VERSION_ACCESS_COLUMNS = `
   end as current_advisor,
   (select row_to_json(x) from (
      select s.enabled, s.effective_from_version_no as "effectiveFromVersionNo" from advisor_visibility_settings s
-      where s.item_id = v.item_id order by s.set_at desc, s.id desc limit 1) x) as visibility`
+      where s.item_id = v.item_id order by s.set_at desc, s.id desc limit 1) x) as visibility,
+  case when v.receiver_kind = 'group'
+    then coalesce((select array_agg(distinct ea.teacher_user_id::text) from evaluator_assignments ea
+                     join groups eg on eg.id = ea.group_id and eg.cohort_id = m.cohort_id
+                    where ea.group_id = v.receiver_id and ea.valid_to is null), '{}'::text[])
+    else '{}'::text[]
+  end as evaluators`
 
 export type VersionAccessRow = {
   receiver_kind: 'user' | 'group'
@@ -39,6 +46,7 @@ export type VersionAccessRow = {
   membership_snapshot: string[] | null
   current_advisor: string | null
   visibility: AdvisorVisibility | null
+  evaluators: string[] | null
 }
 
 export function holderOf(row: VersionAccessRow): SubmissionHolder {
@@ -50,6 +58,7 @@ export function holderOf(row: VersionAccessRow): SubmissionHolder {
     currentAdvisorUserId: row.current_advisor,
     visibility: row.visibility,
     membershipSnapshot: row.membership_snapshot,
+    activeEvaluatorUserIds: row.evaluators ?? [],
   }
 }
 

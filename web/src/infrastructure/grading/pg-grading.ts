@@ -43,6 +43,7 @@ import {
   type PoolSource,
 } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { flagOverridesForReview } from '@/infrastructure/grading/facts'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -65,15 +66,15 @@ import { RealClock, type Clock } from '@/shared/time'
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value)
+export const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value)
 
 /** 要求份數的上限：一組一個階段找十位老師評已經不合理，擋掉打錯字。 */
 export const MAX_REQUIRED_COUNT = 10
 
-type CohortRow = { id: string; code: string; status: CohortStatus }
-type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
-type SchemeRow = { id: string; cohort_id: string; current_version_id: string | null; revision: number }
-type VersionRow = {
+export type CohortRow = { id: string; code: string; status: CohortStatus }
+export type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
+export type SchemeRow = { id: string; cohort_id: string; current_version_id: string | null; revision: number }
+export type VersionRow = {
   id: string
   scheme_id: string
   version_no: number
@@ -107,27 +108,27 @@ function authorizeTeacher(actor: ResolvedActor): { ok: true; userId: string } | 
   return { ok: true, userId: actor.userId }
 }
 
-function notAssigned(): Err {
+export function notAssigned(): Err {
   return err('NOT_ASSIGNED', '你沒有被指派評這一組（或指派已結束），不能評分。')
 }
 
-function groupNotFound(): Err {
+export function groupNotFound(): Err {
   return err('VALIDATION_FAILED', '找不到這個組別，請重新整理頁面。')
 }
 
-function archived(code: string): Err {
+export function archived(code: string): Err {
   return err('COHORT_ARCHIVED', `${code} 已封存，評分資料只能查看。`)
 }
 
-function dissolved(code: string): Err {
+export function dissolved(code: string): Err {
   return err('GROUP_DISSOLVED', `${code} 已解散，不能再設定或送出評分。`)
 }
 
-function noScheme(): Err {
+export function noScheme(): Err {
   return err('VALIDATION_FAILED', '這一屆還沒有發布評分方案；請先建立並發布方案。')
 }
 
-function stageOf(stages: readonly SchemeStage[], key: string): SchemeStage | null {
+export function stageOf(stages: readonly SchemeStage[], key: string): SchemeStage | null {
   return stages.find((s) => s.key === key) ?? null
 }
 
@@ -295,7 +296,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的 v${current.version_no} 已有老師開始評分（暫存或正式送出），方案已鎖定，不能直接換成新版本；改結構要走「套用新版本」（先看重算預覽，下一階段開放）。`,
+          `目前的 v${current.version_no} 已有老師開始評分（暫存或正式送出），方案已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
         )
       }
 
@@ -419,6 +420,14 @@ export class PgGradingCommand implements GradingCommand {
         businessAt: businessNow,
         payload: { stageKey: stage.key, requiredCount: count, previousRevision: input.revision },
       })
+      // 要求份數是計算基礎的一部分（票 24）：這一組有生效中的更正就進「待復核」。
+      await flagOverridesForReview(tx, this.#events, {
+        groupId: group.id,
+        cohortId: cohort.id,
+        actor: { kind: 'user', userId: adminId },
+        realAt,
+        businessAt: businessNow,
+      })
       const receipt = { groupId: group.id, groupCode: group.code, stageKey: stage.key, stageName: stage.name, requiredCount: count }
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { groupId: group.id, stageKey: stage.key } })
@@ -466,6 +475,10 @@ export class PgGradingCommand implements GradingCommand {
         [group.id, stage.key, teacher.userId],
       )
       if (duplicate.rowCount) return alreadyAssigned(teacher.name, group.code, stage.name)
+      // 票 24：改派時選「保留」後，舊分掛在已結束的指派上繼續採計；同一位老師再被指派回來就會算兩票，擋掉。
+      if (await hasCountedInStage(tx, group.id, stage.key, teacher.userId)) {
+        return alreadyCounted(teacher.name, group.code, stage.name)
+      }
 
       const assignmentId = uuidv7()
       await tx.query(
@@ -624,6 +637,16 @@ export class PgGradingCommand implements GradingCommand {
         businessAt: businessNow,
         payload: { assignmentId: assignment.id, groupId: group.id, stageKey: stage.key, schemeVersionId: versionId, schemeLocked: lockedNow },
       })
+      // 新的一份採計＝計算基礎改變（票 24）：這一組有生效中的更正就進「待復核」。
+      if (kind === 'final') {
+        await flagOverridesForReview(tx, this.#events, {
+          groupId: group.id,
+          cohortId: cohort.id,
+          actor: { kind: 'user', userId: teacherId },
+          realAt,
+          businessAt: businessNow,
+        })
+      }
 
       const summary = summarizeScores(stage, normalized.value)
       const receipt: DraftReceipt | FinalReceipt =
@@ -646,19 +669,45 @@ export class PgGradingCommand implements GradingCommand {
   }
 
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
-    return inTransaction(this.#pool, 'grading', body, (constraint) => {
-      if (constraint === 'evaluation_status_one_counted') {
-        return err('CONFLICT', '這一份評分已經正式送出並鎖定，不能再改；需要修改請聯絡系辦退回。')
-      }
-      if (constraint === 'evaluator_assignments_one_active') {
-        return err('VALIDATION_FAILED', '這位老師剛剛已經被指派評這一組的這個階段了；請重新整理頁面。')
-      }
-      return err('CONFLICT', '剛剛有人同時修改了同一份評分資料，請重新整理頁面再試一次。')
-    })
+    return runGrading(this.#pool, body)
   }
 }
 
-function alreadyAssigned(teacherName: string, groupCode: string, stageName: string): Err {
+/** 評分寫入的交易外殼：唯一鍵撞到時翻成使用者看得懂的一句話（票 24 的用例共用）。 */
+export function runGrading<R>(pool: PoolSource, body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
+  return inTransaction(pool, 'grading', body, (constraint) => {
+    if (constraint === 'evaluation_status_one_counted') {
+      return err('CONFLICT', '這一份評分已經正式送出並鎖定，不能再改；需要修改請聯絡系辦退回。')
+    }
+    if (constraint === 'evaluator_assignments_one_active') {
+      return err('VALIDATION_FAILED', '這位老師剛剛已經被指派評這一組的這個階段了；請重新整理頁面。')
+    }
+    return err('CONFLICT', '剛剛有人同時修改了同一份評分資料，請重新整理頁面再試一次。')
+  })
+}
+
+/**
+ * 這位老師在這一組這一階段是否已有採計中的正式評分（不看指派是否還有效）。
+ * 改派選「保留」「新增」後舊分掛在已結束的指派上；同一人再拿到新指派就會一人兩票（產品 7.4「同一老師不因改派多算一票」）。
+ */
+export async function hasCountedInStage(tx: PoolClient, groupId: string, stageKey: string, teacherUserId: string): Promise<boolean> {
+  const rows = await tx.query(
+    `select 1 from evaluation_status s join evaluator_assignments a on a.id = s.assignment_id
+      where a.group_id = $1 and a.stage_key = $2 and a.teacher_user_id = $3 and s.state = 'counted' limit 1`,
+    [groupId, stageKey, teacherUserId],
+  )
+  return (rows.rowCount ?? 0) > 0
+}
+
+export function alreadyCounted(teacherName: string, groupCode: string, stageName: string): Err {
+  return err(
+    'VALIDATION_FAILED',
+    `${teacherName} 老師在 ${groupCode}「${stageName}」已有一份採計中的評分（改派時選了保留），同一位老師不能再算一票；請改指派其他老師。`,
+    { details: { field: 'teacherUserId' } },
+  )
+}
+
+export function alreadyAssigned(teacherName: string, groupCode: string, stageName: string): Err {
   return err('VALIDATION_FAILED', `${teacherName} 老師已經被指派評 ${groupCode}「${stageName}」了，不能重複指派。`)
 }
 
@@ -674,7 +723,7 @@ type LatestRow = {
 }
 
 /** 每個指派目前的評分：有採計就是那一筆，否則是最新的暫存。退回、歷史、失效都不算。 */
-async function latestEvaluations(db: Pick<Pool, 'query'>, assignmentIds: readonly string[]): Promise<Map<string, LatestRow>> {
+export async function latestEvaluations(db: Pick<Pool, 'query'>, assignmentIds: readonly string[]): Promise<Map<string, LatestRow>> {
   if (assignmentIds.length === 0) return new Map()
   const rows = await db.query<LatestRow>(
     `select distinct on (e.assignment_id)
@@ -683,6 +732,35 @@ async function latestEvaluations(db: Pick<Pool, 'query'>, assignmentIds: readonl
        join evaluation_status s on s.evaluation_id = e.id
       where e.assignment_id = any($1::uuid[]) and s.state in ('draft', 'counted')
       order by e.assignment_id, (s.state = 'counted') desc, e.submitted_real_at desc, e.id desc`,
+    [assignmentIds],
+  )
+  return new Map(rows.rows.map((r) => [r.assignment_id, r]))
+}
+
+type ReturnedRow = {
+  assignment_id: string
+  scores: Record<string, string>
+  submitted_real_at: Date
+  reason: string
+  returned_at: Date
+}
+
+/**
+ * 每個指派最近一次被系辦退回的評分（票 24）：老師重新送出前，畫面顯示退回理由，並把退回前的分數預填回表單。
+ * 同一個指派已經有新的採計，就不再算「被退回」（呼叫端判斷）。
+ */
+export async function latestReturned(db: Pick<Pool, 'query'>, assignmentIds: readonly string[]): Promise<Map<string, ReturnedRow>> {
+  if (assignmentIds.length === 0) return new Map()
+  const rows = await db.query<ReturnedRow>(
+    `select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at
+       from evaluations e
+       join evaluation_status s on s.evaluation_id = e.id and s.state = 'returned'
+       join lateral (
+         select x.reason, x.real_at from evaluation_status_events x
+          where x.evaluation_id = e.id and x.to_state = 'returned' order by x.real_at desc, x.id desc limit 1
+       ) ev on true
+      where e.assignment_id = any($1::uuid[])
+      order by e.assignment_id, ev.real_at desc, e.id desc`,
     [assignmentIds],
   )
   return new Map(rows.rows.map((r) => [r.assignment_id, r]))
@@ -772,8 +850,14 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
     )
     const assignmentViews: AdminAssignmentView[] = assignments.rows.map((a) => {
       const row = latest.get(a.id)
-      const stage = row ? stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key) : null
-      const summary = row && stage ? summarizeScores(stage, row.scores) : null
+      // 正式分數一律照目前版本算（方案鎖定後套用新版本＝用新權重重算，票 24）；暫存照它填的版本算。
+      const currentStages = versions.find((v) => v.isCurrent)?.stages ?? []
+      const stage = row
+        ? row.state === 'counted'
+          ? stageOf(currentStages, a.stage_key)
+          : stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key)
+        : null
+      const summary = row && stage ? summarizeScores(stage, row.state === 'counted' ? row.scores : pick(stage, row.scores)) : null
       return {
         id: a.id,
         groupId: a.group_id,
@@ -843,6 +927,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       db,
       rows.rows.map((r) => r.id),
     )
+    const returned = await latestReturned(
+      db,
+      rows.rows.map((r) => r.id),
+    )
     return rows.rows.flatMap((r): TeacherQueueEntry[] => {
       const stages = readSchemeStages(r.stages)
       const stage = stageOf(stages, r.stage_key)
@@ -860,6 +948,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           state: stateOf(row),
           filled: summary?.filled ?? 0,
           total: stage.items.length,
+          returned: returned.has(r.id) && row?.state !== 'counted',
         },
       ]
     })
@@ -898,13 +987,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       db,
       assignments.rows.map((a) => a.id),
     )
-    const versionStages = new Map<string, readonly SchemeStage[]>()
-    for (const row of latest.values()) {
-      if (row.scheme_version_id !== head.version_id && !versionStages.has(row.scheme_version_id)) {
-        const v = await db.query<{ stages: unknown }>('select stages from grading_scheme_versions where id = $1', [row.scheme_version_id])
-        versionStages.set(row.scheme_version_id, readSchemeStages(v.rows[0]?.stages))
-      }
-    }
+    const returnedRows = await latestReturned(
+      db,
+      assignments.rows.map((a) => a.id),
+    )
 
     const entries: BenchEntry[] = assignments.rows.flatMap((a): BenchEntry[] => {
       const stage = stageOf(stages, a.stage_key)
@@ -912,31 +998,35 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       const row = latest.get(a.id)
       const state = stateOf(row)
       if (state === 'counted' && row) {
-        // 正式送出的分數照它送出時的版本算（鎖定後版本不會再換；票 24 的「套用新版本」另外處理）。
-        const finalStage = stageOf(versionStages.get(row.scheme_version_id) ?? stages, a.stage_key) ?? stage
+        // 正式分數一律照**目前**方案版本算（票 24：方案鎖定後套用新版本＝用新權重重算舊分數；成績表同一個算法）。
         return [
           {
             assignmentId: a.id,
-            stage: finalStage,
+            stage,
             state,
             scores: row.scores,
             savedAt: row.submitted_real_at,
             submittedAt: row.submitted_real_at,
-            finalScore: summarizeScores(finalStage, row.scores).score,
+            finalScore: summarizeScores(stage, row.scores).score,
             draftFromOlderVersion: false,
+            returned: null,
           },
         ]
       }
+      // 被退回、還沒重新送出：理由一直顯示；退回的那一份比最新暫存新，就把它預填回表單。
+      const back = returnedRows.get(a.id)
+      const prefillFromReturned = !!back && (!row || back.returned_at.getTime() > row.submitted_real_at.getTime())
       return [
         {
           assignmentId: a.id,
           stage,
           state,
-          scores: row ? pick(stage, row.scores) : {},
+          scores: prefillFromReturned ? pick(stage, back.scores) : row ? pick(stage, row.scores) : {},
           savedAt: row?.submitted_real_at ?? null,
           submittedAt: null,
           finalScore: null,
-          draftFromOlderVersion: !!row && row.scheme_version_id !== head.version_id,
+          draftFromOlderVersion: !prefillFromReturned && !!row && row.scheme_version_id !== head.version_id,
+          returned: back ? { reason: back.reason, returnedAt: back.returned_at } : null,
         },
       ]
     })
@@ -985,7 +1075,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
 }
 
 /** 只留目前方案有的項目（暫存是照舊版本填的時候，多出來的項目不帶到畫面）。 */
-function pick(stage: SchemeStage, scores: Readonly<Record<string, string>>): Record<string, string> {
+export function pick(stage: SchemeStage, scores: Readonly<Record<string, string>>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const item of stage.items) if (typeof scores[item.key] === 'string') out[item.key] = scores[item.key]!
   return out
@@ -993,7 +1083,7 @@ function pick(stage: SchemeStage, scores: Readonly<Record<string, string>>): Rec
 
 // ── 鎖與共用查詢 ────────────────────────────────────────────────────────────
 
-async function lockCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
+export async function lockCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
   const rows = await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])
   return rows.rows[0] ?? null
 }
@@ -1002,7 +1092,7 @@ async function lockCohort(tx: PoolClient, cohortId: string): Promise<CohortRow |
  * 鎖順序：屆別 FOR SHARE → 組別 FOR SHARE → 方案頭列 FOR SHARE（見檔頭）。回傳目前方案版本的階段
  * （還沒有發布過版本是 null）。
  */
-async function lockGroupAndScheme(
+export async function lockGroupAndScheme(
   tx: PoolClient,
   groupId: string,
 ): Promise<{
@@ -1044,7 +1134,7 @@ async function lockGroupAndScheme(
 }
 
 /** 帳號正常、目前有老師角色的人；不是就回 null。 */
-async function eligibleTeacher(tx: PoolClient, userId: string): Promise<{ userId: string; name: string } | null> {
+export async function eligibleTeacher(tx: PoolClient, userId: string): Promise<{ userId: string; name: string } | null> {
   const rows = await tx.query<{ id: string; name: string }>(
     `select u.id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name
        from users u left join user_profiles p on p.user_id = u.id
