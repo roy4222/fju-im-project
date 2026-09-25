@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { IconCheck } from '@tabler/icons-react'
 import type { SignoffState, VersionDetail } from '@/application/signoff'
 import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, STATE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
@@ -30,7 +31,7 @@ export function StateBadge({ state }: { state: SignoffState }) {
 }
 
 /** 失效、作廢、退回時放在最上面的說明；舊頁看到的就是這一句（模組 07 §7「等待管理員建立新版」）。 */
-function Invalidated({ v }: { v: VersionDetail }) {
+export function Invalidated({ v }: { v: VersionDetail }) {
   if (v.state === 'revision') {
     return (
       <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-danger-subtle px-4 py-3 text-sm text-danger-on-subtle">
@@ -265,8 +266,17 @@ export function MyResponse({ v, form }: { v: VersionDetail; form: React.ReactNod
   } else {
     return null
   }
+  // 原型：已同意是綠底一行（勾勾）；其他說明是灰底。
   return (
-    <p role="status" data-testid="my-response" className="rounded-md bg-surface px-4 py-3 text-sm text-ink">
+    <p
+      role="status"
+      data-testid="my-response"
+      className={cn(
+        'flex items-center gap-2 rounded-lg px-4 py-3 text-sm',
+        voted === 'agree' ? 'bg-success-subtle font-semibold text-success-on-subtle' : 'bg-muted text-ink',
+      )}
+    >
+      {voted === 'agree' ? <IconCheck className="size-4 shrink-0" aria-hidden /> : null}
       {text}
     </p>
   )
