@@ -181,6 +181,19 @@ describe('timelineView：專題時間軸每一段的狀態（票 38）', () => {
     expect(view.current).toEqual({ seq: 2, elapsedPercent: 100, daysLeft: 0 })
   })
 
+  it('只有一天的段（下一段隔天開始）：當天就是最後一天，100%、剩 0 天', () => {
+    const oneDay: CohortSchedule = {
+      stages: [
+        { seq: 1, name: '報名', startDate: '2026-09-15', deadlineVersion: 1 },
+        { seq: 2, name: '期中', startDate: '2026-09-16', deadlineVersion: 1 },
+      ],
+      yearEndDate: '2027-06-30',
+    }
+    const view = timelineView(oneDay, tw('2026-09-15T10:00:00'))!
+    expect(view.stages[0]).toMatchObject({ startDate: '2026-09-15', lastDate: '2026-09-15', status: 'current' })
+    expect(view.current).toEqual({ seq: 1, elapsedPercent: 100, daysLeft: 0 })
+  })
+
   it('尚未開始全部是尚未開始、年度結束後全部已過；兩者都沒有目前這一段', () => {
     const before = timelineView(SCHEDULE, tw('2026-09-14T23:59:59'))!
     expect(before.stages.every((s) => s.status === 'upcoming')).toBe(true)
