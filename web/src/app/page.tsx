@@ -40,10 +40,12 @@ export default async function HomePage() {
   ])
   // 競賽狀態跟 /competitions 同一個函式、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  // 「進行中的競賽」照原型先放報名中、再放決賽／結果，最後才是已結束或沒填日期的；取前 3 則。
+  // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
   const rank = { open: 0, result: 1, closed: 2 } as const
   const competitionCards = competitions
     .map((c) => ({ ...c, status: competitionStatus(c, today) }))
+    // 「進行中」只放報名中與決賽／結果；已結束、沒填日期的不拿來補位（前台頁面清單：競賽取進行中 3 則）。
+    .filter((c) => c.status === 'open' || c.status === 'result')
     .sort((a, b) => (a.status ? rank[a.status] : 3) - (b.status ? rank[b.status] : 3))
     .slice(0, 3)
   // 歷屆專題一覽（登入後）：`/projects` 同一份查詢；沒開通的人查詢本身就回 need_login。
@@ -146,6 +148,7 @@ export default async function HomePage() {
                           <>
                             <Tag tone="ink">{p.cohortCode} 屆</Tag>
                             {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
+                            {p.advisorName ? <Tag tone="ink">{p.advisorName}</Tag> : null}
                           </>
                         }
                       />
@@ -252,7 +255,7 @@ export default async function HomePage() {
           {competitionCards.length === 0 ? (
             <div className="flex min-h-24 items-center gap-3 rounded-[10px] border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
               <IconClock className="size-5 shrink-0" aria-hidden />
-              目前沒有競賽資訊。系辦發布競賽資訊後會出現在這裡。
+              目前沒有報名中的競賽。系辦發布競賽資訊後會出現在這裡。
             </div>
           ) : (
             <ul className="grid gap-4 md:grid-cols-3" data-testid="home-competitions">

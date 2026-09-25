@@ -27,6 +27,7 @@ const DRAFT = `${stamp} 機密草稿`
 const PLAIN = `${stamp} 沒得獎作品`
 const HONOR = `${stamp} 全國競賽 優等`
 const COMPETITION = `${stamp} 資訊應用服務創新競賽`
+const ENDED_COMPETITION = `${stamp} 已結束的競賽`
 const MEMBER = `${stamp}組員`
 const ADVISOR = `${stamp}老師`
 
@@ -142,6 +143,8 @@ test.beforeAll(async () => {
   await publishedItem(cohortId, adminId, 'honor', HONOR, '校外競賽', { awardedOn: '2019-06-15' })
   // 報名截止在很久以後＝報名中。
   await publishedItem(cohortId, adminId, 'news', COMPETITION, '競賽資訊', { registrationDeadline: '2099-12-31' })
+  // 截止與活動日都過了＝已結束：首頁「進行中的競賽」不能拿它補位。
+  await publishedItem(cohortId, adminId, 'news', ENDED_COMPETITION, '競賽資訊', { registrationDeadline: '2000-01-01', eventDate: '2000-01-02' })
 })
 
 test.afterAll(async () => {
@@ -196,6 +199,20 @@ test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指�
   const card = page.getByTestId('project-card').filter({ hasText: TITLE })
   await expect(card).toContainText(`指導老師 ${ADVISOR}`)
   await expect(page.locator('body')).not.toContainText(DRAFT)
+
+  // 首頁的「歷屆專題一覽」取同一份查詢（同一個預設排序）的前 3 件，每張卡要帶指導老師。
+  await page.goto('/projects')
+  const top = page.getByTestId('project-card')
+  const advisors: string[] = []
+  for (let i = 0; i < Math.min(3, await top.count()); i += 1) {
+    const found = /指導老師 (\S+)/.exec((await top.nth(i).textContent()) ?? '')
+    if (found) advisors.push(found[1]!)
+  }
+  expect(advisors.length).toBeGreaterThan(0)
+  await page.goto('/')
+  const homeCards = page.getByTestId('home-archive-list').getByRole('listitem')
+  for (const [i, name] of advisors.entries()) await expect(homeCards.nth(i)).toContainText(name)
+  await page.goto(`/projects?q=${encodeURIComponent(stamp)}`)
   // 歷屆一覽是全部已發布的（含沒得獎的）；「只看得獎」就剩得獎的。
   await expect(page.getByTestId('project-card').filter({ hasText: PLAIN })).toBeVisible()
   await page.goto(`/projects?award=1&q=${encodeURIComponent(stamp)}`)
@@ -244,6 +261,9 @@ test('首頁（訪客）：優秀專題、榮譽與競賽接真的資料（不�
   await expect(honors.getByRole('link', { name: '查看更多' })).toHaveAttribute('href', '/honors')
   await expect(honors.getByTestId('home-competitions').getByRole('link').first()).toHaveAttribute('href', /^\/news\//)
   await expect(honors.getByRole('link', { name: /全部競賽資訊/ })).toHaveAttribute('href', '/competitions')
+  // 「進行中」只放報名中與決賽／結果：已結束的不補位。
+  await expect(honors.getByTestId('home-competitions')).not.toContainText(ENDED_COMPETITION)
+  await expect(honors.getByTestId('home-competitions')).not.toContainText('已結束')
 
   await expect(page.getByRole('link', { name: '查看優秀專題' })).toHaveAttribute('href', '/projects/featured')
 })
