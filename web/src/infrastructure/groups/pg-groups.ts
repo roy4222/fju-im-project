@@ -1281,8 +1281,11 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
 
   async lockLeaderships(tx: PoolClient, userId: string): Promise<void> {
     const found = await tx.query<{ group_id: string }>(
-      `select l.group_id from group_leaders l join groups g on g.id = l.group_id
-        where l.user_id = $1 and l.valid_to is null and g.status = 'active' order by l.group_id`,
+      `select l.group_id from group_leaders l
+         join groups g on g.id = l.group_id
+         join cohorts c on c.id = g.cohort_id
+        where l.user_id = $1 and l.valid_to is null and g.status = 'active' and c.status <> 'archived'
+        order by l.group_id`,
       [userId],
     )
     // 鎖順序同 `#lockGroup`：屆別 FOR SHARE → 組別 FOR UPDATE。

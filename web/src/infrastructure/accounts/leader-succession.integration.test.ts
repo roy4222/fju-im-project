@@ -153,6 +153,10 @@ async function snapshot(userId: string, groupId: string) {
     revision: await revisionOf(groupId),
     leaderEvents: await count(`select count(*) as n from domain_events where type = 'group.leader_changed' and source_id = $1`, [groupId]),
     disableAudits: await count(`select count(*) as n from audit_events where action = 'account.disable' and target_id = $1`, [userId]),
+    // 帳本也要跟著回滾：拒絕的請求不留下 account.disable 的操作紀錄。
+    disableLedger: await count(`select count(*) as n from operation_records where actor_user_id = $1 and operation_kind = 'account.disable'`, [
+      adminId,
+    ]),
   }
 }
 
