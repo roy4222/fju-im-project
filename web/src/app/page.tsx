@@ -32,14 +32,16 @@ export default async function HomePage() {
   const home = signedIn ? homeFor(actor) : null
   const items = getPublicItemQuery()
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
+  // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
+  const today = taipeiDateOf(await getBusinessClock().now())
   const [latest, featured, honors, competitions] = await Promise.all([
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
-    items.list(actor, 'honor', { limit: 4 }),
-    items.list(actor, 'news', { category: COMPETITION_CATEGORY, limit: 30 }),
+    // 榮譽依得獎日期（沒填退回發布日）排好才取 4 則，跟 /honors 的「新到舊」一致。
+    items.list(actor, 'honor', { limit: 4, order: 'awarded' }),
+    // 進行中＝報名中＋決賽／結果；在查詢裡先篩狀態再取筆數，較早發布的進行中競賽不會被截掉。
+    items.list(actor, 'news', { category: COMPETITION_CATEGORY, competition: { today, statuses: ['open', 'result'] }, limit: 30 }),
   ])
-  // 競賽狀態跟 /competitions 同一個函式、同一個「今天」（業務鐘）：報名中／決賽／已結束。
-  const today = taipeiDateOf(await getBusinessClock().now())
   // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
   const rank = { open: 0, result: 1, closed: 2 } as const
   const competitionCards = competitions
