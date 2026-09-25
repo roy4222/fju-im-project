@@ -23,7 +23,7 @@ export function SiteHeader({
   nav: readonly NavItem[]
   current?: string
   /** 沒登入是 null；登入了帶角色名與後台入口。 */
-  viewer: { roleLabel: string; workbench: { href: string; label: string } } | null
+  viewer: { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null
   signOutFormId: string
 }) {
   const [open, setOpen] = useState(false)
@@ -67,6 +67,7 @@ export function SiteHeader({
               <span className="hidden sm:inline-flex">
                 <AccountMenu
                   roleLabel={viewer.roleLabel}
+                  name={viewer.name}
                   signOutFormId={signOutFormId}
                   links={[
                     { href: '/account', label: '我的帳號', icon: 'account' },

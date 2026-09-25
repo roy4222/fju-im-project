@@ -24,6 +24,11 @@ export type Actor = {
   readonly status: AccountStatus
   readonly mustChangePassword: boolean
   readonly cohortMemberships: readonly CohortMembership[]
+  /**
+   * 本人的顯示姓名（個人資料列的姓名；還沒有個人資料列就是帳號名稱）。只給外殼的頭像與問候用，
+   * **不拿來做任何授權判斷**。選填：測試裡手工組的 Actor 可以不給，畫面退回顯示角色字。
+   */
+  readonly displayName?: string
 }
 
 /** 沒有有效 session 時的結果。刻意是明確的值，不是 `null`，呼叫端就漏不掉。 */

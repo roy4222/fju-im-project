@@ -93,6 +93,7 @@ function grouped(items: readonly Item[]): { title: Group; items: (Item & { icon:
  */
 export function DashboardFrame({
   roleLabel,
+  userName,
   items,
   current,
   homeHref,
@@ -101,6 +102,8 @@ export function DashboardFrame({
   children,
 }: {
   roleLabel: string
+  /** 本人姓名（頂列頭像）；取不到就顯示角色。 */
+  userName?: string
   items: readonly Item[]
   current: string
   homeHref: string
@@ -191,7 +194,7 @@ export function DashboardFrame({
           <p className="ml-1 truncate text-[15px] font-bold">{title}</p>
           <div className="ml-auto flex items-center gap-1.5">
             {bell}
-            <AccountMenu roleLabel={roleLabel} links={accountLinks} signOutFormId={signOutFormId} compact />
+            <AccountMenu roleLabel={roleLabel} name={userName} links={accountLinks} signOutFormId={signOutFormId} compact />
           </div>
         </header>
         <div className="mx-auto w-full max-w-[1320px] min-w-0 flex-1 p-4 md:p-6 lg:px-8 lg:py-7">{children}</div>
