@@ -77,20 +77,31 @@ if LC_ALL=C grep -iEq '(^|[^A-Za-z0-9.-])fju\.roy422\.dev' "$CHECKLIST"; then
 fi
 
 # 清單裡的網址只准測試站與原型：其他網域（例如 Google 登入頁）一律不讓 Codex 去。
-# 抓網址只收 URL 合法的 ASCII 字元（不含 ' ( ) [ ] 與反引號），抓到後轉小寫再比對；
-# 網域後面只能是結尾、/、? 或 #（:443、@、%2E、.evil.com 之類都擋）。
+# 照瀏覽器（WHATWG URL）的切法：scheme 後面到第一個 / ? # \ 或空白為止是 authority。
+# authority 裡有 @ 就是「userinfo@主機」——`https://test.fju.roy422.dev(@evil.com/` 真正連的是 evil.com——一律擋。
+# 沒有 @ 的，去掉結尾的反引號、括號、引號與中文標點後，必須「完全等於」兩個准許的網域之一：
+# port（:443）、%2E、.evil.com、全形字（瀏覽器會把全形 Ｘ 轉成 x）都不等於，都擋。scheme 只准 https。
+# `https:evil.com`、`https:\\evil.com` 這種少斜線的寫法瀏覽器也當網址，一併抓進來（統一改寫成 https:// 再比）。
+url_authorities() {
+  LC_ALL=C grep -iEo 'https?:[/\\]*[^[:space:]/?#\\]*' "$CHECKLIST" \
+    | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+    | LC_ALL=C sed -E 's#^(https?):[/\\]*#\1://#'
+}
 while IFS= read -r url; do
   case "$url" in
-    "$TARGET_URL"|"$TARGET_URL"[/?#]*|"$PROTOTYPE_URL"|"$PROTOTYPE_URL"[/?#]*) ;;
-    *) die "驗收清單裡有不准打的網址：${url}（只准 ${TARGET_URL} 與原型 ${PROTOTYPE_URL}）。" ;;
+    *@*) die "驗收清單裡的網址帶了 @（瀏覽器會把 @ 後面當成真正要連的主機）：${url}" ;;
   esac
-done < <(LC_ALL=C grep -iEo 'https?://[A-Za-z0-9._~:/?#@!$&*+,;=%-]+' "$CHECKLIST" | LC_ALL=C tr '[:upper:]' '[:lower:]' || true)
+  origin="$(printf '%s\n' "$url" | LC_ALL=C sed -E "s/([]\`)>\"'*,.;]|，|。|、|）|」)+\$//")"
+  case "$origin" in
+    "$TARGET_URL"|"$PROTOTYPE_URL") ;;
+    *) die "驗收清單裡有不准打的網址：${url}（只准 ${TARGET_URL} 與原型 ${PROTOTYPE_URL}，網域後面接 / ? # 或空白）。" ;;
+  esac
+done < <(url_authorities || true)
 
-# 上面的抓取遇到非 ASCII 字元就停：`https://test.fju.roy422.devＸevil.com/` 會只抓到測試站網域而放行，
-# 但瀏覽器會把全形 Ｘ 轉成 x、連到別的網域。所以准許的網域後面緊接非 ASCII（或控制字元）一律擋，
-# 要接中文就先用反引號、空格或 / 隔開。
-if LC_ALL=C grep -iEq '(test\.fju\.roy422\.dev|fju-prototype\.roy422roy\.workers\.dev)[^[:print:][:space:]]' "$CHECKLIST"; then
-  die "驗收清單裡准許的網域後面直接接了非 ASCII 字元（例如全形字），請用反引號、空格或 / 隔開。"
+# 空白隔開的 `https://test.fju.roy422.dev @evil.com/` 也可能被讀成一個網址（主機是 evil.com）：
+# 網址的 authority 後面隔著空白直接接 @ 也擋。
+if LC_ALL=C grep -iEq 'https?:[/\\]*[^[:space:]/?#\\]*[[:space:]]+@' "$CHECKLIST"; then
+  die "驗收清單裡有網址後面隔著空白接 @ 的寫法，請改寫（瀏覽器可能把 @ 後面當成要連的主機）。"
 fi
 
 case "$SANDBOX" in
@@ -242,13 +253,19 @@ fi
 # Codex 自編的測試密碼沒有固定格式，這裡掃不到——靠清單要求它不寫進報告。
 temp_pw='[A-HJ-NP-Za-hjkmnp-z2-9]{4}(-[A-HJ-NP-Za-hjkmnp-z2-9]{4}){3}'
 temp_leaked=()
+# grep -l 只列檔名（輸出目錄路徑含 : 也不會切錯）；真的有沒有命中由 perl 判斷：有遮就結束碼 0、沒有就 3。
 while IFS= read -r file; do
   [ -n "$file" ] || continue
+  temp_status=0
   TEMP_PW="$temp_pw" perl -pi -e \
-    's/(?<![A-Za-z0-9-])(?!(?:XXXX-){3}XXXX(?![A-Za-z0-9-]))$ENV{TEMP_PW}(?![A-Za-z0-9-])/[已遮蔽]/g' "$file"
-  temp_leaked+=("$file")
-done < <(LC_ALL=C grep -rIoE "(^|[^A-Za-z0-9-])${temp_pw}([^A-Za-z0-9-]|\$)" "$RUN_DIR" 2>/dev/null \
-  | grep -v 'XXXX-XXXX-XXXX-XXXX' | cut -d: -f1 | sort -u || true)
+    '$n += s/(?<![A-Za-z0-9-])(?!(?:XXXX-){3}XXXX(?![A-Za-z0-9-]))$ENV{TEMP_PW}(?![A-Za-z0-9-])/[已遮蔽]/g; END { exit($n ? 0 : 3) }' \
+    "$file" || temp_status=$?
+  case "$temp_status" in
+    0) temp_leaked+=("$file") ;;
+    3) ;;
+    *) echo "⚠️ 沒辦法檢查 ${file} 裡有沒有臨時密碼（perl 以 ${temp_status} 結束），請自己看一眼。" >&2 ;;
+  esac
+done < <(LC_ALL=C grep -rIlE "$temp_pw" "$RUN_DIR" 2>/dev/null || true)
 if [ "${#temp_leaked[@]}" -gt 0 ]; then
   echo "⚠️ 輸出裡有像老師臨時密碼的字串，已遮蔽這些檔案：${temp_leaked[*]}（臨時密碼改密後即失效；若那位老師沒改密成功，確認收尾已停用他）" >&2
 fi
