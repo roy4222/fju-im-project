@@ -73,9 +73,10 @@ export async function signIn(page: Page, email: string, password: string) {
   ])
 }
 
-/** 按側邊的「登出」，回到登入頁或首頁。 */
+/** 按右上角帳號選單裡的「登出」，回到登入頁或首頁。 */
 export async function signOut(page: Page) {
-  await page.getByRole('button', { name: '登出' }).first().click()
+  await page.getByRole('button', { name: '帳號選單' }).first().click()
+  await page.getByRole('menuitem', { name: '登出' }).click()
   await page.waitForURL((url) => url.pathname === '/login' || url.pathname === '/', { timeout: 20_000 })
 }
 

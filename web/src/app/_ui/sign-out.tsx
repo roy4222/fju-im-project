@@ -15,3 +15,13 @@ export function SignOutButton({ className }: { className?: string }) {
     </form>
   )
 }
+
+/**
+ * 看不見的登出表單，給帳號下拉選單裡的「登出」用（`<button form={id}>` 指到這裡）。
+ *
+ * 選單內容是 client 端開了才掛上去的，表單本身放在伺服器輸出的外殼裡，
+ * 所以登出仍然是同一支 Server Action 的 POST，不是連結。
+ */
+export function SignOutForm({ id }: { id: string }) {
+  return <form id={id} action={signOutAction} hidden />
+}

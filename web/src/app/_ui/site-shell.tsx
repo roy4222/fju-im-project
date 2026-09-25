@@ -1,8 +1,11 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
+import type { ResolvedActor } from '@/application/accounts'
+import { DashboardFrame } from '@/app/_ui/dashboard-frame'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
-import { SignOutButton } from '@/app/_ui/sign-out'
-import type { ReactNode } from 'react'
+import { SiteHeader } from '@/app/_ui/site-header'
+import { SignOutForm } from '@/app/_ui/sign-out'
 import { cn } from '@/shared/cn'
 
 /** 前台主導覽（票 16；產品模組 09 §9.2）。檔案下載要登入，訪客點進去會看到登入提示。 */
@@ -14,91 +17,114 @@ const PUBLIC_NAV: readonly NavItem[] = [
   { href: '/industry', label: '產學合作' },
 ]
 
+const SIGN_OUT_FORM_ID = 'site-sign-out'
+
+/** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
+function viewerOf(actor: ResolvedActor): { roleLabel: string; workbench: { href: string; label: string } } | null {
+  if (actor.kind !== 'authenticated') return null
+  const href = homeFor(actor)
+  if (href === '/dashboard/admin') return { roleLabel: '系辦', workbench: { href, label: '管理後台' } }
+  if (href === '/dashboard/teacher') return { roleLabel: '老師', workbench: { href, label: '老師工作台' } }
+  if (href === '/dashboard/student') return { roleLabel: '學生', workbench: { href, label: '我的專題事務' } }
+  return { roleLabel: '待審核', workbench: { href, label: '申請進度' } }
+}
+
 /**
- * 公開頁與登入前頁面的外殼：頂部一條（站名、主導覽、登入或回後台），內容單欄置中。
+ * 公開頁與登入前頁面的外殼（原型 `(public)/layout.tsx`）：頂部導覽列、內容、深藍頁尾。
  *
- * 右上角看登入狀態：沒登入給「登入／註冊」，登入了給「我的首頁」（回自己角色的後台）。
+ * 右上角看登入狀態：沒登入給橘色「登入」，登入了給「回後台」按鈕與頭像下拉。
  * `current` 是目前所在的前台區塊，導覽會標出來。
+ * `bare`：內容自己決定寬度與留白（首頁、登入卡片）；預設是置中的內容欄。
  */
-export async function SiteShell({ children, current }: { children: ReactNode; current?: string }) {
+export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
   const actor = await currentActor()
-  const signedIn = actor.kind === 'authenticated'
+  const viewer = viewerOf(actor)
   return (
-    <div className="min-h-dvh bg-background">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-          <Link href="/" className="text-sm font-semibold text-ink">
-            輔仁大學資訊管理學系專題管理平台
-          </Link>
-          <div className="flex flex-wrap items-center gap-1 text-sm">
-            <nav aria-label="主導覽" className="flex flex-wrap items-center gap-1">
-              {PUBLIC_NAV.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={current === item.href ? 'page' : undefined}
-                  className={cn(
-                    'rounded-md px-3 py-1.5 hover:bg-muted',
-                    current === item.href ? 'font-semibold text-primary' : 'text-ink',
-                  )}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-            {signedIn ? (
-              <Link
-                href={homeFor(actor)}
-                className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90"
-              >
-                我的首頁
-              </Link>
-            ) : (
-              <>
-                <Link href="/login" className="rounded-md px-3 py-1.5 text-ink hover:bg-muted">
-                  登入
-                </Link>
-                <Link
-                  href="/register"
-                  className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90"
-                >
-                  註冊
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+    <div className="flex min-h-dvh flex-col bg-background">
+      <SiteHeader nav={PUBLIC_NAV} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
+      {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
+      <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
+      <SiteFooter viewer={viewer} />
     </div>
   )
 }
 
-/**
- * 登入、註冊這類「只有一張卡」的頁面。
- *
- * `wide` 給欄位比較多的表單（註冊、等待審核頁）：兩欄並排，跟原型的 560px 卡片一樣寬。
- */
-export function NarrowShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+/** 深藍頁尾（原型 `site-footer.tsx`）：系所資訊＋兩欄連結。只連 web 已經有的頁。 */
+function SiteFooter({ viewer }: { viewer: ReturnType<typeof viewerOf> }) {
+  const columns = [
+    { title: '內容', links: PUBLIC_NAV },
+    {
+      title: '使用',
+      links: viewer
+        ? [
+            { href: '/account', label: '我的帳號' },
+            { href: viewer.workbench.href, label: viewer.workbench.label },
+          ]
+        : [
+            { href: '/login', label: '登入' },
+            { href: '/register', label: '註冊' },
+          ],
+    },
+  ]
   return (
-    <div className="min-h-dvh bg-surface">
-      <div className={cn('mx-auto flex min-h-dvh flex-col justify-center px-4 py-10', wide ? 'max-w-xl' : 'max-w-md')}>
-        <Link href="/" className="mb-6 block text-center text-sm font-semibold text-ink">
-          輔仁大學資訊管理學系專題管理平台
-        </Link>
-        {children}
+    <footer className="bg-ink text-ink-foreground">
+      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
+        <div>
+          <p className="text-lg font-bold">輔仁大學資訊管理學系</p>
+          <p className="mt-3 text-[13px] leading-loose opacity-85">
+            242 新北市新莊區中正路 510 號 利瑪竇大樓
+            <br />
+            電話 +886-2-2905-2696
+            <br />
+            專題相關事務請洽系辦公室
+          </p>
+        </div>
+        {columns.map((col) => (
+          <nav key={col.title} aria-label={`頁尾：${col.title}`}>
+            <p className="text-sm font-bold">{col.title}</p>
+            <ul className="mt-3 space-y-2.5">
+              {col.links.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href} className="text-sm opacity-85 transition-opacity hover:underline hover:opacity-100">
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
       </div>
-    </div>
+      <div className="border-t border-white/15">
+        <div className="mx-auto max-w-6xl px-5 py-4 text-xs opacity-75">© 2026 輔仁大學資訊管理學系</div>
+      </div>
+    </footer>
+  )
+}
+
+/**
+ * 登入、註冊這類「只有一張卡」的頁面（原型 `auth-card.tsx` 的灰底置中區）。
+ * 外面一樣有前台導覽列與頁尾。卡片本身用 `AuthCard`（primitives）。
+ *
+ * `wide` 給欄位比較多的表單（註冊、等待審核頁）：跟原型的 560px 卡片一樣寬。
+ */
+export async function NarrowShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <SiteShell bare>
+      <div className="flex min-h-[720px] items-center justify-center bg-muted/50 px-5 py-16">
+        <div className={cn('flex w-full flex-col gap-4', wide ? 'max-w-[560px]' : 'max-w-[440px]')}>{children}</div>
+      </div>
+    </SiteShell>
   )
 }
 
 export type NavItem = { href: string; label: string }
 
 /**
- * 後台外殼：側欄 ＋ 內容。
+ * 後台外殼：側欄＋頂列＋內容（原型 `dashboard/[role]/layout.tsx`）。
  *
- * 行動版（< md）側欄收成一個 `<details>` 下拉：不需要任何 client JS，
- * 也就不必為了一個選單放寬 CSP。桌機版側欄固定在左邊。
+ * 每一頁自己呼叫（角色守衛在頁面，見 `_nav.ts`）；`current` 是側欄要標出來的那一項。
+ * 外觀在 `DashboardFrame`（client：側欄收合、手機抽屜、帳號下拉），
+ * 這裡只放伺服器才做得到的：通知鈴鐺的未讀數、登出表單。
  */
 export function DashboardShell({
   roleLabel,
@@ -111,67 +137,22 @@ export function DashboardShell({
   current: string
   children: ReactNode
 }) {
+  const base = current.split('/').slice(0, 3).join('/')
+  const signOutFormId = 'dashboard-sign-out'
   return (
-    <div className="min-h-dvh bg-surface md:grid md:grid-cols-[16rem_1fr]">
-      <aside className="border-b border-border bg-ink text-ink-foreground md:border-b-0 md:border-r md:border-border">
-        <div className="flex items-center justify-between gap-2 px-4 py-3">
-          <Link href="/" className="text-sm font-semibold">
-            資管系專題平台
-          </Link>
-          <div className="flex items-center gap-2">
-            {/* 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。 */}
-            <InboxBell href={`${current.split('/').slice(0, 3).join('/')}/inbox`} />
-            <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-              {roleLabel}
-            </span>
-          </div>
-        </div>
-
-        {/* 行動版：收合選單。桌機版：md 以上直接展開，details 的開合不影響。 */}
-        <details className="md:hidden" name="dashboard-nav">
-          <summary className="cursor-pointer list-none border-t border-white/10 px-4 py-2 text-sm">
-            選單
-          </summary>
-          <NavList items={items} current={current} />
-        </details>
-        <div className="hidden md:block">
-          <NavList items={items} current={current} />
-        </div>
-
-        <div className="space-y-1 border-t border-white/10 px-4 py-3 text-sm">
-          <Link href="/account" className="block rounded-md px-2 py-1.5 hover:bg-white/10">
-            我的帳號
-          </Link>
-          <SignOutButton className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-white/10" />
-        </div>
-      </aside>
-
-      <div className="min-w-0">
-        <main className="mx-auto max-w-4xl px-4 py-8">{children}</main>
-      </div>
-    </div>
-  )
-}
-
-function NavList({ items, current }: { items: readonly NavItem[]; current: string }) {
-  return (
-    <nav className="px-2 py-2">
-      <ul className="space-y-1">
-        {items.map((item) => (
-          <li key={item.href}>
-            <Link
-              href={item.href}
-              aria-current={item.href === current ? 'page' : undefined}
-              className={cn(
-                'block rounded-md px-3 py-2 text-sm',
-                item.href === current ? 'bg-primary text-primary-foreground' : 'hover:bg-white/10',
-              )}
-            >
-              {item.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
+    <>
+      <SignOutForm id={signOutFormId} />
+      <DashboardFrame
+        roleLabel={roleLabel}
+        items={items}
+        current={current}
+        homeHref={base}
+        // 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。
+        bell={<InboxBell href={`${base}/inbox`} />}
+        signOutFormId={signOutFormId}
+      >
+        {children}
+      </DashboardFrame>
+    </>
   )
 }

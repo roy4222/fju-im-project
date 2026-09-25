@@ -44,6 +44,8 @@ RUN addgroup -g 1001 -S nodejs && adduser -u 1001 -S nextjs -G nodejs
 # Next standalone 產物（含它自己 trace 出來的 node_modules）。
 COPY --from=build --chown=nextjs:nodejs /repo/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /repo/web/.next/static ./web/.next/static
+# 靜態檔（系網 logo 等）。standalone 產物不含 public/，要自己複製（Next 官方 standalone 說明）。
+COPY --from=build --chown=nextjs:nodejs /repo/web/public ./web/public
 
 # migrate 服務要用的東西：純 SQL、執行腳本，以及 production 依賴。
 COPY --from=build --chown=nextjs:nodejs /repo/web/drizzle ./migrate/web/drizzle

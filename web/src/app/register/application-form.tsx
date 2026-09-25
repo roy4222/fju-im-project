@@ -25,7 +25,7 @@ export type ApplicationFormState =
   | undefined
 
 const INPUT =
-  'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm aria-[invalid=true]:border-danger'
+  'mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20 aria-[invalid=true]:border-danger'
 
 function Input({
   label,
@@ -54,7 +54,7 @@ function Input({
   const invalid = invalidField === name
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-ink">
+      <label htmlFor={id} className="block text-sm font-semibold text-foreground">
         {label}
       </label>
       <input
@@ -201,7 +201,7 @@ export function ApplicationForm({
       <button
         type="submit"
         disabled={pending}
-        className="h-11 w-full rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+        className="btn-fju h-12 w-full text-base"
       >
         {pending ? '送出中…' : submitLabel}
       </button>

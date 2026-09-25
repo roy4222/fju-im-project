@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { ActionForm, Field } from '@/app/_ui/form'
-import { Card } from '@/app/_ui/primitives'
+import { AuthCard } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { changePasswordAction } from '@/app/account/change-password/actions'
 import { getSelfAccountCommand, MIN_PASSWORD_LENGTH } from '@/composition/accounts'
@@ -28,7 +28,7 @@ export default async function ChangePasswordPage() {
 
   return (
     <NarrowShell>
-      <Card
+      <AuthCard
         title={forced ? '請先更改密碼' : '更改密碼'}
         description={
           forced
@@ -52,7 +52,7 @@ export default async function ChangePasswordPage() {
           />
           <Field label="再輸入一次新密碼" name="confirmPassword" type="password" autoComplete="new-password" />
         </ActionForm>
-      </Card>
+      </AuthCard>
       <p className="mt-4 text-center text-xs text-muted-foreground">
         改完密碼之後，這個帳號在其他瀏覽器或裝置上的登入都會被撤銷。
       </p>
