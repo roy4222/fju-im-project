@@ -313,6 +313,10 @@ test('登入的學生：多看到登入可見的公告（有標示）與資源�
   const href = await resource.getByRole('link', { name: '報告範本.pdf' }).getAttribute('href')
   const download = await page.request.get(href!, { headers: { cookie: student.cookie } })
   expect(download.status()).toBe(200)
+
+  // 手機版分類照原型直列（不是橫排 pill）。
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole('navigation', { name: '檔案分類' })).toHaveCSS('flex-direction', 'column')
 })
 
 test('下架：網址顯示「已下架」與下一步（不是 404）、附件收回；重新發布恢復，實際開放時間不變', async ({ page }) => {
