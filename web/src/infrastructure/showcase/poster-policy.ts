@@ -1,0 +1,54 @@
+import 'server-only'
+import type { Pool } from 'pg'
+import type { DownloadPolicy } from '@/application/ops'
+
+/**
+ * 精選海報的下載政策（`DOWNLOAD_POLICIES.poster`；票 25）。公開頁的海報要過 S12 的公開閘門，不走這裡。
+ *
+ * 誰能下載：
+ * - 管理員：草稿上、或被簽核版本凍結的海報都可以（編輯與核對要用）。
+ * - 綁在精選草稿上（`showcase_draft`）：那一組**此刻**的有效組員與主指導（草稿是這一組的作品介紹）。
+ * - 綁在簽核版本上（`signoff_version`，建版時凍結的授權範圍素材）：那一版的參與者（快照裡的學生與主指導）——
+ *   授權範圍列在全文之後讓參與者讀完再同意，他們要看得到自己同意公開的那張海報。
+ * - 其他人、沒被任何草稿或版本引用的檔（剛上傳還沒存、換圖後被放掉的）一律拒絕。
+ *
+ * 只看目前有效的引用（`released_at IS NULL`，共用檔案能力先篩好）；每次下載都重查（契約 03 §4）。
+ */
+export function createPosterPolicy(reader: () => Pick<Pool, 'query'>): DownloadPolicy {
+  return async (actor, file) => {
+    if (actor.kind !== 'authenticated') return false
+    const draftEntryIds = file.references.filter((r) => r.refType === 'showcase_draft').map((r) => r.refId)
+    const versionIds = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
+    if (draftEntryIds.length === 0 && versionIds.length === 0) return false
+    if (actor.roles.includes('admin')) return true
+
+    const db = reader()
+    if (draftEntryIds.length > 0) {
+      const member = await db.query(
+        `select 1
+           from showcase_entries e
+          where e.id = any($1::uuid[]) and e.group_id is not null
+            and (exists (select 1 from group_memberships m
+                          where m.group_id = e.group_id and m.user_id = $2 and m.valid_to is null)
+                 or exists (select 1 from advisor_assignments a
+                             where a.group_id = e.group_id and a.teacher_user_id = $2 and a.valid_to is null))
+          limit 1`,
+        [draftEntryIds, actor.userId],
+      )
+      if ((member.rowCount ?? 0) > 0) return true
+    }
+    if (versionIds.length > 0) {
+      const participant = await db.query(
+        `select 1
+           from signoff_package_versions v
+          where v.id = any($1::uuid[])
+            and (v.participants -> 'advisor' ->> 'userId' = $2
+                 or exists (select 1 from jsonb_array_elements(v.participants -> 'students') s where s ->> 'userId' = $2))
+          limit 1`,
+        [versionIds, actor.userId],
+      )
+      if ((participant.rowCount ?? 0) > 0) return true
+    }
+    return false
+  }
+}

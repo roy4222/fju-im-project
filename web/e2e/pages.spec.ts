@@ -218,6 +218,11 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
     '/dashboard/teacher/grading': '暫存只有你和系辦看得到，正式送出後鎖定',
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
+    // 簽核與精選（票 25）。
+    '/dashboard/admin/signoff': '系辦不能代替任何人同意',
+    '/dashboard/admin/showcase': '草稿不會公開',
+    '/dashboard/teacher/signoff': '你此刻指導的組別的簽核版本',
+    '/dashboard/student/signoff': '每個人只代表自己一票',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -249,6 +254,11 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/grading', wrongRole: 'student' },
     { path: '/dashboard/student/grading', wrongRole: 'teacher' },
+    // 簽核與精選（票 25）。
+    { path: '/dashboard/admin/signoff', wrongRole: 'student' },
+    { path: '/dashboard/admin/showcase', wrongRole: 'student' },
+    { path: '/dashboard/teacher/signoff', wrongRole: 'student' },
+    { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

@@ -29,6 +29,7 @@ const MIGRATION_BY_SLICE = {
   S06: 'drizzle/0007_s06_advisors.sql',
   S07: 'drizzle/0008_s07_group_submissions.sql',
   S10: 'drizzle/0009_s10_grading.sql',
+  S11: 'drizzle/0010_s11_signoff_showcase.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'

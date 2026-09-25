@@ -55,6 +55,7 @@ import {
 } from '@/application/groups'
 import type { DueWorkScheduler, EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
+import type { SignoffParticipantHook } from '@/application/signoff'
 import {
   authorizeAdmin,
   badRequestId,
@@ -64,6 +65,7 @@ import {
   type PoolSource,
 } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personName } from '@/infrastructure/db/person-name'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, type Err, type Result } from '@/shared/result'
@@ -166,6 +168,11 @@ type Deps = {
   events: EventPublisher<PoolClient>
   dueWork: DueWorkScheduler<PoolClient>
   businessClock: BusinessClockSource
+  /**
+   * 票 25：成員集合改變時，同一筆交易讓這一組目前的簽核版本失效（模組 07 §5 `supersedeForParticipantChange`）。
+   * 可以不給（票 13／14 的舊測試不需要簽核）；正式組裝一定有（`composition/groups.ts`）。
+   */
+  signoff?: SignoffParticipantHook<PoolClient>
   pool?: PoolSource
   realClock?: Clock
 }
@@ -222,6 +229,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
   readonly #businessClock: BusinessClockSource
   readonly #pool: PoolSource
   readonly #realClock: Clock
+  readonly #signoff: SignoffParticipantHook<PoolClient> | undefined
 
   constructor(deps: Deps) {
     this.#audit = deps.audit
@@ -231,6 +239,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
     this.#businessClock = deps.businessClock
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
+    this.#signoff = deps.signoff
   }
 
   // ── 公開找組員 ──────────────────────────────────────────────────────────────
@@ -326,7 +335,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，不能再分組。`)
 
       const me = await tx.query<{ student_no: string | null; name: string }>(
-        `select p.student_no, coalesce(p.display_name, u.name) as name
+        `select p.student_no, ${personName('p', 'u')} as name
            from users u left join user_profiles p on p.user_id = u.id where u.id = $1`,
         [proposerId],
       )
@@ -359,7 +368,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
 
       // 其他組員：同屆、有效學號（student_identities＝已核准）、帳號正常、目前是學生。
       const found = await tx.query<{ user_id: string; student_no: string; name: string }>(
-        `select si.user_id, si.student_no, coalesce(p.display_name, u.name) as name
+        `select si.user_id, si.student_no, ${personName('p', 'u')} as name
            from student_identities si
            join users u on u.id = si.user_id
            left join user_profiles p on p.user_id = si.user_id
@@ -855,7 +864,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
 
       // 同屆、已核准（有 student_identities）、帳號正常、目前是學生——和發起提案同一條條件。
       const found = await tx.query<{ user_id: string; name: string }>(
-        `select si.user_id, coalesce(p.display_name, u.name) as name
+        `select si.user_id, ${personName('p', 'u')} as name
            from student_identities si
            join users u on u.id = si.user_id
            left join user_profiles p on p.user_id = si.user_id
@@ -877,7 +886,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       await this.#expireOverdueOccupying(tx, [student.user_id], businessNow)
 
       const occupying = await tx.query<{ proposer_name: string }>(
-        `select coalesce(pp.display_name, pu.name) as proposer_name
+        `select ${personName('pp', 'pu')} as proposer_name
            from proposal_occupancy o
            join group_proposals gp on gp.id = o.proposal_id
            join users pu on pu.id = gp.proposer_user_id
@@ -939,6 +948,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
+      // 成員集合變了：這一組目前的簽核版本同交易失效（舊同意留歷史、不自動建新版；票 25）。
+      const signoff = await this.#supersedeSignoff(tx, group.id, adminId, realAt, businessNow)
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
@@ -951,7 +962,13 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         reason,
         realAt,
         businessAt: businessNow,
-        payload: { userId: student.user_id, membershipId, memberCount: members.length, sizeWarning },
+        payload: {
+          userId: student.user_id,
+          membershipId,
+          memberCount: members.length,
+          sizeWarning,
+          supersededSignoffVersionIds: signoff,
+        },
       })
 
       const receipt = {
@@ -1065,6 +1082,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
+      // 成員集合變了：這一組目前的簽核版本同交易失效（舊同意留歷史、不自動建新版；票 25）。
+      const signoff = await this.#supersedeSignoff(tx, group.id, adminId, realAt, businessNow)
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
@@ -1083,6 +1102,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
           memberCount: after.length,
           sizeWarning,
           successorLeaderUserId: decision.leaderChange ? successorId : null,
+          supersededSignoffVersionIds: signoff,
         },
       })
 
@@ -1100,6 +1120,19 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, membershipId: target.id } })
       return { ok: true as const, receipt }
     })
+  }
+
+  /** 票 25：成員集合改變 → 目前簽核版本失效（沒注入簽核時什麼都不做）。回傳失效的版本 id，記進稽核。 */
+  async #supersedeSignoff(tx: PoolClient, groupId: string, adminId: string, realAt: Date, businessAt: Date): Promise<readonly string[]> {
+    if (!this.#signoff) return []
+    const result = await this.#signoff.supersedeForParticipantChange(tx, {
+      groupId,
+      cause: 'member_change',
+      actorUserId: adminId,
+      realAt,
+      businessAt,
+    })
+    return result.supersededVersionIds
   }
 
   async changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>> {
@@ -1212,7 +1245,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
 
   async #currentMembers(tx: PoolClient, groupId: string): Promise<{ id: string; user_id: string; name: string }[]> {
     const rows = await tx.query<{ id: string; user_id: string; name: string }>(
-      `select m.id, m.user_id, coalesce(p.display_name, u.name) as name
+      `select m.id, m.user_id, ${personName('p', 'u')} as name
          from group_memberships m
          join users u on u.id = m.user_id
          left join user_profiles p on p.user_id = m.user_id
@@ -1491,7 +1524,7 @@ type InvitationListRow = {
 
 const PROPOSAL_SELECT = `
   select p.id, p.cohort_id, p.group_type, p.state, p.proposer_user_id,
-         coalesce(pp.display_name, pu.name) as proposer_name,
+         ${personName('pp', 'pu')} as proposer_name,
          p.expires_business_at, p.created_business_at, p.closed_business_at, p.termination_kind, p.reason,
          g.code as group_code
     from group_proposals p
@@ -1536,8 +1569,8 @@ export class PgGroupQuery implements GroupQuery {
     if (!isUuid(cohortId) || !canViewTeammates(actor, cohortId)) return []
     const viewer = actor.kind === 'authenticated' ? actor.userId : null
     const rows = await this.#reader().query<{ name: string; student_no: string; contact_email: string }>(
-      // display_name 欄是 NOT NULL，但可能是空字串：空的就退回帳號名稱（票 13 審查建議），名單不會出現空名字。
-      `select coalesce(nullif(btrim(p.display_name), ''), u.name) as name, p.student_no, p.contact_email
+      // 人名一律走 `personName`：display_name 是空字串時退回帳號名稱（票 13、14 審查建議），名單不會出現空名字。
+      `select ${personName('p', 'u')} as name, p.student_no, p.contact_email
          from user_profiles p
          join users u on u.id = p.user_id
         where p.cohort_id = $1 and p.open_to_join and p.student_no is not null
@@ -1564,7 +1597,7 @@ export class PgGroupQuery implements GroupQuery {
       true,
     )
     const ungrouped = await this.#reader().query<{ name: string; student_no: string; open_to_join: boolean; in_proposal: boolean }>(
-      `select coalesce(p.display_name, u.name) as name, p.student_no, p.open_to_join,
+      `select ${personName('p', 'u')} as name, p.student_no, p.open_to_join,
               exists (select 1 from proposal_occupancy o where o.user_id = u.id) as in_proposal
          from user_profiles p
          join users u on u.id = p.user_id
@@ -1594,7 +1627,7 @@ export class PgGroupQuery implements GroupQuery {
 
   async teacherOptions(): Promise<TeacherOption[]> {
     const rows = await this.#reader().query<{ user_id: string; name: string; email: string }>(
-      `select u.id as user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name, u.email
+      `select u.id as user_id, ${personName('p', 'u')} as name, u.email
          from users u
          left join user_profiles p on p.user_id = u.id
         where u.status = 'active' and u.deidentified_at is null
@@ -1644,7 +1677,7 @@ export class PgGroupQuery implements GroupQuery {
       login_email: string | null
     }>(
       // 登入信箱（票 20 複製本組信箱、匯出）只在管理員的查詢裡 select；學生與老師的查詢連這一欄都不讀。
-      `select m.group_id, m.user_id, coalesce(p.display_name, u.name) as name, p.student_no,
+      `select m.group_id, m.user_id, ${personName('p', 'u')} as name, p.student_no,
               exists (select 1 from group_leaders l
                        where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
               ${forAdmin ? 'u.email' : 'null::text'} as login_email
@@ -1662,7 +1695,7 @@ export class PgGroupQuery implements GroupQuery {
       source: AdvisorSource
       valid_from: Date
     }>(
-      `select a.group_id, a.teacher_user_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
+      `select a.group_id, a.teacher_user_id, ${personName('p', 'u')} as teacher_name,
               a.source, a.valid_from
          from advisor_assignments a
          join users u on u.id = a.teacher_user_id
@@ -1746,17 +1779,17 @@ export class PgGroupQuery implements GroupQuery {
       removal_reason: string | null
       removed_by_name: string | null
     }>(
-      `select m.group_id, coalesce(p.display_name, u.name) as name, m.valid_from, m.valid_to, m.created_at, m.updated_at,
+      `select m.group_id, ${personName('p', 'u')} as name, m.valid_from, m.valid_to, m.created_at, m.updated_at,
               exists (select 1 from audit_events a
                        where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.add'
                          and a.payload->>'membershipId' = m.id::text) as added_after_establish,
-              coalesce(ap.display_name, au.name) as added_by_name,
+              ${personName('ap', 'au')} as added_by_name,
               m.removal_reason,
               (select a.reason from audit_events a
                 where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.add'
                   and a.payload->>'membershipId' = m.id::text
                 limit 1) as add_reason,
-              (select coalesce(rp.display_name, ru.name) from audit_events a
+              (select ${personName('rp', 'ru')} from audit_events a
                  join users ru on ru.id = a.actor_user_id
                  left join user_profiles rp on rp.user_id = ru.id
                 where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.remove'
@@ -1778,8 +1811,8 @@ export class PgGroupQuery implements GroupQuery {
       reason: string | null
       by_name: string | null
     }>(
-      `select l.group_id, coalesce(p.display_name, u.name) as name, l.valid_from, l.created_at, l.reason,
-              coalesce(bp.display_name, bu.name) as by_name
+      `select l.group_id, ${personName('p', 'u')} as name, l.valid_from, l.created_at, l.reason,
+              ${personName('bp', 'bu')} as by_name
          from group_leaders l
          join users u on u.id = l.user_id
          left join user_profiles p on p.user_id = l.user_id
@@ -1860,10 +1893,10 @@ export class PgGroupQuery implements GroupQuery {
       by_name: string | null
       ended_by_name: string | null
     }>(
-      `select a.id, a.group_id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name, a.source,
+      `select a.id, a.group_id, ${personName('p', 'u')} as name, a.source,
               a.valid_from, a.valid_to, a.created_at, a.ended_real_at, a.previous_assignment_id, a.reason, a.end_reason,
-              coalesce(bp.display_name, bu.name) as by_name,
-              coalesce(ep.display_name, eu.name) as ended_by_name
+              ${personName('bp', 'bu')} as by_name,
+              ${personName('ep', 'eu')} as ended_by_name
          from advisor_assignments a
          join users u on u.id = a.teacher_user_id
          left join user_profiles p on p.user_id = a.teacher_user_id
@@ -1914,7 +1947,7 @@ export class PgGroupQuery implements GroupQuery {
     }>(
       `select a.target_id as group_id, a.payload->>'from' as from_type, a.payload->>'to' as to_type,
               a.business_at, a.real_at, a.role, a.reason,
-              coalesce(nullif(btrim(p.display_name), ''), u.name) as actor_name
+              ${personName('p', 'u')} as actor_name
          from audit_events a
          left join users u on u.id = a.actor_user_id
          left join user_profiles p on p.user_id = a.actor_user_id
@@ -1952,8 +1985,8 @@ export class PgGroupQuery implements GroupQuery {
     }>(
       `select l.id, l.group_id, o.company_name || '・' || o.department as name, l.valid_from, l.valid_to, l.created_at,
               l.ended_real_at, l.previous_link_id, l.end_reason,
-              coalesce(nullif(btrim(bp.display_name), ''), bu.name) as by_name,
-              coalesce(nullif(btrim(ep.display_name), ''), eu.name) as ended_by_name
+              ${personName('bp', 'bu')} as by_name,
+              ${personName('ep', 'eu')} as ended_by_name
          from opportunity_links l
          join industry_opportunities o on o.id = l.opportunity_id
          left join users bu on bu.id = l.linked_by_user_id
@@ -2009,7 +2042,7 @@ export class PgGroupQuery implements GroupQuery {
     const proposals = await db.query<ProposalListRow>(`${PROPOSAL_SELECT} ${tail}`, values)
     if (proposals.rows.length === 0) return []
     const invitations = await db.query<InvitationListRow>(
-      `select i.proposal_id, i.user_id, coalesce(p.display_name, u.name) as name, p.student_no, i.state, i.decided_real_at
+      `select i.proposal_id, i.user_id, ${personName('p', 'u')} as name, p.student_no, i.state, i.decided_real_at
          from proposal_invitations i
          join users u on u.id = i.user_id
          left join user_profiles p on p.user_id = i.user_id

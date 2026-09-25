@@ -10,18 +10,18 @@ import {
 
 /** 模組 01 附錄 A `session_revocations` 規則 5 的純規則（票 12：背景工作週期核對）。 */
 describe('撤 session 的收斂規則', () => {
-  it('業務狀態 → 應有的 banned；pending 不核對', () => {
+  it('業務狀態 → 應有的 banned；待審跟 active 一樣不封鎖（孤兒停用後恢復回待審要能登入）', () => {
     expect(expectedBannedFor('disabled')).toBe(true)
     expect(expectedBannedFor('deidentified')).toBe(true)
     expect(expectedBannedFor('active')).toBe(false)
-    expect(expectedBannedFor('pending')).toBeNull()
+    expect(expectedBannedFor('pending')).toBe(false)
   })
 
   it('目標狀態 → 工作種類', () => {
     expect(revocationKindFor('disabled')).toBe('ban')
     expect(revocationKindFor('active')).toBe('unban')
     expect(revocationKindFor('deidentified')).toBe('revoke_all')
-    expect(revocationTargetOf('pending')).toBeNull()
+    expect(revocationTargetOf('pending')).toBe('active')
   })
 
   it('自動收斂輪次 +1；manual_retry 沿用前一筆；沒有前一筆從 1 開始', () => {
