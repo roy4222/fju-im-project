@@ -330,6 +330,17 @@ test('發布更新：小幅修改選不通知就不發事件；還沒人作答�
   expect((await itemByTitle(title)).actual_opened_at).toEqual(opened)
 })
 
+test('自動檢查傳輸失敗：說連線中斷，不會一直停在「檢查中…」', async ({ page }) => {
+  await asAdmin(page)
+  // 只擋 Server Action（自動檢查走 reviewItemAction）；頁面本身照常載入。
+  await page.route('**/dashboard/admin/editor/new**', (route) =>
+    route.request().method() === 'POST' && route.request().headers()['next-action'] ? route.abort('failed') : route.continue(),
+  )
+  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await expect(page.getByText('自動檢查連線中斷；請按「檢查與預覽」再試一次。')).toBeVisible()
+  await expect(page.getByText('檢查中…', { exact: true })).toHaveCount(0)
+})
+
 test('截止早於開放：存草稿就被擋下，給明確的錯誤', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)

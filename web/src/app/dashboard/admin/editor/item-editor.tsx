@@ -346,7 +346,13 @@ export function ItemEditor({
             setReviewErrorField(result.field ?? null)
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          // 傳輸失敗（斷線、伺服器沒回）：說清楚，不要一直停在「檢查中…」。
+          if (seq !== reviewSeq.current) return
+          setReview(null)
+          setReviewError('自動檢查連線中斷；請按「檢查與預覽」再試一次。')
+          setReviewErrorField(null)
+        })
     }, seq === 1 ? 0 : 700) // 打開頁面時馬上檢查一次；之後停手 0.7 秒才重跑
     return () => clearTimeout(timer)
   }, [state, itemId])
