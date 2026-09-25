@@ -361,8 +361,10 @@ test('x2:36 SUB-10 SHW-09 整組收件：學生 1 送 v1、學生 2 重送 v2；
   const byAdmin = await latestVersionRow(admin, '正式送出的版本')
   expect(byAdmin).toContain('第 2 次')
   expect(byAdmin).toContain(student(1).name)
-  await admin.getByRole('link', { name: '查看內容' }).first().click()
-  await expect(admin.getByTestId('version-view')).toContainText('G1 題目修正')
+  // 系辦的版本表按鈕叫「看回答」（老師、學生那邊叫「查看內容」）。
+  await admin.getByRole('table', { name: '正式送出的版本' }).locator('tbody tr').first().getByRole('link', { name: '看回答' }).click()
+  await expect(admin).toHaveURL(/version=2/)
+  await expect(admin.getByRole('main')).toContainText('G1 題目修正')
   await shot(admin, 'admin-group-v2-content')
 
   // 學生 1：從通知匣（組員送出通知）與作業區兩個入口，進到同一頁；繳交歷史最新是學生 2 的 v2。
