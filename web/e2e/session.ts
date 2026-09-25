@@ -97,6 +97,28 @@ export async function createTestSession(
   }
 }
 
+/**
+ * 替測試帳號再加一個有效角色（票 41：兼任角色）。
+ *
+ * 要兼老師的先用 `createTestSession(…, 'teacher')` 造（它會把老師資料補好），再加其他角色；
+ * 反過來先造管理員再加老師，進老師後台會被導去補資料。加管理員時連套件的 `users.role` 一起設，
+ * 跟帳號列表「設為管理員」的結果一樣。
+ */
+export async function grantExtraRole(userId: string, role: TestRole): Promise<void> {
+  if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能加角色')
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  try {
+    await pool.query(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+       values (gen_random_uuid(), $1, $2, $1, now())`,
+      [userId, role],
+    )
+    if (role === 'admin') await pool.query(`update users set role = 'admin' where id = $1`, [userId])
+  } finally {
+    await pool.end()
+  }
+}
+
 /** 把 cookie 字串拆成 Playwright 的 cookie 物件。 */
 export function toPlaywrightCookie(cookie: string, baseUrl: string) {
   const [name, ...rest] = cookie.split('=')
