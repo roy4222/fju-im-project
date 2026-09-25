@@ -41,11 +41,17 @@ describe('seed-demo.mjs：只在測試站動手', () => {
 })
 
 describe('部署與映像', () => {
-  it('映像裡有 seed-demo.mjs 與 demo/（內容與封面圖），放在 migrate 底下、不進 web/public', () => {
+  it('映像裡有 seed-demo.mjs 與 demo/（內容與封面圖），放在 migrate 底下；示範封面不進 web/public', () => {
     const dockerfile = fs.readFileSync(path.join(webRoot, 'Dockerfile'), 'utf8')
     expect(dockerfile).toMatch(/COPY .*\/repo\/web\/scripts\/seed-demo\.mjs \.\/migrate\/web\/scripts\/seed-demo\.mjs/)
     expect(dockerfile).toMatch(/COPY .*\/repo\/web\/scripts\/demo \.\/migrate\/web\/scripts\/demo/)
-    expect(fs.existsSync(path.join(webRoot, 'public', 'placeholder'))).toBe(false)
+    // 防的是「示範資料的封面圖放進 web/public」：封面的來源只能是 scripts/demo/images，映像也不把它複製進 public。
+    // （`web/public/placeholder` 是 #289 依 #282 規則 1 放的前台畫面圖，不是示範資料，不在這裡擋；主控台 2026-09-25 裁定。）
+    const seed = fs.readFileSync(path.join(webRoot, 'scripts', 'seed-demo.mjs'), 'utf8')
+    expect(seed).toMatch(/const IMAGES = path\.join\(HERE, 'demo', 'images'\)/)
+    expect(seed).not.toMatch(/['"`]public['"`]\s*,\s*['"`]|\/public\//)
+    expect(dockerfile).not.toMatch(/scripts\/demo\S* \.\/web\/public/)
+    expect(fs.existsSync(path.join(webRoot, 'public', 'demo'))).toBe(false)
   })
 
   it('deploy.sh 只在 test 站呼叫 seed-demo（站台判斷在呼叫之前），demo-seed.off 在就略過', () => {
