@@ -368,6 +368,8 @@ describe('白名單路由的帳號狀態矩陣（契約 03 §2）', () => {
     const signIn = await call('POST', '/sign-in/email', { email, password })
     expect(signIn.status, '停用帳號不該拿得到 session').toBeGreaterThanOrEqual(400)
     expect(await sessionCount(email), '不該多出任何 session').toBe(before)
+    // 也不設任何 session cookie（被拒的回應不能帶著一張之後會「復活」的票）。
+    expect(signIn.headers.get('set-cookie') ?? '').not.toContain('session_token')
 
     // 確認我們擋的依據是業務狀態而不是套件的 banned。
     const banned = await db.sql('select banned from users where id = $1', [userId])

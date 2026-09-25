@@ -178,6 +178,12 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
   await restore.getByRole('button', { name: '關閉' }).click()
   await expect(rowOf(page, target.name)).toContainText('已核准')
 
+  // 恢復不會讓停用前的 session 復活：舊分頁仍是未登入，要自己重新登入。
+  // （之前停用只靠 commit 後的 banUser 刪 session，那一步沒做成時舊 cookie 會在恢復後直接變有效，
+  // 登入頁把人導走、找不到 Email 欄——這支測試偶發失敗的根因。現在停用與恢復都在業務交易裡刪 session。）
+  await studentPage.goto('/dashboard/student')
+  await expect(studentPage).toHaveURL(/\/login/)
+
   await studentPage.goto('/login')
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
