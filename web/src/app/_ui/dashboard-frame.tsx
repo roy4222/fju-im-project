@@ -30,6 +30,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -96,6 +97,7 @@ export function DashboardFrame({
   roleLabel,
   userName,
   sidebarOpen = true,
+  badges = {},
   items,
   current,
   homeHref,
@@ -108,6 +110,8 @@ export function DashboardFrame({
   userName?: string
   /** 側欄初始是否展開（伺服器從 cookie 讀）。 */
   sidebarOpen?: boolean
+  /** 側欄數字徽章：href → 數字（伺服器算好；沒有就不顯示）。 */
+  badges?: Readonly<Record<string, number>>
   items: readonly Item[]
   current: string
   homeHref: string
@@ -151,6 +155,7 @@ export function DashboardFrame({
                   {group.items.map((item) => {
                     const active = item.href === current
                     const ItemIcon = item.icon
+                    const badge = badges[item.href]
                     return (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton
@@ -164,6 +169,17 @@ export function DashboardFrame({
                             </Link>
                           }
                         />
+                        {/* 原型 app-sidebar：橘底白字圓 pill；收合成圖示時隱藏（shadcn 預設）。 */}
+                        {badge ? (
+                          // 連結名稱不改（測試與螢幕報讀都用原本的項目名），數字是旁邊的一段字。
+                          <SidebarMenuBadge
+                            title={`${item.label}：${badge}`}
+                            data-testid={`nav-badge-${item.href}`}
+                            className="top-2 rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground"
+                          >
+                            {badge > 99 ? '99+' : badge}
+                          </SidebarMenuBadge>
+                        ) : null}
                       </SidebarMenuItem>
                     )
                   })}
