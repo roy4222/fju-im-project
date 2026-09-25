@@ -6,6 +6,7 @@
  */
 export type {
   AudienceKind,
+  CompetitionStatus,
   EditablePlacement,
   FieldType,
   FileRules,
@@ -31,6 +32,8 @@ export {
   canViewItem,
   COLLECTION_AUDIENCES,
   collectsResponses,
+  COMPETITION_CATEGORY,
+  competitionStatus,
   describeDeadline,
   describeFailedChecks,
   EDITABLE_PLACEMENTS,

@@ -102,6 +102,7 @@ export {
   groupingDeadline,
   PROPOSAL_DAYS_LIMIT,
   STAGE_COUNT,
+  STAGE_DESCRIPTION_MAX_LENGTH,
   STAGE_NAME_MAX_LENGTH,
   stageLastDate,
   stagePositionAt,

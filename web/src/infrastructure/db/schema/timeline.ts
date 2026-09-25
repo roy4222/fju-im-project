@@ -29,6 +29,8 @@ export const cohortStages = pgTable(
       .references(() => cohorts.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
     seq: integer('seq').notNull(),
     name: text('name').notNull(),
+    /** 一句話說這階段要做什麼（原型 `Stage.summary`；學生時間軸顯示）。0011 補，舊列是空字串。 */
+    description: text('description').notNull().default(''),
     startDate: date('start_date', { mode: 'string' }).notNull(),
     deadlineVersion: integer('deadline_version').notNull().default(1),
     revision: integer('revision').notNull().default(1),
@@ -49,6 +51,7 @@ export const cohortStages = pgTable(
     // 開始日嚴格遞增的 DB 後盾：同一屆不會有兩段同一天開始。遞增本身由用例驗。
     unique('cohort_stages_start_date_unique').on(t.cohortId, t.startDate),
     check('cohort_stages_seq_check', sql`${t.seq} >= 1`),
+    check('cohort_stages_description_check', sql`length(${t.description}) <= 200`),
     check('cohort_stages_created_by_kind_check', sql`${t.createdByKind} in ('user','system','worker')`),
     check(
       'cohort_stages_created_by_actor_check',

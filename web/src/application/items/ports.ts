@@ -177,6 +177,9 @@ export type ItemDetail = {
   readonly opensAt: Date | null
   readonly actualOpenedAt: Date | null
   readonly dueAt: Date | null
+  /** 競賽資訊的報名截止日與活動日（臺灣日曆日；0011）。 */
+  readonly registrationDeadline: string | null
+  readonly eventDate: string | null
   readonly deadlineVersion: number
   readonly fields: readonly FormField[]
   readonly revision: number
@@ -260,6 +263,11 @@ export type PublicItemCard = {
   readonly attachments: readonly ItemFileSummary[]
   /** 第一次發布的時間（實際開放時間；重新發布不改）。 */
   readonly publishedAt: Date
+  /** 競賽資訊的報名截止日與活動日（臺灣日曆日；0011，票 39）；不是競賽資訊就是 null。 */
+  readonly registrationDeadline: string | null
+  readonly eventDate: string | null
+  /** 榮譽榜的得獎日期（臺灣日曆日；0011）；沒填是 null（畫面退回發布日）。 */
+  readonly awardedOn: string | null
 }
 
 /**

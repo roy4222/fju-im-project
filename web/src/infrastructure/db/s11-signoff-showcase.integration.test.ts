@@ -208,6 +208,8 @@ describe('逐欄對照附錄 A', () => {
     showcase_entries: {
       id: 'NO', cohort_id: 'NO', group_id: 'YES', status: 'NO', current_version_id: 'YES', revision: 'NO',
       created_at: 'NO', created_by_user_id: 'NO', updated_at: 'NO', updated_by_user_id: 'YES',
+      // 票 39（0011）：獎項等級與全名；NULL＝不在優秀專題。
+      award_level: 'YES', award_label: 'YES',
     },
     showcase_drafts: {
       entry_id: 'NO', title: 'NO', summary: 'NO', summary_checksum: 'NO', video_url: 'YES', poster_file_id: 'YES',

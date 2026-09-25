@@ -84,6 +84,8 @@ export default async function StudentTimelinePage() {
       title: stage.name,
       rangeText: range(stage.startDate, stage.lastDate),
       status: stage.status,
+      // 系辦在時間軸填的一句話說明（0011，票 39；原型 `Stage.summary`）。
+      summary: stage.description || undefined,
       tasks: mineInStage.map(({ row, status }) => ({
         label: row.title,
         href: `/dashboard/student/affairs/${row.itemId}`,

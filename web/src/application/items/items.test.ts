@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   canViewItem,
+  COMPETITION_CATEGORY,
+  competitionStatus,
   describeDeadline,
   describeFailedChecks,
   EMPTY_COLLECTION_MESSAGE,
@@ -289,5 +291,48 @@ describe('sanitizeBody：正文白名單清理（契約 03 §5）', () => {
     const once = sanitizeBody('<p>段落<a href="https://example.com">連結</a></p>')
     expect(sanitizeBody(once)).toBe(once)
     expect(renderBodyHtml('<p>ok</p><script>alert(1)</script>')).toBe('<p>ok</p>')
+  })
+})
+
+describe('競賽資訊的報名截止與活動日（票 39，0011）', () => {
+  const news = (patch: Partial<ItemInput> = {}) =>
+    input({
+      placement: 'news',
+      receiverUnit: 'none',
+      stageId: null,
+      dueAt: '',
+      fields: [],
+      audienceKind: 'public',
+      category: COMPETITION_CATEGORY,
+      ...patch,
+    })
+
+  it('公告＋分類「競賽資訊」才留兩個日期；其他位置或分類一律清掉', () => {
+    const kept = normalizeItemInput(news({ registrationDeadline: '2026-10-03', eventDate: '2026-11-20' }))
+    expect(kept.ok && [kept.value.registrationDeadline, kept.value.eventDate]).toEqual(['2026-10-03', '2026-11-20'])
+    const otherCategory = normalizeItemInput(news({ category: '活動', registrationDeadline: '2026-10-03' }))
+    expect(otherCategory.ok && otherCategory.value.registrationDeadline).toBeNull()
+    const resource = normalizeItemInput(news({ placement: 'resource', registrationDeadline: '2026-10-03' }))
+    expect(resource.ok && resource.value.registrationDeadline).toBeNull()
+    const empty = normalizeItemInput(news())
+    expect(empty.ok && [empty.value.registrationDeadline, empty.value.eventDate]).toEqual([null, null])
+  })
+
+  it('日期格式不對、活動日早於截止日：擋下並指出欄位', () => {
+    const bad = normalizeItemInput(news({ registrationDeadline: '2026-02-30' }))
+    expect(bad.ok ? null : bad.field).toBe('registrationDeadline')
+    const early = normalizeItemInput(news({ registrationDeadline: '2026-10-03', eventDate: '2026-10-02' }))
+    expect(early.ok ? null : [early.field, early.message]).toEqual(['eventDate', '活動日不能早於報名截止日。'])
+  })
+
+  it('competitionStatus：截止日（含）前報名中、活動日（含）前決賽／結果、之後已結束；都沒填沒有狀態', () => {
+    const c = { registrationDeadline: '2026-07-31', eventDate: '2026-09-02' }
+    expect(competitionStatus(c, '2026-07-31')).toBe('open')
+    expect(competitionStatus(c, '2026-08-01')).toBe('result')
+    expect(competitionStatus(c, '2026-09-02')).toBe('result')
+    expect(competitionStatus(c, '2026-09-03')).toBe('closed')
+    expect(competitionStatus({ registrationDeadline: '2026-10-03', eventDate: null }, '2026-10-04')).toBe('closed')
+    expect(competitionStatus({ registrationDeadline: null, eventDate: '2026-10-03' }, '2026-10-01')).toBe('result')
+    expect(competitionStatus({ registrationDeadline: null, eventDate: null }, '2026-10-01')).toBeNull()
   })
 })

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ANONYMOUS } from '@/application/accounts'
+import { competitionStatus } from '@/application/items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
 import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 import { assertTestDatabaseReachable, createIsolatedDatabase, TEST_DATABASE_URL, type IsolatedDatabase } from '../db'
@@ -216,14 +217,24 @@ describe('seed-demo.mjs', () => {
     )
     expect(Number(drafts.rows[0]!.n)).toBe(9)
 
-    // 前台（#293）直接查：訪客的優秀專題就是這八件、都有海報，草稿不混進來；屆別 pill 只有兩個歷屆。
+    // 前台（#293）直接查：訪客的優秀專題是其中有獎項等級的五件（票 39，照原型 p-1、p-2、p-7、p-4、p-6）、都有海報，
+    // 草稿不混進來；屆別 pill 只有兩個歷屆。沒得獎的三件（p-3、p-5、p-8）訪客打開詳情是「需要登入」。
     const showcaseQuery = new PgPublicShowcaseQuery(() => db.pool)
-    const featured = await showcaseQuery.featured()
-    expect(featured.map((c) => c.title).sort()).toEqual(showcase.rows.map((x) => String(x.title)).sort())
+    const featured = await showcaseQuery.featured({ sort: 'excellent' })
+    expect(featured.map((c) => [c.title, c.award, c.awardLabel])).toEqual([
+      ['城市微光：公共資訊可讀性改善', 'excellent', '113 學年度校級優秀專題'],
+      ['備援：中小企業備份稽核工具', 'excellent', '112 學年度校級優秀專題・全國賽佳作'],
+      ['拾語：課堂討論脈絡整理器', 'merit', '113 學年度專題發表 佳作'],
+      ['校園閒置空間共享媒合平台', 'merit', '113 學年度專題發表 佳作'],
+      ['無障礙報名流程重構', 'merit', '112 學年度專題發表 佳作'],
+    ])
     expect(featured.every((c) => c.posterFileId !== null)).toBe(true)
-    expect(await showcaseQuery.cohorts()).toEqual(['DEMO-113', 'DEMO-112'])
+    expect(await showcaseQuery.cohorts({ featuredOnly: true })).toEqual(['DEMO-113', 'DEMO-112'])
     const detail = await showcaseQuery.entry(ANONYMOUS, featured[0]!.id)
     expect(detail.access === 'visible' && detail.people).toBeNull()
+    const plain = await db.sql(`select e.id from showcase_entries e join showcase_versions v on v.id = e.current_version_id
+                                  where v.title = '菜市場數位帳本'`)
+    expect(await showcaseQuery.entry(ANONYMOUS, String(plain.rows[0]!.id))).toEqual({ access: 'need_login' })
 
     // 榮譽榜與競賽資訊：訪客看得到（榮譽有封面，發布日＝原型的得獎日，年份不平移）。
     const query = new PgPublicItemQuery(clock, () => db.pool)
@@ -238,12 +249,27 @@ describe('seed-demo.mjs', () => {
     ])
     expect(honors.every((h) => h.cover !== null)).toBe(true)
     expect(honors.map((h) => h.publishedAt.toISOString().slice(0, 4))).toEqual(['2026', '2026', '2026', '2025', '2025', '2025'])
+    // 得獎日期（票 39）＝原型的 date，不平移。
+    expect(honors.map((h) => h.awardedOn)).toEqual(['2026-07-07', '2026-06-15', '2026-05-20', '2025-12-02', '2025-11-14', '2025-05-22'])
     const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
     expect(competitions.map((c) => c.title)).toEqual([
       '第 31 屆全國大專校院資訊應用服務創新競賽開始報名',
       '2026 全國智慧製造大數據分析競賽入圍名單公告',
       '跨域設計專題成果展',
     ])
+    // 競賽日期（票 39）跟公告同一條時間線平移（原型今天 2026-08-17 → ANCHOR 2026-09-25，+39 天），
+    // 所以狀態跟原型一樣：報名中、決賽／結果、已結束。
+    expect(competitions.map((c) => [c.registrationDeadline, c.eventDate])).toEqual([
+      ['2026-11-11', null],
+      ['2026-09-08', '2026-10-11'],
+      ['2026-07-29', '2026-08-13'],
+    ])
+    expect(competitions.map((c) => competitionStatus(c, ANCHOR))).toEqual(['open', 'result', 'closed'])
+    // 階段說明（票 39）：四段都有。
+    const stages = await db.sql(
+      `select s.description from cohort_stages s join cohorts c on c.id = s.cohort_id where c.code = 'DEMO-114' order by s.seq`,
+    )
+    expect(stages.rows.every((r) => String(r.description).length > 0)).toBe(true)
     afterFirst = await tableCounts()
   })
 
@@ -322,6 +348,34 @@ describe('seed-demo.mjs', () => {
     expect(r.stdout).toContain('補回 1 個')
     expect(await tableCounts()).toEqual(afterFirst)
     expect(fs.existsSync(path.join(filesRoot, victim!))).toBe(true)
+  })
+
+  it('0011 之前就灌過的測試站：再跑只補票 39 的欄位（空著的才填、系辦改過的不動），重跑第二次不變', async () => {
+    // 模擬「部署 0011 前已經灌好」：新欄位都是空的；另外系辦在後台改過第 2 階段的說明。
+    await db.sql(`update cohort_stages set description = '' where cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    await db.sql(`update cohort_stages set description = '系辦改過的說明' where seq = 2
+                   and cohort_id in (select id from cohorts where code = 'DEMO-114')`)
+    await db.sql(`update showcase_entries set award_level = null, award_label = null`)
+    await db.sql(`update managed_items set registration_deadline = null, event_date = null, awarded_on = null`)
+    const before = await tableCounts()
+
+    const r = runSeed()
+    expect(r.code, r.stderr).toBe(0)
+    // 3 段說明（第 2 段系辦改過不動）＋5 件獎項＋6 則得獎日期＋3 則競賽日期。
+    expect(r.stdout).toContain('補上票 39 的欄位 17 列')
+    expect(await tableCounts()).toEqual(before)
+    const showcaseQuery = new PgPublicShowcaseQuery(() => db.pool)
+    expect((await showcaseQuery.featured()).length).toBe(5)
+    const stage2 = await db.sql(`select s.description from cohort_stages s join cohorts c on c.id = s.cohort_id
+                                  where c.code = 'DEMO-114' and s.seq = 2`)
+    expect(stage2.rows[0]!.description).toBe('系辦改過的說明')
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
+    expect(competitions.map((c) => competitionStatus(c, ANCHOR))).toEqual(['open', 'result', 'closed'])
+
+    const again = runSeed()
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('不做任何事')
   })
 
   it('真資料引用示範資料時，--remove 整批不刪、說明是哪一條外鍵', async () => {

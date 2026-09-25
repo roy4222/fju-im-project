@@ -19,6 +19,7 @@ export type {
   PublicShowcasePage,
   PublicShowcaseQuery,
   ShowcaseArchive,
+  ShowcaseAward,
   ShowcaseListFilter,
   ShowcaseNeighbor,
   ShowcasePeople,
@@ -32,7 +33,8 @@ export type {
   UpdateDraftReceipt,
 } from '@/application/showcase/ports'
 export {
+  ARCHIVE_SORT_OPTIONS,
+  FEATURED_SORT_OPTIONS,
   parseShowcaseSort,
-  SHOWCASE_SORT_OPTIONS,
 } from '@/application/showcase/public'
 export { describeCreateDraftReceipt, describeUpdateDraftReceipt } from '@/application/showcase/receipts'
