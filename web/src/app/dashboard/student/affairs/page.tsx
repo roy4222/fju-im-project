@@ -10,7 +10,7 @@ import type { MyItemRow, MyRecordRow } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
-import { formatTaipeiMinute } from '@/shared/time'
+import { formatTaipeiMinute, taipeiDateOf, taipeiDayStart } from '@/shared/time'
 
 export const metadata = { title: '作業區｜資管系專題平台' }
 
@@ -54,6 +54,16 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   const groupCode = rows.find((row) => row.groupCode)?.groupCode ?? null
 
   const dueText = (dueAt: Date) => formatTaipeiMinute(dueAt)
+  // 截止欄第二行（原型）：剩幾天／今天截止／逾期幾天／已繳可重送；天數用臺灣日期算（業務時鐘的今天）。
+  const today = taipeiDayStart(taipeiDateOf(businessNow)).getTime()
+  const daysLeft = (dueAt: Date) => Math.round((taipeiDayStart(taipeiDateOf(dueAt)).getTime() - today) / 86_400_000)
+  const dueHint = (dueAt: Date, status: (typeof items)[number]['status']) => {
+    const d = daysLeft(dueAt)
+    if (status.overdue) return { text: `逾期 ${Math.abs(d)} 天`, cls: 'text-destructive' }
+    if (status.submitted) return { text: status.editable ? `剩 ${d} 天可重送` : '已截止', cls: 'text-muted-foreground' }
+    const text = d < 0 ? '已截止' : d === 0 ? '今天截止' : `剩 ${d} 天`
+    return { text, cls: status.pending && d <= 10 ? 'font-semibold text-brand-on-subtle' : 'text-muted-foreground' }
+  }
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
@@ -108,7 +118,8 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="tabular min-w-0 flex-1 text-[13px] text-muted-foreground">
-                        {row.dueAt ? `${dueText(row.dueAt)} 截止` : '無截止'}・{unitText(row)}
+                        {row.dueAt ? `${dueText(row.dueAt)} 截止${status.pending ? `・${dueHint(row.dueAt, status).text}` : ''}` : '無截止'}・
+                        {unitText(row)}
                       </span>
                       <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} className="h-11" />
                     </div>
@@ -178,9 +189,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                           {row.dueAt ? (
                             <>
                               <span className="block">{dueText(row.dueAt)}</span>
-                              <span className={cn('block text-[12px]', status.overdue ? 'text-destructive' : 'text-muted-foreground')}>
-                                含此分鐘，臺灣時間
-                              </span>
+                              <span className={cn('block text-[12px]', dueHint(row.dueAt, status).cls)}>{dueHint(row.dueAt, status).text}</span>
                             </>
                           ) : (
                             <span className="text-muted-foreground">無截止</span>

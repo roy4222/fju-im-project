@@ -12,10 +12,12 @@ import { Feedback } from './group-forms'
  * 其他組員只看得到目前的狀態。規則全在用例裡判，這裡只顯示伺服器回的句子。
  */
 
-const PRIMARY =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-const LABEL = 'block text-sm font-medium text-ink'
+// 外觀照原型（票 38）：兩張白卡（dash-card）、橘色實心主要按鈕、44px 輸入框。
+const PRIMARY = 'btn-fju h-11 rounded-lg px-5 text-sm disabled:opacity-60'
+const INPUT =
+  'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition-[border-color,box-shadow] ' +
+  'focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
+const LABEL = 'block text-sm font-semibold'
 
 /** 送出但不讓 React 在 action 回來後重設表單（被拒時選好的合作案與理由不能不見）。 */
 function submitWithoutReset(action: (formData: FormData) => void) {
@@ -52,10 +54,10 @@ export function IndustryPanel(props: IndustryPanelProps) {
   const otherType = groupType === 'general' ? 'industry' : 'general'
 
   return (
-    <section aria-label="組別類型與合作案" className="mb-6 grid gap-4 md:grid-cols-2">
-      <div className="rounded-card border border-border bg-background p-5">
-        <h2 className="text-base font-semibold text-ink">組別類型</h2>
-        <p className="mt-1 text-sm text-ink" data-testid="group-type">
+    <section aria-label="組別類型與合作案" className="grid gap-5 md:grid-cols-2">
+      <div className="dash-card p-5">
+        <h2 className="text-[15px] font-bold">組別類型</h2>
+        <p className="mt-1 text-sm" data-testid="group-type">
           目前是 <strong>{typeLabels[groupType]}</strong>
         </p>
         {isLeader ? (
@@ -71,7 +73,7 @@ export function IndustryPanel(props: IndustryPanelProps) {
               </button>
             </form>
           ) : (
-            <p className="mt-3 rounded-md bg-muted px-3 py-2 text-sm text-ink" data-testid="type-change-blocked">
+            <p className="mt-3 rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" data-testid="type-change-blocked">
               目前不能自己改類型（{typeChangeBlockers.join('、')}）；需要調整請聯絡系辦處理。
             </p>
           )
@@ -83,15 +85,15 @@ export function IndustryPanel(props: IndustryPanelProps) {
         </div>
       </div>
 
-      <div id="industry-link" className="rounded-card border border-border bg-background p-5">
-        <h2 className="text-base font-semibold text-ink">合作案</h2>
+      <div id="industry-link" className="dash-card p-5">
+        <h2 className="text-[15px] font-bold">合作案</h2>
         {link ? (
-          <p className="mt-1 text-sm text-ink" data-testid="linked-opportunity">
+          <p className="mt-1 text-sm" data-testid="linked-opportunity">
             已連結{' '}
-            <Link href={`/industry/${link.opportunityId}`} className="font-semibold text-primary hover:underline">
+            <Link href={`/industry/${link.opportunityId}`} className="font-semibold text-ink underline-offset-2 hover:underline">
               {link.name}
             </Link>
-            {link.withdrawn ? <span className="ml-2 rounded-full bg-danger-subtle px-2 py-0.5 text-xs font-semibold text-danger-on-subtle">合作案已下架</span> : null}
+            {link.withdrawn ? <span className="ml-2 rounded-full bg-destructive-subtle px-2 py-0.5 text-xs font-semibold text-destructive-on-subtle">合作案已下架</span> : null}
           </p>
         ) : (
           <p className="mt-1 text-sm text-muted-foreground" data-testid="linked-opportunity">
@@ -112,7 +114,7 @@ export function IndustryPanel(props: IndustryPanelProps) {
                 name="opportunityId"
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
-                className={INPUT}
+                className={`${INPUT} h-11 py-0`}
               >
                 <option value="" disabled>
                   {linkable.length > 0 ? '請選合作案' : '目前沒有可以連結的合作案'}
