@@ -123,7 +123,7 @@ test.describe('以 S01（學生）', () => {
   test('自己的後台與帳號頁都打得開', async ({ page }) => {
     await signInAs(page, 'student')
     expect((await page.goto('/dashboard/student'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '我的專題' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
@@ -134,7 +134,7 @@ test.describe('以 T1（老師）', () => {
   test('老師首頁與帳號頁都打得開', async ({ page }) => {
     await signInAs(page, 'teacher')
     expect((await page.goto('/dashboard/teacher'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '老師首頁' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
