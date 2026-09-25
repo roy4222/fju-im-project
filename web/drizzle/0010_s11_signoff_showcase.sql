@@ -329,7 +329,7 @@ CREATE TRIGGER signoff_package_versions_scope_guard
   FOR EACH ROW EXECUTE FUNCTION fju_signoff_version_scope_guard();
 --> statement-breakpoint
 
--- 簽核版本狀態：新建一定是「收集中」；指向的版本寫了就不動；「作廢」是終點，「已失效」只能再作廢
+-- 簽核版本狀態：新建一定是「收集中」；指向的版本寫了就不動；「作廢」是終點，「已失效」只能再作廢、失效原因不能改
 -- （舊同意留歷史不計入新版，失效的版本不會再回來收票——產品「參與者版本與失效」、模組 07 §3）。
 -- 收集中 → 待老師 → 完成、退回等其他轉換由用例判（附錄 A「由 domain 驗證，DB 只擋非法值」）。不能刪。
 CREATE OR REPLACE FUNCTION fju_signoff_version_status_guard() RETURNS trigger
@@ -353,6 +353,10 @@ BEGIN
   END IF;
   IF OLD.state = 'superseded' AND NEW.state NOT IN ('superseded', 'void') THEN
     RAISE EXCEPTION '已失效的簽核版本不能回到 %；請建立新版本重新簽核', NEW.state
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.state = 'superseded' AND NEW.state = 'superseded' AND NEW.cause IS DISTINCT FROM OLD.cause THEN
+    RAISE EXCEPTION '已失效的簽核版本，失效原因寫了就不能改（原因：%）', OLD.cause
       USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN NEW;

@@ -397,7 +397,7 @@ describe('版本狀態（手寫 trigger）', () => {
     })
   })
 
-  it('收集中可以往下走；已失效只能再作廢、不能回來收票；作廢是終點；原因必填', async () => {
+  it('收集中可以往下走；已失效只能再作廢、不能回來收票、失效原因不能改；作廢是終點；原因必填', async () => {
     await withIsolatedDatabase({ label: 'status-guard', setup: migratedSchema }, async (db) => {
       const { versionId } = await seedStatus(db)
       await db.sql(`update signoff_version_status set state = 'teacher_pending' where version_id = $1`, [versionId])
@@ -410,6 +410,15 @@ describe('版本狀態（手寫 trigger）', () => {
       await expect(
         db.sql(`update signoff_version_status set state = 'collecting' where version_id = $1`, [versionId]),
       ).rejects.toThrow(/已失效的簽核版本不能回到/)
+      // 失效原因寫了就不能改（例如把「組員變更」改成「內容變更」），也不能清掉。
+      await expect(
+        db.sql(`update signoff_version_status set cause = 'content_change' where version_id = $1`, [versionId]),
+      ).rejects.toThrow(/失效原因寫了就不能改/)
+      await expect(db.sql(`update signoff_version_status set cause = null where version_id = $1`, [versionId])).rejects.toThrow(
+        /失效原因寫了就不能改|signoff_version_status_cause_check/,
+      )
+      // 同樣的原因、只動通用欄可以（重複標失效不會出錯）。
+      await db.sql(`update signoff_version_status set revision = revision + 1 where version_id = $1`, [versionId])
       await db.sql(`update signoff_version_status set state = 'void', cause = '測試作廢' where version_id = $1`, [versionId])
       await expect(
         db.sql(`update signoff_version_status set state = 'collecting' where version_id = $1`, [versionId]),

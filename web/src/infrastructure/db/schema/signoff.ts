@@ -24,7 +24,7 @@ import { groups } from '@/infrastructure/db/schema/groups'
  * 資料庫守的規則（用例之外的第二層）：
  * - 版本內容、同意紀錄、匯出紀錄不可變（產生器的 trigger，連 owner 也擋）。
  * - `final_document` 的版本一定帶授權範圍、`result_confirmation` 一定不帶（0010 檔尾手寫 trigger）。
- * - 版本狀態：新建只能是 collecting；`void` 是終點，`superseded` 只能再作廢；指向的版本不能改；不能刪（手寫 trigger）。
+ * - 版本狀態：新建只能是 collecting；`void` 是終點，`superseded` 只能再作廢、失效原因不能改；指向的版本不能改；不能刪（手寫 trigger）。
  *   其他轉換（collecting → teacher_pending → complete、退回）由用例判——附錄 A「由 domain 驗證，DB 只擋非法值」。
  * - 一人一票：`approvals` 唯一 `(version_id, user_id)`；學生只有同意／不同意、主指導只有同意／退回；
  *   不同意與退回一定有理由；老師沒有學號。
