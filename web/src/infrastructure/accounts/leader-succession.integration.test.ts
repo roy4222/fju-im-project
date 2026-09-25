@@ -403,6 +403,31 @@ describe('批次停用不能繞過接任', () => {
 })
 
 describe('停用中的人不能被指定為組長', () => {
+  it('提案人確認後被停用：最後一位確認時不成組，提案以衝突終止、釋放全員，沒有組別、組員、組長列', async () => {
+    const cohortId = await newCohort()
+    const [p, x, y] = [await newStudent(cohortId), await newStudent(cohortId), await newStudent(cohortId)]
+    const proposed = await groups.propose(studentActor(p), { groupType: 'general', memberStudentNos: [x.studentNo, y.studentNo] }, randomUUID())
+    if (!proposed.ok) throw new Error(proposed.message)
+    const proposalId = proposed.receipt.proposalId
+    expect(await groups.confirm(studentActor(p), proposalId, randomUUID())).toMatchObject({ ok: true })
+    expect(await groups.confirm(studentActor(x), proposalId, randomUUID())).toMatchObject({ ok: true })
+
+    // 組還沒成立：停用那邊查不到他是組長，不需要接任。
+    expect(await disable(p.id)).toMatchObject({ ok: true, receipt: { status: 'disabled' } })
+
+    const last = await groups.confirm(studentActor(y), proposalId, randomUUID())
+    expect(last).toMatchObject({ ok: true, receipt: { outcome: 'conflict', groupCode: null } })
+
+    const proposal = await owner.sql('select state, termination_kind, established_group_id from group_proposals where id = $1', [proposalId])
+    expect(proposal.rows[0]).toMatchObject({ state: 'terminated', termination_kind: 'conflict', established_group_id: null })
+    expect(await count('select count(*) as n from groups where cohort_id = $1', [cohortId])).toBe(0)
+    expect(await count('select count(*) as n from group_memberships where cohort_id = $1', [cohortId])).toBe(0)
+    expect(
+      await count('select count(*) as n from group_leaders where user_id = any($1::uuid[])', [[p.id, x.id, y.id]]),
+    ).toBe(0)
+    expect(await count('select count(*) as n from proposal_occupancy where proposal_id = $1', [proposalId])).toBe(0)
+  })
+
   it('管理員換組長、移出組長時指定的接任，帳號已停用 → 拒絕', async () => {
     const g = await groupWith(4)
     const [, b, c] = g.members

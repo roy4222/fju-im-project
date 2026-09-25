@@ -616,6 +616,10 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     // 同一屆的組別代碼排隊配（屆別內遞增），兩組同時成立不會搶到同一個號碼。
     await tx.query('select pg_advisory_xact_lock(hashtext($1))', [`groups.code:${proposal.cohort_id}`])
     if ((await this.#activeMembers(tx, proposal.cohort_id, everyone)).length > 0) return conflict()
+    // 票 42（PR #328 審查）：提案人會成為組長，組長帳號一定要是 active。提案人確認後才被停用時，
+    // 停用那邊還查不到他是組長（組還沒成立），所以成立這一刻要再查一次：不是 active 就整份以 conflict 終止、釋放全員。
+    // 只加 `users FOR SHARE`（跟停用的 FOR NO KEY UPDATE 互斥），不碰 groups／role_assignments，鎖順序不變。
+    if (!(await this.#activeAccount(tx, proposal.proposer_user_id))) return conflict()
 
     const groupId = uuidv7()
     const existing = await tx.query<{ code: string }>('select code from groups where cohort_id = $1', [proposal.cohort_id])
