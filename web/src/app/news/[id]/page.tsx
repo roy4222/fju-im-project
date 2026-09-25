@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { currentActor } from '@/app/_ui/guard'
-import { AttachmentList, CleanBody, Crumbs, GoneNotice, ListItem, NeedLogin, publishedDate, Tag } from '@/app/_ui/public-content'
+import { AttachmentList, CleanBody, coverSrc, Crumbs, GoneNotice, ListItem, NeedLogin, publishedDate, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
 
@@ -73,13 +73,11 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
           <h1 id="news-title" className="text-[26px] leading-snug font-extrabold break-words text-foreground sm:text-[32px]">
             {item.title}
           </h1>
-          {item.cover ? (
-            <div className="aspect-video overflow-hidden rounded-xl bg-muted">
-              {/* 封面走共用下載能力（每次重驗權限）。直式海報不裁切，所以用 contain。 */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/files/${item.cover.fileId}`} alt="" className="h-full w-full object-contain" />
-            </div>
-          ) : null}
+          <div className="aspect-video overflow-hidden rounded-xl bg-muted">
+            {/* 上傳的封面走共用下載能力（每次重驗權限），直式海報不裁切；沒有封面時是示意照片。 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={coverSrc(item)} alt="" className={item.cover ? 'h-full w-full object-contain' : 'h-full w-full object-cover'} />
+          </div>
           {item.summary ? <p className="text-[17px] leading-relaxed text-muted-foreground">{item.summary}</p> : null}
           <CleanBody html={item.bodyHtml} className="space-y-4 text-[17px]" />
           <AttachmentList files={item.attachments} />

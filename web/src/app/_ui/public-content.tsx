@@ -194,7 +194,7 @@ export function SearchField({
   )
 }
 
-/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就留深藍色塊）、日期、標題、標籤。 */
+/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就用示意照片）、日期、標題、標籤。 */
 export function NewsCard({ card, priority = false }: { card: PublicItemCard; priority?: boolean }) {
   return (
     <Link
@@ -203,18 +203,14 @@ export function NewsCard({ card, priority = false }: { card: PublicItemCard; pri
       className="group card-lift flex h-full flex-col overflow-hidden rounded-xl bg-secondary shadow-[0_2px_10px_rgba(0,51,102,0.08)]"
     >
       <div className="relative aspect-video overflow-hidden bg-muted">
-        {card.cover ? (
-          // 封面走共用下載能力（每次重驗權限），不能用 next/image 的最佳化快取。
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`/api/files/${card.cover.fileId}`}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-            loading={priority ? 'eager' : 'lazy'}
-          />
-        ) : (
-          <CoverFallback />
-        )}
+        {/* 不用 next/image：上傳的封面每次重驗權限不能進最佳化快取，而且 next/image 會輸出被 CSP 擋的 style 屬性。 */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={coverSrc(card)}
+          alt=""
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          loading={priority ? 'eager' : 'lazy'}
+        />
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4.5">
         <time dateTime={card.publishedAt.toISOString()} className="text-[13px] font-semibold text-muted-foreground tabular-nums">
@@ -237,14 +233,22 @@ export function NewsCard({ card, priority = false }: { card: PublicItemCard; pri
   )
 }
 
-/** 沒有封面時的色塊：深藍底、系網橘短線、一行系名（不放假照片）。 */
-export function CoverFallback() {
-  return (
-    <div className="flex h-full flex-col items-start justify-end gap-2 bg-ink p-5 text-ink-foreground">
-      <span className="inline-block h-0.75 w-7 bg-primary" aria-hidden />
-      <span className="text-sm font-bold tracking-widest opacity-85">輔大資管專題</span>
-    </div>
-  )
+/**
+ * 還沒有封面的公告，先放原型的示意照片（`public/placeholder/`，Roy 2026-09-25：前台外觀先照原型）。
+ * 依 id 穩定地挑一張，同一則公告在列表與內容頁看到的是同一張。
+ * 只挑純照片：hackathon、showcase 是印著活動名稱的海報，放在別則公告上會讓人誤會。
+ */
+const PLACEHOLDER_PHOTOS = ['students', 'lounge', 'atrium', 'study', 'present', 'applause', 'phone'] as const
+
+export function placeholderPhoto(id: string): string {
+  let hash = 0
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  return `/placeholder/${PLACEHOLDER_PHOTOS[hash % PLACEHOLDER_PHOTOS.length]}.jpg`
+}
+
+/** 公告的封面網址：有上傳封面就走共用下載能力（每次重驗權限），沒有就用示意照片。 */
+export function coverSrc(card: Pick<PublicItemCard, 'id' | 'cover'>): string {
+  return card.cover ? `/api/files/${card.cover.fileId}` : placeholderPhoto(card.id)
 }
 
 /** 深藍左線列表項（原型 `ListItem`；首頁右欄、內容頁側欄）。 */
@@ -413,9 +417,21 @@ export function GoneNotice({
 }
 
 /** 列表沒有結果時（原型 `ListState`）：圖示、一句粗體、一行灰字、清除條件。 */
-export function ListEmpty({ title, hint, clearHref, icon }: { title: string; hint: string; clearHref?: string; icon?: ReactNode }) {
+export function ListEmpty({
+  title,
+  hint,
+  clearHref,
+  icon,
+  className,
+}: {
+  title: string
+  hint: string
+  clearHref?: string
+  icon?: ReactNode
+  className?: string
+}) {
   return (
-    <div className="flex min-h-64 flex-col items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-6 py-12 text-center">
+    <div className={cn('flex min-h-64 flex-col items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-6 py-12 text-center', className)}>
       <span className="text-muted-foreground/60">{icon ?? <IconSearchOff className="size-9" aria-hidden />}</span>
       <p className="text-base font-bold text-foreground">{title}</p>
       <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">{hint}</p>
