@@ -163,7 +163,7 @@ export function AttachmentPicker({
         <span className="flex-1">
           <span className="block font-semibold">{busy ? '上傳中…' : '加入附件'}</span>
           <span className="block text-xs text-muted-foreground">
-            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {maxMiB} MiB。下載權限跟著發布對象走。
+            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {maxMiB} MiB。下載權限跟著這一筆的對象走。
           </span>
         </span>
         <input
