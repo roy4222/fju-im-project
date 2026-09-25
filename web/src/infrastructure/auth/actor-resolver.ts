@@ -43,6 +43,9 @@ export class DbActorResolver implements ActorResolver {
         mustChangePassword: users.mustChangePassword,
         deidentifiedAt: users.deidentifiedAt,
         cohortId: userProfiles.cohortId,
+        // 外殼頭像的姓名（同一列、同一次查詢，不另外讀；只讀 session 本人這一列）。
+        name: users.name,
+        displayName: userProfiles.displayName,
       })
       .from(users)
       .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
@@ -73,6 +76,7 @@ export class DbActorResolver implements ActorResolver {
       cohortMemberships: row.cohortId
         ? roles.filter((r) => r === 'student').map((role) => ({ cohortId: row.cohortId as string, role }))
         : [],
+      displayName: (row.displayName ?? row.name).trim() || undefined,
       ...(loginMethod ? { loginMethod } : {}),
     }
   }

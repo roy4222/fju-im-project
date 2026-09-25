@@ -25,8 +25,7 @@ import {
 } from "@/app/_ui/ui/tooltip"
 import { IconLayoutSidebar } from "@tabler/icons-react"
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state"
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+import { SIDEBAR_COOKIE_MAX_AGE, SIDEBAR_COOKIE_NAME } from "@/app/_ui/sidebar-cookie"
 // 側欄寬度（--sidebar-width 等）定義在 globals.css 的 [data-slot="sidebar-wrapper"]，
 // 不用 style 屬性：正式站的 CSP（style-src 只放 nonce）會擋掉伺服器輸出的 style="…"。
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
@@ -80,8 +79,10 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // 記住收合狀態（伺服器畫外殼時讀回來，見 sidebar-cookie.ts）。只是版面偏好，
+      // 仍加 SameSite=Lax；正式環境是 https，順便加 Secure。
+      const secure = window.location.protocol === "https:" ? "; secure" : ""
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; samesite=lax${secure}`
     },
     [setOpenProp, open]
   )
