@@ -54,7 +54,7 @@ import {
 } from '@/application/ops'
 import { authorizeAdmin, badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
-import { expandRecipients, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
+import { audienceUserIds, expandRecipients, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -840,6 +840,7 @@ export class PgItemCommand implements ItemCommand {
    *
    * 下架：名單、回答、截止工作全部保留（PUB-11「既有回答與 audit 保留」；截止快照對結案的收件仍有意義）。
    * 重新發布：只把狀態改回發布中；截止工作照原本的期限版本補排一次（已經在就不重複）。
+   * 公告／資源重新發布時勾了「重要」，另發 `item.announced` 依當下對象逐人通知（Roy 2026-09-25 定）。
    */
   async changeStatus(
     actor: ResolvedActor,
@@ -847,6 +848,7 @@ export class PgItemCommand implements ItemCommand {
     revision: number,
     action: LifecycleAction,
     requestId: string,
+    options: { readonly notify?: boolean } = {},
   ): Promise<Result<LifecycleReceipt>> {
     if (!LIFECYCLE_ACTIONS.includes(action)) return err('VALIDATION_FAILED', '不認得這個動作，請重新整理頁面。')
     const denied = authorizeAdmin(actor, `${LIFECYCLE_LABEL[action]}專題事務`)
@@ -868,7 +870,10 @@ export class PgItemCommand implements ItemCommand {
           actorUserId: userId,
           operationKind: `item.${action}`,
           requestId,
-          fingerprint: sha256(canonicalJson({ itemId, revision, action })),
+          // 只有重新發布看「重要」選項；其他動作的指紋維持原樣。
+          fingerprint: sha256(
+            canonicalJson(action === 'republish' ? { itemId, revision, action, notify: options.notify === true } : { itemId, revision, action }),
+          ),
           scope: 'cohort',
           cohortId: item.cohort_id,
         },
@@ -943,13 +948,16 @@ export class PgItemCommand implements ItemCommand {
       )
       const contentVersionNo = await this.#currentVersionNo(tx, 'item_versions', item.current_content_version_id)
       const schemaVersionNo = await this.#currentVersionNo(tx, 'form_schema_versions', item.current_schema_version_id)
+      // 重新發布公告／資源時勾了「重要」：依當下對象逐人通知（Roy 2026-09-25 定）。收件項目不適用
+      // （收件的新收件通知在第一次發布時已經發過，重新發布不重發）。
+      const announce = action === 'republish' && options.notify === true && item.receiver_unit === 'none'
       await this.#insertPublication(
         tx,
         itemId,
         action,
         { contentVersionNo, schemaVersionNo },
         deadlineVersion !== item.deadline_version ? deadlineVersion : null,
-        false,
+        announce,
         userId,
         realAt,
         businessAt,
@@ -967,6 +975,23 @@ export class PgItemCommand implements ItemCommand {
         occurredRealAt: realAt,
         occurredBusinessAt: businessAt,
       })
+      let notifiedCount = 0
+      if (announce) {
+        const recipients = await audienceUserIds(tx, item.cohort_id, item.audience_kind, locked.groupIds)
+        await this.#events.publish(tx, {
+          type: 'item.announced',
+          scope: 'cohort',
+          cohortId: item.cohort_id,
+          source: { type: SUBJECT_TYPE, id: itemId, version: contentVersionNo },
+          actor: { kind: 'user', userId },
+          recipients,
+          recipientBasis: { itemId, basis: 'audience', audienceKind: item.audience_kind, trigger: 'republish' },
+          payload: this.#eventPayload(item),
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessAt,
+        })
+        notifiedCount = recipients.length
+      }
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: userId,
@@ -987,6 +1012,7 @@ export class PgItemCommand implements ItemCommand {
           rosterClosed,
           deadlineVersion,
           actualOpenedAt: item.actual_opened_at?.toISOString() ?? null,
+          ...(action === 'republish' ? { notify: announce } : {}),
         },
       })
 
@@ -998,6 +1024,7 @@ export class PgItemCommand implements ItemCommand {
         revision: item.revision + 1,
         actualOpenedAt: item.actual_opened_at?.toISOString() ?? null,
         rosterClosed,
+        ...(action === 'republish' ? { notifiedCount } : {}),
         requestId,
         serverTime: realAt.toISOString(),
       }

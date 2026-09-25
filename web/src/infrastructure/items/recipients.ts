@@ -89,6 +89,17 @@ async function groupMembers(db: Queryable, groupIds: readonly string[]): Promise
   return rows.rows
 }
 
+/**
+ * 全站有效帳號（公告對象是「公開」或「所有登入者」、而且勾了「重要」時的通知收件人；Roy 2026-09-25 定）。
+ *
+ * 跟前台「登入可見」同一群人：帳號正常、未去識別化。待審、停用的帳號不收（他們現在也看不到登入可見的內容）；
+ * 必須改密碼的人仍收（改完密碼就看得到）。示範帳號（`@demo.invalid`）屬受眾也照收——本系統只有站內通知、不寄信。
+ */
+async function activeAccounts(db: Queryable): Promise<string[]> {
+  const rows = await db.query<{ id: string }>(`select u.id from users u where u.status = 'active' and u.deidentified_at is null`)
+  return rows.rows.map((r) => r.id)
+}
+
 /** 全部老師（公告對象是「全部老師」時的通知收件人）。 */
 async function activeTeachers(db: Queryable): Promise<string[]> {
   const rows = await db.query<{ id: string }>(
@@ -109,8 +120,9 @@ function uniqueSorted(ids: readonly string[]): string[] {
  *
  * - 收件（`receiverUnit` 不是 none）：個人＝有效學生（本屆全部或指定組別裡的）；組別＝已成立組（本屆全部或指定的）。
  *   通知對象＝名單展開到人（組別收件＝該組有效成員）。
- * - 公告／資源：沒有名單；通知對象＝本屆學生、指定組別成員或全部老師。公開與所有登入者**不展開**
- *   （不會替全站每個帳號各寫一則通知），只留事件。
+ * - 公告／資源：沒有名單；通知對象＝本屆學生、指定組別成員、全部老師，或（公開、所有登入者）全站有效帳號。
+ *   要不要真的發由發布者決定：只有勾了「重要」（`notify`）才發事件逐人通知；一般公告只留發布紀錄與事件
+ *   （Roy 2026-09-25 定：公開／所有登入者的公告只有重要的才逐人通知）。
  */
 export async function expandRecipients(db: Queryable, input: RecipientQueryInput): Promise<ExpandedRecipients> {
   const scopedGroups = input.audienceKind === 'groups' ? input.groupIds : null
@@ -156,7 +168,7 @@ export async function audienceUserIds(
       return uniqueSorted(await activeTeachers(db))
     case 'public':
     case 'signed_in':
-      return []
+      return uniqueSorted(await activeAccounts(db))
   }
 }
 

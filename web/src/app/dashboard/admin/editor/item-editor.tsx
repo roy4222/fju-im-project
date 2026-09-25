@@ -28,6 +28,8 @@ import {
   toPayload,
   type EditorState,
   type EditorVocabulary,
+  IMPORTANT_LABEL,
+  broadAudience,
 } from '@/app/dashboard/admin/affairs/item-form-parts'
 import { FieldsEditor, SettingsFields } from '@/app/dashboard/admin/affairs/item-settings'
 import { sectionOfField } from '@/app/dashboard/admin/editor/field-section'
@@ -117,7 +119,7 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
     label: '重新發布',
     title: '重新發布？',
     explain:
-      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間，這次不發通知。發布前檢查會再跑一次：已經截止的收件不能直接重新發布。',
+      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間。發布前檢查會再跑一次：已經截止的收件不能直接重新發布。',
     confirm: '確認重新發布',
   },
 }
@@ -169,12 +171,15 @@ export function ItemEditor({
   const lifecycleDialog = useRef<HTMLDialogElement>(null)
   const [lifecycle, setLifecycle] = useState<LifecycleAction | null>(null)
   const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  // 重新發布公告／資源時要不要標「重要」逐人通知（預設不發：一般重新發布只留紀錄）。
+  const [lifecycleNotify, setLifecycleNotify] = useState(false)
   // 手機的四個分頁（桌面四段全部攤開）。
   const [tab, setTab] = useState<SectionKey>('content')
 
   function openLifecycle(action: LifecycleAction) {
     setLifecycle(action)
     setLifecycleError(null)
+    setLifecycleNotify(false)
     setMessage(null)
     requestIds.current.lifecycle = newRequestId()
     lifecycleDialog.current?.showModal()
@@ -185,7 +190,13 @@ export function ItemEditor({
     setBusy(`${LIFECYCLE[lifecycle].label}中…`)
     setLifecycleError(null)
     try {
-      const result = await changeItemStatusAction(itemId, revision, lifecycle, requestIds.current.lifecycle)
+      const result = await changeItemStatusAction(
+        itemId,
+        revision,
+        lifecycle,
+        requestIds.current.lifecycle,
+        lifecycle === 'republish' && !collects && lifecycleNotify,
+      )
       if (!result.ok) {
         setLifecycleError(result.message)
         return
@@ -275,6 +286,8 @@ export function ItemEditor({
     setBusy('檢查中…')
     setDone(null)
     setDialogTitle(published ? '發布更新前檢查' : '發布前檢查')
+    // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
+    setNotify(!broadAudience(state.audienceKind))
     setMessage(null)
     setDialogError(null)
     try {
@@ -756,7 +769,7 @@ export function ItemEditor({
               ) : (
                 <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
                   <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
-                  {published ? '通知對象這次的修改（小幅修改可以不通知）' : '發布時通知對象（站內通知）'}
+                  {published ? '通知對象這次的修改（小幅修改可以不通知）' : IMPORTANT_LABEL}
                 </label>
               )}
               {dialogError ? <Feedback tone="error">{dialogError}</Feedback> : null}
@@ -779,6 +792,17 @@ export function ItemEditor({
           <div className="flex flex-col gap-4 p-6">
             <h2 className="text-lg font-extrabold">{LIFECYCLE[lifecycle].title}</h2>
             <p className="text-sm leading-relaxed">{LIFECYCLE[lifecycle].explain}</p>
+            {lifecycle === 'republish' && !collects ? (
+              <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={lifecycleNotify}
+                  className="size-4 accent-primary"
+                  onChange={(e) => setLifecycleNotify(e.target.checked)}
+                />
+                {IMPORTANT_LABEL}
+              </label>
+            ) : null}
             {lifecycleError ? <Feedback tone="error">{lifecycleError}</Feedback> : null}
             <div className="flex justify-end gap-2">
               <button type="button" className={SECONDARY} onClick={() => lifecycleDialog.current?.close()}>
