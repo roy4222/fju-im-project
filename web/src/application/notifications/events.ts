@@ -93,8 +93,9 @@ export const EVENT_CATALOG = {
    * 收件人＝異動**後**的全體成員（加入時含新成員）＋目前主指導（票 19 補上）；被移出的人改收下面的
    * `group.member_removed`，兩則合起來就是前後聯集。payload 帶 `title`、組別與異動的人，**不帶理由**。
    *
-   * 這也是**重簽的掛點**：成員集合改變時，模組 07（S11）的 `supersedeForParticipantChange` 要讓目前簽核版本失效。
-   * 簽核還沒做，所以現在只有通知消費者；只換組長不發這個事件（不重簽）。
+   * 重簽不靠這個事件：成員集合改變時，加入／移出組員的用例在**同一筆交易**直接呼叫模組 07 的
+   * `supersedeForParticipantChange` 讓目前簽核版本失效（票 25；事件投影是非同步的，不能拿來守「同交易」）。
+   * 只換組長不發這個事件、也不重簽。
    */
   'group.members_changed': {
     consumers: ['notifications'],
@@ -197,6 +198,21 @@ export const EVENT_CATALOG = {
   'grading.assignment_ended': { consumers: [] },
   'grading.scheme_applied': { consumers: [] },
   'grading.overridden': { consumers: [] },
+  /**
+   * 簽核建版：輪到本人同意（票 25；產品模組 08 §4「等待本人同意（簽核輪到本人）→本人」、NTF-05）。
+   * 收件人＝這一版參與者快照裡的**學生**；主指導要等全員同意後才輪到（票 26 的 `teacher_turn`），管理員不收。
+   * payload 只帶組別代號、用途與版本號，**不帶全文**。
+   */
+  'signoff.version_created': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '有一份簽核輪到你同意' },
+  },
+  /**
+   * 簽核版本失效（票 25；模組 07 §3「any→superseded：只標狀態、寫 cause、發事件 signoff.superseded」）。
+   * 組員或主指導變更、管理員建新版時發。**要通知誰還沒定**（開發計畫票 26「版本失效要通知誰（舊 D-11）」），
+   * 所以先只留紀錄、沒有消費者；舊頁看到的是版本頁上的失效原因。
+   */
+  'signoff.superseded': { consumers: [] },
   'item.withdrawn': { consumers: [] },
   'item.archived': { consumers: [] },
   'item.republished': { consumers: [] },

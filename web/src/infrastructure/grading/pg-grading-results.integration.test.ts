@@ -260,7 +260,10 @@ describe('退回重送（GRD-07）', () => {
     const mine = events.rows.filter((e) => (e.recipients as string[]).includes(s.t2))
     expect(mine).toHaveLength(1)
     expect(JSON.stringify(mine[0]!.payload)).toContain('請補上展示影片的評語')
-    expect(JSON.stringify(mine[0]!.payload)).not.toContain('90')
+    // 沒有分數：payload 只有這幾個欄位，文字欄也不含 90（不整串比對，組別 UUID 可能剛好含 "90"）。
+    const payload = mine[0]!.payload as Record<string, unknown>
+    expect(Object.keys(payload).sort()).toEqual(['code', 'groupId', 'reason', 'stageKey', 'title'])
+    expect(`${String(payload.title)} ${String(payload.reason)}`).not.toContain('90')
 
     const g = await groupRow(s.cohortId, s.groupId)
     expect(g.result.stages[1]).toMatchObject({ status: 'incomplete', averageDisplay: null })

@@ -16,6 +16,7 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
+import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
 
 /** 模組 10 的共用 port（稽核、帳本、檔案）。 */
@@ -56,7 +57,7 @@ function ticketSecret(): string {
 
 /**
  * 每個用途的下載政策（模組 10 §5 `authorizeDownload`）。**新用途要在這裡登記**，
- * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）已加。
+ * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）、精選海報（票 25）已加。
  */
 export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 名單原檔：只有狀態正常的管理員（契約 03 §1「帳號」列），而且檔案已經匯入成某個名單版本。
@@ -67,6 +68,9 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 繳交附件（票 21）：共用草稿＝此刻有效組員（個人＝本人）；正式版本再加目前主指導（個人回答要項目開放閱覽）；管理員。
   // 沒被任何草稿或版本引用的檔（剛傳完還沒存、從草稿拿掉）一律拒絕。
   submission: createSubmissionFilePolicy(getPool),
+  // 精選海報（票 25）：管理員；草稿上的＝那一組此刻的組員與主指導；簽核版本凍結的＝那一版的參與者。
+  // 公開頁的海報走 S12 的公開閘門，不是這一條。
+  poster: createPosterPolicy(getPool),
 }
 
 /**
