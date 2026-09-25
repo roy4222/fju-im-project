@@ -445,11 +445,13 @@
   /* 通知小紅點外圈 */
   .notif-dot { box-shadow: 0 0 0 2px var(--background); }
 
+  /* 導覽下拉：hover／鍵盤 focus 時淡入往上滑（原型 site-header） */
+  .nav-dropdown { transform: translateY(6px); transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0s linear 180ms; }
+  .group:hover > .nav-dropdown, .group:focus-within > .nav-dropdown { transform: none; transition-delay: 0s; }
   @media (prefers-reduced-motion: reduce) {
     .press:active, .card-lift, .card-lift:hover, .card-lift:active { transform: none; }
     .btn-fju:hover, .btn-fju:active, .btn-fju-outline:active, .btn-fju-ghost:active { transform: none; }
-    .nav-ink::after, .link-ink { transition: none; }
-  }
+    .nav-ink::after, .link-ink, .nav-dropdown { transition: none; }  }
 }
 
 /* 後台外框（原型 2026-09-09 第三輪）：淡藍底、白色圓角側欄、內容區是另一塊圓角面板、白卡大圓角 */

@@ -4,9 +4,10 @@ import type { DownloadPolicy } from '@/application/ops'
 import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-access'
 
 /**
- * 精選海報的下載政策（`DOWNLOAD_POLICIES.poster`；票 25）。公開頁的海報要過 S12 的公開閘門，不走這裡。
+ * 精選海報的下載政策（`DOWNLOAD_POLICIES.poster`；票 25，前台補頁加上「已發布版本的海報公開」）。
  *
  * 誰能下載：
+ * - 任何人（含訪客）：這張是某個**發布中**條目**目前版本**的海報（前台優秀專題、專題詳情要用）。
  * - 管理員：草稿上、或被簽核版本凍結的海報都可以（編輯與核對要用）。
  * - 綁在精選草稿上（`showcase_draft`）：那一組**此刻**的有效組員與主指導（草稿是這一組的作品介紹）。
  * - 綁在簽核版本上（`signoff_version`，建版時凍結的授權範圍素材）：讀得到那一版的人（`canReadSignoffVersions`，
@@ -19,6 +20,19 @@ import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-ac
  */
 export function createPosterPolicy(reader: () => Pick<Pool, 'query'>): DownloadPolicy {
   return async (actor, file) => {
+    // 前台（優秀專題、專題詳情）：**已發布**條目的**目前版本**用的那張海報，任何人都可以看（訪客也是）。
+    // 只認 `showcase_versions.poster_file_id`（發布時凍結、不可變），草稿上的、舊版本的、撤稿後的一律不算。
+    // 發布閘門（授權涵蓋、素材核閱）在 S12 的發布用例裡；能走到「發布中」就已經過了閘門。
+    const published = await reader().query(
+      `select 1
+         from showcase_entries e
+         join showcase_versions v on v.id = e.current_version_id and v.entry_id = e.id
+        where e.status = 'published' and v.poster_file_id = $1
+        limit 1`,
+      [file.id],
+    )
+    if ((published.rowCount ?? 0) > 0) return true
+
     if (actor.kind !== 'authenticated') return false
     const draftEntryIds = file.references.filter((r) => r.refType === 'showcase_draft').map((r) => r.refId)
     const versionIds = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
