@@ -61,6 +61,7 @@ import {
   isUuid,
   lockCohort,
   lockGroupAndScheme,
+  MAX_REQUIRED_COUNT,
   noScheme,
   notAssigned,
   runGrading,
@@ -131,6 +132,11 @@ function staleBasis(): Err {
 
 function staleFinal(): Err {
   return err('CONFLICT', '這一組的成績剛有變動，請重新整理頁面，看過最新的最終成績再處理。')
+}
+
+/** 「新增」會讓要求份數 +1；已經到上限（和設定份數同一個上限）就不能再新增。 */
+function addOverLimit(required: number): string {
+  return `要求份數已經是 ${required} 份（上限 ${MAX_REQUIRED_COUNT}），不能再新增評分老師；請改選「保留」或「替換」。`
 }
 
 function finalIncomplete(code: string): Err {
@@ -417,6 +423,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       }
       if (choice === 'add' && !requirement) {
         return err('VALIDATION_FAILED', '這一組這一階段還沒設定要求份數；請先設定份數再新增評分老師。')
+      }
+      if (choice === 'add' && requirement && requirement.required_count >= MAX_REQUIRED_COUNT) {
+        // 份數在鎖內讀（`stage_requirements FOR UPDATE`），和改份數排隊；「新增」會 +1，不能超過設定份數的上限。
+        return err('VALIDATION_FAILED', addOverLimit(requirement.required_count))
       }
       const stageName = (stages ? stageOf(stages, target.stage_key)?.name : null) ?? target.stage_key
       const oldTeacher = await tx.query<{ name: string }>(
@@ -820,15 +830,17 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (preview.blockers.length > 0) return err('VALIDATION_FAILED', preview.blockers[0]!)
 
       // 新版本直接成為目前版本並鎖定（已有正式評分照它重算）；舊版本留著（鎖定、可追查）。
+      // 換版與鎖定同一步、`locked_at`＝套用時間：解散組別釘版本（`dissolvedVersions`）靠這條。
       await tx.query(`update grading_scheme_versions set status = 'locked', locked_at = $2 where id = $1`, [target.id, realAt])
       await tx.query(
         `update grading_schemes set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
         [scheme.id, target.id, realAt, adminId],
       )
+      // 解散的組釘在解散當下的版本、不因套用重算，所以它的更正也不進待復核（何況解散後不能復核）。
       const withOverrides = await tx.query<{ group_id: string }>(
         `select distinct o.group_id from grade_overrides o join override_review_state r on r.override_id = o.id
            join groups g on g.id = o.group_id
-          where g.cohort_id = $1 and r.state = 'effective' order by o.group_id`,
+          where g.cohort_id = $1 and g.status = 'active' and r.state = 'effective' order by o.group_id`,
         [cohortId],
       )
       let flagged = 0
@@ -927,6 +939,18 @@ async function buildSchemePreview(
   const targetKeys = new Set(targetStages.map((s) => s.key))
   const used = new Set<string>()
   for (const f of facts.values()) {
+    for (const [k, n] of f.requirements) if (n > 0) used.add(k)
+    for (const a of f.active) used.add(a.stageKey)
+    for (const c of f.counted) used.add(c.stageKey)
+  }
+  // 解散的組釘在解散當下的版本、不受套用影響；但它用到的階段（設了份數、有指派或有正式評分）不能從方案拿掉，
+  // 否則成績表與匯出的階段欄就沒有它的那一段（凍結的資料要查得到、匯得出）。
+  const dissolvedGroups = await db.query<{ id: string }>(`select id from groups where cohort_id = $1 and status = 'dissolved'`, [cohortId])
+  const dissolvedFacts = await loadFacts(
+    db,
+    dissolvedGroups.rows.map((g) => g.id),
+  )
+  for (const f of dissolvedFacts.values()) {
     for (const [k, n] of f.requirements) if (n > 0) used.add(k)
     for (const a of f.active) used.add(a.stageKey)
     for (const c of f.counted) used.add(c.stageKey)
@@ -1056,6 +1080,38 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
   return v ? { id: v.id, versionNo: v.version_no, stages: readSchemeStages(v.stages) } : null
 }
 
+/**
+ * 解散組別釘住的方案版本（產品模組 03 §4「解散：原組別資料凍結」）：解散當下套用的那一版。
+ *
+ * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
+ * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
+ * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本（同一時間戳記取版本號大的，版本號只增不減）。解散的組只要有任何評分，解散前一定鎖定過。
+ *
+ * 解散前還沒鎖定過（沒有任何老師開始評分）：那時的目前版本是「已發布」、沒有時間戳記，換過幾次查不出來；
+ * 但它後來若被鎖定，就是第一個鎖定的版本（鎖的一定是目前版本），所以取第一個鎖定版本——解散後、第一次鎖定前
+ * 又發布過別的版本時才會不準（這種組沒有任何分數，只影響階段名稱與份數的顯示）。連鎖定都沒有過就照目前版本。
+ */
+async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, NonNullable<CurrentVersion>>> {
+  if (groupIds.length === 0) return new Map()
+  const rows = await db.query<{ group_id: string; id: string; version_no: number; stages: unknown }>(
+    `select g.id as group_id, v.id, v.version_no, v.stages
+       from groups g
+       join grading_schemes s on s.cohort_id = g.cohort_id
+       join lateral (
+         select x.id, x.version_no, x.stages from grading_scheme_versions x
+          where x.scheme_id = s.id and x.status = 'locked'
+          order by x.locked_at <= g.dissolved_real_at desc,
+                   case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
+                   case when x.locked_at <= g.dissolved_real_at then x.version_no end desc,
+                   x.locked_at, x.version_no
+          limit 1
+       ) v on true
+      where g.id = any($1::uuid[]) and g.status = 'dissolved'`,
+    [groupIds],
+  )
+  return new Map(rows.rows.map((r) => [r.group_id, { id: r.id, versionNo: r.version_no, stages: readSchemeStages(r.stages) }]))
+}
+
 export class PgGradebookQuery implements GradebookQuery {
   readonly #reader: () => Pick<Pool, 'query'>
 
@@ -1071,55 +1127,68 @@ export class PgGradebookQuery implements GradebookQuery {
     const cohort = (await db.query<CohortRow>('select id, code, status from cohorts where id = $1', [cohortId])).rows[0]
     if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     const version = await currentVersionOf(db, cohortId)
-    const stages = version?.stages ?? []
 
-    const groups = await db.query<{ id: string; code: string; advisor_name: string | null }>(
-      `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name
+    // 解散的組也列（唯讀；產品模組 03 §4「管理員可查與匯出」），排在進行中的組後面。
+    const groups = await db.query<{ id: string; code: string; advisor_name: string | null; dissolved: boolean }>(
+      `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name, g.status = 'dissolved' as dissolved
          from groups g
          left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
          left join users u on u.id = a.teacher_user_id
          left join user_profiles p on p.user_id = a.teacher_user_id
-        where g.cohort_id = $1 and g.status = 'active'
-        order by g.code`,
+        where g.cohort_id = $1 and g.status in ('active', 'dissolved')
+        order by g.status = 'dissolved', g.code`,
       [cohortId],
     )
     const ids = groups.rows.map((g) => g.id)
-    const [facts, members, overrides] = await Promise.all([
+    const [facts, members, overrides, pinned] = await Promise.all([
       loadFacts(db, ids),
+      // 解散的組列解散當下的組員：還沒結束的，或在解散那一刻（含）之後才結束的（解散把組員放回未分組時）。
+      // 組員資格的 `valid_to` 是業務時間、`dissolved_real_at` 是真實時間，兩者在模擬業務鐘下不能比；
+      // 結束資格時 `updated_at` 寫的是真實時間，所以用它跟解散時間比。解散前就被移出的人不列。
       db.query<{ group_id: string; name: string; student_no: string | null }>(
         `select gm.group_id, ${TEACHER_NAME_SQL} as name, p.student_no
-           from group_memberships gm join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
-          where gm.group_id = any($1::uuid[]) and gm.valid_to is null
+           from group_memberships gm
+           join groups g on g.id = gm.group_id
+           join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
+          where gm.group_id = any($1::uuid[])
+            and (gm.valid_to is null or (g.status = 'dissolved' and gm.updated_at >= g.dissolved_real_at))
           order by gm.group_id, p.student_no nulls last, gm.valid_from, gm.user_id`,
         [ids],
       ),
       db.query<OverrideRow>(`${OVERRIDE_SELECT} where o.group_id = any($1::uuid[]) and r.state <> 'superseded' order by o.real_at desc, o.id desc`, [
         ids,
       ]),
+      dissolvedVersions(db, groups.rows.filter((g) => g.dissolved).map((g) => g.id)),
     ])
 
     const book: GradebookGroup[] = groups.rows.map((g) => {
       const f = facts.get(g.id)!
       const latest = overrides.rows.find((o) => o.group_id === g.id)
+      const own = pinned.get(g.id) ?? version
       return {
         id: g.id,
         code: g.code,
         advisorName: g.advisor_name,
+        dissolved: g.dissolved,
+        versionNo: own?.versionNo ?? null,
         members: members.rows.filter((m) => m.group_id === g.id).map((m) => ({ name: m.name, studentNo: m.student_no })),
-        result: computeGroupResult(stages, f.requirements, f.counted),
+        result: computeGroupResult(own?.stages ?? [], f.requirements, f.counted),
         override: latest ? toOverrideView(latest) : null,
-        basisHash: groupBasisHash(version?.id ?? null, f),
-        missing: missingOf(stages, f),
+        basisHash: groupBasisHash(own?.id ?? null, f),
+        // 解散的組評分工作已停止（產品模組 03 §4）：沒有缺評要處理。
+        missing: g.dissolved ? [] : missingOf(own?.stages ?? [], f),
       }
     })
     const codeOf = new Map(groups.rows.map((g) => [g.id, g.code]))
+    // 解散的組不能再復核（寫入一律拒），不放進待復核清單；那一組的列仍標「更正待復核」。
+    const dissolvedIds = new Set(groups.rows.filter((g) => g.dissolved).map((g) => g.id))
     return ok(
       {
         cohort: { id: cohort.id, code: cohort.code, archived: cohort.status === 'archived' },
         version,
         groups: book,
         pendingReviews: overrides.rows
-          .filter((o) => o.state === 'pending_review')
+          .filter((o) => o.state === 'pending_review' && !dissolvedIds.has(o.group_id))
           .map((o) => ({
             overrideId: o.id,
             groupId: o.group_id,
@@ -1146,7 +1215,8 @@ export class PgGradebookQuery implements GradebookQuery {
       )
     ).rows[0]
     if (!head) return groupNotFound()
-    const version = await currentVersionOf(db, head.cohort_id)
+    // 解散的組用解散當下的方案版本算（凍結；見 `dissolvedVersions`）。
+    const version = (await dissolvedVersions(db, [groupId])).get(groupId) ?? (await currentVersionOf(db, head.cohort_id))
     const stages = version?.stages ?? []
     const facts = await loadGroupFacts(db, groupId)
     const nameOfStage = (key: string) => stageOf(stages, key)?.name ?? key
@@ -1247,7 +1317,7 @@ export class PgGradebookQuery implements GradebookQuery {
         overrides: overrides.rows.map(toOverrideView),
         evaluations: history,
         assignments: assignmentRows,
-        missing: missingOf(stages, facts),
+        missing: head.status === 'dissolved' ? [] : missingOf(stages, facts),
       },
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )
@@ -1322,7 +1392,9 @@ export class PgGradebookQuery implements GradebookQuery {
           ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
           : choice === 'add' && required === null
             ? '這一組這一階段還沒設定要求份數。'
-            : null
+            : choice === 'add' && required !== null && required >= MAX_REQUIRED_COUNT
+              ? addOverLimit(required)
+              : null
       return {
         choice,
         blockedReason,
