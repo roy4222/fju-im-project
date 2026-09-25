@@ -17,7 +17,7 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
-export const metadata = { title: '我的合作案｜資管系專題平台' }
+export const metadata = { title: '合作案｜資管系專題平台' }
 
 const STATUS_TONE: Record<OpportunityStatus, PillTone> = { published: 'success', draft: 'info', withdrawn: 'default' }
 
