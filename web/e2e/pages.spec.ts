@@ -60,7 +60,7 @@ test.describe('不登入', () => {
 })
 
 test.describe('以 A1（管理員）', () => {
-  test('看得到管理員首頁與側欄，側欄有「帳號」「屆別」', async ({ page }) => {
+  test('看得到管理員首頁與側欄，側欄有「帳號管理」「屆別」', async ({ page }) => {
     await signInAs(page, 'admin')
     const response = await page.goto('/dashboard/admin')
     expect(response?.status()).toBe(200)
@@ -70,7 +70,7 @@ test.describe('以 A1（管理員）', () => {
     await expect(page.getByText('儲存與備份', { exact: true })).toBeVisible()
     // 側欄有兩份：行動版收在 <details> 裡、桌機版直接展開。
     // 桌機視窗下只有後者在可及性樹裡，所以這裡拿得到的就是看得見的那一份。
-    await expect(page.getByRole('link', { name: '帳號', exact: true })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: '帳號管理', exact: true })).toHaveAttribute(
       'href',
       '/dashboard/admin/accounts',
     )
