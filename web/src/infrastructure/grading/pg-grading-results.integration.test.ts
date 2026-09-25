@@ -860,7 +860,8 @@ describe('方案鎖定後套用新版本（GRD-09）', () => {
 describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結，管理員可查與匯出」）', () => {
   /**
    * G01 期中 80／84.29、期末 90（最終 85.29）＋更正 88 後解散；S3 在解散前就被移出，另一位期末老師還沒送（指派沒結束）。
-   * 解散時組員資格在「業務時間」結束（模擬鐘比真實時間早），真實時間寫在 `updated_at`。G02 還在進行，只有期中。
+   * 解散時甲生的組員資格在「業務時間」結束（模擬鐘比真實時間早），真實時間寫在 `updated_at`；
+   * 另一位組員的資格沒結束（兩種解散寫法都要列得出來）。G02 還在進行，只有期中。
    */
   async function dissolvedScenario() {
     const s = await standard()
@@ -892,7 +893,7 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     ])
     await owner.sql(
       `update group_memberships set valid_to = greatest(valid_from, '2026-01-01'::timestamptz), updated_at = $2
-        where group_id = $1 and valid_to is null`,
+        where group_id = $1 and valid_to is null and user_id in (select user_id from user_profiles where student_no = '0412345')`,
       [s.groupId, dissolvedAt],
     )
     return { ...s, g2, t4, overrideId: o.receipt.overrideId }
@@ -937,11 +938,12 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     expect(again.ok && again.receipt.groups.find((x) => x.id === s.groupId)?.override?.state).toBe('pending_review')
   })
 
-  it('套用新方案版本不重算解散的組：數字、方案版本、更正都停在解散當下；計算明細同一份', async () => {
+  it('套用新方案版本不重算解散的組：數字、方案版本、更正都停在解散當下；計算明細同一份；新加的階段匯出留白', async () => {
     const s = await dissolvedScenario()
+    const oral: SchemeStageInput = { key: 'oral', name: '口試', weight: 20, items: [{ key: 'i1', name: '總分', type: 'number', max: 100, weight: 100 }] }
     const v2 = await command.createSchemeVersion(
       adminActor(),
-      { cohortId: s.cohortId, stages: [{ ...STAGES[0]!, weight: 50 }, { ...STAGES[1]!, weight: 50 }] },
+      { cohortId: s.cohortId, stages: [{ ...STAGES[0]!, weight: 50 }, { ...STAGES[1]!, weight: 30 }, oral] },
       randomUUID(),
     )
     const versionId = v2.ok ? v2.receipt.versionId : ''
@@ -954,6 +956,13 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
 
     const g = await groupRow(s.cohortId, s.groupId)
     expect([g.result.finalExact, g.result.finalDisplay, g.versionNo]).toEqual(['85.287', '85.29', 1])
+    expect(g.result.stages.map((x) => x.key)).toEqual(['mid', 'fin'])
+    const csv = await exporter.exportGrades(adminActor(), { cohortId: s.cohortId, format: 'csv', filter: DEFAULT_GRADE_EXPORT_FILTER })
+    const lines = (csv.ok ? String(csv.receipt.body) : '').replace(/^\uFEFF/, '').trimEnd().split('\r\n')
+    const width = (l: string) => l.slice(1, -1).split('","').length
+    expect(lines[0]).toContain('"口試 份數","口試 老師1","口試 老師1 分數","口試 平均","口試 狀態"')
+    expect(new Set(lines.map(width))).toEqual(new Set([width(lines[0]!)]))
+    expect(lines.find((l) => l.includes('"G01"'))).toContain('"已完成","","","","","","85.29","85.287","88.00"')
     expect(await overrideState(s.overrideId)).toBe('effective')
     const detail = await book.groupDetail(adminActor(), s.groupId)
     if (!detail.ok) throw new Error(detail.message)

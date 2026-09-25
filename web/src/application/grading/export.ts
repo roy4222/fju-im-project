@@ -109,8 +109,8 @@ function stagesOf(book: Gradebook, filter: GradeExportFilter) {
 }
 
 /**
- * 每個階段要幾組「老師／分數」欄：這次匯出的組別裡，該階段採計中評分最多的份數（至少一組，欄位才固定）。
- * 同一份匯出每一列欄數一樣；老師依正式送出的先後排（和計算明細同一個順序）。
+ * 每個階段要幾組「老師／分數」欄：整屆（不看組別與完成狀態篩選）該階段採計中評分最多的份數，至少一組。
+ * 欄位只跟屆別與階段有關，篩選換了欄位也一樣；老師依正式送出的先後排（和計算明細同一個順序）。
  */
 function teacherSlots(groups: readonly GradebookGroup[], stageKey: string): number {
   let most = 1
@@ -118,7 +118,7 @@ function teacherSlots(groups: readonly GradebookGroup[], stageKey: string): numb
   return most
 }
 
-export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGroup[], filter: GradeExportFilter): string[] {
+export function gradeExportHeader(book: Gradebook, filter: GradeExportFilter): string[] {
   return [
     '屆別',
     '組別',
@@ -126,7 +126,7 @@ export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGro
     '姓名',
     ...stagesOf(book, filter).flatMap((s) => [
       `${s.name} 份數`,
-      ...Array.from({ length: teacherSlots(groups, s.key) }, (_, i) => [`${s.name} 老師${i + 1}`, `${s.name} 老師${i + 1} 分數`]).flat(),
+      ...Array.from({ length: teacherSlots(book.groups, s.key) }, (_, i) => [`${s.name} 老師${i + 1}`, `${s.name} 老師${i + 1} 分數`]).flat(),
       `${s.name} 平均`,
       `${s.name} 狀態`,
     ]),
@@ -146,7 +146,7 @@ export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGro
  */
 export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup[], filter: GradeExportFilter): string[][] {
   const stages = stagesOf(book, filter)
-  const slots = new Map(stages.map((s) => [s.key, teacherSlots(groups, s.key)]))
+  const slots = new Map(stages.map((s) => [s.key, teacherSlots(book.groups, s.key)]))
   const rows: string[][] = []
   for (const g of groups) {
     const stageCells = stages.flatMap((stage) => {

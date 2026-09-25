@@ -830,6 +830,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (preview.blockers.length > 0) return err('VALIDATION_FAILED', preview.blockers[0]!)
 
       // 新版本直接成為目前版本並鎖定（已有正式評分照它重算）；舊版本留著（鎖定、可追查）。
+      // 換版與鎖定同一步、`locked_at`＝套用時間：解散組別釘版本（`dissolvedVersions`）靠這條。
       await tx.query(`update grading_scheme_versions set status = 'locked', locked_at = $2 where id = $1`, [target.id, realAt])
       await tx.query(
         `update grading_schemes set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,

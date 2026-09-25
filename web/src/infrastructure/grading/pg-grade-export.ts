@@ -53,7 +53,7 @@ export class PgGradeExporter implements GradeExporter {
     const groups = selectExportGroups(receipt, request.filter)
     if (groups.length === 0) return err('VALIDATION_FAILED', '沒有符合的組別可以匯出。')
 
-    const header = gradeExportHeader(receipt, groups, request.filter)
+    const header = gradeExportHeader(receipt, request.filter)
     const rows = gradeExportRows(receipt, groups, request.filter)
     const body = request.format === 'csv' ? buildGradeCsv(header, rows) : buildXlsx(`${receipt.cohort.code} 成績`, header, rows)
     const now = this.#clock.now()

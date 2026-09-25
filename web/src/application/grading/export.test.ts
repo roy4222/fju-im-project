@@ -53,7 +53,7 @@ function book(groups: GradebookGroup[]): Gradebook {
 }
 
 describe('匯出的各老師分數欄', () => {
-  it('每階段依採計份數最多的組開欄；老師照送出先後；少的組留白；改派保留的舊分數標註', () => {
+  it('每階段依整屆採計份數最多的組開欄（篩選不改欄位）；老師照送出先後；少的組留白；改派保留的舊分數標註', () => {
     const g1 = group('G01', { mid: 2, fin: 1 }, [
       counted('mid', '甲老師', '80'),
       counted('mid', '丙老師', '84.29', { assignmentEnded: true }),
@@ -61,7 +61,7 @@ describe('匯出的各老師分數欄', () => {
     ])
     const g2 = group('G02', { mid: 1 }, [counted('mid', '丁老師', '70')])
     const b = book([g1, g2])
-    const header = gradeExportHeader(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER)
+    const header = gradeExportHeader(b, DEFAULT_GRADE_EXPORT_FILTER)
     expect(header.slice(4, 16)).toEqual([
       '期中 份數',
       '期中 老師1',
@@ -78,6 +78,9 @@ describe('匯出的各老師分數欄', () => {
     ])
     const rows = gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER)
     expect(rows.every((r) => r.length === header.length)).toBe(true)
+    // 只匯出 G02（它只有一位期中老師）：欄位還是兩組，G02 的第二組留白。
+    expect(gradeExportHeader(b, { ...DEFAULT_GRADE_EXPORT_FILTER, groupId: 'G02' })).toEqual(header)
+    expect(gradeExportRows(b, [g2], { ...DEFAULT_GRADE_EXPORT_FILTER, groupId: 'G02' })[0]!.length).toBe(header.length)
     expect(rows[0]!.slice(4, 16)).toEqual([
       '2／2',
       '甲老師',
@@ -98,14 +101,14 @@ describe('匯出的各老師分數欄', () => {
   it('只匯出一個階段：只有那一階段的老師欄；還沒有任何採計也留一組空欄（欄位固定）', () => {
     const b = book([group('G01', { mid: 2 }, [])])
     const filter = { ...DEFAULT_GRADE_EXPORT_FILTER, stageKey: 'fin' }
-    const header = gradeExportHeader(b, b.groups, filter)
+    const header = gradeExportHeader(b, filter)
     expect(header.filter((h) => h.includes('老師'))).toEqual(['期末 老師1', '期末 老師1 分數'])
     expect(gradeExportRows(b, b.groups, filter)[0]!.length).toBe(header.length)
   })
 
   it('老師姓名是使用者可改的字：CSV 公式字首照樣加 \'', () => {
     const b = book([group('G01', { mid: 1 }, [counted('mid', '=1+1', '80'), counted('mid', '@SUM(A1)', '82')])])
-    const csv = buildGradeCsv(gradeExportHeader(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER), gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER))
+    const csv = buildGradeCsv(gradeExportHeader(b, DEFAULT_GRADE_EXPORT_FILTER), gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER))
     expect(csv).toContain(`"'=1+1","80.00"`)
     expect(csv).toContain(`"'@SUM(A1)","82.00"`)
     expect(csv).not.toContain('"=1+1"')
@@ -119,7 +122,7 @@ describe('解散的組別', () => {
     expect(unassignedSlots(active)).toEqual(['期中：尚缺 2 位評分老師（待指派）'])
     expect(unassignedSlots(gone)).toEqual([])
     const b = book([active, gone])
-    expect(gradeExportHeader(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER).slice(-2)).toEqual(['方案版本', '組別狀態'])
+    expect(gradeExportHeader(b, DEFAULT_GRADE_EXPORT_FILTER).slice(-2)).toEqual(['方案版本', '組別狀態'])
     const rows = gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER)
     expect(rows.map((r) => r.slice(-3))).toEqual([
       ['期中：尚缺 2 位評分老師（待指派）', 'v1', '進行中'],

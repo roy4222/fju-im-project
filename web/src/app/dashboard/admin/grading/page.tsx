@@ -608,9 +608,17 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                               <p className="text-xs text-muted-foreground">指導：{g.advisorName ?? '尚未指派'}</p>
                             )}
                           </td>
-                          {g.result.stages
-                            .filter((s) => visibleStages.some((v) => v.key === s.key))
-                            .map((s) => (
+                          {visibleStages.map((v) => {
+                            // 解散的組用解散當下的版本算，可能沒有目前版本新加的階段：留一格空的，欄位才對得齊。
+                            const s = g.result.stages.find((x) => x.key === v.key)
+                            if (!s) {
+                              return (
+                                <td key={v.key} className={`${DT.td} text-right text-sm text-muted-foreground`} data-testid={`stage-${v.key}`}>
+                                  —
+                                </td>
+                              )
+                            }
+                            return (
                               <td key={s.key} className={`${DT.td} text-right`} data-testid={`stage-${s.key}`}>
                                 <p className={cn('tabular-nums', s.complete ? 'text-base font-extrabold text-foreground' : 'text-sm font-semibold text-muted-foreground')}>
                                   {s.averageDisplay ?? '—'}
@@ -619,7 +627,8 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                                   <Pill tone={s.complete ? 'success' : s.counted.length > 0 ? 'brand' : 'default'}>{describeStageStatus(s)}</Pill>
                                 </p>
                               </td>
-                            ))}
+                            )
+                          })}
                           <td className={`${DT.td} text-right`} data-testid="final">
                             <p className={cn('tabular-nums', adopted.value ? 'text-base font-extrabold text-foreground' : 'text-sm font-semibold text-muted-foreground')}>
                               {adopted.value ?? '尚未完成'}
