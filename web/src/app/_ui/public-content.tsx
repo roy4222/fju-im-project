@@ -6,6 +6,7 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 /**
  * 前台內容頁共用的區塊（票 16；照原型 `/news`、`/news/[id]`、`/rules`、`/files` 的版型，收斂成系網橘單一主軸）。
+ * 外觀照原型 `components/public/blocks.tsx`（2026-09-25 對齊）：首字橘色大標、暖白照片卡、細框標籤。
  *
  * 都是 server component。正文只接受**已經過 `renderBodyHtml` 清理**的字串（`PublicItemPage.item.bodyHtml`）。
  */
@@ -20,19 +21,30 @@ function formatSize(bytes: number): string {
   return `${bytes} B`
 }
 
-/** 頁首：標題、一句說明、麵包屑。 */
+/** 首字橘色（系網的大標做法）。 */
+export function FirstCharAccent({ text }: { text: string }) {
+  const [first, ...rest] = Array.from(text)
+  return (
+    <>
+      <span className="text-primary">{first}</span>
+      {rest.join('')}
+    </>
+  )
+}
+
+/** 頁首：麵包屑、首字橘色的大標、一句說明（原型 `PageHead`）。 */
 export function PublicPageHead({ title, description, crumbs }: { title: string; description?: string; crumbs?: readonly { href?: string; label: string }[] }) {
   return (
-    <header className="mb-6 border-b border-border pb-5">
-      <nav aria-label="麵包屑" className="text-xs text-muted-foreground">
-        <Link href="/" className="hover:text-ink">
+    <header className="mb-8 border-b border-border pb-7">
+      <nav aria-label="麵包屑" className="text-[13px] text-muted-foreground">
+        <Link href="/" className="hover:text-foreground">
           首頁
         </Link>
         {(crumbs ?? [{ label: title }]).map((c) => (
           <span key={c.label}>
             {' › '}
             {c.href ? (
-              <Link href={c.href} className="hover:text-ink">
+              <Link href={c.href} className="hover:text-foreground">
                 {c.label}
               </Link>
             ) : (
@@ -41,18 +53,21 @@ export function PublicPageHead({ title, description, crumbs }: { title: string; 
           </span>
         ))}
       </nav>
-      <h1 className="mt-2 text-2xl font-semibold text-ink">{title}</h1>
-      {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+      <h1 className="mt-2.5 text-[28px] leading-tight font-extrabold text-foreground sm:text-[34px]">
+        <FirstCharAccent text={title} />
+      </h1>
+      {description ? <p className="mt-2.5 max-w-3xl text-[15px] text-muted-foreground">{description}</p> : null}
     </header>
   )
 }
 
 export function Tag({ children, tone = 'muted' }: { children: ReactNode; tone?: 'muted' | 'brand' }) {
   return (
+    // 原型 Tag：4px 圓角細框；橘＝要注意的，深藍＝一般分類。
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-        tone === 'brand' ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-muted text-muted-foreground',
+        'inline-flex h-6 items-center rounded-[4px] border bg-background px-2 text-xs font-semibold',
+        tone === 'brand' ? 'border-primary text-primary' : 'border-ink/60 text-ink',
       )}
     >
       {children}
@@ -66,26 +81,26 @@ export function NewsCard({ card }: { card: PublicItemCard }) {
     <Link
       href={`/news/${card.id}`}
       data-testid="news-card"
-      className="group flex h-full flex-col overflow-hidden rounded-card border border-border bg-background transition-colors hover:border-primary"
+      className="group card-lift flex h-full flex-col overflow-hidden rounded-xl bg-secondary shadow-[0_2px_10px_rgba(0,51,102,0.08)]"
     >
-      <div className="relative aspect-video bg-muted">
+      <div className="relative aspect-video overflow-hidden bg-muted">
         {card.cover ? (
           // 封面走共用下載能力（每次重驗權限），不能用 next/image 的最佳化快取。
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/api/files/${card.cover.fileId}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <img src={`/api/files/${card.cover.fileId}`} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm font-semibold text-muted-foreground">輔大資管專題</div>
+          <div className="flex h-full items-center justify-center bg-ink text-sm font-bold tracking-widest text-ink-foreground/80">輔大資管專題</div>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className="flex flex-1 flex-col gap-2 p-4.5">
         <div className="flex flex-wrap items-center gap-2">
           {card.category ? <Tag>{card.category}</Tag> : null}
           {card.audienceKind !== 'public' ? <Tag tone="brand">登入可見</Tag> : null}
-          <time dateTime={card.publishedAt.toISOString()} className="text-xs font-semibold text-muted-foreground tabular-nums">
+          <time dateTime={card.publishedAt.toISOString()} className="text-[13px] font-semibold text-muted-foreground tabular-nums">
             {publishedDate(card)}
           </time>
         </div>
-        <h2 className="text-base font-semibold leading-snug text-ink group-hover:text-primary">{card.title}</h2>
+        <h2 className="type-card-title text-foreground group-hover:text-primary">{card.title}</h2>
         {card.summary ? <p className="line-clamp-2 text-sm text-muted-foreground">{card.summary}</p> : null}
       </div>
     </Link>
@@ -96,8 +111,8 @@ export function NewsCard({ card }: { card: PublicItemCard }) {
 export function AttachmentList({ files, label = '附件' }: { files: readonly ItemFileSummary[]; label?: string }) {
   if (files.length === 0) return null
   return (
-    <section aria-label={label} className="rounded-card border border-border p-4">
-      <p className="text-sm font-semibold text-ink">{label}</p>
+    <section aria-label={label} className="rounded-xl border border-border bg-card p-5">
+      <p className="text-sm font-bold text-foreground">{label}</p>
       <ul className="mt-2 space-y-1.5">
         {files.map((f) => (
           <li key={f.fileId} className="flex flex-wrap items-center justify-between gap-2">
@@ -125,16 +140,16 @@ export function CleanBody({ html }: { html: string }) {
 export function NeedLogin({ next, what }: { next: string; what: string }) {
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center gap-3 py-12 text-center" data-testid="need-login">
-      <p className="text-6xl font-bold text-ink tabular-nums">403</p>
-      <h1 className="text-xl font-semibold text-ink">{what}需要登入</h1>
+      <p className="text-7xl font-extrabold text-ink tabular-nums">403</p>
+      <h1 className="text-[22px] font-extrabold text-foreground">{what}需要登入</h1>
       <p className="text-sm text-muted-foreground">
         這裡的內容只提供本系學生與老師。登入後會回到你原本要看的頁面。
       </p>
       <div className="mt-2 flex gap-2">
-        <Link href={`/login?next=${encodeURIComponent(next)}`} className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+        <Link href={`/login?next=${encodeURIComponent(next)}`} className="btn-fju h-11 px-6 text-[15px]">
           登入
         </Link>
-        <Link href="/" className="rounded-md border border-border px-5 py-2 text-sm font-medium text-ink hover:bg-muted">
+        <Link href="/" className="btn-fju-outline h-11 px-6 text-[15px]">
           回首頁
         </Link>
       </div>
@@ -161,15 +176,15 @@ export function GoneNotice({
       ? '系辦已經把它下架，內容不再公開。可能已經過期，或被新的公告取代。'
       : '系辦暫時把它收回修改，改好後會在原本的網址重新發布。'
   return (
-    <div className="mx-auto max-w-xl rounded-card border border-border bg-surface px-6 py-10 text-center" data-testid="gone-notice">
-      <h1 className="text-xl font-semibold text-ink">{title}</h1>
+    <div className="mx-auto max-w-xl rounded-xl border border-border bg-card px-6 py-12 text-center" data-testid="gone-notice">
+      <h1 className="text-[22px] font-extrabold text-foreground">{title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{detail}</p>
       <p className="mt-1 text-sm text-muted-foreground">有問題請聯絡系辦。</p>
       <div className="mt-5 flex justify-center gap-2">
-        <Link href={back.href} className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+        <Link href={back.href} className="btn-fju h-11 px-6 text-[15px]">
           {back.label}
         </Link>
-        <Link href="/" className="rounded-md border border-border px-5 py-2 text-sm font-medium text-ink hover:bg-muted">
+        <Link href="/" className="btn-fju-outline h-11 px-6 text-[15px]">
           回首頁
         </Link>
       </div>
@@ -180,11 +195,12 @@ export function GoneNotice({
 /** 列表沒有結果時：說明現在的條件、給一個清除條件的連結。 */
 export function ListEmpty({ title, hint, clearHref }: { title: string; hint: string; clearHref?: string }) {
   return (
-    <div className="rounded-card border border-dashed border-border bg-surface px-6 py-10 text-center">
-      <p className="text-base font-medium text-ink">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{hint}</p>
+    // 原型 ListState：白卡置中、一句粗體、一行灰字。
+    <div className="flex min-h-64 flex-col items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-6 py-12 text-center">
+      <p className="text-base font-bold text-foreground">{title}</p>
+      <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">{hint}</p>
       {clearHref ? (
-        <Link href={clearHref} className="mt-3 inline-block text-sm font-semibold text-primary hover:underline">
+        <Link href={clearHref} className="mt-2 inline-block text-sm font-bold text-primary hover:underline">
           清除條件
         </Link>
       ) : null}

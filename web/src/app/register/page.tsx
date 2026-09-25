@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
 import { GoogleButton } from '@/app/login/google-button'
-import { Card } from '@/app/_ui/primitives'
+import { AuthCard } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { APPLIED_NAME_MAX_LENGTH, DEPARTMENT_CLASS_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/composition/accounts'
 import { registerAction } from './actions'
@@ -32,7 +32,7 @@ export default async function RegisterPage({
 
   return (
     <NarrowShell wide>
-      <Card title="學生註冊" description="請用學籍上的姓名與學號。老師帳號由系辦建立，不需要在這裡註冊。">
+      <AuthCard title="學生註冊" description="請用學籍上的姓名與學號。老師帳號由系辦建立，不需要在這裡註冊。">
         {googleError ? (
           <p role="alert" className="mb-4 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle" data-testid="google-error">
             {googleError}
@@ -40,7 +40,7 @@ export default async function RegisterPage({
         ) : null}
         <GoogleButton from="register" label="使用 Google 帳號註冊" />
         <p className="mt-2 text-xs text-muted-foreground">用 Google 註冊後，會請你補上學號、系級與手機。</p>
-        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="my-5 flex items-center gap-3 text-[13px] text-muted-foreground">
           <span className="h-px flex-1 bg-border" />
           或填寫 Email 與密碼
           <span className="h-px flex-1 bg-border" />
@@ -59,13 +59,13 @@ export default async function RegisterPage({
           送出後帳號會進入系辦的待審核清單，系辦以校方既有方式核對本人後才會開通。
           審核期間你可以登入查看狀態、修改資料。
         </p>
-      </Card>
-      <p className="mt-4 text-center text-sm text-muted-foreground">
-        已經有帳號？
-        <Link className="font-medium text-primary-on-subtle underline" href="/login">
-          登入
-        </Link>
-      </p>
+        <p className="mt-4 text-center text-[13px] text-muted-foreground">
+          已經有帳號？
+          <Link className="font-bold text-primary hover:underline" href="/login">
+            登入
+          </Link>
+        </p>
+      </AuthCard>
     </NarrowShell>
   )
 }

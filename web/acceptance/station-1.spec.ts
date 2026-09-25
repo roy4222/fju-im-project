@@ -38,12 +38,14 @@ test('1＋2 打開登入頁，用 E2E 管理員登入', async () => {
   await shot(page, 'signed-in')
 })
 
-test('3 進到後台：系辦首頁、側邊有我的帳號與登出', async () => {
+test('3 進到後台：系辦首頁、右上角帳號選單有我的帳號與登出', async () => {
   await page.goto('/dashboard/admin')
   await expect(page.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '我的帳號' }).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: '登出' }).first()).toBeVisible()
   await shot(page, 'admin-dashboard')
+  await page.getByRole('button', { name: '帳號選單' }).click()
+  await expect(page.getByRole('menuitem', { name: '我的帳號' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '登出' })).toBeVisible()
+  await page.keyboard.press('Escape')
 })
 
 test('4 登出之後看不到後台', async () => {

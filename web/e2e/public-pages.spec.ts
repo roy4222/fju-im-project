@@ -263,7 +263,8 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
   expect(response?.status()).toBe(200)
   await expect(page.getByTestId('need-login')).toContainText('這則公告需要登入')
   await expect(page.getByRole('main')).not.toContainText(MEMBER_NEWS)
-  await expect(page.getByRole('link', { name: '登入', exact: true }).last()).toHaveAttribute(
+  // 頁首、頁尾也有「登入」；要驗的是登入提示裡那一顆（帶 next 回到原頁）。
+  await expect(page.getByTestId('need-login').getByRole('link', { name: '登入', exact: true })).toHaveAttribute(
     'href',
     `/login?next=${encodeURIComponent(`/news/${itemIds[MEMBER_NEWS]}`)}`,
   )
