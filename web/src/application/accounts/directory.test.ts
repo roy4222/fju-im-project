@@ -203,6 +203,24 @@ describe('批次停用 TXT', () => {
     expect(preview.skipped[1]!.reason).toBe('不能停用自己')
   })
 
+  it('組長不能批次停用（票 42）：列進要人工處理、請逐筆停用並指定接任；已停用的組長照舊算已停用', () => {
+    const parsed = parseBulkStudentNos('411A\n411B\n411C\n')
+    if (!parsed.ok) throw new Error('parse')
+    const preview = classifyBulk(
+      parsed,
+      [
+        { ...cand('u1', '411A', 'active'), isLeader: true },
+        cand('u2', '411B', 'active'),
+        { ...cand('u3', '411C', 'disabled'), isLeader: true },
+      ],
+      ADMIN_ID,
+    )
+    expect(preview.hits.map((h) => h.userId)).toEqual(['u2'])
+    expect(preview.alreadyDisabled.map((h) => h.userId)).toEqual(['u3'])
+    expect(preview.skipped.map((s) => s.studentNo)).toEqual(['411A'])
+    expect(preview.skipped[0]!.reason).toContain('組長')
+  })
+
   it('執行前再算一次，要停用的人要跟預覽一樣', () => {
     expect(sameTargets(['a', 'b'], ['b', 'a'])).toBe(true)
     expect(sameTargets(['a'], ['a', 'b'])).toBe(false)

@@ -1,9 +1,11 @@
 import 'server-only'
+import type { PoolClient } from 'pg'
 import type {
   AdvisorCommand,
   AdvisorGradingLookup,
   GroupCommand,
   GroupQuery,
+  LeaderSuccessionHook,
   OpportunityCommand,
   OpportunityQuery,
   ProposalExpiryHandler,
@@ -39,6 +41,14 @@ function command(): PgGroupCommand {
 }
 
 export function getGroupCommand(): GroupCommand {
+  return command()
+}
+
+/**
+ * 票 42：停用帳號時的組長接任（模組 01 的停用用例在它的交易裡呼叫；見 `composition/accounts.ts`）。
+ * 這裡不 import 帳號的 composition（不會繞成循環）。
+ */
+export function getLeaderSuccessionHook(): LeaderSuccessionHook<PoolClient> {
   return command()
 }
 

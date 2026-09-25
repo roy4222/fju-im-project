@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHANGE_REASON_MAX_LENGTH,
+  decideDisableSuccession,
   decideLeaderChange,
   decideRemoval,
   describeLeaderChangeReceipt,
@@ -107,5 +108,60 @@ describe('回饋句子', () => {
     expect(describeLeaderChangeReceipt({ groupId: A, groupCode: 'G01', previousLeaderName: '王小明', leaderName: '李小華' })).toContain(
       '不需要重簽',
     )
+  })
+})
+
+describe('停用組長時的接任（票 42；GRP-18）', () => {
+  const G = 'bbbbbbbb-0000-4000-8000-000000000001'
+  const H = 'bbbbbbbb-0000-4000-8000-000000000002'
+  const lead = (groupId: string, candidates: string[]) => ({
+    groupId,
+    groupCode: groupId === G ? 'G01' : 'G02',
+    cohortCode: '115',
+    candidates: candidates.map((userId) => ({ userId, name: userId, studentNo: null })),
+  })
+
+  it('不是組長：不帶接任就放行；帶了接任 → 組長資料對不上', () => {
+    expect(decideDisableSuccession({ leaderships: [], choices: [] })).toEqual({ ok: true, successions: [] })
+    expect(decideDisableSuccession({ leaderships: [], choices: [{ groupId: G, userId: B }] })).toMatchObject({ ok: false, code: 'CONFLICT' })
+  })
+
+  it('是組長：沒指定接任、接任不在候選、同組指定兩位、這組沒有可接任的人都被拒', () => {
+    expect(decideDisableSuccession({ leaderships: [lead(G, [B, C])], choices: [] })).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: '這位同學是 G01 的組長：停用前請同時指定接任的組長。',
+      details: { field: 'successorLeaderUserId' },
+    })
+    expect(decideDisableSuccession({ leaderships: [lead(G, [B])], choices: [{ groupId: G, userId: C }] })).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    expect(
+      decideDisableSuccession({ leaderships: [lead(G, [B, C])], choices: [{ groupId: G, userId: B }, { groupId: G, userId: C }] }),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(decideDisableSuccession({ leaderships: [lead(G, [])], choices: [] })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('沒有其他可以接任的有效成員'),
+    })
+    // 指定到他沒當組長的組 → 組長資料對不上。
+    expect(decideDisableSuccession({ leaderships: [lead(G, [B])], choices: [{ groupId: H, userId: B }] })).toMatchObject({
+      ok: false,
+      code: 'CONFLICT',
+    })
+  })
+
+  it('每一組都指定了候選裡的人 → 依組別回傳接任', () => {
+    expect(
+      decideDisableSuccession({
+        leaderships: [lead(G, [B]), lead(H, [C])],
+        choices: [{ groupId: H, userId: C }, { groupId: G, userId: B }],
+      }),
+    ).toEqual({ ok: true, successions: [{ groupId: G, userId: B }, { groupId: H, userId: C }] })
+    expect(decideDisableSuccession({ leaderships: [lead(G, [B]), lead(H, [C])], choices: [{ groupId: G, userId: B }] })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('G02'),
+    })
+    expect(A).toBeDefined()
   })
 })

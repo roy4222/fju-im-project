@@ -136,6 +136,7 @@ export type {
   SortDirection,
   StatusChange,
   StatusChangeReceipt,
+  SuccessionOption,
 } from '@/application/accounts/directory'
 export {
   ACCOUNT_STATUS_LABEL,

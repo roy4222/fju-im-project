@@ -41,11 +41,15 @@ export type {
   AddMemberInput,
   ChangeLeaderInput,
   LeaderChangeReceipt,
+  LeaderSuccession,
+  LeadershipToSucceed,
   MemberChangeReceipt,
   RemoveMemberInput,
+  SuccessorChoice,
 } from '@/application/groups/members'
 export {
   CHANGE_REASON_MAX_LENGTH,
+  decideDisableSuccession,
   decideLeaderChange,
   decideRemoval,
   describeLeaderChangeReceipt,
@@ -178,6 +182,7 @@ export type {
   GroupSummary,
   GroupRosterExporter,
   LeaderPanel,
+  LeaderSuccessionHook,
   OpportunityCommand,
   OpportunityListFilter,
   OpportunityQuery,

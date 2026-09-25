@@ -29,7 +29,9 @@ import {
   type Role,
   type StatusChange,
   type StatusChangeReceipt,
+  type SuccessionOption,
 } from '@/application/accounts'
+import type { LeaderSuccessionHook } from '@/application/groups'
 import { isRequestId } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
@@ -61,6 +63,26 @@ export type AccountDirectoryCommandDeps = {
   readonly db: () => Pool
   readonly revocations?: SessionRevocationExecutor
   readonly clock?: Clock
+  /**
+   * 票 42：停用組長時同一筆交易指定接任（模組 03 的 `LeaderSuccessionHook`，composition 注入）。
+   * 正式組裝一定有（`composition/accounts.ts`）；不給時不檢查組長（票 9 的舊測試不需要分組）。
+   */
+  readonly leaders?: LeaderSuccessionHook<PoolClient>
+}
+
+/** 停用時帶來的接任：陣列、每筆都是兩個 uuid、數量合理；其他形狀一律當成格式錯誤。 */
+function normalizeSuccessors(value: unknown): { ok: true; value: { groupId: string; userId: string }[] } | Err {
+  if (value === undefined || value === null) return { ok: true, value: [] }
+  const bad = err('VALIDATION_FAILED', '接任的組長資料不完整，請重新整理頁面再試。', { details: { field: 'successorLeaderUserId' } })
+  if (!Array.isArray(value) || value.length > 10) return bad
+  const out: { groupId: string; userId: string }[] = []
+  for (const item of value) {
+    const groupId = (item as { groupId?: unknown })?.groupId
+    const userId = (item as { userId?: unknown })?.userId
+    if (typeof groupId !== 'string' || typeof userId !== 'string' || !isUserId(groupId) || !isUserId(userId)) return bad
+    out.push({ groupId, userId })
+  }
+  return { ok: true, value: out.sort((a, b) => a.groupId.localeCompare(b.groupId)) }
 }
 
 function meta(now: Date, requestId = uuidv7()) {
@@ -344,6 +366,14 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 
   // ── 停用與恢復 ────────────────────────────────────────────────────────────
 
+  async successionOptions(actor: ResolvedActor, userId: string): Promise<Result<{ readonly leaderships: readonly SuccessionOption[] }>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked) return denied(blocked)
+    if (!isUserId(userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    const leaderships = this.#deps.leaders ? await this.#deps.leaders.leadershipsOf(userId) : []
+    return ok({ leaderships }, meta(this.#clock.now()))
+  }
+
   async disable(actor: ResolvedActor, input: StatusChange, context: AdminRequestContext): Promise<Result<StatusChangeReceipt>> {
     return this.#changeStatus(actor, input, context, 'disable')
   }
@@ -366,10 +396,19 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (!reason.ok) return reason
     // 不可停用自己（工程模組 01 §3）；恢復自己也不會發生——停用的人進不來。
     if (input.userId === actor.userId) return err('FORBIDDEN', '不能停用自己的帳號。')
+    // 恢復不看接任（票 42）；停用時接任也算進指紋，同一個請求編號換了接任人不會被當成重送。
+    const successors = action === 'disable' ? normalizeSuccessors(input.successorLeaders) : { ok: true as const, value: [] }
+    if (!successors.ok) return successors
 
     const operationKind = action === 'disable' ? 'account.disable' : 'account.restore'
     const now = this.#clock.now()
-    const fingerprint = sha256(canonicalJson({ userId: input.userId, reason: reason.value }))
+    const fingerprint = sha256(
+      canonicalJson(
+        successors.value.length > 0
+          ? { userId: input.userId, reason: reason.value, successorLeaders: successors.value }
+          : { userId: input.userId, reason: reason.value },
+      ),
+    )
 
     const tx = await this.#deps.db().connect()
     let receipt: StatusChangeReceipt
@@ -397,6 +436,10 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         await tx.query('rollback')
         return denied('FORBIDDEN')
       }
+
+      // 票 42：先鎖這個人擔任組長的組別，再鎖帳號列（跟管理員換組長／移出組員同一個順序：組別 → 帳號）。
+      const leaders = action === 'disable' ? this.#deps.leaders : undefined
+      if (leaders) await leaders.lockLeaderships(tx, input.userId)
 
       const locked = await lockAccounts(tx, [input.userId])
       const target = locked.get(input.userId)
@@ -426,6 +469,25 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
           return occupied
         }
       }
+      // 停用組長：同一筆交易先完成接任（產品模組 03「組長」；GRP-18：沒指定接任就不能停用）。
+      let successions: { groupCode: string; leaderName: string }[] = []
+      if (leaders) {
+        const succeeded = await leaders.succeedOnDisable(tx, {
+          userId: target.userId,
+          choices: successors.value,
+          actorUserId: actor.userId,
+          reason: reason.value,
+          realAt: now,
+        })
+        if (!succeeded.ok) {
+          await tx.query('rollback')
+          return succeeded
+        }
+        successions = succeeded.successions.map((s) => ({ groupCode: s.groupCode, leaderName: s.leaderName }))
+      } else if (successors.value.length > 0) {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', '這個帳號不是組長，不需要指定接任。')
+      }
       await this.#applyStatus(tx, actor.userId, target, action, to, reason.value, now, null)
 
       receipt = {
@@ -434,6 +496,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         status: to,
         changedAt: now.toISOString(),
         revocation: 'pending',
+        ...(successions.length > 0 ? { successions } : {}),
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
       await tx.query('commit')
@@ -456,7 +519,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
     const parsed = parseBulkStudentNos(typeof text === 'string' ? text : '')
     if (!parsed.ok) return parsed
-    const candidates = await bulkCandidates(this.#deps.db(), parsed.entries.map((e) => e.studentNo))
+    const candidates = await bulkCandidates(this.#deps.db(), parsed.entries.map((e) => e.studentNo), this.#deps.leaders, null)
     return ok(classifyBulk(parsed, candidates, actor.userId), meta(this.#clock.now()))
   }
 
@@ -502,7 +565,12 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 
       // 先鎖住預覽時看到的那群人，再用同一份 TXT 重算一次：跟預覽不同就請系辦重新預覽。
       const locked = await lockAccounts(tx, expected)
-      const preview = classifyBulk(parsed, await bulkCandidates(tx, parsed.entries.map((e) => e.studentNo)), actor.userId)
+      // 組長在鎖住帳號之後重查（票 42）：預覽之後才變成組長的人會被排除 → 名單不同 → 請系辦重新預覽。
+      const preview = classifyBulk(
+        parsed,
+        await bulkCandidates(tx, parsed.entries.map((e) => e.studentNo), this.#deps.leaders, tx),
+        actor.userId,
+      )
       targets = preview.hits.map((h) => h.userId)
       if (targets.length === 0) {
         await tx.query('rollback')
@@ -712,8 +780,13 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
   return result
 }
 
-/** 批次停用的比對來源：核准過的學生資料（學號忽略大小寫）。 */
-async function bulkCandidates(db: Queryable, studentNos: readonly string[]): Promise<BulkCandidate[]> {
+/** 批次停用的比對來源：核准過的學生資料（學號忽略大小寫）；票 42 起帶「目前是不是組長」。 */
+async function bulkCandidates(
+  db: Queryable,
+  studentNos: readonly string[],
+  leaders: LeaderSuccessionHook<PoolClient> | undefined,
+  tx: PoolClient | null,
+): Promise<BulkCandidate[]> {
   if (studentNos.length === 0) return []
   const rows = await db.query<{ id: string; name: string; student_no: string; cohort_code: string | null; status: string; deidentified_at: Date | null }>(
     `select u.id, up.display_name as name, up.student_no, c.code as cohort_code, u.status, u.deidentified_at
@@ -724,9 +797,16 @@ async function bulkCandidates(db: Queryable, studentNos: readonly string[]): Pro
       order by c.code desc nulls last, u.created_at`,
     [[...new Set(studentNos.map((s) => s.toUpperCase()))]],
   )
-  return rows.rows
-    .filter((r) => !r.deidentified_at)
-    .map((r) => ({ userId: r.id, name: r.name, studentNo: r.student_no, cohortCode: r.cohort_code, status: r.status as AccountStatus }))
+  const live = rows.rows.filter((r) => !r.deidentified_at)
+  const leaderIds = leaders ? await leaders.leadersAmong(tx, live.map((r) => r.id)) : new Set<string>()
+  return live.map((r) => ({
+    userId: r.id,
+    name: r.name,
+    studentNo: r.student_no,
+    cohortCode: r.cohort_code,
+    status: r.status as AccountStatus,
+    ...(leaderIds.has(r.id) ? { isLeader: true } : {}),
+  }))
 }
 
 /**
