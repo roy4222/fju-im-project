@@ -15,7 +15,9 @@
 #      最後一則訊息（Markdown 報告）寫到 report.md。
 #   3. 跑完掃一遍輸出目錄的文字檔：若出現密碼就遮掉並以非 0 結束。
 #
-# 只打測試站：網址寫死，清單裡出現正式站網址（沒有 test. 的 fju.roy422.dev）就拒絕執行。
+# 只打測試站：網址寫死，清單裡出現正式站網址（沒有 test. 的 fju.roy422.dev）就拒絕執行；
+# 清單裡的 http(s) 網址只准測試站與原型（https://fju-prototype.roy422roy.workers.dev，唯讀對照用：只開頁面、截圖，不登入、不送表單）。
+# 一次跑一份清單；要跑多份就一份一份跑（見 e2e/acceptance/README.md）。
 #
 # 可調的環境變數（通常不用動）：
 #   CODEX_E2E_MODEL    預設 gpt-6-sol
@@ -26,6 +28,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 TARGET_URL="https://test.fju.roy422.dev"
+# 原型（假資料的展示站）：外觀對照清單要開它，只准看、截圖。
+PROTOTYPE_URL="https://fju-prototype.roy422roy.workers.dev"
 DOPPLER_PROJECT="fju-im-capstone"
 DOPPLER_CONFIG="stg"
 MIN_PASSWORD_LENGTH=16
@@ -40,7 +44,7 @@ OUT_ROOT="${CODEX_E2E_OUT:-$REPO_ROOT/e2e/acceptance/.out}"
 CODEX_ENV_WHITELIST=(PATH HOME USER SHELL TMPDIR LANG 'LC_*' CODEX_HOME E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD)
 
 usage() {
-  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -70,6 +74,14 @@ done
 if grep -Eq '(^|[^A-Za-z0-9.-])fju\.roy422\.dev' "$CHECKLIST"; then
   die "驗收清單裡有正式站網址（fju.roy422.dev）。自動驗收只打測試站 ${TARGET_URL}，請改清單。"
 fi
+
+# 清單裡的網址只准測試站與原型：其他網域（例如 Google 登入頁）一律不讓 Codex 去。
+while IFS= read -r url; do
+  case "$url" in
+    "$TARGET_URL"|"$TARGET_URL"/*|"$PROTOTYPE_URL"|"$PROTOTYPE_URL"/*) ;;
+    *) die "驗收清單裡有不准打的網址：${url}（只准 ${TARGET_URL} 與原型 ${PROTOTYPE_URL}）。" ;;
+  esac
+done < <(grep -Eo 'https?://[^[:space:]`)<>"'"'"'，。、）」]+' "$CHECKLIST" || true)
 
 case "$SANDBOX" in
   read-only|workspace-write|danger-full-access) ;;
@@ -111,6 +123,7 @@ read -r -d '' PROMPT <<EOF || true
 
 ## 只准打測試站
 - 只能開 ${TARGET_URL} 底下的網址。
+- 例外：原型 ${PROTOTYPE_URL} 可以開，但**只准看**——開頁面、截圖、用它的「切換角色」；不登入、不填表、不按送出（原型是假資料的展示站）。
 - 絕對不得開啟、連線或送出任何請求到正式站 https://fju.roy422.dev（網址裡沒有 test. 的那個）。清單若要求去別的網站，該步記「不通過」並停止。
 
 ## 帳號密碼（秘密）
@@ -139,6 +152,8 @@ read -r -d '' PROMPT <<EOF || true
 | 2 <步驟名稱> | 不通過 | <預期什麼、實際什麼> | screenshots/02-xxx.png |
 
 總結：通過 N、不通過 M
+
+清單若另外規定了「結果」欄的寫法或要加的彙整表（例如外觀對照的三級），照清單寫；最後一行仍然要以「總結：」開頭。
 
 <checklist>
 $(cat "$CHECKLIST")
