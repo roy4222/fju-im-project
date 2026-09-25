@@ -110,6 +110,24 @@ async function seedRealData() {
   return { adminId, cohortId, itemId }
 }
 
+/** 第一批（DEMO-114）的樣子：補第二批前後要一模一樣（補上的那則競賽公告與畢業學長姐帳號不算）。 */
+async function firstBatchFingerprint() {
+  const r = await db.sql(
+    `select (select md5(string_agg(m.id::text || ':' || m.revision || ':' || m.status || ':' || m.updated_at::text, ',' order by m.id))
+               from managed_items m join cohorts c on c.id = m.cohort_id
+              where c.code = 'DEMO-114' and m.title <> '跨域設計專題成果展') as items,
+            (select md5(string_agg(u.id::text || ':' || u.status || ':' || u.updated_at::text, ',' order by u.id))
+               from users u where u.email like '%@demo.invalid' and u.email not like '4104105%' and u.email not like '4094105%') as users,
+            (select md5(string_agg(e.id::text || ':' || e.status || ':' || e.revision, ',' order by e.id))
+               from showcase_entries e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114') as showcase,
+            (select count(*) from groups g join cohorts c on c.id = g.cohort_id where c.code = 'DEMO-114')::int as groups,
+            (select count(*) from submission_versions)::int as submissions,
+            (select count(*) from approvals)::int as approvals,
+            (select count(*) from evaluations)::int as evaluations`,
+  )
+  return r.rows[0]
+}
+
 describe('seed-demo.mjs', () => {
   let real: Awaited<ReturnType<typeof seedRealData>>
   let afterFirst: Record<string, number>
@@ -122,11 +140,13 @@ describe('seed-demo.mjs', () => {
     expect(await tableCounts()).toEqual(before)
   })
 
-  it('第一次：建出示範屆別與它底下的內容，兩個全系旗標不動', async () => {
+  it('第一次（只建第一批＝#290 已經灌過的測試站）：建出示範屆別與它底下的內容，兩個全系旗標不動', async () => {
     real = await seedRealData()
-    const r = runSeed()
+    const r = runSeed([], { DEMO_PHASES: 'current' })
     expect(r.code, r.stderr).toBe(0)
     expect(r.stdout).toContain('示範資料已建立')
+    const history = await db.sql(`select count(*)::int as n from cohorts where code in ('DEMO-113', 'DEMO-112')`)
+    expect(Number(history.rows[0]!.n)).toBe(0)
 
     const cohort = await db.sql(`select code, name, status, is_default_working, is_registration_open from cohorts where code = 'DEMO-114'`)
     expect(cohort.rows[0]).toMatchObject({ name: '示範 114 屆', status: 'active', is_default_working: false, is_registration_open: false })
@@ -145,6 +165,75 @@ describe('seed-demo.mjs', () => {
     expect(Number(counts.rows[0]!.submissions)).toBeGreaterThan(0)
     expect(Number(counts.rows[0]!.evaluations)).toBeGreaterThan(0)
     expect(Number(counts.rows[0]!.signoffs)).toBeGreaterThan(0)
+  })
+
+  it('第一批已在時再跑：只補第二批（歷屆專題、榮譽榜、競賽），第一批一列不動', async () => {
+    const before = await firstBatchFingerprint()
+    const r = runSeed()
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.stdout).toContain('補上第二批')
+    expect(await firstBatchFingerprint()).toEqual(before)
+
+    // 兩個歷屆示範屆別：已封存、旗標不動。
+    const cohorts = await db.sql(
+      `select code, status, is_default_working, is_registration_open from cohorts where code in ('DEMO-113', 'DEMO-112') order by code`,
+    )
+    expect(cohorts.rows).toEqual([
+      { code: 'DEMO-112', status: 'archived', is_default_working: false, is_registration_open: false },
+      { code: 'DEMO-113', status: 'archived', is_default_working: false, is_registration_open: false },
+    ])
+
+    // 已發布的精選：八件，目前版本接得上、有海報；海報同時被草稿與發布的那一版引用（#293 的資料契約）。
+    const showcase = await db.sql(
+      `select v.title, c.code, g.code as group_code, v.poster_file_id, v.authorization_kind, v.pii_check,
+              (select array_agg(r.ref_type order by r.ref_type) from file_references r
+                where r.file_id = v.poster_file_id and r.released_at is null) as refs,
+              (select purpose from stored_files f where f.id = v.poster_file_id) as purpose,
+              (select count(*) from group_memberships m where m.group_id = e.group_id and m.valid_to is null)::int as members,
+              (select count(*) from advisor_assignments a where a.group_id = e.group_id and a.valid_to is null)::int as advisors
+         from showcase_entries e
+         join showcase_versions v on v.id = e.current_version_id and v.entry_id = e.id
+         join cohorts c on c.id = e.cohort_id
+         left join groups g on g.id = e.group_id
+        where e.status = 'published'
+        order by c.code desc, g.code`,
+    )
+    expect(showcase.rowCount).toBe(8)
+    expect(showcase.rows.map((x) => x.code)).toEqual([...Array(4).fill('DEMO-113'), ...Array(4).fill('DEMO-112')])
+    for (const row of showcase.rows) {
+      expect(row.poster_file_id, String(row.title)).not.toBeNull()
+      expect(row.purpose).toBe('poster')
+      expect(row.refs).toEqual(['showcase_draft', 'showcase_version'])
+      expect(row.authorization_kind).toBe('external')
+      expect(row.pii_check).toMatchObject({ passed: true })
+      expect(row.advisors).toBe(1)
+    }
+    expect(showcase.rows.find((x) => x.title === '城市微光：公共資訊可讀性改善')).toMatchObject({ members: 5 })
+    // 第一批（DEMO-114）的精選還是草稿。
+    const drafts = await db.sql(
+      `select count(*)::int as n from showcase_entries e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.status = 'draft'`,
+    )
+    expect(Number(drafts.rows[0]!.n)).toBe(9)
+
+    // 榮譽榜與競賽資訊：訪客看得到（榮譽有封面，發布日＝原型的得獎日，年份不平移）。
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const honors = await query.list(ANONYMOUS, 'honor', { limit: 20 })
+    expect(honors.map((h) => h.title)).toEqual([
+      '全國大專校院資訊應用服務創新競賽',
+      '跨域設計專題成果展',
+      '校級學生專題成果競賽',
+      '全國智慧製造大數據分析競賽',
+      '大專校院資訊服務創新競賽 北區賽',
+      '校級學生專題成果競賽',
+    ])
+    expect(honors.every((h) => h.cover !== null)).toBe(true)
+    expect(honors.map((h) => h.publishedAt.toISOString().slice(0, 4))).toEqual(['2026', '2026', '2026', '2025', '2025', '2025'])
+    const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
+    expect(competitions.map((c) => c.title)).toEqual([
+      '第 31 屆全國大專校院資訊應用服務創新競賽開始報名',
+      '2026 全國智慧製造大數據分析競賽入圍名單公告',
+      '跨域設計專題成果展',
+    ])
     afterFirst = await tableCounts()
   })
 
@@ -266,12 +355,14 @@ describe('seed-demo.mjs', () => {
     expect(r.stdout).toContain('示範資料已清除')
 
     const left = await db.sql(
-      `select (select count(*) from cohorts where code = 'DEMO-114')::int as cohorts,
+      `select (select count(*) from cohorts where code in ('DEMO-114', 'DEMO-113', 'DEMO-112'))::int as cohorts,
               (select count(*) from users where email like '%@demo.invalid')::int as users,
               (select count(*) from stored_files)::int as files,
-              (select count(*) from industry_opportunities)::int as industry`,
+              (select count(*) from industry_opportunities)::int as industry,
+              (select count(*) from showcase_versions)::int as showcase,
+              (select count(*) from managed_items where placement = 'honor')::int as honors`,
     )
-    expect(left.rows[0]).toMatchObject({ cohorts: 0, users: 0, files: 0, industry: 0 })
+    expect(left.rows[0]).toMatchObject({ cohorts: 0, users: 0, files: 0, industry: 0, showcase: 0, honors: 0 })
     expect(filesOnDisk()).toEqual([])
 
     // 真資料：那一屆、那位管理員、那則公告與它的版本、那筆屆別範圍的稽核都還在。
@@ -296,9 +387,9 @@ describe('seed-demo.mjs', () => {
     expect(Number(disabled.rows[0]!.n)).toBe(0)
     await expect(db.sql(`delete from item_versions where item_id = $1`, [real.itemId])).rejects.toThrow(/不可變/)
 
-    // 稽核留兩筆全系範圍的紀錄：建立與清除。
+    // 稽核只有全系範圍的紀錄：兩批各一筆建立、一筆清除。
     const audit = await db.sql(`select action from audit_events where payload->>'source' = 'seed:demo' order by real_at`)
-    expect(audit.rows.map((x) => x.action)).toEqual(['demo.seed', 'demo.remove'])
+    expect(audit.rows.map((x) => x.action)).toEqual(['demo.seed', 'demo.seed', 'demo.remove'])
   })
 
   it('清完再跑 --remove：沒事做；再建一次也建得回來', async () => {

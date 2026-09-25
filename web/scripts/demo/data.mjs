@@ -599,3 +599,106 @@ export const SHOWCASE_SUMMARY = {
   'g-08': '讓長照機構以看板即時分享住民日常與活動照片，減少家屬電話詢問。',
   'g-09': '整理多國進口稅則，讓小型賣家在上架前試算落地成本。',
 }
+
+// ── 第二批（票 32 追加，#293 前台補六頁用）：歷屆專題、榮譽榜、競賽 ─────────────────────────
+// 這一批是「歷史」：日期照原型原樣、不平移（平移會把 2025-12 的榮譽推進 2026，打亂年份篩選）。
+// 唯一例外是補上的那則競賽公告，它跟第一批的公告同一條時間線，照第一批的平移天數。
+
+/** 歷屆的兩個示範屆別（已封存）。代碼帶 DEMO-，不會跟測試站真的屆別撞。學號前綴避開第一批的學號。 */
+export const HISTORY_COHORTS = [
+  { key: 'DEMO-113', code: 'DEMO-113', name: '示範 113 屆', yearEndDate: '2026-06-30', created: '2025-07-01', studentPrefix: '4104105' },
+  { key: 'DEMO-112', code: 'DEMO-112', name: '示範 112 屆', yearEndDate: '2025-06-30', created: '2024-07-01', studentPrefix: '4094105' },
+]
+
+/**
+ * 歷屆專題（原型 `PROJECTS`＋`PROJECT_DETAIL`）：一件一組、一個已發布的精選條目（海報＝原型的卡片圖）。
+ * 組員只有原型詳情有列的幾件才有（p-7、p-8 原型沒有組員名單）；主指導照原型。
+ * 原型的「優秀專題／佳作」等級正式碼沒有欄位（#293 表格第 1 點），所以八件都發布：優秀專題與歷屆一覽是同一批。
+ */
+export const PROJECTS = [
+  {
+    key: 'p-1', cohort: 'DEMO-113', code: 'G07', advisor: 'u-103', image: 'showcase.jpg', published: '2026-06-20',
+    title: '城市微光：公共資訊可讀性改善',
+    summary: '針對公部門開放資料網站的資訊可讀性問題，重新設計資料呈現流程。以三個實際的市政資料集為例，建立一套可重複套用的視覺化樣板，並邀請十二位非資訊背景使用者進行可用性測試，量測任務完成時間與理解正確率。',
+    video: 'https://www.youtube.com/@fjuim',
+    members: ['周子瑜', '許哲瑋', '潘映璇', '簡宇軒', '邱郁婷'],
+  },
+  {
+    key: 'p-2', cohort: 'DEMO-113', code: 'G03', advisor: 'u-102', image: 'phone.jpg', published: '2026-06-20',
+    title: '拾語：課堂討論脈絡整理器',
+    summary: '課堂討論常因發言分散而難以整理脈絡。本作品以語音轉文字與主題聚類，將討論內容整理成可追溯的議題樹，並提供教師端的重點摘要與未回應問題清單。',
+    video: 'https://www.youtube.com/@fjuim',
+    members: ['賴威廷', '宋佳蓉', '馮柏勳', '涂雅雯', '石承翰'],
+  },
+  {
+    key: 'p-3', cohort: 'DEMO-113', code: 'G05', advisor: 'u-104', image: 'lounge.jpg', published: '2026-06-20',
+    title: '安心路徑：校園友善空間指南',
+    summary: '以校園實地盤點為基礎，建立友善空間資料庫，包含無障礙坡道、電梯、哺集乳室與性別友善廁所位置，並提供路徑建議與現場照片。盤點結果已回饋給校內單位。',
+    members: ['溫子謙', '范芷妍', '杜宥安', '洪思語', '莊博凱'],
+  },
+  {
+    key: 'p-7', cohort: 'DEMO-113', code: 'G09', advisor: 'u-105', image: 'present.jpg', published: '2026-06-20',
+    title: '校園閒置空間共享媒合平台',
+    summary: '整合各系所閒置教室與設備的借用流程，以時段媒合減少空間閒置。',
+    video: 'https://www.youtube.com/@fjuim',
+    members: [],
+  },
+  {
+    key: 'p-4', cohort: 'DEMO-112', code: 'G02', advisor: 'u-105', image: 'hackathon.jpg', published: '2025-06-18',
+    title: '備援：中小企業備份稽核工具',
+    summary: '中小企業常無專責資訊人員，備份策略難以驗證。本作品建立一套備份稽核工具，自動檢查備份完整性、可還原性與保留週期，並產出可交付稽核單位的報告。',
+    video: 'https://www.youtube.com/@fjuim',
+    members: ['田家瑜', '阮柏毅', '曾語彤', '崔浩然', '翁苡榛'],
+  },
+  {
+    key: 'p-5', cohort: 'DEMO-112', code: 'G06', advisor: 'u-103', image: 'study.jpg', published: '2025-06-18',
+    title: '菜市場數位帳本',
+    summary: '傳統市場攤商多以紙本記帳。本作品以極簡輸入介面與語音記帳降低使用門檻，並提供進貨與銷售的簡易分析。實際導入三個攤位試用兩個月。',
+    video: 'https://www.youtube.com/@fjuim',
+    members: ['巫佳蓁', '郝彥丞', '岳庭妤', '解軍豪', '麥若彤'],
+  },
+  {
+    key: 'p-6', cohort: 'DEMO-112', code: 'G11', advisor: 'u-104', image: 'atrium.jpg', published: '2025-06-18',
+    title: '無障礙報名流程重構',
+    summary: '以校內活動報名流程為對象，重新設計符合 WCAG 2.2 AA 的表單與流程，並以螢幕閱讀器與鍵盤操作完成完整驗證。',
+    members: ['柯亦辰', '宮宇薇', '潘冠霖', '尤思穎', '方品瑄'],
+  },
+  {
+    key: 'p-8', cohort: 'DEMO-112', code: 'G04', advisor: 'u-102', image: 'building.jpg', published: '2025-06-18',
+    title: '跨境電商稅務試算工具',
+    summary: '整理十二國進口稅則，讓小型賣家在上架前試算落地成本。',
+    members: [],
+  },
+]
+
+/**
+ * 榮譽榜（原型 `HONORS`）：placement `honor` 的已發布公開項目。標題＝競賽、摘要帶獎項與組別、分類是右邊那顆標籤。
+ * 年份篩選看發布日（#293），所以發布日＝原型的得獎日。2026 年的掛在示範 113 屆、2025 年的掛在示範 112 屆。
+ */
+export const HONORS = [
+  { key: 'h-1', cohort: 'DEMO-113', date: '2026-07-07', competition: '全國大專校院資訊應用服務創新競賽', award: '優等', team: '第 04 組', image: 'applause.jpg', category: '校外競賽', summary: '以「備援：中小企業備份稽核工具」參賽，於資訊應用服務創新組獲優等。' },
+  { key: 'h-2', cohort: 'DEMO-113', date: '2026-06-15', competition: '跨域設計專題成果展', award: '評審團獎', team: '第 02 組', image: 'trophy.jpg', category: '校內競賽', summary: '以跨系合作的服務設計作品獲評審團獎。' },
+  { key: 'h-3', cohort: 'DEMO-113', date: '2026-05-20', competition: '校級學生專題成果競賽', award: '佳作', team: '第 11 組', image: 'present.jpg', category: '校內競賽', summary: '無障礙報名流程重構獲校級佳作。' },
+  { key: 'h-4', cohort: 'DEMO-112', date: '2025-12-02', competition: '全國智慧製造大數據分析競賽', award: '第三名', team: '第 06 組', image: 'atrium.jpg', category: '校外競賽', summary: '以設備稼動率預測模型獲第三名。' },
+  { key: 'h-5', cohort: 'DEMO-112', date: '2025-11-14', competition: '大專校院資訊服務創新競賽 北區賽', award: '佳作', team: '第 07 組', image: 'students.jpg', category: '校外競賽', summary: '城市微光原型於北區賽獲佳作。' },
+  { key: 'h-6', cohort: 'DEMO-112', date: '2025-05-22', competition: '校級學生專題成果競賽', award: '優等', team: '第 03 組', image: 'study.jpg', category: '校內競賽', summary: '拾語：課堂討論脈絡整理器獲校級優等。' },
+]
+
+/**
+ * 競賽資訊（原型 `COMPETITIONS`）：前台 /competitions 讀分類「競賽資訊」的公告。
+ * c-1、c-2 第一批已經有（n-29、n-26）；補 c-3。日期照第一批的平移（跟公告同一條時間線），排在 n-25 之前。
+ */
+export const COMPETITION_NEWS = [
+  {
+    key: 'c-3',
+    image: 'present.jpg',
+    category: '競賽資訊',
+    title: '跨域設計專題成果展',
+    summary: '以跨領域合作為主題的校內成果展，本系有兩組作品獲評審推薦。',
+    date: '2026-06-01',
+    body: [
+      '跨域設計專題成果展由校內教學發展中心主辦，以跨領域合作為主題，報名至 2026 年 6 月 20 日止，展出日為 7 月 5 日。',
+      '本系有兩組作品獲評審推薦，歡迎有興趣的組別與指導老師討論是否參展。',
+    ],
+  },
+]
