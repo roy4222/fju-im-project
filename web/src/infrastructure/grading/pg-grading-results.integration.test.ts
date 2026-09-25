@@ -1009,6 +1009,7 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     await scheme(cohortId)
     const empty = await newGroup(cohortId, 'G09')
     await requirement(empty, 'mid', 1)
+    await requirement(empty, 'fin', 1)
     await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = '測試' where id = $1`, [empty, new Date()])
     const row = await groupRow(cohortId, empty)
     expect([row.dissolved, row.versionNo, row.result.stages[0]!.status]).toEqual([true, 1, 'incomplete'])
@@ -1032,6 +1033,11 @@ describe('解散的組別（產品模組 03 §4「解散：原組別資料凍結
     const frozen = await groupRow(cohortId, empty)
     expect([frozen.versionNo, frozen.result.stages[0]!.name, frozen.result.stages[0]!.weight]).toEqual([1, '期中', 60])
     expect((await groupRow(cohortId, other)).versionNo).toBe(2)
+
+    // 解散的 G09 只設了期末份數（沒有分數）、進行中的 G10 沒用到期末：期末仍不能從方案拿掉。
+    const onlyMid = await command.createSchemeVersion(adminActor(), { cohortId, stages: [{ ...STAGES[0]!, weight: 100 }] }, randomUUID())
+    const p3 = await book.previewSchemeVersion(adminActor(), onlyMid.ok ? onlyMid.receipt.versionId : '')
+    expect(p3.ok && p3.receipt.blockers.join('')).toContain('「期末」')
   })
 })
 

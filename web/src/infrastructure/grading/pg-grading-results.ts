@@ -943,14 +943,18 @@ async function buildSchemePreview(
     for (const a of f.active) used.add(a.stageKey)
     for (const c of f.counted) used.add(c.stageKey)
   }
-  // 解散的組釘在解散當下的版本、不受套用影響；但它有正式評分的階段不能從方案拿掉，
+  // 解散的組釘在解散當下的版本、不受套用影響；但它用到的階段（設了份數、有指派或有正式評分）不能從方案拿掉，
   // 否則成績表與匯出的階段欄就沒有它的那一段（凍結的資料要查得到、匯得出）。
   const dissolvedGroups = await db.query<{ id: string }>(`select id from groups where cohort_id = $1 and status = 'dissolved'`, [cohortId])
   const dissolvedFacts = await loadFacts(
     db,
     dissolvedGroups.rows.map((g) => g.id),
   )
-  for (const f of dissolvedFacts.values()) for (const c of f.counted) used.add(c.stageKey)
+  for (const f of dissolvedFacts.values()) {
+    for (const [k, n] of f.requirements) if (n > 0) used.add(k)
+    for (const a of f.active) used.add(a.stageKey)
+    for (const c of f.counted) used.add(c.stageKey)
+  }
   const missingStages = [...used].filter((k) => !targetKeys.has(k))
   if (missingStages.length > 0) {
     const names = currentStages.filter((s) => missingStages.includes(s.key)).map((s) => `「${s.name}」`)
