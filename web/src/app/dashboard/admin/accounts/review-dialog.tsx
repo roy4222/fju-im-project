@@ -32,10 +32,12 @@ export type ReviewLabels = {
 }
 
 const BUTTON =
-  'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50'
-const PRIMARY = 'bg-primary text-primary-foreground hover:bg-primary/90'
-const SECONDARY = 'bg-muted text-foreground hover:bg-border'
-const TEXTAREA = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-normal'
+  // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
+  'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+const PRIMARY = 'btn-fju rounded-[4px]'
+const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
+const TEXTAREA =
+  'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
 
 export function EvidencePills({ flags, labels }: { flags: readonly EvidenceFlag[]; labels: ReviewLabels }) {
   return (
@@ -45,8 +47,8 @@ export function EvidencePills({ flags, labels }: { flags: readonly EvidenceFlag[
           key={flag}
           data-flag={flag}
           className={cn(
-            'rounded-full px-2 py-0.5 text-xs whitespace-nowrap',
-            labels.attention[flag] ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-muted text-muted-foreground',
+            'inline-flex h-5 items-center rounded-4xl border px-2 text-[11px] font-medium whitespace-nowrap',
+            labels.attention[flag] ? 'border-brand/30 bg-brand-subtle text-brand-on-subtle' : 'border-border bg-muted text-muted-foreground',
           )}
         >
           {labels.evidence[flag]}
@@ -74,8 +76,8 @@ function Compare({
       <th scope="row" className="whitespace-nowrap py-2 pr-3 text-left font-normal text-muted-foreground">
         {label}
       </th>
-      <td className="break-all py-2 pr-3 font-medium text-ink">{applied || '—'}</td>
-      <td className={cn('break-all py-2 font-medium', verdict === 'different' ? 'text-danger-on-subtle' : 'text-ink')}>
+      <td className="break-all py-2 pr-3 font-medium text-foreground">{applied || '—'}</td>
+      <td className={cn('break-all py-2 font-medium', verdict === 'different' ? 'text-danger-on-subtle' : 'text-foreground')}>
         {roster ?? '—'}
         {verdictText ? <span className="ml-2 text-xs font-normal text-muted-foreground">{verdictText}</span> : null}
       </td>
@@ -202,7 +204,7 @@ export function ReviewDialog({
 
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, PRIMARY, 'whitespace-nowrap px-3 py-1.5')} aria-label={`審核 ${a.appliedName}`}>
+      <button type="button" onClick={open} className={cn(BUTTON, 'h-7 rounded-lg bg-ink px-2.5 text-[0.8rem] font-medium text-ink-foreground hover:bg-ink/85')} aria-label={`審核 ${a.appliedName}`}>
         審核
       </button>
 
@@ -211,7 +213,7 @@ export function ReviewDialog({
         onClose={onClosed}
         // 名稱固定：對話框從表單換成回執時，輔助科技（與測試）找的仍是同一個對話框。
         aria-label={`審核 ${a.appliedName}`}
-        className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
+        className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="max-h-[85vh] overflow-y-auto p-5">
           {!isOpen ? null : phase.kind === 'done' ? (
@@ -219,7 +221,7 @@ export function ReviewDialog({
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
                 {phase.receipt.decision === 'approved' ? '已核准' : '已退回'}
               </p>
-              <h2 className="text-lg font-semibold text-ink">
+              <h2 className="text-lg font-extrabold text-foreground">
                 {phase.receipt.appliedName}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -233,10 +235,10 @@ export function ReviewDialog({
             </div>
           ) : phase.kind === 'stale' ? (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold text-ink">
+              <h2 className="text-lg font-extrabold text-foreground">
                 資料已經變了
               </h2>
-              <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+              <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
                 {phase.message}
               </p>
               <div className="flex justify-end gap-2">
@@ -248,7 +250,7 @@ export function ReviewDialog({
           ) : (
             <div className="space-y-4">
               <div>
-                <h2 className="text-lg font-semibold text-ink">
+                <h2 className="text-lg font-extrabold text-foreground">
                   審核 {a.appliedName}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -297,7 +299,7 @@ export function ReviewDialog({
               </table>
 
               {a.duplicates.activeHolders.length > 0 || a.duplicates.otherPending > 0 || hitCohortIds.size > 1 ? (
-                <ul className="space-y-1 rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle" aria-label="需要特別核對">
+                <ul className="space-y-1 rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle" aria-label="需要特別核對">
                   {a.duplicates.activeHolders.map((h) => (
                     <li key={`${h.name}-${h.cohortCode}`}>
                       這個學號已經有一個有效帳號：{h.name}（{h.cohortCode}）。
@@ -313,15 +315,15 @@ export function ReviewDialog({
               ) : null}
 
               <fieldset className="space-y-2">
-                <legend className="text-sm font-medium text-ink">屆別</legend>
+                <legend className="text-sm font-medium text-foreground">屆別</legend>
                 {lockedCohort ? (
-                  <p className="text-sm text-ink" data-testid="locked-cohort">
+                  <p className="text-sm text-foreground" data-testid="locked-cohort">
                     {lockedCohort.name}（{lockedCohort.code}）<span className="ml-2 text-xs text-muted-foreground">依名單，不能改</span>
                   </p>
                 ) : (
                   <>
                     {!registrationOpenCohort && hitCohortIds.size === 0 ? (
-                      <p role="note" className="rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+                      <p role="note" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
                         目前沒有設定「開放註冊屆別」，所以不預選。請手動選一屆，或先到
                         <Link href="/dashboard/admin/cohorts" className="mx-1 underline">
                           屆別
@@ -336,7 +338,7 @@ export function ReviewDialog({
                         value={cohortId}
                         onChange={(e) => setCohortId(e.target.value)}
                         aria-invalid={error?.field === 'cohortId' || undefined}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25"
                       >
                         <option value="">請選擇屆別</option>
                         {cohortOptions.map((c) => (
@@ -351,11 +353,11 @@ export function ReviewDialog({
               </fieldset>
 
               <fieldset className="space-y-2">
-                <legend className="text-sm font-medium text-ink">
+                <legend className="text-sm font-medium text-foreground">
                   核實方式 <span className="font-normal text-muted-foreground">・核准必選</span>
                 </legend>
                 {labels.methods.map((m) => (
-                  <label key={m} className="flex items-start gap-2 text-sm text-ink">
+                  <label key={m} className="flex items-start gap-2 text-sm text-foreground">
                     <input
                       type="radio"
                       name={`method-${a.applicationId}`}
@@ -371,7 +373,7 @@ export function ReviewDialog({
                   </label>
                 ))}
                 {method ? (
-                  <label className="block text-sm font-medium text-ink">
+                  <label className="block text-sm font-medium text-foreground">
                     核實說明
                     <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
                     <textarea
@@ -389,7 +391,7 @@ export function ReviewDialog({
                 ) : null}
               </fieldset>
 
-              <label className="block text-sm font-medium text-ink">
+              <label className="block text-sm font-medium text-foreground">
                 理由 <span className="font-normal text-muted-foreground">・退回必填（申請人會看到），核准選填</span>
                 <textarea
                   rows={2}
@@ -405,7 +407,7 @@ export function ReviewDialog({
               </label>
 
               {error ? (
-                <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+                <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
                   {error.message}
                 </p>
               ) : null}

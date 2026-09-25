@@ -1,8 +1,9 @@
 'use client'
 import { useActionState, useState } from 'react'
 import { activateCohortAction, createCohortAction, setCohortFlagAction } from './actions'
-import { DataTable } from '@/app/_ui/primitives'
-import { cn } from '@/shared/cn'
+import { DataTableFrame, DT, EmptyRow } from '@/app/_ui/data-table'
+import { Pill } from '@/app/_ui/dashboard/primitives'
+import { ALERT, BTN_ROW, INPUT as INPUT_BASE, NOTE } from '@/app/_ui/dashboard/look'
 
 /**
  * 屆別頁會動的兩塊：新增表單與屆別表格（票 5）。
@@ -18,22 +19,14 @@ export type CohortActionState =
 function Feedback({ state }: { state: CohortActionState }) {
   if (!state) return null
   return (
-    <p
-      role={state.ok ? 'status' : 'alert'}
-      className={cn(
-        'rounded-md px-3 py-2 text-sm',
-        state.ok ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-danger-subtle text-danger-on-subtle',
-      )}
-    >
+    <p role={state.ok ? 'status' : 'alert'} className={state.ok ? NOTE : ALERT}>
       {state.message}
     </p>
   )
 }
 
-const INPUT = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm'
-const SUBMIT =
-  'inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium ' +
-  'text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
+const INPUT = `mt-1.5 ${INPUT_BASE}`
+const SUBMIT = 'btn-fju h-10 px-5 text-sm disabled:opacity-60'
 
 export function CreateCohortForm({
   requestId,
@@ -51,7 +44,7 @@ export function CreateCohortForm({
       <input type="hidden" name="requestId" value={requestId} />
       <div className="grid gap-3 sm:grid-cols-[12rem_1fr_auto] sm:items-end">
         <div>
-          <label htmlFor="cohort-code" className="block text-sm font-medium text-ink">
+          <label htmlFor="cohort-code" className="block text-sm font-semibold text-foreground">
             代碼
           </label>
           <input
@@ -67,7 +60,7 @@ export function CreateCohortForm({
           />
         </div>
         <div>
-          <label htmlFor="cohort-name" className="block text-sm font-medium text-ink">
+          <label htmlFor="cohort-name" className="block text-sm font-semibold text-foreground">
             名稱
           </label>
           <input
@@ -140,7 +133,7 @@ export function CohortTable({
   function statusCell(row: CohortRow) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="whitespace-nowrap">{row.statusLabel}</span>
+        <Pill>{row.statusLabel}</Pill>
         {row.canActivate ? (
           <form action={activateAction}>
             <input type="hidden" name="cohortId" value={row.id} />
@@ -149,7 +142,7 @@ export function CohortTable({
               type="submit"
               disabled={activating}
               aria-label={`把 ${row.code} 轉為進行中`}
-              className="whitespace-nowrap rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted disabled:opacity-60"
+              className={BTN_ROW}
             >
               轉為進行中
             </button>
@@ -163,9 +156,7 @@ export function CohortTable({
     const held = flag === 'defaultWorking' ? row.isDefaultWorking : row.isRegistrationOpen
     if (held) {
       return (
-        <span className="inline-block whitespace-nowrap rounded-full bg-primary-subtle px-2.5 py-0.5 text-xs font-medium text-primary-on-subtle">
-          {HELD_LABEL[flag]}
-        </span>
+        <Pill tone="brand">{HELD_LABEL[flag]}</Pill>
       )
     }
     return (
@@ -177,7 +168,7 @@ export function CohortTable({
           type="submit"
           disabled={pending}
           aria-label={`把 ${row.code} 設為${flagLabels[flag]}`}
-          className="whitespace-nowrap rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted disabled:opacity-60"
+          className={BTN_ROW}
         >
           {BUTTON_LABEL[flag]}
         </button>
@@ -188,19 +179,34 @@ export function CohortTable({
   return (
     <div className="space-y-3">
       <Feedback state={state} />
-      <DataTable
-        columns={['代碼', '名稱', '狀態', flagLabels.defaultWorking, flagLabels.registrationOpen]}
-        rows={rows.map((row) => [
-          <span key="code" className="whitespace-nowrap font-medium text-ink">
-            {row.code}
-          </span>,
-          row.name,
-          <div key="status">{statusCell(row)}</div>,
-          flagCell(row, 'defaultWorking'),
-          flagCell(row, 'registrationOpen'),
-        ])}
-        empty="還沒有屆別。先在上面新增第一屆。"
-      />
+      <DataTableFrame maxHeight={false}>
+        <table className={`${DT.table} min-w-[40rem]`}>
+          <thead className={DT.thead}>
+            <tr>
+              {['代碼', '名稱', '狀態', flagLabels.defaultWorking, flagLabels.registrationOpen].map((h) => (
+                <th key={h} scope="col" className={DT.th}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <EmptyRow colSpan={5} title="還沒有屆別" hint="先在上面新增第一屆。" />
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id} className={DT.tr}>
+                  <td className={`${DT.td} tabular font-bold whitespace-nowrap`}>{row.code}</td>
+                  <td className={DT.td}>{row.name}</td>
+                  <td className={DT.td}>{statusCell(row)}</td>
+                  <td className={DT.td}>{flagCell(row, 'defaultWorking')}</td>
+                  <td className={DT.td}>{flagCell(row, 'registrationOpen')}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </DataTableFrame>
     </div>
   )
 }

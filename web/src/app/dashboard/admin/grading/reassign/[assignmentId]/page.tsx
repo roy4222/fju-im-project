@@ -28,11 +28,11 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
   const back = preview.ok ? `/dashboard/admin/grading?cohort=${preview.receipt.cohortId}` : '/dashboard/admin/grading'
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/grading">
-      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-ink">
+      <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-foreground">
         ← 評分
       </Link>
       <header className="mb-5">
-        <h1 className="text-xl font-semibold text-ink">移除或改派評分老師</h1>
+        <h1 className="text-xl font-semibold text-foreground">移除或改派評分老師</h1>
       </header>
       {children}
     </DashboardShell>
@@ -47,21 +47,21 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
         <dl className="grid gap-3 text-sm sm:grid-cols-4" data-testid="reassign-before">
           <div>
             <dt className="text-xs text-muted-foreground">現在採計</dt>
-            <dd className="tabular-nums text-ink">{p.countedBefore.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有'}</dd>
+            <dd className="tabular-nums text-foreground">{p.countedBefore.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有'}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">份數</dt>
-            <dd className="tabular-nums text-ink">
+            <dd className="tabular-nums text-foreground">
               {p.countedBefore.length}／{p.requiredBefore ?? '未設定'}・{p.stageStatusBefore}
             </dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">階段平均</dt>
-            <dd className="tabular-nums text-ink">{p.averageBefore ?? '—'}</dd>
+            <dd className="tabular-nums text-foreground">{p.averageBefore ?? '—'}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">最終成績</dt>
-            <dd className="tabular-nums text-ink">{p.finalBefore ?? '尚未完成'}</dd>
+            <dd className="tabular-nums text-foreground">{p.finalBefore ?? '尚未完成'}</dd>
           </div>
         </dl>
         <p className="mt-3 text-sm text-muted-foreground">
