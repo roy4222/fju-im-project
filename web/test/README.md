@@ -31,6 +31,17 @@ pnpm -C web test               # 兩個都跑
 可用 `TEST_DATABASE_URL` 覆寫。連不到時測試會**明確失敗**並告訴你去跑 `docker compose up -d postgres`，
 不會靜靜跳過。
 
+### runtime 角色與密碼（globalSetup）
+
+`test/global-setup.ts` 在整套整合測試開始前跑一次：先建好 `fju_app`／`fju_backup`
+（角色是 cluster 共用的，各 schema 同時套 migration 0001 會撞建角色的競態），再把兩個角色的
+測試密碼設好——**用測試密碼登入得了就不改**。`poolAsRole()` 只負責連線，不再 `ALTER ROLE`。
+
+測試密碼是 `TEST_FJU_APP_PASSWORD`／`TEST_FJU_BACKUP_PASSWORD`，沒設就是 `fju_app_local_test`／
+`fju_backup_local_test`。本機若同一個資料庫上還跑著 app／worker（`.env` 的 `DATABASE_URL` 用 `fju_app`），
+把 `TEST_FJU_APP_PASSWORD` 設成那個密碼，整合測試就不會改掉它、讓 app 登入失敗。
+CI 的 integration 與 e2e-smoke 各自起一個 PostgreSQL service，不受影響。
+
 ## 隔離：每個測試一份自己的 schema
 
 ```ts
