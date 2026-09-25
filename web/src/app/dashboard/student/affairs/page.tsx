@@ -75,7 +75,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
           }`}
         />
 
-        <Panel title={active.label} description={`${list.length} 件・你在收件名單上的收件`}>
+        <Panel title={active.label} description={`${list.length} 件・你在收件名單上的每一份收件、狀態與截止`}>
           <nav aria-label="篩選" className="-mx-1 flex gap-1.5 overflow-x-auto border-b border-border/70 px-5 pb-3 [scrollbar-width:none]">
             {TABS.map((t) => {
               const on = t.key === tab

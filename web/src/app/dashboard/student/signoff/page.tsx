@@ -27,7 +27,7 @@ export default async function StudentSignoffPage() {
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/signoff">
       <div className="flex flex-col gap-5">
-        <PageTitle title="同意書" description="每個人只能提交自己的同意；全部組員同意後才輪到指導老師。" />
+        <PageTitle title="同意書" description="每個人只代表自己一票；全部組員同意後才輪到指導老師。" />
         {view.versions.length === 0 ? (
           <EmptyState
             title="目前沒有待處理的簽核"

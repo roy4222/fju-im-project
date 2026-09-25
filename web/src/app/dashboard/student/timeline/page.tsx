@@ -37,6 +37,7 @@ export default async function StudentTimelinePage() {
       <div className="flex flex-col gap-5">
         <PageTitle title="專題時間軸" description={description} />
         {children}
+        <p className="text-xs text-muted-foreground">階段與日期由系辦在時間軸設定，全屆一致；做完了沒看作業區的實際繳交。</p>
       </div>
     </DashboardShell>
   )

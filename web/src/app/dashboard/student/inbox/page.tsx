@@ -80,7 +80,7 @@ export default async function StudentInboxPage({ searchParams }: { searchParams:
         <Panel
           title={chips.find((c) => c.value === filterValue)?.label ?? '全部'}
           icon={<IconBell />}
-          description="跟你有關的事件；已讀狀態跟著帳號"
+          description="跟你有關的事件都會出現在這裡；已讀狀態跟著帳號"
         >
           <nav aria-label="依屆別篩選" className="flex flex-wrap gap-1.5 border-b border-border/70 px-5 pb-3">
             {chips.map((chip) => {
