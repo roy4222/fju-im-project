@@ -55,10 +55,10 @@ export default async function AdminTimelinePage({
   const cohort =
     cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
 
-  const shell = (description: string, children: React.ReactNode) => (
+  const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
       <div className="flex flex-col gap-5">
-        <PageTitle title="時間軸設定" description={description} />
+        <PageTitle title="時間軸設定" description={description} actions={actions} />
         {children}
       </div>
     </DashboardShell>
@@ -189,18 +189,9 @@ export default async function AdminTimelinePage({
       />
 
       <Panel
-        title="獨立活動"
-        icon={<IconCalendarEvent />}
-        description="說明會、成果發表這類活動；作業截止會從收件項目自動帶進日曆"
-        bodyClassName="border-t border-border px-5 py-4"
-      >
-        <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />
-      </Panel>
-
-      <Panel
         title="已排定的活動"
         icon={<IconCalendarEvent />}
-        description={`${scheduled.length} 個`}
+        description={`${scheduled.length} 個・說明會、成果發表這類獨立活動`}
         aria-label="已排定的活動"
       >
         {scheduled.length === 0 ? (
@@ -247,5 +238,7 @@ export default async function AdminTimelinePage({
         </Panel>
       ) : null}
     </>,
+    // 新增活動（獨立活動）：原型頁面上的動作都是開對話框；回饋留在按鈕旁邊，不混進活動清單。
+    <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />,
   )
 }

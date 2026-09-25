@@ -55,7 +55,7 @@ export async function InboxView({
   basePath: string
   cohortParam: string | undefined
   cursor: string | undefined
-  /** 頁首與列表之間（系辦的「發一則測試通知」）。 */
+  /** 列表下面的附加區塊（系辦的「發一則測試通知」）。 */
   children?: ReactNode
 }) {
   const query = getInboxQuery()
@@ -81,7 +81,6 @@ export async function InboxView({
         description={<span data-testid="inbox-unread">{unread > 0 ? `${unread} 則未讀` : '全部已讀'}</span>}
         actions={<MarkAllReadButton cohort={filterValue ?? ''} disabled={unread === 0} />}
       />
-      {children}
 
       <Panel
         title={active.label}
@@ -133,6 +132,9 @@ export async function InboxView({
           </Link>
         </div>
       ) : null}
+
+      {/* 系辦的「發一則測試通知」（測試站專用）：放在列表下面，原型的主內容（通知列表）排第一。 */}
+      {children}
     </div>
   )
 }

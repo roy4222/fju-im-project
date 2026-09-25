@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconAlertCircle, IconCheck, IconEye, IconSend } from '@tabler/icons-react'
 import { BackLink, Pill } from '@/app/_ui/dashboard-kit'
 import {
@@ -301,6 +301,36 @@ export function ItemEditor({
   }
 
   const failing = review ? review.checks.filter((c) => !c.ok).length : 0
+
+  // 原型第 4 段是頁內常駐的檢查表：內容一停手就重跑一次伺服器的發布前檢查（唯讀，`reviewItemAction`）。
+  // 規則仍然只在伺服器；這裡只是不用每次都按「檢查與預覽」。舊的回應晚到就丟掉。
+  const reviewSeq = useRef(0)
+  useEffect(() => {
+    const seq = ++reviewSeq.current
+    const timer = setTimeout(() => {
+      reviewItemAction(toPayload(state), itemId)
+        .then((result) => {
+          if (seq !== reviewSeq.current) return
+          if (result.ok) {
+            setReview(result.data)
+            setReviewError(null)
+          } else {
+            setReview(null)
+            setReviewError(result.message)
+          }
+        })
+        .catch(() => {})
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [state, itemId])
+
+  /** 檢查表「回去補」：跳到該補的那一段（手機切到那一個分頁）。 */
+  function goFix(key: string) {
+    const target: SectionKey = key === 'title' ? 'content' : key === 'fields' ? 'fields' : 'publish'
+    setTab(target)
+    requestAnimationFrame(() => document.getElementById(`sec-${target}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  }
+  const [perspective, setPerspective] = useState<'guest' | 'student' | 'teacher'>('student')
   // 手機分頁：不是這一頁的段落只在窄螢幕藏起來（不卸載，打到一半的內容與上傳狀態都還在）。
   const section = (key: SectionKey) => cn('border-t border-border first:border-t-0', tab !== key && 'max-lg:hidden')
   const failingIn = (key: SectionKey) =>
@@ -554,6 +584,7 @@ export function ItemEditor({
               published={published}
               unitLocked={hasResponses}
               idPrefix="ed"
+            placementAs="select"
             />
           </div>
         </section>
@@ -575,16 +606,46 @@ export function ItemEditor({
             {reviewError ? <Feedback tone="error">{reviewError}</Feedback> : null}
             {review ? (
               <>
-                <CheckList checks={review.checks} />
+                <CheckList checks={review.checks} onFix={goFix} />
                 <p className="text-sm text-muted-foreground">
                   {review.openText}
                   {review.deadlineText ? `・${review.deadlineText}` : ''}
                 </p>
                 <RecipientList recipients={review.recipients} />
-                <StudentView state={state} review={review} vocabulary={vocabulary} />
+                {/* 原型：訪客／學生／老師三個視角。 */}
+                <div className="flex flex-wrap gap-2" role="group" aria-label="預覽視角">
+                  {(
+                    [
+                      ['guest', '訪客視角'],
+                      ['student', '學生視角'],
+                      ['teacher', '老師視角'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={perspective === key}
+                      onClick={() => setPerspective(key)}
+                      className={cn(SECONDARY, perspective === key && 'border-ink bg-ink text-ink-foreground hover:bg-ink/85 hover:text-ink-foreground')}
+                    >
+                      <IconEye aria-hidden /> {label}
+                    </button>
+                  ))}
+                </div>
+                {perspective === 'guest' && state.audienceKind !== 'public' ? (
+                  <div className="rounded-xl bg-muted/40 px-4 py-8 text-center">
+                    <p className="text-sm font-bold">訪客看不到這一筆</p>
+                    <p className="mt-1 text-xs text-muted-foreground">發布對象不是「公開訪客」；要讓訪客看到，在發布設定改對象。</p>
+                  </div>
+                ) : (
+                  <StudentView state={state} review={review} vocabulary={vocabulary} />
+                )}
+                {perspective === 'teacher' && collects ? (
+                  <p className="text-xs text-muted-foreground">老師視角唯讀：看各組繳交狀態，不填表。</p>
+                ) : null}
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">按「檢查與預覽」看發布前檢查、實際名單與學生看到的樣子。</p>
+            ) : reviewError ? null : (
+              <p className="text-sm text-muted-foreground">檢查中…</p>
             )}
           </div>
         </section>

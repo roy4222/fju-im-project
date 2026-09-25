@@ -1,6 +1,6 @@
 'use client'
 import { useActionState, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { IconPencil } from '@tabler/icons-react'
+import { IconPencil, IconPlus } from '@tabler/icons-react'
 import {
   cancelActivityAction,
   createActivityAction,
@@ -418,10 +418,16 @@ function ActivityFields({
 
 type ActivityLimits = { audiences: AudienceOption[]; titleMaxLength: number; descriptionMaxLength: number }
 
+/**
+ * 新增活動（原型頁面上的動作都是開對話框）：「已排定的活動」卡片右上一顆「新增活動」，
+ * 表單在對話框裡；成功就關掉對話框，回饋留在按鈕旁邊，表單清空準備下一個。
+ */
 export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortId: string; requestId: string } & ActivityLimits) {
   const [state, formAction, pending] = useActionState(createActivityAction, undefined)
   const [draft, setDraft] = useState(EMPTY_ACTIVITY)
   const [seenState, setSeenState] = useState(state)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
 
   // 新增成功就清空表單，準備加下一個。
   if (seenState !== state) {
@@ -430,18 +436,28 @@ export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortI
   }
 
   return (
-    <form action={formAction} className="space-y-3">
-      <input type="hidden" name="cohortId" value={cohortId} />
-      <input type="hidden" name="requestId" value={requestId} />
-      <ActivityFields idPrefix="new-activity" draft={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} {...limits} />
-      <div className="flex items-center gap-3">
-        <button type="submit" disabled={pending} className={PRIMARY}>
-          {pending ? '處理中…' : '新增活動'}
-        </button>
-        <p className="text-xs text-muted-foreground">作業截止不用在這裡加，會從收件項目自動帶進日曆。</p>
-      </div>
-      <Feedback state={state} />
-    </form>
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Feedback state={state?.ok ? state : undefined} />
+      <button type="button" className={PRIMARY} onClick={dialog.open}>
+        <IconPlus aria-hidden /> 新增活動
+      </button>
+      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從收件項目自動帶進日曆。">
+        <form action={formAction} className="space-y-4">
+          <input type="hidden" name="cohortId" value={cohortId} />
+          <input type="hidden" name="requestId" value={requestId} />
+          <ActivityFields idPrefix="new-activity" draft={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} {...limits} />
+          <Feedback state={state?.ok ? undefined : state} />
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" className={SECONDARY} onClick={dialog.close}>
+              先不加
+            </button>
+            <button type="submit" disabled={pending} className={PRIMARY}>
+              {pending ? '處理中…' : '建立活動'}
+            </button>
+          </div>
+        </form>
+      </Dialog>
+    </div>
   )
 }
 

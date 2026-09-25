@@ -138,11 +138,13 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/timeline')
 
-  await page.getByLabel('活動名稱').fill('期中發表會')
-  await page.getByLabel('日期', { exact: true }).fill('2026-12-20')
-  await page.getByLabel('開始時間').fill('14:00')
-  await page.getByLabel('結束時間（可不填）').fill('16:00')
   await page.getByRole('button', { name: '新增活動' }).click()
+  const create = page.getByRole('dialog', { name: '新增活動' })
+  await create.getByLabel('活動名稱').fill('期中發表會')
+  await create.getByLabel('日期', { exact: true }).fill('2026-12-20')
+  await create.getByLabel('開始時間').fill('14:00')
+  await create.getByLabel('結束時間（可不填）').fill('16:00')
+  await create.getByRole('button', { name: '建立活動' }).click()
   await expect(feedback(page, 'status')).toContainText('已新增活動「期中發表會」')
 
   const scheduled = page.getByRole('region', { name: '已排定的活動' })

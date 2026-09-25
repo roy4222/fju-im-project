@@ -203,7 +203,7 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
   await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
-  await page.getByRole('radio', { name: /文件繳交/ }).check()
+  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '整組一份', exact: true }).check()
   await page.getByLabel('發布對象').selectOption('groups')
   await page.getByRole('checkbox', { name: /G01/ }).check()
