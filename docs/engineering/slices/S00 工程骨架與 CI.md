@@ -5,6 +5,9 @@ project: FJU IM Project
 updated: 2026-09-12
 status: written-v2.1-pending-review
 ---
+
+> **2026-09-16 導覽更新**：本頁保存原切片規格與歷史狀態。即時進度與 session 分工看 [進度與工作包](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S00 工程骨架與 CI/00 進度與工作包.md>)；開工依 [並行規則](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/02 Session 並行與交付規則.md>)。原有產品接受條件不變。
+
 # S00｜工程骨架、分層 lint、Compose、CI（CD 只 dry-run）、第一支 migration
 
 ## 成果

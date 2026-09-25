@@ -4,6 +4,10 @@ project: FJU IM Project
 updated: 2026-09-13
 status: published
 ---
+
+> **2026-09-16 現行入口**：[開發進度總覽](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/00 開發進度總覽.md>)。S00–S14 已各自成資料夾，每張票有完整內容與狀態快照。下方既有狀態／待開票／未開工敘述保留為歷史，不能當作本次現況。開工依新的 Session 並行規則；原產品與整體出場接受條件保留。
+
+
 # GitHub 實作 backlog 對照（2026-09-13 發布）
 
 > 發布 commit `ef62bc3`（票內固定來源連結釘於此）。15 個 epic #18–#32、166 張實作票 #33–#198。狀態：ready 1、planned 122、blocked-decision 10、blocked-dependency 33。**發布不等於開工授權**：S00 開工前仍須 Roy 確認 GitHub 方案、T3、T2（前置清單 §7、§2.1）；受阻票保留標記直到對應決策或前置 epic 出場。spec review issue #6、#8–#17 已更新為現行版本並加 epic 入口。

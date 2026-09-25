@@ -1,0 +1,538 @@
+{
+  "date": "2026-09-25",
+  "round": "Vault → docs 全量同步（9/16 之後）",
+  "direction": "Vault → repo",
+  "rule": "v2-2026-09-12",
+  "verified_at": "2026-09-25T10:26:50.138388+00:00",
+  "counts": {
+    "resynced": 46,
+    "moved+resynced": 15,
+    "source-changed-mirror-identical": 8,
+    "unchanged": 184,
+    "entries": 253,
+    "dropped": 1
+  },
+  "files": [
+    {
+      "destination": "docs/ARCHITECTURE.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
+      "change": "resynced",
+      "source_sha256": "b4fd0a6f40dbba0758fa485c2ebbea37c106691df08608f384f7d26dbbe580cf",
+      "mirror_sha256": "75e76966a883f417fb203331e5797b79fca57149d50493c331ee532863131902"
+    },
+    {
+      "destination": "docs/product/🧩 功能模組/01 帳號與權限.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
+      "change": "resynced",
+      "source_sha256": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8",
+      "mirror_sha256": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8"
+    },
+    {
+      "destination": "docs/product/🧩 功能模組/03 分組、指導與產學.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/03 分組、指導與產學.md",
+      "change": "resynced",
+      "source_sha256": "5b939f4f39163cb2abb5c5b63b2b02f22e505704648067c7e778e8fb8f848fba",
+      "mirror_sha256": "31e12c2ded7244e59132d8f6aeab1e628efac58bc4075fa18d5d499002f21125"
+    },
+    {
+      "destination": "docs/product/🧩 功能模組/07 線上簽核.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
+      "change": "resynced",
+      "source_sha256": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21",
+      "mirror_sha256": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21"
+    },
+    {
+      "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
+      "change": "resynced",
+      "source_sha256": "f595862b28eb94d5f84823b7244526ffe1bb8b4248a7da6668b7d0ab4b738ba0",
+      "mirror_sha256": "f595862b28eb94d5f84823b7244526ffe1bb8b4248a7da6668b7d0ab4b738ba0"
+    },
+    {
+      "destination": "docs/product/🧩 功能模組/09 公開展示與共用介面.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
+      "change": "resynced",
+      "source_sha256": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769",
+      "mirror_sha256": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769"
+    },
+    {
+      "destination": "docs/product/🎯 專案目標與範圍.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🎯 專案目標與範圍.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "974b08f025c3edc6483f62eedfc023d693179b68fb8a62291e025466557461ba",
+      "mirror_sha256": "15d6bcc8d4839673d2acf597e7a6881fcd3cd9a6df02843a84450fa55cc9e3c6"
+    },
+    {
+      "destination": "docs/product/📋 完整產品規格.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📋 完整產品規格.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "63868ee076f8658b53105201e76107158c3aed2669824683482a837776ce4203",
+      "mirror_sha256": "06f4b8d0f0157b3e12153f59b77ee0a43310b2be58e926a289f6c84d6123c44a"
+    },
+    {
+      "destination": "docs/product/🗺️ 前台頁面清單.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
+      "mirror_sha256": "01614d7964c531a894723e378c84a33039001132e80210657fcd2779b2baf9a7"
+    },
+    {
+      "destination": "docs/product/🗺️ 後台頁面清單.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
+      "change": "resynced",
+      "source_sha256": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
+      "mirror_sha256": "3bba3e75168933c70d0d206eba5a122ed5aa16ee609dfce4ee7ca394efb62615"
+    },
+    {
+      "destination": "docs/product/AGENTS.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/AGENTS.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "0384dabdcb456844c01cea8d2306fefc6c13151acd7eb5d327cc5514ca1bf839",
+      "mirror_sha256": "c2bedbe024f9e1a98857f247a2d1e07703e3d52c539212b6eaaaed279591954b"
+    },
+    {
+      "destination": "docs/specs/product-v1.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📋 完整產品規格.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "63868ee076f8658b53105201e76107158c3aed2669824683482a837776ce4203",
+      "mirror_sha256": "ec980f0ece1f5bede3e1c66286144197fe9fea0f965dd8dea00e487a29cf8240"
+    },
+    {
+      "destination": "docs/PROJECT.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🎯 專案目標與範圍.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "974b08f025c3edc6483f62eedfc023d693179b68fb8a62291e025466557461ba",
+      "mirror_sha256": "c11357c7a87b70e3a8334a3f4138764ae02e39480eef4e017f515694a89627d3"
+    },
+    {
+      "destination": "docs/FRONTEND-PAGES.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
+      "mirror_sha256": "0fbf79a1dc60cc7a372da4e6c8aca6f98ce3a983b050372945e3c38cd3c3120c"
+    },
+    {
+      "destination": "docs/DASHBOARD-PAGES.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
+      "change": "resynced",
+      "source_sha256": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
+      "mirror_sha256": "e17fb8ccdc8875c8a311cd9d9a80536ee6f2de9a357ce8d9f2f66d4ff2773cda"
+    },
+    {
+      "destination": "docs/product/🔎 截圖核對與缺口.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🔎 截圖核對與缺口.md",
+      "change": "source-changed-mirror-identical",
+      "source_sha256": "92fed18673becda7e53a8e7a84a262a9477daedd1f067bbf5677c899fda9b10c",
+      "mirror_sha256": "7b65119c1188b726cc42dbe9ad4730b9da81d43e5d8b18064fa0dc48454598fb"
+    },
+    {
+      "destination": "docs/engineering/operations/06 staging 轉正式.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/06 staging 轉正式.md",
+      "change": "resynced",
+      "source_sha256": "c408d135156cd63018383da88a5fb6c0c19fed4586bcad60bd75aa2e3e0acf43",
+      "mirror_sha256": "eca29a1c8de79d62605f3034cd7861b56a7f4739b0656f752e4101fc061328b8"
+    },
+    {
+      "destination": "docs/engineering/operations/02 環境變數、OAuth 與 Secrets 清單.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/02 環境變數、OAuth 與 Secrets 清單.md",
+      "change": "resynced",
+      "source_sha256": "733ce4edbbc8450e0908884a36ed83623e8c4a4bd33815b65ba0ae64899bd58b",
+      "mirror_sha256": "335951ed701ac9aefce1a53edce5d1f0771c9f689f18fdfa9f3197783a3e169f"
+    },
+    {
+      "destination": "docs/engineering/operations/04 備份、還原演練與故障處理.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/04 備份、還原演練與故障處理.md",
+      "change": "resynced",
+      "source_sha256": "d95f17ef232bbf4a58ea3d32b6490811c3751cbd9eb54133af3029a265cdb727",
+      "mirror_sha256": "245a6a1efc439a700d7d0cafc82dcc60ddc73e0fe88a56f4d01de30452dac2f6"
+    },
+    {
+      "destination": "docs/engineering/operations/01 VM 首次設定.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/01 VM 首次設定.md",
+      "change": "resynced",
+      "source_sha256": "abfe08376a112c5be66fea2ff3cf27c99751a587013682e5eb9602645d250b78",
+      "mirror_sha256": "bbbc5a4a0583bacffc0f76addfba0c614ecf04c7ba94540d0cef63d8c7a18403"
+    },
+    {
+      "destination": "docs/engineering/operations/05 監測與告警.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/05 監測與告警.md",
+      "change": "resynced",
+      "source_sha256": "9a28843221ace49d5e5623c54048e3f2d16e15c2cf7544f4537b3b33cb8a9f69",
+      "mirror_sha256": "136c00f336cce7198102f01e85771f966d2e7b49ef8bfa412ffbf953500ee077"
+    },
+    {
+      "destination": "docs/engineering/operations/03 部署與回滾.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/03 部署與回滾.md",
+      "change": "resynced",
+      "source_sha256": "6a497daf85b791698071797d307524635a6653a25449f519d3a26f60e4339571",
+      "mirror_sha256": "66cfca4046bdbd5497e7b02e3ffb7927835581e45cf038683065d9e9417f80f2"
+    },
+    {
+      "destination": "docs/engineering/modules/04 專題事務發布與編輯.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/04 專題事務發布與編輯.md",
+      "change": "resynced",
+      "source_sha256": "f3239b64db3c687b8480a103f807a9ee522d55aa36d8652fc7c5746a4b43ab8e",
+      "mirror_sha256": "4a6a346c9e854ace7310f9d7400f6d4bd8f0e652e705a63457dc8101d54f41ab"
+    },
+    {
+      "destination": "docs/engineering/modules/09 公開展示與共用介面.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/09 公開展示與共用介面.md",
+      "change": "resynced",
+      "source_sha256": "e75e28f38f1a57a9830750f5f0a4b1105ec2abc1197552edca9ca34dc3bc2aa7",
+      "mirror_sha256": "7e886810dd591d15f3731f3e8dea6e21c7d45aee0b53005e3be36754e6363dd7"
+    },
+    {
+      "destination": "docs/engineering/modules/07 線上簽核.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/07 線上簽核.md",
+      "change": "resynced",
+      "source_sha256": "49713455d4af247856834bbe24c5f2fb0c7d5df0c373f48b5c176ffd0f806c0e",
+      "mirror_sha256": "bafd27275e41fc92d72a119490fc9566e81642aef79669a824eebd78abbc4519"
+    },
+    {
+      "destination": "docs/engineering/modules/08 站內通知與日曆.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/08 站內通知與日曆.md",
+      "change": "resynced",
+      "source_sha256": "6a22b1dd4d934e58d7736cb468ca880c17b538bb2a9c63c3b1e69734abd70ec6",
+      "mirror_sha256": "4aa888dccca429d21e038b36fbad552aedd7fbdc4f399b733bf2c21c27520397"
+    },
+    {
+      "destination": "docs/engineering/modules/02 屆別與年度流程.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/02 屆別與年度流程.md",
+      "change": "resynced",
+      "source_sha256": "11dcca54c53f3e83b860136b02596db64c01ddea7ba7f08f34a7434d25d4059d",
+      "mirror_sha256": "504761569530add0a41aa816a9e353f4c44b5cc05181270fe9a638c58d83072b"
+    },
+    {
+      "destination": "docs/engineering/modules/01 帳號與權限.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/01 帳號與權限.md",
+      "change": "resynced",
+      "source_sha256": "ae9d5bd0a23521d5f2b3c86b718d1e2d3cd556bfa1bea14336377091c1bbd3a0",
+      "mirror_sha256": "8c7d9734f7df20a6460766aa0da578efd580e519f774ba5abd1e58b6f6175f9e"
+    },
+    {
+      "destination": "docs/engineering/contracts/03 安全與隱私.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
+      "change": "resynced",
+      "source_sha256": "f6fea23cf322b82904e770ca26c08fde3e6b880888df3fc4faf4f50690adaa15",
+      "mirror_sha256": "a2f1fc7fb509893190c92817cac72e5b3bc4923c95c25e32a2f9604400741004"
+    },
+    {
+      "destination": "docs/engineering/contracts/05 CI-CD、部署與維運.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/05 CI-CD、部署與維運.md",
+      "change": "resynced",
+      "source_sha256": "0c55dcc68684e2a516eed783f60e904c14b29816cbb3fbeb2854bb3b372587a1",
+      "mirror_sha256": "e70cfb12d2e35fc4f0abcd16f9b77bc14720d385a8735d2586cbe9bb0e09bdad"
+    },
+    {
+      "destination": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
+      "change": "resynced",
+      "source_sha256": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7",
+      "mirror_sha256": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7"
+    },
+    {
+      "destination": "docs/engineering/contracts/01 資料模型與一致性.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/01 資料模型與一致性.md",
+      "change": "resynced",
+      "source_sha256": "475caa6aab9ee3f9da0176b5944fad0d45dee178a0af6227d4d1c968544c4e53",
+      "mirror_sha256": "475caa6aab9ee3f9da0176b5944fad0d45dee178a0af6227d4d1c968544c4e53"
+    },
+    {
+      "destination": "docs/engineering/slices/S04 專題事務發布.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S04 專題事務發布/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "36c92f3cc935578bdd98b0525e78048f8ec3d18779d33c71d85e5e939f0c68f2",
+      "mirror_sha256": "9eb1b1dbc7fb8b4800805e237be65e7a6c86193cb36484cef2d01eb29b2788fe",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S04 專題事務發布.md"
+    },
+    {
+      "destination": "docs/engineering/slices/00 切片總圖與依賴.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/00 切片總圖與依賴.md",
+      "change": "resynced",
+      "source_sha256": "c47ac05f799ede111e426749333a96c301e3bcd7f63db8b6e8b62607e80fdd64",
+      "mirror_sha256": "4924c90e6bc9258ff006299e299d21447ffa10311f8c61344d266d15f506deb8"
+    },
+    {
+      "destination": "docs/engineering/slices/S02 屆別、業務鐘與事件基礎.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S02 屆別、業務鐘與事件基礎/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "a3c51c64874e81ab2037c7c30547144c8034656990b71c7c6d0bb094f18af5c4",
+      "mirror_sha256": "6837a7befcdb329b9b398fdf24af315ca2d3a13c62161bf6df47688cd9c3c6b4",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S02 屆別、業務鐘與事件基礎.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S07 組別繳交主線.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S07 組別繳交主線/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "bb7cfd3c682dc0fb3892aa17ed689019e094ffbc7ab82d29b8530691cfd14aa3",
+      "mirror_sha256": "af18b925183790d60684778164b4810bcdc9dec0fd52a811091aab7ae71b2de8",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S07 組別繳交主線.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S11 簽核.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S11 簽核/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "5f024381f8b6c1d63c445b478cc0ceea18ce42caef2dc628b9b53c052713b902",
+      "mirror_sha256": "3bb87ec2a1f13c5b30bfdcc9159991ac9763dd087ca88d017ba3094a5de555c6",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S11 簽核.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S06 指導與產學.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S06 指導與產學/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "d570027477c65ce249d873134845853e9ba028e46482ead50a59de2c0d0d648e",
+      "mirror_sha256": "b79ba0c6212572e628f0810902d2593a8669340c1fb04d9b1ef85a7d8c3689d2",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S06 指導與產學.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S09 成員異動與解散.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S09 成員異動與解散/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "830e32e87c2b93844b1ba93b2ba99d29f2259a247a2a3284798ee4d7c1885219",
+      "mirror_sha256": "5f7169d8fc86b63e6a9e8a992c3f9381a6e8f80778c6ef23254b71ba55522175",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S09 成員異動與解散.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S10 評分.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S10 評分/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "9f6b0571eab57fb277a22ee12828c8d5068eded4907c6b189af3ee1e74d27dba",
+      "mirror_sha256": "90b3d42ff81bcf76d273a1efb67b3da4eaba60211f1683678a0995a59e2e2762",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S10 評分.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S12 公開精選、授權與收尾.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S12 公開精選、授權與收尾/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "caec37826b5d98eea4b324c7b3117b114f1945cd6a409cd862468b713b8fc35f",
+      "mirror_sha256": "8c9661b8fdb8211fad32951f1653a05302e8cd840537d6a6fe52a11a6597261e",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S12 公開精選、授權與收尾.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S00 工程骨架與 CI.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S00 工程骨架與 CI/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "c94c2b51921533eeb3dfc2a5bf8b98e2fb304a4620be0793509cc3993b515362",
+      "mirror_sha256": "9202394b93f680cff1266822f121ac6ac486ed982802b28e2595967d95c188ff",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S00 工程骨架與 CI.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S01 帳號與 Auth.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S01 帳號與 Auth/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "1fd6cfe79f08dfbd5377db6429d6549c660050682e297d23bb63c545284542cf",
+      "mirror_sha256": "4dc9280d8268988d613e59f078dddc469fd9833abf948ad242663328d128cd70",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S01 帳號與 Auth.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S03 提案與成組.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S03 提案與成組/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "2df50d0c7e3a1fac6ffdc8e36e825785b4b67ff6084d4f6351152fd94f39a341",
+      "mirror_sha256": "d8f167b753bb6470d4305209b27036f43f8ac9d456399572bf963c17d41c44a7",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S03 提案與成組.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S14 維運執行.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S14 維運執行/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "7c3300a9370588a9b31f848814e186adf9cf5a1fc9b90771fe4c25a46dc174b5",
+      "mirror_sha256": "712585e927e72c7d585d91910417df87c5e7daf58fcc24db11faf163e0c880c7",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S14 維運執行.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S08 名單變動與到期工作.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S08 名單變動與到期工作/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "d517b383d55d1c347df7689e8948de72217952ab346b75536b57180f8e14bb66",
+      "mirror_sha256": "74b5ea3051b46a6b425e4233dd48533c2b65a2666a44824d2f58b53bb023f40d",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S08 名單變動與到期工作.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S05 個人收件.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S05 個人收件/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "6b4efe6ebaa16fe1f83b3032fda25d84296fff0b6854389c02f8e15f4015a9fb",
+      "mirror_sha256": "2beb4d4b3e7095605b48caace5f59757862b0204c56faf71358e1b2e9bc99f84",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S05 個人收件.md"
+    },
+    {
+      "destination": "docs/engineering/slices/S13 封存、多屆與下一屆.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S13 封存、多屆與下一屆/01 切片規格.md",
+      "change": "moved+resynced",
+      "source_sha256": "32e06456b412be969cf53a37538545942732b5b492949cc554341c50a32aa395",
+      "mirror_sha256": "764d1098cc39d333cde72824da95491cf09b25c41c0915a80196adc040352d9d",
+      "moved_from": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S13 封存、多屆與下一屆.md"
+    },
+    {
+      "destination": "docs/engineering/verification/scripts/P02 註冊與審核.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P02 註冊與審核.md",
+      "change": "resynced",
+      "source_sha256": "891b449e2386c6f3e492acb782cc4e8a90b66aa3ac75ddf5d1f7cd26927dcb79",
+      "mirror_sha256": "9fd5ad0fb071d31df02a9c8a3c2627708758bfdce55060ca3533f63c05508268"
+    },
+    {
+      "destination": "docs/engineering/verification/scripts/B01 帳號分支.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B01 帳號分支.md",
+      "change": "resynced",
+      "source_sha256": "4a811e614de511dd03fe38fe0800b72c126e78de971e5695bc7cc27e6a1cbc47",
+      "mirror_sha256": "1ea8630e079694bd6366ab5af41182858661793ff3648abdcecb023b43833dfe"
+    },
+    {
+      "destination": "docs/engineering/operations/00 Roy 前置工作清單.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/00 Roy 前置工作清單.md",
+      "change": "resynced",
+      "source_sha256": "46114b8e16ab97963985a5b34d7c975806c7690b40bd2804657da365269d6eb3",
+      "mirror_sha256": "93fa3cba164fb992e05b363a9fef31b4bbb4ef20cb9a6413cad1beaa58f0c8a3"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S04 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S04 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "ecb4734220d67f0fb07df831d60085e35dab8a8792b3417c4d66e786ed4fd3ba",
+      "mirror_sha256": "1673e21e1e5f947bdc0a18c0902ebbe59640f4ac59d4d07baac324c68854e6af"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S08 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S08 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "5edad97173b4555a01bdf6b428ecbb91f9149df4a81da2a2797db26b5081bffe",
+      "mirror_sha256": "f4646179d4fbd3bd86990e6d73df45d7b9f9daf5431583b20b66ae4fdc14fcfa"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S14 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S14 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "a76341eb0edaa5ee9628e51e24d66a8b0e65eedcbc061638e16e299266abe2e0",
+      "mirror_sha256": "cdede018ed414156532676035bf17e347250cfdd419013563a4740fc84dc4fd2"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S06 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S06 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "6abf87ab9feb8a9a271b11efe03b24b0b5633c87e84846ec2b2ae365ab607634",
+      "mirror_sha256": "fc1ba7fe5f0b970d7aa00feb4caf9d0751197d7448e4406c97b71b549845b2f0"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S02 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S02 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "b354476ac01ded50f889ef5e2577a0495f582bcee2ef69cd3a0bd12f7dd3abc0",
+      "mirror_sha256": "bfba001ae3a29babd1f8b468012cab75e16ff84fec575504309d0027865c70d3"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S10 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S10 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "ff4915e7061f29f0f06cc3cc3ca147025e4f501babf8dfd4db160564a0d6837b",
+      "mirror_sha256": "3ca0e20bb6aa7b82e49424d3458bee758e9520dff6e760b0c5a0b17c34a3e556"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
+      "change": "resynced",
+      "source_sha256": "75c5471d4479aa661990385f1a0791ae944ea054d62850f50f428830d63ea68f",
+      "mirror_sha256": "d4f5ed3710ed3ebe1ce632218a016a3b924b6daf4238288e64e4a3f5fead02ba"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S12 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S12 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "9d7071de5849287ca5debcfff24dda4cad871c25e244168af7c589b06dac7f1a",
+      "mirror_sha256": "d202d3ac80a053be476c2d4e167c7fe7d934caf2a0ef400e516e2626d7783696"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S00 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S00 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "e33dc61b5cc56cb9708c20dc39e528f61b573721b017f421670a2852ed88e05f",
+      "mirror_sha256": "d1a267d2fe24715e24eeec85178ab418f29a9df26ecf11cf274e5bbb508e4b03"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S05 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S05 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "9516d4aad6755b8d243cb20e1208a5bcbe7e391f5ab7c3319351a8b7b8d30e4b",
+      "mirror_sha256": "3e72743c58f31f89cf05a387ab9214122a8b82d84b8677b5d83ee29bc3f2fea4"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S09 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S09 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "b7493d0f9bca70885e7afde3c9f2aa6491a35ad2f5490a0a8dd544b9e856d493",
+      "mirror_sha256": "37be05be3ee6c06d9fd122b29a268bbcccb9d39b96fc771b56a765eebab4e8e7"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S07 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S07 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "907f3ed131fec9bccae4422fe0faf98ad792119fbbde065ea5f8e65846e6f896",
+      "mirror_sha256": "286a420446a2b1542ac999005be3868ae64383ff10f06f04a1ed71b95a907242"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S03 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S03 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "004bfb2048d8467c3350025da2d250f5f3d0c52b879798bfaf09487c6aef8866",
+      "mirror_sha256": "ece42f86bf41bf15e495f4ef0db712c38665320b9d746d1ce6b3025a905fd1f0"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S11 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S11 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "4a41d0b5a6d9a08d08f49842e70a77a04f68ab6457798cc25e8abf8ee51ea4b4",
+      "mirror_sha256": "b04ca879f7e8280185ddf3e24c4f3dff614729c5f89f78e44a872255d59500f1"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S13 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S13 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "ee4ca6c092f9b1102e4a883fa679f6a0242095f8cf1edbc7421176697689a934",
+      "mirror_sha256": "c84e73fc073152b9e8b1a1122cb9fdb3a5e1acc0d84c69212b5a8d0b2d555a90"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/S01 票草稿.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S01 票草稿.md",
+      "change": "resynced",
+      "source_sha256": "5c7c2013171c7d220125eb173d87a59817e8ab297cf773f42775b4e726c1396d",
+      "mirror_sha256": "87d220e782302142e05af7d1ca78c13005903f3951f54bf880ed012864f169b4"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/02 GitHub 對照.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/02 GitHub 對照.md",
+      "change": "resynced",
+      "source_sha256": "9bbd266c38d39f1e503f374cfe63fb53589c081aa0e890e9df2922180ca035d4",
+      "mirror_sha256": "00b948671768ee281605f1ef65a3598990fd05bf8d25093b87f379f5244fc767"
+    },
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/02 GitHub 票號對照與發布核對.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/02 GitHub 票號對照與發布核對.md",
+      "change": "resynced",
+      "source_sha256": "5b67f32de6b83bfa6940a0a66b532e2fe6cd90a093adf9c2b3a16618753b20fb",
+      "mirror_sha256": "8355480d203b1b8170af4b4511f5fda479f6ba2f20f5cb0301e33146e67d0990"
+    }
+  ],
+  "dropped": [
+    {
+      "destination": "docs/engineering/slices/02 實作票草稿 第一批 S00–S02.md",
+      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/02 實作票草稿 第一批 S00–S02.md",
+      "reason": "Vault 來源與 repo 鏡像兩端都不存在；自 manifest 移除（無檔可同步）"
+    }
+  ],
+  "integrated_repo_side_edits": [
+    {
+      "destination": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
+      "commit": "2e66ead",
+      "note": "「新增表必擴充權限矩陣與 roles.test」一段原本只在 repo；依主控台 2026-09-25 指示補回 Vault 00 總索引 §0，兩端一致，鏡像為純轉換結果。",
+      "resolved_at": "2026-09-25T10:38:17.938372+00:00"
+    }
+  ],
+  "out_of_scope_not_mirrored": [
+    "🛠️ 工程開發/🚀 開發計畫.md（範圍維持不變：主控台 2026-09-25 裁定不鏡像）",
+    "🛠️ 工程開發/🧱 實作切片/ 9/16 後新增檔（舊流程歷史；主控台 2026-09-25 裁定不鏡像）"
+  ],
+  "not_run": [
+    "CI 以外的任何應用驗證",
+    "Vault 正文內容修改（只更新狀態／核對時間，外加依主控台指示補回 00 總索引那一段）"
+  ]
+}
