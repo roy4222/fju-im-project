@@ -39,11 +39,14 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   exit 1
 fi
 
-export FAULTSIM_IMAGE="$IMAGE"
 export FAULTSIM_PORT="${FAULTSIM_PORT:-3928}"
 # -p 一定要寫：fault-drill.sh 會 export COMPOSE_PROJECT_NAME=fju-test（ops/lib/site.sh），
 # 那個環境變數比 Compose 檔裡的 name: 優先；只有 -p 蓋得過它。
-COMPOSE="docker compose -p fju-faultsim -f $APP_ROOT/docker-compose.faultsim.yml"
+# 疊在 docker-compose.yml 上（跟 VM 一樣），依賴 migrate、映像退回 :local 這兩個坑才重現得出來。
+COMPOSE="docker compose -p fju-faultsim -f $APP_ROOT/docker-compose.yml -f $APP_ROOT/docker-compose.faultsim.yml"
+# APP_IMAGE 只在起站時給（像 deploy.sh 那樣）；演練時**不給**，跟 VM 上 Roy 手動跑 fault-drill.sh 一樣，
+# 腳本必須自己從正在跑的容器讀出映像。
+setup() { APP_IMAGE="$IMAGE" IMAGE_DIGEST='' $COMPOSE "$@"; }
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fju-faultsim.XXXXXX")"
 
 # shellcheck disable=SC2329  # 由下面的 trap 在結束時呼叫。
@@ -58,14 +61,15 @@ teardown() {
 trap teardown EXIT
 
 echo "== 起模擬站（映像 ${IMAGE}）"
-$COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
-$COMPOSE up -d postgres
-$COMPOSE run --rm migrate | tail -2
+setup down -v --remove-orphans >/dev/null 2>&1 || true
+setup up -d postgres
+# 跟 deploy.sh 一樣用 run --rm：之後就**沒有** migrate 容器，worker 的 depends_on 會咬人（VM 上就是這樣）。
+setup run --rm migrate | tail -2
 # 跟 deploy.sh 一樣：migration 只建角色不設密碼，這裡把 fju_app 的密碼設成模擬站的假值。
 # shellcheck disable=SC2016  # ${POSTGRES_USER}／${POSTGRES_DB} 要在容器裡展開。
 printf "ALTER ROLE fju_app PASSWORD 'faultsim_app';\n" \
-  | $COMPOSE exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-$COMPOSE up -d --no-deps app worker
+  | setup exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+setup up -d --no-deps app worker
 
 HEALTH_URL="http://127.0.0.1:${FAULTSIM_PORT}/api/health"
 echo "== 等 ${HEALTH_URL} 完整六項通過"
@@ -104,7 +108,8 @@ drill_env=(
 failed=0
 for drill in "${CASES[@]}"; do
   echo "== 演練：${drill}"
-  env "${drill_env[@]}" bash "$APP_ROOT/ops/fault-drill.sh" --site test "$drill" --execute || failed=1
+  # FAULT_DRILL_SCRIPT：拿舊版腳本（放在 ops/ 底下）重現問題用；平常不設。
+  env -u APP_IMAGE -u IMAGE_DIGEST "${drill_env[@]}" bash "${FAULT_DRILL_SCRIPT:-$APP_ROOT/ops/fault-drill.sh}" --site test "$drill" --execute || failed=1
 done
 
 echo "== 演練紀錄（$WORK/drills/fault-drills.log）"

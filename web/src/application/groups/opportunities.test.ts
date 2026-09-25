@@ -87,12 +87,17 @@ describe('誰看得到', () => {
 
 describe('組長改類型的三個條件（5.3）', () => {
   it('全部符合才可以；不符合的條件全部列出', () => {
-    expect(leaderTypeChangeBlockers({ inGroupingPeriod: true, hasAdvisor: false, hasLink: false })).toEqual([])
-    expect(leaderTypeChangeBlockers({ inGroupingPeriod: false, hasAdvisor: true, hasLink: true })).toEqual([
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'open', hasAdvisor: false, hasLink: false })).toEqual([])
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'ended', hasAdvisor: true, hasLink: true })).toEqual([
       '成組期已結束',
       '已經有指導老師',
       '已經連結合作案',
     ])
+  })
+
+  it('階段還沒設定、還沒開始時不說「已結束」（PR #266 審查建議）', () => {
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'unconfigured', hasAdvisor: false, hasLink: false })).toEqual(['這一屆還沒設定成組期'])
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'not_started', hasAdvisor: false, hasLink: false })).toEqual(['成組期還沒開始'])
   })
 
   it('歷程文字', () => {

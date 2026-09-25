@@ -176,6 +176,29 @@ export const EVENT_CATALOG = {
     notification: { kind: 'grading', defaultTitle: '你有一份新的評分指派' },
   },
   /**
+   * 系辦退回某位老師的正式評分（票 24；產品 06 §7.5「退回通知仍有權處理該筆評分的老師，附可見理由與入口」）。
+   * 收件人＝那一份評分的老師（指派仍有效、帳號正常才會退回）。payload 帶組別、階段與**退回理由**，沒有分數。
+   */
+  'grading.returned': {
+    consumers: ['notifications'],
+    notification: { kind: 'grading', defaultTitle: '你的評分被系辦退回，請修改後重新送出' },
+  },
+  /**
+   * 成績更正進「待復核」（票 24；產品 06 §7.5「首次進入待復核時通知有處理權的管理員；未解決不反覆提醒」）。
+   * 收件人＝此刻有效的管理員。payload 只有組別代號。
+   */
+  'grading.override_review': {
+    consumers: ['notifications'],
+    notification: { kind: 'grading', defaultTitle: '有一筆成績更正待復核' },
+  },
+  /**
+   * 移除／改派評分老師、套用新方案版本、更正（票 24）。產品事件矩陣沒有這幾種的通知
+   * （更正完成不通知老師或學生；新老師由 `grading.assigned` 通知）。事件只留紀錄。
+   */
+  'grading.assignment_ended': { consumers: [] },
+  'grading.scheme_applied': { consumers: [] },
+  'grading.overridden': { consumers: [] },
+  /**
    * 簽核建版：輪到本人同意（票 25；產品模組 08 §4「等待本人同意（簽核輪到本人）→本人」、NTF-05）。
    * 收件人＝這一版參與者快照裡的**學生**；主指導要等全員同意後才輪到（票 26 的 `teacher_turn`），管理員不收。
    * payload 只帶組別代號、用途與版本號，**不帶全文**。

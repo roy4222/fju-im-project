@@ -28,6 +28,10 @@ export type FaultPointName =
   | 'item.publish.after-roster'
   /** 票 23：正式送出驗完「同指派還沒有採計」與分數、還沒寫評分列（測兩個請求編號同時送出）。 */
   | 'grading.final.before-insert'
+  /** 票 24：退回鎖完指派與評分狀態、確認仍是採計中，還沒改狀態（測退回與改派、送出的並發）。 */
+  | 'grading.return.before-update'
+  /** 票 24：改派在鎖內比對完 basis_hash、還沒結束舊指派（測預覽過期與並發）。 */
+  | 'grading.reassign.before-write'
 
 export type FaultHandler = () => void | Promise<void>
 

@@ -9,6 +9,8 @@ describe('XLSX 寫出', () => {
 
   it('XML 逃逸並拿掉 XML 不允許的控制字元', () => {
     expect(escapeXmlText('a<b>&"c"\u0001\u0008\t')).toBe('a&lt;b&gt;&amp;&quot;c&quot;\t')
+    // U+FFFE、U+FFFF 與落單的代理字元也不是合法的 XML 字元；成對的代理字元（emoji）要留著。
+    expect(escapeXmlText('a\uFFFEb\uFFFFc\uD800d\uDC00e😀')).toBe('abcde😀')
   })
 
   it('五個檔案、每格都是內嵌文字（不是公式、不是數字）', () => {
