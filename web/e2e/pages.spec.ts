@@ -212,6 +212,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
+    '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
+    '/dashboard/teacher/grading': '暫存只有你和系辦看得到，正式送出後鎖定',
+    '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -239,6 +242,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 合作案管理（票 20）。
     { path: '/dashboard/teacher/industry', wrongRole: 'student' },
     { path: '/dashboard/admin/industry', wrongRole: 'teacher' },
+    // 評分（票 23）。
+    { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
+    { path: '/dashboard/teacher/grading', wrongRole: 'student' },
+    { path: '/dashboard/student/grading', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

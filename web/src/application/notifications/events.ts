@@ -166,6 +166,14 @@ export const EVENT_CATALOG = {
    * 撤回、下架、重新發布（票 16；產品模組 04 §4.5）。產品事件矩陣沒有這三種的通知：
    * 舊通知點進去時由來源重驗顯示「來源已撤回」或「已下架」（模組 08「舊通知與失權」），不另發通知。事件只留紀錄。
    */
+  /**
+   * 評分指派（票 23；產品模組 08 §4「評分指派→被指派的老師」、NTF-17）。收件人＝被指派的老師一人。
+   * payload 只帶組別代號、階段與 id，**沒有任何分數**；學生永遠不會收到評分類通知（產品 06 §7.6）。
+   */
+  'grading.assigned': {
+    consumers: ['notifications'],
+    notification: { kind: 'grading', defaultTitle: '你有一份新的評分指派' },
+  },
   'item.withdrawn': { consumers: [] },
   'item.archived': { consumers: [] },
   'item.republished': { consumers: [] },

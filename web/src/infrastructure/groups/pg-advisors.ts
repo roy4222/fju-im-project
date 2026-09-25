@@ -229,9 +229,9 @@ export class PgAdvisorCommand implements AdvisorCommand {
     }
     const reason = normalizeReason(String(input.reason ?? ''), '指派指導老師')
     if (!reason.ok) return reason
-    // 重派時勾選的評分指派（模組 06）。評分還沒做，清單一定是空的，所以也不可能勾到任何一筆。
+    // 重派時勾選的評分指派（模組 06）。對話框只列、不給勾（票 23）；一併處理（保留／替換／新增）在票 24。
     if ((input.gradingSelections ?? []).length > 0) {
-      return err('VALIDATION_FAILED', '評分功能還沒開放，沒有評分指派可以一併處理；請重新整理頁面。')
+      return err('VALIDATION_FAILED', '重派不會一併處理評分指派；要調整評分老師請到「評分」頁。')
     }
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
