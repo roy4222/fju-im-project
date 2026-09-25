@@ -1,7 +1,9 @@
 import Link from 'next/link'
+import { IconArrowLeft, IconFileText, IconUsersGroup } from '@tabler/icons-react'
 import type { FormField } from '@/application/items'
 import type { ItemWindow, MyVersionDetail, ReceiverDetail, RosterEntry } from '@/application/submissions'
-import { TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
+import { BTN_OUTLINE_SM, Panel, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
+import type { StatusTone } from '@/application/submissions'
 import { answerFields, categoryOf, isFileField, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
@@ -12,6 +14,15 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
  */
 
 export type ListKey = 'current' | 'exempt' | 'removed'
+
+/** 狀態標籤的顏色（原型 StateBadge：已繳綠、草稿／待繳橘、逾期紅、其他灰）。 */
+const PILL_TONE: Readonly<Record<StatusTone, PillTone>> = {
+  success: 'success',
+  brand: 'brand',
+  muted: 'default',
+  info: 'default',
+  danger: 'danger',
+}
 
 const LIST_LABEL: Record<ListKey, string> = { current: '目前名單', exempt: '免填', removed: '已移出' }
 
@@ -41,41 +52,44 @@ export function RosterList({
   const rows = grouped[list]
   const who = individual ? '人' : '組'
   return (
-    <section aria-labelledby="roster-title" className="rounded-card border border-border bg-background">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-4">
-        <h2 id="roster-title" className="text-base font-semibold text-ink">
-          收件名單
-        </h2>
-        <p className="text-xs text-muted-foreground">{LIST_HINT[list]}</p>
-      </div>
-      <nav aria-label="名單分類" className="mt-3 flex gap-1 overflow-x-auto border-b border-border px-3">
-        {(Object.keys(LIST_LABEL) as ListKey[]).map((key) => (
-          <Link
-            key={key}
-            href={key === 'current' ? base : `${base}?list=${key}`}
-            aria-current={key === list ? 'page' : undefined}
-            className={cn(
-              '-mb-px inline-flex h-11 shrink-0 items-center gap-1.5 border-b-2 px-4 text-sm font-semibold',
-              key === list ? 'border-primary text-ink' : 'border-transparent text-muted-foreground hover:text-ink',
-            )}
-          >
-            {LIST_LABEL[key]}
-            <span className="tabular-nums text-xs font-medium opacity-80">{grouped[key].length}</span>
-          </Link>
-        ))}
-      </nav>
+    <Panel
+      title={individual ? '各人狀態' : '各組狀態'}
+      icon={<IconUsersGroup />}
+      description={LIST_HINT[list]}
+      headingId="roster-title"
+      action={
+        <nav aria-label="名單分類" className="flex flex-wrap gap-1.5">
+          {(Object.keys(LIST_LABEL) as ListKey[]).map((key) => (
+            <Link
+              key={key}
+              href={key === 'current' ? base : `${base}?list=${key}`}
+              aria-current={key === list ? 'page' : undefined}
+              className={cn(
+                'inline-flex h-8 items-center gap-1 rounded-full border px-3 text-xs font-semibold transition-colors',
+                key === list
+                  ? 'border-primary/30 bg-primary-subtle text-primary-on-subtle'
+                  : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+              )}
+            >
+              {LIST_LABEL[key]}
+              <span className="tabular-nums">{grouped[key].length}</span>
+            </Link>
+          ))}
+        </nav>
+      }
+    >
       {rows.length === 0 ? (
-        <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+        <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">
           {list === 'current' ? `目前名單上沒有${who === '人' ? '人' : '組別'}。` : `沒有${LIST_LABEL[list]}的${who === '人' ? '人' : '組別'}。`}
         </p>
       ) : (
-        <ul className="divide-y divide-border" aria-label={LIST_LABEL[list]} data-testid={`roster-${list}`}>
+        <ul className="divide-y divide-border border-t border-border" aria-label={LIST_LABEL[list]} data-testid={`roster-${list}`}>
           {rows.map((entry) => (
             <RosterRow key={`${entry.receiverKind}:${entry.receiverId}`} base={base} entry={entry} window={window} businessNow={businessNow} individual={individual} />
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   )
 }
 
@@ -96,21 +110,21 @@ function RosterRow({
   const status = receiverStatus(window, entry, businessNow)
   const submitted = entry.latestVersionNo !== null
   let headline: string
-  let tone: string
+  let tone: PillTone
   let detail: string
   if (category === 'removed') {
     headline = '已移出'
-    tone = 'text-muted-foreground'
+    tone = 'default'
     detail = `${entry.eligibleTo ? formatTaipeiMinute(entry.eligibleTo) : ''}・${entry.removedReason ?? ''}・${
       submitted ? `回答保留（已繳 v${entry.latestVersionNo}）` : '沒有正式送出過'
     }`
   } else if (category === 'exempt') {
     headline = '免填'
-    tone = 'text-muted-foreground'
+    tone = 'default'
     detail = `理由：${entry.exemptReason ?? ''}`
   } else {
     headline = status.headline
-    tone = TONE_CLASS[status.tone]
+    tone = PILL_TONE[status.tone]
     detail = submitted
       ? `${entry.latestSubmittedByName ?? ''} 於 ${entry.latestReceivedAt ? formatTaipeiMinute(entry.latestReceivedAt) : ''} 送出`
       : entry.hasDraft
@@ -123,12 +137,12 @@ function RosterRow({
   }
   const joined = `${entry.source === 'admin' ? '管理員加入' : '自動加入'}・${formatTaipeiMinute(entry.eligibleFrom)}`
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3" data-testid="roster-row">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 transition-colors hover:bg-accent/40" data-testid="roster-row">
       <span className="w-20 shrink-0 text-xs font-semibold text-muted-foreground tabular-nums">
         {individual ? (entry.studentNo ?? '—') : entry.name}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-ink">
+        <span className="block truncate text-sm font-semibold">
           {individual ? entry.name : `${entry.name} 組`}
           {individual && entry.groupCode ? <span className="ml-2 text-xs font-normal text-muted-foreground">{entry.groupCode}</span> : null}
         </span>
@@ -136,18 +150,16 @@ function RosterRow({
           {joined}
         </span>
       </span>
-      <span className="w-full sm:w-auto sm:min-w-[14rem]">
-        <span className={cn('block text-sm font-semibold', tone)} data-testid="roster-status">
-          {headline}
-        </span>
-        <span className="block text-xs text-muted-foreground tabular-nums">{detail}</span>
-      </span>
+      <Pill tone={tone} data-testid="roster-status">
+        {headline}
+      </Pill>
+      <span className="w-full text-xs text-muted-foreground tabular-nums sm:w-auto sm:min-w-[12rem]">{detail}</span>
       <Link
         href={`${base}?person=${entry.receiverId}`}
-        className="inline-flex h-10 shrink-0 items-center rounded-md border border-border px-3 text-sm font-medium text-ink hover:bg-muted"
+        className={BTN_OUTLINE_SM}
         aria-label={individual ? `查看 ${entry.name} 的回答` : `查看 ${entry.name} 組的繳交`}
       >
-        查看
+        檢視
       </Link>
     </li>
   )
@@ -158,26 +170,25 @@ function RosterRow({
 export function FieldsPanel({ fields, schemaVersionNo }: { fields: readonly FormField[]; schemaVersionNo: number | null }) {
   const inputs = answerFields(fields)
   return (
-    <section aria-labelledby="fields-title" className="rounded-card border border-border bg-background p-5">
-      <h2 id="fields-title" className="text-base font-semibold text-ink">
-        欄位
-        <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
-          {inputs.length} 個{schemaVersionNo ? `・版本 ${schemaVersionNo}` : ''}
-        </span>
-      </h2>
+    <Panel
+      title="欄位"
+      icon={<IconFileText />}
+      description={`${inputs.length} 個${schemaVersionNo ? `・版本 ${schemaVersionNo}` : ''}`}
+      headingId="fields-title"
+    >
       {inputs.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">還沒有發布中的欄位。</p>
+        <p className="border-t border-border px-5 py-3 text-sm text-muted-foreground">還沒有發布中的欄位。</p>
       ) : (
-        <ul className="mt-2 text-sm">
+        <ul className="flex flex-col gap-1 border-t border-border px-5 py-3 text-sm">
           {inputs.map((f) => (
             <li key={f.key} className="flex items-center justify-between gap-2 py-1">
               <span className="truncate">{f.label}</span>
-              {f.required ? <span className="shrink-0 text-[11px] font-semibold text-primary-on-subtle">必填</span> : null}
+              {f.required ? <span className="shrink-0 text-[11px] text-destructive">必填</span> : null}
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   )
 }
 
@@ -205,27 +216,30 @@ export function ReceiverView({
         ? `免填・理由：${entry.exemptReason ?? ''}`
         : status.headline
   return (
-    <article className="rounded-card border border-border bg-background" data-testid="receiver-view">
+    <article className="dash-card overflow-hidden" data-testid="receiver-view">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 pt-4">
-        <Link href={back} className="text-sm font-medium text-muted-foreground hover:text-ink">
-          ← {category === 'current' ? '收件名單' : category === 'exempt' ? '免填' : '已移出'}
+        <Link
+          href={back}
+          className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <IconArrowLeft aria-hidden className="size-4" /> {category === 'current' ? '收件名單' : category === 'exempt' ? '免填' : '已移出'}
         </Link>
       </div>
       <header className="px-5 pb-3 pt-2">
-        <h2 className="text-lg font-semibold text-ink">
+        <h2 className="text-lg font-extrabold">
           {entry.name}
           <span className="ml-2 text-sm font-normal text-muted-foreground tabular-nums">
             {entry.studentNo ?? ''}
             {entry.groupCode ? `・${entry.groupCode}` : ''}
           </span>
         </h2>
-        <p className="mt-1 text-sm font-semibold text-primary-on-subtle" data-testid="receiver-status">
+        <p className="mt-1.5 text-sm font-semibold text-primary-on-subtle" data-testid="receiver-status">
           {banner}
         </p>
       </header>
 
       <section aria-labelledby="versions-title" className="border-t border-border px-5 py-4">
-        <h3 id="versions-title" className="text-sm font-semibold text-ink">
+        <h3 id="versions-title" className="text-[15px] font-bold">
           正式送出的版本（{detail.versions.length}）
         </h3>
         {detail.versions.length === 0 ? (
@@ -254,11 +268,11 @@ export function ReceiverView({
               </thead>
               <tbody>
                 {detail.versions.map((v, index) => (
-                  <tr key={v.versionNo} className="border-t border-border">
+                  <tr key={v.versionNo} className="border-t border-border/70 transition-colors hover:bg-accent/40">
                     <td className="py-3 font-semibold tabular-nums">
                       第 {v.versionNo} 次
                       {index === 0 ? (
-                        <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] text-primary-on-subtle">採計</span>
+                        <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
                       ) : null}
                     </td>
                     <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
@@ -267,7 +281,7 @@ export function ReceiverView({
                     <td className="py-1 text-right">
                       <Link
                         href={`${base}?person=${entry.receiverId}&version=${v.versionNo}`}
-                        className="inline-flex h-10 items-center rounded-md px-3 text-sm font-semibold text-primary-on-subtle hover:bg-muted"
+                        className={BTN_OUTLINE_SM}
                       >
                         看回答
                       </Link>
@@ -288,7 +302,7 @@ export function ReceiverView({
       </section>
 
       <section aria-labelledby="spans-title" className="border-t border-border px-5 py-4">
-        <h3 id="spans-title" className="text-sm font-semibold text-ink">
+        <h3 id="spans-title" className="text-[15px] font-bold">
           名單紀錄
         </h3>
         <ul className="mt-2 space-y-1.5 text-sm">
@@ -314,17 +328,20 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
     ['回執編號', version.requestId],
   ]
   return (
-    <article className="space-y-4 rounded-card border border-border bg-background p-5" data-testid="version-view">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <Link href={`${base}?person=${detail.entry.receiverId}`} className="text-sm font-medium text-muted-foreground hover:text-ink">
-          ← {detail.entry.name} 的版本
+    <article className="dash-card flex flex-col gap-5 p-6" data-testid="version-view">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link
+          href={`${base}?person=${detail.entry.receiverId}`}
+          className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <IconArrowLeft aria-hidden className="size-4" /> {detail.entry.name} 的版本
         </Link>
         <span className="text-xs text-muted-foreground">唯讀・這是第 {version.versionNo} 次送出當時的內容</span>
       </div>
-      <h2 className="text-lg font-semibold text-ink">
+      <h2 className="text-lg font-extrabold">
         {detail.entry.name}・第 {version.versionNo} 次
         {version.isLatest ? (
-          <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-xs text-primary-on-subtle">採計</span>
+          <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
         ) : (
           <span className="ml-2 text-sm font-normal text-muted-foreground">已被後來的版本取代</span>
         )}
@@ -337,7 +354,7 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
           </div>
         ))}
       </dl>
-      <dl className="divide-y divide-border">
+      <dl className="flex flex-col divide-y divide-border/70">
         {fields.map((f) => {
           const value = version.answers[f.key]
           const file = isFileField(f) ? version.files.find((x) => x.fieldKey === f.key) : undefined
@@ -348,7 +365,7 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
               <dd className="whitespace-pre-wrap text-sm">
                 {file ? (
                   <span className="flex flex-wrap items-center gap-x-3">
-                    <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary-on-subtle underline-offset-2 hover:underline">
+                    <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary underline-offset-2 hover:underline">
                       {file.name}
                     </a>
                     <span className="font-mono text-[11px] text-muted-foreground" title={file.checksum}>

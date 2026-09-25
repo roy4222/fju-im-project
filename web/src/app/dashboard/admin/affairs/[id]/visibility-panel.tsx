@@ -1,6 +1,8 @@
 'use client'
 import { useActionState, useState } from 'react'
 import { setAdvisorVisibilityAction } from './actions'
+import { IconEye } from '@tabler/icons-react'
+import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, Panel } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
@@ -24,10 +26,8 @@ export type VisibilityPanelProps = {
   requestId: string
 }
 
-const BUTTON =
-  'inline-flex h-10 items-center justify-center rounded-md border border-border px-4 text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
-const PRIMARY =
-  'inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
+const BUTTON = BTN_OUTLINE
+const PRIMARY = BTN_PRIMARY
 
 export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, changedText, hasResponses, requestId }: VisibilityPanelProps) {
   const [state, formAction, pending] = useActionState(setAdvisorVisibilityAction, undefined)
@@ -42,11 +42,8 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
   }
 
   return (
-    <section aria-labelledby="visibility-title" className="rounded-card border border-border bg-background p-5" data-testid="visibility-panel">
-      <h2 id="visibility-title" className="text-base font-semibold text-ink">
-        主指導閱覽
-      </h2>
-      <p className="mt-2 text-sm font-semibold text-ink" data-testid="visibility-state">
+    <Panel title="主指導閱覽" icon={<IconEye />} headingId="visibility-title" data-testid="visibility-panel" bodyClassName="border-t border-border px-5 py-4">
+      <p className="text-sm font-semibold" data-testid="visibility-state">
         {enabled ? `開放中・欄位第 ${effectiveFromVersionNo ?? 1} 版起` : '不開放'}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
@@ -56,7 +53,7 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
       </p>
       {changedText ? <p className="mt-1 text-xs text-muted-foreground tabular-nums">{changedText}</p> : null}
       {blocked ? (
-        <p className="mt-3 rounded-md bg-muted px-3 py-2 text-xs text-ink" data-testid="visibility-blocked">
+        <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs" data-testid="visibility-blocked">
           已經有人作答，不能再開放：那些同學填寫時沒看到「主指導可查看」的告知。需要老師看，請另建一份收件並在發布前開好。
         </p>
       ) : null}
@@ -67,14 +64,17 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
       <dialog
         ref={setDialog}
         aria-label={enabled ? '關閉主指導閱覽' : '開放主指導閱覽'}
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-card border border-border bg-background p-0 backdrop:bg-ink/40"
+        className={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
       >
         {result ? (
           <div className="space-y-3 p-5">
-            <h2 className="text-base font-semibold text-ink">{result.ok ? '設定已更新' : '沒有改成功'}</h2>
+            <h2 className="text-lg font-extrabold">{result.ok ? '設定已更新' : '沒有改成功'}</h2>
             <p
               role={result.ok ? 'status' : 'alert'}
-              className={cn('rounded-md px-3 py-2 text-sm', result.ok ? 'bg-muted text-ink' : 'bg-danger-subtle text-danger-on-subtle')}
+              className={cn(
+                'rounded-lg px-3 py-2 text-sm font-semibold',
+                result.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
+              )}
             >
               {result.message}
             </p>
@@ -87,7 +87,7 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
         ) : (
           <form action={formAction} className="space-y-4 p-5">
             <div>
-              <h2 className="text-base font-semibold text-ink">{enabled ? '關閉主指導閱覽？' : '開放主指導閱覽？'}</h2>
+              <h2 className="text-lg font-extrabold">{enabled ? '關閉主指導閱覽？' : '開放主指導閱覽？'}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {enabled
                   ? '關閉後老師馬上看不到這份收件的個人回答與附件；學生填寫頁的告知也會拿掉。之後要再開，必須還沒有人作答。'
@@ -108,6 +108,6 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
           </form>
         )}
       </dialog>
-    </section>
+    </Panel>
   )
 }

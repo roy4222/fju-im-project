@@ -211,7 +211,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 合作案管理（票 20）。
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
-    '/dashboard/admin/affairs': '公告、資源下載、文件繳交都從這裡建立、發布與修改',
+    '/dashboard/admin/affairs': '專題事務',
     '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',

@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { requireRole } from '@/app/_ui/guard'
-import { DataTable, EmptyState, LinkButton, PageHeader } from '@/app/_ui/primitives'
+import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
+import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AffairsList, type AffairRow } from '@/app/dashboard/admin/affairs/affairs-list'
 import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
-import { COHORT_STATUS_LABEL, getCohortStatusQuery } from '@/composition/cohorts'
+import { COHORT_STATUS_LABEL, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   AUDIENCE_LABEL,
   collectsResponses,
@@ -14,7 +16,6 @@ import {
   PLACEMENT_LABEL,
   RECEIVER_UNIT_LABEL,
 } from '@/composition/items'
-import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '專題事務｜資管系專題平台' }
@@ -46,18 +47,18 @@ export default async function AffairsPage({
   const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
   const filter = FILTERS.find((f) => f.key === params.placement)?.key ?? 'all'
 
-  const shell = (children: React.ReactNode, actions?: React.ReactNode) => (
+  const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageHeader title="專題事務" description="公告、資源下載、文件繳交都從這裡建立、發布與修改。" />
-        {actions}
+      <div className="flex flex-col gap-5">
+        <PageTitle title="專題事務" description={description} actions={actions} />
+        {children}
       </div>
-      {children}
     </DashboardShell>
   )
 
   if (!cohort) {
     return shell(
+      '公告、資源下載、文件繳交都從這裡建立、發布與修改。',
       <EmptyState
         title="還沒有屆別"
         description="專題事務要綁在某一屆；先到屆別頁新增一屆。"
@@ -66,7 +67,11 @@ export default async function AffairsPage({
     )
   }
 
-  const [rows, vocabulary] = await Promise.all([getItemQuery().list(cohort.id), editorVocabulary(cohort.id)])
+  const [rows, vocabulary, businessNow] = await Promise.all([
+    getItemQuery().list(cohort.id),
+    editorVocabulary(cohort.id),
+    getBusinessClock().now(),
+  ])
   const shown = rows.filter((r) => filter === 'all' || r.placement === filter)
   const published = rows.filter((r) => r.status === 'published').length
   const collecting = rows.filter((r) => collectsResponses(r.placement) && r.status === 'published').length
@@ -76,19 +81,50 @@ export default async function AffairsPage({
     return `/dashboard/admin/affairs?${next.toString()}`
   }
 
+  const list: AffairRow[] = shown.map((r) => {
+    const collects = collectsResponses(r.placement)
+    return {
+      id: r.id,
+      kind: PLACEMENT_LABEL[r.placement],
+      title: r.title,
+      status: r.status,
+      statusLabel: ITEM_STATUS_LABEL[r.status],
+      visibility: r.audienceKind === 'public' ? '網際網路公開' : '登入後可見',
+      audience:
+        r.audienceKind === 'groups' ? `指定組別：${r.audienceGroupCodes.join('、') || '（還沒選）'}` : AUDIENCE_LABEL[r.audienceKind],
+      date: r.dueAt
+        ? `${formatTaipeiMinute(r.dueAt)} 截止`
+        : r.actualOpenedAt
+          ? `${formatTaipeiMinute(r.actualOpenedAt)} 發布`
+          : '—',
+      isDue: r.dueAt !== null,
+      overdue: r.dueAt !== null && r.dueAt.getTime() < businessNow.getTime(),
+      // 收件名單頁（票 18）：數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
+      roster: collects
+        ? r.status === 'draft'
+          ? { text: RECEIVER_UNIT_LABEL[r.receiverUnit], href: null }
+          : {
+              text: `應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`,
+              href: `/dashboard/admin/affairs/${r.id}`,
+            }
+        : null,
+      // 前台頁面：發布中的公告才有自己的內容頁（資源、規則是整頁列表）。
+      publicHref: r.placement === 'news' && r.status === 'published' ? `/news/${r.id}` : null,
+      editHref: `/dashboard/admin/editor/${r.id}`,
+    }
+  })
+
   return shell(
+    `${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・收件中 ${collecting}`,
     <>
       {cohorts.length > 1 ? (
-        <nav aria-label="選擇屆別" className="mb-4 flex flex-wrap gap-2">
+        <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
           {cohorts.map((c) => (
             <Link
               key={c.id}
               href={`/dashboard/admin/affairs?cohort=${c.id}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
-              className={cn(
-                'rounded-full border px-3 py-1 text-sm',
-                c.id === cohort.id ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border text-ink hover:bg-muted',
-              )}
+              className={pillClass(c.id === cohort.id)}
             >
               {c.code}
             </Link>
@@ -96,90 +132,17 @@ export default async function AffairsPage({
         </nav>
       ) : null}
 
-      <section
-        aria-label="專題事務摘要"
-        className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-background px-5 py-4"
-      >
-        <div>
-          <p className="text-xs font-semibold text-primary">
-            {cohort.code}・{COHORT_STATUS_LABEL[cohort.status]}
-          </p>
-          <p className="mt-0.5 text-xl font-semibold text-ink tabular-nums">
-            {rows.length} 項・發布中 {published}・收件中 {collecting}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
-          <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
-            用完整編輯器建立
-          </LinkButton>
-        </div>
-      </section>
-
-      <nav aria-label="種類" className="mb-3 flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
-          <Link
-            key={f.key}
-            href={query({ placement: f.key })}
-            aria-current={filter === f.key ? 'page' : undefined}
-            className={cn(
-              'rounded-full border px-3 py-1 text-sm',
-              filter === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-ink hover:bg-muted',
-            )}
-          >
-            {f.label}
-          </Link>
-        ))}
-      </nav>
-
-      <DataTable
-        columns={['種類', '標題', '狀態', '對象', '截止／發布', '收件名單', '']}
-        rows={shown.map((r) => [
-          <span key="kind" className="text-muted-foreground">
-            {PLACEMENT_LABEL[r.placement]}
-          </span>,
-          <Link key="title" href={`/dashboard/admin/editor/${r.id}`} className="font-medium text-ink hover:underline">
-            {r.title}
-          </Link>,
-          <span
-            key="status"
-            className={cn(
-              'whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold',
-              r.status === 'published' ? 'bg-primary-subtle text-primary-on-subtle' : 'bg-muted text-muted-foreground',
-            )}
-          >
-            {ITEM_STATUS_LABEL[r.status]}
-          </span>,
-          <span key="audience" className="text-sm">
-            {r.audienceKind === 'groups' ? `指定組別：${r.audienceGroupCodes.join('、') || '（還沒選）'}` : AUDIENCE_LABEL[r.audienceKind]}
-          </span>,
-          <span key="date" className="tabular-nums text-sm">
-            {r.dueAt
-              ? `${formatTaipeiMinute(r.dueAt)} 截止`
-              : r.actualOpenedAt
-                ? `${formatTaipeiMinute(r.actualOpenedAt)} 發布`
-                : '—'}
-          </span>,
-          <span key="roster" className="tabular-nums text-sm">
-            {collectsResponses(r.placement) ? (
-              r.status === 'draft' ? (
-                RECEIVER_UNIT_LABEL[r.receiverUnit]
-              ) : (
-                // 收件名單頁（票 18）：三類名單、完成率、點人看回答。數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
-                <Link href={`/dashboard/admin/affairs/${r.id}`} className="font-medium text-primary-on-subtle hover:underline">
-                  {`應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`}
-                </Link>
-              )
-            ) : (
-              '—'
-            )}
-          </span>,
-          <Link key="edit" href={`/dashboard/admin/editor/${r.id}`} className="whitespace-nowrap text-sm font-medium text-primary hover:underline">
-            編輯
-          </Link>,
-        ])}
-        empty={filter === 'all' ? '這一屆還沒有任何專題事務。按「新增項目」建立第一筆。' : '這個種類還沒有項目。'}
+      <AffairsList
+        rows={list}
+        filters={FILTERS.map((f) => ({ key: f.key, label: f.label, href: query({ placement: f.key }), active: filter === f.key }))}
+        emptyText={filter === 'all' ? '這一屆還沒有任何專題事務。按「新增項目」建立第一筆。' : '這個種類還沒有項目。'}
       />
+    </>,
+    <>
+      <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
+        用完整編輯器建立
+      </LinkButton>
+      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
     </>,
   )
 }
