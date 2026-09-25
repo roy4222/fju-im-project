@@ -115,7 +115,9 @@ export default async function TeacherSignoffPage() {
                       <p className="truncate text-[15px] font-semibold text-foreground">
                         {c.groupCode}・{PURPOSE_LABEL[c.purpose]}
                       </p>
-                      <p className="tabular mt-0.5 text-xs text-muted-foreground">{cardDetail(c)}</p>
+                      <p className="tabular mt-0.5 text-xs text-muted-foreground">
+                        {STATE_LABEL[c.current.state]}・{cardDetail(c)}
+                      </p>
                     </div>
                     <div className="md:justify-self-end">
                       {mine ? (
