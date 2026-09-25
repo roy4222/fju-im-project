@@ -110,6 +110,8 @@
 :root {
   --radius: 0.5rem;
   --card-radius: 0.75rem;
+  /* 手機側欄抽屜是 portal 到 body 的，吃不到 sidebar-wrapper 上的變數，所以放 :root。 */
+  --sidebar-width-mobile: 18rem;
 
   /* 全站黑體（原型 2026-09-07 定案）。原型用 next/font 載 Geist＋Noto Sans TC；
      正式碼先用系統字（CSP 與 build 不必連外），字重與字級照原型。 */
@@ -352,7 +354,6 @@
   [data-slot='sidebar-wrapper'] {
     --sidebar-width: 16rem;
     --sidebar-width-icon: 3rem;
-    --sidebar-width-mobile: 18rem;
   }
 }
 

@@ -35,6 +35,7 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from '@/app/_ui/ui/sidebar'
+import { TooltipProvider } from '@/app/_ui/ui/tooltip'
 
 type Item = { href: string; label: string }
 
@@ -112,6 +113,8 @@ export function DashboardFrame({
   ]
 
   return (
+    // 側欄收合成圖示時，每一項 hover 會出現名稱提示（原型在根 layout 包 TooltipProvider）。
+    <TooltipProvider>
     <SidebarProvider className="dash-frame">
       <Sidebar collapsible="icon" variant="inset">
         <SidebarHeader className="px-4 pt-4 pb-1">
@@ -191,5 +194,6 @@ export function DashboardFrame({
         <div className="mx-auto w-full max-w-[1320px] min-w-0 flex-1 p-4 md:p-6 lg:px-8 lg:py-7">{children}</div>
       </SidebarInset>
     </SidebarProvider>
+    </TooltipProvider>
   )
 }
