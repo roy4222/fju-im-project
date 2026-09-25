@@ -5,12 +5,18 @@ import {
   accountAdminDenied,
   buildAccountsCsv,
   classifyBulk,
+  DEIDENTIFY_CLEARS,
+  deidentifiedEmail,
+  deidentifiedPseudonym,
+  deidentifyConfirmationMatches,
+  deidentifyStatusBlocker,
   DIRECTORY_PAGE_SIZE,
   EXPORT_MAX_ROWS,
   isUserId,
   likePattern,
   normalizeStatusReason,
   remainingEffectiveAdmins,
+  retainedList,
   parseBulkStudentNos,
   revocationTargetOf,
   sameTargets,
@@ -22,6 +28,10 @@ import {
   type BulkCandidate,
   type BulkDisableReceipt,
   type BulkPreview,
+  type DeidentifyInput,
+  type DeidentifyPreview,
+  type DeidentifyReceipt,
+  type DeidentifyRetained,
   type DirectoryFilter,
   type DirectoryPage,
   type ExportSelection,
@@ -559,6 +569,169 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     return ok({ ...receipt, revocationFailed }, meta(now, input.requestId))
   }
 
+  // ── 去識別化（票 40；ACC-14） ─────────────────────────────────────────────
+
+  async previewDeidentify(actor: ResolvedActor, userId: string): Promise<Result<DeidentifyPreview>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isUserId(userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+
+    // 預覽不鎖；真正執行時在交易裡、鎖住之後再判一次同一套條件。
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin read only')
+      const target = (await readAccounts(tx, [userId], false)).get(userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+      const blockers = await deidentifyBlockers(tx, target, actor.userId)
+      const retained = await retainedCounts(tx, userId)
+      await tx.query('commit')
+      return ok(
+        {
+          userId,
+          name: target.name,
+          loginEmail: target.loginEmail,
+          studentNo: target.studentNo,
+          status: target.status,
+          pseudonym: deidentifiedPseudonym(userId),
+          blockers,
+          clears: DEIDENTIFY_CLEARS,
+          retained: retainedList(retained),
+        },
+        meta(this.#clock.now()),
+      )
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  /**
+   * 去識別化（工程模組 01 §3 active → deidentified；產品模組 01 §2.5）。
+   *
+   * 一個交易裡：清個資欄位、置換 Email、`deidentified_at`、`status=disabled`（`users_status_check` 只收三種狀態，
+   * 「已去識別化」一律從 `deidentified_at` 推得，各處讀法都一樣）、釋出學號、刪全部 session、
+   * 排 `revoke_all` 撤 session 工作、狀態事件（`→ deidentified`）、稽核與帳本。
+   *
+   * **保留**：使用者列本身（外鍵都指向它）、角色與組別成員的歷史區間、繳交、評分、指導、簽核與稽核等
+   * 不可變紀錄。以使用者 ID 即時查名字的畫面自動顯示代稱；不可變快照（簽核參與者、表態當時的姓名、
+   * 註冊申請的修改版本）照「不可變」原則不改寫，簽核畫面讀出來時再換成代稱（`pg-signoff.ts`）。
+   *
+   * **Google 身分**：`accounts.account_id`（Google 的使用者代號）也換成作廢值，不留著。
+   * 留著的話，同一個 Google 再來登入會命中這個帳號：better-auth 1.7.5 在建 session **之前**就把新的
+   * id_token（含 Email、姓名）寫回 `accounts`（`oauth2/link-account.mjs` 的 `updateAccountOnSignIn`），
+   * 就算 `session.create.before` 擋下登入，個資也已經寫回去了。換掉之後，這個帳號再也沒有任何登入方式、
+   * 也不會被任何 Google 身分連上；同一個人用 Google 再來只會是一個新的待審申請，照一般註冊由系辦核實。
+   */
+  async deidentify(actor: ResolvedActor, input: DeidentifyInput, context: AdminRequestContext): Promise<Result<DeidentifyReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isUserId(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    const reason = normalizeStatusReason(input.reason)
+    if (!reason.ok) return reason
+    if (input.userId === actor.userId) return err('FORBIDDEN', '不能去識別化自己的帳號。')
+
+    const now = this.#clock.now()
+    // 指紋不含照打的 Email：那是個資，帳本不存。
+    const fingerprint = sha256(canonicalJson({ userId: input.userId, reason: reason.value }))
+
+    const tx = await this.#deps.db().connect()
+    let receipt: DeidentifyReceipt
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind: 'account.deidentify', requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新整理後再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
+        return ok(begun.receipt as DeidentifyReceipt, meta(now, input.requestId))
+      }
+
+      // 鎖的順序同停用：先整組管理員，再目標（admin-guard.ts）。
+      const admins = await lockAdmins(tx)
+      if (!isEffectiveAdmin(admins, actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+      const target = (await lockAccounts(tx, [input.userId])).get(input.userId)
+      if (!target) {
+        await tx.query('rollback')
+        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+      }
+      const blockers = await deidentifyBlockers(tx, target, actor.userId)
+      if (blockers.length > 0) {
+        await tx.query('rollback')
+        return err('CONFLICT', blockers.join(' '))
+      }
+      if (remainingEffectiveAdmins(admins, target.userId) < 1) {
+        await tx.query('rollback')
+        return err('CONFLICT', '這是最後一位管理員，不能去識別化。')
+      }
+      if (!deidentifyConfirmationMatches(input.confirmText, target.loginEmail)) {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', '確認文字不對：請照打這個帳號的登入 Email。', { details: { field: 'confirmText' } })
+      }
+
+      const retained = await retainedCounts(tx, target.userId)
+      await scrubPersonalData(tx, target.userId, now)
+
+      const statusEventId = uuidv7()
+      await tx.query(
+        `insert into user_status_events (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
+         values ($1, $2, $3, 'deidentified', $4, 'user', $5, $6)`,
+        [statusEventId, target.userId, target.status, reason.value, actor.userId, now],
+      )
+      await tx.query('delete from student_identities where user_id = $1', [target.userId])
+      // 同停用：在業務交易裡刪 session，commit 那一刻就沒有有效登入（PR #302 的作法）。
+      await tx.query('delete from sessions where user_id = $1', [target.userId])
+      await this.#revocations.enqueue(tx, { userId: target.userId, statusEventId, expected: 'deidentified', now, actorUserId: actor.userId })
+      // 稽核只記 ID、狀態與保留筆數，不記原姓名、學號、Email（那正是要清掉的東西）。
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.deidentify',
+        targetType: 'user',
+        targetId: target.userId,
+        scope: target.cohortId ? 'cohort' : 'global',
+        cohortId: target.cohortId,
+        reason: reason.value,
+        realAt: now,
+        businessAt: now,
+        payload: { statusEventId, from: target.status, to: 'deidentified', retained },
+      })
+
+      receipt = {
+        userId: target.userId,
+        pseudonym: deidentifiedPseudonym(target.userId),
+        deidentifiedAt: now.toISOString(),
+        revocation: 'pending',
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
+      await tx.query('commit')
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+
+    const revocation = await this.#runRevocation(input.userId, context)
+    return ok({ ...receipt, revocation }, meta(now, input.requestId))
+  }
+
   // ── 內部 ──────────────────────────────────────────────────────────────────
 
   /**
@@ -658,6 +831,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 type LockedAccount = {
   userId: string
   name: string
+  loginEmail: string
   status: AccountStatus
   cohortId: string | null
   studentNo: string | null
@@ -673,12 +847,18 @@ type LockedAccount = {
  * `for update` 會跟外鍵檢查拿的 key share 鎖互斥——另一個交易剛以這個人為 actor 寫了帳本
  * （`operation_records.actor_user_id` 外鍵），兩位管理員互相停用時就會死結。
  */
-async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise<Map<string, LockedAccount>> {
+function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise<Map<string, LockedAccount>> {
+  return readAccounts(tx, userIds, true)
+}
+
+/** 同 `lockAccounts`，`lock=false` 時只讀不鎖（去識別化預覽用）。 */
+async function readAccounts(tx: Queryable, userIds: readonly string[], lock: boolean): Promise<Map<string, LockedAccount>> {
   const result = new Map<string, LockedAccount>()
   if (userIds.length === 0) return result
   const rows = await tx.query<{
     id: string
     name: string
+    email: string
     status: string
     deidentified_at: Date | null
     cohort_id: string | null
@@ -686,7 +866,7 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
     is_student: boolean
     is_orphan: boolean
   }>(
-    `select u.id, coalesce(up.display_name, u.name) as name, u.status, u.deidentified_at,
+    `select u.id, coalesce(up.display_name, u.name) as name, u.email, u.status, u.deidentified_at,
             up.cohort_id, up.student_no,
             exists (select 1 from role_assignments r
                      where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null) as is_student,
@@ -695,13 +875,14 @@ async function lockAccounts(tx: PoolClient, userIds: readonly string[]): Promise
        left join user_profiles up on up.user_id = u.id
       where u.id = any($1::uuid[])
       order by u.id
-      for no key update of u`,
+      ${lock ? 'for no key update of u' : ''}`,
     [[...userIds]],
   )
   for (const r of rows.rows) {
     result.set(r.id, {
       userId: r.id,
       name: r.name,
+      loginEmail: r.email,
       status: r.deidentified_at ? 'deidentified' : (r.status as AccountStatus),
       cohortId: r.cohort_id,
       studentNo: r.student_no,
@@ -750,4 +931,107 @@ function statusConflictMessage(action: 'disable' | 'restore', current: AccountSt
   }
   if (current === 'active') return '這個帳號已經恢復了，請重新整理頁面。'
   return '這個帳號目前不能恢復，請重新整理頁面。'
+}
+
+// ── 去識別化的查詢與寫入（票 40） ─────────────────────────────────────────────
+
+/**
+ * 擋住去識別化的原因（預覽與執行共用；執行時在鎖住目標之後呼叫）。
+ *
+ * - 狀態：只處理已核准或已停用（`deidentifyStatusBlocker`）。
+ * - 自己：不能對自己做。
+ * - 未完成簽核（工程模組 01 §3「有未完成簽核參與→先成員異動」）：目前版本還在收件（`collecting`／
+ *   `teacher_pending`）而且參與者快照裡有他。他的一票還算數，先到分組做成員異動、換版後再來。
+ */
+async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUserId: string): Promise<string[]> {
+  const blockers: string[] = []
+  const statusBlocker = deidentifyStatusBlocker(target.status, target.isOrphan)
+  if (statusBlocker) blockers.push(statusBlocker)
+  if (target.userId === actorUserId) blockers.push('不能去識別化自己的帳號。')
+  const signoffs = await db.query<{ group_code: string }>(
+    `select g.code as group_code
+       from signoff_packages p
+       join signoff_package_versions v on v.id = p.current_version_id
+       join signoff_version_status s on s.version_id = v.id
+       join groups g on g.id = p.group_id
+      where s.state in ('collecting', 'teacher_pending')
+        and (v.participants -> 'advisor' ->> 'userId' = $1
+             or exists (select 1 from jsonb_array_elements(coalesce(v.participants -> 'students', '[]'::jsonb)) x
+                         where x ->> 'userId' = $1))
+      order by g.code`,
+    [target.userId],
+  )
+  if (signoffs.rows.length > 0) {
+    const groups = [...new Set(signoffs.rows.map((r) => r.group_code))].join('、')
+    blockers.push(`他還在 ${groups} 進行中的簽核裡，請先到分組做成員異動（或讓簽核換版）再去識別化。`)
+  }
+  return blockers
+}
+
+/** 會保留下來的紀錄筆數（預覽與稽核用；只數，不讀內容）。 */
+async function retainedCounts(db: Queryable, userId: string): Promise<DeidentifyRetained> {
+  const row = (
+    await db.query<Record<keyof DeidentifyRetained, string>>(
+      `select
+         (select count(*) from group_memberships where user_id = $1) as "groupMemberships",
+         (select count(*) from submission_versions where submitted_by_user_id = $1) as "submissions",
+         (select count(*) from evaluator_assignments where teacher_user_id = $1) as "evaluatorAssignments",
+         (select count(*) from advisor_assignments where teacher_user_id = $1) as "advisorAssignments",
+         (select count(*) from approvals where user_id = $1) as "approvals",
+         (select count(*) from audit_events
+           where actor_user_id = $1 or (target_type = 'user' and target_id = $1)) as "auditEvents"`,
+      [userId],
+    )
+  ).rows[0]!
+  return {
+    groupMemberships: Number(row.groupMemberships),
+    submissions: Number(row.submissions),
+    evaluatorAssignments: Number(row.evaluatorAssignments),
+    advisorAssignments: Number(row.advisorAssignments),
+    approvals: Number(row.approvals),
+    auditEvents: Number(row.auditEvents),
+  }
+}
+
+/**
+ * 清掉可變表上的個資（產品模組 01 §2.5；工程模組 01 §3「profile 清空、email 置換」）。
+ * 全部是 UPDATE：使用者列與它的外鍵關聯都留著（契約 01 §1「使用者列永不硬刪」），
+ * `fju_app` 對這四張表本來就有整列 UPDATE（權限矩陣），不需要 migration。
+ */
+async function scrubPersonalData(tx: PoolClient, userId: string, now: Date): Promise<void> {
+  const pseudonym = deidentifiedPseudonym(userId)
+  const email = deidentifiedEmail(userId)
+  await tx.query(
+    `update users
+        set name = $2, email = $3, email_verified = false, image = null,
+            status = 'disabled', must_change_password = false, deidentified_at = $4, updated_at = $4
+      where id = $1`,
+    [userId, pseudonym, email, now],
+  )
+  await tx.query(
+    `update user_profiles
+        set display_name = $2, name_normalized = $2, student_no = null, department_class = null, phone = null,
+            contact_email = $3, open_to_join = false, login_method_last = null,
+            revision = revision + 1, updated_at = $4
+      where user_id = $1`,
+    [userId, pseudonym, email, now],
+  )
+  // 註冊申請是可變頭列（修改歷程在不可變的 application_revisions，照不可變原則保留）。NOT NULL 欄位放空字串或代換值。
+  await tx.query(
+    `update registration_applications
+        set applied_name = $2, student_no = '', department_class = null, phone = '',
+            contact_email = $3, login_email = $3, roster_match = '{}'::jsonb, updated_at = $4
+      where user_id = $1`,
+    [userId, pseudonym, email, now],
+  )
+  // 登入方式：密碼雜湊、Google 權杖（id_token 裡有 Email 與姓名）與 Google 使用者代號都換掉。理由見 `deidentify` 的說明。
+  // `fju_app` 對 accounts 沒有 DELETE（權限矩陣），所以列留著、內容作廢。
+  await tx.query(
+    `update accounts
+        set account_id = 'deidentified:' || id::text,
+            password = null, access_token = null, refresh_token = null, id_token = null, scope = null,
+            access_token_expires_at = null, refresh_token_expires_at = null, updated_at = $2
+      where user_id = $1`,
+    [userId, now],
+  )
 }

@@ -6,6 +6,8 @@ import type {
   BulkDisableReceipt,
   BulkPreview,
   DecisionReceipt,
+  DeidentifyPreview,
+  DeidentifyReceipt,
   OrphanRepairReceipt,
   RoleChangeReceipt,
   RosterImportReceipt,
@@ -195,6 +197,37 @@ export async function restoreAccountAction(input: {
       {
         userId: text(input?.userId, 100) ?? '',
         reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+        requestId: text(input?.requestId, 100) ?? '',
+      },
+      { headers: requestHeaders },
+    ),
+  )
+}
+
+// ── 去識別化（票 40） ─────────────────────────────────────────────────────────
+//
+// 授權、前置條件（狀態、自己、未完成簽核、最後一位管理員）、理由必填、照打登入 Email 都在用例裡再判一次。
+
+export async function previewDeidentifyAction(input: { userId: string }): Promise<ActionOutcome<DeidentifyPreview>> {
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountDirectoryCommand().previewDeidentify(actor, text(input?.userId, 100) ?? ''))
+}
+
+export async function deidentifyAccountAction(input: {
+  userId: string
+  reason: string
+  confirmText: string
+  requestId: string
+}): Promise<ActionOutcome<DeidentifyReceipt>> {
+  const requestHeaders = await headers()
+  const actor = await resolveActor(requestHeaders)
+  return toOutcome(
+    await getAccountDirectoryCommand().deidentify(
+      actor,
+      {
+        userId: text(input?.userId, 100) ?? '',
+        reason: text(input?.reason ?? '', 2000) ?? '\u0000',
+        confirmText: text(input?.confirmText ?? '', 400) ?? '',
         requestId: text(input?.requestId, 100) ?? '',
       },
       { headers: requestHeaders },

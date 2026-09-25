@@ -29,7 +29,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 // ── 篩選與排序 ──────────────────────────────────────────────────────────────
 
-export type DirectoryStatusFilter = 'pending' | 'active' | 'disabled'
+export type DirectoryStatusFilter = 'pending' | 'active' | 'disabled' | 'deidentified'
 export type DirectorySort = 'createdAt' | 'studentNo' | 'cohort' | 'status'
 export type SortDirection = 'asc' | 'desc'
 
@@ -40,7 +40,7 @@ export const DIRECTORY_SORT_LABEL: Record<DirectorySort, string> = {
   cohort: '屆別',
   status: '狀態',
 }
-export const DIRECTORY_STATUSES: readonly DirectoryStatusFilter[] = ['pending', 'active', 'disabled']
+export const DIRECTORY_STATUSES: readonly DirectoryStatusFilter[] = ['pending', 'active', 'disabled', 'deidentified']
 export const DIRECTORY_ROLES: readonly Role[] = ['student', 'teacher', 'admin']
 
 /** 一頁幾筆。一屆幾百人，50 筆一頁剛好一屏半。 */
@@ -451,4 +451,114 @@ export type AccountDirectoryCommand = {
     input: { text: string; expectedUserIds: readonly string[]; reason: string; requestId: string },
     context: AdminRequestContext,
   ): Promise<Result<BulkDisableReceipt>>
+  /** 去識別化的影響預覽（票 40）：對象、會清掉什麼、保留多少紀錄、擋住的原因。 */
+  previewDeidentify(actor: ResolvedActor, userId: string): Promise<Result<DeidentifyPreview>>
+  /** 去識別化（不可逆；理由＋照打登入 Email）。同一個交易撤 session、寫狀態事件與稽核。 */
+  deidentify(actor: ResolvedActor, input: DeidentifyInput, context: AdminRequestContext): Promise<Result<DeidentifyReceipt>>
+}
+
+// ── 去識別化（票 40；ACC-14） ────────────────────────────────────────────────
+//
+// 規則來源：工程模組 01 §3「active → deidentified」（管理員；影響預覽＋二次確認；profile 清空、Email 置換、
+// `deidentified_at`；保留業務關聯與稽核；有未完成簽核參與→先成員異動）；產品模組 01 §2.5「永久刪除改為去識別化，
+// 不 cascade 刪繳交、成績、簽核與稽核，不破壞稽核鏈」、§2.6「高風險動作需再次輸入確認文字並產生稽核」。
+
+/** 去識別化後的代稱。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
+export function deidentifiedPseudonym(userId: string): string {
+  return `已去識別化使用者 ${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+}
+
+/**
+ * 去識別化後的登入 Email。`users.email` 唯一且不可為空，所以放一個含系統 ID、保證收不到信的位址
+ * （`.invalid` 是 RFC 2606 保留的頂級網域）。原 Email 從此不在帳號上。
+ */
+export function deidentifiedEmail(userId: string): string {
+  return `deidentified-${userId.toLowerCase()}@deidentified.invalid`
+}
+
+/** 二次確認：系辦要照打這個帳號目前的登入 Email（不分大小寫、忽略頭尾空白）。伺服器用鎖住的那一列比對。 */
+export function deidentifyConfirmationMatches(typed: unknown, loginEmail: string): boolean {
+  if (typeof typed !== 'string') return false
+  const value = typed.trim().toLowerCase()
+  return value !== '' && value === loginEmail.trim().toLowerCase()
+}
+
+/** 會被清掉或置換的資料（預覽照這份清單講）。 */
+export const DEIDENTIFY_CLEARS: readonly string[] = [
+  '姓名改成代稱（帳號、個人資料、註冊申請）',
+  '登入 Email 與聯絡 Email 換成收不到信的位址',
+  '學號、系級、手機清空，釋出本屆學號',
+  '密碼與 Google 權杖清除，之後不能用任何方式登入',
+  '登入中的裝置立刻登出',
+]
+
+/** 保留下來的紀錄（只列數字，不列內容）。 */
+export type DeidentifyRetained = {
+  readonly groupMemberships: number
+  readonly submissions: number
+  readonly evaluatorAssignments: number
+  readonly advisorAssignments: number
+  readonly approvals: number
+  readonly auditEvents: number
+}
+
+export const DEIDENTIFY_RETAINED_LABEL: Record<keyof DeidentifyRetained, string> = {
+  groupMemberships: '組別成員紀錄',
+  submissions: '繳交版本',
+  evaluatorAssignments: '評分指派',
+  advisorAssignments: '指導紀錄',
+  approvals: '簽核表態',
+  auditEvents: '操作紀錄',
+}
+
+export type DeidentifyPreview = {
+  readonly userId: string
+  /** 目前的姓名與登入 Email（只給系辦確認對象；操作後就不在帳號上了）。 */
+  readonly name: string
+  readonly loginEmail: string
+  readonly studentNo: string | null
+  readonly status: AccountStatus
+  /** 操作後各處顯示的代稱。 */
+  readonly pseudonym: string
+  /** 擋住這次操作的原因；空陣列才可以執行。 */
+  readonly blockers: readonly string[]
+  readonly clears: readonly string[]
+  /** 保留的紀錄（標籤＋筆數；畫面照順序列）。 */
+  readonly retained: readonly { readonly label: string; readonly count: number }[]
+}
+
+/** 保留筆數 → 預覽的清單（固定順序）。 */
+export function retainedList(retained: DeidentifyRetained): DeidentifyPreview['retained'] {
+  return (Object.keys(DEIDENTIFY_RETAINED_LABEL) as (keyof DeidentifyRetained)[]).map((key) => ({
+    label: DEIDENTIFY_RETAINED_LABEL[key],
+    count: retained[key],
+  }))
+}
+
+export type DeidentifyInput = {
+  readonly userId: string
+  readonly reason: string
+  /** 系辦照打的登入 Email。 */
+  readonly confirmText: string
+  readonly requestId: string
+}
+
+export type DeidentifyReceipt = {
+  readonly userId: string
+  /** 回執只放代稱，不放原姓名（回執會存進帳本）。 */
+  readonly pseudonym: string
+  readonly deidentifiedAt: string
+  readonly revocation: RevocationOutcome
+}
+
+/**
+ * 狀態上的前置條件（其他條件——自己、最後一位管理員、未完成簽核——要查資料庫，在 infrastructure）。
+ * 已核准或已停用可以去識別化；待審的人請走退回或停用；已去識別化的不能再做一次（不可逆）。
+ */
+export function deidentifyStatusBlocker(status: AccountStatus, isOrphan = false): string | null {
+  if (status === 'active' || status === 'disabled') return null
+  if (status === 'pending') {
+    return isOrphan ? '孤兒帳號請先停用，再去識別化。' : '待審核的帳號不能去識別化，只處理已核准或已停用的帳號。'
+  }
+  return '這個帳號已經去識別化了。'
 }

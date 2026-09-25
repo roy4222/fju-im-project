@@ -101,6 +101,29 @@ export function readParticipants(raw: unknown): Participants | null {
   return value as Participants
 }
 
+/**
+ * 顯示前把已去識別化的參與者換成代稱（票 40；產品模組 01 §2.5）。
+ *
+ * 快照本身不可變、不改寫（契約 01 §1）；只在讀出來給人看的時候換。`pseudonyms` 是
+ * 「已去識別化的使用者 ID → 代稱」，不在裡面的人照快照原樣。學號一併拿掉。
+ */
+export function withPseudonyms(participants: Participants, pseudonyms: ReadonlyMap<string, string>): Participants {
+  if (pseudonyms.size === 0) return participants
+  const advisorName = pseudonyms.get(participants.advisor.userId)
+  return {
+    students: participants.students.map((s) => {
+      const name = pseudonyms.get(s.userId)
+      return name === undefined ? s : { ...s, displayName: name, studentNo: null }
+    }),
+    advisor: advisorName === undefined ? participants.advisor : { ...participants.advisor, displayName: advisorName },
+  }
+}
+
+/** 參與者快照裡的全部使用者 ID（查誰已去識別化用）。 */
+export function participantUserIds(participants: Participants): string[] {
+  return [...participants.students.map((s) => s.userId), participants.advisor.userId].filter((id) => id !== '')
+}
+
 // ── 附件 ────────────────────────────────────────────────────────────────────
 
 /** 綁在版本上的附件版本（附錄 A `attachment_file_versions`）。 */
