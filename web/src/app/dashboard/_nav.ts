@@ -91,7 +91,6 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 專題時間軸與產學合作（票 38）。
   { path: '/dashboard/student/timeline', role: 'student' },
   { path: '/dashboard/student/industry', role: 'student' },
-  // 通知匣（票 12）：入口是頂列的鈴鐺，不放側欄。
   { path: '/dashboard/admin/inbox', role: 'admin' },
   { path: '/dashboard/teacher/inbox', role: 'teacher' },
   { path: '/dashboard/student/inbox', role: 'student' },

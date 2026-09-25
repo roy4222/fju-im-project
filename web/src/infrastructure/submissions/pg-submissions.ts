@@ -755,6 +755,8 @@ type ListRow = {
   id: string
   title: string
   stage_name: string | null
+  cohort_id: string
+  stage_seq: number | null
   opens_at: Date | null
   due_at: Date | null
   attachment_count: string
@@ -887,7 +889,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
   async myItems(userId: string): Promise<MyItemRow[]> {
     if (!isUuid(userId)) return []
     const rows = await this.#reader().query<ListRow>(
-      `select m.id, m.title, s.name as stage_name, m.opens_at, m.due_at, r.exempt, m.receiver_unit, g.code as group_code,
+      `select m.id, m.title, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at, r.exempt,
+              m.receiver_unit, g.code as group_code,
               (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
               facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at
          from response_rosters r
@@ -903,6 +906,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
       itemId: r.id,
       title: r.title,
       stageName: r.stage_name,
+      cohortId: r.cohort_id,
+      stageSeq: r.stage_seq,
       opensAt: r.opens_at,
       dueAt: r.due_at,
       attachmentCount: Number(r.attachment_count),

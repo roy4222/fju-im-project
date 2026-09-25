@@ -80,6 +80,10 @@ export type MyItemRow = {
   readonly itemId: string
   readonly title: string
   readonly stageName: string | null
+  /** 收件所屬的屆別；跟 `stageSeq` 一起是階段的身分（屆別內階段序號唯一，名稱可以重複）。 */
+  readonly cohortId: string
+  /** 所屬階段的序號（`cohort_stages.seq`）；沒指定階段是 null。 */
+  readonly stageSeq: number | null
   /** 設定的開放時間；null＝發布即開放。 */
   readonly opensAt: Date | null
   readonly dueAt: Date | null

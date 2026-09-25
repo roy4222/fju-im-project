@@ -271,7 +271,9 @@ export function timelineView(schedule: CohortSchedule, businessAt: Date): Timeli
   const cur = stages.find((s) => s.status === 'current')
   if (!cur) return { stages, current: null }
   const today = taipeiDateOf(businessAt)
-  const total = Math.max(1, daysBetween(cur.startDate, cur.lastDate))
-  const elapsedPercent = Math.min(100, Math.max(0, Math.round((daysBetween(cur.startDate, today) / total) * 100)))
+  // 只有一天的段（開始日＝最後一天）：那一天就是最後一天，算 100%（跟多天段的最後一天一致）。
+  const total = daysBetween(cur.startDate, cur.lastDate)
+  const elapsedPercent =
+    total <= 0 ? 100 : Math.min(100, Math.max(0, Math.round((daysBetween(cur.startDate, today) / total) * 100)))
   return { stages, current: { seq: cur.seq, elapsedPercent, daysLeft: Math.max(0, daysBetween(today, cur.lastDate)) } }
 }
