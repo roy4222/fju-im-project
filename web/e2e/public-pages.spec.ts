@@ -386,3 +386,13 @@ test('學生首頁行事曆：屆別活動與收件截止（臺灣日期），�
   await calendar.getByRole('button', { name: new RegExp(`^${dueDay}`) }).click()
   await expect(calendar.getByRole('list', { name: '這天的行程' })).toContainText(`${SUBMISSION} 截止`)
 })
+
+test('公開首頁「我的工作」：學生看到自己要交的收件截止與待繳數（跟學生首頁同一份資料），不是寫死的「沒有」', async ({ page }) => {
+  await signIn(page, student)
+  await page.goto('/')
+  const work = page.getByRole('region', { name: '我的工作' })
+  await expect(work.getByTestId('home-deadlines')).toContainText(SUBMISSION)
+  await expect(work.getByTestId('home-deadlines')).toContainText(`截止 ${ymd(due).replaceAll('-', '/')}`)
+  await expect(work).not.toContainText('近期沒有要截止的項目')
+  await expect(work.getByTestId('home-work-pending')).toHaveText(/^待繳交 [1-9]\d* 件$/)
+})

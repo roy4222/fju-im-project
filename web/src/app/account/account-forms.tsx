@@ -18,12 +18,14 @@ export type AccountFormState =
  * 退化成普通的 `<form action=…>`，照樣送得出去。
  */
 
+// 外觀照原型 `/account`：44px 輸入框、系網橘實心主按鈕、白底細框次要按鈕。
 const INPUT =
-  'mt-1 h-11 w-full rounded-md border border-border bg-background px-3 text-sm aria-[invalid=true]:border-danger'
-const PRIMARY =
-  'inline-flex h-11 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
+  'mt-1.5 h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] ' +
+  'focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20 aria-[invalid=true]:border-danger'
+const PRIMARY = 'btn-fju h-11 px-5 text-[15px] disabled:opacity-60'
 const SECONDARY =
-  'inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium text-ink hover:bg-muted disabled:opacity-60'
+  'press inline-flex h-10 items-center justify-center rounded-[4px] border border-border bg-background px-4 text-sm font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-60'
+const LABEL = 'block text-sm font-semibold text-foreground'
 
 function ErrorLine({ state }: { state: AccountFormState }) {
   if (!state?.error) return null
@@ -67,7 +69,7 @@ export function ContactForm({
       <input type="hidden" name="expectedRevision" value={String(revision)} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="field-phone" className="block text-sm font-medium text-ink">
+          <label htmlFor="field-phone" className={LABEL}>
             手機
           </label>
           <input
@@ -84,7 +86,7 @@ export function ContactForm({
           />
         </div>
         <div>
-          <label htmlFor="field-contactEmail" className="block text-sm font-medium text-ink">
+          <label htmlFor="field-contactEmail" className={LABEL}>
             聯絡 Email
           </label>
           <input
@@ -134,7 +136,7 @@ export function SetPasswordForm({ minLength }: { minLength: number }) {
     <form key={state?.attempt ?? 0} action={formAction} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor="field-newPassword" className="block text-sm font-medium text-ink">
+          <label htmlFor="field-newPassword" className={LABEL}>
             新密碼
           </label>
           <input
@@ -152,7 +154,7 @@ export function SetPasswordForm({ minLength }: { minLength: number }) {
           </p>
         </div>
         <div>
-          <label htmlFor="field-passwordConfirm" className="block text-sm font-medium text-ink">
+          <label htmlFor="field-passwordConfirm" className={LABEL}>
             確認新密碼
           </label>
           <input

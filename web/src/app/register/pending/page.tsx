@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
+import { IconAlertTriangle, IconClock } from '@tabler/icons-react'
 import { homeFor, requireSignedIn } from '@/app/_ui/guard'
-import { Card } from '@/app/_ui/primitives'
+import { AuthCard } from '@/app/_ui/primitives'
+import { PublicCard } from '@/app/_ui/public-content'
 import { SignOutButton } from '@/app/_ui/sign-out'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import {
@@ -9,6 +11,7 @@ import {
   getRegistrationCommand,
   PASSWORD_MIN_LENGTH,
 } from '@/composition/accounts'
+import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 import { reviseApplicationAction } from '../actions'
 import { ApplicationForm } from '../application-form'
@@ -62,107 +65,118 @@ export default async function RegisterPendingPage({
       }
     : { appliedName: mine.accountName, studentNo: '', departmentClass: '', phone: '', contactEmail: mine.loginEmail }
 
+  const title = mine.state === 'pending' ? '等待系辦審核' : mine.state === 'rejected' ? '申請被退回' : '還沒送出申請資料'
+
   return (
     <NarrowShell wide>
-      <Card>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-ink">
-              {mine.state === 'pending' ? '等待系辦審核' : mine.state === 'rejected' ? '申請被退回' : '還沒送出申請資料'}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">登入 Email：{mine.loginEmail}</p>
-          </div>
-          <SignOutButton className="shrink-0 rounded-md px-3 py-1.5 text-sm text-ink hover:bg-muted" />
-        </div>
-
-        {updatedRevision !== null && mine.state === 'pending' ? (
-          <p role="status" className="mt-4 rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-            {updatedRevision === 1 ? '申請已送出' : `資料已更新為第 ${updatedRevision} 版`}，狀態仍是待審核；系辦會看到最新的資料。
-          </p>
-        ) : null}
-
-        <div className="mt-4 rounded-md bg-muted px-4 py-3 text-sm" data-testid="application-status">
-          {mine.state === 'pending' ? (
-            <>
-              <p className="font-medium text-ink">系辦核對名單與本人身分後才會開通。</p>
-              <p className="mt-1 text-muted-foreground">
-                系辦會以當面核對學生證或校方管道確認本人。開通後重新整理或重新登入，就會進入學生首頁。
-              </p>
-            </>
-          ) : mine.state === 'rejected' && mine.rejection ? (
-            <>
-              <p className="font-medium text-danger-on-subtle">系辦退回了你的申請</p>
-              <p className="mt-1 whitespace-pre-wrap text-ink" data-testid="rejection-reason">
-                理由：{mine.rejection.reason}
-              </p>
-              <p className="mt-2 text-muted-foreground">
-                {formatTaipeiMinute(new Date(mine.rejection.decidedAt))} 退回。請依理由修正下面的資料後重新送出，會再進入待審核。
-              </p>
-            </>
-          ) : (
-            <p className="text-ink" data-testid="application-missing">
-              帳號已經建立，但申請資料還沒送到系辦。請填好下面的姓名、學號、系級與手機送出，才會進入待審核。
-              {viaGoogle ? '（你是用 Google 第一次登入，所以還沒有這些資料。）' : null}
+      <AuthCard title={title} description={`帳號已建立，尚未開通。登入 Email：${mine.loginEmail}`}>
+        <div className="flex flex-col gap-5">
+          {updatedRevision !== null && mine.state === 'pending' ? (
+            <p role="status" className="rounded-[10px] bg-primary-subtle px-4 py-3 text-sm font-semibold text-primary-on-subtle">
+              {updatedRevision === 1 ? '申請已送出' : `資料已更新為第 ${updatedRevision} 版`}，狀態仍是待審核；系辦會看到最新的資料。
             </p>
-          )}
+          ) : null}
+
+          <div
+            className={cn(
+              'flex items-start gap-3.5 rounded-[10px] p-4.5',
+              mine.state === 'rejected' ? 'bg-danger-subtle' : 'bg-secondary text-secondary-foreground',
+            )}
+            data-testid="application-status"
+          >
+            {mine.state === 'rejected' ? (
+              <IconAlertTriangle className="mt-0.5 size-5 shrink-0 text-danger-on-subtle" aria-hidden />
+            ) : (
+              <IconClock className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+            )}
+            <div className="min-w-0 text-sm">
+              {mine.state === 'pending' ? (
+                <>
+                  <p className="font-bold text-foreground">系辦核對名單與本人身分後才會開通</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                    系辦會以當面核對學生證或校方管道確認本人。開通後重新整理或重新登入，就會進入學生首頁。
+                  </p>
+                </>
+              ) : mine.state === 'rejected' && mine.rejection ? (
+                <>
+                  <p className="font-bold text-danger-on-subtle">系辦退回了你的申請</p>
+                  <p className="mt-1 whitespace-pre-wrap text-foreground" data-testid="rejection-reason">
+                    理由：{mine.rejection.reason}
+                  </p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                    {formatTaipeiMinute(new Date(mine.rejection.decidedAt))} 退回。請依理由修正下面的資料後重新送出，會再進入待審核。
+                  </p>
+                </>
+              ) : (
+                <p className="leading-relaxed text-foreground" data-testid="application-missing">
+                  帳號已經建立，但申請資料還沒送到系辦。請填好下面的姓名、學號、系級與手機送出，才會進入待審核。
+                  {viaGoogle ? '（你是用 Google 第一次登入，所以還沒有這些資料。）' : null}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {current && mine.state === 'pending' ? (
+            <dl className="flex flex-col gap-2 text-sm" aria-label="目前送出的資料">
+              {(
+                [
+                  ['姓名', current.appliedName, false],
+                  ['學號', current.studentNo, true],
+                  ['系級', current.departmentClass || '—', false],
+                  ['手機', current.phone, true],
+                  ['聯絡 Email', current.contactEmail, false],
+                  ['送出時間', formatTaipeiMinute(new Date(current.submittedAt)), true],
+                  ['資料版本', `第 ${current.revision} 版`, true],
+                ] as const
+              ).map(([k, v, numeric]) => (
+                <div key={k} className="flex justify-between gap-4">
+                  <dt className="shrink-0 text-muted-foreground">{k}</dt>
+                  <dd className={cn('min-w-0 text-right font-semibold break-all text-foreground', numeric ? 'tabular-nums' : '')}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          <p className="text-[13px] leading-relaxed text-muted-foreground">若資料填錯，可以在下面直接修改；有問題請到系辦公室（利瑪竇大樓）詢問。</p>
         </div>
+      </AuthCard>
 
-        {current && mine.state === 'pending' ? (
-          <dl className="mt-4 grid grid-cols-[6rem_1fr] gap-y-2 text-sm" aria-label="目前送出的資料">
-            <dt className="text-muted-foreground">姓名</dt>
-            <dd className="font-medium text-ink">{current.appliedName}</dd>
-            <dt className="text-muted-foreground">學號</dt>
-            <dd className="font-medium tabular-nums text-ink">{current.studentNo}</dd>
-            <dt className="text-muted-foreground">系級</dt>
-            <dd className="font-medium text-ink">{current.departmentClass || '—'}</dd>
-            <dt className="text-muted-foreground">手機</dt>
-            <dd className="font-medium tabular-nums text-ink">{current.phone}</dd>
-            <dt className="text-muted-foreground">聯絡 Email</dt>
-            <dd className="break-all font-medium text-ink">{current.contactEmail}</dd>
-            <dt className="text-muted-foreground">送出時間</dt>
-            <dd className="tabular-nums text-ink">{formatTaipeiMinute(new Date(current.submittedAt))}</dd>
-            <dt className="text-muted-foreground">資料版本</dt>
-            <dd className="tabular-nums text-ink">第 {current.revision} 版</dd>
-          </dl>
-        ) : null}
-      </Card>
-
-      <div className="mt-4">
-        <Card
-          title={mine.state === 'pending' ? '修改資料' : mine.state === 'rejected' ? '修改後重新送出' : '送出申請資料'}
-          description={
-            mine.state === 'pending'
-              ? '可以改姓名、學號、系級、手機與聯絡 Email。每次修改都會留紀錄，狀態仍是待審核。'
-              : '屆別由系辦依名單決定，不需要填。'
-          }
-        >
-          <ApplicationForm
-            // 版本變了（或狀態變了）就重新掛上，欄位帶最新的資料。
-            key={`${mine.state}-${current?.revision ?? 0}`}
-            mode="revise"
-            action={reviseApplicationAction}
-            initial={initial}
-            expectedRevision={mine.state === 'pending' ? (current?.revision ?? null) : null}
-            submitLabel={mine.state === 'pending' ? '儲存修改' : '送出申請'}
-            limits={limits}
-          />
-        </Card>
-      </div>
+      <PublicCard
+        className="sm:p-9"
+        title={mine.state === 'pending' ? '修改資料' : mine.state === 'rejected' ? '修改後重新送出' : '送出申請資料'}
+        description={
+          mine.state === 'pending'
+            ? '可以改姓名、學號、系級、手機與聯絡 Email。每次修改都會留紀錄，狀態仍是待審核。'
+            : '屆別由系辦依名單決定，不需要填。'
+        }
+      >
+        <ApplicationForm
+          // 版本變了（或狀態變了）就重新掛上，欄位帶最新的資料。
+          key={`${mine.state}-${current?.revision ?? 0}`}
+          mode="revise"
+          action={reviseApplicationAction}
+          initial={initial}
+          expectedRevision={mine.state === 'pending' ? (current?.revision ?? null) : null}
+          submitLabel={mine.state === 'pending' ? '儲存修改' : '送出申請'}
+          limits={limits}
+        />
+      </PublicCard>
 
       {mine.history.length > 1 ? (
-        <div className="mt-4">
-          <Card title="修改紀錄">
-            <ol className="space-y-1 text-sm" aria-label="修改紀錄">
-              {mine.history.map((h) => (
-                <li key={h.revision} className="flex justify-between gap-3 tabular-nums">
-                  <span className="text-ink">第 {h.revision} 版{h.revision === 1 ? '（送出）' : '（修改）'}</span>
-                  <span className="text-muted-foreground">{formatTaipeiMinute(new Date(h.at))}</span>
-                </li>
-              ))}
-            </ol>
-          </Card>
-        </div>
+        <PublicCard title="修改紀錄" className="sm:p-9">
+          <ol className="flex flex-col gap-1.5 text-sm" aria-label="修改紀錄">
+            {mine.history.map((h) => (
+              <li key={h.revision} className="flex justify-between gap-3 tabular-nums">
+                <span className="text-foreground">第 {h.revision} 版{h.revision === 1 ? '（送出）' : '（修改）'}</span>
+                <span className="text-muted-foreground">{formatTaipeiMinute(new Date(h.at))}</span>
+              </li>
+            ))}
+          </ol>
+        </PublicCard>
       ) : null}
+
+      <div className="flex justify-center">
+        <SignOutButton className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" />
+      </div>
     </NarrowShell>
   )
 }
