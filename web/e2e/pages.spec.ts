@@ -201,7 +201,9 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
-    '/dashboard/admin/timeline': '時間軸設定',
+    // 票 35 起這三頁的指紋要有屆別才出現（檔名排在前面的 admin-daily-ui／affairs 等 spec 會先建屆別）；
+    // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
+    '/dashboard/admin/timeline': '編輯階段與日期',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
     '/dashboard/admin/inbox': '全部標為已讀',
     '/dashboard/teacher/inbox': '全部標為已讀',
@@ -211,10 +213,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 合作案管理（票 20）。
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
-    '/dashboard/admin/affairs': '專題事務',
+    '/dashboard/admin/affairs': '用完整編輯器建立',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '被引用的檔案不能刪',
-    '/dashboard/admin/editor/new': '新增專題事務',
+    '/dashboard/admin/editor/new': '存草稿',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',

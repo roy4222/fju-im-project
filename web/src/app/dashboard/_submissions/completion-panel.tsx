@@ -27,7 +27,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
         </Ring>
         <dl className="grid flex-1 grid-cols-1 gap-1.5 text-sm">
           <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">已正式送出</dt>
+            <dt className="text-muted-foreground">已正式送出／應交{individual ? '人數' : '組數'}</dt>
             <dd className="font-semibold tabular-nums" data-testid="completion-rate">
               {completion.done}／{completion.required}
             </dd>
