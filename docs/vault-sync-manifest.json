@@ -156,11 +156,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
       "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
-      "source_sha256": "d52516d132d0b71b96f5813c6cf909ad06a80f443afe034a8978e3ca14c42864",
-      "mirror_sha256": "d52516d132d0b71b96f5813c6cf909ad06a80f443afe034a8978e3ca14c42864",
-      "verified_at": "2026-09-25T12:30:05.111772+00:00",
+      "source_sha256": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
+      "mirror_sha256": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
+      "verified_at": "2026-09-25T14:22:54.732103+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 重要公告逐人通知（Roy 定）：Vault 回寫後重新轉換鏡像。"
+      "verification_note": "2026-09-25 票 43 評分指派移出通知：Vault 回寫後重新轉換鏡像。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",

@@ -45,10 +45,18 @@ type Row = {
   item_on_roster: boolean | null
   /** 來源是簽核版本時，本人此刻讀不讀得到那一版（跟版本頁同一個判斷；不是簽核版本就是 null）。 */
   signoff_readable: boolean | null
+  /**
+   * 來源是評分指派時，那一組此刻還在不在本人的評分清單上（本人在該組任一階段有有效指派、組別未解散、屆別未封存；
+   * 跟 `teacherQueue` 同一個條件）。不是評分指派就是 null（票 43）。
+   */
+  grading_group_listed: boolean | null
 }
 
 /** 解析來源時能用的「當下」事實（每次顯示都重查，不看通知寫入當時）。 */
-type SourceContext = Pick<Row, 'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster' | 'signoff_readable'>
+type SourceContext = Pick<
+  Row,
+  'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster' | 'signoff_readable' | 'grading_group_listed'
+>
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -95,9 +103,12 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   item: resolveItem,
   // 合作案（票 20）：換案、解除的通知點進合作案頁；那一頁自己依登入身分與合作案狀態決定看得到什麼。
   industry_opportunity: (ref) => ({ state: 'ok', href: `/industry/${ref.id}` }),
-  // 評分指派（票 23）：點進老師的評分工作台；那一頁自己再依本人身分查有效指派（被移除的指派看不到）。
-  grading_assignment: (ref) =>
-    ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' },
+  // 評分指派（票 23 指派、票 24 退回、票 43 移出）：那一組還在本人評分清單上 → 點進評分清單；
+  // 已不在清單（被移出、改派走了）→ 不給連結，只留標題上的本人異動說明（產品 08「舊通知與失權」）。
+  grading_assignment: (ref, context) =>
+    ref.roles.includes('teacher')
+      ? { state: 'ok', href: context.grading_group_listed === true ? '/dashboard/teacher/grading' : null }
+      : { state: 'forbidden' },
   // 成績更正待復核（票 24）：只有管理員點得進評分頁（那一頁的「待復核」清單就是管理待辦）。
   grade_override: (ref) => (ref.roles.includes('admin') ? { state: 'ok', href: '/dashboard/admin/grading' } : { state: 'forbidden' }),
   // 簽核版本（票 25、26）：學生點進自己的簽核頁（那一頁依本人此刻所在組別查目前版本，失效的版本會標示原因）；
@@ -148,6 +159,7 @@ const NO_CONTEXT: SourceContext = {
   item_receiver_unit: null,
   item_on_roster: null,
   signoff_readable: null,
+  grading_group_listed: null,
 }
 
 export function resolveSource(
@@ -214,7 +226,16 @@ export class PgInbox implements InboxQuery, InboxCommand {
                                     and g.status = 'active')))) as item_on_roster,
               case when n.source_ref->>'type' = 'signoff_version'
                         and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                   then ${signoffVersionReadableSql(`v.id = (n.source_ref->>'id')::uuid`, '$1')} end as signoff_readable
+                   then ${signoffVersionReadableSql(`v.id = (n.source_ref->>'id')::uuid`, '$1')} end as signoff_readable,
+              case when n.source_ref->>'type' = 'grading_assignment'
+                        and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                   then exists (
+                          select 1 from evaluator_assignments src
+                            join evaluator_assignments mine on mine.group_id = src.group_id
+                            join groups g on g.id = mine.group_id and g.status = 'active'
+                            join cohorts gc on gc.id = g.cohort_id and gc.status <> 'archived'
+                           where src.id = (n.source_ref->>'id')::uuid
+                             and mine.teacher_user_id = $1 and mine.valid_to is null) end as grading_group_listed
          from notifications n
          left join cohorts c on c.id = n.cohort_id
          left join managed_items mi
