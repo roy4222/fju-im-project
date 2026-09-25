@@ -212,6 +212,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
     '/dashboard/admin/affairs': '專題事務',
+    // 檔案管理（票 35）。
+    '/dashboard/admin/files': '被引用的檔案不能刪',
     '/dashboard/admin/editor/new': '寫內容、設收件欄位與發布對象，檢查過再發布',
     '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
@@ -243,6 +245,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
     { path: '/dashboard/admin/affairs', wrongRole: 'student' },
     { path: '/dashboard/admin/editor/new', wrongRole: 'teacher' },
+    // 檔案管理（票 35）。
+    { path: '/dashboard/admin/files', wrongRole: 'teacher' },
     // 作業區（票 17）。
     { path: '/dashboard/student/affairs', wrongRole: 'admin' },
     // 老師各組繳交狀態（票 22）：學生拿到的回應裡不能有矩陣。
