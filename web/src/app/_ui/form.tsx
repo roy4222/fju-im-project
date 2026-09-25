@@ -49,6 +49,7 @@ export function Field({
   hint,
   defaultValue,
   optional = false,
+  trailing,
 }: {
   label: string
   name: string
@@ -58,14 +59,19 @@ export function Field({
   defaultValue?: string
   /** 選填欄位（預設必填）。 */
   optional?: boolean
+  /** 標籤右側的小連結（原型登入頁「密碼」旁的「忘記密碼」）。 */
+  trailing?: React.ReactNode
 }) {
   const id = `field-${name}`
   return (
     // 原型 auth-card 的 Field：粗體標籤、44px 高的輸入框。
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-semibold text-foreground">
-        {label}
-      </label>
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={id} className="text-sm font-semibold text-foreground">
+          {label}
+        </label>
+        {trailing}
+      </div>
       <input
         id={id}
         name={name}

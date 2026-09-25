@@ -4,10 +4,11 @@ import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail
 import type { MyDeadline } from '@/application/items'
 import { actorHasRole } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
-import { FirstCharAccent, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
+import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { getBusinessClock } from '@/composition/cohorts'
-import { getPublicItemQuery } from '@/composition/items'
+import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
+import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
@@ -18,7 +19,8 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
  * 版型、區塊順序照原型首頁（2026-09-07 方向 A；2026-09-25 對齊）：
  * hero → [登入後：我的工作＋近期截止] → 最新公告 → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
  *
- * 「最新公告」與學生的「我的工作／近期截止」有資料；其他區塊版型先照原型擺好、內容是空狀態（Roy 2026-09-25），
+ * 最新公告、優秀專題、榮譽與競賽、學生的「我的工作／近期截止」都接真的資料（各自前台頁同一份查詢）；
+ * 沒有資料的區塊才顯示空狀態（Roy 2026-09-25），
  * 那些資料做出來（開發計畫第 6 節）再接上。還沒有的頁面（優秀專題、榮譽榜、競賽、歷屆專題）不放「查看更多」。
  * 照片用原型的示意照（`public/placeholder/`）。
  */
@@ -28,7 +30,27 @@ export default async function HomePage() {
   // 登入後的區塊（我的工作、歷屆專題、我的入口）跟導覽用同一個判斷：待審核的人跟訪客一樣。
   const member = isMember(actor)
   const home = signedIn ? homeFor(actor) : null
-  const latest = await getPublicItemQuery().list(actor, 'news', { limit: 6 })
+  const items = getPublicItemQuery()
+  // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
+  const [latest, featured, honors, competitions] = await Promise.all([
+    items.list(actor, 'news', { limit: 6 }),
+    getPublicShowcaseQuery().featured(),
+    items.list(actor, 'honor', { limit: 4 }),
+    items.list(actor, 'news', { category: COMPETITION_CATEGORY, limit: 30 }),
+  ])
+  // 競賽狀態跟 /competitions 同一個函式、同一個「今天」（業務鐘）：報名中／決賽／已結束。
+  const today = taipeiDateOf(await getBusinessClock().now())
+  // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
+  const rank = { open: 0, result: 1, closed: 2 } as const
+  const competitionCards = competitions
+    .map((c) => ({ ...c, status: competitionStatus(c, today) }))
+    // 「進行中」只放報名中與決賽／結果；已結束、沒填日期的不拿來補位（前台頁面清單：競賽取進行中 3 則）。
+    .filter((c) => c.status === 'open' || c.status === 'result')
+    .sort((a, b) => (a.status ? rank[a.status] : 3) - (b.status ? rank[b.status] : 3))
+    .slice(0, 3)
+  // 歷屆專題一覽（登入後）：`/projects` 同一份查詢；沒開通的人查詢本身就回 need_login。
+  const archive = member ? await getPublicShowcaseQuery().archive(actor) : null
+  const archiveCards = archive?.access === 'visible' ? archive.cards.slice(0, 3) : []
   const [cards, rest] = [latest.slice(0, 2), latest.slice(2)]
   const work = member ? await myWork(actor) : null
 
@@ -54,15 +76,10 @@ export default async function HomePage() {
               查看最新公告
               <IconArrowRight className="size-4.5 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
             </Link>
-            {home ? (
-              <Link href={home} className="btn-fju-ghost h-12 px-7 text-[17px]">
-                回到我的首頁
-              </Link>
-            ) : (
-              <Link href="/register" className="btn-fju-ghost h-12 px-7 text-[17px]">
-                我要註冊
-              </Link>
-            )}
+            {/* 原型：登入後看歷屆專題一覽，訪客看優秀專題（註冊入口在頂列與登入頁）。 */}
+            <Link href={member ? '/projects' : '/projects/featured'} className="btn-fju-ghost h-12 px-7 text-[17px]">
+              {member ? '查看歷屆專題一覽' : '查看優秀專題'}
+            </Link>
           </div>
         </div>
       </section>
@@ -111,12 +128,36 @@ export default async function HomePage() {
               <SectionTitle id="home-archive">歷屆專題一覽</SectionTitle>
               <p className="text-[15px] text-muted-foreground">登入後的學習參考庫：三分鐘影片、摘要、海報與文件概述</p>
             </div>
-            <ListEmpty
-              className="w-full bg-card"
-              icon={<IconLayoutGrid className="size-9" aria-hidden />}
-              title="歷屆專題還沒上架"
-              hint="歷屆專題整理好之後會出現在這裡。"
-            />
+            {archiveCards.length === 0 ? (
+              <ListEmpty
+                className="w-full bg-card"
+                icon={<IconLayoutGrid className="size-9" aria-hidden />}
+                title="歷屆專題還沒上架"
+                hint="歷屆專題整理好之後會出現在這裡。"
+              />
+            ) : (
+              <>
+                <ul className="grid w-full gap-6 sm:grid-cols-2 lg:grid-cols-3" data-testid="home-archive-list">
+                  {archiveCards.map((p) => (
+                    <li key={p.id}>
+                      <PhotoCard
+                        href={`/projects/${encodeURIComponent(p.id)}`}
+                        image={imageSrc(p.id, p.posterFileId)}
+                        title={p.title}
+                        tags={
+                          <>
+                            <Tag tone="ink">{p.cohortCode} 屆</Tag>
+                            {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
+                            {p.advisorName ? <Tag tone="ink">{p.advisorName}</Tag> : null}
+                          </>
+                        }
+                      />
+                    </li>
+                  ))}
+                </ul>
+                <MoreButton href="/projects">進入歷屆專題一覽</MoreButton>
+              </>
+            )}
           </div>
         </section>
       ) : null}
@@ -125,12 +166,36 @@ export default async function HomePage() {
       <section className={cn('py-20', member ? '' : 'mt-24 bg-muted/50')} aria-labelledby="home-featured">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
           <SectionTitle id="home-featured">優秀專題</SectionTitle>
-          <ListEmpty
-            className="w-full"
-            icon={<IconTrophy className="size-9" aria-hidden />}
-            title="優秀專題還沒公開"
-            hint="系辦公開優秀專題之後會出現在這裡。"
-          />
+          {featured.length === 0 ? (
+            <ListEmpty
+              className="w-full"
+              icon={<IconTrophy className="size-9" aria-hidden />}
+              title="優秀專題還沒公開"
+              hint="系辦公開優秀專題之後會出現在這裡。"
+            />
+          ) : (
+            <>
+              <ul className="grid w-full gap-6 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-featured-list">
+                {featured.slice(0, 4).map((p) => (
+                  <li key={p.id}>
+                    <PhotoCard
+                      href={`/projects/featured?item=${encodeURIComponent(p.id)}`}
+                      image={imageSrc(p.id, p.posterFileId)}
+                      badge={<AwardBadge award={p.award} label={p.awardLabel} className="absolute top-3 left-3 shadow-md" />}
+                      title={p.title}
+                      tags={
+                        <>
+                          <Tag tone="ink">{p.cohortCode} 屆</Tag>
+                          {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
+                        </>
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+              <MoreButton href="/projects/featured" />
+            </>
+          )}
         </div>
       </section>
 
@@ -139,31 +204,129 @@ export default async function HomePage() {
         <div className="grid lg:grid-cols-[minmax(0,1fr)_760px]">
           <div className="relative min-h-[240px] sm:min-h-[320px] lg:min-h-[520px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/placeholder/applause.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+            <img
+              src={honors[0] ? imageSrc(honors[0].id, honors[0].cover?.fileId) : '/placeholder/applause.jpg'}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+              loading="lazy"
+            />
           </div>
           <div className="flex flex-col">
-            <PanelTitle id="home-honors" title="榮譽與競賽" side="right" />
+            <PanelTitle id="home-honors" title="榮譽與競賽" side="right" action={{ href: '/honors', label: '查看更多' }} />
             <div className="px-5 py-10 lg:pr-40 lg:pl-14">
-              <ListEmpty
-                className="min-h-48"
-                icon={<IconTrophy className="size-9" aria-hidden />}
-                title="還沒有榮譽榜"
-                hint="系辦登錄得獎紀錄之後會出現在這裡。"
-              />
+              {honors.length === 0 ? (
+                <ListEmpty
+                  className="min-h-48"
+                  icon={<IconTrophy className="size-9" aria-hidden />}
+                  title="還沒有榮譽榜"
+                  hint="系辦登錄得獎紀錄之後會出現在這裡。"
+                />
+              ) : (
+                <ul className="flex flex-col gap-5" data-testid="home-honors-list">
+                  {honors.map((h) => (
+                    <ListItem
+                      key={h.id}
+                      href={`/honors?item=${encodeURIComponent(h.id)}`}
+                      title={h.title}
+                      meta={
+                        <>
+                          {/* 得獎日期（0011）；沒填退回發布日，跟 /honors 一樣。 */}
+                          <span className="text-[13px] font-semibold text-muted-foreground tabular-nums">
+                            {h.awardedOn ?? taipeiDateOf(h.publishedAt)}
+                          </span>
+                          <Tag>榮譽榜</Tag>
+                          {h.category ? <Tag tone="ink">{h.category}</Tag> : null}
+                        </>
+                      }
+                    />
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 pt-10">
-          <h3 className="text-lg font-bold text-ink">進行中的競賽</h3>
-          <div className="flex min-h-24 items-center gap-3 rounded-[10px] border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
-            <IconClock className="size-5 shrink-0" aria-hidden />
-            目前沒有報名中的競賽。系辦發布競賽資訊後會出現在這裡。
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-bold text-ink">進行中的競賽</h3>
+            <Link href="/competitions" className="text-sm font-semibold text-primary hover:underline">
+              全部競賽資訊 →
+            </Link>
           </div>
+          {competitionCards.length === 0 ? (
+            <div className="flex min-h-24 items-center gap-3 rounded-[10px] border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
+              <IconClock className="size-5 shrink-0" aria-hidden />
+              目前沒有報名中的競賽。系辦發布競賽資訊後會出現在這裡。
+            </div>
+          ) : (
+            <ul className="grid gap-4 md:grid-cols-3" data-testid="home-competitions">
+              {competitionCards.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/news/${c.id}`}
+                    className="flex h-full flex-col gap-1.5 rounded-[10px] border border-border bg-card p-4.5 transition-colors hover:border-primary"
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      {c.status ? <Tag tone={COMPETITION_STATUS[c.status].tone}>{COMPETITION_STATUS[c.status].label}</Tag> : <Tag>{COMPETITION_CATEGORY}</Tag>}
+                      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground tabular-nums">
+                        <IconClock className="size-3.5" aria-hidden />
+                        {competitionDate(c)}
+                      </span>
+                    </span>
+                    <span className="text-[15px] leading-snug font-bold text-foreground">{c.title}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 
       <QuickLinks home={home} member={member} />
     </SiteShell>
+  )
+}
+
+/** 競賽狀態標籤（跟 /competitions 的 `STATUS` 同一套）：報名中橘、其他深藍。 */
+const COMPETITION_STATUS = {
+  open: { label: '報名中', tone: 'brand' },
+  result: { label: '決賽／結果', tone: 'ink' },
+  closed: { label: '已結束', tone: 'ink' },
+} as const
+
+/** 競賽卡上的日期（原型）：報名中看截止、有活動日看活動日；都沒有就是發布日。 */
+function competitionDate(c: { status: string | null; registrationDeadline: string | null; eventDate: string | null; publishedAt: Date }): string {
+  if (c.status === 'open' && c.registrationDeadline) return `截止 ${c.registrationDeadline.slice(5).replace('-', '/')}`
+  if (c.eventDate) return `活動 ${c.eventDate.slice(5).replace('-', '/')}`
+  if (c.registrationDeadline) return `截止 ${c.registrationDeadline.slice(5).replace('-', '/')}`
+  return `發布 ${formatTaipeiDate(taipeiDateOf(c.publishedAt))}`
+}
+
+/** 暖白照片卡（原型 `PhotoCard`；首頁優秀專題）。 */
+function PhotoCard({ href, image, title, tags, badge }: { href: string; image: string; title: string; tags: ReactNode; badge?: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="group card-lift flex h-full flex-col overflow-hidden rounded-xl bg-secondary shadow-[0_2px_10px_rgba(0,51,102,0.08)]"
+    >
+      <div className="relative aspect-video overflow-hidden bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={image} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+        {badge}
+      </div>
+      <div className="flex flex-1 flex-col gap-2 p-4.5">
+        <span className="type-card-title text-foreground transition-colors group-hover:text-primary">{title}</span>
+        <div className="mt-auto flex flex-wrap gap-1.5 pt-1">{tags}</div>
+      </div>
+    </Link>
+  )
+}
+
+/** 置中的橘色外框寬按鈕（原型 `MoreButton`，系網「查看更多」）。 */
+function MoreButton({ href, children = '查看更多' }: { href: string; children?: ReactNode }) {
+  return (
+    <Link href={href} className="btn-fju-outline press h-14 w-full max-w-[680px] text-xl">
+      {children}
+    </Link>
   )
 }
 

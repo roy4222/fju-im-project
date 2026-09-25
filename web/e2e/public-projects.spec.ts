@@ -27,6 +27,7 @@ const DRAFT = `${stamp} 機密草稿`
 const PLAIN = `${stamp} 沒得獎作品`
 const HONOR = `${stamp} 全國競賽 優等`
 const COMPETITION = `${stamp} 資訊應用服務創新競賽`
+const ENDED_COMPETITION = `${stamp} 已結束的競賽`
 const MEMBER = `${stamp}組員`
 const ADVISOR = `${stamp}老師`
 
@@ -142,6 +143,8 @@ test.beforeAll(async () => {
   await publishedItem(cohortId, adminId, 'honor', HONOR, '校外競賽', { awardedOn: '2019-06-15' })
   // 報名截止在很久以後＝報名中。
   await publishedItem(cohortId, adminId, 'news', COMPETITION, '競賽資訊', { registrationDeadline: '2099-12-31' })
+  // 截止與活動日都過了＝已結束：首頁「進行中的競賽」不能拿它補位。
+  await publishedItem(cohortId, adminId, 'news', ENDED_COMPETITION, '競賽資訊', { registrationDeadline: '2000-01-01', eventDate: '2000-01-02' })
 })
 
 test.afterAll(async () => {
@@ -196,6 +199,20 @@ test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指�
   const card = page.getByTestId('project-card').filter({ hasText: TITLE })
   await expect(card).toContainText(`指導老師 ${ADVISOR}`)
   await expect(page.locator('body')).not.toContainText(DRAFT)
+
+  // 首頁的「歷屆專題一覽」取同一份查詢（同一個預設排序）的前 3 件，每張卡要帶指導老師。
+  await page.goto('/projects')
+  const top = page.getByTestId('project-card')
+  // 第 i 張卡的指導老師（沒有指導老師的卡是 null，位置照樣對齊）。
+  const advisors: (string | null)[] = []
+  for (let i = 0; i < Math.min(3, await top.count()); i += 1) {
+    advisors.push(/指導老師 ([^・\n]+)/.exec(await top.nth(i).innerText())?.[1] ?? null)
+  }
+  expect(advisors.some(Boolean)).toBe(true)
+  await page.goto('/')
+  const homeCards = page.getByTestId('home-archive-list').getByRole('listitem')
+  for (const [i, name] of advisors.entries()) if (name) await expect(homeCards.nth(i)).toContainText(name)
+  await page.goto(`/projects?q=${encodeURIComponent(stamp)}`)
   // 歷屆一覽是全部已發布的（含沒得獎的）；「只看得獎」就剩得獎的。
   await expect(page.getByTestId('project-card').filter({ hasText: PLAIN })).toBeVisible()
   await page.goto(`/projects?award=1&q=${encodeURIComponent(stamp)}`)
@@ -217,8 +234,10 @@ test('榮譽榜與競賽資訊列出已發布的公開項目；忘記密碼頁�
   await expect(competition).toBeVisible()
   await expect(competition).toContainText('報名中')
   await expect(competition).toContainText('截止 2099-12-31')
+  // 「已結束」只有日期都過了的那一則（報名中的不會跑進來）。
   await page.goto(`/competitions?status=closed&q=${encodeURIComponent(stamp)}`)
-  await expect(page.getByTestId('competition-card')).toHaveCount(0)
+  await expect(page.getByTestId('competition-card')).toHaveCount(1)
+  await expect(page.getByTestId('competition-card')).toContainText(ENDED_COMPETITION)
   await page.goto(`/competitions?q=${encodeURIComponent(stamp)}`)
   await competition.getByRole('link', { name: /競賽詳情與報名/ }).click()
   await expect(page).toHaveURL(/\/news\/[0-9a-f-]{36}$/)
@@ -227,6 +246,28 @@ test('榮譽榜與競賽資訊列出已發布的公開項目；忘記密碼頁�
   await expect(page.getByTestId('forgot-password')).toContainText('系辦')
   await expect(page.locator('input[type="email"]')).toHaveCount(0)
   await expect(page.locator('body')).not.toContainText('已寄出')
+})
+
+test('首頁（訪客）：優秀專題、榮譽與競賽接真的資料（不是寫死的空狀態），各有「查看更多」；hero 第二顆是「查看優秀專題」', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  // 上面的測試已經發布了精選、榮譽與競賽；首頁跟各自的前台頁同一份查詢，至少要有一筆，而且不能說「還沒有」。
+  const featured = page.getByRole('region', { name: '優秀專題' })
+  await expect(featured.getByTestId('home-featured-list').getByRole('link').first()).toHaveAttribute('href', /^\/projects\/featured\?item=/)
+  await expect(featured).not.toContainText('優秀專題還沒公開')
+  await expect(featured.getByRole('link', { name: '查看更多' })).toHaveAttribute('href', '/projects/featured')
+
+  const honors = page.getByRole('region', { name: '榮譽與競賽' })
+  await expect(honors.getByTestId('home-honors-list').getByRole('link').first()).toHaveAttribute('href', /^\/honors\?item=/)
+  await expect(honors).not.toContainText('還沒有榮譽榜')
+  await expect(honors.getByRole('link', { name: '查看更多' })).toHaveAttribute('href', '/honors')
+  await expect(honors.getByTestId('home-competitions').getByRole('link').first()).toHaveAttribute('href', /^\/news\//)
+  await expect(honors.getByRole('link', { name: /全部競賽資訊/ })).toHaveAttribute('href', '/competitions')
+  // 「進行中」只放報名中與決賽／結果：已結束的不補位。
+  await expect(honors.getByTestId('home-competitions')).not.toContainText(ENDED_COMPETITION)
+  await expect(honors.getByTestId('home-competitions')).not.toContainText('已結束')
+
+  await expect(page.getByRole('link', { name: '查看優秀專題' })).toHaveAttribute('href', '/projects/featured')
 })
 
 test('訪客導覽：最新公告（含競賽資訊）、專題規則、優秀專題、榮譽榜；登入頁連到忘記密碼', async ({ page }) => {
@@ -238,5 +279,6 @@ test('訪客導覽：最新公告（含競賽資訊）、專題規則、優秀�
   await nav.getByRole('link', { name: '最新公告', exact: true }).hover()
   await expect(nav.getByRole('link', { name: '競賽資訊' })).toHaveAttribute('href', '/competitions')
   await page.goto('/login')
-  await expect(page.getByRole('link', { name: '忘記密碼？' })).toHaveAttribute('href', '/forgot-password')
+  // 頁尾也有一個忘記密碼；這裡看的是登入卡片裡、密碼標籤旁那一個。
+  await expect(page.getByRole('main').getByRole('link', { name: '忘記密碼', exact: true })).toHaveAttribute('href', '/forgot-password')
 })

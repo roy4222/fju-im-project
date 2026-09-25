@@ -58,15 +58,20 @@ export default async function LoginPage({
 
         <ActionForm action={signInAction} submitLabel="登入">
           <Field label="Email" name="email" type="email" autoComplete="username" />
-          <Field label="密碼" name="password" type="password" autoComplete="current-password" />
+          <Field
+            label="密碼"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            trailing={
+              // 原型位置：密碼標籤右側。「不寄信、找系辦」的說明在忘記密碼頁。
+              <Link href="/forgot-password" className="text-[13px] font-semibold text-primary hover:underline">
+                忘記密碼
+              </Link>
+            }
+          />
           {next ? <HiddenField name="next" value={next} /> : null}
         </ActionForm>
-        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-          <Link className="font-bold text-primary hover:underline" href="/forgot-password">
-            忘記密碼？
-          </Link>{' '}
-          不寄信，請找系辦核對身分後發臨時密碼。
-        </p>
         <p className="mt-4 text-center text-[13px] text-muted-foreground">
           還沒有帳號？
           <Link className="font-bold text-primary hover:underline" href="/register">
