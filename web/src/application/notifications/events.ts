@@ -209,10 +209,55 @@ export const EVENT_CATALOG = {
   },
   /**
    * 簽核版本失效（票 25；模組 07 §3「any→superseded：只標狀態、寫 cause、發事件 signoff.superseded」）。
-   * 組員或主指導變更、管理員建新版時發。**要通知誰還沒定**（開發計畫票 26「版本失效要通知誰（舊 D-11）」），
-   * 所以先只留紀錄、沒有消費者；舊頁看到的是版本頁上的失效原因。
+   * **只通知系辦**（Roy 2026-09-25 定案取代舊 D-11）：組員或主指導變更造成的失效，收件人＝發生當下所有有效的管理員
+   * （要去建新版的是系辦）；學生與老師不收，舊頁上看得到失效原因與「等待管理員建立新版」。
+   * 管理員自己在簽核頁建新版、重置造成的失效是自己的動作，不另發通知（收件人為空，比照「最終結果更正完成→不通知」）。
    */
-  'signoff.superseded': { consumers: [] },
+  'signoff.superseded': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '有簽核版本已失效，請建立新版' },
+  },
+  /**
+   * 一筆表態（票 26）。`approvals.event_id` 指向它：每一票都有固定的事件 ID（產品「同意紀錄內容」）。
+   * 表態本身不通知任何人（進度在簽核頁），只留紀錄；輪到老師、完成、退回另有事件。
+   */
+  'signoff.vote_recorded': { consumers: [] },
+  /**
+   * 全部學生同意、輪到主指導（票 26；產品模組 08 §4「等待本人同意（簽核輪到本人）→本人」、模組 07 §3 `signoff.teacher_turn`）。
+   * 收件人＝這一版快照裡的主指導。
+   */
+  'signoff.teacher_turn': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '學生都已同意，輪到你簽核' },
+  },
+  /**
+   * 簽核完成（票 26；產品模組 08 §4「簽核完成→完成當下的有效參與成員與主指導，每人一則；文案『此版本站內簽核已完成』，
+   * 不代表校方採認」）。以「組別＋簽核版本」為單位。
+   */
+  'signoff.completed': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '此版本站內簽核已完成' },
+  },
+  /**
+   * 學生不同意或老師退回，版本回到修正中（票 26）。產品 08 矩陣沒有這一列；照 S11-05 暫定的收件人：
+   * 所有有效管理員（要重開新版的是系辦）＋這一版的主指導（學生不同意時；老師自己退回就不再通知自己）。
+   * payload 不帶理由（理由在簽核頁與匯出看得到）。
+   */
+  'signoff.returned': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '簽核版本被退回修正' },
+  },
+  /** 管理員提醒未表態者（票 26／S11-11）。收件人＝這一版還沒表態的參與者（含還沒輪到但待簽的老師）。 */
+  'signoff.reminded': {
+    consumers: ['notifications'],
+    notification: { kind: 'signoff', defaultTitle: '提醒：有一份簽核還等你表態' },
+  },
+  /**
+   * 管理員作廢、重置、重開（票 26）。版本的生命週期紀錄（匯出的「操作歷程」用它的事件 ID）；
+   * 產品矩陣沒有這幾列，不另發通知——重置與重開建的新版照樣發「輪到你同意」（`signoff.version_created`）。
+   */
+  'signoff.voided': { consumers: [] },
+  'signoff.restarted': { consumers: [] },
   'item.withdrawn': { consumers: [] },
   'item.archived': { consumers: [] },
   'item.republished': { consumers: [] },

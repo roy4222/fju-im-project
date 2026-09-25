@@ -85,6 +85,8 @@ const GUARDED: Array<[string, string[]]> = [
   ['restore-drill.sh', ['--remove']],
   ['deploy.sh', ['--site', 'test', 'abc123', '--execute']],
   ['seed-admin.sh', ['test']],
+  ['seed-demo.sh', ['test']],
+  ['seed-demo.sh', ['test', '--remove']],
   ['auto-deploy.sh', []],
   ['site.sh', ['test', 'check']],
   ['fault-drill.sh', ['--site', 'test', 'restart', '--execute']],
@@ -109,10 +111,20 @@ describe('身分守門：不是 deploy 就什麼都不做', () => {
   })
 
   it('--help 不需要 deploy 身分', () => {
-    for (const script of ['backup.sh', 'restore-drill.sh', 'seed-admin.sh', 'deploy.sh', 'fault-drill.sh']) {
+    for (const script of ['backup.sh', 'restore-drill.sh', 'seed-admin.sh', 'seed-demo.sh', 'deploy.sh', 'fault-drill.sh']) {
       const r = run(script, ['--help'])
       expect(r.code, script).toBe(0)
     }
+  })
+})
+
+describe('seed-demo.sh（票 32）：只准測試站', () => {
+  it.each([['prod'], ['prod', '--remove'], ['staging']])('%s %s：就算是 deploy 身分，也在動任何東西之前拒絕', (...args) => {
+    const r = run('seed-demo.sh', args.filter(Boolean), { user: me })
+    expect(r.code).not.toBe(0)
+    expect(r.stderr).toContain('一律拒絕')
+    expect(r.calls).toEqual([])
+    expect(r.written).toEqual([])
   })
 })
 
@@ -210,6 +222,8 @@ describe('中文語系：$VAR 後面緊貼中文字', () => {
     ['backup.sh', ['--help'], undefined],
     ['restore-drill.sh', ['--help'], undefined],
     ['seed-admin.sh', ['--help'], undefined],
+    ['seed-demo.sh', ['--help'], undefined],
+    ['seed-demo.sh', ['prod'], 'self'],
     ['backup.sh', ['--site', 'test'], undefined],
     ['restore-drill.sh', ['--site', 'test', '--backup', 'latest'], 'self'],
     ['backup.sh', ['--site', 'test', '--status'], 'self'],
