@@ -106,6 +106,7 @@ plan() { printf '        $ %s\n' "$*"; }
 if [ "$DRY_RUN" = 1 ]; then
   say "演練：${CASE}（站台 ${SITE}，Compose project ${COMPOSE_PROJECT_NAME}）——只印步驟，什麼都不做"
   plan "flock --nonblock $DEPLOY_DIR/deploy.lock   # 演練期間擋住部署"
+  plan "export APP_IMAGE=<正在跑的 app 容器的映像> IMAGE_DIGEST=<它的 digest>   # 之後每個 compose 指令都用目前部署的那一版"
   case "$CASE" in
     restart)
       plan "curl -s $HEALTH_URL   # 記下目前的 commit"
@@ -113,18 +114,20 @@ if [ "$DRY_RUN" = 1 ]; then
       plan "node ops/check-health.mjs   # ${HEALTH_TIMEOUT_SECONDS} 秒內完整六項要通過（commit、worker.version 都是原本那一版）"
       ;;
     worker-stall)
+      plan "前置：worker 在跑、60 秒內有心跳"
       plan "$COMPOSE stop worker"
       plan "每 ${POLL_SECONDS} 秒 curl 一次，最多 ${WORKER_STALL_WAIT_SECONDS} 秒：要看到 HTTP 503、ok=false"
-      plan "$COMPOSE start worker"
+      plan "docker start <同一個 worker 容器>   # 不經 compose 的 depends_on（migrate 沒有容器）；任何方式結束都會做這步"
       plan "node ops/check-health.mjs   # ${HEALTH_TIMEOUT_SECONDS} 秒內完整六項要恢復"
       ;;
     poison)
+      plan "前置：worker 在跑、60 秒內有心跳，而且 worker 容器的 BUSINESS_CLOCK_OVERRIDE_ENABLED=true；不符就直接判失敗"
       plan "psql：插兩件 test_noop 到期工作（fault_drill_poison 一件、fault_drill_normal 一件，到期時間 2000-01-01）"
       plan "每 ${POLL_SECONDS} 秒查一次，最多 ${POISON_TIMEOUT_SECONDS} 秒：正常那件 done；毒工作 attempts 到 5、state=failed、有一筆 ops.worker_alert"
       ;;
     disk80)
       plan "docker volume create --opt type=tmpfs --opt o=size=16m,uid=1001 $DRILL_VOLUME"
-      plan "$COMPOSE run --rm --no-deps -v $DRILL_VOLUME:/drill-disk worker sh -c 'dd 14 MiB 到 /drill-disk && node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill'"
+      plan "$COMPOSE run --rm --no-deps --pull never -v $DRILL_VOLUME:/drill-disk worker sh -c 'dd 14 MiB 到 /drill-disk && node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill'"
       plan "psql：最新一筆量測要是 alert_level=warn80、drill=true；演練期間沒有任何跟磁碟有關的事件（＝不會有通知）"
       plan "docker volume rm $DRILL_VOLUME"
       ;;
@@ -146,12 +149,17 @@ if ! flock --nonblock 9; then
   exit 75
 fi
 
-IMAGE="$($COMPOSE ps --format '{{.Image}}' app 2>/dev/null | head -1 || true)"
 STARTED="$(date +%s)"
+IMAGE=""
+RECORDED=0
+# 結束時要收拾的東西（on_exit 看這兩個）：
+STALLED_WORKER_CID=""   # worker-stall 停掉的 worker 容器；還沒確認帶回來之前一直有值
+DRILL_VOLUME_CREATED=0  # disk80 建的記憶體磁碟
 
 record() {
   local result="$1" detail="$2"
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$CASE" "$result" "${IMAGE:-unknown}" "$detail" >> "$DRILL_LOG"
+  RECORDED=1
 }
 pass() {
   record pass "$1（$(( $(date +%s) - STARTED )) 秒）"
@@ -166,16 +174,63 @@ fail() {
   exit 1
 }
 
-# /api/health：印 HTTP 狀態碼到 stdout，內容寫到 ${HEALTH_BODY}。
+# 容器環境變數裡某一個鍵的值（只取那一個，不印其他的；容器環境裡有秘密）。
+container_env() {
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null | sed -n "s/^$2=//p" | head -1
+}
+
+# 把停掉的 worker 帶回來：直接 `docker start` 同一個容器。
+# 不用 `docker compose start／up worker`：worker 在 Compose 裡依賴 migrate，而 deploy.sh 的 migrate 是
+# `run --rm` 跑的、沒有留下容器，Compose 會回「worker is missing dependency migrate」（VM 第一次實跑就卡在這）。
+# 同一個容器不存在了才退回 `up -d --no-deps`，而且用目前部署的映像、不 build、不 pull。
+bring_worker_back() {
+  local cid="$1"
+  [ -n "$cid" ] || return 1
+  [ "$(docker inspect --format '{{.State.Running}}' "$cid" 2>/dev/null)" = true ] && return 0
+  docker start "$cid" >/dev/null 2>&1 && return 0
+  $COMPOSE up -d --no-deps --no-build --pull never worker >/dev/null 2>&1
+}
+
+# 任何方式結束（成功、失敗、set -e 中斷、Ctrl-C）都會走這裡：
+#   1. worker-stall 停掉的 worker 一定帶回來；
+#   2. disk80 的記憶體磁碟一定刪掉；
+#   3. 還沒寫紀錄就中途結束的，補一筆 fail（VM 第一次實跑時 worker-stall 就是這樣什麼都沒留下）。
+# shellcheck disable=SC2329  # 由下面的 trap 呼叫。
+on_exit() {
+  local rc=$? note=""
+  set +e
+  if [ -n "$STALLED_WORKER_CID" ]; then
+    if bring_worker_back "$STALLED_WORKER_CID"; then
+      note="；worker 已重新啟動"
+    else
+      note="；⚠️ worker 沒能重新啟動，請手動：sudo -u ${FJU_DEPLOY_USER} docker start ${STALLED_WORKER_CID}"
+    fi
+    say "${note#；}" >&2
+  fi
+  if [ "$DRILL_VOLUME_CREATED" = 1 ]; then
+    docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1
+  fi
+  if [ "$RECORDED" != 1 ]; then
+    record fail "腳本中途結束（結束碼 ${rc}）${note}"
+    say "✗ 腳本中途結束（結束碼 ${rc}）${note}。紀錄已寫入 $DRILL_LOG" >&2
+    [ "$rc" = 0 ] && rc=1
+  fi
+  rm -f "$HEALTH_BODY"
+  exit "$rc"
+}
 HEALTH_BODY="$(mktemp)"
-trap 'rm -f "$HEALTH_BODY"' EXIT
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# /api/health：印 HTTP 狀態碼到 stdout，內容寫到 ${HEALTH_BODY}。
 health_code() {
   curl -s --max-time 5 -o "$HEALTH_BODY" -w '%{http_code}' ${HEALTH_CURL_ARGS[@]+"${HEALTH_CURL_ARGS[@]}"} "$HEALTH_URL" || true
 }
 health_json() { cat "$HEALTH_BODY"; }
 json_field() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=process.argv[1].split(".").reduce((o,k)=>o?.[k],JSON.parse(s));process.stdout.write(v==null?"":String(v))}catch{}})' "$1"; }
 
-# 心跳（worker.lastTickAt）是不是晚於某個時間點（epoch 秒）：證明是重啟後的新 worker 在跳。
+# 心跳（worker.lastTickAt）是不是晚於某個時間點（epoch 秒）。
 tick_after() {
   local since="$1" at
   at="$(health_json | json_field worker.lastTickAt)"
@@ -204,7 +259,27 @@ psql_owner() {
 }
 
 # 對的 Compose project 裡真的有站台在跑，才演練（避免對著空的 project 重啟、誤判通過）。
-[ -n "$IMAGE" ] || fail "Compose project ${COMPOSE_PROJECT_NAME} 裡沒有在跑的 app，先確認站台是起來的"
+APP_CID="$($COMPOSE ps -q app 2>/dev/null | head -1 || true)"
+[ -n "$APP_CID" ] || fail "Compose project ${COMPOSE_PROJECT_NAME} 裡沒有在跑的 app，先確認站台是起來的"
+# 目前部署的映像與 digest：從正在跑的 app 容器讀，export 給之後每一個 docker compose 指令。
+# 不設的話 Compose 會退回 docker-compose.yml 的預設 `ghcr.io/roy4222/fju-web:local` 並試著 build
+# （VM 上沒有原始碼，disk80 第一次實跑就是 `lstat /srv/fju/app/web: no such file or directory`）。
+IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CID" 2>/dev/null || true)"
+[ -n "$IMAGE" ] || fail "讀不出 app 容器（${APP_CID}）的映像"
+APP_IMAGE="$IMAGE"
+IMAGE_DIGEST="$(container_env "$APP_CID" IMAGE_DIGEST)"
+export APP_IMAGE IMAGE_DIGEST
+WORKER_CID="$($COMPOSE ps -q worker 2>/dev/null | head -1 || true)"
+say "目前部署的映像：${IMAGE}"
+
+# 背景工作在跑、而且 60 秒內有心跳；不是就直接判「前置不符」，不要白等。
+require_fresh_worker() {
+  local hint="先恢復 worker：sudo -u ${FJU_DEPLOY_USER} docker start fju-${SITE}-worker（或重跑一次部署），確認 /api/health 的 worker.lastTickAt 是幾秒內再演練"
+  [ -n "$WORKER_CID" ] || fail "前置不符：worker 沒有在跑。${hint}"
+  [ "$(health_code)" = 200 ] || fail "前置不符：/api/health 不是 200（$(health_json)）。${hint}"
+  tick_after "$(( $(date +%s) - 60 ))" \
+    || fail "前置不符：worker 心跳不新鮮（worker.lastTickAt=$(health_json | json_field worker.lastTickAt)）。${hint}"
+}
 
 case "$CASE" in
   restart)
@@ -221,11 +296,11 @@ case "$CASE" in
     ;;
 
   worker-stall)
-    [ "$(health_code)" = 200 ] || fail "演練前 /api/health 就不是 200，先把站台修好再演練"
+    require_fresh_worker
     tag="$(health_json | json_field commit)"
-    # 中途被 Ctrl-C 或出錯也要把 worker 帶回來。
-    trap 'rm -f "$HEALTH_BODY"; $COMPOSE start worker >/dev/null 2>&1 || true' EXIT
-    say "停掉 worker，最多等 ${WORKER_STALL_WAIT_SECONDS} 秒看 /api/health 變 503……"
+    say "停掉 worker（${WORKER_CID:0:12}），最多等 ${WORKER_STALL_WAIT_SECONDS} 秒看 /api/health 變 503……"
+    # 先記下來再停：從這一刻起，不管怎麼結束，on_exit 都會把它帶回來。
+    STALLED_WORKER_CID="$WORKER_CID"
     $COMPOSE stop worker
     stopped_at="$(date +%s)"
     saw_503=""
@@ -236,9 +311,10 @@ case "$CASE" in
       fi
       sleep "$POLL_SECONDS"
     done
-    say "重新啟動 worker……"
-    $COMPOSE start worker
-    [ -n "$saw_503" ] || fail "worker 停了 ${WORKER_STALL_WAIT_SECONDS} 秒，/api/health 還沒變 503"
+    say "重新啟動 worker（docker start 同一個容器）……"
+    bring_worker_back "$WORKER_CID" || fail "worker 重新啟動失敗（on_exit 會再試一次）"
+    STALLED_WORKER_CID=""
+    [ -n "$saw_503" ] || fail "worker 停了 ${WORKER_STALL_WAIT_SECONDS} 秒，/api/health 還沒變 503（worker 已重新啟動）"
     say "停掉 ${saw_503} 秒後 /api/health 回 503、ok=false"
     if await_full_health "$tag"; then
       pass "worker 停掉 ${saw_503} 秒後 /api/health 回 503；重新啟動後完整六項恢復通過"
@@ -247,6 +323,12 @@ case "$CASE" in
     ;;
 
   poison)
+    # 前置：worker 在跑、心跳新鮮，而且 test_noop 有處理器（只在 BUSINESS_CLOCK_OVERRIDE_ENABLED=true 時註冊）。
+    # 讀的是 **worker 容器實際拿到的值**，不是這支腳本自己的環境。
+    require_fresh_worker
+    clock_override="$(container_env "$WORKER_CID" BUSINESS_CLOCK_OVERRIDE_ENABLED)"
+    [ "$clock_override" = true ] \
+      || fail "前置不符：worker 容器的 BUSINESS_CLOCK_OVERRIDE_ENABLED 是「${clock_override:-沒設}」，不是 true，test_noop 沒有處理器、毒工作不會被撿（測試站 Doppler stg 應該是 true）"
     # 到期時間用 2000-01-01：不管測試站的模擬業務鐘撥到哪天都已經到期。
     ids="$(psql_owner <<'SQL'
 insert into due_work (id, kind, subject_type, subject_id, deadline_version, due_business_at)
@@ -275,19 +357,23 @@ SQL
       fi
       sleep "$POLL_SECONDS"
     done
-    fail "${POISON_TIMEOUT_SECONDS} 秒內沒有收斂：正常 ${normal_state:-?}、毒工作 ${poison_state:-?}、告警 ${alerts:-?} 筆（測試站的 BUSINESS_CLOCK_OVERRIDE_ENABLED 是 true 嗎？）"
+    if [ "$normal_state" = pending ] && [ "$poison_state" = pending,0 ]; then
+      fail "${POISON_TIMEOUT_SECONDS} 秒內兩件都沒被撿（都還是 pending、attempts 0）：worker 的到期迴圈沒在跑。看 log：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/site.sh test docker compose logs --tail 100 worker"
+    fi
+    fail "${POISON_TIMEOUT_SECONDS} 秒內沒有收斂：正常 ${normal_state:-?}、毒工作 ${poison_state:-?}、告警 ${alerts:-?} 筆"
     ;;
 
   disk80)
     # 「不推播」怎麼驗：站內通知一定是從事件投影來的，所以看演練期間有沒有跟磁碟有關的事件。
     # 不直接數通知：前一個演練（poison）的告警可能剛好在這幾秒內投影成通知，會誤判。
     since="$(printf 'select now();\n' | psql_owner)"
-    trap 'rm -f "$HEALTH_BODY"; docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1 || true' EXIT
     docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1 || true
     # 16 MiB 的記憶體磁碟，擁有者是容器裡的 nextjs（1001）；演練完就刪，真的硬碟一個位元組都不寫。
+    DRILL_VOLUME_CREATED=1
     docker volume create --driver local --opt type=tmpfs --opt device=tmpfs --opt o=size=16m,uid=1001 "$DRILL_VOLUME" >/dev/null
-    say "在 16 MiB 的記憶體磁碟塞 14 MiB，再量一次……"
-    out="$($COMPOSE run --rm --no-deps -v "$DRILL_VOLUME:/drill-disk" worker \
+    say "在 16 MiB 的記憶體磁碟塞 14 MiB，再用目前部署的映像量一次……"
+    # --pull never：只用本機已經有的那個映像（就是 app 正在跑的那個），不拉、也不會退回去 build。
+    out="$($COMPOSE run --rm --no-deps --pull never -v "$DRILL_VOLUME:/drill-disk" worker \
       sh -c 'dd if=/dev/zero of=/drill-disk/fill bs=1048576 count=14 2>/dev/null; node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill' 2>&1)" \
       || fail "量測指令失敗：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
     printf '%s\n' "$out" | grep STORAGE_MEASURED || true
@@ -303,6 +389,7 @@ SQL
     ;;
 
   disk80-restore)
+    [ -n "$WORKER_CID" ] || fail "worker 沒有在跑，量不了；先恢復 worker"
     out="$($COMPOSE exec -T worker node migrate/web/dist/worker.mjs --measure-storage-once 2>&1)" \
       || fail "量測指令失敗：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
     line="$(printf '%s\n' "$out" | grep STORAGE_MEASURED || true)"
