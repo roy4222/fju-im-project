@@ -146,18 +146,19 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                         data-testid={`affair-${row.itemId}`}
                       >
                         <td className="px-5 py-3.5">
-                          <Link href={`/dashboard/student/affairs/${row.itemId}`} className="block">
-                            <span className="block text-[15px] font-bold">{row.title}</span>
-                            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                              <span>階段：{row.stageName ?? '未指定'}</span>
-                              {row.attachmentCount > 0 ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <IconPaperclip className="size-3.5" />
-                                  {row.attachmentCount} 個附件
-                                </span>
-                              ) : null}
-                            </span>
+                          {/* 連結只包標題（連結名稱＝作業名稱）；階段與附件數是下面一行灰字。 */}
+                          <Link href={`/dashboard/student/affairs/${row.itemId}`} className="block text-[15px] font-bold">
+                            {row.title}
                           </Link>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                            <span>階段：{row.stageName ?? '未指定'}</span>
+                            {row.attachmentCount > 0 ? (
+                              <span className="inline-flex items-center gap-1">
+                                <IconPaperclip className="size-3.5" aria-hidden />
+                                {row.attachmentCount} 個附件
+                              </span>
+                            ) : null}
+                          </span>
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5">
