@@ -31,7 +31,7 @@ export {
   TEXTAREA_MAX_LENGTH,
 } from '@/application/submissions/submissions'
 export type { Completion, ItemWindow, ReceiverFacts, RosterCategory } from '@/application/submissions/roster'
-export { categoryOf, completionOf, pendingCount, receiverStatus } from '@/application/submissions/roster'
+export { categoryOf, completionOf, overdueReceiverIds, pendingCount, receiverStatus } from '@/application/submissions/roster'
 export type { AdvisorVisibility, SubmissionHolder, SubmissionViewer } from '@/application/submissions/access'
 export { advisorMayReadIndividual, canReadSubmission } from '@/application/submissions/access'
 export type {
