@@ -197,7 +197,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   await studentCtx.clearCookies()
   await signIn(student, S01.email)
   await expect(student).toHaveURL(/\/dashboard\/student$/)
-  await expect(student.getByRole('heading', { name: '我的專題' })).toBeVisible()
+  await expect(student.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await studentCtx.close()
 })
 

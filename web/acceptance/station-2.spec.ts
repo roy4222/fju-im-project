@@ -130,7 +130,7 @@ test('0 管理員登入（整條流程共用這個分頁）', async ({ browser }
   adminUserId = ((await session.json()) as { user?: { id?: string } }).user?.id ?? ''
   expect(adminUserId, '拿不到管理員自己的 userId').not.toBe('')
   await admin.goto('/dashboard/admin')
-  await expect(admin.getByRole('heading', { name: '系辦首頁' })).toBeVisible()
+  await expect(admin.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await shot(admin, 'admin-home')
 })
 
@@ -250,7 +250,7 @@ test('票 7 學生用密碼登入進學生首頁', async () => {
   await studentContext.clearCookies()
   await signIn(student, STUDENT.email, STUDENT.password)
   await expect(student).toHaveURL(/\/dashboard\/student$/)
-  await expect(student.getByRole('heading', { name: '我的專題' })).toBeVisible()
+  await expect(student.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
   await shot(student, 'student-home')
 })
 
@@ -302,7 +302,7 @@ test('票 8 老師用臨時密碼登入被強制改密，補資料後進老師�
     await shot(teacher, 'teacher-setup')
     await teacher.getByRole('button', { name: '儲存並進入老師首頁' }).click()
     await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
-    await expect(teacher.getByRole('heading', { name: '老師首頁' })).toBeVisible()
+    await expect(teacher.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
     await shot(teacher, 'teacher-home')
   } finally {
     await teacher.context().close()

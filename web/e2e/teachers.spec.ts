@@ -100,7 +100,7 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   await teacher.getByLabel('手機').fill('0911-111-111')
   await teacher.getByRole('button', { name: '儲存並進入老師首頁' }).click()
   await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
-  await expect(teacher.getByRole('heading', { name: '老師首頁' })).toBeVisible()
+  await expect(teacher.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
   // 臨時密碼從此失效；新密碼登得進去，直接進老師首頁。
   await teacher.context().clearCookies()

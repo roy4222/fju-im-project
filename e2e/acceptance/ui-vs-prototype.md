@@ -45,16 +45,16 @@
 
 1. **管理員登入**（工作階段 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/login` 用 E2E 管理員登入，再打開 `https://test.fju.roy422.dev/dashboard/admin`。
-   - 預期：看到「系辦首頁」。
+   - 預期：看到歡迎色塊「歡迎回來，E2E 測試管理員」。
 2. **建一位老師**（工作階段 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/dashboard/admin/accounts`，按「新增老師」，「登入 Email」填 `codex-ui-<T>-teacher@example.com`、「姓名」填 `CODEX-UI-<T>老師`，勾「當面核對學生證或其他身分證件」，按「建立並產生臨時密碼」；把臨時密碼**只記在心裡**，按「關閉」。**臨時密碼顯示時不要截圖。**
    - 預期：出現「只顯示這一次」與臨時密碼。
 3. **老師第一次登入**（工作階段 `teacher`）
    - 做：`/login` 用老師的 Email 與臨時密碼登入；改密頁「目前的一次性密碼」填臨時密碼、「新密碼」「再輸入一次新密碼」填測試密碼，按「設定新密碼」；補資料頁「手機」填 `0911-111-111`，按「儲存並進入老師首頁」。
-   - 預期：最後到 `/dashboard/teacher`，標題「老師首頁」。
+   - 預期：最後到 `/dashboard/teacher`，標題「歡迎回來，CODEX-UI-<T>老師」。
 4. **建一位學生**（工作階段 `student`，核准用 `admin`）
    - 做：打開 `https://test.fju.roy422.dev/register`，填姓名 `CODEX-UI-<T>學生`、學號 `9<T>01`、系級 `資管二甲`、手機 `0912-345-678`、登入 Email `codex-ui-<T>-student@example.com`、密碼與確認密碼填測試密碼，按「送出註冊」。接著 `admin` 在帳號頁按「審核 CODEX-UI-<T>學生」，勾「當面核對學生證或其他身分證件」；這位學生不在名單上，要指定屆別：有預選就用預選的那一屆，沒有預選就選一個 `CODEX-` 開頭的屆別（都沒有就選列表第一個），**不要去改屆別旗標**。按「核准」再「關閉」。最後把 `student` 工作階段 `close` 再重新 `open`（換掉待審時的登入狀態），用學生的 Email 與測試密碼登入。
-   - 預期：學生登入後到 `/dashboard/student`，標題「我的專題」。
+   - 預期：學生登入後到 `/dashboard/student`，標題「歡迎回來，CODEX-UI-<T>學生」。
 
 ## 前台（原型與測試站路由相同）
 

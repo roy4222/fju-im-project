@@ -188,8 +188,9 @@ export function GradingBench({
     <section aria-label={`${groupCode}「${stage.name}」評分表`} className="dash-card">
       {/* 頂端一列：組別＋儲存狀態 */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-t-[18px] border-b border-border bg-card px-5 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="tabular text-xs font-semibold text-muted-foreground">{eyebrow}</p>
+        {/* 窄螢幕：組別這一塊獨占一行、儲存狀態換到下一行，eyebrow 才不會被擠成直排。 */}
+        <div className="min-w-0 flex-1 basis-full sm:basis-0">
+          <p className="tabular truncate text-xs font-semibold text-muted-foreground">{eyebrow}</p>
           <h2 className="truncate text-lg font-extrabold text-ink">{groupCode}</h2>
         </div>
         <p role="status" aria-live="polite" data-testid="save-status" className="tabular inline-flex items-center gap-2 text-xs font-medium">
