@@ -12,6 +12,7 @@ import { err, type Err, type Result } from '@/shared/result'
  * - 各階段依序是份數、每位採計中老師的姓名與分數（S10-11「各階段每位老師 counted 值」）、平均、狀態。
  * - 每位組員一列（學號是文字：XLSX 用文字儲存格保留前導零；CSV 內容照原樣寫出前導零）。
  * - 數字與畫面同一份計算（`computeGroupResult`）與同一種捨入（兩位小數）；另外帶「原始精度」可追查。
+ * - 解散的組別也列出（組別狀態「已解散」、解散當下的組員、解散當下的方案版本；產品模組 03 §4）。
  * - 更正後結果、更正註記（原值、理由；待復核）、缺評待處理（老師停用時「老師已停用，缺評待處理」）都寫進去。
  *
  * 純函式：篩選、表頭、資料列、CSV 全文；XLSX 由 `@/shared/xlsx` 寫。
@@ -91,6 +92,8 @@ export function describeMissing(m: MissingEvaluation): string {
 
 /** 要求份數比「已採計＋有效指派」還多：還缺幾位評分老師（替換後還沒指派新老師）。`stageKey` 給了就只看那一階段。 */
 export function unassignedSlots(g: GradebookGroup, stageKey = 'all'): string[] {
+  // 解散的組評分工作已停止（產品模組 03 §4）：不再列待指派。
+  if (g.dissolved) return []
   return g.result.stages.flatMap((s) => {
     if (stageKey !== 'all' && s.key !== stageKey) return []
     if (s.required === null || s.required <= 0) return []
@@ -133,6 +136,7 @@ export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGro
     '更正註記',
     '缺評待處理',
     '方案版本',
+    '組別狀態',
   ]
 }
 
@@ -143,7 +147,6 @@ export function gradeExportHeader(book: Gradebook, groups: readonly GradebookGro
 export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup[], filter: GradeExportFilter): string[][] {
   const stages = stagesOf(book, filter)
   const slots = new Map(stages.map((s) => [s.key, teacherSlots(groups, s.key)]))
-  const versionLabel = book.version ? `v${book.version.versionNo}` : ''
   const rows: string[][] = []
   for (const g of groups) {
     const stageCells = stages.flatMap((stage) => {
@@ -172,7 +175,8 @@ export function gradeExportRows(book: Gradebook, groups: readonly GradebookGroup
       adopted.value ?? '尚未完成',
       describeOverride(g.override),
       missing,
-      versionLabel,
+      g.versionNo === null ? '' : `v${g.versionNo}`,
+      g.dissolved ? '已解散' : '進行中',
     ]
     const members = g.members.length > 0 ? g.members : [{ name: '', studentNo: null }]
     for (const m of members) rows.push([book.cohort.code, g.code, m.studentNo ?? '', m.name, ...stageCells, ...tail])

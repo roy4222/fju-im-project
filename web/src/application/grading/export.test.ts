@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGradeCsv, DEFAULT_GRADE_EXPORT_FILTER, gradeExportHeader, gradeExportRows } from '@/application/grading/export'
+import { buildGradeCsv, DEFAULT_GRADE_EXPORT_FILTER, gradeExportHeader, gradeExportRows, unassignedSlots } from '@/application/grading/export'
 import { computeGroupResult, type CountedEvaluation } from '@/application/grading/gradebook'
 import type { Gradebook, GradebookGroup } from '@/application/grading/ports'
 import type { SchemeStage } from '@/application/grading/scheme'
@@ -38,6 +38,8 @@ function group(code: string, requirements: Record<string, number>, evaluations: 
     id: code,
     code,
     advisorName: null,
+    dissolved: false,
+    versionNo: 1,
     members: [{ name: `${code} 組員`, studentNo: '0410001' }],
     result: computeGroupResult(STAGES, new Map(Object.entries(requirements)), evaluations),
     override: null,
@@ -107,5 +109,21 @@ describe('匯出的各老師分數欄', () => {
     expect(csv).toContain(`"'=1+1","80.00"`)
     expect(csv).toContain(`"'@SUM(A1)","82.00"`)
     expect(csv).not.toContain('"=1+1"')
+  })
+})
+
+describe('解散的組別', () => {
+  it('不列待指派；匯出最後一欄是組別狀態、方案版本用那一組自己的版本', () => {
+    const active = group('G01', { mid: 2 }, [])
+    const gone = { ...group('G02', { mid: 2 }, [counted('mid', '甲老師', '80')]), dissolved: true, versionNo: 3 }
+    expect(unassignedSlots(active)).toEqual(['期中：尚缺 2 位評分老師（待指派）'])
+    expect(unassignedSlots(gone)).toEqual([])
+    const b = book([active, gone])
+    expect(gradeExportHeader(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER).slice(-2)).toEqual(['方案版本', '組別狀態'])
+    const rows = gradeExportRows(b, b.groups, DEFAULT_GRADE_EXPORT_FILTER)
+    expect(rows.map((r) => r.slice(-3))).toEqual([
+      ['期中：尚缺 2 位評分老師（待指派）', 'v1', '進行中'],
+      ['', 'v3', '已解散'],
+    ])
   })
 })

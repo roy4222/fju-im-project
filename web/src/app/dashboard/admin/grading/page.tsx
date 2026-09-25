@@ -151,6 +151,8 @@ export default async function AdminGradingPage({
     let done = 0
     let total = 0
     for (const g of gradebook.receipt.groups) {
+      // 解散的組評分已停止，不算進完成率。
+      if (g.dissolved) continue
       const r = g.result.stages.find((x) => x.key === s.key)
       if (!r || r.required === null) continue
       total += r.required
@@ -524,7 +526,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                 allValue="all"
                 options={[
                   { value: 'all', label: '全部組別', href: href({ fgroup: 'all' }) },
-                  ...book.groups.map((g) => ({ value: g.id, label: g.code, href: href({ fgroup: g.id }) })),
+                  ...book.groups.map((g) => ({ value: g.id, label: g.dissolved ? `${g.code}（已解散）` : g.code, href: href({ fgroup: g.id }) })),
                 ]}
               />
               <FacetMenu
@@ -574,7 +576,13 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                         <tr key={g.id} className={`${DT.tr} align-top`} data-testid={`gradebook-row-${g.code}`}>
                           <td className={DT.td}>
                             <p className="tabular font-bold text-foreground">{g.code}</p>
-                            <p className="text-xs text-muted-foreground">指導：{g.advisorName ?? '尚未指派'}</p>
+                            {g.dissolved ? (
+                              <p className="mt-0.5">
+                                <Pill tone="default">已解散・唯讀{g.versionNo !== null && g.versionNo !== book.version?.versionNo ? `・方案 v${g.versionNo}` : ''}</Pill>
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">指導：{g.advisorName ?? '尚未指派'}</p>
+                            )}
                           </td>
                           {g.result.stages
                             .filter((s) => visibleStages.some((v) => v.key === s.key))
