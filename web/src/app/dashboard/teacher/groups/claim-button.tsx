@@ -38,6 +38,7 @@ export type GroupRow = {
   members: string
   memberCount: number
   advisorName: string | null
+  advisorUserId: string | null
   mine: boolean
   claimable: boolean
 }
@@ -59,12 +60,12 @@ function ClaimButton({ code, onClick }: { code: string; onClick: () => void }) {
 export function TeacherGroupsBoard({
   claimRows,
   groups,
-  teacherNames,
+  teacherOptions,
   requestId,
 }: {
   claimRows: ClaimRow[]
   groups: GroupRow[]
-  teacherNames: string[]
+  teacherOptions: { value: string; label: string }[]
   requestId: string
 }) {
   const [state, formAction, pending] = useActionState(claimGroupAction, undefined)
@@ -161,7 +162,7 @@ export function TeacherGroupsBoard({
               <TableHeader>
                 <TableRow className="hover:[&>td]:bg-transparent">
                   <TableHead className="w-20">組別</TableHead>
-                  <TableHead>組員</TableHead>
+                  <TableHead className="min-w-[8.5rem]">組員</TableHead>
                   <TableHead className="hidden md:table-cell">合作案</TableHead>
                   <TableHead className="w-32">狀態</TableHead>
                   <TableHead className="w-24 text-right">動作</TableHead>
@@ -171,9 +172,11 @@ export function TeacherGroupsBoard({
                 {claimRows.map((r) => (
                   <TableRow key={r.groupId} className={r.state === 'open' ? '' : 'text-muted-foreground'}>
                     <TableCell className="tabular text-xs font-semibold">{r.code}</TableCell>
-                    <TableCell className="max-w-[18rem] truncate font-semibold whitespace-normal text-foreground md:whitespace-nowrap">
-                      {r.memberCount} 人{r.leaderName ? `・組長 ${r.leaderName}` : ''}
-                      <span className="block text-xs font-normal text-muted-foreground md:hidden">{r.opportunityName ?? '尚未連結合作案'}</span>
+                    {/* 窄螢幕欄寬不夠時，只在「人數」「組長」「合作案」這幾段之間換行，不會一個字一行。 */}
+                    <TableCell className="min-w-[8.5rem] max-w-[18rem] font-semibold whitespace-normal text-foreground md:truncate md:whitespace-nowrap">
+                      <span className="whitespace-nowrap">{r.memberCount} 人</span>
+                      {r.leaderName ? <span className="whitespace-nowrap">・組長 {r.leaderName}</span> : null}
+                      <span className="block text-xs font-normal break-words text-muted-foreground md:hidden">{r.opportunityName ?? '尚未連結合作案'}</span>
                     </TableCell>
                     <TableCell className="hidden max-w-[16rem] truncate md:table-cell">{r.opportunityName ?? '尚未連結'}</TableCell>
                     <TableCell>
@@ -209,8 +212,8 @@ export function TeacherGroupsBoard({
             {
               id: 'advisor',
               label: '指導老師',
-              options: [...teacherNames.map((n) => ({ value: n, label: n })), { value: '尚未指派', label: '尚未指派' }],
-              value: (g) => g.advisorName ?? '尚未指派',
+              options: [...teacherOptions, { value: 'unassigned', label: '尚未指派' }],
+              value: (g) => g.advisorUserId ?? 'unassigned',
             },
           ]}
           emptyTitle="本屆還沒有成立的組別"
