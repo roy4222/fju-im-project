@@ -99,6 +99,7 @@ export type {
   ChangeGroupTypeInput,
   CreateOpportunityInput,
   GroupOpportunityLink,
+  GroupingPeriodState,
   GroupTypeReceipt,
   LeaderTypeChangeFacts,
   LinkChange,

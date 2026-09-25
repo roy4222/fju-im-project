@@ -488,6 +488,37 @@ describe('孤兒帳號（票 10b）', () => {
     const after = await command.list(adminActor(), filter({ orphan: true }))
     expect(after.ok && after.receipt.rows.map((r) => r.userId)).not.toContain(orphan.userId)
   })
+
+  it('待審的孤兒停用後恢復：回到停用前的待審（不是沒有角色的 active），可以再登入、自己補送申請（PR #257 審查建議）', async () => {
+    const orphanEmail = uniqueEmail('orphan-restore')
+    const orphan = await signUp(orphanEmail, '孤兒乙')
+    const disabled = await command.disable(adminActor(), { userId: orphan.userId, reason: '先停用確認身分', requestId: requestId() }, { headers: admin.headers })
+    expect(disabled).toMatchObject({ ok: true, receipt: { status: 'disabled', revocation: 'done' } })
+    expect(await signIn(orphanEmail)).not.toBe(200)
+
+    const restored = await command.restore(adminActor(), { userId: orphan.userId, reason: '確認是本人，讓他補送申請', requestId: requestId() }, { headers: admin.headers })
+    expect(restored).toMatchObject({ ok: true, receipt: { status: 'pending', revocation: 'done' } })
+    expect(await one(`select status, role from users where id = $1`, [orphan.userId])).toMatchObject({ status: 'pending' })
+    const events = await db.sql(`select from_status, to_status from user_status_events where user_id = $1 order by real_at, id`, [orphan.userId])
+    expect(events.rows).toEqual([
+      { from_status: 'pending', to_status: 'disabled' },
+      { from_status: 'disabled', to_status: 'pending' },
+    ])
+    // Better Auth 的 ban 要解掉：待審的人要登得進來，才能到等待審核頁補送申請。
+    expect(await one(`select banned from users where id = $1`, [orphan.userId])).toMatchObject({ banned: false })
+    expect(await signIn(orphanEmail)).toBe(200)
+    // 又是孤兒了：列表標得出來，系辦可以補建或再停用。
+    const listed = await command.list(adminActor(), filter({ orphan: true }))
+    expect(listed.ok && listed.receipt.rows.find((r) => r.userId === orphan.userId)).toMatchObject({ status: 'pending', orphan: true })
+  })
+
+  it('一般帳號停用後恢復仍回 active（停用前就是 active）', async () => {
+    const s = await student('0411400197', '恢復測試')
+    expect((await command.disable(adminActor(), { userId: s.userId, reason: '暫停', requestId: requestId() }, { headers: admin.headers })).ok).toBe(true)
+    const restored = await command.restore(adminActor(), { userId: s.userId, reason: '恢復', requestId: requestId() }, { headers: admin.headers })
+    expect(restored).toMatchObject({ ok: true, receipt: { status: 'active' } })
+    expect(await one(`select status from users where id = $1`, [s.userId])).toEqual({ status: 'active' })
+  })
 })
 
 describe('最後一位管理員保護：停用（票 10b）', () => {

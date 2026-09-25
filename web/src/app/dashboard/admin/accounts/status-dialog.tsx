@@ -99,7 +99,9 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
               <p className="text-sm text-muted-foreground">
                 {receipt.status === 'disabled'
                   ? '他在任何分頁做下一個動作就會被登出，也不能再登入；資料與紀錄都保留，可以隨時恢復。'
-                  : '本人現在可以重新登入，角色與學籍資料不變。'}
+                  : receipt.status === 'pending'
+                    ? '停用前就是待審，所以回到待審：本人可以重新登入、補送註冊申請。'
+                    : '本人現在可以重新登入，角色與學籍資料不變。'}
                 理由、操作者與時間已寫入紀錄。
               </p>
               {receipt.revocation === 'failed' ? (
