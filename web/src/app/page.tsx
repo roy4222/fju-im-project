@@ -9,7 +9,7 @@ import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { getBusinessClock } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
-import { getSubmissionQuery, pendingCount, receiverStatus } from '@/composition/submissions'
+import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -378,7 +378,7 @@ type MyWork = {
   readonly pending: number | null
   /**
    * 收件截止三筆（學生首頁行事曆同一份 `myDeadlines`；只查收件名單，老師、系辦的截止不在裡面）：
-   * 還沒到的＋已逾期但還沒交的，依截止時間排（`homeDeadlines`）。
+   * 只列還沒到的、近的在前（`homeDeadlines`；逾期的不列，Roy 2026-09-08）。
    */
   readonly deadlines: readonly HomeDeadline[]
 }
@@ -392,17 +392,14 @@ async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<
     student ? getSubmissionQuery().myItems(actor.userId) : Promise.resolve([]),
     getBusinessClock().now(),
   ])
-  // 逾期還沒交（跟作業區「逾期未繳」同一個判斷）：首頁照前台頁面清單列出來、標紅。
-  const overdue = new Set(items.filter((row) => receiverStatus(row, row, now).overdue).map((row) => row.itemId))
   return {
     pending: student ? pendingCount(items, now) : null,
-    deadlines: homeDeadlines(deadlines, overdue, now),
+    deadlines: homeDeadlines(deadlines, now),
   }
 }
 
-/** 倒數顏色（原型 `WorkStrip`）：逾期紅、10 天內橘、其他灰。 */
+/** 倒數顏色（原型 `WorkStrip`）：10 天內橘、其他灰（逾期的不列）。 */
 const DEADLINE_TONE: Record<DeadlineTone, string> = {
-  overdue: 'text-destructive',
   soon: 'text-primary',
   later: 'text-muted-foreground',
 }
