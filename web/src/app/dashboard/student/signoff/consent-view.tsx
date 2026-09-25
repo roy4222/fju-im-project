@@ -155,6 +155,7 @@ function ProgressCard({ v }: { v: VersionDetail }) {
                   {s.displayName}
                   {me ? '（你）' : ''}
                 </span>
+                {s.studentNo ? <span className="tabular text-xs text-muted-foreground">{s.studentNo}</span> : null}
                 <span className={cn('tabular ml-auto text-xs', s.result && s.result !== 'agree' ? 'text-destructive' : 'text-muted-foreground')}>
                   {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!).slice(5)}` : '尚未表態'}
                 </span>

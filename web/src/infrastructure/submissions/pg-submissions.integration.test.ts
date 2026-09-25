@@ -227,6 +227,23 @@ describe('只看得到、只填得了自己在收件名單上的項目', () => {
     expect(await query.myItem(outsider.id, itemId)).toBeNull()
   })
 
+  it('每一列帶屆別與階段序號（票 38 時間軸用身分比對階段）：兩段同名也分得開', async () => {
+    const { cohortId, stageId, student } = await scenario()
+    // 同一屆第 2 段，名稱跟第 1 段一樣（normalizeScheduleInput 允許同名）。
+    const second = await owner.sql(
+      `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+       values (gen_random_uuid(), $1, 2, '成組期', '2026-11-01', 'system') returning id`,
+      [cohortId],
+    )
+    await published(cohortId, String(second.rows[0]!.id), { title: '第二段的收件' })
+
+    const mine = await query.myItems(student.id)
+    const bySeq = Object.fromEntries(mine.map((r) => [r.title, [r.cohortId, r.stageSeq, r.stageName]]))
+    expect(bySeq['分組意向登記']).toEqual([cohortId, 1, '成組期'])
+    expect(bySeq['第二段的收件']).toEqual([cohortId, 2, '成組期'])
+    expect(stageId).not.toBe(String(second.rows[0]!.id))
+  })
+
   it('名單外的學生、老師、免填者都被拒絕，資料不變', async () => {
     const { student, itemId } = await scenario()
     const other = await newCohort()

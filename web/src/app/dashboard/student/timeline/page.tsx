@@ -4,6 +4,7 @@ import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { TimelineZigzag, type TimelineStageView, type TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
+import { tasksOfStage } from '@/app/dashboard/student/timeline/stage-tasks'
 import { getBusinessClock, getTimelineQuery, timelineView } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf, type TaipeiDate } from '@/shared/time'
@@ -67,9 +68,16 @@ export default async function StudentTimelinePage() {
       : `${formatTaipeiDate(from)} – ${formatTaipeiDate(to)}`
 
   // 每件收件的狀態跟作業區同一個函式；做完＝已正式送出（或系辦設為免填）。
+  // 用階段身分（屆別＋序號）分，不用名稱：同一屆可以有兩段同名。
   const tasks = items.map((row) => ({ row, status: receiverStatus(row, row, businessNow) }))
+  const tasksOf = (seq: number) =>
+    tasksOfStage(
+      tasks.map((t) => ({ ...t, cohortId: t.row.cohortId, stageSeq: t.row.stageSeq })),
+      mine.cohortId,
+      seq,
+    )
   const stages: TimelineStageView[] = view.stages.map((stage) => {
-    const mineInStage = tasks.filter(({ row }) => row.stageName === stage.name)
+    const mineInStage = tasksOf(stage.seq)
     const firstOpen = mineInStage.find(({ status }) => status.pending)
     return {
       id: String(stage.seq),
@@ -100,8 +108,7 @@ export default async function StudentTimelinePage() {
       : { label: '目前', title: '尚未開始', rangeText: `第 1 階段 ${formatTaipeiDate(first.startDate)} 開始` }
 
   // 摘要列的主要按鈕：目前階段第一件還沒交的（原型「前往確認組員」這類下一步）。
-  const curStage = stages.find((s) => s.status === 'current')
-  const primaryTask = curStage ? tasks.find(({ row, status }) => row.stageName === curStage.title && status.pending) : undefined
+  const primaryTask = cur ? tasksOf(cur.seq).find(({ status }) => status.pending) : undefined
   const done = view.stages.filter((s) => s.status === 'done').length
 
   return shell(
