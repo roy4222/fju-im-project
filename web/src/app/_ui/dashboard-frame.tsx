@@ -101,6 +101,7 @@ export function DashboardFrame({
   items,
   current,
   homeHref,
+  switchLinks = [],
   bell,
   signOutFormId,
   children,
@@ -115,6 +116,8 @@ export function DashboardFrame({
   items: readonly Item[]
   current: string
   homeHref: string
+  /** 兼任角色的「切換到另一個後台」（票 41；伺服器依本人角色算好，單一角色是空的）。 */
+  switchLinks?: readonly AccountLink[]
   bell: ReactNode
   signOutFormId: string
   children: ReactNode
@@ -123,6 +126,7 @@ export function DashboardFrame({
   const title = items.find((item) => item.href === current)?.label ?? roleLabel
   const accountLinks: AccountLink[] = [
     { href: '/account', label: '我的帳號', icon: 'account' },
+    ...switchLinks,
     { href: '/', label: '回到前台', icon: 'site' },
   ]
 

@@ -55,3 +55,17 @@ describe('簽核版本通知的連結（2026-09-25 Roy 定：換掉的舊主指�
     expect(resolveSource(signoff({ signoff_readable: false }), ['teacher', 'admin'])).toEqual({ state: 'ok', href: `/dashboard/admin/signoff/${ID}` })
   })
 })
+
+describe('評分指派通知的連結（票 43：被移出後那一組不在評分清單就不給連結）', () => {
+  const grading = (patch: Record<string, unknown>) => ({ source_ref: { type: 'grading_assignment', id: ID }, cohort_status: 'active', ...patch })
+
+  it('老師：那一組還在本人的評分清單上 → 評分清單；已不在（被移出、改派走了）→ 不給連結，標題照樣看得到', () => {
+    expect(resolveSource(grading({ grading_group_listed: true }), ['teacher'])).toEqual({ state: 'ok', href: '/dashboard/teacher/grading' })
+    expect(resolveSource(grading({ grading_group_listed: false }), ['teacher'])).toEqual({ state: 'ok', href: null })
+    expect(resolveSource(grading({}), ['teacher'])).toEqual({ state: 'ok', href: null })
+  })
+
+  it('不是老師：無法存取', () => {
+    expect(resolveSource(grading({ grading_group_listed: true }), ['student'])).toEqual({ state: 'forbidden' })
+  })
+})

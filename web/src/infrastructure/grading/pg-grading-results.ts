@@ -523,8 +523,20 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         cohortId: cohort.id,
         source: { type: 'grading_assignment', id: target.id, version: 2 },
         actor: { kind: 'user', userId: adminId },
-        recipients: [],
-        payload: { groupId: group.id, stageKey: target.stage_key, choice, newAssignmentId },
+        // 票 43（NTF-07）：通知被移出的老師本人；同組其他評分老師、新老師（另收 grading.assigned）都不在這裡。
+        recipients: [target.teacher_user_id],
+        recipientBasis: { basis: 'evaluator_assignment', assignmentId: target.id },
+        // 本人異動說明：組別、階段、理由；不帶任何分數。
+        payload: {
+          title: `你已被移出 ${group.code}「${stageName}」的評分指派：${reason.value}`,
+          groupId: group.id,
+          code: group.code,
+          stageKey: target.stage_key,
+          stageName,
+          reason: reason.value,
+          choice,
+          newAssignmentId,
+        },
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })

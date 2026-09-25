@@ -19,7 +19,7 @@
 ## 步驟
 
 1. **管理員登入**（工作階段 `admin`）
-   - 做：打開 `https://test.fju.roy422.dev/login`，用 E2E 管理員登入，再打開 `https://test.fju.roy422.dev/dashboard/admin`。
+   - 做：先打開 `https://test.fju.roy422.dev/api/health`，在「看到什麼」寫 `commit=<前 8 碼>`（測試站版本）；再打開 `https://test.fju.roy422.dev/login`，用 E2E 管理員登入，再打開 `https://test.fju.roy422.dev/dashboard/admin`。
    - 預期：看到標題「歡迎回來，E2E 測試管理員」；沒有被帶去 `/account/change-password`。
 2. **記下兩個全系旗標原本在哪一屆**
    - 做：打開 `https://test.fju.roy422.dev/dashboard/admin/cohorts`，看屆別表格裡哪一列標著「開放註冊中」、哪一列標著「預設工作中」，把兩個屆別代碼記在報告的「看到什麼」欄（沒有就寫「無」）。
