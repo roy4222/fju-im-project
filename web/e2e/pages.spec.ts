@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
 /**
@@ -194,6 +195,26 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
    * 之後新增後台頁面忘了加守衛，這裡就會紅。
    */
 
+  // 時間軸、專題事務、編輯器的指紋要有屆別才會出現（沒屆別時頁面只有「先去建屆別」的空狀態）。
+  // 單跑這個檔在空庫上也要成立：沒有未封存的屆別就建一個。
+  test.beforeAll(async () => {
+    const ownerUrl = process.env.DATABASE_URL_OWNER
+    if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能準備資料')
+    const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+    try {
+      const found = await pool.query(`select 1 from cohorts where status <> 'archived' limit 1`)
+      if (found.rowCount === 0) {
+        await pool.query(
+          `insert into cohorts (id, code, name, status, created_by_kind)
+           values (gen_random_uuid(), $1, $1, 'preparing', 'system')`,
+          [`PAGES-${Date.now().toString(36).toUpperCase()}`],
+        )
+      }
+    } finally {
+      await pool.end()
+    }
+  })
+
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
     '/dashboard/admin': '待審的註冊、已開通的學生與目前在忙的屆別',
@@ -201,7 +222,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
     '/dashboard/teacher': '指導的組別、要評分的項目與待簽核',
     '/dashboard/student': '組別、要交的東西與截止日',
-    // 票 35 起這三頁的指紋要有屆別才出現（檔名排在前面的 admin-daily-ui／affairs 等 spec 會先建屆別）；
+    // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
     '/dashboard/admin/timeline': '編輯階段與日期',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
