@@ -203,15 +203,15 @@ test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指�
   // 首頁的「歷屆專題一覽」取同一份查詢（同一個預設排序）的前 3 件，每張卡要帶指導老師。
   await page.goto('/projects')
   const top = page.getByTestId('project-card')
-  const advisors: string[] = []
+  // 第 i 張卡的指導老師（沒有指導老師的卡是 null，位置照樣對齊）。
+  const advisors: (string | null)[] = []
   for (let i = 0; i < Math.min(3, await top.count()); i += 1) {
-    const found = /指導老師 (\S+)/.exec((await top.nth(i).textContent()) ?? '')
-    if (found) advisors.push(found[1]!)
+    advisors.push(/指導老師 ([^・\n]+)/.exec(await top.nth(i).innerText())?.[1] ?? null)
   }
-  expect(advisors.length).toBeGreaterThan(0)
+  expect(advisors.some(Boolean)).toBe(true)
   await page.goto('/')
   const homeCards = page.getByTestId('home-archive-list').getByRole('listitem')
-  for (const [i, name] of advisors.entries()) await expect(homeCards.nth(i)).toContainText(name)
+  for (const [i, name] of advisors.entries()) if (name) await expect(homeCards.nth(i)).toContainText(name)
   await page.goto(`/projects?q=${encodeURIComponent(stamp)}`)
   // 歷屆一覽是全部已發布的（含沒得獎的）；「只看得獎」就剩得獎的。
   await expect(page.getByTestId('project-card').filter({ hasText: PLAIN })).toBeVisible()
@@ -234,8 +234,10 @@ test('榮譽榜與競賽資訊列出已發布的公開項目；忘記密碼頁�
   await expect(competition).toBeVisible()
   await expect(competition).toContainText('報名中')
   await expect(competition).toContainText('截止 2099-12-31')
+  // 「已結束」只有日期都過了的那一則（報名中的不會跑進來）。
   await page.goto(`/competitions?status=closed&q=${encodeURIComponent(stamp)}`)
-  await expect(page.getByTestId('competition-card')).toHaveCount(0)
+  await expect(page.getByTestId('competition-card')).toHaveCount(1)
+  await expect(page.getByTestId('competition-card')).toContainText(ENDED_COMPETITION)
   await page.goto(`/competitions?q=${encodeURIComponent(stamp)}`)
   await competition.getByRole('link', { name: /競賽詳情與報名/ }).click()
   await expect(page).toHaveURL(/\/news\/[0-9a-f-]{36}$/)
