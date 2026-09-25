@@ -431,7 +431,7 @@
       "destination": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
       "change": "resynced",
-      "source_sha256": "1c5d419b04f770749d1b6e5d1fbae0ede416db8eeca162f82873a19578a397e9",
+      "source_sha256": "75c5471d4479aa661990385f1a0791ae944ea054d62850f50f428830d63ea68f",
       "mirror_sha256": "d4f5ed3710ed3ebe1ce632218a016a3b924b6daf4238288e64e4a3f5fead02ba"
     },
     {
@@ -523,15 +523,16 @@
     {
       "destination": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
       "commit": "2e66ead",
-      "note": "「新增表必擴充權限矩陣與 roles.test」一段只在 repo，Vault 00 總索引沒有；依「雙邊改動先整合」保留在鏡像，待回寫 Vault。"
+      "note": "「新增表必擴充權限矩陣與 roles.test」一段原本只在 repo；依主控台 2026-09-25 指示補回 Vault 00 總索引 §0，兩端一致，鏡像為純轉換結果。",
+      "resolved_at": "2026-09-25T10:38:17.938372+00:00"
     }
   ],
   "out_of_scope_not_mirrored": [
-    "🛠️ 工程開發/🚀 開發計畫.md（不在 manifest 與 🧭 文件分工映射表；依規則不鏡像）",
-    "🛠️ 工程開發/🧱 實作切片/ 新增的 00 開發進度總覽、02–05、各切片 00 進度與工作包、票/、追蹤快照/（不在既有 manifest）"
+    "🛠️ 工程開發/🚀 開發計畫.md（範圍維持不變：主控台 2026-09-25 裁定不鏡像）",
+    "🛠️ 工程開發/🧱 實作切片/ 9/16 後新增檔（舊流程歷史；主控台 2026-09-25 裁定不鏡像）"
   ],
   "not_run": [
     "CI 以外的任何應用驗證",
-    "Vault 正文內容修改（只更新狀態／核對時間）"
+    "Vault 正文內容修改（只更新狀態／核對時間，外加依主控台指示補回 00 總索引那一段）"
   ]
 }
