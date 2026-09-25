@@ -8,7 +8,7 @@ import { LETTER_GRADES, type LetterGrade, type LetterMap, type ScoreItemType } f
  * - 每階段有多個項目，**項目權重合計必須 100%**（通過／不通過項目是結果型 Gate，不占權重、不算進合計）。
  * - 項目三種：數字（有滿分）、等第 A／B／C／D／F（依本版本的對照表轉成數字）、通過／不通過。
  * - 不合法就不能建立、不能發布，錯誤訊息指出是哪一層、哪一個階段或項目。
- * - 方案版本寫了就不能改（資料庫 trigger 守）；要改結構就建新版本。第一份正式評分送出後，目前版本鎖定。
+ * - 方案版本寫了就不能改（資料庫 trigger 守）；要改結構就建新版本。第一位老師開始填（第一份暫存或正式送出）後，目前版本鎖定（產品 7.5）。
  *
  * **這裡的「階段」是評分方案的計分階段，不是票 11 屆別時間軸的四個階段**（兩件事分開，見 schema/grading.ts）。
  * 這個檔沒有資料庫：權重怎麼驗、key 怎麼補，都在這裡單獨測。
@@ -100,10 +100,38 @@ function fail(message: string, field: string): Err {
 }
 
 /**
- * 整理並驗證方案內容。合法時回傳要存進 `stages` jsonb 的樣子（沒給 key 的階段與項目補上 `s1`、`i1`…）。
+ * 這個方案**歷來所有版本**用過的代號（建立新版本時傳給 `normalizeSchemeStages`）。
+ *
+ * 新增的階段與項目一律拿「從沒用過」的代號：刪掉 `s1` 再新增一個階段，新的會是 `s3` 而不是又一個 `s1`——
+ * 否則要求份數、評分指派、暫存分數會靜悄悄接到一個不相干的新階段或新項目上（票 23 審查 P1）。
+ * 項目代號在整個方案裡都不重用（不只同一階段），規則簡單、不會漏。
+ */
+export type ReservedSchemeKeys = { readonly stageKeys: ReadonlySet<string>; readonly itemKeys: ReadonlySet<string> }
+
+export const NO_RESERVED_KEYS: ReservedSchemeKeys = { stageKeys: new Set(), itemKeys: new Set() }
+
+/** 從歷來版本的 `stages` 收集用過的階段與項目代號。 */
+export function collectSchemeKeys(versions: readonly (readonly SchemeStage[])[]): ReservedSchemeKeys {
+  const stageKeys = new Set<string>()
+  const itemKeys = new Set<string>()
+  for (const stages of versions) {
+    for (const stage of stages) {
+      stageKeys.add(stage.key)
+      for (const item of stage.items) itemKeys.add(item.key)
+    }
+  }
+  return { stageKeys, itemKeys }
+}
+
+/**
+ * 整理並驗證方案內容。合法時回傳要存進 `stages` jsonb 的樣子（沒給 key 的階段與項目補上 `s1`、`i1`…，
+ * 跳過 `reserved` 裡歷來用過的代號）。
  * 錯誤訊息指出是哪一層不合：階段合計、第幾階段的項目合計、哪一個項目的滿分或型態。
  */
-export function normalizeSchemeStages(input: readonly SchemeStageInput[]): { ok: true; value: SchemeStage[] } | Err {
+export function normalizeSchemeStages(
+  input: readonly SchemeStageInput[],
+  reserved: ReservedSchemeKeys = NO_RESERVED_KEYS,
+): { ok: true; value: SchemeStage[] } | Err {
   if (!Array.isArray(input) || input.length === 0) return fail('至少要有一個計分階段。', 'stages')
   if (input.length > SCHEME_LIMITS.stages) return fail(`計分階段最多 ${SCHEME_LIMITS.stages} 個。`, 'stages')
 
@@ -113,6 +141,16 @@ export function normalizeSchemeStages(input: readonly SchemeStageInput[]): { ok:
     if (!key) continue
     if (!KEY_PATTERN.test(key) || stageKeys.has(key)) return fail('階段代號重複或格式不對，請重新整理頁面再建立。', 'stages')
     stageKeys.add(key)
+  }
+
+  // 新代號要避開：這一版明寫的代號＋歷來版本用過的代號。
+  const takenStageKeys = new Set([...stageKeys, ...reserved.stageKeys])
+  const takenItemKeys = new Set(reserved.itemKeys)
+  for (const raw of input) {
+    for (const item of Array.isArray(raw.items) ? raw.items : []) {
+      const key = typeof item.key === 'string' ? item.key.trim() : ''
+      if (key) takenItemKeys.add(key)
+    }
   }
 
   const stages: SchemeStage[] = []
@@ -165,7 +203,7 @@ export function normalizeSchemeStages(input: readonly SchemeStageInput[]): { ok:
         if (w === null || w < 1 || w > 100) return fail(`「${itemName}」的權重要是 1–100 的整數。`, `${field}.weight`)
         itemWeight = w
       }
-      const key = typeof rawItem.key === 'string' && rawItem.key.trim() ? rawItem.key.trim() : nextKey('i', itemKeys)
+      const key = typeof rawItem.key === 'string' && rawItem.key.trim() ? rawItem.key.trim() : nextKey('i', takenItemKeys)
       normalizedItems.push({ key, name: itemName, type, max, weight: itemWeight })
     }
 
@@ -194,7 +232,7 @@ export function normalizeSchemeStages(input: readonly SchemeStageInput[]): { ok:
       letterMap = map as LetterMap
     }
 
-    const key = typeof raw.key === 'string' && raw.key.trim() ? raw.key.trim() : nextKey('s', stageKeys)
+    const key = typeof raw.key === 'string' && raw.key.trim() ? raw.key.trim() : nextKey('s', takenStageKeys)
     stages.push({ key, name, weight, letterMap, items: normalizedItems })
   }
 
