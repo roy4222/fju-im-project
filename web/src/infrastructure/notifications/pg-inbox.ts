@@ -95,6 +95,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   // 評分指派（票 23）：點進老師的評分工作台；那一頁自己再依本人身分查有效指派（被移除的指派看不到）。
   grading_assignment: (ref) =>
     ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' },
+  // 成績更正待復核（票 24）：只有管理員點得進評分頁（那一頁的「待復核」清單就是管理待辦）。
+  grade_override: (ref) => (ref.roles.includes('admin') ? { state: 'ok', href: '/dashboard/admin/grading' } : { state: 'forbidden' }),
 }
 
 /**

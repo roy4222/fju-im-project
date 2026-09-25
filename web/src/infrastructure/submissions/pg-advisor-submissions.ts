@@ -11,6 +11,7 @@ import {
   type AdvisorMatrixItem,
   type AdvisorReceiverView,
   type AdvisorSubmissionQuery,
+  type GroupVersionEntry,
   type MyVersionDetail,
   type RosterEntry,
   type RosterItem,
@@ -296,6 +297,35 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     const row = found.rows[0]
     if (!row || !canReadSubmission(viewer, holderOf(row))) return null
     return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo)
+  }
+
+  async groupVersions(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionEntry[] | null> {
+    if (!isTeacher(actor) || !isUuid(groupId)) return null
+    const db = this.#reader()
+    const viewer = await viewerOf(db, actor)
+    if (!viewer) return null
+    // 事實與附件下載政策同一段（VERSION_ACCESS_COLUMNS）：列得出來的版本就是點得開、下載得到的。
+    const rows = await db.query<
+      VersionAccessRow & { item_id: string; title: string; version_no: number; received_business_at: Date; submitted_by_name: string }
+    >(
+      `select v.item_id, m.title, v.version_no, v.received_business_at,
+              coalesce(nullif(btrim(sp.display_name), ''), su.name) as submitted_by_name, ${VERSION_ACCESS_COLUMNS}
+         from submission_versions v
+         join managed_items m on m.id = v.item_id
+         join form_schema_versions sv on sv.id = v.schema_version_id
+         join users su on su.id = v.submitted_by_user_id
+         left join user_profiles sp on sp.user_id = v.submitted_by_user_id
+        where v.receiver_kind = 'group' and v.receiver_id = $1
+        order by m.title, v.item_id, v.version_no desc`,
+      [groupId],
+    )
+    return readable(viewer, rows.rows).map((r) => ({
+      itemId: r.item_id,
+      title: r.title,
+      versionNo: r.version_no,
+      receivedBusinessAt: r.received_business_at,
+      submittedByName: r.submitted_by_name,
+    }))
   }
 
   /**

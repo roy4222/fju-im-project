@@ -6,6 +6,7 @@ import { cn } from '@/shared/cn'
 
 function stateText(e: TeacherQueueEntry): string {
   if (e.state === 'counted') return '已送出'
+  if (e.returned) return '已退回'
   if (e.state === 'draft') return `暫存 ${e.filled}/${e.total}`
   return '未開始'
 }

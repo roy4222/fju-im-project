@@ -465,6 +465,73 @@ describe('4. 被移出的人只看得到自己還在組裡時的版本', () => {
   })
 })
 
+describe('5. 受指派的評分老師（票 24、S10-03）讀得到該組正式繳交與附件', () => {
+  async function evaluate(groupId: string, teacherId: string): Promise<string> {
+    const row = await owner.sql(
+      `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+       values (gen_random_uuid(), $1, 'mid', $2, now(), $3) returning id`,
+      [groupId, teacherId, adminId],
+    )
+    return String(row.rows[0]!.id)
+  }
+
+  it('有效評分指派：本組正式版本列得出來、內容點得開、附件下載得到；別組、共用草稿不行；指派結束立刻失效', async () => {
+    const { s1, g1, g2, itemId, f1, f2, f6 } = await groupScenario()
+    const evaluator = await newUser('評分老師', 'teacher')
+    // 還沒指派：什麼都拿不到。
+    expect(await download(teacherActor(evaluator), f1)).toBe('FORBIDDEN')
+    expect(await advisor.groupVersions(teacherActor(evaluator), g1)).toEqual([])
+
+    const assignmentId = await evaluate(g1, evaluator)
+    expect(await download(teacherActor(evaluator), f1)).toBe('ok')
+    expect(await download(teacherActor(evaluator), f2)).toBe('ok')
+    expect(await download(teacherActor(evaluator), f6)).toBe('FORBIDDEN')
+    const listed = (await advisor.groupVersions(teacherActor(evaluator), g1))!
+    expect(listed.map((v) => [v.itemId, v.versionNo])).toEqual([
+      [itemId, 2],
+      [itemId, 1],
+    ])
+    expect(await advisor.groupVersions(teacherActor(evaluator), g2)).toEqual([])
+    const detail = await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 1)
+    expect(detail?.files.map((f) => f.fileId)).toEqual([f1])
+    expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g2, 1)).toBeNull()
+    // 主指導看的矩陣不會因為評分指派多出這組（兩種身分分開）。
+    expect((await advisor.matrix(teacherActor(evaluator)))!.groups).toEqual([])
+
+    // 共用草稿的附件：評分老師不行（只有正式版本）。
+    const draftFile = await mustUpload(s1, itemId, 'draft.pdf', PDF)
+    const current = (await query.myItem(s1.id, itemId))?.draft?.revision ?? 0
+    const saved = await submissions.saveDraft(studentActor(s1), itemId, current, { topic: '還沒送', report: draftFile }, randomUUID())
+    expect(saved.ok).toBe(true)
+    expect(await download(teacherActor(evaluator), draftFile)).toBe('FORBIDDEN')
+    expect(await download(studentActor(s1), draftFile)).toBe('ok')
+
+    // 學生與管理員不走老師查詢。
+    expect(await advisor.groupVersions(studentActor(s1), g1)).toBeNull()
+
+    // 指派結束（移除或改派）：立刻讀不到。
+    await owner.sql(
+      `update evaluator_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, reason = '改派', removal_choice = 'replace'
+        where id = $1`,
+      [assignmentId, adminId],
+    )
+    expect(await download(teacherActor(evaluator), f1)).toBe('FORBIDDEN')
+    expect(await advisor.groupVersions(teacherActor(evaluator), g1)).toEqual([])
+    expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g1, 1)).toBeNull()
+  })
+
+  it('同時是主指導與評分老師：移除評分指派後仍以主指導身分讀得到（GRD-14）', async () => {
+    const { g1, f1 } = await groupScenario()
+    const assignmentId = await evaluate(g1, t1)
+    await owner.sql(
+      `update evaluator_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, reason = '移除', removal_choice = 'replace'
+        where id = $1`,
+      [assignmentId, adminId],
+    )
+    expect(await download(teacherActor(t1), f1)).toBe('ok')
+  })
+})
+
 describe('4. 個人回答：老師預設看不到；管理員開主指導閱覽（SUB-24）', () => {
   /** 一屆、G1（S1、S2，主指導 T1）；一份個人收件（還沒發布）。 */
   async function personalScenario() {

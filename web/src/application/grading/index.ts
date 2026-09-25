@@ -23,6 +23,72 @@ export {
 export type { EvaluationState, ScoreInput } from '@/application/grading/evaluation'
 export { EVALUATION_STATE_LABEL, normalizeScores, summarizeScores } from '@/application/grading/evaluation'
 export type {
+  CountedEvaluation,
+  CountedLine,
+  GroupResult,
+  OverrideState,
+  OverrideSummary,
+  RemovalChoice,
+  StageResult,
+  StageStatus,
+} from '@/application/grading/gradebook'
+export {
+  adoptedFinal,
+  applyRemovalChoice,
+  computeGroupResult,
+  computeStage,
+  describeFinalFormula,
+  describeOverride,
+  describeStageFormula,
+  describeStageStatus,
+  OVERRIDE_STATE_LABEL,
+  REMOVAL_CHOICE_LABEL,
+  STAGE_STATUS_LABEL,
+} from '@/application/grading/gradebook'
+export type {
+  GradeExportFilter,
+  GradeExportFormat,
+  GradeExportRequest,
+  GradeExportResult,
+  GradeExportStatus,
+  GradeExporter,
+} from '@/application/grading/export'
+export {
+  buildGradeCsv,
+  DEFAULT_GRADE_EXPORT_FILTER,
+  describeMissing,
+  gradeExportHeader,
+  gradeExportRows,
+  normalizeGradeExportFilter,
+  normalizeGradeExportRequest,
+  selectExportGroups,
+  unassignedSlots,
+} from '@/application/grading/export'
+export type {
+  ApplySchemeInput,
+  AssignmentHistoryEntry,
+  EvaluationHistoryEntry,
+  Gradebook,
+  GradebookGroup,
+  GradebookQuery,
+  GradingResultsCommand,
+  GroupGradeDetail,
+  MissingEvaluation,
+  OverrideInput,
+  OverrideReceipt,
+  OverrideView,
+  PendingReview,
+  ReassignmentOption,
+  ReassignmentPreview,
+  RemoveAssignmentInput,
+  RemoveAssignmentReceipt,
+  ResolveReviewInput,
+  ReturnEvaluationInput,
+  ReturnNotice,
+  ReturnReceipt,
+  SchemeApplyPreview,
+} from '@/application/grading/ports'
+export type {
   AdminAssignmentView,
   AdminGradingBoard,
   AssignEvaluatorInput,
@@ -47,6 +113,9 @@ export {
   describeAssignEvaluatorReceipt,
   describeDraftReceipt,
   describeFinalReceipt,
+  describeOverrideReceipt,
+  describeRemoveAssignmentReceipt,
   describeRequirementReceipt,
+  describeReturnReceipt,
   describeSchemeVersionReceipt,
 } from '@/application/grading/receipts'

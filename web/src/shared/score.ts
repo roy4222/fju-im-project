@@ -119,3 +119,33 @@ export function averageScore(values: readonly (ScoreDecimal | string)[]): ScoreD
   if (values.length === 0) return null
   return values.reduce<ScoreDecimal>((sum, v) => sum.plus(new D(v)), new D(0)).dividedBy(values.length)
 }
+
+/** 最終成績＝Σ（階段成績 × 階段權重 / 100）（完整精度；票 24）。 */
+export function weightedFinal(parts: readonly { readonly value: ScoreDecimal | string; readonly weight: number }[]): ScoreDecimal {
+  return parts.reduce<ScoreDecimal>((sum, p) => sum.plus(new D(p.value).times(p.weight).dividedBy(100)), new D(0))
+}
+
+/**
+ * 「原始精度」的字串：最多小數四位（round-half-up、去掉尾巴的 0；例：82.145、85.287、83.0966… → 83.0967）。
+ * 計算明細與匯出用，和 `grade_overrides.original_value` 的 numeric(10,4) 對齊；**計算一律用完整精度的 decimal**，不用這個字串。
+ */
+export function exactScore(value: ScoreDecimal | string | number): string {
+  return new D(value).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString()
+}
+
+/** 兩個分數是否相等（decimal 比較）。 */
+export function sameScore(a: ScoreDecimal | string, b: ScoreDecimal | string): boolean {
+  return new D(a).equals(new D(b))
+}
+
+/**
+ * 管理員更正的最終成績：0–100、最多兩位小數；合法回傳正規化字串，不合法回 null。
+ * 更正的是「最終結果」（產品 7.5），跟單一項目的滿分無關。
+ */
+export function parseFinalScore(raw: string): string | null {
+  const text = raw.trim()
+  if (!NUMBER_PATTERN.test(text)) return null
+  const value = new D(text)
+  if (value.lessThan(0) || value.greaterThan(100)) return null
+  return value.toString()
+}
