@@ -17,11 +17,15 @@ import { cn } from '@/shared/cn'
 // ── 原型的按鈕與輸入框 ─────────────────────────────────────────────────────
 
 /** 原型 `btn-fju h-9 rounded-lg px-4 text-sm`：系網橘實心。 */
-export const BTN_PRIMARY = 'btn-fju press h-9 rounded-lg px-4 text-sm disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+export const BTN_PRIMARY = 'btn-fju press h-9 shrink-0 whitespace-nowrap rounded-lg px-4 text-sm disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+/** 原型 `buttonVariants({ size: "lg" })`（原型的 primary＝系網深藍，這裡是 ink）：深藍實心。 */
+export const BTN_INK =
+  'press inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink px-3 text-sm font-semibold text-ink-foreground transition-colors hover:bg-ink/85 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
 /** 原型 `buttonVariants({ variant: "outline", size: "lg" })`：白底細框。 */
-export const BTN_OUTLINE = buttonVariants({ variant: 'outline', size: 'lg', className: 'press rounded-lg px-3 font-semibold' })
+// 用 cn 包一次：cva 直接輸出會同時帶 border-transparent 與 border-border，沒經 tailwind-merge 時框線會不見。
+export const BTN_OUTLINE = cn(buttonVariants({ variant: 'outline', size: 'lg', className: 'press rounded-lg px-3 font-semibold' }))
 /** 小一號的外框鈕（列表列尾的「收件」「編輯」）。 */
-export const BTN_OUTLINE_SM = buttonVariants({ variant: 'outline', size: 'sm', className: 'press rounded-lg font-semibold' })
+export const BTN_OUTLINE_SM = cn(buttonVariants({ variant: 'outline', size: 'sm', className: 'press rounded-lg font-semibold' }))
 /** 圖示小鈕（上移、下移、刪除）。 */
 export const BTN_ICON =
   'inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 [&_svg]:size-4'
@@ -36,7 +40,7 @@ export const FIELD_LABEL = 'flex flex-col gap-1.5 text-sm font-semibold'
 export function pillClass(active: boolean) {
   return cn(
     'press inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors',
-    active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-foreground hover:border-primary/40 hover:bg-accent',
+    active ? 'border-ink bg-ink text-ink-foreground' : 'border-border text-foreground hover:border-ink/40 hover:bg-accent',
   )
 }
 /** 原生 `<dialog>` 的外觀（原型 DialogContent：圓角、陰影、半透明遮罩）。 */

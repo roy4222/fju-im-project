@@ -16,7 +16,7 @@ import {
   PLACEMENT_LABEL,
   RECEIVER_UNIT_LABEL,
 } from '@/composition/items'
-import { formatTaipeiMinute } from '@/shared/time'
+import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '專題事務｜資管系專題平台' }
 
@@ -92,11 +92,8 @@ export default async function AffairsPage({
       visibility: r.audienceKind === 'public' ? '網際網路公開' : '登入後可見',
       audience:
         r.audienceKind === 'groups' ? `指定組別：${r.audienceGroupCodes.join('、') || '（還沒選）'}` : AUDIENCE_LABEL[r.audienceKind],
-      date: r.dueAt
-        ? `${formatTaipeiMinute(r.dueAt)} 截止`
-        : r.actualOpenedAt
-          ? `${formatTaipeiMinute(r.actualOpenedAt)} 發布`
-          : '—',
+      // 原型這一欄只寫日期；截止多寫到分鐘（23:59 截止跟 00:00 截止差一天）。
+      date: r.dueAt ? formatTaipeiMinute(r.dueAt) : r.actualOpenedAt ? formatTaipeiDate(taipeiDateOf(r.actualOpenedAt)) : '—',
       isDue: r.dueAt !== null,
       overdue: r.dueAt !== null && r.dueAt.getTime() < businessNow.getTime(),
       // 收件名單頁（票 18）：數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
@@ -104,7 +101,7 @@ export default async function AffairsPage({
         ? r.status === 'draft'
           ? { text: RECEIVER_UNIT_LABEL[r.receiverUnit], href: null }
           : {
-              text: `應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`,
+              text: `應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}`,
               href: `/dashboard/admin/affairs/${r.id}`,
             }
         : null,

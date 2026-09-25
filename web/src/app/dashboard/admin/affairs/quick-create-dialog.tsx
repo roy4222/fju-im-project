@@ -23,6 +23,7 @@ import {
   type FieldDraft,
 } from './item-form-parts'
 import { SettingsFields } from './item-settings'
+import { BTN_INK } from '@/app/_ui/dashboard-kit'
 import type { ItemReview } from '@/application/items'
 import { cn } from '@/shared/cn'
 
@@ -179,7 +180,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
               <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()}>
                 回列表
               </button>
-              <Link href={`/dashboard/admin/editor/${saved?.itemId}`} className={PRIMARY}>
+              <Link href={`/dashboard/admin/editor/${saved?.itemId}`} className={BTN_INK}>
                 細調欄位
               </Link>
             </div>
@@ -277,7 +278,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                               onClick={() => toggleQuickField(f.type, f.label)}
                               className={cn(
                                 'press inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors',
-                                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/40',
+                                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-ink/40',
                               )}
                             >
                               <FieldIcon aria-hidden className="size-4" />

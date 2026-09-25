@@ -515,10 +515,11 @@
 
 /* ---------------------------------------------------------------------------
    時間軸「直立蛇形」（票 35；原型 `timeline-zigzag.tsx` 與 globals.css 同名段落）。
-   原型的 `--brand` 在這裡就是 `--primary`。脊椎的進度用 SVG 畫（不用 style 屬性，正式站 CSP 會擋）。
+   原型的 `--brand`（系網橘）在這裡是 `--primary`，原型的 `--primary`（系網深藍）在這裡是 `--ink`。
+   脊椎的進度用 SVG 畫（不用 style 屬性，正式站 CSP 會擋）。
 --------------------------------------------------------------------------- */
 @layer components {
-  .tl-wrap { --tl-line: color-mix(in oklch, var(--primary) 22%, var(--card)); }
+  .tl-wrap { --tl-line: color-mix(in oklch, var(--ink) 22%, var(--card)); }
   .tl-spine { position: absolute; left: 50%; top: 32px; bottom: 32px; width: 2px; height: calc(100% - 64px); transform: translateX(-50%); background: var(--tl-line); }
 
   .tl-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: center; gap: 0 4px; }
@@ -530,7 +531,7 @@
   .tl-connector { grid-row: 1; height: 2px; width: 20px; background: var(--tl-line); }
   .tl-left .tl-connector { grid-column: 1; justify-self: end; }
   .tl-right .tl-connector { grid-column: 3; justify-self: start; }
-  .tl-row[data-status='done'] .tl-connector { background: var(--primary); }
+  .tl-row[data-status='done'] .tl-connector { background: var(--ink); }
   .tl-row[data-status='current'] .tl-connector { background: var(--primary); }
 
   .tl-card { position: relative; grid-row: 1; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: min(100%, 520px); transition: background-color 150ms, border-color 150ms; }

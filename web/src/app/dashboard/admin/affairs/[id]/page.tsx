@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { IconClock } from '@tabler/icons-react'
-import { BackLink, BTN_PRIMARY, PageTitle, Pill } from '@/app/_ui/dashboard-kit'
+import { BackLink, BTN_INK, PageTitle, Pill } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
@@ -14,7 +14,6 @@ import type { RosterEntry } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery } from '@/composition/submissions'
-import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '收件名單｜資管系專題平台' }
@@ -84,7 +83,7 @@ export default async function RosterPage({
                     </Pill>
                   ) : null}
                   {item.schemaVersionNo ? <Pill>欄位 v{item.schemaVersionNo}</Pill> : null}
-                  <Link href={`/dashboard/admin/editor/${item.itemId}`} className={cn(BTN_PRIMARY, 'h-9')}>
+                  <Link href={`/dashboard/admin/editor/${item.itemId}`} className={BTN_INK}>
                     編輯內容
                   </Link>
                 </>

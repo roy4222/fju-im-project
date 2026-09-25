@@ -34,7 +34,8 @@ const PLACEMENT_ICON: Record<string, Icon> = {
 function choiceClass(on: boolean, locked = false) {
   return cn(
     'inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors',
-    on ? 'border-primary bg-primary-subtle/40 text-primary-on-subtle' : 'border-border hover:border-primary/40',
+    // 選中用實心淡橘（不用 /40 透明度：疊上鎖定時的 opacity，Chromium 會把 color-mix 算成青色）。
+    on ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border hover:border-ink/40',
     locked && 'cursor-not-allowed opacity-60',
   )
 }
@@ -78,7 +79,7 @@ export function SettingsFields({
                 key={p.value}
                 className={cn(
                   'press flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 text-left transition-colors',
-                  on ? 'border-primary bg-primary-subtle/40' : 'border-border hover:border-primary/40',
+                  on ? 'border-primary bg-primary-subtle/40' : 'border-border hover:border-ink/40',
                   published && !on && 'cursor-not-allowed opacity-50',
                 )}
               >

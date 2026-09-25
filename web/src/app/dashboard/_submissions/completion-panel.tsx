@@ -27,10 +27,8 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
         </Ring>
         <dl className="grid flex-1 grid-cols-1 gap-1.5 text-sm">
           <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">已正式送出／應交{individual ? '人數' : '組數'}</dt>
-            <dd className="font-semibold tabular-nums" data-testid="completion-rate">
-              {completion.done}／{completion.required}
-            </dd>
+            <dt className="text-muted-foreground">已繳</dt>
+            <dd className="font-semibold tabular-nums">{completion.done}</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-muted-foreground">逾期未繳</dt>
@@ -51,7 +49,11 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
           ]}
         />
         <p className="mt-3 text-xs text-muted-foreground tabular-nums">
-          不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
+          已正式送出／應交{individual ? '人數' : '組數'}{' '}
+          <span className="font-semibold text-foreground" data-testid="completion-rate">
+            {completion.done}／{completion.required}
+          </span>
+          ・不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
         </p>
       </div>
     </Panel>

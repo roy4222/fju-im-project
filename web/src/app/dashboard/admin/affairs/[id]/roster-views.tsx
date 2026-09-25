@@ -68,7 +68,7 @@ export function RosterList({
                 'inline-flex h-8 items-center gap-1 rounded-full border px-3 text-xs font-semibold transition-colors',
                 key === list
                   ? 'border-primary/30 bg-primary-subtle text-primary-on-subtle'
-                  : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                  : 'border-border text-muted-foreground hover:border-ink/40 hover:text-foreground',
               )}
             >
               {LIST_LABEL[key]}
@@ -138,9 +138,9 @@ function RosterRow({
   const joined = `${entry.source === 'admin' ? '管理員加入' : '自動加入'}・${formatTaipeiMinute(entry.eligibleFrom)}`
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 transition-colors hover:bg-accent/40" data-testid="roster-row">
-      <span className="w-20 shrink-0 text-xs font-semibold text-muted-foreground tabular-nums">
-        {individual ? (entry.studentNo ?? '—') : entry.name}
-      </span>
+      {individual ? (
+        <span className="w-20 shrink-0 text-xs font-semibold text-muted-foreground tabular-nums">{entry.studentNo ?? '—'}</span>
+      ) : null}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">
           {individual ? entry.name : `${entry.name} 組`}

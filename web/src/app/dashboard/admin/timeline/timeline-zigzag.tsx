@@ -99,7 +99,7 @@ export function TimelineZigzag({
       ) : (
         <div className="relative px-4 py-6 sm:px-6 md:py-8">
           <svg className="tl-spine" viewBox="0 0 2 100" preserveAspectRatio="none" aria-hidden>
-            <rect width="2" height={spinePct} className="fill-primary" />
+            <rect width="2" height={spinePct} className="fill-ink" />
           </svg>
           <ol aria-label="階段" className="flex flex-col gap-4 md:gap-5">
             {stages.map((s, i) => {
@@ -163,7 +163,7 @@ export function TimelineZigzag({
                             <button
                               type="button"
                               onClick={dialog.open}
-                              className="inline-flex h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-accent"
+                              className="inline-flex h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent"
                             >
                               <IconPencil className="size-3.5" aria-hidden />
                               <span className="sr-only">第 {s.seq} 階段：</span>編輯階段與日期

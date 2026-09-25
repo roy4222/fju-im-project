@@ -160,7 +160,7 @@ export function AttachmentPicker({
         )}
       >
         <IconFileUpload aria-hidden className="size-5 shrink-0 text-primary" />
-        <span className="flex-1">
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : '加入附件'}</span>
           <span className="block text-xs text-muted-foreground">
             可上傳 {accept.replaceAll(',', '、')}，單檔上限 {maxMiB} MiB。下載權限跟著這一筆的對象走。
@@ -223,7 +223,7 @@ export function CoverPicker({
         )}
       >
         <IconPhoto aria-hidden className="size-5 shrink-0 text-primary" />
-        <span className="flex-1">
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : cover ? '換封面' : '上傳封面'}</span>
           <span className="block text-xs text-muted-foreground">
             封面只收 {accept.replaceAll(',', '、')}，上限 {maxMiB} MiB。
