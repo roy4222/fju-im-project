@@ -41,6 +41,7 @@ test('老師兼系辦：在兩個後台之間用帳號選單切換', async ({ br
 
   // 前台：「回後台」按鈕去預設的系辦後台，帳號選單兩個後台都列。
   await page.goto('/')
+  await expect(page.getByRole('banner').getByRole('link', { name: '管理後台', exact: true })).toHaveAttribute('href', '/dashboard/admin')
   menu = await openAccountMenu(page)
   await expect(menu.getByRole('menuitem', { name: '管理後台' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: '老師工作台' })).toBeVisible()
