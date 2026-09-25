@@ -60,6 +60,26 @@ const SECTIONS = [
 ] as const
 type SectionKey = (typeof SECTIONS)[number]['key']
 
+/** 伺服器擋下的欄位（`field`）在檢查表上叫什麼。 */
+const FIELD_CHECK_LABEL: Record<string, string> = {
+  title: '標題',
+  summary: '摘要',
+  body: '正文',
+  category: '分類',
+  fields: '欄位',
+  placement: '發布位置',
+  audienceKind: '對象',
+  receiverUnit: '收件單位',
+  opensAt: '開放時間',
+  dueAt: '截止',
+  stageId: '所屬階段',
+  groupIds: '指定組別',
+  attachments: '附件',
+  cover: '封面',
+}
+/** 這些欄位在第 1 段（內容）。 */
+const CONTENT_KEYS = new Set(['title', 'summary', 'body', 'category', 'attachments', 'cover'])
+
 /** 段落標題：數字圓＋名詞＋一句灰字（原型 `sectionHead`）。 */
 function SectionHead({ n, id, title, hint, right }: { n: number; id: string; title: string; hint?: string; right?: ReactNode }) {
   return (
@@ -132,6 +152,8 @@ export function ItemEditor({
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const [review, setReview] = useState<ItemReview | null>(null)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  // 檢查沒跑完是因為哪一欄（伺服器回的 `field`）：新建頁還沒填標題時，檢查表先列這一項，照原型給「回去補」。
+  const [reviewErrorField, setReviewErrorField] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [notify, setNotify] = useState(true)
   const [done, setDone] = useState<string | null>(null)
@@ -225,10 +247,12 @@ export function ItemEditor({
 
   async function runReview(): Promise<ItemReview | null> {
     setReviewError(null)
+    setReviewErrorField(null)
     const result = await reviewItemAction(toPayload(state), itemId)
     if (!result.ok) {
       setReview(null)
       setReviewError(result.message)
+      setReviewErrorField(result.field ?? null)
       return null
     }
     setReview(result.data)
@@ -314,19 +338,21 @@ export function ItemEditor({
           if (result.ok) {
             setReview(result.data)
             setReviewError(null)
+            setReviewErrorField(null)
           } else {
             setReview(null)
             setReviewError(result.message)
+            setReviewErrorField(result.field ?? null)
           }
         })
         .catch(() => {})
-    }, 700)
+    }, seq === 1 ? 0 : 700) // 打開頁面時馬上檢查一次；之後停手 0.7 秒才重跑
     return () => clearTimeout(timer)
   }, [state, itemId])
 
   /** 檢查表「回去補」：跳到該補的那一段（手機切到那一個分頁）。 */
   function goFix(key: string) {
-    const target: SectionKey = key === 'title' ? 'content' : key === 'fields' ? 'fields' : 'publish'
+    const target: SectionKey = CONTENT_KEYS.has(key) ? 'content' : key === 'fields' ? 'fields' : 'publish'
     setTab(target)
     requestAnimationFrame(() => document.getElementById(`sec-${target}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
@@ -603,7 +629,35 @@ export function ItemEditor({
             }
           />
           <div className="flex flex-col gap-3 px-5 pb-6 lg:px-6">
-            {reviewError ? <Feedback tone="error">{reviewError}</Feedback> : null}
+            {reviewError && reviewErrorField ? (
+              // 伺服器在跑檢查前就先擋下的那一欄（例如新建頁還沒填標題）：照原型的檢查表列出來，給「回去補」。
+              <ul aria-label="發布前檢查" className="divide-y divide-border rounded-xl border border-border text-sm">
+                <li className="flex min-h-11 items-center gap-3 bg-destructive-subtle/40 px-4 py-2">
+                  <span
+                    aria-hidden
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+                  >
+                    <IconAlertCircle className="size-3.5" />
+                  </span>
+                  <span className="w-16 shrink-0 text-muted-foreground">{FIELD_CHECK_LABEL[reviewErrorField] ?? '內容'}</span>
+                  <span className="min-w-0 flex-1 font-semibold text-destructive">{reviewError}</span>
+                  <button
+                    type="button"
+                    onClick={() => goFix(reviewErrorField)}
+                    className="shrink-0 text-xs font-semibold text-destructive underline-offset-2 hover:underline"
+                  >
+                    回去補<span className="sr-only">：{FIELD_CHECK_LABEL[reviewErrorField] ?? '內容'}</span>
+                  </button>
+                </li>
+                <li className="flex min-h-11 items-center gap-3 px-4 py-2 text-muted-foreground">
+                  <span aria-hidden className="inline-block size-5 shrink-0 rounded-full border-2 border-border" />
+                  <span className="w-16 shrink-0">其他項目</span>
+                  <span className="min-w-0 flex-1">這一項補好後會自動再檢查對象、截止、欄位等其他項目。</span>
+                </li>
+              </ul>
+            ) : reviewError ? (
+              <Feedback tone="error">{reviewError}</Feedback>
+            ) : null}
             {review ? (
               <>
                 <CheckList checks={review.checks} onFix={goFix} />

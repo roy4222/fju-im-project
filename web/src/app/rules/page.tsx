@@ -5,6 +5,15 @@ import { CleanBody, ListEmpty, PublicPage } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
 
+/**
+ * 規則正文的版型（原型 `/rules`）：編號清單＝`<ol>`、灰底註解框＝`<blockquote>`。
+ * 兩個標籤都在正文白名單裡（`renderBodyHtml`），這裡只給樣子，不放寬消毒。
+ */
+const RULE_BODY =
+  '[&_ol]:flex [&_ol]:list-decimal [&_ol]:flex-col [&_ol]:gap-1.5 [&_ol]:pl-6 ' +
+  '[&_blockquote]:mt-1 [&_blockquote]:flex [&_blockquote]:flex-col [&_blockquote]:gap-1 [&_blockquote]:rounded-[10px] [&_blockquote]:border-0 ' +
+  '[&_blockquote]:bg-muted/60 [&_blockquote]:p-4 [&_blockquote]:text-[15px] [&_blockquote]:leading-relaxed [&_blockquote]:text-muted-foreground'
+
 export const metadata: Metadata = {
   title: '專題規則｜資管系專題平台',
   description: '輔大資管系專題規則：課程目的、修課限制、分組與指導老師、課程要求、評分與獎懲。',
@@ -58,7 +67,7 @@ export default async function RulesPage() {
                     {s.title}
                   </h2>
                   {s.summary ? <p className="text-[15px] text-muted-foreground">{s.summary}</p> : null}
-                  <CleanBody html={s.bodyHtml} />
+                  <CleanBody html={s.bodyHtml} className={RULE_BODY} />
                 </section>
               ))}
             </article>
