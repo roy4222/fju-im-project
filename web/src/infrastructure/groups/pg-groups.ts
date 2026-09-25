@@ -11,6 +11,7 @@ import {
 } from '@/application/cohorts'
 import {
   canViewTeammates,
+  decideDisableSuccession,
   decideLeaderChange,
   decideRemoval,
   GROUP_TYPE_LABEL,
@@ -37,6 +38,9 @@ import {
   type GroupType,
   type InvitationState,
   type LeaderChangeReceipt,
+  type LeaderSuccession,
+  type LeaderSuccessionHook,
+  type LeadershipToSucceed,
   type MemberChangeReceipt,
   type OpportunityStatus,
   type ProposalExpiryHandler,
@@ -47,6 +51,7 @@ import {
   type RemoveMemberInput,
   type SetOpenToJoinReceipt,
   type StudentGroupView,
+  type SuccessorChoice,
   type TeacherOption,
   type TeammateListing,
   type TerminateReceipt,
@@ -227,7 +232,7 @@ export async function loadSchedule(
   }
 }
 
-export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
+export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, LeaderSuccessionHook<PoolClient> {
   readonly #audit: AuditWriter<PoolClient>
   readonly #ledger: OperationLedger<PoolClient>
   readonly #events: EventPublisher<PoolClient>
@@ -611,6 +616,10 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
     // 同一屆的組別代碼排隊配（屆別內遞增），兩組同時成立不會搶到同一個號碼。
     await tx.query('select pg_advisory_xact_lock(hashtext($1))', [`groups.code:${proposal.cohort_id}`])
     if ((await this.#activeMembers(tx, proposal.cohort_id, everyone)).length > 0) return conflict()
+    // 票 42（PR #328 審查）：提案人會成為組長，組長帳號一定要是 active。提案人確認後才被停用時，
+    // 停用那邊還查不到他是組長（組還沒成立），所以成立這一刻要再查一次：不是 active 就整份以 conflict 終止、釋放全員。
+    // 只加 `users FOR SHARE`（跟停用的 FOR NO KEY UPDATE 互斥），不碰 groups／role_assignments，鎖順序不變。
+    if (!(await this.#activeAccount(tx, proposal.proposer_user_id))) return conflict()
 
     const groupId = uuidv7()
     const existing = await tx.query<{ code: string }>('select code from groups where cohort_id = $1', [proposal.cohort_id])
@@ -1039,6 +1048,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       if (!decision.ok) return decision
       const target = before.find((m) => m.user_id === input.userId)!
       const nameOf = new Map(before.map((m) => [m.user_id, m.name]))
+      if (decision.leaderChange && successorId && !(await this.#activeAccount(tx, successorId))) {
+        return err('VALIDATION_FAILED', '接任的組長帳號已停用，請改選其他成員。', { details: { field: 'successorLeaderUserId' } })
+      }
 
       // 先換組長再結束組員資格：任何時刻這組都恰有一位有效組長，而且是有效成員。
       if (decision.leaderChange && leader && successorId) {
@@ -1182,6 +1194,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
         newLeaderId: input.newLeaderUserId,
       })
       if (!decision.ok) return decision
+      if (!(await this.#activeAccount(tx, input.newLeaderUserId))) {
+        return err('VALIDATION_FAILED', '這位同學的帳號已停用，不能擔任組長，請改選其他成員。', { details: { field: 'newLeaderUserId' } })
+      }
       const nameOf = new Map(members.map((m) => [m.user_id, m.name]))
       const leaderName = nameOf.get(input.newLeaderUserId)!
       const previousLeaderName = leader ? (nameOf.get(leader.user_id) ?? null) : null
@@ -1233,6 +1248,181 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler {
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id } })
       return { ok: true as const, receipt }
     })
+  }
+
+  // ── 停用帳號時的組長接任（票 42；`LeaderSuccessionHook`，由模組 01 的停用用例在它的交易裡呼叫） ──
+
+  async leadershipsOf(userId: string): Promise<readonly LeadershipToSucceed[]> {
+    if (!isUuid(String(userId ?? ''))) return []
+    return this.#read((db) => this.#leaderships(db, userId, false))
+  }
+
+  /** 唯讀查詢借一條連線（`PoolSource` 只給 `connect`）。 */
+  async #read<R>(body: (db: PoolClient) => Promise<R>): Promise<R> {
+    const client = await this.#pool().connect()
+    try {
+      return await body(client)
+    } finally {
+      client.release()
+    }
+  }
+
+  async leadersAmong(tx: PoolClient | null, userIds: readonly string[]): Promise<ReadonlySet<string>> {
+    const ids = [...new Set(userIds)].filter((id) => isUuid(id))
+    if (ids.length === 0) return new Set()
+    const query = (db: PoolClient) =>
+      db.query<{ user_id: string }>(
+        `select distinct l.user_id
+           from group_leaders l
+           join groups g on g.id = l.group_id
+           join cohorts c on c.id = g.cohort_id
+          where l.user_id = any($1::uuid[]) and l.valid_to is null and g.status = 'active' and c.status <> 'archived'`,
+        [ids],
+      )
+    const rows = tx ? await query(tx) : await this.#read(query)
+    return new Set(rows.rows.map((r) => r.user_id))
+  }
+
+  async lockLeaderships(tx: PoolClient, userId: string): Promise<void> {
+    const found = await tx.query<{ group_id: string }>(
+      `select l.group_id from group_leaders l
+         join groups g on g.id = l.group_id
+         join cohorts c on c.id = g.cohort_id
+        where l.user_id = $1 and l.valid_to is null and g.status = 'active' and c.status <> 'archived'
+        order by l.group_id`,
+      [userId],
+    )
+    // 鎖順序同 `#lockGroup`：屆別 FOR SHARE → 組別 FOR UPDATE。
+    for (const row of found.rows) await this.#lockGroup(tx, row.group_id)
+  }
+
+  async succeedOnDisable(
+    tx: PoolClient,
+    input: {
+      readonly userId: string
+      readonly choices: readonly SuccessorChoice[]
+      readonly actorUserId: string
+      readonly reason: string
+      readonly realAt: Date
+    },
+  ): Promise<{ readonly ok: true; readonly successions: readonly LeaderSuccession[] } | Err> {
+    // 呼叫端已經 `lockLeaderships` 並鎖了帳號列；這裡重讀一次（中間有人換過組長就對不上 → CONFLICT）。
+    const leaderships = await this.#leaderships(tx, input.userId, true)
+    const decision = decideDisableSuccession({ leaderships, choices: input.choices })
+    if (!decision.ok) return decision
+    if (decision.successions.length === 0) return { ok: true, successions: [] }
+
+    const businessNow = await this.#businessClock.now()
+    const reason = `帳號停用：${input.reason}`
+    const successions: LeaderSuccession[] = []
+    for (const choice of decision.successions) {
+      const leadership = leaderships.find((l) => l.groupId === choice.groupId)!
+      const group = await tx.query<{ id: string; cohort_id: string; code: string }>(
+        'select id, cohort_id, code from groups where id = $1 for update',
+        [choice.groupId],
+      )
+      const row = group.rows[0]!
+      const leader = await this.#currentLeader(tx, row.id)
+      if (!leader || leader.user_id !== input.userId) {
+        return err('CONFLICT', '組長資料剛剛有變動，請關閉對話框、重新整理後再停用。', { details: { field: 'successorLeaderUserId' } })
+      }
+      const leaderName = leadership.candidates.find((c) => c.userId === choice.userId)!.name
+      await this.#replaceLeader(tx, row.id, leader.id, choice.userId, input.actorUserId, reason, input.realAt, businessNow)
+      const revision = await this.#bumpGroup(tx, row.id, input.actorUserId, input.realAt)
+      const members = await this.#currentMembers(tx, row.id)
+
+      // 只換組長、成員集合沒變：不發 group.members_changed、不重簽（產品模組 03「組長」）。
+      await this.#events.publish(tx, {
+        type: 'group.leader_changed',
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        source: { type: 'group', id: row.id, version: revision },
+        actor: { kind: 'user', userId: input.actorUserId },
+        // 通知全組（被停用的人仍是組員列，但他登不進來；跟換組長一樣發給全體成員，恢復後看得到）。
+        recipients: members.map((m) => m.user_id),
+        recipientBasis: { groupId: row.id, basis: 'group_memberships', revision },
+        payload: {
+          title: `組別 ${row.code} 的組長換成 ${leaderName}`,
+          groupId: row.id,
+          code: row.code,
+          leaderUserId: choice.userId,
+        },
+        occurredRealAt: input.realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: input.actorUserId,
+        role: 'admin',
+        action: 'group.leader.change',
+        targetType: 'group',
+        targetId: row.id,
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        reason,
+        realAt: input.realAt,
+        businessAt: businessNow,
+        payload: { previousLeaderUserId: input.userId, leaderUserId: choice.userId, cause: 'account_disable' },
+      })
+      successions.push({
+        groupId: row.id,
+        groupCode: row.code,
+        previousLeaderUserId: input.userId,
+        leaderUserId: choice.userId,
+        leaderName,
+      })
+    }
+    return { ok: true, successions }
+  }
+
+  /**
+   * 這個人目前擔任組長、而且需要接任的組（屆別未封存、組別未解散），與每組可以接任的人
+   * （其他有效成員、帳號 active 且沒去識別化）。`lockCandidates` 在交易裡用：候選人的帳號列 FOR SHARE，
+   * 接任的那一刻他不會同時被別人停用。
+   */
+  async #leaderships(db: Pick<PoolClient, 'query'>, userId: string, lockCandidates: boolean): Promise<LeadershipToSucceed[]> {
+    const groups = await db.query<{ group_id: string; group_code: string; cohort_code: string }>(
+      `select l.group_id, g.code as group_code, c.code as cohort_code
+         from group_leaders l
+         join groups g on g.id = l.group_id
+         join cohorts c on c.id = g.cohort_id
+        where l.user_id = $1 and l.valid_to is null and g.status = 'active' and c.status <> 'archived'
+        order by l.group_id`,
+      [userId],
+    )
+    const result: LeadershipToSucceed[] = []
+    for (const g of groups.rows) {
+      const candidates = await db.query<{ user_id: string; name: string; student_no: string | null }>(
+        `select m.user_id, ${personName('p', 'u')} as name, p.student_no
+           from group_memberships m
+           join users u on u.id = m.user_id
+           left join user_profiles p on p.user_id = m.user_id
+          where m.group_id = $1 and m.valid_to is null and m.user_id <> $2
+            and u.status = 'active' and u.deidentified_at is null
+          order by p.student_no, m.user_id
+          ${lockCandidates ? 'for share of u' : ''}`,
+        [g.group_id, userId],
+      )
+      result.push({
+        groupId: g.group_id,
+        groupCode: g.group_code,
+        cohortCode: g.cohort_code,
+        candidates: candidates.rows.map((c) => ({ userId: c.user_id, name: c.name, studentNo: c.student_no })),
+      })
+    }
+    return result
+  }
+
+  /**
+   * 接任／新組長的帳號此刻要是 active（票 42：停用中的人不能當組長）。帳號列 FOR SHARE：
+   * 跟停用用例的 `for no key update` 互斥，兩邊同時發生時後到的會看到對方的結果。
+   */
+  async #activeAccount(tx: PoolClient, userId: string): Promise<boolean> {
+    const rows = await tx.query<{ ok: boolean }>(
+      `select (status = 'active' and deidentified_at is null) as ok from users where id = $1 for share`,
+      [userId],
+    )
+    return rows.rows[0]?.ok === true
   }
 
   /** 鎖順序：屆別 FOR SHARE → 組別 FOR UPDATE（模組實作設計 03 §6「成員異動：groups FOR UPDATE」）。 */

@@ -253,7 +253,16 @@ export function buildAccountsCsv(rows: readonly AccountRow[]): string {
 
 // ── 停用與恢復 ──────────────────────────────────────────────────────────────
 
-export type StatusChange = { readonly userId: string; readonly reason: string; readonly requestId: string }
+export type StatusChange = {
+  readonly userId: string
+  readonly reason: string
+  readonly requestId: string
+  /**
+   * 停用組長時同時指定的接任（票 42；產品模組 03「組長」、GRP-18）：這個人是哪一組的組長，就要給那一組一位接任。
+   * 不是組長就不帶。恢復不看這個欄位。
+   */
+  readonly successorLeaders?: readonly { readonly groupId: string; readonly userId: string }[]
+}
 
 function hasControlChars(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
@@ -339,6 +348,8 @@ export type BulkCandidate = {
   readonly studentNo: string
   readonly cohortCode: string | null
   readonly status: AccountStatus
+  /** 目前是某個未封存、未解散組別的組長（票 42）：批次停用不能替他指定接任，要逐筆停用。 */
+  readonly isLeader?: boolean
 }
 
 export type BulkTarget = BulkCandidate & { readonly line: number }
@@ -391,6 +402,11 @@ export function classifyBulk(
       skipped.push({ ...entry, reason: '不能停用自己', accounts: found })
       continue
     }
+    if (account.status === 'active' && account.isLeader) {
+      // 產品模組 03「組長」：停用組長要同時指定接任，否則不能完成（GRP-18）。批次沒有地方指定，請逐筆停用。
+      skipped.push({ ...entry, reason: '這位是組長，請到列表逐筆停用並指定接任的組長', accounts: found })
+      continue
+    }
     if (account.status === 'disabled') alreadyDisabled.push({ ...account, line: entry.line })
     else hits.push({ ...account, line: entry.line })
   }
@@ -421,6 +437,16 @@ export type StatusChangeReceipt = {
   readonly status: 'active' | 'disabled' | 'pending'
   readonly changedAt: string
   readonly revocation: RevocationOutcome
+  /** 停用組長時同一筆交易完成的組長接任（票 42）；不是組長或恢復時是空的。 */
+  readonly successions?: readonly { readonly groupCode: string; readonly leaderName: string }[]
+}
+
+/** 停用組長時的一組接任選項（票 42）：組別與可以接任的人（這組其他有效成員、帳號 active）。 */
+export type SuccessionOption = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly cohortCode: string
+  readonly candidates: readonly { readonly userId: string; readonly name: string; readonly studentNo: string | null }[]
 }
 
 export type BulkDisableReceipt = {
@@ -443,6 +469,12 @@ export type AccountDirectoryCommand = {
   summary(actor: ResolvedActor): Promise<Result<AccountSummary>>
   /** 匯出（每次重新授權、寫稽核）。回 CSV 全文。 */
   exportCsv(actor: ResolvedActor, selection: ExportSelection): Promise<Result<{ csv: string; count: number }>>
+  /**
+   * 停用對話框開啟時用（票 42）：這個帳號目前是哪些組的組長、每組可以接任的人。不是組長回空陣列。
+   * 只有管理員；只讀。封存屆與已解散的組不列（不需要接任）。
+   */
+  successionOptions(actor: ResolvedActor, userId: string): Promise<Result<{ readonly leaderships: readonly SuccessionOption[] }>>
+  /** 停用；目標是組長時 `successorLeaders` 必填，接任與停用同一筆交易（產品模組 03「組長」、GRP-18）。 */
   disable(actor: ResolvedActor, input: StatusChange, context: AdminRequestContext): Promise<Result<StatusChangeReceipt>>
   restore(actor: ResolvedActor, input: StatusChange, context: AdminRequestContext): Promise<Result<StatusChangeReceipt>>
   previewBulkDisable(actor: ResolvedActor, text: string): Promise<Result<BulkPreview>>

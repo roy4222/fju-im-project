@@ -37,7 +37,13 @@ export function SiteHeader({
   nav: readonly NavItem[]
   current?: string
   /** 沒登入是 null；登入了帶角色名與後台入口。 */
-  viewer: { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null
+  viewer: {
+    roleLabel: string
+    name?: string
+    workbench: { href: string; label: string }
+    /** 兼任角色的其他後台（票 41）；單一角色是空的。 */
+    otherWorkbenches?: readonly { href: string; label: string }[]
+  } | null
   signOutFormId: string
 }) {
   const [open, setOpen] = useState(false)
@@ -104,6 +110,7 @@ export function SiteHeader({
                   links={[
                     { href: '/account', label: '我的帳號', icon: 'account' },
                     { href: viewer.workbench.href, label: viewer.workbench.label, icon: 'workbench' },
+                    ...(viewer.otherWorkbenches ?? []).map((w) => ({ href: w.href, label: w.label, icon: 'workbench' as const })),
                   ]}
                 />
               </span>
@@ -151,6 +158,11 @@ export function SiteHeader({
                     <Link href={viewer.workbench.href} onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
                       {viewer.workbench.label}
                     </Link>
+                    {(viewer.otherWorkbenches ?? []).map((w) => (
+                      <Link key={w.href} href={w.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
+                        {w.label}
+                      </Link>
+                    ))}
                     <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
                       我的帳號
                     </Link>

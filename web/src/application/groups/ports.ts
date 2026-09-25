@@ -16,8 +16,11 @@ import type {
   AddMemberInput,
   ChangeLeaderInput,
   LeaderChangeReceipt,
+  LeaderSuccession,
+  LeadershipToSucceed,
   MemberChangeReceipt,
   RemoveMemberInput,
+  SuccessorChoice,
 } from '@/application/groups/members'
 import type {
   ConfirmReceipt,
@@ -48,7 +51,7 @@ import type {
   UpdateOpportunityInput,
 } from '@/application/groups/opportunities'
 import type { RosterExportFormat, RosterExportRequest } from '@/application/groups/roster'
-import type { Result } from '@/shared/result'
+import type { Err, Result } from '@/shared/result'
 
 /**
  * 模組 03 對外提供的 port（模組實作設計 03 §5 的 `GroupCommand`／`GroupMembershipQuery`，票 13 的部分）。
@@ -99,6 +102,40 @@ export interface GroupCommand {
   removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /** 換組長：新組長要是有效成員；全組收 `group.leader_changed`。成員集合沒變，不觸發重簽。 */
   changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>>
+}
+
+/**
+ * 停用帳號時的組長接任（票 42；產品模組 03「組長」：移出或停用組長時要同時指定接任；GRP-18：否則不能完成操作）。
+ *
+ * 由模組 01 的停用用例呼叫（composition 注入，同 `SignoffParticipantHook` 的作法）；規則在 `decideDisableSuccession`。
+ * 只看**屆別未封存、組別未解散**的組：封存屆的組別是唯讀的歷史，停用畢業生不需要接任。
+ *
+ * 鎖順序（跟管理員換組長／移出組員一致，不會互等成死結）：組別（屆別 FOR SHARE → 組別 FOR UPDATE）→ 帳號列。
+ * 所以停用用例要先 `lockLeaderships` 再鎖帳號，鎖完帳號再 `succeed`（它會重讀一次，組長剛變過就 `CONFLICT`）。
+ */
+export interface LeaderSuccessionHook<Tx = unknown> {
+  /** 停用對話框用（唯讀）：這個人目前擔任組長的組別，與每組可以接任的人。 */
+  leadershipsOf(userId: string): Promise<readonly LeadershipToSucceed[]>
+  /** 批次停用用（唯讀，可在呼叫端交易裡查）：名單裡哪些人目前是組長。 */
+  leadersAmong(tx: Tx | null, userIds: readonly string[]): Promise<ReadonlySet<string>>
+  /** 在呼叫端交易裡鎖住這個人目前擔任組長的組別（要在鎖帳號列之前呼叫）。 */
+  lockLeaderships(tx: Tx, userId: string): Promise<void>
+  /**
+   * 在呼叫端交易裡完成接任：驗規則、結束舊組長列、插入新組長列、組別版本加一、通知全組（`group.leader_changed`）、
+   * 稽核（`group.leader.change`，payload 標 `cause: 'account_disable'`）。只換組長，成員集合沒變，不重簽。
+   * 不是組長又沒帶接任 → 回空陣列、什麼都不寫。
+   */
+  succeedOnDisable(
+    tx: Tx,
+    input: {
+      readonly userId: string
+      readonly choices: readonly SuccessorChoice[]
+      readonly actorUserId: string
+      /** 停用理由；寫進組長列與稽核，讓組別歷程看得出這次換組長是因為停用。 */
+      readonly reason: string
+      readonly realAt: Date
+    },
+  ): Promise<{ readonly ok: true; readonly successions: readonly LeaderSuccession[] } | Err>
 }
 
 /**

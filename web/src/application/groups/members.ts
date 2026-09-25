@@ -138,3 +138,72 @@ export function describeLeaderChangeReceipt(receipt: LeaderChangeReceipt): strin
   const from = receipt.previousLeaderName ? `從 ${receipt.previousLeaderName} ` : ''
   return `${receipt.groupCode} 的組長已${from}換成 ${receipt.leaderName}，全組已收到通知；成員沒變，不需要重簽。`
 }
+
+// ── 停用組長時指定接任（票 42；產品模組 03「組長」、GRP-18） ─────────────────
+
+/**
+ * 停用帳號時，這個人目前擔任組長的一組（屆別未封存、組別未解散）。
+ * `candidates` 是可以接任的人：這組目前的其他有效成員，而且帳號是 active（停用中的人不能接任）。
+ */
+export type LeadershipToSucceed = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly cohortCode: string
+  readonly candidates: readonly { readonly userId: string; readonly name: string; readonly studentNo: string | null }[]
+}
+
+/** 停用時管理員指定的接任：哪一組、由誰接。 */
+export type SuccessorChoice = { readonly groupId: string; readonly userId: string }
+
+/** 停用同交易完成的一次組長接任（回執用）。 */
+export type LeaderSuccession = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly previousLeaderUserId: string
+  readonly leaderUserId: string
+  readonly leaderName: string
+}
+
+/**
+ * 停用帳號時的接任規則（產品模組 03「組長」：移出或停用組長時要同時指定接任；GRP-18：否則不能完成操作）。
+ *
+ * - 不是任何組的組長：不能帶接任（跟移出非組長一樣，避免誤會）。
+ * - 是組長：每一組都要恰好指定一位接任，接任要在 `candidates` 裡（這組其他有效成員、帳號 active）。
+ * - 這組沒有任何可接任的人：不能停用，要先到分組頁處理（加入組員；移出最後一人走解散）。
+ */
+export function decideDisableSuccession(input: {
+  readonly leaderships: readonly LeadershipToSucceed[]
+  readonly choices: readonly SuccessorChoice[]
+}): { ok: true; successions: readonly SuccessorChoice[] } | Err {
+  const { leaderships, choices } = input
+  const field = { details: { field: 'successorLeaderUserId' } }
+  if (leaderships.length === 0) {
+    if (choices.length > 0) return err('CONFLICT', '這個帳號現在不是組長，不需要指定接任；請關閉對話框、重新整理後再停用。', field)
+    return { ok: true, successions: [] }
+  }
+  const byGroup = new Map<string, SuccessorChoice>()
+  for (const choice of choices) {
+    if (byGroup.has(choice.groupId)) return err('VALIDATION_FAILED', '同一組只能指定一位接任的組長。', field)
+    byGroup.set(choice.groupId, choice)
+  }
+  if (choices.some((choice) => !leaderships.some((l) => l.groupId === choice.groupId))) {
+    return err('CONFLICT', '組長資料剛剛有變動，請關閉對話框、重新整理後再停用。', field)
+  }
+  for (const leadership of leaderships) {
+    if (leadership.candidates.length === 0) {
+      return err(
+        'VALIDATION_FAILED',
+        `這位同學是 ${leadership.groupCode} 的組長，但這組沒有其他可以接任的有效成員。請先到「分組總覽」處理這組（加入組員或解散）再停用。`,
+        field,
+      )
+    }
+    const choice = byGroup.get(leadership.groupId)
+    if (!choice) {
+      return err('VALIDATION_FAILED', `這位同學是 ${leadership.groupCode} 的組長：停用前請同時指定接任的組長。`, field)
+    }
+    if (!leadership.candidates.some((c) => c.userId === choice.userId)) {
+      return err('VALIDATION_FAILED', `接任 ${leadership.groupCode} 組長的人要是這組其他有效成員，而且帳號沒有停用。`, field)
+    }
+  }
+  return { ok: true, successions: leaderships.map((l) => byGroup.get(l.groupId)!) }
+}

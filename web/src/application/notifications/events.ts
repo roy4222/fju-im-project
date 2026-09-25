@@ -193,10 +193,18 @@ export const EVENT_CATALOG = {
     notification: { kind: 'grading', defaultTitle: '有一筆成績更正待復核' },
   },
   /**
-   * 移除／改派評分老師、套用新方案版本、更正（票 24）。產品事件矩陣沒有這幾種的通知
-   * （更正完成不通知老師或學生；新老師由 `grading.assigned` 通知）。事件只留紀錄。
+   * 系辦把老師移出某組某階段的評分指派（含改派時被換掉的原老師；票 24 建事件、票 43 補通知；
+   * 產品模組 08 §4「評分指派→解除通知原老師」、NTF-07「T3 收解除通知」）。收件人＝被移出的老師一人，
+   * 保留、替換、新增三種選擇都通知；新老師另收 `grading.assigned`（「保留」不帶新老師，所以不會有虛構的補評通知）。
+   * payload 帶組別代號、階段與**移除理由**（本人異動說明），**沒有任何分數**。
    */
-  'grading.assignment_ended': { consumers: [] },
+  'grading.assignment_ended': {
+    consumers: ['notifications'],
+    notification: { kind: 'grading', defaultTitle: '你已被移出一份評分指派' },
+  },
+  /**
+   * 套用新方案版本、更正（票 24）。產品事件矩陣沒有這兩種的通知（更正完成不通知老師或學生）。事件只留紀錄。
+   */
   'grading.scheme_applied': { consumers: [] },
   'grading.overridden': { consumers: [] },
   /**

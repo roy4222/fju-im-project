@@ -8,6 +8,7 @@ import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
 import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
+import { otherWorkbenches, roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
 import { checkStatus } from '@/composition/accounts'
@@ -86,17 +87,26 @@ const WORKBENCH: Record<string, { roleLabel: string; label: string }> = {
   '/dashboard/student': { roleLabel: '學生', label: '我的專題事務' },
 }
 
-function viewerOf(actor: ResolvedActor): { roleLabel: string; name?: string; workbench: { href: string; label: string } } | null {
+type Viewer = {
+  roleLabel: string
+  name?: string
+  workbench: { href: string; label: string }
+  /** 兼任角色的其他後台（票 41）：「回後台」按鈕去預設那個，這裡是其餘的；單一角色是空的。 */
+  otherWorkbenches: { href: string; label: string }[]
+}
+
+function viewerOf(actor: ResolvedActor): Viewer | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
   const name = actor.displayName
   const known = WORKBENCH[href]
-  if (!known) return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' } }
+  if (!known) return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' }, otherWorkbenches: [] }
   // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」（身分照角色標）。
   if (checkStatus(actor, 'business') === 'PASSWORD_CHANGE_REQUIRED') {
-    return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' } }
+    return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' }, otherWorkbenches: [] }
   }
-  return { roleLabel: known.roleLabel, name, workbench: { href, label: known.label } }
+  const others = otherWorkbenches(actor.roles, roleOfBase(href)).map((w) => ({ href: w.href, label: WORKBENCH[w.href]?.label ?? w.name }))
+  return { roleLabel: known.roleLabel, name, workbench: { href, label: known.label }, otherWorkbenches: others }
 }
 
 /**
@@ -219,6 +229,8 @@ export async function DashboardShell({
   // 側欄數字徽章（票 30）：只算本人、輪到本人做的事；同一次渲染只查一次（nav-badges.ts）。
   const role = roleOfBase(base)
   const badges = role ? badgeMap(role, items.map((i) => i.href), await navBadgeCounts(role)) : {}
+  // 兼任角色（票 41）：帳號選單多「切換到另一個後台」。只是連結，權限仍由每一頁的 requireRole 判。
+  const switchLinks = viewer.kind === 'authenticated' ? roleSwitchLinks(viewer.roles, role) : []
   return (
     <>
       <SignOutForm id={signOutFormId} />
@@ -230,6 +242,7 @@ export async function DashboardShell({
         items={items}
         current={current}
         homeHref={base}
+        switchLinks={switchLinks}
         // 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。
         bell={<InboxBell href={`${base}/inbox`} />}
         signOutFormId={signOutFormId}

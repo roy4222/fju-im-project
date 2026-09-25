@@ -14,6 +14,7 @@ import type {
   RosterPreview,
   RosterUploadTicket,
   StatusChangeReceipt,
+  SuccessionOption,
   TeacherAccountReceipt,
 } from '@/application/accounts'
 import {
@@ -164,10 +165,18 @@ export async function rejectRegistrationAction(input: {
 // 授權、理由必填、不可停用自己、狀態檢查都在用例裡。發動者的 headers 一路帶進去：
 // commit 之後撤 session 要以這位管理員的身分呼叫 Better Auth（見 wrapper 的說明）。
 
+/** 停用對話框開啟時：這個帳號是不是組長、每組可以接任的人（票 42）。 */
+export async function successionOptionsAction(input: { userId: string }): Promise<ActionOutcome<{ readonly leaderships: readonly SuccessionOption[] }>> {
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getAccountDirectoryCommand().successionOptions(actor, text(input?.userId, 100) ?? ''))
+}
+
 export async function disableAccountAction(input: {
   userId: string
   reason: string
   requestId: string
+  /** 停用組長時必填：每一組的接任人（票 42）。形狀由用例驗。 */
+  successorLeaders?: readonly { groupId: string; userId: string }[]
 }): Promise<ActionOutcome<StatusChangeReceipt>> {
   const requestHeaders = await headers()
   const actor = await resolveActor(requestHeaders)
@@ -178,6 +187,7 @@ export async function disableAccountAction(input: {
         userId: text(input?.userId, 100) ?? '',
         reason: text(input?.reason ?? '', 2000) ?? '\u0000',
         requestId: text(input?.requestId, 100) ?? '',
+        ...(input?.successorLeaders === undefined ? {} : { successorLeaders: input.successorLeaders }),
       },
       { headers: requestHeaders },
     ),
