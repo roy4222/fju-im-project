@@ -47,7 +47,7 @@ export function GroupTypeCell({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 whitespace-nowrap">
         {group.groupType === 'industry' ? (
           <Pill tone="brand">{typeLabels[group.groupType]}</Pill>
         ) : (

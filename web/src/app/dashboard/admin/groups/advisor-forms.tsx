@@ -131,7 +131,7 @@ export function AdvisorCell({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 whitespace-nowrap">
         {current ? (
           <span className="text-sm text-foreground">{current.name}</span>
         ) : (
