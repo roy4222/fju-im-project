@@ -476,8 +476,12 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     const linkOf = async (groupId: string) =>
       String((await owner.sql('select id from opportunity_links where group_id = $1 and valid_to is null', [groupId])).rows[0]!.id)
 
+    const before = await revisionOf(g1.id)
     const byOther = await command.unlink(actor(other, ['teacher']), { linkId: await linkOf(g1.id), reason: '不適合' }, randomUUID())
     expect(byOther.ok ? 'ok' : byOther.code).toBe('FORBIDDEN')
+    // 權限先判：被拒的人不碰組別、連結也還在（PR #266 審查建議：鎖組別列移到權限檢查之後）。
+    expect(await revisionOf(g1.id)).toBe(before)
+    expect(await linkOf(g1.id)).toBeTruthy()
     const noReason = await command.unlink(actor(t, ['teacher']), { linkId: await linkOf(g1.id), reason: '' }, randomUUID())
     expect(noReason.ok ? 'ok' : noReason.details).toEqual({ field: 'reason' })
     const unlinked = await command.unlink(actor(t, ['teacher']), { linkId: await linkOf(g1.id), reason: '企業暫停合作' }, randomUUID())
@@ -518,6 +522,26 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
     })
     const panel = await query.leaderPanel(actor(g.leader.id, ['student']), cohort.id)
     expect(panel?.typeChangeBlockers).toEqual([])
+  })
+
+  it('階段還沒設定、成組期還沒開始：說明是哪一種，不說「成組期已結束」', async () => {
+    const unconfigured = await newCohort()
+    await owner.sql('delete from cohort_stages where cohort_id = $1', [unconfigured.id])
+    const g1 = await newGroup(unconfigured.id, 'G01', 'general')
+    const early = await newCohort(['2026-12-01', '2027-01-15'])
+    const g2 = await newGroup(early.id, 'G01', 'general')
+    for (const [cohort, g, blocker] of [
+      [unconfigured, g1, '這一屆還沒設定成組期'],
+      [early, g2, '成組期還沒開始'],
+    ] as const) {
+      const refused = await command.changeGroupType(
+        actor(g.leader.id, ['student']),
+        { groupId: g.id, revision: await revisionOf(g.id), groupType: 'industry', reason: '' },
+        randomUUID(),
+      )
+      expect(refused.ok ? 'ok' : refused.message).toBe(`目前不能自己改組別類型（${blocker}）；請聯絡系辦處理。`)
+      expect((await query.leaderPanel(actor(g.leader.id, ['student']), cohort.id))?.typeChangeBlockers).toEqual([blocker])
+    }
   })
 
   it('非組長、有主指導、有合作案、成組期已過：組長不能改，說明是哪一條並請系辦處理', async () => {

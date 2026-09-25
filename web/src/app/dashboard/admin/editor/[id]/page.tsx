@@ -60,7 +60,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
 
   const versions =
     item.contentVersionNo !== null
-      ? `內容 v${item.contentVersionNo}・欄位 v${item.schemaVersionNo}・收件名單 ${item.rosterCount}`
+      ? `內容 v${item.contentVersionNo}・欄位 v${item.schemaVersionNo}${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
       : '還沒發布過'
   const opened = item.actualOpenedAt ? `・實際開放 ${formatTaipeiMinute(item.actualOpenedAt)}` : ''
 

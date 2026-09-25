@@ -10,7 +10,10 @@ import type { AccountStatus } from '@/application/accounts/actor'
 
 export type RevocationKind = 'ban' | 'unban' | 'revoke_all'
 
-/** 工作成立時使用者應處的狀態（`expected_user_status`）。pending 不做撤 session。 */
+/**
+ * 工作成立時 Better Auth 那一層應處的狀態（`expected_user_status`，CHECK 只收這三個值）。
+ * 待審（pending）在這一層跟 active 一樣＝不封鎖：待審的人要登得進來才看得到等待審核頁。
+ */
 export type RevocationTargetStatus = 'disabled' | 'active' | 'deidentified'
 
 export type ReconcileReason = 'after_completion' | 'periodic' | 'manual_retry'
@@ -31,9 +34,15 @@ export const RECONCILE_UNKNOWN_OUTCOME_DAYS = 7
 /** worker 週期核對的間隔（規則 5：每 5 分鐘）。 */
 export const RECONCILE_INTERVAL_SECONDS = 5 * 60
 
-/** 業務狀態 → 撤 session 工作的目標狀態。pending 不核對（回 null）。 */
+/**
+ * 業務狀態 → 撤 session 工作的目標狀態。
+ *
+ * pending → active（解除封鎖）：原本「pending 不核對」是因為待審的人從來不會被封鎖；票 10b 之後待審的孤兒帳號可以停用，
+ * 恢復時回到待審（PR #257 審查建議），這時 Better Auth 的封鎖一定要解掉，否則他永遠登不進來補送申請。
+ * 一般待審帳號本來就沒被封鎖，核對時一致、不會多排工作。
+ */
 export function revocationTargetOf(status: AccountStatus): RevocationTargetStatus | null {
-  if (status === 'pending') return null
+  if (status === 'pending') return 'active'
   return status
 }
 
@@ -44,10 +53,10 @@ export function revocationKindFor(target: RevocationTargetStatus): RevocationKin
   return 'revoke_all'
 }
 
-/** 依業務狀態，Better Auth 的 `banned` 應該是什麼。pending 不核對（null）。 */
+/** 依業務狀態，Better Auth 的 `banned` 應該是什麼（待審跟 active 一樣不封鎖，見 `revocationTargetOf`）。 */
 export function expectedBannedFor(status: AccountStatus): boolean | null {
   if (status === 'disabled' || status === 'deidentified') return true
-  if (status === 'active') return false
+  if (status === 'active' || status === 'pending') return false
   return null
 }
 

@@ -165,9 +165,9 @@ export default async function AffairsPage({
               r.status === 'draft' ? (
                 RECEIVER_UNIT_LABEL[r.receiverUnit]
               ) : (
-                // 收件名單頁（票 18）：三類名單、完成率、點人看回答。
+                // 收件名單頁（票 18）：三類名單、完成率、點人看回答。數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
                 <Link href={`/dashboard/admin/affairs/${r.id}`} className="font-medium text-primary-on-subtle hover:underline">
-                  {`${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`}
+                  {`應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}（${RECEIVER_UNIT_LABEL[r.receiverUnit]}）`}
                 </Link>
               )
             ) : (
