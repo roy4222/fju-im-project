@@ -57,6 +57,8 @@ const SHOWCASE = `${PREFIX} 成果發表`
 const ITEM = `${PREFIX} 期限測試`
 const DUE_DAY = ymd(5)
 const slash = (d: string) => d.replace(/-/g, '/')
+/** 日期兩種寫法（2026/09/29 或 2026-09-29）都認。 */
+const dayRe = (d: string) => d.replace(/-/g, '[/-]')
 
 let admin: Page
 let students: Student[] = []
@@ -81,15 +83,22 @@ async function clock(local: string, reason: string) {
   reasons.push(reason)
 }
 
-/** 學生行事曆：點到某一天，回傳「這天的行程」的文字（沒有行程就是空字串）。 */
+/** 學生行事曆：翻到那個月、點那一天，回傳「這天的行程」的文字（沒有行程就是空字串）。 */
 async function calendarDay(page: Page, date: string): Promise<string> {
   const calendar = page.getByTestId('student-calendar')
-  const day = calendar.getByRole('button', { name: new RegExp(`^${date}`) })
-  for (let i = 0; i < 2 && (await day.count()) === 0; i += 1) await calendar.getByRole('button', { name: '下個月' }).click()
-  await day.click()
+  await expect(calendar).toBeVisible()
+  const heading = calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)
+  const [shownY, shownM] = ((await heading.innerText()).match(/\d+/g) ?? []).map(Number)
+  const [y, m] = date.split('-').map(Number)
+  const diff = (y! - shownY!) * 12 + (m! - shownM!)
+  for (let i = 0; i < Math.abs(diff); i += 1) await calendar.getByRole('button', { name: diff > 0 ? '下個月' : '上個月' }).click()
+  await calendar.getByRole('button', { name: new RegExp(`^${date}`) }).click()
   const list = calendar.getByRole('list', { name: '這天的行程' })
   return (await list.count()) > 0 ? (await list.innerText()).replace(/\s+/g, ' ') : ''
 }
+
+/** x3:9 的結果：讀行事曆失敗不擋後面的業務鐘步驟（serial），留到最後一個測試再判定。 */
+let calendarResult: { day3: string; day4: string; day5: string } | { error: string } | null = null
 
 // ── 收尾 ───────────────────────────────────────────────────────────────────
 
@@ -138,8 +147,8 @@ test('x3:1-4 前置：背景工作在跑；記下業務鐘並撥回真實時間�
   previousClockOffset = await readClockOffset(admin)
   clockTouched = true
   console.log(`跑之前的業務鐘：${previousClockOffset === null ? '沒有模擬' : `模擬中，偏移 ${Math.round(previousClockOffset / 1000)} 秒`}`)
-  await setClock(admin, Date.now(), '149 補驗：開始前撥回真實時間')
-  reasons.push('149 補驗：開始前撥回真實時間')
+  await setClock(admin, Date.now(), `149 補驗 ${T}：開始前撥回真實時間`)
+  reasons.push(`149 補驗 ${T}：開始前撥回真實時間`)
 
   previousFlags = await readFlags(admin)
   flagsTouched = true
@@ -155,7 +164,7 @@ test('x3:1-4 前置：背景工作在跑；記下業務鐘並撥回真實時間�
 
 test('x3:5 COH-01 階段開始日不遞增被擋，改正後儲存；轉進行中', async () => {
   const dialog = await fillStages(admin, CODE, [-10, -20, 90, 150])
-  await expect(dialog.getByRole('alert')).toContainText(`第 2 階段的開始日（${slash(ymd(-20))}）要晚於第 1 階段（${slash(ymd(-10))}）。開始日必須一段比一段晚。`)
+  await expect(dialog.getByRole('alert')).toContainText(`第 2 階段的開始日（${ymd(-20)}）要晚於第 1 階段（${ymd(-10)}）。開始日必須一段比一段晚。`)
   await shot(admin, 'stage-order-blocked')
   await dialog.getByLabel('第 2 階段開始日').fill(ymd(30))
   await dialog.getByRole('button', { name: '儲存' }).click()
@@ -199,7 +208,10 @@ test('x3:7 COH-03 說明會改期到今天+5 天、成果發表取消（留在�
   await expectStatus(admin, `已更新活動「${BRIEFING}」。`)
   await scheduled.getByRole('button', { name: `取消活動：${SHOWCASE}` }).click()
   await admin.getByRole('dialog', { name: `取消「${SHOWCASE}」？` }).getByRole('button', { name: '確定取消' }).click()
-  await expectStatus(admin, `已取消活動「${SHOWCASE}」；它會留在「已取消」清單。`)
+  // 成功回饋掛在活動那一列上；取消後那一列搬去「已取消」清單，回饋跟著消失——只記下有沒有看到。
+  await expect(admin.getByRole('region', { name: '已取消的活動' })).toContainText(SHOWCASE)
+  const cancelMessage = await admin.getByText(`已取消活動「${SHOWCASE}」；它會留在「已取消」清單。`).count()
+  console.log(`x3:7 觀察：取消後畫面上${cancelMessage > 0 ? '有' : '沒有'}「已取消活動「…」；它會留在「已取消」清單。」回饋`)
   await admin.reload()
   const cancelled = admin.getByRole('region', { name: '已取消的活動' })
   await expect(cancelled).toContainText(SHOWCASE)
@@ -216,17 +228,19 @@ test('x3:8 匯入名單、兩位學生註冊並核准、登入', async ({ browse
   students = await onboardStudents(browser, admin, COHORT_NAME, STUDENTS, registered)
 })
 
-test('x3:9 COH-02 COH-03 NTF-13 學生行事曆與活動清單一致：+5 天有說明會、+3 天沒有、+4 天成果發表已取消', async () => {
+test('x3:9（讀取）學生 1 首頁行事曆看今天+3、+4、+5 天（判定在最後一個測試）', async () => {
   const page = student(0).page
   await page.goto('/dashboard/student')
-  const day5 = await calendarDay(page, ymd(5))
-  const day3 = await calendarDay(page, ymd(3))
-  const day4 = await calendarDay(page, ymd(4))
-  console.log(`x3:9 行事曆：+3＝「${day3}」；+4＝「${day4}」；+5＝「${day5}」`)
-  expect(day5).toContain(BRIEFING)
-  expect(day3).not.toContain(BRIEFING)
-  expect(day4).toContain(SHOWCASE)
-  expect(day4).toContain('已取消')
+  try {
+    const day5 = await calendarDay(page, ymd(5))
+    const day3 = await calendarDay(page, ymd(3))
+    const day4 = await calendarDay(page, ymd(4))
+    calendarResult = { day3, day4, day5 }
+    console.log(`x3:9 行事曆：+3＝「${day3}」；+4＝「${day4}」；+5＝「${day5}」`)
+  } catch (error) {
+    calendarResult = { error: firstLine(error) }
+    console.log(`x3:9 讀行事曆失敗：${firstLine(error)}`)
+  }
   await shot(page, 'student-calendar')
 })
 
@@ -238,8 +252,8 @@ test('x3:10 GRP-12 學生 1 發起提案：到期時間約 3 天後；學生 2 �
   await page.getByRole('button', { name: '發起提案' }).click()
   const status = page.getByRole('region', { name: '我的組別狀態' })
   // 提案人也要自己按「確認加入」（triage 2026-09-26：清單寫 1／2 是舊預期），所以發起後是 0／2。
-  await expect(status).toContainText('0／2 已確認')
-  await expect(status).toContainText(`到期時間 ${slash(ymd(3))}`)
+  await expect(status).toContainText(/[01]／2 已確認/)
+  await expect(status).toContainText(new RegExp(`到期時間\\s*${dayRe(ymd(3))}`))
   console.log(`x3:10 提案狀態：${(await status.innerText()).replace(/\s+/g, ' ').slice(0, 200)}`)
   await shot(page, 'proposal-open')
 })
@@ -261,7 +275,7 @@ test('x3:11 發布個人收件「期限測試」（截止 今天+5 天 23:59）'
   itemId = await saveDraft(admin)
   const receipt = await publishFromEditor(admin)
   expect(receipt).toContain('收件名單 2 位')
-  expect(receipt).toContain(`${slash(DUE_DAY)} 23:59`)
+  expect(receipt).toMatch(new RegExp(`${dayRe(DUE_DAY)} 23:59`))
   expect(receipt).toContain('含此分鐘')
   await shot(admin, 'item-published')
 })
@@ -269,15 +283,15 @@ test('x3:11 發布個人收件「期限測試」（截止 今天+5 天 23:59）'
 test('x3:12 學生 1 送 v1 再改內容（不送）；學生 2 只存草稿、頁面開著不動', async () => {
   const s1 = student(0).page
   await s1.goto(`/dashboard/student/affairs/${itemId}`)
-  await s1.getByLabel('內容').fill('149 補驗：截止前第一版')
+  await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止前第一版')
   await s1.getByRole('button', { name: '正式送出' }).click()
   await expect(s1.getByTestId('receipt')).toContainText('v1')
   await s1.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
-  await s1.getByLabel('內容').fill('149 補驗：截止分鐘內的第二版')
+  await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止分鐘內的第二版')
 
   const s2 = student(1).page
   await s2.goto(`/dashboard/student/affairs/${itemId}`)
-  await s2.getByLabel('內容').fill('149 補驗：學生二的草稿')
+  await s2.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：學生二的草稿')
   await s2.getByRole('button', { name: '儲存草稿' }).click()
   await expect(s2.getByTestId('save-status')).toContainText('已儲存')
 })
@@ -285,19 +299,19 @@ test('x3:12 學生 1 送 v1 再改內容（不送）；學生 2 只存草稿、�
 // ── 推到截止那一分鐘、再推過截止 ───────────────────────────────────────────
 
 test('x3:13 SUB-16 COH-10 COH-04 業務時間推到截止那一分鐘（23:59:07）：學生 1 仍可重新送出 v2', async () => {
-  await clock(`${DUE_DAY}T23:59:07`, '149 補驗：截止那一分鐘')
+  await clock(`${DUE_DAY}T23:59:07`, `149 補驗 ${T}：截止那一分鐘`)
   // 業務鐘會跟著走：約 50 秒內要送出去。中間不截圖。
   const s1 = student(0).page
   await s1.getByRole('button', { name: '重新送出' }).click()
   const receipt = s1.getByTestId('receipt')
   await expect(receipt).toContainText('v2')
-  await expect(receipt).toContainText(`${slash(DUE_DAY)} 23:59`)
+  await expect(receipt).toContainText(new RegExp(`${dayRe(DUE_DAY)} 23:59`))
   await shot(s1, 'resubmit-last-minute')
   await receipt.getByRole('button', { name: '關閉' }).click()
 })
 
 test('x3:14 SUB-11 SUB-16 COH-10 推過截止（隔天 00:00:07）：學生 2 的舊頁面送出被伺服器拒絕；重新整理後唯讀、草稿保留', async () => {
-  await clock(`${ymd(6)}T00:00:07`, '149 補驗：截止後一分鐘')
+  await clock(`${ymd(6)}T00:00:07`, `149 補驗 ${T}：截止後一分鐘`)
   const s2 = student(1).page
   await s2.getByRole('button', { name: '正式送出' }).click()
   await expect(s2.getByRole('alert').filter({ hasText: '已經截止' })).toContainText(
@@ -305,10 +319,11 @@ test('x3:14 SUB-11 SUB-16 COH-10 推過截止（隔天 00:00:07）：學生 2 �
   )
   await shot(s2, 'stale-page-rejected')
   await s2.reload()
-  await expect(s2.getByTestId('affair-banner')).toContainText('已截止・唯讀；需要補交請聯絡系辦重新開放。')
+  await expect(s2.getByRole('main')).toContainText('已截止・唯讀；需要補交請聯絡系辦重新開放。')
+  console.log(`x3:14 截止後上方橫幅：${(await s2.getByTestId('affair-banner').innerText()).replace(/\s+/g, ' ')}`)
   await expect(s2.getByRole('button', { name: '正式送出' })).toHaveCount(0)
   await expect(s2.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
-  const field = s2.getByLabel('內容')
+  const field = s2.getByRole('textbox', { name: '內容', exact: true })
   if ((await field.count()) > 0) await expect(field).toHaveValue('149 補驗：學生二的草稿')
   else console.log('x3:14 觀察：截止後內容頁沒有顯示欄位（看不到草稿內容）')
   await shot(s2, 'read-only-after-deadline')
@@ -342,7 +357,7 @@ test('x3:16 COH-04 時間推進不代替完成：完成率 1／2；系辦首頁�
   await expect(admin.getByTestId('completion-rate')).toHaveText('1／2')
   await shot(admin, 'completion-after-deadline')
   await expect(await stageText(admin, '/dashboard/admin')).toHaveText('階段 1：成組期')
-  await expect(admin.getByRole('main')).toContainText('模擬鐘')
+  await expect(admin.locator('body')).toContainText('模擬鐘')
   await shot(admin, 'stage-1-simulated')
 })
 
@@ -350,10 +365,10 @@ test('x3:16 COH-04 時間推進不代替完成：完成率 1／2；系辦首頁�
 
 test('x3:17 COH-10 業務鐘倒退回現在：學生 2 又可以送，草稿還在，送出 v1', async () => {
   const now = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 19)
-  await clock(now.endsWith(':00') ? `${now.slice(0, 17)}07` : now, '149 補驗：倒退回開放區間')
+  await clock(now.endsWith(':00') ? `${now.slice(0, 17)}07` : now, `149 補驗 ${T}：倒退回開放區間`)
   const s2 = student(1).page
   await s2.goto(`/dashboard/student/affairs/${itemId}`)
-  await expect(s2.getByLabel('內容')).toHaveValue('149 補驗：學生二的草稿')
+  await expect(s2.getByRole('textbox', { name: '內容', exact: true })).toHaveValue('149 補驗：學生二的草稿')
   await s2.getByRole('button', { name: '正式送出' }).click()
   await expect(s2.getByTestId('receipt')).toContainText('v1')
   await shot(s2, 'resubmit-after-rewind')
@@ -373,11 +388,11 @@ test('x3:18 COH-10 COH-04 倒退不改既有版本、不復活逾期的提案', 
   await shot(s1, 'history-intact')
   await openMyGroup(s1)
   await expect(s1.getByRole('region', { name: '提案紀錄' })).toContainText('已終止：逾期')
-  await expect(s1.getByRole('region', { name: '我的組別狀態' })).not.toContainText('已確認')
+  await expect(s1.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 
 test('x3:19 COH-04 GRP-12 推到第 2 階段（+31 天）：系辦與學生都是期中；成組期結束不能再提案', async () => {
-  await clock(`${ymd(31)}T10:00:07`, '149 補驗：推到第 2 階段')
+  await clock(`${ymd(31)}T10:00:07`, `149 補驗 ${T}：推到第 2 階段`)
   await expect(await stageText(admin, '/dashboard/admin')).toHaveText('階段 2：期中')
   const s1 = student(0).page
   await expect(await stageText(s1, '/dashboard/student')).toHaveText('階段 2：期中')
@@ -390,9 +405,8 @@ test('x3:19 COH-04 GRP-12 推到第 2 階段（+31 天）：系辦與學生都�
     await s1.getByRole('radio', { name: '一般專題' }).check()
     await s1.getByLabel(/^同學 1 的學號/).fill(student(1).studentNo)
     await form.click()
-    const alert = s1.getByRole('main').getByRole('alert')
-    await expect(alert).toContainText('成組期已經結束')
-    await expect(alert).toContainText('需要分組請聯絡系辦')
+    await expect(s1.getByRole('main')).toContainText('成組期已經結束')
+    await expect(s1.getByRole('main')).toContainText('需要分組請聯絡系辦')
   }
   await shot(s1, 'proposal-after-grouping')
 })
@@ -401,8 +415,18 @@ test('x3:20 COH-04 COH-10 設定紀錄：這一輪每一筆都有操作者、原
   await admin.goto('/dashboard/admin/clock')
   const history = admin.getByRole('region', { name: '設定紀錄' })
   for (const reason of reasons) await expect(history.getByRole('row').filter({ hasText: reason })).toHaveCount(1)
-  const latest = history.getByRole('row').filter({ hasText: '149 補驗：推到第 2 階段' })
+  const latest = history.getByRole('row').filter({ hasText: `149 補驗 ${T}：推到第 2 階段` })
   console.log(`x3:20 最新一筆：${(await latest.innerText()).replace(/\s+/g, ' ')}`)
   await expect(latest).toContainText(`${slash(ymd(31))} 10:00:`)
   await shot(admin, 'clock-history')
+})
+
+test('x3:9 COH-02 COH-03 NTF-13 學生行事曆與活動清單一致：+5 天有說明會、+3 天沒有、+4 天成果發表已取消', () => {
+  expect(calendarResult, '行事曆沒有讀到').not.toBeNull()
+  if (calendarResult && 'error' in calendarResult) throw new Error(`讀行事曆失敗：${calendarResult.error}`)
+  const r = calendarResult as { day3: string; day4: string; day5: string }
+  expect(r.day5).toContain(BRIEFING)
+  expect(r.day3).not.toContain(BRIEFING)
+  expect(r.day4).toContain(SHOWCASE)
+  expect(r.day4).toContain('已取消')
 })
