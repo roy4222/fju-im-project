@@ -22,6 +22,8 @@ export type FaultPointName =
   | 'group.establish.after-release'
   /** 票 14：管理員加人查完資格、還沒寫組員列（測加人與發起／確認提案的並發）。 */
   | 'group.member.add.before-insert'
+  /** 開站後：解散的組員、組長、評分、簽核、組別、事件、稽核都寫完，還沒記帳本與 commit（證明解散是單一交易）。 */
+  | 'group.dissolve.after-writes'
   /** 票 19：認領查完「還沒有主指導」、還沒寫指派列（測資料庫部分唯一這道後備防線）。 */
   | 'advisor.claim.before-insert'
   /** 票 15：發布時名單已展開寫入，還沒排到期工作、發事件與 commit（證明發布是單一交易）。 */

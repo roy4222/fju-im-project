@@ -5,7 +5,7 @@ import { err, type Err } from '@/shared/result'
  *
  * 2026-09-24 Roy 定案：沒有「例外組」。特殊情況由管理員直接把學生加入或移出某組（理由必填；
  * 只能選同屆、已核准、未停用、沒有其他有效組別的學生）；人數和設定不符時**提醒但允許**。
- * 移出最後一人要走解散（解散在之後的票，這裡先擋下）；移出組長要同時指定接任。
+ * 移出最後一人要走解散（`dissolveGroup`）；移出組長要同時指定接任。
  * 只換組長不重簽；成員集合改變才重簽（簽核模組還沒做，先發 `group.members_changed` 事件當掛點）。
  *
  * 這個檔沒有資料庫：理由整理、人數提醒、移出與換組長的前置條件都在這裡單獨測。
@@ -50,6 +50,13 @@ export type RemoveMemberInput = {
   readonly successorLeaderUserId: string | null
 }
 
+/** 系辦解散組別（開站後；產品模組 03 §4「換成員與解散」）。理由必填；二次確認在畫面上。 */
+export type DissolveGroupInput = {
+  readonly groupId: string
+  readonly revision: number
+  readonly reason: string
+}
+
 export type ChangeLeaderInput = {
   readonly groupId: string
   readonly revision: number
@@ -72,7 +79,7 @@ export function decideRemoval(input: {
     return err('NOT_MEMBER', '這位同學已經不在這個組別裡了，請重新整理頁面。')
   }
   if (memberIds.length === 1) {
-    return err('VALIDATION_FAILED', '這是這組最後一位成員：移出最後一人要走「解散」，解散功能之後才會開放，請先保留。')
+    return err('VALIDATION_FAILED', '這是這組最後一位成員：移出最後一人要走「解散」，請改用組別詳情裡的「解散組別」。')
   }
   if (targetId !== leaderId) {
     if (successorId) return err('VALIDATION_FAILED', '移出的不是組長，不需要指定接任。', { details: { field: 'successorLeaderUserId' } })
@@ -122,6 +129,31 @@ export type LeaderChangeReceipt = {
   readonly groupCode: string
   readonly previousLeaderName: string | null
   readonly leaderName: string
+}
+
+/** 解散回執：組員快照、停止的評分工作、失效的暫存與簽核（都在同一筆交易完成）。 */
+export type DissolveReceipt = {
+  readonly groupId: string
+  readonly groupCode: string
+  /** 解散當下的有效成員（快照；解散後他們回到未分組）。 */
+  readonly memberNames: readonly string[]
+  /** 因解散結束的評分指派數與失效的評分暫存數。 */
+  readonly endedAssignments: number
+  readonly invalidatedDrafts: number
+  /** 作廢的簽核版本數。 */
+  readonly voidedSignoffs: number
+  /** 收到通知的人數（解散前有效成員、主指導、評分工作停止的老師，去重）。 */
+  readonly notified: number
+}
+
+export function describeDissolveReceipt(receipt: DissolveReceipt): string {
+  const members = receipt.memberNames.length > 0 ? `${receipt.memberNames.join('、')} 回到未分組` : '沒有有效成員'
+  const grading =
+    receipt.endedAssignments > 0
+      ? `；結束 ${receipt.endedAssignments} 個評分指派${receipt.invalidatedDrafts > 0 ? `、${receipt.invalidatedDrafts} 份評分暫存失效` : ''}`
+      : ''
+  const signoff = receipt.voidedSignoffs > 0 ? `；作廢 ${receipt.voidedSignoffs} 個簽核版本` : ''
+  return `已解散 ${receipt.groupCode}：${members}${grading}${signoff}。已通知 ${receipt.notified} 人；原組資料凍結，可在成績頁查看與匯出。`
 }
 
 export function describeMemberChangeReceipt(receipt: MemberChangeReceipt): string {

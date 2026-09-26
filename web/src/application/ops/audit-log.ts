@@ -108,6 +108,7 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.activity.cancel': '取消活動',
   'business_clock.set': '調整模擬時鐘',
   // 分組、指導與產學（模組 03）
+  'group.dissolve': '解散組別',
   'group.establish': '組別成立',
   'group.export': '匯出組別名單',
   'group.leader.change': '換組長',
