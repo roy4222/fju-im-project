@@ -1,6 +1,6 @@
 'use client'
 import { useActionState, useEffect, useState } from 'react'
-import { addMemberAction, changeLeaderAction, removeMemberAction } from './actions'
+import { addMemberAction, changeLeaderAction, dissolveGroupAction, removeMemberAction } from './actions'
 import {
   DIALOG,
   Feedback,
@@ -263,13 +263,15 @@ type DetailGroup = { id: string; code: string; revision: number; members: GroupD
  */
 export function GroupDetailButton({
   group,
+  cohortId,
   size,
   requestIds,
   reasonMaxLength,
 }: {
   group: DetailGroup & { typeLabel: string; history: GroupDetailHistory[] }
+  cohortId: string
   size: Size
-  requestIds: { remove: string; leader: string }
+  requestIds: { remove: string; leader: string; dissolve: string }
   reasonMaxLength: number
 }) {
   const dialog = useDialog()
@@ -343,7 +345,7 @@ export function GroupDetailButton({
               ))}
             </ul>
             {single ? (
-              <p className="text-xs text-muted-foreground">只剩一人：移出最後一人要走「解散」，解散功能之後才會開放。</p>
+              <p className="text-xs text-muted-foreground">只剩一人：移出最後一人要走下方的「解散組別」。</p>
             ) : null}
             {/* 只有一個移出對話框：移出成功後那一列會消失，對話框與回饋不能跟著那一列一起不見。 */}
             <RemoveMemberDialog
@@ -376,12 +378,114 @@ export function GroupDetailButton({
             )}
           </section>
 
+          <section aria-label="解散組別" className="space-y-2 border-t border-border pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-foreground">解散組別</h3>
+              <DissolveGroupDialog group={group} cohortId={cohortId} requestId={requestIds.dissolve} reasonMaxLength={reasonMaxLength} />
+            </div>
+            <p className="text-xs text-muted-foreground">全員回到未分組；原組資料凍結、不能再改，成績在成績頁照樣查看與匯出。</p>
+          </section>
+
           <div className="flex justify-end pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               關閉
             </button>
           </div>
         </div>
+      </dialog>
+    </div>
+  )
+}
+
+/**
+ * 開站後：系辦解散組別。兩步：先填理由，再看一次後果、按「確定解散」才送出（二次確認）。
+ * 成功後頁面換到「已解散的組別」顯示回執（這組已不在全部組別裡，詳情跟著關閉）。
+ */
+function DissolveGroupDialog({
+  group,
+  cohortId,
+  requestId,
+  reasonMaxLength,
+}: {
+  group: DetailGroup
+  cohortId: string
+  requestId: string
+  reasonMaxLength: number
+}) {
+  const [state, formAction, pending] = useActionState(dissolveGroupAction, undefined)
+  const dialog = useDialog()
+  const [reason, setReason] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const fieldId = `dissolve-${group.id}-reason`
+  const names = group.members.map((m) => m.name).join('、')
+  const close = () => {
+    setConfirming(false)
+    dialog.close()
+  }
+
+  return (
+    <div>
+      <button type="button" className={BTN_ROW} onClick={dialog.open}>
+        解散組別
+      </button>
+      <dialog ref={dialog.ref} aria-label={`解散 ${group.code}？`} className={DIALOG} onClose={() => setConfirming(false)}>
+        <form key={group.revision} action={formAction} className="space-y-4 p-5">
+          <h2 className="text-lg font-extrabold text-foreground">{confirming ? `確定解散 ${group.code}？` : `解散 ${group.code}`}</h2>
+          <input type="hidden" name="groupId" value={group.id} />
+          <input type="hidden" name="revision" value={group.revision} />
+          <input type="hidden" name="cohortId" value={cohortId} />
+          <input type="hidden" name="requestId" value={requestId} />
+          {confirming ? (
+            <>
+              <input type="hidden" name="reason" value={reason} />
+              <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+                <li>{names ? `${names} 回到未分組，之後可以另組新組。` : '這組已經沒有有效成員。'}</li>
+                <li>進行中的評分指派結束、老師的暫存失效；已送出的分數保留、凍結。</li>
+                <li>目前的簽核版本作廢。</li>
+                <li>組員、主指導與評分老師各收到一則通知（不含理由）。</li>
+              </ul>
+              <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">解散後不能復原，原組資料只能查看與匯出。</p>
+              <p className="text-sm text-muted-foreground">理由：{reason}</p>
+              <Feedback state={state?.ok ? undefined : state} />
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" className={SECONDARY} onClick={() => setConfirming(false)}>
+                  返回修改
+                </button>
+                <button type="submit" disabled={pending} className={PRIMARY}>
+                  {pending ? '處理中…' : '確定解散'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                目前 {group.members.length} 人{names ? `：${names}` : ''}。理由只留在系辦紀錄，通知不會帶出。
+              </p>
+              <div>
+                <label htmlFor={fieldId} className={LABEL}>
+                  理由（必填）
+                </label>
+                <textarea
+                  id={fieldId}
+                  rows={3}
+                  maxLength={reasonMaxLength}
+                  placeholder="例：全組僅剩一人，無法繼續"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" className={SECONDARY} onClick={close}>
+                  先不要
+                </button>
+                <button type="button" disabled={reason.trim() === ''} className={PRIMARY} onClick={() => setConfirming(true)}>
+                  下一步
+                </button>
+              </div>
+            </>
+          )}
+        </form>
       </dialog>
     </div>
   )

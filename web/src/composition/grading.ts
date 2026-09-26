@@ -1,8 +1,10 @@
 import 'server-only'
+import type { PoolClient } from 'pg'
 import type {
   AssignmentsForTeacherQuery,
   GradebookQuery,
   GradingCommand,
+  GradingDissolutionHook,
   GradingQuery,
   GradingResultsCommand,
 } from '@/application/grading'
@@ -10,6 +12,7 @@ import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getOperationLedger } from '@/composition/ops'
 import { MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
+import { PgGradingDissolution } from '@/infrastructure/grading/pg-grading-dissolution'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 
 /**
@@ -93,3 +96,11 @@ export {
   SCHEME_LIMITS,
   SCHEME_STATUS_LABEL,
 } from '@/application/grading'
+
+let dissolutionHook: GradingDissolutionHook<PoolClient> | undefined
+
+/** 組別解散時停止評分工作（開站後；由 `composition/groups.ts` 注入分組的解散用例，同交易）。 */
+export function getGradingDissolutionHook(): GradingDissolutionHook<PoolClient> {
+  dissolutionHook ??= new PgGradingDissolution()
+  return dissolutionHook
+}

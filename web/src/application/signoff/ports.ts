@@ -249,6 +249,14 @@ export interface SignoffParticipantHook<Tx = unknown> {
       readonly businessAt: Date
     },
   ): Promise<{ readonly supersededVersionIds: readonly string[] }>
+  /**
+   * 組別解散：同一筆交易把這組每個簽核包的目前版本作廢（產品模組 03 §4「解散：07 作廢」）。
+   * 已作廢或已失效的不動；作廢原因寫「組別解散：理由」。不通知（解散本身已通知全組與老師）。回傳作廢的版本 id。
+   */
+  voidForDissolution(
+    tx: Tx,
+    input: { readonly groupId: string; readonly reason: string; readonly actorUserId: string; readonly realAt: Date; readonly businessAt: Date },
+  ): Promise<{ readonly voidedVersionIds: readonly string[] }>
 }
 
 export interface SignoffQuery {

@@ -96,6 +96,7 @@ export type {
   AssignEvaluatorInput,
   AssignEvaluatorReceipt,
   AssignmentsForTeacherQuery,
+  GradingDissolutionHook,
   BenchEntry,
   CreateSchemeVersionInput,
   DraftReceipt,

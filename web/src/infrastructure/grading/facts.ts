@@ -67,7 +67,9 @@ export async function loadFacts(db: Db, groupIds: readonly string[]): Promise<Ma
     ended: boolean
   }>(
     `select e.id as evaluation_id, e.assignment_id, a.group_id, a.stage_key, a.teacher_user_id,
-            ${TEACHER_NAME_SQL} as teacher_name, e.scores, e.submitted_real_at, a.valid_to is not null as ended
+            ${TEACHER_NAME_SQL} as teacher_name, e.scores, e.submitted_real_at,
+            -- 「已改派保留」只算改派三選一結束的指派；組別解散結束的（removal_choice 空）分數照舊，不標改派。
+            (a.valid_to is not null and a.removal_choice is not null) as ended
        from evaluation_status s
        join evaluations e on e.id = s.evaluation_id
        join evaluator_assignments a on a.id = s.assignment_id
