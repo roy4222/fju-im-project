@@ -1,5 +1,5 @@
 'use client'
-import { useActionState, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useActionState, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconPencil, IconPlus } from '@tabler/icons-react'
 import {
   cancelActivityAction,
@@ -461,6 +461,28 @@ export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortI
   )
 }
 
+/**
+ * 活動清單上方的回饋區：取消活動成功後那一列會移出「已排定」清單，掛在列上的回饋會跟著消失，
+ * 所以取消的成功句子改放到清單外、「已排定的活動」卡片上方。
+ */
+const SetActivityNotice = createContext<(state: TimelineActionState) => void>(() => {})
+const ActivityNoticeValue = createContext<TimelineActionState>(undefined)
+
+export function ActivityNoticeProvider({ children }: { children: ReactNode }) {
+  const [notice, setNotice] = useState<TimelineActionState>(undefined)
+  return (
+    <SetActivityNotice.Provider value={setNotice}>
+      <ActivityNoticeValue.Provider value={notice}>{children}</ActivityNoticeValue.Provider>
+    </SetActivityNotice.Provider>
+  )
+}
+
+export function ActivityNotice() {
+  const notice = useContext(ActivityNoticeValue)
+  if (!notice) return null
+  return <Feedback state={notice} />
+}
+
 export function ActivityActions({
   activityId,
   title,
@@ -476,7 +498,16 @@ export function ActivityActions({
   values: ActivityDraft
 } & ActivityLimits) {
   const [updated, updateAction, updating] = useActionState(updateActivityAction, undefined)
-  const [cancelled, cancelAction, cancelling] = useActionState(cancelActivityAction, undefined)
+  const setNotice = useContext(SetActivityNotice)
+  // 成功時在動作裡就把句子交給清單外的回饋區：這一列隨後會移出清單、自己的狀態跟著消失。
+  const [cancelled, cancelAction, cancelling] = useActionState(
+    async (prev: TimelineActionState, formData: FormData) => {
+      const result = await cancelActivityAction(prev, formData)
+      setNotice(result?.ok ? result : undefined)
+      return result
+    },
+    undefined,
+  )
   const edit = useDialog()
   const confirm = useDialog()
   const [draft, setDraft] = useState(values)
@@ -489,7 +520,7 @@ export function ActivityActions({
     setDraft(values)
   }
 
-  const done = updated?.ok ? updated : cancelled?.ok ? cancelled : undefined
+  const done = updated?.ok ? updated : undefined
 
   return (
     <div className="space-y-2">

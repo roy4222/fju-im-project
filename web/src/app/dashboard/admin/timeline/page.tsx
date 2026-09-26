@@ -6,7 +6,7 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { ActivityActions, CreateActivityForm, type AudienceOption } from '@/app/dashboard/admin/timeline/timeline-forms'
+import { ActivityActions, ActivityNotice, ActivityNoticeProvider, CreateActivityForm, type AudienceOption } from '@/app/dashboard/admin/timeline/timeline-forms'
 import type { TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
 import { AdminTimeline, type AdminStage } from '@/app/dashboard/admin/timeline/timeline-zigzag'
 import {
@@ -188,55 +188,59 @@ export default async function AdminTimelinePage({
         }
       />
 
-      <Panel
-        title="已排定的活動"
-        icon={<IconCalendarEvent />}
-        description={`${scheduled.length} 個・說明會、成果發表這類獨立活動`}
-        aria-label="已排定的活動"
-      >
-        {scheduled.length === 0 ? (
-          <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">還沒有活動。</p>
-        ) : (
-          <ul className="divide-y divide-border border-t border-border">
-            {scheduled.map((activity) => (
-              <li
-                key={activity.id}
-                className="flex flex-wrap items-start justify-between gap-3 px-5 py-3 transition-colors hover:bg-accent/40"
-              >
-                <div className="min-w-0">
-                  <p className="text-[15px] font-bold">{activity.title}</p>
-                  <p className="text-sm text-muted-foreground tabular-nums">
-                    {formatActivityWhen(activity)}・{ACTIVITY_AUDIENCE_LABEL[activity.audienceKind]}
-                  </p>
-                  {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
-                </div>
-                <ActivityActions
-                  activityId={activity.id}
-                  title={activity.title}
-                  revision={activity.revision}
-                  requestIds={{ update: randomUUID(), cancel: randomUUID() }}
-                  values={activityFormValues(activity)}
-                  {...limits}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
-      {cancelled.length > 0 ? (
-        <Panel title="已取消" icon={<IconCalendarOff />} description={`${cancelled.length} 個`} aria-label="已取消的活動">
-          <ul className="divide-y divide-border border-t border-border">
-            {cancelled.map((activity) => (
-              <li key={activity.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm text-muted-foreground">
-                <Pill>已取消</Pill>
-                <span className="line-through">{activity.title}</span>
-                <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
-              </li>
-            ))}
-          </ul>
+      <ActivityNoticeProvider>
+        {/* 取消成功的句子放在清單外：那一列取消後就移出「已排定」清單了。 */}
+        <ActivityNotice />
+        <Panel
+          title="已排定的活動"
+          icon={<IconCalendarEvent />}
+          description={`${scheduled.length} 個・說明會、成果發表這類獨立活動`}
+          aria-label="已排定的活動"
+        >
+          {scheduled.length === 0 ? (
+            <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">還沒有活動。</p>
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {scheduled.map((activity) => (
+                <li
+                  key={activity.id}
+                  className="flex flex-wrap items-start justify-between gap-3 px-5 py-3 transition-colors hover:bg-accent/40"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-bold">{activity.title}</p>
+                    <p className="text-sm text-muted-foreground tabular-nums">
+                      {formatActivityWhen(activity)}・{ACTIVITY_AUDIENCE_LABEL[activity.audienceKind]}
+                    </p>
+                    {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
+                  </div>
+                  <ActivityActions
+                    activityId={activity.id}
+                    title={activity.title}
+                    revision={activity.revision}
+                    requestIds={{ update: randomUUID(), cancel: randomUUID() }}
+                    values={activityFormValues(activity)}
+                    {...limits}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
-      ) : null}
+
+        {cancelled.length > 0 ? (
+          <Panel title="已取消" icon={<IconCalendarOff />} description={`${cancelled.length} 個`} aria-label="已取消的活動">
+            <ul className="divide-y divide-border border-t border-border">
+              {cancelled.map((activity) => (
+                <li key={activity.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm text-muted-foreground">
+                  <Pill>已取消</Pill>
+                  <span className="line-through">{activity.title}</span>
+                  <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        ) : null}
+      </ActivityNoticeProvider>
     </>,
     // 新增活動（獨立活動）：原型頁面上的動作都是開對話框；回饋留在按鈕旁邊，不混進活動清單。
     <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />,

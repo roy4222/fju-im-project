@@ -163,6 +163,10 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
   await expect(cancelledList).toContainText('期中發表會')
   await expect(cancelledList).toContainText('已取消')
   await expect(scheduled).not.toContainText('期中發表會')
+  // 那一列移出清單後，成功句子仍看得到（放在清單外、「已排定的活動」卡片上方）。
+  await expect(page.getByRole('status').filter({ hasText: '已取消活動' })).toHaveText(
+    '已取消活動「期中發表會」；它會留在「已取消」清單。',
+  )
 
   // 重新整理仍然一樣；三個動作都在同一筆交易發了 calendar.changed 事件。
   await page.reload()
