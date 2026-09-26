@@ -128,6 +128,49 @@ Codex 會用 Playwright skill 一步一步照做、每步截圖，最後在 `e2e
 > 跟 `web/e2e/` 不一樣：那裡是 CI 跑的 Playwright 測試程式；這裡是寫給 Codex 看的**白話步驟**，
 > 對著真的測試站跑，用來取代 Roy 手動點一遍。
 
+## 情境測試（2026-09-26 起，`story-*.md`）
+
+Roy 2026-09-26 定案（Vault「💬 討論與決策／2026-09-26 使用者情境測試與用詞定案」）：Codex **扮演真的使用者**（新來的系辦助理、兩位老師、八位學生、三種訪客）
+在一個像真的上線的測試站過一整年，找業務邏輯、前後台連動、用詞與 UX 問題。**只測、只寫報告，不改程式**；修好之後同一份清單原樣重跑當回歸。
+
+| 章 | 清單 | 內容 |
+|---|---|---|
+| 1 | [`story-1-opening.md`](story-1-opening.md) | 開站第一天：空的前台、系辦第一次登入、建屆別與時程、匯入名單、學生註冊與審核、建老師 |
+| 2 | [`story-2-semester.md`](story-2-semester.md) | 開學一個月：晚來的學生、產學合作案、分組與指導、五種對象的公告誰收得到、撤回／下架／修改、規則與檔案下載、個人與整組收件 |
+| 3 | [`story-3-grading-signoff.md`](story-3-grading-signoff.md) | 評分方案、老師評分、退回與更正、成績匯出、簽核與提醒 |
+| 4 | [`story-4-frontstage.md`](story-4-frontstage.md) | 精選與榮譽榜（已知缺口）、三種訪客逛前台、「沒權限就不要出現」逐條探測、登入後的前台差異、活動可見性 |
+| 5 | [`story-5-words-and-ownership.md`](story-5-words-and-ownership.md) | 系辦、老師、學生逐頁用詞巡檢；前台每一塊由後台哪裡管；最該先改的 15 個詞 |
+
+**跟上面各站清單不一樣的地方**
+
+- 資料寫得像真的（屆別「第 43 屆」代碼 `115`、真實感的姓名與九碼學號、`@students.fju.test`／`@teachers.fju.test` 假網域），**不用 `CODEX-` 前綴、不做收尾**：
+  五章共用同一個屆別、資料一直累積。清理靠「開測前清空測試站」，正式站本來就是空的。
+- 預期寫的是 Roy 定案**後**的行為（例如沒權限就不要出現、撤回再發布不再通知）；現況做不到會記「不通過（已知待修）」。
+- 第 2 章起每章「步驟 0」由系辦替本章要用到的人發臨時密碼、改成本章密碼（Codex 每章自編、不寫報告），所以不需要在任何地方存學生／老師的密碼。
+- 報告多了「使用體驗問題」「看不懂的詞」「前台有、後台管不到」「待 Roy 決定」四節，每一條都附截圖。
+
+**開測前（Roy 在 VM 上做，一次）**——順序不能換：VM 故障演練的 `poison` 需要模擬鐘開著，所以**先做完故障演練**再做下面這些。
+
+1. 暫停測試站自動部署（五章跑完前都別恢復，免得中途換版本）：`sudo -u deploy touch /srv/fju/test/deploy/auto-deploy.paused`
+2. 記下目前版本：`sudo -u deploy cat /srv/fju/test/deploy/auto-deploy.last`（第 8 步要用這個 SHA）
+3. 備份：`sudo -u deploy /srv/fju/app/ops/backup.sh --site test`
+4. Doppler 網頁 → `fju-im-capstone` → `stg`：`BUSINESS_CLOCK_OVERRIDE_ENABLED` 改成 `false`（關掉模擬業務鐘與「發一則測試通知」）。
+5. 停測試站：`sudo -u deploy /srv/fju/app/ops/site.sh test docker compose down`
+6. 刪測試站資料庫與附件（**只有 test**，名稱裡一定要有 `test`）：`sudo -u deploy docker volume rm fju-test-pgdata`，再 `sudo find /srv/fju/test/files -mindepth 1 -delete`
+7. 讓部署不要再灌示範資料（不然第 8 步會把 DEMO-114 示範屆別、59 個示範帳號又建回來）：`sudo -u deploy touch /srv/fju/test/deploy/demo-seed.off`
+8. 用同一版重新部署（等於第一次部署，會重建 E2E 測試管理員；輸出應有「示範資料：略過」）：`sudo -u deploy /srv/fju/app/ops/deploy.sh --site test <第 2 步的 SHA> --execute`
+9. 建你自己的系辦帳號 A1：`sudo -u deploy /srv/fju/app/ops/seed-admin.sh test`（之後用 A1 一次性密碼登入、改密；舊的測試站帳號都沒了）。
+10. 核對：開 `https://test.fju.roy422.dev/api/health` 是 ok；前台首頁沒有任何公告與作品（沒有 DEMO-114）；A1 登入後打 `https://test.fju.roy422.dev/dashboard/admin/clock` 是 404。
+
+然後一次一章、照順序跑（前一章的報告看過、需要時修正資料再跑下一章）：
+
+```bash
+ops/codex-e2e.sh e2e/acceptance/story-1-opening.md
+```
+
+五章都跑完、報告交給主控台之後，再恢復自動部署：`sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused`。
+要重跑整個系列（例如修好之後回歸），從第 3 步開始再做一次清空。
+
 ## 149 案總檢查怎麼跑
 
 開發計畫 §5 第 5 點：正式開站（票 29）前，在測試站用**同一版本**把 149 個驗收案例整體跑一次。哪一案由哪份清單哪幾步驗、哪些延後或不適用 Codex，見 [`149-coverage.md`](149-coverage.md)（已涵蓋 37、新增 71、延後 33、不適用 Codex 7、待功能 1）。
