@@ -4,7 +4,7 @@
     {
       "id": "T1",
       "ticket": "A",
-      "description": "舊的跑法不受影響：不設任何新環境變數時，ops/codex-e2e.sh 的行為和以前一模一樣（同樣的參數、同樣的輸出目錄命名、同樣的洩漏掃描）。",
+      "description": "改過的驗收腳本不會害到現在的用法：什麼都不設時，跑起來和以前一模一樣（同樣的參數、同樣的輸出資料夾名稱、同樣的密碼檢查）。",
       "steps": [
         "在 repo 根目錄執行 `bash -n ops/codex-e2e.sh`（語法檢查）。",
         "把 `codex` 換成假程式（例如 PATH 前面放一個只會把 -o 指到的檔案寫一行「總結：通過 0、不通過 0」的 codex 腳本），跑 `ops/codex-e2e.sh e2e/acceptance/station-1-login.md`。",
@@ -16,7 +16,7 @@
     {
       "id": "T2",
       "ticket": "A",
-      "description": "codex-e2e.sh 多了六個旋鈕（§3.3）：指定輸出目錄、保留 session、續跑、追加白名單變數、追加要掃的秘密檔、替換報告格式段；全部不設就是舊行為。",
+      "description": "舊的驗收腳本學會了幾件新事：可以指定報告放哪、中斷後能接著跑、多認一組密碼不讓它寫進報告、可以多交幾個環境變數給測試員、可以換掉報告格式說明；什麼都不設時和以前一模一樣。",
       "steps": [
         "打開 ops/codex-e2e.sh，確認讀取 CODEX_E2E_RUN_DIR、CODEX_E2E_KEEP_SESSION、CODEX_E2E_RESUME、CODEX_E2E_EXTRA_ENV、CODEX_E2E_EXTRA_SECRET_FILE、CODEX_E2E_PROMPT_FILE。",
         "用假 codex：設 CODEX_E2E_RUN_DIR=/tmp/t2 CODEX_E2E_KEEP_SESSION=1 跑一份清單，看 /tmp/t2/report.md 與 /tmp/t2/codex-session.txt 都在、指令列沒有 --ephemeral。",
@@ -44,12 +44,12 @@
       "description": "整夜密碼與登入狀態放在報告目錄外面、只有自己讀得到、跑完就消失：啟動後 ~/.fju-acceptance/<runId>/secrets/night.pw 是 0600、24 個英數字；codex 收到的是環境變數 ACCEPT_PASSWORD；正常結束或 Ctrl-C 後整個 ~/.fju-acceptance/<runId> 不見了，而 .out/night-*/ 的報告還在。",
       "steps": [
         "用假 codex（寫一行總結後 sleep 20 秒再結束）跑 `ops/acceptance-night.sh --plan tonight`。",
-        "啟動後 5 秒內另開終端機看 `ls -l ~/.fju-acceptance/*/secrets/night.pw` 權限與長度；看 `ls -ld ~/.fju-acceptance/*` 是 700。",
+        "啟動後 5 秒內另開終端機跑 `stat -f '%Lp %z' ~/.fju-acceptance/*/secrets/night.pw | grep -E '^600 (24|25)$'`（要有一行）；`ls -ld ~/.fju-acceptance/*` 是 700。",
         "讓假 codex 把 `printenv ACCEPT_PASSWORD | wc -c` 寫到自己目錄的 env-check.txt；比對是 25（24 字＋換行）。",
         "等它跑完：`ls ~/.fju-acceptance/` 沒有這個 runId；`ls e2e/acceptance/.out/night-*/` 有 run.log、run.json 與各項目子目錄。",
         "再跑一次並在中途 Ctrl-C：同樣 ~/.fju-acceptance/<runId> 被刪、run.log 最後一行寫被中斷。"
       ],
-      "verify": "stat -f '%Lp %z' ~/.fju-acceptance/*/secrets/night.pw 2>/dev/null | grep -E '^600 (24|25)$'; test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && ls e2e/acceptance/.out/night-*/run.json",
+      "verify": "test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && ls e2e/acceptance/.out/night-*/run.json && grep -q \"ACCEPT_PASSWORD\" ops/acceptance-night.sh",
       "passes": false
     },
     {
@@ -59,10 +59,11 @@
       "steps": [
         "把計畫表裡 story-1 的預算暫時改成 1 分鐘（或用環境變數 ACCEPT_BUDGET_OVERRIDE=1），用假 codex（sleep 300）跑 --plan tonight --only story-1。",
         "約 1 分鐘後 run.log 出現 `timeout story-1`；接著出現 `resume story-1`（因為 progress.md 至少要有一行：讓假 codex 一開始就寫一行到 progress.md）；第二次再逾時後 run.json 裡 story-1 的 status 是 failed、resumed 是 true。",
+        "用兩個假項目並行跑（例如 --only ux-visitor-highschool,ux-visitor-industry，各自 sleep 超過預算）：各自逾時後各自 resume 到自己的 codex-session.txt 裡的 id（run.log 的 resume 行要帶 id）；把某一項的 codex-session.txt 改成 unknown 再跑：那一項不續跑、直接 failed。",
         "拔掉網路或把測試站網址改成不存在的主機（只在 --dry-run 以外的假跑），確認 commit 取不到時 run.json 寫 unknown 而不是整個腳本當掉。",
         "用真網路跑 --only security-static：run.json 的 commitStart 與 commitEnd 都是 8 碼。"
       ],
-      "verify": "grep -E 'timeout\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && grep -E 'resume\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-1');if(!(s.status==='failed'&&s.resumed===true))process.exit(1);if(!/^[0-9a-f]{8}$|^unknown$/.test(r.commitStart))process.exit(2)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\"",
+      "verify": "grep -E 'timeout\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && grep -E 'resume\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-1');if(!(s.status==='failed'&&s.resumed===true))process.exit(1);if(!/^[0-9a-f]{8}$|^unknown$/.test(r.commitStart))process.exit(2)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\" && ! grep -qE \"resume .*--last\" ops/acceptance-night.sh ops/codex-e2e.sh",
       "passes": false
     },
     {
@@ -72,11 +73,12 @@
       "steps": [
         "打開 e2e/acceptance/story-1-opening.md 的「密碼」一節：寫的是 `\"$PWCLI\" fill <ref> \"$ACCEPT_PASSWORD\"`，沒有「自己編一組密碼」。",
         "搜尋 state-save：第 7 步（系辦登入）、第 21 步（學生註冊後登入）、第 28／30 步（老師改密後）都有存到 `$ACCEPT_STATE_DIR/<工作階段>.json`。",
+        "搜尋 ACCEPT_ITEM：所有 `-s=` 的工作階段名與 state 檔名都是 `${ACCEPT_ITEM}-<角色>`；每次 `open` 都帶 `--idle-timeout=10800000`。",
         "搜尋 state-load：共用規則寫「工作階段沒有回應就 open 再 state-load，不重新登入」；第 37 步訪客與學生用它。",
         "「失敗時」有一條：老師臨時密碼遺失 → 回 admin 工作階段對他再發一次臨時密碼、再做一次第 28／30 步，不算 UX 問題。",
         "清單裡沒有任何真實密碼字串、沒有正式站網址（ops/codex-e2e.sh 的網址檢查要過）。"
       ],
-      "verify": "f=e2e/acceptance/story-1-opening.md; grep -q 'ACCEPT_PASSWORD' $f && test $(grep -c 'state-save' $f) -ge 4 && grep -q 'state-load' $f && grep -q 'progress.md' $f && grep -q '再發一次臨時密碼' $f && ! grep -q '自己編一組' $f && ! LC_ALL=C grep -iEq '(^|[^A-Za-z0-9.-])fju\\.roy422\\.dev' $f",
+      "verify": "f=e2e/acceptance/story-1-opening.md; grep -q 'ACCEPT_PASSWORD' $f && test $(grep -c 'state-save' $f) -ge 4 && grep -q 'state-load' $f && grep -q 'progress.md' $f && grep -q '再發一次臨時密碼' $f && ! grep -q '自己編一組' $f && ! LC_ALL=C grep -iEq '(^|[^A-Za-z0-9.-])fju\\.roy422\\.dev' $f && grep -q 'ACCEPT_ITEM' $f && grep -q 'idle-timeout' $f",
       "passes": false
     },
     {
@@ -103,7 +105,7 @@
         "「報告格式」含第一印象、每個任務的 完成／步數／花了／卡在哪／看不懂的詞／截圖／分數／建議，最後是九欄問題清單與「總結：」。",
         "用 ops/codex-e2e.sh 的網址檢查跑一遍（假 codex）：兩張卡都不被拒。"
       ],
-      "verify": "for f in e2e/acceptance/personas/visitor-highschool.md e2e/acceptance/personas/visitor-industry.md; do grep -q '## 你的目標' $f && grep -q '不登入' $f && grep -q '第一印象' $f && grep -q '分數' $f && grep -q '^| 編號 | 嚴重度 |' $f && grep -q '^總結：' $f || echo \"$f 不合約\"; done; grep -q '優秀專題' e2e/acceptance/personas/visitor-highschool.md && grep -q '404' e2e/acceptance/personas/visitor-industry.md",
+      "verify": "for f in e2e/acceptance/personas/visitor-highschool.md e2e/acceptance/personas/visitor-industry.md; do grep -q '## 你的目標' $f && grep -q '不登入' $f && grep -q '第一印象' $f && grep -q '分數' $f && grep -q 'ACCEPT_ITEM' $f && grep -q '^| 編號 | 嚴重度 |' $f && grep -q '^總結：' $f || echo \"$f 不合約\"; done; grep -q '優秀專題' e2e/acceptance/personas/visitor-highschool.md && grep -q '404' e2e/acceptance/personas/visitor-industry.md",
       "passes": false
     },
     {
@@ -117,7 +119,7 @@
         "「複製各組信箱」在空組別時的預期：寫「找得到按鈕但沒有組可複製」也算完成、記錄她找了多久。",
         "打開 e2e/acceptance/known-issues.md：有 訪1…訪6、系1…系8、D-1…D-4，每行一句話與來源。"
       ],
-      "verify": "f=e2e/acceptance/personas/admin-newbie.md; grep -q '準備（不評 UX）' $f && grep -q '411000109' $f && grep -q '411000110' $f && grep -q '116' $f && grep -q '不按「設為預設」' $f && grep -q '操作紀錄' $f && grep -q '匯出' $f && grep -q 'state-save' $f; k=e2e/acceptance/known-issues.md; for c in 訪1 訪6 系1 系8 D-1 D-4; do grep -q \"$c\" $k || echo \"known-issues 缺 $c\"; done",
+      "verify": "f=e2e/acceptance/personas/admin-newbie.md; grep -q '準備（不評 UX）' $f && grep -q '411000109' $f && grep -q '411000110' $f && grep -q '116' $f && grep -q '不按「設為預設」' $f && grep -q '操作紀錄' $f && grep -q '匯出' $f && grep -q 'state-save' $f && grep -q 'ACCEPT_ITEM' $f; k=e2e/acceptance/known-issues.md; for c in 訪1 訪6 系1 系8 D-1 D-4; do grep -q \"$c\" $k || echo \"known-issues 缺 $c\"; done",
       "passes": false
     },
     {
@@ -168,9 +170,10 @@
         "Roy 照設計方案 §6.4 貼指令（Mac 產鑰匙、VM 建 fjureset、authorized_keys、sudoers、sshd AllowUsers）。",
         "💻 `ssh fju-reset status`。",
         "💻 試 `ssh fju-reset 'bash'`、`ssh fju-reset reset prod`、`ssh fju-reset rm -rf /`、`ssh -N -L 3999:127.0.0.1:3000 fju-reset`：全部拒絕（錯誤訊息或連線被關）。",
+        "💻 `ssh fju-reset 'status; id'`：輸出裡不得出現 `uid=`（分號後面的指令進不來）。",
         "🖥️ `sudo -l -U fjureset` 只列 /usr/local/sbin/fju-test-reset。"
       ],
-      "verify": "ssh fju-reset status | grep -qE 'commit=[0-9a-f]{8}' && ! ssh fju-reset 'bash' 2>/dev/null && ! ssh fju-reset reset prod 2>/dev/null",
+      "verify": "ssh fju-reset status | grep -qE 'commit=[0-9a-f]{8}' && ! ssh fju-reset 'bash' 2>/dev/null && ! ssh fju-reset reset prod 2>/dev/null && ! ssh fju-reset 'status; id' 2>/dev/null | grep -q 'uid='",
       "passes": false
     },
     {
