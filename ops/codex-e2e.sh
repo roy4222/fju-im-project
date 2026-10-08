@@ -23,6 +23,14 @@
 #   CODEX_E2E_MODEL    預設 gpt-6-sol
 #   CODEX_E2E_SANDBOX  預設 workspace-write（開網路）；瀏覽器在沙盒裡起不來時改 danger-full-access
 #   CODEX_E2E_OUT      輸出根目錄，預設 e2e/acceptance/.out
+#
+# 整夜驗收（ops/acceptance-night.sh）用的旋鈕；全部不設＝上面的舊行為：
+#   CODEX_E2E_RUN_DIR            直接用這個輸出目錄（不再用時間戳另建）
+#   CODEX_E2E_KEEP_SESSION=1     不帶 --ephemeral；codex 的 session id 寫到 <輸出目錄>/codex-session.txt（取不到寫 unknown）
+#   CODEX_E2E_RESUME=<id>        改跑 codex exec resume <id>（從 progress.md 下一步續跑）；不接受 last
+#   CODEX_E2E_EXTRA_ENV="A B"    這些變數也進白名單、原值交給 codex
+#   CODEX_E2E_EXTRA_SECRET_FILE  洩漏檢查多掃這個檔的內容（一行）；命中＝遮蔽＋非 0 結束
+#   CODEX_E2E_PROMPT_FILE        用這個檔取代內建的「報告格式」段
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,8 +51,17 @@ OUT_ROOT="${CODEX_E2E_OUT:-$REPO_ROOT/e2e/acceptance/.out}"
 # 第一次實跑若 npx／Playwright 缺了什麼，再把那個變數名加進來。
 CODEX_ENV_WHITELIST=(PATH HOME USER SHELL TMPDIR LANG 'LC_*' CODEX_HOME E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD)
 
+# 整夜驗收的旋鈕（見檔頭）；全部不設時下面每個值都是空的，行為與參數同舊版。
+KEEP_SESSION="${CODEX_E2E_KEEP_SESSION:-}"
+RESUME_ID="${CODEX_E2E_RESUME:-}"
+EXTRA_SECRET_FILE="${CODEX_E2E_EXTRA_SECRET_FILE:-}"
+PROMPT_FILE="${CODEX_E2E_PROMPT_FILE:-}"
+# shellcheck disable=SC2206  # 空白隔開的變數名清單，刻意 word-split
+EXTRA_ENV=(${CODEX_E2E_EXTRA_ENV:-})
+RESUME_PROMPT="讀 progress.md 最後一行，從下一步繼續；不要重做已完成的步驟；最後一則訊息仍是完整報告"
+
 usage() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -109,6 +126,26 @@ case "$SANDBOX" in
   *) die "CODEX_E2E_SANDBOX 只能是 read-only、workspace-write 或 danger-full-access（收到：${SANDBOX}）" ;;
 esac
 
+# 旋鈕檢查：都在取秘密之前，設錯就直接停。
+for name in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do
+  [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "CODEX_E2E_EXTRA_ENV 裡有不是變數名的字：$name"
+  CODEX_ENV_WHITELIST+=("$name")
+done
+if [ -n "$RESUME_ID" ]; then
+  # 並行時 --last 會接到別人的 session，只收明確的 id。
+  [[ "$RESUME_ID" =~ ^[A-Za-z0-9-]+$ ]] && [ "$RESUME_ID" != last ] \
+    || die "CODEX_E2E_RESUME 要給 session id（收到：${RESUME_ID}；不接受 last）"
+fi
+extra_secret=""
+if [ -n "$EXTRA_SECRET_FILE" ]; then
+  [ -s "$EXTRA_SECRET_FILE" ] || die "CODEX_E2E_EXTRA_SECRET_FILE 找不到或是空的：$EXTRA_SECRET_FILE"
+  IFS= read -r extra_secret < "$EXTRA_SECRET_FILE" || true
+  [ -n "$extra_secret" ] || die "CODEX_E2E_EXTRA_SECRET_FILE 第一行是空的：$EXTRA_SECRET_FILE"
+fi
+if [ -n "$PROMPT_FILE" ]; then
+  [ -s "$PROMPT_FILE" ] || die "CODEX_E2E_PROMPT_FILE 找不到或是空的：$PROMPT_FILE"
+fi
+
 command -v codex >/dev/null 2>&1 || die "找不到 codex 指令——先安裝 Codex CLI 並登入。"
 command -v doppler >/dev/null 2>&1 || die "找不到 doppler 指令——先 brew install dopplerhq/cli/doppler 並 doppler login。"
 [ -f "$HOME/.codex/skills/playwright/SKILL.md" ] || die "找不到 ~/.codex/skills/playwright——Codex 要靠這個 skill 開瀏覽器。"
@@ -130,10 +167,30 @@ e2e_password="$(fetch_secret E2E_ADMIN_PASSWORD)" \
 
 # ── 輸出目錄（gitignore 掉；只有自己讀得到）─────────────────────
 checklist_name="$(basename "$CHECKLIST" .md)"
-RUN_DIR="$OUT_ROOT/$(date +%Y%m%d-%H%M%S)-$checklist_name"
+RUN_DIR="${CODEX_E2E_RUN_DIR:-$OUT_ROOT/$(date +%Y%m%d-%H%M%S)-$checklist_name}"
 REPORT="$RUN_DIR/report.md"
 umask 077
 mkdir -p "$RUN_DIR/screenshots"
+
+read -r -d '' REPORT_FORMAT <<EOF || true
+## 最後一則訊息＝報告（只輸出 Markdown，不要多寫別的）
+格式：
+
+# 驗收報告：<清單標題>
+
+- 站台：${TARGET_URL}
+- 時間：<開始時間>
+
+| 步驟 | 結果 | 看到什麼 | 截圖 |
+|---|---|---|---|
+| 1 <步驟名稱> | 通過 | <一句話> | screenshots/01-xxx.png |
+| 2 <步驟名稱> | 不通過 | <預期什麼、實際什麼> | screenshots/02-xxx.png |
+
+總結：通過 N、不通過 M
+
+清單若另外規定了「結果」欄的寫法或要加的彙整表（例如外觀對照的三級），照清單寫；最後一行仍然要以「總結：」開頭。
+EOF
+[ -z "$PROMPT_FILE" ] || REPORT_FORMAT="$(cat "$PROMPT_FILE")"
 
 read -r -d '' PROMPT <<EOF || true
 你是資管系專題平台的驗收測試員。請依最下面 <checklist> 區塊裡的驗收清單，在測試站逐步操作瀏覽器並回報結果。
@@ -159,22 +216,7 @@ read -r -d '' PROMPT <<EOF || true
 - 不要修改 repo、不要跑 git。
 - 某一步失敗就記「不通過」、截圖、寫下看到什麼，然後照清單的指示決定要不要繼續（清單沒說就繼續下一步）。
 
-## 最後一則訊息＝報告（只輸出 Markdown，不要多寫別的）
-格式：
-
-# 驗收報告：<清單標題>
-
-- 站台：${TARGET_URL}
-- 時間：<開始時間>
-
-| 步驟 | 結果 | 看到什麼 | 截圖 |
-|---|---|---|---|
-| 1 <步驟名稱> | 通過 | <一句話> | screenshots/01-xxx.png |
-| 2 <步驟名稱> | 不通過 | <預期什麼、實際什麼> | screenshots/02-xxx.png |
-
-總結：通過 N、不通過 M
-
-清單若另外規定了「結果」欄的寫法或要加的彙整表（例如外觀對照的三級），照清單寫；最後一行仍然要以「總結：」開頭。
+${REPORT_FORMAT}
 
 <checklist>
 $(cat "$CHECKLIST")
@@ -191,32 +233,54 @@ echo ""
 include_only="$(printf '"%s",' "${CODEX_ENV_WHITELIST[@]}")"
 include_only="[${include_only%,}]"
 
-codex_args=(
-  exec
-  -m "$MODEL"
-  -s "$SANDBOX"
-  -C "$RUN_DIR"
-  --skip-git-repo-check
-  --ephemeral
-  --color never
-  # Codex 開的 shell：從完整環境出發（inherit=all），但只留白名單上的變數。
-  -c 'shell_environment_policy.inherit="all"'
-  -c "shell_environment_policy.include_only=$include_only"
-  -o "$REPORT"
-)
+if [ -z "$RESUME_ID" ]; then
+  codex_args=(
+    exec
+    -m "$MODEL"
+    -s "$SANDBOX"
+    -C "$RUN_DIR"
+    --skip-git-repo-check
+  )
+  # KEEP_SESSION：留著 session 檔，逾時被殺後才能 resume。
+  [ "$KEEP_SESSION" = 1 ] || codex_args+=(--ephemeral)
+  codex_args+=(
+    --color never
+    # Codex 開的 shell：從完整環境出發（inherit=all），但只留白名單上的變數。
+    -c 'shell_environment_policy.inherit="all"'
+    -c "shell_environment_policy.include_only=$include_only"
+    -o "$REPORT"
+  )
+  codex_tail=("$PROMPT")
+else
+  # `codex exec resume` 沒有 -s／-C／--color／--add-dir：沙盒改用 -c，工作目錄在下面 cd 過去。
+  codex_args=(
+    exec resume
+    -m "$MODEL"
+    -c "sandbox_mode=\"$SANDBOX\""
+    --skip-git-repo-check
+    -c 'shell_environment_policy.inherit="all"'
+    -c "shell_environment_policy.include_only=$include_only"
+    -o "$REPORT"
+  )
+  codex_tail=("$RESUME_ID" "$RESUME_PROMPT")
+fi
 if [ "$SANDBOX" = workspace-write ]; then
   # 預設沙盒不開網路；要連測試站、要 npx 抓 playwright-cli。
   codex_args+=(-c 'sandbox_workspace_write.network_access=true')
-  [ -d "$HOME/.npm" ] && codex_args+=(--add-dir "$HOME/.npm")
-  # Playwright 的瀏覽器快取（macOS）；沒有這個，沙盒裡第一次裝瀏覽器會寫不進去。
-  [ -d "$HOME/Library/Caches/ms-playwright" ] && codex_args+=(--add-dir "$HOME/Library/Caches/ms-playwright")
+  if [ -z "$RESUME_ID" ]; then
+    [ -d "$HOME/.npm" ] && codex_args+=(--add-dir "$HOME/.npm")
+    # Playwright 的瀏覽器快取（macOS）；沒有這個，沙盒裡第一次裝瀏覽器會寫不進去。
+    [ -d "$HOME/Library/Caches/ms-playwright" ] && codex_args+=(--add-dir "$HOME/Library/Caches/ms-playwright")
+  else
+    codex_args+=(-c "sandbox_workspace_write.writable_roots=[\"$HOME/.npm\",\"$HOME/Library/Caches/ms-playwright\"]")
+  fi
 fi
 
 # 在子 shell 裡把白名單外的環境變數全部 unset，再 exec codex。
 # 不用 `env -i 名稱=值 codex`：那樣帳密會出現在 env 的指令列（ps 看得到）。
 # 帳密只以環境變數交給 codex 這一個行程（不 export 給其他指令，也不進指令列）。
-codex_status=0
-(
+run_codex() (
+  [ -z "$RESUME_ID" ] || cd "$RUN_DIR"
   while IFS= read -r name; do
     keep=0
     for pattern in "${CODEX_ENV_WHITELIST[@]}"; do
@@ -226,13 +290,54 @@ codex_status=0
     [ "$keep" = 1 ] || unset "$name" 2>/dev/null || true
   done < <(compgen -e)
   E2E_ADMIN_EMAIL="$e2e_email" E2E_ADMIN_PASSWORD="$e2e_password" \
-    exec codex "${codex_args[@]}" "$PROMPT" < /dev/null
-) || codex_status=$?
+    exec codex "${codex_args[@]}" "${codex_tail[@]}" < /dev/null
+)
+
+# KEEP_SESSION：stderr 照常印出，看到 codex 開頭的「session id: <uuid>」就立刻寫檔（被殺也留得住）。
+SESSION_FILE="$RUN_DIR/codex-session.txt"
+session_tap() {
+  local line found=""
+  while IFS= read -r line; do
+    printf '%s\n' "$line" >&2
+    if [ -z "$found" ] && [[ "$line" =~ ^session\ id:\ ([0-9A-Za-z-]+) ]]; then
+      found="${BASH_REMATCH[1]}"
+      printf '%s\n' "$found" > "$SESSION_FILE"
+    fi
+  done
+}
+
+codex_status=0
+if [ "$KEEP_SESSION" = 1 ] && [ -z "$RESUME_ID" ]; then
+  printf 'unknown\n' > "$SESSION_FILE"
+  run_codex 2> >(session_tap) || codex_status=$?
+  # 沒從 stderr 取到：找這個輸出目錄的 rollout 檔（~/.codex/sessions/…/rollout-<時間>-<id>.jsonl，第一行記 cwd）。
+  sleep 1
+  if [ "$(cat "$SESSION_FILE")" = unknown ]; then
+    rollout="$(grep -rlF "\"cwd\":\"$RUN_DIR\"" "${CODEX_HOME:-$HOME/.codex}/sessions" 2>/dev/null | tail -1 || true)"
+    rollout_id="$(basename "${rollout:-x}" .jsonl | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || true)"
+    [ -z "$rollout_id" ] || printf '%s\n' "$rollout_id" > "$SESSION_FILE"
+  fi
+else
+  run_codex || codex_status=$?
+fi
 
 # ── 洩漏檢查：輸出目錄的文字檔裡不能有密碼 ─────────────────────
 # E2E 管理員密碼（先掃：它是唯一會讓這支腳本報錯的洩漏）：
 # 密碼從 process substitution 餵給 grep -f（printf 是 shell 內建，不會出現在 ps 裡）。
 # 檔名一行一個（輸出目錄的檔名是 Codex 照提示取的英文短名）；不用 -Z，macOS 上的 grep 不一定支援。
+# 整夜密碼（CODEX_E2E_EXTRA_SECRET_FILE）：先遮蔽，等其他檢查做完再以非 0 結束。
+extra_leaked=()
+if [ -n "$extra_secret" ]; then
+  while IFS= read -r file; do
+    [ -n "$file" ] && extra_leaked+=("$file")
+  done < <(grep -rIlF -f <(printf '%s\n' "$extra_secret") "$RUN_DIR" 2>/dev/null || true)
+  for file in ${extra_leaked[@]+"${extra_leaked[@]}"}; do
+    E2E_REDACT="$extra_secret" perl -pi -e 's/\Q$ENV{E2E_REDACT}\E/[已遮蔽]/g' "$file"
+  done
+  [ "${#extra_leaked[@]}" -eq 0 ] \
+    || echo "⚠️ 輸出裡出現了 ${EXTRA_SECRET_FILE} 的密碼，已遮蔽這些檔案：${extra_leaked[*]}" >&2
+fi
+
 leaked=()
 while IFS= read -r file; do
   [ -n "$file" ] && leaked+=("$file")
@@ -269,6 +374,8 @@ done < <(LC_ALL=C grep -rIlE "$temp_pw" "$RUN_DIR" 2>/dev/null || true)
 if [ "${#temp_leaked[@]}" -gt 0 ]; then
   echo "⚠️ 輸出裡有像老師臨時密碼的字串，已遮蔽這些檔案：${temp_leaked[*]}（臨時密碼改密後即失效；若那位老師沒改密成功，確認收尾已停用他）" >&2
 fi
+
+[ "${#extra_leaked[@]}" -eq 0 ] || die "整夜密碼外洩（已遮蔽）。輸出目錄：$RUN_DIR"
 
 if [ "$codex_status" -ne 0 ]; then
   die "codex exec 以 $codex_status 結束。輸出目錄：$RUN_DIR"
