@@ -9,7 +9,7 @@
       "同樣試 /industry、/files，以及首頁任一則公告點進去（若該公告需登入）",
       "用剛註冊、尚未核准的帳號登入後打開 /files，應被帶到 /register/pending"
     ],
-    "verify": "curl -sI https://test.fju.roy422.dev/projects | grep -i '^location' → 含 /login?next=%2Fprojects；curl -sI https://test.fju.roy422.dev/files | grep -i '^location' → 含 /login?next=%2Ffiles",
+    "verify": "curl -s -o /dev/null -w '%{http_code} %{redirect_url}\\n' https://test.fju.roy422.dev/projects → 3xx 且網址含 /login?next=%2Fprojects；同指令換 /files → 含 /login?next=%2Ffiles",
     "passes": false
   },
   {
@@ -21,7 +21,7 @@
       "看到「找不到這個頁面」與「回首頁」，頁首頁尾與其他頁一樣",
       "打開 https://test.fju.roy422.dev/news/00000000-0000-4000-8000-000000000000，同樣畫面"
     ],
-    "verify": "curl -s -o /dev/null -w '%{http_code}\\n' https://test.fju.roy422.dev/this-page-does-not-exist → 404；curl -s https://test.fju.roy422.dev/this-page-does-not-exist | grep -c '找不到這個頁面' → 1",
+    "verify": "curl -s -o /dev/null -w '%{http_code}\\n' https://test.fju.roy422.dev/this-page-does-not-exist → 404；curl -s https://test.fju.roy422.dev/this-page-does-not-exist | grep -o '找不到這個頁面' | wc -l → ≥ 1",
     "passes": false
   },
   {
@@ -32,7 +32,7 @@
       "確認測試站目前沒有公開公告（或先把公開公告撤回）",
       "無痕視窗打開 https://test.fju.roy422.dev/news"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/news | grep -c '目前沒有公開公告' → 1；grep -c '登入後才看得到' → 0",
+    "verify": "curl -s https://test.fju.roy422.dev/news | grep -o '目前沒有公開公告' | wc -l → ≥ 1；grep -o '登入後才看得到' | wc -l → 0",
     "passes": false
   },
   {
@@ -44,7 +44,7 @@
       "無痕視窗從 /honors 點一個專題進去",
       "整頁看不到「登入後」字樣"
     ],
-    "verify": "截圖整頁；curl -s https://test.fju.roy422.dev/projects/<公開專題id> | grep -c '登入後' → 0",
+    "verify": "截圖整頁；curl -s https://test.fju.roy422.dev/projects/<公開專題id> | grep -o '登入後' | wc -l → 0",
     "passes": false
   },
   {
@@ -55,7 +55,7 @@
       "無痕視窗打開 https://test.fju.roy422.dev/",
       "讀第一段文字"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/ | grep -c 'Google 註冊' → 0；截圖首頁第一屏",
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o 'Google 註冊' | wc -l → 0；截圖首頁第一屏",
     "passes": false
   },
   {
@@ -66,7 +66,7 @@
       "打開 https://test.fju.roy422.dev/honors",
       "讀標題下的說明"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/honors | grep -c '人物照不裁切' → 0；grep -c '得獎紀錄' → 1",
+    "verify": "curl -s https://test.fju.roy422.dev/honors | grep -o '人物照不裁切' | wc -l → 0；grep -o '得獎紀錄' | wc -l → ≥ 1",
     "passes": false
   },
   {
@@ -77,7 +77,7 @@
       "打開首頁捲到「快速入口」的系辦聯絡",
       "捲到最下面的頁尾"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/ | grep -c '業界合作或產學洽詢' → 2",
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '業界合作或產學洽詢' | wc -l → ≥ 2（HTML 幾乎一行，不能用 grep -c）；另截首頁聯絡卡與頁尾各一張",
     "passes": false
   },
   {
@@ -216,7 +216,7 @@
       "無痕視窗打開首頁，最新公告下方看到「近期活動」與該活動",
       "系辦取消該活動，重新整理首頁，「近期活動」消失"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/ | grep -c '近期活動' → 建活動後 1、取消後 0",
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '近期活動' | wc -l → 建活動後 ≥ 1、取消後 0",
     "passes": false
   },
   {
@@ -237,11 +237,12 @@
     "ticket": "T5",
     "description": "註冊關閉時，前台找不到任何「註冊」入口：首頁快速入口、頁尾、手機選單、登入頁都沒有。",
     "steps": [
-      "Roy 在 Doppler stg 把 REGISTRATION_OPEN 改成 false，重新部署同一版本到測試站",
+      "Roy 在 Doppler stg 把 REGISTRATION_OPEN 改成 false",
+      "VM 上跑：sudo -u deploy /srv/fju/app/ops/site.sh test docker compose up -d --no-deps app worker（約 30 秒，容器會帶新環境變數重建）",
       "無痕視窗看首頁、頁尾、縮小視窗開手機選單、登入頁",
-      "驗完 G1–G4 後改回 true 並重新部署"
+      "驗完 G1–G4 後 Doppler 改回 true，再跑一次同一行指令"
     ],
-    "verify": "curl -s https://test.fju.roy422.dev/ | grep -c '/register' → 0；curl -s https://test.fju.roy422.dev/login | grep -c '/register' → 0",
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '/register' | wc -l → 0；curl -s https://test.fju.roy422.dev/login | grep -o '/register' | wc -l → 0",
     "passes": false
   },
   {
@@ -282,7 +283,7 @@
     "ticket": "T4",
     "description": "測試站與正式站的容器各在自己的網路，測試站連不到正式站。",
     "steps": [
-      "Roy 依設計方案 §4 的步驟在 VM 上執行",
+      "Roy 依設計方案 §4 的零停機順序在 VM 上執行（rsync → vm-setup.sh → Caddy 過渡版 → 重部署測試站目前 SHA → Caddy 最終版 → 刪 fju-edge）",
       "測試站重新整理仍正常"
     ],
     "verify": "docker network ls | grep fju-edge → 只有 fju-edge-test、fju-edge-prod；docker network inspect fju-edge-test --format '{{range .Containers}}{{.Name}} {{end}}' → 只有 caddy 與 fju-test-app；docker exec fju-test-app getent hosts fju-prod-app → 空（exit 2）",
@@ -294,7 +295,7 @@
     "description": "GitHub 每 10 分鐘自動看測試站活著；正式站那一半在 Roy 開變數前不會跑、不會誤報；掛了會收到 GitHub 的失敗信。",
     "steps": [
       "合併後到 GitHub → Actions → health-cron，按 Run workflow 手動跑一次",
-      "test 綠、prod 顯示 skipped",
+      "test 綠、prod 顯示 skipped（prod job 的 if 看 HEALTH_PROD_ENABLED）",
       "等 10 分鐘，看排程自己跑了一次",
       "（可選）暫時把 docker stop fju-test-app，等下一次跑，收到失敗信後再 start"
     ],
