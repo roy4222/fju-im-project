@@ -2,10 +2,9 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconDownload, IconFileText, IconFolderOpen } from '@tabler/icons-react'
 import type { ItemFileSummary, PublicItemCard } from '@/application/items'
-import { currentActor } from '@/app/_ui/guard'
-import { formatSize, ListEmpty, NeedLogin, PublicPage, publishedDate, SearchField } from '@/app/_ui/public-content'
+import { requireSignedIn } from '@/app/_ui/guard'
+import { formatSize, ListEmpty, PublicPage, publishedDate, SearchField } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
-import { checkStatus } from '@/composition/accounts'
 import { getPublicItemQuery } from '@/composition/items'
 import { cn } from '@/shared/cn'
 
@@ -20,7 +19,7 @@ const one = (value: string | string[] | undefined) => (typeof value === 'string'
 /**
  * 檔案下載（票 16；原型 `/files`；產品模組 09 §9.1「登入後才顯示的前台內容」）。
  *
- * 這一頁本身要登入（訪客看到登入提示，不是轉走）；內容是發布位置「資源下載」的項目，
+ * 這一頁本身要登入（訪客導到登入頁，待審與必須改密的帳號導到各自的頁面）；內容是發布位置「資源下載」的項目，
  * 依看的人過濾（`PublicItemQuery`）。每個檔案的下載另外經 `/api/files/<id>` 重驗權限——
  * 對象是「公開訪客」的資源附件就算不經過這一頁也拿得到，那是下載政策的事，跟這一頁要不要登入分開。
  */
@@ -29,14 +28,7 @@ export default async function FilesPage({
 }: {
   searchParams: Promise<{ category?: string | string[]; q?: string | string[] }>
 }) {
-  const actor = await currentActor()
-  if (actor.kind === 'anonymous' || checkStatus(actor, 'business')) {
-    return (
-      <SiteShell current="/files">
-        <NeedLogin next="/files" what="檔案下載" />
-      </SiteShell>
-    )
-  }
+  const actor = await requireSignedIn('/files')
 
   const params = await searchParams
   const category = one(params.category).slice(0, 40)
