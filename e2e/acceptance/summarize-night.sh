@@ -163,7 +163,7 @@ def parse_report(text):
     relay = next((l for l in nonblank[-2:] if l.startswith('接力：')), None)
     if not summary: errs.append('結尾找不到「總結：」行（§5.5）')
     sec = section(lines, r'^## 問題清單')
-    rows = []
+    rows, env = [], []
     if sec is None:
         errs.append('找不到「## 問題清單」節（§5.3）')
     else:
@@ -175,13 +175,20 @@ def parse_report(text):
                 c = cells(l)
                 if c is None or len(c) != 9:
                     errs.append(f'問題表有一列不是 9 欄：{l.strip()}'); continue
+                if c[1] not in LEVELS and '環境' in c[1]:
+                    # 問題表裡標成環境的列：不算網站問題，改列進環境節
+                    env.append(f"第 {c[5]} 步：{c[2]}（{c[1]}）" if c[5] not in EMPTY else f"{c[2]}（{c[1]}）")
+                    continue
                 if c[1] not in LEVELS:
                     errs.append(f'嚴重度不是四級之一：{c[1]}'); continue
                 rows.append(dict(zip(COLS, c)))
-    env = []
     esec = section(lines, r'^## 做不到（環境）')
     for l in esec or []:
         if re.match(r'^\s*[-*] ', l): env.append(re.sub(r'^\s*[-*] ', '', l).strip())
+        else:
+            c = cells(l)   # 也接受表格寫法；略過表頭與分隔列
+            if c and not all(re.fullmatch(r':?-{3,}:?', x) for x in c) and c[0] not in ('步驟', '編號'):
+                env.append('、'.join(x for x in c if x))
     return {'ok': not errs, 'errs': errs, 'rows': rows, 'env': env, 'summary': summary, 'relay': relay}
 
 def parse_progress(text):
