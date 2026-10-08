@@ -211,7 +211,7 @@ fi
 umask 077
 mkdir -p "$RUN_DIR"
 RESULTS="$RUN_DIR/.results"
-mkdir -p "$RESULTS"
+mkdir -p "$RESULTS" "$RUN_DIR/logs"
 RUN_LOG="$RUN_DIR/run.log"
 STARTED_AT="$(date +%Y-%m-%dT%H:%M:%S%z)"
 
@@ -276,16 +276,20 @@ descendants() {
 
 stop_tree() {
   # stop_tree <pid> <是否連本體>：先 TERM，等 KILL_GRACE 秒，還在就 KILL。
-  local pid="$1" self="$2" pids waited=0
+  local pid="$1" self="$2" pids waited=0 p alive
   pids="$(descendants "$pid")"
   [ "$self" = 1 ] && pids="$pids $pid"
   # shellcheck disable=SC2086  # pid 清單刻意 word-split
   [ -z "${pids// /}" ] || kill -TERM $pids 2>/dev/null || true
-  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$KILL_GRACE" ]; do
+  while [ "$waited" -lt "$KILL_GRACE" ]; do
+    alive=0
+    for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 1 ] || return 0
     sleep 1
     waited=$((waited + 1))
   done
-  pids="$pids $(descendants "$pid") $pid"
+  pids="$pids $(descendants "$pid")"
+  [ "$self" = 1 ] && pids="$pids $pid"
   # shellcheck disable=SC2086
   kill -KILL $pids 2>/dev/null || true
 }
@@ -367,7 +371,7 @@ run_item() {
   log start "$id" "budget=${budget}s kind=$kind"
 
   if [ "$kind" = script ]; then
-    run_with_watchdog "$budget" "$dir/console.log" launch_script "$id" "$list" || exit_code=$?
+    run_with_watchdog "$budget" "$RUN_DIR/logs/$id.log" launch_script "$id" "$list" || exit_code=$?
     if [ "$WD_TIMED_OUT" = 1 ]; then
       log timeout "$id" "預算 ${budget}s 到，已停掉"
       status=timeout
@@ -377,7 +381,7 @@ run_item() {
       status=failed
     fi
   else
-    run_with_watchdog "$budget" "$dir/console.log" launch_codex "$id" "$list" "" || exit_code=$?
+    run_with_watchdog "$budget" "$RUN_DIR/logs/$id.log" launch_codex "$id" "$list" "" || exit_code=$?
     if [ "$WD_TIMED_OUT" = 1 ]; then
       log timeout "$id" "預算 ${budget}s 到，已停掉"
     elif [ "$exit_code" != 0 ]; then
@@ -399,7 +403,7 @@ run_item() {
         resumed=true
         exit_code=0
         log resume "$id" "session=$sid budget=${budget}s"
-        run_with_watchdog "$budget" "$dir/console.log" launch_codex "$id" "$list" "$sid" || exit_code=$?
+        run_with_watchdog "$budget" "$RUN_DIR/logs/$id.log" launch_codex "$id" "$list" "$sid" || exit_code=$?
         if [ "$WD_TIMED_OUT" = 1 ]; then
           log timeout "$id" "續跑預算 ${budget}s 到，已停掉"
           status=failed
@@ -446,6 +450,11 @@ finalize() {
     for file in ${leaked[@]+"${leaked[@]}"}; do
       E2E_REDACT="$NIGHT_PW" perl -pi -e 's/\Q$ENV{E2E_REDACT}\E/[已遮蔽]/g' "$file"
     done
+    # codex-e2e.sh 自己遮蔽過的也算外洩（它的訊息在 logs/<id>.log）。
+    if grep -lE '整夜密碼外洩|輸出裡出現了密碼' "$RUN_DIR"/logs/*.log >/dev/null 2>&1; then
+      PASSWORD_LEAKED=true
+      log password-leaked - "codex-e2e.sh 已遮蔽，見 $(grep -lE '整夜密碼外洩|輸出裡出現了密碼' "$RUN_DIR"/logs/*.log | tr '\n' ' ')"
+    fi
     if [ "${#leaked[@]}" -gt 0 ]; then
       PASSWORD_LEAKED=true
       log password-leaked - "已遮蔽：${leaked[*]}"

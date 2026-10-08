@@ -296,6 +296,8 @@ run_codex() (
 # KEEP_SESSION：stderr 照常印出，看到 codex 開頭的「session id: <uuid>」就立刻寫檔（被殺也留得住）。
 SESSION_FILE="$RUN_DIR/codex-session.txt"
 session_tap() {
+  # 外面的看門狗會 TERM 整棵行程樹；tap 要撐到 codex 結束（管子 EOF）才走，否則這支腳本寫 stderr 會吃 SIGPIPE、洩漏檢查跑不到。
+  trap '' TERM INT
   local line found=""
   while IFS= read -r line; do
     printf '%s\n' "$line" >&2
@@ -313,7 +315,11 @@ if [ "$KEEP_SESSION" = 1 ] && [ -z "$RESUME_ID" ]; then
   # 沒從 stderr 取到：找這個輸出目錄的 rollout 檔（~/.codex/sessions/…/rollout-<時間>-<id>.jsonl，第一行記 cwd）。
   sleep 1
   if [ "$(cat "$SESSION_FILE")" = unknown ]; then
-    rollout="$(grep -rlF "\"cwd\":\"$RUN_DIR\"" "${CODEX_HOME:-$HOME/.codex}/sessions" 2>/dev/null | tail -1 || true)"
+    # 只看這次執行期間寫的 rollout 檔、只讀第一行（整個 sessions 目錄 grep 一遍要幾分鐘）。
+    rollout=""
+    while IFS= read -r f; do
+      head -1 "$f" | grep -qF "\"cwd\":\"$RUN_DIR\"" && rollout="$f"
+    done < <(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -mmin -$((SECONDS / 60 + 2)) 2>/dev/null || true)
     rollout_id="$(basename "${rollout:-x}" .jsonl | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || true)"
     [ -z "$rollout_id" ] || printf '%s\n' "$rollout_id" > "$SESSION_FILE"
   fi
