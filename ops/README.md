@@ -543,6 +543,7 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 **順序不能換**：舊網路 `fju-edge` 要等 Caddy 和測試站都搬走才刪——先刪的話 Caddy 起不來、測試站斷線。`vm-setup.sh` 只會在舊網路已經空了才刪它。
 **ssh 只連兩次**：A 的 rsync 一次、`ssh fju-vm` 一次，B～E 都在**同一個** ssh 視窗做（VM 30 秒內第 6 次新連線會被擋）。
 🔑＝這一框會用到 `sudo`，第一次會問你的密碼。
+沒加 `sudo` 的 `docker` 指令靠你在 docker 群組裡（`vm-setup.sh` 第 2 步加的）；若印 `permission denied … docker.sock`，登出再 `ssh fju-vm` 一次。
 
 **A. 💻 Mac：把合併後的 compose 與 ops 送上 VM，然後登入**
 

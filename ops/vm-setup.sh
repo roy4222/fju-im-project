@@ -301,11 +301,8 @@ done
 
 # edge_networks <compose config 的 JSON>：各服務實際接上的 fju-edge* 網路，「服務=網路」排序後空白分隔。
 # 用 node（步驟 1 裝的）解析 JSON，不用 grep——edge project 自己也叫 fju-edge，字串比對會誤配。
+# 沒有 node（全新機器、步驟 1 還沒裝）時呼叫端略過這項檢查。
 edge_networks() {
-  if ! command -v node >/dev/null 2>&1; then
-    echo "（node 還沒裝，無法檢查）"
-    return 0
-  fi
   printf '%s' "$1" | node -e '
     const c = JSON.parse(require("fs").readFileSync(0, "utf8"));
     const prefix = process.argv[1];
@@ -352,7 +349,9 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     fi
     # 只有 app 接對外網路，而且只接自己這站的；接到另一站或舊的 fju-edge 就是兩站互通。
     edge_nets=$(edge_networks "$resolved")
-    if [ "$edge_nets" = "app=$EDGE_NETWORK_PREFIX-$site" ]; then
+    if ! command -v node >/dev/null 2>&1; then
+      todo "fju-${site}：node 還沒裝（步驟 1 會裝），對外網路先不檢查"
+    elif [ "$edge_nets" = "app=$EDGE_NETWORK_PREFIX-$site" ]; then
       ok "fju-${site}：只有 app 接對外網路，而且只接 $EDGE_NETWORK_PREFIX-$site"
     else
       bad "fju-${site}：對外網路是「${edge_nets}」（應該只有 app=$EDGE_NETWORK_PREFIX-${site}）——兩站可能互通，停下來檢查"
@@ -372,7 +371,9 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
       bad "fju-edge 發布的是「${published}」（應該只有 80 443 TCP）"
     fi
     edge_nets=$(edge_networks "$edge")
-    if [ "$edge_nets" = "caddy=$EDGE_NETWORK_PREFIX-prod caddy=$EDGE_NETWORK_PREFIX-test" ]; then
+    if ! command -v node >/dev/null 2>&1; then
+      todo "fju-edge：node 還沒裝（步驟 1 會裝），Caddy 接的網路先不檢查"
+    elif [ "$edge_nets" = "caddy=$EDGE_NETWORK_PREFIX-prod caddy=$EDGE_NETWORK_PREFIX-test" ]; then
       ok "fju-edge：Caddy 接 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod"
     else
       bad "fju-edge：Caddy 接的網路是「${edge_nets}」（應該是 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod）"
