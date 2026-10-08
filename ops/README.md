@@ -8,6 +8,7 @@
 | 正式站 | https://fju.roy422.dev | `fju-prod` | `prd` | **只能手動**：Roy 看過測試站後，把同一個版本推上去 |
 
 兩站各有自己的資料庫與附件目錄，互不影響；前面共用一個 Caddy（`fju-edge`）負責 HTTPS 憑證與依網址分流。
+兩站的 app 各在自己的 Docker 網路（`fju-edge-test`／`fju-edge-prod`），只有 Caddy 兩邊都接，測試站連不到正式站。
 
 秘密（資料庫密碼、Google 金鑰……）只存在 Doppler。VM 上每站放一把**唯讀** service token，
 腳本用它把秘密放進記憶體裡的環境變數交給容器——不寫成 `.env` 檔、不印到螢幕、不進 repo。
@@ -48,7 +49,7 @@ sudo bash /tmp/fju-app/ops/vm-setup.sh
 ```
 
 它會裝 Docker、Doppler CLI、node、ufw，建 `deploy` 帳號和 `/srv/fju` 底下的目錄，
-開防火牆（22 限速、80、443，都是 TCP），建 Docker 網路 `fju-edge`。重跑不會壞任何東西。
+開防火牆（22 限速、80、443，都是 TCP），建 Docker 網路 `fju-edge-test`、`fju-edge-prod`。重跑不會壞任何東西。
 
 ### 4. 🖥️ 把 app 檔放到正式位置，再跑一次設定
 
@@ -531,6 +532,134 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
 改了 `ops/Caddyfile.vm` 還要：`sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml restart caddy`。
+
+### 兩站網路拆分上線步驟（票 T4，做一次）
+
+拆分前兩站的 app 和 Caddy 都在同一個網路 `fju-edge`，測試站的容器可以直接連到正式站的 app。
+拆分後：`fju-test-app` 只在 `fju-edge-test`、`fju-prod-app` 只在 `fju-edge-prod`，`fju-edge-caddy` 兩個都接，舊的 `fju-edge` 刪掉。
+
+**什麼時候做**：T4 合併進 main 之後、測試站驗收試跑之後（不要跟驗收「鎖版本」撞在一起）。正式站還沒部署也照做。
+**停機**：Caddy 重建兩次，兩個網址各閃斷約 5 秒；測試站 app 重建約 30–60 秒回 502。全程約 5 分鐘；正式站沒部署，沒影響。
+**順序不能換**：舊網路 `fju-edge` 要等 Caddy 和測試站都搬走才刪——先刪的話 Caddy 起不來、測試站斷線。`vm-setup.sh` 只會在舊網路已經空了才刪它。
+**ssh 只連兩次**：A 的 rsync 一次、`ssh fju-vm` 一次，B～E 都在**同一個** ssh 視窗做（VM 30 秒內第 6 次新連線會被擋）。
+🔑＝這一框會用到 `sudo`，第一次會問你的密碼。
+
+**A. 💻 Mac：把合併後的 compose 與 ops 送上 VM，然後登入**
+
+```bash
+git switch main && git pull
+grep -c 'fju-edge-test' docker-compose.edge.yml   # 確認是拆分後的版本
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+ssh fju-vm
+```
+
+預期：`grep` 印 `1` 以上（印 `0` 代表 main 還沒有 T4，停下來）；rsync 最後一行 `total size is …`；接著進到 VM 的提示字元。
+
+**B. 🖥️ VM 🔑：暫停自動部署、記下目前版本、更新 app 檔、建兩個新網路**
+
+```bash
+cd /srv/fju/app
+sudo -u deploy touch /srv/fju/test/deploy/auto-deploy.paused
+while systemctl is-active --quiet fju-auto-deploy.service; do echo "自動部署正在跑，等它結束…"; sleep 5; done
+SHA=$(docker inspect fju-test-app --format '{{.Config.Image}}'); SHA=${SHA##*:}; echo "測試站目前的版本：$SHA"
+docker network inspect fju-edge --format '{{range .Containers}}{{.Name}} {{end}}'
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo bash /srv/fju/app/ops/vm-setup.sh
+```
+
+預期：
+- 印出 40 碼的 SHA（不是 40 碼、或是 `main`／`local`，就停下來把整段輸出存起來）；`docker network inspect` 印 `fju-edge-caddy fju-test-app`（順序不拘）。
+- `vm-setup.sh` 步驟 5：`→ 網路 fju-edge-test 不存在`、`→ 網路 fju-edge-prod 不存在`（接著建好），
+  `→ 舊網路 fju-edge 還掛著：fju-edge-caddy fju-test-app …`（**這時不會刪，正常**）。
+- 步驟 8：`✓ fju-test：只有 app 接對外網路，而且只接 fju-edge-test`、`✓ fju-prod：… fju-edge-prod`、
+  `✓ fju-edge：Caddy 接 fju-edge-test 與 fju-edge-prod`、`✓ fju-drill：… 不接 fju-edge*`。任何一行是紅色 `✗` 就停。
+- 這時兩站照舊在 `fju-edge` 上跑，網站沒有中斷。
+
+**C. 🖥️ VM 🔑：Caddy 過渡版（同時接舊網路與兩個新網路），再把測試站重部署到新網路**
+
+過渡版不改 repo 的檔，只在 `/tmp` 多疊一個檔，讓 Caddy 暫時也接舊的 `fju-edge`，測試站搬家前後 Caddy 都找得到它。
+
+```bash
+cd /srv/fju/app
+cat > /tmp/fju-edge-transition.yml <<'EOF'
+services:
+  caddy:
+    networks:
+      - edge-legacy
+networks:
+  edge-legacy:
+    external: true
+    name: fju-edge
+EOF
+chmod 644 /tmp/fju-edge-transition.yml
+sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml -f /tmp/fju-edge-transition.yml up -d
+docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$SHA" --execute
+docker inspect fju-test-app --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
+預期：
+- `up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷約 5 秒）；下一行印 `fju-edge fju-edge-prod fju-edge-test`。
+- `deploy.sh` 最後印 `部署完成：test ← <SHA>`（同一版，沒有新 migration；app 重建這段約 30–60 秒 502）。
+- 最後一行印 `fju-edge-test fju-test_default`——**沒有**單獨的 `fju-edge`。
+
+`deploy.sh` 失敗時它會自己退回原來那版（同樣落在新網路）；把輸出存起來，先做 D 讓 Caddy 定案再處理。
+最後一行如果還出現單獨的 `fju-edge`（VM 上的 Compose 沒有重建容器），不用重建，直接把容器換網路（零停機）：
+
+```bash
+docker network connect fju-edge-test fju-test-app
+docker network disconnect fju-edge fju-test-app
+docker inspect fju-test-app --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
+預期：印 `fju-edge-test fju-test_default`。
+
+**D. 🖥️ VM 🔑：Caddy 最終版（拿掉舊網路）、刪舊網路、恢復自動部署**
+
+```bash
+cd /srv/fju/app
+sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml up -d
+docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+rm -f /tmp/fju-edge-transition.yml
+sudo bash /srv/fju/app/ops/vm-setup.sh
+sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused
+curl -s -o /dev/null -w '%{http_code}\n' https://test.fju.roy422.dev/api/health
+```
+
+預期：
+- `up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷約 5 秒）；下一行印 `fju-edge-prod fju-edge-test`。
+- `vm-setup.sh` 步驟 5：`→ 舊網路 fju-edge 已經沒有容器，可以刪`，接著印出 `fju-edge`（就是刪掉了）。
+  如果印「還掛著：…」，代表有容器沒搬走——對那個容器照 C 的熱換指令做（網路名換成它該在的那站），再重跑 `sudo bash /srv/fju/app/ops/vm-setup.sh`。
+- `curl` 印 `200`。恢復自動部署後，下一個新映像照常部署，直接落在 `fju-edge-test`。
+
+**E. 🖥️ VM：驗證兩站互相看不到（驗收 N1）**
+
+正式站還沒部署，`fju-prod-app` 本來就不存在，查不到它不算證據。所以先在 `fju-edge-prod` 放一個臨時探針容器
+（用 VM 上已經有的 Caddy 映像，不發布 port、不帶秘密，驗完就刪），證明「測試站 app 找不到正式站網路上的容器、Caddy 找得到」。
+
+```bash
+docker network ls --format '{{.Name}}' | grep fju-edge
+docker network inspect fju-edge-test --format '{{range .Containers}}{{.Name}} {{end}}'
+docker run -d --rm --name fju-n1-probe --network fju-edge-prod caddy:2.10-alpine
+sleep 2
+docker network inspect fju-edge-prod --format '{{range .Containers}}{{.Name}} {{end}}'
+docker exec fju-test-app getent hosts fju-n1-probe; echo "測試站 app 查探針：exit $?"
+docker exec fju-test-app getent hosts fju-prod-app; echo "測試站 app 查正式站：exit $?"
+docker exec fju-edge-caddy wget -q -T 3 -O /dev/null http://fju-n1-probe/; echo "Caddy 連探針：exit $?"
+docker exec fju-edge-caddy wget -q -T 3 -O /dev/null http://fju-test-app:3000/api/health; echo "Caddy 連測試站：exit $?"
+docker stop fju-n1-probe
+```
+
+預期：
+- `docker network ls` 只有 `fju-edge-prod`、`fju-edge-test` 兩行（沒有單獨的 `fju-edge`）。
+- `fju-edge-test` 只有 `fju-edge-caddy fju-test-app`；`fju-edge-prod` 這時是 `fju-edge-caddy fju-n1-probe`（探針剛加進去）。
+- 測試站 app 查探針、查正式站：**沒有輸出**、`exit` 不是 0（查不到＝連不到）。
+  若印 `getent: executable file not found`，改用 `docker exec fju-test-app node -e "require('dns').lookup('fju-n1-probe',e=>process.exit(e?1:0))"; echo "exit $?"`，預期一樣是 exit 非 0。
+- Caddy 連探針、連測試站：`exit 0`（兩邊都連得到）。
+- `docker stop` 印 `fju-n1-probe`（`--rm`，停了就自動刪）。
+
+正式站部署之後再補驗一次：`docker exec fju-test-app getent hosts fju-prod-app` 沒有輸出、exit 不是 0；
+`docker network inspect fju-edge-prod --format '{{range .Containers}}{{.Name}} {{end}}'` 只有 `fju-edge-caddy fju-prod-app`。
 
 ---
 

@@ -3,6 +3,7 @@
 #
 # 同一台 VM 跑兩站：正式 fju.roy422.dev（Compose project fju-prod）、
 # 測試 test.fju.roy422.dev（fju-test），共用一個 Caddy（fju-edge）。
+# 兩站各走自己的 Docker 網路（fju-edge-test／fju-edge-prod），Caddy 兩個都接。
 #
 # 這支是**冪等**的：重跑不會動到既有資料，已經做過的步驟會印 ✓。
 # 由 Roy 在 VM 上以 sudo 執行（agent 沒有 sudo 密碼，也不該有）。逐步說明見 ops/README.md。
@@ -16,7 +17,8 @@
 # 停止條件（SOP 01）：磁碟可用 < 20 GB，或任一步驟 15 分鐘內排不掉 → 停下來記錄。
 #
 # 這支**會**做：套件（Docker、Doppler CLI、node、ufw）、deploy 帳號、/srv/fju 目錄、
-#   ufw、Docker 網路 fju-edge、測試站自動部署的 systemd timer。
+#   ufw、Docker 網路 fju-edge-test／fju-edge-prod（舊的 fju-edge 沒人用了才刪）、
+#   測試站自動部署的 systemd timer。
 # 這支**不會**做（Roy 親自做，見 ops/README.md）：貼 Doppler token、GHCR 登入、
 #   放 app 檔、起 Caddy、第一次部署。它只檢查這些有沒有就緒。**它從不讀 token 的內容。**
 
@@ -33,7 +35,10 @@ SRV_ROOT=/srv/fju
 APP_DIR=$SRV_ROOT/app
 SECRETS_DIR=$SRV_ROOT/secrets
 SITES=(test prod)
-EDGE_NETWORK=fju-edge
+# 每站一個對外網路（fju-edge-<站台>），Caddy 兩個都接；站台之間互相看不到（2026-10-08 拆分）。
+EDGE_NETWORK_PREFIX=fju-edge
+# 拆分前兩站共用的網路。還有容器掛著就不刪（測試站換網路前不能斷線），空了才刪。
+LEGACY_EDGE_NETWORK=fju-edge
 MIN_FREE_GB=20
 DOMAINS=(fju.roy422.dev test.fju.roy422.dev)
 VM_IP=140.136.155.167
@@ -218,12 +223,35 @@ else
   bad "ufw 沒裝（步驟 1 應該會裝）"
 fi
 
-step "步驟 5：Docker 網路 ${EDGE_NETWORK}（共用 Caddy 找到兩站 app 用）"
-if command -v docker >/dev/null 2>&1 && docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1; then
-  ok "網路 $EDGE_NETWORK 已存在"
+step "步驟 5：Docker 網路 ${EDGE_NETWORK_PREFIX}-test、${EDGE_NETWORK_PREFIX}-prod（Caddy 各自找到兩站 app 用）"
+# network_members <網路>：掛在上面的容器名（空白分隔）；網路不存在時回傳非 0。
+network_members() {
+  local names
+  names=$(docker network inspect "$1" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null) || return 1
+  printf '%s' "${names% }"
+}
+if command -v docker >/dev/null 2>&1; then
+  for site in "${SITES[@]}"; do
+    net="$EDGE_NETWORK_PREFIX-$site"
+    if members=$(network_members "$net"); then
+      ok "網路 $net 已存在（掛著：${members:-沒有容器}）"
+    else
+      todo "網路 $net 不存在"
+      run docker network create "$net"
+    fi
+  done
+  if members=$(network_members "$LEGACY_EDGE_NETWORK"); then
+    if [ -z "$members" ]; then
+      todo "舊網路 $LEGACY_EDGE_NETWORK 已經沒有容器，可以刪"
+      run docker network rm "$LEGACY_EDGE_NETWORK"
+    else
+      todo "舊網路 $LEGACY_EDGE_NETWORK 還掛著：${members}——先照 ops/README.md「兩站網路拆分上線步驟」把它們換到新網路，再重跑本腳本就會刪"
+    fi
+  else
+    ok "舊網路 $LEGACY_EDGE_NETWORK 已不存在"
+  fi
 else
-  todo "網路 $EDGE_NETWORK 不存在"
-  run docker network create "$EDGE_NETWORK"
+  todo "docker 還沒裝（實際執行時步驟 1 會裝），會建立 ${EDGE_NETWORK_PREFIX}-test、${EDGE_NETWORK_PREFIX}-prod"
 fi
 
 step "步驟 6：Doppler token（Roy 親自貼；這裡只看存在、權限、擁有者，不讀內容）"
@@ -271,6 +299,26 @@ for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/restore-drill.sh ops/auto-d
   fi
 done
 
+# edge_networks <compose config 的 JSON>：各服務實際接上的 fju-edge* 網路，「服務=網路」排序後空白分隔。
+# 用 node（步驟 1 裝的）解析 JSON，不用 grep——edge project 自己也叫 fju-edge，字串比對會誤配。
+edge_networks() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "（node 還沒裝，無法檢查）"
+    return 0
+  fi
+  printf '%s' "$1" | node -e '
+    const c = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const prefix = process.argv[1];
+    const out = [];
+    for (const [svc, s] of Object.entries(c.services || {}))
+      for (const key of Object.keys(s.networks || {})) {
+        const name = (c.networks && c.networks[key] && c.networks[key].name) || key;
+        if (name === prefix || name.startsWith(prefix + "-")) out.push(svc + "=" + name);
+      }
+    console.log(out.sort().join(" "));
+  ' "$EDGE_NETWORK_PREFIX"
+}
+
 # 用**假值**解析兩站與 edge 的設定：`docker compose config` 只讀不寫，所以 --check 也照跑。
 # 真秘密絕不拿來跑 config——它會把值印出來。
 if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
@@ -302,6 +350,13 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     else
       bad "fju-${site}：資料庫 volume 名稱不是 fju-$site-pgdata——兩站可能共用資料庫，停下來檢查"
     fi
+    # 只有 app 接對外網路，而且只接自己這站的；接到另一站或舊的 fju-edge 就是兩站互通。
+    edge_nets=$(edge_networks "$resolved")
+    if [ "$edge_nets" = "app=$EDGE_NETWORK_PREFIX-$site" ]; then
+      ok "fju-${site}：只有 app 接對外網路，而且只接 $EDGE_NETWORK_PREFIX-$site"
+    else
+      bad "fju-${site}：對外網路是「${edge_nets}」（應該只有 app=$EDGE_NETWORK_PREFIX-${site}）——兩站可能互通，停下來檢查"
+    fi
   done
   edge=""
   rc=0
@@ -316,8 +371,14 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     else
       bad "fju-edge 發布的是「${published}」（應該只有 80 443 TCP）"
     fi
+    edge_nets=$(edge_networks "$edge")
+    if [ "$edge_nets" = "caddy=$EDGE_NETWORK_PREFIX-prod caddy=$EDGE_NETWORK_PREFIX-test" ]; then
+      ok "fju-edge：Caddy 接 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod"
+    else
+      bad "fju-edge：Caddy 接的網路是「${edge_nets}」（應該是 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod）"
+    fi
   fi
-  # 還原演練副本（票 27）：不能發布 port、不能接 fju-edge、volume 只能是 fju-drill-pgdata。
+  # 還原演練副本（票 27）：不能發布 port、不能接任何 fju-edge*、volume 只能是 fju-drill-pgdata。
   drill=""
   rc=0
   drill=$(cd "$APP_DIR" && env -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME \
@@ -328,12 +389,12 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     printf '%s\n' "$drill" | sed 's/^/      /' | head -20
   elif printf '%s' "$drill" | grep -q '"published"'; then
     bad "fju-drill 有發布 port——演練副本不能對外"
-  elif printf '%s' "$drill" | grep -q "\"$EDGE_NETWORK\""; then
-    bad "fju-drill 接到了 ${EDGE_NETWORK}——演練副本不能被 Caddy 找到"
+  elif command -v node >/dev/null 2>&1 && [ -n "$(edge_networks "$drill")" ]; then
+    bad "fju-drill 接到了 ${EDGE_NETWORK_PREFIX}* 網路——演練副本不能被 Caddy 找到"
   elif ! printf '%s' "$drill" | grep -q '"name": "fju-drill-pgdata"'; then
     bad "fju-drill 的資料庫 volume 不是 fju-drill-pgdata"
   else
-    ok "fju-drill：不發布 port、不接 ${EDGE_NETWORK}、volume 是 fju-drill-pgdata"
+    ok "fju-drill：不發布 port、不接 ${EDGE_NETWORK_PREFIX}*、volume 是 fju-drill-pgdata"
   fi
 fi
 
