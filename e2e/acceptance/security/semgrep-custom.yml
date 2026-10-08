@@ -1,0 +1,38 @@
+# 驗收夜資安靜態掃描的兩條自訂規則（定案紀錄 §2「資安評估」）。由 run-static.sh 與官方規則集一起跑。
+# 兩條都是「值得人看一眼」等級（WARNING＝要修），會有誤報；誤報的處理寫在 report.md 的「注意」。
+rules:
+  # 1. `.query(` 的 SQL 用模板字串並插入非常數：應改成 $1 參數。
+  #    全大寫的常數名（例如 ${TABLE}）視為常數不報。
+  - id: fju-query-template-interpolation
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      .query() 的 SQL 是模板字串並插入了 ${...}；請改用 $1、$2 參數傳值，
+      若插入的確實是寫死的常數（表名、欄位清單）就在報告標為誤報。
+    patterns:
+      - pattern: $DB.query(`...${$E}...`, ...)
+      - metavariable-regex:
+          metavariable: $E
+          regex: ^(?![A-Z][A-Z0-9_]*$)
+    paths:
+      exclude:
+        - "*.test.ts"
+        - "*.integration.test.ts"
+
+  # 2. web/src/infrastructure/** 裡的寫入方法（async、參數有 actor、名稱不是 get/list/find… 開頭）
+  #    方法本體前 3 行沒有 authorize*／statusGate／denied／lockAdmins：授權可能漏了。
+  #    權限檢查放在 3 行以後、或交給呼叫端的，會被報出來（誤報）。
+  - id: fju-write-without-authorize
+    languages: [typescript]
+    severity: WARNING
+    message: >-
+      這個寫入方法帶 actor，但開頭 3 行沒有 authorize*／statusGate／denied／lockAdmins；
+      請確認權限檢查沒有漏（契約 03 §1）。
+    pattern-regex: >-
+      (?m)^[ \t]*(?:(?:public|private|protected|static|export)\s+)*async\s+(?:function\s+)?(?!(?:get|list|find|load|read|count|search|has|is|query|export)[A-Z(\s])[#\w]+\s*\([^)]*\bactor\b[^)]*\)[^{\n]*\{[ \t]*\n(?:(?![^\n]*\b(?:authorize\w*|statusGate|denied|lockAdmins)\b)[^\n]*\n){3}
+    paths:
+      include:
+        - "web/src/infrastructure/**"
+      exclude:
+        - "*.test.ts"
+        - "*.integration.test.ts"
