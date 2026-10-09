@@ -12,6 +12,7 @@ import type { ResolvedActor } from '@/application/accounts'
 import { describeStagePosition, type ActivityInput, type ScheduleInput } from '@/application/cohorts'
 import { PgCohortCommand, PgCohortStatusQuery } from '@/infrastructure/cohorts/pg-cohorts'
 import { PgTimelineCommand, PgTimelineQuery } from '@/infrastructure/cohorts/pg-timeline'
+import { taipeiDateOf } from '@/shared/time'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -434,5 +435,32 @@ describe('獨立活動：建立、改期、取消', () => {
       code: 'VALIDATION_FAILED',
     })
     expect(await count('select count(*) as n from project_events where cohort_id = $1', [cohort.id])).toBe(0)
+  })
+})
+
+describe('首頁近期活動：跨屆別的公開活動（設計方案 D-4）', () => {
+  it('只列對象公開、已排定、還沒結束的；跨屆依開始時間；全天活動當天整天都算；取消後消失', async () => {
+    const a = await newCohort('PA')
+    const b = await newCohort('PB')
+    const today = taipeiDateOf(new Date())
+    const create = async (cohortId: string, input: Partial<ActivityInput>) => {
+      const created = await timeline.createActivity(actor(adminId), cohortId, { ...ACTIVITY, audience: 'public', ...input }, randomUUID())
+      if (!created.ok) throw new Error(created.message)
+      return created.receipt.activityId
+    }
+    const later = await create(a.id, { title: 'A 屆成果發表會', date: '2099-05-20' })
+    const sooner = await create(b.id, { title: 'B 屆說明會', date: '2099-03-01', startTime: '10:00', endTime: '' })
+    const allDayToday = await create(b.id, { title: '今天的全天活動', date: today, allDay: true, startTime: '', endTime: '' })
+    await create(a.id, { title: '已經結束', date: '2020-01-01' })
+    await create(a.id, { title: '過去只有開始時間', date: '2020-01-01', endTime: '' })
+    await create(a.id, { title: '過去的全天活動', date: '2020-01-01', allDay: true, startTime: '', endTime: '' })
+    await create(a.id, { title: '只給登入者', date: '2099-01-01', audience: 'signed_in' })
+    await create(b.id, { title: '本屆學生', date: '2099-01-01', audience: 'cohort_students' })
+
+    expect((await timelineQuery.publicActivities(10)).map((x) => x.id)).toEqual([allDayToday, sooner, later])
+    expect((await timelineQuery.publicActivities(2)).map((x) => x.title)).toEqual(['今天的全天活動', 'B 屆說明會'])
+
+    await timeline.cancelActivity(actor(adminId), sooner, 1, randomUUID())
+    expect((await timelineQuery.publicActivities(10)).map((x) => x.id)).toEqual([allDayToday, later])
   })
 })

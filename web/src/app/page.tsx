@@ -6,7 +6,7 @@ import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
-import { getBusinessClock } from '@/composition/cohorts'
+import { formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
@@ -17,7 +17,7 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
  * 公開首頁（票 16；產品模組 09 §9.2：重要消息優先、每區幾筆再進完整列表）。
  *
  * 版型、區塊順序照原型首頁（2026-09-07 方向 A；2026-09-25 對齊）：
- * hero → [登入後：我的工作＋近期截止] → 最新公告 → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
+ * hero → [登入後：我的工作＋近期截止] → 最新公告 → [有才出現：近期活動] → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
  *
  * 最新公告、優秀專題、榮譽與競賽、學生的「我的工作／近期截止」都接真的資料（各自前台頁同一份查詢）；
  * 沒有資料的區塊才顯示空狀態（Roy 2026-09-25），
@@ -34,13 +34,15 @@ export default async function HomePage() {
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  const [latest, featured, honors, competitions] = await Promise.all([
+  const [latest, featured, honors, competitions, activities] = await Promise.all([
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
     // 榮譽依得獎日期（沒填退回發布日）排好才取 4 則，跟 /honors 的「新到舊」一致。
     items.list(actor, 'honor', { limit: 4, order: 'awarded' }),
     // 進行中＝報名中＋決賽／結果；在查詢裡先篩狀態再取筆數，較早發布的進行中競賽不會被截掉。
     items.list(actor, 'news', { category: COMPETITION_CATEGORY, competition: { today, statuses: ['open', 'result'] }, limit: 30 }),
+    // 近期活動（設計方案 D-4）：系辦設成「公開」、還沒結束的活動，訪客也看得到；結束了自然消失。
+    getTimelineQuery().publicActivities(4),
   ])
   // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
   const rank = { open: 0, result: 1, closed: 2 } as const
@@ -123,6 +125,25 @@ export default async function HomePage() {
         )}
       </section>
 
+      {/* 近期活動：沒有公開活動時整區不出現（不放空狀態）；活動沒有詳情頁，不做連結。 */}
+      {activities.length > 0 ? (
+        <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-activities">
+          <PanelTitle id="home-activities" title="近期活動" />
+          <ul className="mt-10 grid gap-6 sm:grid-cols-2" data-testid="home-activities-list">
+            {activities.map((a) => (
+              <li key={a.id} className="fju-list-item flex flex-col gap-1.5 py-1.5">
+                <span className="text-[17px] leading-snug font-bold text-foreground">{a.title}</span>
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground tabular-nums">
+                  <IconClock className="size-3.5" aria-hidden />
+                  <time dateTime={a.startsAt.toISOString()}>{formatActivityWhen(a)}</time>
+                </span>
+                {a.description ? <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{a.description}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {member ? (
         <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
@@ -148,7 +169,9 @@ export default async function HomePage() {
                         title={p.title}
                         tags={
                           <>
-                            <Tag tone="ink">{p.cohortCode} 屆</Tag>
+                            <Tag tone="ink">
+                              {p.cohortName}（{p.cohortCode}）
+                            </Tag>
                             {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
                             {p.advisorName ? <Tag tone="ink">{p.advisorName}</Tag> : null}
                           </>

@@ -544,6 +544,19 @@ export class PgTimelineQuery implements TimelineQuery {
     return rows.rows.map(toActivity)
   }
 
+  async publicActivities(limit: number): Promise<Activity[]> {
+    // 全天活動存的是當天 00:00、沒有結束時間：算到隔天 00:00 才結束（臺灣沒有日光節約，加一天就是一天）。
+    const rows = await this.#reader().query<ActivityRow>(
+      `select ${ACTIVITY_COLUMNS} from project_events
+        where audience_kind = 'public' and status = 'scheduled'
+          and coalesce(ends_at, case when all_day then starts_at + interval '1 day' else starts_at end) >= now()
+        order by starts_at, created_at
+        limit $1`,
+      [Math.max(0, Math.trunc(limit))],
+    )
+    return rows.rows.map(toActivity)
+  }
+
   async currentStage(cohortId: string, businessAt: Date): Promise<StagePosition> {
     return stagePositionAt(await this.schedule(cohortId), businessAt)
   }

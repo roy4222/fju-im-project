@@ -127,6 +127,11 @@ export interface TimelineQuery {
   schedule(cohortId: string): Promise<CohortSchedule>
   /** 依時間排序；含已取消的，畫面自己分。 */
   activities(cohortId: string): Promise<Activity[]>
+  /**
+   * 首頁「近期活動」（設計方案 D-4）：跨屆別、對象「公開」、已排定、還沒結束的活動，依開始時間取前 `limit` 筆。
+   * 「還沒結束」看真實時間：有結束時間看結束時間；全天活動看到當天（臺灣）結束；只有開始時間的看開始時間。
+   */
+  publicActivities(limit: number): Promise<Activity[]>
   /** 某個業務時間落在哪一段。 */
   currentStage(cohortId: string, businessAt: Date): Promise<StagePosition>
   /**

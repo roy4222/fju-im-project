@@ -120,7 +120,11 @@ export type ShowcasePeople = {
   readonly memberNames: readonly string[]
 }
 
-export type SignedInShowcaseCard = PublicShowcaseCard & ShowcasePeople
+export type SignedInShowcaseCard = PublicShowcaseCard &
+  ShowcasePeople & {
+    /** 屆別名稱（例如「第 43 屆」）；歷屆一覽標「名稱（代碼）」。公開卡維持白名單，不帶這欄。 */
+    readonly cohortName: string
+  }
 
 /**
  * 排序（原型）：優秀專題有「屆別」「優秀專題優先」「佳作優先」；歷屆一覽有「屆別」「得獎優先」「題目」。
@@ -173,6 +177,8 @@ export interface PublicShowcaseQuery {
    * （優秀專題頁用，不讓訪客從 pill 看出哪一屆有沒得獎的作品）。
    */
   cohorts(options?: { readonly featuredOnly?: boolean }): Promise<string[]>
+  /** 同 `cohorts()`，多帶屆別名稱（歷屆一覽的 pill 標「名稱（代碼）」）。 */
+  cohortChoices(options?: { readonly featuredOnly?: boolean }): Promise<{ readonly code: string; readonly name: string }[]>
   /**
    * 專題詳情：有獎項等級的任何人都看得到、沒有的只給登入者（其他人 `need_login`）；組員與老師只給登入者。
    * 上一件／下一件照同一條界線：訪客只在優秀專題之間跳。
