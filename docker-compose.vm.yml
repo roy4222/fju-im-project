@@ -23,8 +23,9 @@
 # ⚠️ 帶著真秘密跑 `docker compose config` 會把值印到螢幕上，ops/site.sh 會擋。
 #    要看 resolved config，用 `sudo bash ops/vm-setup.sh --check`（假值）。
 #
-# 共用的反向代理不在這裡：Caddy 是另一個 project（docker-compose.edge.yml，fju-edge），
-# 透過外部網路 fju-edge 找到兩站的 app（fju-test-app、fju-prod-app）。
+# 共用的反向代理不在這裡：Caddy 是另一個 project（docker-compose.edge.yml，fju-edge）。
+# 兩站各接自己的外部網路（2026-10-08 拆分）：fju-test-app 只在 fju-edge-test、fju-prod-app 只在
+# fju-edge-prod，Caddy 兩個都接。所以測試站的容器連不到、也解析不到正式站的 app。
 
 services:
   postgres:
@@ -58,7 +59,9 @@ services:
       - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
     networks:
       default: {}
-      edge: {}
+      # 鍵名刻意跟拆分前（edge）不同：只改下面的外部網路名稱，service 的設定雜湊不會變，
+      # 重部署同一個映像時 Compose 不會重建容器、app 會留在舊網路。鍵名一改就保證重建。
+      site-edge: {}
 
   worker:
     container_name: fju-${FJU_SITE:?}-worker
@@ -67,7 +70,7 @@ services:
     volumes:
       - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
 
-  # 兩站共用 fju-edge 那一個 Caddy；站台 project 裡的 caddy 永遠不啟動。
+  # 兩站共用 fju-edge project 那一個 Caddy；站台 project 裡的 caddy 永遠不啟動。
   caddy:
     profiles: ['local-only']
     container_name: fju-${FJU_SITE:?}-unused-caddy
@@ -92,6 +95,7 @@ volumes:
     name: fju-${FJU_SITE:?}-unused-backups
 
 networks:
-  edge:
+  # 每站一個（vm-setup.sh 建立）：fju-edge-test、fju-edge-prod。
+  site-edge:
     external: true
-    name: fju-edge
+    name: fju-edge-${FJU_SITE:?}
