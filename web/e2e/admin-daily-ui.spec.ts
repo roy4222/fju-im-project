@@ -8,6 +8,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * 1. 後台深淺色切換：頂列按鈕切換、重新整理後還在；回前台是淺色（前台固定白）。
  * 2. 檔案管理（新頁）：專題事務的附件出現在清單，看得到類型、引用位置、引用數、下載連結；
  *    被引用的檔案給「去解除引用」（回編輯器）；搜尋檔名篩得到、篩不到時有空狀態。
+ * 3. T14：筆電寬（1280、側欄展開）專題事務的標題欄沒被擠掉、檔案管理不必橫捲就看得到檔名。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -122,4 +123,25 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
   await expect(page.getByText('沒有符合條件的資料')).toBeVisible()
   await page.getByRole('button', { name: '清除條件' }).click()
   await expect(page.getByTestId('file-row').filter({ hasText: FILE_NAME })).toHaveCount(1)
+})
+
+test('筆電寬 1280：專題事務標題欄看得到、檔案管理不必橫捲', async ({ page }) => {
+  await asAdmin(page)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  // 上一則測試在這個屆別建了一則資源，列表至少有一列。
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  const title = page.getByTestId('affair-row').first().getByRole('link').first()
+  await expect(title).toBeVisible()
+  expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(200)
+
+  await page.goto('/dashboard/admin/files')
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
+  const fits = await page
+    .getByLabel('檔案列表')
+    .evaluate((table) => {
+      const box = table.closest('.overflow-auto')!
+      return box.scrollWidth <= box.clientWidth
+    })
+  expect(fits).toBe(true)
 })

@@ -399,7 +399,7 @@
       "把視窗縮到手機寬（390）：專題事務每列堆成卡片、檔案管理可以橫向捲動，都還能操作"
     ],
     "verify": "兩頁各一張 1280×720 截圖，截到標題欄與檔名欄；DevTools console：document.querySelector('[data-testid=affair-row] a').getBoundingClientRect().width ≥ 200；在檔案管理：const t=document.querySelector('[aria-label=\"檔案列表\"]').closest('.overflow-auto'); t.scrollWidth <= t.clientWidth → true；e2e admin-daily-ui.spec 綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X9",
