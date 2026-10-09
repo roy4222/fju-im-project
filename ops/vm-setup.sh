@@ -348,10 +348,11 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
       bad "fju-${site}：資料庫 volume 名稱不是 fju-$site-pgdata——兩站可能共用資料庫，停下來檢查"
     fi
     # 只有 app 接對外網路，而且只接自己這站的；接到另一站或舊的 fju-edge 就是兩站互通。
-    edge_nets=$(edge_networks "$resolved")
+    # 先確認有 node 才呼叫 edge_networks：在 $( ) 裡失敗（exit 127）會被 set -e 整支停掉。
+    edge_nets=""
     if ! command -v node >/dev/null 2>&1; then
       todo "fju-${site}：node 還沒裝（步驟 1 會裝），對外網路先不檢查"
-    elif [ "$edge_nets" = "app=$EDGE_NETWORK_PREFIX-$site" ]; then
+    elif edge_nets=$(edge_networks "$resolved") && [ "$edge_nets" = "app=$EDGE_NETWORK_PREFIX-$site" ]; then
       ok "fju-${site}：只有 app 接對外網路，而且只接 $EDGE_NETWORK_PREFIX-$site"
     else
       bad "fju-${site}：對外網路是「${edge_nets}」（應該只有 app=$EDGE_NETWORK_PREFIX-${site}）——兩站可能互通，停下來檢查"
@@ -370,10 +371,10 @@ if [ "$app_ready" = 1 ] && command -v docker >/dev/null 2>&1; then
     else
       bad "fju-edge 發布的是「${published}」（應該只有 80 443 TCP）"
     fi
-    edge_nets=$(edge_networks "$edge")
+    edge_nets=""
     if ! command -v node >/dev/null 2>&1; then
       todo "fju-edge：node 還沒裝（步驟 1 會裝），Caddy 接的網路先不檢查"
-    elif [ "$edge_nets" = "caddy=$EDGE_NETWORK_PREFIX-prod caddy=$EDGE_NETWORK_PREFIX-test" ]; then
+    elif edge_nets=$(edge_networks "$edge") && [ "$edge_nets" = "caddy=$EDGE_NETWORK_PREFIX-prod caddy=$EDGE_NETWORK_PREFIX-test" ]; then
       ok "fju-edge：Caddy 接 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod"
     else
       bad "fju-edge：Caddy 接的網路是「${edge_nets}」（應該是 $EDGE_NETWORK_PREFIX-test 與 $EDGE_NETWORK_PREFIX-prod）"
