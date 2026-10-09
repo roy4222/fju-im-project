@@ -14,6 +14,7 @@ import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/group
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
   COHORT_STATUS_LABEL,
+  cohortLabel,
   describeGroupSize,
   getBusinessClock,
   getCohortStatusQuery,
@@ -157,7 +158,7 @@ export default async function AdminGroupsPage({
   const description = (
     <>
       <span className="tabular">
-        {cohort.name}（{cohort.code}）・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
+        {cohortLabel(cohort)}・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
         {industry} 組
       </span>
       <br className="sm:hidden" />

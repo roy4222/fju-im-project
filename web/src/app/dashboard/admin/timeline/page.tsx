@@ -17,6 +17,7 @@ import {
   activityFormValues,
   businessClockOverrideEnabled,
   COHORT_STATUS_LABEL,
+  cohortLabel,
   describeStagePosition,
   formatActivityWhen,
   getBusinessClockQuery,
@@ -75,8 +76,7 @@ export default async function AdminTimelinePage({
     )
   }
 
-  // 屆別寫成「名稱（代碼）」（設計方案 §7 系1）。
-  const label = `${cohort.name}（${cohort.code}）`
+  const label = cohortLabel(cohort)
   const clock = await getBusinessClockQuery().state()
   const [schedule, activities] = await Promise.all([
     getTimelineQuery().schedule(cohort.id),

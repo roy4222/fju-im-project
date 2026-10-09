@@ -7,7 +7,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { TeacherGroupsBoard, type ClaimRow, type GroupRow } from '@/app/dashboard/teacher/groups/claim-button'
 import { teacherFilterOptions } from '@/app/dashboard/teacher/groups/teacher-options'
-import { COHORT_STATUS_LABEL, getCohortStatusQuery } from '@/composition/cohorts'
+import { COHORT_STATUS_LABEL, cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getGroupQuery, GROUP_TYPE_LABEL } from '@/composition/groups'
 import { cn } from '@/shared/cn'
 
@@ -85,7 +85,7 @@ export default async function TeacherGroupsPage({
 
   return shell(
     <>
-      {cohort.name}（{cohort.code}）・{COHORT_STATUS_LABEL[cohort.status]}・{groups.length} 組、{people} 人已分組・產學 {industry.length} 組（
+      {cohortLabel(cohort)}・{COHORT_STATUS_LABEL[cohort.status]}・{groups.length} 組、{people} 人已分組・產學 {industry.length} 組（
       {industry.filter((g) => !g.advisor).length} 組未指派老師）・
       <span data-testid="teacher-groups-summary">
         你指導 {mine} 組・產學組可認領 {openCount} 組

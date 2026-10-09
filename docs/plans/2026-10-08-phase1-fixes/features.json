@@ -205,7 +205,7 @@
       "看儲存圖磚"
     ],
     "verify": "截圖，要截到「主機儲存（整台）」與「整台主機已用」",
-    "passes": false
+    "passes": true
   },
   {
     "id": "D4",
@@ -312,7 +312,7 @@
       "頁首顯示第 44 屆，網址含 ?cohort="
     ],
     "verify": "截圖返回後的專題事務頁，要截到第 44 屆與網址列的 ?cohort=",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X3",
