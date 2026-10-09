@@ -1,0 +1,70 @@
+#!/bin/bash
+# 重置測試站專用金鑰的守門腳本（網站驗收全套 G2；設計方案 §6.4）。
+#
+# 安裝在 VM 的 /usr/local/sbin/fju-test-reset-gate（root 擁有、755）。fjureset 帳號的
+# authorized_keys 用 `restrict,command="/usr/local/sbin/fju-test-reset-gate"` 強制只跑這支，
+# 不帶任何參數；client 想跑的指令只會出現在 SSH_ORIGINAL_COMMAND，這裡自己讀、自己驗：
+#
+#   ssh fju-reset status
+#   ssh fju-reset pause-deploy | resume-deploy
+#   ssh fju-reset reset
+#   ssh fju-reset snapshot <名稱> | restore <名稱>     # 名稱：[a-z0-9-]，1–32 字，開頭不能是 -
+#
+# 規則（任何一條不符就拒絕、記 syslog〔auth，tag fju-test-reset-gate〕、exit 1）：
+#   1. 整串只能有小寫英數、空白、連字號，最長 64 字——分號、$、反引號、引號、反斜線、換行、
+#      萬用字元、斜線一律進不來，所以後面不可能有 shell 展開或路徑。
+#   2. 不得出現 prod（只准碰測試站）。
+#   3. 字與字之間剛好一個空白；第一個字在白名單；snapshot／restore 剛好再一個名稱，其他子命令不准多帶字。
+# 通過後切好的字當獨立參數交給 `sudo -n /usr/local/sbin/fju-test-reset`（exec，不再經過 shell）。
+# 本檔不 eval、不 source、不把 SSH_ORIGINAL_COMMAND 放進任何會展開的地方。
+set -u
+set -f
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+readonly SUDO=/usr/bin/sudo
+readonly TARGET=/usr/local/sbin/fju-test-reset
+
+reject() {
+  local why="$1" shown
+  # 原文用 %q 轉成單行、截 200 字再記：值只當 logger 的一個參數，不展開。
+  shown="$(printf '%q' "${SSH_ORIGINAL_COMMAND-<沒有指令>}")"
+  logger -t fju-test-reset-gate -p auth.warning -- \
+    "rejected (${why}) from ${SSH_CONNECTION%% *}: ${shown:0:200}" 2>/dev/null || true
+  echo "fju-reset：拒絕（${why}）。可用：status｜pause-deploy｜resume-deploy｜reset｜snapshot <名稱>｜restore <名稱>" >&2
+  exit 1
+}
+
+if [ -z "${SSH_ORIGINAL_COMMAND+x}" ] || [ -z "$SSH_ORIGINAL_COMMAND" ]; then
+  reject "沒有指令（不開 shell）"
+fi
+cmd="$SSH_ORIGINAL_COMMAND"
+
+charset_re='^[a-z0-9 -]{1,64}$'
+[[ "$cmd" =~ $charset_re ]] || reject "含不允許的字元或太長"
+case "$cmd" in
+  *prod*) reject "只准碰測試站" ;;
+esac
+
+IFS=' ' read -r -a words <<<"$cmd"
+[ "${#words[@]}" -ge 1 ] || reject "沒有指令（不開 shell）"
+# 只收標準寫法：字與字之間剛好一個空白、前後沒有空白。
+[ "${words[*]}" = "$cmd" ] || reject "多餘的空白"
+
+name_re='^[a-z0-9][a-z0-9-]{0,31}$'
+case "${words[0]}" in
+  status|pause-deploy|resume-deploy|reset)
+    [ "${#words[@]}" -eq 1 ] || reject "${words[0]} 不接參數"
+    ;;
+  snapshot|restore)
+    [ "${#words[@]}" -eq 2 ] || reject "${words[0]} 要剛好一個名稱"
+    [[ "${words[1]}" =~ $name_re ]] || reject "快照名稱只能是 a-z、0-9、-，1–32 字，開頭不能是 -"
+    ;;
+  *)
+    reject "不認得的子命令"
+    ;;
+esac
+
+logger -t fju-test-reset-gate -p auth.info -- "accepted from ${SSH_CONNECTION%% *}: ${words[*]}" 2>/dev/null || true
+exec "$SUDO" -n "$TARGET" "${words[@]}"
