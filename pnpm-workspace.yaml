@@ -30,7 +30,8 @@ overrides:
   # GHSA-fph4-wmhf-6fwf、GHSA-jqff-g426-hqxp），3.1.6 起修好且同為 3.x API。
   # 受影響路徑目前全在 prototype/（react-server-dom-webpack>webpack>schema-utils>ajv
   # 與 shadcn CLI），web/ 沒有 fast-uri 路徑，override 對 web/ 的解析結果沒有變化。
-  fast-uri: '^3.1.6'
+  # 3.1.6 之後又出 GHSA-hrr3-gc8f-f4qj（< 3.1.8，moderate），2026-10-09 T12 一起升到 3.1.8。
+  fast-uri: '^3.1.8'
   # 2026-10-09 T12：以下是 web/ 開發期或執行期可達的 high／critical，版號取 pnpm audit 的 patched 下界。
   # next 16.3.8 鎖 sharp ^0.35.4，0.35.4 有 GHSA-wq5f-xc86-pv6w（librsvg），0.35.5 起修好。
   sharp: '^0.35.5'
