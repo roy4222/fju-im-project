@@ -6,15 +6,19 @@
 #
 # - commit 沒給：讀 https://test.fju.roy422.dev/api/health 的 commit（整支唯一一次對網站的請求）。
 # - commit 只在本機解析（不 fetch）；用 `git archive` 解到暫存目錄再掃，不動任何現有工作樹，掃完刪暫存。
-# - gitleaks 掃 repo 的 git 歷史（到該 commit 為止），一律 --redact，原始輸出不含秘密本文。
+# - gitleaks 掃 repo 的 git 歷史（到該 commit 為止），一律 --redact，原始輸出不含秘密本文；
+#   以 --config 套 gitleaks-allowlist.toml（已確認的誤報），剩下的才算擋上線。
 # - 工具沒裝：印 `brew install …`、該項記「做不到（環境）」、其他照跑、報告照產，最後非 0 結束。
-# - 嚴重度：高＝擋上線、中＝要修、低＝建議（對映寫在 report.md「注意」）。
+# - 報告分三類（設計方案 §13.2 教訓 3）：套件升級每個套件一列、自訂規則待人工分類（不進四級）、
+#   gitleaks 剩下的＋官方 semgrep 規則進問題清單（嚴重度對映寫在 report.md「注意」）。
 #
 # 輸出：<輸出目錄>/semgrep.json、audit.json、osv.json、gitleaks.json、report.md（＋ *.stderr.txt 工具訊息）。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HEALTH_URL="https://test.fju.roy422.dev/api/health"
+# 已確認的誤報（雜湊檔、臨時密碼字母表）；沿用 gitleaks 內建規則
+GITLEAKS_CONFIG="$HERE/gitleaks-allowlist.toml"
 
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "用法：$0 <輸出目錄> [commit]" >&2; exit 2; }
 umask 077
@@ -104,10 +108,10 @@ if command -v gitleaks >/dev/null 2>&1; then
   echo "gitleaks …"
   set +e
   if gitleaks git --help >/dev/null 2>&1; then
-    gitleaks git --no-banner --redact --exit-code 0 --log-opts="$SHA" \
+    gitleaks git --no-banner --redact --exit-code 0 --config "$GITLEAKS_CONFIG" --log-opts="$SHA" \
       --report-format json --report-path "$OUT/gitleaks.json" "$REPO" 2> "$OUT/gitleaks.stderr.txt"
   else
-    gitleaks detect --no-banner --redact --exit-code 0 --log-opts="$SHA" --source "$REPO" \
+    gitleaks detect --no-banner --redact --exit-code 0 --config "$GITLEAKS_CONFIG" --log-opts="$SHA" --source "$REPO" \
       --report-format json --report-path "$OUT/gitleaks.json" 2> "$OUT/gitleaks.stderr.txt"
   fi
   rc=$?
@@ -143,13 +147,37 @@ def esc(s, limit=None):
     return s[:limit - 1] + '…' if limit and len(s) > limit else s
 
 def rel(p):
+    # macOS 的 /tmp 是 /private/tmp 的連結：semgrep 可能回任一種寫法，兩種都剝掉
     p = str(p)
-    for pre in (src_prefix, os.path.realpath(src_prefix) + '/', '/private' + src_prefix):
+    for pre in sorted(PREFIXES, key=len, reverse=True):
         if p.startswith(pre): return p[len(pre):]
     return p
 
-rows = []   # (嚴重度, 一句話, 工具, 頁面)
+_abs = os.path.abspath(src).rstrip('/') + '/'
+PREFIXES = {_abs, src_prefix, '/private' + _abs}
+
+CUSTOM = ('fju-query-template-interpolation', 'fju-write-without-authorize')
+rows = []     # 問題清單（9 欄）：gitleaks 套允許清單後剩下的＋官方 semgrep 規則
+custom = []   # 自訂規則命中（待人工分類，不進四級）：(規則, 檔案:行)
+pkgs = {}     # 套件名 → {'cur': {版本: 目標版本或 None}, 'sev': 嚴重度, 'ids': set()}
 counts = {}
+
+def ver(s):
+    return tuple(int(x) for x in re.findall(r'\d+', str(s).split('-')[0])[:3]) or (0,)
+
+def target(patched, cur):
+    # patched_versions 例：">=7.29.1"、">=1.1.20 <2.0.0 || >=5.0.11"、"<0.0.0"（沒有修正版）
+    ups = [v for v in re.findall(r'>=\s*([0-9][0-9A-Za-z.+-]*)', str(patched or '')) if ver(v) > ver(cur)]
+    return min(ups, key=ver) if ups else None
+
+SEV_RANK = {'critical': 4, 'high': 3, 'moderate': 2, 'medium': 2, 'low': 1, 'info': 0}
+
+def add_pkg(name, cur, sev, vid, fix):
+    p = pkgs.setdefault(name, {'cur': {}, 'sev': 'info', 'ids': set()})
+    old = p['cur'].get(cur)
+    p['cur'][cur] = max([x for x in (old, fix) if x], key=ver) if (old or fix) else None
+    if SEV_RANK.get(sev, 0) > SEV_RANK.get(p['sev'], 0): p['sev'] = sev
+    if vid: p['ids'].add(vid)
 
 d = load('semgrep.json') if status.get('semgrep', ('',))[0] == 'ran' else None
 if d is not None:
@@ -158,23 +186,24 @@ if d is not None:
     counts['semgrep'] = len(res)
     for r in res:
         rule = r.get('check_id', '?').split('.')[-1]
+        where = f"{rel(r.get('path', '?'))}:{(r.get('start') or {}).get('line', '?')}"
+        if rule in CUSTOM:
+            custom.append((rule, where)); continue
         msg = (r.get('extra') or {}).get('message', '')
         level = sev.get(((r.get('extra') or {}).get('severity') or '').upper(), '要修')
-        rows.append((level, f'[{rule}] {msg}', 'semgrep', f"{rel(r.get('path', '?'))}:{(r.get('start') or {}).get('line', '?')}"))
+        rows.append((level, f'[{rule}] {msg}', 'semgrep', where))
 
 seen_ghsa = set()
 d = load('audit.json') if status.get('pnpm audit', ('',))[0] == 'ran' else None
 if d is not None:
-    sev = {'critical': '擋上線', 'high': '擋上線', 'moderate': '要修', 'low': '建議', 'info': '建議'}
     adv = d.get('advisories') or {}
     counts['pnpm audit'] = len(adv)
     for a in adv.values():
         ghsa = a.get('github_advisory_id') or ''
         if ghsa: seen_ghsa.add(ghsa)
-        vers = sorted({f.get('version', '?') for f in a.get('findings') or []})
-        rows.append((sev.get(a.get('severity', ''), '要修'),
-                     f"[{ghsa or a.get('id', '?')}] {a.get('title', '')}（受影響 {a.get('vulnerable_versions', '?')}）",
-                     'pnpm audit', f"{a.get('module_name', '?')}@{'、'.join(vers) or '?'}"))
+        for v in sorted({f.get('version', '?') for f in a.get('findings') or []}, key=ver):
+            add_pkg(a.get('module_name', '?'), v, a.get('severity', ''), ghsa or str(a.get('id', '')),
+                    target(a.get('patched_versions'), v))
 
 d = load('osv.json') if status.get('osv-scanner', ('',))[0] == 'ran' else None
 if d is not None:
@@ -189,10 +218,14 @@ if d is not None:
                 if seen_ghsa & set(ids): continue    # pnpm audit 已列過同一個 GHSA
                 try: score = float(g.get('max_severity') or 0)
                 except ValueError: score = 0
-                level = '擋上線' if score >= 7 else '要修' if score >= 4 else '建議' if score > 0 else '要修'
-                first = (g.get('ids') or ['?'])[0]
-                summ = (vulns.get(first) or {}).get('summary', '')
-                rows.append((level, f'[{first}] {summ}', 'osv-scanner', f"{pkg.get('name', '?')}@{pkg.get('version', '?')}"))
+                sev = 'critical' if score >= 9 else 'high' if score >= 7 else 'moderate' if score >= 4 else 'low' if score > 0 else 'moderate'
+                vid = next((i for i in ids if i.startswith('GHSA-')), (g.get('ids') or ['?'])[0])
+                fixes = [e.get('fixed') for v in (vulns.get(i) for i in g.get('ids') or []) if v
+                         for a in v.get('affected') or [] for rg in a.get('ranges') or []
+                         for e in rg.get('events') or [] if e.get('fixed')]
+                cur = pkg.get('version', '?')
+                ups = [f for f in fixes if ver(f) > ver(cur)]
+                add_pkg(pkg.get('name', '?'), cur, sev, vid, min(ups, key=ver) if ups else None)
     counts['osv-scanner'] = n
 
 d = load('gitleaks.json') if status.get('gitleaks', ('',))[0] == 'ran' else None
@@ -212,6 +245,8 @@ ran = [t for t in tools if status.get(t, ('',))[0] == 'ran']
 clean = [t for t in ran if not counts.get(t)]
 dirty = [t for t in ran if counts.get(t)]
 cant = [t for t in tools if t not in ran]
+SEV_LABEL = {'critical': '嚴重', 'high': '高', 'moderate': '中', 'medium': '中', 'low': '低', 'info': '資訊'}
+plist = sorted(pkgs.items(), key=lambda kv: (-SEV_RANK.get(kv[1]['sev'], 0), kv[0]))
 
 L = []
 L.append('# 資安報告：靜態全掃（semgrep、pnpm audit、osv-scanner、gitleaks）')
@@ -233,11 +268,35 @@ L.append('')
 L.append('## 注意')
 L.append('')
 L.append(f'- 掃的是 commit {sha[:8]} 的 `git archive` 快照（不含 prototype／docs）；gitleaks 掃 git 歷史到這個 commit 為止，輸出已 redact。')
-L.append('- 嚴重度對映：semgrep ERROR／WARNING／INFO → 擋上線／要修／建議；pnpm audit critical、high → 擋上線，moderate → 要修，low → 建議；osv-scanner CVSS ≥7 → 擋上線、≥4 → 要修、其他 → 建議（沒有分數記要修）；gitleaks 一律擋上線。')
-L.append('- osv-scanner 與 pnpm audit 同一個 GHSA 只列一次（列在 pnpm audit）。')
-L.append('- 自訂規則 `fju-query-template-interpolation`、`fju-write-without-authorize` 是粗篩，會有誤報：插入寫死的常數、權限檢查寫在方法第 4 行以後或交給呼叫端，都會被報；白天看過再決定要不要開票。')
+L.append('- 問題分三類：相依套件 → 「套件升級」每個套件一列；自訂規則 → 「自訂規則待人工分類」只列清單，不進四級、不算擋上線；gitleaks（套用允許清單後）與官方 semgrep 規則 → 下面的問題清單。')
+L.append('- gitleaks 允許清單：`e2e/acceptance/security/gitleaks-allowlist.toml`（以 `--config` 明傳，沿用內建規則；只放已確認的雜湊檔與臨時密碼字母表，每條都是路徑＋內容特徵同時成立）。問題清單裡的 gitleaks 一律擋上線。')
+L.append('- 問題清單嚴重度：semgrep ERROR／WARNING／INFO → 擋上線／要修／建議。套件的「最高嚴重度」取 pnpm audit 的 severity；osv-scanner 只補 pnpm audit 沒列到的漏洞（CVSS ≥9 嚴重、≥7 高、≥4 中、其他低，沒分數記中）。')
+L.append('- 自訂規則 `fju-query-template-interpolation`、`fju-write-without-authorize` 是粗篩：插入寫死的常數、權限檢查全交給呼叫端，都會被報；白天看過再決定要不要開票。')
 L.append('- 這支腳本對網站最多只送一次 `/api/health`（沒給 commit 時）；semgrep 會向 semgrep.dev 下載官方規則集（已關 metrics），pnpm audit 與 osv-scanner 會查 npm／osv.dev 的漏洞資料庫，都不碰測試站。')
 L.append('')
+L.append('## 套件升級')
+L.append('')
+if plist:
+    L.append('| 套件 | 現版 | 目標版本 | 最高嚴重度 | 漏洞編號 |')
+    L.append('|---|---|---|---|---|')
+    for name, p in plist:
+        curs = sorted(p['cur'], key=ver)
+        tgts = [p['cur'][c] or '尚無修正版' for c in curs]
+        tgt = tgts[0] if len(set(tgts)) == 1 else '、'.join(tgts)
+        L.append(f"| {esc(name)} | {esc('、'.join(curs))} | {esc(tgt)} | {SEV_LABEL.get(p['sev'], p['sev'])} | {esc(', '.join(sorted(p['ids'])))} |")
+else:
+    L.append('沒有。')
+L.append('')
+L.append('## 自訂規則待人工分類')
+L.append('')
+L.append(f'待人工分類 {len(custom)} 條。')
+L.append('')
+if custom:
+    L.append('| 規則 | 位置 |')
+    L.append('|---|---|')
+    for rule, where in sorted(custom):
+        L.append(f'| {rule} | {esc(where)} |')
+    L.append('')
 L.append('## 做不到（環境）')
 L.append('')
 if cant:
@@ -253,7 +312,7 @@ L.append('|---|---|---|---|---|---|---|---|---|')
 for i, (lv, text, tool, page) in enumerate(rows, 1):
     L.append(f'| P-{i:02d} | {lv} | {esc(text, 140)} | {tool} | {esc(page)} | — | — | — | 是 |')
 L.append('')
-L.append(f"總結：通過 {len(clean)}、不通過 {len(dirty)}、做不到 {len(cant)}（環境 {len(cant)}）、問題 {len(rows)}（擋上線 {by['擋上線']}／要修 {by['要修']}／建議 {by['建議']}／待 Roy 決定 {by['待 Roy 決定']}）")
+L.append(f"總結：通過 {len(clean)}、不通過 {len(dirty)}、做不到 {len(cant)}（環境 {len(cant)}）、問題 {len(rows)}（擋上線 {by['擋上線']}／要修 {by['要修']}／建議 {by['建議']}／待 Roy 決定 {by['待 Roy 決定']}）；套件 {len(plist)} 個、自訂規則待分類 {len(custom)} 條")
 text = '\n'.join(L) + '\n'
 
 # 遮蔽：Email（TLD 要是字母，避免吃掉 pkg@1.2.3）與常見 token 格式
@@ -267,7 +326,7 @@ for p in TOKENS: text = p.sub('[token 已遮蔽]', text)
 if EMAIL.search(text) or any(p.search(text) for p in TOKENS):
     sys.exit('report.md 遮蔽後仍有疑似秘密，不寫出')
 with open(os.path.join(out, 'report.md'), 'w', encoding='utf-8') as f: f.write(text)
-print(f"report.md：問題 {len(rows)}（擋上線 {by['擋上線']}／要修 {by['要修']}／建議 {by['建議']}）；做不到 {len(cant)}")
+print(f"report.md：問題 {len(rows)}（擋上線 {by['擋上線']}／要修 {by['要修']}／建議 {by['建議']}）；套件 {len(plist)}、自訂規則待分類 {len(custom)}；做不到 {len(cant)}")
 sys.exit(3 if cant else 0)
 PY
 rc=$?
