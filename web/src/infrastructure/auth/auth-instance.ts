@@ -26,8 +26,10 @@ import {
   validateNewPassword,
 } from '@/infrastructure/auth/change-password-rules'
 import {
+  checkIpFailures,
   checkSignInRate,
   clientIpFrom,
+  recordIpFailure,
   resetSignInRate,
   signInKey,
 } from '@/infrastructure/auth/sign-in-rate-limit'
@@ -139,7 +141,8 @@ function createAuth() {
         // Google 登入入口（票 10）：只產生 state 與授權網址，不驗任何帳密。套件預設的
         // 「10 秒 3 次／IP」會讓同一個校園出口後面的第四個同學按 Google 鈕就吃 429。
         // 關掉之後改由 `social-sign-in-rate-limit.ts` 在 hook 裡算每 IP 桶（票 10b），
-        // Server Action 與直接打 API 同一個桶。粗粒度的跨帳號防護仍在 Caddy（契約 03 §6）。
+        // Server Action 與直接打 API 同一個桶。Caddy 沒有設限速；密碼登入的跨帳號防護
+        // 由 app 的每 IP 失敗桶負責（`sign-in-rate-limit.ts`，票 T3）。
         '/sign-in/social': false,
       },
     },
@@ -326,6 +329,14 @@ function createAuth() {
         // 放在這裡而不是只放在 Server Action 門面上：直接打 `/api/auth/sign-in/email`
         // 也要算同一個桶（2026-09-16 review Spec 4）。
         if (ctx.path === '/sign-in/email') {
+          // 每 IP 跨帳號的失敗桶（票 T3）先看：同一個網路換帳號亂試密碼也要擋。
+          // 只看不計——失敗由 `hooks.after` 記。訊息不提帳號，不透露帳號存不存在。
+          if (!checkIpFailures(clientIpFrom(ctx.request?.headers ?? ctx.headers)).allowed) {
+            throw new APIError('TOO_MANY_REQUESTS', {
+              code: 'RATE_LIMITED',
+              message: '這個網路的登入失敗次數過多，請稍後再試。',
+            })
+          }
           const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
           if (email) {
             const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
@@ -428,9 +439,11 @@ function createAuth() {
        * 成功之後才做的事。
        *
        * - 改密成功：清 must-change 旗標、寫稽核（同一個交易）。
-       * - 登入成功：把限速計數清掉。
+       * - 登入成功：把 IP＋帳號的限速計數清掉（每 IP 失敗桶不清）。
+       * - 登入失敗（401 帳密錯）：記一次每 IP 失敗（票 T3）。
        *
-       * 失敗的請求不會走到這裡（端點丟 APIError 時 `returned` 是那個錯誤）。
+       * 端點丟 APIError 時一樣會走到這裡，`returned` 是那個錯誤；`hooks.before` 丟的錯
+       * （例如限速的 429）則不會——套件在 before 丟錯時整條就中斷（`api/dispatch.mjs`）。
        */
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned
@@ -452,6 +465,18 @@ function createAuth() {
           if (SIGN_UP_EMAIL_ERROR_CODES.has(code) || emailFormat) {
             throw new APIError('BAD_REQUEST', { code: EMAIL_UNAVAILABLE_CODE, message: EMAIL_UNAVAILABLE_MESSAGE })
           }
+        }
+
+        // ── 每 IP 跨帳號登入失敗（票 T3） ─────────────────────────────────
+        //
+        // 只算 401：帳號不存在、沒有密碼、密碼錯都是同一個 401（`INVALID_EMAIL_OR_PASSWORD`），
+        // 停用帳號被 session hook 擋下也是 401，外面看起來都一樣。400（格式錯）不算。
+        // 要放在下面 `instanceof` 提早 return 之前，而且看形狀：理由同上。
+        if (ctx.path === '/sign-in/email' && looksLikeApiError(returned)) {
+          if ((returned as { statusCode?: unknown }).statusCode === 401) {
+            recordIpFailure(clientIpFrom(ctx.request?.headers ?? ctx.headers))
+          }
+          return
         }
 
         if (returned instanceof APIError) return
