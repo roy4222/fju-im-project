@@ -171,7 +171,8 @@ test('訪客：優秀專題看得到已發布的、看不到草稿；點開一�
 
   await expect(page).toHaveURL(new RegExp(`/projects/${entryId}$`))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(TITLE)
-  await expect(page.getByText('登入後顯示')).toBeVisible()
+  // 訪4：公開作品頁給訪客看的就是公開欄位；不放鎖頭區塊，也沒有「登入後顯示」的欄位。
+  await expect(page.locator('body')).not.toContainText('登入後')
   const html = await page.content()
   expect(html).not.toContain(MEMBER)
   expect(html).not.toContain(ADVISOR)
@@ -180,15 +181,15 @@ test('訪客：優秀專題看得到已發布的、看不到草稿；點開一�
   const draft = await page.goto(`/projects/${draftId}`)
   expect(draft?.status()).toBe(404)
 
-  // 沒得獎的作品只在登入後的歷屆一覽：訪客直接開網址是「需要登入」，題目不出現。
+  // 沒得獎的作品只在登入後的歷屆一覽：訪客直接開網址被帶到登入頁（登入後回到這一件），題目不出現。
   await page.goto(`/projects/${plainId}`)
-  await expect(page.getByTestId('need-login')).toContainText('這件作品需要登入')
+  await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(`/projects/${plainId}`)}$`))
   expect(await page.content()).not.toContain(PLAIN)
 })
 
 test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指導老師', async ({ page, context }) => {
   await page.goto('/projects')
-  await expect(page.getByTestId('need-login')).toContainText('歷屆專題一覽需要登入')
+  await expect(page).toHaveURL(/\/login\?next=%2Fprojects$/)
   await expect(page.locator('body')).not.toContainText(TITLE)
 
   const api = await playwrightRequest.newContext({ baseURL: BASE_URL })

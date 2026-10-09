@@ -1,10 +1,10 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { cache } from 'react'
-import { IconLock, IconPlayerPlay } from '@tabler/icons-react'
-import { currentActor } from '@/app/_ui/guard'
-import { AwardBadge, GoneNotice, imageSrc, NeedLogin, Tag } from '@/app/_ui/public-content'
+import { IconPlayerPlay } from '@tabler/icons-react'
+import { currentActor, requireSignedIn } from '@/app/_ui/guard'
+import { AwardBadge, GoneNotice, imageSrc, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 
@@ -29,19 +29,17 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * 專題詳情（原型 `/projects/[id]`；產品模組 09「訪客看摘要、海報預覽與影片入口，組員與老師登入後顯示」、SHW-03）。
  *
- * 有獎項等級的已發布作品任何人都看得到白名單欄位；沒得獎的只給登入者（訪客看到「需要登入」，0011）。
- * 組員與指導老師只給登入者（查詢層就不給訪客，不是畫面藏起來）。撤稿的告訴他已下架（SHW-06），草稿與不存在一律 404。
+ * 有獎項等級的已發布作品任何人都看得到白名單欄位；沒得獎的只給登入者（訪客導到登入頁，0011）。
+ * 組員與指導老師只給登入者（查詢層就不給訪客，不是畫面藏起來）；訪客的頁面不提登入，那兩列直接不顯示。撤稿的告訴他已下架（SHW-06），草稿與不存在一律 404。
  */
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const page = await load(id)
   if (page.access === 'not_found') notFound()
   if (page.access === 'need_login') {
-    return (
-      <SiteShell current="/projects">
-        <NeedLogin next={`/projects/${id}`} what="這件作品" />
-      </SiteShell>
-    )
+    // 訪客導到登入頁（登入後回到這一件）；登入了仍不給看＝沒有權限。
+    await requireSignedIn(`/projects/${id}`)
+    redirect('/403')
   }
   if (page.access === 'withdrawn') {
     return (
@@ -68,7 +66,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     : [
         ['屆別', `${item.cohortCode} 屆${item.groupCode ? `・${item.groupCode}` : ''}`],
         ['獎項', awardText],
-        ['組員與老師', '登入後顯示'],
       ]
 
   return (
@@ -114,23 +111,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <h2 className="text-xl font-bold text-ink">摘要</h2>
             <p className="text-base leading-loose whitespace-pre-line text-foreground">{item.summary || '（尚未填寫摘要）'}</p>
           </section>
-          {member ? null : (
-            // 訪客邊界：公開＝摘要、海報、影片入口；組員名單與老師登入後才看。
-            <section className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/60 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <IconLock className="mt-0.5 size-5 shrink-0 text-ink" aria-hidden />
-                <div>
-                  <h2 className="text-base font-bold text-ink">登入後可看完整資料</h2>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    組員名單與指導老師只提供本系學生與老師。公開的是摘要、海報預覽與影片入口。
-                  </p>
-                </div>
-              </div>
-              <Link href={`/login?next=${encodeURIComponent(`/projects/${id}`)}`} className="btn-fju h-11 shrink-0 px-6 text-[15px]">
-                登入
-              </Link>
-            </section>
-          )}
           <nav className="grid gap-4 border-t border-border pt-5 sm:grid-cols-2" aria-label="上一件與下一件">
             {prev ? (
               <Link href={`/projects/${prev.id}`} className="flex flex-col gap-1 hover:text-primary">
@@ -153,7 +133,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             {facts.map(([k, v]) => (
               <div key={k} className="flex flex-col gap-0.5">
                 <dt className="text-xs text-muted-foreground">{k}</dt>
-                <dd className={v === '登入後顯示' ? 'leading-relaxed font-bold text-muted-foreground' : 'leading-relaxed font-bold text-foreground'}>{v}</dd>
+                <dd className="leading-relaxed font-bold text-foreground">{v}</dd>
               </div>
             ))}
           </dl>

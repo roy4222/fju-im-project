@@ -159,6 +159,8 @@ function SiteFooter({ viewer, nav }: { viewer: ReturnType<typeof viewerOf>; nav:
             電話 +886-2-2905-2696
             <br />
             專題相關事務請洽系辦公室
+            <br />
+            業界合作或產學洽詢，也請直接聯絡系辦。
           </p>
         </div>
         {columns.map((col) => (
