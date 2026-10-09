@@ -173,9 +173,11 @@ def target(patched, cur):
 SEV_RANK = {'critical': 4, 'high': 3, 'moderate': 2, 'medium': 2, 'low': 1, 'info': 0}
 
 def add_pkg(name, cur, sev, vid, fix):
-    p = pkgs.setdefault(name, {'cur': {}, 'sev': 'info', 'ids': set()})
+    # 同一版本有多個漏洞：目標版本取「有修正版的」裡最高的；沒有修正版的漏洞另記，不能被別的修正版蓋掉
+    p = pkgs.setdefault(name, {'cur': {}, 'sev': 'info', 'ids': set(), 'unfixed': {}})
     old = p['cur'].get(cur)
     p['cur'][cur] = max([x for x in (old, fix) if x], key=ver) if (old or fix) else None
+    if not fix: p['unfixed'].setdefault(cur, set()).add(vid or '?')
     if SEV_RANK.get(sev, 0) > SEV_RANK.get(p['sev'], 0): p['sev'] = sev
     if vid: p['ids'].add(vid)
 
@@ -281,8 +283,11 @@ if plist:
     L.append('|---|---|---|---|---|')
     for name, p in plist:
         curs = sorted(p['cur'], key=ver)
-        tgts = [p['cur'][c] or '尚無修正版' for c in curs]
-        tgt = tgts[0] if len(set(tgts)) == 1 else '、'.join(tgts)
+        tgts = [p['cur'][c] or '' for c in curs]
+        tgt = (tgts[0] if len(set(tgts)) == 1 else '、'.join(t or '—' for t in tgts)) or '—'
+        nofix = sorted(set().union(*p['unfixed'].values())) if p['unfixed'] else []
+        if nofix:
+            tgt = f"{tgt}（尚無完整修正版：{', '.join(nofix)} 沒有修正版）" if any(tgts) else f"尚無完整修正版（{', '.join(nofix)} 沒有修正版）"
         L.append(f"| {esc(name)} | {esc('、'.join(curs))} | {esc(tgt)} | {SEV_LABEL.get(p['sev'], p['sev'])} | {esc(', '.join(sorted(p['ids'])))} |")
 else:
     L.append('沒有。')

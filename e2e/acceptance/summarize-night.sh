@@ -123,14 +123,26 @@ if os.path.isfile(rj):
 else:
     run_json_problem = '沒有 run.json'
 
+# run.log 一行：`YYYY-MM-DD HH:MM:SS  <事件>  <項目或 ->  <說明>`（ops/acceptance-night.sh 的 log()）
+LOG_LINE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}\s+(\S+)\s+(\S+)\s*(.*)$')
 dep_notes = {}
+snap_events = []   # (事件, 時間, 說明)：snapshot／snapshot-failed／restore／restore-failed
+log_commits = []   # (標籤, commit 前 8 碼)：每章開頭量到的
 rl = os.path.join(run_dir, 'run.log')
 if os.path.isfile(rl):
     for line in read(rl).splitlines():
-        if 'dependency-not-met' in line:
-            parts = [p.strip() for p in re.split(r'[｜|]', line)]
-            item = parts[2] if len(parts) > 2 else '?'
-            dep_notes[item] = 'dependency-not-met'
+        m = LOG_LINE.match(line)
+        if not m:
+            if 'dependency-not-met' in line:   # 舊格式：用｜分欄
+                parts = [p.strip() for p in re.split(r'[｜|]', line)]
+                dep_notes[parts[2] if len(parts) > 2 else '?'] = 'dependency-not-met'
+            continue
+        _, t, ev, item, msg = m.groups()
+        if ev == 'dependency-not-met': dep_notes[item] = ev
+        elif ev in ('snapshot', 'snapshot-failed', 'restore', 'restore-failed'): snap_events.append((ev, t, msg))
+        elif ev in ('commit', 'commit-changed'):
+            c = re.search(r'(?:commit|now)=([0-9a-f]{7,40})', msg)
+            if c: log_commits.append((item, c.group(1)[:8]))
 
 def hhmm(ts):
     if not ts: return '—'
@@ -214,7 +226,18 @@ def parse_report(text):
             pkgs.append(dict(zip(['套件', '現版', '目標版本', '最高嚴重度', '漏洞編號'], c)))
     csec = section(lines, r'^## 自訂規則待人工分類')
     cm = re.search(r'待人工分類\s*(\d+)\s*條', '\n'.join(csec or []))
+    # 人設報告（§5.7）：「## 任務」底下每個「### 任務 N：…」的完成與分數
+    tasks = []
+    for l in section(lines, r'^## 任務\s*$') or []:
+        if re.match(r'^###\s*任務', l): tasks.append({'done': None, 'score': None})
+        elif tasks:
+            m = re.match(r'^\s*[-*]\s*完成[:：]\s*(\S+)', l)
+            if m: tasks[-1]['done'] = m.group(1)
+            m = re.match(r'^\s*[-*]\s*分數[:：]\s*([1-5])\b', l)
+            if m: tasks[-1]['score'] = m.group(1)
+    tm = re.match(r'^#\s*.*?報告[:：]\s*(.+)$', lines[0]) if lines else None
     return {'ok': not errs, 'errs': errs, 'rows': rows, 'env': env, 'summary': summary, 'relay': relay,
+            'tasks': tasks, 'title': tm.group(1).strip() if tm else None,
             'pkgs': pkgs if psec is not None else None, 'custom': int(cm.group(1)) if cm else None}
 
 def parse_progress(text):
@@ -246,14 +269,17 @@ for iid in order:
 
 # ---------- 去重 ----------
 RANK = {lv: i for i, lv in enumerate(LEVELS)}
+KNOWN_CODE = re.compile(r'(?<![\w-])((?:訪|系)\d+|D-\d+)(?![\w-])')
 merged = []
 index = {}
 for info in items:
     p = info['parsed']
     if not p or not p['ok'] or info['security']: continue
     for r in p['rows']:
+        # 只有正式代號（known-issues.md 的 訪N／系N／D-N）能合併；「第二段」這類值只顯示，不當去重鍵
+        kc = KNOWN_CODE.search(r['已知'])
         known = r['已知'] if r['已知'] not in EMPTY else None
-        keys = ([('known', known)] if known else []) + [('text', r['頁面'], r['嚴重度'], r['一句話'][:12])]
+        keys = ([('known', kc.group(1))] if kc else []) + [('text', r['頁面'], r['嚴重度'], r['一句話'][:12])]
         step = r['步驟'] if r['步驟'] not in EMPTY else None
         src = f"{info['id']} 第 {step} 步" if step else info['id']
         shots = SHOT.findall(r['截圖'])
@@ -319,6 +345,23 @@ def report_path(info, mode):
         return f"{info['id']}/report.md" if info['report'] else f"{info['id']}/progress.md"
     return f"{info['id']}.md" if info['report'] else f"{info['id']}-progress.md"
 
+def render_personas():
+    ps = [i for i in items if i['parsed'] and i['parsed']['ok'] and i['parsed'].get('tasks')]
+    if not ps: return []
+    n = max(len(i['parsed']['tasks']) for i in ps)
+    out = ['### 人設 × 任務（分數 1–5／完成）', '']
+    out.append('| 人設 | ' + ' | '.join(f'任務 {k}' for k in range(1, n + 1)) + ' | 平均 |')
+    out.append('|---|' + '---|' * (n + 1))
+    for i in ps:
+        ts = i['parsed']['tasks']
+        cells = [f"{t['score'] or '—'}／{t['done'] or '—'}" for t in ts] + ['—'] * (n - len(ts))
+        sc = [int(t['score']) for t in ts if t['score']]
+        avg = f'{sum(sc) / len(sc):.1f}' if sc else '—'
+        name = i['parsed'].get('title') or i['id']
+        out.append(f"| {esc(name)}（{esc(i['id'])}） | " + ' | '.join(esc(c) for c in cells) + f' | {avg} |')
+    out.append('')
+    return out
+
 def security_count():
     if not sec_items: return '—'
     lv = {l: sum(1 for m in sec_rows if m['level'] == l) for l in LEVELS}
@@ -372,17 +415,30 @@ def render(mode):
     out = []
     cs, ce = run.get('commitStart'), run.get('commitEnd')
     s8 = (cs or '未記錄')[:8]; e8 = (ce or '未記錄')[:8]
-    changed = bool(cs and ce and cs[:8] != ce[:8])
+    # 開始、各章開頭（run.log）、中途（run.json commitMidway）、結束：任何一次和開始不同就算換版
+    seen = [('開始', cs[:8])] if cs else []
+    seen += [(f'{i} 開頭', c) for i, c in log_commits]
+    if run.get('commitMidway') and not any(c == run['commitMidway'][:8] for _, c in seen):
+        seen.append(('中途', run['commitMidway'][:8]))
+    if ce: seen.append(('結束', ce[:8]))
+    seen = [(l, c) for l, c in seen if re.fullmatch(r'[0-9a-f]{7,40}', c)]   # 量不到（unknown）不算換版
+    changed = len({c for _, c in seen}) > 1
     title = f'# 網站驗收總覽 {date}'
     if changed: title += ' ⚠️ 測試站中途換版'
     out.append(title)
     if changed:
-        commit_txt = f'⚠️ 測試站中途換版：{s8} → {e8}，以下結果可能混到兩個版本'
-    elif cs and ce:
+        steps, last = [], None
+        for label, c in seen:
+            if c != last: steps.append(f'{label} {c}'); last = c
+        commit_txt = f"⚠️ 測試站中途換版：{' → '.join(steps)}，以下結果可能混到不同版本"
+    elif cs and ce and all(re.fullmatch(r'[0-9a-f]{7,40}', x) for x in (cs, ce)):
         commit_txt = f'測試站 commit {s8} → {e8}（未變）'
     else:
         commit_txt = f'測試站 commit {s8} → {e8}（無法比對）'
     out.append(f"計畫 {run.get('plan') or '—'}｜開始 {hhmm(run.get('startedAt'))}｜結束 {hhmm(run.get('finishedAt'))}｜{commit_txt}")
+    if snap_events:
+        # 括號裡是補充（例如快照密碼另存的路徑），不進總覽
+        out.append('快照：' + '｜'.join(f"{t} {re.sub(r'（.*$', '', msg).strip()}" for _, t, msg in snap_events))
     if leaks:
         kinds = sorted({k for _, k in leaks})
         tail = '；請更換相關密碼／token' if set(kinds) - {'Email'} else ''
@@ -419,6 +475,7 @@ def render(mode):
             line = '沒有報告也沒有進度檔'
         out.append(f"| {esc(info['id'])} | {esc(st)} | {esc(line)} |")
     out.append('')
+    out += render_personas()
 
     for lv in LEVELS:
         out.append(f'## {lv}')
