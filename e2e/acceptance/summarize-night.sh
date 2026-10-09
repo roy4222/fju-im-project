@@ -421,6 +421,7 @@ def render(mode):
     if run.get('commitMidway') and not any(c == run['commitMidway'][:8] for _, c in seen):
         seen.append(('中途', run['commitMidway'][:8]))
     if ce: seen.append(('結束', ce[:8]))
+    seen = [(l, c) for l, c in seen if re.fullmatch(r'[0-9a-f]{7,40}', c)]   # 量不到（unknown）不算換版
     changed = len({c for _, c in seen}) > 1
     title = f'# 網站驗收總覽 {date}'
     if changed: title += ' ⚠️ 測試站中途換版'
@@ -436,7 +437,8 @@ def render(mode):
         commit_txt = f'測試站 commit {s8} → {e8}（無法比對）'
     out.append(f"計畫 {run.get('plan') or '—'}｜開始 {hhmm(run.get('startedAt'))}｜結束 {hhmm(run.get('finishedAt'))}｜{commit_txt}")
     if snap_events:
-        out.append('快照：' + '｜'.join(f'{t} {msg}' for _, t, msg in snap_events))
+        # 括號裡是補充（例如快照密碼另存的路徑），不進總覽
+        out.append('快照：' + '｜'.join(f"{t} {re.sub(r'（.*$', '', msg).strip()}" for _, t, msg in snap_events))
     if leaks:
         kinds = sorted({k for _, k in leaks})
         tail = '；請更換相關密碼／token' if set(kinds) - {'Email'} else ''
