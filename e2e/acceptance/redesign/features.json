@@ -179,7 +179,7 @@
       "ticket": "G2",
       "description": "重置測試站的專用鑰匙裝好了：Mac 上 `ssh fju-reset status` 會印測試站 commit、自動部署是否暫停、有哪些快照；用同一把鑰匙開 shell、跑別的指令、指定 prod、開 port 轉送全部被拒。",
       "steps": [
-        "Roy 照設計方案 §6.4 貼指令（Mac 產鑰匙、VM 建 fjureset、authorized_keys、sudoers、sshd AllowUsers）。",
+        "Roy 照 ops/README.md「重置測試站專用金鑰：安裝與使用」①–④ 貼指令（Mac 產鑰匙、VM 建 fjureset、authorized_keys、sudoers 經 visudo 驗過才放、sshd AllowUsers 加 5 分鐘自動還原保險）。",
         "💻 `ssh fju-reset status`。",
         "💻 試 `ssh fju-reset 'bash'`、`ssh fju-reset reset prod`、`ssh fju-reset rm -rf /`、`ssh -N -L 3999:127.0.0.1:3000 fju-reset`：全部拒絕（錯誤訊息或連線被關）。",
         "💻 `ssh fju-reset 'status; id'`：輸出裡不得出現 `uid=`（分號後面的指令進不來）。",
