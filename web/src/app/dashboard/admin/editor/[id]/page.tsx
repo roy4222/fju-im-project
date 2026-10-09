@@ -89,7 +89,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
                   <span className="font-semibold">{ACTION_LABEL[p.action] ?? p.action}</span>
                   <span className="text-muted-foreground">
                     {formatTaipeiMinute(p.realAt)}・{p.actorName}
-                    {p.notify ? '・有通知' : '・未通知'}
+                    {p.notify ? '・有勾通知' : '・沒勾通知'}
                   </span>
                 </li>
               ))}

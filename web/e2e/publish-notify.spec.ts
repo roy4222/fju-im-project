@@ -23,6 +23,7 @@ const TITLE = `${CODE} 期中說明會`
 
 let pool: Pool
 let cohortId: string
+let emptyCohortId: string
 let itemId: string
 
 function ymd(date: Date): string {
@@ -41,6 +42,17 @@ test.beforeAll(async () => {
         `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
          values (gen_random_uuid(), $1, $2, 'active', $3, 'system') returning id`,
         [CODE, `第 44 屆 ${stamp}`, ymd(new Date(Date.now() + 300 * 86_400_000))],
+      )
+    ).rows[0]!.id,
+  )
+
+  // 另一屆一個學生都沒有：「本屆學生」公告沒有人可以通知（設計方案 §14-3）。
+  emptyCohortId = String(
+    (
+      await pool.query<{ id: string }>(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
+         values (gen_random_uuid(), $1, $2, 'active', $3, 'system') returning id`,
+        [`${CODE}-E`, `第 45 屆 ${stamp}`, ymd(new Date(Date.now() + 300 * 86_400_000))],
       )
     ).rows[0]!.id,
   )
@@ -141,4 +153,39 @@ test('在非預設屆別編輯後按「專題事務」返回，仍停在那一�
     'page',
   )
   await expect(page.getByRole('main')).toContainText(TITLE)
+})
+
+test('0 個學生的屆別發公告：三步驟對話框與完整編輯器都預設不勾，發布紀錄寫「沒勾通知」', async ({ page }) => {
+  const title = `${CODE} 沒有學生的公告`
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/affairs?cohort=${emptyCohortId}`)
+  await page.getByRole('button', { name: '新增項目' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await dialog.getByRole('radio', { name: /公告/ }).check()
+  await dialog.getByLabel('標題').fill(title)
+  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByRole('button', { name: '下一步' }).click()
+  await dialog.getByLabel('說明', { exact: true }).fill('還沒有學生時發的公告。')
+  await dialog.getByRole('button', { name: '下一步' }).click()
+  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
+  await expect(dialog).toContainText('這個對象目前沒有可以通知的人。')
+  await expect(dialog.getByRole('checkbox', { name: /重要公告/ })).not.toBeChecked()
+  await dialog.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(dialog.getByRole('status')).toContainText('這次沒有發站內通知。')
+
+  const found = await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [emptyCohortId, title])
+  await page.goto(`/dashboard/admin/editor/${found.rows[0]!.id}`)
+  const log = page.getByRole('region', { name: '發布紀錄' })
+  await expect(log).toContainText('沒勾通知')
+  await expect(log).not.toContainText('有勾通知')
+
+  // 完整編輯器新建一則同樣對象的公告：發布對話框同樣預設不勾。
+  await page.goto(`/dashboard/admin/editor/new?cohort=${emptyCohortId}`)
+  await page.locator('#ed-title').fill(`${CODE} 完整編輯器的公告`)
+  await page.locator('#ed-body').fill('還沒有學生時發的公告。')
+  await page.getByRole('button', { name: '發布', exact: true }).click()
+  const check = page.getByRole('dialog', { name: '發布前檢查' })
+  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
+  await expect(check).toContainText('勾選後將通知 0 人')
+  await expect(check.getByRole('checkbox', { name: /重要公告/ })).not.toBeChecked()
 })

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconAlertCircle, IconCheck, IconEye, IconSend } from '@tabler/icons-react'
-import { BackLink, Pill } from '@/app/_ui/dashboard-kit'
+import { BackLink, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import {
   changeItemStatusAction,
   createItemAction,
@@ -297,6 +297,8 @@ export function ItemEditor({
     try {
       const checked = await runReview()
       if (!checked) setDialogError('內容還有問題，請看下面的說明修正後再發布。')
+      // 沒有人可以通知就不預設勾（設計方案 §14-3）：免得檢查寫 0 人、紀錄卻寫「有勾通知」。
+      else if (checked.recipients.notifyCount === 0) setNotify(false)
       requestIds.current.publish = newRequestId()
       dialog.current?.showModal()
     } catch {
@@ -525,7 +527,33 @@ export function ItemEditor({
               <label htmlFor="ed-category" className={LABEL}>
                 分類 <span className="text-xs font-normal text-muted-foreground">選填</span>
               </label>
-              <input id="ed-category" className={INPUT} value={state.category} onChange={(e) => patch({ category: e.target.value })} />
+              {state.placement === 'news' ? (
+                // 競賽頁只認一字不差的「競賽資訊」（設計方案 §14-4）：給一顆快速鍵與一句說明，不改成固定選項（/news、/files 的篩選靠自由分類）。
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="ed-category"
+                      className={cn(INPUT, 'min-w-0 flex-1')}
+                      value={state.category}
+                      aria-describedby="ed-category-hint"
+                      onChange={(e) => patch({ category: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      data-testid="category-competition"
+                      className={cn(pillClass(state.category.trim() === vocabulary.competitionCategory), 'shrink-0')}
+                      onClick={() => patch({ category: vocabulary.competitionCategory })}
+                    >
+                      {vocabulary.competitionCategory}
+                    </button>
+                  </div>
+                  <p id="ed-category-hint" className="mt-1.5 text-xs text-muted-foreground">
+                    要出現在前台「{vocabulary.competitionCategory}」頁，分類要填「{vocabulary.competitionCategory}」，填了會多出報名截止日與活動日。
+                  </p>
+                </>
+              ) : (
+                <input id="ed-category" className={INPUT} value={state.category} onChange={(e) => patch({ category: e.target.value })} />
+              )}
             </div>
             {state.placement === 'news' && state.category.trim() === vocabulary.competitionCategory ? (
               // 競賽資訊（0011，票 39）：前台 /competitions 依這兩天自動顯示報名中／決賽／已結束，不用手動切換。
