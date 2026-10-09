@@ -517,7 +517,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
 
 /** 頁尾前的三欄快速入口（原型 `home-blocks` 的 QuickLinks；只連已經有的頁）。 */
 function QuickLinks({ home, member }: { home: string | null; member: boolean }) {
-  const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[] }[] = [
+  const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[]; note?: string }[] = [
     {
       icon: <IconBook2 className="size-5.5" aria-hidden />,
       title: '專題規則',
@@ -564,6 +564,7 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
         { label: '電話 +886-2-2905-2696', href: 'tel:+886229052696' },
         { label: '系網 im.fju.edu.tw', href: 'https://www.im.fju.edu.tw/' },
       ],
+      note: '業界合作或產學洽詢，也請直接聯絡系辦。',
     },
   ]
   return (
@@ -589,6 +590,7 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
                 </li>
               ))}
             </ul>
+            {c.note ? <p className="px-2 text-sm leading-relaxed text-muted-foreground">{c.note}</p> : null}
           </div>
         ))}
       </div>

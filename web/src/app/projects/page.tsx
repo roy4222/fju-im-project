@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import { IconFileText, IconPlayerPlay, IconSearchOff } from '@tabler/icons-react'
 import type { SignedInShowcaseCard } from '@/application/showcase'
-import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { AwardBadge, imageSrc, ListEmpty, NeedLogin, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
+import { requireSignedIn } from '@/app/_ui/guard'
+import { AwardBadge, imageSrc, ListEmpty, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { ARCHIVE_SORT_OPTIONS, getPublicShowcaseQuery, parseShowcaseSort } from '@/composition/showcase'
@@ -73,16 +74,8 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ cohort?: string | string[]; q?: string | string[]; sort?: string | string[]; award?: string | string[] }>
 }) {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated') {
-    return (
-      <SiteShell current="/projects">
-        <NeedLogin next="/projects" what="歷屆專題一覽" />
-      </SiteShell>
-    )
-  }
-  // 待審、必須改密的帳號導到各自的頁面（登入了但還不能用業務功能）。
-  await requireSignedIn('/projects')
+  // 訪客導到登入頁（登入後回來）；待審、必須改密的帳號導到各自的頁面。
+  const actor = await requireSignedIn('/projects')
   const sp = await searchParams
   const cohort = one(sp.cohort).slice(0, 20)
   const q = one(sp.q).trim().slice(0, 100)
@@ -94,13 +87,8 @@ export default async function ProjectsPage({
     query.archive(actor, { cohort: cohort || undefined, q: q || undefined, sort, awardOnly }),
     query.cohorts(),
   ])
-  if (archive.access !== 'visible') {
-    return (
-      <SiteShell current="/projects">
-        <NeedLogin next="/projects" what="歷屆專題一覽" />
-      </SiteShell>
-    )
-  }
+  // 登入了、帳號也正常，查詢仍不給看＝沒有權限。
+  if (archive.access !== 'visible') redirect('/403')
   const cards = archive.cards
   const keep = (c: string, award = awardOnly) => {
     const p = new URLSearchParams()
