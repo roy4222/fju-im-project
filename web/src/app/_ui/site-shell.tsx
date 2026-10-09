@@ -11,7 +11,7 @@ import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
 import { otherWorkbenches, roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
-import { checkStatus } from '@/composition/accounts'
+import { checkStatus, isRegistrationOpen } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 
 /**
@@ -120,18 +120,34 @@ export async function SiteShell({ children, current, bare = false }: { children:
   const actor = await shellViewer()
   const viewer = viewerOf(actor)
   const nav: readonly HeaderNavItem[] = isMember(actor) ? MEMBER_NAV : GUEST_NAV
+  // 註冊關閉時（設計方案 §5），手機選單與頁尾都不列「註冊」。
+  const registrationOpen = isRegistrationOpen()
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <SiteHeader nav={nav} current={current} viewer={viewer} signOutFormId={SIGN_OUT_FORM_ID} />
+      <SiteHeader
+        nav={nav}
+        current={current}
+        viewer={viewer}
+        signOutFormId={SIGN_OUT_FORM_ID}
+        registrationOpen={registrationOpen}
+      />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} nav={nav} />
+      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} />
     </div>
   )
 }
 
 /** 深藍頁尾（原型 `site-footer.tsx`）：系所資訊＋兩欄連結。只連 web 已經有的頁。 */
-function SiteFooter({ viewer, nav }: { viewer: ReturnType<typeof viewerOf>; nav: readonly HeaderNavItem[] }) {
+function SiteFooter({
+  viewer,
+  nav,
+  registrationOpen,
+}: {
+  viewer: ReturnType<typeof viewerOf>
+  nav: readonly HeaderNavItem[]
+  registrationOpen: boolean
+}) {
   const columns = [
     { title: '內容', links: footerLinks(nav) },
     {
@@ -143,7 +159,7 @@ function SiteFooter({ viewer, nav }: { viewer: ReturnType<typeof viewerOf>; nav:
           ]
         : [
             { href: '/login', label: '登入' },
-            { href: '/register', label: '註冊' },
+            ...(registrationOpen ? [{ href: '/register', label: '註冊' }] : []),
             { href: '/forgot-password', label: '忘記密碼' },
           ],
     },

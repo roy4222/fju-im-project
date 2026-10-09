@@ -14,6 +14,8 @@ export function googleSignInErrorMessage(code: unknown): string | null {
     return '這個 Google 帳號的 Email 已經有帳號了，系統不會自動合併。請先用原本的 Email 與密碼登入，再到「我的帳號」連結 Google。'
   }
   if (code === 'access_denied') return '你取消了 Google 登入。可以再試一次，或改用 Email 與密碼。'
+  // 註冊關閉時（設計方案 §5），沒有帳號的 Google 身分不會被建成新帳號。
+  if (code === 'signup_disabled') return '目前沒有開放註冊；已有帳號請用原本的方式登入。'
   return 'Google 登入沒有完成，請再試一次；一直不行的話請改用 Email 與密碼，或聯絡系辦。'
 }
 

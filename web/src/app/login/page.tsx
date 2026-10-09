@@ -7,6 +7,7 @@ import { AuthCard } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import { signInAction } from '@/app/login/actions'
 import { GoogleButton } from '@/app/login/google-button'
+import { isRegistrationOpen } from '@/composition/accounts'
 import { safeNextPath } from '@/shared/safe-next'
 
 export const metadata = { title: '登入｜資管系專題平台' }
@@ -72,12 +73,16 @@ export default async function LoginPage({
           />
           {next ? <HiddenField name="next" value={next} /> : null}
         </ActionForm>
-        <p className="mt-4 text-center text-[13px] text-muted-foreground">
-          還沒有帳號？
-          <Link className="font-bold text-primary hover:underline" href="/register">
-            註冊
-          </Link>
-        </p>
+        {/* 註冊說明只放這裡（首頁 hero 改介紹專題）；註冊關閉時（設計方案 §5）整段不出現。 */}
+        {isRegistrationOpen() ? (
+          <p className="mt-4 text-center text-[13px] text-muted-foreground">
+            還沒有帳號？
+            <Link className="font-bold text-primary hover:underline" href="/register">
+              註冊
+            </Link>
+            <span className="mt-1 block text-xs">學生用系上發的信箱或 Google 註冊，系辦核准後才會開通。</span>
+          </p>
+        ) : null}
       </AuthCard>
     </NarrowShell>
   )

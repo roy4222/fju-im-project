@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy, IconUpload } from '@tabler/icons-react'
-import { actorHasRole } from '@/composition/accounts'
+import { actorHasRole, isRegistrationOpen } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
@@ -71,14 +71,14 @@ export default async function HomePage() {
           </span>
           <h1 className="type-display max-w-2xl text-white">輔仁大學資訊管理學系專題管理平台</h1>
           <p className="max-w-lg text-[17px] leading-relaxed opacity-90">
-            專題的公告、規則、名單、分組、繳交、評分與簽核都在這裡。學生用系上發的信箱或 Google 註冊，系辦核准後才會開通。
+            輔大資管系專題：從分組、提案到成果發表，公告、規則與歷屆作品都在這裡。
           </p>
           <div className="mt-2 flex flex-wrap gap-3.5">
             <Link href="/news" className="btn-fju group h-12 px-7 text-[17px]">
               查看最新公告
               <IconArrowRight className="size-4.5 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
             </Link>
-            {/* 原型：登入後看歷屆專題一覽，訪客看優秀專題（註冊入口在頂列與登入頁）。 */}
+            {/* 原型：登入後看歷屆專題一覽，訪客看優秀專題（註冊入口在頁尾與登入頁，註冊關閉時都不出現）。 */}
             <Link href={member ? '/projects' : '/projects/featured'} className="btn-fju-ghost h-12 px-7 text-[17px]">
               {member ? '查看歷屆專題一覽' : '查看優秀專題'}
             </Link>
@@ -293,7 +293,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <QuickLinks home={home} member={member} />
+      <QuickLinks home={home} member={member} registrationOpen={isRegistrationOpen()} />
     </SiteShell>
   )
 }
@@ -516,7 +516,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
 }
 
 /** 頁尾前的三欄快速入口（原型 `home-blocks` 的 QuickLinks；只連已經有的頁）。 */
-function QuickLinks({ home, member }: { home: string | null; member: boolean }) {
+function QuickLinks({ home, member, registrationOpen }: { home: string | null; member: boolean; registrationOpen: boolean }) {
   const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[]; note?: string }[] = [
     {
       icon: <IconBook2 className="size-5.5" aria-hidden />,
@@ -552,7 +552,8 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
             title: '使用平台',
             links: [
               { label: '登入', href: '/login' },
-              { label: '註冊', href: '/register' },
+              // 註冊關閉時（設計方案 §5）不列。
+              ...(registrationOpen ? [{ label: '註冊', href: '/register' }] : []),
               { label: '忘記密碼', href: '/forgot-password' },
             ],
           },
