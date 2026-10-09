@@ -90,7 +90,7 @@
       "到時程頁，看頁首與表單裡的屆別"
     ],
     "verify": "截圖成功訊息與時程頁，要截到「第 43 屆（115）」",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S1b",
@@ -146,7 +146,7 @@
       "到後台 → 分組"
     ],
     "verify": "截圖，要截到「本屆還沒有學生」",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S5",
@@ -182,7 +182,7 @@
       "看對話框裡的通知勾選框"
     ],
     "verify": "截圖第二次發布的對話框，勾選框未勾",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S8",
@@ -194,7 +194,7 @@
       "看確認按鈕的文字"
     ],
     "verify": "截圖對話框，要截到「確認更新並通知」與人數",
-    "passes": false
+    "passes": true
   },
   {
     "id": "D3",
@@ -347,7 +347,7 @@
       "到後台 → 分組，看名單表的空狀態文字"
     ],
     "verify": "截圖，要截到「複製本組信箱」那一句",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X6",
@@ -414,7 +414,7 @@
       "再用「用完整編輯器建立」做一則同樣對象的公告，按「發布」：發布前檢查對話框的通知勾選框同樣預設沒勾"
     ],
     "verify": "截圖三步驟對話框的發布前檢查（勾選框未勾）、成功訊息、發布紀錄、完整編輯器的發布對話框四張；發布紀錄那列含「沒勾通知」，整頁 grep -o '・有通知' → 0；e2e publish-notify.spec 綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X10",
@@ -427,7 +427,7 @@
       "無痕視窗打開 https://test.fju.roy422.dev/competitions：看到這則、標「報名中」"
     ],
     "verify": "截圖編輯器分類區（含按鈕與說明）；curl -s https://test.fju.roy422.dev/competitions | grep -o '第 44 屆專題創意競賽' | wc -l → ≥ 1；e2e competition-category.spec 綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "E2E",

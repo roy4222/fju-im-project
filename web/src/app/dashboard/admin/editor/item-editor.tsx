@@ -802,10 +802,10 @@ export function ItemEditor({
               {collects && !published ? (
                 <p className="text-xs text-muted-foreground">新收件一定會通知收件名單上的人（站內通知）。</p>
               ) : (
-                <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
+                <label className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
                   <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
                   {published ? '通知對象這次的修改（小幅修改可以不通知）' : IMPORTANT_LABEL}
-                  {notifyCount !== null ? <span className="font-normal text-muted-foreground">・勾選後將通知 {notifyCount} 人</span> : null}
+                  {notifyCount !== null ? <span className="font-normal whitespace-nowrap text-muted-foreground">・勾選後將通知 {notifyCount} 人</span> : null}
                 </label>
               )}
               {dialogError ? <Feedback tone="error">{dialogError}</Feedback> : null}
