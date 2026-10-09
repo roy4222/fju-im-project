@@ -23,7 +23,7 @@
 # 寫完再掃一次，還有殘留就非 0 結束。
 #
 # --polish（§13.2 教訓 4）：總覽產好後，把它交給唯讀 `codex exec`（-s read-only、工作目錄是空的暫存目錄、
-# 5 分鐘，逾時整個行程群組殺掉），請它寫「今晚一句話」＋每級前三條的白話版。不改數字與表格的保證：
+# web_search 關閉、5 分鐘，逾時整個行程群組殺掉），請它寫「今晚一句話」＋每級前三條的白話版。不改數字與表格的保證：
 # 模型輸出只會被插在標題兩行之後的「## 今晚一句話」這一節；寫入前檢查輸出沒有表格列、沒有標題、
 # 不超過 20 行，而且裡面出現的每個數字都在原總覽出現過；插入後再確認「拿掉這一節＝原總覽」逐字相同。
 # 任何一項不成立、codex 失敗或逾時，就略過潤稿，總覽照原樣產出。
@@ -512,7 +512,8 @@ def polish_text(base):
     outf = os.path.join(work, 'last-message.txt')
     try:
         proc = subprocess.Popen(
-            [bin_, 'exec', '-m', model, '-s', 'read-only', '-C', work, '--skip-git-repo-check',
+            # web_search 明確關掉（使用者設定可能開著）；總覽內容直接放在 prompt，不必讀任何檔
+            [bin_, 'exec', '-m', model, '-s', 'read-only', '-c', 'web_search="disabled"', '-C', work, '--skip-git-repo-check',
              '--ephemeral', '--color', 'never', '-o', outf, '-'],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             cwd=work, start_new_session=True)
