@@ -352,7 +352,7 @@ export function CleanBody({ html, className }: { html: string; className?: strin
 
 /**
  * 大數字的說明頁（原型的 403 版型）：數字、圖示、一句標題、一段說明、兩顆按鈕。
- * 需要登入、沒有權限都用這個樣子。
+ * 沒有權限、找不到頁面都用這個樣子（需要登入的頁直接導到登入頁，不用這個）。
  */
 export function CodeNotice({
   code,
@@ -376,33 +376,6 @@ export function CodeNotice({
       <div className="text-base leading-relaxed text-muted-foreground">{children}</div>
       <div className="mt-2 flex flex-wrap justify-center gap-3">{actions}</div>
     </div>
-  )
-}
-
-/**
- * 需要登入（照原型的 403 版型）：說清楚為什麼、登入後回到原頁。
- * 不透露這一頁是什麼內容。
- */
-export function NeedLogin({ next, what }: { next: string; what: string }) {
-  return (
-    <CodeNotice
-      code="403"
-      icon={<IconLock className="size-7" aria-hidden />}
-      title={`${what}需要登入`}
-      data-testid="need-login"
-      actions={
-        <>
-          <Link href={`/login?next=${encodeURIComponent(next)}`} className="btn-fju h-11.5 px-7 text-[15px]">
-            登入
-          </Link>
-          <Link href="/" className="btn-fju-outline h-11.5 px-7 text-[15px]">
-            回首頁
-          </Link>
-        </>
-      }
-    >
-      這裡的內容只提供本系學生與老師。登入後會回到你原本要看的頁面。
-    </CodeNotice>
   )
 }
 
