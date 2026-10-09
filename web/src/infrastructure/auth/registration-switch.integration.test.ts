@@ -116,8 +116,8 @@ async function freshAuth(registrationOpen: string | undefined) {
   vi.stubEnv('BETTER_AUTH_URL', BASE_URL)
   vi.stubEnv('GOOGLE_CLIENT_ID', CLIENT_ID)
   vi.stubEnv('GOOGLE_CLIENT_SECRET', 'test-client-secret')
-  if (registrationOpen === undefined) delete process.env.REGISTRATION_OPEN
-  else vi.stubEnv('REGISTRATION_OPEN', registrationOpen)
+  // `undefined` 會讓 vitest 把鍵整個拿掉，`unstubAllEnvs()` 時還原成原值。
+  vi.stubEnv('REGISTRATION_OPEN', registrationOpen)
 
   const handlers = (await import('@/infrastructure/auth/wrapper')).authRouteHandlers
   ;(await import('@/infrastructure/auth/sign-up-rate-limit')).resetSignUpLimiter()
@@ -288,6 +288,29 @@ describe('REGISTRATION_OPEN=false（正式站第一段）', () => {
     const signIn = await post(handlers, '/sign-in/email', { email, password: PASSWORD })
     expect(signIn.status).toBe(200)
     expect(cookiesFrom(signIn)).toContain('session_token')
+  })
+})
+
+describe('開關的值：有設就必須剛好是 true', () => {
+  it.each([
+    ['沒有這個鍵', undefined, true],
+    ['true', 'true', true],
+    ['false', 'false', false],
+    ['空字串', '', false],
+    ['前面有空白的 true', ' true', false],
+    ['大寫 TRUE', 'TRUE', false],
+    ['1', '1', false],
+  ])('%s → %s', async (_label, value, expected) => {
+    vi.stubEnv('REGISTRATION_OPEN', value)
+    const { isRegistrationOpen } = await import('@/infrastructure/auth/registration-switch')
+    expect(isRegistrationOpen()).toBe(expected)
+  })
+
+  it('空字串時直接打 /api/auth/sign-up/email 也是 403', async () => {
+    const { handlers } = await freshAuth('')
+    const response = await post(handlers, '/sign-up/email', { email: uniq('empty'), password: PASSWORD, name: '空字串' })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'REGISTRATION_CLOSED', message: CLOSED_MESSAGE })
   })
 })
 
