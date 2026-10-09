@@ -23,6 +23,7 @@ env:
   # （web/src/shared/health.ts 的 WORKER_STALE_AFTER_MS）。
   # lastTickAt 是 toISOString() 格式（帶 .123Z），fromdateiso8601 不吃小數秒，先 sub 掉；
   # null 要先擋，不然 jq 直接 error。curl 的 retry 近似契約的「連續 3 次」。
+  # 呼叫寫成 `bash -c "$CHECK" check <url>`：bash -c 後第一個參數是 $0，§6 骨架少了 `check` 這個 $0 佔位，url 會變空。
   CHECK: |
     url=$1
     code=$(curl -s -o body.json -w '%{http_code}' --retry 3 --retry-delay 30 --retry-all-errors "$url")

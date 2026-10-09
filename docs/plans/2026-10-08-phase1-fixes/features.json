@@ -287,7 +287,7 @@
       "（可選）暫時把 docker stop fju-test-app，等下一次跑，收到失敗信後再 start"
     ],
     "verify": "截圖 Actions 執行列表（test 綠、prod skipped）；失敗信截圖（可選）",
-    "passes": true
+    "passes": false
   },
   {
     "id": "X1",
