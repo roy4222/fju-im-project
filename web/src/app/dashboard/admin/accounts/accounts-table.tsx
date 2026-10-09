@@ -1,14 +1,15 @@
 'use client'
-import { useState, type ReactNode } from 'react'
-import { IconDownload } from '@tabler/icons-react'
+import { useRef, useState, type ReactNode, type RefObject } from 'react'
+import { IconDots, IconDownload } from '@tabler/icons-react'
 import { BulkBar, DataTableFrame, DataTableToolbar, DT, EmptyRow, SortLink } from '@/app/_ui/data-table'
 import { Pill } from '@/app/_ui/dashboard/primitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/app/_ui/ui/dropdown-menu'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
 import { BulkDisableDialog } from './bulk-disable-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
-import { AdminRoleDialog, OrphanRepairDialog, type RoleTargetView } from './role-dialogs'
+import { AdminRoleDialog, OrphanRepairDialog, type DialogOpener, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
 import { TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
 
@@ -257,8 +258,14 @@ export function AccountsTable(props: AccountsTableProps) {
                   <td className={cn(DT.td, 'tabular whitespace-nowrap text-muted-foreground')}>{taipeiDateOf(new Date(r.createdAt))}</td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>
                     <span className="flex items-center gap-1">
-                      {/* 票 10b：孤兒帳號先補建角色（或停用）。 */}
-                      {r.orphan && r.userId !== currentUserId ? <OrphanRepairDialog account={roleTarget(r, roleLabel)} /> : null}
+                      {/* T6 系6：列上只留常用的「發臨時密碼」「停用／啟用」；少用與危險的操作收進「更多」。 */}
+                      {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
+                      {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (
+                        <TemporaryPasswordDialog
+                          labels={props.verificationLabels}
+                          target={{ userId: r.userId, name: r.name, email: r.loginEmail, roles: r.roles, status: r.status }}
+                        />
+                      ) : null}
                       {(r.status === 'active' || r.status === 'disabled' || (r.status === 'pending' && r.orphan)) &&
                       r.userId !== currentUserId ? (
                         <StatusDialog
@@ -271,28 +278,7 @@ export function AccountsTable(props: AccountsTableProps) {
                           }}
                         />
                       ) : null}
-                      {/* 票 40：去識別化（已核准或已停用；前置條件與二次確認在對話框與伺服器）。 */}
-                      {(r.status === 'active' || r.status === 'disabled') && r.userId !== currentUserId ? (
-                        <DeidentifyDialog account={{ userId: r.userId, name: r.name }} />
-                      ) : null}
-                      {/* 票 10b：老師或職員設為管理員、取消管理員（不能對自己；學生不能設）。 */}
-                      {r.userId !== currentUserId && r.roles.includes('admin') ? (
-                        <AdminRoleDialog account={roleTarget(r, roleLabel)} mode="revoke" />
-                      ) : null}
-                      {r.userId !== currentUserId &&
-                      r.status === 'active' &&
-                      !r.orphan &&
-                      !r.roles.includes('admin') &&
-                      !r.roles.includes('student') ? (
-                        <AdminRoleDialog account={roleTarget(r, roleLabel)} mode="grant" />
-                      ) : null}
-                      {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
-                      {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (
-                        <TemporaryPasswordDialog
-                          labels={props.verificationLabels}
-                          target={{ userId: r.userId, name: r.name, email: r.loginEmail, roles: r.roles, status: r.status }}
-                        />
-                      ) : null}
+                      {r.userId !== currentUserId ? <RowMoreMenu row={r} roleLabel={roleLabel} /> : null}
                       {r.status === 'pending' && r.applicationState === 'pending' ? (
                         <span className="text-xs text-muted-foreground">在上方待審核清單審核</span>
                       ) : null}
@@ -312,6 +298,78 @@ export function AccountsTable(props: AccountsTableProps) {
 function cohortText(r: AccountRow): string {
   if (!r.cohortCode) return '—'
   return r.cohortName ? `${r.cohortName}（${r.cohortCode}）` : r.cohortCode
+}
+
+/**
+ * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員、去識別化。
+ * 對話框留在列上（選單關掉就消失，放不進去），選單項只負責打開；一個項目都沒有就不顯示「更多」。
+ * 自己那一列由呼叫端擋掉。
+ */
+function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record<Role, string> }) {
+  const orphanRef = useRef<DialogOpener>(null)
+  const grantRef = useRef<DialogOpener>(null)
+  const revokeRef = useRef<DialogOpener>(null)
+  const deidentifyRef = useRef<DialogOpener>(null)
+
+  // 票 10b：孤兒帳號先補建角色（或停用）。
+  const canRepair = r.orphan
+  // 票 10b：老師或職員設為管理員、取消管理員（學生不能設）。
+  const canRevoke = r.roles.includes('admin')
+  const canGrant = r.status === 'active' && !r.orphan && !r.roles.includes('admin') && !r.roles.includes('student')
+  // 票 40：去識別化（已核准或已停用；前置條件與二次確認在對話框與伺服器）。
+  const canDeidentify = r.status === 'active' || r.status === 'disabled'
+  if (!canRepair && !canRevoke && !canGrant && !canDeidentify) return null
+
+  const target = roleTarget(r, roleLabel)
+  // 選單關閉時會把焦點還給「更多」；等它關完再開對話框，焦點才會留在對話框裡。
+  const later = (ref: RefObject<DialogOpener | null>) => () => setTimeout(() => ref.current?.open(), 0)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`更多 ${r.name}`}
+              className={cn(BUTTON, 'h-7 border-transparent bg-transparent px-2 text-muted-foreground hover:bg-muted hover:text-foreground')}
+            >
+              <IconDots aria-hidden />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="end" className="w-40">
+          {canRepair ? (
+            <DropdownMenuItem aria-label={`補建角色 ${r.name}`} onClick={later(orphanRef)}>
+              補建角色
+            </DropdownMenuItem>
+          ) : null}
+          {canGrant ? (
+            <DropdownMenuItem aria-label={`設為管理員 ${r.name}`} onClick={later(grantRef)}>
+              設為管理員
+            </DropdownMenuItem>
+          ) : null}
+          {canRevoke ? (
+            <DropdownMenuItem aria-label={`取消管理員 ${r.name}`} onClick={later(revokeRef)}>
+              取消管理員
+            </DropdownMenuItem>
+          ) : null}
+          {canDeidentify ? (
+            <>
+              {canRepair || canGrant || canRevoke ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem variant="destructive" aria-label={`去識別化 ${r.name}`} onClick={later(deidentifyRef)}>
+                去識別化
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {canRepair ? <OrphanRepairDialog account={target} opener={orphanRef} /> : null}
+      {canGrant ? <AdminRoleDialog account={target} mode="grant" opener={grantRef} /> : null}
+      {canRevoke ? <AdminRoleDialog account={target} mode="revoke" opener={revokeRef} /> : null}
+      {canDeidentify ? <DeidentifyDialog account={{ userId: r.userId, name: r.name }} opener={deidentifyRef} /> : null}
+    </>
+  )
 }
 
 /** 匯出「目前篩選」時送回伺服器的條件（與網址參數同名）。 */
