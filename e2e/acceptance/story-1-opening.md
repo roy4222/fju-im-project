@@ -86,6 +86,15 @@
 - **截圖**：每一步做完截圖存 `screenshots/NN-<英文短名>.png`（NN＝兩位數步驟號）。
 - **環境問題**（網路斷、逾時、被限速、工具當掉）：**重試一次**；仍失敗就那一步記 `做不到（環境：原因）`、在「做不到（環境）」清單寫一行，**繼續下一步**。不要把環境問題寫進問題清單。
 
+### 上傳檔案（六個上傳點都一樣）
+1. 檔案先放在本項目錄（目前目錄），用絕對路徑：`F="$PWD/第43屆學生名單.csv"`。
+2. snapshot 後點**看得見的虛線框文字**（例如「選擇 CSV 檔」「選擇附件」那個 label），**不要點** aria-label 是「選擇名單 CSV 檔」的隱藏輸入框（它是 sr-only，點了只會逾時）。
+3. 點完回應會出現 file chooser 的 modal state；看到之後才 `"$PWCLI" -s=<session> upload "$F"`。沒看到就不要 upload（會被拒）。
+4. 第 2–3 步試兩次都不行，改 `"$PWCLI" -s=<session> run-code "async page => await page.setInputFiles('input[type=file]', '$F')"`，再 snapshot 確認畫面出現檔名或預覽。
+5. 第 4 步也不行才記「做不到（環境：上傳）」，照常繼續。
+
+- 本章只有第 19 步一個上傳點：看得見的虛線框文字是「選擇 CSV 檔」，`<session>` 是 `"${ACCEPT_ITEM}-admin"`，`F="$PWD/第43屆學生名單.csv"`。帳號管理頁另有別的檔案輸入框（批次停用），第 4 條的選擇器改用 `'label:has-text("選擇 CSV 檔") input[type=file]'`。
+
 ### 密碼與登入狀態（每章都一樣的做法）
 
 - **系辦（E2E 管理員）**：帳密在環境變數 `E2E_ADMIN_EMAIL`、`E2E_ADMIN_PASSWORD`。填表一律讓 shell 展開：`"$PWCLI" -s="${ACCEPT_ITEM}-admin" fill <ref> "$E2E_ADMIN_EMAIL"`、`"$PWCLI" -s="${ACCEPT_ITEM}-admin" fill <ref> "$E2E_ADMIN_PASSWORD"`。系辦帳號不要改它的密碼、不要停用、不要取消管理員。
@@ -330,7 +339,7 @@
 
 19. **匯入名單：預覽**（角色：系辦林雅婷，工作階段 `${ACCEPT_ITEM}-admin`）
     - 情境：「把名單放進系統，學生註冊時才對得上。」
-    - 做：從側欄點「帳號管理」，找「匯入名單 CSV」並按下，點「選擇名單 CSV 檔」打開檔案選擇器，再 `"$PWCLI" -s="${ACCEPT_ITEM}-admin" upload ./第43屆學生名單.csv`。**先不要按匯入。**（上傳工具卡住屬環境問題，照共用規則重試一次。）
+    - 做：先設 `F="$PWD/第43屆學生名單.csv"`（第 18 步建的檔）。從側欄點「帳號管理」，找「匯入名單 CSV」並按下；照「上傳檔案」共用規則：snapshot 後點對話框裡看得見的虛線框文字「選擇 CSV 檔」（**不要點**隱藏的輸入框），回應出現 file chooser 的 modal state 才 `"$PWCLI" -s="${ACCEPT_ITEM}-admin" upload "$F"`；試兩次都不行就改 `"$PWCLI" -s="${ACCEPT_ITEM}-admin" run-code "async page => await page.setInputFiles('label:has-text(\"選擇 CSV 檔\") input[type=file]', '$F')"`，再 snapshot 確認出現預覽。**先不要按匯入。**（五條都走完仍不行才記 `做不到（環境：上傳）`。）
     - 預期：出現預覽；總筆數 7、有效 7、重複 0、缺欄 0、衝突 0；「匯入到哪一屆」預設是第 43 屆。
     - 體驗觀察：上傳前有沒有說明 CSV 格式或範本？「有效／重複／缺欄／衝突」四個字懂不懂？「名單只協助審核比對，不會自動核准任何人」看得懂意思嗎？
 
