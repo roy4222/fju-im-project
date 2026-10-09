@@ -329,12 +329,13 @@
       "id": "F12",
       "ticket": "G1",
       "scope": "今晚全套",
-      "description": "接力語意照 §13.2：某章當掉或逾時才停鏈；「接力：不可以」繼續下一章並記 dependency-not-met。",
+      "description": "接力語意照 §13.2：某章當掉或逾時才停鏈；「接力：不可以」繼續下一章並記 dependency-not-met，且下一章目錄裡有上一章實際狀態的 handoff.md；第 2 章 ok 就存快照，不看接力行。",
       "steps": [
         "用假 codex 讓 story-1 寫「接力：不可以（名單）」：story-2 照跑，run.log 有 `dependency-not-met story-2`。",
-        "用假 codex 讓 story-2 sleep 超過預算（預算用 ACCEPT_BUDGET_OVERRIDE 縮短）：story-3～5 是 skipped，UX 批次照跑。"
+        "用假 codex 讓 story-2 sleep 超過預算（預算用 ACCEPT_BUDGET_OVERRIDE 縮短）：story-3～5 是 skipped，UX 批次照跑。",
+        "看 e2e/acceptance/.out/night-*/story-2/handoff.md：內容是 story-1 報告的「交給下一章的狀態」整節。"
       ],
-      "verify": "grep -qE 'dependency-not-met\\s+story-2' e2e/acceptance/.out/night-*/run.log && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-2');if(!s||s.status!=='ok')process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\"",
+      "verify": "grep -qE 'dependency-not-met\\s+story-2' e2e/acceptance/.out/night-*/run.log && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-2');if(!s||s.status!=='ok')process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\" && test -f \"$(ls -td e2e/acceptance/.out/night-* | head -1)/story-2/handoff.md\"",
       "passes": false
     },
     {
@@ -361,16 +362,16 @@
         "在暫存目錄放一個整個方法沒有 authorize 的 .ts，單獨跑 semgrep 用 semgrep-custom.yml：有命中。",
         "`e2e/acceptance/summarize-night.sh /tmp/run-x --polish`：summary.md 最上面多「今晚一句話」；把 codex 換成假程式失敗時仍產出 summary.md。"
       ],
-      "verify": "e2e/acceptance/security/run-static.sh /tmp/sec2 0cd6655c && test -f e2e/acceptance/security/gitleaks-allowlist.toml && test $(grep -c 'fju-write-without-authorize' /tmp/sec2/report.md) -lt 10 && ! grep -q 'generic-api-key' /tmp/sec2/report.md && grep -q -- '--polish' e2e/acceptance/summarize-night.sh",
+      "verify": "e2e/acceptance/security/run-static.sh /tmp/sec2 0cd6655c && test -f e2e/acceptance/security/gitleaks-allowlist.toml && python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));n=sum(1 for r in d.get(\"results\",[]) if r[\"check_id\"].endswith(\"fju-write-without-authorize\"));sys.exit(0 if n<10 else 1)' /tmp/sec2/semgrep.json && python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if isinstance(d,list) and len(d)==0 else 1)' /tmp/sec2/gitleaks.json && grep -q -- '--polish' e2e/acceptance/summarize-night.sh",
       "passes": false
     },
     {
       "id": "F15",
       "ticket": "G1",
       "scope": "今晚全套",
-      "description": "整夜密碼與登入狀態跨五章都還在、跑完才刪：第 3 章的 s1 用 state-load 不用重新登入；~/.fju-acceptance/<runId> 在整夜結束才消失；路 A 時 snapshots/midterm.pw 留著（0600）。",
+      "description": "整夜密碼跨五章都有效、登入狀態同章內可續用、跑完才刪：每章每個角色用 ACCEPT_PASSWORD 登入一次（state 檔名帶章前綴，不跨章），同一章內 session 死了才 state-load；~/.fju-acceptance/<runId> 整夜結束才消失；路 A 時 snapshots/midterm.pw 留著（0600）。",
       "steps": [
-        "真跑時看 run.log：每章開始時 ~/.fju-acceptance/<runId>/state/ 裡有上一章存的 json。",
+        "真跑時看各章 report.md／logs：每章各角色只登入一次，沒有「登入資料不正確」。",
         "跑完 `ls ~/.fju-acceptance/`：只剩 snapshots/（路 A）或空（路 B）。"
       ],
       "verify": "test \"$(ls ~/.fju-acceptance/ 2>/dev/null | grep -v snapshots | wc -l | tr -d ' ')\" = 0",
