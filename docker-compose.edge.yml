@@ -6,7 +6,8 @@
 #   fju.roy422.dev       → fju-prod-app:3000
 #   test.fju.roy422.dev  → fju-test-app:3000
 #
-# 兩站的 app 會加入外部網路 fju-edge（vm-setup.sh 建立），Caddy 用容器名稱找到它們。
+# 兩站各在自己的外部網路（vm-setup.sh 建立）：fju-test-app 在 fju-edge-test、fju-prod-app 在
+# fju-edge-prod。Caddy 兩個都接，用容器名稱找到它們；兩站之間互相看不到。
 # 某一站還沒部署時，那個網址回 502，另一站不受影響。這個 project 不需要任何秘密。
 #
 #   sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml up -d
@@ -30,7 +31,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     networks:
-      - edge
+      - edge-test
+      - edge-prod
 
 volumes:
   caddy-data:
@@ -38,7 +40,11 @@ volumes:
   caddy-config:
     name: fju-edge-caddy-config
 
+# 兩個都要先存在（vm-setup.sh 第 5 步），少一個 Caddy 就起不來。
 networks:
-  edge:
+  edge-test:
     external: true
-    name: fju-edge
+    name: fju-edge-test
+  edge-prod:
+    external: true
+    name: fju-edge-prod
