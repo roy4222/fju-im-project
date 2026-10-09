@@ -3,10 +3,10 @@
  *
  * 放在應用程序的記憶體裡：本專案是單機部署（母 spec §4.1），一個 app 程序就是全部，
  * 所以不需要 Redis。重啟會清空——這是可以接受的：限速是防連續猜測，不是計費。
- * Caddy 那一層另有一道（契約 03 §6），兩層互相補。
+ * 契約 03 §6 說 Caddy 那一層另有一道，實際沒有設（票 T3 查過），跨帳號的部分補在登入的每 IP 失敗桶。
  *
  * 鍵刻意由呼叫端組（例如「IP ＋ 帳號」），因為每條規則的鍵不一樣：
- * 登入是 IP＋帳號、註冊是 IP、改密是使用者。
+ * 登入是 IP＋帳號（另加每 IP 的失敗桶）、註冊是 IP、改密是使用者。
  */
 
 export type RateLimitVerdict =
@@ -16,6 +16,11 @@ export type RateLimitVerdict =
 export type RateLimiter = {
   /** 記一次嘗試並回答放不放行。**達到上限之後連正確的請求也會被擋**（契約 03 §6）。 */
   hit(key: string): RateLimitVerdict
+  /**
+   * 只看不計：這個視窗裡已經記了幾次。視窗過了就當 0（不動桶，下一次 `hit` 自己會換新視窗）。
+   * 給「先檢查、事後才決定要不要記」的規則用（例如只算失敗的登入）。
+   */
+  count(key: string): number
   /** 成功之後把計數清掉（例如登入成功）。 */
   reset(key: string): void
   /** 測試用：清空全部。 */
@@ -55,6 +60,11 @@ export function createRateLimiter(options: {
       }
       return { allowed: true, remaining: max - bucket.count }
     },
+    count(key) {
+      const bucket = windows.get(key)
+      if (!bucket || now() - bucket.startedAt >= windowMs) return 0
+      return bucket.count
+    },
     reset(key) {
       windows.delete(key)
     },
@@ -90,6 +100,14 @@ export function sharedRateLimiter(
 export const RATE_LIMITS = {
   /** 登入：同一個 IP 對同一個帳號，10 分鐘內 10 次。 */
   signIn: { max: 10, windowMs: 10 * 60 * 1000 },
+  /**
+   * 登入失敗：同一個 IP **不分帳號**，10 分鐘內失敗 30 次就擋（票 T3，Roy 2026-10-08 定案）。
+   *
+   * 上面那條是 IP＋帳號，同一個 IP 換帳號打（密碼噴灑）就繞過去了；契約 03 §6 原本說
+   * Caddy 會補一層跨帳號的，實際沒有，所以補在這裡。**只算失敗、不算嘗試**：校內 NAT
+   * 後面幾十人正常登入不會耗桶。開學週要是真的誤擋，調這一行即可。
+   */
+  signInFailuresPerIp: { max: 30, windowMs: 10 * 60 * 1000 },
   /** 改密：同一個使用者每小時 5 次。 */
   changePassword: { max: 5, windowMs: 60 * 60 * 1000 },
   /**
@@ -111,7 +129,7 @@ export const RATE_LIMITS = {
    * 一間電腦教室五、六十人同一個對外 IP，上課前幾分鐘一起按、有人按兩次，30 會把後面的人擋在門外。
    * 這一層只擋腳本灌 `verifications`（每按一次寫一列 state），120 次／小時綽綽有餘；
    * 過期的 state 由套件在每次 callback 查 state 時順手清掉（`findVerificationValue` 的 cleanup）。
-   * 跨帳號的粗粒度防護仍在 Caddy（契約 03 §6）。
+   * 跨帳號的密碼猜測由 `signInFailuresPerIp` 擋（票 T3）。
    */
   signInSocial: { max: 120, windowMs: 60 * 60 * 1000 },
 } as const
