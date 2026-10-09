@@ -105,9 +105,13 @@ async function asAdmin(page: Page) {
 }
 
 /** 以某人身分（或訪客）抓附件，不跟著導向。 */
-async function fetchFile(as: TestSession | null, headers: Record<string, string> = {}): Promise<APIResponse> {
+async function fetchFile(
+  as: TestSession | null,
+  headers: Record<string, string> = {},
+  id: string = fileId,
+): Promise<APIResponse> {
   const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
-  return context.get(`/api/files/${fileId}`, {
+  return context.get(`/api/files/${encodeURIComponent(id)}`, {
     headers: as ? { ...headers, cookie: as.cookie } : headers,
     maxRedirects: 0,
   })
@@ -156,12 +160,13 @@ test('訪客直接開網址：303 到登入頁、帶 no-store；程式抓取同�
   expect(navigation.headers()['cache-control']).toContain('no-store')
   expect(await navigation.body()).toHaveLength(0)
 
-  // 沒有 sec-fetch-dest 的舊瀏覽器：看 accept 含 text/html。
-  const legacy = await fetchFile(null, { accept: 'text/html,application/xhtml+xml' })
-  expect(legacy.status()).toBe(303)
-
-  // <img>（sec-fetch-dest: image）與程式抓取：維持原本的 JSON。
-  for (const headers of [{}, { 'sec-fetch-dest': 'image', accept: 'image/*,text/html' }] as Record<string, string>[]) {
+  // 只認 sec-fetch-dest: document：程式抓取（含只帶 Accept: text/html、沒有 sec-fetch-dest 的）
+  // 與 <img>（sec-fetch-dest: image）都維持原本的 JSON。
+  for (const headers of [
+    {},
+    { accept: 'text/html,application/xhtml+xml' },
+    { 'sec-fetch-dest': 'image', accept: 'image/*,text/html' },
+  ] as Record<string, string>[]) {
     const api = await fetchFile(null, headers)
     expect(api.status()).toBe(401)
     expect(api.headers()['cache-control']).toBe('private, no-store')
@@ -191,6 +196,8 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
   expect(stranger.status()).toBe(303)
   expect(stranger.headers()['location']).toBe('/403')
   expect(stranger.headers()['cache-control']).toContain('no-store')
+  // 檔案還在時「不是你的」的回應，留著跟下架後比。
+  const strangerBefore = await snapshot(stranger)
   // 程式抓取仍是 403 JSON。
   const strangerApi = await fetchFile(outsider)
   expect(strangerApi.status()).toBe(403)
@@ -209,8 +216,11 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
   await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
   await expect(page.getByTestId('item-status')).toHaveText('已下架')
 
-  // 本屆學生再開：與別屆學生的回應一模一樣（不洩漏「已下架」與「不是你的」的差別）。
+  // 本屆學生再開：與下架前別屆學生拿到的回應一模一樣（不洩漏「已下架」與「不是你的」的差別）；
+  // 不存在的 id、不是 UUID 的 id 也一樣。
   const archived = await fetchFile(student, DOCUMENT)
-  expect(await snapshot(archived)).toEqual(await snapshot(await fetchFile(outsider, DOCUMENT)))
   expect(archived.headers()['location']).toBe('/403')
+  expect(await snapshot(archived)).toEqual(strangerBefore)
+  expect(await snapshot(await fetchFile(student, DOCUMENT, crypto.randomUUID()))).toEqual(strangerBefore)
+  expect(await snapshot(await fetchFile(student, DOCUMENT, 'not-a-uuid'))).toEqual(strangerBefore)
 })

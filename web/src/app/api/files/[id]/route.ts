@@ -13,12 +13,11 @@ const PRIVATE = { 'cache-control': 'private, no-store', 'x-content-type-options'
 
 /**
  * 瀏覽器直接開（網址列、點連結）才導頁；程式抓取與 `<img>` 維持 JSON，e2e 與封面預覽不受影響。
- * 沒有 `sec-fetch-dest` 的舊瀏覽器退回看 `accept`。
+ * 只認 `sec-fetch-dest: document`，不看 `accept`：程式請求也可能帶 `Accept: text/html`，
+ * 它們的回應要維持原本的 JSON。沒有這個標頭的舊瀏覽器同樣拿到 JSON。
  */
 function isDocumentNavigation(headers: Headers): boolean {
-  const dest = headers.get('sec-fetch-dest')
-  if (dest) return dest === 'document'
-  return (headers.get('accept') ?? '').includes('text/html')
+  return headers.get('sec-fetch-dest') === 'document'
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
