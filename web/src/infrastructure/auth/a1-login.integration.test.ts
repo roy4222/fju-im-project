@@ -9,6 +9,7 @@ import {
 } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import { statusGate } from '@/application/accounts'
+import { RATE_LIMITS } from '@/shared/rate-limit'
 
 /**
  * S01-05：A1 用一次性密碼首次登入 → 強制改密 → 登出 → 用新密碼重登。
@@ -514,6 +515,11 @@ describe('直接打 /api/auth/sign-in/email 的限速（review Spec 4 的回歸�
    * 全系共用一個校園出口，這條等於隨時可以被任何人（或任何人的手滑）癱瘓掉登入。
    *
    * 現在套件那條關掉了，只剩 hook 的 IP＋帳號桶。別人的失敗不會算到你頭上。
+   *
+   * Roy 2026-10-08 定案新增每 IP 跨帳號失敗限速（30 次／10 分鐘，票 T3），超過 29 次改由
+   * 每 IP 桶接手（見 `ip-sign-in-rate-limit.integration.test.ts`），所以這裡只打到 29 個鄰居；
+   * 原本要守的「套件跨帳號 60 次桶已關掉」仍成立——那個桶就算還在，29 次也不會擋，
+   * 而 IP＋帳號桶的部分（別人的失敗不算到你的帳號上）照舊。
    */
   it('同一個 IP 上別的帳號失敗很多次，不會擋到這個帳號的第一次登入', async () => {
     const ip = '203.0.113.79'
@@ -526,8 +532,8 @@ describe('直接打 /api/auth/sign-in/email 的限速（review Spec 4 的回歸�
         }),
       )
 
-    // 同一個 IP，60 個**不同**帳號各失敗一次——正好是上一輪那個桶的容量。
-    for (let i = 0; i < 60; i += 1) {
+    // 同一個 IP，29 個**不同**帳號各失敗一次——每 IP 失敗預算之內。
+    for (let i = 0; i < RATE_LIMITS.signInFailuresPerIp.max - 1; i += 1) {
       const other = await signIn(`neighbour-${i}@example.com`, 'whatever-wrong')
       expect(other.status, `第 ${i} 個鄰居應該是登入失敗，不是被限速`).not.toBe(429)
     }
