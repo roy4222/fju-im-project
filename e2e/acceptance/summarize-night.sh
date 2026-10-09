@@ -418,8 +418,17 @@ def render(mode):
     # 開始、各章開頭（run.log）、中途（run.json commitMidway）、結束：任何一次和開始不同就算換版
     seen = [('開始', cs[:8])] if cs else []
     seen += [(f'{i} 開頭', c) for i, c in log_commits]
-    if run.get('commitMidway') and not any(c == run['commitMidway'][:8] for _, c in seen):
-        seen.append(('中途', run['commitMidway'][:8]))
+    # commitMidway：舊 run 是字串；G1 e83e1ad 起是陣列 [{item, commit, at}]，沒換版時沒有這個鍵
+    mid = run.get('commitMidway')
+    if isinstance(mid, str): mid = [{'item': None, 'commit': mid}]
+    for e in mid if isinstance(mid, list) else []:
+        c = str((e or {}).get('commit') or '')[:8] if isinstance(e, dict) else ''
+        if not c: continue
+        it = e.get('item')
+        label = f'{it} 開頭' if it else '中途'
+        # 同一章同一 commit run.log 已列過就不重複；字串版沒有章名，只要任何一次出現過就不列
+        if any(c == sc and (it is None or sl == label) for sl, sc in seen): continue
+        seen.append((label, c))
     if ce: seen.append(('結束', ce[:8]))
     seen = [(l, c) for l, c in seen if re.fullmatch(r'[0-9a-f]{7,40}', c)]   # 量不到（unknown）不算換版
     changed = len({c for _, c in seen}) > 1
