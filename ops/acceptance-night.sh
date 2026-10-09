@@ -371,8 +371,17 @@ fetch_commit() {
 COMMIT_START=unknown
 COMMIT_END=""
 PASSWORD_LEAKED=false
-COMMIT_MIDWAY=""   # full：某章開頭量到的 commit 和開始不同（第一次的那個值）
 FINISHED_AT=""
+
+# full：每章開頭量到和開始不同的 commit，一行一筆「項目|commit|時間」；run.json 的 commitMidway 陣列。
+midway_json() {
+  local f="$RESULTS/commit-midway"
+  if [ -s "$f" ]; then
+    jq -Rn '[inputs | split("|") | {item: .[0], commit: .[1], at: .[2]}]' < "$f"
+  else
+    echo '[]'
+  fi
+}
 
 write_run_json() {
   local i id f status started finished exit_code resumed note items=""
@@ -395,9 +404,9 @@ write_run_json() {
   jq -n --arg runId "$RUN_ID" --arg plan "$PLAN" --arg s "$STARTED_AT" --arg f "$FINISHED_AT" \
     --arg cs "$COMMIT_START" --arg ce "$COMMIT_END" --argjson leaked "$PASSWORD_LEAKED" \
     --argjson items "[${items%,}]" \
-    --arg cm "$COMMIT_MIDWAY" \
+    --argjson cm "$(midway_json)" \
     '{runId:$runId,plan:$plan,startedAt:$s,finishedAt:$f,commitStart:$cs,commitEnd:$ce,items:$items,passwordLeaked:$leaked}
-     + (if $cm=="" then {} else {commitMidway:$cm} end)' \
+     + (if ($cm|length)==0 then {} else {commitMidway:$cm} end)' \
     > "$RUN_DIR/run.json.tmp"
   mv "$RUN_DIR/run.json.tmp" "$RUN_DIR/run.json"
 }
@@ -579,27 +588,29 @@ run_item() {
 
 # ── 全套（--plan full）────────────────────────────────────────
 RESET_GAP="${ACCEPT_RESET_GAP:-15}"
-RESET_LAST_END=""
+RESET_LAST=""   # 上一次 ssh 的時間（SECONDS）：發出時先記，回來後改成結束時間
 RESET_OUT=""
 PAUSED=0
 SNAPSHOT_STATE=""   # taken／skipped／failed；空＝還沒決定
 
 # fju_reset <預算秒> <子命令> [名稱]：一個子命令一次 ssh 連線（§6.4；gate 只認 SSH_ORIGINAL_COMMAND 的字）。
-# 和上一次結束至少隔 RESET_GAP 秒（ssh 限速：30 秒內不超過 3 次）。輸出累積在 logs/fju-reset.log，
+# 和上一次 ssh 至少隔 RESET_GAP 秒（ssh 限速：30 秒內不超過 3 次）。上一次被 Ctrl-C 打斷也算一次：
+# 發出前就先記時間，收尾的 resume-deploy 才不會緊接著被打斷的那次連線送出。輸出累積在 logs/fju-reset.log，
 # 這一次的輸出另放 RESET_OUT 讓呼叫端讀（status 看有沒有 midterm）。
 fju_reset() {
   local budget="$1" status=0 wait_s
   shift
-  if [ -n "$RESET_LAST_END" ]; then
+  if [ -n "$RESET_LAST" ]; then
     # SECONDS 是整數秒，多等 1 秒才保證真的隔滿。
-    wait_s=$((RESET_LAST_END + RESET_GAP + 1 - SECONDS))
+    wait_s=$((RESET_LAST + RESET_GAP + 1 - SECONDS))
     [ "$wait_s" -le 0 ] || sleep "$wait_s"
   fi
   RESET_OUT="$RUN_DIR/logs/fju-reset.last"
   : > "$RESET_OUT"
   log reset-call - "ssh fju-reset $*"
+  RESET_LAST=${SECONDS}
   run_with_watchdog "$budget" "$RESET_OUT" ssh fju-reset "$@" || status=$?
-  RESET_LAST_END=${SECONDS}
+  RESET_LAST=${SECONDS}
   [ "$WD_TIMED_OUT" = 0 ] || status=124
   { printf '── %s  ssh fju-reset %s（exit=%s）\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$status"; cat "$RESET_OUT"; } \
     >> "$RUN_DIR/logs/fju-reset.log"
@@ -668,7 +679,7 @@ check_commit() {
   now="$(fetch_commit)"
   if [ "$now" != unknown ] && [ "$COMMIT_START" != unknown ] && [ "$now" != "$COMMIT_START" ]; then
     log commit-changed "$id" "start=$COMMIT_START now=$now"
-    [ -n "$COMMIT_MIDWAY" ] || COMMIT_MIDWAY="$now"
+    printf '%s|%s|%s\n' "$id" "$now" "$(now_iso)" >> "$RESULTS/commit-midway"
   else
     log commit "$id" "commit=$now"
   fi
