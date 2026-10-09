@@ -31,7 +31,7 @@ reject() {
   # 原文用 %q 轉成單行、截 200 字再記：值只當 logger 的一個參數，不展開。
   shown="$(printf '%q' "${SSH_ORIGINAL_COMMAND-<沒有指令>}")"
   logger -t fju-test-reset-gate -p auth.warning -- \
-    "rejected (${why}) from ${SSH_CONNECTION%% *}: ${shown:0:200}" 2>/dev/null || true
+    "rejected (${why}) from ${SSH_CONNECTION:-local}: ${shown:0:200}" 2>/dev/null || true
   echo "fju-reset：拒絕（${why}）。可用：status｜pause-deploy｜resume-deploy｜reset｜snapshot <名稱>｜restore <名稱>" >&2
   exit 1
 }
@@ -66,5 +66,5 @@ case "${words[0]}" in
     ;;
 esac
 
-logger -t fju-test-reset-gate -p auth.info -- "accepted from ${SSH_CONNECTION%% *}: ${words[*]}" 2>/dev/null || true
+logger -t fju-test-reset-gate -p auth.info -- "accepted from ${SSH_CONNECTION:-local}: ${words[*]}" 2>/dev/null || true
 exec "$SUDO" -n "$TARGET" "${words[@]}"
