@@ -186,8 +186,9 @@
         "🖥️ `sudo -l -U fjureset` 只列 /usr/local/sbin/fju-test-reset。"
       ],
       "verify": "ssh fju-reset status | grep -qE 'commit=[0-9a-f]{8}' && ! ssh fju-reset 'bash' 2>/dev/null && ! ssh fju-reset reset prod 2>/dev/null && ! ssh fju-reset 'status; id' 2>/dev/null | grep -q 'uid='",
-      "passes": false,
-      "scope": "今晚全套（路 A）"
+      "passes": true,
+      "scope": "今晚全套（路 A）",
+      "note": "2026-10-09 10:06 主控台照 README ⑤ 逐行跑：shell、互動 shell、分號／$()／反引號、別的指令、prod、多餘參數、33 字名稱、sftp、-R、-L 全部被拒；sudo -l 只列 fju-test-reset（Roy 跑 step3 時輸出）。"
     },
     {
       "id": "F2",
@@ -201,8 +202,9 @@
         "開 https://fju.roy422.dev/api/health（正式站）：狀態和重置前一樣（第一段前是 502）。"
       ],
       "verify": "ssh fju-reset reset && curl -s https://test.fju.roy422.dev/api/health | grep -q '\"ok\"' && ! curl -s https://test.fju.roy422.dev/ | grep -q 'DEMO-114'",
-      "passes": false,
-      "scope": "今晚全套（路 A）"
+      "passes": true,
+      "scope": "今晚全套（路 A）",
+      "note": "2026-10-09 10:04 主控台跑 ssh fju-reset reset：18 秒完成（先備份 DB），health ok、commit 0cd6655c 不變、首頁無 DEMO-114、正式站仍 502。A1 登入與 /dashboard/admin/clock 404 交給今晚第 1 章（Codex）確認。"
     },
     {
       "id": "F3",
