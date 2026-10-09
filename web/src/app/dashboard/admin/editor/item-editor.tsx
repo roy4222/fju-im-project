@@ -290,8 +290,8 @@ export function ItemEditor({
     setDone(null)
     setDialogTitle(published ? '發布更新前檢查' : '發布前檢查')
     // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
-    // 發布過再發布（撤回→草稿→發布）也預設不勾：對象第一次已經收過通知了。
-    setNotify(!broadAudience(state.audienceKind) && !publishedBefore)
+    // 撤回成草稿後再發布也預設不勾：對象第一次發布時已經收過通知了（發布中的「發布更新」維持原本預設）。
+    setNotify(!broadAudience(state.audienceKind) && !(publishedBefore && !published))
     setMessage(null)
     setDialogError(null)
     try {
