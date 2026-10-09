@@ -1,10 +1,10 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconBriefcase, IconLock } from '@tabler/icons-react'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { cache } from 'react'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { CleanBody, Crumbs, NeedLogin, Tag } from '@/app/_ui/public-content'
+import { CleanBody, Crumbs, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getOpportunityQuery, OPPORTUNITY_STATUS_LABEL, studentCohortOf } from '@/composition/groups'
 import { cn } from '@/shared/cn'
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * 五種狀態照 `OpportunityQuery.open`：看得到就顯示公開欄位（正文已經過伺服器端清洗）；
  * 聯絡資訊（地址、聯絡人、電話、Email）只有負責老師與系辦的查詢會回來，其他人這一區只有說明；
  * 已下架：組別仍連著它的組員看得到原本的內容並標示「合作案已下架」，其他人看到下架說明；
- * 別人的草稿與不存在的一律 404；訪客請他登入。
+ * 別人的草稿與不存在的一律 404；訪客導到登入頁。
  */
 export default async function IndustryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -41,11 +41,9 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
   if (page.access === 'not_found') notFound()
 
   if (page.access === 'need_login') {
-    return (
-      <SiteShell current="/industry">
-        <NeedLogin next={`/industry/${id}`} what="產學合作詳情" />
-      </SiteShell>
-    )
+    // 訪客導到登入頁（登入後回到這一案）；登入了仍不給看＝沒有權限。
+    await requireSignedIn(`/industry/${id}`)
+    redirect('/403')
   }
   if (page.access === 'withdrawn') {
     return (

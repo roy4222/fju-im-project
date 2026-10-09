@@ -2,8 +2,8 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconArrowRight, IconBriefcase, IconBuilding, IconUser } from '@tabler/icons-react'
 import type { OpportunityCard } from '@/application/groups'
-import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { ListEmpty, NeedLogin, PillLink, PublicPage, SearchField, Tag } from '@/app/_ui/public-content'
+import { requireSignedIn } from '@/app/_ui/guard'
+import { ListEmpty, PillLink, PublicPage, SearchField, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getOpportunityQuery } from '@/composition/groups'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
@@ -63,7 +63,7 @@ function OpportunityCardView({ card }: { card: OpportunityCard }) {
 }
 
 /**
- * 產學合作列表（票 20；原型 `/industry`；產品 6.1）：**登入後**內容，訪客看到登入提示。
+ * 產學合作列表（票 20；原型 `/industry`；產品 6.1）：**登入後**內容，訪客導到登入頁。
  *
  * 卡片只有公開欄位（公司、部門、內容摘要、負責老師、發布日、連結組數）；聯絡資料不在列表。
  * 篩選、搜尋、排序都在網址上、由伺服器算；看得到什麼由查詢本身依登入身分決定。
@@ -73,16 +73,8 @@ export default async function IndustryPage({
 }: {
   searchParams: Promise<{ linked?: string | string[]; q?: string | string[]; sort?: string | string[] }>
 }) {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated') {
-    return (
-      <SiteShell current="/industry">
-        <NeedLogin next="/industry" what="產學合作列表" />
-      </SiteShell>
-    )
-  }
-  // 待審、必須改密的帳號導到各自的頁面（登入了但還不能用業務功能）。
-  await requireSignedIn('/industry')
+  // 訪客導到登入頁（登入後回來）；待審、必須改密的帳號導到各自的頁面。
+  const actor = await requireSignedIn('/industry')
   const params = await searchParams
   const linked: Linked = one(params.linked) === 'open' ? 'open' : one(params.linked) === 'linked' ? 'linked' : ''
   const sort: Sort = (['newest', 'oldest', 'company'] as const).find((s) => s === one(params.sort)) ?? 'newest'
