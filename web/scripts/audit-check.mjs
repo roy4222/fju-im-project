@@ -83,8 +83,28 @@ if (advisories.length !== reportedTotal) {
 /** 這條相依路徑會不會進到 web/？ */
 const reachesWeb = (path) => path === 'web' || path.startsWith('web>')
 
+/**
+ * 已知忽略：上游沒有修正版、而且只經開發期工具進到 web/ 的漏洞。
+ * 只有在**每一條** web/ 路徑都落在 `devOnlyVia` 底下時才忽略；出現執行期路徑就照常擋。
+ * 過了 `expires`（台北日期）一律失敗，逼人重新評估——修正版出了就升級並刪掉這筆。
+ */
+const KNOWN_IGNORES = [
+  {
+    id: 'GHSA-vfj7-8cjw-p6xm',
+    module: 'braces',
+    reason: '上游無修正版（braces 最新 3.0.3），只經 micromatch 影響開發期 lint',
+    devOnlyVia: ['web>@next/eslint-plugin-next>', 'web>eslint-plugin-boundaries>'],
+    expires: '2026-12-31',
+  },
+]
+
+// AUDIT_CHECK_TODAY 只給測試用來模擬過期；平常取台北今天。
+const today = process.env.AUDIT_CHECK_TODAY ?? new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+const advisoryId = (advisory) => advisory.github_advisory_id ?? advisory.url?.split('/').pop()
+
 const blocking = []
 const prototypeOnly = []
+const ignored = []
 
 for (const advisory of advisories) {
   if (ORDER.indexOf(advisory.severity) < threshold) continue
@@ -96,8 +116,19 @@ for (const advisory of advisories) {
   }
   const webPaths = paths.filter(reachesWeb)
   const entry = { severity: advisory.severity, module: advisory.module_name, url: advisory.url, webPaths }
-  if (webPaths.length > 0) blocking.push(entry)
-  else prototypeOnly.push(entry)
+  if (webPaths.length === 0) {
+    prototypeOnly.push(entry)
+    continue
+  }
+  const known = KNOWN_IGNORES.find((rule) => rule.id === advisoryId(advisory) && rule.module === advisory.module_name)
+  const allDevOnly = known && webPaths.every((p) => known.devOnlyVia.some((prefix) => p.startsWith(prefix)))
+  if (known && allDevOnly && today <= known.expires) {
+    ignored.push({ ...entry, rule: known })
+  } else if (known && allDevOnly) {
+    blocking.push({ ...entry, note: `已知忽略 ${known.id} 已於 ${known.expires} 到期，請重新評估（升級或延長並寫明理由）` })
+  } else {
+    blocking.push(entry)
+  }
 }
 
 console.log(
@@ -108,6 +139,9 @@ console.log(`只影響 prototype/（不部署，不擋）：${prototypeOnly.leng
 for (const item of prototypeOnly) {
   console.log(`  - [${item.severity}] ${item.module}`)
 }
+for (const item of ignored) {
+  console.log(`已知忽略：[${item.severity}] ${item.module} ${item.rule.id}——${item.rule.reason}（到期 ${item.rule.expires}）`)
+}
 
 if (blocking.length === 0) {
   console.log('\n沒有影響 web/ 的 high／critical 漏洞。')
@@ -117,6 +151,7 @@ if (blocking.length === 0) {
 console.error(`\n影響 web/ 的 ${minLevel} 以上漏洞 ${blocking.length} 件：`)
 for (const item of blocking) {
   console.error(`  - [${item.severity}] ${item.module}  ${item.url ?? ''}`)
+  if (item.note) console.error(`      ${item.note}`)
   for (const p of item.webPaths.slice(0, 3)) console.error(`      ${p}`)
 }
 process.exit(1)
