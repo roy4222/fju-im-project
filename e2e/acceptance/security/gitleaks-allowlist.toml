@@ -1,0 +1,35 @@
+# 驗收夜 gitleaks 允許清單（設計方案 §13.2 教訓 3）。由 run-static.sh 以 `--config` 明傳。
+# 只放主腦已確認的誤報；每條都是「檔案路徑 AND 內容特徵」同時成立才放行，同一個檔案裡別的東西照樣會報。
+# 新增條目前先確認不是真秘密，並在 description 寫一行為什麼。
+
+# 沿用 gitleaks 內建規則；少了這行，自訂 config 會取代全部預設規則，變成什麼都不掃。
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "臨時密碼產生器的字母表常數（temporary-password.ts:12），是公開的字元集，不是密碼"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^web/src/infrastructure/accounts/temporary-password\.ts$''']
+regexes = ['''\bTEMPORARY_PASSWORD_ALPHABET\s*=''']
+
+[[allowlists]]
+description = "Vault 同步收據裡的檔案 sha256 雜湊（vault-sync-receipt-2026-09-15-issue-amendment.json:24-25）"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^docs/vault-sync-receipt-2026-09-15-issue-amendment\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']
+
+[[allowlists]]
+description = "原型補充稿稽核檔裡的檔案 sha256 雜湊（audit.json:807、969、988、1026）"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^docs/product/assets/prototype-2026-09-11-supplement/audit\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']
+
+[[allowlists]]
+description = "產品模組拆分前原稿的來源檔 sha256 雜湊（source-hashes.json:18）"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^docs/product/🗃️ 歷史與原稿/2026-09-11 產品模組拆分前/source-hashes\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']
