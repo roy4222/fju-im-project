@@ -138,7 +138,7 @@ Roy 2026-09-26 定案（Vault「💬 討論與決策／2026-09-26 使用者情�
 | 1 | [`story-1-opening.md`](story-1-opening.md) | 開站第一天：空的前台、系辦第一次登入、建屆別與時程、匯入名單、學生註冊與審核、建老師 |
 | 2 | [`story-2-semester.md`](story-2-semester.md) | 開學一個月：晚來的學生、產學合作案、分組與指導、五種對象的公告誰收得到、撤回／下架／修改、規則與檔案下載、個人與整組收件 |
 | 3 | [`story-3-grading-signoff.md`](story-3-grading-signoff.md) | 評分方案、老師評分、退回與更正、成績匯出、簽核與提醒 |
-| 4 | [`story-4-frontstage.md`](story-4-frontstage.md) | 精選與榮譽榜（已知缺口）、三種訪客逛前台、「沒權限就不要出現」逐條探測、登入後的前台差異、活動可見性 |
+| 4 | [`story-4-frontstage.md`](story-4-frontstage.md) | 精選與榮譽榜（已知缺口）、「沒權限就不要出現」逐條探測（訪客逛前台改由人設卡 `personas/visitor-*.md` 負責）、登入後的前台差異、活動可見性 |
 | 5 | [`story-5-words-and-ownership.md`](story-5-words-and-ownership.md) | 系辦、老師、學生逐頁用詞巡檢；前台每一塊由後台哪裡管；最該先改的 15 個詞 |
 
 **跟上面各站清單不一樣的地方**
