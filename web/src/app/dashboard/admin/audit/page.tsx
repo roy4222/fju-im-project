@@ -15,6 +15,7 @@ import {
   describeAuditTarget,
   getAuditLogQuery,
 } from '@/composition/ops'
+import { VERIFICATION_LABEL } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -27,13 +28,21 @@ const BASE = '/dashboard/admin/audit'
  *
  * 資料是既有的稽核紀錄（`audit_events`），這一頁只讀、沒有任何修改入口。一頁一個焦點＝清單，數字放標題下一行。
  * 角色分頁用網址（`?role=`）：重新整理不會丟，也不用在瀏覽器裝整份資料。
- * 只給管理員：頁面先 `requireRole`，查詢再判一次（非管理員拿到 null）；payload 不讀也不顯示。
+ * 只給管理員：頁面先 `requireRole`，查詢再判一次（非管理員拿到 null）；payload 不讀也不顯示
+ * （唯一例外：核准註冊的核實說明，見 `application/ops/audit-log.ts` 檔頭）。
  */
 
 function actorLabel(e: AuditLogEntry): string {
   if (e.actorKind === 'worker') return '背景工作'
   if (e.actorKind === 'system') return '系統'
   return e.actorName?.trim() || '（已不存在的帳號）'
+}
+
+/** 核准註冊這類要核實身分的列：「核實：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
+function verificationText(e: AuditLogEntry): string | null {
+  if (!e.verificationMethod) return null
+  const note = e.verificationNote?.trim()
+  return `核實：${VERIFICATION_LABEL[e.verificationMethod]}${note ? `／${note}` : ''}`
 }
 
 function tone(e: AuditLogEntry): 'brand' | 'default' | 'info' {
@@ -117,6 +126,9 @@ export default async function AdminAuditPage({
                         <Pill tone={tone(e)}>{auditActionLabel(e.action)}</Pill>
                         <span className="truncate text-sm text-foreground">{describeAuditTarget(e)}</span>
                       </div>
+                      {verificationText(e) ? (
+                        <p className="mt-1 text-sm break-words text-muted-foreground">{verificationText(e)}</p>
+                      ) : null}
                       {e.reason?.trim() ? <p className="mt-1 text-sm break-words text-muted-foreground">理由：{e.reason}</p> : null}
                     </div>
                   </li>
