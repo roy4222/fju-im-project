@@ -78,6 +78,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
           hasResponses={item.hasResponses}
           vocabulary={await editorVocabulary(item.cohortId)}
           heading="編輯專題事務"
+          publishedBefore={item.publications.length > 0}
           meta={`${cohort ? `${cohort.name}（${cohort.code}）` : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
         />
         {item.publications.length > 0 ? (

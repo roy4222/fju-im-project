@@ -133,6 +133,7 @@ export function ItemEditor({
   vocabulary,
   heading,
   meta,
+  publishedBefore = false,
 }: {
   initial: EditorState
   itemId: string | null
@@ -144,6 +145,8 @@ export function ItemEditor({
   heading: string
   /** 頂列小字：屆別、狀態、版本（伺服器排好）。 */
   meta: string
+  /** 發布過（有發布紀錄）：撤回成草稿後再發布，通知預設不勾（設計方案 §7 系7）。 */
+  publishedBefore?: boolean
 }) {
   const router = useRouter()
   const [state, setState] = useState<EditorState>(initial)
@@ -287,7 +290,8 @@ export function ItemEditor({
     setDone(null)
     setDialogTitle(published ? '發布更新前檢查' : '發布前檢查')
     // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
-    setNotify(!broadAudience(state.audienceKind))
+    // 發布過再發布（撤回→草稿→發布）也預設不勾：對象第一次已經收過通知了。
+    setNotify(!broadAudience(state.audienceKind) && !publishedBefore)
     setMessage(null)
     setDialogError(null)
     try {
@@ -339,6 +343,8 @@ export function ItemEditor({
   }
 
   const failing = review ? review.checks.filter((c) => !c.ok).length : 0
+  // 勾了通知會寫給幾個人（伺服器的發布前檢查算好）；檢查沒跑完就不顯示。
+  const notifyCount = review ? review.recipients.notifyCount : null
 
   // 原型第 4 段是頁內常駐的檢查表：內容一停手就重跑一次伺服器的發布前檢查（唯讀，`reviewItemAction`）。
   // 規則仍然只在伺服器；這裡只是不用每次都按「檢查與預覽」。舊的回應晚到就丟掉。
@@ -391,7 +397,8 @@ export function ItemEditor({
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">{heading}</h1>
-      <BackLink href="/dashboard/admin/affairs" label="專題事務" />
+      {/* 回到這一筆所屬的屆別，不落回預設工作屆（設計方案 §13-2）。 */}
+      <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} label="專題事務" />
 
       <div className="dash-card overflow-clip">
         {/* 頂列：標題｜儲存狀態｜存草稿｜預覽｜發布 */}
@@ -743,7 +750,7 @@ export function ItemEditor({
               <h2 className="text-xl font-extrabold">{published && dialogTitle === '發布更新前檢查' ? '已更新' : '已發布'}</h2>
               <Feedback tone="ok">{done}</Feedback>
               <div className="mt-1 flex gap-2">
-                <Link href="/dashboard/admin/affairs" className={SECONDARY}>
+                <Link href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} className={SECONDARY}>
                   回列表
                 </Link>
                 <button type="button" className={PRIMARY} onClick={() => dialog.current?.close()}>
@@ -770,6 +777,7 @@ export function ItemEditor({
                 <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
                   <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
                   {published ? '通知對象這次的修改（小幅修改可以不通知）' : IMPORTANT_LABEL}
+                  {notifyCount !== null ? <span className="font-normal text-muted-foreground">・勾選後將通知 {notifyCount} 人</span> : null}
                 </label>
               )}
               {dialogError ? <Feedback tone="error">{dialogError}</Feedback> : null}
@@ -779,7 +787,13 @@ export function ItemEditor({
                   取消
                 </button>
                 <button type="button" className={PRIMARY} onClick={confirmPublish} disabled={busy !== null || !review || failing > 0}>
-                  {failing > 0 ? `還缺 ${failing} 項` : published ? '確認更新' : '確認發布'}
+                  {failing > 0
+                    ? `還缺 ${failing} 項`
+                    : published
+                      ? notify && notifyCount !== null
+                        ? `確認更新並通知 ${notifyCount} 人`
+                        : '確認更新'
+                      : '確認發布'}
                 </button>
               </div>
             </>
