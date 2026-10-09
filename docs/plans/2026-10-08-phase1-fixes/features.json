@@ -220,19 +220,6 @@
     "passes": false
   },
   {
-    "id": "R1",
-    "ticket": "T3",
-    "description": "同一個網路換不同帳號亂試密碼，超過 30 次失敗後 10 分鐘內會被擋，連正確密碼也進不去；換一個網路不受影響。",
-    "steps": [
-      "在測試站登入頁用 31 個不存在的信箱各試一次錯密碼（或用下面的指令）",
-      "第 31 次看到「這個網路的登入失敗次數過多，請稍後再試。」",
-      "用正確帳密登入，一樣被擋",
-      "用手機 4G（不同 IP）用正確帳密登入，可以進"
-    ],
-    "verify": "for i in $(seq 1 31); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST https://test.fju.roy422.dev/api/auth/sign-in/email -H 'content-type: application/json' -H 'origin: https://test.fju.roy422.dev' -d \"{\\\"email\\\":\\\"nobody$i@example.com\\\",\\\"password\\\":\\\"x\\\"}\"; done → 前 30 次 401，第 31 次 429",
-    "passes": false
-  },
-  {
     "id": "G1",
     "ticket": "T5",
     "description": "註冊關閉時，前台找不到任何「註冊」入口：首頁快速入口、頁尾、手機選單、登入頁都沒有。",
@@ -371,6 +358,20 @@
       "Roy 用無痕視窗看正式站 /news、/honors、專題事務的規則"
     ],
     "verify": "Roy 在 §13-5 清單逐項打勾；/news 與 /honors 各一張截圖",
+    "passes": false
+  },
+  {
+    "id": "R1",
+    "ticket": "T3",
+    "description": "同一個網路換不同帳號亂試密碼，超過 30 次失敗後 10 分鐘內會被擋，連正確密碼也進不去；換一個網路不受影響。",
+    "steps": [
+      "做完這項，這個網路 10 分鐘內不能用密碼登入；排在其他需要登入的項目之後，或換手機 4G 做。",
+      "在測試站登入頁用 31 個不存在的信箱各試一次錯密碼（或用下面的指令）",
+      "第 31 次登入頁顯示『嘗試過多，請稍後再試。』；用 verify 的 curl 第 31 次回 429，body 的 message 是『這個網路的登入失敗次數過多，請稍後再試。』",
+      "用正確帳密登入，一樣被擋",
+      "用手機 4G（不同 IP）用正確帳密登入，可以進"
+    ],
+    "verify": "for i in $(seq 1 31); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST https://test.fju.roy422.dev/api/auth/sign-in/email -H 'content-type: application/json' -H 'origin: https://test.fju.roy422.dev' -d \"{\\\"email\\\":\\\"nobody$i@example.com\\\",\\\"password\\\":\\\"x\\\"}\"; done → 前 30 次 401，第 31 次 429",
     "passes": false
   },
   {
