@@ -1,0 +1,390 @@
+[
+  {
+    "id": "V1",
+    "ticket": "T1",
+    "description": "訪客打開歷屆專題、業界合作、檔案、公告內文這些要登入的頁，會直接被帶到登入頁，登入後回到原頁；不再看到 403 畫面。",
+    "steps": [
+      "用無痕視窗（未登入）打開 https://test.fju.roy422.dev/projects",
+      "確認網址變成 /login?next=%2Fprojects，畫面是登入頁",
+      "同樣試 /industry、/files，以及首頁任一則公告點進去（若該公告需登入）",
+      "用剛註冊、尚未核准的帳號登入後打開 /files，應被帶到 /register/pending"
+    ],
+    "verify": "curl -s -o /dev/null -w '%{http_code} %{redirect_url}\\n' https://test.fju.roy422.dev/projects → 3xx 且網址含 /login?next=%2Fprojects；同指令換 /files → 含 /login?next=%2Ffiles",
+    "passes": false
+  },
+  {
+    "id": "V2",
+    "ticket": "T1",
+    "description": "打錯網址會看到中文的「找不到這個頁面」，有「回首頁」可點，不是英文的 404。",
+    "steps": [
+      "打開 https://test.fju.roy422.dev/this-page-does-not-exist",
+      "看到「找不到這個頁面」與「回首頁」，頁首頁尾與其他頁一樣",
+      "打開 https://test.fju.roy422.dev/news/00000000-0000-4000-8000-000000000000，同樣畫面"
+    ],
+    "verify": "curl -s -o /dev/null -w '%{http_code}\\n' https://test.fju.roy422.dev/this-page-does-not-exist → 404；curl -s https://test.fju.roy422.dev/this-page-does-not-exist | grep -o '找不到這個頁面' | wc -l → ≥ 1",
+    "passes": false
+  },
+  {
+    "id": "V3",
+    "ticket": "T1",
+    "description": "沒有公開公告時，訪客在公告頁看到「目前沒有公開公告」，不再看到「部分公告登入後才看得到」。",
+    "steps": [
+      "確認測試站目前沒有公開公告（或先把公開公告撤回）",
+      "無痕視窗打開 https://test.fju.roy422.dev/news"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/news | grep -o '目前沒有公開公告' | wc -l → ≥ 1；grep -o '登入後才看得到' | wc -l → 0",
+    "passes": false
+  },
+  {
+    "id": "V4",
+    "ticket": "T1",
+    "description": "公開的專題內文不再有「登入後可看完整資料」的鎖頭區塊，也沒有「登入後顯示」的欄位。",
+    "steps": [
+      "系辦先確認至少有一個公開的歷屆專題（優秀專題頁可點進去的）",
+      "無痕視窗從 /honors 點一個專題進去",
+      "整頁看不到「登入後」字樣"
+    ],
+    "verify": "截圖整頁；curl -s https://test.fju.roy422.dev/projects/<公開專題id> | grep -o '登入後' | wc -l → 0",
+    "passes": false
+  },
+  {
+    "id": "V5",
+    "ticket": "T5",
+    "description": "首頁開頭是介紹專題的一句話，不再寫「學生用系上發的信箱或 Google 註冊」。",
+    "steps": [
+      "無痕視窗打開 https://test.fju.roy422.dev/",
+      "讀第一段文字"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o 'Google 註冊' | wc -l → 0；截圖首頁第一屏",
+    "passes": false
+  },
+  {
+    "id": "V6",
+    "ticket": "T1",
+    "description": "優秀專題頁的說明是給訪客看的收錄範圍，不是給設計師的註記（沒有「人物照不裁切」）。",
+    "steps": [
+      "打開 https://test.fju.roy422.dev/honors",
+      "讀標題下的說明"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/honors | grep -o '人物照不裁切' | wc -l → 0；grep -o '得獎紀錄' | wc -l → ≥ 1",
+    "passes": false
+  },
+  {
+    "id": "D1",
+    "ticket": "T1",
+    "description": "首頁的系辦聯絡卡和每頁頁尾都多一句「業界合作或產學洽詢，也請直接聯絡系辦。」",
+    "steps": [
+      "打開首頁捲到「快速入口」的系辦聯絡",
+      "捲到最下面的頁尾"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '業界合作或產學洽詢' | wc -l → ≥ 2（HTML 幾乎一行，不能用 grep -c）；另截首頁聯絡卡與頁尾各一張",
+    "passes": false
+  },
+  {
+    "id": "S1a",
+    "ticket": "T7",
+    "description": "系辦新增屆別後，成功訊息、上方的屆別標籤、時程頁都顯示「名稱（代碼）」，不是只有代碼。",
+    "steps": [
+      "以系辦登入，到後台 → 屆別，新增一個屆別（例如名稱「第 43 屆」、代碼「115」）",
+      "看成功訊息",
+      "到時程頁，看頁首與表單裡的屆別"
+    ],
+    "verify": "截圖成功訊息與時程頁，要截到「第 43 屆（115）」",
+    "passes": false
+  },
+  {
+    "id": "S1b",
+    "ticket": "T6",
+    "description": "帳號頁的屆別欄顯示「名稱（代碼）」。",
+    "steps": [
+      "以系辦登入，到後台 → 帳號",
+      "看有屆別的學生那一列"
+    ],
+    "verify": "截圖帳號列表，要截到「第 43 屆（115）」這種格式",
+    "passes": false
+  },
+  {
+    "id": "S1c",
+    "ticket": "T9",
+    "description": "前台歷屆專題的屆別標示用名稱（代碼）。",
+    "steps": [
+      "以任一已核准帳號登入，打開 /projects",
+      "看每個專題卡的屆別"
+    ],
+    "verify": "截圖，要截到「第 43 屆（115）」",
+    "passes": false
+  },
+  {
+    "id": "S2",
+    "ticket": "T2",
+    "description": "操作紀錄裡「核准帳號」那一列看得到被核准的學生姓名，以及核實方式（例如「當面核對學生證或其他身分證件」）。",
+    "steps": [
+      "用一個新信箱註冊學生帳號",
+      "以系辦登入，到帳號 → 待審核，核准它，核實方式選學生證並填一句備註",
+      "到後台 → 操作紀錄，找最上面那列"
+    ],
+    "verify": "截圖該列，要截到學生姓名、「當面核對」字樣與備註",
+    "passes": false
+  },
+  {
+    "id": "S3",
+    "ticket": "T2",
+    "description": "操作紀錄各分頁的數字加起來等於「全部」。",
+    "steps": [
+      "以系辦登入，到後台 → 操作紀錄",
+      "把「全部」以外每個分頁的數字相加"
+    ],
+    "verify": "截圖分頁列；相加等於「全部」的數字",
+    "passes": false
+  },
+  {
+    "id": "S4",
+    "ticket": "T7",
+    "description": "本屆還沒有任何學生時，分組頁顯示「本屆還沒有學生」，不再說「本屆學生都分好組了」。",
+    "steps": [
+      "以系辦登入，切到一個還沒有學生的屆別",
+      "到後台 → 分組"
+    ],
+    "verify": "截圖，要截到「本屆還沒有學生」",
+    "passes": false
+  },
+  {
+    "id": "S5",
+    "ticket": "T6",
+    "description": "新增老師與發臨時密碼的對話框，核實方式不再提「學生證」。",
+    "steps": [
+      "以系辦登入，到後台 → 帳號，按「新增老師」",
+      "看核實方式的選項文字",
+      "關掉後對任一老師按「發臨時密碼」，再看一次"
+    ],
+    "verify": "截圖兩個對話框；都沒有「學生證」三個字",
+    "passes": false
+  },
+  {
+    "id": "S6",
+    "ticket": "T6",
+    "description": "帳號頁每一列只留「發臨時密碼」「停用」兩顆按鈕，去識別化、設管理員、補建角色收進「更多」選單。",
+    "steps": [
+      "以系辦登入，到後台 → 帳號",
+      "看任一列的按鈕",
+      "按「更多」，確認三個少用的操作都在裡面，點「設為管理員」仍能完成"
+    ],
+    "verify": "截圖一列（收起）與展開「更多」後的畫面",
+    "passes": false
+  },
+  {
+    "id": "S7",
+    "ticket": "T7",
+    "description": "一則發布過的公告撤回後再發布，通知勾選框預設是不勾的。",
+    "steps": [
+      "以系辦登入，建一則對象是「本屆學生」的公告並發布（第一次預設會勾通知）",
+      "撤回它，再按發布",
+      "看對話框裡的通知勾選框"
+    ],
+    "verify": "截圖第二次發布的對話框，勾選框未勾",
+    "passes": false
+  },
+  {
+    "id": "S8",
+    "ticket": "T7",
+    "description": "更新已發布的公告並勾選通知時，按鈕會寫明「確認更新並通知 N 人」，看得到會寄給幾個人。",
+    "steps": [
+      "以系辦登入，編輯一則已發布的公告，改一個字",
+      "按更新，在對話框勾「通知對象這次的修改」",
+      "看確認按鈕的文字"
+    ],
+    "verify": "截圖對話框，要截到「確認更新並通知」與人數",
+    "passes": false
+  },
+  {
+    "id": "D3",
+    "ticket": "T7",
+    "description": "後台首頁的儲存圖磚寫明是整台主機的用量。",
+    "steps": [
+      "以系辦登入，到後台首頁",
+      "看儲存圖磚"
+    ],
+    "verify": "截圖，要截到「主機儲存（整台）」與「整台主機已用」",
+    "passes": false
+  },
+  {
+    "id": "D4",
+    "ticket": "T9",
+    "description": "系辦把活動對象設為「公開」後，訪客在首頁看得到「近期活動」；沒有公開活動時這一區不出現。",
+    "steps": [
+      "以系辦登入，在時程頁新增一個未來日期、對象「公開」的活動",
+      "無痕視窗打開首頁，最新公告下方看到「近期活動」與該活動",
+      "系辦取消該活動，重新整理首頁，「近期活動」消失"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '近期活動' | wc -l → 建活動後 ≥ 1、取消後 0",
+    "passes": false
+  },
+  {
+    "id": "R1",
+    "ticket": "T3",
+    "description": "同一個網路換不同帳號亂試密碼，超過 30 次失敗後 10 分鐘內會被擋，連正確密碼也進不去；換一個網路不受影響。",
+    "steps": [
+      "在測試站登入頁用 31 個不存在的信箱各試一次錯密碼（或用下面的指令）",
+      "第 31 次看到「這個網路的登入失敗次數過多，請稍後再試。」",
+      "用正確帳密登入，一樣被擋",
+      "用手機 4G（不同 IP）用正確帳密登入，可以進"
+    ],
+    "verify": "for i in $(seq 1 31); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST https://test.fju.roy422.dev/api/auth/sign-in/email -H 'content-type: application/json' -H 'origin: https://test.fju.roy422.dev' -d \"{\\\"email\\\":\\\"nobody$i@example.com\\\",\\\"password\\\":\\\"x\\\"}\"; done → 前 30 次 401，第 31 次 429",
+    "passes": false
+  },
+  {
+    "id": "G1",
+    "ticket": "T5",
+    "description": "註冊關閉時，前台找不到任何「註冊」入口：首頁快速入口、頁尾、手機選單、登入頁都沒有。",
+    "steps": [
+      "Roy 在 Doppler stg 把 REGISTRATION_OPEN 改成 false",
+      "VM 上跑：sudo -u deploy /srv/fju/app/ops/site.sh test docker compose up -d --no-deps app worker（約 30 秒，容器會帶新環境變數重建）",
+      "無痕視窗看首頁、頁尾、縮小視窗開手機選單、登入頁",
+      "驗完 G1–G4 後 Doppler 改回 true，再跑一次同一行指令"
+    ],
+    "verify": "curl -s https://test.fju.roy422.dev/ | grep -o '/register' | wc -l → 0；curl -s https://test.fju.roy422.dev/login | grep -o '/register' | wc -l → 0",
+    "passes": false
+  },
+  {
+    "id": "G2",
+    "ticket": "T5",
+    "description": "註冊關閉時，直接打 /register 是找不到頁面。",
+    "steps": [
+      "承 G1 狀態，無痕視窗打開 https://test.fju.roy422.dev/register"
+    ],
+    "verify": "curl -s -o /dev/null -w '%{http_code}\\n' https://test.fju.roy422.dev/register → 404",
+    "passes": false
+  },
+  {
+    "id": "G3",
+    "ticket": "T5",
+    "description": "註冊關閉時，直接打註冊 API 會被拒絕並回中文「目前沒有開放註冊。」；用新的 Google 帳號登入會回到登入頁看到同樣的意思。",
+    "steps": [
+      "承 G1 狀態，用一個從沒用過的 Google 帳號在登入頁按 Google 登入",
+      "回到登入頁看到「目前沒有開放註冊」"
+    ],
+    "verify": "curl -s -X POST https://test.fju.roy422.dev/api/auth/sign-up/email -H 'content-type: application/json' -H 'origin: https://test.fju.roy422.dev' -d '{\"email\":\"closed@example.com\",\"password\":\"Abcdefg12345\",\"name\":\"x\"}' → 含「目前沒有開放註冊」；Google 那條截圖",
+    "passes": false
+  },
+  {
+    "id": "G4",
+    "ticket": "T5",
+    "description": "註冊關閉時，系辦事先建好的老師用 Google 第一次登入仍然成功。",
+    "steps": [
+      "承 G1 狀態，系辦先在帳號頁新增一位老師（填他的 Google 信箱）",
+      "該老師在登入頁按 Google 登入",
+      "進到老師首頁"
+    ],
+    "verify": "截圖老師登入後的首頁；同時 CI 的 registration-switch.integration.test.ts 綠",
+    "passes": false
+  },
+  {
+    "id": "N1",
+    "ticket": "T4",
+    "description": "測試站與正式站的容器各在自己的網路，測試站連不到正式站。",
+    "steps": [
+      "Roy 依設計方案 §4 的零停機順序在 VM 上執行（rsync → vm-setup.sh → Caddy 過渡版 → 重部署測試站目前 SHA → Caddy 最終版 → 刪 fju-edge）",
+      "測試站重新整理仍正常"
+    ],
+    "verify": "docker network ls | grep fju-edge → 只有 fju-edge-test、fju-edge-prod；docker network inspect fju-edge-test --format '{{range .Containers}}{{.Name}} {{end}}' → 只有 caddy 與 fju-test-app；docker exec fju-test-app getent hosts fju-prod-app → 空（exit 2）",
+    "passes": false
+  },
+  {
+    "id": "H1",
+    "ticket": "T8",
+    "description": "GitHub 每 10 分鐘自動看測試站活著；正式站那一半在 Roy 開變數前不會跑、不會誤報；掛了會收到 GitHub 的失敗信。",
+    "steps": [
+      "合併後到 GitHub → Actions → health-cron，按 Run workflow 手動跑一次",
+      "test 綠、prod 顯示 skipped（prod job 的 if 看 HEALTH_PROD_ENABLED）",
+      "等 10 分鐘，看排程自己跑了一次",
+      "（可選）暫時把 docker stop fju-test-app，等下一次跑，收到失敗信後再 start"
+    ],
+    "verify": "截圖 Actions 執行列表（test 綠、prod skipped）；失敗信截圖（可選）",
+    "passes": false
+  },
+  {
+    "id": "X1",
+    "ticket": "T6",
+    "description": "帳號頁的「建立」日期用台灣日期：台灣早上建的帳號，帳號頁顯示今天，和操作紀錄同一天。",
+    "steps": [
+      "台灣時間早上 8 點前（或任何時間）註冊一個新學生帳號，或由系辦新增一位老師",
+      "以系辦登入，到後台 → 帳號，看那一列的「建立」",
+      "到操作紀錄看同一筆的日期"
+    ],
+    "verify": "截圖兩頁同一筆，日期相同且等於今天台灣日期；grep -rn 'At.slice(0' web/src/app → 0 行",
+    "passes": false
+  },
+  {
+    "id": "X2",
+    "ticket": "T7",
+    "description": "在非預設屆別編輯公告後按「返回」或「取消」，回到專題事務時仍停在那一屆。",
+    "steps": [
+      "以系辦登入；先到屆別頁確認有一個非預設的屆別（例如第 44 屆／116），沒有就新增一個",
+      "點任一則公告進編輯器，改一個字或不改",
+      "按左上角「專題事務」返回（或底部取消）",
+      "頁首顯示第 44 屆，網址含 ?cohort="
+    ],
+    "verify": "截圖返回後的專題事務頁，要截到第 44 屆與網址列的 ?cohort=",
+    "passes": false
+  },
+  {
+    "id": "X3",
+    "ticket": "T11",
+    "description": "學生誤打系辦網址，看到中文的「你沒有權限看這一頁」，說明與「回到自己的首頁」按鈕照舊，整頁沒有「角色」這個詞。",
+    "steps": [
+      "以學生帳號登入",
+      "網址列打 https://test.fju.roy422.dev/dashboard/admin",
+      "看到無權限頁，點「回到自己的首頁」回到學生首頁"
+    ],
+    "verify": "截圖無權限頁；curl -s https://test.fju.roy422.dev/403 | grep -o '角色' | wc -l → 0；e2e pages.spec／affairs.spec／grading.spec／groups.spec 的 /403 斷言仍綠",
+    "passes": false
+  },
+  {
+    "id": "X4",
+    "ticket": "T12",
+    "description": "有已知漏洞的套件都升上去，GitHub 的 CI 稽核回綠，測試站跑的是升版後的程式。",
+    "steps": [
+      "到 GitHub → Actions，看 T12 合併後 main 的 CI，audit job 綠",
+      "測試站部署後打開 https://test.fju.roy422.dev/api/health，commit 是升版後的 SHA",
+      "隨便點幾頁（首頁、公告、後台帳號）確認沒有壞"
+    ],
+    "verify": "pnpm -C web list next → 版本 ≥ 16.3.8；pnpm audit --json | node web/scripts/audit-check.mjs --level high → 通過；curl -s https://test.fju.roy422.dev/api/health | jq .commit",
+    "passes": false
+  },
+  {
+    "id": "X5",
+    "ticket": "T7",
+    "description": "本屆還沒有組別時，分組頁的空狀態寫明組別成立後每一列會有「複製本組信箱」與匯出。",
+    "steps": [
+      "以系辦登入，切到一個 0 組的屆別",
+      "到後台 → 分組，看名單表的空狀態文字"
+    ],
+    "verify": "截圖，要截到「複製本組信箱」那一句",
+    "passes": false
+  },
+  {
+    "id": "X6",
+    "ticket": "開站清單（手動）",
+    "description": "開站前系辦已把內容準備好：專題規則已發布、至少一則公開公告、優秀專題有資料或已確認空區塊文案。",
+    "steps": [
+      "系辦以正式站帳號登入，依設計方案 §13-5 的清單逐項勾",
+      "Roy 用無痕視窗看正式站 /news、/honors、專題事務的規則"
+    ],
+    "verify": "Roy 在 §13-5 清單逐項打勾；/news 與 /honors 各一張截圖",
+    "passes": false
+  },
+  {
+    "id": "E2E",
+    "ticket": "全部",
+    "description": "全部票合併、測試站部署後：訪客與系辦各走一遍第一段的完整動線，沒有卡住、沒有英文、沒有 AI 感的文案。",
+    "steps": [
+      "訪客（無痕）：首頁 → 公告 → 優秀專題 → 點一個專題 → 打一個錯網址 → 試打 /projects 被帶去登入 → 頁尾看到系辦聯絡與業界合作那句",
+      "系辦：登入 → 新增屆別看到名稱（代碼）→ 新增老師不見學生證 → 核准一個學生 → 操作紀錄看到姓名與核實方式、分頁加總等於全部 → 帳號頁每列只有兩顆按鈕 → 分組頁空狀態 → 發布一則公開公告、撤回再發布預設不通知 → 編輯後更新時看到通知人數 → 後台首頁儲存標整台主機 → 新增公開活動後首頁出現近期活動 → 在第 44 屆編輯公告後返回仍停在第 44 屆",
+      "學生：登入後誤打 /dashboard/admin，看到中文無權限頁並能回到學生首頁",
+      "登入限速：換 31 個帳號打錯後被擋，10 分鐘後恢復",
+      "GitHub Actions health-cron 最近一次是綠的"
+    ],
+    "verify": "每一站各截一張圖；V1–X6 全部 passes: true",
+    "passes": false
+  }
+]
