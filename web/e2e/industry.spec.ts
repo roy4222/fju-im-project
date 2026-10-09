@@ -260,9 +260,9 @@ test('老師建立合作案（先存草稿再發布）；下架、重新發布�
   // 訪客：要登入。
   await page.context().clearCookies()
   await page.goto('/industry')
-  await expect(page.getByTestId('need-login')).toContainText('產學合作列表需要登入')
+  await expect(page).toHaveURL(/\/login\?next=%2Findustry$/)
   await page.goto(`/industry/${id}`)
-  await expect(page.getByTestId('need-login')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(`/industry/${id}`)}$`))
   expect(await page.content()).not.toContain(COMPANY)
 
   // 下架 → 列表不見 → 重新發布 → 回來。
