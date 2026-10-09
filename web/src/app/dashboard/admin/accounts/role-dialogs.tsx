@@ -18,8 +18,9 @@ const BUTTON =
 const PRIMARY = 'btn-fju rounded-[4px]'
 const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
 const DANGER = 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+// 對話框放在表格格子裡，格子的 whitespace-nowrap 會傳下來，所以要 whitespace-normal 蓋回去。
 const DIALOG =
-  'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+  'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
 /**
  * 從列上的「更多」選單打開對話框用（T6 系6）。選單項關掉就消失，`<dialog>` 不能放在選單裡，

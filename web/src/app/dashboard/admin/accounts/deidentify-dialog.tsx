@@ -105,7 +105,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
         ref={dialogRef}
         onClose={onClosed}
         aria-label={`去識別化 ${a.name}`}
-        className="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
+        className="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="p-5">
           {!isOpen ? null : receipt ? (

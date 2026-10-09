@@ -42,7 +42,7 @@ const SECONDARY = 'border border-border bg-background text-foreground hover:bg-m
 const INPUT =
   'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
 const DIALOG =
-  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
 type FieldError = { message: string; field?: string } | null
 

@@ -123,7 +123,7 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
         ref={dialogRef}
         onClose={onClosed}
         aria-label={`${verb} ${a.name}`}
-        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
+        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="p-5">
           {!isOpen ? null : receipt ? (
