@@ -5,6 +5,7 @@ import { BulkBar, DataTableFrame, DataTableToolbar, DT, EmptyRow, SortLink } fro
 import { Pill } from '@/app/_ui/dashboard/primitives'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
+import { taipeiDateOf } from '@/shared/time'
 import { BulkDisableDialog } from './bulk-disable-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type RoleTargetView } from './role-dialogs'
@@ -229,7 +230,7 @@ export function AccountsTable(props: AccountsTableProps) {
                   </td>
                   <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{r.studentNo ?? '—'}</td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>{r.departmentClass || '—'}</td>
-                  <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{r.cohortCode ?? '—'}</td>
+                  <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{cohortText(r)}</td>
                   <td className={cn(DT.td, 'max-w-[14rem] truncate text-muted-foreground')} title={r.loginEmail}>
                     {r.loginEmail}
                   </td>
@@ -253,7 +254,7 @@ export function AccountsTable(props: AccountsTableProps) {
                       ) : null}
                     </span>
                   </td>
-                  <td className={cn(DT.td, 'tabular whitespace-nowrap text-muted-foreground')}>{r.createdAt.slice(0, 10)}</td>
+                  <td className={cn(DT.td, 'tabular whitespace-nowrap text-muted-foreground')}>{taipeiDateOf(new Date(r.createdAt))}</td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>
                     <span className="flex items-center gap-1">
                       {/* 票 10b：孤兒帳號先補建角色（或停用）。 */}
@@ -305,6 +306,12 @@ export function AccountsTable(props: AccountsTableProps) {
       </DataTableFrame>
     </div>
   )
+}
+
+/** 屆別欄：「第 43 屆（115）」；沒有名稱時只顯示代碼。 */
+function cohortText(r: AccountRow): string {
+  if (!r.cohortCode) return '—'
+  return r.cohortName ? `${r.cohortName}（${r.cohortCode}）` : r.cohortCode
 }
 
 /** 匯出「目前篩選」時送回伺服器的條件（與網址參數同名）。 */
