@@ -141,7 +141,8 @@ function createAuth() {
         // Google 登入入口（票 10）：只產生 state 與授權網址，不驗任何帳密。套件預設的
         // 「10 秒 3 次／IP」會讓同一個校園出口後面的第四個同學按 Google 鈕就吃 429。
         // 關掉之後改由 `social-sign-in-rate-limit.ts` 在 hook 裡算每 IP 桶（票 10b），
-        // Server Action 與直接打 API 同一個桶。粗粒度的跨帳號防護仍在 Caddy（契約 03 §6）。
+        // Server Action 與直接打 API 同一個桶。Caddy 沒有設限速；密碼登入的跨帳號防護
+        // 由 app 的每 IP 失敗桶負責（`sign-in-rate-limit.ts`，票 T3）。
         '/sign-in/social': false,
       },
     },
