@@ -431,7 +431,7 @@ def render(mode):
         for label, c in seen:
             if c != last: steps.append(f'{label} {c}'); last = c
         commit_txt = f"⚠️ 測試站中途換版：{' → '.join(steps)}，以下結果可能混到不同版本"
-    elif cs and ce:
+    elif cs and ce and all(re.fullmatch(r'[0-9a-f]{7,40}', x) for x in (cs, ce)):
         commit_txt = f'測試站 commit {s8} → {e8}（未變）'
     else:
         commit_txt = f'測試站 commit {s8} → {e8}（無法比對）'
