@@ -303,13 +303,14 @@ function cohortText(r: AccountRow): string {
 /**
  * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員、去識別化。
  * 對話框留在列上（選單關掉就消失，放不進去），選單項只負責打開；一個項目都沒有就不顯示「更多」。
- * 自己那一列由呼叫端擋掉。
+ * 自己那一列由呼叫端擋掉；已去識別化的列一律沒有「更多」。
  */
 function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record<Role, string> }) {
   const orphanRef = useRef<DialogOpener>(null)
   const grantRef = useRef<DialogOpener>(null)
   const revokeRef = useRef<DialogOpener>(null)
   const deidentifyRef = useRef<DialogOpener>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   // 票 10b：孤兒帳號先補建角色（或停用）。
   const canRepair = r.orphan
@@ -318,11 +319,16 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
   const canGrant = r.status === 'active' && !r.orphan && !r.roles.includes('admin') && !r.roles.includes('student')
   // 票 40：去識別化（已核准或已停用；前置條件與二次確認在對話框與伺服器）。
   const canDeidentify = r.status === 'active' || r.status === 'disabled'
-  if (!canRepair && !canRevoke && !canGrant && !canDeidentify) return null
+  if (r.status === 'deidentified' || (!canRepair && !canRevoke && !canGrant && !canDeidentify)) return null
 
   const target = roleTarget(r, roleLabel)
-  // 選單關閉時會把焦點還給「更多」；等它關完再開對話框，焦點才會留在對話框裡。
-  const later = (ref: RefObject<DialogOpener | null>) => () => setTimeout(() => ref.current?.open(), 0)
+  // 等選單關完再開對話框，焦點才會留在對話框裡。開之前先把焦點放回「更多」：
+  // 原生 <dialog> 關閉時把焦點還給打開前的元素，按 Escape 或取消才會回到這一列，不會掉到 body。
+  const later = (ref: RefObject<DialogOpener | null>) => () =>
+    setTimeout(() => {
+      triggerRef.current?.focus()
+      ref.current?.open()
+    }, 0)
 
   return (
     <>
@@ -330,6 +336,7 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
         <DropdownMenuTrigger
           render={
             <button
+              ref={triggerRef}
               type="button"
               aria-label={`更多 ${r.name}`}
               className={cn(BUTTON, 'h-7 border-transparent bg-transparent px-2 text-muted-foreground hover:bg-muted hover:text-foreground')}
