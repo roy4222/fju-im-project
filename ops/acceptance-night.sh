@@ -757,8 +757,9 @@ restore_midterm() {
     log restore - "restore skipped（status 失敗）；UX 跑在當下的站上"
     return 0
   fi
-  if ! grep -q 'midterm' "$RESET_OUT"; then
-    log restore - "restore skipped（status 沒列出 midterm）；UX 跑在當下的站上"
+  # status 一行一個 key=value；只看 snapshots= 那行（last_run= 也可能出現 midterm 字樣）。
+  if ! grep -qE '^snapshots=(.*[ ,])?midterm([ ,]|$)' "$RESET_OUT"; then
+    log restore - "restore skipped（status 的 snapshots= 沒有 midterm）；UX 跑在當下的站上"
     return 0
   fi
   if fju_reset 2400 restore midterm; then
@@ -842,6 +843,9 @@ finalize() {
   COMMIT_END="$(fetch_commit)"
   if [ "$COMMIT_START" = "$COMMIT_END" ]; then
     log commit-end - "commit=${COMMIT_END}（未變）"
+  elif [ "$COMMIT_START" = unknown ]; then
+    # 還沒記到開始 commit 就結束（前置中止、極早中斷）：沒得比，不算換版。
+    log commit-end - "commit=${COMMIT_END}（沒有開始 commit 可比）"
   else
     log commit-changed - "start=$COMMIT_START end=$COMMIT_END"
   fi
@@ -904,7 +908,11 @@ trap 'finalize error' EXIT
 
 log begin - "plan=$PLAN items=${IDS[*]} model=$MODEL sandbox=$SANDBOX"
 if [ "$PLAN" = full ]; then
-  log options - "no-reset=${NO_RESET}（${NO_RESET_WHY}） no-snapshot=$NO_SNAPSHOT"
+  if [ "$NO_RESET" = 1 ]; then
+    log options - "no-reset=1（${NO_RESET_WHY}） no-snapshot=$NO_SNAPSHOT"
+  else
+    log options - "no-reset=0 no-snapshot=$NO_SNAPSHOT"
+  fi
 fi
 
 # 0. 整夜密碼（24 字英數，大小寫與數字都要有），報告目錄外、只有自己讀得到。
