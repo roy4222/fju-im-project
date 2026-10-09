@@ -579,27 +579,35 @@ esac
 預期：通常馬上印 `✓ 自動部署沒在跑（inactive），可以做 B2`（`failed` 也可以往下，那是上一次自動部署失敗留下的狀態）。
 印 `✗` 就停在這裡，暫停檔留著，不要做 B2。
 
-**B2. 🖥️ VM 🔑：記下目前版本、更新 app 檔、建兩個新網路**
+**B2. 🖥️ VM：記下目前版本（只讀，什麼都不改）**
 
 ```bash
 cd /srv/fju/app
 SHA=$(docker inspect fju-test-app --format '{{.Config.Image}}'); SHA=${SHA##*:}
-if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA"; else echo "✗ 版本不是 40 碼 SHA：「${SHA}」——停，不要往下"; fi
 docker network inspect fju-edge --format '{{range .Containers}}{{.Name}} {{end}}'
+if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA，可以做 B3"; else echo "✗ 版本不是 40 碼 SHA：「${SHA}」——停，不要做 B3"; fi
+```
+
+預期：`docker network inspect` 印 `fju-edge-caddy fju-test-app`（順序不拘）；最後一行 `✓ 測試站目前的版本：<40 碼>，可以做 B3`。
+印 `✗` 就停：這時什麼都還沒改，暫停檔先留著（不要刪），把輸出交給工程主腦。
+
+**B3. 🖥️ VM 🔑：更新 app 檔、建兩個新網路**
+
+```bash
+cd /srv/fju/app
 sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
 預期：
-- `✓ 測試站目前的版本：<40 碼>`；印 `✗` 就停（這時還沒改任何東西，刪掉暫停檔就回到原狀）。
-- `docker network inspect` 印 `fju-edge-caddy fju-test-app`（順序不拘）。
 - `vm-setup.sh` 步驟 5：`→ 網路 fju-edge-test 不存在`、`→ 網路 fju-edge-prod 不存在`（接著建好），
   `→ 舊網路 fju-edge 還掛著：fju-edge-caddy fju-test-app…`（**這時不會刪，正常**）。
 - 步驟 8：`✓ fju-test：只有 app 接對外網路，而且只接 fju-edge-test`、`✓ fju-prod：… fju-edge-prod`、
   `✓ fju-edge：Caddy 接 fju-edge-test 與 fju-edge-prod`、`✓ fju-drill：… 不接 fju-edge*`。任何一行是紅色 `✗` 就停。
-- 這時兩站照舊在 `fju-edge` 上跑，網站沒有中斷。
+- 這時兩站照舊在 `fju-edge` 上跑，網站沒有中斷。**從這裡開始暫停檔要一直留到 D 做完**：app 檔已經是拆分後的版本，
+  這時恢復自動部署會把 app 搬到新網路、而 Caddy 還沒接新網路，測試站會 502。
 
-**C1. 🖥️ VM 🔑：Caddy 過渡版（同時接舊網路與兩個新網路），再把測試站重部署到新網路**
+**C1a. 🖥️ VM 🔑：Caddy 過渡版（同時接舊網路與兩個新網路）**
 
 過渡版不改 repo 的檔，只在 `/tmp` 多疊一個檔，讓 Caddy 暫時也接舊的 `fju-edge`。
 **過渡版 Caddy 三個網路都接，測試站 app 不管在舊網路或新網路它都找得到**——所以只要還沒做 D，任何一步失敗都不會比原本更糟。
@@ -618,13 +626,21 @@ networks:
 EOF
 chmod 644 /tmp/fju-edge-transition.yml
 sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml -f /tmp/fju-edge-transition.yml up -d
-docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+nets=$(docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'); nets=${nets% }
+if [ "$nets" = "fju-edge fju-edge-prod fju-edge-test" ]; then echo "✓ Caddy 接了三個網路，可以做 C1b"; else echo "✗ Caddy 接的是「${nets}」——停，不要做 C1b"; fi
+```
+
+預期：`up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷約 5 秒）；最後一行 `✓ Caddy 接了三個網路，可以做 C1b`。
+印 `✗` 就停：Caddy 沒接好就重部署，app 會搬到 Caddy 找不到的網路。這時 app 還在 `fju-edge`，
+重跑一次 C1a 的 `up -d` 那一行通常就好；不行就把輸出交給工程主腦（暫停檔留著）。
+
+**C1b. 🖥️ VM 🔑：把測試站重部署到新網路（同一個版本）**
+
+```bash
 sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$SHA" --execute
 ```
 
 預期：
-- `up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷約 5 秒）；下一行印 `fju-edge fju-edge-prod fju-edge-test`。
-  這一行少了任何一個就停，不要往下（Caddy 沒接好，D 會讓網站斷）。
 - `deploy.sh` 最後印 `部署完成：test ← <SHA>`（同一版，沒有新 migration；app 重建這段約 30–60 秒 502）。
 - **`deploy.sh` 失敗也照樣做 C2、C3**，不要跳去 D。
 
@@ -662,7 +678,7 @@ fi
 預期：`app 網路：「fju-edge-test fju-test_default」；Caddy→app 健康檢查：exit 0；對外 /api/health：200`，接著 `✓ 可以做 D`。
 app 已經不在 `fju-edge`，所以 Caddy 連得到它就證明是經過 `fju-edge-test` 連的。
 
-**失敗時怎麼辦（C3 印 `✗`，或 C1／C2 有任何一行不對）**
+**失敗時怎麼辦（C3 印 `✗`，或 C1b／C2 有任何一行不對）**
 
 - **不要做 D、不要刪 `fju-edge`、暫停檔留著。** 過渡版 Caddy 同時接三個網路，放著過夜也安全（`restart: unless-stopped` 重開機後還是同一個容器、同樣接三個網路；`vm-setup.sh` 看到 `fju-edge` 上還有 Caddy 也不會刪它）。
 - 把輸出存起來，再補這幾樣（都只讀）：
