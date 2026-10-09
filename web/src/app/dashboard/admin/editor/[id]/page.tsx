@@ -78,7 +78,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
           hasResponses={item.hasResponses}
           vocabulary={await editorVocabulary(item.cohortId)}
           heading="編輯專題事務"
-          meta={`${cohort?.code ?? ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
+          meta={`${cohort ? `${cohort.name}（${cohort.code}）` : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
         />
         {item.publications.length > 0 ? (
           <Panel title="發布紀錄" icon={<IconHistory />} description={`${item.publications.length} 筆`} aria-label="發布紀錄">

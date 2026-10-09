@@ -75,6 +75,8 @@ export default async function AdminTimelinePage({
     )
   }
 
+  // 屆別寫成「名稱（代碼）」（設計方案 §7 系1）。
+  const label = `${cohort.name}（${cohort.code}）`
   const clock = await getBusinessClockQuery().state()
   const [schedule, activities] = await Promise.all([
     getTimelineQuery().schedule(cohort.id),
@@ -133,7 +135,7 @@ export default async function AdminTimelinePage({
   }
   const done = stages.filter((s) => s.status === 'done').length
   const summary: TimelineSummary = {
-    label: `目前・${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}`,
+    label: `目前・${label}・${COHORT_STATUS_LABEL[cohort.status]}`,
     title: current ? current.name : describeStagePosition(position),
     rangeText: current?.range,
     progressText: progress,
@@ -143,7 +145,7 @@ export default async function AdminTimelinePage({
   }`
 
   return shell(
-    `${configured ? `${cohort.code}・${stages.length} 個階段，已過 ${done} 個` : `${cohort.code}・還沒設定階段`}・${meta}`,
+    `${configured ? `${label}・${stages.length} 個階段，已過 ${done} 個` : `${label}・還沒設定階段`}・${meta}`,
     <>
       {cohorts.length > 1 ? (
         <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
@@ -165,7 +167,8 @@ export default async function AdminTimelinePage({
         summary={summary}
         editor={{
           cohortId: cohort.id,
-          cohortCode: cohort.code,
+          // 對話框標題用的屆別顯示名稱「名稱（代碼）」（prop 名沿用 timeline-zigzag 的型別）。
+          cohortCode: label,
           revision: cohort.revision,
           requestId: randomUUID(),
           stages: stageDrafts,

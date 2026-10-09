@@ -85,7 +85,7 @@ export default async function TeacherGroupsPage({
 
   return shell(
     <>
-      {cohort.code}・{COHORT_STATUS_LABEL[cohort.status]}・{groups.length} 組、{people} 人已分組・產學 {industry.length} 組（
+      {cohort.name}（{cohort.code}）・{COHORT_STATUS_LABEL[cohort.status]}・{groups.length} 組、{people} 人已分組・產學 {industry.length} 組（
       {industry.filter((g) => !g.advisor).length} 組未指派老師）・
       <span data-testid="teacher-groups-summary">
         你指導 {mine} 組・產學組可認領 {openCount} 組

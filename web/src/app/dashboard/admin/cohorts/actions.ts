@@ -26,7 +26,8 @@ export async function createCohortAction(
   if (!result.ok) return { ok: false, message: result.message, values }
 
   refresh()
-  return { ok: true, message: `已新增屆別 ${result.receipt.code}，目前是籌備中。` }
+  // 屆別寫成「名稱（代碼）」（設計方案 §7 系1）；app 不能直接拿 application 的 `cohortLabel`，這裡照同樣寫法串。
+  return { ok: true, message: `已新增屆別 ${result.receipt.name}（${result.receipt.code}），目前是籌備中。` }
 }
 
 export async function setCohortFlagAction(

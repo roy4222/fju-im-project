@@ -157,7 +157,7 @@ export default async function AdminGroupsPage({
   const description = (
     <>
       <span className="tabular">
-        {cohort.code}・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
+        {cohort.name}（{cohort.code}）・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
         {industry} 組
       </span>
       <br className="sm:hidden" />
