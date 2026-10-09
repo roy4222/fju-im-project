@@ -31,3 +31,16 @@ overrides:
   # 受影響路徑目前全在 prototype/（react-server-dom-webpack>webpack>schema-utils>ajv
   # 與 shadcn CLI），web/ 沒有 fast-uri 路徑，override 對 web/ 的解析結果沒有變化。
   fast-uri: '^3.1.6'
+  # 2026-10-09 T12：以下是 web/ 開發期或執行期可達的 high／critical，版號取 pnpm audit 的 patched 下界。
+  # next 16.3.8 鎖 sharp ^0.35.4，0.35.4 有 GHSA-wq5f-xc86-pv6w（librsvg），0.35.5 起修好。
+  sharp: '^0.35.5'
+  # vitest 3.2.x 鎖 tinypool ^1.1.1，有 GHSA-5gmw-xhrv-c9v3、GHSA-85c8-ppgw-ccpr（critical），2.1.2 起修好。
+  tinypool: '^2.1.2'
+  # eslint-plugin-boundaries 7.2.0 釘 handlebars 4.7.9，有 GHSA-8r5x-fm3f-whwj、GHSA-p8wg-vrv2-v86f（critical）。
+  handlebars: '^4.7.10'
+  # eslint／typescript-estree 的 minimatch 帶 brace-expansion 1.1.18 與 5.0.9：
+  # GHSA-qhr7-859c-m2p7、GHSA-6j4f-fj2g-mc7p（high），兩條主線各自升到修好的 patch。
+  brace-expansion@<2: '^1.1.21'
+  brace-expansion@>=4 <6: '^5.0.12'
+  # postcss 帶的 source-map-js 1.2.1 有 GHSA-68fv-2mgg-jv7q（high），1.2.2 起修好。
+  source-map-js: '^1.2.2'
