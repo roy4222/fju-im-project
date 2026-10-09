@@ -129,7 +129,8 @@ export default async function HomePage() {
       {activities.length > 0 ? (
         <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-activities">
           <PanelTitle id="home-activities" title="近期活動" />
-          <ul className="mt-10 grid gap-6 sm:grid-cols-2" data-testid="home-activities-list">
+          {/* 標題第一個字另外上色會拆開字串；清單自己帶完整名稱（輔助科技與 `curl | grep 近期活動` 都認得）。 */}
+          <ul className="mt-10 grid gap-6 sm:grid-cols-2" data-testid="home-activities-list" aria-label="近期活動">
             {activities.map((a) => (
               <li key={a.id} className="fju-list-item flex flex-col gap-1.5 py-1.5">
                 <span className="text-[17px] leading-snug font-bold text-foreground">{a.title}</span>
