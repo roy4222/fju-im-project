@@ -1,0 +1,48 @@
+# 兩站健康巡檢（設計方案 §6）。每 10 分鐘打一次 /api/health，掛了 job 變紅，
+# GitHub 會寄失敗信給這個檔最後一次 commit 的人（Roy 要開「Actions: failed workflows only」通知）。
+#
+# 頻率照定案 10 分鐘，與契約 05 §8 的 5 分鐘不同，Vault 回寫時對齊。
+# 正式站那一半由 repository variable HEALTH_PROD_ENABLED 控制：沒設＝skipped，開站當天設 `true`。
+# 網址以 ops/Caddyfile.vm 為準。
+# 注意：repo 60 天沒 commit，GitHub 會自動停用排程 workflow。
+name: health-cron
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: health-cron
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  # 共用檢查：HTTP 200、ok === true、commit 非空、worker.lastTickAt 在 5 分鐘內
+  # （web/src/shared/health.ts 的 WORKER_STALE_AFTER_MS）。
+  # lastTickAt 是 toISOString() 格式（帶 .123Z），fromdateiso8601 不吃小數秒，先 sub 掉；
+  # null 要先擋，不然 jq 直接 error。curl 的 retry 近似契約的「連續 3 次」。
+  CHECK: |
+    url=$1
+    code=$(curl -s -o body.json -w '%{http_code}' --retry 3 --retry-delay 30 --retry-all-errors "$url")
+    echo "$url -> HTTP $code"; cat body.json 2>/dev/null; echo
+    [ "$code" = 200 ] || exit 1
+    jq -e '.ok == true and .commit != null
+           and .worker.lastTickAt != null
+           and ((now - (.worker.lastTickAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) < 300)' body.json
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: bash -c "$CHECK" check https://test.fju.roy422.dev/api/health
+
+  prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # job 層的 if 看不到 matrix，所以拆兩個 job。
+    if: vars.HEALTH_PROD_ENABLED == 'true'
+    steps:
+      - run: bash -c "$CHECK" check https://fju.roy422.dev/api/health
