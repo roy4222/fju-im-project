@@ -553,6 +553,8 @@ VM 新帳號 `fjureset`，它的金鑰被 `restrict,command=` 綁死只能跑守
 - **快照**：`/srv/fju/test/snapshots/<名稱>/{db.dump,files.tar.gz,meta}`，deploy 擁有、目錄 700、檔案 600；`meta` 記存的時間、commit、兩個檔的 sha256，restore 前先核對，附件包裡有 symlink、hardlink、`files/` 以外的路徑就拒絕。**最多留 5 份**，第 6 份存進來時刪最舊的。同名再存＝覆蓋。快照不在每日備份與異地拉取的範圍內。
 - **ssh 斷線不會把重置砍一半**：reset／snapshot／restore 在 VM 上的背景程序裡跑，輸出同步傳回來；斷線後它照樣跑完，之後 `ssh fju-reset status` 看 `last_run=`（`busy=yes`＝還在跑）。完整紀錄在 VM 的 `/var/log/fju-test-reset/`（root 才看得到）。同時只能跑一個。
 - **連線次數**：每個子命令＝一次新連線，ufw 對 22 埠 30 秒最多 6 次；整夜腳本每次間隔 ≥ 15 秒。
+- **每日備份撞到重置**：每日備份台灣 03:30 會跑 test 的 `backup.sh`；若整夜的 reset／restore 剛好停站中，那一次 test 備份會記失敗（prod 照常），屬正常，隔天會恢復。
+- **磁碟**：snapshot 用 `backup.sh` 產生 dump 後，`backups/` 裡那份會刪掉（快照裡已有一份）；`/var/log/fju-test-reset/` 只留最近 20 份。
 - **repo 的這兩支腳本改了之後**：照上一節把 ops 送上 VM，再重跑下面第 3 框的兩行 `sudo install`——`/usr/local/sbin` 那份才是生效的版本（root 不執行 `/srv/fju/app` 底下的腳本）。
 
 **安裝（Roy 做一次，約 10 分鐘；照順序）**
@@ -603,10 +605,11 @@ sudo /usr/local/sbin/fju-test-reset status                     # 先在 VM 上�
 ④ 🖥️ VM：sshd 放行 `fjureset`。先排一個 **5 分鐘後自動還原**的保險，改壞了也不會把自己鎖在外面；確認新連線都正常再取消保險。
 
 ```bash
-# 🖥️ VM
+# 🖥️ VM（重貼這一框也安全：先清掉上次的保險再排新的）
 sudo cp /etc/ssh/sshd_config.d/10-fju.conf /root/10-fju.conf.bak
+sudo systemctl stop fju-sshd-revert.timer 2>/dev/null || true
 sudo systemd-run --on-active=300 --unit=fju-sshd-revert \
-  /bin/sh -c 'cp /root/10-fju.conf.bak /etc/ssh/sshd_config.d/10-fju.conf && systemctl reload ssh'
+  /bin/sh -c 'cp /root/10-fju.conf.bak /etc/ssh/sshd_config.d/10-fju.conf && systemctl reload-or-restart ssh'
 sudo sed -i 's/^AllowUsers gtuser fjubackup$/AllowUsers gtuser fjubackup fjureset/' /etc/ssh/sshd_config.d/10-fju.conf
 grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf      # 要看到：AllowUsers gtuser fjubackup fjureset
 sudo sshd -t && sudo systemctl reload ssh
@@ -637,8 +640,9 @@ sleep 6; ssh fju-reset restore prod;               echo "碰 prod → 結束碼 
 sleep 6; ssh fju-reset status now;                 echo "多餘參數 → 結束碼 $?（要非 0）"
 sleep 6; ssh fju-reset snapshot abcdefghijklmnopqrstuvwxyz0123456; echo "33 字名稱 → 結束碼 $?（要非 0）"
 sleep 6; echo ls | sftp -b - fju-reset;            echo "sftp → 結束碼 $?（要非 0）"
-sleep 6; ssh -o ExitOnForwardFailure=yes -N -R 3998:127.0.0.1:22 fju-reset; echo "遠端轉送 → 結束碼 $?（要非 0）"
-sleep 6; ssh -N -L 3999:127.0.0.1:3000 fju-reset & sleep 5
+# 下面兩行用 -o ClearAllForwardings=no 蓋掉 ~/.ssh/config 的設定，轉送要求才會真的送到 VM、由 VM 拒絕
+sleep 6; ssh -o ClearAllForwardings=no -o ExitOnForwardFailure=yes -N -R 3998:127.0.0.1:22 fju-reset; echo "遠端轉送 → 結束碼 $?（要非 0）"
+sleep 6; ssh -o ClearAllForwardings=no -N -L 3999:127.0.0.1:3000 fju-reset & sleep 5
 curl -s -m 5 -o /dev/null -w 'port 轉送 → HTTP %{http_code}（要是 000）\n' http://127.0.0.1:3999/; kill %1
 ```
 

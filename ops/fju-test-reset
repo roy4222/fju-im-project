@@ -33,6 +33,8 @@
 set -euo pipefail
 set -f
 umask 077
+# 名稱、雜湊的 [a-z0-9] 比對與 sort／ls 的順序不受 VM 語系影響。
+export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 cd /
@@ -57,6 +59,7 @@ readonly HOST=test.fju.roy422.dev
 readonly IMAGE_REPO=ghcr.io/roy4222/fju-web
 readonly DEPLOY_USER=deploy
 readonly SNAP_KEEP=5
+readonly LOG_KEEP=20
 # worker 用固定的安裝路徑重跑自己（不用 $0：sudoers 只放行這個路徑）。
 readonly SELF=/usr/local/sbin/fju-test-reset
 
@@ -161,12 +164,16 @@ resume_deploy() { as_deploy rm -f "$DEPLOY_DIR/auto-deploy.paused"; }
 list_snapshots() {
   [ -d "$SNAP_ROOT" ] || return 0
   local n
+  # 只列完整的快照（三個檔都在）；名稱不合規則、.tmp-*、缺檔的直接跳過。
+  # 任何一步失敗都不讓 status 中斷——整夜腳本靠 snapshots= 判斷快照在不在。
   as_deploy ls -1 "$SNAP_ROOT" 2>/dev/null | while IFS= read -r n; do
-    [[ "$n" =~ $name_re ]] && echo "$n"
-  done
+    if [[ "$n" =~ $name_re ]] && [ -f "$SNAP_ROOT/$n/meta" ] && [ -f "$SNAP_ROOT/$n/db.dump" ] \
+       && [ -f "$SNAP_ROOT/$n/files.tar.gz" ]; then echo "$n"; fi
+  done || true
 }
 meta_get() { # <名稱> <鍵>：以 deploy 身分讀 meta；呼叫端再驗格式，不原樣轉印。
-  as_deploy cat "$SNAP_ROOT/$1/meta" 2>/dev/null | sed -n "s/^$2=//p" | head -n 1
+  # 缺 meta 時回空字串（呼叫端顯示 unknown），不讓 set -e／pipefail 把 status 中斷。
+  as_deploy cat "$SNAP_ROOT/$1/meta" 2>/dev/null | sed -n "s/^$2=//p" | head -n 1 || true
 }
 
 cmd_status() {
@@ -274,13 +281,27 @@ check_files_tar() {
   fi
 }
 
+# 紀錄只留最近 LOG_KEEP 份（檔名是本程式自己取的 <UTC>-<子命令>.log，目錄 root 700）。
+prune_logs() {
+  local old
+  # shellcheck disable=SC2012  # 檔名是自己取的（英數、-、.），用 ls -t 依時間排最簡單
+  ls -1t "$LOG_DIR" 2>/dev/null | tail -n +"$((LOG_KEEP + 1))" | while IFS= read -r old; do
+    case "$old" in
+      *.log) rm -f -- "${LOG_DIR:?}/$old" ;;
+    esac
+  done || true
+}
+
 # ---- 背景 worker：輸出寫檔、同步串回 ssh；ssh 斷線不影響 ----
 run_detached() {
   install -d -m 700 "$STATE_DIR" "$LOG_DIR"
   local log pid rc
   log="$LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$SUB.log"
   : > "$log"
-  FJU_RESET_WORKER=1 setsid "$SELF" "$@" </dev/null >>"$log" 2>&1 &
+  prune_logs
+  # --fork --wait：一定在新的 session 裡跑（不靠「背景工作不是 process group leader」），
+  # setsid 自己留著等它結束、帶回結束碼，所以下面的 wait 拿得到結果。
+  FJU_RESET_WORKER=1 setsid --fork --wait "$SELF" "$@" </dev/null >>"$log" 2>&1 &
   pid=$!
   tail -n +1 -f --pid="$pid" "$log" 2>/dev/null || true
   set +e
@@ -354,6 +375,8 @@ cmd_snapshot() {
   as_deploy rm -rf "$tmp"
   as_deploy mkdir -m 700 "$tmp"
   as_deploy cp "$after" "$tmp/db.dump"
+  # 快照裡已經有一份，backup.sh 留在 backups/ 的這份刪掉，免得每存一次快照多吃一份磁碟。
+  as_deploy rm -f "$after"
   say "打包附件"
   as_files_owner tar -C "$SITE_ROOT" -czf - files | write_as_deploy "$tmp/files.tar.gz"
   db_sha="$(as_deploy sha256sum "$tmp/db.dump" | cut -d' ' -f1)"
@@ -421,10 +444,13 @@ cmd_restore() {
   # shellcheck disable=SC2016
   as_deploy cat "$snap/db.dump" \
     | as_deploy docker exec -i "$PG_CONTAINER" sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error --single-transaction'
+  # umask 022：跟 app 寫的附件一樣（檔 644、目錄 755）；承接本程式的 077 會變 600／700，
+  # deploy 跑的每日備份就打包不了 test 的附件。
   say "解附件"
   check_files_dir
   as_deploy cat "$snap/files.tar.gz" \
-    | as_files_owner tar -xzf - -C "$FILES_DIR" --strip-components=1 --no-same-owner --no-same-permissions
+    | as_files_owner sh -c 'umask 022; exec "$@"' sh \
+        tar -xzf - -C "$FILES_DIR" --strip-components=1 --no-same-owner --no-same-permissions
   redeploy "$sha"
   [ "$was_paused" = 1 ] || resume_deploy
   say "✓ 還原完成 $NAME commit=${sha}（帳號密碼是存快照那一夜的；自動部署：$([ "$was_paused" = 1 ] && echo 維持暫停 || echo 已恢復)）"

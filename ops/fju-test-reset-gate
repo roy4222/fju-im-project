@@ -20,6 +20,8 @@
 set -u
 set -f
 umask 077
+# [a-z0-9] 的比對只認 ASCII，不受 VM 語系影響。
+export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
