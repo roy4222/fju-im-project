@@ -1,0 +1,53 @@
+# 兩站健康巡檢（設計方案 §6）。每 10 分鐘打一次 /api/health，掛了 job 變紅，
+# 排程的失敗通知寄給建立 workflow、最後修改 cron 或重新啟用它的人（Roy 要確認自己是收件者，並開「Actions: failed workflows only」通知）。
+#
+# 頻率照定案 10 分鐘，與契約 05 §8 的 5 分鐘不同，Vault 回寫時對齊。
+# 正式站那一半由 repository variable HEALTH_PROD_ENABLED 控制：沒設＝skipped，開站當天設 `true`。
+# 網址以 ops/Caddyfile.vm 為準。
+# 注意：repo 60 天沒 commit，GitHub 會自動停用排程 workflow。
+name: health-cron
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: health-cron
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  # 共用檢查：HTTP 200 且傳輸完整、ok === true、commit 是非空字串、worker.lastTickAt 在 5 分鐘內
+  # （web/src/shared/health.ts：超過 WORKER_STALE_AFTER_MS 才算停擺，所以恰好 300 秒仍算活著）。
+  # lastTickAt 是 toISOString() 格式（帶 .123Z），fromdateiso8601 不吃小數秒，先拆出小數秒再加回；
+  # null 或格式不符時 jq 沒有輸出，-e 會失敗。curl 的 retry 近似契約的「連續 3 次」。
+  # 呼叫寫成 `bash -c "$CHECK" check <url>`：bash -c 後第一個參數是 $0，§6 骨架少了 `check` 這個 $0 佔位，url 會變空。
+  CHECK: |
+    url=$1
+    code=$(curl -s -o body.json -w '%{http_code}' --retry 3 --retry-delay 30 --retry-all-errors "$url"); rc=$?
+    echo "$url -> HTTP $code (curl exit $rc)"; cat body.json 2>/dev/null; echo
+    [ "$rc" = 0 ] && [ "$code" = 200 ] || exit 1
+    jq -e '.ok == true
+           and (.commit | type == "string" and length > 0)
+           and (.worker.lastTickAt | type == "string")
+           and (.worker.lastTickAt
+                | capture("^(?<base>[^.]+)(?<frac>\\.[0-9]+)?Z$")
+                | ((.base + "Z") | fromdateiso8601) + (("0" + (.frac // "")) | tonumber)
+                | now - . <= 300)' body.json
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: bash -c "$CHECK" check https://test.fju.roy422.dev/api/health
+
+  prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # job 層的 if 看不到 matrix，所以拆兩個 job。
+    if: vars.HEALTH_PROD_ENABLED == 'true'
+    steps:
+      - run: bash -c "$CHECK" check https://fju.roy422.dev/api/health
