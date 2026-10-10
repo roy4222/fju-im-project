@@ -22,6 +22,16 @@ export type VerificationLabels = {
   readonly methodLabel: Record<VerificationMethod, string>
   readonly noteRequired: Record<VerificationMethod, boolean>
   readonly noteHint: Record<VerificationMethod, string>
+  /** 對象是老師或職員時的選項文字與提示（不提學生證；T6 系5）。 */
+  readonly teacherMethodLabel: Record<VerificationMethod, string>
+  readonly teacherNoteHint: Record<VerificationMethod, string>
+}
+
+type VerificationKind = 'student' | 'teacher'
+
+/** 對象有老師或管理員角色、而且不是學生，就用老師那套文字；其他（學生、待審、孤兒）沿用註冊核准那套。 */
+function verificationKind(target: Pick<AccountLookup, 'roles'>): VerificationKind {
+  return !target.roles.includes('student') && (target.roles.includes('teacher') || target.roles.includes('admin')) ? 'teacher' : 'student'
 }
 
 const BUTTON =
@@ -32,7 +42,7 @@ const SECONDARY = 'border border-border bg-background text-foreground hover:bg-m
 const INPUT =
   'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
 const DIALOG =
-  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+  'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
 type FieldError = { message: string; field?: string } | null
 
@@ -45,9 +55,10 @@ function ErrorNote({ error }: { error: FieldError }) {
   )
 }
 
-/** 核實方式（跟註冊核准同一套選項；班代協助聯絡不能單獨作為依據，所以沒有那個選項）。 */
+/** 核實方式（跟註冊核准同一套選項；班代協助聯絡不能單獨作為依據，所以沒有那個選項）。對象是老師時換成不提學生證的文字。 */
 function VerificationFields({
   name,
+  kind,
   labels,
   method,
   note,
@@ -56,6 +67,7 @@ function VerificationFields({
   error,
 }: {
   name: string
+  kind: VerificationKind
   labels: VerificationLabels
   method: VerificationMethod | ''
   note: string
@@ -63,6 +75,8 @@ function VerificationFields({
   onNote: (v: string) => void
   error: FieldError
 }) {
+  const methodLabel = kind === 'teacher' ? labels.teacherMethodLabel : labels.methodLabel
+  const noteHint = kind === 'teacher' ? labels.teacherNoteHint : labels.noteHint
   return (
     <fieldset className="space-y-2">
       <legend className="text-sm font-medium text-foreground">
@@ -71,13 +85,13 @@ function VerificationFields({
       {labels.methods.map((m) => (
         <label key={m} className="flex items-start gap-2 text-sm text-foreground">
           <input type="radio" name={name} value={m} checked={method === m} onChange={() => onMethod(m)} className="mt-1" />
-          {labels.methodLabel[m]}
+          {methodLabel[m]}
         </label>
       ))}
       {method ? (
         <label className="block text-sm font-medium text-foreground">
           核實說明
-          <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
+          <span className="ml-1 font-normal text-muted-foreground">・{noteHint[method]}</span>
           <textarea
             rows={2}
             value={note}
@@ -297,6 +311,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
               {mode === 'direct' ? (
                 <VerificationFields
                   name="teacher-method"
+                  kind="teacher"
                   labels={labels}
                   method={method}
                   note={note}
@@ -532,6 +547,7 @@ export function TemporaryPasswordDialog({
                 <>
                   <VerificationFields
                     name="temp-method"
+                    kind={verificationKind(target)}
                     labels={labels}
                     method={method}
                     note={note}

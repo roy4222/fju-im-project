@@ -245,12 +245,17 @@ describe('VM 兩站（docker-compose.vm.yml，2026-09-24）', () => {
     await expect(siteConfig('test', partial)).rejects.toThrow(/Doppler 少了 DATABASE_URL/)
   })
 
-  it('app 加入外部網路 fju-edge，名字是 fju-<站台>-app（Caddyfile.vm 靠它找到）', async () => {
+  it('app 只加入自己站台的外部網路 fju-edge-<站台>，名字是 fju-<站台>-app（Caddyfile.vm 靠它找到）', async () => {
     const [test, prod] = await Promise.all([siteConfig('test'), siteConfig('prod')])
     expect(test.services.app?.container_name).toBe('fju-test-app')
     expect(prod.services.app?.container_name).toBe('fju-prod-app')
-    expect(Object.keys(test.services.app?.networks ?? {})).toContain('edge')
-    expect(test.networks.edge).toMatchObject({ name: 'fju-edge', external: true })
+    // 兩站各走各的網路（T4）：測試站的容器連不到正式站的 app。
+    // 鍵名是 site-edge（不是拆分前的 edge），重部署同一個映像時 Compose 才會重建容器換網路。
+    expect(Object.keys(test.services.app?.networks ?? {}).sort()).toEqual(['default', 'site-edge'])
+    expect(Object.keys(prod.services.app?.networks ?? {}).sort()).toEqual(['default', 'site-edge'])
+    expect(test.networks['site-edge']).toMatchObject({ name: 'fju-edge-test', external: true })
+    expect(prod.networks['site-edge']).toMatchObject({ name: 'fju-edge-prod', external: true })
+    expect(test.networks.edge).toBeUndefined()
     // postgres 只在站台自己的網路，另一站與 Caddy 都連不到。
     expect(Object.keys(test.services.postgres?.networks ?? {})).toEqual(['default'])
   })
@@ -270,6 +275,15 @@ describe('共用 Caddy（docker-compose.edge.yml）', () => {
     expect(Object.keys(services)).toEqual(['caddy'])
     const ports = (services.caddy?.ports ?? []).map((p) => `${p.published}:${p.target}/${(p as { protocol?: string }).protocol}`)
     expect(ports.sort()).toEqual(['443:443/tcp', '80:80/tcp'])
+  })
+
+  it('caddy 同時接 fju-edge-test 與 fju-edge-prod，不接拆分前的 fju-edge', async () => {
+    const config = await composeConfig(['docker-compose.edge.yml'])
+    const caddy = (config.services as Record<string, SiteService>).caddy
+    const networks = config.networks as Record<string, { name?: string; external?: boolean }>
+    const attached = Object.keys(caddy?.networks ?? {}).map((key) => networks[key])
+    expect(attached.map((n) => n?.name).sort()).toEqual(['fju-edge-prod', 'fju-edge-test'])
+    for (const network of attached) expect(network?.external).toBe(true)
   })
 
   it('掛 ops/Caddyfile.vm：兩個網址分到兩站，b1／b2 插槽已拿掉', async () => {

@@ -101,7 +101,7 @@
       "看有屆別的學生那一列"
     ],
     "verify": "截圖帳號列表，要截到「第 43 屆（115）」這種格式",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S1c",
@@ -158,7 +158,7 @@
       "關掉後對任一老師按「發臨時密碼」，再看一次"
     ],
     "verify": "截圖兩個對話框；都沒有「學生證」三個字",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S6",
@@ -170,7 +170,7 @@
       "按「更多」，確認三個少用的操作都在裡面，點「設為管理員」仍能完成"
     ],
     "verify": "截圖一列（收起）與展開「更多」後的畫面",
-    "passes": false
+    "passes": true
   },
   {
     "id": "S7",
@@ -299,7 +299,7 @@
       "到操作紀錄看同一筆的日期"
     ],
     "verify": "截圖兩頁同一筆，日期相同且等於今天台灣日期；grep -rn 'At.slice(0' web/src/app → 0 行",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X2",
@@ -324,7 +324,7 @@
       "看到無權限頁，點「回到自己的首頁」回到學生首頁"
     ],
     "verify": "截圖無權限頁；curl -s https://test.fju.roy422.dev/403 | grep -o '角色' | wc -l → 0；e2e pages.spec／affairs.spec／grading.spec／groups.spec 的 /403 斷言仍綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X4",
