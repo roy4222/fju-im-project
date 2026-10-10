@@ -386,7 +386,7 @@
       "系辦到後台 → 檔案管理，按同一個檔的下載鍵，仍然正常下載"
     ],
     "verify": "ID=<附件id>；curl -s -o /dev/null -w '%{http_code} %{redirect_url}\\n' -H 'sec-fetch-dest: document' -H 'accept: text/html' https://test.fju.roy422.dev/api/files/$ID → 303 且網址含 /login?next=%2Fapi%2Ffiles%2F；同指令不帶兩個 -H → 401 且 curl -s 回 {\"ok\":false,\"code\":\"UNAUTHENTICATED\"…}；用別屆學生的 cookie 加 -H 'sec-fetch-dest: document' → 303 到 /403；curl -sI -H 'sec-fetch-dest: document' … | grep -i cache-control → 含 no-store；e2e file-download-pages.spec 綠、affairs／public-pages／group-submit／history-matrix／roster-import 的 /api/files 斷言仍綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X8",
