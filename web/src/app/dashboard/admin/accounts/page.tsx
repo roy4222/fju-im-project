@@ -49,6 +49,9 @@ const VERIFICATION_LABELS: VerificationLabels = {
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,
+  // 新增老師、替老師或職員發臨時密碼時不提學生證（T6 系5）。只換顯示文字，存進紀錄的核實方式代碼不變。
+  teacherMethodLabel: { ...VERIFICATION_LABEL, id_document: '當面核對身分證件（教職員證、身分證）' },
+  teacherNoteHint: { ...VERIFICATION_NOTE_HINT, id_document: '選填，例如「10/9 系辦核對教職員證」' },
 }
 
 export const metadata = { title: '帳號管理｜資管系專題平台' }
