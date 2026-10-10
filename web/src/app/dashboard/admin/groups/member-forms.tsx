@@ -139,12 +139,15 @@ export type UngroupedRow = { name: string; studentNo: string; openToJoin: boolea
  */
 export function UngroupedStudents({
   students,
+  totalStudents,
   groups,
   size,
   requestId,
   reasonMaxLength,
 }: {
   students: UngroupedRow[]
+  /** 本屆學生總數（已分組＋未分組）；0 時說「還沒有學生」，不說「都分好組了」。 */
+  totalStudents: number
   groups: JoinableGroup[]
   size: Size
   requestId: string
@@ -170,7 +173,11 @@ export function UngroupedStudents({
         </div>
       ) : null}
       {students.length === 0 ? (
-        <PanelEmpty title="本屆學生都分好組了" />
+        totalStudents === 0 ? (
+          <PanelEmpty title="本屆還沒有學生" hint="先匯入名單，學生註冊並經核准後會出現在這裡。" />
+        ) : (
+          <PanelEmpty title="本屆學生都分好組了" />
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[36rem] text-sm">
