@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { useRouter } from 'next/navigation'
 import type { OrphanRepairReceipt, OrphanRole, RoleChangeReceipt } from '@/application/accounts'
 import { cn } from '@/shared/cn'
@@ -18,8 +18,15 @@ const BUTTON =
 const PRIMARY = 'btn-fju rounded-[4px]'
 const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
 const DANGER = 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+// 對話框放在表格格子裡，格子的 whitespace-nowrap 會傳下來，所以要 whitespace-normal 蓋回去。
 const DIALOG =
-  'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+  'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+
+/**
+ * 從列上的「更多」選單打開對話框用（T6 系6）。選單項關掉就消失，`<dialog>` 不能放在選單裡，
+ * 所以對話框留在列上、不顯示自己的按鈕，由選單項呼叫 `open()`。
+ */
+export type DialogOpener = { readonly open: () => void }
 
 export type RoleTargetView = {
   readonly userId: string
@@ -120,10 +127,20 @@ function ErrorNote({ error }: { error: string | null }) {
 
 // ── 設為／取消管理員 ────────────────────────────────────────────────────────
 
-export function AdminRoleDialog({ account, mode }: { account: RoleTargetView; mode: 'grant' | 'revoke' }) {
+export function AdminRoleDialog({
+  account,
+  mode,
+  opener,
+}: {
+  account: RoleTargetView
+  mode: 'grant' | 'revoke'
+  /** 有給就不顯示自己的按鈕，改由外面（「更多」選單）打開。 */
+  opener?: Ref<DialogOpener>
+}) {
   const d = useDialog<RoleChangeReceipt>()
   const granting = mode === 'grant'
   const verb = granting ? '設為管理員' : '取消管理員'
+  useImperativeHandle(opener, () => ({ open: d.open }))
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -140,9 +157,11 @@ export function AdminRoleDialog({ account, mode }: { account: RoleTargetView; mo
 
   return (
     <>
-      <button type="button" onClick={d.open} className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')} aria-label={`${verb} ${account.name}`}>
-        {verb}
-      </button>
+      {opener ? null : (
+        <button type="button" onClick={d.open} className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')} aria-label={`${verb} ${account.name}`}>
+          {verb}
+        </button>
+      )}
       <dialog ref={d.ref} onClose={d.onClosed} aria-label={`${verb} ${account.name}`} className={DIALOG}>
         <div className="p-5">
           {!d.isOpen ? null : d.receipt ? (
@@ -204,9 +223,15 @@ const ORPHAN_CHOICES: readonly { role: OrphanRole; label: string; hint: string }
   { role: 'admin', label: '職員（管理員）', hint: '開通並給管理員角色，例如系辦新同事。' },
 ]
 
-export function OrphanRepairDialog({ account }: { account: RoleTargetView }) {
+export function OrphanRepairDialog({ account, opener }: { account: RoleTargetView; opener?: Ref<DialogOpener> }) {
   const d = useDialog<OrphanRepairReceipt>()
   const [role, setRole] = useState<OrphanRole | ''>('')
+
+  function open() {
+    setRole('')
+    d.open()
+  }
+  useImperativeHandle(opener, () => ({ open }))
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -226,17 +251,16 @@ export function OrphanRepairDialog({ account }: { account: RoleTargetView }) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => {
-          setRole('')
-          d.open()
-        }}
-        className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}
-        aria-label={`補建角色 ${account.name}`}
-      >
-        補建角色
-      </button>
+      {opener ? null : (
+        <button
+          type="button"
+          onClick={open}
+          className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}
+          aria-label={`補建角色 ${account.name}`}
+        >
+          補建角色
+        </button>
+      )}
       <dialog ref={d.ref} onClose={d.onClosed} aria-label={`補建角色 ${account.name}`} className={DIALOG}>
         <div className="p-5">
           {!d.isOpen ? null : d.receipt ? (
