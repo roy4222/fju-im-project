@@ -7,7 +7,7 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { fieldFromSchema, type EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery, ITEM_STATUS_LABEL } from '@/composition/items'
 import { formatTaipeiMinute, toTaipeiDateTimeInput } from '@/shared/time'
 
@@ -78,7 +78,8 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
           hasResponses={item.hasResponses}
           vocabulary={await editorVocabulary(item.cohortId)}
           heading="編輯專題事務"
-          meta={`${cohort?.code ?? ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
+          publishedBefore={item.publications.length > 0}
+          meta={`${cohort ? cohortLabel(cohort) : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
         />
         {item.publications.length > 0 ? (
           <Panel title="發布紀錄" icon={<IconHistory />} description={`${item.publications.length} 筆`} aria-label="發布紀錄">
@@ -88,7 +89,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
                   <span className="font-semibold">{ACTION_LABEL[p.action] ?? p.action}</span>
                   <span className="text-muted-foreground">
                     {formatTaipeiMinute(p.realAt)}・{p.actorName}
-                    {p.notify ? '・有通知' : '・未通知'}
+                    {p.notify ? '・有勾通知' : '・沒勾通知'}
                   </span>
                 </li>
               ))}
