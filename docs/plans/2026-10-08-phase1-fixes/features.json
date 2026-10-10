@@ -324,7 +324,7 @@
       "看到無權限頁，點「回到自己的首頁」回到學生首頁"
     ],
     "verify": "截圖無權限頁；curl -s https://test.fju.roy422.dev/403 | grep -o '角色' | wc -l → 0；e2e pages.spec／affairs.spec／grading.spec／groups.spec 的 /403 斷言仍綠",
-    "passes": false
+    "passes": true
   },
   {
     "id": "X4",
