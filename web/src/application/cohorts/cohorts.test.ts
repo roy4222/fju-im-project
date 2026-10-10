@@ -7,6 +7,7 @@ import {
   isRequestId,
   normalizeCreateInput,
 } from '@/application/cohorts'
+import { cohortLabel } from '@/application/cohorts/cohorts'
 import type { ResolvedActor } from '@/application/accounts'
 
 function actor(roles: ('student' | 'teacher' | 'admin')[]): ResolvedActor {
@@ -96,5 +97,11 @@ describe('設旗標的回饋句子', () => {
         previousCode: null,
       }),
     ).toBe('已把 115 設為預設工作屆別。')
+  })
+})
+
+describe('屆別的顯示名稱', () => {
+  it('寫成「名稱（代碼）」', () => {
+    expect(cohortLabel({ name: '第 43 屆', code: '115' })).toBe('第 43 屆（115）')
   })
 })
