@@ -91,16 +91,18 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
 
         <div className="relative rounded-lg border border-border">
           <div className="max-h-[32rem] overflow-auto">
-            <table className="w-full min-w-[60rem] table-fixed text-sm" aria-label="檔案列表">
+            <table className="w-full min-w-[54rem] table-fixed text-sm" aria-label="檔案列表">
+              {/* 檔名不設寬、吃剩下的；其餘固定 46rem，1280 寬側欄展開時檔名欄約 170px、不必橫捲。
+                  min-w 54rem 讓手機橫捲時檔名欄仍有約 8rem（拿掉會被擠成 0），又小於 1280 的容器寬。 */}
               <colgroup>
-                <col className="w-[260px]" />
-                <col className="w-[110px]" />
-                <col className="w-[180px]" />
-                <col className="w-[90px]" />
-                <col className="w-[90px]" />
-                <col className="w-[110px]" />
-                <col className="w-[70px]" />
-                <col className="w-[160px]" />
+                <col />
+                <col className="w-[7rem]" />
+                <col className="w-[11rem]" />
+                <col className="w-[5.5rem]" />
+                <col className="w-[4.5rem]" />
+                <col className="w-[6.5rem]" />
+                <col className="w-[3.5rem]" />
+                <col className="w-[8rem]" />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
                 <tr>
