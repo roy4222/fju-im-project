@@ -40,7 +40,7 @@
 #   ACCEPT_HEALTH_URL       取 commit 的網址，預設 https://test.fju.roy422.dev/api/health；測試指到本機假伺服器
 #   ACCEPT_E2E_ROOT         清單、人設卡、掃描與彙整腳本的根目錄，預設 e2e/acceptance；測試指到假清單
 #   ACCEPT_VAULT            彙整寫進的 Vault 工程開發目錄，預設由 summarize-night.sh --vault 決定；測試指到 /tmp
-#   ACCEPT_RESET_GAP        兩次 ssh fju-reset 之間至少隔幾秒，預設 15（ssh 限速 30 秒 3 次）；測試縮短用
+#   ACCEPT_RESET_GAP        兩次 ssh fju-reset 之間至少隔幾秒，預設 15（ssh 限速：30 秒內第 6 次新連線會被拒）；測試縮短用
 #   ACCEPT_UX_DEADLINE      UX 批次的截止時刻 HH:MM（開始之後的下一次），預設 08:00；@<epoch 秒> 給測試用
 #   PWCLI                   playwright-cli wrapper，預設 ~/.codex/skills/playwright/scripts/playwright_cli.sh
 set -euo pipefail
@@ -594,7 +594,7 @@ PAUSED=0
 SNAPSHOT_STATE=""   # taken／skipped／failed；空＝還沒決定
 
 # fju_reset <預算秒> <子命令> [名稱]：一個子命令一次 ssh 連線（§6.4；gate 只認 SSH_ORIGINAL_COMMAND 的字）。
-# 和上一次 ssh 至少隔 RESET_GAP 秒（ssh 限速：30 秒內不超過 3 次）。上一次被 Ctrl-C 打斷也算一次：
+# 和上一次 ssh 至少隔 RESET_GAP 秒（ssh 限速：30 秒內第 6 次新連線會被拒）。上一次被 Ctrl-C 打斷也算一次：
 # 發出前就先記時間，收尾的 resume-deploy 才不會緊接著被打斷的那次連線送出。輸出累積在 logs/fju-reset.log，
 # 這一次的輸出另放 RESET_OUT 讓呼叫端讀（status 看有沒有 midterm）。
 fju_reset() {
