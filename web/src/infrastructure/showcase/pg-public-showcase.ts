@@ -38,6 +38,7 @@ const MAX_ROWS = 200
 type Row = {
   id: string
   cohort_code: string
+  cohort_name: string
   group_id: string | null
   group_code: string | null
   title: string
@@ -57,7 +58,7 @@ const FROM = `
   left join stored_files f on f.id = v.poster_file_id and f.status = 'stored'
  where e.status = 'published'`
 
-const COLUMNS = `e.id, c.code as cohort_code, e.group_id, g.code as group_code, v.title, v.summary, v.video_url,
+const COLUMNS = `e.id, c.code as cohort_code, c.name as cohort_name, e.group_id, g.code as group_code, v.title, v.summary, v.video_url,
        f.id as poster_file_id, v.created_real_at, e.award_level, e.award_label`
 
 /** 公開（訪客也看得到）的那一批：有獎項等級的。 */
@@ -121,6 +122,7 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
     const people = await this.#people(rows.map((r) => r.group_id).filter((id): id is string => id !== null))
     const cards: SignedInShowcaseCard[] = rows.map((r) => ({
       ...toCard(r),
+      cohortName: r.cohort_name,
       ...((r.group_id ? people.get(r.group_id) : undefined) ?? NO_PEOPLE),
     }))
     return { access: 'visible', cards }
@@ -131,6 +133,13 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
       `select distinct c.code ${FROM} ${options.featuredOnly ? `and ${FEATURED}` : ''} order by c.code desc`,
     )
     return rows.rows.map((r) => r.code)
+  }
+
+  async cohortChoices(options: { readonly featuredOnly?: boolean } = {}): Promise<{ code: string; name: string }[]> {
+    const rows = await this.#reader().query<{ code: string; name: string }>(
+      `select distinct c.code, c.name ${FROM} ${options.featuredOnly ? `and ${FEATURED}` : ''} order by c.code desc`,
+    )
+    return rows.rows.map((r) => ({ code: r.code, name: r.name }))
   }
 
   async entry(actor: ResolvedActor, entryId: string): Promise<PublicShowcasePage> {

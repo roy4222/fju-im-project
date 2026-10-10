@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 const one = (value: string | string[] | undefined) => (typeof value === 'string' ? value : '')
 
 function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
-  const meta = [`${p.cohortCode} 屆`, p.groupCode, p.advisorName ? `指導老師 ${p.advisorName}` : null].filter(Boolean).join('・')
+  const meta = [`${p.cohortName}（${p.cohortCode}）`, p.groupCode, p.advisorName ? `指導老師 ${p.advisorName}` : null].filter(Boolean).join('・')
   return (
     <Link
       href={`/projects/${p.id}`}
@@ -85,7 +85,7 @@ export default async function ProjectsPage({
   const query = getPublicShowcaseQuery()
   const [archive, cohorts] = await Promise.all([
     query.archive(actor, { cohort: cohort || undefined, q: q || undefined, sort, awardOnly }),
-    query.cohorts(),
+    query.cohortChoices(),
   ])
   // 登入了、帳號也正常，查詢仍不給看＝沒有權限。
   if (archive.access !== 'visible') redirect('/403')
@@ -102,9 +102,9 @@ export default async function ProjectsPage({
   const sections =
     sort !== 'cohort'
       ? [{ key: 'all', label: '', items: cards }]
-      : [...new Set(cards.map((c) => c.cohortCode))].map((code) => ({
+      : [...new Map(cards.map((c) => [c.cohortCode, c.cohortName])).entries()].map(([code, name]) => ({
           key: code,
-          label: `${code} 屆`,
+          label: `${name}（${code}）`,
           items: cards.filter((c) => c.cohortCode === code),
         }))
   const filtered = Boolean(cohort || q || awardOnly)
@@ -123,8 +123,8 @@ export default async function ProjectsPage({
               全部屆別
             </PillLink>
             {cohorts.map((c) => (
-              <PillLink key={c} href={keep(c)} active={cohort === c}>
-                {c} 屆
+              <PillLink key={c.code} href={keep(c.code)} active={cohort === c.code}>
+                {c.name}（{c.code}）
               </PillLink>
             ))}
             <PillLink href={keep(cohort, !awardOnly)} active={awardOnly} tone="brand">
