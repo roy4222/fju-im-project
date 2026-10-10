@@ -375,17 +375,72 @@
     "passes": false
   },
   {
+    "id": "X7",
+    "ticket": "T13",
+    "description": "直接在瀏覽器打開一個附件網址（/api/files/<id>）：訪客會被帶到登入頁、登入後直接拿到檔案；已登入但沒權限或公告已下架，看到中文的無權限頁，不再是一行 JSON。程式下載（系辦後台、學生作業區的下載鍵）照常。",
+    "steps": [
+      "以系辦登入，發布一則對象「本屆學生」的公告並附一個 PDF；在前台公告頁對附件連結按右鍵複製網址（長得像 https://test.fju.roy422.dev/api/files/<id>）",
+      "無痕視窗貼上這個網址：被帶到登入頁，網址列是 /login?next=%2Fapi%2Ffiles%2F<id>",
+      "在這個登入頁用本屆學生登入：瀏覽器直接下載那個 PDF",
+      "用別屆學生（或把公告下架後用本屆學生）再貼一次網址：看到中文的無權限頁，有「回到自己的首頁」",
+      "系辦到後台 → 檔案管理，按同一個檔的下載鍵，仍然正常下載"
+    ],
+    "verify": "ID=<附件id>；curl -s -o /dev/null -w '%{http_code} %{redirect_url}\\n' -H 'sec-fetch-dest: document' -H 'accept: text/html' https://test.fju.roy422.dev/api/files/$ID → 303 且網址含 /login?next=%2Fapi%2Ffiles%2F；同指令不帶兩個 -H → 401 且 curl -s 回 {\"ok\":false,\"code\":\"UNAUTHENTICATED\"…}；用別屆學生的 cookie 加 -H 'sec-fetch-dest: document' → 303 到 /403；curl -sI -H 'sec-fetch-dest: document' … | grep -i cache-control → 含 no-store；e2e file-download-pages.spec 綠、affairs／public-pages／group-submit／history-matrix／roster-import 的 /api/files 斷言仍綠",
+    "passes": false
+  },
+  {
+    "id": "X8",
+    "ticket": "T14",
+    "description": "筆電螢幕（1280 寬、側欄展開）看系辦的專題事務與檔案管理，每一列的標題和檔名整個看得到，不會被擠成看不見或一字一行。",
+    "steps": [
+      "瀏覽器視窗調成 1280×720（或用 DevTools 裝置模式），側欄維持展開",
+      "以系辦登入，到後台 → 專題事務：每列標題看得到至少十幾個字，「前台頁面」連結是橫的一行",
+      "到後台 → 檔案管理：第一欄「檔名」看得到；按任一列的「去解除引用」再回來，檔名欄沒有被捲出畫面",
+      "把視窗縮到手機寬（390）：專題事務每列堆成卡片、檔案管理可以橫向捲動，都還能操作"
+    ],
+    "verify": "兩頁各一張 1280×720 截圖，截到標題欄與檔名欄；DevTools console：document.querySelector('[data-testid=affair-row] a').getBoundingClientRect().width ≥ 200；在檔案管理：const t=document.querySelector('[aria-label=\"檔案列表\"]').closest('.overflow-auto'); t.scrollWidth <= t.clientWidth → true；e2e admin-daily-ui.spec 綠",
+    "passes": true
+  },
+  {
+    "id": "X9",
+    "ticket": "T7",
+    "description": "對一個還沒有學生的屆別發公告：發布前檢查寫沒有人可通知、通知勾選框預設不勾、發布結果說沒有發站內通知、發布紀錄寫「沒勾通知」，三處說法一致。",
+    "steps": [
+      "以系辦登入，切到一個還沒有學生的屆別（沒有就新增一個）",
+      "專題事務 → 新增項目 → 公告、對象「本屆學生」，走到第 3 步「發布前檢查」",
+      "看到「這個對象目前沒有可以通知的人。」，「重要公告：逐人發站內通知給對象」預設沒勾",
+      "按「發布」：成功訊息含「這次沒有發站內通知。」",
+      "按「細調欄位」進編輯器，往下看「發布紀錄」那一筆",
+      "再用「用完整編輯器建立」做一則同樣對象的公告，按「發布」：發布前檢查對話框的通知勾選框同樣預設沒勾"
+    ],
+    "verify": "截圖三步驟對話框的發布前檢查（勾選框未勾）、成功訊息、發布紀錄、完整編輯器的發布對話框四張；發布紀錄那列含「沒勾通知」，整頁 grep -o '・有通知' → 0；e2e publish-notify.spec 綠",
+    "passes": false
+  },
+  {
+    "id": "X10",
+    "ticket": "T7",
+    "description": "系辦發競賽公告時，分類欄旁有一顆「競賽資訊」可以按，按了就出現報名截止日與活動日，發布後訪客在前台競賽頁看得到；欄位下有說明不用猜要打什麼字。",
+    "steps": [
+      "以系辦登入，專題事務 → 用完整編輯器建立：公告、標題「第 44 屆專題創意競賽」、對象「公開訪客」",
+      "分類欄旁按「競賽資訊」：分類欄變成「競賽資訊」，下面多出「報名截止日」「活動日」兩格；欄位下看得到說明文字",
+      "填一個未來的報名截止日，發布",
+      "無痕視窗打開 https://test.fju.roy422.dev/competitions：看到這則、標「報名中」"
+    ],
+    "verify": "截圖編輯器分類區（含按鈕與說明）；curl -s https://test.fju.roy422.dev/competitions | grep -o '第 44 屆專題創意競賽' | wc -l → ≥ 1；e2e competition-category.spec 綠",
+    "passes": false
+  },
+  {
     "id": "E2E",
     "ticket": "全部",
     "description": "全部票合併、測試站部署後：訪客與系辦各走一遍第一段的完整動線，沒有卡住、沒有英文、沒有 AI 感的文案。",
     "steps": [
-      "訪客（無痕）：首頁 → 公告 → 優秀專題 → 點一個專題 → 打一個錯網址 → 試打 /projects 被帶去登入 → 頁尾看到系辦聯絡與業界合作那句",
-      "系辦：登入 → 新增屆別看到名稱（代碼）→ 新增老師不見學生證 → 核准一個學生 → 操作紀錄看到姓名與核實方式、分頁加總等於全部 → 帳號頁每列只有兩顆按鈕 → 分組頁空狀態 → 發布一則公開公告、撤回再發布預設不通知 → 編輯後更新時看到通知人數 → 後台首頁儲存標整台主機 → 新增公開活動後首頁出現近期活動 → 在第 44 屆編輯公告後返回仍停在第 44 屆",
+      "訪客（無痕）：首頁 → 公告 → 優秀專題 → 點一個專題 → 打一個錯網址 → 試打 /projects 被帶去登入 → 貼一個受限附件網址也被帶去登入 → 頁尾看到系辦聯絡與業界合作那句",
+      "系辦：登入 → 新增屆別看到名稱（代碼）→ 新增老師不見學生證 → 核准一個學生 → 操作紀錄看到姓名與核實方式、分頁加總等於全部 → 帳號頁每列只有兩顆按鈕 → 分組頁空狀態 → 發布一則公開公告、撤回再發布預設不通知 → 編輯後更新時看到通知人數 → 後台首頁儲存標整台主機 → 新增公開活動後首頁出現近期活動 → 在第 44 屆編輯公告後返回仍停在第 44 屆 → 1280 寬看專題事務與檔案管理，標題與檔名看得到 → 對 0 學生的屆別發公告，三處通知說法一致 → 按「競賽資訊」快速鍵發一則競賽，訪客在 /competitions 看到",
       "學生：登入後誤打 /dashboard/admin，看到中文無權限頁並能回到學生首頁",
       "登入限速：換 31 個帳號打錯後被擋，10 分鐘後恢復",
       "GitHub Actions health-cron 最近一次是綠的"
     ],
-    "verify": "每一站各截一張圖；V1–X6 全部 passes: true",
+    "verify": "每一站各截一張圖；V1–X10 全部 passes: true",
     "passes": false
   }
 ]
