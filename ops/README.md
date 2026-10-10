@@ -104,7 +104,7 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 
 ### 7. 🖥️ 核對 Doppler 裡的值長得對不對
 
-我（agent）看不到值，所以這一步要你在 Doppler 網頁上自己對一次。兩個 config 各 16 個鍵，重點：
+我（agent）看不到值，所以這一步要你在 Doppler 網頁上自己對一次。兩個 config 各 17 個鍵（含 `REGISTRATION_OPEN`），重點：
 
 | 鍵 | stg（測試站） | prd（正式站） |
 |---|---|---|
@@ -113,7 +113,11 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 | `DATABASE_URL_OWNER` | `postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@postgres:5432/<POSTGRES_DB>` | 同左 |
 | `FILES_ROOT` | 容器裡的路徑，例如 `/srv/fju/files`（每站實際存在 VM 的 `/srv/fju/<站>/files`） | 同左 |
 | `BUSINESS_CLOCK_OVERRIDE_ENABLED` | `true` | `false` |
+| `REGISTRATION_OPEN` | `true` | `false` |
 
+- `REGISTRATION_OPEN` 是註冊開關，**不在必要鍵的檢查裡**：沒設的話 VM 上當作 `false`（關閉註冊），
+  所以測試站要記得設 `true`，否則註冊頁會是 404。只有 CI／本機（不經 `docker-compose.vm.yml`）沒設才是開放。
+  切換：改 Doppler 後跑 `sudo -u deploy /srv/fju/app/ops/site.sh <test|prod> docker compose up -d --no-deps app worker`（約 30 秒）。
 - 連線字串的主機一定是 **`postgres`**（Compose 裡的服務名稱），不是 `localhost`、也不是 `fju-postgres`。
 - 密碼只用英數字（例如 `openssl rand -hex 24` 產生），連線字串就不用處理特殊字元。
 - `POSTGRES_USER`／`POSTGRES_PASSWORD`／`POSTGRES_DB` **只在第一次建資料庫時生效**；之後改 Doppler 不會改到資料庫。

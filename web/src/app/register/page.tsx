@@ -1,11 +1,16 @@
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
 import { GoogleButton } from '@/app/login/google-button'
 import { AuthCard } from '@/app/_ui/primitives'
 import { NarrowShell } from '@/app/_ui/site-shell'
-import { APPLIED_NAME_MAX_LENGTH, DEPARTMENT_CLASS_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/composition/accounts'
+import {
+  APPLIED_NAME_MAX_LENGTH,
+  DEPARTMENT_CLASS_MAX_LENGTH,
+  isRegistrationOpen,
+  PASSWORD_MIN_LENGTH,
+} from '@/composition/accounts'
 import { registerAction } from './actions'
 import { ApplicationForm } from './application-form'
 
@@ -18,12 +23,15 @@ export const metadata = { title: '註冊｜資管系專題平台' }
  * 聯絡 Email 預設等於登入 Email 不要求重填。上方的「使用 Google 帳號註冊」（票 10）直接建帳號，
  * 回來後在等待審核頁補學號、系級、手機——跟密碼註冊一樣進待審核。
  * 送出後一律進待審核，不論有沒有在名單上——**這一頁也不告訴你有沒有在名單上**。
+ *
+ * 註冊關閉時（正式站第一段，設計方案 §5）整頁是 404，不透露功能存在；真正的拒絕在 Better Auth 的 hook。
  */
 export default async function RegisterPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string | string[] }>
 }) {
+  if (!isRegistrationOpen()) notFound()
   const googleError = googleSignInErrorMessage((await searchParams).error)
   const actor = await currentActor()
   if (actor.kind === 'authenticated') {

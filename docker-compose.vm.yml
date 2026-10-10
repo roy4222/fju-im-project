@@ -53,6 +53,9 @@ services:
       FILES_ROOT: ${FILES_ROOT:?Doppler 少了 FILES_ROOT}
       FILE_MAX_BYTES: ${FILE_MAX_BYTES:?Doppler 少了 FILE_MAX_BYTES}
       BUSINESS_CLOCK_OVERRIDE_ENABLED: ${BUSINESS_CLOCK_OVERRIDE_ENABLED:?Doppler 少了 BUSINESS_CLOCK_OVERRIDE_ENABLED}
+      # 註冊開關（設計方案 §5）：stg true、prd false。Doppler 沒這個鍵時 VM 上預設關閉（寧可關著），
+      # 所以不列進 ops/lib/site.sh 的必填鍵；只有不經這個檔的 CI／本機沒設才是開放。
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
     volumes:
       # 附件放在 VM 上該站自己的目錄（vm-setup.sh 建好，擁有者是容器裡的 1001）。
       # 容器內的路徑就是 Doppler 的 FILES_ROOT，兩站可以用同一個值。

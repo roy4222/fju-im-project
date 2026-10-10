@@ -46,6 +46,7 @@ import {
   recordLoginMethodAdded,
   SIGN_UP_EMAIL_ERROR_CODES,
 } from '@/infrastructure/auth/login-methods'
+import { isRegistrationOpen, REGISTRATION_CLOSED_MESSAGE } from '@/infrastructure/auth/registration-switch'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -89,6 +90,9 @@ export function getAuth(): ReturnType<typeof createAuth> {
 }
 
 function createAuth() {
+  // 註冊開關（設計方案 §5）：建實例時讀一次，三處（密碼註冊、Google 新帳號、hook）用同一個值。
+  // 切換要重建容器，見 `registration-switch.ts`。
+  const registrationOpen = isRegistrationOpen()
   return betterAuth({
     database: drizzleAdapter(getDb(), { provider: 'pg', schema, usePlural: true }),
     advanced: {
@@ -146,11 +150,18 @@ function createAuth() {
         '/sign-in/social': false,
       },
     },
-    emailAndPassword: { enabled: true },
+    // 關閉註冊時套件自己也擋（400 `EMAIL_PASSWORD_SIGN_UP_DISABLED`）；對外的那一句中文由 hook 先回。
+    emailAndPassword: { enabled: true, disableSignUp: !registrationOpen },
     socialProviders: {
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID ?? '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+        /**
+         * 關閉註冊時，Google 回來發現是新帳號就不建，導回 `errorCallbackURL?error=signup_disabled`
+         * （登入頁翻成「目前沒有開放註冊」）。系辦預授權的老師不受影響：`mapProfileToUser` 先把
+         * Google 身分綁到既有帳號，套件走的是「既有帳號登入」。
+         */
+        disableSignUp: !registrationOpen,
         /**
          * Google 身分剛換到、套件還沒開始找使用者的那一刻。只用來處理「系辦預授權的老師
          * 第一次用 Google 登入」（見 `bindPreauthorizedTeacher` 的條件）；不改任何使用者欄位。
@@ -308,6 +319,10 @@ function createAuth() {
         // `/api/auth/sign-up/email` 走同一段程式、算同一個桶。密碼長度也在這裡擋，
         // 不然直接打 HTTP 就能用套件預設的 8 個字元註冊。
         if (ctx.path === '/sign-up/email') {
+          // 註冊關閉（設計方案 §5）放最前面：不算進註冊限速桶，Server Action 與直接打 API 同一句。
+          if (!registrationOpen) {
+            throw new APIError('FORBIDDEN', { code: 'REGISTRATION_CLOSED', message: REGISTRATION_CLOSED_MESSAGE })
+          }
           const ip = clientIpFrom(ctx.request?.headers ?? ctx.headers)
           if (!checkSignUpRate(ip).allowed) {
             throw new APIError('TOO_MANY_REQUESTS', {

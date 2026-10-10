@@ -18,6 +18,7 @@ import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
+import { isRegistrationOpen } from '@/infrastructure/auth/registration-switch'
 import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
@@ -272,7 +273,8 @@ export async function beginGoogleSignIn(input: {
   headers: Headers
 }): Promise<GoogleSignInOutcome> {
   const next = safeNextPath(input.next)
-  const base = input.from === 'register' ? '/register' : '/login'
+  // 註冊關閉時沒有 `/register`（404），失敗一律回登入頁。
+  const base = input.from === 'register' && isRegistrationOpen() ? '/register' : '/login'
   const landing = next ? `${base}?next=${encodeURIComponent(next)}` : base
   try {
     const started = await startGoogleSignIn(input.headers, {
@@ -291,6 +293,9 @@ export async function beginGoogleSignIn(input: {
     return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
   }
 }
+
+/** 註冊開關（設計方案 §5）：前台的註冊入口與 `/register` 看這一個。 */
+export { isRegistrationOpen }
 
 /** 測試用：清掉登入的限速計數。 */
 export { resetSignInLimiter } from '@/infrastructure/auth/sign-in-rate-limit'
