@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 整夜驗收彙整：把一個 run 目錄拼成一頁總覽 summary.md（設計方案 §3.5），可選擇複製進 Vault（§3.6）。
+# 同時在 run 目錄寫 summary.json（給開發者後台讀：run 基本資料、各項目步驟列與問題清單、人設分數；不進 Vault）。
 #
 #   e2e/acceptance/summarize-night.sh <RUN_DIR>                         # 只寫 <RUN_DIR>/summary.md
 #   e2e/acceptance/summarize-night.sh <RUN_DIR> --vault                 # 另寫進預設 Vault 的 🧪 驗收報告/<日期>/
@@ -653,9 +654,75 @@ if vault_base:
             copied += 1
     print(f'Vault：{dest}（{len(written) - 1} 份文件、{copied} 張截圖）')
 
+# ---------- summary.json（給開發者後台讀；只寫 run 目錄，不進 Vault）----------
+# 內容從「已遮蔽」的報告重新解析；整份字串寫出前再經 write() 的 scrub()，最後一樣跑 residual()。
+STEP_COLS = ['步驟', '角色', '結果', '看到什麼', '截圖']
+COUNT_KEY = re.compile(r'(不通過|通過|做不到|環境|問題|擋上線|要修|建議|待 Roy 決定|套件|自訂規則待分類)\s*(\d+)')
+
+def parse_steps(text):
+    out = []
+    for l in section(text.splitlines(), r'^## 步驟結果') or []:
+        c = cells(l)
+        if not c or len(c) != len(STEP_COLS) or c[0] == '步驟' or all(re.fullmatch(r':?-{3,}:?', x) for x in c):
+            continue
+        row = dict(zip(STEP_COLS, c))
+        row['截圖'] = [f"{iid}/{s}" for s in SHOT.findall(row['截圖'])]
+        out.append(row)
+    return out
+
+def json_item(info):
+    meta = info['meta']
+    p = parse_report(info['report']) if info['report'] else None
+    summary = p['summary'] if p else None
+    d = {'id': info['id'], 'kind': meta.get('kind'), 'status': meta.get('status'),
+         'resumed': bool(meta.get('resumed')), 'dependencyNotMet': info['id'] in dep_notes,
+         'security': info['security'], 'report': report_path(info, 'run') if (info['report'] or info['progress'] is not None) else None,
+         'parsed': bool(p and p['ok']), 'summaryLine': summary, 'relay': p['relay'] if p else None,
+         'counts': {k: int(v) for k, v in COUNT_KEY.findall(summary or '')},
+         'steps': parse_steps(info['report']) if info['report'] else [],
+         'problems': [dict(r) for r in p['rows']] if p and p['ok'] else [],
+         'errors': p['errs'] if p and not p['ok'] else []}
+    return d
+
+json_items = []
+for info in items:
+    iid = info['id']
+    json_items.append(json_item(info))
+personas = []
+for info, ji in zip(items, json_items):
+    p = parse_report(info['report']) if info['report'] else None
+    if not (p and p['ok'] and p['tasks']): continue
+    ts = [{'task': k, 'score': int(t['score']) if t['score'] else None, 'done': t['done']}
+          for k, t in enumerate(p['tasks'], 1)]
+    sc = [t['score'] for t in ts if t['score'] is not None]
+    personas.append({'id': info['id'], 'title': p.get('title'), 'tasks': ts,
+                     'average': round(sum(sc) / len(sc), 1) if sc else None})
+summary_json = {
+    'runId': run.get('runId') or os.path.basename(run_dir), 'plan': run.get('plan'),
+    'startedAt': run.get('startedAt'), 'finishedAt': run.get('finishedAt'),
+    'commitStart': run.get('commitStart'), 'commitEnd': run.get('commitEnd'),
+    'problemColumns': COLS, 'items': json_items, 'personas': personas,
+}
+json_path = os.path.join(run_dir, 'summary.json')
+json_text = json.dumps(summary_json, ensure_ascii=False, indent=2) + '\n'
+json_problem = None
+n_leaks = len(leaks)
+if scrub(json_text, 'summary.json') != json_text:
+    # 內容已從遮蔽過的報告來，整份再遮蔽一次還有變動＝新的疑似秘密，或密碼遮蔽剛好在字串結尾、
+    # 被吃掉結尾引號；兩種都不寫（寧可沒有 JSON，也不留洩漏或讀不懂的檔），summary.md／Vault 照常。
+    del leaks[n_leaks:]
+    json_problem = '整份 JSON 遮蔽後有變動，未寫 summary.json'
+    if os.path.exists(json_path): os.remove(json_path)
+else:
+    write(json_path, json_text)
+    json.loads(read(json_path))
+    print(f'JSON：{json_path}')
+
 bad = [p for p in written if residual(read(p))]
 if bad:
     sys.exit('遮蔽後仍有疑似秘密：' + '、'.join(bad))
 if leaks:
     print(f'注意：遮蔽了 {len(leaks)} 處疑似秘密（見總覽第二行）', file=sys.stderr)
+if json_problem:
+    sys.exit(json_problem)
 PY
