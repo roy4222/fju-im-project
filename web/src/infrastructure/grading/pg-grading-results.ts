@@ -1095,6 +1095,9 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
 /**
  * 解散組別釘住的方案版本（產品模組 03 §4「解散：原組別資料凍結」）：解散當下套用的那一版。
  *
+ * 解散命令（開站後）在 `group.dissolve` 稽核記下當下的目前版本（`schemeVersionId`），有就直接用——連「還沒鎖定的已發布版本」
+ * 也準。沒有記錄（解散命令之前、測試直接改狀態的資料）才用下面的推算：
+ *
  * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
  * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
  * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本（同一時間戳記取版本號大的，版本號只增不減）。解散的組只要有任何評分，解散前一定鎖定過。
@@ -1103,15 +1106,34 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
  * 但它後來若被鎖定，就是第一個鎖定的版本（鎖的一定是目前版本），所以取第一個鎖定版本——解散後、第一次鎖定前
  * 又發布過別的版本時才會不準（這種組沒有任何分數，只影響階段名稱與份數的顯示）。連鎖定都沒有過就照目前版本。
  */
+/**
+ * 解散當下的組員（`gm`、`g` 是呼叫端的別名）。解散命令把快照（組員資格 id）記在 `group.dissolve` 稽核裡，有就照它，
+ * 同一毫秒剛被移出的人也不會誤收；沒有（解散命令之前、測試直接改狀態的舊資料）才退回用時間比：
+ * 組員資格的 `valid_to` 是業務時間、`dissolved_real_at` 是真實時間，兩者在模擬業務鐘下不能比，
+ * 結束資格時 `updated_at` 寫的是真實時間，所以用它跟解散時間比。
+ */
+const DISSOLVED_MEMBER_SQL = `case
+  when exists (select 1 from audit_events da where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id)
+    then exists (select 1 from audit_events da cross join lateral jsonb_array_elements(da.payload->'members') dm
+                  where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id
+                    and dm->>'membershipId' = gm.id::text)
+  else gm.updated_at >= g.dissolved_real_at
+end`
+
 async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, NonNullable<CurrentVersion>>> {
   if (groupIds.length === 0) return new Map()
   const rows = await db.query<{ group_id: string; id: string; version_no: number; stages: unknown }>(
     `select g.id as group_id, v.id, v.version_no, v.stages
        from groups g
        join grading_schemes s on s.cohort_id = g.cohort_id
+       left join lateral (
+         select (da.payload->>'schemeVersionId')::uuid as version_id from audit_events da
+          where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id
+          order by da.real_at desc limit 1
+       ) rec on true
        join lateral (
          select x.id, x.version_no, x.stages from grading_scheme_versions x
-          where x.scheme_id = s.id and x.status = 'locked'
+          where x.scheme_id = s.id and (x.id = rec.version_id or (rec.version_id is null and x.status = 'locked'))
           order by x.locked_at <= g.dissolved_real_at desc,
                    case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
                    case when x.locked_at <= g.dissolved_real_at then x.version_no end desc,
@@ -1154,16 +1176,14 @@ export class PgGradebookQuery implements GradebookQuery {
     const ids = groups.rows.map((g) => g.id)
     const [facts, members, overrides, pinned] = await Promise.all([
       loadFacts(db, ids),
-      // 解散的組列解散當下的組員：還沒結束的，或在解散那一刻（含）之後才結束的（解散把組員放回未分組時）。
-      // 組員資格的 `valid_to` 是業務時間、`dissolved_real_at` 是真實時間，兩者在模擬業務鐘下不能比；
-      // 結束資格時 `updated_at` 寫的是真實時間，所以用它跟解散時間比。解散前就被移出的人不列。
+      // 解散的組列解散當下的組員（見 `DISSOLVED_MEMBER_SQL`）。解散前就被移出的人不列。
       db.query<{ group_id: string; name: string; student_no: string | null }>(
         `select gm.group_id, ${TEACHER_NAME_SQL} as name, p.student_no
            from group_memberships gm
            join groups g on g.id = gm.group_id
            join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
           where gm.group_id = any($1::uuid[])
-            and (gm.valid_to is null or (g.status = 'dissolved' and gm.updated_at >= g.dissolved_real_at))
+            and (gm.valid_to is null or (g.status = 'dissolved' and ${DISSOLVED_MEMBER_SQL}))
           order by gm.group_id, p.student_no nulls last, gm.valid_from, gm.user_id`,
         [ids],
       ),

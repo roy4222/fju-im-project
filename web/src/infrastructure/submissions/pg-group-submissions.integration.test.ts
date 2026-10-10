@@ -9,6 +9,7 @@ import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
 import type { ItemInput } from '@/application/items'
 import { completionOf } from '@/application/submissions'
+import { PgGroupCommand } from '@/infrastructure/groups/pg-groups'
 import { PgItemCommand } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
@@ -367,6 +368,37 @@ describe('未成組不能送出', () => {
     )
     expect(await submissions.saveDraft(studentActor(s2), itemId, 1, { topic: 'y' }, randomUUID())).toMatchObject({ code: 'NOT_MEMBER' })
     expect(await query.myItem(s2.id, itemId)).toBeNull()
+  })
+})
+
+describe('1b. 組別解散後（開站後）：模組 05 凍結', () => {
+  it('原組員存草稿、送出、要上傳憑證都回 NOT_MEMBER；已存的共用草稿原封不動、作業區不列', async () => {
+    const { s1, s2, g1, itemId } = await scenario()
+    await mustSave(s1, itemId, 0, { topic: '解散前存的' })
+    const before = (await owner.sql('select answers, revision from submission_drafts where item_id = $1', [itemId])).rows
+    const groups = new PgGroupCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      events: new PgEventPublisher(),
+      dueWork: new PgDueWorkScheduler({ testKindsEnabled: false }),
+      businessClock,
+      pool: () => app,
+    })
+    const revision = Number((await owner.sql('select revision from groups where id = $1', [g1])).rows[0]!.revision)
+    expect(await groups.dissolveGroup(actorOf(adminId, ['admin']), { groupId: g1, revision, reason: '全組轉系' }, randomUUID())).toMatchObject({
+      ok: true,
+    })
+
+    for (const s of [s1, s2]) {
+      expect(await submissions.saveDraft(studentActor(s), itemId, 1, { topic: 'y' }, randomUUID())).toMatchObject({ code: 'NOT_MEMBER' })
+      expect(await submissions.submit(studentActor(s), itemId, 1, randomUUID())).toMatchObject({ code: 'NOT_MEMBER' })
+      expect(
+        await submissions.requestUpload(studentActor(s), itemId, 'report', { fileName: 'a.pdf', declaredMime: 'application/pdf', declaredSize: 10 }),
+      ).toMatchObject({ code: 'NOT_MEMBER' })
+      expect(await query.myItem(s.id, itemId)).toBeNull()
+    }
+    expect((await owner.sql('select answers, revision from submission_drafts where item_id = $1', [itemId])).rows).toEqual(before)
+    expect(await versionRows(itemId)).toHaveLength(0)
   })
 })
 

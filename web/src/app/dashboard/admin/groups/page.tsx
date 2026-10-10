@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconHourglass, IconHistory, IconUsers, IconUsersGroup } from '@tabler/icons-react'
+import { IconArchive, IconHourglass, IconHistory, IconUsers, IconUsersGroup } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ClearFilters, DataTableToolbar, SearchForm } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
 import { CohortPills, PageTitle, Panel, PANEL_TABLE_HEAD, PANEL_TABLE_ROW, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
+import { NOTE } from '@/app/_ui/dashboard/look'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
@@ -133,11 +134,14 @@ export default async function AdminGroupsPage({
     )
   }
 
-  const [overview, businessNow, teachers] = await Promise.all([
+  const [overview, businessNow, teachers, dissolvedGroups] = await Promise.all([
     getGroupQuery().overview(cohort.id),
     getBusinessClock().now(),
     getGroupQuery().teacherOptions(),
+    getGroupQuery().dissolvedGroups(cohort.id),
   ])
+  // 剛解散完（動作把這組的 id 帶回網址）：回執顯示在「已解散的組別」。
+  const justDissolved = dissolvedGroups.find((g) => g.id === params.dissolved) ?? null
   const grading = getAdvisorGradingLookup()
   const gradingOf = new Map(
     await Promise.all(
@@ -276,8 +280,9 @@ export default async function AdminGroupsPage({
                       members: g.members.map((m) => ({ ...m })),
                       history: g.history.map(historyItem),
                     }}
+                    cohortId={cohort.id}
                     size={size}
-                    requestIds={{ remove: randomUUID(), leader: randomUUID() }}
+                    requestIds={{ remove: randomUUID(), leader: randomUUID(), dissolve: randomUUID() }}
                     reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
                   />,
                   <GroupTypeCell
@@ -334,6 +339,56 @@ export default async function AdminGroupsPage({
           />
         </div>
       </Panel>
+
+      {dissolvedGroups.length > 0 ? (
+        <Panel
+          title="已解散的組別"
+          icon={<IconArchive />}
+          description={`${dissolvedGroups.length} 組・資料凍結，只能查看；成績在成績頁查看與匯出`}
+          aria-label="已解散的組別"
+        >
+          {justDissolved ? (
+            <div className="px-5 pb-3">
+              <p role="status" className={NOTE}>
+                已解散 {justDissolved.code}：{justDissolved.members.length} 人回到未分組；組員、主指導與評分老師已收到通知。
+              </p>
+            </div>
+          ) : null}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-sm">
+              <thead>
+                <tr className={PANEL_TABLE_HEAD}>
+                  <th scope="col" className="px-5 py-2.5 font-semibold">組別</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">解散時間</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">解散時成員</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">理由</th>
+                  <th scope="col" className="px-5 py-2.5">
+                    <span className="sr-only">動作</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {dissolvedGroups.map((g) => (
+                  <tr key={g.id} className={PANEL_TABLE_ROW}>
+                    <td className="px-5 py-3">
+                      <span className="tabular font-bold">{g.code}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{GROUP_TYPE_LABEL[g.groupType]}</span>
+                    </td>
+                    <td className="tabular px-4 py-3 whitespace-nowrap text-muted-foreground">{formatTaipeiMinute(g.dissolvedAt)}</td>
+                    <td className="px-4 py-3">{g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、') || '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{g.reason}</td>
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      <Link href={`/dashboard/admin/grading/${g.id}`} className="text-sm font-semibold text-primary hover:underline">
+                        看成績
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : null}
 
       {/* 以下兩塊原型沒有（原型的分組是直接成立）；正式碼的分組是提案制，照同一套 Panel 樣子放在後面。 */}
       <Panel

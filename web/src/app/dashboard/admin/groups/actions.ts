@@ -1,5 +1,6 @@
 'use server'
 import { refresh } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { currentActor } from '@/app/_ui/guard'
 import type { AdminGroupActionState } from '@/app/dashboard/admin/groups/admin-group-forms'
 import type { BatchActionOutcome } from '@/app/dashboard/admin/groups/advisor-forms'
@@ -8,6 +9,7 @@ import { describeGroupingSettingsReceipt, getCohortCommand } from '@/composition
 import {
   describeAdvisorBatchReceipt,
   describeAdvisorChangeReceipt,
+  describeDissolveReceipt,
   describeGroupTypeReceipt,
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
@@ -20,11 +22,12 @@ import type { Result } from '@/shared/result'
 
 /**
  * 管理員「分組總覽」的動作：分組設定（每組人數、提案預設天數）、作廢提案（票 13）；
- * 加入組員、移出組員、換組長（票 14）；指派、重派、解除指導老師與批次指派 CSV（票 19）。
+ * 加入組員、移出組員、換組長（票 14）；解散組別（開站後）；指派、重派、解除指導老師與批次指派 CSV（票 19）。
  * 規則全在用例裡判；這裡只翻譯表單與回饋。
  */
 
 const text = (formData: FormData, name: string) => String(formData.get(name) ?? '')
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const whole = (formData: FormData, name: string) => {
   const raw = text(formData, name).trim()
   return raw === '' ? Number.NaN : Number(raw)
@@ -112,6 +115,21 @@ export async function changeLeaderAction(_state: AdminGroupActionState, formData
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeLeaderChangeReceipt(result.receipt) }
+}
+
+/** 開站後：系辦解散組別。理由必填；畫面先要二次確認才送出。 */
+export async function dissolveGroupAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getGroupCommand().dissolveGroup(
+    await currentActor(),
+    { groupId: text(formData, 'groupId'), revision: whole(formData, 'revision'), reason: text(formData, 'reason') },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  // 解散後這組不在「全部組別」裡了（詳情跟著消失），回執改在「已解散的組別」那一塊顯示。
+  const cohortId = text(formData, 'cohortId')
+  if (UUID.test(cohortId)) redirect(`/dashboard/admin/groups?cohort=${cohortId}&dissolved=${result.receipt.groupId}`)
+  refresh()
+  return { ok: true, message: describeDissolveReceipt(result.receipt) }
 }
 
 // ── 指導老師（票 19）─────────────────────────────────────────────────────────

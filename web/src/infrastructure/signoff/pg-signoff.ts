@@ -459,6 +459,66 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     return { supersededVersionIds: superseded }
   }
 
+  /**
+   * 組別解散（開站後）：在呼叫端交易裡作廢這組每個簽核包的目前版本（產品 03 §4「解散：07 作廢」）。
+   * 鎖序同 `supersedeForParticipantChange`（組別列已被解散用例 `FOR UPDATE`）。已完成的也作廢（等於撤回授權，同系辦作廢）；
+   * 已作廢／已失效的不動。事件不通知任何人（同系辦作廢）；解散事件已通知全組與老師。
+   */
+  async voidForDissolution(
+    tx: PoolClient,
+    input: { groupId: string; reason: string; actorUserId: string; realAt: Date; businessAt: Date },
+  ): Promise<{ voidedVersionIds: string[] }> {
+    const rows = await tx.query<StatusRow & { cohort_id: string; purpose: SignoffPurpose; code: string }>(
+      `select p.cohort_id, p.purpose, g.code, s.version_id, v.version_no, s.state, s.cause
+         from signoff_packages p
+         join groups g on g.id = p.group_id
+         join signoff_version_status s on s.version_id = p.current_version_id
+         join signoff_package_versions v on v.id = s.version_id
+        where p.group_id = $1
+        order by p.purpose
+        for update of p, s`,
+      [input.groupId],
+    )
+    const cause = `組別解散：${input.reason}`
+    const voided: string[] = []
+    for (const row of rows.rows.filter((r) => !isTerminal(r.state))) {
+      await tx.query(
+        `update signoff_version_status
+            set state = 'void', cause = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4
+          where version_id = $1`,
+        [row.version_id, cause, input.realAt, input.actorUserId],
+      )
+      voided.push(row.version_id)
+      const { eventId } = await this.#events.publish(tx, {
+        type: 'signoff.voided',
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        source: { type: 'signoff_version', id: row.version_id, version: row.version_no },
+        actor: { kind: 'user', userId: input.actorUserId },
+        recipients: [],
+        recipientBasis: { basis: 'none' },
+        payload: { groupId: input.groupId, code: row.code, purpose: row.purpose, from: row.state, cause: 'group_dissolved' },
+        occurredRealAt: input.realAt,
+        occurredBusinessAt: input.businessAt,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: input.actorUserId,
+        role: 'admin',
+        action: 'signoff.version_void',
+        targetType: 'signoff_version',
+        targetId: row.version_id,
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        reason: cause,
+        realAt: input.realAt,
+        businessAt: input.businessAt,
+        payload: { eventId, from: row.state, groupId: input.groupId, purpose: row.purpose, versionNo: row.version_no, cause: 'group_dissolved' },
+      })
+    }
+    return { voidedVersionIds: voided }
+  }
+
   // ── 票 26：本人表態 ─────────────────────────────────────────────────────────
 
   /**

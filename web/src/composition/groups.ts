@@ -11,7 +11,7 @@ import type {
   ProposalExpiryHandler,
 } from '@/application/groups'
 import { getBusinessClock } from '@/composition/cohorts'
-import { getAssignmentsForTeacherQuery } from '@/composition/grading'
+import { getAssignmentsForTeacherQuery, getGradingDissolutionHook } from '@/composition/grading'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { getSignoffParticipantHook } from '@/composition/signoff'
@@ -36,6 +36,8 @@ function command(): PgGroupCommand {
     businessClock: getBusinessClock(),
     // 票 25：加入／移出組員時同交易讓目前簽核版本失效。
     signoff: getSignoffParticipantHook(),
+    // 開站後：解散組別時同交易結束評分指派、暫存失效。
+    grading: getGradingDissolutionHook(),
   })
   return groupCommand
 }
@@ -119,6 +121,7 @@ export {
   describeAdvisorChangeReceipt,
   describeGroupHistory,
   describeConfirmReceipt,
+  describeDissolveReceipt,
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,

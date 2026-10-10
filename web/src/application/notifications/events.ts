@@ -106,6 +106,14 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'group', defaultTitle: '你已被移出組別' },
   },
+  /**
+   * 組別解散（開站後；產品 08 §4「組別解散→解散前有效成員、主指導、評分工作因此停止的老師，一則」）。
+   * 收件人在解散當下固定、去重；payload 只帶組別代碼，不帶理由與成員名單。
+   */
+  'group.dissolved': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '你的組別已被系辦解散' },
+  },
   /** 換組長（票 14；產品 08 §4「組長更換→全組，清楚列出新組長」）。收件人＝全體成員；不帶理由。 */
   'group.leader_changed': {
     consumers: ['notifications'],

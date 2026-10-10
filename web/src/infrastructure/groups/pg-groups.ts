@@ -30,6 +30,9 @@ import {
   type ChangeLeaderInput,
   type CohortGroupingOverview,
   type ConfirmReceipt,
+  type DissolvedGroupSummary,
+  type DissolveGroupInput,
+  type DissolveReceipt,
   type ExpireOutcome,
   type GroupCommand,
   type GroupHistoryEntry,
@@ -58,6 +61,7 @@ import {
   type TerminationKind,
   type UngroupedStudent,
 } from '@/application/groups'
+import type { GradingDissolutionHook } from '@/application/grading'
 import type { DueWorkScheduler, EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import type { SignoffParticipantHook } from '@/application/signoff'
@@ -178,6 +182,11 @@ type Deps = {
    * 可以不給（票 13／14 的舊測試不需要簽核）；正式組裝一定有（`composition/groups.ts`）。
    */
   signoff?: SignoffParticipantHook<PoolClient>
+  /**
+   * 開站後：解散組別時同一筆交易結束評分指派、讓暫存失效（模組 06；`GradingDissolutionHook`）。
+   * 可以不給（舊測試不需要評分）；正式組裝一定有（`composition/groups.ts`）。
+   */
+  grading?: GradingDissolutionHook<PoolClient>
   pool?: PoolSource
   realClock?: Clock
 }
@@ -241,6 +250,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
   readonly #pool: PoolSource
   readonly #realClock: Clock
   readonly #signoff: SignoffParticipantHook<PoolClient> | undefined
+  readonly #grading: GradingDissolutionHook<PoolClient> | undefined
 
   constructor(deps: Deps) {
     this.#audit = deps.audit
@@ -251,6 +261,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
     this.#signoff = deps.signoff
+    this.#grading = deps.grading
   }
 
   // ── 公開找組員 ──────────────────────────────────────────────────────────────
@@ -1250,6 +1261,161 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     })
   }
 
+  // ── 解散（開站後，最小版） ───────────────────────────────────────────────────
+
+  /**
+   * 系辦解散組別（產品模組 03 §4「換成員與解散」、08 §4「組別解散」；模組實作設計 03 §6「解散同交易 05／06／07」）。
+   *
+   * 一筆交易、鎖序同移出組員（屆別 FOR SHARE → 組別 FOR UPDATE），之後才碰評分指派與簽核（同向，不成環）：
+   * 1. 組員快照（解散當下有效成員、組長）與當下評分方案版本記進 `group.dissolve` 稽核 payload（只記 id；不另開表、無 migration）。
+   * 2. 結束組長列與全部組員資格：`valid_to`＝業務時間、`updated_at`＝解散真實時間（與 `groups.dissolved_real_at`
+   *    同一個值——成績表的組員快照用它對）、`removal_reason`＝「組別解散：理由」。學生回到未分組、之後可再組新組。
+   * 3. 評分：結束有效指派、暫存失效（`GradingDissolutionHook`）；已送出的分數凍結照舊採計。
+   * 4. 簽核：目前版本作廢（`voidForDissolution`）。
+   * 5. 組別標 dissolved（時間、理由）、版本加一；之後任何寫入都被 `groupWriteBlocked` 等守門拒絕（`GROUP_DISSOLVED`）。
+   * 6. 通知：解散前有效成員 ∪ 主指導 ∪ 評分工作因此停止的老師，每人一則；不帶理由（同移出、作廢提案的作法）。
+   *
+   * 繳交（模組 05）不用另外凍結：組別繳交一律經「有效組員資格＋組別 active」找組，組員資格結束後就寫不進去。
+   */
+  async dissolveGroup(actor: ResolvedActor, input: DissolveGroupInput, requestId: string): Promise<Result<DissolveReceipt>> {
+    const prepared = prepareGroupChange(actor, input, requestId, '解散組別')
+    if (!prepared.ok) return prepared
+    const { adminId, reason } = prepared
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: adminId,
+          operationKind: 'group.dissolve',
+          requestId,
+          fingerprint: sha256(canonicalJson({ groupId: group.id, revision: input.revision, reason })),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<DissolveReceipt>(begun)
+      const blocked = groupWriteBlocked(cohort, group, input.revision)
+      if (blocked) return blocked
+
+      const members = (
+        await tx.query<{ id: string; user_id: string; name: string }>(
+          `select m.id, m.user_id, ${personName('p', 'u')} as name
+             from group_memberships m
+             join users u on u.id = m.user_id
+             left join user_profiles p on p.user_id = m.user_id
+            where m.group_id = $1 and m.valid_to is null
+            order by p.student_no, m.user_id`,
+          [group.id],
+        )
+      ).rows
+      const leader = await this.#currentLeader(tx, group.id)
+      const advisorId = await this.#currentAdvisorId(tx, group.id)
+      // 快照只記 id（稽核不可變；姓名、學號在去識別化時要能從個人資料清掉，所以不寫進稽核）。
+      const snapshot = members.map((m) => ({ userId: m.user_id, membershipId: m.id, isLeader: m.user_id === leader?.user_id }))
+
+      if (leader) {
+        await tx.query('update group_leaders set valid_to = greatest(valid_from, $2) where id = $1', [leader.id, businessNow])
+      }
+      if (members.length > 0) {
+        await tx.query(
+          `update group_memberships set valid_to = greatest(valid_from, $2), removal_reason = $3, updated_at = $4
+            where id = any($1::uuid[])`,
+          [members.map((m) => m.id), businessNow, `組別解散：${reason}`, realAt],
+        )
+      }
+      const grading = this.#grading
+        ? await this.#grading.endForDissolvedGroup(tx, {
+            groupId: group.id,
+            cohortId: group.cohort_id,
+            actorUserId: adminId,
+            reason,
+            realAt,
+            businessAt: businessNow,
+          })
+        : { endedAssignmentIds: [], invalidatedDraftIds: [], teacherUserIds: [], schemeVersion: null }
+      const signoff = this.#signoff
+        ? await this.#signoff.voidForDissolution(tx, { groupId: group.id, reason, actorUserId: adminId, realAt, businessAt: businessNow })
+        : { voidedVersionIds: [] }
+      const updated = await tx.query<{ revision: number }>(
+        `update groups set status = 'dissolved', dissolved_real_at = $2, dissolve_reason = $3,
+                revision = revision + 1, updated_at = $2, updated_by_user_id = $4
+          where id = $1 returning revision`,
+        [group.id, realAt, reason, adminId],
+      )
+      const revision = updated.rows[0]!.revision
+
+      const recipients = [...new Set([...members.map((m) => m.user_id), ...(advisorId ? [advisorId] : []), ...grading.teacherUserIds])]
+      await this.#events.publish(tx, {
+        type: 'group.dissolved',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'group', id: group.id, version: revision },
+        actor: { kind: 'user', userId: adminId },
+        recipients,
+        recipientBasis: {
+          groupId: group.id,
+          basis: 'dissolved_members+advisor+stopped_graders',
+          memberUserIds: members.map((m) => m.user_id),
+          advisorUserId: advisorId,
+          graderUserIds: grading.teacherUserIds,
+        },
+        // 不帶理由與成員名單：學生、老師只知道哪一組解散了（理由只在系辦的稽核與總覽）。
+        payload: { title: `系辦已解散組別 ${group.code}；有疑問請聯絡系辦`, groupId: group.id, code: group.code },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: adminId,
+        role: 'admin',
+        action: 'group.dissolve',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        reason,
+        realAt,
+        businessAt: businessNow,
+        payload: {
+          code: group.code,
+          members: snapshot,
+          leaderUserId: leader?.user_id ?? null,
+          advisorUserId: advisorId,
+          schemeVersionId: grading.schemeVersion?.id ?? null,
+          schemeVersionNo: grading.schemeVersion?.versionNo ?? null,
+          schemeVersionStatus: grading.schemeVersion?.status ?? null,
+          endedAssignmentIds: grading.endedAssignmentIds,
+          invalidatedDraftIds: grading.invalidatedDraftIds,
+          voidedSignoffVersionIds: signoff.voidedVersionIds,
+          notifiedUserIds: recipients,
+        },
+      })
+      await reachFaultPoint('group.dissolve.after-writes')
+
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        memberNames: members.map((m) => m.name),
+        endedAssignments: grading.endedAssignmentIds.length,
+        invalidatedDrafts: grading.invalidatedDraftIds.length,
+        voidedSignoffs: signoff.voidedVersionIds.length,
+        notified: recipients.length,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 停用帳號時的組長接任（票 42；`LeaderSuccessionHook`，由模組 01 的停用用例在它的交易裡呼叫） ──
 
   async leadershipsOf(userId: string): Promise<readonly LeadershipToSucceed[]> {
@@ -1819,6 +1985,39 @@ export class PgGroupQuery implements GroupQuery {
   async cohortGroups(cohortId: string): Promise<GroupSummary[]> {
     if (!isUuid(cohortId)) return []
     return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false)
+  }
+
+  async dissolvedGroups(cohortId: string): Promise<DissolvedGroupSummary[]> {
+    if (!isUuid(cohortId)) return []
+    const db = this.#reader()
+    const heads = await db.query<{ id: string; code: string; group_type: GroupType; dissolved_real_at: Date; dissolve_reason: string }>(
+      `select id, code, group_type, dissolved_real_at, dissolve_reason from groups
+        where cohort_id = $1 and status = 'dissolved' order by dissolved_real_at desc, code`,
+      [cohortId],
+    )
+    if (heads.rows.length === 0) return []
+    // 組員快照照解散稽核記下的組員資格 id（姓名、學號從個人資料讀，去識別化後跟著變）。
+    const members = await db.query<{ group_id: string; name: string; student_no: string | null; is_leader: boolean }>(
+      `select da.target_id as group_id, ${personName('p', 'u')} as name, p.student_no, coalesce((dm->>'isLeader')::boolean, false) as is_leader
+         from audit_events da
+         cross join lateral jsonb_array_elements(da.payload->'members') dm
+         join group_memberships gm on gm.id = (dm->>'membershipId')::uuid
+         join users u on u.id = gm.user_id
+         left join user_profiles p on p.user_id = gm.user_id
+        where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = any($1::uuid[])
+        order by p.student_no nulls last, gm.user_id`,
+      [heads.rows.map((g) => g.id)],
+    )
+    return heads.rows.map((g) => ({
+      id: g.id,
+      code: g.code,
+      groupType: g.group_type,
+      dissolvedAt: g.dissolved_real_at,
+      reason: g.dissolve_reason,
+      members: members.rows
+        .filter((m) => m.group_id === g.id)
+        .map((m) => ({ name: m.name, studentNo: m.student_no, isLeader: m.is_leader })),
+    }))
   }
 
   async teacherOptions(): Promise<TeacherOption[]> {

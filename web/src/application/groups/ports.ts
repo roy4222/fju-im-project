@@ -15,6 +15,8 @@ import type {
 import type {
   AddMemberInput,
   ChangeLeaderInput,
+  DissolveGroupInput,
+  DissolveReceipt,
   LeaderChangeReceipt,
   LeaderSuccession,
   LeadershipToSucceed,
@@ -96,12 +98,19 @@ export interface GroupCommand {
    */
   addMember(actor: ResolvedActor, input: AddMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /**
-   * 從某組移出：移出最後一人要走解散（解散之後才開放，先拒絕）；移出組長要同時指定接任。
+   * 從某組移出：移出最後一人要走解散（`dissolveGroup`；這裡拒絕）；移出組長要同時指定接任。
    * 被移出的人只收到本人的異動說明（`group.member_removed`），其他人收 `group.members_changed`。
    */
   removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /** 換組長：新組長要是有效成員；全組收 `group.leader_changed`。成員集合沒變，不觸發重簽。 */
   changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>>
+  /**
+   * 系辦解散組別（開站後，最小版；產品模組 03 §4「換成員與解散」、08 §4「組別解散」）。理由必填、帶組別版本。
+   * 同一筆交易：記下組員快照與當下評分方案版本（`group.dissolve` 稽核 payload）、結束全部組員資格與組長列、
+   * 結束該組有效評分指派並讓暫存失效（模組 06）、作廢目前簽核版本（模組 07）、組別標 dissolved；
+   * 通知解散前有效成員、主指導、評分工作因此停止的老師（去重，每人一則）。之後這組任何寫入都回 `GROUP_DISSOLVED`。
+   */
+  dissolveGroup(actor: ResolvedActor, input: DissolveGroupInput, requestId: string): Promise<Result<DissolveReceipt>>
 }
 
 /**
@@ -304,6 +313,17 @@ export type CohortGroupingOverview = {
   readonly ungrouped: readonly UngroupedStudent[]
 }
 
+/** 已解散的組別（管理員分組總覽的唯讀清單；資料凍結，成績在成績頁查看與匯出）。 */
+export type DissolvedGroupSummary = {
+  readonly id: string
+  readonly code: string
+  readonly groupType: GroupType
+  readonly dissolvedAt: Date
+  readonly reason: string
+  /** 解散當下的有效成員快照（組長標出）。 */
+  readonly members: readonly { readonly name: string; readonly studentNo: string | null; readonly isLeader: boolean }[]
+}
+
 export interface GroupQuery {
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string): Promise<StudentGroupView>
@@ -319,6 +339,8 @@ export interface GroupQuery {
    * 歷程不帶理由與操作者。
    */
   cohortGroups(cohortId: string): Promise<GroupSummary[]>
+  /** 管理員分組總覽的「已解散的組別」（呼叫端守門）。新的在前。 */
+  dissolvedGroups(cohortId: string): Promise<DissolvedGroupSummary[]>
   /** 管理員指派對話框的老師選項：帳號正常、目前是老師。 */
   teacherOptions(): Promise<TeacherOption[]>
   /** 這位老師目前指導幾組（未封存的屆別）。 */
