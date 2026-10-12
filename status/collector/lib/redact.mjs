@@ -1,5 +1,5 @@
 // 寫檔前的遮蔽檢查（設計方案 §3.3「一律不寫」）。規則照 e2e/acceptance/summarize-night.sh 的
-// EMAIL／TOKENS／PW／PW_OK，另加 IPv4（VM IP 也不能出現在畫面上）。
+// EMAIL／TOKENS／PW／PW_OK，另加 IPv4／IPv6（VM IP 也不能出現在畫面上）。
 // collector 不改寫內容：命中任何一條就整檔不寫，只回報「哪一類」，不回報命中的字串本身。
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/
@@ -15,8 +15,14 @@ const TOKENS = [
 const PW = /((?:密碼|password|passwd|pwd|token|secret)\s*[:：=]\s*)([^\s`|，。、）)]{6,})/gi
 const PW_OK = /^(?:\$\{?[A-Z_]+\}?|\[已遮蔽\]|已遮蔽|沒有|不記錄.*|由.*|\*+)$/
 const IPV4 = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])/
+// IPv6：完整寫法（7 個冒號）或含 `::` 的縮寫。時間 10:00:00 只有兩個冒號、沒有 `::`，不會誤判。
+const H = '[0-9A-Fa-f]{1,4}'
+const IPV6 = new RegExp(
+  `(?<![\\w:])(?:(?:${H}:){7}${H}|(?:${H}:){1,6}:(?:${H}(?::${H}){0,5})?|::(?:${H}(?::${H}){0,6}))(?![\\w:])`,
+)
 // 連線錯誤訊息裡常帶對方 IP（例如 connect ECONNREFUSED 1.2.3.4:443），寫進 reason 前先換掉。
 const IPV4_ALL = new RegExp(IPV4.source, 'g')
+const IPV6_ALL = new RegExp(IPV6.source, 'g')
 
 /** 回傳命中的類別（'Email'、'token'、'密碼'、'IP'），沒命中回傳空陣列。 */
 export function findLeaks(text) {
@@ -29,11 +35,11 @@ export function findLeaks(text) {
       break
     }
   }
-  if (IPV4.test(text)) hits.push('IP')
+  if (IPV4.test(text) || IPV6.test(text)) hits.push('IP')
   return hits
 }
 
 /** 自由文字（錯誤訊息）寫進 JSON 前用：IP 換成 [IP]，其餘交給 findLeaks 整檔把關。 */
 export function scrubIp(text) {
-  return String(text).replace(IPV4_ALL, '[IP]')
+  return String(text).replace(IPV4_ALL, '[IP]').replace(IPV6_ALL, '[IP]')
 }

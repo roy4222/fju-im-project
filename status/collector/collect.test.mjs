@@ -87,7 +87,7 @@ describe('AC-S-8 一輪收集的輸出', () => {
       ],
     })
     expect(gh.image).toMatchObject({ runId: 12, conclusion: 'success', jobs: [] })
-    // health-cron 取最近一個「已完成」的 run
+    // health-cron 另外查最近一個「已完成」的 run
     expect(gh.healthCron).toEqual({ conclusion: 'success', url: 'https://github.com/x/runs/9', at: '2026-10-12T10:00:00Z' })
     expect(gh.prs[0]).toEqual({
       number: 347,
@@ -97,8 +97,8 @@ describe('AC-S-8 一輪收集的輸出', () => {
       url: 'https://github.com/x/pull/347',
       updatedAt: '2026-10-11T00:00:00Z',
     })
-    // 每輪最多 4 次 GitHub API
-    expect(server.seen.filter((s) => s.startsWith('GET /api/'))).toHaveLength(4)
+    // 每輪 5 次 GitHub API（每小時 30 次，低於 60）
+    expect(server.seen.filter((s) => s.startsWith('GET /api/'))).toHaveLength(5)
 
     for (const name of ['tickets.json', 'test-map.json', 'go-live-waivers.json', 'go-live-policy.json']) {
       const f = read(`repo/${name}`)

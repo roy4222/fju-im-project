@@ -12,16 +12,20 @@ describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
     ['eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.abcdefgh', 'token'],
     ['password: hunter2hunter2', '密碼'],
     ['連到 10.0.0.12:5432', 'IP'],
+    ['dial tcp [2a01:4f8:c17:1a2b::1]:443', 'IP'],
+    ['2001:0db8:0000:0000:0000:ff00:0042:8329', 'IP'],
   ])('%s → %s', (text, kind) => {
     expect(findLeaks(text)).toContain(kind)
   })
 
   it('正常內容不誤判：digest、版本號、佔位密碼', () => {
     expect(findLeaks('ghcr.io/roy4222/fju-web@sha256:abc 16.3.8 token: ${DOPPLER_TOKEN} 2026-10-12T10:00:00Z')).toEqual([])
+    expect(findLeaks('2026-10-12T22:00:00+0800 10:00:00.123Z [STATUS] (502) == 200 sha256:deadbeef')).toEqual([])
   })
 
   it('scrubIp 把 IPv4 換掉', () => {
     expect(scrubIp('connect ECONNREFUSED 192.168.1.20:443')).toBe('connect ECONNREFUSED [IP]:443')
+    expect(scrubIp('dial tcp [2a01:4f8::1]:443')).toBe('dial tcp [[IP]]:443')
   })
 })
 

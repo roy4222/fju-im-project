@@ -31,12 +31,17 @@ export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, 
     { id: 11, path: '.github/workflows/ci.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/11' },
     { id: 10, path: '.github/workflows/ci.yml', head_sha: 'b'.repeat(40), status: 'completed', conclusion: 'failure', html_url: 'https://github.com/x/runs/10' },
     { id: 12, path: '.github/workflows/image.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/12' },
-    { id: 13, path: '.github/workflows/health-cron.yml', head_sha: sha, status: 'in_progress', conclusion: null, html_url: 'https://github.com/x/runs/13', updated_at: '2026-10-12T10:10:00Z' },
-    { id: 9, path: '.github/workflows/health-cron.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/9', updated_at: '2026-10-12T10:00:00Z' },
   ]
+  const cron = { id: 9, path: '.github/workflows/health-cron.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/9', updated_at: '2026-10-12T10:00:00Z' }
   return {
     [`GET /api/repos/${repo}/commits/main`]: () => ({ body: { sha } }),
-    [`GET /api/repos/${repo}/actions/runs`]: () => ({ body: { workflow_runs: runs } }),
+    // 真的 GitHub 不帶 event=push 時，schedule 的 health-cron run 會把清單塞滿；假上游照樣模擬，沒濾就拿不到 CI。
+    [`GET /api/repos/${repo}/actions/runs`]: (req, url) => ({
+      body: { workflow_runs: url.searchParams.get('event') === 'push' ? runs : Array(100).fill(cron) },
+    }),
+    [`GET /api/repos/${repo}/actions/workflows/health-cron.yml/runs`]: (req, url) => ({
+      body: { workflow_runs: url.searchParams.get('status') === 'completed' ? [cron] : [] },
+    }),
     [`GET /api/repos/${repo}/actions/runs/11/jobs`]: () => ({
       body: { jobs: [{ name: 'lint', conclusion: 'success' }, { name: 'e2e-smoke', conclusion: 'success' }] },
     }),

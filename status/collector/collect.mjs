@@ -5,6 +5,15 @@
 // 執行。把 GitHub、Gatus、部署與備份紀錄、envcheck、驗收 inbox 整理成 STATUS_DATA_DIR 底下的 JSON。
 // 每個來源各自成敗：一個壞了只記在 collector.json，其他照常更新；任何錯誤都不讓程式結束。
 // 寫檔前整份過遮蔽檢查（lib/redact.mjs），命中就整檔不寫、保留上一版。
+//
+// 環境變數（括號內是預設值；compose 照預設把 VM 目錄唯讀掛到容器內同樣的路徑就不用設）：
+//   STATUS_DATA_DIR（/data，唯一可寫）、STATUS_FJU_ROOT（/srv/fju：讀 <站>/deploy/deploy_log、
+//   <站>/backups/records.jsonl）、STATUS_OFFSITE_ROOT（<FJU_ROOT>/offsite）、
+//   STATUS_ENVCHECK_DIR（<FJU_ROOT>/status/envcheck）、STATUS_INBOX_DIR（<FJU_ROOT>/status/inbox）、
+//   STATUS_GATUS_URL（http://gatus:8080）、STATUS_HOSTS（四個網址，逗號或空白分隔，可只寫子網域名）、
+//   ACCESS_TEAM_DOMAIN（<team>.cloudflareaccess.com；沒設時接受任何 *.cloudflareaccess.com）、
+//   STATUS_GITHUB_REPO（roy4222/fju-im-project）、STATUS_HEALTH_URL_TEST／_PROD、STATUS_PROD_DNS_HOST、
+//   STATUS_HTTP_TIMEOUT_MS（15000）。STATUS_GITHUB_API／_RAW、STATUS_ACCESS_PROBE_TEMPLATE 只給測試換假上游。
 import dns from 'node:dns'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'

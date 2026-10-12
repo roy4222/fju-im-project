@@ -1,15 +1,17 @@
-// github.json（設計方案 §3.3）：repo 公開、不用 token。每輪固定 4 次 API：
+// github.json（設計方案 §3.3）：repo 公開、不用 token。每輪固定 5 次 API：
 //   1. commits/main → mainSha
-//   2. actions/runs?branch=main → 一次拿到 ci.yml、image.yml、health-cron.yml 的最近 run
-//   3. ci 那個 run 的 jobs
-//   4. pulls（最近 100 筆）
-// 每小時 24 次，低於未登入 60 次的上限。image 的 jobs 不另外抓（會變第 5 次），固定是空陣列。
+//   2. actions/runs?branch=main&event=push → ci.yml、image.yml 的最近 run
+//      （只要 push：health-cron 每 10 分鐘一筆 schedule run，不濾掉的話 main 半天沒 push 就把 CI 擠出清單）
+//   3. health-cron.yml 最近一個已完成的 run
+//   4. ci 那個 run 的 jobs
+//   5. pulls（最近 100 筆）
+// 每小時 30 次，低於未登入 60 次的上限（規格寫 ≤ 4 次，為了上面那個原因多一次）。
+// image 的 jobs 不另外抓，固定是空陣列。
 import { fetchJson } from './http.mjs'
 
 const WORKFLOWS = {
   ci: '.github/workflows/ci.yml',
   image: '.github/workflows/image.yml',
-  healthCron: '.github/workflows/health-cron.yml',
 }
 
 function runOf(run, jobs) {
@@ -43,8 +45,10 @@ export async function fetchGithub({ apiBase, repo, timeoutMs }) {
   if (typeof mainSha !== 'string' || !/^[0-9a-f]{40}$/.test(mainSha)) {
     throw new Error('commits/main 沒有回合法的 sha')
   }
-  const runsBody = await get('/actions/runs?branch=main&per_page=100')
+  const runsBody = await get('/actions/runs?branch=main&event=push&per_page=50')
   const runs = Array.isArray(runsBody?.workflow_runs) ? runsBody.workflow_runs : []
+  const cronBody = await get('/actions/workflows/health-cron.yml/runs?status=completed&per_page=1')
+  const cron = Array.isArray(cronBody?.workflow_runs) ? (cronBody.workflow_runs[0] ?? null) : null
 
   const ciRun = pickRun(runs, WORKFLOWS.ci, mainSha)
   let ciJobs = []
@@ -53,7 +57,6 @@ export async function fetchGithub({ apiBase, repo, timeoutMs }) {
     ciJobs = (jobsBody?.jobs ?? []).map((j) => ({ name: j.name, conclusion: j.conclusion ?? null }))
   }
   const imageRun = pickRun(runs, WORKFLOWS.image, mainSha)
-  const cron = runs.find((r) => r.path === WORKFLOWS.healthCron && r.status === 'completed') ?? null
 
   const pulls = await get('/pulls?state=all&sort=updated&direction=desc&per_page=100')
   const prs = (Array.isArray(pulls) ? pulls : []).map((p) => ({
