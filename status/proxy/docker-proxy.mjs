@@ -10,8 +10,10 @@
 // inspect（Config.Env 有主網站的資料庫密碼）、archive、export 一起放行。
 //
 // 用法：node proxy/docker-proxy.mjs（環境變數 DOCKER_PROXY_SOCKET、DOCKER_PROXY_PORT）
+import { Buffer } from 'node:buffer'
 import http from 'node:http'
-import { fileURLToPath } from 'node:url'
+import process from 'node:process'
+import { URL, fileURLToPath } from 'node:url'
 
 // 容器 ID 或名稱：Docker 允許的字元，不含 /、%、..（擋路徑穿越與編碼過的斜線）。
 const ID = '[A-Za-z0-9][A-Za-z0-9_.-]*'
@@ -192,6 +194,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const socketPath = process.env.DOCKER_PROXY_SOCKET || '/var/run/docker.sock'
   const port = Number(process.env.DOCKER_PROXY_PORT || 2375)
   createDockerProxy({ socketPath }).listen(port, '0.0.0.0', () => {
-    console.log(`docker-proxy 在 :${port} 聽，上游 ${socketPath}`)
+    process.stdout.write(`docker-proxy 在 :${port} 聽，上游 ${socketPath}\n`)
   })
 }

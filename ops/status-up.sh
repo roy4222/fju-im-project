@@ -22,7 +22,7 @@ COMPOSE_FILE="${APP_ROOT}/docker-compose.status.yml"
 SECRETS_DIR="${FJU_STATUS_SECRETS:-/srv/fju/status/secrets}"
 PG_CONTAINER="fju-test-postgres"
 ROLE="fju_monitor"
-# 單引號是刻意的：$POSTGRES_USER、$POSTGRES_DB 要在 postgres 容器裡展開，外層 shell 不能碰。
+# 單引號是刻意的：POSTGRES_USER 與 POSTGRES_DB 要在 postgres 容器裡展開，外層 shell 不能碰。
 # shellcheck disable=SC2016
 PSQL_IN_CONTAINER='psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 # shellcheck disable=SC2016

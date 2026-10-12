@@ -3,10 +3,12 @@
 // 對 inspect 回一份帶假秘密的 JSON。驗兩件事：不在白名單的請求 403 且上游一個都沒收到；
 // 放行的 inspect 與 /info 只剩白名單欄位。
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { setTimeout } from 'node:timers'
 
 import { createDockerProxy, filterInfo, filterInspect, matchRoute } from './docker-proxy.mjs'
 
@@ -106,10 +108,22 @@ beforeEach(() => {
   received.length = 0
 })
 
-async function call(method, url) {
-  const res = await fetch(base + url, { method })
-  const text = method === 'HEAD' ? '' : await res.text()
-  return { status: res.status, text, headers: res.headers }
+function call(method, url) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(base + url, { method }, (res) => {
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () =>
+        resolve({
+          status: res.statusCode,
+          text: Buffer.concat(chunks).toString('utf8'),
+          headers: { get: (k) => res.headers[k.toLowerCase()] ?? null },
+        }),
+      )
+    })
+    req.on('error', reject)
+    req.end()
+  })
 }
 
 describe('放行的讀取端點', () => {
@@ -221,6 +235,22 @@ describe('拒絕：403 且上游沒收到任何請求', () => {
       expect(received).toEqual([])
     })
   }
+
+  it('原始路徑不經正規化直接送（..、%2F、%2e）也一律 403', async () => {
+    const port = proxy.address().port
+    for (const raw of ['/containers/../images/json', '/containers/x%2Fjson', '/containers/%2e%2e/info', '/v1.45/../info']) {
+      const status = await new Promise((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, path: raw, method: 'GET' }, (res) => {
+          res.resume()
+          resolve(res.statusCode)
+        })
+        req.on('error', reject)
+        req.end()
+      })
+      expect(status, raw).toBe(403)
+    }
+    expect(received).toEqual([])
+  })
 
   it('帶 Upgrade 標頭（attach／exec 的 hijack）一律拒絕，不轉發', async () => {
     const status = await new Promise((resolve, reject) => {
