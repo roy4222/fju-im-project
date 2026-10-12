@@ -12,6 +12,7 @@ import {
   normalizeLinkReason,
   normalizeOpportunityInput,
   normalizeReason,
+  opportunityDeleteBlocker,
   opportunityName,
   opportunitySummary,
   parseGroupType,
@@ -61,6 +62,9 @@ import { RealClock, type Clock } from '@/shared/time'
  * - 鎖順序照分組：`cohorts FOR SHARE` → `groups FOR NO KEY UPDATE` → `industry_opportunities FOR SHARE`。
  *   連結、換案、解除、改類型都把組別版本加一：組長畫面上的「改類型」「換案」帶著版本，別人先動過就 `CONFLICT`。
  * - 一組同時最多連一案由資料庫守（`opportunity_links_one_active` 部分唯一）；組別列鎖是第一道，部分唯一是後備。
+ *
+ * 刪除（第三波 W11）：系辦限定，只限草稿或已下架且沒有連著組別；打刪除標記（`deleted_at`）不實體刪列。
+ * 被刪的案在鎖列、列表、詳情、管理清單、連結目標全部當作不存在。
  *
  * 可見性由**查詢層**守（6.2）：列表與一般的詳情查詢根本不 select 地址、聯絡人、電話、Email 與內部備註；
  * 只有看的人是案主或系辦時，才另外發一次 select 把私有欄位讀出來。正文照老師打的字存，輸出前一律經
@@ -127,6 +131,9 @@ const PUBLIC_SELECT = `
     join users u on u.id = o.owner_teacher_user_id
     left join user_profiles p on p.user_id = o.owner_teacher_user_id`
 
+/** 沒被刪除（第三波 W11）：所有讀合作案本身的查詢都要帶。 */
+const NOT_DELETED = 'o.deleted_at is null'
+
 function notFound(): Err {
   return err('VALIDATION_FAILED', '找不到這個合作案，請重新整理頁面。')
 }
@@ -190,15 +197,28 @@ export class PgOpportunityCommand implements OpportunityCommand {
   async create(actor: ResolvedActor, input: CreateOpportunityInput, requestId: string): Promise<Result<OpportunityReceipt>> {
     const blocked = gate(actor)
     if (blocked) return blocked
-    if (actor.kind !== 'authenticated' || !actor.roles.includes('teacher')) {
-      return err('FORBIDDEN', '只有老師可以建立合作案（負責老師由登入帳號帶入）。')
+    if (actor.kind !== 'authenticated') return err('UNAUTHENTICATED', '請先登入。')
+    const isTeacher = actor.roles.includes('teacher')
+    const admin = isAdminActor(actor)
+    if (!isTeacher && !admin) return err('FORBIDDEN', '只有老師與系辦可以建立合作案。')
+    // 負責老師：老師自己建＝本人（沒帶或帶自己）；系辦建＝從選單指定（第三波 W11）。
+    const requestedOwner = String(input.ownerTeacherUserId ?? '').trim()
+    // 老師建自己的（沒帶或帶自己）＝原本的行為；其他情況都是系辦指定，要另外確認那位是老師。
+    const byAdmin = !(isTeacher && (requestedOwner === '' || requestedOwner === actor.userId))
+    if (byAdmin && !admin) return err('FORBIDDEN', '老師只能建立自己負責的合作案。')
+    if (byAdmin && requestedOwner === '') {
+      return err('VALIDATION_FAILED', '請選負責老師。', { details: { field: 'ownerTeacherUserId' } })
+    }
+    if (byAdmin && !isUuid(requestedOwner)) {
+      return err('VALIDATION_FAILED', '找不到這位老師，請重新選負責老師。', { details: { field: 'ownerTeacherUserId' } })
     }
     if (!isUuid(requestId)) return badRequestId()
     const normalized = normalizeOpportunityInput(input)
     if (!normalized.ok) return normalized
     const fields = normalized.value
     const publish = input.publish === true
-    const teacherId = actor.userId
+    const actorId = actor.userId
+    const teacherId = requestedOwner || actor.userId
     const businessNow = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
@@ -206,15 +226,21 @@ export class PgOpportunityCommand implements OpportunityCommand {
       const begun = await this.#ledger.begin(
         tx,
         {
-          actorUserId: teacherId,
+          actorUserId: actorId,
           operationKind: 'opportunity.create',
           requestId,
-          fingerprint: sha256(canonicalJson({ ...fields, publish })),
+          // 老師自己建的指紋照舊（不含負責老師）；系辦指定的另外帶上，換老師重送就不是同一個請求。
+          fingerprint: sha256(canonicalJson(byAdmin ? { ...fields, publish, ownerTeacherUserId: teacherId } : { ...fields, publish })),
           scope: 'global',
         },
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<OpportunityReceipt>(begun)
+      if (byAdmin && !(await lockActiveTeacher(tx, teacherId))) {
+        return err('VALIDATION_FAILED', '這位老師的帳號目前不能當負責老師（已停用或不是老師），請重新選。', {
+          details: { field: 'ownerTeacherUserId' },
+        })
+      }
 
       const id = uuidv7()
       const status: OpportunityStatus = publish ? 'published' : 'draft'
@@ -223,7 +249,7 @@ export class PgOpportunityCommand implements OpportunityCommand {
            (id, owner_teacher_user_id, company_name, department, content, requirements, notes, notes_visibility,
             address, contact_name, contact_phone, contact_email, status, published_business_at, revision,
             created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1, $15, 'user', $2, $15, $2)`,
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1, $15, 'user', $16, $15, $16)`,
         [
           id,
           teacherId,
@@ -240,10 +266,19 @@ export class PgOpportunityCommand implements OpportunityCommand {
           status,
           publish ? businessNow : null,
           realAt,
+          actorId,
         ],
       )
-      if (publish) await this.#publishedEvent(tx, id, 1, teacherId, realAt, businessNow)
-      await this.#auditOpportunity(tx, actor, 'opportunity.create', id, realAt, businessNow, { status })
+      if (publish) await this.#publishedEvent(tx, id, 1, actorId, realAt, businessNow)
+      await this.#auditOpportunity(
+        tx,
+        actor,
+        'opportunity.create',
+        id,
+        realAt,
+        businessNow,
+        byAdmin ? { status, ownerTeacherUserId: teacherId } : { status },
+      )
       const receipt = this.#receipt(id, fields, 'created', status, 1, requestId, realAt)
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { opportunityId: id } })
       return { ok: true as const, receipt }
@@ -323,6 +358,72 @@ export class PgOpportunityCommand implements OpportunityCommand {
 
   async withdraw(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>> {
     return this.#changeStatus(actor, input, requestId, 'withdraw')
+  }
+
+  async delete(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>> {
+    const blocked = gate(actor)
+    if (blocked) return blocked
+    if (!isAdminActor(actor) || actor.kind !== 'authenticated') return err('FORBIDDEN', '只有系辦可以刪除合作案。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(String(input.opportunityId ?? ''))) return notFound()
+    if (!Number.isInteger(input.revision)) return staleRevision()
+    const actorId = actor.userId
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const current = await this.#lockOpportunity(tx, input.opportunityId, true)
+      if (!current) return notFound()
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: actorId,
+          operationKind: 'opportunity.delete',
+          requestId,
+          fingerprint: sha256(canonicalJson({ id: current.id, revision: input.revision })),
+          scope: 'global',
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<OpportunityReceipt>(begun)
+      if (current.deleted) return notFound()
+      if (current.revision !== input.revision) return staleRevision()
+      // 連結指令鎖合作案 FOR SHARE，這裡已經 FOR UPDATE：查到的有效連結不會在交易中途多出來。
+      const links = await tx.query<{ code: string }>(
+        `select g.code from opportunity_links l join groups g on g.id = l.group_id
+          where l.opportunity_id = $1 and l.valid_to is null order by g.code`,
+        [current.id],
+      )
+      const blocker = opportunityDeleteBlocker({ status: current.status, linkedGroupCodes: links.rows.map((r) => r.code) })
+      if (blocker) return err('VALIDATION_FAILED', blocker)
+
+      const updated = await tx.query<{ revision: number }>(
+        `update industry_opportunities
+            set deleted_at = $2, deleted_by_user_id = $3, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+          where id = $1 returning revision`,
+        [current.id, realAt, actorId],
+      )
+      const revision = updated.rows[0]!.revision
+      const name = opportunityName({ companyName: current.company_name, department: current.department })
+      // 刪除後只剩稽核看得到：記刪除前的狀態、名稱與負責老師（設計方案 §2）。
+      await this.#auditOpportunity(tx, actor, 'opportunity.deleted', current.id, realAt, businessNow, {
+        status: current.status,
+        name,
+        ownerTeacherUserId: current.owner_teacher_user_id,
+        revision,
+      })
+      const receipt = this.#receipt(
+        current.id,
+        { companyName: current.company_name, department: current.department },
+        'deleted',
+        current.status,
+        revision,
+        requestId,
+        realAt,
+      )
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { opportunityId: current.id } })
+      return { ok: true as const, receipt }
+    })
   }
 
   async #changeStatus(
@@ -460,7 +561,8 @@ export class PgOpportunityCommand implements OpportunityCommand {
       }
 
       const target = await tx.query<{ id: string; owner_teacher_user_id: string; company_name: string; department: string; status: OpportunityStatus }>(
-        `select id, owner_teacher_user_id, company_name, department, status from industry_opportunities where id = $1 for share`,
+        `select id, owner_teacher_user_id, company_name, department, status from industry_opportunities
+          where id = $1 and deleted_at is null for share`,
         [input.opportunityId],
       )
       const opportunity = target.rows[0]
@@ -782,7 +884,8 @@ export class PgOpportunityCommand implements OpportunityCommand {
 
   // ── 共用 ────────────────────────────────────────────────────────────────────
 
-  async #lockOpportunity(tx: PoolClient, id: string) {
+  /** 已刪除的當作不存在；只有刪除自己要先拿到列、讓帳本認出重送（`includeDeleted`）。 */
+  async #lockOpportunity(tx: PoolClient, id: string, includeDeleted = false) {
     const rows = await tx.query<{
       id: string
       owner_teacher_user_id: string
@@ -790,12 +893,14 @@ export class PgOpportunityCommand implements OpportunityCommand {
       department: string
       status: OpportunityStatus
       revision: number
+      deleted: boolean
     }>(
-      `select id, owner_teacher_user_id, company_name, department, status, revision
+      `select id, owner_teacher_user_id, company_name, department, status, revision, deleted_at is not null as deleted
          from industry_opportunities where id = $1 for update`,
       [id],
     )
-    return rows.rows[0] ?? null
+    const row = rows.rows[0]
+    return row && (includeDeleted || !row.deleted) ? row : null
   }
 
   async #publishedEvent(tx: PoolClient, id: string, revision: number, actorId: string, realAt: Date, businessAt: Date) {
@@ -879,6 +984,22 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ group: Grou
   const group = found.rows[0]
   if (!group || !cohort.rows[0]) return null
   return { group, cohort: cohort.rows[0] }
+}
+
+/**
+ * 系辦指定的負責老師：帳號正常、沒去識別化、有未撤銷的老師角色（同 `GroupQuery.teacherOptions()` 的條件）。
+ * 鎖住帳號列（FOR SHARE）：同一時間被停用的話，建立會等停用的交易結束後再看結果。
+ */
+async function lockActiveTeacher(tx: PoolClient, userId: string): Promise<boolean> {
+  const rows = await tx.query(
+    `select 1 from users u
+      where u.id = $1 and u.status = 'active' and u.deidentified_at is null
+        and exists (select 1 from role_assignments r
+                     where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
+      for share of u`,
+    [userId],
+  )
+  return rows.rows.length > 0
 }
 
 function writeBlocked(cohort: CohortRow, group: GroupRow, what: string): Err | null {
@@ -970,7 +1091,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
 
   async list(actor: ResolvedActor, filter: OpportunityListFilter = {}): Promise<OpportunityCard[]> {
     if (!canViewOpportunities(actor)) return []
-    const where = [`o.status = 'published'`]
+    const where = [`o.status = 'published'`, NOT_DELETED]
     const values: unknown[] = []
     if (filter.ownerUserId && isUuid(filter.ownerUserId)) {
       values.push(filter.ownerUserId)
@@ -1002,7 +1123,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
     if (actor.kind !== 'authenticated' || !canViewOpportunities(actor)) return { access: 'need_login' }
     if (!isUuid(String(opportunityId ?? ''))) return { access: 'not_found' }
     const db = this.#reader()
-    const found = await db.query<OpportunityRow>(`${PUBLIC_SELECT} where o.id = $1`, [opportunityId])
+    const found = await db.query<OpportunityRow>(`${PUBLIC_SELECT} where o.id = $1 and ${NOT_DELETED}`, [opportunityId])
     const row = found.rows[0]
     if (!row) return { access: 'not_found' }
     const manage = canManageOpportunity(actor, row.owner_teacher_user_id)
@@ -1088,7 +1209,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
          from industry_opportunities o
          join users u on u.id = o.owner_teacher_user_id
          left join user_profiles p on p.user_id = o.owner_teacher_user_id
-        where ($1::uuid is null or o.owner_teacher_user_id = $1)
+        where ($1::uuid is null or o.owner_teacher_user_id = $1) and ${NOT_DELETED}
         order by case o.status when 'published' then 0 when 'draft' then 1 else 2 end, o.created_at desc`,
       [admin ? null : actor.userId],
     )
