@@ -24,6 +24,8 @@ export type NotificationKind = 'due' | 'submission' | 'signoff' | 'grading' | 'a
 export type NotificationPresentation = {
   readonly kind: NotificationKind
   readonly defaultTitle: string
+  /** 加在標題前面的標示（例如修改後的通知寫「（已更新）」，跟第一次的通知分得出來）。 */
+  readonly titlePrefix?: string
 }
 
 type CatalogEntry = {
@@ -167,10 +169,13 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'submission', defaultTitle: '系辦開放你補交一份繳交項目' },
   },
-  /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
+  /**
+   * 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。
+   * 標題前加「（已更新）」：不然跟第一次發布的通知同標題、只能靠時間分（驗收第 2 章 P-09）。
+   */
   'item.updated': {
     consumers: ['notifications'],
-    notification: { kind: 'system', defaultTitle: '專題事務已更新' },
+    notification: { kind: 'system', defaultTitle: '專題事務已更新', titlePrefix: '（已更新）' },
   },
   /**
    * 撤回、下架、重新發布（票 16；產品模組 04 §4.5）。產品事件矩陣沒有這三種的通知：

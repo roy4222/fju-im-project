@@ -1,0 +1,28 @@
+{
+ "date": "2026-10-12",
+ "round": "CONTEXT 術語表雙向合併（第三波＋W13c 用詞）",
+ "direction": "repo → Vault（第三波、W13c）＋ Vault → repo（10/08 條目）",
+ "rule": "v2-2026-09-12",
+ "verified_at": "2026-10-12T07:22:35.791190+00:00",
+ "counts": {
+  "merged-both-ways": 2,
+  "entries-touched": 2
+ },
+ "files": [
+  {
+   "destination": "docs/product/CONTEXT.md",
+   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
+   "mirror_sha256": "7659118b13c3c9a8dfe3bbd00c4cf458650fb7161e0df273be98bf4bc7412104",
+   "change": "merged-both-ways"
+  },
+  {
+   "destination": "CONTEXT.md",
+   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
+   "mirror_sha256": "4e502431a986348a614a2a3ed3547958b953fd0d5d2d9be36d51b33cf3c0a809",
+   "change": "merged-both-ways"
+  }
+ ],
+ "notes": "Vault 來源以 repo 根 CONTEXT.md 在 a43f42a^..748090a 的差異套用（6 段中 5 段自動套用，網站與後台一段手動插在專題需求之後）；docs/product/CONTEXT.md＝Vault 全文、Vault 外連結改絕對路徑；根 CONTEXT.md＝前兩行相容說明＋同文、相對連結加 docs/product/ 前綴。沒有執行期驗證。"
+}

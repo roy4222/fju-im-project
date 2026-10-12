@@ -360,11 +360,11 @@ describe('通知匣：只有本人、篩選、已讀', () => {
 
     const onlyCohort = await inbox.list(actorOf(alice), { kind: 'cohort', cohortId }, null)
     expect(onlyCohort.items.map((i) => i.title)).toEqual(['115 的'])
-    expect(onlyCohort.items[0]).toMatchObject({ cohortCode: '115-W', source: { state: 'ok' } })
+    expect(onlyCohort.items[0]).toMatchObject({ cohortCode: '115-W', cohortName: '115', source: { state: 'ok' } })
     const onlyGlobal = await inbox.list(actorOf(alice), { kind: 'global' }, null)
     expect(onlyGlobal.items.map((i) => i.title)).toContain('全站的')
     expect(onlyGlobal.items.map((i) => i.title)).not.toContain('115 的')
-    expect((await inbox.cohortOptions(actorOf(alice))).map((c) => c.code)).toEqual(['115-W'])
+    expect((await inbox.cohortOptions(actorOf(alice))).map((c) => [c.code, c.name])).toEqual([['115-W', '115']])
     expect([global, scoped]).toHaveLength(2)
   })
 

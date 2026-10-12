@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { IconCheck } from '@tabler/icons-react'
 import type { SignoffState, VersionDetail } from '@/application/signoff'
 import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
+import { cohortLabel } from '@/composition/cohorts'
 import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -85,7 +86,7 @@ export function VersionView({
             {v.groupCode}・{PURPOSE_LABEL[v.purpose]}・同意書第 {v.versionNo} 版
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {v.cohortCode}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+            {cohortLabel({ name: v.cohortName, code: v.cohortCode })}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
             （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
           </p>
         </div>

@@ -261,7 +261,10 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   await single.getByRole('button', { name: '關閉' }).click()
 
   await searchFor(page, tag)
-  await page.getByRole('button', { name: '批次停用（TXT）' }).click()
+  // 驗收 P-06：批次停用不跟匯出並排，在頁面底部的「危險操作」區。
+  const toolbarButtons = page.getByRole('region', { name: '帳號' }).getByRole('button', { name: '批次停用（TXT）' })
+  await expect(toolbarButtons).toHaveCount(0)
+  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '批次停用（TXT）' }).click()
   const dialog = page.getByRole('dialog', { name: '批次停用' })
   // 格式不對：整份退件並指出行號。
   await dialog.getByLabel('或直接貼上學號').fill(`${students[1]!.studentNo},${students[1]!.name}`)

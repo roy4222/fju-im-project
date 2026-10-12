@@ -359,6 +359,8 @@ export type LinkedGroupRef = {
   readonly groupId: string
   readonly groupCode: string
   readonly cohortCode: string
+  /** 屆別名稱（例如「第 43 屆」）；畫面標「名稱（代碼）」（系1）。 */
+  readonly cohortName: string
   readonly linkedAt: Date
 }
 

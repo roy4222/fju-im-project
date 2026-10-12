@@ -15,7 +15,7 @@ import { formatScore } from '@/shared/score'
 
 export function describeSchemeVersionReceipt(r: SchemeVersionReceipt): string {
   return r.status === 'draft'
-    ? `已建立評分規則第 ${r.versionNo} 版（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分規則」區塊的「版本紀錄」裡，點開後按第 ${r.versionNo} 版那列的「發布」（評分規則已鎖定時那列是「看影響並套用」）。`
+    ? `已建立評分規則第 ${r.versionNo} 版（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分規則」區塊的「版本紀錄」裡，點開後按第 ${r.versionNo} 版那列的「發布」（評分規則已鎖定時那列是「查看重算影響（尚不套用）」）。`
     : `評分規則第 ${r.versionNo} 版已發布，老師評分用這一版。`
 }
 

@@ -13,6 +13,7 @@ function card(patch: {
     groupId: patch.groupId,
     groupCode: patch.groupId.toUpperCase(),
     cohortCode: '114',
+    cohortName: '第 42 屆',
     purpose: patch.purpose ?? 'result_confirmation',
     current: {
       versionId: `${patch.groupId}-${patch.purpose ?? 'result_confirmation'}`,

@@ -139,7 +139,7 @@ export default async function AffairsPage({
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
-              {c.code}
+              {cohortLabel(c)}
               {c.status === 'archived' ? <span className="ml-1 text-xs font-normal opacity-80">（已封存）</span> : null}
             </Link>
           ))}

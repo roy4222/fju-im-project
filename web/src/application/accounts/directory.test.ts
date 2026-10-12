@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   accountAdminDenied,
+  DEIDENTIFY_CLEARS,
   buildAccountsCsv,
   classifyBulk,
   directoryQueryString,
@@ -225,5 +226,15 @@ describe('批次停用 TXT', () => {
     expect(sameTargets(['a', 'b'], ['b', 'a'])).toBe(true)
     expect(sameTargets(['a'], ['a', 'b'])).toBe(false)
     expect(sameTargets(['a', 'b'], ['a', 'c'])).toBe(false)
+  })
+})
+
+describe('個資清除預覽的用詞（驗收第 5 章 P-13、P-14）', () => {
+  it('寫「Google 登入授權」與「解除這個帳號與學號的綁定」，不出現工程詞', () => {
+    const text = DEIDENTIFY_CLEARS.join('\n')
+    expect(text).toContain('解除這個帳號與學號的綁定')
+    expect(text).toContain('Google 登入授權')
+    expect(text).not.toContain('權杖')
+    expect(text).not.toContain('釋出本屆學號')
   })
 })

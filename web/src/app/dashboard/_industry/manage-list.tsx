@@ -12,6 +12,7 @@ import {
   OpportunityStatusButton,
   type OpportunityFormLabels,
 } from '@/app/dashboard/_industry/opportunity-forms'
+import { cohortLabel } from '@/composition/cohorts'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 /**
@@ -158,7 +159,7 @@ function List({
             </div>
             <LinkedGroupsCell
               header={showOwner ? <span className="mb-0.5 block font-semibold text-foreground">{o.ownerName} 老師</span> : undefined}
-              links={o.links.map((l) => ({ linkId: l.linkId, groupCode: l.groupCode, cohortCode: l.cohortCode }))}
+              links={o.links.map((l) => ({ linkId: l.linkId, groupCode: l.groupCode, cohortLabel: cohortLabel({ name: l.cohortName, code: l.cohortCode }) }))}
               opportunityName={name}
               requestId={randomUUID()}
               reasonMaxLength={reasonMaxLength}

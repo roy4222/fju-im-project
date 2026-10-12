@@ -2,7 +2,7 @@ import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
 import { hasRole, statusGate, type ResolvedActor } from '@/application/accounts'
-import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
+import { cohortLabel, type BusinessClockSource, type CohortStatus } from '@/application/cohorts'
 import {
   collectSchemeKeys,
   normalizeSchemeStages,
@@ -71,7 +71,7 @@ export const isUuid = (value: unknown): value is string => typeof value === 'str
 /** 要求份數的上限：一組一個階段找十位老師評已經不合理，擋掉打錯字。 */
 export const MAX_REQUIRED_COUNT = 10
 
-export type CohortRow = { id: string; code: string; status: CohortStatus }
+export type CohortRow = { id: string; code: string; name: string; status: CohortStatus }
 export type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
 export type SchemeRow = { id: string; cohort_id: string; current_version_id: string | null; revision: number }
 export type VersionRow = {
@@ -116,8 +116,8 @@ export function groupNotFound(): Err {
   return err('VALIDATION_FAILED', '找不到這個組別，請重新整理頁面。')
 }
 
-export function archived(code: string): Err {
-  return err('COHORT_ARCHIVED', `${code} 已封存，評分資料只能查看。`)
+export function archived(cohort: { readonly name: string; readonly code: string }): Err {
+  return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，評分資料只能查看。`)
 }
 
 export function dissolved(code: string): Err {
@@ -183,7 +183,7 @@ export class PgGradingCommand implements GradingCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SchemeVersionReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
 
       // 一屆一個方案頭列：沒有就建，有就鎖住它分配版本號（兩位管理員同時建，版本號不會撞）。
       await tx.query(
@@ -282,7 +282,7 @@ export class PgGradingCommand implements GradingCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SchemeVersionReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (version.status !== 'draft') return err('VALIDATION_FAILED', `v${version.version_no} 已經發布過了，不需要再發布。`)
 
       const current = scheme.current_version_id
@@ -296,7 +296,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的第 ${current.version_no} 版已有老師開始評分（存了評分草稿或已正式送出），評分規則已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
+          `目前的第 ${current.version_no} 版已有老師開始評分（存了評分草稿或已正式送出），評分規則已鎖定，不能直接換成新版本；改評分項目或權重請在版本清單按「查看重算影響（尚不套用）」（先看重算預覽再確認）。`,
         )
       }
 
@@ -383,7 +383,7 @@ export class PgGradingCommand implements GradingCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RequirementReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages) return noScheme()
       const stage = stageOf(stages, String(input.stageKey ?? ''))
@@ -463,7 +463,7 @@ export class PgGradingCommand implements GradingCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<AssignEvaluatorReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages) return noScheme()
       const stage = stageOf(stages, String(input.stageKey ?? ''))
@@ -580,7 +580,7 @@ export class PgGradingCommand implements GradingCommand {
       if (begun.outcome !== 'fresh') return replayed<DraftReceipt | FinalReceipt>(begun)
       // 先驗「是不是本人的有效指派」：不是的話什麼都不說（不透露這組的狀態）。
       if (assignment.teacher_user_id !== teacherId || assignment.valid_to !== null) return notAssigned()
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages || !versionId) return noScheme()
       const stage = stageOf(stages, assignment.stage_key)
@@ -784,7 +784,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
     if (denied) return denied
     if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     const db = this.#reader()
-    const cohort = (await db.query<CohortRow>('select id, code, status from cohorts where id = $1', [cohortId])).rows[0]
+    const cohort = (await db.query<CohortRow>('select id, code, name, status from cohorts where id = $1', [cohortId])).rows[0]
     if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
 
     const scheme = (
@@ -885,7 +885,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
 
     return ok(
       {
-        cohort: { id: cohort.id, code: cohort.code, archived: cohort.status === 'archived' },
+        cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
         schemeId: scheme?.id ?? null,
         versions,
         current: versions.find((v) => v.isCurrent) ?? null,
@@ -913,9 +913,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       group_code: string
       stage_key: string
       cohort_code: string
+      cohort_name: string
       stages: unknown
     }>(
-      `select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, v.stages
+      `select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages
          from evaluator_assignments a
          join groups g on g.id = a.group_id and g.status = 'active'
          join cohorts c on c.id = g.cohort_id and c.status <> 'archived'
@@ -943,6 +944,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         {
           assignmentId: r.id,
           cohortCode: r.cohort_code,
+          cohortName: r.cohort_name,
           groupId: r.group_id,
           groupCode: r.group_code,
           stageKey: stage.key,
@@ -968,8 +970,8 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
     if (assignments.rowCount === 0) return notAssigned()
 
     const head = (
-      await db.query<{ code: string; cohort_code: string; version_id: string | null; version_no: number | null; stages: unknown }>(
-        `select g.code, c.code as cohort_code, v.id as version_id, v.version_no, v.stages
+      await db.query<{ code: string; cohort_code: string; cohort_name: string; version_id: string | null; version_no: number | null; stages: unknown }>(
+        `select g.code, c.code as cohort_code, c.name as cohort_name, v.id as version_id, v.version_no, v.stages
            from groups g
            join cohorts c on c.id = g.cohort_id
            left join grading_schemes s on s.cohort_id = c.id
@@ -1039,6 +1041,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         groupId,
         groupCode: head.code,
         cohortCode: head.cohort_code,
+        cohortName: head.cohort_name,
         memberNames: members.rows.map((m) => m.name),
         versionNo: head.version_no ?? 0,
         entries,
@@ -1086,7 +1089,7 @@ export function pick(stage: SchemeStage, scores: Readonly<Record<string, string>
 // ── 鎖與共用查詢 ────────────────────────────────────────────────────────────
 
 export async function lockCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
-  const rows = await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])
+  const rows = await tx.query<CohortRow>('select id, code, name, status from cohorts where id = $1 for share', [cohortId])
   return rows.rows[0] ?? null
 }
 

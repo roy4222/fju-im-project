@@ -6,7 +6,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { OUTLINE_BUTTON_SM, PageTitle, Panel, PanelEmpty, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { MatrixTable, type MatrixCell, type MatrixItem, type MatrixRow } from '@/app/dashboard/teacher/affairs/matrix-table'
 import type { AdvisorMatrixCell, AdvisorMatrixItem, StatusTone } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { GROUP_TYPE_LABEL } from '@/composition/groups'
 import { categoryOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -41,7 +41,7 @@ export default async function TeacherAffairsPage() {
   const rows: MatrixRow[] = groups.map((group) => ({
     groupId: group.groupId,
     code: group.code,
-    meta: `${group.cohortCode}・${GROUP_TYPE_LABEL[group.groupType]}`,
+    meta: `${cohortLabel({ name: group.cohortName, code: group.cohortCode })}・${GROUP_TYPE_LABEL[group.groupType]}`,
     members: group.memberNames.join('、'),
     cells: Object.fromEntries(
       items.map((item) => [
@@ -109,7 +109,7 @@ function cellView(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixC
   const facts = { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }
   const status = receiverStatus(item, { ...facts, reopenUntil: cell.reopenUntil }, businessNow)
   const reopened = cell.latestVersionNo === null && !status.overdue && receiverStatus(item, facts, businessNow).overdue
-  const headline = category === 'removed' ? '已移出名單' : status.headline
+  const headline = category === 'removed' ? '已不需要繳交（原名單移除）' : status.headline
   const tone: PillTone = category === 'current' ? TONE[status.tone] : 'default'
   let detail = ''
   if (cell.latestVersionNo !== null && cell.latestReceivedAt) {

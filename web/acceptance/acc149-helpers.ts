@@ -152,10 +152,10 @@ export async function activateCohort(admin: Page, code: string) {
   await expect(cohortRow(admin, code)).toContainText('進行中')
 }
 
-/** 分組總覽的屆別編號（屆別選單連結上的 `?cohort=`）。 */
+/** 分組總覽的屆別編號（屆別選單連結上的 `?cohort=`；連結文字是「名稱（代碼）」）。 */
 export async function cohortIdOf(admin: Page, code: string): Promise<string> {
   await admin.goto('/dashboard/admin/groups')
-  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: code, exact: true })
+  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: new RegExp(`（${code}）$`) })
   const id = new URL((await link.getAttribute('href'))!, 'https://x').searchParams.get('cohort') ?? ''
   expect(id).toMatch(/^[0-9a-f-]{36}$/)
   return id

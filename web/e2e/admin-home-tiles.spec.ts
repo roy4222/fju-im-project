@@ -9,7 +9,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 2. 有一筆成績更正待復核時，系辦首頁出現提示與「去復核」入口（N-61）。
  * 3. 檔案管理說明「要新增檔案請到專題事務」並附前往連結（N-138）。
  * 4. 老師打開沒被指派的評分頁：中文說明＋「回到自己的首頁」（N-24）。
- * 5. 老師暫存一組後，左側評分佇列立刻顯示「草稿 已填/總數」，不用切頁或重新整理（N-154）。
+ * 5. 老師暫存一組後，左側待評分清單立刻顯示「草稿 已填/總數」，不用切頁或重新整理（N-154）。
  *
  * 系辦首頁看「預設工作屆別」：這裡建一屆並設成預設，結束時把原本的預設還回去。
  * 收件、名單、評分與更正都用 owner 連線直接種好（流程本身各有自己的 e2e），畫面全程照真的操作。
@@ -263,6 +263,9 @@ test('系辦首頁：逾期磚分開寫「欠繳 3 人、1 組」與「發布中
   await expect(tile).toContainText('欠繳 3 人、1 組')
   await expect(tile).toContainText('發布中 3 個繳交項目')
   await expect(tile).not.toContainText('份收件')
+  // 驗收 P-05：評分磚寫「尚未完成評分的老師」，不寫像催繳的「缺評老師」。
+  await expect(page.getByRole('link').filter({ hasText: '尚未完成評分的老師' })).toBeVisible()
+  await expect(page.getByText('缺評老師')).toHaveCount(0)
 
   const notice = page.getByTestId('pending-review-notice')
   await expect(notice).toContainText('成績更正需要重新確認 1 筆')
@@ -290,10 +293,10 @@ test('老師打開沒被指派的評分頁：「找不到這個頁面」（不�
   await expect(page).toHaveURL(/\/dashboard\/teacher$/)
 })
 
-test('老師暫存一組後，左側評分佇列立刻變成「草稿 1/2」，不用重新整理', async ({ page }) => {
+test('老師暫存一組後，左側待評分清單立刻變成「草稿 1/2」，不用重新整理', async ({ page }) => {
   await signIn(page, grader)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G02')}?stage=mid`)
-  const queueRow = page.getByRole('list', { name: '評分佇列' }).getByRole('link').filter({ hasText: 'G02' })
+  const queueRow = page.getByRole('list', { name: '待評分清單' }).getByRole('link').filter({ hasText: 'G02' })
   await expect(queueRow).toContainText('未開始')
 
   const bench = page.getByRole('region', { name: 'G02「期中」評分表' })

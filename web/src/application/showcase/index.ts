@@ -10,6 +10,7 @@ export {
   normalizeTitle,
   POSTER_UPLOAD,
   SHOWCASE_LIMITS,
+  VIDEO_URL_MESSAGE,
 } from '@/application/showcase/draft'
 export {
   AWARD_LABEL_MAX,

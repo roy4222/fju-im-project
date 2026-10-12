@@ -86,6 +86,7 @@ export function getAdvisorSubmissionQuery(): AdvisorSubmissionQuery {
 /** app 對 application 只能帶型別；畫面要用的狀態字、檢查與回執句子經這裡拿（母 spec §4.3）。 */
 export {
   answerFields,
+  awaitsSubmission,
   categoryOf,
   completionOf,
   overdueReceiverIds,
