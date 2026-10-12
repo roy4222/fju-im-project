@@ -537,6 +537,141 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 
 改了 `ops/Caddyfile.vm` 還要：`sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml restart caddy`。
 
+### 重置測試站專用金鑰：安裝與使用
+
+網站驗收整夜跑時，Mac 要能在沒人的情況下把**測試站**清空、存快照、還原。做法比照備份拉取帳號 `fjubackup`：
+VM 新帳號 `fjureset`，它的金鑰被 `restrict,command=` 綁死只能跑守門腳本 `/usr/local/sbin/fju-test-reset-gate`；
+守門腳本只放行下面六個子命令，再用 `sudo -n` 交給唯一一支 root 腳本 `/usr/local/sbin/fju-test-reset`（設計方案 §6.4）。
+
+| 💻 Mac 下 | 做什麼 |
+|---|---|
+| `ssh fju-reset status` | 一行一個：`commit=`（測試站 /api/health 的 commit）、`health=ok`、`auto_deploy=paused｜on`、`snapshots=`、`busy=`、`last_run=` |
+| `ssh fju-reset pause-deploy`／`resume-deploy` | 暫停／恢復測試站自動部署（就是 touch／rm `deploy/auto-deploy.paused`） |
+| `ssh fju-reset reset` | 清回空站＝「開測前」第 3、5–9 步：備份 → 停站 → 刪 `fju-test-pgdata` 與附件 → `demo-seed.off` → **同一個 commit** 重新部署（deploy.sh 等健康、比對 commit；E2E 管理員在這步建）→ `seed-admin.sh test` 建 A1。最後印 `✓ 重置完成 commit=…` |
+| `ssh fju-reset snapshot <名稱>` | `backup.sh --site test` 的 dump＋附件打包 → `/srv/fju/test/snapshots/<名稱>/` |
+| `ssh fju-reset restore <名稱>` | 備份 → 停站 → 刪 DB 與附件 → 起空 DB、灌快照的 dump、解附件 → 同一個 commit 重新部署、等健康。帳號密碼是存快照那一夜的 |
+
+- **名稱**只能是 `a-z`、`0-9`、`-`，1–32 字，開頭不能是 `-`。其他寫法（多一個字、分號、`$( )`、反引號、引號、斜線、大寫、含 `prod`）一律拒絕，並記在 VM 的 syslog（`journalctl -t fju-test-reset-gate`）。
+- **同一個 commit**：取正在跑的 `fju-test-app` 映像 tag；app 沒在跑時用上次記下的，再沒有才用 `auto-deploy.last`。
+- **自動部署**：reset／restore 期間一定暫停，成功後回到開始前的狀態（本來暫停就維持暫停）；**失敗就維持暫停**，站可能停在一半，看輸出修好後重跑同一個指令，或照 `e2e/acceptance/README.md`「開測前」第 3、5–9 步手動做。
+- **只碰測試站**：路徑、compose project（`fju-test`）、volume（`fju-test-pgdata`）都寫死在 root 腳本裡；參數有 `prod` 直接拒絕；刪 volume 前核對它的 compose project 標籤是 `fju-test`，附件目錄必須真的是 `/srv/fju/test/files`（不是 symlink）——任何一項不符，在動手前就停。
+- **快照**：`/srv/fju/test/snapshots/<名稱>/{db.dump,files.tar.gz,meta}`，deploy 擁有、目錄 700、檔案 600；`meta` 記存的時間、commit、兩個檔的 sha256，restore 前先核對，附件包裡有 symlink、hardlink、`files/` 以外的路徑就拒絕。**最多留 5 份**，第 6 份存進來時刪最舊的。同名再存＝覆蓋。快照不在每日備份與異地拉取的範圍內。
+- **ssh 斷線不會把重置砍一半**：reset／snapshot／restore 在 VM 上的背景程序裡跑，輸出同步傳回來；斷線後它照樣跑完，之後 `ssh fju-reset status` 看 `last_run=`（`busy=yes`＝還在跑）。完整紀錄在 VM 的 `/var/log/fju-test-reset/`（root 才看得到）。同時只能跑一個。
+- **連線次數**：每個子命令＝一次新連線，ufw 對 22 埠 30 秒最多 6 次；整夜腳本每次間隔 ≥ 15 秒。
+- **每日備份撞到重置**：每日備份台灣 03:30 會跑 test 的 `backup.sh`；若整夜的 reset／restore 剛好停站中，那一次 test 備份會記失敗（prod 照常），屬正常，隔天會恢復。
+- **磁碟**：snapshot 用 `backup.sh` 產生 dump 後，`backups/` 裡那份會刪掉（快照裡已有一份）；`/var/log/fju-test-reset/` 只留最近 20 份。
+- **repo 的這兩支腳本改了之後**：照上一節把 ops 送上 VM，再重跑下面第 3 框的兩行 `sudo install`——`/usr/local/sbin` 那份才是生效的版本（root 不執行 `/srv/fju/app` 底下的腳本）。
+
+**安裝（Roy 做一次，約 10 分鐘；照順序）**
+
+① 💻 Mac：產金鑰（無密碼，只用來重置測試站），並記下兩支腳本的雜湊，等一下跟 VM 上的比對。
+
+```bash
+# 💻 Mac，repo 根目錄
+test -e ~/.ssh/fju_reset || ssh-keygen -t ed25519 -N '' -f ~/.ssh/fju_reset -C fju-reset
+cat ~/.ssh/fju_reset.pub
+shasum -a 256 ops/fju-test-reset-gate ops/fju-test-reset
+```
+
+再把 `ops/ssh-config.example` 裡 `Host fju-reset` 那一段貼進 `~/.ssh/config`。
+
+② 照上一節「repo 的 ops／compose 檔改了之後」把 ops 送上 VM（`/srv/fju/app/ops/` 要有這兩支）。
+
+③ 🖥️ VM：建帳號、裝腳本、authorized_keys、sudoers。`PUBKEY=` 那行換成 ① 印出來的**一整行**（`ssh-ed25519 AAAA… fju-reset`），保留外面的單引號。
+
+```bash
+# 🖥️ VM（sudo 會問一次 gtuser 的密碼）
+cd /srv/fju/app
+sha256sum ops/fju-test-reset-gate ops/fju-test-reset          # 要跟 ① 在 Mac 印的一樣
+PUBKEY='<貼上 ① 印出來的一整行 ssh-ed25519 …>'
+id fjureset >/dev/null 2>&1 || sudo useradd --system --create-home --home-dir /home/fjureset --shell /bin/sh fjureset
+sudo install -d -m 750 -o root -g fjureset /home/fjureset/.ssh
+case "$PUBKEY" in
+  "ssh-ed25519 "*)
+    printf 'restrict,command="/usr/local/sbin/fju-test-reset-gate" %s\n' "$PUBKEY" \
+      | sudo tee /home/fjureset/.ssh/authorized_keys >/dev/null
+    sudo chown root:fjureset /home/fjureset/.ssh/authorized_keys
+    sudo chmod 640 /home/fjureset/.ssh/authorized_keys
+    echo "✓ authorized_keys 寫好了" ;;
+  *) echo "✗ PUBKEY 不是 ssh-ed25519 開頭：authorized_keys 沒寫，改好 PUBKEY 再貼一次這一框" ;;
+esac
+sudo install -m 755 -o root -g root ops/fju-test-reset-gate /usr/local/sbin/fju-test-reset-gate
+sudo install -m 755 -o root -g root ops/fju-test-reset /usr/local/sbin/fju-test-reset
+# sudoers 先寫到暫存檔、visudo 驗過才放進 /etc/sudoers.d（寫壞的檔放進去會讓 sudo 整個不能用）
+SUDOERS_TMP="$(mktemp)"
+echo 'fjureset ALL=(root) NOPASSWD: /usr/local/sbin/fju-test-reset' > "$SUDOERS_TMP"
+sudo visudo -cf "$SUDOERS_TMP" && sudo install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/60-fju-reset
+rm -f "$SUDOERS_TMP"
+sudo visudo -c
+sudo -l -U fjureset                                            # 只能列出 /usr/local/sbin/fju-test-reset
+sudo /usr/local/sbin/fju-test-reset status                     # 先在 VM 上自己看一次
+```
+
+④ 🖥️ VM：sshd 放行 `fjureset`。先排一個 **5 分鐘後自動還原**的保險，改壞了也不會把自己鎖在外面；確認新連線都正常再取消保險。
+
+```bash
+# 🖥️ VM（重貼這一框也安全：先清掉上次的保險再排新的）
+sudo cp /etc/ssh/sshd_config.d/10-fju.conf /root/10-fju.conf.bak
+sudo systemctl stop fju-sshd-revert.timer 2>/dev/null || true
+sudo systemd-run --on-active=300 --unit=fju-sshd-revert \
+  /bin/sh -c 'cp /root/10-fju.conf.bak /etc/ssh/sshd_config.d/10-fju.conf && systemctl reload-or-restart ssh'
+sudo sed -i 's/^AllowUsers gtuser fjubackup$/AllowUsers gtuser fjubackup fjureset/' /etc/ssh/sshd_config.d/10-fju.conf
+grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf      # 要看到：AllowUsers gtuser fjubackup fjureset
+sudo sshd -t && sudo systemctl reload ssh
+```
+
+**這個 ssh 視窗先別關**，在 Mac 另開一個終端機跑 ⑤ 的前兩行。兩行都正常，回 VM 取消保險：
+
+```bash
+# 🖥️ VM：⑤ 前兩行都正常才跑；不正常就什麼都別做，5 分鐘後自動還原
+sudo systemctl stop fju-sshd-revert.timer
+grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf
+```
+
+⑤ 💻 Mac：驗收 F1。每行一次新連線，中間停 6 秒避開 ufw 限速；被拒的那幾行會印「fju-reset：拒絕（…）」或連線被關，結束碼非 0。
+
+```bash
+# 💻 Mac
+ssh fju-vm true && echo "✓ 自己的帳號還連得上"
+ssh fju-reset status                                             # 要看到 commit=<40 碼>、health=ok
+sleep 6; ssh fju-reset bash;                       echo "開 shell → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset </dev/null;                 echo "互動 shell → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset 'status; id' | grep 'uid=' && echo "✗ 分號後面的指令跑進去了" || echo "✓ 沒有 uid="
+sleep 6; ssh fju-reset 'status $(id)';             echo "\$(id) → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset 'snapshot `id`';            echo "反引號 → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset rm -rf /;                   echo "別的指令 → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset reset prod;                 echo "碰 prod → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset restore prod;               echo "碰 prod → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset status now;                 echo "多餘參數 → 結束碼 $?（要非 0）"
+sleep 6; ssh fju-reset snapshot abcdefghijklmnopqrstuvwxyz0123456; echo "33 字名稱 → 結束碼 $?（要非 0）"
+sleep 6; echo ls | sftp -b - fju-reset;            echo "sftp → 結束碼 $?（要非 0）"
+# 下面兩行用 -o ClearAllForwardings=no 蓋掉 ~/.ssh/config 的設定，轉送要求才會真的送到 VM、由 VM 拒絕
+sleep 6; ssh -o ClearAllForwardings=no -o ExitOnForwardFailure=yes -N -R 3998:127.0.0.1:22 fju-reset; echo "遠端轉送 → 結束碼 $?（要非 0）"
+sleep 6; ssh -o ClearAllForwardings=no -N -L 3999:127.0.0.1:3000 fju-reset & sleep 5
+curl -s -m 5 -o /dev/null -w 'port 轉送 → HTTP %{http_code}（要是 000）\n' http://127.0.0.1:3999/; kill %1
+```
+
+```bash
+# 🖥️ VM：剛剛那些拒絕都有記下來
+sudo journalctl -t fju-test-reset-gate --since -15min --no-pager | tail -20
+sudo -l -U fjureset
+```
+
+全部符合就把 `e2e/acceptance/redesign/features.json` 的 F1 交給主控台標 `passes`。F2（`ssh fju-reset reset`，約 3–5 分鐘）建議白天先跑一次（設計方案 §13.5）。
+
+**拿掉這把金鑰**（不再需要、或懷疑外洩）：
+
+```bash
+# 🖥️ VM
+sudo rm -f /etc/sudoers.d/60-fju-reset /home/fjureset/.ssh/authorized_keys
+sudo sed -i 's/^AllowUsers gtuser fjubackup fjureset$/AllowUsers gtuser fjubackup/' /etc/ssh/sshd_config.d/10-fju.conf
+sudo sshd -t && sudo systemctl reload ssh
+sudo userdel -r fjureset
+sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
+```
+
+快照（`/srv/fju/test/snapshots/`）與紀錄（`/var/log/fju-test-reset/`）不會跟著刪，要清再自己 `sudo rm -r`。
+
 ### 兩站網路拆分上線步驟（票 T4，做一次）
 
 拆分前兩站的 app 和 Caddy 都在同一個網路 `fju-edge`，測試站的容器可以直接連到正式站的 app。
@@ -767,6 +902,7 @@ docker stop fju-n1-probe
 | `ops/lib/backup-common.sh`、`ops/lib/backup-record.mjs` | 上面兩支共用：抽查 SQL、紀錄檔讀寫與比對 |
 | `ops/seed-admin.sh` | 建某一站的第一位管理員 A1（每站一次；重跑不會改東西） |
 | `ops/site.sh` | 在某一站的環境裡跑指令（ps、logs、check） |
+| `ops/fju-test-reset-gate`、`ops/fju-test-reset` | 重置測試站專用金鑰：守門（fjureset 的 `command=`）與 root 側實作；裝在 `/usr/local/sbin`（見「重置測試站專用金鑰：安裝與使用」） |
 | `web/scripts/seed-e2e.mjs` | `deploy.sh --site test` 在 migration 後跑：建 E2E 測試管理員（只限測試站；已存在不動） |
 | `web/scripts/seed-demo.mjs`、`web/scripts/demo/` | `deploy.sh --site test` 在 seed-e2e 之後跑：照原型灌示範資料（只限測試站；已存在不動；`--remove` 清掉） |
 | `ops/seed-demo.sh` | 手動建立或清掉測試站的示範資料（`--remove` 同時讓自動部署不再重建） |

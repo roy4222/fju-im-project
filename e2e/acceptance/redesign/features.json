@@ -1,0 +1,410 @@
+{
+  "$comment": "網站驗收重設計的驗收清單（2026-10-08；10/9 補全套）。T＝試跑（10/9 06:52 已跑完）、F＝全套；scope 欄分「今晚全套」「今晚全套（路 A）」「之後」。每項 description 寫 Roy 會看到什麼；steps 是實際操作；verify 是可執行的驗證；passes 由驗收者改。最後一項 F10 是今晚全套的端到端。對應設計：同目錄 設計方案.md（§13 試跑教訓與全套拆票）。",
+  "features": [
+    {
+      "id": "T1",
+      "ticket": "A",
+      "description": "改過的驗收腳本不會害到現在的用法：什麼都不設時，跑起來和以前一模一樣（同樣的參數、同樣的輸出資料夾名稱、同樣的密碼檢查）。",
+      "steps": [
+        "在 repo 根目錄執行 `bash -n ops/codex-e2e.sh`（語法檢查）。",
+        "把 `codex` 換成假程式（例如 PATH 前面放一個只會把 -o 指到的檔案寫一行「總結：通過 0、不通過 0」的 codex 腳本），跑 `ops/codex-e2e.sh e2e/acceptance/station-1-login.md`。",
+        "看輸出目錄是否仍是 `e2e/acceptance/.out/<時間>-station-1-login/`，報告仍是 report.md。"
+      ],
+      "verify": "bash -n ops/codex-e2e.sh && ls -d e2e/acceptance/.out/*-station-1-login | tail -1 && grep -c -- '--ephemeral' ops/codex-e2e.sh",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T2",
+      "ticket": "A",
+      "description": "舊的驗收腳本學會了幾件新事：可以指定報告放哪、中斷後能接著跑、多認一組密碼不讓它寫進報告、可以多交幾個環境變數給測試員、可以換掉報告格式說明；什麼都不設時和以前一模一樣。",
+      "steps": [
+        "打開 ops/codex-e2e.sh，確認讀取 CODEX_E2E_RUN_DIR、CODEX_E2E_KEEP_SESSION、CODEX_E2E_RESUME、CODEX_E2E_EXTRA_ENV、CODEX_E2E_EXTRA_SECRET_FILE、CODEX_E2E_PROMPT_FILE。",
+        "用假 codex：設 CODEX_E2E_RUN_DIR=/tmp/t2 CODEX_E2E_KEEP_SESSION=1 跑一份清單，看 /tmp/t2/report.md 與 /tmp/t2/codex-session.txt 都在、指令列沒有 --ephemeral。",
+        "設 CODEX_E2E_EXTRA_SECRET_FILE=/tmp/t2.pw（內容 `abcDEF123456xyz`），讓假 codex 把這個字串寫進 report.md，跑一次：報告裡被換成 [已遮蔽]、腳本非 0 結束。",
+        "設 CODEX_E2E_EXTRA_ENV=\"ACCEPT_PASSWORD\" 並在環境給 ACCEPT_PASSWORD=foo，假 codex 把 `printenv ACCEPT_PASSWORD` 的結果寫到 /tmp/t2/env.txt，確認拿得到；另外 printenv 一個不在白名單的變數要是空的。"
+      ],
+      "verify": "for v in CODEX_E2E_RUN_DIR CODEX_E2E_KEEP_SESSION CODEX_E2E_RESUME CODEX_E2E_EXTRA_ENV CODEX_E2E_EXTRA_SECRET_FILE CODEX_E2E_PROMPT_FILE; do grep -q \"$v\" ops/codex-e2e.sh || echo \"缺 $v\"; done; test -f /tmp/t2/codex-session.txt && grep -q '已遮蔽' /tmp/t2/report.md",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T3",
+      "ticket": "A",
+      "description": "ops/acceptance-night.sh --plan tonight --dry-run 會印出今晚五個項目的順序與並行：靜態掃描、兩位訪客、第 1 章同時開始；新手系辦等第 1 章結束才開始；並印出 run 目錄與秘密目錄的路徑，但不真的跑任何 codex。",
+      "steps": [
+        "在 repo 根目錄執行 `ops/acceptance-night.sh --plan tonight --dry-run`。",
+        "看輸出：五個項目 id（security-static、ux-visitor-highschool、ux-visitor-industry、story-1、ux-admin-newbie）、各自預算分鐘、並行群 1／2、ux-admin-newbie 標示依賴 story-1。",
+        "確認沒有產生 e2e/acceptance/.out/night-* 目錄、沒有產生 ~/.fju-acceptance/ 底下的目錄。"
+      ],
+      "verify": "out=$(ops/acceptance-night.sh --plan tonight --dry-run); for i in security-static ux-visitor-highschool ux-visitor-industry story-1 ux-admin-newbie; do echo \"$out\" | grep -q \"$i\" || echo \"缺 $i\"; done; echo \"$out\" | grep -q 'story-1' && ! ls -d e2e/acceptance/.out/night-* 2>/dev/null | grep -q dry",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T4",
+      "ticket": "A",
+      "description": "整夜密碼與登入狀態放在報告目錄外面、只有自己讀得到、跑完就消失：啟動後 ~/.fju-acceptance/<runId>/secrets/night.pw 是 0600、24 個英數字；codex 收到的是環境變數 ACCEPT_PASSWORD；正常結束或 Ctrl-C 後整個 ~/.fju-acceptance/<runId> 不見了，而 .out/night-*/ 的報告還在。",
+      "steps": [
+        "用假 codex（寫一行總結後 sleep 20 秒再結束）跑 `ops/acceptance-night.sh --plan tonight`。",
+        "啟動後 5 秒內另開終端機跑 `stat -f '%Lp %z' ~/.fju-acceptance/*/secrets/night.pw | grep -E '^600 (24|25)$'`（要有一行）；`ls -ld ~/.fju-acceptance/*` 是 700。",
+        "讓假 codex 把 `printenv ACCEPT_PASSWORD | wc -c` 寫到自己目錄的 env-check.txt；比對是 25（24 字＋換行）。",
+        "等它跑完：`ls ~/.fju-acceptance/` 沒有這個 runId；`ls e2e/acceptance/.out/night-*/` 有 run.log、run.json 與各項目子目錄。",
+        "再跑一次並在中途 Ctrl-C：同樣 ~/.fju-acceptance/<runId> 被刪、run.log 最後一行寫被中斷。"
+      ],
+      "verify": "test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && ls e2e/acceptance/.out/night-*/run.json && grep -q \"ACCEPT_PASSWORD\" ops/acceptance-night.sh",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T5",
+      "ticket": "A",
+      "description": "某一項卡住或當掉時整夜不會停：預算到了會被殺掉、最多續跑一次、run.log 看得出來；開始與結束各記一次測試站 commit，不同的話 run.json 有兩個不同的值。",
+      "steps": [
+        "把計畫表裡 story-1 的預算暫時改成 1 分鐘（或用環境變數 ACCEPT_BUDGET_OVERRIDE=1），用假 codex（sleep 300）跑 --plan tonight --only story-1。",
+        "約 1 分鐘後 run.log 出現 `timeout story-1`；接著出現 `resume story-1`（因為 progress.md 至少要有一行：讓假 codex 一開始就寫一行到 progress.md）；第二次再逾時後 run.json 裡 story-1 的 status 是 failed、resumed 是 true。",
+        "用兩個假項目並行跑（例如 --only ux-visitor-highschool,ux-visitor-industry，各自 sleep 超過預算）：各自逾時後各自 resume 到自己的 codex-session.txt 裡的 id（run.log 的 resume 行要帶 id）；把某一項的 codex-session.txt 改成 unknown 再跑：那一項不續跑、直接 failed。",
+        "拔掉網路或把測試站網址改成不存在的主機（只在 --dry-run 以外的假跑），確認 commit 取不到時 run.json 寫 unknown 而不是整個腳本當掉。",
+        "用真網路跑 --only security-static：run.json 的 commitStart 與 commitEnd 都是 8 碼。"
+      ],
+      "verify": "grep -E 'timeout\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && grep -E 'resume\\s+story-1' e2e/acceptance/.out/night-*/run.log | tail -1 && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-1');if(!(s.status==='failed'&&s.resumed===true))process.exit(1);if(!/^[0-9a-f]{8}$|^unknown$/.test(r.commitStart))process.exit(2)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\" && ! grep -qE \"resume .*--last\" ops/acceptance-night.sh ops/codex-e2e.sh",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T6",
+      "ticket": "B",
+      "description": "改寫後的第 1 章清單裡，密碼不再靠記憶：所有學生、老師改密都寫成用環境變數 ACCEPT_PASSWORD 填；每個角色第一次登入後存登入狀態（state-save）、工作階段死了就重開＋載入（state-load）；每做完一步先寫一行 progress.md；臨時密碼不見了有補救步驟。",
+      "steps": [
+        "打開 e2e/acceptance/story-1-opening.md 的「密碼」一節：寫的是 `\"$PWCLI\" fill <ref> \"$ACCEPT_PASSWORD\"`，沒有「自己編一組密碼」。",
+        "搜尋 state-save：第 7 步（系辦登入）、第 21 步（學生註冊後登入）、第 28／30 步（老師改密後）都有存到 `$ACCEPT_STATE_DIR/<工作階段>.json`。",
+        "搜尋 ACCEPT_ITEM：所有 `-s=` 的工作階段名與 state 檔名都是 `${ACCEPT_ITEM}-<角色>`；每次 `open` 都帶 `--idle-timeout=10800000`。",
+        "搜尋 state-load：共用規則寫「工作階段沒有回應就 open 再 state-load，不重新登入」；第 37 步訪客與學生用它。",
+        "「失敗時」有一條：老師臨時密碼遺失 → 回 admin 工作階段對他再發一次臨時密碼、再做一次第 28／30 步，不算 UX 問題。",
+        "清單裡沒有任何真實密碼字串、沒有正式站網址（ops/codex-e2e.sh 的網址檢查要過）。"
+      ],
+      "verify": "f=e2e/acceptance/story-1-opening.md; grep -q 'ACCEPT_PASSWORD' $f && test $(grep -c 'state-save' $f) -ge 4 && grep -q 'state-load' $f && grep -q 'progress.md' $f && grep -q '再發一次臨時密碼' $f && ! grep -q '自己編一組' $f && ! LC_ALL=C grep -iEq '(^|[^A-Za-z0-9.-])fju\\.roy422\\.dev' $f && grep -q 'ACCEPT_ITEM' $f && grep -q 'idle-timeout' $f",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T7",
+      "ticket": "B",
+      "description": "第 1 章報告格式照合約：表頭六行、結果只用五種用語、問題清單九欄、結尾兩行（總結、接力）、加一節「交給下一章的狀態」表（預期欄照「本章結束時留下什麼」逐列），第 40 步多了系辦真實工作「匯出名單」，新增第 41 步核對狀態表。",
+      "steps": [
+        "打開 story-1-opening.md 的「報告格式」一節，逐字比對設計方案 §5.1、§5.3、§5.5、§5.6（表頭 6 行、九欄表頭、`總結：`、`接力：`）。",
+        "看步驟 40 的「做」含「匯出」；步驟 41 標題含「交給下一章」。",
+        "看「結果」用語說明：通過／不通過／做不到（環境：）／做不到（網站：）／略過（）；沒有「已知待修」當結果。",
+        "看問題嚴重度說明是四級：擋上線／要修／建議／待 Roy 決定。"
+      ],
+      "verify": "f=e2e/acceptance/story-1-opening.md; grep -q '^| 編號 | 嚴重度 | 一句話 | 角色 | 頁面 | 步驟 | 截圖 | 已知 | 可開票 |' $f && grep -q '^接力：' $f && grep -q '^總結：' $f && grep -q '交給下一章的狀態' $f && grep -q '擋上線' $f && grep -qE '^41\\. ' $f && ! grep -q '不通過（已知待修）' $f",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T8",
+      "ticket": "B",
+      "description": "兩張訪客人設卡只給目標不給步驟：高中生／家長要找優秀專題看一件作品、找專題規則、看最新公告；校外／業界要找競賽資訊、找系辦聯絡方式、點到要登入的頁會被帶去登入、打錯網址看到中文 404。兩張都規定永遠不登入、只看不改、每步截圖、先隨便逛 10 分鐘寫第一印象，報告有任務分數 1–5 與問題清單九欄。",
+      "steps": [
+        "打開 e2e/acceptance/personas/visitor-highschool.md 與 visitor-industry.md。",
+        "「你的目標」一節逐條對照定案表；確認沒有「點哪個按鈕」這種步驟式指示。",
+        "「規則」有：不登入、不填表、不送出、不開正式站、每步截圖、PLAYWRIGHT_CLI_SESSION 已由環境給。",
+        "「報告格式」含第一印象、每個任務的 完成／步數／花了／卡在哪／看不懂的詞／截圖／分數／建議，最後是九欄問題清單與「總結：」。",
+        "用 ops/codex-e2e.sh 的網址檢查跑一遍（假 codex）：兩張卡都不被拒。"
+      ],
+      "verify": "for f in e2e/acceptance/personas/visitor-highschool.md e2e/acceptance/personas/visitor-industry.md; do grep -q '## 你的目標' $f && grep -q '不登入' $f && grep -q '第一印象' $f && grep -q '分數' $f && grep -q 'ACCEPT_ITEM' $f && grep -q '^| 編號 | 嚴重度 |' $f && grep -q '^總結：' $f || echo \"$f 不合約\"; done; grep -q '優秀專題' e2e/acceptance/personas/visitor-highschool.md && grep -q '404' e2e/acceptance/personas/visitor-industry.md",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T9",
+      "ticket": "B",
+      "description": "新手系辦人設卡：目標照定案（建新屆別、設時間軸、核准註冊含批次、建老師帳號發臨時密碼、發公告確認通知人數、撤回公告、發競賽與規則、複製各組信箱、匯出名單、從操作紀錄查某次核准是誰做的、停用帳號）；起始狀態是第 1 章跑完的站；有一段不評 UX 的準備（用 prep 工作階段註冊 s9、s10）；只動自己建的第 44 屆（代碼 116）與 s9／s10，不撥預設工作／開放註冊旗標、不碰 s1–s7、t1–t2、不改 E2E 管理員。另有 e2e/acceptance/known-issues.md 列定案 §3 的 訪1–訪6、系1–系8、D-1–D-4 代號。",
+      "steps": [
+        "打開 e2e/acceptance/personas/admin-newbie.md：「你的目標」逐條對照定案表 11 項。",
+        "「準備（不評 UX）」寫 s9 吳雅文 411000109、s10 周俊宏 411000110、@students.fju.test、用 ACCEPT_PASSWORD；之後回 admin 工作階段。",
+        "「規則」寫：用 E2E 管理員登入一次並 state-save；建第 44 屆（116）；不按「設為預設」「開放註冊」；不停用 s1–s7、t1、t2；停用帳號只停自己建的老師。",
+        "「複製各組信箱」在空組別時的預期：寫「找得到按鈕但沒有組可複製」也算完成、記錄她找了多久。",
+        "打開 e2e/acceptance/known-issues.md：有 訪1…訪6、系1…系8、D-1…D-4，每行一句話與來源。"
+      ],
+      "verify": "f=e2e/acceptance/personas/admin-newbie.md; grep -q '準備（不評 UX）' $f && grep -q '411000109' $f && grep -q '411000110' $f && grep -q '116' $f && grep -q '不按「設為預設」' $f && grep -q '操作紀錄' $f && grep -q '匯出' $f && grep -q 'state-save' $f && grep -q 'ACCEPT_ITEM' $f; k=e2e/acceptance/known-issues.md; for c in 訪1 訪6 系1 系8 D-1 D-4; do grep -q \"$c\" $k || echo \"known-issues 缺 $c\"; done",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T10",
+      "ticket": "C",
+      "description": "資安靜態掃描一行跑完：e2e/acceptance/security/run-static.sh <輸出目錄> [commit] 會對測試站回報的那個 commit（不是目前 worktree）跑 semgrep（官方 TypeScript／Next 規則＋兩條自訂）、pnpm audit、osv-scanner、gitleaks（含 git 歷史），產出四個 JSON 與一份 report.md；report.md 照合約有表頭、問題清單九欄（高風險＝擋上線、中＝要修、低＝建議）、「總結：」。沒裝工具時清楚說缺哪個並非 0 結束。",
+      "steps": [
+        "確認 brew install semgrep gitleaks osv-scanner 已裝（`which semgrep gitleaks osv-scanner`）。",
+        "在 repo 根目錄跑 `e2e/acceptance/security/run-static.sh /tmp/sec 0cd6655c`：它用 `git worktree add`（或 `git archive`）取出該 commit 到暫存目錄再掃，掃完清掉暫存。",
+        "看 /tmp/sec/：semgrep.json、audit.json、osv.json、gitleaks.json、report.md。",
+        "report.md 的問題清單每行有規則名、檔案:行號（放在「頁面」欄）、嚴重度；自訂規則命中（`.query(` 模板字串、寫入方法沒有 authorize*/statusGate/denied）各至少能在故意寫壞的暫存檔上測出一次（實作者自測，把測試輸出貼在票裡）。",
+        "暫時把 PATH 弄成找不到 gitleaks 再跑一次：印「缺 gitleaks」且結束碼非 0。"
+      ],
+      "verify": "which semgrep gitleaks osv-scanner >/dev/null && e2e/acceptance/security/run-static.sh /tmp/sec 0cd6655c; for f in semgrep.json audit.json osv.json gitleaks.json report.md; do test -s /tmp/sec/$f || echo \"缺 $f\"; done; grep -q '^- 測試站版本：commit=0cd6655c' /tmp/sec/report.md && grep -q '^| 編號 | 嚴重度 |' /tmp/sec/report.md && grep -q '^總結：' /tmp/sec/report.md && test -f e2e/acceptance/security/semgrep-custom.yml",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T11",
+      "ticket": "C",
+      "description": "彙整腳本能把一個 run 目錄拼成一頁總覽：summarize-night.sh <RUN_DIR> 產出 summary.md，第一行是日期與 commit 比對，接著五個數字、每個項目一行狀態、擋上線→要修→建議→待 Roy 決定四節（跨項目依「已知」代號與頁面＋一句話去重）、做不到（環境）另列、可開票清單、各報告連結；某份報告格式不合約時，總覽多一節「未解析」貼原文而不是整份掛掉；沒有 report.md 但有 progress.md 時用 progress.md。",
+      "steps": [
+        "手工做一個假 run 目錄 /tmp/run-x：run.json（commitStart≠commitEnd）、story-1/report.md（照合約，含 3 條問題：擋上線＋訪1、要修、待 Roy 決定）、ux-visitor-industry/report.md（含 1 條 已知=訪1 的問題與 1 條環境做不到）、ux-admin-newbie/ 只有 progress.md、security-static/report.md 格式故意少一欄。",
+        "跑 `e2e/acceptance/summarize-night.sh /tmp/run-x`。",
+        "看 /tmp/run-x/summary.md：第一行有 ⚠️ 換版警告；擋上線節只有 1 條（訪1 合併，寫「也出現在：ux-visitor-industry」）；做不到（環境）有 1 條；ux-admin-newbie 狀態標「只有進度檔」；「未解析」節有 security-static；可開票清單有 2 條（擋上線與要修）。"
+      ],
+      "verify": "e2e/acceptance/summarize-night.sh /tmp/run-x && s=/tmp/run-x/summary.md && head -3 $s | grep -q '⚠️' && grep -q '也出現在' $s && grep -q '做不到（環境）' $s && grep -q '未解析' $s && grep -q '可開票' $s && grep -q 'progress' $s",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "T12",
+      "ticket": "C",
+      "description": "總覽與報告會出現在 Vault：summarize-night.sh <RUN_DIR> --vault 會在 🛠️ 工程開發/🧪 驗收報告/<YYYY-MM-DD>/ 建 總覽.md、每個項目一份 <item>.md、附件/<item>/ 只放被引用的截圖，連結在 Obsidian 點得開；同一天重跑覆蓋同名檔；Vault 其他地方一個檔都不動。",
+      "steps": [
+        "在 /tmp/run-x 加幾張假截圖（story-1/screenshots/01-a.png、02-b.png，其中只有 01-a.png 被 report.md 引用）。",
+        "跑 `e2e/acceptance/summarize-night.sh /tmp/run-x --vault`（預設 Vault 路徑寫在腳本裡，可用 --vault <路徑> 指到 /tmp/vault-test 先試）。",
+        "先用 --vault /tmp/vault-test：看 /tmp/vault-test/🧪 驗收報告/<日期>/ 有 總覽.md、story-1.md、附件/story-1/01-a.png，沒有 02-b.png；總覽.md 裡的連結是相對路徑 `story-1.md`、`附件/story-1/01-a.png`。",
+        "再跑一次：不報錯、檔案被覆蓋、沒有多出 .bak。",
+        "最後對真 Vault 跑一次，Roy 在 Obsidian 打開 總覽.md 點截圖連結能開。"
+      ],
+      "verify": "d=\"/tmp/vault-test/🧪 驗收報告/$(date +%F)\"; test -f \"$d/總覽.md\" && test -f \"$d/story-1.md\" && test -f \"$d/附件/story-1/01-a.png\" && ! test -e \"$d/附件/story-1/02-b.png\" && grep -q '附件/story-1/01-a.png' \"$d/總覽.md\"",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "F1",
+      "ticket": "G2",
+      "description": "重置測試站的專用鑰匙裝好了：Mac 上 `ssh fju-reset status` 會印測試站 commit、自動部署是否暫停、有哪些快照；用同一把鑰匙開 shell、跑別的指令、指定 prod、開 port 轉送全部被拒。",
+      "steps": [
+        "Roy 照 ops/README.md「重置測試站專用金鑰：安裝與使用」①–④ 貼指令（Mac 產鑰匙、VM 建 fjureset、authorized_keys、sudoers 經 visudo 驗過才放、sshd AllowUsers 加 5 分鐘自動還原保險）。",
+        "💻 `ssh fju-reset status`。",
+        "💻 試 `ssh fju-reset 'bash'`、`ssh fju-reset reset prod`、`ssh fju-reset rm -rf /`、`ssh -N -L 3999:127.0.0.1:3000 fju-reset`：全部拒絕（錯誤訊息或連線被關）。",
+        "💻 `ssh fju-reset 'status; id'`：輸出裡不得出現 `uid=`（分號後面的指令進不來）。",
+        "🖥️ `sudo -l -U fjureset` 只列 /usr/local/sbin/fju-test-reset。"
+      ],
+      "verify": "ssh fju-reset status | grep -qE 'commit=[0-9a-f]{8}' && ! ssh fju-reset 'bash' 2>/dev/null && ! ssh fju-reset reset prod 2>/dev/null && ! ssh fju-reset 'status; id' 2>/dev/null | grep -q 'uid='",
+      "passes": true,
+      "scope": "今晚全套（路 A）",
+      "note": "2026-10-09 10:06 主控台照 README ⑤ 逐行跑：shell、互動 shell、分號／$()／反引號、別的指令、prod、多餘參數、33 字名稱、sftp、-R、-L 全部被拒；sudo -l 只列 fju-test-reset（Roy 跑 step3 時輸出）。"
+    },
+    {
+      "id": "F2",
+      "ticket": "G2",
+      "description": "一行就能把測試站清回空站：`ssh fju-reset reset` 後，/api/health 是 ok、同一個 commit、首頁沒有任何公告與作品、只有 E2E 管理員與 A1 登得進去、/dashboard/admin/clock 是 404；整個過程不碰正式站。",
+      "steps": [
+        "💻 `ssh fju-reset reset`，等它印「✓ 重置完成」。",
+        "開 https://test.fju.roy422.dev/api/health 看 ok 與 commit。",
+        "開首頁與 /news：沒有公告、沒有作品。",
+        "用 A1 登入：進得去；打 /dashboard/admin/clock 是 404。",
+        "開 https://fju.roy422.dev/api/health（正式站）：狀態和重置前一樣（第一段前是 502）。"
+      ],
+      "verify": "ssh fju-reset reset && curl -s https://test.fju.roy422.dev/api/health | grep -q '\"ok\"' && ! curl -s https://test.fju.roy422.dev/ | grep -q 'DEMO-114'",
+      "passes": true,
+      "scope": "今晚全套（路 A）",
+      "note": "2026-10-09 10:04 主控台跑 ssh fju-reset reset：18 秒完成（先備份 DB），health ok、commit 0cd6655c 不變、首頁無 DEMO-114、正式站仍 502。A1 登入與 /dashboard/admin/clock 404 交給今晚第 1 章（Codex）確認。"
+    },
+    {
+      "id": "F3",
+      "ticket": "G2＋G1",
+      "description": "學期中快照存得下、還得回來（路 A 才有）：劇本第 2 章報告出現「接力：可以」後，orchestrator 自己叫 `ssh fju-reset snapshot midterm`；之後 `ssh fju-reset restore midterm` 把站還原到那一刻，第 43 屆、兩組、五則公告都在，s1 用那一夜的密碼登得進去。路 B（--no-snapshot）時 run.log 記「snapshot skipped」，UX 直接跑在第 5 章結束的站上。",
+      "steps": [
+        "跑 --plan full 到第 2 章結束，run.log 出現 `snapshot midterm ok`。",
+        "繼續跑完第 3 章（資料變了：有評分方案）。",
+        "💻 `ssh fju-reset restore midterm`。",
+        "登入 E2E 管理員：評分方案不在、兩組與五則公告在；用 s1 與 ~/.fju-acceptance/snapshots/midterm.pw 的密碼登入學生首頁。"
+      ],
+      "verify": "grep -q 'snapshot midterm ok' e2e/acceptance/.out/night-*/run.log && ssh fju-reset restore midterm && ssh fju-reset status | grep -q 'midterm' && stat -f '%Lp' ~/.fju-acceptance/snapshots/midterm.pw | grep -q '^600$'",
+      "passes": false,
+      "scope": "今晚全套（路 A）"
+    },
+    {
+      "id": "F4",
+      "ticket": "G4、G5、G6",
+      "description": "五章劇本接力跑：每章報告最後兩行是「總結：」與「接力：可以／不可以」，下一章的前提直接貼上一章的狀態表；某章當掉或逾時（failed／timeout）才停掉後面的章，「接力：不可以」照樣跑下一章並在 run.log 記 dependency-not-met；整夜繼續做 UX 與資安。",
+      "steps": [
+        "第 2–5 章照設計方案 §7 與 §13.2 改寫（密碼環境變數、state-save／load、progress.md、合約格式、狀態表、上傳共用規則逐字貼入、刪重複 149 細節、第 4 章刪訪客段、第 5 章「接力：不適用」）。",
+        "用假 codex 讓 story-2 的報告寫「接力：不可以（第一組）」假跑：story-3 照跑且 run.log 有 dependency-not-met。",
+        "用假 codex 讓 story-2 逾時：story-3～5 狀態 skipped、UX 批次照跑。",
+        "真跑一夜：五份 report.md 都有兩行結尾。"
+      ],
+      "verify": "for n in 1 2 3 4 5; do f=$(ls e2e/acceptance/story-$n-*.md); grep -q 'ACCEPT_PASSWORD' $f && grep -q '^接力：' $f && grep -q 'setInputFiles' $f || echo \"story-$n 未改寫\"; done; grep -q 'dependency-not-met' e2e/acceptance/.out/night-*/run.log",
+      "passes": false,
+      "scope": "今晚全套"
+    },
+    {
+      "id": "F5",
+      "ticket": "G7",
+      "description": "UX 評審十個人設都有卡（定案表第二段的 7 位加試跑 3 位），最多 4 位同時跑、各用快照裡不同帳號，同一批不會有兩個系辦；批次順序照 §13.2：學期中系辦先指派，評分老師在下一批；新生準備段自己註冊再借系辦核准。admin-newbie 遇到代碼已被用就改用下一個空號並註明。總覽多一張「人設 × 任務」分數表。",
+      "steps": [
+        "e2e/acceptance/personas/ 有 10 張卡：visitor-highschool、visitor-industry、admin-newbie、admin-midterm、freshman、leader、member、ungrouped、advisor、grader。",
+        "ops/acceptance-night.sh --plan full --dry-run 印出 UX 三批，每批 ≤ 4，admin-newbie 與 admin-midterm 不同批。",
+        "真跑後總覽有分數表（列＝人設、欄＝任務、值＝1–5 或「未跑」）。"
+      ],
+      "verify": "test $(ls e2e/acceptance/personas/*.md | wc -l | tr -d ' ') -ge 10 && grep -q '下一個' e2e/acceptance/personas/admin-newbie.md && ops/acceptance-night.sh --plan full --dry-run | grep -q 'grader' && grep -q '分數表' e2e/acceptance/.out/night-*/summary.md",
+      "passes": false,
+      "scope": "今晚全套"
+    },
+    {
+      "id": "F6",
+      "ticket": "全套",
+      "description": "本機越權矩陣：在 Mac 的 Docker 起本機站、造出系辦／老師／學生／訪客／待審核／停用六種身分，照契約 03 §1 的「資源 × 角色 × 關係」逐格打頁面、route handler、server action，產出一張紅綠表；任何越權都列為擋上線；全程不對測試站、不對學校網路送請求。",
+      "steps": [
+        "`e2e/acceptance/security/run-matrix.sh <輸出目錄> <commit>`：用 docker-compose.local.yml --profile full 起站（APP_IMAGE 指到該 commit 的 GHCR 映像）。",
+        "看 matrix.md：每格 期望／實際／結果；第一段相關的訪客、待審核、系辦三欄全綠才算第一段過。",
+        "跑的時候看 Mac 網路流量只到 127.0.0.1（實作者用 lsof -i 或 Little Snitch 截圖證明）。"
+      ],
+      "verify": "test -f e2e/acceptance/.out/night-*/security-matrix/matrix.md && grep -q '^| 資源' e2e/acceptance/.out/night-*/security-matrix/matrix.md && grep -q '^總結：' e2e/acceptance/.out/night-*/security-matrix/report.md",
+      "passes": false,
+      "scope": "之後"
+    },
+    {
+      "id": "F7",
+      "ticket": "全套",
+      "description": "ZAP baseline 只對本機站掃一次，結果進 security-zap/report.md，問題照四級分，對測試站零請求。",
+      "steps": [
+        "run-matrix.sh 起站期間，`e2e/acceptance/security/run-zap.sh <輸出目錄> http://127.0.0.1:<port>`（docker 跑 zaproxy baseline）。",
+        "看 report.md 與 zap.json。"
+      ],
+      "verify": "test -s e2e/acceptance/.out/night-*/security-zap/report.md && grep -q '127.0.0.1' e2e/acceptance/.out/night-*/security-zap/report.md",
+      "passes": false,
+      "scope": "之後"
+    },
+    {
+      "id": "F8",
+      "ticket": "全套",
+      "description": "Mac 會自己在晚上 23:00 啟動整夜驗收、不睡著：launchd 的 plist 跑 caffeinate 包住 ops/acceptance-night.sh --plan full；睡著錯過會在醒來後補跑；log 在 ~/Library/Logs/fju-acceptance.log。",
+      "steps": [
+        "把 ops/mac/dev.roy422.fju-acceptance.plist 複製到 ~/Library/LaunchAgents/ 並 `launchctl load`。",
+        "`launchctl list | grep fju-acceptance` 看得到。",
+        "用 `launchctl start dev.roy422.fju-acceptance` 手動觸發一次 --dry-run 版本（plist 裡用環境變數 ACCEPT_DRY_RUN=1 試），log 出現計畫表。"
+      ],
+      "verify": "launchctl list | grep -q dev.roy422.fju-acceptance && grep -q 'caffeinate' ~/Library/LaunchAgents/dev.roy422.fju-acceptance.plist && test -f ~/Library/Logs/fju-acceptance.log",
+      "passes": false,
+      "scope": "之後"
+    },
+    {
+      "id": "F9",
+      "ticket": "G1",
+      "description": "鎖版本自動化：整夜開始時自動暫停測試站自動部署、結束時恢復；每章開頭記 commit，有變化總覽第一行就警告。",
+      "steps": [
+        "run.log 開頭有 `pause-deploy ok`、結尾有 `resume-deploy ok`。",
+        "run.json 的 items[].commit 每章都有值。",
+        "故意在中途 `ssh fju-reset resume-deploy` 再合併一個 main：總覽第一行出現 ⚠️ 換版。"
+      ],
+      "verify": "grep -q 'pause-deploy ok' e2e/acceptance/.out/night-*/run.log && grep -q 'resume-deploy ok' e2e/acceptance/.out/night-*/run.log",
+      "passes": false,
+      "scope": "今晚全套（路 A）"
+    },
+    {
+      "id": "T13",
+      "ticket": "端到端",
+      "description": "今晚真的跑一次：Roy 貼一行暫停自動部署、一行啟動，之後不用再按任何東西；幾小時後 Vault 🧪 驗收報告/<今天>/總覽.md 出現，Roy 不看任何終端機就能從第一頁知道：測試站有沒有中途換版、擋上線有幾條是什麼、第 1 章走到哪、三個人設各給幾分、資安掃描有沒有未處理高風險、哪些是環境造成的；報告裡沒有密碼；~/.fju-acceptance 已清空。",
+      "steps": [
+        "🖥️ `ssh fju-vm 'sudo -u deploy touch /srv/fju/test/deploy/auto-deploy.paused'`。",
+        "💻 repo 根目錄：`CODEX_E2E_MODEL=gpt-6.1-sol CODEX_E2E_SANDBOX=danger-full-access caffeinate -dims ops/acceptance-night.sh --plan tonight`（接電源、不蓋螢幕）。",
+        "隔天早上：打開 Obsidian 的 🛠️ 工程開發/🧪 驗收報告/<日期>/總覽.md，從上往下讀一次。",
+        "對照 Mac：`ls e2e/acceptance/.out/night-*/` 五個項目目錄都有 report.md 或 progress.md；run.json 每項 status 不是 pending。",
+        "檢查秘密：`ls ~/.fju-acceptance/` 是空的；`grep -rl \"$(cat ~/.fju-acceptance/*/secrets/night.pw 2>/dev/null)\" .out` 沒有東西（密碼檔已刪就自然沒有）；報告裡搜「password」「密碼：」沒有值。",
+        "🖥️ 跑完恢復：`ssh fju-vm 'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused'`。"
+      ],
+      "verify": "V=\"/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(date +%F)\"; test -f \"$V/總覽.md\" && head -1 \"$V/總覽.md\" && grep -qE '擋上線' \"$V/總覽.md\" && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && node -e \"const r=require(process.argv[1]);if(r.items.some(i=>i.status==='pending'))process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\"",
+      "passes": false,
+      "scope": "試跑（10/9 已跑完）"
+    },
+    {
+      "id": "F11",
+      "ticket": "G1",
+      "scope": "今晚全套",
+      "description": "總指揮會跑全套了：`ops/acceptance-night.sh --plan full --dry-run` 印出完整計畫（前置重置、五章接力、第 2 章後存快照、還原快照、UX 三批每批最多 4 人且順序照 §13.2、後置恢復部署、彙整帶潤稿），並有 --no-reset、--no-snapshot 兩個退路；每個 fju-reset 子命令一次連線、間隔至少 15 秒。",
+      "steps": [
+        "跑 `ops/acceptance-night.sh --plan full --dry-run`，看印出的順序與批次。",
+        "跑 `--plan full --no-reset --no-snapshot --dry-run`：沒有任何 fju-reset 行。",
+        "用假 codex 與假 ssh（PATH 前面放一個 `ssh` 假程式記錄參數）跑 --plan full：記錄裡 fju-reset 呼叫依序是 status、pause-deploy、reset、snapshot midterm、restore midterm、resume-deploy，相鄰兩次間隔 ≥ 15 秒。"
+      ],
+      "verify": "o=$(ops/acceptance-night.sh --plan full --dry-run); for k in story-1 story-5 'snapshot midterm' 'restore midterm' ux-grader ux-admin-midterm resume-deploy polish; do echo \"$o\" | grep -q \"$k\" || echo \"缺 $k\"; done; ! ops/acceptance-night.sh --plan full --no-reset --no-snapshot --dry-run | grep -q fju-reset",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "ticket": "G1",
+      "scope": "今晚全套",
+      "description": "接力語意照 §13.2：某章當掉或逾時才停鏈；「接力：不可以」繼續下一章並記 dependency-not-met，且下一章目錄裡有上一章實際狀態的 handoff.md；第 2 章 ok 就存快照，不看接力行。",
+      "steps": [
+        "用假 codex 讓 story-1 寫「接力：不可以（名單）」：story-2 照跑，run.log 有 `dependency-not-met story-2`。",
+        "用假 codex 讓 story-2 sleep 超過預算（預算用 ACCEPT_BUDGET_OVERRIDE 縮短）：story-3～5 是 skipped，UX 批次照跑。",
+        "看 e2e/acceptance/.out/night-*/story-2/handoff.md：內容是 story-1 報告的「交給下一章的狀態」整節。"
+      ],
+      "verify": "grep -qE 'dependency-not-met\\s+story-2' e2e/acceptance/.out/night-*/run.log && node -e \"const r=require(process.argv[1]);const s=r.items.find(i=>i.id==='story-2');if(!s||s.status!=='ok')process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\" && test -f \"$(ls -td e2e/acceptance/.out/night-* | head -1)/story-2/handoff.md\"",
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "ticket": "G3",
+      "scope": "今晚全套",
+      "description": "總覽不再被資安洗版：網站問題永遠在最前面，四級數字只算網站問題；資安收成一節在後面：套件升級每個套件一列（現版、目標版、最高嚴重度、漏洞編號）、自訂規則待人工分類 N 條（只給數字與連結）、gitleaks 套允許清單後剩下的才算擋上線；一眼看表多一欄「資安」。",
+      "steps": [
+        "對試跑 run 目錄重跑 `e2e/acceptance/summarize-night.sh e2e/acceptance/.out/night-20261009-0652`（先把 security-static 用新 run-static.sh 重產）。",
+        "看 summary.md：「## 擋上線」節第一條是網站問題或寫「沒有」；「## 資安」在做不到（環境）之後；套件表每個套件一列，undici 只出現一次。",
+        "一眼看表有「資安」欄。"
+      ],
+      "verify": "s=e2e/acceptance/.out/night-20261009-0652/summary.md; grep -q '| 擋上線 | 要修 | 建議 | 待 Roy 決定 | 做不到（環境） | 資安 |' $s && test $(grep -c 'undici' $s) -le 1 && ! sed -n '/^## 擋上線/,/^## /p' $s | grep -q 'GHSA-'",
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "ticket": "G3",
+      "scope": "今晚全套",
+      "description": "資安掃描的誤報收掉：gitleaks 有允許清單（只放已確認的檔案:行或路徑，每條附理由），對 commit 0cd6655c 跑完 gitleaks 剩 0 條；自訂規則 fju-write-without-authorize 改成整個方法沒有任何權限呼叫才報，同一 commit 從 44 條降到 10 條以下，而且故意寫壞的範例仍會被報；summarize 多了 --polish（唯讀 codex、5 分鐘、失敗就略過）。",
+      "steps": [
+        "`e2e/acceptance/security/run-static.sh /tmp/sec2 0cd6655c`。",
+        "看 report.md：gitleaks 0 條（允許清單檔列在報告「注意」）；fju-write-without-authorize 命中數 < 10。",
+        "在暫存目錄放一個整個方法沒有 authorize 的 .ts，單獨跑 semgrep 用 semgrep-custom.yml：有命中。",
+        "`e2e/acceptance/summarize-night.sh /tmp/run-x --polish`：summary.md 最上面多「今晚一句話」；把 codex 換成假程式失敗時仍產出 summary.md。"
+      ],
+      "verify": "e2e/acceptance/security/run-static.sh /tmp/sec2 0cd6655c && test -f e2e/acceptance/security/gitleaks-allowlist.toml && python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));n=sum(1 for r in d.get(\"results\",[]) if r[\"check_id\"].endswith(\"fju-write-without-authorize\"));sys.exit(0 if n<10 else 1)' /tmp/sec2/semgrep.json && python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if isinstance(d,list) and len(d)==0 else 1)' /tmp/sec2/gitleaks.json && grep -q -- '--polish' e2e/acceptance/summarize-night.sh",
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "ticket": "G1",
+      "scope": "今晚全套",
+      "description": "整夜密碼跨五章都有效、登入狀態同章內可續用、跑完才刪：每章每個角色用 ACCEPT_PASSWORD 登入一次（state 檔名帶章前綴，不跨章），同一章內 session 死了才 state-load；~/.fju-acceptance/<runId> 整夜結束才消失；路 A 時 snapshots/midterm.pw 留著（0600）。",
+      "steps": [
+        "真跑時看各章 report.md／logs：每章各角色只登入一次，沒有「登入資料不正確」。",
+        "跑完 `ls ~/.fju-acceptance/`：只剩 snapshots/（路 A）或空（路 B）。"
+      ],
+      "verify": "test \"$(ls ~/.fju-acceptance/ 2>/dev/null | grep -v snapshots | wc -l | tr -d ' ')\" = 0",
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "ticket": "G5",
+      "scope": "今晚全套",
+      "description": "上傳檔案會成功：第 1 章第 19 步照共用規則點看得見的「選擇 CSV 檔」、看到 file chooser 才 upload、不行就 setInputFiles；真跑時名單匯入 7 筆，第 1 章「接力：可以」。第 2 章的附件 PDF 同一條規則。",
+      "steps": [
+        "看 story-1-opening.md 第 19 步與共用規則「上傳檔案」區塊（逐字同 §13.2）。",
+        "真跑後看 story-1/report.md 第 19、20 步是通過，結尾「接力：可以」。"
+      ],
+      "verify": "f=e2e/acceptance/story-1-opening.md; grep -q 'setInputFiles' $f && grep -q '不要點' $f && ! grep -q '點「選擇名單 CSV 檔」打開檔案選擇器' $f && grep -q '^接力：可以' \"$(ls -t e2e/acceptance/.out/night-*/story-1/report.md | head -1)\"",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "ticket": "端到端（今晚全套）",
+      "description": "今晚全套真的跑一次：Roy 走路 A（金鑰裝好，一行啟動）或路 B（手動重置＋鎖版本後 --no-reset --no-snapshot 啟動），之後不用再按任何東西；早上在 Vault 🧪 驗收報告/<起跑那天>/總覽.md 看到：測試站 commit 沒變、網站問題在最前面、五章各自的「接力」行、十位人設分數表、資安收成一節；報告裡沒有密碼；~/.fju-acceptance 只剩 snapshots（路 A）或空；路 A 自動部署已恢復、路 B 由 Roy 早上 rm 暫停檔。",
+      "steps": [
+        "路 A：`ssh fju-reset status` 正常後，💻 `CODEX_E2E_MODEL=gpt-6.1-sol caffeinate -dims ops/acceptance-night.sh --plan full`。",
+        "路 B：🖥️ 照 §13.5 貼重置與暫停指令，💻 `… --plan full --no-reset --no-snapshot`。",
+        "早上開 Obsidian 的 🧪 驗收報告/<日期>/總覽.md 從上往下讀一次。",
+        "對照 Mac：`ls e2e/acceptance/.out/night-*/` 五章＋十位人設＋security-static 都有 report.md 或 progress.md；run.json 沒有 pending。",
+        "路 A：`ssh fju-reset status` 顯示自動部署未暫停；路 B：🖥️ `sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused`。"
+      ],
+      "verify": "V=\"/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(node -e \"const r=require(process.argv[1]);console.log(r.startedAt.slice(0,10))\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\")\"; test -f \"$V/總覽.md\" && grep -q '| 資安 |' \"$V/總覽.md\" && grep -q '分數表' \"$V/總覽.md\" && test $(grep -c '^| story-' \"$V/總覽.md\") -ge 5 && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | grep -v snapshots | wc -l | tr -d ' ')\" = 0",
+      "passes": false,
+      "scope": "今晚全套"
+    }
+  ]
+}
