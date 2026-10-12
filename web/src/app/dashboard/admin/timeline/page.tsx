@@ -164,7 +164,7 @@ export default async function AdminTimelinePage({
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
-              {c.code}
+              {cohortLabel(c)}
             </Link>
           ))}
         </nav>

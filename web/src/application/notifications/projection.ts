@@ -56,12 +56,13 @@ export type NotificationDraft = {
 /** 通知標題上限：標題是給人一眼看懂的，不是正文。 */
 export const NOTIFICATION_TITLE_MAX_LENGTH = 120
 
-function titleFrom(payload: Record<string, unknown>, fallback: string): string {
+function titleFrom(payload: Record<string, unknown>, fallback: string, prefix = ''): string {
   const raw = payload.title
   if (typeof raw !== 'string') return fallback
   const trimmed = raw.replaceAll(/\s+/g, ' ').trim()
   if (!trimmed) return fallback
-  return trimmed.length > NOTIFICATION_TITLE_MAX_LENGTH ? `${trimmed.slice(0, NOTIFICATION_TITLE_MAX_LENGTH - 1)}…` : trimmed
+  const max = NOTIFICATION_TITLE_MAX_LENGTH - prefix.length
+  return prefix + (trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed)
 }
 
 /**
@@ -75,7 +76,7 @@ export function notificationsFor(event: ProjectableEvent): NotificationDraft[] {
   const presentation = notificationPresentationOf(event.type)
   if (!presentation) throw new DomainEventRejected(`事件型別 ${event.type} 沒有登記通知的樣子，不能投影成通知`)
 
-  const title = titleFrom(event.payload, presentation.defaultTitle)
+  const title = titleFrom(event.payload, presentation.defaultTitle, presentation.titlePrefix)
   const sourceRef = { type: event.sourceType, id: event.sourceId, version: event.sourceVersion }
   return [...new Set(event.recipients.map((id) => id.toLowerCase()))].map((recipientUserId) => ({
     eventId: event.id,

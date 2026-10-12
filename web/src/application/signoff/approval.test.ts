@@ -155,6 +155,7 @@ describe('匯出', () => {
   const at = new Date('2027-01-05T02:00:00Z')
   const data: SignoffExportData = {
     cohortCode: '115',
+    cohortName: '第 43 屆',
     groupCode: 'G01',
     purpose: 'result_confirmation',
     versionId: 'v-1',
@@ -202,5 +203,11 @@ describe('匯出', () => {
     expect(html).toContain('<p>全文</p>')
     expect(html).toContain('系辦&lt;b&gt;')
     expect(html).toContain('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')
+  })
+
+  it('可列印頁頁首的屆別寫「名稱（代碼）」，不只寫代碼', () => {
+    const html = buildSignoffPrintable(data)
+    expect(html).toContain('<p class="meta">第 43 屆（115）・版本 ID')
+    expect(html).not.toContain('<p class="meta">115・')
   })
 })

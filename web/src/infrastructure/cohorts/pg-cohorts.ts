@@ -3,6 +3,7 @@ import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import {
+  cohortLabel,
   isCohortId,
   isRequestId,
   normalizeCreateInput,
@@ -245,7 +246,7 @@ export class PgCohortCommand implements CohortCommand {
       if (begun.outcome !== 'fresh') return replayed<SetCohortFlagReceipt>(begun)
 
       if (target.status === 'archived') {
-        return err('COHORT_ARCHIVED', `${target.code} 已封存，不能設為這個屆別。`)
+        return err('COHORT_ARCHIVED', `${cohortLabel(target)}已封存，不能設為這個屆別。`)
       }
 
       let previous: { id: string; code: string; name: string } | null = null
@@ -338,7 +339,7 @@ export class PgCohortCommand implements CohortCommand {
       if (begun.outcome !== 'fresh') return replayed<ActivateCohortReceipt>(begun)
 
       if (target.status === 'archived') {
-        return err('COHORT_ARCHIVED', `${target.code} 已封存，要先解封才能轉為進行中。`)
+        return err('COHORT_ARCHIVED', `${cohortLabel(target)}已封存，要先解封才能轉為進行中。`)
       }
 
       const alreadyActive = target.status === 'active'
@@ -347,7 +348,7 @@ export class PgCohortCommand implements CohortCommand {
         if (!stages.rowCount || !target.year_end_date) {
           return err(
             'VALIDATION_FAILED',
-            `${target.code} 還沒設定階段與年度結束日。先到「時間軸」把四個階段的開始日與年度結束日填好，再轉為進行中。`,
+            `${cohortLabel(target)}還沒設定階段與年度結束日。先到「時間軸」把四個階段的開始日與年度結束日填好，再轉為進行中。`,
           )
         }
 
@@ -440,7 +441,7 @@ export class PgCohortCommand implements CohortCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SetGroupingSettingsReceipt>(begun)
-      if (target.status === 'archived') return err('COHORT_ARCHIVED', `${target.code} 已封存，不能再改分組設定。`)
+      if (target.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(target)}已封存，不能再改分組設定。`)
       if (target.revision !== expectedRevision) return staleRevision()
 
       await tx.query(

@@ -105,7 +105,7 @@ export default async function TeacherGroupsPage({
                 c.id === cohort.id ? 'bg-ink text-ink-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
-              {c.code}
+              {cohortLabel(c)}
             </Link>
           ))}
         </nav>

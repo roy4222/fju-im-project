@@ -25,7 +25,7 @@ export function TestNotificationForm({
 }: {
   requestId: string
   recipients: readonly { userId: string; label: string }[]
-  cohorts: readonly { cohortId: string; code: string }[]
+  cohorts: readonly { cohortId: string; label: string }[]
   titleMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState(sendTestNotificationAction, undefined)
@@ -71,7 +71,7 @@ export function TestNotificationForm({
             <option value="">全站（不屬於任何屆別）</option>
             {cohorts.map((c) => (
               <option key={c.cohortId} value={c.cohortId}>
-                {c.code}
+                {c.label}
               </option>
             ))}
           </select>

@@ -434,6 +434,10 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
 
     const page = await query.open(actor(t, ['teacher']), c1)
     expect(page.access === 'visible' && page.opportunity.linkedGroups.map((l) => l.groupCode)).toEqual(['G01', 'G02'])
+    // 屆別帶名稱（系1）：畫面標「第 43 屆（115）・G01」，不只代碼。
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = (select cohort_id from groups where id = $1)`, [g1.id])
+    const named = await query.open(actor(t, ['teacher']), c1)
+    expect(named.access === 'visible' && named.opportunity.linkedGroups.map((l) => l.cohortName)).toEqual(['第 43 屆', '第 43 屆'])
     // 連結不讓案主成為主指導。
     const advisor = await owner.sql('select count(*) as n from advisor_assignments where group_id = $1', [g1.id])
     expect(Number(advisor.rows[0]!.n)).toBe(0)

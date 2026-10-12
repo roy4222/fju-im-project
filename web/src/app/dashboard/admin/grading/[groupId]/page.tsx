@@ -7,6 +7,7 @@ import { Card, EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { OverrideForm, ResolveReviewForm, ReturnForm } from '@/app/dashboard/admin/grading/results-forms'
 import type { EvaluationHistoryEntry } from '@/application/grading'
+import { cohortLabel } from '@/composition/cohorts'
 import {
   adoptedFinal,
   describeFinalFormula,
@@ -39,7 +40,7 @@ const EVALUATION_STATE_TEXT: Record<EvaluationHistoryEntry['state'], string> = {
 /**
  * 一組的計算明細（票 24；產品 06 §4「7.3」「7.5」、GRD-05–08、GRD-15；模組實作設計 06 §7.2「計算明細頁」）。只有管理員。
  *
- * - 每個階段：要求份數、採計中的每一份（老師、完整精度與兩位小數、是否已改派但分數保留）、平均的算式。
+ * - 每個階段：要求份數、採計中的每一份（老師、四捨五入前與兩位小數、是否已改派但分數保留）、平均的算式。
  * - 最終：算式（82.145 × 60% ＋ 90 × 40% ＝ 85.287 → 85.29）、採用值（有生效中的更正就用更正值）。
  * - 動作：退回某一份（指派仍有效才行）、更正最終結果（最終完成才行）、處理待復核的更正。
  * - 歷史：每一份評分（含退回、歷史、失效的暫存與原因）、指派紀錄（移除方式與理由）、更正紀錄。
@@ -122,7 +123,7 @@ export default async function GroupGradeDetailPage({
         </p>
       ) : null}
       <p className="text-sm text-muted-foreground">
-        {d.group.cohortCode}・{d.version ? `評分規則第 ${d.version.versionNo} 版` : '還沒有評分規則'}
+        {cohortLabel({ name: d.group.cohortName, code: d.group.cohortCode })}・{d.version ? `評分規則第 ${d.version.versionNo} 版` : '還沒有評分規則'}
         {readOnly ? '・唯讀' : ''}
       </p>
 
@@ -188,7 +189,7 @@ export default async function GroupGradeDetailPage({
                     <tr>
                       <th className="px-4 py-2 font-medium">評分老師</th>
                       <th className="px-4 py-2 font-medium">各項原始輸入</th>
-                      <th className="px-4 py-2 text-right font-medium">分數（完整精度）</th>
+                      <th className="px-4 py-2 text-right font-medium">分數（四捨五入前）</th>
                       <th className="px-4 py-2 font-medium">正式送出</th>
                       <th className="px-4 py-2" />
                     </tr>

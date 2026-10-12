@@ -17,7 +17,9 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/teacher/inbox/inbox-forms'
 import {
+  cohortLabel,
   getInboxQuery,
+  inboxCohortText,
   inboxFilterParam,
   notificationKindLabel,
   parseInboxFilter,
@@ -68,7 +70,7 @@ export default async function TeacherInboxPage({ searchParams }: { searchParams:
   const chips: { value: string | null; label: string }[] = [
     { value: null, label: '全部' },
     { value: 'global', label: '全站' },
-    ...cohorts.map((c) => ({ value: c.cohortId, label: c.code })),
+    ...cohorts.map((c) => ({ value: c.cohortId, label: cohortLabel(c) })),
   ]
 
   return (
@@ -157,7 +159,7 @@ function InboxRow({ item }: { item: InboxItem }) {
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{notificationKindLabel(item.kind)}</span>
-          <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.cohortCode ?? '全站'}</span>
+          <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">{inboxCohortText(item)}</span>
           {href ? (
             <Link href={href} className={cn('min-w-0 truncate text-[15px] text-foreground hover:underline', unread ? 'font-bold' : 'font-medium')}>
               {title}
