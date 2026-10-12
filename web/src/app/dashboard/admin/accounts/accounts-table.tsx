@@ -3,7 +3,15 @@ import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import { IconDots, IconDownload } from '@tabler/icons-react'
 import { BulkBar, DataTableFrame, DataTableToolbar, DT, EmptyRow, SortLink } from '@/app/_ui/data-table'
 import { Pill } from '@/app/_ui/dashboard/primitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/app/_ui/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/app/_ui/ui/dropdown-menu'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
@@ -301,7 +309,7 @@ function cohortText(r: AccountRow): string {
 }
 
 /**
- * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員、去識別化。
+ * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員；去識別化另成「危險操作」一組（第三波 AC-37）。
  * 對話框留在列上（選單關掉就消失，放不進去），選單項只負責打開；一個項目都沒有就不顯示「更多」。
  * 自己那一列由呼叫端擋掉；已去識別化的列一律沒有「更多」。
  */
@@ -364,9 +372,13 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
           {canDeidentify ? (
             <>
               {canRepair || canGrant || canRevoke ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuItem variant="destructive" aria-label={`去識別化 ${r.name}`} onClick={later(deidentifyRef)}>
-                去識別化
-              </DropdownMenuItem>
+              {/* 第三波 §9 規則 1、AC-37：不能復原的動作在選單裡另成「危險操作」一組；後果寫在對話框。 */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>危險操作</DropdownMenuLabel>
+                <DropdownMenuItem variant="destructive" aria-label={`去識別化 ${r.name}`} onClick={later(deidentifyRef)}>
+                  去識別化
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </>
           ) : null}
         </DropdownMenuContent>
