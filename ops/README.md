@@ -286,6 +286,17 @@ ops/codex-e2e.sh e2e/acceptance/station-1-login.md
 
 清單怎麼寫見 [`e2e/acceptance/README.md`](../e2e/acceptance/README.md)。
 
+**E. 💻 整夜驗收（`ops/acceptance-night.sh`）**
+
+整套與參數見腳本檔頭（`ops/acceptance-night.sh --help`）；跑之前先 `--dry-run` 看順序。
+
+- **只補跑人設**：`caffeinate -dims ops/acceptance-night.sh --plan ux`。前提是之前某夜的 full 跑過第 2 章、存了學期中快照：
+  `~/.fju-acceptance/snapshots/midterm.pw` 要在、非空、權限 600，`ssh fju-reset status` 的 `snapshots=` 要有 `midterm`，缺一個就停。
+  它會 pause-deploy → restore midterm，整夜密碼沿用 `midterm.pw`（快照裡帳號的密碼）、不產新的；跑 UX 三批＋最後 `r1-login-limit`；
+  收尾 resume-deploy、遮蔽、刪這次的秘密目錄（`snapshots/` 不刪）、彙整。不跑劇本、不 reset、不存快照。
+- **背景跑要停請送 TERM**：`nohup … &` 啟動的是非互動 shell 的背景工作，bash 會忽略 SIGINT，`kill -INT`／Ctrl-C 沒有用、收尾也不會做。
+  請用 `kill -TERM <pid>`（pid 是 acceptance-night.sh 本身），它會停掉進行中的項目並照常收尾（含 resume-deploy、刪秘密）。
+
 ### 測試站示範資料（票 32）
 
 目的：讓測試站的前後台跟原型（https://fju-prototype.roy422roy.workers.dev ）一樣有內容。內容照原型的假資料
