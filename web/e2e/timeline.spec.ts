@@ -230,7 +230,7 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
   await expect(page.getByRole('heading', { name: '模擬時鐘' })).toBeVisible()
   await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill('2027-03-01T10:00')
   await page.getByRole('button', { name: '設定模擬時間' }).click()
-  await expect(feedback(page, 'alert')).toContainText('請填原因')
+  await expect(feedback(page, 'alert')).toContainText('請填原因：為什麼要調整模擬時鐘。')
 
   // 第一階段開始日的前一晚：尚未開始。（設定後業務鐘會繼續走，所以不設在最後一秒；
   // 秒級邊界由單元測試證明。）
