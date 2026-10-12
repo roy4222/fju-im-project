@@ -10,7 +10,7 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { NewVersionDialog } from '@/app/dashboard/admin/signoff/new-version-dialog'
 import { CreateVersionForm, type GroupOption } from '@/app/dashboard/admin/signoff/signoff-forms'
 import type { AdminGroupRow, SignoffPurpose, VersionSummary } from '@/application/signoff'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { describeCause, getSignoffQuery, SIGNOFF_PURPOSES, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -183,7 +183,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
 
   return shell(
     <>
-      <CohortPills cohorts={cohorts} currentId={cohort.id} hrefFor={(id) => `/dashboard/admin/signoff?cohort=${id}`} />
+      <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `/dashboard/admin/signoff?cohort=${id}`} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <Panel title="整體進度" icon={<IconSignature />} description={`${COLUMN_LABEL[purpose]}・完成 ${complete}／${total} 組`} aria-label="整體進度">
@@ -273,7 +273,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
       </div>
     </>,
     {
-      description: `${cohort.code}・${groups.length} 組、${allVersions} 個目前版本。系辦只能發布、重開或重置，不能代替任何人同意。`,
+      description: `${cohortLabel(cohort)}・${groups.length} 組、${allVersions} 個目前版本。系辦只能發布、重開或重置，不能代替任何人同意。`,
       actions: (
         <NewVersionDialog>
           {groups.length === 0 ? (

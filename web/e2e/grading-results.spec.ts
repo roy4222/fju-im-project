@@ -225,6 +225,8 @@ const bookRow = (page: Page, code: string) => page.getByTestId(`gradebook-row-${
 async function submitScore(page: Page, teacher: TestSession, stageKey: string, stageName: string, value: string) {
   await signIn(page, teacher)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}?stage=${stageKey}`)
+  // 驗收 P-01：老師評分頁的屆別寫「名稱（代碼）」。
+  await expect(page.getByRole('main')).toContainText(`${CODE} 成績測試（${CODE}）・`)
   const bench = page.getByRole('region', { name: `G01「${stageName}」評分表` })
   await bench.getByLabel('1. 總分').fill(value)
   await bench.getByRole('button', { name: '正式送出' }).click()
@@ -263,6 +265,10 @@ test('成績表：期中 82.15 已完成、期末未達份數標尚未完成；�
   await expect(page.getByTestId('adopted-final')).toHaveText('85.29')
   await expect(page.getByTestId('final-formula')).toHaveText('82.145 × 60% ＋ 90 × 40% ＝ 85.287 → 85.29')
   await expect(page.getByTestId('detail-stage-mid').getByTestId('stage-formula')).toHaveText('(80 ＋ 84.29) ÷ 2 ＝ 82.145 → 82.15')
+  // 驗收 P-01／P-06：屆別寫「名稱（代碼）」；分數欄叫「四捨五入前」。
+  await expect(page.getByRole('main')).toContainText(`${CODE} 成績測試（${CODE}）・評分規則第`)
+  await expect(page.getByRole('columnheader', { name: '分數（四捨五入前）' }).first()).toBeVisible()
+  await expect(page.getByText('完整精度')).toHaveCount(0)
 })
 
 test('退回：系辦填理由退回評二的期末 → 老師收到通知、看到理由與預填 → 改 92 重送 → 最終 86.09', async ({ page }) => {
@@ -432,7 +438,8 @@ test('老師被停用：G02 期中列「老師已停用，缺評待處理」，�
 test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與畫面一致；篩選「尚未完成」只匯出 G02；非管理員被拒', async ({ page, request }) => {
   await openGrading(page)
   const [csvDownload] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
-  expect(csvDownload.suggestedFilename()).toMatch(new RegExp(`^成績-${CODE}-\\d{8}-\\d{4}\\.csv$`))
+  // 驗收 P-01：檔名寫「屆別名稱(代碼)」，不留空白。
+  expect(csvDownload.suggestedFilename()).toMatch(new RegExp(`^${CODE}成績測試\\(${CODE}\\)_成績_\\d{8}-\\d{4}\\.csv$`))
   const csv = fs.readFileSync((await csvDownload.path())!, 'utf8')
   const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n')
   expect(lines).toHaveLength(5)
@@ -474,7 +481,7 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
 test('封存的屆別：成績頁仍選得到，只能看與匯出——建立方案、設份數、指派、改派都停用', async ({ page }) => {
   await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
   await openGrading(page)
-  await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 已封存，只能查看與匯出`)
+  await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 成績測試（${CODE}）已封存，只能查看與匯出`)
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
   await expect(page.getByRole('button', { name: '建立新版評分規則' })).toBeDisabled()
   await openAssign(page)

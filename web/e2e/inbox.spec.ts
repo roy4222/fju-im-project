@@ -140,7 +140,8 @@ test('S01 單筆標已讀：未讀變 0；重新登入（新的 session）仍是
 test('再發兩則（一則屬某一屆）：屆別篩選只看得到那一屆；全部標為已讀後未讀歸零', async ({ page }) => {
   const scoped = `測試通知 ${stamp} B`
   const global = `測試通知 ${stamp} C`
-  await sendTestNotification(page, s01, scoped, cohortCode)
+  // 系辦的屆別下拉寫「名稱（代碼）」（驗收 P-01）。
+  await sendTestNotification(page, s01, scoped, `${cohortCode} 通知測試（${cohortCode}）`)
   await sendTestNotification(page, s01, global)
 
   await useCookie(page, s01.cookie)
@@ -149,7 +150,7 @@ test('再發兩則（一則屬某一屆）：屆別篩選只看得到那一屆�
   await expect(page.getByTestId('inbox-bell-count')).toHaveText('2')
 
   // 依屆別篩選。
-  await page.getByRole('navigation', { name: '依屆別篩選' }).getByRole('link', { name: cohortCode }).click()
+  await page.getByRole('navigation', { name: '依屆別篩選' }).getByRole('link', { name: `${cohortCode} 通知測試（${cohortCode}）`, exact: true }).click()
   await expect(page).toHaveURL(/cohort=/)
   await expect(page.getByTestId('inbox-item')).toHaveCount(1)
   await expect(page.getByTestId('inbox-item')).toContainText(scoped)

@@ -19,7 +19,7 @@ import {
 } from '@/app/dashboard/admin/grading/grading-forms'
 import { GradeExportButtons } from '@/app/dashboard/admin/grading/results-forms'
 import type { AdminAssignmentView, Gradebook, SchemeVersionView } from '@/application/grading'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   adoptedFinal,
   describeFormula,
@@ -154,7 +154,7 @@ export default async function AdminGradingPage({
   const { current, versions, groups, requirements, assignments, teachers } = board.receipt
   // 伺服器端的屆別狀態為準（寫入的用例本身也會以 COHORT_ARCHIVED 拒絕）。
   const archived = board.receipt.cohort.archived
-  const archivedReason = archived ? `${board.receipt.cohort.code} 已封存，只能查看與匯出；要修改請先解封。` : null
+  const archivedReason = archived ? `${cohortLabel(board.receipt.cohort)}已封存，只能查看與匯出；要修改請先解封。` : null
   const latest = versions[0] ?? null
   const locked = current?.status === 'locked'
   const stages = current?.stages ?? []
@@ -204,7 +204,7 @@ export default async function AdminGradingPage({
   return shell(
     <>
       <CohortPills
-        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${c.code}・已封存` : c.code }))}
+        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c) }))}
         currentId={cohort.id}
         hrefFor={(id) => `${BASE}?cohort=${id}`}
       />

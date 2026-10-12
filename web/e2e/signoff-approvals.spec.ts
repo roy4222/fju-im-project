@@ -268,6 +268,9 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
     await page.goto('/dashboard/student/inbox')
     await expect(page.getByText(/這一版站內同意書全員已同意/)).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
+  // 驗收 P-07：白話寫「不代表校方正式接受這份同意紀錄」，不用「校方採認」。
+  await expect(page.getByText(/不代表校方正式接受這份同意紀錄/)).toBeVisible()
+  await expect(page.getByText(/校方採認/)).toHaveCount(0)
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)

@@ -146,7 +146,7 @@ export default async function AdminHomePage() {
             href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}
           />
           <Tile
-            label="缺評老師"
+            label="尚未完成評分的老師"
             icon={<IconChecklist />}
             value={missingTeachers}
             of={`${teachers.length} 位`}

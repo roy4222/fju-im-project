@@ -417,7 +417,7 @@ test('管理員組別名單：篩選、排序、組員信箱欄與「複製本�
   const csvDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: '匯出篩選結果（CSV）' }).click()
   const csvFile = await csvDownload
-  expect(csvFile.suggestedFilename()).toMatch(new RegExp(`^組別名單-${CODE}-\\d{8}-\\d{4}\\.csv$`))
+  expect(csvFile.suggestedFilename()).toMatch(new RegExp(`^${CODE}產學測試\\(${CODE}\\)_組別名單_\\d{8}-\\d{4}\\.csv$`))
   const csv = await readFile((await csvFile.path())!, 'utf8')
   expect(csv.charCodeAt(0)).toBe(0xfeff)
   const lines = csv.slice(1).trim().split('\r\n')
