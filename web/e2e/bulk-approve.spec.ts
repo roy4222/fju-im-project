@@ -1,0 +1,199 @@
+import { expect, test, type Browser, type Page } from '@playwright/test'
+import { Pool } from 'pg'
+import { sharedTestSession, toPlaywrightCookie } from './session'
+
+/**
+ * 第三波 W6：待審註冊一次核准多位（AC-24）；操作紀錄新增老師那筆用老師的核實文字（AC-25）。
+ *
+ * 1. 名單上 3 位，其中第 3 位的學號已被別人（先核准的同學號申請）占用：
+ *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 選核實方式 → 確認
+ *    → 結果「成功 2、略過 1」（學號已被使用）；2 位可以登入進學生首頁；操作紀錄 2 筆核准。
+ * 2. 新增一位老師後，操作紀錄那筆的核實寫「教職員證、身分證」，不提學生證。
+ *
+ * 待審清單是全站共用的（別的 e2e 檔平行跑時也會有待審的人），所以逐一勾這一輪的人，不按「全選」。
+ */
+
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+const ownerUrl = process.env.DATABASE_URL_OWNER
+const PASSWORD = 'Student-Password-2026'
+
+test.describe.configure({ mode: 'serial' })
+
+const run = Date.now().toString(36)
+const cohortCode = `ba${run}`.slice(0, 20)
+const cohortName = `E2E 批次核准屆 ${cohortCode}`
+const prefix = String(Date.now()).slice(-5)
+const student = (n: number, studentNo = `6${prefix}10${n}`) => ({
+  name: `批次生${prefix}${n}`,
+  studentNo,
+  email: `w6-s${n}-${run}@example.com`,
+})
+const S1 = student(1)
+const S2 = student(2)
+const S3 = student(3)
+/** 跟 S3 同學號、同姓名，先被個別核准：S3 的學號就「已被使用」。 */
+const HOLDER = { ...student(4, S3.studentNo), name: S3.name }
+
+let ipCounter = 0
+function uniqueIp(): string {
+  ipCounter += 1
+  return `10.${(Number(prefix) % 200) + 30}.${Math.floor(ipCounter / 250) + 100}.${(ipCounter % 250) + 1}`
+}
+
+async function adminPage(browser: Browser): Promise<Page> {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const session = await sharedTestSession(page.request, 'admin')
+  await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
+  return page
+}
+
+async function register(browser: Browser, s: { name: string; studentNo: string; email: string }) {
+  const context = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+  const page = await context.newPage()
+  await page.goto('/register')
+  await page.getByLabel('姓名').fill(s.name)
+  await page.getByLabel('學號').fill(s.studentNo)
+  await page.getByLabel('系級').fill('資管二甲')
+  await page.getByLabel('手機').fill('0912-345-678')
+  await page.getByLabel('登入 Email').fill(s.email)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByLabel('確認密碼').fill(PASSWORD)
+  await page.getByRole('button', { name: '送出註冊' }).click()
+  await expect(page).toHaveURL(/\/register\/pending$/)
+  await context.close()
+}
+
+test.beforeAll(async () => {
+  if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能種屆別與名單')
+  // 屆別與名單匯入的畫面各有自己的 e2e；這裡直接種資料，只測批次核准。
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  try {
+    const cohort = await pool.query<{ id: string }>(
+      `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+      [cohortCode, cohortName],
+    )
+    const importer = await pool.query<{ id: string }>(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), '名單匯入者', $1, false, now(), 'active') returning id`,
+      [`w6-importer-${run}@example.com`],
+    )
+    const version = await pool.query<{ id: string }>(
+      `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+       values (gen_random_uuid(), $1, $2, now(), $3::jsonb) returning id`,
+      [
+        cohort.rows[0]!.id,
+        importer.rows[0]!.id,
+        JSON.stringify({
+          counts: { total: 3, valid: 3, duplicate: 0, missing: 0, conflict: 0, cohortMismatch: 0, invalidEmail: 0 },
+          columns: { cohort: false, email: false, departmentClass: true },
+          fileName: 'seeded.csv',
+          checksum: '',
+          issues: [],
+          issuesTotal: 0,
+        }),
+      ],
+    )
+    for (const s of [S1, S2, S3]) {
+      await pool.query(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class)
+         values (gen_random_uuid(), $1, $2, $3, $3, '資管二甲')`,
+        [version.rows[0]!.id, s.studentNo, s.name],
+      )
+    }
+  } finally {
+    await pool.end()
+  }
+})
+
+function pendingRow(page: Page, name: string) {
+  // 帳號頁下方還有「全部帳號」表格，待審的人兩邊都有；這裡只看上方的待審核清單。
+  return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
+}
+
+test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並寫原因', async ({ browser }) => {
+  for (const s of [HOLDER, S1, S2, S3]) await register(browser, s)
+  const admin = await adminPage(browser)
+
+  // 先個別核准同學號的另一位，讓 S3 的學號變成「已被使用」。單筆核准照舊（第一個同名的列）。
+  await admin.goto('/dashboard/admin/accounts')
+  await admin.getByRole('button', { name: `審核 ${HOLDER.name}` }).first().click()
+  const review = admin.getByRole('dialog', { name: `審核 ${HOLDER.name}` })
+  await review.getByLabel('當面核對學生證或其他身分證件').check()
+  await review.getByRole('button', { name: '核准' }).click()
+  await expect(review.getByRole('status')).toContainText('已核准')
+  await review.getByRole('button', { name: '關閉' }).click()
+  await expect(pendingRow(admin, S3.name)).toHaveCount(1)
+
+  // 沒勾任何人時沒有批次按鈕。
+  await admin.goto('/dashboard/admin/accounts')
+  const pending = admin.getByRole('region', { name: '待審核' })
+  await expect(pending.getByRole('button', { name: /^核准勾選的/ })).toHaveCount(0)
+  for (const s of [S1, S2, S3]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
+  await pending.getByRole('button', { name: '核准勾選的 3 位' }).click()
+
+  const dialog = admin.getByRole('dialog', { name: '批次核准' })
+  await expect(dialog.getByRole('heading', { name: '批次核准預覽' })).toBeVisible()
+  const rows = dialog.getByTestId('bulk-approve-row')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.filter({ hasText: S1.name })).toContainText(`會核准，進 ${cohortName}`)
+  await expect(rows.filter({ hasText: S2.name })).toContainText(S2.studentNo)
+  await expect(rows.filter({ hasText: S3.name })).toContainText('略過：學號已被使用')
+  await admin.screenshot({ path: 'test-results/w6-bulk-approve-preview.png' })
+
+  // 沒選核實方式不送。
+  await dialog.getByRole('button', { name: '核准 2 位' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  await dialog.getByRole('button', { name: '核准 2 位' }).click()
+
+  const result = dialog.getByRole('status')
+  await expect(result).toContainText('成功 2、略過 1')
+  await expect(result.getByRole('region', { name: '略過的人' })).toContainText(S3.name)
+  await expect(result.getByRole('region', { name: '略過的人' })).toContainText('學號已被使用')
+  await admin.screenshot({ path: 'test-results/w6-bulk-approve-done.png' })
+  await dialog.getByRole('button', { name: '關閉' }).click()
+
+  // 關掉後清單刷新：核准的兩位離開待審，略過的那位還在。
+  await expect(pendingRow(admin, S1.name)).toHaveCount(0)
+  await expect(pendingRow(admin, S2.name)).toHaveCount(0)
+  await expect(pendingRow(admin, S3.name)).toHaveCount(1)
+
+  // 操作紀錄：這兩位各一筆核准。
+  await admin.goto('/dashboard/admin/audit')
+  for (const s of [S1, S2]) {
+    await expect(admin.getByTestId('audit-entry').filter({ hasText: '核准註冊' }).filter({ hasText: s.name })).toHaveCount(1)
+  }
+  // S3 跟 HOLDER 同名：那一筆是 HOLDER 的個別核准；被略過的 S3 沒有多一筆。
+  await expect(admin.getByTestId('audit-entry').filter({ hasText: '核准註冊' }).filter({ hasText: S3.name })).toHaveCount(1)
+
+  // 核准的人可以登入、進學生首頁。
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(S1.email)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByRole('button', { name: '登入', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/student$/)
+  await context.close()
+})
+
+test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不提學生證', async ({ browser }) => {
+  const admin = await adminPage(browser)
+  const teacher = { name: `批次老師${prefix}`, email: `w6-t-${run}@example.com` }
+  await admin.goto('/dashboard/admin/accounts')
+  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  const dialog = admin.getByRole('dialog', { name: '新增老師' })
+  await dialog.getByLabel('登入 Email').fill(teacher.email)
+  await dialog.getByLabel('姓名').fill(teacher.name)
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
+  await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
+  await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
+  await dialog.getByRole('button', { name: '關閉' }).click()
+
+  await admin.goto('/dashboard/admin/audit')
+  const entry = admin.getByTestId('audit-entry').filter({ hasText: '新增老師' }).filter({ hasText: teacher.name })
+  await expect(entry).toHaveCount(1)
+  await expect(entry).toContainText('核實：當面核對身分證件（教職員證、身分證）')
+  await expect(entry).not.toContainText('學生證')
+})
