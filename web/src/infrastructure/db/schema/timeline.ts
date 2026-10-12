@@ -92,6 +92,12 @@ export const projectEvents = pgTable(
       onDelete: 'restrict',
       onUpdate: 'restrict',
     }),
+    /** 刪除標記（0012，第三波 W0）：不實體刪列、不提供恢復；只有已取消的活動能刪。 */
+    deletedAt: timestamp('deleted_at', tz),
+    deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
   },
   (t) => [
     check('project_events_ends_after_starts_check', sql`${t.endsAt} is null or ${t.endsAt} >= ${t.startsAt}`),
@@ -100,6 +106,11 @@ export const projectEvents = pgTable(
       sql`${t.audienceKind} in ('public','signed_in','cohort_students','teachers')`,
     ),
     check('project_events_status_check', sql`${t.status} in ('scheduled','cancelled')`),
+    check(
+      'project_events_deleted_check',
+      sql`(${t.deletedAt} is null) = (${t.deletedByUserId} is null)
+          and (${t.deletedAt} is null or ${t.status} = 'cancelled')`,
+    ),
     check('project_events_created_by_kind_check', sql`${t.createdByKind} in ('user','system','worker')`),
     check(
       'project_events_created_by_actor_check',

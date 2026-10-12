@@ -16,6 +16,9 @@
  * （roles 測試照它逐欄驗），新加的欄另外記在 `updateAddedIn: { "<切片>": [欄...] }`。
  * 原切片的 migration 產生時扣掉這些欄（已部署的 0010 一字不變），新切片的 migration 只產生
  * `GRANT UPDATE (新欄) ON 表`——不 REVOKE、不碰其他權限。
+ *
+ * 同一個切片可以既建新表、又給舊表加欄（第三波 W0 的 0012）：同一個產生區塊先產生新表的權限
+ * （REVOKE 只收新表），再接舊表的補欄 GRANT。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -36,6 +39,7 @@ const MIGRATION_BY_SLICE = {
   S10: 'drizzle/0009_s10_grading.sql',
   S11: 'drizzle/0010_s11_signoff_showcase.sql',
   T39: 'drizzle/0011_t39_showcase_stage_fields.sql',
+  W0: 'drizzle/0012_wave3_delete_home.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'
@@ -57,16 +61,18 @@ function asOfOwnSlice(row) {
   return { ...row, update: row.update.filter((c) => !later.has(c)) }
 }
 
-/** 只有「舊表加欄」的切片：逐表補 UPDATE 欄權限，其他一律不動。 */
-function generateAmendments(amendments) {
-  const statements = amendments.map(
+const block = (statements) => `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
+
+/** 舊表加欄：逐表補 UPDATE 欄權限，其他一律不動。 */
+function amendmentStatements(amendments) {
+  return amendments.map(
     ({ row, columns }) =>
       `-- ${row.table}（${row.slice} 建）加欄後補的可更新欄；其餘權限照 ${row.slice} 的產生區塊\nGRANT UPDATE (${columns.join(', ')}) ON ${row.table} TO ${app};`,
   )
-  return `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
 }
 
-function generate(tables) {
+/** 這個切片新建的表：先全部收回，再照矩陣給回去。 */
+function tableStatements(tables) {
   const statements = []
 
   statements.push(
@@ -116,7 +122,7 @@ function generate(tables) {
     }
   }
 
-  return `${BEGIN}\n${statements.join(`\n${BREAK}\n\n`)}\n${END}`
+  return statements
 }
 
 for (const row of matrix.tables) {
@@ -150,11 +156,10 @@ for (const slice of slices) {
   const migrationPath = path.join(webRoot, relative)
   const own = matrix.tables.filter((t) => t.slice === slice).map(asOfOwnSlice)
   const amendments = amendmentsOf(slice)
-  if (own.length > 0 && amendments.length > 0) {
-    console.error(`切片 ${slice} 同時建新表又給舊表加欄；產生器目前只支援其中一種，請分開。`)
-    process.exit(1)
-  }
-  const generated = own.length > 0 ? generate(own) : generateAmendments(amendments)
+  const generated = block([
+    ...(own.length > 0 ? tableStatements(own) : []),
+    ...amendmentStatements(amendments),
+  ])
   const migration = fs.readFileSync(migrationPath, 'utf8')
   const beginAt = migration.indexOf(BEGIN)
   const endAt = migration.indexOf(END)
