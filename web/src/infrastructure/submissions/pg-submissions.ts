@@ -308,6 +308,9 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const schema = locked.schema!
       const receiver = locked.receiver!
       const group = receiver.kind === 'group'
+      // 補交（W10）：守門放行了、但不看補交期限時已截止＝靠補交送進來的。在送出當下判定並記進這一版的稽核，
+      // 之後系辦再改全體截止也不會讓標記變來變去（`VERSION_COLUMNS` 的 `late` 讀這裡）。
+      const late = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) === 'closed'
 
       const draft = await this.#lockDraft(tx, itemId, receiver)
       if (!draft) return staleDraft(group)
@@ -423,6 +426,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
           draftRevision,
           submissionVersionId: versionId,
           files: attachedFiles.map((f) => ({ fileId: f.fileId, fieldKey: f.fieldKey, checksum: f.checksum })),
+          ...(late ? { late: true, reopenUntil: locked.reopenUntil?.toISOString() ?? null } : {}),
         },
       })
 
@@ -598,9 +602,6 @@ export class PgSubmissionCommand implements SubmissionCommand {
     if (!dueAt) return err('VALIDATION_FAILED', '請選補交期限（日期與時間，臺灣時間）。', { details: { field: 'dueAt' } })
     const userId = actor.userId
     const businessAt = await this.#businessClock.now()
-    if (dueAt.getTime() <= businessAt.getTime()) {
-      return err('VALIDATION_FAILED', `補交期限要晚於現在（${formatTaipeiMinute(businessAt)}，臺灣時間）。`, { details: { field: 'dueAt' } })
-    }
 
     return this.#run(async (tx) => {
       // 鎖序跟學生送出一樣：屆別（共享）→ 組別（共享，整組一份才有）→ 項目（共享）。
@@ -638,8 +639,13 @@ export class PgSubmissionCommand implements SubmissionCommand {
         },
         realAt,
       )
+      // 同一個請求重送（回應遺失後重試）：直接回第一次的結果，不再拿「現在」重驗期限（架構 §4.9 冪等）。
       if (begun.outcome !== 'fresh') return replayed<ReopenReceipt>(begun)
 
+      // 跟時間有關的檢查一律在帳本判定是新請求之後才做。
+      if (dueAt.getTime() <= businessAt.getTime()) {
+        return err('VALIDATION_FAILED', `補交期限要晚於現在（${formatTaipeiMinute(businessAt)}，臺灣時間）。`, { details: { field: 'dueAt' } })
+      }
       if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
         return err('VALIDATION_FAILED', '這個項目不收件，不需要補交。')
       }
@@ -658,6 +664,24 @@ export class PgSubmissionCommand implements SubmissionCommand {
         return err('EXEMPTED', group ? '這一組已設為免填，不需要補交。' : '這位學生已設為免填，不需要補交。')
       }
       if (group && groupRow?.status !== 'active') return err('GROUP_DISSOLVED', '這個組別已經解散，不能開放補交。')
+
+      // 有效期限＝這位收件者所有補交列裡最晚的那一個（只插不改）。所以新期限一定要比已開放的晚：
+      // 提早的話新列不會生效，通知與回執卻寫著較早的時間，三者就對不上。同一位的兩次開放用交易鎖排隊，
+      // 「讀最晚期限 → 插新列」之間不會插進另一筆。
+      await tx.query(`select pg_advisory_xact_lock(hashtextextended('submission_reopen:' || $1 || ':' || $2, 0))`, [itemId, receiverId])
+      const current = await tx.query<{ due_at: Date | null }>(
+        'select max(due_at) as due_at from submission_reopens where item_id = $1 and receiver_kind = $2 and receiver_id = $3',
+        [itemId, kind, receiverId],
+      )
+      const currentDue = current.rows[0]?.due_at ?? null
+      if (currentDue && dueAt.getTime() <= currentDue.getTime()) {
+        return err(
+          'VALIDATION_FAILED',
+          `已經開放補交到 ${formatTaipeiMinute(currentDue)}（臺灣時間），補交期限只能延後、不能提早：${group ? '組員' : '學生'}已經收到這個期限的通知。` +
+            '要提早請先跟對方說明，請他在你希望的時間前交；系統會收到原期限為止。',
+          { details: { field: 'dueAt' } },
+        )
+      }
 
       await tx.query(
         `insert into submission_reopens (id, item_id, receiver_kind, receiver_id, due_at, reason, created_at, created_by_user_id)
@@ -934,18 +958,16 @@ export type VersionRow = {
 }
 
 /**
- * `late`（W10「補交」）：收件時間已過項目截止分鐘，而且送出之前系辦已經替這位收件者開過補交。
- * 沒有補交就送不進截止後，所以第二個條件只是防「事後把截止往前改」把準時交的誤標成補交。
+ * `late`（W10「補交」）：**送出當下**就判定好、記在這一版的 `submission.submit` 稽核（不可變）裡的 `late: true`。
+ * 不拿目前的 `due_at` 重算：系辦之後延長或提早全體截止，歷史版本的標記都不變。沒有這個鍵的舊版本一律不是補交
+ * （W10 之前根本送不進截止後）。
  */
 export const VERSION_COLUMNS = `
   v.version_no, v.received_business_at, v.received_real_at, v.request_id,
   coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no,
-  exists (select 1 from managed_items lm
-           where lm.id = v.item_id and lm.due_at is not null
-             and v.received_business_at >= lm.due_at + interval '1 minute'
-             and exists (select 1 from submission_reopens ro
-                          where ro.item_id = v.item_id and ro.receiver_kind = v.receiver_kind
-                            and ro.receiver_id = v.receiver_id and ro.created_at <= v.received_real_at)) as late`
+  exists (select 1 from audit_events ae
+           where ae.target_type = 'item' and ae.target_id = v.item_id and ae.action = 'submission.submit'
+             and ae.payload->>'submissionVersionId' = v.id::text and ae.payload @> '{"late": true}'::jsonb) as late`
 
 export const VERSION_JOINS = `
   join users u on u.id = v.submitted_by_user_id

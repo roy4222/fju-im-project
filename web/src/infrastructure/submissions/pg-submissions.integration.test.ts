@@ -828,6 +828,70 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     expect(completionOf(window, entries, expired)).toMatchObject({ overdue: 2, pending: 0 })
   })
 
+  it('補交送出後系辦再延長全體截止：歷史版本的「補交」標記不變（看送出當時，不看現在的截止）', async () => {
+    const { student, itemId } = await closedScenario()
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '補交' }, randomUUID())).ok).toBe(true)
+    expect((await submissions.submit(studentActor(student), itemId, 1, randomUUID())).ok).toBe(true)
+    expect((await query.myItem(student.id, itemId))!.versions[0]).toMatchObject({ late: true })
+
+    // 系辦把全體截止延到 11/30：v1 當時是補交，標記照舊；改期之後在新截止前送的 v2 不是補交。
+    await owner.sql(`update managed_items set due_at = '2026-11-30T15:59:00Z', deadline_version = deadline_version + 1 where id = $1`, [itemId])
+    const saved = await mustSave(student, itemId, 1, { ...COMPLETE, topic: '改期後重送' })
+    expect((await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())).ok).toBe(true)
+    expect((await query.myItem(student.id, itemId))!.versions.map((v) => [v.versionNo, v.late])).toEqual([
+      [2, false],
+      [1, true],
+    ])
+    const roster = await new PgRosterQuery(() => app).receiver(adminActor(), itemId, student.id)
+    expect(roster!.versions.map((v) => [v.versionNo, v.late])).toEqual([
+      [2, false],
+      [1, true],
+    ])
+    expect(await query.myVersion(student.id, itemId, 1)).toMatchObject({ late: true })
+  })
+
+  it('補交期限不能提早（取最晚期限的模型）：縮短或同一時間被拒；延長成功，回執、通知與實際期限一致', async () => {
+    const { student, itemId } = await closedScenario()
+    const ask = (dueAt: string) => submissions.reopen(adminActor(), itemId, student.id, { dueAt, reason: '補交' }, randomUUID())
+    expect((await ask('2026-11-18T17:00')).ok).toBe(true)
+
+    for (const dueAt of ['2026-11-17T17:00', '2026-11-18T17:00']) {
+      const refused = await ask(dueAt)
+      expect(refused).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+      expect(refused.ok ? '' : refused.message).toContain('不能提早')
+      expect(refused.ok ? '' : refused.message).toContain('2026/11/18 17:00')
+    }
+    expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
+    expect(await reopenEvents(itemId)).toHaveLength(1)
+
+    const longer = await ask('2026-11-19T17:00')
+    expect(longer).toMatchObject({ ok: true, receipt: { dueAt: '2026-11-19T09:00:00.000Z' } })
+    const events = await reopenEvents(itemId)
+    expect(events).toHaveLength(2)
+    const latest = events.find((e) => (e.payload as { dueAt: string }).dueAt === '2026-11-19T09:00:00.000Z')
+    expect((latest!.payload as { title: string }).title).toContain('2026/11/19 17:00')
+    expect(await query.myItem(student.id, itemId)).toMatchObject({ reopenUntil: new Date('2026-11-19T09:00:00Z') })
+    businessNow = new Date('2026-11-19T09:01:00Z')
+    expect(await submissions.submit(studentActor(student), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
+    businessNow = new Date('2026-11-19T09:00:30Z')
+    expect(await submissions.submit(studentActor(student), itemId, 1, randomUUID())).toMatchObject({ ok: true })
+  })
+
+  it('開放成功但回應遺失：補交期限過後用同一個請求重試，拿回原本的成功回執（冪等，不重新驗時間）', async () => {
+    const { student, itemId } = await closedScenario()
+    const requestId = randomUUID()
+    const input = { dueAt: '2026-11-16T17:00', reason: '回應遺失' }
+    const first = await submissions.reopen(adminActor(), itemId, student.id, input, requestId)
+    expect(first.ok).toBe(true)
+
+    businessNow = new Date('2026-11-17T00:00:00Z') // 臺灣 11/17 08:00，已過補交期限
+    expect(await submissions.reopen(adminActor(), itemId, student.id, input, requestId)).toEqual(first)
+    expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
+    expect(await reopenEvents(itemId)).toHaveLength(1)
+    // 換一個請求編號就是新的開放：這時才照「晚於現在」檢查。
+    expect(await submissions.reopen(adminActor(), itemId, student.id, input, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  })
+
   it('整組一份：開給一組，通知那一組目前的組員，任一位都能代表全組補交；別組照舊被擋', async () => {
     const { cohortId, stageId } = await newCohort()
     const [a1, a2, b1] = [await newStudent(cohortId), await newStudent(cohortId), await newStudent(cohortId)]
