@@ -97,6 +97,13 @@ export const managedItems = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, restrict),
     updatedAt: timestamp('updated_at', tz).notNull().defaultNow(),
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, restrict),
+    /**
+     * 刪除標記（0012，第三波 W0）：刪除＝不實體刪列（`managed_items` 不給 DELETE、子表外鍵全是 restrict），
+     * 只記誰在什麼時候刪。被刪的列後台、前台、通知、附件下載一律當作不存在；不提供恢復。
+     * 只有草稿或已下架能刪（發布中要先撤回或下架），所以被刪的列一定不是 published，公開查詢不用另加條件。
+     */
+    deletedAt: timestamp('deleted_at', tz),
+    deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, restrict),
   },
   (t) => [
     check(
@@ -142,6 +149,12 @@ export const managedItems = pgTable(
       sql`${t.eventDate} is null or ${t.registrationDeadline} is null or ${t.eventDate} >= ${t.registrationDeadline}`,
     ),
     check('managed_items_awarded_on_check', sql`${t.awardedOn} is null or ${t.placement} = 'honor'`),
+    // 刪除時間與刪除者成對；只有草稿或已下架能刪。
+    check(
+      'managed_items_deleted_check',
+      sql`(${t.deletedAt} is null) = (${t.deletedByUserId} is null)
+          and (${t.deletedAt} is null or ${t.status} in ('draft','archived'))`,
+    ),
     check(
       'managed_items_draft_schema_check',
       sql`coalesce(jsonb_typeof(${t.draftSchema} -> 'fields'), 'missing') = 'array'`,

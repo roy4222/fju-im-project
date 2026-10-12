@@ -21,6 +21,8 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/files', label: '檔案管理' },
   // 精選（票 25）：替各組建精選草稿（不發布）。原型沒有這一項，放在專題事務組。
   { href: '/dashboard/admin/showcase', label: '精選' },
+  // 首頁設定（第三波 W3／W5）：前台首頁大圖與兩行標語，存了就生效；頁面與守衛由 W3 提供。
+  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
   // 分組與產學
   { href: '/dashboard/admin/groups', label: '分組總覽' },
   // 產學合作（票 20）：全部合作案與組別連結。
@@ -51,8 +53,9 @@ export const TEACHER_NAV: readonly NavItem[] = [
 ]
 
 /**
- * 學生側欄照原型的順序與字（票 38）：總覽（首頁、專題時間軸、通知）→ 作業區 → 我的組別、產學合作 → 成績、同意書。
- * 原型學生側欄沒有「成績」；正式碼保留這一列（Vault 後台頁面清單：學生 `/grading` 是明確頁面），列在 PR 衝突清單。
+ * 學生側欄照原型的順序與字（票 38）：總覽（首頁、專題時間軸、通知）→ 作業區 → 我的組別、產學合作 → 同意書。
+ * 第三波（Q7③）拿掉「成績」：學生看不到分數，側欄不放點了只有一句說明的入口。
+ * 頁面 `/dashboard/student/grading` 與下面的守衛保留，直接打網址看到「學生不會看到分數」說明。
  */
 export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student', label: '首頁' },
@@ -65,8 +68,6 @@ export const STUDENT_NAV: readonly NavItem[] = [
   { href: '/dashboard/student/groups', label: '我的組別' },
   // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
   { href: '/dashboard/student/industry', label: '產學合作' },
-  // 成績（票 23）：只有一句「學生不會看到分數」，不查任何評分資料。
-  { href: '/dashboard/student/grading', label: '成績' },
   // 同意書（票 25、26；原型學生側欄叫「同意書」）：自己組別的簽核版本全文與逐人同意。
   { href: '/dashboard/student/signoff', label: '同意書' },
 ]

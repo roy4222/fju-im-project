@@ -147,6 +147,8 @@ describe('逐欄對照模組 02、08 附錄 A', () => {
     project_events: [
       'id', 'cohort_id', 'title', 'description', 'starts_at', 'ends_at', 'all_day', 'audience_kind', 'status',
       'revision', 'created_at', 'created_by_kind', 'created_by_user_id', 'updated_at', 'updated_by_user_id',
+      // 第三波 W0（0012）：刪除標記（只有已取消的能刪，不實體刪列）。
+      'deleted_at', 'deleted_by_user_id',
     ],
     business_clock_overrides: [
       'id', 'environment', 'business_at', 'real_at', 'previous_business_at', 'set_by_user_id', 'reason',

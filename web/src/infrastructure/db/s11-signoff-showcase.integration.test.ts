@@ -210,6 +210,8 @@ describe('逐欄對照附錄 A', () => {
       created_at: 'NO', created_by_user_id: 'NO', updated_at: 'NO', updated_by_user_id: 'YES',
       // 票 39（0011）：獎項等級與全名；NULL＝不在優秀專題。
       award_level: 'YES', award_label: 'YES',
+      // 第三波 W0（0012）：首頁輪播順序與刪除標記。
+      home_position: 'YES', deleted_at: 'YES', deleted_by_user_id: 'YES',
     },
     showcase_drafts: {
       entry_id: 'NO', title: 'NO', summary: 'NO', summary_checksum: 'NO', video_url: 'YES', poster_file_id: 'YES',

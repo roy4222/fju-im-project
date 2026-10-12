@@ -15,7 +15,7 @@ import { formatScore } from '@/shared/score'
 
 export function describeSchemeVersionReceipt(r: SchemeVersionReceipt): string {
   return r.status === 'draft'
-    ? `已建立方案 v${r.versionNo}（草稿）；按「發布」後老師才會用這一版。`
+    ? `已建立方案 v${r.versionNo}（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分方案」區塊的「版本紀錄」裡，點開後按 v${r.versionNo} 那列的「發布」（方案已鎖定時那列是「看影響並套用」）。`
     : `方案 v${r.versionNo} 已發布，老師評分用這一版。`
 }
 
