@@ -1372,7 +1372,7 @@ export class PgGradebookQuery implements GradebookQuery {
     const version = await currentVersionOf(db, target.cohort_id)
     if (!version) return noScheme()
     const stage = stageOf(version.stages, target.stage_key)
-    if (!stage) return err('VALIDATION_FAILED', '目前的評分方案沒有這個階段，請重新整理頁面。')
+    if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
     const facts = await loadGroupFacts(db, target.group_id)
     const required = facts.requirements.get(stage.key) ?? null

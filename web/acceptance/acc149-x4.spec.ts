@@ -472,7 +472,7 @@ test('x4:23 GRD-15 丙老師送出系統驗收 76：重算 80.15、計算最終 
   await openDetail(admin)
   await expect(admin.getByTestId('final-formula')).toContainText('84.09')
   await expect(admin.getByText('人工更正待重新確認：分數來源已改變，原更正暫不套用。')).toBeVisible()
-  console.log(`x4:23 待復核時採用值：${await admin.getByTestId('adopted-final').innerText()}`)
+  console.log(`x4:23 待重新確認時採用值：${await admin.getByTestId('adopted-final').innerText()}`)
   await shot(admin, 'recomputed-pending')
 })
 
