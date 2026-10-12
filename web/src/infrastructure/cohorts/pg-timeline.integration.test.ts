@@ -217,6 +217,8 @@ describe('階段與年度結束日', () => {
     await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohort.id])
     const result = await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    // 訊息用「名稱（代碼）」指屆別，不只寫代碼（驗收第 2 章殘留）。
+    expect(result.ok ? '' : result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）已封存`)
   })
 })
 
@@ -327,6 +329,7 @@ describe('屆別轉進行中', () => {
     const result = await cohorts.activate(actor(adminId), cohort.id, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     if (!result.ok) expect(result.message).toContain('時間軸')
+    if (!result.ok) expect(result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）`)
     expect((await cohortQuery.get(cohort.id))!.status).toBe('preparing')
     expect(await count(`select count(*) as n from cohort_status_events where cohort_id = $1 and to_status = 'active'`, [cohort.id])).toBe(0)
   })

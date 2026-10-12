@@ -132,6 +132,7 @@ describe('兩支腳本：語法與 --help', () => {
     const r = run(PREPARE, ['--help'])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain('--dry-run')
+    expect(r.stdout).toContain('--keep-site-compose')
     expect(r.stdout).toContain('fju_status_publish')
     expect(calls()).toEqual([])
   })
@@ -363,22 +364,111 @@ describe('第 10 步第二段：cloudflared 設定的 access 區塊檢查（AC-S
     expect(step10).toContain('close_gate')
     expect(src).not.toMatch(/docker compose[^\n]* config\b/)
   })
+
+  it('第 7b 步起假 origin 傳的埠號環境變數，就是 verify-origin.mjs 實際讀的那個、值是 VERIFY_PORT', () => {
+    const origin = fs.readFileSync(path.join(repoRoot, 'status', 'verify-origin.mjs'), 'utf8')
+    const vars = [...origin.matchAll(/process\.env\.(\w+)/g)].map((m) => m[1])
+    expect(vars).toHaveLength(1)
+    const src = fs.readFileSync(INSTALL, 'utf8')
+    const runLine = src.slice(src.indexOf('docker run -d --name "$VERIFY_ORIGIN"'), src.indexOf('node verify-origin.mjs'))
+    expect(runLine).not.toBe('')
+    const passed = [...runLine.matchAll(/-e (\w+)=("[^"]*"|\S+)/g)].map((m) => [m[1], m[2]])
+    expect(passed).toEqual([[vars[0], '"$VERIFY_PORT"']])
+  })
 })
 
 describe('status-prepare.sh --dry-run 只印不做', () => {
-  it('不產金鑰、不連 VM；印兩支重置腳本 sha256 與要貼的那一行', () => {
+  // 第 5 步（同步／搬遷）要依這個順序印；第 6 步（安裝）在最後。
+  const ORDER = [
+    'B1 暫停自動部署',
+    'B2 記下目前版本',
+    'sudo cp -a /srv/fju/app',
+    'sudo diff -r /srv/fju/app',
+    "sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/",
+    'absent／false 就停',
+    'status-envcheck.sh test',
+    'vm-setup.sh --check',
+    '5-6 C1a',
+    'C1b',
+    'C3',
+    '5-7 D ',
+    '5-8 E ',
+    'sudo bash /srv/fju/app/ops/status-install.sh --access-team',
+  ]
+  function at(out: string, needle: string): number {
+    const i = out.indexOf(needle)
+    expect(i, `找不到「${needle}」`).toBeGreaterThanOrEqual(0)
+    return i
+  }
+
+  it('不產金鑰、不連 VM；印兩支重置腳本 sha256、rsync 預檢與安裝那一行', () => {
     const r = run(PREPARE, ['--dry-run', '--access-team', TEAM, '--access-aud', AUD])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain('會執行：ssh-keygen')
     expect(r.stdout).toContain('會執行：rsync')
     expect(r.stdout).toMatch(/[0-9a-f]{64} {2}fju-test-reset\n/)
     expect(r.stdout).toMatch(/[0-9a-f]{64} {2}fju-test-reset-gate\n/)
+    expect(r.stdout).toContain("rsync -n -ai --delete --filter='P /ops/status/cloudflared.yml' /tmp/fju-app/ /srv/fju/app/")
     expect(r.stdout).toContain(`sudo bash /srv/fju/app/ops/status-install.sh --access-team ${TEAM} --access-aud ${AUD} --publish-pubkey '`)
     expect(fs.existsSync(path.join(dir, '.ssh', 'fju_status_publish'))).toBe(false)
     expect(mutatingCalls()).toEqual([])
   })
 
-  it('已有金鑰：沿用，貼的那一行帶這把公鑰', () => {
+  it('預設：同步與安裝分成兩段，不印「rsync && sudo bash status-install」合併行；安裝行在搬遷清單之後', () => {
+    const r = run(PREPARE, ['--dry-run', '--access-team', TEAM, '--access-aud', AUD])
+    expect(r.code).toBe(0)
+    expect(r.stdout).not.toContain('/srv/fju/app/ && sudo bash')
+    expect(r.stdout).not.toContain("--exclude='/docker-compose")
+    let prev = -1
+    for (const needle of ORDER) {
+      const i = at(r.stdout, needle)
+      expect(i, `「${needle}」要在前一項之後`).toBeGreaterThan(prev)
+      prev = i
+    }
+    expect(r.stdout).toContain('6. 安裝開發者後台')
+  })
+
+  it('預設：備份核對不過就不同步；同步不一致就印還原；Doppler 探針是搬遷第一道關卡', () => {
+    const r = run(PREPARE, ['--dry-run', '--access-team', TEAM, '--access-aud', AUD])
+    expect(r.code).toBe(0)
+    // 備份→diff→（✓）→rsync→diff：一條 && 鏈（反斜線接行＝一個指令），任一步失敗走 || 印「停在…」與還原指令
+    expect(r.stdout).toContain('BAK=/srv/fju/app.bak-$(date +%Y%m%d-%H%M%S) \\\n&& { sudo cp -a /srv/fju/app "$BAK" && sudo diff -r /srv/fju/app "$BAK" && echo "✓ 備份完整')
+    expect(r.stdout).toContain('✗ 停在備份')
+    expect(r.stdout).toContain('; false; }; } \\\n&& { sudo rsync -a --delete')
+    expect(r.stdout).toMatch(/\/srv\/fju\/app\/ && sudo diff -r --exclude=cloudflared\.yml \/tmp\/fju-app \/srv\/fju\/app && echo "✓ 已同步/)
+    expect(r.stdout).toContain('✗ 停在同步：還原 → sudo rsync -a --delete ${BAK:?}/ /srv/fju/app/')
+    // 探針在 rsync 之後、vm-setup 之前；印 absent／false 就停並給還原
+    const rsyncAt = at(r.stdout, '--chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo diff')
+    const probeAt = at(r.stdout, 'sudo -u deploy /srv/fju/app/ops/status-envcheck.sh test --out /tmp/envcheck-test.json')
+    const setupAt = at(r.stdout, 'vm-setup.sh --check')
+    expect(probeAt).toBeGreaterThan(rsyncAt)
+    expect(setupAt).toBeGreaterThan(probeAt)
+    expect(r.stdout).toContain('REGISTRATION_OPEN：other 才往下')
+    expect(r.stdout).toContain('sudo cp -a "${BAK:?}/docker-compose.vm.yml" "${BAK:?}/docker-compose.edge.yml" /srv/fju/app/ && sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused')
+    expect(mutatingCalls()).toEqual([])
+  })
+
+  it('--keep-site-compose：rsync 多兩個 exclude、備份核對仍在、接著恢復自動部署、不印搬遷清單；安裝行在後', () => {
+    const r = run(PREPARE, ['--dry-run', '--keep-site-compose', '--access-team', TEAM, '--access-aud', AUD])
+    expect(r.code).toBe(0)
+    const rsyncLine = "sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --exclude='/docker-compose.vm.yml' --exclude='/docker-compose.edge.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/"
+    expect(r.stdout).toContain(rsyncLine)
+    expect(r.stdout).toContain('--exclude=docker-compose.vm.yml --exclude=docker-compose.edge.yml /tmp/fju-app /srv/fju/app')
+    expect(r.stdout).not.toContain('/srv/fju/app/ && sudo bash')
+    expect(r.stdout).not.toContain('C1a')
+    expect(r.stdout).not.toContain('status-envcheck.sh test')
+    const cpAt = at(r.stdout, 'sudo cp -a /srv/fju/app')
+    const rsyncAt = at(r.stdout, rsyncLine)
+    const resumeAt = at(r.stdout, 'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused')
+    const installAt = at(r.stdout, 'sudo bash /srv/fju/app/ops/status-install.sh --access-team')
+    expect(rsyncAt).toBeGreaterThan(cpAt)
+    expect(resumeAt).toBeGreaterThan(rsyncAt)
+    expect(installAt).toBeGreaterThan(resumeAt)
+    expect(r.stdout).toContain('不會被換')
+    expect(mutatingCalls()).toEqual([])
+  })
+
+  it('已有金鑰：沿用，安裝那一行帶這把公鑰', () => {
     fs.mkdirSync(path.join(dir, '.ssh'))
     fs.writeFileSync(path.join(dir, '.ssh', 'fju_status_publish'), 'private')
     fs.writeFileSync(path.join(dir, '.ssh', 'fju_status_publish.pub'), `${PUBKEY}\n`)
@@ -390,10 +480,209 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 故障注入：prepare 第 5-3 印給 Roy 貼的「備份→核對→同步→核對」那條 && 鏈。
+// 路徑換成暫存目錄、sudo 換成直接執行（或依 FAKE_FAIL／FAKE_NOOP 模擬失敗），真的跑 cp／diff／rsync／find。
+// 舊版（備份失敗照樣 rsync --delete）在「備份失敗」與「同步後不一致」兩案會紅。
+describe('prepare 第 5-3 同步鏈：任一步失敗就停、不往下寫、印還原', () => {
+  let sbin: string
+  let src: string
+  let app: string
+
+  function syncBlock() {
+    const r = run(PREPARE, ['--dry-run', '--access-team', TEAM, '--access-aud', AUD])
+    expect(r.code).toBe(0)
+    const lines = r.stdout.split('\n')
+    const start = lines.findIndex((l) => l.startsWith('BAK=/srv/fju/app.bak-'))
+    expect(start).toBeGreaterThan(0)
+    let end = start
+    while (lines[end] !== '') end++
+    return lines.slice(start, end).join('\n')
+      .replaceAll('/srv/fju/app', app)
+      .replaceAll('/tmp/fju-app', src)
+      .replaceAll(' --chown=deploy:deploy', '') // 本機不是 root，chown 會讓 rsync 回 23
+  }
+
+  function runSync(env: Record<string, string> = {}) {
+    const r = spawnSync('bash', ['-c', syncBlock()], {
+      encoding: 'utf8',
+      env: { NODE_ENV: 'test', PATH: `${sbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
+    })
+    return { code: r.status, stdout: r.stdout, out: `${r.stdout}${r.stderr}` }
+  }
+
+  const tree = (root: string) => {
+    const out: string[] = []
+    const walk = (d: string, rel: string) => {
+      for (const n of fs.readdirSync(d).sort()) {
+        const p = path.join(d, n)
+        const r = rel ? `${rel}/${n}` : n
+        if (fs.statSync(p).isDirectory()) walk(p, r)
+        else out.push(`${r}=${fs.readFileSync(p, 'utf8')}`)
+      }
+    }
+    walk(root, '')
+    return out
+  }
+
+  beforeEach(() => {
+    sbin = path.join(dir, 'sbin')
+    fs.mkdirSync(sbin)
+    fs.writeFileSync(path.join(sbin, 'sudo'), [
+      '#!/bin/sh',
+      'echo "sudo $*" >> "$CALLS_LOG"',
+      'case " $* " in *" ${FAKE_FAIL:-__none__} "*) exit 1 ;; esac',
+      '[ "${FAKE_NOOP:-}" = "$1" ] && exit 0',
+      'exec "$@"',
+      '',
+    ].join('\n'))
+    fs.chmodSync(path.join(sbin, 'sudo'), 0o755)
+    src = path.join(dir, 'fju-app')
+    app = path.join(dir, 'srv', 'app')
+    fs.mkdirSync(path.join(src, 'ops', 'status'), { recursive: true })
+    fs.mkdirSync(path.join(app, 'ops', 'status'), { recursive: true })
+    // VM 現況：舊 compose、一個 repo 沒有的檔不存在、後台產生的 cloudflared.yml 在
+    fs.writeFileSync(path.join(app, 'docker-compose.vm.yml'), 'old-vm\n')
+    // 跟 VM 一樣：舊檔 mtime 是 09-26（同大小同時間 rsync 會當成沒變）
+    fs.utimesSync(path.join(app, 'docker-compose.vm.yml'), new Date('2026-09-26T02:36:00Z'), new Date('2026-09-26T02:36:00Z'))
+    fs.writeFileSync(path.join(app, 'ops', 'deploy.sh'), 'same\n')
+    fs.writeFileSync(path.join(app, 'ops', 'status', 'cloudflared.yml'), 'generated-on-vm\n')
+    // Mac 送來的：新 compose、新檔、同檔
+    fs.writeFileSync(path.join(src, 'docker-compose.vm.yml'), 'new-vm\n')
+    fs.writeFileSync(path.join(src, 'docker-compose.status.yml'), 'status\n')
+    fs.writeFileSync(path.join(src, 'ops', 'deploy.sh'), 'same\n')
+    fs.writeFileSync(path.join(src, 'ops', 'status', 'gatus.yml'), 'gatus\n')
+  })
+
+  it('正常：備份核對 ✓、同步後與來源一致 ✓、cloudflared.yml 留著、結束碼 0', () => {
+    const before = tree(app)
+    const r = runSync()
+    expect(r.out).toContain('✓ 備份完整：')
+    expect(r.out).toContain('✓ 已同步：')
+    expect(r.code).toBe(0)
+    const baks = fs.readdirSync(path.join(dir, 'srv')).filter((n) => n.startsWith('app.bak-'))
+    expect(baks).toHaveLength(1)
+    expect(tree(path.join(dir, 'srv', baks[0] ?? ''))).toEqual(before)
+    expect(tree(app)).toEqual([
+      'docker-compose.status.yml=status\n',
+      'docker-compose.vm.yml=new-vm\n',
+      'ops/deploy.sh=same\n',
+      'ops/status/cloudflared.yml=generated-on-vm\n',
+      'ops/status/gatus.yml=gatus\n',
+    ])
+  })
+
+  it('備份失敗：印「✗ 停在備份」、rsync 一次都沒跑、/srv/fju/app 原封不動、結束碼非 0', () => {
+    const before = tree(app)
+    const r = runSync({ FAKE_FAIL: 'cp' })
+    expect(r.out).toContain('✗ 停在備份：')
+    expect(r.out).not.toContain('✓ 已同步')
+    expect(r.code).not.toBe(0)
+    expect(calls().filter((c) => c.startsWith('sudo rsync'))).toEqual([])
+    expect(tree(app)).toEqual(before)
+  })
+
+  it('同步後不一致（rsync 沒真的寫）：印「✗ 停在同步」與帶實際備份路徑的還原指令、結束碼非 0', () => {
+    const r = runSync({ FAKE_NOOP: 'rsync' })
+    expect(r.out).toContain('✓ 備份完整：')
+    expect(r.out).toMatch(new RegExp(`✗ 停在同步：還原 → sudo rsync -a --delete ${app.replace(/[/.]/g, '\\$&')}\\.bak-\\d{8}-\\d{6}/ ${app.replace(/[/.]/g, '\\$&')}/`))
+    expect(r.code).not.toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 故障注入：ops/README.md 兩站網路拆分 D 框（最終版 Caddy）。整段從 README 抽出來跑，
+// docker／curl／sudo 換成依 FAKE_* 模擬 VM 狀態的假指令。
+// 舊版（重建完不看結果就刪過渡設定、恢復自動部署、curl 502 也 exit 0）在前三案都會紅。
+describe('README T4 D 框：Caddy 接對兩個網路且測試站 200 才清理、才恢復自動部署', () => {
+  let dbin: string
+  let script: string
+
+  beforeEach(() => {
+    const readme = fs.readFileSync(path.join(repoRoot, 'ops', 'README.md'), 'utf8')
+    const head = readme.indexOf('**D. 🖥️ VM 🔑：Caddy 最終版')
+    expect(head).toBeGreaterThan(0)
+    const open = readme.indexOf('```bash\n', head) + '```bash\n'.length
+    const close = readme.indexOf('```', open)
+    script = path.join(dir, 'd-block.sh')
+    fs.writeFileSync(script, `cd() { :; }\n${readme.slice(open, close)}`)
+    dbin = path.join(dir, 'dbin')
+    fs.mkdirSync(dbin)
+    const shims: Record<string, string> = {
+      sudo: 'echo "sudo $*" >> "$CALLS_LOG"\ncase "$*" in *"docker compose"*) exit "${FAKE_COMPOSE_RC:-0}" ;; *vm-setup.sh*) exit "${FAKE_SETUP_RC:-0}" ;; esac\nexit 0',
+      docker: 'echo "docker $*" >> "$CALLS_LOG"\nprintf \'%s \' $FAKE_NETS',
+      curl: 'echo "curl $*" >> "$CALLS_LOG"\nprintf \'%s\' "${FAKE_CODE:-502}"',
+      rm: 'echo "rm $*" >> "$CALLS_LOG"',
+      sleep: 'exit 0',
+    }
+    for (const [name, body] of Object.entries(shims)) {
+      fs.writeFileSync(path.join(dbin, name), `#!/bin/sh\n${body}\n`)
+      fs.chmodSync(path.join(dbin, name), 0o755)
+    }
+  })
+
+  function runD(env: Record<string, string>) {
+    const r = spawnSync('bash', [script], {
+      encoding: 'utf8',
+      env: { NODE_ENV: 'test', PATH: `${dbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
+    })
+    return { code: r.status, out: `${r.stdout}${r.stderr}` }
+  }
+  const cleaned = () => calls().some((c) => c === 'rm -f /tmp/fju-edge-transition.yml')
+  const resumed = () => calls().some((c) => c === 'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused')
+  const setupRan = () => calls().some((c) => c.includes('vm-setup.sh'))
+  const GOOD = { FAKE_NETS: 'fju-edge-prod fju-edge-test', FAKE_CODE: '200' }
+
+  it('全部符合：刪過渡設定、跑 vm-setup、恢復自動部署、印 ✓ D 完成、結束碼 0', () => {
+    const r = runD(GOOD)
+    expect(r.out).toContain('✓ D 完成')
+    expect(r.code).toBe(0)
+    expect(cleaned()).toBe(true)
+    expect(setupRan()).toBe(true)
+    expect(resumed()).toBe(true)
+  })
+
+  it('測試站一直 502：過渡設定留著、不跑 vm-setup、不恢復自動部署、印回到過渡版的指令、結束碼非 0', () => {
+    const r = runD({ ...GOOD, FAKE_CODE: '502' })
+    expect(r.out).toContain('對外 /api/health：502')
+    expect(r.out).toContain('-f /tmp/fju-edge-transition.yml up -d')
+    expect(r.code).not.toBe(0)
+    expect(cleaned()).toBe(false)
+    expect(setupRan()).toBe(false)
+    expect(resumed()).toBe(false)
+  })
+
+  it('Caddy 還掛著舊網路：同上，不清理、不恢復、結束碼非 0', () => {
+    const r = runD({ ...GOOD, FAKE_NETS: 'fju-edge fju-edge-prod fju-edge-test' })
+    expect(r.out).toContain('Caddy 網路：「fju-edge fju-edge-prod fju-edge-test」')
+    expect(r.code).not.toBe(0)
+    expect(cleaned()).toBe(false)
+    expect(resumed()).toBe(false)
+  })
+
+  it('compose up 失敗（或 120 秒逾時）：不清理、不恢復、結束碼非 0', () => {
+    const r = runD({ ...GOOD, FAKE_COMPOSE_RC: '124' })
+    expect(r.out).toContain('Caddy up：exit 124')
+    expect(r.code).not.toBe(0)
+    expect(cleaned()).toBe(false)
+    expect(resumed()).toBe(false)
+  })
+
+  it('Caddy 好了但 vm-setup 失敗：自動部署維持暫停、印修好後重跑的指令、結束碼非 0', () => {
+    const r = runD({ ...GOOD, FAKE_SETUP_RC: '1' })
+    expect(r.out).toContain('修好後重跑')
+    expect(r.code).not.toBe(0)
+    expect(cleaned()).toBe(true)
+    expect(resumed()).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 故障注入：真的跑非 dry-run 的安裝流程（假 VM）
 // ---------------------------------------------------------------------------
 
 const CF_IMAGE = 'cloudflare/cloudflared:2025.9.1'
+// 假公共 DNS 回的 Cloudflare 邊緣 IPv4（proxied 記錄都是同一組 anycast）。
+const EDGE_IP = '104.16.132.229'
 // 下面幾支假指令是 bash：模板字串裡的 bash 變數寫成 @{…}，這裡換回 ${…}（避免被當成 JS 插值）。
 const bash = (src: string) => src.replaceAll('@{', '${')
 
@@ -524,9 +813,25 @@ exit 0
 
 // 假 curl：暫時網址照暫時 cloudflared 有沒有鎖回 403／404／204（沒鎖時 /probe 會讓假 origin 計數加一）；
 // 四個正式網址都回 Access 的 302。
+// 公共 DNS（DoH：1.1.1.1、dns.google）回 JSON，A 記錄一律是 FAKE_EDGE_IP；FAKE_DOH_NXDOMAIN=<網址> 那個網址回 NXDOMAIN
+// （Status 3，像剛建、公共 DNS 還沒看到）；FAKE_DOH_FAIL=1 兩家都連不上（curl 回 7）。
+// FAKE_LOCAL_NXDOMAIN=1：模擬真帳號上遇到的「VM 的學校 DNS 把網址 NXDOMAIN 負快取」——沒帶 --resolve <網址>:443:<邊緣 IP>
+// 的 https 請求一律 000、curl 回 6（Could not resolve host）。
 const FAKE_CURL = bash(String.raw`#!/bin/bash
 echo "curl $*" >> "$CALLS_LOG"
 url=@{@: -1}
+case "$url" in
+  https://1.1.1.1/dns-query?name=*|https://dns.google/resolve?name=*)
+    [ "@{FAKE_DOH_FAIL:-0}" = 1 ] && exit 7
+    name=@{url#*name=}; name=@{name%%&*}
+    if [ "$name" = "@{FAKE_DOH_NXDOMAIN:-}" ]; then printf '{"Status":3,"Answer":[]}'
+    else printf '{"Status":0,"Answer":[{"name":"%s","type":1,"TTL":300,"data":"%s"}]}' "$name" "$FAKE_EDGE_IP"; fi
+    exit 0 ;;
+esac
+if [ "@{FAKE_LOCAL_NXDOMAIN:-0}" = 1 ]; then
+  h=@{url#https://}; h=@{h%%/*}
+  case " $* " in *" --resolve @{h}:443:@{FAKE_EDGE_IP} "*) ;; *) printf 000; exit 6 ;; esac
+fi
 mode=$(cat "$FAKE_STATE/cf_mode" 2>/dev/null)
 case "$url" in
   https://fju-status-verify.roy422.dev/ready)
@@ -650,6 +955,7 @@ function spawnInstall(vm: Vm, env: Record<string, string> = {}, opts: { detached
         CALLS_LOG: vm.calls,
         FAKE_STATE: vm.state,
         FAKE_TEAM: TEAM,
+        FAKE_EDGE_IP: EDGE_IP,
         FAKE_MOUNTED: path.join(w, 'mounted', 'config.yml'),
         FAKE_REAL_RENDER: RENDER,
         FAKE_TUNNEL_ID: TUNNEL_ID,
@@ -774,6 +1080,47 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     // 守門已經通過，Beszel 失敗不關門
     expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
   }, 30_000)
+
+  // 真帳號上遇到的：VM 的 resolver 是學校 DNS，剛建的暫時網址被它 NXDOMAIN 負快取（roy422.dev 的 SOA 負快取 TTL 1800 秒），
+  // 舊版 curl 經本機 DNS 一直 000、等 3 分鐘後停在 7b。下面三案用 FAKE_LOCAL_NXDOMAIN=1 模擬，舊版都會紅。
+  const dohQueries = (c: string[], host: string) => c.filter((x) => x.startsWith('curl ') && x.includes(`dns-query?name=${host}&type=A`))
+  const curlsTo = (c: string[], host: string) => c.filter((x) => x.startsWith('curl ') && x.includes(`https://${host}/`))
+
+  it('P1：本機 DNS 對暫時網址回 NXDOMAIN、公共 DNS 查得到 → 7b 每個 curl 都 --resolve 公共 DNS 查到的邊緣 IP，整個流程通過；同一個網址只查一次', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1' })
+    expect(r.out).toContain('第一輪：有鎖')
+    expect(r.out).not.toContain('還是 000')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    const c = vmCalls(vm)
+    expect(dohQueries(c, 'fju-status-verify.roy422.dev')).toHaveLength(1)
+    const verifyCurls = curlsTo(c, 'fju-status-verify.roy422.dev')
+    expect(verifyCurls.length).toBeGreaterThanOrEqual(8) // /ready ×2 輪、/probe ×3 ×2 輪
+    for (const x of verifyCurls) expect(x).toContain(`--resolve fju-status-verify.roy422.dev:443:${EDGE_IP}`)
+  }, 30_000)
+
+  it('P1：公共 DNS 也還查不到暫時網址（剛建）→ 退回同 zone 已存在的 fju-status.roy422.dev 的邊緣 IP，照樣通過', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_NXDOMAIN: 'fju-status-verify.roy422.dev' })
+    expect(r.out).toContain('第一輪：有鎖')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    const c = vmCalls(vm)
+    expect(dohQueries(c, 'fju-status.roy422.dev').length).toBeGreaterThanOrEqual(1)
+    const verifyCurls = curlsTo(c, 'fju-status-verify.roy422.dev')
+    expect(verifyCurls.length).toBeGreaterThanOrEqual(8)
+    for (const x of verifyCurls) expect(x).toContain(`--resolve fju-status-verify.roy422.dev:443:${EDGE_IP}`)
+  }, 30_000)
+
+  it('公共 DNS 兩家都連不上、本機 DNS 又查不到 → 停在 7b；訊息說這次退回本機 resolver、000 可能是 DNS 負快取、見 README', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_FAIL: '1' })
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('停在步驟 7b')
+    expect(r.out).toContain('還是 000（預期 403）')
+    expect(r.out).toContain('退回本機 resolver')
+    expect(r.out).toContain('負快取')
+    expect(r.out).toContain('ops/status/README.md')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+  }, 30_000)
 })
 
 // ---------------------------------------------------------------------------
@@ -895,6 +1242,33 @@ describe('離開路徑都要關門：停 cloudflared 容器、停用 update time
     markInstalled(vm)
     const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev' })
     expect(r.out).toContain('fju-status-db.roy422.dev 沒被擋')
+    expect(r.code).toBe(1)
+    expectDoorClosed()
+  }, 30_000)
+
+  // 第一次安裝時四個正式網址也是剛建的，學校 DNS 一樣可能負快取：守門的 curl 同樣不經本機 DNS（舊版會把 000 當成沒被擋、關門）。
+  it('P1：已安裝後重跑（7b 跳過）、本機 DNS 對四個正式網址都查不到、公共 DNS 查得到 → 守門每個 curl 都 --resolve 邊緣 IP，302 通過、啟用自動更新', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1' })
+    expect(r.out).not.toContain('沒被擋')
+    expect(r.code).toBe(0)
+    const c = vmCalls(vm)
+    expect(c).toContain('systemctl enable --now fju-status-update.timer')
+    expect(c.filter((x) => x.startsWith('docker stop'))).toEqual([])
+    for (const h of HOSTS) {
+      const gate = c.filter((x) => x.startsWith('curl ') && x.endsWith(` https://${h}/`))
+      expect(gate.length, h).toBeGreaterThanOrEqual(1)
+      for (const x of gate) expect(x).toContain(`--resolve ${h}:443:${EDGE_IP}`)
+    }
+  }, 30_000)
+
+  it('守門：公共 DNS 連不上、本機 DNS 又查不到 → 照舊當成沒被擋、關門；訊息附 000 的 DNS 負快取提示與這次接的是什麼', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_FAIL: '1' })
+    expect(r.out).toContain('fju-status.roy422.dev 沒被擋：000')
+    expect(r.out).toContain('退回本機 resolver')
+    expect(r.out).toContain('負快取')
+    expect(r.out).toContain('ops/status/README.md')
     expect(r.code).toBe(1)
     expectDoorClosed()
   }, 30_000)

@@ -90,7 +90,7 @@ export class PgGradeExporter implements GradeExporter {
     }
 
     return ok(
-      { format: request.format, cohortCode: receipt.cohort.code, groupCount: groups.length, rowCount: rows.length, body },
+      { format: request.format, cohortCode: receipt.cohort.code, cohortName: receipt.cohort.name, groupCount: groups.length, rowCount: rows.length, body },
       { requestId: uuidv7(), serverTime: now.toISOString() },
     )
   }

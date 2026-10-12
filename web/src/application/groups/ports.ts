@@ -407,6 +407,7 @@ export interface OpportunityQuery {
 export type RosterExportResult = {
   readonly format: RosterExportFormat
   readonly cohortCode: string
+  readonly cohortName: string
   /** 匯出了幾組、幾列（每位組員一列）。 */
   readonly groupCount: number
   readonly rowCount: number

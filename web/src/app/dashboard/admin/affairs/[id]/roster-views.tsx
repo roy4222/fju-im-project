@@ -26,7 +26,7 @@ const PILL_TONE: Readonly<Record<StatusTone, PillTone>> = {
   danger: 'danger',
 }
 
-const LIST_LABEL: Record<ListKey, string> = { current: '目前名單', exempt: '免繳', removed: '已移出名單' }
+const LIST_LABEL: Record<ListKey, string> = { current: '目前名單', exempt: '免繳', removed: '已不需要繳交（原名單移除）' }
 
 const LIST_HINT: Record<ListKey, string> = {
   current: '需要繳交的名單；完成率就是用這份名單的總人數（組數）來算。',
@@ -117,7 +117,7 @@ function RosterRow({
   let tone: PillTone
   let detail: string
   if (category === 'removed') {
-    headline = '已移出名單'
+    headline = '已不需要繳交（原名單移除）'
     tone = 'default'
     detail = `${entry.eligibleTo ? formatTaipeiMinute(entry.eligibleTo) : ''}・${entry.removedReason ?? ''}・${
       submitted ? `回答保留（已繳第 ${entry.latestVersionNo} 次）` : '沒有正式送出過'
@@ -235,7 +235,7 @@ export function ReceiverView({
           href={back}
           className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
         >
-          <IconArrowLeft aria-hidden className="size-4" /> {category === 'current' ? '繳交名單' : category === 'exempt' ? '免繳' : '已移出名單'}
+          <IconArrowLeft aria-hidden className="size-4" /> {category === 'current' ? '繳交名單' : category === 'exempt' ? '免繳' : '已不需要繳交（原名單移除）'}
         </Link>
       </div>
       <header className="px-5 pb-3 pt-2">

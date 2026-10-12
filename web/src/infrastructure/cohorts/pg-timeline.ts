@@ -3,6 +3,7 @@ import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import {
+  cohortLabel,
   activityDeleteBlocker,
   isCohortId,
   isRequestId,
@@ -119,8 +120,8 @@ const AUDIT_VERB: Record<Exclude<ActivityReceipt['action'], 'deleted'>, string> 
   cancelled: 'cancel',
 }
 
-function archived(code: string): Err {
-  return err('COHORT_ARCHIVED', `${code} 已封存，不能再改階段或活動。`)
+function archived(cohort: { readonly name: string; readonly code: string }): Err {
+  return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，不能再改階段或活動。`)
 }
 
 function activityNotFound(): Err {
@@ -194,7 +195,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SaveScheduleReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (cohort.revision !== expectedRevision) return staleRevision()
 
       const current: CohortSchedule = { stages: await loadStages(tx, cohortId, true), yearEndDate: cohort.year_end_date }
@@ -306,7 +307,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
 
       const id = uuidv7()
       await tx.query(
@@ -361,7 +362,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
       if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消，不能再改期。')
 
@@ -423,7 +424,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
       if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消了。')
 
@@ -483,7 +484,7 @@ export class PgTimelineCommand implements TimelineCommand {
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
       if (deleted) return activityNotFound()
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
       const blocker = activityDeleteBlocker(toActivity(row))
       if (blocker) return err('VALIDATION_FAILED', blocker)

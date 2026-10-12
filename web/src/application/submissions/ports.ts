@@ -259,6 +259,8 @@ export type RosterItem = {
   readonly itemId: string
   readonly cohortId: string
   readonly cohortCode: string
+  /** 屆別名稱（例如「第 43 屆」）；畫面標「名稱（代碼）」（系1）。 */
+  readonly cohortName: string
   readonly title: string
   readonly status: ItemStatus
   readonly receiverUnit: ReceiverUnit
@@ -356,6 +358,8 @@ export type AdvisedGroup = {
   readonly groupType: 'general' | 'industry'
   readonly cohortId: string
   readonly cohortCode: string
+  /** 屆別名稱（例如「第 43 屆」）；畫面標「名稱（代碼）」（系1）。 */
+  readonly cohortName: string
   readonly memberNames: readonly string[]
 }
 

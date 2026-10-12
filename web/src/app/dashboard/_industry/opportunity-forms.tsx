@@ -322,7 +322,8 @@ export function LinkedGroupsCell({
   reasonMaxLength,
   header,
 }: {
-  links: readonly { linkId: string; groupCode: string; cohortCode: string }[]
+  /** `cohortLabel`：屆別顯示名稱「名稱（代碼）」，由伺服器端算好。 */
+  links: readonly { linkId: string; groupCode: string; cohortLabel: string }[]
   /** 格子最上面一行（系辦頁放負責老師；原型的中間欄）。 */
   header?: React.ReactNode
   opportunityName: string
@@ -351,7 +352,7 @@ export function LinkedGroupsCell({
           {links.map((l) => (
             <li key={l.linkId} className="flex flex-wrap items-center gap-2">
               <span className="truncate font-semibold text-foreground tabular-nums">
-                {l.cohortCode}・{l.groupCode}
+                {l.cohortLabel}・{l.groupCode}
               </span>
               <button
                 type="button"

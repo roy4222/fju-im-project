@@ -194,7 +194,7 @@ export default async function StudentGroupsPage({
           <div className="px-6 pt-6 pb-2">
             <h2 className="text-[15px] font-bold">發起提案</h2>
             <p className="mt-1 mb-4 text-[13px] text-muted-foreground">
-              本屆{size}（含你自己）。送出後所有人都會收到邀請，並暫時不能接受其他邀請，要在 {cohort.proposalDefaultDays} 天內（不超過分組期）全員確認。
+              本屆{size}（含你自己）。送出後所有人都會收到邀請，並暫時不能接受其他邀請，要在 {cohort.proposalDefaultDays} 天內全員確認，而且不能超過分組期（組隊、選指導老師、交提案的期間）。
             </p>
             <ProposeForm
               requestId={randomUUID()}

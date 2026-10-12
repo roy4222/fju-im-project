@@ -158,6 +158,10 @@ test('訪客：優秀專題看得到已發布的、看不到草稿；點開一�
   await expect(cards).toHaveCount(1)
   await expect(cards.first()).toContainText(TITLE)
   await expect(cards.first().getByTestId('award-badge')).toHaveText('優秀專題')
+  // 驗收 P-01：屆別寫「名稱（代碼）」（這支的屆別名稱就是代碼），不再寫「代碼 屆」。
+  await expect(cards.first()).toContainText(`${COHORT}（${COHORT}）`)
+  await expect(page.getByRole('navigation', { name: '屆別篩選' }).getByRole('link', { name: `${COHORT}（${COHORT}）` })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(`${COHORT} 屆`)
   await expect(page.locator('body')).not.toContainText(DRAFT)
   await expect(page.locator('body')).not.toContainText(PLAIN)
 
@@ -171,6 +175,8 @@ test('訪客：優秀專題看得到已發布的、看不到草稿；點開一�
 
   await expect(page).toHaveURL(new RegExp(`/projects/${entryId}$`))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(TITLE)
+  await expect(page.getByRole('main')).toContainText(`${COHORT}（${COHORT}）`)
+  await expect(page.getByRole('main')).not.toContainText(`${COHORT} 屆`)
   // 訪4：公開作品頁給訪客看的就是公開欄位；不放鎖頭區塊，也沒有「登入後顯示」的欄位。
   await expect(page.locator('body')).not.toContainText('登入後')
   const html = await page.content()
@@ -211,6 +217,10 @@ test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指�
   }
   expect(advisors.some(Boolean)).toBe(true)
   await page.goto('/')
+  // 驗收 P-01：首頁優秀專題卡片的屆別標「名稱（代碼）」，不再寫「代碼 屆」（只排前 4 件，這支的作品不一定在）。
+  const homeFeatured = page.getByTestId('home-featured-list').getByRole('listitem').filter({ hasText: TITLE })
+  if (await homeFeatured.count()) await expect(homeFeatured).toContainText(`${COHORT}（${COHORT}）`)
+  await expect(page.getByTestId('home-featured-list')).not.toContainText(`${COHORT} 屆`)
   const homeCards = page.getByTestId('home-archive-list').getByRole('listitem')
   for (const [i, name] of advisors.entries()) if (name) await expect(homeCards.nth(i)).toContainText(name)
   await page.goto(`/projects?q=${encodeURIComponent(stamp)}`)

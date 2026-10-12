@@ -6,6 +6,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { OUTLINE_BUTTON_SM, PageTitle, Panel, PanelEmpty, Pill, PRIMARY_BUTTON, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import type { TeacherSignoffCard } from '@/application/signoff'
 import { signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
+import { cohortLabel } from '@/composition/cohorts'
 import { describeCause, getSignoffQuery, PURPOSE_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -37,7 +38,7 @@ function cardDetail(c: TeacherSignoffCard): string {
   const v = c.current
   const p = v.progress
   const waiting = p.students.filter((s) => s.result === null).map((s) => s.displayName)
-  const head = `第 ${v.versionNo} 版・${c.cohortCode}`
+  const head = `第 ${v.versionNo} 版・${cohortLabel({ name: c.cohortName, code: c.cohortCode })}`
   switch (v.state) {
     case 'collecting':
       return `學生 ${p.agreed}／${p.total} 已同意${waiting.length ? `・還沒：${waiting.join('、')}` : ''}・${head}`
