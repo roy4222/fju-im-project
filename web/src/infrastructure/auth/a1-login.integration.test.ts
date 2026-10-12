@@ -504,6 +504,7 @@ describe('直接打 /api/auth/sign-in/email 的限速（review Spec 4 的回歸�
     expect(viaAction.ok).toBe(false)
     if (viaAction.ok) throw new Error('unreachable')
     expect(viaAction.code).toBe('RATE_LIMITED')
+    expect(viaAction.message).toBe('嘗試過多，最晚 10 分鐘後可以再試；仍無法登入請聯絡系辦。')
   })
 
   /**
