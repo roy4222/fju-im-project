@@ -3,11 +3,12 @@ import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
- * 專題事務項目的刪除（第三波 W1；AC-3、AC-4、AC-5）：
+ * 專題事務項目的刪除（第三波 W1；AC-3、AC-4、AC-5、AC-6）：
  *
  * 1. 草稿：編輯器底部「危險操作」區按「刪除這則公告」→ 確認視窗寫清楚後果 → 回到專題事務清單、該則不見、稽核多一筆 `item.deleted`。
  * 2. 發布中：刪除鈕停用，旁邊寫「發布中的要先撤回或下架才能刪除」。
  * 3. 已下架的公開公告刪掉後：訪客與系辦開原網址都是「找不到這個頁面」（不是「已下架」）。
+ * 4. 已下架、沒人交件的收件刪掉後：學生的「新收件」通知還在、點得開，點進去是「找不到這個頁面」（要背景工作投影通知）。
  *
  * 已有人交件擋下（AC-7）與附件下載、檔案管理（AC-5 後半）由 `pg-items.integration.test.ts` 的刪除案例驗。
  * 全程用真的表單與按鈕；屆別用 owner 連線直接建。
@@ -23,6 +24,7 @@ const CODE = `W1D-${stamp}`
 
 let pool: Pool
 let cohortId: string
+let student: TestSession
 
 function ymd(date: Date): string {
   return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
@@ -39,6 +41,11 @@ test.beforeAll(async () => {
         [CODE, ymd(new Date(Date.now() + 300 * 86_400_000))],
       )
     ).rows[0]!.id,
+  )
+  await pool.query(
+    `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+     values (gen_random_uuid(), $1, 1, '成組期', $2, 'system')`,
+    [cohortId, ymd(new Date())],
   )
 })
 
@@ -138,4 +145,67 @@ test('已下架的公開公告刪掉後：訪客與系辦開原網址都是「�
   const mine = await page.goto(`/news/${itemId}`)
   expect(mine?.status()).toBe(404)
   await expect(page.getByText('找不到這個頁面').first()).toBeVisible()
+})
+
+test('已下架、沒人交件的收件刪掉後：學生的通知還在、點得開，點進去是「找不到這個頁面」', async ({ page }) => {
+  // 本屆一位學生：「本屆學生」個人收件的名單與通知對象就是他。
+  student = await sharedTestSession(page.request, 'student')
+  const studentNo = `417${String(Date.now()).slice(-5)}1`
+  await pool.query(
+    `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, contact_email)
+     values ($1, '刪除測試學生', '刪除測試學生', $2, $3, $4)
+     on conflict (user_id) do update set display_name = excluded.display_name, student_no = excluded.student_no,
+       cohort_id = excluded.cohort_id`,
+    [student.userId, studentNo, cohortId, `w1d-${stamp.toLowerCase()}@contact.example.com`],
+  )
+  await pool.query('insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)', [
+    cohortId,
+    studentNo,
+    student.userId,
+  ])
+
+  const title = `${CODE} 要刪的收件`
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await page.locator('#ed-title').fill(title)
+  await page.locator('#ed-body').fill('請上傳 PDF。')
+  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByRole('radio', { name: '個人一份', exact: true }).check()
+  await page.getByLabel('發布對象').selectOption('cohort_students')
+  await page.getByLabel('所屬階段').selectOption({ index: 1 })
+  await page
+    .getByLabel('截止時間（臺灣時間，含這一分鐘）')
+    .fill(new Date(Date.now() + 20 * 86_400_000 + 8 * 3600_000).toISOString().slice(0, 16))
+  await page.getByLabel('要新增的欄位類型').selectOption('file')
+  await page.getByRole('button', { name: '新增欄位' }).click()
+  await page.getByRole('button', { name: '存草稿' }).click()
+  await expect(page.getByRole('status')).toContainText('已存成草稿')
+  const itemId = page.url().split('/').pop()!
+  await publishFromEditor(page)
+  await page.goto(`/dashboard/admin/editor/${itemId}`)
+  await page.getByRole('button', { name: '下架', exact: true }).click()
+  await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
+  await expect(page.getByTestId('item-status')).toHaveText('已下架')
+  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這份收件' }).click()
+  await page.getByRole('dialog', { name: '刪除這份收件？' }).getByRole('button', { name: '刪除這份收件' }).click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
+
+  // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍是連結，點進去是中文 404。
+  await signIn(page, student)
+  const link = page.locator(`a[href="/dashboard/student/affairs/${itemId}"]`)
+  await expect
+    .poll(
+      async () => {
+        await page.goto('/dashboard/student/inbox')
+        return link.count()
+      },
+      { timeout: 30_000, intervals: [1_000, 2_000] },
+    )
+    .toBe(1)
+  await link.click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/student/affairs/${itemId}$`))
+  await expect(page.getByText('找不到這個頁面').first()).toBeVisible()
+  // 作業區也不再列它。
+  await page.goto('/dashboard/student/affairs')
+  await expect(page.getByRole('main')).not.toContainText(title)
 })

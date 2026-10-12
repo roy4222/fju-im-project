@@ -14,11 +14,14 @@ import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+import { PgInbox } from '@/infrastructure/notifications/pg-inbox'
+import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
+import { PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
 /**
  * 票 15：專題事務建立與發布（模組實作設計 04 §3、§6、§10；模組 05 §5 `buildRoster`；
@@ -1548,11 +1551,13 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     }
   })
 
-  it('已下架、沒人交件的收件：可以刪，截止快照工作一併取消；學生日曆與名單頁都看不到', async () => {
+  it('已下架、沒人交件的收件：可以刪，截止快照工作一併取消；學生日曆與名單頁都看不到；原通知仍點得開、目的頁是找不到', async () => {
     const { cohortId, stageId } = await newCohort()
     const s1 = await newStudent(cohortId)
     const item = await mustCreate(cohortId, { stageId })
     const published = await mustPublish(item.itemId, 1)
+    // 把「新收件」事件投影成學生的通知（背景工作那一段）。
+    await new PgNotificationProjector({ pool: () => app, events: new PgEventPublisher(), businessClock, log: () => {} }).runOnce()
     const archived = await mustChange(item.itemId, published.revision, 'archive')
     expect(await dueWork(item.itemId)).toEqual([{ deadline_version: 1, state: 'pending' }])
 
@@ -1563,16 +1568,29 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     expect((await query.list(cohortId)).map((r) => r.id)).not.toContain(item.itemId)
     // 已寄出的「新收件」通知事件不收回。
     expect(await events(item.itemId, 'item.published')).toHaveLength(1)
+    // AC-6：通知還在而且點得開（連到作業區那一份），那一頁的查詢找不到它 → 頁面回中文 404。
+    const inbox = await new PgInbox({ db: () => app }).list(studentActor(s1), { kind: 'all' }, null)
+    const note = inbox.items.find((n) => n.source.state === 'ok' && n.source.href === `/dashboard/student/affairs/${item.itemId}`)
+    expect(note).toBeDefined()
+    expect(await new PgSubmissionQuery(() => app).myItem(s1.id, item.itemId)).toBeNull()
+    expect((await new PgSubmissionQuery(() => app).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
   })
 
-  it('已有人交件（Q28）：已下架也不能刪，只能下架（ITEM_HAS_RESPONSES），項目仍在清單', async () => {
+  it('已有人交件（Q28）：學生存過草稿的收件下架後也不能刪，只能下架（ITEM_HAS_RESPONSES），項目仍在清單', async () => {
     const { cohortId, stageId } = await newCohort()
-    await newStudent(cohortId)
+    const s1 = await newStudent(cohortId)
     const item = await mustCreate(cohortId, { stageId })
     const published = await mustPublish(item.itemId, 1)
+    // 真的回答資料：學生在這份收件存過一份有內容的草稿（`hasAnyResponse` 算它）。
+    await owner.sql(
+      `insert into submission_drafts (id, item_id, receiver_kind, receiver_id, schema_version_id, answers, created_by_kind, created_by_user_id)
+       select gen_random_uuid(), $1, 'user', $2, m.current_schema_version_id, '{"report":"草稿"}'::jsonb, 'user', $2
+         from managed_items m where m.id = $1`,
+      [item.itemId, s1.id],
+    )
     const archived = await mustChange(item.itemId, published.revision, 'archive')
 
-    const refused = await lockedItems.delete(adminActor(), item.itemId, archived.revision, randomUUID())
+    const refused = await items.delete(adminActor(), item.itemId, archived.revision, randomUUID())
     expect(refused.ok || { code: refused.code, message: refused.message }).toEqual({
       code: 'ITEM_HAS_RESPONSES',
       message: '已經有學生交件，只能下架，不能刪除。',
