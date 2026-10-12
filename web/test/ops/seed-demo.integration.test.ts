@@ -339,6 +339,16 @@ describe('seed-demo.mjs', () => {
     for (const title of Object.keys(byTitle)) expect(publicNews).not.toContain(title)
     expect(await query.list(ANONYMOUS, 'honor', { limit: 20 })).toHaveLength(6)
 
+    // 首頁輪播順序（W0 的 home_position）：有獎項的兩件歷屆作品排第 1、2，其他沒排。
+    const positions = await db.sql(
+      `select d.title, e.home_position from showcase_entries e join showcase_drafts d on d.entry_id = e.id
+        where e.home_position is not null order by e.home_position`,
+    )
+    expect(positions.rows.map((r) => [r.title, r.home_position])).toEqual([
+      ['城市微光：公共資訊可讀性改善', 1],
+      ['備援：中小企業備份稽核工具', 2],
+    ])
+
     // 本屆的精選草稿（測發布＋獎項）：每組一份，還是 9 件。
     const drafts = await db.sql(
       `select count(*)::int as n from showcase_entries e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.status = 'draft'`,
@@ -532,9 +542,20 @@ describe('seed-demo.mjs', () => {
       `insert into due_work (id, kind, subject_type, subject_id, due_business_at) values (gen_random_uuid(), 'deadline_snapshot', 'managed_item', $1, now()) returning id`,
       [real.itemId],
     )
+    // 管理員讓逾期的示範學生補交（第三波 W0 的 submission_reopens，不可變表）：要跟著示範項目一起清掉。
+    await db.sql(
+      `insert into submission_reopens (id, item_id, receiver_kind, receiver_id, due_at, reason, created_by_user_id)
+       select gen_random_uuid(), r.item_id, r.receiver_kind, r.receiver_id, now() + interval '3 days', '示範：讓他補交', $1
+         from response_rosters r join managed_items m on m.id = r.item_id
+        where m.title = '專題說明會個人心得' and not exists (
+          select 1 from submission_versions s where s.item_id = r.item_id and s.receiver_id = r.receiver_id)`,
+      [real.adminId],
+    )
+    expect(Number((await db.sql(`select count(*)::int as n from submission_reopens`)).rows[0]!.n)).toBe(1)
     const r = runSeed(['--remove'])
     expect(r.code, r.stderr).toBe(0)
     expect(r.stdout).toContain('示範資料已清除')
+    expect(Number((await db.sql(`select count(*)::int as n from submission_reopens`)).rows[0]!.n)).toBe(0)
 
     const left = await db.sql(
       `select (select count(*) from cohorts where code in ('DEMO-114', 'DEMO-113', 'DEMO-112'))::int as cohorts,

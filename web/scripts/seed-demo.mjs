@@ -1664,6 +1664,14 @@ async function seed(db, phases) {
       )
       count('已發布精選')
     }
+    // 首頁輪播順序（第三波 W0 的 `home_position`）：兩件有獎項的歷屆作品排第 1、2。
+    for (const [key, position] of Object.entries(demo.HOME_POSITIONS)) {
+      await db.query('update showcase_entries set home_position = $2, revision = revision + 1 where id = $1', [
+        demoId(`history-showcase:${key}`),
+        position,
+      ])
+    }
+    count('首頁輪播順序', Object.keys(demo.HOME_POSITIONS).length)
 
     // 榮譽榜：已發布、公開；發布日＝得獎日（#293 的年份篩選看它）。
     for (const h of demo.HONORS) {
@@ -1753,6 +1761,7 @@ const REMOVE_STEPS = [
   [`delete from grading_schemes where cohort_id = any($1::uuid[])`],
   // 繳交與專題事務
   [`delete from submission_files where submission_version_id in (select v.id from submission_versions v join managed_items m on m.id = v.item_id where m.cohort_id = any($1::uuid[]))`],
+  [`delete from submission_reopens where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from submission_versions where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from submission_drafts where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from advisor_visibility_settings where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
