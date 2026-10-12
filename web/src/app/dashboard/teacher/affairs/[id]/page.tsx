@@ -174,7 +174,7 @@ export default async function TeacherAffairPage({
                 <dd className="tabular font-semibold text-destructive">{completion.overdue}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">未繳（還沒截止）</dt>
+                <dt className="text-muted-foreground">未繳（還沒截止或補交中）</dt>
                 <dd className="tabular font-semibold">{completion.pending}</dd>
               </div>
             </dl>
@@ -225,11 +225,16 @@ function entryStatus(
     }
   }
   if (category === 'exempt') return { headline: '免填', tone: 'default', detail: `理由：${entry.exemptReason ?? ''}`, missing: false, overdue: false }
-  const status = receiverStatus(window, { exempt: false, hasDraft: false, latestVersionNo: entry.latestVersionNo }, businessNow)
+  // 個別補交期限（W10b）跟系辦名單同一個判斷：補交中、期限未到是「未繳」＋「系辦開放補交到…」，過了仍未交才逾期。
+  const facts = { exempt: false, hasDraft: false, latestVersionNo: entry.latestVersionNo }
+  const status = receiverStatus(window, { ...facts, reopenUntil: entry.reopenUntil }, businessNow)
+  const reopened = entry.latestVersionNo === null && !status.overdue && receiverStatus(window, facts, businessNow).overdue
   const detail =
     entry.latestVersionNo !== null && entry.latestReceivedAt
       ? `v${entry.latestVersionNo}・${entry.latestSubmittedByName ?? ''}・${formatTaipeiMinute(entry.latestReceivedAt).slice(5)}`
-      : status.overdue
+      : reopened
+        ? status.detail
+        : status.overdue
         ? '已截止，沒有正式送出'
         : status.headline === '尚未開放'
           ? status.detail

@@ -9,6 +9,7 @@ import { formatTaipeiSecond } from '@/shared/time'
  * 繳交歷史的兩塊畫面：版本列表、某一版的內容（唯讀）。
  * 老師的收件頁與學生的「我的繳交紀錄」共用（票 22）；資料來自同一段查詢，所以組員、主指導、系辦看到的是同一份。
  * 附件連到 `/api/files/<id>`：每次下載都重新授權，列得出來的就是下載得到的。
+ * 截止後靠系辦開的個別補交送出的版本標「補交」（W10b；資料來自模組 10 的 port，跟學生、系辦端同一個標記）。
  */
 
 export function VersionTable({
@@ -51,6 +52,7 @@ export function VersionTable({
                 {index === 0 ? (
                   <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] text-primary-on-subtle">最新</span>
                 ) : null}
+                {v.late ? <LateBadge /> : null}
               </td>
               <td className="py-3">{v.submittedByName}</td>
               <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
@@ -103,6 +105,7 @@ export function VersionContent({
         ) : (
           <span className="ml-2 text-sm font-normal text-muted-foreground">已被後來的版本取代</span>
         )}
+        {version.late ? <LateBadge /> : null}
       </h2>
       <dl className="grid gap-x-8 gap-y-2 border-y border-border py-3 text-sm sm:grid-cols-2">
         {facts.map(([k, v]) => (
@@ -139,5 +142,14 @@ export function VersionContent({
         })}
       </dl>
     </div>
+  )
+}
+
+/** 截止後靠系辦開的個別補交送出的版本（W10）。 */
+function LateBadge() {
+  return (
+    <span className="ml-2 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] text-warning-on-subtle" data-testid="late-badge">
+      補交
+    </span>
   )
 }
