@@ -273,6 +273,79 @@ describe('seed-demo.mjs', () => {
     afterFirst = await tableCounts()
   })
 
+  it('第三波（W8，AC-27）：新後台每個功能都有示範資料可點', async () => {
+    const items = await db.sql(
+      `select m.title, m.placement, m.status, m.audience_kind, m.receiver_unit, m.awarded_on::text as awarded_on,
+              (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id where a.item_id = m.id) as groups,
+              (select count(*) from item_versions v where v.item_id = m.id)::int as versions,
+              (select array_agg(p.action order by p.real_at) from item_publications p where p.item_id = m.id) as actions,
+              (select count(*) from submission_versions s where s.item_id = m.id)::int as submissions,
+              (select count(*) from response_rosters r where r.item_id = m.id)::int as roster,
+              (select count(*) from response_rosters r where r.item_id = m.id and not exists (
+                 select 1 from submission_versions s where s.item_id = m.id and s.receiver_kind = r.receiver_kind and s.receiver_id = r.receiver_id))::int as missing,
+              m.due_at < now() as past_due
+         from managed_items m join cohorts c on c.id = m.cohort_id
+        where c.code = 'DEMO-114' and m.title = any($1::text[])
+        order by m.title`,
+      [
+        [
+          '（草稿）期末成果展場地與時段調查',
+          '暑期程式設計自學營報名（已結束）',
+          '指導老師：系統驗收評分作業時程',
+          '第 01 組：期中進度會議改期',
+          '暑期企業參訪報名表（已下架）',
+          '專題說明會個人心得',
+          '大專校院資訊應用服務創新競賽 校內初選',
+        ],
+      ],
+    )
+    const byTitle = Object.fromEntries(items.rows.map((r) => [String(r.title), r]))
+    expect(Object.keys(byTitle)).toHaveLength(7)
+
+    // 草稿公告：從沒發布（沒有版本、沒有發布紀錄）——可以直接刪。
+    expect(byTitle['（草稿）期末成果展場地與時段調查']).toMatchObject({ placement: 'news', status: 'draft', versions: 0, actions: null })
+    // 已下架公告：發布過再下架——可以重新發布，也可以刪。
+    expect(byTitle['暑期程式設計自學營報名（已結束）']).toMatchObject({ status: 'archived', versions: 1, actions: ['publish', 'archive'] })
+    // 老師首頁公告（Q13、Q14）：一則給全部老師、一則只給第 01 組。
+    expect(byTitle['指導老師：系統驗收評分作業時程']).toMatchObject({ status: 'published', audience_kind: 'teachers', groups: null })
+    expect(byTitle['第 01 組：期中進度會議改期']).toMatchObject({ status: 'published', audience_kind: 'groups', groups: ['G01'] })
+    // Q28：已有組別交件、之後下架的收件——只能下架不能刪。
+    expect(byTitle['暑期企業參訪報名表（已下架）']).toMatchObject({
+      placement: 'submission',
+      status: 'archived',
+      receiver_unit: 'group',
+      submissions: 3,
+      roster: 9,
+      actions: ['publish', 'archive'],
+    })
+    // 補交：每人一份、已截止，第 07 組只有一位沒交。
+    expect(byTitle['專題說明會個人心得']).toMatchObject({
+      status: 'published',
+      receiver_unit: 'individual',
+      audience_kind: 'groups',
+      groups: ['G07'],
+      roster: 5,
+      submissions: 4,
+      missing: 1,
+      past_due: true,
+    })
+    // 本屆一則草稿榮譽（測發布）：有得獎日期、還沒發布。
+    expect(byTitle['大專校院資訊應用服務創新競賽 校內初選']).toMatchObject({ placement: 'honor', status: 'draft', versions: 0 })
+    expect(byTitle['大專校院資訊應用服務創新競賽 校內初選']!.awarded_on).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+    // 訪客看不到草稿、已下架、給老師與給組別的公告；公開榮譽榜也只有原本 6 則。
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const publicNews = (await query.list(ANONYMOUS, 'news', { limit: 50 })).map((n) => n.title)
+    for (const title of Object.keys(byTitle)) expect(publicNews).not.toContain(title)
+    expect(await query.list(ANONYMOUS, 'honor', { limit: 20 })).toHaveLength(6)
+
+    // 本屆的精選草稿（測發布＋獎項）：每組一份，還是 9 件。
+    const drafts = await db.sql(
+      `select count(*)::int as n from showcase_entries e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.status = 'draft'`,
+    )
+    expect(Number(drafts.rows[0]!.n)).toBe(9)
+  })
+
   it('示範帳號登不進來：一律 @demo.invalid、沒有任何密碼；建立者是停用、沒有角色', async () => {
     const users = await db.sql(`select email, status from users where email like '%@demo.invalid'`)
     expect(users.rowCount).toBeGreaterThan(50)
