@@ -175,6 +175,7 @@ describe('status-install.sh --dry-run 只印不做', () => {
     expect(r.stdout).toContain('rrsync -wo /srv/fju/status/inbox')
     expect(r.stdout).toContain('/beszel_socket/beszel.sock')
     expect(r.stdout).toContain('fju-status-verify.roy422.dev')
+    expect(r.stdout).toContain('再打 /probe 三次要都是 204，/count 兩次要都是 3')
     expect(r.stdout).toContain('docker cp')
     expect(r.stdout).toContain('--dry-run 結束：沒有建立或改動任何東西')
     expect(mutatingCalls()).toEqual([])
@@ -813,6 +814,8 @@ exit 0
 
 // 假 curl：暫時網址照暫時 cloudflared 有沒有鎖回 403／404／204（沒鎖時 /probe 會讓假 origin 計數加一）；
 // 四個正式網址都回 Access 的 302。
+// FAKE_READY_OPEN_SEQ／FAKE_PROBE_OPEN_SEQ="530 530 …"：沒鎖那輪的 /ready、/probe 先照這串依序回，用完才回正常的碼；
+// 模擬 Cloudflare 邊緣還把請求送到已死的舊連線（530，請求沒到 origin、不計數）。
 // 公共 DNS（DoH：1.1.1.1、dns.google）回 JSON，A 記錄一律是 FAKE_EDGE_IP；FAKE_DOH_NXDOMAIN=<網址> 那個網址回 NXDOMAIN
 // （Status 3，像剛建、公共 DNS 還沒看到）；FAKE_DOH_FAIL=1 兩家都連不上（curl 回 7）。
 // FAKE_LOCAL_NXDOMAIN=1：模擬真帳號上遇到的「VM 的學校 DNS 把網址 NXDOMAIN 負快取」——沒帶 --resolve <網址>:443:<邊緣 IP>
@@ -833,10 +836,21 @@ if [ "@{FAKE_LOCAL_NXDOMAIN:-0}" = 1 ]; then
   case " $* " in *" --resolve @{h}:443:@{FAKE_EDGE_IP} "*) ;; *) printf 000; exit 6 ;; esac
 fi
 mode=$(cat "$FAKE_STATE/cf_mode" 2>/dev/null)
+# 從腳本序列取下一個碼（用完回空字串）
+next_scripted() { # <名字> <序列>
+  local f="$FAKE_STATE/seq-$1" i
+  i=$(cat "$f" 2>/dev/null || echo 0)
+  set -- $2
+  [ "$i" -lt $# ] || return 0
+  echo $((i + 1)) > "$f"
+  shift "$i"; printf %s "$1"
+}
 case "$url" in
   https://fju-status-verify.roy422.dev/ready)
+    if [ "$mode" = open ]; then s=$(next_scripted ready "@{FAKE_READY_OPEN_SEQ:-}"); [ -n "$s" ] && { printf %s "$s"; exit 0; }; fi
     case "$mode" in locked) printf 403 ;; open) printf 404 ;; *) printf 000 ;; esac ;;
   https://fju-status-verify.roy422.dev/probe)
+    if [ "$mode" = open ]; then s=$(next_scripted probe "@{FAKE_PROBE_OPEN_SEQ:-}"); [ -n "$s" ] && { printf %s "$s"; exit 0; }; fi
     case "$mode" in
       locked) printf 403 ;;
       open) c=$(cat "$FAKE_STATE/counter"); echo $((c + 1)) > "$FAKE_STATE/counter"; printf 204 ;;
@@ -1020,7 +1034,11 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     expect(fs.existsSync(marker(vm))).toBe(true)
     const c = vmCalls(vm)
     expect(c).toContain('systemctl enable --now fju-status-update.timer')
-    expect(c.filter((x) => x.startsWith('docker stop'))).toEqual([])
+    // 沒停正式的 cloudflared；暫時 cloudflared 換設定、清理前都先 stop（SIGTERM 讓它跟邊緣註銷），再 rm -f
+    expect(c.filter((x) => x.startsWith('docker stop') && !x.includes('fju-status-verify-cloudflared'))).toEqual([])
+    const verifyStops = c.flatMap((x, i) => (x === 'docker stop -t 40 fju-status-verify-cloudflared' ? [i] : []))
+    expect(verifyStops).toHaveLength(2) // 第二輪換設定前、最後清理前
+    for (const i of verifyStops) expect(c[i + 1]).toMatch(/^docker rm -f fju-status-verify-cloudflared/)
     // 7b 兩輪真的跑過：假 origin 收到 3 個、暫時資源都清掉
     expect(fs.readFileSync(path.join(vm.state, 'networks'), 'utf8').trim()).toBe('')
     expect(fs.existsSync(path.join(vm.state, 'tunnel-fju-status-verify'))).toBe(false)
@@ -1072,13 +1090,31 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     expect(fs.existsSync(marker(vm))).toBe(false)
   }, 30_000)
 
+  it('7b 第二輪：/ready 要連續 3 次 404 才開打；/probe 遇 530（沒到 origin）等一下重打同一次 → 通過、輸出寫重試次數', async () => {
+    // VM 第 7 次安裝實況：舊 cloudflared 剛被砍，邊緣節點一陣子還回 530。
+    const r = await installOnVm(vm, { FAKE_READY_OPEN_SEQ: '404 530', FAKE_PROBE_OPEN_SEQ: '530 530' })
+    expect(r.out).toContain('/probe ×3 → 204 204 204（530 重試 2 次）；/count → 3、3')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    // 第一輪 403 連 3 次；第二輪 404、530（歸零）、404×3
+    expect(vmCalls(vm).filter((x) => x.includes('fju-status-verify.roy422.dev/ready'))).toHaveLength(3 + 5)
+  }, 30_000)
+
+  it('7b 第二輪：/probe 一直 530 → 重試 12 次就放棄，碼不是 204×3 就停、不寫通過紀錄', async () => {
+    const r = await installOnVm(vm, { FAKE_PROBE_OPEN_SEQ: Array(13).fill('530').join(' ') })
+    expect(r.out).toContain('/probe ×3 → 530 204 204（530 重試 12 次）')
+    expect(r.out).toContain('第二輪要三次都 204、計數兩次都 3（不符：碼、計數）')
+    expect(r.code).not.toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(false)
+  }, 30_000)
+
   it('P3：第 11 步重起 Beszel agent 失敗（status-up 回 42）→ 摘要記 ✗、不記 ✓、結束碼非 0', async () => {
     const r = await installOnVm(vm, { FAKE_UP_FAIL: '1' })
     expect(r.out).toContain('步驟 11：✗')
     expect(r.out).not.toContain('步驟 11：✓')
     expect(r.code).not.toBe(0)
-    // 守門已經通過，Beszel 失敗不關門
-    expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
+    // 守門已經通過，Beszel 失敗不關門（暫時 cloudflared 在 7b 的 stop 不算）
+    expect(vmCalls(vm).filter((x) => x.startsWith('docker stop') && !x.includes('fju-status-verify-cloudflared'))).toEqual([])
   }, 30_000)
 
   // 真帳號上遇到的：VM 的 resolver 是學校 DNS，剛建的暫時網址被它 NXDOMAIN 負快取（roy422.dev 的 SOA 負快取 TTL 1800 秒），
@@ -1089,7 +1125,7 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
   it('P1：本機 DNS 對暫時網址回 NXDOMAIN、公共 DNS 查得到 → 7b 每個 curl 都 --resolve 公共 DNS 查到的邊緣 IP，整個流程通過；同一個網址只查一次', async () => {
     const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1' })
     expect(r.out).toContain('第一輪：有鎖')
-    expect(r.out).not.toContain('還是 000')
+    expect(r.out).not.toContain('最後一次是 000')
     expect(r.code).toBe(0)
     expect(fs.existsSync(marker(vm))).toBe(true)
     const c = vmCalls(vm)
@@ -1115,7 +1151,7 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_FAIL: '1' })
     expect(r.code).not.toBe(0)
     expect(r.out).toContain('停在步驟 7b')
-    expect(r.out).toContain('還是 000（預期 403）')
+    expect(r.out).toContain('沒有連續 3 次 403（最後一次是 000）')
     expect(r.out).toContain('退回本機 resolver')
     expect(r.out).toContain('負快取')
     expect(r.out).toContain('ops/status/README.md')
