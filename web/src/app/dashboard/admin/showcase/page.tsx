@@ -144,7 +144,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
           <EmptyState title="尚無成果展示草稿" description="在上面選一組建立草稿，填好題目、摘要、海報與影片連結後儲存，再勾同意發布。" />
         ) : (
           drafts.map((d) => {
-            const label = `${d.cohortCode} ${groupLabel(d.groupCode)}`
+            const label = `${cohortLabel({ name: d.cohortName, code: d.cohortCode })} ${groupLabel(d.groupCode)}`
             const ref = { entryId: d.entryId, revision: d.entryRevision, label }
             // 封存屆別的作品管理員照樣能改（優秀專題是跨屆的公開紀錄，W15）；只有解散的組鎖內容。
             const locked = d.groupDissolved ? '這一組已解散，內容只能查看。' : null

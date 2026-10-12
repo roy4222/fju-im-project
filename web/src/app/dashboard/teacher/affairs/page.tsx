@@ -109,7 +109,7 @@ function cellView(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixC
   const facts = { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }
   const status = receiverStatus(item, { ...facts, reopenUntil: cell.reopenUntil }, businessNow)
   const reopened = cell.latestVersionNo === null && !status.overdue && receiverStatus(item, facts, businessNow).overdue
-  const headline = category === 'removed' ? '已移出名單' : status.headline
+  const headline = category === 'removed' ? '已不需要繳交（原名單移除）' : status.headline
   const tone: PillTone = category === 'current' ? TONE[status.tone] : 'default'
   let detail = ''
   if (cell.latestVersionNo !== null && cell.latestReceivedAt) {

@@ -296,7 +296,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的第 ${current.version_no} 版已有老師開始評分（存了評分草稿或已正式送出），評分規則已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
+          `目前的第 ${current.version_no} 版已有老師開始評分（存了評分草稿或已正式送出），評分規則已鎖定，不能直接換成新版本；改評分項目或權重請在版本清單按「查看重算影響（尚不套用）」（先看重算預覽再確認）。`,
         )
       }
 

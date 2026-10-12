@@ -333,9 +333,9 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   await expect(page.getByRole('status').filter({ hasText: '已建立評分規則第 2 版（草稿）' })).toBeVisible()
   await openVersions(page)
   const v2 = page.getByRole('table', { name: '評分規則各版' }).getByRole('row').filter({ hasText: '第 2 版' })
-  // 票 24：鎖定後的新版本不能直接發布，只能「看影響並套用」（先看重算預覽再確認）。
+  // 票 24：鎖定後的新版本不能直接發布，只能「查看重算影響（尚不套用）」（先看重算預覽再確認）。
   await expect(v2.getByRole('button', { name: '發布第 2 版' })).toHaveCount(0)
-  await expect(v2.getByRole('link', { name: '看影響並套用第 2 版' })).toBeVisible()
+  await expect(v2.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' })).toBeVisible()
 })
 
 test('學生：「成績」頁只有一句說明；直接開評分管理、工作台網址都被擋', async ({ page }) => {

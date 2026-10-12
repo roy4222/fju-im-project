@@ -304,6 +304,10 @@ test('組長把產學組連結到合作案、換案（理由必填，全組與�
   await expect(panel.getByRole('status')).toContainText(`G01 已連結「${COMPANY}・資訊部」`)
   await page.reload()
   await expect(page.getByTestId('linked-opportunity')).toContainText(`${COMPANY}・資訊部`)
+  // 驗收 P-01：合作案詳情的「連結的組別」標「名稱（代碼）・組別」，不只代碼。
+  await page.goto(`/industry/${a}`)
+  await expect(page.getByRole('region', { name: '連結的組別' })).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
+  await page.goto('/dashboard/student/groups')
   // 有合作案之後，組長不能自己改類型。
   await expect(page.getByTestId('type-change-blocked')).toContainText('已經連結合作案')
 
@@ -466,6 +470,9 @@ test('老師與學生看不到組員登入信箱（只有管理員的名單有�
   await signIn(page, owner)
   await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
   await expect(page.getByRole('region', { name: '全部組別' })).toContainText('G01')
+  // 驗收 P-01：多屆並存時的屆別切換標「名稱（代碼）」（只有一屆時不出現切換）。
+  const pills = page.getByRole('navigation', { name: '選擇屆別' })
+  if (await pills.count()) await expect(pills.getByRole('link', { name: `${CODE} 產學測試（${CODE}）`, exact: true })).toHaveAttribute('aria-current', 'page')
   expect(await page.content()).not.toContain(memberEmails.get('G01')![1]!)
   await signIn(page, leader)
   await page.goto('/dashboard/student/groups')

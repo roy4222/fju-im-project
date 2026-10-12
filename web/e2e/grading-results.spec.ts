@@ -322,6 +322,9 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await page.getByRole('link', { name: `移除或改派 ${NAMES[0]} 老師` }).click()
   await expect(page.getByRole('heading', { name: '移除或改派評分老師' })).toBeVisible()
   await expect(page.getByTestId('reassign-before')).toContainText('2／2')
+  // 驗收 P-33：G01 已更正為 88.00，這裡的最終成績是更正前的計算值，要標出來。
+  await expect(page.getByTestId('reassign-before')).toContainText('最終成績（更正前計算值）')
+  await expect(page.getByTestId('reassign-override-note')).toContainText('選「替換」或「新增」後更正要重新確認')
   await expect(page.getByTestId('choice-keep')).toContainText('已評 2／需要 2 位老師・平均 82.15・已完成')
   await expect(page.getByTestId('choice-replace')).toContainText('已評 1／需要 2 位老師・平均 84.29・尚未完成（1／2）')
   await expect(page.getByTestId('choice-add')).toContainText('已評 2／需要 3 位老師・平均 82.15・尚未完成（2／3）')
@@ -401,16 +404,17 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
   await expect(page.getByRole('status').filter({ hasText: '已建立評分規則第 2 版（草稿）' })).toBeVisible()
 
   await openVersions(page)
-  await page.getByRole('link', { name: '看影響並套用第 2 版' }).click()
+  await page.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' }).click()
   await expect(page.getByRole('heading', { name: '套用新版評分規則' })).toBeVisible()
   // 期中 (84.29＋85)／2＝84.645；期末 92。60／40 → 87.587（87.59）；50／50 → 88.3225（88.32）。
-  await expect(page.getByTestId('apply-row-G01')).toContainText('87.59 → 88.32')
-  await expect(page.getByTestId('apply-row-G01')).toContainText('更正會變成需要重新確認')
+  // 驗收 P-33：G01 有人工更正，這欄是更正前的計算值，要標出來並說明套用後更正要重新確認。
+  await expect(page.getByTestId('apply-row-G01')).toContainText('更正前 87.59 → 重算後 88.32')
+  await expect(page.getByTestId('apply-row-G01')).toContainText('套用後更正要重新確認')
   await page.getByRole('link', { name: '取消（不重算）' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
 
   await openVersions(page)
-  await page.getByRole('link', { name: '看影響並套用第 2 版' }).click()
+  await page.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' }).click()
   // 第三波 AC-37：確認套用在「危險操作」區；寫對象、範圍（未解散的組、已解散的不受影響）、後果、能不能恢復。
   const danger = page.getByRole('region', { name: '危險操作' })
   const facts = danger.getByTestId('danger-facts')

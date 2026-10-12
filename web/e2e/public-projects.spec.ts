@@ -217,6 +217,10 @@ test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指�
   }
   expect(advisors.some(Boolean)).toBe(true)
   await page.goto('/')
+  // 驗收 P-01：首頁優秀專題卡片的屆別標「名稱（代碼）」，不再寫「代碼 屆」（只排前 4 件，這支的作品不一定在）。
+  const homeFeatured = page.getByTestId('home-featured-list').getByRole('listitem').filter({ hasText: TITLE })
+  if (await homeFeatured.count()) await expect(homeFeatured).toContainText(`${COHORT}（${COHORT}）`)
+  await expect(page.getByTestId('home-featured-list')).not.toContainText(`${COHORT} 屆`)
   const homeCards = page.getByTestId('home-archive-list').getByRole('listitem')
   for (const [i, name] of advisors.entries()) if (name) await expect(homeCards.nth(i)).toContainText(name)
   await page.goto(`/projects?q=${encodeURIComponent(stamp)}`)
