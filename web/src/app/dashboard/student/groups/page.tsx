@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import Link from 'next/link'
 import { IconCheck, IconHistory, IconMail, IconUserPlus, IconUsers } from '@tabler/icons-react'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
@@ -238,7 +239,19 @@ export default async function StudentGroupsPage({
         )}
         <section aria-label="找組員名單">
           {teammates.length === 0 ? (
-            <PanelEmpty icon={<IconUserPlus />} title="目前沒有公開找組員的同學。" />
+            <PanelEmpty
+              icon={<IconUserPlus />}
+              title="目前沒有公開找組員的同學。"
+              // 還沒分組才給下一步（N-10）：先看合作案，或洽系辦。
+              hint={view.group ? undefined : '還找不到組員？可以先看看老師的產學合作案，或洽系辦。'}
+              action={
+                view.group ? undefined : (
+                  <Link href="/dashboard/student/industry" className="text-sm font-semibold text-ink hover:underline">
+                    看產學合作案
+                  </Link>
+                )
+              }
+            />
           ) : (
             <ul className="divide-y divide-border">
               {teammates.map((t) => (

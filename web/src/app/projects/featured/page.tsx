@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconCrown } from '@tabler/icons-react'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
@@ -89,12 +90,21 @@ export default async function FeaturedPage({
           <SearchSortBar placeholder="搜尋題目、摘要、組別" sortOptions={FEATURED_SORT_OPTIONS} />
         </div>
         {entries.length === 0 ? (
-          <ListEmpty
-            icon={<IconCrown className="size-8" aria-hidden />}
-            title={filtered ? '找不到符合的作品' : '目前還沒有公開的優秀專題。'}
-            hint={filtered ? '換個關鍵字，或清除篩選條件。' : '可以先到榮譽榜看看歷屆的得獎消息。'}
-            clearHref={filtered ? '/projects/featured' : undefined}
-          />
+          <div className="flex flex-col items-center gap-3">
+            <ListEmpty
+              className="w-full"
+              icon={<IconCrown className="size-8" aria-hidden />}
+              title={filtered ? '找不到符合的作品' : '目前還沒有公開的優秀專題。'}
+              hint={filtered ? '換個關鍵字，或清除篩選條件。' : '可以先到榮譽榜看看歷屆的得獎消息。'}
+              clearHref={filtered ? '/projects/featured' : undefined}
+            />
+            {/* 空的時候給下一步（N-02）：跟說明一樣指到榮譽榜（P-01：不叫訪客先登入）。 */}
+            {filtered ? null : (
+              <Link href="/honors" className="text-sm font-bold text-primary hover:underline">
+                看榮譽榜
+              </Link>
+            )}
+          </div>
         ) : (
           <PhotoDialogGrid entries={entries} initialOpenId={open} />
         )}
