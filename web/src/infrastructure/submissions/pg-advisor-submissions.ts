@@ -144,9 +144,10 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       group_type: 'general' | 'industry'
       cohort_id: string
       cohort_code: string
+      cohort_name: string
       member_names: string[] | null
     }>(
-      `select g.id, g.code, g.group_type, g.cohort_id, c.code as cohort_code,
+      `select g.id, g.code, g.group_type, g.cohort_id, c.code as cohort_code, c.name as cohort_name,
               (select array_agg(coalesce(p.display_name, u.name) order by coalesce(p.display_name, u.name))
                  from group_memberships gm join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
                 where gm.group_id = g.id and gm.valid_to is null) as member_names
@@ -160,6 +161,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       groupType: g.group_type,
       cohortId: g.cohort_id,
       cohortCode: g.cohort_code,
+      cohortName: g.cohort_name,
       memberNames: g.member_names ?? [],
     }))
     if (advised.length === 0) return { groups: [], items: [], cells: [], individualItems: [] }

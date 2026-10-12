@@ -45,6 +45,7 @@ type ItemHead = {
   id: string
   cohort_id: string
   cohort_code: string
+  cohort_name: string
   title: string
   status: ItemStatus
   receiver_unit: ReceiverUnit
@@ -243,7 +244,7 @@ export class PgRosterQuery implements RosterQuery {
 /** 名單頁（管理員）與老師的收件頁頂端共用的項目資訊。沒有收件（`receiver_unit='none'`）或不存在回 null。 */
 export async function rosterItemOf(db: Pick<Pool, 'query'>, itemId: string): Promise<RosterItem | null> {
   const found = await db.query<ItemHead>(
-    `select m.id, m.cohort_id, c.code as cohort_code, m.title, m.status, m.receiver_unit, s.name as stage_name,
+    `select m.id, m.cohort_id, c.code as cohort_code, c.name as cohort_name, m.title, m.status, m.receiver_unit, s.name as stage_name,
             m.opens_at, m.due_at, sv.version_no as schema_version_no, sv.schema
        from managed_items m
        join cohorts c on c.id = m.cohort_id
@@ -258,6 +259,7 @@ export async function rosterItemOf(db: Pick<Pool, 'query'>, itemId: string): Pro
     itemId: row.id,
     cohortId: row.cohort_id,
     cohortCode: row.cohort_code,
+    cohortName: row.cohort_name,
     title: row.title,
     status: row.status,
     receiverUnit: row.receiver_unit,

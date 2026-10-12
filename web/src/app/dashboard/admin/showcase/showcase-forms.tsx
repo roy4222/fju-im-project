@@ -141,6 +141,7 @@ export function DraftEditor({
   poster,
   requestId,
   disabled,
+  videoUrlMessage,
 }: {
   entryId: string
   groupCode: string
@@ -151,6 +152,8 @@ export function DraftEditor({
   poster: Poster
   requestId: string
   disabled?: boolean
+  /** 影片連結格式不對時瀏覽器顯示的提示（和伺服器驗證同一句，驗收 P-05）。 */
+  videoUrlMessage: string
 }) {
   const [state, action, pending] = useActionState(updateDraftAction, undefined)
   // 受控：送出被拒（例如別人先存過）時，打到一半的內容還在。
@@ -199,6 +202,9 @@ export function DraftEditor({
           className={INPUT}
           placeholder="https://"
           disabled={disabled}
+          // 瀏覽器內建檢查只會說「請輸入網址。」：換成說得出怎麼改的同一句（驗收 P-05）。
+          onInvalid={(e) => e.currentTarget.setCustomValidity(videoUrlMessage)}
+          onInput={(e) => e.currentTarget.setCustomValidity('')}
         />
       </label>
       <div>

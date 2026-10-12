@@ -37,6 +37,8 @@ describe('草稿三欄', () => {
     for (const bad of ['javascript:alert(1)', '/videos/1', 'https://you tube.com', 'ftp://x.y/z', 'https://']) {
       expect(normalizeDraftFields({ title: '', summary: '', videoUrl: bad }), bad).toMatchObject({
         ok: false,
+        // 驗收 P-05：說清楚怎麼改，不只「請輸入網址」。
+        message: '影片連結請填以 https:// 開頭的完整網址',
         details: { field: 'videoUrl' },
       })
     }

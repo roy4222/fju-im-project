@@ -174,7 +174,7 @@ export default async function AdminGroupsPage({
 
   return shell(
     <>
-      <CohortPills cohorts={cohorts} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
+      <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
 
       <Panel
         title="未分組學生"
