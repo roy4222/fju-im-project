@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, withIsolatedDatabase } from '../../../test/db'
-import { applyMigration, applyMigrations, migratedSchema } from '../../../test/migrations'
+import { applyMigration, applyMigrations, migratedSchema, migrationTags } from '../../../test/migrations'
 import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 
 /**
@@ -359,6 +359,11 @@ describe('0011（票 39）：已套 0010、有資料的庫升版', () => {
       expect((await db.sql(`select registration_deadline, event_date, awarded_on from managed_items`)).rows).toEqual([
         { registration_deadline: null, event_date: null, awarded_on: null },
       ])
+      expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
+      // 公開查詢是目前的程式碼，要接最新的 schema（第三波 W2 起會讀 0012 的 deleted_at／home_position）：
+      // 0011 的預設值上面已經斷言過，這裡把之後的 migration 補齊，再證明舊的已發布作品仍不在公開清單。
+      const tags = migrationTags()
+      for (const tag of tags.slice(tags.indexOf('0011_t39_showcase_stage_fields') + 1)) await applyMigration(db, tag)
       expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
       const query = new PgPublicShowcaseQuery(() => db.pool)
       expect(await query.featured()).toEqual([])
