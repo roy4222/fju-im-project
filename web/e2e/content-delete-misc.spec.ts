@@ -10,6 +10,7 @@ import { createTestSession, toPlaywrightCookie, type TestSession } from './sessi
  * 2. 發布中的合作案被擋（要先下架）；下架後還連著組別也被擋（要先解除連結）；解除後刪得掉，
  *    後台清單與前台詳情都消失（詳情變 404）。
  * 3. 排定中的活動被擋（要先取消）；已取消的刪得掉，從「已取消」清單消失。
+ * 刪除入口只在頁面底部的「危險操作」區（§9 規則 1）：日常清單的列上沒有刪除鈕。
  * 刪除的資料層規則（刪除標記、稽核、重送、權限）由 pg-timeline／pg-opportunities 的整合測試證明。
  *
  * 屆別、組別、活動與組別連結直接用 owner 連線準備；W11 的動作全程用真的畫面與按鈕。
@@ -130,9 +131,16 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await signIn(page, admin)
   await page.goto('/dashboard/admin/industry')
   const row = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })
+  // 刪除入口在頁面底部的「危險操作」區，不跟編輯、下架並列（§9 規則 1）。
+  const danger = page.getByRole('region', { name: '危險操作' })
+  await expect(row).toBeVisible()
+  await expect(row.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `刪除：${NAME}` })).toHaveCount(1)
+  await expect(danger.getByRole('button', { name: `刪除：${NAME}` })).toBeVisible()
+  await expect(danger.getByTestId('danger-opportunity').filter({ hasText: NAME })).toContainText('要先「下架」')
 
   // 發布中：對話框只說明原因，沒有刪除鈕。
-  await row.getByRole('button', { name: `刪除：${NAME}` }).click()
+  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
   const blocked = page.getByRole('dialog', { name: `還不能刪除「${NAME}」` })
   await expect(blocked).toContainText('要先「下架」才能刪除')
   await expect(blocked.getByRole('button', { name: '刪除這個合作案' })).toHaveCount(0)
@@ -148,7 +156,7 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await row.getByRole('button', { name: `下架：${NAME}` }).click()
   await page.getByRole('dialog', { name: `下架「${NAME}」` }).getByRole('button', { name: '確認下架' }).click()
   await expect(row).toContainText('已下架')
-  await row.getByRole('button', { name: `刪除：${NAME}` }).click()
+  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
   const linked = page.getByRole('dialog', { name: `還不能刪除「${NAME}」` })
   await expect(linked).toContainText('要先「解除」連結才能刪除')
   await expect(linked).toContainText(GROUP)
@@ -161,13 +169,14 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await unlink.getByRole('button', { name: '確認解除' }).click()
   await expect(row).toContainText('尚無組別連結')
 
-  await row.getByRole('button', { name: `刪除：${NAME}` }).click()
+  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
   const confirm = page.getByRole('dialog', { name: `刪除「${NAME}」` })
   await expect(confirm).toContainText('已下架')
   await expect(confirm).toContainText('不能。')
   await confirm.getByRole('button', { name: '刪除這個合作案' }).click()
-  await expect(page.getByRole('main').getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
+  await expect(danger.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
   await expect(page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })).toHaveCount(0)
+  await expect(page.getByTestId('danger-opportunity').filter({ hasText: NAME })).toHaveCount(0)
 
   // 重新整理仍然不在；前台詳情是 404（不是「已下架」）；負責老師的清單也沒有了。
   await page.reload()
@@ -185,19 +194,29 @@ test('活動：排定中要先取消；已取消的刪得掉，從「已取消�
   await page.goto(`/dashboard/admin/timeline?cohort=${cohortId}`)
 
   const scheduled = page.getByRole('region', { name: '已排定的活動' })
-  await scheduled.getByRole('button', { name: `刪除活動：${SCHEDULED}` }).click()
+  const cancelled = page.getByRole('region', { name: '已取消的活動' })
+  const danger = page.getByRole('region', { name: '危險操作' })
+  // 刪除入口只在頁面底部的「危險操作」區：已排定、已取消清單的列上沒有刪除鈕（§9 規則 1）。
+  await expect(scheduled).toContainText(SCHEDULED)
+  await expect(cancelled).toContainText(CANCELLED)
+  await expect(scheduled.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
+  await expect(cancelled.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `刪除活動：${CANCELLED}` })).toHaveCount(1)
+  await expect(danger.getByTestId('danger-activity').filter({ hasText: SCHEDULED })).toContainText('要先「取消活動」')
+
+  await danger.getByRole('button', { name: `刪除活動：${SCHEDULED}` }).click()
   const blocked = page.getByRole('dialog', { name: `還不能刪除「${SCHEDULED}」` })
   await expect(blocked).toContainText('要先「取消活動」才能刪除')
   await expect(blocked.getByRole('button', { name: '刪除這個活動' })).toHaveCount(0)
   await blocked.getByRole('button', { name: '知道了' }).click()
 
-  const cancelled = page.getByRole('region', { name: '已取消的活動' })
-  await cancelled.getByRole('button', { name: `刪除活動：${CANCELLED}` }).click()
+  await danger.getByRole('button', { name: `刪除活動：${CANCELLED}` }).click()
   const confirm = page.getByRole('dialog', { name: `刪除「${CANCELLED}」？` })
   await expect(confirm).toContainText('不能。')
   await confirm.getByRole('button', { name: '刪除這個活動' }).click()
-  await expect(page.getByRole('main').getByRole('status').filter({ hasText: `已刪除活動「${CANCELLED}」` })).toBeVisible()
-  await expect(page.getByRole('region', { name: '已取消的活動' })).toHaveCount(0)
+  await expect(danger.getByRole('status').filter({ hasText: `已刪除活動「${CANCELLED}」` })).toBeVisible()
+  await expect(cancelled).toHaveCount(0)
+  await expect(danger.getByTestId('danger-activity').filter({ hasText: CANCELLED })).toHaveCount(0)
 
   await page.reload()
   await expect(page.getByRole('main')).not.toContainText(CANCELLED)

@@ -559,7 +559,7 @@ export function ActivityActions({
       <Dialog
         dialog={confirm}
         title={`取消「${title}」？`}
-        description="取消後活動會標「已取消」，不會刪除，也不能再改期；之後要刪除，到下面「已取消」清單按「刪除」。"
+        description="取消後活動會標「已取消」，不會刪除，也不能再改期；之後要刪除，到頁面最下面的「危險操作」區按「刪除」。"
       >
         <form action={cancelAction} className="space-y-4">
           <input type="hidden" name="activityId" value={activityId} />
@@ -581,7 +581,7 @@ export function ActivityActions({
 }
 
 /**
- * 刪除活動（第三波 W11）：只有已取消的活動可以刪；排定中的列也有這顆按鈕，但對話框只說明要先取消
+ * 刪除活動（第三波 W11；放在頁面底部的「危險操作」區）：只有已取消的活動可以刪；排定中的也有這顆按鈕，但對話框只說明要先取消
  * （§9 規則 4：不能做的動作附原因，不留點了沒反應的入口）。規則以伺服器為準（`activityDeleteBlocker`），
  * 這裡只是先講清楚。
  * 成功後那一列會從清單消失，成功句子交給清單外的回饋區。

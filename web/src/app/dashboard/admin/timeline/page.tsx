@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
 import { BTN_OUTLINE, PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -48,7 +48,8 @@ export const metadata = { title: '時間軸設定｜資管系專題平台' }
  *
  * 一屆四個階段：只填開始日，下一段開始日就是上一段的結束；另填年度結束日（含當天）。
  * 「現在第幾階段」用業務鐘算——測試站把模擬鐘推開，這裡與三角色首頁一起變。
- * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」，在那裡可以刪除（第三波 W11）。
+ * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」。
+ * 刪除已取消的活動（第三波 W11）放在頁面最底下的「危險操作」區（§9 規則 1），不跟改期、取消並列。
  */
 export default async function AdminTimelinePage({
   searchParams,
@@ -199,7 +200,7 @@ export default async function AdminTimelinePage({
       />
 
       <ActivityNoticeProvider>
-        {/* 取消、刪除成功的句子放在清單外：那一列之後就移出清單了。 */}
+        {/* 取消成功的句子放在清單外：那一列取消後就移出「已排定」清單了。 */}
         <ActivityNotice />
         <Panel
           title="已排定的活動"
@@ -223,24 +224,14 @@ export default async function AdminTimelinePage({
                     </p>
                     {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
                   </div>
-                  <div className="flex flex-wrap items-start gap-2">
-                    <ActivityActions
-                      activityId={activity.id}
-                      title={activity.title}
-                      revision={activity.revision}
-                      requestIds={{ update: randomUUID(), cancel: randomUUID() }}
-                      values={activityFormValues(activity)}
-                      {...limits}
-                    />
-                    <DeleteActivityButton
-                      activityId={activity.id}
-                      title={activity.title}
-                      when={formatActivityWhen(activity)}
-                      revision={activity.revision}
-                      requestId={randomUUID()}
-                      scheduled
-                    />
-                  </div>
+                  <ActivityActions
+                    activityId={activity.id}
+                    title={activity.title}
+                    revision={activity.revision}
+                    requestIds={{ update: randomUUID(), cancel: randomUUID() }}
+                    values={activityFormValues(activity)}
+                    {...limits}
+                  />
                 </li>
               ))}
             </ul>
@@ -251,26 +242,60 @@ export default async function AdminTimelinePage({
           <Panel title="已取消" icon={<IconCalendarOff />} description={`${cancelled.length} 個`} aria-label="已取消的活動">
             <ul className="divide-y divide-border border-t border-border">
               {cancelled.map((activity) => (
-                <li key={activity.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm text-muted-foreground">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Pill>已取消</Pill>
-                    <span className="line-through">{activity.title}</span>
-                    <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
-                  </span>
-                  <DeleteActivityButton
-                    activityId={activity.id}
-                    title={activity.title}
-                    when={formatActivityWhen(activity)}
-                    revision={activity.revision}
-                    requestId={randomUUID()}
-                    scheduled={false}
-                  />
+                <li key={activity.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm text-muted-foreground">
+                  <Pill>已取消</Pill>
+                  <span className="line-through">{activity.title}</span>
+                  <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
                 </li>
               ))}
             </ul>
           </Panel>
         ) : null}
       </ActivityNoticeProvider>
+
+      {/* 危險操作（§9 規則 1）：刪除跟日常的改期、取消拉開，放在頁面最底下；自己一個回饋區。 */}
+      {activities.length > 0 ? (
+        <ActivityNoticeProvider>
+          <Panel
+            title="危險操作"
+            icon={<IconAlertTriangle />}
+            description="刪除後不能恢復"
+            aria-label="危險操作"
+            className="border border-destructive/30"
+          >
+            <div className="space-y-3 border-t border-border px-5 py-3">
+              <p className="text-sm text-muted-foreground">
+                只有已取消的活動可以刪除；刪除後從後台、學生與老師的行事曆、首頁都消失，不能恢復。排定中的請先「取消活動」。
+              </p>
+              <ActivityNotice />
+            </div>
+            <ul aria-label="活動刪除清單" className="divide-y divide-border border-t border-border">
+              {[...cancelled, ...scheduled].map((activity) => (
+                <li key={activity.id} data-testid="danger-activity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Pill>{activity.status === 'cancelled' ? '已取消' : '已排定'}</Pill>
+                      <span className="font-semibold">{activity.title}</span>
+                      <span className="text-muted-foreground tabular-nums">・{formatActivityWhen(activity)}</span>
+                    </div>
+                    {activity.status === 'scheduled' ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">還在排定中，要先「取消活動」才能刪除。</p>
+                    ) : null}
+                  </div>
+                  <DeleteActivityButton
+                    activityId={activity.id}
+                    title={activity.title}
+                    when={formatActivityWhen(activity)}
+                    revision={activity.revision}
+                    requestId={randomUUID()}
+                    scheduled={activity.status === 'scheduled'}
+                  />
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </ActivityNoticeProvider>
+      ) : null}
     </>,
     // 新增活動（獨立活動）：原型頁面上的動作都是開對話框；回饋留在按鈕旁邊，不混進活動清單。
     <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />,

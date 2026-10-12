@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import type { ManagedOpportunity, OpportunityStatus } from '@/application/groups'
-import { IconBriefcase } from '@tabler/icons-react'
+import { IconAlertTriangle, IconBriefcase } from '@tabler/icons-react'
 import { Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
 import {
   DeleteOpportunityButton,
@@ -21,7 +21,7 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
  *
  * 外觀照原型（票 36）：一個 Panel（系辦「全部合作案」、老師「我的合作案」）裡一條條列，
  * 三欄＝狀態標籤＋公司＋部門・內容｜負責老師＋連結的組別｜動作。
- * `deletable`（系辦；第三波 W11）：動作最右邊隔開一顆「刪除」（危險操作），刪除成功的句子放在清單上方。
+ * 刪除不在這裡（第三波 §9 規則 1）：系辦頁另外在頁面底部放 `OpportunityDangerZone`。
  */
 
 const STATUS_TONE: Record<OpportunityStatus, 'success' | 'info' | 'default'> = {
@@ -37,7 +37,6 @@ export function ManageOpportunityList({
   showOwner,
   reasonMaxLength,
   empty,
-  deletable = false,
 }: {
   items: readonly ManagedOpportunity[]
   statusLabel: Record<OpportunityStatus, string>
@@ -45,24 +44,71 @@ export function ManageOpportunityList({
   showOwner: boolean
   reasonMaxLength: number
   empty: { title: string; description: string }
-  deletable?: boolean
 }) {
   return (
+    <Panel title={showOwner ? '全部合作案' : '我的合作案'} icon={<IconBriefcase />} description={`${items.length} 件`}>
+      {items.length === 0 ? (
+        <PanelEmpty title={empty.title} hint={empty.description} />
+      ) : (
+        <List items={items} statusLabel={statusLabel} labels={labels} showOwner={showOwner} reasonMaxLength={reasonMaxLength} />
+      )}
+    </Panel>
+  )
+}
+
+/**
+ * 系辦頁底部的「危險操作」區（第三波 W11；§9 規則 1：永久刪除跟日常按鈕拉開）：每一案一列「刪除」。
+ * 不能刪的（發布中、連著組別）也列出來，旁邊直接寫原因，按下去的對話框說明要先做什麼（§9 規則 4）。
+ * 刪除成功後那一列會消失，成功句子放在這一區的最上面。
+ */
+export function OpportunityDangerZone({
+  items,
+  statusLabel,
+}: {
+  items: readonly ManagedOpportunity[]
+  statusLabel: Record<OpportunityStatus, string>
+}) {
+  if (items.length === 0) return null
+  return (
     <OpportunityNoticeProvider>
-      <OpportunityNotice />
-      <Panel title={showOwner ? '全部合作案' : '我的合作案'} icon={<IconBriefcase />} description={`${items.length} 件`}>
-        {items.length === 0 ? (
-          <PanelEmpty title={empty.title} hint={empty.description} />
-        ) : (
-          <List
-            items={items}
-            statusLabel={statusLabel}
-            labels={labels}
-            showOwner={showOwner}
-            reasonMaxLength={reasonMaxLength}
-            deletable={deletable}
-          />
-        )}
+      <Panel
+        title="危險操作"
+        icon={<IconAlertTriangle />}
+        description="刪除後不能恢復"
+        aria-label="危險操作"
+        className="border border-destructive/30"
+      >
+        <div className="space-y-3 border-t border-border/70 px-5 py-3">
+          <p className="text-sm text-muted-foreground">
+            只有草稿或已下架、而且沒連著組別的合作案可以刪除；刪除後從後台、負責老師的「我的合作案」與前台都消失，不能恢復。
+          </p>
+          <OpportunityNotice />
+        </div>
+        <ul aria-label="合作案刪除清單" className="divide-y divide-border border-t border-border/70">
+          {items.map((o) => {
+            const name = `${o.fields.companyName}・${o.fields.department}`
+            return (
+              <li key={o.id} data-testid="danger-opportunity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Pill tone={STATUS_TONE[o.status]}>{statusLabel[o.status]}</Pill>
+                    <span className="truncate text-sm font-semibold text-foreground">{name}</span>
+                  </div>
+                  {o.deleteBlocker ? <p className="mt-0.5 text-xs text-muted-foreground">{o.deleteBlocker}</p> : null}
+                </div>
+                <DeleteOpportunityButton
+                  opportunityId={o.id}
+                  revision={o.revision}
+                  name={name}
+                  ownerName={o.ownerName}
+                  statusLabel={statusLabel[o.status]}
+                  blocker={o.deleteBlocker}
+                  requestId={randomUUID()}
+                />
+              </li>
+            )
+          })}
+        </ul>
       </Panel>
     </OpportunityNoticeProvider>
   )
@@ -74,14 +120,12 @@ function List({
   labels,
   showOwner,
   reasonMaxLength,
-  deletable,
 }: {
   items: readonly ManagedOpportunity[]
   statusLabel: Record<OpportunityStatus, string>
   labels: OpportunityFormLabels
   showOwner: boolean
   reasonMaxLength: number
-  deletable: boolean
 }) {
   return (
     <ul aria-label="合作案清單" className="divide-y divide-border border-t border-border/70">
@@ -130,19 +174,6 @@ function List({
                 kind={o.status === 'published' ? 'withdraw' : o.status === 'withdrawn' ? 'republish' : 'publish'}
                 requestId={randomUUID()}
               />
-              {deletable ? (
-                <span className="flex items-center border-l border-border pl-2">
-                  <DeleteOpportunityButton
-                    opportunityId={o.id}
-                    revision={o.revision}
-                    name={name}
-                    ownerName={o.ownerName}
-                    statusLabel={statusLabel[o.status]}
-                    blocker={o.deleteBlocker}
-                    requestId={randomUUID()}
-                  />
-                </span>
-              ) : null}
             </div>
           </li>
         )
