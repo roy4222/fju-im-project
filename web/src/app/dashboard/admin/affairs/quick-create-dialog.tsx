@@ -312,7 +312,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                     {review.openText}
                     {review.deadlineText ? `・${review.deadlineText}` : ''}
                   </p>
-                  <RecipientList recipients={review.recipients} />
+                  <RecipientList recipients={review.recipients} notifyWhen={honor ? 'never' : 'important'} />
                   <StudentView state={state} review={review} vocabulary={vocabulary} />
                   {collects ? (
                     <p className="text-sm">新的繳交項目一定會通知名單上需要繳交的人（站內通知）。</p>

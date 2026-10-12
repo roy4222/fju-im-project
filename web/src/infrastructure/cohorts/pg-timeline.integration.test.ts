@@ -217,6 +217,8 @@ describe('階段與年度結束日', () => {
     await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohort.id])
     const result = await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    // 訊息用「名稱（代碼）」指屆別，不只寫代碼（驗收第 2 章殘留）。
+    expect(result.ok ? '' : result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）已封存`)
   })
 })
 
