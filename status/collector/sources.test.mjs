@@ -123,3 +123,81 @@ describe('VM 紀錄解析', () => {
     expect(lastBackupRecord('')).toBeNull()
   })
 })
+
+// 第二次 Review 的漏攔與 15 種以上變形：每種都要被黑名單抓到（整檔拒寫），或根本不在白名單裡（collect.test.mjs）。
+describe('遮蔽變形（Review 第二輪）', () => {
+  it.each([
+    ['postgresql://db/fju?user=app&password=x', '連線字串'], // query 參數、1 個字元也算
+    ['postgresql://db/fju?user=app&%70assword=FAKEPASS123', '連線字串'], // 鍵名 URL 編碼
+    ['POSTGRESQL://DB/FJU?USER=APP&PASSWORD=FAKEPASS123', '連線字串'], // 全大寫
+    ['postgres://:FAKEPASS123@db:5432/fju', '連線字串'], // userinfo 只有密碼
+    ['postgres://app%3AFAKEPASS123@db/fju', '連線字串'], // userinfo 的冒號被編碼
+    ['mysql://db/x?passwd=FAKEPASS123&sslmode=require', '連線字串'],
+    ['mongodb+srv://db.example.net/x?authSource=admin&apiKey=FAKEPASS123', '連線字串'],
+    ['https://api.example.net/v1?access_token=FAKEPASS123', '連線字串'],
+    ['https://api.example.net/v1?key=FAKEPASS123', '連線字串'],
+    ['password%3DFAKEPASS123', '密碼'], // 整段 URL 編碼的 password=
+    ['PGPASSWORD=FAKEPASS123', '密碼'],
+    ['apiKey=FAKEPASS123', '密碼'],
+    ['api_key: FAKEPASS123', '密碼'],
+    ['Authorization: Bearer FAKEPASS123FAKEPASS', 'token'],
+    ['authorization=Basic RkFLRVBBU1MxMjM6RkFLRVBBU1M=', 'token'],
+    ['Cookie: session=FAKEPASS123', '密碼'],
+    ['set-cookie: CF_Authorization=FAKEPASS123', '密碼'],
+    ['secret_key = FAKEPASS123', '密碼'],
+    ['密碼：FAKEPASS123', '密碼'],
+    ['AKIAIOSFODNN7EXAMPLE', 'token'],
+  ])('%s → %s', (text, kind) => {
+    expect(findLeaks(text)).toContain(kind)
+  })
+
+  it('JSON 文字裡的連線字串也抓得到（值被引號包住）', () => {
+    expect(findLeaks(JSON.stringify({ a: 'postgresql://db/fju?user=app&password=x' }))).toContain('連線字串')
+    expect(findLeaks(JSON.stringify({ a: 'postgres://:FAKEPASS123@db/fju' }))).toContain('連線字串')
+  })
+
+  it('不帶密碼的網址與連線字串不誤判', () => {
+    expect(findLeaks('postgresql://db:5432/fju?sslmode=require&application_name=fju')).toEqual([])
+    expect(findLeaks('https://github.com/x/actions/runs/11/attempts/2 ghcr.io/roy4222/fju-web:main')).toEqual([])
+    // ssh://git@github.com/… 的 userinfo 長得像 email，照 summarize-night.sh 的規則本來就算命中（保守）
+    expect(findLeaks('ssh://git@github.com/x/y.git')).toEqual(['Email'])
+    expect(findLeaks('postgres://app@db/fju?password=')).toEqual([]) // 空值不算
+    expect(findLeaks('https://x.example/cdn-cgi/access/login/h?kid=x')).toEqual([])
+  })
+
+  it('敏感鍵底下的容器（陣列、物件）有實值就算命中，路徑停在敏感鍵', () => {
+    expect(findSensitiveKeys({ token: ['FAKEPASS123'] })).toEqual(['token'])
+    expect(findSensitiveKeys({ secret: { value: 'FAKEPASS123' } })).toEqual(['secret'])
+    expect(findSensitiveKeys({ a: { credentials: [{ user: 'app', pass: 'FAKEPASS123' }] } })).toEqual(['a.credentials'])
+    expect(findSensitiveKeys({ secret: { nested: { deeper: 42 } } })).toEqual(['secret'])
+  })
+
+  it('敏感鍵名的各種寫法：大小寫、底線、連字號、HTTP header、URL 編碼的鍵名、數字型密碼、Base64 看起來像 token', () => {
+    for (const obj of [
+      { PGPASSWORD: 'FAKEPASS123' },
+      { apiKey: 'FAKEPASS123' },
+      { 'api-key': 'FAKEPASS123' },
+      { API_KEY: 'FAKEPASS123' },
+      { authorization: 'Bearer FAKEPASS123' },
+      { Authorization: 'Basic RkFLRQ==' },
+      { cookie: 'session=FAKEPASS123' },
+      { 'Set-Cookie': 'CF_Authorization=FAKEPASS123' },
+      { password: 123456 },
+      { pin_pwd: 1234 },
+      { db_pass: 'FAKEPASS123' },
+      { passphrase: 'FAKEPASS123' },
+      { client_secret: 'FAKEPASS123' },
+      { private_key: '-----BEGIN RSA PRIVATE KEY-----' },
+      { '%70assword': 'FAKEPASS123' },
+      { token: 'QUtJQUlPU0ZPRE5ON0VYQU1QTEU=' },
+      { access_token: 'FAKEPASS123' },
+    ]) {
+      expect(findSensitiveKeys(obj), JSON.stringify(Object.keys(obj))).toHaveLength(1)
+    }
+  })
+
+  it('敏感鍵底下沒有實值（空容器、佔位、布林、null）不算', () => {
+    expect(findSensitiveKeys({ token: ['${DOPPLER_TOKEN}'], secret: {}, password: null, apiKey: { enabled: false }, cookie: [] })).toEqual([])
+    expect(findSensitiveKeys({ missing: ['E2E_ADMIN_PASSWORD', 'DOPPLER_TOKEN'], forbiddenPresent: ['E2E_ADMIN_EMAIL'] })).toEqual([])
+  })
+})

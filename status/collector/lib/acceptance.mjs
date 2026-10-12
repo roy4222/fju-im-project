@@ -4,6 +4,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { readJson } from './files.mjs'
+import { ShapeError, project } from './shape.mjs'
+import { RUN_ENTRY } from './shapes.mjs'
 
 const SAFE = /^[A-Za-z0-9._-]+$/
 
@@ -25,10 +27,20 @@ function checkSummary(summary, runId) {
   return null
 }
 
+/** 一夜的索引先過白名單（lib/shapes.mjs RUN_ENTRY）：欄位值不合樣式的那夜只留 runId 與原因，不拖垮整個索引。 */
 function indexRun(dir, name) {
-  const run = readJson(path.join(dir, 'run.json'))
-  if (run.missing) return null
-  const base = {
+  const entry = rawIndexRun(dir, name)
+  if (!entry) return null
+  try {
+    return project(RUN_ENTRY, entry)
+  } catch (err) {
+    if (!(err instanceof ShapeError)) throw err
+    return { ...emptyEntry(name), invalidReason: `run.json 欄位格式不符（${err.message}）` }
+  }
+}
+
+function emptyEntry(name) {
+  return {
     runId: name,
     plan: null,
     startedAt: null,
@@ -40,6 +52,12 @@ function indexRun(dir, name) {
     summaryValid: false,
     invalidReason: null,
   }
+}
+
+function rawIndexRun(dir, name) {
+  const run = readJson(path.join(dir, 'run.json'))
+  if (run.missing) return null
+  const base = emptyEntry(name)
   const r = run.value
   if (run.error || !r || typeof r !== 'object' || !Array.isArray(r.items)) {
     return { ...base, invalidReason: run.error ?? 'run.json 沒有 items' }

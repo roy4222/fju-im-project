@@ -30,11 +30,13 @@ export async function startServer(routes) {
  * 假 GitHub API。imageRuns 可換掉（測「push 失敗→手動重推成功」）；ciUrl 可塞怪字串（測遮蔽）。
  * 帶 event=push 查 image.yml 時只回 push 的 run（模擬真的 API），所以程式誤加過濾就看不到手動重推。
  */
-export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, extraPr = {}, imageRuns, ciUrl } = {}) {
+export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, extraPr = {}, imageRuns, ciUrl, ciRun = {}, ciJobs } = {}) {
+  // ciRun 可覆寫 run 11 的欄位（測 run_attempt 重跑）；ciJobs 可換掉 run 11 的 jobs。
   const ciRuns = [
-    { id: 11, head_sha: sha, event: 'push', status: 'completed', conclusion: 'success', html_url: ciUrl ?? 'https://github.com/x/runs/11', created_at: '2026-10-12T09:00:00Z' },
-    { id: 10, head_sha: 'b'.repeat(40), event: 'push', status: 'completed', conclusion: 'failure', html_url: 'https://github.com/x/runs/10', created_at: '2026-10-11T09:00:00Z' },
+    { id: 11, head_sha: sha, event: 'push', status: 'completed', conclusion: 'success', run_attempt: 1, html_url: ciUrl ?? 'https://github.com/x/runs/11', created_at: '2026-10-12T09:00:00Z', ...ciRun },
+    { id: 10, head_sha: 'b'.repeat(40), event: 'push', status: 'completed', conclusion: 'failure', run_attempt: 1, html_url: 'https://github.com/x/runs/10', created_at: '2026-10-11T09:00:00Z' },
   ]
+  const jobs = ciJobs ?? [{ name: 'lint', conclusion: 'success' }, { name: 'e2e-smoke', conclusion: 'success' }]
   const images = imageRuns ?? [
     { id: 12, head_sha: sha, event: 'push', status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/12', created_at: '2026-10-12T09:00:00Z' },
   ]
@@ -50,9 +52,7 @@ export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, 
     [`${api}/actions/workflows/health-cron.yml/runs`]: (req, url) => ({
       body: { workflow_runs: url.searchParams.get('status') === 'completed' ? [cron] : [] },
     }),
-    [`${api}/actions/runs/11/jobs`]: () => ({
-      body: { jobs: [{ name: 'lint', conclusion: 'success' }, { name: 'e2e-smoke', conclusion: 'success' }] },
-    }),
+    [`${api}/actions/runs/11/jobs`]: () => ({ body: { jobs } }),
     [`${api}/pulls`]: () => ({
       body: [
         { number: 347, state: 'closed', merged_at: '2026-10-11T00:00:00Z', head: { ref: 'claude/p1-t14' }, html_url: 'https://github.com/x/pull/347', updated_at: '2026-10-11T00:00:00Z', ...extraPr },

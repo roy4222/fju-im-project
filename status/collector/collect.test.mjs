@@ -8,6 +8,7 @@ import { configFromEnv, parseHosts, runOnce } from './collect.mjs'
 import {
   HOSTS,
   MAIN_SHA,
+  REPO_BODIES,
   TEAM,
   accessRoutes,
   baseConfig,
@@ -94,6 +95,7 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(gh.ci).toEqual({
       runId: 11,
       headSha: MAIN_SHA,
+      attempt: 1,
       status: 'completed',
       conclusion: 'success',
       url: 'https://github.com/x/runs/11',
@@ -285,21 +287,124 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
     expect(allOutput()).not.toContain('FAKEPASS123')
   })
 
-  it('envcheck 檔被塞了 JSON 的 "password" 欄位：vm.json 不寫、保留上一版、錯誤不帶值', async () => {
+  it('envcheck 檔多了白名單外的欄位（含 password、沒有鍵名提示的 FAKE 值）：只輸出規格列的五個欄位，多的全部丟掉', async () => {
     let cfg = await start()
     await runOnce(cfg, NOW)
-    const before = fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')
     await server.close()
     vm.write(
       'status/envcheck/prod.json',
-      JSON.stringify({ site: 'prod', checkedAt: NOW.toISOString(), missing: [], forbiddenPresent: [], flags: {}, debug: { password: 'FAKEPASS456' } }),
+      JSON.stringify({
+        site: 'prod',
+        checkedAt: NOW.toISOString(),
+        missing: ['GOOGLE_CLIENT_SECRET'],
+        forbiddenPresent: [],
+        flags: { REGISTRATION_OPEN: 'absent', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false', extra: 'FAKEPASS457' },
+        debug: { password: 'FAKEPASS456' },
+        note: 'FAKEPASS458', // 鍵名沒有提示、值也沒有樣式：只有白名單擋得住
+        values: ['FAKEPASS459'],
+      }),
     )
     cfg = await start()
-    const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
-    expect(status.sources.vm.ok).toBe(false)
-    expect(status.sources.vm.error).toContain('敏感欄位')
-    expect(fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')).toBe(before)
-    expect(allOutput()).not.toContain('FAKEPASS456')
+    const later = new Date(NOW.getTime() + 600e3)
+    const status = await runOnce(cfg, later)
+    expect(status.sources.vm).toEqual({ ok: true, at: later.toISOString(), error: null })
+    const vmj = read('vm.json')
+    expect(vmj.generatedAt).toBe(later.toISOString())
+    expect(vmj.prodEnv).toEqual({
+      site: 'prod',
+      checkedAt: NOW.toISOString(),
+      missing: ['GOOGLE_CLIENT_SECRET'],
+      forbiddenPresent: [],
+      flags: { REGISTRATION_OPEN: 'absent', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false' },
+    })
+    expect(vmj.prodEnvError).toBeNull()
+    expect(allOutput()).not.toContain('FAKEPASS')
+  })
+
+  it('envcheck 的已知欄位值不合樣式（旗標不是 false/absent/other、missing 不是鍵名）：prodEnv 改成 null 並記原因，值不輸出', async () => {
+    for (const [label, env] of [
+      ['旗標', { flags: { REGISTRATION_OPEN: 'FAKEPASS321', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false' } }],
+      ['missing', { missing: ['DB_PASSWORD=FAKEPASS322'] }],
+      ['site', { site: 'postgres://app:FAKEPASS323@db/fju' }],
+    ]) {
+      vm.write(
+        'status/envcheck/prod.json',
+        JSON.stringify({ site: 'prod', checkedAt: NOW.toISOString(), missing: [], forbiddenPresent: [], flags: { REGISTRATION_OPEN: 'absent', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false' }, ...env }),
+      )
+      const cfg = await start()
+      const status = await runOnce(cfg, NOW)
+      await server.close()
+      server = undefined
+      expect(status.sources.vm.ok, label).toBe(true)
+      const vmj = read('vm.json')
+      expect(vmj.prodEnv, label).toBeNull()
+      expect(vmj.prodEnvError, label).toContain('格式')
+      expect(vmj.deploys.test, label).toHaveLength(5)
+      expect(allOutput(), label).not.toContain('FAKEPASS')
+    }
+  })
+
+  it('repo 四檔之一（tickets.json）藏了敏感鍵底下的容器與 URL 編碼的連線字串：四檔都不寫、錯誤只說類別', async () => {
+    for (const [body, kind] of [
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', secret: { value: 'FAKEPASS999' } }] }, '敏感欄位'],
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', token: ['FAKEPASS998'] }] }, '敏感欄位'],
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', note: 'postgresql://db/fju?user=app&%70assword=FAKEPASS997' }] }, '連線字串'],
+    ]) {
+      const cfg = await start({ [`GET /raw/roy4222/fju-im-project/${MAIN_SHA}/docs/status/tickets.json`]: () => ({ body }) })
+      const status = await runOnce(cfg, NOW)
+      await server.close()
+      server = undefined
+      expect(status.sources.repo.ok).toBe(false)
+      expect(status.sources.repo.error).toContain(kind)
+      expect(status.sources.repo.error).not.toContain('FAKEPASS')
+      expect(fs.existsSync(path.join(vm.dataDir, 'repo'))).toBe(false)
+      expect(allOutput()).not.toContain('FAKEPASS')
+    }
+  })
+
+  it('GitHub 回應多了規格外的欄位（PR body 帶密碼、head.repo）：不進 github.json', async () => {
+    const cfg = await start(githubRoutes({ extraPr: { body: 'password: FAKEPASS555', head: { ref: 'claude/p1-t14', repo: { ssh_url: 'git@github.com:x/y.git' } } } }))
+    await rounds(cfg, 2) // prs 是輪替項目，第二輪才抓到
+    expect(read('collector.json').sources.github.ok).toBe(true)
+    const gh = read('github.json')
+    expect(Object.keys(gh.prs[0]).sort()).toEqual(['headRef', 'merged', 'number', 'state', 'updatedAt', 'url'])
+    expect(allOutput()).not.toContain('FAKEPASS')
+    expect(allOutput()).not.toContain('ssh_url')
+  })
+
+  it('每個輸出檔都只有白名單列的頂層欄位', async () => {
+    const cfg = await start()
+    await rounds(cfg, 2)
+    expect(Object.keys(read('github.json')).sort()).toEqual(['apiCalls', 'ci', 'fetchError', 'fetchedAt', 'generatedAt', 'healthCron', 'image', 'mainSha', 'prs'])
+    expect(Object.keys(read('health.json')).sort()).toEqual(['accessGuard', 'generatedAt', 'prod', 'test'])
+    expect(Object.keys(read('vm.json')).sort()).toEqual(['backups', 'deploys', 'generatedAt', 'prodDns', 'prodEnv', 'prodEnvError'])
+    expect(Object.keys(read('acceptance-index.json')).sort()).toEqual(['generatedAt', 'latestFullAttempt', 'requiredItems', 'requiredItemsSourceSha', 'runs'])
+    expect(Object.keys(read('collector.json')).sort()).toEqual(['generatedAt', 'sources'])
+  })
+})
+
+describe('GitHub run 重跑（run_attempt）', () => {
+  it('同一個 run 重跑後結論仍 failure 但 jobs 變了：attempt 改變就重抓 jobs，每輪仍 ≤ 4 次', async () => {
+    const failing = (lint) => [{ name: 'lint', conclusion: lint }, { name: 'e2e-smoke', conclusion: 'failure' }]
+    let cfg = await start(githubRoutes({ ciRun: { conclusion: 'failure', run_attempt: 1 }, ciJobs: failing('failure') }))
+    const calls = await rounds(cfg, 2)
+    expect(calls.every((c) => c <= 4)).toBe(true)
+    expect(read('github.json').ci).toMatchObject({ runId: 11, attempt: 1, conclusion: 'failure', jobs: failing('failure') })
+    expect(server.seen.filter((s) => s.endsWith('/actions/runs/11/jobs'))).toHaveLength(1)
+    await server.close()
+
+    // 重跑：attempt 2，lint 過了、e2e 還是失敗，整體結論不變。
+    cfg = await start(githubRoutes({ ciRun: { conclusion: 'failure', run_attempt: 2 }, ciJobs: failing('success') }))
+    const later = new Date(NOW.getTime() + 600e3)
+    const before = apiCount()
+    await runOnce(cfg, later)
+    expect(apiCount() - before).toBeLessThanOrEqual(4)
+    expect(read('github.json').ci).toMatchObject({ runId: 11, attempt: 2, conclusion: 'failure', jobs: failing('success') })
+    expect(server.seen.filter((s) => s.endsWith('/actions/runs/11/jobs'))).toHaveLength(1)
+
+    // 再一輪沒變：不再抓 jobs。
+    await runOnce(cfg, new Date(later.getTime() + 600e3))
+    expect(server.seen.filter((s) => s.endsWith('/actions/runs/11/jobs'))).toHaveLength(1)
   })
 })
 

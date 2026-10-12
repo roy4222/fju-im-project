@@ -4,7 +4,8 @@
 //   node collector/collect.mjs --once       （跑一輪就結束，測試與手動用）
 // 執行。把 GitHub、Gatus、部署與備份紀錄、envcheck、驗收 inbox 整理成 STATUS_DATA_DIR 底下的 JSON。
 // 每個來源各自成敗：一個壞了只記在 collector.json，其他照常更新；任何錯誤都不讓程式結束。
-// 寫檔前整份過遮蔽檢查（lib/redact.mjs），命中就整檔不寫、保留上一版。
+// 寫檔前兩道把關（lib/files.mjs）：先白名單投影（lib/shapes.mjs，只輸出規格列的欄位），再黑名單掃描（lib/redact.mjs）；
+// 任一道命中就整檔不寫、保留上一版。
 //
 // 環境變數（括號內是預設值；compose 照預設把 VM 目錄唯讀掛到容器內同樣的路徑就不用設）：
 //   STATUS_DATA_DIR（/data，唯一可寫）、STATUS_FJU_ROOT（/srv/fju：讀 <站>/deploy/deploy_log、
@@ -138,8 +139,10 @@ export async function runOnce(cfg, now = new Date()) {
   try {
     writeJsonChecked(cfg.dataDir, 'collector.json', status)
   } catch {
-    // 錯誤訊息本身踩到遮蔽規則：只留成敗，訊息換成固定字樣。
-    for (const s of Object.values(sources)) if (s.error && findLeaks(s.error).length) s.error = '錯誤訊息含敏感字樣，已省略'
+    // 錯誤訊息本身踩到遮蔽規則或太長：只留成敗，訊息換成固定字樣。
+    for (const s of Object.values(sources)) {
+      if (s.error && (findLeaks(s.error).length || s.error.length > 500)) s.error = '錯誤訊息含敏感字樣，已省略'
+    }
     writeJsonChecked(cfg.dataDir, 'collector.json', status)
   }
   return status

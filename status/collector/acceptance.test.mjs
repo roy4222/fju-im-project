@@ -112,3 +112,20 @@ describe('AC-S-11 五夜', () => {
     expect(parseTime('2026-10-12T22:00:00+0800')).toBe(Date.parse('2026-10-12T14:00:00Z'))
   })
 })
+
+describe('run.json 欄位不合樣式（白名單投影）', () => {
+  it('commitEnd 塞了 URL 編碼的連線字串：那夜標 invalidReason、該欄改 null，值不進索引', () => {
+    const dir = path.join(inbox, 'night-z')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(
+      path.join(dir, 'run.json'),
+      JSON.stringify({ runId: 'night-z', plan: 'full', startedAt: '2026-10-12T22:00:00+0800', finishedAt: '2026-10-12T23:00:00+0800', commitStart: 'abc12345', commitEnd: 'postgresql://db/fju?user=app&%70assword=FAKEPASS123', items: [{ id: 'story-1', status: 'ok' }] }),
+    )
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs).toHaveLength(1)
+    expect(idx.runs[0]).toMatchObject({ runId: 'night-z', plan: null, commitEnd: null, items: [] })
+    expect(idx.runs[0].invalidReason).toContain('格式')
+    expect(JSON.stringify(idx)).not.toContain('FAKEPASS')
+    expect(idx.latestFullAttempt).toBeNull()
+  })
+})

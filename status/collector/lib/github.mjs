@@ -5,7 +5,8 @@
 //   1. commits/main → mainSha
 //   2. workflows/ci.yml/runs?branch=main&event=push → ci 的 run（優先挑 head_sha 等於 mainSha 的）
 // 視需要（第 3 次）：
-//   3. ci 那個 run 的 jobs：只在 run 已完成、且快取裡不是同一個 run／同一個結論時才打
+//   3. ci 那個 run 的 jobs：只在 run 已完成、且快取裡不是同一個 run／同一個 run_attempt／同一個結論時才打
+//      （重跑失敗的 job 會讓 run_attempt +1、jobs 變了但總結論可能還是 failure，所以要比 attempt）
 // 剩下的額度輪流給（每次挑「快取最舊」的，從沒抓過的優先）：
 //   - workflows/image.yml/runs?branch=main：不限 event，push 與手動重推（workflow_dispatch）都算，挑最新的
 //   - workflows/health-cron.yml/runs?status=completed：最近一個已完成的
@@ -17,11 +18,14 @@ import { fetchJson } from './http.mjs'
 export const API_BUDGET = 4
 const ROTATING = ['image', 'healthCron', 'prs']
 
+const attemptOf = (run) => (Number.isInteger(run?.run_attempt) ? run.run_attempt : null)
+
 function runOf(run, jobs) {
   if (!run) return null
   return {
     runId: run.id,
     headSha: run.head_sha,
+    attempt: attemptOf(run),
     status: run.status,
     conclusion: run.conclusion ?? null,
     url: run.html_url,
@@ -71,7 +75,12 @@ export async function fetchGithub({ apiBase, repo, timeoutMs }, prev, now = new 
   if (ciRun?.status === 'completed') {
     const old = cache.ci
     const reusable =
-      old && old.runId === ciRun.id && old.status === 'completed' && old.conclusion === (ciRun.conclusion ?? null) && Array.isArray(old.jobs)
+      old &&
+      old.runId === ciRun.id &&
+      old.attempt === attemptOf(ciRun) &&
+      old.status === 'completed' &&
+      old.conclusion === (ciRun.conclusion ?? null) &&
+      Array.isArray(old.jobs)
     if (reusable) {
       ciJobs = old.jobs
     } else {

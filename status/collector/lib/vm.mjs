@@ -3,6 +3,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { readJson } from './files.mjs'
+import { ShapeError, project } from './shape.mjs'
+import { ENVCHECK } from './shapes.mjs'
 
 const SITES = ['test', 'prod']
 
@@ -87,10 +89,20 @@ export async function collectVm(cfg, now) {
     }
   }
 
+  // envcheck 結果只取規格列的五個欄位（lib/shapes.mjs ENVCHECK）：多的欄位丟掉；已知欄位值不合樣式就當沒有結果、記原因。
   const env = readJson(path.join(cfg.envcheckDir, 'prod.json'))
+  let prodEnv = null
   let prodEnvError = null
   if (env.missing) prodEnvError = '還沒有 envcheck 結果'
   else if (env.error) prodEnvError = env.error
+  else {
+    try {
+      prodEnv = project(ENVCHECK, env.value)
+    } catch (err) {
+      if (!(err instanceof ShapeError)) throw err
+      prodEnvError = `envcheck 結果格式不符（${err.message}）`
+    }
+  }
 
   let hasA = false
   try {
@@ -102,7 +114,7 @@ export async function collectVm(cfg, now) {
   return {
     deploys,
     backups,
-    prodEnv: env.value ?? null,
+    prodEnv,
     prodEnvError,
     prodDns: { host: cfg.prodDnsHost, hasA, checkedAt: now.toISOString() },
   }
