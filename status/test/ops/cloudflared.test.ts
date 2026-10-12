@@ -8,6 +8,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+// Next 的型別把 NODE_ENV 設成 ProcessEnv 的必填；子程序刻意給乾淨環境，所以用寬鬆的型別再轉。
+type Env = Record<string, string | undefined>
+
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const render = path.join(repoRoot, 'ops/status-render-cloudflared.sh')
 
@@ -59,10 +62,11 @@ afterAll(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-function run(args: string[], env: NodeJS.ProcessEnv = {}) {
-  return spawnSync('bash', [render, ...args], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', ...env } })
+function run(args: string[], env: Env = {}) {
+  const full: Env = { PATH: '/usr/bin:/bin', ...env }
+  return spawnSync('bash', [render, ...args], { encoding: 'utf8', env: full as NodeJS.ProcessEnv })
 }
-function renderTo(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}) {
+function renderTo(name: string, extra: string[] = [], env: Env = {}) {
   const out = path.join(tmp, name)
   const r = run(['--team', `${TEAM}.cloudflareaccess.com`, '--aud', AUD, '--tunnel-id', TUNNEL_ID, '--out', out, ...extra], env)
   return { r, out }

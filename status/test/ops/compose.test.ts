@@ -9,6 +9,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+// Next 的型別把 NODE_ENV 設成 ProcessEnv 的必填；子程序刻意給乾淨環境，所以用寬鬆的型別再轉。
+type Env = Record<string, string | undefined>
+
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const composeFile = path.join(repoRoot, 'docker-compose.status.yml')
 const statusUp = path.join(repoRoot, 'ops/status-up.sh')
@@ -35,12 +38,12 @@ type Config = {
 let tmp: string
 let config: Config
 
-function composeConfig(env: NodeJS.ProcessEnv): SpawnSyncReturns<string> {
+function composeConfig(env: Env): SpawnSyncReturns<string> {
   const bin = process.env.DOCKER_COMPOSE_BIN
   const args = ['-f', composeFile, 'config', '--format', 'json']
   return bin
-    ? spawnSync(bin, args, { encoding: 'utf8', env })
-    : spawnSync('docker', ['compose', ...args], { encoding: 'utf8', env })
+    ? spawnSync(bin, args, { encoding: 'utf8', env: env as NodeJS.ProcessEnv })
+    : spawnSync('docker', ['compose', ...args], { encoding: 'utf8', env: env as NodeJS.ProcessEnv })
 }
 
 beforeAll(() => {
@@ -213,8 +216,8 @@ describe('docker-compose.status.yml', () => {
 
 const CONTAINER_PSQL = `sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'`
 
-function runUp(args: string[], env: NodeJS.ProcessEnv) {
-  return spawnSync('bash', [statusUp, ...args], { encoding: 'utf8', env })
+function runUp(args: string[], env: Env) {
+  return spawnSync('bash', [statusUp, ...args], { encoding: 'utf8', env: env as NodeJS.ProcessEnv })
 }
 
 describe('ops/status-up.sh', () => {
