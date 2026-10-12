@@ -5,7 +5,8 @@ import type { IndustryActionState } from '@/app/dashboard/_industry/opportunity-
 import { describeLinkReceipt, describeOpportunityReceipt, getOpportunityCommand } from '@/composition/groups'
 
 /**
- * 合作案管理的動作（票 20；老師「我的合作案」與系辦「合作案」共用）：建立、編輯、發布、下架、重新發布、解除連結。
+ * 合作案管理的動作（票 20；老師「我的合作案」與系辦「合作案」共用）：建立、編輯、發布、下架、重新發布、解除連結；
+ * 第三波 W11 加系辦指定負責老師（建立時的 `ownerTeacherUserId`，老師的表單不送）與刪除（系辦）。
  *
  * 這裡只做「表單 → 用例 → 畫面回饋」的翻譯；誰能做、欄位對不對、版本有沒有被別人改過，全部在用例裡判
  * （直接打這個 Server Action 的人一樣會被擋）。請求編號由頁面在伺服器端產生、放在隱藏欄位。
@@ -43,7 +44,11 @@ export async function saveOpportunityAction(_state: IndustryActionState, formDat
   const opportunityId = text(formData, 'opportunityId')
   const result = opportunityId
     ? await command.update(actor, { ...fields(formData), opportunityId, revision: whole(formData, 'revision') }, text(formData, 'requestId'))
-    : await command.create(actor, { ...fields(formData), publish: text(formData, 'publish') === 'true' }, text(formData, 'requestId'))
+    : await command.create(
+        actor,
+        { ...fields(formData), publish: text(formData, 'publish') === 'true', ownerTeacherUserId: text(formData, 'ownerTeacherUserId') },
+        text(formData, 'requestId'),
+      )
   if (!result.ok) return failed(result)
   refresh()
   return { ok: true, message: describeOpportunityReceipt(result.receipt) }
@@ -76,4 +81,15 @@ export async function unlinkOpportunityAction(_state: IndustryActionState, formD
   if (!result.ok) return failed(result)
   refresh()
   return { ok: true, message: describeLinkReceipt(result.receipt) }
+}
+
+export async function deleteOpportunityAction(_state: IndustryActionState, formData: FormData): Promise<IndustryActionState> {
+  const result = await getOpportunityCommand().delete(
+    await currentActor(),
+    { opportunityId: text(formData, 'opportunityId'), revision: whole(formData, 'revision') },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return failed(result)
+  refresh()
+  return { ok: true, message: describeOpportunityReceipt(result.receipt) }
 }
