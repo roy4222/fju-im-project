@@ -1,10 +1,12 @@
 import 'server-only'
 import type { ResolvedActor } from '@/application/accounts'
-import type { DeclaredUpload, UploadTicket } from '@/application/ops'
+import type { DeclaredUpload, SubmissionLateFlags, UploadTicket } from '@/application/ops'
 import type { AdvisorSubmissionQuery, RosterQuery, SubmissionCommand, SubmissionQuery } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { getPool } from '@/infrastructure/db/client'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgAdvisorSubmissionQuery } from '@/infrastructure/submissions/pg-advisor-submissions'
 import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
@@ -20,6 +22,13 @@ let submissionCommand: SubmissionCommand | undefined
 let submissionQuery: SubmissionQuery | undefined
 let rosterQuery: RosterQuery | undefined
 let advisorSubmissionQuery: AdvisorSubmissionQuery | undefined
+let submissionLateFlags: SubmissionLateFlags | undefined
+
+/** 模組 10 的「哪些版本是補交」批次查詢 port（W10）：三個讀版本的查詢都經這一個實例問，收件模組不直接讀稽核表（架構 §4.4）。 */
+function getSubmissionLateFlags(): SubmissionLateFlags {
+  submissionLateFlags ??= new PgSubmissionLateFlags()
+  return submissionLateFlags
+}
 
 export function getSubmissionCommand(): SubmissionCommand {
   submissionCommand ??= new PgSubmissionCommand({
@@ -33,7 +42,7 @@ export function getSubmissionCommand(): SubmissionCommand {
 }
 
 export function getSubmissionQuery(): SubmissionQuery {
-  submissionQuery ??= new PgSubmissionQuery()
+  submissionQuery ??= new PgSubmissionQuery(getPool, getSubmissionLateFlags())
   return submissionQuery
 }
 
@@ -65,12 +74,12 @@ export async function requestSubmissionUpload(
 }
 
 export function getRosterQuery(): RosterQuery {
-  rosterQuery ??= new PgRosterQuery()
+  rosterQuery ??= new PgRosterQuery(getPool, getSubmissionLateFlags())
   return rosterQuery
 }
 
 export function getAdvisorSubmissionQuery(): AdvisorSubmissionQuery {
-  advisorSubmissionQuery ??= new PgAdvisorSubmissionQuery()
+  advisorSubmissionQuery ??= new PgAdvisorSubmissionQuery(getPool, getSubmissionLateFlags())
   return advisorSubmissionQuery
 }
 

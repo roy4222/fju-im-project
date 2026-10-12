@@ -20,6 +20,7 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 import { PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
@@ -1572,8 +1573,8 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     const inbox = await new PgInbox({ db: () => app }).list(studentActor(s1), { kind: 'all' }, null)
     const note = inbox.items.find((n) => n.source.state === 'ok' && n.source.href === `/dashboard/student/affairs/${item.itemId}`)
     expect(note).toBeDefined()
-    expect(await new PgSubmissionQuery(() => app).myItem(s1.id, item.itemId)).toBeNull()
-    expect((await new PgSubmissionQuery(() => app).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
+    expect(await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItem(s1.id, item.itemId)).toBeNull()
+    expect((await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
   })
 
   it('已有人交件（Q28）：學生存過草稿的收件下架後也不能刪，只能下架（ITEM_HAS_RESPONSES），項目仍在清單', async () => {

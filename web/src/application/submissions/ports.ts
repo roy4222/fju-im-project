@@ -47,6 +47,25 @@ export type VisibilityReceipt = {
   readonly setAt: string
 }
 
+/** 個別補交開好之後的回執（第三波 W10）。 */
+export type ReopenReceipt = {
+  readonly itemId: string
+  readonly receiverKind: 'user' | 'group'
+  readonly receiverId: string
+  /** 補交期限（那一分鐘的起點，UTC ISO；含此分鐘）。 */
+  readonly dueAt: string
+  readonly reason: string
+  /** 收到通知的人數（個人＝1；整組＝目前有效、帳號正常的組員）。 */
+  readonly notified: number
+}
+
+export type ReopenInput = {
+  /** `<input type="datetime-local">` 的值，當成臺灣時間（`YYYY-MM-DDTHH:mm`）。 */
+  readonly dueAt: string
+  /** 理由 1–200 字（給學生看、也留在紀錄裡）。 */
+  readonly reason: string
+}
+
 export interface SubmissionCommand {
   /**
    * 存草稿（個人收件）。`revision` 是畫面讀到的草稿版本號（還沒有草稿＝0）；
@@ -72,6 +91,12 @@ export interface SubmissionCommand {
    * 要另建一份收件或等之後的「新欄位版本」功能。關閉一律可以（收回權限不會擴權）。
    */
   setAdvisorVisibility(actor: ResolvedActor, itemId: string, enabled: boolean, requestId: string): Promise<Result<VisibilityReceipt>>
+  /**
+   * 系辦讓**單一學生或單一組**補交（第三波 W10，最小版的 S08-07）：只對已截止的收件、目前名單上（不是免填）的收件者。
+   * 補交期限要晚於現在（業務時間）。只插不改（`submission_reopens`）：再開一次就再插一列，看最晚的那一個期限。
+   * 只通知那一位（整組＝那一組目前的組員）；其他人的截止規則完全不變。不改名單、不動項目的截止時間。
+   */
+  reopen(actor: ResolvedActor, itemId: string, receiverId: string, input: ReopenInput, requestId: string): Promise<Result<ReopenReceipt>>
 }
 
 // ── 查詢 ──────────────────────────────────────────────────────────────────────
@@ -96,6 +121,8 @@ export type MyItemRow = {
   readonly receiverUnit: 'individual' | 'group'
   /** 整組一份時是自己這一組的代號。 */
   readonly groupCode: string | null
+  /** 系辦開的個別補交期限（W10，最晚的那一個；可能已過期，狀態字自己判）；沒有是 null。 */
+  readonly reopenUntil: Date | null
 }
 
 export type SubmissionFile = { readonly fileId: string; readonly name: string; readonly sizeBytes: number }
@@ -126,6 +153,8 @@ export type VersionSummary = {
   readonly schemaVersionNo: number
   /** 回執編號（就是送出時的請求編號）。 */
   readonly requestId: string
+  /** 截止後靠系辦開的個別補交送出的（W10）；畫面標「補交」。 */
+  readonly late: boolean
 }
 
 export type MyItemDetail = {
@@ -156,6 +185,8 @@ export type MyItemDetail = {
   } | null
   /** 本人每一次正式送出，新的在前。 */
   readonly versions: readonly VersionSummary[]
+  /** 系辦開的個別補交期限（W10，最晚的那一個；可能已過期）；沒有是 null。 */
+  readonly reopenUntil: Date | null
 }
 
 export type MyVersionDetail = VersionSummary & {
@@ -206,6 +237,19 @@ export interface SubmissionQuery {
   myRecord(userId: string, itemId: string, receiverId: string): Promise<MyRecordDetail | null>
   /** 紀錄裡某一版的內容；讀不到回 null。 */
   myRecordVersion(userId: string, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null>
+  /**
+   * 名單頁點一位收件者時的補交紀錄（W10，系辦用；新的在前）。不是系辦管理員回 null。
+   * 放在這裡而不是 `RosterQuery`：補交是這個模組的寫入，讀它的 SQL 跟送出時的守門放在同一個檔。
+   */
+  reopens(actor: ResolvedActor, itemId: string, receiverId: string): Promise<readonly ReopenEntry[] | null>
+}
+
+/** 一次個別補交（只插不改的一列）。 */
+export type ReopenEntry = {
+  readonly dueAt: Date
+  readonly reason: string
+  readonly createdAt: Date
+  readonly createdByName: string
 }
 
 // ── 收件名單（票 18，管理員）─────────────────────────────────────────────────
@@ -248,6 +292,8 @@ export type RosterEntry = {
   readonly latestVersionNo: number | null
   readonly latestReceivedAt: Date | null
   readonly latestSubmittedByName: string | null
+  /** 系辦開的個別補交期限（W10，最晚的那一個；可能已過期，狀態字自己判）；沒有是 null。主指導看的名單一律是 null。 */
+  readonly reopenUntil: Date | null
 }
 
 export type ItemRoster = { readonly item: RosterItem; readonly entries: readonly RosterEntry[] }
