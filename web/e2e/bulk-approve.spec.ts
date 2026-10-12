@@ -253,3 +253,58 @@ test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不
   await expect(entry).toContainText('怎麼確認是本人：當面核對身分證件（教職員證、身分證）')
   await expect(entry).not.toContainText('學生證')
 })
+
+test('N-03：勾了兩位又逐一個別核准，批次按鈕只算仍在待審的人，都核准完就不出現', async ({ browser }) => {
+  const code = `bc${run}`.slice(0, 20)
+  const A = student(5)
+  const B = student(6)
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  try {
+    const cohortId = (
+      await pool.query<{ id: string }>(
+        `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+        [code, `E2E 批次核准屆 ${code}`],
+      )
+    ).rows[0]!.id
+    const version = await pool.query<{ id: string }>(
+      `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+       select gen_random_uuid(), $1, id, clock_timestamp(), $3::jsonb from users where email = $2 returning id`,
+      [cohortId, `w6-importer-${run}@example.com`, rosterSummary(2)],
+    )
+    for (const s of [A, B]) {
+      await pool.query(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+         values (gen_random_uuid(), $1, $2, $3, $3)`,
+        [version.rows[0]!.id, s.studentNo, s.name],
+      )
+    }
+  } finally {
+    await pool.end()
+  }
+  for (const s of [A, B]) await register(browser, s)
+
+  const admin = await adminPage(browser)
+  await admin.goto('/dashboard/admin/accounts')
+  const pending = admin.getByRole('region', { name: '待審核' })
+  for (const s of [A, B]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
+  await expect(pending.getByRole('button', { name: '核准勾選的 2 位' })).toBeVisible()
+
+  const approveOne = async (name: string) => {
+    await pendingRow(admin, name).getByRole('button', { name: `審核 ${name}` }).click()
+    const review = admin.getByRole('dialog', { name: `審核 ${name}` })
+    await review.getByLabel('當面核對學生證或其他身分證件').check()
+    await review.getByRole('button', { name: '核准' }).click()
+    await expect(review.getByRole('status')).toContainText('已核准')
+    await review.getByRole('button', { name: '關閉' }).click()
+    await expect(pendingRow(admin, name)).toHaveCount(0)
+  }
+
+  // 核准完一位：按鈕只算還在待審、還勾著的那一位。
+  await approveOne(A.name)
+  await expect(pending.getByRole('button', { name: '核准勾選的 1 位' })).toBeVisible()
+
+  // 兩位都核准完：勾選裡已沒有待審的人，批次按鈕不出現（跟沒勾任何人一樣）。
+  await approveOne(B.name)
+  await expect(pending.getByRole('button', { name: /^核准勾選的/ })).toHaveCount(0)
+  await admin.screenshot({ path: 'test-results/n03-bulk-approve-after-single.png' })
+})
