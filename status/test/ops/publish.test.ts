@@ -263,6 +263,32 @@ describe('status-publish-run.sh', () => {
     expect(r.all).toContain('missing.png')
   })
 
+  it('截圖路徑上的父目錄是符號連結（screenshots/ 或 item 目錄指到 run 外）：不送', () => {
+    const runId = 'night-20261019-2200'
+    const outside = path.join(tmp, 'outside')
+    write(path.join(outside, 'x.png'), 'secret-x')
+    write(path.join(outside, 'screenshots/y.png'), 'secret-y')
+    const dir = makeNight(runId, {
+      summary: summaryListing([
+        'story-1/screenshots/ok.png',
+        'story-2/screenshots/x.png',
+        'story-3/screenshots/y.png',
+        'story-1/screenshots//ok.png',
+      ]),
+    })
+    write(path.join(dir, 'story-1/screenshots/ok.png'), 'img')
+    fs.mkdirSync(path.join(dir, 'story-2'), { mode: 0o700 })
+    fs.symlinkSync(outside, path.join(dir, 'story-2/screenshots'))
+    fs.symlinkSync(outside, path.join(dir, 'story-3'))
+
+    const r = run([dir])
+    expect(r.code, r.all).toBe(0)
+    expect(tree(path.join(inbox, runId)).filter((p) => !p.endsWith('/'))).toEqual(['run.json', 'story-1/screenshots/ok.png', 'summary.json'])
+    expect(tree(path.join(mirror, runId)).filter((p) => !p.endsWith('/'))).toEqual(['run.json', 'story-1/screenshots/ok.png', 'summary.json'])
+    expect(r.all).toContain('story-2/screenshots/x.png')
+    expect(r.all).toContain('story-3/screenshots/y.png')
+  })
+
   it('summary.json 壞掉：照送 run.json 與 summary.json（讓後台標「不合法」），印警告、結束碼 0', () => {
     const runId = 'night-20261016-2200'
     const dir = makeNight(runId)
@@ -297,6 +323,41 @@ describe('status-publish-run.sh', () => {
     expect(r.code, r.all).toBe(0)
     expect(r.stdout).toContain('night-20261011-2200')
     expect(sshCalls()).toEqual([])
+  })
+
+  // macOS 內建的 openrsync、rsync 2.6.9 不認 --chmod=D755,F644：連線、動鏡像之前就要明確報錯。
+  for (const [name, version] of [
+    ['openrsync', 'openrsync: protocol version 29\nrsync version 2.6.9 compatible'],
+    ['rsync 2.6.9', 'rsync  version 2.6.9  protocol version 29'],
+    ['rsync 3.0.9', 'rsync  version 3.0.9  protocol version 30'],
+  ] as const) {
+    it(`rsync 不合用（${name}）：報錯要 brew install rsync、不連線、鏡像不動（--dry-run 也一樣）`, () => {
+      const fakeRsync = path.join(tmp, 'old-rsync')
+      fs.writeFileSync(fakeRsync, `#!/usr/bin/env bash\n[ "$1" = --version ] && { printf '%s\\n' '${version.replace(/\n/g, "' '")}'; exit 0; }\necho called >> '${tmp}/old-rsync-calls'\n`, { mode: 0o755 })
+      const dir = makeNight('night-20261020-2200')
+      for (const args of [[dir], [dir, '--dry-run']]) {
+        const r = run(args, { STATUS_PUBLISH_RSYNC: fakeRsync })
+        expect(r.code).not.toBe(0)
+        expect(r.stderr).toContain('brew install rsync')
+      }
+      expect(sshCalls()).toEqual([])
+      expect(fs.existsSync(path.join(tmp, 'old-rsync-calls'))).toBe(false)
+      expect(fs.existsSync(mirror)).toBe(false)
+    })
+  }
+
+  const hasBrewRsync = fs.existsSync('/opt/homebrew/bin/rsync') || fs.existsSync('/usr/local/bin/rsync')
+  it.skipIf(hasBrewRsync)('macOS 上找不到 Homebrew 的 rsync：明確報錯、不連線、鏡像不動', () => {
+    const fakeBin = path.join(tmp, 'bin')
+    fs.mkdirSync(fakeBin)
+    fs.writeFileSync(path.join(fakeBin, 'uname'), '#!/usr/bin/env bash\necho Darwin\n', { mode: 0o755 })
+    const dir = makeNight('night-20261021-2200')
+    const r = run([dir], { PATH: `${fakeBin}:${process.env.PATH ?? '/usr/bin:/bin'}` })
+    expect(r.code).not.toBe(0)
+    expect(r.stderr).toContain('/opt/homebrew/bin/rsync')
+    expect(r.stderr).toContain('brew install rsync')
+    expect(sshCalls()).toEqual([])
+    expect(fs.existsSync(mirror)).toBe(false)
   })
 
   it('rsync 失敗（連不上）：結束碼非 0', () => {
@@ -336,5 +397,7 @@ describe('ssh-config.example', () => {
     expect(m).not.toBeNull()
     expect(m![1]).toMatch(/User fjustatus/)
     expect(m![1]).toMatch(/BatchMode yes/)
+    // repo 不寫真實 VM 位址：HostName 是占位符
+    expect(m![1]).not.toMatch(/\d{1,3}(?:\.\d{1,3}){3}/)
   })
 })

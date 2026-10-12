@@ -22,7 +22,10 @@
 #   STATUS_PUBLISH_MIRROR    暫存鏡像目錄，預設 ~/.fju-status-publish
 #   STATUS_PUBLISH_OUT_ROOT  latest 從哪裡找，預設 e2e/acceptance/.out
 #   STATUS_PUBLISH_SSH       ssh 指令，預設 ssh；測試指到假 ssh
-#   STATUS_PUBLISH_RSYNC     rsync 指令，預設 rsync；macOS 內建的舊版不認 D755 這種寫法時，指到 Homebrew 的 rsync
+#   STATUS_PUBLISH_RSYNC     rsync 指令；不設時 macOS 用 Homebrew 的（/opt/homebrew/bin/rsync 或 /usr/local/bin/rsync），其他系統用 PATH 上的
+#
+# 需要 rsync 3.1 以上（認得 --chmod=D755,F644）。macOS 內建的 openrsync／rsync 2.6.9 不認，
+# 照用的話落地權限不對、status-web 讀不到，所以找不到合用的 rsync 就直接報錯（brew install rsync），不送。
 #
 # 結束碼：0＝送出（沒有 summary.json、列到的圖找不到都只警告）；1＝run 目錄或 run.json 有問題、rsync 失敗；2＝參數錯
 set -euo pipefail
@@ -32,7 +35,6 @@ HOST="${STATUS_PUBLISH_HOST:-fju-status-publish}"
 MIRROR="${STATUS_PUBLISH_MIRROR:-$HOME/.fju-status-publish}"
 OUT_ROOT="${STATUS_PUBLISH_OUT_ROOT:-$REPO_ROOT/e2e/acceptance/.out}"
 SSH="${STATUS_PUBLISH_SSH:-ssh}"
-RSYNC="${STATUS_PUBLISH_RSYNC:-rsync}"
 KEEP=5
 
 usage() {
@@ -40,6 +42,42 @@ usage() {
 }
 die() { echo "錯誤：$1" >&2; exit "${2:-1}"; }
 warn() { echo "警告：$1" >&2; }
+
+# 選 rsync：要認得數字的 --chmod（3.1 起），不然權限會照 Mac 上的 700／600 落地。
+pick_rsync() {
+  local c ver major minor
+  if [ -n "${STATUS_PUBLISH_RSYNC:-}" ]; then
+    c="$STATUS_PUBLISH_RSYNC"
+  elif [ "$(uname -s)" = Darwin ]; then
+    c=""
+    for ver in /opt/homebrew/bin/rsync /usr/local/bin/rsync; do
+      [ -x "$ver" ] && { c="$ver"; break; }
+    done
+    [ -n "$c" ] || die "找不到 Homebrew 的 rsync（/opt/homebrew/bin/rsync、/usr/local/bin/rsync）：先 brew install rsync。macOS 內建的 openrsync 不認 --chmod=D755,F644，不送"
+  else
+    c="$(command -v rsync)" || die "找不到 rsync"
+  fi
+  # 不接 | head -1：pipefail 下 rsync 被 head 提早關管子會算失敗
+  ver="$("$c" --version 2>/dev/null)" || ver=""
+  ver="${ver%%$'\n'*}"
+  [[ "$ver" =~ ^rsync[[:space:]]+version[[:space:]]+v?([0-9]+)\.([0-9]+) ]] \
+    || die "${c} 不是 rsync 3.1 以上（--version 第一行：${ver:-空}）。openrsync／rsync 2.6.9 不認 --chmod=D755,F644，先 brew install rsync"
+  major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}"
+  [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 1 ]; } \
+    || die "${c} 是 ${major}.${minor} 版，要 3.1 以上才認 --chmod=D755,F644，先 brew install rsync"
+  printf '%s\n' "$c"
+}
+
+# 截圖路徑從 run 目錄往下每一層都不能是符號連結（父目錄是連結一樣會把 run 外的檔帶進來），最後一層要是一般檔。
+regular_file_without_links() {
+  local cur="$RUN_DIR" part
+  local IFS=/
+  for part in $1; do
+    cur="$cur/$part"
+    [ ! -L "$cur" ] || return 1
+  done
+  [ -f "$cur" ]
+}
 
 TARGET=""
 DRY_RUN=0
@@ -79,12 +117,12 @@ if [ -f "$RUN_DIR/summary.json" ] && [ ! -L "$RUN_DIR/summary.json" ]; then
   if shots="$(jq -r '[.items[]?.steps[]?["截圖"][]? | strings] | unique | .[]' "$RUN_DIR/summary.json" 2>/dev/null)"; then
     while IFS= read -r shot; do
       [ -n "$shot" ] || continue
-      # 只收 <item>/screenshots/<名稱>.png|jpg|jpeg|webp；任何 . 或 .. 路徑段都不收（不能跳出 screenshots/）。
+      # 只收 <item>/screenshots/<名稱>.png|jpg|jpeg|webp；任何 .、.. 或空的路徑段都不收（不能跳出 screenshots/）。
       if ! [[ "$shot" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/screenshots/[A-Za-z0-9._/-]+\.([Pp][Nn][Gg]|[Jj][Pp][Ee]?[Gg]|[Ww][Ee][Bb][Pp])$ ]] \
-        || [[ "/$shot/" == */./* || "/$shot/" == */../* ]]; then
+        || [[ "/$shot/" == */./* || "/$shot/" == */../* || "$shot" == *//* ]]; then
         warn "summary.json 列到 ${shot}：不是 <item>/screenshots/ 底下的 png／jpg／webp，不送"
-      elif [ -L "$RUN_DIR/$shot" ] || [ ! -f "$RUN_DIR/$shot" ]; then
-        warn "summary.json 列到 ${shot}：run 目錄裡沒有這個檔（或是符號連結），不送"
+      elif ! regular_file_without_links "$shot"; then
+        warn "summary.json 列到 ${shot}：run 目錄裡沒有這個檔，或路徑上有符號連結，不送"
       else
         FILES+=("$shot")
       fi
@@ -117,6 +155,7 @@ for n in ${DROP[@]+"${DROP[@]}"}; do
   [ "$n" != "$RUN_ID" ] || warn "${RUN_ID} 比鏡像裡留的 ${KEEP} 夜都舊，送了也會馬上被擠掉"
 done
 
+RSYNC="$(pick_rsync)"   # 動鏡像、連線之前先確定 rsync 合用；不合用 die 在這裡
 SSH_CMD="$SSH -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 RSYNC_ARGS=(-rt --perms --chmod=D755,F644 --delete --timeout=120 --exclude='/.build.*' -e "$SSH_CMD" "$MIRROR/" "$HOST:")
 
