@@ -1,9 +1,10 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { useRouter } from 'next/navigation'
 import type { StatusChangeReceipt, SuccessionOption } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { disableAccountAction, restoreAccountAction, successionOptionsAction } from './actions'
+import type { DialogOpener } from './role-dialogs'
 
 /**
  * 停用／恢復一個帳號（票 9；原型 `/dashboard/admin/accounts` 的 ToggleStatusDialog）。
@@ -13,6 +14,9 @@ import { disableAccountAction, restoreAccountAction, successionOptionsAction } f
  *
  * 票 42：停用時先問伺服器「他是不是組長」。是組長就要在同一個對話框指定接任的組長
  * （產品模組 03「組長」；GRP-18：沒指定接任不能停用），停用與接任在伺服器同一筆交易完成。
+ *
+ * 第三波 AC-37：「停用」收進列上的「更多」選單（危險操作那一組），由選單項透過 `opener` 打開；
+ * 「恢復」不是危險動作，仍是列上的按鈕。
  */
 
 const BUTTON =
@@ -31,7 +35,7 @@ export type StatusTarget = {
   readonly status: 'active' | 'disabled' | 'pending'
 }
 
-export function StatusDialog({ account: a }: { account: StatusTarget }) {
+export function StatusDialog({ account: a, opener }: { account: StatusTarget; opener?: Ref<DialogOpener> }) {
   const router = useRouter()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const disabling = a.status !== 'disabled'
@@ -67,6 +71,8 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
     dialogRef.current?.showModal()
     if (disabling) void loadLeaderships()
   }
+
+  useImperativeHandle(opener, () => ({ open }))
 
   const stuck = leaderships?.filter((l) => l.candidates.length === 0) ?? []
   const ready = !disabling || (leaderships !== null && stuck.length === 0)
@@ -111,14 +117,16 @@ export function StatusDialog({ account: a }: { account: StatusTarget }) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={open}
-        className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')}
-        aria-label={`${verb} ${a.name}`}
-      >
-        {verb}
-      </button>
+      {opener ? null : (
+        <button
+          type="button"
+          onClick={open}
+          className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')}
+          aria-label={`${verb} ${a.name}`}
+        >
+          {verb}
+        </button>
+      )}
       <dialog
         ref={dialogRef}
         onClose={onClosed}

@@ -218,7 +218,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
             </ul>
           </div>
           <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
-            提醒未同意者、重置或重開新版、作廢、匯出，都在點版本號進去的版本頁。系辦不能代替任何人同意。
+            提醒未同意者、匯出在點版本號進去的版本頁；重置或重開新版、作廢在同一頁下方的「危險操作」區，按之前會寫清楚影響誰、能不能恢復。系辦不能代替任何人同意。
           </p>
         </Panel>
 
