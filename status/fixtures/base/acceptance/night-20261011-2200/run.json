@@ -1,0 +1,20 @@
+{
+  "runId": "night-20261011-2200",
+  "plan": "full",
+  "startedAt": "2026-10-11T22:00:00+08:00",
+  "finishedAt": "2026-10-12T06:00:00+08:00",
+  "commitStart": "7162644000000000000000000000000000000000",
+  "commitEnd": "7162644000000000000000000000000000000000",
+  "items": [
+    {
+      "id": "story-1",
+      "kind": "story",
+      "status": "ok",
+      "startedAt": "2026-10-11T22:00:00+08:00",
+      "finishedAt": "2026-10-11T23:00:00+08:00",
+      "exit": 0,
+      "resumed": false
+    }
+  ],
+  "passwordLeaked": false
+}
