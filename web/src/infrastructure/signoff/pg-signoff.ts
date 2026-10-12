@@ -2,7 +2,7 @@ import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { PoolClient } from 'pg'
 import { displayPersonName, statusGate, type ResolvedActor } from '@/application/accounts'
-import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
+import { cohortLabel, type BusinessClockSource, type CohortStatus } from '@/application/cohorts'
 import { renderBodyHtml, sanitizeBody } from '@/application/items'
 import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type FileStorage, type OperationLedger } from '@/application/ops'
@@ -105,7 +105,12 @@ import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value)
 
-type CohortRow = { id: string; code: string; status: CohortStatus }
+type CohortRow = { id: string; code: string; name: string; status: CohortStatus }
+
+/** 檔名用的屆別：「第43屆(115)」（括號換半形、去掉空白與斜線）。 */
+function fileCohortLabel(c: { readonly name: string; readonly code: string }): string {
+  return cohortLabel(c).replace(/（/g, '(').replace(/）/g, ')').replace(/[\s/\\]/g, '')
+}
 type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
 type PackageRow = { id: string; cohort_id: string; current_version_id: string | null }
 type StatusRow = { version_id: string; version_no: number; state: SignoffState; cause: string | null }
@@ -211,7 +216,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<CreateVersionReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
 
       // 參與者＝此刻實際有效的組員＋主指導（組別列 FOR SHARE 期間不會有人改成員）。
@@ -511,7 +516,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (role === null && actor.roles.includes('admin')) {
         return err('FORBIDDEN', '系辦不能替任何人回覆；每個人只能替自己同意。')
       }
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再回覆。`)
       const refused = checkVote({
         isCurrent: pkg.current_version_id === version.id,
@@ -603,7 +608,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: [...stillIn, participants!.advisor.userId],
             recipientBasis: { basis: 'signoff_participants_effective_at_completion', versionId: version.id },
             payload: {
-              title: `${label} 這一版站內同意書全員已同意（站內同意紀錄，不代表校方採認）`,
+              title: `${label} 這一版站內同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -706,7 +711,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RestartReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
       if (pkg.current_version_id !== version.id) return err('CONFLICT', '這一版已經不是目前的版本，請重新整理頁面。')
       if (restartKindFor(status.state) !== kind) {
@@ -870,7 +875,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<VoidReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (pkg.current_version_id !== version.id) return err('CONFLICT', '這一版已經不是目前的版本，請重新整理頁面。')
       const refused = checkVoid(status.state)
       if (refused) return refused
@@ -949,7 +954,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RemindReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (pkg.current_version_id !== version.id || !remindable(status.state)) {
         return err('CONFLICT', '這一版不在收集同意中（已完成、退回、被取代或作廢），不能提醒。')
       }
@@ -973,7 +978,11 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         recipients,
         recipientBasis: { basis: 'signoff_participants_not_voted', versionId: version.id },
         payload: {
-          title: `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`,
+          // 學生還在同意中時，同一則也發給還沒輪到的老師：標題要對兩邊都正確（Q38）；輪到老師時維持原字。
+          title:
+            status.state === 'teacher_pending'
+              ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`
+              : `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版同意書還有人沒回覆（學生全員同意後才輪到老師表態）`,
           groupId: group.id,
           code: group.code,
           purpose: pkg.purpose,
@@ -1042,6 +1051,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const participants = withPseudonyms(snapshot, pseudonyms)
       const data: SignoffExportData = {
         cohortCode: row.cohort_code,
+        cohortName: row.cohort_name,
         groupCode: row.group_code,
         purpose: row.purpose,
         versionId: row.version_id,
@@ -1065,7 +1075,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const csv = input.format === 'csv'
       const body = csv ? buildSignoffCsv(data) : buildSignoffPrintable(data)
       const exportId = uuidv7()
-      const fileName = `${row.cohort_code}-${row.group_code}-${PURPOSE_LABEL[row.purpose]}-v${row.version_no}-簽核紀錄.${csv ? 'csv' : 'html'}`
+      const fileName = `${fileCohortLabel({ name: row.cohort_name, code: row.cohort_code })}_${row.group_code}-${PURPOSE_LABEL[row.purpose]}-v${row.version_no}-簽核紀錄.${csv ? 'csv' : 'html'}`
       const mime = csv ? 'text/csv; charset=utf-8' : 'text/html; charset=utf-8'
       const stored = await this.#files.storeGenerated(tx, {
         ownerUserId: adminId,
@@ -1365,7 +1375,7 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: Coh
   const owner = await tx.query<{ cohort_id: string }>('select cohort_id from groups where id = $1', [groupId])
   const cohortId = owner.rows[0]?.cohort_id
   if (!cohortId) return null
-  const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])).rows[0]
+  const cohort = (await tx.query<CohortRow>('select id, code, name, status from cohorts where id = $1 for share', [cohortId])).rows[0]
   const group = (await tx.query<GroupRow>('select id, cohort_id, code, status from groups where id = $1 for share', [groupId])).rows[0]
   if (!cohort || !group) return null
   return { cohort, group }
@@ -1472,6 +1482,7 @@ type VersionRow = {
   group_id: string
   group_code: string
   cohort_code: string
+  cohort_name: string
   content_text: string
   content_checksum: string
   attachment_file_versions: unknown
@@ -1486,7 +1497,7 @@ type VersionRow = {
 }
 
 const VERSION_SELECT = `
-  select v.id as version_id, v.package_id, v.version_no, p.purpose, g.id as group_id, g.code as group_code, c.code as cohort_code,
+  select v.id as version_id, v.package_id, v.version_no, p.purpose, g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name,
          p.cohort_id, s.updated_at as status_updated_at,
          v.content_text, v.content_checksum, v.attachment_file_versions, v.participants, v.authorization_scope, v.supersede_cause,
          s.state, s.cause, p.current_version_id, v.created_real_at,
@@ -1578,7 +1589,7 @@ export class PgSignoffQuery implements SignoffQuery {
     if (blocked) return blocked
     if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     return this.#withClient(async (db) => {
-      const cohort = (await db.query<CohortRow>('select id, code, status from cohorts where id = $1', [cohortId])).rows[0]
+      const cohort = (await db.query<CohortRow>('select id, code, name, status from cohorts where id = $1', [cohortId])).rows[0]
       if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
       const groups = (
         await db.query<{ id: string; code: string }>(`select id, code from groups where cohort_id = $1 and status = 'active' order by code`, [
@@ -1663,7 +1674,7 @@ export class PgSignoffQuery implements SignoffQuery {
         }
       })
       return ok(
-        { cohort: { id: cohort.id, code: cohort.code, archived: cohort.status === 'archived' }, groups: rows },
+        { cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' }, groups: rows },
         { requestId: uuidv7(), serverTime: new Date().toISOString() },
       )
     })
@@ -1710,8 +1721,8 @@ export class PgSignoffQuery implements SignoffQuery {
   async teacherView(actor: ResolvedActor): Promise<readonly TeacherSignoffCard[]> {
     if (statusGate(actor, 'business') || actor.kind !== 'authenticated' || !actor.roles.includes('teacher')) return []
     return this.#withClient(async (db) => {
-      const rows = await db.query<SummaryRow & { group_id: string; group_code: string; cohort_code: string; purpose: SignoffPurpose }>(
-        `select g.id as group_id, g.code as group_code, c.code as cohort_code, p.purpose, v.id as version_id, v.version_no,
+      const rows = await db.query<SummaryRow & { group_id: string; group_code: string; cohort_code: string; cohort_name: string; purpose: SignoffPurpose }>(
+        `select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no,
                 s.state, s.cause, v.participants, v.created_real_at, s.updated_at as status_updated_at
            from advisor_assignments a
            join groups g on g.id = a.group_id and g.status = 'active'
@@ -1738,6 +1749,7 @@ export class PgSignoffQuery implements SignoffQuery {
           groupId: r.group_id,
           groupCode: r.group_code,
           cohortCode: r.cohort_code,
+          cohortName: r.cohort_name,
           purpose: r.purpose,
           current,
           mine: { isSnapshotAdvisor, voted: isSnapshotAdvisor ? current.progress.advisor.result : null },
@@ -1797,6 +1809,7 @@ async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedA
     groupId: row.group_id,
     groupCode: row.group_code,
     cohortCode: row.cohort_code,
+    cohortName: row.cohort_name,
     // 存的時候清洗過；輸出前再清一次（就算資料庫被人直接改過也一樣安全）。
     contentHtml: renderBodyHtml(row.content_text),
     contentChecksum: row.content_checksum,

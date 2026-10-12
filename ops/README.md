@@ -29,7 +29,7 @@
 
 ```bash
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 ```
 
 預期：最後一行是 `total size is …`，沒有 error。（`fju-vm` 是 `ops/ssh-config.example` 那個 SSH 別名。）
@@ -54,7 +54,7 @@ sudo bash /tmp/fju-app/ops/vm-setup.sh
 ### 4. 🖥️ 把 app 檔放到正式位置，再跑一次設定
 
 ```bash
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -537,12 +537,14 @@ ops/fault-drill-local.sh disk80 --keep   # 只跑一個、留著看畫面（http
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：
 
+（送檔清單含 `docker-compose.status.yml`、VM 那行帶 `--filter='P /ops/status/cloudflared.yml'`：開發者後台裝好之後，少列那個檔或少帶 filter，`--delete` 會把後台的 compose 或安裝時產生的 `ops/status/cloudflared.yml` 刪掉，`fju-status-update` 就起不來。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
+
 ```bash
 # 💻 Mac
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 # 🖥️ VM
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -690,7 +692,7 @@ sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
 拆分後：`fju-test-app` 只在 `fju-edge-test`、`fju-prod-app` 只在 `fju-edge-prod`，`fju-edge-caddy` 兩個都接，舊的 `fju-edge` 刪掉。
 
 **什麼時候做**：T4 合併進 main 之後、測試站驗收試跑之後（不要跟驗收「鎖版本」撞在一起）。正式站還沒部署也照做。
-**停機**：Caddy 重建兩次，兩個網址各閃斷約 5 秒；測試站 app 重建約 30–60 秒回 502。全程約 5 分鐘（B1 若碰上自動部署正在跑，最多再等 20 分鐘，這段不停機）；正式站沒部署，沒影響。
+**停機（預估）**：Caddy 重建兩次，兩個網址各閃斷約 5 秒；測試站 app 重建約 30–60 秒回 502。全程預估約 5 分鐘（B1 若碰上自動部署正在跑，最多再等 20 分鐘，這段不停機）。逾時上限：C1a 與 D 的 Caddy 重建各 `timeout 120`、C1b 的 `deploy.sh` `timeout 900`、D 的 `vm-setup.sh` `timeout 300`，加總最多約 25 分鐘後一定會停下來印結果；正式站沒部署，沒影響。
 **順序不能換**：舊網路 `fju-edge` 要等 Caddy 和測試站都搬走才刪——先刪的話 Caddy 起不來、測試站斷線。`vm-setup.sh` 只會在舊網路已經空了才刪它。
 **ssh 只連兩次**：A 的 rsync 一次、`ssh fju-vm` 一次，B1～E 都在**同一個** ssh 視窗做（`$SHA` 也要在同一個 shell 裡才記得住）（VM 30 秒內第 6 次新連線會被擋）。
 🔑＝這一框會用到 `sudo`，第一次會問你的密碼。
@@ -701,7 +703,7 @@ sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
 ```bash
 git switch main && git pull
 grep -c 'fju-edge-test' docker-compose.edge.yml   # 確認是拆分後的版本
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 ssh fju-vm
 ```
 
@@ -746,7 +748,7 @@ if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA�
 
 ```bash
 cd /srv/fju/app
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -776,7 +778,7 @@ networks:
     name: fju-edge
 EOF
 chmod 644 /tmp/fju-edge-transition.yml
-sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml -f /tmp/fju-edge-transition.yml up -d
+sudo -u deploy timeout 120 docker compose -f /srv/fju/app/docker-compose.edge.yml -f /tmp/fju-edge-transition.yml up -d
 nets=$(docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'); nets=${nets% }
 if [ "$nets" = "fju-edge fju-edge-prod fju-edge-test" ]; then echo "✓ Caddy 接了三個網路，可以做 C1b"; else echo "✗ Caddy 接的是「${nets}」——停，不要做 C1b"; fi
 ```
@@ -788,12 +790,12 @@ if [ "$nets" = "fju-edge fju-edge-prod fju-edge-test" ]; then echo "✓ Caddy �
 **C1b. 🖥️ VM 🔑：把測試站重部署到新網路（同一個版本）**
 
 ```bash
-sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$SHA" --execute
+sudo -u deploy timeout 900 /srv/fju/app/ops/deploy.sh --site test "$SHA" --execute
 ```
 
 預期：
-- `deploy.sh` 最後印 `部署完成：test ← <SHA>`（同一版，沒有新 migration；app 重建這段約 30–60 秒 502）。
-- **`deploy.sh` 失敗也照樣做 C2、C3**，不要跳去 D。
+- `deploy.sh` 最後印 `部署完成：test ← <SHA>`（同一版，沒有新 migration；app 重建這段預估 30–60 秒 502）。
+- **`deploy.sh` 失敗或 15 分鐘逾時（exit 124）也照樣做 C2、C3**，不要跳去 D。
 
 **C2. 🖥️ VM：確認測試站 app 已經搬到新網路（沒搬就直接熱換，不重建、零停機）**
 
@@ -848,21 +850,34 @@ app 已經不在 `fju-edge`，所以 Caddy 連得到它就證明是經過 `fju-e
 
 **D. 🖥️ VM 🔑：Caddy 最終版（拿掉舊網路）、刪舊網路、恢復自動部署——C3 印 `✓ 可以做 D` 才做**
 
+先重建 Caddy，**確認它只接兩個新網路、測試站對外回 200 之後**，才刪過渡設定、刪舊網路、恢復自動部署。任何一項不符：過渡設定留著、舊網路不刪、自動部署維持暫停，印出回到過渡版的指令、結束碼非 0。
+
 ```bash
 cd /srv/fju/app
-sudo -u deploy docker compose -f /srv/fju/app/docker-compose.edge.yml up -d
-docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-rm -f /tmp/fju-edge-transition.yml
-sudo bash /srv/fju/app/ops/vm-setup.sh
-sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused
-curl -s -o /dev/null -w '%{http_code}\n' https://test.fju.roy422.dev/api/health
+sudo -u deploy timeout 120 docker compose -f /srv/fju/app/docker-compose.edge.yml up -d; up_rc=$?
+nets=$(docker inspect fju-edge-caddy --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); nets=${nets% }
+code=000; for i in $(seq 1 15); do code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' https://test.fju.roy422.dev/api/health); [ "$code" = 200 ] && break; sleep 2; done
+echo "Caddy up：exit ${up_rc}；Caddy 網路：「${nets}」；對外 /api/health：${code}"
+if [ "$up_rc" = 0 ] && [ "$nets" = "fju-edge-prod fju-edge-test" ] && [ "$code" = 200 ]; then
+  rm -f /tmp/fju-edge-transition.yml \
+    && sudo timeout 300 bash /srv/fju/app/ops/vm-setup.sh \
+    && sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused \
+    && echo "✓ D 完成：Caddy 只接兩個新網路、測試站 200、舊網路已刪（看上面步驟 5）、自動部署已恢復" \
+    || { echo "✗ Caddy 已是最終版、測試站 200，但 vm-setup.sh 或恢復自動部署失敗——自動部署維持暫停。修好後重跑：sudo bash /srv/fju/app/ops/vm-setup.sh && sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused"; false; }
+else
+  echo "✗ 最終版 Caddy 沒接好或測試站不是 200——過渡設定留著、舊網路不刪、自動部署維持暫停。回到過渡版（三個網路都接）："
+  echo "  sudo -u deploy timeout 120 docker compose -f /srv/fju/app/docker-compose.edge.yml -f /tmp/fju-edge-transition.yml up -d"
+  echo "  然後把這段輸出交給工程主腦。"
+  false
+fi
 ```
 
 預期：
-- `up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷約 5 秒）；下一行印 `fju-edge-prod fju-edge-test`。
+- `up -d` 印 `Container fju-edge-caddy  Recreated`／`Started`（閃斷預估約 5 秒）；接著一行 `Caddy up：exit 0；Caddy 網路：「fju-edge-prod fju-edge-test」；對外 /api/health：200`。
 - `vm-setup.sh` 步驟 5：`→ 舊網路 fju-edge 已經沒有容器，可以刪`，接著印出 `fju-edge`（就是刪掉了）。
   如果印「還掛著：…」，代表有容器沒搬走——對那個容器照 C2 的做法熱換（網路名換成它該在的那站），再重跑 `sudo bash /srv/fju/app/ops/vm-setup.sh`。
-- `curl` 印 `200`。恢復自動部署後，下一個新映像照常部署，直接落在 `fju-edge-test`。
+- 最後一行 `✓ D 完成…`。恢復自動部署後，下一個新映像照常部署，直接落在 `fju-edge-test`。
+- 印 `✗` 就照它印的那一行回到過渡版（Caddy 三個網路都接，放過夜安全），暫停檔留著，輸出交給工程主腦。
 
 **E. 🖥️ VM：驗證兩站互相看不到（驗收 N1）**
 

@@ -6,6 +6,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { Card, EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { ReassignForm } from '@/app/dashboard/admin/grading/results-forms'
+import { describePreviewFinal } from '@/app/dashboard/admin/grading/preview-final'
 import { getGradebookQuery } from '@/composition/grading'
 
 export const metadata = { title: '移除或改派評分老師｜資管系專題平台' }
@@ -40,6 +41,7 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
 
   if (!preview.ok) return shell(<EmptyState title="現在不能改派這個指派" description={preview.message} />)
   const p = preview.receipt
+  const final = describePreviewFinal({ before: p.finalBefore, after: p.finalBefore, hasOverride: p.hasEffectiveOverride, trigger: '選「替換」或「新增」' })
 
   return shell(
     <div className="space-y-6">
@@ -60,10 +62,15 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
             <dd className="tabular-nums text-foreground">{p.averageBefore ?? '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">最終成績</dt>
+            <dt className="text-xs text-muted-foreground">{final.label}</dt>
             <dd className="tabular-nums text-foreground">{p.finalBefore ?? '尚未完成'}</dd>
           </div>
         </dl>
+        {final.note ? (
+          <p className="mt-3 text-sm text-danger" data-testid="reassign-override-note">
+            {final.note}
+          </p>
+        ) : null}
         <p className="mt-3 text-sm text-muted-foreground">
           {p.hasCounted ? `${p.teacherName} 老師已正式送出分數，請選這一筆怎麼算。` : `${p.teacherName} 老師還沒有正式分數，只能「替換」（可以只移除）。`}
           {p.hasDraft ? '他的評分草稿會作廢（保留內容與原因，只有系辦查得到），不會轉給新老師。' : ''}

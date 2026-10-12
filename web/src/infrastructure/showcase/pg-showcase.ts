@@ -2,7 +2,7 @@ import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
-import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
+import { cohortLabel, type BusinessClockSource, type CohortStatus } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type FileStorage, type OperationLedger, type UploadTicket } from '@/application/ops'
 import {
   checkShowcaseLifecycle,
@@ -82,7 +82,7 @@ import { RealClock, type Clock } from '@/shared/time'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value)
 
-type CohortRow = { id: string; code: string; status: CohortStatus }
+type CohortRow = { id: string; code: string; name: string; status: CohortStatus }
 type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
 type DraftRow = {
   entry_id: string
@@ -112,8 +112,8 @@ function draftNotFound(): Err {
   return err('VALIDATION_FAILED', '找不到這份成果展示，請重新整理頁面。')
 }
 
-function archived(code: string): Err {
-  return err('COHORT_ARCHIVED', `${code} 已封存，成果展示只能查看。`)
+function archived(cohort: { readonly name: string; readonly code: string }): Err {
+  return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，成果展示只能查看。`)
 }
 
 function entryNotFound(): Err {
@@ -172,7 +172,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<CreateDraftReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
 
       const existing = await tx.query('select 1 from showcase_entries where cohort_id = $1 and group_id = $2 and deleted_at is null', [
@@ -225,7 +225,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     const businessNow = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
-      const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [input.cohortId])).rows[0]
+      const cohort = (await tx.query<CohortRow>('select id, code, name, status from cohorts where id = $1 for share', [input.cohortId])).rows[0]
       if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。', { details: { field: 'cohortId' } })
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -267,7 +267,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
         businessAt: businessNow,
         payload: { title, cohortCode: cohort.code },
       })
-      const receipt = { entryId, cohortCode: cohort.code, title, revision: 1, requestId, serverTime: realAt.toISOString() }
+      const receipt = { entryId, cohortCode: cohort.code, cohortName: cohort.name, title, revision: 1, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { entryId } })
       return { ok: true as const, receipt }
     })
@@ -279,7 +279,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       // 不是管理員一律不能改；封存屆別的作品照實說「已封存」（設計方案 §4：封存仍擋非管理員）。不寫任何列。
       if (denied.code === 'FORBIDDEN' && isUuid(input.entryId)) {
         const cohort = await this.#entryCohort(input.entryId)
-        if (cohort?.status === 'archived') return archived(cohort.code)
+        if (cohort?.status === 'archived') return archived(cohort)
       }
       return denied
     }
@@ -732,7 +732,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     try {
       return (
         await client.query<CohortRow>(
-          'select c.id, c.code, c.status from showcase_entries e join cohorts c on c.id = e.cohort_id where e.id = $1 and e.deleted_at is null',
+          'select c.id, c.code, c.name, c.status from showcase_entries e join cohorts c on c.id = e.cohort_id where e.id = $1 and e.deleted_at is null',
           [entryId],
         )
       ).rows[0]
@@ -795,7 +795,7 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: Coh
   const owner = await tx.query<{ cohort_id: string }>('select cohort_id from groups where id = $1', [groupId])
   const cohortId = owner.rows[0]?.cohort_id
   if (!cohortId) return null
-  const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])).rows[0]
+  const cohort = (await tx.query<CohortRow>('select id, code, name, status from cohorts where id = $1 for share', [cohortId])).rows[0]
   const group = (
     await tx.query<GroupRow>('select id, cohort_id, code, status from groups where id = $1 for share', [groupId])
   ).rows[0]
@@ -805,7 +805,7 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: Coh
 
 /** 歷屆補登（沒有組別）：只鎖屆別 FOR SHARE，條目本身由呼叫端 FOR UPDATE。 */
 async function lockCohort(tx: PoolClient, cohortId: string): Promise<{ cohort: CohortRow; group: null } | null> {
-  const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])).rows[0]
+  const cohort = (await tx.query<CohortRow>('select id, code, name, status from cohorts where id = $1 for share', [cohortId])).rows[0]
   return cohort ? { cohort, group: null } : null
 }
 
@@ -815,6 +815,7 @@ type BoardDraftRow = {
   entry_id: string
   cohort_id: string
   cohort_code: string
+  cohort_name: string
   cohort_status: CohortStatus
   group_id: string | null
   group_code: string | null
@@ -862,7 +863,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
       let cohort: CohortRow | null = null
       let groups: { id: string; code: string; entry_id: string | null }[] = []
       if (filter.createCohortId !== null) {
-        cohort = (await client.query<CohortRow>('select id, code, status from cohorts where id = $1', [filter.createCohortId])).rows[0] ?? null
+        cohort = (await client.query<CohortRow>('select id, code, name, status from cohorts where id = $1', [filter.createCohortId])).rows[0] ?? null
         if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
         groups = (
           await client.query<{ id: string; code: string; entry_id: string | null }>(
@@ -875,7 +876,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
         ).rows
       }
       const drafts = await client.query<BoardDraftRow>(
-        `select e.id as entry_id, c.id as cohort_id, c.code as cohort_code, c.status as cohort_status,
+        `select e.id as entry_id, c.id as cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status,
                 g.id as group_id, g.code as group_code, g.status as group_status,
                 e.status, e.revision as entry_revision, e.award_level, e.award_label, e.home_position,
                 (d.entry_id is not null) as has_draft, v.title as published_title,
@@ -909,7 +910,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
       const serverTime = new Date().toISOString()
       return ok(
         {
-          cohort: cohort ? { id: cohort.id, code: cohort.code, archived: cohort.status === 'archived' } : null,
+          cohort: cohort ? { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' } : null,
           groups: groups.map((g) => ({ id: g.id, code: g.code, entryId: g.entry_id })),
           drafts: drafts.rows.map(toDraftView),
         },
@@ -926,6 +927,7 @@ function toDraftView(r: BoardDraftRow): ShowcaseDraftView {
     entryId: r.entry_id,
     cohortId: r.cohort_id,
     cohortCode: r.cohort_code,
+    cohortName: r.cohort_name,
     cohortArchived: r.cohort_status === 'archived',
     groupId: r.group_id,
     groupCode: r.group_code,

@@ -191,7 +191,7 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
   const tabs = page.getByRole('navigation', { name: '名單分類' })
   await expect(tabs.getByRole('link', { name: /目前名單\s*2/ })).toBeVisible()
   await expect(tabs.getByRole('link', { name: /免繳\s*1/ })).toBeVisible()
-  await expect(tabs.getByRole('link', { name: /已移出名單\s*1/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /已不需要繳交（原名單移除）\s*1/ })).toBeVisible()
   await expect(page.getByTestId('completion-rate')).toHaveText('0／2')
 
   const current = page.getByTestId('roster-current')
@@ -204,7 +204,7 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
   await tabs.getByRole('link', { name: /免繳/ }).click()
   await expect(page.getByTestId('roster-exempt')).toContainText(exempted.name)
   await expect(page.getByTestId('roster-exempt')).toContainText('休學中')
-  await tabs.getByRole('link', { name: /已移出/ }).click()
+  await tabs.getByRole('link', { name: /已不需要繳交（原名單移除）/ }).click()
   await expect(page.getByTestId('roster-removed')).toContainText(removed.name)
   await expect(page.getByTestId('roster-removed')).toContainText('轉到別屆')
   // 分母不因切換分頁改變。

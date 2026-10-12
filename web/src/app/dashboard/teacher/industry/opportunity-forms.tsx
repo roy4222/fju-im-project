@@ -270,7 +270,8 @@ export function LinkedGroupsCell({
   requestId,
   reasonMaxLength,
 }: {
-  links: readonly { linkId: string; groupCode: string; cohortCode: string }[]
+  /** `cohortLabel`：屆別顯示名稱「名稱（代碼）」，由伺服器端算好。 */
+  links: readonly { linkId: string; groupCode: string; cohortLabel: string }[]
   opportunityName: string
   requestId: string
   reasonMaxLength: number
@@ -292,7 +293,7 @@ export function LinkedGroupsCell({
           {links.map((l) => (
             <li key={l.linkId} className="flex flex-wrap items-center gap-2">
               <span className="tabular truncate font-semibold text-foreground">
-                {l.cohortCode}・{l.groupCode}
+                {l.cohortLabel}・{l.groupCode}
               </span>
               <button
                 type="button"

@@ -124,7 +124,7 @@ async function openDetail(page: Page) {
 /** 老師的評分工作台：從佇列點「<屆別>・<階段>」的組別。 */
 async function openBench(page: Page, stage: string) {
   await page.goto('/dashboard/teacher/grading')
-  const queue = page.getByRole('list', { name: '評分佇列' })
+  const queue = page.getByRole('list', { name: '待評分清單' })
   await queue.getByRole('link', { name: new RegExp(`${stage}[\\s\\S]*${group}`) }).click()
   const bench = page.getByRole('region', { name: `${group}「${stage}」評分表` })
   await expect(bench).toBeVisible()
@@ -421,7 +421,7 @@ test('x4:20 GRD-13「保留已完成評分」移除乙：份數 2／2、平均 8
   await shot(admin, 'keep-unchanged')
   const tb = teacher['乙']!
   await tb.goto('/dashboard/teacher/grading')
-  await expect(tb.getByRole('list', { name: '評分佇列' }).getByRole('link', { name: new RegExp(`系統驗收[\\s\\S]*${group}`) })).toHaveCount(0)
+  await expect(tb.getByRole('list', { name: '待評分清單' }).getByRole('link', { name: new RegExp(`系統驗收[\\s\\S]*${group}`) })).toHaveCount(0)
   // 票 43 之後：被移出的老師會收到移出通知（清單寫「目前沒有」是舊的）；照實記下。
   await tb.goto('/dashboard/teacher/inbox')
   const removed = await tb.getByTestId('inbox-item').filter({ hasText: '被移出' }).count()
@@ -495,7 +495,7 @@ test('x4:24 GRD-15 復核：沿用原更正值 88.00', async () => {
 test('x4:25 GRD-09 方案已鎖定：建 v2（50／50）看影響後取消，不重算', async () => {
   await openGrading(admin)
   await expect(admin.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
-  await expect(admin.getByRole('main')).toContainText('結構已鎖定')
+  await expect(admin.getByRole('main')).toContainText('評分項目與權重不能再改')
   await admin.getByRole('button', { name: '建立新版評分規則' }).click()
   const dialog = admin.getByRole('dialog', { name: '建立新版評分規則' })
   await dialog.getByLabel('占總成績 %').nth(0).fill('50')
@@ -503,12 +503,12 @@ test('x4:25 GRD-09 方案已鎖定：建 v2（50／50）看影響後取消，不
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(admin.getByRole('status').filter({ hasText: '已建立評分規則第 2 版（草稿）' })).toBeVisible()
   await admin.getByRole('button', { name: /^版本紀錄/ }).click()
-  await admin.getByRole('link', { name: '看影響並套用第 2 版' }).click()
+  await admin.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' }).click()
   await expect(admin.getByRole('heading', { name: '套用新版評分規則' })).toBeVisible()
   await expect(admin.getByRole('main')).toContainText('第 1 版 → 第 2 版的影響')
   const row = admin.getByTestId(`apply-row-${group}`)
   await expect(row).toContainText('→')
-  await expect(row).toContainText('更正會變成需要重新確認')
+  await expect(row).toContainText('套用後更正要重新確認')
   console.log(`x4:25 影響列：${(await row.innerText()).replace(/\s+/g, ' ')}`)
   await shot(admin, 'apply-v2-preview')
   await admin.getByRole('link', { name: '取消（不重算）' }).click()

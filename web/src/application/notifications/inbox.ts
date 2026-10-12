@@ -47,6 +47,7 @@ export type InboxItem = {
   readonly scope: 'cohort' | 'global'
   readonly cohortId: string | null
   readonly cohortCode: string | null
+  readonly cohortName: string | null
   readonly createdAt: Date
   readonly readAt: Date | null
   readonly source: NotificationSourceState
@@ -99,7 +100,16 @@ export type InboxPage = {
 }
 
 /** 篩選下拉的選項：本人通知裡出現過的屆別（含已封存的舊屆，不能只顯示最新一屆）。 */
-export type InboxCohortOption = { readonly cohortId: string; readonly code: string }
+export type InboxCohortOption = { readonly cohortId: string; readonly code: string; readonly name: string }
+
+/**
+ * 通知匣上一則通知的屆別：「第 43 屆（115）」；全站通知寫「全站」（驗收第 2 章 P-01，不能只寫代碼）。
+ * 寫法同 cohorts 模組的 `cohortLabel`（跨模組在執行期不能直接呼叫）。
+ */
+export function inboxCohortText(item: { readonly cohortCode: string | null; readonly cohortName: string | null }): string {
+  if (item.cohortCode === null) return '全站'
+  return item.cohortName ? `${item.cohortName}（${item.cohortCode}）` : item.cohortCode
+}
 
 export type MarkReadReceipt = { readonly changed: number }
 

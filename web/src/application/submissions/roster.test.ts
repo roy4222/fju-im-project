@@ -80,7 +80,7 @@ describe('完成率＝已正式送出／應交數', () => {
 })
 
 describe('學生首頁待繳數與名單頁同一個口徑', () => {
-  it('待繳＝還在開放、沒送出、不是免填；尚未開放與逾期不算待繳', () => {
+  it('待繳＝還沒送出、不是免填（含逾期未繳與開放補交中）；尚未開放不算', () => {
     const later = { opensAt: new Date('2026-12-01T00:00:00Z'), dueAt: new Date('2026-12-31T15:59:00Z') }
     const rows = [
       { ...window, ...waiting },
@@ -90,7 +90,8 @@ describe('學生首頁待繳數與名單頁同一個口徑', () => {
       { ...later, ...waiting },
     ]
     expect(pendingCount(rows, before)).toBe(2)
-    expect(pendingCount(rows, after)).toBe(0)
+    // 驗收第 2 章 P-08：逾期未繳仍要學生處理（找系辦補交），首頁不能說「沒有待繳」。
+    expect(pendingCount(rows, after)).toBe(2)
     // 名單頁每一列的狀態也是同一個函式算的。
     expect(receiverStatus(window, waiting, before)).toMatchObject({ headline: '未繳', pending: true })
     expect(receiverStatus(window, waiting, after)).toMatchObject({ headline: '逾期未繳', overdue: true })
@@ -110,7 +111,8 @@ describe('個別補交（W10）：只有拿到補交期限的那一位變回可�
     })
     expect(receiverStatus(window, reopened, new Date('2026-11-17T09:01:00Z'))).toMatchObject({ headline: '逾期未繳', overdue: true })
     expect(receiverStatus(window, { ...waiting, reopenUntil: null }, after)).toMatchObject({ headline: '逾期未繳' })
-    expect(pendingCount([{ ...window, ...reopened }, { ...window, ...waiting }], after)).toBe(1)
+    expect(pendingCount([{ ...window, ...reopened }, { ...window, ...waiting }], after)).toBe(2)
+    expect(pendingCount([{ ...window, ...submitted }, { ...window, ...entry({ exempt: true }) }], after)).toBe(0)
     // 還沒截止時有補交期限也不影響（狀態跟沒有期限一樣）。
     expect(receiverStatus(window, reopened, before)).toEqual(receiverStatus(window, waiting, before))
   })
