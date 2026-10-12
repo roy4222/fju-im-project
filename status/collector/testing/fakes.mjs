@@ -26,26 +26,34 @@ export async function startServer(routes) {
   return { base: `http://127.0.0.1:${port}`, seen, close: () => new Promise((r) => server.close(r)) }
 }
 
-export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, extraPr = {} } = {}) {
-  const runs = [
-    { id: 11, path: '.github/workflows/ci.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/11' },
-    { id: 10, path: '.github/workflows/ci.yml', head_sha: 'b'.repeat(40), status: 'completed', conclusion: 'failure', html_url: 'https://github.com/x/runs/10' },
-    { id: 12, path: '.github/workflows/image.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/12' },
+/**
+ * 假 GitHub API。imageRuns 可換掉（測「push 失敗→手動重推成功」）；ciUrl 可塞怪字串（測遮蔽）。
+ * 帶 event=push 查 image.yml 時只回 push 的 run（模擬真的 API），所以程式誤加過濾就看不到手動重推。
+ */
+export function githubRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, extraPr = {}, imageRuns, ciUrl } = {}) {
+  const ciRuns = [
+    { id: 11, head_sha: sha, event: 'push', status: 'completed', conclusion: 'success', html_url: ciUrl ?? 'https://github.com/x/runs/11', created_at: '2026-10-12T09:00:00Z' },
+    { id: 10, head_sha: 'b'.repeat(40), event: 'push', status: 'completed', conclusion: 'failure', html_url: 'https://github.com/x/runs/10', created_at: '2026-10-11T09:00:00Z' },
   ]
-  const cron = { id: 9, path: '.github/workflows/health-cron.yml', head_sha: sha, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/9', updated_at: '2026-10-12T10:00:00Z' }
+  const images = imageRuns ?? [
+    { id: 12, head_sha: sha, event: 'push', status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/12', created_at: '2026-10-12T09:00:00Z' },
+  ]
+  const cron = { id: 9, status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/9', updated_at: '2026-10-12T10:00:00Z' }
+  const api = `GET /api/repos/${repo}`
   return {
-    [`GET /api/repos/${repo}/commits/main`]: () => ({ body: { sha } }),
-    // 真的 GitHub 不帶 event=push 時，schedule 的 health-cron run 會把清單塞滿；假上游照樣模擬，沒濾就拿不到 CI。
-    [`GET /api/repos/${repo}/actions/runs`]: (req, url) => ({
-      body: { workflow_runs: url.searchParams.get('event') === 'push' ? runs : Array(100).fill(cron) },
-    }),
-    [`GET /api/repos/${repo}/actions/workflows/health-cron.yml/runs`]: (req, url) => ({
+    [`${api}/commits/main`]: () => ({ body: { sha } }),
+    [`${api}/actions/workflows/ci.yml/runs`]: () => ({ body: { workflow_runs: ciRuns } }),
+    [`${api}/actions/workflows/image.yml/runs`]: (req, url) => {
+      const ev = url.searchParams.get('event')
+      return { body: { workflow_runs: ev ? images.filter((r) => r.event === ev) : images } }
+    },
+    [`${api}/actions/workflows/health-cron.yml/runs`]: (req, url) => ({
       body: { workflow_runs: url.searchParams.get('status') === 'completed' ? [cron] : [] },
     }),
-    [`GET /api/repos/${repo}/actions/runs/11/jobs`]: () => ({
+    [`${api}/actions/runs/11/jobs`]: () => ({
       body: { jobs: [{ name: 'lint', conclusion: 'success' }, { name: 'e2e-smoke', conclusion: 'success' }] },
     }),
-    [`GET /api/repos/${repo}/pulls`]: () => ({
+    [`${api}/pulls`]: () => ({
       body: [
         { number: 347, state: 'closed', merged_at: '2026-10-11T00:00:00Z', head: { ref: 'claude/p1-t14' }, html_url: 'https://github.com/x/pull/347', updated_at: '2026-10-11T00:00:00Z', ...extraPr },
         { number: 348, state: 'open', merged_at: null, head: { ref: 'claude/s3' }, html_url: 'https://github.com/x/pull/348', updated_at: '2026-10-12T00:00:00Z' },

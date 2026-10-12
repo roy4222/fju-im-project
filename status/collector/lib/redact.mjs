@@ -12,6 +12,10 @@ const TOKENS = [
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ]
+// 帶帳密的連線字串：scheme://帳號:密碼@主機（postgres://、redis://、https://… 都算）。
+const URI_CREDENTIALS = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@"'<>]*:[^\s/@"'<>]+@/
+// 物件的鍵名像秘密（JSON 的 "password": "…" 中間隔著引號，上面的 PW 抓不到，所以另外看鍵）。
+const SENSITIVE_KEY = /(?:^|[-_])(?:pass|passwd|pwd)$|password|secret|token|api[-_]?key|private[-_]?key|credential|authorization|cookie/i
 const PW = /((?:密碼|password|passwd|pwd|token|secret)\s*[:：=]\s*)([^\s`|，。、）)]{6,})/gi
 const PW_OK = /^(?:\$\{?[A-Z_]+\}?|\[已遮蔽\]|已遮蔽|沒有|不記錄.*|由.*|\*+)$/
 const IPV4 = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])/
@@ -29,6 +33,7 @@ export function findLeaks(text) {
   const hits = []
   if (EMAIL.test(text)) hits.push('Email')
   if (TOKENS.some((p) => p.test(text))) hits.push('token')
+  if (URI_CREDENTIALS.test(text)) hits.push('連線字串')
   for (const m of text.matchAll(PW)) {
     if (!PW_OK.test(m[2])) {
       hits.push('密碼')
@@ -36,6 +41,22 @@ export function findLeaks(text) {
     }
   }
   if (IPV4.test(text) || IPV6.test(text)) hits.push('IP')
+  return hits
+}
+
+/** 走過整個物件：鍵名像秘密、而且值是非空字串或數字（不是佔位字樣）就算命中，回傳命中的鍵名路徑。 */
+export function findSensitiveKeys(value, at = '') {
+  const hits = []
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => hits.push(...findSensitiveKeys(v, `${at}[${i}]`)))
+  } else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      const where = at ? `${at}.${k}` : k
+      const filled = (typeof v === 'string' && v !== '' && !PW_OK.test(v)) || typeof v === 'number'
+      if (SENSITIVE_KEY.test(k) && filled) hits.push(where)
+      else hits.push(...findSensitiveKeys(v, where))
+    }
+  }
   return hits
 }
 

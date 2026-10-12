@@ -44,6 +44,19 @@ function run(args, options) {
   })
 }
 
+const apiCount = () => server.seen.filter((s) => s.startsWith('GET /api/')).length
+
+/** 連跑 n 輪（每輪隔 10 分鐘，最後一輪在 end），回傳每輪打了幾次 GitHub API。 */
+async function rounds(cfg, n, end = NOW) {
+  const calls = []
+  for (let i = n - 1; i >= 0; i--) {
+    const before = apiCount()
+    await runOnce(cfg, new Date(end.getTime() - i * 600e3))
+    calls.push(apiCount() - before)
+  }
+  return calls
+}
+
 const read = (rel) => JSON.parse(fs.readFileSync(path.join(vm.dataDir, rel), 'utf8'))
 const allOutput = () =>
   fs
@@ -64,7 +77,10 @@ afterEach(async () => {
 describe('AC-S-8 一輪收集的輸出', () => {
   it('寫出五個檔與 repo/ 四檔，形狀符合設計方案 §3.3，每檔有 generatedAt', async () => {
     const cfg = await start()
-    const status = await runOnce(cfg, NOW)
+    // GitHub 的輪替項目要兩輪才全部抓過一次（每輪最多 4 次 API）
+    const calls = await rounds(cfg, 2)
+    expect(calls).toEqual([4, 4])
+    const status = read('collector.json')
 
     expect(Object.values(status.sources).every((s) => s.ok)).toBe(true)
     for (const f of ['github.json', 'health.json', 'vm.json', 'acceptance-index.json', 'collector.json']) {
@@ -89,6 +105,14 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(gh.image).toMatchObject({ runId: 12, conclusion: 'success', jobs: [] })
     // health-cron 另外查最近一個「已完成」的 run
     expect(gh.healthCron).toEqual({ conclusion: 'success', url: 'https://github.com/x/runs/9', at: '2026-10-12T10:00:00Z' })
+    // 第一輪抓的 image 沿用到第二輪，fetchedAt 保留第一輪的時間
+    expect(gh.fetchedAt).toEqual({
+      mainSha: NOW.toISOString(),
+      ci: NOW.toISOString(),
+      image: new Date(NOW.getTime() - 600e3).toISOString(),
+      healthCron: NOW.toISOString(),
+      prs: NOW.toISOString(),
+    })
     expect(gh.prs[0]).toEqual({
       number: 347,
       state: 'closed',
@@ -97,8 +121,6 @@ describe('AC-S-8 一輪收集的輸出', () => {
       url: 'https://github.com/x/pull/347',
       updatedAt: '2026-10-11T00:00:00Z',
     })
-    // 每輪 5 次 GitHub API（每小時 30 次，低於 60）
-    expect(server.seen.filter((s) => s.startsWith('GET /api/'))).toHaveLength(5)
 
     for (const name of ['tickets.json', 'test-map.json', 'go-live-waivers.json', 'go-live-policy.json']) {
       const f = read(`repo/${name}`)
@@ -151,6 +173,34 @@ describe('AC-S-8 一輪收集的輸出', () => {
     )
   })
 
+  it('GitHub API 每輪 ≤ 4 次、每小時（6 輪）≤ 24 次；每個項目最多隔兩輪就更新一次', async () => {
+    const cfg = await start()
+    const calls = await rounds(cfg, 12)
+    for (const c of calls) expect(c).toBeLessThanOrEqual(4)
+    for (let i = 0; i + 6 <= calls.length; i++) {
+      expect(calls.slice(i, i + 6).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(24)
+    }
+    const { fetchedAt } = read('github.json')
+    for (const key of ['image', 'healthCron', 'prs']) {
+      expect(NOW.getTime() - Date.parse(fetchedAt[key])).toBeLessThanOrEqual(600e3)
+    }
+    // ci 的 jobs 只在第一次看到這個 run 時抓
+    expect(server.seen.filter((s) => s.endsWith('/actions/runs/11/jobs'))).toHaveLength(1)
+  })
+
+  it('映像 push 失敗、之後手動重推（workflow_dispatch）成功：顯示最新那次的成功', async () => {
+    const cfg = await start(
+      githubRoutes({
+        imageRuns: [
+          { id: 20, head_sha: MAIN_SHA, event: 'push', status: 'completed', conclusion: 'failure', html_url: 'https://github.com/x/runs/20', created_at: '2026-10-12T09:00:00Z' },
+          { id: 21, head_sha: MAIN_SHA, event: 'workflow_dispatch', status: 'completed', conclusion: 'success', html_url: 'https://github.com/x/runs/21', created_at: '2026-10-12T09:30:00Z' },
+        ],
+      }),
+    )
+    await runOnce(cfg, NOW)
+    expect(read('github.json').image).toMatchObject({ runId: 21, conclusion: 'success' })
+  })
+
   it('go-live-policy.json 在 raw 回 404：四檔都不更新、collector.json 記錯誤', async () => {
     let cfg = await start()
     await runOnce(cfg, NOW)
@@ -197,7 +247,7 @@ describe('AC-S-9 遮蔽：命中就整檔不寫', () => {
       'test/deploy/deploy_log',
       fs.readFileSync(path.join(vm.fju, 'test/deploy/deploy_log'), 'utf8') + '2026-10-09T01:00:00Z\tdeployed\tsomeone@example.com\tfull\tsha256:x\tunchanged\n',
     )
-    cfg = await start({ ...githubRoutes({ extraPr: { head: { ref: 'dp.st.prd.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' } } }) })
+    cfg = await start({ ...githubRoutes({ ciUrl: 'https://github.com/x/runs/11?dp.st.prd.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) })
     const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
 
     expect(status.sources.vm).toMatchObject({ ok: false })
@@ -214,6 +264,42 @@ describe('AC-S-9 遮蔽：命中就整檔不寫', () => {
     expect(out).not.toContain('dp.st.')
     // 錯誤訊息只說類別，不帶命中的字串
     expect(read('collector.json').sources.vm.error).not.toContain('example.com')
+  })
+})
+
+describe('AC-S-9 帳密連線字串與敏感欄位', () => {
+  it('deploy_log 的 tag 欄混入 postgres://帳號:密碼@…：vm.json 不寫、保留上一版、來源記失敗', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const before = fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')
+    await server.close()
+    vm.write(
+      'prod/deploy/deploy_log',
+      '2026-10-09T01:00:00Z\tdeployed\tpostgres://fju_app:FAKEPASS123@fju-prod-postgres:5432/fju\tfull\tsha256:x\tunchanged\n',
+    )
+    cfg = await start()
+    const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
+    expect(status.sources.vm.ok).toBe(false)
+    expect(status.sources.vm.error).toContain('連線字串')
+    expect(fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')).toBe(before)
+    expect(allOutput()).not.toContain('FAKEPASS123')
+  })
+
+  it('envcheck 檔被塞了 JSON 的 "password" 欄位：vm.json 不寫、保留上一版、錯誤不帶值', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const before = fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')
+    await server.close()
+    vm.write(
+      'status/envcheck/prod.json',
+      JSON.stringify({ site: 'prod', checkedAt: NOW.toISOString(), missing: [], forbiddenPresent: [], flags: {}, debug: { password: 'FAKEPASS456' } }),
+    )
+    cfg = await start()
+    const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
+    expect(status.sources.vm.ok).toBe(false)
+    expect(status.sources.vm.error).toContain('敏感欄位')
+    expect(fs.readFileSync(path.join(vm.dataDir, 'vm.json'), 'utf8')).toBe(before)
+    expect(allOutput()).not.toContain('FAKEPASS456')
   })
 })
 

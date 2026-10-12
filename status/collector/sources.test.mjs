@@ -1,7 +1,7 @@
 // 各來源的純函式：遮蔽規則、/api/health 判定、Access 守門判定、deploy_log 與備份紀錄解析。
 import { describe, expect, it } from 'vitest'
 import { judgeAccessGuard, judgeHealthBody, lastResults, siteHealth } from './lib/health.mjs'
-import { findLeaks, scrubIp } from './lib/redact.mjs'
+import { findLeaks, findSensitiveKeys, scrubIp } from './lib/redact.mjs'
 import { lastBackupRecord, parseDeployLog } from './lib/vm.mjs'
 
 describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
@@ -14,6 +14,8 @@ describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
     ['連到 10.0.0.12:5432', 'IP'],
     ['dial tcp [2a01:4f8:c17:1a2b::1]:443', 'IP'],
     ['2001:0db8:0000:0000:0000:ff00:0042:8329', 'IP'],
+    ['postgres://fju_app:hunter2@db:5432/fju', '連線字串'],
+    ['redis://:pw@cache:6379', '連線字串'],
   ])('%s → %s', (text, kind) => {
     expect(findLeaks(text)).toContain(kind)
   })
@@ -21,6 +23,21 @@ describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
   it('正常內容不誤判：digest、版本號、佔位密碼', () => {
     expect(findLeaks('ghcr.io/roy4222/fju-web@sha256:abc 16.3.8 token: ${DOPPLER_TOKEN} 2026-10-12T10:00:00Z')).toEqual([])
     expect(findLeaks('2026-10-12T22:00:00+0800 10:00:00.123Z [STATUS] (502) == 200 sha256:deadbeef')).toEqual([])
+  })
+
+  it('敏感鍵名：有值才算；鍵名清單（字串值）、佔位、空字串、布林不算', () => {
+    expect(findSensitiveKeys({ a: { password: 'x1' }, b: [{ DB_PASSWORD: 'y' }], c: { apiKey: 123 } })).toEqual([
+      'a.password',
+      'b[0].DB_PASSWORD',
+      'c.apiKey',
+    ])
+    expect(
+      findSensitiveKeys({ missing: ['E2E_ADMIN_PASSWORD'], token: '${DOPPLER_TOKEN}', secret: '', hasToken: false, bypass: 'x' }),
+    ).toEqual([])
+  })
+
+  it('一般網址與 host:port 不算連線字串', () => {
+    expect(findLeaks('http://example.com:8080/a https://github.com/x/runs/1')).toEqual([])
   })
 
   it('scrubIp 把 IPv4 換掉', () => {

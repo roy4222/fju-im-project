@@ -71,8 +71,10 @@ export async function runOnce(cfg, now = new Date()) {
 
   // 1. GitHub
   let mainSha = null
+  // 上一版同時是快取：這輪沒輪到的項目沿用它（lib/github.mjs）。
+  const prevGithub = readJson(path.join(cfg.dataDir, 'github.json')).value
   try {
-    const gh = await fetchGithub(cfg)
+    const gh = await fetchGithub(cfg, prevGithub, now)
     mainSha = gh.mainSha
     writeJsonChecked(cfg.dataDir, 'github.json', { generatedAt: at, ...gh })
     ok('github')
@@ -80,10 +82,9 @@ export async function runOnce(cfg, now = new Date()) {
     fail('github', err)
     // 抓不到：保留上一版內容並標 fetchError；連資料都有洩漏疑慮的（LeakError）就完全不動。
     if (!err?.kinds) {
-      const prev = readJson(path.join(cfg.dataDir, 'github.json')).value
       const base =
-        prev && typeof prev === 'object' && !Array.isArray(prev)
-          ? prev
+        prevGithub && typeof prevGithub === 'object' && !Array.isArray(prevGithub)
+          ? prevGithub
           : { generatedAt: at, mainSha: null, ci: null, image: null, healthCron: null, prs: [] }
       try {
         writeJsonChecked(cfg.dataDir, 'github.json', { ...base, fetchError: message(err), fetchErrorAt: at })

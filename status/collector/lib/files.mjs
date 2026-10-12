@@ -1,7 +1,7 @@
 // 讀寫 JSON 的小工具。寫入一律「先寫暫存檔再改名」，status-web 不會讀到寫一半的檔。
 import fs from 'node:fs'
 import path from 'node:path'
-import { findLeaks } from './redact.mjs'
+import { findLeaks, findSensitiveKeys } from './redact.mjs'
 
 export class LeakError extends Error {
   constructor(file, kinds) {
@@ -26,10 +26,11 @@ export function readJson(file) {
   }
 }
 
-/** 先整份過遮蔽檢查再寫；命中就丟 LeakError，什麼都不寫。 */
+/** 先整份過遮蔽檢查（字串規則＋敏感鍵名）再寫；命中就丟 LeakError，什麼都不寫。錯誤只說類別，不帶鍵名或值。 */
 export function serializeChecked(name, value) {
   const text = JSON.stringify(value, null, 2) + '\n'
   const leaks = findLeaks(text)
+  if (findSensitiveKeys(value).length > 0) leaks.push('敏感欄位')
   if (leaks.length > 0) throw new LeakError(name, leaks)
   return text
 }
