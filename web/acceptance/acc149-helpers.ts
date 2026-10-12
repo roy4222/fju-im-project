@@ -145,7 +145,9 @@ export async function fillStages(admin: Page, code: string, offsets: [number, nu
 
 export async function activateCohort(admin: Page, code: string) {
   await admin.goto('/dashboard/admin/cohorts')
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${code} 轉為進行中` }).click()
+  await admin.getByRole('dialog', { name: `把 ${code} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expectStatus(admin, `已把 ${code} 轉為進行中`)
   await expect(cohortRow(admin, code)).toContainText('進行中')
 }
@@ -339,8 +341,17 @@ export async function retire(admin: Page, name: string): Promise<RetireOutcome> 
     await searchAccounts(admin, name)
     const row = accountRow(admin, name)
     if ((await row.count()) !== 1) return '沒收掉'
-    const disable = row.getByRole('button', { name: `停用 ${name}`, exact: true })
-    if ((await disable.count()) === 0) return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+    const more = row.getByRole('button', { name: `更多 ${name}`, exact: true })
+    const disable = admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${name}`, exact: true })
+    if ((await more.count()) > 0) {
+      await more.click()
+      await expect(admin.getByRole('menu')).toBeVisible()
+    }
+    if ((await more.count()) === 0 || (await disable.count()) === 0) {
+      if ((await more.count()) > 0) await admin.keyboard.press('Escape')
+      return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    }
     await disable.click()
     const dialog = admin.getByRole('dialog', { name: `停用 ${name}` })
     await expect(dialog).toBeVisible()

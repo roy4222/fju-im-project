@@ -264,7 +264,7 @@ export default async function AdminGradingPage({
               label={`版本紀錄（${versions.length}）`}
               icon={<IconHistory aria-hidden />}
               title="評分方案版本"
-              description="每一版的狀態與建立時間；草稿在這裡發布，方案鎖定後的新版本要先看影響再套用。"
+              description="每一版的狀態與建立時間；草稿在這裡發布。方案鎖定後的新版本按「看影響並套用」只會先列出哪些組的成績會變、不會馬上重算；真正套用在下一頁底部的「危險操作」區，套用後不能退回舊版。"
               openParam="versions"
               defaultOpen={dialogParam === 'versions'}
               size="xl"

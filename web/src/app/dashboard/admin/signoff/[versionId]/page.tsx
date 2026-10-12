@@ -1,13 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { IconAlertTriangle } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { VersionView } from '@/app/dashboard/_signoff/version-view'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { RemindButton, RestartButton, VoidButton } from '@/app/dashboard/admin/signoff/manage-forms'
+import { type DangerFacts, RemindButton, RestartButton, VoidButton } from '@/app/dashboard/admin/signoff/manage-forms'
 import type { VersionDetail } from '@/application/signoff'
-import { getSignoffQuery, MAX_REASON_CHARS, nextRemindAt, RESTART_LABEL, restartKindFor, VOTE_RESULT_LABEL } from '@/composition/signoff'
+import {
+  getSignoffQuery,
+  MAX_REASON_CHARS,
+  nextRemindAt,
+  PURPOSE_LABEL,
+  RESTART_LABEL,
+  restartKindFor,
+  VOTE_RESULT_LABEL,
+} from '@/composition/signoff'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '簽核版本｜資管系專題平台' }
@@ -33,23 +42,44 @@ function affectedVotes(v: VersionDetail): string[] {
   return [...p.students, p.advisor].filter((x) => x.result !== null).map((x) => `${x.displayName}（${VOTE_RESULT_LABEL[x.result!]}）`)
 }
 
+/** 確認視窗的對象：哪一組、哪一份、第幾版。 */
+function targetOf(v: VersionDetail): string {
+  return `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」v${v.versionNo}`
+}
+
+function restartFacts(v: VersionDetail, affected: readonly string[]): DangerFacts {
+  return {
+    target: targetOf(v),
+    // 新版的參與者按下時才依「目前」的組員與主指導重算，不能用這一版的快照人數（組員可能已經異動）。
+    scope: `${v.groupCode} 目前有效的組員與主指導（按下時重新計算），每個人都要重新同意。`,
+    effect:
+      `建立 v${v.versionNo + 1}（全文、附件、授權範圍與 v${v.versionNo} 相同），參與者依此刻的組員與主指導重新計算，每個人都要重新同意；` +
+      `v${v.versionNo} 與它的表態留作歷史、不計入新版${affected.length > 0 ? `，下面 ${affected.length} 份簽署失效` : ''}。參與學生會收到「輪到你同意」。`,
+    undo: `不能復原：新版建立後就是目前版本，v${v.versionNo} 的同意不會再算數。`,
+  }
+}
+
+function voidFacts(v: VersionDetail): DangerFacts {
+  return {
+    target: targetOf(v),
+    scope: `只有 v${v.versionNo} 這一版：它的參與者之後都不能再對它表態；不會另建新版。`,
+    effect:
+      v.state === 'complete'
+        ? '這份已完成的同意等於撤回；之後誰都不能再對這一版表態。'
+        : '之後誰都不能再對這一版表態；已經表態的留作歷史、不算數。',
+    undo: '作廢不能取消。要重新簽核請按「重開新版」，全組再同意一次。',
+  }
+}
+
 function Manage({ v }: { v: VersionDetail }) {
   const kind = restartKindFor(v.state)
+  const affected = v.state === 'complete' || v.state === 'superseded' || v.state === 'void' ? [] : affectedVotes(v)
   return (
     <section aria-label="系辦管理" className="space-y-4 rounded-lg border border-border p-4" data-testid="signoff-manage">
       <h3 className="text-sm font-semibold text-foreground">系辦管理</h3>
       {v.isCurrent ? (
         <div className="flex flex-wrap items-start gap-4">
           <RemindButton versionId={v.versionId} requestId={randomUUID()} blockedReason={remindBlocked(v, new Date())} />
-          <RestartButton
-            versionId={v.versionId}
-            requestId={randomUUID()}
-            kind={kind}
-            label={RESTART_LABEL[kind]}
-            affected={v.state === 'complete' || v.state === 'superseded' || v.state === 'void' ? [] : affectedVotes(v)}
-            reasonMaxLength={MAX_REASON_CHARS}
-          />
-          {v.state !== 'void' ? <VoidButton versionId={v.versionId} requestId={randomUUID()} reasonMaxLength={MAX_REASON_CHARS} /> : null}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">這不是目前的版本，只能查看與匯出；要處理請到目前那一版。</p>
@@ -79,6 +109,39 @@ function Manage({ v }: { v: VersionDetail }) {
           <p className="text-xs text-muted-foreground">還沒有匯出過。每次匯出都會留一筆紀錄。</p>
         )}
       </div>
+
+      {/* 危險操作（第三波 §9 規則 1、AC-37）：重置／重開、作廢跟日常的提醒、匯出拉開；確認視窗寫對象、範圍、後果、能不能恢復。 */}
+      {v.isCurrent ? (
+        <section aria-labelledby="signoff-danger" className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <h4 id="signoff-danger" className="flex items-center gap-1.5 text-sm font-bold text-destructive">
+            <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
+          </h4>
+          <ul className="space-y-1 text-sm text-muted-foreground">
+            <li>
+              <span className="font-semibold text-foreground">{RESTART_LABEL[kind]}</span>：用同樣內容建新版，全組每個人都要重新同意；這一版的表態不再算數。
+            </li>
+            {v.state !== 'void' ? (
+              <li>
+                <span className="font-semibold text-foreground">作廢</span>：這一版之後誰都不能再表態，不能取消；要再簽核得重開新版。
+              </li>
+            ) : null}
+          </ul>
+          <div className="flex flex-wrap items-start gap-4">
+            <RestartButton
+              versionId={v.versionId}
+              requestId={randomUUID()}
+              kind={kind}
+              label={RESTART_LABEL[kind]}
+              affected={affected}
+              facts={restartFacts(v, affected)}
+              reasonMaxLength={MAX_REASON_CHARS}
+            />
+            {v.state !== 'void' ? (
+              <VoidButton versionId={v.versionId} requestId={randomUUID()} facts={voidFacts(v)} reasonMaxLength={MAX_REASON_CHARS} />
+            ) : null}
+          </div>
+        </section>
+      ) : null}
     </section>
   )
 }
