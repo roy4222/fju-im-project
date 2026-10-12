@@ -109,9 +109,11 @@ if command -v gitleaks >/dev/null 2>&1; then
   set +e
   if gitleaks git --help >/dev/null 2>&1; then
     gitleaks git --no-banner --redact --exit-code 0 --config "$GITLEAKS_CONFIG" --log-opts="$SHA" \
+      --gitleaks-ignore-path "$REPO/.gitleaksignore" \
       --report-format json --report-path "$OUT/gitleaks.json" "$REPO" 2> "$OUT/gitleaks.stderr.txt"
   else
     gitleaks detect --no-banner --redact --exit-code 0 --config "$GITLEAKS_CONFIG" --log-opts="$SHA" --source "$REPO" \
+      --gitleaks-ignore-path "$REPO/.gitleaksignore" \
       --report-format json --report-path "$OUT/gitleaks.json" 2> "$OUT/gitleaks.stderr.txt"
   fi
   rc=$?
