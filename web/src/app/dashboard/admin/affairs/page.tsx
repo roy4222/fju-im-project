@@ -26,6 +26,7 @@ const FILTERS = [
   { key: 'resource', label: '資源' },
   { key: 'submission', label: '文件繳交' },
   { key: 'rules', label: '專題規則' },
+  { key: 'honor', label: '榮譽' },
 ] as const
 
 /**
@@ -34,6 +35,10 @@ const FILTERS = [
  * 公告、資源、文件繳交全部從這裡建立：日常用「新增項目」三步驟，要細調欄位、附件、封面再進完整編輯器
  * （同一個項目 ID）。編輯器不另放側欄入口（產品模組 04「單一入口」）。
  * 撤回、下架、重新發布在完整編輯器的頂列（票 16）；收件進度與名單頁在票 18。
+ *
+ * 榮譽是跨屆的公開紀錄（第三波 W1／W1b）：選「榮譽」篩選時，屆別選單連已封存的屆別也列出來，
+ * 系辦才點得到歷屆（例如示範資料 DEMO-113、DEMO-112）的榮譽並進編輯器；頁首多一顆「新增榮譽」，帶目前選的屆別。
+ * 封存屆別只能動榮譽，所以那時不放「新增項目」與一般的完整編輯器入口。
  */
 export default async function AffairsPage({
   searchParams,
@@ -43,9 +48,16 @@ export default async function AffairsPage({
   await requireRole('/dashboard/admin/affairs', 'admin')
 
   const params = await searchParams
-  const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
-  const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
   const filter = FILTERS.find((f) => f.key === params.placement)?.key ?? 'all'
+  const honorView = filter === 'honor'
+  const allCohorts = await getCohortStatusQuery().list()
+  const cohorts = honorView ? allCohorts : allCohorts.filter((c) => c.status !== 'archived')
+  const cohort =
+    cohorts.find((c) => c.id === params.cohort) ??
+    cohorts.find((c) => c.isDefaultWorking) ??
+    cohorts.find((c) => c.status !== 'archived') ??
+    cohorts[0] ??
+    null
 
   const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
@@ -73,6 +85,8 @@ export default async function AffairsPage({
     getBusinessClock().now(),
   ])
   const shown = rows.filter((r) => filter === 'all' || r.placement === filter)
+  // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
+  const archived = cohort.status === 'archived'
   const published = rows.filter((r) => r.status === 'published').length
   const collecting = rows.filter((r) => collectsResponses(r.placement) && r.status === 'published').length
   const query = (patch: Record<string, string>) => {
@@ -106,8 +120,9 @@ export default async function AffairsPage({
               href: `/dashboard/admin/affairs/${r.id}`,
             }
         : null,
-      // 前台頁面：發布中的公告才有自己的內容頁（資源、規則是整頁列表）。
-      publicHref: r.placement === 'news' && r.status === 'published' ? `/news/${r.id}` : null,
+      // 前台頁面：發布中的公告才有自己的內容頁（資源、規則是整頁列表）；發布中的榮譽連到前台榮譽榜。
+      publicHref:
+        r.status !== 'published' ? null : r.placement === 'news' ? `/news/${r.id}` : r.placement === 'honor' ? '/honors' : null,
       editHref: `/dashboard/admin/editor/${r.id}`,
     }
   })
@@ -120,27 +135,53 @@ export default async function AffairsPage({
           {cohorts.map((c) => (
             <Link
               key={c.id}
-              href={`/dashboard/admin/affairs?cohort=${c.id}`}
+              // 榮譽篩選下換屆別仍停在榮譽（才看得到封存屆別）；其他篩選照舊回到全部。
+              href={honorView ? query({ cohort: c.id }) : `/dashboard/admin/affairs?cohort=${c.id}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
               {c.code}
+              {c.status === 'archived' ? <span className="ml-1 text-xs font-normal opacity-80">（已封存）</span> : null}
             </Link>
           ))}
         </nav>
+      ) : null}
+      {honorView ? (
+        <p className="text-sm text-muted-foreground" data-testid="honor-list-hint">
+          榮譽是跨屆的公開紀錄：上方屆別含已封存的屆別，選那一屆就看得到歷屆榮譽，可以編輯、下架、重新發布或刪除。發布中的會出現在前台
+          <Link href="/honors" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
+            「榮譽榜」
+          </Link>
+          。
+        </p>
       ) : null}
 
       <AffairsList
         rows={list}
         filters={FILTERS.map((f) => ({ key: f.key, label: f.label, href: query({ placement: f.key }), active: filter === f.key }))}
-        emptyText={filter === 'all' ? '這一屆還沒有任何專題事務。按「新增項目」建立第一筆。' : '這個種類還沒有項目。'}
+        emptyText={
+          filter === 'all'
+            ? '這一屆還沒有任何專題事務。按「新增項目」建立第一筆。'
+            : honorView
+              ? '這一屆還沒有榮譽。按「新增榮譽」建立第一則。'
+              : '這個種類還沒有項目。'
+        }
       />
     </>,
     <>
-      <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
-        用完整編輯器建立
-      </LinkButton>
-      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
+      {honorView ? (
+        <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}&placement=honor`} variant={archived ? 'primary' : 'secondary'}>
+          新增榮譽
+        </LinkButton>
+      ) : null}
+      {archived ? null : (
+        <>
+          <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
+            用完整編輯器建立
+          </LinkButton>
+          <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
+        </>
+      )}
     </>,
   )
 }
