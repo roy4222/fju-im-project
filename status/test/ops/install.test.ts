@@ -18,6 +18,10 @@ import path from 'node:path'
 const repoRoot = path.join(import.meta.dirname, '..', '..', '..')
 const INSTALL = path.join(repoRoot, 'ops', 'status-install.sh')
 const PREPARE = path.join(repoRoot, 'ops', 'status-prepare.sh')
+// main 上 S-4 的真產生器（JSON 寫法的 YAML）；整個假 VM 流程與檢查器整合測試都用它的真輸出。
+const RENDER = path.join(repoRoot, 'ops', 'status-render-cloudflared.sh')
+const TUNNEL_ID = '11111111-1111-1111-1111-111111111111'
+const VERIFY_TUNNEL_ID = '22222222-2222-2222-2222-222222222222'
 const TEAM = 'royteam.cloudflareaccess.com'
 const AUD = 'a1b2c3d4'.repeat(8)
 const PUBKEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyOnlyForTests0123456789abcdefghij fju-status-publish'
@@ -295,6 +299,31 @@ describe('第 10 步第二段：cloudflared 設定的 access 區塊檢查（AC-S
     expect(r.code).toBe(0)
   })
 
+  it('整合：實際呼叫 main 上 S-4 的產生器（JSON 寫法的 YAML）→ 同一個檢查器通過；--no-access 的不通過；鍵寫兩次判失敗', () => {
+    const out = path.join(dir, 'rendered.yml')
+    const r0 = spawnSync('bash', [RENDER, '--team', TEAM, '--aud', AUD, '--tunnel-id', TUNNEL_ID, '--out', out], { encoding: 'utf8' })
+    expect(r0.status).toBe(0)
+    const body = fs.readFileSync(out, 'utf8')
+    expect(body.trimStart().startsWith('{')).toBe(true)
+    const ok = check(out)
+    expect(ok.out).toContain('每條 ingress 都有 originRequest.access')
+    expect(ok.code).toBe(0)
+
+    const open = path.join(dir, 'rendered-open.yml')
+    expect(spawnSync('bash', [RENDER, '--team', TEAM, '--aud', AUD, '--tunnel-id', TUNNEL_ID, '--out', open, '--no-access'], { encoding: 'utf8' }).status).toBe(0)
+    const bad = check(open)
+    expect(bad.code).not.toBe(0)
+    for (const h of HOSTS) expect(bad.out).toContain(`✗ ${h}：`)
+
+    const dup = check(writeConfig('rendered-dup.yml', body.replace('"required": true', '"required": true, "required": false')))
+    expect(dup.code).not.toBe(0)
+    expect(dup.out).toContain('同一個鍵寫了兩次')
+
+    const wrongAud = check(writeConfig('rendered-aud.yml', body.replaceAll(AUD, 'f'.repeat(64))))
+    expect(wrongAud.code).not.toBe(0)
+    expect(wrongAud.out).toContain('audTag 不是恰好這一個 AUD')
+  })
+
   it('空檔或不存在：判失敗', () => {
     expect(check(path.join(dir, 'nope.yml')).code).not.toBe(0)
     expect(check(writeConfig('empty.yml', '')).code).not.toBe(0)
@@ -348,12 +377,34 @@ S=$FAKE_STATE
 echo "docker $*" >> "$CALLS_LOG"
 drop() { grep -vx "$2" "$S/$1" > "$S/$1.tmp" || true; mv "$S/$1.tmp" "$S/$1"; }
 case "$1" in
-  compose|stats|pull|stop|exec)
+  compose|stats|pull|exec)
     [ "$1" = exec ] && echo fjudb
+    exit 0 ;;
+  stop)
+    # FAKE_STOP_FAIL=1：docker stop 一律失敗。
+    [ "@{FAKE_STOP_FAIL:-0}" = 1 ] && exit 1
     exit 0 ;;
   ps)
     if [ "$2" = -a ]; then cat "$S/containers"; exit 0; fi
     svc=$(printf '%s\n' "$@" | sed -n 's/^label=com.docker.compose.service=//p')
+    if [ "$svc" = cloudflared ]; then
+      # FAKE_PS_FAIL=1：列舉一律失敗（docker 回非 0、沒輸出）。
+      [ "@{FAKE_PS_FAIL:-0}" = 1 ] && exit 1
+      # FAKE_PS_SLOW=1：模擬真 Docker CLI（Go）：就算繼承了忽略，收到 INT／TERM 還是會中斷（signal.NotifyContext）。
+      # 列舉時留 ps-running 給測試看、等測試放 ps-go 才印容器 id；中途被訊號殺掉就回非 0。
+      if [ "@{FAKE_PS_SLOW:-0}" = 1 ]; then
+        exec python3 - "$S" "cid-$svc" <<'PY'
+import os, signal, sys, time
+s, cid = sys.argv[1], sys.argv[2]
+for sg in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(sg, signal.SIG_DFL)
+open(os.path.join(s, "ps-running"), "w").close()
+while not os.path.exists(os.path.join(s, "ps-go")):
+    time.sleep(0.05)
+print(cid)
+PY
+      fi
+    fi
     echo "cid-$svc"; exit 0 ;;
   inspect)
     case "$*" in *State.Running*) echo true ;; *State.Health*) echo healthy ;; esac
@@ -390,7 +441,7 @@ case "$1" in
               *:/cf/.cloudflared) login=@{2%:/cf/.cloudflared} ;;
               *:/etc/cloudflared/config.yml:ro) cfg=@{2%:/etc/cloudflared/config.yml:ro} ;;
             esac; shift ;;
-        --network|--memory|--user|-e|--pull) shift ;;
+        --network|--network-alias|--memory|--user|-e|--pull) shift ;;
         *) break ;;
       esac
       shift
@@ -403,7 +454,7 @@ case "$1" in
       cloudflare/*)
         [ "$1" = tunnel ] && shift
         if [ "$detach" = 1 ]; then
-          if grep -q 'access:' "$cfg"; then echo locked > "$S/cf_mode"; else echo open > "$S/cf_mode"; fi
+          if grep -q '"access"\|access:' "$cfg"; then echo locked > "$S/cf_mode"; else echo open > "$S/cf_mode"; fi
           exit 0
         fi
         sub=$1; shift
@@ -434,7 +485,8 @@ case "$1" in
             if [ -f "$S/tunnel-$n" ]; then printf '[{"id":"id-%s","name":"%s"}]' "$n" "$n"; else echo '[]'; fi ;;
           create|token)
             touch "$S/tunnel-$last"
-            printf '{"TunnelID":"id-%s"}' "$last" > "$login/$(basename "$cred")" ;;
+            case "$last" in fju-status) tid=@{FAKE_TUNNEL_ID} ;; *) tid=@{FAKE_VERIFY_TUNNEL_ID} ;; esac
+            printf '{"TunnelID":"%s"}' "$tid" > "$login/$(basename "$cred")" ;;
           delete) rm -f "$S/tunnel-$last" ;;
         esac
         exit 0 ;;
@@ -481,22 +533,12 @@ const FAKE_SIMPLE: Record<string, string> = {
   sleep: `#!/bin/sh\nexit 0\n`,
 }
 
-// 假產生器：照 STATUS_HOSTS 產四條 ingress；FAKE_RENDER_BAD=1 時故意不帶 access（壞設定）。
+// 產生器：直接包 main 上 S-4 的真產生器（整個流程用的就是真輸出，JSON 寫法的 YAML）。
+// FAKE_RENDER_BAD=1：加 --no-access（壞設定，第 7 步要擋下、關門）。
 const FAKE_RENDER = bash(String.raw`#!/bin/bash
-while [ $# -gt 0 ]; do case "$1" in --team) t=$2; shift ;; --aud) a=$2; shift ;; --tunnel-id) id=$2; shift ;; --out) o=$2; shift ;; esac; shift; done
-{
-  echo "tunnel: $id"
-  echo "credentials-file: /etc/cloudflared/tunnel.json"
-  echo "ingress:"
-  for h in $STATUS_HOSTS; do
-    echo "  - hostname: $h"
-    echo "    service: http://status-web:3000"
-    if [ "@{FAKE_RENDER_BAD:-0}" != 1 ]; then
-      printf '    originRequest:\n      access:\n        required: true\n        teamName: %s\n        audTag:\n          - %s\n' "$t" "$a"
-    fi
-  done
-  echo "  - service: http_status:404"
-} > "$o"
+extra=""
+[ "@{FAKE_RENDER_BAD:-0}" = 1 ] && extra="--no-access"
+exec bash "$FAKE_REAL_RENDER" "$@" $extra
 `)
 
 // 假 status-up.sh：記下呼叫；FAKE_UP_FAIL=1 時，beszel-agent.env 已有金鑰的那次（第 11 步重起 agent）回 42。
@@ -534,7 +576,10 @@ async function makeVm(): Promise<Vm> {
   }
   put('os-release', 'ID=ubuntu\nVERSION_ID="24.04"\n')
   put('rrsync', '#!/bin/sh\n', 0o755)
-  put('mounted/config.yml', goodConfigFor(TEAM.replace('.cloudflareaccess.com', '')))
+  // 第 10 步 docker cp 取出的「實際掛載」設定：用真產生器產（main 的 S-4）。
+  mk('mounted')
+  const rendered = spawnSync('bash', [RENDER, '--team', TEAM, '--aud', AUD, '--tunnel-id', TUNNEL_ID, '--out', path.join(w, 'mounted', 'config.yml')], { encoding: 'utf8' })
+  if (rendered.status !== 0) throw new Error(`產生器失敗：${rendered.stdout}${rendered.stderr}`)
   put('state/hubkey', 'fake private key\n')
   for (const f of ['containers', 'networks', 'logins']) put(`state/${f}`, '')
   put('state/counter', '0\n')
@@ -562,16 +607,13 @@ async function closeVm(vm: Vm) {
   fs.rmSync(vm.w, { recursive: true, force: true })
 }
 
-function goodConfigFor(team: string) {
-  return goodConfig().replaceAll('teamName: royteam', `teamName: ${team}`)
-}
-
 type Run = { code: number | null; signal: NodeJS.Signals | null; out: string }
 
 // 起安裝腳本（非 dry-run、假 VM）。回傳子程序給「離開路徑」測試關管線、送訊號；done 在它結束後才解決。
-function spawnInstall(vm: Vm, env: Record<string, string> = {}) {
+function spawnInstall(vm: Vm, env: Record<string, string> = {}, opts: { detached?: boolean } = {}) {
   const w = vm.w
   const child = spawn('bash', [INSTALL, ...installArgs('--mem-available-override', '8000', '--offsite-dir', path.join(w, 'offsite'))], {
+      detached: opts.detached ?? false,
       env: {
         NODE_ENV: 'test',
         PATH: `${path.join(w, 'bin')}:${process.env.PATH}`,
@@ -581,6 +623,9 @@ function spawnInstall(vm: Vm, env: Record<string, string> = {}) {
         FAKE_STATE: vm.state,
         FAKE_TEAM: TEAM,
         FAKE_MOUNTED: path.join(w, 'mounted', 'config.yml'),
+        FAKE_REAL_RENDER: RENDER,
+        FAKE_TUNNEL_ID: TUNNEL_ID,
+        FAKE_VERIFY_TUNNEL_ID: VERIFY_TUNNEL_ID,
         FJU_STATUS_APP_DIR: path.join(w, 'app'),
         FJU_STATUS_ROOT: vm.root,
         FJU_STATUS_UNIT_DIR: path.join(w, 'units'),
@@ -619,7 +664,7 @@ const logins = (vm: Vm) => fs.readFileSync(path.join(vm.state, 'logins'), 'utf8'
 // 已經裝好過一次的機器：有 tunnel.json、第 7b 步的通過紀錄（同 team／AUD／版本／網址），重跑不用再登入。
 function markInstalled(vm: Vm) {
   fs.mkdirSync(path.join(vm.root, 'secrets'), { recursive: true })
-  fs.writeFileSync(path.join(vm.root, 'secrets', 'tunnel.json'), '{"TunnelID":"id-fju-status"}')
+  fs.writeFileSync(path.join(vm.root, 'secrets', 'tunnel.json'), `{"TunnelID":"${TUNNEL_ID}"}`)
   fs.mkdirSync(path.join(vm.root, '.install'), { recursive: true })
   fs.writeFileSync(marker(vm), `team=${TEAM}\naud=${AUD}\ncloudflared=${CF_IMAGE}\nhosts=${HOSTS.join(' ')}\nat=2026-10-12T00:00:00Z\n`)
   fs.writeFileSync(path.join(vm.state, 'tunnel-fju-status'), '')
@@ -838,5 +883,41 @@ describe('離開路徑都要關門：停 cloudflared 容器、停用 update time
     expect(r.signal).toBeNull()
     expect(r.code).toBe(1)
     expect(exitLog()).toContain('已停掉 cloudflared')
+  }, 30_000)
+
+  it.each(['SIGINT', 'SIGTERM'] as const)('守門失敗、關門途中對整個程序群組送 %s（終端按 Ctrl-C 就是這樣）→ 容器列舉在別的 session、不被打斷，cloudflared 照樣停', async (sig) => {
+    markInstalled(vm)
+    const { child, done } = spawnInstall(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev', FAKE_PS_SLOW: '1' }, { detached: true })
+    await waitFor(() => fs.existsSync(path.join(vm.state, 'ps-running')), '關門時的容器列舉開始')
+    if (!child.pid) throw new Error('沒有 pid')
+    process.kill(-child.pid, sig)
+    fs.writeFileSync(path.join(vm.state, 'ps-go'), '')
+    const r = await done
+    expectDoorClosed()
+    expect(r.signal).toBeNull()
+    expect(r.code).toBe(1)
+    expect(exitLog()).toContain('已停掉 cloudflared')
+    expect(exitLog()).not.toContain('沒有全部成功')
+  }, 30_000)
+
+  it('守門失敗、容器列舉一直失敗（docker ps 回非 0）→ 不當成空清單：重試三次後改用名稱 fju-status-cloudflared-1 直接 stop，log 說明', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev', FAKE_PS_FAIL: '1' })
+    const c = vmCalls(vm)
+    expect(c.filter((x) => x === 'docker ps -q --filter label=com.docker.compose.project=fju-status --filter label=com.docker.compose.service=cloudflared')).toHaveLength(3)
+    expect(c).toContain('docker stop fju-status-cloudflared-1')
+    expect(c).toContain('systemctl disable --now fju-status-update.timer')
+    expect(c).toContain('systemctl stop fju-status-update.service')
+    expect(r.code).toBe(1)
+    expect(exitLog()).toContain('列舉三次都失敗')
+  }, 30_000)
+
+  it('守門失敗、列舉與名稱 stop 都失敗 → 不設關門旗標：印清楚要手動做什麼、結束碼非 0', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev', FAKE_PS_FAIL: '1', FAKE_STOP_FAIL: '1' })
+    expect(r.code).not.toBe(0)
+    expect(exitLog()).toContain('關門沒有全部成功')
+    expect(exitLog()).toContain('docker stop')
+    expect(exitLog()).not.toContain('已停掉 cloudflared')
   }, 30_000)
 })

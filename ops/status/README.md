@@ -54,7 +54,7 @@
 | 4 | 重置腳本含 `seed-demo`（S-7 合併後）才 `install` 到 `/usr/local/sbin/`，印兩支 sha256 跟 Mac 比對；不含就印「跳過」 | — |
 | 5 | `secrets/pghero.env`（`FJU_MONITOR_PASSWORD`＝`openssl rand -hex 24`、`DATABASE_URL` 指 `fju-test-postgres`）；以 deploy 跑 `status-up.sh --ensure-db-role-only` 建 `fju_monitor` | 測試站 postgres 不在：✗，之後由每 10 分鐘的 timer 補 |
 | 6 | `secrets/status.env`（team、AUD、`STATUS_HOSTS`）；先放空的 `beszel-agent.env` | — |
-| 1 之後、10 之前任何一種結束 | 不論是哪一步失敗、`set -e` 直接中止、Ctrl-C、ssh 斷線、輸出管線斷掉（例如 `\| tee` 死掉）、等授權時被終止，都**先關門**：停所有 cloudflared 容器、停用 `fju-status-update.timer`、停掉 `fju-status-update.service`；接著砍掉還在等授權的 `fju-status-login` 容器、清 7b 暫時資源、刪 `cert.pem`。關門動作本身不印到畫面；關門途中再按 Ctrl-C、再斷線也不會中斷（訊號已忽略，`docker stop` 等子程序一起忽略），三個動作都做完才算關好。原因與結束碼寫進 `/srv/fju/status/.install/exit.log`（畫面已經不在時看這裡） | — |
+| 1 之後、10 之前任何一種結束 | 不論是哪一步失敗、`set -e` 直接中止、Ctrl-C、ssh 斷線、輸出管線斷掉（例如 `\| tee` 死掉）、等授權時被終止，都**先關門**：停所有 cloudflared 容器、停用 `fju-status-update.timer`、停掉 `fju-status-update.service`；接著砍掉還在等授權的 `fju-status-login` 容器、清 7b 暫時資源、刪 `cert.pem`。關門動作本身不印到畫面；關門途中再按 Ctrl-C、再斷線也不會中斷（本 shell 忽略訊號，`systemctl`／`docker` 子程序用 `setsid` 放到別的 session，終端或整個程序群組的 INT／TERM 都打不到）。容器列舉失敗不會當成「沒有容器」：重試三次，還是不行就用預設容器名 `fju-status-cloudflared-1` 直接 stop；timer 停用、service 停止、容器 stop 三項都確認成功才算關好，任一項失敗會印出要手動做的指令、結束碼非 0。原因與結束碼寫進 `/srv/fju/status/.install/exit.log`（畫面已經不在時看這裡） | — |
 | 7 | cloudflared 容器（版本取自 compose 檔）：`tunnel login` → 建／沿用隧道 `fju-status` → 四個網址 `route dns` → `secrets/tunnel.json` → 跑 `status-render-cloudflared.sh` 產 `ops/status/cloudflared.yml` → 用第 10 步同一個檢查核對 | 停 |
 | 7b | 暫時隧道 `fju-status-verify`＋暫時網址 `fju-status-verify.roy422.dev`（不在任何 Access 應用程式裡）＋計數假 origin（`fju-status` 映像 `node verify-origin.mjs`）。有鎖：`/probe` 三次都 403、`/count` 兩次都 0；拿掉 `access` 重起：`/count` 兩次都 3。最後刪暫時容器、網路、隧道、DNS，再刪 `cert.pem`。要重做 7b 時（沒有 `tunnel.json`、或 team／AUD／cloudflared 版本變了）**先刪掉舊的通過紀錄**，兩輪驗證與四類清理全部通過才原子地寫新的；中途任何失敗（含沒清乾淨）都不會留下紀錄，下次重跑會重新登入、再做一次 7b | 停、結束碼 1；暫時資源與 `cert.pem` 照樣清掉 |
 | 8 | `fju-status-{update,envcheck}.{service,timer}` 裝到 `/etc/systemd/system`；`enable --now` envcheck timer。**update timer 等第 10 步守門通過才啟用**（它每 10 分鐘 `up -d`，守門沒過時不能把 cloudflared 再起來） | 停 |
@@ -79,10 +79,10 @@
 
 ## 已知限制（上線前要知道）
 
-- **第 7b 步的設定不是由 S-4 產生器產的**：產生器的參數還沒定（S-4 未合併），所以 7b 的暫時設定由安裝腳本自己寫（同 team、同 AUD、同樣的 `originRequest.access` 形狀），再用第 10 步同一個檢查核對「有鎖那份過、拿掉 access 那份不過」。真設定的 `access` 區塊由第 7 步與第 10 步第二段用同一個檢查核對。S-4 合併後可改成用產生器產 7b 的設定。
+- **第 7b 步的兩份暫時設定由 S-4 的產生器產**（同一份產生器、同一種 JSON 寫法）：第一個網址是暫時網址 `fju-status-verify.roy422.dev`，後三個只是占位（沒有 DNS、不在任何 Access 應用程式裡）；產生器第一條 ingress 固定轉到 `http://status-web:3000`，所以假 origin 在暫時網路裡掛 `status-web` 別名、聽 3000。拿掉鎖那份用產生器的 `--no-access`。
 - **刪暫時網址的 DNS 記錄**用 `cert.pem` 裡 cloudflared 登入時拿到的 zone token 呼叫 Cloudflare DNS API（cloudflared 沒有刪 DNS 的子命令）。這把 token 能不能 `GET`／`DELETE` DNS 記錄還沒在真帳號上試過；不能的話 7b 會在清理時停下、不寫通過紀錄，並印出要到 Cloudflare 網頁手動刪的記錄名（`fju-status-verify.roy422.dev`）；重跑會重新做 7b，清理一樣會失敗。所以第一次真裝前，先用真帳號確認這把 token 能刪 DNS；不能的話要改用別的方式刪（需要另開票）。
 - **`kill -9` 或整台當機擋不住**（任何 trap 都不會跑）：門不會自動關。重跑同一行會先停自動更新、刪掉殘留的 `cert.pem`，再從頭核對；要重做 7b 時舊的通過紀錄會先被刪掉。
-- **檢查器是為 cloudflared 設定寫的小解析器**，不是完整 YAML：錨點、多文件、鍵名帶「.」、tab 縮排、同一個鍵寫兩次都一律判失敗（寧可擋下）。產生器請產單純的區塊樣式 YAML。
+- **檢查器**：產生器的輸出是 JSON 寫法的 YAML，先用 python3 的 json 真的解析（鍵重複、鍵名帶「.」一樣判失敗）；不是 JSON 才退回自寫的區塊樣式 YAML 小解析器（錨點、多文件、tab 縮排、同一個鍵寫兩次都判失敗，寧可擋下）。
 
 ## 跟其他票的介面（整合時核對）
 

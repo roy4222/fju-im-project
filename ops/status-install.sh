@@ -68,7 +68,12 @@ VERIFY_HOST=fju-status-verify.roy422.dev
 VERIFY_NET=fju-status-verify
 VERIFY_ORIGIN=fju-status-verify-origin
 VERIFY_CF=fju-status-verify-cloudflared
-VERIFY_PORT=8080
+# 7b 的設定由 S-4 產生器產（跟真後台同一份產生器、同一種 JSON 寫法）：它第一條 ingress 固定轉到
+# http://status-web:3000，所以假 origin 在暫時網路裡掛 status-web 這個別名、聽 3000。
+VERIFY_ALIAS=status-web
+VERIFY_PORT=3000
+# 產生器要剛好四個網址：第一個是暫時網址，後三個只是占位（沒有 DNS、不會被打到、也不在任何 Access 應用程式裡）。
+VERIFY_HOSTS_PAD="fju-status-verify-2.roy422.dev fju-status-verify-3.roy422.dev fju-status-verify-4.roy422.dev"
 CURL_IMAGE=curlimages/curl:8.16.0
 # 映像版本以 compose 檔為準（S-4 固定版本）；讀不到才用這兩個。
 CLOUDFLARED_IMAGE_FALLBACK=cloudflare/cloudflared:2025.9.1
@@ -205,17 +210,54 @@ ERR_AT=""
 on_err() { # <行號>
   ERR_AT="${RUN_CMD:-$BASH_COMMAND}（第 ${1} 行，步驟 ${CUR_STEP}）"
 }
+# 關門用的子程序放到新的 session／程序群組：終端的 Ctrl-C、對整個程序群組送的 INT／TERM 都打不到它。
+# 本 shell 的 trap '' 子程序雖會繼承，但 Go 寫的 docker CLI 只尊重繼承的 INT／HUP 忽略，TERM 照樣中斷，
+# 而且它自己 signal.NotifyContext 後連 INT 也會中斷列舉——所以要隔離，不能只靠忽略。
+# 沒有 setsid（util-linux，Ubuntu 一定有）才退回子 shell 忽略後 exec。
+# shellcheck disable=SC2329  # 由 close_door（on_exit）呼叫
+isolated() {
+  if command -v setsid >/dev/null 2>&1; then setsid -w "$@"; else ( trap '' INT HUP TERM PIPE; exec "$@" ); fi
+}
+# compose 沒設 container_name：預設名是 <project>-<service>-<序號>。列舉一直失敗時改用名稱直接 stop。
+CLOUDFLARED_FALLBACK_NAME=fju-status-cloudflared-1
+DOOR_FAILED=""
 # shellcheck disable=SC2329  # 由 on_exit 呼叫
 close_door() {
-  local cid
+  local cids="" cid i ok_list=0
   [ "$DOOR_CLOSED" = 0 ] || return 0
-  systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
-  systemctl stop fju-status-update.service >/dev/null 2>&1 || true
-  for cid in $(svc_cids cloudflared 2>/dev/null || true); do docker stop "$cid" >/dev/null 2>&1 || true; done
-  # 三個動作都做完才算關好；提前設會讓中途被打斷後再進來的那次直接跳過剩下的動作（漏停 cloudflared 卻印已關門）。
-  DOOR_CLOSED=1
+  DOOR_FAILED=""
+  # ① 停用自動更新 timer（含正在等的那次），確認「沒啟用、沒在跑」；unit 還沒裝（第 8 步之前）也算成功。
+  isolated systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
+  if isolated systemctl is-enabled --quiet fju-status-update.timer >/dev/null 2>&1 \
+    || isolated systemctl is-active --quiet fju-status-update.timer >/dev/null 2>&1; then
+    DOOR_FAILED="${DOOR_FAILED} fju-status-update.timer（停用失敗）"
+  fi
+  # ② 停掉正在跑的那一輪 update
+  isolated systemctl stop fju-status-update.service >/dev/null 2>&1 || true
+  if isolated systemctl is-active --quiet fju-status-update.service >/dev/null 2>&1; then
+    DOOR_FAILED="${DOOR_FAILED} fju-status-update.service（停止失敗）"
+  fi
+  # ③ 停所有 fju-status 的 cloudflared 容器。列舉失敗（docker 回非 0）不能當成「沒有容器」：重試三次，
+  #    還是列不出來就改用名稱直接 stop；每個 stop 都要成功。
+  for i in 1 2 3; do
+    if cids=$(isolated docker ps -q --filter label=com.docker.compose.project=fju-status \
+      --filter label=com.docker.compose.service=cloudflared 2>/dev/null); then ok_list=1; break; fi
+    [ "$i" = 3 ] || sleep 1
+  done
+  if [ "$ok_list" = 1 ]; then
+    for cid in $cids; do
+      isolated docker stop "$cid" >/dev/null 2>&1 || DOOR_FAILED="${DOOR_FAILED} cloudflared 容器 ${cid}（stop 失敗）"
+    done
+  else
+    DOOR_FAILED_LIST=1
+    isolated docker stop "$CLOUDFLARED_FALLBACK_NAME" >/dev/null 2>&1 \
+      || DOOR_FAILED="${DOOR_FAILED} cloudflared 容器（列舉三次都失敗，改用名稱 ${CLOUDFLARED_FALLBACK_NAME} stop 也失敗）"
+  fi
+  # 三項都確認成功才算關好；提前設會讓中途再進來的那次直接跳過剩下的動作（漏停 cloudflared 卻印已關門）。
+  [ -n "$DOOR_FAILED" ] || DOOR_CLOSED=1
   return 0
 }
+DOOR_FAILED_LIST=0
 
 # ---------------------------------------------------------------------------
 # cloudflared 設定檔核對（第 7b 步與第 10 步第二段共用）
@@ -302,10 +344,55 @@ yaml_flatten() {
 # 都有 originRequest.access.required: true、teamName＝team 名稱、audTag 恰好一個且等於 AUD。
 # 看不懂的寫法（鍵名帶「.」、tab 縮排、同一個鍵寫兩次）一律判失敗：寧可擋下也不要誤判有鎖。
 # 用法：check_cloudflared_config <檔> <team 名稱> <AUD> <網址（空白分隔）>；不通過印出哪條、回傳 1。
+# S-4 產生器的輸出是 JSON 寫法的 YAML：用 python 的 json 真的解析（鍵重複、鍵名帶「.」一樣標成看不懂），
+# 攤平成跟 yaml_flatten 一樣的 `路徑=值`。不是 JSON 回 3，交給 yaml_flatten（區塊樣式 YAML）。
+json_flatten() { # <檔>
+  python3 - "$1" <<'PY'
+import json, sys
+def pairs(ps):
+    d = {}
+    for k, v in ps:
+        if k in d:
+            print("!invalid=同一個鍵寫了兩次：" + k)
+        d[k] = v
+    return d
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        doc = json.load(f, object_pairs_hook=pairs)
+except ValueError:
+    sys.exit(3)
+def scalar(v):
+    if v is True: return "true"
+    if v is False: return "false"
+    if v is None: return ""
+    return str(v)
+def walk(p, v):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k == "" or "." in k or "=" in k:
+                print("!invalid=鍵名「%s」" % k); continue
+            walk(k if p == "" else p + "." + k, x)
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            walk(str(i) if p == "" else p + "." + str(i), x)
+    else:
+        print("%s=%s" % (p, scalar(v)))
+walk("", doc)
+PY
+}
+flatten_config() { # <檔>：JSON 用 python，其他用 yaml_flatten
+  local out rc=0
+  out=$(json_flatten "$1") || rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$out" ;;
+    3) yaml_flatten "$1" ;;
+    *) printf '!invalid=python3 解析失敗（結束碼 %s）\n' "$rc" ;;
+  esac
+}
 check_cloudflared_config() {
   local file=$1 team=$2 aud=$3 hosts=$4
   [ -s "$file" ] || { bad "設定檔不存在或是空的：${file}"; return 1; }
-  yaml_flatten "$file" | awk -v team="$team" -v aud="$aud" -v hosts="$hosts" '
+  flatten_config "$file" | awk -v team="$team" -v aud="$aud" -v hosts="$hosts" '
     function add(a, b) { return a == "" ? b : a "、" b }
     {
       eq = index($0, "="); k = substr($0, 1, eq - 1); v = substr($0, eq + 1)
@@ -534,7 +621,13 @@ on_exit() { # [結束碼]
     close_door
     why=${EXIT_WHY:-"指令失敗，最後失敗的指令：${ERR_AT:-（不明）}"}
     say "✗ 安裝在第 10 步守門通過前結束（結束碼 ${code}；${why}）"
-    say "✗ 已停掉 cloudflared 容器、停用 fju-status-update.timer、停掉 fju-status-update.service：四個網址現在都連不上。修好後重跑同一行"
+    if [ "$DOOR_CLOSED" = 1 ]; then
+      say "✗ 已停掉 cloudflared 容器、停用 fju-status-update.timer、停掉 fju-status-update.service：四個網址現在都連不上。修好後重跑同一行"
+      [ "$DOOR_FAILED_LIST" = 0 ] || say "  （容器列舉三次都失敗，是用名稱 ${CLOUDFLARED_FALLBACK_NAME} 停掉的；docker ps 確認一下沒有別的 cloudflared 容器）"
+    else
+      say "✗ 關門沒有全部成功：${DOOR_FAILED# }。請立刻手動做：systemctl disable --now fju-status-update.timer；systemctl stop fju-status-update.service；docker ps 找出 fju-status 的 cloudflared 容器 docker stop"
+      [ "$code" != 0 ] || code=1
+    fi
   fi
   kill_login
   if [ -d "$LOGIN_DIR" ]; then
@@ -834,24 +927,13 @@ else
 fi
 
 step 7b "隧道端 JWT 鎖的隔離驗證（暫時隧道 ${VERIFY_TUNNEL}、暫時網址 ${VERIFY_HOST}、計數假 origin；不碰真後台）"
-# 有鎖：access.required: true（同 team、同 AUD）；沒鎖：同一份拿掉 originRequest 區塊（突變測試）。
+# 兩份設定都由 S-4 產生器產（跟真後台同一份產生器、同一種 JSON 寫法；第一個網址是暫時網址，後三個占位）：
+# 有鎖：預設（每條 ingress 帶 originRequest.access，同 team、同 AUD）；沒鎖：--no-access（突變測試，只給暫時隧道用）。
 write_verify_configs() { # <隧道 id>
-  cat >"$LOGIN_DIR/verify-locked.yml" <<EOF
-tunnel: $1
-credentials-file: /etc/cloudflared/tunnel.json
-ingress:
-  - hostname: ${VERIFY_HOST}
-    service: http://${VERIFY_ORIGIN}:${VERIFY_PORT}
-    originRequest:
-      access:
-        required: true
-        teamName: $(team_name)
-        audTag:
-          - ${ACCESS_AUD}
-  - service: http_status:404
-EOF
-  awk '/^    originRequest:/ { skip = 1; next } skip && /^      / { next } { skip = 0; print }' \
-    "$LOGIN_DIR/verify-locked.yml" >"$LOGIN_DIR/verify-open.yml"
+  STATUS_HOSTS="${VERIFY_HOST} ${VERIFY_HOSTS_PAD}" bash "$RENDER" --team "$(team_name)" --aud "$ACCESS_AUD" \
+    --tunnel-id "$1" --out "$LOGIN_DIR/verify-locked.yml" >/dev/null || { bad "產生器產不出有鎖的暫時設定"; return 1; }
+  STATUS_HOSTS="${VERIFY_HOST} ${VERIFY_HOSTS_PAD}" bash "$RENDER" --team "$(team_name)" --aud "$ACCESS_AUD" \
+    --tunnel-id "$1" --out "$LOGIN_DIR/verify-open.yml" --no-access >/dev/null || { bad "產生器產不出拿掉 access 的暫時設定"; return 1; }
 }
 start_verify_cf() { # <設定檔>
   docker rm -f "$VERIFY_CF" >/dev/null 2>&1 || true
@@ -887,8 +969,8 @@ verify_tunnel_lock() {
   as_deploy docker pull -q "$STATUS_IMAGE" >/dev/null || { bad "拉不到 ${STATUS_IMAGE}"; return 1; }
   docker pull -q "$CURL_IMAGE" >/dev/null || { bad "拉不到 ${CURL_IMAGE}"; return 1; }
   docker network create "$VERIFY_NET" >/dev/null || return 1
-  docker run -d --name "$VERIFY_ORIGIN" --network "$VERIFY_NET" --memory 64m -e PORT="$VERIFY_PORT" \
-    --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
+  docker run -d --name "$VERIFY_ORIGIN" --network "$VERIFY_NET" --network-alias "$VERIFY_ALIAS" --memory 64m \
+    -e PORT="$VERIFY_PORT" --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
   cf create --credentials-file /cf/.cloudflared/verify.json "$VERIFY_TUNNEL" >/dev/null || { bad "建暫時隧道失敗"; return 1; }
   route_dns "$VERIFY_TUNNEL" "$VERIFY_HOST" || return 1
   vid=$(cred_tunnel_id "$LOGIN_DIR/verify.json") || { bad "讀不到暫時隧道的憑證"; return 1; }
