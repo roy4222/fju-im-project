@@ -10,7 +10,7 @@
 
 | 腳本 | 在哪跑 | 誰 | 做什麼 |
 |---|---|---|---|
-| `ops/status-prepare.sh` | 💻 Mac mini，不用 sudo | 工程主腦 | 產驗收結果推送金鑰 `~/.ssh/fju_status_publish`、把 compose 檔與 `ops/` 送到 VM 的 `/tmp/fju-app/`（一次連線）、印兩支重置腳本的 sha256、印 Roy 要在 VM 貼的那一行 |
+| `ops/status-prepare.sh` | 💻 Mac mini，不用 sudo | 工程主腦 | 產驗收結果推送金鑰 `~/.ssh/fju_status_publish`、把 compose 檔與 `ops/` 送到 VM 的 `/tmp/fju-app/`（一次連線）、印兩支重置腳本的 sha256、印 Roy 要在 VM 做的兩段：第 5 步「同步／搬遷」（備份核對→rsync→Doppler 探針→網路搬遷→恢復自動部署）與第 6 步「安裝」那一行 |
 | `ops/status-install.sh` | 🖥️ VM，`sudo` 一次 | Roy 貼上 | 十二步＋7b（下表）。可重跑：已完成的步驟印「跳過」 |
 
 兩支都有 `--dry-run`（只讀現況、只印不做，不需要 sudo）與 `--help`。
@@ -30,8 +30,8 @@
    ops/status-prepare.sh --access-team <team>.cloudflareaccess.com --access-aud <AUD>
    ```
 
-   預期：金鑰「產好了」或「跳過 已有」、rsync 沒有錯誤、兩行 sha256、最後印出一整行 `sudo rsync … && sudo bash /srv/fju/app/ops/status-install.sh …`。把那一行原樣交給 Roy。
-3. **Roy 做第 2 件事**：VM 貼那一行（下節）。
+   預期：金鑰「產好了」或「跳過 已有」、rsync 沒有錯誤、兩行 sha256、第 5 步印同步／搬遷的順序（含備份核對的那段與 Doppler 探針關卡）、第 6 步印安裝那一行 `sudo bash /srv/fju/app/ops/status-install.sh …`。把第 5、6 步原樣交給 Roy；VM 還沒做兩站網路拆分時就是要照第 5 步走完再貼第 6 步。
+3. **Roy 做第 2 件事**：VM 先做第 5 步（同步／搬遷，每步 ✓ 才下一步），全部 ✓ 且自動部署已恢復後再貼第 6 步那一行（下節）。
 4. 看安裝最後的「摘要」：每步 ✓ 或「跳過」；結束碼 0。
 5. **Roy 做第 3 件事**（Beszel，可延後）。
 6. 跑端到端 AC-S-26（設計方案的驗收案例）。
@@ -65,13 +65,13 @@
 
 ## 怎麼重跑
 
-- **同一行再貼一次就好**。已完成的步驟印「跳過」；第 7 步只有在「沒有 `tunnel.json`」或「第 7b 步沒以同一組 team／AUD／cloudflared 版本通過過」時才會要你再點一次授權網址。
+- **安裝那一行（prepare 第 6 步）再貼一次就好**。已完成的步驟印「跳過」；第 7 步只有在「沒有 `tunnel.json`」或「第 7b 步沒以同一組 team／AUD／cloudflared 版本通過過」時才會要你再點一次授權網址。
 - **第 10 步關門之後**：去 Zero Trust 把印出來的網址加進 `fju-status` 應用程式，再貼同一行。第 9 步的 `status-up.sh` 會把 cloudflared 起回來，第 10 步再檢查一次，通過才重新啟用自動更新 timer。
-- **中途斷線、被中斷、或畫面上看不到為什麼停**：門已經關了（四個網址連不上）。`sudo tail /srv/fju/status/.install/exit.log` 看最後幾行：停在哪一步、什麼原因（Ctrl-C、SIGHUP、輸出管線中斷、或最後失敗的指令與行號）。修好後貼同一行重跑；第 9 步起回服務、第 10 步守門通過才重新開門。
+- **中途斷線、被中斷、或畫面上看不到為什麼停**：門已經關了（四個網址連不上）。`sudo tail /srv/fju/status/.install/exit.log` 看最後幾行：停在哪一步、什麼原因（Ctrl-C、SIGHUP、輸出管線中斷、或最後失敗的指令與行號）。修好後貼同一行重跑（停在第 7b 步的話先把 `exit.log` 交給工程主腦再重貼，7b 在真帳號上沒試過）；第 9 步起回服務、第 10 步守門通過才重新開門。
 - **換了 team 或 AUD**：Mac mini 帶新值重跑 `status-prepare.sh`，把新的那一行給 Roy。第 7b 步會重做（要再點一次授權）。
-- **repo 的 ops／compose 檔改了**：Mac mini 重跑 `status-prepare.sh`（會重送），VM 只要跑那一行的前半段 `sudo rsync … /srv/fju/app/`。之後每 10 分鐘的 `fju-status-update` 會自己 `pull` 與 `up -d`。
-  注意：VM 那一行的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有；`ops/README.md` 的幾處 rsync 現在也帶同一個 filter、送檔清單也含 `docker-compose.status.yml`。少了 filter 它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
-  VM 還沒做 `ops/README.md`「兩站網路拆分上線步驟」時（`docker network ls` 沒有 `fju-edge-test`）：那一行會把主站 compose 換成拆分版，之後的自動部署會失敗（舊容器不動）。要嘛先搬遷，要嘛 `status-prepare.sh --keep-site-compose` 印出不換主站 compose 的那一行。
+- **repo 的 ops／compose 檔改了**：Mac mini 重跑 `status-prepare.sh`（會重送），VM 只要跑第 5 步「備份並核對完整，通過才同步」那一段（主站 compose 已是拆分版時不用再搬遷）。之後每 10 分鐘的 `fju-status-update` 會自己 `pull` 與 `up -d`。
+  注意：第 5 步那段的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有；`ops/README.md` 的幾處 rsync 現在也帶同一個 filter、送檔清單也含 `docker-compose.status.yml`。少了 filter 它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
+  VM 還沒做 `ops/README.md`「兩站網路拆分上線步驟」時（`docker network ls` 沒有 `fju-edge-test`）：那段 rsync 會把主站 compose 換成拆分版，網路沒建好就恢復自動部署會讓下一個新 SHA 部署失敗（舊容器不動）。所以預設的第 5 步接著列搬遷順序（Doppler 探針是第一道關卡）；今晚只裝後台就 `status-prepare.sh --keep-site-compose`，它印的第 5 步不換主站 compose、同步後直接恢復自動部署。
 - **只想看會做什麼**：VM 上 `FJU_STATUS_APP_DIR=/tmp/fju-app bash /tmp/fju-app/ops/status-install.sh --dry-run …`（同一組參數，不用 sudo、不寫任何東西）。
 - **測試用的環境變數**：`FJU_STATUS_ROOT`、`FJU_STATUS_UNIT_DIR`、`FJU_STATUS_SSH_DIR`、`FJU_STATUS_HOME_ROOT`、`FJU_STATUS_SBIN`、`FJU_STATUS_OS_RELEASE`、`FJU_STATUS_RRSYNC`、`FJU_STATUS_CF_API` 只給 `status/test/ops/install.test.ts` 的故障注入測試把系統路徑換成暫存目錄；正式安裝不要設。
 - **單獨核對某份 cloudflared 設定**：`bash ops/status-install.sh --check-cloudflared-config <檔> --access-team … --access-aud …`。

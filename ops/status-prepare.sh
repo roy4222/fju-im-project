@@ -10,7 +10,8 @@
 #   1. 產驗收結果推送金鑰 ~/.ssh/fju_status_publish（ed25519、無密碼；已有就沿用）
 #   2. 把 compose 檔與 ops/ 送到 VM 的 /tmp/fju-app/（只開一次 rsync 連線）
 #   3. 印兩支重置腳本的 sha256（VM 安裝第 4 步會印同樣兩行，要一樣）
-#   4. 印 Roy 在 VM 要貼的那一行（/tmp/fju-app 放進 /srv/fju/app，再跑 status-install.sh）
+#   4. 印 Roy 在 VM 要做的兩段：第 5 步「同步／搬遷」（備份核對→rsync→Doppler 探針→網路搬遷→恢復自動部署）、
+#      第 6 步「安裝後台」那一行（搬遷全部 ✓ 才貼）
 #
 # 其他參數：--vm-host <ssh 主機名>（預設 fju-vm，見 ops/ssh-config.example）、
 #           --key <私鑰路徑>（預設 ~/.ssh/fju_status_publish）
@@ -115,29 +116,57 @@ step "4. 兩支重置腳本的 sha256（VM 安裝第 4 步會印同樣兩行）"
 grep -q 'seed-demo' ops/fju-test-reset 2>/dev/null \
   || todo "重置腳本還沒有 seed-demo（S-7 還沒合併）：VM 第 4 步會印「跳過」"
 
-step "5. Roy 在 VM 貼的那一行（ssh ${VM_HOST} 之後整行貼上；sudo 問一次密碼，中途點一次 Cloudflare 授權網址）"
+step "5. 同步／搬遷（Roy 在 VM 貼；一個 ssh 視窗做完，每一步印 ✓ 才做下一步）"
 TEAM_SHOWN=${ACCESS_TEAM:-<team>.cloudflareaccess.com}
 AUD_SHOWN=${ACCESS_AUD:-<AUD>}
 # protect：安裝第 7 步產生的 ops/status/cloudflared.yml 不在 repo 裡，--delete 不能把它刪掉。
 # --keep-site-compose：exclude 的檔 rsync 不傳也不刪（沒帶 --delete-excluded），VM 的主站 compose 維持原樣。
 RSYNC_FILTERS="--filter='P /ops/status/cloudflared.yml'"
+DIFF_EXCLUDES="--exclude=cloudflared.yml"
 if [ "$KEEP_SITE_COMPOSE" = 1 ]; then
   RSYNC_FILTERS="$RSYNC_FILTERS --exclude='/docker-compose.vm.yml' --exclude='/docker-compose.edge.yml'"
+  DIFF_EXCLUDES="$DIFF_EXCLUDES --exclude=docker-compose.vm.yml --exclude=docker-compose.edge.yml"
 fi
 VM_RSYNC="sudo rsync -a --delete $RSYNC_FILTERS --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/"
-printf '\n'
-printf "%s && sudo bash /srv/fju/app/ops/status-install.sh --access-team %s --access-aud %s --publish-pubkey '%s'\n" \
-  "$VM_RSYNC" "$TEAM_SHOWN" "$AUD_SHOWN" "$PUBKEY"
-printf '\n'
+INSTALL_LINE="sudo bash /srv/fju/app/ops/status-install.sh --access-team $TEAM_SHOWN --access-aud $AUD_SHOWN --publish-pubkey '$PUBKEY'"
+# 備份→核對完整→同步→核對一致：一條 && 鏈（貼進去是一個指令），任一步失敗就停、不往下寫，
+# 並印出停在哪一步與還原指令。$BAK 在 VM 上取時間戳；之後的還原指令用 ${BAK:?}，變數不在就拒跑。
+SYNC_BLOCK="BAK=/srv/fju/app.bak-\$(date +%Y%m%d-%H%M%S) \\
+&& { sudo cp -a /srv/fju/app \"\$BAK\" && sudo diff -r /srv/fju/app \"\$BAK\" && echo \"✓ 備份完整：\${BAK}（\$(sudo find \"\$BAK\" -type f | wc -l) 個檔）\" || { echo \"✗ 停在備份：\${BAK} 複製失敗或不完整——/srv/fju/app 沒動、不要同步，把輸出交給主腦\"; false; }; } \\
+&& { $VM_RSYNC && sudo diff -r $DIFF_EXCLUDES /tmp/fju-app /srv/fju/app && echo \"✓ 已同步：/srv/fju/app 與 /tmp/fju-app 一致（還原點 \${BAK}）\" || { echo \"✗ 停在同步：還原 → sudo rsync -a --delete \${BAK:?}/ /srv/fju/app/ ，再把輸出交給主腦\"; false; }; }"
+
+echo "  先看會變哪些檔（不用 sudo、不寫任何東西；清單裡不該有 *deleting）："
+echo "    rsync -n -ai --delete $RSYNC_FILTERS /tmp/fju-app/ /srv/fju/app/"
 if [ "$KEEP_SITE_COMPOSE" = 1 ]; then
   todo "--keep-site-compose：VM 的 docker-compose.vm.yml／edge.yml 不會被換（留舊版）。搬遷網路時照 ops/README.md〈兩站網路拆分上線步驟〉重做，那時 rsync 不帶 --exclude；搬遷前不要在 VM 跑 vm-setup.sh（它會對舊 compose 印 ✗）"
+  echo "  5-1 B1 暫停自動部署、等正在跑的那次結束（ops/README.md〈兩站網路拆分上線步驟〉B1 框）"
+  echo "  5-2 備份並核對完整，通過才同步（主站 compose 不換）："
+  printf '\n%s\n\n' "$SYNC_BLOCK"
+  echo "  5-3 恢復自動部署（主站 compose 沒換，不必等後台）：sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused"
 else
-  todo "VM 上 docker network ls 若還沒有 fju-edge-test／fju-edge-prod：這一行會把主站 compose 換成拆分版，下一次自動部署會因外部網路不存在而失敗（舊容器不動）。貼之前先照 ops/README.md〈兩站網路拆分上線步驟〉B1 暫停自動部署，貼完接著做 B3～E；今晚只想裝後台就改帶 --keep-site-compose"
+  todo "VM 上 docker network ls 若還沒有 fju-edge-test／fju-edge-prod：同步會把主站 compose 換成拆分版，網路還沒建、Caddy 還沒接之前恢復自動部署會讓下一個新 SHA 部署失敗或測試站 502。所以照下面順序做完搬遷才恢復；今晚只想裝後台就改帶 --keep-site-compose"
+  echo "  代號＝ops/README.md〈兩站網路拆分上線步驟〉的框；B3 的 rsync 用下面這段（帶備份核對與 cloudflared.yml 保護），不要用 README 那一行。"
+  echo "  5-1 B1 暫停自動部署、等正在跑的那次結束"
+  echo "  5-2 B2 記下目前版本 \$SHA（同一個 shell 裡要記得住）"
+  echo "  5-3 備份並核對完整，通過才同步："
+  printf '\n%s\n\n' "$SYNC_BLOCK"
+  echo "  5-4 關卡：Doppler stg 探針（不印值）——印 REGISTRATION_OPEN：other 才往下，Roy 再到 Doppler 網頁確認值剛好是 true；印 absent／false 就停、改走 --keep-site-compose："
+  echo "        sudo -u deploy /srv/fju/app/ops/status-envcheck.sh test --out /tmp/envcheck-test.json"
+  echo "        停下來的還原（主站 compose 放回舊版、恢復自動部署；忘了 \$BAK 就 ls -d /srv/fju/app.bak-*）："
+  echo "        sudo cp -a \"\${BAK:?}/docker-compose.vm.yml\" \"\${BAK:?}/docker-compose.edge.yml\" /srv/fju/app/ && sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused"
+  echo "  5-5 B3 建網路：先 sudo timeout 300 bash /srv/fju/app/ops/vm-setup.sh --check 2>&1 | tee /tmp/vm-setup-check.log"
+  echo "        輸出沒有任何 ✗ 才跑 sudo timeout 300 bash /srv/fju/app/ops/vm-setup.sh（--check 印 ✗ 時結束碼仍是 0，要用 grep 或眼睛看；方案 B5 有守門版）；有 ✗ 就停、把 /tmp/vm-setup-check.log 交給主腦"
+  echo "  5-6 C1a 過渡版 Caddy（三個網路）→ C1b 用 \$SHA 重部署測試站 → C2 確認 app 網路 → C3 三項關卡（印 ✗ 就停在過渡版、暫停檔留著、回報主腦）"
+  echo "        到 D 之前自動部署都要維持暫停；中間任何一步 docker ps 看到 fju-test-app 被重建、或它的網路變 fju-edge-test 而 Caddy 還沒接 → 停、回報主腦（還原同 5-4 那行＋過渡版 Caddy up）"
+  echo "  5-7 D 最終版 Caddy：Caddy 只接兩個新網路且測試站 200 才刪過渡設定、刪舊網路、恢復自動部署；失敗保留過渡版、印回退指令"
+  echo "  5-8 E 驗證兩站互相看不到"
 fi
-echo "  貼之前先在 VM 看會變哪些檔（不用 sudo、不寫任何東西；清單裡不該有 *deleting）："
-echo "    rsync -n -ai --delete $RSYNC_FILTERS /tmp/fju-app/ /srv/fju/app/"
+
+step "6. 安裝開發者後台（第 5 步全部 ✓、自動部署已恢復之後才貼；sudo 問一次密碼，中途點一次 Cloudflare 授權網址）"
+printf '\n%s\n\n' "$INSTALL_LINE"
 if [ -z "$ACCESS_TEAM" ] || [ -z "$ACCESS_AUD" ]; then
   todo "還沒帶 --access-team／--access-aud：Roy 貼來 team 網域與 AUD 後重跑這支（金鑰沿用、rsync 只補差異）"
 fi
 echo "  貼之前想先看一遍會做什麼（不用 sudo、不寫任何東西）：在 VM 跑"
-echo "    FJU_STATUS_APP_DIR=/tmp/fju-app bash /tmp/fju-app/ops/status-install.sh --dry-run --access-team … --access-aud … --publish-pubkey '…'"
+echo "    FJU_STATUS_APP_DIR=/srv/fju/app bash /srv/fju/app/ops/status-install.sh --dry-run --access-team … --access-aud … --publish-pubkey '…'"
+echo "  第 7b 步（暫時隧道、刪暫時 DNS）在真帳號上沒試過：卡住或非 0 結束時腳本會自己關門（主站不受影響），看 sudo tail /srv/fju/status/.install/exit.log，先回報主腦再決定重貼。"
