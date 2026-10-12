@@ -46,7 +46,7 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   await expect(page.getByTestId('audit-entry').filter({ hasText: CODE })).toHaveCount(0)
 
   // 只讀：清單區塊裡沒有按鈕、沒有表單。
-  const events = page.getByRole('region', { name: '事件' })
+  const events = page.getByRole('region', { name: '操作清單' })
   await expect(events.getByRole('button')).toHaveCount(0)
   await expect(events.locator('form')).toHaveCount(0)
 })

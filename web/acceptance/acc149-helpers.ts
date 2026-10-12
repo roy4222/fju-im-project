@@ -58,10 +58,10 @@ export function taipeiMs(date: string, time: string): number {
 /** 直接填 `datetime-local` 的字串（`YYYY-MM-DDTHH:mm:ss`）。 */
 export async function setClockLocal(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(local)
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expectStatus(page, '已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expectStatus(page, '已設定模擬時間')
 }
 
 export async function setClock(page: Page, ms: number, reason: string) {
@@ -72,7 +72,7 @@ export async function setClock(page: Page, ms: number, reason: string) {
 export async function readClockOffset(page: Page): Promise<number | null> {
   const response = await page.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await page.getByLabel('目前業務時間').innerText())
+  const business = parseTaipeiSecond(await page.getByLabel('系統認定的現在時間').innerText())
   const simulated = await page.getByText('模擬中：').count()
   return simulated > 0 ? business - Date.now() : null
 }

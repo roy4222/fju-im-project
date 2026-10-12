@@ -16,6 +16,7 @@ import { BTN_ICON } from '@/app/_ui/dashboard-kit'
 import { INPUT, LABEL, newField, PRIMARY, SECONDARY, type EditorState, type EditorVocabulary, type FieldDraft } from './item-form-parts'
 import { HONOR, HONOR_AUDIENCE } from './item-form-model'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 發布設定（位置、收件單位、對象、階段、開放與截止）與收件欄位編輯（票 15）。
@@ -366,7 +367,7 @@ function FieldPreview({ field: f, typeLabel }: { field: FieldDraft; typeLabel: s
   else if (f.type === 'file')
     control = (
       <span className="flex h-14 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-        拖放或點擊上傳・{f.allowedTypes.join('、') || '不限'}・上限 {f.maxMiB} MiB
+        拖放或點擊上傳・{f.allowedTypes.join('、') || '不限'}・上限 {formatBytes(f.maxMiB * 1024 * 1024)}
       </span>
     )
   else control = <span className={box}>{typeLabel}</span>
@@ -564,7 +565,7 @@ export function FieldsEditor({
                             value={f.maxMiB}
                             onChange={(e) => update(index, { maxMiB: Number(e.target.value) })}
                           />
-                          MiB
+                          MB
                         </label>
                       </div>
                     </fieldset>

@@ -146,3 +146,42 @@ test('屆別封存後的榮譽：下架、重新發布、改標題都可以，/h
   await expect(visitor.getByRole('main')).toContainText(renamed)
   await guest.close()
 })
+
+test('專題事務列表選「榮譽」：屆別含已封存的，點得到歷屆榮譽並進編輯器；「新增榮譽」帶對屆別（W1b）', async ({ page }) => {
+  const renamed = `${CODE} 歷屆榮譽（改過）`
+  await asAdmin(page)
+  await page.goto('/dashboard/admin/affairs')
+  // 一般篩選看不到封存屆別。
+  const cohorts = page.getByRole('navigation', { name: '選擇屆別' })
+  await expect(cohorts.getByRole('link', { name: new RegExp(`^${CODE}-H`) })).toHaveCount(0)
+
+  await page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true }).click()
+  await expect(page).toHaveURL(/placement=honor/)
+  await expect(page.getByTestId('honor-list-hint')).toContainText('已封存')
+  const history = cohorts.getByRole('link', { name: new RegExp(`^${CODE}-H`) })
+  await expect(history).toContainText('已封存')
+  await history.click()
+  await expect(page).toHaveURL(new RegExp(`cohort=${historyCohortId}`))
+  await expect(page).toHaveURL(/placement=honor/)
+
+  // 封存屆別只能動榮譽：沒有「新增項目」，「新增榮譽」帶這一屆。
+  await expect(page.getByRole('button', { name: '新增項目' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '新增榮譽' })).toHaveAttribute(
+    'href',
+    `/dashboard/admin/editor/new?cohort=${historyCohortId}&placement=honor`,
+  )
+  const row = page.getByTestId('affair-row').filter({ hasText: renamed })
+  await expect(row).toContainText('發布中')
+  await row.getByRole('link', { name: renamed, exact: true }).first().click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/editor\/[0-9a-f-]{36}$/)
+  await expect(page.locator('#ed-title')).toHaveValue(renamed)
+
+  // 一般屆別的榮譽篩選：「新增榮譽」帶那一屆，一般的新增入口照舊在。
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=honor`)
+  await expect(page.getByRole('link', { name: '新增榮譽' })).toHaveAttribute(
+    'href',
+    `/dashboard/admin/editor/new?cohort=${cohortId}&placement=honor`,
+  )
+  await expect(page.getByRole('button', { name: '新增項目' })).toBeVisible()
+  await expect(page.getByTestId('affair-row').filter({ hasText: `${CODE} 校內專題競賽第一名` })).toBeVisible()
+})

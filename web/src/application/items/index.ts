@@ -106,3 +106,5 @@ export type {
   UpdateChange,
   UpdateReceipt,
 } from '@/application/items/ports'
+export type { ItemTemplate } from '@/application/items/templates'
+export { ITEM_TEMPLATES, PROJECT_REQUIREMENT_TEMPLATE } from '@/application/items/templates'

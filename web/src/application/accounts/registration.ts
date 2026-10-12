@@ -330,7 +330,7 @@ export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document
 export const VERIFICATION_LABEL: Record<VerificationMethod, string> = {
   id_document: '當面核對學生證或其他身分證件',
   school_channel: '經校方授權人員透過既有可信管道確認',
-  other: '其他核實方式',
+  other: '用其他方式確認本人',
 }
 
 /** 核實說明哪幾種必填：校方管道要記「由誰、透過什麼管道」；其他方式要說明是什麼方式。 */
@@ -343,7 +343,7 @@ export const VERIFICATION_NOTE_REQUIRED: Record<VerificationMethod, boolean> = {
 export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
   id_document: '選填，例如「9/24 系辦櫃台核對學生證」',
   school_channel: '必填：由誰、透過什麼管道確認',
-  other: '必填：說明用了什麼方式核實',
+  other: '必填：說明用了什麼方式確認本人',
 }
 
 export type ApprovalDecision = {
@@ -364,13 +364,13 @@ export function normalizeApproval(input: {
 }): { ok: true; value: ApprovalDecision } | Err {
   const method = input.verificationMethod.trim()
   if (!isVerificationMethod(method)) {
-    return err('VALIDATION_FAILED', '請選擇核實方式。', { details: { field: 'verificationMethod' } })
+    return err('VALIDATION_FAILED', '請選擇怎麼確認是本人。', { details: { field: 'verificationMethod' } })
   }
   const note = input.verificationNote.trim()
   if (VERIFICATION_NOTE_REQUIRED[method] && !note) {
     return err(
       'VALIDATION_FAILED',
-      method === 'school_channel' ? '請寫明由誰、透過什麼管道確認。' : '選「其他核實方式」時要說明用了什麼方式。',
+      method === 'school_channel' ? '請寫明由誰、透過什麼管道確認。' : '選「用其他方式確認本人」時要說明用了什麼方式。',
       { details: { field: 'verificationNote' } },
     )
   }

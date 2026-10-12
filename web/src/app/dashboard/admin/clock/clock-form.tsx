@@ -32,7 +32,7 @@ export function ClockForm({
       <div className="grid gap-3 sm:grid-cols-[16rem_1fr]">
         <div>
           <label htmlFor="business-at" className="block text-sm font-medium text-ink">
-            業務時間（臺灣時間，到秒）
+            要模擬的現在時間（臺灣，到秒）
           </label>
           <input
             id="business-at"
@@ -67,7 +67,7 @@ export function ClockForm({
           disabled={pending}
           className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
         >
-          {pending ? '處理中…' : '設定業務時間'}
+          {pending ? '處理中…' : '設定模擬時間'}
         </button>
         <p className="text-xs text-muted-foreground">可以往前也可以倒退；每次設定都留紀錄，不能改也不能刪。</p>
       </div>

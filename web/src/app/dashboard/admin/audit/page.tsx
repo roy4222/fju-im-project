@@ -11,6 +11,7 @@ import {
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,
   auditActionLabel,
+  auditActionTitle,
   auditWhoOf,
   describeAuditTarget,
   getAuditLogQuery,
@@ -38,11 +39,11 @@ function actorLabel(e: AuditLogEntry): string {
   return e.actorName?.trim() || '（已不存在的帳號）'
 }
 
-/** 核准註冊這類要核實身分的列：「核實：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
+/** 核准註冊這類要確認本人的列：「怎麼確認是本人：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
 function verificationText(e: AuditLogEntry): string | null {
   if (!e.verificationMethod) return null
   const note = e.verificationNote?.trim()
-  return `核實：${VERIFICATION_LABEL[e.verificationMethod]}${note ? `／${note}` : ''}`
+  return `怎麼確認是本人：${VERIFICATION_LABEL[e.verificationMethod]}${note ? `／${note}` : ''}`
 }
 
 function tone(e: AuditLogEntry): 'brand' | 'default' | 'info' {
@@ -72,7 +73,7 @@ export default async function AdminAuditPage({
               : '誰、何時、對哪個對象、做了什麼、為什麼；不可修改。'
           }
         />
-        <Panel title="事件" icon={<IconHistory />} aria-label="事件">
+        <Panel title="操作清單" icon={<IconHistory />} aria-label="操作清單">
           {!log ? (
             <PanelEmpty title="讀不到操作紀錄" hint="請重新整理頁面；一直這樣請通知維運。" />
           ) : (
@@ -123,7 +124,9 @@ export default async function AdminAuditPage({
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Pill tone={tone(e)}>{auditActionLabel(e.action)}</Pill>
+                        <Pill tone={tone(e)} title={auditActionTitle(e.action)}>
+                          {auditActionLabel(e.action)}
+                        </Pill>
                         <span className="truncate text-sm text-foreground">{describeAuditTarget(e)}</span>
                       </div>
                       {verificationText(e) ? (

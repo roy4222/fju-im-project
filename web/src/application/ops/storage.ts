@@ -1,3 +1,5 @@
+import { formatBytes } from '@/shared/format-bytes'
+
 /**
  * 磁碟用量的純規則（票 28；模組 10 附錄 A `storage_stats`；SOP 05 步驟 2；契約 05 §8 v2.5）。
  *
@@ -103,7 +105,7 @@ export function storageTileText(
   return { value: `${m.usedPercent}%`, hint: parts.join('・') }
 }
 
-/** GiB，取到小數一位（磚上的數字）。 */
+/** 磚上與檔案管理的容量（取到小數一位）；單位寫成 GB／MB，全站同一套（`shared/format-bytes.ts`）。 */
 export function formatGiB(bytes: number): string {
-  return `${Math.round((bytes / 1024 ** 3) * 10) / 10} GiB`
+  return formatBytes(bytes)
 }
