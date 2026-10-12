@@ -64,6 +64,18 @@ async function register(browser: Browser, s: { name: string; studentNo: string; 
   await context.close()
 }
 
+/** 名單版本的 summary：帳號頁的名單版本列表會讀這些計數（照真的匯入寫）。 */
+function rosterSummary(valid: number): string {
+  return JSON.stringify({
+    counts: { total: valid, valid, duplicate: 0, missing: 0, conflict: 0, cohortMismatch: 0, invalidEmail: 0 },
+    columns: { cohort: false, email: false, departmentClass: false },
+    fileName: 'seeded.csv',
+    checksum: '',
+    issues: [],
+    issuesTotal: 0,
+  })
+}
+
 test.beforeAll(async () => {
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能種屆別與名單')
   // 屆別與名單匯入的畫面各有自己的 e2e；這裡直接種資料，只測批次核准。
@@ -81,18 +93,7 @@ test.beforeAll(async () => {
     const version = await pool.query<{ id: string }>(
       `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
        values (gen_random_uuid(), $1, $2, now(), $3::jsonb) returning id`,
-      [
-        cohort.rows[0]!.id,
-        importer.rows[0]!.id,
-        JSON.stringify({
-          counts: { total: 3, valid: 3, duplicate: 0, missing: 0, conflict: 0, cohortMismatch: 0, invalidEmail: 0 },
-          columns: { cohort: false, email: false, departmentClass: true },
-          fileName: 'seeded.csv',
-          checksum: '',
-          issues: [],
-          issuesTotal: 0,
-        }),
-      ],
+      [cohort.rows[0]!.id, importer.rows[0]!.id, rosterSummary(3)],
     )
     for (const s of [S1, S2, S3]) {
       await pool.query(
@@ -187,8 +188,9 @@ test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一�
   const importRoster = async (cohortId: string, people: readonly { studentNo: string; name: string }[]) => {
     const version = await pool.query<{ id: string }>(
       `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
-       select gen_random_uuid(), $1, id, clock_timestamp(), '{}'::jsonb from users where email = $2 returning id`,
-      [cohortId, `w6-importer-${run}@example.com`],
+       select gen_random_uuid(), $1, id, clock_timestamp(), $3::jsonb from users where email = $2 returning id`,
+      // 帳號頁的名單版本列表會讀 summary 的計數；空的 `{}` 會讓整個帳號頁壞掉，照真的匯入寫一份。
+      [cohortId, `w6-importer-${run}@example.com`, rosterSummary(people.length)],
     )
     for (const p of people) {
       await pool.query(
