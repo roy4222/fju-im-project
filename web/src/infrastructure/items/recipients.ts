@@ -100,6 +100,20 @@ async function activeAccounts(db: Queryable): Promise<string[]> {
   return rows.rows.map((r) => r.id)
 }
 
+/** 這幾組目前的指導老師（`advisor_assignments` 有效那一列；帳號正常、老師角色未撤銷）。 */
+async function groupAdvisors(db: Queryable, groupIds: readonly string[]): Promise<string[]> {
+  if (groupIds.length === 0) return []
+  const rows = await db.query<{ id: string }>(
+    `select distinct u.id from advisor_assignments a join users u on u.id = a.teacher_user_id
+      where a.group_id = any($1::uuid[]) and a.valid_to is null
+        and u.status = 'active' and u.deidentified_at is null
+        and exists (select 1 from role_assignments r
+                     where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)`,
+    [groupIds],
+  )
+  return rows.rows.map((r) => r.id)
+}
+
 /** 全部老師（公告對象是「全部老師」時的通知收件人）。 */
 async function activeTeachers(db: Queryable): Promise<string[]> {
   const rows = await db.query<{ id: string }>(
@@ -120,7 +134,8 @@ function uniqueSorted(ids: readonly string[]): string[] {
  *
  * - 收件（`receiverUnit` 不是 none）：個人＝有效學生（本屆全部或指定組別裡的）；組別＝已成立組（本屆全部或指定的）。
  *   通知對象＝名單展開到人（組別收件＝該組有效成員）。
- * - 公告／資源：沒有名單；通知對象＝本屆學生、指定組別成員、全部老師，或（公開、所有登入者）全站有效帳號。
+ * - 公告／資源：沒有名單；通知對象＝本屆學生、指定組別成員＋那幾組目前的指導老師（Q14）、全部老師，
+ *   或（公開、所有登入者）全站有效帳號。「本屆學生」不加指導老師（Q13：指導老師只看不通知）。
  *   要不要真的發由發布者決定：只有勾了「重要」（`notify`）才發事件逐人通知；一般公告只留發布紀錄與事件
  *   （Roy 2026-09-25 定：公開／所有登入者的公告只有重要的才逐人通知）。
  */
@@ -158,11 +173,9 @@ export async function audienceUserIds(
       return uniqueSorted((await eligibleStudents(db, cohortId, null)).map((p) => p.userId))
     case 'groups': {
       const valid = await activeGroups(db, cohortId, groupIds)
-      const members = await groupMembers(
-        db,
-        valid.map((g) => g.groupId),
-      )
-      return uniqueSorted(members.map((m) => m.user_id))
+      const ids = valid.map((g) => g.groupId)
+      const [members, advisors] = await Promise.all([groupMembers(db, ids), groupAdvisors(db, ids)])
+      return uniqueSorted([...members.map((m) => m.user_id), ...advisors])
     }
     case 'teachers':
       return uniqueSorted(await activeTeachers(db))

@@ -104,13 +104,16 @@ describe('publicAccessOf：前台內容頁顯示什麼', () => {
     roles: ['student'],
     studentCohortId: cohort,
     groupIds,
+    advisedGroupIds: [],
+    advisedCohortIds: [],
   })
-  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [] }
+  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [], advisedGroupIds: [], advisedCohortIds: [] }
   const item = (audienceKind: AudienceKind, status: ItemStatus = 'published', everPublished = status !== 'draft') => ({
     status,
     audienceKind,
     cohortId: COHORT,
     groupIds: [G1],
+    receiverUnit: 'none' as const,
     everPublished,
   })
 

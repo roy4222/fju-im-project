@@ -244,19 +244,37 @@ describe('截止文案與到期工作時間', () => {
 
 describe('canViewItem：誰看得到（也決定附件能不能下載）', () => {
   const anonymous: Viewer = { kind: 'anonymous' }
+  const OTHER_COHORT = '99999999-9999-4999-8999-999999999999'
   const student = (cohort: string | null, groups: string[] = []): Viewer => ({
     kind: 'user',
     roles: ['student'],
     studentCohortId: cohort,
     groupIds: groups,
+    advisedGroupIds: [],
+    advisedCohortIds: [],
   })
-  const teacher: Viewer = { kind: 'user', roles: ['teacher'], studentCohortId: null, groupIds: [] }
-  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [] }
-  const item = (audienceKind: 'public' | 'signed_in' | 'cohort_students' | 'teachers' | 'groups', status: 'draft' | 'published' | 'archived' = 'published') => ({
+  /** 沒指導任何組的老師。 */
+  const teacher: Viewer = { kind: 'user', roles: ['teacher'], studentCohortId: null, groupIds: [], advisedGroupIds: [], advisedCohortIds: [] }
+  /** 指導某一組（那組所在的屆別一起帶）的老師。 */
+  const advisor = (group: string, cohort: string): Viewer => ({
+    kind: 'user',
+    roles: ['teacher'],
+    studentCohortId: null,
+    groupIds: [],
+    advisedGroupIds: [group],
+    advisedCohortIds: [cohort],
+  })
+  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [], advisedGroupIds: [], advisedCohortIds: [] }
+  const item = (
+    audienceKind: 'public' | 'signed_in' | 'cohort_students' | 'teachers' | 'groups',
+    status: 'draft' | 'published' | 'archived' = 'published',
+    receiverUnit: 'none' | 'individual' | 'group' = 'none',
+  ) => ({
     status,
     audienceKind,
     cohortId: COHORT,
     groupIds: [G1],
+    receiverUnit,
   })
 
   it('公開：連訪客都看得到', () => {
@@ -268,15 +286,30 @@ describe('canViewItem：誰看得到（也決定附件能不能下載）', () =>
     expect(canViewItem(teacher, item('signed_in'))).toBe(true)
   })
 
-  it('本屆學生：只有同屆學生；別屆學生、老師看不到', () => {
+  it('本屆學生：同屆學生看得到；別屆學生、沒指導這屆的老師看不到', () => {
     expect(canViewItem(student(COHORT), item('cohort_students'))).toBe(true)
-    expect(canViewItem(student('99999999-9999-4999-8999-999999999999'), item('cohort_students'))).toBe(false)
+    expect(canViewItem(student(OTHER_COHORT), item('cohort_students'))).toBe(false)
     expect(canViewItem(teacher, item('cohort_students'))).toBe(false)
+    // 只指導別屆的老師也看不到（Q13）。
+    expect(canViewItem(advisor(G2, OTHER_COHORT), item('cohort_students'))).toBe(false)
   })
 
-  it('指定組別：只有那幾組的成員（PUB-10：G3 看不到）', () => {
+  it('本屆學生：指導這屆任一組的老師看得到公告與資源（不收件的），看不到收件（Q13）', () => {
+    expect(canViewItem(advisor(G2, COHORT), item('cohort_students'))).toBe(true)
+    expect(canViewItem(advisor(G2, COHORT), item('cohort_students', 'published', 'individual'))).toBe(false)
+    expect(canViewItem(advisor(G2, COHORT), item('cohort_students', 'published', 'group'))).toBe(false)
+    // 同屆學生照樣看得到收件。
+    expect(canViewItem(student(COHORT), item('cohort_students', 'published', 'individual'))).toBe(true)
+    // 指導老師也只看得到發布中的。
+    expect(canViewItem(advisor(G2, COHORT), item('cohort_students', 'archived'))).toBe(false)
+  })
+
+  it('指定組別：那幾組的成員與目前指導老師；別組的成員與指導老師看不到（PUB-10、Q14）', () => {
     expect(canViewItem(student(COHORT, [G1]), item('groups'))).toBe(true)
     expect(canViewItem(student(COHORT, [G2]), item('groups'))).toBe(false)
+    expect(canViewItem(advisor(G1, COHORT), item('groups'))).toBe(true)
+    expect(canViewItem(advisor(G2, COHORT), item('groups'))).toBe(false)
+    expect(canViewItem(teacher, item('groups'))).toBe(false)
   })
 
   it('全部老師：只有老師', () => {
