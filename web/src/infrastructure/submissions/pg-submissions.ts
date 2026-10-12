@@ -14,6 +14,7 @@ import {
   type DeclaredUpload,
   type FileStorage,
   type OperationLedger,
+  type SubmissionLateFlags,
   type UploadTicket,
 } from '@/application/ops'
 import {
@@ -309,7 +310,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const receiver = locked.receiver!
       const group = receiver.kind === 'group'
       // 補交（W10）：守門放行了、但不看補交期限時已截止＝靠補交送進來的。在送出當下判定並記進這一版的稽核，
-      // 之後系辦再改全體截止也不會讓標記變來變去（`VERSION_COLUMNS` 的 `late` 讀這裡）。
+      // 之後系辦再改全體截止也不會讓標記變來變去（模組 10 的 `SubmissionLateFlags` port 讀這裡）。
       const late = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) === 'closed'
 
       const draft = await this.#lockDraft(tx, itemId, receiver)
@@ -668,7 +669,12 @@ export class PgSubmissionCommand implements SubmissionCommand {
       // 有效期限＝這位收件者所有補交列裡最晚的那一個（只插不改）。所以新期限一定要比已開放的晚：
       // 提早的話新列不會生效，通知與回執卻寫著較早的時間，三者就對不上。同一位的兩次開放用交易鎖排隊，
       // 「讀最晚期限 → 插新列」之間不會插進另一筆。
-      await tx.query(`select pg_advisory_xact_lock(hashtextextended('submission_reopen:' || $1 || ':' || $2, 0))`, [itemId, receiverId])
+      // 鎖的 key 先把兩個編號轉成正規的 uuid 文字：同一個 UUID 大小寫不同（`isUuid` 兩種都放行、資料庫比對也相等）
+      // 才會拿到同一把鎖，不然並發時兩邊各拿各的鎖、都讀到「還沒開放」，較早的期限會在較晚的之後成功並通知。
+      await tx.query(
+        `select pg_advisory_xact_lock(hashtextextended('submission_reopen:' || $1::uuid::text || ':' || $2::uuid::text, 0))`,
+        [itemId, receiverId],
+      )
       const current = await tx.query<{ due_at: Date | null }>(
         'select max(due_at) as due_at from submission_reopens where item_id = $1 and receiver_kind = $2 and receiver_id = $3',
         [itemId, kind, receiverId],
@@ -948,26 +954,23 @@ export const REOPEN_UNTIL = `
     where o.item_id = r.item_id and o.receiver_kind = r.receiver_kind and o.receiver_id = r.receiver_id) as reopen_until`
 
 export type VersionRow = {
+  version_id: string
   version_no: number
   received_business_at: Date
   received_real_at: Date
   submitted_by_name: string
   schema_version_no: number
   request_id: string
-  late: boolean
 }
 
 /**
- * `late`（W10「補交」）：**送出當下**就判定好、記在這一版的 `submission.submit` 稽核（不可變）裡的 `late: true`。
- * 不拿目前的 `due_at` 重算：系辦之後延長或提早全體截止，歷史版本的標記都不變。沒有這個鍵的舊版本一律不是補交
- * （W10 之前根本送不進截止後）。
+ * 版本列的欄位。「補交」標記（W10）不在這裡：它是**送出當下**判定、記在那一版 `submission.submit` 稽核裡的，
+ * 稽核表屬模組 10，收件模組不直接讀，拿到列之後再經 `summarizeVersions` 用 `SubmissionLateFlags` port 批次問
+ * （架構 §4.4）。所以這裡帶出 `v.id`。
  */
 export const VERSION_COLUMNS = `
-  v.version_no, v.received_business_at, v.received_real_at, v.request_id,
-  coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no,
-  exists (select 1 from audit_events ae
-           where ae.target_type = 'item' and ae.target_id = v.item_id and ae.action = 'submission.submit'
-             and ae.payload->>'submissionVersionId' = v.id::text and ae.payload @> '{"late": true}'::jsonb) as late`
+  v.id as version_id, v.version_no, v.received_business_at, v.received_real_at, v.request_id,
+  coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no`
 
 export const VERSION_JOINS = `
   join users u on u.id = v.submitted_by_user_id
@@ -1006,7 +1009,7 @@ export const MY_ROSTER_ROW = `
                      where gm.group_id = r.receiver_id and gm.user_id = $1 and gm.valid_to is null))
   )`
 
-export function toSummary(row: VersionRow): VersionSummary {
+export function toSummary(row: VersionRow, lateVersionIds: ReadonlySet<string>): VersionSummary {
   return {
     versionNo: row.version_no,
     receivedBusinessAt: row.received_business_at,
@@ -1014,8 +1017,18 @@ export function toSummary(row: VersionRow): VersionSummary {
     submittedByName: row.submitted_by_name,
     schemaVersionNo: row.schema_version_no,
     requestId: row.request_id,
-    late: row.late,
+    late: lateVersionIds.has(row.version_id),
   }
+}
+
+/**
+ * 版本列 → 畫面摘要，「補交」標記一次批次問模組 10 的 port（不逐版本查）。沒被記成補交的（含 W10 之前的舊版本）
+ * 一律 `late: false`。列是空的就不問。
+ */
+export async function summarizeVersions(lateFlags: SubmissionLateFlags, rows: readonly VersionRow[]): Promise<VersionSummary[]> {
+  if (rows.length === 0) return []
+  const late = await lateFlags.lateByVersionIds(rows.map((r) => r.version_id))
+  return rows.map((row) => toSummary(row, late))
 }
 
 type FileRow = { id: string; original_name: string; size_bytes: string | number | null; checksum: string | null }
@@ -1070,9 +1083,12 @@ export const LATEST_VISIBILITY = `
 
 export class PgSubmissionQuery implements SubmissionQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async myItems(userId: string): Promise<MyItemRow[]> {
@@ -1195,7 +1211,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
             files: await answerFilesOf(db, draftRow.schema.fields ?? [], draftRow.answers),
           }
         : null,
-      versions: versions.rows.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, versions.rows),
       reopenUntil: item.reopen_until,
     }
   }
@@ -1214,8 +1230,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
     )
     const row = found.rows[0]
     if (!row) return null
-    if (row.receiver_unit === 'group') return row.group_id ? versionDetail(db, itemId, 'group', row.group_id, versionNo) : null
-    return versionDetail(db, itemId, 'user', userId, versionNo)
+    if (row.receiver_unit === 'group') return row.group_id ? versionDetail(db, this.#lateFlags, itemId, 'group', row.group_id, versionNo) : null
+    return versionDetail(db, this.#lateFlags, itemId, 'user', userId, versionNo)
   }
 
   async myRecords(userId: string): Promise<MyRecordRow[]> {
@@ -1265,7 +1281,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
       receiverKind: first.receiver_kind,
       receiverId,
       groupCode: first.group_code,
-      versions: visible.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, visible),
     }
   }
 
@@ -1280,7 +1296,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
     const visible = rows.rows.filter((row) => canReadSubmission(viewer, holderOf(row)))
     const row = visible.find((r) => r.version_no === versionNo)
     if (!row) return null
-    return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo, visible[0]!.version_no)
+    return versionDetail(db, this.#lateFlags, itemId, row.receiver_kind, receiverId, versionNo, visible[0]!.version_no)
   }
 
   async reopens(actor: ResolvedActor, itemId: string, receiverId: string): Promise<readonly ReopenEntry[] | null> {
@@ -1331,6 +1347,7 @@ const RECORD_VERSIONS = `
  */
 export async function versionDetail(
   db: Pick<Pool, 'query'>,
+  lateFlags: SubmissionLateFlags,
   itemId: string,
   receiverKind: 'user' | 'group',
   receiverId: string,
@@ -1354,8 +1371,9 @@ export async function versionDetail(
       where sf.submission_version_id = $1 order by sf.field_key`,
     [row.id],
   )
+  const [summary] = await summarizeVersions(lateFlags, [row])
   return {
-    ...toSummary(row),
+    ...summary!,
     isLatest: (latestVisibleVersionNo ?? row.latest) === row.version_no,
     fields: row.schema.fields ?? [],
     answers: row.answers,

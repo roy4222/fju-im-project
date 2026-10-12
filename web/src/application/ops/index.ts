@@ -13,7 +13,7 @@ export type {
   VerificationMethod,
 } from '@/application/ops/records'
 export { canonicalJson, RECEIPT_TTL_DAYS, receiptExpiryFrom } from '@/application/ops/records'
-export type { AuditWriter, OperationLedger } from '@/application/ops/ports'
+export type { AuditWriter, OperationLedger, SubmissionLateFlags } from '@/application/ops/ports'
 export type {
   AttachExpectation,
   ContentInspector,

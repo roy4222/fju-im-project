@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
@@ -11,6 +13,7 @@ import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publis
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 import { categoryOf, completionOf, overdueReceiverIds, pendingCount, receiverStatus } from '@/application/submissions'
 import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
@@ -34,6 +37,7 @@ let items: PgItemCommand
 let itemQuery: PgItemQuery
 let submissions: PgSubmissionCommand
 let query: PgSubmissionQuery
+let lateFlags: PgSubmissionLateFlags
 
 type Person = { id: string; name: string; cohortId: string }
 
@@ -199,7 +203,8 @@ beforeAll(async () => {
     events: new PgEventPublisher(),
     pool: () => app,
   })
-  query = new PgSubmissionQuery(() => app)
+  lateFlags = new PgSubmissionLateFlags(() => app)
+  query = new PgSubmissionQuery(() => app, lateFlags)
 })
 
 afterEach(() => {
@@ -578,7 +583,7 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
 
   it('每位收件者只出現一次：目前名單、免填、已移出分開；分子只算目前名單裡交過的', async () => {
     const { itemId, done, drafting, exempted, removed, readded } = await rosterScenario()
-    const roster = new PgRosterQuery(() => app)
+    const roster = new PgRosterQuery(() => app, lateFlags)
     const result = await roster.roster(adminActor(), itemId)
     expect(result?.item).toMatchObject({ itemId, title: '分組意向登記', receiverUnit: 'individual', schemaVersionNo: 1 })
     const entries = result!.entries
@@ -607,7 +612,7 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
 
   it('學生作業區（首頁待繳數的來源）與名單頁對同一個人算出同一個狀態', async () => {
     const { itemId, done, drafting } = await rosterScenario()
-    const entries = (await new PgRosterQuery(() => app).roster(adminActor(), itemId))!.entries
+    const entries = (await new PgRosterQuery(() => app, lateFlags).roster(adminActor(), itemId))!.entries
     for (const s of [done, drafting]) {
       const mine = (await query.myItems(s.id)).find((r) => r.itemId === itemId)!
       const entry = entries.find((e) => e.receiverId === s.id)!
@@ -618,7 +623,7 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
 
   it('點一個人：名單歷史、每一次正式送出與內容；已移出的人回答保留、仍查得到', async () => {
     const { itemId, done, removed, readded } = await rosterScenario()
-    const roster = new PgRosterQuery(() => app)
+    const roster = new PgRosterQuery(() => app, lateFlags)
 
     const detail = await roster.receiver(adminActor(), itemId, done.id)
     expect(detail?.versions.map((v) => v.versionNo)).toEqual([2, 1])
@@ -650,7 +655,7 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
       [cohortId],
     )
     const itemId = await published(cohortId, stageId, { receiverUnit: 'group', title: '整組一份的報告' })
-    const result = await new PgRosterQuery(() => app).roster(adminActor(), itemId)
+    const result = await new PgRosterQuery(() => app, lateFlags).roster(adminActor(), itemId)
     expect(result?.item.receiverUnit).toBe('group')
     expect(result?.entries).toEqual([
       expect.objectContaining({ receiverKind: 'group', name: 'G01', groupCode: 'G01', studentNo: null, latestVersionNo: null }),
@@ -661,7 +666,7 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
   it('只有管理員拿得到：老師、學生（連本人）都是 null；不在名單上的人、別的項目也是 null', async () => {
     const { itemId, done } = await rosterScenario()
     const other = await scenario()
-    const roster = new PgRosterQuery(() => app)
+    const roster = new PgRosterQuery(() => app, lateFlags)
     const anonymous: ResolvedActor = { kind: 'anonymous' }
     for (const actor of [teacherActor(), studentActor(done), anonymous]) {
       expect(await roster.roster(actor, itemId)).toBeNull()
@@ -719,7 +724,7 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     const sent = await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())
     expect(sent).toMatchObject({ ok: true, receipt: { versionNo: 1, receivedBusinessAt: AFTER.toISOString() } })
     expect((await query.myItem(student.id, itemId))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
-    const roster = await new PgRosterQuery(() => app).receiver(adminActor(), itemId, student.id)
+    const roster = await new PgRosterQuery(() => app, lateFlags).receiver(adminActor(), itemId, student.id)
     expect(roster!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
 
     // B：沒有補交期限，截止規則照舊。
@@ -800,7 +805,7 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
 
   it('系辦名單列表與完成率：補交中、期限未到的人不算逾期未繳；期限過了仍未交才算', async () => {
     const { student, other, itemId } = await closedScenario()
-    const rosterQuery = new PgRosterQuery(() => app)
+    const rosterQuery = new PgRosterQuery(() => app, lateFlags)
     const window = { opensAt: null, dueAt: new Date('2026-11-15T15:59:00Z') }
 
     const before = (await rosterQuery.roster(adminActor(), itemId))!
@@ -842,7 +847,7 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
       [2, false],
       [1, true],
     ])
-    const roster = await new PgRosterQuery(() => app).receiver(adminActor(), itemId, student.id)
+    const roster = await new PgRosterQuery(() => app, lateFlags).receiver(adminActor(), itemId, student.id)
     expect(roster!.versions.map((v) => [v.versionNo, v.late])).toEqual([
       [2, false],
       [1, true],
@@ -890,6 +895,123 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     expect(await reopenEvents(itemId)).toHaveLength(1)
     // 換一個請求編號就是新的開放：這時才照「晚於現在」檢查。
     expect(await submissions.reopen(adminActor(), itemId, student.id, input, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  })
+
+  it('收件模組（05）的程式碼不直接讀模組 10 的 audit_events；「補交」只經 SubmissionLateFlags port 問（架構 §4.4）', () => {
+    const offenders = ['src/infrastructure/submissions', 'src/application/submissions'].flatMap((dir) =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+        .map((f) => join(dir, f))
+        .filter((f) => readFileSync(f, 'utf8').includes('audit_events')),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('版本的「補交」標記只問模組 10 的 port：一次批次問完整份版本清單，收件模組自己不讀稽核表（架構 §4.4）', async () => {
+    const { student, itemId } = await closedScenario()
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '補交' }, randomUUID())).ok).toBe(true)
+    expect((await submissions.submit(studentActor(student), itemId, 1, randomUUID())).ok).toBe(true)
+    const saved = await mustSave(student, itemId, 1, { ...COMPLETE, topic: '再交一次' })
+    expect((await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())).ok).toBe(true)
+    const ids = (await owner.sql('select id from submission_versions where item_id = $1 order by version_no', [itemId])).rows.map((r) => String(r.id))
+    expect(ids).toHaveLength(2)
+
+    // 假的 port：記下每一次被問的版本編號，答案由測試決定。稽核表裡兩版其實都是補交（真 port 會答 true），
+    // 但收件模組只信 port 的答案——答「都不是」就都不標、答「都是」就都標；而且整份清單只問一次。
+    const asked: string[][] = []
+    const portSaying = (answer: (ids: readonly string[]) => Iterable<string>) => ({
+      lateByVersionIds: async (versionIds: readonly string[]) => {
+        asked.push([...versionIds])
+        return new Set(answer(versionIds))
+      },
+    })
+    const none = new PgSubmissionQuery(() => app, portSaying(() => []))
+    expect((await none.myItem(student.id, itemId))!.versions.map((v) => [v.versionNo, v.late])).toEqual([
+      [2, false],
+      [1, false],
+    ])
+    expect(asked).toEqual([[ids[1], ids[0]]])
+    expect(await none.myVersion(student.id, itemId, 1)).toMatchObject({ versionNo: 1, late: false })
+    expect(asked).toHaveLength(2)
+
+    asked.length = 0
+    const all = portSaying((versionIds) => versionIds)
+    expect((await new PgSubmissionQuery(() => app, all).myItem(student.id, itemId))!.versions.map((v) => v.late)).toEqual([true, true])
+    expect((await new PgRosterQuery(() => app, all).receiver(adminActor(), itemId, student.id))!.versions.map((v) => v.late)).toEqual([true, true])
+    expect(await new PgRosterQuery(() => app, all).receiverVersion(adminActor(), itemId, student.id, 2)).toMatchObject({ versionNo: 2, late: true })
+    expect(asked.map((a) => a.length)).toEqual([2, 2, 1])
+
+    // 真的 port（模組 10 的實作）接上去：答案就是稽核裡記的。
+    expect((await query.myItem(student.id, itemId))!.versions.map((v) => v.late)).toEqual([true, true])
+    expect(await lateFlags.lateByVersionIds(ids)).toEqual(new Set(ids))
+  })
+
+  it('大小寫不同的同一 UUID 並發開放：排在同一把鎖後面；11/19 還在途中時 11/18 不能成功、不通知、期限仍是 11/19', async () => {
+    const { student, itemId } = await closedScenario()
+    // 第一個請求用大寫的項目與收件者編號（`isUuid` 放行、資料庫比對也相等），在「通知」那一步被卡住——
+    // 此時它已經拿了鎖、插了 11/19 那一列、還沒 commit。第二個請求用小寫、期限較早（11/18）同時進來。
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached!: () => void
+    const reachedPublish = new Promise<void>((resolve) => (reached = resolve))
+    const publisher = new PgEventPublisher()
+    let gated = false
+    const stalling = new PgSubmissionCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      businessClock,
+      files: new FsFileStorage({
+        root: () => '/tmp/fju-submissions-unused',
+        environmentMaxBytes: () => 1024,
+        ticketSecret: () => 'submissions-integration-secret-submissions',
+        policies: {},
+        db: () => app,
+      }),
+      events: {
+        publish: async (tx, event) => {
+          if (!gated) {
+            gated = true
+            reached()
+            await gate
+          }
+          return publisher.publish(tx, event)
+        },
+      },
+      pool: () => app,
+    })
+    const first = stalling.reopen(
+      adminActor(),
+      itemId.toUpperCase(),
+      student.id.toUpperCase(),
+      { dueAt: '2026-11-19T17:00', reason: '先到的 11/19' },
+      randomUUID(),
+    )
+    await Promise.race([
+      reachedPublish,
+      first.then((r) => {
+        throw new Error(`第一個請求沒走到通知就結束了：${JSON.stringify(r)}`)
+      }),
+    ])
+
+    const second = submissions.reopen(adminActor(), itemId, student.id, { dueAt: '2026-11-18T17:00', reason: '後到的 11/18' }, randomUUID())
+    const raced = await Promise.race([
+      second.then(() => 'finished' as const),
+      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 500)),
+    ])
+    // 沒排到同一把鎖，第二個會在第一個 commit 前就讀到「還沒開放」而直接成功。
+    expect(raced).toBe('blocked')
+
+    release()
+    expect((await first).ok).toBe(true)
+    const refused = await second
+    expect(refused).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(refused.ok ? '' : refused.message).toContain('不能提早')
+    expect(refused.ok ? '' : refused.message).toContain('2026/11/19 17:00')
+    expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
+    const events = await reopenEvents(itemId)
+    expect(events).toHaveLength(1)
+    expect(events[0]!.payload).toMatchObject({ dueAt: '2026-11-19T09:00:00.000Z' })
+    expect(await query.myItem(student.id, itemId)).toMatchObject({ reopenUntil: new Date('2026-11-19T09:00:00Z') })
   })
 
   it('整組一份：開給一組，通知那一組目前的組員，任一位都能代表全組補交；別組照舊被擋', async () => {

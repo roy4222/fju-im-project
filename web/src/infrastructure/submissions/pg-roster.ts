@@ -2,6 +2,7 @@ import 'server-only'
 import type { Pool } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
+import type { SubmissionLateFlags } from '@/application/ops'
 import type {
   AdvisorVisibilityView,
   ItemRoster,
@@ -19,7 +20,7 @@ import {
   isUuid,
   receiverFactsJoin,
   REOPEN_UNTIL,
-  toSummary,
+  summarizeVersions,
   VERSION_COLUMNS,
   VERSION_JOINS,
   versionDetail,
@@ -130,9 +131,12 @@ export function toEntry(row: EntryRow): RosterEntry {
 
 export class PgRosterQuery implements RosterQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async roster(actor: ResolvedActor, itemId: string): Promise<ItemRoster | null> {
@@ -191,7 +195,7 @@ export class PgRosterQuery implements RosterQuery {
         }),
       ),
       draftUpdatedAt: draft.rows[0]?.updated_at ?? null,
-      versions: versions.rows.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, versions.rows),
     }
   }
 
@@ -204,7 +208,7 @@ export class PgRosterQuery implements RosterQuery {
     )
     const kind = found.rows[0]?.receiver_kind
     if (!kind) return null
-    return versionDetail(this.#reader(), itemId, kind, receiverId, versionNo)
+    return versionDetail(this.#reader(), this.#lateFlags, itemId, kind, receiverId, versionNo)
   }
 
   async advisorVisibility(actor: ResolvedActor, itemId: string): Promise<AdvisorVisibilityView | null> {

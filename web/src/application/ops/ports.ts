@@ -24,3 +24,15 @@ export interface OperationLedger<Tx = unknown> {
   /** 查回執：只回本人的紀錄；回執過期回 `RECEIPT_EXPIRED` 與 `result_ref`。 */
   get(actorUserId: string, operationKind: string, requestId: string): Promise<LedgerBeginResult>
 }
+
+/**
+ * 模組 10 給收件模組（05）的批次查詢 port（架構 §4.4：跨模組讀取走 query port；第三波 W10）。
+ *
+ * 「補交」標記在**送出當下**就記在那一版 `submission.submit` 稽核的 `late: true` 裡，稽核表屬模組 10，
+ * 收件模組不直接讀那張表，只問「這些版本裡哪幾個是補交」。一次批次問，不逐版本查；
+ * 沒有那個鍵的舊版本（W10 之前根本送不進截止後）就不在集合裡＝不是補交。
+ */
+export interface SubmissionLateFlags {
+  /** 回傳 `versionIds` 裡被記成補交的版本編號集合；空陣列直接回空集合，不打資料庫。 */
+  lateByVersionIds(versionIds: readonly string[]): Promise<ReadonlySet<string>>
+}
