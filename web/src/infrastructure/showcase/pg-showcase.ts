@@ -8,14 +8,21 @@ import {
   checkShowcaseLifecycle,
   normalizeAward,
   normalizeDraftFields,
+  normalizeHomePosition,
   normalizeSummary,
+  normalizeTitle,
   POSTER_UPLOAD,
+  SHOWCASE_LIMITS,
+  type CreateBackfillInput,
+  type CreateBackfillReceipt,
   type CreateDraftReceipt,
   type PosterUploadInput,
   type PublishInput,
   type PublishReceipt,
   type SetAwardInput,
   type SetAwardReceipt,
+  type SetHomePositionInput,
+  type SetHomePositionReceipt,
   type ShowcaseAward,
   type ShowcaseBoard,
   type ShowcaseBoardFilter,
@@ -64,6 +71,12 @@ import { RealClock, type Clock } from '@/shared/time'
  * `pii_check` 記 `admin_attested` 與勾的人（伺服器端的登入者），稽核 `showcase.published` 另記 `consentBy`。
  * 刪除只設刪除標記（`deleted_at／deleted_by_user_id`，DB CHECK 限草稿或已下架），被刪的條目所有指令都當作找不到；
  * 海報引用照留（§2「附件檔案不刪」），由下載政策先排除已刪條目。
+ *
+ * **W15（設計方案 §4「編輯已發布與歷屆作品」）**：存草稿與換海報對**管理員**不受屆別封存限制（優秀專題是跨屆的
+ * 公開紀錄）；不是管理員仍擋（封存屆別回 `COHORT_ARCHIVED`）。沒有組別的歷屆補登（`group_id` NULL）
+ * 改內容時鎖 `cohorts FOR SHARE` → 條目本身。`publishUpdate` 把目前草稿凍結成新一筆版本並切成目前版本
+ * （寫法同 `publish`），舊版本原封不動；`setHomePosition` 只改首頁輪播順序。刪除後同一組可以再建草稿
+ * （0013：一組一屆一個「未刪除」的條目）。
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -162,7 +175,10 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       if (cohort.status === 'archived') return archived(cohort.code)
       if (group.status === 'dissolved') return dissolved(group.code)
 
-      const existing = await tx.query('select 1 from showcase_entries where cohort_id = $1 and group_id = $2', [cohort.id, group.id])
+      const existing = await tx.query('select 1 from showcase_entries where cohort_id = $1 and group_id = $2 and deleted_at is null', [
+        cohort.id,
+        group.id,
+      ])
       if ((existing.rowCount ?? 0) > 0) return alreadyHasDraft(group.code)
 
       const entryId = uuidv7()
@@ -195,9 +211,78 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     })
   }
 
+  async createBackfill(actor: ResolvedActor, input: CreateBackfillInput, requestId: string): Promise<Result<CreateBackfillReceipt>> {
+    const denied = authorizeAdmin(actor, '補登歷屆作品')
+    if (denied) return denied
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(input.cohortId)) return err('VALIDATION_FAILED', '請先選屆別。', { details: { field: 'cohortId' } })
+    const title = normalizeTitle(String(input.title ?? ''))
+    if (title === '') return err('VALIDATION_FAILED', '請填作品題目。', { details: { field: 'title' } })
+    if (title.length > SHOWCASE_LIMITS.title) {
+      return err('VALIDATION_FAILED', `題目最多 ${SHOWCASE_LIMITS.title} 個字。`, { details: { field: 'title' } })
+    }
+    const adminId = actor.kind === 'authenticated' ? actor.userId : ''
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [input.cohortId])).rows[0]
+      if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。', { details: { field: 'cohortId' } })
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: adminId,
+          operationKind: 'showcase.backfill_create',
+          requestId,
+          fingerprint: sha256(canonicalJson({ cohortId: cohort.id, title })),
+          scope: 'cohort',
+          cohortId: cohort.id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<CreateBackfillReceipt>(begun)
+
+      // 歷屆補登：沒有組別、可以是封存的屆別（優秀專題是跨屆的公開紀錄）；草稿先帶題目，其他之後在看板補。
+      const entryId = uuidv7()
+      await tx.query(
+        `insert into showcase_entries (id, cohort_id, group_id, status, created_at, created_by_user_id, updated_at, updated_by_user_id)
+         values ($1, $2, null, 'draft', $3, $4, $3, $4)`,
+        [entryId, cohort.id, realAt, adminId],
+      )
+      await tx.query(
+        `insert into showcase_drafts (entry_id, title, summary_checksum, created_at, updated_at, updated_by_user_id)
+         values ($1, $2, $3, $4, $4, $5)`,
+        [entryId, title, summaryChecksum(''), realAt, adminId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: adminId,
+        role: 'admin',
+        action: 'showcase.backfill_create',
+        targetType: 'showcase_entry',
+        targetId: entryId,
+        scope: 'cohort',
+        cohortId: cohort.id,
+        realAt,
+        businessAt: businessNow,
+        payload: { title, cohortCode: cohort.code },
+      })
+      const receipt = { entryId, cohortCode: cohort.code, title, revision: 1, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { entryId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   async updateDraft(actor: ResolvedActor, input: UpdateDraftInput, requestId: string): Promise<Result<UpdateDraftReceipt>> {
     const denied = authorizeAdmin(actor, '編輯精選草稿')
-    if (denied) return denied
+    if (denied) {
+      // 不是管理員一律不能改；封存屆別的作品照實說「已封存」（設計方案 §4：封存仍擋非管理員）。不寫任何列。
+      if (denied.code === 'FORBIDDEN' && isUuid(input.entryId)) {
+        const cohort = await this.#entryCohort(input.entryId)
+        if (cohort?.status === 'archived') return archived(cohort.code)
+      }
+      return denied
+    }
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.entryId)) return draftNotFound()
     const revision = Number(input.revision)
@@ -213,12 +298,14 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     const businessNow = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
-      const owner = await tx.query<{ group_id: string | null }>('select group_id from showcase_entries where id = $1 and deleted_at is null', [
-        input.entryId,
-      ])
-      const groupId = owner.rows[0]?.group_id
-      if (!groupId) return draftNotFound()
-      const locked = await lockGroup(tx, groupId)
+      const owner = (
+        await tx.query<{ cohort_id: string; group_id: string | null }>('select cohort_id, group_id from showcase_entries where id = $1 and deleted_at is null', [
+          input.entryId,
+        ])
+      ).rows[0]
+      if (!owner) return draftNotFound()
+      // 有組別：屆別 → 組別；歷屆補登沒有組別：只鎖屆別，再鎖條目本身（下面的 FOR UPDATE）。
+      const locked = owner.group_id ? await lockGroup(tx, owner.group_id) : await lockCohort(tx, owner.cohort_id)
       if (!locked) return draftNotFound()
       const { cohort, group } = locked
       const head = await tx.query('select id from showcase_entries where id = $1 and deleted_at is null for update', [input.entryId])
@@ -246,8 +333,8 @@ export class PgShowcaseCommand implements ShowcaseCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<UpdateDraftReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
-      if (group.status === 'dissolved') return dissolved(group.code)
+      // 管理員不受屆別封存限制（W15）；解散的組仍不能改。
+      if (group?.status === 'dissolved') return dissolved(group.code)
       if (draft.revision !== revision) {
         return err('CONFLICT', '這份草稿剛剛已經被別人更新了，請重新載入頁面看最新內容再改。')
       }
@@ -308,7 +395,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       })
       const receipt = {
         entryId: input.entryId,
-        groupCode: group.code,
+        groupCode: group?.code ?? null,
         revision: newRevision,
         posterChanged,
         requestId,
@@ -323,26 +410,13 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     const denied = authorizeAdmin(actor, '上傳精選海報')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(input.entryId)) return draftNotFound()
-    const found = await this.#pool()
-      .connect()
-      .then(async (client) => {
-        try {
-          return (
-            await client.query<{ cohort_id: string; status: CohortStatus }>(
-              `select e.cohort_id, c.status from showcase_entries e join cohorts c on c.id = e.cohort_id where e.id = $1 and e.deleted_at is null`,
-              [input.entryId],
-            )
-          ).rows[0]
-        } finally {
-          client.release()
-        }
-      })
+    // 管理員可以替封存屆別的作品換海報（W15）；到這裡的一定是管理員。
+    const found = await this.#entryCohort(input.entryId)
     if (!found) return draftNotFound()
-    if (found.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已封存，精選草稿只能查看。')
     const issued = await this.#files.issueUploadTicket(
       actor.userId,
       { fileName: input.fileName, declaredMime: input.declaredMime, declaredSize: input.declaredSize },
-      { purpose: 'poster', allowedTypes: POSTER_UPLOAD.allowedTypes, maxBytes: POSTER_UPLOAD.maxBytes, scope: { kind: 'cohort', cohortId: found.cohort_id } },
+      { purpose: 'poster', allowedTypes: POSTER_UPLOAD.allowedTypes, maxBytes: POSTER_UPLOAD.maxBytes, scope: { kind: 'cohort', cohortId: found.id } },
     )
     if (!issued.ok) return issued
     const { ticket, fileId, maxBytes, expiresAt } = issued.receipt
@@ -358,58 +432,121 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       what: '發布優秀專題',
       kind: 'showcase.publish',
       lifecycle: 'publish',
-      write: async (tx, head, ctx) => {
-        const draft = (
-          await tx.query<DraftRow>(
-            `select entry_id, title, summary, summary_checksum, video_url, poster_file_id, poster_checksum, revision
-               from showcase_drafts where entry_id = $1 for share`,
-            [head.id],
+      write: (tx, head, ctx) => this.#freezeDraft(tx, head, ctx),
+    })
+  }
+
+  async publishUpdate(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<PublishReceipt>> {
+    return this.#change<PublishReceipt>(actor, input, requestId, {
+      what: '發布優秀專題的更新',
+      kind: 'showcase.publish_update',
+      lifecycle: 'publish_update',
+      write: (tx, head, ctx) => this.#freezeDraft(tx, head, ctx),
+    })
+  }
+
+  /**
+   * 發布與發布更新共用：目前草稿（`FOR SHARE`）凍結成新一筆版本，海報一起綁到版本上，條目切到它（狀態＝公開中）。
+   * 舊版本不動。發布更新時草稿和目前那一版一樣就擋下（不產生內容相同的新版本）。
+   */
+  async #freezeDraft(
+    tx: PoolClient,
+    head: HeadRow,
+    ctx: { adminId: string; realAt: Date; requestId: string },
+  ): Promise<Err | { ok: true; title: string; extra: { versionNo: number }; audit: Record<string, unknown> }> {
+    const draft = (
+      await tx.query<DraftRow>(
+        `select entry_id, title, summary, summary_checksum, video_url, poster_file_id, poster_checksum, revision
+           from showcase_drafts where entry_id = $1 for share`,
+        [head.id],
+      )
+    ).rows[0]
+    if (!draft) return draftNotFound()
+    if (draft.title.trim() === '') {
+      return err('VALIDATION_FAILED', '題目還是空白；請先在草稿填好題目並儲存，再發布。', { details: { field: 'title' } })
+    }
+    const previous = head.current_version_id
+      ? (
+          await tx.query<{ title: string; summary_checksum: string; video_url: string | null; poster_file_id: string | null }>(
+            'select title, summary_checksum, video_url, poster_file_id from showcase_versions where id = $1',
+            [head.current_version_id],
           )
         ).rows[0]
-        if (!draft) return draftNotFound()
-        if (draft.title.trim() === '') {
-          return err('VALIDATION_FAILED', '題目還是空白；請先在草稿填好題目並儲存，再發布。', { details: { field: 'title' } })
-        }
-        const versionId = uuidv7()
-        const versionNo =
-          (await tx.query<{ n: number }>('select coalesce(max(version_no), 0)::int + 1 as n from showcase_versions where entry_id = $1', [head.id]))
-            .rows[0]!.n
-        await tx.query(
-          `insert into showcase_versions (id, entry_id, version_no, title, summary, summary_checksum, video_url, poster_file_id, poster_checksum,
-                                          authorization_kind, authorization_ref, pii_check, created_by_user_id, created_real_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'external', $10, $11::jsonb, $12, $13)`,
-          [
-            versionId,
-            head.id,
-            versionNo,
-            draft.title,
-            draft.summary,
-            draft.summary_checksum,
-            draft.video_url,
-            draft.poster_file_id,
-            draft.poster_checksum,
-            ctx.requestId,
-            JSON.stringify({ status: 'admin_attested', by: ctx.adminId, at: ctx.realAt.toISOString() }),
-            ctx.adminId,
-            ctx.realAt,
-          ],
-        )
-        // 海報從草稿複製到版本：前台下載政策只認發布版本上的那張。
-        if (draft.poster_file_id) {
-          const held = await this.#files.attach(
-            tx,
-            draft.poster_file_id,
-            { refType: 'showcase_version', refId: versionId },
-            { purpose: 'poster', heldBy: { refType: 'showcase_draft', refId: head.id } },
-          )
-          if (!held.ok) return held
-        }
-        await tx.query(`update showcase_entries set status = 'published', current_version_id = $2 where id = $1`, [head.id, versionId])
+      : undefined
+    if (
+      head.status === 'published' &&
+      previous &&
+      previous.title === draft.title &&
+      previous.summary_checksum === draft.summary_checksum &&
+      previous.video_url === draft.video_url &&
+      previous.poster_file_id === draft.poster_file_id
+    ) {
+      return err('VALIDATION_FAILED', '草稿和前台目前那一版一樣，沒有要發布的更新；先改草稿並儲存，再按「發布更新」。')
+    }
+    const versionId = uuidv7()
+    const versionNo =
+      (await tx.query<{ n: number }>('select coalesce(max(version_no), 0)::int + 1 as n from showcase_versions where entry_id = $1', [head.id]))
+        .rows[0]!.n
+    await tx.query(
+      `insert into showcase_versions (id, entry_id, version_no, title, summary, summary_checksum, video_url, poster_file_id, poster_checksum,
+                                      authorization_kind, authorization_ref, pii_check, created_by_user_id, created_real_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'external', $10, $11::jsonb, $12, $13)`,
+      [
+        versionId,
+        head.id,
+        versionNo,
+        draft.title,
+        draft.summary,
+        draft.summary_checksum,
+        draft.video_url,
+        draft.poster_file_id,
+        draft.poster_checksum,
+        ctx.requestId,
+        JSON.stringify({ status: 'admin_attested', by: ctx.adminId, at: ctx.realAt.toISOString() }),
+        ctx.adminId,
+        ctx.realAt,
+      ],
+    )
+    // 海報從草稿複製到版本：前台下載政策只認發布版本上的那張。
+    if (draft.poster_file_id) {
+      const held = await this.#files.attach(
+        tx,
+        draft.poster_file_id,
+        { refType: 'showcase_version', refId: versionId },
+        { purpose: 'poster', heldBy: { refType: 'showcase_draft', refId: head.id } },
+      )
+      if (!held.ok) return held
+    }
+    await tx.query(`update showcase_entries set status = 'published', current_version_id = $2 where id = $1`, [head.id, versionId])
+    return {
+      ok: true as const,
+      title: draft.title,
+      extra: { versionNo },
+      audit: {
+        versionId,
+        versionNo,
+        consentBy: ctx.adminId,
+        title: draft.title,
+        cohortCode: head.cohort_code,
+        ...(head.current_version_id ? { previousVersionId: head.current_version_id } : {}),
+      },
+    }
+  }
+
+  async setHomePosition(actor: ResolvedActor, input: SetHomePositionInput, requestId: string): Promise<Result<SetHomePositionReceipt>> {
+    const position = normalizeHomePosition(input.position)
+    if (!position.ok && !authorizeAdmin(actor, '設定首頁順序')) return position
+    const value = position.ok ? position.value : null
+    return this.#change<SetHomePositionReceipt>(actor, input, requestId, {
+      what: '設定首頁順序',
+      kind: 'showcase.home_position_set',
+      fingerprint: { homePosition: value },
+      write: async (tx, head) => {
+        await tx.query('update showcase_entries set home_position = $2 where id = $1', [head.id, value])
         return {
           ok: true as const,
-          title: draft.title,
-          extra: { versionNo },
-          audit: { versionId, versionNo, consentBy: ctx.adminId, title: draft.title, cohortCode: head.cohort_code },
+          extra: { homePosition: value },
+          audit: { homePosition: value, previousHomePosition: head.home_position, title: head.title, cohortCode: head.cohort_code },
         }
       },
     })
@@ -516,7 +653,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       const head = (
         await tx.query<HeadRow>(
           `select e.id, e.cohort_id, c.code as cohort_code, g.code as group_code, e.status, e.revision, e.current_version_id,
-                  e.award_level, e.award_label, e.deleted_at, coalesce(nullif(d.title, ''), v.title, '') as title
+                  e.award_level, e.award_label, e.home_position, e.deleted_at, coalesce(nullif(d.title, ''), v.title, '') as title
              from showcase_entries e
              join cohorts c on c.id = e.cohort_id
              left join groups g on g.id = e.group_id
@@ -588,6 +725,21 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     })
   }
 
+  /** 條目所屬的屆別（已刪除的當作沒有）；只讀，不上鎖。 */
+  async #entryCohort(entryId: string): Promise<CohortRow | undefined> {
+    const client = await this.#pool().connect()
+    try {
+      return (
+        await client.query<CohortRow>(
+          'select c.id, c.code, c.status from showcase_entries e join cohorts c on c.id = e.cohort_id where e.id = $1 and e.deleted_at is null',
+          [entryId],
+        )
+      ).rows[0]
+    } finally {
+      client.release()
+    }
+  }
+
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'showcase', body, (constraint) => {
       if (constraint === 'showcase_entries_one_per_group') {
@@ -601,6 +753,8 @@ export class PgShowcaseCommand implements ShowcaseCommand {
 /** 帳本的動作種類 → 稽核代碼（照既有命名用過去式：`item.archived`、`item.republished`）。 */
 const AUDIT_ACTION: Readonly<Record<string, string>> = {
   'showcase.publish': 'showcase.published',
+  'showcase.publish_update': 'showcase.update_published',
+  'showcase.home_position_set': 'showcase.home_position_set',
   'showcase.withdraw': 'showcase.withdrawn',
   'showcase.republish': 'showcase.republished',
   'showcase.award_set': 'showcase.award_set',
@@ -617,6 +771,7 @@ type HeadRow = {
   current_version_id: string | null
   award_level: ShowcaseAward | null
   award_label: string | null
+  home_position: number | null
   deleted_at: Date | null
   title: string
 }
@@ -638,6 +793,12 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: Coh
   return { cohort, group }
 }
 
+/** 歷屆補登（沒有組別）：只鎖屆別 FOR SHARE，條目本身由呼叫端 FOR UPDATE。 */
+async function lockCohort(tx: PoolClient, cohortId: string): Promise<{ cohort: CohortRow; group: null } | null> {
+  const cohort = (await tx.query<CohortRow>('select id, code, status from cohorts where id = $1 for share', [cohortId])).rows[0]
+  return cohort ? { cohort, group: null } : null
+}
+
 // ── 查詢 ────────────────────────────────────────────────────────────────────
 
 type BoardDraftRow = {
@@ -654,6 +815,7 @@ type BoardDraftRow = {
   award_label: string | null
   home_position: number | null
   has_draft: boolean
+  has_unpublished_changes: boolean
   published_title: string | null
   title: string
   summary: string
@@ -677,7 +839,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
   /**
    * 看板：篩選的屆別或全部（含封存的歷屆）；左連組別（歷屆補登沒有組別）、左連草稿（有草稿列就照草稿、含 NULL；
    * 只有發布版本的才用版本內容）。
-   * 已刪除的條目不列。建立草稿的組別清單另外依 `createCohortId` 查（有條目的組，含已刪除的，都不能再建）。
+   * 已刪除的條目不列。建立草稿的組別清單另外依 `createCohortId` 查（有未刪除條目的組不能再建；刪掉後可以）。
    */
   async adminBoard(actor: ResolvedActor, filter: ShowcaseBoardFilter): Promise<Result<ShowcaseBoard>> {
     const denied = authorizeAdmin(actor, '管理精選')
@@ -695,7 +857,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
         groups = (
           await client.query<{ id: string; code: string; entry_id: string | null }>(
             `select g.id, g.code, e.id as entry_id
-               from groups g left join showcase_entries e on e.group_id = g.id and e.cohort_id = g.cohort_id
+               from groups g left join showcase_entries e on e.group_id = g.id and e.cohort_id = g.cohort_id and e.deleted_at is null
               where g.cohort_id = $1 and g.status = 'active'
               order by g.code`,
             [filter.createCohortId],
@@ -707,6 +869,10 @@ export class PgShowcaseQuery implements ShowcaseQuery {
                 g.id as group_id, g.code as group_code, g.status as group_status,
                 e.status, e.revision as entry_revision, e.award_level, e.award_label, e.home_position,
                 (d.entry_id is not null) as has_draft, v.title as published_title,
+                -- 發布過、草稿又和前台那一版不一樣：可以「發布更新」。
+                (d.entry_id is not null and v.id is not null
+                  and (d.title is distinct from v.title or d.summary_checksum is distinct from v.summary_checksum
+                       or d.video_url is distinct from v.video_url or d.poster_file_id is distinct from v.poster_file_id)) as has_unpublished_changes,
                 -- 有草稿列就照草稿（含拿掉的海報與影片＝NULL），只有發布版本的才用版本內容。
                 case when d.entry_id is not null then d.title else coalesce(v.title, '') end as title,
                 case when d.entry_id is not null then d.summary else coalesce(v.summary, '') end as summary,
@@ -760,6 +926,7 @@ function toDraftView(r: BoardDraftRow): ShowcaseDraftView {
     awardLabel: r.award_label,
     homePosition: r.home_position,
     hasDraft: r.has_draft,
+    hasUnpublishedChanges: r.has_unpublished_changes,
     publishedTitle: r.published_title,
     title: r.title,
     summary: r.summary,

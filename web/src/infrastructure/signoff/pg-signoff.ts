@@ -1419,7 +1419,7 @@ async function lockDraft(tx: PoolClient, entryId: string, groupId: string): Prom
        from showcase_entries e
        join showcase_drafts d on d.entry_id = e.id
        left join stored_files f on f.id = d.poster_file_id
-      where e.id = $1 and e.group_id = $2
+      where e.id = $1 and e.group_id = $2 and e.deleted_at is null
       for share of d`,
     [entryId, groupId],
   )
@@ -1605,7 +1605,7 @@ export class PgSignoffQuery implements SignoffQuery {
       const showcase = await db.query<{ group_id: string; entry_id: string; title: string; summary: string; revision: number }>(
         `select e.group_id, e.id as entry_id, d.title, d.summary, d.revision
            from showcase_entries e join showcase_drafts d on d.entry_id = e.id
-          where e.group_id = any($1::uuid[])`,
+          where e.group_id = any($1::uuid[]) and e.deleted_at is null`,
         [ids],
       )
       const files = await db.query<{ group_id: string; file_id: string; name: string; item_title: string; version_no: number }>(
