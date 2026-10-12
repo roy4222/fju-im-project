@@ -17,11 +17,13 @@
 #
 # full 的做法（§13.4）：
 #   前置：ssh fju-reset status → pause-deploy → reset，再記開始 commit（每次 ssh 一個子命令、相隔至少 15 秒）
-#   劇本鏈 story-1→5 一章接一章（security-static 同時跑）：每章開跑前把上一章「交給下一章的狀態」寫成 handoff.md；
+#   劇本鏈 story-1→6 一章接一章（security-static 同時跑）：每章開跑前把上一章「交給下一章的狀態」寫成 handoff.md；
 #     章 failed／timeout 才停鏈（後面的章 skipped）；「接力：不可以」照跑下一章、記 dependency-not-met
 #   story-2 是 ok（不看接力行）→ ssh fju-reset snapshot midterm，整夜密碼另存 ~/.fju-acceptance/snapshots/midterm.pw
 #   UX：今晚存到快照且 status 列出 midterm → restore midterm，否則 restore skipped；人設分三批、每批最多 4 個同時、
 #     同一批不會有兩個系辦；超過 08:00 剩下的批次記 not-run
+#   最後（並行群 L）：前面全部結束（含 security-static）才一項一項跑，不和任何項目並行——
+#     r1-login-limit 會把一個學生帳號從這台 Mac 鎖 10 分鐘，所以排整套最後
 #   後置：記結束 commit → resume-deploy → 遮蔽、刪秘密 → summarize-night.sh --vault --polish
 #
 # 參數：
@@ -68,7 +70,7 @@ PLAN_TONIGHT=(
   "ux-admin-newbie|personas/admin-newbie.md|codex|120|story-1|2"
 )
 
-# 全套（§6.1、§13.2）：並行群 S＝劇本鏈（依賴＝上一章）、P＝和劇本並行、U1–U3＝UX 三批（快照是第 2 章結束，
+# 全套（§6.1、§13.2）：並行群 S＝劇本鏈（依賴＝上一章）、P＝和劇本並行、U1–U3＝UX 三批、L＝整套最後一項一項跑（快照是第 2 章結束，
 # 還沒有評分方案與指派，所以學期中系辦在第 1 批先建、評分老師在第 2 批）。每批最多 4 個、不得有兩個系辦（ux-admin-*）。
 PLAN_FULL=(
   "security-static|security/run-static.sh|script|30||P"
@@ -77,6 +79,9 @@ PLAN_FULL=(
   "story-3|story-3-grading-signoff.md|codex|180|story-2|S"
   "story-4|story-4-frontstage.md|codex|120|story-3|S"
   "story-5|story-5-words-and-ownership.md|codex|120|story-4|S"
+  # 第 6 章（Q20 檔案進出、X3）接在第 5 章後面；不設依賴：第 5 章是最後一個「接力：不適用」的章、只看不改，
+  # 設了每晚都會記 dependency-not-met。第 5 章 failed／timeout 照樣停鏈。
+  "story-6|story-6-csv-and-guards.md|codex|120||S"
   "ux-admin-midterm|personas/admin-midterm.md|codex|120||U1"
   "ux-leader|personas/leader.md|codex|90||U1"
   "ux-member|personas/member.md|codex|90||U1"
@@ -87,6 +92,8 @@ PLAN_FULL=(
   "ux-visitor-highschool|personas/visitor-highschool.md|codex|60||U2"
   "ux-visitor-industry|personas/visitor-industry.md|codex|60||U3"
   "ux-admin-newbie|personas/admin-newbie.md|codex|120||U3"
+  # L＝整套最後、一項一項跑（R1 登入次數限制會鎖帳號 10 分鐘，不能和別的項目並行）。
+  "r1-login-limit|r1-login-rate-limit.md|codex|30||L"
 )
 UX_BATCHES=(U1 U2 U3)
 UX_BATCH_MAX=4
@@ -236,7 +243,7 @@ ids_in_group() {
 
 # 全套 dry-run 的順序。--no-reset／--no-snapshot 時整段不得出現重置主機別名（F11 驗收用 grep 檢查）。
 print_full_order() {
-  local reset_cmd="ssh fju-reset" stories ux b n=0
+  local reset_cmd="ssh fju-reset" stories ux last b n=0
   echo "順序（full）："
   if [ "$NO_RESET" = 1 ]; then
     echo "  前置：不重置、不暫停部署（${NO_RESET_WHY}；Roy 手動做）→ 記開始 commit"
@@ -271,6 +278,8 @@ print_full_order() {
     done
     echo "    過了 ${ACCEPT_UX_DEADLINE:-08:00} 還沒開始的批次記 not-run，不硬跑"
   fi
+  last="$(ids_in_group L)"
+  [ -z "$last" ] || echo "  最後（等劇本、UX、同時跑的項目全部結束；一項一項跑，不並行）：${last// / → }"
   echo "  每項逾時 → 停掉；progress.md 有進度且 session id 已知 → resume 一次（預算減半）"
   if [ "$NO_RESET" = 1 ]; then
     echo "  後置：記結束 commit（不恢復部署：${NO_RESET_WHY}）"
@@ -835,6 +844,19 @@ run_full() {
   restore_midterm
   run_ux_batches
   for pid in ${bg_pids[@]+"${bg_pids[@]}"}; do wait "$pid" || true; done
+  run_last_items
+}
+
+# 並行群 L：前面全部結束後一項一項跑（R1 會鎖帳號，不能和任何項目並行）。不看 UX 截止：一定要跑。
+run_last_items() {
+  local i
+  for i in "${!IDS[@]}"; do
+    [ "${GROUPS_[$i]}" = L ] || continue
+    log last - "${IDS[$i]} 開始（前面的項目都已結束）"
+    run_item "$i" &
+    wait $! || true
+    write_run_json
+  done
 }
 
 # ── 收尾：任何結束都要刪秘密 ──────────────────────────────────

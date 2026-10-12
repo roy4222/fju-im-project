@@ -140,6 +140,10 @@ Roy 2026-09-26 定案（Vault「💬 討論與決策／2026-09-26 使用者情�
 | 3 | [`story-3-grading-signoff.md`](story-3-grading-signoff.md) | 評分方案、老師評分、退回與更正、成績匯出、簽核與提醒 |
 | 4 | [`story-4-frontstage.md`](story-4-frontstage.md) | 精選與榮譽榜（已知缺口）、「沒權限就不要出現」逐條探測（訪客逛前台改由人設卡 `personas/visitor-*.md` 負責）、登入後的前台差異、活動可見性 |
 | 5 | [`story-5-words-and-ownership.md`](story-5-words-and-ownership.md) | 系辦、老師、學生逐頁用詞巡檢；前台每一塊由後台哪裡管；最該先改的 15 個詞 |
+| 6 | [`story-6-csv-and-guards.md`](story-6-csv-and-guards.md) | 學年末的檔案進出（Q20）：批次指派指導老師 CSV、批次停用 TXT（改了都會改回）；帳號、組別（CSV／XLSX）、成績（CSV／XLSX）、簽核同意紀錄的匯出都**存檔打開核對**欄位、筆數、中文；學生直接打系辦頁與匯出 API 要被擋（X3） |
+
+- 第 6 章要上傳的範例檔與打開匯出檔的小工具在 [`fixtures/`](fixtures/)（假資料；組別代碼用 `{{G1}}`、`{{G2}}`，跑的時候換成畫面上的代碼）。`python3 -I fixtures/inspect-export.py <檔> [--show 欄,欄]` 也可以手動用來看任何一個匯出檔。
+- **R1 登入次數限制**（[`r1-login-rate-limit.md`](r1-login-rate-limit.md)）：用陳冠廷的 Email 連錯 10 次、第 11 次與正確密碼都要被擋、系辦不受影響。它會把這個帳號從跑的那台 Mac 鎖 10 分鐘，所以整夜計畫（`ops/acceptance-night.sh --plan full`）把它放在並行群 `L`：劇本、UX、資安掃描全部結束後才單獨跑。
 
 **跟上面各站清單不一樣的地方**
 
