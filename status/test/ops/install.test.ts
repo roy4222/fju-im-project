@@ -174,6 +174,7 @@ describe('status-install.sh --dry-run 只印不做', () => {
     expect(r.stdout).toContain('rrsync -wo /srv/fju/status/inbox')
     expect(r.stdout).toContain('/beszel_socket/beszel.sock')
     expect(r.stdout).toContain('fju-status-verify.roy422.dev')
+    expect(r.stdout).toContain('再打 /probe 三次要都是 204，/count 兩次要都是 3')
     expect(r.stdout).toContain('docker cp')
     expect(r.stdout).toContain('--dry-run 結束：沒有建立或改動任何東西')
     expect(mutatingCalls()).toEqual([])
@@ -524,14 +525,27 @@ exit 0
 
 // 假 curl：暫時網址照暫時 cloudflared 有沒有鎖回 403／404／204（沒鎖時 /probe 會讓假 origin 計數加一）；
 // 四個正式網址都回 Access 的 302。
+// FAKE_READY_OPEN_SEQ／FAKE_PROBE_OPEN_SEQ="530 530 …"：沒鎖那輪的 /ready、/probe 先照這串依序回，用完才回正常的碼；
+// 模擬 Cloudflare 邊緣還把請求送到已死的舊連線（530，請求沒到 origin、不計數）。
 const FAKE_CURL = bash(String.raw`#!/bin/bash
 echo "curl $*" >> "$CALLS_LOG"
 url=@{@: -1}
 mode=$(cat "$FAKE_STATE/cf_mode" 2>/dev/null)
+# 從腳本序列取下一個碼（用完回空字串）
+next_scripted() { # <名字> <序列>
+  local f="$FAKE_STATE/seq-$1" i
+  i=$(cat "$f" 2>/dev/null || echo 0)
+  set -- $2
+  [ "$i" -lt $# ] || return 0
+  echo $((i + 1)) > "$f"
+  shift "$i"; printf %s "$1"
+}
 case "$url" in
   https://fju-status-verify.roy422.dev/ready)
+    if [ "$mode" = open ]; then s=$(next_scripted ready "@{FAKE_READY_OPEN_SEQ:-}"); [ -n "$s" ] && { printf %s "$s"; exit 0; }; fi
     case "$mode" in locked) printf 403 ;; open) printf 404 ;; *) printf 000 ;; esac ;;
   https://fju-status-verify.roy422.dev/probe)
+    if [ "$mode" = open ]; then s=$(next_scripted probe "@{FAKE_PROBE_OPEN_SEQ:-}"); [ -n "$s" ] && { printf %s "$s"; exit 0; }; fi
     case "$mode" in
       locked) printf 403 ;;
       open) c=$(cat "$FAKE_STATE/counter"); echo $((c + 1)) > "$FAKE_STATE/counter"; printf 204 ;;
@@ -763,6 +777,24 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     const r = await installOnVm(vm, { FAKE_NETRM_FAIL: '1' })
     expect(r.code).not.toBe(0)
     expect(r.out).toContain('暫時網路 fju-status-verify 刪不掉或確認不了')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+  }, 30_000)
+
+  it('7b 第二輪：/ready 要連續 3 次 404 才開打；/probe 遇 530（沒到 origin）等一下重打同一次 → 通過、輸出寫重試次數', async () => {
+    // VM 第 7 次安裝實況：舊 cloudflared 剛被砍，邊緣節點一陣子還回 530。
+    const r = await installOnVm(vm, { FAKE_READY_OPEN_SEQ: '404 530', FAKE_PROBE_OPEN_SEQ: '530 530' })
+    expect(r.out).toContain('/probe ×3 → 204 204 204（530 重試 2 次）；/count → 3、3')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    // 第一輪 403 連 3 次；第二輪 404、530（歸零）、404×3
+    expect(vmCalls(vm).filter((x) => x.includes('fju-status-verify.roy422.dev/ready'))).toHaveLength(3 + 5)
+  }, 30_000)
+
+  it('7b 第二輪：/probe 一直 530 → 重試 6 次就放棄，碼不是 204×3 就停、不寫通過紀錄', async () => {
+    const r = await installOnVm(vm, { FAKE_PROBE_OPEN_SEQ: Array(7).fill('530').join(' ') })
+    expect(r.out).toContain('/probe ×3 → 530 204 204（530 重試 6 次）')
+    expect(r.out).toContain('第二輪要三次都 204、計數兩次都 3（不符：碼、計數）')
+    expect(r.code).not.toBe(0)
     expect(fs.existsSync(marker(vm))).toBe(false)
   }, 30_000)
 

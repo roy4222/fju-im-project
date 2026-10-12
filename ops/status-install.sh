@@ -1002,27 +1002,50 @@ start_verify_cf() { # <設定檔>
     -v "$1:/etc/cloudflared/config.yml:ro" \
     "$CLOUDFLARED_IMAGE" tunnel --no-autoupdate --config /etc/cloudflared/config.yml run >/dev/null
 }
-# 等暫時網址真的經過 Cloudflare 打到這個 cloudflared：打 /ready（假 origin 回 404、不計數）直到拿到預期的碼。
+# 等暫時網址真的經過 Cloudflare 打到這個 cloudflared：打 /ready（假 origin 回 404、不計數），要連續 3 次拿到預期的碼才算好。
+# 剛換 cloudflared 時，有些 Cloudflare 邊緣節點一陣子還會送到已死的舊連線（530），只看到 1 次對的碼不夠。
 wait_verify_ready() { # <預期碼>
-  local code=""
+  local code="" streak=0
   for _ in $(seq 1 36); do
     code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/ready" || true)
-    [ "$code" = "$1" ] && return 0
+    if [ "$code" = "$1" ]; then
+      streak=$((streak + 1))
+      [ "$streak" -ge 3 ] && return 0
+    else
+      streak=0
+    fi
     sleep 5
   done
-  bad "等了 3 分鐘，${VERIFY_HOST}/ready 還是 ${code}（預期 ${1}）"
+  bad "等了 3 分鐘，${VERIFY_HOST}/ready 沒有連續 3 次 ${1}（最後一次是 ${code}）"
   return 1
 }
-probe3() { # 從 VM 經 Cloudflare 打 /probe 三次，印三個 HTTP 碼
-  local out=""
-  for _ in 1 2 3; do out="${out} $(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)"; done
-  echo "${out# }"
+# 從 VM 經 Cloudflare 打 /probe 三次，三個 HTTP 碼放 PROBE_CODES、530 重試總次數放 PROBE_RETRIES。
+# 530 是 Cloudflare 連不到隧道（請求沒到 origin、不計數），等 5 秒重打同一次，每次最多重試 6 次；其他碼不重試。
+probe3() {
+  local code tries
+  PROBE_CODES=""; PROBE_RETRIES=0
+  for _ in 1 2 3; do
+    tries=0
+    while :; do
+      code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)
+      [ "$code" = 530 ] && [ "$tries" -lt 6 ] || break
+      tries=$((tries + 1)); sleep 5
+    done
+    PROBE_CODES="${PROBE_CODES} ${code}"
+    PROBE_RETRIES=$((PROBE_RETRIES + tries))
+  done
+  PROBE_CODES=${PROBE_CODES# }
+}
+probe_line() { # 印一輪的結果：三個碼（有 530 重試就附次數）與兩次計數
+  local retried=""
+  [ "$PROBE_RETRIES" = 0 ] || retried="（530 重試 ${PROBE_RETRIES} 次）"
+  echo "    /probe ×3 → ${PROBE_CODES}${retried}；/count → ${c1:-?}、${c2:-?}"
 }
 read_count() { # 從暫時網路內讀假 origin 的 /count（唯讀、不計數）
   docker run --rm --network "$VERIFY_NET" "$CURL_IMAGE" -s -m 10 "http://${VERIFY_ORIGIN}:${VERIFY_PORT}/count" | tr -cd '0-9'
 }
 verify_tunnel_lock() {
-  local vid codes c1 c2
+  local vid c1 c2
   # 先清上次可能留下的暫時資源；清不掉也先往下（真的還在，下面建隧道或設 DNS 會撞到而停）。
   cleanup_verify
   VERIFY_CLEANUP_FAILED=0
@@ -1045,25 +1068,28 @@ verify_tunnel_lock() {
   echo "  第一輪：有鎖（access.required: true）"
   start_verify_cf "$LOGIN_DIR/verify-locked.yml" || return 1
   wait_verify_ready 403 || return 1
-  codes=$(probe3); c1=$(read_count); c2=$(read_count)
-  echo "    /probe ×3 → ${codes}；/count → ${c1:-?}、${c2:-?}"
-  [ "$codes" = "403 403 403" ] && [ "$c1" = 0 ] && [ "$c2" = 0 ] \
+  probe3; c1=$(read_count); c2=$(read_count)
+  probe_line
+  [ "$PROBE_CODES" = "403 403 403" ] && [ "$c1" = 0 ] && [ "$c2" = 0 ] \
     || { bad "第一輪要三次都 403、計數兩次都 0"; return 1; }
   ok "三次都被隧道端擋下（403），假 origin 一個都沒收到"
 
   echo "  第二輪（突變）：同一份設定拿掉 originRequest.access"
   start_verify_cf "$LOGIN_DIR/verify-open.yml" || return 1
   wait_verify_ready 404 || return 1
-  codes=$(probe3); c1=$(read_count); c2=$(read_count)
-  echo "    /probe ×3 → ${codes}；/count → ${c1:-?}、${c2:-?}"
-  [ "$c1" = 3 ] && [ "$c2" = 3 ] || { bad "第二輪計數要兩次都剛好 3"; return 1; }
+  probe3; c1=$(read_count); c2=$(read_count)
+  probe_line
+  local miss=""
+  [ "$PROBE_CODES" = "204 204 204" ] || miss="碼"
+  [ "$c1" = 3 ] && [ "$c2" = 3 ] || miss="${miss:+${miss}、}計數"
+  [ -z "$miss" ] || { bad "第二輪要三次都 204、計數兩次都 3（不符：${miss}）"; return 1; }
   ok "拿掉鎖後假 origin 剛好收到 3 個：這個測試分得出有鎖沒鎖"
 }
 if [ "$DRY_RUN" = 1 ]; then
   if [ "$NEED_LOGIN" = 1 ]; then
     todo "會建暫時網路 ${VERIFY_NET}、假 origin（${STATUS_IMAGE} node verify-origin.mjs）、暫時隧道 ${VERIFY_TUNNEL}、DNS ${VERIFY_HOST}"
     todo "第一輪（有鎖）：從 VM 打 https://${VERIFY_HOST}/probe 三次要都是 403，暫時網路內（${CURL_IMAGE}）讀 /count 兩次要都是 0"
-    todo "第二輪（拿掉 access）：再打 /probe 三次，/count 兩次要都是 3"
+    todo "第二輪（拿掉 access）：再打 /probe 三次要都是 204，/count 兩次要都是 3（/probe 遇 530 會等 5 秒重打，最多 6 次）"
     todo "最後刪暫時容器、網路、隧道、DNS，再刪 cert.pem；任一不符就停在這一步、結束碼 1"
   else
     skip "已通過（$(sed -n 's/^at=//p' "$VERIFY_MARKER" 2>/dev/null)）"
@@ -1085,7 +1111,7 @@ else
   [ "$VERIFY_CLEANUP_FAILED" = 0 ] \
     || halt 1 "驗證本身通過，但暫時資源沒確定清乾淨（上面有印）：不寫通過紀錄。手動刪掉後重跑同一行，會重新核對"
   { marker_body; printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } | write_file 600 root:root "$VERIFY_MARKER"
-  note "✓" "有鎖 403×3／計數 0；拿掉鎖計數 3；四類暫時資源確定已清"
+  note "✓" "有鎖 403×3／計數 0；拿掉鎖 204×3／計數 3；四類暫時資源確定已清"
 fi
 
 # ---------------------------------------------------------------------------
