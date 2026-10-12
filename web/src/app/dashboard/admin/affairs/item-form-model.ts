@@ -151,3 +151,15 @@ export function newRequestId(): string {
 /** 附件大小的顯示字：全站同一套（KB／MB，見 `shared/format-bytes.ts`）。 */
 export const formatSize = formatBytes
 
+
+// ── 發布前「會通知幾位」的說明 ─────────────────────────────────────────────────
+
+/** 這次送出什麼情況會發通知：新公告／資源看「重要公告」、已發布的修改看「通知這次的修改」、榮譽榜一律不發。 */
+export type NotifyWhen = 'important' | 'update' | 'never'
+
+/** 公告／資源的人數說明（驗收第 2 章 P-06）：照實寫出「勾了才通知」，不要讓人以為一定會通知。 */
+export function notifyPreviewText(count: number, when: NotifyWhen): string {
+  if (when === 'never') return '榮譽榜不發站內通知。'
+  if (count <= 0) return '這個對象目前沒有可以通知的人。'
+  return when === 'important' ? `若勾選「重要公告」，會通知 ${count} 位。` : `若勾選通知這次的修改，會通知 ${count} 位。`
+}

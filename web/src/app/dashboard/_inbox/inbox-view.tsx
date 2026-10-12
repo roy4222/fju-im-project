@@ -16,7 +16,9 @@ import type { InboxItem } from '@/application/notifications'
 import { PageTitle, Panel, pillClass } from '@/app/_ui/dashboard-kit'
 import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/_inbox/inbox-forms'
 import {
+  cohortLabel,
   getInboxQuery,
+  inboxCohortText,
   inboxFilterParam,
   notificationKindLabel,
   parseInboxFilter,
@@ -70,7 +72,7 @@ export async function InboxView({
   const chips: { value: string | null; label: string }[] = [
     { value: null, label: '全部' },
     { value: 'global', label: '全站' },
-    ...cohorts.map((c) => ({ value: c.cohortId, label: c.code })),
+    ...cohorts.map((c) => ({ value: c.cohortId, label: cohortLabel(c) })),
   ]
   const active = chips.find((c) => c.value === filterValue) ?? chips[0]!
 
@@ -167,7 +169,7 @@ function InboxRow({ item }: { item: InboxItem }) {
             {notificationKindLabel(item.kind)}
           </span>
           <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
-            {item.cohortCode ?? '全站'}
+            {inboxCohortText(item)}
           </span>
           {href ? (
             <Link href={href} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')}>
