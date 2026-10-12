@@ -147,7 +147,7 @@ else
   todo "VM 上 docker network ls 若還沒有 fju-edge-test／fju-edge-prod：同步會把主站 compose 換成拆分版，網路還沒建、Caddy 還沒接之前恢復自動部署會讓下一個新 SHA 部署失敗或測試站 502。所以照下面順序做完搬遷才恢復；今晚只想裝後台就改帶 --keep-site-compose"
   echo "  代號＝ops/README.md〈兩站網路拆分上線步驟〉的框；B3 的 rsync 用下面這段（帶備份核對與 cloudflared.yml 保護），不要用 README 那一行。"
   echo "  5-1 B1 暫停自動部署、等正在跑的那次結束"
-  echo "  5-2 B2 記下目前版本 \$SHA（同一個 shell 裡要記得住）"
+  echo "  5-2 B2 記下目前版本 \${SHA}（同一個 shell 裡要記得住）"
   echo "  5-3 備份並核對完整，通過才同步："
   printf '\n%s\n\n' "$SYNC_BLOCK"
   echo "  5-4 關卡：Doppler stg 探針（不印值）——印 REGISTRATION_OPEN：other 才往下，Roy 再到 Doppler 網頁確認值剛好是 true；印 absent／false 就停、改走 --keep-site-compose："

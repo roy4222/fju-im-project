@@ -384,12 +384,10 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     '5-8 E ',
     'sudo bash /srv/fju/app/ops/status-install.sh --access-team',
   ]
-  function indexes(out: string, needles: string[]) {
-    return needles.map((n) => {
-      const i = out.indexOf(n)
-      expect(i, `找不到「${n}」`).toBeGreaterThanOrEqual(0)
-      return i
-    })
+  function at(out: string, needle: string): number {
+    const i = out.indexOf(needle)
+    expect(i, `找不到「${needle}」`).toBeGreaterThanOrEqual(0)
+    return i
   }
 
   it('不產金鑰、不連 VM；印兩支重置腳本 sha256、rsync 預檢與安裝那一行', () => {
@@ -410,8 +408,12 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     expect(r.code).toBe(0)
     expect(r.stdout).not.toContain('/srv/fju/app/ && sudo bash')
     expect(r.stdout).not.toContain("--exclude='/docker-compose")
-    const idx = indexes(r.stdout, ORDER)
-    for (let i = 1; i < idx.length; i++) expect(idx[i], `「${ORDER[i]}」要在「${ORDER[i - 1]}」之後`).toBeGreaterThan(idx[i - 1])
+    let prev = -1
+    for (const needle of ORDER) {
+      const i = at(r.stdout, needle)
+      expect(i, `「${needle}」要在前一項之後`).toBeGreaterThan(prev)
+      prev = i
+    }
     expect(r.stdout).toContain('6. 安裝開發者後台')
   })
 
@@ -425,11 +427,9 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     expect(r.stdout).toMatch(/\/srv\/fju\/app\/ && sudo diff -r --exclude=cloudflared\.yml \/tmp\/fju-app \/srv\/fju\/app && echo "✓ 已同步/)
     expect(r.stdout).toContain('✗ 停在同步：還原 → sudo rsync -a --delete ${BAK:?}/ /srv/fju/app/')
     // 探針在 rsync 之後、vm-setup 之前；印 absent／false 就停並給還原
-    const [rsyncAt, probeAt, setupAt] = indexes(r.stdout, [
-      "--chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo diff",
-      'sudo -u deploy /srv/fju/app/ops/status-envcheck.sh test --out /tmp/envcheck-test.json',
-      'vm-setup.sh --check',
-    ])
+    const rsyncAt = at(r.stdout, '--chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo diff')
+    const probeAt = at(r.stdout, 'sudo -u deploy /srv/fju/app/ops/status-envcheck.sh test --out /tmp/envcheck-test.json')
+    const setupAt = at(r.stdout, 'vm-setup.sh --check')
     expect(probeAt).toBeGreaterThan(rsyncAt)
     expect(setupAt).toBeGreaterThan(probeAt)
     expect(r.stdout).toContain('REGISTRATION_OPEN：other 才往下')
@@ -446,12 +446,10 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     expect(r.stdout).not.toContain('/srv/fju/app/ && sudo bash')
     expect(r.stdout).not.toContain('C1a')
     expect(r.stdout).not.toContain('status-envcheck.sh test')
-    const [cpAt, rsyncAt, resumeAt, installAt] = indexes(r.stdout, [
-      'sudo cp -a /srv/fju/app',
-      rsyncLine,
-      'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused',
-      'sudo bash /srv/fju/app/ops/status-install.sh --access-team',
-    ])
+    const cpAt = at(r.stdout, 'sudo cp -a /srv/fju/app')
+    const rsyncAt = at(r.stdout, rsyncLine)
+    const resumeAt = at(r.stdout, 'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused')
+    const installAt = at(r.stdout, 'sudo bash /srv/fju/app/ops/status-install.sh --access-team')
     expect(rsyncAt).toBeGreaterThan(cpAt)
     expect(resumeAt).toBeGreaterThan(rsyncAt)
     expect(installAt).toBeGreaterThan(resumeAt)
@@ -496,7 +494,7 @@ describe('prepare 第 5-3 同步鏈：任一步失敗就停、不往下寫、印
   function runSync(env: Record<string, string> = {}) {
     const r = spawnSync('bash', ['-c', syncBlock()], {
       encoding: 'utf8',
-      env: { PATH: `${sbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
+      env: { NODE_ENV: 'test', PATH: `${sbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
     })
     return { code: r.status, stdout: r.stdout, out: `${r.stdout}${r.stderr}` }
   }
@@ -552,7 +550,7 @@ describe('prepare 第 5-3 同步鏈：任一步失敗就停、不往下寫、印
     expect(r.code).toBe(0)
     const baks = fs.readdirSync(path.join(dir, 'srv')).filter((n) => n.startsWith('app.bak-'))
     expect(baks).toHaveLength(1)
-    expect(tree(path.join(dir, 'srv', baks[0]))).toEqual(before)
+    expect(tree(path.join(dir, 'srv', baks[0] ?? ''))).toEqual(before)
     expect(tree(app)).toEqual([
       'docker-compose.status.yml=status\n',
       'docker-compose.vm.yml=new-vm\n',
@@ -614,7 +612,7 @@ describe('README T4 D 框：Caddy 接對兩個網路且測試站 200 才清理�
   function runD(env: Record<string, string>) {
     const r = spawnSync('bash', [script], {
       encoding: 'utf8',
-      env: { PATH: `${dbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
+      env: { NODE_ENV: 'test', PATH: `${dbin}:${process.env.PATH}`, HOME: dir, CALLS_LOG: callsLog, LANG: 'C.UTF-8', ...env },
     })
     return { code: r.status, out: `${r.stdout}${r.stderr}` }
   }
