@@ -20,9 +20,6 @@ export const POSTER_UPLOAD: { readonly allowedTypes: readonly FileTypeId[]; read
   maxBytes: 10 * 1024 * 1024,
 }
 
-/** 閘門欄在 S11 固定顯示的文案（S11-03：以固定文案代替 S12 的公開閘門）。 */
-export const GATE_PLACEHOLDER = '尚無授權'
-
 /**
  * 摘要正規化：Unicode NFC、換行統一成 `\n`、每行去掉行尾空白、整段去掉頭尾空白。
  * 「前後多一個空白」「Windows 換行」不算改了摘要（S11-03 整合：相同摘要含前後空白差異 checksum 穩定）；

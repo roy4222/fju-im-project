@@ -1,14 +1,30 @@
 'use client'
+import Link from 'next/link'
 import { useActionState, useState } from 'react'
-import { createDraftAction, requestPosterUploadAction, updateDraftAction } from './actions'
-import { Feedback, INPUT, LABEL, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
+import {
+  createDraftAction,
+  deleteEntryAction,
+  publishAction,
+  republishAction,
+  requestPosterUploadAction,
+  setAwardAction,
+  updateDraftAction,
+  withdrawAction,
+} from './actions'
+import { buttonVariants } from '@/app/_ui/ui/button'
+import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
+
+const DANGER = buttonVariants({ variant: 'destructive', size: 'lg', className: 'press rounded-lg px-3 font-semibold disabled:opacity-60' })
 
 /**
  * 管理員「精選」頁會動的部分（票 25／S11-03）：替一組建立精選草稿、編輯草稿（題目、摘要、影片連結、海報）。
  *
  * 海報：先向伺服器要一張上傳憑證（只收 PNG／JPG），再把位元組直接 POST 到 `/api/files/upload`；
  * 上傳完只是「選好了」，按「儲存草稿」才真的換上去（伺服器綁新檔、放掉舊檔）。存草稿時帶著畫面看到的草稿版本，
- * 別人先存過就被拒、請重新載入。草稿不公開、沒有發布按鈕（發布在 S12）。
+ * 別人先存過就被拒、請重新載入。草稿不公開。
+ *
+ * 第三波 W2：發布（勾「已取得這組同學同意公開」才按得下去）、下架、重新發布、獎項、刪除（危險操作區＋確認視窗，
+ * 設計方案 §9 規則 1）。狀態規則在用例裡判；畫面只把不能按的鈕停用並寫原因。
  */
 
 export type ShowcaseActionState = { ok: boolean; message: string } | undefined
@@ -195,9 +211,195 @@ export function DraftEditor({
         <button type="submit" className={PRIMARY} disabled={disabled || pending || uploading}>
           {pending ? '儲存中…' : '儲存草稿'}
         </button>
-        <span className="text-xs text-muted-foreground">草稿第 {revision} 版・只存不發布</span>
+        <span className="text-xs text-muted-foreground">草稿第 {revision} 版・存草稿不會改到前台，發布後才公開</span>
       </div>
       <Feedback state={state} />
     </form>
+  )
+}
+
+type EntryRef = { entryId: string; revision: number; requestId: string; label: string }
+
+function EntryHidden({ entryId, revision, requestId }: Omit<EntryRef, 'label'>) {
+  return (
+    <>
+      <input type="hidden" name="requestId" value={requestId} />
+      <input type="hidden" name="entryId" value={entryId} />
+      <input type="hidden" name="revision" value={revision} />
+    </>
+  )
+}
+
+/**
+ * 發布狀態：草稿 → 勾同意＋發布；公開中 → 下架；已下架 → 重新發布。下架、重新發布可以來回，不加確認視窗
+ * （§9 規則 1：只有不可逆或影響多人的才確認），只把後果寫在按鈕旁。
+ */
+export function PublishPanel({
+  status,
+  titleMissing,
+  ...ref
+}: EntryRef & { status: 'draft' | 'published' | 'withdrawn'; titleMissing: boolean }) {
+  const [publishState, publish, publishing] = useActionState(publishAction, undefined)
+  const [withdrawState, withdraw, withdrawing] = useActionState(withdrawAction, undefined)
+  const [republishState, republish, republishing] = useActionState(republishAction, undefined)
+  const [consent, setConsent] = useState(false)
+
+  if (status === 'draft') {
+    const reason = titleMissing ? '題目還是空白，先在上面填好題目並儲存草稿。' : consent ? null : '要先勾選上面的同意，才能發布。'
+    return (
+      <form action={publish} className="space-y-2" aria-label={`發布 ${ref.label}`}>
+        <EntryHidden {...ref} />
+        <label className="flex items-start gap-2 text-sm text-ink">
+          <input type="checkbox" name="consent" value="yes" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4" />
+          <span>
+            已取得這組同學同意公開
+            <span className="block text-xs text-muted-foreground">系統會記下是你勾的。發布後登入的師生在「歷屆專題一覽」看得到；有選獎項的訪客也看得到。</span>
+          </span>
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" className={PRIMARY} disabled={reason !== null || publishing}>
+            {publishing ? '發布中…' : '發布'}
+          </button>
+          {reason ? <span className="text-xs text-muted-foreground">{reason}</span> : null}
+        </div>
+        <Feedback state={publishState} />
+      </form>
+    )
+  }
+  if (status === 'published') {
+    return (
+      <form action={withdraw} className="space-y-2" aria-label={`下架 ${ref.label}`}>
+        <EntryHidden {...ref} />
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" className={SECONDARY} disabled={withdrawing}>
+            {withdrawing ? '下架中…' : '下架'}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            下架後前台看不到（作品網址顯示「這則作品已下架」），海報也不再公開；後台保留，之後可以重新發布。
+          </span>
+        </div>
+        <Feedback state={withdrawState} />
+      </form>
+    )
+  }
+  return (
+    <form action={republish} className="space-y-2" aria-label={`重新發布 ${ref.label}`}>
+      <EntryHidden {...ref} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" className={PRIMARY} disabled={republishing}>
+          {republishing ? '發布中…' : '重新發布'}
+        </button>
+        <span className="text-xs text-muted-foreground">用下架前的那一版重新公開，不會換成目前的草稿內容。</span>
+      </div>
+      <Feedback state={republishState} />
+    </form>
+  )
+}
+
+/** 獎項：選了等級才會上「優秀專題」與首頁輪播（§9 規則 2：相依設定就地說明＋入口）。 */
+export function AwardForm({
+  award,
+  awardLabel,
+  labelMax,
+  ...ref
+}: EntryRef & { award: 'excellent' | 'merit' | null; awardLabel: string | null; labelMax: number }) {
+  const [state, action, pending] = useActionState(setAwardAction, undefined)
+  const [level, setLevel] = useState<string>(award ?? '')
+  const [label, setLabel] = useState(awardLabel ?? '')
+  return (
+    <form action={action} className="space-y-2" aria-label={`${ref.label} 的獎項`}>
+      <EntryHidden {...ref} />
+      <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <label className={LABEL}>
+          獎項等級
+          <select
+            name="awardLevel"
+            className={INPUT}
+            value={level}
+            onChange={(e) => {
+              setLevel(e.target.value)
+              if (e.target.value === '') setLabel('')
+            }}
+          >
+            <option value="">沒有獎項</option>
+            <option value="excellent">優秀專題</option>
+            <option value="merit">佳作</option>
+          </select>
+        </label>
+        <label className={LABEL}>
+          獎項名稱（選填，最多 {labelMax} 字）
+          <input
+            name="awardLabel"
+            className={INPUT}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={labelMax}
+            disabled={level === ''}
+            placeholder={level === '' ? '先選獎項等級' : '例如：第 43 屆專題競賽第一名'}
+          />
+        </label>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        選了獎項、而且作品公開中，才會出現在
+        <Link href="/projects/featured" className="mx-1 underline underline-offset-2" target="_blank">
+          「優秀專題」
+        </Link>
+        與首頁輪播；沒有獎項的只在登入後的「歷屆專題一覽」。
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" className={SECONDARY} disabled={pending}>
+          {pending ? '儲存中…' : '儲存獎項'}
+        </button>
+      </div>
+      <Feedback state={state} />
+    </form>
+  )
+}
+
+/** 危險操作：刪除（§9 規則 1：對象、範圍、後果、能不能恢復；確認鈕寫動作）。公開中時停用並寫原因。 */
+export function DeleteEntry({ blockedReason, title, ...ref }: EntryRef & { blockedReason: string | null; title: string }) {
+  const [state, action, pending] = useActionState(deleteEntryAction, undefined)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className={DANGER}
+          onClick={dialog.open}
+          disabled={blockedReason !== null}
+        >
+          刪除這件作品
+        </button>
+        <span className="text-xs text-muted-foreground">{blockedReason ?? '刪除後看板與前台都不再出現，不能恢復。'}</span>
+      </div>
+      <Feedback state={state?.ok ? state : undefined} />
+      <dialog ref={dialog.ref} aria-label="刪除作品" className={DIALOG}>
+        <form action={action} className="space-y-4 p-5">
+          <EntryHidden {...ref} />
+          <div>
+            <h2 className="text-lg font-extrabold text-foreground">刪除 {ref.label}</h2>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>對象：「{title || '（未填題目）'}」這一件作品，含草稿與已發布過的版本。</li>
+              <li>後果：精選看板、優秀專題、歷屆專題一覽都不再出現；作品網址顯示找不到，海報也打不開（系辦也一樣）。</li>
+              <li>操作紀錄會留一筆是誰刪的。</li>
+              <li>
+                <b className="text-foreground">不能恢復</b>；只是暫時不想公開，請改用「下架」。
+              </li>
+            </ul>
+          </div>
+          <Feedback state={state?.ok ? undefined : state} />
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" className={SECONDARY} onClick={dialog.close}>
+              先不要
+            </button>
+            <button type="submit" disabled={pending} className={DANGER}>
+              {pending ? '刪除中…' : '刪除這件作品'}
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </div>
   )
 }

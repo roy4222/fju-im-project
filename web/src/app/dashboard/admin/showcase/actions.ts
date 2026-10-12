@@ -3,10 +3,20 @@ import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { ShowcaseActionState } from '@/app/dashboard/admin/showcase/showcase-forms'
 import type { UploadTicket } from '@/application/ops'
-import { describeCreateDraftReceipt, describeUpdateDraftReceipt, getShowcaseCommand } from '@/composition/showcase'
+import {
+  describeCreateDraftReceipt,
+  describeDeleteReceipt,
+  describePublishReceipt,
+  describeRepublishReceipt,
+  describeSetAwardReceipt,
+  describeUpdateDraftReceipt,
+  describeWithdrawReceipt,
+  getShowcaseCommand,
+} from '@/composition/showcase'
 
 /**
- * 管理員「精選」頁的動作（票 25／S11-03）：替一組建立精選草稿、存草稿、要海報上傳憑證。
+ * 管理員「精選」頁的動作（票 25／S11-03）：替一組建立精選草稿、存草稿、要海報上傳憑證；
+ * 第三波 W2：發布（勾同意）、下架、重新發布、設獎項、刪除。
  * 海報的位元組不走 Server Action，由瀏覽器直接 POST 到 `/api/files/upload`（契約 02 §6）。
  * 規則全在用例裡判；這裡只把表單收斂成用例要的形狀、把結果翻成一句話。
  */
@@ -55,4 +65,53 @@ export async function requestPosterUploadAction(input: {
   if (!result.ok) return { ok: false, message: result.message }
   const { ticket, fileId, maxBytes, expiresAt } = result.receipt
   return { ok: true, ticket: { ticket, fileId, maxBytes, expiresAt } }
+}
+
+/** 發布、下架、重新發布、獎項、刪除：表單都帶條目編號、畫面看到的條目版本與請求編號。 */
+function entryRef(formData: FormData) {
+  return { entryId: text(formData, 'entryId', 100), revision: Number(text(formData, 'revision', 20)) }
+}
+
+export async function publishAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  // 勾的人由用例從登入者取（Q31）；表單只帶有沒有勾。
+  const result = await getShowcaseCommand().publish(
+    await currentActor(),
+    { ...entryRef(formData), consent: formData.get('consent') === 'yes' },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describePublishReceipt(result.receipt) }
+}
+
+export async function withdrawAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  const result = await getShowcaseCommand().withdraw(await currentActor(), entryRef(formData), text(formData, 'requestId'))
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeWithdrawReceipt(result.receipt) }
+}
+
+export async function republishAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  const result = await getShowcaseCommand().republish(await currentActor(), entryRef(formData), text(formData, 'requestId'))
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeRepublishReceipt(result.receipt) }
+}
+
+export async function setAwardAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  const result = await getShowcaseCommand().setAward(
+    await currentActor(),
+    { ...entryRef(formData), level: text(formData, 'awardLevel', 20), label: text(formData, 'awardLabel', 1_000) },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeSetAwardReceipt(result.receipt) }
+}
+
+export async function deleteEntryAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  const result = await getShowcaseCommand().delete(await currentActor(), entryRef(formData), text(formData, 'requestId'))
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeDeleteReceipt(result.receipt) }
 }
