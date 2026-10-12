@@ -203,7 +203,7 @@
       "status": "review",
       "owner": "Opus",
       "branch": "claude/s2-status-config",
-      "pr": null,
+      "pr": 356,
       "dependsOn": [],
       "acceptance": ["AC-S-23"],
       "note": ""
