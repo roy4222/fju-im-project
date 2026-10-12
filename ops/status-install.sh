@@ -1098,7 +1098,7 @@ verify_tunnel_lock() {
   docker pull -q "$CURL_IMAGE" >/dev/null || { bad "拉不到 ${CURL_IMAGE}"; return 1; }
   docker network create "$VERIFY_NET" >/dev/null || return 1
   docker run -d --name "$VERIFY_ORIGIN" --network "$VERIFY_NET" --network-alias "$VERIFY_ALIAS" --memory 64m \
-    -e PORT="$VERIFY_PORT" --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
+    -e VERIFY_ORIGIN_PORT="$VERIFY_PORT" --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
   cf create --credentials-file /cf/.cloudflared/verify.json "$VERIFY_TUNNEL" >/dev/null || { bad "建暫時隧道失敗"; return 1; }
   route_dns "$VERIFY_TUNNEL" "$VERIFY_HOST" || return 1
   vid=$(cred_tunnel_id "$LOGIN_DIR/verify.json") || { bad "讀不到暫時隧道的憑證"; return 1; }
