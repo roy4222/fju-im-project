@@ -108,7 +108,7 @@ export async function adminPage(browser: Browser): Promise<Page> {
  * 伺服器回來的那一句成功回饋。限定在 `<main>`（避開 Next 的換頁播報器），再用文字挑：
  * 同一頁可能同時掛著好幾句回饋。
  */
-export async function expectStatus(page: Page, text: string) {
+export async function expectStatus(page: Page, text: string | RegExp) {
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: text })).toBeVisible()
 }
 
@@ -138,7 +138,7 @@ export async function searchAccounts(page: Page, q: string) {
   await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
 }
 
-export type FlagLabel = '開放註冊中' | '預設工作中'
+export type FlagLabel = '新註冊加入這屆' | '後台預設查看中'
 
 /** 某個旗標目前在哪一屆（沒有就 null）。要先開在屆別頁。 */
 export async function flagHolder(page: Page, held: FlagLabel): Promise<string | null> {
@@ -153,7 +153,7 @@ export type Flags = { registrationOpen: string | null; defaultWorking: string | 
 export async function readFlags(page: Page): Promise<Flags> {
   await page.goto('/dashboard/admin/cohorts')
   await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-  return { registrationOpen: await flagHolder(page, '開放註冊中'), defaultWorking: await flagHolder(page, '預設工作中') }
+  return { registrationOpen: await flagHolder(page, '新註冊加入這屆'), defaultWorking: await flagHolder(page, '後台預設查看中') }
 }
 
 /** 把兩個全系唯一的旗標還給原本的屆別（原本沒有、或原本就是這一輪的屆別就不動）。 */

@@ -123,12 +123,12 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
 
   await admin.getByRole('button', { name: '新增老師', exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '新增老師' })
-  await dialog.getByLabel('只用 Email 預授權').check()
+  await dialog.getByLabel('只用 Email 預先建立').check()
   // 預授權不發密碼，也就不需要核實方式。
   await expect(dialog.getByText('怎麼確認是本人')).toHaveCount(0)
   await dialog.getByLabel('登入 Email').fill(email)
-  await dialog.getByRole('button', { name: '建立預授權' }).click()
-  await expect(dialog.getByRole('status')).toContainText('已建立預授權')
+  await dialog.getByRole('button', { name: '預先建立帳號' }).click()
+  await expect(dialog.getByRole('status')).toContainText('已預先建立老師帳號')
   await expect(dialog.getByTestId('temporary-password')).toHaveCount(0)
   await dialog.getByRole('button', { name: '關閉' }).click()
 
@@ -158,7 +158,7 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   // 校方管道要寫由誰、透過什麼管道——伺服器擋下。
   await expect(temp.getByRole('alert')).toContainText('由誰、透過什麼管道')
-  await temp.getByLabel(/核實說明/).fill('系主任秘書以系上分機回撥確認')
+  await temp.getByLabel(/怎麼確認的說明/).fill('系主任秘書以系上分機回撥確認')
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   const secret = (await temp.getByTestId('temporary-password').innerText()).trim()
   await temp.getByRole('button', { name: '關閉' }).click()

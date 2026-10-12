@@ -184,14 +184,14 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   // 工作台的「收件名單」欄是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
-  await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /應交 2 位/ }).click()
+  await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /需要繳交 2 位/ }).click()
   await expect(page).toHaveURL(new RegExp(`${rosterPath()}$`))
   await expect(page.getByRole('heading', { name: TITLE })).toBeVisible()
 
   const tabs = page.getByRole('navigation', { name: '名單分類' })
   await expect(tabs.getByRole('link', { name: /目前名單\s*2/ })).toBeVisible()
-  await expect(tabs.getByRole('link', { name: /免填\s*1/ })).toBeVisible()
-  await expect(tabs.getByRole('link', { name: /已移出\s*1/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /免繳\s*1/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /已移出名單\s*1/ })).toBeVisible()
   await expect(page.getByTestId('completion-rate')).toHaveText('0／2')
 
   const current = page.getByTestId('roster-current')
@@ -201,7 +201,7 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
   await expect(current).not.toContainText(exempted.name)
   await expect(current.getByTestId('roster-status').first()).toHaveText('未繳')
 
-  await tabs.getByRole('link', { name: /免填/ }).click()
+  await tabs.getByRole('link', { name: /免繳/ }).click()
   await expect(page.getByTestId('roster-exempt')).toContainText(exempted.name)
   await expect(page.getByTestId('roster-exempt')).toContainText('休學中')
   await tabs.getByRole('link', { name: /已移出/ }).click()
@@ -262,11 +262,11 @@ test('點一個人看每一次正式送出與那一次的回答；已移出的�
   await expect(version).toContainText('想做的題目')
   await expect(version).toContainText('校園導覽 App')
   await expect(version).toContainText('一般專題')
-  await expect(version).toContainText('採計')
+  await expect(version).toContainText('以此版為準')
 
   await page.goto(`${rosterPath()}?list=removed`)
   await page.getByRole('link', { name: `查看 ${removed.name} 的回答` }).click()
-  await expect(page.getByTestId('receiver-view')).toContainText('已移出（轉到別屆）・回答保留')
+  await expect(page.getByTestId('receiver-view')).toContainText('已從繳交名單移除（轉到別屆）・回答保留')
   await expect(page.getByTestId('receiver-view')).toContainText('還沒有正式送出過。')
 })
 

@@ -41,10 +41,10 @@ test('老師兼系辦：在兩個後台之間用帳號選單切換', async ({ br
 
   // 前台：「回後台」按鈕去預設的系辦後台，帳號選單兩個後台都列。
   await page.goto('/')
-  await expect(page.getByRole('banner').getByRole('link', { name: '管理後台', exact: true })).toHaveAttribute('href', '/dashboard/admin')
+  await expect(page.getByRole('banner').getByRole('link', { name: '我的後台（系辦）', exact: true })).toHaveAttribute('href', '/dashboard/admin')
   menu = await openAccountMenu(page)
-  await expect(menu.getByRole('menuitem', { name: '管理後台' })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: '老師工作台' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '我的後台（系辦）' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '我的後台（老師）' })).toBeVisible()
 })
 
 test('只有老師角色：帳號選單沒有切換，直接打系辦後台被擋', async ({ browser, page: seedPage }) => {
@@ -61,6 +61,6 @@ test('只有老師角色：帳號選單沒有切換，直接打系辦後台被�
 
   await page.goto('/')
   const front = await openAccountMenu(page)
-  await expect(front.getByRole('menuitem', { name: '老師工作台' })).toBeVisible()
-  await expect(front.getByRole('menuitem', { name: '管理後台' })).toHaveCount(0)
+  await expect(front.getByRole('menuitem', { name: '我的後台', exact: true })).toBeVisible()
+  await expect(front.getByRole('menuitem', { name: '我的後台（系辦）' })).toHaveCount(0)
 })

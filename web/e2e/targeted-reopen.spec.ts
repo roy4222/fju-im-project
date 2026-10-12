@@ -266,7 +266,7 @@ test('2. 只有被開放的學生收到通知、能交，版本標「補交」',
   await page.getByRole('radio', { name: '一般專題' }).check()
   await page.getByRole('button', { name: '正式送出' }).click()
   const receipt = page.getByTestId('receipt')
-  await expect(receipt).toContainText('已收件')
+  await expect(receipt).toContainText('已送出')
   await expect(receipt).toContainText('v1')
   await receipt.getByRole('button', { name: '關閉' }).click()
 

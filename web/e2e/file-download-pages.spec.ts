@@ -133,7 +133,7 @@ test('系辦發布「本屆學生」公告並附 PDF', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill('<p>附件是說明會簡章。</p>')
   await dialog.locator('input[type=file]').setInputFiles({ name: '說明會簡章.pdf', mimeType: 'application/pdf', buffer: PDF })

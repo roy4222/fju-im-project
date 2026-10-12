@@ -105,7 +105,7 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` })
   await dialog.getByLabel('核准進哪一屆').selectOption({ label: `${cohortName}（${cohortCode}）` })
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
-  await dialog.getByLabel(/^核實說明/).fill(note)
+  await dialog.getByLabel(/^怎麼確認的說明/).fill(note)
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
 

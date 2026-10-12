@@ -77,8 +77,8 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
 
   // 重新整理：新增表單的回饋不留在畫面上，下面才只會有一句回饋。
   await page.reload()
-  await page.getByRole('button', { name: `把 ${CODE} 設為預設工作屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 設為預設工作屆別`)
+  await page.getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`已把後台預設查看的屆別設為.*（${CODE}）`))
 
   // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()

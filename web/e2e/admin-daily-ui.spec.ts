@@ -85,7 +85,7 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /資源下載/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('發布對象').selectOption('signed_in')
+  await dialog.getByLabel('誰看得到').selectOption('signed_in')
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.locator('input[type=file]').setInputFiles({ name: FILE_NAME, mimeType: 'application/pdf', buffer: PDF })
   await expect(dialog.getByRole('link', { name: FILE_NAME })).toBeVisible()
@@ -106,7 +106,7 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
 
   const row = page.getByTestId('file-row').filter({ hasText: FILE_NAME })
   await expect(row).toHaveCount(1)
-  await expect(row).toContainText('公開資源')
+  await expect(row).toContainText('資源附件')
   await expect(row.getByRole('link', { name: TITLE })).toHaveAttribute('href', `/dashboard/admin/editor/${itemId}`)
   await expect(row.getByRole('link', { name: `下載 ${FILE_NAME}` })).toHaveAttribute('href', /^\/api\/files\/[0-9a-f-]{36}$/)
   await expect(row.getByRole('link', { name: '去解除引用' })).toHaveAttribute('href', `/dashboard/admin/editor/${itemId}`)

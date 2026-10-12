@@ -122,10 +122,10 @@ export async function createCohortWithFlags(admin: Page, code: string, name: str
   await admin.getByRole('button', { name: '新增屆別' }).click()
   await expectStatus(admin, `已新增屆別 ${code}`)
   await admin.reload()
-  await admin.getByRole('button', { name: `把 ${code} 設為開放註冊屆別` }).click()
-  await expectStatus(admin, `已把 ${code} 設為開放註冊屆別`)
-  await admin.getByRole('button', { name: `把 ${code} 設為預設工作屆別` }).click()
-  await expectStatus(admin, `已把 ${code} 設為預設工作屆別`)
+  await admin.getByRole('button', { name: `把 ${code} 設為新註冊學生加入的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把新註冊學生加入的屆別設為.*（${code}）`))
+  await admin.getByRole('button', { name: `把 ${code} 設為後台預設查看的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把後台預設查看的屆別設為.*（${code}）`))
 }
 
 /** 時間軸填四階段（預設 −10／+30／+90／+150 天）與年度結束日 +300 天。 */
@@ -286,7 +286,7 @@ export async function publishFromEditor(page: Page): Promise<string> {
   const check = page.getByRole('dialog', { name: '發布前檢查' })
   await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
   await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單')
   const text = await check.getByRole('status').innerText()
   await expect(page.getByTestId('item-status')).toHaveText('發布中')
   return text
@@ -389,7 +389,7 @@ async function lockWithTemporaryPassword(admin: Page, name: string): Promise<Ret
   await row.getByRole('button', { name: `發臨時密碼給 ${name}`, exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '發臨時密碼' })
   await dialog.getByRole('radio').first().check()
-  const note = dialog.getByLabel(/核實說明/)
+  const note = dialog.getByLabel(/怎麼確認的說明/)
   if ((await note.count()) > 0) await note.fill('149 補驗收尾')
   await dialog.getByLabel(/^理由/).fill('149 補驗收尾：作廢測試密碼（最後一位組長停不掉，票 42）')
   await dialog.getByRole('button', { name: '產生一次性密碼' }).click()

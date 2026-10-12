@@ -187,7 +187,7 @@ test('發起五人提案：五人都被占住、各有邀請；頁面顯示到�
 test('管理員作廢：理由留空被拒；填理由後終止並釋放，學生的紀錄只寫「管理員作廢」', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  const open = page.getByRole('region', { name: '進行中的提案' })
+  const open = page.getByRole('region', { name: '組隊中（等全員確認）' })
   await expect(open).toContainText(students[0]!.name)
 
   await open.getByRole('button', { name: `作廢：${students[0]!.name}的提案` }).click()
@@ -200,13 +200,13 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
   const closed = page.getByRole('region', { name: '最近終止的提案' })
   await expect(closed).toContainText('管理員作廢')
   await expect(closed).toContainText('名單有誤，請重新發起（系辦內部）')
-  await expect(open).toContainText('沒有等待確認的提案')
+  await expect(open).toContainText('沒有組隊中的提案')
 
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
   await openStudentPage(page, 2)
   const history = page.getByRole('region', { name: '提案紀錄' })
-  await expect(history).toContainText('已終止：管理員作廢')
+  await expect(history).toContainText('沒有成立：管理員作廢')
   await expect(history).not.toContainText('系辦內部')
 })
 
@@ -215,8 +215,8 @@ test('拒絕：整份終止、全員釋放；重新發起是新提案，所有�
   await openStudentPage(page, 2)
   await page.getByRole('button', { name: '拒絕' }).click()
   await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
-  await expect(feedback(page, 'status')).toContainText('提案已終止（被拒絕）')
-  await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('已終止：被拒絕')
+  await expect(feedback(page, 'status')).toContainText('這次組隊沒有成立（被拒絕）')
+  await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 

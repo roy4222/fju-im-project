@@ -250,8 +250,8 @@ const openPath = () => `/dashboard/student/affairs/${itemIds.open}`
 test('作業區只列自己名單上的個人收件，狀態分成尚未開放／進行中／逾期未繳', async ({ page }) => {
   await signIn(page, s1)
   await page.goto('/dashboard/student')
-  await page.getByRole('navigation').getByRole('link', { name: '作業區' }).click()
-  await expect(page.getByRole('heading', { name: '作業區', exact: true })).toBeVisible()
+  await page.getByRole('navigation').getByRole('link', { name: '我的繳交' }).click()
+  await expect(page.getByRole('heading', { name: '我的繳交', exact: true })).toBeVisible()
 
   const table = page.locator('table')
   await expect(table.getByRole('link', { name: `${CODE} 分組意向登記` })).toBeVisible()
@@ -350,7 +350,7 @@ test('正式送出前驗必填；送出拿到收件章；連點只算一次', as
   await page.getByRole('button', { name: '正式送出' }).dblclick()
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
-  await expect(receipt).toContainText('已收件')
+  await expect(receipt).toContainText('已送出')
   await expect(receipt).toContainText('v1')
   await expect(receipt).toContainText(s1.name)
   await expect(receipt).toContainText('臺灣時間')
@@ -429,7 +429,7 @@ test('本人看得到每一次正式送出的版本（繳交歷史、當時的�
 test('有人作答後，管理員編輯器裡的收件單位鎖住；沒人作答的仍可切換', async ({ page }) => {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/editor/${itemIds.open}`)
-  await expect(page.getByText('已經有人作答，收件單位鎖定、不能再切換。')).toBeVisible()
+  await expect(page.getByText('已經有人作答，繳交方式鎖定、不能再切換。')).toBeVisible()
   await expect(page.getByRole('radio', { name: '整組一份', exact: true })).toBeDisabled()
 
   await page.goto(`/dashboard/admin/editor/${itemIds.later}`)

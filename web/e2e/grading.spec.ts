@@ -280,7 +280,7 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   // 管理員：這一格是暫存、未正式；第一位老師開始填，方案就鎖定（產品 7.5）。
   await openAdminGrading(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
-  await expect(row(page, 'G01')).toContainText('暫存中（未正式）・1／2 項')
+  await expect(row(page, 'G01')).toContainText('評分草稿（未送出）・1／2 項')
   await expect(row(page, 'G01')).toContainText('40.00（未正式）')
   await expect(row(page, 'G01')).toContainText('已正式送出 0／2 份')
 
@@ -301,7 +301,7 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   const confirm = page.getByRole('dialog', { name: '確認正式送出' })
   await expect(confirm).toContainText('84.29')
   await confirm.getByRole('button', { name: '確認送出' }).click()
-  const receipt = page.getByRole('dialog', { name: '已收件' })
+  const receipt = page.getByRole('dialog', { name: '已送出' })
   await expect(receipt).toContainText('G01・系統驗收')
   await expect(receipt).toContainText('84.29')
   await expect(receipt).toContainText('已鎖定')

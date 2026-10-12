@@ -140,7 +140,7 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(TITLE)
   await page.getByLabel('正文').fill('請組長填寫專題需求表。')
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   // 先選個人一份，證明套用範本會改回整組一份。
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
 
@@ -157,7 +157,7 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
   await expect(fields.locator('li[data-field-type]')).toHaveCount(7)
   await expect(page.getByTestId('template-note')).toContainText('沒有重複加入')
 
-  await page.getByLabel('發布對象').selectOption('groups')
+  await page.getByLabel('誰看得到').selectOption('groups')
   await page.getByRole('checkbox', { name: new RegExp(GROUP) }).check()
   await page.getByLabel('所屬階段').selectOption({ index: 1 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(new Date(Date.now() + 20 * DAY)))
@@ -166,7 +166,7 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
   const check = page.getByRole('dialog', { name: '發布前檢查' })
   await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
   await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單 1 組')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
 
   const item = await pool.query<{ id: string; receiver_unit: string; draft_schema: { fields: { key: string; label: string; required: boolean }[] } }>(
     `select id, receiver_unit, draft_schema from managed_items where cohort_id = $1 and title = $2`,
@@ -204,7 +204,7 @@ test('組長：五個必填任一欄留空送出都被拒並指出是哪一欄�
   await submit.click()
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
-  await expect(receipt).toContainText('已收件')
+  await expect(receipt).toContainText('已送出')
 
   const rows = await versions()
   expect(rows).toHaveLength(1)

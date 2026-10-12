@@ -122,10 +122,10 @@ test('AC-10：預設「全部（含歷屆）」，看得到封存屆別的歷屆
 test('AC-11、AC-12：建草稿＋海報；沒勾同意不能發布；勾了發布 → 公開中、紀錄是誰勾的；設獎項後訪客的優秀專題看得到', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const create = page.getByRole('form', { name: '建立精選草稿' })
+  const create = page.getByRole('form', { name: '建立成果展示草稿' })
   await create.getByLabel('組別').selectOption({ label: 'G01' })
   await create.getByRole('button', { name: '建立草稿' }).click()
-  await expect(create.getByRole('status')).toContainText('已替 G01 建立精選草稿')
+  await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
 
   const g01 = card(page, 'G01')
   await g01.getByLabel('題目').fill(TITLE)
@@ -133,7 +133,7 @@ test('AC-11、AC-12：建草稿＋海報；沒勾同意不能發布；勾了發�
   await g01.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(g01.getByTestId('poster-name')).toContainText('poster.png')
   await g01.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(g01.getByRole('status')).toContainText('G01 的精選草稿已儲存')
+  await expect(g01.getByRole('status')).toContainText('G01 的成果展示草稿已儲存')
 
   const publish = g01.getByRole('button', { name: '發布', exact: true })
   await expect(publish).toBeDisabled()
@@ -236,10 +236,10 @@ test('AC-14：公開中不能刪（說要先下架）；下架後刪除 → 看�
 
   // W2b：刪掉之後同一組可以再建草稿。
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const create = page.getByRole('form', { name: '建立精選草稿' })
+  const create = page.getByRole('form', { name: '建立成果展示草稿' })
   await create.getByLabel('組別').selectOption({ label: 'G01' })
   await create.getByRole('button', { name: '建立草稿' }).click()
-  await expect(create.getByRole('status')).toContainText('已替 G01 建立精選草稿')
+  await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
 })
 
 test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別作品改摘要＋換海報，存草稿前台不變、發布更新後換新且舊版本保留', async ({ page }) => {
@@ -268,7 +268,7 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   await old.getByLabel('選擇海報圖檔').setInputFiles({ name: 'new-poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(old.getByTestId('poster-name')).toContainText('new-poster.png')
   await old.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(old.getByRole('form', { name: 'G09 的精選草稿' }).getByRole('status')).toContainText('G09 的精選草稿已儲存')
+  await expect(old.getByRole('form', { name: 'G09 的成果展示草稿' }).getByRole('status')).toContainText('G09 的成果展示草稿已儲存')
   await expect(old.getByTestId('unpublished-changes')).toBeVisible()
 
   const guest = await asGuest(page)
