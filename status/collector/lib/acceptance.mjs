@@ -15,11 +15,6 @@ export function parseTime(s) {
   return Date.parse(s.replace(/([+-]\d\d)(\d\d)$/, '$1:$2'))
 }
 
-/** acceptance-night.sh 跑到一半時 finishedAt／commitEnd 是空字串（write_run_json 的 --arg）：當 null。 */
-function str(v) {
-  return typeof v === 'string' && v !== '' ? v : null
-}
-
 function checkSummary(summary, runId) {
   if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return 'summary.json 不是 JSON 物件'
   if (!Array.isArray(summary.items)) return 'summary.json 沒有 items'
@@ -52,10 +47,7 @@ function indexRun(dir, name) {
     const v = check(`items[${i}]`, RUN_FIELDS.item, item)
     if (v) out.items.push(v)
   })
-  if (bad.length > 0) {
-    const listed = bad.length > 10 ? `${bad.slice(0, 10).join('、')}…等 ${bad.length} 欄` : bad.join('、')
-    out.invalidReason = [raw.invalidReason, `run.json 欄位格式不符（${listed}）`].filter(Boolean).join('；')
-  }
+  if (bad.length > 0) out.invalidReason = [raw.invalidReason, `run.json 欄位格式不符（${listed(bad)}）`].filter(Boolean).join('；')
   return out
 }
 
@@ -74,34 +66,64 @@ function emptyEntry(name) {
   }
 }
 
+const listed = (bad) => (bad.length > 10 ? `${bad.slice(0, 10).join('、')}…等 ${bad.length} 欄` : bad.join('、'))
+
+/**
+ * 讀 run.json 並先驗「原始型別」：字串才往下、null／沒有當 null、其他型別記原因；
+ * 只有 finishedAt／commitEnd 允許空字串（acceptance-night.sh 跑到一半的 write_run_json 寫 ""），其他欄的空字串算壞。
+ * items 不是陣列（null、物件、字串、沒有）：用空陣列代替並獨立記原因，plan 與時間照常保留（不回退）。
+ * 壞的 item（不是物件、id 不是非空字串、status 不是非空字串）剔除並記原因。
+ */
 function rawIndexRun(dir, name) {
   const run = readJson(path.join(dir, 'run.json'))
   if (run.missing) return null
   const base = emptyEntry(name)
   const r = run.value
-  if (run.error || !r || typeof r !== 'object' || !Array.isArray(r.items)) {
-    return { ...base, invalidReason: run.error ?? 'run.json 沒有 items' }
+  if (run.error || !r || typeof r !== 'object' || Array.isArray(r)) {
+    return { ...base, invalidReason: run.error ?? 'run.json 不是 JSON 物件' }
+  }
+  const bad = []
+  const field = (key, { emptyOk = false } = {}) => {
+    const v = r[key]
+    if (v === undefined || v === null) return null
+    if (typeof v !== 'string' || (v === '' && !emptyOk)) {
+      bad.push(key)
+      return null
+    }
+    return v === '' ? null : v
   }
   const runId = typeof r.runId === 'string' && SAFE.test(r.runId) ? r.runId : name
   const entry = {
     ...base,
     runId,
-    plan: str(r.plan),
-    startedAt: str(r.startedAt),
-    finishedAt: str(r.finishedAt),
-    commitStart: str(r.commitStart),
-    commitEnd: str(r.commitEnd),
-    items: r.items
-      .filter((i) => i && typeof i.id === 'string')
-      .map((i) => ({ id: i.id, status: str(i.status) })),
+    plan: field('plan'),
+    startedAt: field('startedAt'),
+    finishedAt: field('finishedAt', { emptyOk: true }),
+    commitStart: field('commitStart'),
+    commitEnd: field('commitEnd', { emptyOk: true }),
+    items: [],
   }
-  if (runId !== name) entry.invalidReason = `run.json 的 runId 跟目錄名 ${name} 不同`
+  if (!Array.isArray(r.items)) {
+    bad.push(r.items === undefined ? 'items（沒有）' : 'items（不是陣列）')
+  } else {
+    r.items.forEach((i, idx) => {
+      const ok =
+        i && typeof i === 'object' && !Array.isArray(i) && typeof i.id === 'string' && i.id !== '' && typeof i.status === 'string' && i.status !== ''
+      if (ok) entry.items.push({ id: i.id, status: i.status })
+      else bad.push(`items[${idx}]`)
+    })
+  }
+  const reasons = []
+  if (runId !== name) reasons.push(`run.json 的 runId 跟目錄名 ${name} 不同`)
+  if (bad.length > 0) reasons.push(`run.json 欄位型別不對（${listed(bad)}）`)
   const summary = readJson(path.join(dir, 'summary.json'))
-  if (summary.missing) return entry
-  entry.hasSummary = true
-  const bad = summary.error ?? checkSummary(summary.value, runId)
-  if (bad) entry.invalidReason = bad
-  else entry.summaryValid = true
+  if (!summary.missing) {
+    entry.hasSummary = true
+    const problem = summary.error ?? checkSummary(summary.value, runId)
+    if (problem) reasons.push(problem)
+    else entry.summaryValid = true
+  }
+  entry.invalidReason = reasons.length > 0 ? reasons.join('；') : null
   return entry
 }
 

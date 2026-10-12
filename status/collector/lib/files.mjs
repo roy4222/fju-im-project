@@ -50,34 +50,77 @@ export function serializeChecked(name, value) {
   return text
 }
 
-/**
- * 一組檔案一起寫：先全部寫成暫存檔，都成功才逐一改名；中途任何一個失敗（例如 ENOSPC）就把暫存檔清掉、一個都不換，
- * 所以 repo/ 四檔永遠是同一個 sourceSha。entries 是 [[檔案路徑, 內容], …]。
- */
-export function writeTexts(entries) {
-  const tmps = []
-  try {
-    for (const [file, text] of entries) {
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      const tmp = `${file}.tmp-${process.pid}`
-      tmps.push([tmp, file])
-      fs.writeFileSync(tmp, text, { mode: 0o644 })
-    }
-  } catch (err) {
-    for (const [tmp] of tmps) {
-      try {
-        fs.unlinkSync(tmp)
-      } catch {
-        // 還沒寫出來就算了
-      }
-    }
-    throw err
-  }
-  for (const [tmp, file] of tmps) fs.renameSync(tmp, file)
+export function writeText(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.tmp-${process.pid}`
+  fs.writeFileSync(tmp, text, { mode: 0o644 })
+  fs.renameSync(tmp, file)
 }
 
-export function writeText(file, text) {
-  writeTexts([[file, text]])
+const VERSION_KEEP = 2
+const isVersionName = (n) => /^\d{8}T\d{6}/.test(n)
+
+/**
+ * 一批檔案當成一個完整版本發布（repo/ 四檔）：
+ *  1. 全部寫進 <dataDir>/<name>-versions/<版本>.tmp-<pid>/，寫齊才把目錄改名成 <版本>/（之後內容不再改）。
+ *  2. 做一個相對 symlink <name>.tmp-<pid> → <name>-versions/<版本>，再 rename 成 <name>：單一原子切換，
+ *     讀取端照舊讀 <name>/<檔>，任何時刻看到的都是同一版的四檔。
+ *  3. 只留最新與前一版（讀到一半的讀取端還能把前一版讀完），更早的與殘留的 .tmp- 清掉。
+ * 任一步失敗：暫存目錄、暫存 symlink、剛做好的版本目錄都清掉，指標不動，四檔仍是上一版。
+ * 舊版 collector 留下的 <name>/ 真目錄：先搬到 <name>-versions/legacy-<時間>/ 再換上 symlink（只會發生一次）。
+ * 讀取端要「同一批固定讀同一版本」：先 realpath(<name>) 一次，再讀解析出來的目錄底下的檔。
+ */
+export function publishVersion(dataDir, name, version, files) {
+  const versionsDir = path.join(dataDir, `${name}-versions`)
+  const finalDir = path.join(versionsDir, version)
+  const tmpDir = `${finalDir}.tmp-${process.pid}`
+  const link = path.join(dataDir, name)
+  const tmpLink = `${link}.tmp-${process.pid}`
+
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+  fs.mkdirSync(tmpDir, { recursive: true })
+  try {
+    for (const [file, text] of files) fs.writeFileSync(path.join(tmpDir, file), text, { mode: 0o644 })
+    fs.renameSync(tmpDir, finalDir)
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    throw err
+  }
+  try {
+    moveLegacyDir(link, versionsDir)
+    fs.rmSync(tmpLink, { force: true })
+    fs.symlinkSync(path.posix.join(`${name}-versions`, version), tmpLink)
+    fs.renameSync(tmpLink, link)
+  } catch (err) {
+    fs.rmSync(tmpLink, { force: true })
+    fs.rmSync(finalDir, { recursive: true, force: true })
+    throw err
+  }
+  pruneVersions(versionsDir)
+}
+
+function moveLegacyDir(link, versionsDir) {
+  let st
+  try {
+    st = fs.lstatSync(link)
+  } catch (err) {
+    if (err.code === 'ENOENT') return
+    throw err
+  }
+  if (st.isDirectory()) fs.renameSync(link, path.join(versionsDir, `legacy-${Date.now()}`))
+}
+
+function pruneVersions(versionsDir) {
+  const names = fs.readdirSync(versionsDir)
+  const keep = new Set(names.filter((n) => isVersionName(n) && !n.includes('.tmp-')).sort().slice(-VERSION_KEEP))
+  for (const n of names) {
+    if (keep.has(n)) continue
+    try {
+      fs.rmSync(path.join(versionsDir, n), { recursive: true, force: true })
+    } catch {
+      // 清不掉就下一輪再清
+    }
+  }
 }
 
 export function writeJsonChecked(dataDir, rel, value) {

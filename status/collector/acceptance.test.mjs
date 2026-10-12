@@ -161,3 +161,51 @@ describe('run.json 欄位分欄驗證（Review 第三輪：不回退）', () => 
     expect(JSON.stringify(idx)).not.toContain('FAKEPASS')
   })
 })
+
+describe('run.json 容器與型別錯誤（Review 第四輪）', () => {
+  const base = { plan: 'full', startedAt: '2026-10-12T22:00:00+0800', finishedAt: '2026-10-12T23:00:00+0800', commitStart: 'abc12345', commitEnd: 'abc12345' }
+  const writeRaw = (runId, obj) => {
+    fs.mkdirSync(path.join(inbox, runId), { recursive: true })
+    fs.writeFileSync(path.join(inbox, runId, 'run.json'), JSON.stringify({ runId, ...obj }))
+  }
+
+  it.each([
+    ['items:null', null],
+    ['items:{}', {}],
+    ['items:"x"', 'x'],
+    ['沒有 items', undefined],
+  ])('最新 full 的 %s：items 用空陣列代替、原因獨立記錄；plan 與時間保留，不回退到舊 full', (_label, items) => {
+    writeRun(inbox, 'night-old', { startedAt: '2026-10-11T22:00:00+0800', items: okItems(), summary: summaryOf('night-old') })
+    writeRaw('night-new', items === undefined ? base : { ...base, items })
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs.map((r) => r.runId)).toEqual(['night-new', 'night-old'])
+    expect(idx.runs[0]).toMatchObject({ runId: 'night-new', plan: 'full', startedAt: base.startedAt, items: [], hasSummary: false })
+    expect(idx.runs[0].invalidReason).toContain('items')
+    expect(idx.latestFullAttempt).toBe('night-new')
+  })
+
+  it('欄位型別不對（數字、陣列、布林）：那欄 null 並記原因；只有 finishedAt／commitEnd 的空字串算正常', () => {
+    writeRaw('night-types', { ...base, plan: 123, commitStart: ['a'], finishedAt: '', commitEnd: '', items: [{ id: 'story-1', status: 'ok' }] })
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs[0]).toMatchObject({ plan: null, commitStart: null, finishedAt: null, commitEnd: null, startedAt: base.startedAt, items: [{ id: 'story-1', status: 'ok' }] })
+    expect(idx.runs[0].invalidReason).toMatch(/plan/)
+    expect(idx.runs[0].invalidReason).toMatch(/commitStart/)
+    expect(idx.runs[0].invalidReason).not.toMatch(/finishedAt|commitEnd/)
+    expect(idx.latestFullAttempt).toBeNull() // plan 壞掉就不能說它是 full
+  })
+
+  it('plan、startedAt、commitStart 的空字串不是正常值：記原因', () => {
+    writeRaw('night-empty', { ...base, plan: '', startedAt: '', commitStart: '', items: [] })
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs[0]).toMatchObject({ plan: null, startedAt: null, commitStart: null })
+    for (const k of ['plan', 'startedAt', 'commitStart']) expect(idx.runs[0].invalidReason).toContain(k)
+  })
+
+  it('壞的 item（不是物件、id 不是字串、status 不是非空字串）剔除並記原因，其餘 item 保留', () => {
+    writeRaw('night-items', { ...base, items: [{ id: 'story-1', status: 'ok' }, { id: 5, status: 'ok' }, 'junk', { id: 'story-3', status: 7 }, { id: 'story-4', status: '' }, { id: 'story-5', status: 'env' }] })
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs[0].items).toEqual([{ id: 'story-1', status: 'ok' }, { id: 'story-5', status: 'env' }])
+    for (const i of [1, 2, 3, 4]) expect(idx.runs[0].invalidReason).toContain(`items[${i}]`)
+    expect(idx.latestFullAttempt).toBe('night-items')
+  })
+})

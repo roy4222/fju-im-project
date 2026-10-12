@@ -230,11 +230,53 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(read('collector.json').sources.repo.ok).toBe(false)
   })
 
-  it('第二檔寫到一半 ENOSPC：四檔都維持上一版（同一個舊 sourceSha），來源記失敗', async () => {
+  const REPO_NAMES = ['tickets.json', 'test-map.json', 'go-live-waivers.json', 'go-live-policy.json']
+  const repoSnapshot = () => Object.fromEntries(REPO_NAMES.map((n) => [n, fs.readFileSync(path.join(vm.dataDir, 'repo', n), 'utf8')]))
+  const versionDirs = () => (fs.existsSync(path.join(vm.dataDir, 'repo-versions')) ? fs.readdirSync(path.join(vm.dataDir, 'repo-versions')).sort() : [])
+
+  it('repo 四檔是「完整版本目錄＋單一指標切換」：repo 是指向 repo-versions/<版本>/ 的相對 symlink，前一版保留、更早的清掉', async () => {
     let cfg = await start()
     await runOnce(cfg, NOW)
-    const names = ['tickets.json', 'test-map.json', 'go-live-waivers.json', 'go-live-policy.json']
-    const before = Object.fromEntries(names.map((n) => [n, fs.readFileSync(path.join(vm.dataDir, 'repo', n), 'utf8')]))
+    expect(fs.lstatSync(path.join(vm.dataDir, 'repo')).isSymbolicLink()).toBe(true)
+    const target1 = fs.readlinkSync(path.join(vm.dataDir, 'repo'))
+    expect(path.isAbsolute(target1)).toBe(false)
+    expect(target1.startsWith('repo-versions/')).toBe(true)
+    expect(versionDirs()).toHaveLength(1)
+    await server.close()
+
+    for (const [i, ch] of ['e', 'f'].entries()) {
+      cfg = await start({ ...githubRoutes({ sha: ch.repeat(40) }), ...rawRoutes({ sha: ch.repeat(40) }) })
+      await runOnce(cfg, new Date(NOW.getTime() + (i + 1) * 600e3))
+      await server.close()
+      server = undefined
+    }
+    // 讀取端照舊讀 repo/<檔>，拿到的是最新版、四檔同一個 sourceSha
+    for (const n of REPO_NAMES) expect(read(`repo/${n}`).sourceSha).toBe('f'.repeat(40))
+    // 只留最新與前一版（讀到一半的讀取端還能把前一版讀完），更早的清掉；前一版四檔齊全
+    const dirs = versionDirs()
+    expect(dirs).toHaveLength(2)
+    const previous = dirs.find((d) => d !== path.basename(fs.readlinkSync(path.join(vm.dataDir, 'repo'))))
+    expect(fs.readdirSync(path.join(vm.dataDir, 'repo-versions', previous)).sort()).toEqual([...REPO_NAMES].sort())
+    expect(JSON.parse(fs.readFileSync(path.join(vm.dataDir, 'repo-versions', previous, 'tickets.json'), 'utf8')).sourceSha).toBe('e'.repeat(40))
+    expect(dirs.some((d) => d.includes('.tmp-'))).toBe(false)
+  })
+
+  it('舊版 collector 留下的 repo/ 真目錄：第一輪搬走、換成 symlink，之後讀得到新版', async () => {
+    fs.mkdirSync(path.join(vm.dataDir, 'repo'))
+    fs.writeFileSync(path.join(vm.dataDir, 'repo', 'tickets.json'), '{"legacy":true}')
+    const cfg = await start()
+    const status = await runOnce(cfg, NOW)
+    expect(status.sources.repo.ok).toBe(true)
+    expect(fs.lstatSync(path.join(vm.dataDir, 'repo')).isSymbolicLink()).toBe(true)
+    expect(read('repo/tickets.json').sourceSha).toBe(MAIN_SHA)
+    expect(fs.readdirSync(vm.dataDir).filter((f) => f.startsWith('repo'))).toEqual(['repo', 'repo-versions'])
+  })
+
+  it('第二檔寫到一半 ENOSPC：指標不動、四檔都還是上一版，暫存版本目錄清掉', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const before = repoSnapshot()
+    const link = fs.readlinkSync(path.join(vm.dataDir, 'repo'))
     await server.close()
 
     const newSha = 'd'.repeat(40)
@@ -256,10 +298,43 @@ describe('AC-S-8 一輪收集的輸出', () => {
     }
     expect(status.sources.repo.ok).toBe(false)
     expect(status.sources.repo.error).toContain('ENOSPC')
-    for (const n of names) expect(fs.readFileSync(path.join(vm.dataDir, 'repo', n), 'utf8'), n).toBe(before[n])
-    expect(fs.readdirSync(path.join(vm.dataDir, 'repo')).filter((f) => f.includes('.tmp-'))).toEqual([])
-    // 其他檔照常
+    expect(repoSnapshot()).toEqual(before)
+    expect(fs.readlinkSync(path.join(vm.dataDir, 'repo'))).toBe(link)
+    expect(versionDirs()).toHaveLength(1)
     expect(read('github.json').mainSha).toBe(newSha)
+  })
+
+  it('第二次 rename（指標切換）失敗：指標仍指舊版、四檔一致，暫存 symlink 不留下', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const before = repoSnapshot()
+    const link = fs.readlinkSync(path.join(vm.dataDir, 'repo'))
+    await server.close()
+
+    const newSha = 'd'.repeat(40)
+    cfg = await start({ ...githubRoutes({ sha: newSha }), ...rawRoutes({ sha: newSha }) })
+    const real = fs.renameSync
+    let renames = 0
+    const spy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(from).includes('repo') && ++renames === 2) {
+        const err = new Error('EIO: i/o error, rename')
+        err.code = 'EIO'
+        throw err
+      }
+      return real.call(fs, from, to)
+    })
+    let status
+    try {
+      status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
+    } finally {
+      spy.mockRestore()
+    }
+    expect(renames).toBe(2)
+    expect(status.sources.repo.ok).toBe(false)
+    expect(status.sources.repo.error).toContain('EIO')
+    expect(repoSnapshot()).toEqual(before)
+    expect(fs.readlinkSync(path.join(vm.dataDir, 'repo'))).toBe(link)
+    expect(fs.readdirSync(vm.dataDir).filter((f) => f.includes('.tmp-'))).toEqual([])
   })
 
   it('deploy_log 的 digest 欄是 none（本機建的映像）：vm.json 照常寫，digest 是 null', async () => {

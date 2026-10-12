@@ -291,3 +291,44 @@ describe('遮蔽掃描的效能（CI 的 vitest 一條測試只有 5 秒）', ()
     expect(Date.now() - t0).toBeLessThan(1000)
   })
 })
+
+// Review 第四輪：敏感鍵後的值不受 6 字門檻、HTTP 標頭整個值都算、全形（NFKC）與多層編碼的鍵名。
+describe('遮蔽變形（Review 第四輪）', () => {
+  it.each([
+    ['password: x', '密碼'], // 1 個字元也算
+    ['token=ab', '密碼'],
+    ['密碼：１２', '密碼'], // 全形數字
+    ['secret: "F"', '密碼'],
+    ['Authorization: Bearer x', '密碼'], // HTTP 標頭：整個值都算，不看長度
+    ['authorization: ${TOKEN}', '密碼'], // 標頭連佔位字樣也算
+    ['Cookie: a', '密碼'],
+    ['Set-Cookie: sid=1; Path=/', '密碼'],
+    ['Proxy-Authorization: Basic Zg==', '密碼'],
+    ['X-Api-Key: k', '密碼'],
+    ['ｐａｓｓｗｏｒｄ＝FAKEPASS801', '密碼'], // 全形字母與等號（NFKC）
+    ['ＰＡＳＳＷＯＲＤ：FAKEPASS802', '密碼'],
+    ['ｐｏｓｔｇｒｅｓ：／／ａｐｐ：FAKEPASS803＠ｄｂ／ｆｊｕ', '連線字串'], // 全形連線字串
+    ['％７０assword=FAKEPASS804', '密碼'], // 全形百分號編碼
+    ['ｓｏｍｅｏｎｅ＠ｅｘａｍｐｌｅ．ｃｏｍ', 'Email'],
+  ])('%s → %s', (text, kind) => {
+    expect(findLeaks(text)).toContain(kind)
+  })
+
+  it('佔位字樣與布林仍不算：沒有／無／N/A／${VAR}／已遮蔽／true／false', () => {
+    for (const t of ['password: 沒有', '密碼：無', 'token: N/A', 'secret=${DOPPLER_TOKEN}', 'pwd: [已遮蔽]', '"hasToken": true', '"useCookie": false', 'password: ***']) {
+      expect(findLeaks(t), t).toEqual([])
+    }
+  })
+
+  it('全形與多層百分號編碼的鍵名也算敏感鍵；解到上限還能再解就當敏感', () => {
+    expect(findSensitiveKeys({ 'ｐａｓｓｗｏｒｄ': 'FAKEPASS805' })).toEqual(['ｐａｓｓｗｏｒｄ'])
+    expect(findSensitiveKeys({ 'ＡＣＣＥＳＳ＿ＫＥＹ': 'FAKEPASS806' })).toHaveLength(1)
+    expect(findSensitiveKeys({ '%2570assword': 'FAKEPASS807' })).toHaveLength(1) // 雙層
+    expect(findSensitiveKeys({ '％７０assword': 'FAKEPASS808' })).toHaveLength(1) // 全形百分號
+    let k = 'password'
+    for (let i = 0; i < 6; i++) k = encodeURIComponent(k).replaceAll('%', '%25').replace('%2525', '%25') // 疊很多層的 %
+    k = 'p' + '%2525252525'.repeat(2) + 'assword'
+    expect(findSensitiveKeys({ [k]: 'FAKEPASS809' })).toHaveLength(1) // 超限 → 當敏感
+    expect(findSensitiveKeys({ title: 'FAKEPASS810', 'ｔｉｔｌｅ': 'x' })).toEqual([])
+  })
+})
