@@ -263,6 +263,9 @@ test('系辦首頁：逾期磚分開寫「欠繳 3 人、1 組」與「發布中
   await expect(tile).toContainText('欠繳 3 人、1 組')
   await expect(tile).toContainText('發布中 3 個繳交項目')
   await expect(tile).not.toContainText('份收件')
+  // 驗收 P-05：評分磚寫「尚未完成評分的老師」，不寫像催繳的「缺評老師」。
+  await expect(page.getByRole('link').filter({ hasText: '尚未完成評分的老師' })).toBeVisible()
+  await expect(page.getByText('缺評老師')).toHaveCount(0)
 
   const notice = page.getByTestId('pending-review-notice')
   await expect(notice).toContainText('成績更正需要重新確認 1 筆')

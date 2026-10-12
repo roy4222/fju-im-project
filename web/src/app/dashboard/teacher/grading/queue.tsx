@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { IconLock } from '@tabler/icons-react'
 import type { TeacherQueueEntry } from '@/application/grading'
+import { cohortLabel } from '@/composition/cohorts'
 import { cn } from '@/shared/cn'
 
 /**
@@ -59,7 +60,7 @@ export function GradingQueue({
               >
                 <span className="min-w-0 flex-1">
                   <span className="tabular block text-[11px] text-muted-foreground">
-                    {e.cohortCode}・{e.stageName}
+                    {cohortLabel({ name: e.cohortName, code: e.cohortCode })}・{e.stageName}
                   </span>
                   <span className={cn('block truncate text-sm', active ? 'font-bold text-ink' : 'font-semibold text-foreground')}>{e.groupCode}</span>
                 </span>

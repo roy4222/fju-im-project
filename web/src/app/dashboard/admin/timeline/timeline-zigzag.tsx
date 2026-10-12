@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react'
 import { IconPencil } from '@tabler/icons-react'
 import { TimelineZigzag, type TimelineStageView, type TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
-import { ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admin/timeline/timeline-forms'
+import { GROUPING_PERIOD_HINT, ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admin/timeline/timeline-forms'
 
 /**
  * 系辦的時間軸設定（票 35；原型 `timeline-zigzag` 的 `canEdit` 版）。
@@ -53,7 +53,10 @@ export function AdminTimeline({
     title: s.name,
     rangeText: s.range,
     status: s.status,
-    summary: s.description ? `${s.description}（${s.detail}）` : `第 ${s.seq} 階段・${s.detail}`,
+    // 第 1 階段＝分組期，固定先說明它在做什麼（Q40）；階段名稱照系辦填的，不改。
+    summary: s.seq === 1
+      ? `${[GROUPING_PERIOD_HINT, s.description].filter(Boolean).join('。')}（${s.detail}）`
+      : s.description ? `${s.description}（${s.detail}）` : `第 ${s.seq} 階段・${s.detail}`,
     tasks: [],
   }))
   const stageActions = Object.fromEntries(

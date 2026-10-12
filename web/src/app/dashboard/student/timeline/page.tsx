@@ -12,6 +12,8 @@ import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf, type TaipeiDate } f
 export const metadata = { title: '專題時間軸｜資管系專題平台' }
 
 const PATH = '/dashboard/student/timeline'
+/** 第 1 階段（分組期）在做什麼（Q40）。 */
+const GROUPING_PERIOD_HINT = '分組期：組隊、選指導老師、交提案的期間'
 
 /**
  * 學生「專題時間軸」（票 38；原型 `/dashboard/student/timeline`，樣式是畫布 B「直立蛇形」）。
@@ -84,8 +86,8 @@ export default async function StudentTimelinePage() {
       title: stage.name,
       rangeText: range(stage.startDate, stage.lastDate),
       status: stage.status,
-      // 系辦在時間軸填的一句話說明（0011，票 39；原型 `Stage.summary`）。
-      summary: stage.description || undefined,
+      // 系辦在時間軸填的一句話說明（0011，票 39；原型 `Stage.summary`）。第 1 階段＝分組期，固定先說明它在做什麼（Q40）。
+      summary: stage.seq === 1 ? [GROUPING_PERIOD_HINT, stage.description].filter(Boolean).join('。') : stage.description || undefined,
       tasks: mineInStage.map(({ row, status }) => ({
         label: row.title,
         href: `/dashboard/student/affairs/${row.itemId}`,

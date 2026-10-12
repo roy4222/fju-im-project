@@ -41,7 +41,7 @@ export async function createBackfillAction(_state: ShowcaseActionState, formData
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   const r = result.receipt
-  return { ok: true, message: `已補登 ${r.cohortCode} 屆「${r.title}」（歷屆補登，沒有組別）；在下面補摘要、海報與影片連結後儲存，再勾同意發布。` }
+  return { ok: true, message: `已補登${r.cohortName}（${r.cohortCode}）「${r.title}」（歷屆補登，沒有組別）；在下面補摘要、海報與影片連結後儲存，再勾同意發布。` }
 }
 
 export async function updateDraftAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {

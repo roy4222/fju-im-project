@@ -14,7 +14,7 @@ import {
   HomePositionForm,
   PublishPanel,
 } from '@/app/dashboard/admin/showcase/showcase-forms'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { AWARD_LABEL_MAX, AWARD_LEVEL_LABEL, checkShowcaseLifecycle, getShowcaseQuery, SHOWCASE_STATUS_LABEL } from '@/composition/showcase'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -43,7 +43,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
   // 補登歷屆作品：任何屆別都可以（含已封存）；篩選中的屆別排第一個當預設。
   const backfillCohorts = [...(picked ? [picked] : []), ...cohorts.filter((c) => c.id !== picked?.id)].map((c) => ({
     id: c.id,
-    label: c.status === 'archived' ? `${c.code}（已封存）` : c.code,
+    label: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c),
   }))
 
   const shell = (children: React.ReactNode) => (
@@ -71,7 +71,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
   return shell(
     <>
       <nav aria-label="選擇屆別" className="mb-4 flex flex-wrap gap-2">
-        {[{ id: null, code: '全部（含歷屆）' }, ...cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${c.code}（已封存）` : c.code }))].map((c) => {
+        {[{ id: null, code: '全部（含歷屆）' }, ...cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c) }))].map((c) => {
           const active = (picked?.id ?? null) === c.id
           return (
             <Link
@@ -93,7 +93,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         title="建立成果展示草稿"
         description={
           createCohort
-            ? `替 ${createCohort.code} 屆的一組建草稿（一組一屆只有一份）。填好內容後，在下面那件作品勾同意並按「發布」才會公開。`
+            ? `替${cohortLabel(createCohort)}的一組建草稿（一組一屆只有一份）。填好內容後，在下面那件作品勾同意並按「發布」才會公開。`
             : '目前沒有進行中的屆別；歷屆作品可以用下面的「補登歷屆作品」新增，或直接在逐件管理裡修改。'
         }
         className="mb-6"
@@ -122,7 +122,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
             <span key="t" className="font-medium text-ink">
               {d.title || '（未填題目）'}
             </span>,
-            d.cohortCode,
+            cohortLabel({ name: d.cohortName, code: d.cohortCode }),
             groupLabel(d.groupCode),
             <Pill key="s" tone={STATUS_TONE[d.status]} data-testid="entry-status">
               {SHOWCASE_STATUS_LABEL[d.status]}
@@ -159,7 +159,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                   <div>
                     <h3 className="text-base font-semibold text-ink">
                       {groupLabel(d.groupCode)}
-                      <span className="ml-2 text-sm font-normal text-muted-foreground">{d.cohortCode} 屆</span>
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">{cohortLabel({ name: d.cohortName, code: d.cohortCode })}</span>
                     </h3>
                     <p className="mt-1 text-xs text-muted-foreground">
                       最後儲存 {formatTaipeiMinute(d.updatedAt)}

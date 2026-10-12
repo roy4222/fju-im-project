@@ -113,7 +113,7 @@ export type AdminAssignmentView = {
 }
 
 export type AdminGradingBoard = {
-  readonly cohort: { readonly id: string; readonly code: string; readonly archived: boolean }
+  readonly cohort: { readonly id: string; readonly code: string; readonly name: string; readonly archived: boolean }
   readonly schemeId: string | null
   readonly versions: readonly SchemeVersionView[]
   readonly current: SchemeVersionView | null
@@ -131,6 +131,7 @@ export type AdminGradingBoard = {
 export type TeacherQueueEntry = {
   readonly assignmentId: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly groupId: string
   readonly groupCode: string
   readonly stageKey: string
@@ -168,6 +169,7 @@ export type TeacherBench = {
   readonly groupId: string
   readonly groupCode: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly memberNames: readonly string[]
   readonly versionNo: number
   readonly entries: readonly BenchEntry[]
@@ -268,7 +270,7 @@ export type PendingReview = {
 }
 
 export type Gradebook = {
-  readonly cohort: { readonly id: string; readonly code: string; readonly archived: boolean }
+  readonly cohort: { readonly id: string; readonly code: string; readonly name: string; readonly archived: boolean }
   readonly version: { readonly id: string; readonly versionNo: number; readonly stages: readonly SchemeStage[] } | null
   readonly groups: readonly GradebookGroup[]
   readonly pendingReviews: readonly PendingReview[]
@@ -313,6 +315,7 @@ export type GroupGradeDetail = {
     readonly code: string
     readonly cohortId: string
     readonly cohortCode: string
+    readonly cohortName: string
     readonly archived: boolean
     readonly dissolved: boolean
   }

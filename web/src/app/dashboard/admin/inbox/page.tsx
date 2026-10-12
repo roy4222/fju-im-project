@@ -6,7 +6,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { InboxView } from '@/app/dashboard/_inbox/inbox-view'
 import { TestNotificationForm } from '@/app/dashboard/admin/inbox/test-notification-form'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getTestNotificationCommand, TEST_NOTIFICATION_TITLE_MAX_LENGTH } from '@/composition/inbox'
 
 export const metadata = { title: '通知｜資管系專題平台' }
@@ -43,7 +43,7 @@ export default async function AdminInboxPage({ searchParams }: { searchParams: S
             <TestNotificationForm
               requestId={randomUUID()}
               recipients={recipients}
-              cohorts={cohorts.map((c) => ({ cohortId: c.id, code: c.code }))}
+              cohorts={cohorts.map((c) => ({ cohortId: c.id, label: cohortLabel(c) }))}
               titleMaxLength={TEST_NOTIFICATION_TITLE_MAX_LENGTH}
             />
           </Panel>

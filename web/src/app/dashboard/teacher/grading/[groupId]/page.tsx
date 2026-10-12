@@ -9,6 +9,7 @@ import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
 import { GradingQueue } from '@/app/dashboard/teacher/grading/queue'
 import { QueueSelect } from '@/app/dashboard/teacher/grading/queue-select'
+import { cohortLabel } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -50,7 +51,7 @@ export default async function TeacherGradingGroupPage({
     </DashboardShell>
   )
 
-  const { entries, groupCode, cohortCode, memberNames, versionNo } = bench.receipt
+  const { entries, groupCode, cohortCode, cohortName, memberNames, versionNo } = bench.receipt
   const search = await searchParams
   const wanted = search.stage
   const entry = entries.find((e) => e.stage.key === wanted) ?? entries[0]!
@@ -98,7 +99,7 @@ export default async function TeacherGradingGroupPage({
           finalScore={entry.finalScore}
           submittedAtText={entry.submittedAt ? formatTaipeiSecond(entry.submittedAt) : null}
           draftFromOlderVersion={entry.draftFromOlderVersion}
-          eyebrow={`${cohortCode}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
+          eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
           members={memberNames.join('、')}
         >
           {entries.length > 1 ? (

@@ -8,7 +8,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { teacherSignoffSummary } from '@/app/dashboard/teacher/signoff-summary'
 import type { ResolvedActor } from '@/application/accounts'
 import type { AudienceKind } from '@/application/items'
-import { getTimelineQuery } from '@/composition/cohorts'
+import { cohortLabel, getTimelineQuery } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
 import { getGroupQuery, getOpportunityQuery } from '@/composition/groups'
 import { AUDIENCE_LABEL, getPublicItemQuery } from '@/composition/items'
@@ -158,7 +158,7 @@ export default async function TeacherHomePage() {
                       href={`${BASE}/grading/${e.groupId}`}
                       code={e.groupCode}
                       title={e.stageName}
-                      sub={`${e.cohortCode}・已填 ${e.filled}／${e.total} 項`}
+                      sub={`${cohortLabel({ name: e.cohortName, code: e.cohortCode })}・已填 ${e.filled}／${e.total} 項`}
                       trailing={
                         <>
                           {e.state === 'empty' ? <Pill>未開始</Pill> : e.state === 'draft' ? <Pill tone="brand">草稿</Pill> : <Pill tone="success">已送出</Pill>}

@@ -8,6 +8,7 @@ import { VersionView } from '@/app/dashboard/_signoff/version-view'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { type DangerFacts, RemindButton, RestartButton, VoidButton } from '@/app/dashboard/admin/signoff/manage-forms'
 import type { VersionDetail } from '@/application/signoff'
+import { cohortLabel } from '@/composition/cohorts'
 import {
   getSignoffQuery,
   MAX_REASON_CHARS,
@@ -44,7 +45,7 @@ function affectedVotes(v: VersionDetail): string[] {
 
 /** 確認視窗的對象：哪一組、哪一份、第幾版。 */
 function targetOf(v: VersionDetail): string {
-  return `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」同意書第 ${v.versionNo} 版`
+  return `${cohortLabel({ name: v.cohortName, code: v.cohortCode })}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」同意書第 ${v.versionNo} 版`
 }
 
 function restartFacts(v: VersionDetail, affected: readonly string[]): DangerFacts {
