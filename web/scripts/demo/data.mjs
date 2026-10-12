@@ -720,3 +720,103 @@ export const COMPETITION_NEWS = [
     ],
   },
 ]
+
+// ── 第三波（W8）：讓新後台每個功能都有東西可點 ─────────────────────────────────────────
+// 刪除（只限草稿與已下架）、Q28（有人交件的收件只能下架不能刪）、老師首頁公告（Q13、Q14）、
+// 榮譽與優秀專題的發布、補交。跟第一批同一條時間線（日期照第一批平移），掛在示範 114 屆。
+
+/**
+ * 新後台用的公告。`status`：draft＝只存草稿（從沒發布）、archived＝發布過又下架、沒寫＝發布中。
+ * `audience`：teachers＝全部老師；groups＝指定組別（`groups` 列組別 key）。
+ */
+export const WAVE3_NEWS = [
+  {
+    key: 'w3-news-draft',
+    status: 'draft',
+    audience: 'public',
+    category: '專題事務',
+    title: '（草稿）期末成果展場地與時段調查',
+    summary: '還在整理的草稿：可以試「刪除」——草稿刪掉後前後台都看不到，不能恢復。',
+    date: '2026-08-16',
+    body: ['期末成果展的場地與時段還在確認中，確定後再發布。'],
+  },
+  {
+    key: 'w3-news-archived',
+    status: 'archived',
+    audience: 'public',
+    category: '活動',
+    title: '暑期程式設計自學營報名（已結束）',
+    summary: '活動已結束、公告已下架：前台看不到，後台還在；可以重新發布，也可以刪除。',
+    date: '2026-07-10',
+    archivedOn: '2026-08-02',
+    body: ['暑期程式設計自學營已於 7 月底結束，感謝參與的同學。'],
+  },
+  {
+    key: 'w3-news-teachers',
+    audience: 'teachers',
+    category: '專題事務',
+    title: '指導老師：系統驗收評分作業時程',
+    summary: '系統驗收評分開放至下個月底；請各位指導老師於評分頁完成兩位評審的分數。',
+    date: '2026-08-15',
+    body: ['系統驗收評分已開放，請各位老師於期限內完成評分。', '評分方案與七項評分項目說明已更新於「檔案下載」。'],
+  },
+  {
+    key: 'w3-news-g01',
+    audience: 'groups',
+    groups: ['g-01'],
+    category: '專題事務',
+    title: '第 01 組：期中進度會議改期',
+    summary: '原訂本週的進度會議改到下週三下午，地點不變。',
+    date: '2026-08-16',
+    body: ['第 01 組的期中進度會議改到下週三 14:00，地點不變（LM306）。'],
+  },
+]
+
+/**
+ * 已經有人交件、之後下架的收件（Q28：只能下架、不能刪）。整組一份；`submitted` 是有交件的組。
+ */
+export const ARCHIVED_COLLECTION = {
+  key: 'w3-mi-archived',
+  title: '暑期企業參訪報名表（已下架）',
+  placement: 'submission',
+  summary: '暑期企業參訪的報名表；已有組別送出，所以只能下架、不能刪。',
+  published: '2026-08-10',
+  due: '2026-08-14',
+  archivedOn: '2026-08-15',
+  stage: 1,
+  submitted: ['g-07', 'g-01', 'g-04'],
+  fields: [
+    { key: 'f2', type: 'number', label: '參加人數', required: true },
+    { key: 'f3', type: 'radio', label: '想參訪的企業', required: true, options: ['宏昇物流', '昱鋼精機'] },
+  ],
+}
+
+/**
+ * 每人一份的收件，已經截止；第 07 組只有 `overdue` 那位還沒交（測 3b「讓他補交」）。
+ */
+export const INDIVIDUAL_COLLECTION = {
+  key: 'w3-mi-individual',
+  title: '專題說明會個人心得',
+  placement: 'submission',
+  summary: '每人一份：寫下說明會後對專題時程與分組的疑問。',
+  published: '2026-08-06',
+  due: '2026-08-14',
+  stage: 1,
+  group: 'g-07',
+  overdue: 'u-405',
+  fields: [{ key: 'f2', type: 'textarea', label: '心得與疑問', help: '200 字內', required: true }],
+}
+
+/** 本屆的一則草稿榮譽（測發布）：掛在示範 114 屆、還沒發布。 */
+export const DRAFT_HONOR = {
+  key: 'h-draft',
+  date: '2026-08-10',
+  competition: '大專校院資訊應用服務創新競賽 校內初選',
+  award: '第一名',
+  team: '第 07 組',
+  category: '校內競賽',
+  summary: '校園閒置空間共享媒合平台獲校內初選第一名，將代表系上參加全國賽。',
+}
+
+/** 首頁輪播順序（W0 的 `showcase_entries.home_position`）：兩件有獎項的歷屆作品。 */
+export const HOME_POSITIONS = { 'p-1': 1, 'p-4': 2 }

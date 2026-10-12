@@ -3,7 +3,7 @@ import { PageTitle } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import type { EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
+import { HONOR, HONOR_AUDIENCE, type EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
 import { getCohortStatusQuery } from '@/composition/cohorts'
@@ -14,11 +14,18 @@ export const metadata = { title: '新增專題事務｜資管系專題平台' }
  * 完整編輯器（新建）。這一頁**不在 GET 時建資料**：畫空白表單，第一次按「存草稿」或「發布」才建立項目，
  * 之後網址換成 `/dashboard/admin/editor/<id>`，一直是同一筆。
  */
-export default async function NewItemPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[] }> }) {
+export default async function NewItemPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cohort?: string | string[]; placement?: string | string[] }>
+}) {
   await requireRole('/dashboard/admin/editor/new', 'admin')
 
-  const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
-  const wanted = (await searchParams).cohort
+  const params = await searchParams
+  // 榮譽是跨屆的公開紀錄（第三波 W1）：`?placement=honor` 時封存屆別也能選（補登歷屆得獎）；其他位置只給未封存的屆別。
+  const honor = params.placement === HONOR
+  const cohorts = (await getCohortStatusQuery().list()).filter((c) => honor || c.status !== 'archived')
+  const wanted = params.cohort
   const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
 
   const shell = (children: React.ReactNode) => (
@@ -42,14 +49,14 @@ export default async function NewItemPage({ searchParams }: { searchParams: Prom
 
   const initial: EditorState = {
     cohortId: cohort.id,
-    placement: 'news',
+    placement: honor ? HONOR : 'news',
     title: '',
     summary: '',
     body: '',
     category: '',
     cover: null,
     attachments: [],
-    audienceKind: 'cohort_students',
+    audienceKind: honor ? HONOR_AUDIENCE : 'cohort_students',
     groupIds: [],
     receiverUnit: 'none',
     stageId: '',
@@ -57,6 +64,7 @@ export default async function NewItemPage({ searchParams }: { searchParams: Prom
     dueAt: '',
     registrationDeadline: '',
     eventDate: '',
+    awardedOn: '',
     fields: [],
   }
 

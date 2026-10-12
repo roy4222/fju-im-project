@@ -204,7 +204,7 @@ export class PgRosterQuery implements RosterQuery {
   async advisorVisibility(actor: ResolvedActor, itemId: string): Promise<AdvisorVisibilityView | null> {
     if (authorizeAdmin(actor) || !isUuid(itemId)) return null
     const db = this.#reader()
-    const found = await db.query<{ receiver_unit: string }>('select receiver_unit from managed_items where id = $1', [itemId])
+    const found = await db.query<{ receiver_unit: string }>('select receiver_unit from managed_items where id = $1 and deleted_at is null', [itemId])
     if (found.rows[0]?.receiver_unit !== 'individual') return null
     const [latest, hasResponses] = await Promise.all([
       db.query<{ enabled: boolean; effective_from_version_no: number; set_at: Date; set_by_name: string }>(
@@ -239,7 +239,7 @@ export async function rosterItemOf(db: Pick<Pool, 'query'>, itemId: string): Pro
        join cohorts c on c.id = m.cohort_id
        left join cohort_stages s on s.id = m.stage_id
        left join form_schema_versions sv on sv.id = m.current_schema_version_id
-      where m.id = $1 and m.receiver_unit <> 'none'`,
+      where m.id = $1 and m.receiver_unit <> 'none' and m.deleted_at is null`,
     [itemId],
   )
   const row = found.rows[0]

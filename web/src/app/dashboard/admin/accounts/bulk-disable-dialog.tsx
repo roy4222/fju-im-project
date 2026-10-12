@@ -165,6 +165,9 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   UTF-8 的 TXT，<strong className="font-medium text-foreground">一行一個學號</strong>，可以有空白行，不要加逗號或姓名。
                   下一步會先預覽，不會馬上停用。
+                  <a href="/samples/批次停用範例.txt" download className="ml-1 font-semibold text-primary hover:underline">
+                    下載範例檔
+                  </a>
                 </p>
               </div>
               <label className="block text-sm font-medium text-foreground">

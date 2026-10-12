@@ -181,6 +181,9 @@ function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File
         <p className="mt-1 text-sm text-muted-foreground">
           UTF-8 CSV，欄位固定 <code className="rounded bg-muted px-1">student_no,name,cohort,email</code>
           ，可多一欄 <code className="rounded bg-muted px-1">department_class</code>（系級）。
+          <a href="/samples/名單匯入範例.csv" download className="ml-1 font-semibold text-primary hover:underline">
+            下載範例檔
+          </a>
         </p>
       </div>
       <label

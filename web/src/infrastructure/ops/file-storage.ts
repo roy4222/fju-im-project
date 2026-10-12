@@ -374,13 +374,14 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       [fileId],
     )
     const row = found.rows[0]
-    // 「沒有這個檔」與「不是你的」回同一句話，不給人拿來探測檔案存不存在。
-    if (!row) return denied()
-
+    // 「沒有這個檔」也照樣查一次引用再拒絕：跟「有這個檔但不是你的」走同樣的查詢，
+    // 回同一句話，回應時間也不會因為少查一次而露出檔案存不存在。
     const refs = await this.#options.db().query<{ ref_type: FileRef['refType']; ref_id: string }>(
       `select ref_type, ref_id from file_references where file_id = $1 and released_at is null`,
       [fileId],
     )
+    if (!row) return denied()
+
     const policy = this.#options.policies[row.purpose]
     const allowed =
       policy !== undefined &&

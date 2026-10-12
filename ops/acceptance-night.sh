@@ -928,6 +928,15 @@ finalize() {
   else
     log summarize-missing - "$E2E_ROOT/summarize-night.sh 不存在"
   fi
+  # 送上開發者後台（S-8）：run.json 一定送、summary.json 有才送。失敗只記警告，不改整夜結束碼；
+  # 本機試跑這支腳本（假清單、假健康檢查）時設 ACCEPT_STATUS_PUBLISH=0，免得假的夜擠掉 VM 上真的夜。
+  if [ "${ACCEPT_STATUS_PUBLISH:-1}" = 0 ]; then
+    log status-publish - "略過（ACCEPT_STATUS_PUBLISH=0）"
+  elif bash "$REPO_ROOT/ops/status-publish-run.sh" "$RUN_DIR" >> "$RUN_DIR/publish.log" 2>&1; then
+    log status-publish - "ok（見 $RUN_DIR/publish.log）"
+  else
+    log status-publish-failed - "見 $RUN_DIR/publish.log；手動重送：ops/status-publish-run.sh $RUN_DIR"
+  fi
   if [ "$reason" = "done" ]; then
     log "done" - "報告：$RUN_DIR"
   else
