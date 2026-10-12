@@ -282,8 +282,13 @@ export function PublishPanel({
   ...ref
 }: EntryRef & { status: 'draft' | 'published' | 'withdrawn'; titleMissing: boolean; hasUnpublishedChanges: boolean }) {
   // 三個按鈕共用一個狀態：發布成功後這裡換成「下架」，剛剛那句回饋仍留在畫面上。
-  const [state, action, pending] = useActionState(lifecycleAction, undefined)
   const [consent, setConsent] = useState(false)
+  // 同意只算這一次（Q31）：發布或發布更新成功後清掉勾選，下一次要重新勾（按鈕回到停用）。
+  const [state, action, pending] = useActionState(async (previous: ShowcaseActionState, formData: FormData) => {
+    const result = await lifecycleAction(previous, formData)
+    if (result?.ok) setConsent(false)
+    return result
+  }, undefined)
 
   if (status === 'draft') {
     const reason = titleMissing ? '題目還是空白，先在上面填好題目並儲存草稿。' : consent ? null : '要先勾選上面的同意，才能發布。'

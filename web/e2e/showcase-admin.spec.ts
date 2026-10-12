@@ -282,6 +282,12 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   await lifecycle(page, OLD_TITLE).getByLabel(/已取得這組同學同意公開/).check()
   await update.click()
   await expect(lifecycle(page, OLD_TITLE).getByRole('status')).toContainText('已發布更新（第 2 版）')
+  // 同意只算這一次：成功後勾選清空、按鈕回到停用（下一次要重新勾）。
+  await old.getByLabel('摘要').fill('再改一次的摘要')
+  await old.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(old.getByTestId('unpublished-changes')).toBeVisible()
+  await expect(lifecycle(page, OLD_TITLE).getByLabel(/已取得這組同學同意公開/)).not.toBeChecked()
+  await expect(update).toBeDisabled()
   await guest.goto(`/projects/${oldEntryId}`)
   await expect(guest.getByText('發布更新後的新摘要')).toBeVisible()
   await expect(guest.getByRole('img', { name: '成果海報' })).toHaveJSProperty('naturalWidth', 1)
