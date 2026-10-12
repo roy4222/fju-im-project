@@ -198,7 +198,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
     )
     if (!created.ok) {
       if (created.reason === 'rate_limited') {
-        return { ok: false, code: 'RATE_LIMITED', message: '這個網路一小時內的註冊次數已達上限，請稍後再試。' }
+        const wait = waitAtMost(RATE_LIMITS.register.windowMs)
+        return { ok: false, code: 'RATE_LIMITED', message: `這個網路 ${wait}內的註冊次數已達上限，最晚 ${wait}後可以再試；仍無法註冊請聯絡系辦。` }
       }
       if (created.reason === 'email_taken') {
         // 統一訊息（工程模組 01 §3 `USER_EXISTS`）：不說這個 Email 是停用、待審還是正常帳號。
@@ -1073,4 +1074,13 @@ function checkDecisionShape(input: { applicationId: string; revision: number; re
 
 function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: string })?.code === '23505'
+}
+
+/**
+ * 被限速時最晚要等多久（N-21）。限速是固定視窗：被擋之後最晚一個視窗長度就重算，
+ * 所以照 `RATE_LIMITS` 的視窗長度說「最晚」，不寫死數字。
+ */
+function waitAtMost(windowMs: number): string {
+  const minutes = Math.ceil(windowMs / 60_000)
+  return minutes % 60 === 0 ? `${minutes / 60} 小時` : `${minutes} 分鐘`
 }

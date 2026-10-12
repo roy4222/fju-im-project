@@ -263,7 +263,7 @@ test('5：同一個 IP 一小時註冊超過 30 次就被擋（直接打 API 與
   await context.clearCookies()
 
   await fillRegistration(page, { name: '第三十一位', studentNo: `4${prefix}031`, email: `t07-rate-${run}-31@example.com`, dept: '資管二甲' })
-  await expect(page.locator('form p[role="alert"]')).toContainText('一小時內的註冊次數已達上限')
+  await expect(page.locator('form p[role="alert"]')).toHaveText('這個網路 1 小時內的註冊次數已達上限，最晚 1 小時後可以再試；仍無法註冊請聯絡系辦。')
   await expect(page).toHaveURL(/\/register$/)
   // 填過的資料還在（密碼除外），不用整份重打。
   await expect(page.getByLabel('學號')).toHaveValue(`4${prefix}031`)
