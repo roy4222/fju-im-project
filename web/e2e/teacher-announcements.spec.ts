@@ -7,10 +7,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 老師首頁有公告區、卡片不截斷。
  *
  * 四位老師：指導本屆 G01、指導本屆 G02、只指導別屆、沒指導任何組。公告與資源用真的「新增項目」對話框發布，
- * 收件用完整編輯器；活動、組別、指導關係用 owner 連線直接寫（那些有自己的 e2e）。
+ * 收件用完整編輯器；活動、組別、指導關係、收集中的簽核版本用 owner 連線直接寫（那些有自己的 e2e）。
  *
- * 老師首頁的「本屆活動」看的是系辦設定的工作屆別：這支在開頭把自己的屆別設成工作屆別，結束時還原
- * （CI 一次只跑一支，不會跟別支搶）。
+ * 老師首頁的「本屆活動」看的是老師**自己指導的屆別**（不是系辦的工作屆別），所以這支不動工作屆別。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -30,10 +29,10 @@ const PUBLIC_NEWS = `${CODE} 公開公告`
 const RESOURCE = `${CODE} 本屆報告範本`
 const SUBMISSION = `${CODE} 期中報告`
 const ACTIVITY = `${CODE} 專題說明會`
+const OTHER_ACTIVITY = `${CODE}-X 別屆期中發表`
 
 let pool: Pool
 let cohortId: string
-let previousWorking: string | null = null
 let advisor1: TestSession
 let advisor2: TestSession
 let otherCohortAdvisor: TestSession
@@ -123,20 +122,6 @@ test.beforeAll(async () => {
 
   cohortId = await newCohort(CODE, now)
   const otherCohort = await newCohort(`${CODE}-X`, now)
-  // 老師首頁的「本屆」＝工作屆別：先記下原本的，結束時還原。
-  const client = await pool.connect()
-  try {
-    await client.query('begin')
-    const was = await client.query<{ id: string }>(`update cohorts set is_default_working = false where is_default_working returning id`)
-    previousWorking = was.rows[0]?.id ?? null
-    await client.query(`update cohorts set is_default_working = true where id = $1`, [cohortId])
-    await client.query('commit')
-  } catch (error) {
-    await client.query('rollback')
-    throw error
-  } finally {
-    client.release()
-  }
 
   const fresh = async () => {
     const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
@@ -155,19 +140,38 @@ test.beforeAll(async () => {
   groupIds.G02 = await groupWithAdvisor(cohortId, 'G02', advisor2, admin.userId)
   groupIds.G09 = await groupWithAdvisor(otherCohort, 'G09', otherCohortAdvisor, admin.userId)
 
+  // 兩屆各一個給本屆學生的活動：老師首頁只列自己指導那一屆的（Q13），跟工作屆別是哪一屆無關。
+  for (const [cohort, title] of [
+    [cohortId, ACTIVITY],
+    [otherCohort, OTHER_ACTIVITY],
+  ] as const) {
+    await pool.query(
+      `insert into project_events (id, cohort_id, title, starts_at, all_day, audience_kind, status, created_by_kind, created_at, updated_at)
+       values (gen_random_uuid(), $1, $2, $3, false, 'cohort_students', 'scheduled', 'system', now(), now())`,
+      [cohort, title, new Date(now.getTime() + 3 * 86_400_000)],
+    )
+  }
+
+  // G01 一份收集中的同意書（三位學生都還沒表態）：老師首頁「同意書」寫「還有 3 位同學未同意」。
+  const students = [0, 1, 2].map((i) => ({ userId: crypto.randomUUID(), displayName: `W4 同學${i + 1}`, studentNo: `41799${i}` }))
+  const packageId = crypto.randomUUID()
+  const versionId = crypto.randomUUID()
   await pool.query(
-    `insert into project_events (id, cohort_id, title, starts_at, all_day, audience_kind, status, created_by_kind, created_at, updated_at)
-     values (gen_random_uuid(), $1, $2, $3, false, 'cohort_students', 'scheduled', 'system', now(), now())`,
-    [cohortId, ACTIVITY, new Date(now.getTime() + 3 * 86_400_000)],
+    `insert into signoff_packages (id, group_id, cohort_id, purpose, created_by_user_id) values ($1, $2, $3, 'result_confirmation', $4)`,
+    [packageId, groupIds.G01, cohortId, admin.userId],
   )
+  await pool.query(
+    `insert into signoff_package_versions (id, package_id, version_no, content_text, content_checksum, participants,
+                                           created_by_user_id, created_real_at, created_business_at)
+     values ($1, $2, 1, $3, encode(sha256(convert_to($3, 'UTF8')), 'hex'), $4::jsonb, $5, now(), now())`,
+    [versionId, packageId, 'e2e W4 同意書全文', JSON.stringify({ students, advisor: { userId: advisor1.userId, displayName: 'e2e 老師' } }), admin.userId],
+  )
+  await pool.query(`insert into signoff_version_status (version_id, state) values ($1, 'collecting')`, [versionId])
+  await pool.query(`update signoff_packages set current_version_id = $2 where id = $1`, [packageId, versionId])
 })
 
 test.afterAll(async () => {
-  if (pool) {
-    await pool.query(`update cohorts set is_default_working = false where id = $1`, [cohortId])
-    if (previousWorking) await pool.query(`update cohorts set is_default_working = true where id = $1`, [previousWorking])
-    await pool.end()
-  }
+  await pool?.end()
 })
 
 async function signIn(page: Page, session: TestSession) {
@@ -289,6 +293,7 @@ test('AC-32：指導本屆的老師看得到本屆公告、範本與附件、本
   expect(await download(advisor1)).toBe(200)
   await page.goto('/dashboard/teacher')
   await expect(page.getByTestId('home-cohort-activities')).toContainText(ACTIVITY)
+  await expect(page.getByTestId('home-cohort-activities')).not.toContainText(OTHER_ACTIVITY)
   // 收件：學生作業區的網址老師進不去。
   await page.goto(`/dashboard/student/affairs/${itemIds[SUBMISSION]}`)
   await expect(page).toHaveURL(/\/403$/)
@@ -310,6 +315,9 @@ test('AC-32：指導本屆的老師看得到本屆公告、範本與附件、本
     await page.goto('/dashboard/teacher')
     await expect(page.getByTestId('home-cohort-activities')).toBeVisible()
     await expect(page.getByTestId('home-cohort-activities')).not.toContainText(ACTIVITY)
+    // 只指導別屆的老師：列的是他指導那一屆的活動（不是工作屆別）；沒指導的老師兩邊都沒有。
+    if (teacher === otherCohortAdvisor) await expect(page.getByTestId('home-cohort-activities')).toContainText(OTHER_ACTIVITY)
+    else await expect(page.getByTestId('home-cohort-activities')).not.toContainText(OTHER_ACTIVITY)
   }
 
   // 本屆學生的重要公告（Q13 只看不通知）：四位老師都不在收件人裡。
@@ -344,7 +352,7 @@ test('AC-33：指定 G01 的重要公告通知 G01 的指導老師、點得開�
   await expect(page.getByTestId('inbox-item').filter({ hasText: GROUP_NEWS })).toHaveCount(0)
 })
 
-test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成「…」', async ({ page }) => {
+test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成「…」；同意書等待列寫「還有 3 位同學未同意」', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await signIn(page, advisor1)
   await page.goto('/dashboard/teacher')
@@ -357,4 +365,7 @@ test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成�
   for (const title of ['評分工作台', '給老師的公告', '本屆活動', '可認領產學組', '同意書', '指導中的組別', '合作案']) {
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
   }
+  const signoff = page.locator('section').filter({ has: page.getByRole('heading', { name: '同意書', exact: true }) })
+  await expect(signoff).toContainText('還有 3 位同學未同意')
+  await expect(signoff).not.toContainText('等待學生同意・')
 })

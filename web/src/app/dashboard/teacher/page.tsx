@@ -6,6 +6,7 @@ import { Donut, LegendRow, ListRow, Panel, PanelEmpty, Pill } from '@/app/dashbo
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { teacherSignoffSummary } from '@/app/dashboard/teacher/signoff-summary'
+import type { ResolvedActor } from '@/application/accounts'
 import type { AudienceKind } from '@/application/items'
 import { getTimelineQuery } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
@@ -23,14 +24,26 @@ const BASE = '/dashboard/teacher'
  * 「給老師的公告」列哪幾種對象（Q13、Q14，2026-09-26 定案）：全部老師、所有已登入、指定組別（前台查詢只回
  * 自己指導的組）。「本屆學生」與「公開」不列在這裡——指導老師在 `/news` 仍看得到，只是不佔首頁。
  */
-const TEACHER_NEWS: ReadonlySet<AudienceKind> = new Set(['teachers', 'signed_in', 'groups'])
+const TEACHER_NEWS: readonly AudienceKind[] = ['teachers', 'signed_in', 'groups']
+
+/**
+ * 「本屆活動」的來源：老師目前指導的屆別（Q13「自己指導那一屆」，不一定是工作屆別）＋系辦設定的工作屆別。
+ * 「本屆學生」的活動只算指導的屆別；其他對象（只給老師、所有登入者、公開）老師本來就在對象內。
+ */
+async function teacherActivities(actor: ResolvedActor, workingCohortId: string | undefined) {
+  const advisedCohorts = await getPublicItemQuery().advisedCohortIds(actor)
+  const cohortIds = [...new Set([...(workingCohortId ? [workingCohortId] : []), ...advisedCohorts])]
+  const lists = await Promise.all(cohortIds.map((id) => getTimelineQuery().activities(id)))
+  return { advisedCohorts, activities: lists.flat() }
+}
 
 /**
  * 老師首頁（2026-09-25 外觀對齊原型 `home-teacher`，區塊與順序照原型）：
  * 歡迎色塊（現在階段、本屆進度、繼續評分、四格摘要）＋評分進度 → 評分工作台＋給老師的公告與本屆活動
  * ＋可認領產學組 → 同意書＋指導組別＋合作案。
  * 2026-09-26 定案（Q7②、Q13、Q14；取代 09-10「老師不要行事曆／公告／時間軸」）：首頁加「給老師的公告」
- * （全部老師、所有已登入、我指導的組三種，新到舊 5 則）與「本屆活動」（指導本屆才列「本屆學生」的活動）。
+ * （全部老師、所有已登入、我指導的組三種，新到舊 5 則）與「本屆活動」（自己指導的屆別＋工作屆別；
+ * 「本屆學生」的活動只列自己指導的屆別）。
  *
  * 讀取全部是既有、以老師本人為範圍的查詢：評分只回本人的有效指派、簽核只回本人此刻指導的組、
  * 合作案只列本人建立的；組別清單是「所有老師都可查看」的那一份（跟「分組」頁同一個查詢）；
@@ -43,15 +56,15 @@ export default async function TeacherHomePage() {
   const me = actor.kind === 'authenticated' ? actor.userId : ''
   const ctx = await loadStage(actor, 'staff')
 
-  const [queue, signCards, groups, cases, advised, news, activities] = await Promise.all([
+  const [queue, signCards, groups, cases, advised, news, timeline] = await Promise.all([
     getGradingQuery().teacherQueue(actor),
     getSignoffQuery().teacherView(actor),
     ctx.cohort ? getGroupQuery().cohortGroups(ctx.cohort.id) : Promise.resolve([]),
     getOpportunityQuery().manageList(actor),
     getGroupQuery().advisedGroupCount(me),
-    // 前台查詢已依看的人過濾（指定組別只回自己指導的組）；這裡再挑給老師的三種，多拿一些免得被別種擠掉。
-    getPublicItemQuery().list(actor, 'news', { limit: 100 }),
-    ctx.cohort ? getTimelineQuery().activities(ctx.cohort.id) : Promise.resolve([]),
+    // 前台查詢已依看的人過濾（指定組別只回自己指導的組）；SQL 先篩這三種對象再取 5 則，不會被公開公告擠掉。
+    getPublicItemQuery().list(actor, 'news', { audiences: TEACHER_NEWS, limit: 5 }),
+    teacherActivities(actor, ctx.cohort?.id),
   ])
 
   const counts = {
@@ -65,12 +78,12 @@ export default async function TeacherHomePage() {
   const claimable = groups.filter((g) => g.groupType === 'industry' && g.advisor === null)
   const myGroups = groups.filter((g) => g.advisor?.teacherUserId === me)
   const myCases = cases.filter((c) => c.ownerUserId === me && c.status !== 'withdrawn')
-  const teacherNews = news.filter((n) => TEACHER_NEWS.has(n.audienceKind)).slice(0, 5)
-  // 本屆活動：今天以後、沒取消的。「本屆學生」的活動只給指導本屆任一組的老師（Q13）；其他對象老師本來就在內。
-  const advisesCohort = myGroups.length > 0
-  const cohortActivities = activities
+  // 本屆活動：今天以後、沒取消的，早的在前。
+  const { advisedCohorts } = timeline
+  const cohortActivities = timeline.activities
     .filter((a) => a.status === 'scheduled' && taipeiDateOf(a.startsAt) >= ctx.today)
-    .filter((a) => a.audienceKind !== 'cohort_students' || advisesCohort)
+    .filter((a) => a.audienceKind !== 'cohort_students' || advisedCohorts.includes(a.cohortId))
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
     .slice(0, 5)
 
   // 原型「歡迎回來，陳建宏 老師」；姓名本身已經以「老師」結尾就不再加。
@@ -169,11 +182,11 @@ export default async function TeacherHomePage() {
           {/* 公告區占滿一列：左「給老師的公告」、右「本屆活動」（窄螢幕上下排）。 */}
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 md:col-span-2 md:grid-cols-2 2xl:col-span-3">
             <Panel title="給老師的公告" description="全部老師、所有已登入、我指導的組" action={{ href: '/news', label: '看全部公告' }} testId="home-teacher-news" className="h-full">
-              {teacherNews.length === 0 ? (
+              {news.length === 0 ? (
                 <PanelEmpty>目前沒有給老師的公告。給本屆學生的公告在「看全部公告」裡。</PanelEmpty>
               ) : (
                 <ul className="pb-2">
-                  {teacherNews.map((n) => (
+                  {news.map((n) => (
                     <li key={n.id}>
                       <Link
                         href={`/news/${n.id}`}
@@ -193,14 +206,19 @@ export default async function TeacherHomePage() {
                 </ul>
               )}
             </Panel>
-            <Panel title="本屆活動" description={ctx.cohort?.name} testId="home-cohort-activities" className="h-full">
+            <Panel
+              title="本屆活動"
+              description={advisedCohorts.length > 0 ? '我指導的屆別' : ctx.cohort?.name}
+              testId="home-cohort-activities"
+              className="h-full"
+            >
               {cohortActivities.length === 0 ? (
                 <PanelEmpty>
-                  {ctx.cohort
-                    ? advisesCohort
-                      ? '本屆接下來沒有排定的活動。'
-                      : '接下來沒有給老師的活動。指導本屆的組別後，也會列出給本屆學生的活動。'
-                    : '系辦還沒設定目前的工作屆別。'}
+                  {advisedCohorts.length > 0
+                    ? '你指導的屆別接下來沒有排定的活動。'
+                    : ctx.cohort
+                      ? '接下來沒有給老師的活動。指導某一屆的組別後，也會列出給那屆學生的活動。'
+                      : '還沒有指導的組別，系辦也還沒設定目前的工作屆別。'}
                 </PanelEmpty>
               ) : (
                 <ul className="pb-2">

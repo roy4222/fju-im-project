@@ -168,6 +168,11 @@ export class PgPublicItemQuery implements PublicItemQuery {
       const today = `$${values.length}::date`
       where.push(`(${filter.competition.statuses.map((st) => competitionStatusSql(st, today)).join(' or ')})`)
     }
+    if (filter.audiences) {
+      if (filter.audiences.length === 0) return []
+      values.push(filter.audiences)
+      where.push(`m.audience_kind = any($${values.length}::text[])`)
+    }
     const audience = audienceSql(viewer, values.length + 1)
     values.push(...audience.values)
     where.push(audience.sql)
@@ -239,6 +244,11 @@ export class PgPublicItemQuery implements PublicItemQuery {
       dueAt: r.due_at,
       receiverUnit: r.receiver_unit,
     }))
+  }
+
+  async advisedCohortIds(actor: ResolvedActor): Promise<string[]> {
+    const viewer = await viewerOf(this.#reader(), actor)
+    return viewer.kind === 'user' ? [...viewer.advisedCohortIds] : []
   }
 
   /** 列 → 卡片：一次查齊封面與附件（附件照管理員排的順序；只算已存好的檔案）。 */

@@ -313,6 +313,11 @@ export type PublicListFilter = {
    * 較早發布但還在報名中的競賽不會被截掉。
    */
   readonly competition?: { readonly today: TaipeiDate; readonly statuses: readonly CompetitionStatus[] }
+  /**
+   * 只列這幾種對象（老師首頁「給老師的公告」，第三波 W4）：在 SQL 裡**篩完才取 `limit` 筆**，較舊的老師公告
+   * 不會被較新的公開公告擠掉。只是縮小範圍，看不看得到照舊依看的人判斷；給空陣列就是什麼都不列。
+   */
+  readonly audiences?: readonly AudienceKind[]
 }
 
 /** 學生行事曆上的一個收件截止（來源就是收件項目的截止，不另外存）。 */
@@ -347,4 +352,9 @@ export interface PublicItemQuery {
    * 可見範圍跟收件名單一致（產品 08：可見範圍跟來源一致，不把別組的截止給他看）。
    */
   myDeadlines(actor: ResolvedActor): Promise<MyDeadline[]>
+  /**
+   * 這位老師目前指導的組所在的屆別（`advisor_assignments` 有效那一列、組別沒解散；第三波 W4，Q13）。
+   * 跟可見性判斷用同一份資料：老師首頁「本屆活動」列這些屆別的活動。不是老師、訪客回空陣列。
+   */
+  advisedCohortIds(actor: ResolvedActor): Promise<string[]>
 }

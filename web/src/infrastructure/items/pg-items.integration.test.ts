@@ -1829,6 +1829,44 @@ describe('指導老師（第三波 W4；Q13、Q14，AC-32、AC-33）：本屆公
     for (const teacher of [s.advisor1, s.advisor2, s.otherCohortAdvisor, teacherId]) expect(cohortRecipients).not.toContain(teacher)
   })
 
+  it('只列指定對象（老師首頁）：SQL 先篩對象再取筆數，較舊的老師公告不會被 101 則較新的公開公告擠掉；不會因此多看到別人的', async () => {
+    const s = await scene()
+    const tag = randomUUID().slice(0, 8)
+    await published(s.cohortId, { title: `${tag} 老師`, audienceKind: 'teachers' })
+    await published(s.cohortId, { title: `${tag} G02`, audienceKind: 'groups', groupIds: [s.g2] })
+    await published(s.cohortId, { title: `${tag} G01`, audienceKind: 'groups', groupIds: [s.g1] })
+    for (let i = 0; i < 101; i += 1) await published(s.cohortId, { title: `${tag} 公開 ${i}`, audienceKind: 'public' })
+
+    const teacherKinds = ['teachers', 'signed_in', 'groups'] as const
+    // 舊做法（先取 100 則再在畫面挑）：老師公告全被擠掉。
+    const recent = await publicQuery.list(teacherOf(s.advisor1), 'news', { q: tag, limit: 100 })
+    expect(recent.filter((c) => (teacherKinds as readonly string[]).includes(c.audienceKind))).toEqual([])
+
+    const titles = async (actor: ResolvedActor) =>
+      (await publicQuery.list(actor, 'news', { q: tag, audiences: teacherKinds, limit: 5 })).map((c) => c.title.replace(`${tag} `, ''))
+    expect(await titles(teacherOf(s.advisor1))).toEqual(['G01', '老師'])
+    expect(await titles(teacherOf(s.advisor2))).toEqual(['G02', '老師'])
+    expect(await titles(teacherActor())).toEqual(['老師'])
+    expect(await publicQuery.list(teacherOf(s.advisor1), 'news', { q: tag, audiences: [] })).toEqual([])
+  })
+
+  it('目前指導的屆別（老師首頁「本屆活動」用）：只算有效指派；沒指導、學生、訪客都是空的；解除後就沒有', async () => {
+    const s = await scene()
+    const other = (await owner.sql(`select g.cohort_id from advisor_assignments a join groups g on g.id = a.group_id
+                                     where a.teacher_user_id = $1 and a.valid_to is null`, [s.otherCohortAdvisor])).rows[0]!.cohort_id
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.advisor1))).toEqual([s.cohortId])
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.otherCohortAdvisor))).toEqual([String(other)])
+    expect(await publicQuery.advisedCohortIds(teacherActor())).toEqual([])
+    expect(await publicQuery.advisedCohortIds(studentActor(s.member))).toEqual([])
+    expect(await publicQuery.advisedCohortIds({ kind: 'anonymous' })).toEqual([])
+    await owner.sql(
+      `update advisor_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = '測試解除'
+        where teacher_user_id = $1 and valid_to is null`,
+      [s.advisor1, adminId],
+    )
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.advisor1))).toEqual([])
+  })
+
   it('解除指導後（valid_to 有值）就不算指導老師：看不到、也不再收到該組公告的通知', async () => {
     const s = await scene()
     await owner.sql(
