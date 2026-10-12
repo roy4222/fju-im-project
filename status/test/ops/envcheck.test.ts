@@ -59,6 +59,7 @@ function run(args: string[], env: Record<string, string> = {}) {
     cwd: tmp,
     encoding: 'utf8',
     env: {
+      NODE_ENV: 'test',
       PATH: `${fakeBin}:${process.env.PATH}`,
       HOME: tmp,
       FJU_DEPLOY_USER: me,

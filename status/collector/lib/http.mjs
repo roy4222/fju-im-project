@@ -19,7 +19,7 @@ function describe(url) {
 
 export async function fetchRaw(url, { timeoutMs = 15000, headers = {}, redirect = 'follow' } = {}) {
   try {
-    return await fetch(url, { headers, redirect, signal: AbortSignal.timeout(timeoutMs) })
+    return await fetch(url, { headers, redirect, signal: globalThis.AbortSignal.timeout(timeoutMs) })
   } catch (err) {
     const cause = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? 'error'
     throw new HttpError(scrubIp(`連不到 ${describe(url)}（${cause}）`), 0)
