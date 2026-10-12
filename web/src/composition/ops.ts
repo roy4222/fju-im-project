@@ -140,6 +140,8 @@ export function getFileStorage(): FileStorage<PoolClient> {
     environmentMaxBytes,
     ticketSecret,
     policies: DOWNLOAD_POLICIES,
+    // 首頁大圖對所有人公開：待審、必須改密的人開首頁也要看得到（比照訪客；政策只放行目前那一張）。
+    publicReadPurposes: ['photo'],
     db: getPool,
   })
   return fileStorage

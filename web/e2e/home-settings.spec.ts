@@ -1,6 +1,6 @@
 import { expect, request as playwrightRequest, test, type Browser, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
+import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
 /**
  * 第三波 W3：首頁設定（大圖＋兩行標語，存了就生效）；聯絡卡與頁尾換成系網資料（AC-15 首頁那半、AC-16～AC-20）。
@@ -26,9 +26,9 @@ const ADDRESS = '242 新北市新莊區中正路 510 號 利瑪竇大樓 LM306'
 const PHONE = '02-2905-2666'
 const SLOGAN = '透過機測、專題及產業實習讓學生動手做'
 
-// 內容檢查只看開頭的簽章（JPEG／PNG），e2e 不需要真的能顯示的圖。
-const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1])
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+// 真的解得開的小圖（4×3，JPEG 與 PNG 各一）：首頁斷言 `naturalWidth > 0`，破圖不會混過去。
+const JPG = Buffer.from('/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAABKADAAQAAAABAAAAAwAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAAwAEAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICAwICAwUDAwMFBgUFBQUGCAYGBgYGCAoICAgICAgKCgoKCgoKCgwMDAwMDA4ODg4ODw8PDw8PDw8PD//bAEMBAgICBAQEBwQEBxALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/dAAQAAf/aAAwDAQACEQMRAD8A1KKKK/zTP9ED/9k=', 'base64')
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAD0lEQVR4nGNgME5DIJwcAIc5By0Ywt6kAAAAAElFTkSuQmCC', 'base64')
 
 async function signIn(page: Page, role: TestRole) {
   const session = await sharedTestSession(page.request, role)
@@ -49,12 +49,20 @@ async function forceDefaults() {
   }
 }
 
-/** 沒登入的訪客開首頁。 */
-async function visitorHome(browser: Browser) {
+/** 沒登入的訪客（或帶著某個登入狀態的人）開首頁。 */
+async function visitorHome(browser: Browser, cookie?: string) {
   const context = await browser.newContext({ baseURL: BASE_URL })
+  if (cookie) await context.addCookies([toPlaywrightCookie(cookie, BASE_URL)])
   const page = await context.newPage()
   await page.goto('/')
   return { page, close: () => context.close() }
+}
+
+/** 首頁大圖真的載入、解得開（不是 403 或破圖）。 */
+async function expectHeroLoaded(page: Page) {
+  await expect
+    .poll(() => page.getByTestId('home-hero-image').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
+    .toBeGreaterThan(0)
 }
 
 async function anonymousStatus(path: string): Promise<number> {
@@ -128,7 +136,7 @@ test('首頁輪播沒有公開的優秀專題時，空狀態不說「系辦發�
   await expect(featured).not.toContainText('系辦公開')
 })
 
-test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換圖後舊圖無法存取（AC-17、AC-18）', async ({ page, browser }) => {
+test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換圖後舊圖無法存取（AC-17、AC-18）', async ({ page, browser, request }) => {
   const startedAt = new Date()
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/home-settings')
@@ -164,8 +172,17 @@ test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換�
   await expect(imageA).toHaveAttribute('alt', alt)
   const srcA = await imageA.getAttribute('src')
   expect(srcA).toMatch(/^\/api\/files\/[0-9a-f-]{36}$/)
+  await expectHeroLoaded(visitor.page)
   await visitor.close()
   expect(await anonymousStatus(srcA!)).toBe(200)
+
+  // 待審的帳號（登入了但還不能用業務功能）開首頁一樣看得到大圖（Review：曾被帳號狀態閘門擋成 403）。
+  // 另一個沒帶 cookie 的 request（page.request 帶著系辦的 cookie，註冊會被要求 Origin）。
+  const pending = await createTestSession(request, null)
+  const pendingHome = await visitorHome(browser, pending.cookie)
+  await expect(pendingHome.page.getByRole('heading', { level: 1 })).toHaveText(line1)
+  await expectHeroLoaded(pendingHome.page)
+  await pendingHome.close()
 
   // 操作紀錄：home.updated（顯示用的中文名稱由用詞票另外對照，這裡直接查紀錄）。
   if (ownerUrl) {
@@ -188,6 +205,7 @@ test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換�
   const after = await visitorHome(browser)
   const srcB = await after.page.getByTestId('home-hero-image').getAttribute('src')
   await expect(after.page.getByTestId('home-hero-image')).toHaveAttribute('alt', `圖 B ${stamp}`)
+  await expectHeroLoaded(after.page)
   await after.close()
   expect(srcB).not.toBe(srcA)
   expect(await anonymousStatus(srcB!)).toBe(200)

@@ -111,6 +111,8 @@ beforeAll(async () => {
     environmentMaxBytes: () => 100 * 1024 * 1024,
     ticketSecret: () => 'home-secret-home-secret-home-secret-home',
     policies: { photo: createHeroPhotoPolicy(() => app), poster: createPosterPolicy(() => app) },
+    // 同正式組裝（`composition/ops.ts`）：首頁大圖是公開讀取例外。
+    publicReadPurposes: ['photo'],
     db: () => app,
   })
   command = new PgHomeSettingsCommand({
@@ -246,6 +248,23 @@ describe('首頁大圖', () => {
 
     const audit = await owner.sql(`select payload from audit_events where action = 'home.updated' order by real_at desc, id desc limit 1`)
     expect(audit.rows[0]!.payload).toMatchObject({ heroFileId: b, previousHeroFileId: a })
+  })
+
+  it('待審、必須改密的帳號開首頁也看得到目前的大圖（比照訪客）；舊圖、還沒存的圖照舊無法存取', async () => {
+    const pendingUser: ResolvedActor = { kind: 'authenticated', userId: student, roles: ['student'], status: 'pending', mustChangePassword: false, cohortMemberships: [] }
+    const mustChange: ResolvedActor = { kind: 'authenticated', userId: student, roles: ['student'], status: 'active', mustChangePassword: true, cohortMemberships: [] }
+    const a = await uploadHero(a1, 'a.jpg', JPG, 'image/jpeg')
+    await mustSave({ heroFileId: a, heroAlt: '圖 A' })
+    const b = await uploadHero(a1, 'b.png', PNG, 'image/png')
+    for (const who of [pendingUser, mustChange]) {
+      expect(await download(who, a)).toBe('ok')
+      expect(await download(who, b)).toBe('FORBIDDEN')
+    }
+    await mustSave({ heroFileId: b, heroAlt: '圖 B' })
+    for (const who of [pendingUser, mustChange]) {
+      expect(await download(who, b)).toBe('ok')
+      expect(await download(who, a)).toBe('FORBIDDEN')
+    }
   })
 
   it('恢復預設：四欄清成 null、列還在、版本往上加；原本那張圖不再公開；首頁回預設', async () => {
