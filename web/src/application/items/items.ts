@@ -17,9 +17,9 @@ export type Placement = 'news' | 'resource' | 'submission' | 'requirement' | 'ru
 
 /**
  * 開放建立的位置：公告、資源、文件繳交（票 15），加上專題規則（票 16：前台 `/rules` 的內容也走同一個發布流程，
- * 產品模組 04 §4.2）。其餘位置在後面的票。
+ * 產品模組 04 §4.2）、榮譽榜（第三波 W1：前台 `/honors` 與首頁「榮譽與競賽」）。其餘位置在後面的票。
  */
-export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission', 'rules'] as const
+export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission', 'rules', 'honor'] as const
 export type EditablePlacement = (typeof EDITABLE_PLACEMENTS)[number]
 
 export const PLACEMENT_LABEL: Readonly<Record<Placement, string>> = {
@@ -37,7 +37,14 @@ export const PLACEMENT_HINT: Readonly<Record<EditablePlacement, string>> = {
   resource: '給大家下載的範本或參考文件',
   submission: '學生在截止前填寫或上傳（個人一份或整組一份）',
   rules: '前台「專題規則」頁的一節（長文）',
+  honor: '前台「榮譽榜」的一則得獎消息，可附照片',
 }
+
+/**
+ * 榮譽榜是公開頁（第三波 W1）：對象固定「公開訪客」、不收件、不發通知；而且是跨屆的公開紀錄，
+ * 屆別封存後仍可編輯、下架、重新發布、刪除（其他位置封存後就不能動）。
+ */
+export const HONOR_PLACEMENT = 'honor' as const
 
 export type AudienceKind = 'public' | 'signed_in' | 'cohort_students' | 'teachers' | 'groups'
 export const AUDIENCE_KINDS: readonly AudienceKind[] = ['cohort_students', 'groups', 'signed_in', 'teachers', 'public']
@@ -193,6 +200,8 @@ export type ItemInput = {
   readonly registrationDeadline?: string
   /** 競賽資訊的活動日（決賽、展出；`YYYY-MM-DD`；空＝沒填）。 */
   readonly eventDate?: string
+  /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台退回發布日）。只有榮譽會留，其他位置一律清掉。 */
+  readonly awardedOn?: string
   readonly fields: readonly unknown[]
 }
 
@@ -215,6 +224,8 @@ export type ItemDraft = {
   /** 競賽資訊的兩個日期（臺灣日曆日）；不是「公告＋分類競賽資訊」一律 null。 */
   readonly registrationDeadline: TaipeiDate | null
   readonly eventDate: TaipeiDate | null
+  /** 榮譽榜的得獎日期（臺灣日曆日）；不是榮譽一律 null。 */
+  readonly awardedOn: TaipeiDate | null
   readonly fields: readonly FormField[]
 }
 
@@ -335,7 +346,7 @@ export function normalizeSchema(rawFields: readonly unknown[]): Normalized<FormF
 export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (!isUuid(input.cohortId)) return invalid('請選擇屆別。', 'cohortId')
   const placement = String(input.placement) as EditablePlacement
-  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源、文件繳交或專題規則。', 'placement')
+  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源、文件繳交、專題規則或榮譽／競賽。', 'placement')
 
   const title = cleanLine(input.title)
   if (title === '') return invalid('請填標題。', 'title')
@@ -352,6 +363,9 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇發布對象。', 'audienceKind')
   if (collects && !COLLECTION_AUDIENCES.includes(audienceKind)) {
     return invalid('收件只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+  }
+  if (placement === HONOR_PLACEMENT && audienceKind !== 'public') {
+    return invalid('榮譽榜是公開頁，對象只能是「公開訪客」。', 'audienceKind')
   }
 
   let receiverUnit: ReceiverUnit = 'none'
@@ -408,6 +422,14 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
     }
   }
 
+  // 榮譽的得獎日期：只有榮譽才留（換位置就清掉）。
+  let awardedOn: TaipeiDate | null = null
+  if (placement === HONOR_PLACEMENT) {
+    const awarded = parseDay(input.awardedOn, '得獎日期', 'awardedOn')
+    if (!awarded.ok) return awarded
+    awardedOn = awarded.value
+  }
+
   return {
     ok: true,
     value: {
@@ -427,6 +449,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       dueAt,
       registrationDeadline,
       eventDate,
+      awardedOn,
       fields,
     },
   }

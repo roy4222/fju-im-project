@@ -1,0 +1,13 @@
+[Unit]
+Description=開發者後台：每輪結束 8 分鐘後再更新一次（測試站重置後 10 分鐘內補回 PgHero 監控角色）
+
+[Timer]
+OnActiveSec=2min
+# 從上一輪「結束」起算，所以拉映像花多久都不會壓縮補建的間隔；每輪一開始就先補建角色。
+# 最長間隔＝8 分鐘＋AccuracySec 1 秒＋補建本身幾秒，低於 10 分鐘。
+# 不設 RandomizedDelaySec、AccuracySec 明設 1 秒：systemd 預設 AccuracySec=1min，會再往後拖。
+OnUnitInactiveSec=8min
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

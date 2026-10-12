@@ -506,14 +506,14 @@ export class PgSubmissionCommand implements SubmissionCommand {
     return this.#run(async (tx) => {
       // 鎖序：屆別（共享）→ 項目（獨占）。學生存草稿與送出拿項目的共享鎖，所以「看有沒有人作答」到「插設定」之間
       // 不會有人剛好交進來（否則那個人沒看到告知，回答卻開給老師）。
-      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1', [itemId])
+      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
       const cohortId = head.rows[0]?.cohort_id
       if (!cohortId) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
       const found = await tx.query<{ receiver_unit: string; schema_version_no: number | null }>(
         `select m.receiver_unit, sv.version_no as schema_version_no
            from managed_items m left join form_schema_versions sv on sv.id = m.current_schema_version_id
-          where m.id = $1 for update of m`,
+          where m.id = $1 and m.deleted_at is null for update of m`,
         [itemId],
       )
       const item = found.rows[0]
@@ -615,7 +615,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
    */
   async #lock(tx: PoolClient, itemId: string, userId: string): Promise<Locked | null> {
     const head = await tx.query<{ cohort_id: string; receiver_unit: string }>(
-      'select cohort_id, receiver_unit from managed_items where id = $1',
+      'select cohort_id, receiver_unit from managed_items where id = $1 and deleted_at is null',
       [itemId],
     )
     const cohortId = head.rows[0]?.cohort_id
@@ -645,7 +645,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
 
     const found = await tx.query<ItemRow>(
       `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id
-         from managed_items where id = $1 for share`,
+         from managed_items where id = $1 and deleted_at is null for share`,
       [itemId],
     )
     const item = found.rows[0]
@@ -1016,7 +1016,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
       `select m.receiver_unit,
               (select gm.group_id from group_memberships gm join groups g on g.id = gm.group_id
                 where gm.user_id = $1 and gm.cohort_id = m.cohort_id and gm.valid_to is null and g.status = 'active') as group_id
-         from managed_items m where m.id = $2`,
+         from managed_items m where m.id = $2 and m.deleted_at is null`,
       [userId, itemId],
     )
     const row = found.rows[0]

@@ -8,6 +8,7 @@ import type { FileListRow, FilePurpose } from '@/application/ops'
  * 只讀既有的 `stored_files`、`file_references` 與引用它們的表，不新增欄位或表。
  * 只列 `stored`（上傳完成、還沒被回收）的檔；上傳中、軟刪除、已清除的不列。
  * 引用位置只挑一個代表（附件 → 項目、封面 → 項目、繳交 → 那份收件的項目），引用數另外算有效引用的總數。
+ * 已刪除的項目（第三波 W1）不算引用來源：不當代表、也不算進引用數（檔案本身照列）。
  * 授權在 composition（只有系辦）；這裡不判人。
  */
 
@@ -33,7 +34,11 @@ export async function listStoredFiles(db: Pick<Pool, 'query'>): Promise<FileList
   const result = await db.query<Row>(
     `select f.id, f.original_name, f.size_bytes, f.purpose, f.uploaded_real_at,
             u.name as uploader_name, c.code as cohort_code,
-            (select count(*)::int from file_references r where r.file_id = f.id and r.released_at is null) as active_refs,
+            (select count(*)::int from file_references r
+              where r.file_id = f.id and r.released_at is null
+                and not exists (select 1 from managed_items dmi
+                                 where r.ref_type = 'item_attachment' and dmi.id = r.ref_id and dmi.deleted_at is not null))
+              as active_refs,
             case when att.item_id is not null then 'item_attachment'
                  when cov.item_id is not null then 'item_cover'
                  when sub.item_id is not null then 'submission' end as where_kind,
@@ -43,14 +48,17 @@ export async function listStoredFiles(db: Pick<Pool, 'query'>): Promise<FileList
        join users u on u.id = f.owner_user_id
        left join cohorts c on c.id = f.cohort_id
        left join lateral (
-         select ia.item_id from item_attachments ia where ia.file_id = f.id order by ia.created_at limit 1
+         select ia.item_id from item_attachments ia
+           join managed_items ami on ami.id = ia.item_id and ami.deleted_at is null
+          where ia.file_id = f.id order by ia.created_at limit 1
        ) att on true
        left join lateral (
-         select mi.id as item_id from managed_items mi where mi.cover_file_id = f.id limit 1
+         select mi.id as item_id from managed_items mi where mi.cover_file_id = f.id and mi.deleted_at is null limit 1
        ) cov on true
        left join lateral (
          select sv.item_id from submission_files sf
            join submission_versions sv on sv.id = sf.submission_version_id
+           join managed_items smi on smi.id = sv.item_id and smi.deleted_at is null
           where sf.file_id = f.id limit 1
        ) sub on true
        left join managed_items m on m.id = coalesce(att.item_id, cov.item_id, sub.item_id)

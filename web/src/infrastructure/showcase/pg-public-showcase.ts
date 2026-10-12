@@ -30,7 +30,8 @@ import { personName } from '@/infrastructure/db/person-name'
  * 組員與主指導只給**能正常使用平台**的登入者（`statusGate` 通過：待審、必須改密、停用都當訪客），
  * 而且只給「目前有效」的那幾列（`valid_to IS NULL`），換組、重派之後的舊人不會掛在作品上。
  *
- * 發布本身（閘門、核閱、外部授權）在 S12；目前只有測試站示範資料會寫出已發布的列。
+ * 發布由系辦在後台按（第三波 W2：勾同意即可發布、下架、重新發布、刪除）。已刪除的條目（`deleted_at`）一律當作不存在。
+ * 優秀專題沒指定排序時是首頁輪播的順序（`home_position` 小到大，沒填的排後面）。
  */
 
 const MAX_ROWS = 200
@@ -56,7 +57,7 @@ const FROM = `
   join cohorts c on c.id = e.cohort_id
   left join groups g on g.id = e.group_id
   left join stored_files f on f.id = v.poster_file_id and f.status = 'stored'
- where e.status = 'published'`
+ where e.status = 'published' and e.deleted_at is null`
 
 const COLUMNS = `e.id, c.code as cohort_code, c.name as cohort_name, e.group_id, g.code as group_code, v.title, v.summary, v.video_url,
        f.id as poster_file_id, v.created_real_at, e.award_level, e.award_label`
@@ -75,6 +76,8 @@ const ORDER: Record<NonNullable<ShowcaseListFilter['sort']>, string> = {
   award: `${EXCELLENT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
   excellent: `${EXCELLENT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
   merit: `${MERIT_FIRST}, c.code desc, g.code asc nulls last, v.title asc, e.id asc`,
+  // 首頁輪播（W2；設計方案 §4）：首頁順序小到大、沒填的排後面；全都沒填時跟「屆別」一模一樣。
+  home: `e.home_position asc nulls last, c.code desc, ${EXCELLENT_FIRST}, g.code asc nulls last, v.title asc, e.id asc`,
 }
 
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
@@ -112,7 +115,7 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
   }
 
   async featured(filter: ShowcaseListFilter = {}): Promise<PublicShowcaseCard[]> {
-    const rows = await this.#rows({ ...filter, awardOnly: true }, false)
+    const rows = await this.#rows({ ...filter, awardOnly: true, sort: filter.sort ?? 'home' }, false)
     return rows.map(toCard)
   }
 
@@ -145,8 +148,9 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
   async entry(actor: ResolvedActor, entryId: string): Promise<PublicShowcasePage> {
     if (!UUID.test(entryId)) return { access: 'not_found' }
     const db = this.#reader()
+    // 已刪除的跟「沒有」一樣（先判刪除回 404，再判下架；設計方案 §2）。
     const head = await db.query<{ status: 'draft' | 'published' | 'withdrawn' }>(
-      `select status from showcase_entries where id = $1`,
+      `select status from showcase_entries where id = $1 and deleted_at is null`,
       [entryId],
     )
     const status = head.rows[0]?.status

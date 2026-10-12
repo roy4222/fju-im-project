@@ -1,0 +1,83 @@
+{
+  "updatedAt": "2026-10-12T08:30:00+08:00",
+  "sourceSha": "7162644000000000000000000000000000000000",
+  "batches": [
+    {
+      "id": "p1",
+      "name": "第一段修正",
+      "plan": "docs/plans/2026-10-08-phase1-fixes/設計方案.md"
+    },
+    {
+      "id": "s",
+      "name": "開發者後台",
+      "plan": "docs/plans/2026-10-12-status-console/設計方案.md"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "P1-T1",
+      "batch": "p1",
+      "title": "訪客打開不該看的頁，直接帶去登入",
+      "wave": "第一波",
+      "status": "merged",
+      "owner": "Opus",
+      "branch": "claude/p1-t1",
+      "pr": 336,
+      "dependsOn": [],
+      "acceptance": [
+        "F1"
+      ],
+      "note": ""
+    },
+    {
+      "id": "P1-T13",
+      "batch": "p1",
+      "title": "系辦批次停用帳號前先預覽",
+      "wave": "第三波",
+      "status": "doing",
+      "owner": "Opus",
+      "branch": "claude/p1-t13",
+      "pr": 344,
+      "dependsOn": [
+        "P1-T1"
+      ],
+      "acceptance": [
+        "F13"
+      ],
+      "note": ""
+    },
+    {
+      "id": "S-1",
+      "batch": "s",
+      "title": "開發者後台的骨架",
+      "wave": "第一波",
+      "status": "merged",
+      "owner": "Opus",
+      "branch": "claude/s-1",
+      "pr": 357,
+      "dependsOn": [],
+      "acceptance": [
+        "AC-S-1"
+      ],
+      "note": ""
+    },
+    {
+      "id": "S-6",
+      "batch": "s",
+      "title": "「能不能上線」頁＋「開發進度」頁",
+      "wave": "第二波",
+      "status": "todo",
+      "owner": "Opus",
+      "branch": "claude/s-6",
+      "pr": null,
+      "dependsOn": [
+        "S-1"
+      ],
+      "acceptance": [
+        "AC-S-13",
+        "AC-S-19"
+      ],
+      "note": ""
+    }
+  ]
+}
