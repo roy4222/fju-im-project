@@ -108,6 +108,8 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
     await dialog.getByLabel(`第 ${i + 1} 階段名稱`).fill(name!)
     await dialog.getByLabel(`第 ${i + 1} 階段開始日`).fill(date!)
   }
+  // Q40：第 1 階段（分組期）固定說明在做什麼；名稱照系辦填的。
+  await expect(dialog).toContainText('分組期：組隊、選指導老師、交提案的期間')
   // 票 39：一句話說明（選填），右欄預覽跟著顯示。
   await dialog.getByLabel('第 1 階段一句話說明').fill('五人一組報名，各自確認後成立。')
   await expect(dialog.getByRole('complementary', { name: '學生看到的樣子' })).toContainText('五人一組報名，各自確認後成立。')
@@ -118,6 +120,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
 
   const list = page.getByRole('list', { name: '本屆階段' })
   await expect(list).toContainText('成組期')
+  await expect(page.getByText(/分組期：組隊、選指導老師、交提案的期間。五人一組報名/).first()).toBeVisible()
   await expect(list).toContainText('2026-11-01 – 2027-01-09')
   await expect(list).toContainText('2027-03-01 – 2027-06-30')
 

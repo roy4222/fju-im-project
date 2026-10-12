@@ -117,6 +117,8 @@ async function openStudentPage(page: Page, index: number) {
 
 async function proposeAll(page: Page) {
   await openStudentPage(page, 0)
+  // Q40：學生組別頁說明分組期在做什麼。
+  await expect(page.getByRole('main')).toContainText('不能超過分組期（組隊、選指導老師、交提案的期間）')
   for (const [i, s] of students.slice(1).entries()) {
     await page.getByLabel(`同學 ${i + 1} 的學號`).fill(s.studentNo)
   }
@@ -268,6 +270,8 @@ test('管理員：分組總覽列出這一組與組長；改每組人數後摘�
   await expect(groups).toContainText(`${students[0]!.name}（組長）`)
   await expect(groups).toContainText('5 人')
   await expect(page.getByTestId('grouping-settings')).toContainText('每組 5 人')
+  // Q40：系辦分組頁說明分組期在做什麼。
+  await expect(page.getByTestId('grouping-settings')).toContainText('不超過分組期（組隊、選指導老師、交提案的期間）')
 
   await page.getByRole('button', { name: '分組設定' }).click()
   const dialog = page.getByRole('dialog', { name: new RegExp(`（${CODE}） 的分組設定`) })

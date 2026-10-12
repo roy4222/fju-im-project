@@ -74,6 +74,11 @@ export function RespondForm({
         </button>
       </div>
       <p className="text-xs text-muted-foreground">每人一票、投了不能改；系辦與其他人都不能替你按。</p>
+      {role === 'student' ? (
+        <p className="text-xs text-muted-foreground" data-testid="respond-later-hint">
+          想先確認再回覆的話，可以稍後再回來，不用按任何按鈕。按『不同意並退回』會讓全組重新同意。
+        </p>
+      ) : null}
 
       <dialog ref={agree.ref} aria-label="確認同意" className={DIALOG}>
         <form action={formAction} className="space-y-4 p-6">

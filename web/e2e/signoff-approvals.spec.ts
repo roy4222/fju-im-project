@@ -347,6 +347,10 @@ test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕�
 test('不同意：理由必填、送出後退回修正中，其他組員看到理由；系辦「重開新版」＝建新版', async ({ page }) => {
   await signIn(page, g2[0]!)
   await page.goto('/dashboard/student/signoff')
+  // Q39：按鈕旁說明可以稍後再回覆、不同意會讓全組重新同意。
+  await expect(page.getByTestId('respond-later-hint')).toHaveText(
+    '想先確認再回覆的話，可以稍後再回來，不用按任何按鈕。按『不同意並退回』會讓全組重新同意。',
+  )
   await page.getByTestId('respond-form').getByRole('button', { name: '不同意並退回修正' }).click()
   const dialog = page.getByRole('dialog', { name: '不同意並退回修正' })
   await dialog.getByRole('button', { name: '確定不同意並退回修正' }).click()
