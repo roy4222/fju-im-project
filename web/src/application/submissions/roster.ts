@@ -24,6 +24,8 @@ export type ReceiverFacts = {
   readonly exempt: boolean
   readonly hasDraft: boolean
   readonly latestVersionNo: number | null
+  /** 系辦替這一位開的個別補交期限（W10，最晚的那一個）；沒有就是 null 或不給。 */
+  readonly reopenUntil?: Date | null
 }
 
 export function categoryOf(facts: Pick<ReceiverFacts, 'eligibleTo' | 'exempt'>): RosterCategory {
@@ -38,13 +40,17 @@ export type ItemWindow = { readonly opensAt: Date | null; readonly dueAt: Date |
  * 學生作業區、學生首頁、名單頁都經這裡，同一組事實一定得到同一個結果。
  */
 export function receiverStatus(window: ItemWindow, facts: Omit<ReceiverFacts, 'eligibleTo'>, businessNow: Date): ItemStatusView {
-  const phase: Phase = phaseOf(window, businessNow)
+  const reopenUntil = facts.reopenUntil ?? null
+  const phase: Phase = phaseOf(window, businessNow, reopenUntil)
+  // 補交期限只在「本來已截止、靠它開放」時才講（還沒截止時有期限也照一般的字）。
+  const reopened = phase === 'open' && phaseOf(window, businessNow) === 'closed'
   return statusOf({
     phase,
     opensAt: window.opensAt,
     latestVersionNo: facts.latestVersionNo,
     hasDraft: facts.hasDraft,
     exempt: facts.exempt,
+    reopenUntil: reopened ? reopenUntil : null,
   })
 }
 

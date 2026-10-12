@@ -81,10 +81,11 @@ export const showcaseEntries = pgTable(
     deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, restrict),
   },
   (t) => [
-    // 同一組同一屆只能有一個精選條目（S11-03「再對 G1 建立第二份草稿 → 被拒」）。
+    // 同一組同一屆只能有一個**未刪除**的精選條目（S11-03「再對 G1 建立第二份草稿 → 被拒」）；
+    // 刪掉之後同組可以再建一份（0013，第三波 W15）。
     uniqueIndex('showcase_entries_one_per_group')
       .on(t.cohortId, t.groupId)
-      .where(sql`${t.groupId} is not null`),
+      .where(sql`${t.groupId} is not null and ${t.deletedAt} is null`),
     check('showcase_entries_status_check', sql`${t.status} in ('draft','published','withdrawn')`),
     check('showcase_entries_award_level_check', sql`${t.awardLevel} is null or ${t.awardLevel} in ('excellent','merit')`),
     check(

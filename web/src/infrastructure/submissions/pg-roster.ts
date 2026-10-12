@@ -2,6 +2,7 @@ import 'server-only'
 import type { Pool } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
+import type { SubmissionLateFlags } from '@/application/ops'
 import type {
   AdvisorVisibilityView,
   ItemRoster,
@@ -18,7 +19,8 @@ import { responsePresenceReader } from '@/infrastructure/submissions/pg-response
 import {
   isUuid,
   receiverFactsJoin,
-  toSummary,
+  REOPEN_UNTIL,
+  summarizeVersions,
   VERSION_COLUMNS,
   VERSION_JOINS,
   versionDetail,
@@ -32,7 +34,8 @@ import {
  *   老師預設看不到個人回答；主指導看繳交在 `pg-advisor-submissions`（票 22）。
  * - 名單：同一個收件者可能有多列（移出後又加回）。取「目前那一列」；沒有目前的，取最後一次移出的那一列。
  *   分類與完成率由 application 的 `categoryOf`／`completionOf` 算（畫面呼叫），這裡只給事實。
- * - 草稿、最後一次正式送出用 `receiverFactsJoin`：與學生作業區同一段 SQL。
+ * - 草稿、最後一次正式送出用 `receiverFactsJoin`：與學生作業區同一段 SQL；個別補交期限（W10）也同一段（`REOPEN_UNTIL`），
+ *   所以補交中、期限未到的人在名單列表與完成率不算逾期，跟學生自己看到的一致。
  * - 已移出的人：回答保留、管理員仍查得到（產品模組 05 Q-SUB03），所以版本不要求目前還在名單上。
  */
 
@@ -68,6 +71,8 @@ export type EntryRow = {
   latest_version_no: number | null
   latest_received_at: Date | null
   latest_submitted_by_name: string | null
+  /** 個別補交期限（W10）；主指導的查詢不帶這一欄（老師端不顯示補交），當成沒有。 */
+  reopen_until?: Date | null
 }
 
 /**
@@ -88,7 +93,8 @@ const ENTRIES = `
          case when r.receiver_kind = 'group' then gr.code else ug.code end as group_code,
          r.eligible_from_business_at, r.eligible_to_business_at, r.source, r.exempt, r.exempt_reason, r.removed_reason,
          facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-         coalesce(sp.display_name, su.name) as latest_submitted_by_name
+         coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+         ${REOPEN_UNTIL}
     from picked r
     left join users u on r.receiver_kind = 'user' and u.id = r.receiver_id
     left join user_profiles p on r.receiver_kind = 'user' and p.user_id = r.receiver_id
@@ -119,14 +125,18 @@ export function toEntry(row: EntryRow): RosterEntry {
     latestVersionNo: row.latest_version_no,
     latestReceivedAt: row.latest_received_at,
     latestSubmittedByName: row.latest_submitted_by_name,
+    reopenUntil: row.reopen_until ?? null,
   }
 }
 
 export class PgRosterQuery implements RosterQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async roster(actor: ResolvedActor, itemId: string): Promise<ItemRoster | null> {
@@ -185,7 +195,7 @@ export class PgRosterQuery implements RosterQuery {
         }),
       ),
       draftUpdatedAt: draft.rows[0]?.updated_at ?? null,
-      versions: versions.rows.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, versions.rows),
     }
   }
 
@@ -198,7 +208,7 @@ export class PgRosterQuery implements RosterQuery {
     )
     const kind = found.rows[0]?.receiver_kind
     if (!kind) return null
-    return versionDetail(this.#reader(), itemId, kind, receiverId, versionNo)
+    return versionDetail(this.#reader(), this.#lateFlags, itemId, kind, receiverId, versionNo)
   }
 
   async advisorVisibility(actor: ResolvedActor, itemId: string): Promise<AdvisorVisibilityView | null> {

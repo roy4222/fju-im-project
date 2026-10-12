@@ -393,6 +393,26 @@ describe('最終文件授權：從精選草稿凍結授權範圍', () => {
     expect(empty.ok ? '' : empty.message).toMatch(/題目或摘要/)
   })
 
+  it('W2b：已刪除的精選草稿不能被選進最終文件授權；簽核看板的草稿選單也不再列它，同組重建的新草稿才列', async () => {
+    const s = await scenario()
+    const deleted = await showcaseDraft(s, { title: '要刪掉的草稿' })
+    const head = (await owner.sql('select revision from showcase_entries where id = $1', [deleted.entryId])).rows[0]!.revision as number
+    expect(await showcase.delete(admin(), { entryId: deleted.entryId, revision: head }, randomUUID())).toMatchObject({ ok: true })
+
+    const blocked = await signoff.createVersion(admin(), input(s, { purpose: 'final_document', showcaseEntryId: deleted.entryId }), randomUUID())
+    expect(blocked).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'showcaseEntryId' } })
+    expect(await count('select count(*) as n from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.group_id = $1', [s.groupId])).toBe(0)
+    let board = await query.adminBoard(admin(), s.cohortId)
+    expect(board.ok && board.receipt.groups[0]!.showcase).toBeNull()
+
+    const fresh = await showcaseDraft(s, { title: '重建的草稿' })
+    board = await query.adminBoard(admin(), s.cohortId)
+    expect(board.ok && board.receipt.groups[0]!.showcase).toMatchObject({ entryId: fresh.entryId, title: '重建的草稿' })
+    expect(
+      await signoff.createVersion(admin(), input(s, { purpose: 'final_document', showcaseEntryId: fresh.entryId }), randomUUID()),
+    ).toMatchObject({ ok: true })
+  })
+
   it('凍結的範圍＝草稿當下（題目、摘要、摘要 checksum、海報檔與 checksum、影片、來源）；之後改草稿，版本內容不變；海報綁到版本上', async () => {
     const s = await scenario()
     const draft = await showcaseDraft(s)

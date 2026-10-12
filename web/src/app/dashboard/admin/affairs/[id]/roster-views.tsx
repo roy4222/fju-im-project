@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { IconArrowLeft, IconFileText, IconUsersGroup } from '@tabler/icons-react'
 import type { FormField } from '@/application/items'
-import type { ItemWindow, MyVersionDetail, ReceiverDetail, RosterEntry } from '@/application/submissions'
+import type { ItemWindow, MyVersionDetail, ReceiverDetail, ReopenEntry, RosterEntry } from '@/application/submissions'
+import { ReopenPanel, type ReopenPanelProps } from '@/app/dashboard/admin/affairs/[id]/reopen-panel'
 import { BTN_OUTLINE_SM, Panel, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import type { StatusTone } from '@/application/submissions'
 import { answerFields, categoryOf, isFileField, receiverStatus } from '@/composition/submissions'
@@ -109,6 +110,8 @@ function RosterRow({
   const category = categoryOf(entry)
   const status = receiverStatus(window, entry, businessNow)
   const submitted = entry.latestVersionNo !== null
+  // 補交中（W10）：已截止、但這一位的補交期限還沒到——狀態字照學生看到的「系辦開放補交到…」。
+  const reopened = !submitted && !status.overdue && receiverStatus(window, { ...entry, reopenUntil: null }, businessNow).overdue
   let headline: string
   let tone: PillTone
   let detail: string
@@ -127,13 +130,15 @@ function RosterRow({
     tone = PILL_TONE[status.tone]
     detail = submitted
       ? `${entry.latestSubmittedByName ?? ''} 於 ${entry.latestReceivedAt ? formatTaipeiMinute(entry.latestReceivedAt) : ''} 送出`
-      : entry.hasDraft
-        ? '有草稿，尚未正式送出'
-        : status.overdue
-          ? '已截止，沒有正式送出'
-          : status.headline === '尚未開放'
-            ? '尚未開放'
-            : '還沒動'
+      : reopened
+        ? status.detail
+        : entry.hasDraft
+          ? '有草稿，尚未正式送出'
+          : status.overdue
+            ? '已截止，沒有正式送出'
+            : status.headline === '尚未開放'
+              ? '尚未開放'
+              : '還沒動'
   }
   const joined = `${entry.source === 'admin' ? '管理員加入' : '自動加入'}・${formatTaipeiMinute(entry.eligibleFrom)}`
   return (
@@ -199,15 +204,22 @@ export function ReceiverView({
   detail,
   window,
   businessNow,
+  reopens,
+  reopen,
 }: {
   base: string
   detail: ReceiverDetail
   window: ItemWindow
   businessNow: Date
+  /** 這位收件者的個別補交紀錄（W10，新的在前）。 */
+  reopens: readonly ReopenEntry[]
+  /** 能開補交時（已截止、目前名單上）給表單的參數；不能開是 null。 */
+  reopen: Omit<ReopenPanelProps, 'group'> | null
 }) {
   const { entry } = detail
   const category = categoryOf(entry)
   const status = receiverStatus(window, entry, businessNow)
+  const group = entry.receiverKind === 'group'
   const back = category === 'current' ? base : `${base}?list=${category}`
   const banner =
     category === 'removed'
@@ -274,6 +286,7 @@ export function ReceiverView({
                       {index === 0 ? (
                         <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
                       ) : null}
+                      {v.late ? <LateBadge /> : null}
                     </td>
                     <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
                     <td className="py-3">{v.submittedByName}</td>
@@ -300,6 +313,31 @@ export function ReceiverView({
             : '沒有草稿。'}
         </p>
       </section>
+
+      {reopen || reopens.length > 0 ? (
+        <section aria-labelledby="reopen-title" className="border-t border-border px-5 py-4" data-testid="reopen-section">
+          <h3 id="reopen-title" className="text-[15px] font-bold">
+            補交
+          </h3>
+          {reopens.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              已經截止。{group ? '這一組' : '這位學生'}需要晚交時，可以單獨開放補交；其他人不受影響。
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 text-sm" aria-label="補交紀錄">
+              {reopens.map((r, index) => (
+                <li key={index} className="tabular-nums">
+                  補交到 <strong>{formatTaipeiMinute(r.dueAt)}</strong>・理由：{r.reason}
+                  <span className="text-xs text-muted-foreground">
+                    （{r.createdByName} 於 {formatTaipeiMinute(r.createdAt)} 開放）
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {reopen ? <ReopenPanel {...reopen} group={group} /> : null}
+        </section>
+      ) : null}
 
       <section aria-labelledby="spans-title" className="border-t border-border px-5 py-4">
         <h3 id="spans-title" className="text-[15px] font-bold">
@@ -345,6 +383,7 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
         ) : (
           <span className="ml-2 text-sm font-normal text-muted-foreground">已被後來的版本取代</span>
         )}
+        {version.late ? <LateBadge /> : null}
       </h2>
       <dl className="grid gap-x-8 gap-y-2 border-y border-border py-3 text-sm sm:grid-cols-2">
         {facts.map(([k, v]) => (
@@ -381,5 +420,14 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
         })}
       </dl>
     </article>
+  )
+}
+
+/** 截止後靠個別補交送出的版本（W10）。 */
+function LateBadge() {
+  return (
+    <span className="ml-2 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] text-warning-on-subtle" data-testid="late-badge">
+      補交
+    </span>
   )
 }

@@ -11,7 +11,7 @@ import {
   withTemporaryDatabase,
   type IsolatedDatabase,
 } from '../../../test/db'
-import { applyMigration, applyMigrations, migratedSchema } from '../../../test/migrations'
+import { applyMigration, applyMigrations, migratedSchema, migrationTags } from '../../../test/migrations'
 
 /**
  * 第三波 W0（0012）：刪除標記、首頁設定、個別補交、輪播順序的資料層。
@@ -52,12 +52,13 @@ describe('AC-1：空庫跑 db:migrate', () => {
         cwd: webRoot,
         env: { ...process.env, DATABASE_URL_OWNER: url },
       })
-      expect(stdout).toContain(`SCHEMA_VERSION=${LATEST}`)
+      // schema_version 是最後一支 migration（W15 起有 0013）；其餘斷言仍針對 W0 的 0012。
+      expect(stdout).toContain(`SCHEMA_VERSION=${migrationTags().at(-1)}`)
 
       const pool = new Pool({ connectionString: url, max: 1 })
       try {
         const meta = await pool.query(`select value from schema_meta where key = 'schema_version'`)
-        expect(meta.rows).toEqual([{ value: LATEST }])
+        expect(meta.rows).toEqual([{ value: migrationTags().at(-1) }])
 
         const columns = await columnTypes((sql, values) => pool.query(sql, values as never[]), 'public')
         const find = (table: string, column: string) => columns.find((c) => c.table === table && c.column === column)

@@ -4,6 +4,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
  * 第三波 W2：系辦在「精選」發布（勾同意）、設獎項、下架、重新發布、刪除；看得到歷屆作品（AC-10～AC-14）。
+ * 第三波 W15（AC-39）：首頁順序、補登歷屆作品（沒有組別）、封存屆別作品改內容與海報後「發布更新」；刪除後同組可再建草稿。
  *
  * 資料：一個進行中的屆別（G01，走畫面建草稿、上傳海報、發布）＋一個**已封存**的屆別放一件已發布、有獎項的歷屆作品
  * （照示範資料的形狀用 owner 直接寫）。每筆都帶這次的戳記，只找自己的。訪客用另一個沒有 cookie 的分頁看前台。
@@ -112,8 +113,9 @@ test('AC-10：預設「全部（含歷屆）」，看得到封存屆別的歷屆
   await expect(page.getByText('尚無授權')).toHaveCount(0)
   await expect(page.getByText('公開閘門')).toHaveCount(0)
   await expect(page.getByText('草稿不會公開')).toBeVisible()
-  // 封存屆別的作品內容只能看，但下架與獎項還能按。
-  await expect(card(page, OLD_TITLE).getByText('這一屆已封存，內容只能查看')).toBeVisible()
+  // W15：封存屆別的作品管理員也能改內容；下架與獎項照樣能按。
+  await expect(card(page, OLD_TITLE).getByText('這一屆已封存，內容只能查看')).toHaveCount(0)
+  await expect(card(page, OLD_TITLE).getByLabel('摘要')).toBeEnabled()
   await expect(card(page, OLD_TITLE).getByRole('button', { name: '下架' })).toBeEnabled()
 })
 
@@ -231,4 +233,76 @@ test('AC-14：公開中不能刪（說要先下架）；下架後刪除 → 看�
   const audit = await pool.query(`select payload from audit_events where target_id = $1 and action = 'showcase.deleted'`, [entryId])
   expect(audit.rows).toHaveLength(1)
   expect(audit.rows[0]!.payload).toMatchObject({ previousStatus: 'withdrawn', title: TITLE })
+
+  // W2b：刪掉之後同一組可以再建草稿。
+  await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
+  const create = page.getByRole('form', { name: '建立精選草稿' })
+  await create.getByLabel('組別').selectOption({ label: 'G01' })
+  await create.getByRole('button', { name: '建立草稿' }).click()
+  await expect(create.getByRole('status')).toContainText('已替 G01 建立精選草稿')
+})
+
+test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別作品改摘要＋換海報，存草稿前台不變、發布更新後換新且舊版本保留', async ({ page }) => {
+  await asAdmin(page)
+  await page.goto('/dashboard/admin/showcase')
+
+  // ① 首頁順序。
+  const home = card(page, OLD_TITLE).getByRole('form', { name: /的首頁順序/ })
+  await home.getByLabel(/首頁順序/).fill('1')
+  await home.getByRole('button', { name: '儲存順序' }).click()
+  await expect(home.getByRole('status')).toContainText('首頁順序已設為 1')
+  await expect(row(page, OLD_TITLE).getByRole('cell').nth(5)).toHaveText('1')
+
+  // ② 補登歷屆作品：選封存的屆別、填題目；組別顯示「（歷屆補登）」。
+  const BACK_TITLE = `${stamp} 補登的歷屆作品`
+  const backfill = page.getByRole('form', { name: '補登歷屆作品' })
+  await backfill.getByLabel('屆別').selectOption({ label: `${OLD_CODE}（已封存）` })
+  await backfill.getByLabel('作品題目').fill(BACK_TITLE)
+  await backfill.getByRole('button', { name: '補登作品' }).click()
+  await expect(backfill.getByRole('status')).toContainText(`已補登 ${OLD_CODE} 屆「${BACK_TITLE}」`)
+  await expect(row(page, BACK_TITLE).getByRole('cell').nth(2)).toHaveText('（歷屆補登）')
+
+  // ③ 封存屆別作品：改摘要、換海報、存草稿 → 訪客仍是舊摘要；發布更新 → 訪客看到新摘要與新海報。
+  const old = card(page, OLD_TITLE)
+  await old.getByLabel('摘要').fill('發布更新後的新摘要')
+  await old.getByLabel('選擇海報圖檔').setInputFiles({ name: 'new-poster.png', mimeType: 'image/png', buffer: PNG })
+  await expect(old.getByTestId('poster-name')).toContainText('new-poster.png')
+  await old.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(old.getByRole('form', { name: 'G09 的精選草稿' }).getByRole('status')).toContainText('G09 的精選草稿已儲存')
+  await expect(old.getByTestId('unpublished-changes')).toBeVisible()
+
+  const guest = await asGuest(page)
+  await guest.goto(`/projects/${oldEntryId}`)
+  await expect(guest.getByText('歷屆摘要')).toBeVisible()
+  await expect(guest.getByText('發布更新後的新摘要')).toHaveCount(0)
+
+  // 發布更新和發布一樣要先勾同意（Q31）。
+  const update = lifecycle(page, OLD_TITLE).getByRole('button', { name: '發布更新' })
+  await expect(update).toBeDisabled()
+  await lifecycle(page, OLD_TITLE).getByLabel(/已取得這組同學同意公開/).check()
+  await update.click()
+  await expect(lifecycle(page, OLD_TITLE).getByRole('status')).toContainText('已發布更新（第 2 版）')
+  // 同意只算這一次：成功後勾選清空、按鈕回到停用（下一次要重新勾）。
+  await old.getByLabel('摘要').fill('再改一次的摘要')
+  await old.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(old.getByTestId('unpublished-changes')).toBeVisible()
+  await expect(lifecycle(page, OLD_TITLE).getByLabel(/已取得這組同學同意公開/)).not.toBeChecked()
+  await expect(update).toBeDisabled()
+  await guest.goto(`/projects/${oldEntryId}`)
+  await expect(guest.getByText('發布更新後的新摘要')).toBeVisible()
+  await expect(guest.getByRole('img', { name: '成果海報' })).toHaveJSProperty('naturalWidth', 1)
+  await guest.context().close()
+
+  const versions = await pool.query(`select version_no, summary, poster_file_id from showcase_versions where entry_id = $1 order by version_no`, [oldEntryId])
+  expect(versions.rows.map((r) => [r.version_no, r.summary])).toEqual([
+    [1, '歷屆摘要'],
+    [2, '發布更新後的新摘要'],
+  ])
+  expect(versions.rows[0]!.poster_file_id).toBeNull()
+  expect(versions.rows[1]!.poster_file_id).not.toBeNull()
+  const admin = await sharedTestSession(page.request, 'admin')
+  const v2 = await pool.query(`select pii_check from showcase_versions where entry_id = $1 and version_no = 2`, [oldEntryId])
+  expect(v2.rows[0]!.pii_check).toMatchObject({ status: 'admin_attested', by: admin.userId })
+  const entry = await pool.query(`select status, home_position from showcase_entries where id = $1`, [oldEntryId])
+  expect(entry.rows[0]).toEqual({ status: 'published', home_position: 1 })
 })

@@ -15,6 +15,7 @@ import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publis
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage, reclaimableFiles } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
 import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
@@ -280,8 +281,9 @@ beforeAll(async () => {
     events: new PgEventPublisher(),
     pool: () => app,
   })
-  query = new PgSubmissionQuery(() => app)
-  rosterQuery = new PgRosterQuery(() => app)
+  const lateFlags = new PgSubmissionLateFlags(() => app)
+  query = new PgSubmissionQuery(() => app, lateFlags)
+  rosterQuery = new PgRosterQuery(() => app, lateFlags)
 })
 
 afterEach(() => {

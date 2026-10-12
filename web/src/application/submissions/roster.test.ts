@@ -98,6 +98,24 @@ describe('學生首頁待繳數與名單頁同一個口徑', () => {
   })
 })
 
+describe('個別補交（W10）：只有拿到補交期限的那一位變回可交', () => {
+  it('補交期限還沒到：未繳、待繳、不算逾期；期限過了變回逾期；沒有期限的人照舊逾期', () => {
+    const reopenUntil = new Date('2026-11-17T09:00:00Z') // 臺灣 11/17 17:00
+    const reopened = { ...waiting, reopenUntil }
+    expect(receiverStatus(window, reopened, after)).toMatchObject({
+      headline: '未繳',
+      pending: true,
+      overdue: false,
+      detail: '系辦開放補交到 2026/11/17 17:00',
+    })
+    expect(receiverStatus(window, reopened, new Date('2026-11-17T09:01:00Z'))).toMatchObject({ headline: '逾期未繳', overdue: true })
+    expect(receiverStatus(window, { ...waiting, reopenUntil: null }, after)).toMatchObject({ headline: '逾期未繳' })
+    expect(pendingCount([{ ...window, ...reopened }, { ...window, ...waiting }], after)).toBe(1)
+    // 還沒截止時有補交期限也不影響（狀態跟沒有期限一樣）。
+    expect(receiverStatus(window, reopened, before)).toEqual(receiverStatus(window, waiting, before))
+  })
+})
+
 describe('系辦首頁逾期磚：全部收件的逾期收件者，同一位只算一次', () => {
   const later = { opensAt: null, dueAt: new Date('2026-12-15T15:59:00Z') }
   const row = (receiverId: string, patch: Partial<ReceiverFacts> = {}) => ({ receiverId, ...entry(patch) })

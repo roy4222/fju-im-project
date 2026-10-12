@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Pool } from 'pg'
 import { statusGate, type ResolvedActor } from '@/application/accounts'
+import type { SubmissionLateFlags } from '@/application/ops'
 import {
   canReadSubmission,
   type AdvisedGroup,
@@ -19,7 +20,7 @@ import {
 } from '@/application/submissions'
 import { getPool } from '@/infrastructure/db/client'
 import { rosterItemOf, toEntry, type EntryRow } from '@/infrastructure/submissions/pg-roster'
-import { isUuid, toSummary, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
+import { isUuid, summarizeVersions, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 
 /**
@@ -123,9 +124,12 @@ async function latestVisibility(db: Pick<Pool, 'query'>, itemId: string): Promis
 
 export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async matrix(actor: ResolvedActor): Promise<AdvisorMatrix | null> {
@@ -265,7 +269,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     if (!isTeacher(actor) || !isUuid(itemId) || !isUuid(receiverId)) return null
     const listed = await this.#readableVersions(actor, itemId, receiverId)
     if (!listed) return null
-    return { item: listed.item, entry: listed.entry, versions: listed.versions.map(toSummary) }
+    return { item: listed.item, entry: listed.entry, versions: await summarizeVersions(this.#lateFlags, listed.versions) }
   }
 
   /**
@@ -281,11 +285,11 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     if (!isTeacher(actor) || !isUuid(itemId) || !isUuid(receiverId) || !Number.isInteger(versionNo) || versionNo < 1) return null
     const listed = await this.#readableVersions(actor, itemId, receiverId)
     if (listed && listed.versions.some((v) => v.version_no === versionNo)) {
-      return versionDetail(this.#reader(), itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
+      return versionDetail(this.#reader(), this.#lateFlags, itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
     }
     const evaluated = await this.#evaluatorVersions(actor, itemId, receiverId)
     if (!evaluated.some((v) => v.version_no === versionNo)) return null
-    return versionDetail(this.#reader(), itemId, 'group', receiverId, versionNo, evaluated[0]!.version_no)
+    return versionDetail(this.#reader(), this.#lateFlags, itemId, 'group', receiverId, versionNo, evaluated[0]!.version_no)
   }
 
   /**

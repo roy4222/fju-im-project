@@ -5,7 +5,15 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { Card, DataTable, EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { AwardForm, CreateDraftForm, DeleteEntry, DraftEditor, PublishPanel } from '@/app/dashboard/admin/showcase/showcase-forms'
+import {
+  AwardForm,
+  BackfillForm,
+  CreateDraftForm,
+  DeleteEntry,
+  DraftEditor,
+  HomePositionForm,
+  PublishPanel,
+} from '@/app/dashboard/admin/showcase/showcase-forms'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { AWARD_LABEL_MAX, AWARD_LEVEL_LABEL, checkShowcaseLifecycle, getShowcaseQuery, SHOWCASE_STATUS_LABEL } from '@/composition/showcase'
 import { cn } from '@/shared/cn'
@@ -20,6 +28,7 @@ const STATUS_TONE: Record<'draft' | 'published' | 'withdrawn', PillTone> = { dra
  *
  * 上面是作品一覽（預設「全部（含歷屆）」：封存屆別的歷屆作品也在）；下面逐件：改草稿、發布（勾同意，Q31）、
  * 下架／重新發布、獎項、危險操作區的刪除。已刪除的不列。存草稿不會改到前台；發布時把草稿凍結成一個版本。
+ * W15：補登歷屆作品（沒有組別）、首頁順序；封存屆別的作品管理員也能改內容與換海報，公開中的按「發布更新」換上前台。
  */
 export default async function AdminShowcasePage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -31,6 +40,11 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
   const open = cohorts.filter((c) => c.status !== 'archived')
   // 建立草稿用的屆別：篩選的屆別沒封存就用它，否則用預設工作屆別。
   const createCohort = picked && picked.status !== 'archived' ? picked : (open.find((c) => c.isDefaultWorking) ?? open[0] ?? null)
+  // 補登歷屆作品：任何屆別都可以（含已封存）；篩選中的屆別排第一個當預設。
+  const backfillCohorts = [...(picked ? [picked] : []), ...cohorts.filter((c) => c.id !== picked?.id)].map((c) => ({
+    id: c.id,
+    label: c.status === 'archived' ? `${c.code}（已封存）` : c.code,
+  }))
 
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/showcase">
@@ -80,7 +94,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         description={
           createCohort
             ? `替 ${createCohort.code} 屆的一組建草稿（一組一屆只有一份）。填好內容後，在下面那件作品勾同意並按「發布」才會公開。`
-            : '目前沒有進行中的屆別；歷屆作品可以在下面下架、設獎項或刪除。'
+            : '目前沒有進行中的屆別；歷屆作品可以用下面的「補登歷屆作品」新增，或直接在逐件管理裡修改。'
         }
         className="mb-6"
       >
@@ -89,6 +103,14 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         ) : (
           <CreateDraftForm groups={withoutDraft} requestId={randomUUID()} />
         )}
+      </Card>
+
+      <Card
+        title="補登歷屆作品"
+        description="沒有組別的歷屆作品（例如系統上線前的得獎作品）：選屆別、填題目建立，再在下面補摘要與海報、勾同意發布。"
+        className="mb-6"
+      >
+        <BackfillForm cohorts={backfillCohorts} requestId={randomUUID()} />
       </Card>
 
       <section aria-label="作品一覽" className="mb-6 space-y-2">
@@ -124,7 +146,8 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
           drafts.map((d) => {
             const label = `${d.cohortCode} ${groupLabel(d.groupCode)}`
             const ref = { entryId: d.entryId, revision: d.entryRevision, label }
-            const locked = d.cohortArchived ? '這一屆已封存，內容只能查看；下架、獎項、刪除仍可操作。' : d.groupDissolved ? '這一組已解散，內容只能查看。' : null
+            // 封存屆別的作品管理員照樣能改（優秀專題是跨屆的公開紀錄，W15）；只有解散的組鎖內容。
+            const locked = d.groupDissolved ? '這一組已解散，內容只能查看。' : null
             return (
               <article
                 key={d.entryId}
@@ -158,8 +181,10 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                   </dl>
                 </header>
 
-                {d.status !== 'draft' && d.publishedTitle !== null && d.publishedTitle !== d.title ? (
-                  <p className="mb-3 text-xs text-muted-foreground">前台目前顯示的是發布時那一版（題目「{d.publishedTitle}」）；下面草稿的修改不會改到前台。</p>
+                {d.status !== 'draft' && d.hasUnpublishedChanges ? (
+                  <p className="mb-3 text-xs text-muted-foreground" data-testid="unpublished-changes">
+                    前台目前顯示的是發布時那一版（題目「{d.publishedTitle}」）；下面草稿的修改要按「發布更新」才會換上前台。
+                  </p>
                 ) : null}
                 {locked ? <p className="mb-3 text-xs text-muted-foreground">{locked}</p> : null}
 
@@ -182,11 +207,27 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                 <div className="mt-5 grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
                   <div className="space-y-2" role="group" aria-label="公開">
                     <h4 className="text-sm font-semibold text-ink">公開</h4>
-                    <PublishPanel {...ref} requestId={randomUUID()} status={d.status} titleMissing={d.title.trim() === ''} />
+                    <PublishPanel
+                      {...ref}
+                      requestId={randomUUID()}
+                      status={d.status}
+                      titleMissing={d.title.trim() === ''}
+                      hasUnpublishedChanges={d.hasUnpublishedChanges}
+                    />
                   </div>
                   <div className="space-y-2" role="group" aria-label="獎項">
                     <h4 className="text-sm font-semibold text-ink">獎項</h4>
                     <AwardForm {...ref} requestId={randomUUID()} award={d.award} awardLabel={d.awardLabel} labelMax={AWARD_LABEL_MAX} />
+                  </div>
+                  <div className="space-y-2" role="group" aria-label="首頁順序">
+                    <h4 className="text-sm font-semibold text-ink">首頁順序</h4>
+                    <HomePositionForm
+                      {...ref}
+                      requestId={randomUUID()}
+                      homePosition={d.homePosition}
+                      showsOnHome={d.status === 'published' && d.award !== null}
+                      max={99}
+                    />
                   </div>
                 </div>
 
