@@ -18,7 +18,7 @@ import { testSiteUrl } from './links'
 
 /**
  * - `na`：不適用（角色不在功能的 roles）
- * - `untested`：⬜ 沒測到（沒有任何步驟列）
+ * - `untested`：⬜ 沒測到（沒有任何有效步驟列；前置沒過的 item 的步驟不算）
  * - `warn`：⚠️ 有狀況（有步驟不是「通過」，或步驟上有「擋上線」「要修」）
  * - `parse-failed`：⚠️ 報告解析失敗（item 的 parsed 不是 true 或 errors 非空；problems 不可信）
  * - `ok`：✅ 有點過
@@ -105,6 +105,8 @@ export function buildTestMap(testMap: TestMapFile, summary: SummaryJson): TestMa
           }
           continue
         }
+        // 前置沒過的 item 就算留著「通過」的步驟也不算有效證據（§3.9：dependencyNotMet → ⬜）。
+        if (item!.dependencyNotMet === true) continue
         const role = aliasToRole.get(row.角色)
         if (!role) {
           if (!unknownRoles.includes(row.角色)) unknownRoles.push(row.角色)

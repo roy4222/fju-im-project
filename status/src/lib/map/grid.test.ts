@@ -135,6 +135,30 @@ describe('buildTestMap：角色 × 功能', () => {
     expect(cell(buildTestMap(testMap, s), 'news', 'visitor').status).toBe('untested')
   })
 
+  it('前置沒過（dependencyNotMet）但仍留著通過的步驟：不算有效證據→沒測到，不得 ✅', () => {
+    const s = summary([item('story-1', { dependencyNotMet: true, steps: [step('1 首頁', '訪客'), step('2 公告', '訪客')] })])
+    const view = buildTestMap(testMap, s)
+    expect(cell(view, 'news', 'visitor').status).toBe('untested')
+    expect(cell(view, 'news', 'visitor').steps).toEqual([])
+  })
+
+  it('同一格另有正常 item 的證據時，只算正常的那個', () => {
+    const map: TestMapFile = {
+      ...testMap,
+      features: [{
+        key: 'mix', name: '混合', roles: ['admin'],
+        evidence: [{ item: 'story-1', steps: [1] }, { item: 'story-2', steps: [1] }], e2e: [],
+      }],
+    }
+    const s = summary([
+      item('story-1', { dependencyNotMet: true, steps: [step('1 首頁', '系辦', '不通過')] }),
+      item('story-2', { steps: [step('1 建立分組', '系辦')] }),
+    ])
+    const c = cell(buildTestMap(map, s), 'mix', 'admin')
+    expect(c.status).toBe('ok')
+    expect(c.steps.map((x) => x.item)).toEqual(['story-2'])
+  })
+
   it('「擋上線」也算有問題', () => {
     const s = summary([item('story-1', { steps: [step('1 首頁', '訪客')], problems: [problem('S1-09', '擋上線', '1')] })])
     expect(cell(buildTestMap(testMap, s), 'news', 'visitor').status).toBe('warn')

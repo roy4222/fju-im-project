@@ -6,13 +6,14 @@
 import { isSafeSegment } from '../data/read'
 import type { SummaryJson } from '../data/types'
 
-export const SHOT_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-}
+// 用 Map：普通物件會讓 `constructor` 之類的繼承屬性被當成副檔名命中。
+export const SHOT_CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
+  ['png', 'image/png'],
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['webp', 'image/webp'],
+  ['gif', 'image/gif'],
+])
 
 export type ShotRequest = { runId: string; item: string; /** `<item>/screenshots/<檔名>` */ rel: string; contentType: string }
 
@@ -23,7 +24,7 @@ export function parseShotPath(segments: string[]): ShotRequest | null {
   const [runId, item, dir, file] = segments as [string, string, string, string]
   if (dir !== 'screenshots') return null
   const ext = file.includes('.') ? file.slice(file.lastIndexOf('.') + 1).toLowerCase() : ''
-  const contentType = SHOT_CONTENT_TYPES[ext]
+  const contentType = SHOT_CONTENT_TYPES.get(ext)
   if (!contentType) return null
   return { runId, item, rel: `${item}/${dir}/${file}`, contentType }
 }

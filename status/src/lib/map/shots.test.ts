@@ -21,6 +21,9 @@ describe('parseShotPath', () => {
     [['night-1', 'story-1', 'screenshots', 'a b.png']],
     [['night-1', 'story-1', 'screenshots', 'sub', 'a.png']],
     [['night-1', 'summary.json']],
+    [['night-1', 'story-1', 'screenshots', 'a.constructor']],
+    [['night-1', 'story-1', 'screenshots', 'a.toString']],
+    [['night-1', 'story-1', 'screenshots', 'a.__proto__']],
   ])('擋下 %j', (segments) => {
     expect(parseShotPath(segments)).toBeNull()
   })

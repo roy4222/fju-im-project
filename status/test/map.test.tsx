@@ -1,5 +1,5 @@
 // 測試地圖頁與截圖路由（AC-S-15～18）。用 fixtures/map 的假資料畫一次、直接呼叫路由。
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -176,6 +176,53 @@ describe('AC-S-18 截圖路由只服務 summary.json 列到的檔', () => {
     )
     vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
     expect((await shot('night-x', 'story-1', 'screenshots', 'a.png')).status).toBe(404)
+  })
+
+  it('列到的圖是 symlink、指到同一夜沒列到的 JSON → 404，不吐內容', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'status-shots-'))
+    const shots = path.join(dir, RUN, 'story-1', 'screenshots')
+    await mkdir(shots, { recursive: true })
+    await writeFile(path.join(dir, RUN, 'run.json'), '{"secret":"run-json-content"}')
+    await symlink(path.join('..', '..', 'run.json'), path.join(shots, 'a.png'))
+    await writeFile(
+      path.join(dir, RUN, 'summary.json'),
+      JSON.stringify({ items: [{ id: 'story-1', steps: [{ 截圖: ['story-1/screenshots/a.png'] }] }] }),
+    )
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
+    const res = await shot(RUN, 'story-1', 'screenshots', 'a.png')
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('run-json-content')
+  })
+
+  it('整夜的目錄是 symlink、指到 acceptance 外面 → 404', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'status-outside-'))
+    await mkdir(path.join(outside, 'story-1', 'screenshots'), { recursive: true })
+    await writeFile(path.join(outside, 'story-1', 'screenshots', 'a.png'), 'outside-content')
+    await writeFile(
+      path.join(outside, 'summary.json'),
+      JSON.stringify({ items: [{ id: 'story-1', steps: [{ 截圖: ['story-1/screenshots/a.png'] }] }] }),
+    )
+    const dir = await mkdtemp(path.join(tmpdir(), 'status-shots-'))
+    await symlink(outside, path.join(dir, RUN))
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
+    const res = await shot(RUN, 'story-1', 'screenshots', 'a.png')
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('outside-content')
+  })
+
+  it('中間的 item 或 screenshots 目錄是 symlink → 404', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'status-shots-'))
+    const real = path.join(dir, RUN, 'real-shots')
+    await mkdir(real, { recursive: true })
+    await writeFile(path.join(real, 'a.png'), 'x')
+    await mkdir(path.join(dir, RUN, 'story-1'))
+    await symlink(real, path.join(dir, RUN, 'story-1', 'screenshots'))
+    await writeFile(
+      path.join(dir, RUN, 'summary.json'),
+      JSON.stringify({ items: [{ id: 'story-1', steps: [{ 截圖: ['story-1/screenshots/a.png'] }] }] }),
+    )
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
+    expect((await shot(RUN, 'story-1', 'screenshots', 'a.png')).status).toBe(404)
   })
 
   it('列到了但檔案不存在 → 404', async () => {
