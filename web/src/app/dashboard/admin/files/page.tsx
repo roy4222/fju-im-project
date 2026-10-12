@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { FileListRow } from '@/application/ops'
 import { PageTitle } from '@/app/_ui/dashboard-kit'
@@ -96,6 +97,15 @@ export default async function AdminFilesPage({ searchParams }: { searchParams: P
           title="檔案管理"
           description={`${rows.length}${rows.length >= FILE_LIST_LIMIT ? '+' : ''} 個檔案・${usageText}・被引用的檔案不能刪`}
         />
+        {/* 這一頁只看不上傳（N-138）：檔案都掛在公告、資源、收件底下，新增要到專題事務的編輯頁。 */}
+        <p data-testid="files-add-hint" className="dash-card flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm text-muted-foreground">
+          <span className="min-w-0 flex-1">
+            這裡只列出已經上傳的檔案。要新增檔案請到專題事務：新增或編輯公告、資源、收件項目時夾帶附件，存檔後就會出現在這裡。
+          </span>
+          <Link href="/dashboard/admin/affairs" className="shrink-0 font-semibold text-primary-on-subtle hover:underline">
+            前往專題事務
+          </Link>
+        </p>
         <FilesTable rows={rows.map(view)} initialKind={initialKind} />
       </div>
     </DashboardShell>

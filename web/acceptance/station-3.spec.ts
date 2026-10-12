@@ -327,7 +327,9 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
   await shot(admin, 'timeline')
 
   await admin.goto('/dashboard/admin/cohorts')
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await admin.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expectStatus(admin, `已把 ${CODE} 轉為進行中`)
   await expect(cohortRow(admin, CODE)).toContainText('進行中')
   await shot(admin, 'cohort-active')

@@ -130,9 +130,20 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
             <form onSubmit={submit} className="space-y-4">
               <div>
                 <h2 className="text-lg font-extrabold text-foreground">去識別化 {a.name}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  這是永久刪除個資的正式作法，<strong className="font-semibold text-foreground">做了就不能復原</strong>。紀錄不刪，只把人換成代稱。
-                </p>
+                {/* 第三波 §9 規則 1、AC-37：對象、後果、能不能恢復寫在最上面；範圍（會清除／會保留）在下面的預覽。 */}
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm" data-testid="danger-facts">
+                  <dt className="whitespace-nowrap text-muted-foreground">對象</dt>
+                  <dd className="text-foreground">{a.name} 這一個帳號</dd>
+                  <dt className="whitespace-nowrap text-muted-foreground">後果</dt>
+                  <dd className="text-foreground">
+                    永久清除個資（永久刪除個資的正式作法）；本人立刻被登出、之後不能再登入。繳交、成績、簽核與紀錄不刪，改顯示代稱。
+                  </dd>
+                  <dt className="whitespace-nowrap text-muted-foreground">能不能恢復</dt>
+                  <dd>
+                    <strong className="font-semibold text-destructive">做了就不能復原</strong>
+                    <span className="text-muted-foreground">；只想暫時不讓他登入，請改用「停用」（可以隨時恢復）。</span>
+                  </dd>
+                </dl>
               </div>
 
               {preview ? (
