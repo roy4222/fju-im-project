@@ -130,6 +130,12 @@ export const industryOpportunities = pgTable(
       onDelete: 'restrict',
       onUpdate: 'restrict',
     }),
+    /** 刪除標記（0012，第三波 W0）：不實體刪列、不提供恢復；只有草稿或已下架能刪。 */
+    deletedAt: timestamp('deleted_at', tz),
+    deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
   },
   (t) => [
     index('industry_opportunities_owner_idx').on(t.ownerTeacherUserId),
@@ -145,6 +151,11 @@ export const industryOpportunities = pgTable(
       sql`${t.status} <> 'withdrawn' or ${t.withdrawnBusinessAt} is not null`,
     ),
     check('industry_opportunities_revision_check', sql`${t.revision} >= 1`),
+    check(
+      'industry_opportunities_deleted_check',
+      sql`(${t.deletedAt} is null) = (${t.deletedByUserId} is null)
+          and (${t.deletedAt} is null or ${t.status} in ('draft','withdrawn'))`,
+    ),
     check('industry_opportunities_created_by_kind_check', sql`${t.createdByKind} in ('user','system','worker')`),
     check(
       'industry_opportunities_created_by_actor_check',

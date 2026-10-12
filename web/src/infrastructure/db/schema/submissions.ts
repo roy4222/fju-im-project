@@ -159,3 +159,33 @@ export const advisorVisibilitySettings = pgTable(
     index('advisor_visibility_settings_item_idx').on(t.itemId, t.setAt),
   ],
 )
+
+/**
+ * 個別補交（0012，第三波 W0 建表；W10 才寫）：截止後系辦讓某個人或某一組補交到 `due_at`。
+ *
+ * 只插不改（不可變）：再開一次就是新的一列，「目前能不能補交」＝這個收件者有沒有 `due_at` 還沒到的列。
+ * `receiver_id` 依 `receiver_kind` 指 users 或 groups，不設 FK（同 `submission_drafts`）。
+ * 截止快照與收件名單都不動；送出檢查在截止後看這張表放行。
+ */
+export const submissionReopens = pgTable(
+  'submission_reopens',
+  {
+    id: uuid('id').primaryKey(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => managedItems.id, restrict),
+    receiverKind: text('receiver_kind').notNull(),
+    receiverId: uuid('receiver_id').notNull(),
+    dueAt: timestamp('due_at', tz).notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', tz).notNull().defaultNow(),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, restrict),
+  },
+  (t) => [
+    check('submission_reopens_receiver_kind_check', sql`${t.receiverKind} in ('user','group')`),
+    check('submission_reopens_reason_check', sql`char_length(${t.reason}) between 1 and 200`),
+    index('submission_reopens_receiver_idx').on(t.itemId, t.receiverKind, t.receiverId),
+  ],
+)
