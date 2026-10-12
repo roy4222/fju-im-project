@@ -45,6 +45,35 @@ async function opportunityId(): Promise<string> {
   return rows.rows[0]!.id
 }
 
+/**
+ * 造出「刪的是最後一件」：危險操作區列的是全站合作案，資料庫裡有沒有別人的案取決於 spec 的執行順序。
+ * 這裡把其他還在的合作案暫時標成已刪（CHECK 只准草稿、已下架帶刪除標記，發布中的先暫時改成已下架），
+ * 回傳還原函式；只動 owner 連線、不留稽核，還原後一欄不差。
+ */
+async function hideOtherOpportunities(keepId: string): Promise<() => Promise<void>> {
+  const hidden = await pool.query<{ id: string; status: string; withdrawn_business_at: Date | null }>(
+    `with others as (
+       select id, status, withdrawn_business_at from industry_opportunities where deleted_at is null and id <> $1 for update
+     )
+     update industry_opportunities o
+        set status = case when others.status = 'published' then 'withdrawn' else others.status end,
+            withdrawn_business_at = coalesce(others.withdrawn_business_at, now()),
+            deleted_at = now(), deleted_by_user_id = $2
+       from others where o.id = others.id
+     returning others.id, others.status, others.withdrawn_business_at`,
+    [keepId, admin.userId],
+  )
+  return async () => {
+    for (const row of hidden.rows) {
+      await pool.query(
+        `update industry_opportunities set status = $2, withdrawn_business_at = $3, deleted_at = null, deleted_by_user_id = null
+          where id = $1`,
+        [row.id, row.status, row.withdrawn_business_at],
+      )
+    }
+  }
+}
+
 test.beforeAll(async () => {
   test.setTimeout(120_000)
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能準備與核對資料')
@@ -169,16 +198,24 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await unlink.getByRole('button', { name: '確認解除' }).click()
   await expect(row).toContainText('尚無組別連結')
 
-  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
-  const confirm = page.getByRole('dialog', { name: `刪除「${NAME}」` })
-  await expect(confirm).toContainText('已下架')
-  await expect(confirm).toContainText('不能。')
-  await confirm.getByRole('button', { name: '刪除這個合作案' }).click()
-  await expect(danger.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
-  await expect(page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })).toHaveCount(0)
-  await expect(page.getByTestId('danger-opportunity').filter({ hasText: NAME })).toHaveCount(0)
-  // 危險操作區不會因為刪掉的是最後一件就整區消失（成功句子掛在這一區；CI 的資料庫只有這一件時曾經看不到句子）。
-  await expect(danger).toBeVisible()
+  // 刪的是全站最後一件：清單變空後危險操作區仍在，「已刪除」的句子不會跟著整區卸載
+  // （曾經整區 return null，CI 資料庫剛好只有這一件時就看不到句子）。
+  const restore = await hideOtherOpportunities(id)
+  try {
+    await page.reload()
+    await expect(danger.getByTestId('danger-opportunity')).toHaveCount(1)
+    await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
+    const confirm = page.getByRole('dialog', { name: `刪除「${NAME}」` })
+    await expect(confirm).toContainText('已下架')
+    await expect(confirm).toContainText('不能。')
+    await confirm.getByRole('button', { name: '刪除這個合作案' }).click()
+    await expect(danger.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
+    await expect(danger).toContainText('目前沒有合作案。')
+    await expect(page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })).toHaveCount(0)
+    await expect(page.getByTestId('danger-opportunity')).toHaveCount(0)
+  } finally {
+    await restore()
+  }
 
   // 重新整理仍然不在；前台詳情是 404（不是「已下架」）；負責老師的清單也沒有了。
   await page.reload()
