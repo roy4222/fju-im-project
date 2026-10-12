@@ -485,7 +485,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
 
   /**
    * 五個條目指令共用的形狀：鎖頭列 → 帳本 → 版本與狀態檢查 → 寫入 → 條目版本＋1 → 稽核 → 帳本。
-   * 已刪除的條目一律「找不到」。
+   * 已刪除的條目：同一個請求編號重送照帳本重播，新的請求一律「找不到」。
    */
   async #change<R extends ShowcaseLifecycleReceipt>(
     actor: ResolvedActor,
@@ -516,13 +516,13 @@ export class PgShowcaseCommand implements ShowcaseCommand {
       const head = (
         await tx.query<HeadRow>(
           `select e.id, e.cohort_id, c.code as cohort_code, g.code as group_code, e.status, e.revision, e.current_version_id,
-                  e.award_level, e.award_label, coalesce(nullif(d.title, ''), v.title, '') as title
+                  e.award_level, e.award_label, e.deleted_at, coalesce(nullif(d.title, ''), v.title, '') as title
              from showcase_entries e
              join cohorts c on c.id = e.cohort_id
              left join groups g on g.id = e.group_id
              left join showcase_drafts d on d.entry_id = e.id
              left join showcase_versions v on v.id = e.current_version_id
-            where e.id = $1 and e.deleted_at is null
+            where e.id = $1
               for update of e`,
           [input.entryId],
         )
@@ -542,7 +542,9 @@ export class PgShowcaseCommand implements ShowcaseCommand {
         },
         realAt,
       )
+      // 先讓帳本重播（刪除成功後同一個請求編號重送要拿回原回執），新的請求才把已刪除的當作找不到。
       if (begun.outcome !== 'fresh') return replayed<R>(begun)
+      if (head.deleted_at !== null) return entryNotFound()
       if (head.revision !== revision) {
         return err('CONFLICT', '這件作品剛剛已經被別人改過了，請重新整理頁面看最新狀態再操作。')
       }
@@ -615,6 +617,7 @@ type HeadRow = {
   current_version_id: string | null
   award_level: ShowcaseAward | null
   award_label: string | null
+  deleted_at: Date | null
   title: string
 }
 
@@ -672,7 +675,8 @@ export class PgShowcaseQuery implements ShowcaseQuery {
   }
 
   /**
-   * 看板：篩選的屆別或全部（含封存的歷屆）；左連組別（歷屆補登沒有組別）、左連草稿（只有發布版本的用版本內容）。
+   * 看板：篩選的屆別或全部（含封存的歷屆）；左連組別（歷屆補登沒有組別）、左連草稿（有草稿列就照草稿、含 NULL；
+   * 只有發布版本的才用版本內容）。
    * 已刪除的條目不列。建立草稿的組別清單另外依 `createCohortId` 查（有條目的組，含已刪除的，都不能再建）。
    */
   async adminBoard(actor: ResolvedActor, filter: ShowcaseBoardFilter): Promise<Result<ShowcaseBoard>> {
@@ -703,10 +707,13 @@ export class PgShowcaseQuery implements ShowcaseQuery {
                 g.id as group_id, g.code as group_code, g.status as group_status,
                 e.status, e.revision as entry_revision, e.award_level, e.award_label, e.home_position,
                 (d.entry_id is not null) as has_draft, v.title as published_title,
-                coalesce(d.title, v.title, '') as title, coalesce(d.summary, v.summary, '') as summary,
-                coalesce(d.video_url, v.video_url) as video_url,
-                coalesce(d.poster_file_id, v.poster_file_id) as poster_file_id, f.original_name as poster_name,
-                coalesce(d.poster_checksum, v.poster_checksum) as poster_checksum,
+                -- 有草稿列就照草稿（含拿掉的海報與影片＝NULL），只有發布版本的才用版本內容。
+                case when d.entry_id is not null then d.title else coalesce(v.title, '') end as title,
+                case when d.entry_id is not null then d.summary else coalesce(v.summary, '') end as summary,
+                case when d.entry_id is not null then d.video_url else v.video_url end as video_url,
+                case when d.entry_id is not null then d.poster_file_id else v.poster_file_id end as poster_file_id,
+                f.original_name as poster_name,
+                case when d.entry_id is not null then d.poster_checksum else v.poster_checksum end as poster_checksum,
                 coalesce(d.revision, 1) as revision, coalesce(d.updated_at, e.updated_at) as updated_at,
                 coalesce(p.display_name, u.name) as updated_by_name,
                 (select count(*)::int from signoff_package_versions sv
@@ -716,7 +723,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
            left join groups g on g.id = e.group_id
            left join showcase_drafts d on d.entry_id = e.id
            left join showcase_versions v on v.id = e.current_version_id
-           left join stored_files f on f.id = coalesce(d.poster_file_id, v.poster_file_id)
+           left join stored_files f on f.id = case when d.entry_id is not null then d.poster_file_id else v.poster_file_id end
            left join users u on u.id = coalesce(d.updated_by_user_id, e.updated_by_user_id)
            left join user_profiles p on p.user_id = u.id
           where e.deleted_at is null and ($1::uuid is null or e.cohort_id = $1)

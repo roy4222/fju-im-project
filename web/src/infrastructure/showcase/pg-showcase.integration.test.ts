@@ -7,11 +7,13 @@ import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
+import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter, sha256 } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgShowcaseCommand, PgShowcaseQuery, summaryChecksum } from '@/infrastructure/showcase/pg-showcase'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
+import { PgSignoffCommand } from '@/infrastructure/signoff/pg-signoff'
 
 /**
  * 票 25／S11-03：管理員替一組建精選草稿（題目、摘要、海報、影片連結；不發布）。
@@ -28,6 +30,7 @@ let root: string
 let storage: FsFileStorage
 let command: PgShowcaseCommand
 let query: PgShowcaseQuery
+let signoff: PgSignoffCommand
 let a1: string
 let a2: string
 const businessClock = { now: async () => new Date('2026-12-01T02:00:00Z') }
@@ -139,6 +142,14 @@ beforeAll(async () => {
     pool: () => app,
   })
   query = new PgShowcaseQuery({ pool: () => app })
+  signoff = new PgSignoffCommand({
+    audit: new PgAuditWriter(),
+    ledger: new PgOperationLedger(() => app),
+    events: new PgEventPublisher(),
+    files: storage,
+    businessClock,
+    pool: () => app,
+  })
 })
 
 afterAll(async () => {
@@ -649,5 +660,68 @@ describe('看板（W2：全部含歷屆、左連組別）', () => {
       publishedTitle: '歷屆補登作品',
     })
     expect(row!.entryRevision).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('W2 Review 修正', () => {
+  it('海報曾凍結進「最終文件授權」簽核版本：作品刪除後，管理員與參與學生都打不開（簽核引用的來源條目已刪也要排除）', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '凍結過的作品')
+    const created = await signoff.createVersion(
+      actor(a1, ['admin']),
+      { groupId: s.groupId, purpose: 'final_document', content: '同意公開以下內容。', attachmentFileIds: [], showcaseEntryId: entryId },
+      randomUUID(),
+    )
+    if (!created.ok) throw new Error(`${created.code} ${created.message}`)
+    const refs = await owner.sql(`select ref_type from file_references where file_id = $1 and released_at is null order by ref_type`, [posterFileId])
+    expect(refs.rows.map((r) => r.ref_type)).toEqual(['showcase_draft', 'signoff_version'])
+    expect(await download(actor(s.student, ['student']), posterFileId)).toBe('ok')
+
+    const head = await entryHead(entryId)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    expect(await download(actor(a1, ['admin']), posterFileId)).toBe('FORBIDDEN')
+    expect(await download(actor(s.student, ['student']), posterFileId)).toBe('FORBIDDEN')
+  })
+
+  it('刪除成功後同一個請求編號重送：回第一次的成功回執（帳本重播），不是「找不到」；新的請求編號才是找不到', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    const requestId = randomUUID()
+    const first = await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, requestId)
+    expect(first).toMatchObject({ ok: true })
+    const again = await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, requestId)
+    expect(again).toEqual(first)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: 2 }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('找不到'),
+    })
+  })
+
+  it('已發布作品把草稿的海報與影片清掉：看板顯示草稿的空值（不拿發布版本的舊素材補），再存一次也不會寫回舊值', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '要清素材的作品')
+    const head = await entryHead(entryId)
+    const draftRevision = (await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision as number
+    await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: draftRevision, title: '要清素材的作品', summary: '摘要', videoUrl: 'https://youtu.be/old', posterFileId },
+      randomUUID(),
+    )
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision + 1, consent: true }, randomUUID())
+    const cleared = await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: draftRevision + 1, title: '要清素材的作品', summary: '摘要', videoUrl: '', posterFileId: null },
+      randomUUID(),
+    )
+    expect(cleared.ok).toBe(true)
+
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: null })
+    if (!board.ok) throw new Error(board.message)
+    const view = board.receipt.drafts.find((d) => d.entryId === entryId)!
+    expect(view).toMatchObject({ status: 'published', hasDraft: true, videoUrl: null, poster: null })
+    // 版本裡的舊素材原封不動（前台仍是發布那一版）。
+    const version = (await owner.sql('select v.video_url, v.poster_file_id from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.id = $1', [entryId])).rows[0]!
+    expect(version).toEqual({ video_url: 'https://youtu.be/old', poster_file_id: posterFileId })
   })
 })
