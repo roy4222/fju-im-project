@@ -1,5 +1,5 @@
 // 測試地圖頁與截圖路由（AC-S-15～18）。用 fixtures/map 的假資料畫一次、直接呼叫路由。
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -223,6 +223,39 @@ describe('AC-S-18 截圖路由只服務 summary.json 列到的檔', () => {
     )
     vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
     expect((await shot(RUN, 'story-1', 'screenshots', 'a.png')).status).toBe(404)
+  })
+
+  it('列到的圖是硬連結、連到同一夜的 run.json → 404，不吐內容', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'status-shots-'))
+    const shots = path.join(dir, RUN, 'story-1', 'screenshots')
+    await mkdir(shots, { recursive: true })
+    await writeFile(path.join(dir, RUN, 'run.json'), '{"secret":"run-json-content"}')
+    await link(path.join(dir, RUN, 'run.json'), path.join(shots, 'a.png'))
+    await writeFile(
+      path.join(dir, RUN, 'summary.json'),
+      JSON.stringify({ items: [{ id: 'story-1', steps: [{ 截圖: ['story-1/screenshots/a.png'] }] }] }),
+    )
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
+    const res = await shot(RUN, 'story-1', 'screenshots', 'a.png')
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('run-json-content')
+  })
+
+  it('列到的圖是硬連結、連到 acceptance 外面的檔案 → 404，不吐內容', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'status-outside-'))
+    await writeFile(path.join(outside, 'tunnel.json'), '{"secret":"outside-content"}')
+    const dir = await mkdtemp(path.join(tmpdir(), 'status-shots-'))
+    const shots = path.join(dir, RUN, 'story-1', 'screenshots')
+    await mkdir(shots, { recursive: true })
+    await link(path.join(outside, 'tunnel.json'), path.join(shots, 'a.png'))
+    await writeFile(
+      path.join(dir, RUN, 'summary.json'),
+      JSON.stringify({ items: [{ id: 'story-1', steps: [{ 截圖: ['story-1/screenshots/a.png'] }] }] }),
+    )
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', dir)
+    const res = await shot(RUN, 'story-1', 'screenshots', 'a.png')
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('outside-content')
   })
 
   it('列到了但檔案不存在 → 404', async () => {
