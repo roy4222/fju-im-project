@@ -3,6 +3,8 @@ import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import type {
   AccountLookup,
+  BulkApprovalPreview,
+  BulkApprovalReceipt,
   BulkDisableReceipt,
   BulkPreview,
   DecisionReceipt,
@@ -158,6 +160,56 @@ export async function rejectRegistrationAction(input: {
     }),
   )
   return outcome
+}
+
+// ── 批次核准（第三波 W6） ─────────────────────────────────────────────────────
+//
+// 預覽與核准都由用例以當下的待審清單重新分類；這裡只把輸入收成正確的型別。
+// 一樣不在這裡 revalidate：對話框先顯示結果，關掉後才由畫面自己刷新清單。
+
+/** 只擋離譜的輸入；真正的上限（一次幾位）由用例判。 */
+const BULK_APPROVE_INPUT_CAP = 1000
+
+function idList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.slice(0, BULK_APPROVE_INPUT_CAP).map((id) => text(id, 100) ?? '')
+    : []
+}
+
+export async function previewBulkApproveAction(input: { applicationIds: string[] }): Promise<ActionOutcome<BulkApprovalPreview>> {
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getRegistrationCommand().previewApproveMany(actor, idList(input?.applicationIds)))
+}
+
+export async function bulkApproveAction(input: {
+  items: { applicationId: string; revision: number; requestId: string }[]
+  /** 預覽時就略過的人：只回報原因、不核准（第三波 W6 審查修正）。 */
+  previewSkipped: string[]
+  verificationMethod: string
+  verificationNote: string
+  reason: string
+}): Promise<ActionOutcome<BulkApprovalReceipt>> {
+  const items = Array.isArray(input?.items)
+    ? input.items.slice(0, BULK_APPROVE_INPUT_CAP).map((i) => ({
+        applicationId: text(i?.applicationId, 100) ?? '',
+        revision: revisionOf(i?.revision),
+        requestId: text(i?.requestId, 100) ?? '',
+      }))
+    : []
+  const verificationMethod = text(input?.verificationMethod ?? '', 50) ?? ''
+  const verificationNote = text(input?.verificationNote ?? '', 2000)
+  const reason = text(input?.reason ?? '', 2000)
+  if (verificationNote === null || reason === null) {
+    return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
+  }
+  const actor = await resolveActor(await headers())
+  return toOutcome(await getRegistrationCommand().approveMany(actor, {
+      items,
+      previewSkipped: idList(input?.previewSkipped),
+      verificationMethod,
+      verificationNote,
+      reason,
+    }))
 }
 
 // ── 帳號停用／恢復與批次停用（票 9） ─────────────────────────────────────────

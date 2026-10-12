@@ -550,7 +550,12 @@ export function snapshotDueAt(dueAt: Date): Date {
 
 // ── 誰看得到 ────────────────────────────────────────────────────────────────
 
-/** 看的人：匿名，或已登入者的角色、學生屆別與目前所在組別。 */
+/**
+ * 看的人：匿名，或已登入者的角色、學生屆別、目前所在組別，以及（老師）目前指導的組別與那些組所在的屆別。
+ *
+ * `groupIds` 是**組員**身分（收件名單靠它）；`advisedGroupIds` 是**指導老師**身分
+ * （`advisor_assignments` 的有效那一列），兩者分開，不互相混用（第三波 W4）。
+ */
 export type Viewer =
   | { readonly kind: 'anonymous' }
   | {
@@ -558,6 +563,8 @@ export type Viewer =
       readonly roles: readonly Role[]
       readonly studentCohortId: string | null
       readonly groupIds: readonly string[]
+      readonly advisedGroupIds: readonly string[]
+      readonly advisedCohortIds: readonly string[]
     }
 
 export type ItemVisibility = {
@@ -565,6 +572,8 @@ export type ItemVisibility = {
   readonly audienceKind: AudienceKind
   readonly cohortId: string
   readonly groupIds: readonly string[]
+  /** 收件單位：指導老師（不論本屆學生或指定組別）只看得到不收件的項目（公告、資源）。 */
+  readonly receiverUnit: ReceiverUnit
 }
 
 /**
@@ -573,6 +582,8 @@ export type ItemVisibility = {
  *
  * - 管理員：什麼狀態都看得到（要編輯）。
  * - 其他人：只看得到發布中的，而且要在對象內。草稿、下架都看不到。
+ * - 本屆學生：該屆學生；**指導該屆任一組的老師**也看得到，但只限不收件的項目（Q13：唯讀看公告、範本，收件不給）。
+ * - 指定組別：那幾組的組員；那幾組目前的指導老師也看得到，同樣只限不收件的（Q14；收件只給組員）。
  */
 export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
   if (viewer.kind === 'user' && viewer.roles.includes('admin')) return true
@@ -583,11 +594,20 @@ export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
     case 'signed_in':
       return viewer.kind === 'user'
     case 'cohort_students':
-      return viewer.kind === 'user' && viewer.studentCohortId !== null && viewer.studentCohortId === item.cohortId
+      return (
+        viewer.kind === 'user' &&
+        ((viewer.studentCohortId !== null && viewer.studentCohortId === item.cohortId) ||
+          (item.receiverUnit === 'none' && viewer.advisedCohortIds.includes(item.cohortId)))
+      )
     case 'teachers':
       return viewer.kind === 'user' && viewer.roles.includes('teacher')
     case 'groups':
-      return viewer.kind === 'user' && viewer.groupIds.some((id) => item.groupIds.includes(id))
+      return (
+        viewer.kind === 'user' &&
+        item.groupIds.some(
+          (id) => viewer.groupIds.includes(id) || (item.receiverUnit === 'none' && viewer.advisedGroupIds.includes(id)),
+        )
+      )
   }
 }
 

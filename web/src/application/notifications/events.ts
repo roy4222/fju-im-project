@@ -159,6 +159,14 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'submission', defaultTitle: '你的組別已正式送出一份繳交' },
   },
+  /**
+   * 系辦讓單一學生或單一組補交（第三波 W10）。收件人＝那一位學生；整組一份＝那一組此刻有效、帳號正常的組員。
+   * 其他人不收（其他人的截止規則沒有變）。payload 帶項目 id、標題、補交期限與理由，不帶任何回答。
+   */
+  'submission.reopened': {
+    consumers: ['notifications'],
+    notification: { kind: 'submission', defaultTitle: '系辦開放你補交一份收件' },
+  },
   /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
   'item.updated': {
     consumers: ['notifications'],

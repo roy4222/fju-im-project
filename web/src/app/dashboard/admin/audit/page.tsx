@@ -39,11 +39,22 @@ function actorLabel(e: AuditLogEntry): string {
   return e.actorName?.trim() || '（已不存在的帳號）'
 }
 
+/**
+ * 新增、預授權老師這兩個動作，確認的對象一定是老師：顯示老師的文字，不提學生證（第三波 W6；
+ * 同帳號頁新增老師對話框的 `teacherMethodLabel`，T6 系5）。只換顯示文字，紀錄裡的方式代碼不變。
+ */
+const TEACHER_ACTIONS: ReadonlySet<string> = new Set(['account.create_teacher', 'account.preauthorize_teacher'])
+const TEACHER_METHOD_LABEL: typeof VERIFICATION_LABEL = {
+  ...VERIFICATION_LABEL,
+  id_document: '當面核對身分證件（教職員證、身分證）',
+}
+
 /** 核准註冊這類要確認本人的列：「怎麼確認是本人：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
 function verificationText(e: AuditLogEntry): string | null {
   if (!e.verificationMethod) return null
   const note = e.verificationNote?.trim()
-  return `怎麼確認是本人：${VERIFICATION_LABEL[e.verificationMethod]}${note ? `／${note}` : ''}`
+  const labels = TEACHER_ACTIONS.has(e.action) ? TEACHER_METHOD_LABEL : VERIFICATION_LABEL
+  return `怎麼確認是本人：${labels[e.verificationMethod]}${note ? `／${note}` : ''}`
 }
 
 function tone(e: AuditLogEntry): 'brand' | 'default' | 'info' {

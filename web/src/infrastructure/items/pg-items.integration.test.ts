@@ -20,6 +20,7 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 import { PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
@@ -1572,8 +1573,8 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     const inbox = await new PgInbox({ db: () => app }).list(studentActor(s1), { kind: 'all' }, null)
     const note = inbox.items.find((n) => n.source.state === 'ok' && n.source.href === `/dashboard/student/affairs/${item.itemId}`)
     expect(note).toBeDefined()
-    expect(await new PgSubmissionQuery(() => app).myItem(s1.id, item.itemId)).toBeNull()
-    expect((await new PgSubmissionQuery(() => app).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
+    expect(await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItem(s1.id, item.itemId)).toBeNull()
+    expect((await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
   })
 
   it('已有人交件（Q28）：學生存過草稿的收件下架後也不能刪，只能下架（ITEM_HAS_RESPONSES），項目仍在清單', async () => {
@@ -1679,5 +1680,205 @@ describe('榮譽榜（第三波 W1；AC-8、AC-9）：公開、不收件、不�
     // 存草稿把公告改成榮譽也不行（原本的位置不是榮譽）。
     const sneaky = await items.saveDraft(adminActor(), news.itemId, news.revision, honor(cohortId), randomUUID())
     expect(sneaky.ok || sneaky.code).toBe('COHORT_ARCHIVED')
+  })
+})
+
+describe('指導老師（第三波 W4；Q13、Q14，AC-32、AC-33）：本屆公告與資源唯讀、不通知；指定組別公告看得到也通知', () => {
+  // 這一段另外建老師帳號：放在檔尾，前面「全部老師只寫給 T1」的斷言不受影響。
+  async function newTeacher(): Promise<string> {
+    seq += 1
+    const user = await owner.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [`老師${seq}`, `t${seq}-items@example.com`],
+    )
+    const id = String(user.rows[0]!.id)
+    await owner.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+       values (gen_random_uuid(), $1, 'teacher', $2, now())`,
+      [id, adminId],
+    )
+    return id
+  }
+
+  async function assignAdvisor(groupId: string, teacherUserId: string): Promise<string> {
+    const row = await owner.sql(
+      `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+       values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '測試指派') returning id`,
+      [groupId, teacherUserId, adminId],
+    )
+    return String(row.rows[0]!.id)
+  }
+
+  function teacherOf(userId: string): ResolvedActor {
+    return { kind: 'authenticated', userId, roles: ['teacher'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+  }
+
+  async function published(cohortId: string, patch: Partial<ItemInput>, notify = false) {
+    const item = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', ...patch })
+    await mustPublish(item.itemId, 1, notify)
+    return item.itemId
+  }
+
+  /** 本屆一組 G01（一位組員、一位指導老師）、一組 G02（另一位指導老師）；另一屆一組（只指導別屆的老師）。 */
+  async function scene() {
+    const { cohortId, stageId } = await newCohort()
+    const other = await newCohort()
+    const [member, otherMember, elsewhere] = [await newStudent(cohortId), await newStudent(cohortId), await newStudent(other.cohortId)]
+    const g1 = await newGroup(cohortId, [member], 'G01')
+    const g2 = await newGroup(cohortId, [otherMember], 'G02')
+    const g9 = await newGroup(other.cohortId, [elsewhere], 'G09')
+    const [advisor1, advisor2, otherCohortAdvisor] = [await newTeacher(), await newTeacher(), await newTeacher()]
+    await assignAdvisor(g1, advisor1)
+    await assignAdvisor(g2, advisor2)
+    await assignAdvisor(g9, otherCohortAdvisor)
+    return { cohortId, stageId, member, g1, g2, advisor1, advisor2, otherCohortAdvisor }
+  }
+
+  it('前台列表與單篇：指導本屆的老師看得到「本屆學生」的公告與資源、自己那組的組別公告；沒指導的與只指導別屆的看不到；收件看不到', async () => {
+    const s = await scene()
+    const tag = randomUUID().slice(0, 8)
+    const cohortNews = await published(s.cohortId, { title: `${tag} 本屆`, audienceKind: 'cohort_students' })
+    await published(s.cohortId, { title: `${tag} G01`, audienceKind: 'groups', groupIds: [s.g1] })
+    await published(s.cohortId, { title: `${tag} G02`, audienceKind: 'groups', groupIds: [s.g2] })
+    await published(s.cohortId, { title: `${tag} 老師`, audienceKind: 'teachers' })
+    await published(s.cohortId, { placement: 'resource', title: `${tag} 範本`, audienceKind: 'cohort_students' })
+    const collect = await mustCreate(s.cohortId, { stageId: s.stageId, title: `${tag} 收件` })
+    await mustPublish(collect.itemId, 1, false)
+
+    const seen = async (actor: ResolvedActor, placement: 'news' | 'resource' = 'news') =>
+      (await publicQuery.list(actor, placement, { q: tag })).map((c) => c.title.replace(`${tag} `, '')).sort()
+    expect(await seen(teacherOf(s.advisor1))).toEqual(['G01', '本屆', '老師'].sort())
+    expect(await seen(teacherOf(s.advisor2))).toEqual(['G02', '本屆', '老師'].sort())
+    expect(await seen(teacherOf(s.otherCohortAdvisor))).toEqual(['老師'])
+    expect(await seen(teacherActor())).toEqual(['老師'])
+    expect(await seen(teacherOf(s.advisor1), 'resource')).toEqual(['範本'])
+    expect(await seen(teacherOf(s.otherCohortAdvisor), 'resource')).toEqual([])
+    // 組員身分不受影響：學生仍只看到自己那組與本屆的。
+    expect(await seen(studentActor(s.member))).toEqual(['G01', '本屆'].sort())
+
+    expect((await publicQuery.open(teacherOf(s.advisor1), cohortNews, 'news')).access).toBe('visible')
+    expect((await publicQuery.open(teacherOf(s.otherCohortAdvisor), cohortNews, 'news')).access).toBe('not_found')
+    expect((await publicQuery.open(teacherActor(), cohortNews, 'news')).access).toBe('not_found')
+    // 收件（本屆學生、個人一份）：指導老師當作找不到；同屆學生看得到。
+    expect((await publicQuery.open(teacherOf(s.advisor1), collect.itemId, 'submission')).access).toBe('not_found')
+    expect((await publicQuery.open(studentActor(s.member), collect.itemId, 'submission')).access).toBe('visible')
+  })
+
+  it('附件下載跟前台同一條規則：指導本屆的老師下載得到本屆資源的附件，收件的附件、別人那組的組別公告附件下載不到', async () => {
+    const s = await scene()
+    const resourceFile = await uploadPdf(adminId, s.cohortId)
+    const collectFile = await uploadPdf(adminId, s.cohortId)
+    const groupFile = await uploadPdf(adminId, s.cohortId)
+    await published(s.cohortId, { placement: 'resource', audienceKind: 'cohort_students', attachmentFileIds: [resourceFile] })
+    const collect = await mustCreate(s.cohortId, { stageId: s.stageId, attachmentFileIds: [collectFile] })
+    await mustPublish(collect.itemId, 1, false)
+    await published(s.cohortId, { audienceKind: 'groups', groupIds: [s.g2], attachmentFileIds: [groupFile] })
+
+    const canDownload = async (actor: ResolvedActor, id: string) => {
+      const result = await storage.authorizeDownload(actor, id)
+      if (result.ok) await result.receipt.body.cancel()
+      return result.ok
+    }
+    expect(await canDownload(teacherOf(s.advisor1), resourceFile)).toBe(true)
+    expect(await canDownload(teacherOf(s.otherCohortAdvisor), resourceFile)).toBe(false)
+    expect(await canDownload(teacherActor(), resourceFile)).toBe(false)
+    expect(await canDownload(teacherOf(s.advisor1), collectFile)).toBe(false)
+    expect(await canDownload(studentActor(s.member), collectFile)).toBe(true)
+    expect(await canDownload(teacherOf(s.advisor1), groupFile)).toBe(false)
+    expect(await canDownload(teacherOf(s.advisor2), groupFile)).toBe(true)
+  })
+
+  it('指定組別的收件（整組一份）：組員看得到、下載得到附件；那組的指導老師列不到、打不開、下載不到', async () => {
+    const s = await scene()
+    const fileId = await uploadPdf(adminId, s.cohortId)
+    const tag = randomUUID().slice(0, 8)
+    const collect = await mustCreate(s.cohortId, {
+      stageId: s.stageId,
+      title: `${tag} G01 收件`,
+      audienceKind: 'groups',
+      groupIds: [s.g1],
+      receiverUnit: 'group',
+      attachmentFileIds: [fileId],
+    })
+    await mustPublish(collect.itemId, 1, false)
+    const canDownload = async (actor: ResolvedActor) => {
+      const result = await storage.authorizeDownload(actor, fileId)
+      if (result.ok) await result.receipt.body.cancel()
+      return result.ok
+    }
+    const listed = async (actor: ResolvedActor) => (await publicQuery.list(actor, 'submission', { q: tag })).length
+
+    expect(await listed(studentActor(s.member))).toBe(1)
+    expect((await publicQuery.open(studentActor(s.member), collect.itemId, 'submission')).access).toBe('visible')
+    expect(await canDownload(studentActor(s.member))).toBe(true)
+
+    expect(await listed(teacherOf(s.advisor1))).toBe(0)
+    expect((await publicQuery.open(teacherOf(s.advisor1), collect.itemId, 'submission')).access).toBe('not_found')
+    expect(await canDownload(teacherOf(s.advisor1))).toBe(false)
+  })
+
+  it('通知：指定組別的重要公告寫給組員＋那組目前的指導老師，別組的指導老師不收；本屆學生的重要公告不寫給任何老師', async () => {
+    const s = await scene()
+    const groupNews = await published(s.cohortId, { audienceKind: 'groups', groupIds: [s.g1] }, true)
+    const recipients = (await events(groupNews, 'item.announced'))[0]!.recipients as string[]
+    expect([...recipients].sort()).toEqual([s.member.id, s.advisor1].sort())
+
+    const cohortNews = await published(s.cohortId, { audienceKind: 'cohort_students' }, true)
+    const cohortRecipients = (await events(cohortNews, 'item.announced'))[0]!.recipients as string[]
+    expect(cohortRecipients).toContain(s.member.id)
+    for (const teacher of [s.advisor1, s.advisor2, s.otherCohortAdvisor, teacherId]) expect(cohortRecipients).not.toContain(teacher)
+  })
+
+  it('只列指定對象（老師首頁）：SQL 先篩對象再取筆數，較舊的老師公告不會被 101 則較新的公開公告擠掉；不會因此多看到別人的', async () => {
+    const s = await scene()
+    const tag = randomUUID().slice(0, 8)
+    await published(s.cohortId, { title: `${tag} 老師`, audienceKind: 'teachers' })
+    await published(s.cohortId, { title: `${tag} G02`, audienceKind: 'groups', groupIds: [s.g2] })
+    await published(s.cohortId, { title: `${tag} G01`, audienceKind: 'groups', groupIds: [s.g1] })
+    for (let i = 0; i < 101; i += 1) await published(s.cohortId, { title: `${tag} 公開 ${i}`, audienceKind: 'public' })
+
+    const teacherKinds = ['teachers', 'signed_in', 'groups'] as const
+    // 舊做法（先取 100 則再在畫面挑）：老師公告全被擠掉。
+    const recent = await publicQuery.list(teacherOf(s.advisor1), 'news', { q: tag, limit: 100 })
+    expect(recent.filter((c) => (teacherKinds as readonly string[]).includes(c.audienceKind))).toEqual([])
+
+    const titles = async (actor: ResolvedActor) =>
+      (await publicQuery.list(actor, 'news', { q: tag, audiences: teacherKinds, limit: 5 })).map((c) => c.title.replace(`${tag} `, ''))
+    expect(await titles(teacherOf(s.advisor1))).toEqual(['G01', '老師'])
+    expect(await titles(teacherOf(s.advisor2))).toEqual(['G02', '老師'])
+    expect(await titles(teacherActor())).toEqual(['老師'])
+    expect(await publicQuery.list(teacherOf(s.advisor1), 'news', { q: tag, audiences: [] })).toEqual([])
+  })
+
+  it('目前指導的屆別（老師首頁「本屆活動」用）：只算有效指派；沒指導、學生、訪客都是空的；解除後就沒有', async () => {
+    const s = await scene()
+    const other = (await owner.sql(`select g.cohort_id from advisor_assignments a join groups g on g.id = a.group_id
+                                     where a.teacher_user_id = $1 and a.valid_to is null`, [s.otherCohortAdvisor])).rows[0]!.cohort_id
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.advisor1))).toEqual([s.cohortId])
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.otherCohortAdvisor))).toEqual([String(other)])
+    expect(await publicQuery.advisedCohortIds(teacherActor())).toEqual([])
+    expect(await publicQuery.advisedCohortIds(studentActor(s.member))).toEqual([])
+    expect(await publicQuery.advisedCohortIds({ kind: 'anonymous' })).toEqual([])
+    await owner.sql(
+      `update advisor_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = '測試解除'
+        where teacher_user_id = $1 and valid_to is null`,
+      [s.advisor1, adminId],
+    )
+    expect(await publicQuery.advisedCohortIds(teacherOf(s.advisor1))).toEqual([])
+  })
+
+  it('解除指導後（valid_to 有值）就不算指導老師：看不到、也不再收到該組公告的通知', async () => {
+    const s = await scene()
+    await owner.sql(
+      `update advisor_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = '測試解除'
+        where group_id = $1 and valid_to is null`,
+      [s.g1, adminId],
+    )
+    const tag = randomUUID().slice(0, 8)
+    const itemId = await published(s.cohortId, { title: `${tag} G01`, audienceKind: 'groups', groupIds: [s.g1] }, true)
+    await published(s.cohortId, { title: `${tag} 本屆`, audienceKind: 'cohort_students' })
+    expect(await publicQuery.list(teacherOf(s.advisor1), 'news', { q: tag })).toEqual([])
+    expect((await events(itemId, 'item.announced'))[0]!.recipients).toEqual([s.member.id])
   })
 })

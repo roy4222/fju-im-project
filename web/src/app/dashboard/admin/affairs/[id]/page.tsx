@@ -13,8 +13,8 @@ import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { RosterEntry } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
-import { categoryOf, completionOf, getRosterQuery } from '@/composition/submissions'
-import { formatTaipeiMinute, isDeadlinePassed } from '@/shared/time'
+import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
+import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '收件名單｜資管系專題平台' }
 
@@ -33,7 +33,8 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 點一個人（`?person=`）看名單紀錄與每一次正式送出；再點一次（`&version=`）看那一次的回答（唯讀）。
  *   已移出的人回答保留，一樣點得進去。草稿內容不在這裡顯示，只標「有草稿、最後儲存時間」。
  * - 只有系辦管理員看得到：頁面守角色，查詢本身再判一次（老師、學生拿到的是 null → 404）。
- *   免填、移出、加回、個別重開、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ *   免填、移出、加回、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ * - 讓單一學生或單一組補交（第三波 W10）：截止後在點進去的那一位畫面按「讓他補交」，填期限與理由；只通知那一位。
  * - 整組一份（票 21）：名單三類列組別；完成率以組為單位（同組誰送都算一份）；點一組看它每一次正式送出與附件。
  * - 個人一份（票 22）：右欄多一塊「主指導閱覽」開關（SUB-24）；已經有人作答就不能開。
  */
@@ -100,7 +101,10 @@ export default async function RosterPage({
   // 點一個人（整組一份：一組）：名單紀錄＋每一次正式送出；帶版本號就看那一次的內容。
   if (personId) {
     if (!UUID.test(personId)) notFound()
-    const detail = await rosterQuery.receiver(actor, item.itemId, personId)
+    const [detail, reopens] = await Promise.all([
+      rosterQuery.receiver(actor, item.itemId, personId),
+      getSubmissionQuery().reopens(actor, item.itemId, personId),
+    ])
     if (!detail) notFound()
     const version =
       Number.isInteger(versionNo) && versionNo > 0
@@ -111,7 +115,24 @@ export default async function RosterPage({
       version ? (
         <VersionView base={base} detail={detail} version={version} />
       ) : (
-        <ReceiverView base={base} detail={detail} window={item} businessNow={businessNow} />
+        <ReceiverView
+          base={base}
+          detail={detail}
+          window={item}
+          businessNow={businessNow}
+          reopens={reopens ?? []}
+          reopen={
+            // 讓他補交（W10）：已截止、發布中、還在目前名單上（不是免填、沒被移出）才能開。
+            overdue && item.status === 'published' && categoryOf(detail.entry) === 'current'
+              ? {
+                  itemId: item.itemId,
+                  receiverId: personId,
+                  defaultDueAt: `${addTaipeiDays(taipeiDateOf(businessNow), 1)}T17:00`,
+                  requestId: randomUUID(),
+                }
+              : null
+          }
+        />
       ),
     )
   }

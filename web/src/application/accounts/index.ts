@@ -70,9 +70,16 @@ export type {
   RosterMatchStatus,
   TextComparison,
   VerificationMethod,
+  BulkApprovalPreview,
+  BulkApprovalPreviewRow,
+  BulkApprovalReceipt,
+  BulkApprovalSkip,
 } from '@/application/accounts/registration'
 export {
   APPLIED_NAME_MAX_LENGTH,
+  BULK_APPROVAL_MAX,
+  BULK_APPROVAL_SKIP_LABEL,
+  bulkApprovalSkip,
   DEPARTMENT_CLASS_MAX_LENGTH,
   EVIDENCE_LABEL,
   EVIDENCE_NEEDS_ATTENTION,

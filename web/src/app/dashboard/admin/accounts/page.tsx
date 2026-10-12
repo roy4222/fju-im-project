@@ -31,6 +31,7 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
+import { BulkApproveCheckbox, BulkApproveDialog, BulkApproveProvider, BulkApproveSelectAll } from './bulk-approve-dialog'
 import { ImportRosterDialog } from './import-roster-dialog'
 import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
 import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
@@ -200,10 +201,13 @@ export default async function AdminAccountsPage({
           />
         </div>
 
+        {/* 第三波 W6：勾選後「核准勾選的 N 位」一起核准；需要人判斷的列由伺服器自動略過並寫原因。 */}
+        <BulkApproveProvider>
         <Panel
           title={`待審核${pending ? `（${pending.applications.length}）` : ''}`}
           icon={<IconUserCheck />}
-          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人"
+          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人。可以勾選多位一起核准"
+          action={<BulkApproveDialog labels={REVIEW_LABELS} />}
           aria-label="待審核"
         >
           {pending && !pending.registrationOpenCohort ? (
@@ -218,8 +222,11 @@ export default async function AdminAccountsPage({
               <table className="w-full min-w-[44rem] text-sm">
                 <thead>
                   <tr className={PANEL_TABLE_HEAD}>
+                    <th scope="col" className="w-10 py-2.5 pl-5">
+                      <BulkApproveSelectAll applicationIds={pending!.applications.map((a) => a.applicationId)} />
+                    </th>
                     {['姓名', '學號', '系級', '比對結果', '最後更新'].map((h) => (
-                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold first:pl-5">
+                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold">
                         {h}
                       </th>
                     ))}
@@ -231,7 +238,10 @@ export default async function AdminAccountsPage({
                 <tbody>
                   {pending!.applications.map((a) => (
                     <tr key={a.applicationId} className={PANEL_TABLE_ROW}>
-                      <td className="px-4 py-2.5 pl-5 font-semibold whitespace-nowrap text-foreground">{a.appliedName}</td>
+                      <td className="py-2.5 pl-5">
+                        <BulkApproveCheckbox applicationId={a.applicationId} name={a.appliedName} />
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold whitespace-nowrap text-foreground">{a.appliedName}</td>
                       <td className="tabular px-4 py-2.5">{a.studentNo}</td>
                       <td className="px-4 py-2.5 whitespace-nowrap">{a.departmentClass || '—'}</td>
                       <td className="px-4 py-2.5">
@@ -257,6 +267,7 @@ export default async function AdminAccountsPage({
             </div>
           )}
         </Panel>
+        </BulkApproveProvider>
 
         <Panel
           title={listTitle}
