@@ -177,6 +177,8 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await expect(danger.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
   await expect(page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })).toHaveCount(0)
   await expect(page.getByTestId('danger-opportunity').filter({ hasText: NAME })).toHaveCount(0)
+  // 危險操作區不會因為刪掉的是最後一件就整區消失（成功句子掛在這一區；CI 的資料庫只有這一件時曾經看不到句子）。
+  await expect(danger).toBeVisible()
 
   // 重新整理仍然不在；前台詳情是 404（不是「已下架」）；負責老師的清單也沒有了。
   await page.reload()
