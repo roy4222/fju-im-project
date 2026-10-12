@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-10-12T09:00:00+08:00",
+  "test": {
+    "ok": true,
+    "commit": "7162644000000000000000000000000000000000",
+    "checkedAt": "2026-10-12T09:00:00+08:00",
+    "last6": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "reason": null
+  },
+  "prod": {
+    "ok": true,
+    "commit": "463931b000000000000000000000000000000000",
+    "checkedAt": "2026-10-12T09:00:00+08:00",
+    "last6": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "reason": null
+  },
+  "accessGuard": [
+    {
+      "host": "fju-status.roy422.dev",
+      "guarded": true,
+      "status": 302,
+      "location": "https://example-team.cloudflareaccess.com/cdn-cgi/access/login/"
+    },
+    {
+      "host": "fju-status-vm.roy422.dev",
+      "guarded": true,
+      "status": 302,
+      "location": "https://example-team.cloudflareaccess.com/cdn-cgi/access/login/"
+    },
+    {
+      "host": "fju-status-logs.roy422.dev",
+      "guarded": true,
+      "status": 302,
+      "location": "https://example-team.cloudflareaccess.com/cdn-cgi/access/login/"
+    },
+    {
+      "host": "fju-status-db.roy422.dev",
+      "guarded": true,
+      "status": 302,
+      "location": "https://example-team.cloudflareaccess.com/cdn-cgi/access/login/"
+    }
+  ]
+}
