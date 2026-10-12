@@ -169,6 +169,43 @@ describe('seed-demo.mjs', () => {
     expect(Number(counts.rows[0]!.signoffs)).toBeGreaterThan(0)
   })
 
+  it('N-01：內文提到的日期跟活動、截止日同一條時間線（原型 8/20 的說明會，平移 +39 天後兩邊都是 9/28），沒有留下記號', async () => {
+    const events = await db.sql(
+      `select title, to_char(starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts
+         from project_events where title in ('114 學年度專題說明會', '雲端服務實務工作坊', '全國大專資訊應用服務創新競賽報名截止', '智慧製造大數據分析競賽決賽')
+        order by starts_at`,
+    )
+    expect(events.rows.map((e) => [e.title, e.starts])).toEqual([
+      ['114 學年度專題說明會', '2026-09-28 13:10'],
+      ['雲端服務實務工作坊', '2026-10-06 09:00'],
+      ['智慧製造大數據分析競賽決賽', '2026-10-11 00:00'],
+      ['全國大專資訊應用服務創新競賽報名截止', '2026-11-11 00:00'],
+    ])
+    const text = async (title: string) => {
+      const r = await db.sql(
+        `select v.title || ' ' || v.summary || ' ' || v.body_html as text from item_versions v join managed_items m on m.id = v.item_id
+          where m.title = $1 order by v.version_no desc limit 1`,
+        [title],
+      )
+      return String(r.rows[0]!.text)
+    }
+    expect(await text('專題說明會出席與分組意向登記')).toContain('登記 9/28 說明會出席人數')
+    expect(await text('說明會出席與分組意向登記期限提醒')).toContain('將於 9 月 23 日截止')
+    expect(await text('雲端服務實務工作坊（10/6）開放登記')).toContain('將於 10 月 6 日舉行')
+    expect(await text('第 31 屆全國大專校院資訊應用服務創新競賽開始報名')).toContain('報名期限至 2026 年 11 月 11 日止')
+    expect(await text('2026 全國智慧製造大數據分析競賽入圍名單公告')).toContain('決賽日期為 10 月 11 日')
+    const form = await db.sql(
+      `select f.schema::text as schema from form_schema_versions f join managed_items m on m.id = f.item_id where m.title = '專題說明會出席與分組意向登記'`,
+    )
+    expect(String(form.rows[0]!.schema)).toContain('9/28 專題說明會請至少一位組員出席')
+    const leftover = await db.sql(
+      `select (select count(*) from item_versions where title || summary || body_html like '%{{%')::int
+            + (select count(*) from managed_items where title like '%{{%')::int
+            + (select count(*) from form_schema_versions where schema::text like '%{{%')::int as n`,
+    )
+    expect(Number(leftover.rows[0]!.n)).toBe(0)
+  })
+
   it('第一批已在時再跑：只補第二批（歷屆專題、榮譽榜、競賽），第一批一列不動', async () => {
     const before = await firstBatchFingerprint()
     const r = runSeed()
