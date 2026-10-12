@@ -79,9 +79,10 @@ export async function collectVm(cfg, now) {
     const dir = path.join(cfg.offsiteRoot, site)
     const found = latestFile(dir)
     const file = found?.file ?? null
+    // 欄位名照 S-1 的 types.ts（BackupInfo.latest）；offsiteDir 多分「目錄不存在」與「空目錄」。
     backups[site] = {
+      latest: file ? { name: file.name, bytes: file.bytes, mtime: file.mtime } : null,
       offsiteDir: found === null ? 'missing' : file ? 'ok' : 'empty',
-      offsite: file ? { name: file.name, bytes: file.bytes, mtime: file.mtime } : null,
       lastRecord: lastBackupRecord(readText(path.join(cfg.fjuRoot, site, 'backups', 'records.jsonl'))),
     }
   }

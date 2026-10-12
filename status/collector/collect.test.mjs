@@ -130,13 +130,13 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(vmj.deploys.test[1]).toEqual({ at: '2026-10-07T01:00:00Z', event: 'deployed', tag: 'sha-7', digest: 'sha256:d7' })
     expect(vmj.deploys.prod).toEqual([])
     expect(vmj.backups.prod.offsiteDir).toBe('ok')
-    expect(vmj.backups.prod.offsite).toEqual({
+    expect(vmj.backups.prod.latest).toEqual({
       name: path.join('2026', 'fju-prod-new.dump'),
       bytes: 3,
       mtime: new Date(NOW.getTime() - 3600e3).toISOString(),
     })
     expect(vmj.backups.prod.lastRecord).toEqual({ at: '2026-10-11T03:00:00Z', ok: true })
-    expect(vmj.backups.test).toEqual({ offsiteDir: 'missing', offsite: null, lastRecord: null })
+    expect(vmj.backups.test).toEqual({ latest: null, offsiteDir: 'missing', lastRecord: null })
     expect(vmj.prodEnv.flags.BUSINESS_CLOCK_OVERRIDE_ENABLED).toBe('false')
     expect(vmj.prodEnvError).toBeNull()
     // 只回有沒有 A 記錄，不寫 IP

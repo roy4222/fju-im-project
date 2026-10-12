@@ -1,6 +1,6 @@
 // acceptance-index.json（設計方案 §3.3）：以 inbox/<run>/run.json 為主（每夜一定有），
 // 同目錄 summary.json 為輔（可能沒有、可能壞掉）。
-// latestFullAttempt＝最新一個 plan=full 的 run，不管成不成功、有沒有 summary——不回退到更早的夜。
+// latestFullAttempt＝最新一個 plan=full 的 runId，不管成不成功、有沒有 summary——不回退到更早的夜。
 import fs from 'node:fs'
 import path from 'node:path'
 import { readJson } from './files.mjs'
@@ -90,7 +90,7 @@ export function buildAcceptanceIndex(inboxDir, policy) {
   })
   return {
     runs,
-    latestFullAttempt: runs.find((r) => r.plan === 'full') ?? null,
+    latestFullAttempt: runs.find((r) => r.plan === 'full')?.runId ?? null,
     requiredItems: Array.isArray(policy?.requiredItems) ? policy.requiredItems : null,
     requiredItemsSourceSha: typeof policy?.sourceSha === 'string' ? policy.sourceSha : null,
   }

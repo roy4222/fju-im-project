@@ -64,9 +64,8 @@ describe('AC-S-11 五夜', () => {
       expect(typeof r.hasSummary).toBe('boolean')
       expect(typeof r.summaryValid).toBe('boolean')
     }
-    expect(idx.latestFullAttempt.runId).toBe('night-20261012-2200')
-    expect(idx.latestFullAttempt.items).toEqual([{ id: 'story-1', status: 'ok' }])
-    expect(idx.latestFullAttempt).toEqual(idx.runs[0])
+    expect(idx.latestFullAttempt).toBe('night-20261012-2200')
+    expect(idx.runs[0].items).toEqual([{ id: 'story-1', status: 'ok' }])
 
     const byId = Object.fromEntries(idx.runs.map((r) => [r.runId, r]))
     expect(byId['night-20261011-2200'].items.find((i) => i.id === 'story-3').status).toBe('env')
@@ -81,7 +80,8 @@ describe('AC-S-11 五夜', () => {
     writeRun(inbox, 'night-b', { startedAt: '2026-10-12T22:00:00+0800', items: okItems() })
     writeRun(inbox, 'night-a', { startedAt: '2026-10-11T22:00:00+0800', items: okItems(), summary: summaryOf('night-a') })
     const idx = buildAcceptanceIndex(inbox, null)
-    expect(idx.latestFullAttempt).toMatchObject({ runId: 'night-b', hasSummary: false })
+    expect(idx.latestFullAttempt).toBe('night-b')
+    expect(idx.runs[0]).toMatchObject({ runId: 'night-b', hasSummary: false })
     expect(idx.requiredItems).toBeNull()
   })
 
