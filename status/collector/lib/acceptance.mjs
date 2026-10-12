@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { readJson } from './files.mjs'
 import { ShapeError, project } from './shape.mjs'
-import { RUN_ENTRY } from './shapes.mjs'
+import { RUN_FIELDS } from './shapes.mjs'
 
 const SAFE = /^[A-Za-z0-9._-]+$/
 
@@ -15,8 +15,9 @@ export function parseTime(s) {
   return Date.parse(s.replace(/([+-]\d\d)(\d\d)$/, '$1:$2'))
 }
 
+/** acceptance-night.sh 跑到一半時 finishedAt／commitEnd 是空字串（write_run_json 的 --arg）：當 null。 */
 function str(v) {
-  return typeof v === 'string' ? v : null
+  return typeof v === 'string' && v !== '' ? v : null
 }
 
 function checkSummary(summary, runId) {
@@ -27,16 +28,35 @@ function checkSummary(summary, runId) {
   return null
 }
 
-/** 一夜的索引先過白名單（lib/shapes.mjs RUN_ENTRY）：欄位值不合樣式的那夜只留 runId 與原因，不拖垮整個索引。 */
+/**
+ * 一夜的索引分欄過白名單（lib/shapes.mjs RUN_FIELDS）：哪一欄不合樣式就只把那一欄改成 null、記在 invalidReason；
+ * 合法的 runId、plan、startedAt 保留，所以排序與 latestFullAttempt（最新的 full 嘗試）不會因為一欄壞掉而回退到更早那夜。
+ * 不合樣式的 item 整筆不列。
+ */
 function indexRun(dir, name) {
-  const entry = rawIndexRun(dir, name)
-  if (!entry) return null
-  try {
-    return project(RUN_ENTRY, entry)
-  } catch (err) {
-    if (!(err instanceof ShapeError)) throw err
-    return { ...emptyEntry(name), invalidReason: `run.json 欄位格式不符（${err.message}）` }
+  const raw = rawIndexRun(dir, name)
+  if (!raw) return null
+  const bad = []
+  const check = (label, shape, value) => {
+    try {
+      return project(shape, value)
+    } catch (err) {
+      if (!(err instanceof ShapeError)) throw err
+      bad.push(label)
+      return null
+    }
   }
+  const out = { ...raw, items: [] }
+  for (const key of ['plan', 'startedAt', 'finishedAt', 'commitStart', 'commitEnd']) out[key] = check(key, RUN_FIELDS[key], raw[key])
+  raw.items.forEach((item, i) => {
+    const v = check(`items[${i}]`, RUN_FIELDS.item, item)
+    if (v) out.items.push(v)
+  })
+  if (bad.length > 0) {
+    const listed = bad.length > 10 ? `${bad.slice(0, 10).join('、')}…等 ${bad.length} 欄` : bad.join('、')
+    out.invalidReason = [raw.invalidReason, `run.json 欄位格式不符（${listed}）`].filter(Boolean).join('；')
+  }
+  return out
 }
 
 function emptyEntry(name) {
@@ -73,7 +93,7 @@ function rawIndexRun(dir, name) {
     commitEnd: str(r.commitEnd),
     items: r.items
       .filter((i) => i && typeof i.id === 'string')
-      .map((i) => ({ id: i.id, status: typeof i.status === 'string' ? i.status : null })),
+      .map((i) => ({ id: i.id, status: str(i.status) })),
   }
   if (runId !== name) entry.invalidReason = `run.json 的 runId 跟目錄名 ${name} 不同`
   const summary = readJson(path.join(dir, 'summary.json'))

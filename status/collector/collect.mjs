@@ -19,7 +19,7 @@ import dns from 'node:dns'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { buildAcceptanceIndex } from './lib/acceptance.mjs'
-import { readJson, serializeChecked, writeJsonChecked, writeText } from './lib/files.mjs'
+import { readJson, serializeChecked, writeJsonChecked, writeTexts } from './lib/files.mjs'
 import { fetchGithub } from './lib/github.mjs'
 import { fetchHealth } from './lib/health.mjs'
 import { scrubIp, findLeaks } from './lib/redact.mjs'
@@ -99,8 +99,9 @@ export async function runOnce(cfg, now = new Date()) {
   try {
     if (!mainSha) throw new Error('這輪沒拿到 main 的 SHA，四檔都不更新')
     const files = await fetchRepoFiles({ ...cfg, mainSha, now })
-    const texts = REPO_FILES.map((name) => [name, serializeChecked(`repo/${name}`, files[name])])
-    for (const [name, text] of texts) writeText(path.join(cfg.dataDir, 'repo', name), text)
+    // 四檔先全部過檢查、全部寫成暫存檔，再一起換上去：中途失敗（ENOSPC）一個都不換，不會出現兩個 sourceSha。
+    const texts = REPO_FILES.map((name) => [path.join(cfg.dataDir, 'repo', name), serializeChecked(`repo/${name}`, files[name])])
+    writeTexts(texts)
     ok('repo')
   } catch (err) {
     fail('repo', err)

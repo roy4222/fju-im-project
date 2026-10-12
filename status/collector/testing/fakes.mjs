@@ -126,6 +126,9 @@ export function accessRoutes() {
   return out
 }
 
+/** 第 i 個假 digest（64 個十六進位字元）。 */
+export const fakeDigest = (i) => `sha256:${String(i).repeat(64).slice(0, 64)}`
+
 /** 假 VM 目錄：/srv/fju 的唯讀來源＋空的 data 輸出目錄。 */
 export function makeFakeVm(now) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fju-collector-'))
@@ -137,7 +140,8 @@ export function makeFakeVm(now) {
     return p
   }
   const lines = []
-  for (let i = 1; i <= 7; i++) lines.push(`2026-10-0${i}T01:00:00Z\tdeployed\tsha-${i}\tfull\tsha256:d${i}\tunchanged`)
+  // 真格式（ops/deploy.sh 第 7 步）：時間、event、tag、健康條件、${NEW_DIGEST:-none}（映像參照@sha256:…）、schema
+  for (let i = 1; i <= 7; i++) lines.push(`2026-10-0${i}T01:00:00Z\tdeployed\tsha-${i}\tfull\tghcr.io/roy4222/fju-web@${fakeDigest(i)}\tunchanged`)
   lines.push('2026-10-08T01:00:00Z\trollback-start\tsha-8\thealth-failed')
   w('test/deploy/deploy_log', lines.join('\n') + '\n')
   w(

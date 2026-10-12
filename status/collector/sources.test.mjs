@@ -1,8 +1,8 @@
 // 各來源的純函式：遮蔽規則、/api/health 判定、Access 守門判定、deploy_log 與備份紀錄解析。
 import { describe, expect, it } from 'vitest'
 import { judgeAccessGuard, judgeHealthBody, lastResults, siteHealth } from './lib/health.mjs'
-import { findLeaks, findSensitiveKeys, scrubIp } from './lib/redact.mjs'
-import { lastBackupRecord, parseDeployLog } from './lib/vm.mjs'
+import { findLeaks, findLeaksInValue, findSensitiveKeys, scrubIp } from './lib/redact.mjs'
+import { lastBackupRecord, normalizeDigest, parseDeployLog } from './lib/vm.mjs'
 
 describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
   it.each([
@@ -99,17 +99,17 @@ describe('Access 守門判定', () => {
 describe('VM 紀錄解析', () => {
   it('deploy_log 取最後 5 筆、新到舊；只有 deployed／rolled-back 帶 digest；原因欄不帶出來', () => {
     const text = [
-      '2026-10-01T00:00:00Z\tdeployed\tt1\tfull\tsha256:1\tunchanged',
+      `2026-10-01T00:00:00Z\tdeployed\tt1\tfull\tghcr.io/roy4222/fju-web@sha256:${'1'.repeat(64)}\tunchanged`,
       '2026-10-02T00:00:00Z\te2e-seed-failed\tt2',
       '2026-10-03T00:00:00Z\trollback-start\tt3\thealth-failed',
       '2026-10-04T00:00:00Z\trollback-done\tghcr.io/x/web:t2\thealthy\thealth-failed',
-      '2026-10-05T00:00:00Z\trolled-back\tt2\tfull\tsha256:2\tunchanged',
-      '2026-10-06T00:00:00Z\tdeployed\tt4\tfull\tsha256:4\t0012',
+      `2026-10-05T00:00:00Z\trolled-back\tt2\tfull\tghcr.io/roy4222/fju-web@sha256:${'2'.repeat(64)}\tunchanged`,
+      `2026-10-06T00:00:00Z\tdeployed\tt4\tfull\tghcr.io/roy4222/fju-web@sha256:${'4'.repeat(64)}\t0012`,
       '',
     ].join('\n')
     const rows = parseDeployLog(text)
     expect(rows.map((r) => r.event)).toEqual(['deployed', 'rolled-back', 'rollback-done', 'rollback-start', 'e2e-seed-failed'])
-    expect(rows[0]).toEqual({ at: '2026-10-06T00:00:00Z', event: 'deployed', tag: 't4', digest: 'sha256:4' })
+    expect(rows[0]).toEqual({ at: '2026-10-06T00:00:00Z', event: 'deployed', tag: 't4', digest: `sha256:${'4'.repeat(64)}` })
     expect(rows[3]).toEqual({ at: '2026-10-03T00:00:00Z', event: 'rollback-start', tag: 't3', digest: null })
     expect(JSON.stringify(rows)).not.toContain('health-failed')
   })
@@ -199,5 +199,81 @@ describe('遮蔽變形（Review 第二輪）', () => {
   it('敏感鍵底下沒有實值（空容器、佔位、布林、null）不算', () => {
     expect(findSensitiveKeys({ token: ['${DOPPLER_TOKEN}'], secret: {}, password: null, apiKey: { enabled: false }, cookie: [] })).toEqual([])
     expect(findSensitiveKeys({ missing: ['E2E_ADMIN_PASSWORD', 'DOPPLER_TOKEN'], forbiddenPresent: ['E2E_ADMIN_EMAIL'] })).toEqual([])
+  })
+})
+
+// Review 第三輪（接手版 361cf90 退回）：access_key 鍵名、字串裡的內嵌 JSON、重複 URL 編碼。
+describe('遮蔽變形（Review 第三輪）', () => {
+  it('access_key／accessKey／ACCESS_KEY／access-key 是敏感鍵名（巢狀也算）', () => {
+    for (const obj of [{ a: { accessKey: 'FAKEPASS701' } }, { ACCESS_KEY: 'FAKEPASS702' }, { 'access-key': 'FAKEPASS703' }, { aws_access_key_id: 'FAKEPASS704' }]) {
+      expect(findSensitiveKeys(obj), JSON.stringify(Object.keys(obj))).toHaveLength(1)
+    }
+    expect(findLeaks('access_key: FAKEPASS705')).toContain('密碼')
+    expect(findLeaks('accessKey=FAKEPASS706')).toContain('密碼')
+  })
+
+  it.each([
+    ['{"password":"FAKEPASS359"}', '密碼'], // 字串裡的 JSON（鍵與值都被引號包住）
+    ['{\\"password\\":\\"FAKEPASS359\\"}', '密碼'], // 序列化後引號被反斜線跳脫
+    ["password='FAKEPASS359'", '密碼'],
+    ['postgresql://db/fju?%2570assword=FAKEPASS360', '連線字串'], // 雙層百分號編碼的鍵名
+    ['%2570assword%253DFAKEPASS361', '密碼'], // 雙層編碼的 password=
+    ['%7B%22password%22%3A%22FAKEPASS362%22%7D', '密碼'], // 整段編碼的 JSON
+    ['postgres%3A%2F%2Fapp%3AFAKEPASS363%40db%2Ffju', '連線字串'], // 整段編碼的連線字串
+  ])('%s → %s', (text, kind) => {
+    expect(findLeaks(text)).toContain(kind)
+  })
+
+  it('編碼層數超過上限：不猜了，直接當命中（整檔拒寫）', () => {
+    let t = 'password=FAKEPASS364'
+    for (let i = 0; i < 6; i++) t = encodeURIComponent(t)
+    expect(findLeaks(t)).toContain('編碼層數過多')
+    // 兩層以內照常解開、照常判
+    let two = 'password=FAKEPASS365'
+    for (let i = 0; i < 2; i++) two = encodeURIComponent(two)
+    expect(findLeaks(two)).toEqual(['密碼'])
+  })
+
+  it('findLeaksInValue：逐一檢查字串值，內嵌 JSON 解析後再查鍵名與值（含再內嵌一層、編碼後的 JSON）', () => {
+    expect(findLeaksInValue({ note: '{"nested":{"token":["FAKEPASS366"]}}' })).toContain('敏感欄位')
+    expect(findLeaksInValue({ note: '[{"secret":{"value":"FAKEPASS367"}}]' })).toContain('敏感欄位')
+    expect(findLeaksInValue({ note: '{"inner":"{\\"accessKey\\":\\"FAKEPASS368\\"}"}' })).toContain('敏感欄位')
+    expect(findLeaksInValue({ note: encodeURIComponent('{"apiKey":"FAKEPASS369"}') })).toContain('敏感欄位')
+    expect(findLeaksInValue({ a: [{ b: 'postgres://:FAKEPASS370@db/x' }] })).toContain('連線字串')
+    expect(findLeaksInValue({ note: '{"items":[1,2,3],"ok":true}', title: '正常文字', n: 3 })).toEqual([])
+  })
+
+  it('內嵌 JSON 疊太多層或太大：當命中（整檔拒寫）', () => {
+    let s = '{"password":"FAKEPASS371"}'
+    for (let i = 0; i < 6; i++) s = JSON.stringify({ inner: s })
+    expect(findLeaksInValue({ note: s })).toContain('編碼層數過多')
+    const big = '{"a":"' + 'x'.repeat(70000) + '"}'
+    expect(findLeaksInValue({ note: big })).toContain('內嵌資料過大')
+  })
+})
+
+describe('deploy_log 的 digest 欄（真 producer：ops/deploy.sh 第 7 步寫 ${NEW_DIGEST:-none}）', () => {
+  const HEX = 'a1'.repeat(32)
+  it('映像參照@sha256:… 正規化成 sha256:…；none 與認不得的字樣是 null', () => {
+    expect(normalizeDigest(`ghcr.io/roy4222/fju-web@sha256:${HEX}`)).toBe(`sha256:${HEX}`)
+    expect(normalizeDigest(`sha256:${HEX}`)).toBe(`sha256:${HEX}`)
+    expect(normalizeDigest('none')).toBeNull()
+    expect(normalizeDigest('')).toBeNull()
+    expect(normalizeDigest(undefined)).toBeNull()
+    expect(normalizeDigest('sha256:abc')).toBeNull()
+    expect(normalizeDigest('ghcr.io/x/web@sha256:FAKEPASS')).toBeNull()
+  })
+  it('parseDeployLog 用真格式：deployed 帶映像參照 digest、rolled-back 帶 none', () => {
+    const rows = parseDeployLog(
+      [
+        `2026-10-06T00:00:00Z\tdeployed\tabc1234\tfull\tghcr.io/roy4222/fju-web@sha256:${HEX}\tunchanged`,
+        '2026-10-07T00:00:00Z\trolled-back\tabc0000\tfull\tnone\tunchanged',
+        '',
+      ].join('\n'),
+    )
+    expect(rows).toEqual([
+      { at: '2026-10-07T00:00:00Z', event: 'rolled-back', tag: 'abc0000', digest: null },
+      { at: '2026-10-06T00:00:00Z', event: 'deployed', tag: 'abc1234', digest: `sha256:${HEX}` },
+    ])
   })
 })

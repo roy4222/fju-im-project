@@ -1,7 +1,7 @@
 // 讀寫 JSON 的小工具。寫入一律「先寫暫存檔再改名」，status-web 不會讀到寫一半的檔。
 import fs from 'node:fs'
 import path from 'node:path'
-import { findLeaks, findSensitiveKeys } from './redact.mjs'
+import { findLeaks, findLeaksInValue, findSensitiveKeys } from './redact.mjs'
 import { ShapeError, project } from './shape.mjs'
 import { shapeFor } from './shapes.mjs'
 
@@ -43,17 +43,41 @@ export function serializeChecked(name, value) {
     throw new LeakError(name, [`欄位格式不符（${err.message}）`, ...err.leakKinds])
   }
   const text = JSON.stringify(projected, null, 2) + '\n'
-  const leaks = findLeaks(text)
-  if (findSensitiveKeys(projected).length > 0) leaks.push('敏感欄位')
-  if (leaks.length > 0) throw new LeakError(name, leaks)
+  // 整份文字掃一次，再逐一檢查每個字串值（字串裡的 JSON 會解析出來連鍵名一起查）。
+  const leaks = new Set([...findLeaks(text), ...findLeaksInValue(projected)])
+  if (findSensitiveKeys(projected).length > 0) leaks.add('敏感欄位')
+  if (leaks.size > 0) throw new LeakError(name, [...leaks])
   return text
 }
 
+/**
+ * 一組檔案一起寫：先全部寫成暫存檔，都成功才逐一改名；中途任何一個失敗（例如 ENOSPC）就把暫存檔清掉、一個都不換，
+ * 所以 repo/ 四檔永遠是同一個 sourceSha。entries 是 [[檔案路徑, 內容], …]。
+ */
+export function writeTexts(entries) {
+  const tmps = []
+  try {
+    for (const [file, text] of entries) {
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      const tmp = `${file}.tmp-${process.pid}`
+      tmps.push([tmp, file])
+      fs.writeFileSync(tmp, text, { mode: 0o644 })
+    }
+  } catch (err) {
+    for (const [tmp] of tmps) {
+      try {
+        fs.unlinkSync(tmp)
+      } catch {
+        // 還沒寫出來就算了
+      }
+    }
+    throw err
+  }
+  for (const [tmp, file] of tmps) fs.renameSync(tmp, file)
+}
+
 export function writeText(file, text) {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp-${process.pid}`
-  fs.writeFileSync(tmp, text, { mode: 0o644 })
-  fs.renameSync(tmp, file)
+  writeTexts([[file, text]])
 }
 
 export function writeJsonChecked(dataDir, rel, value) {

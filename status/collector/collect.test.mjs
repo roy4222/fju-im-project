@@ -3,7 +3,7 @@ import { execFile, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configFromEnv, parseHosts, runOnce } from './collect.mjs'
 import {
   HOSTS,
@@ -12,6 +12,7 @@ import {
   TEAM,
   accessRoutes,
   baseConfig,
+  fakeDigest,
   gatusRoutes,
   githubRoutes,
   healthRoutes,
@@ -151,7 +152,7 @@ describe('AC-S-8 一輪收集的輸出', () => {
     const vmj = read('vm.json')
     expect(vmj.deploys.test).toHaveLength(5)
     expect(vmj.deploys.test[0]).toEqual({ at: '2026-10-08T01:00:00Z', event: 'rollback-start', tag: 'sha-8', digest: null })
-    expect(vmj.deploys.test[1]).toEqual({ at: '2026-10-07T01:00:00Z', event: 'deployed', tag: 'sha-7', digest: 'sha256:d7' })
+    expect(vmj.deploys.test[1]).toEqual({ at: '2026-10-07T01:00:00Z', event: 'deployed', tag: 'sha-7', digest: fakeDigest(7) })
     expect(vmj.deploys.prod).toEqual([])
     expect(vmj.backups.prod.offsiteDir).toBe('ok')
     expect(vmj.backups.prod.latest).toEqual({
@@ -229,6 +230,46 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(read('collector.json').sources.repo.ok).toBe(false)
   })
 
+  it('第二檔寫到一半 ENOSPC：四檔都維持上一版（同一個舊 sourceSha），來源記失敗', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const names = ['tickets.json', 'test-map.json', 'go-live-waivers.json', 'go-live-policy.json']
+    const before = Object.fromEntries(names.map((n) => [n, fs.readFileSync(path.join(vm.dataDir, 'repo', n), 'utf8')]))
+    await server.close()
+
+    const newSha = 'd'.repeat(40)
+    cfg = await start({ ...githubRoutes({ sha: newSha }), ...rawRoutes({ sha: newSha }) })
+    const real = fs.writeFileSync
+    const spy = vi.spyOn(fs, 'writeFileSync').mockImplementation((file, ...rest) => {
+      if (String(file).includes('test-map.json')) {
+        const err = new Error('ENOSPC: no space left on device')
+        err.code = 'ENOSPC'
+        throw err
+      }
+      return real.call(fs, file, ...rest)
+    })
+    let status
+    try {
+      status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
+    } finally {
+      spy.mockRestore()
+    }
+    expect(status.sources.repo.ok).toBe(false)
+    expect(status.sources.repo.error).toContain('ENOSPC')
+    for (const n of names) expect(fs.readFileSync(path.join(vm.dataDir, 'repo', n), 'utf8'), n).toBe(before[n])
+    expect(fs.readdirSync(path.join(vm.dataDir, 'repo')).filter((f) => f.includes('.tmp-'))).toEqual([])
+    // 其他檔照常
+    expect(read('github.json').mainSha).toBe(newSha)
+  })
+
+  it('deploy_log 的 digest 欄是 none（本機建的映像）：vm.json 照常寫，digest 是 null', async () => {
+    vm.write('prod/deploy/deploy_log', '2026-10-09T01:00:00Z\tdeployed\tabc1234\tfull\tnone\tunchanged\n')
+    const cfg = await start()
+    const status = await runOnce(cfg, NOW)
+    expect(status.sources.vm.ok).toBe(true)
+    expect(read('vm.json').deploys.prod).toEqual([{ at: '2026-10-09T01:00:00Z', event: 'deployed', tag: 'abc1234', digest: null }])
+  })
+
   it('raw 回的不是合法 JSON 也算失敗、四檔不寫', async () => {
     const cfg = await start({ [`GET /raw/roy4222/fju-im-project/${MAIN_SHA}/docs/status/test-map.json`]: () => ({ body: '{壞掉' }) })
     const status = await runOnce(cfg, NOW)
@@ -247,7 +288,7 @@ describe('AC-S-9 遮蔽：命中就整檔不寫', () => {
 
     vm.write(
       'test/deploy/deploy_log',
-      fs.readFileSync(path.join(vm.fju, 'test/deploy/deploy_log'), 'utf8') + '2026-10-09T01:00:00Z\tdeployed\tsomeone@example.com\tfull\tsha256:x\tunchanged\n',
+      fs.readFileSync(path.join(vm.fju, 'test/deploy/deploy_log'), 'utf8') + `2026-10-09T01:00:00Z\tdeployed\tsomeone@example.com\tfull\tghcr.io/roy4222/fju-web@${fakeDigest(9)}\tunchanged\n`,
     )
     cfg = await start({ ...githubRoutes({ ciUrl: 'https://github.com/x/runs/11?dp.st.prd.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) })
     const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
@@ -277,7 +318,7 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
     await server.close()
     vm.write(
       'prod/deploy/deploy_log',
-      '2026-10-09T01:00:00Z\tdeployed\tpostgres://fju_app:FAKEPASS123@fju-prod-postgres:5432/fju\tfull\tsha256:x\tunchanged\n',
+      `2026-10-09T01:00:00Z\tdeployed\tpostgres://fju_app:FAKEPASS123@fju-prod-postgres:5432/fju\tfull\tghcr.io/roy4222/fju-web@${fakeDigest(9)}\tunchanged\n`,
     )
     cfg = await start()
     const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
@@ -349,6 +390,10 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
       [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', secret: { value: 'FAKEPASS999' } }] }, '敏感欄位'],
       [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', token: ['FAKEPASS998'] }] }, '敏感欄位'],
       [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', note: 'postgresql://db/fju?user=app&%70assword=FAKEPASS997' }] }, '連線字串'],
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', meta: { accessKey: 'FAKEPASS996' } }] }, '敏感欄位'], // Review 第三輪 P1
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', note: '{"password":"FAKEPASS359"}' }] }, '密碼'], // 字串裡的 JSON
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', note: '{"nested":{"token":["FAKEPASS995"]}}' }] }, '敏感欄位'], // 內嵌 JSON 的巢狀容器
+      [{ ...REPO_BODIES['tickets.json'], tickets: [{ id: 'X', note: 'postgresql://db/fju?%2570assword=FAKEPASS994' }] }, '連線字串'], // 雙層編碼
     ]) {
       const cfg = await start({ [`GET /raw/roy4222/fju-im-project/${MAIN_SHA}/docs/status/tickets.json`]: () => ({ body }) })
       const status = await runOnce(cfg, NOW)
@@ -360,6 +405,19 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
       expect(fs.existsSync(path.join(vm.dataDir, 'repo'))).toBe(false)
       expect(allOutput()).not.toContain('FAKEPASS')
     }
+  })
+
+  it('GitHub job 名稱藏了字串化的 JSON 密碼：github.json 不寫、保留上一版', async () => {
+    let cfg = await start()
+    await runOnce(cfg, NOW)
+    const before = fs.readFileSync(path.join(vm.dataDir, 'github.json'), 'utf8')
+    await server.close()
+    cfg = await start(githubRoutes({ ciRun: { run_attempt: 2 }, ciJobs: [{ name: '{"password":"FAKEPASS363"}', conclusion: 'success' }] }))
+    const status = await runOnce(cfg, new Date(NOW.getTime() + 600e3))
+    expect(status.sources.github.ok).toBe(false)
+    expect(status.sources.github.error).toContain('密碼')
+    expect(fs.readFileSync(path.join(vm.dataDir, 'github.json'), 'utf8')).toBe(before)
+    expect(allOutput()).not.toContain('FAKEPASS')
   })
 
   it('GitHub 回應多了規格外的欄位（PR body 帶密碼、head.repo）：不進 github.json', async () => {

@@ -8,6 +8,17 @@ import { ENVCHECK } from './shapes.mjs'
 
 const SITES = ['test', 'prod']
 
+/**
+ * deploy_log 第 5 欄（ops/deploy.sh 第 7 步寫 ${NEW_DIGEST:-none}）：NEW_DIGEST 是 docker 的 RepoDigest，
+ * 長得像 ghcr.io/roy4222/fju-web@sha256:<64 hex>；本機建的映像沒有 digest 就是 none。
+ * 正規化成 sha256:<64 hex>；none、空的、認不得的都回 null。
+ */
+export function normalizeDigest(col) {
+  if (typeof col !== 'string' || col === '' || col === 'none') return null
+  const m = /^(?:[^\s@]+@)?(sha256:[0-9a-f]{64})$/.exec(col)
+  return m ? m[1] : null
+}
+
 /** deploy_log 一行一筆、tab 分隔：時間、event、tag（或映像）、……；deployed／rolled-back 第 5 欄是 digest。 */
 export function parseDeployLog(text, n = 5) {
   const rows = []
@@ -17,7 +28,7 @@ export function parseDeployLog(text, n = 5) {
     if (cols.length < 2) continue
     const [at, event, tag] = cols
     const hasDigest = event === 'deployed' || event === 'rolled-back'
-    rows.push({ at, event, tag: tag ?? null, digest: hasDigest ? (cols[4] ?? null) : null })
+    rows.push({ at, event, tag: tag ?? null, digest: hasDigest ? normalizeDigest(cols[4]) : null })
   }
   return rows.slice(-n).reverse()
 }

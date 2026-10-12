@@ -18,7 +18,8 @@ const GITHUB_URL = /^https:\/\/github\.com\/[A-Za-z0-9._~/-]+$/
 const ORIGIN_PATH = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9._~%/-]*)?$/
 /** deploy_log 的 tag 欄：docker tag、映像參照（ghcr.io/x/web:tag）或 no-previous。 */
 const TAG = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,200}$/
-const DIGEST = /^sha256:[A-Za-z0-9]{1,64}$/
+/** vm.mjs normalizeDigest 的輸出（真 deploy_log 是映像參照@sha256:…，已在那裡正規化）。 */
+const DIGEST = /^sha256:[0-9a-f]{64}$/
 const EVENT = /^[a-z0-9-]{1,40}$/
 /** git 分支名：不能有空白與 ~ ^ : ? * [ ] \ 以及引號、角括號。 */
 const BRANCH = /^[^\s~^:?*[\]\\'"<>]{1,255}$/
@@ -127,15 +128,24 @@ export const VM = T.obj({
   prodDns: T.obj({ host: T.str(HOST), hasA: T.bool(), checkedAt: T.str(ISO) }),
 })
 
-/** acceptance-index.json 的一夜（acceptance.mjs 先各自投影，不合的那夜標 invalidReason，不拖垮整個索引）。 */
-export const RUN_ENTRY = T.obj({
-  runId: T.str(ID),
+/** acceptance-index.json 一夜的各欄（acceptance.mjs 分欄驗證：不合的那欄改 null、標原因，plan 與時間合法就保留，不回退）。 */
+export const RUN_FIELDS = {
   plan: T.nullable(T.str(WORD)),
   startedAt: T.nullable(T.str(ISO)),
   finishedAt: T.nullable(T.str(ISO)),
   commitStart: T.nullable(T.str(COMMIT)),
   commitEnd: T.nullable(T.str(COMMIT)),
-  items: T.arr(T.obj({ id: T.str(ID), status: T.nullable(T.str(WORD)) }), 500),
+  item: T.obj({ id: T.str(ID), status: T.nullable(T.str(WORD)) }),
+}
+
+export const RUN_ENTRY = T.obj({
+  runId: T.str(ID),
+  plan: RUN_FIELDS.plan,
+  startedAt: RUN_FIELDS.startedAt,
+  finishedAt: RUN_FIELDS.finishedAt,
+  commitStart: RUN_FIELDS.commitStart,
+  commitEnd: RUN_FIELDS.commitEnd,
+  items: T.arr(RUN_FIELDS.item, 500),
   hasSummary: T.bool(),
   summaryValid: T.bool(),
   invalidReason: T.nullable(text(300)),

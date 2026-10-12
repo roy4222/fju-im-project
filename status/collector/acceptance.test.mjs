@@ -113,19 +113,51 @@ describe('AC-S-11 五夜', () => {
   })
 })
 
-describe('run.json 欄位不合樣式（白名單投影）', () => {
-  it('commitEnd 塞了 URL 編碼的連線字串：那夜標 invalidReason、該欄改 null，值不進索引', () => {
-    const dir = path.join(inbox, 'night-z')
-    fs.mkdirSync(dir)
-    fs.writeFileSync(
-      path.join(dir, 'run.json'),
-      JSON.stringify({ runId: 'night-z', plan: 'full', startedAt: '2026-10-12T22:00:00+0800', finishedAt: '2026-10-12T23:00:00+0800', commitStart: 'abc12345', commitEnd: 'postgresql://db/fju?user=app&%70assword=FAKEPASS123', items: [{ id: 'story-1', status: 'ok' }] }),
-    )
+describe('run.json 欄位分欄驗證（Review 第三輪：不回退）', () => {
+  const runJson = (runId, extra) =>
+    JSON.stringify({ runId, plan: 'full', startedAt: '2026-10-12T22:00:00+0800', finishedAt: '2026-10-12T23:00:00+0800', commitStart: 'abc12345', commitEnd: 'abc12345', items: [{ id: 'story-1', status: 'ok' }], ...extra })
+  const writeRaw = (runId, text) => {
+    fs.mkdirSync(path.join(inbox, runId), { recursive: true })
+    fs.writeFileSync(path.join(inbox, runId, 'run.json'), text)
+  }
+
+  it('commitEnd 塞了 URL 編碼的連線字串：只有那欄變 null、標原因；plan 與時間保留，仍是 latestFullAttempt', () => {
+    writeRaw('night-z', runJson('night-z', { commitEnd: 'postgresql://db/fju?user=app&%70assword=FAKEPASS123' }))
     const idx = buildAcceptanceIndex(inbox, null)
-    expect(idx.runs).toHaveLength(1)
-    expect(idx.runs[0]).toMatchObject({ runId: 'night-z', plan: null, commitEnd: null, items: [] })
-    expect(idx.runs[0].invalidReason).toContain('格式')
+    expect(idx.runs[0]).toMatchObject({ runId: 'night-z', plan: 'full', startedAt: '2026-10-12T22:00:00+0800', commitStart: 'abc12345', commitEnd: null, items: [{ id: 'story-1', status: 'ok' }] })
+    expect(idx.runs[0].invalidReason).toContain('commitEnd')
+    expect(idx.runs[0].invalidReason).not.toContain('FAKEPASS')
     expect(JSON.stringify(idx)).not.toContain('FAKEPASS')
-    expect(idx.latestFullAttempt).toBeNull()
+    expect(idx.latestFullAttempt).toBe('night-z')
+  })
+
+  it('舊的 full 完整全綠、最新的 full 有壞欄位：latestFullAttempt 仍是最新那夜，不回退', () => {
+    writeRun(inbox, 'night-old', { startedAt: '2026-10-11T22:00:00+0800', items: okItems(), summary: summaryOf('night-old') })
+    writeRaw('night-new', runJson('night-new', { startedAt: '2026-10-12T22:00:00+0800', commitStart: 'postgres://a:FAKEPASS124@h/d', items: [{ id: 'story-1', status: 'ok' }, { id: 'story-2', status: 'bad status: FAKEPASS125' }] }))
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs.map((r) => r.runId)).toEqual(['night-new', 'night-old'])
+    expect(idx.latestFullAttempt).toBe('night-new')
+    expect(idx.runs[0]).toMatchObject({ plan: 'full', commitStart: null, items: [{ id: 'story-1', status: 'ok' }] })
+    expect(idx.runs[0].invalidReason).toMatch(/commitStart/)
+    expect(idx.runs[0].invalidReason).toMatch(/items\[1\]/)
+    expect(JSON.stringify(idx)).not.toContain('FAKEPASS')
+  })
+
+  it('還沒結束的那夜：finishedAt、commitEnd 是空字串（acceptance-night.sh 跑到一半的 write_run_json）→ 當 null、不算壞', () => {
+    writeRaw('night-running', runJson('night-running', { finishedAt: '', commitEnd: '', items: [{ id: 'story-1', status: 'ok' }, { id: 'story-2', status: 'running', startedAt: '2026-10-12T22:30:00+0800', finishedAt: '' }] }))
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs[0]).toMatchObject({ runId: 'night-running', plan: 'full', finishedAt: null, commitEnd: null, invalidReason: null })
+    expect(idx.runs[0].items).toEqual([{ id: 'story-1', status: 'ok' }, { id: 'story-2', status: 'running' }])
+    expect(idx.latestFullAttempt).toBe('night-running')
+  })
+
+  it('startedAt 壞掉：那欄 null、排到最後，但 plan 保留', () => {
+    writeRun(inbox, 'night-ok', { startedAt: '2026-10-11T22:00:00+0800', items: okItems() })
+    writeRaw('night-bad-time', runJson('night-bad-time', { startedAt: 'yesterday password=FAKEPASS126' }))
+    const idx = buildAcceptanceIndex(inbox, null)
+    expect(idx.runs.map((r) => r.runId)).toEqual(['night-ok', 'night-bad-time'])
+    expect(idx.runs[1]).toMatchObject({ plan: 'full', startedAt: null })
+    expect(idx.runs[1].invalidReason).toContain('startedAt')
+    expect(JSON.stringify(idx)).not.toContain('FAKEPASS')
   })
 })

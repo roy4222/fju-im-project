@@ -1,6 +1,8 @@
-// 第二道把關：寫檔前對「投影後」的 JSON 文字做黑名單掃描（設計方案 §3.3「一律不寫」）。第一道是 lib/shape.mjs
+// 第二道把關：寫檔前對「投影後」的資料做黑名單掃描（設計方案 §3.3「一律不寫」）。第一道是 lib/shape.mjs
 // 的白名單投影（不在清單的欄位根本不會進輸出）。規則照 e2e/acceptance/summarize-night.sh 的 EMAIL／TOKENS／PW／PW_OK，
-// 另加 IPv4／IPv6、連線字串（userinfo 密碼與 query 參數）、Bearer／Basic；每段文字掃「原文」與「百分號解碼後」各一次。
+// 另加 IPv4／IPv6、連線字串（userinfo 密碼與 query 參數）、Bearer／Basic。
+// 每段文字反覆做百分號解碼（最多 MAX_DECODE_ROUNDS 層）逐層掃；字串值本身是 JSON 的話解析出來再查鍵名與值
+// （最多 MAX_EMBED_DEPTH 層）；超過上限不猜，直接當命中。
 // collector 不改寫內容：命中任何一條就整檔不寫，只回報「哪一類」，不回報命中的字串本身。
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/
@@ -15,17 +17,35 @@ const TOKENS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/i,
   /\bBasic\s+[A-Za-z0-9+/=]{16,}/,
 ]
-// 自由文字裡的「鍵: 值」：鍵名像秘密、值 6 字以上且不是佔位字樣。
-const PW =
-  /((?:密碼|password|passwd|passphrase|pwd|token|secret(?:[-_]?key)?|api[-_]?key|access[-_]?key|client[-_]?secret|private[-_]?key|authorization|cookie)\s*[:：=]\s*)([^\s`|，。、）)]{6,})/gi
+// 像秘密的鍵名／參數名：物件鍵名（findSensitiveKeys）與自由文字的「鍵: 值」（PW）共用同一份清單。
+const KEY_WORDS = [
+  'password',
+  'passwd',
+  'passphrase',
+  'pwd',
+  'token',
+  'secret(?:[-_]?key)?',
+  'api[-_]?key',
+  'access[-_]?key',
+  'client[-_]?secret',
+  'private[-_]?key',
+  'credential',
+  'authorization',
+  'cookie',
+]
+// 字尾 pass／passwd／pwd／pw 要獨立成字（db_pass 算、bypass 不算）。
+const SENSITIVE_NAME = new RegExp(`(?:^|[^a-z])(?:pass|passwd|pwd|pw)$|${KEY_WORDS.join('|')}|^auth$|sslkey`, 'i')
+// query 參數多幾個常見名字（?key=、?sig=、?code=…）；JSON 鍵名不用這組（test-map.json 的 key 是正常欄位）。
+const SENSITIVE_PARAM = /^(?:key|auth|sig|signature|session|sessionid|jwt|bearer|otp|code)$/i
+// 自由文字裡的「鍵: 值」：鍵名後可接引號（含 JSON 跳脫的 \"），值 6 字以上、不含引號與反斜線、不是佔位字樣。
+// 所以字串裡的 {"password":"…"}、序列化後的 {\"password\":\"…\"}、password='…' 都抓得到。
+const PW = new RegExp(
+  `((?:密碼|${KEY_WORDS.join('|')})(?:\\\\?["'])?\\s*[:：=]\\s*(?:\\\\?["'])?)([^\\s"'\\\\\`|，。、）)]{6,})`,
+  'gi',
+)
 const PW_OK = /^(?:\$\{?[A-Z_]+\}?|\[已遮蔽\]|已遮蔽|沒有|不記錄.*|由.*|\*+)$/
 // 任何 scheme://… 都抓出來解析（postgres、postgresql、mysql、redis、mongodb+srv、https…）。
 const URI = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>`]+/g
-// 物件鍵名或 query 參數名像秘密。字尾 pass／passwd／pwd／pw 要獨立成字（db_pass 算、bypass 不算）。
-const SENSITIVE_NAME =
-  /(?:^|[^a-z])(?:pass|passwd|pwd|pw)$|password|passphrase|secret|token|api[-_]?key|private[-_]?key|credential|authorization|cookie|^auth$|sslkey/i
-// query 參數多幾個常見名字（?key=、?sig=、?code=…）；JSON 鍵名不用這組（test-map.json 的 key 是正常欄位）。
-const SENSITIVE_PARAM = /^(?:key|auth|sig|signature|session|sessionid|jwt|bearer|otp|code)$/i
 const IPV4 = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])/
 // IPv6：完整寫法（7 個冒號）或含 `::` 的縮寫。時間 10:00:00 只有兩個冒號、沒有 `::`，不會誤判。
 const H = '[0-9A-Fa-f]{1,4}'
@@ -35,6 +55,13 @@ const IPV6 = new RegExp(
 // 連線錯誤訊息裡常帶對方 IP（例如 connect ECONNREFUSED 1.2.3.4:443），寫進 reason 前先換掉。
 const IPV4_ALL = new RegExp(IPV4.source, 'g')
 const IPV6_ALL = new RegExp(IPV6.source, 'g')
+
+/** 百分號解碼最多解幾層；還能再解就當命中（'編碼層數過多'）。 */
+export const MAX_DECODE_ROUNDS = 4
+/** 字串裡的 JSON 最多往下解析幾層；再深就當命中（'編碼層數過多'）。 */
+export const MAX_EMBED_DEPTH = 4
+/** 字串裡的 JSON 超過這個長度不解析，直接當命中（'內嵌資料過大'）。 */
+export const MAX_EMBED_BYTES = 65536
 
 /** 只解 %XX（不合法的 % 原樣留著；多位元組字元解成單位元組字元沒關係，只是用來比對）。 */
 export function percentDecode(text) {
@@ -74,23 +101,83 @@ function hasUriCredentials(text) {
   return false
 }
 
-/** 回傳命中的類別（'Email'、'token'、'連線字串'、'密碼'、'IP'），沒命中回傳空陣列。 */
+function scanText(t, hits) {
+  if (EMAIL.test(t)) hits.add('Email')
+  if (TOKENS.some((p) => p.test(t))) hits.add('token')
+  if (hasUriCredentials(t)) hits.add('連線字串')
+  for (const m of t.matchAll(PW)) {
+    if (!PW_OK.test(m[2])) {
+      hits.add('密碼')
+      break
+    }
+  }
+  if (IPV4.test(t) || IPV6.test(t)) hits.add('IP')
+}
+
+/**
+ * 回傳命中的類別（'Email'、'token'、'連線字串'、'密碼'、'IP'、'編碼層數過多'），沒命中回傳空陣列。
+ * 原文先掃一次，再逐層百分號解碼各掃一次（最多 MAX_DECODE_ROUNDS 層）；解到上限還能再解就當命中。
+ */
 export function findLeaks(text) {
   const hits = new Set()
-  const raw = String(text)
-  const decoded = percentDecode(raw)
-  for (const t of decoded === raw ? [raw] : [raw, decoded]) {
-    if (EMAIL.test(t)) hits.add('Email')
-    if (TOKENS.some((p) => p.test(t))) hits.add('token')
-    if (hasUriCredentials(t)) hits.add('連線字串')
-    for (const m of t.matchAll(PW)) {
-      if (!PW_OK.test(m[2])) {
-        hits.add('密碼')
-        break
+  let t = String(text)
+  for (let round = 0; ; round++) {
+    scanText(t, hits)
+    const next = percentDecode(t)
+    if (next === t) break
+    if (round >= MAX_DECODE_ROUNDS) {
+      hits.add('編碼層數過多')
+      break
+    }
+    t = next
+  }
+  return [...hits]
+}
+
+/** 字串值本身是 JSON（或百分號解碼後是 JSON）：解析出來，連鍵名一起查；疊太多層或太大就當命中。 */
+function embeddedJsonLeaks(text, depth) {
+  let t = text
+  for (let round = 0; round <= MAX_DECODE_ROUNDS; round++) {
+    const s = t.trim()
+    if (s.startsWith('{') || s.startsWith('[')) {
+      if (s.length > MAX_EMBED_BYTES) return ['內嵌資料過大']
+      let parsed = null
+      try {
+        parsed = JSON.parse(s)
+      } catch {
+        parsed = null
+      }
+      if (parsed && typeof parsed === 'object') {
+        if (depth >= MAX_EMBED_DEPTH) return ['編碼層數過多']
+        const kinds = findLeaksInValue(parsed, depth + 1)
+        if (findSensitiveKeys(parsed).length > 0) kinds.push('敏感欄位')
+        return kinds
       }
     }
-    if (IPV4.test(t) || IPV6.test(t)) hits.add('IP')
+    const next = percentDecode(t)
+    if (next === t) break
+    t = next
   }
+  return []
+}
+
+/**
+ * 逐一檢查物件裡的每個字串值：findLeaks（含逐層解碼）＋內嵌 JSON 解析後遞迴。
+ * 跟整份序列化文字的 findLeaks 不同處：字串裡的 JSON 會被真的解析，token:["…"] 這種包在字串裡的容器也抓得到。
+ */
+export function findLeaksInValue(value, depth = 0) {
+  const hits = new Set()
+  const walk = (v) => {
+    if (typeof v === 'string') {
+      for (const k of findLeaks(v)) hits.add(k)
+      for (const k of embeddedJsonLeaks(v, depth)) hits.add(k)
+    } else if (Array.isArray(v)) {
+      v.forEach(walk)
+    } else if (v && typeof v === 'object') {
+      Object.values(v).forEach(walk)
+    }
+  }
+  walk(value)
   return [...hits]
 }
 
