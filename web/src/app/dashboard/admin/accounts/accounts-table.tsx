@@ -15,7 +15,6 @@ import {
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
-import { BulkDisableDialog } from './bulk-disable-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type DialogOpener, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
@@ -44,7 +43,6 @@ export type AccountsTableProps = {
   readonly statusLabel: Record<AccountStatus, string>
   readonly roleLabel: Record<Role, string>
   readonly sortHeaders: Record<DirectorySort, SortHeader>
-  readonly bulkMaxChars: number
   /** 票 8 的「發臨時密碼」對話框要用的核實方式標籤（app 對 application 只能帶型別，值由頁面傳進來）。 */
   readonly verificationLabels: VerificationLabels
   /** 工具列左邊（搜尋框與篩選鈕，伺服器組好傳進來）。 */
@@ -132,7 +130,7 @@ export function AccountsTable(props: AccountsTableProps) {
 
   return (
     <div className="space-y-3">
-      {/* 原型 Data Table 的工具列：搜尋、篩選鈕（頁面給），右邊是整份匯出與批次停用。 */}
+      {/* 原型 Data Table 的工具列：搜尋、篩選鈕（頁面給），右邊是整份匯出（批次停用在頁面底部的「危險操作」區，驗收 P-06）。 */}
       <DataTableToolbar>
         {toolbar}
         <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -145,7 +143,6 @@ export function AccountsTable(props: AccountsTableProps) {
             <IconDownload aria-hidden />
             匯出全部篩選結果（{total} 筆）
           </button>
-          <BulkDisableDialog maxChars={props.bulkMaxChars} />
         </span>
       </DataTableToolbar>
 

@@ -327,6 +327,7 @@ describe('屆別轉進行中', () => {
     const result = await cohorts.activate(actor(adminId), cohort.id, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     if (!result.ok) expect(result.message).toContain('時間軸')
+    if (!result.ok) expect(result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）`)
     expect((await cohortQuery.get(cohort.id))!.status).toBe('preparing')
     expect(await count(`select count(*) as n from cohort_status_events where cohort_id = $1 and to_status = 'active'`, [cohort.id])).toBe(0)
   })

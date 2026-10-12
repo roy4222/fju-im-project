@@ -114,7 +114,7 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
 
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}>
+      <button type="button" onClick={open} className={cn(BUTTON, DANGER, 'h-9 px-3')}>
         批次停用（TXT）
       </button>
       <dialog

@@ -255,7 +255,7 @@ test('重派對話框：列出原老師（評一）在 G01 的評分指派，只
 test('老師工作台只看到自己的指派；101 標紅擋住；合法分數暫存後重新整理還在；管理員看到「未正式」、方案鎖定；評三開 G01 被拒', async ({ page }) => {
   await signIn(page, t1)
   await page.goto('/dashboard/teacher/grading')
-  const queue = page.getByRole('list', { name: '評分佇列' })
+  const queue = page.getByRole('list', { name: '待評分清單' })
   await expect(queue).toContainText('G01')
   await expect(queue).not.toContainText('G02')
 
