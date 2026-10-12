@@ -21,7 +21,7 @@ Host fju-vm-deploy
   IdentitiesOnly yes
 
 # 重置測試站專用金鑰（網站驗收全套；ops/README.md「重置測試站專用金鑰：安裝與使用」）。
-# 只能跑 status／pause-deploy／resume-deploy／reset／snapshot <名稱>／restore <名稱>，
+# 只能跑 status／pause-deploy／resume-deploy／reset／seed-demo／snapshot <名稱>／restore <名稱>，
 # 例：ssh fju-reset status。不能開 shell、不能轉送 port、不碰正式站。
 # 每個子命令＝一次新連線；VM 的 ufw 對 22 埠限速 30 秒 6 次，連發時中間停幾秒。
 Host fju-reset

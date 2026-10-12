@@ -541,13 +541,14 @@ sudo bash /srv/fju/app/ops/vm-setup.sh
 
 網站驗收整夜跑時，Mac 要能在沒人的情況下把**測試站**清空、存快照、還原。做法比照備份拉取帳號 `fjubackup`：
 VM 新帳號 `fjureset`，它的金鑰被 `restrict,command=` 綁死只能跑守門腳本 `/usr/local/sbin/fju-test-reset-gate`；
-守門腳本只放行下面六個子命令，再用 `sudo -n` 交給唯一一支 root 腳本 `/usr/local/sbin/fju-test-reset`（設計方案 §6.4）。
+守門腳本只放行下面七個子命令，再用 `sudo -n` 交給唯一一支 root 腳本 `/usr/local/sbin/fju-test-reset`（設計方案 §6.4）。
 
 | 💻 Mac 下 | 做什麼 |
 |---|---|
 | `ssh fju-reset status` | 一行一個：`commit=`（測試站 /api/health 的 commit）、`health=ok`、`auto_deploy=paused｜on`、`snapshots=`、`busy=`、`last_run=` |
 | `ssh fju-reset pause-deploy`／`resume-deploy` | 暫停／恢復測試站自動部署（就是 touch／rm `deploy/auto-deploy.paused`） |
 | `ssh fju-reset reset` | 清回空站＝「開測前」第 3、5–9 步：備份 → 停站 → 刪 `fju-test-pgdata` 與附件 → `demo-seed.off` → **同一個 commit** 重新部署（deploy.sh 等健康、比對 commit；E2E 管理員在這步建）→ `seed-admin.sh test` 建 A1。最後印 `✓ 重置完成 commit=…` |
+| `ssh fju-reset seed-demo` | 放示範資料（通常接在 `reset` 之後）：以 deploy 身分跑 `seed-demo.sh test`，拿掉 `demo-seed.off` 再建（已存在就不動）。期間暫停自動部署、等部署鎖；**不管成敗**都回到開始前的暫停狀態（不停站、不刪 DB）。跟 reset 一樣在背景跑、記 `last_run=`。最後印 `✓ 示範資料完成` |
 | `ssh fju-reset snapshot <名稱>` | `backup.sh --site test` 的 dump＋附件打包 → `/srv/fju/test/snapshots/<名稱>/` |
 | `ssh fju-reset restore <名稱>` | 備份 → 停站 → 刪 DB 與附件 → 起空 DB、灌快照的 dump、解附件 → 同一個 commit 重新部署、等健康。帳號密碼是存快照那一夜的 |
 
