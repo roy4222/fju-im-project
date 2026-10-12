@@ -1034,7 +1034,11 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     expect(fs.existsSync(marker(vm))).toBe(true)
     const c = vmCalls(vm)
     expect(c).toContain('systemctl enable --now fju-status-update.timer')
-    expect(c.filter((x) => x.startsWith('docker stop'))).toEqual([])
+    // 沒停正式的 cloudflared；暫時 cloudflared 換設定、清理前都先 stop（SIGTERM 讓它跟邊緣註銷），再 rm -f
+    expect(c.filter((x) => x.startsWith('docker stop') && !x.includes('fju-status-verify-cloudflared'))).toEqual([])
+    const verifyStops = c.flatMap((x, i) => (x === 'docker stop -t 40 fju-status-verify-cloudflared' ? [i] : []))
+    expect(verifyStops).toHaveLength(2) // 第二輪換設定前、最後清理前
+    for (const i of verifyStops) expect(c[i + 1]).toMatch(/^docker rm -f fju-status-verify-cloudflared/)
     // 7b 兩輪真的跑過：假 origin 收到 3 個、暫時資源都清掉
     expect(fs.readFileSync(path.join(vm.state, 'networks'), 'utf8').trim()).toBe('')
     expect(fs.existsSync(path.join(vm.state, 'tunnel-fju-status-verify'))).toBe(false)
@@ -1096,9 +1100,9 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     expect(vmCalls(vm).filter((x) => x.includes('fju-status-verify.roy422.dev/ready'))).toHaveLength(3 + 5)
   }, 30_000)
 
-  it('7b 第二輪：/probe 一直 530 → 重試 6 次就放棄，碼不是 204×3 就停、不寫通過紀錄', async () => {
-    const r = await installOnVm(vm, { FAKE_PROBE_OPEN_SEQ: Array(7).fill('530').join(' ') })
-    expect(r.out).toContain('/probe ×3 → 530 204 204（530 重試 6 次）')
+  it('7b 第二輪：/probe 一直 530 → 重試 12 次就放棄，碼不是 204×3 就停、不寫通過紀錄', async () => {
+    const r = await installOnVm(vm, { FAKE_PROBE_OPEN_SEQ: Array(13).fill('530').join(' ') })
+    expect(r.out).toContain('/probe ×3 → 530 204 204（530 重試 12 次）')
     expect(r.out).toContain('第二輪要三次都 204、計數兩次都 3（不符：碼、計數）')
     expect(r.code).not.toBe(0)
     expect(fs.existsSync(marker(vm))).toBe(false)
@@ -1109,8 +1113,8 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     expect(r.out).toContain('步驟 11：✗')
     expect(r.out).not.toContain('步驟 11：✓')
     expect(r.code).not.toBe(0)
-    // 守門已經通過，Beszel 失敗不關門
-    expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
+    // 守門已經通過，Beszel 失敗不關門（暫時 cloudflared 在 7b 的 stop 不算）
+    expect(vmCalls(vm).filter((x) => x.startsWith('docker stop') && !x.includes('fju-status-verify-cloudflared'))).toEqual([])
   }, 30_000)
 
   // 真帳號上遇到的：VM 的 resolver 是學校 DNS，剛建的暫時網址被它 NXDOMAIN 負快取（roy422.dev 的 SOA 負快取 TTL 1800 秒），

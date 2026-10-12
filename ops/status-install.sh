@@ -709,7 +709,15 @@ verify_docker_gone() {
 # 清第 7b 步的四類暫時資源（容器、網路、隧道、DNS），每一類都要「確定已經不在」才算清乾淨；
 # 任何一類刪不掉或確認不了 → VERIFY_CLEANUP_FAILED=1（不寫通過紀錄，下次重跑會重新核對）。
 VERIFY_CLEANUP_FAILED=0
+# 暫時 cloudflared 先 docker stop（SIGTERM）讓它跟 Cloudflare 邊緣註銷連線，再 rm -f；
+# 直接 rm -f 是 SIGKILL，邊緣會留著死掉的舊連線一陣子，打過去回 530。stop 失敗不管，後面 rm -f 照做、照樣核對。
+stop_verify_cf() {
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -x "$VERIFY_CF" >/dev/null; then
+    docker stop -t 40 "$VERIFY_CF" >/dev/null 2>&1 || true
+  fi
+}
 cleanup_verify() {
+  stop_verify_cf
   docker rm -f "$VERIFY_CF" "$VERIFY_ORIGIN" >/dev/null 2>&1 || true
   docker network rm "$VERIFY_NET" >/dev/null 2>&1 || true
   if ! verify_docker_gone; then
@@ -1062,6 +1070,7 @@ write_verify_configs() { # <隧道 id>
     --tunnel-id "$1" --out "$LOGIN_DIR/verify-open.yml" --no-access >/dev/null || { bad "產生器產不出拿掉 access 的暫時設定"; return 1; }
 }
 start_verify_cf() { # <設定檔>
+  stop_verify_cf
   docker rm -f "$VERIFY_CF" >/dev/null 2>&1 || true
   docker run -d --name "$VERIFY_CF" --network "$VERIFY_NET" --memory 128m --user 0:0 \
     -v "$LOGIN_DIR/verify.json:/etc/cloudflared/tunnel.json:ro" \
@@ -1088,7 +1097,7 @@ wait_verify_ready() { # <預期碼>
   return 1
 }
 # 從 VM 經 Cloudflare 打 /probe 三次，三個 HTTP 碼放 PROBE_CODES、530 重試總次數放 PROBE_RETRIES。
-# 530 是 Cloudflare 連不到隧道（請求沒到 origin、不計數），等 5 秒重打同一次，每次最多重試 6 次；其他碼不重試。
+# 530 是 Cloudflare 連不到隧道（請求沒到 origin、不計數），等 5 秒重打同一次，每次最多重試 12 次（約 60 秒）；其他碼不重試。
 probe3() {
   local code tries
   PROBE_CODES=""; PROBE_RETRIES=0
@@ -1096,7 +1105,7 @@ probe3() {
     tries=0
     while :; do
       code=$(curl_edge "$VERIFY_HOST" -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)
-      [ "$code" = 530 ] && [ "$tries" -lt 6 ] || break
+      [ "$code" = 530 ] && [ "$tries" -lt 12 ] || break
       tries=$((tries + 1)); sleep 5
     done
     PROBE_CODES="${PROBE_CODES} ${code}"
@@ -1161,7 +1170,7 @@ if [ "$DRY_RUN" = 1 ]; then
     todo "會建暫時網路 ${VERIFY_NET}、假 origin（${STATUS_IMAGE} node verify-origin.mjs）、暫時隧道 ${VERIFY_TUNNEL}、DNS ${VERIFY_HOST}"
     todo "會先用公共 DNS（${DOH_URLS}）查 ${VERIFY_HOST} 的邊緣 IP（查不到就用 ${STATUS_HOSTS%% *} 的），之後的 curl 都 --resolve、不經本機 DNS"
     todo "第一輪（有鎖）：從 VM 打 https://${VERIFY_HOST}/probe 三次要都是 403，暫時網路內（${CURL_IMAGE}）讀 /count 兩次要都是 0"
-    todo "第二輪（拿掉 access）：再打 /probe 三次要都是 204，/count 兩次要都是 3（/probe 遇 530 會等 5 秒重打，最多 6 次）"
+    todo "第二輪（拿掉 access）：再打 /probe 三次要都是 204，/count 兩次要都是 3（/probe 遇 530 會等 5 秒重打，最多 12 次）"
     todo "最後刪暫時容器、網路、隧道、DNS，再刪 cert.pem；任一不符就停在這一步、結束碼 1"
   else
     skip "已通過（$(sed -n 's/^at=//p' "$VERIFY_MARKER" 2>/dev/null)）"
