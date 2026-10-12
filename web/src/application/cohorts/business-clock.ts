@@ -46,10 +46,10 @@ export function normalizeClockInput(
 ): { ok: true; value: { businessAt: Date; reason: string } } | Err {
   const businessAt = parseTaipeiDateTime(input.businessAt)
   if (!businessAt) {
-    return err('VALIDATION_FAILED', '請填要設定的業務時間（年月日與時分秒）。', { details: { field: 'businessAt' } })
+    return err('VALIDATION_FAILED', '請填要模擬的現在時間（臺灣，年月日與時分秒）。', { details: { field: 'businessAt' } })
   }
   const reason = input.reason.trim()
-  if (!reason) return err('VALIDATION_FAILED', '請填原因：為什麼要調整業務時間。', { details: { field: 'reason' } })
+  if (!reason) return err('VALIDATION_FAILED', '請填原因：為什麼要調整模擬時鐘。', { details: { field: 'reason' } })
   if (reason.length > CLOCK_REASON_MAX_LENGTH) {
     return err('VALIDATION_FAILED', `原因最多 ${CLOCK_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }

@@ -168,7 +168,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
 
   // 核實方式必選。
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
 
   // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）。
   await student.getByLabel('系級').fill('資管二乙')
@@ -229,14 +229,14 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
   await expect(student.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
   await expect(student.getByRole('status')).toContainText('申請已送出')
 
-  // 未命中：要選屆別；選了「其他核實方式」卻沒寫說明 → 伺服器擋。
+  // 未命中：要選屆別；選了「用其他方式確認本人」卻沒寫說明 → 伺服器擋。
   dialog = await openReview(admin, S13.name)
   const cohortSelect = dialog.getByLabel('核准進哪一屆')
   await expect(cohortSelect).toBeVisible()
   await cohortSelect.selectOption({ label: `${cohortName}（${cohortCode}）` })
-  await dialog.getByLabel('其他核實方式').check()
+  await dialog.getByLabel('用其他方式確認本人').check()
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('選「其他核實方式」時要說明')
+  await expect(dialog.getByRole('alert')).toContainText('選「用其他方式確認本人」時要說明用了什麼方式。')
   await dialog.getByLabel(/^核實說明/).fill('系主任當面確認為轉學生')
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')

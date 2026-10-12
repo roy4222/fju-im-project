@@ -201,6 +201,6 @@ describe('匯出', () => {
     const html = buildSignoffPrintable(data)
     expect(html).toContain('<p>全文</p>')
     expect(html).toContain('系辦&lt;b&gt;')
-    expect(html).toContain('站內內容確認與同意紀錄，行政採認待確認')
+    expect(html).toContain('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')
   })
 })

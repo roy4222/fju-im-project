@@ -7,6 +7,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { FilesTable, type FileKind, type FileRowView } from '@/app/dashboard/admin/files/files-table'
 import { FILE_LIST_LIMIT, getFileListQuery } from '@/composition/files'
+import { formatBytes } from '@/shared/format-bytes'
 import { formatTaipeiMinute, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '檔案管理｜資管系專題平台' }
@@ -30,16 +31,25 @@ const OTHER_LABEL: Record<string, string> = {
   submission: '繳交檔案',
 }
 
-function sizeText(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+/**
+ * 被引用、但不是專題事務附件也不是繳交檔案時，「用在哪裡」寫實際用途（N-87），不寫「（系統紀錄）」。
+ * 這類檔案沒有可以點進去的頁面，只說它是做什麼的。
+ */
+const IN_USE_LABEL: Record<string, string> = {
+  roster_csv: '匯入學生名單的原檔',
+  advisor_csv: '批次指派指導老師的原檔',
+  poster: '精選草稿素材',
+  photo: '精選草稿素材',
+  signoff_attachment: '簽核附件',
+  export: '匯出檔',
+  attachment: '專題事務附件',
 }
 
 function view(row: FileListRow): FileRowView {
   const where = row.where
   let kind: FileKind = 'other'
   let kindLabel = OTHER_LABEL[row.purpose] ?? '其他'
-  let whereText = row.activeRefs > 0 ? '（系統紀錄）' : '未引用'
+  let whereText = row.activeRefs > 0 ? (IN_USE_LABEL[row.purpose] ?? '其他用途') : '未引用'
   let whereHref: string | null = null
   let releaseHref: string | null = null
   if (where?.kind === 'item_attachment' || where?.kind === 'item_cover') {
@@ -67,7 +77,7 @@ function view(row: FileListRow): FileRowView {
     whereHref,
     releaseHref,
     uploader: row.uploaderName,
-    size: sizeText(row.sizeBytes),
+    size: formatBytes(row.sizeBytes),
     date: taipeiDateOf(row.uploadedAt),
     refs: row.activeRefs,
   }
@@ -88,7 +98,7 @@ export default async function AdminFilesPage({ searchParams }: { searchParams: P
 
   const wanted = (await searchParams).kind
   const initialKind: FileKind | 'all' = wanted === 'item' || wanted === 'submission' || wanted === 'other' ? wanted : 'all'
-  const usageText = usage ? `用量 ${usage.used}／${usage.total}（${formatTaipeiMinute(usage.measuredAt)} 量測）` : '用量還沒量測'
+  const usageText = usage ? `整台主機已用 ${usage.used}／${usage.total}（${formatTaipeiMinute(usage.measuredAt)} 量測）` : '主機容量還沒量測'
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/files">

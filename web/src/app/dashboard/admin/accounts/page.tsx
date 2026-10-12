@@ -347,9 +347,9 @@ export default async function AdminAccountsPage({
         </Panel>
 
         <Panel
-          title="名單版本"
+          title="歷次匯入的學生名單"
           icon={<IconFileSpreadsheet />}
-          description="每次匯入都是一個新版本；名單只協助審核比對，不會自動核准任何人"
+          description="每次匯入都另存一份，舊的不會被蓋掉；名單只協助審核比對，不會自動核准任何人"
           aria-label="名單"
         >
           {versions.length === 0 ? (

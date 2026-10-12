@@ -313,7 +313,7 @@ test('建簽核版本：全文空、沒選精選草稿被拒；選好後回執�
   await expect(page.getByTestId('scope-summary')).toHaveText(SUMMARY_1)
   await expect(page.getByTestId('signoff-scope')).toContainText('poster.png')
   await expect(page.getByTestId('signoff-scope')).toContainText('https://youtu.be/t25-second')
-  await expect(page.getByText('站內內容確認與同意紀錄，行政採認待確認')).toBeVisible()
+  await expect(page.getByText('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')).toBeVisible()
   await expect(page.getByTestId('signoff-participants')).toContainText(TEACHER_NAME)
   await expect(page.getByTestId('signoff-state')).toHaveText('收集學生同意中')
   // 授權範圍列在全文之後。

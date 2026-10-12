@@ -471,7 +471,7 @@ export function TemporaryPasswordDialog({
                 <>
                   <p className="text-sm text-muted-foreground">
                     <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼已經失效，舊的登入也會被登出；
-                    本人用這組登入後必須先改密碼。核實方式與操作者、時間已寫入紀錄。
+                    本人用這組登入後必須先改密碼。怎麼確認本人的、操作者與時間都已寫入紀錄。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
