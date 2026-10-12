@@ -405,7 +405,15 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
 
   await openVersions(page)
   await page.getByRole('link', { name: '看影響並套用 v2' }).click()
-  await page.getByRole('button', { name: '確認套用 v2' }).click()
+  // 第三波 AC-37：確認套用在「危險操作」區；寫對象、範圍（未解散的組、已解散的不受影響）、後果、能不能恢復。
+  const danger = page.getByRole('region', { name: '危險操作' })
+  const facts = danger.getByTestId('danger-facts')
+  for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
+  await expect(facts).toContainText('v1 換成 v2')
+  await expect(facts).toContainText('未解散的')
+  await expect(facts).toContainText('已解散的組維持解散當下的方案版本與成績')
+  await expect(facts).toContainText('不能退回 v1')
+  await danger.getByRole('button', { name: '確認套用 v2' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已套用方案 v2' })).toBeVisible()
   await openGrading(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('v2・已鎖定')
