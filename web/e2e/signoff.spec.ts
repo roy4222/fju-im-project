@@ -223,7 +223,7 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
   await expect(page).toHaveURL(/\/403/)
 })
 
-test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存；重新整理都在；閘門「尚無授權」、沒有發布按鈕', async ({ page }) => {
+test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存；重新整理都在；沒有「尚無授權」閘門、草稿有「發布」按鈕', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
   const create = page.getByRole('form', { name: '建立精選草稿' })
@@ -246,8 +246,9 @@ test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存
   await expect(again.getByLabel('摘要')).toHaveValue(SUMMARY_1)
   await expect(again.getByLabel('影片連結')).toHaveValue('https://youtu.be/t25-demo')
   await expect(again.getByTestId('poster-name')).toHaveText('poster.png')
-  await expect(again.getByTestId('gate')).toHaveText('尚無授權')
-  await expect(page.getByRole('button', { name: /發布/ })).toHaveCount(0)
+  // 第三波 W2（衝突表 #1）：閘門格拿掉；草稿列有「發布」（沒勾同意前停用）。
+  await expect(page.getByTestId('gate')).toHaveCount(0)
+  await expect(again.getByRole('button', { name: '發布', exact: true })).toBeDisabled()
   // 已存的海報經下載授權顯示得出來（不是破圖）。
   await expect(again.getByRole('img', { name: 'G01 海報' })).toHaveJSProperty('naturalWidth', 1)
   // 一組只有一份：建立草稿的下拉已經沒有 G01。

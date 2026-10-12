@@ -133,6 +133,9 @@ export function GradingBench({
       setSavedText(outcome.data.savedAtText)
       setDirty(false)
       setMessage({ tone: 'ok', text: '已暫存到伺服器。暫存只有你和系辦看得到，不算正式分數。' })
+      // 左側佇列（與手機下拉）是伺服器元件：重抓一次讓「草稿 已填/總數」跟著變（N-154）。
+      // 這個元件用 assignmentId 當 key，重抓不會重建，表單上的輸入與訊息都留著。
+      router.refresh()
     } catch {
       setMessage({ tone: 'error', text: '連線中斷，暫存可能沒有存到；請再按一次「暫存」。' })
     } finally {
@@ -158,6 +161,7 @@ export function GradingBench({
       setLocked(true)
       setDirty(false)
       receiptDialog.current?.showModal()
+      router.refresh()
     } catch {
       // 不換請求編號：再按一次如果其實已經送到，伺服器會回同一張回執，不會多一筆。
       setMessage({ tone: 'error', text: '連線中斷，不確定有沒有送到；請再按一次「正式送出」，不會重複計分。' })

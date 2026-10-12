@@ -7,6 +7,7 @@ import { HONOR, HONOR_AUDIENCE, type EditorState } from '@/app/dashboard/admin/a
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
 import { getCohortStatusQuery } from '@/composition/cohorts'
+import { ITEM_TEMPLATES } from '@/composition/items'
 
 export const metadata = { title: '新增專題事務｜資管系專題平台' }
 
@@ -76,6 +77,7 @@ export default async function NewItemPage({
       status="draft"
       hasResponses={false}
       vocabulary={await editorVocabulary(cohort.id)}
+      templates={ITEM_TEMPLATES}
       heading="新增專題事務"
       meta={`綁定屆別：${cohort.code}（建立後不能換）・存草稿之前沒有人看得到`}
     />,

@@ -13,6 +13,7 @@ import {
  *
  * 作業截止**不在這裡**：那是收件項目衍生到日曆的，避免手工維護兩份日期（產品模組 02 §4）。
  * 取消不刪除，只標「已取消」；改期是同一個活動換日期，不是刪掉重建。
+ * 已取消的才能刪除（第三波 W11）：只打刪除標記、不能恢復，之後所有查詢都看不到。
  */
 
 export type ActivityAudience = 'public' | 'signed_in' | 'cohort_students' | 'teachers'
@@ -31,6 +32,11 @@ export type ActivityStatus = 'scheduled' | 'cancelled'
 export const ACTIVITY_STATUS_LABEL: Record<ActivityStatus, string> = {
   scheduled: '已排定',
   cancelled: '已取消',
+}
+
+/** 能不能刪除：只有已取消的活動可以；排定中的回原因（要先取消）。 */
+export function activityDeleteBlocker(activity: Pick<Activity, 'status'>): string | null {
+  return activity.status === 'cancelled' ? null : '這個活動還在排定中，要先「取消活動」才能刪除。'
 }
 
 export const ACTIVITY_TITLE_MAX_LENGTH = 40

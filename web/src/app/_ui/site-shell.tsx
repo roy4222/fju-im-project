@@ -170,9 +170,19 @@ function SiteFooter({
         <div>
           <p className="text-lg font-bold">輔仁大學資訊管理學系</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
-            242 新北市新莊區中正路 510 號 利瑪竇大樓
+            242 新北市新莊區中正路 510 號 利瑪竇大樓 LM306
             <br />
-            電話 +886-2-2905-2696
+            電話{' '}
+            <a href="tel:+886229052666" className="hover:underline">
+              02-2905-2666
+            </a>
+            <br />
+            系網{' '}
+            <a href="https://www.im.fju.edu.tw/" className="hover:underline">
+              im.fju.edu.tw
+            </a>
+            <br />
+            透過機測、專題及產業實習讓學生動手做。
             <br />
             專題相關事務請洽系辦公室
             <br />

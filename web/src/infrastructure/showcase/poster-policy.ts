@@ -17,6 +17,9 @@ import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-ac
  *   快照學生含之後被移出的人；老師只有此刻仍是這一組的主指導才可以，**換掉的舊主指導看不到**
  *   （產品 07 §8「換老師後舊老師失權」；2026-09-25 Roy 定：失權含看不到，收回票 25 對快照主指導較寬的做法）。
  * - 其他人、沒被任何草稿或版本引用的檔（剛上傳還沒存、換圖後被放掉的）一律拒絕。
+ * - **已刪除的作品**（第三波 W2，設計方案 §2 審查修正 3）：指向已刪除條目的引用（草稿、發布版本、
+ *   授權範圍來源是該條目的簽核版本）先濾掉，
+ *   剩下沒有有效引用就對**所有人含管理員**拒絕；管理員的提前放行在過濾之後。
  *
  * 只看目前有效的引用（`released_at IS NULL`，共用檔案能力先篩好）；每次下載都重查（契約 03 §4）。
  */
@@ -31,19 +34,45 @@ export function createPosterPolicy(reader: () => Pick<Pool, 'query'>): DownloadP
       `select 1
          from showcase_entries e
          join showcase_versions v on v.id = e.current_version_id and v.entry_id = e.id
-        where e.status = 'published' and v.poster_file_id = $1 and (e.award_level is not null or $2::boolean)
+        where e.status = 'published' and e.deleted_at is null and v.poster_file_id = $1 and (e.award_level is not null or $2::boolean)
         limit 1`,
       [file.id, member],
     )
     if ((published.rowCount ?? 0) > 0) return true
 
     if (actor.kind !== 'authenticated') return false
-    const draftEntryIds = file.references.filter((r) => r.refType === 'showcase_draft').map((r) => r.refId)
-    const versionIds = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
-    if (draftEntryIds.length === 0 && versionIds.length === 0) return false
+    const db = reader()
+    // 先排除已刪除作品的引用：精選草稿（ref_id＝條目）與精選發布版本（ref_id＝版本）。
+    const draftRefs = file.references.filter((r) => r.refType === 'showcase_draft').map((r) => r.refId)
+    const showcaseVersionRefs = file.references.filter((r) => r.refType === 'showcase_version').map((r) => r.refId)
+    let draftEntryIds: string[] = []
+    let liveShowcaseVersions = 0
+    if (draftRefs.length > 0 || showcaseVersionRefs.length > 0) {
+      const live = await db.query<{ entry_id: string; via: 'draft' | 'version' }>(
+        `select e.id as entry_id, 'draft' as via from showcase_entries e where e.id = any($1::uuid[]) and e.deleted_at is null
+         union all
+         select e.id, 'version' from showcase_versions v join showcase_entries e on e.id = v.entry_id
+          where v.id = any($2::uuid[]) and e.deleted_at is null`,
+        [draftRefs, showcaseVersionRefs],
+      )
+      draftEntryIds = live.rows.filter((r) => r.via === 'draft').map((r) => r.entry_id)
+      liveShowcaseVersions = live.rows.filter((r) => r.via === 'version').length
+    }
+    // 簽核版本的引用：凍結授權範圍時的來源條目（`scopeSource.entryId`）已刪除，這份引用也不算。
+    const signoffRefs = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
+    let versionIds: string[] = []
+    if (signoffRefs.length > 0) {
+      const live = await db.query<{ id: string }>(
+        `select sv.id from signoff_package_versions sv
+           left join showcase_entries e on e.id::text = sv.authorization_scope -> 'scopeSource' ->> 'entryId'
+          where sv.id = any($1::uuid[]) and (e.id is null or e.deleted_at is null)`,
+        [signoffRefs],
+      )
+      versionIds = live.rows.map((r) => r.id)
+    }
+    if (draftEntryIds.length === 0 && liveShowcaseVersions === 0 && versionIds.length === 0) return false
     if (actor.roles.includes('admin')) return true
 
-    const db = reader()
     if (draftEntryIds.length > 0) {
       const member = await db.query(
         `select 1

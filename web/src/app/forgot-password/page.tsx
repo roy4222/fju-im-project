@@ -30,7 +30,11 @@ export default function ForgotPasswordPage() {
           <section className="rounded-[10px] bg-secondary p-4.5 text-secondary-foreground">
             <h2 className="font-bold text-foreground">用 Email 與密碼登入的</h2>
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-              請聯絡系辦公室（電話 +886-2-2905-2696）。系辦核對你的身分後會發一組臨時密碼，只顯示一次；
+              請聯絡系辦公室（電話{' '}
+              <a href="tel:+886229052666" className="font-semibold text-foreground hover:underline">
+                02-2905-2666
+              </a>
+              ）。系辦核對你的身分後會發一組臨時密碼，只顯示一次；
               用它登入後，系統會要求你立刻設定新密碼。
             </p>
           </section>
