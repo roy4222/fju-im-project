@@ -15,6 +15,8 @@
 
 兩支都有 `--dry-run`（只讀現況、只印不做，不需要 sudo）與 `--help`。
 
+推送金鑰與 S-8 共用同一個名字：私鑰 `~/.ssh/fju_status_publish`、`~/.ssh/config` 的 `Host fju-status-publish`（照 `ops/ssh-config.example`）。本機試跑整夜驗收、不想推上 VM 時用 S-8 的開關 `ACCEPT_STATUS_PUBLISH=0`。
+
 ## 上線步驟（照順序）
 
 前提：S-4（`docker-compose.status.yml`、`ops/status-up.sh`、`ops/status-render-cloudflared.sh`、`ops/status/systemd/`）與 S-1（`fju-status` 映像，含 `verify-origin.mjs`）已合併，`status.yml` 已把映像推到 GHCR。還沒合併時兩支腳本只能 `--dry-run`。
