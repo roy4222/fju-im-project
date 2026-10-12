@@ -661,12 +661,16 @@ describe('批次核准（第三波 W6，AC-24）', () => {
     ])
 
     // 核實欄位不對：整批不做。
-    const items = preview.receipt.rows.map((r) => ({ applicationId: r.applicationId, revision: r.revision, requestId: requestId() }))
-    const bad = await command.approveMany(admin(), { items, verificationMethod: 'other', verificationNote: '', reason: '' })
+    // 照畫面的做法：預覽可核准的固定成要核准的清單；預覽略過的另外送，只回報原因。
+    const items = preview.receipt.rows
+      .filter((r) => !r.skip)
+      .map((r) => ({ applicationId: r.applicationId, revision: r.revision, requestId: requestId() }))
+    const previewSkipped = preview.receipt.rows.filter((r) => r.skip).map((r) => r.applicationId)
+    const bad = await command.approveMany(admin(), { items, previewSkipped, verificationMethod: 'other', verificationNote: '', reason: '' })
     expect(bad).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'verificationNote' } })
     expect(await one(`select status from users where id = $1`, [u1])).toEqual({ status: 'pending' })
 
-    const input = { items, verificationMethod: 'id_document', verificationNote: '10/12 櫃台核對學生證', reason: '' }
+    const input = { items, previewSkipped, verificationMethod: 'id_document', verificationNote: '10/12 櫃台核對學生證', reason: '' }
     const done = await command.approveMany(admin(), input)
     if (!done.ok) throw new Error(done.message)
     expect(done.receipt.approved.map((a) => [a.appliedName, a.cohortName])).toEqual([
@@ -692,12 +696,111 @@ describe('批次核准（第三波 W6，AC-24）', () => {
   it('非管理員預覽或批次核准一律被擋；沒勾、重複、超過上限都擋', async () => {
     const userId = await register({ studentNo: '411400199' })
     const { id } = await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [userId])
-    const input = { items: [{ applicationId: id, revision: 1, requestId: requestId() }], verificationMethod: 'id_document', verificationNote: '', reason: '' }
+    const input = { items: [{ applicationId: id, revision: 1, requestId: requestId() }], previewSkipped: [], verificationMethod: 'id_document', verificationNote: '', reason: '' }
     expect(await command.approveMany(activeActor(studentAdminLike, ['student']), input)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await command.previewApproveMany(ANON, [id])).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
     expect(await command.previewApproveMany(admin(), [])).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await command.previewApproveMany(admin(), [id, id])).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await command.previewApproveMany(admin(), Array.from({ length: 201 }, () => id))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
+  })
+})
+
+describe('批次核准：預覽之後名單變了（第三波 W6 審查修正）', () => {
+  const admin = () => activeActor(adminId, ['admin'])
+
+  /** 新開一屆、匯入一版名單（每次呼叫都是這一屆的最新版本）。 */
+  async function rosterVersion(cohortId: string, entries: readonly (readonly [string, string])[]) {
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, clock_timestamp(), '{}'::jsonb) returning id`,
+          [cohortId, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    for (const [no, name] of entries) {
+      await db.sql(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+         values (gen_random_uuid(), $1, $2, $3, $3)`,
+        [version, no, name],
+      )
+    }
+  }
+  async function newCohort(code: string) {
+    return String(
+      (
+        await db.sql(
+          `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+          [code, `${code} 學年度專題`],
+        )
+      ).rows[0]!.id,
+    )
+  }
+  const appOf = async (userId: string) =>
+    (await one<{ id: string }>(`select id from registration_applications where user_id = $1 and state = 'pending'`, [userId])).id
+  const input = (items: { applicationId: string; revision: number; requestId: string }[], previewSkipped: string[] = []) => ({
+    items,
+    previewSkipped,
+    verificationMethod: 'id_document',
+    verificationNote: '',
+    reason: '',
+  })
+
+  it('預覽後名單改成姓名不符：每筆在自己的交易裡重查資格，略過、仍待審、沒有核准紀錄', async () => {
+    const cohort = await newCohort('113')
+    await rosterVersion(cohort, [['411300001', '改名前']])
+    const userId = await register({ studentNo: '411300001', appliedName: '改名前' })
+    const id = await appOf(userId)
+    const preview = await command.previewApproveMany(admin(), [id])
+    expect(preview).toMatchObject({ ok: true, receipt: { rows: [{ applicationId: id, skip: null }] } })
+
+    // 系辦確認前，名單換了一版：姓名變了。
+    await rosterVersion(cohort, [['411300001', '改名後']])
+    const done = await command.approveMany(admin(), input([{ applicationId: id, revision: 1, requestId: requestId() }]))
+    expect(done).toMatchObject({
+      ok: true,
+      receipt: { approved: [], skipped: [{ applicationId: id, appliedName: '改名前', reason: '姓名跟名單不同，請個別審核' }] },
+    })
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
+    expect(await one(`select state from registration_applications where id = $1`, [id])).toEqual({ state: 'pending' })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.approve' and target_id = $1`, [id])).toEqual({ n: 0 })
+
+    // 單筆審核照舊：系辦個別打開核對後，姓名不符仍可以核准（名單只協助判斷）。
+    expect(
+      await command.approve(admin(), {
+        applicationId: id, revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
+      }),
+    ).toMatchObject({ ok: true })
+  })
+
+  it('預覽時略過的人，確認前名單補齊了也不會被核准：執行只能縮小、不能擴大，略過的照樣回報原因', async () => {
+    const cohort = await newCohort('112')
+    await rosterVersion(cohort, [['411200001', '名單上']])
+    const onRoster = await register({ studentNo: '411200001', appliedName: '名單上' })
+    const offRoster = await register({ studentNo: '411200002', appliedName: '名單外' })
+    const [a, b] = [await appOf(onRoster), await appOf(offRoster)]
+    const preview = await command.previewApproveMany(admin(), [a, b])
+    if (!preview.ok) throw new Error(preview.message)
+    expect(preview.receipt.rows.map((r) => r.skip)).toEqual([null, 'not_found'])
+
+    // 確認前把第二位補進名單：現在兩位都符合。
+    await rosterVersion(cohort, [['411200001', '名單上'], ['411200002', '名單外']])
+    const done = await command.approveMany(admin(), input([{ applicationId: a, revision: 1, requestId: requestId() }], [b]))
+    expect(done).toMatchObject({
+      ok: true,
+      receipt: {
+        approved: [{ applicationId: a }],
+        skipped: [{ applicationId: b, appliedName: '名單外', reason: '預覽時不在可核准名單，請重新預覽或個別審核' }],
+      },
+    })
+    expect(await one(`select status from users where id = $1`, [offRoster])).toEqual({ status: 'pending' })
+
+    // 同一位不能同時在「要核准」與「預覽略過」兩邊。
+    expect(
+      await command.approveMany(admin(), input([{ applicationId: b, revision: 1, requestId: requestId() }], [b])),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await one(`select status from users where id = $1`, [offRoster])).toEqual({ status: 'pending' })
   })
 })

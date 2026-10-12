@@ -103,7 +103,7 @@ type Item = { applicationId: string; revision: number; requestId: string }
 
 type Phase =
   | { kind: 'loading' }
-  | { kind: 'preview'; preview: BulkApprovalPreview; items: Item[]; approvable: number }
+  | { kind: 'preview'; preview: BulkApprovalPreview; items: Item[]; previewSkipped: string[] }
   | { kind: 'done'; receipt: BulkApprovalReceipt }
 
 /** 「核准勾選的 N 位」按鈕與對話框。沒勾任何人時不出現（不留點了沒反應的入口）。 */
@@ -133,14 +133,14 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
         setError(result.message)
         return
       }
+      // 要核准的人在預覽當下就固定（之後只會縮小、不會擴大）：確認前名單補齊了，預覽略過的人也不會被核准。
       // 每一位一個請求編號，整個對話框期間不變：結果未知再按一次時，已核准的會回放、不重複核准。
-      // 預覽會略過的人也一起送：伺服器以當下為準再分類一次，結果的「略過」才會列出他們與原因。
-      const items = result.data.rows.map((r) => ({
-        applicationId: r.applicationId,
-        revision: r.revision,
-        requestId: crypto.randomUUID(),
-      }))
-      setPhase({ kind: 'preview', preview: result.data, items, approvable: result.data.rows.filter((r) => !r.skip).length })
+      const items = result.data.rows
+        .filter((r) => !r.skip)
+        .map((r) => ({ applicationId: r.applicationId, revision: r.revision, requestId: crypto.randomUUID() }))
+      // 預覽略過的另外送：伺服器只回報原因，結果的「略過」才會列出他們。
+      const previewSkipped = result.data.rows.filter((r) => r.skip).map((r) => r.applicationId)
+      setPhase({ kind: 'preview', preview: result.data, items, previewSkipped })
     } catch {
       setError('預覽失敗，請關閉後再試一次。')
     }
@@ -154,7 +154,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
     }
   }
 
-  async function confirm(items: Item[]) {
+  async function confirm(items: Item[], previewSkipped: string[]) {
     if (!method) {
       setError('請選擇核實方式。')
       return
@@ -162,7 +162,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
     setBusy(true)
     setError(null)
     try {
-      const result = await bulkApproveAction({ items, verificationMethod: method, verificationNote: note, reason })
+      const result = await bulkApproveAction({ items, previewSkipped, verificationMethod: method, verificationNote: note, reason })
       if (result.ok) setPhase({ kind: 'done', receipt: result.data })
       else setError(result.message)
     } catch {
@@ -241,7 +241,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                 </p>
               ) : null}
 
-              {phase.approvable === 0 ? (
+              {phase.items.length === 0 ? (
                 <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
                   勾選的人都需要個別審核，沒有可以一起核准的。請關閉後逐一打開「審核」。
                 </p>
@@ -309,9 +309,9 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                 <button type="button" onClick={() => dialogRef.current?.close()} className={cn(BUTTON, SECONDARY)} disabled={busy}>
                   取消
                 </button>
-                {phase.approvable > 0 ? (
-                  <button type="button" onClick={() => confirm(phase.items)} className={cn(BUTTON, PRIMARY)} disabled={busy}>
-                    {busy ? '核准中…' : `核准 ${phase.approvable} 位`}
+                {phase.items.length > 0 ? (
+                  <button type="button" onClick={() => confirm(phase.items, phase.previewSkipped)} className={cn(BUTTON, PRIMARY)} disabled={busy}>
+                    {busy ? '核准中…' : `核准 ${phase.items.length} 位`}
                   </button>
                 ) : null}
               </div>

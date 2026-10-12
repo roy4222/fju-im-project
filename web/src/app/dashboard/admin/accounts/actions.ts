@@ -183,6 +183,8 @@ export async function previewBulkApproveAction(input: { applicationIds: string[]
 
 export async function bulkApproveAction(input: {
   items: { applicationId: string; revision: number; requestId: string }[]
+  /** 預覽時就略過的人：只回報原因、不核准（第三波 W6 審查修正）。 */
+  previewSkipped: string[]
   verificationMethod: string
   verificationNote: string
   reason: string
@@ -201,7 +203,13 @@ export async function bulkApproveAction(input: {
     return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
   }
   const actor = await resolveActor(await headers())
-  return toOutcome(await getRegistrationCommand().approveMany(actor, { items, verificationMethod, verificationNote, reason }))
+  return toOutcome(await getRegistrationCommand().approveMany(actor, {
+      items,
+      previewSkipped: idList(input?.previewSkipped),
+      verificationMethod,
+      verificationNote,
+      reason,
+    }))
 }
 
 // ── 帳號停用／恢復與批次停用（票 9） ─────────────────────────────────────────

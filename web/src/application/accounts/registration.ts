@@ -464,6 +464,7 @@ export type BulkApprovalSkip =
   | 'cohort_unavailable'
   | 'not_pending'
   | 'changed'
+  | 'not_in_preview'
   | 'failed'
 
 export const BULK_APPROVAL_SKIP_LABEL: Record<BulkApprovalSkip, string> = {
@@ -475,6 +476,7 @@ export const BULK_APPROVAL_SKIP_LABEL: Record<BulkApprovalSkip, string> = {
   cohort_unavailable: '名單所屬的屆別已封存，請先處理屆別',
   not_pending: '已經不在待審清單（可能剛被處理過）',
   changed: '申請剛被處理或修改過，請個別重新核對',
+  not_in_preview: '預覽時不在可核准名單，請重新預覽或個別審核',
   failed: '核准沒有成功，請個別再試一次',
 }
 
@@ -648,13 +650,19 @@ export interface RegistrationCommand {
   /** 批次核准前的預覽：勾選的每一位會不會被略過、為什麼（不改任何狀態）。 */
   previewApproveMany(actor: ResolvedActor, applicationIds: readonly string[]): Promise<Result<BulkApprovalPreview>>
   /**
-   * 批次核准：整批共用核實方式與說明，每一位各自呼叫一次 `approve`（各自的交易、各自的請求編號，
+   * 批次核准：整批共用核實方式與說明，每一位各自走一次單筆核准的交易（各自的請求編號，
    * 重送時已完成的那幾位直接回放回執，不會重複核准）。核實欄位不對就整批不做。
+   *
+   * - `items`：預覽時可以核准的人（畫面在預覽當下固定），**只會核准這些人**；每一位在自己的交易裡
+   *   以當下的名單與占用重查一次批次資格，不符就略過（預覽之後名單可能變了）。
+   * - `previewSkipped`：預覽時就略過的人，只回報原因、**絕不核准**——就算確認前名單補齊了也一樣
+   *   （執行只能縮小範圍、不能擴大）。
    */
   approveMany(
     actor: ResolvedActor,
     input: {
       items: readonly { applicationId: string; revision: number; requestId: string }[]
+      previewSkipped: readonly string[]
       verificationMethod: string
       verificationNote: string
       reason: string

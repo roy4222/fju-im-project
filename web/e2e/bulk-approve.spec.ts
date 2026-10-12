@@ -178,6 +178,60 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   await context.close()
 })
 
+test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一位，另一位照樣略過並寫原因', async ({ browser }) => {
+  const code = `bb${run}`.slice(0, 20)
+  const X = student(7)
+  const Y = student(8)
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  /** 這一屆匯入一版名單（每次都是最新版本）。 */
+  const importRoster = async (cohortId: string, people: readonly { studentNo: string; name: string }[]) => {
+    const version = await pool.query<{ id: string }>(
+      `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+       select gen_random_uuid(), $1, id, clock_timestamp(), '{}'::jsonb from users where email = $2 returning id`,
+      [cohortId, `w6-importer-${run}@example.com`],
+    )
+    for (const p of people) {
+      await pool.query(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+         values (gen_random_uuid(), $1, $2, $3, $3)`,
+        [version.rows[0]!.id, p.studentNo, p.name],
+      )
+    }
+  }
+  try {
+    const cohortId = (
+      await pool.query<{ id: string }>(
+        `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+        [code, `E2E 批次核准屆 ${code}`],
+      )
+    ).rows[0]!.id
+    await importRoster(cohortId, [X])
+    for (const s of [X, Y]) await register(browser, s)
+
+    const admin = await adminPage(browser)
+    await admin.goto('/dashboard/admin/accounts')
+    const pending = admin.getByRole('region', { name: '待審核' })
+    for (const s of [X, Y]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
+    await pending.getByRole('button', { name: '核准勾選的 2 位' }).click()
+    const dialog = admin.getByRole('dialog', { name: '批次核准' })
+    await expect(dialog.getByTestId('bulk-approve-row').filter({ hasText: Y.name })).toContainText('略過：名單比對不到')
+
+    // 系辦還沒按確認，名單補了 Y：現在兩位都符合，但執行只能照預覽時的範圍。
+    await importRoster(cohortId, [X, Y])
+    await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+    await dialog.getByRole('button', { name: '核准 1 位' }).click()
+    const result = dialog.getByRole('status')
+    await expect(result).toContainText('成功 1、略過 1')
+    await expect(result.getByRole('region', { name: '略過的人' })).toContainText(Y.name)
+    await expect(result.getByRole('region', { name: '略過的人' })).toContainText('預覽時不在可核准名單')
+    await dialog.getByRole('button', { name: '關閉' }).click()
+    await expect(pendingRow(admin, X.name)).toHaveCount(0)
+    await expect(pendingRow(admin, Y.name)).toHaveCount(1)
+  } finally {
+    await pool.end()
+  }
+})
+
 test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不提學生證', async ({ browser }) => {
   const admin = await adminPage(browser)
   const teacher = { name: `批次老師${prefix}`, email: `w6-t-${run}@example.com` }
