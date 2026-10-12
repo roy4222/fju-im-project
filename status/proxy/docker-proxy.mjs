@@ -5,7 +5,8 @@
 //   1. 端點白名單：只放行下面 ROUTES 的方法＋路徑，其餘一律 403、不轉發。
 //   2. inspect 與 /info 的回應用欄位白名單重組：Config.Env、Cmd、Binds、Mounts 這類
 //      含秘密或主機路徑的欄位一律不出去；Docker 日後加的新欄位也漏不出去。
-//   3. logs、stats、events 串流原樣轉發。
+//   3. logs、stats、events 串流原樣轉發。容器清單 /containers/json 照規格也原樣轉發
+//      （它會帶 Mounts 的主機路徑與啟動指令，但不含 Config.Env；要收緊另開票）。
 // 為什麼不用 tecnativa/docker-socket-proxy：它的 ACL 是前綴放行，CONTAINERS=1 會連
 // inspect（Config.Env 有主網站的資料庫密碼）、archive、export 一起放行。
 //

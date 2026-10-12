@@ -114,8 +114,12 @@ ensure_db_role() {
   fi
 
   local exists
-  exists="$(printf "SELECT 1 FROM pg_roles WHERE rolname = '%s';\n" "$ROLE" \
-    | docker exec -i "$PG_CONTAINER" sh -c "$PSQL_QUERY_IN_CONTAINER")"
+  if ! exists="$(printf "SELECT 1 FROM pg_roles WHERE rolname = '%s';\n" "$ROLE" \
+    | docker exec -i "$PG_CONTAINER" sh -c "$PSQL_QUERY_IN_CONTAINER" 2>/dev/null)"; then
+    # 容器在跑但資料庫還沒接受連線（重置剛起來）：當成還沒好，下一輪再補。
+    log "  跳過：測試站 postgres 還沒準備好（連不上），下一輪再補"
+    return 0
+  fi
   if [ "$exists" = 1 ]; then
     log "  ${ROLE} 已在，同步密碼與權限"
   else
@@ -130,13 +134,40 @@ if [ "$ROLE_ONLY" = 1 ]; then
   exit 0
 fi
 
-if [ "$DRY_RUN" = 0 ] && [ ! -f "${APP_ROOT}/ops/status/cloudflared.yml" ]; then
-  # 不擋的話 docker 會把不存在的掛載來源建成空目錄，cloudflared 起不來。
-  log "✗ 找不到 ops/status/cloudflared.yml：先跑 ops/status-render-cloudflared.sh（安裝腳本第 7 步）" >&2
-  exit 1
+# 掛載來源先確認都在：不在的話 docker 會把它建成 root 擁有的空目錄
+# （例如 tunnel.json 變成目錄，之後安裝腳本寫不進去），所以缺一項就整輪不起。
+check_mount_sources() {
+  local missing=0 f d
+  for f in "${APP_ROOT}/ops/status/cloudflared.yml" "${APP_ROOT}/ops/status/gatus.yml" \
+    "${SECRETS_DIR}/tunnel.json" "${SECRETS_DIR}/status.env" "${SECRETS_DIR}/pghero.env"; do
+    if [ ! -f "$f" ]; then
+      log "✗ 找不到檔案 ${f}" >&2
+      missing=1
+    fi
+  done
+  for d in /srv/fju/status/data /srv/fju/status/inbox /srv/fju/status/envcheck /srv/fju/status/diskprobe; do
+    if [ ! -d "$d" ]; then
+      log "✗ 找不到目錄 ${d}" >&2
+      missing=1
+    fi
+  done
+  if [ "$missing" = 1 ]; then
+    log "  cloudflared.yml 由 ops/status-render-cloudflared.sh 產生；其餘由安裝腳本 ops/status-install.sh 建立" >&2
+    return 1
+  fi
+  # 主網站的目錄只唯讀掛給 collector；某站還沒有（例如正式站還沒部署過）只提醒、不擋。
+  for d in /srv/fju/test/deploy /srv/fju/prod/deploy /srv/fju/test/backups /srv/fju/prod/backups /srv/fju/offsite; do
+    [ -d "$d" ] || log "  提醒：${d} 不存在，docker 會建成空目錄（collector 會當成沒有紀錄）"
+  done
+}
+
+if [ "$DRY_RUN" = 0 ]; then
+  check_mount_sources || exit 1
 fi
 
 log "更新開發者後台（compose project fju-status）"
-run docker compose -p fju-status -f "$COMPOSE_FILE" pull
+# 只拉自己的映像（:main 會變）。第三方映像都是固定版本，up -d 第一次會自己拉；
+# 每 10 分鐘全部重拉會撞 Docker Hub 的匿名拉取次數上限（VM 只登入 GHCR）。
+run docker compose -p fju-status -f "$COMPOSE_FILE" pull status-web collector docker-proxy
 run docker compose -p fju-status -f "$COMPOSE_FILE" up -d --remove-orphans
 ensure_db_role

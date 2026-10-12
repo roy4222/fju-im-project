@@ -236,6 +236,19 @@ describe('ops/status-up.sh', () => {
     expect(r.stdout).toContain('GRANT pg_monitor TO fju_monitor')
   })
 
+  it('每輪只拉自己的映像（第三方固定版本不重拉，免得撞 Docker Hub 次數上限）', () => {
+    const r = runUp(['--dry-run'], { PATH: '/usr/bin:/bin' })
+    expect(r.status).toBe(0)
+    const pull = r.stdout.split('\n').find((l) => / pull( |$)/.test(l)) ?? ''
+    const pulled = pull.replace(/^.* pull ?/, '').split(' ').filter(Boolean).sort()
+    const own = Object.entries(config.services)
+      .filter(([, s]) => (s.image ?? '').startsWith('ghcr.io/roy4222/fju-status:'))
+      .map(([n]) => n)
+      .sort()
+    expect(pulled).toEqual(own)
+    expect(r.stdout).toContain('up -d --remove-orphans')
+  })
+
   describe('實跑（假的 docker：exec 時用「容器裡」的環境跑 sh -c）', () => {
     let dir: string
     let bin: string
@@ -263,7 +276,7 @@ case "$1" in
     [ "$1" = -i ] && shift
     shift
     printf '%s\\n' "$@" > "$FAKE_LOG/exec-argv-$(date +%s%N)"
-    exec env -i PATH="$FAKE_BIN:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" FAKE_ROLE_EXISTS="$FAKE_ROLE_EXISTS" \\
+    exec env -i PATH="$FAKE_BIN:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" FAKE_ROLE_EXISTS="$FAKE_ROLE_EXISTS" FAKE_PSQL_FAIL="$FAKE_PSQL_FAIL" \\
       POSTGRES_USER=owner_in_container POSTGRES_DB=db_in_container "$@"
     ;;
   *) exit 0 ;;
@@ -276,6 +289,7 @@ esac
         path.join(bin, 'psql'),
         `#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG/psql-argv"
+[ "$FAKE_PSQL_FAIL" = 1 ] && { cat >/dev/null; echo 'could not connect' >&2; exit 2; }
 cat >> "$FAKE_LOG/psql-stdin"
 case " $* " in *" -tA "*) [ "$FAKE_ROLE_EXISTS" = 1 ] && echo 1 ;; esac
 exit 0
@@ -345,15 +359,21 @@ exit 0
       expect(read('docker-calls')).not.toContain('exec')
     })
 
-    it.runIf(!fs.existsSync(path.join(repoRoot, 'ops/status/cloudflared.yml')))(
-      '還沒產生 cloudflared.yml：不起服務、結束碼非 0（免得 docker 把掛載來源建成空目錄）',
-      () => {
-        reset()
-        const r = runUp([], env({}))
-        expect(r.status).not.toBe(0)
-        expect(r.stderr).toContain('status-render-cloudflared.sh')
-        expect(fs.existsSync(path.join(log, 'docker-calls'))).toBe(false)
-      },
-    )
+    it('資料庫還沒接受連線（重置剛起來）：印「跳過」、結束碼 0、不送 SQL', () => {
+      reset()
+      const r = runUp(['--ensure-db-role-only'], env({ FAKE_PSQL_FAIL: '1' }))
+      expect(r.status).toBe(0)
+      expect(r.stdout).toContain('跳過：測試站 postgres 還沒準備好')
+      expect(fs.existsSync(path.join(log, 'psql-stdin')) ? read('psql-stdin') : '').not.toContain('ALTER ROLE')
+    })
+
+    it('掛載來源不齊（例如還沒產生 cloudflared.yml、沒有 tunnel.json）：不起服務、結束碼非 0', () => {
+      reset()
+      const r = runUp([], env({}))
+      expect(r.status).not.toBe(0)
+      expect(r.stderr).toContain('tunnel.json')
+      expect(r.stderr).toContain('status-render-cloudflared.sh')
+      expect(fs.existsSync(path.join(log, 'docker-calls'))).toBe(false)
+    })
   })
 })

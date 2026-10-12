@@ -12,7 +12,7 @@
 # 不要直接下 docker compose：一律經 ops/status-up.sh（deploy 身分，fju-status-update.timer 每 10 分鐘跑）。
 # 秘密檔放 /srv/fju/status/secrets（deploy 700、檔案 600，安裝腳本 ops/status-install.sh 建）：
 #   status.env        ACCESS_TEAM_DOMAIN、ACCESS_AUD（給 status-web 驗 Access JWT）
-#   pghero.env        DATABASE_URL（fju_monitor 唯讀角色）、FJU_MONITOR_PASSWORD
+#   pghero.env        DATABASE_URL（fju_monitor 唯讀角色）、FJU_MONITOR_PASSWORD（不加引號；ops/status-up.sh 讀它補建角色）
 #   beszel-agent.env  KEY（Beszel hub 產生的公鑰；hub 第一次起來後才有，所以 required: false）
 #   tunnel.json       Cloudflare Tunnel 憑證
 # FJU_STATUS_SECRETS 只給測試把秘密目錄換成暫存目錄用；VM 上不設。
