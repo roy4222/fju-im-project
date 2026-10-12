@@ -11,6 +11,7 @@ import {
   fillSecret,
   firstLine,
   newPage,
+  openMore,
   pendingRow,
   readFlags,
   restoreFlags,
@@ -261,7 +262,8 @@ test('票 8 直接新增老師，拿到只顯示一次的臨時密碼', async ()
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('登入 Email').fill(TEACHER.email)
   await dialog.getByLabel('姓名').fill(TEACHER.name)
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 老師的核實方式不提學生證（T6 系5；同 e2e/teachers.spec.ts）。
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
   teacherCreated = true
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
 
@@ -414,7 +416,9 @@ test('票 9 匯出勾選帳號 CSV：下載、UTF-8 BOM、學號保留前導零'
 test('票 10b 老師設為管理員再取消；自己那一列不能取消', async () => {
   await searchAccounts(admin, TEACHER.name)
   const row = accountRow(admin, TEACHER.name)
-  await row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` }).click()
+  // T6 系6：設為／取消管理員收在每列的「更多」選單（同 e2e/admin-roles.spec.ts）。
+  await expect(row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` })).toHaveCount(0)
+  await (await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `設為管理員 ${TEACHER.name}` }).click()
   const grant = admin.getByRole('dialog', { name: `設為管理員 ${TEACHER.name}` })
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('alert')).toHaveText('請寫理由。')
@@ -422,16 +426,17 @@ test('票 10b 老師設為管理員再取消；自己那一列不能取消', asy
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('status')).toContainText('已設為管理員')
   await grant.getByRole('button', { name: '關閉' }).click()
-  await expect(row.getByRole('button', { name: `取消管理員 ${TEACHER.name}` })).toBeVisible()
+  await expect(row).toContainText('管理員')
   await shot(admin, 'teacher-granted-admin')
 
-  await row.getByRole('button', { name: `取消管理員 ${TEACHER.name}` }).click()
+  await (await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `取消管理員 ${TEACHER.name}` }).click()
   const revoke = admin.getByRole('dialog', { name: `取消管理員 ${TEACHER.name}` })
   await revoke.getByLabel(/理由/).fill('站驗收：取消管理員')
   await revoke.getByRole('button', { name: '確認取消管理員' }).click()
   await expect(revoke.getByRole('status')).toContainText('已取消管理員')
   await revoke.getByRole('button', { name: '關閉' }).click()
-  await expect(row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` })).toBeVisible()
+  await expect((await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `設為管理員 ${TEACHER.name}` })).toBeVisible()
+  await admin.keyboard.press('Escape')
   await shot(admin, 'teacher-revoked-admin')
 
   // 自己那一列：用角色篩選找（不把自己的 Email 放進網址）。

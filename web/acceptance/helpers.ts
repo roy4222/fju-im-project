@@ -125,6 +125,14 @@ export function accountRow(page: Page, name: string): Locator {
   return page.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
+/** T6 系6：設為／取消管理員、補建角色收在每列的「更多」選單；選單是 portal，項目要從整頁找。 */
+export async function openMore(page: Page, name: string): Promise<Locator> {
+  await accountRow(page, name).getByRole('button', { name: `更多 ${name}` }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
 export async function searchAccounts(page: Page, q: string) {
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(q)}`)
   await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
@@ -203,7 +211,8 @@ export async function createTeacher(admin: Page, teacher: { name: string; email:
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('登入 Email').fill(teacher.email)
   await dialog.getByLabel('姓名').fill(teacher.name)
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 老師的核實方式不提學生證（T6 系5；同 e2e/teachers.spec.ts）。
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
   await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
   const temporary = (await dialog.getByTestId('temporary-password').innerText()).trim()
