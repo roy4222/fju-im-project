@@ -45,17 +45,20 @@ const isStr = (v) => typeof v === 'string'
 const isNonEmptyStr = (v) => typeof v === 'string' && v.trim() !== ''
 const isStepNo = (v) => Number.isInteger(v) && v >= 0
 
+// 讀檔失敗（找不到、不是 JSON）已在 readJson 報過錯；用獨立標記跟合法的 JSON null 分開。
+const READ_FAILED = Symbol('read-failed')
+
 function readJson(dir, file) {
   const p = join(dir, file)
   if (!existsSync(p)) {
     fail(file, '整檔', `找不到 ${p}`)
-    return null
+    return READ_FAILED
   }
   try {
     return JSON.parse(readFileSync(p, 'utf8'))
   } catch (e) {
     fail(file, '整檔', `不是合法 JSON（${e.message}）`)
-    return null
+    return READ_FAILED
   }
 }
 
@@ -105,7 +108,7 @@ function checkPolicy(dir, nightScript) {
   // 回傳給測試地圖對照用：項目清單以 PLAN_FULL 為準（政策檔自己壞掉時不連帶報一堆錯）。
   const result = { itemIds: planIds ?? [], steps: {} }
   if (!isObj(policy)) {
-    if (policy !== null) fail(F, '整檔', '最外層要是物件')
+    if (policy !== READ_FAILED) fail(F, '整檔', '最外層要是物件')
     return result
   }
   const req = policy.requiredItems
@@ -167,7 +170,7 @@ function checkTickets(dir) {
   const F = 'tickets.json'
   const doc = readJson(dir, F)
   if (!isObj(doc)) {
-    if (doc !== null) fail(F, '整檔', '最外層要是物件')
+    if (doc !== READ_FAILED) fail(F, '整檔', '最外層要是物件')
     return
   }
   if (!isNonEmptyStr(doc.updatedAt) || Number.isNaN(Date.parse(doc.updatedAt))) fail(F, 'updatedAt', '要是 ISO 時間字串')
@@ -214,7 +217,7 @@ function checkTestMap(dir, policy) {
   const F = 'test-map.json'
   const doc = readJson(dir, F)
   if (!isObj(doc)) {
-    if (doc !== null) fail(F, '整檔', '最外層要是物件')
+    if (doc !== READ_FAILED) fail(F, '整檔', '最外層要是物件')
     return
   }
   // 角色：剛好四個；每個都要有別名；同一個別名不能同時歸到兩個角色（完全相等比對，歸兩邊就分不出來）。
@@ -306,7 +309,7 @@ function checkWaivers(dir, policy) {
   const F = 'go-live-waivers.json'
   const doc = readJson(dir, F)
   if (!isObj(doc)) {
-    if (doc !== null) fail(F, '整檔', '最外層要是物件')
+    if (doc !== READ_FAILED) fail(F, '整檔', '最外層要是物件')
     return
   }
   if (!Array.isArray(doc.waivers)) return fail(F, 'waivers', '要是陣列（沒有豁免就寫 []）')
