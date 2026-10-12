@@ -335,7 +335,10 @@ test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕�
   await signIn(page, g2[1]!)
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText('提醒：G02「期中結果確認」第 1 版還等你閱讀並回覆')).toBeVisible({ timeout: 2_000 })
+    // Q38：學生還在同意中，這則也發給還沒輪到的老師，標題對兩邊都正確。
+    await expect(
+      page.getByText('提醒：G02「期中結果確認」第 1 版同意書還有人沒回覆（學生全員同意後才輪到老師表態）'),
+    ).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
 
   await asAdmin(page)
