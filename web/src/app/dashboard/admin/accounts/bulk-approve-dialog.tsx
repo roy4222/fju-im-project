@@ -48,20 +48,28 @@ function useSelection(): Selection {
   return value
 }
 
-/** 包住待審核整塊：勾選框、全選與「核准勾選的 N 位」共用同一份勾選。 */
-export function BulkApproveProvider({ children }: { children: ReactNode }) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+/**
+ * 包住待審核整塊：勾選框、全選與「核准勾選的 N 位」共用同一份勾選。
+ *
+ * `pendingIds` 是畫面上目前的待審清單。勾選只算還在清單上的人：勾了之後又逐一個別核准（或被別人處理掉），
+ * 重新整理後那幾位就不算勾選，按鈕的數字跟著減少，減到 0 按鈕就不出現（N-03）。
+ */
+export function BulkApproveProvider({ pendingIds, children }: { pendingIds: readonly string[]; children: ReactNode }) {
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
+  const selected: ReadonlySet<string> = new Set(pendingIds.filter((id) => checked.has(id)))
+  // 離開清單的人也從勾選裡拿掉（render 中調整 state），免得之後回到待審時又是勾著的。
+  if (selected.size !== checked.size) setChecked(selected)
   const value: Selection = {
     selected,
     toggle: (id, on) =>
-      setSelected((prev) => {
+      setChecked((prev) => {
         const next = new Set(prev)
         if (on) next.add(id)
         else next.delete(id)
         return next
       }),
-    setAll: (ids, on) => setSelected(on ? new Set(ids) : new Set()),
-    clear: () => setSelected(new Set()),
+    setAll: (ids, on) => setChecked(on ? new Set(ids) : new Set()),
+    clear: () => setChecked(new Set()),
   }
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>
 }

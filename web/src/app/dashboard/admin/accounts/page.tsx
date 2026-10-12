@@ -203,7 +203,7 @@ export default async function AdminAccountsPage({
         </div>
 
         {/* 第三波 W6：勾選後「核准勾選的 N 位」一起核准；需要人判斷的列由伺服器自動略過並寫原因。 */}
-        <BulkApproveProvider>
+        <BulkApproveProvider pendingIds={(pending?.applications ?? []).map((a) => a.applicationId)}>
         <Panel
           title={`待審核${pending ? `（${pending.applications.length}）` : ''}`}
           icon={<IconUserCheck />}

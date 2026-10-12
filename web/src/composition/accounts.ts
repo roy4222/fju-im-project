@@ -19,6 +19,7 @@ import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
 import { isRegistrationOpen } from '@/infrastructure/auth/registration-switch'
+import { RATE_LIMITS } from '@/shared/rate-limit'
 import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
@@ -214,7 +215,10 @@ export async function signIn(input: {
     )
   } catch (error) {
     if ((error as { status?: string })?.status === 'TOO_MANY_REQUESTS') {
-      return { ok: false, code: 'RATE_LIMITED', message: '嘗試過多，請稍後再試。' }
+      // 不分是哪一個桶（IP＋帳號、每 IP 失敗）都是同一句，等候時間取兩者較長的視窗；
+      // 兩個桶都在查帳號之前判斷，有沒有這個帳號回的都一樣。
+      const windowMs = Math.max(RATE_LIMITS.signIn.windowMs, RATE_LIMITS.signInFailuresPerIp.windowMs)
+      return { ok: false, code: 'RATE_LIMITED', message: `嘗試過多，最晚 ${waitAtMost(windowMs)}後可以再試；仍無法登入請聯絡系辦。` }
     }
     // 不分辨「沒有這個帳號」「密碼錯」與「帳號已停用」——分辨了就等於提供一個
     // 查帳號狀態的通道（模組 01 §3 的統一訊息）。
@@ -287,7 +291,11 @@ export async function beginGoogleSignIn(input: {
   } catch (error) {
     // 每 IP 限速（票 10b）：跟其他失敗分開說，不然大家以為 Google 壞了。
     if ((error as { status?: string })?.status === 'TOO_MANY_REQUESTS') {
-      return { ok: false, message: '這個網路一小時內的 Google 登入次數已達上限，請稍後再試或改用 Email 與密碼。' }
+      const wait = waitAtMost(RATE_LIMITS.signInSocial.windowMs)
+      return {
+        ok: false,
+        message: `這個網路 ${wait}內的 Google 登入次數已達上限，最晚 ${wait}後可以再試，或改用 Email 與密碼；仍無法登入請聯絡系辦。`,
+      }
     }
     console.error('[auth] 開始 Google 登入失敗', error)
     return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
@@ -302,3 +310,12 @@ export { resetSignInLimiter } from '@/infrastructure/auth/sign-in-rate-limit'
 
 /** 新密碼的長度下限（規則在 hook 層；app 只能經 composition 拿執行期的值）。 */
 export { MIN_PASSWORD_LENGTH } from '@/infrastructure/auth/change-password-rules'
+
+/**
+ * 被限速時最晚要等多久（N-21）。限速是固定視窗：被擋之後最晚一個視窗長度就重算，
+ * 所以照 `RATE_LIMITS` 的視窗長度說「最晚」，不寫死數字。
+ */
+function waitAtMost(windowMs: number): string {
+  const minutes = Math.ceil(windowMs / 60_000)
+  return minutes % 60 === 0 ? `${minutes / 60} 小時` : `${minutes} 分鐘`
+}

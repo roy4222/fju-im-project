@@ -91,7 +91,32 @@ describe('每 IP 跨帳號登入失敗限速（R1）', () => {
     expect(blocked.status).toBe(429)
     const body = (await blocked.json()) as { code?: string; message?: string }
     expect(body.code).toBe('RATE_LIMITED')
-    expect(body.message).toBe('這個網路的登入失敗次數過多，請稍後再試。')
+    expect(body.message).toBe('這個網路的登入失敗次數過多，最晚 10 分鐘後可以再試；仍無法登入請聯絡系辦。')
+  })
+
+  it('被擋時，有這個帳號與沒有這個帳號回的狀態碼與內容一模一樣（IP 失敗桶、IP＋帳號桶都是）', async () => {
+    const ip = '203.0.113.36'
+    await sprayFailures(ip, MAX)
+    const existing = await signIn(email, PASSWORD, ip)
+    const missing = await signIn('no-such-account@example.com', PASSWORD, ip)
+    expect(existing.status).toBe(429)
+    expect(missing.status).toBe(429)
+    expect(await existing.json()).toEqual(await missing.json())
+
+    // IP＋帳號桶：兩個帳號各錯滿一輪（加起來不到 IP 失敗桶的門檻），下一次的回應也要一樣。
+    const accountIp = '203.0.113.37'
+    const perAccount = RATE_LIMITS.signIn.max
+    for (let i = 0; i < perAccount; i += 1) {
+      expect((await signIn(email, 'x-wrong-password', accountIp)).status).toBe(401)
+      expect((await signIn('no-such-account@example.com', 'x-wrong-password', accountIp)).status).toBe(401)
+    }
+    const existingBlocked = await signIn(email, PASSWORD, accountIp)
+    const missingBlocked = await signIn('no-such-account@example.com', PASSWORD, accountIp)
+    expect(existingBlocked.status).toBe(429)
+    expect(missingBlocked.status).toBe(429)
+    const existingBody = await existingBlocked.json()
+    expect(existingBody).toEqual(await missingBlocked.json())
+    expect(existingBody).toMatchObject({ code: 'RATE_LIMITED', message: '嘗試過多，最晚 10 分鐘後可以再試；仍無法登入請聯絡系辦。' })
   })
 
   it('被擋之後同一個 IP 用正確的帳密也進不去；換一個 IP 可以', async () => {
