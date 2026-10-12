@@ -318,6 +318,32 @@ describe('下載：每次重新授權（FIL-03）', () => {
     expect(garbage).toEqual(denied)
   })
 
+  it('訪客：不存在的檔案與存在但不給看的檔案，回應相同、查資料庫的形狀也相同（不靠時間差探測）', async () => {
+    const statements: string[] = []
+    const counting = {
+      query: (text: string, values?: unknown[]) => {
+        statements.push(text)
+        return app.query(text, values)
+      },
+    } as unknown as Pool
+    const probe = new FsFileStorage({
+      root: () => root,
+      environmentMaxBytes: () => 100 * 1024 * 1024,
+      ticketSecret: () => SECRET,
+      policies: { roster_csv: (a) => rosterAccessDenied(a) === null },
+      db: () => counting,
+    })
+
+    const hidden = await probe.authorizeDownload(ANONYMOUS, fileId)
+    const hiddenStatements = statements.splice(0)
+    const missing = await probe.authorizeDownload(ANONYMOUS, '0199a1b2-c3d4-7e5f-8a9b-000000000000')
+    const missingStatements = statements.splice(0)
+
+    expect(hidden).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect(missing).toEqual(hidden)
+    expect(missingStatements).toEqual(hiddenStatements)
+  })
+
   it('還在上傳中的檔案拿不到', async () => {
     const pending = await ticketFor(adminId)
     expect(await storage.authorizeDownload(actor(adminId, ['admin']), pending.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
