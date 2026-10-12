@@ -5,7 +5,8 @@
 // （最多 MAX_EMBED_DEPTH 層）；超過上限不猜，直接當命中。
 // collector 不改寫內容：命中任何一條就整檔不寫，只回報「哪一類」，不回報命中的字串本身。
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/
+// 左邊加「前一個字不是帳號字元」：一長串字母只會從開頭試一次，不會每個位置都重掃到底（70 KB 的字串從數秒變毫秒）。
+const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/
 const TOKENS = [
   /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}/,
   /\bsk-[A-Za-z0-9_-]{20,}/,
@@ -169,6 +170,11 @@ export function findLeaksInValue(value, depth = 0) {
   const hits = new Set()
   const walk = (v) => {
     if (typeof v === 'string') {
+      // 太長的字串不掃（白名單的文字欄位都有長度上限；repo 原樣複本裡出現這麼長的字串不正常）：直接當命中。
+      if (v.length > MAX_EMBED_BYTES) {
+        hits.add('內嵌資料過大')
+        return
+      }
       for (const k of findLeaks(v)) hits.add(k)
       for (const k of embeddedJsonLeaks(v, depth)) hits.add(k)
     } else if (Array.isArray(v)) {

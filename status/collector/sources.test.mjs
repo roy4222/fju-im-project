@@ -277,3 +277,17 @@ describe('deploy_log 的 digest 欄（真 producer：ops/deploy.sh 第 7 步寫 
     ])
   })
 })
+
+describe('遮蔽掃描的效能（CI 的 vitest 一條測試只有 5 秒）', () => {
+  it('一長串字母與 1 MB 的 JSON 都要在 1 秒內掃完（Email 規則不得每個位置重掃到底）', () => {
+    const letters = 'x'.repeat(1_000_000)
+    const big = { tickets: Array.from({ length: 3000 }, (_, i) => ({ id: `P1-T${i}`, title: '票名'.repeat(20), note: 'a'.repeat(300), branch: `claude/x-${i}` })) }
+    const text = JSON.stringify(big)
+    expect(text.length).toBeGreaterThan(1_000_000)
+    const t0 = Date.now()
+    expect(findLeaks(letters)).toEqual([])
+    expect(findLeaks(text)).toEqual([])
+    expect(findLeaksInValue(big)).toEqual([])
+    expect(Date.now() - t0).toBeLessThan(1000)
+  })
+})
