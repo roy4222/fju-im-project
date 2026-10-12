@@ -49,6 +49,8 @@ export default async function StudentHomePage() {
   const entries = calendarEntries(activities, deadlines)
   const next8 = upcoming(entries, today, 8)
   const pending = pendingCount(myItems, ctx.businessNow)
+  // 已截止還沒送出的另外講（N-08）：待繳只算還能繳的（補交開放中的算待繳），逾期的不混進去。
+  const overdue = myItems.filter((i) => receiverStatus(i, i, ctx.businessNow).overdue).length
 
   // 下一步＝還沒送出、最早截止的那一份（原型 Codex S-05）。
   const nextItem = myItems
@@ -85,7 +87,7 @@ export default async function StudentHomePage() {
   const mine = current.filter((v) => v.viewer.canRespond).length
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
-  const line = pending ? `「我的繳交」還有 ${pending} 件沒送出。` : '「我的繳交」沒有待繳的東西。'
+  const line = `${pending ? `「我的繳交」還有 ${pending} 件沒送出。` : '「我的繳交」沒有待繳的東西。'}${overdue ? `另有 ${overdue} 件已逾期。` : ''}`
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current={BASE}>
