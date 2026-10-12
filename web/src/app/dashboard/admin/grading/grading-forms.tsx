@@ -1,6 +1,6 @@
 'use client'
 import { IconPlus } from '@tabler/icons-react'
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import {
   assignEvaluatorAction,
   createSchemeVersionAction,
@@ -36,6 +36,9 @@ const ITEM_TYPES: { value: SchemeItemType; label: string }[] = [
 
 type ItemDraft = { key?: string; name: string; type: SchemeItemType; max: string; weight: string }
 type StageDraft = { key?: string; name: string; weight: string; letterMap: Record<string, string>; items: ItemDraft[] }
+
+/** 草稿發布成功時廣播；「建立新方案版本」底下那句「（草稿）；按發布…」聽到就收起來，不留過時提示（AC-29）。 */
+const SCHEME_PUBLISHED = 'grading:scheme-published'
 
 const DEFAULT_LETTERS: Record<string, string> = { A: '95', B: '85', C: '75', D: '65', F: '50' }
 
@@ -105,7 +108,13 @@ export function SchemeEditor({
   const [state, action, pending] = useActionState(createSchemeVersionAction, undefined)
   const dialog = useDialog()
   const [stages, setStages] = useState<StageDraft[]>(() => toDraft(base))
+  const [dismissed, setDismissed] = useState<GradingActionState>(undefined)
   useCloseOnSuccess(state, dialog.close)
+  useEffect(() => {
+    const onPublished = () => setDismissed(state)
+    window.addEventListener(SCHEME_PUBLISHED, onPublished)
+    return () => window.removeEventListener(SCHEME_PUBLISHED, onPublished)
+  }, [state])
 
   const stageSum = stages.reduce((sum, s) => sum + num(s.weight), 0)
   const update = (index: number, patch: Partial<StageDraft>) =>
@@ -130,7 +139,7 @@ export function SchemeEditor({
         <IconPlus className="size-4" aria-hidden />
         建立新方案版本
       </button>
-      <Feedback state={state?.ok ? state : undefined} />
+      <Feedback state={state?.ok && state !== dismissed ? state : undefined} />
       <dialog ref={dialog.ref} aria-label="建立評分方案版本" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <form action={action} className="space-y-4 p-5">
           <div>
@@ -329,7 +338,12 @@ export function PublishButton({
   requestId: string
   disabledReason: string | null
 }) {
-  const [state, action, pending] = useActionState(publishSchemeAction, undefined)
+  // 在動作回來當下就廣播：發布成功後這一列換成「已發布」、這顆按鈕跟著卸載，等 effect 會來不及。
+  const [state, action, pending] = useActionState(async (prev: GradingActionState, formData: FormData) => {
+    const result = await publishSchemeAction(prev, formData)
+    if (result?.ok) window.dispatchEvent(new Event(SCHEME_PUBLISHED))
+    return result
+  }, undefined)
   return (
     <form action={action} className="space-y-1">
       <input type="hidden" name="versionId" value={versionId} />
