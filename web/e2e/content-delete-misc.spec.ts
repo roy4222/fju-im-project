@@ -266,3 +266,33 @@ test('活動：排定中要先取消；已取消的刪得掉，從「已取消�
   )
   expect(Object.fromEntries(rows.rows.map((r) => [r.title, r.deleted]))).toEqual({ [SCHEDULED]: false, [CANCELLED]: true })
 })
+
+test('活動：刪掉該屆最後一個活動，危險操作區仍在、「已刪除」的句子不會跟著卸載', async ({ page }) => {
+  // 另造一屆只有一個已取消的活動（曾經該屆沒有活動就整區不渲染，句子跟著卸載、看不到「已刪除」）。
+  const LAST = `W11 最後一個 ${stamp.slice(-4)}`
+  const lastCohort = await pool.query<{ id: string }>(
+    `insert into cohorts (id, code, name, status, year_end_date, is_default_working, created_by_kind)
+     values (gen_random_uuid(), $1, $2, 'active', '2099-06-30', false, 'system') returning id`,
+    [`${CODE}-L`, `${CODE} 刪最後一個`],
+  )
+  const lastCohortId = lastCohort.rows[0]!.id
+  await pool.query(
+    `insert into project_events
+       (id, cohort_id, title, starts_at, all_day, audience_kind, status,
+        created_by_kind, created_by_user_id, created_at, updated_at, updated_by_user_id)
+     values (gen_random_uuid(), $1, $2, '2099-03-01T06:00:00Z', false, 'public', 'cancelled', 'user', $3, now(), now(), $3)`,
+    [lastCohortId, LAST, admin.userId],
+  )
+
+  await signIn(page, admin)
+  await page.goto(`/dashboard/admin/timeline?cohort=${lastCohortId}`)
+  const danger = page.getByRole('region', { name: '危險操作' })
+  await expect(danger.getByTestId('danger-activity')).toHaveCount(1)
+
+  await danger.getByRole('button', { name: `刪除活動：${LAST}` }).click()
+  const confirm = page.getByRole('dialog', { name: `刪除「${LAST}」？` })
+  await confirm.getByRole('button', { name: '刪除這個活動' }).click()
+  await expect(danger.getByRole('status').filter({ hasText: `已刪除活動「${LAST}」` })).toBeVisible()
+  await expect(danger).toContainText('目前沒有活動。')
+  await expect(page.getByTestId('danger-activity')).toHaveCount(0)
+})
