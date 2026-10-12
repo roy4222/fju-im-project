@@ -305,7 +305,12 @@ export type SummaryItem = {
   errors: string[]
 }
 
-export type PersonaTask = { task: number; score: number | null; done: string }
+export type PersonaTask = {
+  task: number
+  score: number | null
+  /** 人設報告該任務「完成」那行的原字串；沒填就是 null（`summarize-night.sh:233` 先放 None，parsed 仍是 true） */
+  done: string | null
+}
 
 export type SummaryPersona = {
   id: string
