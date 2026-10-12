@@ -8,7 +8,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { BackLink, PageTitle } from '@/app/dashboard/teacher/_ui/dash'
 import { BUTTON_TEXT, getSignoffQuery, MAX_REASON_CHARS } from '@/composition/signoff'
 
-export const metadata = { title: '簽核版本｜資管系專題平台' }
+export const metadata = { title: '同意書內容｜資管系專題平台' }
 
 /**
  * 老師的簽核版本頁（票 25、26）：只有這一組**此刻**的主指導讀得到；快照裡的主指導若已被換掉就看不到
@@ -29,8 +29,8 @@ export default async function TeacherSignoffVersionPage({ params }: { params: Pr
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/signoff">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <BackLink href="/dashboard/teacher/signoff">回簽核</BackLink>
-          <PageTitle title="簽核版本" description="全文、附件、授權範圍與參與者；全部學生同意後才輪到你。" />
+          <BackLink href="/dashboard/teacher/signoff">回站內同意書</BackLink>
+          <PageTitle title="同意書內容" description="全文、附件、授權範圍與參與者；全部學生同意後才輪到你。" />
         </div>
         <VersionView
           v={detail.receipt}

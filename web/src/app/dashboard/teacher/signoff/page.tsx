@@ -9,7 +9,7 @@ import { describeCause, getSignoffQuery, PURPOSE_LABEL, STATE_LABEL } from '@/co
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '簽核｜資管系專題平台' }
+export const metadata = { title: '站內同意書｜資管系專題平台' }
 
 /** 輪到這位老師表態：學生都同意了、他是快照裡的主指導、還沒投。 */
 const isMyTurn = (c: TeacherSignoffCard) => c.current.state === 'teacher_pending' && c.mine.isSnapshotAdvisor && !c.mine.voted
@@ -21,7 +21,7 @@ function cardStatus(c: TeacherSignoffCard): { text: string; tone: PillTone } {
     case 'collecting':
       return { text: `等待學生 ${p.total - p.agreed} 位`, tone: 'default' }
     case 'teacher_pending':
-      return c.mine.isSnapshotAdvisor ? { text: '輪到你', tone: 'brand' } : { text: '學生都已同意，等主指導', tone: 'default' }
+      return c.mine.isSnapshotAdvisor ? { text: '輪到你', tone: 'brand' } : { text: '學生都已同意，等指導老師', tone: 'default' }
     case 'complete':
       return { text: '已完成', tone: 'success' }
     case 'revision':
@@ -36,18 +36,18 @@ function cardDetail(c: TeacherSignoffCard): string {
   const v = c.current
   const p = v.progress
   const waiting = p.students.filter((s) => s.result === null).map((s) => s.displayName)
-  const head = `v${v.versionNo}・${c.cohortCode}`
+  const head = `第 ${v.versionNo} 版・${c.cohortCode}`
   switch (v.state) {
     case 'collecting':
       return `學生 ${p.agreed}／${p.total} 已同意${waiting.length ? `・還沒：${waiting.join('、')}` : ''}・${head}`
     case 'teacher_pending':
-      return `學生 ${p.agreed}／${p.total} 已同意・${head}・${isMyTurn(c) ? '等你' : '等主指導'}`
+      return `學生 ${p.agreed}／${p.total} 已同意・${head}・${isMyTurn(c) ? '等你' : '等指導老師'}`
     case 'complete':
       return `學生 ${p.total}／${p.total}・老師已同意・${head}`
     case 'revision':
       return `已退回，等系辦重開新版後全組重走一次・${head}`
     case 'superseded':
-      return `已失效（${describeCause(v.cause) ?? '—'}），等待系辦建立新版・${head}`
+      return `已作廢（${describeCause(v.cause) ?? '—'}），等待系辦建立新版・${head}`
     default:
       return `${head}・${formatTaipeiMinute(v.createdAt)} 建立`
   }
@@ -73,7 +73,7 @@ export default async function TeacherSignoffPage() {
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/signoff">
       <div className="flex flex-col gap-5">
-        <PageTitle title="簽核" description="你此刻指導的組別的簽核版本與進度。全部學生同意後才輪到你。" />
+        <PageTitle title="站內同意書" description="你此刻指導的組別的同意書與進度。全部學生同意後才輪到你。" />
         {cards.length > 0 ? (
           <p className="tabular text-sm">
             <b className={ready ? 'text-primary' : 'text-foreground'}>待我同意 {ready} 份</b>
@@ -86,8 +86,8 @@ export default async function TeacherSignoffPage() {
           {rows.length === 0 ? (
             <PanelEmpty
               icon={<IconSignature />}
-              title="目前沒有待處理的簽核"
-              hint="你指導的組別還沒有簽核版本。系辦建好後，組員先各自同意，全部同意後才會輪到你。"
+              title="目前沒有待處理的同意書"
+              hint="你指導的組別還沒有站內同意書。系辦建好後，組員先各自同意，全部同意後才會輪到你。"
               action={{ href: '/dashboard/teacher/groups', label: '看我指導的組別' }}
             />
           ) : (
@@ -122,7 +122,7 @@ export default async function TeacherSignoffPage() {
                     <div className="md:justify-self-end">
                       {mine ? (
                         <Link href={href} className={PRIMARY_BUTTON}>
-                          閱讀全文並表態
+                          閱讀全文並回覆
                           <IconArrowRight />
                         </Link>
                       ) : (
