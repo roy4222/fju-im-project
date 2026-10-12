@@ -218,7 +218,7 @@ export async function flagOverridesForReview(
       recipients: admins,
       recipientBasis: { basis: 'admin_role', overrideId: o.id },
       // 只有組別代號：通知匣不放分數（管理員點進去看）。
-      payload: { title: `${o.code} 的成績更正待復核：計算基礎改變了`, groupId: input.groupId, code: o.code },
+      payload: { title: `${o.code} 的成績人工更正待重新確認：分數來源改變了`, groupId: input.groupId, code: o.code },
       occurredRealAt: input.realAt,
       occurredBusinessAt: input.businessAt,
     })

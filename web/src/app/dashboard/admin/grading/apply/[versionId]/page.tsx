@@ -10,7 +10,7 @@ import { ApplySchemeForm } from '@/app/dashboard/admin/grading/results-forms'
 import { getGradebookQuery } from '@/composition/grading'
 import { cn } from '@/shared/cn'
 
-export const metadata = { title: '套用新評分方案｜資管系專題平台' }
+export const metadata = { title: '套用新版評分規則｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -35,7 +35,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
         ← 評分
       </Link>
       <header className="mb-5">
-        <h1 className="text-xl font-semibold text-foreground">套用新評分方案</h1>
+        <h1 className="text-xl font-semibold text-foreground">套用新版評分規則</h1>
       </header>
       {children}
     </DashboardShell>
@@ -46,24 +46,24 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
   const changed = p.groups.filter((g) => g.changed)
   const overrides = p.groups.filter((g) => g.hasOverride)
   const facts: [string, string][] = [
-    ['對象', `這一屆的評分方案：v${p.currentVersionNo} 換成 v${p.versionNo}`],
+    ['對象', `這一屆的評分規則：第 ${p.currentVersionNo} 版換成第 ${p.versionNo} 版`],
     [
       '範圍',
       // 預覽只列未解散的組（`buildSchemePreview` 只取 status = 'active'）；解散的組釘在解散當下的版本，不重算。
-      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有更正、會進待復核` : ''}。已解散的組維持解散當下的方案版本與成績，不受影響。`,
+      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有人工更正、會進待重新確認` : ''}。已解散的組維持解散當下的評分規則版本與成績，不受影響。`,
     ],
     [
       '後果',
-      `未解散各組已正式送出的分數照 v${p.versionNo} 的滿分與權重重算（老師的原始輸入不改），這些組在成績表、計算明細與匯出改用新版；v${p.versionNo} 套用後就鎖定。`,
+      `未解散各組已正式送出的分數照第 ${p.versionNo} 版的滿分與權重重算（老師的原始輸入不改），這些組在成績表、計算明細與匯出改用新版；第 ${p.versionNo} 版套用後就鎖定。`,
     ],
-    ['能不能恢復', `不能退回 v${p.currentVersionNo}。要再改，只能另建一版方案，再看影響、套用一次。`],
+    ['能不能恢復', `不能退回第 ${p.currentVersionNo} 版。要再改，只能另建一版評分規則，再看影響、套用一次。`],
   ]
 
   return shell(
     <div className="space-y-6">
       <Card
-        title={`v${p.currentVersionNo} → v${p.versionNo} 的影響`}
-        description={`未解散各組已正式送出的分數照 v${p.versionNo} 的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
+        title={`第 ${p.currentVersionNo} 版 → 第 ${p.versionNo} 版的影響`}
+        description={`未解散各組已正式送出的分數照第 ${p.versionNo} 版的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
       >
         {p.blockers.length > 0 ? (
           <div role="alert" className="mb-4 space-y-1 rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
@@ -96,7 +96,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
                   <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
                     <td className="px-4 py-2 font-semibold">
                       {g.code}
-                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">更正會進待復核</span> : null}
+                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">人工更正會進待重新確認</span> : null}
                     </td>
                     {g.stages.map((s) => (
                       <td key={s.name} className="px-4 py-2 text-right tabular-nums">

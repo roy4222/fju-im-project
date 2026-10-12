@@ -177,7 +177,7 @@ export function GradingBench({
       : dirty
         ? '有尚未暫存的修改'
         : savedText
-          ? `已儲存 ${savedText}（伺服器時間）`
+          ? `已儲存・系統記錄的儲存時間 ${savedText}`
           : '尚未儲存'
   const dot: SaveDotState = isLocked ? 'locked' : busy === 'save' ? 'saving' : dirty ? 'dirty' : savedText ? 'saved' : 'unsaved'
   const blockReason = isLocked
@@ -206,7 +206,7 @@ export function GradingBench({
       {children ? <div className="flex flex-col gap-2 px-5 pt-3">{children}</div> : null}
       {draftFromOlderVersion && !isLocked ? (
         <p className="mx-5 mt-3 rounded-lg bg-primary-subtle px-3 py-2 text-xs text-primary-on-subtle">
-          系辦在你暫存之後更新了評分方案；已對應的分數保留，請確認後再暫存。
+          系辦在你暫存之後更新了評分規則；已對應的分數保留，請確認後再暫存。
         </p>
       ) : null}
 
