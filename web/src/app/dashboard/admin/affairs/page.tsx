@@ -5,6 +5,7 @@ import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AffairsList, type AffairRow } from '@/app/dashboard/admin/affairs/affairs-list'
+import { AFFAIRS_FILTERS, affairsView } from '@/app/dashboard/admin/affairs/affairs-view'
 import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { COHORT_STATUS_LABEL, cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
@@ -20,14 +21,7 @@ import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } 
 
 export const metadata = { title: '專題事務｜資管系專題平台' }
 
-const FILTERS = [
-  { key: 'all', label: '全部' },
-  { key: 'news', label: '公告' },
-  { key: 'resource', label: '資源' },
-  { key: 'submission', label: '文件繳交' },
-  { key: 'rules', label: '專題規則' },
-  { key: 'honor', label: '榮譽' },
-] as const
+const FILTERS = AFFAIRS_FILTERS
 
 /**
  * 專題事務工作台（票 15；原型 `/dashboard/admin/affairs`）。
@@ -38,7 +32,8 @@ const FILTERS = [
  *
  * 榮譽是跨屆的公開紀錄（第三波 W1／W1b）：選「榮譽」篩選時，屆別選單連已封存的屆別也列出來，
  * 系辦才點得到歷屆（例如示範資料 DEMO-113、DEMO-112）的榮譽並進編輯器；頁首多一顆「新增榮譽」，帶目前選的屆別。
- * 封存屆別只能動榮譽，所以那時不放「新增項目」與一般的完整編輯器入口。
+ * 封存屆別只能動榮譽，所以那時不放「新增項目」與一般的完整編輯器入口。屆別全部封存時，一般篩選改成說明＋
+ * 「管理歷屆榮譽」入口（不是「還沒有屆別」的死路）。
  */
 export default async function AffairsPage({
   searchParams,
@@ -47,17 +42,9 @@ export default async function AffairsPage({
 }) {
   await requireRole('/dashboard/admin/affairs', 'admin')
 
-  const params = await searchParams
-  const filter = FILTERS.find((f) => f.key === params.placement)?.key ?? 'all'
+  const view = affairsView(await getCohortStatusQuery().list(), await searchParams)
+  const filter = view.filter
   const honorView = filter === 'honor'
-  const allCohorts = await getCohortStatusQuery().list()
-  const cohorts = honorView ? allCohorts : allCohorts.filter((c) => c.status !== 'archived')
-  const cohort =
-    cohorts.find((c) => c.id === params.cohort) ??
-    cohorts.find((c) => c.isDefaultWorking) ??
-    cohorts.find((c) => c.status !== 'archived') ??
-    cohorts[0] ??
-    null
 
   const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
@@ -68,7 +55,18 @@ export default async function AffairsPage({
     </DashboardShell>
   )
 
-  if (!cohort) {
+  if (view.state === 'only-archived') {
+    return shell(
+      '目前沒有進行中的屆別；歷屆榮譽仍可在這裡管理。',
+      <EmptyState
+        title="屆別都已封存"
+        description="封存的屆別不能再新增公告、資源或收件；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
+        action={{ href: '/dashboard/admin/affairs?placement=honor', label: '管理歷屆榮譽' }}
+      />,
+    )
+  }
+
+  if (view.state === 'none') {
     return shell(
       '公告、資源下載、文件繳交都從這裡建立、發布與修改。',
       <EmptyState
@@ -79,6 +77,7 @@ export default async function AffairsPage({
     )
   }
 
+  const { cohorts, cohort } = view
   const [rows, vocabulary, businessNow] = await Promise.all([
     getItemQuery().list(cohort.id),
     editorVocabulary(cohort.id),
