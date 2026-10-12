@@ -2,11 +2,12 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { IconAlertCircle, IconCheck, IconEye, IconSend } from '@tabler/icons-react'
+import { IconAlertCircle, IconAlertTriangle, IconCheck, IconEye, IconSend, IconTrash } from '@tabler/icons-react'
 import { BackLink, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import {
   changeItemStatusAction,
   createItemAction,
+  deleteItemAction,
   publishItemAction,
   reviewItemAction,
   saveDraftAction,
@@ -31,6 +32,7 @@ import {
   IMPORTANT_LABEL,
   broadAudience,
 } from '@/app/dashboard/admin/affairs/item-form-parts'
+import { HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
 import { FieldsEditor, SettingsFields } from '@/app/dashboard/admin/affairs/item-settings'
 import { sectionOfField } from '@/app/dashboard/admin/editor/field-section'
 import type { ItemReview } from '@/application/items'
@@ -124,6 +126,17 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
   },
 }
 
+/** 刪除鈕與確認鈕上的名詞（確認鈕寫動作，不寫「確定」；§9 規則 1）。 */
+const DELETE_LABEL: Record<string, string> = {
+  news: '刪除這則公告',
+  resource: '刪除這份資源',
+  submission: '刪除這份收件',
+  rules: '刪除這節規則',
+  honor: '刪除這則榮譽',
+}
+
+const DANGER = cn(SECONDARY, 'border-destructive/50 text-destructive hover:bg-destructive-subtle hover:text-destructive-on-subtle')
+
 export function ItemEditor({
   initial,
   itemId: initialItemId,
@@ -166,11 +179,14 @@ export function ItemEditor({
   // 對話框打開那一刻是「發布」還是「發布更新」；發布成功後狀態變了，對話框標題不跟著換。
   const [dialogTitle, setDialogTitle] = useState('發布前檢查')
   const dialog = useRef<HTMLDialogElement>(null)
-  const requestIds = useRef<{ save: string; publish: string; lifecycle: string }>({
+  const requestIds = useRef<{ save: string; publish: string; lifecycle: string; remove: string }>({
     save: newRequestId(),
     publish: newRequestId(),
     lifecycle: newRequestId(),
+    remove: newRequestId(),
   })
+  const deleteDialog = useRef<HTMLDialogElement>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const lifecycleDialog = useRef<HTMLDialogElement>(null)
   const [lifecycle, setLifecycle] = useState<LifecycleAction | null>(null)
   const [lifecycleError, setLifecycleError] = useState<string | null>(null)
@@ -198,7 +214,7 @@ export function ItemEditor({
         revision,
         lifecycle,
         requestIds.current.lifecycle,
-        lifecycle === 'republish' && !collects && lifecycleNotify,
+        lifecycle === 'republish' && !collects && !honor && lifecycleNotify,
       )
       if (!result.ok) {
         setLifecycleError(result.message)
@@ -218,7 +234,39 @@ export function ItemEditor({
   }
 
   const collects = state.placement === 'submission'
+  // 榮譽榜不發通知（第三波 W1）：發布、更新、重新發布都不出現通知勾選，送出一律不通知。
+  const honor = state.placement === HONOR
   const published = status !== 'draft'
+  const deleteLabel = DELETE_LABEL[state.placement] ?? '刪除這個項目'
+  // 刪除只限草稿與已下架、沒有人交件（規則在伺服器；這裡先說原因、不留點了沒反應的按鈕）。
+  const deleteBlocked =
+    status === 'published' ? '發布中的要先撤回或下架才能刪除。' : hasResponses ? '已經有學生交件，只能下架，不能刪除。' : null
+
+  function openDelete() {
+    setDeleteError(null)
+    setMessage(null)
+    requestIds.current.remove = newRequestId()
+    deleteDialog.current?.showModal()
+  }
+
+  async function confirmDelete() {
+    if (!itemId) return
+    setBusy('刪除中…')
+    setDeleteError(null)
+    try {
+      const result = await deleteItemAction(itemId, revision, requestIds.current.remove)
+      if (!result.ok) {
+        setDeleteError(result.message)
+        return
+      }
+      deleteDialog.current?.close()
+      router.push(`/dashboard/admin/affairs?cohort=${result.data.cohortId}`)
+    } catch {
+      setDeleteError('連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   function patch(next: Partial<EditorState>) {
     setState((s) => ({ ...s, ...next }))
@@ -318,7 +366,7 @@ export function ItemEditor({
           dialog.current?.close()
           return
         }
-        const result = await publishItemAction(saved.itemId, saved.revision, notify || collects, requestIds.current.publish)
+        const result = await publishItemAction(saved.itemId, saved.revision, (notify && !honor) || collects, requestIds.current.publish)
         if (!result.ok) {
           setDialogError(result.message)
           return
@@ -327,7 +375,7 @@ export function ItemEditor({
         setStatus('published')
         setDone(result.message ?? '已發布。')
       } else {
-        const result = await updatePublishedAction(itemId!, revision, toPayload(state), notify, requestIds.current.publish)
+        const result = await updatePublishedAction(itemId!, revision, toPayload(state), notify && !honor, requestIds.current.publish)
         if (!result.ok) {
           setDialogError(result.message)
           return
@@ -634,7 +682,7 @@ export function ItemEditor({
             ) : (
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-muted-foreground">這個項目不收資料。</p>
-                {!published ? (
+                {!published && !honor ? (
                   <button
                     type="button"
                     className={SECONDARY}
@@ -758,6 +806,44 @@ export function ItemEditor({
             )}
           </div>
         </section>
+
+        {/* 危險操作（§9 規則 1、N-146）：跟日常按鈕拉開，三種收回方式的後果寫在一起；刪除另外確認。 */}
+        {itemId ? (
+          <section aria-labelledby="sec-danger" className="border-t border-border bg-destructive-subtle/20">
+            <div className="flex flex-col gap-3 px-5 py-5 lg:px-6">
+              <h2 id="sec-danger" className="flex items-center gap-2 text-[15px] font-bold text-destructive">
+                <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
+              </h2>
+              <ul className="flex flex-col gap-1 text-sm leading-relaxed">
+                <li>
+                  <span className="font-semibold">撤回</span>：發布中、還沒有人作答時收回成草稿；受眾看不到，改好可以再發布。
+                </li>
+                <li>
+                  <span className="font-semibold">下架</span>：前台看不到，後台保留內容、回答與紀錄，之後可以重新發布。
+                </li>
+                <li>
+                  <span className="font-semibold">刪除</span>：只限草稿與已下架；後台清單也看不到、不能恢復，已寄出的通知不會收回。已經有學生交件的只能下架。
+                </li>
+              </ul>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className={DANGER}
+                  onClick={openDelete}
+                  disabled={busy !== null || deleteBlocked !== null}
+                  aria-describedby={deleteBlocked ? 'delete-blocked' : undefined}
+                >
+                  <IconTrash aria-hidden /> {deleteLabel}
+                </button>
+                {deleteBlocked ? (
+                  <p id="delete-blocked" className="text-xs font-semibold text-muted-foreground" data-testid="delete-blocked">
+                    {deleteBlocked}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
 
       {/* 發布或更新成功、看完回執關掉對話框時，才刷新頁首的版本與發布紀錄。 */}
@@ -801,6 +887,8 @@ export function ItemEditor({
               ) : null}
               {collects && !published ? (
                 <p className="text-xs text-muted-foreground">新收件一定會通知收件名單上的人（站內通知）。</p>
+              ) : honor ? (
+                <p className="text-xs text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
               ) : (
                 <label className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
                   <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
@@ -818,7 +906,7 @@ export function ItemEditor({
                   {failing > 0
                     ? `還缺 ${failing} 項`
                     : published
-                      ? notify && notifyCount !== null
+                      ? notify && !honor && notifyCount !== null
                         ? `確認更新並通知 ${notifyCount} 人`
                         : '確認更新'
                       : '確認發布'}
@@ -829,12 +917,40 @@ export function ItemEditor({
         </div>
       </dialog>
 
+      <dialog ref={deleteDialog} aria-label={`${deleteLabel}？`} className={cn(DIALOG, 'w-[min(30rem,calc(100vw-2rem))]')}>
+        <div className="flex flex-col gap-4 p-6">
+          <h2 className="text-lg font-extrabold">{deleteLabel}？</h2>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+            <dt className="text-muted-foreground">對象</dt>
+            <dd className="font-semibold break-words">「{state.title || '（未命名）'}」</dd>
+            <dt className="text-muted-foreground">範圍</dt>
+            <dd>專題事務清單、前台網址、附件連結都會當作不存在（顯示「找不到這個頁面」）。</dd>
+            <dt className="text-muted-foreground">後果</dt>
+            <dd>刪除後後台清單也看不到、不能恢復；已寄的通知不會收回。</dd>
+          </dl>
+          {deleteError ? <Feedback tone="error">{deleteError}</Feedback> : null}
+          <div className="flex justify-end gap-2">
+            <button type="button" className={SECONDARY} onClick={() => deleteDialog.current?.close()}>
+              取消
+            </button>
+            <button
+              type="button"
+              className={cn(PRIMARY, 'bg-destructive text-destructive-foreground hover:bg-destructive/90')}
+              onClick={confirmDelete}
+              disabled={busy !== null}
+            >
+              {deleteLabel}
+            </button>
+          </div>
+        </div>
+      </dialog>
+
       <dialog ref={lifecycleDialog} aria-label={lifecycle ? LIFECYCLE[lifecycle].title : '確認'} className={cn(DIALOG, 'w-[min(30rem,calc(100vw-2rem))]')}>
         {lifecycle ? (
           <div className="flex flex-col gap-4 p-6">
             <h2 className="text-lg font-extrabold">{LIFECYCLE[lifecycle].title}</h2>
             <p className="text-sm leading-relaxed">{LIFECYCLE[lifecycle].explain}</p>
-            {lifecycle === 'republish' && !collects ? (
+            {lifecycle === 'republish' && !collects && !honor ? (
               <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
                 <input
                   type="checkbox"

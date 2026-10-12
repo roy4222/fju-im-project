@@ -353,6 +353,9 @@ export function BatchAssignDialog({
             <p className="mt-1 text-sm text-muted-foreground">
               UTF-8 CSV，欄位固定 <code className="rounded bg-muted px-1">group_code,teacher_login_email</code>
               ；老師用<strong>登入 Email</strong>，不能用聯絡 Email。要換屆別請先在頁面上方切換。
+              <a href="/samples/批次指派指導老師範例.csv" download className="ml-1 font-semibold text-primary hover:underline">
+                下載範例檔
+              </a>
             </p>
           </div>
 

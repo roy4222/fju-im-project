@@ -7,7 +7,7 @@ import type { Result } from '@/shared/result'
 
 /**
  * 專題事務的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket；
- * 票 16：撤回、下架、重新發布。
+ * 票 16：撤回、下架、重新發布；第三波 W1：刪除、榮譽的得獎日期。
  *
  * 規則與授權全在用例裡判（只有狀態正常的管理員）；這裡只把瀏覽器送來的東西整理成用例要的形狀、
  * 把結果翻成畫面要的回饋。檔案位元組不走 Server Action，由瀏覽器直接 POST 到 `/api/files/upload`。
@@ -53,6 +53,7 @@ function toItemInput(raw: unknown): ItemInput {
     dueAt: str(r.dueAt, 40),
     registrationDeadline: str(r.registrationDeadline, 20),
     eventDate: str(r.eventDate, 20),
+    awardedOn: str(r.awardedOn, 20),
     fields: Array.isArray(r.fields) ? r.fields.slice(0, 200) : [],
   }
 }
@@ -157,6 +158,26 @@ export async function changeItemStatusAction(
       revision: r.receipt.revision,
       status: r.receipt.status,
       sentence: describeLifecycleReceipt(r.receipt),
+    }),
+    (d) => d.sentence,
+  )
+}
+
+/**
+ * 刪除（第三波 W1）：只限草稿與已下架、收件沒有任何回答（規則在用例）。成功後畫面回到專題事務清單。
+ */
+export async function deleteItemAction(
+  itemId: string,
+  revision: number,
+  requestId: string,
+): Promise<ItemActionOutcome<{ itemId: string; cohortId: string }>> {
+  const result = await getItemCommand().delete(await currentActor(), str(itemId, 100), Number(revision), str(requestId, 100))
+  return toOutcome(
+    result,
+    (r) => ({
+      itemId: r.receipt.itemId,
+      cohortId: r.receipt.cohortId,
+      sentence: `「${r.receipt.title}」已刪除。後台清單與前台都看不到了，不能恢復；已寄出的通知不會收回。`,
     }),
     (d) => d.sentence,
   )

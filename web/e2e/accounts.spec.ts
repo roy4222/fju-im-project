@@ -149,7 +149,9 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
 
   const page = await adminPage(browser)
   await searchFor(page, target.name)
-  await rowOf(page, target.name).getByRole('button', { name: `停用 ${target.name}` }).click()
+  // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+  await rowOf(page, target.name).getByRole('button', { name: `更多 ${target.name}` }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: `停用 ${target.name}` }).click()
   const dialog = page.getByRole('dialog', { name: `停用 ${target.name}` })
   await dialog.getByRole('button', { name: '確認停用' }).click()
   await expect(dialog.getByRole('alert')).toContainText('理由')
@@ -250,7 +252,8 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   const page = await adminPage(browser)
   // 先把 4 號單獨停用，好讓預覽裡有「已停用」。
   await searchFor(page, students[3]!.name)
-  await rowOf(page, students[3]!.name).getByRole('button', { name: `停用 ${students[3]!.name}` }).click()
+  await rowOf(page, students[3]!.name).getByRole('button', { name: `更多 ${students[3]!.name}` }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: `停用 ${students[3]!.name}` }).click()
   const single = page.getByRole('dialog', { name: `停用 ${students[3]!.name}` })
   await single.getByLabel(/理由/).fill('先停')
   await single.getByRole('button', { name: '確認停用' }).click()

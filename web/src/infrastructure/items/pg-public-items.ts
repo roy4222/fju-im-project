@@ -140,7 +140,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     filter: PublicListFilter,
   ): Promise<(Row & { body_html: string })[]> {
     const values: unknown[] = [placement]
-    const where = [`m.placement = $1`, `m.status = 'published'`]
+    const where = [`m.placement = $1`, `m.status = 'published'`, `m.deleted_at is null`]
     const category = filter.category?.trim()
     if (category) {
       values.push(category)
@@ -179,7 +179,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     const audience = audienceSql(viewer, 2)
     const rows = await db.query<{ category: string }>(
       `select distinct m.category from managed_items m
-        where m.placement = $1 and m.status = 'published' and m.category is not null and ${audience.sql}
+        where m.placement = $1 and m.status = 'published' and m.deleted_at is null and m.category is not null and ${audience.sql}
         order by m.category`,
       [placement, ...audience.values],
     )
@@ -190,7 +190,8 @@ export class PgPublicItemQuery implements PublicItemQuery {
     if (!isUuid(itemId)) return { access: 'not_found', placement: null }
     const db = this.#reader()
     const found = await db.query<Row & { body_html: string }>(
-      `select ${COLUMNS}, m.body_html from managed_items m where m.id = $1 and m.placement = $2`,
+      // 已刪除＝找不到（不是「已下架」）：已下架的刪掉後，原網址跟從來沒有這一頁一樣（第三波 W1）。
+      `select ${COLUMNS}, m.body_html from managed_items m where m.id = $1 and m.placement = $2 and m.deleted_at is null`,
       [itemId, placement],
     )
     const row = found.rows[0]
@@ -214,7 +215,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
          from managed_items m
          join response_rosters r on r.item_id = m.id
           and r.eligible_to_business_at is null and r.eligible_from_business_at <= $3
-        where m.status = 'published' and m.due_at is not null
+        where m.status = 'published' and m.deleted_at is null and m.due_at is not null
           and ((r.receiver_kind = 'user' and r.receiver_id = $1)
             or (r.receiver_kind = 'group' and r.receiver_id = any($2::uuid[])))
         order by m.due_at, m.id`,

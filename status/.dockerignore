@@ -1,0 +1,14 @@
+# build context 是 status/；只送原始碼進去，依賴在映像裡重裝。
+node_modules
+.next
+*.tsbuildinfo
+next-env.d.ts
+.env*
+# 本機與測試用的假資料、測試檔不進映像。
+fixtures
+test
+**/*.test.ts
+**/*.test.tsx
+**/*.test.mjs
+Dockerfile
+.dockerignore
