@@ -155,7 +155,10 @@ test.describe('以 S01（學生）', () => {
   })
 
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
-    await signInAs(page, 'student')
+    // 不用共用帳號：CI 只有一個 worker，共用學生帳號會跨檔沿用，先跑的 item-delete.spec 會替它補上
+    // 學號與屆別，「姓名」旁邊就變成「學號」、登入 Email 被擠到下一列。這裡要一個確定沒有個人資料的學生。
+    const session = await createTestSession(page.request, 'student')
+    await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
     const top = async (text: string) =>
       (await page.getByRole('region', { name: '基本資料' }).getByText(text, { exact: true }).first().boundingBox())!.y
     await page.setViewportSize({ width: 1440, height: 900 })
