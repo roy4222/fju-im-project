@@ -194,6 +194,7 @@ say() {
 # 關門（冪等、不寫 stdout）：停用自動更新 timer 並停掉正在跑的那一輪（不然 10 分鐘內 up -d 會把 cloudflared 再起來），
 # 再停掉所有 fju-status 的 cloudflared 容器。每個動作都 >/dev/null 2>&1：關門途中不會再被 SIGPIPE 打斷。
 # 第 1 步過了就 GATE_ARMED=1，第 10 步守門通過才歸 0；GATE_ARMED=1 時不論怎麼結束，on_exit 都先叫這裡。
+# 只由 on_exit 呼叫（那時訊號已忽略）；主流程任何地方都不要直接叫，不然關門途中被打斷會剩一半。
 DOOR_CLOSED=0
 GATE_ARMED=0
 EXIT_WHY=""
@@ -204,13 +205,15 @@ ERR_AT=""
 on_err() { # <行號>
   ERR_AT="${RUN_CMD:-$BASH_COMMAND}（第 ${1} 行，步驟 ${CUR_STEP}）"
 }
+# shellcheck disable=SC2329  # 由 on_exit 呼叫
 close_door() {
   local cid
   [ "$DOOR_CLOSED" = 0 ] || return 0
-  DOOR_CLOSED=1
   systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
   systemctl stop fju-status-update.service >/dev/null 2>&1 || true
   for cid in $(svc_cids cloudflared 2>/dev/null || true); do docker stop "$cid" >/dev/null 2>&1 || true; done
+  # 三個動作都做完才算關好；提前設會讓中途被打斷後再進來的那次直接跳過剩下的動作（漏停 cloudflared 卻印已關門）。
+  DOOR_CLOSED=1
   return 0
 }
 
@@ -515,16 +518,18 @@ cleanup_verify() {
   }
   return 0
 }
-# 每一種結束都走這裡（EXIT trap）：正常失敗（halt）、set -e、INT／HUP／TERM／PIPE 的 trap 都是 exit 進來。
+# 每一種結束都走這裡：正常失敗（halt）與 set -e 經 EXIT trap 進來（帶 $?）；INT／HUP／TERM／PIPE 的 trap 直接呼叫（帶 128+n）。
+# 第一件事就忽略再來的訊號、拆掉 EXIT trap：之後關門與清理不會被打斷（子程序也繼承忽略，Ctrl-C 砍不掉 docker stop），
+# 最後的 exit 也不會再進來一次。訊號 trap 直接呼叫而不是 exit，是為了讓「剛進來那一瞬間」再來的訊號也只是再跑一次完整的關門。
 # 順序固定：①守門沒過就先關門（最快、最要緊、不寫 stdout）→ ②砍掉還在等授權的 login 容器
 # → ③清第 7b 步的暫時資源、刪 cert.pem（它能管整個 zone，只在建立時需要）。
-# 這裡關掉 -e、忽略再來的訊號（含 PIPE：畫面或 tee 不在了，寫入只會失敗、不會再被殺）。
-# shellcheck disable=SC2329  # 由 trap on_exit EXIT 呼叫
-on_exit() {
-  local code=$? why
-  set +e
+# 這裡關掉 -e；PIPE 也忽略：畫面或 tee 不在了，寫入只會失敗、不會再被殺。
+# shellcheck disable=SC2329  # 由 trap 呼叫
+on_exit() { # [結束碼]
+  local code=${1:-$?} why
   trap '' INT HUP TERM PIPE
-  trap - ERR
+  trap - EXIT ERR
+  set +e
   if [ "$GATE_ARMED" = 1 ]; then
     close_door
     why=${EXIT_WHY:-"指令失敗，最後失敗的指令：${ERR_AT:-（不明）}"}
@@ -585,13 +590,13 @@ fi
 # 第 10 步守門通過才解除、才重新啟用自動更新。
 if [ "$DRY_RUN" = 0 ]; then
   GATE_ARMED=1
-  trap on_exit EXIT
-  # 訊號一律記下原因再 exit（結束碼 128+訊號號），讓 EXIT trap 關門。PIPE 一定要接：不接的話 bash 被 SIGPIPE
+  trap 'on_exit $?' EXIT
+  # 訊號一律記下原因、直接呼叫 on_exit（結束碼 128+訊號號）關門。PIPE 一定要接：不接的話 bash 被 SIGPIPE
   # 直接殺死、EXIT trap 不會跑（畫面或 `| tee` 不在了，清理訊息的第一個 printf 就把自己打死，門還開著）。
-  trap 'EXIT_WHY="被中斷（Ctrl-C）"; exit 130' INT
-  trap 'EXIT_WHY="連線中斷（SIGHUP）"; exit 129' HUP
-  trap 'EXIT_WHY="被終止（SIGTERM）"; exit 143' TERM
-  trap 'EXIT_WHY="輸出管線中斷（SIGPIPE：畫面或 tee 已經不在）"; exit 141' PIPE
+  trap 'EXIT_WHY="被中斷（Ctrl-C）"; on_exit 130' INT
+  trap 'EXIT_WHY="連線中斷（SIGHUP）"; on_exit 129' HUP
+  trap 'EXIT_WHY="被終止（SIGTERM）"; on_exit 143' TERM
+  trap 'EXIT_WHY="輸出管線中斷（SIGPIPE：畫面或 tee 已經不在）"; on_exit 141' PIPE
   trap 'on_err "$LINENO"' ERR
   systemctl stop fju-status-update.timer fju-status-update.service >/dev/null 2>&1 || true
   todo "安裝期間先停 fju-status-update（timer 與 service）；第 10 步守門通過才重新啟用，中途失敗就關門"
@@ -995,9 +1000,9 @@ fi
 # 步驟 10：Access 守門（失敗就關門）
 # ---------------------------------------------------------------------------
 step 10 "Access 守門：四個網址沒帶 cookie 都要被導到登入頁；容器裡實際掛載的設定要有 access 區塊"
+# 這裡不直接關門：訊號 trap 還掛著，關門途中被打斷會剩一半。統一由 halt → on_exit（先忽略訊號）關門。
 close_gate() {
   bad "$*"
-  close_door
   halt 1 "守門沒過：$*"
 }
 if [ "$DRY_RUN" = 1 ]; then

@@ -459,13 +459,18 @@ case "$url" in
       open) c=$(cat "$FAKE_STATE/counter"); echo $((c + 1)) > "$FAKE_STATE/counter"; printf 204 ;;
       *) printf 000 ;;
     esac ;;
-  https://*/) h=@{url#https://}; printf '302 https://%s/cdn-cgi/access/login/%s' "$FAKE_TEAM" "@{h%/}" ;;
+  https://*/)
+    h=@{url#https://}; h=@{h%/}
+    # FAKE_UNGUARDED=<網址>：那個網址沒被 Access 擋（回 200），第 10 步守門要失敗、關門。
+    if [ "$h" = "@{FAKE_UNGUARDED:-}" ]; then printf '200 '; else printf '302 https://%s/cdn-cgi/access/login/%s' "$FAKE_TEAM" "$h"; fi ;;
 esac
 `)
 
 const FAKE_SIMPLE: Record<string, string> = {
   id: `#!/bin/sh\n[ "$1" = -u ] && echo 0\nexit 0\n`,
-  systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\ncase "$1" in is-*) exit 1 ;; esac\nexit 0\n`,
+  // FAKE_DOOR_BLOCK=1：關門的第一個動作（disable --now update timer，只有關門會叫）卡住，留 door-closing 給測試看，
+  // 等測試放 door-go 才回來；給「關門途中送訊號」用。sleep 被換成假的，要用 /bin/sleep。
+  systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\ncase "$1" in is-*) exit 1 ;; esac\nif [ "\${FAKE_DOOR_BLOCK:-0}" = 1 ] && [ "$1" = disable ]; then : > "$FAKE_STATE/door-closing"; while [ ! -e "$FAKE_STATE/door-go" ]; do /bin/sleep 0.05; done; fi\nexit 0\n`,
   runuser: `#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n`,
   // FAKE_INSTALL_FAIL=1：裝 systemd 的 .timer 檔時回 1（第 8 步一個沒接 || halt 的普通指令失敗 → set -e 直接中止）。
   install: `#!/bin/sh\nif [ "\${FAKE_INSTALL_FAIL:-0}" = 1 ]; then case "$*" in *.timer*) echo "install: 假裝失敗" >&2; exit 1 ;; esac; fi\nargs=""\nwhile [ $# -gt 0 ]; do case "$1" in -o|-g) shift ;; *) args="$args '$1'" ;; esac; shift; done\neval exec /usr/bin/install $args\n`,
@@ -812,4 +817,26 @@ describe('離開路徑都要關門：停 cloudflared 容器、停用 update time
     expect(fs.existsSync(marker(vm))).toBe(true)
     expect(vm.dns.records).toBe(0)
   }, 60_000)
+
+  it('第 10 步守門失敗（一個網址沒被擋）→ 關門、印出哪個網址、結束碼 1（AC-S-5）', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev' })
+    expect(r.out).toContain('fju-status-db.roy422.dev 沒被擋')
+    expect(r.code).toBe(1)
+    expectDoorClosed()
+  }, 30_000)
+
+  it.each(['SIGINT', 'SIGHUP', 'SIGTERM'] as const)('第 10 步守門失敗、關門途中收到 %s → 訊號不打斷關門：容器停、timer 停用、service 停都做完才結束（AC-S-5、AC-S-25 b）', async (sig) => {
+    markInstalled(vm)
+    const { child, done } = spawnInstall(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev', FAKE_DOOR_BLOCK: '1' })
+    await waitFor(() => fs.existsSync(path.join(vm.state, 'door-closing')), '關門開始（systemctl disable 卡住）')
+    child.kill(sig)
+    fs.writeFileSync(path.join(vm.state, 'door-go'), '')
+    const r = await done
+    // 先驗門真的關了（舊碼：旗標提前設 1，EXIT trap 跳過 docker stop，卻印「已停掉」）
+    expectDoorClosed()
+    expect(r.signal).toBeNull()
+    expect(r.code).toBe(1)
+    expect(exitLog()).toContain('已停掉 cloudflared')
+  }, 30_000)
 })
