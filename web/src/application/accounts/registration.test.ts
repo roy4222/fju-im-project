@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedActor } from '@/application/accounts/actor'
 import {
+  BULK_APPROVAL_SKIP_LABEL,
+  bulkApprovalSkip,
   evidenceFlags,
   matchRoster,
   normalizeApplicationFields,
@@ -237,6 +239,45 @@ describe('核准時的屆別', () => {
     expect(suggestedApprovalCohort(matched, C114)).toBe(C115)
     expect(suggestedApprovalCohort(notFound, C114)).toBe(C114)
     expect(suggestedApprovalCohort(notFound, null)).toBeNull()
+  })
+})
+
+describe('批次核准：哪些人會自動略過（第三波 W6，N-09）', () => {
+  const cohorts = [
+    { id: C115, code: '115', name: '115 學年度專題' },
+    { id: C114, code: '114', name: '114 學年度專題' },
+  ]
+  const matched = matchRoster(app, [candidate()], C115)
+  const holder = { activeHolders: [{ name: '王小明', cohortCode: '115' }], otherPending: 0 }
+
+  it('名單比對到、學號沒人用、名單屆別可以指派：可以一起核准', () => {
+    expect(bulkApprovalSkip({ match: matched, duplicates: noDuplicates }, cohorts)).toBeNull()
+  })
+
+  it('學號已被別人占用：略過，原因是「學號已被使用」', () => {
+    expect(bulkApprovalSkip({ match: matched, duplicates: holder }, cohorts)).toBe('student_no_taken')
+    expect(BULK_APPROVAL_SKIP_LABEL.student_no_taken).toBe('學號已被使用')
+  })
+
+  it('名單比對不到、姓名不符：略過，請個別審核', () => {
+    const notFound = matchRoster({ ...app, studentNo: '499999999' }, [candidate()], C115)
+    expect(bulkApprovalSkip({ match: notFound, duplicates: noDuplicates }, cohorts)).toBe('not_found')
+    const mismatch = matchRoster({ ...app, appliedName: '王小名' }, [candidate()], C115)
+    expect(bulkApprovalSkip({ match: mismatch, duplicates: noDuplicates }, cohorts)).toBe('name_mismatch')
+  })
+
+  it('跨屆、另有人用同一個學號申請、名單屆別已封存：略過（這些要人判斷，不替系辦選）', () => {
+    const in114 = candidate({ rosterVersionId: 'v-114', cohortId: C114, cohortCode: '114' })
+    const both = matchRoster(app, [in114, candidate()], C115)
+    expect(bulkApprovalSkip({ match: both, duplicates: noDuplicates }, cohorts)).toBe('multiple_cohorts')
+    expect(bulkApprovalSkip({ match: matched, duplicates: { activeHolders: [], otherPending: 1 } }, cohorts)).toBe(
+      'other_pending',
+    )
+    expect(bulkApprovalSkip({ match: matched, duplicates: noDuplicates }, [cohorts[1]!])).toBe('cohort_unavailable')
+  })
+
+  it('每一種略過都有給系辦看的中文原因', () => {
+    for (const label of Object.values(BULK_APPROVAL_SKIP_LABEL)) expect(label).toMatch(/[\u4e00-\u9fff]/)
   })
 })
 

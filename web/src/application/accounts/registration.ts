@@ -449,6 +449,80 @@ export function suggestedApprovalCohort(match: RosterMatch, registrationOpenCoho
   return registrationOpenCohortId
 }
 
+// ── 批次核准（第三波 W6，N-09） ─────────────────────────────────────────────
+//
+// 待審清單勾好幾位一起核准：整批共用一個核實方式與說明（規則同 `normalizeApproval`），
+// 每一位仍各自走一次單筆核准的交易（各自成功或失敗）。需要人判斷的列一律自動略過、寫明原因，
+// 留給系辦個別打開審核——批次不替系辦選屆別，也不在學號有爭議時代為決定。
+
+export type BulkApprovalSkip =
+  | 'not_found'
+  | 'name_mismatch'
+  | 'multiple_cohorts'
+  | 'student_no_taken'
+  | 'other_pending'
+  | 'cohort_unavailable'
+  | 'not_pending'
+  | 'changed'
+  | 'failed'
+
+export const BULK_APPROVAL_SKIP_LABEL: Record<BulkApprovalSkip, string> = {
+  not_found: '名單比對不到，請個別審核',
+  name_mismatch: '姓名跟名單不同，請個別審核',
+  multiple_cohorts: '好幾屆名單都有這個學號，請個別審核並選屆別',
+  student_no_taken: '學號已被使用',
+  other_pending: '還有別人用同一個學號申請，請個別審核',
+  cohort_unavailable: '名單所屬的屆別已封存，請先處理屆別',
+  not_pending: '已經不在待審清單（可能剛被處理過）',
+  changed: '申請剛被處理或修改過，請個別重新核對',
+  failed: '核准沒有成功，請個別再試一次',
+}
+
+/** 一次最多勾幾位（跟待審清單一次列出的上限同一個量級；超過請分批）。 */
+export const BULK_APPROVAL_MAX = 200
+
+/**
+ * 這一位能不能放進批次核准；不行就回略過原因（預覽與真正核准時各算一次，以核准當下為準）。
+ * 只收「名單比對到、只有一屆、那一屆可以指派、學號沒人占用也沒人搶」的人。
+ */
+export function bulkApprovalSkip(
+  application: Pick<PendingApplication, 'match' | 'duplicates'>,
+  cohorts: readonly CohortChoice[],
+): BulkApprovalSkip | null {
+  const { match, duplicates } = application
+  if (duplicates.activeHolders.length > 0) return 'student_no_taken'
+  if (match.status === 'not_found') return 'not_found'
+  if (match.status === 'name_mismatch') return 'name_mismatch'
+  if (new Set(match.hits.map((h) => h.cohortId)).size > 1) return 'multiple_cohorts'
+  if (duplicates.otherPending > 0) return 'other_pending'
+  if (!resolveApprovalCohort(match, null, cohorts).ok) return 'cohort_unavailable'
+  return null
+}
+
+/** 預覽的一列：每一位的姓名、學號、名單比對結果，以及會不會被略過。 */
+export type BulkApprovalPreviewRow = {
+  readonly applicationId: string
+  readonly revision: number
+  readonly appliedName: string
+  readonly studentNo: string
+  readonly rosterMatch: RosterMatchStatus
+  /** 會進哪一屆（名單決定）；會略過的列為 null。 */
+  readonly cohortName: string | null
+  readonly skip: BulkApprovalSkip | null
+  readonly skipLabel: string | null
+}
+
+export type BulkApprovalPreview = {
+  readonly rows: readonly BulkApprovalPreviewRow[]
+  /** 勾了但已經不在待審清單的筆數（別的分頁剛處理掉了）。 */
+  readonly missing: number
+}
+
+export type BulkApprovalReceipt = {
+  readonly approved: readonly { readonly applicationId: string; readonly appliedName: string; readonly cohortName: string | null }[]
+  readonly skipped: readonly { readonly applicationId: string; readonly appliedName: string; readonly reason: string }[]
+}
+
 // ── 授權 ────────────────────────────────────────────────────────────────────
 
 /** 審核（看待審清單、核准、退回）：只有狀態正常的管理員（契約 03 §1「帳號」列）。 */
@@ -571,4 +645,19 @@ export interface RegistrationCommand {
     actor: ResolvedActor,
     input: { applicationId: string; revision: number; reason: string; requestId: string },
   ): Promise<Result<DecisionReceipt>>
+  /** 批次核准前的預覽：勾選的每一位會不會被略過、為什麼（不改任何狀態）。 */
+  previewApproveMany(actor: ResolvedActor, applicationIds: readonly string[]): Promise<Result<BulkApprovalPreview>>
+  /**
+   * 批次核准：整批共用核實方式與說明，每一位各自呼叫一次 `approve`（各自的交易、各自的請求編號，
+   * 重送時已完成的那幾位直接回放回執，不會重複核准）。核實欄位不對就整批不做。
+   */
+  approveMany(
+    actor: ResolvedActor,
+    input: {
+      items: readonly { applicationId: string; revision: number; requestId: string }[]
+      verificationMethod: string
+      verificationNote: string
+      reason: string
+    },
+  ): Promise<Result<BulkApprovalReceipt>>
 }

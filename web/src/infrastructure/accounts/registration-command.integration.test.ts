@@ -615,3 +615,89 @@ describe('票 7 審查建議（票 8 順手）', () => {
     }
   })
 })
+
+describe('批次核准（第三波 W6，AC-24）', () => {
+  const admin = () => activeActor(adminId, ['admin'])
+
+  it('勾 3 位：2 位名單比對到 → 核准；1 位學號已被使用 → 預覽與結果都略過並寫原因；重送不會重複核准', async () => {
+    // 114 屆自己的名單（不動 115 屆給其他案例用的那一份）。
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+          [cohort114, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    for (const [no, name] of [['411400101', '批次一'], ['411400102', '批次二'], ['411400103', '批次三']] as const) {
+      await db.sql(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+         values (gen_random_uuid(), $1, $2, $3, $3)`,
+        [version, no, name],
+      )
+    }
+    const u1 = await register({ studentNo: '411400101', appliedName: '批次一' })
+    const u2 = await register({ studentNo: '411400102', appliedName: '批次二' })
+    // 先有人用 411400103 核准掉，第三位的學號就已被使用。
+    const holder = await register({ studentNo: '411400103', appliedName: '批次三' })
+    const u3 = await register({ studentNo: '411400103', appliedName: '批次三' })
+    const appOf = async (userId: string) =>
+      (await one<{ id: string }>(`select id from registration_applications where user_id = $1 and state = 'pending'`, [userId])).id
+    expect(
+      await command.approve(admin(), {
+        applicationId: await appOf(holder), revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
+      }),
+    ).toMatchObject({ ok: true })
+
+    const ids = [await appOf(u1), await appOf(u2), await appOf(u3)]
+    const preview = await command.previewApproveMany(admin(), ids)
+    if (!preview.ok) throw new Error(preview.message)
+    expect(preview.receipt.missing).toBe(0)
+    expect(preview.receipt.rows.map((r) => [r.appliedName, r.rosterMatch, r.cohortName, r.skipLabel])).toEqual([
+      ['批次一', 'matched', '114 學年度專題', null],
+      ['批次二', 'matched', '114 學年度專題', null],
+      ['批次三', 'matched', null, '學號已被使用'],
+    ])
+
+    // 核實欄位不對：整批不做。
+    const items = preview.receipt.rows.map((r) => ({ applicationId: r.applicationId, revision: r.revision, requestId: requestId() }))
+    const bad = await command.approveMany(admin(), { items, verificationMethod: 'other', verificationNote: '', reason: '' })
+    expect(bad).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'verificationNote' } })
+    expect(await one(`select status from users where id = $1`, [u1])).toEqual({ status: 'pending' })
+
+    const input = { items, verificationMethod: 'id_document', verificationNote: '10/12 櫃台核對學生證', reason: '' }
+    const done = await command.approveMany(admin(), input)
+    if (!done.ok) throw new Error(done.message)
+    expect(done.receipt.approved.map((a) => [a.appliedName, a.cohortName])).toEqual([
+      ['批次一', '114 學年度專題'],
+      ['批次二', '114 學年度專題'],
+    ])
+    expect(done.receipt.skipped).toEqual([{ applicationId: ids[2], appliedName: '批次三', reason: '學號已被使用' }])
+
+    for (const u of [u1, u2]) expect(await one(`select status from users where id = $1`, [u])).toEqual({ status: 'active' })
+    expect(await one(`select status from users where id = $1`, [u3])).toEqual({ status: 'pending' })
+    const audits = `select count(*)::int as n from audit_events where action = 'account.approve' and target_id = any($1::uuid[])`
+    expect(await one(audits, [ids])).toEqual({ n: 2 })
+    expect(await one(`select verification_method from audit_events where action = 'account.approve' and target_id = $1`, [ids[0]])).toEqual({
+      verification_method: 'id_document',
+    })
+
+    // 結果未知時再按一次（同一組請求編號）：已核准的回放回執，不多寫紀錄。
+    const replay = await command.approveMany(admin(), input)
+    expect(replay).toMatchObject({ ok: true, receipt: { approved: [{ appliedName: '批次一' }, { appliedName: '批次二' }] } })
+    expect(await one(audits, [ids])).toEqual({ n: 2 })
+  })
+
+  it('非管理員預覽或批次核准一律被擋；沒勾、重複、超過上限都擋', async () => {
+    const userId = await register({ studentNo: '411400199' })
+    const { id } = await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [userId])
+    const input = { items: [{ applicationId: id, revision: 1, requestId: requestId() }], verificationMethod: 'id_document', verificationNote: '', reason: '' }
+    expect(await command.approveMany(activeActor(studentAdminLike, ['student']), input)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await command.previewApproveMany(ANON, [id])).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect(await command.previewApproveMany(admin(), [])).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await command.previewApproveMany(admin(), [id, id])).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await command.previewApproveMany(admin(), Array.from({ length: 201 }, () => id))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
+  })
+})
