@@ -242,8 +242,15 @@ test('老師建立合作案（先存草稿再發布）；下架、重新發布�
   await signIn(page, outsider)
   await page.goto('/industry')
   await expect(page.getByTestId('opportunity-card').filter({ hasText: COMPANY })).toContainText('門市補貨預測')
+  // 第三波 Q7④：怎麼聯繫寫在列表頁，詳情不再出現鎖頭與「看不到」的區塊。
+  // 頁尾也有系辦電話（W3），所以只在這段說明裡找。
+  const contactHint = page.locator('p', { hasText: '想合作請找指導老師' })
+  await expect(contactHint).toContainText('想合作請找指導老師；還沒有組別或指導老師，請洽系辦（02-2905-2666）')
+  await expect(contactHint.getByRole('link', { name: '02-2905-2666' })).toHaveAttribute('href', 'tel:+886229052666')
   await page.getByTestId('opportunity-card').filter({ hasText: COMPANY }).click()
-  await expect(page.getByTestId('opportunity-contact')).toContainText('只有負責老師與系辦看得到')
+  await expect(page.getByRole('heading', { name: '專題／合作內容' })).toBeVisible()
+  await expect(page.getByTestId('opportunity-contact')).toHaveCount(0)
+  await expect(page.getByText('只有負責老師與系辦看得到')).toHaveCount(0)
   const html = await page.content()
   expect(html).not.toContain(SECRET_PHONE)
   expect(html).not.toContain(SECRET_EMAIL)

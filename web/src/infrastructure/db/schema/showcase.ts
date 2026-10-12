@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -61,6 +62,11 @@ export const showcaseEntries = pgTable(
     awardLevel: text('award_level'),
     /** 獎項全名（例如「113 學年度校級優秀專題」），卡片與詳情顯示；沒有等級就不能有。 */
     awardLabel: text('award_label'),
+    /**
+     * 首頁輪播順序（0012，第三波 W0）：1 最前，NULL＝沒排、排在有排的後面（再依獎項）。
+     * 跟獎項分開：獎項決定上不上優秀專題與輪播，這欄只決定輪播裡的先後。
+     */
+    homePosition: smallint('home_position'),
     /** 已發布才有（S12）。 */
     currentVersionId: uuid('current_version_id').references((): AnyPgColumn => showcaseVersions.id, restrict),
     revision: integer('revision').notNull().default(1),
@@ -70,6 +76,9 @@ export const showcaseEntries = pgTable(
       .references(() => users.id, restrict),
     updatedAt: timestamp('updated_at', tz).notNull().defaultNow(),
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, restrict),
+    /** 刪除標記（0012，第三波 W0）：同 `managed_items`，不實體刪列、不提供恢復；只有草稿或已下架能刪。 */
+    deletedAt: timestamp('deleted_at', tz),
+    deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, restrict),
   },
   (t) => [
     // 同一組同一屆只能有一個精選條目（S11-03「再對 G1 建立第二份草稿 → 被拒」）。
@@ -87,6 +96,15 @@ export const showcaseEntries = pgTable(
       sql`${t.status} <> 'published' or ${t.currentVersionId} is not null`,
     ),
     check('showcase_entries_revision_check', sql`${t.revision} >= 1`),
+    check(
+      'showcase_entries_deleted_check',
+      sql`(${t.deletedAt} is null) = (${t.deletedByUserId} is null)
+          and (${t.deletedAt} is null or ${t.status} in ('draft','withdrawn'))`,
+    ),
+    check(
+      'showcase_entries_home_position_check',
+      sql`${t.homePosition} is null or ${t.homePosition} between 1 and 99`,
+    ),
   ],
 )
 
