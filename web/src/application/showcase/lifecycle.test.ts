@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   checkShowcaseLifecycle,
   normalizeAward,
+  normalizeHomePosition,
   SHOWCASE_STATUS_LABEL,
   type ShowcaseLifecycleAction,
   type ShowcaseStatus,
@@ -58,5 +59,23 @@ describe('獎項', () => {
     expect(orphan.ok === false && orphan.message).toContain('先選獎項')
     expect(normalizeAward({ level: 'merit', label: '字'.repeat(101) }).ok).toBe(false)
     expect(normalizeAward({ level: 'merit', label: '字'.repeat(100) }).ok).toBe(true)
+  })
+})
+
+describe('發布更新與首頁順序（W15）', () => {
+  it('發布更新只從公開中；草稿請先發布、下架中請先重新發布', () => {
+    expect(allowed('publish_update', 'published')).toBe(true)
+    expect(checkShowcaseLifecycle('publish_update', 'draft')).toMatch(/「發布」/)
+    expect(checkShowcaseLifecycle('publish_update', 'withdrawn')).toMatch(/「重新發布」/)
+  })
+
+  it('首頁順序：空白＝不排；1–99 整數；其他說得出範圍', () => {
+    expect(normalizeHomePosition('')).toEqual({ ok: true, value: null })
+    expect(normalizeHomePosition(null)).toEqual({ ok: true, value: null })
+    expect(normalizeHomePosition(' 3 ')).toEqual({ ok: true, value: 3 })
+    expect(normalizeHomePosition(99)).toEqual({ ok: true, value: 99 })
+    for (const bad of ['0', '100', '1.5', '-1', 'abc']) {
+      expect(normalizeHomePosition(bad)).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: expect.stringContaining('1 到 99') })
+    }
   })
 })

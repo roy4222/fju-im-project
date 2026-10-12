@@ -2,11 +2,13 @@
 import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import {
+  createBackfillAction,
   createDraftAction,
   deleteEntryAction,
   lifecycleAction,
   requestPosterUploadAction,
   setAwardAction,
+  setHomePositionAction,
   updateDraftAction,
 } from './actions'
 import { buttonVariants } from '@/app/_ui/ui/button'
@@ -23,6 +25,8 @@ const DANGER = buttonVariants({ variant: 'destructive', size: 'lg', className: '
  *
  * 第三波 W2：發布（勾「已取得這組同學同意公開」才按得下去）、下架、重新發布、獎項、刪除（危險操作區＋確認視窗，
  * 設計方案 §9 規則 1）。狀態規則在用例裡判；畫面只把不能按的鈕停用並寫原因。
+ *
+ * 第三波 W15：補登歷屆作品（選屆別＋題目，沒有組別）、首頁順序、公開中作品的「發布更新」（把改好的草稿換上前台）。
  */
 
 export type ShowcaseActionState = { ok: boolean; message: string } | undefined
@@ -61,6 +65,45 @@ export function CreateDraftForm({
       <div className="w-full">
         <Feedback state={state} />
       </div>
+    </form>
+  )
+}
+
+/** 補登歷屆作品：選屆別（含已封存的）、填題目；建好後在下面那件作品補內容、勾同意發布。 */
+export function BackfillForm({
+  cohorts,
+  requestId,
+}: {
+  cohorts: readonly { readonly id: string; readonly label: string }[]
+  requestId: string
+}) {
+  const [state, action, pending] = useActionState(createBackfillAction, undefined)
+  return (
+    <form action={action} className="space-y-3" aria-label="補登歷屆作品">
+      <input type="hidden" name="requestId" value={requestId} />
+      <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <label className={LABEL}>
+          屆別
+          <select name="cohortId" className={INPUT} required defaultValue={cohorts[0]?.id}>
+            {cohorts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={LABEL}>
+          作品題目
+          <input name="title" className={INPUT} required maxLength={200} placeholder="例如：智慧校園導覽系統" />
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" className={SECONDARY} disabled={pending}>
+          {pending ? '補登中…' : '補登作品'}
+        </button>
+        <span className="text-xs text-muted-foreground">不用選組別；組別欄會顯示「（歷屆補登）」。</span>
+      </div>
+      <Feedback state={state} />
     </form>
   )
 }
@@ -235,11 +278,17 @@ function EntryHidden({ entryId, revision, requestId }: Omit<EntryRef, 'label'>) 
 export function PublishPanel({
   status,
   titleMissing,
+  hasUnpublishedChanges,
   ...ref
-}: EntryRef & { status: 'draft' | 'published' | 'withdrawn'; titleMissing: boolean }) {
+}: EntryRef & { status: 'draft' | 'published' | 'withdrawn'; titleMissing: boolean; hasUnpublishedChanges: boolean }) {
   // 三個按鈕共用一個狀態：發布成功後這裡換成「下架」，剛剛那句回饋仍留在畫面上。
-  const [state, action, pending] = useActionState(lifecycleAction, undefined)
   const [consent, setConsent] = useState(false)
+  // 同意只算這一次（Q31）：發布或發布更新成功後清掉勾選，下一次要重新勾（按鈕回到停用）。
+  const [state, action, pending] = useActionState(async (previous: ShowcaseActionState, formData: FormData) => {
+    const result = await lifecycleAction(previous, formData)
+    if (result?.ok) setConsent(false)
+    return result
+  }, undefined)
 
   if (status === 'draft') {
     const reason = titleMissing ? '題目還是空白，先在上面填好題目並儲存草稿。' : consent ? null : '要先勾選上面的同意，才能發布。'
@@ -265,13 +314,39 @@ export function PublishPanel({
     )
   }
   if (status === 'published') {
+    // 同一張表單兩顆鈕（`intent` 跟著按下的那顆送出）：發布更新、下架共用一個回饋。
+    const updateReason = titleMissing
+      ? '題目還是空白，先在上面填好題目並儲存草稿。'
+      : !hasUnpublishedChanges
+        ? '草稿和前台目前那一版一樣；先改上面的草稿並儲存，才有更新可以發布。'
+        : consent
+          ? null
+          : '要先勾選上面的同意，才能發布更新。'
     return (
-      <form action={action} className="space-y-2" aria-label={`下架 ${ref.label}`}>
+      <form action={action} className="space-y-3" aria-label={`公開中 ${ref.label}`}>
         <EntryHidden {...ref} />
-        <input type="hidden" name="intent" value="withdraw" />
+        <div className="space-y-2">
+          {hasUnpublishedChanges ? (
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input type="checkbox" name="consent" value="yes" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4" />
+              <span>
+                已取得這組同學同意公開
+                <span className="block text-xs text-muted-foreground">發布更新會把新內容公開；系統會記下是你勾的。</span>
+              </span>
+            </label>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" name="intent" value="publish_update" className={PRIMARY} disabled={updateReason !== null || pending}>
+              {pending ? '處理中…' : '發布更新'}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              {updateReason ?? '把上面草稿目前的內容（題目、摘要、影片連結、海報）換上前台；之前的版本保留在紀錄裡。'}
+            </span>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button type="submit" className={SECONDARY} disabled={pending}>
-            {pending ? '下架中…' : '下架'}
+          <button type="submit" name="intent" value="withdraw" className={SECONDARY} disabled={pending}>
+            {pending ? '處理中…' : '下架'}
           </button>
           <span className="text-xs text-muted-foreground">
             下架後前台看不到（作品網址顯示「這則作品已下架」），海報也不再公開；後台保留，之後可以重新發布。
@@ -351,6 +426,45 @@ export function AwardForm({
           {pending ? '儲存中…' : '儲存獎項'}
         </button>
       </div>
+      <Feedback state={state} />
+    </form>
+  )
+}
+
+/** 首頁順序：只決定首頁輪播裡的先後（§9 規則 2：寫清楚影響哪裡、什麼時候才會出現）。 */
+export function HomePositionForm({
+  homePosition,
+  showsOnHome,
+  max,
+  ...ref
+}: EntryRef & { homePosition: number | null; showsOnHome: boolean; max: number }) {
+  const [state, action, pending] = useActionState(setHomePositionAction, undefined)
+  return (
+    <form action={action} className="space-y-2" aria-label={`${ref.label} 的首頁順序`}>
+      <EntryHidden {...ref} />
+      <label className={LABEL}>
+        首頁順序（1–{max}，1 排最前；留空＝不排）
+        <input
+          name="homePosition"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={max}
+          step={1}
+          defaultValue={homePosition ?? ''}
+          className={`${INPUT} max-w-32`}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {showsOnHome ? '這件作品目前在' : '有獎項而且公開中的作品才會出現在'}
+        <Link href="/" className="mx-1 underline underline-offset-2" target="_blank">
+          首頁輪播
+        </Link>
+        ，依這個數字由小到大排；沒填的排在有填的後面。
+      </p>
+      <button type="submit" className={SECONDARY} disabled={pending}>
+        {pending ? '儲存中…' : '儲存順序'}
+      </button>
       <Feedback state={state} />
     </form>
   )

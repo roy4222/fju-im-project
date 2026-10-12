@@ -14,7 +14,7 @@ export function describeCreateDraftReceipt(r: CreateDraftReceipt): string {
 }
 
 export function describeUpdateDraftReceipt(r: UpdateDraftReceipt): string {
-  return `${r.groupCode} 的精選草稿已儲存（第 ${r.revision} 版）${r.posterChanged ? '，海報已更新' : ''}。草稿不會公開。`
+  return `${r.groupCode ?? '歷屆補登'} 的精選草稿已儲存（第 ${r.revision} 版）${r.posterChanged ? '，海報已更新' : ''}。草稿不會公開。`
 }
 
 const who = (r: ShowcaseLifecycleReceipt) => `${r.groupCode ?? '歷屆補登'}「${r.title || '（未填題目）'}」`

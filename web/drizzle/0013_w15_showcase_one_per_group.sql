@@ -1,0 +1,2 @@
+DROP INDEX "showcase_entries_one_per_group";--> statement-breakpoint
+CREATE UNIQUE INDEX "showcase_entries_one_per_group" ON "showcase_entries" USING btree ("cohort_id","group_id") WHERE "showcase_entries"."group_id" is not null and "showcase_entries"."deleted_at" is null;
