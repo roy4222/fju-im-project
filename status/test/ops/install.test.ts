@@ -670,6 +670,8 @@ describe('README T4 D 框：Caddy 接對兩個網路且測試站 200 才清理�
 // ---------------------------------------------------------------------------
 
 const CF_IMAGE = 'cloudflare/cloudflared:2025.9.1'
+// 假公共 DNS 回的 Cloudflare 邊緣 IPv4（proxied 記錄都是同一組 anycast）。
+const EDGE_IP = '104.16.132.229'
 // 下面幾支假指令是 bash：模板字串裡的 bash 變數寫成 @{…}，這裡換回 ${…}（避免被當成 JS 插值）。
 const bash = (src: string) => src.replaceAll('@{', '${')
 
@@ -800,9 +802,25 @@ exit 0
 
 // 假 curl：暫時網址照暫時 cloudflared 有沒有鎖回 403／404／204（沒鎖時 /probe 會讓假 origin 計數加一）；
 // 四個正式網址都回 Access 的 302。
+// 公共 DNS（DoH：1.1.1.1、dns.google）回 JSON，A 記錄一律是 FAKE_EDGE_IP；FAKE_DOH_NXDOMAIN=<網址> 那個網址回 NXDOMAIN
+// （Status 3，像剛建、公共 DNS 還沒看到）；FAKE_DOH_FAIL=1 兩家都連不上（curl 回 7）。
+// FAKE_LOCAL_NXDOMAIN=1：模擬真帳號上遇到的「VM 的學校 DNS 把網址 NXDOMAIN 負快取」——沒帶 --resolve <網址>:443:<邊緣 IP>
+// 的 https 請求一律 000、curl 回 6（Could not resolve host）。
 const FAKE_CURL = bash(String.raw`#!/bin/bash
 echo "curl $*" >> "$CALLS_LOG"
 url=@{@: -1}
+case "$url" in
+  https://1.1.1.1/dns-query?name=*|https://dns.google/resolve?name=*)
+    [ "@{FAKE_DOH_FAIL:-0}" = 1 ] && exit 7
+    name=@{url#*name=}; name=@{name%%&*}
+    if [ "$name" = "@{FAKE_DOH_NXDOMAIN:-}" ]; then printf '{"Status":3,"Answer":[]}'
+    else printf '{"Status":0,"Answer":[{"name":"%s","type":1,"TTL":300,"data":"%s"}]}' "$name" "$FAKE_EDGE_IP"; fi
+    exit 0 ;;
+esac
+if [ "@{FAKE_LOCAL_NXDOMAIN:-0}" = 1 ]; then
+  h=@{url#https://}; h=@{h%%/*}
+  case " $* " in *" --resolve @{h}:443:@{FAKE_EDGE_IP} "*) ;; *) printf 000; exit 6 ;; esac
+fi
 mode=$(cat "$FAKE_STATE/cf_mode" 2>/dev/null)
 case "$url" in
   https://fju-status-verify.roy422.dev/ready)
@@ -926,6 +944,7 @@ function spawnInstall(vm: Vm, env: Record<string, string> = {}, opts: { detached
         CALLS_LOG: vm.calls,
         FAKE_STATE: vm.state,
         FAKE_TEAM: TEAM,
+        FAKE_EDGE_IP: EDGE_IP,
         FAKE_MOUNTED: path.join(w, 'mounted', 'config.yml'),
         FAKE_REAL_RENDER: RENDER,
         FAKE_TUNNEL_ID: TUNNEL_ID,
@@ -1050,6 +1069,47 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     // 守門已經通過，Beszel 失敗不關門
     expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
   }, 30_000)
+
+  // 真帳號上遇到的：VM 的 resolver 是學校 DNS，剛建的暫時網址被它 NXDOMAIN 負快取（roy422.dev 的 SOA 負快取 TTL 1800 秒），
+  // 舊版 curl 經本機 DNS 一直 000、等 3 分鐘後停在 7b。下面三案用 FAKE_LOCAL_NXDOMAIN=1 模擬，舊版都會紅。
+  const dohQueries = (c: string[], host: string) => c.filter((x) => x.startsWith('curl ') && x.includes(`dns-query?name=${host}&type=A`))
+  const curlsTo = (c: string[], host: string) => c.filter((x) => x.startsWith('curl ') && x.includes(`https://${host}/`))
+
+  it('P1：本機 DNS 對暫時網址回 NXDOMAIN、公共 DNS 查得到 → 7b 每個 curl 都 --resolve 公共 DNS 查到的邊緣 IP，整個流程通過；同一個網址只查一次', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1' })
+    expect(r.out).toContain('第一輪：有鎖')
+    expect(r.out).not.toContain('還是 000')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    const c = vmCalls(vm)
+    expect(dohQueries(c, 'fju-status-verify.roy422.dev')).toHaveLength(1)
+    const verifyCurls = curlsTo(c, 'fju-status-verify.roy422.dev')
+    expect(verifyCurls.length).toBeGreaterThanOrEqual(8) // /ready ×2 輪、/probe ×3 ×2 輪
+    for (const x of verifyCurls) expect(x).toContain(`--resolve fju-status-verify.roy422.dev:443:${EDGE_IP}`)
+  }, 30_000)
+
+  it('P1：公共 DNS 也還查不到暫時網址（剛建）→ 退回同 zone 已存在的 fju-status.roy422.dev 的邊緣 IP，照樣通過', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_NXDOMAIN: 'fju-status-verify.roy422.dev' })
+    expect(r.out).toContain('第一輪：有鎖')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    const c = vmCalls(vm)
+    expect(dohQueries(c, 'fju-status.roy422.dev').length).toBeGreaterThanOrEqual(1)
+    const verifyCurls = curlsTo(c, 'fju-status-verify.roy422.dev')
+    expect(verifyCurls.length).toBeGreaterThanOrEqual(8)
+    for (const x of verifyCurls) expect(x).toContain(`--resolve fju-status-verify.roy422.dev:443:${EDGE_IP}`)
+  }, 30_000)
+
+  it('公共 DNS 兩家都連不上、本機 DNS 又查不到 → 停在 7b；訊息說這次退回本機 resolver、000 可能是 DNS 負快取、見 README', async () => {
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_FAIL: '1' })
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('停在步驟 7b')
+    expect(r.out).toContain('還是 000（預期 403）')
+    expect(r.out).toContain('退回本機 resolver')
+    expect(r.out).toContain('負快取')
+    expect(r.out).toContain('ops/status/README.md')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+  }, 30_000)
 })
 
 // ---------------------------------------------------------------------------
@@ -1171,6 +1231,33 @@ describe('離開路徑都要關門：停 cloudflared 容器、停用 update time
     markInstalled(vm)
     const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev' })
     expect(r.out).toContain('fju-status-db.roy422.dev 沒被擋')
+    expect(r.code).toBe(1)
+    expectDoorClosed()
+  }, 30_000)
+
+  // 第一次安裝時四個正式網址也是剛建的，學校 DNS 一樣可能負快取：守門的 curl 同樣不經本機 DNS（舊版會把 000 當成沒被擋、關門）。
+  it('P1：已安裝後重跑（7b 跳過）、本機 DNS 對四個正式網址都查不到、公共 DNS 查得到 → 守門每個 curl 都 --resolve 邊緣 IP，302 通過、啟用自動更新', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1' })
+    expect(r.out).not.toContain('沒被擋')
+    expect(r.code).toBe(0)
+    const c = vmCalls(vm)
+    expect(c).toContain('systemctl enable --now fju-status-update.timer')
+    expect(c.filter((x) => x.startsWith('docker stop'))).toEqual([])
+    for (const h of HOSTS) {
+      const gate = c.filter((x) => x.startsWith('curl ') && x.endsWith(` https://${h}/`))
+      expect(gate.length, h).toBeGreaterThanOrEqual(1)
+      for (const x of gate) expect(x).toContain(`--resolve ${h}:443:${EDGE_IP}`)
+    }
+  }, 30_000)
+
+  it('守門：公共 DNS 連不上、本機 DNS 又查不到 → 照舊當成沒被擋、關門；訊息附 000 的 DNS 負快取提示與這次接的是什麼', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_LOCAL_NXDOMAIN: '1', FAKE_DOH_FAIL: '1' })
+    expect(r.out).toContain('fju-status.roy422.dev 沒被擋：000')
+    expect(r.out).toContain('退回本機 resolver')
+    expect(r.out).toContain('負快取')
+    expect(r.out).toContain('ops/status/README.md')
     expect(r.code).toBe(1)
     expectDoorClosed()
   }, 30_000)
