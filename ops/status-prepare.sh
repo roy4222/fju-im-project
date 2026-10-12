@@ -94,7 +94,7 @@ else
   PUBKEY="<--dry-run：金鑰還沒產，${KEY}.pub>"
 fi
 grep -q '^Host fju-status-publish$' "${HOME}/.ssh/config" 2>/dev/null \
-  || todo "~/.ssh/config 還沒有 Host fju-status-publish：照 ops/ssh-config.example 那段貼上（驗收結果推送用，S-8）"
+  || todo "\${HOME}/.ssh/config 還沒有 Host fju-status-publish：照 ops/ssh-config.example 那段貼上（驗收結果推送用，S-8）"
 
 step "3. 送 ops 與 compose 到 ${VM_HOST}:/tmp/fju-app/（一次連線）"
 # shellcheck disable=SC2086 # SEND 是刻意分詞的檔案清單
@@ -102,6 +102,8 @@ run rsync -a --delete $SEND "${VM_HOST}:/tmp/fju-app/"
 [ "$DRY_RUN" = 1 ] || ok "送好了"
 
 step "4. 兩支重置腳本的 sha256（VM 安裝第 4 步會印同樣兩行）"
+# RESET_SCRIPTS 是刻意用空白分開的兩個檔名。
+# shellcheck disable=SC2086
 (cd ops && shasum -a 256 $RESET_SCRIPTS) | sed 's/^/    /'
 grep -q 'seed-demo' ops/fju-test-reset 2>/dev/null \
   || todo "重置腳本還沒有 seed-demo（S-7 還沒合併）：VM 第 4 步會印「跳過」"

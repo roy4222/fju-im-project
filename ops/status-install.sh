@@ -21,9 +21,12 @@
 # 可用記憶體 < 2.5 GB 就在第 1 步停下、什麼都不建。
 # 第 7b 步只對暫時隧道 fju-status-verify 與假 origin 做破壞性測試，不碰真後台、不改 Access 政策。
 # 第 10 步任何一個網址沒被 Access 擋住 → 停掉 cloudflared 與自動更新 timer、結束碼 1。
+# 第 1 步過了之後、第 10 步守門通過之前，不論怎麼結束（失敗、set -e、Ctrl-C、ssh 斷線、輸出管線斷、
+# 等授權時被終止）都先關門：停 cloudflared 容器、停用 fju-status-update timer、停 service；紀錄在 .install/exit.log。
 # 說明與 Roy 的 3 件事見 ops/status/README.md。
 
-set -euo pipefail
+# -E：ERR trap 在函式裡也有效（結束時才印得出「最後失敗的指令」）。
+set -Eeuo pipefail
 umask 077
 
 DEPLOY_USER=deploy
@@ -38,7 +41,6 @@ UNIT_SRC=$APP_DIR/ops/status/systemd
 # 下面幾個 FJU_STATUS_* 只給 status/test/ops/install.test.ts 的故障注入測試用（把系統路徑換成暫存目錄）；正式安裝不要設。
 UNIT_DIR=${FJU_STATUS_UNIT_DIR:-/etc/systemd/system}
 UNITS="fju-status-update.service fju-status-update.timer fju-status-envcheck.service fju-status-envcheck.timer"
-TIMERS="fju-status-update.timer fju-status-envcheck.timer"
 RESET_SCRIPTS="fju-test-reset fju-test-reset-gate"
 
 STATUS_ROOT=${FJU_STATUS_ROOT:-/srv/fju/status}
@@ -51,6 +53,8 @@ PATHS_ENV=$STATUS_ROOT/paths.env
 # 安裝腳本自己的紀錄（第 7b 步通過的 team／AUD／版本）；root 700。
 STATE_DIR=$STATUS_ROOT/.install
 VERIFY_MARKER=$STATE_DIR/verify-7b.ok
+# 結束時（關門、清理）的紀錄：畫面或 ssh 已經不在時，Roy 事後還查得到發生什麼事。
+EXIT_LOG=$STATE_DIR/exit.log
 # tunnel login 產生的 cert.pem 只活在這裡，結束時（不論成敗）整個刪掉。
 LOGIN_DIR=$STATUS_ROOT/.cloudflared-login
 OFFSITE_DEFAULT=/srv/fju/offsite
@@ -88,11 +92,12 @@ PUBKEY=""
 CHECK_FILE=""
 HOSTS_ARG=""
 
-ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
-skip() { printf '  \033[36m跳過\033[0m %s\n' "$*"; }
-todo() { printf '  \033[33m→\033[0m %s\n' "$*"; }
-bad()  { printf '  \033[31m✗\033[0m %s\n' "$*"; }
-step() { CUR_STEP=$1; shift; printf '\n\033[1m步驟 %s：%s\033[0m\n' "$CUR_STEP" "$*"; }
+# 畫面輸出一律 2>/dev/null：stdout 管線斷掉時（PIPE 有 trap）printf 只會回非 0，不要再往 stderr 噴「write error」。
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*" 2>/dev/null; }
+skip() { printf '  \033[36m跳過\033[0m %s\n' "$*" 2>/dev/null; }
+todo() { printf '  \033[33m→\033[0m %s\n' "$*" 2>/dev/null; }
+bad()  { printf '  \033[31m✗\033[0m %s\n' "$*" 2>/dev/null; }
+step() { CUR_STEP=$1; shift; printf '\n\033[1m步驟 %s：%s\033[0m\n' "$CUR_STEP" "$*" 2>/dev/null; }
 die()  { echo "$*" >&2; exit 1; }
 
 SUMMARY=""
@@ -110,21 +115,25 @@ note() {
 # 停在這一步：印原因、印摘要、結束碼 1（記憶體不足用 2）。
 halt() {
   local code=$1; shift
+  EXIT_WHY="停在步驟 ${CUR_STEP}：$*"
   bad "$*"
   note "✗" "$*"
-  printf '\n\033[1m停在步驟 %s。\033[0m到目前為止：\n%s' "$CUR_STEP" "$SUMMARY"
+  printf '\n\033[1m停在步驟 %s。\033[0m到目前為止：\n%s' "$CUR_STEP" "$SUMMARY" 2>/dev/null
   exit "$code"
 }
 
 usage() { sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
-# --dry-run 只印「會執行」，不執行。
+# --dry-run 只印「會執行」，不執行。RUN_CMD：真的執行時先記下來，set -e 中止時 on_err 才印得出是哪個指令（不然只看到 "$@"）。
+RUN_CMD=""
 run() {
-  if [ "$DRY_RUN" = 1 ]; then
-    todo "會執行：$*"
-  else
-    "$@"
-  fi
+  local rc=0
+  if [ "$DRY_RUN" = 1 ]; then todo "會執行：$*"; return 0; fi
+  RUN_CMD="$*"
+  "$@" || rc=$?
+  # 失敗時留著 RUN_CMD 給 on_err；回傳碼一定要原樣帶回去（set -e、|| halt 都靠它）。
+  if [ "$rc" = 0 ]; then RUN_CMD=""; fi
+  return "$rc"
 }
 as_deploy() { run runuser -u "$DEPLOY_USER" -- "$@"; }
 
@@ -175,18 +184,34 @@ image_from_compose() {
   esac
 }
 
-# 關門：停掉所有 fju-status 的 cloudflared 容器，並停掉自動更新（timer 與正在跑的那一輪），
-# 不然 10 分鐘內 up -d 會把它再起來。
-GATE_SHUT=0
+# 結束時的訊息：先寫 EXIT_LOG（ssh 斷線後 Roy 還查得到），再盡力印到畫面。
+# 這時 PIPE 已被忽略：畫面不在了只會得到寫入錯誤（丟掉），不會把關門打斷。
+# shellcheck disable=SC2329  # 由 on_exit（EXIT trap）呼叫
+say() {
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)" "$*" >>"$EXIT_LOG" 2>/dev/null || true
+  printf '  %s\n' "$*" 2>/dev/null || true
+}
+# 關門（冪等、不寫 stdout）：停用自動更新 timer 並停掉正在跑的那一輪（不然 10 分鐘內 up -d 會把 cloudflared 再起來），
+# 再停掉所有 fju-status 的 cloudflared 容器。每個動作都 >/dev/null 2>&1：關門途中不會再被 SIGPIPE 打斷。
+# 第 1 步過了就 GATE_ARMED=1，第 10 步守門通過才歸 0；GATE_ARMED=1 時不論怎麼結束，on_exit 都先叫這裡。
+DOOR_CLOSED=0
 GATE_ARMED=0
-shut_gate() {
+EXIT_WHY=""
+ERR_AT=""
+# set -e 直接中止時沒有人印原因：ERR trap 記下最後失敗的指令、行號、步驟，on_exit 一併印、寫 log。
+# BASH_COMMAND 在 trap 執行期間就是失敗的那個指令（變數還沒展開）；經 run 包的改印 run 記下的實際指令。
+# shellcheck disable=SC2329  # 由 trap on_err ERR 呼叫
+on_err() { # <行號>
+  ERR_AT="${RUN_CMD:-$BASH_COMMAND}（第 ${1} 行，步驟 ${CUR_STEP}）"
+}
+close_door() {
   local cid
-  [ "$GATE_SHUT" = 0 ] || return 0
-  GATE_SHUT=1
+  [ "$DOOR_CLOSED" = 0 ] || return 0
+  DOOR_CLOSED=1
   systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
   systemctl stop fju-status-update.service >/dev/null 2>&1 || true
-  for cid in $(svc_cids cloudflared); do docker stop "$cid" >/dev/null 2>&1 || true; done
-  printf '  \033[31m✗\033[0m 已停掉 cloudflared 與 fju-status-update：四個網址現在都連不上。修好後重跑同一行\n' 2>/dev/null || true
+  for cid in $(svc_cids cloudflared 2>/dev/null || true); do docker stop "$cid" >/dev/null 2>&1 || true; done
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -380,9 +405,28 @@ show_usage_snapshot() {
 # 隧道、清理與結束時的處理（函式先定義好，第 1 步之後就可能被 EXIT trap 叫到）
 # ---------------------------------------------------------------------------
 # cloudflared 一律用固定版本的容器跑，不在主機裝套件；cert.pem 只放 LOGIN_DIR（root 700）。
-cf() {
-  docker run --rm --user 0:0 -e HOME=/cf -e TUNNEL_ORIGIN_CERT=/cf/.cloudflared/cert.pem \
-    -v "$LOGIN_DIR:/cf/.cloudflared" "$CLOUDFLARED_IMAGE" tunnel "$@"
+CF_ARGS=(--user 0:0 -e HOME=/cf -e TUNNEL_ORIGIN_CERT=/cf/.cloudflared/cert.pem -v "$LOGIN_DIR:/cf/.cloudflared" "$CLOUDFLARED_IMAGE" tunnel)
+cf() { docker run --rm "${CF_ARGS[@]}" "$@"; }
+# tunnel login 要等 Roy 到瀏覽器授權，可能等很久。bash 要等前景子程序結束才會執行 trap，所以放到背景再 wait：
+# 中途收到 INT／HUP／TERM，wait 會立刻回來、on_exit 把這個容器砍掉再關門，不會卡著等 Roy 點。
+# 容器有固定名字，砍的時候不用知道 id；簡單指令接 & 時 $! 就是 docker 本身的 pid。
+LOGIN_CONTAINER=fju-status-login
+LOGIN_PID=""
+cf_login() {
+  local rc=0
+  docker rm -f "$LOGIN_CONTAINER" >/dev/null 2>&1 || true
+  docker run --rm --name "$LOGIN_CONTAINER" "${CF_ARGS[@]}" login & LOGIN_PID=$!
+  wait "$LOGIN_PID" || rc=$?
+  LOGIN_PID=""
+  return "$rc"
+}
+# shellcheck disable=SC2329  # 由 on_exit（EXIT trap）呼叫
+kill_login() {
+  [ -n "$LOGIN_PID" ] || return 0
+  kill -TERM "$LOGIN_PID" 2>/dev/null || true
+  docker rm -f "$LOGIN_CONTAINER" >/dev/null 2>&1 || true
+  wait "$LOGIN_PID" 2>/dev/null || true
+  LOGIN_PID=""
 }
 # 印隧道 id（沒有這條就印空字串）；列不出來（網路、API 錯）回傳 2，不能當成「沒有」。
 tunnel_id_by_name() {
@@ -471,19 +515,28 @@ cleanup_verify() {
   }
   return 0
 }
-# 不論成敗（含 Ctrl-C）：先清第 7b 步的暫時資源，再刪 cert.pem（它能管整個 zone，只在建立時需要）。
-# ssh 斷線時 stdout 已經寫不進去：這裡關掉 -e、忽略再來的訊號，清理失敗也一定刪 cert.pem。
-# 守門還沒通過（GATE_ARMED=1）就中途結束（halt、set -e、Ctrl-C、ssh 斷線）→ 關門。
+# 每一種結束都走這裡（EXIT trap）：正常失敗（halt）、set -e、INT／HUP／TERM／PIPE 的 trap 都是 exit 進來。
+# 順序固定：①守門沒過就先關門（最快、最要緊、不寫 stdout）→ ②砍掉還在等授權的 login 容器
+# → ③清第 7b 步的暫時資源、刪 cert.pem（它能管整個 zone，只在建立時需要）。
+# 這裡關掉 -e、忽略再來的訊號（含 PIPE：畫面或 tee 不在了，寫入只會失敗、不會再被殺）。
+# shellcheck disable=SC2329  # 由 trap on_exit EXIT 呼叫
 on_exit() {
-  local code=$?
+  local code=$? why
   set +e
-  trap '' INT HUP TERM
+  trap '' INT HUP TERM PIPE
+  trap - ERR
+  if [ "$GATE_ARMED" = 1 ]; then
+    close_door
+    why=${EXIT_WHY:-"指令失敗，最後失敗的指令：${ERR_AT:-（不明）}"}
+    say "✗ 安裝在第 10 步守門通過前結束（結束碼 ${code}；${why}）"
+    say "✗ 已停掉 cloudflared 容器、停用 fju-status-update.timer、停掉 fju-status-update.service：四個網址現在都連不上。修好後重跑同一行"
+  fi
+  kill_login
   if [ -d "$LOGIN_DIR" ]; then
     cleanup_verify
     rm -rf "$LOGIN_DIR"
-    echo "  已刪 cert.pem 與暫時登入目錄" 2>/dev/null
+    say "已刪 cert.pem 與暫時登入目錄"
   fi
-  if [ "$GATE_ARMED" = 1 ] && [ "$code" != 0 ]; then shut_gate; fi
   exit "$code"
 }
 
@@ -499,6 +552,7 @@ check_pre() { # <說明> <指令…>
   local what=$1; shift
   if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; pre_ok=0; fi
 }
+# shellcheck disable=SC2329  # 由 check_pre 間接呼叫
 os_is_2404() { [ -r "$OS_RELEASE" ] && grep -q '^ID=ubuntu$' "$OS_RELEASE" && grep -q '^VERSION_ID="24.04"$' "$OS_RELEASE"; }
 check_pre "Ubuntu 24.04" os_is_2404
 check_pre "docker 與 compose 外掛" docker compose version
@@ -532,7 +586,13 @@ fi
 if [ "$DRY_RUN" = 0 ]; then
   GATE_ARMED=1
   trap on_exit EXIT
-  trap 'exit 130' INT HUP TERM
+  # 訊號一律記下原因再 exit（結束碼 128+訊號號），讓 EXIT trap 關門。PIPE 一定要接：不接的話 bash 被 SIGPIPE
+  # 直接殺死、EXIT trap 不會跑（畫面或 `| tee` 不在了，清理訊息的第一個 printf 就把自己打死，門還開著）。
+  trap 'EXIT_WHY="被中斷（Ctrl-C）"; exit 130' INT
+  trap 'EXIT_WHY="連線中斷（SIGHUP）"; exit 129' HUP
+  trap 'EXIT_WHY="被終止（SIGTERM）"; exit 143' TERM
+  trap 'EXIT_WHY="輸出管線中斷（SIGPIPE：畫面或 tee 已經不在）"; exit 141' PIPE
+  trap 'on_err "$LINENO"' ERR
   systemctl stop fju-status-update.timer fju-status-update.service >/dev/null 2>&1 || true
   todo "安裝期間先停 fju-status-update（timer 與 service）；第 10 步守門通過才重新啟用，中途失敗就關門"
 fi
@@ -548,7 +608,7 @@ ensure_dir "$DATA" root:root 755
 [ -d "$INBOX" ] || ensure_dir "$INBOX" root:root 755
 ensure_dir "$ENVCHECK" "${DEPLOY_USER}:${DEPLOY_USER}" 700
 for d in beszel gatus pghero; do
-  [ -d "$STATUS_ROOT/$d" ] && skip "${STATUS_ROOT}/${d} 已存在" || ensure_dir "$STATUS_ROOT/$d" root:root 755
+  if [ -d "$STATUS_ROOT/$d" ]; then skip "${STATUS_ROOT}/${d} 已存在"; else ensure_dir "$STATUS_ROOT/$d" root:root 755; fi
 done
 ensure_dir "$STATE_DIR" root:root 700
 # Beszel agent 唯讀掛這個空目錄量根磁碟容量（§3.13）：裡面有東西 agent 就讀得到，所以必須是空的。
@@ -559,7 +619,7 @@ if [ -d "$DISKPROBE" ] && [ -n "$(ls -A "$DISKPROBE" 2>/dev/null)" ]; then
 fi
 # 異地備份目錄：collector 唯讀掛它；路徑不同就印出來、寫進 paths.env 讓 compose 改掛載點。
 if [ -d "$OFFSITE_DIR" ]; then
-  ok "異地備份目錄 ${OFFSITE_DIR}：$(ls "$OFFSITE_DIR" 2>/dev/null | tr '\n' ' ')"
+  ok "異地備份目錄 ${OFFSITE_DIR}：$(find "$OFFSITE_DIR" -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null || true)"
 else
   bad "異地備份目錄 ${OFFSITE_DIR} 不存在（「24 小時內有備份」那條會是紅的）"
   candidates=$(find /srv/fju -maxdepth 3 -type d -name 'offsite*' 2>/dev/null | tr '\n' ' ' || true)
@@ -645,6 +705,8 @@ else
     fi
   done
   echo "  兩支的 sha256（要跟 Mac 上 status-prepare.sh 印的一樣）："
+  # RESET_SCRIPTS 是刻意用空白分開的兩個檔名。
+  # shellcheck disable=SC2086
   (cd "$APP_DIR/ops" && sha256sum $RESET_SCRIPTS) | sed 's/^/    /'
   note "✓" "重置腳本含 seed-demo，已裝到 ${SBIN}"
 fi
@@ -726,10 +788,14 @@ else
   # 上次被硬砍（kill -9、當機）留下的 cert.pem 先刪掉；要用時下面會重新登入。
   rm -rf "$LOGIN_DIR"
   if [ "$NEED_LOGIN" = 1 ]; then
+    # 決定重做 7b 就先把舊的通過紀錄刪掉：驗證與四類清理全部通過才會原子地寫新的（write_file 是暫存檔＋mv）。
+    # 不先刪的話：tunnel.json 遺失→重做 7b→驗證過但清理失敗→舊紀錄還在、tunnel.json 又已寫好，
+    # 再重跑就會跳過 7b、結束碼 0，殘留的暫時 DNS 沒人清。
+    rm -f "$VERIFY_MARKER"
     install -d -o root -g root -m 700 "$LOGIN_DIR"
     run docker pull -q "$CLOUDFLARED_IMAGE" >/dev/null
-    printf '\n  \033[1m下面會印一個 https://dash.cloudflare.com/argotunnel?… 網址：用瀏覽器打開、選 roy422.dev、按 Authorize。\033[0m\n'
-    cf login || halt 1 "cloudflared tunnel login 沒成功（網址要在幾分鐘內點）；重跑同一行即可"
+    printf '\n  \033[1m下面會印一個 https://dash.cloudflare.com/argotunnel?… 網址：用瀏覽器打開、選 roy422.dev、按 Authorize。\033[0m\n' 2>/dev/null
+    cf_login || halt 1 "cloudflared tunnel login 沒成功（網址要在幾分鐘內點）；重跑同一行即可"
     ok "已授權（cert.pem 在 ${LOGIN_DIR}，結束時刪掉）"
     if [ -s "$SECRETS/tunnel.json" ]; then
       skip "${SECRETS}/tunnel.json 已存在"
@@ -791,8 +857,8 @@ start_verify_cf() { # <設定檔>
 }
 # 等暫時網址真的經過 Cloudflare 打到這個 cloudflared：打 /ready（假 origin 回 404、不計數）直到拿到預期的碼。
 wait_verify_ready() { # <預期碼>
-  local i code=""
-  for i in $(seq 1 36); do
+  local code=""
+  for _ in $(seq 1 36); do
     code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/ready" || true)
     [ "$code" = "$1" ] && return 0
     sleep 5
@@ -801,8 +867,8 @@ wait_verify_ready() { # <預期碼>
   return 1
 }
 probe3() { # 從 VM 經 Cloudflare 打 /probe 三次，印三個 HTTP 碼
-  local i out=""
-  for i in 1 2 3; do out="${out} $(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)"; done
+  local out=""
+  for _ in 1 2 3; do out="${out} $(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)"; done
   echo "${out# }"
 }
 read_count() { # 從暫時網路內讀假 origin 的 /count（唯讀、不計數）
@@ -931,7 +997,7 @@ fi
 step 10 "Access 守門：四個網址沒帶 cookie 都要被導到登入頁；容器裡實際掛載的設定要有 access 區塊"
 close_gate() {
   bad "$*"
-  shut_gate
+  close_door
   halt 1 "守門沒過：$*"
 }
 if [ "$DRY_RUN" = 1 ]; then

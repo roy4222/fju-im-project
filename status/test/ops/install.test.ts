@@ -419,6 +419,14 @@ case "$1" in
         done
         case "$sub" in
           login)
+            # FAKE_LOGIN_BLOCK=1：模擬「印出授權網址後等 Roy 點」——先留 login-waiting 給測試看，
+            # 再等測試放 login-go（內容 fail 就當授權失敗）。注意 sleep 被換成假的，要用 /bin/sleep。
+            if [ "@{FAKE_LOGIN_BLOCK:-0}" = 1 ]; then
+              echo "https://dash.cloudflare.com/argotunnel?fake"
+              : > "$S/login-waiting"
+              while [ ! -e "$S/login-go" ]; do /bin/sleep 0.05; done
+              [ "$(cat "$S/login-go")" = fail ] && exit 1
+            fi
             tok=$(printf '{"zoneID":"z1","accountID":"a1","apiToken":"t1"}' | base64 | tr -d '\n')
             printf -- '-----BEGIN ARGO TUNNEL TOKEN-----\n%s\n-----END ARGO TUNNEL TOKEN-----\n' "$tok" > "$login/cert.pem"
             echo login >> "$S/logins" ;;
@@ -459,7 +467,8 @@ const FAKE_SIMPLE: Record<string, string> = {
   id: `#!/bin/sh\n[ "$1" = -u ] && echo 0\nexit 0\n`,
   systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\ncase "$1" in is-*) exit 1 ;; esac\nexit 0\n`,
   runuser: `#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n`,
-  install: `#!/bin/sh\nargs=""\nwhile [ $# -gt 0 ]; do case "$1" in -o|-g) shift ;; *) args="$args '$1'" ;; esac; shift; done\neval exec /usr/bin/install $args\n`,
+  // FAKE_INSTALL_FAIL=1：裝 systemd 的 .timer 檔時回 1（第 8 步一個沒接 || halt 的普通指令失敗 → set -e 直接中止）。
+  install: `#!/bin/sh\nif [ "\${FAKE_INSTALL_FAIL:-0}" = 1 ]; then case "$*" in *.timer*) echo "install: 假裝失敗" >&2; exit 1 ;; esac; fi\nargs=""\nwhile [ $# -gt 0 ]; do case "$1" in -o|-g) shift ;; *) args="$args '$1'" ;; esac; shift; done\neval exec /usr/bin/install $args\n`,
   chown: `#!/bin/sh\nexit 0\n`,
   useradd: `#!/bin/sh\necho "useradd $*" >> "$CALLS_LOG"\n`,
   sshd: `#!/bin/sh\nexit 0\n`,
@@ -552,10 +561,12 @@ function goodConfigFor(team: string) {
   return goodConfig().replaceAll('teamName: royteam', `teamName: ${team}`)
 }
 
-function installOnVm(vm: Vm, env: Record<string, string> = {}): Promise<{ code: number | null; out: string }> {
+type Run = { code: number | null; signal: NodeJS.Signals | null; out: string }
+
+// 起安裝腳本（非 dry-run、假 VM）。回傳子程序給「離開路徑」測試關管線、送訊號；done 在它結束後才解決。
+function spawnInstall(vm: Vm, env: Record<string, string> = {}) {
   const w = vm.w
-  return new Promise((resolve) => {
-    const child = spawn('bash', [INSTALL, ...installArgs('--mem-available-override', '8000', '--offsite-dir', path.join(w, 'offsite'))], {
+  const child = spawn('bash', [INSTALL, ...installArgs('--mem-available-override', '8000', '--offsite-dir', path.join(w, 'offsite'))], {
       env: {
         NODE_ENV: 'test',
         PATH: `${path.join(w, 'bin')}:${process.env.PATH}`,
@@ -577,11 +588,24 @@ function installOnVm(vm: Vm, env: Record<string, string> = {}): Promise<{ code: 
         ...env,
       },
     })
-    let out = ''
-    child.stdout.on('data', (d: Buffer) => (out += d))
-    child.stderr.on('data', (d: Buffer) => (out += d))
-    child.on('close', (code: number | null) => resolve({ code, out }))
+  let out = ''
+  child.stdout.on('data', (d: Buffer) => (out += d))
+  child.stderr.on('data', (d: Buffer) => (out += d))
+  // 用 close（stdio 都收完）而不是 exit：測試要讀完整輸出；管線被 destroy 掉的那幾個 close 一樣會來。
+  const done = new Promise<Run>((resolve) => {
+    child.on('close', (code: number | null, signal: NodeJS.Signals | null) => resolve({ code, signal, out }))
   })
+  return { child, done }
+}
+
+const installOnVm = (vm: Vm, env: Record<string, string> = {}) => spawnInstall(vm, env).done
+
+async function waitFor(cond: () => boolean, what: string, ms = 10_000) {
+  const until = Date.now() + ms
+  while (!cond()) {
+    if (Date.now() > until) throw new Error(`等不到：${what}`)
+    await new Promise((r) => setTimeout(r, 20))
+  }
 }
 
 const vmCalls = (vm: Vm) => fs.readFileSync(vm.calls, 'utf8').split('\n').filter(Boolean)
@@ -672,4 +696,120 @@ describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
     // 守門已經通過，Beszel 失敗不關門
     expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
   }, 30_000)
+})
+
+// ---------------------------------------------------------------------------
+// 離開路徑：守門（第 10 步）通過前，任何一種結束都要關門
+// ---------------------------------------------------------------------------
+
+describe('離開路徑都要關門：停 cloudflared 容器、停用 update timer、停 update service（第 10 步守門通過前）', () => {
+  let vm: Vm
+  beforeEach(async () => {
+    vm = await makeVm()
+  })
+  afterEach(async () => {
+    await closeVm(vm)
+  })
+
+  const DOOR = ['docker stop cid-cloudflared', 'systemctl disable --now fju-status-update.timer', 'systemctl stop fju-status-update.service']
+  function expectDoorClosed() {
+    const c = vmCalls(vm)
+    for (const d of DOOR) expect(c).toContain(d)
+    expect(c).not.toContain('systemctl enable --now fju-status-update.timer')
+  }
+  // 已裝過、但 tunnel.json 不見了：重跑會在第 7 步等授權（cloudflared tunnel login），此時守門已掛上、既有通道還開著。
+  function markInstalledNeedLogin() {
+    markInstalled(vm)
+    fs.rmSync(path.join(vm.root, 'secrets', 'tunnel.json'))
+  }
+  const loginWaiting = () => fs.existsSync(path.join(vm.state, 'login-waiting'))
+  const releaseLogin = (how: 'ok' | 'fail') => fs.writeFileSync(path.join(vm.state, 'login-go'), how)
+  const loginDir = () => path.join(vm.root, '.cloudflared-login')
+  const exitLog = () => fs.readFileSync(path.join(vm.root, '.install', 'exit.log'), 'utf8')
+
+  it('P1：等授權時 stdout 與 stderr 管線都斷掉（像 `| tee` 死掉）→ 不是被 SIGPIPE 殺死，先關門、再刪 cert.pem；紀錄寫進 .install/exit.log', async () => {
+    markInstalledNeedLogin()
+    const { child, done } = spawnInstall(vm, { FAKE_LOGIN_BLOCK: '1' })
+    await waitFor(loginWaiting, '假 login 等授權')
+    child.stdout.destroy()
+    child.stderr.destroy()
+    releaseLogin('ok')
+    const r = await done
+    expect(r.signal).toBeNull()
+    expect(r.code).not.toBe(0)
+    expectDoorClosed()
+    expect(fs.existsSync(loginDir())).toBe(false)
+    expect(exitLog()).toContain('已停掉 cloudflared')
+  }, 30_000)
+
+  it('P1：只有 stdout 斷掉（stderr 還在）→ 一樣關門', async () => {
+    markInstalledNeedLogin()
+    const { child, done } = spawnInstall(vm, { FAKE_LOGIN_BLOCK: '1' })
+    await waitFor(loginWaiting, '假 login 等授權')
+    child.stdout.destroy()
+    releaseLogin('ok')
+    const r = await done
+    expect(r.signal).toBeNull()
+    expect(r.code).not.toBe(0)
+    expectDoorClosed()
+    expect(fs.existsSync(loginDir())).toBe(false)
+  }, 30_000)
+
+  it.each(['SIGINT', 'SIGHUP', 'SIGTERM'] as const)('等授權時收到 %s → 立刻砍掉 login 容器、關門、結束碼 128+n（不等 Roy 點授權）', async (sig) => {
+    markInstalledNeedLogin()
+    const { child, done } = spawnInstall(vm, { FAKE_LOGIN_BLOCK: '1' })
+    await waitFor(loginWaiting, '假 login 等授權')
+    child.kill(sig)
+    const r = await done
+    expect(r.signal).toBeNull()
+    expect(r.code).toBeGreaterThan(128)
+    expectDoorClosed()
+    // login 容器被砍：起之前清一次舊的、on_exit 再砍一次（共兩次 rm -f）；假 login 沒跑完（沒寫 cert.pem、沒記 login）
+    expect(vmCalls(vm).filter((x) => x === 'docker rm -f fju-status-login')).toHaveLength(2)
+    expect(logins(vm)).toBe(0)
+    expect(fs.existsSync(path.join(vm.state, 'login-go'))).toBe(false)
+    expect(fs.existsSync(loginDir())).toBe(false)
+    expect(exitLog()).toContain(sig === 'SIGINT' ? 'Ctrl-C' : sig)
+  }, 30_000)
+
+  it('正常失敗：授權沒成功（login 回非 0）→ halt 停在第 7 步、關門', async () => {
+    markInstalledNeedLogin()
+    const { done } = spawnInstall(vm, { FAKE_LOGIN_BLOCK: '1' })
+    await waitFor(loginWaiting, '假 login 等授權')
+    releaseLogin('fail')
+    const r = await done
+    expect(r.out).toContain('停在步驟 7')
+    expect(r.code).toBe(1)
+    expectDoorClosed()
+    expect(fs.existsSync(loginDir())).toBe(false)
+  }, 30_000)
+
+  it('set -e：第 8 步 install 失敗（普通指令、沒接 halt）→ 關門、結束碼非 0、印出最後失敗的指令', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_INSTALL_FAIL: '1' })
+    expect(r.signal).toBeNull()
+    expect(r.code).not.toBe(0)
+    expectDoorClosed()
+    expect(r.out).toContain('最後失敗的指令')
+    expect(r.out).toContain('fju-status-update.timer')
+  }, 30_000)
+
+  it('P2：有舊通過紀錄但 tunnel.json 遺失 → 決定重驗時先刪舊紀錄；清理失敗就沒有紀錄，再重跑會重做 7b，清乾淨才寫新紀錄', async () => {
+    markInstalledNeedLogin()
+    vm.dns.failDelete = true
+    const r1 = await installOnVm(vm)
+    expect(r1.code).not.toBe(0)
+    expect(r1.out).toContain('不寫通過紀錄')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+    expect(logins(vm)).toBe(1)
+    expect(vm.dns.records).toBe(1)
+
+    vm.dns.failDelete = false
+    const r2 = await installOnVm(vm)
+    expect(logins(vm)).toBe(2)
+    expect(r2.out).toContain('第一輪：有鎖')
+    expect(r2.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    expect(vm.dns.records).toBe(0)
+  }, 60_000)
 })
