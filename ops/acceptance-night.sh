@@ -321,7 +321,7 @@ print_ux_order() {
   echo "  前置：檢查 $MIDTERM_PW 存在、非空、權限 600（不合就停）"
   echo "        → $reset_cmd status（snapshots= 沒有 midterm 就停）→ $reset_cmd pause-deploy → $reset_cmd restore midterm（失敗就停）→ 記開始 commit"
   echo "        （每個子命令一次連線、相鄰兩次至少隔 ${ACCEPT_RESET_GAP:-15} 秒；任一步失敗就停，收尾仍會 resume-deploy）"
-  echo "  整夜密碼：用 $MIDTERM_PW（快照裡帳號的密碼），不產新密碼；複製一份到 ${PW_FILE}（0600）給 codex-e2e.sh 檢查外洩"
+  echo "  整夜密碼：用 ${MIDTERM_PW}（快照裡帳號的密碼），不產新密碼；複製一份到 ${PW_FILE}（0600）給 codex-e2e.sh 檢查外洩"
   echo "  不跑劇本鏈、不 reset、不存快照"
   for b in "${UX_BATCHES[@]}"; do
     n=$((n + 1))
@@ -388,7 +388,7 @@ if [ "$PLAN" = ux ]; then
   [ -f "$MIDTERM_PW" ] || die "找不到 ${MIDTERM_PW}：沒有學期中快照的密碼，--plan ux 不能跑（要先跑過 full 的第 2 章）"
   [ -s "$MIDTERM_PW" ] || die "$MIDTERM_PW 是空的，--plan ux 不能跑"
   # find -perm 600（不帶 -）＝權限剛好 600；macOS 與 Linux 都一樣。
-  [ -n "$(find "$MIDTERM_PW" -prune -perm 600)" ] || die "$MIDTERM_PW 權限不是 600（chmod 600 $MIDTERM_PW）"
+  [ -n "$(find "$MIDTERM_PW" -prune -perm 600)" ] || die "$MIDTERM_PW 權限不是 600（chmod 600 ${MIDTERM_PW}）"
   IFS= read -r NIGHT_PW < "$MIDTERM_PW" || true
   [ -n "$NIGHT_PW" ] || die "$MIDTERM_PW 第一行是空的，--plan ux 不能跑"
 fi
@@ -1054,7 +1054,7 @@ fi
 printf '%s\n' "$NIGHT_PW" > "$PW_FILE"
 chmod 600 "$PW_FILE"
 if [ "$PLAN" = ux ]; then
-  log secrets - "${SECRET_DIR}（0700，night.pw 0600；沿用 $MIDTERM_PW）"
+  log secrets - "${SECRET_DIR}（0700，night.pw 0600；沿用 ${MIDTERM_PW}）"
 else
   log secrets - "${SECRET_DIR}（0700，night.pw 0600）"
 fi
