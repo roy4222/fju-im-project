@@ -278,6 +278,7 @@ check_cloudflared_config() {
   local file=$1 team=$2 aud=$3 hosts=$4
   [ -s "$file" ] || { bad "設定檔不存在或是空的：${file}"; return 1; }
   yaml_flatten "$file" | awk -v team="$team" -v aud="$aud" -v hosts="$hosts" '
+    function add(a, b) { return a == "" ? b : a "、" b }
     {
       eq = index($0, "="); k = substr($0, 1, eq - 1); v = substr($0, eq + 1)
       if (k == "!invalid") { print "  ✗ 看不懂的寫法：" v; bad = 1; next }
@@ -294,12 +295,13 @@ check_cloudflared_config() {
         if (svc ~ /^http_status:/) continue
         label = (h == "" ? "第 " (i + 1) " 條 ingress（沒有 hostname）" : h)
         why = ""
-        if (tolower(kv[pre "originRequest.access.required"]) != "true") why = why "、access.required 不是 true"
-        if (kv[pre "originRequest.access.teamName"] != team) why = why "、teamName 不是 " team
+        # 用 add() 接「、」而不是事後 substr 去頭：mawk 以位元組、gawk（UTF-8）以字元算長度，兩邊結果不同。
+        if (tolower(kv[pre "originRequest.access.required"]) != "true") why = add(why, "access.required 不是 true")
+        if (kv[pre "originRequest.access.teamName"] != team) why = add(why, "teamName 不是 " team)
         # audTag 多放別的值，同 team 其他 Access 應用程式的 JWT 也能過，所以要恰好一個。
         for (j = 0; (pre "originRequest.access.audTag." j) in kv; j++) ;
-        if (j != 1 || kv[pre "originRequest.access.audTag.0"] != aud) why = why "、audTag 不是恰好這一個 AUD"
-        if (why != "") { print "  ✗ " label "：" substr(why, 4); fail = 1 }
+        if (j != 1 || kv[pre "originRequest.access.audTag.0"] != aud) why = add(why, "audTag 不是恰好這一個 AUD")
+        if (why != "") { print "  ✗ " label "：" why; fail = 1 }
         if (h != "") seen[h] = 1
       }
       n = split(hosts, H, " ")
