@@ -94,7 +94,10 @@ export default async function StudentAffairPage({
   if (!item) notFound()
   const version = tab === 'history' && Number.isInteger(versionNo) && versionNo > 0 ? await query.myVersion(userId, id, versionNo) : null
 
-  const phase = phaseOf({ opensAt: item.opensAt, dueAt: item.dueAt }, businessNow)
+  // 個別補交（W10）：已截止、但系辦替自己（整組：自己這一組）開了還沒到期的補交期限，就照開放算。
+  const window = { opensAt: item.opensAt, dueAt: item.dueAt }
+  const phase = phaseOf(window, businessNow, item.reopenUntil)
+  const reopenUntil = phase === 'open' && phaseOf(window, businessNow) === 'closed' ? item.reopenUntil : null
   const latest = item.versions[0] ?? null
   const status = statusOf({
     phase,
@@ -102,10 +105,16 @@ export default async function StudentAffairPage({
     latestVersionNo: latest?.versionNo ?? null,
     hasDraft: item.draft !== null,
     exempt: item.exempt,
+    reopenUntil,
   })
-  const banner = latest
-    ? `已繳 v${latest.versionNo}・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${status.detail}`
-    : `${status.headline}・${status.detail}`
+  const reopenText = reopenUntil ? `系辦已開放${item.receiverUnit === 'group' ? '你們這一組' : '你'}補交到 ${formatTaipeiMinute(reopenUntil)}（臺灣時間，含此分鐘）` : null
+  const banner = reopenText
+    ? latest
+      ? `${reopenText}・已繳 v${latest.versionNo}，期限前可重送`
+      : reopenText
+    : latest
+      ? `已繳 v${latest.versionNo}・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${status.detail}`
+      : `${status.headline}・${status.detail}`
   const lockedText = item.exempt
     ? '系辦已將你設為免填這份收件，不需要填寫。'
     : phase === 'not_open'
@@ -123,13 +132,14 @@ export default async function StudentAffairPage({
     ['截止時間', item.dueAt ? `${formatTaipeiMinute(item.dueAt)}（含此分鐘）` : '無'],
     ['開放時間', item.opensAt ? formatTaipeiMinute(item.opensAt) : '發布即開放'],
     ['階段', item.stageName ?? '未指定'],
-    ['重送', phase === 'closed' ? '截止後唯讀' : '截止前可重送，以最後一次為準'],
+    ...(reopenUntil ? [['補交期限', `${formatTaipeiMinute(reopenUntil)}（含此分鐘）`] as [string, string]] : []),
+    ['重送', phase === 'closed' ? '截止後唯讀' : reopenUntil ? '補交期限前可重送，以最後一次為準' : '截止前可重送，以最後一次為準'],
   ]
 
   // 右上角的主要按鈕（原型）：還能填就跳到下方表單；已繳的寫「重送」，截止或免填就不放。
   const cta = status.editable ? (latest ? '重送' : status.action) : null
   // 橫幅顏色照原型：已繳綠、草稿橘、逾期紅、還沒動的待繳用藍色提示。
-  const bannerTone = status.pending && status.tone === 'muted' ? 'info' : status.tone
+  const bannerTone = reopenText || (status.pending && status.tone === 'muted') ? 'info' : status.tone
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
@@ -251,6 +261,15 @@ export default async function StudentAffairPage({
   )
 }
 
+/** 截止後靠系辦開的個別補交送出的版本（W10）。 */
+function LateBadge() {
+  return (
+    <span className="ml-2 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] text-warning-on-subtle" data-testid="late-badge">
+      補交
+    </span>
+  )
+}
+
 /** 回作業區（原型：左箭頭＋灰字）。 */
 function BackLink() {
   return (
@@ -327,6 +346,7 @@ function History({ item }: { item: MyItemDetail }) {
                 {index === 0 ? (
                   <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
                 ) : null}
+                {v.late ? <LateBadge /> : null}
               </td>
               <td className="py-3">{v.submittedByName}</td>
               <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
@@ -370,6 +390,7 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
             ) : (
               <span className="ml-2 text-xs font-normal text-muted-foreground">已被後來的版本取代</span>
             )}
+            {version.late ? <LateBadge /> : null}
           </dd>
         </div>
         <div className="flex gap-4">
