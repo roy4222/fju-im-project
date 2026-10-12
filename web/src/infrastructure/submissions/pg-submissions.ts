@@ -918,8 +918,8 @@ type ListRow = {
   reopen_until: Date | null
 }
 
-/** 這位收件者最晚的個別補交期限（W10）；`r` 是名單列。 */
-const REOPEN_UNTIL = `
+/** 這位收件者最晚的個別補交期限（W10）；`r` 是名單列。學生作業區與系辦名單頁用同一段。 */
+export const REOPEN_UNTIL = `
   (select max(o.due_at) from submission_reopens o
     where o.item_id = r.item_id and o.receiver_kind = r.receiver_kind and o.receiver_id = r.receiver_id) as reopen_until`
 

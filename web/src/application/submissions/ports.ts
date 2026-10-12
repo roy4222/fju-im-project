@@ -292,6 +292,8 @@ export type RosterEntry = {
   readonly latestVersionNo: number | null
   readonly latestReceivedAt: Date | null
   readonly latestSubmittedByName: string | null
+  /** 系辦開的個別補交期限（W10，最晚的那一個；可能已過期，狀態字自己判）；沒有是 null。主指導看的名單一律是 null。 */
+  readonly reopenUntil: Date | null
 }
 
 export type ItemRoster = { readonly item: RosterItem; readonly entries: readonly RosterEntry[] }

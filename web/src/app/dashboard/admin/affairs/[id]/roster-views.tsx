@@ -110,6 +110,8 @@ function RosterRow({
   const category = categoryOf(entry)
   const status = receiverStatus(window, entry, businessNow)
   const submitted = entry.latestVersionNo !== null
+  // 補交中（W10）：已截止、但這一位的補交期限還沒到——狀態字照學生看到的「系辦開放補交到…」。
+  const reopened = !submitted && !status.overdue && receiverStatus(window, { ...entry, reopenUntil: null }, businessNow).overdue
   let headline: string
   let tone: PillTone
   let detail: string
@@ -128,13 +130,15 @@ function RosterRow({
     tone = PILL_TONE[status.tone]
     detail = submitted
       ? `${entry.latestSubmittedByName ?? ''} 於 ${entry.latestReceivedAt ? formatTaipeiMinute(entry.latestReceivedAt) : ''} 送出`
-      : entry.hasDraft
-        ? '有草稿，尚未正式送出'
-        : status.overdue
-          ? '已截止，沒有正式送出'
-          : status.headline === '尚未開放'
-            ? '尚未開放'
-            : '還沒動'
+      : reopened
+        ? status.detail
+        : entry.hasDraft
+          ? '有草稿，尚未正式送出'
+          : status.overdue
+            ? '已截止，沒有正式送出'
+            : status.headline === '尚未開放'
+              ? '尚未開放'
+              : '還沒動'
   }
   const joined = `${entry.source === 'admin' ? '管理員加入' : '自動加入'}・${formatTaipeiMinute(entry.eligibleFrom)}`
   return (
@@ -214,9 +218,7 @@ export function ReceiverView({
 }) {
   const { entry } = detail
   const category = categoryOf(entry)
-  // 名單列沒有補交期限，這裡用補交紀錄最晚的那一個補上，狀態字才會跟學生自己看到的一樣。
-  const reopenUntil = reopens.reduce<Date | null>((max, r) => (max && max >= r.dueAt ? max : r.dueAt), null)
-  const status = receiverStatus(window, { ...entry, reopenUntil }, businessNow)
+  const status = receiverStatus(window, entry, businessNow)
   const group = entry.receiverKind === 'group'
   const back = category === 'current' ? base : `${base}?list=${category}`
   const banner =

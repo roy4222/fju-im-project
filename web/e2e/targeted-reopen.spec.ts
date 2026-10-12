@@ -152,8 +152,23 @@ async function notificationCount(userId: string): Promise<string> {
     .rows[0]!.n
 }
 
+/** 名單列表上某一位的那一列。 */
+function rosterRow(page: Page, s: Student) {
+  return page.getByTestId('roster-current').getByTestId('roster-row').filter({ hasText: s.name })
+}
+
+/** 收件進度的「逾期未繳」數字。 */
+function overdueCount(page: Page) {
+  return page.getByTestId('completion').getByText('逾期未繳', { exact: true }).locator('xpath=following-sibling::dd')
+}
+
 test('1. 系辦在學生的名單畫面按「讓他補交」，填明天 17:00 與理由', async ({ page }) => {
   await signIn(page, admin)
+  // 開補交前：兩位都是逾期未繳。
+  await page.goto(`/dashboard/admin/affairs/${itemId}`)
+  await expect(rosterRow(page, s1).getByTestId('roster-status')).toHaveText('逾期未繳')
+  await expect(overdueCount(page)).toHaveText('2')
+
   await page.goto(`/dashboard/admin/affairs/${itemId}?person=${s1.userId}`)
   await expect(page.getByTestId('receiver-status')).toContainText('逾期未繳')
   const section = page.getByTestId('reopen-section')
@@ -171,6 +186,13 @@ test('1. 系辦在學生的名單畫面按「讓他補交」，填明天 17:00 �
 
   const rows = (await pool.query(`select receiver_id, reason from submission_reopens where item_id = $1`, [itemId])).rows
   expect(rows).toEqual([{ receiver_id: s1.userId, reason: '住院請假，已附診斷證明' }])
+
+  // 名單列表與完成率：補交中、期限未到的那一位不算逾期未繳；另一位照舊。
+  await page.goto(`/dashboard/admin/affairs/${itemId}`)
+  await expect(rosterRow(page, s1).getByTestId('roster-status')).toHaveText('未繳')
+  await expect(rosterRow(page, s1)).toContainText('系辦開放補交到')
+  await expect(rosterRow(page, s2).getByTestId('roster-status')).toHaveText('逾期未繳')
+  await expect(overdueCount(page)).toHaveText('1')
 
   // 另一位的畫面還是逾期，沒有補交紀錄。
   await page.goto(`/dashboard/admin/affairs/${itemId}?person=${s2.userId}`)

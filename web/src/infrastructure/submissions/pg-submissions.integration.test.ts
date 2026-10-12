@@ -12,7 +12,7 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
-import { categoryOf, completionOf, pendingCount, receiverStatus } from '@/application/submissions'
+import { categoryOf, completionOf, overdueReceiverIds, pendingCount, receiverStatus } from '@/application/submissions'
 import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
@@ -796,6 +796,36 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     const audit = await owner.sql(`select action, payload from audit_events where target_id = $1 and action = 'submission.reopen' order by real_at`, [itemId])
     expect(audit.rows).toHaveLength(2)
     expect(audit.rows[0]!.payload).toMatchObject({ receiverKind: 'user', receiverId: student.id })
+  })
+
+  it('系辦名單列表與完成率：補交中、期限未到的人不算逾期未繳；期限過了仍未交才算', async () => {
+    const { student, other, itemId } = await closedScenario()
+    const rosterQuery = new PgRosterQuery(() => app)
+    const window = { opensAt: null, dueAt: new Date('2026-11-15T15:59:00Z') }
+
+    const before = (await rosterQuery.roster(adminActor(), itemId))!
+    expect(completionOf(window, before.entries, AFTER)).toMatchObject({ required: 2, overdue: 2, pending: 0 })
+
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '補交' }, randomUUID())).ok).toBe(true)
+    const { entries } = (await rosterQuery.roster(adminActor(), itemId))!
+    const byId = new Map(entries.map((e) => [e.receiverId, e]))
+    expect(byId.get(student.id)).toMatchObject({ reopenUntil: new Date('2026-11-17T09:00:00Z') })
+    expect(byId.get(other.id)).toMatchObject({ reopenUntil: null })
+    expect(receiverStatus(window, byId.get(student.id)!, AFTER)).toMatchObject({
+      headline: '未繳',
+      overdue: false,
+      detail: '草稿已存・系辦開放補交到 2026/11/17 17:00',
+    })
+    expect(receiverStatus(window, byId.get(other.id)!, AFTER)).toMatchObject({ headline: '逾期未繳', overdue: true })
+    expect(completionOf(window, entries, AFTER)).toMatchObject({ required: 2, overdue: 1, pending: 1 })
+    expect([...overdueReceiverIds([{ item: window, entries }], AFTER)]).toEqual([other.id])
+    // 點進那一位的畫面也帶同一個期限。
+    expect((await rosterQuery.receiver(adminActor(), itemId, student.id))!.entry).toMatchObject({ reopenUntil: new Date('2026-11-17T09:00:00Z') })
+
+    // 補交期限過了還沒交：回到逾期未繳。
+    const expired = new Date('2026-11-17T09:01:00Z')
+    expect(receiverStatus(window, byId.get(student.id)!, expired)).toMatchObject({ headline: '逾期未繳', overdue: true })
+    expect(completionOf(window, entries, expired)).toMatchObject({ overdue: 2, pending: 0 })
   })
 
   it('整組一份：開給一組，通知那一組目前的組員，任一位都能代表全組補交；別組照舊被擋', async () => {
