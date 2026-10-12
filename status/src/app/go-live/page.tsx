@@ -27,6 +27,8 @@ const currentTime = () => new Date()
 
 function GateCard({ gate }: { gate: GateResult }) {
   const s = STATE[gate.state]
+  // 紅的時候結論就是第一個原因，清單不再重複列。
+  const reasons = gate.reasons.filter((r) => r !== gate.summary)
   return (
     <Card data-testid={`gate-${gate.id}`} data-state={gate.state} className={cn("border", s.className)}>
       <CardHeader>
@@ -41,9 +43,9 @@ function GateCard({ gate }: { gate: GateResult }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-sm">
         <p className="font-medium" data-testid={`gate-${gate.id}-summary`}>{gate.summary}</p>
-        {gate.reasons.length ? (
+        {reasons.length ? (
           <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            {gate.reasons.map((r, i) => (
+            {reasons.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
           </ul>
