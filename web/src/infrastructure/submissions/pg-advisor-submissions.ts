@@ -20,7 +20,7 @@ import {
 } from '@/application/submissions'
 import { getPool } from '@/infrastructure/db/client'
 import { rosterItemOf, toEntry, type EntryRow } from '@/infrastructure/submissions/pg-roster'
-import { isUuid, summarizeVersions, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
+import { isUuid, REOPEN_UNTIL, summarizeVersions, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 
 /**
@@ -32,6 +32,7 @@ import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } fro
  * - **個人一份**：只有管理員開了主指導閱覽的收件才出現，而且只列老師此刻指導的組裡的學生、
  *   只算欄位版本 ≥ 生效版本的正式送出（產品模組 05 §4「誰看得到個人回答」、SUB-24）。
  * - **草稿一律不給**：連「有沒有草稿」都不透露（`hasDraft` 固定 false），矩陣上沒交就是「未繳」。
+ * - 個別補交期限（W10b）跟系辦名單、學生作業區同一段 SQL（`REOPEN_UNTIL`）：補交中、期限未到的不算逾期，期限過了仍未交才算。
  * - 版本列表與單一版本都經 `canReadSubmission`（事實用 `VERSION_ACCESS_COLUMNS`，跟附件下載政策同一段 SQL）：
  *   列得出來的版本就是點得開、下載得到的那幾版。
  */
@@ -78,7 +79,8 @@ const GROUP_ENTRIES = `
   select r.receiver_kind, r.receiver_id, gr.code as name, null::text as student_no, gr.code as group_code,
          r.eligible_from_business_at, r.eligible_to_business_at, r.source, r.exempt, r.exempt_reason, r.removed_reason,
          false as has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-         coalesce(sp.display_name, su.name) as latest_submitted_by_name
+         coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+         ${REOPEN_UNTIL}
     from picked r join groups gr on gr.id = r.receiver_id
     ${latestJoin('')}
    order by (r.eligible_to_business_at is not null), r.exempt, gr.code`
@@ -102,7 +104,8 @@ const STUDENT_ENTRIES = `
          coalesce(si.student_no, p.student_no) as student_no, mine.code as group_code,
          r.eligible_from_business_at, r.eligible_to_business_at, r.source, r.exempt, r.exempt_reason, r.removed_reason,
          false as has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-         coalesce(sp.display_name, su.name) as latest_submitted_by_name
+         coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+         ${REOPEN_UNTIL}
     from picked r
     join mine on mine.user_id = r.receiver_id
     left join users u on u.id = r.receiver_id
@@ -179,6 +182,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
         latest_version_no: number | null
         latest_received_at: Date | null
         latest_submitted_by_name: string | null
+        reopen_until: Date | null
       }>(
         `with picked as (
            select distinct on (r.item_id, r.receiver_id) r.* from response_rosters r
@@ -188,7 +192,8 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
          )
          select r.item_id, r.receiver_id, r.eligible_to_business_at, r.exempt,
                 latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-                coalesce(sp.display_name, su.name) as latest_submitted_by_name
+                coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+                ${REOPEN_UNTIL}
            from picked r ${latestJoin('')}`,
         [groupIds],
       ),
@@ -245,6 +250,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
           latestVersionNo: c.latest_version_no,
           latestReceivedAt: c.latest_received_at,
           latestSubmittedByName: c.latest_submitted_by_name,
+          reopenUntil: c.reopen_until,
         }),
       ),
       individualItems: individual.rows.map(

@@ -8,6 +8,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 一份已截止的個人收件、兩位都沒交的學生：系辦在其中一位的名單畫面按「讓他補交」填明天 17:00 與理由；
  * 那一位收到通知、看到「系辦已開放你補交到…」、交得出去，版本標「補交」；另一位仍被擋「已截止」。
  *
+ * 第三波 W10b：兩位學生同組、主指導已開閱覽；老師名單上補交中的那一位是「未繳」＋「系辦開放補交到…」、
+ * 另一位仍逾期，老師的版本表也標「補交」。
+ *
  * 收件用 owner 連線直接建成「已發布、已截止」的樣子（發布流程由 affairs.spec 走過）；系辦與學生全程用真的畫面。
  * 業務鐘拉回真實時間，截止與補交期限用相對今天的時間。
  */
@@ -31,6 +34,7 @@ let cohortId: string
 let itemId: string
 let s1: Student
 let s2: Student
+let teacher: TestSession
 
 const FIELDS = [
   { key: 'topic', type: 'text', label: '想做的題目', required: true },
@@ -102,6 +106,34 @@ test.beforeAll(async () => {
   s1 = await newStudent(cohortId, 1)
   s2 = await newStudent(cohortId, 2)
 
+  // 兩位同組，主指導是這位老師（W10b：老師視角）。
+  const teacherContext = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  teacher = await createTestSession(teacherContext, 'teacher')
+  await teacherContext.dispose()
+  const groupId = (
+    await pool.query<{ id: string }>(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+      [cohortId, `${CODE}-G1`],
+    )
+  ).rows[0]!.id
+  for (const s of [s1, s2]) {
+    await pool.query(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind)
+       values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+      [groupId, cohortId, s.userId],
+    )
+  }
+  await pool.query(
+    `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id) values (gen_random_uuid(), $1, $2, now(), $2)`,
+    [groupId, s1.userId],
+  )
+  await pool.query(
+    `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+     values (gen_random_uuid(), $1, $2, 'admin', now(), $3, 'e2e W10b 指派')`,
+    [groupId, teacher.userId, adminId],
+  )
+
   // 已發布、昨天截止的個人收件，兩位都在名單上、都沒交。
   itemId = (
     await pool.query<{ id: string }>(
@@ -127,6 +159,12 @@ test.beforeAll(async () => {
   await pool.query(
     `update managed_items set status = 'published', current_content_version_id = $2, current_schema_version_id = $3 where id = $1`,
     [itemId, content.rows[0]!.id, schema.rows[0]!.id],
+  )
+  // 系辦開了主指導閱覽（欄位第 1 版起），老師才看得到這份個人收件。
+  await pool.query(
+    `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
+     values (gen_random_uuid(), $1, true, 1, $2, now())`,
+    [itemId, adminId],
   )
   for (const s of [s1, s2]) {
     await pool.query(
@@ -155,6 +193,11 @@ async function notificationCount(userId: string): Promise<string> {
 /** 名單列表上某一位的那一列。 */
 function rosterRow(page: Page, s: Student) {
   return page.getByTestId('roster-current').getByTestId('roster-row').filter({ hasText: s.name })
+}
+
+/** 老師名單上某一位的那一列。 */
+function teacherRow(page: Page, s: Student) {
+  return page.getByTestId('teacher-entry').filter({ hasText: s.name })
 }
 
 /** 收件進度的「逾期未繳」數字。 */
@@ -198,6 +241,15 @@ test('1. 系辦在學生的名單畫面按「讓他補交」，填明天 17:00 �
   await page.goto(`/dashboard/admin/affairs/${itemId}?person=${s2.userId}`)
   await expect(page.getByTestId('receiver-status')).toContainText('逾期未繳')
   await expect(page.getByRole('list', { name: '補交紀錄' })).toHaveCount(0)
+
+  // 老師（主指導）看同一份名單：補交中的那一位不是逾期，另一位照舊（W10b）。
+  await signIn(page, teacher)
+  await page.goto(`/dashboard/teacher/affairs/${itemId}`)
+  await expect(teacherRow(page, s1)).toContainText('未繳')
+  await expect(teacherRow(page, s1)).not.toContainText('逾期未繳')
+  await expect(teacherRow(page, s1)).toContainText('系辦開放補交到')
+  await expect(teacherRow(page, s2)).toContainText('逾期未繳')
+  await expect(overdueCount(page)).toHaveText('1')
 })
 
 test('2. 只有被開放的學生收到通知、能交，版本標「補交」', async ({ page }) => {
@@ -239,4 +291,12 @@ test('3. 另一位沒拿到補交期限的學生仍被擋「已截止」；系�
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs/${itemId}?person=${s1.userId}`)
   await expect(page.getByRole('table', { name: '正式送出的版本' }).getByTestId('late-badge')).toHaveText('補交')
+
+  // 老師的版本表與版本內容也標「補交」（W10b）。
+  await signIn(page, teacher)
+  await page.goto(`/dashboard/teacher/affairs/${itemId}?person=${s1.userId}`)
+  await expect(page.getByTestId('receiver-status')).toContainText('已繳')
+  await expect(page.getByRole('table', { name: '正式送出的版本' }).getByTestId('late-badge')).toHaveText('補交')
+  await page.goto(`/dashboard/teacher/affairs/${itemId}?person=${s1.userId}&version=1`)
+  await expect(page.getByTestId('version-view').getByTestId('late-badge')).toHaveText('補交')
 })

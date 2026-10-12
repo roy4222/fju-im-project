@@ -105,13 +105,16 @@ export default async function TeacherAffairsPage() {
 function cellView(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixCell | undefined, businessNow: Date): MatrixCell {
   if (!cell) return null
   const category = categoryOf(cell)
-  const status = receiverStatus(item, { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }, businessNow)
+  // 個別補交期限（W10b）跟名單同一個判斷：補交中、期限未到是「未繳」＋「系辦開放補交到…」，過了仍未交才逾期。
+  const facts = { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }
+  const status = receiverStatus(item, { ...facts, reopenUntil: cell.reopenUntil }, businessNow)
+  const reopened = cell.latestVersionNo === null && !status.overdue && receiverStatus(item, facts, businessNow).overdue
   const headline = category === 'removed' ? '已移出名單' : status.headline
   const tone: PillTone = category === 'current' ? TONE[status.tone] : 'default'
   let detail = ''
   if (cell.latestVersionNo !== null && cell.latestReceivedAt) {
     detail = `${cell.latestSubmittedByName ?? ''}・${formatTaipeiMinute(cell.latestReceivedAt)}`
-  } else if (category === 'current' && status.headline === '尚未開放') {
+  } else if (category === 'current' && (reopened || status.headline === '尚未開放')) {
     detail = status.detail
   } else if (category === 'current' && !status.overdue) {
     detail = '還沒正式送出'

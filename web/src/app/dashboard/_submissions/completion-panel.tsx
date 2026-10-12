@@ -7,6 +7,8 @@ import { cn } from '@/shared/cn'
  * 收件進度（完成率）面板：管理員名單頁（票 18／21）與老師的收件頁（票 22）共用。
  * 分子分母由 application 的 `completionOf` 算，這裡只畫；整組一份的單位是「組」（同組五人誰送都只算一份）。
  *
+ * 「未繳」含系辦開放個別補交、期限還沒到的人（W10b）；老師的收件頁用同一個字。
+ *
  * 外觀照原型（票 35）：綠色進度環＋右側三個數字＋分段長條（已繳綠、逾期紅、未繳灰）。
  */
 
@@ -35,7 +37,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
             <dd className={cn('font-semibold tabular-nums', completion.overdue > 0 && 'text-destructive')}>{completion.overdue}</dd>
           </div>
           <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">未繳（還沒截止）</dt>
+            <dt className="text-muted-foreground">未繳（還沒截止或補交中）</dt>
             <dd className="font-semibold tabular-nums">{completion.pending}</dd>
           </div>
         </dl>
