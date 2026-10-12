@@ -717,6 +717,22 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'title', value: '改過的題目' },
   },
+  submission_reopens: {
+    insert: () => ({
+      sql: `insert into submission_reopens (id, item_id, receiver_kind, receiver_id, due_at, reason, created_by_user_id)
+            values (gen_random_uuid(), $1, 'user', $2, now() + interval '3 days', '請假補交', $2)`,
+      values: [itemId, userId],
+    }),
+    updatable: { column: 'reason', value: '改過的理由' },
+  },
+  home_settings: {
+    insert: () => ({
+      // 固定一列（id = 1）：整套只有 INSERT 那一格會插它。
+      sql: `insert into home_settings (id, tagline_line1, updated_by_user_id) values (1, '首頁標語', $1)`,
+      values: [userId],
+    }),
+    updatable: { column: 'tagline_line1', value: '改過的標語' },
+  },
 }
 
 beforeAll(async () => {
@@ -954,6 +970,19 @@ describe.each(PERMISSION_MATRIX.map((row) => [row.table, row] as const))('fju_ap
       /permission denied|must be owner/i,
     )
     expect(await expectDenied(app, `drop table ${table}`)).toMatch(/permission denied|must be owner/i)
+  })
+})
+
+describe('showcase_entries 補欄（第三波 W0）', () => {
+  it('fju_app 真的改得動輪播順序與刪除標記（逐欄驗只用 where false，這裡實際改一列）', async () => {
+    const updated = await app.query(
+      `update showcase_entries set home_position = 1, deleted_at = now(), deleted_by_user_id = $2 where id = $1 returning home_position`,
+      [showcaseEntryId, userId],
+    )
+    expect(updated.rows).toEqual([{ home_position: 1 }])
+    await owner.sql(`update showcase_entries set home_position = null, deleted_at = null, deleted_by_user_id = null where id = $1`, [
+      showcaseEntryId,
+    ])
   })
 })
 
