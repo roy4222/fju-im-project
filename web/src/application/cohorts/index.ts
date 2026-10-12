@@ -70,6 +70,7 @@ export {
   ACTIVITY_DESCRIPTION_MAX_LENGTH,
   ACTIVITY_STATUS_LABEL,
   ACTIVITY_TITLE_MAX_LENGTH,
+  activityDeleteBlocker,
   activityFormValues,
   formatActivityWhen,
   normalizeActivityInput,

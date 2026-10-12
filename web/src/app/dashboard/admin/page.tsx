@@ -8,7 +8,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { Tile } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { getAccountDirectoryCommand } from '@/composition/accounts'
-import { getGradingQuery } from '@/composition/grading'
+import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
 import { collectsResponses, getItemQuery } from '@/composition/items'
 import { getOpsStatusQuery } from '@/composition/ops'
@@ -37,7 +37,7 @@ export default async function AdminHomePage() {
   const ctx = await loadStage(actor, 'staff')
   const cohortId = ctx.cohort?.id ?? null
 
-  const [summaryResult, storage, overview, gradingResult, signoffResult, items] = await Promise.all([
+  const [summaryResult, storage, overview, gradingResult, signoffResult, items, gradebookResult] = await Promise.all([
     getAccountDirectoryCommand().summary(actor),
     // 儲存用量（票 28）：背景工作每小時量一次，這裡只讀最新一筆；≥80% 只在這裡標「警戒」，不推播。
     getOpsStatusQuery().storageTile(actor),
@@ -45,10 +45,13 @@ export default async function AdminHomePage() {
     cohortId ? getGradingQuery().adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? getSignoffQuery().adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? getItemQuery().list(cohortId) : Promise.resolve([]),
+    // 只拿「待復核的更正」做首頁提示（N-61）；成績表本身在「成績」頁。
+    cohortId ? getGradebookQuery().gradebook(actor, cohortId) : Promise.resolve(null),
   ])
   const summary = summaryResult.ok ? summaryResult.receipt : null
   const grading = gradingResult?.ok ? gradingResult.receipt : null
   const signoff = signoffResult?.ok ? signoffResult.receipt : null
+  const pendingReviews = gradebookResult?.ok ? gradebookResult.receipt.pendingReviews : []
 
   // 發布中的收件全部讀名單：逾期磚要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
   // 跟名單頁同一份名單、同一個 `completionOf`（分母不含免填與移出）。
@@ -64,6 +67,13 @@ export default async function AdminHomePage() {
   const intake = allIntake.slice(0, INTAKE_LIMIT)
   // 逾期：全部發布中收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
   const overdueReceivers = overdueReceiverIds(rosters, ctx.businessNow)
+  // 磚上的數字照舊是上面那一個集合；標示拆成「欠繳幾人（幾組）」與「發布中幾個收件項目」（原本的母數），不再寫成「N 份收件」混單位（N-58、N-139）。
+  const overduePeople = overdueReceiverIds(
+    rosters.filter((r) => r.item.receiverUnit === 'individual'),
+    ctx.businessNow,
+  ).size
+  const overdueGroups = overdueReceivers.size - overduePeople
+  const overdueWho = [overduePeople ? `${overduePeople} 人` : '', overdueGroups ? `${overdueGroups} 組` : ''].filter(Boolean).join('、')
   const worstOverdue = [...allIntake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
 
   // 本屆分組
@@ -127,8 +137,11 @@ export default async function AdminHomePage() {
             icon={<IconAlertTriangle />}
             tone={overdueReceivers.size > 0 ? 'danger' : 'default'}
             value={overdueReceivers.size}
-            of={`${allIntake.length} 份收件`}
-            hint={worstOverdue && worstOverdue.completion.overdue > 0 ? worstOverdue.title : '目前沒有逾期的收件'}
+            hint={
+              overdueReceivers.size > 0
+                ? `欠繳 ${overdueWho}・發布中 ${allIntake.length} 個收件項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
+                : `目前沒有逾期的收件・發布中 ${allIntake.length} 個收件項目`
+            }
             href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}
           />
           <Tile
@@ -149,6 +162,29 @@ export default async function AdminHomePage() {
           />
           <Tile label="主機儲存（整台）" icon={<IconDatabase />} value={storage.value} hint={storage.hint} />
         </div>
+
+        {/* 成績更正待復核（N-61）：採計分數或方案變了，原更正暫不套用，要系辦去確認；沒有就不出現。 */}
+        {pendingReviews.length > 0 ? (
+          <div
+            role="status"
+            data-testid="pending-review-notice"
+            className="dash-card flex flex-wrap items-center gap-x-4 gap-y-2 border-destructive/40 px-5 py-3.5 text-sm"
+          >
+            <IconAlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <b className="font-semibold text-foreground">成績更正待復核 {pendingReviews.length} 筆</b>
+              <span className="text-muted-foreground">
+                （{pendingReviews.map((p) => p.groupCode).join('、')}）：這些組的評分後來有變動（老師重評、改派或換評分規則），原本的人工更正暫時不套用，要你確認沿用或重新更正。
+              </span>
+            </span>
+            <Link
+              href={pendingReviews.length === 1 ? `${BASE}/grading/${pendingReviews[0]!.groupId}` : `${BASE}/grading`}
+              className="shrink-0 font-semibold text-primary-on-subtle hover:underline"
+            >
+              去復核
+            </Link>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
           <div className="min-w-0 md:col-span-2">
