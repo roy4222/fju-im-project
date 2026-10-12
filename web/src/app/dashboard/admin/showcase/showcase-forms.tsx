@@ -312,13 +312,24 @@ export function PublishPanel({
     // 同一張表單兩顆鈕（`intent` 跟著按下的那顆送出）：發布更新、下架共用一個回饋。
     const updateReason = titleMissing
       ? '題目還是空白，先在上面填好題目並儲存草稿。'
-      : hasUnpublishedChanges
-        ? null
-        : '草稿和前台目前那一版一樣；先改上面的草稿並儲存，才有更新可以發布。'
+      : !hasUnpublishedChanges
+        ? '草稿和前台目前那一版一樣；先改上面的草稿並儲存，才有更新可以發布。'
+        : consent
+          ? null
+          : '要先勾選上面的同意，才能發布更新。'
     return (
       <form action={action} className="space-y-3" aria-label={`公開中 ${ref.label}`}>
         <EntryHidden {...ref} />
-        <div className="space-y-1">
+        <div className="space-y-2">
+          {hasUnpublishedChanges ? (
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input type="checkbox" name="consent" value="yes" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4" />
+              <span>
+                已取得這組同學同意公開
+                <span className="block text-xs text-muted-foreground">發布更新會把新內容公開；系統會記下是你勾的。</span>
+              </span>
+            </label>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3">
             <button type="submit" name="intent" value="publish_update" className={PRIMARY} disabled={updateReason !== null || pending}>
               {pending ? '處理中…' : '發布更新'}

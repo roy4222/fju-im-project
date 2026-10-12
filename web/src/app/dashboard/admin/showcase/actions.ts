@@ -112,7 +112,12 @@ function describeHomePosition(r: SetHomePositionReceipt): string {
 }
 
 export async function publishUpdateAction(_state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
-  const result = await getShowcaseCommand().publishUpdate(await currentActor(), entryRef(formData), text(formData, 'requestId'))
+  // 跟發布一樣只帶有沒有勾；勾的人由用例從登入者取（Q31）。
+  const result = await getShowcaseCommand().publishUpdate(
+    await currentActor(),
+    { ...entryRef(formData), consent: formData.get('consent') === 'yes' },
+    text(formData, 'requestId'),
+  )
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describePublishUpdate(result.receipt) }

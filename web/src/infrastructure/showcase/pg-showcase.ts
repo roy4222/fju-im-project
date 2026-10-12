@@ -75,7 +75,7 @@ import { RealClock, type Clock } from '@/shared/time'
  * **W15（設計方案 §4「編輯已發布與歷屆作品」）**：存草稿與換海報對**管理員**不受屆別封存限制（優秀專題是跨屆的
  * 公開紀錄）；不是管理員仍擋（封存屆別回 `COHORT_ARCHIVED`）。沒有組別的歷屆補登（`group_id` NULL）
  * 改內容時鎖 `cohorts FOR SHARE` → 條目本身。`publishUpdate` 把目前草稿凍結成新一筆版本並切成目前版本
- * （寫法同 `publish`），舊版本原封不動；`setHomePosition` 只改首頁輪播順序。刪除後同一組可以再建草稿
+ * （寫法同 `publish`，同樣要勾同意、記勾的人），舊版本原封不動；`setHomePosition` 只改首頁輪播順序。刪除後同一組可以再建草稿
  * （0013：一組一屆一個「未刪除」的條目）。
  */
 
@@ -424,10 +424,8 @@ export class PgShowcaseCommand implements ShowcaseCommand {
   }
 
   async publish(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>> {
-    // 同意要在畫面上勾（Q31）；沒勾就不進交易，也不吃掉請求編號。
-    if (input.consent !== true && !authorizeAdmin(actor, '發布優秀專題')) {
-      return err('VALIDATION_FAILED', '請先勾選「已取得這組同學同意公開」再發布。', { details: { field: 'consent' } })
-    }
+    const missing = missingConsent(actor, input, '發布優秀專題', '發布')
+    if (missing) return missing
     return this.#change<PublishReceipt>(actor, input, requestId, {
       what: '發布優秀專題',
       kind: 'showcase.publish',
@@ -436,7 +434,10 @@ export class PgShowcaseCommand implements ShowcaseCommand {
     })
   }
 
-  async publishUpdate(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<PublishReceipt>> {
+  async publishUpdate(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>> {
+    // 發布更新也是一次公開授權（Q31）：同樣要勾同意，記下勾的人＝這次的登入者。
+    const missing = missingConsent(actor, input, '發布優秀專題的更新', '發布更新')
+    if (missing) return missing
     return this.#change<PublishReceipt>(actor, input, requestId, {
       what: '發布優秀專題的更新',
       kind: 'showcase.publish_update',
@@ -774,6 +775,15 @@ type HeadRow = {
   home_position: number | null
   deleted_at: Date | null
   title: string
+}
+
+/**
+ * 同意要在畫面上勾（Q31）；沒勾就不進交易，也不吃掉請求編號。只認 `true`（表單字串、undefined 都不算）。
+ * 不是管理員的先讓 `#change` 回 `FORBIDDEN`，不提示同意。
+ */
+function missingConsent(actor: ResolvedActor, input: PublishInput, what: string, button: string): Err | null {
+  if (input.consent === true || authorizeAdmin(actor, what)) return null
+  return err('VALIDATION_FAILED', `請先勾選「已取得這組同學同意公開」再按「${button}」。`, { details: { field: 'consent' } })
 }
 
 function alreadyHasDraft(code: string): Err {

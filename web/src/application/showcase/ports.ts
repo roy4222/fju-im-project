@@ -173,9 +173,10 @@ export interface ShowcaseCommand {
   publish(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>>
   /**
    * 發布更新（公開中 → 公開中）：把目前草稿凍結成新一筆 `showcase_versions`（授權寫法同 `publish`）並切成目前版本；
-   * 舊版本原封不動。草稿和前台那一版一樣 → `VALIDATION_FAILED`。不受屆別封存限制（歷屆作品也能更新）。
+   * 舊版本原封不動。和發布一樣要勾「已取得這組同學同意公開」（沒勾 → `VALIDATION_FAILED`，不建版本），勾的人＝登入者。
+   * 草稿和前台那一版一樣 → `VALIDATION_FAILED`。不受屆別封存限制（歷屆作品也能更新）。
    */
-  publishUpdate(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<PublishReceipt>>
+  publishUpdate(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>>
   /** 首頁輪播順序（任何狀態；1 最前、null 不排）：只決定有獎項且公開中的作品在輪播裡的先後。 */
   setHomePosition(actor: ResolvedActor, input: SetHomePositionInput, requestId: string): Promise<Result<SetHomePositionReceipt>>
   /** 下架（公開中 → 已下架）：前台看不到、海報不再公開；後台還在。 */

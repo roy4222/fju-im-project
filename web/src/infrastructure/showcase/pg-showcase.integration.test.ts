@@ -771,7 +771,7 @@ describe('W15：編輯已發布、封存屆別與無組別作品並發布更新�
     const s = await scenario()
     const { entryId, posterFileId } = await draftWithPoster(s, '第一版題目')
     let head = await entryHead(entryId)
-    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
       ok: false,
       message: expect.stringContaining('「發布」'),
     })
@@ -780,13 +780,13 @@ describe('W15：編輯已發布、封存屆別與無組別作品並發布更新�
     const v1 = head.current_version_id!
     const v1Row = (await owner.sql('select * from showcase_versions where id = $1', [v1])).rows[0]
 
-    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
       message: expect.stringContaining('沒有要發布的更新'),
     })
     expect(
-      await command.publishUpdate(actor(s.teacher, ['teacher']), { entryId, revision: head.revision }, randomUUID()),
+      await command.publishUpdate(actor(s.teacher, ['teacher']), { entryId, revision: head.revision, consent: true }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
 
     const newPoster = await uploadPoster(a1, entryId, 'v2.png', PNG2, 'image/png')
@@ -800,8 +800,8 @@ describe('W15：編輯已發布、封存屆別與無組別作品並發布更新�
     expect(board.ok && board.receipt.drafts.find((d) => d.entryId === entryId)).toMatchObject({ hasUnpublishedChanges: true, publishedTitle: '第一版題目' })
 
     head = await entryHead(entryId)
-    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision - 1 }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
-    const updated = await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision - 1, consent: true }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+    const updated = await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
     expect(updated).toMatchObject({ ok: true, receipt: { versionNo: 2, title: '第二版題目', groupCode: 'G01' } })
     const after = await entryHead(entryId)
     expect(after.status).toBe('published')
@@ -823,10 +823,43 @@ describe('W15：編輯已發布、封存屆別與無組別作品並發布更新�
     expect(boardAfter.ok && boardAfter.receipt.drafts.find((d) => d.entryId === entryId)).toMatchObject({ hasUnpublishedChanges: false })
 
     await command.withdraw(actor(a1, ['admin']), { entryId, revision: after.revision }, randomUUID())
-    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: after.revision + 1 }, randomUUID())).toMatchObject({
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: after.revision + 1, consent: true }, randomUUID())).toMatchObject({
       ok: false,
       message: expect.stringContaining('「重新發布」'),
     })
+  })
+
+  it('發布更新要勾同意（Q31）：沒勾不建版本、不寫授權與稽核紀錄；勾了才建版本，授權與稽核記當前登入者', async () => {
+    const s = await scenario()
+    const { entryId } = await draftWithPoster(s, '要同意的作品')
+    let head = await entryHead(entryId)
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: await draftRevision(entryId), title: '要同意的作品', summary: '改過的摘要', videoUrl: '', posterFileId: null },
+      randomUUID(),
+    )
+    head = await entryHead(entryId)
+    const versionsBefore = (await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n
+
+    for (const consent of [false, undefined, 'yes']) {
+      expect(
+        await command.publishUpdate(actor(a2, ['admin']), { entryId, revision: head.revision, consent } as never, randomUUID()),
+      ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: expect.stringContaining('已取得這組同學同意公開') })
+    }
+    expect((await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n).toBe(versionsBefore)
+    expect(await auditOf(entryId, 'showcase.update_published')).toHaveLength(0)
+    expect(await entryHead(entryId)).toMatchObject({ revision: head.revision, current_version_id: head.current_version_id })
+
+    // 勾的人是當前登入者（a2），不是第一次發布的 a1。
+    const updated = await command.publishUpdate(actor(a2, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    expect(updated).toMatchObject({ ok: true, receipt: { versionNo: 2 } })
+    const after = await entryHead(entryId)
+    const version = (await owner.sql('select version_no, pii_check, created_by_user_id from showcase_versions where id = $1', [after.current_version_id])).rows[0]!
+    expect(version).toMatchObject({ version_no: 2, pii_check: { status: 'admin_attested', by: a2 }, created_by_user_id: a2 })
+    const audit = await auditOf(entryId, 'showcase.update_published')
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({ actor_user_id: a2, payload: { consentBy: a2, versionNo: 2 } })
   })
 
   it('歷屆補登：封存屆別、沒有組別；題目必填；改草稿鎖條目本身、可上傳海報、發布、發布更新；非管理員 FORBIDDEN；看板顯示沒有組別', async () => {
@@ -866,7 +899,7 @@ describe('W15：編輯已發布、封存屆別與無組別作品並發布更新�
     })
     await command.updateDraft(actor(a1, ['admin']), { entryId, revision: 2, title: '歷屆作品', summary: '新摘要', videoUrl: '', posterFileId: poster.receipt.fileId }, randomUUID())
     head = await entryHead(entryId)
-    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
       ok: true,
       receipt: { versionNo: 2 },
     })

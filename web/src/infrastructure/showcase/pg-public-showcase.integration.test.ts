@@ -514,7 +514,7 @@ describe('W15（AC-39）：首頁順序、歷屆補登、編輯已發布與封�
     expect(page).toMatchObject({ access: 'visible', item: { summary: oldSummary, posterFileId: oldPoster } })
     expect(await download(ANON, newPoster)).not.toBe('ok')
 
-    const updated = await command.publishUpdate(actor(admin, ['admin']), { entryId, revision: await headRevision(entryId) }, randomUUID())
+    const updated = await command.publishUpdate(actor(admin, ['admin']), { entryId, revision: await headRevision(entryId), consent: true }, randomUUID())
     expect(updated).toMatchObject({ ok: true, receipt: { versionNo: before.rows.length + 1 } })
     page = await query.entry(ANON, entryId)
     expect(page).toMatchObject({ access: 'visible', item: { summary: '更新後的摘要', posterFileId: newPoster } })

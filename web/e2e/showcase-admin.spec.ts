@@ -276,7 +276,11 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   await expect(guest.getByText('歷屆摘要')).toBeVisible()
   await expect(guest.getByText('發布更新後的新摘要')).toHaveCount(0)
 
-  await lifecycle(page, OLD_TITLE).getByRole('button', { name: '發布更新' }).click()
+  // 發布更新和發布一樣要先勾同意（Q31）。
+  const update = lifecycle(page, OLD_TITLE).getByRole('button', { name: '發布更新' })
+  await expect(update).toBeDisabled()
+  await lifecycle(page, OLD_TITLE).getByLabel(/已取得這組同學同意公開/).check()
+  await update.click()
   await expect(lifecycle(page, OLD_TITLE).getByRole('status')).toContainText('已發布更新（第 2 版）')
   await guest.goto(`/projects/${oldEntryId}`)
   await expect(guest.getByText('發布更新後的新摘要')).toBeVisible()
@@ -290,6 +294,9 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   ])
   expect(versions.rows[0]!.poster_file_id).toBeNull()
   expect(versions.rows[1]!.poster_file_id).not.toBeNull()
+  const admin = await sharedTestSession(page.request, 'admin')
+  const v2 = await pool.query(`select pii_check from showcase_versions where entry_id = $1 and version_no = 2`, [oldEntryId])
+  expect(v2.rows[0]!.pii_check).toMatchObject({ status: 'admin_attested', by: admin.userId })
   const entry = await pool.query(`select status, home_position from showcase_entries where id = $1`, [oldEntryId])
   expect(entry.rows[0]).toEqual({ status: 'published', home_position: 1 })
 })
