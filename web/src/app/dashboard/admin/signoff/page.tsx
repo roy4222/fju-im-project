@@ -98,7 +98,8 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
         >
           第 {summary.versionNo} 版
         </Link>
-        <StateBadge state={summary.state} />
+        {/* 清單列的是目前版本：被取代就表示還沒有新版。 */}
+        <StateBadge state={summary.state} cause={summary.cause} newerVersionNo={null} />
         <span className="tabular text-xs text-muted-foreground">
           {p.agreed}／{p.total}
         </span>

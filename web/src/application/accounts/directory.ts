@@ -495,9 +495,24 @@ export type AccountDirectoryCommand = {
 // `deidentified_at`；保留業務關聯與稽核；有未完成簽核參與→先成員異動）；產品模組 01 §2.5「永久刪除改為去識別化，
 // 不 cascade 刪繳交、成績、簽核與稽核，不破壞稽核鏈」、§2.6「高風險動作需再次輸入確認文字並產生稽核」。
 
-/** 去識別化後的代稱。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
+/** 寫進資料庫（users、user_profiles、registration_applications）的代稱前綴：是資料值，不跟著用詞改。 */
+const STORED_PSEUDONYM_PREFIX = '已去識別化使用者 '
+/** 畫面上的代稱前綴（W13c #27「刪除個人資料」）：只在讀出來給人看時換。 */
+const SHOWN_PSEUDONYM_PREFIX = '已刪除個資的使用者 '
+
+/** 去識別化後的代稱（存進資料庫的原字）。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
 export function deidentifiedPseudonym(userId: string): string {
-  return `已刪除個資的使用者 ${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+  return `${STORED_PSEUDONYM_PREFIX}${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+}
+
+/** 人名給人看的樣子：資料庫裡的去識別化代稱換成畫面用詞（舊資料一樣換）；其他名字原樣。 */
+export function displayPersonName(name: string): string {
+  return name.startsWith(STORED_PSEUDONYM_PREFIX) ? `${SHOWN_PSEUDONYM_PREFIX}${name.slice(STORED_PSEUDONYM_PREFIX.length)}` : name
+}
+
+/** 搜尋字：使用者照畫面上的代稱打字時，換回資料庫裡的寫法才查得到。 */
+export function storedNameQuery(q: string): string {
+  return q.startsWith(SHOWN_PSEUDONYM_PREFIX.trim()) ? `${STORED_PSEUDONYM_PREFIX.trim()}${q.slice(SHOWN_PSEUDONYM_PREFIX.trim().length)}` : q
 }
 
 /**

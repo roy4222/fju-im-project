@@ -357,7 +357,7 @@ test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「�
   await expect(form.getByRole('status')).toContainText('原本的第 1 版已被新版取代')
 
   await page.goto(`/dashboard/admin/signoff/${finalV1}`)
-  await expect(page.getByTestId('signoff-state').first()).toHaveText('已被新版取代')
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('已被第 2 版取代')
   await expect(page.getByTestId('signoff-invalidated')).toContainText('內容變更')
   await expect(page.getByRole('region', { name: '版本歷史' })).toContainText('第 2 版')
   // 新版的範圍是改過之後的草稿。

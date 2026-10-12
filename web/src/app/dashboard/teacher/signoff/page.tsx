@@ -5,7 +5,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { OUTLINE_BUTTON_SM, PageTitle, Panel, PanelEmpty, Pill, PRIMARY_BUTTON, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import type { TeacherSignoffCard } from '@/application/signoff'
-import { describeCause, getSignoffQuery, PURPOSE_LABEL, STATE_LABEL } from '@/composition/signoff'
+import { signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
+import { describeCause, getSignoffQuery, PURPOSE_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -27,7 +28,7 @@ function cardStatus(c: TeacherSignoffCard): { text: string; tone: PillTone } {
     case 'revision':
       return { text: '已退回修正', tone: 'brand' }
     default:
-      return { text: STATE_LABEL[c.current.state], tone: 'default' }
+      return { text: signoffStateLabel(c.current.state, { cause: c.current.cause }), tone: 'default' }
   }
 }
 
@@ -116,7 +117,7 @@ export default async function TeacherSignoffPage() {
                         {c.groupCode}・{PURPOSE_LABEL[c.purpose]}
                       </p>
                       <p className="tabular mt-0.5 text-xs text-muted-foreground">
-                        {STATE_LABEL[c.current.state]}・{cardDetail(c)}
+                        {signoffStateLabel(c.current.state, { cause: c.current.cause })}・{cardDetail(c)}
                       </p>
                     </div>
                     <div className="md:justify-self-end">

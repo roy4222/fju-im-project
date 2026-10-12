@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { IconCheck } from '@tabler/icons-react'
 import type { SignoffState, VersionDetail } from '@/application/signoff'
-import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, STATE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
+import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
+import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -22,10 +23,10 @@ const STATE_TONE: Record<SignoffState, string> = {
   void: 'bg-muted text-muted-foreground',
 }
 
-export function StateBadge({ state }: { state: SignoffState }) {
+export function StateBadge({ state, cause, newerVersionNo }: { state: SignoffState; cause?: string | null; newerVersionNo?: number | null }) {
   return (
     <span data-testid="signoff-state" className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATE_TONE[state])}>
-      {STATE_LABEL[state]}
+      {signoffStateLabel(state, { cause, newerVersionNo })}
     </span>
   )
 }
@@ -88,7 +89,7 @@ export function VersionView({
             （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
           </p>
         </div>
-        <StateBadge state={v.state} />
+        <StateBadge state={v.state} cause={v.cause} newerVersionNo={newerVersionNo(v.versionNo, v.history)} />
       </header>
 
       <Invalidated v={v} />
@@ -173,7 +174,7 @@ export function VersionView({
                     第 {h.versionNo} 版
                   </Link>
                 )}
-                <StateBadge state={h.state} />
+                <StateBadge state={h.state} cause={h.cause} newerVersionNo={newerVersionNo(h.versionNo, v.history)} />
                 {h.cause && (h.state === 'superseded' || h.state === 'void' || h.state === 'revision') ? (
                   <span className="text-xs text-muted-foreground">{describeCause(h.cause)}</span>
                 ) : null}

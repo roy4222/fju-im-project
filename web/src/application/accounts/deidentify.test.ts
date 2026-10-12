@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   deidentifiedEmail,
   deidentifiedPseudonym,
+  displayPersonName,
+  storedNameQuery,
   deidentifyConfirmationMatches,
   deidentifyStatusBlocker,
   retainedList,
@@ -13,7 +15,12 @@ const USER = '0190f5a2-7b3c-7d4e-8f90-a1b2c3d4e5f6'
 
 describe('去識別化的代稱與置換值', () => {
   it('代稱只由系統 ID 推得，同一個人永遠同一個', () => {
-    expect(deidentifiedPseudonym(USER)).toBe('已刪除個資的使用者 D4E5F6')
+    // 資料庫裡的代稱是原字（資料值不跟著用詞改）；畫面上才換成新用詞，舊資料一樣換。
+    expect(deidentifiedPseudonym(USER)).toBe('已去識別化使用者 D4E5F6')
+    expect(displayPersonName(deidentifiedPseudonym(USER))).toBe('已刪除個資的使用者 D4E5F6')
+    expect(displayPersonName('王小明')).toBe('王小明')
+    expect(storedNameQuery('已刪除個資的使用者 D4E5F6')).toBe('已去識別化使用者 D4E5F6')
+    expect(storedNameQuery('王')).toBe('王')
     expect(deidentifiedPseudonym(USER.toUpperCase())).toBe(deidentifiedPseudonym(USER))
   })
 

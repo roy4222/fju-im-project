@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { IconCheck, IconClock, IconDownload, IconFileText, IconFileTypePdf, IconSignature, IconUsersGroup, IconX } from '@tabler/icons-react'
 import { Panel, Ring } from '@/app/_ui/dashboard-primitives'
+import { newerVersionNo } from '@/app/dashboard/_signoff/state-label'
 import { Invalidated, StateBadge } from '@/app/dashboard/_signoff/version-view'
 import type { VersionDetail } from '@/application/signoff'
 import { ACCEPTANCE_NOTICE, PURPOSE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
@@ -22,7 +23,7 @@ export function ConsentVersion({ v, action }: { v: VersionDetail; action: ReactN
       aria-label={`${v.groupCode} ${PURPOSE_LABEL[v.purpose]} 第 ${v.versionNo} 版`}
       className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]"
     >
-      <Panel title={`${v.groupCode}・${PURPOSE_LABEL[v.purpose]}・同意書第 ${v.versionNo} 版`} icon={<IconFileText />} action={<StateBadge state={v.state} />}>
+      <Panel title={`${v.groupCode}・${PURPOSE_LABEL[v.purpose]}・同意書第 ${v.versionNo} 版`} icon={<IconFileText />} action={<StateBadge state={v.state} cause={v.cause} newerVersionNo={newerVersionNo(v.versionNo, v.history)} />}>
         {v.state === 'revision' || v.state === 'superseded' || v.state === 'void' || (!v.isCurrent && v.state === 'complete') ? (
           <div className="px-5 pb-3">
             <Invalidated v={v} />

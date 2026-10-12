@@ -160,6 +160,8 @@ export {
   DEIDENTIFY_RETAINED_LABEL,
   deidentifiedEmail,
   deidentifiedPseudonym,
+  displayPersonName,
+  storedNameQuery,
   deidentifyConfirmationMatches,
   deidentifyStatusBlocker,
   DIRECTORY_PAGE_SIZE,

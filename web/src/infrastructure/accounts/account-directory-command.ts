@@ -8,6 +8,8 @@ import {
   DEIDENTIFY_CLEARS,
   deidentifiedEmail,
   deidentifiedPseudonym,
+  displayPersonName,
+  storedNameQuery,
   deidentifyConfirmationMatches,
   deidentifyStatusBlocker,
   DIRECTORY_PAGE_SIZE,
@@ -191,7 +193,7 @@ type DirectoryRow = {
 function toAccountRow(r: DirectoryRow): AccountRow {
   return {
     userId: r.user_id,
-    name: r.name,
+    name: displayPersonName(r.name),
     studentNo: r.student_no,
     departmentClass: r.department_class,
     cohortId: r.cohort_id,
@@ -208,6 +210,11 @@ function toAccountRow(r: DirectoryRow): AccountRow {
   }
 }
 
+/** 回執給畫面：帳本裡存的是寫進資料庫的原代稱，回傳前換成畫面用詞（W13c #27）。 */
+function shownReceipt(receipt: DeidentifyReceipt): DeidentifyReceipt {
+  return { ...receipt, pseudonym: displayPersonName(receipt.pseudonym) }
+}
+
 /** 篩選 → WHERE 子句與參數（參數從 `$1` 起）。 */
 function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] } {
   const conditions: string[] = []
@@ -217,7 +224,7 @@ function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] }
     return `$${params.length}`
   }
   if (filter.q) {
-    const p = add(likePattern(filter.q))
+    const p = add(likePattern(storedNameQuery(filter.q)))
     conditions.push(
       `(name ilike ${p} escape '\\' or student_no ilike ${p} escape '\\' or login_email ilike ${p} escape '\\' or contact_email ilike ${p} escape '\\')`,
     )
@@ -663,7 +670,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
           loginEmail: target.loginEmail,
           studentNo: target.studentNo,
           status: target.status,
-          pseudonym: deidentifiedPseudonym(userId),
+          // 預覽給畫面看：代稱換成畫面用詞（資料庫存的是原字，見 displayPersonName）。
+          pseudonym: displayPersonName(deidentifiedPseudonym(userId)),
           blockers,
           clears: DEIDENTIFY_CLEARS,
           retained: retainedList(retained),
@@ -724,7 +732,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       if (begun.outcome === 'replay') {
         await tx.query('commit')
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
-        return ok(begun.receipt as DeidentifyReceipt, meta(now, input.requestId))
+        return ok(shownReceipt(begun.receipt as DeidentifyReceipt), meta(now, input.requestId))
       }
 
       // 鎖的順序同停用：先整組管理員，再目標（admin-guard.ts）。
@@ -797,7 +805,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     }
 
     const revocation = await this.#runRevocation(input.userId, context)
-    return ok({ ...receipt, revocation }, meta(now, input.requestId))
+    return ok(shownReceipt({ ...receipt, revocation }), meta(now, input.requestId))
   }
 
   // ── 內部 ──────────────────────────────────────────────────────────────────

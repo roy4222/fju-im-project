@@ -122,6 +122,20 @@ describe('表頭', () => {
     expect(analyzeRoster('student_no,email\n1,a@b.tw\n', cohorts, null)).toMatchObject({ ok: false })
     expect(analyzeRoster('student_no,name,name\n1,a,b\n', cohorts, null)).toMatchObject({ ok: false })
     expect(analyzeRoster('student_no,name\n', cohorts, null)).toMatchObject({ ok: false })
+
+    // 錯誤訊息的欄名附中文（W13c review）：英文欄名照留（解析要用），括號說明是什麼。
+    const message = (text: string) => {
+      const r = analyzeRoster(text, cohorts, null)
+      return r.ok ? '' : r.message
+    }
+    expect(message('')).toBe('檔案是空的，第一行要是表頭：student_no（學號）、name（姓名）、cohort（屆別）、email（Email）。')
+    expect(message('student_no,name,phone\n1,王,0912\n')).toBe(
+      '表頭有不認得的欄位「phone」。欄位固定為 student_no（學號）、name（姓名）、cohort（屆別）、email（Email），可多一欄 department_class（系級）。',
+    )
+    expect(message('student_no,name,name\n1,a,b\n')).toBe('表頭的「name（姓名）」出現了兩次。')
+    expect(message('student_no,email\n1,a@b.tw\n')).toBe(
+      '表頭少了必填欄位「name（姓名）」。欄位固定為 student_no（學號）、name（姓名）、cohort（屆別）、email（Email）。',
+    )
     expect(analyzeRoster('', cohorts, null)).toMatchObject({ ok: false })
   })
 })

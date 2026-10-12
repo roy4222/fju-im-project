@@ -1,7 +1,7 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { PoolClient } from 'pg'
-import { statusGate, type ResolvedActor } from '@/application/accounts'
+import { displayPersonName, statusGate, type ResolvedActor } from '@/application/accounts'
 import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
 import { renderBodyHtml, sanitizeBody } from '@/application/items'
 import type { EventPublisher } from '@/application/notifications'
@@ -1512,7 +1512,7 @@ async function deidentifiedNames(db: Queryable, userIds: readonly string[]): Pro
     `select id, name from users where id = any($1::uuid[]) and deidentified_at is not null`,
     [ids],
   )
-  return new Map(rows.rows.map((r) => [r.id, r.name]))
+  return new Map(rows.rows.map((r) => [r.id, displayPersonName(r.name)]))
 }
 
 /** 一批參與者快照（jsonb 原樣）裡，已去識別化的人 → 代稱。 */

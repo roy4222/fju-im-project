@@ -391,6 +391,8 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   await signIn(page, g2[1]!)
   await page.goto('/dashboard/student/signoff')
   await expect(page.getByTestId('signoff-invalidated')).toContainText('這一版同意書已作廢（指導老師變更），等系辦建立新版')
+  // 還沒有新版：徽章跟說明一致寫「已作廢」，不說「已被新版取代」。
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('已作廢（指導老師變更）')
   await expect(page.getByTestId('respond-form')).toHaveCount(0)
 
   // 失效通知：系辦收到，學生沒有。
@@ -408,6 +410,7 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
   await expect(page.getByRole('region', { name: '各組同意書' })).toContainText('指導老師變更，待建新版')
   const current = page.getByTestId('package-cell').filter({ hasText: '指導老師變更' }).first()
+  await expect(current.getByTestId('signoff-state')).toHaveText('已作廢（指導老師變更）')
   await current.getByRole('link', { name: '第 2 版' }).click()
   await page.getByRole('button', { name: '重開新版' }).click()
   const reopen = page.getByRole('dialog', { name: '重開新版？' })
