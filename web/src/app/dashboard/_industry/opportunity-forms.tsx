@@ -1,13 +1,26 @@
 'use client'
-import { startTransition, useActionState, useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  createContext,
+  startTransition,
+  useActionState,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import type { NormalizedOpportunity, OpportunityField } from '@/application/groups'
-import { IconEyeOff, IconPlus } from '@tabler/icons-react'
+import { IconEyeOff, IconPlus, IconTrash } from '@tabler/icons-react'
 import { ALERT, BTN_OUTLINE_TALL, BTN_ROW, BTN_ROW_GHOST, BTN_SUBMIT, DIALOG, DIALOG_TITLE, INPUT as INPUT_BASE, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
+import { buttonVariants } from '@/app/_ui/ui/button'
 import { cn } from '@/shared/cn'
-import { changeOpportunityStatusAction, saveOpportunityAction, unlinkOpportunityAction } from './actions'
+import { changeOpportunityStatusAction, deleteOpportunityAction, saveOpportunityAction, unlinkOpportunityAction } from './actions'
 
 /**
- * 合作案管理會動的部分（票 20；原型 `IndustryFormDialog`）：新增／編輯對話框、發布／下架／重新發布、解除連結。
+ * 合作案管理會動的部分（票 20；原型 `IndustryFormDialog`）：新增／編輯對話框、發布／下架／重新發布、解除連結；
+ * 第三波 W11：系辦新增時從選單指定負責老師、刪除（危險操作）。
  *
  * 規則全在用例裡判；這裡只顯示伺服器回來的句子。欄位出錯時伺服器回是哪一欄，對話框把焦點移過去並標紅。
  * 原型的「網際網路公開（含聯絡資訊）」選項不做（產品 6.1：合作案一律登入後可見，聯絡資訊只有負責老師與系辦）。
@@ -25,6 +38,9 @@ const AREA = `mt-1.5 ${TEXTAREA}`
 const LABEL = 'block text-sm font-semibold text-foreground'
 const DIALOG_BOX = DIALOG['2xl']
 const DIALOG_SMALL = DIALOG.md
+// 危險操作（第三波 §9 規則 1）：淡紅、跟日常按鈕分開。
+const DANGER = buttonVariants({ variant: 'destructive', size: 'sm', className: 'press rounded-lg' })
+const DANGER_SUBMIT = buttonVariants({ variant: 'destructive', size: 'lg', className: 'press h-11 rounded-lg px-5' })
 
 export function IndustryFeedback({ state }: { state: IndustryActionState }) {
   if (!state) return null
@@ -59,24 +75,32 @@ export type OpportunityFormLabels = {
 
 type Initial = { opportunityId: string; revision: number; values: NormalizedOpportunity; name: string }
 
+/** 系辦新增時的負責老師選項（帳號正常、目前是老師）。 */
+export type OwnerTeacherOption = { readonly userId: string; readonly name: string; readonly loginEmail: string }
+
 /**
- * 新增（老師）或編輯（案主、系辦）合作案。`initial` 沒給就是新增：可以「儲存草稿」或「儲存並發布」。
+ * 新增（老師、系辦）或編輯（案主、系辦）合作案。`initial` 沒給就是新增：可以「儲存草稿」或「儲存並發布」。
  * 私有欄位區塊標「只有負責老師與系辦看得到」。
+ * 有 `teachers`＝系辦新增：第一欄是負責老師選單（必填）；老師自己新增不給，負責老師由登入帳號帶入。
  */
 export function OpportunityFormDialog({
   labels,
   requestId,
   initial,
+  teachers,
 }: {
   labels: OpportunityFormLabels
   requestId: string
   initial?: Initial
+  teachers?: readonly OwnerTeacherOption[]
 }) {
   const [state, action, pending] = useActionState(saveOpportunityAction, undefined)
   const dialog = useDialog()
   const [version, setVersion] = useState(0)
   const formRef = useRef<HTMLFormElement>(null)
   const editing = Boolean(initial)
+  const pickOwner = !editing && teachers !== undefined
+  const ownerInvalid = !state?.ok && state?.field === 'ownerTeacherUserId'
 
   useEffect(() => {
     if (state?.ok) {
@@ -132,7 +156,8 @@ export function OpportunityFormDialog({
           <div className="border-b border-border px-6 py-4">
             <h2 className={DIALOG_TITLE}>{editing ? '編輯合作案' : '新增合作案'}</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              負責老師與發布日由系統帶入。<span className="text-destructive">*</span> 為必填。內容可以分段落，直接換行即可。
+              {pickOwner ? '負責老師從選單選，發布日由系統帶入。' : '負責老師與發布日由系統帶入。'}
+              <span className="text-destructive">*</span> 為必填。內容可以分段落，直接換行即可。
             </p>
           </div>
           <input type="hidden" name="requestId" value={requestId} />
@@ -143,6 +168,35 @@ export function OpportunityFormDialog({
             </>
           ) : null}
           <div className="grid max-h-[60vh] gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
+            {pickOwner ? (
+              <div className="sm:col-span-2">
+                <label htmlFor="opp-new-ownerTeacherUserId" className={LABEL}>
+                  負責老師<span className="ml-0.5 text-destructive">*</span>
+                </label>
+                <select
+                  id="opp-new-ownerTeacherUserId"
+                  name="ownerTeacherUserId"
+                  defaultValue=""
+                  aria-invalid={ownerInvalid || undefined}
+                  aria-describedby="opp-new-owner-hint"
+                  className={cn(INPUT, ownerInvalid && 'border-destructive')}
+                >
+                  <option value="" disabled>
+                    請選負責老師
+                  </option>
+                  {teachers!.map((t) => (
+                    <option key={t.userId} value={t.userId}>
+                      {t.name}（{t.loginEmail}）
+                    </option>
+                  ))}
+                </select>
+                <p id="opp-new-owner-hint" className="mt-1 text-xs text-muted-foreground">
+                  {teachers!.length === 0
+                    ? '目前沒有可選的老師：請先到「帳號」建立或核准老師帳號。'
+                    : '這位老師會在「我的合作案」看到它，能編輯、下架，也看得到聯絡資訊。'}
+                </p>
+              </div>
+            ) : null}
             {field('companyName', { required: true })}
             {field('department', { required: true })}
             {field('content', { required: true, textarea: true, rows: 5, span: true })}
@@ -355,5 +409,112 @@ export function LinkedGroupsCell({
         </form>
       </dialog>
     </div>
+  )
+}
+
+/**
+ * 刪除成功後那一列會從清單消失、掛在列上的回饋跟著不見，所以成功句子放到清單外（同時間軸頁的做法）。
+ */
+const SetOpportunityNotice = createContext<(state: IndustryActionState) => void>(() => {})
+const OpportunityNoticeValue = createContext<IndustryActionState>(undefined)
+
+export function OpportunityNoticeProvider({ children }: { children: ReactNode }) {
+  const [notice, setNotice] = useState<IndustryActionState>(undefined)
+  return (
+    <SetOpportunityNotice.Provider value={setNotice}>
+      <OpportunityNoticeValue.Provider value={notice}>{children}</OpportunityNoticeValue.Provider>
+    </SetOpportunityNotice.Provider>
+  )
+}
+
+export function OpportunityNotice() {
+  return <IndustryFeedback state={useContext(OpportunityNoticeValue)} />
+}
+
+/**
+ * 刪除合作案（第三波 W11；系辦）：只限草稿或已下架、沒連組別。不能刪的（`blocker`，查詢層依同一條規則算好）
+ * 一樣有這顆按鈕，對話框只說明要先做什麼（§9 規則 4）；規則以伺服器為準。
+ * 可以刪的走危險操作確認：寫清楚對象、後果、不能恢復，確認鈕寫動作。
+ */
+export function DeleteOpportunityButton({
+  opportunityId,
+  revision,
+  name,
+  ownerName,
+  statusLabel,
+  blocker,
+  requestId,
+}: {
+  opportunityId: string
+  revision: number
+  name: string
+  ownerName: string
+  statusLabel: string
+  blocker: string | null
+  requestId: string
+}) {
+  const setNotice = useContext(SetOpportunityNotice)
+  const [state, action, pending] = useActionState(async (prev: IndustryActionState, formData: FormData) => {
+    const result = await deleteOpportunityAction(prev, formData)
+    setNotice(result?.ok ? result : undefined)
+    return result
+  }, undefined)
+  const dialog = useDialog()
+  useEffect(() => {
+    if (state?.ok) dialog.close()
+  }, [state, dialog])
+
+  return (
+    <>
+      <button type="button" className={DANGER} onClick={dialog.open} aria-label={`刪除：${name}`}>
+        <IconTrash aria-hidden />
+        刪除
+      </button>
+      <dialog ref={dialog.ref} aria-label={blocker ? `還不能刪除「${name}」` : `刪除「${name}」`} className={DIALOG_SMALL}>
+        {blocker ? (
+          <div className="space-y-4 p-5">
+            <h2 className={DIALOG_TITLE}>還不能刪除「{name}」</h2>
+            <p className="text-sm text-muted-foreground">{blocker}</p>
+            <div className="flex justify-end pt-1">
+              <button type="button" className={SECONDARY} onClick={dialog.close}>
+                知道了
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form action={action} className="space-y-4 p-5">
+            <h2 className={DIALOG_TITLE}>刪除「{name}」？</h2>
+            <dl className="space-y-1 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+              <div>
+                <dt className="inline font-semibold">對象：</dt>
+                <dd className="inline">
+                  {name}（{ownerName} 老師負責，{statusLabel}）
+                </dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">後果：</dt>
+                <dd className="inline">從系辦「合作案」、負責老師的「我的合作案」與前台合作案頁消失。</dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">能不能恢復：</dt>
+                <dd className="inline">不能。刪除紀錄會留在操作紀錄。</dd>
+              </div>
+            </dl>
+            <input type="hidden" name="opportunityId" value={opportunityId} />
+            <input type="hidden" name="revision" value={revision} />
+            <input type="hidden" name="requestId" value={requestId} />
+            <IndustryFeedback state={state?.ok ? undefined : state} />
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className={SECONDARY} onClick={dialog.close}>
+                先不要
+              </button>
+              <button type="submit" disabled={pending} className={DANGER_SUBMIT}>
+                {pending ? '處理中…' : '刪除這個合作案'}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
+    </>
   )
 }

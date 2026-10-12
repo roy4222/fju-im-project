@@ -80,7 +80,9 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   await page.getByRole('button', { name: `把 ${CODE} 設為預設工作屆別` }).click()
   await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 設為預設工作屆別`)
 
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'alert')).toContainText('還沒設定階段與年度結束日')
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('籌備中')
@@ -182,7 +184,19 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
 test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  // 第三波 AC-37：按鈕在「危險操作」區；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
+  const danger = page.getByRole('region', { name: '危險操作' })
+  await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
+  const facts = confirm.getByTestId('danger-facts')
+  for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
+  await expect(facts).toContainText(CODE)
+  await expect(facts).toContainText('不能改回籌備中')
+  await confirm.getByRole('button', { name: '先不要' }).click()
+  await expect(confirm).toBeHidden()
+  await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })).toContainText('籌備中')
+  await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await confirm.getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 轉為進行中`)
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('進行中')

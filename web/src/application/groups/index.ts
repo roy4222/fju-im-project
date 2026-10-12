@@ -139,6 +139,7 @@ export {
   OPPORTUNITY_FIELD_LABEL,
   OPPORTUNITY_LIMITS,
   OPPORTUNITY_STATUS_LABEL,
+  opportunityDeleteBlocker,
   opportunityName,
   opportunitySummary,
   parseGroupType,

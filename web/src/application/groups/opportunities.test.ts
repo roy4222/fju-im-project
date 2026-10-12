@@ -11,6 +11,7 @@ import {
   normalizeOpportunityInput,
   normalizeRosterExportRequest,
   normalizeRosterFilter,
+  opportunityDeleteBlocker,
   opportunitySummary,
   rosterExportRows,
   rosterQueryString,
@@ -64,6 +65,20 @@ describe('合作案欄位', () => {
   it('列表摘要：拿掉標籤、壓成一行、超過就截斷', () => {
     expect(opportunitySummary('<p>第一段</p>\n\n<b>第二段</b>')).toBe('第一段 第二段')
     expect(opportunitySummary('字'.repeat(100))).toHaveLength(81)
+  })
+})
+
+describe('刪除（第三波 W11）', () => {
+  it('草稿與已下架、沒有連著組別的可以刪', () => {
+    expect(opportunityDeleteBlocker({ status: 'draft', linkedGroupCodes: [] })).toBeNull()
+    expect(opportunityDeleteBlocker({ status: 'withdrawn', linkedGroupCodes: [] })).toBeNull()
+  })
+
+  it('發布中要先下架；連著組別要先解除，並列出是哪幾組', () => {
+    expect(opportunityDeleteBlocker({ status: 'published', linkedGroupCodes: [] })).toContain('要先「下架」')
+    const linked = opportunityDeleteBlocker({ status: 'withdrawn', linkedGroupCodes: ['G01', 'G02'] })
+    expect(linked).toContain('要先「解除」連結')
+    expect(linked).toContain('G01、G02')
   })
 })
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DELETE_HAS_RESPONSES_MESSAGE,
+  deleteCheck,
+  describeDeleteReceipt,
+  editableInArchivedCohort,
   describeLifecycleReceipt,
   describeRepublishExpired,
   lifecycleCheck,
@@ -32,6 +36,39 @@ describe('lifecycleCheck：撤回、下架、重新發布只在對的狀態', ()
     const draft = lifecycleCheck('republish', 'draft', false)
     expect(draft.ok || draft.message).toContain('發布')
     expect(lifecycleCheck('republish', 'published', false).ok).toBe(false)
+  })
+})
+
+describe('deleteCheck：刪除只限草稿與已下架、有人交件的擋下（第三波 W1）', () => {
+  it('草稿、已下架沒有回答可以刪', () => {
+    expect(deleteCheck('draft', false)).toEqual({ ok: true })
+    expect(deleteCheck('archived', false)).toEqual({ ok: true })
+  })
+
+  it('發布中不能刪：要先撤回或下架', () => {
+    const refused = deleteCheck('published', false)
+    expect(refused).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(refused.ok || refused.message).toContain('發布中的項目不能刪除')
+    expect(refused.ok || refused.message).toContain('先撤回或下架')
+  })
+
+  it('已有人交件（存過草稿或正式送出）不能刪，只能下架（Q28）', () => {
+    expect(deleteCheck('archived', true)).toEqual({ ok: false, code: 'ITEM_HAS_RESPONSES', message: DELETE_HAS_RESPONSES_MESSAGE })
+    expect(DELETE_HAS_RESPONSES_MESSAGE).toBe('已經有學生交件，只能下架，不能刪除。')
+  })
+
+  it('回執說清楚不能恢復、通知不收回', () => {
+    const text = describeDeleteReceipt({ itemId: 'x', cohortId: COHORT, title: '說明會', status: 'archived' })
+    expect(text).toContain('「說明會」已刪除')
+    expect(text).toContain('不能恢復')
+    expect(text).toContain('通知不會收回')
+  })
+})
+
+describe('editableInArchivedCohort：封存屆別只剩榮譽可以動', () => {
+  it('榮譽可以；其他位置不行', () => {
+    expect(editableInArchivedCohort('honor')).toBe(true)
+    for (const p of ['news', 'resource', 'submission', 'rules', 'showcase', 'requirement']) expect(editableInArchivedCohort(p)).toBe(false)
   })
 })
 
