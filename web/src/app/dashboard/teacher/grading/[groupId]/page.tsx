@@ -36,7 +36,10 @@ export default async function TeacherGradingGroupPage({
 }) {
   const { groupId } = await params
   const actor = await requireRole(`/dashboard/teacher/grading/${groupId}`, 'teacher')
-  const [bench, queue] = await Promise.all([getGradingQuery().teacherBench(actor, groupId), getGradingQuery().teacherQueue(actor)])
+  // 先判斷有沒有有效指派（teacherBench 第一個查詢就是指派），沒有就導走，其他什麼都不讀。
+  const bench = await getGradingQuery().teacherBench(actor, groupId)
+  if (!bench.ok) redirect('/403')
+  const queue = await getGradingQuery().teacherQueue(actor)
 
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/grading">
@@ -46,8 +49,6 @@ export default async function TeacherGradingGroupPage({
       </div>
     </DashboardShell>
   )
-
-  if (!bench.ok) redirect('/403')
 
   const { entries, groupCode, cohortCode, memberNames, versionNo } = bench.receipt
   const search = await searchParams

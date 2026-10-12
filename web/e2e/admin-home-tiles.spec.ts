@@ -281,11 +281,10 @@ test('檔案管理：說明要新增檔案請到專題事務，並附前往連�
   await expect(page).toHaveURL(/\/dashboard\/admin\/affairs$/)
 })
 
-test('老師打開沒被指派的評分頁：中文說明＋回到自己的首頁', async ({ page }) => {
+test('老師打開沒被指派的評分頁：「找不到這個頁面」（不說原因）＋回到自己的首頁', async ({ page }) => {
   await signIn(page, stranger)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
-  await expect(page.getByRole('heading', { name: '你沒有被指派評這一組' })).toBeVisible()
-  await expect(page.getByText('評分表只開給系辦指派的評分老師')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText('80.00')
   await page.getByRole('link', { name: '回到自己的首頁' }).click()
   await expect(page).toHaveURL(/\/dashboard\/teacher$/)
