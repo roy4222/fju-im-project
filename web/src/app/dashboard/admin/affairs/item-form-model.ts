@@ -62,8 +62,15 @@ export type EditorState = {
   /** 競賽資訊的報名截止日與活動日（`YYYY-MM-DD`；空＝沒填）。 */
   registrationDeadline: string
   eventDate: string
+  /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台用發布日）。 */
+  awardedOn: string
   fields: FieldDraft[]
 }
+
+/** 榮譽榜位置（第三波 W1）：對象固定公開訪客、不收件、不發通知。 */
+export const HONOR = 'honor'
+/** 榮譽固定的對象。 */
+export const HONOR_AUDIENCE = 'public'
 
 let fieldSeq = 0
 /** 欄位代號：`f` 開頭、小寫英數，瀏覽器端產生，伺服器再驗一次格式與唯一。 */
@@ -110,8 +117,9 @@ export function toPayload(state: EditorState) {
     category: state.category,
     coverFileId: state.cover?.fileId ?? null,
     attachmentFileIds: state.attachments.map((a) => a.fileId),
-    audienceKind: state.audienceKind,
-    groupIds: state.audienceKind === 'groups' ? state.groupIds : [],
+    // 榮譽榜是公開頁：對象一律公開訪客（畫面也鎖住，這裡再保證一次）。
+    audienceKind: state.placement === HONOR ? HONOR_AUDIENCE : state.audienceKind,
+    groupIds: state.placement !== HONOR && state.audienceKind === 'groups' ? state.groupIds : [],
     receiverUnit: collects ? state.receiverUnit : 'none',
     stageId: collects && state.stageId ? state.stageId : null,
     opensAt: collects ? state.opensAt : '',
@@ -119,6 +127,8 @@ export function toPayload(state: EditorState) {
     // 只有「公告＋分類競賽資訊」會留（伺服器再判一次；不是就清掉）。
     registrationDeadline: state.placement === 'news' ? state.registrationDeadline : '',
     eventDate: state.placement === 'news' ? state.eventDate : '',
+    // 得獎日期只有榮譽會留（伺服器再判一次）。
+    awardedOn: state.placement === HONOR ? state.awardedOn : '',
     fields: collects
       ? state.fields.map((f) => ({
           key: f.key,

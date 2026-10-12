@@ -41,6 +41,8 @@ type Row = {
   item_placement: string | null
   item_status: string | null
   item_receiver_unit: string | null
+  /** 項目已刪除（第三波 W1；不是項目或項目不在了就是 null）。 */
+  item_deleted: boolean | null
   /** 本人目前在這份收件的名單上（個人一份：本人；整組一份：本人此刻所在的組，票 21）。 */
   item_on_roster: boolean | null
   /** 來源是簽核版本時，本人此刻讀不讀得到那一版（跟版本頁同一個判斷；不是簽核版本就是 null）。 */
@@ -55,7 +57,13 @@ type Row = {
 /** 解析來源時能用的「當下」事實（每次顯示都重查，不看通知寫入當時）。 */
 type SourceContext = Pick<
   Row,
-  'item_placement' | 'item_status' | 'item_receiver_unit' | 'item_on_roster' | 'signoff_readable' | 'grading_group_listed'
+  | 'item_placement'
+  | 'item_status'
+  | 'item_receiver_unit'
+  | 'item_deleted'
+  | 'item_on_roster'
+  | 'signoff_readable'
+  | 'grading_group_listed'
 >
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -132,6 +140,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
  * - 資源 → `/files`、專題規則 → `/rules`（票 16 的前台清單頁；資源與規則沒有單篇頁，`/news/<id>` 只收公告）。
  * - 收件：發布中而且本人現在還在名單上（整組一份：本人此刻是名單上那一組的有效組員）→ 作業區的那一份
  *   （`/dashboard/student/affairs/<id>`，那一頁自己再驗名單）。已被移出、沒有在發布中 → 不給連結，只顯示標題。
+ * - 已刪除的收件（第三波 W1）：保留原本的作業區連結，點開是中文「找不到這個頁面」（作業區查詢不列已刪項目）；
+ *   公告本來就連 `/news/<id>`，刪除後那一頁同樣是找不到。
  * - 項目不在了或其他種類 → 不給連結。
  */
 function resolveItem(ref: { id: string }, context: SourceContext): NotificationSourceState {
@@ -143,6 +153,7 @@ function resolveItem(ref: { id: string }, context: SourceContext): NotificationS
     case 'rules':
       return { state: 'ok', href: '/rules' }
     case 'submission':
+      if (context.item_deleted) return { state: 'ok', href: `/dashboard/student/affairs/${ref.id}` }
       return context.item_status === 'published' &&
         (context.item_receiver_unit === 'individual' || context.item_receiver_unit === 'group') &&
         context.item_on_roster
@@ -157,6 +168,7 @@ const NO_CONTEXT: SourceContext = {
   item_placement: null,
   item_status: null,
   item_receiver_unit: null,
+  item_deleted: null,
   item_on_roster: null,
   signoff_readable: null,
   grading_group_listed: null,
@@ -217,6 +229,7 @@ export class PgInbox implements InboxQuery, InboxCommand {
       `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.status as cohort_status,
               n.source_ref, n.created_at, n.read_at,
               mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
+              mi.deleted_at is not null as item_deleted,
               exists (select 1 from response_rosters rr
                        where rr.item_id = mi.id and rr.eligible_to_business_at is null
                          and ((rr.receiver_kind = 'user' and rr.receiver_id = $1)

@@ -1,0 +1,28 @@
+{
+  "updatedAt": "2026-10-12T08:00:00+08:00",
+  "sourceSha": "7162644000000000000000000000000000000000",
+  "batches": [
+    {
+      "id": "s",
+      "name": "開發者後台",
+      "plan": "docs/plans/2026-10-12-status-console/設計方案.md"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "S-1",
+      "batch": "s",
+      "title": "開發者後台的骨架",
+      "wave": "第一波",
+      "status": "doing",
+      "owner": "Opus",
+      "branch": "claude/s1-status-skeleton",
+      "pr": null,
+      "dependsOn": [],
+      "acceptance": [
+        "AC-S-1"
+      ],
+      "note": ""
+    }
+  ]
+}
