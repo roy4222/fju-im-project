@@ -82,6 +82,19 @@ test.describe('以 A1（管理員）', () => {
     )
   })
 
+  test('側欄「專題事務」下面有「首頁設定」（第三波 W5）', async ({ page }) => {
+    await signInAs(page, 'admin')
+    await page.goto('/dashboard/admin')
+    const affairsGroup = page
+      .getByRole('navigation', { name: '後台導覽' })
+      .locator('[data-sidebar="group"]', { has: page.getByText('專題事務', { exact: true }) })
+    // 頁面與守衛由 W3 提供；這裡只驗入口在對的分組、連到對的網址。
+    await expect(affairsGroup.getByRole('link', { name: '首頁設定', exact: true })).toHaveAttribute(
+      'href',
+      '/dashboard/admin/home-settings',
+    )
+  })
+
   test('點進「帳號」與「屆別」打得開，是真的列表而不是假資料', async ({ page }) => {
     await signInAs(page, 'admin')
 
@@ -119,6 +132,17 @@ test.describe('以 S01（學生）', () => {
       'href',
       '/dashboard/student',
     )
+  })
+
+  test('側欄沒有「成績」；直接開成績網址看到說明，不是死路（第三波 Q7③）', async ({ page }) => {
+    await signInAs(page, 'student')
+    await page.goto('/dashboard/student')
+    const nav = page.getByRole('navigation', { name: '後台導覽' })
+    await expect(nav.getByRole('link', { name: '同意書', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: '成績', exact: true })).toHaveCount(0)
+
+    expect((await page.goto('/dashboard/student/grading'))?.status()).toBe(200)
+    await expect(page.getByRole('heading', { name: '評分由老師與系辦處理，學生不會看到分數' })).toBeVisible()
   })
 
   test('自己的後台與帳號頁都打得開', async ({ page }) => {
