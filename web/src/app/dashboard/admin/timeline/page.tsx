@@ -253,22 +253,25 @@ export default async function AdminTimelinePage({
         ) : null}
       </ActivityNoticeProvider>
 
-      {/* 危險操作（§9 規則 1）：刪除跟日常的改期、取消拉開，放在頁面最底下；自己一個回饋區。 */}
-      {activities.length > 0 ? (
-        <ActivityNoticeProvider>
-          <Panel
-            title="危險操作"
-            icon={<IconAlertTriangle />}
-            description="刪除後不能恢復"
-            aria-label="危險操作"
-            className="border border-destructive/30"
-          >
-            <div className="space-y-3 border-t border-border px-5 py-3">
-              <p className="text-sm text-muted-foreground">
-                只有已取消的活動可以刪除；刪除後從後台、學生與老師的行事曆、首頁都消失，不能恢復。排定中的請先「取消活動」。
-              </p>
-              <ActivityNotice />
-            </div>
+      {/* 危險操作（§9 規則 1）：刪除跟日常的改期、取消拉開，放在頁面最底下；自己一個回饋區。
+          該屆沒有活動也照樣渲染這一區：成功句子掛在這一區裡，刪掉最後一個時若整區不見，句子會跟著卸載、看不到「已刪除」。 */}
+      <ActivityNoticeProvider>
+        <Panel
+          title="危險操作"
+          icon={<IconAlertTriangle />}
+          description="刪除後不能恢復"
+          aria-label="危險操作"
+          className="border border-destructive/30"
+        >
+          <div className="space-y-3 border-t border-border px-5 py-3">
+            <p className="text-sm text-muted-foreground">
+              只有已取消的活動可以刪除；刪除後從後台、學生與老師的行事曆、首頁都消失，不能恢復。排定中的請先「取消活動」。
+            </p>
+            <ActivityNotice />
+          </div>
+          {activities.length === 0 ? (
+            <p className="border-t border-border px-5 py-4 text-sm text-muted-foreground">目前沒有活動。</p>
+          ) : (
             <ul aria-label="活動刪除清單" className="divide-y divide-border border-t border-border">
               {[...cancelled, ...scheduled].map((activity) => (
                 <li key={activity.id} data-testid="danger-activity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
@@ -293,9 +296,9 @@ export default async function AdminTimelinePage({
                 </li>
               ))}
             </ul>
-          </Panel>
-        </ActivityNoticeProvider>
-      ) : null}
+          )}
+        </Panel>
+      </ActivityNoticeProvider>
     </>,
     // 新增活動（獨立活動）：原型頁面上的動作都是開對話框；回饋留在按鈕旁邊，不混進活動清單。
     <CreateActivityForm cohortId={cohort.id} requestId={randomUUID()} {...limits} />,
