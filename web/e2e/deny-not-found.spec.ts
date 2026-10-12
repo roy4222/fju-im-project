@@ -19,12 +19,14 @@ async function signInAs(page: Page, role: TestRole) {
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
 }
 
-/** 主要內容的文字；同時確認是找不到頁面、有網站頁首頁尾、沒有透露原因。 */
+/** 主要內容的文字；同時確認是找不到頁面、有網站頁首頁尾、沒有鎖頭、沒有透露原因。 */
 async function deniedMain(page: Page, url: string): Promise<string> {
   await page.goto(url)
   await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.getByRole('banner')).toBeVisible()
   await expect(page.getByRole('contentinfo')).toBeVisible()
+  // 舊版 /403 放的是 Tabler 的 IconLock（svg class `tabler-icon-lock`）；任何鎖頭類圖示都不能出現。
+  await expect(page.locator('main svg[class*="tabler-icon-lock"]')).toHaveCount(0)
   const text = await page.locator('main').innerText()
   expect(text).not.toMatch(REVEALING)
   return text
