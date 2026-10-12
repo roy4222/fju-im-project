@@ -182,6 +182,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
         latest_version_no: number | null
         latest_received_at: Date | null
         latest_submitted_by_name: string | null
+        reopen_until: Date | null
       }>(
         `with picked as (
            select distinct on (r.item_id, r.receiver_id) r.* from response_rosters r
@@ -191,7 +192,8 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
          )
          select r.item_id, r.receiver_id, r.eligible_to_business_at, r.exempt,
                 latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-                coalesce(sp.display_name, su.name) as latest_submitted_by_name
+                coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+                ${REOPEN_UNTIL}
            from picked r ${latestJoin('')}`,
         [groupIds],
       ),
@@ -248,6 +250,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
           latestVersionNo: c.latest_version_no,
           latestReceivedAt: c.latest_received_at,
           latestSubmittedByName: c.latest_submitted_by_name,
+          reopenUntil: c.reopen_until,
         }),
       ),
       individualItems: individual.rows.map(

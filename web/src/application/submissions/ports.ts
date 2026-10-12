@@ -381,6 +381,8 @@ export type AdvisorMatrixCell = {
   readonly latestVersionNo: number | null
   readonly latestReceivedAt: Date | null
   readonly latestSubmittedByName: string | null
+  /** 系辦替這一組開的個別補交期限（W10b，最晚的那一個）；沒有是 null。 */
+  readonly reopenUntil: Date | null
 }
 
 /** 開放主指導閱覽的個人收件（老師指導的學生裡：應交幾位、幾位已有老師看得到的正式版本）。 */

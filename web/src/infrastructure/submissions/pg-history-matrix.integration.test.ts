@@ -754,6 +754,18 @@ describe('6. 老師名單也認得系辦開放的個別補交（W10b）', () => 
         expect(completionOf(view.item, view.entries, EXPIRED)).toMatchObject({ overdue: 2, pending: 0 })
       }
 
+      // 總覽矩陣的格子也同一個判斷：補交中的組不是逾期，期限過了才是。
+      const matrix = (await advisor.matrix(teacherActor(t1)))!
+      const cellOf = (groupId: string) => matrix.cells.find((c) => c.itemId === groupItem && c.groupId === groupId)!
+      expect(cellOf(g1)).toMatchObject({ reopenUntil: REOPENED_TO })
+      expect(cellOf(g2)).toMatchObject({ reopenUntil: null })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g1), hasDraft: false }, AFTER)).toMatchObject({
+        headline: '未繳',
+        overdue: false,
+      })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g1), hasDraft: false }, EXPIRED)).toMatchObject({ overdue: true })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g2), hasDraft: false }, AFTER)).toMatchObject({ overdue: true })
+
       // 補交送出的版本：老師的版本列表與內容也標「補交」。
       await saveAndSubmit(s1, personal.itemId, { wish: '補交的內容' })
       expect((await advisor.receiver(teacherActor(t1), personal.itemId, s1.id))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
