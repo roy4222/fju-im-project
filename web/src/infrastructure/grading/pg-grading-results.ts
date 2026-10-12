@@ -136,7 +136,7 @@ function staleFinal(): Err {
 
 /** 「新增」會讓要求份數 +1；已經到上限（和設定份數同一個上限）就不能再新增。 */
 function addOverLimit(required: number): string {
-  return `要求份數已經是 ${required} 份（上限 ${MAX_REQUIRED_COUNT}），不能再新增評分老師；請改選「保留」或「替換」。`
+  return `這一組已經需要 ${required} 位老師評分（上限 ${MAX_REQUIRED_COUNT} 位），不能再新增評分老師；請改選「保留」或「替換」。`
 }
 
 function finalIncomplete(code: string): Err {
@@ -422,7 +422,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         return err('VALIDATION_FAILED', '這位老師還沒有正式送出分數，沒有可保留的評分；請選「替換」（可以只移除，或換一位老師）。')
       }
       if (choice === 'add' && !requirement) {
-        return err('VALIDATION_FAILED', '這一組這一階段還沒設定要求份數；請先設定份數再新增評分老師。')
+        return err('VALIDATION_FAILED', '這一組這一階段還沒設定需要幾位老師評分；請先設定再新增評分老師。')
       }
       if (choice === 'add' && requirement && requirement.required_count >= MAX_REQUIRED_COUNT) {
         // 份數在鎖內讀（`stage_requirements FOR UPDATE`），和改份數排隊；「新增」會 +1，不能超過設定份數的上限。
@@ -666,7 +666,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
   }
 
   async resolveReview(actor: ResolvedActor, input: ResolveReviewInput, requestId: string): Promise<Result<OverrideReceipt>> {
-    const denied = authorizeAdmin(actor, '復核成績更正')
+    const denied = authorizeAdmin(actor, '重新確認人工更正')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.overrideId)) return err('VALIDATION_FAILED', '找不到這筆更正，請重新整理頁面。')
@@ -678,7 +678,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         return err('VALIDATION_FAILED', '新的更正值要是 0–100、最多兩位小數。', { details: { field: 'newValue' } })
       }
     }
-    const reason = reasonOf(input.reason, '復核說明')
+    const reason = reasonOf(input.reason, '重新確認的說明')
     if (!reason.ok) return reason
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -713,13 +713,13 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<OverrideReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort.code)
       if (group.status === 'dissolved') return dissolved(group.code)
-      if (state?.state !== 'pending_review') return err('CONFLICT', '這筆更正已經有人處理過了（或不是待復核），請重新整理頁面。')
+      if (state?.state !== 'pending_review') return err('CONFLICT', '這筆人工更正已經有人處理過了（或不是待重新確認），請重新整理頁面。')
       if (!versionId) return noScheme()
 
       const facts = await loadGroupFacts(tx, group.id)
       const result = computeGroupResult(stages, facts.requirements, facts.counted)
       if (!result.complete || result.finalExact === null) {
-        return err('FINAL_INCOMPLETE', `${group.code} 在新的計算基礎上還有階段尚未完成；等各階段完成後再決定沿用或重新更正。`)
+        return err('FINAL_INCOMPLETE', `${group.code} 在新的分數來源上還有階段尚未完成；等各階段完成後再決定沿用或重新更正。`)
       }
       const basis = groupBasisHash(versionId, facts)
       if (basis !== input.basisHash) return staleFinal()
@@ -791,10 +791,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
   // ── 套用新方案版本 ──────────────────────────────────────────────────────────
 
   async applySchemeVersion(actor: ResolvedActor, input: ApplySchemeInput, requestId: string): Promise<Result<SchemeVersionReceipt>> {
-    const denied = authorizeAdmin(actor, '套用新方案版本')
+    const denied = authorizeAdmin(actor, '套用新版評分規則')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
-    if (!isUuid(input.versionId)) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+    if (!isUuid(input.versionId)) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
     if (typeof input.token !== 'string' || !HASH.test(input.token)) return staleScheme()
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -805,7 +805,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         [input.versionId],
       )
       const cohortId = owner.rows[0]?.cohort_id
-      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
       const cohort = (await lockCohort(tx, cohortId))!
       const scheme = (
         await tx.query<SchemeRow>('select id, cohort_id, current_version_id, revision from grading_schemes where cohort_id = $1 for update', [cohortId])
@@ -970,7 +970,7 @@ async function buildSchemePreview(
   const missingStages = [...used].filter((k) => !targetKeys.has(k))
   if (missingStages.length > 0) {
     const names = currentStages.filter((s) => missingStages.includes(s.key)).map((s) => `「${s.name}」`)
-    blockers.push(`v${target.version_no} 少了 ${names.join('、') || '已經在用的階段'}，但那個階段已經有份數、指派或正式評分；請保留該階段。`)
+    blockers.push(`第 ${target.version_no} 版少了 ${names.join('、') || '已經在用的階段'}，但那個階段已經設定評分人數、指派或有正式評分；請保留該階段。`)
   }
   for (const g of groups.rows) {
     for (const c of facts.get(g.id)?.counted ?? []) {
@@ -1403,7 +1403,7 @@ export class PgGradebookQuery implements GradebookQuery {
         choice !== 'replace' && !hasCounted
           ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
           : choice === 'add' && required === null
-            ? '這一組這一階段還沒設定要求份數。'
+            ? '這一組這一階段還沒設定需要幾位老師評分。'
             : choice === 'add' && required !== null && required >= MAX_REQUIRED_COUNT
               ? addOverLimit(required)
               : null
@@ -1447,12 +1447,12 @@ export class PgGradebookQuery implements GradebookQuery {
   }
 
   async previewSchemeVersion(actor: ResolvedActor, versionId: string): Promise<Result<SchemeApplyPreview>> {
-    const denied = authorizeAdmin(actor, '套用新方案版本')
+    const denied = authorizeAdmin(actor, '套用新版評分規則')
     if (denied) return denied
-    if (!isUuid(versionId)) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+    if (!isUuid(versionId)) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
     const db = this.#reader()
     const target = await versionRow(db, versionId)
-    if (!target) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+    if (!target) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
     const scheme = (
       await db.query<SchemeRow & { status: string; code: string }>(
         `select s.id, s.cohort_id, s.current_version_id, s.revision, c.status, c.code

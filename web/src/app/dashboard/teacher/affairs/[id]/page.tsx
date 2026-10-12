@@ -72,7 +72,7 @@ export default async function TeacherAffairPage({
                   <IconClock className="mr-1 size-3" />
                   {item.dueAt ? `${formatTaipeiMinute(item.dueAt)} 截止（含此分鐘）` : '沒有截止'}
                 </Pill>
-                {item.schemaVersionNo ? <Pill>欄位 v{item.schemaVersionNo}</Pill> : null}
+                {item.schemaVersionNo ? <Pill>表單格式第 {item.schemaVersionNo} 版</Pill> : null}
                 {view.effectiveFromVersionNo ? <Pill>主指導閱覽自欄位第 {view.effectiveFromVersionNo} 版起</Pill> : null}
               </>
             }

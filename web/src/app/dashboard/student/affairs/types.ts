@@ -11,13 +11,13 @@ export type ReceiptView = {
   submittedByName: string
   receivedText: string
   schemaVersionNo: number
-  /** 回執編號＝送出時的請求編號；繳交歷史也列得到。 */
+  /** 繳交證明編號（舊稱回執編號）＝送出時的請求編號；繳交歷史也列得到。 */
   receiptNo: string
   sentence: string
   /** 整組一份時的組別代號（「代表全組」）；個人收件是 null。 */
   groupCode: string | null
-  /** 這一版帶的附件：欄位、檔名、sha256 前 12 碼。 */
-  files: { fieldKey: string; name: string; checksumShort: string }[]
+  /** 這一版帶的附件：欄位、檔名、完整的檔案核對碼（sha256；畫面預設收合）。 */
+  files: { fieldKey: string; name: string; checksum: string }[]
 }
 
 /** 上傳前向伺服器要的憑證（`requestUploadAction`）。 */

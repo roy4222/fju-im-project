@@ -51,7 +51,7 @@ export function TimelineZigzag({
   primary,
   headerActions,
   stageActions,
-  emptyTasksText = '這個階段沒有你要做的事。',
+  emptyTasksText = '目前沒有待繳作業。',
 }: {
   stages: TimelineStageView[]
   summary: TimelineSummary
