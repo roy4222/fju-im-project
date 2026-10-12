@@ -97,5 +97,5 @@
 | `pghero.env` | 鍵 `FJU_MONITOR_PASSWORD`（`status-up.sh --ensure-db-role-only` 讀它設密碼）、`DATABASE_URL`（PgHero 用） |
 | `beszel-agent.env` | `KEY="<hub 公鑰>"`、`LISTEN=/beszel_socket/beszel.sock`；hub 資料在容器內 `/beszel_data`（金鑰 `id_ed25519`） |
 | status-web 健康 | 有 compose healthcheck 就看它；沒有就從同網路 `curl http://status-web:3000/healthz` 要回 `ok` |
-| 假 origin | `node verify-origin.mjs` 讀 `PORT`（安裝給 8080）；`/count` 回數字 |
+| 假 origin | `node verify-origin.mjs` 讀 `PORT`（安裝給 3000，配合產生器第一條 ingress 的 `http://status-web:3000`；容器在暫時網路掛 `status-web` 別名）；`/count` 回數字 |
 | 異地備份掛載點 | compose 用 `${STATUS_OFFSITE_DIR:-/srv/fju/offsite}`，值在 `/srv/fju/status/paths.env` |

@@ -218,6 +218,31 @@ on_err() { # <行號>
 isolated() {
   if command -v setsid >/dev/null 2>&1; then setsid -w "$@"; else ( trap '' INT HUP TERM PIPE; exec "$@" ); fi
 }
+# <unit> <timer|service>：用 systemctl show 讀 LoadState／ActiveState／UnitFileState。只有「成功讀到明確狀態」而且
+# 是 not-found／masked（unit 不存在或被遮蔽，跑不起來）、或 inactive／failed（timer 還要 disabled／masked）才回 0；
+# show 失敗、狀態不明、還在跑一律回 1，原因放 UNIT_WHY（不然 timer 可能再把容器開起來，卻印已關門）。
+UNIT_WHY=""
+# shellcheck disable=SC2329  # 由 close_door（on_exit）呼叫
+unit_stopped() {
+  local out load active file
+  if ! out=$(isolated systemctl show -p LoadState -p ActiveState -p UnitFileState "$1" 2>/dev/null); then
+    UNIT_WHY="systemctl show 失敗，狀態不明"; return 1
+  fi
+  load=$(printf '%s\n' "$out" | sed -n 's/^LoadState=//p' | head -n 1)
+  active=$(printf '%s\n' "$out" | sed -n 's/^ActiveState=//p' | head -n 1)
+  file=$(printf '%s\n' "$out" | sed -n 's/^UnitFileState=//p' | head -n 1)
+  case "$load" in
+    not-found|masked) UNIT_WHY=""; return 0 ;;
+    loaded) ;;
+    *) UNIT_WHY="LoadState 是「${load}」，狀態不明"; return 1 ;;
+  esac
+  case "$active" in inactive|failed) ;; *) UNIT_WHY="ActiveState 是「${active}」，還沒停"; return 1 ;; esac
+  if [ "$2" = timer ]; then
+    case "$file" in disabled|masked|masked-runtime) ;; *) UNIT_WHY="UnitFileState 是「${file}」，還沒停用"; return 1 ;; esac
+  fi
+  UNIT_WHY=""
+  return 0
+}
 # compose 沒設 container_name：預設名是 <project>-<service>-<序號>。列舉一直失敗時改用名稱直接 stop。
 CLOUDFLARED_FALLBACK_NAME=fju-status-cloudflared-1
 DOOR_FAILED=""
@@ -226,17 +251,12 @@ close_door() {
   local cids="" cid i ok_list=0
   [ "$DOOR_CLOSED" = 0 ] || return 0
   DOOR_FAILED=""
-  # ① 停用自動更新 timer（含正在等的那次），確認「沒啟用、沒在跑」；unit 還沒裝（第 8 步之前）也算成功。
+  # ① 停用自動更新 timer（含正在等的那次）；② 停掉正在跑的那一輪 update。每項都要「成功讀到明確的已停狀態」
+  #    才算完成（unit 還沒裝＝not-found 也算）；指令失敗、查詢失敗、狀態不明一律記失敗。
   isolated systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
-  if isolated systemctl is-enabled --quiet fju-status-update.timer >/dev/null 2>&1 \
-    || isolated systemctl is-active --quiet fju-status-update.timer >/dev/null 2>&1; then
-    DOOR_FAILED="${DOOR_FAILED} fju-status-update.timer（停用失敗）"
-  fi
-  # ② 停掉正在跑的那一輪 update
+  unit_stopped fju-status-update.timer timer || DOOR_FAILED="${DOOR_FAILED} fju-status-update.timer（${UNIT_WHY}）"
   isolated systemctl stop fju-status-update.service >/dev/null 2>&1 || true
-  if isolated systemctl is-active --quiet fju-status-update.service >/dev/null 2>&1; then
-    DOOR_FAILED="${DOOR_FAILED} fju-status-update.service（停止失敗）"
-  fi
+  unit_stopped fju-status-update.service service || DOOR_FAILED="${DOOR_FAILED} fju-status-update.service（${UNIT_WHY}）"
   # ③ 停所有 fju-status 的 cloudflared 容器。列舉失敗（docker 回非 0）不能當成「沒有容器」：重試三次，
   #    還是列不出來就改用名稱直接 stop；每個 stop 都要成功。
   for i in 1 2 3; do
@@ -311,11 +331,12 @@ yaml_flatten() {
     }
     function handlekey(ind, c,   k, v) {
       while (sp > 0 && sind[sp] >= ind) sp--
-      if (!match(c, /:( |$)/)) { print cur() "=" unq(c); return }
+      if (!match(c, /:( |$)/)) { print cur() "=" unq(c); lastscalar = 1; lastind = ind; return }
       k = unq(substr(c, 1, RSTART - 1)); v = trim(substr(c, RSTART + 1))
       if (!keyok(k)) { sp++; seg[sp] = "!"; sind[sp] = ind; stype[sp] = "key"; return }
       if (v == "") { sp++; seg[sp] = k; sind[sp] = ind; stype[sp] = "key"; return }
       emitval(join(cur(), k), v)
+      lastscalar = 1; lastind = ind
     }
     {
       line = $0
@@ -324,6 +345,10 @@ yaml_flatten() {
       sub(/[ \t]+#.*$/, "", line)
       if (line ~ /^ *\t/) { print "!invalid=用 tab 縮排"; next }
       match(line, /^ */); ind = RLENGTH; c = substr(line, ind + 1)
+      # 純量值的下一行不能縮得更深：那是多行純量（|、>、沒收尾的引號、接續行）。cloudflared 會讀成值的一部分，
+      # 這裡卻會當成巢狀鍵，可以用來塞假的 access 區塊。一律標成看不懂。
+      if (lastscalar && ind > lastind) { print "!invalid=值底下又縮排（多行純量）「" c "」"; next }
+      lastscalar = 0
       if (c == "-" || c ~ /^- /) {
         while (sp > 0 && (sind[sp] > ind || (sind[sp] == ind && stype[sp] == "item"))) sp--
         p = cur(); i = cnt[p] + 0; cnt[p] = i + 1
@@ -332,7 +357,7 @@ yaml_flatten() {
         if (rest == "") next
         f = substr(rest, 1, 1)
         if (f != "\"" && f != q && f != "[" && f != "{" && match(rest, /:( |$)/)) handlekey(ind + off, rest)
-        else emitval(cur(), rest)
+        else { emitval(cur(), rest); lastscalar = 1; lastind = ind }
         next
       }
       handlekey(ind, c)
@@ -344,55 +369,90 @@ yaml_flatten() {
 # 都有 originRequest.access.required: true、teamName＝team 名稱、audTag 恰好一個且等於 AUD。
 # 看不懂的寫法（鍵名帶「.」、tab 縮排、同一個鍵寫兩次）一律判失敗：寧可擋下也不要誤判有鎖。
 # 用法：check_cloudflared_config <檔> <team 名稱> <AUD> <網址（空白分隔）>；不通過印出哪條、回傳 1。
-# S-4 產生器的輸出是 JSON 寫法的 YAML：用 python 的 json 真的解析（鍵重複、鍵名帶「.」一樣標成看不懂），
-# 攤平成跟 yaml_flatten 一樣的 `路徑=值`。不是 JSON 回 3，交給 yaml_flatten（區塊樣式 YAML）。
-json_flatten() { # <檔>
-  python3 - "$1" <<'PY'
+# S-4 產生器的輸出是 JSON 寫法的 YAML：用 python 的 json 真的解析，然後直接對解析後的物件驗結構
+# （每條 ingress 的 hostname、service、originRequest.access.required／teamName／audTag），不攤平成「路徑=值」文字行
+# ——攤平的話字串值裡的換行就能塞假路徑。鍵重複、鍵名帶「.」「=」、字串裡有換行一律判失敗。
+# 用法同 check_cloudflared_config；0 通過、1 不通過（印哪條）、3 不是 JSON（交給下面的區塊 YAML 解析器）。
+json_check() { # <檔> <team 名稱> <AUD> <網址（空白分隔）>
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
 import json, sys
+file, team, aud, hosts = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].split()
+problems = []
 def pairs(ps):
     d = {}
     for k, v in ps:
         if k in d:
-            print("!invalid=同一個鍵寫了兩次：" + k)
+            problems.append("同一個鍵寫了兩次：" + k)
         d[k] = v
     return d
 try:
-    with open(sys.argv[1], encoding="utf-8") as f:
+    with open(file, encoding="utf-8") as f:
         doc = json.load(f, object_pairs_hook=pairs)
 except ValueError:
     sys.exit(3)
-def scalar(v):
-    if v is True: return "true"
-    if v is False: return "false"
-    if v is None: return ""
-    return str(v)
-def walk(p, v):
+def walk(v):
     if isinstance(v, dict):
         for k, x in v.items():
             if k == "" or "." in k or "=" in k:
-                print("!invalid=鍵名「%s」" % k); continue
-            walk(k if p == "" else p + "." + k, x)
+                problems.append("看不懂的寫法：鍵名「%s」" % k)
+            walk(x)
     elif isinstance(v, list):
-        for i, x in enumerate(v):
-            walk(str(i) if p == "" else p + "." + str(i), x)
-    else:
-        print("%s=%s" % (p, scalar(v)))
-walk("", doc)
+        for x in v:
+            walk(x)
+    elif isinstance(v, str) and ("\n" in v or "\r" in v):
+        problems.append("看不懂的寫法：值裡有換行「%s」" % v.replace("\r", "\\r").replace("\n", "\\n"))
+walk(doc)
+ingress = doc.get("ingress") if isinstance(doc, dict) else None
+if not isinstance(ingress, list) or not ingress:
+    for p in problems:
+        print("  ✗ " + p)
+    print("  ✗ 設定檔裡沒有 ingress")
+    sys.exit(1)
+def truthy(v):
+    return v is True or (isinstance(v, str) and v.lower() == "true")
+seen = set()
+for i, e in enumerate(ingress):
+    if not isinstance(e, dict):
+        problems.append("第 %d 條 ingress 不是物件" % (i + 1))
+        continue
+    h, svc = e.get("hostname"), e.get("service")
+    if isinstance(svc, str) and svc.startswith("http_status:"):
+        continue
+    label = h if isinstance(h, str) and h else "第 %d 條 ingress（沒有 hostname）" % (i + 1)
+    acc = e.get("originRequest")
+    acc = acc.get("access") if isinstance(acc, dict) else None
+    acc = acc if isinstance(acc, dict) else {}
+    why = []
+    if not truthy(acc.get("required")):
+        why.append("access.required 不是 true")
+    if acc.get("teamName") != team:
+        why.append("teamName 不是 " + team)
+    tags = acc.get("audTag")
+    # audTag 多放別的值，同 team 其他 Access 應用程式的 JWT 也能過，所以要恰好一個。
+    if not (isinstance(tags, list) and len(tags) == 1 and tags[0] == aud):
+        why.append("audTag 不是恰好這一個 AUD")
+    if why:
+        problems.append(label + "：" + "、".join(why))
+    if isinstance(h, str) and h:
+        seen.add(h)
+for h in hosts:
+    if h not in seen:
+        problems.append(h + "：設定檔裡沒有這個網址")
+for p in problems:
+    print("  ✗ " + p)
+sys.exit(1 if problems else 0)
 PY
 }
-flatten_config() { # <檔>：JSON 用 python，其他用 yaml_flatten
-  local out rc=0
-  out=$(json_flatten "$1") || rc=$?
-  case "$rc" in
-    0) printf '%s\n' "$out" ;;
-    3) yaml_flatten "$1" ;;
-    *) printf '!invalid=python3 解析失敗（結束碼 %s）\n' "$rc" ;;
-  esac
-}
 check_cloudflared_config() {
-  local file=$1 team=$2 aud=$3 hosts=$4
+  local file=$1 team=$2 aud=$3 hosts=$4 rc=0
   [ -s "$file" ] || { bad "設定檔不存在或是空的：${file}"; return 1; }
-  flatten_config "$file" | awk -v team="$team" -v aud="$aud" -v hosts="$hosts" '
+  json_check "$file" "$team" "$aud" "$hosts" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    3) ;;  # 不是 JSON：區塊樣式 YAML 走下面
+    *) return 1 ;;
+  esac
+  yaml_flatten "$file" | awk -v team="$team" -v aud="$aud" -v hosts="$hosts" '
     function add(a, b) { return a == "" ? b : a "、" b }
     {
       eq = index($0, "="); k = substr($0, 1, eq - 1); v = substr($0, eq + 1)

@@ -324,6 +324,32 @@ describe('第 10 步第二段：cloudflared 設定的 access 區塊檢查（AC-S
     expect(wrongAud.out).toContain('audTag 不是恰好這一個 AUD')
   })
 
+  it('JSON 字串值裡塞換行假裝 access 路徑（四條其實都沒有 access）：判失敗', () => {
+    const open = path.join(dir, 'open.json')
+    expect(spawnSync('bash', [RENDER, '--team', TEAM, '--aud', AUD, '--tunnel-id', TUNNEL_ID, '--out', open, '--no-access'], { encoding: 'utf8' }).status).toBe(0)
+    const doc = JSON.parse(fs.readFileSync(open, 'utf8')) as { ingress: Array<Record<string, unknown>> }
+    doc.ingress.forEach((e, i) => {
+      if (typeof e.service === 'string' && !e.service.startsWith('http_status:')) {
+        e.service = `${e.service}\ningress.${i}.originRequest.access.required=true\ningress.${i}.originRequest.access.teamName=royteam\ningress.${i}.originRequest.access.audTag.0=${AUD}`
+      }
+    })
+    const r = check(writeConfig('newline-inject.json', JSON.stringify(doc, null, 2)))
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('值裡有換行')
+    for (const h of HOSTS) expect(r.out).toContain(`✗ ${h}：access.required 不是 true`)
+  })
+
+  it('區塊 YAML：純量值底下再縮排（接續行、| 區塊純量）假裝 access：判看不懂', () => {
+    const inject = (serviceLine: string) =>
+      ['tunnel: x', 'ingress:', ...HOSTS.map((h) => [`  - hostname: ${h}`, serviceLine, '      originRequest:', '        access:', '          required: true', '          teamName: royteam', '          audTag:', `            - ${AUD}`].join('\n')), '  - service: http_status:404', ''].join('\n')
+    const cont = check(writeConfig('yaml-cont.yml', inject('    service: http://status-web:3000')))
+    expect(cont.code).not.toBe(0)
+    expect(cont.out).toContain('看不懂的寫法')
+    const block = check(writeConfig('yaml-block.yml', inject('    service: |')))
+    expect(block.code).not.toBe(0)
+    expect(block.out).toContain('看不懂的寫法')
+  })
+
   it('空檔或不存在：判失敗', () => {
     expect(check(path.join(dir, 'nope.yml')).code).not.toBe(0)
     expect(check(writeConfig('empty.yml', '')).code).not.toBe(0)
@@ -522,7 +548,9 @@ const FAKE_SIMPLE: Record<string, string> = {
   id: `#!/bin/sh\n[ "$1" = -u ] && echo 0\nexit 0\n`,
   // FAKE_DOOR_BLOCK=1：關門的第一個動作（disable --now update timer，只有關門會叫）卡住，留 door-closing 給測試看，
   // 等測試放 door-go 才回來；給「關門途中送訊號」用。sleep 被換成假的，要用 /bin/sleep。
-  systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\ncase "$1" in is-*) exit 1 ;; esac\nif [ "\${FAKE_DOOR_BLOCK:-0}" = 1 ] && [ "$1" = disable ]; then : > "$FAKE_STATE/door-closing"; while [ ! -e "$FAKE_STATE/door-go" ]; do /bin/sleep 0.05; done; fi\nexit 0\n`,
+  // FAKE_SYSTEMCTL_FAIL=1：凡是碰 fju-status-update 的指令（stop、disable、show、is-*）都失敗、沒輸出——關門時讀不到狀態。
+  // show：關門時用來確認明確狀態（LoadState／ActiveState／UnitFileState）。
+  systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\nif [ "\${FAKE_SYSTEMCTL_FAIL:-0}" = 1 ]; then case "$*" in *fju-status-update*) exit 1 ;; esac; fi\ncase "$1" in is-*) exit 1 ;; show) printf 'LoadState=loaded\\nActiveState=inactive\\nUnitFileState=disabled\\n'; exit 0 ;; esac\nif [ "\${FAKE_DOOR_BLOCK:-0}" = 1 ] && [ "$1" = disable ]; then : > "$FAKE_STATE/door-closing"; while [ ! -e "$FAKE_STATE/door-go" ]; do /bin/sleep 0.05; done; fi\nexit 0\n`,
   runuser: `#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n`,
   // FAKE_INSTALL_FAIL=1：裝 systemd 的 .timer 檔時回 1（第 8 步一個沒接 || halt 的普通指令失敗 → set -e 直接中止）。
   install: `#!/bin/sh\nif [ "\${FAKE_INSTALL_FAIL:-0}" = 1 ]; then case "$*" in *.timer*) echo "install: 假裝失敗" >&2; exit 1 ;; esac; fi\nargs=""\nwhile [ $# -gt 0 ]; do case "$1" in -o|-g) shift ;; *) args="$args '$1'" ;; esac; shift; done\neval exec /usr/bin/install $args\n`,
@@ -910,6 +938,19 @@ describe('離開路徑都要關門：停 cloudflared 容器、停用 update time
     expect(c).toContain('systemctl stop fju-status-update.service')
     expect(r.code).toBe(1)
     expect(exitLog()).toContain('列舉三次都失敗')
+  }, 30_000)
+
+  it('守門失敗、systemctl stop／disable 與狀態查詢（show）都失敗 → timer、service 不算停好：記失敗、印手動指令、結束碼非 0、不印已停掉', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_UNGUARDED: 'fju-status-db.roy422.dev', FAKE_SYSTEMCTL_FAIL: '1' })
+    expect(r.code).not.toBe(0)
+    const log = exitLog()
+    expect(log).toContain('關門沒有全部成功')
+    expect(log).toContain('fju-status-update.timer（')
+    expect(log).toContain('fju-status-update.service（')
+    expect(log).toContain('systemctl disable --now fju-status-update.timer')
+    expect(log).not.toContain('已停掉 cloudflared')
+    expect(vmCalls(vm)).toContain('docker stop cid-cloudflared')
   }, 30_000)
 
   it('守門失敗、列舉與名稱 stop 都失敗 → 不設關門旗標：印清楚要手動做什麼、結束碼非 0', async () => {
