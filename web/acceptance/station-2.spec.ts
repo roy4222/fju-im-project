@@ -144,7 +144,7 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   await admin.getByLabel('名稱').fill(COHORT_NAME)
   await admin.getByRole('button', { name: '新增屆別' }).click()
   await expectStatus(admin, `已新增屆別 ${COHORT_CODE}`)
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('籌備中')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('尚未開始（設定中）')
   await shot(admin, 'cohort-created')
 
   await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為開放註冊屆別` }).click()
@@ -237,7 +237,7 @@ test('票 7 管理員看比對結果、選核實方式後核准', async () => {
 
   // 核實方式必選。
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
@@ -352,7 +352,9 @@ test('票 9 停用學生：他的下一個動作就被登出、不能再登入',
   await expect(student).toHaveURL(/\/dashboard\/student$/)
 
   await searchAccounts(admin, STUDENT.name)
-  await accountRow(admin, STUDENT.name).getByRole('button', { name: `停用 ${STUDENT.name}` }).click()
+  // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+  await accountRow(admin, STUDENT.name).getByRole('button', { name: `更多 ${STUDENT.name}` }).click()
+  await admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${STUDENT.name}` }).click()
   const dialog = admin.getByRole('dialog', { name: `停用 ${STUDENT.name}` })
   await dialog.getByLabel(/理由/).fill('站驗收：停用測試')
   await dialog.getByRole('button', { name: '確認停用' }).click()

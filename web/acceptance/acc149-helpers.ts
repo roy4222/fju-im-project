@@ -58,10 +58,10 @@ export function taipeiMs(date: string, time: string): number {
 /** 直接填 `datetime-local` 的字串（`YYYY-MM-DDTHH:mm:ss`）。 */
 export async function setClockLocal(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(local)
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expectStatus(page, '已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expectStatus(page, '已設定模擬時間')
 }
 
 export async function setClock(page: Page, ms: number, reason: string) {
@@ -72,7 +72,7 @@ export async function setClock(page: Page, ms: number, reason: string) {
 export async function readClockOffset(page: Page): Promise<number | null> {
   const response = await page.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await page.getByLabel('目前業務時間').innerText())
+  const business = parseTaipeiSecond(await page.getByLabel('系統認定的現在時間').innerText())
   const simulated = await page.getByText('模擬中：').count()
   return simulated > 0 ? business - Date.now() : null
 }
@@ -145,7 +145,9 @@ export async function fillStages(admin: Page, code: string, offsets: [number, nu
 
 export async function activateCohort(admin: Page, code: string) {
   await admin.goto('/dashboard/admin/cohorts')
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${code} 轉為進行中` }).click()
+  await admin.getByRole('dialog', { name: `把 ${code} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expectStatus(admin, `已把 ${code} 轉為進行中`)
   await expect(cohortRow(admin, code)).toContainText('進行中')
 }
@@ -339,8 +341,17 @@ export async function retire(admin: Page, name: string): Promise<RetireOutcome> 
     await searchAccounts(admin, name)
     const row = accountRow(admin, name)
     if ((await row.count()) !== 1) return '沒收掉'
-    const disable = row.getByRole('button', { name: `停用 ${name}`, exact: true })
-    if ((await disable.count()) === 0) return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+    const more = row.getByRole('button', { name: `更多 ${name}`, exact: true })
+    const disable = admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${name}`, exact: true })
+    if ((await more.count()) > 0) {
+      await more.click()
+      await expect(admin.getByRole('menu')).toBeVisible()
+    }
+    if ((await more.count()) === 0 || (await disable.count()) === 0) {
+      if ((await more.count()) > 0) await admin.keyboard.press('Escape')
+      return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    }
     await disable.click()
     const dialog = admin.getByRole('dialog', { name: `停用 ${name}` })
     await expect(dialog).toBeVisible()

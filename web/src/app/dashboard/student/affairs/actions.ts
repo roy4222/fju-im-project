@@ -68,7 +68,7 @@ export async function submitAction(itemId: string, draftRevision: number, reques
       receiptNo: r.requestId,
       sentence: describeReceipt(r),
       groupCode: r.groupCode,
-      files: r.files.map((f) => ({ fieldKey: f.fieldKey, name: f.name, checksumShort: f.checksum.slice(0, 12) })),
+      files: r.files.map((f) => ({ fieldKey: f.fieldKey, name: f.name, checksum: f.checksum })),
     },
   }
 }

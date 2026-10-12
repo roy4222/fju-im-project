@@ -9,6 +9,7 @@ import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
+import { getHomeSettingsQuery, resolveHome } from '@/composition/site'
 import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
@@ -34,7 +35,9 @@ export default async function HomePage() {
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  const [latest, featured, honors, competitions, activities] = await Promise.all([
+  const [hero, latest, featured, honors, competitions, activities] = await Promise.all([
+    // 首頁大圖與兩行標語（第三波 W3「首頁設定」）：存了就生效；沒設定或恢復預設時跟改版前一字不差。
+    getHomeSettingsQuery().current().then(resolveHome),
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
     // 榮譽依得獎日期（沒填退回發布日）排好才取 4 則，跟 /honors 的「新到舊」一致。
@@ -62,18 +65,18 @@ export default async function HomePage() {
     <SiteShell bare>
       {/* Hero：校園照片疊深藍漸層（系網首屏是照片，不是文字 hero）。 */}
       <section className="relative overflow-hidden bg-ink text-ink-foreground" aria-label="專題管理平台">
-        {/* 靜態照片不走 next/image：它會輸出被正式站 CSP 擋的 style 屬性。 */}
+        {/* 照片不走 next/image：它會輸出被正式站 CSP 擋的 style 屬性。自訂圖的 alt 是系辦填的圖片說明；預設圖是裝飾。 */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/placeholder/campus.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-55" />
+        <img src={hero.heroSrc} alt={hero.heroAlt} className="absolute inset-0 h-full w-full object-cover opacity-55" data-testid="home-hero-image" />
         <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden />
         <div className="relative mx-auto flex min-h-[440px] max-w-6xl flex-col justify-center gap-5 px-5 py-16 md:min-h-[520px]">
           <span className="inline-flex items-center gap-2.5 text-[15px] font-bold tracking-widest opacity-90">
             <span className="inline-block h-0.75 w-7 bg-primary" aria-hidden />
             資訊管理學系專題
           </span>
-          <h1 className="type-display max-w-2xl text-white">輔仁大學資訊管理學系專題管理平台</h1>
-          <p className="max-w-lg text-[17px] leading-relaxed opacity-90">
-            輔大資管系專題：從分組、提案到成果發表，公告、規則與歷屆作品都在這裡。
+          <h1 className="type-display max-w-2xl text-white">{hero.line1}</h1>
+          <p className="max-w-lg text-[17px] leading-relaxed opacity-90" data-testid="home-hero-line2">
+            {hero.line2}
           </p>
           <div className="mt-2 flex flex-wrap gap-3.5">
             <Link href="/news" className="btn-fju group h-12 px-7 text-[17px]">
@@ -196,8 +199,8 @@ export default async function HomePage() {
             <ListEmpty
               className="w-full"
               icon={<IconTrophy className="size-9" aria-hidden />}
-              title="優秀專題還沒公開"
-              hint="系辦公開優秀專題之後會出現在這裡。"
+              title="目前還沒有公開的優秀專題。"
+              hint="可以先到榮譽榜看看歷屆的得獎消息。"
             />
           ) : (
             <>
@@ -585,11 +588,12 @@ function QuickLinks({ home, member, registrationOpen }: { home: string | null; m
       icon: <IconMail className="size-5.5" aria-hidden />,
       title: '系辦聯絡',
       links: [
-        { label: '新莊區中正路 510 號 利瑪竇大樓', href: 'https://www.im.fju.edu.tw/' },
-        { label: '電話 +886-2-2905-2696', href: 'tel:+886229052696' },
+        // 聯絡資料照系網（第三波 W3；Q2＋電話）。不放 Email、傳真、辦公時間：官方來源不一致。
+        { label: '242 新北市新莊區中正路 510 號 利瑪竇大樓 LM306', href: 'https://www.im.fju.edu.tw/' },
+        { label: '電話 02-2905-2666', href: 'tel:+886229052666' },
         { label: '系網 im.fju.edu.tw', href: 'https://www.im.fju.edu.tw/' },
       ],
-      note: '業界合作或產學洽詢，也請直接聯絡系辦。',
+      note: '透過機測、專題及產業實習讓學生動手做。業界合作或產學洽詢，也請直接聯絡系辦。',
     },
   ]
   return (

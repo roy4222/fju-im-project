@@ -18,7 +18,7 @@ export const metadata = { title: '屆別｜資管系專題平台' }
 /**
  * 屆別頁（票 5）：新增屆別、看狀態、指定「預設工作屆別」與「開放註冊屆別」。
  *
- * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；封存與解封在後面的票。
+ * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；第三波放進表格下方的危險操作區、先確認再送。封存與解封在後面的票。
  */
 export default async function AdminCohortsPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住，App Router 會把 layout 與 page 並行渲染，
@@ -63,7 +63,7 @@ export default async function AdminCohortsPage() {
           </div>
         )}
 
-        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別從「籌備中」開始" bodyClassName="px-5 pb-5">
+        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別一開始是「尚未開始（設定中）」" bodyClassName="px-5 pb-5">
           <CreateCohortForm
             requestId={randomUUID()}
             codeMaxLength={COHORT_CODE_MAX_LENGTH}
@@ -75,7 +75,6 @@ export default async function AdminCohortsPage() {
           <CohortTable rows={rows} flagLabels={COHORT_FLAG_LABEL} />
           <p className="mt-3 text-xs text-muted-foreground">
             把預設工作屆別或開放註冊屆別交給另一屆時，原本那一屆會自動取消。
-            轉為進行中前，先到「時間軸」設好四個階段與年度結束日。
           </p>
         </Panel>
       </div>

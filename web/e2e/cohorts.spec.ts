@@ -76,7 +76,7 @@ test('新增屆別：列表出現一列，狀態是籌備中；代碼重複被�
 
   await createCohort(page, CODE_A, `${CODE_A} 測試屆`)
   await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE_A} 測試屆（${CODE_A}）`)
-  await expect(rowOf(page, CODE_A)).toContainText('籌備中')
+  await expect(rowOf(page, CODE_A)).toContainText('尚未開始（設定中）')
   await expect(rowOf(page, CODE_A)).toContainText(`${CODE_A} 測試屆`)
   // 成功後表單清空，可以接著建下一屆。
   await expect(page.getByLabel('代碼')).toHaveValue('')
@@ -91,7 +91,7 @@ test('新增屆別：列表出現一列，狀態是籌備中；代碼重複被�
   await page.getByLabel('名稱').fill(`${CODE_B} 測試屆`)
   await page.getByRole('button', { name: '新增屆別' }).click()
   await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE_B} 測試屆（${CODE_B}）`)
-  await expect(rowOf(page, CODE_B)).toContainText('籌備中')
+  await expect(rowOf(page, CODE_B)).toContainText('尚未開始（設定中）')
 })
 
 test('開放註冊屆別只有一個：交給另一屆時舊的自動取消', async ({ page }) => {

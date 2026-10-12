@@ -92,6 +92,39 @@ describe('normalizeItemInput：位置、對象、收件單位', () => {
   })
 })
 
+describe('normalizeItemInput：榮譽榜（第三波 W1）', () => {
+  const honor = (patch: Partial<ItemInput> = {}) =>
+    input({ placement: 'honor', audienceKind: 'public', receiverUnit: 'none', stageId: null, dueAt: '', fields: [], ...patch })
+
+  it('可以建立；不收件、不留欄位與截止', () => {
+    const result = normalizeItemInput(honor({ receiverUnit: 'group', fields: [{ key: 'a', type: 'text', label: 'x', required: true }] }))
+    expect(result.ok && { unit: result.value.receiverUnit, fields: result.value.fields.length, due: result.value.dueAt }).toEqual({
+      unit: 'none',
+      fields: 0,
+      due: null,
+    })
+  })
+
+  it('對象只能是公開訪客', () => {
+    for (const audienceKind of ['signed_in', 'cohort_students', 'teachers', 'groups']) {
+      const result = normalizeItemInput(honor({ audienceKind, groupIds: [G1] }))
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result).toMatchObject({ field: 'audienceKind', message: expect.stringContaining('公開訪客') })
+    }
+  })
+
+  it('得獎日期選填；只有榮譽會留，格式不對擋下', () => {
+    const dated = normalizeItemInput(honor({ awardedOn: '2026-09-30' }))
+    expect(dated.ok && dated.value.awardedOn).toBe('2026-09-30')
+    const blank = normalizeItemInput(honor({ awardedOn: '' }))
+    expect(blank.ok && blank.value.awardedOn).toBeNull()
+    const news = normalizeItemInput(input({ placement: 'news', audienceKind: 'public', awardedOn: '2026-09-30' }))
+    expect(news.ok && news.value.awardedOn).toBeNull()
+    const bad = normalizeItemInput(honor({ awardedOn: '2026-02-30' }))
+    expect(bad).toMatchObject({ ok: false, field: 'awardedOn' })
+  })
+})
+
 describe('normalizeItemInput：時間（臺灣時間、到分鐘）', () => {
   it('datetime-local 當臺灣時間讀，秒數捨去（存截止分鐘的起點）', () => {
     const result = normalizeItemInput(input({ dueAt: '2026-11-15T23:59:42' }))

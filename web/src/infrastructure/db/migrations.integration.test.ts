@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, withIsolatedDatabase } from '../../../test/db'
-import { applyMigration, applyMigrations, migratedSchema } from '../../../test/migrations'
+import { applyMigration, applyMigrations, migratedSchema, migrationTags } from '../../../test/migrations'
 import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 
 /**
@@ -14,7 +14,8 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 票 21（S07）：第八支再新增繳交附件、主指導閱覽設定兩表與檔案回收索引（細節在 s07-group-submissions.integration.test.ts）。
  * 票 23（S10）：第十支再新增評分九表（細節在 s10-grading.integration.test.ts）。
  * 票 25（S11）：第十一支再新增簽核五表與精選三表（細節在 s11-signoff-showcase.integration.test.ts）。
- * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面最後一組）。
+ * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面倒數第二組）。
+ * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
  */
 
 beforeAll(async () => {
@@ -117,6 +118,9 @@ const S11_TABLES = [
   'signoff_version_status',
 ]
 
+/** 第三波 W0 新增的兩張表：首頁設定（固定一列）與個別補交。 */
+const W0_TABLES = ['home_settings', 'submission_reopens']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -128,9 +132,10 @@ const EXPECTED_TABLES = [
   ...S07_TABLES,
   ...S10_TABLES,
   ...S11_TABLES,
+  ...W0_TABLES,
 ].sort()
 
-const LATEST = '0011_t39_showcase_stage_fields'
+const LATEST = '0012_wave3_delete_home'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -142,7 +147,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出六十六張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出六十八張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -277,15 +282,38 @@ describe('契約 01 §4 的約束確實建出來了', () => {
         expect(row.data_type).toBe('timestamp with time zone')
       }
 
-      // worker_heartbeat 是固定一列的心跳表（模組 08 附錄 A：`id smallint CHECK (id = 1)`），不是業務實體。
+      // worker_heartbeat 是固定一列的心跳表（模組 08 附錄 A：`id smallint CHECK (id = 1)`），不是業務實體；
+      // home_settings（第三波 W0）是固定一列的首頁設定，同一個做法。
+      const singleRow = ['worker_heartbeat', 'home_settings']
       const ids = await db.sql(
         `select table_name, data_type from information_schema.columns
-         where table_schema = $1 and column_name = 'id' and table_name <> 'worker_heartbeat'`,
-        [db.schemaName],
+         where table_schema = $1 and column_name = 'id' and table_name <> all($2::text[])`,
+        [db.schemaName, singleRow],
       )
       for (const row of ids.rows) {
         expect(row.data_type).toBe('uuid')
       }
+
+      // 例外的兩張：id 是 smallint，而且 CHECK 只允許 1。
+      const singleRowIds = await db.sql(
+        `select table_name, data_type from information_schema.columns
+         where table_schema = $1 and column_name = 'id' and table_name = any($2::text[]) order by table_name`,
+        [db.schemaName, singleRow],
+      )
+      expect(singleRowIds.rows).toEqual([
+        { table_name: 'home_settings', data_type: 'smallint' },
+        { table_name: 'worker_heartbeat', data_type: 'smallint' },
+      ])
+      const singleRowChecks = await db.sql(
+        `select conname, pg_get_constraintdef(c.oid) as def from pg_constraint c
+         join pg_namespace n on n.oid = c.connamespace
+         where n.nspname = $1 and conname = any($2::text[]) order by conname`,
+        [db.schemaName, ['home_settings_single_row_check', 'worker_heartbeat_single_row_check']],
+      )
+      expect(singleRowChecks.rows.map((r) => [r.conname, String(r.def).replaceAll(/\s+/g, ' ')])).toEqual([
+        ['home_settings_single_row_check', 'CHECK ((id = 1))'],
+        ['worker_heartbeat_single_row_check', 'CHECK ((id = 1))'],
+      ])
     })
   })
 })
@@ -331,6 +359,11 @@ describe('0011（票 39）：已套 0010、有資料的庫升版', () => {
       expect((await db.sql(`select registration_deadline, event_date, awarded_on from managed_items`)).rows).toEqual([
         { registration_deadline: null, event_date: null, awarded_on: null },
       ])
+      expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
+      // 公開查詢是目前的程式碼，要接最新的 schema（第三波 W2 起會讀 0012 的 deleted_at／home_position）：
+      // 0011 的預設值上面已經斷言過，這裡把之後的 migration 補齊，再證明舊的已發布作品仍不在公開清單。
+      const tags = migrationTags()
+      for (const tag of tags.slice(tags.indexOf('0011_t39_showcase_stage_fields') + 1)) await applyMigration(db, tag)
       expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
       const query = new PgPublicShowcaseQuery(() => db.pool)
       expect(await query.featured()).toEqual([])

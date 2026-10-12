@@ -61,10 +61,10 @@ async function stageText(page: Page, path: string) {
  */
 async function setClock(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(local)
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expect(feedback(page, 'status')).toContainText('已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
 }
 
 test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會被擋下', async ({ page }) => {
@@ -80,10 +80,12 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   await page.getByRole('button', { name: `把 ${CODE} 設為預設工作屆別` }).click()
   await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 設為預設工作屆別`)
 
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'alert')).toContainText('還沒設定階段與年度結束日')
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
-  await expect(row).toContainText('籌備中')
+  await expect(row).toContainText('尚未開始（設定中）')
 })
 
 test('時間軸：填四個階段開始日與年度結束日；不遞增被拒，原日期保留', async ({ page }) => {
@@ -182,7 +184,19 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
 test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  // 第三波 AC-37：按鈕在「危險操作」區；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
+  const danger = page.getByRole('region', { name: '危險操作' })
+  await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
+  const facts = confirm.getByTestId('danger-facts')
+  for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
+  await expect(facts).toContainText(CODE)
+  await expect(facts).toContainText('不能改回尚未開始（設定中）')
+  await confirm.getByRole('button', { name: '先不要' }).click()
+  await expect(confirm).toBeHidden()
+  await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })).toContainText('尚未開始（設定中）')
+  await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await confirm.getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 轉為進行中`)
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('進行中')
@@ -213,15 +227,15 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
 
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/clock')
-  await expect(page.getByRole('heading', { name: '模擬業務鐘' })).toBeVisible()
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill('2027-03-01T10:00')
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expect(feedback(page, 'alert')).toContainText('請填原因')
+  await expect(page.getByRole('heading', { name: '模擬時鐘' })).toBeVisible()
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill('2027-03-01T10:00')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expect(feedback(page, 'alert')).toContainText('請填原因：為什麼要調整模擬時鐘。')
 
   // 第一階段開始日的前一晚：尚未開始。（設定後業務鐘會繼續走，所以不設在最後一秒；
   // 秒級邊界由單元測試證明。）
   await setClock(page, '2026-09-14T23:00:05', 'e2e：第一階段前一晚')
-  await expect(page.getByLabel('目前業務時間')).toContainText('2026/09/14 23:00:')
+  await expect(page.getByLabel('系統認定的現在時間')).toContainText('2026/09/14 23:00:')
   await expect(await stageText(page, '/dashboard/admin')).toHaveText('尚未開始')
 
   // 第二階段開始日 00:00:00：三個角色都是階段 2。

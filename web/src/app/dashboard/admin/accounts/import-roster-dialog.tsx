@@ -3,6 +3,7 @@ import { IconUpload } from '@tabler/icons-react'
 import { useRef, useState, useTransition } from 'react'
 import type { RosterImportReceipt, RosterPreview } from '@/application/accounts'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 import { importRosterAction, previewRosterAction, startRosterUploadAction } from './actions'
 
 /**
@@ -119,7 +120,7 @@ export function ImportRosterDialog() {
       if (!result.ok) setError(result.message)
       else startTransition(() => setStep({ kind: 'done', receipt: result.data }))
     } catch {
-      setError('結果未知：可能已經匯入。請再按一次「匯入」確認（不會重複匯入），或關閉後看名單版本列表。')
+      setError('結果未知：可能已經匯入。請再按一次「匯入」確認（不會重複匯入），或關閉後看「歷次匯入的學生名單」。')
     } finally {
       setBusy(null)
     }
@@ -171,6 +172,18 @@ export function ImportRosterDialog() {
   )
 }
 
+/** 名單 CSV 的欄名對照（N-128）：欄名本身照舊是英文（解析靠它），這裡只說明每一欄是什麼。 */
+const ROSTER_COLUMN_GUIDE: readonly (readonly [string, string, boolean])[] = [
+  ['student_no', '學號', true],
+  ['name', '姓名', true],
+  ['cohort', '屆別代碼，例如 115', false],
+  ['email', '電子郵件', false],
+  ['department_class', '系級，例如 資管四甲', false],
+]
+
+/** 跟 `application/accounts/roster.ts` 的大小上限一致（Client Component 不能從 application 帶值，只能帶型別）。 */
+const ROSTER_MAX_BYTES = 2 * 1024 * 1024
+
 function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File | undefined) => void }) {
   return (
     <div className="space-y-4">
@@ -179,9 +192,31 @@ function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File
           匯入本屆名單
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          UTF-8 CSV，欄位固定 <code className="rounded bg-muted px-1">student_no,name,cohort,email</code>
-          ，可多一欄 <code className="rounded bg-muted px-1">department_class</code>（系級）。
+          用 Excel 存成 CSV，存檔時文字編碼選 UTF-8（另存新檔選「CSV UTF-8（逗號分隔）」）。第一行是欄名，照下表寫英文欄名、順序不拘；最簡單是直接改範例檔。
+          <a href="/samples/名單匯入範例.csv" download className="ml-1 font-semibold text-primary hover:underline">
+            下載範例檔
+          </a>
         </p>
+        <table className="mt-2 w-full text-xs" aria-label="名單欄名對照">
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-3 font-medium">第一行寫</th>
+              <th className="py-1 pr-3 font-medium">意思</th>
+              <th className="py-1 font-medium">必填</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ROSTER_COLUMN_GUIDE.map(([column, meaning, required]) => (
+              <tr key={column} className="border-t border-border">
+                <td className="py-1 pr-3">
+                  <code className="rounded bg-muted px-1">{column}</code>
+                </td>
+                <td className="py-1 pr-3 text-foreground">{meaning}</td>
+                <td className="py-1 text-foreground">{required ? '必填' : '可不填'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
       <label
         className={cn(
@@ -190,7 +225,7 @@ function ChooseStep({ busy, onFile }: { busy: string | null; onFile: (file: File
         )}
       >
         <span className="font-medium text-foreground">{busy ?? '選擇 CSV 檔'}</span>
-        <span className="text-xs text-muted-foreground">上限 2 MiB；先看預覽，確認後才匯入</span>
+        <span className="text-xs text-muted-foreground">上限 {formatBytes(ROSTER_MAX_BYTES)}；先看預覽，確認後才匯入</span>
         <input
           type="file"
           accept=".csv,text/csv"
@@ -370,7 +405,7 @@ function DoneStep({ receipt }: { receipt: RosterImportReceipt }) {
         {receipt.cohortName}・{receipt.counts.valid} 筆名單
       </h2>
       <p className="max-w-sm text-sm text-muted-foreground">
-        已建立一個名單版本，原檔可以在版本列表下載。之後的註冊申請會拿這份名單比對，仍要系辦核實本人才核准。
+        已存成一份新的匯入名單，原檔可以在「歷次匯入的學生名單」下載。之後的註冊申請會拿這份名單比對，仍要系辦核實本人才核准。
       </p>
     </div>
   )

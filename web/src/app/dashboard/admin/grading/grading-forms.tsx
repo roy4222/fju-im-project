@@ -1,6 +1,6 @@
 'use client'
 import { IconPlus } from '@tabler/icons-react'
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import {
   assignEvaluatorAction,
   createSchemeVersionAction,
@@ -36,6 +36,9 @@ const ITEM_TYPES: { value: SchemeItemType; label: string }[] = [
 
 type ItemDraft = { key?: string; name: string; type: SchemeItemType; max: string; weight: string }
 type StageDraft = { key?: string; name: string; weight: string; letterMap: Record<string, string>; items: ItemDraft[] }
+
+/** 草稿發布成功時廣播；「建立新方案版本」底下那句「（草稿）；按發布…」聽到就收起來，不留過時提示（AC-29）。 */
+const SCHEME_PUBLISHED = 'grading:scheme-published'
 
 const DEFAULT_LETTERS: Record<string, string> = { A: '95', B: '85', C: '75', D: '65', F: '50' }
 
@@ -105,7 +108,13 @@ export function SchemeEditor({
   const [state, action, pending] = useActionState(createSchemeVersionAction, undefined)
   const dialog = useDialog()
   const [stages, setStages] = useState<StageDraft[]>(() => toDraft(base))
+  const [dismissed, setDismissed] = useState<GradingActionState>(undefined)
   useCloseOnSuccess(state, dialog.close)
+  useEffect(() => {
+    const onPublished = () => setDismissed(state)
+    window.addEventListener(SCHEME_PUBLISHED, onPublished)
+    return () => window.removeEventListener(SCHEME_PUBLISHED, onPublished)
+  }, [state])
 
   const stageSum = stages.reduce((sum, s) => sum + num(s.weight), 0)
   const update = (index: number, patch: Partial<StageDraft>) =>
@@ -128,15 +137,15 @@ export function SchemeEditor({
         title={disabledReason ?? undefined}
       >
         <IconPlus className="size-4" aria-hidden />
-        建立新方案版本
+        建立新版評分規則
       </button>
-      <Feedback state={state?.ok ? state : undefined} />
-      <dialog ref={dialog.ref} aria-label="建立評分方案版本" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
+      <Feedback state={state?.ok && state !== dismissed ? state : undefined} />
+      <dialog ref={dialog.ref} aria-label="建立新版評分規則" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <form action={action} className="space-y-4 p-5">
           <div>
-            <h2 className="text-lg font-extrabold text-foreground">建立評分方案版本</h2>
+            <h2 className="text-lg font-extrabold text-foreground">建立新版評分規則</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {baseLabel ? `從 ${baseLabel} 複製起草。` : '第一版從範本起草。'}
+              {baseLabel ? `從${baseLabel}複製起草。` : '第一版從範本起草。'}
               階段占總成績合計要 100%、每個階段的項目權重合計也要 100%；建好是草稿，按「發布」後老師才會用。
             </p>
           </div>
@@ -329,12 +338,17 @@ export function PublishButton({
   requestId: string
   disabledReason: string | null
 }) {
-  const [state, action, pending] = useActionState(publishSchemeAction, undefined)
+  // 在動作回來當下就廣播：發布成功後這一列換成「已發布」、這顆按鈕跟著卸載，等 effect 會來不及。
+  const [state, action, pending] = useActionState(async (prev: GradingActionState, formData: FormData) => {
+    const result = await publishSchemeAction(prev, formData)
+    if (result?.ok) window.dispatchEvent(new Event(SCHEME_PUBLISHED))
+    return result
+  }, undefined)
   return (
     <form action={action} className="space-y-1">
       <input type="hidden" name="versionId" value={versionId} />
       <input type="hidden" name="requestId" value={requestId} />
-      <button type="submit" className={SECONDARY} disabled={pending || disabledReason !== null} aria-label={`發布 v${versionNo}`}>
+      <button type="submit" className={SECONDARY} disabled={pending || disabledReason !== null} aria-label={`發布第 ${versionNo} 版`}>
         {pending ? '發布中…' : '發布'}
       </button>
       {disabledReason ? <p className="text-xs text-muted-foreground">{disabledReason}</p> : null}
@@ -379,7 +393,7 @@ export function RequirementForm({
           max={max}
           defaultValue={count ?? ''}
           placeholder="未設定"
-          aria-label={`${groupCode}「${stageName}」要求份數`}
+          aria-label={`${groupCode}「${stageName}」需要幾位老師評分`}
           className="w-20 rounded-lg border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
         />
         <button type="submit" className={SECONDARY} disabled={pending}>

@@ -11,10 +11,10 @@ import type { ReviewLabels } from './review-dialog'
  *
  * 待審清單每列一個勾選框；勾了才出現「核准勾選的 N 位」。對話框照批次停用的「預覽 → 確認」：
  * 伺服器先列出每一位的姓名、學號、名單比對結果，需要人判斷的（名單比對不到、學號已被使用……）
- * 自動排除並寫原因；整批共用一個核實方式與說明。確認後伺服器以當下的待審清單再分類一次，
+ * 自動排除並寫原因；整批共用一個「怎麼確認是本人」與說明。確認後伺服器以當下的待審清單再分類一次，
  * 每一位各自走一次單筆核准（各自成功或失敗），結果寫「成功 N、略過 M」。
  *
- * 這裡**不判任何規則**：略過與否、核實欄位對不對都由伺服器決定，錯誤訊息照伺服器的顯示。
+ * 這裡**不判任何規則**：略過與否、確認本人的欄位對不對都由伺服器決定，錯誤訊息照伺服器的顯示。
  */
 
 const BUTTON =
@@ -156,7 +156,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
 
   async function confirm(items: Item[], previewSkipped: string[]) {
     if (!method) {
-      setError('請選擇核實方式。')
+      setError('請選擇怎麼確認是本人。')
       return
     }
     setBusy(true)
@@ -249,7 +249,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                 <>
                   <fieldset className="space-y-2">
                     <legend className="text-sm font-medium text-foreground">
-                      核實方式 <span className="font-normal text-muted-foreground">・必選，這一批共用</span>
+                      怎麼確認是本人 <span className="font-normal text-muted-foreground">・必選，這一批共用</span>
                     </legend>
                     {labels.methods.map((m) => (
                       <label key={m} className="flex items-start gap-2 text-sm text-foreground">
@@ -330,7 +330,7 @@ function DoneStep({ receipt, onClose }: { receipt: BulkApprovalReceipt; onClose:
         成功 {receipt.approved.length}、略過 {receipt.skipped.length}
       </h2>
       <p className="text-center text-sm text-muted-foreground">
-        核准的人已開通，重新登入就會進學生首頁；核實方式、操作者與時間已逐筆寫入操作紀錄。
+        核准的人已開通，重新登入就會進學生首頁；確認本人的方式、操作者與時間已逐筆寫入操作紀錄。
       </p>
       {receipt.skipped.length > 0 ? (
         <section aria-label="略過的人">

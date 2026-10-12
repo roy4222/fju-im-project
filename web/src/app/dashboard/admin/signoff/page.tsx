@@ -106,7 +106,7 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
       <p className="tabular text-xs text-muted-foreground md:col-span-3 md:col-start-2">
         {cause && summary.state === 'superseded' ? `${cause}，待建新版・` : null}
         {cause && summary.state === 'revision' ? `理由：${cause}・` : null}
-        最後事件 {formatTaipeiMinute(summary.lastEventAt)}
+        最後動作 {formatTaipeiMinute(summary.lastEventAt)}
         {p.students.length > 0 ? (
           <span className="sr-only">
             ；逐人：{p.students.map((s) => `${s.displayName}${s.result ? VOTE_RESULT_LABEL[s.result] : '尚未表態'}`).join('、')}
@@ -212,13 +212,13 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
                 </li>
               ))}
               <li className="flex items-center justify-between gap-3 border-t border-border/70 pt-2 text-muted-foreground">
-                <span>母數</span>
+                <span>本屆總組數</span>
                 <b className="tabular">{total} 組</b>
               </li>
             </ul>
           </div>
           <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
-            提醒未同意者、重置或重開新版、作廢、匯出，都在點版本號進去的版本頁。系辦不能代替任何人同意。
+            提醒未同意者、匯出在點版本號進去的版本頁；重置或重開新版、作廢在同一頁下方的「危險操作」區，按之前會寫清楚影響誰、能不能恢復。系辦不能代替任何人同意。
           </p>
         </Panel>
 

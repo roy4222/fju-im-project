@@ -50,7 +50,7 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
             <dd className="tabular-nums text-foreground">{p.countedBefore.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">份數</dt>
+            <dt className="text-xs text-muted-foreground">已評／需要幾位老師</dt>
             <dd className="tabular-nums text-foreground">
               {p.countedBefore.length}／{p.requiredBefore ?? '未設定'}・{p.stageStatusBefore}
             </dd>

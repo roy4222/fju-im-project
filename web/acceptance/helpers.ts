@@ -249,8 +249,16 @@ export async function disableAccount(admin: Page, name: string): Promise<boolean
     await searchAccounts(admin, name)
     const row = accountRow(admin, name)
     if ((await row.count()) !== 1) return false
-    const button = row.getByRole('button', { name: `停用 ${name}`, exact: true })
-    if ((await button.count()) === 0) return false
+    // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+    const more = row.getByRole('button', { name: `更多 ${name}`, exact: true })
+    if ((await more.count()) === 0) return false
+    await more.click()
+    await expect(admin.getByRole('menu')).toBeVisible()
+    const button = admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${name}`, exact: true })
+    if ((await button.count()) === 0) {
+      await admin.keyboard.press('Escape')
+      return false
+    }
     await button.click()
     const dialog = admin.getByRole('dialog', { name: `停用 ${name}` })
     await dialog.getByLabel(/理由/).fill('站驗收收尾：停用這一輪建的測試帳號')

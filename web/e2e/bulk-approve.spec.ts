@@ -6,9 +6,9 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * 第三波 W6：待審註冊一次核准多位（AC-24）；操作紀錄新增老師那筆用老師的核實文字（AC-25）。
  *
  * 1. 名單上 3 位，其中第 3 位的學號已被別人（先核准的同學號申請）占用：
- *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 選核實方式 → 確認
+ *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 選怎麼確認是本人 → 確認
  *    → 結果「成功 2、略過 1」（學號已被使用）；2 位可以登入進學生首頁；操作紀錄 2 筆核准。
- * 2. 新增一位老師後，操作紀錄那筆的核實寫「教職員證、身分證」，不提學生證。
+ * 2. 新增一位老師後，操作紀錄那筆的確認本人方式寫「教職員證、身分證」，不提學生證。
  *
  * 待審清單是全站共用的（別的 e2e 檔平行跑時也會有待審的人），所以逐一勾這一輪的人，不按「全選」。
  */
@@ -142,9 +142,9 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   await expect(rows.filter({ hasText: S3.name })).toContainText('略過：學號已被使用')
   await admin.screenshot({ path: 'test-results/w6-bulk-approve-preview.png' })
 
-  // 沒選核實方式不送。
+  // 沒選怎麼確認是本人不送。
   await dialog.getByRole('button', { name: '核准 2 位' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准 2 位' }).click()
 
@@ -250,6 +250,6 @@ test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不
   await admin.goto('/dashboard/admin/audit')
   const entry = admin.getByTestId('audit-entry').filter({ hasText: '新增老師' }).filter({ hasText: teacher.name })
   await expect(entry).toHaveCount(1)
-  await expect(entry).toContainText('核實：當面核對身分證件（教職員證、身分證）')
+  await expect(entry).toContainText('怎麼確認是本人：當面核對身分證件（教職員證、身分證）')
   await expect(entry).not.toContainText('學生證')
 })

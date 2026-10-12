@@ -537,6 +537,10 @@ async function seed(db, phases) {
       updated_at: opened,
       updated_by_user_id: OFFICE_ID,
     })
+    // 對象是「指定組別」時的組別集合（第三波的組別公告、個人收件）。
+    for (const g of item.audienceGroups ?? []) {
+      await insert(db, 'item_audience_groups', { item_id: id, group_id: groupId(g), created_at: opened })
+    }
     for (const spec of itemFiles) await addFile(spec)
     if (cover) await db.query('update managed_items set cover_file_id = $2 where id = $1', [id, cover.id])
     let sort = 0
@@ -1319,6 +1323,205 @@ async function seed(db, phases) {
     count('簽核版本')
   }
 
+  await seedWave3()
+  }
+
+  /**
+   * 第三波（W8）：新後台每個功能都有東西可點——草稿與已下架的公告（刪除）、已有人交件又下架的收件（Q28 擋刪）、
+   * 給全部老師與給第 01 組的公告（Q13、Q14）、每人一份且有人逾期的收件（補交）、本屆一則草稿榮譽（發布）。
+   * 屬於第一批（掛在 DEMO-114）：只有新建第一批時才寫，已經灌過的測試站要 `--remove` 後重灌才會有。
+   */
+  const seedWave3 = async () => {
+    /** 下架一個發布中的項目（同 pg-items 的生命週期指令：改狀態＋一筆 archive 發布紀錄；不發事件）。 */
+    const archiveItem = async (key, published, archivedAt) => {
+      const id = demoId(`item:${key}`)
+      await db.query(`update managed_items set status = 'archived', revision = revision + 1, updated_at = $2 where id = $1`, [id, archivedAt])
+      await insert(db, 'item_publications', {
+        id: demoId(`item-publication:${key}:archive`),
+        item_id: id,
+        action: 'archive',
+        content_version_id: demoId(`item-version:${key}:1`),
+        schema_version_id: published.schemaId,
+        deadline_version: null,
+        notify: false,
+        actor_user_id: OFFICE_ID,
+        real_at: archivedAt,
+        business_at: archivedAt,
+      })
+    }
+    /** 只存了草稿、從沒發布的項目（沒有版本、沒有發布紀錄）。 */
+    const draftItem = async (item) => {
+      await insert(db, 'managed_items', {
+        id: demoId(`item:${item.key}`),
+        cohort_id: COHORT_ID,
+        placement: item.placement,
+        audience_kind: item.audience,
+        status: 'draft',
+        title: item.title,
+        summary: item.summary,
+        body_html: item.bodyHtml,
+        category: item.category,
+        awarded_on: item.awardedOn ?? null,
+        created_at: item.at,
+        created_by_kind: 'user',
+        created_by_user_id: OFFICE_ID,
+        updated_at: item.at,
+        updated_by_user_id: OFFICE_ID,
+      })
+    }
+
+    for (const n of demo.WAVE3_NEWS) {
+      const opened = at(n.date, '10:30')
+      const item = {
+        key: n.key,
+        placement: 'news',
+        audience: n.audience,
+        audienceGroups: n.groups,
+        title: n.title,
+        summary: n.summary,
+        bodyHtml: paragraphs(n.body),
+        category: n.category,
+        openedAt: opened,
+        at: opened,
+      }
+      if (n.status === 'draft') {
+        await draftItem(item)
+        continue
+      }
+      const published = await publishItem(item)
+      if (n.status === 'archived') await archiveItem(n.key, published, at(n.archivedOn, '17:00'))
+    }
+    count('第三波公告', demo.WAVE3_NEWS.length)
+
+    /** 一份正式繳交（草稿列＋第 1 版），收件者是組或人。 */
+    const submit = async ({ itemKey, itemId, schemaId, receiver, answers, by, when, members }) => {
+      const tag = `${itemKey}:${receiver.key}`
+      await insert(db, 'submission_drafts', {
+        id: demoId(`draft:${tag}`),
+        item_id: itemId,
+        receiver_kind: receiver.kind,
+        receiver_id: receiver.id,
+        schema_version_id: schemaId,
+        answers: json(answers),
+        revision: 1,
+        created_at: when,
+        created_by_kind: 'user',
+        created_by_user_id: userId(by),
+        updated_at: when,
+        updated_by_user_id: userId(by),
+      })
+      await insert(db, 'submission_versions', {
+        id: demoId(`submission:${tag}:1`),
+        item_id: itemId,
+        receiver_kind: receiver.kind,
+        receiver_id: receiver.id,
+        version_no: 1,
+        schema_version_id: schemaId,
+        answers: json(answers),
+        submitted_by_user_id: userId(by),
+        received_real_at: when,
+        received_business_at: when,
+        request_id: demoId(`submission-request:${tag}:1`),
+        membership_snapshot: members ? json(members.map((m) => userId(m.key))) : null,
+        advisor_snapshot: receiver.advisorSnapshot ? json(receiver.advisorSnapshot) : null,
+        deadline_version_at_submit: 1,
+      })
+      count('正式繳交')
+    }
+    const rosterRow = async (itemKey, itemId, receiver, from) => {
+      await insert(db, 'response_rosters', {
+        id: demoId(`roster-row:${itemKey}:${receiver.key}`),
+        item_id: itemId,
+        cohort_id: COHORT_ID,
+        receiver_kind: receiver.kind,
+        receiver_id: receiver.id,
+        eligible_from_business_at: from,
+        source: 'auto',
+        created_at: from,
+        created_by_kind: 'user',
+        created_by_user_id: OFFICE_ID,
+        updated_at: from,
+        updated_by_user_id: OFFICE_ID,
+      })
+    }
+    const publishCollection = async (c, receiverUnit, audience, audienceGroups) => {
+      const opened = at(c.published, '10:00')
+      const dueAt = at(c.due, '23:59')
+      const published = await publishItem({
+        key: c.key,
+        placement: c.placement,
+        audience,
+        audienceGroups,
+        receiverUnit,
+        stage: c.stage,
+        dueAt,
+        title: c.title,
+        summary: c.summary,
+        bodyHtml: paragraphs([c.summary]),
+        fields: c.fields,
+        openedAt: opened,
+      })
+      count('收件項目')
+      return { ...published, opened, dueAt }
+    }
+
+    // 已有組別交件、之後下架的收件（Q28）：每組一列名單，`submitted` 的組各交一份。
+    const ac = demo.ARCHIVED_COLLECTION
+    const archived = await publishCollection(ac, 'group', 'cohort_students')
+    for (const [i, g] of demo.GROUPS.entries()) {
+      const from = new Date(Math.max(archived.opened.getTime(), at(g.established, '17:00').getTime()))
+      const receiver = { kind: 'group', id: groupId(g.key), key: g.key }
+      await rosterRow(ac.key, archived.id, receiver, from)
+      if (!ac.submitted.includes(g.key)) continue
+      await submit({
+        itemKey: ac.key,
+        itemId: archived.id,
+        schemaId: archived.schemaId,
+        receiver: {
+          ...receiver,
+          advisorSnapshot: { assignmentId: g.advisor ? demoId(`advisor:${g.key}`) : null, teacherUserId: g.advisor ? userId(g.advisor) : null },
+        },
+        answers: { f2: String(Math.min(g.members.length, 3)), f3: i % 2 === 0 ? '宏昇物流' : '昱鋼精機' },
+        by: g.members[0].key,
+        when: new Date(from.getTime() + (20 + i) * 3600_000),
+        members: g.members,
+      })
+    }
+    await archiveItem(ac.key, archived, at(ac.archivedOn, '09:00'))
+
+    // 每人一份、已截止：指定組別的組員每人一列，只有 `overdue` 那位沒交。
+    const ic = demo.INDIVIDUAL_COLLECTION
+    const icGroup = demo.GROUPS.find((g) => g.key === ic.group)
+    const individual = await publishCollection(ic, 'individual', 'groups', [ic.group])
+    for (const [i, m] of icGroup.members.entries()) {
+      const receiver = { kind: 'user', id: userId(m.key), key: m.key }
+      await rosterRow(ic.key, individual.id, receiver, individual.opened)
+      if (m.key === ic.overdue) continue
+      await submit({
+        itemKey: ic.key,
+        itemId: individual.id,
+        schemaId: individual.schemaId,
+        receiver,
+        answers: { f2: `${m.name}：想知道分組名單確認後還能不能換組。` },
+        by: m.key,
+        when: new Date(individual.opened.getTime() + (30 + i * 7) * 3600_000),
+      })
+    }
+
+    // 本屆一則草稿榮譽（測發布）。
+    const h = demo.DRAFT_HONOR
+    await draftItem({
+      key: `honor-${h.key}`,
+      placement: 'honor',
+      audience: 'public',
+      title: h.competition,
+      summary: `${h.award}・${h.team}｜${h.summary}`,
+      bodyHtml: paragraphs([`${h.competition}：${h.award}（${h.team}）`, h.summary]),
+      category: h.category,
+      awardedOn: day(h.date),
+      at: at(h.date, '16:00'),
+    })
+    count('草稿榮譽')
   }
 
   // ═══ 第二批：歷屆專題（已發布的精選）、榮譽榜、補上的競賽公告（#293 前台補六頁）═══
@@ -1461,6 +1664,14 @@ async function seed(db, phases) {
       )
       count('已發布精選')
     }
+    // 首頁輪播順序（第三波 W0 的 `home_position`）：兩件有獎項的歷屆作品排第 1、2。
+    for (const [key, position] of Object.entries(demo.HOME_POSITIONS)) {
+      await db.query('update showcase_entries set home_position = $2, revision = revision + 1 where id = $1', [
+        demoId(`history-showcase:${key}`),
+        position,
+      ])
+    }
+    count('首頁輪播順序', Object.keys(demo.HOME_POSITIONS).length)
 
     // 榮譽榜：已發布、公開；發布日＝得獎日（#293 的年份篩選看它）。
     for (const h of demo.HONORS) {
@@ -1550,6 +1761,7 @@ const REMOVE_STEPS = [
   [`delete from grading_schemes where cohort_id = any($1::uuid[])`],
   // 繳交與專題事務
   [`delete from submission_files where submission_version_id in (select v.id from submission_versions v join managed_items m on m.id = v.item_id where m.cohort_id = any($1::uuid[]))`],
+  [`delete from submission_reopens where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from submission_versions where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from submission_drafts where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],
   [`delete from advisor_visibility_settings where item_id in (select id from managed_items where cohort_id = any($1::uuid[]))`],

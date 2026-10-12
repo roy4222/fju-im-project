@@ -14,7 +14,7 @@ import { err, type Err } from '@/shared/result'
 export type CohortStatus = 'preparing' | 'active' | 'archived'
 
 export const COHORT_STATUS_LABEL: Record<CohortStatus, string> = {
-  preparing: '籌備中',
+  preparing: '尚未開始（設定中）',
   active: '進行中',
   archived: '已封存',
 }

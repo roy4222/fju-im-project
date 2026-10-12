@@ -15,8 +15,8 @@ import { formatScore } from '@/shared/score'
 
 export function describeSchemeVersionReceipt(r: SchemeVersionReceipt): string {
   return r.status === 'draft'
-    ? `已建立方案 v${r.versionNo}（草稿）；按「發布」後老師才會用這一版。`
-    : `方案 v${r.versionNo} 已發布，老師評分用這一版。`
+    ? `已建立評分規則第 ${r.versionNo} 版（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分規則」區塊的「版本紀錄」裡，點開後按第 ${r.versionNo} 版那列的「發布」（評分規則已鎖定時那列是「看影響並套用」）。`
+    : `評分規則第 ${r.versionNo} 版已發布，老師評分用這一版。`
 }
 
 export function describeRequirementReceipt(r: RequirementReceipt): string {
@@ -43,7 +43,7 @@ export function describeReturnReceipt(r: ReturnReceipt): string {
 
 export function describeRemoveAssignmentReceipt(r: RemoveAssignmentReceipt): string {
   const who = r.newTeacherName ? `${r.teacherName} 老師 → ${r.newTeacherName} 老師` : `已移除 ${r.teacherName} 老師`
-  const count = r.requiredCount === null ? '' : `；要求份數 ${r.requiredCount}`
+  const count = r.requiredCount === null ? '' : `；每組需要 ${r.requiredCount} 位老師評分`
   return `${r.groupCode}「${r.stageName}」${who}（${REMOVAL_CHOICE_LABEL[r.choice]}${count}）。`
 }
 

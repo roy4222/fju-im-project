@@ -32,6 +32,21 @@ describe('專題事務通知的連結', () => {
     expect(resolveSource(row({ item_placement: 'showcase' }))).toEqual({ state: 'ok', href: null })
   })
 
+  it('已刪除的收件（第三波 W1）：保留作業區連結，點開由那一頁回「找不到這個頁面」', () => {
+    expect(resolveSource(row({ item_status: 'archived', item_deleted: true, item_on_roster: true }))).toEqual({
+      state: 'ok',
+      href: `/dashboard/student/affairs/${ID}`,
+    })
+    expect(resolveSource(row({ item_status: 'draft', item_deleted: true, item_on_roster: false }))).toEqual({
+      state: 'ok',
+      href: `/dashboard/student/affairs/${ID}`,
+    })
+    expect(resolveSource(row({ item_placement: 'news', item_status: 'archived', item_deleted: true }))).toEqual({
+      state: 'ok',
+      href: `/news/${ID}`,
+    })
+  })
+
   it('收件不是發布中、項目不在了 → 不給連結；屆別封存照舊標唯讀', () => {
     expect(resolveSource(row({ item_status: 'archived' }))).toEqual({ state: 'ok', href: null })
     expect(resolveSource(row({ item_status: 'draft' }))).toEqual({ state: 'ok', href: null })

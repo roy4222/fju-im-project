@@ -155,7 +155,7 @@ export function ReviewDialog({
 
   async function approve() {
     if (!method) {
-      setError({ message: '請選擇核實方式。', field: 'verificationMethod' })
+      setError({ message: '請選擇怎麼確認是本人。', field: 'verificationMethod' })
       return
     }
     setBusy(true)
@@ -226,7 +226,7 @@ export function ReviewDialog({
               </h2>
               <p className="text-sm text-muted-foreground">
                 {phase.receipt.decision === 'approved'
-                  ? `已開通，進入 ${phase.receipt.cohortName}；核實方式「${labels.methodLabel[phase.receipt.verificationMethod!]}」、比對依據、操作者與時間都已寫入紀錄。本人重新登入就會進學生首頁。`
+                  ? `已開通，進入 ${phase.receipt.cohortName}；確認本人的方式「${labels.methodLabel[phase.receipt.verificationMethod!]}」、比對依據、操作者與時間都已寫入紀錄。本人重新登入就會進學生首頁。`
                   : '退回理由、操作者與時間已寫入紀錄；申請人登入後會在等待審核頁看到理由，可以修改後重新送出。'}
               </p>
               <button type="button" onClick={close} className={cn(BUTTON, SECONDARY)}>
@@ -354,7 +354,7 @@ export function ReviewDialog({
 
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium text-foreground">
-                  核實方式 <span className="font-normal text-muted-foreground">・核准必選</span>
+                  怎麼確認是本人 <span className="font-normal text-muted-foreground">・核准必選</span>
                 </legend>
                 {labels.methods.map((m) => (
                   <label key={m} className="flex items-start gap-2 text-sm text-foreground">

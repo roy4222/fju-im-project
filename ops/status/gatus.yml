@@ -1,0 +1,79 @@
+# 開發者後台的 Gatus 設定（設計方案 §2、§3.13，票 S-3）。只在 VM 內部當健康檢查引擎：
+# 不建對外網址、不設警報（VM 外的警報歸 .github/workflows/health-cron.yml）。
+# collector 每 10 分鐘讀 http://gatus:8080/api/v1/endpoints/statuses 整理成 health.json；
+# endpoint 的 group／name 是 collector 的介面（group site 的 test／prod，group access 的四個網址），改名要一起改。
+#
+# Gatus 的條件做不到兩件事，所以由 collector 自己補（status/collector/lib/health.mjs）：
+#   - 「worker 心跳 ≤ 300 秒」：條件沒有日期運算；collector 每輪自己打一次 /api/health 判斷。
+#   - Access 302 的 Location 指到哪：條件讀不到回應 header；collector 用不跟隨轉址的請求自己讀。
+# 本檔不要寫錢字號（Gatus 會當成環境變數展開）。
+
+storage:
+  type: sqlite
+  path: /data/gatus.db
+  # 保留 7 天：5 分鐘一次 × 288 次／天 × 7 天（每個 endpoint 各自算）。
+  maximum-number-of-results: 2016
+  maximum-number-of-events: 100
+
+web:
+  port: 8080
+
+endpoints:
+  # 兩站健康：條件照 health-cron.yml 的 CHECK（HTTP 200、ok、commit 非空、有 worker 心跳時間）。
+  - name: test
+    group: site
+    url: https://test.fju.roy422.dev/api/health
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].ok == true"
+      - "len([BODY].commit) > 0"
+      - "has([BODY].worker.lastTickAt) == true"
+
+  # 正式站還沒開時會一直失敗；只當資訊，「能不能上線」不看它（G3 只看測試站）。
+  - name: prod
+    group: site
+    url: https://fju.roy422.dev/api/health
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].ok == true"
+      - "len([BODY].commit) > 0"
+      - "has([BODY].worker.lastTickAt) == true"
+
+  # 四個網址不帶 cookie 都要被 Access 擋下（302，不跟隨轉址）。網址清單跟 STATUS_HOSTS 一致。
+  - name: fju-status.roy422.dev
+    group: access
+    url: https://fju-status.roy422.dev/
+    interval: 5m
+    client:
+      ignore-redirect: true
+    conditions:
+      - "[STATUS] == 302"
+
+  - name: fju-status-vm.roy422.dev
+    group: access
+    url: https://fju-status-vm.roy422.dev/
+    interval: 5m
+    client:
+      ignore-redirect: true
+    conditions:
+      - "[STATUS] == 302"
+
+  - name: fju-status-logs.roy422.dev
+    group: access
+    url: https://fju-status-logs.roy422.dev/
+    interval: 5m
+    client:
+      ignore-redirect: true
+    conditions:
+      - "[STATUS] == 302"
+
+  - name: fju-status-db.roy422.dev
+    group: access
+    url: https://fju-status-db.roy422.dev/
+    interval: 5m
+    client:
+      ignore-redirect: true
+    conditions:
+      - "[STATUS] == 302"

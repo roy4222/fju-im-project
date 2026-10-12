@@ -126,10 +126,10 @@ function parseTaipeiSecond(text: string): number {
 
 async function setClock(page: Page, ms: number, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(localSecond(ms))
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(localSecond(ms))
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expectStatus(page, '已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expectStatus(page, '已設定模擬時間')
 }
 
 async function stageText(page: Page, path: string) {
@@ -273,7 +273,7 @@ test('0 前置：背景工作在跑、測試站有模擬業務鐘；管理員登
   admin = await adminPage(browser)
   const response = await admin.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await admin.getByLabel('目前業務時間').innerText())
+  const business = parseTaipeiSecond(await admin.getByLabel('系統認定的現在時間').innerText())
   const simulated = await admin.getByText('模擬中：').count()
   previousClockOffset = simulated > 0 ? business - Date.now() : null
   clockTouched = true
@@ -327,7 +327,9 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
   await shot(admin, 'timeline')
 
   await admin.goto('/dashboard/admin/cohorts')
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
+  await admin.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expectStatus(admin, `已把 ${CODE} 轉為進行中`)
   await expect(cohortRow(admin, CODE)).toContainText('進行中')
   await shot(admin, 'cohort-active')

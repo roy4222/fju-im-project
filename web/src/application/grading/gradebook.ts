@@ -210,7 +210,7 @@ export type OverrideState = 'effective' | 'pending_review' | 'superseded'
 
 export const OVERRIDE_STATE_LABEL: Record<OverrideState, string> = {
   effective: '生效中',
-  pending_review: '待復核',
+  pending_review: '待重新確認',
   superseded: '已被取代',
 }
 
@@ -241,5 +241,5 @@ export function describeOverride(override: OverrideSummary | null): string {
   const change = `原 ${formatScore(override.originalValue)} → ${formatScore(override.newValue)}`
   return override.state === 'effective'
     ? `已更正：${change}（${override.reason}）`
-    : `更正待復核：${change}（計算基礎已改變，目前不套用）`
+    : `人工更正待重新確認：${change}（分數來源已改變，目前不套用）`
 }

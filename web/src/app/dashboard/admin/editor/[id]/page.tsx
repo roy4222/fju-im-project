@@ -8,7 +8,7 @@ import { fieldFromSchema, type EditorState } from '@/app/dashboard/admin/affairs
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
-import { getItemQuery, ITEM_STATUS_LABEL } from '@/composition/items'
+import { getItemQuery, ITEM_STATUS_LABEL, ITEM_TEMPLATES } from '@/composition/items'
 import { formatTaipeiMinute, toTaipeiDateTimeInput } from '@/shared/time'
 
 export const metadata = { title: '編輯專題事務｜資管系專題平台' }
@@ -58,12 +58,13 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
     dueAt: minuteInput(item.dueAt),
     registrationDeadline: item.registrationDeadline ?? '',
     eventDate: item.eventDate ?? '',
+    awardedOn: item.awardedOn ?? '',
     fields: item.fields.map(fieldFromSchema),
   }
 
   const versions =
     item.contentVersionNo !== null
-      ? `內容 v${item.contentVersionNo}・欄位 v${item.schemaVersionNo}${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
+      ? `內容第 ${item.contentVersionNo} 版・表單格式第 ${item.schemaVersionNo} 版${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
       : '還沒發布過'
   const opened = item.actualOpenedAt ? `・實際開放 ${formatTaipeiMinute(item.actualOpenedAt)}` : ''
 
@@ -77,6 +78,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
           status={item.status}
           hasResponses={item.hasResponses}
           vocabulary={await editorVocabulary(item.cohortId)}
+          templates={ITEM_TEMPLATES}
           heading="編輯專題事務"
           publishedBefore={item.publications.length > 0}
           meta={`${cohort ? cohortLabel(cohort) : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}

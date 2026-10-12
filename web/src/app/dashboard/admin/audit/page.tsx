@@ -11,6 +11,7 @@ import {
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,
   auditActionLabel,
+  auditActionTitle,
   auditWhoOf,
   describeAuditTarget,
   getAuditLogQuery,
@@ -39,8 +40,8 @@ function actorLabel(e: AuditLogEntry): string {
 }
 
 /**
- * 新增、預授權老師這兩個動作，核實的對象一定是老師：顯示老師的文字，不提學生證（第三波 W6；
- * 同帳號頁新增老師對話框的 `teacherMethodLabel`，T6 系5）。只換顯示文字，紀錄裡的核實方式代碼不變。
+ * 新增、預授權老師這兩個動作，確認的對象一定是老師：顯示老師的文字，不提學生證（第三波 W6；
+ * 同帳號頁新增老師對話框的 `teacherMethodLabel`，T6 系5）。只換顯示文字，紀錄裡的方式代碼不變。
  */
 const TEACHER_ACTIONS: ReadonlySet<string> = new Set(['account.create_teacher', 'account.preauthorize_teacher'])
 const TEACHER_METHOD_LABEL: typeof VERIFICATION_LABEL = {
@@ -48,12 +49,12 @@ const TEACHER_METHOD_LABEL: typeof VERIFICATION_LABEL = {
   id_document: '當面核對身分證件（教職員證、身分證）',
 }
 
-/** 核准註冊這類要核實身分的列：「核實：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
+/** 核准註冊這類要確認本人的列：「怎麼確認是本人：當面核對學生證或其他身分證件／10/8 櫃台核對」。 */
 function verificationText(e: AuditLogEntry): string | null {
   if (!e.verificationMethod) return null
   const note = e.verificationNote?.trim()
   const labels = TEACHER_ACTIONS.has(e.action) ? TEACHER_METHOD_LABEL : VERIFICATION_LABEL
-  return `核實：${labels[e.verificationMethod]}${note ? `／${note}` : ''}`
+  return `怎麼確認是本人：${labels[e.verificationMethod]}${note ? `／${note}` : ''}`
 }
 
 function tone(e: AuditLogEntry): 'brand' | 'default' | 'info' {
@@ -83,7 +84,7 @@ export default async function AdminAuditPage({
               : '誰、何時、對哪個對象、做了什麼、為什麼；不可修改。'
           }
         />
-        <Panel title="事件" icon={<IconHistory />} aria-label="事件">
+        <Panel title="操作清單" icon={<IconHistory />} aria-label="操作清單">
           {!log ? (
             <PanelEmpty title="讀不到操作紀錄" hint="請重新整理頁面；一直這樣請通知維運。" />
           ) : (
@@ -134,7 +135,9 @@ export default async function AdminAuditPage({
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Pill tone={tone(e)}>{auditActionLabel(e.action)}</Pill>
+                        <Pill tone={tone(e)} title={auditActionTitle(e.action)}>
+                          {auditActionLabel(e.action)}
+                        </Pill>
                         <span className="truncate text-sm text-foreground">{describeAuditTarget(e)}</span>
                       </div>
                       {verificationText(e) ? (

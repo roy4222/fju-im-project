@@ -7,6 +7,9 @@ import type { ItemReview, PublishCheck, RecipientPreview } from '@/application/i
 import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, DIALOG as KIT_DIALOG } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
+/** 欄位與上傳上限都用整數 MiB 設定；顯示時換成位元組交給共用的 `formatSize`（KB／MB）。 */
+const MIB = 1024 * 1024
+
 export {
   fieldFromSchema,
   formatSize,
@@ -173,7 +176,7 @@ export function AttachmentPicker({
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : '加入附件'}</span>
           <span className="block text-xs text-muted-foreground">
-            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {maxMiB} MiB。下載權限跟著這一筆的對象走。
+            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {formatSize(maxMiB * MIB)}。下載權限跟著這一筆的對象走。
           </span>
         </span>
         <input
@@ -236,7 +239,7 @@ export function CoverPicker({
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : cover ? '換封面' : '上傳封面'}</span>
           <span className="block text-xs text-muted-foreground">
-            封面只收 {accept.replaceAll(',', '、')}，上限 {maxMiB} MiB。
+            封面只收 {accept.replaceAll(',', '、')}，上限 {formatSize(maxMiB * MIB)}。
           </span>
         </span>
         <input
@@ -399,7 +402,7 @@ export function StudentView({
                   {f.required ? <span className="ml-1 text-destructive">*</span> : null}
                   <span className="ml-2 text-xs text-muted-foreground">
                     {typeLabel(f.type)}
-                    {f.type === 'file' ? `・${f.allowedTypes.join('、')}・上限 ${f.maxMiB} MiB` : ''}
+                    {f.type === 'file' ? `・${f.allowedTypes.join('、')}・上限 ${formatSize(f.maxMiB * MIB)}` : ''}
                   </span>
                 </span>
               )}

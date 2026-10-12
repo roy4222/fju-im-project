@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import Link from 'next/link'
 import { IconSignature } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -53,11 +54,20 @@ export default async function TeacherSignoffVersionPage({ params }: { params: Pr
           />
         ) : (
           <Panel title="簽核版本" icon={<IconSignature />}>
+            {/* 不透露版本存不存在：找不到與沒權限同一句（N-24）。 */}
             <PanelEmpty
               icon={<IconSignature />}
               title="無法存取"
-              hint="這不是你此刻指導的組別的簽核版本。"
-              action={{ href: '/dashboard/teacher/signoff', label: '回簽核' }}
+              hint={
+                <>
+                  找不到這份簽核，或它不屬於你目前指導的組別（換過指導老師後，舊老師就看不到）。覺得有誤請聯絡系辦。你要簽的版本都在
+                  <Link href="/dashboard/teacher/signoff" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
+                    簽核
+                  </Link>
+                  頁。
+                </>
+              }
+              action={{ href: '/dashboard/teacher', label: '回到自己的首頁' }}
             />
           </Panel>
         )}
