@@ -82,10 +82,29 @@ function checkPolicy(input: AcceptanceGateInput): PolicyCheck {
     return { ok: false, reason: 'requiredItems 不是非空的字串陣列' }
   }
   if (!items || typeof items !== 'object' || Array.isArray(items)) return { ok: false, reason: '缺少 items（每項的證據要求）' }
-  const missing = requiredItems.filter((id) => !items[id] || typeof items[id] !== 'object')
+  const missing = requiredItems.filter((id) => !items[id] || typeof items[id] !== 'object' || Array.isArray(items[id]))
   if (missing.length) return { ok: false, reason: `items 缺少：${missing.join('、')}` }
+  // 要求本身格式不對時不能「看不懂就跳過」：story／r1 要非空的步驟號整數陣列，ux 要正整數任務數。
+  const badSteps = requiredItems.filter((id) => needsSteps(id) && !isStepList(items[id]!.steps))
+  const badTasks = requiredItems.filter((id) => needsTasks(id) && !isPositiveInt(items[id]!.tasks))
+  if (badSteps.length || badTasks.length) {
+    return {
+      ok: false,
+      reason: [
+        ...badSteps.map((id) => `items.${id}.steps 要是非空的步驟號整數陣列`),
+        ...badTasks.map((id) => `items.${id}.tasks 要是正整數`),
+      ].join('；'),
+    }
+  }
   return { ok: true, required: requiredItems, items }
 }
+
+/** 劇本類（story、r1）要核步驟；人設類（ux）要核任務數；security-static 都不用（§3.4c′）。 */
+const needsSteps = (id: string) => id.startsWith('story-') || id.startsWith('r1-')
+const needsTasks = (id: string) => id.startsWith('ux-')
+const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1
+const isStepList = (v: unknown): v is number[] =>
+  Array.isArray(v) && v.length > 0 && v.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)
 
 export function evaluateAcceptance(input: AcceptanceGateInput): GateResult {
   // (g) 政策檔缺了或壞了 → 灰，不得用空集合判綠。
@@ -165,7 +184,7 @@ export function evaluateAcceptance(input: AcceptanceGateInput): GateResult {
     const req = requirements[id]!
     checkSteps(id, item, req, coverage, env, unlogged, unknown)
     checkProblems(id, item, runId, waivers, blocking, unwaived)
-    if (typeof req.tasks === 'number') checkPersona(id, personas, req.tasks, coverage, tasksUndone)
+    if (needsTasks(id)) checkPersona(id, personas, req.tasks!, coverage, tasksUndone)
   }
 
   reasons.push(
@@ -207,7 +226,7 @@ function checkSteps(
   unknown: string[],
 ) {
   const steps = Array.isArray(item.steps) ? item.steps : []
-  if (Array.isArray(req.steps) && req.steps.length) {
+  if (needsSteps(id) && req.steps) {
     const seen = new Set(steps.map((st) => stepNumber(st.步驟)).filter((n): n is number => n !== null))
     const lacking = req.steps.filter((n) => !seen.has(n))
     if (lacking.length) coverage.push(`${id} 缺步驟 ${formatRanges(lacking)}`)

@@ -198,6 +198,41 @@ describe('G2 其他邊界', () => {
     expect(text(g)).toContain('story-6')
   })
 
+  it('政策檔 story 的 steps 不是整數陣列 → 灰，不得跳過步驟檢查判綠', () => {
+    const s = green()
+    s.runs[LATEST]!.summary!.items.find((i) => i.id === 'story-1')!.steps = []
+    ;(s.policy!.items['story-1'] as unknown as { steps: unknown }).steps = '0-7'
+    const g = gate(s, 'G2')
+    expect(g.state).toBe('grey')
+    expect(g.summary).toBe('上線政策檔缺失')
+    expect(text(g)).toContain('story-1')
+    const empty = green()
+    empty.policy!.items['story-2'] = {}
+    expect(gate(empty, 'G2').state).toBe('grey')
+    const floats = green()
+    floats.policy!.items['story-3'] = { steps: [1, 2.5] }
+    expect(gate(floats, 'G2').state).toBe('grey')
+  })
+
+  it('政策檔 ux 的 tasks 是字串 "4" 或不是正整數 → 灰，不得跳過人設檢查判綠', () => {
+    const s = green()
+    const sum = s.runs[LATEST]!.summary!
+    sum.personas = sum.personas.filter((p) => p.id !== 'ux-grader')
+    ;(s.policy!.items['ux-grader'] as unknown as { tasks: unknown }).tasks = '4'
+    const g = gate(s, 'G2')
+    expect(g.state).toBe('grey')
+    expect(g.summary).toBe('上線政策檔缺失')
+    expect(text(g)).toContain('ux-grader')
+    for (const tasks of [0, -1, 1.5]) {
+      const t = green()
+      t.policy!.items['ux-leader'] = { tasks }
+      expect(gate(t, 'G2').state).toBe('grey')
+    }
+    const none = green()
+    none.policy!.items['ux-member'] = {}
+    expect(gate(none, 'G2').state).toBe('grey')
+  })
+
   it('政策檔 requiredItems 是空陣列 → 灰（不得用空集合判綠）', () => {
     const s = green()
     s.policy!.requiredItems = []
@@ -240,6 +275,16 @@ describe('G1、G3、G4、G5 的灰與紅', () => {
     const failed = green()
     failed.github!.fetchError = 'HTTP 503'
     expect(gate(failed, 'G1').state).toBe('grey')
+  })
+
+  it('G3：collector 判 ok:false（例如 worker 心跳逾時）即使六筆都 true 也紅，並列出原因', () => {
+    const s = green()
+    s.health!.test!.ok = false
+    s.health!.test!.reason = 'worker 心跳 600 秒前'
+    const g = gate(s, 'G3')
+    expect(g.state).toBe('red')
+    expect(text(g)).toContain('worker 心跳 600 秒前')
+    expect(run(s).canGoLive).toBe(false)
   })
 
   it('G3：最近一次失敗紅；不到 6 次或過期灰；剛恢復灰', () => {

@@ -67,6 +67,10 @@ export function evaluateHealth(health: HealthData | null, now: Date): GateResult
   const a = age(test.checkedAt ?? health?.generatedAt, now)
   if (a === null || a > 20 * MINUTE) return { ...base, state: 'grey', summary: '健康檢查資料超過 20 分鐘沒更新', reasons: [] }
   const last6 = Array.isArray(test.last6) ? test.last6 : []
+  // collector 的 ok 已含 health-cron 的整套規則（200、ok、commit、worker 心跳 ≤ 300 秒）；它說不過就是不過，六筆紀錄救不了。
+  if (test.ok !== true) {
+    return { ...base, state: 'red', summary: '測試站健康檢查不過', reasons: test.reason ? [test.reason] : [] }
+  }
   if (last6.length && last6[0] === false) {
     return { ...base, state: 'red', summary: '測試站最近一次健康檢查失敗', reasons: test.reason ? [test.reason] : [] }
   }

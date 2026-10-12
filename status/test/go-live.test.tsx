@@ -167,6 +167,25 @@ describe('能不能上線頁（AC-S-19）', () => {
     expect(out).toContain('版本不一致')
   })
 
+  it('G3：collector 判 ok:false（worker 心跳逾時）、六筆都 true → G3 紅、還不能上線', async () => {
+    const s = SCENARIOS.a()
+    s.health!.test!.ok = false
+    s.health!.test!.reason = 'worker 心跳 600 秒前'
+    const { dataDir, acceptanceDir } = await writeScenario(path.join(root, 'g3-not-ok'), s)
+    vi.stubEnv('STATUS_DATA_DIR', dataDir)
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', acceptanceDir)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(NOW))
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <SidebarProvider>{await GoLivePage()}</SidebarProvider>
+      </TooltipProvider>,
+    )
+    expect(state(html, 'G3')).toBe('red')
+    expect(card(html, 'G3')).toContain('worker 心跳 600 秒前')
+    expect(html).toMatch(NOT_YET)
+  })
+
   it('完全沒有資料時五條都灰、還不能上線', async () => {
     vi.stubEnv('STATUS_DATA_DIR', path.join(root, 'nothing', 'data'))
     vi.stubEnv('STATUS_ACCEPTANCE_DIR', path.join(root, 'nothing', 'acceptance'))
