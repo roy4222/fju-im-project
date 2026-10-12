@@ -597,7 +597,7 @@ export function ItemEditor({
                 <label htmlFor="ed-body" className="text-xs font-semibold">
                   正文
                 </label>
-                <span className="ml-auto text-[11px] text-muted-foreground">可用簡單 HTML</span>
+                <span className="ml-auto text-[11px] text-muted-foreground">可以直接打字；進階排版可用 HTML</span>
               </div>
               <textarea
                 id="ed-body"

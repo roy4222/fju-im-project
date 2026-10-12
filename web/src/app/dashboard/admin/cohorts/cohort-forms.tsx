@@ -82,7 +82,7 @@ export function CreateCohortForm({
         </button>
       </div>
       <p className="text-xs text-muted-foreground">
-        代碼用英數與連字號，例如 115 或 115-TEST。新屆別從「籌備中」開始。
+        代碼用英數與連字號，例如 115 或 115-TEST。新屆別一開始是「尚未開始（設定中）」。
       </p>
       <Feedback state={state} />
     </form>
@@ -199,7 +199,7 @@ export function CohortTable({
             <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
           </h3>
           <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">轉為進行中</span>：籌備中的屆別正式開始，不能改回籌備中。要先到「時間軸」設好四個階段與年度結束日。
+            <span className="font-semibold text-foreground">轉為進行中</span>：尚未開始（設定中）的屆別正式開始，不能改回尚未開始。要先到「時間軸」設好四個階段與年度結束日。
           </p>
           <ul className="flex flex-col gap-2">
             {preparing.map((row) => (
@@ -238,8 +238,8 @@ function ActivateCohortButton({
   const facts: [string, string][] = [
     ['對象', `${row.code}（${row.name}）`],
     ['範圍', '這一屆的學生、老師與系辦看到的屆別狀態都會變成「進行中」（不另發通知）。'],
-    ['後果', '狀態從「籌備中」改成「進行中」，按下就生效並留一筆狀態紀錄。還沒設好階段與年度結束日會被擋下、不會改。'],
-    ['能不能恢復', '不能改回籌備中，沒有退回的按鈕。'],
+    ['後果', '狀態從「尚未開始（設定中）」改成「進行中」，按下就生效並留一筆狀態紀錄。還沒設好階段與年度結束日會被擋下、不會改。'],
+    ['能不能恢復', '不能改回尚未開始（設定中），沒有退回的按鈕。'],
   ]
   return (
     <>

@@ -8,7 +8,7 @@ import { ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admi
  * 系辦的時間軸設定（票 35；原型 `timeline-zigzag` 的 `canEdit` 版）。
  *
  * 版型用票 38 搬進來的共用元件 `dashboard/_timeline/timeline-zigzag`；這裡只把系辦的按鈕放進它的插槽：
- * 摘要列右邊「調整模擬業務鐘」「編輯階段與日期」，每張卡片展開後也有「編輯階段與日期」。
+ * 摘要列右邊「調整模擬時鐘」「編輯階段與日期」，每張卡片展開後也有「編輯階段與日期」。
  * 原型每段各自編輯；正式碼四段一起填（Vault 02 階段模型），所以每個按鈕打開的都是同一個對話框。
  */
 

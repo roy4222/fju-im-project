@@ -116,7 +116,7 @@ export default async function TeacherGradingGroupPage({
           finalScore={entry.finalScore}
           submittedAtText={entry.submittedAt ? formatTaipeiSecond(entry.submittedAt) : null}
           draftFromOlderVersion={entry.draftFromOlderVersion}
-          eyebrow={`${cohortCode}・${entry.stage.name}・方案 v${versionNo}`}
+          eyebrow={`${cohortCode}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
           members={memberNames.join('、')}
         >
           {entries.length > 1 ? (

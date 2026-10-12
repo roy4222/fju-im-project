@@ -118,8 +118,8 @@ export function OverrideForm({
           <div>
             <h2 className="text-lg font-extrabold text-foreground">更正 {groupCode} 的最終成績</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              算出來的最終成績是 <b className="tabular-nums text-foreground">{computed ?? '—'}</b>。更正值另存一筆（原值、理由、操作者、時間、方案版本），
-              老師的原始輸入不會被改；之後採計分數或方案改變，這筆更正會進「待復核」。
+              算出來的最終成績是 <b className="tabular-nums text-foreground">{computed ?? '—'}</b>。更正值另存一筆（原值、理由、操作者、時間、評分規則第幾版），
+              老師的原始輸入不會被改；之後分數來源改變（採計的分數、需要幾位老師評分或評分規則），這筆更正會進「待重新確認」。
             </p>
           </div>
           <input type="hidden" name="groupId" value={groupId} />
@@ -170,17 +170,17 @@ export function ResolveReviewForm({
   const [state, action, pending] = useActionState(resolveReviewAction, undefined)
   const [decision, setDecision] = useState<'keep' | 'new'>('keep')
   return (
-    <form action={action} className="space-y-3 rounded-lg border border-border p-4" aria-label="復核更正">
+    <form action={action} className="space-y-3 rounded-lg border border-border p-4" aria-label="重新確認人工更正">
       <p className="text-sm text-foreground">
-        計算基礎改變後，新的計算結果是 <b className="tabular-nums">{computed ?? '尚未完成'}</b>；原更正值 <b className="tabular-nums">{previousValue}</b>。
-        確認之前，更正不套用在新的計算基礎上。
+        分數來源改變後，新的計算結果是 <b className="tabular-nums">{computed ?? '尚未完成'}</b>；原更正值 <b className="tabular-nums">{previousValue}</b>。
+        確認之前，人工更正不套用在新的分數來源上。
       </p>
       <input type="hidden" name="groupId" value={groupId} />
       <input type="hidden" name="overrideId" value={overrideId} />
       <input type="hidden" name="basisHash" value={basisHash} />
       <input type="hidden" name="requestId" value={requestId} />
       <fieldset className="flex flex-wrap gap-4 text-sm">
-        <legend className="sr-only">復核方式</legend>
+        <legend className="sr-only">怎麼處理這筆人工更正</legend>
         <label className="flex items-center gap-2">
           <input type="radio" name="decision" value="keep" checked={decision === 'keep'} onChange={() => setDecision('keep')} />
           沿用原更正值 {previousValue}
@@ -197,14 +197,14 @@ export function ResolveReviewForm({
         </label>
       ) : null}
       <label className={LABEL}>
-        復核說明
+        重新確認的說明
         <textarea name="reason" required maxLength={500} rows={2} className={TEXTAREA} />
       </label>
       <Feedback state={state} />
       <div className="flex flex-wrap gap-2">
         <StaleHint state={state} label="重新整理看最新成績" />
         <button type="submit" className={PRIMARY} disabled={pending || disabledReason !== null} title={disabledReason ?? undefined}>
-          {pending ? '處理中…' : '確認復核'}
+          {pending ? '處理中…' : '確認並記錄'}
         </button>
       </div>
       {disabledReason ? <p className="text-xs text-muted-foreground">{disabledReason}</p> : null}
@@ -254,7 +254,7 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
               <span className="block tabular-nums text-foreground">
                 之後：{o.countedAfter.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有採計'}
                 <br />
-                份數 {o.countedAfter.length}／{o.requiredAfter ?? '未設定'}・平均 {o.averageAfter ?? '—'}・{o.stageStatusAfter}
+                已評 {o.countedAfter.length}／需要 {o.requiredAfter ?? '未設定'} 位老師・平均 {o.averageAfter ?? '—'}・{o.stageStatusAfter}
                 <br />
                 最終 {o.finalAfter ?? '尚未完成'}
               </span>
@@ -280,7 +280,7 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
         <textarea name="reason" required maxLength={500} rows={2} className={TEXTAREA} disabled={done} />
       </label>
       {preview.hasEffectiveOverride && choice !== 'keep' ? (
-        <p className="text-sm text-danger">這一組有生效中的最終成績更正；這個選擇會改變計算基礎，那筆更正會進「待復核」。</p>
+        <p className="text-sm text-danger">這一組有生效中的最終成績人工更正；這個選擇會改變分數來源，那筆更正會進「待重新確認」。</p>
       ) : null}
       <Feedback state={state} />
       <div className="flex flex-wrap gap-2">
@@ -313,7 +313,7 @@ const CHOICE_TITLE: Record<RemovalChoice, string> = {
 const CHOICE_HINT: Record<RemovalChoice, string> = {
   keep: '舊分繼續採計、算已完成；不另外產生補評要求。',
   replace: '舊分保留成歷史、不再採計；新老師送出前算缺評。',
-  add: '舊分繼續採計；新老師也要評，要求份數＋1。',
+  add: '舊分繼續採計；新老師也要評，這一組需要的評分老師多 1 位。',
 }
 
 /** 確認套用新方案版本（先看影響）。 */
@@ -350,7 +350,7 @@ export function ApplySchemeForm({
           <>
             <StaleHint state={state} label="重新看影響" />
             <button type="submit" className={PRIMARY} disabled={pending || blocked}>
-              {pending ? '套用中…' : `確認套用 v${versionNo}`}
+              {pending ? '套用中…' : `確認套用第 ${versionNo} 版`}
             </button>
             <Link href={`/dashboard/admin/grading?cohort=${cohortId}`} className={SECONDARY}>
               取消（不重算）

@@ -60,6 +60,7 @@ export function ManageOpportunityList({
  * 系辦頁底部的「危險操作」區（第三波 W11；§9 規則 1：永久刪除跟日常按鈕拉開）：每一案一列「刪除」。
  * 不能刪的（發布中、連著組別）也列出來，旁邊直接寫原因，按下去的對話框說明要先做什麼（§9 規則 4）。
  * 刪除成功後那一列會消失，成功句子放在這一區的最上面。
+ * 清單空了也**照樣渲染這一區**：成功句子的狀態掛在這一區裡，刪掉最後一件時若整區不見，句子會跟著卸載、使用者看不到「已刪除」。
  */
 export function OpportunityDangerZone({
   items,
@@ -68,7 +69,6 @@ export function OpportunityDangerZone({
   items: readonly ManagedOpportunity[]
   statusLabel: Record<OpportunityStatus, string>
 }) {
-  if (items.length === 0) return null
   return (
     <OpportunityNoticeProvider>
       <Panel
@@ -84,31 +84,35 @@ export function OpportunityDangerZone({
           </p>
           <OpportunityNotice />
         </div>
-        <ul aria-label="合作案刪除清單" className="divide-y divide-border border-t border-border/70">
-          {items.map((o) => {
-            const name = `${o.fields.companyName}・${o.fields.department}`
-            return (
-              <li key={o.id} data-testid="danger-opportunity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Pill tone={STATUS_TONE[o.status]}>{statusLabel[o.status]}</Pill>
-                    <span className="truncate text-sm font-semibold text-foreground">{name}</span>
+        {items.length === 0 ? (
+          <p className="border-t border-border/70 px-5 py-4 text-sm text-muted-foreground">目前沒有合作案。</p>
+        ) : (
+          <ul aria-label="合作案刪除清單" className="divide-y divide-border border-t border-border/70">
+            {items.map((o) => {
+              const name = `${o.fields.companyName}・${o.fields.department}`
+              return (
+                <li key={o.id} data-testid="danger-opportunity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Pill tone={STATUS_TONE[o.status]}>{statusLabel[o.status]}</Pill>
+                      <span className="truncate text-sm font-semibold text-foreground">{name}</span>
+                    </div>
+                    {o.deleteBlocker ? <p className="mt-0.5 text-xs text-muted-foreground">{o.deleteBlocker}</p> : null}
                   </div>
-                  {o.deleteBlocker ? <p className="mt-0.5 text-xs text-muted-foreground">{o.deleteBlocker}</p> : null}
-                </div>
-                <DeleteOpportunityButton
-                  opportunityId={o.id}
-                  revision={o.revision}
-                  name={name}
-                  ownerName={o.ownerName}
-                  statusLabel={statusLabel[o.status]}
-                  blocker={o.deleteBlocker}
-                  requestId={randomUUID()}
-                />
-              </li>
-            )
-          })}
-        </ul>
+                  <DeleteOpportunityButton
+                    opportunityId={o.id}
+                    revision={o.revision}
+                    name={name}
+                    ownerName={o.ownerName}
+                    statusLabel={statusLabel[o.status]}
+                    blocker={o.deleteBlocker}
+                    requestId={randomUUID()}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </Panel>
     </OpportunityNoticeProvider>
   )

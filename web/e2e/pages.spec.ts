@@ -342,6 +342,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 專題時間軸與產學合作（票 38）。
     '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
     '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
+    // 首頁設定（第三波 W3）。
+    '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -382,6 +384,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
+    // 首頁設定（第三波 W3）。
+    { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 專題時間軸與產學合作（票 38）。
     { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
     { path: '/dashboard/student/industry', wrongRole: 'admin' },

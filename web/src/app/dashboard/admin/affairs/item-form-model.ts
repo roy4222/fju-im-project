@@ -1,4 +1,5 @@
 import type { FormField } from '@/application/items'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 專題事務編輯器的資料形狀與純函式（票 15）。**不是** Client Component：
@@ -147,9 +148,6 @@ export function newRequestId(): string {
   return crypto.randomUUID()
 }
 
-export function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`
-  return `${bytes} B`
-}
+/** 附件大小的顯示字：全站同一套（KB／MB，見 `shared/format-bytes.ts`）。 */
+export const formatSize = formatBytes
 

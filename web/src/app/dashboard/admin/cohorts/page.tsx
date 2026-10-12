@@ -63,7 +63,7 @@ export default async function AdminCohortsPage() {
           </div>
         )}
 
-        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別從「籌備中」開始" bodyClassName="px-5 pb-5">
+        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別一開始是「尚未開始（設定中）」" bodyClassName="px-5 pb-5">
           <CreateCohortForm
             requestId={randomUUID()}
             codeMaxLength={COHORT_CODE_MAX_LENGTH}

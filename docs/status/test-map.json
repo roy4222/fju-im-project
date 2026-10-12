@@ -30,7 +30,7 @@
         { "item": "story-1", "steps": [2] },
         { "item": "story-5", "steps": [39, 40] }
       ],
-      "e2e": ["web/e2e/public-pages.spec.ts"]
+      "e2e": ["web/e2e/public-pages.spec.ts", "web/e2e/home-settings.spec.ts"]
     },
     {
       "key": "home-static",
@@ -380,9 +380,9 @@
       "page": "/",
       "name": "首頁・大圖、標語與介紹文字",
       "frontFeature": "home-hero",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "程式寫死", "edit": "程式寫死", "delete": "程式寫死" }
+      "adminPage": "/dashboard/admin/home-settings",
+      "adminFeature": "home-hero",
+      "crud": { "create": "無", "edit": "有", "delete": "無" }
     },
     {
       "key": "home-mywork",

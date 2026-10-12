@@ -780,7 +780,7 @@ describe('匯出（S11-09、SGN-11）', () => {
     if (!r.ok) throw new Error(r.message)
     const html = r.receipt.body
     expect(r.receipt.mime).toContain('text/html')
-    expect(html).toContain('站內內容確認與同意紀錄，行政採認待確認')
+    expect(html).toContain('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')
     expect(html).toContain('<p>同意書全文</p>')
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img src=x')

@@ -280,7 +280,7 @@ test('匯出：可列印頁（新分頁）與 CSV 明細；每次匯出都留紀
   const popup = page.waitForEvent('popup')
   await page.getByRole('button', { name: '匯出可列印頁' }).click()
   const printable = await popup
-  await expect(printable.getByText('站內內容確認與同意紀錄，行政採認待確認')).toBeVisible()
+  await expect(printable.getByText('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')).toBeVisible()
   await expect(printable.getByText(`${CONTENT}G01`)).toBeVisible()
   await expect(printable.locator('body')).toContainText('以指導老師身分同意')
   await expect(printable.locator('body')).toContainText('已完成')

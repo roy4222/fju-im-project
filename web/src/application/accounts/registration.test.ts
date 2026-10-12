@@ -13,6 +13,8 @@ import {
   reviewAccessDenied,
   suggestedApprovalCohort,
   type RosterCandidate,
+  VERIFICATION_LABEL,
+  VERIFICATION_NOTE_HINT,
 } from '@/application/accounts/registration'
 
 /** 票 7：註冊、名單比對與審核的純規則（產品模組 01 §2.4）。 */
@@ -170,6 +172,7 @@ describe('核准與退回的欄位', () => {
   it('核實方式必選；三種以外的值一律擋', () => {
     expect(normalizeApproval({ verificationMethod: '', verificationNote: '', reason: '' })).toMatchObject({
       ok: false,
+      message: '請選擇怎麼確認是本人。',
       details: { field: 'verificationMethod' },
     })
     expect(normalizeApproval({ verificationMethod: 'class_rep', verificationNote: '', reason: '' }).ok).toBe(false)
@@ -179,6 +182,16 @@ describe('核准與退回的欄位', () => {
     expect(normalizeApproval({ verificationMethod: 'id_document', verificationNote: ' ', reason: '' })).toEqual({
       ok: true,
       value: { verificationMethod: 'id_document', verificationNote: null, reason: null },
+    })
+  })
+
+  it('其他方式的選項與提示用白話（第三波 Q26）；沒寫說明的錯誤訊息跟選項同名', () => {
+    expect(VERIFICATION_LABEL.other).toBe('用其他方式確認本人')
+    expect(VERIFICATION_NOTE_HINT.other).toBe('必填：說明用了什麼方式確認本人')
+    expect(normalizeApproval({ verificationMethod: 'other', verificationNote: '', reason: '' })).toMatchObject({
+      ok: false,
+      message: '選「用其他方式確認本人」時要說明用了什麼方式。',
+      details: { field: 'verificationNote' },
     })
   })
 

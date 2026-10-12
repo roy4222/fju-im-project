@@ -1,5 +1,6 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type { Result } from '@/shared/result'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 共用檔案能力的規則面（模組 10 §2、§3、§5；契約 02 §6；契約 03 §5）。
@@ -361,11 +362,8 @@ export function contentDispositionFor(displayName: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`
-  return `${bytes} B`
-}
+/** 容量的顯示字（上限訊息、檔案管理列表）：全站同一套 KB／MB／GB，見 `shared/format-bytes.ts`。 */
+export { formatBytes }
 
 // ── 下載政策 ────────────────────────────────────────────────────────────────
 
