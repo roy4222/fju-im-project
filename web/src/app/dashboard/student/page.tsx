@@ -85,7 +85,7 @@ export default async function StudentHomePage() {
   const mine = current.filter((v) => v.viewer.canRespond).length
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
-  const line = pending ? `作業區還有 ${pending} 件沒送出。` : '作業區沒有待繳的東西。'
+  const line = pending ? `「我的繳交」還有 ${pending} 件沒送出。` : '「我的繳交」沒有待繳的東西。'
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current={BASE}>
@@ -143,7 +143,7 @@ export default async function StudentHomePage() {
             <StudentCalendar entries={entries} today={today} />
           </Panel>
 
-          <Panel title="接下來" action={{ href: `${BASE}/affairs`, label: '作業區' }} className="min-h-0 flex-1">
+          <Panel title="接下來" action={{ href: `${BASE}/affairs`, label: '我的繳交' }} className="min-h-0 flex-1">
             <UpcomingList entries={next8} today={today} />
           </Panel>
         </div>
@@ -155,7 +155,7 @@ export default async function StudentHomePage() {
 /** 接下來（原型 UpcomingCard）：本週／之後兩段，左邊是「還有幾天」的色塊。 */
 function UpcomingList({ entries, today }: { entries: readonly CalendarEntry[]; today: string }) {
   if (entries.length === 0) {
-    return <PanelEmpty>最近沒有收件截止或活動。系辦排上活動、發布收件後會出現在這裡。</PanelEmpty>
+    return <PanelEmpty>最近沒有繳交截止或活動。系辦排上活動、發布繳交項目後會出現在這裡。</PanelEmpty>
   }
   const withDays = entries.map((e) => ({ ...e, days: daysBetween(today, e.date) }))
   const groups = [

@@ -50,7 +50,7 @@ test('分類欄旁按「競賽資訊」：出現報名截止日與活動日，�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.locator('#ed-title').fill(TITLE)
   await page.locator('#ed-body').fill('報名請洽系辦。')
-  await page.getByLabel('發布對象').selectOption('public')
+  await page.getByLabel('誰看得到').selectOption('public')
 
   await expect(page.getByText('分類要填「競賽資訊」')).toBeVisible()
   await expect(page.getByTestId('competition-dates')).toHaveCount(0)

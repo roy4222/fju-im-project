@@ -6,7 +6,7 @@ import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { GradingQueue } from '@/app/dashboard/teacher/grading/queue'
 import { getGradingQuery } from '@/composition/grading'
 
-export const metadata = { title: '評分工作台｜資管系專題平台' }
+export const metadata = { title: '我的評分｜資管系專題平台' }
 
 /**
  * 老師「評分工作台」入口（票 23；票 37 照原型 `/dashboard/teacher/grading` 的版型）：只列本人被指派的組別與階段。
@@ -23,7 +23,7 @@ export default async function TeacherGradingPage() {
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/grading">
       <div className="flex flex-col gap-5">
-        <PageTitle title="評分工作台" description="只有你被指派的組別。暫存只有你和系辦看得到，正式送出後鎖定。" />
+        <PageTitle title="我的評分" description="只有你被指派的組別。評分草稿只有你和系辦看得到，正式送出後鎖定。" />
         {queue.length === 0 ? (
           <Panel title="評分佇列" icon={<IconChecklist />}>
             <PanelEmpty icon={<IconChecklist />} title="目前沒有評分指派" hint="系辦指派你評某一組之後，你會收到通知，組別也會出現在這裡。" />

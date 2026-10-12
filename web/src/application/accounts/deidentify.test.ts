@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   deidentifiedEmail,
   deidentifiedPseudonym,
+  displayPersonName,
+  storedNameQuery,
   deidentifyConfirmationMatches,
   deidentifyStatusBlocker,
   retainedList,
@@ -13,7 +15,12 @@ const USER = '0190f5a2-7b3c-7d4e-8f90-a1b2c3d4e5f6'
 
 describe('去識別化的代稱與置換值', () => {
   it('代稱只由系統 ID 推得，同一個人永遠同一個', () => {
+    // 資料庫裡的代稱是原字（資料值不跟著用詞改）；畫面上才換成新用詞，舊資料一樣換。
     expect(deidentifiedPseudonym(USER)).toBe('已去識別化使用者 D4E5F6')
+    expect(displayPersonName(deidentifiedPseudonym(USER))).toBe('已刪除個資的使用者 D4E5F6')
+    expect(displayPersonName('王小明')).toBe('王小明')
+    expect(storedNameQuery('已刪除個資的使用者 D4E5F6')).toBe('已去識別化使用者 D4E5F6')
+    expect(storedNameQuery('王')).toBe('王')
     expect(deidentifiedPseudonym(USER.toUpperCase())).toBe(deidentifiedPseudonym(USER))
   })
 
@@ -45,7 +52,7 @@ describe('狀態上的前置條件', () => {
   it('待審與已去識別化不行；孤兒帳號提示先停用', () => {
     expect(deidentifyStatusBlocker('pending')).toMatch(/待審核/)
     expect(deidentifyStatusBlocker('pending', true)).toMatch(/先停用/)
-    expect(deidentifyStatusBlocker('deidentified')).toMatch(/已經去識別化/)
+    expect(deidentifyStatusBlocker('deidentified')).toMatch(/個人資料已經刪除/)
   })
 })
 
@@ -59,7 +66,7 @@ describe('保留紀錄清單', () => {
       approvals: 3,
       auditEvents: 7,
     })
-    expect(list.map((r) => r.label)).toEqual(['組別成員紀錄', '繳交版本', '評分指派', '指導紀錄', '簽核表態', '操作紀錄'])
+    expect(list.map((r) => r.label)).toEqual(['組別成員紀錄', '繳交版本', '評分指派', '指導紀錄', '同意書回覆', '操作紀錄'])
     expect(list.map((r) => r.count)).toEqual([1, 2, 0, 0, 3, 7])
   })
 })

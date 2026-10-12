@@ -24,7 +24,7 @@ export type AdminStage = {
 
 export type ScheduleEditorProps = {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   revision: number
   requestId: string
   stages: StageDraft[]
@@ -76,7 +76,7 @@ export function AdminTimeline({
       <TimelineZigzag
         stages={views}
         summary={summary}
-        emptyTasksText="這個階段的收件與截止在專題事務設定。"
+        emptyTasksText="這個階段的繳交項目與截止在專題事務設定。"
         headerActions={
           <>
             {extraActions}

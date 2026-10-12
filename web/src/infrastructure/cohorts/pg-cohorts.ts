@@ -248,13 +248,13 @@ export class PgCohortCommand implements CohortCommand {
         return err('COHORT_ARCHIVED', `${target.code} 已封存，不能設為這個屆別。`)
       }
 
-      let previous: { id: string; code: string } | null = null
+      let previous: { id: string; code: string; name: string } | null = null
       if (!target[column]) {
-        const cleared = await tx.query<{ id: string; code: string }>(
+        const cleared = await tx.query<{ id: string; code: string; name: string }>(
           `update cohorts
               set ${column} = false, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
             where ${column} and id <> $1
-        returning id, code`,
+        returning id, code, name`,
           [cohortId, realAt, userId],
         )
         previous = cleared.rows[0] ?? null
@@ -286,8 +286,10 @@ export class PgCohortCommand implements CohortCommand {
         flag,
         cohortId,
         code: target.code,
+        name: target.name,
         previousCohortId: previous?.id ?? null,
         previousCode: previous?.code ?? null,
+        previousName: previous?.name ?? null,
         requestId,
         serverTime: realAt.toISOString(),
       }
@@ -386,6 +388,7 @@ export class PgCohortCommand implements CohortCommand {
       const receipt = {
         cohortId,
         code: target.code,
+        name: target.name,
         alreadyActive,
         requestId,
         serverTime: realAt.toISOString(),
@@ -468,7 +471,7 @@ export class PgCohortCommand implements CohortCommand {
         },
       })
 
-      const receipt = { cohortId, code: target.code, ...settings, requestId, serverTime: realAt.toISOString() }
+      const receipt = { cohortId, code: target.code, name: target.name, ...settings, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
       return { ok: true as const, receipt }
     })

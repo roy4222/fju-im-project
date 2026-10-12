@@ -136,7 +136,7 @@ test('純系辦帳號新增合作案並指定負責老師；前台看得到，�
   await expect(dialog.getByRole('alert')).toContainText('請選負責老師')
   await expect(dialog.getByLabel('公司名稱')).toHaveValue(COMPANY)
 
-  await dialog.getByLabel('負責老師').selectOption(teacher.userId)
+  await dialog.getByRole('combobox', { name: /負責老師/ }).selectOption(teacher.userId)
   await dialog.getByRole('button', { name: '儲存並發布' }).click()
   await expect(page.getByRole('status').filter({ hasText: `已發布「${NAME}」` })).toBeAttached()
   const row = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })

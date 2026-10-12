@@ -60,7 +60,7 @@ export default async function AffairsPage({
       '目前沒有進行中的屆別；歷屆榮譽仍可在這裡管理。',
       <EmptyState
         title="屆別都已封存"
-        description="封存的屆別不能再新增公告、資源或收件；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
+        description="封存的屆別不能再新增公告、資源或繳交項目；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
         action={{ href: '/dashboard/admin/affairs?placement=honor', label: '管理歷屆榮譽' }}
       />,
     )
@@ -115,7 +115,7 @@ export default async function AffairsPage({
         ? r.status === 'draft'
           ? { text: RECEIVER_UNIT_LABEL[r.receiverUnit], href: null }
           : {
-              text: `應交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}`,
+              text: `需要繳交 ${r.rosterCount} ${r.receiverUnit === 'group' ? '組' : '位'}`,
               href: `/dashboard/admin/affairs/${r.id}`,
             }
         : null,
@@ -127,7 +127,7 @@ export default async function AffairsPage({
   })
 
   return shell(
-    `${cohortLabel(cohort)}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・收件中 ${collecting}`,
+    `${cohortLabel(cohort)}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・開放繳交中 ${collecting}`,
     <>
       {cohorts.length > 1 ? (
         <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">

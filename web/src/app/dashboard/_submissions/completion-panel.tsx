@@ -17,14 +17,14 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
   const unit = individual ? '人' : '組'
   return (
     <Panel
-      title="收件進度"
+      title="繳交進度"
       icon={<IconFileText />}
-      description={`應交 ${completion.required} ${unit}`}
+      description={`需要繳交 ${completion.required} ${unit}`}
       headingId="progress-title"
       data-testid="completion"
     >
       <div className="flex items-center gap-5 border-t border-border px-5 py-4">
-        <Ring value={completion.percent ?? 0} label={completion.percent === null ? '沒有應交的人' : `完成 ${completion.percent}%`}>
+        <Ring value={completion.percent ?? 0} label={completion.percent === null ? '沒有需要繳交的人' : `完成 ${completion.percent}%`}>
           <span className="text-base font-extrabold tabular-nums">{completion.percent === null ? '—' : `${completion.percent}%`}</span>
         </Ring>
         <dl className="grid flex-1 grid-cols-1 gap-1.5 text-sm">
@@ -51,11 +51,11 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
           ]}
         />
         <p className="mt-3 text-xs text-muted-foreground tabular-nums">
-          已正式送出／應交{individual ? '人數' : '組數'}{' '}
+          已正式送出／需要繳交的{individual ? '人數' : '組數'}{' '}
           <span className="font-semibold text-foreground" data-testid="completion-rate">
             {completion.done}／{completion.required}
           </span>
-          ・不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
+          ・不計入：免繳 {completion.exempt} {unit}・已移出名單 {completion.removed} {unit}
         </p>
       </div>
     </Panel>

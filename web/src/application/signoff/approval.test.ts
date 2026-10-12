@@ -107,7 +107,7 @@ describe('進度與缺誰', () => {
   it('人數照快照；缺誰列還沒表態的學生與老師；已結束的版本不列缺誰', () => {
     const at = new Date('2027-01-05T02:00:00Z')
     const p = buildProgress(participants, [{ userId: 's1', role: 'student', result: 'agree', reason: null, realAt: at }], 'collecting')
-    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙', '王老師（主指導）'] })
+    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙', '王老師（指導老師）'] })
     expect(p.students[0]).toMatchObject({ result: 'agree', at })
     expect(buildProgress(participants, [], 'void').missing).toEqual([])
     expect(remindRecipients(p)).toEqual(['s2', 's3', 't1'])

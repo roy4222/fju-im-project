@@ -164,7 +164,7 @@ export async function resolveReviewAction(_state: ResultsActionState, formData: 
   const groupId = text(formData, 'groupId')
   if (UUID.test(groupId)) redirect(`/dashboard/admin/grading/${groupId}?resolved=${result.receipt.overrideId}`)
   refresh()
-  return { ok: true, message: `已重新確認人工更正：${describeOverrideReceipt(result.receipt)}` }
+  return { ok: true, message: `已重新確認更正：${describeOverrideReceipt(result.receipt)}` }
 }
 
 export async function applySchemeAction(_state: ResultsActionState, formData: FormData): Promise<ResultsActionState> {

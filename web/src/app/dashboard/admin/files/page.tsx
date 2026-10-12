@@ -15,17 +15,17 @@ export const metadata = { title: '檔案管理｜資管系專題平台' }
 /** 附件依所在項目的位置叫不同名字（原型「公開資源／公告附件／組別繳交」）。 */
 const ATTACHMENT_LABEL: Record<string, string> = {
   news: '公告附件',
-  resource: '公開資源',
+  resource: '資源附件',
   rules: '規則附件',
-  submission: '收件附件',
+  submission: '繳交項目附件',
 }
 
 const OTHER_LABEL: Record<string, string> = {
   roster_csv: '名單匯入',
   advisor_csv: '名單匯入',
-  poster: '精選素材',
-  photo: '精選素材',
-  signoff_attachment: '簽核附件',
+  poster: '成果展示素材',
+  photo: '成果展示素材',
+  signoff_attachment: '同意書附件',
   export: '匯出檔',
   attachment: '附件',
   submission: '繳交檔案',
@@ -38,9 +38,9 @@ const OTHER_LABEL: Record<string, string> = {
 const IN_USE_LABEL: Record<string, string> = {
   roster_csv: '匯入學生名單的原檔',
   advisor_csv: '批次指派指導老師的原檔',
-  poster: '精選草稿素材',
-  photo: '精選草稿素材',
-  signoff_attachment: '簽核附件',
+  poster: '成果展示素材',
+  photo: '成果展示素材',
+  signoff_attachment: '同意書附件',
   export: '匯出檔',
   attachment: '專題事務附件',
 }
@@ -49,7 +49,7 @@ function view(row: FileListRow): FileRowView {
   const where = row.where
   let kind: FileKind = 'other'
   let kindLabel = OTHER_LABEL[row.purpose] ?? '其他'
-  let whereText = row.activeRefs > 0 ? (IN_USE_LABEL[row.purpose] ?? '其他用途') : '未引用'
+  let whereText = row.activeRefs > 0 ? (IN_USE_LABEL[row.purpose] ?? '其他用途') : '沒有用到'
   let whereHref: string | null = null
   let releaseHref: string | null = null
   if (where?.kind === 'item_attachment' || where?.kind === 'item_cover') {
@@ -66,7 +66,7 @@ function view(row: FileListRow): FileRowView {
     whereHref = `/dashboard/admin/affairs/${where.itemId}`
   } else if (row.purpose === 'submission') {
     kind = 'submission'
-    whereText = row.activeRefs > 0 ? '草稿中' : '未引用'
+    whereText = row.activeRefs > 0 ? '草稿中' : '沒有用到'
   }
   return {
     id: row.id,
@@ -105,12 +105,12 @@ export default async function AdminFilesPage({ searchParams }: { searchParams: P
       <div className="flex flex-col gap-5">
         <PageTitle
           title="檔案管理"
-          description={`${rows.length}${rows.length >= FILE_LIST_LIMIT ? '+' : ''} 個檔案・${usageText}・被引用的檔案不能刪`}
+          description={`${rows.length}${rows.length >= FILE_LIST_LIMIT ? '+' : ''} 個檔案・${usageText}・還有地方在用的檔案不能刪`}
         />
         {/* 這一頁只看不上傳（N-138）：檔案都掛在公告、資源、收件底下，新增要到專題事務的編輯頁。 */}
         <p data-testid="files-add-hint" className="dash-card flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm text-muted-foreground">
           <span className="min-w-0 flex-1">
-            這裡只列出已經上傳的檔案。要新增檔案請到專題事務：新增或編輯公告、資源、收件項目時夾帶附件，存檔後就會出現在這裡。
+            這裡只列出已經上傳的檔案。要新增檔案請到專題事務：新增或編輯公告、資源、繳交項目時夾帶附件，存檔後就會出現在這裡。
           </span>
           <Link href="/dashboard/admin/affairs" className="shrink-0 font-semibold text-primary-on-subtle hover:underline">
             前往專題事務

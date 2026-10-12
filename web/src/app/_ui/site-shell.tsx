@@ -82,9 +82,9 @@ export function isMember(actor: ResolvedActor): boolean {
 
 /** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
 const WORKBENCH: Record<string, { roleLabel: string; label: string }> = {
-  '/dashboard/admin': { roleLabel: '系辦', label: '管理後台' },
-  '/dashboard/teacher': { roleLabel: '老師', label: '老師工作台' },
-  '/dashboard/student': { roleLabel: '學生', label: '我的專題事務' },
+  '/dashboard/admin': { roleLabel: '系辦', label: '我的後台' },
+  '/dashboard/teacher': { roleLabel: '老師', label: '我的後台' },
+  '/dashboard/student': { roleLabel: '學生', label: '我的後台' },
 }
 
 type Viewer = {
@@ -105,8 +105,13 @@ function viewerOf(actor: ResolvedActor): Viewer | null {
   if (checkStatus(actor, 'business') === 'PASSWORD_CHANGE_REQUIRED') {
     return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' }, otherWorkbenches: [] }
   }
-  const others = otherWorkbenches(actor.roles, roleOfBase(href)).map((w) => ({ href: w.href, label: WORKBENCH[w.href]?.label ?? w.name }))
-  return { roleLabel: known.roleLabel, name, workbench: { href, label: known.label }, otherWorkbenches: others }
+  // 兼任多個角色時三個後台都叫「我的後台」，後面加身分才分得出來。
+  const others = otherWorkbenches(actor.roles, roleOfBase(href)).map((w) => {
+    const other = WORKBENCH[w.href]
+    return { href: w.href, label: other ? `${other.label}（${other.roleLabel}）` : w.name }
+  })
+  const label = others.length > 0 ? `${known.label}（${known.roleLabel}）` : known.label
+  return { roleLabel: known.roleLabel, name, workbench: { href, label }, otherWorkbenches: others }
 }
 
 /**

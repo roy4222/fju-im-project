@@ -147,17 +147,17 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   await expect(cohortRow(admin, COHORT_CODE)).toContainText('尚未開始（設定中）')
   await shot(admin, 'cohort-created')
 
-  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為開放註冊屆別` }).click()
-  await expectStatus(admin, `已把 ${COHORT_CODE} 設為開放註冊屆別`)
-  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為預設工作屆別` }).click()
-  await expectStatus(admin, `已把 ${COHORT_CODE} 設為預設工作屆別`)
+  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為新註冊學生加入的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把新註冊學生加入的屆別設為.*（${COHORT_CODE}）`))
+  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為後台預設查看的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把後台預設查看的屆別設為.*（${COHORT_CODE}）`))
 
   // 重新整理：存進資料庫；兩個旗標各只有一個。
   await admin.reload()
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('開放註冊中')
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('預設工作中')
-  await expect(admin.getByText('開放註冊中', { exact: true })).toHaveCount(1)
-  await expect(admin.getByText('預設工作中', { exact: true })).toHaveCount(1)
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('新註冊加入這屆')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('後台預設查看中')
+  await expect(admin.getByText('新註冊加入這屆', { exact: true })).toHaveCount(1)
+  await expect(admin.getByText('後台預設查看中', { exact: true })).toHaveCount(1)
   await shot(admin, 'cohort-flags')
 })
 
@@ -215,7 +215,7 @@ test('票 7 新學生用密碼註冊，停在等待審核頁', async () => {
   await expect(student.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
   // 名單比對結果只給系辦看。
   const body = await student.locator('body').innerText()
-  for (const leak of ['名單符合', '未命中', '資料不符']) expect(body).not.toContain(leak)
+  for (const leak of ['名單符合', '不在本屆名單上', '資料不符']) expect(body).not.toContain(leak)
   // 待審的人開其他頁一律被帶回來。
   await student.goto('/dashboard/student')
   await expect(student).toHaveURL(/\/register\/pending$/)

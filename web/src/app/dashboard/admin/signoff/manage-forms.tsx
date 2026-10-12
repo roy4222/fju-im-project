@@ -96,7 +96,7 @@ export function RestartButton({
           <Facts facts={facts} />
           {affected.length > 0 ? (
             <div className="rounded-lg bg-surface px-3 py-2 text-sm" data-testid="restart-affected">
-              <p className="font-medium text-foreground">將失效的簽署（{affected.length}）</p>
+              <p className="font-medium text-foreground">將作廢的回覆（{affected.length}）</p>
               <p className="text-xs text-muted-foreground">{affected.join('、')}</p>
             </div>
           ) : null}

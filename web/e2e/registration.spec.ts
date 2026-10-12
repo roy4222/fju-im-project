@@ -136,7 +136,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   await expect(submitted).toBeVisible()
   // 名單比對結果只給系辦看：申請人頁面上不會出現命中與否。
   const body = await student.locator('body').innerText()
-  for (const leak of ['名單符合', '未命中', '資料不符', 'roster-copy@example.com']) expect(body).not.toContain(leak)
+  for (const leak of ['名單符合', '不在本屆名單上', '資料不符', 'roster-copy@example.com']) expect(body).not.toContain(leak)
 
   // 待審的人開其他頁一律被帶回來。
   for (const route of ['/dashboard/student', '/account', '/dashboard/admin/accounts']) {
@@ -208,10 +208,10 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
 
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
-  await expect(pendingRow(admin, S13.name)).toContainText('未命中')
+  await expect(pendingRow(admin, S13.name)).toContainText('不在本屆名單上')
 
   let dialog = await openReview(admin, S13.name)
-  await expect(dialog.getByRole('table', { name: '申請資料與名冊並列' })).toContainText('未命中名單')
+  await expect(dialog.getByRole('table', { name: '申請資料與名冊並列' })).toContainText('不在本屆名單上')
   // 退回沒寫理由：擋下。
   await dialog.getByRole('button', { name: '退回' }).click()
   await expect(dialog.getByRole('alert')).toContainText('退回一定要寫理由')
@@ -237,7 +237,7 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
   await dialog.getByLabel('用其他方式確認本人').check()
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('alert')).toContainText('選「用其他方式確認本人」時要說明用了什麼方式。')
-  await dialog.getByLabel(/^核實說明/).fill('系主任當面確認為轉學生')
+  await dialog.getByLabel(/^怎麼確認的說明/).fill('系主任當面確認為轉學生')
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
   await expect(dialog.getByRole('status')).toContainText(cohortName)

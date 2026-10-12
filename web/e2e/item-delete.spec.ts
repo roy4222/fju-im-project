@@ -67,7 +67,7 @@ async function draftNews(page: Page, title: string): Promise<string> {
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.locator('#ed-title').fill(title)
   await page.locator('#ed-body').fill('刪除測試用的公告。')
-  await page.getByLabel('發布對象').selectOption('public')
+  await page.getByLabel('誰看得到').selectOption('public')
   await page.getByRole('button', { name: '存草稿' }).click()
   await expect(page.getByRole('status')).toContainText('已存成草稿')
   await expect(page).toHaveURL(/\/dashboard\/admin\/editor\/[0-9a-f-]{36}$/)
@@ -169,9 +169,9 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.locator('#ed-title').fill(title)
   await page.locator('#ed-body').fill('請上傳 PDF。')
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
-  await page.getByLabel('發布對象').selectOption('cohort_students')
+  await page.getByLabel('誰看得到').selectOption('cohort_students')
   await page.getByLabel('所屬階段').selectOption({ index: 1 })
   await page
     .getByLabel('截止時間（臺灣時間，含這一分鐘）')
@@ -186,8 +186,8 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await page.getByRole('button', { name: '下架', exact: true }).click()
   await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
   await expect(page.getByTestId('item-status')).toHaveText('已下架')
-  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這份收件' }).click()
-  await page.getByRole('dialog', { name: '刪除這份收件？' }).getByRole('button', { name: '刪除這份收件' }).click()
+  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這個繳交項目' }).click()
+  await page.getByRole('dialog', { name: '刪除這個繳交項目？' }).getByRole('button', { name: '刪除這個繳交項目' }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
 
   // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍是連結，點進去是中文 404。

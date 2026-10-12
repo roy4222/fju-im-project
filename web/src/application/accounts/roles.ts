@@ -126,7 +126,7 @@ export type OrphanRepairInput = {
 
 export function normalizeOrphanRepair(input: { role: unknown; reason: unknown }): { ok: true; value: { role: OrphanRole; reason: string } } | Err {
   if (input.role !== 'teacher' && input.role !== 'admin') {
-    return err('VALIDATION_FAILED', '請選擇要補建的角色。', { details: { field: 'role' } })
+    return err('VALIDATION_FAILED', '請選擇要補上的身分。', { details: { field: 'role' } })
   }
   const reason = reasonOf(input.reason)
   if (!reason.ok) return reason

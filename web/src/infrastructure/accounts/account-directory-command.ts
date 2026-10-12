@@ -8,6 +8,8 @@ import {
   DEIDENTIFY_CLEARS,
   deidentifiedEmail,
   deidentifiedPseudonym,
+  displayPersonName,
+  storedNameQuery,
   deidentifyConfirmationMatches,
   deidentifyStatusBlocker,
   DIRECTORY_PAGE_SIZE,
@@ -191,7 +193,7 @@ type DirectoryRow = {
 function toAccountRow(r: DirectoryRow): AccountRow {
   return {
     userId: r.user_id,
-    name: r.name,
+    name: displayPersonName(r.name),
     studentNo: r.student_no,
     departmentClass: r.department_class,
     cohortId: r.cohort_id,
@@ -208,6 +210,11 @@ function toAccountRow(r: DirectoryRow): AccountRow {
   }
 }
 
+/** 回執給畫面：帳本裡存的是寫進資料庫的原代稱，回傳前換成畫面用詞（W13c #27）。 */
+function shownReceipt(receipt: DeidentifyReceipt): DeidentifyReceipt {
+  return { ...receipt, pseudonym: displayPersonName(receipt.pseudonym) }
+}
+
 /** 篩選 → WHERE 子句與參數（參數從 `$1` 起）。 */
 function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] } {
   const conditions: string[] = []
@@ -217,7 +224,7 @@ function whereOf(filter: DirectoryFilter): { clause: string; params: unknown[] }
     return `$${params.length}`
   }
   if (filter.q) {
-    const p = add(likePattern(filter.q))
+    const p = add(likePattern(storedNameQuery(filter.q)))
     conditions.push(
       `(name ilike ${p} escape '\\' or student_no ilike ${p} escape '\\' or login_email ilike ${p} escape '\\' or contact_email ilike ${p} escape '\\')`,
     )
@@ -663,7 +670,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
           loginEmail: target.loginEmail,
           studentNo: target.studentNo,
           status: target.status,
-          pseudonym: deidentifiedPseudonym(userId),
+          // 預覽給畫面看：代稱換成畫面用詞（資料庫存的是原字，見 displayPersonName）。
+          pseudonym: displayPersonName(deidentifiedPseudonym(userId)),
           blockers,
           clears: DEIDENTIFY_CLEARS,
           retained: retainedList(retained),
@@ -702,7 +710,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
     const reason = normalizeStatusReason(input.reason)
     if (!reason.ok) return reason
-    if (input.userId === actor.userId) return err('FORBIDDEN', '不能去識別化自己的帳號。')
+    if (input.userId === actor.userId) return err('FORBIDDEN', '不能刪除自己帳號的個人資料。')
 
     const now = this.#clock.now()
     // 指紋不含照打的 Email：那是個資，帳本不存。
@@ -724,7 +732,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       if (begun.outcome === 'replay') {
         await tx.query('commit')
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
-        return ok(begun.receipt as DeidentifyReceipt, meta(now, input.requestId))
+        return ok(shownReceipt(begun.receipt as DeidentifyReceipt), meta(now, input.requestId))
       }
 
       // 鎖的順序同停用：先整組管理員，再目標（admin-guard.ts）。
@@ -745,7 +753,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       }
       if (remainingEffectiveAdmins(admins, target.userId) < 1) {
         await tx.query('rollback')
-        return err('CONFLICT', '這是最後一位管理員，不能去識別化。')
+        return err('CONFLICT', '這是最後一位管理員，不能刪除個人資料。')
       }
       if (!deidentifyConfirmationMatches(input.confirmText, target.loginEmail)) {
         await tx.query('rollback')
@@ -797,7 +805,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     }
 
     const revocation = await this.#runRevocation(input.userId, context)
-    return ok({ ...receipt, revocation }, meta(now, input.requestId))
+    return ok(shownReceipt({ ...receipt, revocation }), meta(now, input.requestId))
   }
 
   // ── 內部 ──────────────────────────────────────────────────────────────────
@@ -1027,7 +1035,7 @@ async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUse
   const blockers: string[] = []
   const statusBlocker = deidentifyStatusBlocker(target.status, target.isOrphan)
   if (statusBlocker) blockers.push(statusBlocker)
-  if (target.userId === actorUserId) blockers.push('不能去識別化自己的帳號。')
+  if (target.userId === actorUserId) blockers.push('不能刪除自己帳號的個人資料。')
   const signoffs = await db.query<{ group_code: string }>(
     `select g.code as group_code
        from signoff_packages p
@@ -1043,7 +1051,7 @@ async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUse
   )
   if (signoffs.rows.length > 0) {
     const groups = [...new Set(signoffs.rows.map((r) => r.group_code))].join('、')
-    blockers.push(`他還在 ${groups} 進行中的簽核裡，請先到分組做成員異動（或讓簽核換版）再去識別化。`)
+    blockers.push(`他還在 ${groups} 進行中的站內同意書裡，請先到分組做成員異動（或讓同意書換版）再刪除個人資料。`)
   }
   return blockers
 }

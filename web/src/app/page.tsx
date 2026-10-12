@@ -450,7 +450,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-bold text-foreground">我的工作</h2>
             <Link href={home} className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
-              進入我的首頁 <IconArrowRight className="size-4" aria-hidden />
+              進入我的後台 <IconArrowRight className="size-4" aria-hidden />
             </Link>
           </div>
           {work.pending !== null ? (
@@ -464,7 +464,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                   <span className="text-[17px] font-bold text-foreground" data-testid="home-work-pending">
                     待繳交 {work.pending} 件
                   </span>
-                  <span className="text-[13px] text-muted-foreground">還在開放、還沒正式送出的收件</span>
+                  <span className="text-[13px] text-muted-foreground">還在開放、還沒正式送出的繳交項目</span>
                 </Link>
               </li>
               <li>
@@ -483,7 +483,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
               className="min-h-40 py-8"
               icon={<IconLayoutGrid className="size-8" aria-hidden />}
               title="待辦在後台"
-              hint="要審的申請、要評的分數與要簽的名單，都在後台首頁。"
+              hint="要審的申請、要評的分數與要簽的名單，都在我的後台。"
             />
           )}
         </div>
@@ -525,7 +525,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
               <IconClock className="size-4 shrink-0" aria-hidden />
               要審、要評、要簽的截止事項在
               <Link href={home} className="font-semibold text-primary hover:underline">
-                後台首頁
+                我的後台
               </Link>
               。
             </p>
@@ -558,7 +558,7 @@ function QuickLinks({ home, member, registrationOpen }: { home: string | null; m
           icon: <IconKey className="size-5.5" aria-hidden />,
           title: '我的入口',
           links: [
-            { label: '我的首頁', href: home },
+            { label: '我的後台', href: home },
             { label: '檔案下載', href: '/files' },
             { label: '我的帳號', href: '/account' },
             { label: '產學合作', href: '/industry' },

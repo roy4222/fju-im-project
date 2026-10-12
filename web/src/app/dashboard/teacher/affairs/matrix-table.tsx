@@ -75,7 +75,7 @@ export function MatrixTable({ items, rows }: { items: MatrixItem[]; rows: Matrix
       rowProps={(r) => ({ 'data-testid': `matrix-row-${r.code}` })}
       search={{ placeholder: '搜尋組別或組員', text: (r) => `${r.code} ${r.members}` }}
       emptyTitle="沒有指導組別"
-      label="繳交矩陣"
+      label="各組繳交總表"
       testId="teacher-matrix"
     />
   )

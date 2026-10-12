@@ -139,8 +139,8 @@ export default async function AdminHomePage() {
             value={overdueReceivers.size}
             hint={
               overdueReceivers.size > 0
-                ? `欠繳 ${overdueWho}・發布中 ${allIntake.length} 個收件項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
-                : `目前沒有逾期的收件・發布中 ${allIntake.length} 個收件項目`
+                ? `欠繳 ${overdueWho}・發布中 ${allIntake.length} 個繳交項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
+                : `目前沒有逾期的繳交・發布中 ${allIntake.length} 個繳交項目`
             }
             href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}
           />
@@ -153,7 +153,7 @@ export default async function AdminHomePage() {
             href={`${BASE}/grading`}
           />
           <Tile
-            label="等老師簽核"
+            label="等老師同意"
             icon={<IconSignature />}
             value={waitTeacher}
             of={`${groups.length} 組`}
@@ -172,26 +172,26 @@ export default async function AdminHomePage() {
           >
             <IconAlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden />
             <span className="min-w-0 flex-1">
-              <b className="font-semibold text-foreground">成績更正待復核 {pendingReviews.length} 筆</b>
+              <b className="font-semibold text-foreground">成績更正需要重新確認 {pendingReviews.length} 筆</b>
               <span className="text-muted-foreground">
-                （{pendingReviews.map((p) => p.groupCode).join('、')}）：這些組的評分後來有變動（老師重評、改派或換評分規則），原本的人工更正暫時不套用，要你確認沿用或重新更正。
+                （{pendingReviews.map((p) => p.groupCode).join('、')}）：這些組的評分後來有變動（老師重評、改派或換評分規則），原本的人工更正暫時不套用，要你確認保留先前更正的分數，或重新更正。
               </span>
             </span>
             <Link
               href={pendingReviews.length === 1 ? `${BASE}/grading/${pendingReviews[0]!.groupId}` : `${BASE}/grading`}
               className="shrink-0 font-semibold text-primary-on-subtle hover:underline"
             >
-              去復核
+              去確認
             </Link>
           </div>
         ) : null}
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
           <div className="min-w-0 md:col-span-2">
-            {/* 「各收件項目完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
-            <Panel title="各收件項目完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs`, label: '工作台' }} className="h-full">
+            {/* 「各繳交項目完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
+            <Panel title="各繳交項目完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs`, label: '專題事務' }} className="h-full">
               {intake.length === 0 ? (
-                <PanelEmpty>本屆還沒有發布中的收件。到「專題事務」新增文件繳交後，這裡會顯示每一份的完成率。</PanelEmpty>
+                <PanelEmpty>本屆還沒有發布中的繳交項目。到「專題事務」新增文件繳交後，這裡會顯示每一份的完成率。</PanelEmpty>
               ) : (
                 <ul className="flex flex-col px-2 pb-2">
                   {intake.map((i) => {

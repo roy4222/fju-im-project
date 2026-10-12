@@ -94,7 +94,7 @@ describe('學生首頁待繳數與名單頁同一個口徑', () => {
     // 名單頁每一列的狀態也是同一個函式算的。
     expect(receiverStatus(window, waiting, before)).toMatchObject({ headline: '未繳', pending: true })
     expect(receiverStatus(window, waiting, after)).toMatchObject({ headline: '逾期未繳', overdue: true })
-    expect(receiverStatus(window, submitted, after)).toMatchObject({ headline: '已繳 v1', submitted: true })
+    expect(receiverStatus(window, submitted, after)).toMatchObject({ headline: '已繳第 1 次', submitted: true })
   })
 })
 

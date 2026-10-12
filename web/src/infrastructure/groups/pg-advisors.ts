@@ -103,7 +103,7 @@ function groupNotFound(): Err {
 function alreadyAdvised(code: string, teacherName: string, mine: boolean): Err {
   return mine
     ? err('ALREADY_CLAIMED', `你已經是 ${code} 的指導老師了。`)
-    : err('ALREADY_CLAIMED', `${code} 剛由 ${teacherName} 老師認領成功（或已由系辦指派）；需要調整請聯絡系辦重派。`)
+    : err('ALREADY_CLAIMED', `${code} 剛由 ${teacherName} 老師擔任指導老師（或已由系辦指派）；需要調整請聯絡系辦重派。`)
 }
 
 /** 同一個批次請求裡每一組的請求編號：由批次編號與組別 id 決定，重送整批時每一列都會重播而不是再做一次。 */
@@ -117,7 +117,7 @@ function rowRequestId(batchRequestId: string, groupId: string): string {
 function authorizeTeacher(actor: ResolvedActor): { ok: true; userId: string } | Err {
   const blocked = statusGate(actor, 'business')
   if (blocked) return err(blocked, '請先登入並完成帳號設定。')
-  if (actor.kind !== 'authenticated' || !hasRole(actor, 'teacher')) return err('FORBIDDEN', '只有老師可以認領組別。')
+  if (actor.kind !== 'authenticated' || !hasRole(actor, 'teacher')) return err('FORBIDDEN', '只有老師可以擔任組別的指導老師。')
   return { ok: true, userId: actor.userId }
 }
 
@@ -195,7 +195,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
       const blocked = writeBlocked(cohort, group)
       if (blocked) return blocked
       if (group.group_type !== 'industry') {
-        return err('FORBIDDEN', `${group.code} 是一般專題：一般組由系辦依抽籤結果指派，老師不能自行認領。`)
+        return err('FORBIDDEN', `${group.code} 是一般專題：一般組由系辦依抽籤結果指派，老師不能自行擔任指導老師。`)
       }
 
       const current = await currentAdvisor(tx, group.id)
@@ -594,7 +594,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
     if (teacher) {
       const title =
         change.kind === 'claimed'
-          ? `${teacher.name} 老師認領了組別 ${group.code}，成為指導老師`
+          ? `${teacher.name} 老師擔任組別 ${group.code} 的指導老師`
           : previous
             ? `組別 ${group.code} 的指導老師換成 ${teacher.name} 老師`
             : `組別 ${group.code} 的指導老師是 ${teacher.name} 老師`
@@ -723,7 +723,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'advisors', body, (constraint) =>
       constraint === 'advisor_assignments_one_active'
-        ? err('ALREADY_CLAIMED', '這組剛剛已經有指導老師了（其他老師同時認領成功）；請重新整理頁面，需要調整請聯絡系辦重派。')
+        ? err('ALREADY_CLAIMED', '這組剛剛已經有指導老師了（其他老師同時按下並成功）；請重新整理頁面，需要調整請聯絡系辦重派。')
         : err('CONFLICT', '剛剛有人同時修改了這個組別，請重新整理頁面再試一次。'),
     )
   }

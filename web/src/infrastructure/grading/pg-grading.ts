@@ -109,7 +109,7 @@ function authorizeTeacher(actor: ResolvedActor): { ok: true; userId: string } | 
 }
 
 export function notAssigned(): Err {
-  return err('NOT_ASSIGNED', '你沒有被指派評這一組（或指派已結束），不能評分。')
+  return err('NOT_ASSIGNED', '這份評分表目前無法儲存，請回到首頁。')
 }
 
 export function groupNotFound(): Err {
@@ -296,7 +296,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的第 ${current.version_no} 版已有老師開始評分（暫存或正式送出），評分規則已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
+          `目前的第 ${current.version_no} 版已有老師開始評分（存了評分草稿或已正式送出），評分規則已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
         )
       }
 
@@ -704,7 +704,7 @@ export async function hasCountedInStage(tx: PoolClient, groupId: string, stageKe
 export function alreadyCounted(teacherName: string, groupCode: string, stageName: string): Err {
   return err(
     'VALIDATION_FAILED',
-    `${teacherName} 老師在 ${groupCode}「${stageName}」已有一份採計中的評分（改派時選了保留），同一位老師不能再算一票；請改指派其他老師。`,
+    `${teacherName} 老師在 ${groupCode}「${stageName}」已有一份計入成績的評分（改派時選了保留），同一位老師不能再算一票；請改指派其他老師。`,
     { details: { field: 'teacherUserId' } },
   )
 }

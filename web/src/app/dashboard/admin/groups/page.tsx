@@ -201,7 +201,7 @@ export default async function AdminGroupsPage({
         action={
           <BatchAssignDialog
             cohortId={cohort.id}
-            cohortCode={cohort.code}
+            cohortLabel={cohortLabel(cohort)}
             kindLabels={ADVISOR_BATCH_KIND_LABEL}
             outcomeLabels={ADVISOR_BATCH_OUTCOME_LABEL}
             maxBytes={ADVISOR_CSV_MAX_BYTES}
@@ -339,13 +339,13 @@ export default async function AdminGroupsPage({
 
       {/* 以下兩塊原型沒有（原型的分組是直接成立）；正式碼的分組是提案制，照同一套 Panel 樣子放在後面。 */}
       <Panel
-        title="進行中的提案"
+        title="組隊中（等全員確認）"
         icon={<IconHourglass />}
         description={`${overview.openProposals.length} 份等待全員確認`}
-        aria-label="進行中的提案"
+        aria-label="組隊中（等全員確認）"
       >
         {overview.openProposals.length === 0 ? (
-          <PanelEmpty title="沒有等待確認的提案。" />
+          <PanelEmpty title="沒有組隊中的提案。" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[40rem] text-sm">
@@ -425,7 +425,7 @@ export default async function AdminGroupsPage({
       actions: (
         <GroupingSettingsEditor
           cohortId={cohort.id}
-          cohortCode={cohort.code}
+          cohortLabel={cohortLabel(cohort)}
           revision={cohort.revision}
           requestId={randomUUID()}
           values={{

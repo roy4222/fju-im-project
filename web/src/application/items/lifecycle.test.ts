@@ -76,7 +76,7 @@ describe('describeRepublishExpired：已截止的收件不能直接重新發布'
   it('寫出截止時間（臺灣時間）與下一步', () => {
     const text = describeRepublishExpired(new Date('2026-11-15T15:59:00Z'))
     expect(text).toContain('2026/11/15 23:59，臺灣時間')
-    expect(text).toContain('另建一份新的收件')
+    expect(text).toContain('另建一個新的繳交項目')
   })
 })
 
@@ -86,7 +86,7 @@ describe('describeLifecycleReceipt：回執一句話帶出下一步與實際開�
   it('撤回說明名單結束、改好再發布；開放時間不變', () => {
     const text = describeLifecycleReceipt({ ...base, action: 'withdraw', status: 'draft', rosterClosed: 4 })
     expect(text).toContain('已撤回成草稿')
-    expect(text).toContain('收件名單 4 筆已結束')
+    expect(text).toContain('需要繳交的名單 4 筆已結束')
     expect(text).toContain('按「發布」')
     expect(text).toContain('2026/09/24 10:00')
   })

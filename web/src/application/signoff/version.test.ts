@@ -34,7 +34,7 @@ describe('參與者快照（產品「參與者版本與失效」、SGN-07）', (
     expect(buildParticipants([], advisor, 'G01')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     const noAdvisor = buildParticipants([student(1)], null, 'G02')
     expect(noAdvisor).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(noAdvisor.ok ? '' : noAdvisor.message).toMatch(/G02.*主指導/)
+    expect(noAdvisor.ok ? '' : noAdvisor.message).toMatch(/G02.*指導老師/)
   })
 })
 
@@ -111,9 +111,9 @@ describe('去識別化的參與者顯示代稱（票 40）', () => {
   const snapshot = { students: [student(1), student(2)], advisor }
 
   it('只換已去識別化的人，學號一併拿掉；快照物件本身不動', () => {
-    const shown = withPseudonyms(snapshot, new Map([['u2', '已去識別化使用者 AAAAAA']]))
+    const shown = withPseudonyms(snapshot, new Map([['u2', '已刪除個資的使用者 AAAAAA']]))
     expect(shown.students[0]).toEqual(student(1))
-    expect(shown.students[1]).toEqual({ ...student(2), displayName: '已去識別化使用者 AAAAAA', studentNo: null })
+    expect(shown.students[1]).toEqual({ ...student(2), displayName: '已刪除個資的使用者 AAAAAA', studentNo: null })
     expect(shown.advisor).toEqual(advisor)
     expect(snapshot.students[1]!.displayName).toBe('學生2')
   })

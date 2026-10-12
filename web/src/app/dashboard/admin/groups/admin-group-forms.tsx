@@ -43,7 +43,7 @@ export function useCloseOnSuccess(state: AdminGroupActionState, close: () => voi
 
 export function GroupingSettingsEditor({
   cohortId,
-  cohortCode,
+  cohortLabel,
   revision,
   requestId,
   values,
@@ -51,7 +51,7 @@ export function GroupingSettingsEditor({
   daysLimit,
 }: {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   revision: number
   requestId: string
   values: { groupSizeMin: number; groupSizeMax: number; proposalDefaultDays: number }
@@ -97,9 +97,9 @@ export function GroupingSettingsEditor({
         分組設定
       </button>
       <Feedback state={state?.ok ? state : undefined} />
-      <dialog ref={dialog.ref} aria-label={`${cohortCode} 的分組設定`} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={`${cohortLabel} 的分組設定`} className={DIALOG}>
         <form action={formAction} className="space-y-4 p-5">
-          <h2 className={DIALOG_TITLE}>{cohortCode} 的分組設定</h2>
+          <h2 className={DIALOG_TITLE}>{cohortLabel} 的分組設定</h2>
           <p className="text-sm text-muted-foreground">
             學生提案的人數（含自己）要落在最少到最多之間；只影響之後發起的提案。特殊情況由系辦直接調整組員。
           </p>
@@ -109,7 +109,7 @@ export function GroupingSettingsEditor({
           <div className="grid gap-3 sm:grid-cols-3">
             {field('groupSizeMin', '每組最少人數', sizeLimit)}
             {field('groupSizeMax', '每組最多人數', sizeLimit)}
-            {field('proposalDefaultDays', '提案預設天數', daysLimit, '到期不會超過成組期')}
+            {field('proposalDefaultDays', '提案預設天數', daysLimit, '到期不會超過分組期')}
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
@@ -152,7 +152,7 @@ export function VoidProposalButton({
         <form action={formAction} className="space-y-4 p-5">
           <h2 className={DIALOG_TITLE}>作廢{label}？</h2>
           <p className="text-sm text-muted-foreground">
-            作廢後整份提案終止、所有人釋放。理由只留在系辦紀錄，學生的通知只會說「管理員作廢」。
+            作廢後這次組隊不會成立，大家都可以重新組隊。理由只留在系辦紀錄，學生的通知只會說「管理員作廢」。
           </p>
           <input type="hidden" name="proposalId" value={proposalId} />
           <input type="hidden" name="requestId" value={requestId} />

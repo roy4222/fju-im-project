@@ -105,13 +105,13 @@ export type CohortRow = {
 type Flag = 'defaultWorking' | 'registrationOpen'
 
 const HELD_LABEL: Record<Flag, string> = {
-  defaultWorking: '預設工作中',
-  registrationOpen: '開放註冊中',
+  defaultWorking: '後台預設查看中',
+  registrationOpen: '新註冊加入這屆',
 }
 
 const BUTTON_LABEL: Record<Flag, string> = {
   defaultWorking: '設為預設',
-  registrationOpen: '開放註冊',
+  registrationOpen: '設為新註冊加入的屆別',
 }
 
 export function CohortTable({

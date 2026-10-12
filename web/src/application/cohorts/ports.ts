@@ -76,6 +76,7 @@ export interface CohortStatusQuery {
 export type SaveScheduleReceipt = {
   readonly cohortId: string
   readonly code: string
+  readonly name: string
   /** 日期範圍有變、期限版本 +1 的階段序號（1 起）。 */
   readonly changedStages: readonly number[]
 }
@@ -156,6 +157,7 @@ export interface TimelineQuery {
 export type StudentTimeline = {
   readonly cohortId: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly schedule: CohortSchedule
 }
 

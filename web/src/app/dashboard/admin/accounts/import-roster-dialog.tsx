@@ -314,7 +314,7 @@ function PreviewStep({
             </option>
             {preview.cohorts.map((cohort) => (
               <option key={cohort.id} value={cohort.id}>
-                {cohort.name}（{cohort.code}）{cohort.isRegistrationOpen ? '・開放註冊中' : ''}
+                {cohort.name}（{cohort.code}）{cohort.isRegistrationOpen ? '・新註冊加入這屆' : ''}
               </option>
             ))}
           </select>

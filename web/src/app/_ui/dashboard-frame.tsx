@@ -49,7 +49,7 @@ type Item = { href: string; label: string }
  * 用網址最後一段對應，不改 `_nav.ts` 的清單格式：之後的票在清單加一列，
  * 這裡對得到就自動有圖示與分組；對不到的落在最後一組、用預設圖示。
  */
-const GROUPS = ['總覽', '專題事務', '分組與產學', '評分與簽核', '系統管理'] as const
+const GROUPS = ['總覽', '專題事務', '分組與產學', '評分與同意書', '系統管理'] as const
 type Group = (typeof GROUPS)[number]
 
 const SEGMENTS: Record<string, { group: Group; icon: Icon }> = {
@@ -64,8 +64,8 @@ const SEGMENTS: Record<string, { group: Group; icon: Icon }> = {
   'home-settings': { group: '專題事務', icon: IconHome },
   groups: { group: '分組與產學', icon: IconUsersGroup },
   industry: { group: '分組與產學', icon: IconBuildingFactory2 },
-  grading: { group: '評分與簽核', icon: IconChecklist },
-  signoff: { group: '評分與簽核', icon: IconSignature },
+  grading: { group: '評分與同意書', icon: IconChecklist },
+  signoff: { group: '評分與同意書', icon: IconSignature },
   accounts: { group: '系統管理', icon: IconUsers },
   cohorts: { group: '系統管理', icon: IconSchool },
   clock: { group: '系統管理', icon: IconClock },
@@ -138,7 +138,7 @@ export function DashboardFrame({
     <SidebarProvider className="dash-frame" defaultOpen={sidebarOpen}>
       <Sidebar collapsible="icon" variant="inset">
         <SidebarHeader className="px-4 pt-4 pb-1">
-          <Link href={homeHref} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回後台首頁">
+          <Link href={homeHref} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回我的後台">
             {/* 系網 logo 是靜態 PNG；不走 next/image（它會輸出 style 屬性，被正式站 CSP 擋）。 */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={172} height={42} className="h-10 w-auto group-data-[collapsible=icon]:hidden" />

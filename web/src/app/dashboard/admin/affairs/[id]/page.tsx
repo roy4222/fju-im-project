@@ -16,7 +16,7 @@ import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
 import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
-export const metadata = { title: '收件名單｜資管系專題平台' }
+export const metadata = { title: '繳交名單｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LISTS: readonly ListKey[] = ['current', 'exempt', 'removed']
@@ -81,10 +81,10 @@ export default async function RosterPage({
                   {item.dueAt ? (
                     <Pill tone={overdue ? 'danger' : 'brand'}>
                       <IconClock aria-hidden />
-                      {overdue ? '已截止' : '收件中'}・{formatTaipeiMinute(item.dueAt)}
+                      {overdue ? '已截止' : '開放繳交中'}・{formatTaipeiMinute(item.dueAt)}
                     </Pill>
                   ) : null}
-                  {item.schemaVersionNo ? <Pill>欄位 v{item.schemaVersionNo}</Pill> : null}
+                  {item.schemaVersionNo ? <Pill>表單第 {item.schemaVersionNo} 版</Pill> : null}
                   <Link href={`/dashboard/admin/editor/${item.itemId}`} className={BTN_INK}>
                     編輯內容
                   </Link>
@@ -158,8 +158,8 @@ export default async function RosterPage({
     return shell(
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <EmptyState
-          title="還沒發布，還沒有收件名單"
-          description="發布時才依對象建立收件名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
+          title="還沒發布，還沒有需要繳交的名單"
+          description="發布時才依「誰看得到」的設定建立需要繳交的名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
           action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
         />
         {visibilityPanel}

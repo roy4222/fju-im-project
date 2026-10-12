@@ -207,7 +207,7 @@ export function OpportunityFormDialog({
               <div className="mt-1.5 flex flex-wrap gap-4 text-sm text-foreground">
                 <label className="flex items-center gap-2">
                   <input type="radio" className="accent-brand" name="notesVisibility" value="internal" defaultChecked={(initial?.values.notesVisibility ?? 'internal') === 'internal'} />
-                  只有我與系辦
+                  只有負責老師與系辦
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="radio" className="accent-brand" name="notesVisibility" value="signed_in" defaultChecked={initial?.values.notesVisibility === 'signed_in'} />
@@ -216,7 +216,7 @@ export function OpportunityFormDialog({
               </div>
             </fieldset>
             <p className="mt-1 rounded-lg bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground sm:col-span-2">
-              以下只有你（負責老師）與系辦看得到，不會因為發布而公開。
+              以下只有負責老師與系辦看得到，不會因為發布而公開。
             </p>
             {field('address', { span: true })}
             {field('contactName')}

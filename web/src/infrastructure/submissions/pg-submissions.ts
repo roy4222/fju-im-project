@@ -122,11 +122,11 @@ type Deps = {
 }
 
 function notInRoster(): Err {
-  return err('NOT_IN_ROSTER', '你不在這份收件的名單上，請回作業區重新整理。')
+  return err('NOT_IN_ROSTER', '你不在這個繳交項目的名單上，請回「我的繳交」重新整理。')
 }
 
 function notMember(): Err {
-  return err('NOT_MEMBER', '這份收件是整組一份：要先成立組別（而且你此刻是組員）才能填寫與送出。請到「我的組別」確認。')
+  return err('NOT_MEMBER', '這個繳交項目是整組一份：要先成立組別（而且你此刻是組員）才能填寫與送出。請到「我的組別」確認。')
 }
 
 function staleDraft(group: boolean): Err {
@@ -141,7 +141,7 @@ function staleDraft(group: boolean): Err {
 function authorizeStudent(actor: ResolvedActor): Err | null {
   const blocked = statusGate(actor, 'business')
   if (blocked) return err(blocked, '請先登入並完成帳號設定。')
-  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) return err('FORBIDDEN', '只有學生可以填寫收件。')
+  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) return err('FORBIDDEN', '只有學生可以填寫繳交項目。')
   return null
 }
 
@@ -316,7 +316,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const draft = await this.#lockDraft(tx, itemId, receiver)
       if (!draft) return staleDraft(group)
       if (draft.schema_version_id !== schema.id || draft.migration_state === 'needs_review') {
-        return err('DRAFT_NEEDS_REVIEW', '收件欄位已經改版，請重新載入確認內容後再送出。')
+        return err('DRAFT_NEEDS_REVIEW', '繳交欄位已經改版，請重新載入確認內容後再送出。')
       }
       if (draft.revision !== draftRevision) return staleDraft(group)
       const issues = submitIssues(schema.fields, draft.answers)
@@ -506,10 +506,10 @@ export class PgSubmissionCommand implements SubmissionCommand {
   }
 
   async setAdvisorVisibility(actor: ResolvedActor, itemId: string, enabled: boolean, requestId: string): Promise<Result<VisibilityReceipt>> {
-    const denied = authorizeAdmin(actor, '設定主指導閱覽')
+    const denied = authorizeAdmin(actor, '設定指導老師閱覽')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
-    if (!isUuid(itemId) || typeof enabled !== 'boolean') return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+    if (!isUuid(itemId) || typeof enabled !== 'boolean') return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
     const userId = actor.userId
     const businessAt = await this.#businessClock.now()
 
@@ -518,7 +518,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       // 不會有人剛好交進來（否則那個人沒看到告知，回答卻開給老師）。
       const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
       const cohortId = head.rows[0]?.cohort_id
-      if (!cohortId) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
       const found = await tx.query<{ receiver_unit: string; schema_version_no: number | null }>(
         `select m.receiver_unit, sv.version_no as schema_version_no
@@ -527,7 +527,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
         [itemId],
       )
       const item = found.rows[0]
-      if (!item) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!item) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -545,7 +545,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (begun.outcome !== 'fresh') return replayed<VisibilityReceipt>(begun)
 
       if (item.receiver_unit !== 'individual') {
-        return err('VALIDATION_FAILED', '主指導閱覽只用在「個人一份」的收件；整組一份的正式版本本來就給目前主指導看。')
+        return err('VALIDATION_FAILED', '指導老師閱覽只用在「個人一份」的繳交項目；整組一份的正式版本本來就給目前的指導老師看。')
       }
       if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再改設定。')
       const latest = await tx.query<{ enabled: boolean; effective_from_version_no: number }>(
@@ -555,13 +555,13 @@ export class PgSubmissionCommand implements SubmissionCommand {
       )
       const current = latest.rows[0] ?? null
       if ((current?.enabled ?? false) === enabled) {
-        return err('VALIDATION_FAILED', enabled ? '這份收件已經開放主指導閱覽了。' : '這份收件目前沒有開放主指導閱覽。')
+        return err('VALIDATION_FAILED', enabled ? '這個繳交項目已經開放指導老師閱覽了。' : '這個繳交項目目前沒有開放指導老師閱覽。')
       }
       if (enabled && (await new PgResponsePresence().hasAnyResponse(tx, itemId))) {
         return err(
           'ITEM_HAS_RESPONSES',
-          '已經有人作答，不能直接開放主指導閱覽：那些同學填寫時沒看到「主指導可查看」的告知，舊回答不能因此給老師看。' +
-            '需要老師看的話，請另建一份收件並在發布前開好（改欄位版本的功能在後續版本）。',
+          '已經有人作答，不能直接開放指導老師閱覽：那些同學填寫時沒看到「指導老師可查看」的告知，舊回答不能因此給老師看。' +
+            '需要老師看的話，請另建一個繳交項目並在發布前開好（改表單版本的功能在後續版本）。',
         )
       }
       // 生效版本＝目前的欄位版本（還沒發布過就是第 1 版）；關閉時沿用上一列的生效版本，只把開關關掉。
@@ -612,7 +612,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
         [itemId],
       )
       const cohortId = head.rows[0]?.cohort_id
-      if (!cohortId) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
       const group = head.rows[0]!.receiver_unit === 'group'
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
       const groupRow = group
@@ -624,7 +624,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
         [itemId],
       )
       const item = found.rows[0]
-      if (!item) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!item) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
       const kind: 'user' | 'group' = group ? 'group' : 'user'
 
       const realAt = this.#realClock.now()
@@ -648,21 +648,21 @@ export class PgSubmissionCommand implements SubmissionCommand {
         return err('VALIDATION_FAILED', `補交期限要晚於現在（${formatTaipeiMinute(businessAt)}，臺灣時間）。`, { details: { field: 'dueAt' } })
       }
       if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
-        return err('VALIDATION_FAILED', '這個項目不收件，不需要補交。')
+        return err('VALIDATION_FAILED', '這個項目不用繳交，不需要補交。')
       }
       if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再開放補交。')
-      if (item.status !== 'published') return err('ITEM_NOT_OPEN', '這份收件目前沒有發布，不能開放補交。')
+      if (item.status !== 'published') return err('ITEM_NOT_OPEN', '這個繳交項目目前沒有發布，不能開放補交。')
       if (phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) !== 'closed') {
-        return err('VALIDATION_FAILED', '這份收件還沒截止，學生現在就能交，不需要補交；要讓所有人晚點交，請改收件的截止時間。')
+        return err('VALIDATION_FAILED', '這個繳交項目還沒截止，學生現在就能交，不需要補交；要讓所有人晚點交，請改它的截止時間。')
       }
       const roster = await tx.query<{ exempt: boolean }>(
         `select exempt from response_rosters
           where item_id = $1 and receiver_kind = $2 and receiver_id = $3 and eligible_to_business_at is null`,
         [itemId, kind, receiverId],
       )
-      if (!roster.rows[0]) return err('NOT_IN_ROSTER', group ? '這一組不在這份收件的名單上。' : '這位學生不在這份收件的名單上。')
+      if (!roster.rows[0]) return err('NOT_IN_ROSTER', group ? '這一組不在這個繳交項目的名單上。' : '這位學生不在這個繳交項目的名單上。')
       if (roster.rows[0].exempt) {
-        return err('EXEMPTED', group ? '這一組已設為免填，不需要補交。' : '這位學生已設為免填，不需要補交。')
+        return err('EXEMPTED', group ? '這一組已設為免繳，不需要補交。' : '這位學生已設為免繳，不需要補交。')
       }
       if (group && groupRow?.status !== 'active') return err('GROUP_DISSOLVED', '這個組別已經解散，不能開放補交。')
 
@@ -763,17 +763,17 @@ export class PgSubmissionCommand implements SubmissionCommand {
     }
     if (!locked.roster) return notInRoster()
     if (locked.roster.exempt) {
-      return err('EXEMPTED', item.receiver_unit === 'group' ? '系辦已將你們這一組設為免填這份收件，不需要填寫。' : '系辦已將你設為免填這份收件，不需要填寫。')
+      return err('EXEMPTED', item.receiver_unit === 'group' ? '系辦已將你們這一組設為免繳這一項，不需要填寫。' : '系辦已將你設為免繳這一項，不需要填寫。')
     }
     if (locked.cohortStatus === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再填寫或送出。')
     if (locked.receiver?.kind === 'group' && locked.receiver.groupStatus !== 'active') {
       return err('GROUP_DISSOLVED', '這個組別已經解散，不能再填寫或送出。')
     }
-    if (item.status !== 'published' || !locked.schema) return err('ITEM_NOT_OPEN', '這份收件目前沒有開放。')
+    if (item.status !== 'published' || !locked.schema) return err('ITEM_NOT_OPEN', '這個繳交項目目前沒有開放。')
     // 個別補交（W10）：已截止但這位收件者有還沒到期的補交期限就放行；沒有補交期限的人規則完全不變。
     const phase = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt, locked.reopenUntil)
     if (phase === 'not_open') {
-      return err('ITEM_NOT_OPEN', `這份收件還沒開放，${formatTaipeiMinute(item.opens_at!)}（臺灣時間）開放。`)
+      return err('ITEM_NOT_OPEN', `這個繳交項目還沒開放，${formatTaipeiMinute(item.opens_at!)}（臺灣時間）開放。`)
     }
     if (phase === 'closed') {
       return err('DEADLINE_PASSED', `已經截止（截止：${formatTaipeiMinute(item.due_at!)}，含此分鐘，臺灣時間）；需要補交請聯絡系辦。`)

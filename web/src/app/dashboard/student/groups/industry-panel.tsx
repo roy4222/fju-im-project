@@ -67,7 +67,7 @@ export function IndustryPanel(props: IndustryPanelProps) {
               <input type="hidden" name="revision" value={revision} />
               <input type="hidden" name="requestId" value={props.requestIds.type} />
               <input type="hidden" name="groupType" value={otherType} />
-              <p className="text-xs text-muted-foreground">成組期內、還沒有指導老師、沒有連結合作案，組長可以自己改；全組看得到這筆紀錄。</p>
+              <p className="text-xs text-muted-foreground">分組期內、還沒有指導老師、沒有連結合作案，組長可以自己改；全組看得到這筆紀錄。</p>
               <button type="submit" disabled={changingType} className={PRIMARY}>
                 {changingType ? '處理中…' : `改成${typeLabels[otherType]}`}
               </button>
@@ -78,7 +78,7 @@ export function IndustryPanel(props: IndustryPanelProps) {
             </p>
           )
         ) : (
-          <p className="mt-3 text-xs text-muted-foreground">組別類型由組長調整（成組期內、沒有指導老師與合作案時）；其他情況由系辦處理。</p>
+          <p className="mt-3 text-xs text-muted-foreground">組別類型由組長調整（分組期內、沒有指導老師與合作案時）；其他情況由系辦處理。</p>
         )}
         <div className="mt-3">
           <Feedback state={typeState} />

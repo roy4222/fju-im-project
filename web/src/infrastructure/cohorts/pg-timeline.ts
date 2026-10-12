@@ -59,7 +59,7 @@ import { RealClock, type Clock } from '@/shared/time'
  * 產品事件矩陣也沒有活動異動通知）。交易回滾時活動、事件、稽核、帳本一起消失。
  */
 
-type CohortRow = { id: string; code: string; status: CohortStatus; revision: number; year_end_date: string | null }
+type CohortRow = { id: string; code: string; name: string; status: CohortStatus; revision: number; year_end_date: string | null }
 
 type StageRow = { seq: number; name: string; description: string; start_date: string; deadline_version: number }
 
@@ -173,7 +173,7 @@ export class PgTimelineCommand implements TimelineCommand {
 
     return this.#run(async (tx) => {
       const found = await tx.query<CohortRow>(
-        `select id, code, status, revision, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date
+        `select id, code, name, status, revision, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date
            from cohorts where id = $1 for update`,
         [cohortId],
       )
@@ -266,7 +266,7 @@ export class PgTimelineCommand implements TimelineCommand {
         },
       })
 
-      const receipt = { cohortId, code: cohort.code, changedStages, requestId, serverTime: realAt.toISOString() }
+      const receipt = { cohortId, code: cohort.code, name: cohort.name, changedStages, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
       return { ok: true as const, receipt }
     })
@@ -514,7 +514,7 @@ export class PgTimelineCommand implements TimelineCommand {
 
   async #shareCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
     const found = await tx.query<CohortRow>(
-      `select id, code, status, revision, null as year_end_date from cohorts where id = $1 for share`,
+      `select id, code, name, status, revision, null as year_end_date from cohorts where id = $1 for share`,
       [cohortId],
     )
     return found.rows[0] ?? null
@@ -652,12 +652,12 @@ export class PgTimelineQuery implements TimelineQuery {
     const cohortId = actor.cohortMemberships.find((m) => m.role === 'student')?.cohortId
     if (!cohortId || !isCohortId(cohortId)) return null
     const db = this.#reader()
-    const cohort = await db.query<{ code: string; year_end_date: string | null }>(
-      `select code, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
+    const cohort = await db.query<{ code: string; name: string; year_end_date: string | null }>(
+      `select code, name, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
       [cohortId],
     )
     const row = cohort.rows[0]
     if (!row) return null
-    return { cohortId, cohortCode: row.code, schedule: { stages: await loadStages(db, cohortId), yearEndDate: row.year_end_date } }
+    return { cohortId, cohortCode: row.code, cohortName: row.name, schedule: { stages: await loadStages(db, cohortId), yearEndDate: row.year_end_date } }
   }
 }

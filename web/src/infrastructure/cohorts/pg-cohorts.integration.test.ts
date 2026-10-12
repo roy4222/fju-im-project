@@ -222,13 +222,13 @@ describe('預設工作屆別與開放註冊屆別', () => {
     const b = await newCohort('REG-B')
 
     const first = await command.setRegistrationOpen(authenticated(adminId), a.id, randomUUID())
-    expect(first).toMatchObject({ ok: true, receipt: { code: a.code, previousCode: null } })
+    expect(first).toMatchObject({ ok: true, receipt: { code: a.code, name: a.code, previousCode: null, previousName: null } })
     expect((await query.registrationOpen())?.id).toBe(a.id)
 
     const second = await command.setRegistrationOpen(authenticated(adminId), b.id, randomUUID())
     expect(second).toMatchObject({
       ok: true,
-      receipt: { flag: 'registrationOpen', code: b.code, previousCohortId: a.id, previousCode: a.code },
+      receipt: { flag: 'registrationOpen', code: b.code, name: b.code, previousCohortId: a.id, previousCode: a.code, previousName: a.code },
     })
     expect(await holders('is_registration_open')).toEqual([b.code])
 

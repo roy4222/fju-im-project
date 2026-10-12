@@ -89,7 +89,7 @@ export default async function TeacherHomePage() {
   // 原型「歡迎回來，陳建宏 老師」；姓名本身已經以「老師」結尾就不再加。
   const own = actor.kind === 'authenticated' ? actor.displayName : undefined
   const name = own ? (own.endsWith('老師') ? own : `${own} 老師`) : '老師'
-  const line = remaining ? `評分還有 ${remaining} 份沒正式送出：未開始 ${counts.empty}、暫存 ${counts.draft}。` : queue.length ? '評分都正式送出了。' : ''
+  const line = remaining ? `評分還有 ${remaining} 份沒正式送出：未開始 ${counts.empty}、草稿 ${counts.draft}。` : queue.length ? '評分都正式送出了。' : ''
 
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current={BASE}>
@@ -104,7 +104,7 @@ export default async function TeacherHomePage() {
           cta={remaining ? { href: `${BASE}/grading`, label: `繼續評分（${remaining} 份）` } : undefined}
           chips={[
             { label: '未開始', value: `${counts.empty} 份`, href: `${BASE}/grading` },
-            { label: '暫存', value: `${counts.draft} 份`, href: `${BASE}/grading` },
+            { label: '草稿', value: `${counts.draft} 份`, href: `${BASE}/grading` },
             { label: '已送出', value: `${counts.counted} 份`, href: `${BASE}/grading` },
             { label: '待我同意', value: `${readyGroups} 組`, href: `${BASE}/signoff`, hot: readyGroups > 0 },
           ]}
@@ -114,7 +114,7 @@ export default async function TeacherHomePage() {
           <Panel title="評分進度" description="被指派的評分" className="h-full">
             <div className="flex items-center gap-5 px-5 pt-1 pb-4">
               <Donut
-                label={`已送出 ${counts.counted}、暫存 ${counts.draft}、未開始 ${counts.empty}`}
+                label={`已送出 ${counts.counted}、草稿 ${counts.draft}、未開始 ${counts.empty}`}
                 segments={[
                   { value: counts.counted, color: 'var(--success)' },
                   { value: counts.draft, color: 'var(--primary)' },
@@ -131,7 +131,7 @@ export default async function TeacherHomePage() {
               />
               <ul className="flex flex-1 flex-col gap-2 text-sm">
                 <LegendRow color="var(--success)" label="已送出" value={counts.counted} />
-                <LegendRow color="var(--primary)" label="暫存" value={counts.draft} />
+                <LegendRow color="var(--primary)" label="草稿" value={counts.draft} />
                 <LegendRow color="var(--border)" label="未開始" value={counts.empty} />
               </ul>
             </div>
@@ -143,7 +143,7 @@ export default async function TeacherHomePage() {
         <div className="grid grid-flow-dense grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2 xl:col-span-2 2xl:grid-cols-3">
           <div className="min-w-0 md:col-span-2">
             <Panel
-              title="評分工作台"
+              title="我的評分"
               description={remaining ? `還有 ${remaining} 份` : `${queue.length} 份`}
               action={{ href: `${BASE}/grading`, label: '開啟' }}
               className="h-full"
@@ -161,7 +161,7 @@ export default async function TeacherHomePage() {
                       sub={`${e.cohortCode}・已填 ${e.filled}／${e.total} 項`}
                       trailing={
                         <>
-                          {e.state === 'empty' ? <Pill>未開始</Pill> : e.state === 'draft' ? <Pill tone="brand">暫存</Pill> : <Pill tone="success">已送出</Pill>}
+                          {e.state === 'empty' ? <Pill>未開始</Pill> : e.state === 'draft' ? <Pill tone="brand">草稿</Pill> : <Pill tone="success">已送出</Pill>}
                           <span
                             className={cn(
                               'rounded-lg px-3 py-1 text-[13px] font-semibold',
@@ -218,7 +218,7 @@ export default async function TeacherHomePage() {
                     ? '你指導的屆別接下來沒有排定的活動。'
                     : ctx.cohort
                       ? '接下來沒有給老師的活動。指導某一屆的組別後，也會列出給那屆學生的活動。'
-                      : '還沒有指導的組別，系辦也還沒設定目前的工作屆別。'}
+                      : '還沒有指導的組別，系辦也還沒設定後台預設查看的屆別。'}
                 </PanelEmpty>
               ) : (
                 <ul className="pb-2">
@@ -236,16 +236,16 @@ export default async function TeacherHomePage() {
           </div>
 
           <div className="min-w-0">
-            {/* 「可認領產學組」只有老師看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
+            {/* 「待指導的產學組」只有老師看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
             <Panel
-              title="可認領產學組"
-              description={`全體 ${claimable.length} 組・先按先得`}
+              title="待指導的產學組"
+              description={`全體 ${claimable.length} 組・第一位確認的老師就是指導老師`}
               action={{ href: `${BASE}/groups`, label: '全部' }}
               tint="mint"
               className="h-full"
             >
               {claimable.length === 0 ? (
-                <PanelEmpty>目前沒有等待認領的產學組。</PanelEmpty>
+                <PanelEmpty>目前沒有等待指導老師的產學組。</PanelEmpty>
               ) : (
                 <ul className="pb-2">
                   {claimable.slice(0, 5).map((g) => (
@@ -255,7 +255,7 @@ export default async function TeacherHomePage() {
                       title={g.opportunity?.name ?? `${g.members.length} 人`}
                       trailing={
                         <Link href={`${BASE}/groups`} className="rounded-lg border border-border bg-card px-3 py-1 text-[13px] font-semibold hover:bg-accent">
-                          認領
+                          擔任指導老師
                         </Link>
                       }
                     />
@@ -285,7 +285,7 @@ export default async function TeacherHomePage() {
                       sub="學生都同意了・輪到你"
                       trailing={
                         <Link href={`${BASE}/signoff`} className="rounded-lg border border-border bg-card px-3 py-1 text-[13px] font-semibold hover:bg-accent">
-                          去簽核
+                          去看同意書
                         </Link>
                       }
                     />
@@ -303,7 +303,7 @@ export default async function TeacherHomePage() {
             <Panel title="指導中的組別" description={`我的 ${advised} 組`} action={{ href: `${BASE}/groups`, label: '總覽' }} className="h-full" testId="home-advised">
               {myGroups.length === 0 ? (
                 <PanelEmpty>
-                  {advised > 0 ? `你指導 ${advised} 組（不在目前工作屆別）。` : '還沒有指導的組別。產學組可到「分組」認領；一般組由系辦指派。'}
+                  {advised > 0 ? `你指導 ${advised} 組（不在後台預設查看的屆別）。` : '還沒有指導的組別。產學組可到「分組」擔任指導老師；一般組由系辦指派。'}
                 </PanelEmpty>
               ) : (
                 <ul className="pb-2">

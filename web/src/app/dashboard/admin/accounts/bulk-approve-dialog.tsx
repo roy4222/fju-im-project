@@ -28,7 +28,7 @@ const TEXTAREA =
 const MATCH_LABEL: Record<RosterMatchStatus, string> = {
   matched: '名單符合',
   name_mismatch: '姓名不符',
-  not_found: '未命中',
+  not_found: '不在本屆名單上',
 }
 
 // ── 勾選狀態 ─────────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                     ))}
                     {method ? (
                       <label className="block text-sm font-medium text-foreground">
-                        核實說明
+                        怎麼確認的說明
                         <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
                         <textarea
                           rows={2}

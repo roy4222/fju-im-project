@@ -14,7 +14,7 @@ import { getCohortStatusQuery } from '@/composition/cohorts'
 import { describeCause, getSignoffQuery, SIGNOFF_PURPOSES, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '簽核管理｜資管系專題平台' }
+export const metadata = { title: '站內同意書｜資管系專題平台' }
 
 /**
  * 管理員「簽核管理」（票 25、26；原型 `/dashboard/admin/signoff`）。
@@ -70,7 +70,7 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
     <div className={grid} data-testid="package-cell">
       <span className="tabular text-sm font-bold">{code}</span>
       <SegmentCells
-        label={`學生 ${p.agreed}／${p.total} 已同意，主指導${p.advisor.result === 'agree' ? '已' : '未'}同意`}
+        label={`學生 ${p.agreed}／${p.total} 已同意，指導老師${p.advisor.result === 'agree' ? '已' : '未'}同意`}
         cells={p.students.map((s) => (s.result ? CELL_TONE[s.result] : 'bg-muted'))}
         trailing={advisorTone}
       />
@@ -83,7 +83,7 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
               {teacherTurn ? `等 ${p.advisor.displayName}` : `缺 ${p.missing.length} 位`}
               <IconChevronDown className="size-4 transition-transform duration-150 group-open:rotate-180" aria-hidden />
             </summary>
-            <p className="mt-1.5 mb-1 rounded-lg bg-muted/40 px-3 py-2.5 text-sm text-foreground">還沒表態：{p.missing.join('、')}</p>
+            <p className="mt-1.5 mb-1 rounded-lg bg-muted/40 px-3 py-2.5 text-sm text-foreground">還沒回覆：{p.missing.join('、')}</p>
           </details>
         ) : (
           <span className={`px-2 font-semibold ${summary.state === 'complete' ? 'text-success-on-subtle' : 'text-muted-foreground'}`}>
@@ -96,9 +96,10 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
           href={`/dashboard/admin/signoff/${summary.versionId}`}
           className="tabular text-sm font-bold text-ink underline-offset-4 hover:underline"
         >
-          v{summary.versionNo}
+          第 {summary.versionNo} 版
         </Link>
-        <StateBadge state={summary.state} />
+        {/* 清單列的是目前版本：被取代就表示還沒有新版。 */}
+        <StateBadge state={summary.state} cause={summary.cause} newerVersionNo={null} />
         <span className="tabular text-xs text-muted-foreground">
           {p.agreed}／{p.total}
         </span>
@@ -109,7 +110,7 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
         最後動作 {formatTaipeiMinute(summary.lastEventAt)}
         {p.students.length > 0 ? (
           <span className="sr-only">
-            ；逐人：{p.students.map((s) => `${s.displayName}${s.result ? VOTE_RESULT_LABEL[s.result] : '尚未表態'}`).join('、')}
+            ；逐人：{p.students.map((s) => `${s.displayName}${s.result ? VOTE_RESULT_LABEL[s.result] : '尚未回覆'}`).join('、')}
           </span>
         ) : null}
       </p>
@@ -131,7 +132,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/signoff">
       <div className="flex flex-col gap-5">
         <PageTitle
-          title="簽核管理"
+          title="站內同意書"
           description={title?.description ?? '系辦只能發布、重開或重置，不能代替任何人同意。'}
           actions={title?.actions}
         />
@@ -144,7 +145,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
     return shell(
       <QuietState
         title="還沒有屆別"
-        hint="先到屆別頁新增一屆，才能建立那一屆的簽核。"
+        hint="先到屆別頁新增一屆，才能建立那一屆的站內同意書。"
         action={
           <Link href="/dashboard/admin/cohorts" className="text-sm font-semibold text-primary hover:underline">
             前往屆別
@@ -155,7 +156,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
   }
 
   const board = await getSignoffQuery().adminBoard(actor, cohort.id)
-  if (!board.ok) return shell(<QuietState title="讀不到簽核資料" hint={board.message} />)
+  if (!board.ok) return shell(<QuietState title="讀不到站內同意書資料" hint={board.message} />)
   const { groups } = board.receipt
   // 原型只有一份同意書；正式碼每組有兩個用途（期中結果確認、最終文件授權），用分頁切換，一次看一個用途、一組一列。
   // 預設看第一個已經有版本的用途。
@@ -175,7 +176,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
     { name: '完成', value: complete, className: 'stroke-success', swatch: 'bg-success' },
     { name: '學生已齊、等老師', value: teacherPending, className: 'stroke-brand', swatch: 'bg-brand' },
     { name: '學生未齊', value: collecting, className: 'stroke-border', swatch: 'bg-border' },
-    { name: '退回或失效', value: needsAdmin, className: 'stroke-destructive', swatch: 'bg-destructive' },
+    { name: '退回或作廢', value: needsAdmin, className: 'stroke-destructive', swatch: 'bg-destructive' },
     { name: '尚未建立', value: notCreated, className: 'stroke-muted', swatch: 'bg-muted' },
   ]
   const base = `/dashboard/admin/signoff?cohort=${cohort.id}`
@@ -212,7 +213,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
                 </li>
               ))}
               <li className="flex items-center justify-between gap-3 border-t border-border/70 pt-2 text-muted-foreground">
-                <span>本屆總組數</span>
+                <span>共</span>
                 <b className="tabular">{total} 組</b>
               </li>
             </ul>
@@ -222,7 +223,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
           </p>
         </Panel>
 
-        <Panel title="各組進度" icon={<IconUsersGroup />} description="每格＝一位學生、右邊短格＝老師；點「缺 N 位」看是誰" aria-label="各組簽核">
+        <Panel title="各組進度" icon={<IconUsersGroup />} description="每格＝一位學生、右邊短格＝老師；點「缺 N 位」看是誰" aria-label="各組同意書">
           <nav aria-label="選擇用途" className="flex flex-wrap items-center gap-1 border-b border-border px-3">
             {SIGNOFF_PURPOSES.map((p) => {
               const on = p === purpose
@@ -246,12 +247,12 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
             })}
           </nav>
           {groups.length === 0 ? (
-            <PanelEmpty title="這一屆還沒有組別" hint="分組成立後才能建立簽核版本。" />
+            <PanelEmpty title="這一屆還沒有組別" hint="分組成立後才能建立站內同意書。" />
           ) : (
             <>
               {allVersions === 0 ? (
                 <p className="border-b border-border/70 px-5 py-3 text-sm text-muted-foreground">
-                  尚未建立簽核：按右上「新增簽核」選一組、貼上全文，就能建立第一個簽核版本。
+                  尚未建立同意書：按右上「新增站內同意書」選一組、貼上全文，就能建立第一份站內同意書。
                 </p>
               ) : null}
               <ul className="flex flex-col px-5 py-2">
@@ -260,7 +261,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
                     key={g.groupId}
                     className="border-b border-border/70 py-3 last:border-0"
                     data-testid="signoff-group-row"
-                    title={`${g.groupCode}：${g.members.length} 位學生＋${g.advisorName ?? '尚無主指導'}`}
+                    title={`${g.groupCode}：${g.members.length} 位學生＋${g.advisorName ?? '尚無指導老師'}`}
                   >
                     <GroupRow code={g.groupCode} summary={g.packages[purpose]} />
                   </li>
@@ -276,7 +277,7 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
       actions: (
         <NewVersionDialog>
           {groups.length === 0 ? (
-            <QuietState title="這一屆還沒有組別" hint="分組成立後才能建立簽核版本。" />
+            <QuietState title="這一屆還沒有組別" hint="分組成立後才能建立站內同意書。" />
           ) : (
             <CreateVersionForm groups={groups.map(toOption)} requestId={randomUUID()} />
           )}
