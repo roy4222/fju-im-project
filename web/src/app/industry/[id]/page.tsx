@@ -1,13 +1,12 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { IconBriefcase, IconLock } from '@tabler/icons-react'
+import { IconBriefcase } from '@tabler/icons-react'
 import { notFound, redirect } from 'next/navigation'
 import { cache } from 'react'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
 import { CleanBody, Crumbs, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getOpportunityQuery, OPPORTUNITY_STATUS_LABEL, studentCohortOf } from '@/composition/groups'
-import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 /** 同一個請求裡 metadata 與頁面共用一次查詢。 */
@@ -131,16 +130,11 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
         </article>
 
         <aside className="flex flex-col gap-4 lg:pt-11">
-          <section
-            aria-label="聯絡資訊"
-            className={cn('flex flex-col gap-2.5 rounded-xl p-5.5', o.contact ? 'bg-secondary' : 'border border-dashed border-border')}
-            data-testid="opportunity-contact"
-          >
-            <p className="flex items-center gap-2 font-bold text-foreground">
-              {o.contact ? null : <IconLock className="size-4 text-muted-foreground" aria-hidden />}
-              聯絡資訊
-            </p>
-            {o.contact ? (
+          {/* 沒有聯絡資料（看的人不是負責老師或系辦）整塊不出現：不放鎖頭、不放「看不到」的說明（第三波 Q7④）；
+              怎麼聯繫寫在列表頁。聯絡資料本來就不會送到這些人的 HTML。 */}
+          {o.contact ? (
+            <section aria-label="聯絡資訊" className="flex flex-col gap-2.5 rounded-xl bg-secondary p-5.5" data-testid="opportunity-contact">
+              <p className="font-bold text-foreground">聯絡資訊</p>
               <dl className="flex flex-col gap-1.5 text-sm">
                 {(
                   [
@@ -157,12 +151,8 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
                 ))}
                 <p className="mt-1 text-xs text-muted-foreground">只有負責老師與系辦看得到這一區。</p>
               </dl>
-            ) : (
-              <p className="text-[13px] leading-relaxed text-muted-foreground">
-                公司地址、聯絡人、電話與 Email 只有負責老師與系辦看得到。學生請透過指導老師聯繫。
-              </p>
-            )}
-          </section>
+            </section>
+          ) : null}
           <section aria-label="連結的組別" className="flex flex-col gap-2.5 rounded-xl bg-secondary p-5.5">
             <p className="font-bold text-foreground">連結的組別</p>
             {o.linkedGroups.length > 0 ? (
