@@ -88,7 +88,7 @@ export default async function FeaturedPage({
           <ListEmpty
             icon={<IconCrown className="size-8" aria-hidden />}
             title={filtered ? '找不到符合的作品' : '目前還沒有公開的優秀專題。'}
-            hint={filtered ? '換個關鍵字，或清除篩選條件。' : '登入後可以在「歷屆專題一覽」看所有已發布的作品。'}
+            hint={filtered ? '換個關鍵字，或清除篩選條件。' : '可以先到榮譽榜看看歷屆的得獎消息。'}
             clearHref={filtered ? '/projects/featured' : undefined}
           />
         ) : (

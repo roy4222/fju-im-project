@@ -84,7 +84,7 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'alert')).toContainText('還沒設定階段與年度結束日')
+  await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('尚未開始（設定中）')
 })

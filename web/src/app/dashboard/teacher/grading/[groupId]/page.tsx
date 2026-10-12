@@ -17,7 +17,7 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 export const metadata = { title: '評閱桌｜資管系專題平台' }
 
 /**
- * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的評分佇列（手機收成下拉），右邊是這一組的評分表。
+ * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的待評分清單（手機收成下拉），右邊是這一組的評分表。
  *
  * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束、組別不存在）一律導到 `/403`「找不到這個頁面」，
  * 不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個階段時，用評分表上方的階段切換。

@@ -124,7 +124,7 @@ async function openDetail(page: Page) {
 /** 老師的評分工作台：從佇列點「<屆別>・<階段>」的組別。 */
 async function openBench(page: Page, stage: string) {
   await page.goto('/dashboard/teacher/grading')
-  const queue = page.getByRole('list', { name: '評分佇列' })
+  const queue = page.getByRole('list', { name: '待評分清單' })
   await queue.getByRole('link', { name: new RegExp(`${stage}[\\s\\S]*${group}`) }).click()
   const bench = page.getByRole('region', { name: `${group}「${stage}」評分表` })
   await expect(bench).toBeVisible()
@@ -421,7 +421,7 @@ test('x4:20 GRD-13「保留已完成評分」移除乙：份數 2／2、平均 8
   await shot(admin, 'keep-unchanged')
   const tb = teacher['乙']!
   await tb.goto('/dashboard/teacher/grading')
-  await expect(tb.getByRole('list', { name: '評分佇列' }).getByRole('link', { name: new RegExp(`系統驗收[\\s\\S]*${group}`) })).toHaveCount(0)
+  await expect(tb.getByRole('list', { name: '待評分清單' }).getByRole('link', { name: new RegExp(`系統驗收[\\s\\S]*${group}`) })).toHaveCount(0)
   // 票 43 之後：被移出的老師會收到移出通知（清單寫「目前沒有」是舊的）；照實記下。
   await tb.goto('/dashboard/teacher/inbox')
   const removed = await tb.getByTestId('inbox-item').filter({ hasText: '被移出' }).count()

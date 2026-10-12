@@ -7,6 +7,7 @@ import { Donut, LegendRow, ListRow, Meter, Panel, PanelEmpty, Pill } from '@/app
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Tile } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { adminHeroCta } from '@/app/dashboard/admin/home-cta'
 import { getAccountDirectoryCommand } from '@/composition/accounts'
 import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
@@ -118,7 +119,7 @@ export default async function AdminHomePage() {
           name={name}
           line={line}
           compact
-          cta={{ href: `${BASE}/accounts?status=pending`, label: `審核帳號（${pendingApps}）` }}
+          cta={adminHeroCta(ctx, pendingApps)}
         />
 
         {/* 四磚＝四條處理路徑，數字旁寫母數與範圍；最後一格是儲存用量（票 28）。 */}

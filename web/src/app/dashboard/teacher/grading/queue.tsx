@@ -4,7 +4,7 @@ import type { TeacherQueueEntry } from '@/application/grading'
 import { cn } from '@/shared/cn'
 
 /**
- * 評分佇列：本人被指派的組別與階段（票 23；票 37 照原型評分工作台左側的組別清單）。
+ * 待評分清單：本人被指派的組別與階段（票 23；票 37 照原型評分工作台左側的組別清單）。
  * 只由伺服器元件用，資料來自 `teacherQueue(actor)`。
  */
 
@@ -44,7 +44,7 @@ export function GradingQueue({
         <p className="text-sm font-bold text-ink">{heading.title}</p>
         <p className="tabular text-xs text-muted-foreground">{heading.detail}</p>
       </div>
-      <ul aria-label="評分佇列" className="py-2">
+      <ul aria-label="待評分清單" className="py-2">
         {entries.map((e) => {
           const active = current !== null && e.groupId === current.groupId && e.stageKey === current.stageKey
           return (
