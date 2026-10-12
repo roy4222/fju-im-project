@@ -163,7 +163,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       db.query<{ id: string; title: string; cohort_id: string; stage_name: string | null; opens_at: Date | null; due_at: Date | null }>(
         `select m.id, m.title, m.cohort_id, s.name as stage_name, m.opens_at, m.due_at
            from managed_items m left join cohort_stages s on s.id = m.stage_id
-          where m.cohort_id = any($1::uuid[]) and m.status = 'published' and m.receiver_unit = 'group'
+          where m.cohort_id = any($1::uuid[]) and m.status = 'published' and m.receiver_unit = 'group' and m.deleted_at is null
           order by m.due_at nulls last, m.title`,
         [cohortIds],
       ),
@@ -216,7 +216,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
            left join cohort_stages s on s.id = m.stage_id
            join lateral (select x.enabled, x.effective_from_version_no from advisor_visibility_settings x
                           where x.item_id = m.id order by x.set_at desc, x.id desc limit 1) vs on vs.enabled
-          where m.cohort_id = any($2::uuid[]) and m.status = 'published' and m.receiver_unit = 'individual'
+          where m.cohort_id = any($2::uuid[]) and m.status = 'published' and m.receiver_unit = 'individual' and m.deleted_at is null
           order by m.due_at nulls last, m.title`,
         [actor.userId, cohortIds],
       ),
