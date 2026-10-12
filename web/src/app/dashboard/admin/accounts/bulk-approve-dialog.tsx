@@ -103,7 +103,7 @@ type Item = { applicationId: string; revision: number; requestId: string }
 
 type Phase =
   | { kind: 'loading' }
-  | { kind: 'preview'; preview: BulkApprovalPreview; items: Item[] }
+  | { kind: 'preview'; preview: BulkApprovalPreview; items: Item[]; approvable: number }
   | { kind: 'done'; receipt: BulkApprovalReceipt }
 
 /** 「核准勾選的 N 位」按鈕與對話框。沒勾任何人時不出現（不留點了沒反應的入口）。 */
@@ -134,10 +134,13 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
         return
       }
       // 每一位一個請求編號，整個對話框期間不變：結果未知再按一次時，已核准的會回放、不重複核准。
-      const items = result.data.rows
-        .filter((r) => !r.skip)
-        .map((r) => ({ applicationId: r.applicationId, revision: r.revision, requestId: crypto.randomUUID() }))
-      setPhase({ kind: 'preview', preview: result.data, items })
+      // 預覽會略過的人也一起送：伺服器以當下為準再分類一次，結果的「略過」才會列出他們與原因。
+      const items = result.data.rows.map((r) => ({
+        applicationId: r.applicationId,
+        revision: r.revision,
+        requestId: crypto.randomUUID(),
+      }))
+      setPhase({ kind: 'preview', preview: result.data, items, approvable: result.data.rows.filter((r) => !r.skip).length })
     } catch {
       setError('預覽失敗，請關閉後再試一次。')
     }
@@ -238,7 +241,7 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                 </p>
               ) : null}
 
-              {phase.items.length === 0 ? (
+              {phase.approvable === 0 ? (
                 <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
                   勾選的人都需要個別審核，沒有可以一起核准的。請關閉後逐一打開「審核」。
                 </p>
@@ -306,9 +309,9 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
                 <button type="button" onClick={() => dialogRef.current?.close()} className={cn(BUTTON, SECONDARY)} disabled={busy}>
                   取消
                 </button>
-                {phase.items.length > 0 ? (
+                {phase.approvable > 0 ? (
                   <button type="button" onClick={() => confirm(phase.items)} className={cn(BUTTON, PRIMARY)} disabled={busy}>
-                    {busy ? '核准中…' : `核准 ${phase.items.length} 位`}
+                    {busy ? '核准中…' : `核准 ${phase.approvable} 位`}
                   </button>
                 ) : null}
               </div>
