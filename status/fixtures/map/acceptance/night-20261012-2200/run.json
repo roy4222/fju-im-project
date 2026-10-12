@@ -1,0 +1,38 @@
+{
+  "runId": "night-20261012-2200",
+  "plan": "full",
+  "startedAt": "2026-10-12T22:00:00+08:00",
+  "finishedAt": "2026-10-13T06:00:00+08:00",
+  "commitStart": "7162644000000000000000000000000000000000",
+  "commitEnd": "7162644000000000000000000000000000000000",
+  "passwordLeaked": false,
+  "items": [
+    {
+      "id": "story-1",
+      "kind": "story",
+      "status": "ok",
+      "startedAt": "2026-10-12T22:00:00+08:00",
+      "finishedAt": "2026-10-13T06:00:00+08:00",
+      "exit": 0,
+      "resumed": false
+    },
+    {
+      "id": "story-2",
+      "kind": "story",
+      "status": "ok",
+      "startedAt": "2026-10-12T22:00:00+08:00",
+      "finishedAt": "2026-10-13T06:00:00+08:00",
+      "exit": 0,
+      "resumed": false
+    },
+    {
+      "id": "story-5",
+      "kind": "story",
+      "status": "ok",
+      "startedAt": "2026-10-12T22:00:00+08:00",
+      "finishedAt": "2026-10-13T06:00:00+08:00",
+      "exit": 0,
+      "resumed": false
+    }
+  ]
+}

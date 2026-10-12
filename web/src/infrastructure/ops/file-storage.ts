@@ -6,7 +6,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
-import { statusGate, type ResolvedActor } from '@/application/accounts'
+import { ANONYMOUS as ANONYMOUS_ACTOR, statusGate, type ResolvedActor } from '@/application/accounts'
 import {
   checkDeclaredUpload,
   createContentInspector,
@@ -61,6 +61,12 @@ export type FileStorageOptions = {
   readonly ticketSecret: () => string
   /** 用途 → 下載政策。沒登記的用途一律拒絕。 */
   readonly policies: DownloadPolicies
+  /**
+   * 公開讀取例外（第三波 W3，主腦 2026-10-12 准）：列在這裡的用途，帳號狀態被擋的登入者（待審、必須改密）
+   * **比照訪客**——以訪客身分問政策，政策對訪客放行才給。目前只有首頁大圖（`photo`，政策只放行首頁正在用的那一張）：
+   * 首頁對所有人公開，待審的人開首頁不該看到破圖。沒列的用途照舊在政策之前就「無法存取」。
+   */
+  readonly publicReadPurposes?: readonly FilePurpose[]
   /** 不在業務交易裡的查詢用這個；測試會指到自己的隔離 schema。 */
   readonly db: () => Pick<Pool, 'query'>
   readonly clock?: Clock
@@ -359,11 +365,16 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     // （目前只有公開公告、資源、規則的附件，票 16）放行；其他一律 401，而且「沒有這個檔」也是 401，不給人探測。
     const anonymous = actor.kind === 'anonymous'
     const denied = () => (anonymous ? err('UNAUTHENTICATED', '請先登入。') : err('FORBIDDEN', DENIED))
+    // 帳號狀態被擋（待審、必須改密）的登入者：只剩「公開讀取例外」的用途可以比照訪客（見 `publicReadPurposes`）。
+    let gatedToVisitor = false
     if (!anonymous) {
       const blocked = statusGate(actor, 'business')
       if (blocked === 'UNAUTHENTICATED') return err('UNAUTHENTICATED', '請先登入。')
-      // 待審、必須改密的人一律「無法存取」，不另外說明原因。
-      if (blocked) return err('FORBIDDEN', DENIED)
+      // 待審、必須改密的人一律「無法存取」，不另外說明原因——除非有用途登記成公開讀取，那就往下查檔、比照訪客問政策。
+      if (blocked) {
+        if ((this.#options.publicReadPurposes ?? []).length === 0) return err('FORBIDDEN', DENIED)
+        gatedToVisitor = true
+      }
     }
     if (!isUuid(fileId)) return denied()
 
@@ -381,11 +392,13 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       [fileId],
     )
     if (!row) return denied()
+    if (gatedToVisitor && !this.#options.publicReadPurposes!.includes(row.purpose)) return denied()
 
     const policy = this.#options.policies[row.purpose]
     const allowed =
       policy !== undefined &&
-      (await policy(actor, {
+      // 狀態被擋的人以訪客身分問政策：角色、組別都帶不進去，只拿得到訪客也拿得到的檔。
+      (await policy(gatedToVisitor ? ANONYMOUS_ACTOR : actor, {
         id: row.id,
         purpose: row.purpose,
         ownerUserId: row.owner_user_id,

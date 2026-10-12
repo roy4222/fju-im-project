@@ -20,6 +20,7 @@ import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
+import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
 
 // 操作紀錄頁（票 36）要的顯示規則：app 對 application 只能帶型別，值經 composition 轉出去。
@@ -72,7 +73,7 @@ function ticketSecret(): string {
 
 /**
  * 每個用途的下載政策（模組 10 §5 `authorizeDownload`）。**新用途要在這裡登記**，
- * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）、精選海報（票 25）、匯出（票 26）已加。
+ * 沒登記的用途一律「無法存取」。附件（票 15）、繳交（票 21）、精選海報（票 25）、匯出（票 26）、首頁大圖（第三波 W3）已加。
  */
 export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 名單原檔：只有狀態正常的管理員（契約 03 §1「帳號」列），而且檔案已經匯入成某個名單版本。
@@ -93,6 +94,9 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
     actor.status === 'active' &&
     actor.roles.includes('admin') &&
     file.references.some((r) => r.refType === 'export'),
+  // 首頁大圖（第三波 W3）：只有目前首頁設定指到的那一張對所有人（含訪客）公開；換圖後舊圖回到「無法存取」。
+  // 上傳憑證由首頁設定用例發（只給管理員，`scope = 'global'`），不寫 file_references。
+  photo: createHeroPhotoPolicy(getPool),
 }
 
 /**
@@ -137,6 +141,8 @@ export function getFileStorage(): FileStorage<PoolClient> {
     environmentMaxBytes,
     ticketSecret,
     policies: DOWNLOAD_POLICIES,
+    // 首頁大圖對所有人公開：待審、必須改密的人開首頁也要看得到（比照訪客；政策只放行目前那一張）。
+    publicReadPurposes: ['photo'],
     db: getPool,
   })
   return fileStorage

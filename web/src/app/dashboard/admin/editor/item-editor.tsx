@@ -32,10 +32,10 @@ import {
   IMPORTANT_LABEL,
   broadAudience,
 } from '@/app/dashboard/admin/affairs/item-form-parts'
-import { HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
+import { fieldFromSchema, HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
 import { FieldsEditor, SettingsFields } from '@/app/dashboard/admin/affairs/item-settings'
 import { sectionOfField } from '@/app/dashboard/admin/editor/field-section'
-import type { ItemReview } from '@/application/items'
+import type { ItemReview, ItemTemplate } from '@/application/items'
 import { cn } from '@/shared/cn'
 
 /**
@@ -147,6 +147,7 @@ export function ItemEditor({
   heading,
   meta,
   publishedBefore = false,
+  templates = [],
 }: {
   initial: EditorState
   itemId: string | null
@@ -160,6 +161,8 @@ export function ItemEditor({
   meta: string
   /** 發布過（有發布紀錄）：撤回成草稿後再發布，通知預設不勾（設計方案 §7 系7）。 */
   publishedBefore?: boolean
+  /** 收件範本（第三波 W12）：伺服器頁面讀好傳下來，按一下插入整組欄位。 */
+  templates?: readonly ItemTemplate[]
 }) {
   const router = useRouter()
   const [state, setState] = useState<EditorState>(initial)
@@ -178,6 +181,7 @@ export function ItemEditor({
   const [done, setDone] = useState<string | null>(null)
   // 對話框打開那一刻是「發布」還是「發布更新」；發布成功後狀態變了，對話框標題不跟著換。
   const [dialogTitle, setDialogTitle] = useState('發布前檢查')
+  const [templateNote, setTemplateNote] = useState<string | null>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   const requestIds = useRef<{ save: string; publish: string; lifecycle: string; remove: string }>({
     save: newRequestId(),
@@ -272,6 +276,31 @@ export function ItemEditor({
     setState((s) => ({ ...s, ...next }))
     setDirty(true)
     setReview(null)
+  }
+
+  /**
+   * 套用收件範本：補上還沒有的欄位（代號已在的跳過，重複按不會多一份），收件單位改成範本的單位；
+   * 原本不收件的項目改為文件繳交。只改畫面上的草稿，存草稿或發布才寫進去。
+   */
+  function applyTemplate(template: ItemTemplate) {
+    const taken = new Set(state.fields.map((f) => f.key))
+    const added = template.fields.filter((f) => !taken.has(f.key)).map(fieldFromSchema)
+    patch({
+      fields: [...state.fields, ...added],
+      receiverUnit: template.receiverUnit,
+      ...(collects
+        ? {}
+        : {
+            placement: 'submission',
+            audienceKind: vocabulary.collectionAudiences.includes(state.audienceKind) ? state.audienceKind : 'cohort_students',
+          }),
+    })
+    const unit = vocabulary.units.find((u) => u.value === template.receiverUnit)?.label ?? template.receiverUnit
+    setTemplateNote(
+      added.length > 0
+        ? `已加入 ${added.length} 個欄位，收件單位改為「${unit}」（可在下方「發布設定」改）。記得存草稿。`
+        : `這些欄位都已經在了，沒有重複加入；收件單位維持「${unit}」。`,
+    )
   }
 
   /** 草稿存檔；回傳存好之後的 id 與 revision（失敗回 null，訊息已經顯示）。 */
@@ -437,6 +466,29 @@ export function ItemEditor({
   const section = (key: SectionKey) => cn('border-t border-border first:border-t-0', tab !== key && 'max-lg:hidden')
   const failingIn = (key: SectionKey) =>
     review ? review.checks.some((c) => !c.ok && (key === 'publish' ? c.key !== 'fields' && c.key !== 'title' : key === 'fields' ? c.key === 'fields' : key === 'content' && c.key === 'title')) : false
+
+  // 收件範本（第三波 W12）：按鈕＋一句會發生什麼（§9 規則 2：寫清楚影響哪裡）；套用後的結果句放在旁邊。
+  const templateBar =
+    templates.length > 0 ? (
+      <div className="mb-3 flex w-full flex-col gap-2" data-testid="item-templates">
+        {templates.map((t) => (
+          <div key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button type="button" className={SECONDARY} onClick={() => applyTemplate(t)}>
+              {t.label}
+            </button>
+            <span className="text-xs text-muted-foreground">{t.description}</span>
+          </div>
+        ))}
+        <p className="flex items-center gap-1.5 text-xs font-semibold empty:hidden" aria-live="polite" data-testid="template-note">
+          {templateNote ? (
+            <>
+              <IconCheck aria-hidden className="size-3.5 text-primary" />
+              {templateNote}
+            </>
+          ) : null}
+        </p>
+      </div>
+    ) : null
 
   async function previewFromTopBar() {
     setTab('preview')
@@ -677,11 +729,13 @@ export function ItemEditor({
                     已經有人作答：欄位結構不能在這裡改。
                   </p>
                 ) : null}
+                {!hasResponses ? templateBar : null}
                 <FieldsEditor fields={state.fields} onChange={(fields) => patch({ fields })} vocabulary={vocabulary} />
               </>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-muted-foreground">這個項目不收資料。</p>
+                {!published && !honor ? templateBar : null}
                 {!published && !honor ? (
                   <button
                     type="button"
