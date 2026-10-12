@@ -349,7 +349,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
 
   await signIn(page, teachers[0]!)
   await page.goto(`/dashboard/teacher/grading/${g1}`)
-  await expect(page.getByRole('heading', { name: '你沒有被指派評這一組' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
 
   // 票 43（NTF-07）：評一收到一則移出通知（組別、階段、理由；沒有分數）。G01 已不在他的評分清單，所以只是文字、不給連結。
   const removedTitle = `你已被移出 G01「期中」的評分指派：評一老師請長假`

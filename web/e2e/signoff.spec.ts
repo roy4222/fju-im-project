@@ -366,7 +366,7 @@ test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「�
   await expect(page.getByTestId('signoff-state').first()).toHaveText('收集學生同意中')
 })
 
-test('三個角色看同一份：學生頁有全文與授權範圍、老師卡片點進版本頁；別的老師開網址「無法存取」', async ({ page }) => {
+test('三個角色看同一份：學生頁有全文與授權範圍、老師卡片點進版本頁；別的老師開網址「找不到這個頁面」', async ({ page }) => {
   await signIn(page, s01)
   await page.goto('/dashboard/student/signoff')
   await expect(page.getByRole('article', { name: 'G01 最終文件授權 v2' })).toBeVisible()
@@ -388,7 +388,7 @@ test('三個角色看同一份：學生頁有全文與授權範圍、老師卡�
 
   await signIn(page, otherTeacher)
   await page.goto(versionUrl)
-  await expect(page.getByText('無法存取')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.getByTestId('signoff-content')).toHaveCount(0)
 })
 
