@@ -121,7 +121,7 @@ export default async function AdminGradingPage({
       <div className="flex flex-col gap-5">
         <PageTitle
           title="成績管理"
-          description={title?.description ?? '評分規則、每組需要幾位老師評分、指派哪位老師評；分數只有老師與系辦看得到，學生看不到。'}
+          description={title?.description ?? '評分規則、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到，學生看不到。'}
           actions={title?.actions}
         />
         {children}
@@ -195,10 +195,10 @@ export default async function AdminGradingPage({
   const description = current ? (
     <>
       評分規則第 {current.versionNo} 版・{current.stages.map((s) => `${s.name} ${s.weight}%`).join(' ＋ ')}・{SCHEME_STATUS_LABEL[current.status]}。
-      {stage ? `現在看「${stage.name}」。` : ''}評分規則、每組需要幾位老師評分、指派哪位老師評；分數只有老師與系辦看得到。
+      {stage ? `現在看「${stage.name}」。` : ''}評分規則、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到。
     </>
   ) : (
-    '還沒有發布的評分規則：先建立評分規則並發布，才能設定每組需要幾位老師評分、指派哪位老師評。分數只有老師與系辦看得到。'
+    '還沒有發布的評分規則：先建立評分規則並發布，才能設定每組要幾份評分、指派哪位老師評。分數只有老師與系辦看得到。'
   )
 
   return shell(
