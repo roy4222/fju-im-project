@@ -73,7 +73,7 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   await page.getByLabel('代碼').fill(CODE)
   await page.getByLabel('名稱').fill(`${CODE} 年度測試`)
   await page.getByRole('button', { name: '新增屆別' }).click()
-  await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE}`)
+  await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE} 年度測試（${CODE}）`)
 
   // 重新整理：新增表單的回饋不留在畫面上，下面才只會有一句回饋。
   await page.reload()
@@ -94,7 +94,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(page.getByText('這一屆還沒設定階段')).toBeVisible()
 
   await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 的階段與日期` })
+  const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 年度測試（${CODE}） 的階段與日期` })
   const stages = [
     ['成組期', '2026-09-15'],
     ['期中', '2026-11-01'],

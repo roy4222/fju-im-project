@@ -130,7 +130,8 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
         }
         setReview(checked.data)
         // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
-        setNotify(!broadAudience(state.audienceKind))
+        // 對象裡沒有人可以通知時也不預設勾（設計方案 §14-3）。
+        setNotify(!broadAudience(state.audienceKind) && checked.data.recipients.notifyCount > 0)
       }
       setStep((s) => s + 1)
     } catch {

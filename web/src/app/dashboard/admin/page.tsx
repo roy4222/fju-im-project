@@ -147,7 +147,7 @@ export default async function AdminHomePage() {
             hint={`完成 ${signComplete} 組`}
             href={`${BASE}/signoff`}
           />
-          <Tile label="儲存與備份" icon={<IconDatabase />} value={storage.value} hint={storage.hint} />
+          <Tile label="主機儲存（整台）" icon={<IconDatabase />} value={storage.value} hint={storage.hint} />
         </div>
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">

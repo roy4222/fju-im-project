@@ -37,6 +37,11 @@ export type Cohort = {
   readonly createdAt: Date
 }
 
+/** 畫面上指一個屆別的寫法：「名稱（代碼）」，例如「第 43 屆（115）」（設計方案 §7 系1）。 */
+export function cohortLabel(c: { readonly name: string; readonly code: string }): string {
+  return `${c.name}（${c.code}）`
+}
+
 /**
  * 全系同時只能各有一個屆別的兩個旗標（`cohorts` 上各有一條部分唯一索引）。
  *

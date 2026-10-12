@@ -4,10 +4,18 @@
  *
  * 資料就是既有的 `audit_events`（契約 01 §4.3，只能 INSERT）。這裡只定「讀出來長什麼樣」與顯示用的中文，
  * **不讀 `payload`**：payload 是追溯用的內部欄位，規則上已經不放秘密，但畫面用不到，就不拿出來。
+ * 唯一例外是核准註冊（`account.approve`）的核實說明 `payload.verificationNote`：它沒有獨立欄位，
+ * 而系辦要能查「這次核准是怎麼核實的」（2026-10-08 系2，Roy 同意）。只取這一個鍵、只對這一個動作。
  */
 
-/** 頁面上的角色分頁（原型：全部／管理員／老師／學生／系統）。 */
-export const AUDIT_WHO_FILTERS = ['all', 'admin', 'teacher', 'student', 'system'] as const
+import type { VerificationMethod } from '@/application/ops/records'
+
+/**
+ * 頁面上的角色分頁（原型：全部／管理員／老師／學生／系統）。
+ * 「本人申請」收沒有角色的本人動作（學生送出註冊申請時還沒有角色）；少了它，分頁加起來會小於「全部」（系3）。
+ * 除了「全部」，每一筆恰好落在一個分頁。
+ */
+export const AUDIT_WHO_FILTERS = ['all', 'admin', 'teacher', 'student', 'other', 'system'] as const
 export type AuditWhoFilter = (typeof AUDIT_WHO_FILTERS)[number]
 
 export const AUDIT_WHO_LABEL: Record<AuditWhoFilter, string> = {
@@ -15,6 +23,7 @@ export const AUDIT_WHO_LABEL: Record<AuditWhoFilter, string> = {
   admin: '管理員',
   teacher: '老師',
   student: '學生',
+  other: '本人申請',
   system: '系統',
 }
 
@@ -43,10 +52,18 @@ export type AuditLogEntry = {
   readonly role: 'student' | 'teacher' | 'admin' | null
   readonly action: string
   readonly targetType: string
-  /** 對象的名字（帳號＝姓名、組別＝組別代碼、屆別＝屆別代碼）；其他類型或找不到時為 null。 */
+  /**
+   * 對象的名字（帳號與註冊申請＝姓名、組別＝組別代碼、屆別＝「名稱（代碼）」、活動＝活動標題）；
+   * 其他類型或找不到時為 null。
+   */
   readonly targetName: string | null
   readonly cohortCode: string | null
+  readonly cohortName: string | null
   readonly reason: string | null
+  /** 核實方式（核准註冊、核發臨時密碼這類要核實身分的動作才有）。 */
+  readonly verificationMethod: VerificationMethod | null
+  /** 核實說明；只有核准註冊會帶（見檔頭的唯一例外）。 */
+  readonly verificationNote: string | null
 }
 
 export type AuditLog = {
@@ -62,10 +79,10 @@ export type AuditLog = {
   readonly truncated: boolean
 }
 
-/** 這一筆算哪個分頁。 */
-export function auditWhoOf(entry: Pick<AuditLogEntry, 'actorKind' | 'role'>): Exclude<AuditWhoFilter, 'all'> | null {
+/** 這一筆算哪個分頁（與 `pg-audit-log.ts` 的分頁 SQL 一一對應）。 */
+export function auditWhoOf(entry: Pick<AuditLogEntry, 'actorKind' | 'role'>): Exclude<AuditWhoFilter, 'all'> {
   if (entry.actorKind !== 'user') return 'system'
-  return entry.role
+  return entry.role ?? 'other'
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -208,10 +225,13 @@ export function auditTargetTypeLabel(targetType: string): string {
   return TARGET_TYPE_LABEL[targetType] ?? targetType
 }
 
-/** 對象那一欄的文字：「帳號・王小明」「組別・G03」；沒有名字就只寫類型。 */
-export function describeAuditTarget(entry: Pick<AuditLogEntry, 'targetType' | 'targetName' | 'cohortCode'>): string {
+/** 對象那一欄的文字：「帳號・王小明」「組別・G03（115 學年）」；沒有名字就只寫類型。屆別有名稱就寫名稱，沒有才寫代碼。 */
+export function describeAuditTarget(
+  entry: Pick<AuditLogEntry, 'targetType' | 'targetName' | 'cohortCode'> & Partial<Pick<AuditLogEntry, 'cohortName'>>,
+): string {
   const type = auditTargetTypeLabel(entry.targetType)
   const name = entry.targetName?.trim()
-  const cohort = entry.cohortCode && entry.targetType !== 'cohort' ? `（${entry.cohortCode}）` : ''
+  const cohortText = entry.cohortName?.trim() || entry.cohortCode
+  const cohort = cohortText && entry.targetType !== 'cohort' ? `（${cohortText}）` : ''
   return `${name ? `${type}・${name}` : type}${cohort}`
 }

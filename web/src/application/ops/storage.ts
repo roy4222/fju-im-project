@@ -96,7 +96,7 @@ export function storageTileText(
   if (!m) return { value: '—', hint: '還沒有量測（背景工作啟動後會先量一次，之後每小時一次）' }
   const parts = [
     storageAlertLabel(m.alertLevel),
-    `已用 ${formatGiB(m.usedBytes)}／${formatGiB(m.usedBytes + m.freeBytes)}`,
+    `整台主機已用 ${formatGiB(m.usedBytes)}／${formatGiB(m.usedBytes + m.freeBytes)}`,
     `${measuredAtText} 量測${m.drill ? '（故障演練）' : ''}`,
   ]
   if (isStorageMeasurementStale(m.measuredRealAt, now)) parts.push('量測過期：背景工作可能停了')

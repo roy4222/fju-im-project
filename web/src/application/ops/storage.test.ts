@@ -77,7 +77,7 @@ describe('storageTileText：系辦首頁「儲存與備份」磚', () => {
     const text = storageTileText(base, now, '09/25 19:30')
     expect(text.value).toBe('89.5%')
     expect(text.hint.startsWith('警戒（≥80%）')).toBe(true)
-    expect(text.hint).toContain('已用 85 GiB／95 GiB')
+    expect(text.hint).toContain('整台主機已用 85 GiB／95 GiB')
     expect(text.hint).toContain('09/25 19:30 量測')
     expect(text.hint).not.toContain('過期')
   })

@@ -1,12 +1,12 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy, IconUpload } from '@tabler/icons-react'
-import { actorHasRole } from '@/composition/accounts'
+import { actorHasRole, isRegistrationOpen } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
-import { getBusinessClock } from '@/composition/cohorts'
+import { formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
@@ -17,7 +17,7 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
  * 公開首頁（票 16；產品模組 09 §9.2：重要消息優先、每區幾筆再進完整列表）。
  *
  * 版型、區塊順序照原型首頁（2026-09-07 方向 A；2026-09-25 對齊）：
- * hero → [登入後：我的工作＋近期截止] → 最新公告 → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
+ * hero → [登入後：我的工作＋近期截止] → 最新公告 → [有才出現：近期活動] → [登入後：歷屆專題一覽] → 優秀專題 → 榮譽與競賽 → 快速入口。
  *
  * 最新公告、優秀專題、榮譽與競賽、學生的「我的工作／近期截止」都接真的資料（各自前台頁同一份查詢）；
  * 沒有資料的區塊才顯示空狀態（Roy 2026-09-25），
@@ -34,13 +34,15 @@ export default async function HomePage() {
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  const [latest, featured, honors, competitions] = await Promise.all([
+  const [latest, featured, honors, competitions, activities] = await Promise.all([
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
     // 榮譽依得獎日期（沒填退回發布日）排好才取 4 則，跟 /honors 的「新到舊」一致。
     items.list(actor, 'honor', { limit: 4, order: 'awarded' }),
     // 進行中＝報名中＋決賽／結果；在查詢裡先篩狀態再取筆數，較早發布的進行中競賽不會被截掉。
     items.list(actor, 'news', { category: COMPETITION_CATEGORY, competition: { today, statuses: ['open', 'result'] }, limit: 30 }),
+    // 近期活動（設計方案 D-4）：系辦設成「公開」、還沒結束的活動，訪客也看得到；結束了自然消失。
+    getTimelineQuery().publicActivities(4),
   ])
   // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
   const rank = { open: 0, result: 1, closed: 2 } as const
@@ -71,14 +73,14 @@ export default async function HomePage() {
           </span>
           <h1 className="type-display max-w-2xl text-white">輔仁大學資訊管理學系專題管理平台</h1>
           <p className="max-w-lg text-[17px] leading-relaxed opacity-90">
-            專題的公告、規則、名單、分組、繳交、評分與簽核都在這裡。學生用系上發的信箱或 Google 註冊，系辦核准後才會開通。
+            輔大資管系專題：從分組、提案到成果發表，公告、規則與歷屆作品都在這裡。
           </p>
           <div className="mt-2 flex flex-wrap gap-3.5">
             <Link href="/news" className="btn-fju group h-12 px-7 text-[17px]">
               查看最新公告
               <IconArrowRight className="size-4.5 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
             </Link>
-            {/* 原型：登入後看歷屆專題一覽，訪客看優秀專題（註冊入口在頂列與登入頁）。 */}
+            {/* 原型：登入後看歷屆專題一覽，訪客看優秀專題（註冊入口在頁尾與登入頁，註冊關閉時都不出現）。 */}
             <Link href={member ? '/projects' : '/projects/featured'} className="btn-fju-ghost h-12 px-7 text-[17px]">
               {member ? '查看歷屆專題一覽' : '查看優秀專題'}
             </Link>
@@ -123,6 +125,26 @@ export default async function HomePage() {
         )}
       </section>
 
+      {/* 近期活動：沒有公開活動時整區不出現（不放空狀態）；活動沒有詳情頁，不做連結。 */}
+      {activities.length > 0 ? (
+        <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-activities">
+          <PanelTitle id="home-activities" title="近期活動" />
+          {/* 標題第一個字另外上色會拆開字串；清單自己帶完整名稱（輔助科技與 `curl | grep 近期活動` 都認得）。 */}
+          <ul className="mt-10 grid gap-6 sm:grid-cols-2" data-testid="home-activities-list" aria-label="近期活動">
+            {activities.map((a) => (
+              <li key={a.id} className="fju-list-item flex flex-col gap-1.5 py-1.5">
+                <span className="text-[17px] leading-snug font-bold text-foreground">{a.title}</span>
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground tabular-nums">
+                  <IconClock className="size-3.5" aria-hidden />
+                  <time dateTime={a.startsAt.toISOString()}>{formatActivityWhen(a)}</time>
+                </span>
+                {a.description ? <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{a.description}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {member ? (
         <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
@@ -148,7 +170,9 @@ export default async function HomePage() {
                         title={p.title}
                         tags={
                           <>
-                            <Tag tone="ink">{p.cohortCode} 屆</Tag>
+                            <Tag tone="ink">
+                              {p.cohortName}（{p.cohortCode}）
+                            </Tag>
                             {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
                             {p.advisorName ? <Tag tone="ink">{p.advisorName}</Tag> : null}
                           </>
@@ -293,7 +317,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <QuickLinks home={home} member={member} />
+      <QuickLinks home={home} member={member} registrationOpen={isRegistrationOpen()} />
     </SiteShell>
   )
 }
@@ -516,8 +540,8 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
 }
 
 /** 頁尾前的三欄快速入口（原型 `home-blocks` 的 QuickLinks；只連已經有的頁）。 */
-function QuickLinks({ home, member }: { home: string | null; member: boolean }) {
-  const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[] }[] = [
+function QuickLinks({ home, member, registrationOpen }: { home: string | null; member: boolean; registrationOpen: boolean }) {
+  const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[]; note?: string }[] = [
     {
       icon: <IconBook2 className="size-5.5" aria-hidden />,
       title: '專題規則',
@@ -552,7 +576,8 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
             title: '使用平台',
             links: [
               { label: '登入', href: '/login' },
-              { label: '註冊', href: '/register' },
+              // 註冊關閉時（設計方案 §5）不列。
+              ...(registrationOpen ? [{ label: '註冊', href: '/register' }] : []),
               { label: '忘記密碼', href: '/forgot-password' },
             ],
           },
@@ -564,6 +589,7 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
         { label: '電話 +886-2-2905-2696', href: 'tel:+886229052696' },
         { label: '系網 im.fju.edu.tw', href: 'https://www.im.fju.edu.tw/' },
       ],
+      note: '業界合作或產學洽詢，也請直接聯絡系辦。',
     },
   ]
   return (
@@ -589,6 +615,7 @@ function QuickLinks({ home, member }: { home: string | null; member: boolean }) 
                 </li>
               ))}
             </ul>
+            {c.note ? <p className="px-2 text-sm leading-relaxed text-muted-foreground">{c.note}</p> : null}
           </div>
         ))}
       </div>

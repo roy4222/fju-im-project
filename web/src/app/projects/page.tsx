@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import { IconFileText, IconPlayerPlay, IconSearchOff } from '@tabler/icons-react'
 import type { SignedInShowcaseCard } from '@/application/showcase'
-import { currentActor, requireSignedIn } from '@/app/_ui/guard'
-import { AwardBadge, imageSrc, ListEmpty, NeedLogin, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
+import { requireSignedIn } from '@/app/_ui/guard'
+import { AwardBadge, imageSrc, ListEmpty, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { ARCHIVE_SORT_OPTIONS, getPublicShowcaseQuery, parseShowcaseSort } from '@/composition/showcase'
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 const one = (value: string | string[] | undefined) => (typeof value === 'string' ? value : '')
 
 function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
-  const meta = [`${p.cohortCode} 屆`, p.groupCode, p.advisorName ? `指導老師 ${p.advisorName}` : null].filter(Boolean).join('・')
+  const meta = [`${p.cohortName}（${p.cohortCode}）`, p.groupCode, p.advisorName ? `指導老師 ${p.advisorName}` : null].filter(Boolean).join('・')
   return (
     <Link
       href={`/projects/${p.id}`}
@@ -73,16 +74,8 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ cohort?: string | string[]; q?: string | string[]; sort?: string | string[]; award?: string | string[] }>
 }) {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated') {
-    return (
-      <SiteShell current="/projects">
-        <NeedLogin next="/projects" what="歷屆專題一覽" />
-      </SiteShell>
-    )
-  }
-  // 待審、必須改密的帳號導到各自的頁面（登入了但還不能用業務功能）。
-  await requireSignedIn('/projects')
+  // 訪客導到登入頁（登入後回來）；待審、必須改密的帳號導到各自的頁面。
+  const actor = await requireSignedIn('/projects')
   const sp = await searchParams
   const cohort = one(sp.cohort).slice(0, 20)
   const q = one(sp.q).trim().slice(0, 100)
@@ -92,15 +85,10 @@ export default async function ProjectsPage({
   const query = getPublicShowcaseQuery()
   const [archive, cohorts] = await Promise.all([
     query.archive(actor, { cohort: cohort || undefined, q: q || undefined, sort, awardOnly }),
-    query.cohorts(),
+    query.cohortChoices(),
   ])
-  if (archive.access !== 'visible') {
-    return (
-      <SiteShell current="/projects">
-        <NeedLogin next="/projects" what="歷屆專題一覽" />
-      </SiteShell>
-    )
-  }
+  // 登入了、帳號也正常，查詢仍不給看＝沒有權限。
+  if (archive.access !== 'visible') redirect('/403')
   const cards = archive.cards
   const keep = (c: string, award = awardOnly) => {
     const p = new URLSearchParams()
@@ -114,9 +102,9 @@ export default async function ProjectsPage({
   const sections =
     sort !== 'cohort'
       ? [{ key: 'all', label: '', items: cards }]
-      : [...new Set(cards.map((c) => c.cohortCode))].map((code) => ({
+      : [...new Map(cards.map((c) => [c.cohortCode, c.cohortName])).entries()].map(([code, name]) => ({
           key: code,
-          label: `${code} 屆`,
+          label: `${name}（${code}）`,
           items: cards.filter((c) => c.cohortCode === code),
         }))
   const filtered = Boolean(cohort || q || awardOnly)
@@ -135,8 +123,8 @@ export default async function ProjectsPage({
               全部屆別
             </PillLink>
             {cohorts.map((c) => (
-              <PillLink key={c} href={keep(c)} active={cohort === c}>
-                {c} 屆
+              <PillLink key={c.code} href={keep(c.code)} active={cohort === c.code}>
+                {c.name}（{c.code}）
               </PillLink>
             ))}
             <PillLink href={keep(cohort, !awardOnly)} active={awardOnly} tone="brand">

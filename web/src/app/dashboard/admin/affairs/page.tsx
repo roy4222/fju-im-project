@@ -7,7 +7,7 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AffairsList, type AffairRow } from '@/app/dashboard/admin/affairs/affairs-list'
 import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
-import { COHORT_STATUS_LABEL, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
+import { COHORT_STATUS_LABEL, cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   AUDIENCE_LABEL,
   collectsResponses,
@@ -113,7 +113,7 @@ export default async function AffairsPage({
   })
 
   return shell(
-    `${cohort.code}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・收件中 ${collecting}`,
+    `${cohortLabel(cohort)}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・收件中 ${collecting}`,
     <>
       {cohorts.length > 1 ? (
         <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">

@@ -67,7 +67,9 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await adminContext.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
 
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(name)}`)
-  await rowOf(page, name).getByRole('button', { name: `去識別化 ${name}` }).click()
+  // T6 系6：去識別化收在每列的「更多」選單（選單是 portal，項目從整頁找）。
+  await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: `去識別化 ${name}` }).click()
   const dialog = page.getByRole('dialog', { name: `去識別化 ${name}` })
 
   // 影響預覽：對象、代稱、會清除、會保留。
@@ -99,6 +101,7 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await expect(row).toContainText('已去識別化')
   await expect(row).not.toContainText(studentNo)
   await expect(row.getByRole('button', { name: `去識別化 ${pseudonym}` })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `更多 ${pseudonym}` })).toHaveCount(0)
 
   // 本人舊分頁做下一個動作 → 被帶去登入頁；原 Email 也登入不了。
   await studentPage.reload()

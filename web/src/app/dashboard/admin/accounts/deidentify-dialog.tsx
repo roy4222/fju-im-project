@@ -1,9 +1,10 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { useRouter } from 'next/navigation'
 import type { DeidentifyPreview, DeidentifyReceipt } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { deidentifyAccountAction, previewDeidentifyAction } from './actions'
+import type { DialogOpener } from './role-dialogs'
 
 /**
  * 去識別化一個帳號（票 40；ACC-14；原型的「永久刪除」正式版改成去識別化，工程模組 01 §7.2）。
@@ -21,7 +22,7 @@ const FIELD =
 
 export type DeidentifyTarget = { readonly userId: string; readonly name: string }
 
-export function DeidentifyDialog({ account: a }: { account: DeidentifyTarget }) {
+export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTarget; opener?: Ref<DialogOpener> }) {
   const router = useRouter()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [isOpen, setIsOpen] = useState(false)
@@ -53,6 +54,8 @@ export function DeidentifyDialog({ account: a }: { account: DeidentifyTarget }) 
       setBusy(false)
     }
   }
+
+  useImperativeHandle(opener, () => ({ open: () => void open() }))
 
   function onClosed() {
     setIsOpen(false)
@@ -88,19 +91,21 @@ export function DeidentifyDialog({ account: a }: { account: DeidentifyTarget }) 
 
   return (
     <>
-      <button
-        type="button"
-        onClick={open}
-        className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')}
-        aria-label={`去識別化 ${a.name}`}
-      >
-        去識別化
-      </button>
+      {opener ? null : (
+        <button
+          type="button"
+          onClick={open}
+          className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')}
+          aria-label={`去識別化 ${a.name}`}
+        >
+          去識別化
+        </button>
+      )}
       <dialog
         ref={dialogRef}
         onClose={onClosed}
         aria-label={`去識別化 ${a.name}`}
-        className="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
+        className="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="p-5">
           {!isOpen ? null : receipt ? (

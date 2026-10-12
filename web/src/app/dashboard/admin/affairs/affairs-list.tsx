@@ -9,7 +9,7 @@ import { cn } from '@/shared/cn'
  * 專題事務工作台的「全部內容」卡（票 35；原型 `affairs/admin-affairs.tsx`）。
  *
  * 種類篩選照舊是網址參數（伺服器篩好再傳進來）；搜尋框只在已經載入的列裡找標題與對象，不另外查資料庫。
- * 桌面是八欄格線、手機每列自動堆疊成卡片（原型同一套 class）。
+ * 桌面是七欄格線（可見範圍併在對象第二行，1280 寬時標題欄才有約 14rem）、手機每列自動堆疊成卡片（原型同一套 class）。
  */
 
 export type AffairRow = {
@@ -30,7 +30,7 @@ export type AffairRow = {
   editHref: string
 }
 
-const GRID = 'md:grid-cols-[6.5rem_minmax(0,1fr)_5rem_7rem_9rem_8.5rem_10rem_7rem]'
+const GRID = 'md:grid-cols-[5rem_minmax(14rem,1fr)_4.5rem_8rem_7.5rem_6.5rem_6.5rem]'
 
 export function AffairsList({
   rows,
@@ -77,7 +77,6 @@ export function AffairsList({
         <span>種類</span>
         <span>標題</span>
         <span>狀態</span>
-        <span>可見範圍</span>
         <span>對象</span>
         <span>截止／發布</span>
         <span>收件名單</span>
@@ -96,7 +95,7 @@ export function AffairsList({
                 {r.title}
               </Link>
               {r.publicHref ? (
-                <Link href={r.publicHref} className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
+                <Link href={r.publicHref} className="inline-flex items-center gap-0.5 text-xs whitespace-nowrap text-muted-foreground hover:text-foreground">
                   前台頁面 <IconExternalLink aria-hidden className="size-3" />
                 </Link>
               ) : null}
@@ -104,8 +103,10 @@ export function AffairsList({
             <span>
               <Pill tone={r.status === 'published' ? 'success' : 'default'}>{r.statusLabel}</Pill>
             </span>
-            <span className="text-xs text-muted-foreground md:text-sm">{r.visibility}</span>
-            <span className="truncate text-xs text-muted-foreground md:text-sm">{r.audience}</span>
+            <div className="min-w-0 text-xs text-muted-foreground md:text-sm">
+              <span className="block truncate">{r.audience}</span>
+              <span className="block text-xs text-muted-foreground">{r.visibility}</span>
+            </div>
             <span
               className={cn(
                 'text-xs tabular-nums md:text-sm',

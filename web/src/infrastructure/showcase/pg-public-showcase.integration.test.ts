@@ -325,6 +325,31 @@ describe('歷屆專題一覽（登入後）', () => {
     const ranked = await query.archive(viewer, { sort: 'award' })
     expect(ranked.access === 'visible' && ranked.cards.map((c) => c.title)).toEqual(['城市微光', '安心路徑', '菜市場帳本'])
   })
+
+  it('屆別帶名稱（系1）：卡片與 pill 都拿得到「第 43 屆」這類名稱；公開卡仍不帶', async () => {
+    await owner.sql(`update cohorts set name = '第 43 屆' where code = '115'`)
+    try {
+      const viewer = actor(await newUser('看屆別的學生', 'student'), ['student'])
+      const all = await query.archive(viewer)
+      expect(all.access === 'visible' && all.cards.map((c) => [c.cohortCode, c.cohortName])).toEqual([
+        ['115', '第 43 屆'],
+        ['114', '114'],
+        ['113', '113'],
+      ])
+      expect(await query.cohortChoices()).toEqual([
+        { code: '115', name: '第 43 屆' },
+        { code: '114', name: '114' },
+        { code: '113', name: '113' },
+      ])
+      expect(await query.cohortChoices({ featuredOnly: true })).toEqual([
+        { code: '114', name: '114' },
+        { code: '113', name: '113' },
+      ])
+      expect((await query.featured()).every((c) => !('cohortName' in c))).toBe(true)
+    } finally {
+      await owner.sql(`update cohorts set name = code where code = '115'`)
+    }
+  })
 })
 
 describe('專題詳情', () => {

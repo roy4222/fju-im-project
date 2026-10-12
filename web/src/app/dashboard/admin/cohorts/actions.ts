@@ -2,7 +2,7 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { CohortActionState } from '@/app/dashboard/admin/cohorts/cohort-forms'
-import { describeActivateReceipt, describeFlagReceipt, getCohortCommand } from '@/composition/cohorts'
+import { cohortLabel, describeActivateReceipt, describeFlagReceipt, getCohortCommand } from '@/composition/cohorts'
 
 /**
  * 屆別頁的動作（票 5：新增、設旗標；票 11：轉進行中；契約 02 §7）。
@@ -26,7 +26,7 @@ export async function createCohortAction(
   if (!result.ok) return { ok: false, message: result.message, values }
 
   refresh()
-  return { ok: true, message: `已新增屆別 ${result.receipt.code}，目前是籌備中。` }
+  return { ok: true, message: `已新增屆別 ${cohortLabel(result.receipt)}，目前是籌備中。` }
 }
 
 export async function setCohortFlagAction(

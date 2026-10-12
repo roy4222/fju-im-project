@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { cache } from 'react'
-import { currentActor } from '@/app/_ui/guard'
-import { AttachmentList, CleanBody, coverSrc, Crumbs, GoneNotice, ListItem, NeedLogin, publishedDate, Tag } from '@/app/_ui/public-content'
+import { currentActor, requireSignedIn } from '@/app/_ui/guard'
+import { AttachmentList, CleanBody, coverSrc, Crumbs, GoneNotice, ListItem, publishedDate, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
 
@@ -27,21 +27,22 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * 公告內容頁（票 16；原型 `/news/[id]`）。
  *
  * 五種狀態照 `PublicItemQuery.open`：看得到就顯示內容（正文已經過 `renderBodyHtml`）；
- * 已下架／已撤回告知下一步（不是 404）；沒登入而對象不是公開就請他登入；其餘一律 404。
+ * 已下架／已撤回告知下一步（不是 404）；沒登入而對象不是公開就導到登入頁；其餘一律 404。
  */
 export default async function NewsDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const page = await load(id)
   if (page.access === 'not_found') notFound()
 
+  if (page.access === 'need_login') {
+    // 訪客導到登入頁（登入後回到這一則）；登入了仍不給看＝沒有權限。
+    await requireSignedIn(`/news/${id}`)
+    redirect('/403')
+  }
   if (page.access !== 'visible') {
     return (
       <SiteShell current="/news">
-        {page.access === 'need_login' ? (
-          <NeedLogin next={`/news/${id}`} what="這則公告" />
-        ) : (
-          <GoneNotice kind={page.access} what="公告" back={{ href: '/news', label: '看其他公告' }} />
-        )}
+        <GoneNotice kind={page.access} what="公告" back={{ href: '/news', label: '看其他公告' }} />
       </SiteShell>
     )
   }

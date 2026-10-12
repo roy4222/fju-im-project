@@ -17,7 +17,7 @@ export default async function ForbiddenPage() {
       <CodeNotice
         code="403"
         icon={<IconLock className="size-7" aria-hidden />}
-        title="這一頁不是給你的角色看的"
+        title="你沒有權限看這一頁"
         actions={
           <>
             <Link href={homeFor(actor)} className="btn-fju h-11.5 px-7 text-[15px]">

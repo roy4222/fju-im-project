@@ -33,6 +33,7 @@ export function SiteHeader({
   current,
   viewer,
   signOutFormId,
+  registrationOpen,
 }: {
   nav: readonly NavItem[]
   current?: string
@@ -45,6 +46,8 @@ export function SiteHeader({
     otherWorkbenches?: readonly { href: string; label: string }[]
   } | null
   signOutFormId: string
+  /** 註冊關閉時（設計方案 §5）手機選單不列「註冊」；值由伺服器端的 `SiteShell` 決定。 */
+  registrationOpen: boolean
 }) {
   const [open, setOpen] = useState(false)
 
@@ -175,9 +178,11 @@ export function SiteHeader({
                     <Link href="/login" onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
                       登入
                     </Link>
-                    <Link href="/register" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
-                      註冊
-                    </Link>
+                    {registrationOpen ? (
+                      <Link href="/register" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
+                        註冊
+                      </Link>
+                    ) : null}
                   </>
                 )}
               </nav>

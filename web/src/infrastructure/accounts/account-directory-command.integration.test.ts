@@ -190,6 +190,9 @@ describe('列表與統計（做完的樣子 1）', () => {
       contactEmail: 'yi@example.com', status: 'pending', applicationState: 'pending', roles: [], cohortCode: null,
     })
     expect(byId.get(approved.userId)).toMatchObject({ name: '列表甲', studentNo: '0411400101', status: 'active', roles: ['student'], cohortCode: '114' })
+    // 帳號頁屆別欄顯示「名稱（代碼）」要用的名稱（T6 系1）；待審的人還沒有屆別。
+    expect(byId.get(approved.userId)?.cohortName).toBe('114 學年度專題')
+    expect(byId.get(pending.userId)?.cohortName).toBeNull()
 
     // 搜尋學號、Email（聯絡 Email 也算）；搜尋字裡的 % 不當萬用字元。
     expect(await command.list(adminActor(), filter({ q: '0411400102' }))).toMatchObject({ receipt: { total: 1 } })

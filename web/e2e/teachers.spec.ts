@@ -66,7 +66,9 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   // 直接新增會發臨時密碼：沒選核實方式就不送。
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
   await expect(dialog.getByRole('alert')).toContainText('請選擇怎麼確認是本人')
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 老師的核實方式不提學生證（T6 系5）。
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
+  await expect(dialog).not.toContainText('學生證')
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
 
   await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
@@ -150,6 +152,8 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await temp.getByLabel('登入 Email').fill(email)
   await temp.getByRole('button', { name: '查詢' }).click()
   await expect(temp).toContainText('老師')
+  await expect(temp.getByLabel('當面核對身分證件（教職員證、身分證）')).toBeVisible()
+  await expect(temp).not.toContainText('學生證')
   await temp.getByLabel('經校方授權人員透過既有可信管道確認').check()
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   // 校方管道要寫由誰、透過什麼管道——伺服器擋下。

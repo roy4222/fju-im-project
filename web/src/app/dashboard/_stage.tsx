@@ -4,6 +4,7 @@ import { IconArrowRight } from '@tabler/icons-react'
 import type { ResolvedActor } from '@/application/accounts'
 import type { Cohort, CohortSchedule, StagePosition } from '@/application/cohorts'
 import {
+  cohortLabel,
   describeStagePosition,
   getBusinessClockQuery,
   getCohortStatusQuery,
@@ -126,7 +127,7 @@ export function HomeHero({
   showProgress?: boolean
   compact?: boolean
 }) {
-  const eyebrow = [heroDate(ctx.today), ctx.cohort?.code].filter(Boolean).join('・')
+  const eyebrow = [heroDate(ctx.today), ctx.cohort ? cohortLabel(ctx.cohort) : null].filter(Boolean).join('・')
   // 測試站撥過模擬鐘時註明（短，免得手機上換行）。
   const simulated = ctx.simulated ? `・模擬鐘 ${formatTaipeiMinute(ctx.businessNow).slice(5)}` : ''
   const ctaLink = cta ? (

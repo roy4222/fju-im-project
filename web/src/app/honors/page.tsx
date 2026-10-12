@@ -73,7 +73,7 @@ export default async function HonorsPage({
 
   return (
     <SiteShell current="/honors" bare>
-      <PublicPageHead title="榮譽榜" description="競賽得獎照片與得獎組別。點開卡片為一張圖片加文字；人物照不裁切。" crumbs={[{ label: '榮譽榜' }]} />
+      <PublicPageHead title="榮譽榜" description="收錄本系專題在校內外競賽的得獎紀錄與照片；歷屆專題作品請看「歷屆專題」。" crumbs={[{ label: '榮譽榜' }]} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <nav className="flex flex-wrap gap-2" aria-label="年份篩選">

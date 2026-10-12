@@ -66,6 +66,14 @@ function rowOf(page: Page, name: string) {
   return page.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
+/** T6 系6：設為／取消管理員、補建角色收在每列的「更多」選單；選單是 portal，項目要從整頁找。 */
+async function openMore(page: Page, name: string) {
+  await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
 const adminState = (userId: string) =>
   db(async (pool) =>
     (
@@ -88,8 +96,16 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await expect(row).toBeVisible()
   // 還不是管理員：只有「設為管理員」，沒有「取消管理員」。
   await expect(row.getByRole('button', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
+  // 列上只留常用的兩顆；少用的收在「更多」。
+  await expect(row.getByRole('button', { name: `發臨時密碼給 ${teacher.name}` })).toBeVisible()
+  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toBeVisible()
+  await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `去識別化 ${teacher.name}` })).toHaveCount(0)
 
-  await row.getByRole('button', { name: `設為管理員 ${teacher.name}` }).click()
+  const menu = await openMore(page, teacher.name)
+  await expect(menu.getByRole('menuitem', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: `去識別化 ${teacher.name}` })).toBeVisible()
+  await menu.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` }).click()
   const grant = page.getByRole('dialog', { name: `設為管理員 ${teacher.name}` })
   await expect(grant).toContainText('只給系辦與負責的老師')
   // 沒寫理由不送。
@@ -103,7 +119,7 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   expect(await adminState(teacher.userId)).toEqual({ role: 'admin', admins: 1 })
   await expect(row).toContainText('管理員')
 
-  await row.getByRole('button', { name: `取消管理員 ${teacher.name}` }).click()
+  await (await openMore(page, teacher.name)).getByRole('menuitem', { name: `取消管理員 ${teacher.name}` }).click()
   const revoke = page.getByRole('dialog', { name: `取消管理員 ${teacher.name}` })
   await expect(revoke).toContainText('系統至少要留一位管理員')
   await revoke.getByLabel(/理由/).fill('e2e：職務調整')
@@ -112,7 +128,7 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await revoke.getByRole('button', { name: '關閉' }).click()
 
   expect(await adminState(teacher.userId)).toEqual({ role: 'user', admins: 0 })
-  await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toBeVisible()
+  await expect((await openMore(page, teacher.name)).getByRole('menuitem', { name: `設為管理員 ${teacher.name}` })).toBeVisible()
 })
 
 test('自己那一列沒有「取消管理員」', async ({ browser }) => {
@@ -122,6 +138,8 @@ test('自己那一列沒有「取消管理員」', async ({ browser }) => {
   await expect(row).toBeVisible()
   await expect(row.getByRole('button', { name: /取消管理員/ })).toHaveCount(0)
   await expect(row.getByRole('button', { name: /停用/ })).toHaveCount(0)
+  // 自己那一列沒有「更多」（設為／取消管理員、去識別化都不能對自己）。
+  await expect(row.getByRole('button', { name: /^更多 / })).toHaveCount(0)
 })
 
 test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接停用', async ({ browser }) => {
@@ -138,7 +156,7 @@ test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接�
   await expect(rowOf(page, orphan.name).getByTestId('orphan-badge')).toHaveText('孤兒帳號')
 
   // 補建成老師。
-  await rowOf(page, orphan.name).getByRole('button', { name: `補建角色 ${orphan.name}` }).click()
+  await (await openMore(page, orphan.name)).getByRole('menuitem', { name: `補建角色 ${orphan.name}` }).click()
   const repair = page.getByRole('dialog', { name: `補建角色 ${orphan.name}` })
   await repair.getByLabel(/理由/).fill('e2e：新增老師時系統出錯')
   await repair.getByRole('button', { name: '確認補建' }).click()

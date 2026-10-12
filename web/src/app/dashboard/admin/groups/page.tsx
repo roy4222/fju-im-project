@@ -14,6 +14,7 @@ import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/group
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
   COHORT_STATUS_LABEL,
+  cohortLabel,
   describeGroupSize,
   getBusinessClock,
   getCohortStatusQuery,
@@ -157,7 +158,7 @@ export default async function AdminGroupsPage({
   const description = (
     <>
       <span className="tabular">
-        {cohort.code}・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
+        {cohortLabel(cohort)}・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
         {industry} 組
       </span>
       <br className="sm:hidden" />
@@ -183,6 +184,7 @@ export default async function AdminGroupsPage({
       >
         <UngroupedStudents
           students={overview.ungrouped.map((u) => ({ ...u }))}
+          totalStudents={grouped + overview.ungrouped.length}
           groups={overview.groups.map((g) => ({ id: g.id, code: g.code, revision: g.revision, memberCount: g.members.length }))}
           size={size}
           requestId={randomUUID()}
@@ -256,7 +258,7 @@ export default async function AdminGroupsPage({
             columns={rosterColumns(cohort.id, filter)}
             empty={
               overview.groups.length === 0
-                ? '本屆還沒有成立的組別。全員確認後，組別會自動出現在這裡。'
+                ? '本屆還沒有成立的組別。全員確認後，組別會自動出現在這裡；每一列會有「複製本組信箱」與匯出。'
                 : '沒有符合條件的組別；試著放寬搜尋字詞或清除篩選條件。'
             }
             rows={roster.map((g) => {

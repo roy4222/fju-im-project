@@ -17,6 +17,7 @@ export type {
 export {
   canManageCohorts,
   COHORT_CODE_MAX_LENGTH,
+  cohortLabel,
   COHORT_FLAG_LABEL,
   COHORT_FLAGS,
   COHORT_NAME_MAX_LENGTH,

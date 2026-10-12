@@ -57,8 +57,8 @@ export default async function NewsPage({
 
         {cards.length === 0 ? (
           <ListEmpty
-            title={q ? `找不到符合「${q}」的公告` : category ? '這個分類目前沒有公告' : '目前還沒有公告'}
-            hint={q || category ? '換個關鍵字，或清除篩選條件。' : actor.kind === 'anonymous' ? '部分公告登入後才看得到。' : '系辦發布公告後會出現在這裡。'}
+            title={q ? `找不到符合「${q}」的公告` : category ? '這個分類目前沒有公告' : actor.kind === 'anonymous' ? '目前沒有公開公告' : '目前還沒有公告'}
+            hint={q || category ? '換個關鍵字，或清除篩選條件。' : actor.kind === 'anonymous' ? '系辦發布公開公告後會出現在這裡。' : '系辦發布公告後會出現在這裡。'}
             clearHref={q || category ? '/news' : undefined}
           />
         ) : (

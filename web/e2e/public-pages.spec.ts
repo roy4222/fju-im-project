@@ -18,6 +18,8 @@ const ownerUrl = process.env.DATABASE_URL_OWNER
 test.describe.configure({ mode: 'serial' })
 
 const stamp = Date.now().toString(36).toUpperCase()
+/** 訪客被導到的登入頁網址（next 帶原路徑，登入後回來）。 */
+const loginUrl = (path: string) => new RegExp(`/login\\?next=${encodeURIComponent(path)}$`)
 const CODE = `T16-${stamp}`
 const PDF = Buffer.from('%PDF-1.4\n% e2e 票 16 公開附件\n')
 
@@ -310,18 +312,16 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
     await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [itemIds[RESOURCE]])
   ).rows[0]!.file_id
   expect((await anonymous.get(`/api/files/${resourceFile}`)).status()).toBe(401)
-  await anonymous.dispose()
 
-  // 登入可見的公告：請他登入，不透露標題。
-  const response = await page.goto(`/news/${itemIds[MEMBER_NEWS]}`)
-  expect(response?.status()).toBe(200)
-  await expect(page.getByTestId('need-login')).toContainText('這則公告需要登入')
-  await expect(page.getByRole('main')).not.toContainText(MEMBER_NEWS)
-  // 頁首、頁尾也有「登入」；要驗的是登入提示裡那一顆（帶 next 回到原頁）。
-  await expect(page.getByTestId('need-login').getByRole('link', { name: '登入', exact: true })).toHaveAttribute(
-    'href',
-    `/login?next=${encodeURIComponent(`/news/${itemIds[MEMBER_NEWS]}`)}`,
-  )
+  // 登入可見的公告（訪1）：直接導到登入頁、帶 next 回到原頁；伺服器回的是真的 3xx，回應裡沒有標題。
+  const memberNewsPath = `/news/${itemIds[MEMBER_NEWS]}`
+  const redirected = await anonymous.get(memberNewsPath, { maxRedirects: 0 })
+  expect([302, 303, 307, 308]).toContain(redirected.status())
+  expect(redirected.headers()['location']).toContain(`/login?next=${encodeURIComponent(memberNewsPath)}`)
+  expect(await redirected.text()).not.toContain(MEMBER_NEWS)
+  await page.goto(memberNewsPath)
+  await expect(page).toHaveURL(loginUrl(memberNewsPath))
+  await expect(page.locator('body')).not.toContainText(MEMBER_NEWS)
 
   // 規則：訪客看得到公開的規則全文與目錄。
   await page.goto('/rules')
@@ -336,14 +336,47 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
   expect(await note.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
   expect(await note.evaluate((el) => getComputedStyle(el).borderLeftWidth)).toBe('0px')
 
-  // 檔案下載：這一頁要登入。
+  // 檔案下載：這一頁要登入（訪1）：3xx 到登入頁，回應裡沒有資源。
+  const files = await anonymous.get('/files', { maxRedirects: 0 })
+  expect([302, 303, 307, 308]).toContain(files.status())
+  expect(files.headers()['location']).toContain(`/login?next=${encodeURIComponent('/files')}`)
+  expect(await files.text()).not.toContain(RESOURCE)
   await page.goto('/files')
-  await expect(page.getByTestId('need-login')).toContainText('檔案下載需要登入')
-  await expect(page.getByRole('main')).not.toContainText(RESOURCE)
+  await expect(page).toHaveURL(loginUrl('/files'))
+  await expect(page.locator('body')).not.toContainText(RESOURCE)
+  await anonymous.dispose()
 
-  // 從沒存在的網址：404。
-  const missing = await page.goto('/news/00000000-0000-4000-8000-000000000000')
-  expect(missing?.status()).toBe(404)
+  // 不存在的公告與打錯的網址（訪2）：狀態碼仍是 404，畫面是中文的「找不到這個頁面」，有回首頁、頁首頁尾照常。
+  for (const path of ['/news/00000000-0000-4000-8000-000000000000', '/this-page-does-not-exist']) {
+    const missing = await page.goto(path)
+    expect(missing?.status(), path).toBe(404)
+    await expect(page.getByTestId('not-found')).toContainText('找不到這個頁面')
+    await expect(page.getByTestId('not-found').getByRole('link', { name: '回首頁' })).toHaveAttribute('href', '/')
+    await expect(page.locator('footer')).toContainText('輔仁大學資訊管理學系')
+  }
+
+  // 公告列表的訪客文案（訪3）：不再說「部分公告登入後才看得到」。
+  // 正向的「目前沒有公開公告」只在全站沒有公開公告時出現，e2e 有種子公開公告，留給測試站驗收（features.json V3）。
+  await page.goto('/news')
+  await expect(page.getByRole('main')).not.toContainText('登入後才看得到')
+
+  // 榮譽榜說明（訪6）：給訪客的收錄範圍，不是給設計的註記。
+  await page.goto('/honors')
+  await expect(page.getByRole('main')).toContainText('得獎紀錄')
+  await expect(page.locator('body')).not.toContainText('人物照不裁切')
+
+  // 業界合作洽詢（D-1）：首頁系辦聯絡卡與頁尾各一句。
+  await page.goto('/')
+  await expect(page.getByRole('region', { name: '快速入口' })).toContainText('業界合作或產學洽詢，也請直接聯絡系辦。')
+  await expect(page.locator('footer')).toContainText('業界合作或產學洽詢，也請直接聯絡系辦。')
+})
+
+test('待審核帳號打開檔案下載：帶到申請進度頁，不是要他再登入一次', async ({ request }) => {
+  const pending = await sharedTestSession(request, null)
+  const response = await request.get('/files', { headers: { cookie: pending.cookie }, maxRedirects: 0 })
+  expect([302, 303, 307, 308]).toContain(response.status())
+  expect(response.headers()['location']).toContain('/register/pending')
+  expect(await response.text()).not.toContain(RESOURCE)
 })
 
 test('登入的學生：多看到登入可見的公告（有標示）與資源下載', async ({ page }) => {
