@@ -364,6 +364,17 @@ describe('第 10 步第二段：cloudflared 設定的 access 區塊檢查（AC-S
     expect(step10).toContain('close_gate')
     expect(src).not.toMatch(/docker compose[^\n]* config\b/)
   })
+
+  it('第 7b 步起假 origin 傳的埠號環境變數，就是 verify-origin.mjs 實際讀的那個、值是 VERIFY_PORT', () => {
+    const origin = fs.readFileSync(path.join(repoRoot, 'status', 'verify-origin.mjs'), 'utf8')
+    const vars = [...origin.matchAll(/process\.env\.(\w+)/g)].map((m) => m[1])
+    expect(vars).toHaveLength(1)
+    const src = fs.readFileSync(INSTALL, 'utf8')
+    const runLine = src.slice(src.indexOf('docker run -d --name "$VERIFY_ORIGIN"'), src.indexOf('node verify-origin.mjs'))
+    expect(runLine).not.toBe('')
+    const passed = [...runLine.matchAll(/-e (\w+)=("[^"]*"|\S+)/g)].map((m) => [m[1], m[2]])
+    expect(passed).toEqual([[vars[0], '"$VERIFY_PORT"']])
+  })
 })
 
 describe('status-prepare.sh --dry-run 只印不做', () => {
