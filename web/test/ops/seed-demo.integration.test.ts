@@ -130,6 +130,23 @@ async function firstBatchFingerprint() {
   return r.rows[0]
 }
 
+/**
+ * N-01：已下架那則公告（暑期自學營）的發布日、正文寫的結束日、下架日（臺灣日期）。
+ * 正文的結束日跟著平移，所以一定落在發布日與下架日之間。
+ */
+async function archivedNewsDates(sql: IsolatedDatabase['sql']) {
+  const r = await sql(
+    `select v.body_html,
+            (select to_char(p.business_at at time zone 'Asia/Taipei', 'YYYY-MM-DD') from item_publications p where p.item_id = m.id and p.action = 'publish' order by p.business_at limit 1) as published,
+            (select to_char(p.business_at at time zone 'Asia/Taipei', 'YYYY-MM-DD') from item_publications p where p.item_id = m.id and p.action = 'archive') as archived
+       from managed_items m join item_versions v on v.item_id = m.id
+      where m.title = '暑期程式設計自學營報名（已結束）' and m.status = 'archived'
+      order by v.version_no desc limit 1`,
+  )
+  const row = r.rows[0]!
+  return { body: String(row.body_html), published: String(row.published), archived: String(row.archived) }
+}
+
 describe('seed-demo.mjs', () => {
   let real: Awaited<ReturnType<typeof seedRealData>>
   let afterFirst: Record<string, number>
@@ -204,6 +221,10 @@ describe('seed-demo.mjs', () => {
             + (select count(*) from form_schema_versions where schema::text like '%{{%')::int as n`,
     )
     expect(Number(leftover.rows[0]!.n)).toBe(0)
+    // 已下架的公告：原型 7/31 結束，跨月平移成 9/8，落在發布日與下架日之間。
+    const archived = await archivedNewsDates(db.sql)
+    expect(archived.body).toContain('已於 9 月 8 日結束')
+    expect(archived.published < '2026-09-08' && '2026-09-08' < archived.archived).toBe(true)
   })
 
   it('第一批已在時再跑：只補第二批（歷屆專題、榮譽榜、競賽），第一批一列不動', async () => {
@@ -640,5 +661,42 @@ describe('seed-demo.mjs', () => {
     const reseed = runSeed()
     expect(reseed.code, reseed.stderr).toBe(0)
     expect(reseed.stdout).toContain('示範資料已建立')
+  })
+})
+
+describe('seed-demo.mjs：跨年灌資料（N-01）', () => {
+  // 原型今天 2026-08-17 → 2027-02-01，平移 +168 天：7/31 變 2027-01-15、10/3 變 2027-03-20。
+  const YEAR_ANCHOR = '2027-02-01'
+  let yearDb: IsolatedDatabase
+  let yearFiles: string
+
+  beforeAll(async () => {
+    yearDb = await createIsolatedDatabase({ label: 'seed-demo-year', setup: migratedSchema })
+    yearFiles = fs.mkdtempSync(path.join(os.tmpdir(), 'fju-seed-demo-year-'))
+  })
+
+  afterAll(async () => {
+    await yearDb?.close()
+    if (yearFiles) fs.rmSync(yearFiles, { recursive: true, force: true })
+  })
+
+  it('內文日期跟著跨年平移：已下架公告的結束日在發布日與下架日之間，報名截止寫成新的年份', async () => {
+    const url = new URL(TEST_DATABASE_URL)
+    url.searchParams.set('options', `-c search_path=${yearDb.schemaName}`)
+    const r = runSeed([], { DATABASE_URL_OWNER: url.toString(), FILES_ROOT: yearFiles, DEMO_ANCHOR_DATE: YEAR_ANCHOR })
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.stdout).toContain('日期平移 168 天')
+
+    const archived = await archivedNewsDates(yearDb.sql)
+    expect(archived.body).toContain('已於 1 月 15 日結束')
+    expect(archived.published < '2027-01-15' && '2027-01-15' < archived.archived).toBe(true)
+
+    const news = await yearDb.sql(
+      `select v.summary from item_versions v join managed_items m on m.id = v.item_id
+        where m.title = '第 31 屆全國大專校院資訊應用服務創新競賽開始報名' order by v.version_no desc limit 1`,
+    )
+    expect(String(news.rows[0]!.summary)).toContain('報名至 2027 年 3 月 20 日止')
+    const leftover = await yearDb.sql(`select count(*)::int as n from item_versions where title || summary || body_html like '%{{%'`)
+    expect(Number(leftover.rows[0]!.n)).toBe(0)
   })
 })
