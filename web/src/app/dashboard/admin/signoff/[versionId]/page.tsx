@@ -42,17 +42,16 @@ function affectedVotes(v: VersionDetail): string[] {
   return [...p.students, p.advisor].filter((x) => x.result !== null).map((x) => `${x.displayName}（${VOTE_RESULT_LABEL[x.result!]}）`)
 }
 
-/** 確認視窗的對象與範圍：哪一組、哪一份、第幾版，影響全組學生與主指導。 */
-function targetOf(v: VersionDetail): Pick<DangerFacts, 'target' | 'scope'> {
-  return {
-    target: `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」v${v.versionNo}`,
-    scope: `全組 ${v.progress.students.length} 位學生與主指導都要重新處理這份簽核。`,
-  }
+/** 確認視窗的對象：哪一組、哪一份、第幾版。 */
+function targetOf(v: VersionDetail): string {
+  return `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」v${v.versionNo}`
 }
 
 function restartFacts(v: VersionDetail, affected: readonly string[]): DangerFacts {
   return {
-    ...targetOf(v),
+    target: targetOf(v),
+    // 新版的參與者按下時才依「目前」的組員與主指導重算，不能用這一版的快照人數（組員可能已經異動）。
+    scope: `${v.groupCode} 目前有效的組員與主指導（按下時重新計算），每個人都要重新同意。`,
     effect:
       `建立 v${v.versionNo + 1}（全文、附件、授權範圍與 v${v.versionNo} 相同），參與者依此刻的組員與主指導重新計算，每個人都要重新同意；` +
       `v${v.versionNo} 與它的表態留作歷史、不計入新版${affected.length > 0 ? `，下面 ${affected.length} 份簽署失效` : ''}。參與學生會收到「輪到你同意」。`,
@@ -62,7 +61,8 @@ function restartFacts(v: VersionDetail, affected: readonly string[]): DangerFact
 
 function voidFacts(v: VersionDetail): DangerFacts {
   return {
-    ...targetOf(v),
+    target: targetOf(v),
+    scope: `只有 v${v.versionNo} 這一版：它的參與者之後都不能再對它表態；不會另建新版。`,
     effect:
       v.state === 'complete'
         ? '這份已完成的同意等於撤回；之後誰都不能再對這一版表態。'

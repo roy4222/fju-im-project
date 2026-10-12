@@ -49,9 +49,13 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
     ['對象', `這一屆的評分方案：v${p.currentVersionNo} 換成 v${p.versionNo}`],
     [
       '範圍',
-      `這一屆全部 ${p.groups.length} 組；${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有更正、會進待復核` : ''}。`,
+      // 預覽只列未解散的組（`buildSchemePreview` 只取 status = 'active'）；解散的組釘在解散當下的版本，不重算。
+      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有更正、會進待復核` : ''}。已解散的組維持解散當下的方案版本與成績，不受影響。`,
     ],
-    ['後果', `已正式送出的分數照 v${p.versionNo} 的滿分與權重重算（老師的原始輸入不改），成績表、計算明細與匯出都改用新版；v${p.versionNo} 套用後就鎖定。`],
+    [
+      '後果',
+      `未解散各組已正式送出的分數照 v${p.versionNo} 的滿分與權重重算（老師的原始輸入不改），這些組在成績表、計算明細與匯出改用新版；v${p.versionNo} 套用後就鎖定。`,
+    ],
     ['能不能恢復', `不能退回 v${p.currentVersionNo}。要再改，只能另建一版方案，再看影響、套用一次。`],
   ]
 
@@ -59,7 +63,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
     <div className="space-y-6">
       <Card
         title={`v${p.currentVersionNo} → v${p.versionNo} 的影響`}
-        description={`已正式送出的分數照 v${p.versionNo} 的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
+        description={`未解散各組已正式送出的分數照 v${p.versionNo} 的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
       >
         {p.blockers.length > 0 ? (
           <div role="alert" className="mb-4 space-y-1 rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
