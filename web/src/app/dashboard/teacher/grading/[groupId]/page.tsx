@@ -18,7 +18,7 @@ export const metadata = { title: '評閱桌｜資管系專題平台' }
 /**
  * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的評分佇列（手機收成下拉），右邊是這一組的評分表。
  *
- * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束）就只顯示「你沒有被指派評這一組」，
+ * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束）就只顯示「你沒有被指派評這一組」＋為什麼、找誰、回首頁，
  * 不透露這一組的任何評分資料。同一組被指派多個階段時，用評分表上方的階段切換。
  *
  * 票 24：
@@ -49,11 +49,20 @@ export default async function TeacherGradingGroupPage({
   if (!bench.ok) {
     return shell(
       <Panel title="評分表" icon={<IconChecklist />}>
+        {/* 不說這一組存不存在、誰在評；只說為什麼看不到、找誰、怎麼回去（N-24）。 */}
         <PanelEmpty
           icon={<IconChecklist />}
           title="你沒有被指派評這一組"
-          hint={bench.message}
-          action={{ href: '/dashboard/teacher/grading', label: '回評分工作台' }}
+          hint={
+            <>
+              評分表只開給系辦指派的評分老師；這一組沒有指派給你，或指派已經結束（網址也可能打錯）。覺得應該由你評，請聯絡系辦。你被指派的組別都在
+              <Link href="/dashboard/teacher/grading" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
+                評分工作台
+              </Link>
+              。
+            </>
+          }
+          action={{ href: '/dashboard/teacher', label: '回到自己的首頁' }}
         />
       </Panel>,
     )
