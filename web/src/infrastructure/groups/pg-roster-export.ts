@@ -48,8 +48,9 @@ export class PgGroupRosterExporter implements GroupRosterExporter {
     const denied = authorizeAdmin(actor, '匯出組別名單')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
 
-    const cohort = await this.#pool().query<{ code: string }>('select code from cohorts where id = $1', [request.cohortId])
+    const cohort = await this.#pool().query<{ code: string; name: string }>('select code, name from cohorts where id = $1', [request.cohortId])
     const cohortCode = cohort.rows[0]?.code
+    const cohortName = cohort.rows[0]?.name ?? ''
     if (!cohortCode) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
 
     const { groups } = await this.#query.overview(request.cohortId)
@@ -102,7 +103,7 @@ export class PgGroupRosterExporter implements GroupRosterExporter {
     }
 
     return ok(
-      { format: request.format, cohortCode, groupCount: selected.length, rowCount: rows.length, body },
+      { format: request.format, cohortCode, cohortName, groupCount: selected.length, rowCount: rows.length, body },
       { requestId: uuidv7(), serverTime: now.toISOString() },
     )
   }

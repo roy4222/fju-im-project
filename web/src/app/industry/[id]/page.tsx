@@ -6,6 +6,7 @@ import { cache } from 'react'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
 import { CleanBody, Crumbs, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
+import { cohortLabel } from '@/composition/cohorts'
 import { getOpportunityQuery, OPPORTUNITY_STATUS_LABEL, studentCohortOf } from '@/composition/groups'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -159,7 +160,7 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
               <ul className="flex flex-col gap-1">
                 {o.linkedGroups.map((g) => (
                   <li key={g.linkId} className="font-bold text-foreground tabular-nums">
-                    {g.cohortCode}・{g.groupCode}
+                    {cohortLabel({ name: g.cohortName, code: g.cohortCode })}・{g.groupCode}
                   </li>
                 ))}
               </ul>

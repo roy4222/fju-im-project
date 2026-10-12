@@ -256,10 +256,10 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   // ② 補登歷屆作品：選封存的屆別、填題目；組別顯示「（歷屆補登）」。
   const BACK_TITLE = `${stamp} 補登的歷屆作品`
   const backfill = page.getByRole('form', { name: '補登歷屆作品' })
-  await backfill.getByLabel('屆別').selectOption({ label: `${OLD_CODE}（已封存）` })
+  await backfill.getByLabel('屆別').selectOption({ label: `${OLD_CODE}（${OLD_CODE}）・已封存` })
   await backfill.getByLabel('作品題目').fill(BACK_TITLE)
   await backfill.getByRole('button', { name: '補登作品' }).click()
-  await expect(backfill.getByRole('status')).toContainText(`已補登 ${OLD_CODE} 屆「${BACK_TITLE}」`)
+  await expect(backfill.getByRole('status')).toContainText(`已補登${OLD_CODE}（${OLD_CODE}）「${BACK_TITLE}」`)
   await expect(row(page, BACK_TITLE).getByRole('cell').nth(2)).toHaveText('（歷屆補登）')
 
   // ③ 封存屆別作品：改摘要、換海報、存草稿 → 訪客仍是舊摘要；發布更新 → 訪客看到新摘要與新海報。

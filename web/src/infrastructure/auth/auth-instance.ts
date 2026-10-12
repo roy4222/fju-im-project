@@ -47,6 +47,7 @@ import {
   SIGN_UP_EMAIL_ERROR_CODES,
 } from '@/infrastructure/auth/login-methods'
 import { isRegistrationOpen, REGISTRATION_CLOSED_MESSAGE } from '@/infrastructure/auth/registration-switch'
+import { RATE_LIMITS } from '@/shared/rate-limit'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -60,6 +61,15 @@ import { isRegistrationOpen, REGISTRATION_CLOSED_MESSAGE } from '@/infrastructur
  * 3. 每個 session 記下這次的登入方式（契約 01 §4.1 `sessions.login_method`）。
  * 4. 設定值：uuidv7 主鍵、關掉隱含帳號合併、關掉 cookie 快取、fresh session 10 分鐘。
  */
+
+/**
+ * 被限速時最晚要等多久（N-21）。限速是固定視窗：被擋之後最晚一個視窗長度就重算，
+ * 所以照 `RATE_LIMITS` 的視窗長度說「最晚」，不寫死數字。
+ */
+function waitAtMost(windowMs: number): string {
+  const minutes = Math.ceil(windowMs / 60_000)
+  return minutes % 60 === 0 ? `${minutes / 60} 小時` : `${minutes} 分鐘`
+}
 
 /** 契約 03 §2：fresh session＝10 分鐘內登入過（數字與判準在 `login-methods.ts`，設密碼的用例共用）。 */
 export { FRESH_AGE_SECONDS }
@@ -308,7 +318,7 @@ function createAuth() {
           if (!checkSocialSignInRate(ip).allowed) {
             throw new APIError('TOO_MANY_REQUESTS', {
               code: 'RATE_LIMITED',
-              message: '這個網路一小時內的 Google 登入次數已達上限，請稍後再試。',
+              message: `這個網路 ${waitAtMost(RATE_LIMITS.signInSocial.windowMs)}內的 Google 登入次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.signInSocial.windowMs)}後可以再試；仍無法登入請聯絡系辦。`,
             })
           }
         }
@@ -327,7 +337,7 @@ function createAuth() {
           if (!checkSignUpRate(ip).allowed) {
             throw new APIError('TOO_MANY_REQUESTS', {
               code: 'RATE_LIMITED',
-              message: '這個網路一小時內的註冊次數已達上限，請稍後再試。',
+              message: `這個網路 ${waitAtMost(RATE_LIMITS.register.windowMs)}內的註冊次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.register.windowMs)}後可以再試；仍無法註冊請聯絡系辦。`,
             })
           }
           const password = String(((ctx.body ?? {}) as { password?: unknown }).password ?? '')
@@ -349,7 +359,7 @@ function createAuth() {
           if (!checkIpFailures(clientIpFrom(ctx.request?.headers ?? ctx.headers)).allowed) {
             throw new APIError('TOO_MANY_REQUESTS', {
               code: 'RATE_LIMITED',
-              message: '這個網路的登入失敗次數過多，請稍後再試。',
+              message: `這個網路的登入失敗次數過多，最晚 ${waitAtMost(RATE_LIMITS.signInFailuresPerIp.windowMs)}後可以再試；仍無法登入請聯絡系辦。`,
             })
           }
           const email = String(((ctx.body ?? {}) as { email?: string }).email ?? '')
@@ -360,7 +370,7 @@ function createAuth() {
               // 密碼對不對的訊號。
               throw new APIError('TOO_MANY_REQUESTS', {
                 code: 'RATE_LIMITED',
-                message: '嘗試過多，請稍後再試。',
+                message: `嘗試過多，最晚 ${waitAtMost(RATE_LIMITS.signIn.windowMs)}後可以再試；仍無法登入請聯絡系辦。`,
               })
             }
           }

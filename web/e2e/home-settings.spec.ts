@@ -134,6 +134,14 @@ test('首頁輪播沒有公開的優秀專題時，空狀態不說「系辦發�
   await expect(featured).toContainText('目前還沒有公開的優秀專題。')
   await expect(featured).not.toContainText('系辦發布')
   await expect(featured).not.toContainText('系辦公開')
+
+  // 驗收 P-01：優秀專題頁的空狀態也不能叫訪客去登入後才能用的「歷屆專題一覽」。
+  await page.goto('/projects/featured')
+  const main = page.getByRole('main')
+  await expect(main).toContainText('目前還沒有公開的優秀專題。')
+  await expect(main).toContainText('可以先到榮譽榜看看歷屆的得獎消息。')
+  await expect(main).not.toContainText('登入後')
+  await expect(main).not.toContainText('歷屆專題一覽')
 })
 
 test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換圖後舊圖無法存取（AC-17、AC-18）', async ({ page, browser, request }) => {

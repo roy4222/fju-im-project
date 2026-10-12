@@ -363,6 +363,8 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
   // 榮譽榜說明（訪6）：給訪客的收錄範圍，不是給設計的註記。
   await page.goto('/honors')
   await expect(page.getByRole('main')).toContainText('得獎紀錄')
+  // 說明裡叫訪客去看的「歷屆專題」要點得到（N-13）。
+  await expect(page.getByRole('main').getByRole('link', { name: '歷屆專題', exact: true })).toHaveAttribute('href', '/projects')
   await expect(page.locator('body')).not.toContainText('人物照不裁切')
 
   // 業界合作洽詢（D-1）：首頁系辦聯絡卡與頁尾各一句。

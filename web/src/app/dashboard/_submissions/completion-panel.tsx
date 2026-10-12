@@ -55,7 +55,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
           <span className="font-semibold text-foreground" data-testid="completion-rate">
             {completion.done}／{completion.required}
           </span>
-          ・不計入：免繳 {completion.exempt} {unit}・已移出名單 {completion.removed} {unit}
+          ・不計入：免繳 {completion.exempt} {unit}・已不需要繳交（原名單移除） {completion.removed} {unit}
         </p>
       </div>
     </Panel>

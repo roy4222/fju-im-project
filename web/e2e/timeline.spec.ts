@@ -84,7 +84,7 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'alert')).toContainText('還沒設定階段與年度結束日')
+  await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('尚未開始（設定中）')
 })
@@ -108,6 +108,8 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
     await dialog.getByLabel(`第 ${i + 1} 階段名稱`).fill(name!)
     await dialog.getByLabel(`第 ${i + 1} 階段開始日`).fill(date!)
   }
+  // Q40：第 1 階段（分組期）固定說明在做什麼；名稱照系辦填的。
+  await expect(dialog).toContainText('分組期：組隊、選指導老師、交提案的期間')
   // 票 39：一句話說明（選填），右欄預覽跟著顯示。
   await dialog.getByLabel('第 1 階段一句話說明').fill('五人一組報名，各自確認後成立。')
   await expect(dialog.getByRole('complementary', { name: '學生看到的樣子' })).toContainText('五人一組報名，各自確認後成立。')
@@ -118,6 +120,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
 
   const list = page.getByRole('list', { name: '本屆階段' })
   await expect(list).toContainText('成組期')
+  await expect(page.getByText(/分組期：組隊、選指導老師、交提案的期間。五人一組報名/).first()).toBeVisible()
   await expect(list).toContainText('2026-11-01 – 2027-01-09')
   await expect(list).toContainText('2027-03-01 – 2027-06-30')
 
@@ -189,6 +192,8 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   const danger = page.getByRole('region', { name: '危險操作' })
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
+  // 驗收 P-01：確認視窗標題寫「名稱（代碼）」。
+  await expect(confirm.getByRole('heading', { level: 2 })).toHaveText(`把${CODE} 年度測試（${CODE}）轉為進行中？`)
   const facts = confirm.getByTestId('danger-facts')
   for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
   await expect(facts).toContainText(CODE)

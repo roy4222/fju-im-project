@@ -267,7 +267,7 @@ describe('Google 首次登入（ACC-13）', () => {
     // 伺服器端呼叫也被同一個桶擋，畫面給的是限速那一句，不是「Google 壞了」。
     expect(await beginGoogleSignIn({ from: 'login', next: null, headers: new Headers({ 'x-real-ip': '198.51.100.200' }) })).toMatchObject({
       ok: false,
-      message: expect.stringContaining('次數已達上限'),
+      message: '這個網路 1 小時內的 Google 登入次數已達上限，最晚 1 小時後可以再試，或改用 Email 與密碼；仍無法登入請聯絡系辦。',
     })
     expect((await hit('198.51.100.201')).status).toBe(200)
   })

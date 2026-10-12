@@ -44,6 +44,7 @@ export type ExportLifecycle = {
 
 export type SignoffExportData = {
   readonly cohortCode: string
+  readonly cohortName: string
   readonly groupCode: string
   readonly purpose: SignoffPurpose
   readonly versionId: string
@@ -246,7 +247,7 @@ dl{display:grid;grid-template-columns:6rem 1fr;gap:.25rem 1rem}dt{color:#555}.me
 </style></head><body>
 <p class="notice">${esc(ACCEPTANCE_NOTICE)}</p>
 <h1>${esc(title)}</h1>
-<p class="meta">${esc(data.cohortCode)}・版本 ID ${esc(data.versionId)}・內容 checksum（sha256）${esc(data.contentChecksum)}<br>
+<p class="meta">${esc(`${data.cohortName}（${data.cohortCode}）`)}・版本 ID ${esc(data.versionId)}・內容 checksum（sha256）${esc(data.contentChecksum)}<br>
 目前版本狀態：<strong>${esc(stateText(data))}</strong>${data.isCurrent ? '' : '（已不是目前版本）'}<br>
 匯出：${esc(data.exportedByName)}・${esc(formatTaipeiSecond(data.exportedAt))}</p>
 <h2>全文</h2>
