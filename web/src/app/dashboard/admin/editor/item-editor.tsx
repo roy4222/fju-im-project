@@ -72,9 +72,9 @@ const FIELD_CHECK_LABEL: Record<string, string> = {
   body: '正文',
   category: '分類',
   fields: '欄位',
-  placement: '發布位置',
-  audienceKind: '對象',
-  receiverUnit: '收件單位',
+  placement: '顯示在哪一區',
+  audienceKind: '誰看得到',
+  receiverUnit: '繳交方式',
   opensAt: '開放時間',
   dueAt: '截止',
   stageId: '所屬階段',
@@ -108,20 +108,20 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
     label: '撤回',
     title: '撤回成草稿？',
     explain:
-      '撤回後受眾看不到這個項目（前台網址會顯示「已撤回」），收件名單會結束。改好後按「發布」恢復同一個項目，實際開放時間不會重設。只有還沒有任何人作答時可以撤回。',
+      '撤回後原本看得到的人都看不到這個項目（前台網址會顯示「已撤回」），需要繳交的名單會結束。改好後按「發布」恢復同一個項目，實際開放時間不會重設。只有還沒有任何人作答時可以撤回。',
     confirm: '確認撤回',
   },
   archive: {
     label: '下架',
     title: '下架這個項目？',
-    explain: '下架後前台網址會顯示「已下架」與下一步；既有回答、收件名單與紀錄都保留。之後可以「重新發布」，實際開放時間不會重設。',
+    explain: '下架後前台網址會顯示「已下架」與下一步；既有回答、需要繳交的名單與紀錄都保留。之後可以「重新發布」，實際開放時間不會重設。',
     confirm: '確認下架',
   },
   republish: {
     label: '重新發布',
     title: '重新發布？',
     explain:
-      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間。發布前檢查會再跑一次：已經截止的收件不能直接重新發布。',
+      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間。發布前檢查會再跑一次：已經截止的繳交項目不能直接重新發布。',
     confirm: '確認重新發布',
   },
 }
@@ -130,7 +130,7 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
 const DELETE_LABEL: Record<string, string> = {
   news: '刪除這則公告',
   resource: '刪除這份資源',
-  submission: '刪除這份收件',
+  submission: '刪除這個繳交項目',
   rules: '刪除這節規則',
   honor: '刪除這則榮譽',
 }
@@ -298,8 +298,8 @@ export function ItemEditor({
     const unit = vocabulary.units.find((u) => u.value === template.receiverUnit)?.label ?? template.receiverUnit
     setTemplateNote(
       added.length > 0
-        ? `已加入 ${added.length} 個欄位，收件單位改為「${unit}」（可在下方「發布設定」改）。記得存草稿。`
-        : `這些欄位都已經在了，沒有重複加入；收件單位維持「${unit}」。`,
+        ? `已加入 ${added.length} 個欄位，繳交方式改為「${unit}」（可在下方「發布設定」改）。記得存草稿。`
+        : `這些欄位都已經在了，沒有重複加入；繳交方式維持「${unit}」。`,
     )
   }
 
@@ -717,7 +717,7 @@ export function ItemEditor({
           <SectionHead
             n={2}
             id="sec-fields"
-            title="收件欄位"
+            title="繳交欄位"
             hint={collects ? `學生會看到的樣子；點一欄原地改設定・${state.fields.filter((f) => vocabulary.inputFieldTypes.includes(f.type)).length} 個` : undefined}
           />
           <div className="px-5 pb-6 lg:px-6">
@@ -748,7 +748,7 @@ export function ItemEditor({
                       })
                     }
                   >
-                    啟用收件（改為文件繳交）
+                    啟用繳交（改為文件繳交）
                   </button>
                 ) : null}
               </div>
@@ -758,7 +758,7 @@ export function ItemEditor({
 
         {/* 3 發布設定 */}
         <section aria-labelledby="sec-publish" className={section('publish')}>
-          <SectionHead n={3} id="sec-publish" title="發布設定" hint="位置、對象、收件單位、階段、開放與截止" />
+          <SectionHead n={3} id="sec-publish" title="發布設定" hint="顯示在哪一區、誰看得到、繳交方式、階段、開放與截止" />
           <div className="px-5 pb-6 lg:px-6">
             <SettingsFields
               state={state}
@@ -846,7 +846,7 @@ export function ItemEditor({
                 {perspective === 'guest' && state.audienceKind !== 'public' ? (
                   <div className="rounded-xl bg-muted/40 px-4 py-8 text-center">
                     <p className="text-sm font-bold">訪客看不到這一筆</p>
-                    <p className="mt-1 text-xs text-muted-foreground">發布對象不是「公開訪客」；要讓訪客看到，在發布設定改對象。</p>
+                    <p className="mt-1 text-xs text-muted-foreground">「誰看得到」沒有選「公開訪客」；要讓訪客看到，在發布設定改「誰看得到」。</p>
                   </div>
                 ) : (
                   <StudentView state={state} review={review} vocabulary={vocabulary} />
@@ -870,7 +870,7 @@ export function ItemEditor({
               </h2>
               <ul className="flex flex-col gap-1 text-sm leading-relaxed">
                 <li>
-                  <span className="font-semibold">撤回</span>：發布中、還沒有人作答時收回成草稿；受眾看不到，改好可以再發布。
+                  <span className="font-semibold">撤回</span>：發布中、還沒有人作答時收回成草稿；看得到的人都看不到了，改好可以再發布。
                 </li>
                 <li>
                   <span className="font-semibold">下架</span>：前台看不到，後台保留內容、回答與紀錄，之後可以重新發布。
@@ -940,7 +940,7 @@ export function ItemEditor({
                 </>
               ) : null}
               {collects && !published ? (
-                <p className="text-xs text-muted-foreground">新收件一定會通知收件名單上的人（站內通知）。</p>
+                <p className="text-xs text-muted-foreground">新的繳交項目一定會通知名單上需要繳交的人（站內通知）。</p>
               ) : honor ? (
                 <p className="text-xs text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
               ) : (

@@ -258,7 +258,7 @@ export function AccountsTable(props: AccountsTableProps) {
                           title="只有登入身分：沒有角色、沒有註冊申請、沒有個人資料"
                           data-testid="orphan-badge"
                         >
-                          孤兒帳號
+                          未設定身分
                         </span>
                       ) : null}
                     </span>
@@ -358,8 +358,8 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
         />
         <DropdownMenuContent align="end" className="w-40">
           {canRepair ? (
-            <DropdownMenuItem aria-label={`補建角色 ${r.name}`} onClick={later(orphanRef)}>
-              補建角色
+            <DropdownMenuItem aria-label={`補上身分 ${r.name}`} onClick={later(orphanRef)}>
+              補上身分
             </DropdownMenuItem>
           ) : null}
           {canGrant ? (
@@ -384,8 +384,8 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
                   </DropdownMenuItem>
                 ) : null}
                 {canDeidentify ? (
-                  <DropdownMenuItem variant="destructive" aria-label={`去識別化 ${r.name}`} onClick={later(deidentifyRef)}>
-                    去識別化
+                  <DropdownMenuItem variant="destructive" aria-label={`刪除 ${r.name} 的個人資料`} onClick={later(deidentifyRef)}>
+                    刪除個人資料
                   </DropdownMenuItem>
                 ) : null}
               </DropdownMenuGroup>

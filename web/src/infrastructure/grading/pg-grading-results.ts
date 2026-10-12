@@ -271,7 +271,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         return err('NOT_ASSIGNED', '這位老師已經不是這一組這一階段的評分老師（指派已結束），退回後他無法處理；請先處理指派。')
       }
       if (status?.state !== 'counted') {
-        return err('CONFLICT', '這一份評分已經不是採計中（可能剛被退回或改派），請重新整理頁面。')
+        return err('CONFLICT', '這一份評分已經不計入成績（可能剛被退回或改派），請重新整理頁面。')
       }
       const teacher = await eligibleTeacher(tx, assignment.teacher_user_id)
       if (!teacher) {
@@ -666,11 +666,11 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
   }
 
   async resolveReview(actor: ResolvedActor, input: ResolveReviewInput, requestId: string): Promise<Result<OverrideReceipt>> {
-    const denied = authorizeAdmin(actor, '重新確認人工更正')
+    const denied = authorizeAdmin(actor, '重新確認更正')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.overrideId)) return err('VALIDATION_FAILED', '找不到這筆更正，請重新整理頁面。')
-    if (input.decision !== 'keep' && input.decision !== 'new') return err('VALIDATION_FAILED', '請選沿用原更正值或改成新的更正值。')
+    if (input.decision !== 'keep' && input.decision !== 'new') return err('VALIDATION_FAILED', '請選保留先前更正的分數，或改成新的更正值。')
     let parsedNew: string | null = null
     if (input.decision === 'new') {
       parsedNew = parseFinalScore(String(input.newValue ?? ''))
@@ -713,13 +713,13 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<OverrideReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort.code)
       if (group.status === 'dissolved') return dissolved(group.code)
-      if (state?.state !== 'pending_review') return err('CONFLICT', '這筆人工更正已經有人處理過了（或不是待重新確認），請重新整理頁面。')
+      if (state?.state !== 'pending_review') return err('CONFLICT', '這筆更正已經有人處理過了（或已不需要重新確認），請重新整理頁面。')
       if (!versionId) return noScheme()
 
       const facts = await loadGroupFacts(tx, group.id)
       const result = computeGroupResult(stages, facts.requirements, facts.counted)
       if (!result.complete || result.finalExact === null) {
-        return err('FINAL_INCOMPLETE', `${group.code} 在新的分數來源上還有階段尚未完成；等各階段完成後再決定沿用或重新更正。`)
+        return err('FINAL_INCOMPLETE', `${group.code} 在新的分數來源上還有階段尚未完成；等各階段完成後再決定保留先前更正的分數或重新更正。`)
       }
       const basis = groupBasisHash(versionId, facts)
       if (basis !== input.basisHash) return staleFinal()
@@ -732,7 +732,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         originalValue: result.finalExact,
         newValue: value,
         basisHash: basis,
-        reason: input.decision === 'keep' ? `沿用原更正值：${reason.value}` : reason.value,
+        reason: input.decision === 'keep' ? `保留先前更正的分數：${reason.value}` : reason.value,
         adminId,
         realAt,
       })

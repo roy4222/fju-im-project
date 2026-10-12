@@ -704,8 +704,8 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
     const early = await newCohort(['2026-12-01', '2027-01-15'])
     const g2 = await newGroup(early.id, 'G01', 'general')
     for (const [cohort, g, blocker] of [
-      [unconfigured, g1, '這一屆還沒設定成組期'],
-      [early, g2, '成組期還沒開始'],
+      [unconfigured, g1, '這一屆還沒設定分組期'],
+      [early, g2, '分組期還沒開始'],
     ] as const) {
       const refused = await command.changeGroupType(
         actor(g.leader.id, ['student']),
@@ -742,9 +742,9 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
       { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' },
       randomUUID(),
     )
-    expect(blocked.ok ? 'ok' : blocked.message).toBe('目前不能自己改組別類型（成組期已結束、已經有指導老師、已經連結合作案）；請聯絡系辦處理。')
+    expect(blocked.ok ? 'ok' : blocked.message).toBe('目前不能自己改組別類型（分組期已結束、已經有指導老師、已經連結合作案）；請聯絡系辦處理。')
     const panel = await query.leaderPanel(actor(g.leader.id, ['student']), cohort.id)
-    expect(panel?.typeChangeBlockers).toEqual(['成組期已結束', '已經有指導老師', '已經連結合作案'])
+    expect(panel?.typeChangeBlockers).toEqual(['分組期已結束', '已經有指導老師', '已經連結合作案'])
 
     // 系辦處理：理由必填，保留主指導與合作案連結（不靜默刪關聯）。
     const noReason = await command.changeGroupType(adminActor(), { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' }, randomUUID())

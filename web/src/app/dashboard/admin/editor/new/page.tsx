@@ -38,7 +38,7 @@ export default async function NewItemPage({
   if (!cohort) {
     return shell(
       <div className="flex flex-col gap-5">
-        <PageTitle title="新增專題事務" description="寫內容、設收件欄位與發布對象，檢查過再發布；存草稿之前沒有人看得到。" />
+        <PageTitle title="新增專題事務" description="寫內容、設繳交欄位與誰看得到，檢查過再發布；存草稿之前沒有人看得到。" />
         <EmptyState
         title="還沒有屆別"
         description="專題事務要綁在某一屆；先到屆別頁新增一屆。"

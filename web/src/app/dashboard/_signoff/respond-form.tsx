@@ -60,7 +60,7 @@ export function RespondForm({
   )
 
   return (
-    <section aria-label="表態" className="flex flex-col gap-4" data-testid="respond-form">
+    <section aria-label="回覆" className="flex flex-col gap-4" data-testid="respond-form">
       <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm font-medium">
         <input type="checkbox" checked={read} onChange={(e) => setRead(e.target.checked)} className="size-4 accent-[var(--primary)]" />
         <span>我已完整閱讀這一版的全文{role === 'student' ? '、附件與授權範圍' : '與附件'}</span>

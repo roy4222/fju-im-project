@@ -277,7 +277,7 @@ export function ReviewDialog({
                   <Compare
                     label="姓名"
                     applied={a.appliedName}
-                    roster={hit ? hit.nameRaw : '未命中名單'}
+                    roster={hit ? hit.nameRaw : '不在本屆名單上'}
                     verdict={hit ? (hit.nameMatches ? 'same' : 'different') : undefined}
                   />
                   <Compare label="學號" applied={a.studentNo} roster={hit ? a.studentNo : '—'} />
@@ -324,11 +324,11 @@ export function ReviewDialog({
                   <>
                     {!registrationOpenCohort && hitCohortIds.size === 0 ? (
                       <p role="note" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                        目前沒有設定「開放註冊屆別」，所以不預選。請手動選一屆，或先到
+                        目前沒有設定「新註冊學生加入的屆別」，所以不預選。請手動選一屆，或先到
                         <Link href="/dashboard/admin/cohorts" className="mx-1 underline">
                           屆別
                         </Link>
-                        頁設定開放註冊屆別。
+                        頁設定新註冊學生加入的屆別。
                       </p>
                     ) : null}
                     <label className="block text-sm">
@@ -343,7 +343,7 @@ export function ReviewDialog({
                         <option value="">請選擇屆別</option>
                         {cohortOptions.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name}（{c.code}）{registrationOpenCohort?.id === c.id ? '・開放註冊' : ''}
+                            {c.name}（{c.code}）{registrationOpenCohort?.id === c.id ? '・新註冊加入這屆' : ''}
                           </option>
                         ))}
                       </select>
@@ -374,7 +374,7 @@ export function ReviewDialog({
                 ))}
                 {method ? (
                   <label className="block text-sm font-medium text-foreground">
-                    核實說明
+                    怎麼確認的說明
                     <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
                     <textarea
                       rows={2}

@@ -12,7 +12,7 @@ import {
   type MyProposalRole,
 } from '@/app/dashboard/student/groups/group-forms'
 import { IndustryPanel } from '@/app/dashboard/student/groups/industry-panel'
-import { describeGroupSize, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, describeGroupSize, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   CHANGE_REASON_MAX_LENGTH,
   describeGroupHistory,
@@ -128,7 +128,7 @@ export default async function StudentGroupsPage({
             <div className="flex flex-wrap items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
                 <p className="tabular text-xs font-bold tracking-[0.06em] text-muted-foreground">
-                  {cohort.code}・{GROUP_TYPE_LABEL[view.group.groupType]}
+                  {cohortLabel(cohort)}・{GROUP_TYPE_LABEL[view.group.groupType]}
                 </p>
                 <h2 className="mt-1 text-[24px] font-extrabold tracking-tight">組別 {view.group.code}</h2>
                 <p data-testid="my-advisor" className="mt-1 text-sm text-muted-foreground">
@@ -137,7 +137,7 @@ export default async function StudentGroupsPage({
                     <span className="font-semibold text-foreground">{view.group.advisor.teacherName}</span>
                   ) : (
                     <span>
-                      尚未指派（{view.group.groupType === 'industry' ? '產學組由老師認領或系辦指派' : '一般組由系辦依抽籤結果指派'}）
+                      尚未指派（{view.group.groupType === 'industry' ? '產學組由老師擔任或系辦指派' : '一般組由系辦依抽籤結果指派'}）
                     </span>
                   )}
                 </p>
@@ -169,12 +169,12 @@ export default async function StudentGroupsPage({
             <div className="flex flex-wrap items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
                 <p className="tabular text-xs font-bold tracking-[0.06em] text-muted-foreground">
-                  {cohort.code}・{GROUP_TYPE_LABEL[proposal.groupType]}・提案人 {proposal.proposerName}
+                  {cohortLabel(cohort)}・{GROUP_TYPE_LABEL[proposal.groupType]}・提案人 {proposal.proposerName}
                 </p>
-                <h2 className="mt-1 text-[24px] font-extrabold tracking-tight">進行中的提案</h2>
+                <h2 className="mt-1 text-[24px] font-extrabold tracking-tight">組隊中（等全員確認）</h2>
                 <p className="tabular mt-1 text-sm text-muted-foreground">
                   到期時間 {formatTaipeiMinute(proposal.expiresBusinessAt)}
-                  {overdue ? '（已過期，系統會終止這份提案並釋放所有人）' : '；到期前沒全員確認，提案會自動終止。'}
+                  {overdue ? '（已過期，這次組隊不會成立，大家都可以重新組隊）' : '；到期前沒全員確認，這次組隊就不會成立。'}
                 </p>
               </div>
               <Pill tone="brand" className="text-xs">
@@ -186,14 +186,14 @@ export default async function StudentGroupsPage({
               <span className="tabular font-semibold text-foreground">
                 {confirmedCount}／{proposal.invitations.length} 已確認
               </span>
-              <span>・每個人用自己的帳號按確認；全員確認後組別成立。等待確認時不能改名單或類型，要改請撤回後重新發起。</span>
+              <span>・每個人用自己的帳號按確認；全員確認後組別成立。組隊中不能改名單或類型，要改請撤回後重新發起。</span>
             </div>
           </>
         ) : (
           <div className="px-6 pt-6 pb-2">
             <h2 className="text-[15px] font-bold">發起提案</h2>
             <p className="mt-1 mb-4 text-[13px] text-muted-foreground">
-              本屆{size}（含你自己）。送出後所有人都會被占住並收到邀請，要在 {cohort.proposalDefaultDays} 天內（不超過成組期）全員確認。
+              本屆{size}（含你自己）。送出後所有人都會收到邀請，並暫時不能接受其他邀請，要在 {cohort.proposalDefaultDays} 天內（不超過分組期）全員確認。
             </p>
             <ProposeForm
               requestId={randomUUID()}
@@ -278,7 +278,7 @@ export default async function StudentGroupsPage({
                     {p.proposerName} 發起的{GROUP_TYPE_LABEL[p.groupType]}提案・
                     {p.state === 'established'
                       ? `已成立（${p.establishedGroupCode}）`
-                      : `已終止：${p.terminationKind ? TERMINATION_KIND_LABEL[p.terminationKind] : ''}`}
+                      : `沒有成立：${p.terminationKind ? TERMINATION_KIND_LABEL[p.terminationKind] : ''}`}
                   </span>
                 </li>
               ))}

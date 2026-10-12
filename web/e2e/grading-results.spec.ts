@@ -229,7 +229,7 @@ async function submitScore(page: Page, teacher: TestSession, stageKey: string, s
   await bench.getByLabel('1. 總分').fill(value)
   await bench.getByRole('button', { name: '正式送出' }).click()
   await page.getByRole('dialog', { name: '確認正式送出' }).getByRole('button', { name: '確認送出' }).click()
-  const receipt = page.getByRole('dialog', { name: '已收件' })
+  const receipt = page.getByRole('dialog', { name: '已送出' })
   await expect(receipt).toContainText('已鎖定')
   await receipt.getByRole('button', { name: '知道了' }).click()
 }
@@ -344,8 +344,8 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   // 「評分要求與指派」（對話框）的份數和成績表同一份。
   await expect(page.getByTestId('grading-row-G01')).toContainText('已正式送出 1／2 份')
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('尚未完成')
-  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('人工更正待重新確認')
-  await expect(page.getByRole('region', { name: '待重新確認的人工更正' })).toContainText('G01')
+  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('更正需要重新確認')
+  await expect(page.getByRole('region', { name: '需要重新確認的更正' })).toContainText('G01')
 
   await signIn(page, teachers[0]!)
   await page.goto(`/dashboard/teacher/grading/${g1}`)
@@ -376,13 +376,13 @@ test('評四送出期中 85 → 系辦復核「沿用原更正值」→ 採用 8
   await submitScore(page, teachers[3]!, 'mid', '期中', '85')
   await openDetail(page)
   await expect(page.getByTestId('adopted-final')).toHaveText('87.59')
-  const form = page.getByRole('form', { name: '重新確認人工更正' })
+  const form = page.getByRole('form', { name: '重新確認更正' })
   await form.getByLabel('重新確認的說明').fill('口試結果不變')
   await form.getByRole('button', { name: '確認並記錄' }).click()
-  await expect(page.getByRole('status').filter({ hasText: '已重新確認人工更正：G01 的最終成績已更正為 88.00（原 87.59' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: '已重新確認更正：G01 的最終成績已更正為 88.00（原 87.59' })).toBeVisible()
   await expect(page.getByTestId('adopted-final')).toHaveText('88.00')
   await openGrading(page)
-  await expect(page.getByRole('region', { name: '待重新確認的人工更正' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '需要重新確認的更正' })).toHaveCount(0)
 })
 
 test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；確認套用後照新權重重算並鎖定', async ({ page }) => {
@@ -399,7 +399,7 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
   await expect(page.getByRole('heading', { name: '套用新版評分規則' })).toBeVisible()
   // 期中 (84.29＋85)／2＝84.645；期末 92。60／40 → 87.587（87.59）；50／50 → 88.3225（88.32）。
   await expect(page.getByTestId('apply-row-G01')).toContainText('87.59 → 88.32')
-  await expect(page.getByTestId('apply-row-G01')).toContainText('人工更正會進待重新確認')
+  await expect(page.getByTestId('apply-row-G01')).toContainText('更正會變成需要重新確認')
   await page.getByRole('link', { name: '取消（不重算）' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
 
@@ -418,7 +418,7 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
   await openGrading(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('第 2 版・已鎖定')
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
-  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('人工更正待重新確認')
+  await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('更正需要重新確認')
 })
 
 test('老師被停用：G02 期中列「老師已停用，缺評待處理」，分母不縮小', async ({ page }) => {
@@ -441,7 +441,7 @@ test('匯出 CSV／XLSX：每位組員一列、學號保留前導零、數字與
   expect(studentNos[0]!.startsWith('0')).toBe(true)
   // 各老師分數（S10-11）：期中照送出先後是評三 84.29、評四 85（評一被替換，不在採計裡）。
   expect(lines[1]).toContain(
-    `"2／2","${NAMES[2]}","84.29","${NAMES[3]}","85.00","84.65","已完成","1／1","${NAMES[1]}","92.00","92.00","已完成","88.32","88.3225","88.32","人工更正待重新確認`,
+    `"2／2","${NAMES[2]}","84.29","${NAMES[3]}","85.00","84.65","已完成","1／1","${NAMES[1]}","92.00","92.00","已完成","88.32","88.3225","88.32","更正需要重新確認`,
   )
   expect(lines[1]).not.toContain(NAMES[0]!)
   expect(lines[3]).toContain('期中：')

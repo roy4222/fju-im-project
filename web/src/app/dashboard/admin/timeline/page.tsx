@@ -148,7 +148,7 @@ export default async function AdminTimelinePage({
     rangeText: current?.range,
     progressText: progress,
   }
-  const meta = `現在時間（臺灣） ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+  const meta = `系統時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
     schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
   }`
 
@@ -175,8 +175,8 @@ export default async function AdminTimelinePage({
         summary={summary}
         editor={{
           cohortId: cohort.id,
-          // 對話框標題用的屆別顯示名稱「名稱（代碼）」（prop 名沿用 timeline-zigzag 的型別）。
-          cohortCode: label,
+          // 對話框標題用的屆別顯示名稱「名稱（代碼）」。
+          cohortLabel: label,
           revision: cohort.revision,
           requestId: randomUUID(),
           stages: stageDrafts,

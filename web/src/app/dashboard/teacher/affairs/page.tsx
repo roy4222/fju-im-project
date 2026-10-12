@@ -56,26 +56,26 @@ export default async function TeacherAffairsPage() {
       <div className="flex flex-col gap-5">
         <PageTitle
           title="各組繳交狀態"
-          description={`我的 ${groups.length} 個指導組別 × ${items.length} 個整組收件。點狀態看每一次正式送出的版本與內容。`}
+          description={`我的 ${groups.length} 個指導組別 × ${items.length} 個整組繳交項目。點狀態看每一次正式送出的版本與內容。`}
         />
 
-        <Panel title="繳交矩陣" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName={groups.length > 0 && items.length > 0 ? 'p-4' : undefined}>
+        <Panel title="各組繳交總表" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName={groups.length > 0 && items.length > 0 ? 'p-4' : undefined}>
           {groups.length === 0 ? (
             <PanelEmpty
               icon={<IconClipboardText />}
               title="你目前沒有指導的組別"
-              hint="系辦指派或你在「分組總覽」認領產學組之後，那些組的繳交狀態會出現在這裡。換老師後，原本的組就不會再出現。"
+              hint="系辦指派或你在「分組總覽」擔任產學組指導老師之後，那些組的繳交狀態會出現在這裡。換老師後，原本的組就不會再出現。"
               action={{ href: '/dashboard/teacher/groups', label: '到分組總覽' }}
             />
           ) : items.length === 0 ? (
-            <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的收件" hint="系辦發布整組一份的收件之後，會在這裡列出你指導的每一組交了沒。" />
+            <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的繳交項目" hint="系辦發布整組一份的繳交項目之後，會在這裡列出你指導的每一組交了沒。" />
           ) : (
             <MatrixTable items={matrixItems} rows={rows} />
           )}
         </Panel>
 
         {individual.length > 0 ? (
-          <Panel title="開放主指導閱覽的個人收件" icon={<IconUser />} description="只看得到你指導的學生正式送出的回答，草稿不給">
+          <Panel title="開放指導老師閱覽的個人繳交項目" icon={<IconUser />} description="只看得到你指導的學生正式送出的回答，草稿不給">
             <ul className="divide-y divide-border" data-testid="individual-items">
               {individual.map((item) => (
                 <li key={item.itemId} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-accent/40">

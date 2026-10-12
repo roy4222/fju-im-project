@@ -138,13 +138,13 @@ function useDialog() {
 }
 
 const TERMINATE_COPY = {
-  decline: { button: '拒絕', title: '拒絕這份提案？', body: '拒絕後整份提案會終止，所有人都被釋放；要再組要重新發起。' },
+  decline: { button: '拒絕', title: '拒絕這份提案？', body: '拒絕後這次組隊就不會成立，大家都可以重新組隊；要再組要重新發起。' },
   withdrawConfirmation: {
     button: '撤回同意',
     title: '撤回你的同意？',
-    body: '組別成立前撤回同意，整份提案會終止，所有人都被釋放；要再組要重新發起。',
+    body: '組別成立前撤回同意，這次組隊就不會成立，大家都可以重新組隊；要再組要重新發起。',
   },
-  withdrawProposal: { button: '撤回提案', title: '撤回整份提案？', body: '撤回後提案終止，所有人都被釋放。' },
+  withdrawProposal: { button: '撤回提案', title: '撤回整份提案？', body: '撤回後這次組隊不會成立，大家都可以重新組隊。' },
 } as const
 
 type TerminateKind = keyof typeof TERMINATE_COPY

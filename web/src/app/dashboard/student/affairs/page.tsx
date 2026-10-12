@@ -12,7 +12,7 @@ import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, taipeiDateOf, taipeiDayStart } from '@/shared/time'
 
-export const metadata = { title: '作業區｜資管系專題平台' }
+export const metadata = { title: '我的繳交｜資管系專題平台' }
 
 const TABS = [
   { key: 'all', label: '全部' },
@@ -69,13 +69,13 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
       <div className="flex flex-col gap-5">
         <PageTitle
-          title="作業區"
+          title="我的繳交"
           description={`${groupCode ? `${groupCode}・` : ''}待繳 ${count('open')}・已繳交 ${count('done')}${
             count('overdue') ? `・逾期未繳 ${count('overdue')}` : ''
           }`}
         />
 
-        <Panel title={active.label} description={`${list.length} 件・你在收件名單上的每一份收件、狀態與截止`}>
+        <Panel title={active.label} description={`${list.length} 件・你需要繳交的每一項、狀態與截止`}>
           <nav aria-label="篩選" className="-mx-1 flex gap-1.5 overflow-x-auto border-b border-border/70 px-5 pb-3 [scrollbar-width:none]">
             {TABS.map((t) => {
               const on = t.key === tab
@@ -100,13 +100,13 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
 
           {list.length === 0 ? (
             <PanelEmpty
-              title={tab === 'all' ? '目前沒有要交的收件' : `沒有${active.label}的收件`}
-              hint="系辦發布收件、而且你（或你的組別）在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。整組一份的收件要先成立組別。"
+              title={tab === 'all' ? '目前沒有要交的項目' : `沒有${active.label}的項目`}
+              hint="系辦發布繳交項目、而且你（或你的組別）在需要繳交的名單上時，會出現在這裡；有新的繳交項目時通知匣也會有一則。整組一份的項目要先成立組別。"
             />
           ) : (
             <>
               {/* 手機：一件一列的卡片 */}
-              <ul className="divide-y divide-border/70 sm:hidden" aria-label="收件列表">
+              <ul className="divide-y divide-border/70 sm:hidden" aria-label="繳交列表">
                 {list.map(({ row, status }) => (
                   <li key={row.itemId} className="flex flex-col gap-2 px-5 py-4">
                     <Link href={`/dashboard/student/affairs/${row.itemId}`} className="text-[15px] font-bold">
@@ -221,9 +221,9 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
  */
 function Records({ records }: { records: readonly MyRecordRow[] }) {
   return (
-    <Panel title="我的繳交紀錄（唯讀）" icon={<IconHistory />} description="已經不在你作業區的收件">
+    <Panel title="我的繳交紀錄（唯讀）" icon={<IconHistory />} description="已經不在「我的繳交」裡的項目">
       <p className="px-5 pb-3 text-[13px] text-muted-foreground">
-        已經不在你作業區的收件。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
+        已經不在「我的繳交」裡的項目。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
       </p>
       <ul className="divide-y divide-border/70 border-t border-border/70" aria-label="我的繳交紀錄" data-testid="my-records">
         {records.map((r) => (
@@ -231,8 +231,8 @@ function Records({ records }: { records: readonly MyRecordRow[] }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px] font-bold">{r.title}</span>
               <span className="block text-xs text-muted-foreground tabular-nums">
-                {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一版 v
-                {r.latestVersionNo} 於 {formatTaipeiMinute(r.latestReceivedAt)}
+                {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一次是第 {r.latestVersionNo} 次，
+                於 {formatTaipeiMinute(r.latestReceivedAt)} 送出
               </span>
             </span>
             <Link

@@ -40,7 +40,7 @@ export class SqlBanStateGateway implements BanStateGateway {
           [userId],
         )
       } else {
-        const reason = target === 'disabled' ? '帳號已停用' : '帳號已去識別化'
+        const reason = target === 'disabled' ? '帳號已停用' : '帳號的個人資料已刪除'
         await client.query(
           `update users set banned = true, ban_reason = $2, ban_expires = null, updated_at = now() where id = $1`,
           [userId, reason],

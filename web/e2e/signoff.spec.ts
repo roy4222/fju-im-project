@@ -192,29 +192,29 @@ const draftCard = (page: Page) => page.getByTestId('showcase-draft').filter({ ha
 test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況與下一步；學生直接開管理員頁被擋', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByRole('link', { name: '簽核', exact: true })).toHaveAttribute('href', '/dashboard/admin/signoff')
-  await expect(page.getByRole('link', { name: '精選', exact: true })).toHaveAttribute('href', '/dashboard/admin/showcase')
-  await expect(page.getByText('尚未建立簽核')).toBeVisible()
-  await page.getByRole('button', { name: '新增簽核' }).click()
-  await expect(page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/admin/signoff')
+  await expect(page.getByRole('link', { name: '成果展示', exact: true })).toHaveAttribute('href', '/dashboard/admin/showcase')
+  await expect(page.getByText('尚未建立同意書')).toBeVisible()
+  await page.getByRole('button', { name: '新增站內同意書' }).click()
+  await expect(page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })).toBeVisible()
   await page.keyboard.press('Escape')
   // 系辦沒有任何替人同意的入口。
-  await expect(page.getByRole('button', { name: /同意/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^(?!新增站內同意書$).*同意/ })).toHaveCount(0)
 
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  await expect(page.getByText('尚無精選草稿')).toBeVisible()
+  await expect(page.getByText('尚無成果展示草稿')).toBeVisible()
 
   await signIn(page, loner)
   await page.goto('/dashboard/student/signoff')
   // 學生側欄照原型叫「同意書」（票 38）。
-  await expect(page.getByRole('link', { name: '同意書', exact: true })).toHaveAttribute('href', '/dashboard/student/signoff')
-  await expect(page.getByText('目前沒有待處理的簽核')).toBeVisible()
+  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/student/signoff')
+  await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
   await expect(page.getByText('你目前不在任何組別裡')).toBeVisible()
 
   await signIn(page, otherTeacher)
   await page.goto('/dashboard/teacher/signoff')
-  await expect(page.getByRole('link', { name: '簽核', exact: true })).toHaveAttribute('href', '/dashboard/teacher/signoff')
-  await expect(page.getByText('目前沒有待處理的簽核')).toBeVisible()
+  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/teacher/signoff')
+  await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
 
   await signIn(page, s01)
   await page.goto('/dashboard/admin/showcase')
@@ -226,10 +226,10 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
 test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存；重新整理都在；沒有「尚無授權」閘門、草稿有「發布」按鈕', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const create = page.getByRole('form', { name: '建立精選草稿' })
+  const create = page.getByRole('form', { name: '建立成果展示草稿' })
   await create.getByLabel('組別').selectOption({ label: 'G01' })
   await create.getByRole('button', { name: '建立草稿' }).click()
-  await expect(create.getByRole('status')).toContainText('已替 G01 建立精選草稿')
+  await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
 
   const card = draftCard(page)
   await card.getByLabel('題目').fill(TITLE_1)
@@ -238,7 +238,7 @@ test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(card.getByTestId('poster-name')).toContainText('poster.png')
   await card.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(card.getByRole('status')).toContainText('G01 的精選草稿已儲存（第 2 版），海報已更新。草稿不會公開。')
+  await expect(card.getByRole('status')).toContainText('G01 的成果展示草稿已儲存（第 2 版），海報已更新。草稿不會公開。')
 
   await page.reload()
   const again = draftCard(page)
@@ -252,7 +252,7 @@ test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存
   // 已存的海報經下載授權顯示得出來（不是破圖）。
   await expect(again.getByRole('img', { name: 'G01 海報' })).toHaveJSProperty('naturalWidth', 1)
   // 一組只有一份：建立草稿的下拉已經沒有 G01。
-  await expect(page.getByText('這一屆每一組都已經有精選草稿了')).toBeVisible()
+  await expect(page.getByText('這一屆每一組都已經有成果展示草稿了')).toBeVisible()
 })
 
 test('精選草稿：海報換成非圖片被拒、原海報保留；兩個分頁同時改，後存的被要求重新載入', async ({ page, context }) => {
@@ -283,27 +283,27 @@ test('精選草稿：海報換成非圖片被拒、原海報保留；兩個分�
 test('建簽核版本：全文空、沒選精選草稿被拒；選好後回執含參與者；版本頁全文後列授權範圍與採認待確認標示', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增簽核' }).click()
-  const form = page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })
+  await page.getByRole('button', { name: '新增站內同意書' }).click()
+  const form = page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })
   await form.getByLabel('組別').selectOption({ label: 'G01' })
   await form.getByText('最終文件授權', { exact: true }).click()
-  await expect(form.getByTestId('impact-preview')).toContainText(`參與者：3 位學生＋主指導 ${TEACHER_NAME}`)
+  await expect(form.getByTestId('impact-preview')).toContainText(`參與者：3 位學生＋指導老師 ${TEACHER_NAME}`)
 
-  await form.getByRole('button', { name: '建立簽核版本' }).click()
+  await form.getByRole('button', { name: '建立站內同意書' }).click()
   await expect(form.getByRole('alert')).toContainText('全文必填')
 
   await form.getByLabel('全文').fill(CONTENT_1)
   await form.getByLabel(/期末報告\.pdf/).check()
   await form.getByTestId('showcase-pick').getByRole('checkbox').uncheck()
-  await form.getByRole('button', { name: '建立簽核版本' }).click()
-  await expect(form.getByRole('alert')).toContainText('最終文件授權要選這一組的精選草稿')
+  await form.getByRole('button', { name: '建立站內同意書' }).click()
+  await expect(form.getByRole('alert')).toContainText('最終文件授權要選這一組的成果展示草稿')
   await expect(form.getByLabel('全文')).toHaveValue(CONTENT_1)
 
   await form.getByTestId('showcase-pick').getByRole('checkbox').check()
   await form.getByLabel(/期末報告\.pdf/).check()
-  await form.getByRole('button', { name: '建立簽核版本' }).click()
-  await expect(form.getByRole('status')).toContainText(`已建立 G01「最終文件授權」v1：參與者 3 位學生＋主指導 ${TEACHER_NAME}`)
-  await form.getByRole('link', { name: '看剛建立的版本' }).click()
+  await form.getByRole('button', { name: '建立站內同意書' }).click()
+  await expect(form.getByRole('status')).toContainText(`已建立 G01「最終文件授權」同意書第 1 版：參與者 3 位學生＋指導老師 ${TEACHER_NAME}`)
+  await form.getByRole('link', { name: '看剛建立的同意書' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/signoff\/[0-9a-f-]{36}$/)
   finalV1 = page.url().split('/').at(-1)!
 
@@ -326,9 +326,9 @@ test('通知：參與學生收到「輪到你同意」，主指導沒有', async
   await signIn(page, s01)
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText('G01「最終文件授權」v1 輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByText('G01「最終文件授權」第 1 版輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
-  await page.getByText('G01「最終文件授權」v1 輪到你閱讀並同意').click()
+  await page.getByText('G01「最終文件授權」第 1 版輪到你閱讀並同意').click()
   await expect(page).toHaveURL(/\/dashboard\/student\/signoff/)
 
   await signIn(page, teacher)
@@ -347,21 +347,21 @@ test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「�
   await expect(page.getByTestId('scope-title')).toHaveText(TITLE_1)
 
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增簽核' }).click()
-  const form = page.getByRole('dialog', { name: '新增簽核' }).getByRole('form', { name: '建立簽核版本' })
+  await page.getByRole('button', { name: '新增站內同意書' }).click()
+  const form = page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })
   await form.getByText('最終文件授權', { exact: true }).click()
-  await expect(form.getByTestId('impact-preview')).toContainText('目前的 v1 會失效')
+  await expect(form.getByTestId('impact-preview')).toContainText('目前的第 1 版會被新版取代')
   await form.getByLabel('全文').fill(`${CONTENT_1}（第二版）`)
-  await form.getByRole('button', { name: '建立簽核版本' }).click()
-  await expect(form.getByRole('status')).toContainText('v2')
-  await expect(form.getByRole('status')).toContainText('原本的 v1 已失效')
+  await form.getByRole('button', { name: '建立站內同意書' }).click()
+  await expect(form.getByRole('status')).toContainText('第 2 版')
+  await expect(form.getByRole('status')).toContainText('原本的第 1 版已被新版取代')
 
   await page.goto(`/dashboard/admin/signoff/${finalV1}`)
-  await expect(page.getByTestId('signoff-state').first()).toHaveText('已失效')
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('已被第 2 版取代')
   await expect(page.getByTestId('signoff-invalidated')).toContainText('內容變更')
-  await expect(page.getByRole('region', { name: '版本歷史' })).toContainText('v2')
+  await expect(page.getByRole('region', { name: '版本歷史' })).toContainText('第 2 版')
   // 新版的範圍是改過之後的草稿。
-  await page.getByRole('region', { name: '版本歷史' }).getByRole('link', { name: 'v2' }).click()
+  await page.getByRole('region', { name: '版本歷史' }).getByRole('link', { name: '第 2 版' }).click()
   await expect(page.getByTestId('scope-title')).toHaveText('改過的題目')
   await expect(page.getByTestId('signoff-state').first()).toHaveText('收集學生同意中')
 })
@@ -369,7 +369,7 @@ test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「�
 test('三個角色看同一份：學生頁有全文與授權範圍、老師卡片點進版本頁；別的老師開網址「找不到這個頁面」', async ({ page }) => {
   await signIn(page, s01)
   await page.goto('/dashboard/student/signoff')
-  await expect(page.getByRole('article', { name: 'G01 最終文件授權 v2' })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'G01 最終文件授權 第 2 版' })).toBeVisible()
   await expect(page.getByTestId('signoff-content')).toContainText('（第二版）')
   await expect(page.getByTestId('scope-title')).toHaveText('改過的題目')
   await expect(page.getByTestId('signoff-participants')).toContainText(`組員甲${stamp.slice(-3)}`)
@@ -404,11 +404,11 @@ test('票 14 掛點：管理員加入組員後，目前版本同時失效；學�
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: '已把' })).toContainText(`已把 ${NEWCOMER_NAME} 加入 G01`)
 
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByRole('region', { name: '各組簽核' })).toContainText('組員變更，待建新版')
+  await expect(page.getByRole('region', { name: '各組同意書' })).toContainText('組員變更，待建新版')
 
   await signIn(page, s01)
   await page.goto('/dashboard/student/signoff')
-  await expect(page.getByTestId('signoff-invalidated')).toContainText('此版本已失效（組員變更），等待管理員建立新版')
+  await expect(page.getByTestId('signoff-invalidated')).toContainText('這一版同意書已作廢（組員變更），等系辦建立新版')
   const versions = await pool.query<{ n: number }>(
     `select count(*)::int as n from signoff_package_versions v join signoff_packages p on p.id = v.package_id where p.group_id = $1`,
     [groupId],

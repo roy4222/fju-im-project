@@ -50,7 +50,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
     [
       '範圍',
       // 預覽只列未解散的組（`buildSchemePreview` 只取 status = 'active'）；解散的組釘在解散當下的版本，不重算。
-      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有人工更正、會進待重新確認` : ''}。已解散的組維持解散當下的評分規則版本與成績，不受影響。`,
+      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有人工更正、會變成需要重新確認` : ''}。已解散的組維持解散當下的評分規則版本與成績，不受影響。`,
     ],
     [
       '後果',
@@ -96,7 +96,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
                   <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
                     <td className="px-4 py-2 font-semibold">
                       {g.code}
-                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">人工更正會進待重新確認</span> : null}
+                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">更正會變成需要重新確認</span> : null}
                     </td>
                     {g.stages.map((s) => (
                       <td key={s.name} className="px-4 py-2 text-right tabular-nums">

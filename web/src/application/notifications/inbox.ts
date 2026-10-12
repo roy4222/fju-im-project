@@ -12,7 +12,7 @@ import type { NotificationKind } from '@/application/notifications/events'
 export const NOTIFICATION_KIND_LABEL: Record<NotificationKind, string> = {
   due: '截止',
   submission: '繳交',
-  signoff: '簽核',
+  signoff: '同意書',
   grading: '評分',
   account: '帳號',
   group: '分組',

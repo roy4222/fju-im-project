@@ -291,9 +291,9 @@ export type LeaderTypeChangeFacts = {
 export type GroupingPeriodState = 'unconfigured' | 'not_started' | 'open' | 'ended'
 
 const GROUPING_PERIOD_BLOCKER: Readonly<Record<Exclude<GroupingPeriodState, 'open'>, string>> = {
-  unconfigured: '這一屆還沒設定成組期',
-  not_started: '成組期還沒開始',
-  ended: '成組期已結束',
+  unconfigured: '這一屆還沒設定分組期',
+  not_started: '分組期還沒開始',
+  ended: '分組期已結束',
 }
 
 export function leaderTypeChangeBlockers(facts: LeaderTypeChangeFacts): string[] {

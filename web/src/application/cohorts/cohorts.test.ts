@@ -81,10 +81,12 @@ describe('設旗標的回饋句子', () => {
         flag: 'registrationOpen',
         cohortId: 'b',
         code: '116',
+        name: '第 44 屆',
         previousCohortId: 'a',
         previousCode: '115',
+        previousName: '第 43 屆',
       }),
-    ).toBe('已把 116 設為開放註冊屆別；115 的開放註冊屆別已自動取消。')
+    ).toBe('已把新註冊學生加入的屆別設為第 44 屆（116）；原本的第 43 屆（115）已自動取消。')
   })
 
   it('原本沒有持有者時只說設定了哪一屆', () => {
@@ -93,10 +95,12 @@ describe('設旗標的回饋句子', () => {
         flag: 'defaultWorking',
         cohortId: 'a',
         code: '115',
+        name: '第 43 屆',
         previousCohortId: null,
         previousCode: null,
+        previousName: null,
       }),
-    ).toBe('已把 115 設為預設工作屆別。')
+    ).toBe('已把後台預設查看的屆別設為第 43 屆（115）。')
   })
 })
 

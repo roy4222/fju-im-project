@@ -110,7 +110,7 @@ export default async function TeacherInboxPage({ searchParams }: { searchParams:
               title={filter.kind === 'all' ? '還沒有通知' : '這個範圍沒有通知'}
               hint={
                 filter.kind === 'all'
-                  ? '跟你有關的公告、截止、分組與簽核有變化時，會出現在這裡。'
+                  ? '跟你有關的公告、截止、分組與同意書有變化時，會出現在這裡。'
                   : '換一個屆別，或點「全部」看所有通知。'
               }
             />

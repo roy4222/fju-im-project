@@ -177,7 +177,7 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(title)
-  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
   await dialog.getByRole('button', { name: '下一步' }).click()
 
   // 第 2 步：說明（含危險 HTML）、附件。
@@ -233,9 +233,9 @@ test('完整編輯器建立整組收件：空收件擋下；展開名單看到�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(title)
   await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '整組一份', exact: true }).check()
-  await page.getByLabel('發布對象').selectOption('groups')
+  await page.getByLabel('誰看得到').selectOption('groups')
   await page.getByRole('checkbox', { name: /G01/ }).check()
   await page.getByLabel('所屬階段').selectOption({ index: 2 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(due))
@@ -260,7 +260,7 @@ test('完整編輯器建立整組收件：空收件擋下；展開名單看到�
   await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
   // 名單預覽：展開看得到實際的組與組員，不只總數；沒選的 G02 不在裡面。
   const preview = check.getByTestId('recipient-preview')
-  await expect(preview).toContainText('收件名單：1 組')
+  await expect(preview).toContainText('需要繳交的名單：1 組')
   await preview.locator('summary').click()
   await expect(preview).toContainText('G01')
   await expect(preview).toContainText(students[0]!.name)
@@ -268,7 +268,7 @@ test('完整編輯器建立整組收件：空收件擋下；展開名單看到�
   await expect(preview).not.toContainText('G02')
   await expect(check).toContainText('（含此分鐘，臺灣時間）')
   await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單 1 組')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
   await expect(page.getByTestId('item-status')).toHaveText('發布中')
 
   const item = await itemByTitle(title)
@@ -315,7 +315,7 @@ test('發布更新：小幅修改選不通知就不發事件；還沒人作答�
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
   await page.getByRole('button', { name: '發布更新' }).click()
   await check.getByRole('button', { name: '確認更新' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單加入 2、移出 1')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單加入 2、移除 1')
 
   const rows = await pool.query(
     `select receiver_kind, eligible_to_business_at is null as current from response_rosters where item_id = $1 order by receiver_kind`,
@@ -346,7 +346,7 @@ test('截止早於開放：存草稿就被擋下，給明確的錯誤', async ({
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(`${CODE} 時間錯誤`)
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   const later = new Date(Date.now() + 10 * 86_400_000)
   const earlier = new Date(Date.now() + 5 * 86_400_000)
   await page.getByLabel('開放時間（選填）').fill(localMinute(later))

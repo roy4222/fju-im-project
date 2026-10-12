@@ -193,7 +193,7 @@ function proposalNotOpen(): Err {
 function proposalOverdue(expiresAt: Date): Err {
   return err(
     'PROPOSAL_NOT_OPEN',
-    `這份提案已經過了到期時間（${formatTaipeiMinute(expiresAt)}），系統會把它終止並釋放所有人。`,
+    `這份提案已經過了到期時間（${formatTaipeiMinute(expiresAt)}），這次組隊不會成立，大家都可以重新組隊。`,
   )
 }
 
@@ -368,13 +368,13 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       const deadline = groupingDeadline(schedule)
       const position = stagePositionAt(schedule, businessNow)
       if (!deadline || position.kind === 'unconfigured') {
-        return err('VALIDATION_FAILED', '系辦還沒設定本屆的成組期，暫時不能發起提案。', { next: { kind: 'contact_office' } })
+        return err('VALIDATION_FAILED', '系辦還沒設定本屆的分組期，暫時不能發起提案。', { next: { kind: 'contact_office' } })
       }
       if (businessNow.getTime() >= deadline.getTime()) {
-        return err('DEADLINE_PASSED', `成組期已經結束（${formatTaipeiMinute(deadline)} 截止），不能再發起提案；需要分組請聯絡系辦。`)
+        return err('DEADLINE_PASSED', `分組期已經結束（${formatTaipeiMinute(deadline)} 截止），不能再發起提案；需要分組請聯絡系辦。`)
       }
       if (position.kind === 'not_started') {
-        return err('VALIDATION_FAILED', `成組期從 ${formatTaipeiDate(position.firstStartDate)} 才開始。`)
+        return err('VALIDATION_FAILED', `分組期從 ${formatTaipeiDate(position.firstStartDate)} 才開始。`)
       }
 
       // 其他組員：同屆、有效學號（student_identities＝已核准）、帳號正常、目前是學生。
@@ -428,7 +428,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         const got = new Set(occupied.rows.map((r) => r.user_id))
         const taken = everyone.filter((id) => !got.has(id))
         if (taken.includes(proposerId)) {
-          return err('INVITED_ELSEWHERE', '你已經在另一份進行中的提案裡，要先等它結束（或撤回）才能再發起。')
+          return err('INVITED_ELSEWHERE', '你已經在另一份組隊中的提案裡，要先等它結束（或撤回）才能再發起。')
         }
         return err('INVITED_ELSEWHERE', `${taken.map((id) => nameOf.get(id)).join('、')} 正在別的提案裡等確認，現在不能邀請。`, {
           details: { userIds: taken },
@@ -913,7 +913,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         // 不替他終止那份提案（會連帶釋放其他同學）：請管理員先作廢，理由另外記。
         return err(
           'INVITED_ELSEWHERE',
-          `${student.name} 正在 ${occupying.rows[0].proposer_name} 發起的提案裡等確認。要加入請先在「進行中的提案」作廢那份提案，或等它結束。`,
+          `${student.name} 正在 ${occupying.rows[0].proposer_name} 發起的提案裡等確認。要加入請先在「組隊中（等全員確認）」作廢那份提案，或等它結束。`,
         )
       }
 
@@ -1613,7 +1613,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       recipientBasis: { proposalId: proposal.id, basis: 'proposal_invitations' },
       // 管理員作廢的理由不進 payload：學生的通知只說「管理員作廢」。
       payload: {
-        title: `分組提案已終止（${TERMINATION_KIND_LABEL[kind]}），所有人都已釋放`,
+        title: `這次組隊沒有成立（${TERMINATION_KIND_LABEL[kind]}），大家都可以重新組隊`,
         proposalId: proposal.id,
         terminationKind: kind,
       },

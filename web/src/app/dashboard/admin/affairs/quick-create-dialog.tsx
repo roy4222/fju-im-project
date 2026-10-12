@@ -300,7 +300,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                       </div>
                     </fieldset>
                   ) : (
-                    <p className="text-xs text-muted-foreground">這是公告或資源，不收資料；要收件請回上一步改成「文件繳交」。</p>
+                    <p className="text-xs text-muted-foreground">這是公告或資源，不收資料；要學生繳交請回上一步改成「文件繳交」。</p>
                   )}
                 </>
               ) : null}
@@ -315,7 +315,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   <RecipientList recipients={review.recipients} />
                   <StudentView state={state} review={review} vocabulary={vocabulary} />
                   {collects ? (
-                    <p className="text-sm">新收件一定會通知收件名單上的人（站內通知）。</p>
+                    <p className="text-sm">新的繳交項目一定會通知名單上需要繳交的人（站內通知）。</p>
                   ) : honor ? (
                     <p className="text-sm text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
                   ) : (

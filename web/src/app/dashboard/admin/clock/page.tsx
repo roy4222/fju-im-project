@@ -39,8 +39,8 @@ export default async function AdminClockPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Tile
-          label="現在時間（臺灣）"
-          value={<span aria-label="系統認定的現在時間">{formatTaipeiSecond(state.businessNow)}</span>}
+          label={`系統時間${state.latest ? '（模擬中）' : ''}`}
+          value={<span aria-label="目前的系統時間">{formatTaipeiSecond(state.businessNow)}</span>}
           hint={state.latest ? '模擬中：從最新一次設定起跟著真實時間往前走' : '沒有模擬：等於真實時間'}
         />
         <Tile label="真實時間" value={formatTaipeiSecond(state.realNow)} hint="登入、稽核、備份用這個，不受模擬影響" />
@@ -73,7 +73,7 @@ export default async function AdminClockPage() {
               {formatTaipeiSecond(h.businessAt)}
             </span>,
           ])}
-          empty="還沒有設定過，系統認定的現在時間就是真實時間。"
+          empty="還沒有設定過，系統時間就是真實時間。"
         />
         <p className="text-xs text-muted-foreground">
           紀錄只增不改，永遠以最新一筆為準。回到{' '}

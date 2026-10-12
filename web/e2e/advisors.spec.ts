@@ -172,18 +172,18 @@ const sorted = (...list: string[]) => [...list].sort()
 
 test('老師認領產學組：按「指定為我的組別」後看到回執；重新整理後變「你指導中」；全組與老師收到通知', async ({ page }) => {
   await openTeacherPage(page, teacherA)
-  const claim = page.getByRole('region', { name: '產學組認領' })
-  await expect(claim.getByRole('row').filter({ hasText: 'G01' })).toContainText('可認領')
+  const claim = page.getByRole('region', { name: '擔任產學組指導老師' })
+  await expect(claim.getByRole('row').filter({ hasText: 'G01' })).toContainText('可擔任')
   // 一般組不在認領表裡，也沒有認領按鈕。
   await expect(claim).not.toContainText('G02')
-  await claim.getByRole('button', { name: '認領 G01' }).click()
-  const dialog = page.getByRole('dialog', { name: '認領 G01' })
-  await expect(dialog).toContainText('先按先得')
+  await claim.getByRole('button', { name: '擔任 G01 的指導老師' }).click()
+  const dialog = page.getByRole('dialog', { name: '擔任 G01 的指導老師' })
+  await expect(dialog).toContainText('第一位確認的老師就是指導老師')
   await dialog.getByRole('button', { name: '指定為我的組別' }).click()
   await expect(dialog.getByRole('status')).toContainText('G01 已指定為你的組別')
 
   await page.reload()
-  await expect(page.getByRole('region', { name: '產學組認領' }).getByRole('row').filter({ hasText: 'G01' })).toContainText('你指導中')
+  await expect(page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('row').filter({ hasText: 'G01' })).toContainText('你指導中')
   await expect(page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G01' })).toContainText(`${NAME_A}（你）`)
   expect(await activeAdvisor('G01')).toEqual([teacherA.userId])
   expect(await recipientsOf('advisor.assigned', 'G01')).toEqual([sorted(...memberIds.get('G01')!, teacherA.userId)])
@@ -196,8 +196,8 @@ async function claimPage(browser: Browser, session: TestSession) {
   const context = await browser.newContext({ baseURL: BASE_URL })
   const page = await context.newPage()
   await openTeacherPage(page, session)
-  await page.getByRole('region', { name: '產學組認領' }).getByRole('button', { name: '認領 G04' }).click()
-  const dialog = page.getByRole('dialog', { name: '認領 G04' })
+  await page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('button', { name: '擔任 G04 的指導老師' }).click()
+  const dialog = page.getByRole('dialog', { name: '擔任 G04 的指導老師' })
   await expect(dialog.getByRole('button', { name: '指定為我的組別' })).toBeEnabled()
   return { context, dialog }
 }
@@ -218,8 +218,8 @@ test('兩位老師同時認領同一組：只有一位成功，另一位看到�
     const bWon = await won(b.dialog)
     expect([aWon, bWon].filter(Boolean)).toHaveLength(1)
     const loser = aWon ? b.dialog : a.dialog
-    await expect(loser).toContainText('已被其他老師認領')
-    await expect(loser.getByRole('alert')).toContainText(`剛由 ${aWon ? NAME_A : NAME_B} 老師認領成功`)
+    await expect(loser).toContainText('已有其他老師擔任')
+    await expect(loser.getByRole('alert')).toContainText(`剛由 ${aWon ? NAME_A : NAME_B} 老師擔任指導老師`)
     expect(await activeAdvisor('G04')).toEqual([aWon ? teacherA.userId : teacherB.userId])
   } finally {
     await a.context.close()

@@ -383,7 +383,7 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
         aria-hidden
         className="inline-flex rotate-[-2deg] items-center rounded-lg border-[3px] border-brand px-4 py-1.5 text-[15px] font-extrabold tracking-[0.2em] text-brand duration-200 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-110"
       >
-        已收件
+        已送出
       </span>
       <div>
         <h2 id="receipt-title" className="text-xl font-extrabold">
@@ -393,15 +393,15 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
       </div>
       <dl className="grid w-full grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-y border-border py-3 text-left text-sm">
         <dt className="text-muted-foreground">版本</dt>
-        <dd className="font-semibold tabular-nums">v{receipt.versionNo}</dd>
+        <dd className="font-semibold tabular-nums">第 {receipt.versionNo} 次</dd>
         <dt className="text-muted-foreground">送出者</dt>
         <dd className="font-semibold">
           {receipt.submittedByName}
           {receipt.groupCode ? <span className="ml-1 font-normal text-muted-foreground">（代表 {receipt.groupCode} 全組）</span> : null}
         </dd>
-        <dt className="text-muted-foreground">收件時間</dt>
+        <dt className="text-muted-foreground">送出時間</dt>
         <dd className="font-semibold tabular-nums">{receipt.receivedText}（臺灣時間）</dd>
-        <dt className="text-muted-foreground">表單格式</dt>
+        <dt className="text-muted-foreground">表單</dt>
         <dd className="tabular-nums">第 {receipt.schemaVersionNo} 版</dd>
         {receipt.files.length > 0 ? (
           <>
@@ -428,7 +428,7 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
           關閉
         </button>
         <Link href="/dashboard/student/affairs" className={cn(PRIMARY, 'flex-1')}>
-          回作業區
+          回我的繳交
         </Link>
       </div>
     </div>

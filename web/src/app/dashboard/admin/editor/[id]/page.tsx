@@ -24,7 +24,7 @@ const ACTION_LABEL: Record<string, string> = {
   publish: '發布',
   content_change: '改內容',
   schema_change: '改欄位',
-  settings_change: '改對象或收件設定',
+  settings_change: '改「誰看得到」或繳交設定',
   deadline_change: '改截止',
   withdraw: '撤回',
   archive: '下架',
@@ -64,7 +64,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
 
   const versions =
     item.contentVersionNo !== null
-      ? `內容第 ${item.contentVersionNo} 版・表單格式第 ${item.schemaVersionNo} 版${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
+      ? `內容第 ${item.contentVersionNo} 版・表單第 ${item.schemaVersionNo} 版${item.receiverUnit === 'none' ? '' : `・需要繳交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
       : '還沒發布過'
   const opened = item.actualOpenedAt ? `・實際開放 ${formatTaipeiMinute(item.actualOpenedAt)}` : ''
 

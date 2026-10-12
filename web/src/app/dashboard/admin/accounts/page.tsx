@@ -138,7 +138,7 @@ export default async function AdminAccountsPage({
   const hrefWith = (overrides: Partial<DirectoryFilter>) => `${BASE}${directoryQueryString({ ...filter, ...overrides, page: 1 })}`
   const filtered = Boolean(filter.q || filter.role || filter.cohortId || filter.status || filter.orphan)
   const listTitle = filter.orphan
-    ? `孤兒帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
+    ? `尚未設定身分的帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
     : filter.status
       ? `${ACCOUNT_STATUS_LABEL[filter.status]}帳號`
       : '全部帳號'
@@ -191,10 +191,10 @@ export default async function AdminAccountsPage({
           />
           {/* 票 10b：只有登入身分、我方什麼都沒有的帳號（建帳號時系統出錯留下的，或註冊了還沒送申請的）。 */}
           <RingTile
-            label="孤兒帳號"
+            label="未設定身分"
             value={summary?.orphans ?? null}
             total={everyone}
-            hint="沒有角色與申請，要補建角色或停用"
+            hint="沒有身分與申請，要補上身分或停用"
             href={`${BASE}${directoryQueryString({ ...filter, status: null, orphan: !filter.orphan, page: 1 })}`}
             active={filter.orphan}
             barClassName="stroke-destructive"
@@ -212,7 +212,7 @@ export default async function AdminAccountsPage({
         >
           {pending && !pending.registrationOpenCohort ? (
             <p className="mx-5 mb-3 rounded-lg bg-brand-subtle px-3 py-2 text-sm text-brand-on-subtle" role="note">
-              目前沒有設定開放註冊屆別：沒命中名單的人核准時要手動選屆別。可以到「屆別」頁設定。
+              目前沒有設定新註冊學生加入的屆別：不在本屆名單上的人核准時要手動選屆別。可以到「屆別」頁設定。
             </p>
           ) : null}
           {(pending?.applications ?? []).length === 0 ? (
@@ -281,7 +281,7 @@ export default async function AdminAccountsPage({
             <div className="space-y-3">
               {filter.status || filter.orphan ? (
                 <FilterTag
-                  label={filter.orphan ? '孤兒帳號' : ACCOUNT_STATUS_LABEL[filter.status!]}
+                  label={filter.orphan ? '尚未設定身分的帳號' : ACCOUNT_STATUS_LABEL[filter.status!]}
                   count={`${directory.total}／${everyone} 筆`}
                   clearHref={hrefWith({ status: null, orphan: false })}
                 />

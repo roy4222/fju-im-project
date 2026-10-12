@@ -6,6 +6,7 @@ import { ReopenPanel, type ReopenPanelProps } from '@/app/dashboard/admin/affair
 import { BTN_OUTLINE_SM, Panel, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import type { StatusTone } from '@/application/submissions'
 import { answerFields, categoryOf, isFileField, receiverStatus } from '@/composition/submissions'
+import { ChecksumDisclosure, ReceiptNoDisclosure } from '@/app/dashboard/_submissions/proof-disclosure'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
@@ -25,12 +26,12 @@ const PILL_TONE: Readonly<Record<StatusTone, PillTone>> = {
   danger: 'danger',
 }
 
-const LIST_LABEL: Record<ListKey, string> = { current: '目前名單', exempt: '免填', removed: '已移出' }
+const LIST_LABEL: Record<ListKey, string> = { current: '目前名單', exempt: '免繳', removed: '已移出名單' }
 
 const LIST_HINT: Record<ListKey, string> = {
-  current: '應交的人；完成率的分母。',
-  exempt: '系辦設為免填：不算分母，也不算已完成。',
-  removed: '已經不在名單上：不算分子分母，回答保留、仍可查看。',
+  current: '需要繳交的名單；完成率就是用這份名單的總人數（組數）來算。',
+  exempt: '系辦設為免繳（可恢復）：不算在需要繳交的總人數（組數）裡，也不算已完成。',
+  removed: '已從繳交名單移除：完成率完全不算他們，回答保留、仍可查看。',
 }
 
 // ── 名單 ──────────────────────────────────────────────────────────────────────
@@ -116,13 +117,13 @@ function RosterRow({
   let tone: PillTone
   let detail: string
   if (category === 'removed') {
-    headline = '已移出'
+    headline = '已移出名單'
     tone = 'default'
     detail = `${entry.eligibleTo ? formatTaipeiMinute(entry.eligibleTo) : ''}・${entry.removedReason ?? ''}・${
-      submitted ? `回答保留（已繳 v${entry.latestVersionNo}）` : '沒有正式送出過'
+      submitted ? `回答保留（已繳第 ${entry.latestVersionNo} 次）` : '沒有正式送出過'
     }`
   } else if (category === 'exempt') {
-    headline = '免填'
+    headline = '免繳'
     tone = 'default'
     detail = `理由：${entry.exemptReason ?? ''}`
   } else {
@@ -151,7 +152,7 @@ function RosterRow({
           {individual ? entry.name : `${entry.name} 組`}
           {individual && entry.groupCode ? <span className="ml-2 text-xs font-normal text-muted-foreground">{entry.groupCode}</span> : null}
         </span>
-        <span className="block text-xs text-muted-foreground tabular-nums" title="資格生效時間（業務時間）">
+        <span className="block text-xs text-muted-foreground tabular-nums" title="資格生效時間（系統時間）">
           {joined}
         </span>
       </span>
@@ -178,7 +179,7 @@ export function FieldsPanel({ fields, schemaVersionNo }: { fields: readonly Form
     <Panel
       title="欄位"
       icon={<IconFileText />}
-      description={`${inputs.length} 個${schemaVersionNo ? `・版本 ${schemaVersionNo}` : ''}`}
+      description={`${inputs.length} 個${schemaVersionNo ? `・表單第 ${schemaVersionNo} 版` : ''}`}
       headingId="fields-title"
     >
       {inputs.length === 0 ? (
@@ -223,9 +224,9 @@ export function ReceiverView({
   const back = category === 'current' ? base : `${base}?list=${category}`
   const banner =
     category === 'removed'
-      ? `已移出（${entry.removedReason ?? ''}）・回答保留`
+      ? `已從繳交名單移除（${entry.removedReason ?? ''}）・回答保留`
       : category === 'exempt'
-        ? `免填・理由：${entry.exemptReason ?? ''}`
+        ? `免繳（系辦設定，可恢復）・理由：${entry.exemptReason ?? ''}`
         : status.headline
   return (
     <article className="dash-card overflow-hidden" data-testid="receiver-view">
@@ -234,7 +235,7 @@ export function ReceiverView({
           href={back}
           className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
         >
-          <IconArrowLeft aria-hidden className="size-4" /> {category === 'current' ? '收件名單' : category === 'exempt' ? '免填' : '已移出'}
+          <IconArrowLeft aria-hidden className="size-4" /> {category === 'current' ? '繳交名單' : category === 'exempt' ? '免繳' : '已移出名單'}
         </Link>
       </div>
       <header className="px-5 pb-3 pt-2">
@@ -265,13 +266,13 @@ export function ReceiverView({
                     第幾次
                   </th>
                   <th scope="col" className="py-2 font-medium">
-                    收件時間（臺灣時間）
+                    送出時間（臺灣時間）
                   </th>
                   <th scope="col" className="py-2 font-medium">
                     送出者
                   </th>
                   <th scope="col" className="py-2 font-medium">
-                    欄位版本
+                    表單
                   </th>
                   <th scope="col" className="py-2">
                     <span className="sr-only">動作</span>
@@ -284,13 +285,13 @@ export function ReceiverView({
                     <td className="py-3 font-semibold tabular-nums">
                       第 {v.versionNo} 次
                       {index === 0 ? (
-                        <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
+                        <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
                       ) : null}
                       {v.late ? <LateBadge /> : null}
                     </td>
                     <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
                     <td className="py-3">{v.submittedByName}</td>
-                    <td className="py-3 tabular-nums">v{v.schemaVersionNo}</td>
+                    <td className="py-3 tabular-nums">第 {v.schemaVersionNo} 版</td>
                     <td className="py-1 text-right">
                       <Link
                         href={`${base}?person=${entry.receiverId}&version=${v.versionNo}`}
@@ -347,8 +348,8 @@ export function ReceiverView({
           {detail.spans.map((s, index) => (
             <li key={index} className="tabular-nums">
               {formatTaipeiMinute(s.eligibleFrom)} {s.source === 'admin' ? '管理員加入' : '自動加入'}
-              {s.exempt ? `・免填（${s.exemptReason ?? ''}）` : ''}
-              {s.eligibleTo ? `・${formatTaipeiMinute(s.eligibleTo)} 移出（${s.removedReason ?? ''}）` : '・目前在名單上'}
+              {s.exempt ? `・免繳（${s.exemptReason ?? ''}）` : ''}
+              {s.eligibleTo ? `・${formatTaipeiMinute(s.eligibleTo)} 從繳交名單移除（${s.removedReason ?? ''}）` : '・目前在名單上'}
             </li>
           ))}
         </ul>
@@ -360,10 +361,9 @@ export function ReceiverView({
 export function VersionView({ base, detail, version }: { base: string; detail: ReceiverDetail; version: MyVersionDetail }) {
   const fields = answerFields(version.fields)
   const facts: [string, string][] = [
-    ['收件時間', formatTaipeiSecond(version.receivedBusinessAt)],
+    ['送出時間', formatTaipeiSecond(version.receivedBusinessAt)],
     ['送出者', version.submittedByName],
-    ['欄位版本', `v${version.schemaVersionNo}`],
-    ['回執編號', version.requestId],
+    ['表單', `第 ${version.schemaVersionNo} 版`],
   ]
   return (
     <article className="dash-card flex flex-col gap-5 p-6" data-testid="version-view">
@@ -379,7 +379,7 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
       <h2 className="text-lg font-extrabold">
         {detail.entry.name}・第 {version.versionNo} 次
         {version.isLatest ? (
-          <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
+          <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
         ) : (
           <span className="ml-2 text-sm font-normal text-muted-foreground">已被後來的版本取代</span>
         )}
@@ -389,9 +389,10 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
         {facts.map(([k, v]) => (
           <div key={k} className="flex gap-4">
             <dt className="w-16 shrink-0 text-muted-foreground">{k}</dt>
-            <dd className={cn('font-semibold tabular-nums', k === '回執編號' && 'break-all font-mono text-xs font-normal')}>{v}</dd>
+            <dd className="font-semibold tabular-nums">{v}</dd>
           </div>
         ))}
+        <ReceiptNoDisclosure requestId={version.requestId} className="sm:col-span-2" />
       </dl>
       <dl className="flex flex-col divide-y divide-border/70">
         {fields.map((f) => {
@@ -407,9 +408,7 @@ export function VersionView({ base, detail, version }: { base: string; detail: R
                     <a href={`/api/files/${file.fileId}`} className="break-all font-semibold text-primary underline-offset-2 hover:underline">
                       {file.name}
                     </a>
-                    <span className="font-mono text-[11px] text-muted-foreground" title={file.checksum}>
-                      sha256 {file.checksum.slice(0, 12)}…
-                    </span>
+                    <ChecksumDisclosure checksum={file.checksum} className="basis-full" />
                   </span>
                 ) : (
                   text || <span className="text-muted-foreground">（未填）</span>

@@ -65,7 +65,7 @@ test('沒有開放註冊屆別時，屆別頁提示管理員處理', async ({ pa
   await page.goto('/dashboard/admin/cohorts')
 
   await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-  const notice = page.getByRole('note', { name: '尚未設定開放註冊屆別' })
+  const notice = page.getByRole('note', { name: '尚未設定新註冊學生加入的屆別' })
   await expect(notice).toBeVisible()
   await expect(notice).toContainText('系統不會自己猜')
 })
@@ -98,41 +98,41 @@ test('開放註冊屆別只有一個：交給另一屆時舊的自動取消', as
   await signInAsAdmin(page)
   await page.goto('/dashboard/admin/cohorts')
 
-  await page.getByRole('button', { name: `把 ${CODE_A} 設為開放註冊屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`已把 ${CODE_A} 設為開放註冊屆別`)
-  await expect(rowOf(page, CODE_A)).toContainText('開放註冊中')
+  await page.getByRole('button', { name: `把 ${CODE_A} 設為新註冊學生加入的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`已把新註冊學生加入的屆別設為.*（${CODE_A}）`))
+  await expect(rowOf(page, CODE_A)).toContainText('新註冊加入這屆')
   // 有開放註冊屆別之後，提示就不見了。
-  await expect(page.getByRole('note', { name: '尚未設定開放註冊屆別' })).toHaveCount(0)
+  await expect(page.getByRole('note', { name: '尚未設定新註冊學生加入的屆別' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: `把 ${CODE_B} 設為開放註冊屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`${CODE_A} 的開放註冊屆別已自動取消`)
-  await expect(rowOf(page, CODE_B)).toContainText('開放註冊中')
-  await expect(rowOf(page, CODE_A)).not.toContainText('開放註冊中')
-  await expect(page.getByRole('button', { name: `把 ${CODE_A} 設為開放註冊屆別` })).toBeVisible()
-  await expect(page.getByText('開放註冊中')).toHaveCount(1)
+  await page.getByRole('button', { name: `把 ${CODE_B} 設為新註冊學生加入的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`新註冊學生加入的屆別設為.*（${CODE_B}）；原本的.*（${CODE_A}）已自動取消`))
+  await expect(rowOf(page, CODE_B)).toContainText('新註冊加入這屆')
+  await expect(rowOf(page, CODE_A)).not.toContainText('新註冊加入這屆')
+  await expect(page.getByRole('button', { name: `把 ${CODE_A} 設為新註冊學生加入的屆別` })).toBeVisible()
+  await expect(page.getByText('新註冊加入這屆')).toHaveCount(1)
 })
 
 test('預設工作屆別與開放註冊屆別是兩件事，可以是不同屆；重新整理後都還在', async ({ page }) => {
   await signInAsAdmin(page)
   await page.goto('/dashboard/admin/cohorts')
 
-  await page.getByRole('button', { name: `把 ${CODE_A} 設為預設工作屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`已把 ${CODE_A} 設為預設工作屆別`)
+  await page.getByRole('button', { name: `把 ${CODE_A} 設為後台預設查看的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`已把後台預設查看的屆別設為.*（${CODE_A}）`))
 
-  await page.getByRole('button', { name: `把 ${CODE_B} 設為預設工作屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`${CODE_A} 的預設工作屆別已自動取消`)
+  await page.getByRole('button', { name: `把 ${CODE_B} 設為後台預設查看的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`原本的.*（${CODE_A}）已自動取消`))
 
-  await page.getByRole('button', { name: `把 ${CODE_A} 設為預設工作屆別` }).click()
-  await expect(feedback(page, 'status')).toContainText(`${CODE_B} 的預設工作屆別已自動取消`)
+  await page.getByRole('button', { name: `把 ${CODE_A} 設為後台預設查看的屆別` }).click()
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`原本的.*（${CODE_B}）已自動取消`))
 
   // 離開再回來：存在資料庫，不是只改了畫面。
   await page.reload()
-  await expect(rowOf(page, CODE_A)).toContainText('預設工作中')
-  await expect(rowOf(page, CODE_A)).not.toContainText('開放註冊中')
-  await expect(rowOf(page, CODE_B)).toContainText('開放註冊中')
-  await expect(rowOf(page, CODE_B)).not.toContainText('預設工作中')
-  await expect(page.getByText('預設工作中')).toHaveCount(1)
-  await expect(page.getByText('開放註冊中')).toHaveCount(1)
+  await expect(rowOf(page, CODE_A)).toContainText('後台預設查看中')
+  await expect(rowOf(page, CODE_A)).not.toContainText('新註冊加入這屆')
+  await expect(rowOf(page, CODE_B)).toContainText('新註冊加入這屆')
+  await expect(rowOf(page, CODE_B)).not.toContainText('後台預設查看中')
+  await expect(page.getByText('後台預設查看中')).toHaveCount(1)
+  await expect(page.getByText('新註冊加入這屆')).toHaveCount(1)
 })
 
 test.describe('手機寬度', () => {

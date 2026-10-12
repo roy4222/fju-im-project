@@ -69,7 +69,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
     event.preventDefault()
     if (!preview || blocked) return
     if (!reason.trim()) {
-      setError('請寫去識別化的理由。')
+      setError('請寫刪除個人資料的理由。')
       return
     }
     if (!confirmOk) {
@@ -96,26 +96,26 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
           type="button"
           onClick={open}
           className={cn(BUTTON, SECONDARY, 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted')}
-          aria-label={`去識別化 ${a.name}`}
+          aria-label={`刪除 ${a.name} 的個人資料`}
         >
-          去識別化
+          刪除個人資料
         </button>
       )}
       <dialog
         ref={dialogRef}
         onClose={onClosed}
-        aria-label={`去識別化 ${a.name}`}
+        aria-label={`刪除 ${a.name} 的個人資料`}
         className="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
       >
         <div className="p-5">
           {!isOpen ? null : receipt ? (
             <div className="space-y-3 text-center" role="status">
-              <p className="inline-block rounded-full bg-muted px-3 py-1 text-sm font-medium text-foreground">已去識別化</p>
+              <p className="inline-block rounded-full bg-muted px-3 py-1 text-sm font-medium text-foreground">已刪除個人資料</p>
               <h2 className="text-lg font-extrabold text-foreground" data-testid="deidentify-pseudonym">
                 {receipt.pseudonym}
               </h2>
               <p className="text-sm text-muted-foreground">
-                個人資料已清除，這個帳號之後不能再登入。繳交、成績、簽核與操作紀錄都保留，改顯示上面的代稱。理由、操作者與時間已寫入紀錄。
+                個人資料已清除，這個帳號之後不能再登入。繳交、成績、同意書與操作紀錄都保留，改顯示上面的代稱。理由、操作者與時間已寫入紀錄。
               </p>
               {receipt.revocation === 'failed' ? (
                 <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -129,14 +129,14 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <h2 className="text-lg font-extrabold text-foreground">去識別化 {a.name}</h2>
+                <h2 className="text-lg font-extrabold text-foreground">刪除 {a.name} 的個人資料（保留紀錄）</h2>
                 {/* 第三波 §9 規則 1、AC-37：對象、後果、能不能恢復寫在最上面；範圍（會清除／會保留）在下面的預覽。 */}
                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm" data-testid="danger-facts">
                   <dt className="whitespace-nowrap text-muted-foreground">對象</dt>
                   <dd className="text-foreground">{a.name} 這一個帳號</dd>
                   <dt className="whitespace-nowrap text-muted-foreground">後果</dt>
                   <dd className="text-foreground">
-                    永久清除個資（永久刪除個資的正式作法）；本人立刻被登出、之後不能再登入。繳交、成績、簽核與紀錄不刪，改顯示代稱。
+                    永久清除個資（永久刪除個資的正式作法）；本人立刻被登出、之後不能再登入。繳交、成績、同意書與紀錄不刪，改顯示代稱。
                   </dd>
                   <dt className="whitespace-nowrap text-muted-foreground">能不能恢復</dt>
                   <dd>
@@ -179,7 +179,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
                   </div>
                   {blocked ? (
                     <div role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
-                      現在不能去識別化：
+                      現在不能刪除個人資料：
                       <ul className="mt-1 list-disc pl-5">
                         {preview.blockers.map((b) => (
                           <li key={b}>{b}</li>
@@ -236,7 +236,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
                 </button>
                 {preview && !blocked ? (
                   <button type="submit" className={cn(BUTTON, DANGER)} disabled={busy || !confirmOk || !reason.trim()}>
-                    {busy ? '處理中…' : '確認去識別化'}
+                    {busy ? '處理中…' : '確認刪除個人資料'}
                   </button>
                 ) : null}
               </div>

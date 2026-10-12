@@ -1,7 +1,7 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { PoolClient } from 'pg'
-import { statusGate, type ResolvedActor } from '@/application/accounts'
+import { displayPersonName, statusGate, type ResolvedActor } from '@/application/accounts'
 import type { BusinessClockSource, CohortStatus } from '@/application/cohorts'
 import { renderBodyHtml, sanitizeBody } from '@/application/items'
 import type { EventPublisher } from '@/application/notifications'
@@ -125,14 +125,14 @@ function groupNotFound(): Err {
 }
 
 function denied(): Err {
-  return err('FORBIDDEN', '無法存取這個簽核版本。')
+  return err('FORBIDDEN', '無法存取這份同意書。')
 }
 
 /** 建版輸入的形狀檢查（不碰資料庫）。 */
 function checkInput(input: CreateVersionInput): { ok: true; content: string; attachments: string[] } | Err {
   if (!isUuid(input.groupId)) return groupNotFound()
   if (!SIGNOFF_PURPOSES.includes(input.purpose)) {
-    return err('VALIDATION_FAILED', '請選簽核用途（期中結果確認或最終文件授權）。', { details: { field: 'purpose' } })
+    return err('VALIDATION_FAILED', '請選同意書用途（期中結果確認或最終文件授權）。', { details: { field: 'purpose' } })
   }
   const raw = String(input.content ?? '')
   if (raw.length > MAX_CONTENT_CHARS) {
@@ -151,12 +151,12 @@ function checkInput(input: CreateVersionInput): { ok: true; content: string; att
 
   const entryId = input.showcaseEntryId ? String(input.showcaseEntryId) : null
   if (input.purpose === 'final_document' && !entryId) {
-    return err('VALIDATION_FAILED', '最終文件授權要選這一組的精選草稿（授權範圍從它凍結）。', { details: { field: 'showcaseEntryId' } })
+    return err('VALIDATION_FAILED', '最終文件授權要選這一組的成果展示草稿（建立時會鎖定它這一版的內容）。', { details: { field: 'showcaseEntryId' } })
   }
   if (input.purpose === 'result_confirmation' && entryId) {
-    return err('VALIDATION_FAILED', '期中結果確認不帶公開授權範圍，不能選精選草稿。', { details: { field: 'showcaseEntryId' } })
+    return err('VALIDATION_FAILED', '期中結果確認不帶公開授權範圍，不能選成果展示草稿。', { details: { field: 'showcaseEntryId' } })
   }
-  if (entryId && !isUuid(entryId)) return err('VALIDATION_FAILED', '找不到這份精選草稿，請重新整理頁面。', { details: { field: 'showcaseEntryId' } })
+  if (entryId && !isUuid(entryId)) return err('VALIDATION_FAILED', '找不到這份成果展示草稿，請重新整理頁面。', { details: { field: 'showcaseEntryId' } })
   return { ok: true, content, attachments }
 }
 
@@ -180,7 +180,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
   }
 
   async createVersion(actor: ResolvedActor, input: CreateVersionInput, requestId: string): Promise<Result<CreateVersionReceipt>> {
-    const blocked = authorizeAdmin(actor, '建立簽核版本')
+    const blocked = authorizeAdmin(actor, '建立站內同意書')
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     const checked = checkInput(input)
@@ -211,8 +211,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<CreateVersionReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，簽核只能查看。`)
-      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立簽核版本。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
 
       // 參與者＝此刻實際有效的組員＋主指導（組別列 FOR SHARE 期間不會有人改成員）。
       const participants = buildParticipants(await currentMembers(tx, group.id), await currentAdvisor(tx, group.id), group.code)
@@ -250,7 +250,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (entryId) {
         const draft = await lockDraft(tx, entryId, group.id)
         if (!draft) {
-          return err('VALIDATION_FAILED', `找不到 ${group.code} 的這份精選草稿；請先到「精選」替這一組建立草稿。`, {
+          return err('VALIDATION_FAILED', `找不到 ${group.code} 的這份成果展示草稿；請先到「成果展示」替這一組建立草稿。`, {
             details: { field: 'showcaseEntryId' },
           })
         }
@@ -433,7 +433,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         recipients: admins,
         recipientBasis: { basis: 'active_admins', rule: 'signoff_superseded_admin_only' },
         payload: {
-          title: `${row.code}「${PURPOSE_LABEL[row.purpose]}」v${row.version_no} 因${CAUSE_LABEL[input.cause]}已失效，請建立新版`,
+          title: `${row.code}「${PURPOSE_LABEL[row.purpose]}」第 ${row.version_no} 版因${CAUSE_LABEL[input.cause]}已作廢，請建立新版`,
           groupId: input.groupId,
           code: row.code,
           purpose: row.purpose,
@@ -480,7 +480,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       return err('VALIDATION_FAILED', '請選「同意」或「不同意」。', { details: { field: 'decision' } })
     }
     const loginMethod = actor.loginMethod
-    if (!loginMethod) return err('UNAUTHENTICATED', '讀不到這次登入的方式，請重新登入後再表態。')
+    if (!loginMethod) return err('UNAUTHENTICATED', '讀不到這次登入的方式，請重新登入後再回覆。')
     const reason = normalizeReason(input.reason, input.decision === 'reject', input.decision === 'reject' ? '不同意或退回' : '同意')
     if (!reason.ok) return reason
     const checksum = String(input.contentChecksum ?? '')
@@ -509,10 +509,10 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const role = participants ? roleIn(participants, actor.userId) : null
       // 管理員不是參與者：明確說「系辦不能代簽」，而不是只說不是參與者（SGN-08）。
       if (role === null && actor.roles.includes('admin')) {
-        return err('FORBIDDEN', '系辦不能替任何人表態；每個人只能替自己同意。')
+        return err('FORBIDDEN', '系辦不能替任何人回覆；每個人只能替自己同意。')
       }
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，簽核只能查看。`)
-      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再表態。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再回覆。`)
       const refused = checkVote({
         isCurrent: pkg.current_version_id === version.id,
         state: status.state,
@@ -583,7 +583,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             where version_id = $1`,
           [version.id, next, next === 'revision' ? reason.reason : null, next === 'complete' ? realAt : null, realAt, actor.userId],
         )
-        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」v${version.version_no}`
+        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版`
         const common = { scope: 'cohort' as const, cohortId: cohort.id, source, actor: actorRef, occurredRealAt: realAt, occurredBusinessAt: businessNow }
         if (next === 'teacher_pending') {
           await this.#events.publish(tx, {
@@ -603,7 +603,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: [...stillIn, participants!.advisor.userId],
             recipientBasis: { basis: 'signoff_participants_effective_at_completion', versionId: version.id },
             payload: {
-              title: `${label} 此版本站內簽核已完成（站內同意紀錄，不代表校方採認）`,
+              title: `${label} 這一版站內同意書全員已同意（站內同意紀錄，不代表校方採認）`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -679,7 +679,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
    */
   async #restart(kind: RestartKind, actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>> {
     const what = RESTART_LABEL[kind]
-    const blocked = authorizeAdmin(actor, `${what}簽核`)
+    const blocked = authorizeAdmin(actor, `${what}站內同意書`)
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -706,13 +706,13 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RestartReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，簽核只能查看。`)
-      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立簽核版本。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
+      if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
       if (pkg.current_version_id !== version.id) return err('CONFLICT', '這一版已經不是目前的版本，請重新整理頁面。')
       if (restartKindFor(status.state) !== kind) {
         return err(
           'CONFLICT',
-          kind === 'reset' ? '這一版已退回、失效或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重置」。',
+          kind === 'reset' ? '這一版已退回、被取代或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重置」。',
         )
       }
 
@@ -843,7 +843,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
 
   /** 作廢目前這一版（S11-07）：理由必填；之後誰都不能再表態。已完成的作廢等於撤回這份授權。 */
   async voidVersion(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<VoidReceipt>> {
-    const blocked = authorizeAdmin(actor, '作廢簽核')
+    const blocked = authorizeAdmin(actor, '作廢站內同意書')
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -870,7 +870,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<VoidReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，簽核只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
       if (pkg.current_version_id !== version.id) return err('CONFLICT', '這一版已經不是目前的版本，請重新整理頁面。')
       const refused = checkVoid(status.state)
       if (refused) return refused
@@ -949,9 +949,9 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RemindReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，簽核只能查看。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，同意書只能查看。`)
       if (pkg.current_version_id !== version.id || !remindable(status.state)) {
-        return err('CONFLICT', '這一版不在收集同意中（已完成、退回、失效或作廢），不能提醒。')
+        return err('CONFLICT', '這一版不在收集同意中（已完成、退回、被取代或作廢），不能提醒。')
       }
       const last = await lastRemindedAt(tx, version.id)
       const next = nextRemindAt(last, realAt)
@@ -962,7 +962,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (!participants) return versionNotFound()
       const progress = buildProgress(participants, await votesOf(tx, [version.id]), status.state)
       const recipients = remindRecipients(progress)
-      if (recipients.length === 0) return err('CONFLICT', '這一版的參與者都已表態，不需要提醒。')
+      if (recipients.length === 0) return err('CONFLICT', '這一版的參與者都已回覆，不需要提醒。')
       const advisorIncluded = recipients.includes(participants.advisor.userId)
       const { eventId } = await this.#events.publish(tx, {
         type: 'signoff.reminded',
@@ -973,7 +973,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         recipients,
         recipientBasis: { basis: 'signoff_participants_not_voted', versionId: version.id },
         payload: {
-          title: `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」v${version.version_no} 還等你閱讀並表態`,
+          title: `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`,
           groupId: group.id,
           code: group.code,
           purpose: pkg.purpose,
@@ -1021,7 +1021,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     actor: ResolvedActor,
     input: { versionId: string; format: SignoffExportFormat },
   ): Promise<Result<SignoffExportFile>> {
-    const blocked = authorizeAdmin(actor, '匯出簽核紀錄')
+    const blocked = authorizeAdmin(actor, '匯出同意紀錄')
     if (blocked) return blocked
     if (!isUuid(input.versionId)) return versionNotFound()
     if (input.format !== 'csv' && input.format !== 'printable') {
@@ -1121,7 +1121,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       recipients: v.participants.students.map((s) => s.userId),
       recipientBasis: { basis: 'signoff_participants', versionId: v.versionId, groupId: v.group.id },
       payload: {
-        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」v${v.versionNo} 輪到你閱讀並同意`,
+        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」第 ${v.versionNo} 版輪到你閱讀並同意`,
         groupId: v.group.id,
         code: v.group.code,
         purpose: v.purpose,
@@ -1147,7 +1147,7 @@ async function markSuperseded(tx: PoolClient, versionId: string, cause: Supersed
 }
 
 function versionNotFound(): Err {
-  return err('VALIDATION_FAILED', '找不到這個簽核版本，請重新整理頁面。', { details: { field: 'versionId' } })
+  return err('VALIDATION_FAILED', '找不到這份同意書，請重新整理頁面。', { details: { field: 'versionId' } })
 }
 
 type LockedVersion = {
@@ -1512,7 +1512,7 @@ async function deidentifiedNames(db: Queryable, userIds: readonly string[]): Pro
     `select id, name from users where id = any($1::uuid[]) and deidentified_at is not null`,
     [ids],
   )
-  return new Map(rows.rows.map((r) => [r.id, r.name]))
+  return new Map(rows.rows.map((r) => [r.id, displayPersonName(r.name)]))
 }
 
 /** 一批參與者快照（jsonb 原樣）裡，已去識別化的人 → 代稱。 */
@@ -1574,7 +1574,7 @@ export class PgSignoffQuery implements SignoffQuery {
   }
 
   async adminBoard(actor: ResolvedActor, cohortId: string): Promise<Result<AdminSignoffBoard>> {
-    const blocked = authorizeAdmin(actor, '管理簽核')
+    const blocked = authorizeAdmin(actor, '管理站內同意書')
     if (blocked) return blocked
     if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     return this.#withClient(async (db) => {

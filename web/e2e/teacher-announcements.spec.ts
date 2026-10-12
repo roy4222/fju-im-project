@@ -188,7 +188,7 @@ async function quickPublish(
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: options.placement }).check()
   await dialog.getByLabel('標題').fill(options.title)
-  await dialog.getByLabel('發布對象').selectOption(options.audience)
+  await dialog.getByLabel('誰看得到').selectOption(options.audience)
   if (options.group) await dialog.getByRole('checkbox', { name: new RegExp(options.group) }).check()
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill('第三波 W4 驗收用。')
@@ -233,9 +233,9 @@ test('系辦發布五種對象的公告（組別與本屆勾「重要」）、�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
   await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
-  await page.getByLabel('發布對象').selectOption('cohort_students')
+  await page.getByLabel('誰看得到').selectOption('cohort_students')
   await page.getByLabel('所屬階段').selectOption({ index: 2 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(new Date(Date.now() + 20 * 86_400_000)))
   await page.getByLabel('要新增的欄位類型').selectOption('file')
@@ -362,7 +362,7 @@ test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成�
     els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent ?? ''),
   )
   expect(clipped).toEqual([])
-  for (const title of ['評分工作台', '給老師的公告', '本屆活動', '可認領產學組', '同意書', '指導中的組別', '合作案']) {
+  for (const title of ['我的評分', '給老師的公告', '本屆活動', '待指導的產學組', '同意書', '指導中的組別', '合作案']) {
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
   }
   const signoff = page.locator('section').filter({ has: page.getByRole('heading', { name: '同意書', exact: true }) })

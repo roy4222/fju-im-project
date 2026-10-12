@@ -14,8 +14,9 @@ const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const REVEALING = /權限|角色|指派|指導|無法存取|403/
 
 async function signInAs(page: Page, role: TestRole) {
-  const session = await sharedTestSession(page.request, role)
+  // 先清掉上一個身分的 cookie：還沒快取的身分要現場註冊，帶著舊 session cookie 的 POST 會被 Better Auth 當跨站請求擋掉（MISSING_OR_NULL_ORIGIN）。
   await page.context().clearCookies()
+  const session = await sharedTestSession(page.request, role)
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
 }
 

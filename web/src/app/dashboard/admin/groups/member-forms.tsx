@@ -198,7 +198,7 @@ export function UngroupedStudents({
                   <td className="px-5 py-2.5 font-semibold">{u.name}</td>
                   <td className="tabular px-4 py-2.5">{u.studentNo}</td>
                   <td className="px-4 py-2.5">{u.openToJoin ? <Pill tone="brand">公開找組員</Pill> : <Pill>未公開</Pill>}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{u.inProposal ? '提案等待確認中' : '—'}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{u.inProposal ? '組隊中（等全員確認）' : '—'}</td>
                   <td className="px-5 py-2.5 text-right">
                     <button type="button" className={BTN_ROW} aria-label={`加入某組：${u.name}`} onClick={() => pick(u)}>
                       <IconUserPlus aria-hidden />
@@ -217,11 +217,11 @@ export function UngroupedStudents({
             <h2 className="text-lg font-extrabold text-foreground">把 {student.name} 加入組別</h2>
             <p className="text-sm text-muted-foreground">
               {student.studentNo}・{student.openToJoin ? '本人有公開找組員' : '本人沒有公開找組員，加入前請先聯絡'}。
-              加入後全組會收到通知；成員改變，之後的簽核要重簽。
+              加入後全組會收到通知；成員改變，之後的站內同意書要重新同意。
             </p>
             {student.inProposal ? (
               <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
-                這位同學正在某份提案裡等確認：要加入請先在「進行中的提案」作廢那份提案（理由另填），或等它結束。
+                這位同學正在某份提案裡等確認：要加入請先在「組隊中（等全員確認）」作廢那份提案（理由另填），或等它結束。
               </p>
             ) : null}
             <input type="hidden" name="studentNo" value={student.studentNo} />
@@ -434,7 +434,7 @@ function RemoveMemberDialog({
             把 {member.name} 移出 {group.code}？
           </h2>
           <p className="text-sm text-muted-foreground">
-            移出後他回到未分組、不能再看這組的資料；全組會收到通知，他只收到本人的異動說明（不含理由）。成員改變，之後的簽核要重簽。
+            移出後他回到未分組、不能再看這組的資料；全組會收到通知，他只收到本人的異動說明（不含理由）。成員改變，之後的站內同意書要重新同意。
           </p>
           <input type="hidden" name="groupId" value={group.id} />
           <input type="hidden" name="revision" value={group.revision} />

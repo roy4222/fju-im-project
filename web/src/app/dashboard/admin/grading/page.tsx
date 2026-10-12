@@ -351,9 +351,9 @@ export default async function AdminGradingPage({
         <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
           {current
             ? locked
-              ? '已有老師開始評分（暫存或正式送出），結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
-              : '第一位老師暫存或送出評分後就鎖定。'
-            : '最終成績＝Σ（階段成績 × 階段權重）；階段成績為採計中正式評分的平均。'}
+              ? '已有老師開始評分（存了評分草稿或已正式送出），結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
+              : '第一位老師存了評分草稿或送出評分後就鎖定。'
+            : '最終成績＝Σ（階段成績 × 階段權重）；階段成績為計入成績的正式評分的平均。'}
         </p>
       </Panel>
 
@@ -529,10 +529,10 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
     <>
       {book.pendingReviews.length > 0 ? (
         <Panel
-          title={`待重新確認的人工更正（${book.pendingReviews.length}）`}
+          title={`需要重新確認的更正（${book.pendingReviews.length}）`}
           icon={<IconAlertTriangle />}
-          description="分數來源改變了（採計的分數、需要幾位老師評分或評分規則）；原更正保留但暫不套用"
-          aria-label="待重新確認的人工更正"
+          description="分數來源改變了（計入成績的分數、需要幾位老師評分或評分規則）；原更正保留但暫不套用"
+          aria-label="需要重新確認的更正"
           className="border-destructive/40"
         >
           <ul className="space-y-1 border-t border-border/70 px-5 py-3 text-sm">
@@ -547,7 +547,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
               </li>
             ))}
           </ul>
-          <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">請到該組的計算明細確認沿用或建立新的更正。</p>
+          <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">請到該組的計算明細確認：保留先前更正的分數，或建立新的更正。</p>
         </Panel>
       ) : null}
 
@@ -668,7 +668,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                               {adopted.value ?? '尚未完成'}
                             </p>
                             {adopted.source === 'override' ? <p className="text-xs text-brand-on-subtle">已更正（原 {g.result.finalDisplay}）</p> : null}
-                            {adopted.pendingReview ? <p className="text-xs text-destructive">人工更正待重新確認</p> : null}
+                            {adopted.pendingReview ? <p className="text-xs text-destructive">更正需要重新確認</p> : null}
                           </td>
                           <td className={`${DT.td} max-w-[18rem] text-xs`}>
                             {notes.length > 0 ? (

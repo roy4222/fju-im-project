@@ -44,7 +44,7 @@ export default async function TeacherGradingGroupPage({
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/grading">
       <div className="flex flex-col gap-5">
-        <PageTitle title="評分工作台" description="只有你被指派的組別。暫存只有你和系辦看得到，正式送出後鎖定。" />
+        <PageTitle title="我的評分" description="只有你被指派的組別。評分草稿只有你和系辦看得到，正式送出後鎖定。" />
         {children}
       </div>
     </DashboardShell>
@@ -126,13 +126,13 @@ export default async function TeacherGradingGroupPage({
           ) : null}
         </GradingBench>
 
-        <Panel title="本組正式繳交" icon={<IconPaperclip />} description="評分用：每份整組收件最新一次正式送出">
+        <Panel title="本組正式繳交" icon={<IconPaperclip />} description="評分用：每個整組繳交項目最新一次正式送出的版本">
           {opened ? (
             <div className="border-t border-border px-5 py-4">
               <VersionContent version={opened} backHref={benchHref} backLabel="本組正式繳交" title={`${groupCode} 組`} />
             </div>
           ) : latestByItem.length === 0 ? (
-            <PanelEmpty icon={<IconPaperclip />} title="這一組還沒有正式送出任何整組收件" hint="草稿看不到；附件每次下載都重新確認你還是評分老師。" />
+            <PanelEmpty icon={<IconPaperclip />} title="這一組還沒有正式送出任何整組繳交項目" hint="草稿看不到；附件每次下載都重新確認你還是評分老師。" />
           ) : (
             <ul className="divide-y divide-border">
               {latestByItem.map((v) => (

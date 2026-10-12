@@ -90,7 +90,7 @@ function VerificationFields({
       ))}
       {method ? (
         <label className="block text-sm font-medium text-foreground">
-          核實說明
+          怎麼確認的說明
           <span className="ml-1 font-normal text-muted-foreground">・{noteHint[method]}</span>
           <textarea
             rows={2}
@@ -222,7 +222,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
           {!dialog.isOpen ? null : done ? (
             <div className="space-y-3" role="status">
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
-                {done.account.mode === 'direct' ? '已建立' : '已建立預授權'}
+                {done.account.mode === 'direct' ? '已建立' : '已預先建立老師帳號'}
               </p>
               <h2 className="text-lg font-extrabold text-foreground">{done.account.name ?? done.account.email}</h2>
               {done.account.mode === 'preauthorize' ? (
@@ -261,7 +261,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                 {(
                   [
                     ['direct', '直接新增', '現在發一次性臨時密碼，老師用 Email＋密碼登入'],
-                    ['preauthorize', '只用 Email 預授權', '先保留這個 Email，老師之後登入再補資料'],
+                    ['preauthorize', '只用 Email 預先建立', '先保留這個 Email，老師之後登入再補資料'],
                   ] as const
                 ).map(([value, label, hint]) => (
                   <label
@@ -334,7 +334,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                   取消
                 </button>
                 <button type="submit" className={cn(BUTTON, PRIMARY)} disabled={busy}>
-                  {busy ? '處理中…' : mode === 'direct' ? '建立並產生臨時密碼' : '建立預授權'}
+                  {busy ? '處理中…' : mode === 'direct' ? '建立並產生臨時密碼' : '預先建立帳號'}
                 </button>
               </div>
             </form>
@@ -348,7 +348,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
 // ── 發臨時密碼 ──────────────────────────────────────────────────────────────
 
 const ROLE_LABEL = { student: '學生', teacher: '老師', admin: '系辦' } as const
-const STATUS_LABEL = { pending: '待審核', active: '正常', disabled: '已停用', deidentified: '已去識別化' } as const
+const STATUS_LABEL = { pending: '待審核', active: '正常', disabled: '已停用', deidentified: '已刪除個人資料' } as const
 
 /**
  * 替任一帳號核發一次性臨時密碼。

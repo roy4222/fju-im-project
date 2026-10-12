@@ -19,7 +19,7 @@ import {
 } from '@/composition/signoff'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '簽核版本｜資管系專題平台' }
+export const metadata = { title: '同意書內容｜資管系專題平台' }
 
 /**
  * 管理員的簽核版本頁（票 25、26）：全文、附件、授權範圍、逐人進度與缺誰、版本歷史，以及系辦能做的事——
@@ -44,30 +44,30 @@ function affectedVotes(v: VersionDetail): string[] {
 
 /** 確認視窗的對象：哪一組、哪一份、第幾版。 */
 function targetOf(v: VersionDetail): string {
-  return `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」v${v.versionNo}`
+  return `${v.cohortCode}・${v.groupCode}「${PURPOSE_LABEL[v.purpose]}」同意書第 ${v.versionNo} 版`
 }
 
 function restartFacts(v: VersionDetail, affected: readonly string[]): DangerFacts {
   return {
     target: targetOf(v),
     // 新版的參與者按下時才依「目前」的組員與主指導重算，不能用這一版的快照人數（組員可能已經異動）。
-    scope: `${v.groupCode} 目前有效的組員與主指導（按下時重新計算），每個人都要重新同意。`,
+    scope: `${v.groupCode} 目前有效的組員與指導老師（按下時重新計算），每個人都要重新同意。`,
     effect:
-      `建立 v${v.versionNo + 1}（全文、附件、授權範圍與 v${v.versionNo} 相同），參與者依此刻的組員與主指導重新計算，每個人都要重新同意；` +
-      `v${v.versionNo} 與它的表態留作歷史、不計入新版${affected.length > 0 ? `，下面 ${affected.length} 份簽署失效` : ''}。參與學生會收到「輪到你同意」。`,
-    undo: `不能復原：新版建立後就是目前版本，v${v.versionNo} 的同意不會再算數。`,
+      `建立第 ${v.versionNo + 1} 版（全文、附件、授權範圍與第 ${v.versionNo} 版相同），參與者依此刻的組員與指導老師重新計算，每個人都要重新同意；` +
+      `第 ${v.versionNo} 版與它的回覆留作歷史、不計入新版${affected.length > 0 ? `，下面 ${affected.length} 份回覆作廢` : ''}。參與學生會收到「輪到你同意」。`,
+    undo: `不能復原：新版建立後就是目前版本，第 ${v.versionNo} 版的同意不會再算數。`,
   }
 }
 
 function voidFacts(v: VersionDetail): DangerFacts {
   return {
     target: targetOf(v),
-    scope: `只有 v${v.versionNo} 這一版：它的參與者之後都不能再對它表態；不會另建新版。`,
+    scope: `只有第 ${v.versionNo} 版這一版：它的參與者之後都不能再回覆；不會另建新版。`,
     effect:
       v.state === 'complete'
-        ? '這份已完成的同意等於撤回；之後誰都不能再對這一版表態。'
-        : '之後誰都不能再對這一版表態；已經表態的留作歷史、不算數。',
-    undo: '作廢不能取消。要重新簽核請按「重開新版」，全組再同意一次。',
+        ? '這份已完成的同意等於撤回；之後誰都不能再回覆這一版。'
+        : '之後誰都不能再回覆這一版；已經回覆的留作歷史、不算數。',
+    undo: '作廢不能取消。要重新取得同意請按「重開新版」，全組再同意一次。',
   }
 }
 
@@ -118,11 +118,11 @@ function Manage({ v }: { v: VersionDetail }) {
           </h4>
           <ul className="space-y-1 text-sm text-muted-foreground">
             <li>
-              <span className="font-semibold text-foreground">{RESTART_LABEL[kind]}</span>：用同樣內容建新版，全組每個人都要重新同意；這一版的表態不再算數。
+              <span className="font-semibold text-foreground">{RESTART_LABEL[kind]}</span>：用同樣內容建新版，全組每個人都要重新同意；這一版的回覆不再算數。
             </li>
             {v.state !== 'void' ? (
               <li>
-                <span className="font-semibold text-foreground">作廢</span>：這一版之後誰都不能再表態，不能取消；要再簽核得重開新版。
+                <span className="font-semibold text-foreground">作廢</span>：這一版之後誰都不能再回覆，不能取消；要重新取得同意得重開新版。
               </li>
             ) : null}
           </ul>
@@ -160,21 +160,21 @@ export default async function AdminSignoffVersionPage({
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/signoff">
-      <PageHeader title="簽核版本" description="版本內容建立後不能改；要改就回簽核頁再建一版。系辦不能替任何人表態。" />
+      <PageHeader title="同意書內容" description="同意書建立後內容不能改；要改就回站內同意書頁再建一版。系辦不能替任何人回覆。" />
       <Link href="/dashboard/admin/signoff" className="mb-4 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline">
-        ← 回簽核
+        ← 回站內同意書
       </Link>
       {detail.ok && (restarted === 'reset' || restarted === 'reopen') ? (
         <p role="status" className="mb-4 rounded-lg bg-primary-subtle px-4 py-3 text-sm text-primary-on-subtle">
-          已{RESTART_LABEL[restarted]}：這是新建的 v{detail.receipt.versionNo}
-          {/^\d+$/.test(from ?? '') ? `（內容與 v${from} 相同）` : ''}，參與者依此刻重新計算；舊版與舊的表態留作歷史、不計入新版，
+          已{RESTART_LABEL[restarted]}：這是新建的第 {detail.receipt.versionNo} 版
+          {/^\d+$/.test(from ?? '') ? `（內容與第 ${from} 版相同）` : ''}，參與者依此刻重新計算；舊版與舊的回覆留作歷史、不計入新版，
           每位參與學生已收到「輪到你同意」。
         </p>
       ) : null}
       {detail.ok ? (
         <VersionView v={detail.receipt} historyHref={(id) => `/dashboard/admin/signoff/${id}`} action={<Manage v={detail.receipt} />} />
       ) : (
-        <EmptyState title="找不到這個簽核版本" description={detail.message} action={{ href: '/dashboard/admin/signoff', label: '回簽核' }} />
+        <EmptyState title="找不到這份同意書" description={detail.message} action={{ href: '/dashboard/admin/signoff', label: '回站內同意書' }} />
       )}
     </DashboardShell>
   )

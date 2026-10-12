@@ -19,7 +19,7 @@ import { AWARD_LABEL_MAX, AWARD_LEVEL_LABEL, checkShowcaseLifecycle, getShowcase
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '精選｜資管系專題平台' }
+export const metadata = { title: '成果展示｜資管系專題平台' }
 
 const STATUS_TONE: Record<'draft' | 'published' | 'withdrawn', PillTone> = { draft: 'default', published: 'success', withdrawn: 'danger' }
 
@@ -49,7 +49,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/showcase">
       <PageHeader
-        title="精選"
+        title="成果展示"
         description="勾選同意並按「發布」後，登入的師生就能在「歷屆專題一覽」看到；有選獎項的才會出現在訪客看得到的「優秀專題」與首頁輪播。草稿不會公開。"
       />
       {children}
@@ -58,12 +58,12 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
 
   if (cohorts.length === 0) {
     return shell(
-      <EmptyState title="還沒有屆別" description="先到屆別頁新增一屆，才能替那一屆的組別建精選草稿。" action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }} />,
+      <EmptyState title="還沒有屆別" description="先到屆別頁新增一屆，才能替那一屆的組別建成果展示草稿。" action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }} />,
     )
   }
 
   const board = await getShowcaseQuery().adminBoard(actor, { cohortId: picked?.id ?? null, createCohortId: createCohort?.id ?? null })
-  if (!board.ok) return shell(<EmptyState title="讀不到精選資料" description={board.message} />)
+  if (!board.ok) return shell(<EmptyState title="讀不到成果展示資料" description={board.message} />)
   const { drafts, groups } = board.receipt
   const withoutDraft = groups.filter((g) => g.entryId === null)
   const groupLabel = (code: string | null) => code ?? '（歷屆補登）'
@@ -90,7 +90,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
       </nav>
 
       <Card
-        title="建立精選草稿"
+        title="建立成果展示草稿"
         description={
           createCohort
             ? `替 ${createCohort.code} 屆的一組建草稿（一組一屆只有一份）。填好內容後，在下面那件作品勾同意並按「發布」才會公開。`
@@ -99,7 +99,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         className="mb-6"
       >
         {!createCohort ? null : groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">這一屆還沒有組別；分組成立後才能建立精選草稿。</p>
+          <p className="text-sm text-muted-foreground">這一屆還沒有組別；分組成立後才能建立成果展示草稿。</p>
         ) : (
           <CreateDraftForm groups={withoutDraft} requestId={randomUUID()} />
         )}
@@ -138,10 +138,10 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         />
       </section>
 
-      <section aria-label="精選草稿" className="space-y-4">
+      <section aria-label="成果展示" className="space-y-4">
         <h2 className="text-base font-semibold text-ink">逐件管理</h2>
         {drafts.length === 0 ? (
-          <EmptyState title="尚無精選草稿" description="在上面選一組建立草稿，填好題目、摘要、海報與影片連結後儲存，再勾同意發布。" />
+          <EmptyState title="尚無成果展示草稿" description="在上面選一組建立草稿，填好題目、摘要、海報與影片連結後儲存，再勾同意發布。" />
         ) : (
           drafts.map((d) => {
             const label = `${d.cohortCode} ${groupLabel(d.groupCode)}`
@@ -164,7 +164,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                     <p className="mt-1 text-xs text-muted-foreground">
                       最後儲存 {formatTaipeiMinute(d.updatedAt)}
                       {d.updatedByName ? `・${d.updatedByName}` : ''}
-                      {d.frozenInVersions > 0 ? `・已有 ${d.frozenInVersions} 個簽核版本從這份草稿凍結授權範圍（改草稿不影響它們）` : ''}
+                      {d.frozenInVersions > 0 ? `・已有 ${d.frozenInVersions} 份站內同意書鎖定了這份草稿當時的內容（改草稿不影響它們）` : ''}
                     </p>
                   </div>
                   <dl className="flex gap-4 text-xs">

@@ -29,11 +29,11 @@ export const metadata = { title: '計算明細｜資管系專題平台' }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const EVALUATION_STATE_TEXT: Record<EvaluationHistoryEntry['state'], string> = {
-  draft: '暫存中（未正式）',
-  counted: '採計中',
-  historical: '歷史（不採計）',
+  draft: '評分草稿（未送出）',
+  counted: '計入成績',
+  historical: '不計入成績（保留）',
   returned: '已退回',
-  invalidated: '失效的暫存',
+  invalidated: '已作廢的評分草稿',
 }
 
 /**
@@ -98,7 +98,7 @@ export default async function GroupGradeDetailPage({
         teacherName: returnedEntry.teacherName,
       })
     : resolvedEntry
-      ? `已重新確認人工更正：${describeOverrideReceipt({
+      ? `已重新確認更正：${describeOverrideReceipt({
           overrideId: resolvedEntry.id,
           groupCode: d.group.code,
           originalValue: resolvedEntry.originalValue,
@@ -110,7 +110,7 @@ export default async function GroupGradeDetailPage({
     : !d.result.complete
       ? '還有階段尚未完成，最終成績還沒出來，不能更正。'
       : current?.state === 'pending_review'
-        ? '有一筆人工更正待重新確認，請先在下方處理。'
+        ? '有一筆更正需要重新確認，請先在下方處理。'
         : null
 
   return shell(
@@ -138,7 +138,7 @@ export default async function GroupGradeDetailPage({
                 {formatTaipeiMinute(current.realAt)}，評分規則第 {current.schemeVersionNo} 版）
               </p>
             ) : null}
-            {adopted.pendingReview ? <p className="mt-1 text-sm text-danger">人工更正待重新確認：分數來源已改變，原更正暫不套用。</p> : null}
+            {adopted.pendingReview ? <p className="mt-1 text-sm text-danger">更正需要重新確認：分數來源已改變，原更正暫不套用。</p> : null}
             <p data-testid="final-formula" className="mt-2 text-sm tabular-nums text-muted-foreground">
               {formula ?? '還有階段尚未完成，最終成績等全部階段完成才算。'}
             </p>
@@ -175,7 +175,7 @@ export default async function GroupGradeDetailPage({
             <p className="text-sm">
               <span className={cn('font-semibold', s.complete ? 'text-foreground' : 'text-danger')}>{describeStageStatus(s)}</span>
               <span className="ml-2 tabular-nums text-muted-foreground">
-                採計 {s.counted.length}／要求 {s.required ?? '未設定'}
+                計入成績 {s.counted.length}／需要 {s.required ?? '未設定'}
               </span>
             </p>
             <p className="text-sm tabular-nums text-foreground" data-testid="stage-formula">
@@ -183,7 +183,7 @@ export default async function GroupGradeDetailPage({
             </p>
             {s.counted.length > 0 ? (
               <div className="overflow-x-auto rounded-card border border-border">
-                <table className="w-full min-w-[40rem] text-sm" aria-label={`${s.name} 採計中的評分`}>
+                <table className="w-full min-w-[40rem] text-sm" aria-label={`${s.name} 計入成績的評分`}>
                   <thead className="bg-muted text-left text-muted-foreground">
                     <tr>
                       <th className="px-4 py-2 font-medium">評分老師</th>
@@ -238,7 +238,7 @@ export default async function GroupGradeDetailPage({
         </Card>
       ))}
 
-      <Card title="評分紀錄" description="每一份老師輸入都保留（不可改）；退回、替換、失效的暫存與原因只有系辦看得到。">
+      <Card title="評分紀錄" description="每一份老師輸入都保留（不可改）；退回、替換、已作廢的評分草稿與原因只有系辦看得到。">
         {d.evaluations.length === 0 ? (
           <p className="text-sm text-muted-foreground">還沒有任何評分。</p>
         ) : (

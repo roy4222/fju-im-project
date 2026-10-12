@@ -34,10 +34,10 @@ export function VersionTable({
               送出者
             </th>
             <th scope="col" className="py-2 font-medium">
-              收件時間（臺灣時間）
+              送出時間（臺灣時間）
             </th>
             <th scope="col" className="py-2 font-medium">
-              表單格式
+              表單
             </th>
             <th scope="col" className="py-2">
               <span className="sr-only">動作</span>
@@ -86,9 +86,9 @@ export function VersionContent({
 }) {
   const fields = answerFields(version.fields)
   const facts: [string, string][] = [
-    ['收件時間', formatTaipeiSecond(version.receivedBusinessAt)],
+    ['送出時間', formatTaipeiSecond(version.receivedBusinessAt)],
     ['送出者', version.submittedByName],
-    ['表單格式', `第 ${version.schemaVersionNo} 版`],
+    ['表單', `第 ${version.schemaVersionNo} 版`],
   ]
   return (
     <div className="space-y-4" data-testid="version-view">
@@ -101,7 +101,7 @@ export function VersionContent({
       <h2 className="text-lg font-semibold text-ink">
         {title ? `${title}・` : ''}第 {version.versionNo} 次
         {version.isLatest ? (
-          <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-xs text-primary-on-subtle">採計</span>
+          <span className="ml-2 rounded-full bg-primary-subtle px-2 py-0.5 text-xs text-primary-on-subtle">以此版為準</span>
         ) : (
           <span className="ml-2 text-sm font-normal text-muted-foreground">已被後來的版本取代</span>
         )}

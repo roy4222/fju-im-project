@@ -92,7 +92,7 @@ export type StageDraft = { name: string; startDate: string; description: string 
 
 export function ScheduleEditor({
   cohortId,
-  cohortCode,
+  cohortLabel,
   revision,
   requestId,
   stages,
@@ -102,7 +102,7 @@ export function ScheduleEditor({
   dialog: external,
 }: {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   revision: number
   requestId: string
   stages: StageDraft[]
@@ -142,7 +142,7 @@ export function ScheduleEditor({
       <Dialog
         dialog={dialog}
         wide
-        title={`編輯 ${cohortCode} 的階段與日期`}
+        title={`編輯 ${cohortLabel} 的階段與日期`}
         description="每個階段只填開始日，要一段比一段晚；下一段開始那天 00:00 起就換段。年度結束日當天仍算在年度內。"
       >
         <form action={formAction} className="grid gap-5 md:grid-cols-[minmax(0,1fr)_240px]">
@@ -445,7 +445,7 @@ export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortI
       <button type="button" className={PRIMARY} onClick={dialog.open}>
         <IconPlus aria-hidden /> 新增活動
       </button>
-      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從收件項目自動帶進日曆。">
+      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從繳交項目自動帶進日曆。">
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="cohortId" value={cohortId} />
           <input type="hidden" name="requestId" value={requestId} />

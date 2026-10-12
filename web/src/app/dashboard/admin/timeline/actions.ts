@@ -2,7 +2,7 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { TimelineActionState } from '@/app/dashboard/admin/timeline/timeline-forms'
-import { getTimelineCommand, STAGE_COUNT } from '@/composition/cohorts'
+import { cohortLabel, getTimelineCommand, STAGE_COUNT } from '@/composition/cohorts'
 
 /**
  * 時間軸頁的動作（票 11；契約 02 §7）：存階段與年度結束日、新增活動、改期、取消活動；
@@ -50,8 +50,8 @@ export async function saveScheduleAction(
   return {
     ok: true,
     message: changed.length
-      ? `已儲存 ${result.receipt.code} 的階段與日期（第 ${changed.join('、')} 階段的日期有變）。`
-      : `已儲存 ${result.receipt.code} 的階段（日期沒有變）。`,
+      ? `已儲存${cohortLabel(result.receipt)}的階段與日期（第 ${changed.join('、')} 階段的日期有變）。`
+      : `已儲存${cohortLabel(result.receipt)}的階段（日期沒有變）。`,
   }
 }
 

@@ -189,7 +189,7 @@ describe('建立精選草稿', () => {
 
     const second = await command.createDraft(actor(a2, ['admin']), { groupId: s.groupId }, randomUUID())
     expect(second).toMatchObject({ ok: false, code: 'CONFLICT' })
-    expect(second.ok ? '' : second.message).toMatch(/已經有精選草稿/)
+    expect(second.ok ? '' : second.message).toMatch(/已經有成果展示草稿/)
     expect((await owner.sql('select count(*)::int as n from showcase_entries where group_id = $1', [s.groupId])).rows[0]!.n).toBe(1)
   })
 

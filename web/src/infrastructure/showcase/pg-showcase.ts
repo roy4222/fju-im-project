@@ -109,11 +109,11 @@ function groupNotFound(): Err {
 }
 
 function draftNotFound(): Err {
-  return err('VALIDATION_FAILED', '找不到這份精選草稿，請重新整理頁面。')
+  return err('VALIDATION_FAILED', '找不到這份成果展示，請重新整理頁面。')
 }
 
 function archived(code: string): Err {
-  return err('COHORT_ARCHIVED', `${code} 已封存，精選草稿只能查看。`)
+  return err('COHORT_ARCHIVED', `${code} 已封存，成果展示只能查看。`)
 }
 
 function entryNotFound(): Err {
@@ -121,7 +121,7 @@ function entryNotFound(): Err {
 }
 
 function dissolved(code: string): Err {
-  return err('GROUP_DISSOLVED', `${code} 已解散，不能再建立或修改精選草稿。`)
+  return err('GROUP_DISSOLVED', `${code} 已解散，不能再建立或修改成果展示草稿。`)
 }
 
 /** 摘要 checksum：sha256(正規化後的摘要)（附錄 A `showcase_drafts.summary_checksum`）。 */
@@ -147,7 +147,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
   }
 
   async createDraft(actor: ResolvedActor, input: { groupId: string }, requestId: string): Promise<Result<CreateDraftReceipt>> {
-    const denied = authorizeAdmin(actor, '建立精選草稿')
+    const denied = authorizeAdmin(actor, '建立成果展示草稿')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.groupId)) return err('VALIDATION_FAILED', '請先選組別。', { details: { field: 'groupId' } })
@@ -274,7 +274,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
   }
 
   async updateDraft(actor: ResolvedActor, input: UpdateDraftInput, requestId: string): Promise<Result<UpdateDraftReceipt>> {
-    const denied = authorizeAdmin(actor, '編輯精選草稿')
+    const denied = authorizeAdmin(actor, '編輯成果展示')
     if (denied) {
       // 不是管理員一律不能改；封存屆別的作品照實說「已封存」（設計方案 §4：封存仍擋非管理員）。不寫任何列。
       if (denied.code === 'FORBIDDEN' && isUuid(input.entryId)) {
@@ -407,7 +407,7 @@ export class PgShowcaseCommand implements ShowcaseCommand {
   }
 
   async requestPosterUpload(actor: ResolvedActor, input: PosterUploadInput): Promise<Result<UploadTicket>> {
-    const denied = authorizeAdmin(actor, '上傳精選海報')
+    const denied = authorizeAdmin(actor, '上傳成果展示海報')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(input.entryId)) return draftNotFound()
     // 管理員可以替封存屆別的作品換海報（W15）；到這裡的一定是管理員。
@@ -744,9 +744,9 @@ export class PgShowcaseCommand implements ShowcaseCommand {
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'showcase', body, (constraint) => {
       if (constraint === 'showcase_entries_one_per_group') {
-        return err('CONFLICT', '這一組剛剛已經有人建立了精選草稿；一組只能有一份，請重新整理頁面直接編輯它。')
+        return err('CONFLICT', '這一組剛剛已經有人建立了成果展示草稿；一組只能有一份，請重新整理頁面直接編輯它。')
       }
-      return err('CONFLICT', '剛剛有人同時修改了同一份精選草稿，請重新整理頁面再試一次。')
+      return err('CONFLICT', '剛剛有人同時修改了同一份成果展示，請重新整理頁面再試一次。')
     })
   }
 }
@@ -787,7 +787,7 @@ function missingConsent(actor: ResolvedActor, input: PublishInput, what: string,
 }
 
 function alreadyHasDraft(code: string): Err {
-  return err('CONFLICT', `${code} 已經有精選草稿了；一組只能有一份，請直接編輯它。`)
+  return err('CONFLICT', `${code} 已經有成果展示草稿了；一組只能有一份，請直接編輯它。`)
 }
 
 /** 鎖順序：屆別 FOR SHARE → 組別 FOR SHARE（見檔頭）。 */
@@ -852,7 +852,7 @@ export class PgShowcaseQuery implements ShowcaseQuery {
    * 已刪除的條目不列。建立草稿的組別清單另外依 `createCohortId` 查（有未刪除條目的組不能再建；刪掉後可以）。
    */
   async adminBoard(actor: ResolvedActor, filter: ShowcaseBoardFilter): Promise<Result<ShowcaseBoard>> {
-    const denied = authorizeAdmin(actor, '管理精選')
+    const denied = authorizeAdmin(actor, '管理成果展示')
     if (denied) return denied
     if ((filter.cohortId !== null && !isUuid(filter.cohortId)) || (filter.createCohortId !== null && !isUuid(filter.createCohortId))) {
       return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')

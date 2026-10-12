@@ -199,7 +199,7 @@ export class PgAccountCommand implements AccountCommand {
       await tx.query(
         `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
          values ($1, $2, 'teacher', $3, $4, $5)`,
-        [uuidv7(), userId, actor.userId, now, account.mode === 'direct' ? '系辦新增老師' : '系辦預授權老師'],
+        [uuidv7(), userId, actor.userId, now, account.mode === 'direct' ? '系辦新增老師' : '系辦預先建立老師帳號'],
       )
       await tx.query(
         `insert into user_status_events
@@ -208,7 +208,7 @@ export class PgAccountCommand implements AccountCommand {
         [
           uuidv7(),
           userId,
-          account.mode === 'direct' ? '系辦新增老師' : '系辦預授權老師',
+          account.mode === 'direct' ? '系辦新增老師' : '系辦預先建立老師帳號',
           account.verification?.verificationMethod ?? null,
           actor.userId,
           now,
@@ -600,7 +600,7 @@ export class PgAccountCommand implements AccountCommand {
       // 鎖住之後重新判一次：本人剛好送出了申請、或別的管理員剛補好，就不是孤兒了。
       if (!isOrphan(target)) {
         await tx.query('rollback')
-        return err('CONFLICT', '這個帳號已經不是孤兒帳號了（有角色、申請或個人資料），請重新整理頁面。')
+        return err('CONFLICT', '這個帳號已經設定好身分了（有角色、申請或個人資料），請重新整理頁面。')
       }
 
       const activated = target.status === 'pending'
@@ -610,7 +610,7 @@ export class PgAccountCommand implements AccountCommand {
           `insert into user_status_events
              (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
            values ($1, $2, 'pending', 'active', $3, 'user', $4, $5)`,
-          [uuidv7(), target.userId, `孤兒帳號補建角色：${repair.value.reason}`, actor.userId, now],
+          [uuidv7(), target.userId, `補上身分：${repair.value.reason}`, actor.userId, now],
         )
       }
       await tx.query(
