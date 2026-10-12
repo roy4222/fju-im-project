@@ -3,7 +3,7 @@ import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
- * 第三波 W9（AC-29；N-33、N-148）：系辦建立方案草稿後，提示說清楚「發布」在旁邊的「版本紀錄」裡；
+ * 第三波 W9（AC-29；N-33、N-148）：系辦建立方案草稿後，提示說清楚「發布」在下方「評分方案」區塊的「版本紀錄」裡；
  * 在版本紀錄按「發布」之後，「（草稿）；按發布…」那句不再留在畫面上。
  */
 
@@ -53,7 +53,7 @@ test('建立方案草稿：提示指出「發布」在版本紀錄；發布後�
 
   const hint = page.getByRole('status').filter({ hasText: '已建立方案 v1（草稿）' })
   await expect(hint).toBeVisible()
-  await expect(hint).toContainText('「發布」在旁邊的「版本紀錄」裡，點開後按 v1 那列的「發布」')
+  await expect(hint).toContainText('「發布」在下方「評分方案」區塊的「版本紀錄」裡，點開後按 v1 那列的「發布」')
 
   await page.getByRole('button', { name: /^版本紀錄/ }).click()
   const versions = page.getByRole('dialog', { name: '評分方案版本' })

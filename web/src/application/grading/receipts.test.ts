@@ -11,7 +11,7 @@ describe('describeSchemeVersionReceipt', () => {
   it('草稿：保留原句，並指出「發布」在版本紀錄裡', () => {
     const text = describeSchemeVersionReceipt({ ...receipt, status: 'draft' })
     expect(text).toContain('已建立方案 v2（草稿）；按「發布」後老師才會用這一版。')
-    expect(text).toContain('「發布」在旁邊的「版本紀錄」裡，點開後按 v2 那列的「發布」（方案已鎖定時那列是「看影響並套用」）')
+    expect(text).toContain('「發布」在下方「評分方案」區塊的「版本紀錄」裡，點開後按 v2 那列的「發布」（方案已鎖定時那列是「看影響並套用」）')
   })
 
   it('已發布：只說已發布，不再提要按發布', () => {
