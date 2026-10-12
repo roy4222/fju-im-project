@@ -137,15 +137,15 @@ export function SchemeEditor({
         title={disabledReason ?? undefined}
       >
         <IconPlus className="size-4" aria-hidden />
-        建立新方案版本
+        建立新版評分規則
       </button>
       <Feedback state={state?.ok && state !== dismissed ? state : undefined} />
-      <dialog ref={dialog.ref} aria-label="建立評分方案版本" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
+      <dialog ref={dialog.ref} aria-label="建立新版評分規則" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <form action={action} className="space-y-4 p-5">
           <div>
-            <h2 className="text-lg font-extrabold text-foreground">建立評分方案版本</h2>
+            <h2 className="text-lg font-extrabold text-foreground">建立新版評分規則</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {baseLabel ? `從 ${baseLabel} 複製起草。` : '第一版從範本起草。'}
+              {baseLabel ? `從${baseLabel}複製起草。` : '第一版從範本起草。'}
               階段占總成績合計要 100%、每個階段的項目權重合計也要 100%；建好是草稿，按「發布」後老師才會用。
             </p>
           </div>
@@ -348,7 +348,7 @@ export function PublishButton({
     <form action={action} className="space-y-1">
       <input type="hidden" name="versionId" value={versionId} />
       <input type="hidden" name="requestId" value={requestId} />
-      <button type="submit" className={SECONDARY} disabled={pending || disabledReason !== null} aria-label={`發布 v${versionNo}`}>
+      <button type="submit" className={SECONDARY} disabled={pending || disabledReason !== null} aria-label={`發布第 ${versionNo} 版`}>
         {pending ? '發布中…' : '發布'}
       </button>
       {disabledReason ? <p className="text-xs text-muted-foreground">{disabledReason}</p> : null}
@@ -393,7 +393,7 @@ export function RequirementForm({
           max={max}
           defaultValue={count ?? ''}
           placeholder="未設定"
-          aria-label={`${groupCode}「${stageName}」要求份數`}
+          aria-label={`${groupCode}「${stageName}」需要幾位老師評分`}
           className="w-20 rounded-lg border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
         />
         <button type="submit" className={SECONDARY} disabled={pending}>

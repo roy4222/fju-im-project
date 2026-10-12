@@ -125,7 +125,7 @@ export function dissolved(code: string): Err {
 }
 
 export function noScheme(): Err {
-  return err('VALIDATION_FAILED', '這一屆還沒有發布評分方案；請先建立並發布方案。')
+  return err('VALIDATION_FAILED', '這一屆還沒有發布評分規則；請先建立並發布評分規則。')
 }
 
 export function stageOf(stages: readonly SchemeStage[], key: string): SchemeStage | null {
@@ -156,7 +156,7 @@ export class PgGradingCommand implements GradingCommand {
     input: CreateSchemeVersionInput,
     requestId: string,
   ): Promise<Result<SchemeVersionReceipt>> {
-    const denied = authorizeAdmin(actor, '設定評分方案')
+    const denied = authorizeAdmin(actor, '設定評分規則')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.cohortId)) return err('VALIDATION_FAILED', '請先選屆別。')
@@ -240,10 +240,10 @@ export class PgGradingCommand implements GradingCommand {
   }
 
   async publishScheme(actor: ResolvedActor, input: { versionId: string }, requestId: string): Promise<Result<SchemeVersionReceipt>> {
-    const denied = authorizeAdmin(actor, '發布評分方案')
+    const denied = authorizeAdmin(actor, '發布評分規則')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
-    if (!isUuid(input.versionId)) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+    if (!isUuid(input.versionId)) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
 
@@ -253,7 +253,7 @@ export class PgGradingCommand implements GradingCommand {
         [input.versionId],
       )
       const cohortId = owner.rows[0]?.cohort_id
-      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個方案版本，請重新整理頁面。')
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
       const cohort = (await lockCohort(tx, cohortId))!
       const scheme = (
         await tx.query<SchemeRow>(
@@ -296,7 +296,7 @@ export class PgGradingCommand implements GradingCommand {
       if (current?.status === 'locked') {
         return err(
           'SCHEME_LOCKED',
-          `目前的 v${current.version_no} 已有老師開始評分（暫存或正式送出），方案已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
+          `目前的第 ${current.version_no} 版已有老師開始評分（暫存或正式送出），評分規則已鎖定，不能直接換成新版本；改結構請在版本清單按「看影響並套用」（先看重算預覽再確認）。`,
         )
       }
 
@@ -320,7 +320,7 @@ export class PgGradingCommand implements GradingCommand {
         const names = current ? readSchemeStages(current.stages).filter((s) => missing.includes(s.key)).map((s) => `「${s.name}」`) : []
         return err(
           'VALIDATION_FAILED',
-          `v${version.version_no} 少了 ${names.join('、') || '已經在用的階段'}，但那個階段已經設定了要求份數或指派老師；請保留該階段再發布。`,
+          `第 ${version.version_no} 版少了 ${names.join('、') || '已經在用的階段'}，但那個階段已經設定了需要幾位老師評分或指派老師；請保留該階段再發布。`,
         )
       }
 
@@ -353,14 +353,14 @@ export class PgGradingCommand implements GradingCommand {
   // ── 要求份數與指派 ──────────────────────────────────────────────────────────
 
   async setRequirement(actor: ResolvedActor, input: SetRequirementInput, requestId: string): Promise<Result<RequirementReceipt>> {
-    const denied = authorizeAdmin(actor, '設定評分份數')
+    const denied = authorizeAdmin(actor, '設定每組需要幾位老師評分')
     if (denied) return denied
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.groupId)) return groupNotFound()
     if (!Number.isInteger(input.revision) || input.revision < 0) return staleRevision()
     const count = input.requiredCount
     if (!Number.isInteger(count) || count < 0 || count > MAX_REQUIRED_COUNT) {
-      return err('VALIDATION_FAILED', `要求份數要是 0–${MAX_REQUIRED_COUNT} 的整數。`, { details: { field: 'requiredCount' } })
+      return err('VALIDATION_FAILED', `需要幾位老師評分要填 0–${MAX_REQUIRED_COUNT} 的整數。`, { details: { field: 'requiredCount' } })
     }
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -387,7 +387,7 @@ export class PgGradingCommand implements GradingCommand {
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages) return noScheme()
       const stage = stageOf(stages, String(input.stageKey ?? ''))
-      if (!stage) return err('VALIDATION_FAILED', '目前的評分方案沒有這個階段，請重新整理頁面。')
+      if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
       const existing = await tx.query<{ revision: number }>(
         'select revision from stage_requirements where group_id = $1 and stage_key = $2 for update',
@@ -467,7 +467,7 @@ export class PgGradingCommand implements GradingCommand {
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages) return noScheme()
       const stage = stageOf(stages, String(input.stageKey ?? ''))
-      if (!stage) return err('VALIDATION_FAILED', '目前的評分方案沒有這個階段，請重新整理頁面。')
+      if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
       const teacher = await eligibleTeacher(tx, input.teacherUserId)
       if (!teacher) return err('VALIDATION_FAILED', '找不到這位老師，或帳號已停用、不再是老師。', { details: { field: 'teacherUserId' } })
@@ -584,7 +584,7 @@ export class PgGradingCommand implements GradingCommand {
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!stages || !versionId) return noScheme()
       const stage = stageOf(stages, assignment.stage_key)
-      if (!stage) return err('VALIDATION_FAILED', '目前的評分方案已經沒有這個階段，請聯絡系辦。')
+      if (!stage) return err('VALIDATION_FAILED', '目前的評分規則已經沒有這個階段，請聯絡系辦。')
 
       const counted = await tx.query('select 1 from evaluation_status where assignment_id = $1 and state = $2', [assignment.id, 'counted'])
       if (counted.rowCount) {

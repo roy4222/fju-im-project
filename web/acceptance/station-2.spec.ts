@@ -143,7 +143,7 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   await admin.getByLabel('名稱').fill(COHORT_NAME)
   await admin.getByRole('button', { name: '新增屆別' }).click()
   await expectStatus(admin, `已新增屆別 ${COHORT_CODE}`)
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('籌備中')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('尚未開始（設定中）')
   await shot(admin, 'cohort-created')
 
   await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為開放註冊屆別` }).click()
@@ -236,7 +236,7 @@ test('票 7 管理員看比對結果、選核實方式後核准', async () => {
 
   // 核實方式必選。
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')

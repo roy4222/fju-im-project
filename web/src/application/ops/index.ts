@@ -56,6 +56,7 @@ export {
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,
   auditActionLabel,
+  auditActionTitle,
   auditTargetTypeLabel,
   auditWhoOf,
   describeAuditTarget,
