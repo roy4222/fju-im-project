@@ -3,6 +3,8 @@
 #
 #   ops/status-prepare.sh --access-team <team>.cloudflareaccess.com --access-aud <AUD>
 #   ops/status-prepare.sh --dry-run --access-team … --access-aud …   # 只印不做：不產金鑰、不連 VM
+#   ops/status-prepare.sh --keep-site-compose --access-team … --access-aud …
+#       # 印的 VM 那一行不換主站的 docker-compose.vm.yml／edge.yml（VM 還沒做兩站網路拆分、今晚只裝後台時用）
 #
 # 做四件事：
 #   1. 產驗收結果推送金鑰 ~/.ssh/fju_status_publish（ed25519、無密碼；已有就沿用）
@@ -12,6 +14,9 @@
 #
 # 其他參數：--vm-host <ssh 主機名>（預設 fju-vm，見 ops/ssh-config.example）、
 #           --key <私鑰路徑>（預設 ~/.ssh/fju_status_publish）
+# --keep-site-compose：VM 那一行的 rsync 多 --exclude 兩個主站 compose（不傳也不刪，VM 留舊版）。VM 上 `docker network ls`
+#   還沒有 fju-edge-test 時，換成拆分版 compose 會讓下一次自動部署失敗（外部網路不存在）；要嘛先照
+#   ops/README.md〈兩站網路拆分上線步驟〉搬遷，要嘛帶這個旗標只裝後台、搬遷另找時間。
 # team 網域與 AUD 是 Roy 從 Zero Trust 貼到對話的兩個值（不是秘密）；還沒拿到就先不帶，那一行會留空格讓你補。
 
 set -euo pipefail
@@ -23,6 +28,7 @@ VM_HOST=fju-vm
 KEY=${HOME}/.ssh/fju_status_publish
 KEY_COMMENT=fju-status-publish
 DRY_RUN=0
+KEEP_SITE_COMPOSE=0
 ACCESS_TEAM=""
 ACCESS_AUD=""
 # 跟 ops/README.md「repo 的 ops／compose 檔改了之後」同一組，再加後台的 compose 檔。
@@ -51,6 +57,7 @@ while [ $# -gt 0 ]; do
     --vm-host) need_val "$@"; VM_HOST=$2; shift ;;
     --key) need_val "$@"; KEY=$2; shift ;;
     --dry-run) DRY_RUN=1 ;;
+    --keep-site-compose) KEEP_SITE_COMPOSE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) die "不認得的參數：$1（--help 看用法）" ;;
   esac
@@ -112,10 +119,23 @@ step "5. Roy 在 VM 貼的那一行（ssh ${VM_HOST} 之後整行貼上；sudo �
 TEAM_SHOWN=${ACCESS_TEAM:-<team>.cloudflareaccess.com}
 AUD_SHOWN=${ACCESS_AUD:-<AUD>}
 # protect：安裝第 7 步產生的 ops/status/cloudflared.yml 不在 repo 裡，--delete 不能把它刪掉。
+# --keep-site-compose：exclude 的檔 rsync 不傳也不刪（沒帶 --delete-excluded），VM 的主站 compose 維持原樣。
+RSYNC_FILTERS="--filter='P /ops/status/cloudflared.yml'"
+if [ "$KEEP_SITE_COMPOSE" = 1 ]; then
+  RSYNC_FILTERS="$RSYNC_FILTERS --exclude='/docker-compose.vm.yml' --exclude='/docker-compose.edge.yml'"
+fi
+VM_RSYNC="sudo rsync -a --delete $RSYNC_FILTERS --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/"
 printf '\n'
-printf "sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo bash /srv/fju/app/ops/status-install.sh --access-team %s --access-aud %s --publish-pubkey '%s'\n" \
-  "$TEAM_SHOWN" "$AUD_SHOWN" "$PUBKEY"
+printf "%s && sudo bash /srv/fju/app/ops/status-install.sh --access-team %s --access-aud %s --publish-pubkey '%s'\n" \
+  "$VM_RSYNC" "$TEAM_SHOWN" "$AUD_SHOWN" "$PUBKEY"
 printf '\n'
+if [ "$KEEP_SITE_COMPOSE" = 1 ]; then
+  todo "--keep-site-compose：VM 的 docker-compose.vm.yml／edge.yml 不會被換（留舊版）。搬遷網路時照 ops/README.md〈兩站網路拆分上線步驟〉重做，那時 rsync 不帶 --exclude；搬遷前不要在 VM 跑 vm-setup.sh（它會對舊 compose 印 ✗）"
+else
+  todo "VM 上 docker network ls 若還沒有 fju-edge-test／fju-edge-prod：這一行會把主站 compose 換成拆分版，下一次自動部署會因外部網路不存在而失敗（舊容器不動）。貼之前先照 ops/README.md〈兩站網路拆分上線步驟〉B1 暫停自動部署，貼完接著做 B3～E；今晚只想裝後台就改帶 --keep-site-compose"
+fi
+echo "  貼之前先在 VM 看會變哪些檔（不用 sudo、不寫任何東西；清單裡不該有 *deleting）："
+echo "    rsync -n -ai --delete $RSYNC_FILTERS /tmp/fju-app/ /srv/fju/app/"
 if [ -z "$ACCESS_TEAM" ] || [ -z "$ACCESS_AUD" ]; then
   todo "還沒帶 --access-team／--access-aud：Roy 貼來 team 網域與 AUD 後重跑這支（金鑰沿用、rsync 只補差異）"
 fi

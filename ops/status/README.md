@@ -70,7 +70,8 @@
 - **中途斷線、被中斷、或畫面上看不到為什麼停**：門已經關了（四個網址連不上）。`sudo tail /srv/fju/status/.install/exit.log` 看最後幾行：停在哪一步、什麼原因（Ctrl-C、SIGHUP、輸出管線中斷、或最後失敗的指令與行號）。修好後貼同一行重跑；第 9 步起回服務、第 10 步守門通過才重新開門。
 - **換了 team 或 AUD**：Mac mini 帶新值重跑 `status-prepare.sh`，把新的那一行給 Roy。第 7b 步會重做（要再點一次授權）。
 - **repo 的 ops／compose 檔改了**：Mac mini 重跑 `status-prepare.sh`（會重送），VM 只要跑那一行的前半段 `sudo rsync … /srv/fju/app/`。之後每 10 分鐘的 `fju-status-update` 會自己 `pull` 與 `up -d`。
-  注意：VM 那一行的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有。若改用 `ops/README.md` 那個沒帶 filter 的 rsync，它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
+  注意：VM 那一行的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有；`ops/README.md` 的幾處 rsync 現在也帶同一個 filter、送檔清單也含 `docker-compose.status.yml`。少了 filter 它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
+  VM 還沒做 `ops/README.md`「兩站網路拆分上線步驟」時（`docker network ls` 沒有 `fju-edge-test`）：那一行會把主站 compose 換成拆分版，之後的自動部署會失敗（舊容器不動）。要嘛先搬遷，要嘛 `status-prepare.sh --keep-site-compose` 印出不換主站 compose 的那一行。
 - **只想看會做什麼**：VM 上 `FJU_STATUS_APP_DIR=/tmp/fju-app bash /tmp/fju-app/ops/status-install.sh --dry-run …`（同一組參數，不用 sudo、不寫任何東西）。
 - **測試用的環境變數**：`FJU_STATUS_ROOT`、`FJU_STATUS_UNIT_DIR`、`FJU_STATUS_SSH_DIR`、`FJU_STATUS_HOME_ROOT`、`FJU_STATUS_SBIN`、`FJU_STATUS_OS_RELEASE`、`FJU_STATUS_RRSYNC`、`FJU_STATUS_CF_API` 只給 `status/test/ops/install.test.ts` 的故障注入測試把系統路徑換成暫存目錄；正式安裝不要設。
 - **單獨核對某份 cloudflared 設定**：`bash ops/status-install.sh --check-cloudflared-config <檔> --access-team … --access-aud …`。

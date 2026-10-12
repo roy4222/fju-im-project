@@ -29,7 +29,7 @@
 
 ```bash
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 ```
 
 預期：最後一行是 `total size is …`，沒有 error。（`fju-vm` 是 `ops/ssh-config.example` 那個 SSH 別名。）
@@ -54,7 +54,7 @@ sudo bash /tmp/fju-app/ops/vm-setup.sh
 ### 4. 🖥️ 把 app 檔放到正式位置，再跑一次設定
 
 ```bash
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -526,12 +526,14 @@ ops/fault-drill-local.sh disk80 --keep   # 只跑一個、留著看畫面（http
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：
 
+（送檔清單含 `docker-compose.status.yml`、VM 那行帶 `--filter='P /ops/status/cloudflared.yml'`：開發者後台裝好之後，少列那個檔或少帶 filter，`--delete` 會把後台的 compose 或安裝時產生的 `ops/status/cloudflared.yml` 刪掉，`fju-status-update` 就起不來。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
+
 ```bash
 # 💻 Mac
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 # 🖥️ VM
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -690,7 +692,7 @@ sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
 ```bash
 git switch main && git pull
 grep -c 'fju-edge-test' docker-compose.edge.yml   # 確認是拆分後的版本
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
 ssh fju-vm
 ```
 
@@ -735,7 +737,7 @@ if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA�
 
 ```bash
 cd /srv/fju/app
-sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 

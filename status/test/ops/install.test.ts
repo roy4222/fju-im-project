@@ -132,6 +132,7 @@ describe('兩支腳本：語法與 --help', () => {
     const r = run(PREPARE, ['--help'])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain('--dry-run')
+    expect(r.stdout).toContain('--keep-site-compose')
     expect(r.stdout).toContain('fju_status_publish')
     expect(calls()).toEqual([])
   })
@@ -374,7 +375,18 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     expect(r.stdout).toMatch(/[0-9a-f]{64} {2}fju-test-reset\n/)
     expect(r.stdout).toMatch(/[0-9a-f]{64} {2}fju-test-reset-gate\n/)
     expect(r.stdout).toContain(`sudo bash /srv/fju/app/ops/status-install.sh --access-team ${TEAM} --access-aud ${AUD} --publish-pubkey '`)
+    // VM 那一行：protect 安裝時產生的 cloudflared.yml；預設不 exclude 主站 compose
+    expect(r.stdout).toContain("sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo bash")
+    expect(r.stdout).not.toContain('--exclude=')
     expect(fs.existsSync(path.join(dir, '.ssh', 'fju_status_publish'))).toBe(false)
+    expect(mutatingCalls()).toEqual([])
+  })
+
+  it('--keep-site-compose：VM 那一行多 exclude 兩個主站 compose，filter 仍在', () => {
+    const r = run(PREPARE, ['--dry-run', '--keep-site-compose', '--access-team', TEAM, '--access-aud', AUD])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain("sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --exclude='/docker-compose.vm.yml' --exclude='/docker-compose.edge.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/ && sudo bash")
+    expect(r.stdout).toContain('不會被換')
     expect(mutatingCalls()).toEqual([])
   })
 
