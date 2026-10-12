@@ -1,0 +1,137 @@
+{
+  "sourceSha": "7162644000000000000000000000000000000000",
+  "roles": [
+    {
+      "key": "visitor",
+      "name": "訪客",
+      "aliases": [
+        "訪客",
+        "高中生訪客"
+      ]
+    },
+    {
+      "key": "student",
+      "name": "學生",
+      "aliases": [
+        "學生",
+        "組長",
+        "組員"
+      ]
+    },
+    {
+      "key": "teacher",
+      "name": "老師",
+      "aliases": [
+        "老師"
+      ]
+    },
+    {
+      "key": "admin",
+      "name": "系辦",
+      "aliases": [
+        "系辦"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "key": "news",
+      "name": "最新公告",
+      "roles": [
+        "visitor",
+        "student",
+        "teacher",
+        "admin"
+      ],
+      "evidence": [
+        {
+          "item": "story-1",
+          "steps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ],
+      "e2e": [
+        "web/e2e/public-pages.spec.ts"
+      ]
+    },
+    {
+      "key": "roster",
+      "name": "名單匯入",
+      "roles": [
+        "student",
+        "teacher",
+        "admin"
+      ],
+      "evidence": [
+        {
+          "item": "story-5",
+          "steps": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "e2e": [
+        "web/test/roster-import.test.ts"
+      ]
+    },
+    {
+      "key": "groups",
+      "name": "分組",
+      "roles": [
+        "student",
+        "admin"
+      ],
+      "evidence": [
+        {
+          "item": "story-2",
+          "steps": [
+            1,
+            99
+          ]
+        }
+      ],
+      "e2e": []
+    }
+  ],
+  "sections": [
+    {
+      "key": "home-news",
+      "page": "/",
+      "name": "首頁・最新公告",
+      "frontFeature": "news",
+      "adminPage": "/dashboard/admin/affairs",
+      "adminFeature": "news",
+      "crud": {
+        "create": "有",
+        "edit": "有",
+        "delete": "只能下架"
+      }
+    },
+    {
+      "key": "home-contact",
+      "page": "/",
+      "name": "首頁・系辦聯絡卡",
+      "frontFeature": "news",
+      "adminPage": null,
+      "adminFeature": null,
+      "crud": null,
+      "exception": "Q18：用程式改，不做後台"
+    },
+    {
+      "key": "showcase-gallery",
+      "page": "/showcase",
+      "name": "作品展示・相簿",
+      "frontFeature": "groups",
+      "adminPage": null,
+      "adminFeature": null,
+      "crud": null
+    }
+  ]
+}
