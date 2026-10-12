@@ -108,8 +108,10 @@ done
 ingress="${ingress%$'\n'}"
 
 content="$(cat "$TEMPLATE")"
-content="${content//__TUNNEL_ID__/"$TUNNEL_ID"}"
-content="${content//__INGRESS__/"$ingress"}"
+# 替換值不加內層引號：macOS 的 Bash 3.2 會把引號原樣留下。兩個值都驗過不含 &
+# （Bash 5.2 的 patsub_replacement 會把替換值裡的 & 換成比對到的字串）。
+content="${content//__TUNNEL_ID__/$TUNNEL_ID}"
+content="${content//__INGRESS__/$ingress}"
 
 if [ "$OUT" = - ]; then
   printf '%s\n' "$content"

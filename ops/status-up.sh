@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # 開發者後台：拉新映像、起服務、補建 PgHero 的監控角色（設計方案 §3.6；S-4）。
 #
-#   ops/status-up.sh [--dry-run]                         pull＋up -d，然後補建 fju_monitor
+#   ops/status-up.sh [--dry-run]                         補建 fju_monitor、pull＋up -d、再補建一次
 #   ops/status-up.sh --ensure-db-role-only [--dry-run]   只補建 fju_monitor
 #
 #   --dry-run   只印要做的事，不碰 docker
 #
-# 在 VM 上用 deploy 身分跑：fju-status-update.timer 每 10 分鐘一次（ops/status/systemd/）；
+# 在 VM 上用 deploy 身分跑：fju-status-update.timer 每輪結束後 8 分鐘再跑（ops/status/systemd/，
+# 確保測試站重置後 10 分鐘內補回角色）；
 # 安裝腳本 ops/status-install.sh 第 5、9 步也呼叫它。
 #
 # 為什麼每輪都補建角色：fju-test-reset reset 會刪掉整個測試站資料庫 volume，fju_monitor 跟著消失。
@@ -161,13 +162,29 @@ check_mount_sources() {
   done
 }
 
-if [ "$DRY_RUN" = 0 ]; then
-  check_mount_sources || exit 1
-fi
+# 順序：先補建角色、再更新、更新後再補一次。
+# 先補建是為了「測試站剛重置完、但這輪拉映像失敗（GHCR 暫時連不上）」時角色照樣補回；
+# 更新後再補一次，涵蓋拉映像那幾分鐘裡資料庫才起來的情況。更新失敗時仍回傳原本的錯誤碼。
+role_rc=0
+ensure_db_role || role_rc=$?
 
 log "更新開發者後台（compose project fju-status）"
+update_rc=0
 # 只拉自己的映像（:main 會變）。第三方映像都是固定版本，up -d 第一次會自己拉；
 # 每 10 分鐘全部重拉會撞 Docker Hub 的匿名拉取次數上限（VM 只登入 GHCR）。
-run docker compose -p fju-status -f "$COMPOSE_FILE" pull status-web collector docker-proxy
-run docker compose -p fju-status -f "$COMPOSE_FILE" up -d --remove-orphans
-ensure_db_role
+run docker compose -p fju-status -f "$COMPOSE_FILE" pull status-web collector docker-proxy || update_rc=$?
+if [ "$update_rc" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+  check_mount_sources || update_rc=$?
+fi
+if [ "$update_rc" = 0 ]; then
+  run docker compose -p fju-status -f "$COMPOSE_FILE" up -d --remove-orphans || update_rc=$?
+else
+  log "✗ 更新沒完成（結束碼 ${update_rc}），服務維持原狀" >&2
+fi
+
+ensure_db_role || role_rc=$?
+
+if [ "$update_rc" != 0 ]; then
+  exit "$update_rc"
+fi
+exit "$role_rc"

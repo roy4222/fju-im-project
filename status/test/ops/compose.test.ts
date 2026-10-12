@@ -252,6 +252,39 @@ describe('ops/status-up.sh', () => {
     expect(r.stdout).toContain('up -d --remove-orphans')
   })
 
+  it('每輪先補建角色再更新，更新後再補一次（dry-run 的順序）', () => {
+    const lines = runUp(['--dry-run'], { PATH: '/usr/bin:/bin' }).stdout.split('\n')
+    const ensures = lines.flatMap((l, i) => (l.startsWith('補建 PgHero') ? [i] : []))
+    const pull = lines.findIndex((l) => / pull /.test(l))
+    const up = lines.findIndex((l) => l.includes('up -d'))
+    expect(ensures).toHaveLength(2)
+    expect(ensures[0]).toBeLessThan(pull)
+    expect(pull).toBeLessThan(up)
+    expect(ensures[1]).toBeGreaterThan(up)
+  })
+
+  it('AC-S-24(b)：更新排程從上一輪結束起算、最長間隔低於 10 分鐘（不加隨機延遲、AccuracySec 明設）', () => {
+    const timer = fs.readFileSync(path.join(repoRoot, 'ops/status/systemd/fju-status-update.timer'), 'utf8')
+    const keys = new Map<string, string>()
+    for (const line of timer.split('\n')) {
+      const m = /^([A-Za-z]+)=(.*)$/.exec(line.trim())
+      if (m) keys.set(m[1]!, m[2]!.trim())
+    }
+    const seconds = (v: string | undefined) => {
+      const m = /^(\d+)\s*(s|sec|min|m)?$/.exec(v ?? '')
+      if (!m) throw new Error(`看不懂的時間：${v}`)
+      return Number(m[1]) * (m[2] === 'min' || m[2] === 'm' ? 60 : 1)
+    }
+    // 從結束起算：拉映像多久都不會吃掉補建的間隔
+    expect(keys.has('OnUnitActiveSec')).toBe(false)
+    expect(keys.has('OnCalendar')).toBe(false)
+    expect(keys.has('RandomizedDelaySec')).toBe(false)
+    expect(keys.has('AccuracySec')).toBe(true)
+    const worst = seconds(keys.get('OnUnitInactiveSec')) + seconds(keys.get('AccuracySec'))
+    // 再預留 30 秒給補建本身（docker exec＋psql），合計仍要低於 600 秒
+    expect(worst + 30).toBeLessThan(600)
+  })
+
   describe('實跑（假的 docker：exec 時用「容器裡」的環境跑 sh -c）', () => {
     let dir: string
     let bin: string
@@ -281,6 +314,10 @@ case "$1" in
     printf '%s\\n' "$@" > "$FAKE_LOG/exec-argv-$(date +%s%N)"
     exec env -i PATH="$FAKE_BIN:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" FAKE_ROLE_EXISTS="$FAKE_ROLE_EXISTS" FAKE_PSQL_FAIL="$FAKE_PSQL_FAIL" \\
       POSTGRES_USER=owner_in_container POSTGRES_DB=db_in_container "$@"
+    ;;
+  compose)
+    case " $* " in *" pull "*) [ "$FAKE_PULL_FAIL" = 1 ] && { echo 'pull failed' >&2; exit 18; } ;; esac
+    exit 0
     ;;
   *) exit 0 ;;
 esac
@@ -370,13 +407,28 @@ exit 0
       expect(fs.existsSync(path.join(log, 'psql-stdin')) ? read('psql-stdin') : '').not.toContain('ALTER ROLE')
     })
 
-    it('掛載來源不齊（例如還沒產生 cloudflared.yml、沒有 tunnel.json）：不起服務、結束碼非 0', () => {
+    it('掛載來源不齊（例如還沒產生 cloudflared.yml、沒有 tunnel.json）：角色照樣補、不起服務、結束碼非 0', () => {
       reset()
-      const r = runUp([], env({}))
+      const r = runUp([], env({ FAKE_ROLE_EXISTS: '0' }))
       expect(r.status).not.toBe(0)
       expect(r.stderr).toContain('tunnel.json')
       expect(r.stderr).toContain('status-render-cloudflared.sh')
-      expect(fs.existsSync(path.join(log, 'docker-calls'))).toBe(false)
+      expect(read('docker-calls')).not.toContain('up -d')
+      expect(read('psql-stdin')).toContain('ALTER ROLE fju_monitor')
+    })
+
+    it('AC-S-24(b)：測試站剛重置完、但拉映像失敗：角色先補回，仍回傳拉映像的錯誤碼、不起服務', () => {
+      reset()
+      const r = runUp([], env({ FAKE_ROLE_EXISTS: '0', FAKE_PULL_FAIL: '1' }))
+      expect(r.status).toBe(18)
+      expect(r.stdout).toContain('補建 fju_monitor')
+      expect(read('psql-stdin')).toContain("ALTER ROLE fju_monitor LOGIN PASSWORD 'pa''ss-FAKE';")
+      const calls = read('docker-calls').split('\n')
+      const firstExec = calls.findIndex((l) => l.startsWith('exec '))
+      const pull = calls.findIndex((l) => / pull /.test(l))
+      expect(firstExec).toBeGreaterThanOrEqual(0)
+      expect(firstExec).toBeLessThan(pull)
+      expect(calls.some((l) => l.includes('up -d'))).toBe(false)
     })
   })
 })
