@@ -37,3 +37,20 @@ Host fju-reset
   ForwardAgent no
   ClearAllForwardings yes
   RequestTTY no
+
+# 驗收結果送上開發者後台（ops/status-publish-run.sh；acceptance-night.sh 收尾自動叫）。
+# 在 Mac mini 或 MacBook 用；金鑰由 ops/status-prepare.sh 產生，公鑰在 VM 上只能 rrsync 寫
+# /srv/fju/status/inbox（不能開 shell、不能讀）。一夜只連一次。
+# HostName 是占位符：貼到自己的 ~/.ssh/config 後把 VM_IP_HERE 換成 VM 的 IP（repo 不寫真實位址）。
+Host fju-status-publish
+  HostName VM_IP_HERE
+  User fjustatus
+  IdentityFile ~/.ssh/fju_status_publish
+  IdentitiesOnly yes
+  BatchMode yes
+  ConnectTimeout 20
+  ServerAliveInterval 15
+  ServerAliveCountMax 4
+  ForwardAgent no
+  ClearAllForwardings yes
+  RequestTTY no
