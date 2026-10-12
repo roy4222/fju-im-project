@@ -20,7 +20,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
   // 檔案管理（票 35）：全站檔案的檢視（下載、引用位置），不另做一套檔案系統。
   { href: '/dashboard/admin/files', label: '檔案管理' },
   // 精選（票 25）：替各組建精選草稿（不發布）。原型沒有這一項，放在專題事務組。
-  { href: '/dashboard/admin/showcase', label: '精選' },
+  { href: '/dashboard/admin/showcase', label: '成果展示' },
   // 首頁設定（第三波 W3／W5）：前台首頁大圖與兩行標語，存了就生效；頁面與守衛由 W3 提供。
   { href: '/dashboard/admin/home-settings', label: '首頁設定' },
   // 分組與產學
@@ -29,7 +29,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin/industry', label: '產學合作' },
   // 評分與簽核：成績管理（票 23／24）＝方案版本、指派、成績表；簽核（票 25／26）。
   { href: '/dashboard/admin/grading', label: '成績管理' },
-  { href: '/dashboard/admin/signoff', label: '簽核' },
+  { href: '/dashboard/admin/signoff', label: '站內同意書' },
   // 系統管理
   { href: '/dashboard/admin/accounts', label: '帳號管理' },
   // 屆別（票 5）：原型併在時間軸頁；正式碼另一頁，放系統管理組。
@@ -49,7 +49,7 @@ export const TEACHER_NAV: readonly NavItem[] = [
   { href: '/dashboard/teacher/industry', label: '產學合作' },
   // 評分與簽核：評分工作台（票 23，只有被指派的組別）、簽核（票 25／26）。
   { href: '/dashboard/teacher/grading', label: '評分' },
-  { href: '/dashboard/teacher/signoff', label: '簽核' },
+  { href: '/dashboard/teacher/signoff', label: '站內同意書' },
 ]
 
 /**
@@ -64,7 +64,7 @@ export const STUDENT_NAV: readonly NavItem[] = [
   // 通知匣（票 12）：頂列鈴鐺之外，原型學生側欄也有一列。
   { href: '/dashboard/student/inbox', label: '通知' },
   // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
-  { href: '/dashboard/student/affairs', label: '作業區' },
+  { href: '/dashboard/student/affairs', label: '我的繳交' },
   { href: '/dashboard/student/groups', label: '我的組別' },
   // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
   { href: '/dashboard/student/industry', label: '產學合作' },

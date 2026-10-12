@@ -223,7 +223,7 @@ describe('操作紀錄的顯示規則（票 36）', () => {
     expect(auditActionLabel('item.archive')).toBe('下架專題事務')
     expect(auditActionLabel('account.seed_e2e_admin')).toBe('建立測試管理員帳號')
     expect(auditActionLabel('account.seed_first_admin')).toBe('建立第一位管理員')
-    expect(auditActionLabel('cohort.set_registration_open')).toBe('設定開放註冊屆別')
+    expect(auditActionLabel('cohort.set_registration_open')).toBe('設定新註冊學生加入的屆別')
     for (const code of [
       'item.deleted',
       'home.updated',
