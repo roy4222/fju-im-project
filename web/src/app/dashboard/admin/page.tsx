@@ -67,14 +67,13 @@ export default async function AdminHomePage() {
   const intake = allIntake.slice(0, INTAKE_LIMIT)
   // 逾期：全部發布中收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
   const overdueReceivers = overdueReceiverIds(rosters, ctx.businessNow)
-  // 磚上的數字照舊是上面那一個集合；標示拆成「欠繳幾人（幾組）」與「幾個收件項目」，不再寫成「N 份收件」混單位（N-58、N-139）。
+  // 磚上的數字照舊是上面那一個集合；標示拆成「欠繳幾人（幾組）」與「發布中幾個收件項目」（原本的母數），不再寫成「N 份收件」混單位（N-58、N-139）。
   const overduePeople = overdueReceiverIds(
     rosters.filter((r) => r.item.receiverUnit === 'individual'),
     ctx.businessNow,
   ).size
   const overdueGroups = overdueReceivers.size - overduePeople
   const overdueWho = [overduePeople ? `${overduePeople} 人` : '', overdueGroups ? `${overdueGroups} 組` : ''].filter(Boolean).join('、')
-  const overdueItems = allIntake.filter((i) => i.completion.overdue > 0).length
   const worstOverdue = [...allIntake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
 
   // 本屆分組
@@ -140,7 +139,7 @@ export default async function AdminHomePage() {
             value={overdueReceivers.size}
             hint={
               overdueReceivers.size > 0
-                ? `欠繳 ${overdueWho}・${overdueItems} 個收件項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
+                ? `欠繳 ${overdueWho}・發布中 ${allIntake.length} 個收件項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
                 : `目前沒有逾期的收件・發布中 ${allIntake.length} 個收件項目`
             }
             href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}

@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * 第三波 W14b（AC-38）：系辦首頁與老師頁的指路，逐條走真的畫面：
  *
- * 1. 系辦首頁「逾期未繳」磚：數字照舊，標示拆成「欠繳 N 人、M 組」與「K 個收件項目」，不再寫「N 份收件」（N-58、N-139）。
+ * 1. 系辦首頁「逾期未繳」磚：數字照舊，標示拆成「欠繳 N 人、M 組」與「發布中 K 個收件項目」（母數照舊），不再寫「N 份收件」（N-58、N-139）。
  * 2. 有一筆成績更正待復核時，系辦首頁出現提示與「去復核」入口（N-61）。
  * 3. 檔案管理說明「要新增檔案請到專題事務」並附前往連結（N-138）。
  * 4. 老師打開沒被指派的評分頁：中文說明＋「回到自己的首頁」（N-24）。
@@ -180,6 +180,8 @@ test.beforeAll(async () => {
       [CODE, ymd(new Date(now.getTime() + 300 * DAY))],
     )
   ).rows[0]!.id
+  // 系辦首頁只看「預設工作屆別」，沒有不動全域的寫法；記下原本的預設，afterAll 一定還原。
+  // CI 是單一 worker；本機多 worker 時，這支與 cohorts.spec、timeline.spec 都會改這個旗標，請用 --workers=1 跑。
   previousDefault = (await pool.query<{ id: string }>('select id from cohorts where is_default_working')).rows.map((r) => r.id)
   await pool.query('update cohorts set is_default_working = false where is_default_working')
   await pool.query('update cohorts set is_default_working = true where id = $1', [cohortId])
@@ -252,14 +254,14 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-test('系辦首頁：逾期磚分開寫「欠繳 3 人、1 組」與「2 個收件項目」；有更正待復核的提示與入口', async ({ page }) => {
+test('系辦首頁：逾期磚分開寫「欠繳 3 人、1 組」與「發布中 3 個收件項目」；有更正待復核的提示與入口', async ({ page }) => {
   await asAdmin(page)
   await page.goto('/dashboard/admin')
 
   const tile = page.getByRole('link').filter({ hasText: '逾期未繳' })
   await expect(tile).toContainText('4')
   await expect(tile).toContainText('欠繳 3 人、1 組')
-  await expect(tile).toContainText('2 個收件項目')
+  await expect(tile).toContainText('發布中 3 個收件項目')
   await expect(tile).not.toContainText('份收件')
 
   const notice = page.getByTestId('pending-review-notice')
