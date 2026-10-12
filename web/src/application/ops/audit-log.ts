@@ -225,6 +225,10 @@ const ACTION_LABEL: Record<string, string> = {
   'showcase.award_set': '設定精選獎項',
   'showcase.delete': '刪除精選',
   'showcase.deleted': '刪除精選',
+  'showcase.backfill_create': '補登歷屆精選',
+  'showcase.publish_update': '發布精選更新',
+  'showcase.update_published': '發布精選更新',
+  'showcase.home_position_set': '調整精選首頁輪播順序',
   // 首頁設定（第三波 W3）
   'home.update': '更新首頁設定',
   'home.updated': '更新首頁設定',
