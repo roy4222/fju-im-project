@@ -93,6 +93,8 @@ export type CohortRow = {
   id: string
   code: string
   name: string
+  /** 畫面上的屆別寫法「名稱（代碼）」（系1），伺服器端用 `cohortLabel` 算好。 */
+  label: string
   statusLabel: string
   /** 籌備中的屆別才有「轉為進行中」按鈕（票 11；第三波起在表格下方的危險操作區）。 */
   canActivate: boolean
@@ -204,9 +206,7 @@ export function CohortTable({
           <ul className="flex flex-col gap-2">
             {preparing.map((row) => (
               <li key={row.id} className="flex flex-wrap items-center gap-3 text-sm">
-                <span>
-                  <span className="tabular font-bold">{row.code}</span> <span className="text-muted-foreground">{row.name}</span>
-                </span>
+                <span className="font-bold">{row.label}</span>
                 <ActivateCohortButton row={row} action={activateAction} pending={activating} />
               </li>
             ))}
@@ -236,7 +236,7 @@ function ActivateCohortButton({
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const facts: [string, string][] = [
-    ['對象', `${row.code}（${row.name}）`],
+    ['對象', row.label],
     ['範圍', '這一屆的學生、老師與系辦看到的屆別狀態都會變成「進行中」（不另發通知）。'],
     ['後果', '狀態從「尚未開始（設定中）」改成「進行中」，按下就生效並留一筆狀態紀錄。還沒設好階段與年度結束日會被擋下、不會改。'],
     ['能不能恢復', '不能改回尚未開始（設定中），沒有退回的按鈕。'],
@@ -256,7 +256,7 @@ function ActivateCohortButton({
         <form action={action} onSubmit={() => ref.current?.close()} className="space-y-4 p-5">
           <input type="hidden" name="cohortId" value={row.id} />
           <input type="hidden" name="requestId" value={row.requestIds.activate} />
-          <h2 className={DIALOG_TITLE}>把 {row.code} 轉為進行中？</h2>
+          <h2 className={DIALOG_TITLE}>把{row.label}轉為進行中？</h2>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm" data-testid="danger-facts">
             {facts.map(([k, v]) => (
               <div key={k} className="contents">

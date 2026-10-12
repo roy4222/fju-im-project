@@ -192,6 +192,8 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   const danger = page.getByRole('region', { name: '危險操作' })
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
+  // 驗收 P-01：確認視窗標題寫「名稱（代碼）」。
+  await expect(confirm.getByRole('heading', { level: 2 })).toHaveText(`把${CODE} 年度測試（${CODE}）轉為進行中？`)
   const facts = confirm.getByTestId('danger-facts')
   for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
   await expect(facts).toContainText(CODE)

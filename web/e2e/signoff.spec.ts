@@ -234,7 +234,12 @@ test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存
   const card = draftCard(page)
   await card.getByLabel('題目').fill(TITLE_1)
   await card.getByLabel('摘要').fill(SUMMARY_1)
-  await card.getByLabel('影片連結').fill('https://youtu.be/t25-demo')
+  // 驗收 P-05：網址格式不對時，瀏覽器的提示說得出怎麼改（不是只有「請輸入網址。」），瀏覽器擋在送出前。
+  const video = card.getByLabel('影片連結')
+  await video.fill('youtu.be/t25-demo')
+  await card.getByRole('button', { name: '儲存草稿' }).click()
+  expect(await video.evaluate((el) => (el as HTMLInputElement).validationMessage)).toBe('影片連結請填以 https:// 開頭的完整網址')
+  await video.fill('https://youtu.be/t25-demo')
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(card.getByTestId('poster-name')).toContainText('poster.png')
   await card.getByRole('button', { name: '儲存草稿' }).click()

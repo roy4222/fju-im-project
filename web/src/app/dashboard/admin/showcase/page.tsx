@@ -15,7 +15,7 @@ import {
   PublishPanel,
 } from '@/app/dashboard/admin/showcase/showcase-forms'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
-import { AWARD_LABEL_MAX, AWARD_LEVEL_LABEL, checkShowcaseLifecycle, getShowcaseQuery, SHOWCASE_STATUS_LABEL } from '@/composition/showcase'
+import { AWARD_LABEL_MAX, AWARD_LEVEL_LABEL, checkShowcaseLifecycle, getShowcaseQuery, SHOWCASE_STATUS_LABEL, VIDEO_URL_MESSAGE } from '@/composition/showcase'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -199,6 +199,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                     poster={d.poster ? { fileId: d.poster.fileId, name: d.poster.name } : null}
                     requestId={randomUUID()}
                     disabled={locked !== null}
+                    videoUrlMessage={VIDEO_URL_MESSAGE}
                   />
                 ) : (
                   <p className="text-sm text-muted-foreground">這件作品只有發布的版本，沒有可以改的草稿。</p>

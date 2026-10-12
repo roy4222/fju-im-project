@@ -330,7 +330,8 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await signIn(page, ownerB)
   await page.goto('/dashboard/teacher/industry')
   const item = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY_B })
-  await expect(item).toContainText(`${CODE}・G01`)
+  // 驗收 P-01：屆別顯示「名稱（代碼）」，不只代碼。
+  await expect(item).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
   await item.getByRole('button', { name: '解除連結：G01' }).click()
   const dialog = page.getByRole('dialog', { name: '解除 G01 的連結' })
   await dialog.getByRole('button', { name: '確認解除' }).click()

@@ -7,7 +7,7 @@ import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/versi
 import { BackLink, PageTitle, Panel, Pill, Ring, SegmentBar, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { EntryList, type EntryView } from '@/app/dashboard/teacher/affairs/[id]/entry-list'
 import type { ItemWindow, RosterEntry, StatusTone } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -59,7 +59,7 @@ export default async function TeacherAffairPage({
         <div className="flex flex-col gap-3">
           <BackLink href={back.href}>{back.label}</BackLink>
           <PageTitle
-            eyebrow={`${item.cohortCode}・${RECEIVER_UNIT_LABEL[item.receiverUnit]}${item.stageName ? `・${item.stageName}` : ''}`}
+            eyebrow={`${cohortLabel({ name: item.cohortName, code: item.cohortCode })}・${RECEIVER_UNIT_LABEL[item.receiverUnit]}${item.stageName ? `・${item.stageName}` : ''}`}
             title={item.title}
             description={
               individual
