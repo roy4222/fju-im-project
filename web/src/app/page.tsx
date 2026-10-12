@@ -418,7 +418,7 @@ function PanelTitle({
 }
 
 type MyWork = {
-  /** 學生：還在開放、還沒正式送出的收件數（跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
+  /** 學生：還沒正式送出的收件數，含已逾期（P-08；跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
   readonly pending: number | null
   /** 學生：待繳裡已截止還沒送出的件數（作業區「逾期未繳」同一個狀態函式，跟學生首頁那句一樣講出來）；不是學生是 null。 */
   readonly overdue: number | null
@@ -474,7 +474,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                   <span className="text-[17px] font-bold text-foreground" data-testid="home-work-pending">
                     待繳交 {work.pending} 件
                   </span>
-                  <span className="text-[13px] text-muted-foreground">還在開放、還沒正式送出的繳交項目</span>
+                  <span className="text-[13px] text-muted-foreground">還沒正式送出的繳交項目（已逾期的請找系辦補交）</span>
                   {work.overdue ? (
                     <span className="text-[13px] font-semibold text-destructive" data-testid="home-work-overdue">
                       其中 {work.overdue} 件已逾期
