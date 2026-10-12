@@ -36,6 +36,7 @@ MIRROR="${STATUS_PUBLISH_MIRROR:-$HOME/.fju-status-publish}"
 OUT_ROOT="${STATUS_PUBLISH_OUT_ROOT:-$REPO_ROOT/e2e/acceptance/.out}"
 SSH="${STATUS_PUBLISH_SSH:-ssh}"
 KEEP=5
+TAB=$'\t' NL=$'\n'   # 不在 "${x%%$'\t'*}" 裡直接寫 $'…'：bash 3.2 與 5.x 處理不同
 
 usage() {
   sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed -e '$d' -e 's/^# \{0,1\}//'
@@ -59,7 +60,7 @@ pick_rsync() {
   fi
   # 不接 | head -1：pipefail 下 rsync 被 head 提早關管子會算失敗
   ver="$("$c" --version 2>/dev/null)" || ver=""
-  ver="${ver%%$'\n'*}"
+  ver="${ver%%"$NL"*}"
   [[ "$ver" =~ ^rsync[[:space:]]+version[[:space:]]+v?([0-9]+)\.([0-9]+) ]] \
     || die "${c} 不是 rsync 3.1 以上（--version 第一行：${ver:-空}）。openrsync／rsync 2.6.9 不認 --chmod=D755,F644，先 brew install rsync"
   major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}"
@@ -114,9 +115,17 @@ jq -e 'type == "object"' "$RUN_DIR/run.json" >/dev/null 2>&1 || die "${RUN_DIR}/
 FILES=(run.json)
 if [ -f "$RUN_DIR/summary.json" ] && [ ! -L "$RUN_DIR/summary.json" ]; then
   FILES+=(summary.json)
-  if shots="$(jq -r '[.items[]?.steps[]?["截圖"][]? | strings] | unique | .[]' "$RUN_DIR/summary.json" 2>/dev/null)"; then
+  # 一行一筆、前面標 OK／BAD：含換行或其他控制字元的整串在 jq 裡就判掉（印成 JSON 字串），
+  # 不讓 "a.png\nb.png" 這種被 read 拆成兩個看起來合法的路徑。
+  if shots="$(jq -r '[.items[]?.steps[]?["截圖"][]? | strings] | unique | .[]
+      | if (explode | any(. < 32 or . == 127)) then "BAD\t" + tojson else "OK\t" + . end' "$RUN_DIR/summary.json" 2>/dev/null)"; then
     while IFS= read -r shot; do
       [ -n "$shot" ] || continue
+      if [ "${shot%%"$TAB"*}" = BAD ]; then
+        warn "summary.json 列到 ${shot#BAD"$TAB"}：路徑裡有換行或控制字元，整筆不送"
+        continue
+      fi
+      shot="${shot#OK"$TAB"}"
       # 只收 <item>/screenshots/<名稱>.png|jpg|jpeg|webp；任何 .、.. 或空的路徑段都不收（不能跳出 screenshots/）。
       if ! [[ "$shot" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/screenshots/[A-Za-z0-9._/-]+\.([Pp][Nn][Gg]|[Jj][Pp][Ee]?[Gg]|[Ww][Ee][Bb][Pp])$ ]] \
         || [[ "/$shot/" == */./* || "/$shot/" == */../* || "$shot" == *//* ]]; then

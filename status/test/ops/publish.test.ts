@@ -289,6 +289,35 @@ describe('status-publish-run.sh', () => {
     expect(r.all).toContain('story-3/screenshots/y.png')
   })
 
+  // 「整串」含換行就整筆不收：不能被拆成一行一行、各自看起來合法的路徑。片段指到的圖都真的存在，
+  // 而且沒有單獨列在清單裡，所以只要被拆開收進來，清單就會多出來。
+  it('截圖路徑含換行（開頭、結尾、中間）：整筆不送，拆出來的片段也不收（--dry-run 與實跑都一樣）', () => {
+    const runId = 'night-20261022-2200'
+    const dir = makeNight(runId, {
+      summary: summaryListing([
+        'story-1/screenshots/ok.png',
+        '\nstory-1/screenshots/lead.png',
+        'story-1/screenshots/trail.png\n',
+        'story-1/screenshots/mid-a.png\nstory-1/screenshots/mid-b.png',
+        'story-1/screenshots/cr.png\r',
+      ]),
+    })
+    for (const f of ['ok', 'lead', 'trail', 'mid-a', 'mid-b', 'cr']) write(path.join(dir, `story-1/screenshots/${f}.png`), f)
+
+    const dry = run([dir, '--dry-run'])
+    expect(dry.code, dry.all).toBe(0)
+    for (const f of ['lead', 'trail', 'mid-a', 'mid-b', 'cr']) expect(dry.stdout).not.toContain(`${f}.png`)
+    expect(dry.stdout).toContain('story-1/screenshots/ok.png')
+    expect(dry.stderr).toContain('換行或控制字元')
+    expect(sshCalls()).toEqual([])
+
+    const r = run([dir])
+    expect(r.code, r.all).toBe(0)
+    const sent = ['run.json', 'story-1/screenshots/ok.png', 'summary.json']
+    expect(tree(path.join(mirror, runId)).filter((p) => !p.endsWith('/'))).toEqual(sent)
+    expect(tree(path.join(inbox, runId)).filter((p) => !p.endsWith('/'))).toEqual(sent)
+  })
+
   it('summary.json 壞掉：照送 run.json 與 summary.json（讓後台標「不合法」），印警告、結束碼 0', () => {
     const runId = 'night-20261016-2200'
     const dir = makeNight(runId)
@@ -391,6 +420,15 @@ describe('acceptance-night.sh 收尾呼叫推送', () => {
 })
 
 describe('ssh-config.example', () => {
+  const hasSsh = spawnSync('ssh', ['-V']).status === 0
+  it.skipIf(!hasSsh)('整份 ssh 設定解析得了，fju-status-publish 的 HostName 是單一占位符', () => {
+    const r = spawnSync('ssh', ['-G', '-F', path.join(repoRoot, 'ops/ssh-config.example'), 'fju-status-publish'], { encoding: 'utf8' })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.stderr).toBe('')
+    expect(r.stdout).toMatch(/^hostname vm_ip_here$/im)
+    expect(r.stdout).toMatch(/^user fjustatus$/m)
+  })
+
   it('有 Host fju-status-publish（fjustatus、BatchMode）', () => {
     const cfg = fs.readFileSync(path.join(repoRoot, 'ops/ssh-config.example'), 'utf8')
     const m = cfg.match(/^Host fju-status-publish\n((?: {2}.*\n|\s*#.*\n)*)/m)
