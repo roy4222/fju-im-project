@@ -26,7 +26,7 @@ export async function createCohortAction(
   if (!result.ok) return { ok: false, message: result.message, values }
 
   refresh()
-  return { ok: true, message: `已新增屆別 ${cohortLabel(result.receipt)}，目前是籌備中。` }
+  return { ok: true, message: `已新增屆別 ${cohortLabel(result.receipt)}，目前是「尚未開始（設定中）」。` }
 }
 
 export async function setCohortFlagAction(

@@ -107,11 +107,13 @@ const ACTION_LABEL: Record<string, string> = {
   'account.bind_google_preauthorized': '預授權老師綁定 Google',
   'account.repair_orphan': '補建孤兒帳號',
   'account.seed_first_admin': '建立第一位管理員',
+  'account.seed_e2e_admin': '建立測試管理員帳號',
+  'account.deidentify': '去識別化帳號',
   'account.session_revocation.reconcile_limit': '登出同步未完成',
   'registration.apply': '送出註冊申請',
   'registration.revise': '修改註冊申請',
   'registration.resubmit': '重新送出註冊申請',
-  'roster.import': '匯入名單',
+  'roster.import': '匯入學生名單',
   'session.revoke': '強制登出',
   // 屆別與時間軸（模組 02）
   'cohort.create': '新增屆別',
@@ -123,6 +125,9 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.activity.create': '新增活動',
   'cohort.activity.update': '修改活動',
   'cohort.activity.cancel': '取消活動',
+  'cohort.activity.delete': '刪除活動',
+  'cohort.activated': '屆別轉為進行中',
+  'activity.deleted': '刪除活動',
   'business_clock.set': '調整模擬時鐘',
   // 分組、指導與產學（模組 03）
   'group.establish': '組別成立',
@@ -154,30 +159,51 @@ const ACTION_LABEL: Record<string, string> = {
   'opportunity.link': '連結合作案',
   'opportunity.unlink': '解除合作案連結',
   'opportunity.switch': '換合作案',
+  'opportunity.delete': '刪除合作案',
+  'opportunity.deleted': '刪除合作案',
+  'opportunity.published': '發布合作案',
+  'opportunity.republished': '重新發布合作案',
+  'opportunity.withdrawn': '下架合作案',
+  'opportunity.linked': '連結合作案',
+  'opportunity.unlinked': '解除合作案連結',
+  'opportunity.switched': '換合作案',
   // 專題事務與繳交（模組 04、05）
   'item.create': '建立專題事務',
   'item.save_draft': '儲存專題事務草稿',
   'item.publish': '發布專題事務',
   'item.update_published': '修改已發布的專題事務',
   'item.withdraw': '撤回專題事務',
+  'item.archive': '下架專題事務',
+  'item.republish': '重新發布專題事務',
+  'item.delete': '刪除專題事務',
+  'item.deleted': '刪除專題事務',
+  'item.published': '發布專題事務',
+  'item.withdrawn': '撤回專題事務',
+  'item.archived': '下架專題事務',
+  'item.republished': '重新發布專題事務',
+  'item.updated': '修改專題事務',
+  'item.announced': '發出重要公告通知',
+  'submission.submitted': '正式送出繳交',
+  'submission.reopen': '開放補交',
+  'submission.reopened': '開放補交',
   'submission.save_draft': '儲存繳交草稿',
   'submission.submit': '正式送出繳交',
   'submission.set_advisor_visibility': '設定指導老師閱覽',
   'submission.advisor_visibility.enable': '開放指導老師閱覽',
   'submission.advisor_visibility.disable': '關閉指導老師閱覽',
   // 評分（模組 06）
-  'grading.scheme_create': '建立評分方案',
-  'grading.scheme_publish': '發布評分方案',
-  'grading.scheme_apply': '套用新評分方案',
-  'grading.requirement_set': '設定評分份數',
+  'grading.scheme_create': '建立評分規則',
+  'grading.scheme_publish': '發布評分規則',
+  'grading.scheme_apply': '套用新版評分規則',
+  'grading.requirement_set': '設定每組評分老師人數',
   'grading.assign': '指派評分老師',
   'grading.assignment_remove': '移除評分老師',
   'grading.save_draft': '暫存評分',
   'grading.submit_final': '送出評分',
   'grading.return': '退回評分',
   'grading.override': '更正成績',
-  'grading.override_resolve': '復核更正',
-  'grading.override_review': '復核更正',
+  'grading.override_resolve': '重新確認人工更正',
+  'grading.override_review': '重新確認人工更正',
   'grading.export': '匯出成績',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立簽核版本',
@@ -190,22 +216,52 @@ const ACTION_LABEL: Record<string, string> = {
   'signoff.export': '匯出簽核',
   'showcase.draft_create': '建立精選草稿',
   'showcase.draft_update': '修改精選草稿',
+  'showcase.publish': '發布精選',
+  'showcase.published': '發布精選',
+  'showcase.withdraw': '下架精選',
+  'showcase.withdrawn': '下架精選',
+  'showcase.republish': '重新發布精選',
+  'showcase.republished': '重新發布精選',
+  'showcase.award_set': '設定精選獎項',
+  'showcase.delete': '刪除精選',
+  'showcase.deleted': '刪除精選',
+  // 首頁設定（第三波 W3）
+  'home.update': '更新首頁設定',
+  'home.updated': '更新首頁設定',
+  'home.reset': '首頁設定恢復預設',
   // 維運（模組 10）
   'ops.worker_alert': '背景工作警示',
+  'notification.test.send': '發送測試通知',
+  'demo.seed': '放入示範資料',
+  'demo.remove': '移除示範資料',
 }
 
-/** 動作的中文；沒登記的動作照原代碼顯示（新功能忘了登記也不會讓頁面壞掉）。 */
+/** 對照表沒有的代碼一律顯示這個字；原代碼放在滑過提示（`auditActionTitle`），不直接露出英文（第三波 Q26）。 */
+export const AUDIT_UNKNOWN_ACTION_LABEL = '其他操作'
+
+/** 這個代碼在對照表裡有沒有中文（單元測試用來保證程式裡出現的代碼都登記過）。 */
+export function hasAuditActionLabel(action: string): boolean {
+  return Object.hasOwn(ACTION_LABEL, action)
+}
+
+/** 動作的中文；沒登記的顯示「其他操作」（新功能忘了登記也不會讓頁面壞掉或露出英文代碼）。 */
 export function auditActionLabel(action: string): string {
-  return ACTION_LABEL[action] ?? action
+  return hasAuditActionLabel(action) ? ACTION_LABEL[action]! : AUDIT_UNKNOWN_ACTION_LABEL
+}
+
+/** 滑過提示：只有沒登記的動作才帶原代碼，方便回報問題時對得上。 */
+export function auditActionTitle(action: string): string | undefined {
+  return hasAuditActionLabel(action) ? undefined : action
 }
 
 const TARGET_TYPE_LABEL: Record<string, string> = {
   user: '帳號',
   account_directory: '帳號名單',
   registration_application: '註冊申請',
-  roster_version: '名單版本',
+  roster_version: '匯入的學生名單',
   cohort: '屆別',
   business_clock: '模擬時鐘',
+  home_settings: '首頁設定',
   project_event: '活動',
   group: '組別',
   group_roster: '組別名單',
@@ -215,7 +271,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   submission: '繳交',
   evaluation: '評分',
   gradebook: '成績表',
-  grading_scheme_version: '評分方案',
+  grading_scheme_version: '評分規則',
   signoff_version: '簽核版本',
   showcase_entry: '精選',
   storage: '儲存空間',

@@ -47,7 +47,7 @@ export function describeCause(cause: string | null): string | null {
 }
 
 /** 版本頁固定標示（產品 07 §4「同意紀錄內容與匯出」：不宣稱校方已核可）。 */
-export const ACCEPTANCE_NOTICE = '站內內容確認與同意紀錄，行政採認待確認'
+export const ACCEPTANCE_NOTICE = '站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認'
 
 /** 已經不會再收票的狀態（失效、作廢）。 */
 export function isTerminal(state: SignoffState): boolean {

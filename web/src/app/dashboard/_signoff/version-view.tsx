@@ -10,7 +10,7 @@ import { formatTaipeiMinute } from '@/shared/time'
  * （`SignoffQuery.versionDetail`／`studentView`），所以全文、附件、授權範圍、參與者三方一致。
  *
  * 順序照產品：全文 → 附件 → 授權範圍（最終文件授權才有，列在全文之後讓人讀完再同意）→ 參與者。
- * 版本頁固定標「站內內容確認與同意紀錄，行政採認待確認」。附件與海報連到 `/api/files/<id>`，每次下載都重新授權。
+ * 版本頁固定標「站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認」。附件與海報連到 `/api/files/<id>`，每次下載都重新授權。
  */
 
 const STATE_TONE: Record<SignoffState, string> = {
@@ -84,7 +84,8 @@ export function VersionView({
             {v.groupCode}・{PURPOSE_LABEL[v.purpose]}・v{v.versionNo}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {v.cohortCode}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・內容核對碼 {v.contentChecksum.slice(0, 12)}
+            {v.cohortCode}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+            （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
           </p>
         </div>
         <StateBadge state={v.state} />
@@ -114,7 +115,7 @@ export function VersionView({
                   {a.name}
                 </a>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・核對碼 {a.checksum.slice(0, 12)}
+                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
                 </span>
               </li>
             ))}

@@ -168,7 +168,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
 
   // 核實方式必選。
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
 
   // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）。
   await student.getByLabel('系級').fill('資管二乙')

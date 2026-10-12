@@ -126,10 +126,10 @@ function parseTaipeiSecond(text: string): number {
 
 async function setClock(page: Page, ms: number, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(localSecond(ms))
+  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(localSecond(ms))
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expectStatus(page, '已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expectStatus(page, '已設定模擬時間')
 }
 
 async function stageText(page: Page, path: string) {
@@ -273,7 +273,7 @@ test('0 前置：背景工作在跑、測試站有模擬業務鐘；管理員登
   admin = await adminPage(browser)
   const response = await admin.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await admin.getByLabel('目前業務時間').innerText())
+  const business = parseTaipeiSecond(await admin.getByLabel('系統認定的現在時間').innerText())
   const simulated = await admin.getByText('模擬中：').count()
   previousClockOffset = simulated > 0 ? business - Date.now() : null
   clockTouched = true

@@ -140,7 +140,7 @@ export default async function AdminTimelinePage({
     rangeText: current?.range,
     progressText: progress,
   }
-  const meta = `業務時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+  const meta = `現在時間（臺灣） ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
     schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
   }`
 
@@ -179,7 +179,7 @@ export default async function AdminTimelinePage({
         extraActions={
           businessClockOverrideEnabled() ? (
             <Link href="/dashboard/admin/clock" className={cn(BTN_OUTLINE, 'h-11 px-3.5')}>
-              <IconClock aria-hidden /> 調整模擬業務鐘
+              <IconClock aria-hidden /> 調整模擬時鐘
             </Link>
           ) : null
         }

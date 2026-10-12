@@ -64,7 +64,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
 
   const versions =
     item.contentVersionNo !== null
-      ? `內容 v${item.contentVersionNo}・欄位 v${item.schemaVersionNo}${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
+      ? `內容第 ${item.contentVersionNo} 版・表單格式第 ${item.schemaVersionNo} 版${item.receiverUnit === 'none' ? '' : `・應交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
       : '還沒發布過'
   const opened = item.actualOpenedAt ? `・實際開放 ${formatTaipeiMinute(item.actualOpenedAt)}` : ''
 
