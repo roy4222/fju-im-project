@@ -25,6 +25,7 @@ import {
   broadAudience,
 } from './item-form-parts'
 import { SettingsFields } from './item-settings'
+import { HONOR } from './item-form-model'
 import { BTN_INK } from '@/app/_ui/dashboard-kit'
 import type { ItemReview } from '@/application/items'
 import { cn } from '@/shared/cn'
@@ -68,6 +69,7 @@ function emptyState(cohortId: string): EditorState {
     dueAt: '',
     registrationDeadline: '',
     eventDate: '',
+    awardedOn: '',
     fields: [],
   }
 }
@@ -86,6 +88,8 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
   const requestId = useRef(newRequestId())
 
   const collects = state.placement === 'submission'
+  // 榮譽榜不發通知（第三波 W1）：不出現「重要公告」勾選，送出一律不通知。
+  const honor = state.placement === HONOR
   const patch = (next: Partial<EditorState>) => setState((s) => ({ ...s, ...next }))
 
   function open() {
@@ -146,7 +150,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
     setBusy('發布中…')
     setError(null)
     try {
-      const result = await publishItemAction(saved.itemId, saved.revision, notify || collects, requestId.current)
+      const result = await publishItemAction(saved.itemId, saved.revision, (notify && !honor) || collects, requestId.current)
       if (!result.ok) {
         setError(result.message)
         return
@@ -312,6 +316,8 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
                   <StudentView state={state} review={review} vocabulary={vocabulary} />
                   {collects ? (
                     <p className="text-sm">新收件一定會通知收件名單上的人（站內通知）。</p>
+                  ) : honor ? (
+                    <p className="text-sm text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
                   ) : (
                     <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
                       <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
