@@ -11,6 +11,7 @@ import {
   IconClock,
   IconFolders,
   IconHistory,
+  IconHome,
   IconLayoutDashboard,
   IconPencilPlus,
   IconSchool,
@@ -60,6 +61,7 @@ const SEGMENTS: Record<string, { group: Group; icon: Icon }> = {
   files: { group: '專題事務', icon: IconFolders },
   // 公開精選（票 25）：成果發布，放在專題事務。
   showcase: { group: '專題事務', icon: IconAward },
+  'home-settings': { group: '專題事務', icon: IconHome },
   groups: { group: '分組與產學', icon: IconUsersGroup },
   industry: { group: '分組與產學', icon: IconBuildingFactory2 },
   grading: { group: '評分與簽核', icon: IconChecklist },
