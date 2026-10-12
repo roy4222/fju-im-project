@@ -1281,8 +1281,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
 async function linkedGroups(db: Pick<Pool, 'query'>, opportunityIds: string[]): Promise<Map<string, LinkedGroupRef[]>> {
   const result = new Map<string, LinkedGroupRef[]>()
   if (opportunityIds.length === 0) return result
-  const rows = await db.query<{ opportunity_id: string; link_id: string; group_id: string; code: string; cohort_code: string; valid_from: Date }>(
-    `select l.opportunity_id, l.id as link_id, g.id as group_id, g.code, c.code as cohort_code, l.valid_from
+  const rows = await db.query<{ opportunity_id: string; link_id: string; group_id: string; code: string; cohort_code: string; cohort_name: string; valid_from: Date }>(
+    `select l.opportunity_id, l.id as link_id, g.id as group_id, g.code, c.code as cohort_code, c.name as cohort_name, l.valid_from
        from opportunity_links l
        join groups g on g.id = l.group_id
        join cohorts c on c.id = g.cohort_id
@@ -1292,7 +1292,7 @@ async function linkedGroups(db: Pick<Pool, 'query'>, opportunityIds: string[]): 
   )
   for (const r of rows.rows) {
     const list = result.get(r.opportunity_id) ?? []
-    list.push({ linkId: r.link_id, groupId: r.group_id, groupCode: r.code, cohortCode: r.cohort_code, linkedAt: r.valid_from })
+    list.push({ linkId: r.link_id, groupId: r.group_id, groupCode: r.code, cohortCode: r.cohort_code, cohortName: r.cohort_name, linkedAt: r.valid_from })
     result.set(r.opportunity_id, list)
   }
   return result

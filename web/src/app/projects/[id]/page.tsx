@@ -6,6 +6,7 @@ import { IconPlayerPlay } from '@tabler/icons-react'
 import { currentActor, requireSignedIn } from '@/app/_ui/guard'
 import { AwardBadge, GoneNotice, imageSrc, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
+import { cohortLabel } from '@/composition/cohorts'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 
 /** 同一個請求裡 metadata 與頁面共用一次查詢。 */
@@ -54,17 +55,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const backHref = member ? '/projects' : '/projects/featured'
   const backLabel = member ? '歷屆專題一覽' : '優秀專題'
   const image = imageSrc(item.id, item.posterFileId)
+  // 屆別顯示「名稱（代碼）」（系1）。訪客只查有優秀專題的屆別，不從名稱表看出哪一屆有沒得獎的作品。
+  const names = await getPublicShowcaseQuery().cohortChoices({ featuredOnly: !member })
+  const cohort = cohortLabel({ name: names.find((c) => c.code === item.cohortCode)?.name ?? item.cohortCode, code: item.cohortCode })
   const awardText = item.awardLabel ?? (item.award === 'excellent' ? '優秀專題' : item.award === 'merit' ? '佳作' : '—')
   const facts: [string, string][] = member
     ? [
-        ['屆別', `${item.cohortCode} 屆`],
+        ['屆別', cohort],
         ['組別', item.groupCode ?? '（歷屆補登）'],
         ['指導老師', people.advisorName ?? '（未指派）'],
         ['組員', people.memberNames.length ? people.memberNames.join('、') : '（未補登）'],
         ['獎項', awardText],
       ]
     : [
-        ['屆別', `${item.cohortCode} 屆${item.groupCode ? `・${item.groupCode}` : ''}`],
+        ['屆別', `${cohort}${item.groupCode ? `・${item.groupCode}` : ''}`],
         ['獎項', awardText],
       ]
 
@@ -80,11 +84,11 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <Link href={backHref} className="hover:text-foreground">
               {backLabel}
             </Link>
-            {` › ${item.cohortCode} 屆`}
+            {` › ${cohort}`}
           </nav>
           <div className="flex flex-wrap gap-2">
             <AwardBadge award={item.award} label={item.awardLabel} />
-            <Tag tone="ink">{item.cohortCode} 屆</Tag>
+            <Tag tone="ink">{cohort}</Tag>
             {item.groupCode ? <Tag tone="ink">{item.groupCode}</Tag> : null}
           </div>
           <h1 className="text-[26px] leading-snug font-extrabold text-foreground sm:text-[32px]">{item.title}</h1>

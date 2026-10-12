@@ -11,7 +11,7 @@ import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from
 import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
 import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { RosterEntry } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
 import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
@@ -70,7 +70,7 @@ export default async function RosterPage({
           <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}`} label="專題事務" />
           <div>
             <p className="text-xs font-semibold text-muted-foreground">
-              {item.cohortCode}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
+              {cohortLabel({ name: item.cohortName, code: item.cohortCode })}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
               {item.stageName ? `・${item.stageName}` : ''}
             </p>
             <PageTitle

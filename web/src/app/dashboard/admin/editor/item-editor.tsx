@@ -822,7 +822,7 @@ export function ItemEditor({
                   {review.openText}
                   {review.deadlineText ? `・${review.deadlineText}` : ''}
                 </p>
-                <RecipientList recipients={review.recipients} />
+                <RecipientList recipients={review.recipients} notifyWhen={honor ? 'never' : published ? 'update' : 'important'} />
                 {/* 原型：訪客／學生／老師三個視角。 */}
                 <div className="flex flex-wrap gap-2" role="group" aria-label="預覽視角">
                   {(
@@ -936,7 +936,7 @@ export function ItemEditor({
                     {review.openText}
                     {review.deadlineText ? `・${review.deadlineText}` : ''}
                   </p>
-                  <RecipientList recipients={review.recipients} />
+                  <RecipientList recipients={review.recipients} notifyWhen={honor ? 'never' : published ? 'update' : 'important'} />
                 </>
               ) : null}
               {collects && !published ? (

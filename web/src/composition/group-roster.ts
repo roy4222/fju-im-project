@@ -1,5 +1,6 @@
 import 'server-only'
 import { normalizeRosterExportRequest, type GroupRosterExporter } from '@/application/groups'
+import { cohortLabel } from '@/application/cohorts'
 import { resolveActor } from '@/composition/accounts'
 import { getGroupQuery } from '@/composition/groups'
 import { getAuditWriter } from '@/composition/ops'
@@ -21,9 +22,14 @@ export function getGroupRosterExporter(): GroupRosterExporter {
   return rosterExporter
 }
 
+
+/** 檔名用的屆別：「第43屆(115)」（括號換半形、去掉空白與斜線）。 */
+function fileCohortLabel(c: { readonly name: string; readonly code: string }): string {
+  return cohortLabel(c).replace(/（/g, '(').replace(/）/g, ')').replace(/[\s/\\]/g, '')
+}
 /**
  * `POST /api/admin/groups/export` 的門面：每次重新認人、重新授權（契約 03 §4），授權**先於**驗證
- * （沒登入的人不該從錯誤訊息知道請求格式對不對）。檔名：`組別名單-<屆別>-<年月日-時分>.csv|xlsx`。
+ * （沒登入的人不該從錯誤訊息知道請求格式對不對）。檔名：`<屆別名稱(代碼)>_組別名單_<年月日-時分>.csv|xlsx`（例：`第43屆(115)_組別名單_20261012-1739.csv`）。
  */
 export async function exportGroupRoster(
   headers: Headers,
@@ -41,6 +47,6 @@ export async function exportGroupRoster(
   const stamp = `${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}`
   return {
     ...result,
-    receipt: { ...result.receipt, fileName: `組別名單-${result.receipt.cohortCode}-${stamp}.${result.receipt.format}` },
+    receipt: { ...result.receipt, fileName: `${fileCohortLabel({ name: result.receipt.cohortName, code: result.receipt.cohortCode })}_組別名單_${stamp}.${result.receipt.format}` },
   }
 }

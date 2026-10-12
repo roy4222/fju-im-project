@@ -9,6 +9,7 @@ import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
 import { GradingQueue } from '@/app/dashboard/teacher/grading/queue'
 import { QueueSelect } from '@/app/dashboard/teacher/grading/queue-select'
+import { cohortLabel } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -17,7 +18,7 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 export const metadata = { title: '評閱桌｜資管系專題平台' }
 
 /**
- * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的評分佇列（手機收成下拉），右邊是這一組的評分表。
+ * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的待評分清單（手機收成下拉），右邊是這一組的評分表。
  *
  * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束、組別不存在）一律導到 `/403`「找不到這個頁面」，
  * 不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個階段時，用評分表上方的階段切換。
@@ -50,7 +51,7 @@ export default async function TeacherGradingGroupPage({
     </DashboardShell>
   )
 
-  const { entries, groupCode, cohortCode, memberNames, versionNo } = bench.receipt
+  const { entries, groupCode, cohortCode, cohortName, memberNames, versionNo } = bench.receipt
   const search = await searchParams
   const wanted = search.stage
   const entry = entries.find((e) => e.stage.key === wanted) ?? entries[0]!
@@ -98,7 +99,7 @@ export default async function TeacherGradingGroupPage({
           finalScore={entry.finalScore}
           submittedAtText={entry.submittedAt ? formatTaipeiSecond(entry.submittedAt) : null}
           draftFromOlderVersion={entry.draftFromOlderVersion}
-          eyebrow={`${cohortCode}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
+          eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
           members={memberNames.join('、')}
         >
           {entries.length > 1 ? (

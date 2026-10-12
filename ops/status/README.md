@@ -10,7 +10,7 @@
 
 | 腳本 | 在哪跑 | 誰 | 做什麼 |
 |---|---|---|---|
-| `ops/status-prepare.sh` | 💻 Mac mini，不用 sudo | 工程主腦 | 產驗收結果推送金鑰 `~/.ssh/fju_status_publish`、把 compose 檔與 `ops/` 送到 VM 的 `/tmp/fju-app/`（一次連線）、印兩支重置腳本的 sha256、印 Roy 要在 VM 貼的那一行 |
+| `ops/status-prepare.sh` | 💻 Mac mini，不用 sudo | 工程主腦 | 產驗收結果推送金鑰 `~/.ssh/fju_status_publish`、把 compose 檔與 `ops/` 送到 VM 的 `/tmp/fju-app/`（一次連線）、印兩支重置腳本的 sha256、印 Roy 要在 VM 做的兩段：第 5 步「同步／搬遷」（備份核對→rsync→Doppler 探針→網路搬遷→恢復自動部署）與第 6 步「安裝」那一行 |
 | `ops/status-install.sh` | 🖥️ VM，`sudo` 一次 | Roy 貼上 | 十二步＋7b（下表）。可重跑：已完成的步驟印「跳過」 |
 
 兩支都有 `--dry-run`（只讀現況、只印不做，不需要 sudo）與 `--help`。
@@ -30,8 +30,8 @@
    ops/status-prepare.sh --access-team <team>.cloudflareaccess.com --access-aud <AUD>
    ```
 
-   預期：金鑰「產好了」或「跳過 已有」、rsync 沒有錯誤、兩行 sha256、最後印出一整行 `sudo rsync … && sudo bash /srv/fju/app/ops/status-install.sh …`。把那一行原樣交給 Roy。
-3. **Roy 做第 2 件事**：VM 貼那一行（下節）。
+   預期：金鑰「產好了」或「跳過 已有」、rsync 沒有錯誤、兩行 sha256、第 5 步印同步／搬遷的順序（含備份核對的那段與 Doppler 探針關卡）、第 6 步印安裝那一行 `sudo bash /srv/fju/app/ops/status-install.sh …`。把第 5、6 步原樣交給 Roy；VM 還沒做兩站網路拆分時就是要照第 5 步走完再貼第 6 步。
+3. **Roy 做第 2 件事**：VM 先做第 5 步（同步／搬遷，每步 ✓ 才下一步），全部 ✓ 且自動部署已恢復後再貼第 6 步那一行（下節）。
 4. 看安裝最後的「摘要」：每步 ✓ 或「跳過」；結束碼 0。
 5. **Roy 做第 3 件事**（Beszel，可延後）。
 6. 跑端到端 AC-S-26（設計方案的驗收案例）。
@@ -56,21 +56,23 @@
 | 6 | `secrets/status.env`（team、AUD、`STATUS_HOSTS`）；先放空的 `beszel-agent.env` | — |
 | 1 之後、10 之前任何一種結束 | 不論是哪一步失敗、`set -e` 直接中止、Ctrl-C、ssh 斷線、輸出管線斷掉（例如 `\| tee` 死掉）、等授權時被終止，都**先關門**：停所有 cloudflared 容器、停用 `fju-status-update.timer`、停掉 `fju-status-update.service`；接著砍掉還在等授權的 `fju-status-login` 容器、清 7b 暫時資源、刪 `cert.pem`。關門動作本身不印到畫面；關門途中再按 Ctrl-C、再斷線也不會中斷（本 shell 忽略訊號，`systemctl`／`docker` 子程序用 `setsid` 放到別的 session，終端或整個程序群組的 INT／TERM 都打不到）。容器列舉失敗不會當成「沒有容器」：重試三次，還是不行就用預設容器名 `fju-status-cloudflared-1` 直接 stop；timer 停用、service 停止、容器 stop 三項都確認成功才算關好，任一項失敗會印出要手動做的指令、結束碼非 0。原因與結束碼寫進 `/srv/fju/status/.install/exit.log`（畫面已經不在時看這裡） | — |
 | 7 | cloudflared 容器（版本取自 compose 檔）：`tunnel login` → 建／沿用隧道 `fju-status` → 四個網址 `route dns` → `secrets/tunnel.json` → 跑 `status-render-cloudflared.sh` 產 `ops/status/cloudflared.yml` → 用第 10 步同一個檢查核對 | 停 |
-| 7b | 暫時隧道 `fju-status-verify`＋暫時網址 `fju-status-verify.roy422.dev`（不在任何 Access 應用程式裡）＋計數假 origin（`fju-status` 映像 `node verify-origin.mjs`）。有鎖：`/probe` 三次都 403、`/count` 兩次都 0；拿掉 `access` 重起：`/count` 兩次都 3。最後刪暫時容器、網路、隧道、DNS，再刪 `cert.pem`。要重做 7b 時（沒有 `tunnel.json`、或 team／AUD／cloudflared 版本變了）**先刪掉舊的通過紀錄**，兩輪驗證與四類清理全部通過才原子地寫新的；中途任何失敗（含沒清乾淨）都不會留下紀錄，下次重跑會重新登入、再做一次 7b | 停、結束碼 1；暫時資源與 `cert.pem` 照樣清掉 |
+| 7b | 暫時隧道 `fju-status-verify`＋暫時網址 `fju-status-verify.roy422.dev`（不在任何 Access 應用程式裡）＋計數假 origin（`fju-status` 映像 `node verify-origin.mjs`）。有鎖：`/probe` 三次都 403、`/count` 兩次都 0；拿掉 `access` 重起：`/count` 兩次都 3。最後刪暫時容器、網路、隧道、DNS，再刪 `cert.pem`。要重做 7b 時（沒有 `tunnel.json`、或 team／AUD／cloudflared 版本變了）**先刪掉舊的通過紀錄**，兩輪驗證與四類清理全部通過才原子地寫新的；中途任何失敗（含沒清乾淨）都不會留下紀錄，下次重跑會重新登入、再做一次 7b。**DNS 負快取**：打暫時網址的 curl 都不經 VM 的本機 DNS（學校 DNS `140.136.247.252` 會把剛建的網址 NXDOMAIN 負快取，`roy422.dev` 的 SOA 負快取 TTL 是 1800 秒，經它查會一直 000）——先用公共 DNS（`1.1.1.1` 的 DoH，備用 `dns.google`；只靠 curl＋python3）查 Cloudflare 邊緣 IP，查不到就退回同 zone 已存在的 `fju-status.roy422.dev` 的 A 記錄（proxied 記錄都是同一組 anycast），再 `curl --resolve <網址>:443:<IP>` | 停、結束碼 1；暫時資源與 `cert.pem` 照樣清掉。等 3 分鐘還是 000 會印這次接的是哪個 IP、並提示可能是 DNS 負快取 |
 | 8 | `fju-status-{update,envcheck}.{service,timer}` 裝到 `/etc/systemd/system`；`enable --now` envcheck timer。**update timer 等第 10 步守門通過才啟用**（它每 10 分鐘 `up -d`，守門沒過時不能把 cloudflared 再起來） | 停 |
 | 9 | 以 deploy 跑 `status-up.sh`，等 status-web `/healthz` | 停並關門 |
-| 10 | 四個網址不帶 cookie `curl -sI`：都要 302 到 `https://<team>/cdn-cgi/access/login`；再對每個 cloudflared 容器 `docker cp <容器>:/etc/cloudflared/config.yml -` 核對實際掛載的設定：每條會轉給服務的 ingress 都有 `originRequest.access`（`required: true`、`teamName`、`audTag` 恰好是這個 AUD）。通過才 `enable --now fju-status-update.timer` | **關門**：停所有 cloudflared 容器、停 `fju-status-update`（timer 與正在跑的 service）、印哪個網址沒擋、結束碼 1 |
+| 10 | 四個網址不帶 cookie `curl -sI`（同 7b：公共 DNS 查邊緣 IP 後 `--resolve`，不經本機 DNS——第一次安裝時四個網址也是剛建的）：都要 302 到 `https://<team>/cdn-cgi/access/login`；再對每個 cloudflared 容器 `docker cp <容器>:/etc/cloudflared/config.yml -` 核對實際掛載的設定：每條會轉給服務的 ingress 都有 `originRequest.access`（`required: true`、`teamName`、`audTag` 恰好是這個 AUD）。通過才 `enable --now fju-status-update.timer` | **關門**：停所有 cloudflared 容器、停 `fju-status-update`（timer 與正在跑的 service）、印哪個網址沒擋、結束碼 1 |
 | 11 | 從 Beszel hub 取公鑰寫 `beszel-agent.env`、重起 agent；印「新增系統」要填的 `/beszel_socket/beszel.sock` | ✗（不影響三頁） |
 | 12 | 再印一次 `free -m`、`docker stats --no-stream` 與摘要 | — |
 
 ## 怎麼重跑
 
-- **同一行再貼一次就好**。已完成的步驟印「跳過」；第 7 步只有在「沒有 `tunnel.json`」或「第 7b 步沒以同一組 team／AUD／cloudflared 版本通過過」時才會要你再點一次授權網址。
+- **安裝那一行（prepare 第 6 步）再貼一次就好**。已完成的步驟印「跳過」；第 7 步只有在「沒有 `tunnel.json`」或「第 7b 步沒以同一組 team／AUD／cloudflared 版本通過過」時才會要你再點一次授權網址。
 - **第 10 步關門之後**：去 Zero Trust 把印出來的網址加進 `fju-status` 應用程式，再貼同一行。第 9 步的 `status-up.sh` 會把 cloudflared 起回來，第 10 步再檢查一次，通過才重新啟用自動更新 timer。
-- **中途斷線、被中斷、或畫面上看不到為什麼停**：門已經關了（四個網址連不上）。`sudo tail /srv/fju/status/.install/exit.log` 看最後幾行：停在哪一步、什麼原因（Ctrl-C、SIGHUP、輸出管線中斷、或最後失敗的指令與行號）。修好後貼同一行重跑；第 9 步起回服務、第 10 步守門通過才重新開門。
+- **中途斷線、被中斷、或畫面上看不到為什麼停**：門已經關了（四個網址連不上）。`sudo tail /srv/fju/status/.install/exit.log` 看最後幾行：停在哪一步、什麼原因（Ctrl-C、SIGHUP、輸出管線中斷、或最後失敗的指令與行號）。修好後貼同一行重跑（停在第 7b 步的話先把 `exit.log` 交給工程主腦再重貼，7b 在真帳號上沒試過）；第 9 步起回服務、第 10 步守門通過才重新開門。
 - **換了 team 或 AUD**：Mac mini 帶新值重跑 `status-prepare.sh`，把新的那一行給 Roy。第 7b 步會重做（要再點一次授權）。
-- **repo 的 ops／compose 檔改了**：Mac mini 重跑 `status-prepare.sh`（會重送），VM 只要跑那一行的前半段 `sudo rsync … /srv/fju/app/`。之後每 10 分鐘的 `fju-status-update` 會自己 `pull` 與 `up -d`。
-  注意：VM 那一行的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有。若改用 `ops/README.md` 那個沒帶 filter 的 rsync，它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
+- **repo 的 ops／compose 檔改了**：Mac mini 重跑 `status-prepare.sh`（會重送），VM 只要跑第 5 步「備份並核對完整，通過才同步」那一段（主站 compose 已是拆分版時不用再搬遷）。之後每 10 分鐘的 `fju-status-update` 會自己 `pull` 與 `up -d`。
+  注意：第 5 步那段的 rsync 帶 `--filter='P /ops/status/cloudflared.yml'`，因為那份是安裝時產生的、repo 裡沒有；`ops/README.md` 的幾處 rsync 現在也帶同一個 filter、送檔清單也含 `docker-compose.status.yml`。少了 filter 它會被刪掉，cloudflared 起不來；重貼安裝那一行會重新產生。
+  VM 還沒做 `ops/README.md`「兩站網路拆分上線步驟」時（`docker network ls` 沒有 `fju-edge-test`）：那段 rsync 會把主站 compose 換成拆分版，網路沒建好就恢復自動部署會讓下一個新 SHA 部署失敗（舊容器不動）。所以預設的第 5 步接著列搬遷順序（Doppler 探針是第一道關卡）；今晚只裝後台就 `status-prepare.sh --keep-site-compose`，它印的第 5 步不換主站 compose、同步後直接恢復自動部署。
+- **7b 或第 10 步印 000**：000 是連不上、不是 HTTP 回應。腳本已經不經本機 DNS（會印「這次接的是 … 邊緣 IP」）；若印的是「退回本機 resolver」，表示公共 DNS 兩家都連不上，先在 VM 上確認 `curl -s 'https://1.1.1.1/dns-query?name=fju-status.roy422.dev&type=A' -H 'accept: application/dns-json'` 回得來。`getent hosts <網址>` 查不到但上面那行查得到，就是學校 DNS 的負快取，最多 30 分鐘後自己消掉，不影響腳本。
 - **只想看會做什麼**：VM 上 `FJU_STATUS_APP_DIR=/tmp/fju-app bash /tmp/fju-app/ops/status-install.sh --dry-run …`（同一組參數，不用 sudo、不寫任何東西）。
 - **測試用的環境變數**：`FJU_STATUS_ROOT`、`FJU_STATUS_UNIT_DIR`、`FJU_STATUS_SSH_DIR`、`FJU_STATUS_HOME_ROOT`、`FJU_STATUS_SBIN`、`FJU_STATUS_OS_RELEASE`、`FJU_STATUS_RRSYNC`、`FJU_STATUS_CF_API` 只給 `status/test/ops/install.test.ts` 的故障注入測試把系統路徑換成暫存目錄；正式安裝不要設。
 - **單獨核對某份 cloudflared 設定**：`bash ops/status-install.sh --check-cloudflared-config <檔> --access-team … --access-aud …`。
@@ -97,5 +99,5 @@
 | `pghero.env` | 鍵 `FJU_MONITOR_PASSWORD`（`status-up.sh --ensure-db-role-only` 讀它設密碼）、`DATABASE_URL`（PgHero 用） |
 | `beszel-agent.env` | `KEY="<hub 公鑰>"`、`LISTEN=/beszel_socket/beszel.sock`；hub 資料在容器內 `/beszel_data`（金鑰 `id_ed25519`） |
 | status-web 健康 | 有 compose healthcheck 就看它；沒有就從同網路 `curl http://status-web:3000/healthz` 要回 `ok` |
-| 假 origin | `node verify-origin.mjs` 讀 `PORT`（安裝給 3000，配合產生器第一條 ingress 的 `http://status-web:3000`；容器在暫時網路掛 `status-web` 別名）；`/count` 回數字 |
+| 假 origin | `node verify-origin.mjs` 讀 `VERIFY_ORIGIN_PORT`（沒給預設 8080；安裝給 3000，配合產生器第一條 ingress 的 `http://status-web:3000`；容器在暫時網路掛 `status-web` 別名）；`/count` 回數字 |
 | 異地備份掛載點 | compose 用 `${STATUS_OFFSITE_DIR:-/srv/fju/offsite}`，值在 `/srv/fju/status/paths.env` |

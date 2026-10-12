@@ -6,6 +6,7 @@ import {
   DUE_WORK_WAIT_SECONDS,
   dueWorkTransition,
   encodeInboxCursor,
+  inboxCohortText,
   EVENT_CATALOG,
   normalizeTestNotification,
   notificationPresentationOf,
@@ -57,6 +58,14 @@ describe('notificationsFor：事件投影成通知', () => {
     expect(notificationsFor(event({ payload: { title: 'x'.repeat(500) } }))[0]!.title.length).toBeLessThanOrEqual(120)
   })
 
+  it('專題事務發布後修改的通知：標題前加「（已更新）」，跟第一次的通知分得出來（驗收第 2 章 P-09）', () => {
+    const updated = event({ type: 'item.updated', scope: 'cohort', cohortId: SOURCE, payload: { title: '分組提案截止提醒' } })
+    expect(notificationsFor(updated)[0]!.title).toBe('（已更新）分組提案截止提醒')
+    expect(notificationsFor({ ...updated, type: 'item.announced' })[0]!.title).toBe('分組提案截止提醒')
+    expect(notificationsFor({ ...updated, payload: { title: 'x'.repeat(500) } })[0]!.title).toMatch(/^（已更新）x+…$/)
+    expect(notificationsFor({ ...updated, payload: { title: 'x'.repeat(500) } })[0]!.title.length).toBeLessThanOrEqual(120)
+  })
+
   it('沒登記的型別、或登記了卻沒有通知樣子的型別：丟例外（毒事件，不默默跳過）', () => {
     expect(() => notificationsFor(event({ type: 'nope.unknown' }))).toThrow(DomainEventRejected)
     expect(() => notificationsFor(event({ type: 'calendar.changed' }))).toThrow(/沒有登記通知的樣子/)
@@ -68,6 +77,13 @@ describe('notificationsFor：事件投影成通知', () => {
         expect(notificationPresentationOf(type as keyof typeof EVENT_CATALOG), type).not.toBeNull()
       }
     }
+  })
+})
+
+describe('inboxCohortText：通知匣上的屆別用「名稱（代碼）」（驗收第 2 章 P-01）', () => {
+  it('有屆別寫「第 43 屆（115）」；全站通知寫「全站」', () => {
+    expect(inboxCohortText({ cohortCode: '115', cohortName: '第 43 屆' })).toBe('第 43 屆（115）')
+    expect(inboxCohortText({ cohortCode: null, cohortName: null })).toBe('全站')
   })
 })
 

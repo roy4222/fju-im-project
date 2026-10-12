@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { IconAlertTriangle, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Ring } from '@/app/_ui/dashboard/charts'
@@ -31,6 +31,7 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
+import { BulkDisableDialog } from './bulk-disable-dialog'
 import { BulkApproveCheckbox, BulkApproveDialog, BulkApproveProvider, BulkApproveSelectAll } from './bulk-approve-dialog'
 import { ImportRosterDialog } from './import-roster-dialog'
 import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
@@ -294,7 +295,6 @@ export default async function AdminAccountsPage({
                 statusLabel={ACCOUNT_STATUS_LABEL}
                 roleLabel={ROLE_LABEL}
                 sortHeaders={sortHeaders(filter)}
-                bulkMaxChars={BULK_MAX_CHARS}
                 verificationLabels={VERIFICATION_LABELS}
                 toolbar={
                   <>
@@ -416,6 +416,22 @@ export default async function AdminAccountsPage({
         <p className="text-xs text-muted-foreground">
           停用不是刪除：資料與紀錄都保留、可以恢復；停用的人在任何分頁做下一個動作就會被登出。
         </p>
+
+        {/* 第三波 §9 規則 1（驗收 P-06）：批次停用一次影響很多人，跟例行的匯出拉開，放在頁面底部的危險操作區。 */}
+        <Panel
+          title="危險操作"
+          icon={<IconAlertTriangle />}
+          description="一次停用多個帳號"
+          aria-label="危險操作"
+          className="border border-destructive/30"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-5 py-4">
+            <p className="text-sm text-muted-foreground">
+              上傳 TXT 或貼上學號（一行一個），先預覽再寫理由確認。停用的人會被登出，資料保留、之後可以逐一恢復。
+            </p>
+            <BulkDisableDialog maxChars={BULK_MAX_CHARS} />
+          </div>
+        </Panel>
       </div>
     </DashboardShell>
   )

@@ -20,6 +20,8 @@
 # 可重跑：每步先檢查，已完成就印「跳過」。每步印 ✓／跳過／✗，最後印摘要。
 # 可用記憶體 < 2.5 GB 就在第 1 步停下、什麼都不建。
 # 第 7b 步只對暫時隧道 fju-status-verify 與假 origin 做破壞性測試，不碰真後台、不改 Access 政策。
+# 第 7b 步與第 10 步打網址的 curl 都不經 VM 的本機 DNS（先用公共 DNS 查 Cloudflare 邊緣 IP 再 --resolve）：
+# 學校 DNS 會把剛建的網址 NXDOMAIN 負快取最多 30 分鐘，經它查會一直 000。
 # 第 10 步任何一個網址沒被 Access 擋住 → 停掉 cloudflared 與自動更新 timer、結束碼 1。
 # 第 1 步過了之後、第 10 步守門通過之前，不論怎麼結束（失敗、set -e、Ctrl-C、ssh 斷線、輸出管線斷、
 # 等授權時被終止）都先關門：停 cloudflared 容器、停用 fju-status-update timer、停 service；紀錄在 .install/exit.log。
@@ -489,6 +491,70 @@ check_cloudflared_config() {
 team_name() { printf '%s' "${ACCESS_TEAM%.cloudflareaccess.com}"; }
 
 # ---------------------------------------------------------------------------
+# 不經本機 DNS 的 curl（第 7b 步與第 10 步守門共用）
+# ---------------------------------------------------------------------------
+# VM 的 resolver 是學校 DNS：剛建的網址它可能已經快取「不存在」（roy422.dev 的 SOA 負快取 TTL 是 1800 秒），
+# 之後半小時經它查都是 NXDOMAIN、curl 一直 000（真帳號第一次裝 7b 就是這樣停掉的）。
+# 所以打 Cloudflare 代理的網址一律：先用公共 DNS（DoH，只靠第 1 步已檢查的 curl＋python3，不需要 dig）查邊緣 IPv4，
+# 再 curl --resolve 直接接。公共 DNS 也還查不到（剛建）就退回同 zone 已存在的第一個正式網址的 A 記錄——
+# proxied 記錄都是同一組 anycast，Cloudflare 看 SNI 分流。兩家 DoH 都連不上才退回本機 resolver（失敗訊息會說）。
+DOH_URLS=${FJU_STATUS_DOH_URLS:-https://1.1.1.1/dns-query https://dns.google/resolve}
+doh_a() { # <網址>：印第一筆 A 記錄的 IPv4、回 0；兩家都查不到或連不上印空、回 1
+  local base out ip
+  for base in $DOH_URLS; do
+    out=$(curl -s -m 10 -H 'accept: application/dns-json' "${base}?name=${1}&type=A") || continue
+    ip=$(printf '%s' "$out" | python3 -c '
+import json, re, sys
+try:
+    doc = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+answers = doc.get("Answer") if isinstance(doc, dict) else None
+for a in answers if isinstance(answers, list) else []:
+    data = a.get("data", "") if isinstance(a, dict) else ""
+    if a.get("type") == 1 and isinstance(data, str) and re.fullmatch(r"(\d{1,3}\.){3}\d{1,3}", data):
+        print(data)
+        break
+' 2>/dev/null) || continue
+    [ -z "$ip" ] || { printf '%s' "$ip"; return 0; }
+  done
+  return 1
+}
+# 同一個網址只查一次：快取每行「網址<tab>IP<tab>說明」。要在命令替換外面先叫一次（$(…) 是子 shell，改不到快取）。
+EDGE_CACHE=""
+EDGE_IP=""
+EDGE_DESC=""
+edge_lookup() { # <網址>：設 EDGE_IP（空＝退回本機 resolver）與 EDGE_DESC（失敗訊息用）
+  local host=$1 hit fallback=${STATUS_HOSTS%% *}
+  hit=$(printf '%s' "$EDGE_CACHE" | awk -F '\t' -v h="$host" '$1 == h { print; exit }')
+  if [ -n "$hit" ]; then
+    EDGE_IP=$(printf '%s' "$hit" | cut -f 2)
+    EDGE_DESC=$(printf '%s' "$hit" | cut -f 3)
+    return 0
+  fi
+  if EDGE_IP=$(doh_a "$host"); then
+    EDGE_DESC="這次接的是公共 DNS 查到的 ${host} 邊緣 IP ${EDGE_IP}（不經本機 DNS）"
+  elif [ "$host" != "$fallback" ] && EDGE_IP=$(doh_a "$fallback"); then
+    EDGE_DESC="公共 DNS 還查不到 ${host}，這次接的是同 zone 的 ${fallback} 邊緣 IP ${EDGE_IP}（Cloudflare 看 SNI 分流，不經本機 DNS）"
+  else
+    EDGE_IP=""
+    EDGE_DESC="公共 DNS（${DOH_URLS}）查不到或連不上 ${host}，這次退回本機 resolver"
+  fi
+  EDGE_CACHE="${EDGE_CACHE}${host}	${EDGE_IP}	${EDGE_DESC}"$'\n'
+}
+# <網址> <curl 參數…（網址放最後）>：有邊緣 IP 就 --resolve 直接接，不經本機 DNS。
+curl_edge() {
+  local host=$1; shift
+  edge_lookup "$host"
+  if [ -n "$EDGE_IP" ]; then curl --resolve "${host}:443:${EDGE_IP}" "$@"; else curl "$@"; fi
+}
+# 000 是 curl 連不上、不是 HTTP 回應，最常見是 DNS 查不到：印出怎麼判斷。
+hint_000() { # <網址> <HTTP 碼>
+  [ "$2" = 000 ] || return 0
+  bad "000 是連不上（沒有 HTTP 回應）。若 VM 上 getent hosts ${1} 查不到、但 curl -s 'https://1.1.1.1/dns-query?name=${1}&type=A' -H 'accept: application/dns-json' 查得到，就是學校 DNS 的負快取（最多 30 分鐘）；見 ops/status/README.md「DNS 負快取」"
+}
+
+# ---------------------------------------------------------------------------
 # 參數
 # ---------------------------------------------------------------------------
 
@@ -717,7 +783,7 @@ check_pre "docker 與 compose 外掛" docker compose version
 check_pre "${COMPOSE_FILE} 存在（S-4 的 compose 檔）" test -f "$COMPOSE_FILE"
 check_pre "${STATUS_UP} 存在（S-4）" test -f "$STATUS_UP"
 check_pre "${RRSYNC}（驗收結果推送只准寫 inbox）" test -x "$RRSYNC"
-check_pre "python3、curl、openssl、ssh-keygen" sh -c 'command -v python3 && command -v curl && command -v openssl && command -v ssh-keygen'
+check_pre "python3、curl、openssl、ssh-keygen（第 7b、10 步查公共 DNS 也只用 curl＋python3，不需要 dig）" sh -c 'command -v python3 && command -v curl && command -v openssl && command -v ssh-keygen'
 check_pre "${DEPLOY_USER} 帳號存在" id "$DEPLOY_USER"
 echo "  記憶體與容器用量（安裝前）："
 show_usage_snapshot | sed 's/^/    /'
@@ -1004,10 +1070,11 @@ start_verify_cf() { # <設定檔>
 }
 # 等暫時網址真的經過 Cloudflare 打到這個 cloudflared：打 /ready（假 origin 回 404、不計數），要連續 3 次拿到預期的碼才算好。
 # 剛換 cloudflared 時，有些 Cloudflare 邊緣節點一陣子還會送到已死的舊連線（530），只看到 1 次對的碼不夠。
+# curl 一律 curl_edge（公共 DNS 查到的邊緣 IP --resolve），不經本機 DNS；邊緣 IP 由 verify_tunnel_lock 先查好、快取。
 wait_verify_ready() { # <預期碼>
   local code="" streak=0
   for _ in $(seq 1 36); do
-    code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/ready" || true)
+    code=$(curl_edge "$VERIFY_HOST" -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/ready" || true)
     if [ "$code" = "$1" ]; then
       streak=$((streak + 1))
       [ "$streak" -ge 3 ] && return 0
@@ -1016,7 +1083,8 @@ wait_verify_ready() { # <預期碼>
     fi
     sleep 5
   done
-  bad "等了 3 分鐘，${VERIFY_HOST}/ready 沒有連續 3 次 ${1}（最後一次是 ${code}）"
+  bad "等了 3 分鐘，${VERIFY_HOST}/ready 沒有連續 3 次 ${1}（最後一次是 ${code}）；${EDGE_DESC}"
+  hint_000 "$VERIFY_HOST" "$code"
   return 1
 }
 # 從 VM 經 Cloudflare 打 /probe 三次，三個 HTTP 碼放 PROBE_CODES、530 重試總次數放 PROBE_RETRIES。
@@ -1027,7 +1095,7 @@ probe3() {
   for _ in 1 2 3; do
     tries=0
     while :; do
-      code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)
+      code=$(curl_edge "$VERIFY_HOST" -s -o /dev/null -m 15 -w '%{http_code}' "https://${VERIFY_HOST}/probe" || true)
       [ "$code" = 530 ] && [ "$tries" -lt 6 ] || break
       tries=$((tries + 1)); sleep 5
     done
@@ -1053,7 +1121,7 @@ verify_tunnel_lock() {
   docker pull -q "$CURL_IMAGE" >/dev/null || { bad "拉不到 ${CURL_IMAGE}"; return 1; }
   docker network create "$VERIFY_NET" >/dev/null || return 1
   docker run -d --name "$VERIFY_ORIGIN" --network "$VERIFY_NET" --network-alias "$VERIFY_ALIAS" --memory 64m \
-    -e PORT="$VERIFY_PORT" --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
+    -e VERIFY_ORIGIN_PORT="$VERIFY_PORT" --pull never "$STATUS_IMAGE" node verify-origin.mjs >/dev/null || { bad "假 origin 起不來"; return 1; }
   cf create --credentials-file /cf/.cloudflared/verify.json "$VERIFY_TUNNEL" >/dev/null || { bad "建暫時隧道失敗"; return 1; }
   route_dns "$VERIFY_TUNNEL" "$VERIFY_HOST" || return 1
   vid=$(cred_tunnel_id "$LOGIN_DIR/verify.json") || { bad "讀不到暫時隧道的憑證"; return 1; }
@@ -1065,6 +1133,9 @@ verify_tunnel_lock() {
     bad "拿掉 access 的暫時設定竟然通過檢查"; return 1
   fi
 
+  # 暫時網址剛建：在這裡（主 shell）先查一次邊緣 IP 並快取，下面兩輪的每個 curl 都用它，不經本機 DNS。
+  edge_lookup "$VERIFY_HOST"
+  echo "  ${EDGE_DESC}"
   echo "  第一輪：有鎖（access.required: true）"
   start_verify_cf "$LOGIN_DIR/verify-locked.yml" || return 1
   wait_verify_ready 403 || return 1
@@ -1088,6 +1159,7 @@ verify_tunnel_lock() {
 if [ "$DRY_RUN" = 1 ]; then
   if [ "$NEED_LOGIN" = 1 ]; then
     todo "會建暫時網路 ${VERIFY_NET}、假 origin（${STATUS_IMAGE} node verify-origin.mjs）、暫時隧道 ${VERIFY_TUNNEL}、DNS ${VERIFY_HOST}"
+    todo "會先用公共 DNS（${DOH_URLS}）查 ${VERIFY_HOST} 的邊緣 IP（查不到就用 ${STATUS_HOSTS%% *} 的），之後的 curl 都 --resolve、不經本機 DNS"
     todo "第一輪（有鎖）：從 VM 打 https://${VERIFY_HOST}/probe 三次要都是 403，暫時網路內（${CURL_IMAGE}）讀 /count 兩次要都是 0"
     todo "第二輪（拿掉 access）：再打 /probe 三次要都是 204，/count 兩次要都是 3（/probe 遇 530 會等 5 秒重打，最多 6 次）"
     todo "最後刪暫時容器、網路、隧道、DNS，再刪 cert.pem；任一不符就停在這一步、結束碼 1"
@@ -1174,7 +1246,7 @@ close_gate() {
   halt 1 "守門沒過：$*"
 }
 if [ "$DRY_RUN" = 1 ]; then
-  for h in $STATUS_HOSTS; do todo "會打 curl -sI https://${h}：要 302、Location 開頭 https://${ACCESS_TEAM}/cdn-cgi/access/login"; done
+  for h in $STATUS_HOSTS; do todo "會先用公共 DNS 查 ${h} 的邊緣 IP，再 curl -sI --resolve 打 https://${h}（不經本機 DNS）：要 302、Location 開頭 https://${ACCESS_TEAM}/cdn-cgi/access/login"; done
   todo "會用 docker cp <cloudflared 容器>:/etc/cloudflared/config.yml - 取出實際掛載的設定，用 --check-cloudflared-config 同一個檢查核對"
   todo "任一不符：停 cloudflared、停 fju-status-update（timer 與 service）、結束碼 1"
   todo "通過才 systemctl enable --now fju-status-update.timer"
@@ -1183,14 +1255,19 @@ else
   unguarded=""
   for h in $STATUS_HOSTS; do
     res=""
+    # 第一次安裝時四個網址也是剛建的：同 7b，先在主 shell 查好邊緣 IP（快取），每個 curl 都 --resolve、不經本機 DNS。
+    edge_lookup "$h"
     # 隧道剛起、DNS 剛生效時會有 000／5xx，等一下；其他任何碼都直接算沒擋住。
     for _ in $(seq 1 12); do
-      res=$(curl -sI -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://${h}/" || true)
+      res=$(curl_edge "$h" -sI -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://${h}/" || true)
       case "$res" in 000*|5*) sleep 10 ;; *) break ;; esac
     done
     case "$res" in
       "302 https://${ACCESS_TEAM}/cdn-cgi/access/login"*) ok "${h} → 302 Access 登入頁" ;;
-      *) bad "${h} 沒被擋：${res}"; unguarded="${unguarded} ${h}" ;;
+      *)
+        bad "${h} 沒被擋：${res}；${EDGE_DESC}"
+        hint_000 "$h" "${res%% *}"
+        unguarded="${unguarded} ${h}" ;;
     esac
   done
   [ -z "$unguarded" ] || close_gate "這幾個網址沒被 Access 擋住：${unguarded# }"

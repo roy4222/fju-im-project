@@ -7,6 +7,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { StudentCalendar, type CalendarEntry } from '@/app/dashboard/student/_calendar'
 import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
+import { homePendingLine } from '@/app/dashboard/student/home-pending'
 import { getTimelineQuery } from '@/composition/cohorts'
 import { getGroupQuery } from '@/composition/groups'
 import { getPublicItemQuery } from '@/composition/items'
@@ -48,7 +49,9 @@ export default async function StudentHomePage() {
   const today = ctx.today
   const entries = calendarEntries(activities, deadlines)
   const next8 = upcoming(entries, today, 8)
+  // 待繳含逾期未繳（驗收第 2 章 P-08）：逾期的要找系辦補交，不能說「沒有待繳」。
   const pending = pendingCount(myItems, ctx.businessNow)
+  const overdue = myItems.filter((i) => receiverStatus(i, i, ctx.businessNow).overdue).length
 
   // 下一步＝還沒送出、最早截止的那一份（原型 Codex S-05）。
   const nextItem = myItems
@@ -85,7 +88,7 @@ export default async function StudentHomePage() {
   const mine = current.filter((v) => v.viewer.canRespond).length
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
-  const line = pending ? `「我的繳交」還有 ${pending} 件沒送出。` : '「我的繳交」沒有待繳的東西。'
+  const line = homePendingLine(pending, overdue)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current={BASE}>
