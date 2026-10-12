@@ -265,7 +265,7 @@ describe('前置條件與二次確認', () => {
 
   it('不能對自己；待審的帳號不行', async () => {
     const me = await command.previewDeidentify(adminActor(), admin.userId)
-    expect(me.ok && me.receipt.blockers).toContain('不能去識別化自己的帳號。')
+    expect(me.ok && me.receipt.blockers).toContain('不能刪除自己帳號的個人資料。')
     expect(
       await command.deidentify(
         adminActor(),
@@ -297,7 +297,7 @@ describe('前置條件與二次確認', () => {
     const s = await student('0411404021', '簽核甲')
     const { versionId } = await signoffWith(s.userId, '簽核甲', '0411404021', 'G40A')
     const preview = await command.previewDeidentify(adminActor(), s.userId)
-    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的簽核/)
+    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的站內同意書/)
     const blocked = await command.deidentify(
       adminActor(),
       { userId: s.userId, reason: '本人申請', confirmText: s.email, requestId: requestId() },
@@ -326,7 +326,7 @@ describe('去識別化本身（ACC-14）', () => {
     const preview = await command.previewDeidentify(adminActor(), s.userId)
     expect(preview).toMatchObject({ ok: true, receipt: { name: '去識別甲', loginEmail: s.email, studentNo: '0411404031', blockers: [] } })
     const retained = preview.ok ? Object.fromEntries(preview.receipt.retained.map((r) => [r.label, r.count])) : {}
-    expect(retained).toMatchObject({ 組別成員紀錄: 1, 簽核表態: 1 })
+    expect(retained).toMatchObject({ 組別成員紀錄: 1, 同意書回覆: 1 })
 
     const rid = requestId()
     const result = await command.deidentify(
@@ -337,7 +337,7 @@ describe('去識別化本身（ACC-14）', () => {
     expect(result).toMatchObject({ ok: true, receipt: { userId: s.userId, revocation: 'done' } })
     if (!result.ok) return
     const pseudonym = result.receipt.pseudonym
-    expect(pseudonym).toMatch(/^已去識別化使用者 [0-9A-F]{6}$/)
+    expect(pseudonym).toMatch(/^已刪除個資的使用者 [0-9A-F]{6}$/)
 
     // 帳號列：代稱、置換 Email、停用＋deidentified_at、Better Auth 封鎖。
     const user = await one<Record<string, unknown>>(

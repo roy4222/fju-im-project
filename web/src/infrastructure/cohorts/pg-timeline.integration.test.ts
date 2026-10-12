@@ -114,7 +114,7 @@ describe('階段與年度結束日', () => {
     const cohort = await newCohort()
     const requestId = randomUUID()
     const result = await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, requestId)
-    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2, 3, 4] } })
+    expect(result).toMatchObject({ ok: true, receipt: { code: cohort.code, name: `${cohort.code} 測試屆`, changedStages: [1, 2, 3, 4] } })
 
     const schedule = await timelineQuery.schedule(cohort.id)
     expect(schedule.yearEndDate).toBe('2027-06-30')
@@ -317,7 +317,7 @@ describe('學生專題時間軸：只讀得到自己那一屆（票 38）', () =
   it('屆別還沒設階段：回屆別、階段是空的（畫面顯示尚未設定）', async () => {
     const cohort = await newCohort('STU-D')
     const got = await timelineQuery.studentSchedule(student(cohort.id))
-    expect(got).toEqual({ cohortId: cohort.id, cohortCode: cohort.code, schedule: { stages: [], yearEndDate: null } })
+    expect(got).toEqual({ cohortId: cohort.id, cohortCode: cohort.code, cohortName: `${cohort.code} 測試屆`, schedule: { stages: [], yearEndDate: null } })
   })
 })
 

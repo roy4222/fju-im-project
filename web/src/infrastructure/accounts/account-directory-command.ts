@@ -702,7 +702,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
     const reason = normalizeStatusReason(input.reason)
     if (!reason.ok) return reason
-    if (input.userId === actor.userId) return err('FORBIDDEN', '不能去識別化自己的帳號。')
+    if (input.userId === actor.userId) return err('FORBIDDEN', '不能刪除自己帳號的個人資料。')
 
     const now = this.#clock.now()
     // 指紋不含照打的 Email：那是個資，帳本不存。
@@ -745,7 +745,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       }
       if (remainingEffectiveAdmins(admins, target.userId) < 1) {
         await tx.query('rollback')
-        return err('CONFLICT', '這是最後一位管理員，不能去識別化。')
+        return err('CONFLICT', '這是最後一位管理員，不能刪除個人資料。')
       }
       if (!deidentifyConfirmationMatches(input.confirmText, target.loginEmail)) {
         await tx.query('rollback')
@@ -1027,7 +1027,7 @@ async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUse
   const blockers: string[] = []
   const statusBlocker = deidentifyStatusBlocker(target.status, target.isOrphan)
   if (statusBlocker) blockers.push(statusBlocker)
-  if (target.userId === actorUserId) blockers.push('不能去識別化自己的帳號。')
+  if (target.userId === actorUserId) blockers.push('不能刪除自己帳號的個人資料。')
   const signoffs = await db.query<{ group_code: string }>(
     `select g.code as group_code
        from signoff_packages p
@@ -1043,7 +1043,7 @@ async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUse
   )
   if (signoffs.rows.length > 0) {
     const groups = [...new Set(signoffs.rows.map((r) => r.group_code))].join('、')
-    blockers.push(`他還在 ${groups} 進行中的簽核裡，請先到分組做成員異動（或讓簽核換版）再去識別化。`)
+    blockers.push(`他還在 ${groups} 進行中的站內同意書裡，請先到分組做成員異動（或讓同意書換版）再刪除個人資料。`)
   }
   return blockers
 }

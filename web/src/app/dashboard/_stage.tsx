@@ -84,7 +84,7 @@ export function cohortProgress(ctx: StageContext): number | null {
 /** 「現在是『階段 2：期中』。」這一句裡的階段字（e2e 用 `stage-text` 斷言）。 */
 function StageSentence({ ctx, perspective }: { ctx: StageContext; perspective: 'student' | 'staff' }) {
   if (!ctx.cohort || !ctx.position) {
-    return <>{perspective === 'student' ? '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。' : '還沒有設定預設工作屆別；到「屆別」頁指定後，這裡會顯示現在的階段。'}</>
+    return <>{perspective === 'student' ? '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。' : '還沒有設定後台預設查看的屆別；到「屆別」頁指定後，這裡會顯示現在的階段。'}</>
   }
   const p = ctx.position
   return (
@@ -194,7 +194,7 @@ export function HomeHero({
             {progress !== null ? (
               <div className="min-w-[220px] flex-1">
                 <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80">
-                  <span>{ctx.cohort?.code} 本屆進度</span>
+                  <span>{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆進度</span>
                   <span className="text-[15px] font-extrabold text-white tabular-nums">{progress}%</span>
                 </div>
                 {/* 進度條用 SVG 屬性畫寬度：正式站 CSP 不收 style 屬性。 */}
@@ -210,7 +210,7 @@ export function HomeHero({
 
         {showStages && schedule?.yearEndDate && schedule.stages.length > 0 ? (
           <div>
-            <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort?.code} 本屆階段</p>
+            <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆階段</p>
             <ol aria-label="本屆階段" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {schedule.stages.map((stage, index) => (
                 <li

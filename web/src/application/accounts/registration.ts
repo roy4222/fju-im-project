@@ -287,7 +287,7 @@ export type EvidenceFlag =
 export const EVIDENCE_LABEL: Record<EvidenceFlag, string> = {
   roster_matched: '名單符合',
   name_mismatch: '資料不符',
-  not_found: '未命中',
+  not_found: '不在本屆名單上',
   multiple_cohorts: '跨屆重複',
   duplicate_student_no: '重複學號',
   email_same: 'Email 相同',
@@ -376,7 +376,7 @@ export function normalizeApproval(input: {
   }
   // 說明與理由會進稽核與匯出：除了換行與 tab，控制字元一律不收（票 7 審查建議）。
   if (note.length > REASON_MAX_LENGTH || hasControlChars(note, true)) {
-    return err('VALIDATION_FAILED', `核實說明最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
+    return err('VALIDATION_FAILED', `「怎麼確認的說明」最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
       details: { field: 'verificationNote' },
     })
   }

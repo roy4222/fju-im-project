@@ -236,7 +236,7 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!role) {
-      d.setError('請選擇要補建的角色。')
+      d.setError('請選擇要補上的身分。')
       return
     }
     if (!d.reason.trim()) {
@@ -245,7 +245,7 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
     }
     await d.run(
       () => repairOrphanAction({ userId: account.userId, role, reason: d.reason, requestId: d.requestId }),
-      '結果未知：可能已經補建。請再按一次確認（不會重複做），或關閉後重新整理。',
+      '結果未知：可能已經補上。請再按一次確認（不會重複做），或關閉後重新整理。',
     )
   }
 
@@ -256,17 +256,17 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
           type="button"
           onClick={open}
           className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}
-          aria-label={`補建角色 ${account.name}`}
+          aria-label={`補上身分 ${account.name}`}
         >
-          補建角色
+          補上身分
         </button>
       )}
-      <dialog ref={d.ref} onClose={d.onClosed} aria-label={`補建角色 ${account.name}`} className={DIALOG}>
+      <dialog ref={d.ref} onClose={d.onClosed} aria-label={`補上身分 ${account.name}`} className={DIALOG}>
         <div className="p-5">
           {!d.isOpen ? null : d.receipt ? (
             <div className="space-y-3 text-center" role="status">
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
-                已補建為{d.receipt.role === 'teacher' ? '老師' : '管理員'}
+                已補上{d.receipt.role === 'teacher' ? '老師' : '管理員'}身分
               </p>
               <h2 className="text-lg font-extrabold text-foreground">{d.receipt.name}</h2>
               <p className="text-sm text-muted-foreground">
@@ -281,7 +281,7 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <h2 className="text-lg font-extrabold text-foreground">補建角色：{account.name}</h2>
+                <h2 className="text-lg font-extrabold text-foreground">補上身分：{account.name}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   這個帳號只有登入身分：沒有角色、沒有註冊申請、沒有個人資料。通常是新增老師時系統出錯留下的，
                   也可能是註冊了還沒送出申請的學生——學生請讓本人登入補送申請，不要在這裡補。
@@ -310,14 +310,14 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
                   </label>
                 ))}
               </fieldset>
-              <ReasonField value={d.reason} onChange={d.setReason} placeholder="例：新增老師時系統出錯，補建" invalid={Boolean(d.error)} />
+              <ReasonField value={d.reason} onChange={d.setReason} placeholder="例：新增老師時系統出錯，補上身分" invalid={Boolean(d.error)} />
               <ErrorNote error={d.error} />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={d.close} className={cn(BUTTON, SECONDARY)} disabled={d.busy}>
                   取消
                 </button>
                 <button type="submit" className={cn(BUTTON, PRIMARY)} disabled={d.busy}>
-                  {d.busy ? '處理中…' : '確認補建'}
+                  {d.busy ? '處理中…' : '確認補上'}
                 </button>
               </div>
             </form>

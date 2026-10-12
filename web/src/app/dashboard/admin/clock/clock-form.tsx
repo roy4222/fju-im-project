@@ -32,7 +32,7 @@ export function ClockForm({
       <div className="grid gap-3 sm:grid-cols-[16rem_1fr]">
         <div>
           <label htmlFor="business-at" className="block text-sm font-medium text-ink">
-            要模擬的現在時間（臺灣，到秒）
+            要模擬的系統時間（臺灣時間，到秒）
           </label>
           <input
             id="business-at"

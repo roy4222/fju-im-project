@@ -18,7 +18,7 @@ export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
   pending: '待審核',
   active: '已核准',
   disabled: '已停用',
-  deidentified: '已去識別化',
+  deidentified: '已刪除個人資料',
 }
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -497,7 +497,7 @@ export type AccountDirectoryCommand = {
 
 /** 去識別化後的代稱。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
 export function deidentifiedPseudonym(userId: string): string {
-  return `已去識別化使用者 ${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+  return `已刪除個資的使用者 ${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
 }
 
 /**
@@ -539,7 +539,7 @@ export const DEIDENTIFY_RETAINED_LABEL: Record<keyof DeidentifyRetained, string>
   submissions: '繳交版本',
   evaluatorAssignments: '評分指派',
   advisorAssignments: '指導紀錄',
-  approvals: '簽核表態',
+  approvals: '同意書回覆',
   auditEvents: '操作紀錄',
 }
 
@@ -590,7 +590,7 @@ export type DeidentifyReceipt = {
 export function deidentifyStatusBlocker(status: AccountStatus, isOrphan = false): string | null {
   if (status === 'active' || status === 'disabled') return null
   if (status === 'pending') {
-    return isOrphan ? '孤兒帳號請先停用，再去識別化。' : '待審核的帳號不能去識別化，只處理已核准或已停用的帳號。'
+    return isOrphan ? '尚未設定身分的帳號請先停用，再刪除個人資料。' : '待審核的帳號不能刪除個人資料，只處理已核准或已停用的帳號。'
   }
-  return '這個帳號已經去識別化了。'
+  return '這個帳號的個人資料已經刪除了。'
 }
