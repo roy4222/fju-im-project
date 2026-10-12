@@ -1,0 +1,10 @@
+[Unit]
+Description=每 10 分鐘更新一次開發者後台（測試站重置後也會補回 PgHero 監控角色）
+
+[Timer]
+OnActiveSec=2min
+OnUnitInactiveSec=10min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

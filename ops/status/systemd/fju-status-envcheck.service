@@ -1,0 +1,14 @@
+[Unit]
+Description=開發者後台：檢查正式站設定是否齊全（只輸出鍵名，ops/status-envcheck.sh prod）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/fju/app
+# 直接執行，不經 ops/site.sh（它缺鍵就先退出，缺鍵清單產不出來；設計方案 §3.8 G5）。
+ExecStart=/srv/fju/app/ops/status-envcheck.sh prod
+TimeoutStartSec=5min
+SyslogIdentifier=fju-status-envcheck
