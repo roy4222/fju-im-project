@@ -4,12 +4,10 @@ import { useActionState, useState } from 'react'
 import {
   createDraftAction,
   deleteEntryAction,
-  publishAction,
-  republishAction,
+  lifecycleAction,
   requestPosterUploadAction,
   setAwardAction,
   updateDraftAction,
-  withdrawAction,
 } from './actions'
 import { buttonVariants } from '@/app/_ui/ui/button'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
@@ -239,16 +237,16 @@ export function PublishPanel({
   titleMissing,
   ...ref
 }: EntryRef & { status: 'draft' | 'published' | 'withdrawn'; titleMissing: boolean }) {
-  const [publishState, publish, publishing] = useActionState(publishAction, undefined)
-  const [withdrawState, withdraw, withdrawing] = useActionState(withdrawAction, undefined)
-  const [republishState, republish, republishing] = useActionState(republishAction, undefined)
+  // 三個按鈕共用一個狀態：發布成功後這裡換成「下架」，剛剛那句回饋仍留在畫面上。
+  const [state, action, pending] = useActionState(lifecycleAction, undefined)
   const [consent, setConsent] = useState(false)
 
   if (status === 'draft') {
     const reason = titleMissing ? '題目還是空白，先在上面填好題目並儲存草稿。' : consent ? null : '要先勾選上面的同意，才能發布。'
     return (
-      <form action={publish} className="space-y-2" aria-label={`發布 ${ref.label}`}>
+      <form action={action} className="space-y-2" aria-label={`發布 ${ref.label}`}>
         <EntryHidden {...ref} />
+        <input type="hidden" name="intent" value="publish" />
         <label className="flex items-start gap-2 text-sm text-ink">
           <input type="checkbox" name="consent" value="yes" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4" />
           <span>
@@ -257,41 +255,43 @@ export function PublishPanel({
           </span>
         </label>
         <div className="flex flex-wrap items-center gap-3">
-          <button type="submit" className={PRIMARY} disabled={reason !== null || publishing}>
-            {publishing ? '發布中…' : '發布'}
+          <button type="submit" className={PRIMARY} disabled={reason !== null || pending}>
+            {pending ? '發布中…' : '發布'}
           </button>
           {reason ? <span className="text-xs text-muted-foreground">{reason}</span> : null}
         </div>
-        <Feedback state={publishState} />
+        <Feedback state={state} />
       </form>
     )
   }
   if (status === 'published') {
     return (
-      <form action={withdraw} className="space-y-2" aria-label={`下架 ${ref.label}`}>
+      <form action={action} className="space-y-2" aria-label={`下架 ${ref.label}`}>
         <EntryHidden {...ref} />
+        <input type="hidden" name="intent" value="withdraw" />
         <div className="flex flex-wrap items-center gap-3">
-          <button type="submit" className={SECONDARY} disabled={withdrawing}>
-            {withdrawing ? '下架中…' : '下架'}
+          <button type="submit" className={SECONDARY} disabled={pending}>
+            {pending ? '下架中…' : '下架'}
           </button>
           <span className="text-xs text-muted-foreground">
             下架後前台看不到（作品網址顯示「這則作品已下架」），海報也不再公開；後台保留，之後可以重新發布。
           </span>
         </div>
-        <Feedback state={withdrawState} />
+        <Feedback state={state} />
       </form>
     )
   }
   return (
-    <form action={republish} className="space-y-2" aria-label={`重新發布 ${ref.label}`}>
+    <form action={action} className="space-y-2" aria-label={`重新發布 ${ref.label}`}>
       <EntryHidden {...ref} />
+      <input type="hidden" name="intent" value="republish" />
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" className={PRIMARY} disabled={republishing}>
-          {republishing ? '發布中…' : '重新發布'}
+        <button type="submit" className={PRIMARY} disabled={pending}>
+          {pending ? '發布中…' : '重新發布'}
         </button>
         <span className="text-xs text-muted-foreground">用下架前的那一版重新公開，不會換成目前的草稿內容。</span>
       </div>
-      <Feedback state={republishState} />
+      <Feedback state={state} />
     </form>
   )
 }

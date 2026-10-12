@@ -180,11 +180,11 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
                 )}
 
                 <div className="mt-5 grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
-                  <div className="space-y-2">
+                  <div className="space-y-2" role="group" aria-label="公開">
                     <h4 className="text-sm font-semibold text-ink">公開</h4>
                     <PublishPanel {...ref} requestId={randomUUID()} status={d.status} titleMissing={d.title.trim() === ''} />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2" role="group" aria-label="獎項">
                     <h4 className="text-sm font-semibold text-ink">獎項</h4>
                     <AwardForm {...ref} requestId={randomUUID()} award={d.award} awardLabel={d.awardLabel} labelMax={AWARD_LABEL_MAX} />
                   </div>

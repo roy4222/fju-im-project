@@ -115,3 +115,17 @@ export async function deleteEntryAction(_state: ShowcaseActionState, formData: F
   refresh()
   return { ok: true, message: describeDeleteReceipt(result.receipt) }
 }
+
+/** 公開區的三個按鈕共用一個狀態（發布後畫面換成「下架」，回饋句子要留著）：依 `intent` 分派。 */
+export async function lifecycleAction(state: ShowcaseActionState, formData: FormData): Promise<ShowcaseActionState> {
+  switch (formData.get('intent')) {
+    case 'publish':
+      return publishAction(state, formData)
+    case 'withdraw':
+      return withdrawAction(state, formData)
+    case 'republish':
+      return republishAction(state, formData)
+    default:
+      return { ok: false, message: '看不懂這個動作，請重新整理頁面再試。' }
+  }
+}

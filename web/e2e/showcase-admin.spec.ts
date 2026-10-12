@@ -99,6 +99,8 @@ async function asGuest(page: Page): Promise<Page> {
 }
 
 const card = (page: Page, text: string) => page.getByTestId('showcase-draft').filter({ hasText: text })
+/** 那件作品的「公開」區（發布、下架、重新發布共用一句回饋）。 */
+const lifecycle = (page: Page, text: string) => card(page, text).getByRole('group', { name: '公開' })
 const row = (page: Page, text: string) => page.getByRole('region', { name: '作品一覽' }).getByRole('row').filter({ hasText: text })
 
 test('AC-10：預設「全部（含歷屆）」，看得到封存屆別的歷屆作品；狀態與獎項欄有值；沒有閘門字樣；仍說草稿不會公開', async ({ page }) => {
@@ -136,7 +138,7 @@ test('AC-11、AC-12：建草稿＋海報；沒勾同意不能發布；勾了發�
   await expect(g01.getByText('要先勾選上面的同意，才能發布。')).toBeVisible()
   await g01.getByLabel(/已取得這組同學同意公開/).check()
   await publish.click()
-  await expect(g01.getByRole('status')).toContainText('已發布（第 1 版）')
+  await expect(lifecycle(page, 'G01').getByRole('status')).toContainText('已發布（第 1 版）')
   await expect(row(page, TITLE).getByTestId('entry-status')).toHaveText('公開中')
 
   const admin = await sharedTestSession(page.request, 'admin')
@@ -174,9 +176,13 @@ test('AC-11、AC-12：建草稿＋海報；沒勾同意不能發布；勾了發�
   await expect(awardForm.getByRole('status')).toContainText(AWARD)
   await expect(row(page, TITLE).getByTestId('entry-award')).toHaveText(AWARD)
 
-  await guest.goto(`/projects/featured?q=${encodeURIComponent(stamp)}`)
+  await guest.goto(`/projects/featured?q=${encodeURIComponent(TITLE)}`)
   await expect(guest.getByText(TITLE).first()).toBeVisible()
+  // 卡片上的徽章滑過看得到獎項全名；詳情頁直接寫出來。
+  await expect(guest.getByTestId('award-badge').first()).toHaveAttribute('title', AWARD)
+  await guest.goto(`/projects/${entryId}`)
   await expect(guest.getByText(AWARD).first()).toBeVisible()
+  await expect(guest.getByRole('img', { name: '成果海報' })).toHaveJSProperty('naturalWidth', 1)
   expect((await guest.request.get(`/api/files/${posterFileId}`)).status()).toBe(200)
   await guest.context().close()
 })
@@ -185,7 +191,7 @@ test('AC-13：歷屆作品（封存屆別）下架 → 訪客看到已下架、�
   await asAdmin(page)
   await page.goto('/dashboard/admin/showcase')
   await card(page, OLD_TITLE).getByRole('button', { name: '下架' }).click()
-  await expect(card(page, OLD_TITLE).getByRole('status')).toContainText('已下架')
+  await expect(lifecycle(page, OLD_TITLE).getByRole('status')).toContainText('已下架')
   await expect(row(page, OLD_TITLE).getByTestId('entry-status')).toHaveText('已下架')
 
   const guest = await asGuest(page)
@@ -195,7 +201,7 @@ test('AC-13：歷屆作品（封存屆別）下架 → 訪客看到已下架、�
   await expect(guest.getByText(OLD_TITLE)).toHaveCount(0)
 
   await card(page, OLD_TITLE).getByRole('button', { name: '重新發布' }).click()
-  await expect(card(page, OLD_TITLE).getByRole('status')).toContainText('已重新發布')
+  await expect(lifecycle(page, OLD_TITLE).getByRole('status')).toContainText('已重新發布')
   await guest.goto(`/projects/${oldEntryId}`)
   await expect(guest.getByRole('heading', { name: OLD_TITLE })).toBeVisible()
   await guest.context().close()
@@ -210,7 +216,7 @@ test('AC-14：公開中不能刪（說要先下架）；下架後刪除 → 看�
   await expect(g01.getByText('請先按「下架」')).toBeVisible()
 
   await g01.getByRole('button', { name: '下架' }).click()
-  await expect(g01.getByRole('status')).toContainText('已下架')
+  await expect(lifecycle(page, 'G01').getByRole('status')).toContainText('已下架')
   await expect(remove).toBeEnabled()
   await remove.click()
   const dialog = page.getByRole('dialog', { name: '刪除作品' })
