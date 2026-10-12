@@ -19,3 +19,21 @@ Host fju-vm-deploy
   User deploy
   IdentityFile ~/.ssh/fju_deploy_ed25519
   IdentitiesOnly yes
+
+# 重置測試站專用金鑰（網站驗收全套；ops/README.md「重置測試站專用金鑰：安裝與使用」）。
+# 只能跑 status／pause-deploy／resume-deploy／reset／snapshot <名稱>／restore <名稱>，
+# 例：ssh fju-reset status。不能開 shell、不能轉送 port、不碰正式站。
+# 每個子命令＝一次新連線；VM 的 ufw 對 22 埠限速 30 秒 6 次，連發時中間停幾秒。
+Host fju-reset
+  HostName 140.136.155.167
+  User fjureset
+  IdentityFile ~/.ssh/fju_reset
+  IdentitiesOnly yes
+  BatchMode yes
+  ConnectTimeout 20
+  # reset／restore 要跑幾分鐘，中途沒有輸出時也別讓連線被當成斷了。
+  ServerAliveInterval 30
+  ServerAliveCountMax 10
+  ForwardAgent no
+  ClearAllForwardings yes
+  RequestTTY no

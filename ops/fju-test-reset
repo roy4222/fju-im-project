@@ -1,0 +1,475 @@
+#!/bin/bash
+# 重置測試站（root 側；網站驗收全套 G2；設計方案 §6.4、§13）。只碰測試站，站名寫死 test。
+#
+# 安裝在 VM 的 /usr/local/sbin/fju-test-reset（root 擁有、755）。只由 fjureset 的守門腳本
+# /usr/local/sbin/fju-test-reset-gate 以 `sudo -n` 呼叫（sudoers 只放行這一支）；Roy 也可以
+# `sudo /usr/local/sbin/fju-test-reset status` 直接跑。用法（ssh fju-reset 後面接的就是這些）：
+#
+#   status               印 commit=、health=、auto_deploy=、snapshots=…（key=value 一行一個）
+#   pause-deploy         暫停測試站自動部署（touch deploy/auto-deploy.paused）
+#   resume-deploy        恢復（rm 那個檔）
+#   reset                清回空站：備份 → 停站 → 刪 fju-test-pgdata 與附件 → demo-seed.off →
+#                        同一個 commit 重新部署（等健康）→ seed-admin（A1）；E2E 管理員由部署建
+#   snapshot <名稱>      DB（ops/backup.sh）＋附件打包 → /srv/fju/test/snapshots/<名稱>/
+#   restore <名稱>       備份 → 停站 → 刪 DB 與附件 → 灌快照的 dump、解附件 → 同一個 commit 重新部署
+#   名稱：[a-z0-9-]，1–32 字，開頭不能是 -。
+#
+# 安全界線（資安審查請對照）：
+#   - 參數先驗、任何參數含 prod 就拒絕，都在碰系統之前；路徑與 compose project 全部寫死在下面，
+#     不讀 ops/lib/site.sh，也不吃環境變數（sudo 預設 env_reset）。
+#   - root 不執行、不 source 任何 deploy 可寫的東西：/srv/fju/app/ops/*.sh 一律 `runuser -u deploy`
+#     以 deploy 身分跑；/srv/fju/test 底下的檔案（快照、備份、暫停檔）也一律以 deploy 身分讀寫，
+#     所以 deploy 放的 symlink 不會讓 root 讀到或寫到別處。root 自己只做：寫 /var/lib 與 /var/log
+#     底下自己的狀態與紀錄、刪 /srv/fju/test/files 的內容（find -P，不跟 symlink、不跨檔案系統）。
+#   - 附件的打包與解壓以附件目錄擁有者（容器的 1001）身分跑（setpriv），解壓前先檢查附件包只有
+#     files/ 底下的一般檔案與目錄（沒有 symlink、hardlink、絕對路徑、..）。
+#   - deploy 本身在 docker 群組（≒ root），所以快照 meta 的 sha256 核對只防手滑與檔案損毀，
+#     不防 deploy 被入侵；這支要守的界線是「fjureset 金鑰只能做上面六件事、只碰測試站」。
+#
+# 狀態：/var/lib/fju-test-reset/（root、700：鎖、上次結果、上次部署的 SHA）
+# 紀錄：/var/log/fju-test-reset/<UTC>-<子命令>.log（root、700／600）
+# reset／snapshot／restore 在背景 worker 裡跑、輸出同步串到 ssh：ssh 中途斷線不會把部署砍一半，
+# 之後 `ssh fju-reset status` 的 last_run= 看結果。
+set -euo pipefail
+set -f
+umask 077
+# 名稱、雜湊的 [a-z0-9] 比對與 sort／ls 的順序不受 VM 語系影響。
+export LC_ALL=C
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+cd /
+
+# ---- 寫死的常數（只有這一站）----
+readonly FJU_ROOT=/srv/fju
+readonly STATE_DIR=/var/lib/fju-test-reset
+readonly LOG_DIR=/var/log/fju-test-reset
+readonly REQUIRED_UID=0
+readonly SITE=test
+readonly APP_DIR="$FJU_ROOT/app"
+readonly SITE_ROOT="$FJU_ROOT/$SITE"
+readonly FILES_DIR="$SITE_ROOT/files"
+readonly DEPLOY_DIR="$SITE_ROOT/deploy"
+readonly BACKUP_DIR="$SITE_ROOT/backups"
+readonly SNAP_ROOT="$SITE_ROOT/snapshots"
+readonly PROJECT=fju-test
+readonly VOLUME=fju-test-pgdata
+readonly PG_CONTAINER=fju-test-postgres
+readonly APP_CONTAINER=fju-test-app
+readonly HOST=test.fju.roy422.dev
+readonly IMAGE_REPO=ghcr.io/roy4222/fju-web
+readonly DEPLOY_USER=deploy
+readonly SNAP_KEEP=5
+readonly LOG_KEEP=20
+# worker 用固定的安裝路徑重跑自己（不用 $0：sudoers 只放行這個路徑）。
+readonly SELF=/usr/local/sbin/fju-test-reset
+
+die() { echo "✗ $*" >&2; exit 1; }
+
+usage() {
+  echo "用法：fju-test-reset status｜pause-deploy｜resume-deploy｜reset｜snapshot <名稱>｜restore <名稱>" >&2
+  exit 1
+}
+
+# ---- 1. 參數（在任何系統呼叫之前）----
+[ $# -ge 1 ] || usage
+for arg in "$@"; do
+  case "$arg" in
+    *prod*) die "參數含 prod：這支只碰測試站，什麼都沒做。" ;;
+  esac
+done
+SUB="$1"
+NAME=""
+name_re='^[a-z0-9][a-z0-9-]{0,31}$'
+case "$SUB" in
+  status|pause-deploy|resume-deploy|reset)
+    [ $# -eq 1 ] || die "$SUB 不接參數。"
+    ;;
+  snapshot|restore)
+    [ $# -eq 2 ] || die "$SUB 要剛好一個名稱。"
+    NAME="$2"
+    [[ "$NAME" =~ $name_re ]] || die "快照名稱只能是 a-z、0-9、-，1–32 字，開頭不能是 -。"
+    ;;
+  *) usage ;;
+esac
+
+# ---- 2. 常數自我檢查：任何一個指到 prod 就停（防日後改錯常數）----
+for v in "$SITE" "$SITE_ROOT" "$FILES_DIR" "$DEPLOY_DIR" "$BACKUP_DIR" "$SNAP_ROOT" \
+         "$PROJECT" "$VOLUME" "$PG_CONTAINER" "$APP_CONTAINER" "$HOST"; do
+  case "$v" in
+    *prod*) die "內部設定指到 prod（${v}），什麼都沒做。" ;;
+  esac
+done
+[ "$SITE" = test ] && [ "$PROJECT" = fju-test ] && [ "$VOLUME" = fju-test-pgdata ] \
+  || die "內部設定不是測試站，什麼都沒做。"
+
+# ---- 3. 身分 ----
+[ "$(id -u)" = "$REQUIRED_UID" ] || die "要用 root 跑（sudo -n $SELF …）。"
+
+# ---- 共用 ----
+# 以 deploy 身分執行；fd 8 是本程式的鎖，不交給子程序。
+as_deploy() { runuser -u "$DEPLOY_USER" -- "$@" 8>&-; }
+# repo 的維運腳本（deploy 可寫）一律以 deploy 身分跑。
+ops() { local script="$1"; shift; as_deploy "$APP_DIR/ops/$script" "$@"; }
+# 以 deploy 身分把 stdin 寫成檔案（600）。sh -c 的字串是固定的，路徑當參數傳。
+# shellcheck disable=SC2016  # $1 要在 sh 裡展開
+write_as_deploy() { as_deploy sh -c 'umask 077; cat > "$1"' sh "$1"; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+say() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+
+sha40_re='^[0-9a-f]{40}$'
+sha256_re='^[0-9a-f]{64}$'
+iso_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+
+# 附件目錄要是真的 /srv/fju/test/files（不是 symlink、上一層也不是），擁有者不能是 root。
+FILES_UID=""
+FILES_GID=""
+check_files_dir() {
+  [ ! -L "$SITE_ROOT" ] && [ ! -L "$FILES_DIR" ] && [ -d "$FILES_DIR" ] \
+    || die "$FILES_DIR 不存在或是 symlink，停止。"
+  [ "$(cd -P "$FILES_DIR" && pwd -P)" = "$FILES_DIR" ] || die "$FILES_DIR 實際指到別處，停止。"
+  local owner
+  owner="$(stat -c '%u:%g' "$FILES_DIR" 2>/dev/null || stat -f '%u:%g' "$FILES_DIR")"
+  FILES_UID="${owner%%:*}"
+  FILES_GID="${owner##*:}"
+  [ "$FILES_UID" != 0 ] || die "$FILES_DIR 是 root 擁有的（應該是容器的 1001），停止。"
+}
+as_files_owner() { setpriv --reuid="$FILES_UID" --regid="$FILES_GID" --clear-groups -- "$@" 8>&-; }
+
+pg_running() { as_deploy docker ps --format '{{.Names}}' | grep -x "$PG_CONTAINER" >/dev/null; }
+
+health_json() {
+  curl -fsS --max-time 10 --resolve "$HOST:443:127.0.0.1" "https://$HOST/api/health" 2>/dev/null
+}
+
+# 要重新部署的 SHA：正在跑的 app 映像 tag → 上次本程式記下的 → auto-deploy.last
+# （最後這個可能是部署失敗的 SHA，所以排最後）。
+current_sha() {
+  local img tag saved last
+  img="$(as_deploy docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER" 2>/dev/null || true)"
+  case "$img" in
+    "$IMAGE_REPO:"*) tag="${img##*:}"; if [[ "$tag" =~ $sha40_re ]]; then echo "$tag"; return; fi ;;
+  esac
+  saved="$(cat "$STATE_DIR/sha" 2>/dev/null || true)"
+  if [[ "$saved" =~ $sha40_re ]]; then echo "$saved"; return; fi
+  last="$(as_deploy cat "$DEPLOY_DIR/auto-deploy.last" 2>/dev/null || true)"
+  if [[ "$last" =~ $sha40_re ]]; then echo "$last"; return; fi
+  return 1
+}
+
+is_paused() { [ -e "$DEPLOY_DIR/auto-deploy.paused" ]; }
+pause_deploy() { as_deploy touch "$DEPLOY_DIR/auto-deploy.paused"; }
+resume_deploy() { as_deploy rm -f "$DEPLOY_DIR/auto-deploy.paused"; }
+
+# ---- status ----
+list_snapshots() {
+  [ -d "$SNAP_ROOT" ] || return 0
+  local n
+  # 只列完整的快照（三個檔都在）；名稱不合規則、.tmp-*、缺檔的直接跳過。
+  # 任何一步失敗都不讓 status 中斷——整夜腳本靠 snapshots= 判斷快照在不在。
+  as_deploy ls -1 "$SNAP_ROOT" 2>/dev/null | while IFS= read -r n; do
+    if [[ "$n" =~ $name_re ]] && [ -f "$SNAP_ROOT/$n/meta" ] && [ -f "$SNAP_ROOT/$n/db.dump" ] \
+       && [ -f "$SNAP_ROOT/$n/files.tar.gz" ]; then echo "$n"; fi
+  done || true
+}
+meta_get() { # <名稱> <鍵>：以 deploy 身分讀 meta；呼叫端再驗格式，不原樣轉印。
+  # 缺 meta 時回空字串（呼叫端顯示 unknown），不讓 set -e／pipefail 把 status 中斷。
+  as_deploy cat "$SNAP_ROOT/$1/meta" 2>/dev/null | sed -n "s/^$2=//p" | head -n 1 || true
+}
+
+cmd_status() {
+  local json commit ok tag img last timer snaps n created from running lastrun
+  json="$(health_json || true)"
+  commit="$(printf '%s' "$json" | sed -n 's/.*"commit":"\([0-9a-f]*\)".*/\1/p' | head -n 1)"
+  if printf '%s' "$json" | grep '"ok":true' >/dev/null; then ok=ok; elif [ -n "$json" ]; then ok=unhealthy; else ok=down; fi
+  img="$(as_deploy docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER" 2>/dev/null || true)"
+  tag="${img##*:}"; [[ "$tag" =~ $sha40_re ]] || tag=none
+  last="$(as_deploy cat "$DEPLOY_DIR/auto-deploy.last" 2>/dev/null || true)"; [[ "$last" =~ $sha40_re ]] || last=none
+  timer="$(systemctl is-active fju-auto-deploy.timer 2>/dev/null || true)"
+  [[ "$commit" =~ $sha40_re ]] || commit=none
+  echo "site=$SITE"
+  echo "commit=$commit"
+  echo "health=$ok"
+  echo "running_image=$tag"
+  if is_paused; then echo "auto_deploy=paused"; else echo "auto_deploy=on"; fi
+  echo "auto_deploy_timer=${timer:-unknown}"
+  echo "auto_deploy_last=$last"
+  snaps="$(list_snapshots | tr '\n' ' ')"
+  snaps="${snaps% }"
+  echo "snapshots=${snaps:-none}"
+  for n in $snaps; do
+    created="$(meta_get "$n" created_at)"; [[ "$created" =~ $iso_re ]] || created=unknown
+    from="$(meta_get "$n" commit)"; [[ "$from" =~ $sha40_re ]] && from="${from:0:12}" || from=unknown
+    echo "snapshot_$n=created:$created from:$from"
+  done
+  running=no
+  if [ -d "$STATE_DIR" ] && ! ( exec 8>>"$STATE_DIR/lock" && flock -n 8 ); then running=yes; fi
+  echo "busy=$running"
+  lastrun="$(head -n 1 "$STATE_DIR/last" 2>/dev/null || true)"
+  echo "last_run=${lastrun:-none}"
+}
+
+# ---- reset／restore 共用的步驟 ----
+wait_deploy_lock() {
+  say "等目前的部署（若有）結束……"
+  as_deploy flock -w 300 "$DEPLOY_DIR/deploy.lock" true || die "等了 5 分鐘部署鎖還在，停止（自動部署維持暫停）。"
+}
+
+backup_before() {
+  if pg_running; then
+    say "先備份目前的測試站 DB（ops/backup.sh --site test）"
+    ops backup.sh --site "$SITE"
+  else
+    say "測試站 DB 沒在跑，略過備份"
+  fi
+}
+
+stop_site() {
+  say "停測試站（site.sh test docker compose down）"
+  ops site.sh "$SITE" docker compose down
+}
+
+# 動任何東西之前先確認：volume 若存在，一定是 compose project fju-test 的。
+check_volume() {
+  if as_deploy docker volume inspect "$VOLUME" >/dev/null 2>&1; then
+    local label
+    label="$(as_deploy docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}' "$VOLUME")"
+    [ "$label" = "$PROJECT" ] || die "volume $VOLUME 不屬於 compose project ${PROJECT}（是 ${label:-空的}），什麼都沒刪。"
+  fi
+}
+
+remove_volume() {
+  check_volume
+  if as_deploy docker volume inspect "$VOLUME" >/dev/null 2>&1; then
+    say "刪 DB volume $VOLUME"
+    as_deploy docker volume rm "$VOLUME" >/dev/null
+  else
+    say "volume $VOLUME 不存在，略過"
+  fi
+}
+
+clear_files() {
+  check_files_dir
+  say "清空附件 $FILES_DIR"
+  # -P：不跟 symlink（連起點都不跟）；-xdev：不跨檔案系統。
+  find -P "$FILES_DIR" -xdev -mindepth 1 -delete
+}
+
+redeploy() {
+  local sha="$1"
+  as_deploy touch "$DEPLOY_DIR/demo-seed.off"
+  say "重新部署同一個 commit ${sha:0:12}（deploy.sh 會等健康並比對 commit）"
+  ops deploy.sh --site "$SITE" "$sha" --execute
+}
+
+# 附件包只准 files/ 底下的一般檔案與目錄。
+check_files_tar() {
+  local tarf="$1" names types n
+  names="$(as_deploy tar -tzf "$tarf")" || die "附件包讀不出來：$tarf"
+  while IFS= read -r n; do
+    case "$n" in
+      files|files/|files/*) ;;
+      *) die "附件包裡有 files/ 以外的路徑，停止。" ;;
+    esac
+    case "/$n/" in
+      */../*|*/./*) die "附件包裡有 . 或 .. 路徑，停止。" ;;
+    esac
+  done <<<"$names"
+  # 先收完再判斷：pipefail 下 `| grep -q` 提早結束會讓上游吃 SIGPIPE、整條判成失敗。
+  types="$(as_deploy tar -tvzf "$tarf" | cut -c1)" || die "附件包讀不出來：$tarf"
+  if printf '%s\n' "$types" | grep -v '^[-d]$' >/dev/null; then
+    die "附件包裡有 symlink、hardlink 或特殊檔，停止。"
+  fi
+}
+
+# 紀錄只留最近 LOG_KEEP 份（檔名是本程式自己取的 <UTC>-<子命令>.log，目錄 root 700）。
+prune_logs() {
+  local old
+  # shellcheck disable=SC2012  # 檔名是自己取的（英數、-、.），用 ls -t 依時間排最簡單
+  ls -1t "$LOG_DIR" 2>/dev/null | tail -n +"$((LOG_KEEP + 1))" | while IFS= read -r old; do
+    case "$old" in
+      *.log) rm -f -- "${LOG_DIR:?}/$old" ;;
+    esac
+  done || true
+}
+
+# ---- 背景 worker：輸出寫檔、同步串回 ssh；ssh 斷線不影響 ----
+run_detached() {
+  install -d -m 700 "$STATE_DIR" "$LOG_DIR"
+  local log pid rc
+  log="$LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$SUB.log"
+  : > "$log"
+  prune_logs
+  # --fork --wait：一定在新的 session 裡跑（不靠「背景工作不是 process group leader」），
+  # setsid 自己留著等它結束、帶回結束碼，所以下面的 wait 拿得到結果。
+  FJU_RESET_WORKER=1 setsid --fork --wait "$SELF" "$@" </dev/null >>"$log" 2>&1 &
+  pid=$!
+  tail -n +1 -f --pid="$pid" "$log" 2>/dev/null || true
+  set +e
+  wait "$pid"
+  rc=$?
+  set -e
+  [ "$rc" = 0 ] || echo "（結束碼 ${rc}；完整紀錄在 VM 的 ${log}）" >&2
+  exit "$rc"
+}
+
+begin_worker() {
+  trap '' HUP
+  install -d -m 700 "$STATE_DIR"
+  exec 8>>"$STATE_DIR/lock"
+  flock -n 8 || die "另一個 reset／snapshot／restore 正在跑，這次什麼都沒做。"
+  printf '%s %s running %s\n' "$SUB" "${NAME:--}" "$(now)" > "$STATE_DIR/last"
+  trap 'finish_worker $?' EXIT
+}
+finish_worker() {
+  local code="$1" result=ok
+  [ "$code" = 0 ] || result="failed(exit $code)"
+  printf '%s %s %s %s\n' "$SUB" "${NAME:--}" "$result" "$(now)" > "$STATE_DIR/last"
+  if [ "$code" != 0 ]; then
+    echo "✗ $SUB 失敗。修好後重跑同一個指令，或照 ops/README.md「重置測試站專用金鑰」手動處理。" >&2
+    if is_paused; then echo "  自動部署目前是暫停的（站可能停在一半，先不要恢復）。" >&2; fi
+  fi
+}
+
+# ---- reset ----
+cmd_reset() {
+  local sha was_paused=0
+  sha="$(current_sha)" || die "找不到要重新部署的 commit（app 沒在跑、也沒有 auto-deploy.last），停止。"
+  printf '%s\n' "$sha" > "$STATE_DIR/sha"
+  say "重置測試站：commit ${sha:0:12}"
+  check_volume
+  check_files_dir
+  if is_paused; then was_paused=1; fi
+  pause_deploy
+  wait_deploy_lock
+  backup_before
+  stop_site
+  remove_volume
+  clear_files
+  redeploy "$sha"
+  say "建 A1（seed-admin.sh test）"
+  ops seed-admin.sh "$SITE"
+  [ "$was_paused" = 1 ] || resume_deploy
+  say "✓ 重置完成 commit=${sha}（自動部署：$([ "$was_paused" = 1 ] && echo 維持暫停 || echo 已恢復)）"
+}
+
+# ---- snapshot ----
+latest_dump() {
+  # shellcheck disable=SC2016  # $1 要在 sh 裡展開
+  as_deploy sh -c 'ls -1t "$1"/fju-test-*.dump 2>/dev/null | head -n 1' sh "$BACKUP_DIR"
+}
+
+cmd_snapshot() {
+  local sha before after tmp dest db_sha files_sha old kept=0
+  pg_running || die "測試站 DB 沒在跑，不能存快照。"
+  check_files_dir
+  [ ! -L "$SNAP_ROOT" ] || die "$SNAP_ROOT 是 symlink，停止。"
+  sha="$(current_sha)" || sha=unknown
+  tmp="$SNAP_ROOT/.tmp-$NAME"
+  dest="$SNAP_ROOT/$NAME"
+  say "存快照 ${NAME}（commit ${sha:0:12}）"
+  before="$(latest_dump)"
+  ops backup.sh --site "$SITE"
+  after="$(latest_dump)"
+  [ -n "$after" ] && [ "$after" != "$before" ] || die "找不到這次 backup.sh 產生的 dump。"
+  as_deploy mkdir -p -m 700 "$SNAP_ROOT"
+  as_deploy rm -rf "$tmp"
+  as_deploy mkdir -m 700 "$tmp"
+  as_deploy cp "$after" "$tmp/db.dump"
+  # 快照裡已經有一份，backup.sh 留在 backups/ 的這份刪掉，免得每存一次快照多吃一份磁碟。
+  as_deploy rm -f "$after"
+  say "打包附件"
+  as_files_owner tar -C "$SITE_ROOT" -czf - files | write_as_deploy "$tmp/files.tar.gz"
+  db_sha="$(as_deploy sha256sum "$tmp/db.dump" | cut -d' ' -f1)"
+  files_sha="$(as_deploy sha256sum "$tmp/files.tar.gz" | cut -d' ' -f1)"
+  printf 'name=%s\ncreated_at=%s\ncommit=%s\ndb_sha256=%s\nfiles_sha256=%s\n' \
+    "$NAME" "$(now)" "$sha" "$db_sha" "$files_sha" | write_as_deploy "$tmp/meta"
+  as_deploy rm -rf "$dest"
+  as_deploy mv "$tmp" "$dest"
+  # 保留最新 SNAP_KEEP 份（這次的一定留）。
+  # shellcheck disable=SC2016  # $1 要在 sh 裡展開
+  while IFS= read -r old; do
+    [[ "$old" =~ $name_re ]] || continue
+    if [ "$old" = "$NAME" ]; then continue; fi
+    kept=$((kept + 1))
+    if [ "$kept" -ge "$SNAP_KEEP" ]; then
+      say "超過 $SNAP_KEEP 份，刪最舊的快照 $old"
+      as_deploy rm -rf "$SNAP_ROOT/$old"
+    fi
+  done < <(as_deploy sh -c 'cd "$1" && ls -1t' sh "$SNAP_ROOT")
+  say "✓ 快照完成 ${NAME}（${dest}；DB sha256 ${db_sha:0:12}…、附件 sha256 ${files_sha:0:12}…）"
+}
+
+# ---- restore ----
+cmd_restore() {
+  local sha snap from db_sha files_sha was_paused=0
+  snap="$SNAP_ROOT/$NAME"
+  [ ! -L "$SNAP_ROOT" ] && [ ! -L "$snap" ] && [ -d "$snap" ] || die "沒有快照 ${NAME}（status 看 snapshots=）。"
+  for f in db.dump files.tar.gz meta; do
+    [ ! -L "$snap/$f" ] && [ -f "$snap/$f" ] || die "快照 $NAME 缺 $f 或是 symlink，停止。"
+  done
+  db_sha="$(meta_get "$NAME" db_sha256)"
+  files_sha="$(meta_get "$NAME" files_sha256)"
+  [[ "$db_sha" =~ $sha256_re ]] && [[ "$files_sha" =~ $sha256_re ]] || die "快照 $NAME 的 meta 不完整，停止。"
+  say "核對快照檔案（sha256）"
+  [ "$(as_deploy sha256sum "$snap/db.dump" | cut -d' ' -f1)" = "$db_sha" ] || die "db.dump 的 sha256 不符，停止。"
+  [ "$(as_deploy sha256sum "$snap/files.tar.gz" | cut -d' ' -f1)" = "$files_sha" ] || die "files.tar.gz 的 sha256 不符，停止。"
+  check_files_tar "$snap/files.tar.gz"
+  sha="$(current_sha)" || die "找不到要重新部署的 commit，停止。"
+  printf '%s\n' "$sha" > "$STATE_DIR/sha"
+  from="$(meta_get "$NAME" commit)"
+  if [ "$from" != "$sha" ]; then
+    say "⚠️ 快照是在 commit ${from:0:12} 存的，現在要部署的是 ${sha:0:12}（deploy 的 migrate 會把 schema 補到新版）"
+  fi
+  say "還原快照 ${NAME}：commit ${sha:0:12}"
+  check_volume
+  check_files_dir
+  if is_paused; then was_paused=1; fi
+  pause_deploy
+  wait_deploy_lock
+  backup_before
+  stop_site
+  remove_volume
+  clear_files
+  as_deploy touch "$DEPLOY_DIR/demo-seed.off"
+  say "起空的 DB（只起 postgres）"
+  ops site.sh "$SITE" docker compose up -d --wait postgres
+  say "建 migration 用到的角色，再灌 dump"
+  # pg_dump 不帶角色；照 web/drizzle/0001 的寫法建好，擁有者與 GRANT 才會跟原站一樣。
+  # 單引號是刻意的：$POSTGRES_USER／$POSTGRES_DB 要在容器裡展開。
+  # shellcheck disable=SC2016
+  printf '%s\n' \
+    "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fju_app') THEN CREATE ROLE fju_app LOGIN; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fju_backup') THEN CREATE ROLE fju_backup LOGIN; END IF; END\$\$;" \
+    "GRANT pg_read_all_data TO fju_backup;" \
+    | as_deploy docker exec -i "$PG_CONTAINER" sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null
+  # shellcheck disable=SC2016
+  as_deploy cat "$snap/db.dump" \
+    | as_deploy docker exec -i "$PG_CONTAINER" sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error --single-transaction'
+  # umask 022：跟 app 寫的附件一樣（檔 644、目錄 755）；承接本程式的 077 會變 600／700，
+  # deploy 跑的每日備份就打包不了 test 的附件。
+  say "解附件"
+  check_files_dir
+  as_deploy cat "$snap/files.tar.gz" \
+    | as_files_owner sh -c 'umask 022; exec "$@"' sh \
+        tar -xzf - -C "$FILES_DIR" --strip-components=1 --no-same-owner --no-same-permissions
+  redeploy "$sha"
+  [ "$was_paused" = 1 ] || resume_deploy
+  say "✓ 還原完成 $NAME commit=${sha}（帳號密碼是存快照那一夜的；自動部署：$([ "$was_paused" = 1 ] && echo 維持暫停 || echo 已恢復)）"
+}
+
+# ---- 分派 ----
+case "$SUB" in
+  status) cmd_status ;;
+  pause-deploy) pause_deploy; echo "auto_deploy=paused" ;;
+  resume-deploy) resume_deploy; echo "auto_deploy=on" ;;
+  reset|snapshot|restore)
+    if [ -z "${FJU_RESET_WORKER:-}" ]; then
+      run_detached "$@"
+    fi
+    begin_worker
+    case "$SUB" in
+      reset) cmd_reset ;;
+      snapshot) cmd_snapshot ;;
+      restore) cmd_restore ;;
+    esac
+    ;;
+esac
