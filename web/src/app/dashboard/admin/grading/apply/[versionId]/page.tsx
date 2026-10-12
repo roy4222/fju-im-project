@@ -7,6 +7,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { Card, EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { ApplySchemeForm } from '@/app/dashboard/admin/grading/results-forms'
+import { describePreviewFinal } from '@/app/dashboard/admin/grading/preview-final'
 import { getGradebookQuery } from '@/composition/grading'
 import { cn } from '@/shared/cn'
 
@@ -92,22 +93,25 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
                 </tr>
               </thead>
               <tbody>
-                {p.groups.map((g) => (
-                  <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
-                    <td className="px-4 py-2 font-semibold">
-                      {g.code}
-                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">更正會變成需要重新確認</span> : null}
-                    </td>
-                    {g.stages.map((s) => (
-                      <td key={s.name} className="px-4 py-2 text-right tabular-nums">
-                        {s.before === s.after ? (s.after ?? '—') : `${s.before ?? '—'} → ${s.after ?? '—'}`}
+                {p.groups.map((g) => {
+                  const final = describePreviewFinal({ before: g.finalBefore, after: g.finalAfter, hasOverride: g.hasOverride, trigger: '套用' })
+                  return (
+                    <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
+                      <td className="px-4 py-2 font-semibold">
+                        {g.code}
+                        {final.note ? <p className="mt-1 max-w-xs text-xs font-normal text-danger">{final.note}</p> : null}
                       </td>
-                    ))}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">
-                      {g.finalBefore === g.finalAfter ? (g.finalAfter ?? '尚未完成') : `${g.finalBefore ?? '尚未完成'} → ${g.finalAfter ?? '尚未完成'}`}
-                    </td>
-                  </tr>
-                ))}
+                      {g.stages.map((s) => (
+                        <td key={s.name} className="px-4 py-2 text-right tabular-nums">
+                          {s.before === s.after ? (s.after ?? '—') : `${s.before ?? '—'} → ${s.after ?? '—'}`}
+                        </td>
+                      ))}
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                        {final.value}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
