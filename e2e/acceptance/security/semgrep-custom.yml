@@ -1,0 +1,55 @@
+# 驗收夜資安靜態掃描的兩條自訂規則（定案紀錄 §2「資安評估」）。由 run-static.sh 與官方規則集一起跑。
+# 兩條都是粗篩（會有誤報），report.md 列成「自訂規則待人工分類」，不進四級、不算擋上線。
+rules:
+  # 1. `.query(` 的 SQL 用模板字串並插入非常數：應改成 $1 參數。
+  #    全大寫的常數名（例如 ${TABLE}）視為常數不報。
+  - id: fju-query-template-interpolation
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      .query() 的 SQL 是模板字串並插入了 ${...}；請改用 $1、$2 參數傳值，
+      若插入的確實是寫死的常數（表名、欄位清單）就在報告標為誤報。
+    patterns:
+      - pattern: $DB.query(`...${$E}...`, ...)
+      - metavariable-regex:
+          metavariable: $E
+          regex: ^(?![A-Z][A-Z0-9_]*$)
+    paths:
+      exclude:
+        - "*.test.ts"
+        - "*.integration.test.ts"
+
+  # 2. web/src/infrastructure/** 裡帶 actor 參數的 async 方法／函式（名稱不是 get/list/find… 開頭），
+  #    整個方法本體（不只開頭幾行）找不到任何權限呼叫才報。算「權限呼叫」的寫法（0cd6655c 實際用到的）：
+  #    - authorize*／statusGate／denied／lockAdmins：契約 03 §1 的原始寫法
+  #    - gate(…)、can*(…)、isTeacher／isAdmin／isStudent…(…)、prepare*(…)、requireX(…)、assertX(…)：權限閘門
+  #      （裸 require(／assert( 不算）
+  #    - viewerOf(…)、獨立函式 reader(actor)（pg-inbox）：把 actor 解成本人身分，匿名回 null 即擋下；
+  #      DB 連線取用器 this.#reader() 不算
+  #    - actor.roles／actor.kind：方法內直接判斷身分
+  #    - this.#私有方法(actor, …)：交給私有方法檢查；那個私有方法也帶 actor，會被這條規則各自檢查
+  #      （限制：私有方法名稱若以 get/list… 開頭就不檢查，委派過去不會被報）
+  #    沒有任何上述寫法的方法才報；權限全交給呼叫端（route／action）的，仍會被報（誤報，報告標明）。
+  - id: fju-write-without-authorize
+    languages: [typescript]
+    severity: WARNING
+    message: >-
+      這個方法帶 actor，但整個方法裡找不到任何權限呼叫（authorize*、gate、can*、is角色、actor.roles／kind、
+      或把 actor 交給私有方法）；請確認權限檢查沒有漏（契約 03 §1）。
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async $M(..., actor: $T, ...) { ... }
+          - pattern: |
+              async function $M(..., actor: $T, ...) { ... }
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(?!#?(?:get|list|find|load|read|count|search|has|is|query|export)(?:[A-Z]|$))
+      - pattern-not-regex: >-
+          \b(?:authorize\w*|statusGate|denied|lockAdmins)\b|\b(?:gate|can[A-Z]\w*|is(?:Teacher|Admin|Student|Staff)\w*|prepare\w*|require[A-Z]\w*|assert[A-Z]\w*|viewerOf)\s*\(|(?<![#.\w])reader\s*\(|\bactor\.(?:roles|kind)\b|\bthis\.#\w+\(\s*actor\b
+    paths:
+      include:
+        - "web/src/infrastructure/**"
+      exclude:
+        - "*.test.ts"
+        - "*.integration.test.ts"
