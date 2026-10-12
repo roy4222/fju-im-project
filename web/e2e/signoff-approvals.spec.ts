@@ -419,7 +419,7 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
 
   await signIn(page, t1)
   await page.goto(`/dashboard/teacher/signoff/${v3}`)
-  await expect(page.getByText('無法存取')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
 
   // 作廢：理由必填；作廢後學生頁寫已作廢、沒有按鈕。
   await asAdmin(page)

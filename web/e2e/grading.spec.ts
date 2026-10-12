@@ -284,10 +284,10 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   await expect(row(page, 'G01')).toContainText('40.00（未正式）')
   await expect(row(page, 'G01')).toContainText('已正式送出 0／2 份')
 
-  // 評三沒有被指派 G01：直接開網址只看到「沒有被指派」，沒有任何分數。
+  // 評三沒有被指派 G01：直接開網址只看到「找不到這個頁面」（不說原因），沒有任何分數。
   await signIn(page, t3)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
-  await expect(page.getByRole('heading', { name: '你沒有被指派評這一組' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText('40.00')
 })
 

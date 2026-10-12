@@ -298,12 +298,12 @@ test('x4:11 甲老師送出系統驗收 80（出席通過）；重新整理後�
   await expect(bench.getByLabel('1. 功能完整度')).toBeDisabled()
 })
 
-test('x4:12 GRD-12 GRD-02 沒被指派的丙老師：佇列沒有這一組，打開甲的網址看到「你沒有被指派評這一組」', async () => {
+test('x4:12 GRD-12 GRD-02 沒被指派的丙老師：佇列沒有這一組，打開甲的網址看到「找不到這個頁面」', async () => {
   const page = teacher['丙']!
   await page.goto('/dashboard/teacher/grading')
   await expect(page.locator('main')).not.toContainText(group)
   await page.goto(taSystemUrl)
-  await expect(page.getByRole('heading', { name: '你沒有被指派評這一組' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText('80.00')
   await shot(page, 'tc-not-assigned')
 })
