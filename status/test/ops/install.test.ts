@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,9 +8,11 @@ import path from 'node:path'
 /**
  * S-9：ops/status-install.sh（VM，sudo 一次）與 ops/status-prepare.sh（Mac mini）。
  *
- * 全部在本機跑、不需要 root：只跑 `bash -n`、`--help`、`--dry-run`、`--check-cloudflared-config`。
- * 會改系統的指令（docker run、useradd、systemctl enable、install、rsync…）換成只記錄呼叫的假指令，
- * 用來證明 --dry-run 一個都沒叫。對應 AC-S-14（記憶體不足就停）、AC-S-25(b)（第 10 步第二段的檢查）。
+ * 全部在本機跑、不需要 root：
+ * - `bash -n`、`--help`、`--dry-run`、`--check-cloudflared-config`：會改系統的指令換成只記錄呼叫的假指令，
+ *   用來證明 --dry-run 一個都沒叫。對應 AC-S-14（記憶體不足就停）、AC-S-25(b)（第 10 步第二段的檢查）。
+ * - 故障注入（最後一組）：真的跑非 dry-run 的整個流程，系統路徑用 FJU_STATUS_* 換成暫存目錄，
+ *   docker／systemctl／curl／runuser 換成會模擬 VM 狀態的假指令，Cloudflare DNS API 換成本機假伺服器。
  */
 
 const repoRoot = path.join(import.meta.dirname, '..', '..', '..')
@@ -304,22 +307,6 @@ describe('第 10 步第二段：cloudflared 設定的 access 區塊檢查（AC-S
     expect(step10).toContain('close_gate')
     expect(src).not.toMatch(/docker compose[^\n]* config\b/)
   })
-
-  it('關門保證：起服務前就掛上「中途結束就關門」；自動更新 timer 要等守門通過才啟用', () => {
-    const src = fs.readFileSync(INSTALL, 'utf8')
-    const guard = src.indexOf('trap gate_guard EXIT')
-    const step9 = src.indexOf('step 9 ')
-    const dockerCp = src.indexOf('docker cp "${cf_cid}')
-    const enableUpdate = src.lastIndexOf('    systemctl enable --now fju-status-update.timer')
-    expect(src.slice(src.indexOf('step 8 '), step9)).not.toMatch(/run systemctl enable --now fju-status-update/)
-    expect(guard).toBeGreaterThan(0)
-    expect(guard).toBeLessThan(step9)
-    expect(enableUpdate).toBeGreaterThan(dockerCp)
-    const shut = src.slice(src.indexOf('shut_gate() {'), src.indexOf('gate_guard() {'))
-    expect(shut).toContain('systemctl disable --now fju-status-update.timer')
-    expect(shut).toContain('systemctl stop fju-status-update.service')
-    expect(shut).toMatch(/for cid in \$\(svc_cids cloudflared\)/)
-  })
 })
 
 describe('status-prepare.sh --dry-run 只印不做', () => {
@@ -344,4 +331,343 @@ describe('status-prepare.sh --dry-run 只印不做', () => {
     expect(r.stdout).toContain(`--publish-pubkey '${PUBKEY}'`)
     expect(mutatingCalls()).toEqual([])
   })
+})
+
+// ---------------------------------------------------------------------------
+// 故障注入：真的跑非 dry-run 的安裝流程（假 VM）
+// ---------------------------------------------------------------------------
+
+const CF_IMAGE = 'cloudflare/cloudflared:2025.9.1'
+// 下面幾支假指令是 bash：模板字串裡的 bash 變數寫成 @{…}，這裡換回 ${…}（避免被當成 JS 插值）。
+const bash = (src: string) => src.replaceAll('@{', '${')
+
+// 假 docker：用 $FAKE_STATE 底下的檔案記住容器、網路、隧道、暫時 cloudflared 有沒有鎖、假 origin 的計數。
+const FAKE_DOCKER = bash(String.raw`#!/bin/bash
+S=$FAKE_STATE
+echo "docker $*" >> "$CALLS_LOG"
+drop() { grep -vx "$2" "$S/$1" > "$S/$1.tmp" || true; mv "$S/$1.tmp" "$S/$1"; }
+case "$1" in
+  compose|stats|pull|stop|exec)
+    [ "$1" = exec ] && echo fjudb
+    exit 0 ;;
+  ps)
+    if [ "$2" = -a ]; then cat "$S/containers"; exit 0; fi
+    svc=$(printf '%s\n' "$@" | sed -n 's/^label=com.docker.compose.service=//p')
+    echo "cid-$svc"; exit 0 ;;
+  inspect)
+    case "$*" in *State.Running*) echo true ;; *State.Health*) echo healthy ;; esac
+    exit 0 ;;
+  cp)
+    case "$2" in
+      cid-cloudflared:*) tar -cf - -C "$(dirname "$FAKE_MOUNTED")" "$(basename "$FAKE_MOUNTED")" ;;
+      cid-beszel:*) tar -cf - -C "$S" hubkey ;;
+    esac
+    exit 0 ;;
+  rm)
+    shift; [ "$1" = -f ] && shift
+    for n in "$@"; do
+      drop containers "$n"
+      [ "$n" = fju-status-verify-cloudflared ] && echo none > "$S/cf_mode"
+    done
+    exit 0 ;;
+  network)
+    case "$2" in
+      create) echo "$3" >> "$S/networks" ;;
+      rm) [ "@{FAKE_NETRM_FAIL:-0}" = 1 ] && exit 1; drop networks "$3" ;;
+      ls) cat "$S/networks" ;;
+    esac
+    exit 0 ;;
+  run)
+    shift
+    name=""; detach=0; login=""; cfg=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --rm) ;;
+        -d) detach=1 ;;
+        --name) name=$2; shift ;;
+        -v) case "$2" in
+              *:/cf/.cloudflared) login=@{2%:/cf/.cloudflared} ;;
+              *:/etc/cloudflared/config.yml:ro) cfg=@{2%:/etc/cloudflared/config.yml:ro} ;;
+            esac; shift ;;
+        --network|--memory|--user|-e|--pull) shift ;;
+        *) break ;;
+      esac
+      shift
+    done
+    image=$1; shift
+    [ -n "$name" ] && echo "$name" >> "$S/containers"
+    case "$image" in
+      curlimages/*) cat "$S/counter"; exit 0 ;;
+      ghcr.io/*) echo 0 > "$S/counter"; exit 0 ;;
+      cloudflare/*)
+        [ "$1" = tunnel ] && shift
+        if [ "$detach" = 1 ]; then
+          if grep -q 'access:' "$cfg"; then echo locked > "$S/cf_mode"; else echo open > "$S/cf_mode"; fi
+          exit 0
+        fi
+        sub=$1; shift
+        last=""; cred=""; n=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --credentials-file|--cred-file) cred=$2; shift ;;
+            --name) n=$2; shift ;;
+            --output|-f) [ "$1" = --output ] && shift ;;
+            *) last=$1 ;;
+          esac
+          shift
+        done
+        case "$sub" in
+          login)
+            tok=$(printf '{"zoneID":"z1","accountID":"a1","apiToken":"t1"}' | base64 | tr -d '\n')
+            printf -- '-----BEGIN ARGO TUNNEL TOKEN-----\n%s\n-----END ARGO TUNNEL TOKEN-----\n' "$tok" > "$login/cert.pem"
+            echo login >> "$S/logins" ;;
+          list)
+            if [ -f "$S/tunnel-$n" ]; then printf '[{"id":"id-%s","name":"%s"}]' "$n" "$n"; else echo '[]'; fi ;;
+          create|token)
+            touch "$S/tunnel-$last"
+            printf '{"TunnelID":"id-%s"}' "$last" > "$login/$(basename "$cred")" ;;
+          delete) rm -f "$S/tunnel-$last" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+`)
+
+// 假 curl：暫時網址照暫時 cloudflared 有沒有鎖回 403／404／204（沒鎖時 /probe 會讓假 origin 計數加一）；
+// 四個正式網址都回 Access 的 302。
+const FAKE_CURL = bash(String.raw`#!/bin/bash
+echo "curl $*" >> "$CALLS_LOG"
+url=@{@: -1}
+mode=$(cat "$FAKE_STATE/cf_mode" 2>/dev/null)
+case "$url" in
+  https://fju-status-verify.roy422.dev/ready)
+    case "$mode" in locked) printf 403 ;; open) printf 404 ;; *) printf 000 ;; esac ;;
+  https://fju-status-verify.roy422.dev/probe)
+    case "$mode" in
+      locked) printf 403 ;;
+      open) c=$(cat "$FAKE_STATE/counter"); echo $((c + 1)) > "$FAKE_STATE/counter"; printf 204 ;;
+      *) printf 000 ;;
+    esac ;;
+  https://*/) h=@{url#https://}; printf '302 https://%s/cdn-cgi/access/login/%s' "$FAKE_TEAM" "@{h%/}" ;;
+esac
+`)
+
+const FAKE_SIMPLE: Record<string, string> = {
+  id: `#!/bin/sh\n[ "$1" = -u ] && echo 0\nexit 0\n`,
+  systemctl: `#!/bin/sh\necho "systemctl $*" >> "$CALLS_LOG"\ncase "$1" in is-*) exit 1 ;; esac\nexit 0\n`,
+  runuser: `#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n`,
+  install: `#!/bin/sh\nargs=""\nwhile [ $# -gt 0 ]; do case "$1" in -o|-g) shift ;; *) args="$args '$1'" ;; esac; shift; done\neval exec /usr/bin/install $args\n`,
+  chown: `#!/bin/sh\nexit 0\n`,
+  useradd: `#!/bin/sh\necho "useradd $*" >> "$CALLS_LOG"\n`,
+  sshd: `#!/bin/sh\nexit 0\n`,
+  'ssh-keygen': `#!/bin/sh\necho "ssh-ed25519 AAAAFakeHubKey beszel"\n`,
+  sleep: `#!/bin/sh\nexit 0\n`,
+}
+
+// 假產生器：照 STATUS_HOSTS 產四條 ingress；FAKE_RENDER_BAD=1 時故意不帶 access（壞設定）。
+const FAKE_RENDER = bash(String.raw`#!/bin/bash
+while [ $# -gt 0 ]; do case "$1" in --team) t=$2; shift ;; --aud) a=$2; shift ;; --tunnel-id) id=$2; shift ;; --out) o=$2; shift ;; esac; shift; done
+{
+  echo "tunnel: $id"
+  echo "credentials-file: /etc/cloudflared/tunnel.json"
+  echo "ingress:"
+  for h in $STATUS_HOSTS; do
+    echo "  - hostname: $h"
+    echo "    service: http://status-web:3000"
+    if [ "@{FAKE_RENDER_BAD:-0}" != 1 ]; then
+      printf '    originRequest:\n      access:\n        required: true\n        teamName: %s\n        audTag:\n          - %s\n' "$t" "$a"
+    fi
+  done
+  echo "  - service: http_status:404"
+} > "$o"
+`)
+
+// 假 status-up.sh：記下呼叫；FAKE_UP_FAIL=1 時，beszel-agent.env 已有金鑰的那次（第 11 步重起 agent）回 42。
+const FAKE_UP = bash(String.raw`#!/bin/bash
+echo "status-up $*" >> "$CALLS_LOG"
+if [ "@{FAKE_UP_FAIL:-0}" = 1 ] && [ $# -eq 0 ] && grep -q '^KEY=' "$FJU_STATUS_ROOT/secrets/beszel-agent.env" 2>/dev/null; then exit 42; fi
+exit 0
+`)
+
+type Vm = {
+  w: string
+  root: string
+  state: string
+  calls: string
+  dns: { records: number; failDelete: boolean; deletes: number }
+  server: http.Server
+  port: number
+}
+
+async function makeVm(): Promise<Vm> {
+  const w = fs.mkdtempSync(path.join(os.tmpdir(), 'fju-status-vm-'))
+  const mk = (...p: string[]) => fs.mkdirSync(path.join(w, ...p), { recursive: true })
+  const put = (rel: string, body: string, mode = 0o644) => {
+    fs.mkdirSync(path.dirname(path.join(w, rel)), { recursive: true })
+    fs.writeFileSync(path.join(w, rel), body, { mode })
+  }
+  for (const [name, body] of Object.entries(FAKE_SIMPLE)) put(`bin/${name}`, body, 0o755)
+  put('bin/docker', FAKE_DOCKER, 0o755)
+  put('bin/curl', FAKE_CURL, 0o755)
+  put('app/docker-compose.status.yml', `services:\n  cloudflared:\n    image: ${CF_IMAGE}\n  status-web:\n    image: ghcr.io/roy4222/fju-status:main\n`)
+  put('app/ops/status-up.sh', FAKE_UP, 0o755)
+  put('app/ops/status-render-cloudflared.sh', FAKE_RENDER, 0o755)
+  for (const u of ['fju-status-update.service', 'fju-status-update.timer', 'fju-status-envcheck.service', 'fju-status-envcheck.timer']) {
+    put(`app/ops/status/systemd/${u}`, `[Unit]\nDescription=${u}\n`)
+  }
+  put('os-release', 'ID=ubuntu\nVERSION_ID="24.04"\n')
+  put('rrsync', '#!/bin/sh\n', 0o755)
+  put('mounted/config.yml', goodConfigFor(TEAM.split('.')[0]))
+  put('state/hubkey', 'fake private key\n')
+  for (const f of ['containers', 'networks', 'logins']) put(`state/${f}`, '')
+  put('state/counter', '0\n')
+  put('calls.log', '')
+  mk('root'); mk('units'); mk('ssh'); mk('home'); mk('sbin'); mk('offsite')
+
+  // 假 Cloudflare DNS API：一開始有一筆暫時網址的 CNAME；failDelete 時 DELETE 回 403。
+  const dns = { records: 1, failDelete: false, deletes: 0 }
+  const server = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json')
+    if (req.method === 'DELETE') {
+      if (dns.failDelete) { res.statusCode = 403; res.end('{"success":false}'); return }
+      dns.deletes++; dns.records = 0; res.end('{"success":true}'); return
+    }
+    const rec = { id: 'r1', name: 'fju-status-verify.roy422.dev', content: 'id-fju-status-verify.cfargotunnel.com' }
+    res.end(JSON.stringify({ result: dns.records ? [rec] : [] }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as { port: number }).port
+  return { w, root: path.join(w, 'root'), state: path.join(w, 'state'), calls: path.join(w, 'calls.log'), dns, server, port }
+}
+
+async function closeVm(vm: Vm) {
+  await new Promise<void>((resolve) => vm.server.close(() => resolve()))
+  fs.rmSync(vm.w, { recursive: true, force: true })
+}
+
+function goodConfigFor(team: string) {
+  return goodConfig().replaceAll('teamName: royteam', `teamName: ${team}`)
+}
+
+function installOnVm(vm: Vm, env: Record<string, string> = {}): Promise<{ code: number | null; out: string }> {
+  const w = vm.w
+  return new Promise((resolve) => {
+    const child = spawn('bash', [INSTALL, ...installArgs('--mem-available-override', '8000', '--offsite-dir', path.join(w, 'offsite'))], {
+      env: {
+        PATH: `${path.join(w, 'bin')}:${process.env.PATH}`,
+        HOME: w,
+        LANG: 'C.UTF-8',
+        CALLS_LOG: vm.calls,
+        FAKE_STATE: vm.state,
+        FAKE_TEAM: TEAM,
+        FAKE_MOUNTED: path.join(w, 'mounted', 'config.yml'),
+        FJU_STATUS_APP_DIR: path.join(w, 'app'),
+        FJU_STATUS_ROOT: vm.root,
+        FJU_STATUS_UNIT_DIR: path.join(w, 'units'),
+        FJU_STATUS_SSH_DIR: path.join(w, 'ssh'),
+        FJU_STATUS_HOME_ROOT: path.join(w, 'home'),
+        FJU_STATUS_SBIN: path.join(w, 'sbin'),
+        FJU_STATUS_OS_RELEASE: path.join(w, 'os-release'),
+        FJU_STATUS_RRSYNC: path.join(w, 'rrsync'),
+        FJU_STATUS_CF_API: `http://127.0.0.1:${vm.port}`,
+        ...env,
+      },
+    })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d))
+    child.stderr.on('data', (d) => (out += d))
+    child.on('close', (code) => resolve({ code, out }))
+  })
+}
+
+const vmCalls = (vm: Vm) => fs.readFileSync(vm.calls, 'utf8').split('\n').filter(Boolean)
+const marker = (vm: Vm) => path.join(vm.root, '.install', 'verify-7b.ok')
+const logins = (vm: Vm) => fs.readFileSync(path.join(vm.state, 'logins'), 'utf8').split('\n').filter(Boolean).length
+// 已經裝好過一次的機器：有 tunnel.json、第 7b 步的通過紀錄（同 team／AUD／版本／網址），重跑不用再登入。
+function markInstalled(vm: Vm) {
+  fs.mkdirSync(path.join(vm.root, 'secrets'), { recursive: true })
+  fs.writeFileSync(path.join(vm.root, 'secrets', 'tunnel.json'), '{"TunnelID":"id-fju-status"}')
+  fs.mkdirSync(path.join(vm.root, '.install'), { recursive: true })
+  fs.writeFileSync(marker(vm), `team=${TEAM}\naud=${AUD}\ncloudflared=${CF_IMAGE}\nhosts=${HOSTS.join(' ')}\nat=2026-10-12T00:00:00Z\n`)
+  fs.writeFileSync(path.join(vm.state, 'tunnel-fju-status'), '')
+}
+
+describe('故障注入：非 dry-run 整個流程（假 VM）', () => {
+  let vm: Vm
+  beforeEach(async () => {
+    vm = await makeVm()
+  })
+  afterEach(async () => {
+    await closeVm(vm)
+  })
+
+  it('基準：全部正常 → 結束碼 0、寫 7b 通過紀錄、守門通過才啟用自動更新、沒停任何 cloudflared', async () => {
+    const r = await installOnVm(vm)
+    expect(r.out).toContain('步驟 12：')
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+    const c = vmCalls(vm)
+    expect(c).toContain('systemctl enable --now fju-status-update.timer')
+    expect(c.filter((x) => x.startsWith('docker stop'))).toEqual([])
+    // 7b 兩輪真的跑過：假 origin 收到 3 個、暫時資源都清掉
+    expect(fs.readFileSync(path.join(vm.state, 'networks'), 'utf8').trim()).toBe('')
+    expect(fs.existsSync(path.join(vm.state, 'tunnel-fju-status-verify'))).toBe(false)
+    expect(vm.dns.records).toBe(0)
+  }, 30_000)
+
+  it('P1：已安裝後重跑、第 7 步拒絕壞設定 → 停掉既有 cloudflared 與自動更新（timer、service），結束碼非 0', async () => {
+    markInstalled(vm)
+    const r = await installOnVm(vm, { FAKE_RENDER_BAD: '1' })
+    expect(r.out).toContain('停在步驟 7')
+    expect(r.code).not.toBe(0)
+    const c = vmCalls(vm)
+    expect(c).toContain('docker stop cid-cloudflared')
+    expect(c).toContain('systemctl disable --now fju-status-update.timer')
+    expect(c).toContain('systemctl stop fju-status-update.service')
+    expect(c).not.toContain('systemctl enable --now fju-status-update.timer')
+  }, 30_000)
+
+  it('P1：前置一過、改設定之前就先停自動更新（安裝中途它不能 up -d）', async () => {
+    markInstalled(vm)
+    await installOnVm(vm, { FAKE_RENDER_BAD: '1' })
+    const c = vmCalls(vm)
+    const stopAt = c.findIndex((x) => x.startsWith('systemctl stop fju-status-update.timer'))
+    const firstStatusUp = c.findIndex((x) => x.startsWith('status-up'))
+    expect(stopAt).toBeGreaterThanOrEqual(0)
+    expect(stopAt).toBeLessThan(firstStatusUp)
+  }, 30_000)
+
+  it('P2：DNS 清理失敗 → 不寫通過紀錄、結束碼非 0；修好後重跑會重新登入、重新做 7b', async () => {
+    vm.dns.failDelete = true
+    const r1 = await installOnVm(vm)
+    expect(r1.code).not.toBe(0)
+    expect(r1.out).toContain('不寫通過紀錄')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+    expect(logins(vm)).toBe(1)
+
+    vm.dns.failDelete = false
+    const r2 = await installOnVm(vm)
+    expect(logins(vm)).toBe(2)
+    expect(r2.out).toContain('第一輪：有鎖')
+    expect(r2.code).toBe(0)
+    expect(fs.existsSync(marker(vm))).toBe(true)
+  }, 60_000)
+
+  it('P2：暫時網路刪不掉（docker network rm 失敗、還在清單裡）→ 不寫通過紀錄、結束碼非 0', async () => {
+    const r = await installOnVm(vm, { FAKE_NETRM_FAIL: '1' })
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('暫時網路 fju-status-verify 刪不掉或確認不了')
+    expect(fs.existsSync(marker(vm))).toBe(false)
+  }, 30_000)
+
+  it('P3：第 11 步重起 Beszel agent 失敗（status-up 回 42）→ 摘要記 ✗、不記 ✓、結束碼非 0', async () => {
+    const r = await installOnVm(vm, { FAKE_UP_FAIL: '1' })
+    expect(r.out).toContain('步驟 11：✗')
+    expect(r.out).not.toContain('步驟 11：✓')
+    expect(r.code).not.toBe(0)
+    // 守門已經通過，Beszel 失敗不關門
+    expect(vmCalls(vm).filter((x) => x.startsWith('docker stop'))).toEqual([])
+  }, 30_000)
 })

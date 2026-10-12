@@ -35,12 +35,13 @@ RENDER=$APP_DIR/ops/status-render-cloudflared.sh
 # S-4 的 compose 把這份掛成 cloudflared 容器的 /etc/cloudflared/config.yml。
 CLOUDFLARED_YML=$APP_DIR/ops/status/cloudflared.yml
 UNIT_SRC=$APP_DIR/ops/status/systemd
-UNIT_DIR=/etc/systemd/system
+# 下面幾個 FJU_STATUS_* 只給 status/test/ops/install.test.ts 的故障注入測試用（把系統路徑換成暫存目錄）；正式安裝不要設。
+UNIT_DIR=${FJU_STATUS_UNIT_DIR:-/etc/systemd/system}
 UNITS="fju-status-update.service fju-status-update.timer fju-status-envcheck.service fju-status-envcheck.timer"
 TIMERS="fju-status-update.timer fju-status-envcheck.timer"
 RESET_SCRIPTS="fju-test-reset fju-test-reset-gate"
 
-STATUS_ROOT=/srv/fju/status
+STATUS_ROOT=${FJU_STATUS_ROOT:-/srv/fju/status}
 SECRETS=$STATUS_ROOT/secrets
 DATA=$STATUS_ROOT/data
 INBOX=$STATUS_ROOT/inbox
@@ -70,7 +71,13 @@ CLOUDFLARED_IMAGE_FALLBACK=cloudflare/cloudflared:2025.9.1
 STATUS_IMAGE_FALLBACK=ghcr.io/roy4222/fju-status:main
 MIN_MEM_MB=2560
 TEST_PG=fju-test-postgres
-SSHD_CONF=/etc/ssh/sshd_config.d/10-fju.conf
+SSH_DIR=${FJU_STATUS_SSH_DIR:-/etc/ssh}
+SSHD_CONF=$SSH_DIR/sshd_config.d/10-fju.conf
+HOME_ROOT=${FJU_STATUS_HOME_ROOT:-/home}
+SBIN=${FJU_STATUS_SBIN:-/usr/local/sbin}
+OS_RELEASE=${FJU_STATUS_OS_RELEASE:-/etc/os-release}
+RRSYNC=${FJU_STATUS_RRSYNC:-/usr/bin/rrsync}
+CF_API=${FJU_STATUS_CF_API:-https://api.cloudflare.com/client/v4}
 BESZEL_SOCKET=/beszel_socket/beszel.sock
 
 DRY_RUN=0
@@ -166,6 +173,20 @@ image_from_compose() {
     ''|*'$'*) echo "$fallback" ;;
     *) echo "$found" ;;
   esac
+}
+
+# 關門：停掉所有 fju-status 的 cloudflared 容器，並停掉自動更新（timer 與正在跑的那一輪），
+# 不然 10 分鐘內 up -d 會把它再起來。
+GATE_SHUT=0
+GATE_ARMED=0
+shut_gate() {
+  local cid
+  [ "$GATE_SHUT" = 0 ] || return 0
+  GATE_SHUT=1
+  systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
+  systemctl stop fju-status-update.service >/dev/null 2>&1 || true
+  for cid in $(svc_cids cloudflared); do docker stop "$cid" >/dev/null 2>&1 || true; done
+  printf '  \033[31m✗\033[0m 已停掉 cloudflared 與 fju-status-update：四個網址現在都連不上。修好後重跑同一行\n' 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -354,6 +375,120 @@ show_usage_snapshot() {
 }
 
 # ---------------------------------------------------------------------------
+# 隧道、清理與結束時的處理（函式先定義好，第 1 步之後就可能被 EXIT trap 叫到）
+# ---------------------------------------------------------------------------
+# cloudflared 一律用固定版本的容器跑，不在主機裝套件；cert.pem 只放 LOGIN_DIR（root 700）。
+cf() {
+  docker run --rm --user 0:0 -e HOME=/cf -e TUNNEL_ORIGIN_CERT=/cf/.cloudflared/cert.pem \
+    -v "$LOGIN_DIR:/cf/.cloudflared" "$CLOUDFLARED_IMAGE" tunnel "$@"
+}
+# 印隧道 id（沒有這條就印空字串）；列不出來（網路、API 錯）回傳 2，不能當成「沒有」。
+tunnel_id_by_name() {
+  local out
+  out=$(cf list --output json --name "$1" 2>/dev/null) || return 2
+  printf '%s' "$out" | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin) or []
+except ValueError:
+    sys.exit(2)
+ids = [r.get("id", "") for r in rows if r.get("name") == sys.argv[1]]
+print(ids[0] if ids else "")' "$1"
+}
+# 0＝確定沒有暫時隧道；其他（還在、或列不出來）都不算清乾淨。
+verify_tunnel_gone() {
+  local id
+  id=$(tunnel_id_by_name "$VERIFY_TUNNEL") || return 2
+  [ -z "$id" ]
+}
+cred_tunnel_id() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["TunnelID"])' "$1"; }
+route_dns() { # <隧道> <網址>：已經指到這條隧道也算成功
+  local out
+  if out=$(cf route dns "$1" "$2" 2>&1); then ok "DNS ${2} → ${1}"; return 0; fi
+  case "$out" in
+    *"already configured to route to your tunnel"*) skip "DNS ${2} 已指到 ${1}" ;;
+    *) printf '%s\n' "$out" | sed 's/^/    /'; return 1 ;;
+  esac
+}
+# 用 cert.pem 裡那把只管 roy422.dev 的 token 刪暫時網址的 DNS 記錄（cloudflared 沒有刪 DNS 的子命令）。
+# token 只在 python 行程裡用，不進指令列、不印出來；只刪「名稱完全相同、指到 cfargotunnel.com 的 CNAME」。
+delete_verify_dns() {
+  python3 - "$LOGIN_DIR/cert.pem" "$VERIFY_HOST" "$CF_API" <<'PY'
+import base64, json, re, sys, urllib.request
+cert, host, base = sys.argv[1], sys.argv[2], sys.argv[3]
+m = re.search(r"-----BEGIN ARGO TUNNEL TOKEN-----(.*?)-----END ARGO TUNNEL TOKEN-----", open(cert).read(), re.S)
+if not m:
+    print("    cert.pem 裡找不到 tunnel token"); sys.exit(1)
+tok = json.loads(base64.b64decode("".join(m.group(1).split())))
+api = "%s/zones/%s/dns_records" % (base, tok["zoneID"])
+def call(method, url):
+    req = urllib.request.Request(url, method=method, headers={"Authorization": "Bearer " + tok["apiToken"]})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+def records():
+    return [r for r in call("GET", api + "?type=CNAME&name=" + host)["result"]
+            if r.get("name") == host and r.get("content", "").endswith(".cfargotunnel.com")]
+for r in records():
+    call("DELETE", api + "/" + r["id"])
+left = records()
+print("    DNS %s：%s" % (host, "已刪" if not left else "還有 %d 筆" % len(left)))
+sys.exit(1 if left else 0)
+PY
+}
+
+# 0＝確定暫時容器與暫時網路都不在；docker 本身回不出清單也不算確定。
+verify_docker_gone() {
+  local names nets
+  names=$(docker ps -a --format '{{.Names}}') || return 2
+  nets=$(docker network ls --format '{{.Name}}') || return 2
+  ! printf '%s\n' "$names" | grep -qxE "${VERIFY_CF}|${VERIFY_ORIGIN}" \
+    && ! printf '%s\n' "$nets" | grep -qx "$VERIFY_NET"
+}
+# 清第 7b 步的四類暫時資源（容器、網路、隧道、DNS），每一類都要「確定已經不在」才算清乾淨；
+# 任何一類刪不掉或確認不了 → VERIFY_CLEANUP_FAILED=1（不寫通過紀錄，下次重跑會重新核對）。
+VERIFY_CLEANUP_FAILED=0
+cleanup_verify() {
+  docker rm -f "$VERIFY_CF" "$VERIFY_ORIGIN" >/dev/null 2>&1 || true
+  docker network rm "$VERIFY_NET" >/dev/null 2>&1 || true
+  if ! verify_docker_gone; then
+    bad "暫時容器（${VERIFY_CF}、${VERIFY_ORIGIN}）或暫時網路 ${VERIFY_NET} 刪不掉或確認不了（docker ps -a、docker network ls 手動確認、刪掉）"
+    VERIFY_CLEANUP_FAILED=1
+  fi
+  [ -s "$LOGIN_DIR/cert.pem" ] || return 0
+  if ! verify_tunnel_gone; then
+    cf cleanup "$VERIFY_TUNNEL" >/dev/null 2>&1 || true
+    cf delete -f "$VERIFY_TUNNEL" >/dev/null 2>&1 || true
+  fi
+  if ! verify_tunnel_gone; then
+    bad "暫時隧道 ${VERIFY_TUNNEL} 刪不掉或確認不了（Zero Trust → Networks → Tunnels 手動確認、刪掉）"
+    VERIFY_CLEANUP_FAILED=1
+  fi
+  delete_verify_dns || {
+    bad "暫時網址 ${VERIFY_HOST} 的 DNS 記錄刪不掉或確認不了（Cloudflare → roy422.dev → DNS 手動確認、刪掉）"
+    VERIFY_CLEANUP_FAILED=1
+  }
+  return 0
+}
+# 不論成敗（含 Ctrl-C）：先清第 7b 步的暫時資源，再刪 cert.pem（它能管整個 zone，只在建立時需要）。
+# ssh 斷線時 stdout 已經寫不進去：這裡關掉 -e、忽略再來的訊號，清理失敗也一定刪 cert.pem。
+# 守門還沒通過（GATE_ARMED=1）就中途結束（halt、set -e、Ctrl-C、ssh 斷線）→ 關門。
+on_exit() {
+  local code=$?
+  set +e
+  trap '' INT HUP TERM
+  if [ -d "$LOGIN_DIR" ]; then
+    cleanup_verify
+    rm -rf "$LOGIN_DIR"
+    echo "  已刪 cert.pem 與暫時登入目錄" 2>/dev/null
+  fi
+  if [ "$GATE_ARMED" = 1 ] && [ "$code" != 0 ]; then shut_gate; fi
+  exit "$code"
+}
+
+marker_body() { printf 'team=%s\naud=%s\ncloudflared=%s\nhosts=%s\n' "$ACCESS_TEAM" "$ACCESS_AUD" "$CLOUDFLARED_IMAGE" "$STATUS_HOSTS"; }
+marker_ok() { [ "$(sed '/^at=/d' "$VERIFY_MARKER" 2>/dev/null || true)" = "$(marker_body)" ]; }
+
+# ---------------------------------------------------------------------------
 # 步驟 1：前置與記憶體
 # ---------------------------------------------------------------------------
 step 1 "前置檢查（Ubuntu 24.04、docker、compose 檔）與記憶體（可用 < 2.5 GB 就停）"
@@ -362,12 +497,12 @@ check_pre() { # <說明> <指令…>
   local what=$1; shift
   if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; pre_ok=0; fi
 }
-os_is_2404() { [ -r /etc/os-release ] && grep -q '^ID=ubuntu$' /etc/os-release && grep -q '^VERSION_ID="24.04"$' /etc/os-release; }
+os_is_2404() { [ -r "$OS_RELEASE" ] && grep -q '^ID=ubuntu$' "$OS_RELEASE" && grep -q '^VERSION_ID="24.04"$' "$OS_RELEASE"; }
 check_pre "Ubuntu 24.04" os_is_2404
 check_pre "docker 與 compose 外掛" docker compose version
 check_pre "${COMPOSE_FILE} 存在（S-4 的 compose 檔）" test -f "$COMPOSE_FILE"
 check_pre "${STATUS_UP} 存在（S-4）" test -f "$STATUS_UP"
-check_pre "/usr/bin/rrsync（驗收結果推送只准寫 inbox）" test -x /usr/bin/rrsync
+check_pre "${RRSYNC}（驗收結果推送只准寫 inbox）" test -x "$RRSYNC"
 check_pre "python3、curl、openssl、ssh-keygen" sh -c 'command -v python3 && command -v curl && command -v openssl && command -v ssh-keygen'
 check_pre "${DEPLOY_USER} 帳號存在" id "$DEPLOY_USER"
 echo "  記憶體與容器用量（安裝前）："
@@ -388,6 +523,16 @@ if [ "$pre_ok" = 0 ]; then
   note "✗" "前置有缺（--dry-run 繼續往下印）"
 else
   note "✓" "前置齊、可用記憶體 ${MEM_MB} MB"
+fi
+# 前置過了、要開始改設定：先停自動更新（安裝中途它的 up -d 會把半套設定或 cloudflared 起起來），
+# 並掛上「中途結束就關門」——已安裝過的機器重跑時，壞掉的新設定不能讓既有的對外通道繼續開著。
+# 第 10 步守門通過才解除、才重新啟用自動更新。
+if [ "$DRY_RUN" = 0 ]; then
+  GATE_ARMED=1
+  trap on_exit EXIT
+  trap 'exit 130' INT HUP TERM
+  systemctl stop fju-status-update.timer fju-status-update.service >/dev/null 2>&1 || true
+  todo "安裝期間先停 fju-status-update（timer 與 service）；第 10 步守門通過才重新啟用，中途失敗就關門"
 fi
 
 # ---------------------------------------------------------------------------
@@ -435,11 +580,11 @@ if id "$PUBLISH_USER" >/dev/null 2>&1; then
 else
   # --system 帳號沒有密碼（鎖住）；shell 給 /bin/sh 是因為 command= 要靠它執行 rrsync，
   # 能不能開互動 shell 由 authorized_keys 的 restrict,command= 擋（跟 fjureset 一樣）。
-  run useradd --system --create-home --home-dir "/home/${PUBLISH_USER}" --shell /bin/sh "$PUBLISH_USER"
+  run useradd --system --create-home --home-dir "${HOME_ROOT}/${PUBLISH_USER}" --shell /bin/sh "$PUBLISH_USER"
 fi
-ensure_dir "/home/${PUBLISH_USER}/.ssh" "root:${PUBLISH_USER}" 750
-AUTH_LINE="restrict,command=\"/usr/bin/rrsync -wo ${INBOX}\" ${PUBKEY}"
-AUTH_FILE=/home/${PUBLISH_USER}/.ssh/authorized_keys
+ensure_dir "${HOME_ROOT}/${PUBLISH_USER}/.ssh" "root:${PUBLISH_USER}" 750
+AUTH_LINE="restrict,command=\"${RRSYNC} -wo ${INBOX}\" ${PUBKEY}"
+AUTH_FILE=${HOME_ROOT}/${PUBLISH_USER}/.ssh/authorized_keys
 if [ "$(cat "$AUTH_FILE" 2>/dev/null || true)" = "$AUTH_LINE" ]; then
   skip "authorized_keys 已是這把公鑰、綁 rrsync -wo ${INBOX}"
 else
@@ -450,7 +595,7 @@ fi
 ensure_dir "$INBOX" "${PUBLISH_USER}:${PUBLISH_USER}" 755
 # sshd 有 AllowUsers 白名單（ops/README.md「重置測試站專用金鑰」④）：不加進去，推送會被拒。
 # 只自動改 10-fju.conf 那一行；別的檔也有 AllowUsers、或那行帶註解，就停下來請人手動改（改錯會把人鎖在外面）。
-other_allow=$(grep -l '^[[:space:]]*AllowUsers' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -vx "$SSHD_CONF" || true)
+other_allow=$(grep -l '^[[:space:]]*AllowUsers' "$SSH_DIR/sshd_config" "$SSH_DIR"/sshd_config.d/*.conf 2>/dev/null | grep -vx "$SSHD_CONF" || true)
 if [ -n "$other_allow" ]; then
   [ "$DRY_RUN" = 1 ] || halt 1 "AllowUsers 也寫在 ${other_allow}：請手動把 ${PUBLISH_USER} 加進去（sshd -t 後 reload ssh）再重跑"
   bad "AllowUsers 也寫在 ${other_allow}（真的跑會停在這裡）"
@@ -487,19 +632,19 @@ for f in $RESET_SCRIPTS; do
   grep -q 'seed-demo' "$APP_DIR/ops/$f" 2>/dev/null || has_seed_demo=0
 done
 if [ "$has_seed_demo" = 0 ]; then
-  skip "重置腳本還沒有 seed-demo（S-7 還沒合併），/usr/local/sbin 不動"
+  skip "重置腳本還沒有 seed-demo（S-7 還沒合併），${SBIN} 不動"
   note "跳過" "重置腳本還沒有 seed-demo"
 else
   for f in $RESET_SCRIPTS; do
-    if cmp -s "$APP_DIR/ops/$f" "/usr/local/sbin/$f"; then
-      skip "/usr/local/sbin/${f} 已是這個版本"
+    if cmp -s "$APP_DIR/ops/$f" "$SBIN/$f"; then
+      skip "${SBIN}/${f} 已是這個版本"
     else
-      run install -o root -g root -m 755 "$APP_DIR/ops/$f" "/usr/local/sbin/$f"
+      run install -o root -g root -m 755 "$APP_DIR/ops/$f" "$SBIN/$f"
     fi
   done
   echo "  兩支的 sha256（要跟 Mac 上 status-prepare.sh 印的一樣）："
   (cd "$APP_DIR/ops" && sha256sum $RESET_SCRIPTS) | sed 's/^/    /'
-  note "✓" "重置腳本含 seed-demo，已裝到 /usr/local/sbin"
+  note "✓" "重置腳本含 seed-demo，已裝到 ${SBIN}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -560,101 +705,6 @@ note "✓" "status.env（${ACCESS_TEAM}）"
 # ---------------------------------------------------------------------------
 # 步驟 7、7b：Cloudflare Tunnel 與隧道端 JWT 鎖的隔離驗證
 # ---------------------------------------------------------------------------
-# cloudflared 一律用固定版本的容器跑，不在主機裝套件；cert.pem 只放 LOGIN_DIR（root 700）。
-cf() {
-  docker run --rm --user 0:0 -e HOME=/cf -e TUNNEL_ORIGIN_CERT=/cf/.cloudflared/cert.pem \
-    -v "$LOGIN_DIR:/cf/.cloudflared" "$CLOUDFLARED_IMAGE" tunnel "$@"
-}
-# 印隧道 id（沒有這條就印空字串）；列不出來（網路、API 錯）回傳 2，不能當成「沒有」。
-tunnel_id_by_name() {
-  local out
-  out=$(cf list --output json --name "$1" 2>/dev/null) || return 2
-  printf '%s' "$out" | python3 -c '
-import json, sys
-try:
-    rows = json.load(sys.stdin) or []
-except ValueError:
-    sys.exit(2)
-ids = [r.get("id", "") for r in rows if r.get("name") == sys.argv[1]]
-print(ids[0] if ids else "")' "$1"
-}
-# 0＝確定沒有暫時隧道；其他（還在、或列不出來）都不算清乾淨。
-verify_tunnel_gone() {
-  local id
-  id=$(tunnel_id_by_name "$VERIFY_TUNNEL") || return 2
-  [ -z "$id" ]
-}
-cred_tunnel_id() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["TunnelID"])' "$1"; }
-route_dns() { # <隧道> <網址>：已經指到這條隧道也算成功
-  local out
-  if out=$(cf route dns "$1" "$2" 2>&1); then ok "DNS ${2} → ${1}"; return 0; fi
-  case "$out" in
-    *"already configured to route to your tunnel"*) skip "DNS ${2} 已指到 ${1}" ;;
-    *) printf '%s\n' "$out" | sed 's/^/    /'; return 1 ;;
-  esac
-}
-# 用 cert.pem 裡那把只管 roy422.dev 的 token 刪暫時網址的 DNS 記錄（cloudflared 沒有刪 DNS 的子命令）。
-# token 只在 python 行程裡用，不進指令列、不印出來；只刪「名稱完全相同、指到 cfargotunnel.com 的 CNAME」。
-delete_verify_dns() {
-  python3 - "$LOGIN_DIR/cert.pem" "$VERIFY_HOST" <<'PY'
-import base64, json, re, sys, urllib.request
-cert, host = sys.argv[1], sys.argv[2]
-m = re.search(r"-----BEGIN ARGO TUNNEL TOKEN-----(.*?)-----END ARGO TUNNEL TOKEN-----", open(cert).read(), re.S)
-if not m:
-    print("    cert.pem 裡找不到 tunnel token"); sys.exit(1)
-tok = json.loads(base64.b64decode("".join(m.group(1).split())))
-api = "https://api.cloudflare.com/client/v4/zones/%s/dns_records" % tok["zoneID"]
-def call(method, url):
-    req = urllib.request.Request(url, method=method, headers={"Authorization": "Bearer " + tok["apiToken"]})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
-def records():
-    return [r for r in call("GET", api + "?type=CNAME&name=" + host)["result"]
-            if r.get("name") == host and r.get("content", "").endswith(".cfargotunnel.com")]
-for r in records():
-    call("DELETE", api + "/" + r["id"])
-left = records()
-print("    DNS %s：%s" % (host, "已刪" if not left else "還有 %d 筆" % len(left)))
-sys.exit(1 if left else 0)
-PY
-}
-
-VERIFY_CLEANUP_FAILED=0
-cleanup_verify() {
-  docker rm -f "$VERIFY_CF" "$VERIFY_ORIGIN" >/dev/null 2>&1 || true
-  docker network rm "$VERIFY_NET" >/dev/null 2>&1 || true
-  [ -s "$LOGIN_DIR/cert.pem" ] || return 0
-  if ! verify_tunnel_gone; then
-    cf cleanup "$VERIFY_TUNNEL" >/dev/null 2>&1 || true
-    cf delete -f "$VERIFY_TUNNEL" >/dev/null 2>&1 || true
-  fi
-  if ! verify_tunnel_gone; then
-    bad "暫時隧道 ${VERIFY_TUNNEL} 刪不掉或確認不了（Zero Trust → Networks → Tunnels 手動確認、刪掉）"
-    VERIFY_CLEANUP_FAILED=1
-  fi
-  delete_verify_dns || {
-    bad "暫時網址 ${VERIFY_HOST} 的 DNS 記錄刪不掉或確認不了（Cloudflare → roy422.dev → DNS 手動確認、刪掉）"
-    VERIFY_CLEANUP_FAILED=1
-  }
-  return 0
-}
-# 不論成敗（含 Ctrl-C）：先清第 7b 步的暫時資源，再刪 cert.pem（它能管整個 zone，只在建立時需要）。
-# ssh 斷線時 stdout 已經寫不進去：這裡關掉 -e、忽略再來的訊號，清理失敗也一定刪 cert.pem。
-on_exit() {
-  local code=$?
-  set +e
-  trap '' INT HUP TERM
-  if [ -d "$LOGIN_DIR" ]; then
-    cleanup_verify
-    rm -rf "$LOGIN_DIR"
-    echo "  已刪 cert.pem 與暫時登入目錄" 2>/dev/null
-  fi
-  exit "$code"
-}
-
-marker_body() { printf 'team=%s\naud=%s\ncloudflared=%s\nhosts=%s\n' "$ACCESS_TEAM" "$ACCESS_AUD" "$CLOUDFLARED_IMAGE" "$STATUS_HOSTS"; }
-marker_ok() { [ "$(sed '/^at=/d' "$VERIFY_MARKER" 2>/dev/null || true)" = "$(marker_body)" ]; }
-
 step 7 "Cloudflare Tunnel ${TUNNEL_NAME}（${CLOUDFLARED_IMAGE}）：登入、建隧道、四個網址的 DNS、產生設定"
 NEED_LOGIN=0
 [ -s "$SECRETS/tunnel.json" ] || NEED_LOGIN=1
@@ -674,8 +724,6 @@ else
   # 上次被硬砍（kill -9、當機）留下的 cert.pem 先刪掉；要用時下面會重新登入。
   rm -rf "$LOGIN_DIR"
   if [ "$NEED_LOGIN" = 1 ]; then
-    trap on_exit EXIT
-    trap 'exit 130' INT HUP TERM
     install -d -o root -g root -m 700 "$LOGIN_DIR"
     run docker pull -q "$CLOUDFLARED_IMAGE" >/dev/null
     printf '\n  \033[1m下面會印一個 https://dash.cloudflare.com/argotunnel?… 網址：用瀏覽器打開、選 roy422.dev、按 Authorize。\033[0m\n'
@@ -814,15 +862,15 @@ else
   verify_tunnel_lock || vrc=1
   echo "  清理暫時資源："
   cleanup_verify
-  verify_tunnel_gone && ok "cloudflared tunnel list 沒有 ${VERIFY_TUNNEL}"
+  if [ "$VERIFY_CLEANUP_FAILED" = 0 ]; then ok "暫時容器、網路、隧道 ${VERIFY_TUNNEL}、DNS ${VERIFY_HOST} 都確定不在了"; fi
   rm -rf "$LOGIN_DIR"
-  trap - EXIT INT HUP TERM
   ok "已刪 cert.pem"
-  [ "$vrc" = 0 ] || halt 1 "隧道端 JWT 鎖驗證沒過：不起服務（暫時資源已清掉，沒清掉的上面有印）"
-  # 驗證本身過了就先記下來，清理失敗時手動刪完重跑會跳過 7b，不會卡在同一步。
+  [ "$vrc" = 0 ] || halt 1 "隧道端 JWT 鎖驗證沒過：不起服務（暫時資源已清，沒清掉的上面有印）"
+  # 四類暫時資源都確定不在了才寫通過紀錄；沒清乾淨就不寫，下次重跑會重新登入、重新核對殘留。
+  [ "$VERIFY_CLEANUP_FAILED" = 0 ] \
+    || halt 1 "驗證本身通過，但暫時資源沒確定清乾淨（上面有印）：不寫通過紀錄。手動刪掉後重跑同一行，會重新核對"
   { marker_body; printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } | write_file 600 root:root "$VERIFY_MARKER"
-  [ "$VERIFY_CLEANUP_FAILED" = 0 ] || halt 1 "驗證通過（已記錄），但暫時隧道或 DNS 沒清乾淨：照上面手動刪掉後重跑同一行（會跳過 7b）"
-  note "✓" "有鎖 403×3／計數 0；拿掉鎖計數 3；暫時資源已清"
+  note "✓" "有鎖 403×3／計數 0；拿掉鎖計數 3；四類暫時資源確定已清"
 fi
 
 # ---------------------------------------------------------------------------
@@ -849,28 +897,6 @@ if timer_on fju-status-envcheck.timer; then skip "fju-status-envcheck.timer 已�
 # 自動更新會 up -d 把 cloudflared 起來，所以等第 10 步守門通過才啟用（守門沒過時它不能把門再打開）。
 todo "fju-status-update.timer 等第 10 步守門通過才啟用"
 if [ "$units_missing" = 1 ]; then note "✗" "systemd 檔還沒有（S-4）"; else note "✓" "兩組 unit；envcheck timer 已啟用"; fi
-
-# 關門：停掉所有 fju-status 的 cloudflared 容器，並停掉自動更新（timer 與正在跑的那一輪），
-# 不然 10 分鐘內 up -d 會把它再起來。
-GATE_SHUT=0
-shut_gate() {
-  local cid
-  [ "$GATE_SHUT" = 0 ] || return 0
-  GATE_SHUT=1
-  systemctl disable --now fju-status-update.timer >/dev/null 2>&1 || true
-  systemctl stop fju-status-update.service >/dev/null 2>&1 || true
-  for cid in $(svc_cids cloudflared); do docker stop "$cid" >/dev/null 2>&1 || true; done
-  printf '  \033[31m✗\033[0m 已停掉 cloudflared 與 fju-status-update：四個網址現在都連不上。修好後重跑同一行\n' 2>/dev/null || true
-}
-# 第 9 步會起 cloudflared；從這裡到第 10 步通過之間，任何中途結束（halt、set -e、Ctrl-C）都先關門。
-gate_guard() {
-  local code=$?
-  set +e
-  trap '' INT HUP TERM
-  shut_gate
-  exit "$code"
-}
-[ "$DRY_RUN" = 1 ] || { trap gate_guard EXIT; trap 'exit 130' INT HUP TERM; }
 
 # ---------------------------------------------------------------------------
 # 步驟 9：起服務
@@ -941,13 +967,9 @@ else
       close_gate "cloudflared 容器 ${cf_cid} 裡實際掛載的設定沒有每條都帶 originRequest.access"
     fi
   done
-  trap - EXIT INT HUP TERM
-  if timer_on fju-status-update.timer; then
-    skip "fju-status-update.timer 已啟用"
-  else
-    systemctl enable --now fju-status-update.timer
-    ok "守門通過，啟用 fju-status-update.timer（每 10 分鐘）"
-  fi
+  GATE_ARMED=0
+  systemctl enable --now fju-status-update.timer
+  ok "守門通過，啟用 fju-status-update.timer（每 10 分鐘）"
   note "✓" "四個網址都 302 到 Access；實際設定有隧道端 JWT 鎖；自動更新已啟用"
 fi
 
@@ -983,12 +1005,17 @@ LISTEN=${BESZEL_SOCKET}"
       skip "beszel-agent.env 已是 hub 的公鑰"
     else
       printf '%s\n' "$AGENT_ENV_BODY" | write_file 600 "${DEPLOY_USER}:${DEPLOY_USER}" "$SECRETS/beszel-agent.env"
-      (cd "$APP_DIR"; as_deploy bash "$STATUS_UP") || bad "重起 agent 失敗（看上面）"
     fi
-    printf '\n  Roy 第一次開 https://fju-status-vm.roy422.dev 建帳號後，按「新增系統」：\n'
-    printf '    Host / IP 填：\033[1m%s\033[0m（是 socket 路徑，不是網址）\n' "$BESZEL_SOCKET"
-    printf '    公鑰：%s\n' "$pub"
-    note "✓" "Beszel agent 金鑰；新增系統填 ${BESZEL_SOCKET}"
+    # 每次都跑（up -d 冪等）：上次重起失敗時，重跑才會真的把新金鑰套上去。
+    if (cd "$APP_DIR"; as_deploy bash "$STATUS_UP"); then
+      printf '\n  Roy 第一次開 https://fju-status-vm.roy422.dev 建帳號後，按「新增系統」：\n'
+      printf '    Host / IP 填：\033[1m%s\033[0m（是 socket 路徑，不是網址）\n' "$BESZEL_SOCKET"
+      printf '    公鑰：%s\n' "$pub"
+      note "✓" "Beszel agent 金鑰；新增系統填 ${BESZEL_SOCKET}"
+    else
+      bad "金鑰寫好了，但 status-up.sh 重起 agent 失敗（看上面）：修好後重跑同一行"
+      note "✗" "Beszel agent 重起失敗（金鑰已寫，agent 還沒套上）"
+    fi
   fi
 fi
 
