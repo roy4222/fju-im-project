@@ -312,6 +312,13 @@ describe('canViewItem：誰看得到（也決定附件能不能下載）', () =>
     expect(canViewItem(teacher, item('groups'))).toBe(false)
   })
 
+  it('指定組別的收件：組員看得到；那組的指導老師看不到（收件只給組員，Q13 指導老師唯讀只限不收件的）', () => {
+    for (const unit of ['individual', 'group'] as const) {
+      expect(canViewItem(student(COHORT, [G1]), item('groups', 'published', unit))).toBe(true)
+      expect(canViewItem(advisor(G1, COHORT), item('groups', 'published', unit))).toBe(false)
+    }
+  })
+
   it('全部老師：只有老師', () => {
     expect(canViewItem(teacher, item('teachers'))).toBe(true)
     expect(canViewItem(student(COHORT), item('teachers'))).toBe(false)

@@ -1788,6 +1788,35 @@ describe('指導老師（第三波 W4；Q13、Q14，AC-32、AC-33）：本屆公
     expect(await canDownload(teacherOf(s.advisor2), groupFile)).toBe(true)
   })
 
+  it('指定組別的收件（整組一份）：組員看得到、下載得到附件；那組的指導老師列不到、打不開、下載不到', async () => {
+    const s = await scene()
+    const fileId = await uploadPdf(adminId, s.cohortId)
+    const tag = randomUUID().slice(0, 8)
+    const collect = await mustCreate(s.cohortId, {
+      stageId: s.stageId,
+      title: `${tag} G01 收件`,
+      audienceKind: 'groups',
+      groupIds: [s.g1],
+      receiverUnit: 'group',
+      attachmentFileIds: [fileId],
+    })
+    await mustPublish(collect.itemId, 1, false)
+    const canDownload = async (actor: ResolvedActor) => {
+      const result = await storage.authorizeDownload(actor, fileId)
+      if (result.ok) await result.receipt.body.cancel()
+      return result.ok
+    }
+    const listed = async (actor: ResolvedActor) => (await publicQuery.list(actor, 'submission', { q: tag })).length
+
+    expect(await listed(studentActor(s.member))).toBe(1)
+    expect((await publicQuery.open(studentActor(s.member), collect.itemId, 'submission')).access).toBe('visible')
+    expect(await canDownload(studentActor(s.member))).toBe(true)
+
+    expect(await listed(teacherOf(s.advisor1))).toBe(0)
+    expect((await publicQuery.open(teacherOf(s.advisor1), collect.itemId, 'submission')).access).toBe('not_found')
+    expect(await canDownload(teacherOf(s.advisor1))).toBe(false)
+  })
+
   it('通知：指定組別的重要公告寫給組員＋那組目前的指導老師，別組的指導老師不收；本屆學生的重要公告不寫給任何老師', async () => {
     const s = await scene()
     const groupNews = await published(s.cohortId, { audienceKind: 'groups', groupIds: [s.g1] }, true)

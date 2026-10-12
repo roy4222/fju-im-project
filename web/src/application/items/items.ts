@@ -572,7 +572,7 @@ export type ItemVisibility = {
   readonly audienceKind: AudienceKind
   readonly cohortId: string
   readonly groupIds: readonly string[]
-  /** 收件單位：指導老師看「本屆學生」的項目只限不收件的（公告、資源）。 */
+  /** 收件單位：指導老師（不論本屆學生或指定組別）只看得到不收件的項目（公告、資源）。 */
   readonly receiverUnit: ReceiverUnit
 }
 
@@ -583,7 +583,7 @@ export type ItemVisibility = {
  * - 管理員：什麼狀態都看得到（要編輯）。
  * - 其他人：只看得到發布中的，而且要在對象內。草稿、下架都看不到。
  * - 本屆學生：該屆學生；**指導該屆任一組的老師**也看得到，但只限不收件的項目（Q13：唯讀看公告、範本，收件不給）。
- * - 指定組別：那幾組的組員，以及那幾組目前的指導老師（Q14）。
+ * - 指定組別：那幾組的組員；那幾組目前的指導老師也看得到，同樣只限不收件的（Q14；收件只給組員）。
  */
 export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
   if (viewer.kind === 'user' && viewer.roles.includes('admin')) return true
@@ -604,7 +604,9 @@ export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
     case 'groups':
       return (
         viewer.kind === 'user' &&
-        item.groupIds.some((id) => viewer.groupIds.includes(id) || viewer.advisedGroupIds.includes(id))
+        item.groupIds.some(
+          (id) => viewer.groupIds.includes(id) || (item.receiverUnit === 'none' && viewer.advisedGroupIds.includes(id)),
+        )
       )
   }
 }

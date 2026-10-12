@@ -64,7 +64,7 @@ const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.
 
 /**
  * 對象條件（SQL 這一層）：訪客只有公開；管理員全部；其他人＝公開＋所有登入者＋本屆學生（自己那屆；
- * 或自己指導那屆任一組、而且不收件）＋全部老師（有老師角色）＋指定組別（自己在其中一組或指導其中一組）。
+ * 或自己指導那屆任一組、而且不收件）＋全部老師（有老師角色）＋指定組別（自己在其中一組；或指導其中一組、而且不收件）。
  * 跟 `canViewItem` 同一套規則（第三波 W4）。`$n` 從 `first` 開始編。
  */
 function audienceSql(viewer: Viewer, first: number): { sql: string; values: unknown[] } {
@@ -76,13 +76,10 @@ function audienceSql(viewer: Viewer, first: number): { sql: string; values: unkn
            or (m.audience_kind = 'cohort_students' and m.receiver_unit = 'none' and m.cohort_id = any($${first + 3}::uuid[]))
            or (m.audience_kind = 'teachers' and $${first + 1}::boolean)
            or (m.audience_kind = 'groups' and exists (
-                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 2}::uuid[]))))`,
-    values: [
-      viewer.studentCohortId,
-      viewer.roles.includes('teacher'),
-      [...viewer.groupIds, ...viewer.advisedGroupIds],
-      viewer.advisedCohortIds,
-    ],
+                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 2}::uuid[])))
+           or (m.audience_kind = 'groups' and m.receiver_unit = 'none' and exists (
+                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 4}::uuid[]))))`,
+    values: [viewer.studentCohortId, viewer.roles.includes('teacher'), viewer.groupIds, viewer.advisedCohortIds, viewer.advisedGroupIds],
   }
 }
 
