@@ -57,6 +57,7 @@ function run(script: string, args: string[], env: Record<string, string> = {}) {
   const r = spawnSync('bash', [script, ...args], {
     encoding: 'utf8',
     env: {
+      NODE_ENV: 'test',
       PATH: `${bin}:${process.env.PATH}`,
       HOME: dir,
       CALLS_LOG: callsLog,
@@ -108,7 +109,7 @@ function goodConfig({ withoutAccessFor = '' } = {}) {
 }
 
 describe('兩支腳本：語法與 --help', () => {
-  it.each([INSTALL, PREPARE])('bash -n %s', (script) => {
+  it.each([INSTALL, PREPARE])('bash -n %s', (script: string) => {
     const r = spawnSync('bash', ['-n', script], { encoding: 'utf8' })
     expect(r.stderr).toBe('')
     expect(r.status).toBe(0)
@@ -519,7 +520,7 @@ async function makeVm(): Promise<Vm> {
   }
   put('os-release', 'ID=ubuntu\nVERSION_ID="24.04"\n')
   put('rrsync', '#!/bin/sh\n', 0o755)
-  put('mounted/config.yml', goodConfigFor(TEAM.split('.')[0]))
+  put('mounted/config.yml', goodConfigFor(TEAM.replace('.cloudflareaccess.com', '')))
   put('state/hubkey', 'fake private key\n')
   for (const f of ['containers', 'networks', 'logins']) put(`state/${f}`, '')
   put('state/counter', '0\n')
@@ -556,6 +557,7 @@ function installOnVm(vm: Vm, env: Record<string, string> = {}): Promise<{ code: 
   return new Promise((resolve) => {
     const child = spawn('bash', [INSTALL, ...installArgs('--mem-available-override', '8000', '--offsite-dir', path.join(w, 'offsite'))], {
       env: {
+        NODE_ENV: 'test',
         PATH: `${path.join(w, 'bin')}:${process.env.PATH}`,
         HOME: w,
         LANG: 'C.UTF-8',
@@ -576,9 +578,9 @@ function installOnVm(vm: Vm, env: Record<string, string> = {}): Promise<{ code: 
       },
     })
     let out = ''
-    child.stdout.on('data', (d) => (out += d))
-    child.stderr.on('data', (d) => (out += d))
-    child.on('close', (code) => resolve({ code, out }))
+    child.stdout.on('data', (d: Buffer) => (out += d))
+    child.stderr.on('data', (d: Buffer) => (out += d))
+    child.on('close', (code: number | null) => resolve({ code, out }))
   })
 }
 
