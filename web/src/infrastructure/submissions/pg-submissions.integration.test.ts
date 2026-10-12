@@ -673,3 +673,161 @@ describe('收件名單頁（票 18）：三類分開、完成率、點人看版�
     expect(await roster.roster(adminActor(), 'not-a-uuid')).toBeNull()
   })
 })
+
+describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位能在截止後交', () => {
+  // 截止 11/15 23:59（臺灣）；「現在」是 11/16 10:00（臺灣），補交到 11/17 17:00。
+  const AFTER = new Date('2026-11-16T02:00:00Z')
+  const REOPEN_DUE = '2026-11-17T17:00'
+
+  async function closedScenario() {
+    const { cohortId, stageId } = await newCohort()
+    const student = await newStudent(cohortId)
+    const other = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId, { dueAt: '2026-11-15T23:59' })
+    // 兩位都在截止前存了完整草稿，但都沒送出。
+    await mustSave(student, itemId, 0, COMPLETE)
+    await mustSave(other, itemId, 0, COMPLETE)
+    businessNow = AFTER
+    return { cohortId, stageId, student, other, itemId }
+  }
+
+  async function reopenEvents(itemId: string) {
+    return (await owner.sql(`select recipients, payload from domain_events where type = 'submission.reopened' and source_id = $1`, [itemId])).rows
+  }
+
+  it('系辦讓 A 補交：只有 A 收到通知、能存能交，版本標補交；B 仍被擋「已截止」', async () => {
+    const { student, other, itemId } = await closedScenario()
+    const requestId = randomUUID()
+    const opened = await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '住院請假，附診斷證明' }, requestId)
+    expect(opened).toMatchObject({
+      ok: true,
+      receipt: { itemId, receiverKind: 'user', receiverId: student.id, dueAt: '2026-11-17T09:00:00.000Z', reason: '住院請假，附診斷證明', notified: 1 },
+    })
+    // 同一個請求編號重送只算一次。
+    expect(await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '住院請假，附診斷證明' }, requestId)).toEqual(opened)
+    expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
+
+    const events = await reopenEvents(itemId)
+    expect(events).toHaveLength(1)
+    expect(events[0]!.recipients).toEqual([student.id])
+    expect(events[0]!.payload).toMatchObject({ itemId, dueAt: '2026-11-17T09:00:00.000Z' })
+
+    // A：作業區與內容頁帶補交期限；存得了草稿、送得出去，版本標補交。
+    expect((await query.myItems(student.id))[0]).toMatchObject({ itemId, reopenUntil: new Date('2026-11-17T09:00:00Z') })
+    expect(await query.myItem(student.id, itemId)).toMatchObject({ reopenUntil: new Date('2026-11-17T09:00:00Z') })
+    const saved = await mustSave(student, itemId, 1, { ...COMPLETE, topic: '補交的題目' })
+    const sent = await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())
+    expect(sent).toMatchObject({ ok: true, receipt: { versionNo: 1, receivedBusinessAt: AFTER.toISOString() } })
+    expect((await query.myItem(student.id, itemId))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
+    const roster = await new PgRosterQuery(() => app).receiver(adminActor(), itemId, student.id)
+    expect(roster!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
+
+    // B：沒有補交期限，截止規則照舊。
+    expect((await query.myItems(other.id))[0]).toMatchObject({ reopenUntil: null })
+    expect(await submissions.submit(studentActor(other), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
+    expect(await submissions.saveDraft(studentActor(other), itemId, 1, COMPLETE, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
+    expect(await versionCount(itemId)).toBe(1)
+  })
+
+  it('補交期限一樣含那一分鐘：17:00:59 還能交，17:01 起又被擋', async () => {
+    const { student, itemId } = await closedScenario()
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '補交' }, randomUUID())).ok).toBe(true)
+    businessNow = new Date('2026-11-17T09:01:00Z')
+    expect(await submissions.submit(studentActor(student), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
+    businessNow = new Date('2026-11-17T09:00:59.999Z')
+    expect(await submissions.submit(studentActor(student), itemId, 1, randomUUID())).toMatchObject({ ok: true })
+  })
+
+  it('截止前正常交的版本不標補交', async () => {
+    const { student, itemId } = await scenario({ dueAt: '2026-11-15T23:59' })
+    const saved = await mustSave(student, itemId, 0, COMPLETE)
+    expect((await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())).ok).toBe(true)
+    expect((await query.myItem(student.id, itemId))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: false })])
+  })
+
+  it('擋下來的情況：不是系辦、期限不晚於現在、理由空白或太長、還沒截止、名單外、免填；都不留紀錄也不通知', async () => {
+    const { cohortId, student, itemId } = await closedScenario()
+    const ask = (actor: ResolvedActor, receiverId: string, dueAt: string, reason: string, item = itemId) =>
+      submissions.reopen(actor, item, receiverId, { dueAt, reason }, randomUUID())
+
+    expect(await ask(studentActor(student), student.id, REOPEN_DUE, '自己開')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await ask(teacherActor(), student.id, REOPEN_DUE, '老師開')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    // 現在是 11/16 10:00（臺灣）：10:00 不晚於現在、09:00 更早。
+    for (const dueAt of ['2026-11-16T10:00', '2026-11-16T09:00', '不是時間']) {
+      expect(await ask(adminActor(), student.id, dueAt, '補交')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    }
+    expect(await ask(adminActor(), student.id, REOPEN_DUE, '   ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await ask(adminActor(), student.id, REOPEN_DUE, '字'.repeat(201))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+
+    const open = await scenario({ dueAt: '2026-12-31T23:59' })
+    const notClosed = await ask(adminActor(), open.student.id, REOPEN_DUE, '補交', open.itemId)
+    expect(notClosed).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(notClosed.ok ? '' : notClosed.message).toContain('還沒截止')
+
+    const outsider = await newStudent((await newCohort()).cohortId)
+    expect(await ask(adminActor(), outsider.id, REOPEN_DUE, '補交')).toMatchObject({ ok: false, code: 'NOT_IN_ROSTER' })
+
+    const exempt = await newStudent(cohortId)
+    await owner.sql(
+      `insert into response_rosters (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, exempt, exempt_reason, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'user', $3, now(), 'admin', true, '休學', 'system')`,
+      [itemId, cohortId, exempt.id],
+    )
+    expect(await ask(adminActor(), exempt.id, REOPEN_DUE, '補交')).toMatchObject({ ok: false, code: 'EXEMPTED' })
+
+    expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(0)
+    expect(await reopenEvents(itemId)).toHaveLength(0)
+  })
+
+  it('再開一次就再插一列（不改舊的），看最晚的那一個期限；系辦看得到每一次，學生與老師拿到 null', async () => {
+    const { student, itemId } = await closedScenario()
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: '2026-11-16T17:00', reason: '第一次' }, randomUUID())).ok).toBe(true)
+    expect((await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '再延一天' }, randomUUID())).ok).toBe(true)
+
+    const listed = await query.reopens(adminActor(), itemId, student.id)
+    expect(listed!.map((r) => [r.reason, r.dueAt.toISOString(), r.createdByName])).toEqual([
+      ['再延一天', '2026-11-17T09:00:00.000Z', 'A1'],
+      ['第一次', '2026-11-16T09:00:00.000Z', 'A1'],
+    ])
+    expect(await query.reopens(studentActor(student), itemId, student.id)).toBeNull()
+    expect(await query.reopens(teacherActor(), itemId, student.id)).toBeNull()
+    expect(await query.myItem(student.id, itemId)).toMatchObject({ reopenUntil: new Date('2026-11-17T09:00:00Z') })
+
+    const audit = await owner.sql(`select action, payload from audit_events where target_id = $1 and action = 'submission.reopen' order by real_at`, [itemId])
+    expect(audit.rows).toHaveLength(2)
+    expect(audit.rows[0]!.payload).toMatchObject({ receiverKind: 'user', receiverId: student.id })
+  })
+
+  it('整組一份：開給一組，通知那一組目前的組員，任一位都能代表全組補交；別組照舊被擋', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const [a1, a2, b1] = [await newStudent(cohortId), await newStudent(cohortId), await newStudent(cohortId)]
+    const groupOf = async (code: string, members: Person[]) => {
+      const g = await owner.sql(
+        `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+        [cohortId, code],
+      )
+      const id = String(g.rows[0]!.id)
+      for (const m of members) {
+        await owner.sql(
+          `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind) values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+          [id, cohortId, m.id],
+        )
+      }
+      return id
+    }
+    const ga = await groupOf(`RA-${seq}`, [a1, a2])
+    await groupOf(`RB-${seq}`, [b1])
+    const itemId = await published(cohortId, stageId, { receiverUnit: 'group', dueAt: '2026-11-15T23:59' })
+    await mustSave(a1, itemId, 0, COMPLETE)
+    await mustSave(b1, itemId, 0, COMPLETE)
+    businessNow = AFTER
+
+    const opened = await submissions.reopen(adminActor(), itemId, ga, { dueAt: REOPEN_DUE, reason: '組員生病' }, randomUUID())
+    expect(opened).toMatchObject({ ok: true, receipt: { receiverKind: 'group', receiverId: ga, notified: 2 } })
+    expect([...((await reopenEvents(itemId))[0]!.recipients as string[])].sort()).toEqual([a1.id, a2.id].sort())
+
+    expect(await submissions.submit(studentActor(a2), itemId, 1, randomUUID())).toMatchObject({ ok: true, receipt: { versionNo: 1 } })
+    expect(await submissions.submit(studentActor(b1), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
+  })
+})
