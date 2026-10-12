@@ -18,9 +18,9 @@ export const GROUP_TYPE_LABEL: Record<GroupType, string> = { general: '一般專
 
 export type ProposalState = 'open' | 'established' | 'terminated'
 export const PROPOSAL_STATE_LABEL: Record<ProposalState, string> = {
-  open: '等待確認',
+  open: '組隊中（等全員確認）',
   established: '已成立',
-  terminated: '已終止',
+  terminated: '沒有成立',
 }
 
 export type InvitationState = 'pending' | 'confirmed' | 'declined' | 'withdrawn' | 'released'
@@ -29,7 +29,7 @@ export const INVITATION_STATE_LABEL: Record<InvitationState, string> = {
   confirmed: '已確認',
   declined: '已拒絕',
   withdrawn: '已撤回',
-  released: '已釋放',
+  released: '可以重新組隊',
 }
 
 /**
@@ -201,7 +201,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
     case 'established':
       return `全員確認，組別 ${receipt.groupCode} 成立了。`
     case 'conflict':
-      return '有成員剛剛已經加入別的組，這份提案已終止，所有人都已釋放。'
+      return '有成員剛剛已經加入別的組，這次組隊沒有成立，大家都可以重新組隊。'
     case 'already_confirmed':
       return `你之前已經確認過了（${receipt.confirmedCount}／${receipt.memberCount} 已確認）。`
     case 'confirmed':
@@ -210,7 +210,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
 }
 
 export function describeTerminateReceipt(receipt: TerminateReceipt): string {
-  return `提案已終止（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），所有人都已釋放，可以重新發起或被邀請。`
+  return `這次組隊沒有成立（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），大家都可以重新組隊：重新發起或接受邀請。`
 }
 
 /** 到期處理器（背景工作呼叫）的結果；不是給使用者看的回執。 */

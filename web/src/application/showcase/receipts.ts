@@ -10,11 +10,11 @@ import type {
 /** 精選草稿動作成功後給管理員看的一句話（畫面經 composition 取用）。 */
 
 export function describeCreateDraftReceipt(r: CreateDraftReceipt): string {
-  return `已替 ${r.groupCode} 建立精選草稿；填好題目、摘要、海報與影片連結後按「儲存草稿」。`
+  return `已替 ${r.groupCode} 建立成果展示草稿；填好題目、摘要、海報與影片連結後按「儲存草稿」。`
 }
 
 export function describeUpdateDraftReceipt(r: UpdateDraftReceipt): string {
-  return `${r.groupCode ?? '歷屆補登'} 的精選草稿已儲存（第 ${r.revision} 版）${r.posterChanged ? '，海報已更新' : ''}。草稿不會公開。`
+  return `${r.groupCode ?? '歷屆補登'} 的成果展示草稿已儲存（第 ${r.revision} 版）${r.posterChanged ? '，海報已更新' : ''}。草稿不會公開。`
 }
 
 const who = (r: ShowcaseLifecycleReceipt) => `${r.groupCode ?? '歷屆補登'}「${r.title || '（未填題目）'}」`

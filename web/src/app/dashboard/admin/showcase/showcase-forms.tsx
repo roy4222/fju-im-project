@@ -40,11 +40,11 @@ export function CreateDraftForm({
 }) {
   const [state, action, pending] = useActionState(createDraftAction, undefined)
   return (
-    <form action={action} className="flex flex-wrap items-end gap-3" aria-label="建立精選草稿">
+    <form action={action} className="flex flex-wrap items-end gap-3" aria-label="建立成果展示草稿">
       <input type="hidden" name="requestId" value={requestId} />
       {groups.length === 0 ? (
         // 建完最後一組後表單留著（回執才不會跟著消失），只是沒有可以選的組。
-        <p className="text-sm text-muted-foreground">這一屆每一組都已經有精選草稿了，直接在下面編輯。</p>
+        <p className="text-sm text-muted-foreground">這一屆每一組都已經有成果展示草稿了，直接在下面編輯。</p>
       ) : (
         <>
           <label className={LABEL}>
@@ -161,7 +161,7 @@ export function DraftEditor({
   const posterChanged = (chosen?.fileId ?? null) !== (poster?.fileId ?? null)
 
   return (
-    <form action={action} className="space-y-3" aria-label={`${groupCode} 的精選草稿`}>
+    <form action={action} className="space-y-3" aria-label={`${groupCode} 的成果展示草稿`}>
       <input type="hidden" name="requestId" value={requestId} />
       <input type="hidden" name="entryId" value={entryId} />
       <input type="hidden" name="revision" value={revision} />
@@ -496,7 +496,7 @@ export function DeleteEntry({ blockedReason, title, ...ref }: EntryRef & { block
             <h2 className="text-lg font-extrabold text-foreground">刪除 {ref.label}</h2>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               <li>對象：「{title || '（未填題目）'}」這一件作品，含草稿與已發布過的版本。</li>
-              <li>後果：精選看板、優秀專題、歷屆專題一覽都不再出現；作品網址顯示找不到，海報也打不開（系辦也一樣）。</li>
+              <li>後果：成果展示、優秀專題、歷屆專題一覽都不再出現；作品網址顯示找不到，海報也打不開（系辦也一樣）。</li>
               <li>操作紀錄會留一筆是誰刪的。</li>
               <li>
                 <b className="text-foreground">不能恢復</b>；只是暫時不想公開，請改用「下架」。

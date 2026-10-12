@@ -16,7 +16,7 @@ import { parseCsv } from '@/shared/csv'
 export type AdvisorSource = 'claim' | 'admin' | 'csv'
 
 export const ADVISOR_SOURCE_LABEL: Record<AdvisorSource, string> = {
-  claim: '老師認領',
+  claim: '老師擔任指導老師',
   admin: '系辦指派',
   csv: '系辦批次指派',
 }
@@ -83,7 +83,7 @@ export type AdvisorChangeReceipt = {
 
 export function describeAdvisorChangeReceipt(receipt: AdvisorChangeReceipt): string {
   const signoff = receipt.supersededSignoffCount
-    ? `簽核目前版本已失效（指導老師變更），請到「簽核」建立新版。`
+    ? `站內同意書目前的版本已作廢（指導老師變更），請到「站內同意書」建立新版。`
     : ''
   return describeChange(receipt) + signoff
 }
