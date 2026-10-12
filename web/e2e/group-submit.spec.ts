@@ -320,7 +320,7 @@ test('3. 任一組員代表全組送出：收件章回執、另一位組員收�
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
   await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('v1')
+  await expect(receipt).toContainText('第 1 次')
   await expect(receipt).toContainText(`組員二號（代表 ${G1} 全組）`)
   await expect(receipt).toContainText('期中報告.pdf')
   await expect(receipt).toContainText('其他組員會收到一則通知')
@@ -336,12 +336,12 @@ test('3. 任一組員代表全組送出：收件章回執、另一位組員收�
   expect(events.rows).toEqual([{ recipients: [s1.userId] }])
 
   await receipt.getByRole('button', { name: '關閉' }).click()
-  await expect(page.getByTestId('affair-banner')).toContainText('已繳 v1')
+  await expect(page.getByTestId('affair-banner')).toContainText('已繳第 1 次')
 
   // 另一位組員：作業區同步打勾、通知匣有一則（背景工作投影）。
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs')
-  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('已繳 v1')
+  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('已繳第 1 次')
   await expect
     .poll(
       async () =>
@@ -363,7 +363,7 @@ test('4. 截止前換檔重送：第 2 版採計，第 1 版的附件與 checksu
   await page.getByTestId('file-field-report').locator('input[type=file]').setInputFiles({ name: '期中報告-修正.pdf', mimeType: 'application/pdf', buffer: PDF_V2 })
   await expect(page.getByText('「期中報告-修正.pdf」已上傳並附到草稿。')).toBeVisible()
   await page.getByRole('button', { name: '重新送出' }).click()
-  await expect(page.getByTestId('receipt')).toContainText('v2')
+  await expect(page.getByTestId('receipt')).toContainText('第 2 次')
   await expect(page.getByTestId('receipt')).toContainText('組長一號（代表')
 
   const rows = await versions()

@@ -236,9 +236,9 @@ export default async function TeacherHomePage() {
           </div>
 
           <div className="min-w-0">
-            {/* 「可擔任指導老師的產學組」只有老師看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
+            {/* 「待指導的產學組」只有老師看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
             <Panel
-              title="可擔任指導老師的產學組"
+              title="待指導的產學組"
               description={`全體 ${claimable.length} 組・第一位確認的老師就是指導老師`}
               action={{ href: `${BASE}/groups`, label: '全部' }}
               tint="mint"

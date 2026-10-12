@@ -223,7 +223,7 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await page.getByLabel('想做的題目').fill('校園導覽 App')
   await page.getByLabel('一般專題').check()
   await page.getByRole('button', { name: '正式送出' }).click()
-  await expect(page.getByTestId('receipt')).toContainText('v1')
+  await expect(page.getByTestId('receipt')).toContainText('第 1 次')
   await page.getByRole('button', { name: '關閉' }).click()
 
   expect(await homePending(page)).toBe('0 件')
@@ -244,7 +244,7 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await page.goto(rosterPath())
   await expect(page.getByTestId('completion-rate')).toHaveText('1／2')
   const rows = page.getByTestId('roster-current').getByTestId('roster-row')
-  await expect(rows.filter({ hasText: doer.name }).getByTestId('roster-status')).toHaveText('已繳 v1')
+  await expect(rows.filter({ hasText: doer.name }).getByTestId('roster-status')).toHaveText('已繳第 1 次')
   await expect(rows.filter({ hasText: waiter.name }).getByTestId('roster-status')).toHaveText('未繳')
 })
 
@@ -254,7 +254,7 @@ test('點一個人看每一次正式送出與那一次的回答；已移出的�
   await page.getByRole('link', { name: `查看 ${doer.name} 的回答` }).click()
   const view = page.getByTestId('receiver-view')
   await expect(view).toContainText(doer.name)
-  await expect(view).toContainText('已繳 v1')
+  await expect(view).toContainText('已繳第 1 次')
   await expect(view.getByRole('table', { name: '正式送出的版本' })).toContainText('第 1 次')
   await view.getByRole('link', { name: '看回答' }).click()
 

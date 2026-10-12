@@ -195,7 +195,7 @@ test('x4:1-7 前置：背景工作在跑；建屆別與旗標、排階段、轉�
   console.log(`跑之前：開放註冊屆別＝${previousFlags.registrationOpen ?? '（無）'}、預設工作屆別＝${previousFlags.defaultWorking ?? '（無）'}`)
   await createCohortWithFlags(admin, CODE, COHORT_NAME)
   await fillStages(admin, CODE)
-  await expectStatus(admin, `已儲存 ${CODE} 的階段與日期`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${CODE}）的階段與日期`))
   await activateCohort(admin, CODE)
   cohortId = await cohortIdOf(admin, CODE)
   await saveGroupingSettings(admin, cohortId, CODE, 2, 2, 7)

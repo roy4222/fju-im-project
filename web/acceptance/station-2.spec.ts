@@ -155,9 +155,9 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   // 重新整理：存進資料庫；兩個旗標各只有一個。
   await admin.reload()
   await expect(cohortRow(admin, COHORT_CODE)).toContainText('新註冊加入這屆')
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('預設工作中')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('後台預設查看中')
   await expect(admin.getByText('新註冊加入這屆', { exact: true })).toHaveCount(1)
-  await expect(admin.getByText('預設工作中', { exact: true })).toHaveCount(1)
+  await expect(admin.getByText('後台預設查看中', { exact: true })).toHaveCount(1)
   await shot(admin, 'cohort-flags')
 })
 

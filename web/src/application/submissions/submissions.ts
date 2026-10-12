@@ -277,7 +277,7 @@ export function statusOf(facts: StatusFacts): ItemStatusView {
       ...base,
       submitted: true,
       editable,
-      headline: `已繳 v${facts.latestVersionNo}`,
+      headline: `已繳第 ${facts.latestVersionNo} 次`,
       tone: 'success',
       detail: reopenUntil
         ? `${formatTaipeiMinute(reopenUntil)} 前可重送，以最後一次為準`

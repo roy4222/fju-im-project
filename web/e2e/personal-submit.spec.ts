@@ -351,7 +351,7 @@ test('正式送出前驗必填；送出拿到收件章；連點只算一次', as
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
   await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('v1')
+  await expect(receipt).toContainText('第 1 次')
   await expect(receipt).toContainText(s1.name)
   await expect(receipt).toContainText('臺灣時間')
 
@@ -361,7 +361,7 @@ test('正式送出前驗必填；送出拿到收件章；連點只算一次', as
   await expect(receipt).toContainText(rows[0]!.request_id)
 
   await page.getByRole('button', { name: '關閉' }).click()
-  await expect(page.getByTestId('affair-banner')).toContainText('已繳 v1')
+  await expect(page.getByTestId('affair-banner')).toContainText('已繳第 1 次')
   await expect(page.getByRole('button', { name: '重新送出' })).toBeVisible()
 })
 
@@ -390,7 +390,7 @@ test('截止前重送；送出途中斷線顯示結果尚未確認，查得到�
 
   // 再送一次（同一個請求編號）：拿回第 2 次的回執，不會變成第 3 次。
   await page.getByRole('button', { name: '再送一次' }).click()
-  await expect(page.getByTestId('receipt')).toContainText('v2')
+  await expect(page.getByTestId('receipt')).toContainText('第 2 次')
   expect(await versions(itemIds.open, s1.userId)).toHaveLength(2)
   await page.getByRole('button', { name: '關閉' }).click()
   await page.unroute(openPath())
@@ -403,10 +403,11 @@ test('本人看得到每一次正式送出的版本（繳交歷史、當時的�
   const history = page.getByRole('table', { name: '繳交歷史' })
   await expect(history.getByRole('row')).toHaveCount(3)
   const rows = await versions(itemIds.open, s1.userId)
-  await expect(history).toContainText(rows[0]!.request_id)
-  await expect(history).toContainText(rows[1]!.request_id)
+  // 繳交證明編號不再印在歷史列表（W13b：預設收合），改在每一版的內容頁收合顯示。
+  await expect(history).not.toContainText(rows[0]!.request_id)
 
   await page.goto(`${openPath()}?tab=history&version=1`)
+  await expect(page.getByTestId('version-view').getByTestId('receipt-no')).toContainText(rows[0]!.request_id)
   await expect(page.getByTestId('version-view')).toContainText('校園導覽 App')
   await expect(page.getByTestId('version-view')).not.toContainText('第二版')
   await expect(page.getByTestId('version-view')).toContainText('已被後來的版本取代')
@@ -422,7 +423,7 @@ test('本人看得到每一次正式送出的版本（繳交歷史、當時的�
   // 作業區狀態跟著變。
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs')
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已繳 v2')
+  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已繳第 2 次')
   await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('截止前可重送')
 })
 

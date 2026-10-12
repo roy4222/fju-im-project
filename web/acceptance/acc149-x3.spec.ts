@@ -168,7 +168,7 @@ test('x3:5 COH-01 階段開始日不遞增被擋，改正後儲存；轉進行�
   await shot(admin, 'stage-order-blocked')
   await dialog.getByLabel('第 2 階段開始日').fill(ymd(30))
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expectStatus(admin, `已儲存 ${CODE} 的階段與日期`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${CODE}）的階段與日期`))
   await activateCohort(admin, CODE)
 })
 
@@ -285,7 +285,7 @@ test('x3:12 學生 1 送 v1 再改內容（不送）；學生 2 只存草稿、�
   await s1.goto(`/dashboard/student/affairs/${itemId}`)
   await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止前第一版')
   await s1.getByRole('button', { name: '正式送出' }).click()
-  await expect(s1.getByTestId('receipt')).toContainText('v1')
+  await expect(s1.getByTestId('receipt')).toContainText('第 1 次')
   await s1.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
   await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止分鐘內的第二版')
 
@@ -304,7 +304,7 @@ test('x3:13 SUB-16 COH-10 COH-04 業務時間推到截止那一分鐘（23:59:07
   const s1 = student(0).page
   await s1.getByRole('button', { name: '重新送出' }).click()
   const receipt = s1.getByTestId('receipt')
-  await expect(receipt).toContainText('v2')
+  await expect(receipt).toContainText('第 2 次')
   await expect(receipt).toContainText(new RegExp(`${dayRe(DUE_DAY)} 23:59`))
   await shot(s1, 'resubmit-last-minute')
   await receipt.getByRole('button', { name: '關閉' }).click()
@@ -370,7 +370,7 @@ test('x3:17 COH-10 業務鐘倒退回現在：學生 2 又可以送，草稿還�
   await s2.goto(`/dashboard/student/affairs/${itemId}`)
   await expect(s2.getByRole('textbox', { name: '內容', exact: true })).toHaveValue('149 補驗：學生二的草稿')
   await s2.getByRole('button', { name: '正式送出' }).click()
-  await expect(s2.getByTestId('receipt')).toContainText('v1')
+  await expect(s2.getByTestId('receipt')).toContainText('第 1 次')
   await shot(s2, 'resubmit-after-rewind')
   await s2.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
 })

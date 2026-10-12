@@ -126,7 +126,7 @@ function parseTaipeiSecond(text: string): number {
 
 async function setClock(page: Page, ms: number, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(localSecond(ms))
+  await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill(localSecond(ms))
   await page.getByLabel('原因').fill(reason)
   await page.getByRole('button', { name: '設定模擬時間' }).click()
   await expectStatus(page, '已設定模擬時間')
@@ -273,7 +273,7 @@ test('0 前置：背景工作在跑、測試站有模擬業務鐘；管理員登
   admin = await adminPage(browser)
   const response = await admin.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await admin.getByLabel('系統認定的現在時間').innerText())
+  const business = parseTaipeiSecond(await admin.getByLabel('目前的系統時間').innerText())
   const simulated = await admin.getByText('模擬中：').count()
   previousClockOffset = simulated > 0 ? business - Date.now() : null
   clockTouched = true
@@ -312,7 +312,7 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
   }
   await dialog.getByLabel('年度結束日').fill(ymd(300))
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expectStatus(admin, `已儲存 ${CODE} 的階段與日期`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${CODE}）的階段與日期`))
   await expect(admin.getByRole('list', { name: '本屆階段' })).toContainText('成組期')
 
   await admin.getByRole('button', { name: '新增活動' }).click()
@@ -330,7 +330,7 @@ test('票 11 建屆別、設旗標；時間軸填四個階段與年度結束日�
   // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await admin.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expectStatus(admin, `已把 ${CODE} 轉為進行中`)
+  await expectStatus(admin, new RegExp(`已把.*（${CODE}）轉為進行中`))
   await expect(cohortRow(admin, CODE)).toContainText('進行中')
   await shot(admin, 'cohort-active')
 })
@@ -357,7 +357,7 @@ test('票 14 分組設定：每組最少 3 人（本屆 3–5 人）', async () 
   expect(cohortId).toMatch(/^[0-9a-f-]{36}$/)
   await openAdminGroups(admin)
   await admin.getByRole('button', { name: '分組設定' }).click()
-  const dialog = admin.getByRole('dialog', { name: `${CODE} 的分組設定` })
+  const dialog = admin.getByRole('dialog', { name: new RegExp(`（${CODE}） 的分組設定`) })
   await dialog.getByLabel('每組最少人數').fill('3')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expectStatus(admin, '每組 3–5 人')
@@ -591,11 +591,11 @@ test('票 17 學生 3 個人填報：存草稿、正式送出拿到收件章回�
   await page.getByRole('button', { name: '正式送出' }).click()
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('v1')
+  await expect(receipt).toContainText('第 1 次')
   await expect(receipt).toContainText(student(2).name)
   await shot(page, 'personal-receipt')
   await receipt.getByRole('button', { name: '關閉' }).click()
-  await expect(page.getByTestId('affair-banner')).toContainText('已繳 v1')
+  await expect(page.getByTestId('affair-banner')).toContainText('已繳第 1 次')
 })
 
 test('票 21 組別共用草稿、上傳 PDF、組長代表全組送出；其他組員收到通知', async () => {
@@ -623,14 +623,14 @@ test('票 21 組別共用草稿、上傳 PDF、組長代表全組送出；其他
   await s2.getByRole('button', { name: '代表全組正式送出' }).click()
   const receipt = s2.getByTestId('receipt')
   await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('v1')
+  await expect(receipt).toContainText('第 1 次')
   await expect(receipt).toContainText(`${student(1).name}（代表 ${group} 全組）`)
   await expect(receipt).toContainText('期中報告.pdf')
   await shot(s2, 'group-receipt')
   await receipt.getByRole('button', { name: '關閉' }).click()
 
   await s1.goto('/dashboard/student/affairs')
-  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText('已繳 v1')
+  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText('已繳第 1 次')
   await waitForInbox(s1, `正式送出了「${GROUP_ITEM}」`)
   await shot(s1, 'group-submitted-notice')
 })
@@ -649,7 +649,7 @@ test('票 18／22 名單頁完成率：個人收件 1／4、整組收件 1／1�
 test('票 22 甲老師（主指導）看到繳交矩陣，點進去下載組別附件', async () => {
   await teacherA.goto('/dashboard/teacher/affairs')
   const row = teacherA.getByTestId(`matrix-row-${group}`)
-  await expect(row).toContainText('已繳 v1')
+  await expect(row).toContainText('已繳第 1 次')
   await shot(teacherA, 'teacher-matrix')
   await row.locator(`a[data-testid="matrix-cell"][href*="${itemIds.group}"]`).click()
   await expect(teacherA.getByTestId('receiver-view')).toContainText(`${group} 組`)

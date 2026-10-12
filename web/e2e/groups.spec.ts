@@ -270,7 +270,7 @@ test('管理員：分組總覽列出這一組與組長；改每組人數後摘�
   await expect(page.getByTestId('grouping-settings')).toContainText('每組 5 人')
 
   await page.getByRole('button', { name: '分組設定' }).click()
-  const dialog = page.getByRole('dialog', { name: `${CODE} 的分組設定` })
+  const dialog = page.getByRole('dialog', { name: new RegExp(`（${CODE}） 的分組設定`) })
   await dialog.getByLabel('每組最少人數').fill('6')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(dialog.getByRole('alert')).toContainText('不能比最多人數')

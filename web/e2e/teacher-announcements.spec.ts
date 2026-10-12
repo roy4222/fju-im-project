@@ -362,7 +362,7 @@ test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成�
     els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent ?? ''),
   )
   expect(clipped).toEqual([])
-  for (const title of ['我的評分', '給老師的公告', '本屆活動', '可擔任指導老師的產學組', '同意書', '指導中的組別', '合作案']) {
+  for (const title of ['我的評分', '給老師的公告', '本屆活動', '待指導的產學組', '同意書', '指導中的組別', '合作案']) {
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
   }
   const signoff = page.locator('section').filter({ has: page.getByRole('heading', { name: '同意書', exact: true }) })

@@ -34,8 +34,9 @@ test.afterAll(async () => {
 })
 
 async function signInAs(page: Page, role: TestRole) {
-  const session = await sharedTestSession(page.request, role)
+  // 先清掉上一個身分的 cookie：還沒快取的身分要現場註冊，帶著舊 session cookie 的 POST 會被 Better Auth 當跨站請求擋掉（MISSING_OR_NULL_ORIGIN）。
   await page.context().clearCookies()
+  const session = await sharedTestSession(page.request, role)
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   return session
 }
@@ -61,7 +62,7 @@ async function stageText(page: Page, path: string) {
  */
 async function setClock(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(local)
+  await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
   await page.getByRole('button', { name: '設定模擬時間' }).click()
   await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
@@ -112,7 +113,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(dialog.getByRole('complementary', { name: '學生看到的樣子' })).toContainText('五人一組報名，各自確認後成立。')
   await dialog.getByLabel('年度結束日').fill('2027-06-30')
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expect(feedback(page, 'status')).toContainText(`已儲存 ${CODE} 的階段與日期`)
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`已儲存.*（${CODE}）的階段與日期`))
   await expect(dialog).toBeHidden()
 
   const list = page.getByRole('list', { name: '本屆階段' })
@@ -197,7 +198,7 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })).toContainText('尚未開始（設定中）')
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await confirm.getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'status')).toContainText(`已把 ${CODE} 轉為進行中`)
+  await expect(feedback(page, 'status')).toContainText(new RegExp(`已把.*（${CODE}）轉為進行中`))
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
   await expect(row).toContainText('進行中')
   await expect(page.getByRole('button', { name: `把 ${CODE} 轉為進行中` })).toHaveCount(0)
@@ -228,14 +229,14 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/clock')
   await expect(page.getByRole('heading', { name: '模擬時鐘' })).toBeVisible()
-  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill('2027-03-01T10:00')
+  await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill('2027-03-01T10:00')
   await page.getByRole('button', { name: '設定模擬時間' }).click()
   await expect(feedback(page, 'alert')).toContainText('請填原因：為什麼要調整模擬時鐘。')
 
   // 第一階段開始日的前一晚：尚未開始。（設定後業務鐘會繼續走，所以不設在最後一秒；
   // 秒級邊界由單元測試證明。）
   await setClock(page, '2026-09-14T23:00:05', 'e2e：第一階段前一晚')
-  await expect(page.getByLabel('系統認定的現在時間')).toContainText('2026/09/14 23:00:')
+  await expect(page.getByLabel('目前的系統時間')).toContainText('2026/09/14 23:00:')
   await expect(await stageText(page, '/dashboard/admin')).toHaveText('尚未開始')
 
   // 第二階段開始日 00:00:00：三個角色都是階段 2。

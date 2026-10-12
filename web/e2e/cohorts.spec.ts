@@ -127,11 +127,11 @@ test('預設工作屆別與開放註冊屆別是兩件事，可以是不同屆�
 
   // 離開再回來：存在資料庫，不是只改了畫面。
   await page.reload()
-  await expect(rowOf(page, CODE_A)).toContainText('預設工作中')
+  await expect(rowOf(page, CODE_A)).toContainText('後台預設查看中')
   await expect(rowOf(page, CODE_A)).not.toContainText('新註冊加入這屆')
   await expect(rowOf(page, CODE_B)).toContainText('新註冊加入這屆')
-  await expect(rowOf(page, CODE_B)).not.toContainText('預設工作中')
-  await expect(page.getByText('預設工作中')).toHaveCount(1)
+  await expect(rowOf(page, CODE_B)).not.toContainText('後台預設查看中')
+  await expect(page.getByText('後台預設查看中')).toHaveCount(1)
   await expect(page.getByText('新註冊加入這屆')).toHaveCount(1)
 })
 

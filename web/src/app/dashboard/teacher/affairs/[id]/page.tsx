@@ -231,7 +231,7 @@ function entryStatus(
   const reopened = entry.latestVersionNo === null && !status.overdue && receiverStatus(window, facts, businessNow).overdue
   const detail =
     entry.latestVersionNo !== null && entry.latestReceivedAt
-      ? `v${entry.latestVersionNo}・${entry.latestSubmittedByName ?? ''}・${formatTaipeiMinute(entry.latestReceivedAt).slice(5)}`
+      ? `第 ${entry.latestVersionNo} 次・${entry.latestSubmittedByName ?? ''}・${formatTaipeiMinute(entry.latestReceivedAt).slice(5)}`
       : reopened
         ? status.detail
         : status.overdue

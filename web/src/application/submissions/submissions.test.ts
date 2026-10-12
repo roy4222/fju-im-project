@@ -175,14 +175,14 @@ describe('作業區狀態字', () => {
     expect(statusOf(facts({}))).toMatchObject({ headline: '未繳', detail: '進行中', pending: true, action: '去繳交' })
     expect(statusOf(facts({ hasDraft: true }))).toMatchObject({ headline: '未繳', action: '繼續填寫', pending: true })
     expect(statusOf(facts({ latestVersionNo: 2 }))).toMatchObject({
-      headline: '已繳 v2',
+      headline: '已繳第 2 次',
       editable: true,
       submitted: true,
       pending: false,
       action: '查看或重送',
     })
     expect(statusOf(facts({ latestVersionNo: 2, phase: 'closed' }))).toMatchObject({
-      headline: '已繳 v2',
+      headline: '已繳第 2 次',
       detail: '截止後唯讀',
       editable: false,
       overdue: false,
@@ -202,7 +202,7 @@ describe('作業區狀態字', () => {
     })
     expect(statusOf(facts({ reopenUntil, hasDraft: true }))).toMatchObject({ detail: '草稿已存・系辦開放補交到 2026/11/17 17:00', action: '繼續填寫' })
     expect(statusOf(facts({ reopenUntil, latestVersionNo: 1 }))).toMatchObject({
-      headline: '已繳 v1',
+      headline: '已繳第 1 次',
       detail: '2026/11/17 17:00 前可重送，以最後一次為準',
       editable: true,
     })

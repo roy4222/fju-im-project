@@ -58,7 +58,7 @@ export function taipeiMs(date: string, time: string): number {
 /** 直接填 `datetime-local` 的字串（`YYYY-MM-DDTHH:mm:ss`）。 */
 export async function setClockLocal(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('要模擬的現在時間（臺灣，到秒）').fill(local)
+  await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
   await page.getByRole('button', { name: '設定模擬時間' }).click()
   await expectStatus(page, '已設定模擬時間')
@@ -72,7 +72,7 @@ export async function setClock(page: Page, ms: number, reason: string) {
 export async function readClockOffset(page: Page): Promise<number | null> {
   const response = await page.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await page.getByLabel('系統認定的現在時間').innerText())
+  const business = parseTaipeiSecond(await page.getByLabel('目前的系統時間').innerText())
   const simulated = await page.getByText('模擬中：').count()
   return simulated > 0 ? business - Date.now() : null
 }
@@ -148,7 +148,7 @@ export async function activateCohort(admin: Page, code: string) {
   // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${code} 轉為進行中` }).click()
   await admin.getByRole('dialog', { name: `把 ${code} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expectStatus(admin, `已把 ${code} 轉為進行中`)
+  await expectStatus(admin, new RegExp(`已把.*（${code}）轉為進行中`))
   await expect(cohortRow(admin, code)).toContainText('進行中')
 }
 
@@ -169,12 +169,12 @@ export async function openAdminGroups(admin: Page, cohortId: string) {
 export async function saveGroupingSettings(admin: Page, cohortId: string, code: string, min: number, max: number, days: number) {
   await openAdminGroups(admin, cohortId)
   await admin.getByRole('button', { name: '分組設定' }).click()
-  const dialog = admin.getByRole('dialog', { name: `${code} 的分組設定` })
+  const dialog = admin.getByRole('dialog', { name: new RegExp(`（${code}） 的分組設定`) })
   await dialog.getByLabel('每組最多人數').fill(String(max))
   await dialog.getByLabel('每組最少人數').fill(String(min))
   await dialog.getByLabel('提案預設天數').fill(String(days))
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expectStatus(admin, `已儲存 ${code} 的分組設定`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${code}）的分組設定`))
 }
 
 export function groupRow(admin: Page, group: string) {

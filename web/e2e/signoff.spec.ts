@@ -199,7 +199,7 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
   await expect(page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })).toBeVisible()
   await page.keyboard.press('Escape')
   // 系辦沒有任何替人同意的入口。
-  await expect(page.getByRole('button', { name: /同意/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^(?!新增站內同意書$).*同意/ })).toHaveCount(0)
 
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
   await expect(page.getByText('尚無成果展示草稿')).toBeVisible()
@@ -207,7 +207,7 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
   await signIn(page, loner)
   await page.goto('/dashboard/student/signoff')
   // 學生側欄照原型叫「同意書」（票 38）。
-  await expect(page.getByRole('link', { name: '同意書', exact: true })).toHaveAttribute('href', '/dashboard/student/signoff')
+  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/student/signoff')
   await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
   await expect(page.getByText('你目前不在任何組別裡')).toBeVisible()
 
@@ -303,7 +303,7 @@ test('建簽核版本：全文空、沒選精選草稿被拒；選好後回執�
   await form.getByLabel(/期末報告\.pdf/).check()
   await form.getByRole('button', { name: '建立站內同意書' }).click()
   await expect(form.getByRole('status')).toContainText(`已建立 G01「最終文件授權」同意書第 1 版：參與者 3 位學生＋指導老師 ${TEACHER_NAME}`)
-  await form.getByRole('link', { name: '看剛建立的版本' }).click()
+  await form.getByRole('link', { name: '看剛建立的同意書' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/signoff\/[0-9a-f-]{36}$/)
   finalV1 = page.url().split('/').at(-1)!
 

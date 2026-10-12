@@ -268,7 +268,7 @@ test('1. 全組、目前主指導、系辦看到同一份版本歷史；名單�
   await signIn(page, t1)
   await page.goto('/dashboard/teacher/affairs')
   const row = page.getByTestId(`matrix-row-${G1}`)
-  await expect(row).toContainText('已繳 v2')
+  await expect(row).toContainText('已繳第 2 次')
   await row.getByTestId('matrix-cell').first().click()
   await expect(page.getByTestId('receiver-view')).toContainText(`${G1} 組`)
   expect(await versionRows(page, '正式送出的版本')).toEqual(byStudent)
@@ -311,7 +311,7 @@ test('2＋3. 下載授權逐角色；矩陣只列自己目前指導的組；換�
 
   await signIn(page, t3)
   await page.goto('/dashboard/teacher/affairs')
-  await expect(page.getByTestId(`matrix-row-${G1}`)).toContainText('已繳 v2')
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toContainText('已繳第 2 次')
   expect((await page.request.get(url)).status()).toBe(200)
 })
 

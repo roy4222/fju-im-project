@@ -109,7 +109,7 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
   await expect(row).toContainText('資源附件')
   await expect(row.getByRole('link', { name: TITLE })).toHaveAttribute('href', `/dashboard/admin/editor/${itemId}`)
   await expect(row.getByRole('link', { name: `下載 ${FILE_NAME}` })).toHaveAttribute('href', /^\/api\/files\/[0-9a-f-]{36}$/)
-  await expect(row.getByRole('link', { name: '去解除引用' })).toHaveAttribute('href', `/dashboard/admin/editor/${itemId}`)
+  await expect(row.getByRole('link', { name: '去移除使用處' })).toHaveAttribute('href', `/dashboard/admin/editor/${itemId}`)
 
   // 下載走原本的授權路由：系辦拿得到這個檔。
   const href = await row.getByRole('link', { name: `下載 ${FILE_NAME}` }).getAttribute('href')

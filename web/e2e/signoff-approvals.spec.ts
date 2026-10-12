@@ -137,7 +137,7 @@ async function createVersion(page: Page, groupCode: string) {
   await form.getByLabel('全文').fill(`${CONTENT}${groupCode}`)
   await form.getByRole('button', { name: '建立站內同意書' }).click()
   await expect(form.getByRole('status')).toContainText(`已建立 ${groupCode}「期中結果確認」`)
-  await form.getByRole('link', { name: '看剛建立的版本' }).click()
+  await form.getByRole('link', { name: '看剛建立的同意書' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/signoff\/[0-9a-f-]{36}$/)
   return page.url().split('/').at(-1)!
 }
@@ -436,6 +436,6 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
 
   await signIn(page, g2[2]!)
   await page.goto('/dashboard/student/signoff')
-  await expect(page.getByTestId('signoff-invalidated')).toContainText('此版本已作廢（本學期不做期中確認）')
+  await expect(page.getByTestId('signoff-invalidated')).toContainText('這一版同意書已作廢（本學期不做期中確認）')
   await expect(page.getByTestId('respond-form')).toHaveCount(0)
 })

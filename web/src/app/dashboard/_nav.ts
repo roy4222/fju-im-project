@@ -69,7 +69,7 @@ export const STUDENT_NAV: readonly NavItem[] = [
   // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
   { href: '/dashboard/student/industry', label: '產學合作' },
   // 同意書（票 25、26；原型學生側欄叫「同意書」）：自己組別的簽核版本全文與逐人同意。
-  { href: '/dashboard/student/signoff', label: '同意書' },
+  { href: '/dashboard/student/signoff', label: '站內同意書' },
 ]
 
 /**
