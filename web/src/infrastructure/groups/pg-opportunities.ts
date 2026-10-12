@@ -1214,28 +1214,32 @@ export class PgOpportunityQuery implements OpportunityQuery {
       [admin ? null : actor.userId],
     )
     const links = await linkedGroups(this.#reader(), rows.rows.map((r) => r.id))
-    return rows.rows.map((r) => ({
-      id: r.id,
-      ownerUserId: r.owner_teacher_user_id,
-      ownerName: r.owner_name,
-      status: r.status,
-      revision: r.revision,
-      publishedAt: r.published_business_at,
-      withdrawnAt: r.withdrawn_business_at,
-      fields: {
-        companyName: r.company_name,
-        department: r.department,
-        content: r.content,
-        requirements: r.requirements,
-        notes: r.notes,
-        notesVisibility: r.notes_visibility,
-        address: r.address,
-        contactName: r.contact_name,
-        contactPhone: r.contact_phone,
-        contactEmail: r.contact_email,
-      },
-      links: links.get(r.id) ?? [],
-    }))
+    return rows.rows.map((r) => {
+      const opportunityLinks = links.get(r.id) ?? []
+      return {
+        id: r.id,
+        ownerUserId: r.owner_teacher_user_id,
+        ownerName: r.owner_name,
+        status: r.status,
+        revision: r.revision,
+        publishedAt: r.published_business_at,
+        withdrawnAt: r.withdrawn_business_at,
+        fields: {
+          companyName: r.company_name,
+          department: r.department,
+          content: r.content,
+          requirements: r.requirements,
+          notes: r.notes,
+          notesVisibility: r.notes_visibility,
+          address: r.address,
+          contactName: r.contact_name,
+          contactPhone: r.contact_phone,
+          contactEmail: r.contact_email,
+        },
+        links: opportunityLinks,
+        deleteBlocker: opportunityDeleteBlocker({ status: r.status, linkedGroupCodes: opportunityLinks.map((l) => l.groupCode) }),
+      }
+    })
   }
 
   async leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null> {

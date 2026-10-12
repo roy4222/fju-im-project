@@ -399,6 +399,8 @@ export type ManagedOpportunity = {
   readonly withdrawnAt: Date | null
   readonly fields: NormalizedOpportunity
   readonly links: readonly LinkedGroupRef[]
+  /** 不能刪的原因（`opportunityDeleteBlocker`；第三波 W11）；可以刪是 null。 */
+  readonly deleteBlocker: string | null
 }
 
 /** 組別目前連結的合作案（組別頁、分組總覽、匯出都用）。 */
