@@ -79,7 +79,7 @@ export function AffairsList({
         <span>狀態</span>
         <span>對象</span>
         <span>截止／發布</span>
-        <span>收件名單</span>
+        <span>繳交名單</span>
         <span />
       </div>
       <ul className="divide-y divide-border border-t border-border md:border-t-0">
@@ -130,8 +130,8 @@ export function AffairsList({
             </span>
             <span className="flex gap-1.5 md:justify-end">
               {r.roster?.href ? (
-                <Link href={r.roster.href} className={BTN_OUTLINE_SM} aria-label={`收件：${r.title}`}>
-                  收件
+                <Link href={r.roster.href} className={BTN_OUTLINE_SM} aria-label={`繳交：${r.title}`}>
+                  繳交
                 </Link>
               ) : null}
               <Link href={r.editHref} className={BTN_OUTLINE_SM} aria-label={`編輯：${r.title}`}>

@@ -77,7 +77,7 @@ import { formatTaipeiMinute, isDeadlinePassed, RealClock, type Clock } from '@/s
 
 const SUBJECT_TYPE = 'item'
 const FILE_REF_TYPE = 'item_attachment' as const
-const ROSTER_REMOVED_BY_SETTINGS = '發布對象或收件單位變更'
+const ROSTER_REMOVED_BY_SETTINGS = '誰看得到或繳交方式變更'
 const ROSTER_REMOVED_BY_WITHDRAW = '項目撤回成草稿'
 const LIFECYCLE_ACTIONS: readonly LifecycleAction[] = ['withdraw', 'archive', 'republish']
 const LIFECYCLE_EVENT: Readonly<Record<LifecycleAction, 'item.withdrawn' | 'item.archived' | 'item.republished'>> = {
@@ -557,10 +557,10 @@ export class PgItemCommand implements ItemCommand {
       if (item.status !== 'published') return err('VALIDATION_FAILED', '已下架的項目要先重新發布才能修改。')
       if (draft.cohortId !== item.cohort_id) return err('VALIDATION_FAILED', '項目建立後不能換屆別；請另建一筆。')
       if (draft.placement !== item.placement) {
-        return err('VALIDATION_FAILED', '已發布的項目不能換發布位置；要換位置請另建一筆。')
+        return err('VALIDATION_FAILED', '已發布的項目不能換顯示的區塊；要換區塊請另建一筆。')
       }
       if (!sameTime(draft.opensAt, item.opens_at)) {
-        return err('VALIDATION_FAILED', '已發布的收件不能改開放時間（實際開放時間已經記下）。')
+        return err('VALIDATION_FAILED', '已發布的繳交項目不能改開放時間（實際開放時間已經記下）。')
       }
 
       const contentChanged =
@@ -589,12 +589,12 @@ export class PgItemCommand implements ItemCommand {
       // 有人作答後：收件單位鎖定，對象與欄位結構也不在這裡改（產品模組 04 §4.5；改結構與受眾變更在後面的票）。
       if ((unitChanged || audienceChanged || schemaChanged) && (await this.#responses.hasAnyResponse(tx, itemId))) {
         if (unitChanged) {
-          return err('ITEM_HAS_RESPONSES', '已經有人作答，收件單位（個人一份／整組一份）不能再切換；需要另一種收件請另建一筆。')
+          return err('ITEM_HAS_RESPONSES', '已經有人作答，繳交方式（個人一份／整組一份）不能再切換；需要另一種繳交方式請另建一筆。')
         }
         if (audienceChanged) {
-          return err('ITEM_HAS_RESPONSES', '已經有人作答，這裡不能直接改發布對象（名單與完成率要重算，功能在後續版本）。')
+          return err('ITEM_HAS_RESPONSES', '已經有人作答，這裡不能直接改誰看得到（名單與完成率要重算，功能在後續版本）。')
         }
-        return err('ITEM_HAS_RESPONSES', '已經有人作答，收件欄位不能原地改；改結構要建立新欄位版本並預覽影響（功能在後續版本）。')
+        return err('ITEM_HAS_RESPONSES', '已經有人作答，繳交欄位不能原地改；改結構要建立新的表單版本並預覽影響（功能在後續版本）。')
       }
 
       const failed = failedChecks(publishChecks(draft, item.actual_opened_at ?? businessAt))
@@ -1448,7 +1448,7 @@ export class PgItemCommand implements ItemCommand {
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'items', body, (constraint) =>
       constraint === 'response_rosters_one_current'
-        ? err('CONFLICT', '收件名單剛剛被同時修改，請重新整理頁面再試一次。')
+        ? err('CONFLICT', '繳交名單剛剛被同時修改，請重新整理頁面再試一次。')
         : err('CONFLICT', '剛剛有人同時修改了這個項目，請重新整理頁面再試一次。'),
     )
   }

@@ -25,8 +25,8 @@ export async function setAdvisorVisibilityAction(_state: VisibilityActionState, 
   return {
     ok: true,
     message: result.receipt.enabled
-      ? `已開放：從欄位第 ${result.receipt.effectiveFromVersionNo} 版起正式送出的回答，學生目前組別的主指導看得到；學生填寫頁會出現告知。`
-      : '已關閉：老師馬上看不到這份收件的個人回答，附件也下載不到。',
+      ? `已開放：從表單第 ${result.receipt.effectiveFromVersionNo} 版起正式送出的回答，學生目前組別的指導老師看得到；學生填寫頁會出現告知。`
+      : '已關閉：老師馬上看不到這份繳交項目的個人回答，附件也下載不到。',
   }
 }
 

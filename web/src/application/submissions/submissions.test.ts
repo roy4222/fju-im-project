@@ -188,7 +188,7 @@ describe('作業區狀態字', () => {
       overdue: false,
     })
     expect(statusOf(facts({ phase: 'closed' }))).toMatchObject({ headline: '逾期未繳', overdue: true, editable: false })
-    expect(statusOf(facts({ exempt: true }))).toMatchObject({ headline: '免填', editable: false, pending: false })
+    expect(statusOf(facts({ exempt: true }))).toMatchObject({ headline: '免繳', editable: false, pending: false })
   })
 
   it('個別補交（W10）：補交期間寫「系辦開放補交到…」；已繳的可重送到補交期限', () => {
@@ -212,7 +212,7 @@ describe('作業區狀態字', () => {
 describe('回執句子', () => {
   it('寫第幾次與秒級的收件時間（臺灣時間）', () => {
     expect(describeReceipt({ title: '意向調查', versionNo: 2, receivedBusinessAt: '2026-11-15T15:59:59.000Z' })).toBe(
-      '「意向調查」已收件：第 2 次正式送出，收件時間 2026/11/15 23:59:59（臺灣時間）。',
+      '「意向調查」已送出：第 2 次正式送出，送出時間 2026/11/15 23:59:59（臺灣時間）。',
     )
   })
 })

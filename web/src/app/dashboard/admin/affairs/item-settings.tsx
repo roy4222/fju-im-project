@@ -116,7 +116,7 @@ export function SettingsFields({
   const audienceField = (
     <div>
       <label htmlFor={id('audience')} className={LABEL}>
-        發布對象
+        誰看得到
       </label>
       <select
         id={id('audience')}
@@ -131,9 +131,9 @@ export function SettingsFields({
           </option>
         ))}
       </select>
-      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">收件只能發給本屆學生或指定組別。</p> : null}
+      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">繳交項目只能發給本屆學生或指定組別。</p> : null}
       {honor ? (
-        <p className="mt-1.5 text-xs text-muted-foreground">榮譽榜是公開頁：對象固定「公開訪客」，不收件、不發通知。</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">榮譽榜是公開頁：「誰看得到」固定「公開訪客」，不用繳交、不發通知。</p>
       ) : null}
     </div>
   )
@@ -144,7 +144,7 @@ export function SettingsFields({
         <>
           <div>
             <label htmlFor={id('placement')} className={LABEL}>
-              發布位置
+              顯示在哪一區
             </label>
             <select
               id={id('placement')}
@@ -167,7 +167,7 @@ export function SettingsFields({
         </>
       ) : (
       <fieldset className="sm:col-span-2">
-        <legend className={cn(LABEL, 'mb-1.5')}>發布位置（單選）</legend>
+        <legend className={cn(LABEL, 'mb-1.5')}>顯示在哪一區（單選）</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           {vocabulary.placements.map((p) => {
             const on = state.placement === p.value
@@ -217,7 +217,7 @@ export function SettingsFields({
 
       {collects ? (
         <fieldset className="sm:col-span-2">
-          <legend className={cn(LABEL, 'mb-1.5')}>收件單位</legend>
+          <legend className={cn(LABEL, 'mb-1.5')}>繳交方式</legend>
           <div className="flex flex-wrap gap-2">
             {vocabulary.units
               .filter((u) => u.value !== 'none')
@@ -238,7 +238,7 @@ export function SettingsFields({
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {unitLocked
-              ? '已經有人作答，收件單位鎖定、不能再切換。'
+              ? '已經有人作答，繳交方式鎖定、不能再切換。'
               : '個人一份：每位學生各交一份。整組一份：組員共用一份，任一人送出代表整組。有人作答後就不能切換。'}
           </p>
         </fieldset>

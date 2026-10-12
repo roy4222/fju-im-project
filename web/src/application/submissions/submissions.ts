@@ -264,7 +264,7 @@ export type StatusFacts = {
 export function statusOf(facts: StatusFacts): ItemStatusView {
   const base = { pending: false, submitted: false, overdue: false, editable: false }
   if (facts.exempt) {
-    return { ...base, headline: '免填', tone: 'muted', detail: '系辦已將你設為免填這份收件', action: '查看' }
+    return { ...base, headline: '免繳', tone: 'muted', detail: '系辦已將你設為免繳這一項（系辦可恢復）', action: '查看' }
   }
   if (facts.phase === 'not_open') {
     const when = facts.opensAt ? `${formatTaipeiMinute(facts.opensAt)} 開放` : '尚未開放'
@@ -315,5 +315,5 @@ export function describeReceipt(receipt: {
   readonly groupCode?: string | null
 }): string {
   const who = receipt.groupCode ? `代表 ${receipt.groupCode} 組` : ''
-  return `「${receipt.title}」已收件：${who}第 ${receipt.versionNo} 次正式送出，收件時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
+  return `「${receipt.title}」已送出：${who}第 ${receipt.versionNo} 次正式送出，送出時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
 }

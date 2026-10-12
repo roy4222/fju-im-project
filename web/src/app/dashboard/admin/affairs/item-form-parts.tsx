@@ -313,7 +313,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
     return (
       <details className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
         <summary className="cursor-pointer font-semibold">
-          收件名單：{recipients.people.length} 位學生（每人一份）
+          需要繳交的名單：{recipients.people.length} 位學生（每人一份）
         </summary>
         {recipients.people.length === 0 ? (
           <p className="mt-2 text-muted-foreground">對象裡目前沒有符合資格的學生。</p>
@@ -337,7 +337,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
     return (
       <details className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
         <summary className="cursor-pointer font-semibold">
-          收件名單：{recipients.groups.length} 組（每組一份，任一組員送出代表整組）
+          需要繳交的名單：{recipients.groups.length} 組（每組一份，任一組員送出代表整組）
         </summary>
         {recipients.groups.length === 0 ? (
           <p className="mt-2 text-muted-foreground">對象裡目前沒有已成立的組別。</p>

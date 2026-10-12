@@ -65,7 +65,7 @@ export const COLLECTION_AUDIENCES: readonly AudienceKind[] = ['cohort_students',
 
 export type ReceiverUnit = 'none' | 'individual' | 'group'
 export const RECEIVER_UNIT_LABEL: Readonly<Record<ReceiverUnit, string>> = {
-  none: '不收件',
+  none: '不用繳交',
   individual: '個人一份',
   group: '整組一份',
 }
@@ -304,7 +304,7 @@ export function normalizeField(raw: unknown, index: number): Normalized<FormFiel
     if (allowed.length === 0) return invalid(`${where}至少要允許一種檔案類型。`, 'fields')
     const maxMiB = given.maxMiB === undefined ? 20 : Number(given.maxMiB)
     if (!Number.isInteger(maxMiB) || maxMiB < 1 || maxMiB > FILE_FIELD_MAX_MIB) {
-      return invalid(`${where}的大小上限要是 1 到 ${FILE_FIELD_MAX_MIB} MiB 的整數。`, 'fields')
+      return invalid(`${where}的大小上限要是 1 到 ${FILE_FIELD_MAX_MIB} MB 的整數。`, 'fields')
     }
     fileRules = { allowedTypes: allowed, maxMiB }
   }
@@ -346,7 +346,7 @@ export function normalizeSchema(rawFields: readonly unknown[]): Normalized<FormF
 export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (!isUuid(input.cohortId)) return invalid('請選擇屆別。', 'cohortId')
   const placement = String(input.placement) as EditablePlacement
-  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源、文件繳交、專題規則或榮譽／競賽。', 'placement')
+  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇顯示在哪一區：公告、資源、文件繳交、專題規則或榮譽／競賽。', 'placement')
 
   const title = cleanLine(input.title)
   if (title === '') return invalid('請填標題。', 'title')
@@ -360,9 +360,9 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
 
   const collects = collectsResponses(placement)
   const audienceKind = String(input.audienceKind) as AudienceKind
-  if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇發布對象。', 'audienceKind')
+  if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇誰看得到。', 'audienceKind')
   if (collects && !COLLECTION_AUDIENCES.includes(audienceKind)) {
-    return invalid('收件只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+    return invalid('繳交項目只能發給「本屆學生」或「指定組別」。', 'audienceKind')
   }
   if (placement === HONOR_PLACEMENT && audienceKind !== 'public') {
     return invalid('榮譽榜是公開頁，對象只能是「公開訪客」。', 'audienceKind')
@@ -372,7 +372,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (collects) {
     const unit = String(input.receiverUnit)
     if (unit !== 'individual' && unit !== 'group') {
-      return invalid('文件繳交要選收件單位：個人一份或整組一份。', 'receiverUnit')
+      return invalid('文件繳交要選繳交方式：個人一份或整組一份。', 'receiverUnit')
     }
     receiverUnit = unit
   }
@@ -496,7 +496,7 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
     { key: 'title', label: '標題', ok: state.title.trim() !== '', fix: '填標題' },
     {
       key: 'audience',
-      label: '對象',
+      label: '誰看得到',
       ok: state.audienceKind !== 'groups' || state.groupIds.length > 0,
       fix: '指定組別至少選一組',
     },
@@ -504,8 +504,8 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
   if (collects) {
     const opens = state.opensAt ?? openAt
     checks.push(
-      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這份收件屬於哪個階段' },
-      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '收件一定要有截止時間' },
+      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這個繳交項目屬於哪個階段' },
+      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '繳交項目一定要有截止時間' },
       {
         key: 'window',
         label: '時間',

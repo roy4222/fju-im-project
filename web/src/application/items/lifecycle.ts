@@ -44,7 +44,7 @@ export function lifecycleCheck(
         return {
           ok: false,
           code: 'ITEM_HAS_RESPONSES',
-          message: '已經有人作答，不能撤回成草稿（回答要保留）；不再收件請改用「下架」。',
+          message: '已經有人作答，不能撤回成草稿（回答要保留）；不再讓學生繳交請改用「下架」。',
         }
       }
       return { ok: true }
@@ -68,7 +68,7 @@ export function lifecycleCheck(
  * 下架的項目不能改截止，所以提示的下一步是另建一份或維持下架留紀錄。
  */
 export function describeRepublishExpired(dueAt: Date): string {
-  return `這份收件的截止（${formatTaipeiMinute(dueAt)}，臺灣時間）已經過了，不能直接重新發布。要再收件請另建一份新的收件並設新的截止；只是要保留紀錄的話維持下架即可。`
+  return `這個繳交項目的截止（${formatTaipeiMinute(dueAt)}，臺灣時間）已經過了，不能直接重新發布。要再讓學生繳交請另建一個新的繳交項目並設新的截止；只是要保留紀錄的話維持下架即可。`
 }
 
 /** 刪除被擋時的固定文案（畫面停用按鈕旁、伺服器拒絕都用這兩句）。 */
@@ -138,8 +138,8 @@ export function describeLifecycleReceipt(receipt: LifecycleReceipt): string {
     : ''
   switch (receipt.action) {
     case 'withdraw': {
-      const roster = receipt.rosterClosed > 0 ? `收件名單 ${receipt.rosterClosed} 筆已結束，再發布時照當下的對象重建。` : ''
-      return `「${receipt.title}」已撤回成草稿，受眾看不到了。${roster}改好後按「發布」就會恢復同一個項目；${opened}`
+      const roster = receipt.rosterClosed > 0 ? `需要繳交的名單 ${receipt.rosterClosed} 筆已結束，再發布時照當下「誰看得到」的設定重建。` : ''
+      return `「${receipt.title}」已撤回成草稿，原本看得到的人都看不到了。${roster}改好後按「發布」就會恢復同一個項目；${opened}`
     }
     case 'archive':
       return `「${receipt.title}」已下架。前台網址會顯示「已下架」與下一步；既有回答與紀錄都保留。`

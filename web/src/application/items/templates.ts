@@ -22,7 +22,7 @@ export type ItemTemplate = {
 export const PROJECT_REQUIREMENT_TEMPLATE: ItemTemplate = {
   id: 'project_requirement',
   label: '套用專題需求表欄位',
-  description: '插入指導老師、組長、專題名稱、開發軟體、硬體需求等 7 個欄位，收件單位改為整組一份',
+  description: '插入指導老師、組長、專題名稱、開發軟體、硬體需求等 7 個欄位，繳交方式改為整組一份',
   receiverUnit: 'group',
   fields: [
     { key: 'advisor', type: 'text', label: '指導老師', required: true },

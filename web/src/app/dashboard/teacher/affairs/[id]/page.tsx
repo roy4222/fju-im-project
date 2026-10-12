@@ -12,7 +12,7 @@ import { RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '收件狀態｜資管系專題平台' }
+export const metadata = { title: '繳交狀態｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TONE: Record<StatusTone, PillTone> = { success: 'success', brand: 'brand', muted: 'default', info: 'info', danger: 'danger' }
@@ -63,7 +63,7 @@ export default async function TeacherAffairPage({
             title={item.title}
             description={
               individual
-                ? `只列你指導的學生、欄位第 ${view.effectiveFromVersionNo ?? 1} 版起正式送出的回答；草稿不給老師看。`
+                ? `只列你指導的學生、表單第 ${view.effectiveFromVersionNo ?? 1} 版起正式送出的回答；草稿不給老師看。`
                 : '只列你此刻指導的組別；這裡只有正式送出的版本，共用草稿不給老師看。'
             }
             actions={
@@ -72,8 +72,8 @@ export default async function TeacherAffairPage({
                   <IconClock className="mr-1 size-3" />
                   {item.dueAt ? `${formatTaipeiMinute(item.dueAt)} 截止（含此分鐘）` : '沒有截止'}
                 </Pill>
-                {item.schemaVersionNo ? <Pill>表單格式第 {item.schemaVersionNo} 版</Pill> : null}
-                {view.effectiveFromVersionNo ? <Pill>主指導閱覽自欄位第 {view.effectiveFromVersionNo} 版起</Pill> : null}
+                {item.schemaVersionNo ? <Pill>表單第 {item.schemaVersionNo} 版</Pill> : null}
+                {view.effectiveFromVersionNo ? <Pill>指導老師閱覽自表單第 {view.effectiveFromVersionNo} 版起</Pill> : null}
               </>
             }
           />
@@ -114,7 +114,7 @@ export default async function TeacherAffairPage({
           <VersionTable versions={receiver.versions} hrefOf={(no) => `${receiverBase}&version=${no}`} />
           <p className="mt-3 text-xs text-muted-foreground">
             {individual
-              ? `只列欄位第 ${view.effectiveFromVersionNo ?? 1} 版起正式送出的回答；草稿不給老師看。`
+              ? `只列表單第 ${view.effectiveFromVersionNo ?? 1} 版起正式送出的回答；草稿不給老師看。`
               : '這裡只列正式送出的版本，跟組員、系辦看到的是同一份；共用草稿不給老師看。'}
           </p>
         </div>
@@ -148,17 +148,17 @@ export default async function TeacherAffairPage({
         title={individual ? '我指導的學生' : '我的指導組別'}
         unit={unit}
         entries={entries}
-        emptyText={individual ? '你指導的組裡沒有人在這份收件的名單上。' : '你指導的組都不在這份收件的名單上。'}
+        emptyText={individual ? '你指導的組裡沒有人在這個繳交項目的名單上。' : '你指導的組都不在這個繳交項目的名單上。'}
       />
       <div className="flex flex-col gap-5">
-        <Panel title="收件進度" icon={<IconFileText />} description={`應交 ${completion.required} ${unit}`} testId="completion">
+        <Panel title="繳交進度" icon={<IconFileText />} description={`需要繳交 ${completion.required} ${unit}`} testId="completion">
           <div className="flex items-center gap-5 px-5 py-4">
             <Ring
               value={completion.percent}
               size={84}
               stroke={9}
               color="var(--success)"
-              label={completion.percent === null ? '沒有應交的人' : `完成 ${completion.percent}%`}
+              label={completion.percent === null ? '沒有需要繳交的人' : `完成 ${completion.percent}%`}
             >
               <span className="tabular text-base font-extrabold text-foreground">{completion.percent === null ? '—' : `${completion.percent}%`}</span>
             </Ring>
@@ -189,10 +189,10 @@ export default async function TeacherAffairPage({
             />
           </div>
           <p className="tabular border-t border-border px-5 py-2.5 text-xs text-muted-foreground">
-            不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
+            不計入：免繳 {completion.exempt} {unit}・已移出名單 {completion.removed} {unit}
           </p>
         </Panel>
-        <Panel title="欄位" icon={<IconFileText />} description={`${fields.length} 個・版本 ${item.schemaVersionNo ?? 1}`}>
+        <Panel title="欄位" icon={<IconFileText />} description={`${fields.length} 個・表單第 ${item.schemaVersionNo ?? 1} 版`}>
           <ul className="flex flex-col gap-1 px-5 pb-3 text-sm">
             {fields.map((f) => (
               <li key={f.key} className="flex items-center justify-between gap-2 py-1">
@@ -200,7 +200,7 @@ export default async function TeacherAffairPage({
                 {f.required ? <span className="shrink-0 text-[11px] text-destructive">必填</span> : null}
               </li>
             ))}
-            {fields.length === 0 ? <li className="py-1 text-muted-foreground">這份收件沒有要填的欄位。</li> : null}
+            {fields.length === 0 ? <li className="py-1 text-muted-foreground">這個繳交項目沒有要填的欄位。</li> : null}
           </ul>
         </Panel>
       </div>
@@ -224,7 +224,7 @@ function entryStatus(
       overdue: false,
     }
   }
-  if (category === 'exempt') return { headline: '免填', tone: 'default', detail: `理由：${entry.exemptReason ?? ''}`, missing: false, overdue: false }
+  if (category === 'exempt') return { headline: '免繳', tone: 'default', detail: `理由：${entry.exemptReason ?? ''}`, missing: false, overdue: false }
   // 個別補交期限（W10b）跟系辦名單同一個判斷：補交中、期限未到是「未繳」＋「系辦開放補交到…」，過了仍未交才逾期。
   const facts = { exempt: false, hasDraft: false, latestVersionNo: entry.latestVersionNo }
   const status = receiverStatus(window, { ...facts, reopenUntil: entry.reopenUntil }, businessNow)
