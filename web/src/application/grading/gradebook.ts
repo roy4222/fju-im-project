@@ -153,7 +153,7 @@ export function computeGroupResult(
 
 /** 計算明細的一行：「(80 + 84.29) ÷ 2 = 82.145 → 82.15」（除不盡時原始精度收到小數四位，寫「≈」）。 */
 export function describeStageFormula(stage: StageResult): string {
-  if (stage.counted.length === 0 || stage.averageExact === null) return '還沒有採計中的正式評分。'
+  if (stage.counted.length === 0 || stage.averageExact === null) return '還沒有計入成績的正式評分。'
   const values = stage.counted.map((c) => c.exact)
   const body = values.length === 1 ? values[0]! : `(${values.join(' ＋ ')}) ÷ ${values.length}`
   return `${body} ${approx(stage.averageRounded)} ${stage.averageExact} → ${stage.averageDisplay}`
@@ -210,7 +210,7 @@ export type OverrideState = 'effective' | 'pending_review' | 'superseded'
 
 export const OVERRIDE_STATE_LABEL: Record<OverrideState, string> = {
   effective: '生效中',
-  pending_review: '待重新確認',
+  pending_review: '需要重新確認',
   superseded: '已被取代',
 }
 
@@ -241,5 +241,5 @@ export function describeOverride(override: OverrideSummary | null): string {
   const change = `原 ${formatScore(override.originalValue)} → ${formatScore(override.newValue)}`
   return override.state === 'effective'
     ? `已更正：${change}（${override.reason}）`
-    : `人工更正待重新確認：${change}（分數來源已改變，目前不套用）`
+    : `更正需要重新確認：${change}（分數來源已改變，目前不套用）`
 }

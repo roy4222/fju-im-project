@@ -46,7 +46,7 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
       <Card title={`${p.groupCode}「${p.stageName}」・${p.teacherName} 老師`}>
         <dl className="grid gap-3 text-sm sm:grid-cols-4" data-testid="reassign-before">
           <div>
-            <dt className="text-xs text-muted-foreground">現在採計</dt>
+            <dt className="text-xs text-muted-foreground">目前計入成績</dt>
             <dd className="tabular-nums text-foreground">{p.countedBefore.map((c) => `${c.teacherName} ${c.display}`).join('、') || '沒有'}</dd>
           </div>
           <div>
@@ -66,8 +66,8 @@ export default async function ReassignPage({ params }: { params: Promise<{ assig
         </dl>
         <p className="mt-3 text-sm text-muted-foreground">
           {p.hasCounted ? `${p.teacherName} 老師已正式送出分數，請選這一筆怎麼算。` : `${p.teacherName} 老師還沒有正式分數，只能「替換」（可以只移除）。`}
-          {p.hasDraft ? '他的暫存會標成失效（保留內容與原因，只有系辦查得到），不會轉給新老師。' : ''}
-          移除的只是這一組這一階段的評分權限；主指導或其他階段的指派不受影響。
+          {p.hasDraft ? '他的評分草稿會作廢（保留內容與原因，只有系辦查得到），不會轉給新老師。' : ''}
+          移除的只是這一組這一階段的評分權限；指導老師或其他階段的指派不受影響。
         </p>
       </Card>
       <Card title="三種選擇">

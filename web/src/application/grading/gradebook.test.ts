@@ -181,7 +181,7 @@ describe('採用的最終成績與更正註記（GRD-08、GRD-15）', () => {
     const pending = { ...override, state: 'pending_review' as const }
     expect(adoptedFinal({ finalDisplay: '86.10' }, pending)).toEqual({ value: '86.10', source: 'computed', pendingReview: true })
     expect(adoptedFinal({ finalDisplay: null }, pending).value).toBeNull()
-    expect(describeOverride(pending)).toBe('人工更正待重新確認：原 85.29 → 88.00（分數來源已改變，目前不套用）')
+    expect(describeOverride(pending)).toBe('更正需要重新確認：原 85.29 → 88.00（分數來源已改變，目前不套用）')
   })
 
   it('沒有更正或已被取代：照算出來的值、沒有註記', () => {

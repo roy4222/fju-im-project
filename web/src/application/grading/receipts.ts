@@ -30,7 +30,7 @@ export function describeAssignEvaluatorReceipt(r: AssignEvaluatorReceipt): strin
 }
 
 export function describeDraftReceipt(r: DraftReceipt): string {
-  return `已暫存（填了 ${r.filled}／${r.total} 項）。暫存只有你和系辦看得到，不算正式分數。`
+  return `已暫存（填了 ${r.filled}／${r.total} 項）。評分草稿只有你和系辦看得到，不算正式分數。`
 }
 
 export function describeFinalReceipt(r: FinalReceipt): string {
