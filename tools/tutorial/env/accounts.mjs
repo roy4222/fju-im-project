@@ -2,12 +2,13 @@
 /**
  * 教學影片的示範帳號：照設定檔替指定的人設本機密碼、讓他們直接登入（不用先改密碼）。
  *
- *   node tools/tutorial/env/accounts.mjs apply              照設定檔設密碼（up.sh、reset.sh 會自動跑）
- *   node tools/tutorial/env/accounts.mjs list [--passwords]  印「角色／示範名稱／登入帳號」對照（加 --passwords 連密碼一起印）
- *   node tools/tutorial/env/accounts.mjs check               每個帳號真的登入一次，確認進得了自己的首頁、看得到自己的名字
+ *   [INSTANCE=n] node tools/tutorial/env/accounts.mjs apply              照設定檔設密碼（up.sh、reset.sh 會自動跑）
+ *   [INSTANCE=n] node tools/tutorial/env/accounts.mjs list [--passwords]  印「角色／示範名稱／登入帳號」對照（加 --passwords 連密碼一起印）
+ *   [INSTANCE=n] node tools/tutorial/env/accounts.mjs check               每個帳號真的登入一次，確認進得了自己的首頁、看得到自己的名字
  *
- * 設定檔：~/work/tutorial-secrets/accounts.json（TUTORIAL_ACCOUNTS_FILE 可改），權限 600，不進 repo。
- * 沒有這個檔就從同目錄的 accounts.default.json 複製一份；沒寫 password 的人自動產生隨機密碼並寫回。
+ * INSTANCE=0～4（沒設＝0）：實例 n 連 fju_tutorial（0）或 fju_tutorial_<n>、網站 port 3300+n。
+ * 設定檔：實例 0 是 ~/work/tutorial-secrets/accounts.json，實例 n 是 accounts-<n>.json，權限 600，不進 repo。
+ * 實例 n 的設定檔沒有時從實例 0 那份複製（帳號密碼跟實例 0 一樣）；實例 0 的沒有時從同目錄的 accounts.default.json 複製；沒寫 password 的人自動產生隨機密碼並寫回。
  * 要加人：在 accounts 陣列加一筆 { "role": "...", "name": "示範名稱" }（或用 "email" 指定），再跑 apply。
  *
  * 只動本機的教學資料庫（DATABASE_URL_OWNER，預設 fju_tutorial）。示範帳號原本沒有密碼（seed-demo 刻意的），
@@ -19,6 +20,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { checkDbName, checkPgUrl, instanceOf, validateAccounts } from './safety.mjs'
 
 const HERE = import.meta.dirname
 const WEB_DIR = path.join(process.env.TUTORIAL_REPO ?? path.join(HERE, '..', '..', '..'), 'web')
@@ -28,34 +30,38 @@ const { Pool } = requireWeb('pg')
 const { uuidv7 } = requireWeb('uuidv7')
 const { hashPassword } = await import(pathToFileURL(requireWeb.resolve('better-auth/crypto')).href)
 
-const SECRETS_DIR = process.env.TUTORIAL_SECRETS_DIR ?? path.join(os.homedir(), 'work', 'tutorial-secrets')
-const CONFIG = process.env.TUTORIAL_ACCOUNTS_FILE ?? path.join(SECRETS_DIR, 'accounts.json')
-const DEFAULTS = path.join(HERE, 'accounts.default.json')
-const BASE_URL = `http://localhost:${process.env.TUTORIAL_PORT ?? '3300'}`
-const DB_URL =
-  process.env.DATABASE_URL_OWNER ??
-  `postgres://fju_owner:${process.env.TUTORIAL_PG_OWNER_PASSWORD ?? 'fju_local_dev'}@${process.env.TUTORIAL_PG_HOSTPORT ?? '127.0.0.1:55432'}/${process.env.TUTORIAL_DB ?? 'fju_tutorial'}`
-
 const [command = 'list', ...flags] = process.argv.slice(2)
 
-// 本機教學庫以外一律不碰（這支會改密碼）。
-if (!/@(127\.0\.0\.1|localhost)(:\d+)?\//.test(DB_URL)) {
-  console.error('accounts.mjs 只操作本機資料庫（127.0.0.1／localhost），拒絕執行。')
+let INSTANCE, BASE_URL, DB_URL
+// 任何副作用（建設定檔、連資料庫）之前：確認實例、照 pg 實際的解析結果確認只連本機這個實例的教學庫（這支會改密碼）。
+try {
+  INSTANCE = instanceOf(process.env.INSTANCE)
+  BASE_URL = `http://localhost:${INSTANCE.port}`
+  DB_URL = process.env.DATABASE_URL_OWNER ?? `postgres://fju_owner:fju_local_dev@127.0.0.1:55432/${INSTANCE.dbName}`
+  if (process.env.TUTORIAL_DB !== undefined) checkDbName(process.env.TUTORIAL_DB, INSTANCE.dbName)
+  checkPgUrl(DB_URL, requireWeb(createRequire(requireWeb.resolve('pg')).resolve('pg-connection-string')).parse, INSTANCE.dbName)
+} catch (error) {
+  console.error(`[tutorial-env] 拒絕執行：${error.message}`)
   process.exit(1)
 }
+
+const SECRETS_DIR = process.env.TUTORIAL_SECRETS_DIR ?? path.join(os.homedir(), 'work', 'tutorial-secrets')
+const CONFIG_0 = path.join(SECRETS_DIR, 'accounts.json')
+const CONFIG = INSTANCE.n === 0 ? CONFIG_0 : path.join(SECRETS_DIR, `accounts-${INSTANCE.n}.json`)
+const DEFAULTS = path.join(HERE, 'accounts.default.json')
 
 function loadConfig() {
   if (!fs.existsSync(CONFIG)) {
     fs.mkdirSync(path.dirname(CONFIG), { recursive: true, mode: 0o700 })
-    fs.copyFileSync(DEFAULTS, CONFIG)
-    console.log(`第一次使用：從 accounts.default.json 建立 ${CONFIG}`)
+    const source = CONFIG !== CONFIG_0 && fs.existsSync(CONFIG_0) ? CONFIG_0 : DEFAULTS
+    fs.copyFileSync(source, CONFIG)
+    console.log(`第一次使用：從 ${path.basename(source)} 建立 ${CONFIG}`)
   }
   fs.chmodSync(CONFIG, 0o600)
   const config = JSON.parse(fs.readFileSync(CONFIG, 'utf8'))
-  if (!Array.isArray(config.accounts)) throw new Error(`${CONFIG} 要有 accounts 陣列`)
+  validateAccounts(config)
   let changed = false
   for (const a of config.accounts) {
-    if (!a.role || (!a.name && !a.email)) throw new Error(`每筆要有 role，以及 name 或 email：${JSON.stringify(a)}`)
     if (!a.password) {
       // 16 個字元以上、好唸好打：Demo- 開頭＋隨機字母數字。
       a.password = `Demo-${randomBytes(12).toString('base64url').replace(/[-_]/g, 'x')}`
@@ -67,7 +73,7 @@ function loadConfig() {
 }
 
 /** 用 name 或 email 找出示範帳號；必須剛好一個（停用的不算）。 */
-async function findUser(db, a) {
+async function findUser(db, a, i) {
   const { rows } = await db.query(
     `select u.id, u.email, u.status, coalesce(p.display_name, u.name) as name
        from users u left join user_profiles p on p.user_id = u.id
@@ -75,11 +81,10 @@ async function findUser(db, a) {
     [a.email ?? a.name],
   )
   if (rows.length === 1) return rows[0]
-  throw new Error(`${a.role}「${a.name ?? a.email}」${rows.length === 0 ? '找不到（是不是名字打錯、或還沒跑 seed-demo？）' : `有 ${rows.length} 個同名帳號，請改用 email 指定`}`)
+  throw new Error(`accounts[${i}]（${a.role}）${rows.length === 0 ? '找不到對應的帳號（是不是名字打錯、或還沒跑 seed-demo？）' : `對到 ${rows.length} 個帳號，請改用 email 指定`}`)
 }
 
 async function createAdmin(db, a) {
-  if (!a.email || !a.name) throw new Error(`create: admin 要寫 name 與 email：${JSON.stringify(a)}`)
   const found = await db.query('select id from users where email = $1', [a.email])
   if (found.rowCount > 0) return
   const id = uuidv7()
@@ -128,7 +133,7 @@ async function withDb(fn) {
 
 async function resolveAll(db, accounts) {
   const out = []
-  for (const a of accounts) out.push({ ...a, user: await findUser(db, a) })
+  for (const [i, a] of accounts.entries()) out.push({ ...a, user: await findUser(db, a, i) })
   return out
 }
 
