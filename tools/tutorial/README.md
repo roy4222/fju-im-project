@@ -29,7 +29,7 @@ try {
   const page = await newTutorialPage(browser);
   const t = (chapter = await startChapter({ page, id: '3-3', chapter: '學生｜繳交作業', baseURL: 'http://localhost:3000', displayOrigin: 'test.fju.roy422.dev' }));
   await t.offRecord(() => loginAs(page, 'student'));          // 不進影片：登入、準備資料（環境提供的輔助函式）
-  await t.step({ caption: '打開作業頁', narration: '登入後，從左側選單進入專題事務的作業頁。', status: 'warn', note: '截止提醒尚未實作' }, async () => {
+  await t.step({ caption: '打開作業頁', narration: '登入後，從左側選單進入專題事務的作業頁。', status: { kind: 'warn', say: '截止提醒還沒做', evidence: 'story-2 第 39 步' } }, async () => {
     await t.click(page.getByRole('link', { name: '作業' }));  // 換頁會自動等新頁穩定（不進影片）
     await t.upload(page.locator('input[type=file]'), 'fixtures/report.pdf', { via: page.getByRole('button', { name: '選擇檔案' }) });
   });
@@ -74,10 +74,19 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 | `displayOrigin` | 假網址列顯示的主機（本機錄影時填 `test.fju.roy422.dev`）。 |
 | `tts` | 配音 provider，預設 `sayProvider({ voice: 'Meijia', rate: 190 })`。 |
 
-### `t.step({ caption, narration, status, note }, fn)`
+### `t.step({ caption, narration, status }, fn)`
 
 - `caption`：字幕（短）。`narration`：配音（完整句子，可以比字幕長）。
-- `status`：`'ok' | 'warn' | 'bad' | 'pending'` → ✅ ⚠️ ❌ 🟡，`note` 是旁邊那句說明；只在這一步出現在右上角。
+- `status`：`{ kind: 'ok' | 'warn' | 'bad' | 'pending', say?: string, evidence?: string }`，只在這一步出現在右上角。
+  畫面上只顯示**圖示＋白話**（給 Roy 看的，不是依據）：
+  - `ok` →「✅ 正常」，有 `say` 就「✅ 」＋say（例如「✅ 可以正常送出」）
+  - `warn` →「⚠️ 」＋say（例如「⚠️ 截止提醒還沒做」）
+  - `bad` →「❌ 」＋say（例如「❌ 按了沒反應」）
+  - `pending` →「🟡 等你決定：」＋say（例如「🟡 等你決定：名稱要不要改」）
+
+  `say` 超過 22 字畫面上截斷加「…」（`events.json` 留全文）。`evidence`（依據，例如「story-2 第 39 步」「UX N-17」）**不上畫面**，
+  只寫進 `events.json` 與 assemble 產出的 `feature-timeline.md`（「各步驟狀態與依據」段）和 `index.html`。
+  舊寫法 `status: 'ok', note: '…'` 仍可用：`note` 視為 `evidence`，不上畫面。
 - **節奏由配音決定**：先合成配音（合成時間不進影片），配音在步驟開始 250 ms 後起播，`fn` 裡的動作同時進行；步驟長度至少「配音長度＋0.6 秒」，動作比配音久就照動作。
 - 步驟不能巢狀。
 

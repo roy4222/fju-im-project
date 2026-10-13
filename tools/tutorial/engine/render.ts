@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
-import { chapterId, chapterLabel, type ChapterEvents } from './events.ts';
+import { chapterId, chapterLabel, statusEvidence, type ChapterEvents, type StatusKind } from './events.ts';
 import { overlayHtml, renderHtmlPngs, titleCardHtml } from './overlay.ts';
 import { assertRunComplete } from './runs.ts';
 import { cursorAss, overlaySegments } from './timeline.ts';
@@ -28,7 +28,15 @@ export type ChapterMeta = {
   file: string;
   durationMs: number;
   titleMs: number;
-  steps: { index: number; caption: string; startMs: number; status?: string }[];
+  steps: ChapterMetaStep[];
+};
+
+/** 一步的摘要：status 是物件（kind＋白話 say＋依據 evidence）；舊的 chapter.json 裡是字串 kind。 */
+export type ChapterMetaStep = {
+  index: number;
+  caption: string;
+  startMs: number;
+  status?: { kind: StatusKind; say?: string; evidence?: string } | StatusKind;
 };
 
 export type RenderOptions = {
@@ -132,7 +140,14 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
     file: relative(dir, out),
     durationMs: totalMs,
     titleMs,
-    steps: ev.steps.map((s) => ({ index: s.index, caption: s.caption, startMs: Math.round(titleMs + s.startMs), status: s.status?.kind })),
+    steps: ev.steps.map((s) => ({
+      index: s.index,
+      caption: s.caption,
+      startMs: Math.round(titleMs + s.startMs),
+      ...(s.status
+        ? { status: { kind: s.status.kind, ...(s.status.say ? { say: s.status.say } : {}), ...(statusEvidence(s.status) ? { evidence: statusEvidence(s.status) } : {}) } }
+        : {}),
+    })),
   };
   writeFileSync(join(dir, 'chapter.json'), JSON.stringify(meta, null, 2));
   return { file: out, meta };

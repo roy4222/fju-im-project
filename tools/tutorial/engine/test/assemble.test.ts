@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assemble, featureTimeline, parseFeatureTable, parseRefs, placeChapters, refTime, timecode, timedFeatureTable, YT_DESCRIPTION_MAX, youtubeDescription, type PlacedChapter } from '../assemble.ts';
-import type { ChapterMeta } from '../render.ts';
+import { assemble, featureTimeline, indexHtml, parseFeatureTable, parseRefs, placeChapters, refTime, timecode, timedFeatureTable, YT_DESCRIPTION_MAX, youtubeDescription, type PlacedChapter } from '../assemble.ts';
+import type { ChapterMeta, ChapterMetaStep } from '../render.ts';
 
-const meta = (n: number, label: string, file: string, steps: [number, string, string?][]): ChapterMeta => ({
+const meta = (n: number, label: string, file: string, steps: [number, string, ChapterMetaStep['status']?][]): ChapterMeta => ({
   label: `${n}｜${label}`,
   number: n,
   chapter: label,
@@ -107,6 +107,25 @@ test('featureTimeline：每個 F 編號一行，時間碼＋youtu.be 連結（�
   assert.equal(lines[0], '- F01｜學生｜作業｜看公告 ✅ — [0:06](https://youtu.be/{{VIDEO_ID}}?t=6)');
   assert.equal(lines[1], '- F07｜學生｜作業｜繳交 ⚠️ — [1:14](https://youtu.be/{{VIDEO_ID}}?t=74) [0:02](https://youtu.be/{{VIDEO_ID}}?t=2)');
   assert.ok(lines[2].startsWith('- F09｜') && lines[2].includes('影片中沒有示範'));
+});
+
+test('狀態的依據（evidence）不上畫面、只進 feature-timeline.md 與 index.html；舊的字串 status 仍可用', () => {
+  const placed = placeChapters(
+    [
+      meta(1, '訪客前台', 'a.mp4', [[2500, '首頁', { kind: 'ok', evidence: 'story-1 第 2 步' }], [6400, '公告', { kind: 'pending', say: '名稱要不要改', evidence: 'UX N-17' }]]),
+      meta(3, '學生｜繳交作業', 'b.mp4', [[2500, '上傳', 'warn']]),
+    ],
+    [72_000, 40_000],
+  );
+  const md = featureTimeline(placed, null);
+  assert.ok(md.includes('## 各步驟狀態與依據'), md);
+  assert.ok(md.includes('- 1-1 首頁 — ✅ 正常（依據：story-1 第 2 步）'), md);
+  assert.ok(md.includes('- 1-2 公告 — 🟡 等你決定：名稱要不要改（依據：UX N-17）'), md);
+  assert.ok(md.includes('- 3-1 上傳 — ⚠️') && !md.includes('3-1 上傳 — ⚠️（'), md);
+  const html = indexHtml(placed, null);
+  assert.ok(html.includes('✅ 正常') && html.includes('依據：story-1 第 2 步'), html);
+  assert.ok(html.includes('🟡 等你決定：名稱要不要改') && html.includes('依據：UX N-17'), html);
+  assert.ok(html.includes('⚠️'), html);
 });
 
 test('parseRefs：分鏡的段編號、範圍、多筆與舊寫法', () => {
