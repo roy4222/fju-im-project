@@ -49,6 +49,9 @@ test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點�
       assert.ok(s.endMs - s.startMs >= s.audio.durationMs + NARRATION_TAIL_MS, `步驟 ${s.index} 太短`);
       assert.ok(s.audio.startMs + s.audio.durationMs + NARRATION_TAIL_MS <= s.endMs + 1);
     }
+    // 狀態標記：新寫法原樣進 events.json；舊寫法 status:'ok', note → evidence
+    assert.deepEqual(ev.steps[0].status, { kind: 'warn', say: '白話說明', evidence: 'story-9 第 1 步' });
+    assert.deepEqual(ev.steps[1].status, { kind: 'ok', evidence: '舊寫法的依據' });
     const probed = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', clip]).toString());
     assert.ok(Math.abs(probed * 1000 - ev.clip.durationMs) <= 50, `clip ${probed}s vs ${ev.clip.durationMs}ms`);
     // 錄完：錄影中標記拿掉、沒有失敗檔、名額歸還

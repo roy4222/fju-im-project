@@ -73,12 +73,12 @@ export async function recordBarcode(browser: Browser, root: string, slotsDir: st
     synced.push(t.now());
   };
   try {
-    await t.step({ caption: '第一步', narration: '這一步有十二個字的配音' }, async () => {
+    await t.step({ caption: '第一步', narration: '這一步有十二個字的配音', status: { kind: 'warn', say: '白話說明', evidence: 'story-9 第 1 步' } }, async () => {
       await sync();
       await t.wait(800);
       await t.click(page.locator('#b'));
     });
-    await t.step({ caption: '第二步', narration: '短配音' }, async () => {
+    await t.step({ caption: '第二步', narration: '短配音', status: 'ok', note: '舊寫法的依據' }, async () => {
       await sync();
       await t.wait(1500);
     });

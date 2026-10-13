@@ -4,6 +4,7 @@ import { cursorAt, type Move, type Point } from './cursor.ts';
 import type { ChapterEvents, Status } from './events.ts';
 
 export type OverlayState = {
+  /** overlaySegments 只放畫面用得到的 kind 與 say（evidence 不進疊加層，也不會讓片段多切一刀）。 */
   step?: { index: number; caption: string; status?: Status };
   url?: string;
 };
@@ -24,7 +25,7 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
     const s = ev.steps.find((x) => x.startMs <= a && a < x.endMs);
     const u = [...urls].reverse().find((x) => x.atMs <= a) ?? urls[0];
     const state: OverlayState = {
-      step: s ? { index: s.index, caption: s.caption, status: s.status } : undefined,
+      step: s ? { index: s.index, caption: s.caption, status: s.status ? { kind: s.status.kind, ...(s.status.say ? { say: s.status.say } : {}) } : undefined } : undefined,
       url: u ? displayUrl(u.url, ev.displayOrigin) : undefined,
     };
     const prev = segs.at(-1);

@@ -4,8 +4,8 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { STATUS_ICON, type StatusKind } from './events.ts';
-import type { ChapterMeta } from './render.ts';
+import { statusLabel, type StatusKind } from './events.ts';
+import type { ChapterMeta, ChapterMetaStep } from './render.ts';
 import { probeDurationMs } from './tts.ts';
 
 const run = promisify(execFile);
@@ -138,6 +138,8 @@ export function featureTimeline(placed: readonly PlacedChapter[], features: Feat
     out.push('（沒有 feature-table.md，改列每個步驟）', '');
     for (const c of placed) for (const s of c.steps) out.push(`- ${c.number != null ? `${c.number}-${s.index}` : s.index} ${s.caption} — ${link(c.offsetMs + s.startMs)}`);
   }
+  const statuses = stepStatusLines(placed);
+  if (statuses.length) out.push('', '## 各步驟狀態與依據', '', '影片右上角只顯示圖示＋白話；依據只記在這裡與 index.html。', '', ...statuses);
   return `${out.join('\n')}\n`;
 }
 
@@ -252,6 +254,30 @@ export function parseRefs(s: string): FeatureRef[] {
 
 const placedId = (c: PlacedChapter) => c.id ?? (c.number != null ? String(c.number) : undefined);
 
+/** 一步的狀態（新的 chapter.json 是物件，舊的是字串 kind）。 */
+export function stepStatus(s: ChapterMetaStep): { kind: StatusKind; say?: string; evidence?: string } | undefined {
+  if (!s.status) return undefined;
+  return typeof s.status === 'string' ? { kind: s.status } : s.status;
+}
+
+/** 「5B-1-2」這種步驟編號（段編號＋步驟序）。 */
+const stepId = (c: PlacedChapter, s: ChapterMetaStep) => (placedId(c) != null ? `${placedId(c)}-${s.index}` : String(s.index));
+
+/**
+ * feature-timeline.md 的「各步驟狀態與依據」段：畫面上只看得到圖示＋白話，依據（evidence）只在這裡與 index.html。
+ */
+export function stepStatusLines(placed: readonly PlacedChapter[]): string[] {
+  const out: string[] = [];
+  for (const c of placed) {
+    for (const s of c.steps) {
+      const st = stepStatus(s);
+      if (!st) continue;
+      out.push(`- ${stepId(c, s)} ${s.caption} — ${statusLabel(st)}${st.evidence ? `（依據：${st.evidence}）` : ''}`);
+    }
+  }
+  return out;
+}
+
 /** 參照在成品中的時間（ms）；對不到影片回傳 undefined。 */
 export function refTime(placed: readonly PlacedChapter[], ref: FeatureRef): number | undefined {
   if (ref.whole) {
@@ -292,7 +318,12 @@ export function indexHtml(placed: readonly PlacedChapter[], features: FeatureTab
   const chapters = placed
     .map(
       (c) => `<li class="ch" data-start="${(c.offsetMs / 1000).toFixed(2)}"><div class="chh">${jump(c.offsetMs, timecode(c.offsetMs))} <b>${esc(c.label)}</b></div><ol>${c.steps
-        .map((s) => `<li>${jump(c.offsetMs + s.startMs, timecode(c.offsetMs + s.startMs))} ${esc(s.caption)}${s.status ? ` ${STATUS_ICON[s.status as StatusKind] ?? ''}` : ''}</li>`)
+        .map((s) => {
+          const st = stepStatus(s);
+          const badge = st ? ` <span class="st" title="${esc(statusLabel(st))}">${esc(statusLabel(st))}</span>` : '';
+          const evidence = st?.evidence ? `<div class="ev">依據：${esc(st.evidence)}</div>` : '';
+          return `<li>${jump(c.offsetMs + s.startMs, timecode(c.offsetMs + s.startMs))} ${esc(s.caption)}${badge}${evidence}</li>`;
+        })
         .join('')}</ol></li>`,
     )
     .join('');
@@ -322,6 +353,7 @@ export function indexHtml(placed: readonly PlacedChapter[], features: FeatureTab
   .ch{margin:0 0 12px;padding:8px 10px;border-radius:10px}
   .ch.on{background:#fff4e8;outline:2px solid var(--orange)}
   .chh{font-size:16px} .ch ol{margin:6px 0 0 4px;font-size:14px} .ch ol li{padding:2px 0}
+  .st{color:#374151;font-size:13px;margin-left:4px} .ev{color:#6b7280;font-size:12px;margin:1px 0 2px 44px}
   a{color:var(--orange);font-variant-numeric:tabular-nums;text-decoration:none;font-weight:600}
   a:hover{text-decoration:underline}
   table{border-collapse:collapse;font-size:13px;width:100%} th,td{border-bottom:1px solid #eee;padding:5px 6px;text-align:left;vertical-align:top}

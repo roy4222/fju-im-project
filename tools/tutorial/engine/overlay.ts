@@ -2,7 +2,7 @@
 // 中文字（PingFang TC／Noto Sans TC）與彩色 emoji 都交給瀏覽器排版。
 
 import type { Browser } from 'playwright';
-import { STATUS_ICON, type StatusKind } from './events.ts';
+import { STATUS_ICON, statusSay, type StatusKind } from './events.ts';
 import { BRAND_ORANGE, type OverlayState } from './timeline.ts';
 
 const FONT = `"PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", "Heiti TC", sans-serif`;
@@ -28,11 +28,13 @@ function page(width: number, height: number, body: string, background = 'transpa
 export function overlayHtml(state: OverlayState, size: { width: number; height: number; chromeHeight: number }, stepLabel?: string): string {
   const { width, chromeHeight } = size;
   const st = state.step?.status;
-  // 狀態標記放在假網址列右端：永遠在右上角，又不會蓋住網站自己的導覽列
+  // 狀態標記放在假網址列右端：永遠在右上角，又不會蓋住網站自己的導覽列。
+  // 只顯示圖示＋白話（say；超過 22 字截斷），依據（evidence／舊的 note）不上畫面
+  const say = st ? statusSay(st) : '';
   const badge = st
     ? `<div style="flex:none;max-width:900px;height:56px;display:flex;align-items:center;gap:12px;padding:0 24px 0 16px;border-radius:28px;background:#fff;border:3px solid ${STATUS_COLOR[st.kind]};box-shadow:0 2px 10px rgba(0,0,0,.12)">
         <span style="font-size:32px;line-height:1;font-family:'Apple Color Emoji','Noto Color Emoji',sans-serif">${STATUS_ICON[st.kind]}</span>
-        ${st.note ? `<span style="font-size:27px;font-weight:600;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(st.note)}</span>` : ''}
+        ${say ? `<span style="font-size:27px;font-weight:600;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(say)}</span>` : ''}
       </div>`
     : '';
   const parts: string[] = [];
