@@ -8,8 +8,9 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
-import { chapterLabel, type ChapterEvents } from './events.ts';
+import { chapterId, chapterLabel, type ChapterEvents } from './events.ts';
 import { overlayHtml, renderHtmlPngs, titleCardHtml } from './overlay.ts';
+import { assertRunComplete } from './runs.ts';
 import { cursorAss, overlaySegments } from './timeline.ts';
 
 const run = promisify(execFile);
@@ -19,6 +20,8 @@ export const TITLE_MS = 2500;
 /** 給 assemble 用的章節摘要（時間是本章輸出影片時間）。 */
 export type ChapterMeta = {
   label: string;
+  /** 分鏡的段編號（例如 3-3）。 */
+  id?: string;
   number?: number;
   chapter: string;
   /** 相對於 chapter.json 所在資料夾。 */
@@ -40,6 +43,7 @@ export type RenderOptions = {
 
 export async function renderChapter(opts: RenderOptions): Promise<{ file: string; meta: ChapterMeta }> {
   const dir = resolve(opts.dir);
+  assertRunComplete(dir);
   const ev = JSON.parse(readFileSync(join(dir, 'events.json'), 'utf8')) as ChapterEvents;
   const out = resolve(opts.out ?? join(dir, 'chapter.mp4'));
   const titleMs = opts.titleMs ?? TITLE_MS;
@@ -53,7 +57,8 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
   const segs = overlaySegments(ev);
   const jobs: { html: string; file: string; transparent: boolean }[] = [];
   const parts = ev.chapter.split('｜');
-  const title = ev.number == null ? parts[0] : `${ev.number}｜${parts[0]}`;
+  const id = chapterId(ev);
+  const title = id == null ? parts[0] : `${id}｜${parts[0]}`;
   const subtitle = ev.subtitle ?? (parts.length > 1 ? parts.slice(1).join('｜') : undefined);
   jobs.push({ html: titleCardHtml(title, subtitle, { width, height }), file: join(work, 'title.png'), transparent: false });
   const fileByKey = new Map<string, string>();
@@ -121,6 +126,7 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
 
   const meta: ChapterMeta = {
     label: chapterLabel(ev),
+    id,
     number: ev.number,
     chapter: ev.chapter,
     file: relative(dir, out),

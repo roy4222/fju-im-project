@@ -50,3 +50,22 @@ test('多段移動之間游標停在上一段終點', () => {
   const p = cursorAt([m1, m2], { x: 0, y: 0 }, m1.endMs + 500);
   assert.deepEqual(p, { x: 100, y: 100 });
 });
+
+import { captureQuality } from '../frames.ts';
+
+test('captureQuality：每秒張數與最大間隔，超標的步驟會被標記', () => {
+  const smooth = Array.from({ length: 300 }, (_, i) => i * 33); // 30 張／秒
+  const q1 = captureQuality(smooth, [{ index: 1, startMs: 0, endMs: 9900 }], 9900);
+  assert.ok(q1.ok && q1.fps > 29 && q1.maxGapMs <= 34, JSON.stringify(q1));
+  // 第二步中間停了 120 ms
+  const stall = smooth.filter((t) => t < 5000 || t > 5120);
+  const q2 = captureQuality(stall, [{ index: 1, startMs: 0, endMs: 4900 }, { index: 2, startMs: 4900, endMs: 9900 }], 9900);
+  assert.equal(q2.ok, false);
+  assert.equal(q2.steps[0].ok, true);
+  assert.equal(q2.steps[1].ok, false);
+  assert.ok(q2.steps[1].maxGapMs >= 120);
+  assert.ok(q2.warnings[0].startsWith('步驟 2'), q2.warnings.join());
+  // 每秒只有 20 張
+  const slow = Array.from({ length: 200 }, (_, i) => i * 50);
+  assert.equal(captureQuality(slow, [], 9950).ok, false);
+});

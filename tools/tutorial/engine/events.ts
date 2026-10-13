@@ -2,6 +2,7 @@
 // 座標一律是 clip 影片像素（CSS px × zoom），不含上方假網址列。page 是錄影時的 CSS viewport。
 
 import type { Point } from './cursor.ts';
+import type { CaptureQuality } from './frames.ts';
 
 export type StatusKind = 'ok' | 'warn' | 'bad' | 'pending';
 export type Status = { kind: StatusKind; note?: string };
@@ -27,6 +28,8 @@ export type ChapterEvent =
 
 export type ChapterEvents = {
   version: 1;
+  /** 分鏡的段編號（例如 3-3、5A-2）。 */
+  id?: string;
   chapter: string;
   number?: number;
   subtitle?: string;
@@ -34,6 +37,8 @@ export type ChapterEvents = {
   page: { width: number; height: number; zoom: number };
   /** captureLatencyMs：開頭校正量到的「畫面內容 → 截圖」延遲，影格時間已扣掉。 */
   clip: { file: string; durationMs: number; fps: number; captureLatencyMs: number };
+  /** 截圖品質：每秒張數、最大間隔；ok=false 代表有段落超標（warnings 說明哪裡）。 */
+  quality?: CaptureQuality;
   displayOrigin: string;
   cursorStart: Point;
   steps: StepRecord[];
@@ -42,7 +47,13 @@ export type ChapterEvents = {
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
 
-/** 「3｜學生｜繳交作業」這種章節全名。 */
-export function chapterLabel(ev: Pick<ChapterEvents, 'chapter' | 'number'>): string {
-  return ev.number == null ? ev.chapter : `${ev.number}｜${ev.chapter}`;
+/** 段編號：id，舊資料用 number。 */
+export function chapterId(ev: Pick<ChapterEvents, 'id' | 'number'>): string | undefined {
+  return ev.id ?? (ev.number != null ? String(ev.number) : undefined);
+}
+
+/** 「3-3｜學生｜繳交作業」這種章節全名。 */
+export function chapterLabel(ev: Pick<ChapterEvents, 'id' | 'chapter' | 'number'>): string {
+  const id = chapterId(ev);
+  return id == null ? ev.chapter : `${id}｜${ev.chapter}`;
 }
