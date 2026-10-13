@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Browser, Page } from 'playwright';
+import type { Browser, Locator, Page } from 'playwright';
 import { launchTutorialBrowser, newTutorialPage, renderChapter, startChapter, type Chapter } from '../../engine/index.ts';
 
 export const INSTANCE = Number(process.env.INSTANCE ?? '1');
@@ -57,6 +57,7 @@ export async function recordChapter(
   opts: { id: string; chapter: string; subtitle?: string },
   script: (t: Chapter, page: Page, browser: Browser) => Promise<void>,
 ): Promise<void> {
+  if (process.env.DRY_RUN) return dryRun(opts, script);
   const browser = await launchTutorialBrowser();
   let chapter: Chapter | undefined;
   try {
@@ -77,4 +78,88 @@ export async function recordChapter(
   fs.copyFileSync(path.join(dir, 'events.json'), path.join(dest, 'events.json'));
   fs.writeFileSync(path.join(dest, 'run-dir.txt'), `${dir}\n`);
   console.log(`成品：${path.join(dest, `${opts.id}.mp4`)}`);
+}
+
+/**
+ * DRY_RUN=1：不錄影、不佔名額，用無頭 Chromium（CSS 1280×667）照劇本把每個動作做一次，
+ * 只驗證定位器找得到、流程走得通；每一步結束截一張圖到 /tmp/tutorial-dry/<id>/。
+ */
+async function dryRun(
+  opts: { id: string; chapter: string },
+  script: (t: Chapter, page: Page, browser: Browser) => Promise<void>,
+): Promise<void> {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch();
+  const shots = path.join(os.tmpdir(), 'tutorial-dry', opts.id);
+  fs.rmSync(shots, { recursive: true, force: true });
+  fs.mkdirSync(shots, { recursive: true });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 667 }, locale: 'zh-TW', timezoneId: 'Asia/Taipei' });
+    const page = await ctx.newPage();
+    let n = 0;
+    let caption = '';
+    const settle = async () => {
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(400);
+    };
+    const visible = async (l: Locator) => {
+      await l.waitFor({ state: 'visible', timeout: 5000 }).catch((e) => {
+        throw new Error(`［${caption}］5 秒內找不到 ${l}`, { cause: e });
+      });
+    };
+    const t = {
+      offRecord: async <T>(fn: () => Promise<T>) => fn(),
+      waitStable: async (o: { ready?: Locator | string } = {}) => {
+        if (o.ready) await visible(typeof o.ready === 'string' ? page.getByText(o.ready).first() : o.ready);
+        await settle();
+      },
+      step: async (o: { caption: string }, fn: () => Promise<void>) => {
+        caption = o.caption;
+        n += 1;
+        await fn();
+        await settle();
+        await page.screenshot({ path: path.join(shots, `${String(n).padStart(2, '0')}.png`) });
+        console.log(`✓ ${n}. ${o.caption}`);
+      },
+      click: async (l: Locator) => {
+        await visible(l);
+        await l.click();
+        await settle();
+      },
+      hover: async (l: Locator) => {
+        await visible(l);
+        await l.hover();
+      },
+      type: async (l: Locator, text: string) => {
+        await visible(l);
+        await l.click();
+        await l.pressSequentially(text);
+      },
+      press: async (key: string) => page.keyboard.press(key),
+      select: async (l: Locator, v: string) => {
+        await visible(l);
+        await l.selectOption(v);
+      },
+      upload: async (l: Locator, file: string, o: { via?: Locator } = {}) => {
+        if (o.via) await visible(o.via);
+        await l.setInputFiles(file);
+      },
+      scroll: async (x: number | Locator) => {
+        if (typeof x === 'number') await page.mouse.wheel(0, x);
+        else {
+          await visible(x);
+          await x.scrollIntoViewIfNeeded();
+        }
+      },
+      wait: async (ms: number) => page.waitForTimeout(ms),
+      goto: async (p: string) => {
+        await page.goto(p.startsWith('http') ? p : `${BASE_URL}${p}`);
+        await settle();
+      },
+    };
+    await script(t as unknown as Chapter, page, browser);
+    console.log(`DRY_RUN 完成：${opts.id}，${n} 步，截圖在 ${shots}`);
+  } finally {
+    await browser.close();
+  }
 }
