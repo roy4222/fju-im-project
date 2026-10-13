@@ -47,7 +47,7 @@ try {
   await t.step({
     caption: '我的合作案',
     narration: '老師在這裡建立、編輯、下架自己的合作案；全部分頁看別的老師發布的。',
-    status: 'ok', note: 'story-2 第 3 步',
+    status: { kind: 'ok', evidence: 'story-2 第 3 步' },
   }, async () => {
     await t.click(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '產學合作', exact: true }));
     await t.hover(page.getByRole('link', { name: /^我的 \d+ 件$/ }));
@@ -58,7 +58,7 @@ try {
   await t.step({
     caption: '新增合作案',
     narration: '新增只有公司、部門、內容、條件是必填或公開的；負責老師和發布日系統帶入。',
-    status: 'ok', note: 'story-2 第 3 步',
+    status: { kind: 'ok', evidence: 'story-2 第 3 步' },
   }, async () => {
     await t.click(page.getByRole('button', { name: '新增合作案' }));
     await t.waitStable({ ready: dialog });
@@ -71,7 +71,7 @@ try {
   await t.step({
     caption: '聯絡資訊只有你和系辦看得到',
     narration: '地址、聯絡人、電話、Email 不會因為發布而公開，學生畫面沒有這一區。',
-    status: 'ok', note: 'story-2 第 5 步',
+    status: { kind: 'ok', evidence: 'story-2 第 5 步' },
   }, async () => {
     await t.hover(dialog.getByText('以下只有你（負責老師）與系辦看得到'));
     await t.type(dialog.getByRole('textbox', { name: '公司地址' }), '新北市新莊區示範路 1 號');
@@ -82,7 +82,7 @@ try {
   await t.step({
     caption: '先存草稿',
     narration: '可以先存草稿，確認後再發布給學生看。',
-    status: 'ok', note: '既有保證（GRP-08）',
+    status: { kind: 'ok', evidence: '既有保證（GRP-08）' },
   }, async () => {
     await t.click(dialog.getByRole('button', { name: '儲存草稿' }));
     await t.waitStable({ ready: page.getByRole('status').filter({ hasText: '已儲存草稿' }) });
@@ -92,8 +92,10 @@ try {
   await t.step({
     caption: '發布',
     narration: '發布後登入的學生與老師看得到公司、部門、內容與條件。',
-    status: 'ok', note: 'story-2 第 3 步',
+    status: { kind: 'ok', evidence: 'story-2 第 3 步' },
   }, async () => {
+    // 網站問題：新建草稿後不重新整理就按發布，資料會發布但對話框一直停在「處理中…」。先不入鏡重新載入。
+    await t.goto('/dashboard/teacher/industry');
     await t.click(page.getByRole('button', { name: new RegExp(`^發布：${company}`) }));
     await t.waitStable({ ready: dialog });
     await t.click(dialog.getByRole('button', { name: '確認發布' }));
@@ -104,7 +106,7 @@ try {
   await t.step({
     caption: '下架會怎樣',
     narration: '下架後學生列表看不到、不收新組；已連結的 G06 保留關係並標示已下架。這裡只看說明不真的下架。',
-    status: 'ok', note: '既有保證（規格 03 §6.3）',
+    status: { kind: 'ok', evidence: '既有保證（規格 03 §6.3）' },
   }, async () => {
     await t.click(page.getByRole('button', { name: /^下架：昱鋼精機工業/ }));
     await t.waitStable({ ready: dialog });

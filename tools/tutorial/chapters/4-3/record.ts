@@ -48,7 +48,7 @@ try {
   await t.step({
     caption: '我的評分清單',
     narration: '評分頁左邊是待評分清單：被系辦退回的標紅、草稿寫填了幾項、未開始；送出後會變鎖頭。只列你被指派的組。',
-    status: 'ok', note: 'story-1 N-11（「評分佇列」已改）；UX 評分老師 任務 1',
+    status: { kind: 'ok', evidence: 'story-1 N-11（「評分佇列」已改）；UX 評分老師 任務 1' },
   }, async () => {
     await t.click(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '評分', exact: true }));
     await t.hover(row('G04'));
@@ -58,7 +58,7 @@ try {
   await t.step({
     caption: '打開評分表',
     narration: '評分表照系辦發布的評分規則列項目、滿分、權重；有數字題也有等第 A 到 F。',
-    status: 'ok', note: 'story-3 第 7 步',
+    status: { kind: 'ok', evidence: 'story-3 第 7 步' },
   }, async () => {
     await t.click(row('G07'));
     await t.hover(page.getByText('滿分 100・占 15%'));
@@ -67,7 +67,7 @@ try {
   await t.step({
     caption: '填分數看預覽',
     narration: '邊填邊算預覽總分；填錯範圍會紅字提醒。',
-    status: 'ok', note: 'story-3 第 8 步',
+    status: { kind: 'ok', evidence: 'story-3 第 8 步' },
   }, async () => {
     const scores = ['85', '88', '90', '80', '84'];
     for (const [i, s] of scores.entries()) await t.type(field(i + 1), s);
@@ -79,7 +79,7 @@ try {
   await t.step({
     caption: '暫存草稿',
     narration: '暫存不算正式分數，只有你和系辦看得到；系辦看得到草稿是定案。「暫存」這個詞要不要改「儲存評分草稿」等你圈選。',
-    status: 'pending', note: '用詞#31（暫存／評分草稿 → 儲存評分草稿）；系辦可見草稿分數 ✅ Q37',
+    status: { kind: 'pending', say: '「暫存」要不要改「儲存評分草稿」', evidence: '用詞#31（暫存／評分草稿 → 儲存評分草稿）；系辦可見草稿分數 ✅ Q37' },
   }, async () => {
     await t.click(page.getByRole('button', { name: '暫存' }));
     await t.waitStable({ ready: '已暫存到伺服器' });
@@ -88,7 +88,7 @@ try {
   await t.step({
     caption: '正式送出',
     narration: '正式送出前再確認一次分數；送出後鎖定，要改得請系辦退回。',
-    status: 'ok', note: 'story-3 第 10 步',
+    status: { kind: 'ok', evidence: 'story-3 第 10 步' },
   }, async () => {
     await t.click(page.getByRole('button', { name: '正式送出' }));
     await t.waitStable({ ready: page.getByRole('dialog') });
@@ -101,7 +101,7 @@ try {
   await t.step({
     caption: '送出回執',
     narration: '回執寫計入成績的分數和時間；多位老師評同一組取平均；學生永遠看不到分數。',
-    status: 'ok', note: 'story-3 第 10 步',
+    status: { kind: 'ok', evidence: 'story-3 第 10 步' },
   }, async () => {
     await t.hover(page.getByText(/計入成績的分數/).first());
     await t.wait(4500);
@@ -111,7 +111,7 @@ try {
   await t.step({
     caption: '鎖定後的樣子',
     narration: '送出後欄位變灰，按鈕消失。',
-    status: 'ok', note: 'story-3 第 10 步',
+    status: { kind: 'ok', evidence: 'story-3 第 10 步' },
   }, async () => {
     await t.hover(field(1));
     await t.hover(page.getByText('已正式送出並鎖定；要修改請聯絡系辦退回。'));
@@ -120,7 +120,7 @@ try {
   await t.step({
     caption: '繼續草稿',
     narration: '切到有草稿的組，之前暫存的分數都在，底部告訴你還差幾項。',
-    status: 'ok', note: 'story-3 第 8 步',
+    status: { kind: 'ok', evidence: 'story-3 第 8 步' },
   }, async () => {
     await t.click(row('G02'));
     await t.hover(field(2));
@@ -130,7 +130,7 @@ try {
   await t.step({
     caption: '評分時看繳交',
     narration: '評分表旁列這組每個整組項目最新一次正式送出，點了看內容，附件可下載。這裡的「v2」是第 2 次送出。',
-    status: 'pending', note: '用詞#9（「v2」→「第 2 次送出」）',
+    status: { kind: 'pending', say: '「v2」要不要改「第 2 次送出」', evidence: '用詞#9（「v2」→「第 2 次送出」）' },
   }, async () => {
     const panel = page.getByRole('region', { name: '本組正式繳交' });
     await t.scroll(panel);
@@ -140,7 +140,7 @@ try {
   await t.step({
     caption: '被退回後重送',
     narration: '系辦退回時表單上方寫理由，原分數填回來；改完重新正式送出就再鎖定。退回和改派的操作在系辦那章。',
-    status: 'ok', note: 'story-3 第 20 步',
+    status: { kind: 'ok', evidence: 'story-3 第 20 步' },
   }, async () => {
     await t.click(row('G04'));
     await t.hover(page.getByRole('status').filter({ hasText: '退回了這一份評分' }));
