@@ -8,10 +8,10 @@
 //   await t.finish();
 
 import { execFile } from 'node:child_process';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { chromium, type Browser, type Locator, type Page } from 'playwright';
+import { chromium, type Browser, type CDPSession, type Locator, type Page } from 'playwright';
 import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
 import type { ChapterEvent, ChapterEvents, StatusKind, StepRecord } from './events.ts';
 import { cfrSlots, timeFrames, toChapterMs, type Pause, type RawFrame } from './frames.ts';
@@ -29,7 +29,16 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0,
 
 /** 上方假網址列高度（影片像素）；頁面錄在它下面。 */
 export const CHROME_HEIGHT = 80;
-/** 下方字幕條佔掉的高度：游標目標要落在它上面，否則先捲動。 */
+/**
+ * 網頁放大倍率：CSS 1280×667 的視窗以 1.5 倍實際像素渲染，錄成 1920 寬的影片；
+ * 網頁正文 15px 在 1080p 裡約 22px（手機、筆電上看得清楚），版面仍是桌機版。
+ *
+ * 用瀏覽器層級的 --force-device-scale-factor，而不是 Playwright 的 deviceScaleFactor 模擬：
+ * 模擬時 screencast 與 CDP 截圖都只給 CSS 大小（1280 寬）的影格；若另開 session 設裝置參數，
+ * 截圖雖是 1920 寬，滑鼠座標卻會被再除一次 1.5。
+ */
+export const DEFAULT_ZOOM = 1.5;
+/** 下方字幕條佔掉的高度（影片像素）：游標目標要落在它上面，否則先捲動。 */
 export const CAPTION_SAFE = 170;
 /** 配音在步驟開始後多久起播。 */
 export const NARRATION_LEAD_MS = 250;
@@ -61,7 +70,7 @@ export type ChapterOptions = {
   number?: number;
   /** 標題卡副標；省略時取 chapter 最後一個「｜」之後。 */
   subtitle?: string;
-  /** 輸出影片大小，預設 1920×1080；頁面 viewport 會設成寬 ×（高 − 網址列）。 */
+  /** 輸出影片大小，預設 1920×1080；頁面區是寬 ×（高 − 網址列），CSS viewport 再除以 zoom。 */
   viewport?: { width: number; height: number };
   /** t.goto('/x') 的基準網址。 */
   baseURL?: string;
@@ -78,18 +87,44 @@ export type ChapterOptions = {
  * 錄影用的瀏覽器。預設開有視窗的 Chromium：在 Mac mini 上它用 GPU 合成，每秒約 90 格、
  * 畫面延遲約 25 ms；headless 只有每秒約 18 格、畫面會落後 60～130 ms，對不齊也不順。
  */
-export async function launchTutorialBrowser({ headless = false }: { headless?: boolean } = {}): Promise<Browser> {
-  return chromium.launch({ headless, args: ['--hide-scrollbars', '--disable-features=Translate'] });
+export async function launchTutorialBrowser({ headless = false, zoom = DEFAULT_ZOOM }: { headless?: boolean; zoom?: number } = {}): Promise<Browser> {
+  return chromium.launch({
+    headless,
+    args: ['--hide-scrollbars', '--disable-features=Translate', `--force-device-scale-factor=${zoom}`, '--window-position=0,0'],
+  });
 }
 
-/** 開一個適合錄影的分頁（1920×1000 viewport、繁中、台北時區）。 */
-export async function newTutorialPage(browser: Browser, viewport = { width: 1920, height: 1080 }): Promise<Page> {
-  const ctx = await browser.newContext({
-    viewport: { width: viewport.width, height: viewport.height - CHROME_HEIGHT },
-    locale: 'zh-TW',
-    timezoneId: 'Asia/Taipei',
-  });
-  return ctx.newPage();
+/** 影片頁面區（像素）對應的 CSS viewport。高度無條件進位，多出的一兩列像素在輸出時裁掉。 */
+export function cssViewport(viewport: { width: number; height: number }, zoom: number): { width: number; height: number } {
+  return { width: Math.round(viewport.width / zoom), height: Math.ceil((viewport.height - CHROME_HEIGHT) / zoom) };
+}
+
+/** 開一個適合錄影的分頁（真實視窗、不做 viewport 模擬，視窗內容區調成 CSS 1280×667）、繁中、台北時區。 */
+export async function newTutorialPage(browser: Browser, { viewport = { width: 1920, height: 1080 } } = {}): Promise<Page> {
+  const ctx = await browser.newContext({ viewport: null, locale: 'zh-TW', timezoneId: 'Asia/Taipei' });
+  const page = await ctx.newPage();
+  const zoom = await page.evaluate(() => devicePixelRatio);
+  await fitWindow(page, cssViewport(viewport, zoom));
+  return page;
+}
+
+/** 調整瀏覽器視窗，讓內容區剛好是 css 大小（視窗框與工具列的高度各平台不同，量了再補）。 */
+export async function fitWindow(page: Page, css: { width: number; height: number }): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { windowId } = (await cdp.send('Browser.getWindowForTarget')) as { windowId: number };
+    for (let i = 0; i < 4; i++) {
+      const [w, h] = await page.evaluate(() => [innerWidth, innerHeight]);
+      if (w === css.width && h === css.height) return;
+      const { bounds } = (await cdp.send('Browser.getWindowBounds', { windowId })) as { bounds: { width: number; height: number } };
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: bounds.width + css.width - w, height: bounds.height + css.height - h } });
+      await sleep(250);
+    }
+    const [w, h] = await page.evaluate(() => [innerWidth, innerHeight]);
+    if (w !== css.width || h !== css.height) throw new Error(`視窗內容區調不到 ${css.width}×${css.height}（目前 ${w}×${h}）`);
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
 }
 
 export async function startChapter(opts: ChapterOptions): Promise<Chapter> {
@@ -103,7 +138,14 @@ export class Chapter {
   readonly outDir: string;
   private readonly opts: ChapterOptions;
   private readonly tts: TtsProvider;
+  /** clip 影片像素大小（頁面區）。事件座標、游標都用這個單位。 */
   private readonly size: { width: number; height: number };
+  /** 頁面的 CSS viewport；Playwright 滑鼠與 boundingBox 用這個單位。 */
+  private css: { width: number; height: number };
+  private zoom: number;
+  private cdp: CDPSession | null = null;
+  private capturing: Promise<void> | null = null;
+  private stopCapture = false;
   private readonly framesDir: string;
   private readonly raw: RawFrame[] = [];
   private readonly pauses: Pause[] = [];
@@ -126,6 +168,9 @@ export class Chapter {
     this.tts = opts.tts ?? sayProvider();
     const vp = opts.viewport ?? { width: 1920, height: 1080 };
     this.size = { width: vp.width, height: vp.height - CHROME_HEIGHT };
+    // zoom 在 start() 從分頁的 devicePixelRatio 讀；先放預設值
+    this.zoom = DEFAULT_ZOOM;
+    this.css = cssViewport(vp, this.zoom);
     this.framesDir = join(opts.outDir, 'frames');
     this.cursor = { x: Math.round(this.size.width * 0.5), y: Math.round(this.size.height * 0.45) };
   }
@@ -139,22 +184,42 @@ export class Chapter {
     rmSync(this.framesDir, { recursive: true, force: true });
     mkdirSync(this.framesDir, { recursive: true });
     mkdirSync(join(this.outDir, 'audio'), { recursive: true });
-    await this.page.setViewportSize(this.size);
+    this.zoom = await this.page.evaluate(() => devicePixelRatio);
+    this.css = cssViewport(this.opts.viewport ?? { width: 1920, height: 1080 }, this.zoom);
+    if (this.page.viewportSize()) {
+      throw new Error('分頁有 viewport 模擬，截圖只會是 CSS 大小：請用 launchTutorialBrowser() ＋ newTutorialPage(browser) 開分頁');
+    }
+    await fitWindow(this.page, this.css);
     this.page.on('framenavigated', (f) => {
       if (f === this.page.mainFrame()) this.noteUrl();
     });
+    // 連續用 CDP 截圖（實際像素 1920 寬）；Playwright 的 screencast 只給 CSS 大小的影格
+    this.cdp = await this.page.context().newCDPSession(this.page);
     this.t0Wall = Date.now();
-    await this.page.screencast.start({
-      size: this.size,
-      quality: this.opts.quality ?? 85,
-      onFrame: ({ data, timestamp }) => {
-        const file = join(this.framesDir, `f${String(++this.seq).padStart(6, '0')}.jpg`);
-        writeFileSync(file, data);
-        this.raw.push({ file, wallMs: timestamp });
-      },
-    });
+    this.capturing = this.captureLoop(this.cdp);
     await this.offRecord(() => this.calibrate());
     this.noteUrl();
+  }
+
+  /** 連續截圖（Mac mini 上 1920 寬約每秒 30～38 張）；影格時間取請求前後的中點。 */
+  private async captureLoop(cdp: CDPSession): Promise<void> {
+    const quality = this.opts.quality ?? 85;
+    // 跟事件同一個時鐘（Date.now）；performance.timeOrigin＋now() 跟系統時鐘會差上幾十 ms
+    const clock = () => Date.now();
+    while (!this.stopCapture) {
+      const t0 = clock();
+      const r = (await cdp
+        .send('Page.captureScreenshot', { format: 'jpeg', quality, optimizeForSpeed: true })
+        .catch(() => null)) as { data: string } | null;
+      const t1 = clock();
+      if (!r) {
+        await sleep(15); // 換頁中可能截不到，稍後再試
+        continue;
+      }
+      const file = join(this.framesDir, `f${String(++this.seq).padStart(6, '0')}.jpg`);
+      writeFileSync(file, Buffer.from(r.data, 'base64'));
+      this.raw.push({ file, wallMs: (t0 + t1) / 2 });
+    }
   }
 
   /**
@@ -198,7 +263,9 @@ export class Chapter {
     const frames = this.raw.filter((f) => f.wallMs > w.from + 100 && f.wallMs < w.to - 20).slice(0, 40);
     const lags: number[] = [];
     for (const f of frames) {
-      const { stdout } = await runBuf('ffmpeg', ['-v', 'error', '-i', f.file, '-vf', `crop=${CAL_BITS * CAL_BLOCK}:${CAL_BLOCK}:0:0`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { encoding: 'buffer' });
+      const z = this.zoom;
+      const crop = `crop=${Math.round(CAL_BITS * CAL_BLOCK * z)}:${Math.round(CAL_BLOCK * z)}:0:0,scale=${CAL_BITS * CAL_BLOCK}:${CAL_BLOCK}`;
+      const { stdout } = await runBuf('ffmpeg', ['-v', 'error', '-i', f.file, '-vf', crop, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { encoding: 'buffer' });
       let v = 0;
       for (let i = 0; i < CAL_BITS; i++) if (stdout[(CAL_BLOCK / 2) * CAL_BITS * CAL_BLOCK + i * CAL_BLOCK + CAL_BLOCK / 2] < 128) v |= 1 << i;
       const lag = (((f.wallMs % (1 << CAL_BITS)) - v + (1 << CAL_BITS)) % (1 << CAL_BITS));
@@ -324,7 +391,7 @@ export class Chapter {
     else {
       await target.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(target, e));
       const box = await target.boundingBox();
-      dy = box ? box.y - this.size.height * 0.3 : 0;
+      dy = box ? box.y - this.css.height * 0.3 : 0;
     }
     await this.smoothScroll(dy);
   }
@@ -339,26 +406,30 @@ export class Chapter {
     if (this.current) throw new Error('finish() 前要先結束 step');
     await sleep(300);
     const durationMs = this.now();
-    await this.page.screencast.stop();
+    this.stopCapture = true;
+    await this.capturing;
+    await this.cdp?.detach().catch(() => {});
     const captureLatencyMs = await this.measureLatency();
     const shifted = this.raw.map((f) => ({ file: f.file, wallMs: f.wallMs - captureLatencyMs }));
     const frames = timeFrames(shifted, this.t0Wall, this.pauses);
     const slots = cfrSlots(frames, durationMs, FPS);
     if (slots.length === 0) throw new Error('沒有錄到任何畫面');
-    const d = (1 / FPS).toFixed(6);
-    const lines = ['ffconcat version 1.0'];
-    for (const f of slots) lines.push(`file '${basename(f)}'`, `duration ${d}`);
-    lines.push(`file '${basename(slots[slots.length - 1])}'`);
-    writeFileSync(join(this.framesDir, 'list.ffconcat'), lines.join('\n'));
+    // 每個格位一個編號連結，用 image2 以固定 30fps 讀：不經過 fps 換算
+    // （concat 的 duration 0.033333 會讓 ffmpeg 重複與丟格，整段晚一格）
+    const slotDir = join(this.framesDir, 'slots');
+    mkdirSync(slotDir, { recursive: true });
+    slots.forEach((f, k) => symlinkSync(join('..', basename(f)), join(slotDir, `s${String(k).padStart(6, '0')}.jpg`)));
     const clip = join(this.outDir, 'clip.mp4');
     const { width, height } = this.size;
     await run('ffmpeg', [
-      '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', join(this.framesDir, 'list.ffconcat'),
-      '-vf', `scale=${width}:${height}:flags=lanczos,setsar=1`,
+      '-y', '-v', 'error', '-framerate', String(FPS), '-start_number', '0', '-i', join(slotDir, 's%06d.jpg'),
+      // 影格本來就是 1920 寬：scale 不會重取樣；高度多出的一列（667×1.5=1001）直接裁掉
+      '-vf', `scale=${width}:-1:flags=lanczos,crop=${width}:'min(ih,${height})':0:0,pad=${width}:${height}:0:0:white,setsar=1`,
       '-fps_mode', 'cfr', '-r', String(FPS), '-frames:v', String(slots.length),
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '14', '-pix_fmt', 'yuv420p', clip,
     ], { maxBuffer: 1 << 24 });
     if (!this.opts.keepFrames) rmSync(this.framesDir, { recursive: true, force: true });
+    else writeFileSync(join(this.framesDir, 'raw.json'), JSON.stringify({ t0Wall: this.t0Wall, pauses: this.pauses, captureLatencyMs, raw: this.raw }));
 
     const out: ChapterEvents = {
       version: 1,
@@ -366,7 +437,7 @@ export class Chapter {
       number: this.opts.number,
       subtitle: this.opts.subtitle,
       output: { width: this.size.width, height: this.size.height + CHROME_HEIGHT, chromeHeight: CHROME_HEIGHT },
-      page: { width: this.size.width, height: this.size.height, zoom: 1 },
+      page: { width: this.css.width, height: this.css.height, zoom: this.zoom },
       clip: { file: 'clip.mp4', durationMs: Math.round((slots.length * 1000) / FPS), fps: FPS, captureLatencyMs },
       displayOrigin: this.opts.displayOrigin ?? (this.opts.baseURL ? new URL(this.opts.baseURL).host : ''),
       cursorStart: { x: Math.round(this.size.width * 0.5), y: Math.round(this.size.height * 0.45) },
@@ -403,18 +474,18 @@ export class Chapter {
     this.events.push({ type: 'url', atMs: Math.max(0, this.now()), url });
   }
 
-  /** 目標中心（影片像素）；不在安全區（網址列下、字幕條上）就先平滑捲動。 */
+  /** 目標中心（影片像素）；不在安全區（網址列下、字幕條上）就先平滑捲動。boundingBox 是 CSS px。 */
   private async targetOf(locator: Locator): Promise<Point> {
     await locator.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(locator, e));
     let box = await locator.boundingBox();
     if (!box) throw new Error(`找不到元素位置：${locator}`);
-    const top = 40;
-    const bottom = this.size.height - CAPTION_SAFE;
+    const top = 40 / this.zoom;
+    const bottom = this.css.height - CAPTION_SAFE / this.zoom;
     const cy = box.y + box.height / 2;
     if (cy < top || cy > bottom) {
-      await this.smoothScroll(cy - this.size.height * 0.42);
+      await this.smoothScroll(cy - this.css.height * 0.42);
       box = await locator.boundingBox();
-      if (!box || box.y + box.height / 2 < 0 || box.y + box.height / 2 > this.size.height) {
+      if (!box || box.y + box.height / 2 < 0 || box.y + box.height / 2 > this.css.height) {
         await locator.scrollIntoViewIfNeeded();
         await sleep(200);
         box = await locator.boundingBox();
@@ -423,7 +494,11 @@ export class Chapter {
       const ny = box.y + box.height / 2;
       if (ny > bottom) console.warn(`［${this.current?.caption ?? '步驟外'}］${locator} 捲不上來，會被字幕條蓋住（頁面底部空間不夠）`);
     }
-    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+    return this.toVideo({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  }
+
+  private toVideo(p: Point): Point {
+    return { x: Math.round(p.x * this.zoom), y: Math.round(p.y * this.zoom) };
   }
 
   /** 記下一段緩動移動並真的等它走完，最後把真滑鼠放到終點（讓 hover 樣式在游標抵達時出現）。 */
@@ -434,21 +509,23 @@ export class Chapter {
       await sleep(m.endMs - m.startMs);
     }
     this.cursor = { ...to };
-    await this.page.mouse.move(to.x, to.y, { steps: 4 });
+    await this.page.mouse.move(to.x / this.zoom, to.y / this.zoom, { steps: 4 });
   }
 
   /** 移動途中版面若有位移（黏頂列、圖片載入），補一小段修正。 */
   private async settleOn(locator: Locator): Promise<void> {
     const box = await locator.boundingBox();
     if (!box) return;
-    const p = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
-    const inside = Math.abs(p.x - this.cursor.x) < box.width / 2 - 2 && Math.abs(p.y - this.cursor.y) < box.height / 2 - 2;
+    const p = this.toVideo({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+    const z = this.zoom;
+    const inside = Math.abs(p.x - this.cursor.x) < (box.width / 2) * z - 2 && Math.abs(p.y - this.cursor.y) < (box.height / 2) * z - 2;
     if (!inside) await this.moveTo(p);
   }
 
+  /** dy 是 CSS px；捲動時長照畫面上移動的距離（影片像素）算。 */
   private async smoothScroll(dy: number): Promise<void> {
     if (Math.abs(dy) < 4) return;
-    const ms = Math.round(Math.min(1400, Math.max(500, Math.abs(dy) * 0.9)));
+    const ms = Math.round(Math.min(1400, Math.max(500, Math.abs(dy) * this.zoom * 0.9)));
     const startMs = this.now();
     const moved = await this.page.evaluate(
       ({ dy, ms }) =>
@@ -469,7 +546,7 @@ export class Chapter {
       { dy, ms },
     );
     await sleep(150);
-    this.events.push({ type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved) });
+    this.events.push({ type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved * this.zoom) });
   }
 
   /** 給測試與後製參考：時間 t 的游標位置。 */

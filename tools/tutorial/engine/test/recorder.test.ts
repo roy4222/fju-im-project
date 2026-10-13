@@ -15,7 +15,7 @@ const BITS = 20;
 const BLOCK = 40;
 const PAGE = `<!doctype html><body style="margin:0;background:#fff">
 <canvas id=c width=${BITS * BLOCK} height=${BLOCK} style="position:fixed;left:0;top:0"></canvas>
-<button id=b style="position:fixed;left:900px;top:500px;width:300px;height:120px;background:#fff;border:0"
+<button id=b style="position:fixed;left:900px;top:400px;width:300px;height:120px;background:#fff;border:0"
   onmousedown="this.style.background='#000'">按我</button>
 <script>
   window.__off = null;
@@ -32,7 +32,11 @@ const PAGE = `<!doctype html><body style="margin:0;background:#fff">
   draw();
 </script></body>`;
 
-/** 解出每一格的條碼值，以及按鈕區是否變黑。 */
+/** 頁面放大 1.5 倍錄影：CSS px × ZOOM ＝ 影片像素。 */
+const ZOOM = 1.5;
+const B = BLOCK * ZOOM;
+
+/** 解出每一格的條碼值，以及按鈕區（CSS 中心 1050,460）是否變黑。 */
 function decode(clip: string): { codes: number[]; pressed: boolean[] } {
   const w = 1920;
   const h = 1000;
@@ -45,9 +49,9 @@ function decode(clip: string): { codes: number[]; pressed: boolean[] } {
   for (let k = 0; k < n; k++) {
     const base = k * w * h;
     let v = 0;
-    for (let i = 0; i < BITS; i++) if (buf[base + (BLOCK / 2) * w + i * BLOCK + BLOCK / 2] < 128) v |= 1 << i;
+    for (let i = 0; i < BITS; i++) if (buf[base + (B / 2) * w + i * B + B / 2] < 128) v |= 1 << i;
     codes.push(v);
-    pressed.push(buf[base + 560 * w + 1050] < 128);
+    pressed.push(buf[base + 690 * w + 1575] < 128);
   }
   return { codes, pressed };
 }
@@ -58,8 +62,14 @@ test('影片時間與事件時間對齊（≤ 50 ms），步驟長度 ≥ 配音
   try {
     const page = await newTutorialPage(browser);
     await page.setContent(PAGE);
-    const t = await startChapter({ page, outDir, chapter: '測試｜對齊', tts: silentProvider(150) });
-    const sync = () => page.evaluate((off) => ((window as unknown as { __off: number }).__off = off), Date.now() - t.now());
+    const t = await startChapter({ page, outDir, chapter: '測試｜對齊', tts: silentProvider(150), keepFrames: !!process.env.KEEP });
+    // 每步開頭把頁面條碼對到章節時間（暫停後章節時鐘會位移，要重設）；記下設好的時間，
+    // 分析只從這之後開始，免得把還沒重設的舊條碼算成誤差
+    const synced: number[] = [];
+    const sync = async () => {
+      await page.evaluate((off) => ((window as unknown as { __off: number }).__off = off), Date.now() - t.now());
+      synced.push(t.now());
+    };
 
     await t.step({ caption: '第一步', narration: '這一步有十二個字的配音' }, async () => {
       await sync();
@@ -78,9 +88,10 @@ test('影片時間與事件時間對齊（≤ 50 ms），步驟長度 ≥ 配音
 
     // 1) 條碼：每個新數值第一次出現在影片的時間 vs 它被畫出來的章節時間
     const errors: number[] = [];
-    for (const s of ev.steps) {
+    for (const [i, s] of ev.steps.entries()) {
       let last = -1;
-      for (let k = Math.ceil((s.startMs + 150) / frameMs); k * frameMs < s.endMs; k++) {
+      // 最後一格不算：下一步合成配音的暫停中，畫面會停在暫停期間最後一張（內容正確，但條碼還在走）
+      for (let k = Math.ceil((synced[i] + 100) / frameMs); (k + 1) * frameMs < s.endMs; k++) {
         const v = codes[k];
         if (v === last || v === 0) continue;
         last = v;
@@ -100,8 +111,12 @@ test('影片時間與事件時間對齊（≤ 50 ms），步驟長度 ≥ 配音
     const firstPressed = pressed.findIndex(Boolean) * frameMs;
     console.log(`點擊對齊：事件 ${click.atMs} ms，畫面 ${firstPressed.toFixed(0)} ms`);
     assert.ok(Math.abs(firstPressed - click.atMs) <= 50, `點擊誤差 ${firstPressed - click.atMs} ms`);
-    // 點擊座標落在按鈕中心
-    assert.deepEqual([click.x, click.y], [1050, 560]);
+    // 點擊座標落在按鈕中心（影片像素＝CSS×1.5）
+    assert.deepEqual([click.x, click.y], [1575, 690]);
+    // 網頁放大錄影：CSS 1280×667、clip 仍是 1920×1000 的實際像素
+    assert.deepEqual([ev.page.width, ev.page.height, ev.page.zoom], [1280, 667, ZOOM]);
+    const dims = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', clip]).toString().trim();
+    assert.equal(dims.replace(/,$/, ''), '1920,1000');
 
     // 3) 步驟長度 ≥ 配音長度＋0.6 秒，且配音在步驟內
     for (const s of ev.steps) {
@@ -115,6 +130,6 @@ test('影片時間與事件時間對齊（≤ 50 ms），步驟長度 ≥ 配音
     assert.ok(ev.steps.at(-1)!.endMs <= ev.clip.durationMs);
   } finally {
     await browser.close();
-    rmSync(outDir, { recursive: true, force: true });
+    if (!process.env.KEEP) rmSync(outDir, { recursive: true, force: true }); else console.log('outDir', outDir);
   }
 });

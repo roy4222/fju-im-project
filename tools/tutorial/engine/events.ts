@@ -1,5 +1,5 @@
 // events.json 的格式。錄影寫、後製讀；時間一律是「章節影片時間」（ms，clip 第 0 格＝0）。
-// 座標一律是 clip 影片像素（CSS px × zoom），不含上方假網址列。
+// 座標一律是 clip 影片像素（CSS px × zoom），不含上方假網址列。page 是錄影時的 CSS viewport。
 
 import type { Point } from './cursor.ts';
 
