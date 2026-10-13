@@ -1,4 +1,4 @@
-// 組裝：多章 mp4 接成 final.mp4，並產生 YouTube 章節／詳細時間軸與可點的 index.html。
+// 組裝：多章 mp4 接成 final.mp4，並產生 YouTube 說明欄、功能時間軸與可點的 index.html。
 
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,30 +28,118 @@ export function timecode(ms: number): string {
 export function placeChapters(chapters: readonly ChapterMeta[], durations: readonly number[]): PlacedChapter[] {
   let t = 0;
   return chapters.map((c, i) => {
-    const placed = { ...c, offsetMs: t };
+    const placed = { ...c, durationMs: durations[i], offsetMs: t };
     t += durations[i];
     return placed;
   });
 }
 
-/** YouTube 說明欄文字：第一段是章節（第一行 0:00），第二段是每個步驟的詳細時間軸。 */
-export function youtubeChapters(placed: readonly PlacedChapter[]): { text: string; warnings: string[] } {
-  const warnings: string[] = [];
-  const lines = placed.map((c) => `${timecode(c.offsetMs)} ${c.label}`);
-  placed.forEach((c, i) => {
-    const end = i + 1 < placed.length ? placed[i + 1].offsetMs : c.offsetMs + c.durationMs;
-    if (end - c.offsetMs < YT_MIN_CHAPTER_MS) warnings.push(`「${c.label}」只有 ${((end - c.offsetMs) / 1000).toFixed(1)} 秒，YouTube 章節至少 10 秒`);
-  });
-  if (placed.length < 3) warnings.push(`只有 ${placed.length} 章：YouTube 至少要 3 個章節才會顯示章節列`);
-  const detail: string[] = [];
-  for (const c of placed) {
-    detail.push('', `【${c.label}】`);
-    for (const s of c.steps) {
-      const icon = s.status ? ` ${STATUS_ICON[s.status as StatusKind] ?? ''}` : '';
-      detail.push(`${timecode(c.offsetMs + s.startMs)} ${c.number != null ? `${c.number}-${s.index}` : s.index} ${s.caption}${icon}`);
+/** YouTube 說明欄上限 5000 字，留點空間給 Roy 填的簡介。 */
+export const YT_DESCRIPTION_MAX = 4500;
+/** 每段功能清單最多幾個字（超過截斷加「…」）。 */
+export const YT_FEATURE_LIST_MAX = 90;
+
+export const LEGEND = [
+  '✅ 已完成：可以正常使用',
+  '⚠️ 部分完成：能用，但有已知限制或待補',
+  '❌ 未完成：尚未實作或無法使用',
+  '🟡 待確認：規格或做法還在討論',
+];
+
+type Segment = { startMs: number; endMs: number; names: string[]; items: string[] };
+
+const cut = (s: string, max: number) => ([...s].length <= max ? s : max <= 0 ? '' : `${[...s].slice(0, max).join('')}…`);
+
+/** 一章涵蓋的功能名稱：feature-table 裡指到這章的列（依影片時間排），沒有就用步驟字幕。 */
+function chapterItems(c: PlacedChapter, features: ReturnType<typeof parseFeatureTable> | null): string[] {
+  const fnCol = features?.headers.find((h) => h.includes('功能')) ?? '';
+  const hits: { t: number; order: number; name: string }[] = [];
+  features?.rows.forEach((r, order) => {
+    for (const ref of r.refs) {
+      if (ref.chapter !== c.number) continue;
+      const t = refTime([c], ref);
+      if (t != null && r.cells[fnCol]) hits.push({ t, order, name: r.cells[fnCol] });
     }
+  });
+  hits.sort((a, b) => a.t - b.t || a.order - b.order);
+  const names = [...new Set(hits.map((h) => h.name))];
+  return names.length ? names : c.steps.map((s) => s.caption);
+}
+
+/**
+ * YouTube 說明欄：簡介佔位＋圖例＋章節時間軸（每段一行，冒號後是這段涵蓋的功能）。
+ * YouTube 規則：第一行 0:00、時間碼遞增、每段 ≥ 10 秒；不放每一步的時間碼（會讓章節列消失）。
+ */
+export function youtubeDescription(placed: readonly PlacedChapter[], features: ReturnType<typeof parseFeatureTable> | null): { text: string; warnings: string[] } {
+  const warnings: string[] = [];
+  let segs: Segment[] = placed.map((c, i) => ({
+    startMs: c.offsetMs,
+    endMs: i + 1 < placed.length ? placed[i + 1].offsetMs : c.offsetMs + c.durationMs,
+    names: [c.chapter],
+    items: chapterItems(c, features),
+  }));
+  // 不足 10 秒的段併到下一段（最後一段併到前一段）
+  for (let i = 0; i < segs.length && segs.length > 1; ) {
+    const s = segs[i];
+    if (s.endMs - s.startMs >= YT_MIN_CHAPTER_MS) {
+      i++;
+      continue;
+    }
+    const j = i + 1 < segs.length ? i + 1 : i - 1;
+    const [a, b] = j > i ? [s, segs[j]] : [segs[j], s];
+    warnings.push(`「${s.names.join('／')}」只有 ${((s.endMs - s.startMs) / 1000).toFixed(1)} 秒，已合併到相鄰章節（YouTube 章節至少 10 秒）`);
+    const merged: Segment = { startMs: a.startMs, endMs: b.endMs, names: [...a.names, ...b.names], items: [...new Set([...a.items, ...b.items])] };
+    segs = [...segs.slice(0, Math.min(i, j)), merged, ...segs.slice(Math.max(i, j) + 1)];
+    i = Math.min(i, j);
   }
-  return { text: [...lines, '', '— 詳細時間軸 —', ...detail, ''].join('\n'), warnings };
+  if (segs.length < 3) warnings.push(`只有 ${segs.length} 段：YouTube 至少要 3 個章節才會顯示章節列`);
+
+  const build = (max: number) =>
+    [
+      '{{INTRO}}',
+      '',
+      '圖例',
+      ...LEGEND,
+      '',
+      '章節',
+      ...segs.map((s) => {
+        const list = cut(s.items.join('、'), max);
+        return `${timecode(s.startMs)} ${s.names.join('／')}${list ? `：${list}` : ''}`;
+      }),
+      '',
+      '每個功能的詳細時間點：見影片頁面附的功能時間軸。',
+      '',
+    ].join('\n');
+  let max = YT_FEATURE_LIST_MAX;
+  let text = build(max);
+  while ([...text].length >= YT_DESCRIPTION_MAX && max > 0) {
+    max = Math.max(0, max - 10);
+    text = build(max);
+  }
+  if (max < YT_FEATURE_LIST_MAX) warnings.push(`說明欄字數超過 ${YT_DESCRIPTION_MAX}，每段功能清單縮到 ${max} 字`);
+  if ([...text].length >= YT_DESCRIPTION_MAX) warnings.push(`說明欄仍有 ${[...text].length} 字，超過 ${YT_DESCRIPTION_MAX}`);
+  return { text, warnings };
+}
+
+/** 每個 F 編號一行：時間碼＋youtu.be 連結（上傳後把 {{VIDEO_ID}} 換成影片 ID）。 */
+export function featureTimeline(placed: readonly PlacedChapter[], features: ReturnType<typeof parseFeatureTable> | null): string {
+  const link = (ms: number) => `[${timecode(ms)}](https://youtu.be/{{VIDEO_ID}}?t=${Math.floor(ms / 1000)})`;
+  const out = ['# 功能時間軸', '', '上傳後把 `{{VIDEO_ID}}` 換成 YouTube 影片 ID。', ''];
+  if (features && features.rows.length) {
+    const h = features.headers;
+    const col = (re: RegExp) => h.find((x) => re.test(x) && !x.includes('章節'));
+    const [idCol, roleCol, modCol, fnCol, stCol] = [col(/F/), col(/角色/), col(/模組/), col(/功能/), col(/狀態/)];
+    for (const r of features.rows) {
+      const name = [idCol, roleCol, modCol, fnCol].map((c) => (c ? r.cells[c] : '')).filter(Boolean).join('｜');
+      const st = stCol && r.cells[stCol] ? ` ${r.cells[stCol]}` : '';
+      const times = r.refs.map((ref) => refTime(placed, ref)).filter((t): t is number => t != null);
+      out.push(`- ${name}${st} — ${times.length ? times.map(link).join(' ') : '（影片中沒有示範）'}`);
+    }
+  } else {
+    out.push('（沒有 feature-table.md，改列每個步驟）', '');
+    for (const c of placed) for (const s of c.steps) out.push(`- ${c.number != null ? `${c.number}-${s.index}` : s.index} ${s.caption} — ${link(c.offsetMs + s.startMs)}`);
+  }
+  return `${out.join('\n')}\n`;
 }
 
 // ── feature-table.md ─────────────────────────────────
@@ -179,7 +267,7 @@ export type AssembleOptions = {
   featureTable?: string;
 };
 
-export async function assemble(opts: AssembleOptions): Promise<{ final: string; chaptersTxt: string; html: string; warnings: string[] }> {
+export async function assemble(opts: AssembleOptions): Promise<{ final: string; description: string; featureTimeline: string; html: string; warnings: string[] }> {
   const outDir = resolve(opts.outDir);
   mkdirSync(outDir, { recursive: true });
   const metas = opts.chapters.map((p) => {
@@ -200,12 +288,13 @@ export async function assemble(opts: AssembleOptions): Promise<{ final: string; 
     maxBuffer: 1 << 24,
   });
 
-  const { text, warnings } = youtubeChapters(placed);
-  const chaptersTxt = join(outDir, 'youtube-chapters.txt');
-  writeFileSync(chaptersTxt, text);
-
   const features = opts.featureTable && existsSync(opts.featureTable) ? parseFeatureTable(readFileSync(opts.featureTable, 'utf8')) : null;
-  if (opts.featureTable && !features) warnings.push(`找不到 ${opts.featureTable}，index.html 不含功能清單`);
+  const { text, warnings } = youtubeDescription(placed, features);
+  if (opts.featureTable && !features) warnings.push(`找不到 ${opts.featureTable}，說明欄改列步驟字幕、index.html 不含功能清單`);
+  const description = join(outDir, 'youtube-description.txt');
+  writeFileSync(description, text);
+  const featureTimelineFile = join(outDir, 'feature-timeline.md');
+  writeFileSync(featureTimelineFile, featureTimeline(placed, features));
   if (features) {
     for (const r of features.rows) {
       const id = Object.values(r.cells)[0];
@@ -215,5 +304,5 @@ export async function assemble(opts: AssembleOptions): Promise<{ final: string; 
   const html = join(outDir, 'index.html');
   writeFileSync(html, indexHtml(placed, features, basename(final)));
   writeFileSync(join(outDir, 'timeline.json'), JSON.stringify(placed, null, 2));
-  return { final, chaptersTxt, html, warnings };
+  return { final, description, featureTimeline: featureTimelineFile, html, warnings };
 }

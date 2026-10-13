@@ -20,7 +20,7 @@ if (cmd === 'render' && positionals.length >= 1) {
   }
 } else if (cmd === 'assemble' && values.out && positionals.length >= 1) {
   const r = await assemble({ chapters: positionals, outDir: values.out, featureTable: values.features });
-  console.log([r.final, r.chaptersTxt, r.html].join('\n'));
+  console.log([r.final, r.description, r.featureTimeline, r.html].join('\n'));
   for (const w of r.warnings) console.warn(`注意：${w}`);
 } else {
   console.error('用法：\n  cli.ts render <章節資料夾…> [--out 檔案.mp4]\n  cli.ts assemble --out <資料夾> [--features feature-table.md] <章節資料夾…>');
