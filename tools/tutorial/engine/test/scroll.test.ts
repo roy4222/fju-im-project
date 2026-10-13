@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { ChapterEvents } from '../events.ts';
 import { launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
+import { CAPTURE_OPTS } from './env.ts';
 
 const rows = Array.from({ length: 9 }, (_, i) => `<tr id=row${i + 1} style="height:60px"><td style="width:1500px">第 ${i + 1} 列</td><td>${i === 7 ? '<button id=act style="width:200px;height:50px;font-size:24px" onclick="this.textContent=\'已點\'">操作</button>' : '—'}</td></tr>`).join('');
 const PAGE = `<body style="margin:0;font-size:20px">
@@ -26,7 +27,7 @@ test('已經看得到的元素 t.scroll(locator) 仍對齊到上方三分之一�
   try {
     const page = await newTutorialPage(browser);
     await page.setContent(PAGE);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜對齊', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜對齊', tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       const wrap = page.locator('#wrap');
       const row3 = page.locator('#row3');
@@ -66,7 +67,7 @@ test('t.click 點比畫面寬的表格最右邊、容器下半的操作鈕：先
   try {
     const page = await newTutorialPage(browser);
     await page.setContent(PAGE);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜橫向捲動', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜橫向捲動', tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       const wrap = page.locator('#wrap');
       const act = page.locator('#act');

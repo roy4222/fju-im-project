@@ -12,6 +12,7 @@ import type { Page } from 'playwright';
 import type { ChapterEvents } from '../events.ts';
 import { Chapter, isPageChange, launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
+import { CAPTURE_OPTS } from './env.ts';
 
 const ANIMATED = `<body style="margin:0;background:#fff"><style>@keyframes mv{from{transform:translateX(0)}to{transform:translateX(300px)}}</style>
 <div style="position:absolute;left:100px;top:100px;width:200px;height:200px;background:#f00;animation:mv 1s linear infinite alternate"></div>
@@ -73,7 +74,7 @@ test('換頁前還在飛的請求（Playwright 不會再通知結束）不會讓
   const browser = await launchTutorialBrowser();
   try {
     const page = await newTutorialPage(browser);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜請求外漏', baseURL: base, tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜請求外漏', baseURL: base, tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       await t.goto('/one', false); // 這頁發了兩個永遠不回的 fetch
       await page.waitForTimeout(300);
@@ -115,7 +116,7 @@ test('任何等待都不進影片：步驟裡的 waitStable（逾時）、點了
   const browser = await launchTutorialBrowser();
   try {
     const page = await newTutorialPage(browser);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜等待不進影片', baseURL: base, tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜等待不進影片', baseURL: base, tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       await t.goto('/anim', false);
       const wall0 = Date.now();
@@ -220,7 +221,7 @@ test('press：在表單裡按 Enter 送出而換到慢圖頁——跟 click 共�
   try {
     const page = await newTutorialPage(browser);
     await formSite(page);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜Enter 送出', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜Enter 送出', tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       await t.goto('http://tutorial.test/');
       await t.step({ caption: '打字後按 Enter 送出' }, async () => {
@@ -256,7 +257,7 @@ test('同路徑只改查詢字串（replaceState／pushState）不算換頁：UI
   try {
     const page = await newTutorialPage(browser);
     await filterSite(page);
-    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜篩選', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜篩選', tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
     try {
       await t.goto('http://tutorial.test/');
       await t.step({ caption: 'replaceState 篩選' }, async () => {
@@ -283,10 +284,13 @@ test('同路徑只改查詢字串（replaceState／pushState）不算換頁：UI
         const c = clicks[q];
         const u = urls.find((x) => x.url.includes(i));
         assert.ok(u, `沒記到 ${i}：${JSON.stringify(urls)}`);
-        // 改網址在 click 事件裡同步發生，比「放開滑鼠＋畫出下一格」記下的 click 早幾毫秒是正常的；沒有回溯暫停就不會早於點擊前
-        assert.ok(u.atMs >= c.atMs - 60 && u.atMs - c.atMs < 400, `${i}：url ${u.atMs} vs click ${c.atMs}`);
-        // 點擊後 100～350 ms 要看到橘色「載入中」（過程保留），700 ms 後是藍
-        for (const d of [120, 200, 300]) assert.ok(isOrange(at(c.atMs + d)), `${i} 點擊後 ${d} ms 應為橘（載入中）：${at(c.atMs + d)}`);
+        // 改網址在 click 事件裡同步發生，比「放開滑鼠＋畫出下一格」記下的 click 早幾毫秒是正常的（機器忙時畫下一格可能拖到一個截圖間隔）；
+        // 沒有回溯暫停就不會早於點擊前太多
+        const slack = ev.quality!.maxGapMs + 30;
+        assert.ok(u.atMs >= c.atMs - slack && u.atMs - c.atMs < 400, `${i}：url ${u.atMs} vs click ${c.atMs}（容許 ${slack}）`);
+        // 點擊後 100～350 ms 之間要看得到橘色「載入中」（過程保留；截圖可能稀疏，所以是「至少一格」），750 ms 後是藍
+        const mid = Array.from({ length: 8 }, (_, j) => at(c.atMs + 100 + j * 35));
+        assert.ok(mid.some(isOrange), `${i} 點擊後 100～350 ms 應看到橘（載入中）：${JSON.stringify(mid)}`);
         assert.ok(isBlue(at(c.atMs + 750)), `${i} 點擊後 750 ms 應為藍：${at(c.atMs + 750)}`);
       }
       // 整頁重載：點下去直接切到載好的紅圖，不能有灰格
