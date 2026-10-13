@@ -15,7 +15,7 @@ export type StepStatus = { kind: StatusKind; say?: string; evidence?: string };
 
 /** 白話超過這麼多字就在畫面上截斷加「…」（events.json 留全文）。 */
 export const SAY_MAX_CHARS = 22;
-const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '', bad: '', pending: '等你決定：' };
+const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '', bad: '', pending: '等你決定' };
 
 export type StepRecord = {
   index: number; // 1 起算
@@ -76,10 +76,10 @@ export type ChapterEvents = {
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
 
-/** 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」；超過 SAY_MAX_CHARS 字截斷加「…」。 */
+/** 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」（沒寫 say 就只有「等你決定」）；超過 SAY_MAX_CHARS 字截斷加「…」。 */
 export function statusSay(st: Pick<Status, 'kind' | 'say'>): string {
   const say = (st.say ?? '').trim();
-  const text = st.kind === 'ok' ? say || STATUS_WORD.ok : `${STATUS_WORD[st.kind]}${say}`;
+  const text = st.kind === 'ok' ? say || STATUS_WORD.ok : st.kind === 'pending' ? (say ? `${STATUS_WORD.pending}：${say}` : STATUS_WORD.pending) : say;
   const chars = [...text];
   return chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : text;
 }

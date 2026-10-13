@@ -40,6 +40,8 @@ test('狀態標記白話：ok →「✅ 正常」、pending →「🟡 等你決
   assert.equal(statusLabel({ kind: 'warn', say: '截止提醒還沒做' }), '⚠️ 截止提醒還沒做');
   assert.equal(statusLabel({ kind: 'bad', say: '按了沒反應' }), '❌ 按了沒反應');
   assert.equal(statusLabel({ kind: 'pending', say: '名稱要不要改' }), '🟡 等你決定：名稱要不要改');
+  assert.equal(statusLabel({ kind: 'pending' }), '🟡 等你決定');
+  assert.equal(statusLabel({ kind: 'warn' }), '⚠️');
   const long = `${'白話很長'.repeat(5)}再多五個字`; // 25 個字
   assert.equal([...long].length, 25);
   assert.equal(statusSay({ kind: 'warn', say: long }), `${[...long].slice(0, SAY_MAX_CHARS).join('')}…`);
