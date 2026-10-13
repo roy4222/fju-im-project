@@ -76,12 +76,16 @@ export type ChapterEvents = {
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
 
-/** 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」（沒寫 say 就只有「等你決定」）；超過 SAY_MAX_CHARS 字截斷加「…」。 */
+/**
+ * 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」（沒寫 say 就只有「等你決定」）。
+ * say 本身超過 SAY_MAX_CHARS 字才截斷加「…」——先截 say 再加前綴，前綴不佔 say 的額度。
+ */
 export function statusSay(st: Pick<Status, 'kind' | 'say'>): string {
-  const say = (st.say ?? '').trim();
-  const text = st.kind === 'ok' ? say || STATUS_WORD.ok : st.kind === 'pending' ? (say ? `${STATUS_WORD.pending}：${say}` : STATUS_WORD.pending) : say;
-  const chars = [...text];
-  return chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : text;
+  const chars = [...(st.say ?? '').trim()];
+  const say = chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : chars.join('');
+  if (st.kind === 'ok') return say || STATUS_WORD.ok;
+  if (st.kind === 'pending') return say ? `${STATUS_WORD.pending}：${say}` : STATUS_WORD.pending;
+  return say;
 }
 
 /** 圖示＋白話，例如「✅ 正常」「🟡 等你決定：名稱要不要改」。 */

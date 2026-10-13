@@ -80,9 +80,31 @@ const IMAGE_CHECK_MS = 100;
 /** 每隔這麼久記一次系統負載（loadavg、可用記憶體），寫進 quality.system。 */
 const LOAD_SAMPLE_MS = 5000;
 
+/**
+ * 頁面內的平滑捲動（scrollIntoView 與 smoothScroll 共用；以字串傳進頁面，用 new Function 還原）：
+ * 把 sc 捲到 (left, top)，easeInOutSine，時長照距離（speed＝每 CSS px 幾 ms，500～1400 ms），回傳實際位移。
+ */
+const SCROLL_ANIMATE_JS = `(sc, left, top, speed) => new Promise((resolve) => {
+  const ease = (u) => (1 - Math.cos(Math.PI * u)) / 2;
+  const x0 = sc.scrollLeft, y0 = sc.scrollTop;
+  const tx = Math.max(0, Math.min(left, sc.scrollWidth - sc.clientWidth));
+  const ty = Math.max(0, Math.min(top, sc.scrollHeight - sc.clientHeight));
+  const dist = Math.max(Math.abs(tx - x0), Math.abs(ty - y0));
+  if (dist < 1) return resolve({ dx: 0, dy: 0 });
+  const ms = Math.min(1400, Math.max(500, dist * speed));
+  const t0 = performance.now();
+  const f = (now) => {
+    const u = Math.min(1, (now - t0) / ms);
+    sc.scrollTo({ left: x0 + (tx - x0) * ease(u), top: y0 + (ty - y0) * ease(u), behavior: 'instant' });
+    if (u < 1) requestAnimationFrame(f);
+    else resolve({ dx: sc.scrollLeft - x0, dy: sc.scrollTop - y0 });
+  };
+  requestAnimationFrame(f);
+})`;
+
 function loadSample(): LoadSample {
   const [l1, l5] = loadavg();
-  return { loadavg1: Math.round(l1 * 100) / 100, loadavg5: Math.round(l5 * 100) / 100, freeMemMB: Math.round(freemem() / 1048576) };
+  return { at: Date.now(), loadavg1: Math.round(l1 * 100) / 100, loadavg5: Math.round(l5 * 100) / 100, freeMemMB: Math.round(freemem() / 1048576) };
 }
 
 /** 點擊後監看換頁（送滑鼠事件前就裝上，否則同步的 SPA 換頁會漏掉）。 */
@@ -99,8 +121,8 @@ type NavWatch = {
   docRequested: boolean;
   /** 是這次點擊讓計時暫停的（不是在別人的 offRecord 裡）。 */
   autoPaused: boolean;
-  /** 已記下的點擊事件：偵測到換頁後把它對到暫停那一刻。 */
-  clickEvent: { atMs: number } | null;
+  /** 已記下的動作事件（click 或 press）：偵測到換頁後把它對到暫停那一刻。 */
+  actionEvent: { atMs: number } | null;
 };
 
 /** 只有 origin 或路徑不同才算換頁；查詢字串、hash 不算（篩選按鈕只改查詢字串時，畫面過程要保留）。 */
@@ -369,6 +391,9 @@ export class Chapter {
     this.loadSampledAt = Date.now();
     this.loadPeak = { loadavg1: Math.max(this.loadPeak.loadavg1, s.loadavg1), freeMemMB: Math.min(this.loadPeak.freeMemMB, s.freeMemMB) };
   }
+
+  /** 停止截圖那一刻的最終快照：之後的 ffmpeg 編碼、後製負載不算進去。 */
+  private loadFinal: SystemLoad | null = null;
 
   private systemLoad(): SystemLoad {
     this.sampleLoad();
@@ -895,7 +920,6 @@ export class Chapter {
   async click(locator: Locator, stable: WaitStableOptions | false = {}): Promise<void> {
     await this.hover(locator);
     await this.wait_(150);
-    const before = this.page.url();
     this.lastAction = `click ${locator}`;
     // 點的是不是連結（指到別的路徑才預期換頁；同路徑只改查詢字串的連結照一般點擊處理）
     const linkTo = await locator
@@ -905,9 +929,47 @@ export class Chapter {
         return new URL(a.href, location.href).href;
       })
       .catch(() => null);
-    // 送滑鼠事件之前就開始監看換頁：Next.js 的 client-side 換頁（pushState）在 click 事件裡同步發生，
-    // framenavigated 會跟 mouse.up() 的回應同時到，晚一步才裝監看就會漏掉、把載到一半的新頁錄進去
-    const watch: NavWatch = { startWall: Date.now(), before, navigated: false, sameDoc: false, docRequested: false, autoPaused: false, clickEvent: null };
+    await this.withNavWatch({ stable, linkTo, settleMs: 350 }, async () => {
+      await this.page.mouse.down();
+      await this.wait_(70);
+      await this.page.mouse.up();
+      // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現。
+      // 換頁已經讓計時暫停的話，now() 就是暫停那一刻（影片切到新頁的那一格）
+      await this.nextPaint();
+      const ev = { type: 'click' as const, atMs: this.now(), x: this.cursor.x, y: this.cursor.y };
+      this.events.push(ev);
+      return ev;
+    });
+  }
+
+  /**
+   * 按一個鍵（Playwright 的鍵名：Enter、Escape、Tab、Control+A、Meta+K…）；字幕帶右邊出現小鍵帽提示 0.8 秒。
+   * 換頁的處理跟 click 一樣（例如在表單裡按 Enter 送出而換頁：從按下那一刻起暫停，等新頁穩定；載入過程不進影片）。
+   */
+  async press(key: string, stable: WaitStableOptions | false = {}): Promise<void> {
+    this.lastAction = `press ${key}`;
+    this.check();
+    await this.withNavWatch({ stable, linkTo: null, settleMs: Math.min(PRESS_HINT_MS, 400) }, async () => {
+      await this.page.keyboard.press(key);
+      await this.nextPaint();
+      const ev = { type: 'press' as const, atMs: this.now(), key };
+      this.events.push(ev);
+      return ev;
+    });
+  }
+
+  /**
+   * 點擊、按鍵共用的換頁監看：送事件之前就裝上（Next.js 的 client-side 換頁在 click 事件裡同步 pushState，
+   * framenavigated 會跟 mouse.up() 的回應同時到，晚一步才裝監看就會漏掉、把載到一半的新頁錄進去）；
+   * 動作後等這一下的後續，真的換頁就回溯暫停、等新頁穩定，最後一定恢復計時。
+   * linkTo：點的是連結時它指到的網址（指到別的路徑就預期會換頁，等換頁的這段不進影片，逾時也不進）。
+   */
+  private async withNavWatch(
+    { stable, linkTo, settleMs }: { stable: WaitStableOptions | false; linkTo: string | null; settleMs: number },
+    action: () => Promise<{ atMs: number }>,
+  ): Promise<void> {
+    const before = this.page.url();
+    const watch: NavWatch = { startWall: Date.now(), before, navigated: false, sameDoc: false, docRequested: false, autoPaused: false, actionEvent: null };
     const onReq = (r: Request) => {
       if (r.resourceType() === 'document' && this.isMainFrame(r)) watch.docRequested = true;
     };
@@ -915,29 +977,17 @@ export class Chapter {
     if (stable !== false) this.navWatch = watch;
     try {
       this.actionBusyUntil = Date.now() + 2000;
-      await this.page.mouse.down();
-      await this.wait_(70);
-      await this.page.mouse.up();
-      // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現。
-      // 換頁已經讓計時暫停的話，now() 就是暫停那一刻（影片切到新頁的那一格）
-      await this.nextPaint();
-      const clickEvent = { type: 'click' as const, atMs: this.now(), x: this.cursor.x, y: this.cursor.y };
-      this.events.push(clickEvent);
-      watch.clickEvent = clickEvent;
-      await this.wait_(350);
+      watch.actionEvent = await action();
+      await this.wait_(settleMs);
       if (stable !== false && !watch.navigated) {
         // 等這一下的後續：真的換頁（navDetected 會回溯暫停）、同文件改網址、或這一下發出的請求都結束。
         // 預期會換頁（點的是別頁的連結、或已送出整頁請求）時，這段等待不進影片——逾時也不進影片
         const expectNav = () => (linkTo != null && isPageChange(before, linkTo)) || watch.docRequested;
-        if (expectNav() && this.pausedAt == null) {
-          this.pausedAt = Date.now();
-          watch.autoPaused = true;
-        }
         const until = Date.now() + NAV_WAIT_MS;
         const grace = Date.now() + NAV_GRACE_MS;
         while (!watch.navigated && Date.now() < until) {
           if (expectNav() && this.pausedAt == null) {
-            // 點了之後才送出整頁請求（例如表單送出）：從現在起不進影片，偵測到換頁再回溯到點擊前
+            // 預期換頁（含動作之後才送出整頁請求，例如表單送出）：從現在起不進影片，偵測到換頁再回溯到動作前
             this.pausedAt = Date.now();
             watch.autoPaused = true;
           }
@@ -964,7 +1014,7 @@ export class Chapter {
   }
 
   /**
-   * 點擊後偵測到真的換頁（整頁載入，或路徑變了）：從裝上監看那一刻（滑鼠按下去之前）起暫停計時——
+   * 動作（點擊、按鍵）後偵測到真的換頁（整頁載入，或路徑變了）：從裝上監看那一刻（送事件之前）起暫停計時——
    * 新頁的任何畫面都不可能比它早，所以載到一半的畫面絕不會進影片；之後等新頁穩定再繼續。
    * 暫停是回溯的：點擊到偵測之間已經截下的影格，收尾時會整段丟掉（只留暫停中最後一張當新頁的第一格）。
    * 點擊事件也對到暫停那一刻，所以 click、url 與影片切到新頁的那一格是同一個時間。
@@ -976,7 +1026,7 @@ export class Chapter {
       this.pausedAt = w.startWall;
       w.autoPaused = true;
     } else if (w.autoPaused) this.pausedAt = w.startWall; // 自己為了等換頁開的暫停：起點挪回點擊前
-    if (w.clickEvent) w.clickEvent.atMs = toChapterMs(this.pausedAt, this.t0Wall, this.pauses);
+    if (w.actionEvent) w.actionEvent.atMs = toChapterMs(this.pausedAt, this.t0Wall, this.pauses);
   }
 
   /** 點進欄位後逐字輸入（像人打字，每字 60～130 ms）。 */
@@ -989,17 +1039,6 @@ export class Chapter {
     }
     // secret：密碼之類不寫進 events.json
     this.events.push({ type: 'type', startMs, endMs: this.now(), text: opts.secret ? '•'.repeat([...text].length) : text });
-  }
-
-  /** 按一個鍵（Playwright 的鍵名：Enter、Escape、Tab、Control+A、Meta+K…）；畫面上會出現小鍵帽提示 0.8 秒。 */
-  async press(key: string): Promise<void> {
-    this.lastAction = `press ${key}`;
-    this.check();
-    this.actionBusyUntil = Date.now() + 2000;
-    await this.page.keyboard.press(key);
-    await this.nextPaint();
-    this.events.push({ type: 'press', atMs: this.now(), key });
-    await this.wait_(Math.min(PRESS_HINT_MS, 400));
   }
 
   /** 原生下拉選單：游標移過去、點擊波紋，再直接選值（原生選單的彈出層錄不到）。 */
@@ -1071,6 +1110,7 @@ export class Chapter {
     this.stopCapture = true;
     await this.capturing;
     await Promise.race([this.watching, sleep(1500)]);
+    this.loadFinal = this.systemLoad(); // 截圖停了就定格：後面的解碼、編碼不算錄影負載
     this.check(); // 收尾前一刻若中止（例如間隔過大）就報錯
     await this.cdp?.detach().catch(() => {});
     // 錄影結束就歸還名額：後面的編碼與 render 不佔名額
@@ -1138,7 +1178,7 @@ export class Chapter {
         ...quality,
         pageJank,
         unloadedImages,
-        system: this.systemLoad(),
+        system: this.loadFinal ?? this.systemLoad(),
         warnings: [...quality.warnings, ...jankWarnings, ...unloadedWarnings, ...this.warnings],
         ok: quality.ok && this.warnings.length === 0 && unloadedImages.length === 0,
       },
@@ -1204,31 +1244,17 @@ export class Chapter {
   }
 
   /**
-   * 把元素捲到完整可見：從最裡面的捲動容器往外，每一層（含整頁）都算出讓元素落在可見區內的最小位移（留 24 px 邊），
-   * 整頁直向另外照安全區：元素中心不在「網址列下 40px ～ 底邊上 24px」之間就捲到畫面 42%（center）或上方三分之一（third）。
-   * 每一層各自平滑捲動，全部記成一個 scroll 事件（影片像素）。沒有需要捲的就什麼都不做。
+   * 把元素捲進畫面：從最裡面的捲動容器往外，每一層（含整頁）各自平滑捲動，全部記成一個 scroll 事件（影片像素）。
+   * - center（t.click 用）：只在元素沒有完整可見時捲——每層算讓元素落在可見區內的最小位移（留 24 px 邊）；
+   *   整頁直向另外照安全區：元素中心不在「網址列下 40px ～ 底邊上 24px」之間就捲到畫面 42%。
+   * - third（t.scroll(locator) 用）：**一律**把元素頂端對到可見區上方三分之一（整頁與每一層容器都是），
+   *   已經看得到也一樣——劇本用它把某一區帶到畫面上方給觀眾看；橫向只在被切到時做最小位移。
    */
   private async scrollIntoView(locator: Locator, mode: 'center' | 'third'): Promise<void> {
     const startMs = this.now();
     const moved = await locator.evaluate(
-      async (el, { topSafe, bottomSafe, margin, mode, speed }) => {
-        const ease = (u: number) => (1 - Math.cos(Math.PI * u)) / 2;
-        const animate = (sc: Element, left: number, top: number) =>
-          new Promise<{ dx: number; dy: number }>((resolve) => {
-            const x0 = sc.scrollLeft;
-            const y0 = sc.scrollTop;
-            const dist = Math.max(Math.abs(left - x0), Math.abs(top - y0));
-            if (dist < 1) return resolve({ dx: 0, dy: 0 });
-            const ms = Math.min(1400, Math.max(500, dist * speed));
-            const t0 = performance.now();
-            const f = (now: number) => {
-              const u = Math.min(1, (now - t0) / ms);
-              sc.scrollTo({ left: x0 + (left - x0) * ease(u), top: y0 + (top - y0) * ease(u), behavior: 'instant' });
-              if (u < 1) requestAnimationFrame(f);
-              else resolve({ dx: sc.scrollLeft - x0, dy: sc.scrollTop - y0 });
-            };
-            requestAnimationFrame(f);
-          });
+      async (el, { topSafe, bottomSafe, margin, mode, speed, animateJs }) => {
+        const animate = new Function(`return ${animateJs}`)() as (sc: Element, left: number, top: number, speed: number) => Promise<{ dx: number; dy: number }>;
         const scrollable = (a: Element) => {
           const cs = getComputedStyle(a);
           const x = /(auto|scroll|overlay)/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1;
@@ -1259,23 +1285,26 @@ export class Chapter {
             else if (e.right > r.right - margin) dx = e.right - (r.right - margin);
           }
           if (y) {
-            const [mt, mb] = win ? [topSafe, bottomSafe] : [margin, margin];
-            if (win) {
+            const h = r.bottom - r.top;
+            if (mode === 'third') dy = e.top - (r.top + h * 0.3);
+            else if (win) {
               const cy = (e.top + e.bottom) / 2;
-              const h = r.bottom - r.top;
-              if (cy < r.top + mt || cy > r.bottom - mb || e.top < r.top || e.bottom > r.bottom) dy = cy - (r.top + h * (mode === 'third' ? 0.3 : 0.42));
-            } else if (e.height > r.bottom - r.top - 2 * mb || e.top < r.top + mt) dy = e.top - (r.top + mt);
-            else if (e.bottom > r.bottom - mb) dy = e.bottom - (r.bottom - mb);
+              if (cy < r.top + topSafe || cy > r.bottom - bottomSafe || e.top < r.top || e.bottom > r.bottom) dy = cy - (r.top + h * 0.42);
+            } else if (e.height > h - 2 * margin || e.top < r.top + margin) dy = e.top - (r.top + margin);
+            else if (e.bottom > r.bottom - margin) dy = e.bottom - (r.bottom - margin);
           }
-          const left = Math.max(0, Math.min(sc.scrollLeft + dx, sc.scrollWidth - sc.clientWidth));
-          const top = Math.max(0, Math.min(sc.scrollTop + dy, sc.scrollHeight - sc.clientHeight));
-          const m = await animate(sc, left, top);
+          const m = await animate(sc, sc.scrollLeft + dx, sc.scrollTop + dy, speed);
           total = { dx: total.dx + m.dx, dy: total.dy + m.dy };
         }
         return total;
       },
-      { topSafe: 40 / this.zoom, bottomSafe: 24 / this.zoom, margin: 24, mode, speed: this.zoom * 0.9 },
+      { topSafe: 40 / this.zoom, bottomSafe: 24 / this.zoom, margin: 24, mode, speed: this.zoom * 0.9, animateJs: SCROLL_ANIMATE_JS },
     );
+    await this.pushScroll(startMs, moved);
+  }
+
+  /** 有動才記 scroll 事件（影片像素）；動了就多停 150 ms 讓畫面落定。 */
+  private async pushScroll(startMs: number, moved: { dx: number; dy: number }): Promise<void> {
     if (Math.abs(moved.dx) < 1 && Math.abs(moved.dy) < 1) return;
     await this.wait_(150);
     const ev: ChapterEvent = { type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved.dy * this.zoom) };
@@ -1311,31 +1340,16 @@ export class Chapter {
   /** dx、dy 是 CSS px；within 指定捲動容器（不給就是整頁）；捲動時長照畫面上移動的距離（影片像素）算。 */
   private async smoothScroll(dx: number, dy: number, within?: Locator): Promise<void> {
     if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
-    const ms = Math.round(Math.min(1400, Math.max(500, Math.max(Math.abs(dx), Math.abs(dy)) * this.zoom * 0.9)));
     const startMs = this.now();
-    const fn = (el: Element, { dx, dy, ms }: { dx: number; dy: number; ms: number }) =>
-      new Promise<{ dx: number; dy: number }>((resolve) => {
-        const x0 = el.scrollLeft;
-        const y0 = el.scrollTop;
-        const tx = Math.max(0, Math.min(x0 + dx, el.scrollWidth - el.clientWidth));
-        const ty = Math.max(0, Math.min(y0 + dy, el.scrollHeight - el.clientHeight));
-        const t0 = performance.now();
-        const ease = (u: number) => (1 - Math.cos(Math.PI * u)) / 2;
-        const f = (now: number) => {
-          const u = Math.min(1, (now - t0) / ms);
-          el.scrollTo({ left: x0 + (tx - x0) * ease(u), top: y0 + (ty - y0) * ease(u), behavior: 'instant' });
-          if (u < 1) requestAnimationFrame(f);
-          else resolve({ dx: el.scrollLeft - x0, dy: el.scrollTop - y0 });
-        };
-        requestAnimationFrame(f);
-      });
+    const args = { dx, dy, speed: this.zoom * 0.9, animateJs: SCROLL_ANIMATE_JS };
+    type Animate = (sc: Element, left: number, top: number, speed: number) => Promise<{ dx: number; dy: number }>;
     const moved = within
-      ? await within.evaluate(fn, { dx, dy, ms })
-      : await this.page.evaluate(({ dx, dy, ms, fn }) => new Function('return ' + fn)()(document.scrollingElement ?? document.documentElement, { dx, dy, ms }) as Promise<{ dx: number; dy: number }>, { dx, dy, ms, fn: fn.toString() });
-    await this.wait_(150);
-    const ev: ChapterEvent = { type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved.dy * this.zoom) };
-    if (Math.round(moved.dx * this.zoom) !== 0) ev.dx = Math.round(moved.dx * this.zoom);
-    this.events.push(ev);
+      ? await within.evaluate((sc, { dx, dy, speed, animateJs }) => (new Function(`return ${animateJs}`)() as Animate)(sc, sc.scrollLeft + dx, sc.scrollTop + dy, speed), args)
+      : await this.page.evaluate(({ dx, dy, speed, animateJs }) => {
+          const sc = document.scrollingElement ?? document.documentElement;
+          return (new Function(`return ${animateJs}`)() as Animate)(sc, sc.scrollLeft + dx, sc.scrollTop + dy, speed);
+        }, args);
+    await this.pushScroll(startMs, moved);
   }
 
   /** 給測試與後製參考：時間 t 的游標位置。 */

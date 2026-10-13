@@ -9,7 +9,7 @@ import type { ChapterEvents } from '../events.ts';
 import { launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
 
-const rows = Array.from({ length: 9 }, (_, i) => `<tr style="height:60px"><td style="width:1500px">第 ${i + 1} 列</td><td>${i === 7 ? '<button id=act style="width:200px;height:50px;font-size:24px" onclick="this.textContent=\'已點\'">操作</button>' : '—'}</td></tr>`).join('');
+const rows = Array.from({ length: 9 }, (_, i) => `<tr id=row${i + 1} style="height:60px"><td style="width:1500px">第 ${i + 1} 列</td><td>${i === 7 ? '<button id=act style="width:200px;height:50px;font-size:24px" onclick="this.textContent=\'已點\'">操作</button>' : '—'}</td></tr>`).join('');
 const PAGE = `<body style="margin:0;font-size:20px">
 <div style="height:300px;background:#f3f4f6">上面</div>
 <div id=wrap style="width:1000px;height:300px;overflow:auto;border:2px solid #000">
@@ -19,6 +19,46 @@ const PAGE = `<body style="margin:0;font-size:20px">
 <p id=bottom style="font-size:30px">最底下的一行</p>
 <div style="height:600px"></div>
 </body>`;
+
+test('已經看得到的元素 t.scroll(locator) 仍對齊到上方三分之一（第 1 輪的行為）：容器內的列對到容器上方三分之一、整頁再把它對到畫面上方三分之一；容器本身也一樣', { timeout: 60_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-scroll-align-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await page.setContent(PAGE);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜對齊', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    try {
+      const wrap = page.locator('#wrap');
+      const row3 = page.locator('#row3');
+      const vh = await page.evaluate(() => innerHeight);
+      const [wrapTop0, row3Top0] = [(await wrap.boundingBox())!.y, (await row3.boundingBox())!.y];
+      assert.ok(row3Top0 > 0 && row3Top0 + 60 < vh && wrapTop0 > 0, `一開始就看得到：row3 y=${row3Top0}、wrap y=${wrapTop0}`);
+      await t.step({ caption: '捲到第 3 列' }, async () => {
+        await t.scroll(row3);
+      });
+      const clientH = await wrap.evaluate((el) => el.clientHeight);
+      const st = await wrap.evaluate((el) => el.scrollTop);
+      assert.ok(Math.abs(st - (120 - clientH * 0.3)) <= 3, `容器內：第 3 列頂端對到容器上方三分之一（scrollTop ${st}，期望 ${120 - clientH * 0.3}）`);
+      const row3Top = (await row3.boundingBox())!.y;
+      assert.ok(Math.abs(row3Top - vh * 0.3) <= 3, `整頁：第 3 列頂端對到畫面上方三分之一（y=${row3Top}，期望 ${vh * 0.3}）`);
+      await t.step({ caption: '捲到容器本身' }, async () => {
+        await t.scroll(wrap);
+      });
+      const wrapTop = (await wrap.boundingBox())!.y;
+      assert.ok(Math.abs(wrapTop - vh * 0.3) <= 3, `容器本身（本來就看得到）也對到上方三分之一（y=${wrapTop}）`);
+      const { events } = await t.finish();
+      const ev = JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents;
+      const scrolls = ev.events.filter((e) => e.type === 'scroll');
+      assert.equal(scrolls.length, 2, JSON.stringify(scrolls));
+      assert.ok(scrolls[0].type === 'scroll' && scrolls[0].dy > 0 && scrolls[0].dx == null && scrolls[1].type === 'scroll' && scrolls[1].dy < 0, JSON.stringify(scrolls));
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('t.click 點比畫面寬的表格最右邊、容器下半的操作鈕：先橫向＋直向捲動容器，再照新位置算游標；t.scroll 支援 { x, within } 與 locator', { timeout: 90_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tutorial-scroll-'));

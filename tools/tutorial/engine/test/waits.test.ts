@@ -168,6 +168,62 @@ async function filterSite(page: Page): Promise<void> {
   });
 }
 
+/** 首頁：紅色方塊＋一個 GET 表單（action=/two）；/two 是 800 ms 才回應的藍圖（沒載好是灰底）。 */
+async function formSite(page: Page): Promise<void> {
+  const png = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=200x200', '-frames:v', '1', '-f', 'image2', '-c:v', 'png', '-']);
+  await page.route('http://tutorial.test/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/blue.png') {
+      await new Promise((r) => setTimeout(r, 800));
+      return route.fulfill({ body: png, contentType: 'image/png' });
+    }
+    if (path === '/two') {
+      return route.fulfill({ contentType: 'text/html', body: `<body style="margin:0;background:#fff"><img src="/blue.png" style="position:absolute;left:100px;top:100px;width:200px;height:200px;background:#eee"></body>` });
+    }
+    return route.fulfill({
+      contentType: 'text/html',
+      body: `<body style="margin:0;background:#fff"><div style="position:absolute;left:100px;top:100px;width:200px;height:200px;background:#f00"></div>
+<form action="/two" method="get"><input id=q name=q style="position:absolute;left:100px;top:400px;width:300px;height:40px;font-size:24px"></form></body>`,
+    });
+  });
+}
+
+test('press：在表單裡按 Enter 送出而換到慢圖頁——跟 click 共用換頁監看，從按下那一刻起回溯暫停，影片裡沒有載入過程（沒有灰圖格），press 與 url 同一時刻', { timeout: 120_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-press-nav-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await formSite(page);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜Enter 送出', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    try {
+      await t.goto('http://tutorial.test/');
+      await t.step({ caption: '打字後按 Enter 送出' }, async () => {
+        await t.type(page.locator('#q'), 'abc');
+        await t.press('Enter');
+        await t.wait(500);
+      });
+      const { clip, events } = await t.finish();
+      const ev = JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents;
+      const press = ev.events.find((e) => e.type === 'press');
+      const two = ev.events.find((e) => e.type === 'url' && new URL(e.url).pathname === '/two');
+      assert.ok(press && press.type === 'press' && two && two.type === 'url', JSON.stringify(ev.events.filter((e) => e.type !== 'move')));
+      assert.ok(Math.abs(two.atMs - press.atMs) <= 1, `url ${two.atMs} vs press ${press.atMs}（換頁要從按下那一刻起回溯暫停）`);
+      const colors = centerColors(clip);
+      const frameMs = 1000 / ev.clip.fps;
+      const before = colors.slice(Math.round(press.atMs / frameMs) - 8, Math.round(press.atMs / frameMs) - 1);
+      const after = colors.slice(Math.round(press.atMs / frameMs) + 1);
+      assert.ok(before.length >= 5 && before.every(isRed), `按下前應是紅色方塊：${JSON.stringify(before)}`);
+      assert.ok(after.length >= 10 && after.every(isBlue), `按下後每一格都要是載好的藍圖：灰 ${after.filter(isGray).length} 格、藍 ${after.filter(isBlue).length} 格／${after.length}`);
+      assert.ok(!ev.quality!.warnings.some((w) => w.includes('還沒載好')), ev.quality!.warnings.join('\n'));
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('同路徑只改查詢字串（replaceState／pushState）不算換頁：UI 過程保留、url 晚於或等於 click 且沒有回溯暫停；同網址整頁重載仍算換頁、沒有灰圖', { timeout: 120_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tutorial-filter-'));
   const browser = await launchTutorialBrowser();

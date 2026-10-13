@@ -41,11 +41,14 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
   return segs;
 }
 
-/** 假網址列顯示的字：主機＋路徑＋查詢，不顯示 https://。 */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 假網址列顯示的字：主機＋路徑＋查詢，不顯示 https://；值是 UUID 的查詢參數（例如 ?cohort=<uuid>）不顯示（events.json 仍是真實網址）。 */
 export function displayUrl(url: string, displayOrigin?: string): string {
   try {
     const u = new URL(url);
     const host = displayOrigin || u.host;
+    for (const [k, v] of [...u.searchParams]) if (UUID.test(v)) u.searchParams.delete(k);
     const rest = safeDecode(`${u.pathname}${u.search}${u.hash}`);
     return rest === '/' ? host : `${host}${rest}`;
   } catch {

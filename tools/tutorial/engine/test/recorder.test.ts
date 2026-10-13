@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -42,6 +42,9 @@ test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點�
     // 錄影當下的系統負載
     const sys = ev.quality.system!;
     assert.ok(sys.cpus > 0 && sys.totalMemMB > 0 && sys.start.loadavg1 >= 0 && sys.peak.loadavg1 >= sys.start.loadavg1 && sys.end.freeMemMB > 0, JSON.stringify(sys));
+    // end 是停止截圖那一刻的快照，不能混到後面 ffmpeg 編碼的負載：採樣時間要早於 clip.mp4 寫完
+    const clipWritten = statSync(clip).mtimeMs;
+    assert.ok(sys.start.at <= sys.end.at && sys.end.at + 300 < clipWritten, `end.at ${sys.end.at} 應早於 clip 寫完 ${Math.round(clipWritten)}（差 ${Math.round(clipWritten - sys.end.at)} ms）`);
     // 網頁放大錄影：CSS 1280×587、clip 是 1920×880 的實際像素（1080 − 網址列 80 − 字幕帶 120）
     assert.deepEqual([ev.page.width, ev.page.height, ev.page.zoom], [1280, 587, ZOOM]);
     assert.deepEqual(ev.output, { width: 1920, height: 1080, chromeHeight: 80, captionHeight: 120 });

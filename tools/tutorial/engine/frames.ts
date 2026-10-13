@@ -63,7 +63,8 @@ export const MIN_FPS = 25;
 
 export type SpanQuality = { fps: number; maxGapMs: number; p95GapMs: number; ok: boolean };
 /** 錄影當下的系統負載（判斷截圖間隔過大是不是機器太忙）：loadavg 與可用記憶體（MB；macOS 的 free 偏保守）。 */
-export type LoadSample = { loadavg1: number; loadavg5: number; freeMemMB: number };
+export type LoadSample = { /** 採樣時間（epoch ms）。 */ at: number; loadavg1: number; loadavg5: number; freeMemMB: number };
+/** end 是「停止截圖那一刻」的快照：之後的 ffmpeg 解碼／編碼負載不算進來。 */
 export type SystemLoad = { cpus: number; totalMemMB: number; start: LoadSample; peak: { loadavg1: number; freeMemMB: number }; end: LoadSample };
 export type CaptureQuality = SpanQuality & {
   steps: (SpanQuality & { index: number })[];
