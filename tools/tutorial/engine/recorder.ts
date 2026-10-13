@@ -4,7 +4,7 @@
 //   const page = await newTutorialPage(browser);
 //   const t = await startChapter({ page, id: '3-3', chapter: '學生｜繳交作業', baseURL });
 //   try {
-//     await t.step({ caption: '打開作業頁', narration: '…完整配音…', status: 'warn', note: '…' }, async () => {
+//     await t.step({ caption: '打開作業頁', narration: '…完整配音…', status: { kind: 'warn', say: '截止提醒還沒做', evidence: 'story-2 第 39 步' } }, async () => {
 //       await t.goto('/dashboard/student');
 //       await t.click(page.getByRole('link', { name: '作業' }));
 //     });
@@ -21,7 +21,7 @@ import { basename, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium, type Browser, type CDPSession, type Frame, type Locator, type Page, type Request } from 'playwright';
 import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
-import type { ChapterEvent, ChapterEvents, StatusKind, StepRecord } from './events.ts';
+import { normalizeStatus, type ChapterEvent, type ChapterEvents, type StatusKind, type StepRecord, type StepStatus } from './events.ts';
 import { captureQuality, cfrSlots, GAP_SEVERE_MS, GAP_WARN_MS, timeFrames, toChapterMs, type CaptureQuality, type Pause, type RawFrame } from './frames.ts';
 import { acquireRecordSlot, claimOutDir, DEFAULT_OUT_ROOT, FAILED_MARK, newRunDir, RECORDING_MARK, type RecordSlot, type SlotOptions } from './runs.ts';
 import { sayProvider, type TtsProvider } from './tts.ts';
@@ -86,9 +86,13 @@ export type StepOptions = {
   caption: string;
   /** 配音：完整句子；省略時不配音，步驟長度由動作決定。 */
   narration?: string;
-  /** 右上角狀態標記，只在這一步出現。 */
-  status?: StatusKind;
-  /** 狀態標記旁的一句說明。 */
+  /**
+   * 右上角狀態標記，只在這一步出現。新寫法 `{ kind, say?, evidence? }`：畫面只顯示圖示＋白話 say
+   * （ok 沒寫 say →「✅ 正常」、pending →「🟡 等你決定：」＋say；超過 22 字截斷），evidence 只進 events.json 與 assemble 產出。
+   * 舊寫法 `status: 'ok', note: '…'` 仍可用，note 視為 evidence、不上畫面。
+   */
+  status?: StatusKind | StepStatus;
+  /** 舊寫法：狀態的依據（等同新寫法的 evidence）。 */
   note?: string;
 };
 
@@ -592,7 +596,7 @@ export class Chapter {
       index: this.steps.length + 1,
       caption: opts.caption,
       narration: opts.narration ?? '',
-      status: opts.status ? { kind: opts.status, note: opts.note } : undefined,
+      status: normalizeStatus(opts.status, opts.note),
       startMs,
       endMs: startMs,
     };

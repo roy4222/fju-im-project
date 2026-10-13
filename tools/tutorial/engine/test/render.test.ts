@@ -6,7 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChapterEvents } from '../events.ts';
+import { normalizeStatus, SAY_MAX_CHARS, statusLabel, statusSay, type ChapterEvents } from '../events.ts';
+import { overlayHtml } from '../overlay.ts';
 import { renderChapter } from '../render.ts';
 import { cursorAss, displayUrl, overlaySegments } from '../timeline.ts';
 
@@ -32,6 +33,31 @@ function fixture(): ChapterEvents {
     ],
   };
 }
+
+test('狀態標記白話：ok →「✅ 正常」、pending →「🟡 等你決定：」＋say、超過 22 字截斷加「…」；舊寫法 note 當 evidence 不上畫面', () => {
+  assert.equal(statusLabel({ kind: 'ok' }), '✅ 正常');
+  assert.equal(statusLabel({ kind: 'ok', say: '可以正常送出' }), '✅ 可以正常送出');
+  assert.equal(statusLabel({ kind: 'warn', say: '截止提醒還沒做' }), '⚠️ 截止提醒還沒做');
+  assert.equal(statusLabel({ kind: 'bad', say: '按了沒反應' }), '❌ 按了沒反應');
+  assert.equal(statusLabel({ kind: 'pending', say: '名稱要不要改' }), '🟡 等你決定：名稱要不要改');
+  const long = `${'白話很長'.repeat(5)}再多五個字`; // 25 個字
+  assert.equal([...long].length, 25);
+  assert.equal(statusSay({ kind: 'warn', say: long }), `${[...long].slice(0, SAY_MAX_CHARS).join('')}…`);
+  assert.equal([...statusSay({ kind: 'warn', say: long })].length, SAY_MAX_CHARS + 1);
+  // 劇本寫法 → events.json：舊寫法 note 變 evidence；新寫法 say 全文保留（截斷只在畫面）
+  assert.deepEqual(normalizeStatus('ok', 'story-2 第 39 步'), { kind: 'ok', evidence: 'story-2 第 39 步' });
+  assert.deepEqual(normalizeStatus({ kind: 'warn', say: long, evidence: 'N-12' }), { kind: 'warn', say: long, evidence: 'N-12' });
+  assert.deepEqual(normalizeStatus('pending'), { kind: 'pending' });
+  assert.equal(normalizeStatus(undefined, '沒狀態也沒用'), undefined);
+  // 疊加層：只顯示圖示＋白話，依據（evidence／note）不出現
+  const size = { width: 1920, height: 1080, chromeHeight: 80 };
+  const html = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'ok', evidence: 'story-2 第 43 步' } }, url: 'x' }, size);
+  assert.ok(html.includes('✅') && html.includes('正常') && !html.includes('story-2'), html);
+  const legacy = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'warn', note: '舊寫法的依據' } }, url: 'x' }, size);
+  assert.ok(legacy.includes('⚠️') && !legacy.includes('舊寫法的依據'), legacy);
+  const cut = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'pending', say: long } }, url: 'x' }, size);
+  assert.ok(cut.includes(`等你決定：${[...long].slice(0, SAY_MAX_CHARS - 5).join('')}…`) && !cut.includes(long), cut);
+});
 
 test('displayUrl：換主機、解碼中文查詢字串、首頁只顯示主機', () => {
   assert.equal(displayUrl('http://localhost:3000/a?q=%E4%BD%9C', 'test.fju.roy422.dev'), 'test.fju.roy422.dev/a?q=作');
