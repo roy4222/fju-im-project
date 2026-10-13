@@ -414,3 +414,182 @@ describe('海報下載政策', () => {
     }
   })
 })
+
+describe('第三波 W2：用發布指令發布、首頁輪播順序、刪除', () => {
+  async function headRevision(entryId: string) {
+    return (await owner.sql('select revision from showcase_entries where id = $1', [entryId])).rows[0]!.revision as number
+  }
+
+  it('用 publish 指令發布的作品：沒獎項時訪客看不到、海報要登入；設獎項後優秀專題出現、海報訪客看得到（同 :397 的斷言）', async () => {
+    const g = await newGroup(await newCohort('116'), 'G07', ['發布組員'], '發布老師')
+    const made = await draft(g.groupId, { title: '用指令發布的作品', summary: '系辦勾同意後發布', poster: PNG })
+    const published = await command.publish(actor(admin, ['admin']), { entryId: made.entryId, revision: await headRevision(made.entryId), consent: true }, randomUUID())
+    expect(published.ok).toBe(true)
+
+    expect((await query.featured()).map((c) => c.title)).not.toContain('用指令發布的作品')
+    expect(await query.entry(ANON, made.entryId)).toEqual({ access: 'need_login' })
+    const viewer = actor(await newUser('看新作品的學生', 'student'), ['student'])
+    const archive = await query.archive(viewer)
+    expect(archive.access === 'visible' && archive.cards.map((c) => c.title)).toContain('用指令發布的作品')
+    expect(await download(ANON, made.posterFileId!)).toBe('UNAUTHENTICATED')
+    expect(await download(viewer, made.posterFileId!)).toBe('ok')
+
+    const awarded = await command.setAward(
+      actor(admin, ['admin']),
+      { entryId: made.entryId, revision: await headRevision(made.entryId), level: 'excellent', label: '第 43 屆專題競賽第一名' },
+      randomUUID(),
+    )
+    expect(awarded.ok).toBe(true)
+    const card = (await query.featured()).find((c) => c.id === made.entryId)
+    expect(card).toMatchObject({ title: '用指令發布的作品', award: 'excellent', awardLabel: '第 43 屆專題競賽第一名', posterFileId: made.posterFileId })
+    expect(await download(ANON, made.posterFileId!)).toBe('ok')
+
+    // 下架：網址顯示已下架、優秀專題沒有它、海報不再公開；重新發布後回來。
+    await command.withdraw(actor(admin, ['admin']), { entryId: made.entryId, revision: await headRevision(made.entryId) }, randomUUID())
+    expect(await query.entry(ANON, made.entryId)).toEqual({ access: 'withdrawn' })
+    expect((await query.featured()).map((c) => c.id)).not.toContain(made.entryId)
+    expect(await download(ANON, made.posterFileId!)).toBe('UNAUTHENTICATED')
+    await command.republish(actor(admin, ['admin']), { entryId: made.entryId, revision: await headRevision(made.entryId) }, randomUUID())
+    expect((await query.featured()).map((c) => c.id)).toContain(made.entryId)
+    expect(await download(ANON, made.posterFileId!)).toBe('ok')
+
+    // 刪除（先下架）：詳情找不到（不是「已下架」）、各列表沒有它、海報連管理員都打不開。
+    await command.withdraw(actor(admin, ['admin']), { entryId: made.entryId, revision: await headRevision(made.entryId) }, randomUUID())
+    const deleted = await command.delete(actor(admin, ['admin']), { entryId: made.entryId, revision: await headRevision(made.entryId) }, randomUUID())
+    expect(deleted.ok).toBe(true)
+    expect(await query.entry(ANON, made.entryId)).toEqual({ access: 'not_found' })
+    expect(await query.entry(actor(admin, ['admin']), made.entryId)).toEqual({ access: 'not_found' })
+    expect(await download(actor(admin, ['admin']), made.posterFileId!)).toBe('FORBIDDEN')
+    expect(await query.cohorts()).not.toContain('116')
+  })
+
+  it('首頁輪播（featured 不指定排序）：首頁順序小到大、沒填的排後面；指定「屆別」排序時不受影響', async () => {
+    expect((await query.featured()).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+    await app.query('update showcase_entries set home_position = 1 where id = $1', [other.entryId])
+    try {
+      expect((await query.featured()).map((c) => c.title)).toEqual(['安心路徑', '城市微光'])
+      expect((await query.featured({ sort: 'cohort' })).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+      await app.query('update showcase_entries set home_position = 2 where id = $1', [published.entryId])
+      await app.query('update showcase_entries set home_position = 3 where id = $1', [other.entryId])
+      expect((await query.featured()).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+    } finally {
+      await app.query('update showcase_entries set home_position = null where id = any($1::uuid[])', [[other.entryId, published.entryId]])
+    }
+  })
+})
+
+describe('W15（AC-39）：首頁順序、歷屆補登、編輯已發布與封存屆別作品並發布更新', () => {
+  async function archivedCohort(code: string): Promise<string> {
+    const id = await newCohort(code)
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [id])
+    return id
+  }
+
+  async function headRevision(entryId: string): Promise<number> {
+    return (await owner.sql('select revision from showcase_entries where id = $1', [entryId])).rows[0]!.revision as number
+  }
+
+  async function draftRevision(entryId: string): Promise<number> {
+    return (await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision as number
+  }
+
+  async function versionCount(entryId: string): Promise<number> {
+    return (await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n as number
+  }
+
+  /** ③④ 共用：改摘要、換海報、存草稿 → 訪客仍看到舊的；發布更新 → 訪客看到新的、多一筆版本、舊版本還在。 */
+  async function editAndPublishUpdate(entryId: string, oldSummary: string, oldPoster: string | null) {
+    const before = await owner.sql('select id, summary, poster_file_id from showcase_versions where entry_id = $1 order by version_no', [entryId])
+    const newPoster = await uploadPoster(entryId, PNG3)
+    const title = ((await owner.sql('select title from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.title as string) || '題目'
+    const saved = await command.updateDraft(
+      actor(admin, ['admin']),
+      { entryId, revision: await draftRevision(entryId), title, summary: '更新後的摘要', videoUrl: '', posterFileId: newPoster },
+      randomUUID(),
+    )
+    expect(saved).toMatchObject({ ok: true, receipt: { posterChanged: true } })
+
+    // 只存草稿：訪客看到的還是舊摘要、舊海報；新海報訪客打不開。
+    let page = await query.entry(ANON, entryId)
+    expect(page).toMatchObject({ access: 'visible', item: { summary: oldSummary, posterFileId: oldPoster } })
+    expect(await download(ANON, newPoster)).not.toBe('ok')
+
+    const updated = await command.publishUpdate(actor(admin, ['admin']), { entryId, revision: await headRevision(entryId), consent: true }, randomUUID())
+    expect(updated).toMatchObject({ ok: true, receipt: { versionNo: before.rows.length + 1 } })
+    page = await query.entry(ANON, entryId)
+    expect(page).toMatchObject({ access: 'visible', item: { summary: '更新後的摘要', posterFileId: newPoster } })
+    expect(await download(ANON, newPoster)).toBe('ok')
+    // 多一筆版本、舊版本原封不動、狀態仍是公開中。
+    expect(await versionCount(entryId)).toBe(before.rows.length + 1)
+    const after = await owner.sql('select id, summary, poster_file_id from showcase_versions where id = any($1::uuid[]) order by version_no', [
+      before.rows.map((r) => r.id),
+    ])
+    expect(after.rows).toEqual(before.rows)
+    expect((await owner.sql('select status from showcase_entries where id = $1', [entryId])).rows[0]).toEqual({ status: 'published' })
+  }
+
+  it('AC-39 ①～⑤：第 3 件首頁順序設 1 → 輪播第一張；補登無組別作品並發布；封存與補登作品存草稿前台不變、發布更新後換新且舊版本保留；老師改封存作品 COHORT_ARCHIVED', async () => {
+    // 前置：3 件有獎項的公開作品，其中一件屬封存屆別（建好之後才封存，像歷屆作品）。
+    const c117 = await newCohort('117')
+    const g1 = await newGroup(c117, 'G11', ['甲'], '甲老師')
+    const g2 = await newGroup(c117, 'G12', ['乙'], '乙老師')
+    const c110 = await newCohort('110')
+    const g3 = await newGroup(c110, 'G13', ['丙'], '丙老師')
+    const made: { entryId: string; posterFileId: string | null }[] = []
+    for (const [g, title] of [
+      [g1, '第一件'],
+      [g2, '第二件'],
+      [g3, '封存屆的作品'],
+    ] as const) {
+      const d = await draft(g.groupId, { title, summary: `${title}的舊摘要`, poster: PNG })
+      await command.publish(actor(admin, ['admin']), { entryId: d.entryId, revision: await headRevision(d.entryId), consent: true }, randomUUID())
+      await command.setAward(actor(admin, ['admin']), { entryId: d.entryId, revision: await headRevision(d.entryId), level: 'merit', label: null }, randomUUID())
+      made.push(d)
+    }
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [c110])
+    const [, , third] = made as [typeof made[0], typeof made[0], typeof made[0]]
+
+    // ① 第 3 件的首頁順序設 1 → 首頁輪播第一張變成它。
+    const positioned = await command.setHomePosition(actor(admin, ['admin']), { entryId: third.entryId, revision: await headRevision(third.entryId), position: '1' }, randomUUID())
+    expect(positioned).toMatchObject({ ok: true, receipt: { homePosition: 1 } })
+    expect((await query.featured())[0]!.id).toBe(third.entryId)
+
+    // ② 補登一件歷屆作品（不選組別，封存屆別）並發布、設獎項 → 優秀專題頁有它、詳情沒有組別。
+    const c105 = await archivedCohort('105')
+    const backfilled = await command.createBackfill(actor(admin, ['admin']), { cohortId: c105, title: ' 歷屆補登的作品 ' }, randomUUID())
+    expect(backfilled).toMatchObject({ ok: true, receipt: { cohortCode: '105', title: '歷屆補登的作品', revision: 1 } })
+    if (!backfilled.ok) return
+    const backId = backfilled.receipt.entryId
+    const backPoster = await uploadPoster(backId, PNG2)
+    expect(
+      await command.updateDraft(
+        actor(admin, ['admin']),
+        { entryId: backId, revision: 1, title: '歷屆補登的作品', summary: '補登的舊摘要', videoUrl: '', posterFileId: backPoster },
+        randomUUID(),
+      ),
+    ).toMatchObject({ ok: true, receipt: { groupCode: null, revision: 2 } })
+    expect(await command.publish(actor(admin, ['admin']), { entryId: backId, revision: await headRevision(backId), consent: true }, randomUUID())).toMatchObject({ ok: true })
+    await command.setAward(actor(admin, ['admin']), { entryId: backId, revision: await headRevision(backId), level: 'excellent', label: '歷屆優秀' }, randomUUID())
+    const card = (await query.featured()).find((c) => c.id === backId)
+    expect(card).toMatchObject({ title: '歷屆補登的作品', cohortCode: '105', groupCode: null })
+
+    // ③ 封存屆別的作品：改摘要、換海報、存草稿 → 訪客仍是舊的；發布更新後換新。
+    await editAndPublishUpdate(third.entryId, '封存屆的作品的舊摘要', third.posterFileId)
+    // ④ 無組別的補登作品重複 ③。
+    await editAndPublishUpdate(backId, '補登的舊摘要', backPoster)
+
+    // ⑤ 老師（非管理員）試改封存屆別作品 → 仍被擋 COHORT_ARCHIVED，草稿沒動。
+    const teacher = await newUser('非管理員老師', 'teacher')
+    const revision = await draftRevision(third.entryId)
+    expect(
+      await command.updateDraft(
+        actor(teacher, ['teacher']),
+        { entryId: third.entryId, revision, title: '老師想改', summary: '', videoUrl: '', posterFileId: null },
+        randomUUID(),
+      ),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await draftRevision(third.entryId)).toBe(revision)
+
+    await command.setHomePosition(actor(admin, ['admin']), { entryId: third.entryId, revision: await headRevision(third.entryId), position: '' }, randomUUID())
+  })
+})

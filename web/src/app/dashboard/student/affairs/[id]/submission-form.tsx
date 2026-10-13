@@ -6,7 +6,9 @@ import { IconCloudUpload, IconDeviceFloppy, IconPaperclip, IconSend } from '@tab
 import { requestUploadAction, saveDraftAction, submitAction } from '@/app/dashboard/student/affairs/actions'
 import type { FileMeta, ReceiptView } from '@/app/dashboard/student/affairs/types'
 import type { FormField } from '@/application/items'
+import { ChecksumDisclosure, ReceiptNoDisclosure } from '@/app/dashboard/_submissions/proof-disclosure'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 收件的填寫、上傳與送出（票 17 個人版；票 21 組別版：原型 `group-form.tsx` 的共用表單、上傳進度、收件章回執）。
@@ -45,11 +47,6 @@ const UPLOAD_ERRORS: Record<number, string> = {
 
 function newRequestId(): string {
   return crypto.randomUUID()
-}
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KiB`
 }
 
 /** 串流上傳（XHR 才有上傳進度）。body 是檔案本身的位元組，不是 multipart（`/api/files/upload` 的約定）。 */
@@ -290,11 +287,11 @@ export function SubmissionForm({
         <div role="alert" className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-ink">
           <p className="font-semibold">連線中斷；結果尚未確認。</p>
           <p className="mt-1 text-muted-foreground">
-            可能已經收到了。先到「繳交歷史」查回執；沒有看到這一次，再按「再送一次」——同一次送出重送也只算一次。
+            可能已經收到了。先到「繳交歷史」看有沒有這一次；沒有看到這一次，再按「再送一次」——同一次送出重送也只算一次。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`/dashboard/student/affairs/${itemId}?tab=history`} className={cn(SECONDARY, 'h-10')}>
-              查回執（繳交歷史）
+              看繳交歷史
             </Link>
             {/* 走跟「正式送出」同一條路：斷在存草稿那一步時先補存，再送；兩個請求編號都沒換，已送到的只會拿回原回執。 */}
             <button type="button" className={cn(PRIMARY, 'h-10')} onClick={onSubmit} disabled={busy !== null}>
@@ -378,7 +375,7 @@ export function SubmissionForm({
   )
 }
 
-/** 收件章回執（原型 `ReceiptStamp`）：印章感的「已收件」＋版本、送出者（代表全組）、收件時間、附件、回執編號。 */
+/** 收件章回執（原型 `ReceiptStamp`）：印章感的「已收件」＋版本、送出者（代表全組）、收件時間、附件、繳交證明編號（收合）。 */
 function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 text-center" data-testid="receipt">
@@ -386,7 +383,7 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
         aria-hidden
         className="inline-flex rotate-[-2deg] items-center rounded-lg border-[3px] border-brand px-4 py-1.5 text-[15px] font-extrabold tracking-[0.2em] text-brand duration-200 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-110"
       >
-        已收件
+        已送出
       </span>
       <div>
         <h2 id="receipt-title" className="text-xl font-extrabold">
@@ -396,16 +393,16 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
       </div>
       <dl className="grid w-full grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-y border-border py-3 text-left text-sm">
         <dt className="text-muted-foreground">版本</dt>
-        <dd className="font-semibold tabular-nums">v{receipt.versionNo}</dd>
+        <dd className="font-semibold tabular-nums">第 {receipt.versionNo} 次</dd>
         <dt className="text-muted-foreground">送出者</dt>
         <dd className="font-semibold">
           {receipt.submittedByName}
           {receipt.groupCode ? <span className="ml-1 font-normal text-muted-foreground">（代表 {receipt.groupCode} 全組）</span> : null}
         </dd>
-        <dt className="text-muted-foreground">收件時間</dt>
+        <dt className="text-muted-foreground">送出時間</dt>
         <dd className="font-semibold tabular-nums">{receipt.receivedText}（臺灣時間）</dd>
-        <dt className="text-muted-foreground">欄位版本</dt>
-        <dd className="tabular-nums">v{receipt.schemaVersionNo}</dd>
+        <dt className="text-muted-foreground">表單</dt>
+        <dd className="tabular-nums">第 {receipt.schemaVersionNo} 版</dd>
         {receipt.files.length > 0 ? (
           <>
             <dt className="text-muted-foreground">附件</dt>
@@ -414,25 +411,24 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
                 {receipt.files.map((f) => (
                   <li key={f.fieldKey} className="break-all">
                     {f.name}
-                    <span className="ml-1 font-mono text-[11px] text-muted-foreground">sha256 {f.checksumShort}…</span>
+                    <ChecksumDisclosure checksum={f.checksum} />
                   </li>
                 ))}
               </ul>
             </dd>
           </>
         ) : null}
-        <dt className="text-muted-foreground">回執編號</dt>
-        <dd className="break-all font-mono text-xs">{receipt.receiptNo}</dd>
       </dl>
+      <ReceiptNoDisclosure requestId={receipt.receiptNo} className="w-full text-left" />
       <p className="text-xs text-muted-foreground">
-        {receipt.groupCode ? '全組已繳；其他組員會收到一則通知。' : ''}截止前可重送，以最後一次為準。每一次的回執都記在「繳交歷史」。
+        {receipt.groupCode ? '全組已繳；其他組員會收到一則通知。' : ''}截止前可重送，以最後一次為準。每一次送出都記在「繳交歷史」。
       </p>
       <div className="flex w-full gap-2">
         <button type="button" className={cn(SECONDARY, 'flex-1')} onClick={onClose}>
           關閉
         </button>
         <Link href="/dashboard/student/affairs" className={cn(PRIMARY, 'flex-1')}>
-          回作業區
+          回我的繳交
         </Link>
       </div>
     </div>
@@ -476,7 +472,7 @@ function FileInput({
   const id = `field-${field.key}`
   const rules = field.fileRules ?? { allowedTypes: ['pdf'], maxMiB: 20 }
   const accept = rules.allowedTypes.map((t) => (t === 'jpg' ? '.jpg,.jpeg' : `.${t}`)).join(',')
-  const hint = `${rules.allowedTypes.map((t) => t.toUpperCase()).join('、')}・單檔 ${rules.maxMiB} MiB 以內`
+  const hint = `${rules.allowedTypes.map((t) => t.toUpperCase()).join('、')}・單檔 ${formatBytes(rules.maxMiB * 1024 * 1024)} 以內`
   const attached = fileId ? meta[fileId] : undefined
   return (
     <div className="flex flex-col gap-1.5" data-testid={`file-field-${field.key}`}>
@@ -487,7 +483,7 @@ function FileInput({
           <a href={`/api/files/${fileId}`} className="min-w-0 break-all font-semibold text-ink underline-offset-2 hover:underline">
             {attached.name}
           </a>
-          <span className="text-xs text-muted-foreground tabular-nums">{formatSize(attached.sizeBytes)}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(attached.sizeBytes)}</span>
           {!readOnly ? (
             <span className="ml-auto flex gap-2">
               <label className={cn(SECONDARY, 'h-9 cursor-pointer px-3 text-xs')}>

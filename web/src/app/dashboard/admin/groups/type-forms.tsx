@@ -65,7 +65,7 @@ export function GroupTypeCell({
               {group.code}：{typeLabels[group.groupType]} → {typeLabels[to]}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              組長在成組期內、沒有指導老師與合作案時可以自己改；其他情況由系辦在這裡處理。全組看得到這筆紀錄。
+              組長在分組期內、沒有指導老師與合作案時可以自己改；其他情況由系辦在這裡處理。全組看得到這筆紀錄。
             </p>
           </div>
           <section aria-label="改類型的影響" className="rounded-lg border border-border px-3 py-2 text-sm">
@@ -98,7 +98,7 @@ export function GroupTypeCell({
               maxLength={reasonMaxLength}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="例：組長申請、成組期已過"
+              placeholder="例：組長申請、分組期已過"
               className={INPUT}
             />
           </div>

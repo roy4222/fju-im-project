@@ -44,15 +44,15 @@ export type GroupRow = {
 }
 
 function ClaimState({ row }: { row: ClaimRow }) {
-  if (row.state === 'open') return <Pill tone="brand">可認領</Pill>
+  if (row.state === 'open') return <Pill tone="brand">可擔任</Pill>
   if (row.state === 'mine') return <Pill tone="success">你指導中</Pill>
-  return <Pill>已被認領・{row.advisorName ?? ''}</Pill>
+  return <Pill>已有指導老師・{row.advisorName ?? ''}</Pill>
 }
 
 function ClaimButton({ code, onClick }: { code: string; onClick: () => void }) {
   return (
-    <button type="button" className={OUTLINE_BUTTON_SM} aria-label={`認領 ${code}`} onClick={onClick}>
-      <IconHandGrab /> 認領
+    <button type="button" className={OUTLINE_BUTTON_SM} aria-label={`擔任 ${code} 的指導老師`} onClick={onClick}>
+      <IconHandGrab /> 擔任指導老師
     </button>
   )
 }
@@ -150,12 +150,12 @@ export function TeacherGroupsBoard({
   return (
     <>
       <Panel
-        title="產學組認領"
+        title="擔任產學組指導老師"
         icon={<IconHandGrab />}
-        description={`可認領 ${openCount} 組・先按先得，同時操作只有一位會成功`}
+        description={`可擔任 ${openCount} 組・第一位確認的老師就是指導老師`}
       >
         {claimRows.length === 0 ? (
-          <PanelEmpty icon={<IconHandGrab />} title="本屆還沒有產學組" hint="學生成組時選「產學合作」，組別就會出現在這裡等老師認領。" />
+          <PanelEmpty icon={<IconHandGrab />} title="本屆還沒有產學組" hint="學生成組時選「產學合作」，組別就會出現在這裡等老師擔任指導老師。" />
         ) : (
           <div className="px-3 pb-3">
             <Table>
@@ -221,7 +221,7 @@ export function TeacherGroupsBoard({
         />
       </Panel>
 
-      <dialog ref={setDialog} aria-label={picked ? `認領 ${picked.code}` : '認領組別'} className={DIALOG}>
+      <dialog ref={setDialog} aria-label={picked ? `擔任 ${picked.code} 的指導老師` : '擔任指導老師'} className={DIALOG}>
         {picked ? (
           // 換一組就重新掛表單：上一組的結果不會留在下一組的對話框裡。key 不含請求編號——
           // 認領後頁面重新整理會換新的編號，表單不能因此重掛、把剛拿到的結果洗掉。
@@ -270,7 +270,7 @@ function ClaimForm({
         {close}
         <StampMark>
           <IconCheck className="size-4" strokeWidth={3} />
-          已認領
+          你已是指導老師
         </StampMark>
         <h2 className="text-lg font-extrabold text-foreground">{row.code} 已指定為你的組別</h2>
         <p role="status" className="text-sm text-muted-foreground">
@@ -286,7 +286,7 @@ function ClaimForm({
         <span className="inline-flex size-12 items-center justify-center rounded-full bg-warning-subtle text-warning-on-subtle">
           <IconAlertTriangle className="size-6" />
         </span>
-        <h2 className="text-lg font-extrabold text-foreground">{result.conflict ? '已被其他老師認領' : '沒有認領成功'}</h2>
+        <h2 className="text-lg font-extrabold text-foreground">{result.conflict ? '已有其他老師擔任' : '沒有成功'}</h2>
         <p role="alert" className="text-sm text-muted-foreground">
           {result.message}
         </p>
@@ -297,10 +297,10 @@ function ClaimForm({
     <form action={formAction} className="relative flex flex-col gap-4 p-6">
       {close}
       <div className="pr-8">
-        <h2 className="text-lg font-extrabold text-foreground">認領 {row.code}</h2>
+        <h2 className="text-lg font-extrabold text-foreground">擔任 {row.code} 的指導老師</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {row.memberCount} 人{row.leaderName ? `・組長 ${row.leaderName}` : ''}。先按先得；同時操作只有一位會成功。
-          認領後全組會收到通知；之後要換老師請洽系辦重派。
+          {row.memberCount} 人{row.leaderName ? `・組長 ${row.leaderName}` : ''}。第一位確認的老師就是指導老師。
+          確認後全組會收到通知；之後要換老師請洽系辦重派。
         </p>
       </div>
       <input type="hidden" name="groupId" value={row.groupId} />

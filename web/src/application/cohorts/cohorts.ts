@@ -14,7 +14,7 @@ import { err, type Err } from '@/shared/result'
 export type CohortStatus = 'preparing' | 'active' | 'archived'
 
 export const COHORT_STATUS_LABEL: Record<CohortStatus, string> = {
-  preparing: '籌備中',
+  preparing: '尚未開始（設定中）',
   active: '進行中',
   archived: '已封存',
 }
@@ -45,16 +45,16 @@ export function cohortLabel(c: { readonly name: string; readonly code: string })
 /**
  * 全系同時只能各有一個屆別的兩個旗標（`cohorts` 上各有一條部分唯一索引）。
  *
- * - 預設工作屆別：管理員操作時預設看哪一屆。
- * - 開放註冊屆別：沒命中名單的註冊者，核准時預設帶入哪一屆。
+ * - 後台預設查看的屆別（預設工作屆別）：管理員操作時預設看哪一屆。
+ * - 新註冊學生加入的屆別（開放註冊屆別）：不在本屆名單上的註冊者，核准時預設帶入哪一屆。
  *
  * 兩件事刻意分開：新生開始註冊時上一屆可能還沒結束（模組 02 §4「開放註冊屆別」）。
  */
 export type CohortFlag = 'defaultWorking' | 'registrationOpen'
 
 export const COHORT_FLAG_LABEL: Record<CohortFlag, string> = {
-  defaultWorking: '預設工作屆別',
-  registrationOpen: '開放註冊屆別',
+  defaultWorking: '後台預設查看的屆別',
+  registrationOpen: '新註冊學生加入的屆別',
 }
 
 export const COHORT_FLAGS: readonly CohortFlag[] = ['defaultWorking', 'registrationOpen']
@@ -132,32 +132,37 @@ export type SetCohortFlagReceipt = {
   readonly flag: CohortFlag
   readonly cohortId: string
   readonly code: string
+  readonly name: string
   /** 原本持有這個旗標的屆別；原本就沒有，或原本就是這一屆時為 null。 */
   readonly previousCohortId: string | null
   readonly previousCode: string | null
+  readonly previousName: string | null
 }
 
 /** 畫面上的一句回饋。放這裡是為了讓「重播」與「第一次」講同一句話。 */
 export function describeFlagReceipt(receipt: SetCohortFlagReceipt): string {
   const label = COHORT_FLAG_LABEL[receipt.flag]
+  const target = cohortLabel(receipt)
   if (receipt.previousCode) {
-    return `已把 ${receipt.code} 設為${label}；${receipt.previousCode} 的${label}已自動取消。`
+    const previous = cohortLabel({ name: receipt.previousName ?? receipt.previousCode, code: receipt.previousCode })
+    return `已把${label}設為${target}；原本的${previous}已自動取消。`
   }
-  return `已把 ${receipt.code} 設為${label}。`
+  return `已把${label}設為${target}。`
 }
 
 /** 轉進行中的回執。 */
 export type ActivateCohortReceipt = {
   readonly cohortId: string
   readonly code: string
+  readonly name: string
   /** 原本就是進行中：沒有改任何資料、也沒有多一筆狀態紀錄。 */
   readonly alreadyActive: boolean
 }
 
 export function describeActivateReceipt(receipt: ActivateCohortReceipt): string {
   return receipt.alreadyActive
-    ? `${receipt.code} 本來就是進行中。`
-    : `已把 ${receipt.code} 轉為進行中，狀態紀錄多了一筆。`
+    ? `${cohortLabel(receipt)}本來就是進行中。`
+    : `已把${cohortLabel(receipt)}轉為進行中，狀態紀錄多了一筆。`
 }
 
 /**
@@ -178,6 +183,7 @@ export type GroupingSettingsInput = {
 export type SetGroupingSettingsReceipt = {
   readonly cohortId: string
   readonly code: string
+  readonly name: string
   readonly groupSizeMin: number
   readonly groupSizeMax: number
   readonly proposalDefaultDays: number
@@ -220,5 +226,5 @@ export function describeGroupSize(min: number, max: number): string {
 }
 
 export function describeGroupingSettingsReceipt(receipt: SetGroupingSettingsReceipt): string {
-  return `已儲存 ${receipt.code} 的分組設定：${describeGroupSize(receipt.groupSizeMin, receipt.groupSizeMax)}、提案 ${receipt.proposalDefaultDays} 天內要全員確認。`
+  return `已儲存${cohortLabel(receipt)}的分組設定：${describeGroupSize(receipt.groupSizeMin, receipt.groupSizeMax)}、提案 ${receipt.proposalDefaultDays} 天內要全員確認。`
 }

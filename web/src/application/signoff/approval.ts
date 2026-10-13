@@ -83,26 +83,28 @@ export function checkVote(facts: VoteFacts): Err | null {
     const cause = describeCause(facts.cause)
     return err(
       'VERSION_SUPERSEDED',
-      `此版本已失效（${cause ?? '已有新版本'}），${facts.isCurrent ? '等待管理員建立新版後再重新閱讀。' : '請重新整理頁面看目前的版本。'}`,
+      facts.isCurrent
+        ? `這一版同意書已作廢（${cause ?? '內容或參與者變更'}），等系辦建立新版後再重新閱讀。`
+        : `這一版同意書已被新版取代${cause ? `（${cause}）` : ''}，請重新整理頁面看目前的版本。`,
     )
   }
-  if (facts.state === 'void') return err('CONFLICT', '此版本已作廢，不能再表態；請等系辦建立新版。')
+  if (facts.state === 'void') return err('CONFLICT', '這一版同意書已作廢，不能再回覆；請等系辦建立新版。')
   if (!facts.checksumMatches) {
-    return err('VERSION_SUPERSEDED', '你看到的內容和伺服器上這一版不一致（頁面可能過期），請重新整理頁面、重新閱讀後再表態。')
+    return err('VERSION_SUPERSEDED', '你看到的內容和伺服器上這一版不一致（頁面可能過期），請重新整理頁面、重新閱讀後再回覆。')
   }
   if (facts.role === null || !facts.stillEligible) {
-    return err('NOT_PARTICIPANT', '你不是這一版簽核的參與者，不能表態；每個人只能替自己同意。')
+    return err('NOT_PARTICIPANT', '你不是這一版同意書的參與者，不能回覆；每個人只能替自己同意。')
   }
-  if (facts.alreadyVoted) return err('ALREADY_VOTED', '你已經對這一版表態過了；每人一票，不能改票或重投。')
-  if (facts.state === 'complete') return err('ALREADY_VOTED', '這一版已經完成簽核。')
+  if (facts.alreadyVoted) return err('ALREADY_VOTED', '你已經回覆過這一版了；每人一票，不能改票或重投。')
+  if (facts.state === 'complete') return err('ALREADY_VOTED', '這一版同意書已全員同意。')
   if (facts.state === 'revision') {
-    return err('CONFLICT', '這一版已被退回修正，不再收新的表態；請等系辦重開新版。')
+    return err('CONFLICT', '這一版已被退回修正，不再收新的回覆；請等系辦重開新版。')
   }
   if (facts.role === 'student' && facts.state !== 'collecting') {
-    return err('CONFLICT', '學生都已表態完畢，這一版正在等指導老師。')
+    return err('CONFLICT', '學生都已回覆完畢，這一版正在等指導老師。')
   }
   if (facts.role === 'advisor' && facts.state === 'collecting') {
-    return err('STUDENTS_PENDING', '學生還沒有全部同意，輪到你之前不能表態。')
+    return err('STUDENTS_PENDING', '學生還沒有全部同意，輪到你之前不能回覆。')
   }
   return null
 }
@@ -171,7 +173,7 @@ export function buildProgress(participants: Participants, votes: readonly VoteRe
   }
   const pendingStates: readonly SignoffState[] = ['collecting', 'teacher_pending']
   const missing = pendingStates.includes(state)
-    ? [...students.filter((s) => s.result === null).map((s) => s.displayName), ...(advisor.result === null ? [`${advisor.displayName}（主指導）`] : [])]
+    ? [...students.filter((s) => s.result === null).map((s) => s.displayName), ...(advisor.result === null ? [`${advisor.displayName}（指導老師）`] : [])]
     : []
   return { students, advisor, agreed: students.filter((s) => s.result === 'agree').length, total: students.length, missing }
 }

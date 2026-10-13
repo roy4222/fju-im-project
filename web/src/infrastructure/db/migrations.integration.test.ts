@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, withIsolatedDatabase } from '../../../test/db'
-import { applyMigration, applyMigrations, migratedSchema } from '../../../test/migrations'
+import { applyMigration, applyMigrations, migratedSchema, migrationTags } from '../../../test/migrations'
 import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showcase'
 
 /**
@@ -16,6 +16,7 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 票 25（S11）：第十一支再新增簽核五表與精選三表（細節在 s11-signoff-showcase.integration.test.ts）。
  * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面倒數第二組）。
  * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
+ * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -135,7 +136,7 @@ const EXPECTED_TABLES = [
   ...W0_TABLES,
 ].sort()
 
-const LATEST = '0012_wave3_delete_home'
+const LATEST = '0013_w15_showcase_one_per_group'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -360,11 +361,54 @@ describe('0011（票 39）：已套 0010、有資料的庫升版', () => {
         { registration_deadline: null, event_date: null, awarded_on: null },
       ])
       expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
+      // 公開查詢是目前的程式碼，要接最新的 schema（第三波 W2 起會讀 0012 的 deleted_at／home_position）：
+      // 0011 的預設值上面已經斷言過，這裡把之後的 migration 補齊，再證明舊的已發布作品仍不在公開清單。
+      const tags = migrationTags()
+      for (const tag of tags.slice(tags.indexOf('0011_t39_showcase_stage_fields') + 1)) await applyMigration(db, tag)
+      expect((await db.sql(`select award_level, award_label from showcase_entries`)).rows).toEqual([{ award_level: null, award_label: null }])
       const query = new PgPublicShowcaseQuery(() => db.pool)
       expect(await query.featured()).toEqual([])
       expect(await query.entry({ kind: 'anonymous' }, entryId)).toEqual({ access: 'need_login' })
       const index = await db.sql(`select 1 from pg_indexes where schemaname = $1 and indexname = 'audit_events_real_at_idx'`, [db.schemaName])
       expect(index.rowCount).toBe(1)
+    })
+  })
+})
+
+describe('0013（W15）：精選一組一屆一個「未刪除」的條目', () => {
+  it('從 0012 升上來：已刪除的條目不佔名額，同組可以再建；未刪除的仍只能一筆', async () => {
+    await withIsolatedDatabase({ label: 'm0013' }, async (db) => {
+      const tags = migrationTags()
+      for (const tag of tags.slice(0, tags.indexOf('0012_wave3_delete_home') + 1)) await applyMigration(db, tag)
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0013@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '113', '113', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      const group = await db.sql(
+        `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, 'G01', 'general', now(), now(), 'system') returning id`,
+        [cohortId],
+      )
+      const groupId = String(group.rows[0]!.id)
+      const entry = (deleted: boolean) =>
+        db.sql(
+          `insert into showcase_entries (id, cohort_id, group_id, status, created_by_user_id, deleted_at, deleted_by_user_id)
+           values (gen_random_uuid(), $1, $2, 'draft', $3, $4, $5)`,
+          [cohortId, groupId, userId, deleted ? new Date() : null, deleted ? userId : null],
+        )
+      // 0012 時：刪掉的那一筆仍佔名額。
+      await entry(true)
+      await expect(entry(false)).rejects.toThrow(/showcase_entries_one_per_group/)
+
+      await applyMigration(db, '0013_w15_showcase_one_per_group')
+      await entry(false)
+      await expect(entry(false)).rejects.toThrow(/showcase_entries_one_per_group/)
+      const index = await db.sql(`select indexdef from pg_indexes where schemaname = $1 and indexname = 'showcase_entries_one_per_group'`, [db.schemaName])
+      expect(String(index.rows[0]!.indexdef)).toMatch(/UNIQUE INDEX .*WHERE \(\(group_id IS NOT NULL\) AND \(deleted_at IS NULL\)\)/)
     })
   })
 })

@@ -211,9 +211,19 @@ export function describeIssues(issues: readonly FieldIssue[]): string {
  */
 export type Phase = 'not_open' | 'open' | 'closed'
 
-export function phaseOf(window: { readonly opensAt: Date | null; readonly dueAt: Date | null }, businessNow: Date): Phase {
+/**
+ * `reopenUntil`：系辦替**這一位收件者**開的個別補交期限（第三波 W10；`submission_reopens` 裡最晚的那一個）。
+ * 只在已截止時有作用：補交期限還沒過（一樣含那一分鐘）就當成開放。沒有補交期限的人規則完全不變。
+ */
+export function phaseOf(
+  window: { readonly opensAt: Date | null; readonly dueAt: Date | null },
+  businessNow: Date,
+  reopenUntil: Date | null = null,
+): Phase {
   if (window.opensAt && businessNow.getTime() < window.opensAt.getTime()) return 'not_open'
-  if (window.dueAt && isDeadlinePassed(businessNow, window.dueAt)) return 'closed'
+  if (window.dueAt && isDeadlinePassed(businessNow, window.dueAt)) {
+    return reopenUntil && !isDeadlinePassed(businessNow, reopenUntil) ? 'open' : 'closed'
+  }
   return 'open'
 }
 
@@ -243,6 +253,8 @@ export type StatusFacts = {
   readonly latestVersionNo: number | null
   readonly hasDraft: boolean
   readonly exempt: boolean
+  /** 已截止、靠個別補交期限開放中時才傳那個期限（W10）；狀態字改講「補交到幾點」。 */
+  readonly reopenUntil?: Date | null
 }
 
 /**
@@ -252,31 +264,45 @@ export type StatusFacts = {
 export function statusOf(facts: StatusFacts): ItemStatusView {
   const base = { pending: false, submitted: false, overdue: false, editable: false }
   if (facts.exempt) {
-    return { ...base, headline: '免填', tone: 'muted', detail: '系辦已將你設為免填這份收件', action: '查看' }
+    return { ...base, headline: '免繳', tone: 'muted', detail: '系辦已將你設為免繳這一項（系辦可恢復）', action: '查看' }
   }
   if (facts.phase === 'not_open') {
     const when = facts.opensAt ? `${formatTaipeiMinute(facts.opensAt)} 開放` : '尚未開放'
     return { ...base, headline: '尚未開放', tone: 'info', detail: when, action: '查看' }
   }
+  const reopenUntil = facts.phase === 'open' ? (facts.reopenUntil ?? null) : null
   if (facts.latestVersionNo !== null) {
     const editable = facts.phase === 'open'
     return {
       ...base,
       submitted: true,
       editable,
-      headline: `已繳 v${facts.latestVersionNo}`,
+      headline: `已繳第 ${facts.latestVersionNo} 次`,
       tone: 'success',
-      detail: editable ? '截止前可重送，以最後一次為準' : '截止後唯讀',
+      detail: reopenUntil
+        ? `${formatTaipeiMinute(reopenUntil)} 前可重送，以最後一次為準`
+        : editable
+          ? '截止前可重送，以最後一次為準'
+          : '截止後唯讀',
       action: editable ? '查看或重送' : '查看',
     }
   }
   if (facts.phase === 'closed') {
     return { ...base, overdue: true, headline: '逾期未繳', tone: 'danger', detail: '已截止・需要補交請聯絡系辦', action: '查看' }
   }
+  const reopened = reopenUntil ? `系辦開放補交到 ${formatTaipeiMinute(reopenUntil)}` : null
   if (facts.hasDraft) {
-    return { ...base, pending: true, editable: true, headline: '未繳', tone: 'brand', detail: '草稿已存，尚未正式送出', action: '繼續填寫' }
+    return {
+      ...base,
+      pending: true,
+      editable: true,
+      headline: '未繳',
+      tone: 'brand',
+      detail: reopened ? `草稿已存・${reopened}` : '草稿已存，尚未正式送出',
+      action: '繼續填寫',
+    }
   }
-  return { ...base, pending: true, editable: true, headline: '未繳', tone: 'muted', detail: '進行中', action: '去繳交' }
+  return { ...base, pending: true, editable: true, headline: '未繳', tone: 'muted', detail: reopened ?? '進行中', action: '去繳交' }
 }
 
 // ── 回執 ────────────────────────────────────────────────────────────────────
@@ -289,5 +315,5 @@ export function describeReceipt(receipt: {
   readonly groupCode?: string | null
 }): string {
   const who = receipt.groupCode ? `代表 ${receipt.groupCode} 組` : ''
-  return `「${receipt.title}」已收件：${who}第 ${receipt.versionNo} 次正式送出，收件時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
+  return `「${receipt.title}」已送出：${who}第 ${receipt.versionNo} 次正式送出，送出時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
 }

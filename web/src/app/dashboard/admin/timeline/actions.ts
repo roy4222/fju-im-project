@@ -2,10 +2,11 @@
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { TimelineActionState } from '@/app/dashboard/admin/timeline/timeline-forms'
-import { getTimelineCommand, STAGE_COUNT } from '@/composition/cohorts'
+import { cohortLabel, getTimelineCommand, STAGE_COUNT } from '@/composition/cohorts'
 
 /**
- * 時間軸頁的四個動作（票 11；契約 02 §7）：存階段與年度結束日、新增活動、改期、取消活動。
+ * 時間軸頁的動作（票 11；契約 02 §7）：存階段與年度結束日、新增活動、改期、取消活動；
+ * 第三波 W11 加刪除已取消的活動。
  *
  * 這裡只做「表單 → 用例 → 畫面回饋」的翻譯；誰能做、日期怎麼驗、版本有沒有過期，
  * 全部在用例裡判（直接打這個 Server Action 的人一樣會被用例擋下）。
@@ -49,8 +50,8 @@ export async function saveScheduleAction(
   return {
     ok: true,
     message: changed.length
-      ? `已儲存 ${result.receipt.code} 的階段與日期（第 ${changed.join('、')} 階段的日期有變）。`
-      : `已儲存 ${result.receipt.code} 的階段（日期沒有變）。`,
+      ? `已儲存${cohortLabel(result.receipt)}的階段與日期（第 ${changed.join('、')} 階段的日期有變）。`
+      : `已儲存${cohortLabel(result.receipt)}的階段（日期沒有變）。`,
   }
 }
 
@@ -98,4 +99,19 @@ export async function cancelActivityAction(
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: `已取消活動「${result.receipt.title}」；它會留在「已取消」清單。` }
+}
+
+export async function deleteActivityAction(
+  _state: TimelineActionState,
+  formData: FormData,
+): Promise<TimelineActionState> {
+  const result = await getTimelineCommand().deleteActivity(
+    await currentActor(),
+    text(formData, 'activityId'),
+    Number(text(formData, 'revision')),
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: `已刪除活動「${result.receipt.title}」：後台與前台都不再顯示，不能恢復。` }
 }

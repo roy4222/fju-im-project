@@ -13,7 +13,7 @@ import {
 } from '@/composition/cohorts'
 import { formatTaipeiSecond, toTaipeiDateTimeInput } from '@/shared/time'
 
-export const metadata = { title: '模擬業務鐘｜資管系專題平台' }
+export const metadata = { title: '模擬時鐘｜資管系專題平台' }
 
 /**
  * 模擬業務鐘（票 11；產品模組 02 §4「模擬業務日期規則」）。
@@ -33,20 +33,20 @@ export default async function AdminClockPage() {
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
       <PageHeader
-        title="模擬業務鐘"
+        title="模擬時鐘"
         description="測試站專用：把系統認定的「今天」設到任何一秒，用來驗階段切換與截止前後。正式站沒有這個功能。"
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Tile
-          label="業務時間"
-          value={<span aria-label="目前業務時間">{formatTaipeiSecond(state.businessNow)}</span>}
+          label={`系統時間${state.latest ? '（模擬中）' : ''}`}
+          value={<span aria-label="目前的系統時間">{formatTaipeiSecond(state.businessNow)}</span>}
           hint={state.latest ? '模擬中：從最新一次設定起跟著真實時間往前走' : '沒有模擬：等於真實時間'}
         />
         <Tile label="真實時間" value={formatTaipeiSecond(state.realNow)} hint="登入、稽核、備份用這個，不受模擬影響" />
       </div>
 
-      <Card title="設定業務時間" className="mb-6">
+      <Card title="設定模擬時間" className="mb-6">
         <ClockForm
           requestId={randomUUID()}
           defaultBusinessAt={toTaipeiDateTimeInput(state.businessNow)}
@@ -73,7 +73,7 @@ export default async function AdminClockPage() {
               {formatTaipeiSecond(h.businessAt)}
             </span>,
           ])}
-          empty="還沒有設定過，業務時間就是真實時間。"
+          empty="還沒有設定過，系統時間就是真實時間。"
         />
         <p className="text-xs text-muted-foreground">
           紀錄只增不改，永遠以最新一筆為準。回到{' '}

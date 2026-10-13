@@ -169,7 +169,7 @@ async function quickPublish(
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: options.placement }).check()
   await dialog.getByLabel('標題').fill(options.title)
-  await dialog.getByLabel('發布對象').selectOption(options.audience)
+  await dialog.getByLabel('誰看得到').selectOption(options.audience)
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill(options.body)
   if (options.file) {
@@ -259,9 +259,9 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
   await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
-  await page.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '整組一份', exact: true }).check()
-  await page.getByLabel('發布對象').selectOption('groups')
+  await page.getByLabel('誰看得到').selectOption('groups')
   await page.getByRole('checkbox', { name: /G01/ }).check()
   await page.getByLabel('所屬階段').selectOption({ index: 2 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(due))
@@ -271,7 +271,7 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
   const check = page.getByRole('dialog', { name: '發布前檢查' })
   await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
   await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單 1 組')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
   itemIds[SUBMISSION] = (await itemByTitle(SUBMISSION)).id
 })
 
@@ -363,6 +363,8 @@ test('訪客：公告列表只有公開的；內容頁的正文是清理過的�
   // 榮譽榜說明（訪6）：給訪客的收錄範圍，不是給設計的註記。
   await page.goto('/honors')
   await expect(page.getByRole('main')).toContainText('得獎紀錄')
+  // 說明裡叫訪客去看的「歷屆專題」要點得到（N-13）。
+  await expect(page.getByRole('main').getByRole('link', { name: '歷屆專題', exact: true })).toHaveAttribute('href', '/projects')
   await expect(page.locator('body')).not.toContainText('人物照不裁切')
 
   // 業界合作洽詢（D-1）：首頁系辦聯絡卡與頁尾各一句。

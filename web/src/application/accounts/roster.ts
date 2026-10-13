@@ -17,6 +17,23 @@ import type { Result } from '@/shared/result'
 export const ROSTER_COLUMNS = ['student_no', 'name', 'cohort', 'email', 'department_class'] as const
 export type RosterColumn = (typeof ROSTER_COLUMNS)[number]
 
+/** 錯誤訊息裡說明欄名用的中文對照（解析仍靠英文欄名，這裡只給人看）。 */
+const COLUMN_LABEL: Record<RosterColumn, string> = {
+  student_no: '學號',
+  name: '姓名',
+  cohort: '屆別',
+  email: 'Email',
+  department_class: '系級',
+}
+
+/** 「student_no（學號）」這種寫法：欄名照打，括號裡說是什麼。 */
+function columnWithLabel(column: RosterColumn): string {
+  return `${column}（${COLUMN_LABEL[column]}）`
+}
+
+/** 固定欄位的說明句（錯誤訊息共用）。 */
+const FIXED_COLUMNS_TEXT = `${(['student_no', 'name', 'cohort', 'email'] as const).map(columnWithLabel).join('、')}`
+
 /** 表頭的別名（系辦用 Excel 做的檔常常直接寫中文）。 */
 const HEADER_ALIASES: Record<string, RosterColumn> = {
   student_no: 'student_no',
@@ -172,7 +189,7 @@ export function analyzeRoster(
   }
 
   const [header, ...dataRows] = parsed.rows
-  if (!header) return { ok: false, message: '檔案是空的，第一行要是表頭 student_no,name,cohort,email。' }
+  if (!header) return { ok: false, message: `檔案是空的，第一行要是表頭：${FIXED_COLUMNS_TEXT}。` }
 
   // 表頭：欄位名對到固定欄位；不認得的欄位不猜，直接退件。
   const positions = new Map<RosterColumn, number>()
@@ -182,15 +199,15 @@ export function analyzeRoster(
     if (!column) {
       return {
         ok: false,
-        message: `表頭有不認得的欄位「${rawName.trim()}」。欄位固定為 student_no,name,cohort,email，可多一欄 department_class（系級）。`,
+        message: `表頭有不認得的欄位「${rawName.trim()}」。欄位固定為 ${FIXED_COLUMNS_TEXT}，可多一欄 ${columnWithLabel('department_class')}。`,
       }
     }
-    if (positions.has(column)) return { ok: false, message: `表頭的「${column}」出現了兩次。` }
+    if (positions.has(column)) return { ok: false, message: `表頭的「${columnWithLabel(column)}」出現了兩次。` }
     positions.set(column, index)
   }
   for (const required of ['student_no', 'name'] as const) {
     if (!positions.has(required)) {
-      return { ok: false, message: `表頭少了必填欄位「${required}」。欄位固定為 student_no,name,cohort,email。` }
+      return { ok: false, message: `表頭少了必填欄位「${columnWithLabel(required)}」。欄位固定為 ${FIXED_COLUMNS_TEXT}。` }
     }
   }
   if (dataRows.length === 0) return { ok: false, message: '名單只有表頭，沒有任何學生。' }

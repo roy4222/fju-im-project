@@ -106,7 +106,7 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
               </colgroup>
               <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
                 <tr>
-                  {['檔名', '類型', '引用位置', '上傳者', '大小', '日期', '引用', '操作'].map((h) => (
+                  {['檔名', '類型', '用在哪裡', '上傳者', '大小', '日期', '使用中', '操作'].map((h) => (
                     <th key={h} scope="col" className="h-10 px-3 font-semibold whitespace-nowrap">
                       {h}
                     </th>
@@ -165,13 +165,13 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
                             <IconDownload aria-hidden className="size-4" />
                           </a>
                           {r.refs > 0 ? (
-                            <span className="text-[11px] leading-tight text-muted-foreground" title="被引用的檔案不能刪">
+                            <span className="text-[11px] leading-tight text-muted-foreground" title="還有地方在用的檔案不能刪">
                               {r.releaseHref ? (
                                 <Link href={r.releaseHref} className="underline underline-offset-2 hover:text-foreground">
-                                  去解除引用
+                                  去移除使用處
                                 </Link>
                               ) : (
-                                '被引用'
+                                '使用中'
                               )}
                             </span>
                           ) : null}

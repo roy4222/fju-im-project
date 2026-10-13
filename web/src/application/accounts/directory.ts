@@ -18,7 +18,7 @@ export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
   pending: '待審核',
   active: '已核准',
   disabled: '已停用',
-  deidentified: '已去識別化',
+  deidentified: '已刪除個人資料',
 }
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -495,9 +495,24 @@ export type AccountDirectoryCommand = {
 // `deidentified_at`；保留業務關聯與稽核；有未完成簽核參與→先成員異動）；產品模組 01 §2.5「永久刪除改為去識別化，
 // 不 cascade 刪繳交、成績、簽核與稽核，不破壞稽核鏈」、§2.6「高風險動作需再次輸入確認文字並產生稽核」。
 
-/** 去識別化後的代稱。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
+/** 寫進資料庫（users、user_profiles、registration_applications）的代稱前綴：是資料值，不跟著用詞改。 */
+const STORED_PSEUDONYM_PREFIX = '已去識別化使用者 '
+/** 畫面上的代稱前綴（W13c #27「刪除個人資料」）：只在讀出來給人看時換。 */
+const SHOWN_PSEUDONYM_PREFIX = '已刪除個資的使用者 '
+
+/** 去識別化後的代稱（存進資料庫的原字）。只由系統 ID 推得（ID 本來就是各處引用的鍵，不是個資），同一個人永遠同一個代稱。 */
 export function deidentifiedPseudonym(userId: string): string {
-  return `已去識別化使用者 ${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+  return `${STORED_PSEUDONYM_PREFIX}${userId.replace(/-/g, '').slice(-6).toUpperCase()}`
+}
+
+/** 人名給人看的樣子：資料庫裡的去識別化代稱換成畫面用詞（舊資料一樣換）；其他名字原樣。 */
+export function displayPersonName(name: string): string {
+  return name.startsWith(STORED_PSEUDONYM_PREFIX) ? `${SHOWN_PSEUDONYM_PREFIX}${name.slice(STORED_PSEUDONYM_PREFIX.length)}` : name
+}
+
+/** 搜尋字：使用者照畫面上的代稱打字時，換回資料庫裡的寫法才查得到。 */
+export function storedNameQuery(q: string): string {
+  return q.startsWith(SHOWN_PSEUDONYM_PREFIX.trim()) ? `${STORED_PSEUDONYM_PREFIX.trim()}${q.slice(SHOWN_PSEUDONYM_PREFIX.trim().length)}` : q
 }
 
 /**
@@ -519,8 +534,8 @@ export function deidentifyConfirmationMatches(typed: unknown, loginEmail: string
 export const DEIDENTIFY_CLEARS: readonly string[] = [
   '姓名改成代稱（帳號、個人資料、註冊申請）',
   '登入 Email 與聯絡 Email 換成收不到信的位址',
-  '學號、系級、手機清空，釋出本屆學號',
-  '密碼與 Google 權杖清除，之後不能用任何方式登入',
+  '學號、系級、手機清空，解除這個帳號與學號的綁定',
+  '密碼與 Google 登入授權清除，之後不能用任何方式登入',
   '登入中的裝置立刻登出',
 ]
 
@@ -539,7 +554,7 @@ export const DEIDENTIFY_RETAINED_LABEL: Record<keyof DeidentifyRetained, string>
   submissions: '繳交版本',
   evaluatorAssignments: '評分指派',
   advisorAssignments: '指導紀錄',
-  approvals: '簽核表態',
+  approvals: '同意書回覆',
   auditEvents: '操作紀錄',
 }
 
@@ -590,7 +605,7 @@ export type DeidentifyReceipt = {
 export function deidentifyStatusBlocker(status: AccountStatus, isOrphan = false): string | null {
   if (status === 'active' || status === 'disabled') return null
   if (status === 'pending') {
-    return isOrphan ? '孤兒帳號請先停用，再去識別化。' : '待審核的帳號不能去識別化，只處理已核准或已停用的帳號。'
+    return isOrphan ? '尚未設定身分的帳號請先停用，再刪除個人資料。' : '待審核的帳號不能刪除個人資料，只處理已核准或已停用的帳號。'
   }
-  return '這個帳號已經去識別化了。'
+  return '這個帳號的個人資料已經刪除了。'
 }

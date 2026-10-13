@@ -168,7 +168,7 @@ test('x3:5 COH-01 階段開始日不遞增被擋，改正後儲存；轉進行�
   await shot(admin, 'stage-order-blocked')
   await dialog.getByLabel('第 2 階段開始日').fill(ymd(30))
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expectStatus(admin, `已儲存 ${CODE} 的階段與日期`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${CODE}）的階段與日期`))
   await activateCohort(admin, CODE)
 })
 
@@ -262,9 +262,9 @@ test('x3:11 發布個人收件「期限測試」（截止 今天+5 天 23:59）'
   await admin.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await admin.getByLabel('標題', { exact: true }).fill(ITEM)
   await admin.getByLabel('正文').fill('149 補驗：截止測試。')
-  await admin.getByLabel('發布位置', { exact: true }).selectOption('submission')
+  await admin.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await admin.getByRole('radio', { name: '個人一份', exact: true }).check()
-  await admin.getByLabel('發布對象').selectOption('cohort_students')
+  await admin.getByLabel('誰看得到').selectOption('cohort_students')
   await admin.getByLabel('所屬階段').selectOption({ index: 1 })
   await admin.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(`${DUE_DAY}T23:59`)
   await admin.getByLabel('要新增的欄位類型').selectOption('text')
@@ -274,7 +274,7 @@ test('x3:11 發布個人收件「期限測試」（截止 今天+5 天 23:59）'
   await field.getByRole('checkbox', { name: '必填' }).check()
   itemId = await saveDraft(admin)
   const receipt = await publishFromEditor(admin)
-  expect(receipt).toContain('收件名單 2 位')
+  expect(receipt).toContain('需要繳交的名單 2 位')
   expect(receipt).toMatch(new RegExp(`${dayRe(DUE_DAY)} 23:59`))
   expect(receipt).toContain('含此分鐘')
   await shot(admin, 'item-published')
@@ -285,7 +285,7 @@ test('x3:12 學生 1 送 v1 再改內容（不送）；學生 2 只存草稿、�
   await s1.goto(`/dashboard/student/affairs/${itemId}`)
   await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止前第一版')
   await s1.getByRole('button', { name: '正式送出' }).click()
-  await expect(s1.getByTestId('receipt')).toContainText('v1')
+  await expect(s1.getByTestId('receipt')).toContainText('第 1 次')
   await s1.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
   await s1.getByRole('textbox', { name: '內容', exact: true }).fill('149 補驗：截止分鐘內的第二版')
 
@@ -304,7 +304,7 @@ test('x3:13 SUB-16 COH-10 COH-04 業務時間推到截止那一分鐘（23:59:07
   const s1 = student(0).page
   await s1.getByRole('button', { name: '重新送出' }).click()
   const receipt = s1.getByTestId('receipt')
-  await expect(receipt).toContainText('v2')
+  await expect(receipt).toContainText('第 2 次')
   await expect(receipt).toContainText(new RegExp(`${dayRe(DUE_DAY)} 23:59`))
   await shot(s1, 'resubmit-last-minute')
   await receipt.getByRole('button', { name: '關閉' }).click()
@@ -340,7 +340,7 @@ test('x3:15 GRP-12 提案逾期：整份終止、學生 1 收到通知、又看�
     .poll(
       async () => {
         await openMyGroup(page)
-        return page.getByRole('region', { name: '提案紀錄' }).filter({ hasText: '已終止：逾期' }).count()
+        return page.getByRole('region', { name: '提案紀錄' }).filter({ hasText: '沒有成立：逾期' }).count()
       },
       { timeout: 150_000, intervals: [5_000, 10_000] },
     )
@@ -348,7 +348,7 @@ test('x3:15 GRP-12 提案逾期：整份終止、學生 1 收到通知、又看�
   await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText(`${student(0).name} 發起的一般專題提案`)
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
   await shot(page, 'proposal-expired')
-  await waitForInbox(page, '/dashboard/student/inbox', '分組提案已終止（逾期），所有人都已釋放')
+  await waitForInbox(page, '/dashboard/student/inbox', '這次組隊沒有成立（逾期），大家都可以重新組隊')
   await shot(page, 'proposal-expired-inbox')
 })
 
@@ -370,7 +370,7 @@ test('x3:17 COH-10 業務鐘倒退回現在：學生 2 又可以送，草稿還�
   await s2.goto(`/dashboard/student/affairs/${itemId}`)
   await expect(s2.getByRole('textbox', { name: '內容', exact: true })).toHaveValue('149 補驗：學生二的草稿')
   await s2.getByRole('button', { name: '正式送出' }).click()
-  await expect(s2.getByTestId('receipt')).toContainText('v1')
+  await expect(s2.getByTestId('receipt')).toContainText('第 1 次')
   await shot(s2, 'resubmit-after-rewind')
   await s2.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
 })
@@ -387,7 +387,7 @@ test('x3:18 COH-10 COH-04 倒退不改既有版本、不復活逾期的提案', 
   await expect(s1.getByTestId('version-view')).toContainText('截止分鐘內的第二版')
   await shot(s1, 'history-intact')
   await openMyGroup(s1)
-  await expect(s1.getByRole('region', { name: '提案紀錄' })).toContainText('已終止：逾期')
+  await expect(s1.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：逾期')
   await expect(s1.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 
@@ -400,12 +400,12 @@ test('x3:19 COH-04 GRP-12 推到第 2 階段（+31 天）：系辦與學生都�
   const form = s1.getByRole('button', { name: '發起提案' })
   if ((await form.count()) === 0) {
     console.log('x3:19 觀察：成組期結束後頁面已沒有「發起提案」表單')
-    await expect(s1.getByRole('main')).toContainText('成組期已經結束')
+    await expect(s1.getByRole('main')).toContainText('分組期已經結束')
   } else {
     await s1.getByRole('radio', { name: '一般專題' }).check()
     await s1.getByLabel(/^同學 1 的學號/).fill(student(1).studentNo)
     await form.click()
-    await expect(s1.getByRole('main')).toContainText('成組期已經結束')
+    await expect(s1.getByRole('main')).toContainText('分組期已經結束')
     await expect(s1.getByRole('main')).toContainText('需要分組請聯絡系辦')
   }
   await shot(s1, 'proposal-after-grouping')

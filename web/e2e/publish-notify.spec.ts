@@ -96,7 +96,7 @@ test('第一次發布「本屆學生」公告：通知預設勾', async ({ page 
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill('週五下午兩點在 LM503。')
   await dialog.getByRole('button', { name: '下一步' }).click()
@@ -148,7 +148,7 @@ test('在非預設屆別編輯後按「專題事務」返回，仍停在那一�
   // 頁內左上角的返回連結（側欄也有一個「專題事務」，那個不帶屆別）。
   await page.getByRole('main').getByRole('link', { name: '專題事務', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
-  await expect(page.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: CODE, exact: true })).toHaveAttribute(
+  await expect(page.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: `第 44 屆 ${stamp}（${CODE}）`, exact: true })).toHaveAttribute(
     'aria-current',
     'page',
   )
@@ -163,7 +163,7 @@ test('0 個學生的屆別發公告：三步驟對話框與完整編輯器都預
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(title)
-  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill('還沒有學生時發的公告。')
   await dialog.getByRole('button', { name: '下一步' }).click()

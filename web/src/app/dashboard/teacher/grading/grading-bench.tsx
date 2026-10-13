@@ -132,7 +132,10 @@ export function GradingBench({
       }
       setSavedText(outcome.data.savedAtText)
       setDirty(false)
-      setMessage({ tone: 'ok', text: '已暫存到伺服器。暫存只有你和系辦看得到，不算正式分數。' })
+      setMessage({ tone: 'ok', text: '已暫存到伺服器。評分草稿只有你和系辦看得到，不算正式分數。' })
+      // 左側佇列（與手機下拉）是伺服器元件：重抓一次讓「草稿 已填/總數」跟著變（N-154）。
+      // 這個元件用 assignmentId 當 key，重抓不會重建，表單上的輸入與訊息都留著。
+      router.refresh()
     } catch {
       setMessage({ tone: 'error', text: '連線中斷，暫存可能沒有存到；請再按一次「暫存」。' })
     } finally {
@@ -158,6 +161,7 @@ export function GradingBench({
       setLocked(true)
       setDirty(false)
       receiptDialog.current?.showModal()
+      router.refresh()
     } catch {
       // 不換請求編號：再按一次如果其實已經送到，伺服器會回同一張回執，不會多一筆。
       setMessage({ tone: 'error', text: '連線中斷，不確定有沒有送到；請再按一次「正式送出」，不會重複計分。' })
@@ -173,7 +177,7 @@ export function GradingBench({
       : dirty
         ? '有尚未暫存的修改'
         : savedText
-          ? `已儲存 ${savedText}（伺服器時間）`
+          ? `已儲存・系統記錄的儲存時間 ${savedText}`
           : '尚未儲存'
   const dot: SaveDotState = isLocked ? 'locked' : busy === 'save' ? 'saving' : dirty ? 'dirty' : savedText ? 'saved' : 'unsaved'
   const blockReason = isLocked
@@ -202,7 +206,7 @@ export function GradingBench({
       {children ? <div className="flex flex-col gap-2 px-5 pt-3">{children}</div> : null}
       {draftFromOlderVersion && !isLocked ? (
         <p className="mx-5 mt-3 rounded-lg bg-primary-subtle px-3 py-2 text-xs text-primary-on-subtle">
-          系辦在你暫存之後更新了評分方案；已對應的分數保留，請確認後再暫存。
+          系辦在你暫存之後更新了評分規則；已對應的分數保留，請確認後再暫存。
         </p>
       ) : null}
 
@@ -297,7 +301,7 @@ export function GradingBench({
               </div>
               <div className="tabular text-xs sm:text-right">
                 {isLocked ? (
-                  <span className="text-muted-foreground">已採計</span>
+                  <span className="text-muted-foreground">已計入成績</span>
                 ) : error ? (
                   <span className="font-semibold text-destructive">需修正</span>
                 ) : filled ? (
@@ -320,7 +324,7 @@ export function GradingBench({
       <div className="sticky bottom-0 z-10 rounded-b-[18px] border-t border-border bg-card lg:static">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 pt-3">
           <p className="tabular text-sm" data-testid="score-preview">
-            <span className="text-muted-foreground">{isLocked ? '正式採計' : '預覽總分'}</span>{' '}
+            <span className="text-muted-foreground">{isLocked ? '計入成績的分數' : '預覽總分'}</span>{' '}
             <b className="text-[17px] font-extrabold text-foreground">{shownScore}</b>
             <span className="text-muted-foreground"> / 100</span>
             {result.gate === 'fail' ? <span className="ml-2 text-xs font-semibold text-destructive">有項目不通過</span> : null}
@@ -388,21 +392,21 @@ export function GradingBench({
         </div>
       </dialog>
 
-      <dialog ref={receiptDialog} aria-label="已收件" className={cn(DIALOG, 'w-[min(24rem,calc(100vw-2rem))]')}>
+      <dialog ref={receiptDialog} aria-label="已送出" className={cn(DIALOG, 'w-[min(24rem,calc(100vw-2rem))]')}>
         {receipt ? (
           <div className="flex flex-col items-center gap-4 p-6 text-center">
             <StampMark>
               <IconCheck className="size-4" strokeWidth={3} />
-              已收件
+              已送出
             </StampMark>
             <div>
               <h2 className="text-lg font-extrabold text-foreground">
                 {receipt.groupCode}・{receipt.stageName}
               </h2>
-              <p className="tabular mt-1 text-sm text-muted-foreground">收件時間 {receipt.receivedAtText}</p>
+              <p className="tabular mt-1 text-sm text-muted-foreground">送出時間 {receipt.receivedAtText}</p>
             </div>
             <p className="tabular text-sm text-muted-foreground">
-              正式採計 <b className="text-[28px] font-extrabold text-foreground">{receipt.teacherScore}</b> / 100
+              計入成績的分數 <b className="text-[28px] font-extrabold text-foreground">{receipt.teacherScore}</b> / 100
             </p>
             <p className="text-xs text-muted-foreground">已鎖定。多位老師時以算術平均計入階段成績；學生看不到分數。</p>
             <button type="button" className={OUTLINE_BUTTON} onClick={() => receiptDialog.current?.close()}>

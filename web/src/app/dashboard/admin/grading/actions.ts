@@ -164,7 +164,7 @@ export async function resolveReviewAction(_state: ResultsActionState, formData: 
   const groupId = text(formData, 'groupId')
   if (UUID.test(groupId)) redirect(`/dashboard/admin/grading/${groupId}?resolved=${result.receipt.overrideId}`)
   refresh()
-  return { ok: true, message: `已處理待復核：${describeOverrideReceipt(result.receipt)}` }
+  return { ok: true, message: `已重新確認更正：${describeOverrideReceipt(result.receipt)}` }
 }
 
 export async function applySchemeAction(_state: ResultsActionState, formData: FormData): Promise<ResultsActionState> {
@@ -178,5 +178,5 @@ export async function applySchemeAction(_state: ResultsActionState, formData: Fo
   const cohortId = text(formData, 'cohortId')
   if (UUID.test(cohortId)) redirect(`/dashboard/admin/grading?cohort=${cohortId}&applied=${result.receipt.versionNo}`)
   refresh()
-  return { ok: true, message: `已套用方案 v${result.receipt.versionNo}：各組成績照新版本重算，新版本已鎖定。` }
+  return { ok: true, message: `已套用評分規則第 ${result.receipt.versionNo} 版：各組成績照新版本重算，新版本已鎖定。` }
 }

@@ -24,6 +24,8 @@ export type ReceiverFacts = {
   readonly exempt: boolean
   readonly hasDraft: boolean
   readonly latestVersionNo: number | null
+  /** 系辦替這一位開的個別補交期限（W10，最晚的那一個）；沒有就是 null 或不給。 */
+  readonly reopenUntil?: Date | null
 }
 
 export function categoryOf(facts: Pick<ReceiverFacts, 'eligibleTo' | 'exempt'>): RosterCategory {
@@ -38,19 +40,31 @@ export type ItemWindow = { readonly opensAt: Date | null; readonly dueAt: Date |
  * 學生作業區、學生首頁、名單頁都經這裡，同一組事實一定得到同一個結果。
  */
 export function receiverStatus(window: ItemWindow, facts: Omit<ReceiverFacts, 'eligibleTo'>, businessNow: Date): ItemStatusView {
-  const phase: Phase = phaseOf(window, businessNow)
+  const reopenUntil = facts.reopenUntil ?? null
+  const phase: Phase = phaseOf(window, businessNow, reopenUntil)
+  // 補交期限只在「本來已截止、靠它開放」時才講（還沒截止時有期限也照一般的字）。
+  const reopened = phase === 'open' && phaseOf(window, businessNow) === 'closed'
   return statusOf({
     phase,
     opensAt: window.opensAt,
     latestVersionNo: facts.latestVersionNo,
     hasDraft: facts.hasDraft,
     exempt: facts.exempt,
+    reopenUntil: reopened ? reopenUntil : null,
   })
 }
 
-/** 學生首頁「待繳交」與作業區「待繳」的數字：同一個函式、同一份查詢結果。 */
+/**
+ * 還要學生處理的一份：還沒送出、不是免填——開放中（含系辦開放補交）或已逾期未繳都算。
+ * 逾期的不能自己再送，但要找系辦補交，首頁不能因此說「沒有待繳」（驗收第 2 章 P-08）。
+ */
+export function awaitsSubmission(status: Pick<ItemStatusView, 'pending' | 'overdue'>): boolean {
+  return status.pending || status.overdue
+}
+
+/** 學生首頁「待繳交」、側欄徽章與作業區「待繳」的數字：同一個函式、同一份查詢結果。 */
 export function pendingCount(rows: readonly (ItemWindow & Omit<ReceiverFacts, 'eligibleTo'>)[], businessNow: Date): number {
-  return rows.filter((row) => receiverStatus(row, row, businessNow).pending).length
+  return rows.filter((row) => awaitsSubmission(receiverStatus(row, row, businessNow))).length
 }
 
 export type Completion = {

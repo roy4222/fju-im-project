@@ -1,11 +1,14 @@
 'use client'
 import { useState } from 'react'
 import { startItemUploadAction } from './actions'
-import { formatSize, type EditorState, type EditorVocabulary, type FileChip } from './item-form-model'
+import { formatSize, notifyPreviewText, type EditorState, type EditorVocabulary, type FileChip, type NotifyWhen } from './item-form-model'
 import { IconAlertCircle, IconArrowDown, IconArrowUp, IconCheck, IconFileUpload, IconPaperclip, IconPhoto, IconX } from '@tabler/icons-react'
 import type { ItemReview, PublishCheck, RecipientPreview } from '@/application/items'
 import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, DIALOG as KIT_DIALOG } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
+
+/** 欄位與上傳上限都用整數 MiB 設定；顯示時換成位元組交給共用的 `formatSize`（KB／MB）。 */
+const MIB = 1024 * 1024
 
 export {
   fieldFromSchema,
@@ -173,7 +176,7 @@ export function AttachmentPicker({
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : '加入附件'}</span>
           <span className="block text-xs text-muted-foreground">
-            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {maxMiB} MiB。下載權限跟著這一筆的對象走。
+            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {formatSize(maxMiB * MIB)}。下載權限跟著這一筆的對象走。
           </span>
         </span>
         <input
@@ -236,7 +239,7 @@ export function CoverPicker({
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <span className="block font-semibold">{busy ? '上傳中…' : cover ? '換封面' : '上傳封面'}</span>
           <span className="block text-xs text-muted-foreground">
-            封面只收 {accept.replaceAll(',', '、')}，上限 {maxMiB} MiB。
+            封面只收 {accept.replaceAll(',', '、')}，上限 {formatSize(maxMiB * MIB)}。
           </span>
         </span>
         <input
@@ -305,12 +308,12 @@ export function CheckList({ checks, onFix }: { checks: readonly PublishCheck[]; 
 }
 
 /** 實際名單：先看總數，點開看到每一位（每一組）是誰（產品模組 04：不只總數）。 */
-export function RecipientList({ recipients }: { recipients: RecipientPreview }) {
+export function RecipientList({ recipients, notifyWhen }: { recipients: RecipientPreview; notifyWhen: NotifyWhen }) {
   if (recipients.receiverUnit === 'individual') {
     return (
       <details className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
         <summary className="cursor-pointer font-semibold">
-          收件名單：{recipients.people.length} 位學生（每人一份）
+          需要繳交的名單：{recipients.people.length} 位學生（每人一份）
         </summary>
         {recipients.people.length === 0 ? (
           <p className="mt-2 text-muted-foreground">對象裡目前沒有符合資格的學生。</p>
@@ -334,7 +337,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
     return (
       <details className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
         <summary className="cursor-pointer font-semibold">
-          收件名單：{recipients.groups.length} 組（每組一份，任一組員送出代表整組）
+          需要繳交的名單：{recipients.groups.length} 組（每組一份，任一組員送出代表整組）
         </summary>
         {recipients.groups.length === 0 ? (
           <p className="mt-2 text-muted-foreground">對象裡目前沒有已成立的組別。</p>
@@ -353,7 +356,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
   }
   return (
     <p className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
-      {recipients.notifyCount > 0 ? `通知會寫給 ${recipients.notifyCount} 位。` : '這個對象目前沒有可以通知的人。'}
+      {notifyPreviewText(recipients.notifyCount, notifyWhen)}
     </p>
   )
 }
@@ -399,7 +402,7 @@ export function StudentView({
                   {f.required ? <span className="ml-1 text-destructive">*</span> : null}
                   <span className="ml-2 text-xs text-muted-foreground">
                     {typeLabel(f.type)}
-                    {f.type === 'file' ? `・${f.allowedTypes.join('、')}・上限 ${f.maxMiB} MiB` : ''}
+                    {f.type === 'file' ? `・${f.allowedTypes.join('、')}・上限 ${formatSize(f.maxMiB * MIB)}` : ''}
                   </span>
                 </span>
               )}

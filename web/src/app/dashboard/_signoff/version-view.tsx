@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { IconCheck } from '@tabler/icons-react'
 import type { SignoffState, VersionDetail } from '@/application/signoff'
-import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, STATE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
+import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
+import { cohortLabel } from '@/composition/cohorts'
+import { ACCEPTANCE_NOTICE, describeCause, PURPOSE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -10,7 +12,7 @@ import { formatTaipeiMinute } from '@/shared/time'
  * （`SignoffQuery.versionDetail`／`studentView`），所以全文、附件、授權範圍、參與者三方一致。
  *
  * 順序照產品：全文 → 附件 → 授權範圍（最終文件授權才有，列在全文之後讓人讀完再同意）→ 參與者。
- * 版本頁固定標「站內內容確認與同意紀錄，行政採認待確認」。附件與海報連到 `/api/files/<id>`，每次下載都重新授權。
+ * 版本頁固定標「站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認」。附件與海報連到 `/api/files/<id>`，每次下載都重新授權。
  */
 
 const STATE_TONE: Record<SignoffState, string> = {
@@ -22,10 +24,10 @@ const STATE_TONE: Record<SignoffState, string> = {
   void: 'bg-muted text-muted-foreground',
 }
 
-export function StateBadge({ state }: { state: SignoffState }) {
+export function StateBadge({ state, cause, newerVersionNo }: { state: SignoffState; cause?: string | null; newerVersionNo?: number | null }) {
   return (
     <span data-testid="signoff-state" className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATE_TONE[state])}>
-      {STATE_LABEL[state]}
+      {signoffStateLabel(state, { cause, newerVersionNo })}
     </span>
   )
 }
@@ -35,14 +37,14 @@ export function Invalidated({ v }: { v: VersionDetail }) {
   if (v.state === 'revision') {
     return (
       <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-danger-subtle px-4 py-3 text-sm text-danger-on-subtle">
-        這一版已退回修正（理由：{v.cause ?? '未填'}），等系辦重開新版後大家再重新閱讀；舊的表態留作紀錄、不計入新版。
+        這一版已退回修正（理由：{v.cause ?? '未填'}），等系辦重開新版後大家再重新閱讀；舊的回覆留作紀錄、不計入新版。
       </p>
     )
   }
   if (!v.isCurrent && v.state === 'complete') {
     return (
       <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-muted px-4 py-3 text-sm text-ink">
-        這是歷史版本的完成紀錄；目前已有新版本，請以新版為準。
+        這是舊版同意書的完成紀錄；目前已有新版，請以新版為準。
       </p>
     )
   }
@@ -50,10 +52,10 @@ export function Invalidated({ v }: { v: VersionDetail }) {
   const cause = describeCause(v.cause)
   const text =
     v.state === 'void'
-      ? `此版本已作廢${cause ? `（${cause}）` : ''}。`
+      ? `這一版同意書已作廢${cause ? `（${cause}）` : ''}。`
       : v.isCurrent
-        ? `此版本已失效（${cause ?? '內容或參與者變更'}），等待管理員建立新版後再重新閱讀。`
-        : `此版本已失效（${cause ?? '已有新版本'}），已由新版本取代；舊版的同意不計入新版。`
+        ? `這一版同意書已作廢（${cause ?? '內容或參與者變更'}），等系辦建立新版後再重新閱讀。`
+        : `這一版同意書已被第 ${v.versionNo + 1} 版取代${cause ? `（${cause}）` : ''}；舊版的同意不計入新版。`
   return (
     <p role="status" data-testid="signoff-invalidated" className="rounded-md bg-muted px-4 py-3 text-sm text-ink">
       {text}
@@ -77,17 +79,18 @@ export function VersionView({
 }) {
   const scope = v.authorizationScope
   return (
-    <article className="space-y-5 rounded-card border border-border bg-background p-5" aria-label={`${v.groupCode} ${PURPOSE_LABEL[v.purpose]} v${v.versionNo}`}>
+    <article className="space-y-5 rounded-card border border-border bg-background p-5" aria-label={`${v.groupCode} ${PURPOSE_LABEL[v.purpose]} 第 ${v.versionNo} 版`}>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-ink">
-            {v.groupCode}・{PURPOSE_LABEL[v.purpose]}・v{v.versionNo}
+            {v.groupCode}・{PURPOSE_LABEL[v.purpose]}・同意書第 {v.versionNo} 版
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {v.cohortCode}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・內容核對碼 {v.contentChecksum.slice(0, 12)}
+            {cohortLabel({ name: v.cohortName, code: v.cohortCode })}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+            （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
           </p>
         </div>
-        <StateBadge state={v.state} />
+        <StateBadge state={v.state} cause={v.cause} newerVersionNo={newerVersionNo(v.versionNo, v.history)} />
       </header>
 
       <Invalidated v={v} />
@@ -114,7 +117,7 @@ export function VersionView({
                   {a.name}
                 </a>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・核對碼 {a.checksum.slice(0, 12)}
+                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
                 </span>
               </li>
             ))}
@@ -126,7 +129,7 @@ export function VersionView({
         <section aria-label="授權範圍" data-testid="signoff-scope" className="rounded-md border border-primary/40 p-4">
           <h3 className="text-sm font-semibold text-ink">授權範圍：同意後，以下內容可以在系網公開展示</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            建版當下從精選草稿（第 {scope.scopeSource.draftRevision} 版）凍結；之後草稿再改，這一版的範圍也不會變。
+            建立同意書時已鎖定成果展示草稿第 {scope.scopeSource.draftRevision} 版的內容；之後草稿再改，這一版的範圍也不會變。
           </p>
           <dl className="mt-3 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[6rem_1fr]">
             <dt className="text-muted-foreground">用途</dt>
@@ -166,13 +169,13 @@ export function VersionView({
             {v.history.map((h) => (
               <li key={h.versionId} className="flex flex-wrap items-center gap-2">
                 {h.versionId === v.versionId ? (
-                  <span className="font-medium">v{h.versionNo}（這一版）</span>
+                  <span className="font-medium">第 {h.versionNo} 版（這一版）</span>
                 ) : (
                   <Link href={historyHref(h.versionId)} className="text-primary underline-offset-2 hover:underline">
-                    v{h.versionNo}
+                    第 {h.versionNo} 版
                   </Link>
                 )}
-                <StateBadge state={h.state} />
+                <StateBadge state={h.state} cause={h.cause} newerVersionNo={newerVersionNo(h.versionNo, v.history)} />
                 {h.cause && (h.state === 'superseded' || h.state === 'void' || h.state === 'revision') ? (
                   <span className="text-xs text-muted-foreground">{describeCause(h.cause)}</span>
                 ) : null}
@@ -218,14 +221,14 @@ export function ProgressPanel({ v }: { v: VersionDetail }) {
             </span>
             {s.studentNo ? <span className="text-xs text-muted-foreground tabular-nums">{s.studentNo}</span> : null}
             <span className={cn('ml-auto text-xs', s.result ? RESULT_TONE[s.result] : 'text-muted-foreground')}>
-              {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!)}` : '尚未表態'}
+              {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!)}` : '尚未回覆'}
             </span>
             {s.reason ? <span className="w-full text-xs text-muted-foreground">理由：{s.reason}</span> : null}
           </li>
         ))}
         <li className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface px-3 py-2" data-testid="progress-advisor">
           <span className="font-medium">{p.advisor.displayName}</span>
-          <span className="text-xs text-muted-foreground">主指導</span>
+          <span className="text-xs text-muted-foreground">指導老師</span>
           <span className={cn('ml-auto text-xs', p.advisor.result ? RESULT_TONE[p.advisor.result] : 'text-muted-foreground')}>
             {p.advisor.result
               ? `${VOTE_RESULT_LABEL[p.advisor.result]}・${formatTaipeiMinute(p.advisor.at!)}`
@@ -238,10 +241,10 @@ export function ProgressPanel({ v }: { v: VersionDetail }) {
       </ul>
       {p.missing.length > 0 ? (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="signoff-missing">
-          還沒表態：{p.missing.join('、')}
+          還沒回覆：{p.missing.join('、')}
         </p>
       ) : null}
-      <p className="mt-2 text-xs text-muted-foreground">全部學生各自同意後，才輪到主指導；任何人都不能替別人同意，系辦也不行。</p>
+      <p className="mt-2 text-xs text-muted-foreground">全部學生各自同意後，才輪到指導老師；任何人都不能替別人同意，系辦也不行。</p>
     </section>
   )
 }
@@ -259,7 +262,7 @@ export function MyResponse({ v, form }: { v: VersionDetail; form: React.ReactNod
     const at = role === 'student' ? v.progress.students.find((s) => s.userId === v.viewer.userId)?.at : v.progress.advisor.at
     text = `你已${VOTE_RESULT_LABEL[voted]}${at ? `（${formatTaipeiMinute(at)}）` : ''}；每人一票，不能改票。`
   } else if (!eligible) {
-    text = role === 'student' ? '你已不在這一組，不能再對這一版表態。' : '你已不是這一組的指導老師，不能再對這一版表態。'
+    text = role === 'student' ? '你已不在這一組，不能再回覆這一版。' : '你已不是這一組的指導老師，不能再回覆這一版。'
   } else if (role === 'advisor' && v.state === 'collecting') {
     const left = v.progress.total - v.progress.agreed
     text = `還有 ${left} 位學生沒同意；全部學生同意後才輪到你。`

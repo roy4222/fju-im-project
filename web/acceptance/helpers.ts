@@ -108,7 +108,7 @@ export async function adminPage(browser: Browser): Promise<Page> {
  * 伺服器回來的那一句成功回饋。限定在 `<main>`（避開 Next 的換頁播報器），再用文字挑：
  * 同一頁可能同時掛著好幾句回饋。
  */
-export async function expectStatus(page: Page, text: string) {
+export async function expectStatus(page: Page, text: string | RegExp) {
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: text })).toBeVisible()
 }
 
@@ -125,12 +125,20 @@ export function accountRow(page: Page, name: string): Locator {
   return page.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
+/** T6 系6：設為／取消管理員、補建角色收在每列的「更多」選單；選單是 portal，項目要從整頁找。 */
+export async function openMore(page: Page, name: string): Promise<Locator> {
+  await accountRow(page, name).getByRole('button', { name: `更多 ${name}` }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
 export async function searchAccounts(page: Page, q: string) {
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(q)}`)
   await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
 }
 
-export type FlagLabel = '開放註冊中' | '預設工作中'
+export type FlagLabel = '新註冊加入這屆' | '後台預設查看中'
 
 /** 某個旗標目前在哪一屆（沒有就 null）。要先開在屆別頁。 */
 export async function flagHolder(page: Page, held: FlagLabel): Promise<string | null> {
@@ -145,7 +153,7 @@ export type Flags = { registrationOpen: string | null; defaultWorking: string | 
 export async function readFlags(page: Page): Promise<Flags> {
   await page.goto('/dashboard/admin/cohorts')
   await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-  return { registrationOpen: await flagHolder(page, '開放註冊中'), defaultWorking: await flagHolder(page, '預設工作中') }
+  return { registrationOpen: await flagHolder(page, '新註冊加入這屆'), defaultWorking: await flagHolder(page, '後台預設查看中') }
 }
 
 /** 把兩個全系唯一的旗標還給原本的屆別（原本沒有、或原本就是這一輪的屆別就不動）。 */
@@ -203,7 +211,8 @@ export async function createTeacher(admin: Page, teacher: { name: string; email:
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('登入 Email').fill(teacher.email)
   await dialog.getByLabel('姓名').fill(teacher.name)
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 老師的核實方式不提學生證（T6 系5；同 e2e/teachers.spec.ts）。
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
   await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
   const temporary = (await dialog.getByTestId('temporary-password').innerText()).trim()
@@ -240,8 +249,16 @@ export async function disableAccount(admin: Page, name: string): Promise<boolean
     await searchAccounts(admin, name)
     const row = accountRow(admin, name)
     if ((await row.count()) !== 1) return false
-    const button = row.getByRole('button', { name: `停用 ${name}`, exact: true })
-    if ((await button.count()) === 0) return false
+    // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+    const more = row.getByRole('button', { name: `更多 ${name}`, exact: true })
+    if ((await more.count()) === 0) return false
+    await more.click()
+    await expect(admin.getByRole('menu')).toBeVisible()
+    const button = admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${name}`, exact: true })
+    if ((await button.count()) === 0) {
+      await admin.keyboard.press('Escape')
+      return false
+    }
     await button.click()
     const dialog = admin.getByRole('dialog', { name: `停用 ${name}` })
     await dialog.getByLabel(/理由/).fill('站驗收收尾：停用這一輪建的測試帳號')

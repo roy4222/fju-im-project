@@ -107,7 +107,7 @@ describe('進度與缺誰', () => {
   it('人數照快照；缺誰列還沒表態的學生與老師；已結束的版本不列缺誰', () => {
     const at = new Date('2027-01-05T02:00:00Z')
     const p = buildProgress(participants, [{ userId: 's1', role: 'student', result: 'agree', reason: null, realAt: at }], 'collecting')
-    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙', '王老師（主指導）'] })
+    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙', '王老師（指導老師）'] })
     expect(p.students[0]).toMatchObject({ result: 'agree', at })
     expect(buildProgress(participants, [], 'void').missing).toEqual([])
     expect(remindRecipients(p)).toEqual(['s2', 's3', 't1'])
@@ -155,6 +155,7 @@ describe('匯出', () => {
   const at = new Date('2027-01-05T02:00:00Z')
   const data: SignoffExportData = {
     cohortCode: '115',
+    cohortName: '第 43 屆',
     groupCode: 'G01',
     purpose: 'result_confirmation',
     versionId: 'v-1',
@@ -201,6 +202,12 @@ describe('匯出', () => {
     const html = buildSignoffPrintable(data)
     expect(html).toContain('<p>全文</p>')
     expect(html).toContain('系辦&lt;b&gt;')
-    expect(html).toContain('站內內容確認與同意紀錄，行政採認待確認')
+    expect(html).toContain('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')
+  })
+
+  it('可列印頁頁首的屆別寫「名稱（代碼）」，不只寫代碼', () => {
+    const html = buildSignoffPrintable(data)
+    expect(html).toContain('<p class="meta">第 43 屆（115）・版本 ID')
+    expect(html).not.toContain('<p class="meta">115・')
   })
 })

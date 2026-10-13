@@ -14,6 +14,7 @@ import {
   type DeclaredUpload,
   type FileStorage,
   type OperationLedger,
+  type SubmissionLateFlags,
   type UploadTicket,
 } from '@/application/ops'
 import {
@@ -34,6 +35,9 @@ import {
   type MyRecordDetail,
   type MyRecordRow,
   type MyVersionDetail,
+  type ReopenEntry,
+  type ReopenInput,
+  type ReopenReceipt,
   type SubmissionCommand,
   type SubmissionQuery,
   type SubmitReceipt,
@@ -46,7 +50,7 @@ import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerForUser, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 import { err, ok, type Err, type Result } from '@/shared/result'
-import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
+import { formatTaipeiMinute, parseTaipeiDateTime, RealClock, type Clock } from '@/shared/time'
 
 /**
  * 收件的存草稿、上傳與正式送出（票 17 個人收件；票 21 組別共用草稿、上傳、代表全組送出；
@@ -103,6 +107,8 @@ type Locked = {
   receiver: Receiver | null
   roster: { exempt: boolean } | null
   schema: { id: string; versionNo: number; fields: FormField[] } | null
+  /** 系辦替這位收件者開的個別補交期限（W10，最晚的那一個）；沒有是 null。 */
+  reopenUntil: Date | null
 }
 
 type Deps = {
@@ -116,11 +122,11 @@ type Deps = {
 }
 
 function notInRoster(): Err {
-  return err('NOT_IN_ROSTER', '你不在這份收件的名單上，請回作業區重新整理。')
+  return err('NOT_IN_ROSTER', '你不在這個繳交項目的名單上，請回「我的繳交」重新整理。')
 }
 
 function notMember(): Err {
-  return err('NOT_MEMBER', '這份收件是整組一份：要先成立組別（而且你此刻是組員）才能填寫與送出。請到「我的組別」確認。')
+  return err('NOT_MEMBER', '這個繳交項目是整組一份：要先成立組別（而且你此刻是組員）才能填寫與送出。請到「我的組別」確認。')
 }
 
 function staleDraft(group: boolean): Err {
@@ -135,7 +141,7 @@ function staleDraft(group: boolean): Err {
 function authorizeStudent(actor: ResolvedActor): Err | null {
   const blocked = statusGate(actor, 'business')
   if (blocked) return err(blocked, '請先登入並完成帳號設定。')
-  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) return err('FORBIDDEN', '只有學生可以填寫收件。')
+  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) return err('FORBIDDEN', '只有學生可以填寫繳交項目。')
   return null
 }
 
@@ -303,11 +309,14 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const schema = locked.schema!
       const receiver = locked.receiver!
       const group = receiver.kind === 'group'
+      // 補交（W10）：守門放行了、但不看補交期限時已截止＝靠補交送進來的。在送出當下判定並記進這一版的稽核，
+      // 之後系辦再改全體截止也不會讓標記變來變去（模組 10 的 `SubmissionLateFlags` port 讀這裡）。
+      const late = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) === 'closed'
 
       const draft = await this.#lockDraft(tx, itemId, receiver)
       if (!draft) return staleDraft(group)
       if (draft.schema_version_id !== schema.id || draft.migration_state === 'needs_review') {
-        return err('DRAFT_NEEDS_REVIEW', '收件欄位已經改版，請重新載入確認內容後再送出。')
+        return err('DRAFT_NEEDS_REVIEW', '繳交欄位已經改版，請重新載入確認內容後再送出。')
       }
       if (draft.revision !== draftRevision) return staleDraft(group)
       const issues = submitIssues(schema.fields, draft.answers)
@@ -418,6 +427,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
           draftRevision,
           submissionVersionId: versionId,
           files: attachedFiles.map((f) => ({ fileId: f.fileId, fieldKey: f.fieldKey, checksum: f.checksum })),
+          ...(late ? { late: true, reopenUntil: locked.reopenUntil?.toISOString() ?? null } : {}),
         },
       })
 
@@ -496,28 +506,28 @@ export class PgSubmissionCommand implements SubmissionCommand {
   }
 
   async setAdvisorVisibility(actor: ResolvedActor, itemId: string, enabled: boolean, requestId: string): Promise<Result<VisibilityReceipt>> {
-    const denied = authorizeAdmin(actor, '設定主指導閱覽')
+    const denied = authorizeAdmin(actor, '設定指導老師閱覽')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
-    if (!isUuid(itemId) || typeof enabled !== 'boolean') return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+    if (!isUuid(itemId) || typeof enabled !== 'boolean') return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
     const userId = actor.userId
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
       // 鎖序：屆別（共享）→ 項目（獨占）。學生存草稿與送出拿項目的共享鎖，所以「看有沒有人作答」到「插設定」之間
       // 不會有人剛好交進來（否則那個人沒看到告知，回答卻開給老師）。
-      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1', [itemId])
+      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
       const cohortId = head.rows[0]?.cohort_id
-      if (!cohortId) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
       const found = await tx.query<{ receiver_unit: string; schema_version_no: number | null }>(
         `select m.receiver_unit, sv.version_no as schema_version_no
            from managed_items m left join form_schema_versions sv on sv.id = m.current_schema_version_id
-          where m.id = $1 for update of m`,
+          where m.id = $1 and m.deleted_at is null for update of m`,
         [itemId],
       )
       const item = found.rows[0]
-      if (!item) return err('VALIDATION_FAILED', '找不到這份收件，請重新整理頁面。')
+      if (!item) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -535,7 +545,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (begun.outcome !== 'fresh') return replayed<VisibilityReceipt>(begun)
 
       if (item.receiver_unit !== 'individual') {
-        return err('VALIDATION_FAILED', '主指導閱覽只用在「個人一份」的收件；整組一份的正式版本本來就給目前主指導看。')
+        return err('VALIDATION_FAILED', '指導老師閱覽只用在「個人一份」的繳交項目；整組一份的正式版本本來就給目前的指導老師看。')
       }
       if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再改設定。')
       const latest = await tx.query<{ enabled: boolean; effective_from_version_no: number }>(
@@ -545,13 +555,13 @@ export class PgSubmissionCommand implements SubmissionCommand {
       )
       const current = latest.rows[0] ?? null
       if ((current?.enabled ?? false) === enabled) {
-        return err('VALIDATION_FAILED', enabled ? '這份收件已經開放主指導閱覽了。' : '這份收件目前沒有開放主指導閱覽。')
+        return err('VALIDATION_FAILED', enabled ? '這個繳交項目已經開放指導老師閱覽了。' : '這個繳交項目目前沒有開放指導老師閱覽。')
       }
       if (enabled && (await new PgResponsePresence().hasAnyResponse(tx, itemId))) {
         return err(
           'ITEM_HAS_RESPONSES',
-          '已經有人作答，不能直接開放主指導閱覽：那些同學填寫時沒看到「主指導可查看」的告知，舊回答不能因此給老師看。' +
-            '需要老師看的話，請另建一份收件並在發布前開好（改欄位版本的功能在後續版本）。',
+          '已經有人作答，不能直接開放指導老師閱覽：那些同學填寫時沒看到「指導老師可查看」的告知，舊回答不能因此給老師看。' +
+            '需要老師看的話，請另建一個繳交項目並在發布前開好（改表單版本的功能在後續版本）。',
         )
       }
       // 生效版本＝目前的欄位版本（還沒發布過就是第 1 版）；關閉時沿用上一列的生效版本，只把開關關掉。
@@ -580,6 +590,167 @@ export class PgSubmissionCommand implements SubmissionCommand {
     })
   }
 
+  async reopen(actor: ResolvedActor, itemId: string, receiverId: string, input: ReopenInput, requestId: string): Promise<Result<ReopenReceipt>> {
+    const denied = authorizeAdmin(actor, '開放補交')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId) || !isUuid(receiverId)) return notInRoster()
+    const reason = typeof input?.reason === 'string' ? input.reason.trim() : ''
+    if (reason.length < 1 || reason.length > 200) {
+      return err('VALIDATION_FAILED', '請寫補交理由（1 到 200 字），學生會看到。', { details: { field: 'reason' } })
+    }
+    const dueAt = typeof input?.dueAt === 'string' ? parseTaipeiDateTime(input.dueAt) : null
+    if (!dueAt) return err('VALIDATION_FAILED', '請選補交期限（日期與時間，臺灣時間）。', { details: { field: 'dueAt' } })
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      // 鎖序跟學生送出一樣：屆別（共享）→ 組別（共享，整組一份才有）→ 項目（共享）。
+      // 學生送出也拿這幾把共享鎖，所以補交列一 commit，下一次送出就看得到。
+      const head = await tx.query<{ cohort_id: string; receiver_unit: string }>(
+        'select cohort_id, receiver_unit from managed_items where id = $1 and deleted_at is null',
+        [itemId],
+      )
+      const cohortId = head.rows[0]?.cohort_id
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
+      const group = head.rows[0]!.receiver_unit === 'group'
+      const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
+      const groupRow = group
+        ? (await tx.query<{ code: string; status: string }>('select code, status from groups where id = $1 for share', [receiverId])).rows[0]
+        : undefined
+      const found = await tx.query<ItemRow>(
+        `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id
+           from managed_items where id = $1 and deleted_at is null for share`,
+        [itemId],
+      )
+      const item = found.rows[0]
+      if (!item) return err('VALIDATION_FAILED', '找不到這個繳交項目，請重新整理頁面。')
+      const kind: 'user' | 'group' = group ? 'group' : 'user'
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'submission.reopen',
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, receiverId, dueAt: dueAt.toISOString(), reason })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      // 同一個請求重送（回應遺失後重試）：直接回第一次的結果，不再拿「現在」重驗期限（架構 §4.9 冪等）。
+      if (begun.outcome !== 'fresh') return replayed<ReopenReceipt>(begun)
+
+      // 跟時間有關的檢查一律在帳本判定是新請求之後才做。
+      if (dueAt.getTime() <= businessAt.getTime()) {
+        return err('VALIDATION_FAILED', `補交期限要晚於現在（${formatTaipeiMinute(businessAt)}，臺灣時間）。`, { details: { field: 'dueAt' } })
+      }
+      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
+        return err('VALIDATION_FAILED', '這個項目不用繳交，不需要補交。')
+      }
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再開放補交。')
+      if (item.status !== 'published') return err('ITEM_NOT_OPEN', '這個繳交項目目前沒有發布，不能開放補交。')
+      if (phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) !== 'closed') {
+        return err('VALIDATION_FAILED', '這個繳交項目還沒截止，學生現在就能交，不需要補交；要讓所有人晚點交，請改它的截止時間。')
+      }
+      const roster = await tx.query<{ exempt: boolean }>(
+        `select exempt from response_rosters
+          where item_id = $1 and receiver_kind = $2 and receiver_id = $3 and eligible_to_business_at is null`,
+        [itemId, kind, receiverId],
+      )
+      if (!roster.rows[0]) return err('NOT_IN_ROSTER', group ? '這一組不在這個繳交項目的名單上。' : '這位學生不在這個繳交項目的名單上。')
+      if (roster.rows[0].exempt) {
+        return err('EXEMPTED', group ? '這一組已設為免繳，不需要補交。' : '這位學生已設為免繳，不需要補交。')
+      }
+      if (group && groupRow?.status !== 'active') return err('GROUP_DISSOLVED', '這個組別已經解散，不能開放補交。')
+
+      // 有效期限＝這位收件者所有補交列裡最晚的那一個（只插不改）。所以新期限一定要比已開放的晚：
+      // 提早的話新列不會生效，通知與回執卻寫著較早的時間，三者就對不上。同一位的兩次開放用交易鎖排隊，
+      // 「讀最晚期限 → 插新列」之間不會插進另一筆。
+      // 鎖的 key 先把兩個編號轉成正規的 uuid 文字：同一個 UUID 大小寫不同（`isUuid` 兩種都放行、資料庫比對也相等）
+      // 才會拿到同一把鎖，不然並發時兩邊各拿各的鎖、都讀到「還沒開放」，較早的期限會在較晚的之後成功並通知。
+      await tx.query(
+        `select pg_advisory_xact_lock(hashtextextended('submission_reopen:' || $1::uuid::text || ':' || $2::uuid::text, 0))`,
+        [itemId, receiverId],
+      )
+      const current = await tx.query<{ due_at: Date | null }>(
+        'select max(due_at) as due_at from submission_reopens where item_id = $1 and receiver_kind = $2 and receiver_id = $3',
+        [itemId, kind, receiverId],
+      )
+      const currentDue = current.rows[0]?.due_at ?? null
+      if (currentDue && dueAt.getTime() <= currentDue.getTime()) {
+        return err(
+          'VALIDATION_FAILED',
+          `已經開放補交到 ${formatTaipeiMinute(currentDue)}（臺灣時間），補交期限只能延後、不能提早：${group ? '組員' : '學生'}已經收到這個期限的通知。` +
+            '要提早請先跟對方說明，請他在你希望的時間前交；系統會收到原期限為止。',
+          { details: { field: 'dueAt' } },
+        )
+      }
+
+      await tx.query(
+        `insert into submission_reopens (id, item_id, receiver_kind, receiver_id, due_at, reason, created_at, created_by_user_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [uuidv7(), itemId, kind, receiverId, dueAt, reason, realAt, userId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: 'submission.reopen',
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: { receiverKind: kind, receiverId, dueAt: dueAt.toISOString(), reason },
+      })
+
+      // 只通知這一位（整組＝那一組此刻有效、帳號正常的組員）；其他人截止規則沒變，不通知。
+      const recipients = group
+        ? (await this.#members(tx, receiverId)).filter((m) => m.active).map((m) => m.user_id)
+        : (await tx.query<{ id: string }>(`select id from users where id = $1 and status = 'active' and deidentified_at is null`, [receiverId])).rows.map(
+            (r) => r.id,
+          )
+      if (recipients.length > 0) {
+        await this.#events.publish(tx, {
+          type: 'submission.reopened',
+          scope: 'cohort',
+          cohortId,
+          source: { type: 'item', id: itemId },
+          actor: { kind: 'user', userId },
+          recipients,
+          payload: {
+            title: `系辦開放你補交「${item.title}」，期限 ${formatTaipeiMinute(dueAt)}（臺灣時間）`,
+            itemId,
+            receiverKind: kind,
+            receiverId,
+            dueAt: dueAt.toISOString(),
+            reason,
+            code: groupRow?.code ?? null,
+          },
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessAt,
+        })
+      }
+
+      const receipt = {
+        itemId,
+        receiverKind: kind,
+        receiverId,
+        dueAt: dueAt.toISOString(),
+        reason,
+        notified: recipients.length,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId, receiverKind: kind, receiverId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   /** 授權 → 屆別與組別 → 項目狀態 → 時間。回 null＝通過。 */
@@ -592,16 +763,17 @@ export class PgSubmissionCommand implements SubmissionCommand {
     }
     if (!locked.roster) return notInRoster()
     if (locked.roster.exempt) {
-      return err('EXEMPTED', item.receiver_unit === 'group' ? '系辦已將你們這一組設為免填這份收件，不需要填寫。' : '系辦已將你設為免填這份收件，不需要填寫。')
+      return err('EXEMPTED', item.receiver_unit === 'group' ? '系辦已將你們這一組設為免繳這一項，不需要填寫。' : '系辦已將你設為免繳這一項，不需要填寫。')
     }
     if (locked.cohortStatus === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再填寫或送出。')
     if (locked.receiver?.kind === 'group' && locked.receiver.groupStatus !== 'active') {
       return err('GROUP_DISSOLVED', '這個組別已經解散，不能再填寫或送出。')
     }
-    if (item.status !== 'published' || !locked.schema) return err('ITEM_NOT_OPEN', '這份收件目前沒有開放。')
-    const phase = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt)
+    if (item.status !== 'published' || !locked.schema) return err('ITEM_NOT_OPEN', '這個繳交項目目前沒有開放。')
+    // 個別補交（W10）：已截止但這位收件者有還沒到期的補交期限就放行；沒有補交期限的人規則完全不變。
+    const phase = phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt, locked.reopenUntil)
     if (phase === 'not_open') {
-      return err('ITEM_NOT_OPEN', `這份收件還沒開放，${formatTaipeiMinute(item.opens_at!)}（臺灣時間）開放。`)
+      return err('ITEM_NOT_OPEN', `這個繳交項目還沒開放，${formatTaipeiMinute(item.opens_at!)}（臺灣時間）開放。`)
     }
     if (phase === 'closed') {
       return err('DEADLINE_PASSED', `已經截止（截止：${formatTaipeiMinute(item.due_at!)}，含此分鐘，臺灣時間）；需要補交請聯絡系辦。`)
@@ -615,7 +787,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
    */
   async #lock(tx: PoolClient, itemId: string, userId: string): Promise<Locked | null> {
     const head = await tx.query<{ cohort_id: string; receiver_unit: string }>(
-      'select cohort_id, receiver_unit from managed_items where id = $1',
+      'select cohort_id, receiver_unit from managed_items where id = $1 and deleted_at is null',
       [itemId],
     )
     const cohortId = head.rows[0]?.cohort_id
@@ -645,7 +817,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
 
     const found = await tx.query<ItemRow>(
       `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id
-         from managed_items where id = $1 for share`,
+         from managed_items where id = $1 and deleted_at is null for share`,
       [itemId],
     )
     const item = found.rows[0]
@@ -670,11 +842,18 @@ export class PgSubmissionCommand implements SubmissionCommand {
           [item.current_schema_version_id],
         )
       : null
+    const reopen = receiver
+      ? await tx.query<{ due_at: Date | null }>(
+          'select max(due_at) as due_at from submission_reopens where item_id = $1 and receiver_kind = $2 and receiver_id = $3',
+          [itemId, receiver.kind, receiver.id],
+        )
+      : null
     const schemaRow = schema?.rows[0]
     return {
       item,
       cohortStatus: cohort.rows[0].status,
       receiver,
+      reopenUntil: reopen?.rows[0]?.due_at ?? null,
       roster: roster?.rows[0] ?? null,
       schema: schemaRow ? { id: schemaRow.id, versionNo: schemaRow.version_no, fields: schemaRow.schema.fields ?? [] } : null,
     }
@@ -766,9 +945,16 @@ type ListRow = {
   has_draft: boolean
   latest_version_no: number | null
   latest_received_at: Date | null
+  reopen_until: Date | null
 }
 
+/** 這位收件者最晚的個別補交期限（W10）；`r` 是名單列。學生作業區與系辦名單頁用同一段。 */
+export const REOPEN_UNTIL = `
+  (select max(o.due_at) from submission_reopens o
+    where o.item_id = r.item_id and o.receiver_kind = r.receiver_kind and o.receiver_id = r.receiver_id) as reopen_until`
+
 export type VersionRow = {
+  version_id: string
   version_no: number
   received_business_at: Date
   received_real_at: Date
@@ -777,8 +963,13 @@ export type VersionRow = {
   request_id: string
 }
 
+/**
+ * 版本列的欄位。「補交」標記（W10）不在這裡：它是**送出當下**判定、記在那一版 `submission.submit` 稽核裡的，
+ * 稽核表屬模組 10，收件模組不直接讀，拿到列之後再經 `summarizeVersions` 用 `SubmissionLateFlags` port 批次問
+ * （架構 §4.4）。所以這裡帶出 `v.id`。
+ */
 export const VERSION_COLUMNS = `
-  v.version_no, v.received_business_at, v.received_real_at, v.request_id,
+  v.id as version_id, v.version_no, v.received_business_at, v.received_real_at, v.request_id,
   coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no`
 
 export const VERSION_JOINS = `
@@ -818,7 +1009,7 @@ export const MY_ROSTER_ROW = `
                      where gm.group_id = r.receiver_id and gm.user_id = $1 and gm.valid_to is null))
   )`
 
-export function toSummary(row: VersionRow): VersionSummary {
+export function toSummary(row: VersionRow, lateVersionIds: ReadonlySet<string>): VersionSummary {
   return {
     versionNo: row.version_no,
     receivedBusinessAt: row.received_business_at,
@@ -826,7 +1017,18 @@ export function toSummary(row: VersionRow): VersionSummary {
     submittedByName: row.submitted_by_name,
     schemaVersionNo: row.schema_version_no,
     requestId: row.request_id,
+    late: lateVersionIds.has(row.version_id),
   }
+}
+
+/**
+ * 版本列 → 畫面摘要，「補交」標記一次批次問模組 10 的 port（不逐版本查）。沒被記成補交的（含 W10 之前的舊版本）
+ * 一律 `late: false`。列是空的就不問。
+ */
+export async function summarizeVersions(lateFlags: SubmissionLateFlags, rows: readonly VersionRow[]): Promise<VersionSummary[]> {
+  if (rows.length === 0) return []
+  const late = await lateFlags.lateByVersionIds(rows.map((r) => r.version_id))
+  return rows.map((row) => toSummary(row, late))
 }
 
 type FileRow = { id: string; original_name: string; size_bytes: string | number | null; checksum: string | null }
@@ -881,9 +1083,12 @@ export const LATEST_VISIBILITY = `
 
 export class PgSubmissionQuery implements SubmissionQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async myItems(userId: string): Promise<MyItemRow[]> {
@@ -892,7 +1097,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
       `select m.id, m.title, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at, r.exempt,
               m.receiver_unit, g.code as group_code,
               (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
-              facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at
+              facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
+              ${REOPEN_UNTIL}
          from response_rosters r
          join managed_items m on m.id = r.item_id
          left join groups g on r.receiver_kind = 'group' and g.id = r.receiver_id
@@ -917,6 +1123,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
       latestReceivedAt: r.latest_received_at,
       receiverUnit: r.receiver_unit,
       groupCode: r.group_code,
+      reopenUntil: r.reopen_until,
     }))
   }
 
@@ -938,10 +1145,11 @@ export class PgSubmissionQuery implements SubmissionQuery {
       schema_version_no: number
       schema: { fields?: FormField[] }
       visibility: { enabled: boolean; effectiveFromVersionNo: number } | null
+      reopen_until: Date | null
     }>(
       `select m.id, cv.title, cv.summary, cv.body_html, s.name as stage_name, m.opens_at, m.due_at, r.exempt,
               r.receiver_kind, r.receiver_id, g.code as group_code, sv.version_no as schema_version_no, sv.schema,
-              ${LATEST_VISIBILITY.replace('%ITEM%', 'm.id')} as visibility
+              ${LATEST_VISIBILITY.replace('%ITEM%', 'm.id')} as visibility, ${REOPEN_UNTIL}
          from response_rosters r
          join managed_items m on m.id = r.item_id
          left join groups g on r.receiver_kind = 'group' and g.id = r.receiver_id
@@ -1003,7 +1211,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
             files: await answerFilesOf(db, draftRow.schema.fields ?? [], draftRow.answers),
           }
         : null,
-      versions: versions.rows.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, versions.rows),
+      reopenUntil: item.reopen_until,
     }
   }
 
@@ -1016,13 +1225,13 @@ export class PgSubmissionQuery implements SubmissionQuery {
       `select m.receiver_unit,
               (select gm.group_id from group_memberships gm join groups g on g.id = gm.group_id
                 where gm.user_id = $1 and gm.cohort_id = m.cohort_id and gm.valid_to is null and g.status = 'active') as group_id
-         from managed_items m where m.id = $2`,
+         from managed_items m where m.id = $2 and m.deleted_at is null`,
       [userId, itemId],
     )
     const row = found.rows[0]
     if (!row) return null
-    if (row.receiver_unit === 'group') return row.group_id ? versionDetail(db, itemId, 'group', row.group_id, versionNo) : null
-    return versionDetail(db, itemId, 'user', userId, versionNo)
+    if (row.receiver_unit === 'group') return row.group_id ? versionDetail(db, this.#lateFlags, itemId, 'group', row.group_id, versionNo) : null
+    return versionDetail(db, this.#lateFlags, itemId, 'user', userId, versionNo)
   }
 
   async myRecords(userId: string): Promise<MyRecordRow[]> {
@@ -1072,7 +1281,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
       receiverKind: first.receiver_kind,
       receiverId,
       groupCode: first.group_code,
-      versions: visible.map(toSummary),
+      versions: await summarizeVersions(this.#lateFlags, visible),
     }
   }
 
@@ -1087,7 +1296,22 @@ export class PgSubmissionQuery implements SubmissionQuery {
     const visible = rows.rows.filter((row) => canReadSubmission(viewer, holderOf(row)))
     const row = visible.find((r) => r.version_no === versionNo)
     if (!row) return null
-    return versionDetail(db, itemId, row.receiver_kind, receiverId, versionNo, visible[0]!.version_no)
+    return versionDetail(db, this.#lateFlags, itemId, row.receiver_kind, receiverId, versionNo, visible[0]!.version_no)
+  }
+
+  async reopens(actor: ResolvedActor, itemId: string, receiverId: string): Promise<readonly ReopenEntry[] | null> {
+    if (authorizeAdmin(actor, '查看補交紀錄')) return null
+    if (!isUuid(itemId) || !isUuid(receiverId)) return null
+    const rows = await this.#reader().query<{ due_at: Date; reason: string; created_at: Date; created_by_name: string }>(
+      `select o.due_at, o.reason, o.created_at, coalesce(p.display_name, u.name) as created_by_name
+         from submission_reopens o
+         join users u on u.id = o.created_by_user_id
+         left join user_profiles p on p.user_id = o.created_by_user_id
+        where o.item_id = $1 and o.receiver_id = $2
+        order by o.created_at desc, o.id desc`,
+      [itemId, receiverId],
+    )
+    return rows.rows.map((r) => ({ dueAt: r.due_at, reason: r.reason, createdAt: r.created_at, createdByName: r.created_by_name }))
   }
 }
 
@@ -1123,6 +1347,7 @@ const RECORD_VERSIONS = `
  */
 export async function versionDetail(
   db: Pick<Pool, 'query'>,
+  lateFlags: SubmissionLateFlags,
   itemId: string,
   receiverKind: 'user' | 'group',
   receiverId: string,
@@ -1146,8 +1371,9 @@ export async function versionDetail(
       where sf.submission_version_id = $1 order by sf.field_key`,
     [row.id],
   )
+  const [summary] = await summarizeVersions(lateFlags, [row])
   return {
-    ...toSummary(row),
+    ...summary!,
     isLatest: (latestVisibleVersionNo ?? row.latest) === row.version_no,
     fields: row.schema.fields ?? [],
     answers: row.answers,

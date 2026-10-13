@@ -7,6 +7,8 @@ import { cn } from '@/shared/cn'
  * 收件進度（完成率）面板：管理員名單頁（票 18／21）與老師的收件頁（票 22）共用。
  * 分子分母由 application 的 `completionOf` 算，這裡只畫；整組一份的單位是「組」（同組五人誰送都只算一份）。
  *
+ * 「未繳」含系辦開放個別補交、期限還沒到的人（W10b）；老師的收件頁用同一個字。
+ *
  * 外觀照原型（票 35）：綠色進度環＋右側三個數字＋分段長條（已繳綠、逾期紅、未繳灰）。
  */
 
@@ -15,14 +17,14 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
   const unit = individual ? '人' : '組'
   return (
     <Panel
-      title="收件進度"
+      title="繳交進度"
       icon={<IconFileText />}
-      description={`應交 ${completion.required} ${unit}`}
+      description={`需要繳交 ${completion.required} ${unit}`}
       headingId="progress-title"
       data-testid="completion"
     >
       <div className="flex items-center gap-5 border-t border-border px-5 py-4">
-        <Ring value={completion.percent ?? 0} label={completion.percent === null ? '沒有應交的人' : `完成 ${completion.percent}%`}>
+        <Ring value={completion.percent ?? 0} label={completion.percent === null ? '沒有需要繳交的人' : `完成 ${completion.percent}%`}>
           <span className="text-base font-extrabold tabular-nums">{completion.percent === null ? '—' : `${completion.percent}%`}</span>
         </Ring>
         <dl className="grid flex-1 grid-cols-1 gap-1.5 text-sm">
@@ -35,7 +37,7 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
             <dd className={cn('font-semibold tabular-nums', completion.overdue > 0 && 'text-destructive')}>{completion.overdue}</dd>
           </div>
           <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">未繳（還沒截止）</dt>
+            <dt className="text-muted-foreground">未繳（還沒截止或補交中）</dt>
             <dd className="font-semibold tabular-nums">{completion.pending}</dd>
           </div>
         </dl>
@@ -49,11 +51,11 @@ export function CompletionPanel({ completion, individual }: { completion: Comple
           ]}
         />
         <p className="mt-3 text-xs text-muted-foreground tabular-nums">
-          已正式送出／應交{individual ? '人數' : '組數'}{' '}
+          已正式送出／需要繳交的{individual ? '人數' : '組數'}{' '}
           <span className="font-semibold text-foreground" data-testid="completion-rate">
             {completion.done}／{completion.required}
           </span>
-          ・不計入：免填 {completion.exempt} {unit}・已移出 {completion.removed} {unit}
+          ・不計入：免繳 {completion.exempt} {unit}・已不需要繳交（原名單移除） {completion.removed} {unit}
         </p>
       </div>
     </Panel>

@@ -96,15 +96,18 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await expect(row).toBeVisible()
   // 還不是管理員：只有「設為管理員」，沒有「取消管理員」。
   await expect(row.getByRole('button', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  // 列上只留常用的兩顆；少用的收在「更多」。
+  // 列上只留常用的「發臨時密碼」；少用的與危險的收在「更多」（第三波 AC-37：停用、去識別化在「危險操作」組）。
   await expect(row.getByRole('button', { name: `發臨時密碼給 ${teacher.name}` })).toBeVisible()
-  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toBeVisible()
+  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toHaveCount(0)
   await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: `去識別化 ${teacher.name}` })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `刪除 ${teacher.name} 的個人資料` })).toHaveCount(0)
 
   const menu = await openMore(page, teacher.name)
   await expect(menu.getByRole('menuitem', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  await expect(menu.getByRole('menuitem', { name: `去識別化 ${teacher.name}` })).toBeVisible()
+  const danger = menu.getByRole('group', { name: '危險操作' })
+  await expect(danger.getByRole('menuitem', { name: `停用 ${teacher.name}` })).toBeVisible()
+  await expect(danger.getByRole('menuitem', { name: `刪除 ${teacher.name} 的個人資料` })).toBeVisible()
+  await expect(danger.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
   await menu.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` }).click()
   const grant = page.getByRole('dialog', { name: `設為管理員 ${teacher.name}` })
   await expect(grant).toContainText('只給系辦與負責的老師')
@@ -149,21 +152,21 @@ test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接�
   const another = await seeded(null, `${tag}-孤兒乙`)
 
   await page.goto('/dashboard/admin/accounts')
-  await page.getByRole('link', { name: /^孤兒帳號/ }).click()
+  await page.getByRole('link', { name: /^未設定身分/ }).click()
   await expect(page).toHaveURL(/orphan=1/)
-  await expect(page.getByRole('heading', { name: /^孤兒帳號/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^尚未設定身分的帳號/ })).toBeVisible()
   await expect(rowOf(page, orphan.name)).toBeVisible()
-  await expect(rowOf(page, orphan.name).getByTestId('orphan-badge')).toHaveText('孤兒帳號')
+  await expect(rowOf(page, orphan.name).getByTestId('orphan-badge')).toHaveText('未設定身分')
 
   // 補建成老師。
-  await (await openMore(page, orphan.name)).getByRole('menuitem', { name: `補建角色 ${orphan.name}` }).click()
-  const repair = page.getByRole('dialog', { name: `補建角色 ${orphan.name}` })
+  await (await openMore(page, orphan.name)).getByRole('menuitem', { name: `補上身分 ${orphan.name}` }).click()
+  const repair = page.getByRole('dialog', { name: `補上身分 ${orphan.name}` })
   await repair.getByLabel(/理由/).fill('e2e：新增老師時系統出錯')
-  await repair.getByRole('button', { name: '確認補建' }).click()
-  await expect(repair.getByRole('alert')).toHaveText('請選擇要補建的角色。')
+  await repair.getByRole('button', { name: '確認補上' }).click()
+  await expect(repair.getByRole('alert')).toHaveText('請選擇要補上的身分。')
   await repair.getByRole('radio', { name: /老師/ }).check()
-  await repair.getByRole('button', { name: '確認補建' }).click()
-  await expect(repair.getByRole('status')).toContainText('已補建為老師')
+  await repair.getByRole('button', { name: '確認補上' }).click()
+  await expect(repair.getByRole('status')).toContainText('已補上老師身分')
   await repair.getByRole('button', { name: '關閉' }).click()
   await expect(rowOf(page, orphan.name)).toHaveCount(0)
 
@@ -179,8 +182,13 @@ test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接�
   expect(repaired).toEqual({ status: 'active', roles: ['teacher'] })
 
   // 另一個孤兒：待審也能直接停用（沒有申請可以退回）。
-  await rowOf(page, another.name).getByRole('button', { name: `停用 ${another.name}` }).click()
+  const anotherMenu = await openMore(page, another.name)
+  await anotherMenu.getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `停用 ${another.name}` }).click()
   const disable = page.getByRole('dialog', { name: `停用 ${another.name}` })
+  // 確認視窗寫對象、後果、能不能恢復（AC-37）。
+  await expect(disable).toContainText(another.name)
+  await expect(disable).toContainText('本人會立刻被登出')
+  await expect(disable).toContainText('可以隨時恢復')
   await disable.getByLabel(/理由/).fill('e2e：不明帳號')
   await disable.getByRole('button', { name: '確認停用' }).click()
   await expect(disable.getByRole('status')).toContainText('已停用')

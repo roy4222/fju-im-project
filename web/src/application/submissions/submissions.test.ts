@@ -140,6 +140,19 @@ describe('開放與截止（業務時間）', () => {
     expect(phaseOf({ opensAt: null, dueAt }, new Date('2026-11-15T15:59:59.999Z'))).toBe('open')
     expect(phaseOf({ opensAt: null, dueAt }, new Date('2026-11-15T16:00:00Z'))).toBe('closed')
   })
+
+  it('個別補交（W10）：截止後有還沒到期的補交期限就開放，補交期限一樣含那一分鐘；沒有補交期限的人照舊', () => {
+    const reopenUntil = new Date('2026-11-17T09:00:00Z') // 臺灣 11/17 17:00
+    const late = new Date('2026-11-16T00:00:00Z')
+    expect(phaseOf({ opensAt: null, dueAt }, late, reopenUntil)).toBe('open')
+    expect(phaseOf({ opensAt: null, dueAt }, new Date('2026-11-17T09:00:59.999Z'), reopenUntil)).toBe('open')
+    expect(phaseOf({ opensAt: null, dueAt }, new Date('2026-11-17T09:01:00Z'), reopenUntil)).toBe('closed')
+    expect(phaseOf({ opensAt: null, dueAt }, late, null)).toBe('closed')
+    expect(phaseOf({ opensAt: null, dueAt }, late)).toBe('closed')
+    // 補交只管截止後：還沒開放就是還沒開放。
+    const opensAt = new Date('2026-12-01T00:00:00Z')
+    expect(phaseOf({ opensAt, dueAt: null }, late, reopenUntil)).toBe('not_open')
+  })
 })
 
 describe('作業區狀態字', () => {
@@ -162,27 +175,44 @@ describe('作業區狀態字', () => {
     expect(statusOf(facts({}))).toMatchObject({ headline: '未繳', detail: '進行中', pending: true, action: '去繳交' })
     expect(statusOf(facts({ hasDraft: true }))).toMatchObject({ headline: '未繳', action: '繼續填寫', pending: true })
     expect(statusOf(facts({ latestVersionNo: 2 }))).toMatchObject({
-      headline: '已繳 v2',
+      headline: '已繳第 2 次',
       editable: true,
       submitted: true,
       pending: false,
       action: '查看或重送',
     })
     expect(statusOf(facts({ latestVersionNo: 2, phase: 'closed' }))).toMatchObject({
-      headline: '已繳 v2',
+      headline: '已繳第 2 次',
       detail: '截止後唯讀',
       editable: false,
       overdue: false,
     })
     expect(statusOf(facts({ phase: 'closed' }))).toMatchObject({ headline: '逾期未繳', overdue: true, editable: false })
-    expect(statusOf(facts({ exempt: true }))).toMatchObject({ headline: '免填', editable: false, pending: false })
+    expect(statusOf(facts({ exempt: true }))).toMatchObject({ headline: '免繳', editable: false, pending: false })
+  })
+
+  it('個別補交（W10）：補交期間寫「系辦開放補交到…」；已繳的可重送到補交期限', () => {
+    const reopenUntil = new Date('2026-11-17T09:00:00Z')
+    expect(statusOf(facts({ reopenUntil }))).toMatchObject({
+      headline: '未繳',
+      detail: '系辦開放補交到 2026/11/17 17:00',
+      pending: true,
+      editable: true,
+      overdue: false,
+    })
+    expect(statusOf(facts({ reopenUntil, hasDraft: true }))).toMatchObject({ detail: '草稿已存・系辦開放補交到 2026/11/17 17:00', action: '繼續填寫' })
+    expect(statusOf(facts({ reopenUntil, latestVersionNo: 1 }))).toMatchObject({
+      headline: '已繳第 1 次',
+      detail: '2026/11/17 17:00 前可重送，以最後一次為準',
+      editable: true,
+    })
   })
 })
 
 describe('回執句子', () => {
   it('寫第幾次與秒級的收件時間（臺灣時間）', () => {
     expect(describeReceipt({ title: '意向調查', versionNo: 2, receivedBusinessAt: '2026-11-15T15:59:59.000Z' })).toBe(
-      '「意向調查」已收件：第 2 次正式送出，收件時間 2026/11/15 23:59:59（臺灣時間）。',
+      '「意向調查」已送出：第 2 次正式送出，送出時間 2026/11/15 23:59:59（臺灣時間）。',
     )
   })
 })

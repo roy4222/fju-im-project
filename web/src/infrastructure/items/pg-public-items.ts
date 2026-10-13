@@ -46,6 +46,7 @@ type Row = {
   category: string | null
   audience_kind: AudienceKind
   cohort_id: string
+  receiver_unit: ReceiverUnit
   cover_file_id: string | null
   actual_opened_at: Date | null
   group_ids: string[] | null
@@ -54,7 +55,7 @@ type Row = {
   awarded_on: string | null
 }
 
-const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id,
+const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id, m.receiver_unit,
        m.cover_file_id, m.actual_opened_at,
        to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline,
        to_char(m.event_date, 'YYYY-MM-DD') as event_date,
@@ -62,8 +63,9 @@ const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.
        array(select a.group_id from item_audience_groups a where a.item_id = m.id) as group_ids`
 
 /**
- * 對象條件（SQL 這一層）：訪客只有公開；管理員全部；其他人＝公開＋所有登入者＋本屆學生（自己那屆）
- * ＋全部老師（有老師角色）＋指定組別（自己在其中一組）。`$n` 從 `first` 開始編。
+ * 對象條件（SQL 這一層）：訪客只有公開；管理員全部；其他人＝公開＋所有登入者＋本屆學生（自己那屆；
+ * 或自己指導那屆任一組、而且不收件）＋全部老師（有老師角色）＋指定組別（自己在其中一組；或指導其中一組、而且不收件）。
+ * 跟 `canViewItem` 同一套規則（第三波 W4）。`$n` 從 `first` 開始編。
  */
 function audienceSql(viewer: Viewer, first: number): { sql: string; values: unknown[] } {
   if (viewer.kind === 'anonymous') return { sql: `m.audience_kind = 'public'`, values: [] }
@@ -71,15 +73,24 @@ function audienceSql(viewer: Viewer, first: number): { sql: string; values: unkn
   return {
     sql: `(m.audience_kind in ('public', 'signed_in')
            or (m.audience_kind = 'cohort_students' and m.cohort_id = $${first}::uuid)
+           or (m.audience_kind = 'cohort_students' and m.receiver_unit = 'none' and m.cohort_id = any($${first + 3}::uuid[]))
            or (m.audience_kind = 'teachers' and $${first + 1}::boolean)
            or (m.audience_kind = 'groups' and exists (
-                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 2}::uuid[]))))`,
-    values: [viewer.studentCohortId, viewer.roles.includes('teacher'), viewer.groupIds],
+                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 2}::uuid[])))
+           or (m.audience_kind = 'groups' and m.receiver_unit = 'none' and exists (
+                 select 1 from item_audience_groups a where a.item_id = m.id and a.group_id = any($${first + 4}::uuid[]))))`,
+    values: [viewer.studentCohortId, viewer.roles.includes('teacher'), viewer.groupIds, viewer.advisedCohortIds, viewer.advisedGroupIds],
   }
 }
 
 function visibilityOf(row: Row) {
-  return { status: row.status, audienceKind: row.audience_kind, cohortId: row.cohort_id, groupIds: row.group_ids ?? [] }
+  return {
+    status: row.status,
+    audienceKind: row.audience_kind,
+    cohortId: row.cohort_id,
+    groupIds: row.group_ids ?? [],
+    receiverUnit: row.receiver_unit,
+  }
 }
 
 /**
@@ -140,7 +151,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     filter: PublicListFilter,
   ): Promise<(Row & { body_html: string })[]> {
     const values: unknown[] = [placement]
-    const where = [`m.placement = $1`, `m.status = 'published'`]
+    const where = [`m.placement = $1`, `m.status = 'published'`, `m.deleted_at is null`]
     const category = filter.category?.trim()
     if (category) {
       values.push(category)
@@ -156,6 +167,11 @@ export class PgPublicItemQuery implements PublicItemQuery {
       values.push(filter.competition.today)
       const today = `$${values.length}::date`
       where.push(`(${filter.competition.statuses.map((st) => competitionStatusSql(st, today)).join(' or ')})`)
+    }
+    if (filter.audiences) {
+      if (filter.audiences.length === 0) return []
+      values.push(filter.audiences)
+      where.push(`m.audience_kind = any($${values.length}::text[])`)
     }
     const audience = audienceSql(viewer, values.length + 1)
     values.push(...audience.values)
@@ -179,7 +195,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     const audience = audienceSql(viewer, 2)
     const rows = await db.query<{ category: string }>(
       `select distinct m.category from managed_items m
-        where m.placement = $1 and m.status = 'published' and m.category is not null and ${audience.sql}
+        where m.placement = $1 and m.status = 'published' and m.deleted_at is null and m.category is not null and ${audience.sql}
         order by m.category`,
       [placement, ...audience.values],
     )
@@ -190,12 +206,13 @@ export class PgPublicItemQuery implements PublicItemQuery {
     if (!isUuid(itemId)) return { access: 'not_found', placement: null }
     const db = this.#reader()
     const found = await db.query<Row & { body_html: string }>(
-      `select ${COLUMNS}, m.body_html from managed_items m where m.id = $1 and m.placement = $2`,
+      // 已刪除＝找不到（不是「已下架」）：已下架的刪掉後，原網址跟從來沒有這一頁一樣（第三波 W1）。
+      `select ${COLUMNS}, m.body_html from managed_items m where m.id = $1 and m.placement = $2 and m.deleted_at is null`,
       [itemId, placement],
     )
     const row = found.rows[0]
     if (!row) return { access: 'not_found', placement: null }
-    const viewer = await viewerOf(db, actor, { needsGroups: row.audience_kind === 'groups' })
+    const viewer = await viewerOf(db, actor, { needsGroups: row.audience_kind === 'groups' || row.audience_kind === 'cohort_students' })
     const access = publicAccessOf(viewer, { ...visibilityOf(row), everPublished: row.actual_opened_at !== null })
     if (access !== 'visible') return { access, placement: access === 'not_found' ? null : row.placement }
     const [card] = await this.#cards(db, [row])
@@ -214,7 +231,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
          from managed_items m
          join response_rosters r on r.item_id = m.id
           and r.eligible_to_business_at is null and r.eligible_from_business_at <= $3
-        where m.status = 'published' and m.due_at is not null
+        where m.status = 'published' and m.deleted_at is null and m.due_at is not null
           and ((r.receiver_kind = 'user' and r.receiver_id = $1)
             or (r.receiver_kind = 'group' and r.receiver_id = any($2::uuid[])))
         order by m.due_at, m.id`,
@@ -227,6 +244,11 @@ export class PgPublicItemQuery implements PublicItemQuery {
       dueAt: r.due_at,
       receiverUnit: r.receiver_unit,
     }))
+  }
+
+  async advisedCohortIds(actor: ResolvedActor): Promise<string[]> {
+    const viewer = await viewerOf(this.#reader(), actor)
+    return viewer.kind === 'user' ? [...viewer.advisedCohortIds] : []
   }
 
   /** 列 → 卡片：一次查齊封面與附件（附件照管理員排的順序；只算已存好的檔案）。 */

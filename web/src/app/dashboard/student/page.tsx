@@ -7,6 +7,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { StudentCalendar, type CalendarEntry } from '@/app/dashboard/student/_calendar'
 import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
+import { homePendingLine } from '@/app/dashboard/student/home-pending'
 import { getTimelineQuery } from '@/composition/cohorts'
 import { getGroupQuery } from '@/composition/groups'
 import { getPublicItemQuery } from '@/composition/items'
@@ -48,7 +49,9 @@ export default async function StudentHomePage() {
   const today = ctx.today
   const entries = calendarEntries(activities, deadlines)
   const next8 = upcoming(entries, today, 8)
+  // 待繳含逾期未繳（驗收第 2 章 P-08）：逾期的要找系辦補交，不能說「沒有待繳」。
   const pending = pendingCount(myItems, ctx.businessNow)
+  const overdue = myItems.filter((i) => receiverStatus(i, i, ctx.businessNow).overdue).length
 
   // 下一步＝還沒送出、最早截止的那一份（原型 Codex S-05）。
   const nextItem = myItems
@@ -85,7 +88,7 @@ export default async function StudentHomePage() {
   const mine = current.filter((v) => v.viewer.canRespond).length
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
-  const line = pending ? `作業區還有 ${pending} 件沒送出。` : '作業區沒有待繳的東西。'
+  const line = homePendingLine(pending, overdue)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current={BASE}>
@@ -143,7 +146,7 @@ export default async function StudentHomePage() {
             <StudentCalendar entries={entries} today={today} />
           </Panel>
 
-          <Panel title="接下來" action={{ href: `${BASE}/affairs`, label: '作業區' }} className="min-h-0 flex-1">
+          <Panel title="接下來" action={{ href: `${BASE}/affairs`, label: '我的繳交' }} className="min-h-0 flex-1">
             <UpcomingList entries={next8} today={today} />
           </Panel>
         </div>
@@ -155,7 +158,7 @@ export default async function StudentHomePage() {
 /** 接下來（原型 UpcomingCard）：本週／之後兩段，左邊是「還有幾天」的色塊。 */
 function UpcomingList({ entries, today }: { entries: readonly CalendarEntry[]; today: string }) {
   if (entries.length === 0) {
-    return <PanelEmpty>最近沒有收件截止或活動。系辦排上活動、發布收件後會出現在這裡。</PanelEmpty>
+    return <PanelEmpty>最近沒有繳交截止或活動。系辦排上活動、發布繳交項目後會出現在這裡。</PanelEmpty>
   }
   const withDays = entries.map((e) => ({ ...e, days: daysBetween(today, e.date) }))
   const groups = [

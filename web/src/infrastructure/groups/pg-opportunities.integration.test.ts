@@ -434,6 +434,10 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
 
     const page = await query.open(actor(t, ['teacher']), c1)
     expect(page.access === 'visible' && page.opportunity.linkedGroups.map((l) => l.groupCode)).toEqual(['G01', 'G02'])
+    // 屆別帶名稱（系1）：畫面標「第 43 屆（115）・G01」，不只代碼。
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = (select cohort_id from groups where id = $1)`, [g1.id])
+    const named = await query.open(actor(t, ['teacher']), c1)
+    expect(named.access === 'visible' && named.opportunity.linkedGroups.map((l) => l.cohortName)).toEqual(['第 43 屆', '第 43 屆'])
     // 連結不讓案主成為主指導。
     const advisor = await owner.sql('select count(*) as n from advisor_assignments where group_id = $1', [g1.id])
     expect(Number(advisor.rows[0]!.n)).toBe(0)
@@ -536,6 +540,147 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
   })
 })
 
+describe('系辦新增合作案並指定負責老師（第三波 W11）', () => {
+  it('純系辦帳號建立：案主是選的老師；那位老師的管理清單列出它；發布後登入者的列表看得到；稽核記系辦與負責老師', async () => {
+    const t = await newTeacher('受指定老師')
+    const cohort = await newCohort()
+    const s = await newStudent(cohort.id)
+    const created = await command.create(adminActor(), { ...input({ companyName: '系辦建的公司' }), publish: true, ownerTeacherUserId: t }, randomUUID())
+    expect(created).toMatchObject({ ok: true, receipt: { action: 'created', status: 'published' } })
+    const id = created.ok ? created.receipt.opportunityId : ''
+
+    const row = await owner.sql('select owner_teacher_user_id, created_by_user_id from industry_opportunities where id = $1', [id])
+    expect(row.rows[0]).toEqual({ owner_teacher_user_id: t, created_by_user_id: adminId })
+    expect((await query.manageList(actor(t, ['teacher']))).map((o) => o.id)).toContain(id)
+    const card = (await query.list(actor(s.id, ['student']))).find((o) => o.id === id)
+    expect(card).toMatchObject({ ownerUserId: t, ownerName: '受指定老師' })
+    // 負責老師（案主）看得到聯絡資訊。
+    const ownerView = await query.open(actor(t, ['teacher']), id)
+    expect(ownerView.access === 'visible' && ownerView.opportunity.contact?.contactEmail).toBe(CONTACT.contactEmail)
+
+    const audit = await owner.sql(
+      `select actor_user_id, role, payload->>'ownerTeacherUserId' as owner from audit_events
+        where action = 'opportunity.create' and target_id = $1`,
+      [id],
+    )
+    expect(audit.rows).toEqual([{ actor_user_id: adminId, role: 'admin', owner: t }])
+  })
+
+  it('系辦沒選負責老師、選的人不是老師或已停用：被拒並指出負責老師欄；都不留資料', async () => {
+    const t = await newTeacher('停用老師')
+    await owner.sql(`update users set status = 'disabled' where id = $1`, [t])
+    const notTeacher = await newUser('不是老師')
+    const before = Number((await owner.sql('select count(*) as n from industry_opportunities')).rows[0]!.n)
+    for (const ownerTeacherUserId of ['', notTeacher, t, adminId, 'not-a-uuid']) {
+      const result = await command.create(adminActor(), { ...input(), publish: true, ownerTeacherUserId }, randomUUID())
+      expect(result.ok ? 'ok' : result.details).toEqual({ field: 'ownerTeacherUserId' })
+    }
+    expect(Number((await owner.sql('select count(*) as n from industry_opportunities')).rows[0]!.n)).toBe(before)
+  })
+
+  it('老師新增照舊（案主＝本人）；老師帶別人的 ID：FORBIDDEN；學生帶老師 ID：FORBIDDEN', async () => {
+    const t = await newTeacher('自己建老師')
+    const other = await newTeacher('別的老師')
+    const cohort = await newCohort()
+    const s = await newStudent(cohort.id)
+    const own = await command.create(actor(t, ['teacher']), { ...input(), publish: false, ownerTeacherUserId: t }, randomUUID())
+    expect(own.ok).toBe(true)
+    if (own.ok) {
+      const row = await owner.sql('select owner_teacher_user_id from industry_opportunities where id = $1', [own.receipt.opportunityId])
+      expect(row.rows[0]!.owner_teacher_user_id).toBe(t)
+    }
+    const forOther = await command.create(actor(t, ['teacher']), { ...input(), publish: false, ownerTeacherUserId: other }, randomUUID())
+    expect(forOther.ok ? 'ok' : forOther.code).toBe('FORBIDDEN')
+    const byStudent = await command.create(actor(s.id, ['student']), { ...input(), publish: false, ownerTeacherUserId: t }, randomUUID())
+    expect(byStudent.ok ? 'ok' : byStudent.code).toBe('FORBIDDEN')
+  })
+})
+
+describe('刪除合作案（第三波 W11）', () => {
+  it('已下架、沒連組別的可以刪：打刪除標記不刪列；列表、詳情、管理清單都不再有；留 opportunity.deleted 稽核；重送只做一次', async () => {
+    const t = await newTeacher('刪除案主')
+    const cohort = await newCohort()
+    const s = await newStudent(cohort.id)
+    const id = await createOpportunity(t)
+    await command.withdraw(actor(t, ['teacher']), { opportunityId: id, revision: 1 }, randomUUID())
+
+    const requestId = randomUUID()
+    const deleted = await command.delete(adminActor(), { opportunityId: id, revision: 2 }, requestId)
+    expect(deleted).toMatchObject({ ok: true, receipt: { action: 'deleted', name: '輔仁零售・資訊部' } })
+
+    const row = await owner.sql('select status, deleted_at, deleted_by_user_id from industry_opportunities where id = $1', [id])
+    expect(row.rows[0]).toMatchObject({ status: 'withdrawn', deleted_by_user_id: adminId })
+    expect(row.rows[0]!.deleted_at).toBeInstanceOf(Date)
+    expect((await query.manageList(adminActor())).map((o) => o.id)).not.toContain(id)
+    expect((await query.manageList(actor(t, ['teacher']))).map((o) => o.id)).not.toContain(id)
+    expect((await query.open(adminActor(), id)).access).toBe('not_found')
+    expect((await query.open(actor(s.id, ['student']), id)).access).toBe('not_found')
+
+    const audit = await owner.sql(
+      `select payload->>'status' as status, payload->>'name' as name, payload->>'ownerTeacherUserId' as owner
+         from audit_events where action = 'opportunity.deleted' and target_id = $1`,
+      [id],
+    )
+    expect(audit.rows).toEqual([{ status: 'withdrawn', name: '輔仁零售・資訊部', owner: t }])
+
+    expect(await command.delete(adminActor(), { opportunityId: id, revision: 2 }, requestId)).toMatchObject({ ok: true })
+    expect(Number((await owner.sql(`select count(*) as n from audit_events where action = 'opportunity.deleted' and target_id = $1`, [id])).rows[0]!.n)).toBe(1)
+  })
+
+  it('草稿也可以刪；刪除後不能再發布、修改或刪第二次', async () => {
+    const t = await newTeacher('草稿案主')
+    const id = await createOpportunity(t, { publish: false })
+    expect(await command.delete(adminActor(), { opportunityId: id, revision: 1 }, randomUUID())).toMatchObject({ ok: true })
+    for (const result of [
+      await command.publish(actor(t, ['teacher']), { opportunityId: id, revision: 2 }, randomUUID()),
+      await command.update(adminActor(), { ...input(), opportunityId: id, revision: 2 }, randomUUID()),
+      await command.delete(adminActor(), { opportunityId: id, revision: 2 }, randomUUID()),
+    ]) {
+      expect(result.ok ? 'ok' : result.message).toContain('找不到這個合作案')
+    }
+  })
+
+  it('發布中的被擋並說明要先下架；連著組別的被擋並說明要先解除連結；解除後就能刪', async () => {
+    const t = await newTeacher('連結案主')
+    const cohort = await newCohort()
+    const g = await newGroup(cohort.id, 'G07', 'industry')
+    const id = await createOpportunity(t)
+
+    const published = await command.delete(adminActor(), { opportunityId: id, revision: 1 }, randomUUID())
+    expect(published.ok ? 'ok' : published.message).toContain('要先「下架」')
+
+    await command.link(actor(g.leader.id, ['student']), { groupId: g.id, revision: await revisionOf(g.id), opportunityId: id, reason: '' }, randomUUID())
+    await command.withdraw(actor(t, ['teacher']), { opportunityId: id, revision: await opportunityRevision(id) }, randomUUID())
+    const linked = await command.delete(adminActor(), { opportunityId: id, revision: await opportunityRevision(id) }, randomUUID())
+    expect(linked.ok ? 'ok' : linked.message).toContain('要先「解除」連結')
+    expect(linked.ok ? '' : linked.message).toContain('G07')
+    expect(Number((await owner.sql('select count(*) as n from industry_opportunities where id = $1 and deleted_at is not null', [id])).rows[0]!.n)).toBe(0)
+
+    const link = String((await owner.sql('select id from opportunity_links where group_id = $1 and valid_to is null', [g.id])).rows[0]!.id)
+    await command.unlink(adminActor(), { linkId: link, reason: '題目取消' }, randomUUID())
+    expect(await command.delete(adminActor(), { opportunityId: id, revision: await opportunityRevision(id) }, randomUUID())).toMatchObject({ ok: true })
+    // 已刪的案不能再被連結（當作不存在）。
+    const relink = await command.link(
+      actor(g.leader.id, ['student']),
+      { groupId: g.id, revision: await revisionOf(g.id), opportunityId: id, reason: '' },
+      randomUUID(),
+    )
+    expect(relink.ok ? 'ok' : relink.message).toContain('找不到這個合作案')
+  })
+
+  it('只有系辦能刪：案主老師、學生 FORBIDDEN；舊版本 CONFLICT', async () => {
+    const t = await newTeacher('不能刪的案主')
+    const cohort = await newCohort()
+    const s = await newStudent(cohort.id)
+    const id = await createOpportunity(t, { publish: false })
+    for (const who of [actor(t, ['teacher']), actor(s.id, ['student'])]) {
+      const result = await command.delete(who, { opportunityId: id, revision: 1 }, randomUUID())
+      expect(result.ok ? 'ok' : result.code).toBe('FORBIDDEN')
+    }
+    expect(await command.delete(adminActor(), { opportunityId: id, revision: 0 }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+  })
+})
+
 describe('組長改組別類型（5.3、GRP-14）', () => {
   it('成組期內、沒有主指導、沒有合作案：組長可以改，留稽核與歷程', async () => {
     const cohort = await newCohort()
@@ -563,8 +708,8 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
     const early = await newCohort(['2026-12-01', '2027-01-15'])
     const g2 = await newGroup(early.id, 'G01', 'general')
     for (const [cohort, g, blocker] of [
-      [unconfigured, g1, '這一屆還沒設定成組期'],
-      [early, g2, '成組期還沒開始'],
+      [unconfigured, g1, '這一屆還沒設定分組期'],
+      [early, g2, '分組期還沒開始'],
     ] as const) {
       const refused = await command.changeGroupType(
         actor(g.leader.id, ['student']),
@@ -601,9 +746,9 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
       { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' },
       randomUUID(),
     )
-    expect(blocked.ok ? 'ok' : blocked.message).toBe('目前不能自己改組別類型（成組期已結束、已經有指導老師、已經連結合作案）；請聯絡系辦處理。')
+    expect(blocked.ok ? 'ok' : blocked.message).toBe('目前不能自己改組別類型（分組期已結束、已經有指導老師、已經連結合作案）；請聯絡系辦處理。')
     const panel = await query.leaderPanel(actor(g.leader.id, ['student']), cohort.id)
-    expect(panel?.typeChangeBlockers).toEqual(['成組期已結束', '已經有指導老師', '已經連結合作案'])
+    expect(panel?.typeChangeBlockers).toEqual(['分組期已結束', '已經有指導老師', '已經連結合作案'])
 
     // 系辦處理：理由必填，保留主指導與合作案連結（不靜默刪關聯）。
     const noReason = await command.changeGroupType(adminActor(), { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' }, randomUUID())

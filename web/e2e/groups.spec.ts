@@ -117,6 +117,8 @@ async function openStudentPage(page: Page, index: number) {
 
 async function proposeAll(page: Page) {
   await openStudentPage(page, 0)
+  // Q40：學生組別頁說明分組期在做什麼。
+  await expect(page.getByRole('main')).toContainText('不能超過分組期（組隊、選指導老師、交提案的期間）')
   for (const [i, s] of students.slice(1).entries()) {
     await page.getByLabel(`同學 ${i + 1} 的學號`).fill(s.studentNo)
   }
@@ -161,6 +163,11 @@ test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Emai
 
   await openStudentPage(page, 0)
   await expect(page.getByRole('region', { name: '找組員名單' })).not.toContainText(students[1]!.name)
+  // 名單空了：給下一步（N-10），連到產學合作案、或洽系辦。
+  const empty = page.getByRole('region', { name: '找組員名單' })
+  await expect(empty).toContainText('目前沒有公開找組員的同學。')
+  await expect(empty).toContainText('或洽系辦')
+  await expect(empty.getByRole('link', { name: '看產學合作案' })).toHaveAttribute('href', '/dashboard/student/industry')
 })
 
 test('發起五人提案：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份提案', async ({ page }) => {
@@ -187,7 +194,7 @@ test('發起五人提案：五人都被占住、各有邀請；頁面顯示到�
 test('管理員作廢：理由留空被拒；填理由後終止並釋放，學生的紀錄只寫「管理員作廢」', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  const open = page.getByRole('region', { name: '進行中的提案' })
+  const open = page.getByRole('region', { name: '組隊中（等全員確認）' })
   await expect(open).toContainText(students[0]!.name)
 
   await open.getByRole('button', { name: `作廢：${students[0]!.name}的提案` }).click()
@@ -200,13 +207,13 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
   const closed = page.getByRole('region', { name: '最近終止的提案' })
   await expect(closed).toContainText('管理員作廢')
   await expect(closed).toContainText('名單有誤，請重新發起（系辦內部）')
-  await expect(open).toContainText('沒有等待確認的提案')
+  await expect(open).toContainText('沒有組隊中的提案')
 
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
   await openStudentPage(page, 2)
   const history = page.getByRole('region', { name: '提案紀錄' })
-  await expect(history).toContainText('已終止：管理員作廢')
+  await expect(history).toContainText('沒有成立：管理員作廢')
   await expect(history).not.toContainText('系辦內部')
 })
 
@@ -215,8 +222,8 @@ test('拒絕：整份終止、全員釋放；重新發起是新提案，所有�
   await openStudentPage(page, 2)
   await page.getByRole('button', { name: '拒絕' }).click()
   await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
-  await expect(feedback(page, 'status')).toContainText('提案已終止（被拒絕）')
-  await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('已終止：被拒絕')
+  await expect(feedback(page, 'status')).toContainText('這次組隊沒有成立（被拒絕）')
+  await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 
@@ -268,9 +275,11 @@ test('管理員：分組總覽列出這一組與組長；改每組人數後摘�
   await expect(groups).toContainText(`${students[0]!.name}（組長）`)
   await expect(groups).toContainText('5 人')
   await expect(page.getByTestId('grouping-settings')).toContainText('每組 5 人')
+  // Q40：系辦分組頁說明分組期在做什麼。
+  await expect(page.getByTestId('grouping-settings')).toContainText('不超過分組期（組隊、選指導老師、交提案的期間）')
 
   await page.getByRole('button', { name: '分組設定' }).click()
-  const dialog = page.getByRole('dialog', { name: `${CODE} 的分組設定` })
+  const dialog = page.getByRole('dialog', { name: new RegExp(`（${CODE}） 的分組設定`) })
   await dialog.getByLabel('每組最少人數').fill('6')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(dialog.getByRole('alert')).toContainText('不能比最多人數')

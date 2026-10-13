@@ -4,6 +4,7 @@ import { IconArrowLeft, IconPaperclip, IconUser, IconUsers, IconUsersGroup } fro
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
+import { ChecksumDisclosure, ReceiptNoDisclosure } from '@/app/dashboard/_submissions/proof-disclosure'
 import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/version-parts'
 import { SubmissionForm } from '@/app/dashboard/student/affairs/[id]/submission-form'
 import { BANNER_CLASS } from '@/app/dashboard/student/affairs/tone'
@@ -13,16 +14,12 @@ import { getBusinessClock } from '@/composition/cohorts'
 import { renderBodyHtml } from '@/composition/items'
 import { answerFields, getSubmissionQuery, isFileField, phaseOf, statusOf } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
 export const metadata = { title: '作業內容｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KiB`
-}
 
 /**
  * 學生作業內容頁（票 17 個人版；票 21 組別版：原型 `/dashboard/student/affairs/[id]` 的共用表單、上傳進度、收件章回執）：
@@ -75,7 +72,7 @@ export default async function StudentAffairPage({
             <p className="mx-6 mb-4 rounded-lg bg-muted px-4 py-3 text-sm font-semibold text-ink" data-testid="record-banner">
               {detail.receiverKind === 'group'
                 ? '你已經不在這一組：只看得到你還在組裡時送出的版本與附件，不能再填寫或送出。'
-                : '你已經不在這份收件的名單上：只看得到自己正式送出過的回答，不能再填寫或送出。'}
+                : '你已經不在這一項的繳交名單上：只看得到自己正式送出過的回答，不能再填寫或送出。'}
             </p>
             <div className="border-t border-border p-6">
               {shown ? (
@@ -94,7 +91,10 @@ export default async function StudentAffairPage({
   if (!item) notFound()
   const version = tab === 'history' && Number.isInteger(versionNo) && versionNo > 0 ? await query.myVersion(userId, id, versionNo) : null
 
-  const phase = phaseOf({ opensAt: item.opensAt, dueAt: item.dueAt }, businessNow)
+  // 個別補交（W10）：已截止、但系辦替自己（整組：自己這一組）開了還沒到期的補交期限，就照開放算。
+  const window = { opensAt: item.opensAt, dueAt: item.dueAt }
+  const phase = phaseOf(window, businessNow, item.reopenUntil)
+  const reopenUntil = phase === 'open' && phaseOf(window, businessNow) === 'closed' ? item.reopenUntil : null
   const latest = item.versions[0] ?? null
   const status = statusOf({
     phase,
@@ -102,12 +102,18 @@ export default async function StudentAffairPage({
     latestVersionNo: latest?.versionNo ?? null,
     hasDraft: item.draft !== null,
     exempt: item.exempt,
+    reopenUntil,
   })
-  const banner = latest
-    ? `已繳 v${latest.versionNo}・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${status.detail}`
-    : `${status.headline}・${status.detail}`
+  const reopenText = reopenUntil ? `系辦已開放${item.receiverUnit === 'group' ? '你們這一組' : '你'}補交到 ${formatTaipeiMinute(reopenUntil)}（臺灣時間，含此分鐘）` : null
+  const banner = reopenText
+    ? latest
+      ? `${reopenText}・已繳第 ${latest.versionNo} 次，期限前可重送`
+      : reopenText
+    : latest
+      ? `已繳第 ${latest.versionNo} 次・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${status.detail}`
+      : `${status.headline}・${status.detail}`
   const lockedText = item.exempt
-    ? '系辦已將你設為免填這份收件，不需要填寫。'
+    ? '系辦已將你設為免繳這一項（系辦可恢復），不需要填寫。'
     : phase === 'not_open'
       ? `還沒開放：${item.opensAt ? formatTaipeiMinute(item.opensAt) : ''}（臺灣時間）開放後才能填寫與送出。`
       : phase === 'closed'
@@ -123,13 +129,14 @@ export default async function StudentAffairPage({
     ['截止時間', item.dueAt ? `${formatTaipeiMinute(item.dueAt)}（含此分鐘）` : '無'],
     ['開放時間', item.opensAt ? formatTaipeiMinute(item.opensAt) : '發布即開放'],
     ['階段', item.stageName ?? '未指定'],
-    ['重送', phase === 'closed' ? '截止後唯讀' : '截止前可重送，以最後一次為準'],
+    ...(reopenUntil ? [['補交期限', `${formatTaipeiMinute(reopenUntil)}（含此分鐘）`] as [string, string]] : []),
+    ['重送', phase === 'closed' ? '截止後唯讀' : reopenUntil ? '補交期限前可重送，以最後一次為準' : '截止前可重送，以最後一次為準'],
   ]
 
   // 右上角的主要按鈕（原型）：還能填就跳到下方表單；已繳的寫「重送」，截止或免填就不放。
   const cta = status.editable ? (latest ? '重送' : status.action) : null
   // 橫幅顏色照原型：已繳綠、草稿橘、逾期紅、還沒動的待繳用藍色提示。
-  const bannerTone = status.pending && status.tone === 'muted' ? 'info' : status.tone
+  const bannerTone = reopenText || (status.pending && status.tone === 'muted') ? 'info' : status.tone
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
@@ -205,7 +212,7 @@ export default async function StudentAffairPage({
                           <IconPaperclip className="size-4" aria-hidden />
                           {file.name}
                         </a>
-                        <span className="ml-2 text-xs text-muted-foreground">{formatSize(file.sizeBytes)}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
                       </li>
                     ))}
                   </ul>
@@ -218,7 +225,7 @@ export default async function StudentAffairPage({
                 {group ? <GroupBar group={group} /> : null}
                 {item.advisorCanView ? (
                   <p className="mb-3 rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" data-testid="advisor-notice">
-                    你的主指導老師可以查看這份收件<strong>正式送出</strong>的回答（草稿不會給老師看）。
+                    你的指導老師可以查看這一項<strong>正式送出</strong>的回答（草稿不會給老師看）。
                   </p>
                 ) : null}
                 {group && item.draft?.updatedByName ? (
@@ -251,6 +258,15 @@ export default async function StudentAffairPage({
   )
 }
 
+/** 截止後靠系辦開的個別補交送出的版本（W10）。 */
+function LateBadge() {
+  return (
+    <span className="ml-2 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] text-warning-on-subtle" data-testid="late-badge">
+      補交
+    </span>
+  )
+}
+
 /** 回作業區（原型：左箭頭＋灰字）。 */
 function BackLink() {
   return (
@@ -258,7 +274,7 @@ function BackLink() {
       href="/dashboard/student/affairs"
       className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
     >
-      <IconArrowLeft className="size-4" aria-hidden /> 作業區
+      <IconArrowLeft className="size-4" aria-hidden /> 我的繳交
     </Link>
   )
 }
@@ -309,10 +325,7 @@ function History({ item }: { item: MyItemDetail }) {
               送出者
             </th>
             <th scope="col" className="py-2 font-medium">
-              收件時間（臺灣時間）
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              回執編號
+              送出時間（臺灣時間）
             </th>
             <th scope="col" className="py-2">
               <span className="sr-only">動作</span>
@@ -325,12 +338,12 @@ function History({ item }: { item: MyItemDetail }) {
               <td className="py-3 font-semibold tabular-nums">
                 第 {v.versionNo} 次
                 {index === 0 ? (
-                  <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
+                  <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
                 ) : null}
+                {v.late ? <LateBadge /> : null}
               </td>
               <td className="py-3">{v.submittedByName}</td>
               <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
-              <td className="py-3 font-mono text-xs text-muted-foreground">{v.requestId}</td>
               <td className="py-1 text-right">
                 <Link
                   href={`/dashboard/student/affairs/${item.itemId}?tab=history&version=${v.versionNo}`}
@@ -366,10 +379,11 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
           <dd className="font-semibold tabular-nums">
             第 {version.versionNo} 次
             {version.isLatest ? (
-              <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
+              <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
             ) : (
               <span className="ml-2 text-xs font-normal text-muted-foreground">已被後來的版本取代</span>
             )}
+            {version.late ? <LateBadge /> : null}
           </dd>
         </div>
         <div className="flex gap-4">
@@ -377,17 +391,14 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
           <dd className="font-semibold">{version.submittedByName}</dd>
         </div>
         <div className="flex gap-4">
-          <dt className="w-16 shrink-0 text-muted-foreground">收件時間</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">送出時間</dt>
           <dd className="font-semibold tabular-nums">{formatTaipeiSecond(version.receivedBusinessAt)}</dd>
         </div>
         <div className="flex gap-4">
-          <dt className="w-16 shrink-0 text-muted-foreground">欄位版本</dt>
-          <dd className="tabular-nums">v{version.schemaVersionNo}</dd>
+          <dt className="w-16 shrink-0 text-muted-foreground">表單</dt>
+          <dd className="tabular-nums">第 {version.schemaVersionNo} 版</dd>
         </div>
-        <div className="flex gap-4 sm:col-span-2">
-          <dt className="w-16 shrink-0 text-muted-foreground">回執編號</dt>
-          <dd className="break-all font-mono text-xs">{version.requestId}</dd>
-        </div>
+        <ReceiptNoDisclosure requestId={version.requestId} className="sm:col-span-2" />
       </dl>
       <dl className="flex flex-col divide-y divide-border/70">
         {fields.map((f) => {
@@ -403,10 +414,8 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
                     <a href={`/api/files/${file.fileId}`} className="inline-flex items-center gap-1.5 break-all font-semibold text-ink underline-offset-2 hover:underline">
                       {file.name}
                     </a>
-                    <span className="text-xs text-muted-foreground tabular-nums">{formatSize(file.sizeBytes)}</span>
-                    <span className="font-mono text-[11px] text-muted-foreground" title={file.checksum}>
-                      sha256 {file.checksum.slice(0, 12)}…
-                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(file.sizeBytes)}</span>
+                    <ChecksumDisclosure checksum={file.checksum} className="basis-full" />
                   </span>
                 ) : (
                   text || <span className="text-muted-foreground">（未填）</span>

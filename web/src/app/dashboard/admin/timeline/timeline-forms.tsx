@@ -1,17 +1,19 @@
 'use client'
 import { createContext, useActionState, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { IconPencil, IconPlus } from '@tabler/icons-react'
+import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import {
   cancelActivityAction,
   createActivityAction,
+  deleteActivityAction,
   saveScheduleAction,
   updateActivityAction,
 } from './actions'
 import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, INPUT as KIT_INPUT, TEXTAREA as KIT_TEXTAREA } from '@/app/_ui/dashboard-kit'
+import { buttonVariants } from '@/app/_ui/ui/button'
 import { cn } from '@/shared/cn'
 
 /**
- * 時間軸頁會動的部分（票 11）：編輯階段與日期、新增活動、改期、取消活動。
+ * 時間軸頁會動的部分（票 11）：編輯階段與日期、新增活動、改期、取消活動；刪除已取消的活動（第三波 W11）。
  *
  * 回饋一律是**伺服器**回的句子；瀏覽器端不判斷任何規則（開始日要不要遞增是用例說了算）。
  * 欄位用受控元件：送出失敗時剛填的值還在，不用整份重打。
@@ -25,6 +27,8 @@ const TEXTAREA = cn(KIT_TEXTAREA, 'mt-1.5')
 const LABEL = 'block text-sm font-semibold'
 const PRIMARY = BTN_PRIMARY
 const SECONDARY = BTN_OUTLINE
+// 危險操作（第三波 §9 規則 1）：淡紅、跟日常按鈕分開。
+const DANGER = buttonVariants({ variant: 'destructive', size: 'lg', className: 'press rounded-lg px-3 font-semibold' })
 
 export function Feedback({ state }: { state: TimelineActionState }) {
   if (!state) return null
@@ -84,11 +88,14 @@ function useCloseOnSuccess(state: TimelineActionState, close: () => void) {
 
 // ── 階段與日期 ──────────────────────────────────────────────────────────────
 
+/** 第 1 階段（分組期）在做什麼（Q40）：時間軸卡片與編輯對話框都固定顯示；不改資料庫裡的階段名稱。 */
+export const GROUPING_PERIOD_HINT = '分組期：組隊、選指導老師、交提案的期間'
+
 export type StageDraft = { name: string; startDate: string; description: string }
 
 export function ScheduleEditor({
   cohortId,
-  cohortCode,
+  cohortLabel,
   revision,
   requestId,
   stages,
@@ -98,7 +105,7 @@ export function ScheduleEditor({
   dialog: external,
 }: {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   revision: number
   requestId: string
   stages: StageDraft[]
@@ -138,7 +145,7 @@ export function ScheduleEditor({
       <Dialog
         dialog={dialog}
         wide
-        title={`編輯 ${cohortCode} 的階段與日期`}
+        title={`編輯 ${cohortLabel} 的階段與日期`}
         description="每個階段只填開始日，要一段比一段晚；下一段開始那天 00:00 起就換段。年度結束日當天仍算在年度內。"
       >
         <form action={formAction} className="grid gap-5 md:grid-cols-[minmax(0,1fr)_240px]">
@@ -166,6 +173,7 @@ export function ScheduleEditor({
                         placeholder="例：系統驗收"
                         className={INPUT}
                       />
+                      {seq === 1 ? <p className="mt-1 text-xs text-muted-foreground">{GROUPING_PERIOD_HINT}</p> : null}
                     </div>
                     <div>
                       <label htmlFor={`stage${seq}-start`} className={LABEL}>
@@ -441,7 +449,7 @@ export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortI
       <button type="button" className={PRIMARY} onClick={dialog.open}>
         <IconPlus aria-hidden /> 新增活動
       </button>
-      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從收件項目自動帶進日曆。">
+      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從繳交項目自動帶進日曆。">
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="cohortId" value={cohortId} />
           <input type="hidden" name="requestId" value={requestId} />
@@ -552,7 +560,11 @@ export function ActivityActions({
         </form>
       </Dialog>
 
-      <Dialog dialog={confirm} title={`取消「${title}」？`} description="取消後活動會標「已取消」，不會刪除，也不能再改期。">
+      <Dialog
+        dialog={confirm}
+        title={`取消「${title}」？`}
+        description="取消後活動會標「已取消」，不會刪除，也不能再改期；之後要刪除，到頁面最下面的「危險操作」區按「刪除」。"
+      >
         <form action={cancelAction} className="space-y-4">
           <input type="hidden" name="activityId" value={activityId} />
           <input type="hidden" name="revision" value={revision} />
@@ -569,5 +581,87 @@ export function ActivityActions({
         </form>
       </Dialog>
     </div>
+  )
+}
+
+/**
+ * 刪除活動（第三波 W11；放在頁面底部的「危險操作」區）：只有已取消的活動可以刪；排定中的也有這顆按鈕，但對話框只說明要先取消
+ * （§9 規則 4：不能做的動作附原因，不留點了沒反應的入口）。規則以伺服器為準（`activityDeleteBlocker`），
+ * 這裡只是先講清楚。
+ * 成功後那一列會從清單消失，成功句子交給清單外的回饋區。
+ */
+export function DeleteActivityButton({
+  activityId,
+  title,
+  when,
+  revision,
+  requestId,
+  scheduled,
+}: {
+  activityId: string
+  title: string
+  when: string
+  revision: number
+  requestId: string
+  /** 還在排定中：不能刪，對話框只說明要先取消。 */
+  scheduled: boolean
+}) {
+  const setNotice = useContext(SetActivityNotice)
+  const [state, action, pending] = useActionState(async (prev: TimelineActionState, formData: FormData) => {
+    const result = await deleteActivityAction(prev, formData)
+    setNotice(result?.ok ? result : undefined)
+    return result
+  }, undefined)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
+
+  return (
+    <>
+      <button type="button" className={DANGER} onClick={dialog.open} aria-label={`刪除活動：${title}`}>
+        <IconTrash aria-hidden /> 刪除
+      </button>
+      {scheduled ? (
+        <Dialog dialog={dialog} title={`還不能刪除「${title}」`} description="這個活動還在排定中，要先「取消活動」才能刪除。">
+          <div className="flex justify-end">
+            <button type="button" className={SECONDARY} onClick={dialog.close}>
+              知道了
+            </button>
+          </div>
+        </Dialog>
+      ) : (
+        <Dialog dialog={dialog} title={`刪除「${title}」？`}>
+          <form action={action} className="space-y-4">
+            <dl className="space-y-1 rounded-lg bg-muted px-3 py-2 text-sm">
+              <div>
+                <dt className="inline font-semibold">對象：</dt>
+                <dd className="inline">
+                  {title}（{when}，已取消）
+                </dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">後果：</dt>
+                <dd className="inline">從後台「已取消」清單、學生與老師的行事曆、首頁都消失。</dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">能不能恢復：</dt>
+                <dd className="inline">不能。刪除紀錄會留在操作紀錄。</dd>
+              </div>
+            </dl>
+            <input type="hidden" name="activityId" value={activityId} />
+            <input type="hidden" name="revision" value={revision} />
+            <input type="hidden" name="requestId" value={requestId} />
+            <Feedback state={state?.ok ? undefined : state} />
+            <div className="flex justify-end gap-2">
+              <button type="button" className={SECONDARY} onClick={dialog.close}>
+                先不要
+              </button>
+              <button type="submit" disabled={pending} className={DANGER}>
+                {pending ? '處理中…' : '刪除這個活動'}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+    </>
   )
 }

@@ -9,6 +9,7 @@ import type {
   TeacherOption,
 } from '@/application/groups'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 import {
   assignAdvisorAction,
   executeAdvisorBatchAction,
@@ -159,7 +160,7 @@ export function AdvisorCell({
             <p className="mt-1 text-sm text-muted-foreground">
               {current
                 ? `目前：${current.name}。重派後全組、新老師與原老師都會收到通知；歷史保留。`
-                : '一般組依抽籤或行政結果指派；產學組老師也可以自己認領。指派後全組與老師會收到通知。'}
+                : '一般組依抽籤或行政結果指派；產學組老師也可以自己擔任指導老師。指派後全組與老師會收到通知。'}
             </p>
           </div>
           <input type="hidden" name="groupId" value={group.id} />
@@ -247,14 +248,14 @@ const ERROR_KINDS: readonly AdvisorBatchKind[] = ['group_missing', 'teacher_miss
  */
 export function BatchAssignDialog({
   cohortId,
-  cohortCode,
+  cohortLabel,
   kindLabels,
   outcomeLabels,
   maxBytes,
   reasonMaxLength,
 }: {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   kindLabels: Record<AdvisorBatchKind, string>
   outcomeLabels: Record<BatchRowOutcome, string>
   maxBytes: number
@@ -349,10 +350,13 @@ export function BatchAssignDialog({
       <dialog ref={dialog.ref} aria-label="批次指派指導老師" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <div className="max-h-[85vh] space-y-4 overflow-y-auto p-5">
           <div>
-            <h2 className="text-lg font-extrabold text-foreground">批次指派指導老師・{cohortCode}</h2>
+            <h2 className="text-lg font-extrabold text-foreground">批次指派指導老師・{cohortLabel}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              UTF-8 CSV，欄位固定 <code className="rounded bg-muted px-1">group_code,teacher_login_email</code>
-              ；老師用<strong>登入 Email</strong>，不能用聯絡 Email。要換屆別請先在頁面上方切換。
+              存檔時文字編碼選 UTF-8 的 CSV；第一行欄名固定是英文 <code className="rounded bg-muted px-1">group_code,teacher_login_email</code>
+              （組別代碼、老師的登入 Email）；老師用<strong>登入 Email</strong>，不能用聯絡 Email。要換屆別請先在頁面上方切換。
+              <a href="/samples/批次指派指導老師範例.csv" download className="ml-1 font-semibold text-primary hover:underline">
+                下載範例檔
+              </a>
             </p>
           </div>
 
@@ -365,7 +369,7 @@ export function BatchAssignDialog({
             >
               <span className="font-medium text-foreground">{busy ?? '選擇 CSV 檔'}</span>
               <span className="text-xs text-muted-foreground">
-                上限 {Math.round(maxBytes / 1024)} KiB；先看預覽，確認後才逐列執行
+                上限 {formatBytes(maxBytes)}；先看預覽，確認後才逐列執行
               </span>
               <input
                 type="file"

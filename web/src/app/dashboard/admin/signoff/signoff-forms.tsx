@@ -29,7 +29,7 @@ export type GroupOption = {
 
 const PURPOSES: { value: SignoffPurpose; label: string; hint: string }[] = [
   { value: 'result_confirmation', label: '期中結果確認', hint: '確認期中結果或系統驗收；不帶公開授權範圍。' },
-  { value: 'final_document', label: '最終文件授權', hint: '同意最終文件與公開展示範圍；要先有這一組的精選草稿。' },
+  { value: 'final_document', label: '最終文件授權', hint: '同意最終文件與公開展示範圍；要先有這一組的成果展示草稿。' },
 ]
 
 export function CreateVersionForm({ groups, requestId }: { groups: readonly GroupOption[]; requestId: string }) {
@@ -46,7 +46,7 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
   const previous = group?.currentVersionNo[purpose] ?? null
 
   return (
-    <form action={action} className="space-y-4" aria-label="建立簽核版本">
+    <form action={action} className="space-y-4" aria-label="建立站內同意書">
       <input type="hidden" name="requestId" value={requestId} />
       {/* 組別與用途以畫面狀態為準送出：表單動作結束後 React 會重設表單，重設會把單選與下拉的 DOM 值拉回初始值。 */}
       <input type="hidden" name="groupId" value={groupId} />
@@ -92,16 +92,16 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
       {group ? (
         <div data-testid="impact-preview" className="rounded-lg bg-surface px-4 py-3 text-sm">
           <p className="font-medium text-foreground">
-            參與者：{group.members.length} 位學生＋主指導 {group.advisorName ?? '（尚未指派）'}
+            參與者：{group.members.length} 位學生＋指導老師 {group.advisorName ?? '（尚未指派）'}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {group.members.map((m) => m.name).join('、') || '這一組目前沒有有效組員'}
           </p>
           {group.advisorName === null ? (
-            <p className="mt-1 text-xs text-danger">這一組還沒有主指導，建版會被拒；請先到「分組」指派。</p>
+            <p className="mt-1 text-xs text-danger">這一組還沒有指導老師，建立會被拒；請先到「分組」指派。</p>
           ) : null}
           {previous !== null ? (
-            <p className="mt-1 text-xs text-danger">建立後，{group.groupCode} 目前的 v{previous} 會失效，所有人要對新版重新同意。</p>
+            <p className="mt-1 text-xs text-danger">建立後，{group.groupCode} 目前的第 {previous} 版會被新版取代，所有人要對新版重新同意。</p>
           ) : null}
         </div>
       ) : null}
@@ -136,7 +136,7 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-sm text-muted-foreground">這一組還沒有正式送出過附件；不選也可以建版。</p>
+          <p className="mt-1 text-sm text-muted-foreground">這一組還沒有正式送出過附件；不選也可以建立。</p>
         )}
       </fieldset>
 
@@ -146,15 +146,15 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
             <label className="flex items-start gap-2">
               <input type="checkbox" name="showcaseEntryId" value={group.showcase.entryId} defaultChecked key={group.showcase.entryId} />
               <span>
-                用 {group.groupCode} 的精選草稿「{group.showcase.title || '（還沒有題目）'}」（第 {group.showcase.revision} 版）凍結授權範圍
-                {group.showcase.ready ? null : <span className="block text-xs text-danger">草稿還沒有題目或摘要，建版會被拒。</span>}
+                用 {group.groupCode} 的成果展示草稿「{group.showcase.title || '（還沒有題目）'}」（第 {group.showcase.revision} 版），同意書會鎖定這一版內容
+                {group.showcase.ready ? null : <span className="block text-xs text-danger">草稿還沒有題目或摘要，建立會被拒。</span>}
               </span>
             </label>
           ) : (
             <p>
-              {group.groupCode} 還沒有精選草稿；最終文件授權要先到{' '}
+              {group.groupCode} 還沒有成果展示草稿；最終文件授權要先到{' '}
               <Link href="/dashboard/admin/showcase" className="font-medium text-primary underline-offset-2 hover:underline">
-                精選
+                成果展示
               </Link>{' '}
               建立草稿。
             </p>
@@ -164,14 +164,14 @@ export function CreateVersionForm({ groups, requestId }: { groups: readonly Grou
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" className={PRIMARY} disabled={pending || !group}>
-          {pending ? '建立中…' : '建立簽核版本'}
+          {pending ? '建立中…' : '建立站內同意書'}
         </button>
         <span className="text-xs text-muted-foreground">建立後每位參與學生會收到「輪到你同意」。</span>
       </div>
       <Feedback state={state} />
       {state?.ok && state.versionId ? (
         <Link href={`/dashboard/admin/signoff/${state.versionId}`} className="text-sm font-medium text-primary underline-offset-2 hover:underline">
-          看剛建立的版本
+          看剛建立的同意書
         </Link>
       ) : null}
     </form>

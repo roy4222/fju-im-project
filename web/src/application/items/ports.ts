@@ -10,7 +10,7 @@ import type {
   PublishCheck,
   ReceiverUnit,
 } from '@/application/items/items'
-import type { LifecycleAction, LifecycleReceipt, PublicAccess } from '@/application/items/lifecycle'
+import type { DeleteReceipt, LifecycleAction, LifecycleReceipt, PublicAccess } from '@/application/items/lifecycle'
 import type { UploadTicket } from '@/application/ops'
 import type { Result } from '@/shared/result'
 import type { TaipeiDate } from '@/shared/time'
@@ -119,6 +119,12 @@ export interface ItemCommand {
     requestId: string,
     options?: { readonly notify?: boolean },
   ): Promise<Result<LifecycleReceipt>>
+  /**
+   * 刪除（第三波 W1）：只限草稿與已下架、收件項目沒有任何回答（Q28）。不實體刪列，寫刪除標記
+   * （`deleted_at`／`deleted_by_user_id`）與稽核 `item.deleted`（payload 留刪除前的狀態、標題、屆別、位置）；
+   * 之後後台查詢、前台、附件下載都當作不存在。不能恢復；已寄的通知不收回；附件檔案與引用照留。
+   */
+  delete(actor: ResolvedActor, itemId: string, revision: number, requestId: string): Promise<Result<DeleteReceipt>>
 }
 
 export type ItemReview = {
@@ -186,6 +192,8 @@ export type ItemDetail = {
   /** 競賽資訊的報名截止日與活動日（臺灣日曆日；0011）。 */
   readonly registrationDeadline: string | null
   readonly eventDate: string | null
+  /** 榮譽榜的得獎日期（臺灣日曆日；0011）；沒填或不是榮譽是 null。 */
+  readonly awardedOn: string | null
   readonly deadlineVersion: number
   readonly fields: readonly FormField[]
   readonly revision: number
@@ -244,9 +252,9 @@ export type RecipientQueryInput = {
 }
 
 export interface ItemQuery {
-  /** 專題事務工作台：一屆的全部項目，新的在前（呼叫端守門）。 */
+  /** 專題事務工作台：一屆的全部項目（不含已刪除），新的在前（呼叫端守門）。 */
   list(cohortId: string): Promise<ItemListRow[]>
-  /** 編輯器要的一筆（呼叫端守門）。找不到回 null。 */
+  /** 編輯器要的一筆（呼叫端守門）。找不到或已刪除回 null。 */
   get(itemId: string): Promise<ItemDetail | null>
   /** 編輯器的選項：這一屆的階段與有效組別。 */
   editorOptions(cohortId: string): Promise<EditorOptions>
@@ -305,6 +313,11 @@ export type PublicListFilter = {
    * 較早發布但還在報名中的競賽不會被截掉。
    */
   readonly competition?: { readonly today: TaipeiDate; readonly statuses: readonly CompetitionStatus[] }
+  /**
+   * 只列這幾種對象（老師首頁「給老師的公告」，第三波 W4）：在 SQL 裡**篩完才取 `limit` 筆**，較舊的老師公告
+   * 不會被較新的公開公告擠掉。只是縮小範圍，看不看得到照舊依看的人判斷；給空陣列就是什麼都不列。
+   */
+  readonly audiences?: readonly AudienceKind[]
 }
 
 /** 學生行事曆上的一個收件截止（來源就是收件項目的截止，不另外存）。 */
@@ -339,4 +352,9 @@ export interface PublicItemQuery {
    * 可見範圍跟收件名單一致（產品 08：可見範圍跟來源一致，不把別組的截止給他看）。
    */
   myDeadlines(actor: ResolvedActor): Promise<MyDeadline[]>
+  /**
+   * 這位老師目前指導的組所在的屆別（`advisor_assignments` 有效那一列、組別沒解散；第三波 W4，Q13）。
+   * 跟可見性判斷用同一份資料：老師首頁「本屆活動」列這些屆別的活動。不是老師、訪客回空陣列。
+   */
+  advisedCohortIds(actor: ResolvedActor): Promise<string[]>
 }

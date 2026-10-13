@@ -42,28 +42,28 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
   }
 
   return (
-    <Panel title="主指導閱覽" icon={<IconEye />} headingId="visibility-title" data-testid="visibility-panel" bodyClassName="border-t border-border px-5 py-4">
+    <Panel title="指導老師閱覽" icon={<IconEye />} headingId="visibility-title" data-testid="visibility-panel" bodyClassName="border-t border-border px-5 py-4">
       <p className="text-sm font-semibold" data-testid="visibility-state">
-        {enabled ? `開放中・欄位第 ${effectiveFromVersionNo ?? 1} 版起` : '不開放'}
+        {enabled ? `開放中・表單第 ${effectiveFromVersionNo ?? 1} 版起` : '不開放'}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         {enabled
-          ? '學生目前組別的主指導看得到正式送出的回答（草稿不給）；學生填寫前會看到告知。'
+          ? '學生目前組別的指導老師看得到正式送出的回答（草稿不給）；學生填寫前會看到告知。'
           : '個人回答只有本人與系辦看得到，老師看不到。'}
       </p>
       {changedText ? <p className="mt-1 text-xs text-muted-foreground tabular-nums">{changedText}</p> : null}
       {blocked ? (
         <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs" data-testid="visibility-blocked">
-          已經有人作答，不能再開放：那些同學填寫時沒看到「主指導可查看」的告知。需要老師看，請另建一份收件並在發布前開好。
+          已經有人作答，不能再開放：那些同學填寫時沒看到「指導老師可查看」的告知。需要老師看，請另建一份繳交項目並在發布前開好。
         </p>
       ) : null}
       <button type="button" className={cn(enabled ? BUTTON : PRIMARY, 'mt-3 w-full')} disabled={blocked} onClick={open}>
-        {enabled ? '關閉主指導閱覽' : '開放主指導閱覽'}
+        {enabled ? '關閉指導老師閱覽' : '開放指導老師閱覽'}
       </button>
 
       <dialog
         ref={setDialog}
-        aria-label={enabled ? '關閉主指導閱覽' : '開放主指導閱覽'}
+        aria-label={enabled ? '關閉指導老師閱覽' : '開放指導老師閱覽'}
         className={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
       >
         {result ? (
@@ -87,11 +87,11 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
         ) : (
           <form action={formAction} className="space-y-4 p-5">
             <div>
-              <h2 className="text-lg font-extrabold">{enabled ? '關閉主指導閱覽？' : '開放主指導閱覽？'}</h2>
+              <h2 className="text-lg font-extrabold">{enabled ? '關閉指導老師閱覽？' : '開放指導老師閱覽？'}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {enabled
-                  ? '關閉後老師馬上看不到這份收件的個人回答與附件；學生填寫頁的告知也會拿掉。之後要再開，必須還沒有人作答。'
-                  : '開放後，學生填寫頁會先出現「你的主指導老師可以查看正式送出的回答」。學生目前組別的主指導看得到正式版本（草稿不給）；換老師後舊老師就看不到。'}
+                  ? '關閉後老師馬上看不到這份繳交項目的個人回答與附件；學生填寫頁的告知也會拿掉。之後要再開，必須還沒有人作答。'
+                  : '開放後，學生填寫頁會先出現「你的指導老師可以查看正式送出的回答」。學生目前組別的指導老師看得到正式版本（草稿不給）；換老師後舊老師就看不到。'}
               </p>
             </div>
             <input type="hidden" name="itemId" value={itemId} />

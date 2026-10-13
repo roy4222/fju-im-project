@@ -3,6 +3,8 @@ import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import {
+  cohortLabel,
+  activityDeleteBlocker,
   isCohortId,
   isRequestId,
   normalizeActivityInput,
@@ -51,11 +53,14 @@ import { RealClock, type Clock } from '@/shared/time'
  *   後到的看到 revision 變了就回 `CONFLICT`。
  * - 活動：`cohorts FOR SHARE`（確認屆別沒被封存），再 `project_events FOR UPDATE`。
  *
+ * 刪除（第三波 W11）只限已取消的活動，打刪除標記（`deleted_at`／`deleted_by_user_id`）不實體刪列；
+ * 被刪的活動在鎖列與所有查詢都當作不存在。
+ *
  * 活動每次異動都在同一筆交易發一個 `calendar.changed` 事件（沒有收件人：站內日曆是查出來的，
  * 產品事件矩陣也沒有活動異動通知）。交易回滾時活動、事件、稽核、帳本一起消失。
  */
 
-type CohortRow = { id: string; code: string; status: CohortStatus; revision: number; year_end_date: string | null }
+type CohortRow = { id: string; code: string; name: string; status: CohortStatus; revision: number; year_end_date: string | null }
 
 type StageRow = { seq: number; name: string; description: string; start_date: string; deadline_version: number }
 
@@ -109,8 +114,14 @@ async function loadStages(db: Pick<Pool, 'query'> | PoolClient, cohortId: string
   return rows.rows.map(toStage)
 }
 
-function archived(code: string): Err {
-  return err('COHORT_ARCHIVED', `${code} 已封存，不能再改階段或活動。`)
+const AUDIT_VERB: Record<Exclude<ActivityReceipt['action'], 'deleted'>, string> = {
+  created: 'create',
+  updated: 'update',
+  cancelled: 'cancel',
+}
+
+function archived(cohort: { readonly name: string; readonly code: string }): Err {
+  return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，不能再改階段或活動。`)
 }
 
 function activityNotFound(): Err {
@@ -163,7 +174,7 @@ export class PgTimelineCommand implements TimelineCommand {
 
     return this.#run(async (tx) => {
       const found = await tx.query<CohortRow>(
-        `select id, code, status, revision, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date
+        `select id, code, name, status, revision, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date
            from cohorts where id = $1 for update`,
         [cohortId],
       )
@@ -184,7 +195,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SaveScheduleReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (cohort.revision !== expectedRevision) return staleRevision()
 
       const current: CohortSchedule = { stages: await loadStages(tx, cohortId, true), yearEndDate: cohort.year_end_date }
@@ -256,7 +267,7 @@ export class PgTimelineCommand implements TimelineCommand {
         },
       })
 
-      const receipt = { cohortId, code: cohort.code, changedStages, requestId, serverTime: realAt.toISOString() }
+      const receipt = { cohortId, code: cohort.code, name: cohort.name, changedStages, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
       return { ok: true as const, receipt }
     })
@@ -296,7 +307,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
 
       const id = uuidv7()
       await tx.query(
@@ -351,7 +362,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
       if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消，不能再改期。')
 
@@ -413,7 +424,7 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
       if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消了。')
 
@@ -440,26 +451,97 @@ export class PgTimelineCommand implements TimelineCommand {
     })
   }
 
+  async deleteActivity(
+    actor: ResolvedActor,
+    activityId: string,
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<ActivityReceipt>> {
+    const denied = authorizeAdmin(actor, '管理活動')
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    if (!isCohortId(activityId)) return activityNotFound()
+    const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockActivity(tx, activityId, true)
+      if (!locked) return activityNotFound()
+      const { cohort, row, deleted } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'cohort.activity.delete',
+          requestId,
+          fingerprint: sha256(canonicalJson({ activityId, expectedRevision })),
+          scope: 'cohort',
+          cohortId: cohort.id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
+      if (deleted) return activityNotFound()
+      if (cohort.status === 'archived') return archived(cohort)
+      if (row.revision !== expectedRevision) return staleRevision()
+      const blocker = activityDeleteBlocker(toActivity(row))
+      if (blocker) return err('VALIDATION_FAILED', blocker)
+
+      await tx.query(
+        `update project_events
+            set deleted_at = $2, deleted_by_user_id = $3, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+          where id = $1`,
+        [activityId, realAt, userId],
+      )
+      await this.#recordChange(tx, {
+        cohortId: cohort.id,
+        activityId,
+        version: row.revision + 1,
+        action: 'deleted',
+        userId,
+        realAt,
+        businessAt,
+        before: toActivity(row),
+        after: null,
+      })
+
+      const receipt = { activityId, title: row.title, action: 'deleted' as const, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { activityId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   async #shareCohort(tx: PoolClient, cohortId: string): Promise<CohortRow | null> {
     const found = await tx.query<CohortRow>(
-      `select id, code, status, revision, null as year_end_date from cohorts where id = $1 for share`,
+      `select id, code, name, status, revision, null as year_end_date from cohorts where id = $1 for share`,
       [cohortId],
     )
     return found.rows[0] ?? null
   }
 
-  /** 先鎖屆別（FOR SHARE）、再鎖活動（FOR UPDATE）：契約 01 §6 的鎖順序。 */
-  async #lockActivity(tx: PoolClient, activityId: string): Promise<{ cohort: CohortRow; row: ActivityRow } | null> {
+  /**
+   * 先鎖屆別（FOR SHARE）、再鎖活動（FOR UPDATE）：契約 01 §6 的鎖順序。
+   * 已刪除的活動當作不存在（不能再改期、取消或刪第二次）；只有刪除自己要先拿到列、讓帳本認出重送（`includeDeleted`）。
+   */
+  async #lockActivity(
+    tx: PoolClient,
+    activityId: string,
+    includeDeleted = false,
+  ): Promise<{ cohort: CohortRow; row: ActivityRow; deleted: boolean } | null> {
     const owner = await tx.query<{ cohort_id: string }>('select cohort_id from project_events where id = $1', [activityId])
     const cohortId = owner.rows[0]?.cohort_id
     if (!cohortId) return null
     const cohort = await this.#shareCohort(tx, cohortId)
     if (!cohort) return null
-    const found = await tx.query<ActivityRow>(`select ${ACTIVITY_COLUMNS} from project_events where id = $1 for update`, [
-      activityId,
-    ])
+    const found = await tx.query<ActivityRow & { deleted: boolean }>(
+      `select ${ACTIVITY_COLUMNS}, deleted_at is not null as deleted from project_events where id = $1 for update`,
+      [activityId],
+    )
     const row = found.rows[0]
-    return row ? { cohort, row } : null
+    if (!row || (row.deleted && !includeDeleted)) return null
+    return { cohort, row, deleted: row.deleted }
   }
 
   /** 活動異動的事件與稽核：跟活動本身在同一筆交易。 */
@@ -502,14 +584,18 @@ export class PgTimelineCommand implements TimelineCommand {
       actorKind: 'user',
       actorUserId: change.userId,
       role: 'admin',
-      action: `cohort.activity.${change.action === 'created' ? 'create' : change.action === 'updated' ? 'update' : 'cancel'}`,
+      // 刪除用第三波的稽核代碼 `activity.deleted`（設計方案 §2）；其他沿用票 11 的代碼。
+      action: change.action === 'deleted' ? 'activity.deleted' : `cohort.activity.${AUDIT_VERB[change.action]}`,
       targetType: 'project_event',
       targetId: change.activityId,
       scope: 'cohort',
       cohortId: change.cohortId,
       realAt: change.realAt,
       businessAt,
-      payload: { before: summary(change.before), after: summary(change.after) },
+      payload:
+        change.action === 'deleted'
+          ? { before: { ...summary(change.before), status: change.before?.status ?? null, cohortId: change.cohortId }, after: null }
+          : { before: summary(change.before), after: summary(change.after) },
     })
   }
 
@@ -538,7 +624,7 @@ export class PgTimelineQuery implements TimelineQuery {
   async activities(cohortId: string): Promise<Activity[]> {
     if (!isCohortId(cohortId)) return []
     const rows = await this.#reader().query<ActivityRow>(
-      `select ${ACTIVITY_COLUMNS} from project_events where cohort_id = $1 order by starts_at, created_at`,
+      `select ${ACTIVITY_COLUMNS} from project_events where cohort_id = $1 and deleted_at is null order by starts_at, created_at`,
       [cohortId],
     )
     return rows.rows.map(toActivity)
@@ -548,7 +634,7 @@ export class PgTimelineQuery implements TimelineQuery {
     // 全天活動存的是當天 00:00、沒有結束時間：算到隔天 00:00 才結束（臺灣沒有日光節約，加一天就是一天）。
     const rows = await this.#reader().query<ActivityRow>(
       `select ${ACTIVITY_COLUMNS} from project_events
-        where audience_kind = 'public' and status = 'scheduled'
+        where audience_kind = 'public' and status = 'scheduled' and deleted_at is null
           and coalesce(ends_at, case when all_day then starts_at + interval '1 day' else starts_at end) >= now()
         order by starts_at, created_at
         limit $1`,
@@ -567,12 +653,12 @@ export class PgTimelineQuery implements TimelineQuery {
     const cohortId = actor.cohortMemberships.find((m) => m.role === 'student')?.cohortId
     if (!cohortId || !isCohortId(cohortId)) return null
     const db = this.#reader()
-    const cohort = await db.query<{ code: string; year_end_date: string | null }>(
-      `select code, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
+    const cohort = await db.query<{ code: string; name: string; year_end_date: string | null }>(
+      `select code, name, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
       [cohortId],
     )
     const row = cohort.rows[0]
     if (!row) return null
-    return { cohortId, cohortCode: row.code, schedule: { stages: await loadStages(db, cohortId), yearEndDate: row.year_end_date } }
+    return { cohortId, cohortCode: row.code, cohortName: row.name, schedule: { stages: await loadStages(db, cohortId), yearEndDate: row.year_end_date } }
   }
 }

@@ -344,6 +344,51 @@ describe('下載：每次重新授權（FIL-03）', () => {
     expect(missingStatements).toEqual(hiddenStatements)
   })
 
+  it('公開讀取例外（第三波 W3）：待審、必須改密的人比照訪客，只拿得到登記成公開的用途裡、政策對訪客放行的檔', async () => {
+    // 首頁大圖：政策只放行「目前首頁用的那一張」。公告附件：假設政策對誰都放行，但這個用途沒登記成公開讀取。
+    const photoRules: UploadRules = { purpose: 'photo', allowedTypes: ['csv'], maxBytes: 1024, scope: { kind: 'global' } }
+    const attachmentRules: UploadRules = { purpose: 'attachment', allowedTypes: ['csv'], maxBytes: 1024, scope: { kind: 'global' } }
+    const current = await ticketFor(adminId, 'hero.csv', photoRules)
+    const old = await ticketFor(adminId, 'old.csv', photoRules)
+    const attachment = await ticketFor(adminId, 'a.csv', attachmentRules)
+    for (const t of [current, old, attachment]) {
+      expect((await storage.upload(adminId, t.ticket, streamOf(CSV), CSV.length)).ok).toBe(true)
+    }
+    const seen: ResolvedActor[] = []
+    const gated = new FsFileStorage({
+      root: () => root,
+      environmentMaxBytes: () => 100 * 1024 * 1024,
+      ticketSecret: () => SECRET,
+      policies: {
+        photo: (a, f) => {
+          seen.push(a)
+          return f.id === current.fileId
+        },
+        attachment: () => true,
+        roster_csv: (a) => rosterAccessDenied(a) === null,
+      },
+      publicReadPurposes: ['photo'],
+      db: () => app,
+    })
+    const pendingUser = actor(studentId, ['student'], 'pending')
+    const mustChange: ResolvedActor = { kind: 'authenticated', userId: studentId, roles: ['student'], status: 'active', mustChangePassword: true, cohortMemberships: [] }
+    const pendingAdmin = actor(adminId, ['admin'], 'pending')
+
+    for (const who of [pendingUser, mustChange, pendingAdmin]) {
+      const got = await gated.authorizeDownload(who, current.fileId)
+      expect(got.ok).toBe(true)
+      if (got.ok) await got.receipt.body.cancel()
+      // 其他首頁大圖、沒登記成公開讀取的用途（即使政策放行）、名單原檔：照舊「無法存取」。
+      expect(await gated.authorizeDownload(who, old.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      expect(await gated.authorizeDownload(who, attachment.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      expect(await gated.authorizeDownload(who, fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    }
+    // 被狀態閘門擋下的人是以訪客的身分問政策，角色帶不進去（待審的管理員不會因為是管理員而多拿到東西）。
+    expect(seen.filter((a) => a.kind !== 'anonymous')).toEqual([])
+    // 不存在的檔：同一句話。
+    expect(await gated.authorizeDownload(pendingUser, '0199a1b2-c3d4-7e5f-8a9b-000000000000')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
   it('還在上傳中的檔案拿不到', async () => {
     const pending = await ticketFor(adminId)
     expect(await storage.authorizeDownload(actor(adminId, ['admin']), pending.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })

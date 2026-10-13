@@ -5,14 +5,15 @@ import { requireRole } from '@/app/_ui/guard'
 import { buttonVariants } from '@/app/_ui/ui/button'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
+import { dueHint } from '@/app/dashboard/student/affairs/due-hint'
 import { STUDENT_TONE_CLASS } from '@/app/dashboard/student/affairs/tone'
 import type { MyItemRow, MyRecordRow } from '@/application/submissions'
 import { getBusinessClock } from '@/composition/cohorts'
-import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
+import { awaitsSubmission, getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute, taipeiDateOf, taipeiDayStart } from '@/shared/time'
 
-export const metadata = { title: '作業區｜資管系專題平台' }
+export const metadata = { title: '我的繳交｜資管系專題平台' }
 
 const TABS = [
   { key: 'all', label: '全部' },
@@ -45,7 +46,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   const items = rows.map((row) => ({ row, status: receiverStatus(row, row, businessNow) }))
   const inTab = (key: TabKey) =>
     items.filter(({ status }) =>
-      key === 'open' ? status.pending : key === 'done' ? status.submitted : key === 'overdue' ? status.overdue : true,
+      key === 'open' ? awaitsSubmission(status) : key === 'done' ? status.submitted : key === 'overdue' ? status.overdue : true,
     )
   const list = inTab(tab)
   const count = (key: TabKey) => inTab(key).length
@@ -54,28 +55,21 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   const groupCode = rows.find((row) => row.groupCode)?.groupCode ?? null
 
   const dueText = (dueAt: Date) => formatTaipeiMinute(dueAt)
-  // 截止欄第二行（原型）：剩幾天／今天截止／逾期幾天／已繳可重送；天數用臺灣日期算（業務時鐘的今天）。
+  // 截止欄第二行：天數用臺灣日期算（業務時鐘的今天）。
   const today = taipeiDayStart(taipeiDateOf(businessNow)).getTime()
   const daysLeft = (dueAt: Date) => Math.round((taipeiDayStart(taipeiDateOf(dueAt)).getTime() - today) / 86_400_000)
-  const dueHint = (dueAt: Date, status: (typeof items)[number]['status']) => {
-    const d = daysLeft(dueAt)
-    if (status.overdue) return { text: `逾期 ${Math.abs(d)} 天`, cls: 'text-destructive' }
-    if (status.submitted) return { text: status.editable ? `剩 ${d} 天可重送` : '已截止', cls: 'text-muted-foreground' }
-    const text = d < 0 ? '已截止' : d === 0 ? '今天截止' : `剩 ${d} 天`
-    return { text, cls: status.pending && d <= 10 ? 'font-semibold text-brand-on-subtle' : 'text-muted-foreground' }
-  }
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
       <div className="flex flex-col gap-5">
         <PageTitle
-          title="作業區"
+          title="我的繳交"
           description={`${groupCode ? `${groupCode}・` : ''}待繳 ${count('open')}・已繳交 ${count('done')}${
             count('overdue') ? `・逾期未繳 ${count('overdue')}` : ''
           }`}
         />
 
-        <Panel title={active.label} description={`${list.length} 件・你在收件名單上的每一份收件、狀態與截止`}>
+        <Panel title={active.label} description={`${list.length} 件・你需要繳交的每一項、狀態與截止`}>
           <nav aria-label="篩選" className="-mx-1 flex gap-1.5 overflow-x-auto border-b border-border/70 px-5 pb-3 [scrollbar-width:none]">
             {TABS.map((t) => {
               const on = t.key === tab
@@ -100,13 +94,13 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
 
           {list.length === 0 ? (
             <PanelEmpty
-              title={tab === 'all' ? '目前沒有要交的收件' : `沒有${active.label}的收件`}
-              hint="系辦發布收件、而且你（或你的組別）在收件名單上時，會出現在這裡；有新收件時通知匣也會有一則。整組一份的收件要先成立組別。"
+              title={tab === 'all' ? '目前沒有要交的項目' : `沒有${active.label}的項目`}
+              hint="系辦發布繳交項目、而且你（或你的組別）在需要繳交的名單上時，會出現在這裡；有新的繳交項目時通知匣也會有一則。整組一份的項目要先成立組別。"
             />
           ) : (
             <>
               {/* 手機：一件一列的卡片 */}
-              <ul className="divide-y divide-border/70 sm:hidden" aria-label="收件列表">
+              <ul className="divide-y divide-border/70 sm:hidden" aria-label="繳交列表">
                 {list.map(({ row, status }) => (
                   <li key={row.itemId} className="flex flex-col gap-2 px-5 py-4">
                     <Link href={`/dashboard/student/affairs/${row.itemId}`} className="text-[15px] font-bold">
@@ -119,7 +113,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                     <div className="flex items-center gap-3">
                       <span className="tabular min-w-0 flex-1 text-[13px] text-muted-foreground">
                         {/* 手機只寫月日（原型）；完整的截止分鐘在內容頁。 */}
-                        {row.dueAt ? `${dueText(row.dueAt).slice(5, 10)} 截止${status.pending ? `・${dueHint(row.dueAt, status).text}` : ''}` : '無截止'}・
+                        {row.dueAt ? `${dueText(row.dueAt).slice(5, 10)} 截止${status.pending ? `・${dueHint(daysLeft(row.dueAt), status).text}` : ''}` : '無截止'}・
                         {unitText(row)}
                       </span>
                       <ActionLink itemId={row.itemId} label={status.action} primary={status.pending} className="h-11" />
@@ -190,7 +184,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
                           {row.dueAt ? (
                             <>
                               <span className="block">{dueText(row.dueAt)}</span>
-                              <span className={cn('block text-[12px]', dueHint(row.dueAt, status).cls)}>{dueHint(row.dueAt, status).text}</span>
+                              <span className={cn('block text-[12px]', dueHint(daysLeft(row.dueAt), status).cls)}>{dueHint(daysLeft(row.dueAt), status).text}</span>
                             </>
                           ) : (
                             <span className="text-muted-foreground">無截止</span>
@@ -221,9 +215,9 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
  */
 function Records({ records }: { records: readonly MyRecordRow[] }) {
   return (
-    <Panel title="我的繳交紀錄（唯讀）" icon={<IconHistory />} description="已經不在你作業區的收件">
+    <Panel title="我的繳交紀錄（唯讀）" icon={<IconHistory />} description="已經不在「我的繳交」裡的項目">
       <p className="px-5 pb-3 text-[13px] text-muted-foreground">
-        已經不在你作業區的收件。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
+        已經不在「我的繳交」裡的項目。離開組別後，只看得到你還在組裡時送出的版本與附件；不能再填寫或送出。
       </p>
       <ul className="divide-y divide-border/70 border-t border-border/70" aria-label="我的繳交紀錄" data-testid="my-records">
         {records.map((r) => (
@@ -231,8 +225,8 @@ function Records({ records }: { records: readonly MyRecordRow[] }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px] font-bold">{r.title}</span>
               <span className="block text-xs text-muted-foreground tabular-nums">
-                {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一版 v
-                {r.latestVersionNo} 於 {formatTaipeiMinute(r.latestReceivedAt)}
+                {r.receiverKind === 'group' ? `整組一份（${r.groupCode ?? ''}）` : '個人一份'}・你看得到 {r.versionCount} 個版本・最後一次是第 {r.latestVersionNo} 次，
+                於 {formatTaipeiMinute(r.latestReceivedAt)} 送出
               </span>
             </span>
             <Link

@@ -63,7 +63,7 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
       const decoded = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
       setText(decoded)
     } catch {
-      setError('這個檔案不是 UTF-8 文字檔。請用記事本另存成 UTF-8 再試一次。')
+      setError('這個檔案的文字編碼不是 UTF-8。請用記事本打開，「另存新檔」時編碼選 UTF-8 再試一次。')
     }
   }
 
@@ -114,7 +114,7 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
 
   return (
     <>
-      <button type="button" onClick={open} className={cn(BUTTON, SECONDARY, 'h-7 px-2.5 text-[0.8rem] font-medium')}>
+      <button type="button" onClick={open} className={cn(BUTTON, DANGER, 'h-9 px-3')}>
         批次停用（TXT）
       </button>
       <dialog
@@ -163,8 +163,11 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
               <div>
                 <h2 className="text-lg font-extrabold text-foreground">批次停用</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  UTF-8 的 TXT，<strong className="font-medium text-foreground">一行一個學號</strong>，可以有空白行，不要加逗號或姓名。
+                  純文字 TXT 檔（存檔時文字編碼選 UTF-8），<strong className="font-medium text-foreground">一行一個學號</strong>，可以有空白行，不要加逗號或姓名。
                   下一步會先預覽，不會馬上停用。
+                  <a href="/samples/批次停用範例.txt" download className="ml-1 font-semibold text-primary hover:underline">
+                    下載範例檔
+                  </a>
                 </p>
               </div>
               <label className="block text-sm font-medium text-foreground">

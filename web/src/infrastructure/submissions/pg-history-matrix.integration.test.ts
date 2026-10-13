@@ -8,13 +8,14 @@ import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type I
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
 import type { ItemInput } from '@/application/items'
-import { completionOf } from '@/application/submissions'
+import { completionOf, receiverStatus } from '@/application/submissions'
 import { PgItemCommand } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
+import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgAdvisorSubmissionQuery } from '@/infrastructure/submissions/pg-advisor-submissions'
 import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
 import { PgRosterQuery } from '@/infrastructure/submissions/pg-roster'
@@ -41,7 +42,9 @@ let storage: FsFileStorage
 let adminId: string
 let t1: string
 let t3: string
-const businessClock = { now: async () => new Date('2026-10-01T02:00:00Z') }
+const BEFORE_DUE = new Date('2026-10-01T02:00:00Z')
+let businessNow = BEFORE_DUE
+const businessClock = { now: async () => businessNow }
 
 let items: PgItemCommand
 let submissions: PgSubmissionCommand
@@ -292,9 +295,10 @@ beforeAll(async () => {
     events: new PgEventPublisher(),
     pool: () => app,
   })
-  query = new PgSubmissionQuery(() => app)
-  rosterQuery = new PgRosterQuery(() => app)
-  advisor = new PgAdvisorSubmissionQuery(() => app)
+  const lateFlags = new PgSubmissionLateFlags(() => app)
+  query = new PgSubmissionQuery(() => app, lateFlags)
+  rosterQuery = new PgRosterQuery(() => app, lateFlags)
+  advisor = new PgAdvisorSubmissionQuery(() => app, lateFlags)
 })
 
 afterAll(async () => {
@@ -323,8 +327,11 @@ describe('1. 全組、目前主指導、系辦看到同一份版本歷史；組�
   })
 
   it('名單頁完成率以組為單位：G1 送兩版、G2 送一版＝2／2；老師看自己的組也同一個口徑', async () => {
-    const { itemId } = await groupScenario()
+    const { cohortId, itemId } = await groupScenario()
+    // 屆別帶名稱（系1）：名單頁頂端標「第 43 屆（代碼）」。
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = $1`, [cohortId])
     const roster = (await rosterQuery.roster(adminActor(), itemId))!
+    expect(roster.item.cohortName).toBe('第 43 屆')
     expect(roster.entries).toHaveLength(2)
     expect(completionOf(roster.item, roster.entries, await businessClock.now())).toMatchObject({ required: 2, done: 2, percent: 100 })
     const mine = (await advisor.item(teacherActor(t1), itemId))!
@@ -425,6 +432,10 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     // T1 在前面的情境也指導過別屆的組；這一屆只有 G1。
     const here = matrix.groups.filter((g) => g.cohortId === cohortId)
     expect(here.map((g) => g.groupId)).toEqual([g1])
+    // 屆別帶名稱（系1）：老師專題事務的組別列標「名稱（代碼）」，不只代碼。
+    expect(here[0]!.cohortName).toBe(here[0]!.cohortCode)
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = $1`, [cohortId])
+    expect((await advisor.matrix(teacherActor(t1)))!.groups.find((g) => g.groupId === g1)!.cohortName).toBe('第 43 屆')
     expect(here[0]!.memberNames).toEqual(expect.arrayContaining(['組長小明', '組員小華']))
     expect(matrix.items.map((i) => i.itemId)).toContain(itemId)
     const cells = matrix.cells.filter((c) => c.itemId === itemId)
@@ -696,5 +707,78 @@ describe('4. 個人回答：老師預設看不到；管理員開主指導閱覽�
     expect((await query.myItems(s1.id)).map((r) => r.itemId)).not.toContain(itemId)
     expect(await query.myRecords(s1.id)).toEqual([expect.objectContaining({ itemId, receiverKind: 'user', receiverId: s1.id, versionCount: 1 })])
     expect((await query.myRecordVersion(s1.id, itemId, s1.id, 1))!.answers).toEqual({ wish: '我的回答' })
+  })
+})
+
+describe('6. 老師名單也認得系辦開放的個別補交（W10b）', () => {
+  const AFTER = new Date('2026-11-16T02:00:00Z') // 臺灣 11/16 10:00，已過 11/15 23:59 截止
+  const REOPENED_TO = new Date('2026-11-17T09:00:00Z') // 臺灣 11/17 17:00
+  const EXPIRED = new Date('2026-11-17T09:01:00Z')
+
+  async function reopen(itemId: string, receiverId: string) {
+    const done = await submissions.reopen(adminActor(), itemId, receiverId, { dueAt: '2026-11-17T17:00', reason: '補交' }, randomUUID())
+    if (!done.ok) throw new Error(`${done.code} ${done.message}`)
+  }
+
+  it('老師名單：補交中、期限未到不算逾期未繳；期限過了仍未交才算（整組一份與個人一份同一個算法）', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId, '補交小明')
+    const s2 = await newStudent(cohortId, '照擋小華')
+    seq += 1
+    const g1 = await newGroup(cohortId, `R1-${seq}`, [s1], t1)
+    const g2 = await newGroup(cohortId, `R2-${seq}`, [s2], t1)
+    const groupItem = await published(cohortId, stageId, { title: '補交整組' })
+    const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '補交個人', fields: PERSONAL_FIELDS })
+    expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
+    await publish(personal.itemId, personal.revision)
+
+    businessNow = AFTER
+    try {
+      for (const [itemId, reopened, other] of [
+        [groupItem, g1, g2],
+        [personal.itemId, s1.id, s2.id],
+      ] as const) {
+        const before = (await advisor.item(teacherActor(t1), itemId))!
+        expect(completionOf(before.item, before.entries, AFTER)).toMatchObject({ required: 2, overdue: 2, pending: 0 })
+
+        await reopen(itemId, reopened)
+        const view = (await advisor.item(teacherActor(t1), itemId))!
+        const byId = new Map(view.entries.map((e) => [e.receiverId, e]))
+        expect(byId.get(reopened)).toMatchObject({ reopenUntil: REOPENED_TO, hasDraft: false })
+        expect(byId.get(other)).toMatchObject({ reopenUntil: null })
+        expect(receiverStatus(view.item, byId.get(reopened)!, AFTER)).toMatchObject({
+          headline: '未繳',
+          overdue: false,
+          detail: '系辦開放補交到 2026/11/17 17:00',
+        })
+        expect(receiverStatus(view.item, byId.get(other)!, AFTER)).toMatchObject({ headline: '逾期未繳', overdue: true })
+        expect(completionOf(view.item, view.entries, AFTER)).toMatchObject({ required: 2, overdue: 1, pending: 1 })
+        // 點進那一位也帶同一個期限。
+        expect((await advisor.receiver(teacherActor(t1), itemId, reopened))!.entry).toMatchObject({ reopenUntil: REOPENED_TO })
+
+        // 補交期限過了還沒交：回到逾期未繳。
+        expect(receiverStatus(view.item, byId.get(reopened)!, EXPIRED)).toMatchObject({ headline: '逾期未繳', overdue: true })
+        expect(completionOf(view.item, view.entries, EXPIRED)).toMatchObject({ overdue: 2, pending: 0 })
+      }
+
+      // 總覽矩陣的格子也同一個判斷：補交中的組不是逾期，期限過了才是。
+      const matrix = (await advisor.matrix(teacherActor(t1)))!
+      const cellOf = (groupId: string) => matrix.cells.find((c) => c.itemId === groupItem && c.groupId === groupId)!
+      expect(cellOf(g1)).toMatchObject({ reopenUntil: REOPENED_TO })
+      expect(cellOf(g2)).toMatchObject({ reopenUntil: null })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g1), hasDraft: false }, AFTER)).toMatchObject({
+        headline: '未繳',
+        overdue: false,
+      })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g1), hasDraft: false }, EXPIRED)).toMatchObject({ overdue: true })
+      expect(receiverStatus(matrix.items.find((i) => i.itemId === groupItem)!, { ...cellOf(g2), hasDraft: false }, AFTER)).toMatchObject({ overdue: true })
+
+      // 補交送出的版本：老師的版本列表與內容也標「補交」。
+      await saveAndSubmit(s1, personal.itemId, { wish: '補交的內容' })
+      expect((await advisor.receiver(teacherActor(t1), personal.itemId, s1.id))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: true })])
+      expect(await advisor.receiverVersion(teacherActor(t1), personal.itemId, s1.id, 1)).toMatchObject({ late: true })
+    } finally {
+      businessNow = BEFORE_DUE
+    }
   })
 })

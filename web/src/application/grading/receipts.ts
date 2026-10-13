@@ -15,8 +15,8 @@ import { formatScore } from '@/shared/score'
 
 export function describeSchemeVersionReceipt(r: SchemeVersionReceipt): string {
   return r.status === 'draft'
-    ? `已建立方案 v${r.versionNo}（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分方案」區塊的「版本紀錄」裡，點開後按 v${r.versionNo} 那列的「發布」（方案已鎖定時那列是「看影響並套用」）。`
-    : `方案 v${r.versionNo} 已發布，老師評分用這一版。`
+    ? `已建立評分規則第 ${r.versionNo} 版（草稿）；按「發布」後老師才會用這一版。「發布」在下方「評分規則」區塊的「版本紀錄」裡，點開後按第 ${r.versionNo} 版那列的「發布」（評分規則已鎖定時那列是「查看重算影響（尚不套用）」）。`
+    : `評分規則第 ${r.versionNo} 版已發布，老師評分用這一版。`
 }
 
 export function describeRequirementReceipt(r: RequirementReceipt): string {
@@ -30,7 +30,7 @@ export function describeAssignEvaluatorReceipt(r: AssignEvaluatorReceipt): strin
 }
 
 export function describeDraftReceipt(r: DraftReceipt): string {
-  return `已暫存（填了 ${r.filled}／${r.total} 項）。暫存只有你和系辦看得到，不算正式分數。`
+  return `已暫存（填了 ${r.filled}／${r.total} 項）。評分草稿只有你和系辦看得到，不算正式分數。`
 }
 
 export function describeFinalReceipt(r: FinalReceipt): string {
@@ -43,7 +43,7 @@ export function describeReturnReceipt(r: ReturnReceipt): string {
 
 export function describeRemoveAssignmentReceipt(r: RemoveAssignmentReceipt): string {
   const who = r.newTeacherName ? `${r.teacherName} 老師 → ${r.newTeacherName} 老師` : `已移除 ${r.teacherName} 老師`
-  const count = r.requiredCount === null ? '' : `；要求份數 ${r.requiredCount}`
+  const count = r.requiredCount === null ? '' : `；每組需要 ${r.requiredCount} 位老師評分`
   return `${r.groupCode}「${r.stageName}」${who}（${REMOVAL_CHOICE_LABEL[r.choice]}${count}）。`
 }
 

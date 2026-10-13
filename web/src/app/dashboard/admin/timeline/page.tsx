@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
 import { BTN_OUTLINE, PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { ActivityActions, ActivityNotice, ActivityNoticeProvider, CreateActivityForm, type AudienceOption } from '@/app/dashboard/admin/timeline/timeline-forms'
+import {
+  ActivityActions,
+  ActivityNotice,
+  ActivityNoticeProvider,
+  CreateActivityForm,
+  DeleteActivityButton,
+  type AudienceOption,
+} from '@/app/dashboard/admin/timeline/timeline-forms'
 import type { TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
 import { AdminTimeline, type AdminStage } from '@/app/dashboard/admin/timeline/timeline-zigzag'
 import {
@@ -42,6 +49,7 @@ export const metadata = { title: '時間軸設定｜資管系專題平台' }
  * 一屆四個階段：只填開始日，下一段開始日就是上一段的結束；另填年度結束日（含當天）。
  * 「現在第幾階段」用業務鐘算——測試站把模擬鐘推開，這裡與三角色首頁一起變。
  * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」。
+ * 刪除已取消的活動（第三波 W11）放在頁面最底下的「危險操作」區（§9 規則 1），不跟改期、取消並列。
  */
 export default async function AdminTimelinePage({
   searchParams,
@@ -140,7 +148,7 @@ export default async function AdminTimelinePage({
     rangeText: current?.range,
     progressText: progress,
   }
-  const meta = `業務時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+  const meta = `系統時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
     schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
   }`
 
@@ -156,7 +164,7 @@ export default async function AdminTimelinePage({
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
-              {c.code}
+              {cohortLabel(c)}
             </Link>
           ))}
         </nav>
@@ -167,8 +175,8 @@ export default async function AdminTimelinePage({
         summary={summary}
         editor={{
           cohortId: cohort.id,
-          // 對話框標題用的屆別顯示名稱「名稱（代碼）」（prop 名沿用 timeline-zigzag 的型別）。
-          cohortCode: label,
+          // 對話框標題用的屆別顯示名稱「名稱（代碼）」。
+          cohortLabel: label,
           revision: cohort.revision,
           requestId: randomUUID(),
           stages: stageDrafts,
@@ -179,7 +187,7 @@ export default async function AdminTimelinePage({
         extraActions={
           businessClockOverrideEnabled() ? (
             <Link href="/dashboard/admin/clock" className={cn(BTN_OUTLINE, 'h-11 px-3.5')}>
-              <IconClock aria-hidden /> 調整模擬業務鐘
+              <IconClock aria-hidden /> 調整模擬時鐘
             </Link>
           ) : null
         }
@@ -243,6 +251,53 @@ export default async function AdminTimelinePage({
             </ul>
           </Panel>
         ) : null}
+      </ActivityNoticeProvider>
+
+      {/* 危險操作（§9 規則 1）：刪除跟日常的改期、取消拉開，放在頁面最底下；自己一個回饋區。
+          該屆沒有活動也照樣渲染這一區：成功句子掛在這一區裡，刪掉最後一個時若整區不見，句子會跟著卸載、看不到「已刪除」。 */}
+      <ActivityNoticeProvider>
+        <Panel
+          title="危險操作"
+          icon={<IconAlertTriangle />}
+          description="刪除後不能恢復"
+          aria-label="危險操作"
+          className="border border-destructive/30"
+        >
+          <div className="space-y-3 border-t border-border px-5 py-3">
+            <p className="text-sm text-muted-foreground">
+              只有已取消的活動可以刪除；刪除後從後台、學生與老師的行事曆、首頁都消失，不能恢復。排定中的請先「取消活動」。
+            </p>
+            <ActivityNotice />
+          </div>
+          {activities.length === 0 ? (
+            <p className="border-t border-border px-5 py-4 text-sm text-muted-foreground">目前沒有活動。</p>
+          ) : (
+            <ul aria-label="活動刪除清單" className="divide-y divide-border border-t border-border">
+              {[...cancelled, ...scheduled].map((activity) => (
+                <li key={activity.id} data-testid="danger-activity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Pill>{activity.status === 'cancelled' ? '已取消' : '已排定'}</Pill>
+                      <span className="font-semibold">{activity.title}</span>
+                      <span className="text-muted-foreground tabular-nums">・{formatActivityWhen(activity)}</span>
+                    </div>
+                    {activity.status === 'scheduled' ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">還在排定中，要先「取消活動」才能刪除。</p>
+                    ) : null}
+                  </div>
+                  <DeleteActivityButton
+                    activityId={activity.id}
+                    title={activity.title}
+                    when={formatActivityWhen(activity)}
+                    revision={activity.revision}
+                    requestId={randomUUID()}
+                    scheduled={activity.status === 'scheduled'}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </ActivityNoticeProvider>
     </>,
     // 新增活動（獨立活動）：原型頁面上的動作都是開對話框；回饋留在按鈕旁邊，不混進活動清單。

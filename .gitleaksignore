@@ -1,0 +1,4 @@
+# S-01: AWS documentation example encoded as base64; sensitive-key test fixture.
+361cf90a4fafeebb127be035855e2cb172f9056c:status/collector/sources.test.mjs:generic-api-key:192
+# S-02: Dummy JWT used by the Access redirect redaction test.
+2ccdfa46175f04e383addb6e60e2345826f87ad2:status/collector/testing/fakes.mjs:jwt:110

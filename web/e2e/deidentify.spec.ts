@@ -69,9 +69,14 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(name)}`)
   // T6 系6：去識別化收在每列的「更多」選單（選單是 portal，項目從整頁找）。
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
-  await page.getByRole('menu').getByRole('menuitem', { name: `去識別化 ${name}` }).click()
-  const dialog = page.getByRole('dialog', { name: `去識別化 ${name}` })
+  await page.getByRole('menu').getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `刪除 ${name} 的個人資料` }).click()
+  const dialog = page.getByRole('dialog', { name: `刪除 ${name} 的個人資料` })
 
+  // 第三波 AC-37：去識別化在「更多」的「危險操作」組；確認視窗寫對象、後果、能不能恢復。
+  const facts = dialog.getByTestId('danger-facts')
+  for (const k of ['對象', '後果', '能不能恢復']) await expect(facts).toContainText(k)
+  await expect(facts).toContainText(name)
+  await expect(facts).toContainText('做了就不能復原')
   // 影響預覽：對象、代稱、會清除、會保留。
   await expect(dialog.getByText(target.email, { exact: true })).toBeVisible()
   await expect(dialog.getByText(studentNo, { exact: true })).toBeVisible()
@@ -79,7 +84,7 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await expect(dialog.getByTestId('deidentify-retained')).toContainText('操作紀錄')
 
   // 沒寫理由、沒照打 Email 之前按不下去；打錯也按不下去。
-  const confirm = dialog.getByRole('button', { name: '確認去識別化' })
+  const confirm = dialog.getByRole('button', { name: '確認刪除個人資料' })
   await expect(confirm).toBeDisabled()
   await dialog.getByLabel(/理由/).fill('本人申請刪除個資')
   await dialog.getByLabel('照打登入 Email 確認').fill('someone-else@example.com')
@@ -87,9 +92,9 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await dialog.getByLabel('照打登入 Email 確認').fill(target.email)
   await confirm.click()
 
-  await expect(dialog.getByRole('status')).toContainText('已去識別化')
+  await expect(dialog.getByRole('status')).toContainText('已刪除個人資料')
   const pseudonym = (await dialog.getByTestId('deidentify-pseudonym').innerText()).trim()
-  expect(pseudonym).toMatch(/^已去識別化使用者 [0-9A-F]{6}$/)
+  expect(pseudonym).toMatch(/^已刪除個資的使用者 [0-9A-F]{6}$/)
   await expect(dialog).not.toContainText(name)
   await dialog.getByRole('button', { name: '關閉' }).click()
 
@@ -98,9 +103,9 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await expect(page.getByText('沒有符合條件的帳號')).toBeVisible()
   await page.goto(`/dashboard/admin/accounts?status=deidentified&q=${encodeURIComponent(pseudonym)}`)
   const row = rowOf(page, pseudonym)
-  await expect(row).toContainText('已去識別化')
+  await expect(row).toContainText('已刪除個人資料')
   await expect(row).not.toContainText(studentNo)
-  await expect(row.getByRole('button', { name: `去識別化 ${pseudonym}` })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `刪除 ${pseudonym} 的個人資料` })).toHaveCount(0)
   await expect(row.getByRole('button', { name: `更多 ${pseudonym}` })).toHaveCount(0)
 
   // 本人舊分頁做下一個動作 → 被帶去登入頁；原 Email 也登入不了。

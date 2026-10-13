@@ -10,6 +10,7 @@ import {
   COHORT_FLAG_LABEL,
   COHORT_NAME_MAX_LENGTH,
   COHORT_STATUS_LABEL,
+  cohortLabel,
   getCohortStatusQuery,
 } from '@/composition/cohorts'
 
@@ -18,7 +19,7 @@ export const metadata = { title: '屆別｜資管系專題平台' }
 /**
  * 屆別頁（票 5）：新增屆別、看狀態、指定「預設工作屆別」與「開放註冊屆別」。
  *
- * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；封存與解封在後面的票。
+ * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；第三波放進表格下方的危險操作區、先確認再送。封存與解封在後面的票。
  */
 export default async function AdminCohortsPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住，App Router 會把 layout 與 page 並行渲染，
@@ -32,6 +33,7 @@ export default async function AdminCohortsPage() {
     id: cohort.id,
     code: cohort.code,
     name: cohort.name,
+    label: cohortLabel(cohort),
     statusLabel: COHORT_STATUS_LABEL[cohort.status],
     canActivate: cohort.status === 'preparing',
     isDefaultWorking: cohort.isDefaultWorking,
@@ -46,24 +48,24 @@ export default async function AdminCohortsPage() {
       <div className="flex flex-col gap-5">
         <PageTitle
           title="屆別"
-          description={`${cohorts.length} 屆・一屆專題從開放註冊到封存的整個流程。預設工作屆別與開放註冊屆別全系各只有一個。`}
+          description={`${cohorts.length} 屆・一屆專題從開放註冊到封存的整個流程。後台預設查看的屆別與新註冊學生加入的屆別，全系各只有一個。`}
         />
 
         {registrationOpen ? null : (
           <div
             role="note"
-            aria-label="尚未設定開放註冊屆別"
+            aria-label="尚未設定新註冊學生加入的屆別"
             className="rounded-[14px] border border-brand/30 bg-brand-subtle px-5 py-3.5 text-sm text-brand-on-subtle"
           >
-            <p className="font-bold">還沒有設定開放註冊屆別</p>
+            <p className="font-bold">還沒有設定新註冊學生加入的屆別</p>
             <p className="mt-1">
-              沒命中名單的註冊者要靠它決定歸到哪一屆；沒有設定時，審核註冊會先請你指定，系統不會自己猜。
-              {cohorts.length === 0 ? '先新增一屆，' : '在下面表格挑一屆，'}按「開放註冊」。
+              不在本屆名單上的註冊者要靠它決定歸到哪一屆；沒有設定時，審核註冊會先請你指定，系統不會自己猜。
+              {cohorts.length === 0 ? '先新增一屆，' : '在下面表格挑一屆，'}按「設為新註冊加入的屆別」。
             </p>
           </div>
         )}
 
-        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別從「籌備中」開始" bodyClassName="px-5 pb-5">
+        <Panel title="新增屆別" icon={<IconPlus />} description="新屆別一開始是「尚未開始（設定中）」" bodyClassName="px-5 pb-5">
           <CreateCohortForm
             requestId={randomUUID()}
             codeMaxLength={COHORT_CODE_MAX_LENGTH}
@@ -74,8 +76,7 @@ export default async function AdminCohortsPage() {
         <Panel title="全部屆別" icon={<IconSchool />} description={`${cohorts.length} 屆`} bodyClassName="p-4">
           <CohortTable rows={rows} flagLabels={COHORT_FLAG_LABEL} />
           <p className="mt-3 text-xs text-muted-foreground">
-            把預設工作屆別或開放註冊屆別交給另一屆時，原本那一屆會自動取消。
-            轉為進行中前，先到「時間軸」設好四個階段與年度結束日。
+            把後台預設查看的屆別或新註冊學生加入的屆別交給另一屆時，原本那一屆會自動取消。
           </p>
         </Panel>
       </div>

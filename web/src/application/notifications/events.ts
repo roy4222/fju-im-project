@@ -24,6 +24,8 @@ export type NotificationKind = 'due' | 'submission' | 'signoff' | 'grading' | 'a
 export type NotificationPresentation = {
   readonly kind: NotificationKind
   readonly defaultTitle: string
+  /** 加在標題前面的標示（例如修改後的通知寫「（已更新）」，跟第一次的通知分得出來）。 */
+  readonly titlePrefix?: string
 }
 
 type CatalogEntry = {
@@ -86,7 +88,7 @@ export const EVENT_CATALOG = {
    */
   'proposal.terminated': {
     consumers: ['notifications'],
-    notification: { kind: 'group', defaultTitle: '分組提案已終止' },
+    notification: { kind: 'group', defaultTitle: '這次組隊沒有成立' },
   },
   /**
    * 管理員加入或移出組員（票 14；產品模組 08 §4「成員加入／移出→異動前後成員的聯集與目前主指導」）。
@@ -139,7 +141,7 @@ export const EVENT_CATALOG = {
    */
   'item.published': {
     consumers: ['notifications'],
-    notification: { kind: 'submission', defaultTitle: '有一份新的收件' },
+    notification: { kind: 'submission', defaultTitle: '有一份新的繳交項目' },
   },
   /**
    * 公告、資源發布（票 15；產品模組 08 §4「重要公告發布→受眾」）：管理員勾「重要」才發，一般公告只留發布紀錄。
@@ -159,10 +161,21 @@ export const EVENT_CATALOG = {
     consumers: ['notifications'],
     notification: { kind: 'submission', defaultTitle: '你的組別已正式送出一份繳交' },
   },
-  /** 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。 */
+  /**
+   * 系辦讓單一學生或單一組補交（第三波 W10）。收件人＝那一位學生；整組一份＝那一組此刻有效、帳號正常的組員。
+   * 其他人不收（其他人的截止規則沒有變）。payload 帶項目 id、標題、補交期限與理由，不帶任何回答。
+   */
+  'submission.reopened': {
+    consumers: ['notifications'],
+    notification: { kind: 'submission', defaultTitle: '系辦開放你補交一份繳交項目' },
+  },
+  /**
+   * 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。
+   * 標題前加「（已更新）」：不然跟第一次發布的通知同標題、只能靠時間分（驗收第 2 章 P-09）。
+   */
   'item.updated': {
     consumers: ['notifications'],
-    notification: { kind: 'system', defaultTitle: '專題事務已更新' },
+    notification: { kind: 'system', defaultTitle: '專題事務已更新', titlePrefix: '（已更新）' },
   },
   /**
    * 撤回、下架、重新發布（票 16；產品模組 04 §4.5）。產品事件矩陣沒有這三種的通知：
@@ -190,7 +203,7 @@ export const EVENT_CATALOG = {
    */
   'grading.override_review': {
     consumers: ['notifications'],
-    notification: { kind: 'grading', defaultTitle: '有一筆成績更正待復核' },
+    notification: { kind: 'grading', defaultTitle: '有一筆成績更正需要重新確認' },
   },
   /**
    * 系辦把老師移出某組某階段的評分指派（含改派時被換掉的原老師；票 24 建事件、票 43 補通知；
@@ -214,7 +227,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.version_created': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '有一份簽核輪到你同意' },
+    notification: { kind: 'signoff', defaultTitle: '有一份站內同意書輪到你同意' },
   },
   /**
    * 簽核版本失效（票 25；模組 07 §3「any→superseded：只標狀態、寫 cause、發事件 signoff.superseded」）。
@@ -224,7 +237,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.superseded': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '有簽核版本已失效，請建立新版' },
+    notification: { kind: 'signoff', defaultTitle: '有一份同意書已作廢，請建立新版' },
   },
   /**
    * 一筆表態（票 26）。`approvals.event_id` 指向它：每一票都有固定的事件 ID（產品「同意紀錄內容」）。
@@ -237,7 +250,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.teacher_turn': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '學生都已同意，輪到你簽核' },
+    notification: { kind: 'signoff', defaultTitle: '學生都已同意，輪到你回覆同意書' },
   },
   /**
    * 簽核完成（票 26；產品模組 08 §4「簽核完成→完成當下的有效參與成員與主指導，每人一則；文案『此版本站內簽核已完成』，
@@ -245,7 +258,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.completed': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '此版本站內簽核已完成' },
+    notification: { kind: 'signoff', defaultTitle: '這一版站內同意書已全員同意' },
   },
   /**
    * 學生不同意或老師退回，版本回到修正中（票 26）。產品 08 矩陣沒有這一列；照 S11-05 暫定的收件人：
@@ -254,12 +267,12 @@ export const EVENT_CATALOG = {
    */
   'signoff.returned': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '簽核版本被退回修正' },
+    notification: { kind: 'signoff', defaultTitle: '有一份同意書被退回修正' },
   },
   /** 管理員提醒未表態者（票 26／S11-11）。收件人＝這一版還沒表態的參與者（含還沒輪到但待簽的老師）。 */
   'signoff.reminded': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '提醒：有一份簽核還等你表態' },
+    notification: { kind: 'signoff', defaultTitle: '提醒：有一份同意書還等你回覆' },
   },
   /**
    * 管理員作廢、重置、重開（票 26）。版本的生命週期紀錄（匯出的「操作歷程」用它的事件 ID）；

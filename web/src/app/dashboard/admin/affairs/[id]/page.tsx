@@ -11,12 +11,12 @@ import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from
 import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
 import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { RosterEntry } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
-import { categoryOf, completionOf, getRosterQuery } from '@/composition/submissions'
-import { formatTaipeiMinute, isDeadlinePassed } from '@/shared/time'
+import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
+import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
-export const metadata = { title: '收件名單｜資管系專題平台' }
+export const metadata = { title: '繳交名單｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LISTS: readonly ListKey[] = ['current', 'exempt', 'removed']
@@ -33,7 +33,8 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 點一個人（`?person=`）看名單紀錄與每一次正式送出；再點一次（`&version=`）看那一次的回答（唯讀）。
  *   已移出的人回答保留，一樣點得進去。草稿內容不在這裡顯示，只標「有草稿、最後儲存時間」。
  * - 只有系辦管理員看得到：頁面守角色，查詢本身再判一次（老師、學生拿到的是 null → 404）。
- *   免填、移出、加回、個別重開、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ *   免填、移出、加回、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ * - 讓單一學生或單一組補交（第三波 W10）：截止後在點進去的那一位畫面按「讓他補交」，填期限與理由；只通知那一位。
  * - 整組一份（票 21）：名單三類列組別；完成率以組為單位（同組誰送都算一份）；點一組看它每一次正式送出與附件。
  * - 個人一份（票 22）：右欄多一塊「主指導閱覽」開關（SUB-24）；已經有人作答就不能開。
  */
@@ -69,7 +70,7 @@ export default async function RosterPage({
           <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}`} label="專題事務" />
           <div>
             <p className="text-xs font-semibold text-muted-foreground">
-              {item.cohortCode}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
+              {cohortLabel({ name: item.cohortName, code: item.cohortCode })}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
               {item.stageName ? `・${item.stageName}` : ''}
             </p>
             <PageTitle
@@ -80,10 +81,10 @@ export default async function RosterPage({
                   {item.dueAt ? (
                     <Pill tone={overdue ? 'danger' : 'brand'}>
                       <IconClock aria-hidden />
-                      {overdue ? '已截止' : '收件中'}・{formatTaipeiMinute(item.dueAt)}
+                      {overdue ? '已截止' : '開放繳交中'}・{formatTaipeiMinute(item.dueAt)}
                     </Pill>
                   ) : null}
-                  {item.schemaVersionNo ? <Pill>欄位 v{item.schemaVersionNo}</Pill> : null}
+                  {item.schemaVersionNo ? <Pill>表單第 {item.schemaVersionNo} 版</Pill> : null}
                   <Link href={`/dashboard/admin/editor/${item.itemId}`} className={BTN_INK}>
                     編輯內容
                   </Link>
@@ -100,7 +101,10 @@ export default async function RosterPage({
   // 點一個人（整組一份：一組）：名單紀錄＋每一次正式送出；帶版本號就看那一次的內容。
   if (personId) {
     if (!UUID.test(personId)) notFound()
-    const detail = await rosterQuery.receiver(actor, item.itemId, personId)
+    const [detail, reopens] = await Promise.all([
+      rosterQuery.receiver(actor, item.itemId, personId),
+      getSubmissionQuery().reopens(actor, item.itemId, personId),
+    ])
     if (!detail) notFound()
     const version =
       Number.isInteger(versionNo) && versionNo > 0
@@ -111,7 +115,24 @@ export default async function RosterPage({
       version ? (
         <VersionView base={base} detail={detail} version={version} />
       ) : (
-        <ReceiverView base={base} detail={detail} window={item} businessNow={businessNow} />
+        <ReceiverView
+          base={base}
+          detail={detail}
+          window={item}
+          businessNow={businessNow}
+          reopens={reopens ?? []}
+          reopen={
+            // 讓他補交（W10）：已截止、發布中、還在目前名單上（不是免填、沒被移出）才能開。
+            overdue && item.status === 'published' && categoryOf(detail.entry) === 'current'
+              ? {
+                  itemId: item.itemId,
+                  receiverId: personId,
+                  defaultDueAt: `${addTaipeiDays(taipeiDateOf(businessNow), 1)}T17:00`,
+                  requestId: randomUUID(),
+                }
+              : null
+          }
+        />
       ),
     )
   }
@@ -137,8 +158,8 @@ export default async function RosterPage({
     return shell(
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <EmptyState
-          title="還沒發布，還沒有收件名單"
-          description="發布時才依對象建立收件名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
+          title="還沒發布，還沒有需要繳交的名單"
+          description="發布時才依「誰看得到」的設定建立需要繳交的名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
           action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
         />
         {visibilityPanel}

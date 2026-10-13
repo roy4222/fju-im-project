@@ -376,7 +376,7 @@ describe('逐人表態與老師最後同意（SGN-02、03、04、07）', () => {
     expect(adminProgress.agreed).toBe(2)
     expect(mine.progress).toEqual(adminProgress)
     expect(teacherCard.current.progress).toEqual(adminProgress)
-    expect(adminProgress.missing).toEqual([...s.members.slice(2).map((m) => m.name), `${s.teacher.name}（主指導）`])
+    expect(adminProgress.missing).toEqual([...s.members.slice(2).map((m) => m.name), `${s.teacher.name}（指導老師）`])
     expect(mine.viewer).toMatchObject({ role: 'student', voted: 'agree', canRespond: false })
     const other = (await query.studentView(student(s.members[3]!))).versions[0]!
     expect(other.viewer).toMatchObject({ role: 'student', voted: null, canRespond: true })
@@ -780,12 +780,12 @@ describe('匯出（S11-09、SGN-11）', () => {
     if (!r.ok) throw new Error(r.message)
     const html = r.receipt.body
     expect(r.receipt.mime).toContain('text/html')
-    expect(html).toContain('站內內容確認與同意紀錄，行政採認待確認')
+    expect(html).toContain('站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認')
     expect(html).toContain('<p>同意書全文</p>')
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img src=x')
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
-    expect(html).toContain('已失效（系辦重置）')
+    expect(html).toContain('已被新版取代（系辦重置）')
     expect(html).toContain('系辦重開新版')
     for (const m of s.members) expect(html).toContain(m.name)
   })

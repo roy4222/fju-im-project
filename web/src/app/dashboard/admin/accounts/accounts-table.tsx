@@ -3,11 +3,18 @@ import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import { IconDots, IconDownload } from '@tabler/icons-react'
 import { BulkBar, DataTableFrame, DataTableToolbar, DT, EmptyRow, SortLink } from '@/app/_ui/data-table'
 import { Pill } from '@/app/_ui/dashboard/primitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/app/_ui/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/app/_ui/ui/dropdown-menu'
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
-import { BulkDisableDialog } from './bulk-disable-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type DialogOpener, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
@@ -36,7 +43,6 @@ export type AccountsTableProps = {
   readonly statusLabel: Record<AccountStatus, string>
   readonly roleLabel: Record<Role, string>
   readonly sortHeaders: Record<DirectorySort, SortHeader>
-  readonly bulkMaxChars: number
   /** 票 8 的「發臨時密碼」對話框要用的核實方式標籤（app 對 application 只能帶型別，值由頁面傳進來）。 */
   readonly verificationLabels: VerificationLabels
   /** 工具列左邊（搜尋框與篩選鈕，伺服器組好傳進來）。 */
@@ -124,7 +130,7 @@ export function AccountsTable(props: AccountsTableProps) {
 
   return (
     <div className="space-y-3">
-      {/* 原型 Data Table 的工具列：搜尋、篩選鈕（頁面給），右邊是整份匯出與批次停用。 */}
+      {/* 原型 Data Table 的工具列：搜尋、篩選鈕（頁面給），右邊是整份匯出（批次停用在頁面底部的「危險操作」區，驗收 P-06）。 */}
       <DataTableToolbar>
         {toolbar}
         <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -137,7 +143,6 @@ export function AccountsTable(props: AccountsTableProps) {
             <IconDownload aria-hidden />
             匯出全部篩選結果（{total} 筆）
           </button>
-          <BulkDisableDialog maxChars={props.bulkMaxChars} />
         </span>
       </DataTableToolbar>
 
@@ -250,7 +255,7 @@ export function AccountsTable(props: AccountsTableProps) {
                           title="只有登入身分：沒有角色、沒有註冊申請、沒有個人資料"
                           data-testid="orphan-badge"
                         >
-                          孤兒帳號
+                          未設定身分
                         </span>
                       ) : null}
                     </span>
@@ -258,7 +263,7 @@ export function AccountsTable(props: AccountsTableProps) {
                   <td className={cn(DT.td, 'tabular whitespace-nowrap text-muted-foreground')}>{taipeiDateOf(new Date(r.createdAt))}</td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>
                     <span className="flex items-center gap-1">
-                      {/* T6 系6：列上只留常用的「發臨時密碼」「停用／啟用」；少用與危險的操作收進「更多」。 */}
+                      {/* T6 系6：列上只留常用的「發臨時密碼」「恢復」；少用與危險的操作（停用、去識別化）收進「更多」。 */}
                       {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
                       {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (
                         <TemporaryPasswordDialog
@@ -266,8 +271,8 @@ export function AccountsTable(props: AccountsTableProps) {
                           target={{ userId: r.userId, name: r.name, email: r.loginEmail, roles: r.roles, status: r.status }}
                         />
                       ) : null}
-                      {(r.status === 'active' || r.status === 'disabled' || (r.status === 'pending' && r.orphan)) &&
-                      r.userId !== currentUserId ? (
+                      {/* 第三波 AC-37：「停用」收進「更多」的危險操作；列上只留「恢復」。 */}
+                      {r.status === 'disabled' && r.userId !== currentUserId ? (
                         <StatusDialog
                           account={{
                             userId: r.userId,
@@ -301,7 +306,7 @@ function cohortText(r: AccountRow): string {
 }
 
 /**
- * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員、去識別化。
+ * 列上的「更多」選單（T6 系6）：補建角色、設為／取消管理員；停用、去識別化另成「危險操作」一組（第三波 AC-37）。
  * 對話框留在列上（選單關掉就消失，放不進去），選單項只負責打開；一個項目都沒有就不顯示「更多」。
  * 自己那一列由呼叫端擋掉；已去識別化的列一律沒有「更多」。
  */
@@ -310,6 +315,7 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
   const grantRef = useRef<DialogOpener>(null)
   const revokeRef = useRef<DialogOpener>(null)
   const deidentifyRef = useRef<DialogOpener>(null)
+  const disableRef = useRef<DialogOpener>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   // 票 10b：孤兒帳號先補建角色（或停用）。
@@ -319,7 +325,9 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
   const canGrant = r.status === 'active' && !r.orphan && !r.roles.includes('admin') && !r.roles.includes('student')
   // 票 40：去識別化（已核准或已停用；前置條件與二次確認在對話框與伺服器）。
   const canDeidentify = r.status === 'active' || r.status === 'disabled'
-  if (r.status === 'deidentified' || (!canRepair && !canRevoke && !canGrant && !canDeidentify)) return null
+  // 票 9／10b：已核准的人與孤兒帳號可以停用（停用的人在列上按「恢復」）。
+  const canDisable = r.status === 'active' || (r.status === 'pending' && r.orphan)
+  if (r.status === 'deidentified' || (!canRepair && !canRevoke && !canGrant && !canDeidentify && !canDisable)) return null
 
   const target = roleTarget(r, roleLabel)
   // 等選單關完再開對話框，焦點才會留在對話框裡。開之前先把焦點放回「更多」：
@@ -347,8 +355,8 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
         />
         <DropdownMenuContent align="end" className="w-40">
           {canRepair ? (
-            <DropdownMenuItem aria-label={`補建角色 ${r.name}`} onClick={later(orphanRef)}>
-              補建角色
+            <DropdownMenuItem aria-label={`補上身分 ${r.name}`} onClick={later(orphanRef)}>
+              補上身分
             </DropdownMenuItem>
           ) : null}
           {canGrant ? (
@@ -361,12 +369,23 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
               取消管理員
             </DropdownMenuItem>
           ) : null}
-          {canDeidentify ? (
+          {canDisable || canDeidentify ? (
             <>
               {canRepair || canGrant || canRevoke ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuItem variant="destructive" aria-label={`去識別化 ${r.name}`} onClick={later(deidentifyRef)}>
-                去識別化
-              </DropdownMenuItem>
+              {/* 第三波 §9 規則 1、AC-37：停用、去識別化在選單裡另成「危險操作」一組；對象、後果、能不能恢復寫在對話框。 */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>危險操作</DropdownMenuLabel>
+                {canDisable ? (
+                  <DropdownMenuItem variant="destructive" aria-label={`停用 ${r.name}`} onClick={later(disableRef)}>
+                    停用
+                  </DropdownMenuItem>
+                ) : null}
+                {canDeidentify ? (
+                  <DropdownMenuItem variant="destructive" aria-label={`刪除 ${r.name} 的個人資料`} onClick={later(deidentifyRef)}>
+                    刪除個人資料
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
             </>
           ) : null}
         </DropdownMenuContent>
@@ -374,6 +393,12 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
       {canRepair ? <OrphanRepairDialog account={target} opener={orphanRef} /> : null}
       {canGrant ? <AdminRoleDialog account={target} mode="grant" opener={grantRef} /> : null}
       {canRevoke ? <AdminRoleDialog account={target} mode="revoke" opener={revokeRef} /> : null}
+      {canDisable ? (
+        <StatusDialog
+          account={{ userId: r.userId, name: r.name, loginEmail: r.loginEmail, studentNo: r.studentNo, status: r.status === 'active' ? 'active' : 'pending' }}
+          opener={disableRef}
+        />
+      ) : null}
       {canDeidentify ? <DeidentifyDialog account={{ userId: r.userId, name: r.name }} opener={deidentifyRef} /> : null}
     </>
   )

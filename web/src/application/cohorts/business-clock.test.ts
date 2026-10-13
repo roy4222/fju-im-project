@@ -27,6 +27,7 @@ describe('normalizeClockInput', () => {
     expect(normalizeClockInput({ businessAt: '2027-03-01T10:00:00', reason: '  ' })).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
+      message: '請填原因：為什麼要調整模擬時鐘。',
       details: { field: 'reason' },
     })
   })

@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { IconChecklist, IconPaperclip } from '@tabler/icons-react'
+import { redirect } from 'next/navigation'
+import { IconPaperclip } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
@@ -8,6 +9,7 @@ import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
 import { GradingQueue } from '@/app/dashboard/teacher/grading/queue'
 import { QueueSelect } from '@/app/dashboard/teacher/grading/queue-select'
+import { cohortLabel } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
@@ -16,10 +18,10 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 export const metadata = { title: '評閱桌｜資管系專題平台' }
 
 /**
- * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的評分佇列（手機收成下拉），右邊是這一組的評分表。
+ * 老師的評閱桌（票 23；票 37 照原型 `/dashboard/teacher/grading/[groupId]`）：左邊是本人的待評分清單（手機收成下拉），右邊是這一組的評分表。
  *
- * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束）就只顯示「你沒有被指派評這一組」，
- * 不透露這一組的任何評分資料。同一組被指派多個階段時，用評分表上方的階段切換。
+ * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束、組別不存在）一律導到 `/403`「找不到這個頁面」，
+ * 不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個階段時，用評分表上方的階段切換。
  *
  * 票 24：
  * - 被系辦退回、還沒重新送出：評分表上方顯示退回理由與時間，退回前的分數預填回表單，改完再正式送出。
@@ -35,31 +37,21 @@ export default async function TeacherGradingGroupPage({
 }) {
   const { groupId } = await params
   const actor = await requireRole(`/dashboard/teacher/grading/${groupId}`, 'teacher')
-  const [bench, queue] = await Promise.all([getGradingQuery().teacherBench(actor, groupId), getGradingQuery().teacherQueue(actor)])
+  // 先判斷有沒有有效指派（teacherBench 第一個查詢就是指派），沒有就導走，其他什麼都不讀。
+  const bench = await getGradingQuery().teacherBench(actor, groupId)
+  if (!bench.ok) redirect('/403')
+  const queue = await getGradingQuery().teacherQueue(actor)
 
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/grading">
       <div className="flex flex-col gap-5">
-        <PageTitle title="評分工作台" description="只有你被指派的組別。暫存只有你和系辦看得到，正式送出後鎖定。" />
+        <PageTitle title="我的評分" description="只有你被指派的組別。評分草稿只有你和系辦看得到，正式送出後鎖定。" />
         {children}
       </div>
     </DashboardShell>
   )
 
-  if (!bench.ok) {
-    return shell(
-      <Panel title="評分表" icon={<IconChecklist />}>
-        <PanelEmpty
-          icon={<IconChecklist />}
-          title="你沒有被指派評這一組"
-          hint={bench.message}
-          action={{ href: '/dashboard/teacher/grading', label: '回評分工作台' }}
-        />
-      </Panel>,
-    )
-  }
-
-  const { entries, groupCode, cohortCode, memberNames, versionNo } = bench.receipt
+  const { entries, groupCode, cohortCode, cohortName, memberNames, versionNo } = bench.receipt
   const search = await searchParams
   const wanted = search.stage
   const entry = entries.find((e) => e.stage.key === wanted) ?? entries[0]!
@@ -107,7 +99,7 @@ export default async function TeacherGradingGroupPage({
           finalScore={entry.finalScore}
           submittedAtText={entry.submittedAt ? formatTaipeiSecond(entry.submittedAt) : null}
           draftFromOlderVersion={entry.draftFromOlderVersion}
-          eyebrow={`${cohortCode}・${entry.stage.name}・方案 v${versionNo}`}
+          eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
           members={memberNames.join('、')}
         >
           {entries.length > 1 ? (
@@ -135,13 +127,13 @@ export default async function TeacherGradingGroupPage({
           ) : null}
         </GradingBench>
 
-        <Panel title="本組正式繳交" icon={<IconPaperclip />} description="評分用：每份整組收件最新一次正式送出">
+        <Panel title="本組正式繳交" icon={<IconPaperclip />} description="評分用：每個整組繳交項目最新一次正式送出的版本">
           {opened ? (
             <div className="border-t border-border px-5 py-4">
               <VersionContent version={opened} backHref={benchHref} backLabel="本組正式繳交" title={`${groupCode} 組`} />
             </div>
           ) : latestByItem.length === 0 ? (
-            <PanelEmpty icon={<IconPaperclip />} title="這一組還沒有正式送出任何整組收件" hint="草稿看不到；附件每次下載都重新確認你還是評分老師。" />
+            <PanelEmpty icon={<IconPaperclip />} title="這一組還沒有正式送出任何整組繳交項目" hint="草稿看不到；附件每次下載都重新確認你還是評分老師。" />
           ) : (
             <ul className="divide-y divide-border">
               {latestByItem.map((v) => (

@@ -6,7 +6,7 @@ import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { OUTLINE_BUTTON_SM, PageTitle, Panel, PanelEmpty, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { MatrixTable, type MatrixCell, type MatrixItem, type MatrixRow } from '@/app/dashboard/teacher/affairs/matrix-table'
 import type { AdvisorMatrixCell, AdvisorMatrixItem, StatusTone } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { GROUP_TYPE_LABEL } from '@/composition/groups'
 import { categoryOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -41,7 +41,7 @@ export default async function TeacherAffairsPage() {
   const rows: MatrixRow[] = groups.map((group) => ({
     groupId: group.groupId,
     code: group.code,
-    meta: `${group.cohortCode}・${GROUP_TYPE_LABEL[group.groupType]}`,
+    meta: `${cohortLabel({ name: group.cohortName, code: group.cohortCode })}・${GROUP_TYPE_LABEL[group.groupType]}`,
     members: group.memberNames.join('、'),
     cells: Object.fromEntries(
       items.map((item) => [
@@ -56,26 +56,26 @@ export default async function TeacherAffairsPage() {
       <div className="flex flex-col gap-5">
         <PageTitle
           title="各組繳交狀態"
-          description={`我的 ${groups.length} 個指導組別 × ${items.length} 個整組收件。點狀態看每一次正式送出的版本與內容。`}
+          description={`我的 ${groups.length} 個指導組別 × ${items.length} 個整組繳交項目。點狀態看每一次正式送出的版本與內容。`}
         />
 
-        <Panel title="繳交矩陣" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName={groups.length > 0 && items.length > 0 ? 'p-4' : undefined}>
+        <Panel title="各組繳交總表" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName={groups.length > 0 && items.length > 0 ? 'p-4' : undefined}>
           {groups.length === 0 ? (
             <PanelEmpty
               icon={<IconClipboardText />}
               title="你目前沒有指導的組別"
-              hint="系辦指派或你在「分組總覽」認領產學組之後，那些組的繳交狀態會出現在這裡。換老師後，原本的組就不會再出現。"
+              hint="系辦指派或你在「分組總覽」擔任產學組指導老師之後，那些組的繳交狀態會出現在這裡。換老師後，原本的組就不會再出現。"
               action={{ href: '/dashboard/teacher/groups', label: '到分組總覽' }}
             />
           ) : items.length === 0 ? (
-            <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的收件" hint="系辦發布整組一份的收件之後，會在這裡列出你指導的每一組交了沒。" />
+            <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的繳交項目" hint="系辦發布整組一份的繳交項目之後，會在這裡列出你指導的每一組交了沒。" />
           ) : (
             <MatrixTable items={matrixItems} rows={rows} />
           )}
         </Panel>
 
         {individual.length > 0 ? (
-          <Panel title="開放主指導閱覽的個人收件" icon={<IconUser />} description="只看得到你指導的學生正式送出的回答，草稿不給">
+          <Panel title="開放指導老師閱覽的個人繳交項目" icon={<IconUser />} description="只看得到你指導的學生正式送出的回答，草稿不給">
             <ul className="divide-y divide-border" data-testid="individual-items">
               {individual.map((item) => (
                 <li key={item.itemId} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-accent/40">
@@ -105,13 +105,16 @@ export default async function TeacherAffairsPage() {
 function cellView(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixCell | undefined, businessNow: Date): MatrixCell {
   if (!cell) return null
   const category = categoryOf(cell)
-  const status = receiverStatus(item, { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }, businessNow)
-  const headline = category === 'removed' ? '已移出名單' : status.headline
+  // 個別補交期限（W10b）跟名單同一個判斷：補交中、期限未到是「未繳」＋「系辦開放補交到…」，過了仍未交才逾期。
+  const facts = { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }
+  const status = receiverStatus(item, { ...facts, reopenUntil: cell.reopenUntil }, businessNow)
+  const reopened = cell.latestVersionNo === null && !status.overdue && receiverStatus(item, facts, businessNow).overdue
+  const headline = category === 'removed' ? '已不需要繳交（原名單移除）' : status.headline
   const tone: PillTone = category === 'current' ? TONE[status.tone] : 'default'
   let detail = ''
   if (cell.latestVersionNo !== null && cell.latestReceivedAt) {
     detail = `${cell.latestSubmittedByName ?? ''}・${formatTaipeiMinute(cell.latestReceivedAt)}`
-  } else if (category === 'current' && status.headline === '尚未開放') {
+  } else if (category === 'current' && (reopened || status.headline === '尚未開放')) {
     detail = status.detail
   } else if (category === 'current' && !status.overdue) {
     detail = '還沒正式送出'

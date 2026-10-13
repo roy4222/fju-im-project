@@ -84,7 +84,7 @@ export function cohortProgress(ctx: StageContext): number | null {
 /** 「現在是『階段 2：期中』。」這一句裡的階段字（e2e 用 `stage-text` 斷言）。 */
 function StageSentence({ ctx, perspective }: { ctx: StageContext; perspective: 'student' | 'staff' }) {
   if (!ctx.cohort || !ctx.position) {
-    return <>{perspective === 'student' ? '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。' : '還沒有設定預設工作屆別；到「屆別」頁指定後，這裡會顯示現在的階段。'}</>
+    return <>{perspective === 'student' ? '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。' : '還沒有設定後台預設查看的屆別；到「屆別」頁指定後，這裡會顯示現在的階段。'}</>
   }
   const p = ctx.position
   return (
@@ -194,7 +194,7 @@ export function HomeHero({
             {progress !== null ? (
               <div className="min-w-[220px] flex-1">
                 <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80">
-                  <span>{ctx.cohort?.code} 本屆進度</span>
+                  <span>{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆進度</span>
                   <span className="text-[15px] font-extrabold text-white tabular-nums">{progress}%</span>
                 </div>
                 {/* 進度條用 SVG 屬性畫寬度：正式站 CSP 不收 style 屬性。 */}
@@ -209,9 +209,10 @@ export function HomeHero({
         ) : null}
 
         {showStages && schedule?.yearEndDate && schedule.stages.length > 0 ? (
-          <div>
-            <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort?.code} 本屆階段</p>
-            <ol aria-label="本屆階段" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          // 欄數看這一欄自己的寬度（container query），不看視窗：1280 寬時旁邊還有右欄，這一欄其實很窄（N-07）。
+          <div className="@container">
+            <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆階段</p>
+            <ol aria-label="本屆階段" className="grid grid-cols-2 gap-2 @xl:grid-cols-4">
               {schedule.stages.map((stage, index) => (
                 <li
                   key={stage.seq}
@@ -221,10 +222,11 @@ export function HomeHero({
                     stage.seq === currentSeq ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white/90',
                   )}
                 >
-                  <p className="font-semibold">
+                  {/* 名稱不在詞中間斷行；名稱（最多 20 字）真的比一格還寬時才折，不溢出。 */}
+                  <p className="font-semibold break-keep wrap-anywhere">
                     {stage.seq}. {stage.name}
                   </p>
-                  <p className="text-[11px] tabular-nums opacity-80">
+                  <p className="text-[11px] whitespace-nowrap tabular-nums opacity-80">
                     {formatTaipeiDate(stage.startDate).slice(5)} – {formatTaipeiDate(stageLastDate(schedule.stages, schedule.yearEndDate!, index)).slice(5)}
                   </p>
                 </li>
@@ -254,7 +256,11 @@ export function HomeHero({
         ) : null}
       </div>
       {icon ? (
-        <div className="hidden w-[260px] shrink-0 items-center justify-center pr-6 md:flex" aria-hidden>
+        // 有「本屆階段」時插圖到很寬才出現：它占 260px，1280 寬時會把階段小卡擠到一個字一行（N-07）。
+        <div
+          className={cn('hidden w-[260px] shrink-0 items-center justify-center pr-6', showStages && schedule?.stages.length ? '2xl:flex' : 'md:flex')}
+          aria-hidden
+        >
           <span className="spot size-[150px] [&_svg]:size-16">{icon}</span>
         </div>
       ) : null}

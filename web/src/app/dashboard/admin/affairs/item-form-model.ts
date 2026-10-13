@@ -1,4 +1,5 @@
 import type { FormField } from '@/application/items'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 專題事務編輯器的資料形狀與純函式（票 15）。**不是** Client Component：
@@ -62,8 +63,15 @@ export type EditorState = {
   /** 競賽資訊的報名截止日與活動日（`YYYY-MM-DD`；空＝沒填）。 */
   registrationDeadline: string
   eventDate: string
+  /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台用發布日）。 */
+  awardedOn: string
   fields: FieldDraft[]
 }
+
+/** 榮譽榜位置（第三波 W1）：對象固定公開訪客、不收件、不發通知。 */
+export const HONOR = 'honor'
+/** 榮譽固定的對象。 */
+export const HONOR_AUDIENCE = 'public'
 
 let fieldSeq = 0
 /** 欄位代號：`f` 開頭、小寫英數，瀏覽器端產生，伺服器再驗一次格式與唯一。 */
@@ -110,8 +118,9 @@ export function toPayload(state: EditorState) {
     category: state.category,
     coverFileId: state.cover?.fileId ?? null,
     attachmentFileIds: state.attachments.map((a) => a.fileId),
-    audienceKind: state.audienceKind,
-    groupIds: state.audienceKind === 'groups' ? state.groupIds : [],
+    // 榮譽榜是公開頁：對象一律公開訪客（畫面也鎖住，這裡再保證一次）。
+    audienceKind: state.placement === HONOR ? HONOR_AUDIENCE : state.audienceKind,
+    groupIds: state.placement !== HONOR && state.audienceKind === 'groups' ? state.groupIds : [],
     receiverUnit: collects ? state.receiverUnit : 'none',
     stageId: collects && state.stageId ? state.stageId : null,
     opensAt: collects ? state.opensAt : '',
@@ -119,6 +128,8 @@ export function toPayload(state: EditorState) {
     // 只有「公告＋分類競賽資訊」會留（伺服器再判一次；不是就清掉）。
     registrationDeadline: state.placement === 'news' ? state.registrationDeadline : '',
     eventDate: state.placement === 'news' ? state.eventDate : '',
+    // 得獎日期只有榮譽會留（伺服器再判一次）。
+    awardedOn: state.placement === HONOR ? state.awardedOn : '',
     fields: collects
       ? state.fields.map((f) => ({
           key: f.key,
@@ -137,9 +148,18 @@ export function newRequestId(): string {
   return crypto.randomUUID()
 }
 
-export function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`
-  return `${bytes} B`
-}
+/** 附件大小的顯示字：全站同一套（KB／MB，見 `shared/format-bytes.ts`）。 */
+export const formatSize = formatBytes
 
+
+// ── 發布前「會通知幾位」的說明 ─────────────────────────────────────────────────
+
+/** 這次送出什麼情況會發通知：新公告／資源看「重要公告」、已發布的修改看「通知這次的修改」、榮譽榜一律不發。 */
+export type NotifyWhen = 'important' | 'update' | 'never'
+
+/** 公告／資源的人數說明（驗收第 2 章 P-06）：照實寫出「勾了才通知」，不要讓人以為一定會通知。 */
+export function notifyPreviewText(count: number, when: NotifyWhen): string {
+  if (when === 'never') return '榮譽榜不發站內通知。'
+  if (count <= 0) return '這個對象目前沒有可以通知的人。'
+  return when === 'important' ? `若勾選「重要公告」，會通知 ${count} 位。` : `若勾選通知這次的修改，會通知 ${count} 位。`
+}

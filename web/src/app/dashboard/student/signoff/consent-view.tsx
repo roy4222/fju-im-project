@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { IconCheck, IconClock, IconDownload, IconFileText, IconFileTypePdf, IconSignature, IconUsersGroup, IconX } from '@tabler/icons-react'
 import { Panel, Ring } from '@/app/_ui/dashboard-primitives'
+import { newerVersionNo } from '@/app/dashboard/_signoff/state-label'
 import { Invalidated, StateBadge } from '@/app/dashboard/_signoff/version-view'
 import type { VersionDetail } from '@/application/signoff'
 import { ACCEPTANCE_NOTICE, PURPOSE_LABEL, VOTE_RESULT_LABEL } from '@/composition/signoff'
@@ -19,10 +20,10 @@ export function ConsentVersion({ v, action }: { v: VersionDetail; action: ReactN
   const scope = v.authorizationScope
   return (
     <article
-      aria-label={`${v.groupCode} ${PURPOSE_LABEL[v.purpose]} v${v.versionNo}`}
+      aria-label={`${v.groupCode} ${PURPOSE_LABEL[v.purpose]} 第 ${v.versionNo} 版`}
       className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]"
     >
-      <Panel title={`${v.groupCode}・${PURPOSE_LABEL[v.purpose]}・v${v.versionNo}`} icon={<IconFileText />} action={<StateBadge state={v.state} />}>
+      <Panel title={`${v.groupCode}・${PURPOSE_LABEL[v.purpose]}・同意書第 ${v.versionNo} 版`} icon={<IconFileText />} action={<StateBadge state={v.state} cause={v.cause} newerVersionNo={newerVersionNo(v.versionNo, v.history)} />}>
         {v.state === 'revision' || v.state === 'superseded' || v.state === 'void' || (!v.isCurrent && v.state === 'complete') ? (
           <div className="px-5 pb-3">
             <Invalidated v={v} />
@@ -32,7 +33,8 @@ export function ConsentVersion({ v, action }: { v: VersionDetail; action: ReactN
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h3 className="text-[15px] font-bold">全文</h3>
             <span className="tabular text-xs text-muted-foreground">
-              v{v.versionNo}・{formatTaipeiMinute(v.createdAt)} {v.createdByName} 建立・核對碼 {v.contentChecksum.slice(0, 12)}
+              第 {v.versionNo} 版・{formatTaipeiMinute(v.createdAt)} {v.createdByName} 建立・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+              （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
             </span>
           </div>
           <div
@@ -54,7 +56,7 @@ export function ConsentVersion({ v, action }: { v: VersionDetail; action: ReactN
                   <span className="min-w-0">
                     <span className="block font-semibold break-all">{a.name}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・核對碼 {a.checksum.slice(0, 12)}
+                      {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
                     </span>
                   </span>
                   <a
@@ -73,7 +75,7 @@ export function ConsentVersion({ v, action }: { v: VersionDetail; action: ReactN
           <section aria-label="授權範圍" data-testid="signoff-scope" className="border-t border-border/70 px-5 py-4">
             <h3 className="text-[15px] font-bold">授權範圍：同意後，以下內容可以在系網公開展示</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              建版當下從精選草稿（第 {scope.scopeSource.draftRevision} 版）凍結；之後草稿再改，這一版的範圍也不會變。
+              建立同意書時已鎖定成果展示草稿第 {scope.scopeSource.draftRevision} 版的內容；之後草稿再改，這一版的範圍也不會變。
             </p>
             <dl className="mt-3 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[6rem_1fr]">
               <dt className="text-muted-foreground">用途</dt>
@@ -132,10 +134,10 @@ function ProgressCard({ v }: { v: VersionDetail }) {
             </p>
             {p.missing.length > 0 ? (
               <p className="text-xs text-muted-foreground" data-testid="signoff-missing">
-                還沒表態：{p.missing.join('、')}
+                還沒回覆：{p.missing.join('、')}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">學生都已表態</p>
+              <p className="text-xs text-muted-foreground">學生都已回覆</p>
             )}
           </div>
         </div>
@@ -157,7 +159,7 @@ function ProgressCard({ v }: { v: VersionDetail }) {
                 </span>
                 {s.studentNo ? <span className="tabular text-xs text-muted-foreground">{s.studentNo}</span> : null}
                 <span className={cn('tabular ml-auto text-xs', s.result && s.result !== 'agree' ? 'text-destructive' : 'text-muted-foreground')}>
-                  {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!).slice(5)}` : '尚未表態'}
+                  {s.result ? `${VOTE_RESULT_LABEL[s.result]}・${formatTaipeiMinute(s.at!).slice(5)}` : '尚未回覆'}
                 </span>
                 {s.reason ? <span className="w-full pl-6 text-xs text-muted-foreground">理由：{s.reason}</span> : null}
               </li>
@@ -166,7 +168,7 @@ function ProgressCard({ v }: { v: VersionDetail }) {
           <li className="flex items-start gap-2.5 border-t border-border pt-2 text-sm" data-testid="progress-advisor">
             <IconSignature className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="min-w-0">
-              <span className="block">{p.advisor.displayName}（主指導）</span>
+              <span className="block">{p.advisor.displayName}（指導老師）</span>
               <span className={cn('block text-xs', p.advisor.result && p.advisor.result !== 'agree' ? 'text-destructive' : 'text-muted-foreground')}>
                 {p.advisor.result
                   ? `${VOTE_RESULT_LABEL[p.advisor.result]}・${formatTaipeiMinute(p.advisor.at!)}`
@@ -179,7 +181,7 @@ function ProgressCard({ v }: { v: VersionDetail }) {
           </li>
         </ul>
         <p className="border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
-          全部學生各自同意後，才輪到主指導；任何人都不能替別人同意，系辦也不行。每人一票、投了不能改。
+          全部學生各自同意後，才輪到指導老師；任何人都不能替別人同意，系辦也不行。每人一票、投了不能改。
         </p>
       </section>
     </Panel>

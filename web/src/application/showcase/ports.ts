@@ -3,10 +3,12 @@ import type { DeclaredUpload, UploadTicket } from '@/application/ops'
 import type { Result } from '@/shared/result'
 
 /**
- * 模組 09 精選的 port（模組實作設計 09 §5 `ShowcaseCommand`；票 25 只交付最小草稿能力：建立、編輯、海報上傳）。
+ * 模組 09 精選的 port（模組實作設計 09 §5 `ShowcaseCommand`）。票 25 交付草稿（建立、編輯、海報上傳）；
+ * 第三波 W2 補發布（系辦勾同意，Q31）、下架、重新發布、獎項、刪除（設計方案 §4）；W15 補歷屆補登、首頁順序、
+ * 發布更新（公開中的作品把改好的草稿換上前台），管理員改內容不受屆別封存限制。
  *
- * 發布、撤稿、素材核閱、外部授權登記、公開頁都在 S12。授權都在實作裡判：只有管理員（契約 03 §1「精選：admin」）；
- * 學生、老師呼叫任何一個都是 `FORBIDDEN`。
+ * 素材核閱、正式授權閘門仍在 S12。授權都在實作裡判：只有管理員（契約 03 §1「精選：admin」）；
+ * 學生、老師呼叫任何一個都是 `FORBIDDEN`（只有改封存屆別作品的草稿回 `COHORT_ARCHIVED`，W15）。
  */
 
 // ── 回執 ────────────────────────────────────────────────────────────────────
@@ -18,11 +20,40 @@ export type CreateDraftReceipt = {
   readonly revision: number
 }
 
+/** 歷屆補登（沒有組別）：建好條目與草稿，之後照一般草稿改、發布。 */
+export type CreateBackfillReceipt = {
+  readonly entryId: string
+  readonly cohortCode: string
+  readonly cohortName: string
+  readonly title: string
+  readonly revision: number
+}
+
 export type UpdateDraftReceipt = {
   readonly entryId: string
-  readonly groupCode: string
+  /** 歷屆補登沒有組別。 */
+  readonly groupCode: string | null
   readonly revision: number
   readonly posterChanged: boolean
+}
+
+/** 發布、下架、重新發布、設獎項、刪除共用：條目版本（樂觀鎖）與一句話要用的組別／題目。 */
+export type ShowcaseLifecycleReceipt = {
+  readonly entryId: string
+  /** 歷屆補登沒有組別。 */
+  readonly groupCode: string | null
+  readonly title: string
+  /** 條目版本（`showcase_entries.revision`；刪除後是刪除那一刻的版本）。 */
+  readonly revision: number
+}
+
+export type PublishReceipt = ShowcaseLifecycleReceipt & { readonly versionNo: number }
+
+export type SetHomePositionReceipt = ShowcaseLifecycleReceipt & { readonly homePosition: number | null }
+
+export type SetAwardReceipt = ShowcaseLifecycleReceipt & {
+  readonly award: ShowcaseAward | null
+  readonly awardLabel: string | null
 }
 
 // ── 輸入 ────────────────────────────────────────────────────────────────────
@@ -40,14 +71,60 @@ export type UpdateDraftInput = {
 
 export type PosterUploadInput = DeclaredUpload & { readonly entryId: string }
 
+/** 下架、重新發布、刪除：只要條目與畫面看到的條目版本。 */
+export type ShowcaseEntryRef = {
+  readonly entryId: string
+  /** 畫面看到的條目版本（`showcase_entries.revision`）；別人先動過就 `CONFLICT`。 */
+  readonly revision: number
+}
+
+export type PublishInput = ShowcaseEntryRef & {
+  /** 系辦勾了「已取得這組同學同意公開」（Q31）；不是 true 一律擋下。勾的人是伺服器端的登入者，不從表單拿。 */
+  readonly consent: boolean
+}
+
+export type CreateBackfillInput = {
+  /** 作品所屬的屆別（可以是已封存的歷屆）。 */
+  readonly cohortId: string
+  readonly title: string
+}
+
+export type SetHomePositionInput = ShowcaseEntryRef & {
+  /** 1–99；'' 或 null＝不排（排在有填的後面）。 */
+  readonly position: string | number | null
+}
+
+export type SetAwardInput = ShowcaseEntryRef & {
+  /** '' 或 null＝拿掉獎項。 */
+  readonly level: string | null
+  readonly label: string | null
+}
+
 // ── 查詢結果 ────────────────────────────────────────────────────────────────
 
 export type ShowcaseDraftView = {
   readonly entryId: string
-  readonly groupId: string
-  readonly groupCode: string
+  readonly cohortId: string
+  readonly cohortCode: string
+  readonly cohortName: string
+  readonly cohortArchived: boolean
+  /** 歷屆補登沒有組別（`group_id` 為 null）。 */
+  readonly groupId: string | null
+  readonly groupCode: string | null
   readonly groupDissolved: boolean
   readonly status: 'draft' | 'published' | 'withdrawn'
+  /** 條目版本（下架、發布等指令的樂觀鎖）；草稿內容的版本是 `revision`。 */
+  readonly entryRevision: number
+  readonly award: ShowcaseAward | null
+  readonly awardLabel: string | null
+  /** 首頁輪播順序（1–99；null＝排在有填的後面）。 */
+  readonly homePosition: number | null
+  /** 有沒有草稿列（歷屆補登可能只有發布版本）；沒有就不能在這頁改內容。 */
+  readonly hasDraft: boolean
+  /** 發布過、而且草稿和前台目前那一版不一樣（題目、摘要、影片連結、海報任一）：可以按「發布更新」。 */
+  readonly hasUnpublishedChanges: boolean
+  /** 前台目前那一版的題目（沒發布過是 null）。 */
+  readonly publishedTitle: string | null
   readonly title: string
   readonly summary: string
   readonly videoUrl: string | null
@@ -60,10 +137,19 @@ export type ShowcaseDraftView = {
 }
 
 export type ShowcaseBoard = {
-  readonly cohort: { readonly id: string; readonly code: string; readonly archived: boolean }
-  /** 這一屆有效（沒解散）的組別，以及它有沒有草稿。 */
+  /** 建立草稿用的屆別（沒有可用的屆別是 null）。 */
+  readonly cohort: { readonly id: string; readonly code: string; readonly name: string; readonly archived: boolean } | null
+  /** 建立草稿那一屆有效（沒解散）的組別，以及它有沒有（未刪除的）條目：一組一屆只能有一個，刪掉後可以再建。 */
   readonly groups: readonly { readonly id: string; readonly code: string; readonly entryId: string | null }[]
+  /** 看板上的作品（篩選的屆別，或全部含歷屆）；已刪除的不在這裡。新屆在前、同屆依組別。 */
   readonly drafts: readonly ShowcaseDraftView[]
+}
+
+export type ShowcaseBoardFilter = {
+  /** 只看這一屆；null＝全部（含歷屆）。 */
+  readonly cohortId: string | null
+  /** 建立草稿的屆別（列出還沒有條目的組）；null＝不需要。 */
+  readonly createCohortId: string | null
 }
 
 // ── port ────────────────────────────────────────────────────────────────────
@@ -71,15 +157,43 @@ export type ShowcaseBoard = {
 export interface ShowcaseCommand {
   /** 替一組建精選條目＋空草稿（同交易）。同屆同組已經有 → `CONFLICT`；組別解散 → `GROUP_DISSOLVED`。 */
   createDraft(actor: ResolvedActor, input: { groupId: string }, requestId: string): Promise<Result<CreateDraftReceipt>>
-  /** 存草稿：題目、摘要、影片連結、海報。草稿版本不符 → `CONFLICT`；海報不是本人剛上傳的圖片 → `FILE_*`。 */
+  /** 補登歷屆作品（沒有組別）：條目＋草稿（同交易）；屆別可以已封存。題目必填。 */
+  createBackfill(actor: ResolvedActor, input: CreateBackfillInput, requestId: string): Promise<Result<CreateBackfillReceipt>>
+  /**
+   * 存草稿：題目、摘要、影片連結、海報。草稿版本不符 → `CONFLICT`；海報不是本人剛上傳的圖片 → `FILE_*`。
+   * 管理員不受屆別封存限制（優秀專題是跨屆的公開紀錄）；不是管理員一律擋：封存屆別的作品回 `COHORT_ARCHIVED`、
+   * 其他 `FORBIDDEN`。沒有組別的歷屆補登鎖條目本身。
+   */
   updateDraft(actor: ResolvedActor, input: UpdateDraftInput, requestId: string): Promise<Result<UpdateDraftReceipt>>
-  /** 替某份草稿要一張海報上傳憑證（只收 PNG／JPG）。 */
+  /** 替某份草稿要一張海報上傳憑證（只收 PNG／JPG）；管理員可以替封存屆別的作品換海報。 */
   requestPosterUpload(actor: ResolvedActor, input: PosterUploadInput): Promise<Result<UploadTicket>>
+  /**
+   * 發布（草稿 → 公開中）：把目前草稿凍結成新一筆 `showcase_versions`（外部授權：`authorization_ref`＝這次的請求編號，
+   * `pii_check` 記「系辦確認已取得同意」與勾的人），海報一起綁到版本上，條目指向它。沒勾同意、題目空白 → `VALIDATION_FAILED`。
+   * 不受屆別封存限制（不改內容）。
+   */
+  publish(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>>
+  /**
+   * 發布更新（公開中 → 公開中）：把目前草稿凍結成新一筆 `showcase_versions`（授權寫法同 `publish`）並切成目前版本；
+   * 舊版本原封不動。和發布一樣要勾「已取得這組同學同意公開」（沒勾 → `VALIDATION_FAILED`，不建版本），勾的人＝登入者。
+   * 草稿和前台那一版一樣 → `VALIDATION_FAILED`。不受屆別封存限制（歷屆作品也能更新）。
+   */
+  publishUpdate(actor: ResolvedActor, input: PublishInput, requestId: string): Promise<Result<PublishReceipt>>
+  /** 首頁輪播順序（任何狀態；1 最前、null 不排）：只決定有獎項且公開中的作品在輪播裡的先後。 */
+  setHomePosition(actor: ResolvedActor, input: SetHomePositionInput, requestId: string): Promise<Result<SetHomePositionReceipt>>
+  /** 下架（公開中 → 已下架）：前台看不到、海報不再公開；後台還在。 */
+  withdraw(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<ShowcaseLifecycleReceipt>>
+  /** 重新發布（已下架 → 公開中）：沿用下架前那一版，不切新版本。 */
+  republish(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<ShowcaseLifecycleReceipt>>
+  /** 設獎項（任何狀態）：有等級的才上「優秀專題」與首頁輪播。 */
+  setAward(actor: ResolvedActor, input: SetAwardInput, requestId: string): Promise<Result<SetAwardReceipt>>
+  /** 刪除（草稿或已下架）：記刪除標記與稽核，後台與前台都當作不存在；不能恢復。 */
+  delete(actor: ResolvedActor, input: ShowcaseEntryRef, requestId: string): Promise<Result<ShowcaseLifecycleReceipt>>
 }
 
 export interface ShowcaseQuery {
   /** 管理員的精選頁；不是管理員 → `FORBIDDEN`。 */
-  adminBoard(actor: ResolvedActor, cohortId: string): Promise<Result<ShowcaseBoard>>
+  adminBoard(actor: ResolvedActor, filter: ShowcaseBoardFilter): Promise<Result<ShowcaseBoard>>
 }
 
 // ── 前台（公開優秀專題與登入後的歷屆一覽） ──────────────────────────────────
@@ -130,7 +244,7 @@ export type SignedInShowcaseCard = PublicShowcaseCard &
  * 排序（原型）：優秀專題有「屆別」「優秀專題優先」「佳作優先」；歷屆一覽有「屆別」「得獎優先」「題目」。
  * 同一個型別給兩頁共用，各頁只開自己那幾個（`FEATURED_SORT_OPTIONS`、`ARCHIVE_SORT_OPTIONS`）。
  */
-export type ShowcaseSort = 'cohort' | 'cohort-asc' | 'title' | 'award' | 'excellent' | 'merit'
+export type ShowcaseSort = 'cohort' | 'cohort-asc' | 'title' | 'award' | 'excellent' | 'merit' | 'home'
 
 export type ShowcaseListFilter = {
   /** 屆別代碼；空＝全部。 */
@@ -168,7 +282,10 @@ export type PublicShowcasePage =
   | { readonly access: 'not_found' }
 
 export interface PublicShowcaseQuery {
-  /** 優秀專題（公開）：任何人，只回**有獎項等級**的已發布作品、白名單欄位。 */
+  /**
+   * 優秀專題（公開）：任何人，只回**有獎項等級**的已發布作品、白名單欄位。
+   * 沒指定排序時是首頁輪播的順序（`home`：首頁順序小到大、沒填的排後面，再照屆別新到舊）。
+   */
   featured(filter?: ShowcaseListFilter): Promise<PublicShowcaseCard[]>
   /** 歷屆專題一覽（登入後）：沒登入、或帳號還不能用（待審、必須改密） → `need_login`，一筆都不回。 */
   archive(actor: ResolvedActor, filter?: ShowcaseListFilter): Promise<ShowcaseArchive>

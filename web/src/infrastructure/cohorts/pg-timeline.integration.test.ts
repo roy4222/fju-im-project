@@ -114,7 +114,7 @@ describe('階段與年度結束日', () => {
     const cohort = await newCohort()
     const requestId = randomUUID()
     const result = await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, requestId)
-    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2, 3, 4] } })
+    expect(result).toMatchObject({ ok: true, receipt: { code: cohort.code, name: `${cohort.code} 測試屆`, changedStages: [1, 2, 3, 4] } })
 
     const schedule = await timelineQuery.schedule(cohort.id)
     expect(schedule.yearEndDate).toBe('2027-06-30')
@@ -217,6 +217,8 @@ describe('階段與年度結束日', () => {
     await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohort.id])
     const result = await timeline.saveSchedule(actor(adminId), cohort.id, SCHEDULE, cohort.revision, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    // 訊息用「名稱（代碼）」指屆別，不只寫代碼（驗收第 2 章殘留）。
+    expect(result.ok ? '' : result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）已封存`)
   })
 })
 
@@ -317,7 +319,7 @@ describe('學生專題時間軸：只讀得到自己那一屆（票 38）', () =
   it('屆別還沒設階段：回屆別、階段是空的（畫面顯示尚未設定）', async () => {
     const cohort = await newCohort('STU-D')
     const got = await timelineQuery.studentSchedule(student(cohort.id))
-    expect(got).toEqual({ cohortId: cohort.id, cohortCode: cohort.code, schedule: { stages: [], yearEndDate: null } })
+    expect(got).toEqual({ cohortId: cohort.id, cohortCode: cohort.code, cohortName: `${cohort.code} 測試屆`, schedule: { stages: [], yearEndDate: null } })
   })
 })
 
@@ -327,6 +329,7 @@ describe('屆別轉進行中', () => {
     const result = await cohorts.activate(actor(adminId), cohort.id, randomUUID())
     expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     if (!result.ok) expect(result.message).toContain('時間軸')
+    if (!result.ok) expect(result.message).toContain(`${cohort.code} 測試屆（${cohort.code}）`)
     expect((await cohortQuery.get(cohort.id))!.status).toBe('preparing')
     expect(await count(`select count(*) as n from cohort_status_events where cohort_id = $1 and to_status = 'active'`, [cohort.id])).toBe(0)
   })
@@ -435,6 +438,80 @@ describe('獨立活動：建立、改期、取消', () => {
       code: 'VALIDATION_FAILED',
     })
     expect(await count('select count(*) as n from project_events where cohort_id = $1', [cohort.id])).toBe(0)
+  })
+})
+
+describe('獨立活動：刪除（第三波 W11）', () => {
+  async function cancelledActivity(cohortId: string, input: ActivityInput = ACTIVITY): Promise<string> {
+    const created = await timeline.createActivity(actor(adminId), cohortId, input, randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    const cancelled = await timeline.cancelActivity(actor(adminId), created.receipt.activityId, 1, randomUUID())
+    if (!cancelled.ok) throw new Error(cancelled.message)
+    return created.receipt.activityId
+  }
+
+  it('排定中的活動不能刪：說明要先取消，資料不動', async () => {
+    const cohort = await newCohort()
+    const created = await timeline.createActivity(actor(adminId), cohort.id, ACTIVITY, randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    const result = await timeline.deleteActivity(actor(adminId), created.receipt.activityId, 1, randomUUID())
+    expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(result.ok ? '' : result.message).toContain('要先「取消活動」')
+    expect(await timelineQuery.activities(cohort.id)).toHaveLength(1)
+    expect(await count('select count(*) as n from project_events where cohort_id = $1 and deleted_at is not null', [cohort.id])).toBe(0)
+  })
+
+  it('已取消的可以刪：打刪除標記不刪列；查詢不再列出；同一筆交易留 activity.deleted 稽核與 calendar.changed', async () => {
+    const cohort = await newCohort()
+    const id = await cancelledActivity(cohort.id)
+    const requestId = randomUUID()
+    const result = await timeline.deleteActivity(actor(adminId), id, 2, requestId)
+    expect(result).toMatchObject({ ok: true, receipt: { action: 'deleted', title: '期中發表會' } })
+
+    expect(await timelineQuery.activities(cohort.id)).toEqual([])
+    const row = await owner.sql('select status, deleted_at, deleted_by_user_id, revision from project_events where id = $1', [id])
+    expect(row.rows[0]).toMatchObject({ status: 'cancelled', deleted_by_user_id: adminId, revision: 3 })
+    expect(row.rows[0]!.deleted_at).toBeInstanceOf(Date)
+
+    const audit = await owner.sql(`select payload->'before' as before from audit_events where action = 'activity.deleted' and target_id = $1`, [
+      id,
+    ])
+    expect(audit.rows).toHaveLength(1)
+    expect(audit.rows[0]!.before).toMatchObject({ title: '期中發表會', status: 'cancelled', cohortId: cohort.id })
+    const outbox = await owner.sql(
+      `select payload->>'action' as action from domain_events where type = 'calendar.changed' and source_id = $1 and source_version = 3`,
+      [id],
+    )
+    expect(outbox.rows).toEqual([{ action: 'deleted' }])
+
+    // 同一個請求編號重送：回第一次的回執，不重做。
+    expect(await timeline.deleteActivity(actor(adminId), id, 2, requestId)).toMatchObject({ ok: true, receipt: { action: 'deleted' } })
+    expect(await count(`select count(*) as n from audit_events where action = 'activity.deleted' and target_id = $1`, [id])).toBe(1)
+  })
+
+  it('刪除後當作不存在：不能再刪、改期或取消', async () => {
+    const cohort = await newCohort()
+    const id = await cancelledActivity(cohort.id)
+    await timeline.deleteActivity(actor(adminId), id, 2, randomUUID())
+    for (const result of [
+      await timeline.deleteActivity(actor(adminId), id, 3, randomUUID()),
+      await timeline.updateActivity(actor(adminId), id, ACTIVITY, 3, randomUUID()),
+      await timeline.cancelActivity(actor(adminId), id, 3, randomUUID()),
+    ]) {
+      expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+      expect(result.ok ? '' : result.message).toContain('找不到這個活動')
+    }
+  })
+
+  it('老師直接呼叫：FORBIDDEN；版本過期：CONFLICT；都不留刪除標記', async () => {
+    const cohort = await newCohort()
+    const id = await cancelledActivity(cohort.id)
+    expect(await timeline.deleteActivity(actor(teacherId, ['teacher']), id, 2, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(await timeline.deleteActivity(actor(adminId), id, 1, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(await count('select count(*) as n from project_events where id = $1 and deleted_at is not null', [id])).toBe(0)
   })
 })
 

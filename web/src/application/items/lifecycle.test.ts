@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DELETE_HAS_RESPONSES_MESSAGE,
+  deleteCheck,
+  describeDeleteReceipt,
+  editableInArchivedCohort,
   describeLifecycleReceipt,
   describeRepublishExpired,
   lifecycleCheck,
@@ -35,11 +39,44 @@ describe('lifecycleCheck：撤回、下架、重新發布只在對的狀態', ()
   })
 })
 
+describe('deleteCheck：刪除只限草稿與已下架、有人交件的擋下（第三波 W1）', () => {
+  it('草稿、已下架沒有回答可以刪', () => {
+    expect(deleteCheck('draft', false)).toEqual({ ok: true })
+    expect(deleteCheck('archived', false)).toEqual({ ok: true })
+  })
+
+  it('發布中不能刪：要先撤回或下架', () => {
+    const refused = deleteCheck('published', false)
+    expect(refused).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(refused.ok || refused.message).toContain('發布中的項目不能刪除')
+    expect(refused.ok || refused.message).toContain('先撤回或下架')
+  })
+
+  it('已有人交件（存過草稿或正式送出）不能刪，只能下架（Q28）', () => {
+    expect(deleteCheck('archived', true)).toEqual({ ok: false, code: 'ITEM_HAS_RESPONSES', message: DELETE_HAS_RESPONSES_MESSAGE })
+    expect(DELETE_HAS_RESPONSES_MESSAGE).toBe('已經有學生交件，只能下架，不能刪除。')
+  })
+
+  it('回執說清楚不能恢復、通知不收回', () => {
+    const text = describeDeleteReceipt({ itemId: 'x', cohortId: COHORT, title: '說明會', status: 'archived' })
+    expect(text).toContain('「說明會」已刪除')
+    expect(text).toContain('不能恢復')
+    expect(text).toContain('通知不會收回')
+  })
+})
+
+describe('editableInArchivedCohort：封存屆別只剩榮譽可以動', () => {
+  it('榮譽可以；其他位置不行', () => {
+    expect(editableInArchivedCohort('honor')).toBe(true)
+    for (const p of ['news', 'resource', 'submission', 'rules', 'showcase', 'requirement']) expect(editableInArchivedCohort(p)).toBe(false)
+  })
+})
+
 describe('describeRepublishExpired：已截止的收件不能直接重新發布', () => {
   it('寫出截止時間（臺灣時間）與下一步', () => {
     const text = describeRepublishExpired(new Date('2026-11-15T15:59:00Z'))
     expect(text).toContain('2026/11/15 23:59，臺灣時間')
-    expect(text).toContain('另建一份新的收件')
+    expect(text).toContain('另建一個新的繳交項目')
   })
 })
 
@@ -49,7 +86,7 @@ describe('describeLifecycleReceipt：回執一句話帶出下一步與實際開�
   it('撤回說明名單結束、改好再發布；開放時間不變', () => {
     const text = describeLifecycleReceipt({ ...base, action: 'withdraw', status: 'draft', rosterClosed: 4 })
     expect(text).toContain('已撤回成草稿')
-    expect(text).toContain('收件名單 4 筆已結束')
+    expect(text).toContain('需要繳交的名單 4 筆已結束')
     expect(text).toContain('按「發布」')
     expect(text).toContain('2026/09/24 10:00')
   })
@@ -67,13 +104,16 @@ describe('publicAccessOf：前台內容頁顯示什麼', () => {
     roles: ['student'],
     studentCohortId: cohort,
     groupIds,
+    advisedGroupIds: [],
+    advisedCohortIds: [],
   })
-  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [] }
+  const admin: Viewer = { kind: 'user', roles: ['admin'], studentCohortId: null, groupIds: [], advisedGroupIds: [], advisedCohortIds: [] }
   const item = (audienceKind: AudienceKind, status: ItemStatus = 'published', everPublished = status !== 'draft') => ({
     status,
     audienceKind,
     cohortId: COHORT,
     groupIds: [G1],
+    receiverUnit: 'none' as const,
     everPublished,
   })
 

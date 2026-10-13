@@ -265,7 +265,7 @@ describe('前置條件與二次確認', () => {
 
   it('不能對自己；待審的帳號不行', async () => {
     const me = await command.previewDeidentify(adminActor(), admin.userId)
-    expect(me.ok && me.receipt.blockers).toContain('不能去識別化自己的帳號。')
+    expect(me.ok && me.receipt.blockers).toContain('不能刪除自己帳號的個人資料。')
     expect(
       await command.deidentify(
         adminActor(),
@@ -297,7 +297,7 @@ describe('前置條件與二次確認', () => {
     const s = await student('0411404021', '簽核甲')
     const { versionId } = await signoffWith(s.userId, '簽核甲', '0411404021', 'G40A')
     const preview = await command.previewDeidentify(adminActor(), s.userId)
-    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的簽核/)
+    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的站內同意書/)
     const blocked = await command.deidentify(
       adminActor(),
       { userId: s.userId, reason: '本人申請', confirmText: s.email, requestId: requestId() },
@@ -326,7 +326,7 @@ describe('去識別化本身（ACC-14）', () => {
     const preview = await command.previewDeidentify(adminActor(), s.userId)
     expect(preview).toMatchObject({ ok: true, receipt: { name: '去識別甲', loginEmail: s.email, studentNo: '0411404031', blockers: [] } })
     const retained = preview.ok ? Object.fromEntries(preview.receipt.retained.map((r) => [r.label, r.count])) : {}
-    expect(retained).toMatchObject({ 組別成員紀錄: 1, 簽核表態: 1 })
+    expect(retained).toMatchObject({ 組別成員紀錄: 1, 同意書回覆: 1 })
 
     const rid = requestId()
     const result = await command.deidentify(
@@ -336,8 +336,9 @@ describe('去識別化本身（ACC-14）', () => {
     )
     expect(result).toMatchObject({ ok: true, receipt: { userId: s.userId, revocation: 'done' } })
     if (!result.ok) return
-    const pseudonym = result.receipt.pseudonym
-    expect(pseudonym).toMatch(/^已去識別化使用者 [0-9A-F]{6}$/)
+    // 回執給畫面看是新用詞；寫進資料庫的仍是原本的代稱字串（資料值不改），下面逐表核對。
+    expect(result.receipt.pseudonym).toMatch(/^已刪除個資的使用者 [0-9A-F]{6}$/)
+    const pseudonym = result.receipt.pseudonym.replace('已刪除個資的使用者 ', '已去識別化使用者 ')
 
     // 帳號列：代稱、置換 Email、停用＋deidentified_at、Better Auth 封鎖。
     const user = await one<Record<string, unknown>>(
@@ -432,17 +433,20 @@ describe('去識別化本身（ACC-14）', () => {
       await one<{ snapshot: string }>(`select snapshot::text as snapshot from application_revisions where application_id = $1`, [s.applicationId]),
     ).toEqual(snapshotBefore)
 
-    // 被引用的歷史：簽核畫面讀快照時換成代稱、拿掉學號。
+    // 被引用的歷史：簽核畫面讀快照時換成代稱（畫面用詞：資料庫的原代稱轉成「已刪除個資的使用者」）、拿掉學號。
     const detail = await signoffQuery.versionDetail(adminActor(), versionId)
     expect(detail.ok).toBe(true)
     if (detail.ok) {
-      expect(detail.receipt.participants.students[0]).toMatchObject({ userId: s.userId, displayName: pseudonym, studentNo: null })
+      expect(detail.receipt.participants.students[0]).toMatchObject({ userId: s.userId, displayName: result.receipt.pseudonym, studentNo: null })
       expect(JSON.stringify(detail.receipt)).not.toContain('去識別甲')
     }
 
     // 列表：狀態是已去識別化，可以用狀態篩出來；原姓名搜不到。
     const listed = await command.list(adminActor(), { ...DEFAULT_DIRECTORY_FILTER, status: 'deidentified' })
-    expect(listed.ok && listed.receipt.rows.find((r) => r.userId === s.userId)).toMatchObject({ name: pseudonym, status: 'deidentified', studentNo: null })
+    expect(listed.ok && listed.receipt.rows.find((r) => r.userId === s.userId)).toMatchObject({ name: result.receipt.pseudonym, status: 'deidentified', studentNo: null })
+    // 照畫面上的代稱搜尋也找得到（資料庫存的是原字，搜尋字會換回去）。
+    const byShown = await command.list(adminActor(), { ...DEFAULT_DIRECTORY_FILTER, q: result.receipt.pseudonym })
+    expect(byShown.ok && byShown.receipt.rows.map((r) => r.userId)).toEqual([s.userId])
     expect(await command.list(adminActor(), { ...DEFAULT_DIRECTORY_FILTER, q: '去識別甲' })).toMatchObject({ receipt: { total: 0 } })
   })
 

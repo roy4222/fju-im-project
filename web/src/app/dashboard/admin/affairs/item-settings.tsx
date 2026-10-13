@@ -9,11 +9,14 @@ import {
   IconFolders,
   IconPlus,
   IconTrash,
+  IconTrophy,
   type Icon,
 } from '@tabler/icons-react'
 import { BTN_ICON } from '@/app/_ui/dashboard-kit'
 import { INPUT, LABEL, newField, PRIMARY, SECONDARY, type EditorState, type EditorVocabulary, type FieldDraft } from './item-form-parts'
+import { HONOR, HONOR_AUDIENCE } from './item-form-model'
 import { cn } from '@/shared/cn'
+import { formatBytes } from '@/shared/format-bytes'
 
 /**
  * 發布設定（位置、收件單位、對象、階段、開放與截止）與收件欄位編輯（票 15）。
@@ -28,6 +31,7 @@ const PLACEMENT_ICON: Record<string, Icon> = {
   resource: IconFolders,
   submission: IconClipboardText,
   rules: IconBook,
+  honor: IconTrophy,
 }
 
 /** 原型「公開範圍」那種外框選項（radio／checkbox 都用）。 */
@@ -64,9 +68,13 @@ export function SettingsFields({
   placementAs?: 'cards' | 'select'
 }) {
   const collects = state.placement === 'submission'
-  const audiences = collects
-    ? vocabulary.audiences.filter((a) => vocabulary.collectionAudiences.includes(a.value))
-    : vocabulary.audiences
+  // 榮譽榜是公開頁（第三波 W1）：對象鎖成「公開訪客」、不收件、不發通知。
+  const honor = state.placement === HONOR
+  const audiences = honor
+    ? vocabulary.audiences.filter((a) => a.value === HONOR_AUDIENCE)
+    : collects
+      ? vocabulary.audiences.filter((a) => vocabulary.collectionAudiences.includes(a.value))
+      : vocabulary.audiences
   const id = (name: string) => `${idPrefix}-${name}`
   const choosePlacement = (value: string) => {
     const toCollect = value === 'submission'
@@ -75,20 +83,46 @@ export function SettingsFields({
       // 收件只能發給本屆學生或指定組別；換成收件時把不合的對象改回本屆學生。
       ...(toCollect && !vocabulary.collectionAudiences.includes(state.audienceKind) ? { audienceKind: 'cohort_students' } : {}),
       receiverUnit: toCollect ? (state.receiverUnit === 'none' ? 'group' : state.receiverUnit) : 'none',
+      ...(value === HONOR ? { audienceKind: HONOR_AUDIENCE, groupIds: [] } : {}),
     })
   }
   const placementHint = vocabulary.placements.find((p) => p.value === state.placement)?.hint
+  // 相依設定就地說明（§9 規則 2）：選了榮譽，寫出會出現在哪裡並給前往入口。
+  const honorWhere = honor ? (
+    <p className="mt-1.5 text-xs text-muted-foreground" data-testid="honor-where">
+      發布後會出現在前台
+      <a href="/honors" target="_blank" rel="noopener" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
+        「榮譽榜」
+      </a>
+      與首頁「榮譽與競賽」；年份與排序依得獎日期。
+    </p>
+  ) : null
+  const awardedField = honor ? (
+    <div>
+      <label htmlFor={id('awarded-on')} className={LABEL}>
+        得獎日期 <span className="text-xs font-normal text-muted-foreground">選填</span>
+      </label>
+      <input
+        id={id('awarded-on')}
+        type="date"
+        className={INPUT}
+        value={state.awardedOn}
+        onChange={(e) => onChange({ awardedOn: e.target.value })}
+      />
+      <p className="mt-1.5 text-xs text-muted-foreground">沒填就用發布那天；前台榮譽榜依這天分年份、由新到舊排。</p>
+    </div>
+  ) : null
 
   const audienceField = (
     <div>
       <label htmlFor={id('audience')} className={LABEL}>
-        發布對象
+        誰看得到
       </label>
       <select
         id={id('audience')}
         className={INPUT}
-        value={state.audienceKind}
-        disabled={unitLocked}
+        value={honor ? HONOR_AUDIENCE : state.audienceKind}
+        disabled={unitLocked || honor}
         onChange={(e) => onChange({ audienceKind: e.target.value })}
       >
         {audiences.map((a) => (
@@ -97,7 +131,10 @@ export function SettingsFields({
           </option>
         ))}
       </select>
-      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">收件只能發給本屆學生或指定組別。</p> : null}
+      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">繳交項目只能發給本屆學生或指定組別。</p> : null}
+      {honor ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">榮譽榜是公開頁：「誰看得到」固定「公開訪客」，不用繳交、不發通知。</p>
+      ) : null}
     </div>
   )
 
@@ -107,7 +144,7 @@ export function SettingsFields({
         <>
           <div>
             <label htmlFor={id('placement')} className={LABEL}>
-              發布位置
+              顯示在哪一區
             </label>
             <select
               id={id('placement')}
@@ -123,12 +160,14 @@ export function SettingsFields({
               ))}
             </select>
             {placementHint ? <p className="mt-1.5 text-xs text-muted-foreground">{placementHint}</p> : null}
+            {honorWhere}
           </div>
           {audienceField}
+          {awardedField}
         </>
       ) : (
       <fieldset className="sm:col-span-2">
-        <legend className={cn(LABEL, 'mb-1.5')}>發布位置（單選）</legend>
+        <legend className={cn(LABEL, 'mb-1.5')}>顯示在哪一區（單選）</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           {vocabulary.placements.map((p) => {
             const on = state.placement === p.value
@@ -170,6 +209,7 @@ export function SettingsFields({
             )
           })}
         </div>
+        {honorWhere}
       </fieldset>
       )}
 
@@ -177,7 +217,7 @@ export function SettingsFields({
 
       {collects ? (
         <fieldset className="sm:col-span-2">
-          <legend className={cn(LABEL, 'mb-1.5')}>收件單位</legend>
+          <legend className={cn(LABEL, 'mb-1.5')}>繳交方式</legend>
           <div className="flex flex-wrap gap-2">
             {vocabulary.units
               .filter((u) => u.value !== 'none')
@@ -198,13 +238,14 @@ export function SettingsFields({
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {unitLocked
-              ? '已經有人作答，收件單位鎖定、不能再切換。'
+              ? '已經有人作答，繳交方式鎖定、不能再切換。'
               : '個人一份：每位學生各交一份。整組一份：組員共用一份，任一人送出代表整組。有人作答後就不能切換。'}
           </p>
         </fieldset>
       ) : null}
 
       {placementAs === 'cards' ? audienceField : null}
+      {placementAs === 'cards' ? awardedField : null}
 
       {collects ? (
         <div>
@@ -225,7 +266,7 @@ export function SettingsFields({
         </div>
       ) : null}
 
-      {state.audienceKind === 'groups' ? (
+      {state.audienceKind === 'groups' && !honor ? (
         <fieldset className="sm:col-span-2">
           <legend className={cn(LABEL, 'mb-1.5')}>
             指定組別 <span className="font-normal text-muted-foreground">・已選 {state.groupIds.length} 組</span>
@@ -326,7 +367,7 @@ function FieldPreview({ field: f, typeLabel }: { field: FieldDraft; typeLabel: s
   else if (f.type === 'file')
     control = (
       <span className="flex h-14 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-        拖放或點擊上傳・{f.allowedTypes.join('、') || '不限'}・上限 {f.maxMiB} MiB
+        拖放或點擊上傳・{f.allowedTypes.join('、') || '不限'}・上限 {formatBytes(f.maxMiB * 1024 * 1024)}
       </span>
     )
   else control = <span className={box}>{typeLabel}</span>
@@ -524,7 +565,7 @@ export function FieldsEditor({
                             value={f.maxMiB}
                             onChange={(e) => update(index, { maxMiB: Number(e.target.value) })}
                           />
-                          MiB
+                          MB
                         </label>
                       </div>
                     </fieldset>

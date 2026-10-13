@@ -15,7 +15,7 @@ export type EvaluationState = 'empty' | 'draft' | 'counted'
 
 export const EVALUATION_STATE_LABEL: Record<EvaluationState, string> = {
   empty: '未開始',
-  draft: '暫存中（未正式）',
+  draft: '評分草稿（未送出）',
   counted: '已正式送出',
 }
 

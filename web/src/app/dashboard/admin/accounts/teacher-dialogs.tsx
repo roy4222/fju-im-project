@@ -90,7 +90,7 @@ function VerificationFields({
       ))}
       {method ? (
         <label className="block text-sm font-medium text-foreground">
-          核實說明
+          怎麼確認的說明
           <span className="ml-1 font-normal text-muted-foreground">・{noteHint[method]}</span>
           <textarea
             rows={2}
@@ -222,7 +222,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
           {!dialog.isOpen ? null : done ? (
             <div className="space-y-3" role="status">
               <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
-                {done.account.mode === 'direct' ? '已建立' : '已建立預授權'}
+                {done.account.mode === 'direct' ? '已建立' : '已預先建立老師帳號'}
               </p>
               <h2 className="text-lg font-extrabold text-foreground">{done.account.name ?? done.account.email}</h2>
               {done.account.mode === 'preauthorize' ? (
@@ -240,7 +240,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                 </>
               ) : (
                 <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                  帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組會失效）。
+                  帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組就不能再登入）。
                 </p>
               )}
               <div className="flex justify-end">
@@ -261,7 +261,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                 {(
                   [
                     ['direct', '直接新增', '現在發一次性臨時密碼，老師用 Email＋密碼登入'],
-                    ['preauthorize', '只用 Email 預授權', '先保留這個 Email，老師之後登入再補資料'],
+                    ['preauthorize', '只用 Email 預先建立', '先保留這個 Email，老師之後登入再補資料'],
                   ] as const
                 ).map(([value, label, hint]) => (
                   <label
@@ -334,7 +334,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                   取消
                 </button>
                 <button type="submit" className={cn(BUTTON, PRIMARY)} disabled={busy}>
-                  {busy ? '處理中…' : mode === 'direct' ? '建立並產生臨時密碼' : '建立預授權'}
+                  {busy ? '處理中…' : mode === 'direct' ? '建立並產生臨時密碼' : '預先建立帳號'}
                 </button>
               </div>
             </form>
@@ -348,7 +348,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
 // ── 發臨時密碼 ──────────────────────────────────────────────────────────────
 
 const ROLE_LABEL = { student: '學生', teacher: '老師', admin: '系辦' } as const
-const STATUS_LABEL = { pending: '待審核', active: '正常', disabled: '已停用', deidentified: '已去識別化' } as const
+const STATUS_LABEL = { pending: '待審核', active: '正常', disabled: '已停用', deidentified: '已刪除個人資料' } as const
 
 /**
  * 替任一帳號核發一次性臨時密碼。
@@ -391,7 +391,7 @@ export function TemporaryPasswordDialog({
     setDone(null)
   }
 
-  /** 「重新核發」：換一個請求編號，舊的那組會失效。 */
+  /** 「重新核發」：換一個請求編號，舊的那組就不能再登入。 */
   function reissue() {
     setDone(null)
     setMethod('')
@@ -470,14 +470,14 @@ export function TemporaryPasswordDialog({
               {done.temporaryPassword ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼已經失效，舊的登入也會被登出；
-                    本人用這組登入後必須先改密碼。核實方式與操作者、時間已寫入紀錄。
+                    <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼不能再登入，舊的登入也會被登出；
+                    本人用這組登入後必須先改密碼。怎麼確認本人的、操作者與時間都已寫入紀錄。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
               ) : (
                 <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                  這次已經核發過了，但密碼無法再顯示。要的話請重新核發，舊的那組會失效。
+                  這次已經核發過了，但密碼無法再顯示。要的話請重新核發，舊的那組就不能再登入。
                 </p>
               )}
               <div className="flex justify-end gap-2">
@@ -526,7 +526,7 @@ export function TemporaryPasswordDialog({
               <div>
                 <h2 className="text-lg font-extrabold text-foreground">發臨時密碼給 {target.name}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  舊密碼會立刻失效、舊的登入會被登出；新的一次性密碼只顯示一次，本人登入後必須改密碼。
+                  舊密碼立刻不能再登入、舊的登入會被登出；新的一次性密碼只顯示一次，本人登入後必須改密碼。
                 </p>
               </div>
               <dl className="grid grid-cols-[4.5rem_1fr] gap-y-1 rounded-lg bg-muted px-4 py-3 text-sm">

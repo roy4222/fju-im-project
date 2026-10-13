@@ -76,6 +76,7 @@ export interface CohortStatusQuery {
 export type SaveScheduleReceipt = {
   readonly cohortId: string
   readonly code: string
+  readonly name: string
   /** 日期範圍有變、期限版本 +1 的階段序號（1 起）。 */
   readonly changedStages: readonly number[]
 }
@@ -83,7 +84,7 @@ export type SaveScheduleReceipt = {
 export type ActivityReceipt = {
   readonly activityId: string
   readonly title: string
-  readonly action: 'created' | 'updated' | 'cancelled'
+  readonly action: 'created' | 'updated' | 'cancelled' | 'deleted'
 }
 
 /** 階段、年度結束日、獨立活動的寫入（模組 02 §5 `upsertStages`／`setYearEnd`／`upsertEvent`／`cancelEvent`）。 */
@@ -120,12 +121,22 @@ export interface TimelineCommand {
     expectedRevision: number,
     requestId: string,
   ): Promise<Result<ActivityReceipt>>
+  /**
+   * 刪除（第三波 W11）：只限已取消的活動；還排定中的回 `VALIDATION_FAILED` 並說明要先取消。
+   * 只打刪除標記、不實體刪列，不能恢復；刪除後所有查詢都當作不存在。
+   */
+  deleteActivity(
+    actor: ResolvedActor,
+    activityId: string,
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<ActivityReceipt>>
 }
 
 /** 階段與活動的查詢（模組 02 §5 `StageQuery`）；不做授權。 */
 export interface TimelineQuery {
   schedule(cohortId: string): Promise<CohortSchedule>
-  /** 依時間排序；含已取消的，畫面自己分。 */
+  /** 依時間排序；含已取消的，畫面自己分。已刪除的不列。 */
   activities(cohortId: string): Promise<Activity[]>
   /**
    * 首頁「近期活動」（設計方案 D-4）：跨屆別、對象「公開」、已排定、還沒結束的活動，依開始時間取前 `limit` 筆。
@@ -146,6 +157,7 @@ export interface TimelineQuery {
 export type StudentTimeline = {
   readonly cohortId: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly schedule: CohortSchedule
 }
 

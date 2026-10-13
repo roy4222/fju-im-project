@@ -5,13 +5,15 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { TimelineZigzag, type TimelineStageView, type TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
 import { tasksOfStage } from '@/app/dashboard/student/timeline/stage-tasks'
-import { getBusinessClock, getTimelineQuery, timelineView } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock, getTimelineQuery, timelineView } from '@/composition/cohorts'
 import { getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf, type TaipeiDate } from '@/shared/time'
 
 export const metadata = { title: '專題時間軸｜資管系專題平台' }
 
 const PATH = '/dashboard/student/timeline'
+/** 第 1 階段（分組期）在做什麼（Q40）。 */
+const GROUPING_PERIOD_HINT = '分組期：組隊、選指導老師、交提案的期間'
 
 /**
  * 學生「專題時間軸」（票 38；原型 `/dashboard/student/timeline`，樣式是畫布 B「直立蛇形」）。
@@ -38,7 +40,7 @@ export default async function StudentTimelinePage() {
       <div className="flex flex-col gap-5">
         <PageTitle title="專題時間軸" description={description} />
         {children}
-        <p className="text-xs text-muted-foreground">階段與日期由系辦在時間軸設定，全屆一致；做完了沒看作業區的實際繳交。</p>
+        <p className="text-xs text-muted-foreground">階段與日期由系辦在時間軸設定，全屆一致；做完了沒看「我的繳交」。</p>
       </div>
     </DashboardShell>
   )
@@ -53,7 +55,7 @@ export default async function StudentTimelinePage() {
   const view = timelineView(mine.schedule, businessNow)
   if (!view) {
     return shell(
-      `${mine.cohortCode}・還沒有設定階段`,
+      `${cohortLabel({ name: mine.cohortName, code: mine.cohortCode })}・還沒有設定階段`,
       <EmptyState title="本屆還沒有設定階段" description="系辦在時間軸設定好各階段的開始日與年度結束日後，這裡會顯示完整的時間軸。" />,
     )
   }
@@ -84,8 +86,8 @@ export default async function StudentTimelinePage() {
       title: stage.name,
       rangeText: range(stage.startDate, stage.lastDate),
       status: stage.status,
-      // 系辦在時間軸填的一句話說明（0011，票 39；原型 `Stage.summary`）。
-      summary: stage.description || undefined,
+      // 系辦在時間軸填的一句話說明（0011，票 39；原型 `Stage.summary`）。第 1 階段＝分組期，固定先說明它在做什麼（Q40）。
+      summary: stage.seq === 1 ? [GROUPING_PERIOD_HINT, stage.description].filter(Boolean).join('。') : stage.description || undefined,
       tasks: mineInStage.map(({ row, status }) => ({
         label: row.title,
         href: `/dashboard/student/affairs/${row.itemId}`,
@@ -114,7 +116,7 @@ export default async function StudentTimelinePage() {
   const done = view.stages.filter((s) => s.status === 'done').length
 
   return shell(
-    `${mine.cohortCode}・${view.stages.length} 個階段，已過 ${done} 個`,
+    `${cohortLabel({ name: mine.cohortName, code: mine.cohortCode })}・${view.stages.length} 個階段，已過 ${done} 個`,
     <TimelineZigzag
       stages={stages}
       summary={summary}

@@ -11,6 +11,7 @@ import {
   normalizeOpportunityInput,
   normalizeRosterExportRequest,
   normalizeRosterFilter,
+  opportunityDeleteBlocker,
   opportunitySummary,
   rosterExportRows,
   rosterQueryString,
@@ -67,6 +68,20 @@ describe('合作案欄位', () => {
   })
 })
 
+describe('刪除（第三波 W11）', () => {
+  it('草稿與已下架、沒有連著組別的可以刪', () => {
+    expect(opportunityDeleteBlocker({ status: 'draft', linkedGroupCodes: [] })).toBeNull()
+    expect(opportunityDeleteBlocker({ status: 'withdrawn', linkedGroupCodes: [] })).toBeNull()
+  })
+
+  it('發布中要先下架；連著組別要先解除，並列出是哪幾組', () => {
+    expect(opportunityDeleteBlocker({ status: 'published', linkedGroupCodes: [] })).toContain('要先「下架」')
+    const linked = opportunityDeleteBlocker({ status: 'withdrawn', linkedGroupCodes: ['G01', 'G02'] })
+    expect(linked).toContain('要先「解除」連結')
+    expect(linked).toContain('G01、G02')
+  })
+})
+
 describe('誰看得到', () => {
   it('訪客、待審、必須改密、沒有角色的帳號看不到合作案', () => {
     expect(canViewOpportunities({ kind: 'anonymous' })).toBe(false)
@@ -89,15 +104,15 @@ describe('組長改類型的三個條件（5.3）', () => {
   it('全部符合才可以；不符合的條件全部列出', () => {
     expect(leaderTypeChangeBlockers({ groupingPeriod: 'open', hasAdvisor: false, hasLink: false })).toEqual([])
     expect(leaderTypeChangeBlockers({ groupingPeriod: 'ended', hasAdvisor: true, hasLink: true })).toEqual([
-      '成組期已結束',
+      '分組期已結束',
       '已經有指導老師',
       '已經連結合作案',
     ])
   })
 
   it('階段還沒設定、還沒開始時不說「已結束」（PR #266 審查建議）', () => {
-    expect(leaderTypeChangeBlockers({ groupingPeriod: 'unconfigured', hasAdvisor: false, hasLink: false })).toEqual(['這一屆還沒設定成組期'])
-    expect(leaderTypeChangeBlockers({ groupingPeriod: 'not_started', hasAdvisor: false, hasLink: false })).toEqual(['成組期還沒開始'])
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'unconfigured', hasAdvisor: false, hasLink: false })).toEqual(['這一屆還沒設定分組期'])
+    expect(leaderTypeChangeBlockers({ groupingPeriod: 'not_started', hasAdvisor: false, hasLink: false })).toEqual(['分組期還沒開始'])
   })
 
   it('歷程文字', () => {

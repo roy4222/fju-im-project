@@ -11,6 +11,7 @@ import {
   fillSecret,
   firstLine,
   newPage,
+  openMore,
   pendingRow,
   readFlags,
   restoreFlags,
@@ -143,20 +144,20 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
   await admin.getByLabel('名稱').fill(COHORT_NAME)
   await admin.getByRole('button', { name: '新增屆別' }).click()
   await expectStatus(admin, `已新增屆別 ${COHORT_CODE}`)
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('籌備中')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('尚未開始（設定中）')
   await shot(admin, 'cohort-created')
 
-  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為開放註冊屆別` }).click()
-  await expectStatus(admin, `已把 ${COHORT_CODE} 設為開放註冊屆別`)
-  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為預設工作屆別` }).click()
-  await expectStatus(admin, `已把 ${COHORT_CODE} 設為預設工作屆別`)
+  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為新註冊學生加入的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把新註冊學生加入的屆別設為.*（${COHORT_CODE}）`))
+  await admin.getByRole('button', { name: `把 ${COHORT_CODE} 設為後台預設查看的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把後台預設查看的屆別設為.*（${COHORT_CODE}）`))
 
   // 重新整理：存進資料庫；兩個旗標各只有一個。
   await admin.reload()
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('開放註冊中')
-  await expect(cohortRow(admin, COHORT_CODE)).toContainText('預設工作中')
-  await expect(admin.getByText('開放註冊中', { exact: true })).toHaveCount(1)
-  await expect(admin.getByText('預設工作中', { exact: true })).toHaveCount(1)
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('新註冊加入這屆')
+  await expect(cohortRow(admin, COHORT_CODE)).toContainText('後台預設查看中')
+  await expect(admin.getByText('新註冊加入這屆', { exact: true })).toHaveCount(1)
+  await expect(admin.getByText('後台預設查看中', { exact: true })).toHaveCount(1)
   await shot(admin, 'cohort-flags')
 })
 
@@ -214,7 +215,7 @@ test('票 7 新學生用密碼註冊，停在等待審核頁', async () => {
   await expect(student.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
   // 名單比對結果只給系辦看。
   const body = await student.locator('body').innerText()
-  for (const leak of ['名單符合', '未命中', '資料不符']) expect(body).not.toContain(leak)
+  for (const leak of ['名單符合', '不在本屆名單上', '資料不符']) expect(body).not.toContain(leak)
   // 待審的人開其他頁一律被帶回來。
   await student.goto('/dashboard/student')
   await expect(student).toHaveURL(/\/register\/pending$/)
@@ -236,7 +237,7 @@ test('票 7 管理員看比對結果、選核實方式後核准', async () => {
 
   // 核實方式必選。
   await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇核實方式。')
+  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准' }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
@@ -261,7 +262,8 @@ test('票 8 直接新增老師，拿到只顯示一次的臨時密碼', async ()
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('登入 Email').fill(TEACHER.email)
   await dialog.getByLabel('姓名').fill(TEACHER.name)
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 老師的核實方式不提學生證（T6 系5；同 e2e/teachers.spec.ts）。
+  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
   teacherCreated = true
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
 
@@ -350,7 +352,9 @@ test('票 9 停用學生：他的下一個動作就被登出、不能再登入',
   await expect(student).toHaveURL(/\/dashboard\/student$/)
 
   await searchAccounts(admin, STUDENT.name)
-  await accountRow(admin, STUDENT.name).getByRole('button', { name: `停用 ${STUDENT.name}` }).click()
+  // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+  await accountRow(admin, STUDENT.name).getByRole('button', { name: `更多 ${STUDENT.name}` }).click()
+  await admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${STUDENT.name}` }).click()
   const dialog = admin.getByRole('dialog', { name: `停用 ${STUDENT.name}` })
   await dialog.getByLabel(/理由/).fill('站驗收：停用測試')
   await dialog.getByRole('button', { name: '確認停用' }).click()
@@ -412,7 +416,9 @@ test('票 9 匯出勾選帳號 CSV：下載、UTF-8 BOM、學號保留前導零'
 test('票 10b 老師設為管理員再取消；自己那一列不能取消', async () => {
   await searchAccounts(admin, TEACHER.name)
   const row = accountRow(admin, TEACHER.name)
-  await row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` }).click()
+  // T6 系6：設為／取消管理員收在每列的「更多」選單（同 e2e/admin-roles.spec.ts）。
+  await expect(row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` })).toHaveCount(0)
+  await (await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `設為管理員 ${TEACHER.name}` }).click()
   const grant = admin.getByRole('dialog', { name: `設為管理員 ${TEACHER.name}` })
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('alert')).toHaveText('請寫理由。')
@@ -420,16 +426,17 @@ test('票 10b 老師設為管理員再取消；自己那一列不能取消', asy
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('status')).toContainText('已設為管理員')
   await grant.getByRole('button', { name: '關閉' }).click()
-  await expect(row.getByRole('button', { name: `取消管理員 ${TEACHER.name}` })).toBeVisible()
+  await expect(row).toContainText('管理員')
   await shot(admin, 'teacher-granted-admin')
 
-  await row.getByRole('button', { name: `取消管理員 ${TEACHER.name}` }).click()
+  await (await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `取消管理員 ${TEACHER.name}` }).click()
   const revoke = admin.getByRole('dialog', { name: `取消管理員 ${TEACHER.name}` })
   await revoke.getByLabel(/理由/).fill('站驗收：取消管理員')
   await revoke.getByRole('button', { name: '確認取消管理員' }).click()
   await expect(revoke.getByRole('status')).toContainText('已取消管理員')
   await revoke.getByRole('button', { name: '關閉' }).click()
-  await expect(row.getByRole('button', { name: `設為管理員 ${TEACHER.name}` })).toBeVisible()
+  await expect((await openMore(admin, TEACHER.name)).getByRole('menuitem', { name: `設為管理員 ${TEACHER.name}` })).toBeVisible()
+  await admin.keyboard.press('Escape')
   await shot(admin, 'teacher-revoked-admin')
 
   // 自己那一列：用角色篩選找（不把自己的 Email 放進網址）。

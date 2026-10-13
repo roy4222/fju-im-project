@@ -14,14 +14,17 @@ import { err, type Err } from '@/shared/result'
 /** 和資料庫 CHECK（0010 `showcase_drafts_*_check`）同一組數字。 */
 export const SHOWCASE_LIMITS = { title: 200, summary: 2000, videoUrl: 500 } as const
 
+/**
+ * 影片連結格式不對時的提示（驗收 P-05）：伺服器驗證與瀏覽器內建檢查（`type="url"`）用同一句，
+ * 不讓瀏覽器只說「請輸入網址。」。http:// 仍收，提示只建議較安全的 https://。
+ */
+export const VIDEO_URL_MESSAGE = '影片連結請填以 https:// 開頭的完整網址'
+
 /** 海報只收圖片（票 25：「海報走 FileStorage 並只收圖片」）。上限比照一般附件的圖片。 */
 export const POSTER_UPLOAD: { readonly allowedTypes: readonly FileTypeId[]; readonly maxBytes: number } = {
   allowedTypes: ['png', 'jpg'],
   maxBytes: 10 * 1024 * 1024,
 }
-
-/** 閘門欄在 S11 固定顯示的文案（S11-03：以固定文案代替 S12 的公開閘門）。 */
-export const GATE_PLACEHOLDER = '尚無授權'
 
 /**
  * 摘要正規化：Unicode NFC、換行統一成 `\n`、每行去掉行尾空白、整段去掉頭尾空白。
@@ -71,13 +74,13 @@ export function normalizeDraftFields(input: DraftFieldsInput): { ok: true; value
   let videoUrl: string | null = null
   if (rawUrl !== '') {
     if (rawUrl.length > SHOWCASE_LIMITS.videoUrl || !VIDEO_URL.test(rawUrl)) {
-      return err('VALIDATION_FAILED', '影片連結要是 http:// 或 https:// 開頭的完整網址。', { details: { field: 'videoUrl' } })
+      return err('VALIDATION_FAILED', VIDEO_URL_MESSAGE, { details: { field: 'videoUrl' } })
     }
     try {
       const parsed = new URL(rawUrl)
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('protocol')
     } catch {
-      return err('VALIDATION_FAILED', '影片連結要是 http:// 或 https:// 開頭的完整網址。', { details: { field: 'videoUrl' } })
+      return err('VALIDATION_FAILED', VIDEO_URL_MESSAGE, { details: { field: 'videoUrl' } })
     }
     videoUrl = rawUrl
   }

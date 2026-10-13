@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { IconAlertTriangle, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Ring } from '@/app/_ui/dashboard/charts'
@@ -31,6 +31,8 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
+import { BulkDisableDialog } from './bulk-disable-dialog'
+import { BulkApproveCheckbox, BulkApproveDialog, BulkApproveProvider, BulkApproveSelectAll } from './bulk-approve-dialog'
 import { ImportRosterDialog } from './import-roster-dialog'
 import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
 import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
@@ -137,7 +139,7 @@ export default async function AdminAccountsPage({
   const hrefWith = (overrides: Partial<DirectoryFilter>) => `${BASE}${directoryQueryString({ ...filter, ...overrides, page: 1 })}`
   const filtered = Boolean(filter.q || filter.role || filter.cohortId || filter.status || filter.orphan)
   const listTitle = filter.orphan
-    ? `孤兒帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
+    ? `尚未設定身分的帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
     : filter.status
       ? `${ACCOUNT_STATUS_LABEL[filter.status]}帳號`
       : '全部帳號'
@@ -190,25 +192,28 @@ export default async function AdminAccountsPage({
           />
           {/* 票 10b：只有登入身分、我方什麼都沒有的帳號（建帳號時系統出錯留下的，或註冊了還沒送申請的）。 */}
           <RingTile
-            label="孤兒帳號"
+            label="未設定身分"
             value={summary?.orphans ?? null}
             total={everyone}
-            hint="沒有角色與申請，要補建角色或停用"
+            hint="沒有身分與申請，要補上身分或停用"
             href={`${BASE}${directoryQueryString({ ...filter, status: null, orphan: !filter.orphan, page: 1 })}`}
             active={filter.orphan}
             barClassName="stroke-destructive"
           />
         </div>
 
+        {/* 第三波 W6：勾選後「核准勾選的 N 位」一起核准；需要人判斷的列由伺服器自動略過並寫原因。 */}
+        <BulkApproveProvider pendingIds={(pending?.applications ?? []).map((a) => a.applicationId)}>
         <Panel
           title={`待審核${pending ? `（${pending.applications.length}）` : ''}`}
           icon={<IconUserCheck />}
-          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人"
+          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人。可以勾選多位一起核准"
+          action={<BulkApproveDialog labels={REVIEW_LABELS} />}
           aria-label="待審核"
         >
           {pending && !pending.registrationOpenCohort ? (
             <p className="mx-5 mb-3 rounded-lg bg-brand-subtle px-3 py-2 text-sm text-brand-on-subtle" role="note">
-              目前沒有設定開放註冊屆別：沒命中名單的人核准時要手動選屆別。可以到「屆別」頁設定。
+              目前沒有設定新註冊學生加入的屆別：不在本屆名單上的人核准時要手動選屆別。可以到「屆別」頁設定。
             </p>
           ) : null}
           {(pending?.applications ?? []).length === 0 ? (
@@ -218,8 +223,11 @@ export default async function AdminAccountsPage({
               <table className="w-full min-w-[44rem] text-sm">
                 <thead>
                   <tr className={PANEL_TABLE_HEAD}>
+                    <th scope="col" className="w-10 py-2.5 pl-5">
+                      <BulkApproveSelectAll applicationIds={pending!.applications.map((a) => a.applicationId)} />
+                    </th>
                     {['姓名', '學號', '系級', '比對結果', '最後更新'].map((h) => (
-                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold first:pl-5">
+                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold">
                         {h}
                       </th>
                     ))}
@@ -231,7 +239,10 @@ export default async function AdminAccountsPage({
                 <tbody>
                   {pending!.applications.map((a) => (
                     <tr key={a.applicationId} className={PANEL_TABLE_ROW}>
-                      <td className="px-4 py-2.5 pl-5 font-semibold whitespace-nowrap text-foreground">{a.appliedName}</td>
+                      <td className="py-2.5 pl-5">
+                        <BulkApproveCheckbox applicationId={a.applicationId} name={a.appliedName} />
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold whitespace-nowrap text-foreground">{a.appliedName}</td>
                       <td className="tabular px-4 py-2.5">{a.studentNo}</td>
                       <td className="px-4 py-2.5 whitespace-nowrap">{a.departmentClass || '—'}</td>
                       <td className="px-4 py-2.5">
@@ -257,6 +268,7 @@ export default async function AdminAccountsPage({
             </div>
           )}
         </Panel>
+        </BulkApproveProvider>
 
         <Panel
           title={listTitle}
@@ -270,7 +282,7 @@ export default async function AdminAccountsPage({
             <div className="space-y-3">
               {filter.status || filter.orphan ? (
                 <FilterTag
-                  label={filter.orphan ? '孤兒帳號' : ACCOUNT_STATUS_LABEL[filter.status!]}
+                  label={filter.orphan ? '尚未設定身分的帳號' : ACCOUNT_STATUS_LABEL[filter.status!]}
                   count={`${directory.total}／${everyone} 筆`}
                   clearHref={hrefWith({ status: null, orphan: false })}
                 />
@@ -283,7 +295,6 @@ export default async function AdminAccountsPage({
                 statusLabel={ACCOUNT_STATUS_LABEL}
                 roleLabel={ROLE_LABEL}
                 sortHeaders={sortHeaders(filter)}
-                bulkMaxChars={BULK_MAX_CHARS}
                 verificationLabels={VERIFICATION_LABELS}
                 toolbar={
                   <>
@@ -347,9 +358,9 @@ export default async function AdminAccountsPage({
         </Panel>
 
         <Panel
-          title="名單版本"
+          title="歷次匯入的學生名單"
           icon={<IconFileSpreadsheet />}
-          description="每次匯入都是一個新版本；名單只協助審核比對，不會自動核准任何人"
+          description="每次匯入都另存一份，舊的不會被蓋掉；名單只協助審核比對，不會自動核准任何人"
           aria-label="名單"
         >
           {versions.length === 0 ? (
@@ -405,6 +416,22 @@ export default async function AdminAccountsPage({
         <p className="text-xs text-muted-foreground">
           停用不是刪除：資料與紀錄都保留、可以恢復；停用的人在任何分頁做下一個動作就會被登出。
         </p>
+
+        {/* 第三波 §9 規則 1（驗收 P-06）：批次停用一次影響很多人，跟例行的匯出拉開，放在頁面底部的危險操作區。 */}
+        <Panel
+          title="危險操作"
+          icon={<IconAlertTriangle />}
+          description="一次停用多個帳號"
+          aria-label="危險操作"
+          className="border border-destructive/30"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-5 py-4">
+            <p className="text-sm text-muted-foreground">
+              上傳 TXT 或貼上學號（一行一個），先預覽再寫理由確認。停用的人會被登出，資料保留、之後可以逐一恢復。
+            </p>
+            <BulkDisableDialog maxChars={BULK_MAX_CHARS} />
+          </div>
+        </Panel>
       </div>
     </DashboardShell>
   )

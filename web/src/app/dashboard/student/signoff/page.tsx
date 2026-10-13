@@ -9,7 +9,7 @@ import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { ConsentVersion } from '@/app/dashboard/student/signoff/consent-view'
 import { BUTTON_TEXT, getSignoffQuery, MAX_REASON_CHARS } from '@/composition/signoff'
 
-export const metadata = { title: '同意書｜資管系專題平台' }
+export const metadata = { title: '站內同意書｜資管系專題平台' }
 
 /**
  * 學生「同意書」（票 25、26；原型 `/dashboard/student/signoff`，票 38 換成原型版型）：自己**此刻所在組別**每個簽核包的目前那一版——
@@ -27,14 +27,14 @@ export default async function StudentSignoffPage() {
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/signoff">
       <div className="flex flex-col gap-5">
-        <PageTitle title="同意書" description="每個人只代表自己一票；全部組員同意後才輪到指導老師。" />
+        <PageTitle title="站內同意書" description="每個人只代表自己一票；全部組員同意後才輪到指導老師。" />
         {view.versions.length === 0 ? (
           <EmptyState
-            title="目前沒有待處理的簽核"
+            title="目前沒有待處理的同意書"
             description={
               view.groupCode
-                ? `系辦還沒有替 ${view.groupCode} 建立簽核版本。建好時你會在通知匣收到「輪到你同意」。`
-                : '你目前不在任何組別裡；分組成立、系辦建立簽核版本後才會出現在這裡。'
+                ? `系辦還沒有替 ${view.groupCode} 建立站內同意書。建好時你會在通知匣收到「輪到你同意」。`
+                : '你目前不在任何組別裡；分組成立、系辦建立站內同意書後才會出現在這裡。'
             }
             action={view.groupCode ? undefined : { href: '/dashboard/student/groups', label: '前往我的組別' }}
           />

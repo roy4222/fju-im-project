@@ -10,6 +10,9 @@ import {
   failedChecks,
   ITEM_UPLOAD,
   describeRepublishExpired,
+  deleteCheck,
+  editableInArchivedCohort,
+  HONOR_PLACEMENT,
   isUuid,
   LIFECYCLE_LABEL,
   LIFECYCLE_NEXT_STATUS,
@@ -19,6 +22,7 @@ import {
   sanitizeBody,
   snapshotDueAt,
   type AudienceKind,
+  type DeleteReceipt,
   type EditablePlacement,
   type EditorOptions,
   type FormField,
@@ -73,7 +77,7 @@ import { formatTaipeiMinute, isDeadlinePassed, RealClock, type Clock } from '@/s
 
 const SUBJECT_TYPE = 'item'
 const FILE_REF_TYPE = 'item_attachment' as const
-const ROSTER_REMOVED_BY_SETTINGS = '發布對象或收件單位變更'
+const ROSTER_REMOVED_BY_SETTINGS = '誰看得到或繳交方式變更'
 const ROSTER_REMOVED_BY_WITHDRAW = '項目撤回成草稿'
 const LIFECYCLE_ACTIONS: readonly LifecycleAction[] = ['withdraw', 'archive', 'republish']
 const LIFECYCLE_EVENT: Readonly<Record<LifecycleAction, 'item.withdrawn' | 'item.archived' | 'item.republished'>> = {
@@ -105,11 +109,12 @@ type ItemRow = {
   category: string | null
   registration_deadline: string | null
   event_date: string | null
+  awarded_on: string | null
   draft_schema: { fields: FormField[] }
   revision: number
 }
 
-type Locked = { item: ItemRow; cohortStatus: string; groupIds: string[]; attachmentIds: string[] }
+type Locked = { item: ItemRow; cohortStatus: string; groupIds: string[]; attachmentIds: string[]; deleted: boolean }
 
 type Deps = {
   audit: AuditWriter<PoolClient>
@@ -129,6 +134,14 @@ function itemNotFound(): Err {
 
 function cohortArchived(): Err {
   return err('COHORT_ARCHIVED', '這一屆已經封存，不能再建立或修改專題事務。')
+}
+
+/**
+ * 屆別封存擋不擋這次寫入：封存屆別一律擋，**除了榮譽**（跨屆的公開紀錄，第三波 W1）。
+ * 存草稿會換位置，所以原本的位置與要存的位置都要是榮譽才放行。
+ */
+function archivedBlocks(cohortStatus: string, ...placements: readonly string[]): boolean {
+  return cohortStatus === 'archived' && !placements.every((p) => editableInArchivedCohort(p))
 }
 
 /** 草稿寫進資料庫的樣子（時間轉 ISO，給帳本指紋用）。 */
@@ -212,7 +225,7 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SaveReceipt>(begun)
-      if (cohort.rows[0].status === 'archived') return cohortArchived()
+      if (archivedBlocks(cohort.rows[0].status, draft.placement)) return cohortArchived()
 
       const refs = await this.#checkReferences(tx, draft)
       if (refs) return refs
@@ -223,9 +236,9 @@ export class PgItemCommand implements ItemCommand {
            (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, due_at,
             title, summary, body_html, cover_file_id, category, draft_schema,
             created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id,
-            registration_deadline, event_date)
+            registration_deadline, event_date, awarded_on)
          values ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11, $12, $13, $14::jsonb,
-                 $15, 'user', $16, $15, $16, $17, $18)`,
+                 $15, 'user', $16, $15, $16, $17, $18, $19)`,
         [
           itemId,
           draft.cohortId,
@@ -245,6 +258,7 @@ export class PgItemCommand implements ItemCommand {
           userId,
           draft.registrationDeadline,
           draft.eventDate,
+          draft.awardedOn,
         ],
       )
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
@@ -306,7 +320,7 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SaveReceipt>(begun)
-      if (locked.cohortStatus === 'archived') return cohortArchived()
+      if (archivedBlocks(locked.cohortStatus, item.placement, draft.placement)) return cohortArchived()
       if (item.revision !== revision) return staleRevision()
       if (item.status !== 'draft') {
         return err('VALIDATION_FAILED', '這個項目已經發布了；已發布的修改請按「發布更新」。')
@@ -380,7 +394,7 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<PublishReceipt>(begun)
-      if (locked.cohortStatus === 'archived') return cohortArchived()
+      if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
       if (item.revision !== revision) return staleRevision()
       if (item.status !== 'draft') return err('VALIDATION_FAILED', '這個項目已經發布了，請重新整理頁面。')
 
@@ -400,7 +414,8 @@ export class PgItemCommand implements ItemCommand {
       if (refs) return refs
 
       const collects = item.receiver_unit !== 'none'
-      const notify = collects || options.notify
+      // 榮譽榜不發通知（第三波 W1：公開的得獎消息，不逐人通知全站）。
+      const notify = collects || (options.notify && item.placement !== HONOR_PLACEMENT)
       const contentVersionNo = await this.#insertContentVersion(tx, item, userId, realAt)
       const schemaVersionNo = await this.#insertSchemaVersion(tx, item, userId, realAt)
       await tx.query(
@@ -534,16 +549,18 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<UpdateReceipt>(begun)
-      if (locked.cohortStatus === 'archived') return cohortArchived()
+      if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
+      // 榮譽榜不發通知（第三波 W1）。
+      const notify = options.notify && item.placement !== HONOR_PLACEMENT
       if (item.revision !== revision) return staleRevision()
       if (item.status === 'draft') return err('VALIDATION_FAILED', '這個項目還是草稿；請按「存草稿」或「發布」。')
       if (item.status !== 'published') return err('VALIDATION_FAILED', '已下架的項目要先重新發布才能修改。')
       if (draft.cohortId !== item.cohort_id) return err('VALIDATION_FAILED', '項目建立後不能換屆別；請另建一筆。')
       if (draft.placement !== item.placement) {
-        return err('VALIDATION_FAILED', '已發布的項目不能換發布位置；要換位置請另建一筆。')
+        return err('VALIDATION_FAILED', '已發布的項目不能換顯示的區塊；要換區塊請另建一筆。')
       }
       if (!sameTime(draft.opensAt, item.opens_at)) {
-        return err('VALIDATION_FAILED', '已發布的收件不能改開放時間（實際開放時間已經記下）。')
+        return err('VALIDATION_FAILED', '已發布的繳交項目不能改開放時間（實際開放時間已經記下）。')
       }
 
       const contentChanged =
@@ -559,8 +576,11 @@ export class PgItemCommand implements ItemCommand {
       const stageChanged = draft.stageId !== item.stage_id
       const deadlineChanged = !sameTime(draft.dueAt, item.due_at)
       // 競賽資訊的報名截止／活動日（0011）：發布設定，跟階段一樣記成「設定變更」。
+      // 榮譽的得獎日期（0011，第三波 W1）同樣算設定變更。
       const competitionDatesChanged =
-        draft.registrationDeadline !== item.registration_deadline || draft.eventDate !== item.event_date
+        draft.registrationDeadline !== item.registration_deadline ||
+        draft.eventDate !== item.event_date ||
+        draft.awardedOn !== item.awarded_on
       const settingsChanged = unitChanged || audienceChanged || stageChanged || competitionDatesChanged
       if (!contentChanged && !schemaChanged && !settingsChanged && !deadlineChanged) {
         return err('VALIDATION_FAILED', '沒有任何修改。')
@@ -569,12 +589,12 @@ export class PgItemCommand implements ItemCommand {
       // 有人作答後：收件單位鎖定，對象與欄位結構也不在這裡改（產品模組 04 §4.5；改結構與受眾變更在後面的票）。
       if ((unitChanged || audienceChanged || schemaChanged) && (await this.#responses.hasAnyResponse(tx, itemId))) {
         if (unitChanged) {
-          return err('ITEM_HAS_RESPONSES', '已經有人作答，收件單位（個人一份／整組一份）不能再切換；需要另一種收件請另建一筆。')
+          return err('ITEM_HAS_RESPONSES', '已經有人作答，繳交方式（個人一份／整組一份）不能再切換；需要另一種繳交方式請另建一筆。')
         }
         if (audienceChanged) {
-          return err('ITEM_HAS_RESPONSES', '已經有人作答，這裡不能直接改發布對象（名單與完成率要重算，功能在後續版本）。')
+          return err('ITEM_HAS_RESPONSES', '已經有人作答，這裡不能直接改誰看得到（名單與完成率要重算，功能在後續版本）。')
         }
-        return err('ITEM_HAS_RESPONSES', '已經有人作答，收件欄位不能原地改；改結構要建立新欄位版本並預覽影響（功能在後續版本）。')
+        return err('ITEM_HAS_RESPONSES', '已經有人作答，繳交欄位不能原地改；改結構要建立新的表單版本並預覽影響（功能在後續版本）。')
       }
 
       const failed = failedChecks(publishChecks(draft, item.actual_opened_at ?? businessAt))
@@ -605,6 +625,7 @@ export class PgItemCommand implements ItemCommand {
         due_at: draft.dueAt,
         registration_deadline: draft.registrationDeadline,
         event_date: draft.eventDate,
+        awarded_on: draft.awardedOn,
         deadline_version: deadlineVersion,
       }
       let contentVersionNo = await this.#currentVersionNo(tx, 'item_versions', item.current_content_version_id)
@@ -617,7 +638,7 @@ export class PgItemCommand implements ItemCommand {
              (select id from item_versions where item_id = $1 and version_no = $2) where id = $1`,
           [itemId, contentVersionNo],
         )
-        await this.#insertPublication(tx, itemId, 'content_change', { contentVersionNo }, null, options.notify, userId, realAt, businessAt)
+        await this.#insertPublication(tx, itemId, 'content_change', { contentVersionNo }, null, notify, userId, realAt, businessAt)
       }
       if (schemaChanged) {
         changes.push('schema')
@@ -627,7 +648,7 @@ export class PgItemCommand implements ItemCommand {
              (select id from form_schema_versions where item_id = $1 and version_no = $2) where id = $1`,
           [itemId, schemaVersionNo],
         )
-        await this.#insertPublication(tx, itemId, 'schema_change', { schemaVersionNo }, null, options.notify, userId, realAt, businessAt)
+        await this.#insertPublication(tx, itemId, 'schema_change', { schemaVersionNo }, null, notify, userId, realAt, businessAt)
       }
 
       // 對象或收件單位變了：名單重算。已不在新對象裡的收件者寫結束時間與理由（不刪列），新進的插新列。
@@ -635,7 +656,7 @@ export class PgItemCommand implements ItemCommand {
       let rosterRemoved = 0
       if (settingsChanged) {
         changes.push('settings')
-        await this.#insertPublication(tx, itemId, 'settings_change', {}, null, options.notify, userId, realAt, businessAt)
+        await this.#insertPublication(tx, itemId, 'settings_change', {}, null, notify, userId, realAt, businessAt)
       }
       if (collectsResponses(next.placement) && (unitChanged || audienceChanged)) {
         const expanded = await expandRecipients(tx, {
@@ -666,7 +687,7 @@ export class PgItemCommand implements ItemCommand {
             dueBusinessAt: snapshotDueAt(next.due_at),
           })
         }
-        await this.#insertPublication(tx, itemId, 'deadline_change', {}, deadlineVersion, options.notify, userId, realAt, businessAt)
+        await this.#insertPublication(tx, itemId, 'deadline_change', {}, deadlineVersion, notify, userId, realAt, businessAt)
       }
 
       // 通知：新加入收件名單的人一定收「新收件」；其他人看管理員有沒有選通知（小幅修改由管理員選）。
@@ -687,7 +708,7 @@ export class PgItemCommand implements ItemCommand {
         })
         notifiedCount += addedUserIds.length
       }
-      if (options.notify) {
+      if (notify) {
         const everyone = await expandRecipients(tx, {
           cohortId: item.cohort_id,
           audienceKind: next.audience_kind,
@@ -725,7 +746,7 @@ export class PgItemCommand implements ItemCommand {
         businessAt,
         payload: {
           changes,
-          notify: options.notify,
+          notify,
           contentVersionNo,
           schemaVersionNo,
           deadlineVersion,
@@ -744,7 +765,7 @@ export class PgItemCommand implements ItemCommand {
         dueAt: next.due_at?.toISOString() ?? null,
         rosterAdded: rosterAdded.length,
         rosterRemoved,
-        notify: options.notify,
+        notify,
         notifiedCount,
         requestId,
         serverTime: realAt.toISOString(),
@@ -789,7 +810,7 @@ export class PgItemCommand implements ItemCommand {
       let hasResponses = false
       if (itemId) {
         const found = await client.query<{ actual_opened_at: Date | null }>(
-          'select actual_opened_at from managed_items where id = $1',
+          'select actual_opened_at from managed_items where id = $1 and deleted_at is null',
           [itemId],
         )
         if (!found.rows[0]) return itemNotFound()
@@ -880,7 +901,7 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<LifecycleReceipt>(begun)
-      if (locked.cohortStatus === 'archived') return cohortArchived()
+      if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
       if (item.revision !== revision) return staleRevision()
 
       // 「有沒有人作答」只有撤回要問（票 17 接上的真查詢：有人存過草稿或正式送出就算）。
@@ -950,7 +971,8 @@ export class PgItemCommand implements ItemCommand {
       const schemaVersionNo = await this.#currentVersionNo(tx, 'form_schema_versions', item.current_schema_version_id)
       // 重新發布公告／資源時勾了「重要」：依當下對象逐人通知（Roy 2026-09-25 定）。收件項目不適用
       // （收件的新收件通知在第一次發布時已經發過，重新發布不重發）。
-      const announce = action === 'republish' && options.notify === true && item.receiver_unit === 'none'
+      const announce =
+        action === 'republish' && options.notify === true && item.receiver_unit === 'none' && item.placement !== HONOR_PLACEMENT
       await this.#insertPublication(
         tx,
         itemId,
@@ -1033,6 +1055,91 @@ export class PgItemCommand implements ItemCommand {
     })
   }
 
+  // ── 刪除（第三波 W1） ──────────────────────────────────────────────────────
+
+  /**
+   * 刪除：只限草稿與已下架；收件項目有任何回答（存過草稿或正式送出）就擋下，只能下架（Q28）。
+   * 交易形狀同 `changeStatus`。不實體刪列（權限矩陣不給刪、子表外鍵全是 restrict）：寫刪除標記與稽核
+   * `item.deleted`（payload 留刪除前的狀態、標題、屆別、位置，之後只剩稽核看得到）。
+   *
+   * 已下架的收件還排著截止快照工作：一起取消（沒有回答才刪得掉，快照沒有意義）。名單列、附件引用照留；
+   * 已寄的通知不收回（點開是找不到）。屆別封存時只有榮譽可以刪（同其他寫入）。
+   */
+  async delete(actor: ResolvedActor, itemId: string, revision: number, requestId: string): Promise<Result<DeleteReceipt>> {
+    const denied = authorizeAdmin(actor, '刪除專題事務')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId)) return itemNotFound()
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lock(tx, itemId, { includeDeleted: true })
+      if (!locked) return itemNotFound()
+      const { item } = locked
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'item.delete',
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, revision, action: 'delete' })),
+          scope: 'cohort',
+          cohortId: item.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<DeleteReceipt>(begun)
+      if (locked.deleted) return itemNotFound()
+      if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
+      if (item.revision !== revision) return staleRevision()
+
+      const hasResponses = item.status === 'published' ? false : await this.#responses.hasAnyResponse(tx, itemId)
+      const allowed = deleteCheck(item.status, hasResponses)
+      if (!allowed.ok) return err(allowed.code, allowed.message)
+
+      if (item.due_at) {
+        await this.#dueWork.cancel(tx, {
+          kind: 'deadline_snapshot',
+          subject: { type: SUBJECT_TYPE, id: itemId },
+          deadlineVersion: item.deadline_version,
+        })
+      }
+      await tx.query(
+        `update managed_items
+            set deleted_at = $2, deleted_by_user_id = $3, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+          where id = $1`,
+        [itemId, realAt, userId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: 'item.deleted',
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId: item.cohort_id,
+        realAt,
+        businessAt,
+        payload: { placement: item.placement, status: item.status, title: item.title, cohortId: item.cohort_id },
+      })
+
+      const receipt = {
+        itemId,
+        cohortId: item.cohort_id,
+        title: item.title,
+        status: item.status,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   #normalize(input: ItemInput): { ok: true; value: ItemDraft } | Err {
@@ -1068,22 +1175,29 @@ export class PgItemCommand implements ItemCommand {
     }
   }
 
-  /** 鎖序：屆別（共享）→ 項目（排他）。回傳項目、屆別狀態、目前的指定組別與附件順序。 */
-  async #lock(tx: PoolClient, itemId: string): Promise<Locked | null> {
-    const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1', [itemId])
+  /**
+   * 鎖序：屆別（共享）→ 項目（排他）。回傳項目、屆別狀態、目前的指定組別與附件順序。
+   * 已刪除的項目當作不存在（回 null＝「找不到」）；只有刪除自己用 `includeDeleted`，讓同一個 requestId 重送時
+   * 先過帳本拿回原回執，之後才判已刪除。
+   */
+  async #lock(tx: PoolClient, itemId: string, options: { includeDeleted?: boolean } = {}): Promise<Locked | null> {
+    const live = options.includeDeleted ? '' : ' and deleted_at is null'
+    const head = await tx.query<{ cohort_id: string }>(`select cohort_id from managed_items where id = $1${live}`, [itemId])
     const cohortId = head.rows[0]?.cohort_id
     if (!cohortId) return null
     const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
-    const found = await tx.query<ItemRow>(
+    const found = await tx.query<ItemRow & { deleted: boolean }>(
       `select id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, actual_opened_at, due_at,
               deadline_version, current_content_version_id, current_schema_version_id, title, summary, body_html,
               cover_file_id, category, to_char(registration_deadline, 'YYYY-MM-DD') as registration_deadline,
-              to_char(event_date, 'YYYY-MM-DD') as event_date, draft_schema, revision
-         from managed_items where id = $1 for update`,
+              to_char(event_date, 'YYYY-MM-DD') as event_date, to_char(awarded_on, 'YYYY-MM-DD') as awarded_on,
+              draft_schema, revision, deleted_at is not null as deleted
+         from managed_items where id = $1${live} for update`,
       [itemId],
     )
-    const item = found.rows[0]
-    if (!item || !cohort.rows[0]) return null
+    const row = found.rows[0]
+    if (!row || !cohort.rows[0]) return null
+    const { deleted, ...item } = row
     const groups = await tx.query<{ group_id: string }>(
       'select group_id from item_audience_groups where item_id = $1 order by group_id',
       [itemId],
@@ -1097,6 +1211,7 @@ export class PgItemCommand implements ItemCommand {
       cohortStatus: cohort.rows[0].status,
       groupIds: groups.rows.map((r) => r.group_id),
       attachmentIds: attachments.rows.map((r) => r.file_id),
+      deleted,
     }
   }
 
@@ -1127,7 +1242,7 @@ export class PgItemCommand implements ItemCommand {
           set placement = $2, audience_kind = $3, receiver_unit = $4, stage_id = $5, opens_at = $6, due_at = $7,
               title = $8, summary = $9, body_html = $10, cover_file_id = $11, category = $12, draft_schema = $13::jsonb,
               deadline_version = coalesce($14, deadline_version),
-              registration_deadline = $17, event_date = $18,
+              registration_deadline = $17, event_date = $18, awarded_on = $19,
               revision = revision + 1, updated_at = $15, updated_by_user_id = $16
         where id = $1`,
       [
@@ -1149,6 +1264,7 @@ export class PgItemCommand implements ItemCommand {
         userId,
         draft.registrationDeadline,
         draft.eventDate,
+        draft.awardedOn,
       ],
     )
   }
@@ -1332,7 +1448,7 @@ export class PgItemCommand implements ItemCommand {
   #run<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'items', body, (constraint) =>
       constraint === 'response_rosters_one_current'
-        ? err('CONFLICT', '收件名單剛剛被同時修改，請重新整理頁面再試一次。')
+        ? err('CONFLICT', '繳交名單剛剛被同時修改，請重新整理頁面再試一次。')
         : err('CONFLICT', '剛剛有人同時修改了這個項目，請重新整理頁面再試一次。'),
     )
   }
@@ -1385,7 +1501,7 @@ export class PgItemQuery implements ItemQuery {
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
                 as roster_count
          from managed_items m
-        where m.cohort_id = $1
+        where m.cohort_id = $1 and m.deleted_at is null
         order by m.updated_at desc`,
       [cohortId],
     )
@@ -1408,24 +1524,26 @@ export class PgItemQuery implements ItemQuery {
     if (!isUuid(itemId)) return null
     const db = this.#reader()
     const found = await db.query<
-      Omit<ItemRow, 'registration_deadline' | 'event_date'> & {
+      Omit<ItemRow, 'registration_deadline' | 'event_date' | 'awarded_on'> & {
         updated_at: Date
         content_no: number | null
         schema_no: number | null
         roster_count: string
         registration_deadline_day: string | null
         event_date_day: string | null
+        awarded_on_day: string | null
       }
     >(
       `select m.*, cv.version_no as content_no, sv.version_no as schema_no,
               to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline_day,
               to_char(m.event_date, 'YYYY-MM-DD') as event_date_day,
+              to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on_day,
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
                 as roster_count
          from managed_items m
          left join item_versions cv on cv.id = m.current_content_version_id
          left join form_schema_versions sv on sv.id = m.current_schema_version_id
-        where m.id = $1`,
+        where m.id = $1 and m.deleted_at is null`,
       [itemId],
     )
     const item = found.rows[0]
@@ -1475,6 +1593,7 @@ export class PgItemQuery implements ItemQuery {
       dueAt: item.due_at,
       registrationDeadline: item.registration_deadline_day,
       eventDate: item.event_date_day,
+      awardedOn: item.awarded_on_day,
       deadlineVersion: item.deadline_version,
       fields: item.draft_schema.fields ?? [],
       revision: item.revision,

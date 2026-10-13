@@ -51,3 +51,35 @@ jobs:
     if: vars.HEALTH_PROD_ENABLED == 'true'
     steps:
       - run: bash -c "$CHECK" check https://fju.roy422.dev/api/health
+
+  # 開發者後台（設計方案 §2，票 S-3）：VM 外再確認一次 fju-status.roy422.dev 沒登入會被 Cloudflare Access 擋下
+  # （302 到 <team>.cloudflareaccess.com 的登入頁）。VM 掛掉時 VM 內的 Gatus 也一起掛，所以放在這裡。
+  # 網址查不到（還沒裝或已撤）＝沒有東西外露：印 notice 後略過，不寄失敗通知。隧道壞掉時 DNS 還在、會回 5xx，照樣紅。
+  # Location 的 query 帶 Access 的 meta token，只印 ? 前面。
+  status-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: fju-status.roy422.dev 沒登入要被 Access 擋下
+        run: |
+          url=https://fju-status.roy422.dev/
+          if ! getent hosts fju-status.roy422.dev > /dev/null; then
+            echo "::notice::DNS 查不到 fju-status.roy422.dev：開發者後台還沒裝（或網址已撤），沒有東西外露，略過。"
+            exit 0
+          fi
+          set +e
+          headers=$(curl -sS -o /dev/null -D - --max-time 20 --retry 3 --retry-delay 30 --retry-all-errors "$url"); rc=$?
+          set -e
+          headers=$(printf '%s' "$headers" | tr -d '\r')
+          code=$(printf '%s\n' "$headers" | awk 'toupper($1) ~ /^HTTP\// {c=$2} END {print c}')
+          location=$(printf '%s\n' "$headers" | awk 'tolower($1) == "location:" {l=$2} END {print l}')
+          echo "$url -> HTTP $code (curl exit $rc) Location: ${location%%\?*}"
+          if [ "$rc" != 0 ] || [ "$code" != 302 ]; then
+            echo "::error::fju-status.roy422.dev 沒有回 302（可能沒被 Access 擋住）"
+            exit 1
+          fi
+          if ! [[ "$location" =~ ^https://[A-Za-z0-9-]+\.cloudflareaccess\.com/cdn-cgi/access/login ]]; then
+            echo "::error::302 但不是導到 Cloudflare Access 登入頁"
+            exit 1
+          fi
+          echo "✓ 有被 Access 擋住"

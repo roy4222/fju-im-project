@@ -14,6 +14,7 @@ import {
   OPPORTUNITY_LIMITS,
   OPPORTUNITY_STATUS_LABEL,
 } from '@/composition/groups'
+import { cohortLabel } from '@/composition/cohorts'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -114,7 +115,7 @@ export default async function TeacherIndustryPage({ searchParams }: { searchPara
                       </p>
                     </div>
                     <LinkedGroupsCell
-                      links={o.links.map((l) => ({ linkId: l.linkId, groupCode: l.groupCode, cohortCode: l.cohortCode }))}
+                      links={o.links.map((l) => ({ linkId: l.linkId, groupCode: l.groupCode, cohortLabel: cohortLabel({ name: l.cohortName, code: l.cohortCode }) }))}
                       opportunityName={name}
                       requestId={randomUUID()}
                       reasonMaxLength={CHANGE_REASON_MAX_LENGTH}

@@ -2,6 +2,9 @@ import 'server-only'
 import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
+  BULK_APPROVAL_MAX,
+  BULK_APPROVAL_SKIP_LABEL,
+  bulkApprovalSkip,
   evidenceFlags,
   matchRoster,
   normalizeApplicationFields,
@@ -14,6 +17,9 @@ import {
   reviewAccessDenied,
   suggestedApprovalCohort,
   type ApplicationFields,
+  type BulkApprovalPreview,
+  type BulkApprovalReceipt,
+  type BulkApprovalSkip,
   type CohortChoice,
   type DecisionReceipt,
   type DuplicateInfo,
@@ -159,6 +165,8 @@ function snapshotOf(fields: ApplicationFields, loginEmail: string, match: Roster
 
 type Queryable = Pick<Pool, 'query'> | PoolClient
 
+type ApproveInput = Parameters<RegistrationCommand['approve']>[1]
+
 export class PgRegistrationCommand implements RegistrationCommand {
   readonly #deps: RegistrationCommandDeps
   readonly #clock: Clock
@@ -190,7 +198,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
     )
     if (!created.ok) {
       if (created.reason === 'rate_limited') {
-        return { ok: false, code: 'RATE_LIMITED', message: '這個網路一小時內的註冊次數已達上限，請稍後再試。' }
+        const wait = waitAtMost(RATE_LIMITS.register.windowMs)
+        return { ok: false, code: 'RATE_LIMITED', message: `這個網路 ${wait}內的註冊次數已達上限，最晚 ${wait}後可以再試；仍無法註冊請聯絡系辦。` }
       }
       if (created.reason === 'email_taken') {
         // 統一訊息（工程模組 01 §3 `USER_EXISTS`）：不說這個 Email 是停用、待審還是正常帳號。
@@ -426,18 +435,16 @@ export class PgRegistrationCommand implements RegistrationCommand {
     return ok({ applications, cohorts, registrationOpenCohort: registrationOpen }, meta(this.#clock.now()))
   }
 
-  async approve(
-    actor: ResolvedActor,
-    input: {
-      applicationId: string
-      revision: number
-      verificationMethod: string
-      verificationNote: string
-      reason: string
-      cohortId: string | null
-      requestId: string
-    },
-  ): Promise<Result<DecisionReceipt>> {
+  async approve(actor: ResolvedActor, input: ApproveInput): Promise<Result<DecisionReceipt>> {
+    return this.#approve(actor, input, false)
+  }
+
+  /**
+   * 單筆核准的交易。`batch` 是批次核准（第三波 W6）呼叫的：鎖住申請、以**這個交易看得到的**名單比對之後，
+   * 再查一次批次資格（`bulkApprovalSkip`），不符就整筆回滾、回 `CONFLICT` 並在 details 帶略過原因——
+   * 預覽與核准之間名單、占用都可能變了，交易外先分類擋不住。單筆審核（`batch=false`）完全不走這一段。
+   */
+  async #approve(actor: ResolvedActor, input: ApproveInput, batch: boolean): Promise<Result<DecisionReceipt>> {
     const blocked = reviewAccessDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
     const shape = checkDecisionShape(input)
@@ -487,6 +494,19 @@ export class PgRegistrationCommand implements RegistrationCommand {
 
       // 比對以**核准當下**的名單為準（名單可能在學生送出後才匯入），並寫進紀錄當作比對依據。
       const { match, rosterVersionId } = await this.#match(tx, fields, row.login_email, registrationOpen?.id ?? null)
+      if (batch) {
+        const key = row.student_no.toUpperCase()
+        const holders = (await this.#activeHolders(tx, [row.student_no])).get(key) ?? []
+        const duplicates: DuplicateInfo = {
+          activeHolders: holders.filter((h) => h.userId !== row.user_id).map(({ name, cohortCode }) => ({ name, cohortCode })),
+          otherPending: Math.max(0, ((await this.#pendingCounts(tx, [row.student_no])).get(key) ?? 0) - 1),
+        }
+        const why = bulkApprovalSkip({ match, duplicates }, cohorts)
+        if (why) {
+          await tx.query('rollback')
+          return err('CONFLICT', BULK_APPROVAL_SKIP_LABEL[why], { details: { bulkSkip: why, appliedName: row.applied_name } })
+        }
+      }
       const cohort = resolveApprovalCohort(match, input.cohortId, cohorts)
       if (!cohort.ok) {
         await tx.query('rollback')
@@ -625,6 +645,116 @@ export class PgRegistrationCommand implements RegistrationCommand {
     } finally {
       tx.release()
     }
+  }
+
+  // ── 批次核准（第三波 W6） ──────────────────────────────────────────────────
+
+  async previewApproveMany(actor: ResolvedActor, applicationIds: readonly string[]): Promise<Result<BulkApprovalPreview>> {
+    const blocked = reviewAccessDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    const ids = bulkIds(applicationIds)
+    if (!ids.ok) return ids
+    const listed = await this.listPending(actor)
+    if (!listed.ok) return listed
+    const byId = new Map(listed.receipt.applications.map((a) => [a.applicationId, a]))
+    const cohorts = listed.receipt.cohorts
+    const rows = ids.ids.flatMap((id) => {
+      const a = byId.get(id)
+      if (!a) return []
+      const skip = bulkApprovalSkip(a, cohorts)
+      const cohortId = skip ? null : resolveApprovalCohort(a.match, null, cohorts)
+      return [
+        {
+          applicationId: a.applicationId,
+          revision: a.revision,
+          appliedName: a.appliedName,
+          studentNo: a.studentNo,
+          rosterMatch: a.match.status,
+          cohortName: cohortId?.ok ? (cohorts.find((c) => c.id === cohortId.cohortId)?.name ?? null) : null,
+          skip,
+          skipLabel: skip ? BULK_APPROVAL_SKIP_LABEL[skip] : null,
+        },
+      ]
+    })
+    return ok({ rows, missing: ids.ids.length - rows.length }, meta(this.#clock.now()))
+  }
+
+  async approveMany(
+    actor: ResolvedActor,
+    input: {
+      items: readonly { applicationId: string; revision: number; requestId: string }[]
+      previewSkipped: readonly string[]
+      verificationMethod: string
+      verificationNote: string
+      reason: string
+    },
+  ): Promise<Result<BulkApprovalReceipt>> {
+    const blocked = reviewAccessDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    // 核實欄位整批共用：不對就整批不做，畫面停在原地讓系辦改（規則同單筆）。
+    const decision = normalizeApproval(input)
+    if (!decision.ok) return decision
+    const previewSkipped = Array.isArray(input.previewSkipped) ? input.previewSkipped : []
+    // 兩邊合起來檢查：同一位不能同時「要核准」又「預覽略過」。
+    const ids = bulkIds([...input.items.map((i) => i.applicationId), ...previewSkipped])
+    if (!ids.ok) return ids
+    if (input.items.length === 0) return err('VALIDATION_FAILED', '勾選的人都需要個別審核，沒有可以一起核准的。')
+
+    const approved: BulkApprovalReceipt['approved'][number][] = []
+    const skipped: BulkApprovalReceipt['skipped'][number][] = []
+    const skip = (applicationId: string, appliedName: string, why: BulkApprovalSkip) =>
+      skipped.push({ applicationId, appliedName, reason: BULK_APPROVAL_SKIP_LABEL[why] })
+
+    // 只核准 `items` 裡的人；資格在每一筆自己的交易裡重查（見 `#approve`）。
+    // 一位一位做（各自的交易），不並行：同一批裡兩位搶同一個學號時，後面那位會拿到「學號已被使用」。
+    // 不在待審清單的（例如這一批重送、上次已經核准了）一樣呼叫：同一個請求編號會回放回執。
+    for (const item of input.items) {
+      const result = await this.#approve(
+        actor,
+        {
+          applicationId: item.applicationId,
+          revision: item.revision,
+          verificationMethod: input.verificationMethod,
+          verificationNote: input.verificationNote,
+          reason: input.reason,
+          cohortId: null,
+          requestId: item.requestId,
+        },
+        true,
+      )
+      if (result.ok) {
+        approved.push({
+          applicationId: result.receipt.applicationId,
+          appliedName: result.receipt.appliedName,
+          cohortName: result.receipt.cohortName,
+        })
+        continue
+      }
+      const details = result.details ?? {}
+      const name = typeof details.appliedName === 'string' ? details.appliedName : ''
+      const why: BulkApprovalSkip =
+        typeof details.bulkSkip === 'string' && details.bulkSkip in BULK_APPROVAL_SKIP_LABEL
+          ? (details.bulkSkip as BulkApprovalSkip)
+          : result.code === 'STUDENT_NO_TAKEN'
+            ? 'student_no_taken'
+            : result.code === 'CONFLICT'
+              ? 'changed'
+              : 'failed'
+      skip(item.applicationId, name, why)
+    }
+
+    // 預覽就略過的人：只回報（以現在的待審清單說原因），絕不核准。
+    if (previewSkipped.length > 0) {
+      const listed = await this.listPending(actor)
+      if (!listed.ok) return listed
+      const byId = new Map(listed.receipt.applications.map((a) => [a.applicationId, a]))
+      for (const id of previewSkipped) {
+        const pending = byId.get(id)
+        if (!pending) skip(id, '', 'not_pending')
+        else skip(id, pending.appliedName, bulkApprovalSkip(pending, listed.receipt.cohorts) ?? 'not_in_preview')
+      }
+    }
+    return ok({ approved, skipped }, meta(this.#clock.now()))
   }
 
   async reject(
@@ -920,6 +1050,19 @@ export class PgRegistrationCommand implements RegistrationCommand {
   }
 }
 
+/** 批次的申請 ID：至少一筆、不超過上限、不重複、格式要對。 */
+function bulkIds(values: readonly string[]): { ok: true; ids: string[] } | Err {
+  if (!Array.isArray(values) || values.length === 0) return err('VALIDATION_FAILED', '請先勾選要核准的人。')
+  if (values.length > BULK_APPROVAL_MAX) {
+    return err('VALIDATION_FAILED', `一次最多核准 ${BULK_APPROVAL_MAX} 位，請分批。`)
+  }
+  const ids = [...new Set(values)]
+  if (ids.length !== values.length || !ids.every((id) => typeof id === 'string' && UUID_PATTERN.test(id))) {
+    return err('VALIDATION_FAILED', '勾選的名單不正確，請重新整理頁面再試。')
+  }
+  return { ok: true, ids }
+}
+
 /** 審核請求的形狀：申請 ID、版本、請求編號都要是合法值，不丟給資料庫報型別錯。 */
 function checkDecisionShape(input: { applicationId: string; revision: number; requestId: string }): Err | null {
   if (!UUID_PATTERN.test(input.applicationId) || !Number.isInteger(input.revision) || input.revision < 1) {
@@ -931,4 +1074,13 @@ function checkDecisionShape(input: { applicationId: string; revision: number; re
 
 function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: string })?.code === '23505'
+}
+
+/**
+ * 被限速時最晚要等多久（N-21）。限速是固定視窗：被擋之後最晚一個視窗長度就重算，
+ * 所以照 `RATE_LIMITS` 的視窗長度說「最晚」，不寫死數字。
+ */
+function waitAtMost(windowMs: number): string {
+  const minutes = Math.ceil(windowMs / 60_000)
+  return minutes % 60 === 0 ? `${minutes / 60} 小時` : `${minutes} 分鐘`
 }

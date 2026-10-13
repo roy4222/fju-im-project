@@ -58,10 +58,10 @@ export function taipeiMs(date: string, time: string): number {
 /** 直接填 `datetime-local` 的字串（`YYYY-MM-DDTHH:mm:ss`）。 */
 export async function setClockLocal(page: Page, local: string, reason: string) {
   await page.goto('/dashboard/admin/clock')
-  await page.getByLabel('業務時間（臺灣時間，到秒）').fill(local)
+  await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill(local)
   await page.getByLabel('原因').fill(reason)
-  await page.getByRole('button', { name: '設定業務時間' }).click()
-  await expectStatus(page, '已設定業務時間')
+  await page.getByRole('button', { name: '設定模擬時間' }).click()
+  await expectStatus(page, '已設定模擬時間')
 }
 
 export async function setClock(page: Page, ms: number, reason: string) {
@@ -72,7 +72,7 @@ export async function setClock(page: Page, ms: number, reason: string) {
 export async function readClockOffset(page: Page): Promise<number | null> {
   const response = await page.goto('/dashboard/admin/clock')
   expect(response?.status(), '測試站應該有模擬業務鐘頁').toBe(200)
-  const business = parseTaipeiSecond(await page.getByLabel('目前業務時間').innerText())
+  const business = parseTaipeiSecond(await page.getByLabel('目前的系統時間').innerText())
   const simulated = await page.getByText('模擬中：').count()
   return simulated > 0 ? business - Date.now() : null
 }
@@ -122,10 +122,10 @@ export async function createCohortWithFlags(admin: Page, code: string, name: str
   await admin.getByRole('button', { name: '新增屆別' }).click()
   await expectStatus(admin, `已新增屆別 ${code}`)
   await admin.reload()
-  await admin.getByRole('button', { name: `把 ${code} 設為開放註冊屆別` }).click()
-  await expectStatus(admin, `已把 ${code} 設為開放註冊屆別`)
-  await admin.getByRole('button', { name: `把 ${code} 設為預設工作屆別` }).click()
-  await expectStatus(admin, `已把 ${code} 設為預設工作屆別`)
+  await admin.getByRole('button', { name: `把 ${code} 設為新註冊學生加入的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把新註冊學生加入的屆別設為.*（${code}）`))
+  await admin.getByRole('button', { name: `把 ${code} 設為後台預設查看的屆別` }).click()
+  await expectStatus(admin, new RegExp(`已把後台預設查看的屆別設為.*（${code}）`))
 }
 
 /** 時間軸填四階段（預設 −10／+30／+90／+150 天）與年度結束日 +300 天。 */
@@ -145,15 +145,17 @@ export async function fillStages(admin: Page, code: string, offsets: [number, nu
 
 export async function activateCohort(admin: Page, code: string) {
   await admin.goto('/dashboard/admin/cohorts')
+  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
   await admin.getByRole('button', { name: `把 ${code} 轉為進行中` }).click()
-  await expectStatus(admin, `已把 ${code} 轉為進行中`)
+  await admin.getByRole('dialog', { name: `把 ${code} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
+  await expectStatus(admin, new RegExp(`已把.*（${code}）轉為進行中`))
   await expect(cohortRow(admin, code)).toContainText('進行中')
 }
 
-/** 分組總覽的屆別編號（屆別選單連結上的 `?cohort=`）。 */
+/** 分組總覽的屆別編號（屆別選單連結上的 `?cohort=`；連結文字是「名稱（代碼）」）。 */
 export async function cohortIdOf(admin: Page, code: string): Promise<string> {
   await admin.goto('/dashboard/admin/groups')
-  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: code, exact: true })
+  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: new RegExp(`（${code}）$`) })
   const id = new URL((await link.getAttribute('href'))!, 'https://x').searchParams.get('cohort') ?? ''
   expect(id).toMatch(/^[0-9a-f-]{36}$/)
   return id
@@ -167,12 +169,12 @@ export async function openAdminGroups(admin: Page, cohortId: string) {
 export async function saveGroupingSettings(admin: Page, cohortId: string, code: string, min: number, max: number, days: number) {
   await openAdminGroups(admin, cohortId)
   await admin.getByRole('button', { name: '分組設定' }).click()
-  const dialog = admin.getByRole('dialog', { name: `${code} 的分組設定` })
+  const dialog = admin.getByRole('dialog', { name: new RegExp(`（${code}） 的分組設定`) })
   await dialog.getByLabel('每組最多人數').fill(String(max))
   await dialog.getByLabel('每組最少人數').fill(String(min))
   await dialog.getByLabel('提案預設天數').fill(String(days))
   await dialog.getByRole('button', { name: '儲存' }).click()
-  await expectStatus(admin, `已儲存 ${code} 的分組設定`)
+  await expectStatus(admin, new RegExp(`已儲存.*（${code}）的分組設定`))
 }
 
 export function groupRow(admin: Page, group: string) {
@@ -284,7 +286,7 @@ export async function publishFromEditor(page: Page): Promise<string> {
   const check = page.getByRole('dialog', { name: '發布前檢查' })
   await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
   await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('收件名單')
+  await expect(check.getByRole('status')).toContainText('需要繳交的名單')
   const text = await check.getByRole('status').innerText()
   await expect(page.getByTestId('item-status')).toHaveText('發布中')
   return text
@@ -339,8 +341,17 @@ export async function retire(admin: Page, name: string): Promise<RetireOutcome> 
     await searchAccounts(admin, name)
     const row = accountRow(admin, name)
     if ((await row.count()) !== 1) return '沒收掉'
-    const disable = row.getByRole('button', { name: `停用 ${name}`, exact: true })
-    if ((await disable.count()) === 0) return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
+    const more = row.getByRole('button', { name: `更多 ${name}`, exact: true })
+    const disable = admin.getByRole('menu').getByRole('menuitem', { name: `停用 ${name}`, exact: true })
+    if ((await more.count()) > 0) {
+      await more.click()
+      await expect(admin.getByRole('menu')).toBeVisible()
+    }
+    if ((await more.count()) === 0 || (await disable.count()) === 0) {
+      if ((await more.count()) > 0) await admin.keyboard.press('Escape')
+      return (await row.innerText()).includes('已停用') ? '已停用' : '沒收掉'
+    }
     await disable.click()
     const dialog = admin.getByRole('dialog', { name: `停用 ${name}` })
     await expect(dialog).toBeVisible()
@@ -378,7 +389,7 @@ async function lockWithTemporaryPassword(admin: Page, name: string): Promise<Ret
   await row.getByRole('button', { name: `發臨時密碼給 ${name}`, exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '發臨時密碼' })
   await dialog.getByRole('radio').first().check()
-  const note = dialog.getByLabel(/核實說明/)
+  const note = dialog.getByLabel(/怎麼確認的說明/)
   if ((await note.count()) > 0) await note.fill('149 補驗收尾')
   await dialog.getByLabel(/^理由/).fill('149 補驗收尾：作廢測試密碼（最後一位組長停不掉，票 42）')
   await dialog.getByRole('button', { name: '產生一次性密碼' }).click()

@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-10-13T06:10:00+08:00",
+  "runs": [
+    {
+      "runId": "night-20261012-2200",
+      "plan": "full",
+      "startedAt": "2026-10-12T22:00:00+08:00",
+      "finishedAt": "2026-10-13T06:00:00+08:00",
+      "commitStart": "7162644000000000000000000000000000000000",
+      "commitEnd": "7162644000000000000000000000000000000000",
+      "items": [
+        {
+          "id": "story-1",
+          "status": "ok"
+        },
+        {
+          "id": "story-2",
+          "status": "ok"
+        },
+        {
+          "id": "story-5",
+          "status": "ok"
+        }
+      ],
+      "hasSummary": true,
+      "summaryValid": true,
+      "invalidReason": null
+    }
+  ],
+  "latestFullAttempt": "night-20261012-2200",
+  "requiredItemsSourceSha": "7162644000000000000000000000000000000000"
+}

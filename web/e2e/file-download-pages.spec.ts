@@ -9,7 +9,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  *    同一個網址不帶標頭（程式抓取）→ 維持 401 JSON。
  * 2. 訪客用真的瀏覽器開 → 落在登入頁；用本屆學生登入 → 瀏覽器直接下載。
  * 3. 別屆學生與「公告下架後的本屆學生」→ 303 到 `/403`，兩個回應逐位元相同（不洩漏是哪一種）；
- *    瀏覽器落在中文的無權限頁。
+ *    瀏覽器落在中文的「找不到這個頁面」（不說沒有權限）。
  *
  * 公告用真的後台三步驟表單發布、真的下架按鈕下架；屆別與學生用 owner 連線直接插。
  */
@@ -133,7 +133,7 @@ test('系辦發布「本屆學生」公告並附 PDF', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: '新增項目' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('發布對象').selectOption('cohort_students')
+  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
   await dialog.getByRole('button', { name: '下一步' }).click()
   await dialog.getByLabel('說明', { exact: true }).fill('<p>附件是說明會簡章。</p>')
   await dialog.locator('input[type=file]').setInputFiles({ name: '說明會簡章.pdf', mimeType: 'application/pdf', buffer: PDF })
@@ -191,7 +191,7 @@ test('訪客在瀏覽器開附件網址 → 登入頁；用本屆學生登入後
   expect((await fileResponse).headers()['content-disposition']).toContain('attachment')
 })
 
-test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽器看到中文無權限頁', async ({ page }) => {
+test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽器看到中文「找不到這個頁面」', async ({ page }) => {
   const stranger = await fetchFile(outsider, DOCUMENT)
   expect(stranger.status()).toBe(303)
   expect(stranger.headers()['location']).toBe('/403')
@@ -207,6 +207,7 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
   await page.context().addCookies([toPlaywrightCookie(outsider.cookie, BASE_URL)])
   await page.goto(`/api/files/${fileId}`)
   await expect(page).toHaveURL(/\/403$/)
+  await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
   await expect(page.getByRole('link', { name: '回到自己的首頁' })).toBeVisible()
 
   // 系辦下架這則公告。

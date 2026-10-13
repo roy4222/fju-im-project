@@ -44,7 +44,7 @@ export default async function TeacherGroupsPage({
 
   if (!cohort) {
     return shell(
-      '產學組先按先得認領；一般組由系辦依抽籤結果指派。所有組別都看得到。',
+      '產學組由老師自己擔任指導老師，第一位確認的老師就是指導老師；一般組由系辦依抽籤結果指派。所有組別都看得到。',
       <Panel title="全部組別" icon={<IconUsersGroup />}>
         <PanelEmpty icon={<IconUsersGroup />} title="還沒有進行中的屆別" hint="系辦建立屆別、學生成組之後，組別會出現在這裡。" />
       </Panel>,
@@ -88,7 +88,7 @@ export default async function TeacherGroupsPage({
       {cohortLabel(cohort)}・{COHORT_STATUS_LABEL[cohort.status]}・{groups.length} 組、{people} 人已分組・產學 {industry.length} 組（
       {industry.filter((g) => !g.advisor).length} 組未指派老師）・
       <span data-testid="teacher-groups-summary">
-        你指導 {mine} 組・產學組可認領 {openCount} 組
+        你指導 {mine} 組・產學組可擔任 {openCount} 組
       </span>
       。一般組由系辦依抽籤結果指派；所有組別都看得到。
     </>,
@@ -105,7 +105,7 @@ export default async function TeacherGroupsPage({
                 c.id === cohort.id ? 'bg-ink text-ink-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
-              {c.code}
+              {cohortLabel(c)}
             </Link>
           ))}
         </nav>

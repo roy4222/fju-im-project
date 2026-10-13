@@ -287,7 +287,7 @@ export type EvidenceFlag =
 export const EVIDENCE_LABEL: Record<EvidenceFlag, string> = {
   roster_matched: '名單符合',
   name_mismatch: '資料不符',
-  not_found: '未命中',
+  not_found: '不在本屆名單上',
   multiple_cohorts: '跨屆重複',
   duplicate_student_no: '重複學號',
   email_same: 'Email 相同',
@@ -330,7 +330,7 @@ export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document
 export const VERIFICATION_LABEL: Record<VerificationMethod, string> = {
   id_document: '當面核對學生證或其他身分證件',
   school_channel: '經校方授權人員透過既有可信管道確認',
-  other: '其他核實方式',
+  other: '用其他方式確認本人',
 }
 
 /** 核實說明哪幾種必填：校方管道要記「由誰、透過什麼管道」；其他方式要說明是什麼方式。 */
@@ -343,7 +343,7 @@ export const VERIFICATION_NOTE_REQUIRED: Record<VerificationMethod, boolean> = {
 export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
   id_document: '選填，例如「9/24 系辦櫃台核對學生證」',
   school_channel: '必填：由誰、透過什麼管道確認',
-  other: '必填：說明用了什麼方式核實',
+  other: '必填：說明用了什麼方式確認本人',
 }
 
 export type ApprovalDecision = {
@@ -364,19 +364,19 @@ export function normalizeApproval(input: {
 }): { ok: true; value: ApprovalDecision } | Err {
   const method = input.verificationMethod.trim()
   if (!isVerificationMethod(method)) {
-    return err('VALIDATION_FAILED', '請選擇核實方式。', { details: { field: 'verificationMethod' } })
+    return err('VALIDATION_FAILED', '請選擇怎麼確認是本人。', { details: { field: 'verificationMethod' } })
   }
   const note = input.verificationNote.trim()
   if (VERIFICATION_NOTE_REQUIRED[method] && !note) {
     return err(
       'VALIDATION_FAILED',
-      method === 'school_channel' ? '請寫明由誰、透過什麼管道確認。' : '選「其他核實方式」時要說明用了什麼方式。',
+      method === 'school_channel' ? '請寫明由誰、透過什麼管道確認。' : '選「用其他方式確認本人」時要說明用了什麼方式。',
       { details: { field: 'verificationNote' } },
     )
   }
   // 說明與理由會進稽核與匯出：除了換行與 tab，控制字元一律不收（票 7 審查建議）。
   if (note.length > REASON_MAX_LENGTH || hasControlChars(note, true)) {
-    return err('VALIDATION_FAILED', `核實說明最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
+    return err('VALIDATION_FAILED', `「怎麼確認的說明」最多 ${REASON_MAX_LENGTH} 個字，而且不能有控制字元。`, {
       details: { field: 'verificationNote' },
     })
   }
@@ -447,6 +447,82 @@ export function resolveApprovalCohort(
 export function suggestedApprovalCohort(match: RosterMatch, registrationOpenCohortId: string | null): string | null {
   if (match.hit) return match.hit.cohortId
   return registrationOpenCohortId
+}
+
+// ── 批次核准（第三波 W6，N-09） ─────────────────────────────────────────────
+//
+// 待審清單勾好幾位一起核准：整批共用一個核實方式與說明（規則同 `normalizeApproval`），
+// 每一位仍各自走一次單筆核准的交易（各自成功或失敗）。需要人判斷的列一律自動略過、寫明原因，
+// 留給系辦個別打開審核——批次不替系辦選屆別，也不在學號有爭議時代為決定。
+
+export type BulkApprovalSkip =
+  | 'not_found'
+  | 'name_mismatch'
+  | 'multiple_cohorts'
+  | 'student_no_taken'
+  | 'other_pending'
+  | 'cohort_unavailable'
+  | 'not_pending'
+  | 'changed'
+  | 'not_in_preview'
+  | 'failed'
+
+export const BULK_APPROVAL_SKIP_LABEL: Record<BulkApprovalSkip, string> = {
+  not_found: '名單比對不到，請個別審核',
+  name_mismatch: '姓名跟名單不同，請個別審核',
+  multiple_cohorts: '好幾屆名單都有這個學號，請個別審核並選屆別',
+  student_no_taken: '學號已被使用',
+  other_pending: '還有別人用同一個學號申請，請個別審核',
+  cohort_unavailable: '名單所屬的屆別已封存，請先處理屆別',
+  not_pending: '已經不在待審清單（可能剛被處理過）',
+  changed: '申請剛被處理或修改過，請個別重新核對',
+  not_in_preview: '預覽時不在可核准名單，請重新預覽或個別審核',
+  failed: '核准沒有成功，請個別再試一次',
+}
+
+/** 一次最多勾幾位（跟待審清單一次列出的上限同一個量級；超過請分批）。 */
+export const BULK_APPROVAL_MAX = 200
+
+/**
+ * 這一位能不能放進批次核准；不行就回略過原因（預覽與真正核准時各算一次，以核准當下為準）。
+ * 只收「名單比對到、只有一屆、那一屆可以指派、學號沒人占用也沒人搶」的人。
+ */
+export function bulkApprovalSkip(
+  application: Pick<PendingApplication, 'match' | 'duplicates'>,
+  cohorts: readonly CohortChoice[],
+): BulkApprovalSkip | null {
+  const { match, duplicates } = application
+  if (duplicates.activeHolders.length > 0) return 'student_no_taken'
+  if (match.status === 'not_found') return 'not_found'
+  if (match.status === 'name_mismatch') return 'name_mismatch'
+  if (new Set(match.hits.map((h) => h.cohortId)).size > 1) return 'multiple_cohorts'
+  if (duplicates.otherPending > 0) return 'other_pending'
+  if (!resolveApprovalCohort(match, null, cohorts).ok) return 'cohort_unavailable'
+  return null
+}
+
+/** 預覽的一列：每一位的姓名、學號、名單比對結果，以及會不會被略過。 */
+export type BulkApprovalPreviewRow = {
+  readonly applicationId: string
+  readonly revision: number
+  readonly appliedName: string
+  readonly studentNo: string
+  readonly rosterMatch: RosterMatchStatus
+  /** 會進哪一屆（名單決定）；會略過的列為 null。 */
+  readonly cohortName: string | null
+  readonly skip: BulkApprovalSkip | null
+  readonly skipLabel: string | null
+}
+
+export type BulkApprovalPreview = {
+  readonly rows: readonly BulkApprovalPreviewRow[]
+  /** 勾了但已經不在待審清單的筆數（別的分頁剛處理掉了）。 */
+  readonly missing: number
+}
+
+export type BulkApprovalReceipt = {
+  readonly approved: readonly { readonly applicationId: string; readonly appliedName: string; readonly cohortName: string | null }[]
+  readonly skipped: readonly { readonly applicationId: string; readonly appliedName: string; readonly reason: string }[]
 }
 
 // ── 授權 ────────────────────────────────────────────────────────────────────
@@ -571,4 +647,25 @@ export interface RegistrationCommand {
     actor: ResolvedActor,
     input: { applicationId: string; revision: number; reason: string; requestId: string },
   ): Promise<Result<DecisionReceipt>>
+  /** 批次核准前的預覽：勾選的每一位會不會被略過、為什麼（不改任何狀態）。 */
+  previewApproveMany(actor: ResolvedActor, applicationIds: readonly string[]): Promise<Result<BulkApprovalPreview>>
+  /**
+   * 批次核准：整批共用核實方式與說明，每一位各自走一次單筆核准的交易（各自的請求編號，
+   * 重送時已完成的那幾位直接回放回執，不會重複核准）。核實欄位不對就整批不做。
+   *
+   * - `items`：預覽時可以核准的人（畫面在預覽當下固定），**只會核准這些人**；每一位在自己的交易裡
+   *   以當下的名單與占用重查一次批次資格，不符就略過（預覽之後名單可能變了）。
+   * - `previewSkipped`：預覽時就略過的人，只回報原因、**絕不核准**——就算確認前名單補齊了也一樣
+   *   （執行只能縮小範圍、不能擴大）。
+   */
+  approveMany(
+    actor: ResolvedActor,
+    input: {
+      items: readonly { applicationId: string; revision: number; requestId: string }[]
+      previewSkipped: readonly string[]
+      verificationMethod: string
+      verificationNote: string
+      reason: string
+    },
+  ): Promise<Result<BulkApprovalReceipt>>
 }

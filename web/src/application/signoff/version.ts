@@ -26,7 +26,7 @@ export const STATE_LABEL: Readonly<Record<SignoffState, string>> = {
   teacher_pending: '等待指導老師',
   complete: '已完成',
   revision: '退回修正中',
-  superseded: '已失效',
+  superseded: '已被新版取代',
   void: '已作廢',
 }
 
@@ -47,7 +47,7 @@ export function describeCause(cause: string | null): string | null {
 }
 
 /** 版本頁固定標示（產品 07 §4「同意紀錄內容與匯出」：不宣稱校方已核可）。 */
-export const ACCEPTANCE_NOTICE = '站內內容確認與同意紀錄，行政採認待確認'
+export const ACCEPTANCE_NOTICE = '站內內容確認與同意紀錄；校方是否接受這份同意紀錄：尚待確認'
 
 /** 已經不會再收票的狀態（失效、作廢）。 */
 export function isTerminal(state: SignoffState): boolean {
@@ -83,9 +83,9 @@ export function buildParticipants(
   advisor: AdvisorParticipant | null,
   groupCode: string,
 ): { ok: true; value: Participants } | Err {
-  if (members.length === 0) return err('VALIDATION_FAILED', `${groupCode} 目前沒有有效組員，不能建立簽核版本。`)
+  if (members.length === 0) return err('VALIDATION_FAILED', `${groupCode} 目前沒有有效組員，不能建立站內同意書。`)
   if (!advisor) {
-    return err('VALIDATION_FAILED', `${groupCode} 目前沒有主指導老師；請先到「分組」指派，再建立簽核版本。`)
+    return err('VALIDATION_FAILED', `${groupCode} 目前沒有指導老師；請先到「分組」指派，再建立站內同意書。`)
   }
   const students = [...members].sort((a, b) =>
     (a.studentNo ?? '￿').localeCompare(b.studentNo ?? '￿') || a.displayName.localeCompare(b.displayName, 'zh-Hant'),
@@ -191,7 +191,7 @@ export function freezeAuthorizationScope(
   groupCode: string,
 ): { ok: true; value: AuthorizationScope } | Err {
   if (draft.title.trim() === '' || draft.summary.trim() === '') {
-    return err('VALIDATION_FAILED', `${groupCode} 的精選草稿還沒有題目或摘要；請先到「精選」補齊再建立最終文件授權。`, {
+    return err('VALIDATION_FAILED', `${groupCode} 的成果展示草稿還沒有題目或摘要；請先到「成果展示」補齊再建立最終文件授權。`, {
       details: { field: 'showcaseEntryId' },
     })
   }

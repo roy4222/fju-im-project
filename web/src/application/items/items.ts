@@ -17,9 +17,9 @@ export type Placement = 'news' | 'resource' | 'submission' | 'requirement' | 'ru
 
 /**
  * 開放建立的位置：公告、資源、文件繳交（票 15），加上專題規則（票 16：前台 `/rules` 的內容也走同一個發布流程，
- * 產品模組 04 §4.2）。其餘位置在後面的票。
+ * 產品模組 04 §4.2）、榮譽榜（第三波 W1：前台 `/honors` 與首頁「榮譽與競賽」）。其餘位置在後面的票。
  */
-export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission', 'rules'] as const
+export const EDITABLE_PLACEMENTS = ['news', 'resource', 'submission', 'rules', 'honor'] as const
 export type EditablePlacement = (typeof EDITABLE_PLACEMENTS)[number]
 
 export const PLACEMENT_LABEL: Readonly<Record<Placement, string>> = {
@@ -37,7 +37,14 @@ export const PLACEMENT_HINT: Readonly<Record<EditablePlacement, string>> = {
   resource: '給大家下載的範本或參考文件',
   submission: '學生在截止前填寫或上傳（個人一份或整組一份）',
   rules: '前台「專題規則」頁的一節（長文）',
+  honor: '前台「榮譽榜」的一則得獎消息，可附照片',
 }
+
+/**
+ * 榮譽榜是公開頁（第三波 W1）：對象固定「公開訪客」、不收件、不發通知；而且是跨屆的公開紀錄，
+ * 屆別封存後仍可編輯、下架、重新發布、刪除（其他位置封存後就不能動）。
+ */
+export const HONOR_PLACEMENT = 'honor' as const
 
 export type AudienceKind = 'public' | 'signed_in' | 'cohort_students' | 'teachers' | 'groups'
 export const AUDIENCE_KINDS: readonly AudienceKind[] = ['cohort_students', 'groups', 'signed_in', 'teachers', 'public']
@@ -58,7 +65,7 @@ export const COLLECTION_AUDIENCES: readonly AudienceKind[] = ['cohort_students',
 
 export type ReceiverUnit = 'none' | 'individual' | 'group'
 export const RECEIVER_UNIT_LABEL: Readonly<Record<ReceiverUnit, string>> = {
-  none: '不收件',
+  none: '不用繳交',
   individual: '個人一份',
   group: '整組一份',
 }
@@ -193,6 +200,8 @@ export type ItemInput = {
   readonly registrationDeadline?: string
   /** 競賽資訊的活動日（決賽、展出；`YYYY-MM-DD`；空＝沒填）。 */
   readonly eventDate?: string
+  /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台退回發布日）。只有榮譽會留，其他位置一律清掉。 */
+  readonly awardedOn?: string
   readonly fields: readonly unknown[]
 }
 
@@ -215,6 +224,8 @@ export type ItemDraft = {
   /** 競賽資訊的兩個日期（臺灣日曆日）；不是「公告＋分類競賽資訊」一律 null。 */
   readonly registrationDeadline: TaipeiDate | null
   readonly eventDate: TaipeiDate | null
+  /** 榮譽榜的得獎日期（臺灣日曆日）；不是榮譽一律 null。 */
+  readonly awardedOn: TaipeiDate | null
   readonly fields: readonly FormField[]
 }
 
@@ -293,7 +304,7 @@ export function normalizeField(raw: unknown, index: number): Normalized<FormFiel
     if (allowed.length === 0) return invalid(`${where}至少要允許一種檔案類型。`, 'fields')
     const maxMiB = given.maxMiB === undefined ? 20 : Number(given.maxMiB)
     if (!Number.isInteger(maxMiB) || maxMiB < 1 || maxMiB > FILE_FIELD_MAX_MIB) {
-      return invalid(`${where}的大小上限要是 1 到 ${FILE_FIELD_MAX_MIB} MiB 的整數。`, 'fields')
+      return invalid(`${where}的大小上限要是 1 到 ${FILE_FIELD_MAX_MIB} MB 的整數。`, 'fields')
     }
     fileRules = { allowedTypes: allowed, maxMiB }
   }
@@ -335,7 +346,7 @@ export function normalizeSchema(rawFields: readonly unknown[]): Normalized<FormF
 export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   if (!isUuid(input.cohortId)) return invalid('請選擇屆別。', 'cohortId')
   const placement = String(input.placement) as EditablePlacement
-  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇發布位置：公告、資源、文件繳交或專題規則。', 'placement')
+  if (!EDITABLE_PLACEMENTS.includes(placement)) return invalid('請選擇顯示在哪一區：公告、資源、文件繳交、專題規則或榮譽／競賽。', 'placement')
 
   const title = cleanLine(input.title)
   if (title === '') return invalid('請填標題。', 'title')
@@ -349,16 +360,19 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
 
   const collects = collectsResponses(placement)
   const audienceKind = String(input.audienceKind) as AudienceKind
-  if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇發布對象。', 'audienceKind')
+  if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇誰看得到。', 'audienceKind')
   if (collects && !COLLECTION_AUDIENCES.includes(audienceKind)) {
-    return invalid('收件只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+    return invalid('繳交項目只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+  }
+  if (placement === HONOR_PLACEMENT && audienceKind !== 'public') {
+    return invalid('榮譽榜是公開頁，對象只能是「公開訪客」。', 'audienceKind')
   }
 
   let receiverUnit: ReceiverUnit = 'none'
   if (collects) {
     const unit = String(input.receiverUnit)
     if (unit !== 'individual' && unit !== 'group') {
-      return invalid('文件繳交要選收件單位：個人一份或整組一份。', 'receiverUnit')
+      return invalid('文件繳交要選繳交方式：個人一份或整組一份。', 'receiverUnit')
     }
     receiverUnit = unit
   }
@@ -408,6 +422,14 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
     }
   }
 
+  // 榮譽的得獎日期：只有榮譽才留（換位置就清掉）。
+  let awardedOn: TaipeiDate | null = null
+  if (placement === HONOR_PLACEMENT) {
+    const awarded = parseDay(input.awardedOn, '得獎日期', 'awardedOn')
+    if (!awarded.ok) return awarded
+    awardedOn = awarded.value
+  }
+
   return {
     ok: true,
     value: {
@@ -427,6 +449,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       dueAt,
       registrationDeadline,
       eventDate,
+      awardedOn,
       fields,
     },
   }
@@ -473,7 +496,7 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
     { key: 'title', label: '標題', ok: state.title.trim() !== '', fix: '填標題' },
     {
       key: 'audience',
-      label: '對象',
+      label: '誰看得到',
       ok: state.audienceKind !== 'groups' || state.groupIds.length > 0,
       fix: '指定組別至少選一組',
     },
@@ -481,8 +504,8 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
   if (collects) {
     const opens = state.opensAt ?? openAt
     checks.push(
-      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這份收件屬於哪個階段' },
-      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '收件一定要有截止時間' },
+      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這個繳交項目屬於哪個階段' },
+      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '繳交項目一定要有截止時間' },
       {
         key: 'window',
         label: '時間',
@@ -527,7 +550,12 @@ export function snapshotDueAt(dueAt: Date): Date {
 
 // ── 誰看得到 ────────────────────────────────────────────────────────────────
 
-/** 看的人：匿名，或已登入者的角色、學生屆別與目前所在組別。 */
+/**
+ * 看的人：匿名，或已登入者的角色、學生屆別、目前所在組別，以及（老師）目前指導的組別與那些組所在的屆別。
+ *
+ * `groupIds` 是**組員**身分（收件名單靠它）；`advisedGroupIds` 是**指導老師**身分
+ * （`advisor_assignments` 的有效那一列），兩者分開，不互相混用（第三波 W4）。
+ */
 export type Viewer =
   | { readonly kind: 'anonymous' }
   | {
@@ -535,6 +563,8 @@ export type Viewer =
       readonly roles: readonly Role[]
       readonly studentCohortId: string | null
       readonly groupIds: readonly string[]
+      readonly advisedGroupIds: readonly string[]
+      readonly advisedCohortIds: readonly string[]
     }
 
 export type ItemVisibility = {
@@ -542,6 +572,8 @@ export type ItemVisibility = {
   readonly audienceKind: AudienceKind
   readonly cohortId: string
   readonly groupIds: readonly string[]
+  /** 收件單位：指導老師（不論本屆學生或指定組別）只看得到不收件的項目（公告、資源）。 */
+  readonly receiverUnit: ReceiverUnit
 }
 
 /**
@@ -550,6 +582,8 @@ export type ItemVisibility = {
  *
  * - 管理員：什麼狀態都看得到（要編輯）。
  * - 其他人：只看得到發布中的，而且要在對象內。草稿、下架都看不到。
+ * - 本屆學生：該屆學生；**指導該屆任一組的老師**也看得到，但只限不收件的項目（Q13：唯讀看公告、範本，收件不給）。
+ * - 指定組別：那幾組的組員；那幾組目前的指導老師也看得到，同樣只限不收件的（Q14；收件只給組員）。
  */
 export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
   if (viewer.kind === 'user' && viewer.roles.includes('admin')) return true
@@ -560,11 +594,20 @@ export function canViewItem(viewer: Viewer, item: ItemVisibility): boolean {
     case 'signed_in':
       return viewer.kind === 'user'
     case 'cohort_students':
-      return viewer.kind === 'user' && viewer.studentCohortId !== null && viewer.studentCohortId === item.cohortId
+      return (
+        viewer.kind === 'user' &&
+        ((viewer.studentCohortId !== null && viewer.studentCohortId === item.cohortId) ||
+          (item.receiverUnit === 'none' && viewer.advisedCohortIds.includes(item.cohortId)))
+      )
     case 'teachers':
       return viewer.kind === 'user' && viewer.roles.includes('teacher')
     case 'groups':
-      return viewer.kind === 'user' && viewer.groupIds.some((id) => item.groupIds.includes(id))
+      return (
+        viewer.kind === 'user' &&
+        item.groupIds.some(
+          (id) => viewer.groupIds.includes(id) || (item.receiverUnit === 'none' && viewer.advisedGroupIds.includes(id)),
+        )
+      )
   }
 }
 

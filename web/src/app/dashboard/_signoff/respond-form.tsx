@@ -60,7 +60,7 @@ export function RespondForm({
   )
 
   return (
-    <section aria-label="表態" className="flex flex-col gap-4" data-testid="respond-form">
+    <section aria-label="回覆" className="flex flex-col gap-4" data-testid="respond-form">
       <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm font-medium">
         <input type="checkbox" checked={read} onChange={(e) => setRead(e.target.checked)} className="size-4 accent-[var(--primary)]" />
         <span>我已完整閱讀這一版的全文{role === 'student' ? '、附件與授權範圍' : '與附件'}</span>
@@ -74,6 +74,11 @@ export function RespondForm({
         </button>
       </div>
       <p className="text-xs text-muted-foreground">每人一票、投了不能改；系辦與其他人都不能替你按。</p>
+      {role === 'student' ? (
+        <p className="text-xs text-muted-foreground" data-testid="respond-later-hint">
+          想先確認再回覆的話，可以稍後再回來，不用按任何按鈕。按『不同意並退回』會讓全組重新同意。
+        </p>
+      ) : null}
 
       <dialog ref={agree.ref} aria-label="確認同意" className={DIALOG}>
         <form action={formAction} className="space-y-4 p-6">

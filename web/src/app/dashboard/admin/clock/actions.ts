@@ -19,5 +19,5 @@ export async function setBusinessClockAction(_state: ClockActionState, formData:
   if (!result.ok) return { ok: false, message: result.message, values }
 
   refresh()
-  return { ok: true, message: '已設定業務時間，紀錄多了一筆。' }
+  return { ok: true, message: '已設定模擬時間，紀錄多了一筆。' }
 }

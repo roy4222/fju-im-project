@@ -6,7 +6,7 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
 import { PgShowcaseCommand, PgShowcaseQuery } from '@/infrastructure/showcase/pg-showcase'
 
 /**
- * 模組 09 精選的實例組裝（票 25：最小草稿能力——建立、編輯、海報上傳；發布與公開頁在 S12）。
+ * 模組 09 精選的實例組裝（票 25：草稿——建立、編輯、海報上傳；第三波 W2：發布、下架、重新發布、獎項、刪除）。
  */
 let showcaseCommand: ShowcaseCommand | undefined
 let showcaseQuery: ShowcaseQuery | undefined
@@ -37,11 +37,20 @@ export function getPublicShowcaseQuery(): PublicShowcaseQuery {
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
 export {
   ARCHIVE_SORT_OPTIONS,
+  AWARD_LABEL_MAX,
+  AWARD_LEVEL_LABEL,
+  checkShowcaseLifecycle,
   describeCreateDraftReceipt,
+  describeDeleteReceipt,
+  describePublishReceipt,
+  describeRepublishReceipt,
+  describeSetAwardReceipt,
   describeUpdateDraftReceipt,
+  describeWithdrawReceipt,
   FEATURED_SORT_OPTIONS,
-  GATE_PLACEHOLDER,
+  VIDEO_URL_MESSAGE,
   parseShowcaseSort,
   POSTER_UPLOAD,
   SHOWCASE_LIMITS,
+  SHOWCASE_STATUS_LABEL,
 } from '@/application/showcase'

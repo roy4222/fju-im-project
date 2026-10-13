@@ -7,6 +7,7 @@ import { Card, EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { OverrideForm, ResolveReviewForm, ReturnForm } from '@/app/dashboard/admin/grading/results-forms'
 import type { EvaluationHistoryEntry } from '@/application/grading'
+import { cohortLabel } from '@/composition/cohorts'
 import {
   adoptedFinal,
   describeFinalFormula,
@@ -29,17 +30,17 @@ export const metadata = { title: '計算明細｜資管系專題平台' }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const EVALUATION_STATE_TEXT: Record<EvaluationHistoryEntry['state'], string> = {
-  draft: '暫存中（未正式）',
-  counted: '採計中',
-  historical: '歷史（不採計）',
+  draft: '評分草稿（未送出）',
+  counted: '計入成績',
+  historical: '不計入成績（保留）',
   returned: '已退回',
-  invalidated: '失效的暫存',
+  invalidated: '已作廢的評分草稿',
 }
 
 /**
  * 一組的計算明細（票 24；產品 06 §4「7.3」「7.5」、GRD-05–08、GRD-15；模組實作設計 06 §7.2「計算明細頁」）。只有管理員。
  *
- * - 每個階段：要求份數、採計中的每一份（老師、完整精度與兩位小數、是否已改派但分數保留）、平均的算式。
+ * - 每個階段：要求份數、採計中的每一份（老師、四捨五入前與兩位小數、是否已改派但分數保留）、平均的算式。
  * - 最終：算式（82.145 × 60% ＋ 90 × 40% ＝ 85.287 → 85.29）、採用值（有生效中的更正就用更正值）。
  * - 動作：退回某一份（指派仍有效才行）、更正最終結果（最終完成才行）、處理待復核的更正。
  * - 歷史：每一份評分（含退回、歷史、失效的暫存與原因）、指派紀錄（移除方式與理由）、更正紀錄。
@@ -98,7 +99,7 @@ export default async function GroupGradeDetailPage({
         teacherName: returnedEntry.teacherName,
       })
     : resolvedEntry
-      ? `已處理待復核：${describeOverrideReceipt({
+      ? `已重新確認更正：${describeOverrideReceipt({
           overrideId: resolvedEntry.id,
           groupCode: d.group.code,
           originalValue: resolvedEntry.originalValue,
@@ -110,7 +111,7 @@ export default async function GroupGradeDetailPage({
     : !d.result.complete
       ? '還有階段尚未完成，最終成績還沒出來，不能更正。'
       : current?.state === 'pending_review'
-        ? '有一筆更正待復核，請先在下方處理。'
+        ? '有一筆更正需要重新確認，請先在下方處理。'
         : null
 
   return shell(
@@ -122,7 +123,7 @@ export default async function GroupGradeDetailPage({
         </p>
       ) : null}
       <p className="text-sm text-muted-foreground">
-        {d.group.cohortCode}・{d.version ? `評分方案 v${d.version.versionNo}` : '還沒有評分方案'}
+        {cohortLabel({ name: d.group.cohortName, code: d.group.cohortCode })}・{d.version ? `評分規則第 ${d.version.versionNo} 版` : '還沒有評分規則'}
         {readOnly ? '・唯讀' : ''}
       </p>
 
@@ -135,10 +136,10 @@ export default async function GroupGradeDetailPage({
             {adopted.source === 'override' && current ? (
               <p className="mt-1 text-sm text-primary">
                 已更正：原 {formatScore(current.originalValue)} → {formatScore(current.newValue)}（{current.reason}；{current.actorName}，
-                {formatTaipeiMinute(current.realAt)}，方案 v{current.schemeVersionNo}）
+                {formatTaipeiMinute(current.realAt)}，評分規則第 {current.schemeVersionNo} 版）
               </p>
             ) : null}
-            {adopted.pendingReview ? <p className="mt-1 text-sm text-danger">更正待復核：計算基礎已改變，原更正暫不套用。</p> : null}
+            {adopted.pendingReview ? <p className="mt-1 text-sm text-danger">更正需要重新確認：分數來源已改變，原更正暫不套用。</p> : null}
             <p data-testid="final-formula" className="mt-2 text-sm tabular-nums text-muted-foreground">
               {formula ?? '還有階段尚未完成，最終成績等全部階段完成才算。'}
             </p>
@@ -162,7 +163,7 @@ export default async function GroupGradeDetailPage({
               basisHash={d.basisHash}
               requestId={randomUUID()}
               disabledReason={
-                readOnly ? '唯讀，不能處理。' : !d.result.complete ? '新的計算基礎還有階段尚未完成，等各階段完成後再處理。' : null
+                readOnly ? '唯讀，不能處理。' : !d.result.complete ? '新的分數來源還有階段尚未完成，等各階段完成後再處理。' : null
               }
             />
           </div>
@@ -175,7 +176,7 @@ export default async function GroupGradeDetailPage({
             <p className="text-sm">
               <span className={cn('font-semibold', s.complete ? 'text-foreground' : 'text-danger')}>{describeStageStatus(s)}</span>
               <span className="ml-2 tabular-nums text-muted-foreground">
-                採計 {s.counted.length}／要求 {s.required ?? '未設定'}
+                計入成績 {s.counted.length}／需要 {s.required ?? '未設定'}
               </span>
             </p>
             <p className="text-sm tabular-nums text-foreground" data-testid="stage-formula">
@@ -183,12 +184,12 @@ export default async function GroupGradeDetailPage({
             </p>
             {s.counted.length > 0 ? (
               <div className="overflow-x-auto rounded-card border border-border">
-                <table className="w-full min-w-[40rem] text-sm" aria-label={`${s.name} 採計中的評分`}>
+                <table className="w-full min-w-[40rem] text-sm" aria-label={`${s.name} 計入成績的評分`}>
                   <thead className="bg-muted text-left text-muted-foreground">
                     <tr>
                       <th className="px-4 py-2 font-medium">評分老師</th>
                       <th className="px-4 py-2 font-medium">各項原始輸入</th>
-                      <th className="px-4 py-2 text-right font-medium">分數（完整精度）</th>
+                      <th className="px-4 py-2 text-right font-medium">分數（四捨五入前）</th>
                       <th className="px-4 py-2 font-medium">正式送出</th>
                       <th className="px-4 py-2" />
                     </tr>
@@ -238,7 +239,7 @@ export default async function GroupGradeDetailPage({
         </Card>
       ))}
 
-      <Card title="評分紀錄" description="每一份老師輸入都保留（不可改）；退回、替換、失效的暫存與原因只有系辦看得到。">
+      <Card title="評分紀錄" description="每一份老師輸入都保留（不可改）；退回、替換、已作廢的評分草稿與原因只有系辦看得到。">
         {d.evaluations.length === 0 ? (
           <p className="text-sm text-muted-foreground">還沒有任何評分。</p>
         ) : (
@@ -301,11 +302,11 @@ export default async function GroupGradeDetailPage({
       </Card>
 
       {d.overrides.length > 0 ? (
-        <Card title="更正紀錄" description="每一筆更正都保留（原值、新值、理由、操作者、時間、方案版本）。">
+        <Card title="更正紀錄" description="每一筆更正都保留（原值、新值、理由、操作者、時間、評分規則第幾版）。">
           <ul className="space-y-1 text-sm" aria-label="更正紀錄">
             {d.overrides.map((o) => (
               <li key={o.id} className="tabular-nums">
-                {formatTaipeiMinute(o.realAt)}・v{o.schemeVersionNo}・原 {formatScore(o.originalValue)} → {formatScore(o.newValue)}・{o.reason}・{o.actorName}・
+                {formatTaipeiMinute(o.realAt)}・評分規則第 {o.schemeVersionNo} 版・原 {formatScore(o.originalValue)} → {formatScore(o.newValue)}・{o.reason}・{o.actorName}・
                 <span className={o.state === 'pending_review' ? 'text-danger' : 'text-muted-foreground'}>{OVERRIDE_STATE_LABEL[o.state]}</span>
               </li>
             ))}

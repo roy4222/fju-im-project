@@ -168,6 +168,11 @@ export function canManageOpportunity(actor: ResolvedActor, ownerTeacherUserId: s
 export type CreateOpportunityInput = OpportunityInput & {
   /** true＝儲存並發布；false＝儲存草稿。 */
   readonly publish: boolean
+  /**
+   * 負責老師（第三波 W11）：系辦新增時必填，從老師選單選；老師自己新增時不用帶（負責老師＝本人），
+   * 帶了別人的 ID 會被拒絕。
+   */
+  readonly ownerTeacherUserId?: string
 }
 
 export type UpdateOpportunityInput = OpportunityInput & {
@@ -181,7 +186,7 @@ export type OpportunityStatusInput = {
   readonly revision: number
 }
 
-export type OpportunityAction = 'created' | 'updated' | 'published' | 'withdrawn' | 'republished'
+export type OpportunityAction = 'created' | 'updated' | 'published' | 'withdrawn' | 'republished' | 'deleted'
 
 export type OpportunityReceipt = {
   readonly opportunityId: string
@@ -205,7 +210,24 @@ export function describeOpportunityReceipt(receipt: OpportunityReceipt): string 
       return `已重新發布「${receipt.name}」：列表恢復顯示；以前解除的組別連結不會自動恢復。`
     case 'withdrawn':
       return `已下架「${receipt.name}」：列表不再顯示、不接受新連結；已連結的組別保留關係並標示「合作案已下架」。`
+    case 'deleted':
+      return `已刪除「${receipt.name}」：後台與前台都不再顯示，不能恢復。`
   }
+}
+
+/**
+ * 能不能刪除（第三波 W11；設計方案 §2）：只限草稿或已下架、而且目前沒有連著任何組別。
+ * 發布中要先下架；連著組別要先解除連結。回不能刪的原因，可以刪回 null。
+ */
+export function opportunityDeleteBlocker(o: {
+  readonly status: OpportunityStatus
+  readonly linkedGroupCodes: readonly string[]
+}): string | null {
+  if (o.status === 'published') return '這個合作案還在發布中，要先「下架」才能刪除。'
+  if (o.linkedGroupCodes.length > 0) {
+    return `這個合作案還連著組別（${o.linkedGroupCodes.join('、')}），要先「解除」連結才能刪除。`
+  }
+  return null
 }
 
 /** 組長連結或換案（管理員也可以）。`reason` 只有換案時必填（6.3「解除、換案保留原因」）。 */
@@ -269,9 +291,9 @@ export type LeaderTypeChangeFacts = {
 export type GroupingPeriodState = 'unconfigured' | 'not_started' | 'open' | 'ended'
 
 const GROUPING_PERIOD_BLOCKER: Readonly<Record<Exclude<GroupingPeriodState, 'open'>, string>> = {
-  unconfigured: '這一屆還沒設定成組期',
-  not_started: '成組期還沒開始',
-  ended: '成組期已結束',
+  unconfigured: '這一屆還沒設定分組期',
+  not_started: '分組期還沒開始',
+  ended: '分組期已結束',
 }
 
 export function leaderTypeChangeBlockers(facts: LeaderTypeChangeFacts): string[] {
@@ -337,6 +359,8 @@ export type LinkedGroupRef = {
   readonly groupId: string
   readonly groupCode: string
   readonly cohortCode: string
+  /** 屆別名稱（例如「第 43 屆」）；畫面標「名稱（代碼）」（系1）。 */
+  readonly cohortName: string
   readonly linkedAt: Date
 }
 
@@ -377,6 +401,8 @@ export type ManagedOpportunity = {
   readonly withdrawnAt: Date | null
   readonly fields: NormalizedOpportunity
   readonly links: readonly LinkedGroupRef[]
+  /** 不能刪的原因（`opportunityDeleteBlocker`；第三波 W11）；可以刪是 null。 */
+  readonly deleteBlocker: string | null
 }
 
 /** 組別目前連結的合作案（組別頁、分組總覽、匯出都用）。 */

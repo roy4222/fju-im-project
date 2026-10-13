@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { IconAlertTriangle } from '@tabler/icons-react'
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Card, EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { ApplySchemeForm } from '@/app/dashboard/admin/grading/results-forms'
+import { describePreviewFinal } from '@/app/dashboard/admin/grading/preview-final'
 import { getGradebookQuery } from '@/composition/grading'
 import { cn } from '@/shared/cn'
 
-export const metadata = { title: '套用新評分方案｜資管系專題平台' }
+export const metadata = { title: '套用新版評分規則｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -18,6 +20,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  *
  * 看影響只是讀：按「取消」什麼都不重算。確認時伺服器重新比對（預覽之後有人送分、退回或改份數就要重看），
  * 已正式送出的分數在新版本對不上（少了項目、滿分比已給的分數低…）就列出原因、不能套用。
+ *
+ * 確認套用放在頁面底部的「危險操作」區（第三波 §9 規則 1、AC-37）：寫清楚對象、範圍、後果、能不能恢復。
  */
 export default async function ApplySchemePage({ params }: { params: Promise<{ versionId: string }> }) {
   const { versionId } = await params
@@ -32,7 +36,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
         ← 評分
       </Link>
       <header className="mb-5">
-        <h1 className="text-xl font-semibold text-foreground">套用新評分方案</h1>
+        <h1 className="text-xl font-semibold text-foreground">套用新版評分規則</h1>
       </header>
       {children}
     </DashboardShell>
@@ -41,12 +45,26 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
   if (!preview.ok) return shell(<EmptyState title="現在不能套用這個版本" description={preview.message} />)
   const p = preview.receipt
   const changed = p.groups.filter((g) => g.changed)
+  const overrides = p.groups.filter((g) => g.hasOverride)
+  const facts: [string, string][] = [
+    ['對象', `這一屆的評分規則：第 ${p.currentVersionNo} 版換成第 ${p.versionNo} 版`],
+    [
+      '範圍',
+      // 預覽只列未解散的組（`buildSchemePreview` 只取 status = 'active'）；解散的組釘在解散當下的版本，不重算。
+      `未解散的 ${p.groups.length} 組；其中 ${changed.length} 組的成績會變${overrides.length > 0 ? `，${overrides.length} 組有人工更正、會變成需要重新確認` : ''}。已解散的組維持解散當下的評分規則版本與成績，不受影響。`,
+    ],
+    [
+      '後果',
+      `未解散各組已正式送出的分數照第 ${p.versionNo} 版的滿分與權重重算（老師的原始輸入不改），這些組在成績表、計算明細與匯出改用新版；第 ${p.versionNo} 版套用後就鎖定。`,
+    ],
+    ['能不能恢復', `不能退回第 ${p.currentVersionNo} 版。要再改，只能另建一版評分規則，再看影響、套用一次。`],
+  ]
 
   return shell(
     <div className="space-y-6">
       <Card
-        title={`v${p.currentVersionNo} → v${p.versionNo} 的影響`}
-        description={`已正式送出的分數照 v${p.versionNo} 的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
+        title={`第 ${p.currentVersionNo} 版 → 第 ${p.versionNo} 版的影響`}
+        description={`未解散各組已正式送出的分數照第 ${p.versionNo} 版的滿分與權重重算；老師的原始輸入不會改。${changed.length} 組的成績會變。`}
       >
         {p.blockers.length > 0 ? (
           <div role="alert" className="mb-4 space-y-1 rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
@@ -75,30 +93,45 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
                 </tr>
               </thead>
               <tbody>
-                {p.groups.map((g) => (
-                  <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
-                    <td className="px-4 py-2 font-semibold">
-                      {g.code}
-                      {g.hasOverride ? <span className="ml-2 text-xs font-normal text-danger">更正會進待復核</span> : null}
-                    </td>
-                    {g.stages.map((s) => (
-                      <td key={s.name} className="px-4 py-2 text-right tabular-nums">
-                        {s.before === s.after ? (s.after ?? '—') : `${s.before ?? '—'} → ${s.after ?? '—'}`}
+                {p.groups.map((g) => {
+                  const final = describePreviewFinal({ before: g.finalBefore, after: g.finalAfter, hasOverride: g.hasOverride, trigger: '套用' })
+                  return (
+                    <tr key={g.groupId} className={cn('border-t border-border', g.changed ? 'bg-primary-subtle/30' : '')} data-testid={`apply-row-${g.code}`}>
+                      <td className="px-4 py-2 font-semibold">
+                        {g.code}
+                        {final.note ? <p className="mt-1 max-w-xs text-xs font-normal text-danger">{final.note}</p> : null}
                       </td>
-                    ))}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">
-                      {g.finalBefore === g.finalAfter ? (g.finalAfter ?? '尚未完成') : `${g.finalBefore ?? '尚未完成'} → ${g.finalAfter ?? '尚未完成'}`}
-                    </td>
-                  </tr>
-                ))}
+                      {g.stages.map((s) => (
+                        <td key={s.name} className="px-4 py-2 text-right tabular-nums">
+                          {s.before === s.after ? (s.after ?? '—') : `${s.before ?? '—'} → ${s.after ?? '—'}`}
+                        </td>
+                      ))}
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                        {final.value}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
-        <div className="mt-4">
-          <ApplySchemeForm cohortId={p.cohortId} versionId={p.versionId} versionNo={p.versionNo} token={p.token} requestId={randomUUID()} blocked={p.blockers.length > 0} />
-        </div>
       </Card>
+
+      <section aria-labelledby="apply-danger" className="space-y-3 rounded-card border border-destructive/30 bg-destructive/5 p-5">
+        <h2 id="apply-danger" className="flex items-center gap-1.5 text-base font-bold text-destructive">
+          <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
+        </h2>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm" data-testid="danger-facts">
+          {facts.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="whitespace-nowrap text-muted-foreground">{k}</dt>
+              <dd className="text-foreground">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <ApplySchemeForm cohortId={p.cohortId} versionId={p.versionId} versionNo={p.versionNo} token={p.token} requestId={randomUUID()} blocked={p.blockers.length > 0} />
+      </section>
     </div>,
   )
 }

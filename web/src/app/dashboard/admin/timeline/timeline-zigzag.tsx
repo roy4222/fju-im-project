@@ -2,13 +2,13 @@
 import type { ReactNode } from 'react'
 import { IconPencil } from '@tabler/icons-react'
 import { TimelineZigzag, type TimelineStageView, type TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
-import { ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admin/timeline/timeline-forms'
+import { GROUPING_PERIOD_HINT, ScheduleEditor, useDialog, type StageDraft } from '@/app/dashboard/admin/timeline/timeline-forms'
 
 /**
  * 系辦的時間軸設定（票 35；原型 `timeline-zigzag` 的 `canEdit` 版）。
  *
  * 版型用票 38 搬進來的共用元件 `dashboard/_timeline/timeline-zigzag`；這裡只把系辦的按鈕放進它的插槽：
- * 摘要列右邊「調整模擬業務鐘」「編輯階段與日期」，每張卡片展開後也有「編輯階段與日期」。
+ * 摘要列右邊「調整模擬時鐘」「編輯階段與日期」，每張卡片展開後也有「編輯階段與日期」。
  * 原型每段各自編輯；正式碼四段一起填（Vault 02 階段模型），所以每個按鈕打開的都是同一個對話框。
  */
 
@@ -24,7 +24,7 @@ export type AdminStage = {
 
 export type ScheduleEditorProps = {
   cohortId: string
-  cohortCode: string
+  cohortLabel: string
   revision: number
   requestId: string
   stages: StageDraft[]
@@ -53,7 +53,10 @@ export function AdminTimeline({
     title: s.name,
     rangeText: s.range,
     status: s.status,
-    summary: s.description ? `${s.description}（${s.detail}）` : `第 ${s.seq} 階段・${s.detail}`,
+    // 第 1 階段＝分組期，固定先說明它在做什麼（Q40）；階段名稱照系辦填的，不改。
+    summary: s.seq === 1
+      ? `${[GROUPING_PERIOD_HINT, s.description].filter(Boolean).join('。')}（${s.detail}）`
+      : s.description ? `${s.description}（${s.detail}）` : `第 ${s.seq} 階段・${s.detail}`,
     tasks: [],
   }))
   const stageActions = Object.fromEntries(
@@ -76,7 +79,7 @@ export function AdminTimeline({
       <TimelineZigzag
         stages={views}
         summary={summary}
-        emptyTasksText="這個階段的收件與截止在專題事務設定。"
+        emptyTasksText="這個階段的繳交項目與截止在專題事務設定。"
         headerActions={
           <>
             {extraActions}

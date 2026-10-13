@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Pool } from 'pg'
 import { statusGate, type ResolvedActor } from '@/application/accounts'
+import type { SubmissionLateFlags } from '@/application/ops'
 import {
   canReadSubmission,
   type AdvisedGroup,
@@ -19,7 +20,7 @@ import {
 } from '@/application/submissions'
 import { getPool } from '@/infrastructure/db/client'
 import { rosterItemOf, toEntry, type EntryRow } from '@/infrastructure/submissions/pg-roster'
-import { isUuid, toSummary, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
+import { isUuid, REOPEN_UNTIL, summarizeVersions, VERSION_COLUMNS, VERSION_JOINS, versionDetail, type VersionRow } from '@/infrastructure/submissions/pg-submissions'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 
 /**
@@ -31,6 +32,7 @@ import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } fro
  * - **個人一份**：只有管理員開了主指導閱覽的收件才出現，而且只列老師此刻指導的組裡的學生、
  *   只算欄位版本 ≥ 生效版本的正式送出（產品模組 05 §4「誰看得到個人回答」、SUB-24）。
  * - **草稿一律不給**：連「有沒有草稿」都不透露（`hasDraft` 固定 false），矩陣上沒交就是「未繳」。
+ * - 個別補交期限（W10b）跟系辦名單、學生作業區同一段 SQL（`REOPEN_UNTIL`）：補交中、期限未到的不算逾期，期限過了仍未交才算。
  * - 版本列表與單一版本都經 `canReadSubmission`（事實用 `VERSION_ACCESS_COLUMNS`，跟附件下載政策同一段 SQL）：
  *   列得出來的版本就是點得開、下載得到的那幾版。
  */
@@ -77,7 +79,8 @@ const GROUP_ENTRIES = `
   select r.receiver_kind, r.receiver_id, gr.code as name, null::text as student_no, gr.code as group_code,
          r.eligible_from_business_at, r.eligible_to_business_at, r.source, r.exempt, r.exempt_reason, r.removed_reason,
          false as has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-         coalesce(sp.display_name, su.name) as latest_submitted_by_name
+         coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+         ${REOPEN_UNTIL}
     from picked r join groups gr on gr.id = r.receiver_id
     ${latestJoin('')}
    order by (r.eligible_to_business_at is not null), r.exempt, gr.code`
@@ -101,7 +104,8 @@ const STUDENT_ENTRIES = `
          coalesce(si.student_no, p.student_no) as student_no, mine.code as group_code,
          r.eligible_from_business_at, r.eligible_to_business_at, r.source, r.exempt, r.exempt_reason, r.removed_reason,
          false as has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-         coalesce(sp.display_name, su.name) as latest_submitted_by_name
+         coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+         ${REOPEN_UNTIL}
     from picked r
     join mine on mine.user_id = r.receiver_id
     left join users u on u.id = r.receiver_id
@@ -123,9 +127,12 @@ async function latestVisibility(db: Pick<Pool, 'query'>, itemId: string): Promis
 
 export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
   readonly #reader: Reader
+  readonly #lateFlags: SubmissionLateFlags
 
-  constructor(reader: Reader = getPool) {
+  /** `lateFlags`：模組 10 的「哪些版本是補交」批次查詢 port，由 composition 注入（架構 §4.4）。 */
+  constructor(reader: Reader = getPool, lateFlags: SubmissionLateFlags) {
     this.#reader = reader
+    this.#lateFlags = lateFlags
   }
 
   async matrix(actor: ResolvedActor): Promise<AdvisorMatrix | null> {
@@ -137,9 +144,10 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       group_type: 'general' | 'industry'
       cohort_id: string
       cohort_code: string
+      cohort_name: string
       member_names: string[] | null
     }>(
-      `select g.id, g.code, g.group_type, g.cohort_id, c.code as cohort_code,
+      `select g.id, g.code, g.group_type, g.cohort_id, c.code as cohort_code, c.name as cohort_name,
               (select array_agg(coalesce(p.display_name, u.name) order by coalesce(p.display_name, u.name))
                  from group_memberships gm join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
                 where gm.group_id = g.id and gm.valid_to is null) as member_names
@@ -153,6 +161,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       groupType: g.group_type,
       cohortId: g.cohort_id,
       cohortCode: g.cohort_code,
+      cohortName: g.cohort_name,
       memberNames: g.member_names ?? [],
     }))
     if (advised.length === 0) return { groups: [], items: [], cells: [], individualItems: [] }
@@ -163,7 +172,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       db.query<{ id: string; title: string; cohort_id: string; stage_name: string | null; opens_at: Date | null; due_at: Date | null }>(
         `select m.id, m.title, m.cohort_id, s.name as stage_name, m.opens_at, m.due_at
            from managed_items m left join cohort_stages s on s.id = m.stage_id
-          where m.cohort_id = any($1::uuid[]) and m.status = 'published' and m.receiver_unit = 'group'
+          where m.cohort_id = any($1::uuid[]) and m.status = 'published' and m.receiver_unit = 'group' and m.deleted_at is null
           order by m.due_at nulls last, m.title`,
         [cohortIds],
       ),
@@ -175,6 +184,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
         latest_version_no: number | null
         latest_received_at: Date | null
         latest_submitted_by_name: string | null
+        reopen_until: Date | null
       }>(
         `with picked as (
            select distinct on (r.item_id, r.receiver_id) r.* from response_rosters r
@@ -184,7 +194,8 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
          )
          select r.item_id, r.receiver_id, r.eligible_to_business_at, r.exempt,
                 latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-                coalesce(sp.display_name, su.name) as latest_submitted_by_name
+                coalesce(sp.display_name, su.name) as latest_submitted_by_name,
+                ${REOPEN_UNTIL}
            from picked r ${latestJoin('')}`,
         [groupIds],
       ),
@@ -216,7 +227,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
            left join cohort_stages s on s.id = m.stage_id
            join lateral (select x.enabled, x.effective_from_version_no from advisor_visibility_settings x
                           where x.item_id = m.id order by x.set_at desc, x.id desc limit 1) vs on vs.enabled
-          where m.cohort_id = any($2::uuid[]) and m.status = 'published' and m.receiver_unit = 'individual'
+          where m.cohort_id = any($2::uuid[]) and m.status = 'published' and m.receiver_unit = 'individual' and m.deleted_at is null
           order by m.due_at nulls last, m.title`,
         [actor.userId, cohortIds],
       ),
@@ -241,6 +252,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
           latestVersionNo: c.latest_version_no,
           latestReceivedAt: c.latest_received_at,
           latestSubmittedByName: c.latest_submitted_by_name,
+          reopenUntil: c.reopen_until,
         }),
       ),
       individualItems: individual.rows.map(
@@ -265,7 +277,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     if (!isTeacher(actor) || !isUuid(itemId) || !isUuid(receiverId)) return null
     const listed = await this.#readableVersions(actor, itemId, receiverId)
     if (!listed) return null
-    return { item: listed.item, entry: listed.entry, versions: listed.versions.map(toSummary) }
+    return { item: listed.item, entry: listed.entry, versions: await summarizeVersions(this.#lateFlags, listed.versions) }
   }
 
   /**
@@ -281,11 +293,11 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     if (!isTeacher(actor) || !isUuid(itemId) || !isUuid(receiverId) || !Number.isInteger(versionNo) || versionNo < 1) return null
     const listed = await this.#readableVersions(actor, itemId, receiverId)
     if (listed && listed.versions.some((v) => v.version_no === versionNo)) {
-      return versionDetail(this.#reader(), itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
+      return versionDetail(this.#reader(), this.#lateFlags, itemId, listed.entry.receiverKind, receiverId, versionNo, listed.versions[0]!.version_no)
     }
     const evaluated = await this.#evaluatorVersions(actor, itemId, receiverId)
     if (!evaluated.some((v) => v.version_no === versionNo)) return null
-    return versionDetail(this.#reader(), itemId, 'group', receiverId, versionNo, evaluated[0]!.version_no)
+    return versionDetail(this.#reader(), this.#lateFlags, itemId, 'group', receiverId, versionNo, evaluated[0]!.version_no)
   }
 
   /**

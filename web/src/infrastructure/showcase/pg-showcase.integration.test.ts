@@ -7,11 +7,13 @@ import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
+import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter, sha256 } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgShowcaseCommand, PgShowcaseQuery, summaryChecksum } from '@/infrastructure/showcase/pg-showcase'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
+import { PgSignoffCommand } from '@/infrastructure/signoff/pg-signoff'
 
 /**
  * 票 25／S11-03：管理員替一組建精選草稿（題目、摘要、海報、影片連結；不發布）。
@@ -28,6 +30,7 @@ let root: string
 let storage: FsFileStorage
 let command: PgShowcaseCommand
 let query: PgShowcaseQuery
+let signoff: PgSignoffCommand
 let a1: string
 let a2: string
 const businessClock = { now: async () => new Date('2026-12-01T02:00:00Z') }
@@ -139,6 +142,14 @@ beforeAll(async () => {
     pool: () => app,
   })
   query = new PgShowcaseQuery({ pool: () => app })
+  signoff = new PgSignoffCommand({
+    audit: new PgAuditWriter(),
+    ledger: new PgOperationLedger(() => app),
+    events: new PgEventPublisher(),
+    files: storage,
+    businessClock,
+    pool: () => app,
+  })
 })
 
 afterAll(async () => {
@@ -178,7 +189,7 @@ describe('建立精選草稿', () => {
 
     const second = await command.createDraft(actor(a2, ['admin']), { groupId: s.groupId }, randomUUID())
     expect(second).toMatchObject({ ok: false, code: 'CONFLICT' })
-    expect(second.ok ? '' : second.message).toMatch(/已經有精選草稿/)
+    expect(second.ok ? '' : second.message).toMatch(/已經有成果展示草稿/)
     expect((await owner.sql('select count(*)::int as n from showcase_entries where group_id = $1', [s.groupId])).rows[0]!.n).toBe(1)
   })
 
@@ -225,7 +236,7 @@ describe('編輯精選草稿', () => {
     )
     expect(saved).toMatchObject({ ok: true, receipt: { revision: 2, posterChanged: true } })
 
-    const board = await query.adminBoard(actor(a1, ['admin']), s.cohortId)
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: s.cohortId })
     expect(board.ok).toBe(true)
     if (!board.ok) return
     const draft = board.receipt.drafts[0]!
@@ -338,7 +349,7 @@ describe('編輯精選草稿', () => {
     expect(
       await command.requestPosterUpload(student, { entryId, fileName: 'a.png', declaredMime: 'image/png', declaredSize: 16 }),
     ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await query.adminBoard(actor(s.teacher, ['teacher']), s.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await query.adminBoard(actor(s.teacher, ['teacher']), { cohortId: s.cohortId, createCohortId: s.cohortId })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect((await owner.sql('select title, revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]).toEqual({
       title: '',
       revision: 1,
@@ -363,5 +374,600 @@ describe('海報下載', () => {
     expect(await download(actor(s.student, ['student']), poster.receipt.fileId)).toBe('ok')
     expect(await download(actor(s.teacher, ['teacher']), poster.receipt.fileId)).toBe('ok')
     expect(await download(actor(s.outsider, ['student']), poster.receipt.fileId)).toBe('FORBIDDEN')
+  })
+})
+
+// ── 第三波 W2：發布（勾同意）、下架、重新發布、獎項、刪除 ───────────────────────
+
+async function draftWithPoster(s: Awaited<ReturnType<typeof scenario>>, title = '可發布的作品') {
+  const { entryId } = await mustCreate(s.groupId)
+  const poster = await uploadPoster(a1, entryId, 'poster.png', PNG, 'image/png')
+  if (!poster.ok) throw new Error(poster.message)
+  const saved = await command.updateDraft(
+    actor(a1, ['admin']),
+    { entryId, revision: 1, title, summary: '摘要', videoUrl: '', posterFileId: poster.receipt.fileId },
+    randomUUID(),
+  )
+  if (!saved.ok) throw new Error(saved.message)
+  return { entryId, posterFileId: poster.receipt.fileId }
+}
+
+async function entryHead(entryId: string) {
+  return (
+    await owner.sql('select status, revision, current_version_id, award_level, award_label, deleted_at, deleted_by_user_id from showcase_entries where id = $1', [
+      entryId,
+    ])
+  ).rows[0] as {
+    status: string
+    revision: number
+    current_version_id: string | null
+    award_level: string | null
+    award_label: string | null
+    deleted_at: Date | null
+    deleted_by_user_id: string | null
+  }
+}
+
+async function auditOf(entryId: string, action: string) {
+  return (
+    await owner.sql('select actor_user_id, payload from audit_events where target_id = $1 and action = $2 order by real_at', [entryId, action])
+  ).rows as { actor_user_id: string; payload: Record<string, unknown> }[]
+}
+
+describe('發布（W2，Q31：系辦勾同意即可發布）', () => {
+  it('沒勾同意被擋、題目空白被擋；勾了 → 公開中，新版本是外部授權、授權參照是這次的請求編號、個資檢查記系辦確認與勾的人', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s)
+    const head = await entryHead(entryId)
+
+    expect(await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: false }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('已取得這組同學同意公開'),
+    })
+
+    const blank = await scenario()
+    const { entryId: blankId } = await mustCreate(blank.groupId)
+    expect(await command.publish(actor(a1, ['admin']), { entryId: blankId, revision: 1, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('題目還是空白'),
+    })
+
+    const requestId = randomUUID()
+    const published = await command.publish(actor(a2, ['admin']), { entryId, revision: head.revision, consent: true }, requestId)
+    expect(published).toMatchObject({ ok: true, receipt: { entryId, groupCode: 'G01', title: '可發布的作品', versionNo: 1, revision: head.revision + 1 } })
+
+    const after = await entryHead(entryId)
+    expect(after.status).toBe('published')
+    const version = (
+      await owner.sql(
+        'select title, poster_file_id, authorization_kind, authorization_ref, pii_check, created_by_user_id from showcase_versions where id = $1',
+        [after.current_version_id],
+      )
+    ).rows[0]!
+    expect(version).toMatchObject({
+      title: '可發布的作品',
+      poster_file_id: posterFileId,
+      authorization_kind: 'external',
+      authorization_ref: requestId,
+      created_by_user_id: a2,
+    })
+    expect(version.pii_check).toMatchObject({ status: 'admin_attested', by: a2 })
+    // 海報從草稿複製一筆引用到發布版本（前台下載政策只認發布版本上的那張）。
+    const refs = await owner.sql(
+      `select ref_type from file_references where file_id = $1 and released_at is null order by ref_type`,
+      [posterFileId],
+    )
+    expect(refs.rows.map((r) => r.ref_type)).toEqual(['showcase_draft', 'showcase_version'])
+
+    const audit = await auditOf(entryId, 'showcase.published')
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({ actor_user_id: a2, payload: { consentBy: a2, versionNo: 1, title: '可發布的作品' } })
+
+    // 同一個請求編號重送：回同一張回執，不再插一版。
+    const replay = await command.publish(actor(a2, ['admin']), { entryId, revision: head.revision, consent: true }, requestId)
+    expect(replay).toMatchObject({ ok: true, receipt: { versionNo: 1 } })
+    expect((await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n).toBe(1)
+    // 已經公開中：再發布被擋。
+    expect(await command.publish(actor(a1, ['admin']), { entryId, revision: after.revision, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+  })
+
+  it('條目版本不符 → CONFLICT；非管理員 → FORBIDDEN', async () => {
+    const s = await scenario()
+    const { entryId } = await draftWithPoster(s)
+    const head = await entryHead(entryId)
+    expect(await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision - 1, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'CONFLICT',
+    })
+    const student = actor(s.student, ['student'])
+    for (const result of [
+      await command.publish(student, { entryId, revision: head.revision, consent: true }, randomUUID()),
+      await command.publish(student, { entryId, revision: head.revision, consent: false }, randomUUID()),
+      await command.withdraw(student, { entryId, revision: head.revision }, randomUUID()),
+      await command.setAward(student, { entryId, revision: head.revision, level: 'gold', label: '' }, randomUUID()),
+      await command.delete(student, { entryId, revision: head.revision }, randomUUID()),
+    ]) {
+      expect(result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    }
+    expect((await entryHead(entryId)).status).toBe('draft')
+  })
+})
+
+describe('下架、重新發布、獎項（W2；不受屆別封存限制）', () => {
+  it('下架 → 已下架；重新發布 → 公開中且不切新版本；狀態不對的動作被擋', async () => {
+    const s = await scenario()
+    const { entryId } = await draftWithPoster(s)
+    let head = await entryHead(entryId)
+    expect(await command.withdraw(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('草稿'),
+    })
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    head = await entryHead(entryId)
+    const versionId = head.current_version_id
+
+    expect(await command.withdraw(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    head = await entryHead(entryId)
+    expect(head.status).toBe('withdrawn')
+    expect(await auditOf(entryId, 'showcase.withdrawn')).toHaveLength(1)
+
+    expect(await command.republish(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    head = await entryHead(entryId)
+    expect(head).toMatchObject({ status: 'published', current_version_id: versionId })
+    expect((await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n).toBe(1)
+    expect(await auditOf(entryId, 'showcase.republished')).toHaveLength(1)
+    expect(await command.republish(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: false })
+  })
+
+  it('封存屆別的作品可以下架、設獎項、重新發布（不改內容）；改草稿：非管理員仍被封存擋住（COHORT_ARCHIVED），管理員可以改（W15）', async () => {
+    const s = await scenario()
+    const { entryId } = await draftWithPoster(s)
+    let head = await entryHead(entryId)
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [s.cohortId])
+
+    head = await entryHead(entryId)
+    expect(await command.setAward(actor(a1, ['admin']), { entryId, revision: head.revision, level: 'excellent', label: ' 第 43 屆專題競賽第一名 ' }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { award: 'excellent', awardLabel: '第 43 屆專題競賽第一名' },
+    })
+    head = await entryHead(entryId)
+    expect(head).toMatchObject({ award_level: 'excellent', award_label: '第 43 屆專題競賽第一名' })
+    expect(await auditOf(entryId, 'showcase.award_set')).toHaveLength(1)
+
+    expect(await command.withdraw(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    head = await entryHead(entryId)
+    expect(await command.republish(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+
+    const draftRevision = (await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision as number
+    for (const who of [actor(s.teacher, ['teacher']), actor(s.student, ['student'])]) {
+      expect(
+        await command.updateDraft(who, { entryId, revision: draftRevision, title: 'X', summary: '', videoUrl: '', posterFileId: null }, randomUUID()),
+      ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    }
+    expect((await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision).toBe(draftRevision)
+    // W15：管理員不受屆別封存限制。
+    expect(
+      await command.updateDraft(actor(a1, ['admin']), { entryId, revision: draftRevision, title: 'X', summary: '', videoUrl: '', posterFileId: null }, randomUUID()),
+    ).toMatchObject({ ok: true, receipt: { groupCode: 'G01', revision: draftRevision + 1 } })
+  })
+
+  it('獎項：沒選等級卻填名稱、不認得的等級被擋；選「沒有獎項」清掉等級與名稱', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    expect(await command.setAward(actor(a1, ['admin']), { entryId, revision: 1, level: '', label: '佳作' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    expect(await command.setAward(actor(a1, ['admin']), { entryId, revision: 1, level: 'gold', label: '' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    expect(await command.setAward(actor(a1, ['admin']), { entryId, revision: 1, level: 'merit', label: '' }, randomUUID())).toMatchObject({ ok: true })
+    expect(await command.setAward(actor(a1, ['admin']), { entryId, revision: 2, level: null, label: null }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { award: null, awardLabel: null },
+    })
+    expect(await entryHead(entryId)).toMatchObject({ award_level: null, award_label: null })
+  })
+})
+
+describe('刪除（W2；設計方案 §2）', () => {
+  it('公開中不能刪；下架後刪除 → 刪除標記、稽核記刪除前的狀態與題目；看板不再列出、所有指令都當作找不到；管理員也打不開海報', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '要刪掉的作品')
+    let head = await entryHead(entryId)
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    head = await entryHead(entryId)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('先按「下架」'),
+    })
+    expect(await download(actor(a1, ['admin']), posterFileId)).toBe('ok')
+
+    await command.withdraw(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())
+    head = await entryHead(entryId)
+    expect(await command.delete(actor(a2, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    head = await entryHead(entryId)
+    expect(head.status).toBe('withdrawn')
+    expect(head.deleted_at).not.toBeNull()
+    expect(head.deleted_by_user_id).toBe(a2)
+    const audit = await auditOf(entryId, 'showcase.deleted')
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({ actor_user_id: a2, payload: { previousStatus: 'withdrawn', title: '要刪掉的作品' } })
+
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: s.cohortId })
+    expect(board.ok && board.receipt.drafts).toEqual([])
+    for (const result of [
+      await command.republish(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID()),
+      await command.setAward(actor(a1, ['admin']), { entryId, revision: head.revision, level: 'merit', label: '' }, randomUUID()),
+      await command.delete(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID()),
+      await command.updateDraft(actor(a1, ['admin']), { entryId, revision: 2, title: 'X', summary: '', videoUrl: '', posterFileId: null }, randomUUID()),
+      await command.requestPosterUpload(actor(a1, ['admin']), { entryId, fileName: 'a.png', declaredMime: 'image/png', declaredSize: 16 }),
+    ]) {
+      expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    }
+    // 海報引用照留，但下載政策先排除已刪除的作品：管理員、組員都拿不到。
+    expect(await download(actor(a1, ['admin']), posterFileId)).toBe('FORBIDDEN')
+    expect(await download(actor(s.student, ['student']), posterFileId)).toBe('FORBIDDEN')
+  })
+
+  it('草稿可以直接刪；DB 擋發布中的條目被標刪除', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, randomUUID())).toMatchObject({ ok: true })
+    expect((await entryHead(entryId)).deleted_at).not.toBeNull()
+
+    const other = await scenario()
+    const { entryId: liveId } = await draftWithPoster(other)
+    const head = await entryHead(liveId)
+    await command.publish(actor(a1, ['admin']), { entryId: liveId, revision: head.revision, consent: true }, randomUUID())
+    await expect(app.query('update showcase_entries set deleted_at = now(), deleted_by_user_id = $2 where id = $1', [liveId, a1])).rejects.toThrow(
+      /showcase_entries_deleted_check/,
+    )
+  })
+})
+
+describe('看板（W2：全部含歷屆、左連組別）', () => {
+  it('「全部」列出封存屆別與沒有組別的歷屆補登；狀態、獎項、條目版本都在', async () => {
+    const s = await scenario('archived')
+    const version = randomUUID()
+    const entryId = randomUUID()
+    await owner.sql(
+      `insert into showcase_entries (id, cohort_id, group_id, status, award_level, award_label, created_at, created_by_user_id, updated_at, updated_by_user_id)
+       values ($1, $2, null, 'draft', 'excellent', '歷屆優秀', now(), $3, now(), $3)`,
+      [entryId, s.cohortId, a1],
+    )
+    await owner.sql(
+      `insert into showcase_versions (id, entry_id, version_no, title, summary, summary_checksum, authorization_kind, authorization_ref, pii_check, created_by_user_id, created_real_at)
+       values ($1, $2, 1, '歷屆補登作品', '', $3, 'external', gen_random_uuid(), '{}'::jsonb, $4, now())`,
+      [version, entryId, summaryChecksum(''), a1],
+    )
+    await owner.sql(`update showcase_entries set status = 'published', current_version_id = $2 where id = $1`, [entryId, version])
+
+    const all = await query.adminBoard(actor(a1, ['admin']), { cohortId: null, createCohortId: null })
+    expect(all.ok).toBe(true)
+    if (!all.ok) return
+    expect(all.receipt.cohort).toBeNull()
+    const row = all.receipt.drafts.find((d) => d.entryId === entryId)
+    expect(row).toMatchObject({
+      cohortArchived: true,
+      groupId: null,
+      groupCode: null,
+      status: 'published',
+      award: 'excellent',
+      awardLabel: '歷屆優秀',
+      hasDraft: false,
+      title: '歷屆補登作品',
+      publishedTitle: '歷屆補登作品',
+    })
+    expect(row!.entryRevision).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('W2 Review 修正', () => {
+  it('海報曾凍結進「最終文件授權」簽核版本：作品刪除後，管理員與參與學生都打不開（簽核引用的來源條目已刪也要排除）', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '凍結過的作品')
+    const created = await signoff.createVersion(
+      actor(a1, ['admin']),
+      { groupId: s.groupId, purpose: 'final_document', content: '同意公開以下內容。', attachmentFileIds: [], showcaseEntryId: entryId },
+      randomUUID(),
+    )
+    if (!created.ok) throw new Error(`${created.code} ${created.message}`)
+    const refs = await owner.sql(`select ref_type from file_references where file_id = $1 and released_at is null order by ref_type`, [posterFileId])
+    expect(refs.rows.map((r) => r.ref_type)).toEqual(['showcase_draft', 'signoff_version'])
+    expect(await download(actor(s.student, ['student']), posterFileId)).toBe('ok')
+
+    const head = await entryHead(entryId)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: head.revision }, randomUUID())).toMatchObject({ ok: true })
+    expect(await download(actor(a1, ['admin']), posterFileId)).toBe('FORBIDDEN')
+    expect(await download(actor(s.student, ['student']), posterFileId)).toBe('FORBIDDEN')
+  })
+
+  it('刪除成功後同一個請求編號重送：回第一次的成功回執（帳本重播），不是「找不到」；新的請求編號才是找不到', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    const requestId = randomUUID()
+    const first = await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, requestId)
+    expect(first).toMatchObject({ ok: true })
+    const again = await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, requestId)
+    expect(again).toEqual(first)
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: 2 }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('找不到'),
+    })
+  })
+
+  it('已發布作品把草稿的海報與影片清掉：看板顯示草稿的空值（不拿發布版本的舊素材補），再存一次也不會寫回舊值', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '要清素材的作品')
+    const head = await entryHead(entryId)
+    const draftRevision = (await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision as number
+    await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: draftRevision, title: '要清素材的作品', summary: '摘要', videoUrl: 'https://youtu.be/old', posterFileId },
+      randomUUID(),
+    )
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision + 1, consent: true }, randomUUID())
+    const cleared = await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: draftRevision + 1, title: '要清素材的作品', summary: '摘要', videoUrl: '', posterFileId: null },
+      randomUUID(),
+    )
+    expect(cleared.ok).toBe(true)
+
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: null })
+    if (!board.ok) throw new Error(board.message)
+    const view = board.receipt.drafts.find((d) => d.entryId === entryId)!
+    expect(view).toMatchObject({ status: 'published', hasDraft: true, videoUrl: null, poster: null })
+    // 版本裡的舊素材原封不動（前台仍是發布那一版）。
+    const version = (await owner.sql('select v.video_url, v.poster_file_id from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.id = $1', [entryId])).rows[0]!
+    expect(version).toEqual({ video_url: 'https://youtu.be/old', poster_file_id: posterFileId })
+  })
+})
+
+describe('W15：編輯已發布、封存屆別與無組別作品並發布更新；首頁順序；歷屆補登', () => {
+  async function draftRevision(entryId: string): Promise<number> {
+    return (await owner.sql('select revision from showcase_drafts where entry_id = $1', [entryId])).rows[0]!.revision as number
+  }
+
+  it('非管理員改進行中屆別的作品仍是 FORBIDDEN（只有封存的才說「已封存」）', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    expect(
+      await command.updateDraft(actor(s.teacher, ['teacher']), { entryId, revision: 1, title: 'X', summary: '', videoUrl: '', posterFileId: null }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  it('管理員可以替封存屆別的作品申請海報上傳、換上海報；老師不行', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s)
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [s.cohortId])
+    const uploaded = await uploadPoster(a1, entryId, 'new.png', PNG2, 'image/png')
+    expect(uploaded.ok).toBe(true)
+    if (!uploaded.ok) return
+    expect(
+      await command.requestPosterUpload(actor(s.teacher, ['teacher']), { entryId, fileName: 'a.png', declaredMime: 'image/png', declaredSize: 16 }),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    const saved = await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: await draftRevision(entryId), title: '封存屆換海報', summary: '摘要', videoUrl: '', posterFileId: uploaded.receipt.fileId },
+      randomUUID(),
+    )
+    expect(saved).toMatchObject({ ok: true, receipt: { posterChanged: true } })
+    const refs = await owner.sql(`select file_id from file_references where ref_type = 'showcase_draft' and ref_id = $1 and released_at is null`, [entryId])
+    expect(refs.rows.map((r) => r.file_id)).toEqual([uploaded.receipt.fileId])
+    expect(posterFileId).not.toBe(uploaded.receipt.fileId)
+  })
+
+  it('發布更新：新版本、切目前版本、狀態仍公開中、舊版本不動、稿件海報綁到新版本；沒變更被擋；草稿與已下架被擋；稽核 showcase.update_published', async () => {
+    const s = await scenario()
+    const { entryId, posterFileId } = await draftWithPoster(s, '第一版題目')
+    let head = await entryHead(entryId)
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('「發布」'),
+    })
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    head = await entryHead(entryId)
+    const v1 = head.current_version_id!
+    const v1Row = (await owner.sql('select * from showcase_versions where id = $1', [v1])).rows[0]
+
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('沒有要發布的更新'),
+    })
+    expect(
+      await command.publishUpdate(actor(s.teacher, ['teacher']), { entryId, revision: head.revision, consent: true }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+
+    const newPoster = await uploadPoster(a1, entryId, 'v2.png', PNG2, 'image/png')
+    if (!newPoster.ok) throw new Error(newPoster.message)
+    await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: await draftRevision(entryId), title: '第二版題目', summary: '新摘要', videoUrl: '', posterFileId: newPoster.receipt.fileId },
+      randomUUID(),
+    )
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: null })
+    expect(board.ok && board.receipt.drafts.find((d) => d.entryId === entryId)).toMatchObject({ hasUnpublishedChanges: true, publishedTitle: '第一版題目' })
+
+    head = await entryHead(entryId)
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision - 1, consent: true }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+    const updated = await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    expect(updated).toMatchObject({ ok: true, receipt: { versionNo: 2, title: '第二版題目', groupCode: 'G01' } })
+    const after = await entryHead(entryId)
+    expect(after.status).toBe('published')
+    expect(after.current_version_id).not.toBe(v1)
+    const versions = await owner.sql('select id, version_no, title, poster_file_id from showcase_versions where entry_id = $1 order by version_no', [entryId])
+    expect(versions.rows.map((r) => [r.version_no, r.title, r.poster_file_id])).toEqual([
+      [1, '第一版題目', posterFileId],
+      [2, '第二版題目', newPoster.receipt.fileId],
+    ])
+    expect((await owner.sql('select * from showcase_versions where id = $1', [v1])).rows[0]).toEqual(v1Row)
+    const versionRefs = await owner.sql(`select file_id from file_references where ref_type = 'showcase_version' and ref_id = $1 and released_at is null`, [
+      after.current_version_id,
+    ])
+    expect(versionRefs.rows.map((r) => r.file_id)).toEqual([newPoster.receipt.fileId])
+    const audit = await auditOf(entryId, 'showcase.update_published')
+    expect(audit).toHaveLength(1)
+    expect(audit[0]!.payload).toMatchObject({ versionNo: 2, previousVersionId: v1 })
+    const boardAfter = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: null })
+    expect(boardAfter.ok && boardAfter.receipt.drafts.find((d) => d.entryId === entryId)).toMatchObject({ hasUnpublishedChanges: false })
+
+    await command.withdraw(actor(a1, ['admin']), { entryId, revision: after.revision }, randomUUID())
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: after.revision + 1, consent: true }, randomUUID())).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('「重新發布」'),
+    })
+  })
+
+  it('發布更新要勾同意（Q31）：沒勾不建版本、不寫授權與稽核紀錄；勾了才建版本，授權與稽核記當前登入者', async () => {
+    const s = await scenario()
+    const { entryId } = await draftWithPoster(s, '要同意的作品')
+    let head = await entryHead(entryId)
+    await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: await draftRevision(entryId), title: '要同意的作品', summary: '改過的摘要', videoUrl: '', posterFileId: null },
+      randomUUID(),
+    )
+    head = await entryHead(entryId)
+    const versionsBefore = (await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n
+
+    for (const consent of [false, undefined, 'yes']) {
+      expect(
+        await command.publishUpdate(actor(a2, ['admin']), { entryId, revision: head.revision, consent } as never, randomUUID()),
+      ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: expect.stringContaining('已取得這組同學同意公開') })
+    }
+    expect((await owner.sql('select count(*)::int as n from showcase_versions where entry_id = $1', [entryId])).rows[0]!.n).toBe(versionsBefore)
+    expect(await auditOf(entryId, 'showcase.update_published')).toHaveLength(0)
+    expect(await entryHead(entryId)).toMatchObject({ revision: head.revision, current_version_id: head.current_version_id })
+
+    // 勾的人是當前登入者（a2），不是第一次發布的 a1。
+    const updated = await command.publishUpdate(actor(a2, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())
+    expect(updated).toMatchObject({ ok: true, receipt: { versionNo: 2 } })
+    const after = await entryHead(entryId)
+    const version = (await owner.sql('select version_no, pii_check, created_by_user_id from showcase_versions where id = $1', [after.current_version_id])).rows[0]!
+    expect(version).toMatchObject({ version_no: 2, pii_check: { status: 'admin_attested', by: a2 }, created_by_user_id: a2 })
+    const audit = await auditOf(entryId, 'showcase.update_published')
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({ actor_user_id: a2, payload: { consentBy: a2, versionNo: 2 } })
+  })
+
+  it('歷屆補登：封存屆別、沒有組別；題目必填；改草稿鎖條目本身、可上傳海報、發布、發布更新；非管理員 FORBIDDEN；看板顯示沒有組別', async () => {
+    const s = await scenario('archived')
+    expect(await command.createBackfill(actor(a1, ['admin']), { cohortId: s.cohortId, title: '  ' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    expect(await command.createBackfill(actor(s.teacher, ['teacher']), { cohortId: s.cohortId, title: '老師補登' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    const requestId = randomUUID()
+    const created = await command.createBackfill(actor(a1, ['admin']), { cohortId: s.cohortId, title: '歷屆作品' }, requestId)
+    expect(created).toMatchObject({ ok: true, receipt: { title: '歷屆作品', revision: 1 } })
+    if (!created.ok) return
+    expect(await command.createBackfill(actor(a1, ['admin']), { cohortId: s.cohortId, title: '歷屆作品' }, requestId)).toEqual(created)
+    const entryId = created.receipt.entryId
+    expect((await owner.sql('select group_id, status from showcase_entries where id = $1', [entryId])).rows[0]).toEqual({ group_id: null, status: 'draft' })
+    expect(await auditOf(entryId, 'showcase.backfill_create')).toHaveLength(1)
+
+    const poster = await uploadPoster(a1, entryId, 'old.png', PNG, 'image/png')
+    if (!poster.ok) throw new Error(poster.message)
+    const saved = await command.updateDraft(
+      actor(a1, ['admin']),
+      { entryId, revision: 1, title: '歷屆作品', summary: '舊摘要', videoUrl: '', posterFileId: poster.receipt.fileId },
+      randomUUID(),
+    )
+    expect(saved).toMatchObject({ ok: true, receipt: { groupCode: null, revision: 2 } })
+    expect(
+      await command.updateDraft(actor(s.teacher, ['teacher']), { entryId, revision: 2, title: 'X', summary: '', videoUrl: '', posterFileId: null }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    let head = await entryHead(entryId)
+    expect(await command.publish(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { groupCode: null, versionNo: 1 },
+    })
+    await command.updateDraft(actor(a1, ['admin']), { entryId, revision: 2, title: '歷屆作品', summary: '新摘要', videoUrl: '', posterFileId: poster.receipt.fileId }, randomUUID())
+    head = await entryHead(entryId)
+    expect(await command.publishUpdate(actor(a1, ['admin']), { entryId, revision: head.revision, consent: true }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { versionNo: 2 },
+    })
+    const board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: null })
+    expect(board.ok && board.receipt.drafts.find((d) => d.entryId === entryId)).toMatchObject({
+      groupId: null,
+      groupCode: null,
+      cohortArchived: true,
+      status: 'published',
+      summary: '新摘要',
+      hasUnpublishedChanges: false,
+    })
+  })
+
+  it('首頁順序：設 1、清空；超出範圍與非整數被擋；非管理員 FORBIDDEN；稽核記前後值', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    for (const bad of ['0', '100', '1.5', 'abc']) {
+      expect(await command.setHomePosition(actor(a1, ['admin']), { entryId, revision: 1, position: bad }, randomUUID())).toMatchObject({
+        ok: false,
+        code: 'VALIDATION_FAILED',
+      })
+    }
+    expect(await command.setHomePosition(actor(s.teacher, ['teacher']), { entryId, revision: 1, position: '1' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(await command.setHomePosition(actor(a1, ['admin']), { entryId, revision: 1, position: '1' }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { homePosition: 1, revision: 2 },
+    })
+    expect((await owner.sql('select home_position from showcase_entries where id = $1', [entryId])).rows[0]).toEqual({ home_position: 1 })
+    expect(await command.setHomePosition(actor(a1, ['admin']), { entryId, revision: 2, position: '' }, randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { homePosition: null },
+    })
+    const audit = await auditOf(entryId, 'showcase.home_position_set')
+    expect(audit.map((a) => [a.payload.previousHomePosition, a.payload.homePosition])).toEqual([
+      [null, 1],
+      [1, null],
+    ])
+  })
+})
+
+describe('W2b：刪除後同一組可以再建草稿', () => {
+  it('刪除後同組可再建草稿（看板的組別下拉也回來）；未刪除時仍只能一筆（用例與 DB 索引都擋）', async () => {
+    const s = await scenario()
+    const { entryId } = await mustCreate(s.groupId)
+    expect(await command.createDraft(actor(a1, ['admin']), { groupId: s.groupId }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+    await expect(
+      app.query(
+        `insert into showcase_entries (id, cohort_id, group_id, status, created_by_user_id) values (gen_random_uuid(), $1, $2, 'draft', $3)`,
+        [s.cohortId, s.groupId, a1],
+      ),
+    ).rejects.toThrow(/showcase_entries_one_per_group/)
+
+    expect(await command.delete(actor(a1, ['admin']), { entryId, revision: 1 }, randomUUID())).toMatchObject({ ok: true })
+    let board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: s.cohortId })
+    expect(board.ok && board.receipt.groups).toEqual([{ id: s.groupId, code: 'G01', entryId: null }])
+
+    const again = await command.createDraft(actor(a1, ['admin']), { groupId: s.groupId }, randomUUID())
+    expect(again).toMatchObject({ ok: true, receipt: { groupCode: 'G01', revision: 1 } })
+    if (!again.ok) return
+    expect(again.receipt.entryId).not.toBe(entryId)
+    board = await query.adminBoard(actor(a1, ['admin']), { cohortId: s.cohortId, createCohortId: s.cohortId })
+    expect(board.ok && board.receipt.groups).toEqual([{ id: s.groupId, code: 'G01', entryId: again.receipt.entryId }])
+    expect(board.ok && board.receipt.drafts.map((d) => d.entryId)).toEqual([again.receipt.entryId])
+    // 再建好之後又只能一筆。
+    expect(await command.createDraft(actor(a1, ['admin']), { groupId: s.groupId }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
   })
 })

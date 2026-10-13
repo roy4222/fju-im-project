@@ -138,7 +138,7 @@ test.describe('以 S01（學生）', () => {
     await signInAs(page, 'student')
     await page.goto('/dashboard/student')
     const nav = page.getByRole('navigation', { name: '後台導覽' })
-    await expect(nav.getByRole('link', { name: '同意書', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: '站內同意書', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: '成績', exact: true })).toHaveCount(0)
 
     expect((await page.goto('/dashboard/student/grading'))?.status()).toBe(200)
@@ -155,7 +155,10 @@ test.describe('以 S01（學生）', () => {
   })
 
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
-    await signInAs(page, 'student')
+    // 不用共用帳號：CI 只有一個 worker，共用學生帳號會跨檔沿用，先跑的 item-delete.spec 會替它補上
+    // 學號與屆別，「姓名」旁邊就變成「學號」、登入 Email 被擠到下一列。這裡要一個確定沒有個人資料的學生。
+    const session = await createTestSession(page.request, 'student')
+    await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
     const top = async (text: string) =>
       (await page.getByRole('region', { name: '基本資料' }).getByText(text, { exact: true }).first().boundingBox())!.y
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -182,7 +185,7 @@ test.describe('以 T1（老師）', () => {
     await signInAs(page, 'teacher')
     await page.goto('/')
     const work = page.getByRole('region', { name: '我的工作' })
-    await expect(work.getByTestId('home-deadlines-elsewhere').getByRole('link', { name: '後台首頁' })).toHaveAttribute(
+    await expect(work.getByTestId('home-deadlines-elsewhere').getByRole('link', { name: '我的後台' })).toHaveAttribute(
       'href',
       '/dashboard/teacher',
     )
@@ -215,7 +218,7 @@ test.describe('臨時密碼還沒改的人', () => {
     // 頁首右上角的入口也是「更改密碼」，不是會被導走的「我的專題事務」。
     const banner = page.getByRole('banner')
     await expect(banner.getByRole('link', { name: '更改密碼' }).first()).toHaveAttribute('href', '/account/change-password')
-    await expect(banner.getByRole('link', { name: '我的專題事務' })).toHaveCount(0)
+    await expect(banner.getByRole('link', { name: '我的後台' })).toHaveCount(0)
   })
 })
 
@@ -306,10 +309,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
-    '/dashboard/admin': '各收件項目完成率',
+    '/dashboard/admin': '各繳交項目完成率',
     '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
     '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
-    '/dashboard/teacher': '可認領產學組',
+    '/dashboard/teacher': '待指導的產學組',
     '/dashboard/student': '專題行事曆',
     // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
@@ -320,28 +323,31 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/inbox': '全部標為已讀',
     '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
+    '/dashboard/teacher/groups': '一般組由系辦依抽籤結果指派；所有組別都看得到',
     // 合作案管理（票 20）。
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
     '/dashboard/admin/affairs': '用完整編輯器建立',
     // 檔案管理（票 35）。
-    '/dashboard/admin/files': '被引用的檔案不能刪',
+    '/dashboard/admin/files': '還有地方在用的檔案不能刪',
     '/dashboard/admin/editor/new': '存草稿',
-    '/dashboard/student/affairs': '你在收件名單上的每一份收件、狀態與截止',
+    '/dashboard/student/affairs': '你需要繳交的每一項、狀態與截止',
     '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
-    '/dashboard/teacher/grading': '暫存只有你和系辦看得到，正式送出後鎖定',
+    '/dashboard/teacher/grading': '評分草稿只有你和系辦看得到，正式送出後鎖定',
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
     // 簽核與精選（票 25）。
     '/dashboard/admin/signoff': '系辦不能代替任何人同意',
     // 操作紀錄（票 36）。
     '/dashboard/admin/audit': '誰、何時、對哪個對象、做了什麼、為什麼',
     '/dashboard/admin/showcase': '草稿不會公開',
-    '/dashboard/teacher/signoff': '你此刻指導的組別的簽核版本',
+    '/dashboard/teacher/signoff': '你此刻指導的組別的同意書與進度',
     '/dashboard/student/signoff': '每個人只代表自己一票',
     // 專題時間軸與產學合作（票 38）。
     '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
     '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
+    // 首頁設定（第三波 W3）。
+    '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -360,6 +366,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
+    { path: '/dashboard/teacher/groups', wrongRole: 'student' },
     { path: '/dashboard/admin/affairs', wrongRole: 'student' },
     { path: '/dashboard/admin/editor/new', wrongRole: 'teacher' },
     // 檔案管理（票 35）。
@@ -382,6 +389,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
+    // 首頁設定（第三波 W3）。
+    { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 專題時間軸與產學合作（票 38）。
     { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
     { path: '/dashboard/student/industry', wrongRole: 'admin' },

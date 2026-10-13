@@ -335,7 +335,10 @@ export interface GroupQuery {
  * 同一個請求編號重送只做一次（操作帳本）。
  */
 export interface OpportunityCommand {
-  /** 老師建立（案主＝本人）；可以直接發布或存草稿。管理員不建立（案主一定是老師）。 */
+  /**
+   * 建立合作案；可以直接發布或存草稿。老師建立時案主＝本人；系辦建立時從老師選單指定負責老師
+   * （第三波 W11；必填，必須是帳號正常、目前是老師的人），案主一樣一定是老師。
+   */
   create(actor: ResolvedActor, input: CreateOpportunityInput, requestId: string): Promise<Result<OpportunityReceipt>>
   /** 案主或系辦編輯。已下架的不能改（組員看到的是下架前發布的內容），要改先重新發布。 */
   update(actor: ResolvedActor, input: UpdateOpportunityInput, requestId: string): Promise<Result<OpportunityReceipt>>
@@ -343,6 +346,11 @@ export interface OpportunityCommand {
   publish(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>>
   /** 下架：列表不再顯示、不接受新連結；既有連結保留。 */
   withdraw(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>>
+  /**
+   * 刪除（第三波 W11）：系辦限定；只限草稿或已下架、而且沒有連著組別（見 `opportunityDeleteBlocker`）。
+   * 只打刪除標記、不實體刪列，不能恢復；刪除後列表、詳情、管理清單、連結都當作不存在。
+   */
+  delete(actor: ResolvedActor, input: OpportunityStatusInput, requestId: string): Promise<Result<OpportunityReceipt>>
   /**
    * 組長（或系辦）把已成立的產學組連結到已發布的合作案；已經連著別的就是換案（理由必填）。
    * 一般組、別人的組、未發布或已下架的案 `OPPORTUNITY_NOT_LINKABLE`／`FORBIDDEN`。
@@ -399,6 +407,7 @@ export interface OpportunityQuery {
 export type RosterExportResult = {
   readonly format: RosterExportFormat
   readonly cohortCode: string
+  readonly cohortName: string
   /** 匯出了幾組、幾列（每位組員一列）。 */
   readonly groupCount: number
   readonly rowCount: number

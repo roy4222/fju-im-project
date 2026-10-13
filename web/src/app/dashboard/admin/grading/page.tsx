@@ -19,7 +19,7 @@ import {
 } from '@/app/dashboard/admin/grading/grading-forms'
 import { GradeExportButtons } from '@/app/dashboard/admin/grading/results-forms'
 import type { AdminAssignmentView, Gradebook, SchemeVersionView } from '@/application/grading'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   adoptedFinal,
   describeFormula,
@@ -121,7 +121,7 @@ export default async function AdminGradingPage({
       <div className="flex flex-col gap-5">
         <PageTitle
           title="成績管理"
-          description={title?.description ?? '評分方案、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到，學生看不到。'}
+          description={title?.description ?? '評分規則、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到，學生看不到。'}
           actions={title?.actions}
         />
         {children}
@@ -133,7 +133,7 @@ export default async function AdminGradingPage({
     return shell(
       <QuietState
         title="還沒有屆別"
-        hint="先到屆別頁新增一屆，才能設定那一屆的評分方案。"
+        hint="先到屆別頁新增一屆，才能設定那一屆的評分規則。"
         action={
           <Link href="/dashboard/admin/cohorts" className="text-sm font-semibold text-primary hover:underline">
             前往屆別
@@ -154,7 +154,7 @@ export default async function AdminGradingPage({
   const { current, versions, groups, requirements, assignments, teachers } = board.receipt
   // 伺服器端的屆別狀態為準（寫入的用例本身也會以 COHORT_ARCHIVED 拒絕）。
   const archived = board.receipt.cohort.archived
-  const archivedReason = archived ? `${board.receipt.cohort.code} 已封存，只能查看與匯出；要修改請先解封。` : null
+  const archivedReason = archived ? `${cohortLabel(board.receipt.cohort)}已封存，只能查看與匯出；要修改請先解封。` : null
   const latest = versions[0] ?? null
   const locked = current?.status === 'locked'
   const stages = current?.stages ?? []
@@ -194,17 +194,17 @@ export default async function AdminGradingPage({
 
   const description = current ? (
     <>
-      方案 v{current.versionNo}・{current.stages.map((s) => `${s.name} ${s.weight}%`).join(' ＋ ')}・{SCHEME_STATUS_LABEL[current.status]}。
-      {stage ? `現在看「${stage.name}」。` : ''}評分方案、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到。
+      評分規則第 {current.versionNo} 版・{current.stages.map((s) => `${s.name} ${s.weight}%`).join(' ＋ ')}・{SCHEME_STATUS_LABEL[current.status]}。
+      {stage ? `現在看「${stage.name}」。` : ''}評分規則、每組要幾份評分、指派哪位老師評；分數只有老師與系辦看得到。
     </>
   ) : (
-    '還沒有發布的評分方案：先建立方案並發布，才能設定每組要幾份評分、指派哪位老師評。分數只有老師與系辦看得到。'
+    '還沒有發布的評分規則：先建立評分規則並發布，才能設定每組要幾份評分、指派哪位老師評。分數只有老師與系辦看得到。'
   )
 
   return shell(
     <>
       <CohortPills
-        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${c.code}・已封存` : c.code }))}
+        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c) }))}
         currentId={cohort.id}
         hrefFor={(id) => `${BASE}?cohort=${id}`}
       />
@@ -216,18 +216,18 @@ export default async function AdminGradingPage({
 
       {current && params.applied === String(current.versionNo) ? (
         <p role="status" className="rounded-lg bg-brand-subtle px-4 py-2.5 text-sm text-brand-on-subtle">
-          已套用方案 v{current.versionNo}：各組成績照新版本重算，新版本已鎖定。
+          已套用評分規則第 {current.versionNo} 版：各組成績照新版本重算，新版本已鎖定。
         </p>
       ) : null}
 
       {current ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <Panel title="各階段完成率" icon={<IconChecklist />} description="已正式送出評分份數／要求份數">
+          <Panel title="各階段完成率" icon={<IconChecklist />} description="已正式送出的評分份數／每組需要幾位老師評分">
             <div className="px-5 pb-5">
               {stageRows.some((r) => r.total > 0) ? (
                 <StackedRows rows={stageRows} />
               ) : (
-                <p className="py-6 text-center text-sm text-muted-foreground">還沒有設定任何一組的要求份數。</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">還沒有設定任何一組需要幾位老師評分。</p>
               )}
             </div>
           </Panel>
@@ -252,26 +252,26 @@ export default async function AdminGradingPage({
       <Panel
         title={
           <>
-            評分方案 <span data-testid="scheme-status">{current ? `v${current.versionNo}・${SCHEME_STATUS_LABEL[current.status]}` : '還沒有發布的方案'}</span>
+            評分規則 <span data-testid="scheme-status">{current ? `第 ${current.versionNo} 版・${SCHEME_STATUS_LABEL[current.status]}` : '還沒有發布的評分規則'}</span>
           </>
         }
         icon={<IconScale />}
-        description={current ? (locked ? '已鎖定，改結構請建立新方案版本' : '還沒有老師開始評分，可以發布新版本取代') : undefined}
-        aria-label="評分方案"
+        description={current ? (locked ? '評分項目與權重不能再改；要改請建立新版評分規則' : '還沒有老師開始評分，可以發布新版本取代') : undefined}
+        aria-label="評分規則"
         action={
           versions.length > 0 ? (
             <SectionDialog
               label={`版本紀錄（${versions.length}）`}
               icon={<IconHistory aria-hidden />}
-              title="評分方案版本"
-              description="每一版的狀態與建立時間；草稿在這裡發布，方案鎖定後的新版本要先看影響再套用。"
+              title="評分規則各版"
+              description="每一版的狀態與建立時間；草稿在這裡發布。評分規則鎖定後的新版本按「查看重算影響（尚不套用）」只會先列出哪些組的成績會變、不會馬上重算；真正套用在下一頁底部的「危險操作」區，套用後不能退回舊版。"
               openParam="versions"
               defaultOpen={dialogParam === 'versions'}
               size="xl"
               triggerClassName={BTN_ROW_GHOST}
             >
           <div className="overflow-x-auto">
-            <table aria-label="方案版本" className="w-full min-w-[28rem] text-sm">
+            <table aria-label="評分規則各版" className="w-full min-w-[28rem] text-sm">
               <thead>
                 <tr className={PANEL_TABLE_HEAD}>
                   <th className="px-5 py-2.5 font-semibold">版本</th>
@@ -283,7 +283,7 @@ export default async function AdminGradingPage({
               <tbody>
                 {versions.map((v) => (
                   <tr key={v.id} className="border-t border-border/70">
-                    <td className="tabular px-5 py-2.5 font-semibold">v{v.versionNo}</td>
+                    <td className="tabular px-5 py-2.5 font-semibold">第 {v.versionNo} 版</td>
                     <td className="px-4 py-2.5">
                       <Pill tone={v.isCurrent ? 'brand' : 'default'}>{versionLabel(v, current)}</Pill>
                     </td>
@@ -291,7 +291,7 @@ export default async function AdminGradingPage({
                     <td className="px-5 py-2.5 text-right">
                       {v.status === 'draft' && archived ? null : v.status === 'draft' && locked ? (
                         <Link href={`${BASE}/apply/${v.id}`} className={LINK_BUTTON}>
-                          看影響並套用 v{v.versionNo}
+                          查看第 {v.versionNo} 版重算影響（尚不套用）
                         </Link>
                       ) : v.status === 'draft' ? (
                         <PublishButton versionId={v.id} versionNo={v.versionNo} requestId={randomUUID()} disabledReason={null} />
@@ -345,15 +345,15 @@ export default async function AdminGradingPage({
             </p>
           </>
         ) : (
-          <PanelEmpty title="還沒有發布的方案" hint="按右上「建立新方案版本」設定階段、項目、滿分與權重，再發布。" />
+          <PanelEmpty title="還沒有發布的評分規則" hint="按右上「建立新版評分規則」設定階段、項目、滿分與權重，再發布。" />
         )}
 
         <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
           {current
             ? locked
-              ? '已有老師開始評分（暫存或正式送出），結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
-              : '第一位老師暫存或送出評分後就鎖定。'
-            : '最終成績＝Σ（階段成績 × 階段權重）；階段成績為採計中正式評分的平均。'}
+              ? '已有老師開始評分（存了評分草稿或已正式送出），評分項目與權重不能再改；要改階段、項目、滿分或權重請建立新版本，先查看重算影響再套用。'
+              : '第一位老師存了評分草稿或送出評分後就鎖定。'
+            : '最終成績＝Σ（階段成績 × 階段權重）；階段成績為計入成績的正式評分的平均。'}
         </p>
       </Panel>
 
@@ -403,7 +403,7 @@ export default async function AdminGradingPage({
                 <thead>
                   <tr className={PANEL_TABLE_HEAD}>
                     <th className="px-5 py-2.5 font-semibold">組別</th>
-                    <th className="px-4 py-2.5 font-semibold">要求份數</th>
+                    <th className="px-4 py-2.5 font-semibold">需要幾位老師評分</th>
                     <th className="px-4 py-2.5 font-semibold">評分老師與狀態</th>
                     <th className="px-5 py-2.5 font-semibold">新增評分老師</th>
                   </tr>
@@ -440,8 +440,8 @@ export default async function AdminGradingPage({
                             />
                           )}
                           <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-                            {requirement ? `已正式送出 ${counted}／${requirement.requiredCount} 份` : '未設定份數'}
-                            {requirement && mine.length > requirement.requiredCount ? `・指派 ${mine.length} 位，多於要求` : ''}
+                            {requirement ? `已正式送出 ${counted}／${requirement.requiredCount} 份` : '還沒設定'}
+                            {requirement && mine.length > requirement.requiredCount ? `・指派 ${mine.length} 位，多於需要的人數` : ''}
                           </p>
                         </td>
                         <td className="px-4 py-3">
@@ -489,7 +489,7 @@ export default async function AdminGradingPage({
           <SchemeEditor
           cohortId={cohort.id}
           base={current?.stages ?? latest?.stages ?? []}
-          baseLabel={current ? `v${current.versionNo}` : latest ? `v${latest.versionNo}` : null}
+          baseLabel={current ? `第 ${current.versionNo} 版` : latest ? `第 ${latest.versionNo} 版` : null}
           requestId={randomUUID()}
           disabledReason={archivedReason}
           />
@@ -529,10 +529,10 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
     <>
       {book.pendingReviews.length > 0 ? (
         <Panel
-          title={`待復核的更正（${book.pendingReviews.length}）`}
+          title={`需要重新確認的更正（${book.pendingReviews.length}）`}
           icon={<IconAlertTriangle />}
-          description="採計分數、要求份數或方案改變了；原更正保留但暫不套用"
-          aria-label="待復核"
+          description="分數來源改變了（計入成績的分數、需要幾位老師評分或評分規則）；原更正保留但暫不套用"
+          aria-label="需要重新確認的更正"
           className="border-destructive/40"
         >
           <ul className="space-y-1 border-t border-border/70 px-5 py-3 text-sm">
@@ -547,19 +547,19 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
               </li>
             ))}
           </ul>
-          <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">請到該組的計算明細確認沿用或建立新的更正。</p>
+          <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">請到該組的計算明細確認：保留先前更正的分數，或建立新的更正。</p>
         </Panel>
       ) : null}
 
       <Panel
         title="各組成績"
         icon={<IconChecklist />}
-        description="階段達到要求份數才有階段平均；更正與退回都留紀錄"
+        description="階段評分人數到齊才有階段平均；更正與退回都留紀錄"
         aria-label="成績表"
         bodyClassName="p-4"
       >
         {!book.version ? (
-          <PanelEmpty title="還沒有評分方案" hint="先建立並發布評分方案，成績表才會出現。" />
+          <PanelEmpty title="還沒有評分規則" hint="先建立並發布評分規則，成績表才會出現。" />
         ) : (
           <div className="space-y-3">
             <DataTableToolbar>
@@ -630,7 +630,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                             <p className="tabular font-bold text-foreground">{g.code}</p>
                             {g.dissolved ? (
                               <p className="mt-0.5">
-                                <Pill tone="default">已解散・唯讀{g.versionNo !== null && g.versionNo !== book.version?.versionNo ? `・方案 v${g.versionNo}` : ''}</Pill>
+                                <Pill tone="default">已解散・唯讀{g.versionNo !== null && g.versionNo !== book.version?.versionNo ? `・評分規則第 ${g.versionNo} 版` : ''}</Pill>
                               </p>
                             ) : (
                               <p className="text-xs text-muted-foreground">指導：{g.advisorName ?? '尚未指派'}</p>
@@ -657,7 +657,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                                 {s.name !== v.name || s.weight !== v.weight ? (
                                   // 解散的組照解散當下的版本算：階段名稱或權重和表頭不同時註明，最終成績才對得起來。
                                   <p className="mt-0.5 text-xs text-muted-foreground">
-                                    v{g.versionNo}：{s.name} {s.weight}%
+                                    第 {g.versionNo} 版：{s.name} {s.weight}%
                                   </p>
                                 ) : null}
                               </td>
@@ -668,7 +668,7 @@ function GradebookSection({ book, filter }: { book: Gradebook; filter: ReturnTyp
                               {adopted.value ?? '尚未完成'}
                             </p>
                             {adopted.source === 'override' ? <p className="text-xs text-brand-on-subtle">已更正（原 {g.result.finalDisplay}）</p> : null}
-                            {adopted.pendingReview ? <p className="text-xs text-destructive">更正待復核</p> : null}
+                            {adopted.pendingReview ? <p className="text-xs text-destructive">更正需要重新確認</p> : null}
                           </td>
                           <td className={`${DT.td} max-w-[18rem] text-xs`}>
                             {notes.length > 0 ? (
