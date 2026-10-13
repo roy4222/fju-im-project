@@ -173,9 +173,18 @@ export function mismatch(meta, probe = probeProcess) {
 
 // ── CLI ───────────────────────────────────────────────────────────────────
 
+/**
+ * web 的依賴（pg、better-auth）從哪一份 checkout 拿：TUTORIAL_REPO（lib.sh 設成網站 checkout）→ ~/work/tutorial-site
+ * → 這支腳本所在的 repo，取第一個裝好依賴的。網站 checkout 還沒建（第一次 up.sh）時退回腳本所在的 repo。
+ */
+export function webDir(env = process.env) {
+  const candidates = [env.TUTORIAL_REPO, path.join(env.HOME ?? os.homedir(), 'work', 'tutorial-site'), path.join(import.meta.dirname, '..', '..', '..')]
+  for (const c of candidates) if (c && fs.existsSync(path.join(c, 'web', 'node_modules', 'pg'))) return path.join(c, 'web')
+  throw new SafetyError('找不到裝好依賴的 web（先在 repo 根跑 pnpm install）。')
+}
+
 function loadPgParse() {
-  const webDir = path.join(process.env.TUTORIAL_REPO ?? path.join(import.meta.dirname, '..', '..', '..'), 'web')
-  const requireWeb = createRequire(path.join(webDir, 'package.json'))
+  const requireWeb = createRequire(path.join(webDir(), 'package.json'))
   const requirePg = createRequire(requireWeb.resolve('pg'))
   return requirePg('pg-connection-string').parse
 }

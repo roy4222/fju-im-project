@@ -14,6 +14,7 @@ started=$SECONDS
 # 先驗目標（資料庫、FILES_ROOT、Docker），不對就在停程序、刪庫之前停下。
 safety_check
 load_env
+require_site
 ensure_postgres
 
 was_running=0

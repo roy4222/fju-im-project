@@ -5,6 +5,10 @@
 #   檔案 ~/work/tutorial-files/<n>、pid 與 log ~/work/tutorial-run/<n>、帳號設定 ~/work/tutorial-secrets/accounts[-<n>].json。
 #   建置產物（web/.next、web/dist）各實例共用。
 #
+# 網站版本：不是用這支腳本所在的 checkout，而是固定在 ~/work/tutorial-site（origin/main 的 detached worktree）。
+#   第一次 up.sh 從當時最新的 origin/main 建；之後錄影期間不會自己換 commit，要換只能 up.sh --update（所有實例都 down 了才行）。
+#   用的 commit 寫在 ~/work/tutorial-out/env-commit.txt。
+#
 # 秘密（BETTER_AUTH_SECRET、帳號密碼）只放 $SECRETS_DIR，不進 repo。
 # 會刪庫、清目錄、送訊號，所以每個入口一開始先跑 safety_check（safety.mjs），目標不對就在任何副作用之前停下：
 #   - 資料庫名只能是 fju_tutorial／fju_tutorial_1～4 中這個實例的那一個、只連 127.0.0.1:55432
@@ -20,8 +24,14 @@ INSTANCE="${INSTANCE:-0}"
 export INSTANCE
 
 ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="${TUTORIAL_REPO:-$(cd "$ENV_DIR/../../.." && pwd)}"
-WEB_DIR="$(cd "$REPO_ROOT/web" && pwd -P)"
+# 這支腳本所在的 repo：只用來 fetch origin、建 site worktree。網站本身跑 SITE_DIR 那一份。
+REPO_ROOT="$(cd "$ENV_DIR/../../.." && pwd)"
+SITE_DIR="${TUTORIAL_SITE_DIR:-$HOME/work/tutorial-site}"
+if [[ -d "$SITE_DIR/web" ]]; then WEB_DIR="$(cd "$SITE_DIR/web" && pwd -P)"; else WEB_DIR="$SITE_DIR/web"; fi
+OUT_DIR="$HOME/work/tutorial-out"
+COMMIT_FILE="$OUT_DIR/env-commit.txt"
+# accounts.mjs、safety.mjs 從這裡找 web 的依賴（pg、better-auth）。
+export TUTORIAL_REPO="$SITE_DIR"
 
 PORT=$((3300 + INSTANCE))
 BASE_URL="http://localhost:$PORT"
@@ -93,8 +103,8 @@ load_env() {
   # 開放註冊（錄「新註冊」那段要用）。
   export REGISTRATION_OPEN="${REGISTRATION_OPEN:-true}"
   export NODE_ENV=production
-  export GIT_COMMIT="${GIT_COMMIT:-$(git -C "$REPO_ROOT" rev-parse HEAD)}"
-  export APP_VERSION="${APP_VERSION:-$GIT_COMMIT}"
+  export GIT_COMMIT="$(git -C "$SITE_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+  export APP_VERSION="$GIT_COMMIT"
 }
 
 # 所有 docker 呼叫都走 safety_check 驗過的本機 socket（-H 蓋過 DOCKER_HOST 與 docker context）。
@@ -154,6 +164,65 @@ prepare_data() {
   (cd "$WEB_DIR" && FJU_SITE=test node scripts/seed-demo.mjs)
   log "設定教學帳號"
   node "$ENV_DIR/accounts.mjs" apply
+  set_demo_cohort_flags
+}
+
+require_site() {
+  [[ -f "$WEB_DIR/package.json" && -f "$WEB_DIR/.next/BUILD_ID" ]] || die "還沒有網站 checkout 或建置（$SITE_DIR），先跑 up.sh"
+}
+
+# 示範 114 屆設成「後台預設查看的屆別」與「新註冊加入的屆別」（seed-demo 刻意不動這兩個全系旗標；
+# 本機教學環境要讓老師首頁、註冊頁有屆別可用）。跟網站的設定用例一樣：先清掉原本持有旗標的屆別再設（兩欄各有「只能一個 true」的唯一索引）。
+set_demo_cohort_flags() {
+  assert_tutorial_db
+  local out
+  out="$(dock exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -qAt -U fju_owner -d "$DB_NAME" <<'SQL'
+begin;
+create temp table t on commit drop as
+  select c.id, (select user_id from role_assignments where role = 'admin' and revoked_real_at is null order by granted_real_at limit 1) as office
+    from cohorts c where c.code = 'DEMO-114' and c.status <> 'archived';
+update cohorts set is_default_working = false, revision = revision + 1, updated_at = now(), updated_by_user_id = (select office from t)
+ where is_default_working and id not in (select id from t);
+update cohorts set is_registration_open = false, revision = revision + 1, updated_at = now(), updated_by_user_id = (select office from t)
+ where is_registration_open and id not in (select id from t);
+update cohorts set is_default_working = true, is_registration_open = true, revision = revision + 1, updated_at = now(), updated_by_user_id = t.office
+  from t where cohorts.id = t.id and not (is_default_working and is_registration_open);
+select count(*) from t;
+commit;
+SQL
+)"
+  [[ "$out" == "1" ]] || die "找不到示範 114 屆（DEMO-114），設不了預設屆別"
+  log "示範 114 屆已設為後台預設查看的屆別與新註冊加入的屆別"
+}
+
+running_any() { [[ -n "$(running_instances)" ]]; }
+
+# 網站 checkout：沒有就從最新 origin/main 建；有就沿用（錄影期間不換 commit）。mode=update 才移到最新 origin/main。
+ensure_site() {
+  local mode="$1" commit
+  mkdir -p "$RUN_ROOT"
+  if [[ ! -d "$SITE_DIR" ]]; then
+    log "建網站 checkout：$SITE_DIR ← 最新 origin/main"
+    git -C "$REPO_ROOT" fetch -q origin main
+    git -C "$REPO_ROOT" worktree add -q --detach "$SITE_DIR" origin/main
+  elif [[ "$mode" == update ]]; then
+    running_any && die "實例 $(running_instances) 在跑；要換網站版本先把所有實例 down"
+    [[ -z "$(git -C "$SITE_DIR" status --porcelain --untracked-files=no)" ]] || die "$SITE_DIR 有未提交的修改，不換版本"
+    git -C "$SITE_DIR" fetch -q origin main
+    log "網站 checkout 換到最新 origin/main"
+    git -C "$SITE_DIR" checkout -q --detach origin/main
+  fi
+  WEB_DIR="$(cd "$SITE_DIR/web" && pwd -P)"
+  commit="$(git -C "$SITE_DIR" rev-parse HEAD)"
+  if [[ ! -d "$WEB_DIR/node_modules" || "$(cat "$SITE_DIR/.tutorial-installed" 2>/dev/null)" != "$commit" ]]; then
+    log "安裝依賴（pnpm install）"
+    (cd "$SITE_DIR" && pnpm install -s --frozen-lockfile --filter @fju/web...) >"$RUN_ROOT/install.log" 2>&1 || die "pnpm install 失敗，看 $RUN_ROOT/install.log"
+    printf '%s\n' "$commit" >"$SITE_DIR/.tutorial-installed"
+  fi
+  mkdir -p "$OUT_DIR"
+  printf '%s %s\n' "$commit" "$(git -C "$SITE_DIR" log -1 --format='%cI %s' "$commit")" >"$COMMIT_FILE"
+  export GIT_COMMIT="$commit" APP_VERSION="$commit"
+  log "網站版本：$(git -C "$SITE_DIR" log -1 --format='%h %s' "$commit")（寫在 $COMMIT_FILE）"
 }
 
 # pid 檔記的程序還在，而且啟動時間、工作目錄、種類、PGID 都跟啟動時記的一樣，才算是我們的。
@@ -234,7 +303,7 @@ running_instances() {
 # 要建時若有實例在跑就拒絕，並用目錄鎖擋住兩個人同時建。
 ensure_build() {
   local mode="$1" head built="" running
-  head="$(git -C "$REPO_ROOT" rev-parse HEAD:web)"
+  head="$(git -C "$SITE_DIR" rev-parse HEAD:web)"
   [[ -f "$BUILD_MARK" ]] && built="$(cat "$BUILD_MARK")"
   if [[ "$mode" == skip ]]; then
     [[ -f "$WEB_DIR/.next/BUILD_ID" && -f "$WEB_DIR/dist/worker.mjs" ]] || die "還沒有建置產物，不能 --no-build"
@@ -250,7 +319,7 @@ ensure_build() {
   mkdir "$RUN_ROOT/build.lock" 2>/dev/null || die "另一個 up.sh 正在建置（$RUN_ROOT/build.lock）；等它完成再跑"
   trap 'rmdir "$RUN_ROOT/build.lock" 2>/dev/null' EXIT
   log "建置（pnpm -C web build，各實例共用）"
-  (cd "$REPO_ROOT" && pnpm -C web build >"$RUN_ROOT/build.log" 2>&1) || die "建置失敗，看 $RUN_ROOT/build.log"
+  (cd "$SITE_DIR" && pnpm -C web build >"$RUN_ROOT/build.log" 2>&1) || die "建置失敗，看 $RUN_ROOT/build.log"
   printf '%s\n' "$head" >"$BUILD_MARK"
   rmdir "$RUN_ROOT/build.lock"
   trap - EXIT

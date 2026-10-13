@@ -20,10 +20,10 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { checkDbName, checkPgUrl, instanceOf, validateAccounts } from './safety.mjs'
+import { checkDbName, checkPgUrl, instanceOf, validateAccounts, webDir } from './safety.mjs'
 
 const HERE = import.meta.dirname
-const WEB_DIR = path.join(process.env.TUTORIAL_REPO ?? path.join(HERE, '..', '..', '..'), 'web')
+const WEB_DIR = webDir()
 // 沒有自己的 package.json：套件借 web 現有的依賴。
 const requireWeb = createRequire(path.join(WEB_DIR, 'package.json'))
 const { Pool } = requireWeb('pg')
