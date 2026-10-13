@@ -5,7 +5,7 @@
 
 import { execFile } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { chapterLabel, type ChapterEvents } from './events.ts';
@@ -21,6 +21,7 @@ export type ChapterMeta = {
   label: string;
   number?: number;
   chapter: string;
+  /** 相對於 chapter.json 所在資料夾。 */
   file: string;
   durationMs: number;
   titleMs: number;
@@ -122,7 +123,7 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
     label: chapterLabel(ev),
     number: ev.number,
     chapter: ev.chapter,
-    file: out,
+    file: relative(dir, out),
     durationMs: totalMs,
     titleMs,
     steps: ev.steps.map((s) => ({ index: s.index, caption: s.caption, startMs: Math.round(titleMs + s.startMs), status: s.status?.kind })),

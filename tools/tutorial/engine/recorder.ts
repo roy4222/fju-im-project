@@ -38,6 +38,8 @@ export const NARRATION_TAIL_MS = 600;
 /** 動作做完後的最短收尾。 */
 export const ACTION_TAIL_MS = 400;
 export const FPS = 30;
+/** 找不到元素就快點失敗，免得錄進一大段空白。 */
+export const LOCATOR_TIMEOUT_MS = 5000;
 
 export type StepOptions = {
   /** 字幕：短句。 */
@@ -281,14 +283,15 @@ export class Chapter {
   }
 
   /** 點進欄位後逐字輸入（像人打字，每字 60～130 ms）。 */
-  async type(locator: Locator, text: string): Promise<void> {
+  async type(locator: Locator, text: string, opts: { secret?: boolean } = {}): Promise<void> {
     await this.click(locator);
     const startMs = this.now();
     for (const ch of text) {
       await this.page.keyboard.type(ch);
       await sleep(60 + this.random() * 70);
     }
-    this.events.push({ type: 'type', startMs, endMs: this.now(), text });
+    // secret：密碼之類不寫進 events.json
+    this.events.push({ type: 'type', startMs, endMs: this.now(), text: opts.secret ? '•'.repeat([...text].length) : text });
   }
 
   /** 原生下拉選單：游標移過去、點擊波紋，再直接選值（原生選單的彈出層錄不到）。 */
@@ -319,7 +322,7 @@ export class Chapter {
     let dy: number;
     if (typeof target === 'number') dy = target;
     else {
-      await target.waitFor({ state: 'visible' });
+      await target.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(target, e));
       const box = await target.boundingBox();
       dy = box ? box.y - this.size.height * 0.3 : 0;
     }
@@ -342,7 +345,6 @@ export class Chapter {
     const frames = timeFrames(shifted, this.t0Wall, this.pauses);
     const slots = cfrSlots(frames, durationMs, FPS);
     if (slots.length === 0) throw new Error('沒有錄到任何畫面');
-    const list = join(this.outDir, 'frames.ffconcat');
     const d = (1 / FPS).toFixed(6);
     const lines = ['ffconcat version 1.0'];
     for (const f of slots) lines.push(`file '${basename(f)}'`, `duration ${d}`);
@@ -356,7 +358,6 @@ export class Chapter {
       '-fps_mode', 'cfr', '-r', String(FPS), '-frames:v', String(slots.length),
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '14', '-pix_fmt', 'yuv420p', clip,
     ], { maxBuffer: 1 << 24 });
-    rmSync(list, { force: true });
     if (!this.opts.keepFrames) rmSync(this.framesDir, { recursive: true, force: true });
 
     const out: ChapterEvents = {
@@ -385,6 +386,10 @@ export class Chapter {
     return this.rng / 2147483647;
   }
 
+  private fail(locator: Locator, e: unknown): never {
+    throw new Error(`［${this.current?.caption ?? '步驟外'}］${LOCATOR_TIMEOUT_MS / 1000} 秒內找不到 ${locator}`, { cause: e });
+  }
+
   private async nextPaint(): Promise<void> {
     await this.page
       .evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))))
@@ -400,7 +405,7 @@ export class Chapter {
 
   /** 目標中心（影片像素）；不在安全區（網址列下、字幕條上）就先平滑捲動。 */
   private async targetOf(locator: Locator): Promise<Point> {
-    await locator.waitFor({ state: 'visible' });
+    await locator.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(locator, e));
     let box = await locator.boundingBox();
     if (!box) throw new Error(`找不到元素位置：${locator}`);
     const top = 40;
@@ -415,6 +420,8 @@ export class Chapter {
         box = await locator.boundingBox();
       }
       if (!box) throw new Error(`捲動後找不到元素：${locator}`);
+      const ny = box.y + box.height / 2;
+      if (ny > bottom) console.warn(`［${this.current?.caption ?? '步驟外'}］${locator} 捲不上來，會被字幕條蓋住（頁面底部空間不夠）`);
     }
     return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
   }

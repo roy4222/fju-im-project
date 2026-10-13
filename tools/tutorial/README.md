@@ -56,12 +56,14 @@ await renderChapter({ dir: 'out/03-student' });              // → out/03-stude
 | 動作 | 行為 |
 |---|---|
 | `t.click(locator)` | 目標不在安全區（網址列下、字幕條上）就先平滑捲動；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按，畫面出現橘色波紋。 |
-| `t.type(locator, text)` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。 |
+| `t.type(locator, text, { secret })` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。`secret: true` 時 events.json 只記遮罩。 |
 | `t.select(locator, value)` | 原生下拉：游標移過去＋波紋，直接選值（原生彈出層錄不到）。自訂下拉請用兩次 `t.click`。 |
 | `t.upload(locator, file, { via })` | file input 多半隱藏，`via` 指定游標要點的按鈕。 |
 | `t.scroll(px \| locator)` | 平滑捲動；給 locator 會把它捲到畫面上方三分之一。 |
 | `t.hover(locator)`、`t.wait(ms)`、`t.goto(path)` | 移過去不點／停一下／換頁（等到 load＋最多 3 秒 networkidle）。 |
 | `t.offRecord(fn)` | `fn` 期間的畫面不進影片，結束後直接切到當下畫面。開頭先 `t.offRecord(() => t.goto('/'))` 可以略過白畫面載入。 |
+
+找不到元素時 5 秒內失敗，錯誤訊息帶步驟字幕；目標捲不出字幕條範圍會在指令列警告。
 
 只對測試站操作公開頁或專用測試帳號；需要登入、送出表單的章節請用 `env/` 的本機環境。
 
@@ -77,7 +79,7 @@ node engine/cli.ts assemble --out out/final --features feature-table.md out/01-v
 `assemble` 輸出：
 
 - `final.mp4`：影像直接接、聲音重新編一次（避免章節交界的 AAC 空隙）；章節起點照**實際檔案長度**排。
-- `youtube-chapters.txt`：第一段是 YouTube 章節（第一行 `0:00`；少於 3 章或某章不足 10 秒會在指令列警告），第二段「詳細時間軸」列出每個步驟 `3-2 字幕 ⚠️`。
+- `youtube-chapters.txt`：第一段是 YouTube 章節（第一行 `0:00`；少於 3 章或某章不足 10 秒會在指令列警告），第二段「詳細時間軸」列出每個步驟 `3-2 字幕 ⚠️`。注意：YouTube 會解析說明欄裡所有時間碼，步驟時間碼若彼此不到 10 秒可能讓自動章節失效；第一次上傳請確認章節列有出現，不行就把詳細時間軸改貼到置頂留言。
 - `index.html`：左邊影片、右邊章節／步驟與功能清單，點時間碼就跳過去。功能清單讀 `feature-table.md` 的 Markdown 表格，「章節與步驟」欄接受 `3-2`、`3.2`、`3｜2`、`第 3 章步驟 2`、`3`（整章）與用頓號分隔的多筆；對不到影片的列會警告。
 - `timeline.json`：每章起點與步驟時間（機器讀）。
 

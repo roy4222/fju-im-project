@@ -2,7 +2,7 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { STATUS_ICON, type StatusKind } from './events.ts';
 import type { ChapterMeta } from './render.ts';
@@ -164,7 +164,7 @@ export function indexHtml(placed: readonly PlacedChapter[], features: ReturnType
     chs.forEach((c) => c.classList.toggle('on', c === cur));
   });
   const m = location.hash.match(/t=(\\d+)/);
-  if (m) v.currentTime = Number(m[1]);
+  if (m) v.addEventListener('loadedmetadata', () => (v.currentTime = Number(m[1])), { once: true });
 </script></body></html>
 `;
 }
@@ -185,7 +185,8 @@ export async function assemble(opts: AssembleOptions): Promise<{ final: string; 
   const metas = opts.chapters.map((p) => {
     const f = p.endsWith('.json') ? p : join(p, 'chapter.json');
     if (!existsSync(f)) throw new Error(`找不到 ${f}：先 render 這一章`);
-    return JSON.parse(readFileSync(f, 'utf8')) as ChapterMeta;
+    const m = JSON.parse(readFileSync(f, 'utf8')) as ChapterMeta;
+    return { ...m, file: resolve(dirname(f), m.file) };
   });
   // 用實際檔案長度排時間（concat 也是照檔案長度接）
   const durations = await Promise.all(metas.map((m) => probeDurationMs(m.file)));
