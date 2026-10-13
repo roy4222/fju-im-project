@@ -176,17 +176,16 @@ try {
 
   await t.step({
     caption: '核准後第一次登入',
-    narration: '密碼對了直接進學生首頁，顯示現在的階段和還沒分組。',
-    status: { kind: 'ok', evidence: 'story-2 第 2 步' },
+    narration: '打錯一次後連 Email 也被清空，兩欄都要重打。密碼對了直接進學生首頁，顯示現在的階段和還沒分組。',
+    status: { kind: 'warn', say: '打錯密碼後 Email 也被清掉', evidence: '錄影 2 發現' },
   }, async () => {
-    // 密碼錯一次後整張表單會被清空（Email 也是），要重打兩欄
+    // 密碼錯一次後整張表單會被清空（Email 也是）：先讓畫面停在空的 Email 欄，再重打兩欄
     const email = main.getByLabel('Email');
     const pw = main.getByLabel('密碼', { exact: true });
-    await t.offRecord(async () => {
-      await email.fill('');
-      await pw.fill('');
-    });
+    await t.hover(email);
+    await t.wait(1000);
     await t.type(email, student.email);
+    await pw.fill('');
     await t.type(pw, student.password, { secret: true });
     await t.click(main.getByRole('button', { name: '登入', exact: true }));
     await page.waitForURL(/\/dashboard\/student/);

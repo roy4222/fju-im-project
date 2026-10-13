@@ -115,7 +115,7 @@ try {
   await t.step({
     caption: '各組繳交總表',
     narration: '換陳建宏。各組繳交是我指導的組乘以每個整組繳交項目的矩陣，一格一個狀態。',
-    status: { kind: 'ok', evidence: 'story-2 第 41 步' },
+    status: { kind: 'warn', say: '多出 G03、G04 兩列，待查', evidence: '錄影 2 發現，疑示範資料或網站問題（功能本身 ✅ story-2 第 41 步）' },
   }, async () => {
     await t.offRecord(async () => {
       await switchTo(page, await sessionOf('陳建宏'));
@@ -126,12 +126,16 @@ try {
     await t.hover(table.getByRole('columnheader', { name: /^專題分組名單確認表/ }));
     await t.wait(300);
     await t.hover(table.getByRole('row', { name: /^G07 / }).getByRole('cell', { name: 'G07', exact: true }));
+    await t.wait(300);
+    await t.hover(table.getByRole('row', { name: /^G03 / }).getByRole('cell', { name: 'G03', exact: true }));
+    await t.wait(300);
+    await t.hover(table.getByRole('row', { name: /^G04 / }).getByRole('cell', { name: 'G04', exact: true }));
   });
 
   const g07 = main.getByRole('table', { name: '各組繳交總表' }).getByRole('row', { name: /^G07 / });
   await t.step({
     caption: '看懂格子顏色',
-    narration: '綠色是已繳第幾次，滑過去看誰在什麼時候送的；未繳是白格，逾期未繳會變紅。老師看不到草稿。',
+    narration: '綠色是已繳第幾次，游標停在格子上會顯示說明；未繳是白格，逾期未繳會變紅。老師看不到草稿。',
     status: { kind: 'ok', evidence: 'UX 指導老師 任務 2' },
   }, async () => {
     await t.hover(g07.getByRole('link', { name: '已繳第 1 次' }));
