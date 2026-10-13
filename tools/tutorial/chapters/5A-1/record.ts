@@ -78,7 +78,7 @@ try {
   await t.step({
     caption: '側欄怎麼分',
     narration: '側欄分五組；帳號、屆別、操作紀錄在最下面的系統管理。「專題事務」這個名字看不出包含公告、規則和繳交。',
-    status: { kind: 'pending', say: '側欄太長、「專題事務」名稱待決', evidence: 'UX N-16（側欄長，系統管理要往下捲）、N-17（「專題事務」名稱）' },
+    status: { kind: 'pending', say: '側欄長度與「專題事務」名稱', evidence: 'UX N-16（側欄長，系統管理要往下捲）、N-17（「專題事務」名稱）' },
   }, async () => {
     await t.hover(nav.getByText('總覽', { exact: true }));
     await t.hover(nav.getByRole('link', { name: '專題事務', exact: true }));

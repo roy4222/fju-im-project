@@ -67,7 +67,7 @@ try {
   await t.step({
     caption: '輪到老師的那一份',
     narration: '輪到你的那份有全文、附件、授權範圍和檢查碼，跟學生看到的是同一份。',
-    status: { kind: 'pending', say: '「文件一致性檢查碼」用詞待決', evidence: '用詞#7（文件一致性檢查碼）' },
+    status: { kind: 'pending', say: '「文件一致性檢查碼」這個用詞', evidence: '用詞#7（文件一致性檢查碼）' },
   }, async () => {
     await t.click(page.getByRole('link', { name: '回站內同意書' }));
     await t.click(card('G02').getByRole('link', { name: '閱讀全文並回覆' }));
