@@ -36,13 +36,13 @@ try {
   await t.goto('/dashboard/admin');
 
   const main = page.getByRole('main');
-  const filter = (name: string) => main.getByRole('link', { name, exact: true });
+  const filter = (name: string) => main.getByRole('navigation', { name: '種類' }).getByRole('link', { name, exact: true });
   const dialog = page.getByRole('dialog', { name: '新增項目' });
 
   await t.step({
     caption: '專題事務是什麼',
     narration: '公告、資源下載、文件繳交、專題規則、榮譽都是「專題事務項目」，同一個入口管。名稱看不出包含這麼多，等 Roy 決定要不要改。',
-    status: 'pending', note: 'UX N-17：「專題事務」名稱',
+    status: { kind: 'pending', say: '「專題事務」要不要改名', evidence: 'UX N-17' },
   }, async () => {
     await t.click(page.getByRole('navigation').getByRole('link', { name: '專題事務', exact: true }));
     await t.hover(main.getByText(/示範 114 屆（DEMO-114）・進行中/));
@@ -53,7 +53,7 @@ try {
   await t.step({
     caption: '列表怎麼看',
     narration: '每列寫狀態、誰看得到、截止、需要繳交幾組。「繳交」進名單頁、「編輯」進編輯器、「前台頁面」看學生看到的。',
-    status: 'ok', note: 'story-2 第 43 步',
+    status: { kind: 'ok', evidence: 'story-2 第 43 步' },
   }, async () => {
     await t.click(filter('文件繳交'));
     const row = main.getByRole('listitem').filter({ hasText: '專題分組名單確認表' });
@@ -67,7 +67,7 @@ try {
   await t.step({
     caption: '快速建立：選類型、定對象',
     narration: '新增項目三步：先選類型、寫標題、選誰看得到。文件繳交只能發給本屆學生或指定組別。',
-    status: 'ok', note: 'story-2 第 14～17 步',
+    status: { kind: 'ok', evidence: 'story-2 第 14～17 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '新增項目' }));
     await t.waitStable({ ready: dialog.getByText('顯示在哪一區'), offRecord: true });
@@ -80,10 +80,11 @@ try {
   await t.step({
     caption: '快速建立：內容與附件',
     narration: '第二步寫說明、加附件；附件的下載權限跟著這一筆的對象走。',
-    status: 'ok', note: 'story-2 第 16 步',
+    status: { kind: 'ok', evidence: 'story-2 第 16 步' },
   }, async () => {
     await t.type(dialog.getByLabel('說明'), '期中發表訂在第 9 週。各組報告 10 分鐘。');
-    await t.upload(dialog.locator('input[type=file]'), pdf, { via: dialog.getByRole('button', { name: '加入附件' }) });
+    const picker = dialog.locator('label').filter({ hasText: '加入附件' });
+    await t.upload(picker.locator('input[type=file]'), pdf, { via: picker });
     await t.waitStable({ ready: dialog.getByText('示範檔案.pdf'), offRecord: true });
     await t.click(dialog.getByRole('button', { name: /下一步/ }));
   });
@@ -91,7 +92,7 @@ try {
   await t.step({
     caption: '發布前檢查',
     narration: '發布前列出檢查結果，寫清楚勾了重要公告會通知幾個人，右邊是學生看到的樣子。',
-    status: 'ok', note: 'story-2 N-12（10/12 已修）',
+    status: { kind: 'ok', evidence: 'story-2 N-12（10/12 已修）' },
   }, async () => {
     await t.hover(dialog.getByText('沒問題').first());
     await t.hover(dialog.getByText(/若勾選「重要公告」，會通知 \d+ 位/));
@@ -102,7 +103,7 @@ try {
   await t.step({
     caption: '發布與回執',
     narration: '發布回執寫實際開放時間和建立了幾則通知。',
-    status: 'ok', note: 'story-2 第 16 步',
+    status: { kind: 'ok', evidence: 'story-2 第 16 步' },
   }, async () => {
     await t.click(dialog.getByRole('button', { name: '發布', exact: true }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '已發布' }), offRecord: true });
@@ -113,7 +114,7 @@ try {
   await t.step({
     caption: '完整編輯器與榮譽',
     narration: '要細調欄位、分類、封面就用完整編輯器；榮譽榜的得獎消息從榮譽分頁新增。',
-    status: 'ok', note: 'story-4 第 8 步',
+    status: { kind: 'ok', evidence: 'story-4 第 8 步' },
   }, async () => {
     await t.hover(main.getByRole('link', { name: '用完整編輯器建立' }));
     await t.click(filter('榮譽'));

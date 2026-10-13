@@ -39,10 +39,10 @@ try {
   await t.step({
     caption: '收件名單與完成率',
     narration: '名單頁上面是完成率環：分母是需要繳交的人或組，免繳和已移出不算。',
-    status: 'pending', note: '用詞#10（表單第 N 版）',
+    status: { kind: 'pending', say: '「表單第 N 版」用詞待決', evidence: 'story-2 第 43 步；用詞#10' },
   }, async () => {
     await t.click(page.getByRole('navigation').getByRole('link', { name: '專題事務', exact: true }));
-    await t.click(main.getByRole('link', { name: '文件繳交', exact: true }));
+    await t.click(main.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '文件繳交', exact: true }));
     await t.click(listItem('專題分組名單確認表').getByRole('link', { name: /^繳交：/ }));
     await t.hover(main.getByText(/\d+%/).first());
     await t.hover(main.getByText('逾期未繳').first());
@@ -52,7 +52,7 @@ try {
   await t.step({
     caption: '名單怎麼分',
     narration: '名單分目前名單、免繳、已不需要繳交。「已移出」已改成白話。',
-    status: 'ok', note: '用詞#24（10/12 已改）',
+    status: { kind: 'ok', evidence: '用詞#24（10/12 已改）' },
   }, async () => {
     const tabs = main.getByRole('navigation', { name: '名單分類' });
     await t.hover(tabs.getByRole('link', { name: /^目前名單/ }));
@@ -64,7 +64,7 @@ try {
   await t.step({
     caption: '看某一組交了什麼',
     narration: '點檢視看這一組每次正式送出的版本，看回答進內容。',
-    status: 'ok', note: 'story-2 第 43 步',
+    status: { kind: 'ok', evidence: 'story-2 第 43 步' },
   }, async () => {
     await t.click(main.getByRole('link', { name: '查看 G07 組的繳交' }));
     const versions = main.getByRole('table', { name: '正式送出的版本' });
@@ -75,7 +75,7 @@ try {
   await t.step({
     caption: '逾期的人怎麼補交',
     narration: '截止後逾期的人要補交，系辦在他的頁面單獨開放，其他人不受影響。',
-    status: 'ok', note: 'UX 學期中系辦 任務 7',
+    status: { kind: 'ok', evidence: 'UX 學期中系辦 任務 7' },
   }, async () => {
     await t.goto('/dashboard/admin/affairs');
     await t.click(listItem('專題說明會個人心得').getByRole('link', { name: /^繳交：/ }));
@@ -86,7 +86,7 @@ try {
   await t.step({
     caption: '開放補交',
     narration: '填期限和理由，學生會收到通知；名單上只有他變成補交中。',
-    status: 'ok', note: 'UX 學期中系辦 任務 7',
+    status: { kind: 'ok', evidence: 'UX 學期中系辦 任務 7' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '讓他補交' }));
     await t.hover(main.getByLabel(/^補交期限/));
@@ -99,7 +99,7 @@ try {
   await t.step({
     caption: '免繳還沒有操作',
     narration: '規格有「免繳」：系辦以理由讓某人不用交，不算分母。畫面有免繳分頁，但沒有設免繳的按鈕。',
-    status: 'bad', note: '免繳操作缺（規格 05 SUB-02）',
+    status: { kind: 'bad', say: '還不能設免繳', evidence: '規格 05 SUB-02' },
   }, async () => {
     await t.click(main.getByRole('link', { name: /^(← )?繳交名單$/ }).first());
     await t.click(main.getByRole('navigation', { name: '名單分類' }).getByRole('link', { name: /^免繳/ }));

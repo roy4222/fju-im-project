@@ -40,7 +40,7 @@ try {
   await t.step({
     caption: '檔案管理',
     narration: '檔案管理列全站檔案：類型、用在哪裡、上傳者、大小、是否使用中；主機用量在上面。',
-    status: 'ok', note: 'story-2 第 35 步',
+    status: { kind: 'ok', evidence: 'story-2 第 35 步' },
   }, async () => {
     await t.click(nav('檔案管理'));
     await t.hover(main.getByText(/個檔案・/).first());
@@ -50,7 +50,7 @@ try {
   await t.step({
     caption: '被引用的檔案不能刪',
     narration: '還在被公告或繳交引用的檔案不能刪，點「去移除使用處」跳到那筆內容。這頁只能看和下載，沒有上傳和刪除。',
-    status: 'warn', note: '只能看：沒有刪除未使用檔案的按鈕（FIL-01／02）',
+    status: { kind: 'warn', say: '只能看，不能刪除檔案', evidence: '規格 10 FIL-01／FIL-02；story-2 第 35 步' },
   }, async () => {
     await t.type(main.getByRole('searchbox').or(main.getByPlaceholder('搜尋檔名')).first(), '專案計畫書');
     const row = main.getByRole('table', { name: '檔案列表' }).getByRole('row').nth(1);
@@ -61,7 +61,7 @@ try {
   await t.step({
     caption: '首頁設定能改什麼',
     narration: '首頁設定只有大圖和兩行標語；存了就生效，沒有發布步驟。',
-    status: 'ok', note: 'story-4 第 9 步',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
   }, async () => {
     await t.click(nav('首頁設定'));
     await t.hover(main.getByText(/^首頁大圖（PNG 或 JPG/));
@@ -73,7 +73,7 @@ try {
   await t.step({
     caption: '換大圖與標語',
     narration: '上傳圖、填說明和標語，儲存後訪客重新整理就看到。',
-    status: 'ok', note: 'story-4 第 9 步',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
   }, async () => {
     await t.upload(main.getByLabel('選擇首頁大圖'), jpg, { via: main.getByText('上傳圖片', { exact: true }) });
     await t.waitStable({ ready: main.getByText('（儲存後才會換上）'), offRecord: true });
@@ -88,7 +88,7 @@ try {
   await t.step({
     caption: '到前台看結果',
     narration: '前台首頁大標和說明已經換了。榮譽區照片、系辦聯絡、頁尾還是寫死的。',
-    status: 'bad', note: 'P-35（story-4 N-57）：其他區塊還不能改',
+    status: { kind: 'bad', say: '首頁其他區塊還不能改', evidence: 'P-35；story-4 N-57' },
   }, async () => {
     // 「開新分頁看前台首頁」開的是新分頁，錄影只錄這一頁：直接在這一頁開首頁
     await t.goto('/');
@@ -99,7 +99,7 @@ try {
   await t.step({
     caption: '恢復預設',
     narration: '恢復預設清回校園照和預設標語。',
-    status: 'ok', note: 'story-4 第 9 步',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
   }, async () => {
     await t.goto('/dashboard/admin/home-settings');
     await t.click(main.getByRole('region', { name: '恢復預設' }).getByRole('button', { name: '恢復預設' }));

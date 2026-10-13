@@ -41,7 +41,7 @@ try {
   await t.step({
     caption: '完整編輯器長什麼樣',
     narration: '完整編輯器四區：內容、繳交欄位、發布設定、預覽確認。頂列是標題、儲存狀態和發布按鈕。',
-    status: 'ok', note: 'story-2 第 36 步',
+    status: { kind: 'ok', evidence: 'story-2 第 36 步' },
   }, async () => {
     await t.click(main.getByRole('link', { name: '用完整編輯器建立' }));
     await t.hover(main.getByText(/綁定屆別：示範 114 屆（DEMO-114）（建立後不能換）/));
@@ -51,13 +51,12 @@ try {
   await t.step({
     caption: '內容區',
     narration: '正文可以直接打字，進階排版用 HTML；公告分類填「競賽資訊」才會出現在前台競賽頁並多出日期欄。',
-    status: 'pending', note: '用詞#15（HTML）、UX N-18、N-19',
+    status: { kind: 'pending', say: 'HTML 說明和競賽分類怎麼改', evidence: '用詞#15；UX N-18、N-19' },
   }, async () => {
     await t.type(main.getByLabel('正文'), '請上傳期中報告初稿 PDF。\n內容含題目、動機與進度。');
     await t.hover(main.getByText('可以直接打字；進階排版可用 HTML'));
-    await t.upload(main.locator('#sec-content ~ * input[type=file], section[aria-labelledby=sec-content] input[type=file]').first(), pdf, {
-      via: main.getByRole('button', { name: '加入附件' }),
-    });
+    const picker = main.locator('label').filter({ hasText: '加入附件' });
+    await t.upload(picker.locator('input[type=file]'), pdf, { via: picker });
     await t.waitStable({ ready: main.getByText('示範檔案.pdf'), offRecord: true });
     await t.hover(main.getByLabel(/^摘要/));
     await t.hover(main.getByTestId('category-competition'));
@@ -66,12 +65,14 @@ try {
   await t.step({
     caption: '啟用繳交、新增欄位',
     narration: '新項目預設不收資料，先按啟用繳交。欄位有 13 種類型，例如短文字、長文字、檔案上傳。每個欄位設標籤、說明、必填。',
-    status: 'ok', note: 'story-2 第 36、38 步',
+    status: { kind: 'ok', evidence: 'story-2 第 36、38 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '啟用繳交（改為文件繳交）' }));
     await t.select(main.getByLabel('要新增的欄位類型'), '短文字');
     await t.click(main.getByRole('button', { name: '新增欄位' }));
-    await t.type(main.getByLabel(/^第 1 個欄位的/), '題目');
+    const label = main.getByLabel(/^第 1 個欄位的/);
+    await label.fill('');
+    await t.type(label, '題目');
     await t.click(main.getByRole('checkbox', { name: '必填' }));
     await t.click(main.getByRole('button', { name: '完成', exact: true }));
   });
@@ -79,7 +80,7 @@ try {
   await t.step({
     caption: '檔案上傳欄位',
     narration: '檔案上傳欄位可以限制副檔名和大小；也有「套用專題需求表欄位」一鍵帶入整組表單。',
-    status: 'ok', note: 'story-2 第 38 步',
+    status: { kind: 'ok', evidence: 'story-2 第 38 步' },
   }, async () => {
     await t.select(main.getByLabel('要新增的欄位類型'), '檔案上傳');
     await t.click(main.getByRole('button', { name: '新增欄位' }));
@@ -88,9 +89,9 @@ try {
     await t.type(label, '報告 PDF');
     const pdfBox = main.getByRole('checkbox', { name: 'pdf', exact: true });
     if (!(await pdfBox.isChecked())) await t.click(pdfBox);
-    await t.click(main.getByRole('spinbutton'));
-    await page.keyboard.press('ControlOrMeta+A');
-    await t.type(main.getByRole('spinbutton'), '20');
+    const max = main.getByRole('spinbutton');
+    await max.fill('');
+    await t.type(max, '20');
     await t.click(main.getByRole('checkbox', { name: '必填' }));
     await t.click(main.getByRole('button', { name: '完成', exact: true }));
     await t.hover(main.getByRole('button', { name: /套用專題需求表欄位/ }));
@@ -99,7 +100,7 @@ try {
   await t.step({
     caption: '發布設定',
     narration: '文件繳交一定要有階段和截止；整組一份還是個人一份在這裡選，有人作答後就鎖定不能換。',
-    status: 'ok', note: 'story-2 第 38 步（PUB-06）',
+    status: { kind: 'ok', evidence: 'story-2 第 38 步（PUB-06）' },
   }, async () => {
     await t.scroll(main.getByRole('heading', { name: '發布設定' }));
     await t.select(main.getByLabel('顯示在哪一區', { exact: true }), '文件繳交');
@@ -114,7 +115,7 @@ try {
   await t.step({
     caption: '三種視角預覽',
     narration: '預覽可以切訪客、學生、老師視角，訪客看不到的會直接寫「訪客看不到這一筆」。',
-    status: 'ok', note: 'story-2 第 38 步',
+    status: { kind: 'ok', evidence: 'story-2 第 38 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '檢查與預覽' }));
     await t.waitStable({ ready: main.getByRole('group', { name: '預覽視角' }), offRecord: true });
@@ -127,7 +128,7 @@ try {
   await t.step({
     caption: '發布繳交項目',
     narration: '繳交項目一定通知名單上的人。回執後清單多一列，學生那邊的我的繳交馬上出現。',
-    status: 'ok', note: 'story-2 第 38 步',
+    status: { kind: 'ok', evidence: 'story-2 第 38 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '發布', exact: true }));
     const dialog = page.getByRole('dialog', { name: '發布前檢查' });
@@ -142,7 +143,7 @@ try {
   await t.step({
     caption: '發布後的編輯器',
     narration: '發布後頂列變成撤回、下架、發布更新；右邊的發布紀錄列每次發布、改內容、改截止、有沒有勾通知。',
-    status: 'ok', note: 'story-2 第 24 步',
+    status: { kind: 'ok', evidence: 'story-2 第 24 步' },
   }, async () => {
     await t.click(main.getByRole('link', { name: '編輯：示範：期中報告初稿' }));
     await t.hover(main.getByTestId('item-status'));
