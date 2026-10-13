@@ -39,10 +39,14 @@ test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點�
     // 截圖品質寫進 events.json
     assert.ok(ev.quality && ev.quality.ok, JSON.stringify(ev.quality));
     assert.ok(ev.quality.fps >= 25 && ev.quality.maxGapMs <= 50);
-    // 網頁放大錄影：CSS 1280×667、clip 仍是 1920×1000 的實際像素
-    assert.deepEqual([ev.page.width, ev.page.height, ev.page.zoom], [1280, 667, ZOOM]);
+    // 錄影當下的系統負載
+    const sys = ev.quality.system!;
+    assert.ok(sys.cpus > 0 && sys.totalMemMB > 0 && sys.start.loadavg1 >= 0 && sys.peak.loadavg1 >= sys.start.loadavg1 && sys.end.freeMemMB > 0, JSON.stringify(sys));
+    // 網頁放大錄影：CSS 1280×587、clip 是 1920×880 的實際像素（1080 − 網址列 80 − 字幕帶 120）
+    assert.deepEqual([ev.page.width, ev.page.height, ev.page.zoom], [1280, 587, ZOOM]);
+    assert.deepEqual(ev.output, { width: 1920, height: 1080, chromeHeight: 80, captionHeight: 120 });
     const dims = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', clip]).toString().trim();
-    assert.equal(dims.replace(/,$/, ''), '1920,1000');
+    assert.equal(dims.replace(/,$/, ''), `1920,${H}`);
     // 步驟長度 ≥ 配音長度＋0.6 秒，且配音在步驟內
     for (const s of ev.steps) {
       assert.ok(s.audio, '每步都有配音');

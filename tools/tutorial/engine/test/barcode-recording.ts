@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from 'playwright';
-import { launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
+import { CAPTION_HEIGHT, CHROME_HEIGHT, launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
 import type { ChapterEvents } from '../events.ts';
 
@@ -16,7 +16,8 @@ const BLOCK = 40;
 export const ZOOM = 1.5;
 const B = BLOCK * ZOOM;
 export const W = 1920;
-export const H = 1000;
+/** 頁面區高度：1080 − 網址列 − 字幕帶 ＝ 880。 */
+export const H = 1080 - CHROME_HEIGHT - CAPTION_HEIGHT;
 
 const PAGE = `<!doctype html><body style="margin:0;background:#fff">
 <canvas id=c width=${BITS * BLOCK} height=${BLOCK} style="position:fixed;left:0;top:0"></canvas>

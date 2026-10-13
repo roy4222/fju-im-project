@@ -17,12 +17,13 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpus, freemem, loadavg, totalmem } from 'node:os';
 import { basename, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium, type Browser, type CDPSession, type Frame, type Locator, type Page, type Request } from 'playwright';
 import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
-import { normalizeStatus, type ChapterEvent, type ChapterEvents, type StatusKind, type StepRecord, type StepStatus } from './events.ts';
-import { captureQuality, cfrSlots, GAP_SEVERE_MS, GAP_WARN_MS, timeFrames, toChapterMs, type CaptureQuality, type Pause, type RawFrame } from './frames.ts';
+import { normalizeStatus, PRESS_HINT_MS, type ChapterEvent, type ChapterEvents, type StatusKind, type StepRecord, type StepStatus } from './events.ts';
+import { captureQuality, cfrSlots, GAP_SEVERE_MS, GAP_WARN_MS, timeFrames, toChapterMs, type CaptureQuality, type LoadSample, type Pause, type RawFrame, type SystemLoad } from './frames.ts';
 import { acquireRecordSlot, claimOutDir, DEFAULT_OUT_ROOT, FAILED_MARK, newRunDir, RECORDING_MARK, type RecordSlot, type SlotOptions } from './runs.ts';
 import { sayProvider, type TtsProvider } from './tts.ts';
 
@@ -38,8 +39,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0,
 
 /** 上方假網址列高度（影片像素）；頁面錄在它下面。 */
 export const CHROME_HEIGHT = 80;
+/** 下方字幕帶高度（影片像素）：字幕、按鍵提示都在這裡，永遠不蓋到頁面。頁面區＝影片高 − 網址列 − 字幕帶。 */
+export const CAPTION_HEIGHT = 120;
 /**
- * 網頁放大倍率：CSS 1280×667 的視窗以 1.5 倍實際像素渲染，錄成 1920 寬的影片；
+ * 網頁放大倍率：CSS 1280×587 的視窗以 1.5 倍實際像素渲染，錄成 1920×880 的頁面區；
  * 網頁正文 15px 在 1080p 裡約 22px（手機、筆電上看得清楚），版面仍是桌機版。
  *
  * 用瀏覽器層級的 --force-device-scale-factor，而不是 Playwright 的 deviceScaleFactor 模擬：
@@ -47,8 +50,6 @@ export const CHROME_HEIGHT = 80;
  * 截圖雖是 1920 寬，滑鼠座標卻會被再除一次 1.5。
  */
 export const DEFAULT_ZOOM = 1.5;
-/** 下方字幕條佔掉的高度（影片像素）：游標目標要落在它上面，否則先捲動。 */
-export const CAPTION_SAFE = 170;
 /** 配音在步驟開始後多久起播。 */
 export const NARRATION_LEAD_MS = 250;
 /** 配音念完後至少再停多久才換下一步（任務單：步驟 ≥ 配音＋0.6 秒）。 */
@@ -65,21 +66,53 @@ const CAPTURE_GIVE_UP_MS = 5000;
  * 舊 session 的 captureScreenshot 會永遠不回應。
  */
 const CAPTURE_TIMEOUT_MS = 400;
-/** 點擊後最多等多久讓換頁完成（等的期間影片停在舊頁＋波紋）。 */
+/** 點擊後最多等多久讓換頁或這一下發出的請求完成。 */
 const NAV_WAIT_MS = 8000;
+/** 點的是別頁的連結時，至少給它這麼久開始換頁（換頁一直沒來就不等了；這段等待不進影片）。 */
+const NAV_GRACE_MS = 1500;
+/**
+ * 進行中超過這麼久的請求視為「不會結束的」（長連線、或 Playwright 漏了結束通知），不再當成網路沒安靜。
+ * 實測：換頁那一刻還在飛的 fetch（例如 Next.js 的 RSC prefetch）Playwright 1.63 不會再發 requestfinished／requestfailed。
+ */
+const STALE_REQUEST_MS = 10_000;
 /** 錄影中每隔這麼久抽查一次畫面內有沒有還沒載好的圖片（記進 quality、不中止）。 */
 const IMAGE_CHECK_MS = 100;
+/** 每隔這麼久記一次系統負載（loadavg、可用記憶體），寫進 quality.system。 */
+const LOAD_SAMPLE_MS = 5000;
+
+function loadSample(): LoadSample {
+  const [l1, l5] = loadavg();
+  return { loadavg1: Math.round(l1 * 100) / 100, loadavg5: Math.round(l5 * 100) / 100, freeMemMB: Math.round(freemem() / 1048576) };
+}
 
 /** 點擊後監看換頁（送滑鼠事件前就裝上，否則同步的 SPA 換頁會漏掉）。 */
 type NavWatch = {
   /** 裝上監看的那一刻（滑鼠還沒按下去）：偵測到換頁就從這一刻起暫停，新頁的任何畫面都不可能比它早。 */
   startWall: number;
+  /** 點擊前的網址：判斷之後的 framenavigated 是真的換頁還是同文件改網址。 */
+  before: string;
+  /** 真的換頁了（整頁載入、或路徑變了的 SPA 換頁）。 */
   navigated: boolean;
-  /** 是這次換頁讓計時暫停的（不是在別人的 offRecord 裡）。 */
+  /** 只是同文件改了網址（篩選改查詢字串、replaceState、改 hash）：不算換頁，UI 過程照錄。 */
+  sameDoc: boolean;
+  /** 主框架送出了整頁請求（整頁載入，就算網址相同也算換頁）。 */
+  docRequested: boolean;
+  /** 是這次點擊讓計時暫停的（不是在別人的 offRecord 裡）。 */
   autoPaused: boolean;
   /** 已記下的點擊事件：偵測到換頁後把它對到暫停那一刻。 */
   clickEvent: { atMs: number } | null;
 };
+
+/** 只有 origin 或路徑不同才算換頁；查詢字串、hash 不算（篩選按鈕只改查詢字串時，畫面過程要保留）。 */
+export function isPageChange(before: string, after: string): boolean {
+  try {
+    const a = new URL(before);
+    const b = new URL(after);
+    return a.origin !== b.origin || a.pathname !== b.pathname;
+  } catch {
+    return before !== after;
+  }
+}
 
 export type StepOptions = {
   /** 字幕：短句。 */
@@ -105,10 +138,10 @@ export type WaitStableOptions = {
   fonts?: boolean;
   /** 連續幾張截圖完全一樣才算版面穩定，預設 2。 */
   frames?: number;
-  /** 最多等多久，預設 30 秒（通常在暫停中等，不佔影片時間）；超過會警告並記在 events.json（strict 時改成報錯）。 */
+  /** 最多等多久，預設 30 秒（在暫停中等，不佔影片時間）；超過會警告並記在 events.json（strict 時改成報錯）。 */
   timeout?: number;
   strict?: boolean;
-  /** 等待期間暫停計時（不進影片）。goto／換頁後自動呼叫時為 true。 */
+  /** 已無作用：等待一律不進影片（逾時也一樣）。留著是為了舊劇本相容。 */
   offRecord?: boolean;
 };
 
@@ -131,7 +164,7 @@ export type ChapterOptions = {
   outRoot?: string;
   /** 全機錄影名額設定（測試用；平常用預設的 2 路）。 */
   slots?: SlotOptions;
-  /** 輸出影片大小，預設 1920×1080；頁面區是寬 ×（高 − 網址列），CSS viewport 再除以 zoom。 */
+  /** 輸出影片大小，預設 1920×1080；頁面區是寬 ×（高 − 網址列 − 字幕帶），CSS viewport 再除以 zoom。 */
   viewport?: { width: number; height: number };
   /** t.goto('/x') 的基準網址。 */
   baseURL?: string;
@@ -157,12 +190,18 @@ export async function launchTutorialBrowser({ headless = false, zoom = DEFAULT_Z
   });
 }
 
-/** 影片頁面區（像素）對應的 CSS viewport。高度無條件進位，多出的一兩列像素在輸出時裁掉。 */
-export function cssViewport(viewport: { width: number; height: number }, zoom: number): { width: number; height: number } {
-  return { width: Math.round(viewport.width / zoom), height: Math.ceil((viewport.height - CHROME_HEIGHT) / zoom) };
+/** 影片頁面區（像素）＝影片大小扣掉上方網址列與下方字幕帶。 */
+export function pageArea(viewport: { width: number; height: number }): { width: number; height: number } {
+  return { width: viewport.width, height: viewport.height - CHROME_HEIGHT - CAPTION_HEIGHT };
 }
 
-/** 開一個適合錄影的分頁（真實視窗、不做 viewport 模擬，視窗內容區調成 CSS 1280×667）、繁中、台北時區。 */
+/** 影片頁面區對應的 CSS viewport。高度無條件進位，多出的一兩列像素在輸出時裁掉。 */
+export function cssViewport(viewport: { width: number; height: number }, zoom: number): { width: number; height: number } {
+  const area = pageArea(viewport);
+  return { width: Math.round(area.width / zoom), height: Math.ceil(area.height / zoom) };
+}
+
+/** 開一個適合錄影的分頁（真實視窗、不做 viewport 模擬，視窗內容區調成 CSS 1280×587）、繁中、台北時區。 */
 export async function newTutorialPage(browser: Browser, { viewport = { width: 1920, height: 1080 } } = {}): Promise<Page> {
   const ctx = await browser.newContext({ viewport: null, locale: 'zh-TW', timezoneId: 'Asia/Taipei' });
   const page = await ctx.newPage();
@@ -277,18 +316,37 @@ export class Chapter {
   private readonly onNav = (f: Frame) => {
     if (f !== this.page.mainFrame()) return;
     this.navAt.push(Date.now());
-    // 點擊引發的換頁（整頁載入、pushState 都會發 framenavigated）：從點擊那一刻起暫停計時，等新頁穩定再繼續
-    if (this.navWatch) this.navDetected(this.navWatch);
+    // 點擊引發的換頁：整頁載入（有主框架的 document 請求）或路徑變了的 SPA 換頁才算，從點擊那一刻起暫停計時、等新頁穩定再繼續；
+    // 同文件只改查詢字串／hash（篩選按鈕、replaceState）不算換頁，畫面過程照錄
+    const w = this.navWatch;
+    if (w) {
+      if (w.docRequested || isPageChange(w.before, f.url())) this.navDetected(w);
+      else w.sameDoc = true;
+    }
     this.noteUrl();
   };
   private navWatch: NavWatch | null = null;
-  /** 進行中的網路請求（waitStable 判斷網路安靜；長連線不算）。 */
-  private readonly inflight = new Set<Request>();
+  /** 進行中的網路請求 → 開始時間與是否主框架（waitStable 判斷網路安靜；長連線不算）。 */
+  private readonly inflight = new Map<Request, { at: number; main: boolean }>();
+  /** 最近一次主框架整頁請求的時間：它之前就在飛的請求屬於舊文件，整頁載入後一律清掉。 */
+  private docRequestAt = 0;
+  private readonly staleNoted = new Set<Request>();
   private readonly onReqStart = (r: Request) => {
-    if (r.resourceType() !== 'websocket' && r.resourceType() !== 'eventsource') this.inflight.add(r);
+    const type = r.resourceType();
+    if (type === 'websocket' || type === 'eventsource') return;
+    const main = this.isMainFrame(r);
+    if (type === 'document' && main) this.docRequestAt = Date.now();
+    this.inflight.set(r, { at: Date.now(), main });
   };
   private readonly onReqEnd = (r: Request) => {
     this.inflight.delete(r);
+  };
+  /**
+   * 整頁載入後（只有整頁載入會發 domcontentloaded）：換頁前就在飛的請求 Playwright 不會再通知結束，
+   * 留在 inflight 裡會讓 waitStable 一直以為網路沒停、等到逾時，所以一律清掉。
+   */
+  private readonly onDocLoaded = () => {
+    for (const [r, { at }] of this.inflight) if (at < this.docRequestAt) this.inflight.delete(r);
   };
   /** 主框架換頁的時間（牆上時間），判斷截圖空檔是不是換頁造成的。 */
   private readonly navAt: number[] = [];
@@ -296,6 +354,21 @@ export class Chapter {
   private readonly pageJank: { fromWall: number; toWall: number; reason: string; url: string }[] = [];
   /** 錄影中抽查到畫面內有還沒載好的圖片的時刻（牆上時間）。 */
   private readonly unloadedSeen: { wallMs: number; count: number; sample: string; url: string }[] = [];
+  /** 系統負載：開始、峰值（最高 loadavg1、最低可用記憶體）。 */
+  private loadStart: LoadSample = loadSample();
+  private loadPeak = { loadavg1: this.loadStart.loadavg1, freeMemMB: this.loadStart.freeMemMB };
+  private loadSampledAt = 0;
+
+  private sampleLoad(): void {
+    const s = loadSample();
+    this.loadSampledAt = Date.now();
+    this.loadPeak = { loadavg1: Math.max(this.loadPeak.loadavg1, s.loadavg1), freeMemMB: Math.min(this.loadPeak.freeMemMB, s.freeMemMB) };
+  }
+
+  private systemLoad(): SystemLoad {
+    this.sampleLoad();
+    return { cpus: cpus().length, totalMemMB: Math.round(totalmem() / 1048576), start: this.loadStart, peak: this.loadPeak, end: loadSample() };
+  }
 
   constructor(opts: ChapterOptions) {
     this.opts = opts;
@@ -304,7 +377,7 @@ export class Chapter {
     this.outDir = opts.outDir ?? newRunDir(opts.outRoot ?? DEFAULT_OUT_ROOT, `${this.id ?? ''} ${opts.chapter}`);
     this.tts = opts.tts ?? sayProvider();
     const vp = opts.viewport ?? { width: 1920, height: 1080 };
-    this.size = { width: vp.width, height: vp.height - CHROME_HEIGHT };
+    this.size = pageArea(vp);
     // zoom 在 start() 從分頁的 devicePixelRatio 讀；先放預設值
     this.zoom = DEFAULT_ZOOM;
     this.css = cssViewport(vp, this.zoom);
@@ -331,6 +404,7 @@ export class Chapter {
     this.page.on('close', this.onClose);
     this.page.on('crash', this.onCrash);
     this.page.on('framenavigated', this.onNav);
+    this.page.on('domcontentloaded', this.onDocLoaded);
     this.page.on('request', this.onReqStart);
     this.page.on('requestfinished', this.onReqEnd);
     this.page.on('requestfailed', this.onReqEnd);
@@ -342,6 +416,8 @@ export class Chapter {
     // 連續用 CDP 截圖（實際像素 1920 寬）；Playwright 的 screencast 只給 CSS 大小的影格
     this.cdp = await this.page.context().newCDPSession(this.page);
     this.t0Wall = Date.now();
+    this.loadStart = loadSample();
+    this.loadPeak = { loadavg1: this.loadStart.loadavg1, freeMemMB: this.loadStart.freeMemMB };
     this.capturing = this.captureLoop();
     this.watching = this.imageWatch();
     await this.offRecord(() => this.calibrate());
@@ -364,6 +440,7 @@ export class Chapter {
     this.page.off('close', this.onClose);
     this.page.off('crash', this.onCrash);
     this.page.off('framenavigated', this.onNav);
+    this.page.off('domcontentloaded', this.onDocLoaded);
     this.page.off('request', this.onReqStart);
     this.page.off('requestfinished', this.onReqEnd);
     this.page.off('requestfailed', this.onReqEnd);
@@ -478,6 +555,7 @@ export class Chapter {
   private async imageWatch(): Promise<void> {
     while (!this.stopCapture) {
       await sleep(IMAGE_CHECK_MS);
+      if (Date.now() - this.loadSampledAt >= LOAD_SAMPLE_MS) this.sampleLoad();
       if (this.stopCapture || this.pausedAt != null) continue;
       const wallMs = Date.now();
       const urls = (await this.page.evaluate(UNLOADED_IMAGES).catch(() => [])) as string[];
@@ -631,18 +709,19 @@ export class Chapter {
     // 換頁與等穩定都不進影片：直接切到載好的畫面（跨程序換頁時截圖也會短暫中斷）
     await this.offRecord(async () => {
       await load();
-      await this.waitStable({ ...stable, offRecord: false });
+      await this.waitStable(stable);
     });
   }
 
   /**
-   * 等畫面穩定：指定元素出現、字型載入、畫面內圖片解碼完成、連續幾張截圖完全一樣。
-   * goto 與點擊後換頁會自動呼叫一次（暫停計時）；也可以在步驟裡自己呼叫。
+   * 等畫面穩定：指定元素出現、網路安靜、字型載入、畫面內圖片解碼完成、連續幾張截圖完全一樣。
+   * goto 與點擊後換頁會自動呼叫一次；也可以在步驟裡自己呼叫。**等的過程一律不進影片**（暫停計時），
+   * 逾時也一樣：只在指令列與 events.json 留警告，影片直接切到等完當下的畫面。
    */
   async waitStable(opts: WaitStableOptions = {}): Promise<void> {
     this.check();
     const { images = true, fonts = true, frames = 2, timeout = 30_000, strict = false } = opts;
-    const body = async () => {
+    await this.offRecord(async () => {
       const deadline = Date.now() + timeout;
       const left = () => Math.max(1, deadline - Date.now());
       const problems: string[] = [];
@@ -650,41 +729,86 @@ export class Chapter {
         const loc = typeof opts.ready === 'string' ? this.page.getByText(opts.ready).first() : opts.ready;
         await loc.waitFor({ state: 'visible', timeout: left() }).catch(() => problems.push(`等不到 ${loc}`));
       }
-      // 反覆確認到三件事同時成立：網路安靜、畫面內圖片／字型載完、連續幾張截圖一樣。
-      // （Next.js 會先改網址再換畫面；只檢查一次可能檢查到舊頁）
+      // 反覆確認到四件事同時成立：網路安靜、畫面內圖片／字型載完、連續幾張截圖一樣、穩定後沒再冒出新載入。
+      // （Next.js 會先改網址再換畫面；只檢查一次可能檢查到舊頁。）哪一項最後卡住就報哪一項，不要都寫成「畫面一直在變」。
       let ok = false;
-      let why = '';
+      let stuck: 'network' | 'assets' | 'frames' | 'reload' | null = null;
       while (!ok && Date.now() < deadline) {
-        if (!(await this.networkQuiet(300, Math.min(4000, left())))) why = '網路一直沒停';
-        if ((fonts || images) && !(await this.assetsReady(fonts, images, left()))) {
-          why = fonts && images ? '字型或畫面內圖片沒載完' : images ? '畫面內圖片沒載完' : '字型沒載完';
+        if (!(await this.networkQuiet(300, Math.min(4000, left())))) {
+          stuck = 'network';
           continue;
         }
-        if (!(await this.framesStable(frames, deadline))) {
-          why = `畫面一直在變（連續 ${frames} 張截圖沒有一樣過${await this.changingRegion()}）`;
+        if ((fonts || images) && !(await this.assetsReady(fonts, images, Math.min(4000, left())))) {
+          stuck = 'assets';
           continue;
         }
-        // 穩定之後再確認一次：期間若又冒出新圖片或新請求就再來一輪
-        ok = this.inflight.size === 0 && (!(fonts || images) || (await this.assetsReady(fonts, images, 1)));
-        if (!ok) why = '穩定後又有新的載入';
+        if (!(await this.framesStable(frames, Math.min(3000, left())))) {
+          stuck = 'frames';
+          continue;
+        }
+        ok = this.pendingRequests().length === 0 && (!(fonts || images) || (await this.assetsReady(fonts, images, 1)));
+        if (!ok) stuck = 'reload';
       }
-      if (!ok) problems.push(why || '逾時');
+      if (!ok) {
+        const why = {
+          network: () => `網路一直沒停（進行中：${this.pendingSummary()}）`,
+          assets: () => (fonts && images ? '字型或畫面內圖片沒載完' : images ? '畫面內圖片沒載完' : '字型沒載完'),
+          frames: async () => `畫面一直在變（連續 ${frames} 張截圖沒有一樣過${await this.changingRegion()}）`,
+          reload: () => '穩定後又有新的載入',
+        };
+        problems.push(stuck ? await why[stuck]() : '逾時');
+      }
       if (problems.length) {
-        const msg = `［${this.current?.caption ?? '步驟外'}］${this.page.url()} ${timeout / 1000} 秒內畫面沒穩定：${problems.join('；')}`;
+        const msg = `［${this.current?.caption ?? '步驟外'}］${this.page.url()} ${timeout / 1000} 秒內畫面沒穩定：${problems.join('；')}（這段等待沒有錄進影片）`;
         if (strict) throw new Error(msg);
         console.warn(`注意：${msg}`);
         this.warnings.push(msg);
       }
-    };
-    await (opts.offRecord ? this.offRecord(body) : body());
+    });
   }
 
-  /** 網路安靜：進行中的請求數連續 quietMs 都是 0（自己數，SPA 換頁也算得到）。最多等 maxMs。 */
+  private isMainFrame(r: Request): boolean {
+    try {
+      return r.frame() === this.page.mainFrame();
+    } catch {
+      return false;
+    }
+  }
+
+  /** 還在等的請求：進行中、而且還沒久到被視為「不會結束的」（超過 STALE_REQUEST_MS 的只在指令列提一次，不再等它）。 */
+  private pendingRequests(since = 0): Request[] {
+    const now = Date.now();
+    const out: Request[] = [];
+    for (const [r, { at }] of this.inflight) {
+      if (at < since) continue;
+      if (now - at >= STALE_REQUEST_MS) {
+        if (!this.staleNoted.has(r)) {
+          this.staleNoted.add(r);
+          console.warn(`注意：${r.resourceType()} ${r.url()} 進行中超過 ${STALE_REQUEST_MS / 1000} 秒，之後不再等它`);
+        }
+        continue;
+      }
+      out.push(r);
+    }
+    return out;
+  }
+
+  private pendingSummary(): string {
+    const list = this.pendingRequests().map((r) => `${r.resourceType()} ${r.url()}`);
+    return list.length ? `${list.slice(0, 4).join('、')}${list.length > 4 ? ` 等 ${list.length} 個` : ''}` : '—';
+  }
+
+  /** 這次點擊之後主框架發出、還在飛的請求（判斷點擊的後續有沒有做完）。 */
+  private clickRequestsPending(w: NavWatch): number {
+    return this.pendingRequests(w.startWall).filter((r) => this.inflight.get(r)?.main).length;
+  }
+
+  /** 網路安靜：還在等的請求數連續 quietMs 都是 0（自己數，SPA 換頁也算得到）。最多等 maxMs。 */
   private async networkQuiet(quietMs: number, maxMs: number): Promise<boolean> {
     const until = Date.now() + maxMs;
-    let quietSince = this.inflight.size === 0 ? Date.now() : 0;
+    let quietSince = this.pendingRequests().length === 0 ? Date.now() : 0;
     while (Date.now() < until) {
-      if (this.inflight.size === 0) {
+      if (this.pendingRequests().length === 0) {
         quietSince ||= Date.now();
         if (Date.now() - quietSince >= quietMs) return true;
       } else quietSince = 0;
@@ -728,7 +852,8 @@ export class Chapter {
     const [a, b] = this.raw.slice(-2).map((f) => f.file);
     if (!a || !b) return '';
     try {
-      const { stderr } = await run('ffmpeg', ['-v', 'info', '-i', a, '-i', b, '-filter_complex', '[0][1]blend=all_mode=difference,format=gray,bbox=min_val=24', '-f', 'null', '-']);
+      // 兩張 JPEG 內容一樣就會逐位元相同，所以任何差異都是真的在變；門檻放低才看得到很細微的動畫（例如 pulse）
+      const { stderr } = await run('ffmpeg', ['-v', 'info', '-i', a, '-i', b, '-filter_complex', '[0][1]blend=all_mode=difference,format=gray,bbox=min_val=6', '-f', 'null', '-']);
       const m = [...stderr.matchAll(/x1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+)/g)].at(-1);
       if (!m) return '';
       const [x1, x2, y1, y2] = m.slice(1).map((v) => Math.round(Number(v) / this.zoom));
@@ -738,11 +863,12 @@ export class Chapter {
     }
   }
 
-  /** 從現在起連續 n 張截圖內容完全一樣。 */
-  private async framesStable(n: number, deadline: number): Promise<boolean> {
+  /** 從現在起連續 n 張截圖內容完全一樣（最多等 maxMs）。 */
+  private async framesStable(n: number, maxMs: number): Promise<boolean> {
     const start = this.frameCount;
+    const until = Date.now() + maxMs;
     while (!(this.frameCount - start >= n && this.sameRun >= n - 1)) {
-      if (Date.now() > deadline) return false;
+      if (Date.now() > until) return false;
       await this.wait_(30);
     }
     return true;
@@ -756,32 +882,31 @@ export class Chapter {
   }
 
   /**
-   * 點擊。若因此換頁（連結、整頁載入或 Next.js 的 client-side 換頁）：從點擊那一刻起暫停計時，
-   * 等新頁穩定（圖片、字型、版面）再繼續——影片從「點下去」直接切到載好的新頁。傳 false 不等。
+   * 點擊。若因此**真的換頁**（整頁載入，或 Next.js client-side 換到別的路徑）：從點擊那一刻起暫停計時，
+   * 等新頁穩定（圖片、字型、版面）再繼續——影片從「點下去」直接切到載好的新頁。
+   * 只改查詢字串／hash（篩選按鈕、replaceState）不算換頁：畫面過程照錄，只等這一下發出的請求做完。
+   * 點的是別頁的連結卻一直沒換頁時，那段等待也不進影片。傳 false 完全不等。
    */
   async click(locator: Locator, stable: WaitStableOptions | false = {}): Promise<void> {
     await this.hover(locator);
     await this.wait_(150);
     const before = this.page.url();
     this.lastAction = `click ${locator}`;
-    // 會不會換頁：點的是指向別頁的連結，或點下去後送出了換頁請求
+    // 點的是不是連結（指到別的路徑才預期換頁；同路徑只改查詢字串的連結照一般點擊處理）
     const linkTo = await locator
       .evaluate((el) => {
         const a = el.closest('a[href]') as HTMLAnchorElement | null;
         if (!a || (a.target && a.target !== '_self')) return null;
-        const u = new URL(a.href, location.href);
-        return u.origin + u.pathname + u.search === location.origin + location.pathname + location.search ? null : u.href;
+        return new URL(a.href, location.href).href;
       })
       .catch(() => null);
-    let navRequested = false;
-    const onReq = (r: Request) => {
-      if (r.frame() !== this.page.mainFrame()) return;
-      if (r.resourceType() === 'document' || /[?&]_rsc=/.test(r.url()) || r.headers()['rsc'] === '1') navRequested = true;
-    };
-    this.page.on('request', onReq);
     // 送滑鼠事件之前就開始監看換頁：Next.js 的 client-side 換頁（pushState）在 click 事件裡同步發生，
     // framenavigated 會跟 mouse.up() 的回應同時到，晚一步才裝監看就會漏掉、把載到一半的新頁錄進去
-    const watch: NavWatch = { startWall: Date.now(), navigated: false, autoPaused: false, clickEvent: null };
+    const watch: NavWatch = { startWall: Date.now(), before, navigated: false, sameDoc: false, docRequested: false, autoPaused: false, clickEvent: null };
+    const onReq = (r: Request) => {
+      if (r.resourceType() === 'document' && this.isMainFrame(r)) watch.docRequested = true;
+    };
+    this.page.on('request', onReq);
     if (stable !== false) this.navWatch = watch;
     try {
       this.actionBusyUntil = Date.now() + 2000;
@@ -795,32 +920,46 @@ export class Chapter {
       this.events.push(clickEvent);
       watch.clickEvent = clickEvent;
       await this.wait_(350);
-      if (stable !== false && (linkTo || navRequested)) {
-        // 等換頁發生（偵測到時 navDetected 會暫停計時）
+      if (stable !== false && !watch.navigated) {
+        // 等這一下的後續：真的換頁（navDetected 會回溯暫停）、同文件改網址、或這一下發出的請求都結束。
+        // 預期會換頁（點的是別頁的連結、或已送出整頁請求）時，這段等待不進影片——逾時也不進影片
+        const expectNav = () => (linkTo != null && isPageChange(before, linkTo)) || watch.docRequested;
+        if (expectNav() && this.pausedAt == null) {
+          this.pausedAt = Date.now();
+          watch.autoPaused = true;
+        }
         const until = Date.now() + NAV_WAIT_MS;
-        while (!watch.navigated && this.page.url() === before && Date.now() < until) await this.wait_(30);
+        const grace = Date.now() + NAV_GRACE_MS;
+        while (!watch.navigated && Date.now() < until) {
+          if (expectNav() && this.pausedAt == null) {
+            // 點了之後才送出整頁請求（例如表單送出）：從現在起不進影片，偵測到換頁再回溯到點擊前
+            this.pausedAt = Date.now();
+            watch.autoPaused = true;
+          }
+          const pending = this.clickRequestsPending(watch);
+          if (pending === 0 && (watch.sameDoc || !expectNav() || Date.now() >= grace)) break;
+          await this.wait_(30);
+        }
+        // 網址變了卻沒收到 framenavigated（保險）
+        if (!watch.navigated && isPageChange(before, this.page.url())) this.navDetected(watch);
       }
-      // 網址變了卻沒收到 framenavigated（保險）
-      if (stable !== false && !watch.navigated && this.page.url() !== before) this.navDetected(watch);
     } finally {
       this.page.off('request', onReq);
       this.navWatch = null;
     }
-    if (watch.navigated) {
-      if (watch.autoPaused) {
-        try {
-          await this.page.waitForLoadState('load').catch(() => {});
-          await this.waitStable({ ...(stable || {}), offRecord: false });
-        } finally {
-          await this.endPause();
-        }
-      } else await this.waitStable({ ...(stable || {}), offRecord: true }); // 已在 offRecord 裡：照樣等穩定
+    try {
+      if (watch.navigated) {
+        await this.page.waitForLoadState('load').catch(() => {});
+        await this.waitStable(stable || {}); // 自己會暫停；已在暫停中就直接等
+      }
+    } finally {
+      if (watch.autoPaused) await this.endPause();
     }
     this.noteUrl();
   }
 
   /**
-   * 點擊後偵測到換頁（framenavigated，或網址變了）：從裝上監看那一刻（滑鼠按下去之前）起暫停計時——
+   * 點擊後偵測到真的換頁（整頁載入，或路徑變了）：從裝上監看那一刻（滑鼠按下去之前）起暫停計時——
    * 新頁的任何畫面都不可能比它早，所以載到一半的畫面絕不會進影片；之後等新頁穩定再繼續。
    * 暫停是回溯的：點擊到偵測之間已經截下的影格，收尾時會整段丟掉（只留暫停中最後一張當新頁的第一格）。
    * 點擊事件也對到暫停那一刻，所以 click、url 與影片切到新頁的那一格是同一個時間。
@@ -831,7 +970,7 @@ export class Chapter {
     if (this.pausedAt == null) {
       this.pausedAt = w.startWall;
       w.autoPaused = true;
-    }
+    } else if (w.autoPaused) this.pausedAt = w.startWall; // 自己為了等換頁開的暫停：起點挪回點擊前
     if (w.clickEvent) w.clickEvent.atMs = toChapterMs(this.pausedAt, this.t0Wall, this.pauses);
   }
 
@@ -845,6 +984,17 @@ export class Chapter {
     }
     // secret：密碼之類不寫進 events.json
     this.events.push({ type: 'type', startMs, endMs: this.now(), text: opts.secret ? '•'.repeat([...text].length) : text });
+  }
+
+  /** 按一個鍵（Playwright 的鍵名：Enter、Escape、Tab、Control+A、Meta+K…）；畫面上會出現小鍵帽提示 0.8 秒。 */
+  async press(key: string): Promise<void> {
+    this.lastAction = `press ${key}`;
+    this.check();
+    this.actionBusyUntil = Date.now() + 2000;
+    await this.page.keyboard.press(key);
+    await this.nextPaint();
+    this.events.push({ type: 'press', atMs: this.now(), key });
+    await this.wait_(Math.min(PRESS_HINT_MS, 400));
   }
 
   /** 原生下拉選單：游標移過去、點擊波紋，再直接選值（原生選單的彈出層錄不到）。 */
@@ -871,18 +1021,25 @@ export class Chapter {
     await this.wait_(400);
   }
 
-  /** 平滑捲動：數字是往下捲幾 px（網頁 CSS px，負數往上）；給 locator 就把它捲到畫面上方三分之一。 */
-  async scroll(target: number | Locator): Promise<void> {
-    this.lastAction = `scroll ${target}`;
+  /**
+   * 平滑捲動（CSS px）：
+   * - 數字：整頁往下捲幾 px（負數往上）。
+   * - `{ x, y, within }`：橫向／直向捲 x、y px；`within` 指定捲哪個容器（例如比畫面寬的表格外層），不給就是整頁。
+   * - Locator：把它捲到完整可見（直向到畫面上方三分之一；橫向與所在的每一層捲動容器都會處理）。
+   * 捲完游標目標會照新位置重新量，所以點比畫面寬的表格最右邊的操作欄也會點對地方。
+   */
+  async scroll(target: number | Locator | { x?: number; y?: number; within?: Locator }): Promise<void> {
+    this.lastAction = `scroll ${typeof target === 'object' && !isLocator(target) ? JSON.stringify({ x: target.x, y: target.y, within: String(target.within ?? '') }) : target}`;
     this.check();
-    let dy: number;
-    if (typeof target === 'number') dy = target;
-    else {
+    if (typeof target === 'number') return this.smoothScroll(0, target);
+    if (isLocator(target)) {
       await target.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(target, e));
-      const box = await target.boundingBox();
-      dy = box ? box.y - this.css.height * 0.3 : 0;
+      await this.scrollIntoView(target, 'third');
+      return;
     }
-    await this.smoothScroll(dy);
+    const { x = 0, y = 0, within } = target;
+    if (within) await within.waitFor({ state: 'attached', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(within, e));
+    await this.smoothScroll(x, y, within);
   }
 
   async wait(ms: number): Promise<void> {
@@ -916,6 +1073,7 @@ export class Chapter {
     this.page.off('close', this.onClose);
     this.page.off('crash', this.onCrash);
     this.page.off('framenavigated', this.onNav);
+    this.page.off('domcontentloaded', this.onDocLoaded);
     this.page.off('request', this.onReqStart);
     this.page.off('requestfinished', this.onReqEnd);
     this.page.off('requestfailed', this.onReqEnd);
@@ -954,7 +1112,7 @@ export class Chapter {
     const { width, height } = this.size;
     await run('ffmpeg', [
       '-y', '-v', 'error', '-framerate', String(FPS), '-start_number', '0', '-i', join(slotDir, 's%06d.jpg'),
-      // 影格本來就是 1920 寬：scale 不會重取樣；高度多出的一列（667×1.5=1001）直接裁掉
+      // 影格本來就是 1920 寬：scale 不會重取樣；高度多出的一列（587×1.5=880.5）直接裁掉
       '-vf', `scale=${width}:-1:flags=lanczos,crop=${width}:'min(ih,${height})':0:0,pad=${width}:${height}:0:0:white,setsar=1`,
       '-fps_mode', 'cfr', '-r', String(FPS), '-frames:v', String(slots.length),
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '14', '-pix_fmt', 'yuv420p', clip,
@@ -968,13 +1126,14 @@ export class Chapter {
       chapter: this.opts.chapter,
       number: this.opts.number,
       subtitle: this.opts.subtitle,
-      output: { width: this.size.width, height: this.size.height + CHROME_HEIGHT, chromeHeight: CHROME_HEIGHT },
+      output: { width: this.size.width, height: this.size.height + CHROME_HEIGHT + CAPTION_HEIGHT, chromeHeight: CHROME_HEIGHT, captionHeight: CAPTION_HEIGHT },
       page: { width: this.css.width, height: this.css.height, zoom: this.zoom },
       clip: { file: 'clip.mp4', durationMs: Math.round((slots.length * 1000) / FPS), fps: FPS, captureLatencyMs },
       quality: {
         ...quality,
         pageJank,
         unloadedImages,
+        system: this.systemLoad(),
         warnings: [...quality.warnings, ...jankWarnings, ...unloadedWarnings, ...this.warnings],
         ok: quality.ok && this.warnings.length === 0 && unloadedImages.length === 0,
       },
@@ -1015,27 +1174,108 @@ export class Chapter {
     this.events.push({ type: 'url', atMs: Math.max(0, this.now()), url });
   }
 
-  /** 目標中心（影片像素）；不在安全區（網址列下、字幕條上）就先平滑捲動。boundingBox 是 CSS px。 */
+  /**
+   * 目標中心（影片像素）。元素沒有完整出現在安全區（網址列下方一點、頁面區底邊上方一點）或被哪一層捲動容器切到
+   * （例如比畫面寬的表格最右邊的操作欄）就先平滑捲動（直向、橫向、每一層容器都處理），捲完再重新量位置。boundingBox 是 CSS px。
+   */
   private async targetOf(locator: Locator): Promise<Point> {
     await locator.waitFor({ state: 'visible', timeout: LOCATOR_TIMEOUT_MS }).catch((e) => this.fail(locator, e));
+    await this.scrollIntoView(locator, 'center');
     let box = await locator.boundingBox();
     if (!box) throw new Error(`找不到元素位置：${locator}`);
-    const top = 40 / this.zoom;
-    const bottom = this.css.height - CAPTION_SAFE / this.zoom;
+    const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
-    if (cy < top || cy > bottom) {
-      await this.smoothScroll(cy - this.css.height * 0.42);
+    if (cx < 0 || cx > this.css.width || cy < 0 || cy > this.css.height) {
+      await locator.scrollIntoViewIfNeeded();
+      await this.wait_(200);
       box = await locator.boundingBox();
-      if (!box || box.y + box.height / 2 < 0 || box.y + box.height / 2 > this.css.height) {
-        await locator.scrollIntoViewIfNeeded();
-        await this.wait_(200);
-        box = await locator.boundingBox();
-      }
       if (!box) throw new Error(`捲動後找不到元素：${locator}`);
-      const ny = box.y + box.height / 2;
-      if (ny > bottom) console.warn(`［${this.current?.caption ?? '步驟外'}］${locator} 捲不上來，會被字幕條蓋住（頁面底部空間不夠）`);
+      const [nx, ny] = [box.x + box.width / 2, box.y + box.height / 2];
+      if (nx < 0 || nx > this.css.width || ny < 0 || ny > this.css.height) {
+        console.warn(`［${this.current?.caption ?? '步驟外'}］${locator} 捲不到畫面裡（中心在 CSS ${Math.round(nx)},${Math.round(ny)}）`);
+      }
     }
     return this.toVideo({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  }
+
+  /**
+   * 把元素捲到完整可見：從最裡面的捲動容器往外，每一層（含整頁）都算出讓元素落在可見區內的最小位移（留 24 px 邊），
+   * 整頁直向另外照安全區：元素中心不在「網址列下 40px ～ 底邊上 24px」之間就捲到畫面 42%（center）或上方三分之一（third）。
+   * 每一層各自平滑捲動，全部記成一個 scroll 事件（影片像素）。沒有需要捲的就什麼都不做。
+   */
+  private async scrollIntoView(locator: Locator, mode: 'center' | 'third'): Promise<void> {
+    const startMs = this.now();
+    const moved = await locator.evaluate(
+      async (el, { topSafe, bottomSafe, margin, mode, speed }) => {
+        const ease = (u: number) => (1 - Math.cos(Math.PI * u)) / 2;
+        const animate = (sc: Element, left: number, top: number) =>
+          new Promise<{ dx: number; dy: number }>((resolve) => {
+            const x0 = sc.scrollLeft;
+            const y0 = sc.scrollTop;
+            const dist = Math.max(Math.abs(left - x0), Math.abs(top - y0));
+            if (dist < 1) return resolve({ dx: 0, dy: 0 });
+            const ms = Math.min(1400, Math.max(500, dist * speed));
+            const t0 = performance.now();
+            const f = (now: number) => {
+              const u = Math.min(1, (now - t0) / ms);
+              sc.scrollTo({ left: x0 + (left - x0) * ease(u), top: y0 + (top - y0) * ease(u), behavior: 'instant' });
+              if (u < 1) requestAnimationFrame(f);
+              else resolve({ dx: sc.scrollLeft - x0, dy: sc.scrollTop - y0 });
+            };
+            requestAnimationFrame(f);
+          });
+        const scrollable = (a: Element) => {
+          const cs = getComputedStyle(a);
+          const x = /(auto|scroll|overlay)/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1;
+          const y = /(auto|scroll|overlay)/.test(cs.overflowY) && a.scrollHeight > a.clientHeight + 1;
+          return { x, y };
+        };
+        // 由內往外：元素的每一層捲動容器，最後是整頁
+        const chain: { sc: Element; x: boolean; y: boolean; win: boolean }[] = [];
+        const root = document.scrollingElement ?? document.documentElement;
+        for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+          const { x, y } = scrollable(a);
+          if (x || y) chain.push({ sc: a, x, y, win: false });
+        }
+        chain.push({ sc: root, x: root.scrollWidth > innerWidth + 1, y: root.scrollHeight > innerHeight + 1, win: true });
+        let total = { dx: 0, dy: 0 };
+        for (const { sc, x, y, win } of chain) {
+          const e = el.getBoundingClientRect();
+          const r = win
+            ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
+            : (() => {
+                const b = sc.getBoundingClientRect();
+                return { left: b.left + sc.clientLeft, top: b.top + sc.clientTop, right: b.left + sc.clientLeft + sc.clientWidth, bottom: b.top + sc.clientTop + sc.clientHeight };
+              })();
+          let dx = 0;
+          let dy = 0;
+          if (x) {
+            if (e.width > r.right - r.left - 2 * margin || e.left < r.left + margin) dx = e.left - (r.left + margin);
+            else if (e.right > r.right - margin) dx = e.right - (r.right - margin);
+          }
+          if (y) {
+            const [mt, mb] = win ? [topSafe, bottomSafe] : [margin, margin];
+            if (win) {
+              const cy = (e.top + e.bottom) / 2;
+              const h = r.bottom - r.top;
+              if (cy < r.top + mt || cy > r.bottom - mb || e.top < r.top || e.bottom > r.bottom) dy = cy - (r.top + h * (mode === 'third' ? 0.3 : 0.42));
+            } else if (e.height > r.bottom - r.top - 2 * mb || e.top < r.top + mt) dy = e.top - (r.top + mt);
+            else if (e.bottom > r.bottom - mb) dy = e.bottom - (r.bottom - mb);
+          }
+          const left = Math.max(0, Math.min(sc.scrollLeft + dx, sc.scrollWidth - sc.clientWidth));
+          const top = Math.max(0, Math.min(sc.scrollTop + dy, sc.scrollHeight - sc.clientHeight));
+          const m = await animate(sc, left, top);
+          total = { dx: total.dx + m.dx, dy: total.dy + m.dy };
+        }
+        return total;
+      },
+      { topSafe: 40 / this.zoom, bottomSafe: 24 / this.zoom, margin: 24, mode, speed: this.zoom * 0.9 },
+    );
+    if (Math.abs(moved.dx) < 1 && Math.abs(moved.dy) < 1) return;
+    await this.wait_(150);
+    const ev: ChapterEvent = { type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved.dy * this.zoom) };
+    if (Math.round(moved.dx * this.zoom) !== 0) ev.dx = Math.round(moved.dx * this.zoom);
+    this.events.push(ev);
   }
 
   private toVideo(p: Point): Point {
@@ -1063,31 +1303,34 @@ export class Chapter {
     if (!inside) await this.moveTo(p);
   }
 
-  /** dy 是 CSS px；捲動時長照畫面上移動的距離（影片像素）算。 */
-  private async smoothScroll(dy: number): Promise<void> {
-    if (Math.abs(dy) < 4) return;
-    const ms = Math.round(Math.min(1400, Math.max(500, Math.abs(dy) * this.zoom * 0.9)));
+  /** dx、dy 是 CSS px；within 指定捲動容器（不給就是整頁）；捲動時長照畫面上移動的距離（影片像素）算。 */
+  private async smoothScroll(dx: number, dy: number, within?: Locator): Promise<void> {
+    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    const ms = Math.round(Math.min(1400, Math.max(500, Math.max(Math.abs(dx), Math.abs(dy)) * this.zoom * 0.9)));
     const startMs = this.now();
-    const moved = await this.page.evaluate(
-      ({ dy, ms }) =>
-        new Promise<number>((resolve) => {
-          const el = document.scrollingElement ?? document.documentElement;
-          const y0 = el.scrollTop;
-          const target = Math.max(0, Math.min(y0 + dy, el.scrollHeight - el.clientHeight));
-          const t0 = performance.now();
-          const ease = (u: number) => (1 - Math.cos(Math.PI * u)) / 2;
-          const f = (now: number) => {
-            const u = Math.min(1, (now - t0) / ms);
-            el.scrollTo({ top: y0 + (target - y0) * ease(u), behavior: 'instant' });
-            if (u < 1) requestAnimationFrame(f);
-            else resolve(el.scrollTop - y0);
-          };
-          requestAnimationFrame(f);
-        }),
-      { dy, ms },
-    );
+    const fn = (el: Element, { dx, dy, ms }: { dx: number; dy: number; ms: number }) =>
+      new Promise<{ dx: number; dy: number }>((resolve) => {
+        const x0 = el.scrollLeft;
+        const y0 = el.scrollTop;
+        const tx = Math.max(0, Math.min(x0 + dx, el.scrollWidth - el.clientWidth));
+        const ty = Math.max(0, Math.min(y0 + dy, el.scrollHeight - el.clientHeight));
+        const t0 = performance.now();
+        const ease = (u: number) => (1 - Math.cos(Math.PI * u)) / 2;
+        const f = (now: number) => {
+          const u = Math.min(1, (now - t0) / ms);
+          el.scrollTo({ left: x0 + (tx - x0) * ease(u), top: y0 + (ty - y0) * ease(u), behavior: 'instant' });
+          if (u < 1) requestAnimationFrame(f);
+          else resolve({ dx: el.scrollLeft - x0, dy: el.scrollTop - y0 });
+        };
+        requestAnimationFrame(f);
+      });
+    const moved = within
+      ? await within.evaluate(fn, { dx, dy, ms })
+      : await this.page.evaluate(({ dx, dy, ms, fn }) => new Function('return ' + fn)()(document.scrollingElement ?? document.documentElement, { dx, dy, ms }) as Promise<{ dx: number; dy: number }>, { dx, dy, ms, fn: fn.toString() });
     await this.wait_(150);
-    this.events.push({ type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved * this.zoom) });
+    const ev: ChapterEvent = { type: 'scroll', startMs, endMs: this.now(), dy: Math.round(moved.dy * this.zoom) };
+    if (Math.round(moved.dx * this.zoom) !== 0) ev.dx = Math.round(moved.dx * this.zoom);
+    this.events.push(ev);
   }
 
   /** 給測試與後製參考：時間 t 的游標位置。 */
@@ -1098,4 +1341,8 @@ export class Chapter {
 
 function eventTime(e: ChapterEvent): number {
   return 'atMs' in e ? e.atMs : e.startMs;
+}
+
+function isLocator(x: unknown): x is Locator {
+  return typeof x === 'object' && x != null && typeof (x as Locator).boundingBox === 'function' && typeof (x as Locator).evaluate === 'function';
 }

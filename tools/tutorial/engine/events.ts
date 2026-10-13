@@ -33,8 +33,26 @@ export type ChapterEvent =
   | { type: 'type'; startMs: number; endMs: number; text: string }
   | { type: 'select'; atMs: number; value: string }
   | { type: 'upload'; atMs: number; file: string }
-  | { type: 'scroll'; startMs: number; endMs: number; dy: number }
+  | { type: 'scroll'; startMs: number; endMs: number; dy: number; dx?: number }
+  | { type: 'press'; atMs: number; key: string }
   | { type: 'url'; atMs: number; url: string };
+
+/** 按鍵提示在畫面上停留多久。 */
+export const PRESS_HINT_MS = 800;
+
+const KEY_LABEL: Record<string, string> = {
+  Enter: '⏎ Enter', Escape: 'Esc', Tab: '⇥ Tab', Backspace: '⌫ Backspace', Delete: '⌦ Delete', Space: '␣ Space', ' ': '␣ Space',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
+  Meta: '⌘', Control: 'Ctrl', Alt: '⌥', Shift: '⇧', ControlOrMeta: '⌘',
+};
+
+/** Playwright 的按鍵名（例如 Enter、Control+A、Meta+K）→ 畫面上的鍵帽字（⏎ Enter、Ctrl A、⌘ K）。 */
+export function keyLabel(key: string): string {
+  return key
+    .split('+')
+    .map((k) => KEY_LABEL[k] ?? (k.length === 1 ? k.toUpperCase() : k))
+    .join(' ');
+}
 
 export type ChapterEvents = {
   version: 1;
@@ -43,7 +61,8 @@ export type ChapterEvents = {
   chapter: string;
   number?: number;
   subtitle?: string;
-  output: { width: number; height: number; chromeHeight: number };
+  /** captionHeight：下方字幕帶（頁面區在網址列與字幕帶之間）；舊資料沒有這欄，字幕改畫在頁面上。 */
+  output: { width: number; height: number; chromeHeight: number; captionHeight?: number };
   page: { width: number; height: number; zoom: number };
   /** captureLatencyMs：開頭校正量到的「畫面內容 → 截圖」延遲，影格時間已扣掉。 */
   clip: { file: string; durationMs: number; fps: number; captureLatencyMs: number };

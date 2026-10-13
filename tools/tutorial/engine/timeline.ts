@@ -1,12 +1,14 @@
 // 後製時間軸：純函式。把 events.json 換成「輸出影片時間」上的疊加片段與游標動畫。
 
 import { cursorAt, type Move, type Point } from './cursor.ts';
-import type { ChapterEvents, Status } from './events.ts';
+import { keyLabel, PRESS_HINT_MS, type ChapterEvents, type Status } from './events.ts';
 
 export type OverlayState = {
   /** overlaySegments 只放畫面用得到的 kind 與 say（evidence 不進疊加層，也不會讓片段多切一刀）。 */
   step?: { index: number; caption: string; status?: Status };
   url?: string;
+  /** 正在顯示的按鍵提示（鍵帽字），按下後停留 PRESS_HINT_MS。 */
+  press?: string;
 };
 
 export type Segment = { startMs: number; endMs: number; state: OverlayState };
@@ -16,6 +18,8 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
   const cuts = new Set<number>([0, ev.clip.durationMs]);
   for (const s of ev.steps) cuts.add(s.startMs).add(s.endMs);
   for (const e of ev.events) if (e.type === 'url') cuts.add(e.atMs);
+  const presses = ev.events.filter((e) => e.type === 'press');
+  for (const e of presses) cuts.add(e.atMs).add(Math.min(ev.clip.durationMs, e.atMs + PRESS_HINT_MS));
   const times = [...cuts].filter((t) => t >= 0 && t <= ev.clip.durationMs).sort((a, b) => a - b);
   const urls = ev.events.filter((e) => e.type === 'url');
   const segs: Segment[] = [];
@@ -24,9 +28,11 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
     if (b <= a) continue;
     const s = ev.steps.find((x) => x.startMs <= a && a < x.endMs);
     const u = [...urls].reverse().find((x) => x.atMs <= a) ?? urls[0];
+    const p = [...presses].reverse().find((x) => x.atMs <= a && a < x.atMs + PRESS_HINT_MS);
     const state: OverlayState = {
       step: s ? { index: s.index, caption: s.caption, status: s.status ? { kind: s.status.kind, ...(s.status.say ? { say: s.status.say } : {}) } : undefined } : undefined,
       url: u ? displayUrl(u.url, ev.displayOrigin) : undefined,
+      ...(p ? { press: keyLabel(p.key) } : {}),
     };
     const prev = segs.at(-1);
     if (prev && JSON.stringify(prev.state) === JSON.stringify(state)) prev.endMs = b;

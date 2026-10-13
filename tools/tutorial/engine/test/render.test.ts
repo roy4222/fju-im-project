@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { normalizeStatus, SAY_MAX_CHARS, statusLabel, statusSay, type ChapterEvents } from '../events.ts';
+import { keyLabel, normalizeStatus, PRESS_HINT_MS, SAY_MAX_CHARS, statusLabel, statusSay, type ChapterEvents } from '../events.ts';
 import { overlayHtml } from '../overlay.ts';
 import { renderChapter } from '../render.ts';
 import { cursorAss, displayUrl, overlaySegments } from '../timeline.ts';
@@ -16,8 +16,8 @@ function fixture(): ChapterEvents {
     version: 1,
     chapter: '學生｜繳交作業',
     number: 3,
-    output: { width: 1920, height: 1080, chromeHeight: 80 },
-    page: { width: 1920, height: 1000, zoom: 1 },
+    output: { width: 1920, height: 1080, chromeHeight: 80, captionHeight: 120 },
+    page: { width: 1920, height: 880, zoom: 1 },
     clip: { file: 'clip.mp4', durationMs: 4000, fps: 30, captureLatencyMs: 0 },
     displayOrigin: 'test.fju.roy422.dev',
     cursorStart: { x: 960, y: 450 },
@@ -50,7 +50,7 @@ test('狀態標記白話：ok →「✅ 正常」、pending →「🟡 等你決
   assert.deepEqual(normalizeStatus('pending'), { kind: 'pending' });
   assert.equal(normalizeStatus(undefined, '沒狀態也沒用'), undefined);
   // 疊加層：只顯示圖示＋白話，依據（evidence／note）不出現
-  const size = { width: 1920, height: 1080, chromeHeight: 80 };
+  const size = { width: 1920, height: 1080, chromeHeight: 80, captionHeight: 120 };
   const html = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'ok', evidence: 'story-2 第 43 步' } }, url: 'x' }, size);
   assert.ok(html.includes('✅') && html.includes('正常') && !html.includes('story-2'), html);
   const legacy = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'warn', note: '舊寫法的依據' } }, url: 'x' }, size);
@@ -78,6 +78,22 @@ test('overlaySegments：步驟或網址一變就切，沒步驟的空檔只有�
   );
 });
 
+test('press：鍵帽字；overlaySegments 在按鍵後 0.8 秒內多一個帶按鍵提示的片段；畫在字幕帶裡', () => {
+  assert.equal(keyLabel('Enter'), '⏎ Enter');
+  assert.equal(keyLabel('Escape'), 'Esc');
+  assert.equal(keyLabel('Control+A'), 'Ctrl A');
+  assert.equal(keyLabel('Meta+K'), '⌘ K');
+  assert.equal(keyLabel('Shift+Tab'), '⇧ ⇥ Tab');
+  const ev = fixture();
+  ev.events.push({ type: 'press', atMs: 2000, key: 'Enter' });
+  const segs = overlaySegments(ev);
+  const withPress = segs.filter((s) => s.state.press);
+  assert.deepEqual(withPress.map((s) => [s.startMs, s.endMs, s.state.press]), [[2000, 2500, '⏎ Enter'], [2500, 2000 + PRESS_HINT_MS, '⏎ Enter']]);
+  assert.ok(segs.every((s) => s.state.press || s.startMs >= 2000 + PRESS_HINT_MS || s.endMs <= 2000));
+  const html = overlayHtml(withPress[0].state, ev.output);
+  assert.ok(html.includes('⏎ Enter'), html);
+});
+
 test('cursorAss：游標事件連續覆蓋整段 clip，座標含網址列位移', () => {
   const ass = cursorAss(fixture(), 2500);
   const cursorLines = ass.split('\n').filter((l) => l.startsWith('Dialogue: 2,'));
@@ -94,7 +110,7 @@ test('render：標題卡、網址列、字幕條、狀態標記、游標與波�
   try {
     const ev = fixture();
     mkdirSync(join(dir, 'audio'));
-    execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=0xEEF2F7:s=1920x1000:r=30:d=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'clip.mp4')]);
+    execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=0xEEF2F7:s=1920x880:r=30:d=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'clip.mp4')]);
     execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=f=440:d=1', '-ar', '48000', '-ac', '1', join(dir, 'audio', 'a.wav')]);
     writeFileSync(join(dir, 'events.json'), JSON.stringify(ev));
     const { file, meta } = await renderChapter({ dir, titleMs: 2500 });
@@ -122,10 +138,14 @@ test('render：標題卡、網址列、字幕條、狀態標記、游標與波�
     const f = rgbAt(4.2);
     const tip = px(f, 404, 392);
     assert.ok(tip.every((c) => c > 230), `cursor body ${tip}`);
-    // 網址列在上方 80px、字幕條在下方
+    // 網址列在上方 80px、字幕帶在下方 120px（深色），頁面區 80～960 完整露出：底邊上一列仍是頁面的顏色
     assert.ok(px(f, 10, 40).every((c) => c > 200 && c < 245), `chrome ${px(f, 10, 40)}`);
-    const capY = 1080 - 44 - 50;
-    assert.ok(px(f, 960, capY).every((c) => c < 60), `caption ${px(f, 960, capY)}`);
+    assert.ok(px(f, 30, 1080 - 60).every((c) => c < 60) && px(f, 100, 1080 - 110).every((c) => c < 60), `caption band ${px(f, 30, 1020)} ${px(f, 100, 970)}`);
+    // 字幕文字（白）真的在帶子裡：帶子中線上有亮像素
+    assert.ok(Array.from({ length: 40 }, (_, i) => px(f, 700 + i * 12, 1020)).some((c) => c.every((v) => v > 200)), '字幕帶中線應有白色字');
+    for (const [x, y] of [[960, 957], [100, 957], [1800, 900], [960, 82]] as const) {
+      assert.ok(px(f, x, y).every((c, i) => Math.abs(c - [0xee, 0xf2, 0xf7][i]) < 10), `頁面區 (${x},${y}) 被蓋住了：${px(f, x, y)}`);
+    }
 
     // 3.95 秒（點擊後 150 ms）：波紋以點擊點為圓心，左右對稱
     const r = rgbAt(3.95);
