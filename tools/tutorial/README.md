@@ -18,30 +18,58 @@ pnpm -C tools/tutorial exec playwright install chromium
 >
 > **網頁放大 1.5 倍**：視窗內容區是 CSS 1280×667，用 `--force-device-scale-factor=1.5` 以實際 1920×1000 像素渲染，網頁正文 15px 在 1080p 裡約 22px（手機、筆電上也看得清楚），版面仍是桌機版。影格用 CDP 連續截圖取得（Mac mini 上每秒約 30～38 張）。不用 Playwright 的 `deviceScaleFactor` 模擬：模擬時 screencast 與截圖都只給 CSS 大小的影格；另開 session 設裝置參數雖能截到 1920 寬，滑鼠座標卻會被多除一次 1.5。所以分頁一定要用 `launchTutorialBrowser()`＋`newTutorialPage()` 開（`startChapter` 偵測到 viewport 模擬會直接報錯）。
 
-## 寫一章劇本
+## 寫一段劇本
 
 ```ts
-import { launchTutorialBrowser, newTutorialPage, renderChapter, startChapter } from '../engine/index.ts';
+import { launchTutorialBrowser, newTutorialPage, renderChapter, startChapter, type Chapter } from '../engine/index.ts';
 
 const browser = await launchTutorialBrowser();
-const page = await newTutorialPage(browser);
-const t = await startChapter({ page, outDir: 'out/03-student', chapter: '學生｜繳交作業', number: 3, baseURL: 'http://localhost:3000', displayOrigin: 'test.fju.roy422.dev' });
-await t.offRecord(() => loginAs(page, 'student'));          // 不進影片：登入、準備資料（自己的輔助函式）
-await t.step({ caption: '打開作業頁', narration: '登入後，從左側選單進入專題事務的作業頁。', status: 'warn', note: '截止提醒尚未實作' }, async () => {
-  await t.click(page.getByRole('link', { name: '作業' }));
-  await t.upload(page.locator('input[type=file]'), 'fixtures/report.pdf', { via: page.getByRole('button', { name: '選擇檔案' }) });
-});
-await t.finish(); await browser.close();
-await renderChapter({ dir: 'out/03-student' });              // → out/03-student/chapter.mp4
+let chapter: Chapter | undefined;
+try {
+  const page = await newTutorialPage(browser);
+  const t = (chapter = await startChapter({ page, id: '3-3', chapter: '學生｜繳交作業', baseURL: 'http://localhost:3000', displayOrigin: 'test.fju.roy422.dev' }));
+  await t.offRecord(() => loginAs(page, 'student'));          // 不進影片：登入、準備資料（環境提供的輔助函式）
+  await t.step({ caption: '打開作業頁', narration: '登入後，從左側選單進入專題事務的作業頁。', status: 'warn', note: '截止提醒尚未實作' }, async () => {
+    await t.click(page.getByRole('link', { name: '作業' }));  // 換頁會自動等新頁穩定（不進影片）
+    await t.upload(page.locator('input[type=file]'), 'fixtures/report.pdf', { via: page.getByRole('button', { name: '選擇檔案' }) });
+  });
+  await t.finish();
+} finally {
+  await chapter?.dispose();   // 失敗也要清：停止截圖、歸還錄影名額、留下 FAILED.txt
+  await browser.close();
+}
+await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>/chapter.mp4
 ```
+
+## 錄影實作者須知
+
+1. **一律用 `launchTutorialBrowser()`＋`newTutorialPage(browser)` 開分頁**。它們設好 1.5 倍放大（CSS 1280×667 → 1920×1000 實際像素）、繁中、台北時區。自己 `chromium.launch()` 或 `browser.newPage({ viewport })` 會得到 CSS 大小的模糊影格，`startChapter` 會直接報錯。錄影時會開一個 Chromium 視窗，不要動它、不要蓋住它。
+2. **每段一個獨立 run 目錄**。`startChapter` 不給 `outDir` 時自動建 `~/work/tutorial-out/runs/<段編號>-<章名>-<時間>-<亂碼>/`（印在 `t.outDir`）；給 `outDir` 的話它必須還不存在，已存在就立刻拒絕（不會覆蓋別人的錄影）。錄影中目錄裡有 `.recording`；失敗會留下 `FAILED.txt`，這兩種目錄 `render` 都會拒絕。`id` 填分鏡的段編號（`1-3`、`5A-2`），feature-table 的「章節與步驟」靠它對時間。
+3. **錄影名額：同一台機器同時最多 2 路在錄**（主腦定案；名額鎖在 `~/work/tutorial-out/.record-slots/`）。第 3 路起在 `startChapter` 排隊並印「等待錄影名額…」，前面有人錄完（`finish` 或 `dispose`）就自動開始。只有錄影佔名額，`render`／`assemble` 不佔，可以隨時跑。程序異常結束留下的鎖，下一個人會自動回收。
+4. **一定要 `try … finally { await chapter?.dispose(); await browser.close(); }`**。分頁被關、當掉、截圖卡住都會讓錄影中止：之後的每個動作立刻丟出原因，`dispose` 停止截圖並歸還名額，程序才能退出。
+5. **`waitStable`**：`t.goto()` 與「點擊後換頁」會自動等新頁穩定（網路安靜、畫面內圖片與字型載完、連續兩張截圖一樣），而且等的過程**不進影片**——影片從「點下去」直接切到載好的新頁，不會出現灰色未載入圖。換頁以外的情況（例如打開對話框、篩選後清單重排）自己呼叫：`await t.waitStable({ ready: '送出成功' })`，`ready` 可以是 Locator 或畫面上的一段字；要不進影片加 `offRecord: true`。等太久（預設 30 秒）會在指令列與 `events.json` 警告。
+6. **`offRecord` 做準備動作**：登入、補資料、切換身分、設定模擬時鐘等觀眾不需要看的事，包在 `t.offRecord(async () => { … })` 裡。期間的畫面不進影片，結束後直接切到當下畫面。密碼用 `t.type(locator, pw, { secret: true })` 或在 `offRecord` 裡打，`events.json` 不會留下原文。
+7. **截圖品質**：`events.json` 的 `quality` 記整段與每一步的截圖張數／秒與最大間隔。超過 50 ms 或平均低於 25 張／秒會警告並標 `ok: false`；錄影中（非暫停）兩張截圖間隔超過 100 ms 而且不是網頁自己造成的（long task、換頁、剛點擊後的更新會記在 `quality.pageJank`）就中止，訊息會寫在哪一步、哪個網址，重錄那一段即可。
+8. **怎麼抽格自查**：錄完先看指令列有沒有「注意」，再看幾張畫面：
+
+   ```sh
+   D=~/work/tutorial-out/runs/<run 目錄>
+   jq '.quality | {ok, fps, maxGapMs, warnings}' $D/events.json           # 品質與警告
+   jq -c '.events[] | select(.type=="url" or .type=="click")' $D/events.json  # 換頁與點擊的時間（ms）
+   ffmpeg -v error -ss 12.5 -i $D/chapter.mp4 -frames:v 1 /tmp/check.png    # 成品第 12.5 秒（成品＝clip 時間＋2.5 秒標題卡）
+   ```
+
+   重點看：換頁後第一格圖片有沒有載好、游標與波紋是不是在按鈕上、字幕有沒有蓋住要點的東西、右上角狀態標記對不對。
 
 ### `startChapter(options)`
 
 | 選項 | 說明 |
 |---|---|
 | `page` | `newTutorialPage(browser)` 開的分頁（CSS 1280×667 ×1.5 ＝ 影片頁面區 1920×1000，上方留 80px 給假網址列）。 |
+| `id` | 分鏡的段編號（`3-3`、`5A-2`）；標題卡顯示「`id`｜章名第一段」。舊寫法 `number` 等同 `id`。 |
+| `outDir`／`outRoot` | 見「錄影實作者須知」2：預設在 `outRoot`（`~/work/tutorial-out/runs`）下自動建新的 run 目錄。 |
 | `outDir` | 這一章的輸出資料夾。 |
-| `chapter`、`number`、`subtitle` | 標題卡顯示「`number`｜`chapter` 第一段」＋副標（預設取 `｜` 之後）。章節全名是 `3｜學生｜繳交作業`。 |
+| `chapter`、`subtitle` | 章名與標題卡副標（預設取 `｜` 之後）。章節全名是 `3-3｜學生｜繳交作業`。 |
 | `baseURL` | `t.goto('/x')` 的基準。 |
 | `displayOrigin` | 假網址列顯示的主機（本機錄影時填 `test.fju.roy422.dev`）。 |
 | `tts` | 配音 provider，預設 `sayProvider({ voice: 'Meijia', rate: 190 })`。 |
@@ -57,13 +85,16 @@ await renderChapter({ dir: 'out/03-student' });              // → out/03-stude
 
 | 動作 | 行為 |
 |---|---|
-| `t.click(locator)` | 目標不在安全區（網址列下、字幕條上）就先平滑捲動；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按，畫面出現橘色波紋。 |
+| `t.click(locator)` | 目標不在安全區（網址列下、字幕條上）就先平滑捲動；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。點的是連結或觸發換頁時，網址一變就暫停計時、等新頁穩定再繼續（`t.click(loc, false)` 不等）。 |
 | `t.type(locator, text, { secret })` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。`secret: true` 時 events.json 只記遮罩。 |
 | `t.select(locator, value)` | 原生下拉：游標移過去＋波紋，直接選值（原生彈出層錄不到）。自訂下拉請用兩次 `t.click`。 |
 | `t.upload(locator, file, { via })` | file input 多半隱藏，`via` 指定游標要點的按鈕。 |
 | `t.scroll(px \| locator)` | 平滑捲動（數字是網頁 CSS px）；給 locator 會把它捲到畫面上方三分之一。 |
-| `t.hover(locator)`、`t.wait(ms)`、`t.goto(path)` | 移過去不點／停一下／換頁（等到 load＋最多 3 秒 networkidle）。 |
-| `t.offRecord(fn)` | `fn` 期間的畫面不進影片，結束後直接切到當下畫面。開頭先 `t.offRecord(() => t.goto('/'))` 可以略過白畫面載入。 |
+| `t.hover(locator)`、`t.wait(ms)` | 移過去不點／停一下。 |
+| `t.goto(path)` | 換頁；換頁與等穩定都不進影片（`t.goto(path, false)` 則照錄、不等）。 |
+| `t.waitStable(opts)` | 見「錄影實作者須知」5。 |
+| `t.offRecord(fn)` | `fn` 期間的畫面不進影片，結束後直接切到當下畫面。 |
+| `t.dispose()` | 收尾清理（可重複呼叫）；放在 `finally`。 |
 
 找不到元素時 5 秒內失敗，錯誤訊息帶步驟字幕；目標捲不出字幕條範圍會在指令列警告。
 
@@ -82,8 +113,9 @@ node engine/cli.ts assemble --out out/final --features feature-table.md out/01-v
 
 - `final.mp4`：影像直接接、聲音重新編一次（避免章節交界的 AAC 空隙）；章節起點照**實際檔案長度**排。
 - `youtube-description.txt`：貼到 YouTube 說明欄。開頭 `{{INTRO}}`（簡介，之後填）＋圖例（✅⚠️❌🟡 各一句）＋章節時間軸：**每段一行**，例如 `3:12 學生｜繳交作業：上傳檔案、送出、看版本、補交`，冒號後是 feature-table「功能」欄裡指到這一章的功能（依影片時間排、頓號接、超過 90 字截斷加「…」；沒有功能表就用步驟字幕）。第一行 `0:00`、時間碼遞增、不足 10 秒的段併到相鄰段，總字數 < 4500（超過會再縮短每段清單）。**不放每一步的時間碼**，否則 YouTube 不顯示章節列。少於 3 段會在指令列警告。
+- `feature-table.timed.md`：feature-table 有「時間碼」欄時，另存一份填好時間碼的版本（每列取第一個對得到的時間）。
 - `feature-timeline.md`：每個 F 編號一行，時間碼＋`https://youtu.be/{{VIDEO_ID}}?t=<秒>` 連結（上傳後把 `{{VIDEO_ID}}` 換掉）；影片裡沒示範的列會標出來。
-- `index.html`：左邊影片、右邊章節／步驟與功能清單，點時間碼就跳過去。功能清單讀 `feature-table.md` 的 Markdown 表格，「章節與步驟」欄接受 `3-2`、`3.2`、`3｜2`、`第 3 章步驟 2`、`3`（整章）與用頓號分隔的多筆；對不到影片的列會警告。
+- `index.html`：左邊影片、右邊章節／步驟與功能清單，點時間碼就跳過去。功能清單讀 `feature-table.md` 的 Markdown 表格，只認表頭含「編號」「功能」「章節與步驟」的表格（圖例之類的表格略過；可以分好幾塊、表頭要一樣），儲存格裡的直線寫 `\|`，欄數跟表頭不一樣會報錯並指出第幾行。「章節與步驟」接受 `1-1-3`（段 1-1 第 3 步）、`5A-2-2～4`（範圍）、`3-2`（先找 3-2 這段，沒有就當第 3 段第 2 步）、`4`（整段）、`第 3 章步驟 2`、用頓號分隔的多筆，括號裡的備註忽略；對不到影片的列會警告。
 - `timeline.json`：每章起點與步驟時間（機器讀）。
 
 ## 錄影輸出 `events.json`
@@ -92,8 +124,9 @@ node engine/cli.ts assemble --out out/final --features feature-table.md out/01-v
 
 ```jsonc
 {
-  "chapter": "學生｜繳交作業", "number": 3,
+  "id": "3-3", "chapter": "學生｜繳交作業",
   "clip": { "file": "clip.mp4", "durationMs": 55400, "fps": 30, "captureLatencyMs": 10 },
+  "quality": { "ok": true, "fps": 34.1, "maxGapMs": 37, "p95GapMs": 31, "steps": [ … ], "pageJank": [], "warnings": [] },
   "steps": [{ "index": 1, "caption": "…", "narration": "…", "status": { "kind": "warn", "note": "…" },
               "startMs": 0, "endMs": 9288, "audio": { "file": "audio/step-01.wav", "startMs": 250, "durationMs": 8436 } }],
   "events": [{ "type": "move", "startMs": 300, "endMs": 1100, "from": {…}, "to": {…} },
@@ -114,14 +147,20 @@ pnpm -C tools/tutorial typecheck
 ```
 
 - `cursor.test.ts`：每段 600～900 ms、逐格速度不超過上限、緩動起訖。
-- `recorder.test.ts`：頁面每格畫出章節時間的二進位條碼，從 `clip.mp4` 逐格解碼 → 每個新數值第一次出現的影片時間與它的章節時間差 ≤ 50 ms（1.5 倍放大下實測中位數約 7 ms、最大約 16～21 ms），點擊事件與按鈕變色的第一格差 ≤ 50 ms，點擊座標換算正確、clip 是 1920×1000 實際像素，步驟長度 ≥ 配音＋0.6 秒（含一次中途暫停）。
+- `recorder.test.ts`：
+  - 頁面每格畫出章節時間的二進位條碼，從 `clip.mp4` **逐格（含重複格）**解碼：每一格的影片時間與畫面內容的章節時間差 ≤ 50 ms（實測中位數約 8 ms、最大約 19 ms）；點擊事件與 `onclick` 讓按鈕變色的第一格差 ≤ 50 ms；點擊座標換算正確、clip 是 1920×1000；步驟長度 ≥ 配音＋0.6 秒；`events.json` 有截圖品質。
+  - **兩路同時錄影**（兩個獨立程序，跟實際一樣；`test/barcode-recording.ts`）：各自逐格誤差 ≤ 50 ms（實測最大約 17～24 ms）、每秒約 34 張、截圖品質合格。
+  - 錄影中分頁被關：動作立刻報錯、名額歸還、留下 `FAILED.txt`；輸出目錄已存在就拒絕。
+  - `waitStable`：goto 與點連結換頁到「800 ms 才回應的圖」，影片每一格都是載好的圖。
+  - 截圖空檔：網頁自己卡 250 ms 只標記；錄影程序卡 300 ms（截圖跟不上）中止並報錯。
+- `runs.test.ts`：run 目錄原子建立與撞名拒絕；錄影名額最多 2 路、第 3 路排隊印「等待錄影名額」、程序已結束的鎖會回收。
 - `render.test.ts`：合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、字幕條、游標位置、波紋圓心與配音音量。
-- `assemble.test.ts`：說明欄的 YouTube 規則（第一行 0:00、時間碼遞增、間隔 ≥ 10 秒、總字數上限、90 字截斷、短段合併）、功能時間軸連結、功能表解析與 index.html 時間碼。
+- `assemble.test.ts`：說明欄的 YouTube 規則（第一行 0:00、時間碼遞增、間隔 ≥ 10 秒、最後一個時間碼到片尾 ≥ 10 秒、總字數上限、90 字截斷、短段合併）、功能時間軸連結、功能表解析（必要表頭、`\|`、欄數不符報錯、段編號與範圍）、時間碼回填與 index.html 時間碼。
 
 ## 格式樣片
 
 ```sh
-node engine/samples/visitor-sample.ts [輸出資料夾]   # 預設 ~/work/tutorial-out → sample-visitor.mp4
+node engine/samples/visitor-sample.ts [輸出上層]   # 預設 ~/work/tutorial-out：錄在 runs/ 下的新目錄，成品複製到 sample-visitor.mp4
 ```
 
 只讀 https://test.fju.roy422.dev 的公開頁（`/`、`/news`、`/projects/featured`、`/honors`），不登入、不輸入、不送出表單。

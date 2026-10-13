@@ -51,12 +51,11 @@ type Segment = { startMs: number; endMs: number; names: string[]; items: string[
 const cut = (s: string, max: number) => ([...s].length <= max ? s : max <= 0 ? '' : `${[...s].slice(0, max).join('')}…`);
 
 /** 一章涵蓋的功能名稱：feature-table 裡指到這章的列（依影片時間排），沒有就用步驟字幕。 */
-function chapterItems(c: PlacedChapter, features: ReturnType<typeof parseFeatureTable> | null): string[] {
-  const fnCol = features?.headers.find((h) => h.includes('功能')) ?? '';
+function chapterItems(c: PlacedChapter, features: FeatureTable | null): string[] {
+  const fnCol = (features && headerOf(features.headers, /功能/)) ?? '';
   const hits: { t: number; order: number; name: string }[] = [];
   features?.rows.forEach((r, order) => {
     for (const ref of r.refs) {
-      if (ref.chapter !== c.number) continue;
       const t = refTime([c], ref);
       if (t != null && r.cells[fnCol]) hits.push({ t, order, name: r.cells[fnCol] });
     }
@@ -70,7 +69,7 @@ function chapterItems(c: PlacedChapter, features: ReturnType<typeof parseFeature
  * YouTube 說明欄：簡介佔位＋圖例＋章節時間軸（每段一行，冒號後是這段涵蓋的功能）。
  * YouTube 規則：第一行 0:00、時間碼遞增、每段 ≥ 10 秒；不放每一步的時間碼（會讓章節列消失）。
  */
-export function youtubeDescription(placed: readonly PlacedChapter[], features: ReturnType<typeof parseFeatureTable> | null): { text: string; warnings: string[] } {
+export function youtubeDescription(placed: readonly PlacedChapter[], features: FeatureTable | null): { text: string; warnings: string[] } {
   const warnings: string[] = [];
   let segs: Segment[] = placed.map((c, i) => ({
     startMs: c.offsetMs,
@@ -122,13 +121,13 @@ export function youtubeDescription(placed: readonly PlacedChapter[], features: R
 }
 
 /** 每個 F 編號一行：時間碼＋youtu.be 連結（上傳後把 {{VIDEO_ID}} 換成影片 ID）。 */
-export function featureTimeline(placed: readonly PlacedChapter[], features: ReturnType<typeof parseFeatureTable> | null): string {
+export function featureTimeline(placed: readonly PlacedChapter[], features: FeatureTable | null): string {
   const link = (ms: number) => `[${timecode(ms)}](https://youtu.be/{{VIDEO_ID}}?t=${Math.floor(ms / 1000)})`;
   const out = ['# 功能時間軸', '', '上傳後把 `{{VIDEO_ID}}` 換成 YouTube 影片 ID。', ''];
   if (features && features.rows.length) {
     const h = features.headers;
-    const col = (re: RegExp) => h.find((x) => re.test(x) && !x.includes('章節'));
-    const [idCol, roleCol, modCol, fnCol, stCol] = [col(/F/), col(/角色/), col(/模組/), col(/功能/), col(/狀態/)];
+    const col = (re: RegExp) => headerOf(h, re, /章節|時間碼/);
+    const [idCol, roleCol, modCol, fnCol, stCol] = [col(/編號/), col(/角色/), col(/模組/), col(/功能/), col(/狀態/)];
     for (const r of features.rows) {
       const name = [idCol, roleCol, modCol, fnCol].map((c) => (c ? r.cells[c] : '')).filter(Boolean).join('｜');
       const st = stCol && r.cells[stCol] ? ` ${r.cells[stCol]}` : '';
@@ -144,57 +143,151 @@ export function featureTimeline(placed: readonly PlacedChapter[], features: Retu
 
 // ── feature-table.md ─────────────────────────────────
 
-export type FeatureRow = { cells: Record<string, string>; refs: { chapter: number; step?: number }[] };
+/** 「章節與步驟」的一個參照：段編號（例如 1-1、5A-2）＋步驟；兩段式（3-2）另記 whole 以便優先當段編號。 */
+export type FeatureRef = { section: string; step?: number; whole?: string };
+export type FeatureRow = { line: number; cells: Record<string, string>; refs: FeatureRef[] };
+export type FeatureTable = { headers: string[]; rows: FeatureRow[] };
+
+/** 功能表必要的表頭（含這些字的欄）；其他表格（例如圖例）略過。 */
+const REQUIRED_HEADERS: [string, RegExp][] = [
+  ['編號', /編號/],
+  ['功能', /功能/],
+  ['章節與步驟', /章節/],
+];
+
+export const headerOf = (headers: readonly string[], re: RegExp, not?: RegExp) => headers.find((h) => re.test(h) && !(not && not.test(h)));
+
+/** 拆一列 Markdown 表格：`\|` 是儲存格裡的直線，不是分欄。 */
+export function splitRow(line: string): string[] {
+  const t = line.trim().replace(/^\|/, '');
+  const cells: string[] = [];
+  let cur = '';
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '\\' && t[i + 1] === '|') {
+      cur += '|';
+      i++;
+    } else if (t[i] === '|') {
+      cells.push(cur.trim());
+      cur = '';
+    } else cur += t[i];
+  }
+  if (cur.trim()) cells.push(cur.trim());
+  return cells;
+}
 
 /**
- * 讀 Markdown 表格。欄名照架構師的表（F 編號、角色、模組、功能、章節與步驟、狀態、依據、備註、Roy），
- * 「章節與步驟」接受 3-2、3.2、3｜2、第 3 章步驟 2、3（只有章）與用頓號／逗號分隔的多筆。
+ * 讀 feature-table.md：只認表頭含「編號」「功能」「章節與步驟」的表格（可以分好幾塊、表頭要一樣），
+ * 每列欄數必須跟表頭一樣，不一樣就報錯並指出第幾行。
  */
-export function parseFeatureTable(md: string): { headers: string[]; rows: FeatureRow[] } {
-  const tableLines = md.split('\n').filter((l) => /^\s*\|.*\|\s*$/.test(l));
-  if (tableLines.length < 2) return { headers: [], rows: [] };
-  const split = (l: string) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-  const headers = split(tableLines[0]);
-  const refCol = headers.find((h) => h.includes('章節')) ?? '';
+export function parseFeatureTable(md: string): FeatureTable {
+  const lines = md.split('\n');
+  let headers: string[] | null = null;
   const rows: FeatureRow[] = [];
-  for (const l of tableLines.slice(1)) {
-    const cells = split(l);
-    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
-    const rec: Record<string, string> = {};
-    headers.forEach((h, i) => (rec[h] = cells[i] ?? ''));
-    rows.push({ cells: rec, refs: parseRefs(rec[refCol] ?? '') });
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*\|/.test(lines[i])) continue;
+    // 一塊表格：連續的 | 開頭行
+    const start = i;
+    while (i + 1 < lines.length && /^\s*\|/.test(lines[i + 1])) i++;
+    const block = lines.slice(start, i + 1);
+    const head = splitRow(block[0]);
+    const isSep = block.length > 1 && splitRow(block[1]).every((c) => /^:?-+:?$/.test(c));
+    if (!isSep || !REQUIRED_HEADERS.every(([, re]) => headerOf(head, re))) continue;
+    if (headers && headers.join('|') !== head.join('|')) {
+      throw new Error(`feature-table 第 ${start + 1} 行：這塊功能表的表頭跟前面不一樣（${head.join('｜')}）`);
+    }
+    headers = head;
+    const refCol = headerOf(head, /章節/)!;
+    block.slice(2).forEach((l, k) => {
+      const lineNo = start + 3 + k;
+      const cells = splitRow(l);
+      if (cells.length !== head.length) {
+        throw new Error(`feature-table 第 ${lineNo} 行有 ${cells.length} 欄，表頭有 ${head.length} 欄（儲存格裡的直線請寫成 \\|）：${l.trim()}`);
+      }
+      const rec: Record<string, string> = {};
+      head.forEach((h, j) => (rec[h] = cells[j]));
+      rows.push({ line: lineNo, cells: rec, refs: parseRefs(rec[refCol]) });
+    });
+  }
+  if (!headers) {
+    throw new Error(`feature-table 找不到功能表：需要一個表頭含「${REQUIRED_HEADERS.map(([n]) => n).join('」「')}」的 Markdown 表格`);
   }
   return { headers, rows };
 }
 
-export function parseRefs(s: string): { chapter: number; step?: number }[] {
-  const out: { chapter: number; step?: number }[] = [];
+/**
+ * 「章節與步驟」：1-1-3（段 1-1 第 3 步）、5A-2-2～4（範圍）、2-1-10、3-2（段 3-2 或第 3 段第 2 步）、
+ * 4（整段）、第 3 章步驟 2；多筆用頓號或逗號分隔；括號裡的備註（例如「5A-2-9（更多選單）」）忽略；「—」等非編號略過。
+ */
+export function parseRefs(s: string): FeatureRef[] {
+  const out: FeatureRef[] = [];
   for (const part of s.split(/[、,，;；/]+|\s{2,}/)) {
-    const p = part.trim();
+    const p = part.replace(/[（(][^）)]*[）)]/g, '').trim().replace(/\s+/g, ''); // 括號裡是備註
     if (!p) continue;
-    const pair = p.match(/(\d+)\s*(?:[-.．｜|:：]|章\s*(?:步驟|第)?)\s*(?:步驟\s*)?(\d+)/);
-    if (pair) out.push({ chapter: Number(pair[1]), step: Number(pair[2]) });
-    else {
-      const ch = p.match(/(\d+)/);
-      if (ch) out.push({ chapter: Number(ch[1]) });
+    const zh = p.match(/^第?(\w+)章(?:第)?步驟?(\d+)步?$/);
+    if (zh) {
+      out.push({ section: zh[1], step: Number(zh[2]) });
+      continue;
+    }
+    const m = p.match(/^([0-9A-Za-z]+(?:[-.．｜|][0-9A-Za-z]+)*?)(?:[～~〜](\d+))?$/);
+    if (!m || !/\d/.test(m[1])) continue;
+    const comps = m[1].split(/[-.．｜|]/);
+    const last = comps.at(-1)!;
+    if (comps.length === 1) {
+      out.push({ section: comps[0] });
+      continue;
+    }
+    if (!/^\d+$/.test(last)) {
+      out.push({ section: comps.join('-') });
+      continue;
+    }
+    const section = comps.slice(0, -1).join('-');
+    const from = Number(last);
+    const to = m[2] ? Number(m[2]) : from;
+    for (let k = from; k <= Math.max(from, to); k++) {
+      out.push(comps.length === 2 ? { section, step: k, whole: `${section}-${k}` } : { section, step: k });
     }
   }
   return out;
 }
 
-export function refTime(placed: readonly PlacedChapter[], ref: { chapter: number; step?: number }): number | undefined {
-  const c = placed.find((x) => x.number === ref.chapter);
+const placedId = (c: PlacedChapter) => c.id ?? (c.number != null ? String(c.number) : undefined);
+
+/** 參照在成品中的時間（ms）；對不到影片回傳 undefined。 */
+export function refTime(placed: readonly PlacedChapter[], ref: FeatureRef): number | undefined {
+  if (ref.whole) {
+    const seg = placed.find((x) => placedId(x) === ref.whole);
+    if (seg) return seg.offsetMs;
+  }
+  const c = placed.find((x) => placedId(x) === ref.section);
   if (!c) return undefined;
   if (ref.step == null) return c.offsetMs;
   const s = c.steps.find((x) => x.index === ref.step);
   return s ? c.offsetMs + s.startMs : undefined;
 }
 
+const refLabel = (r: FeatureRef) => (r.step == null ? r.section : `${r.section}-${r.step}`);
+
+/** feature-table 的「時間碼」欄填好的版本（每列取第一個對得到的時間）。 */
+export function timedFeatureTable(md: string, placed: readonly PlacedChapter[], table: FeatureTable): string {
+  const tcCol = headerOf(table.headers, /時間碼/);
+  if (!tcCol) return md;
+  const idx = table.headers.indexOf(tcCol);
+  const lines = md.split('\n');
+  for (const r of table.rows) {
+    const t = r.refs.map((ref) => refTime(placed, ref)).find((x) => x != null);
+    if (t == null) continue;
+    const cells = splitRow(lines[r.line - 1]);
+    cells[idx] = timecode(t);
+    lines[r.line - 1] = `| ${cells.map((c) => c.replace(/\|/g, '\\|')).join(' | ')} |`;
+  }
+  return lines.join('\n');
+}
+
 // ── index.html ───────────────────────────────────────
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-export function indexHtml(placed: readonly PlacedChapter[], features: ReturnType<typeof parseFeatureTable> | null, video = 'final.mp4'): string {
+export function indexHtml(placed: readonly PlacedChapter[], features: FeatureTable | null, video = 'final.mp4'): string {
   const jump = (ms: number, label: string) => `<a href="#t=${Math.floor(ms / 1000)}" data-t="${(ms / 1000).toFixed(2)}">${esc(label)}</a>`;
   const chapters = placed
     .map(
@@ -205,7 +298,7 @@ export function indexHtml(placed: readonly PlacedChapter[], features: ReturnType
     .join('');
   let featureBlock = '';
   if (features && features.rows.length) {
-    const show = features.headers.filter((h) => /F|角色|模組|功能|狀態/.test(h) && !h.includes('章節'));
+    const show = features.headers.filter((h) => /編號|角色|模組|功能|狀態/.test(h) && !/章節|時間碼/.test(h));
     featureBlock = `<h2>功能清單</h2><table><thead><tr><th>時間</th>${show.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${features.rows
       .map((r) => {
         const times = r.refs.map((ref) => refTime(placed, ref)).filter((t): t is number => t != null);
@@ -288,18 +381,22 @@ export async function assemble(opts: AssembleOptions): Promise<{ final: string; 
     maxBuffer: 1 << 24,
   });
 
-  const features = opts.featureTable && existsSync(opts.featureTable) ? parseFeatureTable(readFileSync(opts.featureTable, 'utf8')) : null;
+  const md = opts.featureTable && existsSync(opts.featureTable) ? readFileSync(opts.featureTable, 'utf8') : null;
+  const features = md != null ? parseFeatureTable(md) : null;
   const { text, warnings } = youtubeDescription(placed, features);
   if (opts.featureTable && !features) warnings.push(`找不到 ${opts.featureTable}，說明欄改列步驟字幕、index.html 不含功能清單`);
   const description = join(outDir, 'youtube-description.txt');
   writeFileSync(description, text);
   const featureTimelineFile = join(outDir, 'feature-timeline.md');
   writeFileSync(featureTimelineFile, featureTimeline(placed, features));
-  if (features) {
-    for (const r of features.rows) {
-      const id = Object.values(r.cells)[0];
-      if (r.refs.length && r.refs.every((ref) => refTime(placed, ref) == null)) warnings.push(`${id}：章節與步驟「${r.refs.map((x) => `${x.chapter}-${x.step ?? ''}`).join('、')}」對不到影片`);
-    }
+  if (features && md != null) {
+    const idCol = headerOf(features.headers, /編號/)!;
+    const missing = features.rows
+      .filter((r) => r.refs.length && r.refs.every((ref) => refTime(placed, ref) == null))
+      .map((r) => `${r.cells[idCol]}（${r.refs.map(refLabel).join('、')}）`);
+    if (missing.length) warnings.push(`${missing.length} 個功能對不到影片：${missing.slice(0, 10).join('、')}${missing.length > 10 ? '…' : ''}`);
+    // 架構師的表有「時間碼」欄：另存一份填好的
+    if (headerOf(features.headers, /時間碼/)) writeFileSync(join(outDir, 'feature-table.timed.md'), timedFeatureTable(md, placed, features));
   }
   const html = join(outDir, 'index.html');
   writeFileSync(html, indexHtml(placed, features, basename(final)));

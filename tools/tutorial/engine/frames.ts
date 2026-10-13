@@ -65,6 +65,8 @@ export type SpanQuality = { fps: number; maxGapMs: number; p95GapMs: number; ok:
 export type CaptureQuality = SpanQuality & {
   steps: (SpanQuality & { index: number })[];
   warnings: string[];
+  /** 網頁自己卡住或換頁造成的截圖空檔（不中止錄影，只標記）。 */
+  pageJank?: { atMs: number; gapMs: number; reason: string; url: string }[];
 };
 
 function spanQuality(times: readonly number[], from: number, to: number): SpanQuality {

@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { chromium, type Browser, type CDPSession, type Frame, type Locator, type Page } from 'playwright';
+import { chromium, type Browser, type CDPSession, type Frame, type Locator, type Page, type Request } from 'playwright';
 import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
 import type { ChapterEvent, ChapterEvents, StatusKind, StepRecord } from './events.ts';
 import { captureQuality, cfrSlots, GAP_SEVERE_MS, timeFrames, toChapterMs, type Pause, type RawFrame } from './frames.ts';
@@ -65,6 +65,10 @@ const CAPTURE_GIVE_UP_MS = 5000;
  * 舊 session 的 captureScreenshot 會永遠不回應。
  */
 const CAPTURE_TIMEOUT_MS = 400;
+/** 點擊後換頁時，暫停往回推這麼久：網址變更的事件比新頁第一次畫出來晚一點，不能讓載到一半的畫面進影片。 */
+const NAV_BACKDATE_MS = 120;
+/** 點擊後最多等多久讓換頁完成（等的期間影片停在舊頁＋波紋）。 */
+const NAV_WAIT_MS = 8000;
 
 export type StepOptions = {
   /** 字幕：短句。 */
@@ -86,7 +90,7 @@ export type WaitStableOptions = {
   fonts?: boolean;
   /** 連續幾張截圖完全一樣才算版面穩定，預設 2。 */
   frames?: number;
-  /** 最多等多久，預設 10 秒；超過會警告並記在 events.json（strict 時改成報錯）。 */
+  /** 最多等多久，預設 30 秒（通常在暫停中等，不佔影片時間）；超過會警告並記在 events.json（strict 時改成報錯）。 */
   timeout?: number;
   strict?: boolean;
   /** 等待期間暫停計時（不進影片）。goto／換頁後自動呼叫時為 true。 */
@@ -183,6 +187,18 @@ export async function startChapter(opts: ChapterOptions): Promise<Chapter> {
   return c;
 }
 
+/** 頁面內記錄 long task（主執行緒卡住 ≥ 50 ms）的觀察器：用來分辨「網頁自己卡」與「截圖跟不上」。 */
+const JANK_OBSERVER = `(() => {
+  if (window.__tutJank) return;
+  window.__tutJank = [];
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) window.__tutJank.push([performance.timeOrigin + e.startTime, e.duration]);
+      if (window.__tutJank.length > 300) window.__tutJank.splice(0, 150);
+    }).observe({ type: 'longtask', buffered: true });
+  } catch {}
+})()`;
+
 const PERMANENT_CDP_ERROR = /Target closed|Session closed|has been closed|No target with given id|Target page, context or browser|crashed/i;
 
 export class Chapter {
@@ -225,11 +241,38 @@ export class Chapter {
   private lastUrl = '';
   private rng = 1;
   private calWindow: { from: number; to: number } | null = null;
+  /** 最近的動作（錯誤訊息用）。 */
+  private lastAction = '—';
+  /** 點擊後網頁可能忙著更新（換頁、載資料）的時間點（牆上時間）。 */
+  private actionBusyUntil = 0;
   private readonly onClose = () => this.abort(new Error('錄影中分頁被關閉'));
   private readonly onCrash = () => this.abort(new Error('錄影中分頁當掉'));
   private readonly onNav = (f: Frame) => {
-    if (f === this.page.mainFrame()) this.noteUrl();
+    if (f !== this.page.mainFrame()) return;
+    const now = Date.now();
+    this.navAt.push(now);
+    // 點擊引發的換頁：網址一變就暫停計時（往回推一點），等新頁穩定再繼續，影片直接切到載好的新頁
+    if (this.navWatch && this.pausedAt == null) {
+      this.pausedAt = Math.max(now - NAV_BACKDATE_MS, this.navWatch.minStart);
+      this.navAutoPaused = true;
+    }
+    this.noteUrl();
   };
+  /** 點擊後監看換頁：minStart 是自動暫停最早可以從哪一刻開始（點擊事件之後）。 */
+  private navWatch: { minStart: number } | null = null;
+  /** 進行中的網路請求（waitStable 判斷網路安靜；長連線不算）。 */
+  private readonly inflight = new Set<Request>();
+  private readonly onReqStart = (r: Request) => {
+    if (r.resourceType() !== 'websocket' && r.resourceType() !== 'eventsource') this.inflight.add(r);
+  };
+  private readonly onReqEnd = (r: Request) => {
+    this.inflight.delete(r);
+  };
+  private navAutoPaused = false;
+  /** 主框架換頁的時間（牆上時間），判斷截圖空檔是不是換頁造成的。 */
+  private readonly navAt: number[] = [];
+  /** 網頁自己卡住造成的截圖空檔（不中止，記在 events.json）。 */
+  private readonly pageJank: { atMs: number; gapMs: number; reason: string; url: string }[] = [];
 
   constructor(opts: ChapterOptions) {
     this.opts = opts;
@@ -265,6 +308,11 @@ export class Chapter {
     this.page.on('close', this.onClose);
     this.page.on('crash', this.onCrash);
     this.page.on('framenavigated', this.onNav);
+    this.page.on('request', this.onReqStart);
+    this.page.on('requestfinished', this.onReqEnd);
+    this.page.on('requestfailed', this.onReqEnd);
+    await this.page.addInitScript(JANK_OBSERVER);
+    await this.page.evaluate(JANK_OBSERVER).catch(() => {});
     // 只有「錄影」這段佔全機名額（render 不佔）；滿了就在這裡排隊
     this.slot = await acquireRecordSlot({ label: this.outDir, signal: this.abortCtl.signal, ...this.opts.slots });
     this.check();
@@ -292,6 +340,9 @@ export class Chapter {
     this.page.off('close', this.onClose);
     this.page.off('crash', this.onCrash);
     this.page.off('framenavigated', this.onNav);
+    this.page.off('request', this.onReqStart);
+    this.page.off('requestfinished', this.onReqEnd);
+    this.page.off('requestfailed', this.onReqEnd);
     if (this.claimed) {
       if (!this.finished) writeFileSync(join(this.outDir, FAILED_MARK), `${this.failure?.stack ?? this.failure}\n`);
       const mark = join(this.outDir, RECORDING_MARK);
@@ -334,7 +385,7 @@ export class Chapter {
     const maxGap = this.opts.maxGapMs ?? GAP_SEVERE_MS;
     // 跟事件同一個時鐘（Date.now）；performance.timeOrigin＋now() 跟系統時鐘會差上幾十 ms
     const clock = () => Date.now();
-    let prev: { mid: number; pauses: number } | null = null;
+    let prev: { mid: number; t1: number; pauses: number } | null = null;
     let failingSince = 0;
     while (!this.stopCapture) {
       const t0 = clock();
@@ -354,8 +405,16 @@ export class Chapter {
       } catch (e) {
         const msg = String((e as Error).message ?? e);
         if (PERMANENT_CDP_ERROR.test(msg)) return this.abort(new Error(`截圖失敗（分頁或瀏覽器已不在）：${msg}`));
+        // 暫停中（換頁、等穩定、登入）截不到沒關係：新頁還沒畫出第一格前本來就沒有畫面；只在錄影中計時
+        if (this.pausedAt != null) {
+          failingSince = 0;
+          await sleep(100);
+          continue;
+        }
         failingSince ||= t0;
-        if (t0 - failingSince > CAPTURE_GIVE_UP_MS) return this.abort(new Error(`連續 ${CAPTURE_GIVE_UP_MS / 1000} 秒截不到畫面：${msg}`));
+        if (t0 - failingSince > CAPTURE_GIVE_UP_MS) {
+          return this.abort(new Error(`［${this.current?.caption ?? '步驟外'}］${this.page.url()} 錄影中連續 ${CAPTURE_GIVE_UP_MS / 1000} 秒截不到畫面：${msg}`));
+        }
         await sleep(15); // 換頁中可能截不到，稍後再試
         continue;
       }
@@ -364,11 +423,19 @@ export class Chapter {
       const mid = (t0 + t1) / 2;
       // 錄進影片的時間（不在暫停中、中間也沒暫停過）若兩張間隔過大就中止：影片會明顯卡頓、對不齊
       if (prev && this.pausedAt == null && prev.pauses === this.pauses.length && mid - prev.mid > maxGap) {
-        return this.abort(
-          new Error(`截圖間隔 ${Math.round(mid - prev.mid)} ms（上限 ${maxGap} ms）：機器太忙或同時錄影的路數太多，請重錄這一段`),
+        // 時間花在哪：截圖迴圈自己閒置（程序／機器忙到排不到）→ 中止；
+        // 截圖請求本身等很久（Chrome 沒有新畫面可給）且是網頁造成的（long task、換頁、剛點擊後的更新）→ 停格是真實的，記下來繼續錄
+        const idle = t0 - prev.t1;
+        const reason = idle > maxGap / 2 ? null : await this.pageCausedGap(prev.mid, mid);
+        if (reason) {
+          this.pageJank.push({ atMs: Math.round(this.now()), gapMs: Math.round(mid - prev.mid), reason, url: this.page.url() });
+        } else return this.abort(
+          new Error(
+            `［${this.current?.caption ?? '步驟外'}］${this.page.url()} 截圖間隔 ${Math.round(mid - prev.mid)} ms（上限 ${maxGap} ms，最近動作：${this.lastAction}）：網頁沒有卡住、是截圖跟不上，機器太忙或同時錄影的路數太多，請重錄這一段`,
+          ),
         );
       }
-      prev = this.pausedAt == null ? { mid, pauses: this.pauses.length } : null;
+      prev = this.pausedAt == null ? { mid, t1, pauses: this.pauses.length } : null;
       const buf = Buffer.from(data, 'base64');
       const hash = createHash('sha1').update(buf).digest('hex');
       this.sameRun = hash === this.lastHash ? this.sameRun + 1 : 0;
@@ -378,6 +445,17 @@ export class Chapter {
       writeFileSync(file, buf);
       this.raw.push({ file, wallMs: mid });
     }
+  }
+
+  /** 截圖空檔 [from, to]（牆上時間）是不是網頁造成的：期間有主框架換頁、long task，或剛點擊完網頁在更新。 */
+  private async pageCausedGap(from: number, to: number): Promise<string | null> {
+    if (this.navAt.some((t) => t >= from - 300 && t <= to + 300)) return '換頁';
+    const jank = (await this.page.evaluate(() => (window as unknown as { __tutJank?: [number, number][] }).__tutJank ?? []).catch(() => [])) as [number, number][];
+    // long task 蓋住空檔的大部分（容許兩邊時鐘差 30 ms）
+    const covered = jank.filter(([s, d]) => s < to + 30 && s + d > from - 30).reduce((a, [s, d]) => a + Math.min(to, s + d) - Math.max(from, s), 0);
+    if (covered >= (to - from) * 0.5) return `網頁主執行緒卡住（long task ${Math.round(covered)} ms）`;
+    if (from <= this.actionBusyUntil) return `點擊後網頁更新（${this.lastAction}）`;
+    return null;
   }
 
   /**
@@ -442,11 +520,16 @@ export class Chapter {
     try {
       return await fn();
     } finally {
-      // 讓暫停期間的最後畫面有機會送出
-      await sleep(120);
-      this.pauses.push({ startWall: this.pausedAt, endWall: Date.now() });
-      this.pausedAt = null;
+      await this.endPause();
     }
+  }
+
+  private async endPause(): Promise<void> {
+    if (this.pausedAt == null) return;
+    // 讓暫停期間的最後畫面有機會送出
+    await sleep(120);
+    this.pauses.push({ startWall: this.pausedAt, endWall: Date.now() });
+    this.pausedAt = null;
   }
 
   async step(opts: StepOptions, fn: () => Promise<void>): Promise<void> {
@@ -505,7 +588,7 @@ export class Chapter {
    */
   async waitStable(opts: WaitStableOptions = {}): Promise<void> {
     this.check();
-    const { images = true, fonts = true, frames = 2, timeout = 10_000, strict = false } = opts;
+    const { images = true, fonts = true, frames = 2, timeout = 30_000, strict = false } = opts;
     const body = async () => {
       const deadline = Date.now() + timeout;
       const left = () => Math.max(1, deadline - Date.now());
@@ -514,39 +597,25 @@ export class Chapter {
         const loc = typeof opts.ready === 'string' ? this.page.getByText(opts.ready).first() : opts.ready;
         await loc.waitFor({ state: 'visible', timeout: left() }).catch(() => problems.push(`等不到 ${loc}`));
       }
-      await this.page.waitForLoadState('networkidle', { timeout: Math.min(3000, left()) }).catch(() => {});
-      if (fonts || images) {
-        await this.page
-          .waitForFunction(
-            async ({ fonts, images }) => {
-              if (fonts && document.fonts.status !== 'loaded') return false;
-              if (!images) return true;
-              const vw = innerWidth;
-              const vh = innerHeight;
-              const visible = Array.from(document.images).filter((img) => {
-                const r = img.getBoundingClientRect();
-                return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw && getComputedStyle(img).visibility !== 'hidden';
-              });
-              // 畫面內的延遲載入圖改成立即載入
-              for (const img of visible) if (img.loading === 'lazy') img.loading = 'eager';
-              if (!visible.every((img) => img.complete && img.naturalWidth > 0)) return false;
-              await Promise.all(visible.map((img) => img.decode().catch(() => {})));
-              return true;
-            },
-            { fonts, images },
-            { timeout: left(), polling: 100 },
-          )
-          .catch(() => problems.push(fonts && images ? '字型或畫面內圖片沒載完' : images ? '畫面內圖片沒載完' : '字型沒載完'));
-      }
-      // 版面穩定：從現在起連續 frames 張截圖內容完全一樣
-      const startCount = this.frameCount;
-      while (!(this.frameCount - startCount >= frames && this.sameRun >= frames - 1)) {
-        if (Date.now() > deadline) {
-          problems.push(`畫面一直在變（連續 ${frames} 張截圖沒有一樣過）`);
-          break;
+      // 反覆確認到三件事同時成立：網路安靜、畫面內圖片／字型載完、連續幾張截圖一樣。
+      // （Next.js 會先改網址再換畫面；只檢查一次可能檢查到舊頁）
+      let ok = false;
+      let why = '';
+      while (!ok && Date.now() < deadline) {
+        if (!(await this.networkQuiet(300, Math.min(4000, left())))) why = '網路一直沒停';
+        if ((fonts || images) && !(await this.assetsReady(fonts, images, left()))) {
+          why = fonts && images ? '字型或畫面內圖片沒載完' : images ? '畫面內圖片沒載完' : '字型沒載完';
+          continue;
         }
-        await this.wait_(30);
+        if (!(await this.framesStable(frames, deadline))) {
+          why = `畫面一直在變（連續 ${frames} 張截圖沒有一樣過${await this.changingRegion()}）`;
+          continue;
+        }
+        // 穩定之後再確認一次：期間若又冒出新圖片或新請求就再來一輪
+        ok = this.inflight.size === 0 && (!(fonts || images) || (await this.assetsReady(fonts, images, 1)));
+        if (!ok) why = '穩定後又有新的載入';
       }
+      if (!ok) problems.push(why || '逾時');
       if (problems.length) {
         const msg = `［${this.current?.caption ?? '步驟外'}］${this.page.url()} ${timeout / 1000} 秒內畫面沒穩定：${problems.join('；')}`;
         if (strict) throw new Error(msg);
@@ -557,27 +626,137 @@ export class Chapter {
     await (opts.offRecord ? this.offRecord(body) : body());
   }
 
+  /** 網路安靜：進行中的請求數連續 quietMs 都是 0（自己數，SPA 換頁也算得到）。最多等 maxMs。 */
+  private async networkQuiet(quietMs: number, maxMs: number): Promise<boolean> {
+    const until = Date.now() + maxMs;
+    let quietSince = this.inflight.size === 0 ? Date.now() : 0;
+    while (Date.now() < until) {
+      if (this.inflight.size === 0) {
+        quietSince ||= Date.now();
+        if (Date.now() - quietSince >= quietMs) return true;
+      } else quietSince = 0;
+      await this.wait_(25);
+    }
+    return false;
+  }
+
+  /** 畫面內的圖片都載完並解碼、字型載完（延遲載入的圖改成立即載入）。 */
+  private async assetsReady(fonts: boolean, images: boolean, maxMs: number): Promise<boolean> {
+    const until = Date.now() + maxMs;
+    for (;;) {
+      const ready = await this.page
+        .evaluate(
+          async ({ fonts, images }) => {
+            if (fonts && document.fonts.status !== 'loaded') return false;
+            if (!images) return true;
+            const vw = innerWidth;
+            const vh = innerHeight;
+            const visible = Array.from(document.images).filter((img) => {
+              const r = img.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw && getComputedStyle(img).visibility !== 'hidden';
+            });
+            for (const img of visible) if (img.loading === 'lazy') img.loading = 'eager';
+            if (!visible.every((img) => img.complete && img.naturalWidth > 0)) return false;
+            // 解碼最多等 1 秒（壞圖的 decode 可能永遠不回）
+            await Promise.race([Promise.all(visible.map((img) => img.decode().catch(() => {}))), new Promise((r) => setTimeout(r, 1000))]);
+            return true;
+          },
+          { fonts, images },
+        )
+        .catch(() => false);
+      if (ready) return true;
+      if (Date.now() >= until) return false;
+      await this.wait_(100);
+    }
+  }
+
+  /** 最後兩張截圖哪裡不一樣（CSS px），給「畫面一直在變」的警告用。 */
+  private async changingRegion(): Promise<string> {
+    const [a, b] = this.raw.slice(-2).map((f) => f.file);
+    if (!a || !b) return '';
+    try {
+      const { stderr } = await run('ffmpeg', ['-v', 'info', '-i', a, '-i', b, '-filter_complex', '[0][1]blend=all_mode=difference,format=gray,bbox=min_val=24', '-f', 'null', '-']);
+      const m = [...stderr.matchAll(/x1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+)/g)].at(-1);
+      if (!m) return '';
+      const [x1, x2, y1, y2] = m.slice(1).map((v) => Math.round(Number(v) / this.zoom));
+      return `；變動範圍約 x ${x1}～${x2}、y ${y1}～${y2}（CSS px）`;
+    } catch {
+      return '';
+    }
+  }
+
+  /** 從現在起連續 n 張截圖內容完全一樣。 */
+  private async framesStable(n: number, deadline: number): Promise<boolean> {
+    const start = this.frameCount;
+    while (!(this.frameCount - start >= n && this.sameRun >= n - 1)) {
+      if (Date.now() > deadline) return false;
+      await this.wait_(30);
+    }
+    return true;
+  }
+
   async hover(locator: Locator): Promise<void> {
+    this.lastAction = `hover ${locator}`;
     this.check();
     await this.moveTo(await this.targetOf(locator));
     await this.settleOn(locator);
   }
 
-  /** 點擊；若因此換頁，等新頁穩定（暫停計時）。傳 false 不等。 */
+  /**
+   * 點擊。若因此換頁（連結、整頁載入或 Next.js 的 RSC 換頁）：等網址變更，那一刻起暫停計時，
+   * 等新頁穩定（圖片、字型、版面）再繼續——影片從「點下去」直接切到載好的新頁。傳 false 不等。
+   */
   async click(locator: Locator, stable: WaitStableOptions | false = {}): Promise<void> {
     await this.hover(locator);
     await this.wait_(150);
     const before = this.page.url();
-    await this.page.mouse.down();
-    await this.wait_(70);
-    await this.page.mouse.up();
-    // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現
-    await this.nextPaint();
-    this.events.push({ type: 'click', atMs: this.now(), x: this.cursor.x, y: this.cursor.y });
-    await this.wait_(350);
-    await this.page.waitForLoadState('load').catch(() => {});
+    this.lastAction = `click ${locator}`;
+    // 會不會換頁：點的是指向別頁的連結，或點下去後送出了換頁請求
+    const linkTo = await locator
+      .evaluate((el) => {
+        const a = el.closest('a[href]') as HTMLAnchorElement | null;
+        if (!a || (a.target && a.target !== '_self')) return null;
+        const u = new URL(a.href, location.href);
+        return u.origin + u.pathname + u.search === location.origin + location.pathname + location.search ? null : u.href;
+      })
+      .catch(() => null);
+    let navRequested = false;
+    const onReq = (r: Request) => {
+      if (r.frame() !== this.page.mainFrame()) return;
+      if (r.resourceType() === 'document' || /[?&]_rsc=/.test(r.url()) || r.headers()['rsc'] === '1') navRequested = true;
+    };
+    this.page.on('request', onReq);
+    try {
+      this.actionBusyUntil = Date.now() + 2000;
+      await this.page.mouse.down();
+      await this.wait_(70);
+      await this.page.mouse.up();
+      // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現
+      await this.nextPaint();
+      this.events.push({ type: 'click', atMs: this.now(), x: this.cursor.x, y: this.cursor.y });
+      if (stable !== false) this.navWatch = { minStart: Date.now() + 1 };
+      await this.wait_(350);
+      if (stable !== false && (linkTo || navRequested)) {
+        // 等換頁發生（網址變更時 onNav 會自動暫停計時）
+        const until = Date.now() + NAV_WAIT_MS;
+        while (!this.navAutoPaused && this.page.url() === before && Date.now() < until) await this.wait_(30);
+      }
+    } finally {
+      this.page.off('request', onReq);
+      this.navWatch = null;
+    }
+    if (this.navAutoPaused) {
+      this.navAutoPaused = false;
+      try {
+        await this.page.waitForLoadState('load').catch(() => {});
+        await this.waitStable({ ...(stable || {}), offRecord: false });
+      } finally {
+        await this.endPause();
+      }
+    } else if (stable !== false && this.page.url() !== before) {
+      await this.waitStable({ offRecord: true, ...stable });
+    }
     this.noteUrl();
-    if (stable !== false && this.page.url() !== before) await this.waitStable({ offRecord: true, ...stable });
   }
 
   /** 點進欄位後逐字輸入（像人打字，每字 60～130 ms）。 */
@@ -618,6 +797,7 @@ export class Chapter {
 
   /** 平滑捲動：數字是往下捲幾 px（網頁 CSS px，負數往上）；給 locator 就把它捲到畫面上方三分之一。 */
   async scroll(target: number | Locator): Promise<void> {
+    this.lastAction = `scroll ${target}`;
     this.check();
     let dy: number;
     if (typeof target === 'number') dy = target;
@@ -659,6 +839,9 @@ export class Chapter {
     this.page.off('close', this.onClose);
     this.page.off('crash', this.onCrash);
     this.page.off('framenavigated', this.onNav);
+    this.page.off('request', this.onReqStart);
+    this.page.off('requestfinished', this.onReqEnd);
+    this.page.off('requestfailed', this.onReqEnd);
 
     const captureLatencyMs = await this.measureLatency();
     const shifted = this.raw.map((f) => ({ file: f.file, wallMs: f.wallMs - captureLatencyMs }));
@@ -671,7 +854,8 @@ export class Chapter {
       steps,
       durationMs,
     );
-    for (const w of quality.warnings) console.warn(`注意（截圖品質）：${w}`);
+    const jankWarnings = this.pageJank.map((j) => `章節時間 ${(j.atMs / 1000).toFixed(1)} 秒：${j.reason}，畫面停了 ${j.gapMs} ms（${j.url}）`);
+    for (const w of [...quality.warnings, ...jankWarnings]) console.warn(`注意（截圖品質）：${w}`);
 
     // 每個格位一個編號連結，用 image2 以固定 30fps 讀：不經過 fps 換算
     // （concat 的 duration 0.033333 會讓 ffmpeg 重複與丟格，整段晚一格）
@@ -699,7 +883,12 @@ export class Chapter {
       output: { width: this.size.width, height: this.size.height + CHROME_HEIGHT, chromeHeight: CHROME_HEIGHT },
       page: { width: this.css.width, height: this.css.height, zoom: this.zoom },
       clip: { file: 'clip.mp4', durationMs: Math.round((slots.length * 1000) / FPS), fps: FPS, captureLatencyMs },
-      quality: { ...quality, warnings: [...quality.warnings, ...this.warnings], ok: quality.ok && this.warnings.length === 0 },
+      quality: {
+        ...quality,
+        pageJank: this.pageJank,
+        warnings: [...quality.warnings, ...jankWarnings, ...this.warnings],
+        ok: quality.ok && this.warnings.length === 0,
+      },
       displayOrigin: this.opts.displayOrigin ?? (this.opts.baseURL ? new URL(this.opts.baseURL).host : ''),
       cursorStart: { x: Math.round(this.size.width * 0.5), y: Math.round(this.size.height * 0.45) },
       steps,
