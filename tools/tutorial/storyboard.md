@@ -567,6 +567,11 @@
 
 #### 錄法（錄影 5 開錄前要做完）
 
+**Roy 還在選錄法，選完直接照做：**
+- **A 全錄**：A～E 全做；Roy 在 VM 貼 3 段（C 的段 1、段 2、段 3）。
+- **B 只錄四頁、Dozzle／PgHero 在 6-1-3 配音一句帶過**：跳過 C 的隧道金鑰、Match、中繼（段 1 開頭改 `MODE=B`，③ 只跑資料金鑰四行，段 3 不做）、D 的第 2 條、E 的 Dozzle／PgHero 五列，以及 6-2、6-3 整段；6-1-3 配音改成「Dozzle 看容器 log、PgHero 看測試站資料庫，這部影片不進去」。
+- **C 不碰 VM、用 fixtures**：跳過 B、C 整節、D 的第 2 條、E 的 `/map` 截圖與 Dozzle／PgHero 列，以及 6-2、6-3 整段；A 的啟動指令拿掉 `STATUS_DATA_DIR`、`STATUS_ACCEPTANCE_DIR` 兩個變數（會讀 `status/fixtures/base/`）；6-1-1 配音的「複製下來的真實資料」改成「本機的假資料」，6-1-12 的格子固定點「最新公告 × 訪客」，6-1-3 配音同 B。
+
 框框標 💻 Mac mini 的在 Mac mini 的 repo 根目錄跑；標 🖥️ VM 的由 **Roy** 在平常連得上 VM 的機器 `ssh fju-vm` 後貼（Mac mini 現在連不上 VM：沒有 `fju-vm` 設定、公鑰也不在 VM 上）。VM 的 IP 不寫在這裡，照 `ops/README.md` 開頭那一個；下面的 `VM_IP_HERE` 都換成它。
 
 ##### A. 四頁在 Mac mini 本機怎麼跑
@@ -606,7 +611,7 @@ kill "$(cat ~/work/tutorial-status-data/status.pid)"
 | `/go-live` | `github.json`、`health.json`、`vm.json`、`acceptance-index.json`、`repo/go-live-policy.json`、`repo/go-live-waivers.json`＋最新一夜 full 的 `run.json`、`summary.json` | `data/` ＋ `/srv/fju/status/inbox/<runId>/`（Mac mini 整夜驗收後 rsync 上去的；`fjustatus` 擁有、755／644） |
 | `/map` | `acceptance-index.json`、`repo/test-map.json`＋最新一夜 full 的 `summary.json`＋它列到的截圖 `<runId>/<item>/screenshots/*.png`（經 `/shots` 路由） | 同上 |
 
-要複製的只有兩樣：**整個 `data/`**（幾十 KB）和 **`inbox/` 底下 `acceptance-index.json` 的 `latestFullAttempt` 那一夜**（含截圖，約幾十 MB）。`secrets/`、`envcheck/`、其他夜都不碰（前兩者是 700，下面的帳號本來就讀不到）。放 Mac mini **repo 外**的 `~/work/tutorial-status-data/`（700），不進 git；影片做完就整個刪掉（裡面有測試站截圖，§5 Q13）。
+要複製的只有兩樣：**整個 `data/`**（幾十 KB）和 **`inbox/` 底下 `acceptance-index.json` 的 `latestFullAttempt` 那一夜**（含截圖，約幾十 MB）。**只能用這一夜**：`/map` 與 `/go-live` 固定讀索引的 `latestFullAttempt`，不回退到更早的夜（F-147）；只複製別夜仍會顯示原夜或「沒有彙整結果」，改索引就不是真實資料。那一夜沒有 `summary.json`、訪客欄沒有可安全展示的格子、或個資檢查不過，就停止 6-1 並 ESCALATE，不自行換夜。`secrets/`、`envcheck/`、其他夜都不碰（前兩者是 700，下面的帳號本來就讀不到）。放 Mac mini **repo 外**的 `~/work/tutorial-status-data/`（700），不進 git；影片做完就整個刪掉（裡面有測試站截圖，§5 Q13）。
 
 ```bash
 # 💻 Mac mini（C 節做完才能跑；兩次 rsync＝兩次 ssh 連線，中間停 6 秒避開 ufw 的 22 埠限速 30 秒 6 次）
@@ -615,37 +620,42 @@ RUN=$(python3 -c "import json;print(json.load(open('$HOME/work/tutorial-status-d
 echo "最新一夜 full：$RUN"
 sleep 6
 rsync -a --delete "fju-tutorial-data:inbox/$RUN/" ~/work/tutorial-status-data/acceptance/"$RUN"/
-# 錄前個資檢查（E 節）：summary.json 不該有 Email；有就換別夜或 ESCALATE
+# 錄前個資檢查（E 節）：summary.json 不該有 Email；有就停止 6-1 並 ESCALATE（不能換別夜，見下面）
 grep -c '@' ~/work/tutorial-status-data/acceptance/"$RUN"/summary.json      # 要是 0
 grep -o '"note": "[^"]*"' ~/work/tutorial-status-data/data/repo/tickets.json | grep '@' # 要是空的
 ```
 
 `fju-tutorial-data` 那把金鑰在 VM 上被綁成 `rrsync -ro /srv/fju/status`，所以遠端路徑寫相對於 `/srv/fju/status` 的 `data/`、`inbox/<runId>/`。macOS 內建 rsync 跑 `-a` 可以；報 `--chmod` 之類不認得時用 Homebrew 的 `/opt/homebrew/bin/rsync`（同 `ops/status-publish-run.sh` 的做法）。
 
-##### C. Roy 要做的 SSH 設定（一次做完；全部逐行可貼）
+##### C. Roy 要做的 SSH 設定（一次做完；全部逐行可貼；Roy 在 VM 只貼 3 段）
 
-**設計**：VM 上新開一個系統帳號 `fjututorial`（無密碼、`/bin/sh`，比照 `fjureset`、`fjustatus`），`authorized_keys` 放**兩把**金鑰、各綁死一件事：
+**設計**：VM 上新開一個系統帳號 `fjututorial`（無密碼、`/bin/sh`，比照 `fjureset`、`fjustatus`），`authorized_keys` 放**兩把**金鑰、各綁死一件事；再用 sshd 的 `Match User fjututorial` 把這個帳號的轉送限制在「只能本地轉送」（金鑰選項裡的 `port-forwarding` 會重新打開轉送，`permitopen` 只管本地轉送，`command="/bin/false"` 擋不住 `ssh -N -R`，所以反向轉送一定要靠伺服器端的 Match）：
 
-| 金鑰 | `authorized_keys` 的限制 | 能做的事 | 不能做的事 |
-|---|---|---|---|
-| `fju_tutorial_tunnel` | `restrict,port-forwarding,permitopen="127.0.0.1:38080",permitopen="127.0.0.1:38081",command="/bin/false"` | 只能把 VM 本機的 38080（Dozzle 中繼）、38081（PgHero 中繼）轉到 Mac mini | 開 shell／pty（有人要 session 就跑 `/bin/false` 立刻結束）、agent／X11 轉送、轉到任何別的位址或埠、反向轉送 |
-| `fju_tutorial_data` | `restrict,command="/usr/bin/rrsync -ro /srv/fju/status"` | 只讀 `/srv/fju/status` 底下讀得到的檔（`data/`、`inbox/`） | 寫入、刪除、開 shell、轉送；`secrets/`、`envcheck/` 是 700 讀不到 |
+| 金鑰 | `authorized_keys` 的限制 | 伺服器端 `Match User fjututorial` | 能做的事 | 不能做的事 |
+|---|---|---|---|---|
+| `fju_tutorial_tunnel` | `restrict,port-forwarding,permitopen="127.0.0.1:38080",permitopen="127.0.0.1:38081",command="/bin/false"` | `AllowTcpForwarding local`、`AllowStreamLocalForwarding no` | 只能把 VM 本機的 38080（Dozzle 中繼）、38081（PgHero 中繼）轉到 Mac mini | 開 shell／pty（要 session 就跑 `/bin/false` 立刻結束）、agent／X11 轉送、轉到別的位址或埠、**反向轉送（-R）**、unix socket 轉送 |
+| `fju_tutorial_data` | `restrict,command="/usr/bin/rrsync -ro /srv/fju/status"` | 同上（`restrict` 本來就關轉送） | 只讀 `/srv/fju/status` 底下讀得到的檔（`data/`、`inbox/`） | 寫入、刪除、開 shell、轉送；`secrets/`、`envcheck/` 是 700 讀不到 |
 
-為什麼要中繼容器：`docker-compose.status.yml` 刻意**不發布任何 port**，Dozzle、PgHero 只在 Docker 網路 `fju-status` 裡（容器 IP 會變，`permitopen` 寫不死），而且 Dozzle 用 `DOZZLE_AUTH_PROVIDER=forward-proxy`，**每個請求都要帶 `Cf-Access-Authenticated-User-Email` 這個 header** 才放行。所以錄影期間在 VM 上臨時起兩個 Caddy 容器：接在 `fju-status` 網路、只綁 VM 的 127.0.0.1、把請求轉給 `dozzle:8080`／`pghero:8080`，Dozzle 那個順便補上固定的替身 header（值是保留網域的假信箱，不是真人）。不改 compose、不改 `status/`、不改 Access；錄完 `docker rm -f` 就沒了。`ops/status-up.sh` 每 10 分鐘的 `compose up --remove-orphans` 只會清有 `fju-status` 專案標籤的孤兒容器，這兩個是 `docker run` 起的、沒有標籤，不會被它砍。
+Match 區塊寫在 **`/etc/ssh/sshd_config` 檔尾**（不放 `sshd_config.d/`：Ubuntu 的 `Include` 在主檔最前面，included 檔裡的 Match 會一路蓋到主檔後面的全域設定），用 `# fju-tutorial-begin／end` 兩行標記包起來，移除時整段刪。效果用 `sshd -T -C user=fjututorial,…` 核對，而不是看檔案位置。主檔與 `10-fju.conf` 都納入備份、5 分鐘自動還原與移除流程。
 
-① 💻 Mac mini：產兩把金鑰（無密碼），印出公鑰給 ③ 用。
+為什麼要中繼容器：`docker-compose.status.yml` 刻意**不發布任何 port**，Dozzle、PgHero 只在 Docker 網路 `fju-status` 裡（容器 IP 會變，`permitopen` 寫不死），而且 Dozzle 用 `DOZZLE_AUTH_PROVIDER=forward-proxy`，**每個請求都要帶 `Cf-Access-Authenticated-User-Email` 這個 header** 才放行。所以錄影期間在 VM 上臨時起兩個 Caddy 容器：接在 `fju-status` 網路、只綁 VM 的 127.0.0.1、把請求轉給 `dozzle:8080`／`pghero:8080`，Dozzle 那個順便補上固定的替身 header（值是保留網域的假信箱，不是真人）。不改 compose、不改 `status/`、不改 Access；錄完 `docker rm -f` 就沒了。`ops/status-up.sh` 每 10 分鐘的 `compose up --remove-orphans` 只會清有 `fju-status` 專案標籤的孤兒容器，這兩個是 `docker run` 起的、沒有標籤，不會被它砍。映像用 `docker-compose.edge.yml` 已經在用的 `caddy:2.10-alpine`，不另拉新版本。
+
+**順序**：① 💻 Mac mini 準備 → ② 🖥️ VM 段 1 → ③ 💻 Mac mini 驗收（前半在 5 分鐘內）＋ Roy 原機 `ssh fju-vm true` → ④ 🖥️ VM 段 2 取消保險 → ③ 後半 → 錄 → ⑤ 🖥️ VM 段 3 收尾。錄法 B 的人：② 開頭 `MODE=B`，③ 只跑「資料金鑰」那幾行，⑤ 不用做。
+
+① 💻 Mac mini：建資料目錄、產兩把金鑰（無密碼）、加 ssh config。印出的兩行公鑰給 ② 用。
 
 ```bash
 # 💻 Mac mini
+mkdir -p ~/work/tutorial-status-data && chmod 700 ~/work/tutorial-status-data
 for k in tunnel data; do test -e ~/.ssh/fju_tutorial_$k || ssh-keygen -t ed25519 -N '' -f ~/.ssh/fju_tutorial_$k -C fju-tutorial-$k; done
 cat ~/.ssh/fju_tutorial_tunnel.pub      # 一整行 ssh-ed25519 AAAA… fju-tutorial-tunnel
 cat ~/.ssh/fju_tutorial_data.pub        # 一整行 ssh-ed25519 AAAA… fju-tutorial-data
 ```
 
-② 💻 Mac mini：`~/.ssh/config` 加兩段（`VM_IP_HERE` 換成 `ops/README.md` 開頭的 VM IP）。
+`~/.ssh/config` 加兩段（`VM_IP_HERE` 換成 `ops/README.md` 開頭的 VM IP）：
 
 ```
-# 教學影片第 6 章：Dozzle／PgHero 隧道（只能轉送，不能開 shell）。用法：ssh -N fju-tutorial-tunnel
+# 教學影片第 6 章：Dozzle／PgHero 隧道（只能本地轉送兩個埠，不能開 shell）。用法：ssh -N fju-tutorial-tunnel
 Host fju-tutorial-tunnel
   HostName VM_IP_HERE
   User fjututorial
@@ -674,86 +684,128 @@ Host fju-tutorial-data
   RequestTTY no
 ```
 
-Mac mini 從沒連過 VM，`BatchMode yes` 遇到不認識的主機金鑰會直接失敗。先在 🖥️ VM 印主機公鑰：`cat /etc/ssh/ssh_host_ed25519_key.pub`，再在 💻 Mac mini 寫進 known_hosts：`echo 'VM_IP_HERE <貼上那一整行>' >> ~/.ssh/known_hosts`（不要用 `ssh-keyscan`，那是沒核對就信）。
-
-③ 🖥️ VM：建帳號、寫 `authorized_keys`、sshd 放行。兩個 `PUBKEY_…=` 換成 ① 印出來的整行，保留單引號。sshd 這段照 `ops/README.md`「重置測試站專用金鑰」④ 的保險做法：先排 5 分鐘後自動還原，確認新連線正常再取消。
+② 🖥️ VM 段 1 ——**這段做什麼：建帳號與兩把金鑰、sshd 加 Match 限制與 AllowUsers（先排 5 分鐘自動還原的保險）、起兩個中繼容器、印主機公鑰給 Mac mini 用**。整段一次貼完；兩個 `PUBKEY_…=` 換成 ① 印出來的整行，保留單引號；錄法 B 改 `MODE=B`（只裝資料金鑰，不加 Match、不起中繼）。sudo 會問一次密碼。
 
 ```bash
-# 🖥️ VM（sudo 會問一次密碼）
+# 🖥️ VM 段 1
+MODE=A                                                    # A＝全錄；B＝只錄四頁（只要資料金鑰）
 PUBKEY_TUNNEL='<貼上 fju_tutorial_tunnel.pub 一整行>'
 PUBKEY_DATA='<貼上 fju_tutorial_data.pub 一整行>'
+set -u
 test -x /usr/bin/rrsync || { echo "✗ 沒有 /usr/bin/rrsync（開發者後台安裝第 1 步要求的前置），先裝 rsync 套件"; false; }
+case "$PUBKEY_DATA" in "ssh-ed25519 "*) ;; *) echo "✗ PUBKEY_DATA 要以 ssh-ed25519 開頭"; false ;; esac
+[ "$MODE" = B ] || case "$PUBKEY_TUNNEL" in "ssh-ed25519 "*) ;; *) echo "✗ PUBKEY_TUNNEL 要以 ssh-ed25519 開頭"; false ;; esac
+# 1) 帳號與 authorized_keys（A：兩行；B：只有資料金鑰那一行）
 id fjututorial >/dev/null 2>&1 || sudo useradd --system --create-home --home-dir /home/fjututorial --shell /bin/sh fjututorial
 sudo install -d -m 750 -o root -g fjututorial /home/fjututorial/.ssh
-case "$PUBKEY_TUNNEL|$PUBKEY_DATA" in
-  "ssh-ed25519 "*"|ssh-ed25519 "*)
-    printf 'restrict,port-forwarding,permitopen="127.0.0.1:38080",permitopen="127.0.0.1:38081",command="/bin/false" %s\nrestrict,command="/usr/bin/rrsync -ro /srv/fju/status" %s\n' \
-      "$PUBKEY_TUNNEL" "$PUBKEY_DATA" | sudo tee /home/fjututorial/.ssh/authorized_keys >/dev/null
-    sudo chown root:fjututorial /home/fjututorial/.ssh/authorized_keys
-    sudo chmod 640 /home/fjututorial/.ssh/authorized_keys
-    echo "✓ authorized_keys 寫好了（2 行）" ;;
-  *) echo "✗ 兩個 PUBKEY 都要以 ssh-ed25519 開頭：沒寫，改好再貼一次這一框" ;;
-esac
+{ [ "$MODE" = B ] || printf 'restrict,port-forwarding,permitopen="127.0.0.1:38080",permitopen="127.0.0.1:38081",command="/bin/false" %s\n' "$PUBKEY_TUNNEL"
+  printf 'restrict,command="/usr/bin/rrsync -ro /srv/fju/status" %s\n' "$PUBKEY_DATA"; } | sudo tee /home/fjututorial/.ssh/authorized_keys >/dev/null
+sudo chown root:fjututorial /home/fjututorial/.ssh/authorized_keys && sudo chmod 640 /home/fjututorial/.ssh/authorized_keys
+echo "✓ authorized_keys：$(sudo wc -l < /home/fjututorial/.ssh/authorized_keys) 行"
 sudo -u fjututorial test -r /srv/fju/status/data/github.json && echo "✓ 讀得到 data" || echo "✗ 讀不到 data（檢查 /srv/fju/status 與 data 的權限是不是 755／644）"
 sudo -u fjututorial test -r /srv/fju/status/secrets/status.env && echo "✗ 居然讀得到 secrets，停下來查" || echo "✓ 讀不到 secrets"
-# sshd AllowUsers 白名單：先排 5 分鐘自動還原的保險
-sudo cp /etc/ssh/sshd_config.d/10-fju.conf /root/10-fju.conf.bak
+# 2) sshd：先備份兩個檔、排 5 分鐘自動還原（重貼也安全：先清掉上次的保險再排新的）
+sudo cp /etc/ssh/sshd_config /root/sshd_config.bak && sudo cp /etc/ssh/sshd_config.d/10-fju.conf /root/10-fju.conf.bak
 sudo systemctl stop fju-sshd-revert.timer 2>/dev/null || true
 sudo systemd-run --on-active=300 --unit=fju-sshd-revert \
-  /bin/sh -c 'cp /root/10-fju.conf.bak /etc/ssh/sshd_config.d/10-fju.conf && systemctl reload-or-restart ssh'
+  /bin/sh -c 'cp /root/sshd_config.bak /etc/ssh/sshd_config; cp /root/10-fju.conf.bak /etc/ssh/sshd_config.d/10-fju.conf; systemctl reload-or-restart ssh'
 grep -q '^AllowUsers .*\bfjututorial\b' /etc/ssh/sshd_config.d/10-fju.conf || sudo sed -i 's/^AllowUsers .*/& fjututorial/' /etc/ssh/sshd_config.d/10-fju.conf
-grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf      # 原本那串後面多了 fjututorial
-sudo sshd -t && sudo systemctl reload ssh
+if [ "$MODE" != B ] && ! grep -q '^# fju-tutorial-begin$' /etc/ssh/sshd_config; then
+  printf '\n# fju-tutorial-begin\nMatch User fjututorial\n    AllowTcpForwarding local\n    AllowStreamLocalForwarding no\n# fju-tutorial-end\n' | sudo tee -a /etc/ssh/sshd_config >/dev/null
+fi
+sudo sshd -t && sudo systemctl reload ssh && echo "✓ sshd 重載"
+grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf                      # 原本那串後面多了 fjututorial
+sudo sshd -T -C user=fjututorial,host=x,addr=127.0.0.1 | grep -E '^allow(tcp|streamlocal)forwarding'   # A：allowtcpforwarding local／allowstreamlocalforwarding no
+sudo sshd -T | grep -E '^allow(tcp|streamlocal)forwarding'                                             # 其他人不變（通常 yes／yes）
+# 3) 中繼容器（A 才要；錄影期間存在，錄完段 3 刪）
+if [ "$MODE" != B ]; then
+  sudo -u deploy docker run -d --name fju-tutorial-logs --network fju-status -p 127.0.0.1:38080:8080 --memory 64m --restart no \
+    caddy:2.10-alpine caddy reverse-proxy --from :8080 --to http://dozzle:8080 \
+    --header-up 'Cf-Access-Authenticated-User-Email: tutorial@example.invalid'
+  sudo -u deploy docker run -d --name fju-tutorial-db --network fju-status -p 127.0.0.1:38081:8080 --memory 64m --restart no \
+    caddy:2.10-alpine caddy reverse-proxy --from :8080 --to http://pghero:8080
+  sleep 3
+  curl -s -o /dev/null -w 'dozzle %{http_code}\n' http://127.0.0.1:38080/     # 要 200
+  curl -s -o /dev/null -w 'pghero %{http_code}\n' http://127.0.0.1:38081/     # 要 200
+  sudo -u deploy docker ps --filter name=fju-tutorial- --format '{{.Names}} {{.Ports}}'   # 兩個都只綁 127.0.0.1
+fi
+# 4) 主機公鑰，給 Mac mini 寫 known_hosts
+cat /etc/ssh/ssh_host_ed25519_key.pub
+echo "→ 現在去 Mac mini 做 ③ 的前半；5 分鐘內沒回來取消保險，sshd 會自動還原"
 ```
 
-**這個 ssh 視窗先別關**。到 💻 Mac mini 跑 ⑤ 的前三行，正常再回 VM 取消保險：
+**這個 ssh 視窗先別關**，5 分鐘計時已經開始。
+
+③ 💻 Mac mini：先寫 known_hosts，再驗收。**前半（保險到期前做完，約 1 分鐘）**：隧道兩個 200；同時 Roy 在**原機**另開一個終端跑 `ssh fju-vm true`，確認自己的帳號還連得上。不要用 `ssh-keyscan`（那是沒核對就信）。
 
 ```bash
-# 🖥️ VM：⑤ 前三行都正常才跑；不正常就什麼都別做，5 分鐘後自動還原
-sudo systemctl stop fju-sshd-revert.timer
-grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf
-```
-
-④ 🖥️ VM：起兩個中繼容器（**只在錄影期間**；映像用 `docker-compose.edge.yml` 已經在用的 `caddy:2.10-alpine`，不另拉新版本）。
-
-```bash
-# 🖥️ VM
-sudo -u deploy docker run -d --name fju-tutorial-logs --network fju-status -p 127.0.0.1:38080:8080 --memory 64m --restart no \
-  caddy:2.10-alpine caddy reverse-proxy --from :8080 --to http://dozzle:8080 \
-  --header-up 'Cf-Access-Authenticated-User-Email: tutorial@example.invalid'
-sudo -u deploy docker run -d --name fju-tutorial-db --network fju-status -p 127.0.0.1:38081:8080 --memory 64m --restart no \
-  caddy:2.10-alpine caddy reverse-proxy --from :8080 --to http://pghero:8080
-sleep 3
-curl -s -o /dev/null -w 'dozzle %{http_code}\n' http://127.0.0.1:38080/     # 要 200（不帶 header 直接打 dozzle:8080 會被拒，這就是中繼存在的理由）
-curl -s -o /dev/null -w 'pghero %{http_code}\n' http://127.0.0.1:38081/     # 要 200
-sudo -u deploy docker ps --filter name=fju-tutorial- --format '{{.Names}} {{.Ports}}'   # 兩個都只綁 127.0.0.1
-```
-
-⑤ 💻 Mac mini：驗收。每行一次新連線，中間停 6 秒。
-
-```bash
-# 💻 Mac mini
+# 💻 Mac mini ③ 前半
+echo 'VM_IP_HERE <貼上段 1 最後印的 ssh-ed25519 那一整行>' >> ~/.ssh/known_hosts
 ssh -N fju-tutorial-tunnel & echo $! > ~/work/tutorial-status-data/tunnel.pid; sleep 4
 curl -s -o /dev/null -w 'dozzle 經隧道 → %{http_code}（要 200）\n' http://127.0.0.1:3351/
 curl -s -o /dev/null -w 'pghero 經隧道 → %{http_code}（要 200）\n' http://127.0.0.1:3352/
 kill "$(cat ~/work/tutorial-status-data/tunnel.pid)"
+```
+
+```bash
+# 💻 Roy 原機（同時）
+ssh fju-vm true && echo "✓ 自己的帳號還連得上"
+```
+
+兩個 200、原機 ✓，就回 VM 貼段 2。有任何一項不對：什麼都別做，等 5 分鐘自動還原，回報。
+
+④ 🖥️ VM 段 2 ——**這段做什麼：確認保險還沒觸發，取消它**。
+
+```bash
+# 🖥️ VM 段 2
+systemctl is-active fju-sshd-revert.timer        # 要印 active；印 inactive＝已經還原過了，回去重貼段 1
+sudo systemctl stop fju-sshd-revert.timer
+grep -c '^# fju-tutorial-begin$' /etc/ssh/sshd_config          # A：1；B：0
+grep -n '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf        # 還有 fjututorial
+```
+
+③ **後半**（不趕時間；每行一次新連線，中間停 6 秒避開 ufw 的 22 埠限速；錄法 B 只跑最後四行）。禁止埠不能用 `-L`＋非零結束碼驗（`-L` 只在本機先開監聽、沒流量不會向 VM 要連線，`ssh -N` 會一直等；`ExitOnForwardFailure` 也不管目標連不上），改用 `-W` 直接向 VM 要一條到 22 埠的連線，**要看到 `administratively prohibited` 字樣**才算拒絕。反向轉送加 10 秒逾時，逾時算失敗、不算拒絕。
+
+```bash
+# 💻 Mac mini ③ 後半
 sleep 6; ssh fju-tutorial-tunnel true;                       echo "隧道金鑰開 shell → 結束碼 $?（要非 0）"
-sleep 6; ssh -o ExitOnForwardFailure=yes -N -L 127.0.0.1:3353:127.0.0.1:22 fju-tutorial-tunnel; echo "轉到 22 埠 → 結束碼 $?（要非 0）"
-sleep 6; ssh -o ExitOnForwardFailure=yes -N -R 3998:127.0.0.1:22 fju-tutorial-tunnel;            echo "反向轉送 → 結束碼 $?（要非 0）"
+sleep 6; ssh -o ClearAllForwardings=yes -W 127.0.0.1:22 fju-tutorial-tunnel </dev/null 2>&1 | tee /tmp/ch6-w.txt
+grep -q 'administratively prohibited' /tmp/ch6-w.txt && echo "✓ 轉到 22 埠被拒（administratively prohibited）" || echo "✗ 沒看到 administratively prohibited：permitopen 沒生效，停下來查"
+sleep 6; ssh -o ClearAllForwardings=yes -o ExitOnForwardFailure=yes -N -R 3998:127.0.0.1:22 fju-tutorial-tunnel > /tmp/ch6-r.txt 2>&1 & P=$!; sleep 10
+if kill -0 "$P" 2>/dev/null; then kill "$P"; echo "✗ 反向轉送 10 秒還活著＝失敗（Match 沒生效），停下來查"; else wait "$P"; echo "反向轉送 → 結束碼 $?（要非 0）"; grep -q 'remote port forwarding failed\|administratively prohibited' /tmp/ch6-r.txt && echo "✓ VM 拒絕了反向轉送" || { echo "✗ 沒看到拒絕訊息："; cat /tmp/ch6-r.txt; }; fi
 sleep 6; ssh fju-tutorial-data true;                         echo "資料金鑰開 shell → 結束碼 $?（要非 0）"
 sleep 6; rsync -a --dry-run fju-tutorial-data:data/ /tmp/ch6-check/ && echo "✓ 資料金鑰讀得到 data"
 sleep 6; touch /tmp/ch6-x; rsync /tmp/ch6-x fju-tutorial-data:data/; echo "資料金鑰寫入 → 結束碼 $?（要非 0）"
 sleep 6; rsync -a --dry-run fju-tutorial-data:secrets/ /tmp/ch6-check/; echo "讀 secrets → 結束碼 $?（要非 0）"
 ```
 
-⑥ 錄完收尾。🖥️ VM：`sudo -u deploy docker rm -f fju-tutorial-logs fju-tutorial-db`（帳號與金鑰留著，下次更新影片可重用；要整個拿掉照 `ops/README.md`「拿掉這把金鑰」的寫法：刪 `authorized_keys`、把 `AllowUsers` 那行的 `fjututorial` 拿掉、`sshd -t && reload`、`userdel -r fjututorial`）。💻 Mac mini：殺自己記的 `tunnel.pid`、`status.pid`；影片定稿後 `rm -rf ~/work/tutorial-status-data`。
+⑤ 🖥️ VM 段 3 ——**這段做什麼：錄完刪掉中繼容器（帳號、金鑰、Match 留著，下次更新影片可重用）**。設定日和錄影日不同天的話，錄影當天先把段 1 第 3) 的 `docker run` 兩行再貼一次，錄完再貼段 3。
 
-錄 6-2、6-3 當天的順序：🖥️ VM ④ 起中繼 → 💻 `ssh -N fju-tutorial-tunnel &`（整個錄影期間就這一條連線，不會碰到 22 埠限速）→ 錄 → 殺隧道 → 🖥️ VM 刪中繼。
+```bash
+# 🖥️ VM 段 3
+sudo -u deploy docker rm -f fju-tutorial-logs fju-tutorial-db
+sudo -u deploy docker ps -a --filter name=fju-tutorial-        # 要是空的
+```
+
+要整個拿掉（不再需要、或懷疑金鑰外洩）：
+
+```bash
+# 🖥️ VM（可選）
+sudo rm -f /home/fjututorial/.ssh/authorized_keys
+sudo sed -i '/^# fju-tutorial-begin$/,/^# fju-tutorial-end$/d' /etc/ssh/sshd_config
+sudo sed -i 's/^\(AllowUsers .*\) fjututorial\b/\1/' /etc/ssh/sshd_config.d/10-fju.conf
+sudo sshd -t && sudo systemctl reload ssh
+sudo userdel -r fjututorial
+```
+
+💻 Mac mini 錄完：殺自己記的 `tunnel.pid`、`status.pid`；影片定稿後 `rm -rf ~/work/tutorial-status-data`。
+
+錄 6-2、6-3 當天的順序：🖥️ VM 中繼在跑（段 1 第 3)）→ 💻 `ssh -N fju-tutorial-tunnel & echo $! > ~/work/tutorial-status-data/tunnel.pid`（整個錄影期間就這一條連線，不會碰到 22 埠限速）→ 錄 → `kill "$(cat ~/work/tutorial-status-data/tunnel.pid)"` → 🖥️ VM 段 3。
 
 ##### D. Cloudflare Access 怎麼處理（不改 Access）
 
 - 四頁：用 `status/` 程式本來就有的本機略過開關（A 節），流量不經 Cloudflare。
-- Dozzle、PgHero：流量走 SSH 隧道到 VM 的 127.0.0.1，再由中繼容器進 Docker 網路，同樣不經 Cloudflare；Dozzle 要的 Access 身分 header 由中繼補替身值（C 節）。
+- Dozzle、PgHero：流量走 SSH 隧道到 VM 的 127.0.0.1（金鑰只准本地轉送這兩個埠，sshd 的 Match 另外關掉反向轉送），再由中繼容器進 Docker 網路，同樣不經 Cloudflare；Dozzle 要的 Access 身分 header 由中繼補替身值（C 節）。
 - Beszel：不錄。
 - 影片裡所有連到正式網址的連結（總覽的工具卡、側欄「工具」、開發進度的 PR／CI 連結、測試地圖的後台頁與自動測試檔連結、PgHero 的外部連結）**一律只 hover 不 click**；點了會開新分頁到 Access 登入頁（上面有 Roy 的信箱欄位）或 GitHub。
 
@@ -766,24 +818,24 @@ sleep 6; rsync -a --dry-run fju-tutorial-data:secrets/ /tmp/ch6-check/; echo "�
 | `/` 總覽 | 只有 commit SHA、tag、時間 | 不用處理。collector 寫檔前先白名單投影再黑名單掃描（`collector/lib/redact.mjs`：Email、token、IP、連線字串、密碼鍵名任一命中整檔不寫），所以 `data/*.json` 本來就不該有這些 |
 | `/progress` | 票名、分支名（`claude/…`）、備註（主腦手寫，可能提到人名）；`owner` 欄**不顯示** | 錄前 `grep '@'` 票清單的 note 欄（B 節指令）；有就先請主腦改 `docs/status/tickets.json`，影片不要那一列 |
 | `/go-live` | 原因文字：備份檔名（含日期）、envcheck 的**鍵名**（不輸出值）、CI job 名；waivers 的 `approvedBy` 不在畫面上 | 不用處理 |
-| `/map` | 步驟「看到什麼」（`summarize-night.sh` 已把 Email 換成「[Email 已遮蔽]」）、問題一句話（驗收前 reset＋seed-demo，站上只有示範資料與 E2E 管理員）、**截圖**（測試站畫面，可能有 E2E 管理員的帳號選單、登入頁） | 抽屜只開「訪客」欄的格子（訪客走的都是公開頁，沒有帳號畫面）；縮圖是 128×80 的小圖，**不點開**（會開原圖新分頁）；「前台每一區」的後台連結不點。錄前 `grep -c '@' summary.json` 要是 0 |
+| `/map` | 步驟「看到什麼」（`summarize-night.sh` 已把 Email 換成「[Email 已遮蔽]」）、問題一句話（驗收前 reset＋seed-demo，站上只有示範資料與 E2E 管理員）、**截圖**（測試站畫面，可能有 E2E 管理員的帳號選單、登入頁） | 抽屜只開「訪客」欄的格子（訪客走的都是公開頁，沒有帳號畫面）；縮圖是 128×80 的小圖，**不點開**（會開原圖新分頁）；「前台每一區」的後台連結不點。錄前 `grep -c '@' summary.json` 要是 0；不過就停止 6-1 並 ESCALATE，不換夜 |
 | Dozzle 容器清單 | 容器名、映像名、用量 | 不用處理 |
 | Dozzle log 內容 | 看哪個容器：`fju-edge-caddy`＝訪客 IP 與網址；`fju-test-app`、`fju-prod-app`、`fju-test-worker`、`fju-prod-worker`＝登入錯誤、通知可能帶 Email／姓名；`fju-test-postgres`、`fju-prod-postgres`＝SQL 錯誤可能帶值；`fju-status-pghero-1`＝Rails 請求 log；`fju-status-cloudflared-1`＝請求路徑 | **只打開 `fju-status-collector-1`**（錯誤訊息裡的 IP 已被 `scrubIp` 換成 `[IP]`）；需要第二個例子用 `fju-status-gatus-1`（只有網址與結果）。其餘容器名可以在清單裡出現，**不點** |
 | Dozzle 右上角身分 | Access 傳來的信箱 | 中繼固定送替身 `tutorial@example.invalid`（保留網域，不是真人；§5 Q10） |
-| PgHero | 「Live Queries」＝正在執行的 SQL 含真實參數值；「Connections」＝連線來源 IP 與角色名；「Explain」「Tune」要自己貼 SQL；「Queries」要 `pg_stat_statements`（沒開，只會顯示未啟用） | 只開 Overview、Space、Maintenance、Queries（看未啟用訊息）。**Live Queries、Connections、Explain、Tune 只 hover 不 click** |
+| PgHero | **Overview 本身**：有跑太久的查詢時會直接嵌入「Long Running Queries」的 SQL 表（含真實值、Kill／Kill All 按鈕）；連線過多時嵌入「Top Sources」表（來源 IP、角色、資料庫）（v3.7.0 `app/views/pg_hero/home/index.html.erb`）。「Live Queries」＝正在執行的 SQL 含真實參數值；「Connections」＝連線來源 IP 與角色名；「Explain」「Tune」要自己貼 SQL；「Queries」要 `pg_stat_statements`（沒開，只會顯示未啟用） | 6-3-1 先在 `offRecord` 載入 Overview，確認**沒有** Long Running Queries 明細表和 Top Sources 表才開始錄；出現就停止這一段並回報（不點 Kill／Kill All）。每次重新載入 Overview 都要重查。其餘只開 Space、Maintenance、Queries（看未啟用訊息）。**Live Queries、Connections、Explain、Tune 只 hover 不 click** |
 | Beszel | 沒有帳號、不錄 | — |
 | 本機檔案 | `~/work/tutorial-status-data/acceptance/<runId>/` 裡的截圖 | 目錄 700、不進 repo、影片定稿後刪 |
 
 #### 6-1 開發者後台四頁（13 步，約 108 秒）
 
-**開始前狀態**：錄法 A、B 做完——`status/` 以 `next dev` 跑在 `127.0.0.1:3350`、讀 `~/work/tutorial-status-data/` 的真實資料、五個網址暖機過都 200；`startChapter` 的 `displayOrigin` 是 `fju-status.roy422.dev`。不登入、不清任何網站的 cookie（這一段不用教學網站）。**段首準備（offRecord）**：`t.goto('/')`，確認側欄是展開的（視窗 1280 寬時預設展開）。
+**開始前狀態**：錄法 A、B 做完——`status/` 以 `next dev` 跑在 `127.0.0.1:3350`、讀 `~/work/tutorial-status-data/` 的真實資料、五個網址暖機過都 200；`startChapter` 的 `displayOrigin` 是 `fju-status.roy422.dev`。不登入、不清任何網站的 cookie（這一段不用教學網站）。**段首準備（offRecord）**：`t.goto('/')`，確認側欄是展開的（視窗 1280 寬時預設展開）。dev 模式每頁第一次開要編譯，段內等載入一律用不進影片的 `t.waitStable({ ready: …, offRecord: true })`，不要用 `t.wait(ms)` 硬等。**狀態欄寫法（第 6 章）**：引擎第 2 輪（#408）的 `status` 是 `{ kind, say, evidence }`，下表「狀態＋依據」欄的依據放 `evidence`、畫面白話放 `say`；`pending` 會自動加「等你決定：」前綴，`say` 不要再寫這四個字。
 
 | 編號 | 頁面 | 動作 | 目標 | 字幕 | 配音稿 | 狀態＋依據 |
 |---|---|---|---|---|---|---|
 | 6-1-1 | `/` | goto → wait | 頁首「總覽」；側欄「開發者後台」「總覽」「測試地圖」「開發進度」「能不能上線」 | 開發者後台總覽 | 這是只有 Roy 看得到的開發者後台。正式網址前面有 Cloudflare Access 擋著。影片用複製下來的真實資料在本機錄，畫面跟線上一樣。 | ✅ 設計方案 §3.2（兩道鎖）；本機略過見錄法 A |
 | 6-1-2 | `/` | hover | 卡片「版本」的表格：列「測試站」「正式站」，欄「main 的 CI」「最後部署」「站台回報」；不一致的列是黃底、寫「版本不一致」 | 三個版本對不對 | 版本卡片把每一站三個版本號並排：main 的 CI、最後一次部署、站台自己回報的。三個不一樣那一列會變黃，寫「版本不一致」。 | ✅ 設計方案 §3.8 補充（版本卡片）；黃列有沒有看錄影當下的資料 |
 | 6-1-3 | `/` | hover ×5 | 區塊「三頁」的卡片「測試地圖」「開發進度」「能不能上線」；區塊「工具」的卡片「Dozzle・容器 log」「PgHero・測試站資料庫」（只 hover，不點） | 三頁與三個工具 | 下面三張卡是三頁，等一下逐頁看。工具區的 Dozzle 看容器 log、PgHero 看測試站資料庫，下兩段示範。這些卡片點了會開新分頁到正式網址，影片只移過去不點。 | ✅ 既有保證（`status/src/lib/data/hosts.ts` PAGES／toolEntries） |
-| 6-1-4 | `/` | hover | 卡片「Beszel・VM 與容器資源」 | Beszel 還沒開通 | Beszel 看 VM 的 CPU、記憶體和磁碟。它保留自己的登入，Roy 還沒進去建第一個帳號，所以影片不示範。這裡等 Roy 決定：什麼時候建 Beszel 帳號、要不要留它。 | 🟡 設計方案 §4「Roy 要做的事」：第一次開 Beszel 建帳號（可延後）；say＝「等你決定：Beszel 帳號何時建」 |
+| 6-1-4 | `/` | hover | 卡片「Beszel・VM 與容器資源」 | Beszel 還沒開通 | Beszel 看 VM 的 CPU、記憶體和磁碟。它保留自己的登入，Roy 還沒進去建第一個帳號，所以影片不示範。這裡等 Roy 決定：什麼時候建 Beszel 帳號、要不要留它。 | 🟡 `status: { kind: 'pending', say: 'Beszel 帳號何時建', evidence: '設計方案 §4「Roy 要做的事」：第一次開 Beszel 建帳號（可延後）' }`（畫面會顯示「🟡 等你決定：Beszel 帳號何時建」） |
 | 6-1-5 | `/progress` | click → wait | 側欄「開發進度」→ 卡片「共 N 張票」、「票清單最後更新 …；來源 <SHA>」、六個標籤「還沒開始」「做中」「送審」「已合併」「卡住」「不做」 | 票做到哪 | 開發進度讀 repo 裡主腦維護的票清單。先看總數、六種狀態各幾張，還有票清單是哪個 commit 的。 | ✅ 設計方案 §3.10；資料是 `docs/status/tickets.json` |
 | 6-1-6 | `/progress` | scroll → hover | 第一個批次卡片的表格：欄「票號」「票名」「波次」「狀態」「PR」「相依」「備註」；有的話，黃底的列與列裡的黃字說明 | 每張票的 PR 與狀態 | 每個批次一張表，一列一張票：狀態、對到的 PR、相依哪幾張。票清單跟 GitHub 對不上的列會變黃並寫原因，提醒主腦去改檔；這頁不會自己改。 | ✅ 設計方案 §3.10（對不上標黃、不自動改檔） |
 | 6-1-7 | `/progress` | scroll → hover | 卡片「main 最新 CI」（「<SHA>：success」）、卡片「最近 5 個合併的 PR」 | main 的 CI 與最近合併 | 右邊是 main 最新一次 CI 的結果，和最近五個合併的 PR；點了會到 GitHub，影片不點。 | ✅ 既有保證 |
@@ -791,7 +843,7 @@ sleep 6; rsync -a --dry-run fju-tutorial-data:secrets/ /tmp/ch6-check/; echo "�
 | 6-1-9 | `/go-live` | hover ×5 | 卡片「G1 CI 全綠」「G2 驗收：擋上線 0、要修 0 或每項經 Roy 同意」「G3 測試站健康」「G4 24 小時內有正式站備份」「G5 正式站設定齊全」，各自的標籤「過」「不過」「資料不夠」與結論句 | 五條上線條件 | 五條是：CI 全綠、驗收沒有擋上線的問題、測試站連續半小時健康。再來是正式站 24 小時內有備份、正式站設定齊全。每條綠紅灰各加一句原因；灰是資料不夠，也算不過。 | ✅ 設計方案 §3.8；G2 的必要項在 `docs/status/go-live-policy.json` |
 | 6-1-10 | `/go-live` | scroll → hover | 卡片「補充資訊（不是上線條件）」：「最近一次完整驗收：night-…，測的是 <SHA>；main 目前是 <SHA>」、「G5 的『fju.roy422.dev 有 A 記錄』設定檢查還沒輸出這一項…請上線前自己確認」 | 不算條件的補充 | 下面是補充：最近一次完整驗收測的是哪個版本、之後 main 有沒有新 commit。正式站網域的 DNS 記錄還沒有自動檢查，上線前要自己看一眼。 | ⚠️ 設計方案 §3.8 G5：A 記錄檢查未輸出，頁面自己註明 |
 | 6-1-11 | `/map` | click → wait | 側欄「測試地圖」→ 卡片「最新一次完整驗收：night-…」（測的 commit、結束時間、設定版本）、卡片「角色 × 功能」的表頭「功能」「訪客」「學生」「老師」「系辦」與圖例「✅ 有點過…⚠️ 有狀況…⬜ 沒測到…— 不適用」 | 哪個角色點過哪個功能 | 測試地圖把最近一夜整夜驗收的結果攤成角色乘功能的格子。綠勾是每一步都過，三角是有狀況，白格是沒測到，橫線是不適用。 | ✅ 設計方案 §3.9；Q27 |
-| 6-1-12 | `/map?f=<功能>&r=visitor` | click → wait → scroll → click | 「訪客」欄第一個 ✅ 的格子（優先列「最新公告（前台）」）→ 右側抽屜「<功能> × 訪客」：步驟卡「story-N 第 k 步」＋標籤「通過」、「看到什麼：…」、縮圖、「自動測試」底下的檔名 → 抽屜右上「關閉」 | 點格子看每一步 | 點一格會開右邊的抽屜，列出那一夜這個角色在這個功能的每一步。有看到什麼、截圖縮圖，最下面是對應的自動測試檔。影片只開訪客的格子，縮圖不點開。 | ✅ 設計方案 §3.9（抽屜由網址 `?f=&r=` 畫、不靠 JS）；個資規則見錄法 E |
+| 6-1-12 | `/map?f=<功能>&r=visitor` | click → wait → scroll → click | 「訪客」欄第一個 ✅ 的格子（優先列「最新公告（前台）」）→ 右側抽屜「<功能> × 訪客」：步驟卡「story-N 第 k 步」＋標籤「通過」、「看到什麼：…」、縮圖、「自動測試」底下的檔名 → 抽屜右上「關閉」 | 點格子看每一步 | 點一格會開右邊的抽屜，列出那一夜這個角色在這個功能的每一步。有看到什麼、截圖縮圖，最下面是對應的自動測試檔。影片只開訪客的格子，縮圖不點開。 | ✅ 設計方案 §3.9（抽屜由網址 `?f=&r=` 畫、不靠 JS）；個資規則見錄法 E；訪客欄沒有可安全展示的格子就停止本段並 ESCALATE（Q12） |
 | 6-1-13 | `/map` | scroll → hover | 卡片「前台每一區」的表格：欄「前台區」「管理後台頁」「後台能做」「前台測過」「後台測過」；紅底的列（「Q12：前台有這區但沒有後台」） | 前台每一區有沒有後台 | 第二張表是前台每一區由哪個後台頁維護、能不能新增編輯刪除、前後台各有沒有測過。紅底是前台有這一區、後台卻沒有地方改，跟第 1 章看到的系辦聯絡和頁尾是同一件事。 | ❌ P-35（沒有後台的區塊，同 F-03）；表本身 ✅ Q27 |
 
 #### 6-2 Dozzle：容器 log（5 步，約 44 秒）
@@ -808,7 +860,7 @@ sleep 6; rsync -a --dry-run fju-tutorial-data:secrets/ /tmp/ch6-check/; echo "�
 
 #### 6-3 PgHero：測試站資料庫（5 步，約 44 秒）
 
-**開始前狀態**：同 6-2（中繼與隧道在跑，`curl http://127.0.0.1:3352/` 是 200）。`startChapter({ id: '6-3', chapter: '開發者後台｜PgHero 測試站資料庫', baseURL: 'http://127.0.0.1:3352', displayOrigin: 'fju-status-db.roy422.dev' })`。PgHero 是固定版本 v3.7.0 的現成介面（英文），目標字以畫面為準；**只開 Overview、Space、Maintenance、Queries 四頁**（錄法 E）。Beszel 已在 6-1-4 一句帶過，這段不再提。
+**開始前狀態**：同 6-2（中繼與隧道在跑，`curl http://127.0.0.1:3352/` 是 200）。`startChapter({ id: '6-3', chapter: '開發者後台｜PgHero 測試站資料庫', baseURL: 'http://127.0.0.1:3352', displayOrigin: 'fju-status-db.roy422.dev' })`。PgHero 是固定版本 v3.7.0 的現成介面（英文），目標字以畫面為準；**只開 Overview、Space、Maintenance、Queries 四頁**（錄法 E）。**段首準備（offRecord）**：載入 Overview，確認頁上**沒有**「Long Running Queries」明細表與「Top Sources」表（有跑太久的查詢或連線過多時 PgHero 會把 SQL、來源 IP 直接嵌在首頁）；有就停止本段並回報，不點 Kill／Kill All；之後每次重新載入 Overview 都要再查一次。Beszel 已在 6-1-4 一句帶過，這段不再提。
 
 | 編號 | 頁面 | 動作 | 目標 | 字幕 | 配音稿 | 狀態＋依據 |
 |---|---|---|---|---|---|---|
@@ -830,10 +882,10 @@ sleep 6; rsync -a --dry-run fju-tutorial-data:secrets/ /tmp/ch6-check/; echo "�
 | Q6 | 3-3 與 5B-2 都需要一個有「檔案上傳」欄位的繳交項目（seed 沒有）。由環境的準備腳本建，還是錄影引擎在段首以系辦身分點出來？ | 環境準備腳本建（固定標題「期中報告初稿（示範）」），引擎不要靠點擊做前置。 |
 | Q7 | 5C-1 要 G04 有最終成績才能示範更正，需要替「專題發表」階段補一份正式評分。用程式直接寫 DB 還是走 UI？ | 環境準備腳本走 application 層（跟 seed-demo 同一套 insert），不要在影片裡點。 |
 | Q8 | 3-2 會讓應宥丞那組成立並改成產學組。同一張錄影票的其他段（3-1、3-3、3-5）用的是 G07 的人，不受影響；但若同一次錄影不重置就連錄 5A-5，分組總覽的數字會不同。 | 每段開頭一律重置（§0.2 已寫）。 |
-| Q9 | （第 6 章）Dozzle、PgHero 在 compose 裡不發布 port、容器 IP 不固定，Dozzle 又要 Access 的身分 header，SSH 隧道直接到不了。錄法 C 的做法是錄影期間在 VM 上用 `docker run` 臨時起兩個 Caddy 中繼容器（只綁 127.0.0.1:38080／38081、接 `fju-status` 網路、Dozzle 那個補替身 header），錄完刪。替代是改 `docker-compose.status.yml` 給兩個服務固定 IP 或發布 127.0.0.1 埠（要改 ops、另開票）。接受臨時容器？ | 接受臨時容器：不改任何檔、錄完 `docker rm -f` 就沒了；`status-up.sh` 的 `--remove-orphans` 不會碰它們。 |
+| Q9 | （第 6 章）Dozzle、PgHero 在 compose 裡不發布 port、容器 IP 不固定，Dozzle 又要 Access 的身分 header，SSH 隧道直接到不了。錄法 C 的做法是錄影期間在 VM 上用 `docker run` 臨時起兩個 Caddy 中繼容器（只綁 127.0.0.1:38080／38081、接 `fju-status` 網路、Dozzle 那個補替身 header），錄完刪；隧道金鑰只准本地轉送兩個埠、sshd 的 `Match User` 關掉反向轉送。替代是改 `docker-compose.status.yml` 給兩個服務固定 IP 或發布 127.0.0.1 埠（要改 ops、另開票）。接受臨時容器？ | 接受臨時容器：不改任何檔、錄完 `docker rm -f` 就沒了；`status-up.sh` 的 `--remove-orphans` 不會碰它們。 |
 | Q10 | （第 6 章）Dozzle 右上角會顯示中繼送進去的替身身分，錄法寫 `tutorial@example.invalid`（保留網域、不是真人）。要不要改成別的字（例如只寫 `tutorial`）？ | 維持假信箱；6-2-5 的配音會說是替身。 |
 | Q11 | （第 6 章）本機跑四頁只能用 `next dev`（`next start` 把 NODE_ENV 寫死成 production，Access 略過開關失效，10/13 實測 403）。dev 模式左下角的 Next 徽章靠 `NEXT_PRIVATE_DISABLE_DEV_OVERLAY_UX=1` 拿掉（Next 16.3.8 內部旗標，10/13 Playwright 實測有效）。若 `status/` 日後升級 Next 讓旗標失效，備案 A：引擎在 `page.addInitScript` 塞一段 `nextjs-portal{display:none}`（純錄影側）；備案 B：`status/next.config.ts` 加 `devIndicators: false`（要改 status 程式，Roy 說不改）。 | 先用旗標；失效用備案 A，不動 status。 |
-| Q12 | （第 6 章）6-1-12 要點的格子由真實那一夜決定：訪客欄沒有 ✅ 時改點訪客欄第一個有步驟的格子；若 `summary.json` 的「看到什麼」或問題一句話 `grep '@'` 不是 0、或出現不在示範資料裡的人名，換 `inbox/` 裡另一夜（`acceptance-index.json` 的 `runs`）或 ESCALATE。 | 實作者錄前照錄法 B 檢查並在回報寫用了哪一夜。 |
+| Q12 | （第 6 章）6-1-12 要點的格子由 `latestFullAttempt` 那一夜決定：訪客欄優先「最新公告（前台）」，沒有 ✅ 就點訪客欄第一個有步驟的格子。`/map` 固定讀索引的那一夜、不回退，所以**不能**自行換夜或改索引；那一夜沒有 `summary.json`、訪客欄沒有可安全展示的格子、或 `summary.json` 的「看到什麼」／問題一句話 `grep '@'` 不是 0、出現不在示範資料裡的人名，就停止 6-1 並 ESCALATE。 | 實作者錄前照錄法 B 檢查並在回報寫用了哪一夜；不過就 ESCALATE。 |
 | Q13 | （第 6 章）`~/work/tutorial-status-data/` 有測試站截圖（驗收那一夜的畫面）。影片定稿後要刪掉？ | 刪；要重錄再照錄法 B 拉一次（兩次連線）。 |
 | Q14 | （第 6 章）VM 帳號 `fjututorial` 與兩把金鑰錄完要留著（之後更新影片可重用）還是撤掉？ | 留帳號、刪中繼容器；要撤照錄法 C ⑥。 |
 | Q15 | （第 6 章）Dozzle 的 forward-proxy 模式在**沒有** header 時的行為（401 或空白）沒有在本機驗過（本機沒有 Dozzle）；錄法 C ④ 的 `curl` 第一次跑就會看到。中繼若不需要補 header 也不用改，多送一個 header 無害。 | 實作者在 ④ 回報實際狀態碼即可，不影響做法。 |
