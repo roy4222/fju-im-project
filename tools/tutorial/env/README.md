@@ -7,9 +7,10 @@
 
 網站不是跑這些腳本所在的 checkout，而是固定的 `~/work/tutorial-site`（origin/main 的 detached worktree）：
 
-- 第一次 `up.sh` 從當時最新的 origin/main 建立、裝依賴、建置；之後**錄影期間不會換 commit**。
+- 第一次 `up.sh --build` 從當時最新的 origin/main 建立、裝依賴、建置；之後 `up.sh` 預設**不建置、不換 commit**（錄影期間不會動）。
 - 用的 commit 每次 up.sh 都會印出來，並寫進 `~/work/tutorial-out/env-commit.txt`（`/api/health` 的 `commit` 也看得到）。
 - 要換到更新的 main：所有實例 `down.sh` 之後跑 `up.sh --update`（有實例在跑會拒絕），再各實例 `reset.sh` 用新版 seed-demo 重灌。
+- 建置被中斷（Ctrl-C／kill）時，還在跑的 `pnpm build` 子程序會一起停掉，build mark 也不會寫，之後的 `up.sh` 會要求重新 `--build`。
 
 ## 多實例（幾個人同時錄）
 
@@ -22,21 +23,22 @@ reset 一個不影響別的：
 | n（1～4） | `http://localhost:330n` | `fju_tutorial_n` | `~/work/tutorial-files/n` | `~/work/tutorial-run/n` | `~/work/tutorial-secrets/accounts-n.json` |
 
 實例 n 的帳號設定第一次從實例 0 那份複製，所以帳號密碼跟實例 0 一樣。
-建置產物（`web/.next`、`web/dist`）各實例共用：up.sh 只在沒有建置、或 `web/` 跟上次建置時不同才建，
-而且有任何實例在跑時拒絕重建（會把它們用到一半的 `.next` 換掉）。
+建置產物（`web/.next`、`web/dist`）各實例共用：`up.sh` 預設**不建置**，只沿用既有建置（沒有、或不是目前網站版本的，就零副作用退出並提示
+先把所有實例 `down` 再跑 `up.sh --build`）。`--build`／`--update` 會在持鎖後確認 0～4 **全部**沒在跑才動 checkout 與建置產物，
+所以錄影期間不會有人改寫大家共用的 `.next`。
 多實例共用一把鎖（`~/work/tutorial-run/lock`）：`up.sh` 從換版本、裝依賴、建置到起程序、登記 pid，以及 `reset.sh` 的「停→重灌→再起」
-整段都在鎖裡做，「有沒有實例在跑」是持鎖後才檢查，所以不會有人趁別人重建到一半用 `--no-build` 起實例、也不會有人在別人剛停下來重置時搶去重建。
-輪到自己之前會等（預設最多 15 分鐘，`TUTORIAL_LOCK_TIMEOUT` 可改），逾時就退出、不動任何東西；持鎖的程序死了（pid 不在）鎖會自動收回。
-`down.sh` 只會讓實例變少，不用鎖。
+整段都在鎖裡做，「有沒有實例在跑」是持鎖後才檢查。輪到自己之前會等（預設最多 15 分鐘，`TUTORIAL_LOCK_TIMEOUT` 可改），
+逾時就零副作用退出，訊息會寫鎖在哪、持有者 pid 還在不在；**殘留的鎖不會自動收回**，確認沒有任何 up／reset 在跑之後手動刪掉那個目錄再重跑。
+`reset.sh` 拿到鎖之後會再檢查一次目標與建置產物（等鎖期間別人可能換了版本），不過就放鎖退出。`down.sh` 只會讓實例變少，不用鎖。
 
 **同一個瀏覽器不要同時開兩個實例**：cookie 不分 port，`localhost:3300` 和 `localhost:3301` 的登入會互相蓋掉。
 每個實例用自己的瀏覽器設定檔（或各自的 Playwright browser context）。
 
 | 指令 | 做什麼 |
 |---|---|
-| `tools/tutorial/env/up.sh` | 建置（需要時）→ 建這個實例的資料庫（已在就沿用）→ migration → seed-demo → 設教學帳號密碼 → 起 `next start`（port 3300+n）與背景 worker |
-| `tools/tutorial/env/up.sh --no-build`／`--build` | 一定沿用既有建置／一定重建（所有實例都 down 了才可以） |
-| `tools/tutorial/env/up.sh --update` | 網站 checkout 換到最新 origin/main 並重建（所有實例都 down 了才可以；錄影期間不要用） |
+| `tools/tutorial/env/up.sh` | 沿用既有建置（沒有就退出）→ 建這個實例的資料庫（已在就沿用）→ migration → seed-demo → 設教學帳號密碼 → 起 `next start`（port 3300+n）與背景 worker |
+| `tools/tutorial/env/up.sh --build` | 先建置再起：第一次用、或建置壞了時（0～4 全部 down 了才可以） |
+| `tools/tutorial/env/up.sh --update` | 網站 checkout 換到最新 origin/main 並重建（0～4 全部 down 了才可以；錄影期間不要用） |
 | `tools/tutorial/env/up.sh --dry-run` | 只驗目標、印出這個實例的網站、資料庫、目錄與網站版本，什麼都不動（錄影前確認自己的 `INSTANCE` 用） |
 | `tools/tutorial/env/reset.sh` | 停這個實例的 app／worker → 刪庫重建 → 清空這個實例的上傳檔案 → migration → seed-demo → 帳號 → 示範 114 屆設為預設屆別 → 模擬業務鐘回到真實時間 → 再起。實測約 5 秒 |
 | `tools/tutorial/env/clock-reset.sh` | 只把這個實例的模擬業務鐘清回真實時間（資料不動）；本來就是真實時間就不寫任何東西 |
@@ -116,3 +118,4 @@ shellcheck -x -P SCRIPTDIR tools/tutorial/env/*.sh      # 腳本靜態檢查
 - seed-demo 只認 `FJU_SITE=test`：腳本只在跑 seed-demo 那一個指令上設它，連的是本機這個實例的教學庫。
 - 同一個瀏覽器設定檔同時開兩個實例，登入會互相蓋掉（見上面「多實例」）。
 - 各實例的 `up.sh`／`reset.sh` 共用一把鎖，所以兩個人同時 reset 會排隊（一次約 5 秒），不會平行。
+- 鎖目錄殘留（持鎖的程序被 kill -9）時不會自動收回，要人確認後手動刪 `~/work/tutorial-run/lock`。

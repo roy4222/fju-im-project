@@ -9,7 +9,8 @@
 #   建置產物（web/.next、web/dist）各實例共用。
 #
 # 網站版本：不是用這支腳本所在的 checkout，而是固定在 ~/work/tutorial-site（origin/main 的 detached worktree）。
-#   第一次 up.sh 從當時最新的 origin/main 建；之後錄影期間不會自己換 commit，要換只能 up.sh --update（所有實例都 down 了才行）。
+#   第一次 up.sh --build 從當時最新的 origin/main 建；之後 up.sh 預設不建置、不換 commit，要換只能 up.sh --update。
+#   建置與換版本只在 0～4 全部沒在跑時做（持鎖後查），錄影期間不會有人改寫共用的 .next。
 #   用的 commit 寫在 ~/work/tutorial-out/env-commit.txt。
 #
 # 秘密（BETTER_AUTH_SECRET、帳號密碼）只放 $SECRETS_DIR，不進 repo。
@@ -20,7 +21,7 @@
 #   - 停程序前核對 pid 檔記的啟動時間、工作目錄、種類、PGID，不符就只清 pid 檔
 # 多實例共用一把鎖（$RUN_ROOT/lock，lock_acquire／lock_release）：checkout 更新、安裝、建置、起程序與登記 pid，
 #   以及 reset 的「停→重灌→再起」整段都在鎖裡做；「有沒有實例在跑」要持鎖後才檢查（別人要起或重起實例也得先拿到鎖，
-#   檢查結果才不會過時）。down.sh 只會讓實例變少，不用鎖。
+#   檢查結果才不會過時）。殘留的鎖不自動收回：等到逾時就零副作用退出，請人確認後手動刪。down.sh 只會讓實例變少，不用鎖。
 
 log() { printf '[tutorial-env%s] %s\n' "${INSTANCE:+ #$INSTANCE}" "$*"; }
 die() { printf '[tutorial-env%s] 錯誤：%s\n' "${INSTANCE:+ #$INSTANCE}" "$*" >&2; exit 1; }
@@ -64,6 +65,7 @@ WORKER_LOG="$RUN_DIR/worker.log"
 DOCKER_ENDPOINT=""
 LOCK_DIR="$RUN_ROOT/lock"
 LOCK_HELD=0
+BUILD_PID=""
 
 # 任何副作用之前跑：驗資料庫目標、FILES_ROOT、Docker endpoint；用驗過、正規化後的值覆寫變數。
 safety_check() {
@@ -184,8 +186,23 @@ prepare_data() {
   set_demo_cohort_flags
 }
 
-require_site() {
-  [[ -f "$WEB_DIR/package.json" && -f "$WEB_DIR/.next/BUILD_ID" ]] || die "還沒有網站 checkout 或建置（${SITE_DIR}），先跑 up.sh"
+# 建置產物齊全而且是目前網站版本的：checkout、node_modules、.next/BUILD_ID、dist/worker.mjs、build mark＝HEAD 的 web tree。
+# up.sh（預設不建置）與 reset.sh 都靠它；不齊就零副作用退出，請人先把所有實例 down 再 up.sh --build。
+require_built() {
+  local head hint="先把所有實例 down，再跑 up.sh --build（第一次用、或換版本後）"
+  [[ -f "$WEB_DIR/package.json" ]] || die "還沒有網站 checkout（${SITE_DIR}）；${hint}"
+  [[ -d "$WEB_DIR/node_modules" ]] || die "網站 checkout 還沒裝依賴（${WEB_DIR}）；${hint}"
+  [[ -f "$WEB_DIR/.next/BUILD_ID" && -f "$WEB_DIR/dist/worker.mjs" ]] || die "還沒有建置產物（${WEB_DIR}/.next、dist）；${hint}"
+  head="$(git -C "$SITE_DIR" rev-parse HEAD:web 2>/dev/null || true)"
+  [[ -n "$head" && "$(cat "$BUILD_MARK" 2>/dev/null)" == "$head" ]] || die "建置產物不是目前網站版本的（或上次建置沒完成）；${hint}"
+}
+
+# 建置、換版本之前（持鎖後）：0～4 全部都沒在跑才行——重建會把跑到一半的 .next 換掉。
+ensure_idle() {
+  local running
+  lock_assert ensure_idle
+  running="$(running_instances)"
+  [[ -z "$running" ]] || die "實例 ${running} 在跑；建置或換網站版本前要先把所有實例 down（每個實例跑 down.sh）"
 }
 
 # 示範 114 屆設成「後台預設查看的屆別」與「新註冊加入的屆別」（seed-demo 刻意不動這兩個全系旗標；
@@ -254,6 +271,7 @@ proc_ours() {
 # 在 web 目錄直接起 node（不經子 shell，$! 就是那個程序、工作目錄在 fork 當下就是 web）。
 # set -m：背景程序自成一個 process group，停的時候整組停（next start 的子程序也一起），不波及別人。
 # 起程序＋登記 pid 都要持鎖：建置前「有沒有實例在跑」的檢查才不會被剛起來的實例繞過。
+# 鎖是 mkdir 目錄，不是檔案描述符，所以長駐的 app／worker 不會繼承任何鎖相關的 fd（它們只拿到 log 檔的 stdout／stderr）。
 spawn() {
   local kind="$1" file="$2" logfile="$3" mode="$4"; shift 4
   local pid
@@ -319,74 +337,75 @@ running_instances() {
   printf '%s' "${list# }"
 }
 
-# 建置產物各實例共用：沒有、或 web/ 的內容（HEAD 的 web tree）跟上次建置時不同才建（mode=auto）；
-# 只改 tools/ 之類的 commit 不會觸發重建。force 一定建；skip 不建。
-# 必須持鎖：要建時若有實例在跑就拒絕（持鎖後查才算數——別人起實例也得先拿鎖），兩個人也不可能同時建。
+# 建置（各實例共用）。只在持鎖、而且 0～4 全部沒在跑時做（up.sh 先 ensure_idle）。
+# 建置前先清掉 build mark，成功才寫回：被中斷或失敗的建置不會被當成可用的產物（require_built 會擋）。
 ensure_build() {
-  local mode="$1" head built="" running
+  local head
   lock_assert ensure_build
   head="$(git -C "$SITE_DIR" rev-parse HEAD:web)"
-  [[ -f "$BUILD_MARK" ]] && built="$(cat "$BUILD_MARK")"
-  if [[ "$mode" == skip ]]; then
-    [[ -f "$WEB_DIR/.next/BUILD_ID" && -f "$WEB_DIR/dist/worker.mjs" ]] || die "還沒有建置產物，不能 --no-build"
-    return 0
-  fi
-  if [[ "$mode" == auto && -f "$WEB_DIR/.next/BUILD_ID" && -f "$WEB_DIR/dist/worker.mjs" && "$built" == "$head" ]]; then
-    log "沿用既有建置（web tree ${head}）"
-    return 0
-  fi
-  running="$(running_instances)"
-  [[ -z "$running" ]] || die "實例 $running 正在用目前的建置；要重建先把它們 down，或用 --no-build 沿用舊建置"
+  rm -f "$BUILD_MARK"
   log "建置（pnpm -C web build，各實例共用）"
-  (cd "$SITE_DIR" && pnpm -C web build >"$RUN_ROOT/build.log" 2>&1) || die "建置失敗，看 $RUN_ROOT/build.log"
+  run_build || die "建置失敗，看 ${RUN_ROOT}/build.log"
   printf '%s\n' "$head" >"$BUILD_MARK"
 }
 
-# ── 多實例共用鎖 ─────────────────────────────────────────────────────────────
-# mkdir 原子建立 $LOCK_DIR；owner 檔記「pid 啟動時間 在做什麼」。持有者不在了（pid 不存在、或 pid 被重用而啟動時間不同）
-# 就當殘留鎖收回；沒有 owner 檔（持有者剛 mkdir 還沒寫）不當殘留，寧可等到逾時請人確認。
-# 等待上限 TUTORIAL_LOCK_TIMEOUT 秒（預設 900，建置要幾分鐘）；逾時就退出、不動任何東西。
-
-# 程序的啟動時間（LC_ALL=C 的 ps lstart，多餘空白壓掉），用來分辨 pid 有沒有被重用。
-proc_lstart() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //;s/ $//'; }
-
-lock_owner_dead() {
-  local owner="$1" pid w1 w2 w3 w4 w5
-  [[ -n "$owner" ]] || return 1
-  read -r pid w1 w2 w3 w4 w5 _ <<<"$owner" || true
-  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
-  kill -0 "$pid" 2>/dev/null || return 0
-  [[ "$(proc_lstart "$pid")" == "$w1 $w2 $w3 $w4 $w5" ]] && return 1
-  return 0
+# 建置跑在自己的 process group，pid 記在 BUILD_PID：up.sh 被中斷（kill／Ctrl-C）時 lock_release 會先把它整組停掉，
+# 不會留下一個還在改寫 .next 的孤兒建置，鎖才放掉。
+run_build() {
+  local rc=0
+  set -m
+  (cd "$SITE_DIR" && exec pnpm -C web build >"$RUN_ROOT/build.log" 2>&1) &
+  BUILD_PID=$!
+  set +m
+  wait "$BUILD_PID" || rc=$?
+  BUILD_PID=""
+  return "$rc"
 }
 
+# ── 多實例共用鎖 ─────────────────────────────────────────────────────────────
+# mkdir 原子建立 $LOCK_DIR；owner 檔記「pid 在做什麼」，只拿來寫錯誤訊息。拿不到就等，
+# 等到 TUTORIAL_LOCK_TIMEOUT 秒（預設 900，建置要幾分鐘）就零副作用退出，訊息寫鎖在哪、持有者 pid 還在不在，
+# 請人確認沒有 up.sh／reset.sh 在跑之後手動刪掉鎖目錄。刻意不自動收回殘留鎖：不要為了罕見的殘留去冒兩個人同時拿到鎖的險。
+
 lock_acquire() {
-  local what="$1" waited=0 timeout="${TUTORIAL_LOCK_TIMEOUT:-900}" owner
+  local what="$1" waited=0 timeout="${TUTORIAL_LOCK_TIMEOUT:-900}" owner pid who
   [[ "$LOCK_HELD" == 0 ]] || return 0
   [[ "$timeout" =~ ^[0-9]+$ ]] || die "TUTORIAL_LOCK_TIMEOUT 要是秒數（收到「${timeout}」）"
   mkdir -p "$RUN_ROOT"
   until mkdir "$LOCK_DIR" 2>/dev/null; do
-    # 先睡一秒再讀 owner：持有者 mkdir 之後要一瞬間才寫得進 owner 檔，馬上讀會以為沒有 owner。
+    if [[ "$waited" -ge "$timeout" ]]; then
+      owner="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
+      pid="${owner%% *}"
+      if [[ "$pid" =~ ^[0-9]+$ ]]; then
+        if kill -0 "$pid" 2>/dev/null; then who="持有者 pid ${pid}（仍在）"; else who="持有者 pid ${pid}（已不在）"; fi
+        who="${who}，它在做：${owner#* }"
+      else
+        who="沒有 owner 檔，持有者不明"
+      fi
+      die "等了 ${waited} 秒還拿不到鎖。鎖在 ${LOCK_DIR}，${who}。確認沒有任何 up.sh／reset.sh 在跑之後，手動刪除這個目錄再重跑"
+    fi
+    [[ "$waited" -gt 0 ]] || log "等另一個 up.sh／reset.sh 完成（鎖在 ${LOCK_DIR}）…"
     sleep 1
     waited=$((waited + 1))
-    owner="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
-    if lock_owner_dead "$owner"; then
-      log "收回殘留的鎖（持有者已不在：${owner}）"
-      rm -f "$LOCK_DIR/owner"
-      rmdir "$LOCK_DIR" 2>/dev/null || true
-      continue
-    fi
-    [[ "$waited" -lt "$timeout" ]] || die "另一個 up.sh／reset.sh 正在進行（${owner:-沒有 owner 檔}）；等它完成再跑（已等 ${waited} 秒）。確定它真的不在了才手動刪 ${LOCK_DIR}"
-    [[ "$waited" -gt 1 ]] || log "等另一個 up.sh／reset.sh 完成（${owner:-沒有 owner 檔}）…"
   done
-  printf '%s %s %s\n' "$$" "$(proc_lstart "$$")" "$what" >"$LOCK_DIR/owner"
+  printf '%s %s\n' "$$" "$what" >"$LOCK_DIR/owner"
   LOCK_HELD=1
   trap lock_release EXIT
 }
 
-# 只放自己拿的鎖（owner 的 pid 是自己）；die／Ctrl-C 也會經 EXIT trap 走到這裡。
+# 只放自己拿的鎖（owner 的 pid 是自己）；die／Ctrl-C／kill 也會經 EXIT trap 走到這裡。
 lock_release() {
   [[ "$LOCK_HELD" == 1 ]] || return 0
+  # 建置還在跑（up.sh 被中斷）：先整組停掉，再放鎖。
+  if [[ -n "$BUILD_PID" ]] && kill -0 "$BUILD_PID" 2>/dev/null; then
+    kill -TERM -- "-$BUILD_PID" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      kill -0 "$BUILD_PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    if kill -0 "$BUILD_PID" 2>/dev/null; then kill -KILL -- "-$BUILD_PID" 2>/dev/null || true; fi
+    BUILD_PID=""
+  fi
   LOCK_HELD=0
   [[ "$(cut -d' ' -f1 "$LOCK_DIR/owner" 2>/dev/null)" == "$$" ]] || return 0
   rm -f "$LOCK_DIR/owner"

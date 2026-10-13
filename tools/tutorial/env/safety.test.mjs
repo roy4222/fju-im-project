@@ -32,6 +32,23 @@ const { parse } = createRequire(requireWeb.resolve('pg'))('pg-connection-string'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tutorial-safety-'))
 after(() => fs.rmSync(tmp, { recursive: true, force: true }))
 
+/**
+ * 假的 Docker socket：任何連線都回 HTTP 500 然後關掉，docker CLI 會馬上失敗而不是等到天荒地老。
+ * 跑在另一個 node 程序裡——測試用 spawnSync 跑腳本時這個測試程序是卡住的，server 若在同一個程序就永遠回不了話。
+ */
+const FAKE_DOCKER_SERVER = `
+  const net = require('node:net'), fs = require('node:fs')
+  const sock = process.argv[1]
+  try { fs.unlinkSync(sock) } catch {}
+  net.createServer((c) => { c.on('error', () => {}); c.end('HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n') }).listen(sock)
+`
+async function fakeDockerSocket(sock) {
+  const p = spawn('node', ['-e', FAKE_DOCKER_SERVER, sock], { stdio: 'ignore' })
+  after(() => p.kill('SIGKILL'))
+  for (let i = 0; i < 50 && !fs.existsSync(sock); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.ok(fs.existsSync(sock), `假的 docker socket 沒起來：${sock}`)
+}
+
 describe('INSTANCE 與資料庫名（第 3 點＋多實例）', () => {
   test('INSTANCE 只收 0～4', () => {
     assert.deepEqual(instanceOf(undefined), { n: 0, dbName: 'fju_tutorial', port: 3300 })
@@ -111,11 +128,9 @@ describe('FILES_ROOT 只能是 ~/work/tutorial-files/<n>（第 1 點＋多實例
 
 describe('Docker 只走本機 unix socket（第 5 點）', () => {
   const sock = path.join(tmp, 'd.sock')
-  const server = net.createServer()
-  after(() => server.close())
 
   test('本機 socket 可以', async () => {
-    await new Promise((resolve) => server.listen(sock, resolve))
+    await fakeDockerSocket(sock)
     assert.equal(checkDocker({ HOME: tmp, TUTORIAL_DOCKER_SOCK: sock }), `unix://${sock}`)
     assert.equal(checkDocker({ HOME: tmp, TUTORIAL_DOCKER_SOCK: sock, DOCKER_HOST: `unix://${sock}` }), `unix://${sock}`)
   })
@@ -181,8 +196,6 @@ describe('入口在副作用之前拒絕危險輸入', () => {
   const sentinel = path.join(home, 'keep-me')
   fs.writeFileSync(sentinel, 'x')
   const sock = path.join(tmp, 's.sock')
-  const server = net.createServer()
-  after(() => server.close())
   const run = (script, env) =>
     spawnSync(path.join(HERE, script), [], {
       env: { PATH: process.env.PATH, HOME: home, TUTORIAL_DOCKER_SOCK: sock, ...env },
@@ -194,7 +207,7 @@ describe('入口在副作用之前拒絕危險輸入', () => {
   }
 
   test('準備假的 docker socket', async () => {
-    await new Promise((resolve) => server.listen(sock, resolve))
+    await fakeDockerSocket(sock)
   })
   const cases = {
     'reset：FILES_ROOT 指到 HOME': ['reset.sh', { TUTORIAL_FILES_DIR: home }],
@@ -267,10 +280,8 @@ describe('Bash 3.2（/bin/bash）在 LANG=zh_TW.UTF-8 下跑得動', () => {
   const home = path.join(tmp, 'zh-home')
   fs.mkdirSync(home, { recursive: true })
   const sock = path.join(tmp, 'zh.sock')
-  const server = net.createServer()
-  after(() => server.close())
   test('準備假的 docker socket', async () => {
-    await new Promise((resolve) => server.listen(sock, resolve))
+    await fakeDockerSocket(sock)
   })
   const zh = { LANG: 'zh_TW.UTF-8', LC_ALL: 'zh_TW.UTF-8' }
   const runBash = (script, args, env) =>
@@ -347,10 +358,8 @@ describe('FILES_ROOT 的邊界是固定的，邊界上的任何一層都不能�
   })
 
   const sock = path.join(tmp, 'sym.sock')
-  const server = net.createServer()
-  after(() => server.close())
   test('reset.sh：實例目錄是符號連結時在任何副作用之前退出', async () => {
-    await new Promise((resolve) => server.listen(sock, resolve))
+    await fakeDockerSocket(sock)
     const secrets = path.join(home, 'secrets')
     const r = spawnSync(path.join(HERE, 'reset.sh'), [], {
       env: { PATH: process.env.PATH, HOME: home, TUTORIAL_DOCKER_SOCK: sock, TUTORIAL_SECRETS_DIR: secrets, INSTANCE: '0' },
@@ -391,17 +400,36 @@ describe('帳號設定檔格式錯誤時只印固定訊息，不印內容', () =
   })
 })
 
-// ── Review 第 2 次退回第 4 項：一把共用鎖涵蓋 checkout 更新、安裝、建置、起程序與登記 pid ──────────────
+// ── 多實例共用鎖（Review 第 2 次第 4 項；第 3 次改成不自動回收殘留鎖） ───────────────────────────
+
+/**
+ * 假的「已建置好的網站 checkout」：有 git（HEAD:web 算得出來）、web/package.json、node_modules、.next/BUILD_ID、dist/worker.mjs，
+ * build mark 寫成 HEAD 的 web tree。require_built 才會過。
+ */
+function fakeBuiltSite(dir, runDir) {
+  fs.mkdirSync(path.join(dir, 'web', '.next'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'web', 'dist'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'web', 'node_modules'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'web', 'package.json'), '{}')
+  fs.writeFileSync(path.join(dir, 'web', '.next', 'BUILD_ID'), 'x')
+  fs.writeFileSync(path.join(dir, 'web', 'dist', 'worker.mjs'), '')
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' }).trim()
+  git('init', '-q')
+  git('add', 'web/package.json')
+  git('commit', '-q', '-m', 'fake')
+  fs.mkdirSync(runDir, { recursive: true })
+  fs.writeFileSync(path.join(runDir, 'build-commit'), `${git('rev-parse', 'HEAD:web')}\n`)
+  return dir
+}
 
 describe('多實例共用鎖（lock_acquire／lock_release）', () => {
   const lib = path.join(HERE, 'lib.sh')
   const home = path.join(tmp, 'lock-home')
   fs.mkdirSync(home, { recursive: true })
   const sock = path.join(tmp, 'lock.sock')
-  const server = net.createServer()
-  after(() => server.close())
   test('準備假的 docker socket', async () => {
-    await new Promise((resolve) => server.listen(sock, resolve))
+    await fakeDockerSocket(sock)
   })
   let seq = 0
   const freshRun = () => {
@@ -441,14 +469,17 @@ describe('多實例共用鎖（lock_acquire／lock_release）', () => {
       encoding: 'utf8',
     })
 
-  test('別人持鎖時，逾時就失敗，訊息寫出持有者在做什麼', async () => {
+  test('別人持鎖時，逾時就失敗：訊息寫出鎖的路徑、持有者 pid（仍在）、在做什麼、要人手動刪', async () => {
     const runDir = freshRun()
     const h = holder(runDir, '測試用建置', 60)
     await h.ready
     const r = acquire(runDir, '第二個', 1)
     assert.notEqual(r.status, 0, r.stdout + r.stderr)
-    assert.match(r.stderr, /正在進行/)
+    assert.ok(r.stderr.includes(path.join(runDir, 'lock')), r.stderr)
+    assert.match(r.stderr, new RegExp(`pid ${h.p.pid}`))
+    assert.match(r.stderr, /仍在/)
     assert.match(r.stderr, /測試用建置/)
+    assert.match(r.stderr, /手動刪/)
     assert.ok(fs.existsSync(path.join(runDir, 'lock')), '鎖還在持有者手上')
     h.killAll()
   })
@@ -464,29 +495,46 @@ describe('多實例共用鎖（lock_acquire／lock_release）', () => {
     assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '拿到的人結束後鎖也放掉了')
   })
 
-  test('持有者被 kill -9（沒跑到 EXIT trap）留下的殘留鎖會被收回', async () => {
+  test('殘留鎖（持有者已不在）不自動收回：逾時退出、鎖原封不動、訊息寫明 pid 已不在與手動刪除', () => {
     const runDir = freshRun()
-    const h = holder(runDir, '會被殺掉的建置', 60)
-    await h.ready
-    h.killAll()
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    assert.ok(fs.existsSync(path.join(runDir, 'lock')), '殘留的鎖目錄還在')
-    const r = acquire(runDir, '收回的人', 5)
-    assert.equal(r.status, 0, r.stdout + r.stderr)
-    assert.match(r.stdout, /收回殘留的鎖/)
+    fs.mkdirSync(path.join(runDir, 'lock'))
+    fs.writeFileSync(path.join(runDir, 'lock', 'owner'), '99999 up.sh 實例 2（build=force）\n')
+    const r = acquire(runDir, '想拿鎖的人', 1)
+    assert.notEqual(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stderr, /pid 99999/)
+    assert.match(r.stderr, /已不在/)
+    assert.match(r.stderr, /up\.sh 實例 2/)
+    assert.match(r.stderr, /手動刪/)
+    assert.doesNotMatch(r.stdout + r.stderr, /收回/)
+    assert.ok(fs.existsSync(path.join(runDir, 'lock', 'owner')), '殘留鎖與 owner 檔都還在')
   })
 
-  test('up.sh --no-build：別人持鎖（例如正在重建）時不會起程序、也不碰任何東西', async () => {
+  test('up.sh 碰到殘留鎖：逾時退出、零副作用', () => {
     const runDir = freshRun()
-    const h = holder(runDir, 'up.sh --build 實例 0', 60)
-    await h.ready
-    const secrets = path.join(tmp, 'lock-secrets-up')
-    const r = spawnSync(path.join(HERE, 'up.sh'), ['--no-build'], {
+    fs.mkdirSync(path.join(runDir, 'lock'))
+    fs.writeFileSync(path.join(runDir, 'lock', 'owner'), '99999 reset.sh 實例 1\n')
+    const secrets = path.join(tmp, 'lock-secrets-stale')
+    const r = spawnSync(path.join(HERE, 'up.sh'), [], {
       env: baseEnv(runDir, { INSTANCE: '1', TUTORIAL_SECRETS_DIR: secrets, TUTORIAL_LOCK_TIMEOUT: '1' }),
       encoding: 'utf8',
     })
     assert.notEqual(r.status, 0, r.stdout + r.stderr)
-    assert.match(r.stderr, /正在進行/)
+    assert.match(r.stderr, /已不在/)
+    assert.ok(fs.existsSync(path.join(runDir, 'lock', 'owner')), '沒有動殘留鎖')
+    assert.ok(!fs.existsSync(secrets), '沒建 secrets')
+    assert.ok(!fs.existsSync(path.join(runDir, '1')), '沒建 run 目錄')
+  })
+
+  test('up.sh（預設不建置）：別人持鎖（例如正在重建）時不會起程序、也不碰任何東西', async () => {
+    const runDir = freshRun()
+    const h = holder(runDir, 'up.sh --build 實例 0', 60)
+    await h.ready
+    const secrets = path.join(tmp, 'lock-secrets-up')
+    const r = spawnSync(path.join(HERE, 'up.sh'), [], {
+      env: baseEnv(runDir, { INSTANCE: '1', TUTORIAL_SECRETS_DIR: secrets, TUTORIAL_LOCK_TIMEOUT: '1' }),
+      encoding: 'utf8',
+    })
+    assert.notEqual(r.status, 0, r.stdout + r.stderr)
     assert.match(r.stderr, /up\.sh --build 實例 0/)
     assert.ok(!fs.existsSync(path.join(runDir, '1', 'app.pid')), '沒有起 app')
     assert.ok(!fs.existsSync(secrets), '還沒到 load_env（沒建 secrets）')
@@ -497,10 +545,7 @@ describe('多實例共用鎖（lock_acquire／lock_release）', () => {
     const runDir = freshRun()
     const h = holder(runDir, 'up.sh --update', 60)
     await h.ready
-    const site = path.join(tmp, 'lock-fake-site')
-    fs.mkdirSync(path.join(site, 'web', '.next'), { recursive: true })
-    fs.writeFileSync(path.join(site, 'web', 'package.json'), '{}')
-    fs.writeFileSync(path.join(site, 'web', '.next', 'BUILD_ID'), 'x')
+    const site = fakeBuiltSite(path.join(tmp, 'lock-fake-site'), runDir)
     fs.mkdirSync(path.join(runDir, '0'), { recursive: true })
     const pidFile = path.join(runDir, '0', 'worker.pid')
     fs.writeFileSync(pidFile, JSON.stringify({ kind: 'worker', pid: '1', pgid: '1', lstart: 'x', cwd: '/nowhere' }))
@@ -510,9 +555,164 @@ describe('多實例共用鎖（lock_acquire／lock_release）', () => {
       encoding: 'utf8',
     })
     assert.notEqual(r.status, 0, r.stdout + r.stderr)
-    assert.match(r.stderr, /正在進行/)
+    assert.match(r.stderr, /up\.sh --update/)
     assert.ok(fs.existsSync(pidFile), '沒有進到 stop_proc（pid 檔原封不動）')
     assert.ok(!fs.existsSync(secrets), '還沒到 load_env（沒建 secrets）')
     h.killAll()
+  })
+})
+
+// ── Review 第 3 次退回第 2 項：建置／換版本只能在沒有任何實例在跑時做；預設不建置 ─────────────────
+
+describe('建置與換版本只在所有實例都停了才做', () => {
+  const home = path.join(tmp, 'build-home')
+  fs.mkdirSync(home, { recursive: true })
+  const sock = path.join(tmp, 'build.sock')
+  test('準備假的 docker socket', async () => {
+    await fakeDockerSocket(sock)
+  })
+  let seq = 0
+  const fresh = (name) => {
+    const d = path.join(tmp, `build-${name}-${seq++}`)
+    fs.mkdirSync(d, { recursive: true })
+    return d
+  }
+  const run = (args, env) =>
+    spawnSync(path.join(HERE, 'up.sh'), args, { env: { PATH: process.env.PATH, HOME: home, TUTORIAL_DOCKER_SOCK: sock, TUTORIAL_LOCK_TIMEOUT: '2', ...env }, encoding: 'utf8' })
+
+  test('up.sh 預設不建置：沒有網站 checkout 就零副作用退出，提示先 down 全部實例再 up.sh --build', () => {
+    const runDir = fresh('run')
+    const site = path.join(tmp, 'build-no-site')
+    const secrets = fresh('secrets-unused')
+    fs.rmSync(secrets, { recursive: true })
+    const r = run([], { TUTORIAL_RUN_DIR: runDir, TUTORIAL_SITE_DIR: site, TUTORIAL_SECRETS_DIR: secrets })
+    assert.notEqual(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stderr, /down/)
+    assert.match(r.stderr, /up\.sh --build/)
+    assert.ok(!fs.existsSync(site), '沒有建 checkout')
+    assert.ok(!fs.existsSync(secrets), '沒建 secrets')
+    assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
+  })
+
+  test('up.sh 預設不建置：有 checkout 但 build mark 跟 HEAD 的 web tree 不同（上次建置沒完成）也拒絕', () => {
+    const runDir = fresh('run')
+    const site = fakeBuiltSite(fresh('site'), runDir)
+    fs.writeFileSync(path.join(runDir, 'build-commit'), 'deadbeef\n')
+    const secrets = path.join(tmp, 'build-secrets-stale-mark')
+    const r = run([], { TUTORIAL_RUN_DIR: runDir, TUTORIAL_SITE_DIR: site, TUTORIAL_SECRETS_DIR: secrets })
+    assert.notEqual(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stderr, /up\.sh --build/)
+    assert.ok(!fs.existsSync(secrets), '沒建 secrets')
+    assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
+  })
+
+  test('up.sh --build／--update：有任何實例在跑（stub 的 worker）就在持鎖後拒絕、零副作用', async () => {
+    // stub：一個真的 node dist/worker.mjs 程序（自成 process group），用 proc-record 登記成實例 3 的 worker。
+    const stubDir = fresh('stub')
+    fs.mkdirSync(path.join(stubDir, 'dist'))
+    fs.writeFileSync(path.join(stubDir, 'dist', 'worker.mjs'), 'setInterval(() => {}, 1000)\n')
+    const stub = spawn('node', ['dist/worker.mjs'], { cwd: stubDir, stdio: 'ignore', detached: true })
+    after(() => {
+      try {
+        process.kill(-stub.pid, 'SIGKILL')
+      } catch {}
+    })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const runDir = fresh('run')
+    fs.mkdirSync(path.join(runDir, '3'))
+    execFileSync('node', [path.join(HERE, 'safety.mjs'), 'proc-record', 'worker', String(stub.pid), path.join(runDir, '3', 'worker.pid'), stubDir])
+    const site = path.join(tmp, 'build-no-site-2')
+    for (const args of [['--build'], ['--update']]) {
+      const secrets = path.join(tmp, `build-secrets-${args[0].slice(2)}`)
+      const r = run(args, { TUTORIAL_RUN_DIR: runDir, TUTORIAL_SITE_DIR: site, TUTORIAL_SECRETS_DIR: secrets, INSTANCE: '0' })
+      assert.notEqual(r.status, 0, args + r.stdout + r.stderr)
+      assert.match(r.stderr, /實例 3/)
+      assert.match(r.stderr, /down/)
+      assert.ok(!fs.existsSync(site), `${args}：沒有建 checkout`)
+      assert.ok(!fs.existsSync(secrets), `${args}：沒建 secrets`)
+      assert.ok(!fs.existsSync(path.join(runDir, 'lock')), `${args}：鎖放掉了`)
+    }
+    assert.equal(stub.exitCode, null, 'stub 還活著（沒被送訊號）')
+  })
+
+  test('up.sh 被中斷時，還在跑的建置子程序會一起停掉，不會留下孤兒繼續改寫 .next', async () => {
+    const runDir = fresh('run')
+    const site = fakeBuiltSite(fresh('site'), runDir)
+    const shim = fresh('shim')
+    const pnpmPidFile = path.join(shim, 'pnpm.pid')
+    fs.writeFileSync(path.join(shim, 'pnpm'), '#!/bin/sh\necho $$ > "$FAKE_PNPM_PIDFILE"\nexec sleep 60\n', { mode: 0o755 })
+    const p = spawn('/bin/bash', ['-c', 'source "$1" && lock_acquire 建置 && ensure_build', '_', path.join(HERE, 'lib.sh')], {
+      env: { PATH: `${shim}:${process.env.PATH}`, HOME: home, TUTORIAL_RUN_DIR: runDir, TUTORIAL_SITE_DIR: site, FAKE_PNPM_PIDFILE: pnpmPidFile },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    })
+    after(() => {
+      try {
+        process.kill(-p.pid, 'SIGKILL')
+      } catch {}
+    })
+    const exited = new Promise((resolve) => p.on('exit', resolve))
+    for (let i = 0; i < 50 && !fs.existsSync(pnpmPidFile); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.ok(fs.existsSync(pnpmPidFile), '假的 pnpm build 有起來')
+    const pnpmPid = Number(fs.readFileSync(pnpmPidFile, 'utf8'))
+    process.kill(p.pid, 'SIGTERM') // 只打 up.sh 本身（模擬被 kill），不打建置
+    await exited
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.throws(() => process.kill(pnpmPid, 0), /ESRCH/, '建置子程序也停了')
+    assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
+    assert.ok(!fs.existsSync(path.join(runDir, 'build-commit')), '沒完成的建置不會留下 build mark')
+  })
+})
+
+// ── Review 第 3 次退回第 3 項：reset.sh 等到鎖之後要重做檢查 ─────────────────────────────────
+
+describe('reset.sh 拿到鎖之後重跑檢查', () => {
+  const home = path.join(tmp, 'recheck-home')
+  fs.mkdirSync(home, { recursive: true })
+  const sock = path.join(tmp, 'recheck.sock')
+  test('準備假的 docker socket', async () => {
+    await fakeDockerSocket(sock)
+  })
+
+  test('等鎖期間建置產物不見了（stub）：拿到鎖後重檢不過 → 放鎖、零副作用退出', async () => {
+    const runDir = path.join(tmp, 'recheck-run')
+    const site = fakeBuiltSite(path.join(tmp, 'recheck-site'), runDir)
+    const env = { PATH: process.env.PATH, HOME: home, TUTORIAL_RUN_DIR: runDir, TUTORIAL_DOCKER_SOCK: sock, TUTORIAL_SITE_DIR: site }
+    const lib = path.join(HERE, 'lib.sh')
+    // 別人持鎖 4 秒。
+    const h = spawn('/bin/bash', ['-c', 'source "$1" && lock_acquire 別人 && echo HELD && sleep 4', '_', lib], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    after(() => {
+      try {
+        process.kill(-h.pid, 'SIGKILL')
+      } catch {}
+    })
+    await new Promise((resolve, reject) => {
+      let out = ''
+      h.stdout.on('data', (d) => {
+        out += d
+        if (out.includes('HELD')) resolve()
+      })
+      h.on('exit', (c) => reject(new Error(`holder 先結束了（${c}）`)))
+    })
+    fs.mkdirSync(path.join(runDir, '0'), { recursive: true })
+    const pidFile = path.join(runDir, '0', 'worker.pid')
+    fs.writeFileSync(pidFile, JSON.stringify({ kind: 'worker', pid: '1', pgid: '1', lstart: 'x', cwd: '/nowhere' }))
+    const secrets = path.join(tmp, 'recheck-secrets')
+    const r = spawn(path.join(HERE, 'reset.sh'), [], { env: { ...env, TUTORIAL_SECRETS_DIR: secrets, TUTORIAL_LOCK_TIMEOUT: '20' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    r.stdout.on('data', (d) => (out += d))
+    r.stderr.on('data', (d) => (err += d))
+    const exited = new Promise((resolve) => r.on('exit', resolve))
+    // 等 reset.sh 過了第一輪檢查、正在等鎖，才把建置產物拿掉（模擬別人在鎖裡把建置弄壞／換掉）。
+    for (let i = 0; i < 100 && !out.includes('等另一個'); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.match(out, /等另一個/, `reset.sh 沒有在等鎖：${out}${err}`)
+    fs.rmSync(path.join(site, 'web', '.next', 'BUILD_ID'))
+    const status = await exited
+    assert.notEqual(status, 0, out + err)
+    assert.match(err, /建置/)
+    assert.ok(fs.existsSync(pidFile), '沒有進到 stop_proc（pid 檔原封不動）')
+    assert.ok(!fs.existsSync(secrets), '沒建 secrets')
+    assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
   })
 })

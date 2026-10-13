@@ -12,11 +12,14 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 started=$SECONDS
-# 先把所有檢查做完（資料庫名、連線、FILES_ROOT 與它的邊界、Docker、網站 checkout），任何一項不過就在停程序、刪庫、刪檔之前退出。
+# 先把所有檢查做完（資料庫名、連線、FILES_ROOT 與它的邊界、Docker、網站 checkout 與建置產物），任何一項不過就在停程序、刪庫、刪檔之前退出。
 safety_check
-require_site
+require_built
 # 共用鎖：「停→重灌→再起」整段都在鎖裡，別人這段時間不能重建或換版本（重建前「有沒有實例在跑」的檢查，才不會因為我們正好停著而失準）。
 lock_acquire "reset.sh 實例 ${INSTANCE}"
+# 等鎖期間別人可能換了版本或把建置弄壞：拿到鎖之後、動手之前再檢查一次，不過就放鎖（EXIT trap）、零副作用退出。
+safety_check
+require_built
 load_env
 ensure_postgres
 
