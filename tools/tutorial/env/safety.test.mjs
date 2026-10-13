@@ -509,6 +509,18 @@ describe('多實例共用鎖（lock_acquire／lock_release）', () => {
     assert.ok(fs.existsSync(path.join(runDir, 'lock', 'owner')), '殘留鎖與 owner 檔都還在')
   })
 
+  test('殘留鎖的 owner 檔記了建置 PGID：訊息要人先用 pgrep -g 確認、kill -TERM 整組，再刪鎖', () => {
+    const runDir = freshRun()
+    fs.mkdirSync(path.join(runDir, 'lock'))
+    fs.writeFileSync(path.join(runDir, 'lock', 'owner'), '99999 up.sh 實例 2（build=force）\nbuild-pgid 4242\n')
+    const r = acquire(runDir, '想拿鎖的人', 1)
+    assert.notEqual(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stderr, /pid 99999/)
+    assert.match(r.stderr, /pgrep -g 4242/)
+    assert.match(r.stderr, /kill -TERM -- -4242/)
+    assert.ok(fs.existsSync(path.join(runDir, 'lock', 'owner')), '殘留鎖與 owner 檔都還在')
+  })
+
   test('up.sh 碰到殘留鎖：逾時退出、零副作用', () => {
     const runDir = freshRun()
     fs.mkdirSync(path.join(runDir, 'lock'))
@@ -659,6 +671,43 @@ describe('建置與換版本只在所有實例都停了才做', () => {
     await exited
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert.throws(() => process.kill(pnpmPid, 0), /ESRCH/, '建置子程序也停了')
+    assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
+    assert.ok(!fs.existsSync(path.join(runDir, 'build-commit')), '沒完成的建置不會留下 build mark')
+  })
+  test('建置主程序被 kill -9、子程序還在：放鎖前會等子程序結束（或把它整組停掉），不留下孤兒', async () => {
+    const runDir = fresh('run')
+    const site = fakeBuiltSite(fresh('site'), runDir)
+    const shim = fresh('shim')
+    const leaderPidFile = path.join(shim, 'pnpm.pid')
+    const childPidFile = path.join(shim, 'child.pid')
+    // 假的 pnpm build：自己是 leader，再生一個子程序（模擬 next build 的 worker），然後等它。
+    fs.writeFileSync(path.join(shim, 'pnpm'), '#!/bin/sh\necho $$ > "$FAKE_PNPM_PIDFILE"\nsleep 60 &\necho $! > "$FAKE_CHILD_PIDFILE"\nwait\n', { mode: 0o755 })
+    const p = spawn('/bin/bash', ['-c', 'source "$1" && lock_acquire 建置 && ensure_build', '_', path.join(HERE, 'lib.sh')], {
+      env: { PATH: `${shim}:${process.env.PATH}`, HOME: home, TUTORIAL_RUN_DIR: runDir, TUTORIAL_SITE_DIR: site, FAKE_PNPM_PIDFILE: leaderPidFile, FAKE_CHILD_PIDFILE: childPidFile },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    })
+    after(() => {
+      try {
+        process.kill(-p.pid, 'SIGKILL')
+      } catch {}
+    })
+    let err = ''
+    p.stderr.on('data', (d) => (err += d))
+    const exited = new Promise((resolve) => p.on('exit', resolve))
+    for (let i = 0; i < 50 && !fs.existsSync(childPidFile); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.ok(fs.existsSync(childPidFile), '假建置的子程序有起來')
+    const leaderPid = Number(fs.readFileSync(leaderPidFile, 'utf8'))
+    const childPid = Number(fs.readFileSync(childPidFile, 'utf8'))
+    after(() => {
+      try {
+        process.kill(childPid, 'SIGKILL')
+      } catch {}
+    })
+    process.kill(leaderPid, 'SIGKILL') // 只殺建置的 leader；子程序本來會活著
+    const status = await exited
+    assert.notEqual(status, 0, `建置被殺應該算失敗：${err}`)
+    assert.throws(() => process.kill(childPid, 0), /ESRCH/, '放鎖前子程序已經結束或被停掉')
     assert.ok(!fs.existsSync(path.join(runDir, 'lock')), '鎖放掉了')
     assert.ok(!fs.existsSync(path.join(runDir, 'build-commit')), '沒完成的建置不會留下 build mark')
   })

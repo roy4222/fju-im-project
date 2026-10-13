@@ -10,7 +10,8 @@
 - 第一次 `up.sh --build` 從當時最新的 origin/main 建立、裝依賴、建置；之後 `up.sh` 預設**不建置、不換 commit**（錄影期間不會動）。
 - 用的 commit 每次 up.sh 都會印出來，並寫進 `~/work/tutorial-out/env-commit.txt`（`/api/health` 的 `commit` 也看得到）。
 - 要換到更新的 main：所有實例 `down.sh` 之後跑 `up.sh --update`（有實例在跑會拒絕），再各實例 `reset.sh` 用新版 seed-demo 重灌。
-- 建置被中斷（Ctrl-C／kill）時，還在跑的 `pnpm build` 子程序會一起停掉，build mark 也不會寫，之後的 `up.sh` 會要求重新 `--build`。
+- 建置被中斷（Ctrl-C／kill）或 `pnpm build` 被 kill -9 時，會等整個建置 process group 都退出（等不到就 TERM、再 KILL）才放鎖，
+  build mark 也不會寫，之後的 `up.sh` 會要求重新 `--build`。
 
 ## 多實例（幾個人同時錄）
 
@@ -28,7 +29,7 @@ reset 一個不影響別的：
 所以錄影期間不會有人改寫大家共用的 `.next`。
 多實例共用一把鎖（`~/work/tutorial-run/lock`）：`up.sh` 從換版本、裝依賴、建置到起程序、登記 pid，以及 `reset.sh` 的「停→重灌→再起」
 整段都在鎖裡做，「有沒有實例在跑」是持鎖後才檢查。輪到自己之前會等（預設最多 15 分鐘，`TUTORIAL_LOCK_TIMEOUT` 可改），
-逾時就零副作用退出，訊息會寫鎖在哪、持有者 pid 還在不在；**殘留的鎖不會自動收回**，確認沒有任何 up／reset 在跑之後手動刪掉那個目錄再重跑。
+逾時就零副作用退出，訊息會寫鎖在哪、持有者 pid 還在不在、建置的 process group PGID；**殘留的鎖不會自動收回**，手動解鎖步驟見下面「已知限制」。
 `reset.sh` 拿到鎖之後會再檢查一次目標與建置產物（等鎖期間別人可能換了版本），不過就放鎖退出。`down.sh` 只會讓實例變少，不用鎖。
 
 **同一個瀏覽器不要同時開兩個實例**：cookie 不分 port，`localhost:3300` 和 `localhost:3301` 的登入會互相蓋掉。
@@ -118,4 +119,6 @@ shellcheck -x -P SCRIPTDIR tools/tutorial/env/*.sh      # 腳本靜態檢查
 - seed-demo 只認 `FJU_SITE=test`：腳本只在跑 seed-demo 那一個指令上設它，連的是本機這個實例的教學庫。
 - 同一個瀏覽器設定檔同時開兩個實例，登入會互相蓋掉（見上面「多實例」）。
 - 各實例的 `up.sh`／`reset.sh` 共用一把鎖，所以兩個人同時 reset 會排隊（一次約 5 秒），不會平行。
-- 鎖目錄殘留（持鎖的程序被 kill -9）時不會自動收回，要人確認後手動刪 `~/work/tutorial-run/lock`。
+- 鎖目錄殘留（持鎖的程序被 kill -9）時不會自動收回。手動解鎖：先確認沒有任何 up.sh／reset.sh 在跑；owner 檔
+  （`~/work/tutorial-run/lock/owner`）若有 `build-pgid <PGID>` 這一行，刪鎖前先確認 `pgrep -g <PGID>` 沒有任何程序，
+  有的話先 `kill -TERM -- -<PGID>`（等幾秒還在就 `kill -KILL -- -<PGID>`）；都確認了才 `rm -r ~/work/tutorial-run/lock`。

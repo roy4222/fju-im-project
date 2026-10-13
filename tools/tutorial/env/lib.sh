@@ -65,7 +65,7 @@ WORKER_LOG="$RUN_DIR/worker.log"
 DOCKER_ENDPOINT=""
 LOCK_DIR="$RUN_ROOT/lock"
 LOCK_HELD=0
-BUILD_PID=""
+BUILD_PGID=""
 
 # 任何副作用之前跑：驗資料庫目標、FILES_ROOT、Docker endpoint；用驗過、正規化後的值覆寫變數。
 safety_check() {
@@ -349,32 +349,58 @@ ensure_build() {
   printf '%s\n' "$head" >"$BUILD_MARK"
 }
 
-# 建置跑在自己的 process group，pid 記在 BUILD_PID：up.sh 被中斷（kill／Ctrl-C）時 lock_release 會先把它整組停掉，
-# 不會留下一個還在改寫 .next 的孤兒建置，鎖才放掉。
+# 建置跑在自己的 process group，PGID 記在 BUILD_PGID 與鎖的 owner 檔（build-pgid 行）。
+# leader（pnpm）結束——正常、失敗、或被 kill -9——都不代表整組結束：next build 的子程序可能還在改寫 .next，
+# 所以一定等整組都退出（等不到就 TERM、再 KILL）才算建置結束；up.sh 被中斷時 lock_release 也走同一條路，整組停了才放鎖。
 run_build() {
   local rc=0
   set -m
   (cd "$SITE_DIR" && exec pnpm -C web build >"$RUN_ROOT/build.log" 2>&1) &
-  BUILD_PID=$!
+  BUILD_PGID=$!
   set +m
-  wait "$BUILD_PID" || rc=$?
-  BUILD_PID=""
+  printf 'build-pgid %s\n' "$BUILD_PGID" >>"$LOCK_DIR/owner"
+  wait "$BUILD_PGID" || rc=$?
+  build_group_done || die "建置的 process group ${BUILD_PGID} 停不下來；先 pgrep -g ${BUILD_PGID} 看是誰、kill -KILL -- -${BUILD_PGID}，再重跑"
   return "$rc"
 }
 
+# 等建置的 process group 整組退出：先等 5 秒讓它自己收尾，還在就 TERM 等 10 秒、再 KILL 等 10 秒。
+# 確認整組都不在了才清追蹤資訊（BUILD_PGID、owner 檔的 build-pgid 行）並回傳 0；停不下來回傳 1（呼叫端不放鎖）。
+build_group_done() {
+  local pgid="$BUILD_PGID" sig n
+  [[ -n "$pgid" ]] || return 0
+  for sig in "" TERM KILL; do
+    [[ -z "$sig" ]] || kill "-$sig" -- "-$pgid" 2>/dev/null || true
+    n=10; [[ -z "$sig" ]] || n=20
+    for _ in $(seq 1 "$n"); do
+      if ! kill -0 -- "-$pgid" 2>/dev/null; then
+        BUILD_PGID=""
+        if [[ -f "$LOCK_DIR/owner" ]]; then
+          grep -v '^build-pgid ' "$LOCK_DIR/owner" >"$LOCK_DIR/owner.tmp" || true
+          mv "$LOCK_DIR/owner.tmp" "$LOCK_DIR/owner"
+        fi
+        return 0
+      fi
+      sleep 0.5
+    done
+  done
+  return 1
+}
+
 # ── 多實例共用鎖 ─────────────────────────────────────────────────────────────
-# mkdir 原子建立 $LOCK_DIR；owner 檔記「pid 在做什麼」，只拿來寫錯誤訊息。拿不到就等，
-# 等到 TUTORIAL_LOCK_TIMEOUT 秒（預設 900，建置要幾分鐘）就零副作用退出，訊息寫鎖在哪、持有者 pid 還在不在，
-# 請人確認沒有 up.sh／reset.sh 在跑之後手動刪掉鎖目錄。刻意不自動收回殘留鎖：不要為了罕見的殘留去冒兩個人同時拿到鎖的險。
+# mkdir 原子建立 $LOCK_DIR；owner 檔第一行「pid 在做什麼」、建置中多一行「build-pgid <PGID>」，只拿來寫錯誤訊息。
+# 拿不到就等，等到 TUTORIAL_LOCK_TIMEOUT 秒（預設 900，建置要幾分鐘）就零副作用退出，訊息寫鎖在哪、持有者 pid 還在不在、
+# 建置的 PGID 要怎麼確認，請人確認沒有 up.sh／reset.sh 在跑之後手動刪掉鎖目錄。刻意不自動收回殘留鎖：不要為了罕見的殘留去冒兩個人同時拿到鎖的險。
 
 lock_acquire() {
-  local what="$1" waited=0 timeout="${TUTORIAL_LOCK_TIMEOUT:-900}" owner pid who
+  local what="$1" waited=0 timeout="${TUTORIAL_LOCK_TIMEOUT:-900}" owner pid who build_pgid
   [[ "$LOCK_HELD" == 0 ]] || return 0
   [[ "$timeout" =~ ^[0-9]+$ ]] || die "TUTORIAL_LOCK_TIMEOUT 要是秒數（收到「${timeout}」）"
   mkdir -p "$RUN_ROOT"
   until mkdir "$LOCK_DIR" 2>/dev/null; do
     if [[ "$waited" -ge "$timeout" ]]; then
-      owner="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
+      owner="$(sed -n 1p "$LOCK_DIR/owner" 2>/dev/null || true)"
+      build_pgid="$(sed -n 's/^build-pgid //p' "$LOCK_DIR/owner" 2>/dev/null || true)"
       pid="${owner%% *}"
       if [[ "$pid" =~ ^[0-9]+$ ]]; then
         if kill -0 "$pid" 2>/dev/null; then who="持有者 pid ${pid}（仍在）"; else who="持有者 pid ${pid}（已不在）"; fi
@@ -382,6 +408,7 @@ lock_acquire() {
       else
         who="沒有 owner 檔，持有者不明"
       fi
+      [[ -z "$build_pgid" ]] || who="${who}；它的建置 process group PGID ${build_pgid}：刪鎖前先確認 pgrep -g ${build_pgid} 沒有任何程序，有的話先 kill -TERM -- -${build_pgid}"
       die "等了 ${waited} 秒還拿不到鎖。鎖在 ${LOCK_DIR}，${who}。確認沒有任何 up.sh／reset.sh 在跑之後，手動刪除這個目錄再重跑"
     fi
     [[ "$waited" -gt 0 ]] || log "等另一個 up.sh／reset.sh 完成（鎖在 ${LOCK_DIR}）…"
@@ -393,21 +420,16 @@ lock_acquire() {
   trap lock_release EXIT
 }
 
-# 只放自己拿的鎖（owner 的 pid 是自己）；die／Ctrl-C／kill 也會經 EXIT trap 走到這裡。
+# 只放自己拿的鎖（owner 第一行的 pid 是自己）；die／Ctrl-C／kill 也會經 EXIT trap 走到這裡。
 lock_release() {
   [[ "$LOCK_HELD" == 1 ]] || return 0
-  # 建置還在跑（up.sh 被中斷）：先整組停掉，再放鎖。
-  if [[ -n "$BUILD_PID" ]] && kill -0 "$BUILD_PID" 2>/dev/null; then
-    kill -TERM -- "-$BUILD_PID" 2>/dev/null || true
-    for _ in $(seq 1 20); do
-      kill -0 "$BUILD_PID" 2>/dev/null || break
-      sleep 0.5
-    done
-    if kill -0 "$BUILD_PID" 2>/dev/null; then kill -KILL -- "-$BUILD_PID" 2>/dev/null || true; fi
-    BUILD_PID=""
+  # 建置還在跑（up.sh 被中斷）：整組停掉、確認都退出了才放鎖；停不下來就不放鎖，owner 檔留著 PGID 給下一個人看。
+  if [[ -n "$BUILD_PGID" ]]; then
+    kill -TERM -- "-$BUILD_PGID" 2>/dev/null || true
+    build_group_done || { log "建置的 process group ${BUILD_PGID} 停不下來，鎖先不放（PGID 記在 ${LOCK_DIR}/owner）"; return 0; }
   fi
   LOCK_HELD=0
-  [[ "$(cut -d' ' -f1 "$LOCK_DIR/owner" 2>/dev/null)" == "$$" ]] || return 0
+  [[ "$(sed -n 1p "$LOCK_DIR/owner" 2>/dev/null | cut -d' ' -f1)" == "$$" ]] || return 0
   rm -f "$LOCK_DIR/owner"
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }
