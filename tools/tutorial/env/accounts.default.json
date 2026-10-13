@@ -1,0 +1,12 @@
+{
+  "說明": "教學帳號預設清單。第一次跑 accounts.mjs 會複製到 ~/work/tutorial-secrets/accounts.json（權限 600）並補上隨機密碼；之後改那一份。name＝示範資料裡的顯示名稱（或改用 email 指定）；create: admin 表示示範資料沒有、由這支腳本建立的系辦帳號。",
+  "accounts": [
+    { "role": "系辦", "create": "admin", "name": "系辦管理員", "email": "office-admin@demo.invalid" },
+    { "role": "組長", "name": "林彥廷", "note": "G07 組長" },
+    { "role": "組員", "name": "黃詩涵", "note": "G07 組員" },
+    { "role": "未分組學生", "name": "鞠柏宇", "note": "未分組，在應宥丞發起的組別提案裡、還沒回覆" },
+    { "role": "指導老師", "name": "陳建宏", "note": "G07、G02 主指導" },
+    { "role": "評分老師", "name": "李孟儒", "note": "系統驗收評 G01、G05，兩組都還沒評" },
+    { "role": "新註冊待審", "name": "陳冠宇", "note": "待審註冊申請，名單查無此人" }
+  ]
+}
