@@ -86,9 +86,12 @@ load_env() {
   # Google 登入在本機不能用；給假值只是讓按鈕組得出網址（同 CI 的 e2e-smoke）。
   export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-local-only-client-id.apps.googleusercontent.com}"
   export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-only-client-secret}"
-  # 開放註冊（錄「新註冊」那段要用）；模擬業務鐘預設關（畫面跟正式站一樣，沒有「模擬業務鐘」頁）。
+  # 本機實例照測試站的樣子跑（分鏡要錄模擬業務鐘與「發一則測試通知」）：app 認的是
+  # BUSINESS_CLOCK_OVERRIDE_ENABLED=true；FJU_SITE=test 一併設（seed-demo 也只認它）。只影響本機這幾個實例。
+  export FJU_SITE=test
+  export BUSINESS_CLOCK_OVERRIDE_ENABLED=true
+  # 開放註冊（錄「新註冊」那段要用）。
   export REGISTRATION_OPEN="${REGISTRATION_OPEN:-true}"
-  export BUSINESS_CLOCK_OVERRIDE_ENABLED="${BUSINESS_CLOCK_OVERRIDE_ENABLED:-false}"
   export NODE_ENV=production
   export GIT_COMMIT="${GIT_COMMIT:-$(git -C "$REPO_ROOT" rev-parse HEAD)}"
   export APP_VERSION="${APP_VERSION:-$GIT_COMMIT}"
@@ -143,7 +146,7 @@ drop_db() {
   psql_admin -c "drop database if exists \"$DB_NAME\" with (force)"
 }
 
-# 套 migration → 示範資料 → 教學帳號。seed-demo 只認 FJU_SITE=test：這裡只在這一個指令上設它，連的是本機的 fju_tutorial。
+# 套 migration → 示範資料 → 教學帳號。seed-demo 只認 FJU_SITE=test（load_env 已設；連的是本機這個實例的教學庫）。
 prepare_data() {
   log "套 migration"
   (cd "$WEB_DIR" && node scripts/migrate.mjs | grep -v '^SCHEMA_VERSION=')

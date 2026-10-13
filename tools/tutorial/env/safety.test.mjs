@@ -205,6 +205,9 @@ describe('入口在副作用之前拒絕危險輸入', () => {
     'up：DOCKER_HOST 指到遠端': ['up.sh', { DOCKER_HOST: 'ssh://user@vm' }],
     'up：INSTANCE 不是數字': ['up.sh', { INSTANCE: '1;rm' }],
     'down：INSTANCE=9': ['down.sh', { INSTANCE: '9' }],
+    'clock-reset：INSTANCE=5': ['clock-reset.sh', { INSTANCE: '5' }],
+    'clock-reset：TUTORIAL_DB 改成別的庫': ['clock-reset.sh', { TUTORIAL_DB: 'fju' }],
+    'clock-reset：DOCKER_HOST 指到遠端': ['clock-reset.sh', { DOCKER_HOST: 'tcp://10.0.0.5:2375' }],
   }
   for (const [name, [script, env]] of Object.entries(cases)) {
     test(name, () => {

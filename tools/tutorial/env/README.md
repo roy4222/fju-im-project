@@ -24,11 +24,14 @@ reset 一個不影響別的：
 |---|---|
 | `tools/tutorial/env/up.sh` | 建置（需要時）→ 建這個實例的資料庫（已在就沿用）→ migration → seed-demo → 設教學帳號密碼 → 起 `next start`（port 3300+n）與背景 worker |
 | `tools/tutorial/env/up.sh --no-build`／`--build` | 一定沿用既有建置／一定重建（所有實例都 down 了才可以） |
-| `tools/tutorial/env/reset.sh` | 停這個實例的 app／worker → 刪庫重建 → 清空這個實例的上傳檔案 → migration → seed-demo → 帳號 → 再起。實測約 5 秒 |
+| `tools/tutorial/env/reset.sh` | 停這個實例的 app／worker → 刪庫重建 → 清空這個實例的上傳檔案 → migration → seed-demo → 帳號 → 模擬業務鐘回到真實時間 → 再起。實測約 5 秒 |
+| `tools/tutorial/env/clock-reset.sh` | 只把這個實例的模擬業務鐘清回真實時間（資料不動）；本來就是真實時間就不寫任何東西 |
 | `tools/tutorial/env/down.sh` | 只停這個實例 up.sh 起的那兩組程序；資料庫與檔案留著 |
 | `node tools/tutorial/env/accounts.mjs list [--passwords]` | 印「角色／示範名稱／登入帳號」對照 |
 | `node tools/tutorial/env/accounts.mjs apply` | 照設定檔重設密碼（up／reset 會自動跑；改了設定檔後手動跑一次） |
 | `node tools/tutorial/env/accounts.mjs check` | 每個帳號真的登入一次，確認進得了自己的首頁、看得到自己的名字 |
+
+網站照**測試站**的樣子跑（`FJU_SITE=test`、`BUSINESS_CLOCK_OVERRIDE_ENABLED=true`）：系辦後台有「模擬業務鐘」頁與「發一則測試通知」。只影響本機這幾個實例。
 
 網站：實例 0 是 <http://localhost:3300>、實例 n 是 `http://localhost:330n`。用 Email＋密碼登入（Google 登入在本機不能用）。
 
@@ -40,6 +43,12 @@ reset 一個不影響別的：
 | `~/work/tutorial-secrets/accounts[-n].json` | 教學帳號清單與密碼（實例 0 第一次從 `accounts.default.json` 複製並補隨機密碼，權限 600） |
 | `~/work/tutorial-files/<n>/` | `FILES_ROOT`：示範封面、附件，以及錄影時上傳的檔案（reset 會清掉重放） |
 | `~/work/tutorial-run/<n>/` | pid 檔與 `app.log`、`worker.log`（`build.log`、`build-commit` 在 `~/work/tutorial-run/`） |
+
+## 預設教學帳號（照分鏡表 PR #404）
+
+系辦管理員（腳本建的）、林彥廷（G07 組長）、鄭凱文（G07 組員）、應宥丞（未分組，組別提案發起人）、鞠柏宇、冷佳霓（未分組，在提案裡還沒回覆）、
+陳建宏（指導老師）、李孟儒（評分老師），另保留黃詩涵（G07 組員）、陳冠宇（新註冊待審）。
+分鏡裡的新生「林示範」與老師「示範新老師」**不預先建**，留給錄影段落自己示範註冊／新增；reset 後他們就不在了。
 
 ## 加教學帳號
 
@@ -71,8 +80,10 @@ node --test tools/tutorial/env/safety.test.mjs   # 不碰真的資料庫與目�
 
 - Google 登入不能用（本機用假的 client id）。
 - 不寄任何信：網站本來就沒有寄信功能（忘記密碼頁請人找系辦發臨時密碼），所以不需要本機收信。
-- 預設 `BUSINESS_CLOCK_OVERRIDE_ENABLED=false`（畫面跟正式站一樣、沒有「模擬業務鐘」頁）、`REGISTRATION_OPEN=true`；
-  兩者都可以在跑 up.sh 前用環境變數蓋掉。
+- 模擬業務鐘的設定紀錄只增不改（資料庫 trigger 擋刪改），所以單跑 `clock-reset.sh` 是補一筆「設定成現在」：
+  系統時間確實回到真實時間，但「模擬業務鐘」頁的標題仍會寫「（模擬中）」、紀錄裡多一筆「回到真實時間」。
+  要畫面完全沒有模擬紀錄就跑 `reset.sh`（新的資料庫沒有任何設定）。
+- `REGISTRATION_OPEN=true`（可在跑 up.sh 前用環境變數蓋掉）。
 - seed-demo 的日期以「第一次灌資料那天」對齊原型的 2026-08-17；reset 會用當天重新對齊。
 - reset 之後所有 session 都失效，錄影瀏覽器要重新登入。
 - 用本機 Compose 的 `fju-postgres` 容器（127.0.0.1:55432）；沒有的話先在 repo 根跑 `pnpm -C web db:up`。

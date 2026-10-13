@@ -33,6 +33,7 @@ files_root="$(cd "$HOME" && pwd -P)/work/tutorial-files/$INSTANCE"
 rm -rf "$FILES_DIR"
 mkdir -p "$FILES_DIR"
 prepare_data
+"$ENV_DIR/clock-reset.sh"
 
 if [[ $was_running == 1 ]]; then
   start_app
