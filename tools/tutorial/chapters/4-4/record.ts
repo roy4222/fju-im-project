@@ -92,15 +92,19 @@ try {
   await t.step({
     caption: '發布',
     narration: '發布後登入的學生與老師看得到公司、部門、內容與條件。',
-    status: { kind: 'ok', evidence: 'story-2 第 3 步' },
+    status: { kind: 'warn', say: '發布後卡在處理中（網站 bug）', evidence: '錄影 3 發現：新建草稿未重整就發布' },
   }, async () => {
-    // 網站問題：新建草稿後不重新整理就按發布，資料會發布但對話框一直停在「處理中…」。先不入鏡重新載入。
-    await t.goto('/dashboard/teacher/industry');
+    // 網站 bug 要讓 Roy 看到：新建草稿後不重新整理就按發布，資料會發布，但對話框一直停在「處理中…」。
+    // 入鏡停約 3 秒，再不入鏡重新整理，回來顯示已發布的那一列。
     await t.click(page.getByRole('button', { name: new RegExp(`^發布：${company}`) }));
     await t.waitStable({ ready: dialog });
     await t.click(dialog.getByRole('button', { name: '確認發布' }));
-    await t.waitStable({ ready: page.getByRole('status').filter({ hasText: '已發布' }) });
-    await t.hover(page.getByRole('status').filter({ hasText: '已發布' }));
+    await t.hover(dialog.getByRole('button', { name: '處理中…' }));
+    await t.wait(3000);
+    await t.goto('/dashboard/teacher/industry');
+    const row = list.getByRole('listitem').filter({ hasText: company });
+    await t.hover(row.getByText('已發布', { exact: true }));
+    await t.hover(row.getByRole('button', { name: new RegExp(`^下架：${company}`) }));
   });
 
   await t.step({
