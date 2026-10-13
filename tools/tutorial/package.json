@@ -1,0 +1,24 @@
+{
+  "name": "@fju/tutorial",
+  "version": "0.1.0",
+  "private": true,
+  "description": "教學影片引擎：照劇本用 Playwright 錄畫面、記事件，再後製游標／字幕／配音並組裝成一部。",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test engine/test/*.test.ts",
+    "typecheck": "tsc -p engine/tsconfig.json",
+    "sample": "node engine/samples/visitor-sample.ts",
+    "render": "node engine/cli.ts render",
+    "assemble": "node engine/cli.ts assemble"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.4",
+    "typescript": "5.9.3"
+  }
+}
