@@ -127,6 +127,19 @@ importers:
         specifier: ^4.131.1
         version: 4.131.1(@types/node@20.19.43)
 
+  tools/tutorial:
+    dependencies:
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.4
+        version: 22.19.4
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   web:
     dependencies:
       '@base-ui/react':
