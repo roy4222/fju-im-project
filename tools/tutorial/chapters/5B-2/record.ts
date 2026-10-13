@@ -57,7 +57,7 @@ try {
     await t.hover(main.getByText('可以直接打字；進階排版可用 HTML'));
     const picker = main.locator('label').filter({ hasText: '加入附件' });
     await t.upload(picker.locator('input[type=file]'), pdf, { via: picker });
-    await t.waitStable({ ready: main.getByText('示範檔案.pdf'), offRecord: true });
+    await t.waitStable({ ready: main.getByText('示範檔案.pdf') });
     await t.hover(main.getByLabel(/^摘要/));
     await t.hover(main.getByTestId('category-competition'));
   });
@@ -118,7 +118,7 @@ try {
     status: { kind: 'ok', evidence: 'story-2 第 38 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '檢查與預覽' }));
-    await t.waitStable({ ready: main.getByRole('group', { name: '預覽視角' }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('group', { name: '預覽視角' }) });
     await t.click(main.getByRole('button', { name: '訪客視角' }));
     await t.hover(main.getByText('訪客看不到這一筆'));
     await t.click(main.getByRole('button', { name: '學生視角' }));
@@ -132,10 +132,10 @@ try {
   }, async () => {
     await t.click(main.getByRole('button', { name: '發布', exact: true }));
     const dialog = page.getByRole('dialog', { name: '發布前檢查' });
-    await t.waitStable({ ready: dialog.getByRole('button', { name: '確認發布' }), offRecord: true });
+    await t.waitStable({ ready: dialog.getByRole('button', { name: '確認發布' }) });
     await t.hover(dialog.getByText('新的繳交項目一定會通知名單上需要繳交的人（站內通知）。'));
     await t.click(dialog.getByRole('button', { name: '確認發布' }));
-    await t.waitStable({ ready: dialog.getByRole('heading', { name: '已發布' }), offRecord: true });
+    await t.waitStable({ ready: dialog.getByRole('heading', { name: '已發布' }) });
     await t.hover(dialog.getByRole('heading', { name: '已發布' }));
     await t.click(dialog.getByRole('link', { name: '回列表' }));
   });

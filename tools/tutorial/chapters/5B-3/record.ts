@@ -43,6 +43,7 @@ try {
   }, async () => {
     await t.click(page.getByRole('navigation').getByRole('link', { name: '專題事務', exact: true }));
     await t.click(main.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '文件繳交', exact: true }));
+    await t.waitStable();
     await t.click(listItem('專題分組名單確認表').getByRole('link', { name: /^繳交：/ }));
     await t.hover(main.getByText(/\d+%/).first());
     await t.hover(main.getByText('逾期未繳').first());
@@ -92,7 +93,7 @@ try {
     await t.hover(main.getByLabel(/^補交期限/));
     await t.type(main.getByLabel(/^理由/), '請假補交，已附證明。');
     await t.click(main.getByRole('button', { name: '開放補交' }));
-    await t.waitStable({ ready: main.getByTestId('reopen-result'), offRecord: true });
+    await t.waitStable({ ready: main.getByTestId('reopen-result') });
     await t.hover(main.getByTestId('reopen-result'));
   });
 
@@ -103,6 +104,7 @@ try {
   }, async () => {
     await t.click(main.getByRole('link', { name: /^(← )?繳交名單$/ }).first());
     await t.click(main.getByRole('navigation', { name: '名單分類' }).getByRole('link', { name: /^免繳/ }));
+    await t.waitStable();
     await t.hover(main.getByText(/^沒有免繳的/));
   });
 

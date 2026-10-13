@@ -56,11 +56,13 @@ try {
     status: { kind: 'ok', evidence: 'story-2 第 43 步' },
   }, async () => {
     await t.click(filter('文件繳交'));
+    await t.waitStable();
     const row = main.getByRole('listitem').filter({ hasText: '專題分組名單確認表' });
     await t.hover(row.getByText(/需要繳交 \d+ 組/));
     await t.hover(row.getByRole('link', { name: /^繳交：/ }));
     await t.hover(row.getByRole('link', { name: /^編輯：/ }));
     await t.click(filter('全部'));
+    await t.waitStable();
     await t.hover(main.getByRole('link', { name: '前台頁面' }).first());
   });
 
@@ -70,7 +72,7 @@ try {
     status: { kind: 'ok', evidence: 'story-2 第 14～17 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '新增項目' }));
-    await t.waitStable({ ready: dialog.getByText('顯示在哪一區'), offRecord: true });
+    await t.waitStable({ ready: dialog.getByText('顯示在哪一區') });
     await t.click(dialog.getByText('公告', { exact: true }).first());
     await t.type(dialog.getByLabel('標題'), '示範：期中發表時間說明');
     await t.select(dialog.getByLabel('誰看得到'), '本屆學生');
@@ -85,7 +87,7 @@ try {
     await t.type(dialog.getByLabel('說明'), '期中發表訂在第 9 週。各組報告 10 分鐘。');
     const picker = dialog.locator('label').filter({ hasText: '加入附件' });
     await t.upload(picker.locator('input[type=file]'), pdf, { via: picker });
-    await t.waitStable({ ready: dialog.getByText('示範檔案.pdf'), offRecord: true });
+    await t.waitStable({ ready: dialog.getByText('示範檔案.pdf') });
     await t.click(dialog.getByRole('button', { name: /下一步/ }));
   });
 
@@ -106,7 +108,7 @@ try {
     status: { kind: 'ok', evidence: 'story-2 第 16 步' },
   }, async () => {
     await t.click(dialog.getByRole('button', { name: '發布', exact: true }));
-    await t.waitStable({ ready: dialog.getByRole('heading', { name: '已發布' }), offRecord: true });
+    await t.waitStable({ ready: dialog.getByRole('heading', { name: '已發布' }) });
     await t.hover(dialog.getByText(/已發布到公告/));
     await t.click(dialog.getByRole('button', { name: '回列表' }));
   });
@@ -118,6 +120,7 @@ try {
   }, async () => {
     await t.hover(main.getByRole('link', { name: '用完整編輯器建立' }));
     await t.click(filter('榮譽'));
+    await t.waitStable();
     await t.hover(main.getByRole('link', { name: '新增榮譽' }));
   });
 

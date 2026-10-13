@@ -54,6 +54,7 @@ try {
     status: { kind: 'ok', evidence: 'story-3 第 31 步' },
   }, async () => {
     await t.click(groups.getByRole('navigation', { name: '選擇用途' }).getByRole('link', { name: /^最終文件授權/ }));
+    await t.waitStable();
     await t.click(row('G05').getByText('缺 4 位'));
     await t.hover(row('G05').getByText(/還沒回覆/).first());
   });
@@ -65,13 +66,13 @@ try {
   }, async () => {
     await t.click(main.getByRole('button', { name: '新增站內同意書' }));
     const d = page.getByRole('dialog', { name: '新增站內同意書' });
-    await t.waitStable({ ready: d.getByLabel('組別'), offRecord: true });
+    await t.waitStable({ ready: d.getByLabel('組別') });
     await t.select(d.getByLabel('組別'), 'G09');
     await t.click(d.getByText('期中結果確認', { exact: true }));
     await t.hover(d.getByTestId('impact-preview'));
     await t.type(d.getByLabel(/^全文/), '本組確認期中系統驗收結果無誤。');
     await t.click(d.getByRole('button', { name: '建立站內同意書' }));
-    await t.waitStable({ ready: d.getByRole('link', { name: '看剛建立的同意書' }), offRecord: true });
+    await t.waitStable({ ready: d.getByRole('link', { name: '看剛建立的同意書' }) });
     await t.hover(d.getByRole('link', { name: '看剛建立的同意書' }));
   });
 
@@ -82,6 +83,7 @@ try {
   }, async () => {
     await t.goto('/dashboard/admin/signoff');
     await t.click(groups.getByRole('navigation', { name: '選擇用途' }).getByRole('link', { name: /^最終文件授權/ }));
+    await t.waitStable();
     await t.click(row('G05').getByRole('link', { name: '第 1 版' }));
     await t.hover(main.getByRole('heading', { name: /G05・最終文件授權・同意書第 1 版/ }));
     await t.hover(main.getByText(/文件一致性檢查碼/).first());
@@ -95,7 +97,7 @@ try {
     const manage = main.getByRole('region', { name: '系辦管理' });
     await t.scroll(manage);
     await t.click(manage.getByRole('button', { name: '提醒未同意者' }));
-    await t.waitStable({ ready: manage.getByText(/24 小時內不能再提醒同一版/), offRecord: true });
+    await t.waitStable({ ready: manage.getByText(/24 小時內不能再提醒同一版/) });
     await t.hover(manage.getByText(/24 小時內不能再提醒同一版/).first());
   });
 
@@ -109,7 +111,7 @@ try {
     await t.hover(main.getByRole('button', { name: /^作廢/ }));
     await t.click(main.getByRole('button', { name: /^重置/ }));
     const d = page.getByRole('dialog', { name: /^重置.*？$/ });
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.hover(d.getByText(/將作廢的回覆/));
     await t.hover(d.getByLabel(/^理由/));
     await t.click(d.getByRole('button', { name: '先不要' }));
@@ -122,6 +124,7 @@ try {
   }, async () => {
     await t.goto('/dashboard/admin/signoff');
     await t.click(groups.getByRole('navigation', { name: '選擇用途' }).getByRole('link', { name: /^最終文件授權/ }));
+    await t.waitStable();
     await t.click(row('G01').getByRole('link', { name: '第 1 版' }));
     const manage = main.getByRole('region', { name: '系辦管理' });
     await t.scroll(manage.getByText('匯出同意紀錄'));

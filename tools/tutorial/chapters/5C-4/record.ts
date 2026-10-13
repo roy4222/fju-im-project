@@ -60,7 +60,7 @@ try {
     await t.select(recipient, (await recipient.locator('option', { hasText: '林彥廷' }).getAttribute('value'))!);
     await t.type(form.getByLabel(/^標題/), '示範：測試通知');
     await t.click(form.getByRole('button', { name: '發送測試通知' }));
-    await t.waitStable({ ready: main.getByText(/^已發給 林彥廷/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/^已發給 林彥廷/) });
     await t.hover(main.getByText(/^已發給 林彥廷/));
   });
 
@@ -71,6 +71,7 @@ try {
   }, async () => {
     await t.click(nav('操作紀錄'));
     await t.click(tab(/^管理員/));
+    await t.waitStable();
     await t.hover(main.getByText(/^怎麼確認是本人：/));
     await t.hover(main.getByText('理由：教學示範'));
     await t.hover(main.getByText('屆別・示範 115 屆（DEMO-115）'));

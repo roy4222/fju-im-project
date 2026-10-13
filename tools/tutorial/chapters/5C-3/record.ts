@@ -61,9 +61,9 @@ try {
     await t.type(summary, '示範：依護理人力與排班規則自動產生班表草案。');
     await t.type(form.getByLabel(/^影片連結/), 'https://example.com/demo-video');
     await t.upload(form.getByLabel('選擇海報圖檔'), poster, { via: form.getByText(/^(上傳海報|換一張)$/) });
-    await t.waitStable({ ready: form.getByText('（儲存後才會換上）'), offRecord: true });
+    await t.waitStable({ ready: form.getByText('（儲存後才會換上）') });
     await t.click(form.getByRole('button', { name: '儲存草稿' }));
-    await t.waitStable({ ready: g01.getByText(/草稿已儲存/), offRecord: true });
+    await t.waitStable({ ready: g01.getByText(/草稿已儲存/) });
     await t.hover(g01.getByText(/草稿已儲存/));
   });
 
@@ -76,7 +76,7 @@ try {
     await t.scroll(g01.getByRole('group', { name: '公開' }));
     await t.click(form.getByRole('checkbox', { name: /已取得這組同學同意公開/ }));
     await t.click(form.getByRole('button', { name: '發布' }));
-    await t.waitStable({ ready: g01.getByRole('form', { name: `公開中 ${ref}` }), offRecord: true });
+    await t.waitStable({ ready: g01.getByRole('form', { name: `公開中 ${ref}` }) });
     await t.hover(g01.getByText('公開中').first());
   });
 
@@ -90,11 +90,11 @@ try {
     await t.select(award.getByLabel('獎項等級'), '優秀專題');
     await t.type(award.getByLabel(/^獎項名稱/), '示範：第 43 屆專題競賽第一名');
     await t.click(award.getByRole('button', { name: '儲存獎項' }));
-    await t.waitStable({ ready: award.getByRole('status'), offRecord: true });
+    await t.waitStable({ ready: award.getByRole('status') });
     const order = g01.getByRole('form', { name: `${ref} 的首頁順序` });
     await t.type(order.getByLabel(/^首頁順序/), '1');
     await t.click(order.getByRole('button', { name: '儲存順序' }));
-    await t.waitStable({ ready: order.getByRole('status'), offRecord: true });
+    await t.waitStable({ ready: order.getByRole('status') });
     await t.hover(order.getByRole('status'));
   });
 

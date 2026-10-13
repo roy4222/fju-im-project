@@ -51,11 +51,11 @@ try {
   await t.step({
     caption: '建新版評分規則',
     narration: '新版可以改權重、加減項目；型態有分數、等第 A–F、通過／不通過。合計不到 100% 不能建。',
-    status: { kind: 'ok', evidence: 'story-3 第 2、22 步' },
+    status: { kind: 'warn', say: '建完後頁首標題被擠成直排', evidence: 'story-3 第 2、22 步；錄影時發現：成功訊息擠在頁首右側' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '建立新版評分規則' }));
     const d = page.getByRole('dialog', { name: '建立新版評分規則' });
-    await t.waitStable({ ready: d.getByText('階段合計'), offRecord: true });
+    await t.waitStable({ ready: d.getByText('階段合計') });
     const weight = (n: number) => d.getByRole('listitem', { name: `第 ${n} 個階段` }).getByLabel('占總成績 %');
     await t.hover(d.getByRole('listitem', { name: '第 1 個階段' }).getByRole('columnheader', { name: '權重 %' }));
     await weight(1).fill('');
@@ -64,7 +64,7 @@ try {
     await t.type(weight(2), '30');
     await t.hover(d.getByText(/^階段合計 100%/));
     await t.click(d.getByRole('button', { name: '建立草稿' }));
-    await t.waitStable({ ready: main.getByText(/版本紀錄（2）/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/版本紀錄（2）/) });
   });
 
   await t.step({
@@ -77,7 +77,7 @@ try {
     await t.scroll(scheme);
     await t.click(scheme.getByRole('button', { name: '版本紀錄（2）' }));
     const d = page.getByRole('dialog', { name: '評分規則各版' });
-    await t.waitStable({ ready: d.getByRole('table', { name: '評分規則各版' }), offRecord: true });
+    await t.waitStable({ ready: d.getByRole('table', { name: '評分規則各版' }) });
     await t.hover(d.getByRole('row').filter({ hasText: '第 1 版' }));
     await t.hover(d.getByRole('row').filter({ hasText: '第 2 版' }));
   });
@@ -101,7 +101,7 @@ try {
   }, async () => {
     await t.click(main.getByRole('button', { name: '評分要求與指派' }));
     const d = page.getByRole('dialog', { name: '評分要求與指派' });
-    await t.waitStable({ ready: d.getByRole('table', { name: '系統驗收 評分指派' }), offRecord: true });
+    await t.waitStable({ ready: d.getByRole('table', { name: '系統驗收 評分指派' }) });
     await t.hover(d.getByRole('navigation', { name: '選擇階段' }));
     await t.hover(d.getByTestId('grading-row-G02').getByText(/評分草稿（未送出）/));
   });
@@ -115,7 +115,7 @@ try {
     await t.scroll(row);
     await t.select(row.getByLabel('G07「系統驗收」評分老師'), '王雅玲');
     await t.click(row.getByRole('button', { name: '指派' }));
-    await t.waitStable({ ready: row.getByRole('status'), offRecord: true });
+    await t.waitStable({ ready: row.getByRole('status') });
     await t.hover(row.getByRole('status'));
   });
 
@@ -128,6 +128,7 @@ try {
     await t.scroll(main.getByRole('table', { name: '成績表' }));
     await t.click(main.getByRole('button', { name: '篩選完成狀態' }));
     await t.click(page.getByRole('menuitemradio', { name: '已完成' }));
+    await t.waitStable();
     const g04 = main.getByRole('table', { name: '成績表' }).getByRole('row').filter({ hasText: /^G04/ });
     await t.hover(g04.getByRole('cell').nth(3));
     await t.click(g04.getByRole('link', { name: '計算明細' }));
@@ -151,11 +152,11 @@ try {
     await t.scroll(main.getByRole('button', { name: '更正最終成績' }));
     await t.click(main.getByRole('button', { name: '更正最終成績' }));
     const d = page.getByRole('dialog', { name: '更正最終成績' });
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.type(d.getByLabel(/^更正後的最終成績/), '88');
     await t.type(d.getByLabel('更正理由'), '示範：口試加分經系務會議通過');
     await t.click(d.getByRole('button', { name: '確認更正' }));
-    await t.waitStable({ ready: main.getByText(/已更正：原/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/已更正：原/) });
     await t.hover(main.getByText(/已更正：原/));
   });
 
@@ -168,10 +169,10 @@ try {
     await t.scroll(back);
     await t.click(back);
     const d = page.getByRole('dialog', { name: '退回評分' });
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.type(d.getByLabel('退回理由（老師看得到）'), '請補系統展示項目的說明');
     await t.click(d.getByRole('button', { name: '確認退回' }));
-    await t.waitStable({ ready: main.getByText(/更正需要重新確認/).first(), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/更正需要重新確認/).first() });
     await t.scroll(main.getByText(/更正需要重新確認/).first());
     await t.hover(main.getByText(/更正需要重新確認/).first());
   });
@@ -185,7 +186,7 @@ try {
     await t.click(main.getByRole('link', { name: '← 評分' }));
     await t.scroll(main.getByRole('table', { name: '成績表' }));
     await t.click(main.getByRole('button', { name: '匯出 CSV' }));
-    await t.waitStable({ ready: main.getByText(/^已匯出 \d+ 組/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/^已匯出 \d+ 組/) });
     await t.hover(main.getByText(/^已匯出 \d+ 組/));
     await t.hover(main.getByRole('button', { name: '匯出 Excel（XLSX）' }));
   });

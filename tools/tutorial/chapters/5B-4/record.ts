@@ -45,9 +45,10 @@ try {
     status: { kind: 'ok', evidence: 'story-2 第 27～28 步' },
   }, async () => {
     await t.click(filter('公告'));
+    await t.waitStable();
     await t.click(edit(/^公告114 學年度專題分組作業/));
     await t.click(topBtn('撤回'));
-    await t.waitStable({ ready: lifecycle('撤回成草稿？'), offRecord: true });
+    await t.waitStable({ ready: lifecycle('撤回成草稿？') });
     await t.hover(lifecycle('撤回成草稿？').getByText(/只有還沒有任何人作答時可以撤回/));
     await t.click(lifecycle('撤回成草稿？').getByRole('button', { name: '取消' }));
   });
@@ -59,10 +60,10 @@ try {
   }, async () => {
     await t.click(topBtn('下架'));
     const d = lifecycle('下架這個項目？');
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.hover(d.getByText(/既有回答、需要繳交的名單與紀錄都保留/));
     await t.click(d.getByRole('button', { name: '確認下架' }));
-    await t.waitStable({ ready: main.getByText(/^已下架：前台網址顯示/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/^已下架：前台網址顯示/) });
     await t.hover(main.getByText(/^已下架：前台網址顯示/));
   });
 
@@ -73,9 +74,9 @@ try {
   }, async () => {
     await t.click(topBtn('重新發布'));
     const d = lifecycle('重新發布？');
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.click(d.getByRole('button', { name: '確認重新發布' }));
-    await t.waitStable({ ready: main.getByTestId('item-status').getByText('發布中'), offRecord: true });
+    await t.waitStable({ ready: main.getByTestId('item-status').getByText('發布中') });
     await t.hover(main.getByTestId('item-status'));
   });
 
@@ -89,10 +90,10 @@ try {
     await t.scroll(main.getByRole('heading', { name: '危險操作' }));
     await t.click(main.getByRole('button', { name: '刪除這則公告' }));
     const d = page.getByRole('dialog', { name: '刪除這則公告？' });
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.hover(d.getByText('後果'));
     await t.click(d.getByRole('button', { name: '刪除這則公告' }));
-    await t.waitStable({ ready: main.getByRole('heading', { name: '專題事務', exact: true }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('heading', { name: '專題事務', exact: true }) });
   });
 
   await t.step({
@@ -101,6 +102,7 @@ try {
     status: { kind: 'ok', evidence: 'Q28 定案' },
   }, async () => {
     await t.click(filter('文件繳交'));
+    await t.waitStable();
     await t.click(edit('暑期企業參訪報名表（已下架）'));
     await t.scroll(main.getByRole('heading', { name: '危險操作' }));
     await t.hover(main.getByTestId('delete-blocked'));
@@ -113,6 +115,7 @@ try {
   }, async () => {
     await t.goto('/dashboard/admin/affairs');
     await t.click(filter('專題規則'));
+    await t.waitStable();
     await t.click(edit('四、專題分組、選取指導老師'));
     await t.scroll(main.getByRole('heading', { name: '發布設定' }));
     await t.hover(main.getByLabel('顯示在哪一區', { exact: true }));
@@ -126,15 +129,16 @@ try {
   }, async () => {
     await t.goto('/dashboard/admin/affairs');
     await t.click(filter('榮譽'));
+    await t.waitStable();
     await t.click(edit('大專校院資訊應用服務創新競賽 校內初選'));
     await t.scroll(main.getByRole('heading', { name: '發布設定' }));
     await t.hover(main.getByLabel(/^得獎日期/));
     await t.click(topBtn('發布'));
     const d = page.getByRole('dialog', { name: '發布前檢查' });
-    await t.waitStable({ ready: d.getByRole('button', { name: '確認發布' }), offRecord: true });
+    await t.waitStable({ ready: d.getByRole('button', { name: '確認發布' }) });
     await t.hover(d.getByText(/榮譽榜不發站內通知/).first());
     await t.click(d.getByRole('button', { name: '確認發布' }));
-    await t.waitStable({ ready: d.getByRole('heading', { name: '已發布' }), offRecord: true });
+    await t.waitStable({ ready: d.getByRole('heading', { name: '已發布' }) });
     await t.hover(d.getByRole('heading', { name: '已發布' }));
   });
 

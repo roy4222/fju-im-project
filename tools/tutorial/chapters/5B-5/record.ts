@@ -76,12 +76,12 @@ try {
     status: { kind: 'ok', evidence: 'story-4 第 9 步' },
   }, async () => {
     await t.upload(main.getByLabel('選擇首頁大圖'), jpg, { via: main.getByText('上傳圖片', { exact: true }) });
-    await t.waitStable({ ready: main.getByText('（儲存後才會換上）'), offRecord: true });
+    await t.waitStable({ ready: main.getByText('（儲存後才會換上）') });
     await t.type(main.getByLabel(/^圖片說明/), '示範圖片');
     await t.type(main.getByLabel(/^標語第一行/), '示範：專題成果，從這裡開始');
     await t.type(main.getByLabel(/^標語第二行/), '示範標語：輔大資管系專題平台');
     await t.click(main.getByRole('button', { name: '儲存並更新首頁' }));
-    await t.waitStable({ ready: main.getByText(/^首頁已更新，訪客重新整理就會看到/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/^首頁已更新，訪客重新整理就會看到/) });
     await t.hover(main.getByText(/^首頁已更新，訪客重新整理就會看到/));
   });
 
@@ -104,9 +104,9 @@ try {
     await t.goto('/dashboard/admin/home-settings');
     await t.click(main.getByRole('region', { name: '恢復預設' }).getByRole('button', { name: '恢復預設' }));
     const d = page.getByRole('dialog', { name: '恢復首頁預設？' });
-    await t.waitStable({ ready: d, offRecord: true });
+    await t.waitStable({ ready: d });
     await t.click(d.getByRole('button', { name: '恢復預設' }));
-    await t.waitStable({ ready: main.getByText(/^已恢復預設，訪客重新整理就會看到/), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/^已恢復預設，訪客重新整理就會看到/) });
     await t.hover(main.getByText(/^已恢復預設，訪客重新整理就會看到/));
   });
 
