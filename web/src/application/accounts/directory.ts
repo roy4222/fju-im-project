@@ -534,8 +534,8 @@ export function deidentifyConfirmationMatches(typed: unknown, loginEmail: string
 export const DEIDENTIFY_CLEARS: readonly string[] = [
   '姓名改成代稱（帳號、個人資料、註冊申請）',
   '登入 Email 與聯絡 Email 換成收不到信的位址',
-  '學號、系級、手機清空，釋出本屆學號',
-  '密碼與 Google 權杖清除，之後不能用任何方式登入',
+  '學號、系級、手機清空，解除這個帳號與學號的綁定',
+  '密碼與 Google 登入授權清除，之後不能用任何方式登入',
   '登入中的裝置立刻登出',
 ]
 

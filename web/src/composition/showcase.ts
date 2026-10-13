@@ -48,6 +48,7 @@ export {
   describeUpdateDraftReceipt,
   describeWithdrawReceipt,
   FEATURED_SORT_OPTIONS,
+  VIDEO_URL_MESSAGE,
   parseShowcaseSort,
   POSTER_UPLOAD,
   SHOWCASE_LIMITS,

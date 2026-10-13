@@ -1,9 +1,11 @@
+import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconCrown } from '@tabler/icons-react'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
 import { imageSrc, ListEmpty, PillLink, PublicPageHead } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
+import { cohortLabel } from '@/composition/cohorts'
 import { FEATURED_SORT_OPTIONS, getPublicShowcaseQuery, parseShowcaseSort } from '@/composition/showcase'
 
 export const metadata: Metadata = {
@@ -34,7 +36,7 @@ export default async function FeaturedPage({
   const sort = parseShowcaseSort(rawSort, FEATURED_SORT_OPTIONS)
   const open = one(sp.item) || undefined
   const query = getPublicShowcaseQuery()
-  const [cards, cohorts] = await Promise.all([query.featured({ cohort: cohort || undefined, q: q || undefined, sort }), query.cohorts({ featuredOnly: true })])
+  const [cards, cohorts] = await Promise.all([query.featured({ cohort: cohort || undefined, q: q || undefined, sort }), query.cohortChoices({ featuredOnly: true })])
 
   const keep = (c: string) => {
     const p = new URLSearchParams()
@@ -44,17 +46,20 @@ export default async function FeaturedPage({
     const s = p.toString()
     return s ? `/projects/featured?${s}` : '/projects/featured'
   }
+  // 屆別顯示「名稱（代碼）」（系1）；pill 已涵蓋所有有優秀專題的屆別，卡片的屆別一定查得到。
+  const names = new Map(cohorts.map((c) => [c.code, c.name]))
+  const label = (code: string) => cohortLabel({ name: names.get(code) ?? code, code })
   const entries: PhotoEntry[] = cards.map((p) => ({
     id: p.id,
     image: imageSrc(p.id, p.posterFileId),
     title: p.title,
-    tags: [{ label: `${p.cohortCode} 屆`, tone: 'ink' }, ...(p.groupCode ? [{ label: p.groupCode }] : [])],
+    tags: [{ label: label(p.cohortCode), tone: 'ink' }, ...(p.groupCode ? [{ label: p.groupCode }] : [])],
     award: p.award,
     awardLabel: p.awardLabel,
     summary: p.summary,
     facts: [
       { label: '獎項', value: p.awardLabel ?? (p.award === 'excellent' ? '優秀專題' : '佳作') },
-      { label: '屆別', value: `${p.cohortCode} 屆` },
+      { label: '屆別', value: label(p.cohortCode) },
       ...(p.groupCode ? [{ label: '組別', value: p.groupCode }] : []),
       { label: '影片', value: p.videoUrl ? '有三分鐘影片（詳情頁）' : '—' },
     ],
@@ -77,20 +82,29 @@ export default async function FeaturedPage({
               全部屆別
             </PillLink>
             {cohorts.map((c) => (
-              <PillLink key={c} href={keep(c)} active={cohort === c}>
-                {c} 屆
+              <PillLink key={c.code} href={keep(c.code)} active={cohort === c.code}>
+                {cohortLabel(c)}
               </PillLink>
             ))}
           </nav>
           <SearchSortBar placeholder="搜尋題目、摘要、組別" sortOptions={FEATURED_SORT_OPTIONS} />
         </div>
         {entries.length === 0 ? (
-          <ListEmpty
-            icon={<IconCrown className="size-8" aria-hidden />}
-            title={filtered ? '找不到符合的作品' : '目前還沒有公開的優秀專題。'}
-            hint={filtered ? '換個關鍵字，或清除篩選條件。' : '登入後可以在「歷屆專題一覽」看所有已發布的作品。'}
-            clearHref={filtered ? '/projects/featured' : undefined}
-          />
+          <div className="flex flex-col items-center gap-3">
+            <ListEmpty
+              className="w-full"
+              icon={<IconCrown className="size-8" aria-hidden />}
+              title={filtered ? '找不到符合的作品' : '目前還沒有公開的優秀專題。'}
+              hint={filtered ? '換個關鍵字，或清除篩選條件。' : '可以先到榮譽榜看看歷屆的得獎消息。'}
+              clearHref={filtered ? '/projects/featured' : undefined}
+            />
+            {/* 空的時候給下一步（N-02）：跟說明一樣指到榮譽榜（P-01：不叫訪客先登入）。 */}
+            {filtered ? null : (
+              <Link href="/honors" className="text-sm font-bold text-primary hover:underline">
+                看榮譽榜
+              </Link>
+            )}
+          </div>
         ) : (
           <PhotoDialogGrid entries={entries} initialOpenId={open} />
         )}

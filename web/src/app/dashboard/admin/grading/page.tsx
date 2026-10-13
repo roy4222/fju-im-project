@@ -19,7 +19,7 @@ import {
 } from '@/app/dashboard/admin/grading/grading-forms'
 import { GradeExportButtons } from '@/app/dashboard/admin/grading/results-forms'
 import type { AdminAssignmentView, Gradebook, SchemeVersionView } from '@/application/grading'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   adoptedFinal,
   describeFormula,
@@ -154,7 +154,7 @@ export default async function AdminGradingPage({
   const { current, versions, groups, requirements, assignments, teachers } = board.receipt
   // 伺服器端的屆別狀態為準（寫入的用例本身也會以 COHORT_ARCHIVED 拒絕）。
   const archived = board.receipt.cohort.archived
-  const archivedReason = archived ? `${board.receipt.cohort.code} 已封存，只能查看與匯出；要修改請先解封。` : null
+  const archivedReason = archived ? `${cohortLabel(board.receipt.cohort)}已封存，只能查看與匯出；要修改請先解封。` : null
   const latest = versions[0] ?? null
   const locked = current?.status === 'locked'
   const stages = current?.stages ?? []
@@ -204,7 +204,7 @@ export default async function AdminGradingPage({
   return shell(
     <>
       <CohortPills
-        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${c.code}・已封存` : c.code }))}
+        cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c) }))}
         currentId={cohort.id}
         hrefFor={(id) => `${BASE}?cohort=${id}`}
       />
@@ -256,7 +256,7 @@ export default async function AdminGradingPage({
           </>
         }
         icon={<IconScale />}
-        description={current ? (locked ? '已鎖定，改結構請建立新版評分規則' : '還沒有老師開始評分，可以發布新版本取代') : undefined}
+        description={current ? (locked ? '評分項目與權重不能再改；要改請建立新版評分規則' : '還沒有老師開始評分，可以發布新版本取代') : undefined}
         aria-label="評分規則"
         action={
           versions.length > 0 ? (
@@ -264,7 +264,7 @@ export default async function AdminGradingPage({
               label={`版本紀錄（${versions.length}）`}
               icon={<IconHistory aria-hidden />}
               title="評分規則各版"
-              description="每一版的狀態與建立時間；草稿在這裡發布。評分規則鎖定後的新版本按「看影響並套用」只會先列出哪些組的成績會變、不會馬上重算；真正套用在下一頁底部的「危險操作」區，套用後不能退回舊版。"
+              description="每一版的狀態與建立時間；草稿在這裡發布。評分規則鎖定後的新版本按「查看重算影響（尚不套用）」只會先列出哪些組的成績會變、不會馬上重算；真正套用在下一頁底部的「危險操作」區，套用後不能退回舊版。"
               openParam="versions"
               defaultOpen={dialogParam === 'versions'}
               size="xl"
@@ -291,7 +291,7 @@ export default async function AdminGradingPage({
                     <td className="px-5 py-2.5 text-right">
                       {v.status === 'draft' && archived ? null : v.status === 'draft' && locked ? (
                         <Link href={`${BASE}/apply/${v.id}`} className={LINK_BUTTON}>
-                          看影響並套用第 {v.versionNo} 版
+                          查看第 {v.versionNo} 版重算影響（尚不套用）
                         </Link>
                       ) : v.status === 'draft' ? (
                         <PublishButton versionId={v.id} versionNo={v.versionNo} requestId={randomUUID()} disabledReason={null} />
@@ -351,7 +351,7 @@ export default async function AdminGradingPage({
         <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
           {current
             ? locked
-              ? '已有老師開始評分（存了評分草稿或已正式送出），結構已鎖定；要改階段、項目、滿分或權重請建立新版本，先看影響再套用。'
+              ? '已有老師開始評分（存了評分草稿或已正式送出），評分項目與權重不能再改；要改階段、項目、滿分或權重請建立新版本，先查看重算影響再套用。'
               : '第一位老師存了評分草稿或送出評分後就鎖定。'
             : '最終成績＝Σ（階段成績 × 階段權重）；階段成績為計入成績的正式評分的平均。'}
         </p>

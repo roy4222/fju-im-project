@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { startItemUploadAction } from './actions'
-import { formatSize, type EditorState, type EditorVocabulary, type FileChip } from './item-form-model'
+import { formatSize, notifyPreviewText, type EditorState, type EditorVocabulary, type FileChip, type NotifyWhen } from './item-form-model'
 import { IconAlertCircle, IconArrowDown, IconArrowUp, IconCheck, IconFileUpload, IconPaperclip, IconPhoto, IconX } from '@tabler/icons-react'
 import type { ItemReview, PublishCheck, RecipientPreview } from '@/application/items'
 import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, DIALOG as KIT_DIALOG } from '@/app/_ui/dashboard-kit'
@@ -308,7 +308,7 @@ export function CheckList({ checks, onFix }: { checks: readonly PublishCheck[]; 
 }
 
 /** 實際名單：先看總數，點開看到每一位（每一組）是誰（產品模組 04：不只總數）。 */
-export function RecipientList({ recipients }: { recipients: RecipientPreview }) {
+export function RecipientList({ recipients, notifyWhen }: { recipients: RecipientPreview; notifyWhen: NotifyWhen }) {
   if (recipients.receiverUnit === 'individual') {
     return (
       <details className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
@@ -356,7 +356,7 @@ export function RecipientList({ recipients }: { recipients: RecipientPreview }) 
   }
   return (
     <p className="rounded-xl border border-border px-4 py-2.5 text-sm" data-testid="recipient-preview">
-      {recipients.notifyCount > 0 ? `通知會寫給 ${recipients.notifyCount} 位。` : '這個對象目前沒有可以通知的人。'}
+      {notifyPreviewText(recipients.notifyCount, notifyWhen)}
     </p>
   )
 }

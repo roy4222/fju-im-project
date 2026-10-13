@@ -2,7 +2,7 @@ import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { Pool, PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
-import type { BusinessClockSource } from '@/application/cohorts'
+import { cohortLabel, type BusinessClockSource } from '@/application/cohorts'
 import {
   applyRemovalChoice,
   computeGroupResult,
@@ -265,7 +265,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ReturnReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (assignment.valid_to !== null) {
         return err('NOT_ASSIGNED', '這位老師已經不是這一組這一階段的評分老師（指派已結束），退回後他無法處理；請先處理指派。')
@@ -410,7 +410,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<RemoveAssignmentReceipt>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohort.code} 已封存，不能改派評分老師；要改派請先解封。`)
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，不能改派評分老師；要改派請先解封。`)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (target.valid_to !== null) return err('CONFLICT', '這個評分指派已經結束了（可能剛被別人處理），請重新整理頁面再預覽。')
 
@@ -620,7 +620,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<OverrideReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (!versionId) return noScheme()
 
@@ -711,7 +711,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<OverrideReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
       if (state?.state !== 'pending_review') return err('CONFLICT', '這筆更正已經有人處理過了（或已不需要重新確認），請重新整理頁面。')
       if (!versionId) return noScheme()
@@ -830,7 +830,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SchemeVersionReceipt>(begun)
-      if (cohort.status === 'archived') return archived(cohort.code)
+      if (cohort.status === 'archived') return archived(cohort)
       if (target.status !== 'draft') return err('VALIDATION_FAILED', `v${target.version_no} 已經套用或發布過了，不需要再套用。`)
       const current = scheme.current_version_id ? await versionRow(tx, scheme.current_version_id) : null
       if (current?.status !== 'locked') {
@@ -1136,7 +1136,7 @@ export class PgGradebookQuery implements GradebookQuery {
     if (denied) return denied
     if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     const db = this.#reader()
-    const cohort = (await db.query<CohortRow>('select id, code, status from cohorts where id = $1', [cohortId])).rows[0]
+    const cohort = (await db.query<CohortRow>('select id, code, name, status from cohorts where id = $1', [cohortId])).rows[0]
     if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     const version = await currentVersionOf(db, cohortId)
 
@@ -1196,7 +1196,7 @@ export class PgGradebookQuery implements GradebookQuery {
     const dissolvedIds = new Set(groups.rows.filter((g) => g.dissolved).map((g) => g.id))
     return ok(
       {
-        cohort: { id: cohort.id, code: cohort.code, archived: cohort.status === 'archived' },
+        cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
         version,
         groups: book,
         pendingReviews: overrides.rows
@@ -1220,8 +1220,8 @@ export class PgGradebookQuery implements GradebookQuery {
     if (!isUuid(groupId)) return groupNotFound()
     const db = this.#reader()
     const head = (
-      await db.query<{ id: string; code: string; status: string; cohort_id: string; cohort_code: string; cohort_status: string }>(
-        `select g.id, g.code, g.status, g.cohort_id, c.code as cohort_code, c.status as cohort_status
+      await db.query<{ id: string; code: string; status: string; cohort_id: string; cohort_code: string; cohort_name: string; cohort_status: string }>(
+        `select g.id, g.code, g.status, g.cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status
            from groups g join cohorts c on c.id = g.cohort_id where g.id = $1`,
         [groupId],
       )
@@ -1320,6 +1320,7 @@ export class PgGradebookQuery implements GradebookQuery {
           code: head.code,
           cohortId: head.cohort_id,
           cohortCode: head.cohort_code,
+          cohortName: head.cohort_name,
           archived: head.cohort_status === 'archived',
           dissolved: head.status === 'dissolved',
         },
@@ -1352,10 +1353,11 @@ export class PgGradebookQuery implements GradebookQuery {
         group_status: string
         cohort_id: string
         cohort_code: string
+        cohort_name: string
         cohort_status: string
       }>(
         `select a.id, a.group_id, a.stage_key, a.teacher_user_id, a.valid_to, ${TEACHER_NAME_SQL} as teacher_name,
-                g.code, g.status as group_status, g.cohort_id, c.code as cohort_code, c.status as cohort_status
+                g.code, g.status as group_status, g.cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status
            from evaluator_assignments a
            join groups g on g.id = a.group_id
            join cohorts c on c.id = g.cohort_id
@@ -1366,7 +1368,7 @@ export class PgGradebookQuery implements GradebookQuery {
       )
     ).rows[0]
     if (!target) return err('VALIDATION_FAILED', '找不到這個評分指派，請重新整理頁面。')
-    if (target.cohort_status === 'archived') return err('COHORT_ARCHIVED', `${target.cohort_code} 已封存，不能改派評分老師；要改派請先解封。`)
+    if (target.cohort_status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel({ name: target.cohort_name, code: target.cohort_code })}已封存，不能改派評分老師；要改派請先解封。`)
     if (target.group_status === 'dissolved') return dissolved(target.code)
     if (target.valid_to !== null) return err('CONFLICT', '這個評分指派已經結束了，請重新整理頁面。')
     const version = await currentVersionOf(db, target.cohort_id)
@@ -1454,13 +1456,13 @@ export class PgGradebookQuery implements GradebookQuery {
     const target = await versionRow(db, versionId)
     if (!target) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
     const scheme = (
-      await db.query<SchemeRow & { status: string; code: string }>(
-        `select s.id, s.cohort_id, s.current_version_id, s.revision, c.status, c.code
+      await db.query<SchemeRow & { status: string; code: string; name: string }>(
+        `select s.id, s.cohort_id, s.current_version_id, s.revision, c.status, c.code, c.name
            from grading_schemes s join cohorts c on c.id = s.cohort_id where s.id = $1`,
         [target.scheme_id],
       )
     ).rows[0]!
-    if (scheme.status === 'archived') return archived(scheme.code)
+    if (scheme.status === 'archived') return archived(scheme)
     if (target.status !== 'draft') return err('VALIDATION_FAILED', `v${target.version_no} 已經套用或發布過了。`)
     const current = scheme.current_version_id ? await versionRow(db, scheme.current_version_id) : null
     if (current?.status !== 'locked') return err('VALIDATION_FAILED', '目前的版本還沒鎖定，直接按「發布」換版本就好。')

@@ -1,8 +1,9 @@
+import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconAward } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
-import { imageSrc, ListEmpty, PillLink, PublicPageHead } from '@/app/_ui/public-content'
+import { Crumbs, FirstCharAccent, imageSrc, ListEmpty, PillLink } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
@@ -73,7 +74,22 @@ export default async function HonorsPage({
 
   return (
     <SiteShell current="/honors" bare>
-      <PublicPageHead title="榮譽榜" description="收錄本系專題在校內外競賽的得獎紀錄與照片；歷屆專題作品請看「歷屆專題」。" crumbs={[{ label: '榮譽榜' }]} />
+      {/* 頁首帶同 `PublicPageHead`，只是說明裡的「歷屆專題」要能點（N-13）。 */}
+      <div className="border-b border-border bg-muted/50">
+        <div className="mx-auto max-w-6xl px-5 py-9">
+          <Crumbs items={[{ label: '榮譽榜' }]} />
+          <h1 className="mt-2.5 text-[30px] leading-tight font-extrabold text-foreground sm:text-[34px]">
+            <FirstCharAccent text="榮譽榜" />
+          </h1>
+          <p className="mt-2.5 max-w-3xl text-[15px] text-muted-foreground">
+            收錄本系專題在校內外競賽的得獎紀錄與照片；歷屆專題作品請看「
+            <Link href="/projects" className="font-semibold text-primary hover:underline">
+              歷屆專題
+            </Link>
+            」。
+          </p>
+        </div>
+      </div>
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <nav className="flex flex-wrap gap-2" aria-label="年份篩選">

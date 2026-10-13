@@ -33,6 +33,7 @@ type Row = {
   scope: 'cohort' | 'global'
   cohort_id: string | null
   cohort_code: string | null
+  cohort_name: string | null
   cohort_status: string | null
   source_ref: { type?: string; id?: string; version?: number | null } | null
   created_at: Date
@@ -195,6 +196,7 @@ function toItem(row: Row, roles: readonly Role[]): InboxItem {
     scope: row.scope,
     cohortId: row.cohort_id,
     cohortCode: row.cohort_code,
+    cohortName: row.cohort_name,
     createdAt: row.created_at,
     readAt: row.read_at,
     source: resolveSource(row, roles),
@@ -226,7 +228,7 @@ export class PgInbox implements InboxQuery, InboxCommand {
     values.push(INBOX_PAGE_SIZE + 1)
 
     const rows = await this.#db().query<Row>(
-      `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.status as cohort_status,
+      `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status,
               n.source_ref, n.created_at, n.read_at,
               mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
               mi.deleted_at is not null as item_deleted,
@@ -280,14 +282,14 @@ export class PgInbox implements InboxQuery, InboxCommand {
   async cohortOptions(actor: ResolvedActor): Promise<readonly InboxCohortOption[]> {
     const userId = reader(actor)
     if (!userId) return []
-    const rows = await this.#db().query<{ id: string; code: string }>(
-      `select distinct c.id, c.code
+    const rows = await this.#db().query<{ id: string; code: string; name: string }>(
+      `select distinct c.id, c.code, c.name
          from notifications n join cohorts c on c.id = n.cohort_id
         where n.recipient_user_id = $1
         order by c.code desc`,
       [userId],
     )
-    return rows.rows.map((r) => ({ cohortId: r.id, code: r.code }))
+    return rows.rows.map((r) => ({ cohortId: r.id, code: r.code, name: r.name }))
   }
 
   async markRead(actor: ResolvedActor, notificationId: string): Promise<Result<MarkReadReceipt>> {

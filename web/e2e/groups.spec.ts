@@ -117,6 +117,8 @@ async function openStudentPage(page: Page, index: number) {
 
 async function proposeAll(page: Page) {
   await openStudentPage(page, 0)
+  // Q40：學生組別頁說明分組期在做什麼。
+  await expect(page.getByRole('main')).toContainText('不能超過分組期（組隊、選指導老師、交提案的期間）')
   for (const [i, s] of students.slice(1).entries()) {
     await page.getByLabel(`同學 ${i + 1} 的學號`).fill(s.studentNo)
   }
@@ -161,6 +163,11 @@ test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Emai
 
   await openStudentPage(page, 0)
   await expect(page.getByRole('region', { name: '找組員名單' })).not.toContainText(students[1]!.name)
+  // 名單空了：給下一步（N-10），連到產學合作案、或洽系辦。
+  const empty = page.getByRole('region', { name: '找組員名單' })
+  await expect(empty).toContainText('目前沒有公開找組員的同學。')
+  await expect(empty).toContainText('或洽系辦')
+  await expect(empty.getByRole('link', { name: '看產學合作案' })).toHaveAttribute('href', '/dashboard/student/industry')
 })
 
 test('發起五人提案：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份提案', async ({ page }) => {
@@ -268,6 +275,8 @@ test('管理員：分組總覽列出這一組與組長；改每組人數後摘�
   await expect(groups).toContainText(`${students[0]!.name}（組長）`)
   await expect(groups).toContainText('5 人')
   await expect(page.getByTestId('grouping-settings')).toContainText('每組 5 人')
+  // Q40：系辦分組頁說明分組期在做什麼。
+  await expect(page.getByTestId('grouping-settings')).toContainText('不超過分組期（組隊、選指導老師、交提案的期間）')
 
   await page.getByRole('button', { name: '分組設定' }).click()
   const dialog = page.getByRole('dialog', { name: new RegExp(`（${CODE}） 的分組設定`) })

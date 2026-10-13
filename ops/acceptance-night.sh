@@ -5,6 +5,10 @@
 #   caffeinate -dims ops/acceptance-night.sh --plan full                            # 路 A：金鑰裝好了
 #   caffeinate -dims ops/acceptance-night.sh --plan full --no-reset --no-snapshot   # 路 B：Roy 手動重置
 #   caffeinate -dims ops/acceptance-night.sh --plan tonight                         # 10/9 試跑那套
+#   caffeinate -dims ops/acceptance-night.sh --plan ux                              # 只補跑人設（還原學期中快照）
+#
+# 背景跑（nohup … &）要中途停：kill -TERM <pid>。非互動 shell 的背景工作會忽略 SIGINT，
+# 所以 kill -INT／Ctrl-C 對它無效、收尾不會做；TERM 一樣會做完收尾（resume-deploy、遮蔽、刪秘密、彙整）。
 #
 # tonight 的做法：
 #   0. 產整夜密碼 → ~/.fju-acceptance/<runId>/secrets/night.pw（0600，目錄 0700，報告目錄外）
@@ -26,9 +30,17 @@
 #     r1-login-limit 會把一個學生帳號從這台 Mac 鎖 10 分鐘，所以排整套最後
 #   後置：記結束 commit → resume-deploy → 遮蔽、刪秘密 → summarize-night.sh --vault --polish
 #
+# ux 的做法（只跑人設；劇本那夜已經存過學期中快照）：
+#   前置：~/.fju-acceptance/snapshots/midterm.pw 要存在、非空、權限 600，否則停；
+#     ssh fju-reset status（snapshots= 要有 midterm，否則停）→ pause-deploy → restore midterm（失敗就停），再記開始 commit
+#   整夜密碼直接用 midterm.pw（快照裡帳號的密碼），不產新的
+#   UX 三批照 full（每批最多 4 個、最多 1 個系辦；過 08:00 剩下的批次記 not-run）→ 最後 r1-login-limit
+#   不跑劇本鏈、不 reset、不存快照；後置同 full（resume-deploy、遮蔽、刪本次秘密目錄但不刪 snapshots/、--polish 彙整）
+#
 # 參數：
-#   --plan tonight|full   計畫
-#   --only a,b            只跑這幾項（項目 id 用逗號隔開）；full 時等於 --no-reset（重跑單項不清站）
+#   --plan tonight|full|ux   計畫（ux＝只跑人設，見上）
+#   --only a,b            只跑這幾項（項目 id 用逗號隔開）；full 時等於 --no-reset（重跑單項不清站）；
+#                         ux 時仍會還原快照
 #   --no-reset            （full）不重置、不暫停／恢復部署：Roy 手動做（§13.5 路 B）
 #   --no-snapshot         （full）不存、不還原學期中快照：UX 跑在第 5 章結束的站上
 #   --purge               刪掉 ~/.fju-acceptance 底下所有 run 的秘密（中途被停掉時用）；不給 --plan 就只做這件事
@@ -45,14 +57,17 @@
 #   ACCEPT_RESET_GAP        兩次 ssh fju-reset 之間至少隔幾秒，預設 15（ssh 限速：30 秒內第 6 次新連線會被拒）；測試縮短用
 #   ACCEPT_UX_DEADLINE      UX 批次的截止時刻 HH:MM（開始之後的下一次），預設 08:00；@<epoch 秒> 給測試用
 #   PWCLI                   playwright-cli wrapper，預設 ~/.codex/skills/playwright/scripts/playwright_cli.sh
+#   ACCEPT_CODEX_E2E        每項 codex 的啟動腳本，預設 ops/codex-e2e.sh；測試指到假腳本
+#   ACCEPT_OUT_ROOT         run 目錄的上層，預設 e2e/acceptance/.out；測試指到 /tmp
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODEX_E2E="$REPO_ROOT/ops/codex-e2e.sh"
+CODEX_E2E="${ACCEPT_CODEX_E2E:-$REPO_ROOT/ops/codex-e2e.sh}"
 PROMPT_FILE="$REPO_ROOT/ops/lib/acceptance-night-prompt.md"
 E2E_ROOT="${ACCEPT_E2E_ROOT:-$REPO_ROOT/e2e/acceptance}"
-OUT_ROOT="$REPO_ROOT/e2e/acceptance/.out"
+OUT_ROOT="${ACCEPT_OUT_ROOT:-$REPO_ROOT/e2e/acceptance/.out}"
 SECRETS_ROOT="$HOME/.fju-acceptance"
+MIDTERM_PW="$SECRETS_ROOT/snapshots/midterm.pw"
 HEALTH_URL="${ACCEPT_HEALTH_URL:-https://test.fju.roy422.dev/api/health}"
 PWCLI="${PWCLI:-${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh}"
 MODEL="${CODEX_E2E_MODEL:-gpt-6.1-sol}"
@@ -98,8 +113,14 @@ PLAN_FULL=(
 UX_BATCHES=(U1 U2 U3)
 UX_BATCH_MAX=4
 
+# 只跑人設（--plan ux）：全套裡 UX 三批與最後的 L，列在 PLAN_FULL 一處，不另抄一份。
+PLAN_UX=()
+for row in "${PLAN_FULL[@]}"; do
+  case "${row##*|}" in U1|U2|U3|L) PLAN_UX+=("$row") ;; esac
+done
+
 usage() {
-  sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR > 1 && /^set -euo/ { exit } NR > 1' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -116,7 +137,7 @@ NO_RESET=0
 NO_SNAPSHOT=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --plan) [ $# -ge 2 ] || die "--plan 要給 tonight 或 full"; PLAN="$2"; shift ;;
+    --plan) [ $# -ge 2 ] || die "--plan 要給 tonight、full 或 ux"; PLAN="$2"; shift ;;
     --plan=*) PLAN="${1#--plan=}" ;;
     --only) [ $# -ge 2 ] || die "--only 要給項目 id"; ONLY="$2"; shift ;;
     --only=*) ONLY="${1#--only=}" ;;
@@ -145,7 +166,7 @@ if [ -z "$PLAN" ]; then
     purge_secrets
     exit 0
   fi
-  die "用法：ops/acceptance-night.sh --plan tonight|full [--only a,b] [--no-reset] [--no-snapshot] [--dry-run] [--purge]"
+  die "用法：ops/acceptance-night.sh --plan tonight|full|ux [--only a,b] [--no-reset] [--no-snapshot] [--dry-run] [--purge]"
 fi
 case "$PLAN" in
   tonight)
@@ -153,7 +174,11 @@ case "$PLAN" in
     [ "$NO_RESET$NO_SNAPSHOT" = 00 ] || die "--no-reset／--no-snapshot 只用在 --plan full（tonight 本來就不重置、不存快照）"
     ;;
   full) PLAN_ROWS=("${PLAN_FULL[@]}") ;;
-  *) die "--plan 只能是 tonight 或 full（收到：${PLAN}）" ;;
+  ux)
+    PLAN_ROWS=("${PLAN_UX[@]}")
+    [ "$NO_RESET$NO_SNAPSHOT" = 00 ] || die "--no-reset／--no-snapshot 不能和 --plan ux 一起用（ux 一定要還原學期中快照）"
+    ;;
+  *) die "--plan 只能是 tonight、full 或 ux（收到：${PLAN}）" ;;
 esac
 # 重跑單項不清站：--only 等於 --no-reset。
 NO_RESET_WHY="--no-reset"
@@ -194,7 +219,7 @@ done
 [ "${#IDS[@]}" -gt 0 ] || die "沒有選到任何項目"
 
 # UX 批次防呆（§6.2、§13.2）：每批最多 UX_BATCH_MAX 個、不得有兩個系辦。計畫表改壞了就不開跑。
-if [ "$PLAN" = full ]; then
+if [ "$PLAN" = full ] || [ "$PLAN" = ux ]; then
   for b in "${UX_BATCHES[@]}"; do
     n=0 admins=0
     for row in "${PLAN_ROWS[@]}"; do
@@ -289,6 +314,27 @@ print_full_order() {
   echo "  最後：遮蔽整夜密碼與 E2E 管理員密碼 → 刪 $SECRET_DIR → $E2E_ROOT/summarize-night.sh $RUN_DIR --vault ${ACCEPT_VAULT:-（預設 Vault）} --polish"
 }
 
+# 只跑人設 dry-run 的順序。
+print_ux_order() {
+  local reset_cmd="ssh fju-reset" last b n=0
+  echo "順序（ux：只跑人設）："
+  echo "  前置：檢查 $MIDTERM_PW 存在、非空、權限 600（不合就停）"
+  echo "        → $reset_cmd status（snapshots= 沒有 midterm 就停）→ $reset_cmd pause-deploy → $reset_cmd restore midterm（失敗就停）→ 記開始 commit"
+  echo "        （每個子命令一次連線、相鄰兩次至少隔 ${ACCEPT_RESET_GAP:-15} 秒；任一步失敗就停，收尾仍會 resume-deploy）"
+  echo "  整夜密碼：用 ${MIDTERM_PW}（快照裡帳號的密碼），不產新密碼；複製一份到 ${PW_FILE}（0600）給 codex-e2e.sh 檢查外洩"
+  echo "  不跑劇本鏈、不 reset、不存快照"
+  for b in "${UX_BATCHES[@]}"; do
+    n=$((n + 1))
+    [ -z "$(ids_in_group "$b")" ] || echo "    第 $n 批（同時，最多 ${UX_BATCH_MAX} 個、最多 1 個系辦）：$(ids_in_group "$b")"
+  done
+  echo "    過了 ${ACCEPT_UX_DEADLINE:-08:00} 還沒開始的批次記 not-run，不硬跑"
+  last="$(ids_in_group L)"
+  [ -z "$last" ] || echo "  最後（UX 全部結束後；一項一項跑，不並行）：${last// / → }"
+  echo "  每項逾時 → 停掉；progress.md 有進度且 session id 已知 → resume 一次（預算減半）"
+  echo "  後置：記結束 commit → $reset_cmd resume-deploy（任何結束都做，含 TERM；背景跑請 kill -TERM <pid>）"
+  echo "  最後：遮蔽整夜密碼與 E2E 管理員密碼 → 刪 ${SECRET_DIR}（不刪 $SECRETS_ROOT/snapshots/）→ $E2E_ROOT/summarize-night.sh $RUN_DIR --vault ${ACCEPT_VAULT:-（預設 Vault）} --polish"
+}
+
 # ── --dry-run：只印，不碰檔案系統、不連網 ──────────────────────
 if [ "$DRY_RUN" = 1 ]; then
   echo "計畫：${PLAN}（dry-run：不建目錄、不產密碼、不連網、不叫 codex）"
@@ -309,6 +355,10 @@ if [ "$DRY_RUN" = 1 ]; then
   echo ""
   if [ "$PLAN" = full ]; then
     print_full_order
+    exit 0
+  fi
+  if [ "$PLAN" = ux ]; then
+    print_ux_order
     exit 0
   fi
   echo "順序："
@@ -333,6 +383,15 @@ for i in "${!IDS[@]}"; do
   [ -f "$E2E_ROOT/${LISTS[$i]}" ] || missing+=("$E2E_ROOT/${LISTS[$i]}")
 done
 [ "${#missing[@]}" -eq 0 ] || die "找不到這些清單或腳本：${missing[*]}"
+# ux 沿用快照那夜的密碼：檔案不對就不開跑（還沒碰測試站）。
+if [ "$PLAN" = ux ]; then
+  [ -f "$MIDTERM_PW" ] || die "找不到 ${MIDTERM_PW}：沒有學期中快照的密碼，--plan ux 不能跑（要先跑過 full 的第 2 章）"
+  [ -s "$MIDTERM_PW" ] || die "$MIDTERM_PW 是空的，--plan ux 不能跑"
+  # find -perm 600（不帶 -）＝權限剛好 600；macOS 與 Linux 都一樣。
+  [ -n "$(find "$MIDTERM_PW" -prune -perm 600)" ] || die "$MIDTERM_PW 權限不是 600（chmod 600 ${MIDTERM_PW}）"
+  IFS= read -r NIGHT_PW < "$MIDTERM_PW" || true
+  [ -n "$NIGHT_PW" ] || die "$MIDTERM_PW 第一行是空的，--plan ux 不能跑"
+fi
 [ -x "$CODEX_E2E" ] || die "找不到 $CODEX_E2E"
 [ -s "$PROMPT_FILE" ] || die "找不到 $PROMPT_FILE"
 command -v jq >/dev/null 2>&1 || die "找不到 jq"
@@ -489,6 +548,7 @@ run_with_watchdog() {
 }
 
 # 交給 codex-e2e.sh 的環境：整夜密碼只在這個子 shell 裡 export，不進指令列。
+# shellcheck disable=SC2329  # 由 run_with_watchdog 間接呼叫
 launch_codex() {
   local id="$1" list="$2" resume_id="$3"
   export ACCEPT_PASSWORD="$NIGHT_PW"
@@ -510,6 +570,7 @@ launch_codex() {
   exec "$CODEX_E2E" "$E2E_ROOT/$list"
 }
 
+# shellcheck disable=SC2329  # 由 run_with_watchdog 間接呼叫
 launch_script() {
   local id="$1" list="$2"
   local commit_arg=()
@@ -647,6 +708,29 @@ pre_reset() {
     return 1
   fi
   log reset - "reset ok"
+}
+
+# ux 前置：status 確認有 midterm → pause-deploy → restore midterm。任一步失敗回 1（呼叫端停掉；收尾照樣 resume-deploy）。
+pre_restore() {
+  if ! fju_reset 120 status; then
+    log reset-failed - "status 失敗（見 logs/fju-reset.log）"
+    return 1
+  fi
+  # status 一行一個 key=value；只看 snapshots= 那行（last_run= 也可能出現 midterm 字樣）。
+  if ! grep -qE '^snapshots=(.*[ ,])?midterm([ ,]|$)' "$RESET_OUT"; then
+    log reset-failed - "status 的 snapshots= 沒有 midterm：沒有學期中快照可還原"
+    return 1
+  fi
+  PAUSED=1
+  if ! fju_reset 120 pause-deploy; then
+    log reset-failed - "pause-deploy 失敗（見 logs/fju-reset.log）"
+    return 1
+  fi
+  if ! fju_reset 2400 restore midterm; then
+    log restore-failed - "restore midterm 失敗（見 logs/fju-reset.log）；站可能停在半途，先 ssh fju-reset status 看"
+    return 1
+  fi
+  log restore - "restore midterm ok"
 }
 
 # 寫一筆不跑的結果（skipped／not-run）；五欄都要有值，write_run_json 才讀得動。
@@ -917,8 +1001,8 @@ finalize() {
   FINISHED_AT="$(now_iso)"
   write_run_json || log run-json-failed - ""
   if [ -f "$E2E_ROOT/summarize-night.sh" ]; then
-    # full 帶 --polish（教訓 4）；潤稿這條路整個失敗時退回不潤稿再彙整一次，總覽照出。
-    if [ "$PLAN" = full ] && bash "$E2E_ROOT/summarize-night.sh" "$RUN_DIR" --vault ${ACCEPT_VAULT:+"$ACCEPT_VAULT"} --polish >> "$RUN_DIR/summarize.log" 2>&1; then
+    # full／ux 帶 --polish（教訓 4）；潤稿這條路整個失敗時退回不潤稿再彙整一次，總覽照出。
+    if [ "$PLAN" != tonight ] && bash "$E2E_ROOT/summarize-night.sh" "$RUN_DIR" --vault ${ACCEPT_VAULT:+"$ACCEPT_VAULT"} --polish >> "$RUN_DIR/summarize.log" 2>&1; then
       log summarize - "ok（--polish；$RUN_DIR/summary.md）"
     elif bash "$E2E_ROOT/summarize-night.sh" "$RUN_DIR" --vault ${ACCEPT_VAULT:+"$ACCEPT_VAULT"} >> "$RUN_DIR/summarize.log" 2>&1; then
       log summarize - "ok（$RUN_DIR/summary.md）"
@@ -958,19 +1042,30 @@ if [ "$PLAN" = full ]; then
 fi
 
 # 0. 整夜密碼（24 字英數，大小寫與數字都要有），報告目錄外、只有自己讀得到。
+#    ux 用開跑前讀好的 midterm.pw（快照裡帳號的密碼），不產新的。
 mkdir -p "$SECRET_DIR/secrets" "$STATE_DIR"
 chmod 700 "$SECRETS_ROOT" "$SECRET_DIR" "$SECRET_DIR/secrets" "$STATE_DIR"
-NIGHT_PW=""
-while ! { [ "${#NIGHT_PW}" -eq 24 ] && [[ "$NIGHT_PW" =~ [a-z] ]] && [[ "$NIGHT_PW" =~ [A-Z] ]] && [[ "$NIGHT_PW" =~ [0-9] ]]; }; do
-  NIGHT_PW="$(openssl rand -base64 48 | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 24)"
-done
+if [ "$PLAN" != ux ]; then
+  NIGHT_PW=""
+  while ! { [ "${#NIGHT_PW}" -eq 24 ] && [[ "$NIGHT_PW" =~ [a-z] ]] && [[ "$NIGHT_PW" =~ [A-Z] ]] && [[ "$NIGHT_PW" =~ [0-9] ]]; }; do
+    NIGHT_PW="$(openssl rand -base64 48 | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 24)"
+  done
+fi
 printf '%s\n' "$NIGHT_PW" > "$PW_FILE"
 chmod 600 "$PW_FILE"
-log secrets - "${SECRET_DIR}（0700，night.pw 0600）"
+if [ "$PLAN" = ux ]; then
+  log secrets - "${SECRET_DIR}（0700，night.pw 0600；沿用 ${MIDTERM_PW}）"
+else
+  log secrets - "${SECRET_DIR}（0700，night.pw 0600）"
+fi
 
 # 全套前置：重置測試站（reset 會同版重部署，所以開始 commit 在它之後才記）。
 if [ "$PLAN" = full ] && ! pre_reset; then
   log abort - "前置重置沒完成，整夜停止（收尾照做）"
+  exit 1
+fi
+if [ "$PLAN" = ux ] && ! pre_restore; then
+  log abort - "還原學期中快照沒完成，人設不跑（收尾照做）"
   exit 1
 fi
 
@@ -988,6 +1083,13 @@ fi
 
 if [ "$PLAN" = full ]; then
   run_full
+  finalize "done"
+  trap - EXIT
+  exit 0
+fi
+if [ "$PLAN" = ux ]; then
+  run_ux_batches
+  run_last_items
   finalize "done"
   trap - EXIT
   exit 0
