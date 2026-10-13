@@ -23,7 +23,7 @@ try {
   await t.step({
     caption: '打開專題平台首頁',
     narration: '這是輔大資管系專題平台的首頁，不用登入就能看。右上角只有橘色「登入」，表示現在是訪客。',
-    status: 'ok', note: 'story-1 第 2 步',
+    status: { kind: 'ok', evidence: 'story-1 第 2 步' },
   }, async () => {
     await t.hover(main.getByRole('heading', { level: 1, name: '輔仁大學資訊管理學系專題管理平台' }));
     await t.wait(1200);
@@ -33,7 +33,7 @@ try {
   await t.step({
     caption: '導覽列與下拉選單',
     narration: '導覽列有最新公告、專題規則、優秀專題、榮譽榜四項。競賽資訊收在最新公告的下拉裡。',
-    status: 'pending', note: 'UX N-15：競賽資訊藏在下拉，Roy 決定要不要放到第一層',
+    status: { kind: 'pending', say: '競賽資訊要不要放到第一層', evidence: 'UX N-15' },
   }, async () => {
     const nav = page.getByRole('navigation', { name: '主導覽' });
     await t.hover(nav.getByRole('link', { name: '最新公告', exact: true }));
@@ -46,7 +46,7 @@ try {
   await t.step({
     caption: '首頁的公告區',
     narration: '往下是最新公告，左邊兩張照片卡是置頂與最新，右邊是列表；「查看更多」進公告列表。',
-    status: 'ok', note: 'story-1 第 2 步',
+    status: { kind: 'ok', evidence: 'story-1 第 2 步' },
   }, async () => {
     await t.scroll(region('最新公告'));
     await t.waitStable({ offRecord: true });
@@ -56,7 +56,7 @@ try {
   await t.step({
     caption: '近期活動',
     narration: '系辦排的公開活動會出現在這裡，例如專題說明會。活動日期和公告內文現在是同一條時間線。',
-    status: 'ok', note: 'UX N-01（10/13 已修：示範資料的日期與公告對齊）',
+    status: { kind: 'ok', evidence: 'UX N-01（10/13 已修：示範資料的日期與公告對齊）' },
   }, async () => {
     await t.scroll(region('近期活動'));
     await t.hover(region('近期活動').getByRole('listitem').filter({ hasText: '專題說明會' }));
@@ -65,7 +65,7 @@ try {
   await t.step({
     caption: '優秀專題與榮譽',
     narration: '優秀專題是歷屆得獎作品的輪播；榮譽與競賽放得獎紀錄和進行中的競賽。',
-    status: 'ok', note: 'UX N-02（10/13 已修：seed-demo 自帶 5 件優秀專題與 6 筆榮譽）',
+    status: { kind: 'ok', evidence: 'UX N-02（10/13 已修：seed-demo 自帶 5 件優秀專題與 6 筆榮譽）' },
   }, async () => {
     await t.scroll(region('優秀專題'));
     await t.waitStable({ offRecord: true });
@@ -79,7 +79,7 @@ try {
   await t.step({
     caption: '快速入口與系辦聯絡',
     narration: '最下面三欄是快速入口：規則、登入或我的入口、系辦聯絡。系辦聯絡照系網資料寫死，後台沒有地方改。',
-    status: 'bad', note: 'P-35：系辦聯絡資訊、頂列、頁尾的管理入口，Roy 決定之後再做',
+    status: { kind: 'bad', say: '系辦聯絡資訊後台不能改', evidence: 'P-35' },
   }, async () => {
     await t.scroll(region('快速入口'));
     await t.hover(region('快速入口').getByRole('link', { name: /^電話/ }));
@@ -88,7 +88,7 @@ try {
   await t.step({
     caption: '頁尾',
     narration: '頁尾每頁都一樣：系所地址電話、內容連結、使用連結。業界合作也是請直接聯絡系辦。',
-    status: 'bad', note: 'P-35（同上）',
+    status: { kind: 'bad', say: '頁尾內容後台不能改', evidence: 'P-35' },
   }, async () => {
     const footer = page.getByRole('contentinfo');
     await t.scroll(2000);

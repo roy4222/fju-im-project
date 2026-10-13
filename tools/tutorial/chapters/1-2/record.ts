@@ -23,7 +23,7 @@ try {
   await t.step({
     caption: '公告列表',
     narration: '公告列表上面是分類，右邊有搜尋。訪客只看得到公開的公告。',
-    status: 'ok', note: 'story-1 第 3 步',
+    status: { kind: 'ok', evidence: 'story-1 第 3 步' },
   }, async () => {
     await t.hover(nav.getByRole('link', { name: '最新公告', exact: true }));
     await t.wait(400);
@@ -36,7 +36,7 @@ try {
   await t.step({
     caption: '用分類篩公告',
     narration: '點分類只看那一類；再點全部回到完整列表。',
-    status: 'ok', note: 'story-1 第 3 步',
+    status: { kind: 'ok', evidence: 'story-1 第 3 步' },
   }, async () => {
     const cats = main.getByRole('navigation', { name: '公告分類' });
     await t.click(cats.getByRole('link', { name: '專題事務', exact: true }));
@@ -47,23 +47,20 @@ try {
   await t.step({
     caption: '搜尋公告',
     narration: '搜尋是用標題找，按 Enter 才會送出。',
-    status: 'ok', note: 'story-1 第 3 步',
+    status: { kind: 'ok', evidence: 'story-1 第 3 步' },
   }, async () => {
     await t.type(main.getByRole('searchbox', { name: '搜尋公告' }), '分組');
     await t.wait(300);
-    // 按 Enter 送出會換網址（?q=）；換頁與等結果不進影片，直接切到搜尋結果
-    await t.offRecord(async () => {
-      await page.keyboard.press('Enter');
-      await page.waitForURL(/[?&]q=/);
-    });
+    await t.press('Enter'); // 畫面顯示鍵帽；送出後換網址（?q=）
+    await page.waitForURL(/[?&]q=/);
     await t.waitStable({ offRecord: true });
     await t.hover(main.getByRole('link', { name: /114 學年度專題分組作業與指導老師意願調查開始受理/ }));
   });
 
   await t.step({
     caption: '公告內頁與附件',
-    narration: '內頁有全文和附件；訪客能下載公開公告的附件。右邊是同分類的其他公告。內文寫產學組由老師「認領」，這個詞要不要改「擔任指導老師」等你圈選。',
-    status: 'pending', note: '用詞#12：內文「認領」（內頁本身 ✅ story-2 第 19 步）',
+    narration: '內頁有全文和附件，訪客也能下載。右邊是同分類公告。內文寫產學組由老師「認領」，要不要改「擔任指導老師」等你圈選。',
+    status: { kind: 'pending', say: '「認領」要不要改說法', evidence: '用詞#12；內頁本身 ✅ story-2 第 19 步' },
   }, async () => {
     await t.click(main.getByRole('link', { name: /114 學年度專題分組作業與指導老師意願調查開始受理/ }));
     const article = main.getByRole('article');
@@ -78,7 +75,7 @@ try {
   await t.step({
     caption: '競賽資訊',
     narration: '競賽資訊其實是分類為「競賽資訊」的公告，狀態用截止日和活動日自動算。',
-    status: 'ok', note: 'story-1 第 3 步；系辦那頭的入口混淆見 5B-4',
+    status: { kind: 'ok', evidence: 'story-1 第 3 步；系辦那頭的入口混淆見 5B-4' },
   }, async () => {
     await t.hover(nav.getByRole('link', { name: '最新公告', exact: true }));
     await t.wait(400);
@@ -89,7 +86,7 @@ try {
   await t.step({
     caption: '專題規則與目錄',
     narration: '專題規則九節，左邊目錄點了會跳到那一節。這一節講產學組可以優先指定，但沒有白話解釋產學組是什麼，新生和高中生看不懂。',
-    status: 'pending', note: 'UX N-11、N-14：產學組要白話解釋',
+    status: { kind: 'pending', say: '產學組要不要補白話解釋', evidence: 'UX N-11、N-14' },
   }, async () => {
     await t.click(nav.getByRole('link', { name: '專題規則', exact: true }));
     await t.click(main.getByRole('navigation', { name: '規則目錄' }).getByRole('link', { name: '四、專題分組、選取指導老師' }));
@@ -100,7 +97,7 @@ try {
   await t.step({
     caption: '規則章節順序',
     narration: '規則每一節是系辦在專題事務發布的一筆內容，但章節順序沒有地方調。',
-    status: 'bad', note: 'P-34：規則章節順序的管理入口，Roy 決定之後再做',
+    status: { kind: 'bad', say: '規則章節順序不能調', evidence: 'P-34' },
   }, async () => {
     await t.scroll(main.getByRole('region', { name: '九、獎懲方式' }));
     await t.hover(main.getByRole('heading', { name: '九、獎懲方式' }));
