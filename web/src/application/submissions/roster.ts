@@ -54,9 +54,17 @@ export function receiverStatus(window: ItemWindow, facts: Omit<ReceiverFacts, 'e
   })
 }
 
-/** 學生首頁「待繳交」與作業區「待繳」的數字：同一個函式、同一份查詢結果。 */
+/**
+ * 還要學生處理的一份：還沒送出、不是免填——開放中（含系辦開放補交）或已逾期未繳都算。
+ * 逾期的不能自己再送，但要找系辦補交，首頁不能因此說「沒有待繳」（驗收第 2 章 P-08）。
+ */
+export function awaitsSubmission(status: Pick<ItemStatusView, 'pending' | 'overdue'>): boolean {
+  return status.pending || status.overdue
+}
+
+/** 學生首頁「待繳交」、側欄徽章與作業區「待繳」的數字：同一個函式、同一份查詢結果。 */
 export function pendingCount(rows: readonly (ItemWindow & Omit<ReceiverFacts, 'eligibleTo'>)[], businessNow: Date): number {
-  return rows.filter((row) => receiverStatus(row, row, businessNow).pending).length
+  return rows.filter((row) => awaitsSubmission(receiverStatus(row, row, businessNow))).length
 }
 
 export type Completion = {

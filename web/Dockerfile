@@ -20,11 +20,16 @@ COPY web/package.json web/package.json
 RUN pnpm install --frozen-lockfile --filter @fju/web...
 
 # 只有 production 依賴：migrate 腳本在 runtime 需要 pg 與 drizzle-orm。
+# --no-optional（PD-1，2026-10-13）：better-auth 把 vitest、drizzle-kit 列為 optional peer，
+# lockfile 會拿 web 的 devDependencies 去滿足它們、記成 better-auth 的 optionalDependencies，
+# 光靠 --prod 擋不掉，整串 vitest／vite／esbuild／yaml 就跟進映像了。
+# migrate、seed、worker 用到的套件（pg、drizzle-orm、better-auth、uuidv7、decimal.js、sanitize-html）
+# 都是 web 的直接依賴，不受影響；app 用的是 Next standalone 自己 trace 的 node_modules，也不受影響。
 FROM base AS proddeps
 WORKDIR /repo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY web/package.json web/package.json
-RUN pnpm install --frozen-lockfile --prod --filter @fju/web...
+RUN pnpm install --frozen-lockfile --prod --no-optional --filter @fju/web...
 
 FROM base AS build
 WORKDIR /repo

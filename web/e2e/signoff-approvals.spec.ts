@@ -268,6 +268,9 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
     await page.goto('/dashboard/student/inbox')
     await expect(page.getByText(/這一版站內同意書全員已同意/)).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
+  // 驗收 P-07：白話寫「不代表校方正式接受這份同意紀錄」，不用「校方採認」。
+  await expect(page.getByText(/不代表校方正式接受這份同意紀錄/)).toBeVisible()
+  await expect(page.getByText(/校方採認/)).toHaveCount(0)
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
@@ -332,7 +335,10 @@ test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕�
   await signIn(page, g2[1]!)
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText('提醒：G02「期中結果確認」第 1 版還等你閱讀並回覆')).toBeVisible({ timeout: 2_000 })
+    // Q38：學生還在同意中，這則也發給還沒輪到的老師，標題對兩邊都正確。
+    await expect(
+      page.getByText('提醒：G02「期中結果確認」第 1 版同意書還有人沒回覆（學生全員同意後才輪到老師表態）'),
+    ).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
 
   await asAdmin(page)
@@ -344,6 +350,10 @@ test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕�
 test('不同意：理由必填、送出後退回修正中，其他組員看到理由；系辦「重開新版」＝建新版', async ({ page }) => {
   await signIn(page, g2[0]!)
   await page.goto('/dashboard/student/signoff')
+  // Q39：按鈕旁說明可以稍後再回覆、不同意會讓全組重新同意。
+  await expect(page.getByTestId('respond-later-hint')).toHaveText(
+    '想先確認再回覆的話，可以稍後再回來，不用按任何按鈕。按『不同意並退回』會讓全組重新同意。',
+  )
   await page.getByTestId('respond-form').getByRole('button', { name: '不同意並退回修正' }).click()
   const dialog = page.getByRole('dialog', { name: '不同意並退回修正' })
   await dialog.getByRole('button', { name: '確定不同意並退回修正' }).click()

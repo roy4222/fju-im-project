@@ -17,7 +17,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/_inbox/inbox-forms'
 import type { InboxItem } from '@/application/notifications'
-import { getInboxQuery, inboxFilterParam, notificationKindLabel, parseInboxFilter, SOURCE_STATE_TEXT } from '@/composition/inbox'
+import { cohortLabel, getInboxQuery, inboxCohortText, inboxFilterParam, notificationKindLabel, parseInboxFilter, SOURCE_STATE_TEXT } from '@/composition/inbox'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
@@ -61,7 +61,7 @@ export default async function StudentInboxPage({ searchParams }: { searchParams:
   const chips: { value: string | null; label: string }[] = [
     { value: null, label: '全部' },
     { value: 'global', label: '全站' },
-    ...cohorts.map((c) => ({ value: c.cohortId, label: c.code })),
+    ...cohorts.map((c) => ({ value: c.cohortId, label: cohortLabel(c) })),
   ]
 
   return (
@@ -165,7 +165,7 @@ function Row({ item }: { item: InboxItem }) {
           )}
         </p>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          {item.cohortCode ?? '全站'}
+          {inboxCohortText(item)}
           {item.source.state === 'archived' ? `・${SOURCE_STATE_TEXT.archived}` : ''}
         </p>
       </div>

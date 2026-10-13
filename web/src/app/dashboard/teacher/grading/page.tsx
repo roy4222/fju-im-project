@@ -25,7 +25,7 @@ export default async function TeacherGradingPage() {
       <div className="flex flex-col gap-5">
         <PageTitle title="我的評分" description="只有你被指派的組別。評分草稿只有你和系辦看得到，正式送出後鎖定。" />
         {queue.length === 0 ? (
-          <Panel title="評分佇列" icon={<IconChecklist />}>
+          <Panel title="待評分清單" icon={<IconChecklist />}>
             <PanelEmpty icon={<IconChecklist />} title="目前沒有評分指派" hint="系辦指派你評某一組之後，你會收到通知，組別也會出現在這裡。" />
           </Panel>
         ) : (

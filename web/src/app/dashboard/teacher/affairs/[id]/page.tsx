@@ -7,7 +7,7 @@ import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/versi
 import { BackLink, PageTitle, Panel, Pill, Ring, SegmentBar, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { EntryList, type EntryView } from '@/app/dashboard/teacher/affairs/[id]/entry-list'
 import type { ItemWindow, RosterEntry, StatusTone } from '@/application/submissions'
-import { getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
 import { RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -59,7 +59,7 @@ export default async function TeacherAffairPage({
         <div className="flex flex-col gap-3">
           <BackLink href={back.href}>{back.label}</BackLink>
           <PageTitle
-            eyebrow={`${item.cohortCode}・${RECEIVER_UNIT_LABEL[item.receiverUnit]}${item.stageName ? `・${item.stageName}` : ''}`}
+            eyebrow={`${cohortLabel({ name: item.cohortName, code: item.cohortCode })}・${RECEIVER_UNIT_LABEL[item.receiverUnit]}${item.stageName ? `・${item.stageName}` : ''}`}
             title={item.title}
             description={
               individual
@@ -189,7 +189,7 @@ export default async function TeacherAffairPage({
             />
           </div>
           <p className="tabular border-t border-border px-5 py-2.5 text-xs text-muted-foreground">
-            不計入：免繳 {completion.exempt} {unit}・已移出名單 {completion.removed} {unit}
+            不計入：免繳 {completion.exempt} {unit}・已不需要繳交（原名單移除） {completion.removed} {unit}
           </p>
         </Panel>
         <Panel title="欄位" icon={<IconFileText />} description={`${fields.length} 個・表單第 ${item.schemaVersionNo ?? 1} 版`}>
@@ -217,7 +217,7 @@ function entryStatus(
   const category = categoryOf(entry)
   if (category === 'removed') {
     return {
-      headline: '已移出名單',
+      headline: '已不需要繳交（原名單移除）',
       tone: 'default',
       detail: `${entry.eligibleTo ? formatTaipeiMinute(entry.eligibleTo) : ''}・${entry.removedReason ?? ''}`,
       missing: false,

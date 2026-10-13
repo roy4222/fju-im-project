@@ -166,7 +166,7 @@ export default async function AdminGroupsPage({
         指導老師：{overview.groups.length - unassigned} 組已指派・{unassigned} 組尚未指派
       </span>
       <span className="block" data-testid="grouping-settings">
-        {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認・進行中提案{' '}
+        {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認、不超過分組期（組隊、選指導老師、交提案的期間）・進行中提案{' '}
         {overview.openProposals.length} 份。學生自行提案、全員確認後成組；分類只影響流程與標示，不限制老師看見哪些組別。
       </span>
     </>
@@ -174,7 +174,7 @@ export default async function AdminGroupsPage({
 
   return shell(
     <>
-      <CohortPills cohorts={cohorts} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
+      <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
 
       <Panel
         title="未分組學生"

@@ -352,7 +352,7 @@ test('票 11 模擬業務鐘：推到第 1 階段前一天是「尚未開始」�
 test('票 14 分組設定：每組最少 3 人（本屆 3–5 人）', async () => {
   await admin.goto('/dashboard/admin/groups')
   // 屆別選單的連結帶著屆別編號；後面的頁面用它指定這一屆。
-  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: CODE, exact: true })
+  const link = admin.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: new RegExp(`（${CODE}）$`) })
   cohortId = new URL((await link.getAttribute('href'))!, 'https://x').searchParams.get('cohort') ?? ''
   expect(cohortId).toMatch(/^[0-9a-f-]{36}$/)
   await openAdminGroups(admin)
