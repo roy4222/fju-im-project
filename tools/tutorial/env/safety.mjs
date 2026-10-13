@@ -15,7 +15,8 @@
  *   - 連線字串照 pg 實際的解析結果驗：host 只能是 localhost／127.0.0.1／::1、port 55432、database 是這個實例的；
  *     帶任何查詢參數（例如 `?host=` 會蓋掉網址裡的 host）一律拒絕。
  *   - FILES_ROOT 正規化（realpath，含符號連結）後必須是 `~/work/tutorial-files/<n>` 或它底下的目錄
- *     （每個實例分開，reset 一個實例不會清到別的實例的檔案）。
+ *     （每個實例分開，reset 一個實例不會清到別的實例的檔案）；邊界上的 work、tutorial-files、<n> 三層
+ *     本身都不能是符號連結（否則邊界會跟著連結跑到別的實例或 HOME）。
  *   - Docker 一律經本機 unix socket；`DOCKER_HOST` 設成 unix:// 以外（tcp、ssh…）就拒絕。
  */
 import { execFileSync } from 'node:child_process'
@@ -83,11 +84,33 @@ function realpathLoose(p, fsImpl) {
   return path.join(fsImpl.realpathSync(head), ...tail)
 }
 
-/** FILES_ROOT 正規化後必須是 `<home>/work/tutorial-files/<n>` 或它底下。回傳正規化後的路徑。 */
+/**
+ * FILES_ROOT 正規化後必須是 `<home>/work/tutorial-files/<n>` 或它底下。回傳正規化後的路徑。
+ *
+ * 邊界是固定的：HOME 本身先 realpath（HOME 是符號連結沒關係），之後 work、tutorial-files、<n> 三層
+ * 每一層只要存在就必須是真的目錄，不能是符號連結——否則 `tutorial-files/0 → 1` 或 `→ $HOME` 這種連結會讓
+ * 邊界本身跟著跑到別的實例或 HOME，realpath 比對就形同虛設。
+ */
 export function checkFilesDir(dir, home, n, fsImpl = fs) {
   if (!dir) throw new SafetyError('FILES_ROOT 是空的。')
   if (!Number.isInteger(n)) throw new SafetyError('checkFilesDir 要知道是哪個實例。')
-  const root = realpathLoose(path.join(home, 'work', 'tutorial-files', String(n)), fsImpl)
+  let root
+  try {
+    root = fsImpl.realpathSync(home)
+  } catch {
+    throw new SafetyError(`HOME（${home}）不存在，算不出教學檔案目錄的邊界。`)
+  }
+  for (const part of ['work', 'tutorial-files', String(n)]) {
+    root = path.join(root, part)
+    let st
+    try {
+      st = fsImpl.lstatSync(root)
+    } catch {
+      continue // 還沒建：之後 mkdir -p 會建成真的目錄
+    }
+    if (st.isSymbolicLink()) throw new SafetyError(`${root} 是符號連結；教學檔案目錄的每一層都必須是真的目錄（reset 會清空它，不能讓它指到別處）。`)
+    if (!st.isDirectory()) throw new SafetyError(`${root} 不是目錄。`)
+  }
   const real = realpathLoose(dir, fsImpl)
   if (real !== root && !real.startsWith(root + path.sep)) {
     throw new SafetyError(`FILES_ROOT 只能是 ${root} 或它底下的目錄（「${dir}」正規化後是 ${real}）；reset 會清空它。`)
@@ -111,6 +134,18 @@ export function checkDocker(env, fsImpl = fs) {
   }
   if (!st.isSocket()) throw new SafetyError(`${sock} 不是 unix socket。`)
   return `unix://${sock}`
+}
+
+/**
+ * 帳號設定檔的文字 → 物件。JSON.parse 的錯誤訊息會引用出錯位置附近的原文（可能正好是密碼），
+ * 所以這裡吞掉它，只回報檔名＋「格式錯誤」。
+ */
+export function parseAccountsFile(text, file) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new SafetyError(`${file} 格式錯誤（不是合法的 JSON；用 JSON 檢查工具看，這裡不印內容）。`)
+  }
 }
 
 /** 設定檔每一筆的檢查：錯誤只列索引與缺的欄位，不印整筆（裡面有密碼）。 */

@@ -5,6 +5,7 @@
 #
 #   [INSTANCE=n] tools/tutorial/env/down.sh     只停實例 n（沒設＝0）
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 stop_proc worker "$WORKER_PID_FILE"

@@ -8,13 +8,16 @@
 # 不停的話 app 會印 uncaughtException、worker 可能在中途讀到半套資料。
 # 重置後所有人的登入都失效（session 在資料庫裡），錄影瀏覽器要重新登入。
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 started=$SECONDS
-# 先驗目標（資料庫、FILES_ROOT、Docker），不對就在停程序、刪庫之前停下。
+# 先把所有檢查做完（資料庫名、連線、FILES_ROOT 與它的邊界、Docker、網站 checkout），任何一項不過就在停程序、刪庫、刪檔之前退出。
 safety_check
-load_env
 require_site
+# 共用鎖：「停→重灌→再起」整段都在鎖裡，別人這段時間不能重建或換版本（重建前「有沒有實例在跑」的檢查，才不會因為我們正好停著而失準）。
+lock_acquire "reset.sh 實例 ${INSTANCE}"
+load_env
 ensure_postgres
 
 was_running=0
@@ -24,13 +27,12 @@ if proc_ours app "$APP_PID_FILE" || proc_ours worker "$WORKER_PID_FILE"; then
   stop_proc app "$APP_PID_FILE"
 fi
 
-log "重建資料庫 $DB_NAME"
+log "重建資料庫 ${DB_NAME}"
 drop_db
 create_db
-log "清空上傳檔案目錄 $FILES_DIR"
-# FILES_DIR 已由 safety_check 正規化並確認在 ~/work/tutorial-files 底下；這裡再擋一次最壞的情況。
-files_root="$(cd "$HOME" && pwd -P)/work/tutorial-files/$INSTANCE"
-[[ "$FILES_DIR" == "$files_root" || "$FILES_DIR" == "$files_root"/* ]] || die "FILES_DIR=$FILES_DIR 不是教學專用目錄，不清"
+log "清空上傳檔案目錄 ${FILES_DIR}"
+# safety_check 已驗過 FILES_DIR（正規化、邊界沒有符號連結）；rm -rf 之前再擋一次最壞的情況。
+assert_files_dir
 rm -rf "$FILES_DIR"
 mkdir -p "$FILES_DIR"
 prepare_data
@@ -39,8 +41,10 @@ prepare_data
 if [[ $was_running == 1 ]]; then
   start_app
   start_worker
+  lock_release
   wait_healthy
 else
+  lock_release
   log "app 原本沒在跑（要起來用 up.sh --no-build）"
 fi
 

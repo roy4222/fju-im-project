@@ -23,7 +23,11 @@ reset 一個不影響別的：
 
 實例 n 的帳號設定第一次從實例 0 那份複製，所以帳號密碼跟實例 0 一樣。
 建置產物（`web/.next`、`web/dist`）各實例共用：up.sh 只在沒有建置、或 `web/` 跟上次建置時不同才建，
-而且有任何實例在跑時拒絕重建（會把它們用到一半的 `.next` 換掉），兩個人同時建也會被鎖擋下。
+而且有任何實例在跑時拒絕重建（會把它們用到一半的 `.next` 換掉）。
+多實例共用一把鎖（`~/work/tutorial-run/lock`）：`up.sh` 從換版本、裝依賴、建置到起程序、登記 pid，以及 `reset.sh` 的「停→重灌→再起」
+整段都在鎖裡做，「有沒有實例在跑」是持鎖後才檢查，所以不會有人趁別人重建到一半用 `--no-build` 起實例、也不會有人在別人剛停下來重置時搶去重建。
+輪到自己之前會等（預設最多 15 分鐘，`TUTORIAL_LOCK_TIMEOUT` 可改），逾時就退出、不動任何東西；持鎖的程序死了（pid 不在）鎖會自動收回。
+`down.sh` 只會讓實例變少，不用鎖。
 
 **同一個瀏覽器不要同時開兩個實例**：cookie 不分 port，`localhost:3300` 和 `localhost:3301` 的登入會互相蓋掉。
 每個實例用自己的瀏覽器設定檔（或各自的 Playwright browser context）。
@@ -33,6 +37,7 @@ reset 一個不影響別的：
 | `tools/tutorial/env/up.sh` | 建置（需要時）→ 建這個實例的資料庫（已在就沿用）→ migration → seed-demo → 設教學帳號密碼 → 起 `next start`（port 3300+n）與背景 worker |
 | `tools/tutorial/env/up.sh --no-build`／`--build` | 一定沿用既有建置／一定重建（所有實例都 down 了才可以） |
 | `tools/tutorial/env/up.sh --update` | 網站 checkout 換到最新 origin/main 並重建（所有實例都 down 了才可以；錄影期間不要用） |
+| `tools/tutorial/env/up.sh --dry-run` | 只驗目標、印出這個實例的網站、資料庫、目錄與網站版本，什麼都不動（錄影前確認自己的 `INSTANCE` 用） |
 | `tools/tutorial/env/reset.sh` | 停這個實例的 app／worker → 刪庫重建 → 清空這個實例的上傳檔案 → migration → seed-demo → 帳號 → 示範 114 屆設為預設屆別 → 模擬業務鐘回到真實時間 → 再起。實測約 5 秒 |
 | `tools/tutorial/env/clock-reset.sh` | 只把這個實例的模擬業務鐘清回真實時間（資料不動）；本來就是真實時間就不寫任何東西 |
 | `tools/tutorial/env/down.sh` | 只停這個實例 up.sh 起的那兩組程序；資料庫與檔案留著 |
@@ -81,13 +86,19 @@ reset 一個不影響別的：
 
 - **實例與資料庫名**：`INSTANCE` 只能是 0～4；資料庫只接受 `fju_tutorial`、`fju_tutorial_1`～`4`，而且要是這個實例的那一個。建庫、刪庫函式再核對一次。
 - **連線目的地**：照 pg 實際的解析結果驗，host 只能是 localhost／127.0.0.1／::1、port 55432、database 是這個實例的；帶任何查詢參數（`?host=` 等會改寫目的地）一律拒絕。
-- **檔案目錄**：`FILES_ROOT` 正規化（realpath，含符號連結）後必須是 `~/work/tutorial-files/<n>` 或它底下。
+- **檔案目錄**：`FILES_ROOT` 正規化（realpath，含符號連結）後必須是 `~/work/tutorial-files/<n>` 或它底下；
+  而且 `work`、`tutorial-files`、`<n>` 這三層本身不能是符號連結（否則 `tutorial-files/0 → 1` 會把邊界整個搬到別的實例）。
+  所有檢查（路徑、資料庫、連線、Docker）都在入口一開始做完，任何一項不過就零副作用退出；`reset.sh` 在 `rm -rf` 之前再比對一次。
 - **Docker**：所有 docker 指令都用 `-H unix://<本機 socket>`（預設 colima 的 `~/.colima/default/docker.sock`，可用 `TUTORIAL_DOCKER_SOCK` 指定，必須是存在的 unix socket）；`DOCKER_HOST` 設成 unix:// 以外就拒絕。
 - **停程序**：pid 檔記下啟動時間、工作目錄、種類（app／worker）與 PGID；停之前核對，對不上（pid 被重用、pid 檔殘留）就只清 pid 檔、不送訊號。
-- **帳號設定檔**：格式錯誤只回報索引與缺的欄位，不印整筆（裡面有密碼）。
+- **帳號設定檔**：欄位錯誤只回報索引與缺的欄位；JSON 本身壞掉（例如多一個逗號）只印檔名＋「格式錯誤」，不印 `JSON.parse` 引用的原文（裡面有密碼）。
+- **共用鎖**：見上面「多實例」。
+- **Bash 3.2**：腳本要在 macOS 內建的 `/bin/bash`（3.2）跑；變數後面緊接中文或全形標點一律寫 `${VAR}`（3.2 在 UTF-8 locale 會把那些字讀進變數名），
+  測試會掃這件事，也會用 `/bin/bash` 在 `LANG=zh_TW.UTF-8` 下跑 `up.sh --dry-run`。
 
 ```bash
-node --test tools/tutorial/env/safety.test.mjs   # 不碰真的資料庫與目錄（HOME 指到暫存目錄）
+node --test tools/tutorial/env/safety.test.mjs          # 不碰真的資料庫與目錄（HOME 指到暫存目錄）；要先裝 web 的依賴
+shellcheck -x -P SCRIPTDIR tools/tutorial/env/*.sh      # 腳本靜態檢查
 ```
 
 ## 已知限制
@@ -104,3 +115,4 @@ node --test tools/tutorial/env/safety.test.mjs   # 不碰真的資料庫與目�
 - 用本機 Compose 的 `fju-postgres` 容器（127.0.0.1:55432）；沒有的話先在 repo 根跑 `pnpm -C web db:up`。
 - seed-demo 只認 `FJU_SITE=test`：腳本只在跑 seed-demo 那一個指令上設它，連的是本機這個實例的教學庫。
 - 同一個瀏覽器設定檔同時開兩個實例，登入會互相蓋掉（見上面「多實例」）。
+- 各實例的 `up.sh`／`reset.sh` 共用一把鎖，所以兩個人同時 reset 會排隊（一次約 5 秒），不會平行。

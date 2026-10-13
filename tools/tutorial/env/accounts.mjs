@@ -20,7 +20,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { checkDbName, checkPgUrl, instanceOf, validateAccounts, webDir } from './safety.mjs'
+import { checkDbName, checkPgUrl, instanceOf, parseAccountsFile, validateAccounts, webDir } from './safety.mjs'
 
 const HERE = import.meta.dirname
 const WEB_DIR = webDir()
@@ -58,7 +58,8 @@ function loadConfig() {
     console.log(`第一次使用：從 ${path.basename(source)} 建立 ${CONFIG}`)
   }
   fs.chmodSync(CONFIG, 0o600)
-  const config = JSON.parse(fs.readFileSync(CONFIG, 'utf8'))
+  // 格式錯誤只印檔名，不印 JSON.parse 引用的原文（裡面有密碼）。
+  const config = parseAccountsFile(fs.readFileSync(CONFIG, 'utf8'), CONFIG)
   validateAccounts(config)
   let changed = false
   for (const a of config.accounts) {

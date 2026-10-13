@@ -8,6 +8,7 @@
 # 操作者記成教學用的系辦帳號、原因寫明是教學環境。已經是真實時間（沒設定過、或差不到 1 秒）就什麼都不寫。
 # reset.sh 灌完資料後也會呼叫它，保證每段錄影都從真實時間開始。
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 safety_check
