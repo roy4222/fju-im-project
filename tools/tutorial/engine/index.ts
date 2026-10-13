@@ -7,3 +7,4 @@ export type { TtsProvider, Speech } from './tts.ts';
 export { renderChapter } from './render.ts';
 export type { ChapterMeta } from './render.ts';
 export type { ChapterEvents, StatusKind } from './events.ts';
+export { assemble, parseFeatureTable, youtubeChapters, timecode } from './assemble.ts';

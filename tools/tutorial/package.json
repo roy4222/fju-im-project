@@ -8,7 +8,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test engine/test/*.test.ts",
+    "test": "node --test --test-concurrency=1 engine/test/*.test.ts",
     "typecheck": "tsc -p engine/tsconfig.json",
     "sample": "node engine/samples/visitor-sample.ts",
     "render": "node engine/cli.ts render",
