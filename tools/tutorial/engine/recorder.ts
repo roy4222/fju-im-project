@@ -318,6 +318,7 @@ export class Chapter {
     this.navAt.push(Date.now());
     // 點擊引發的換頁：整頁載入（有主框架的 document 請求）或路徑變了的 SPA 換頁才算，從點擊那一刻起暫停計時、等新頁穩定再繼續；
     // 同文件只改查詢字串／hash（篩選按鈕、replaceState）不算換頁，畫面過程照錄
+    if (this.docRequestAt > this.docCommitAt) this.docCommitAt = Date.now(); // 整頁載入 commit 了（pushState 沒有 document 請求）
     const w = this.navWatch;
     if (w) {
       if (w.docRequested || isPageChange(w.before, f.url())) this.navDetected(w);
@@ -328,8 +329,9 @@ export class Chapter {
   private navWatch: NavWatch | null = null;
   /** 進行中的網路請求 → 開始時間與是否主框架（waitStable 判斷網路安靜；長連線不算）。 */
   private readonly inflight = new Map<Request, { at: number; main: boolean }>();
-  /** 最近一次主框架整頁請求的時間：它之前就在飛的請求屬於舊文件，整頁載入後一律清掉。 */
+  /** 最近一次主框架整頁請求、以及新文件 commit（framenavigated）的時間：commit 之前就在飛的請求都屬於舊文件，整頁載入後一律清掉。 */
   private docRequestAt = 0;
+  private docCommitAt = 0;
   private readonly staleNoted = new Set<Request>();
   private readonly onReqStart = (r: Request) => {
     const type = r.resourceType();
@@ -344,9 +346,12 @@ export class Chapter {
   /**
    * 整頁載入後（只有整頁載入會發 domcontentloaded）：換頁前就在飛的請求 Playwright 不會再通知結束，
    * 留在 inflight 裡會讓 waitStable 一直以為網路沒停、等到逾時，所以一律清掉。
+   * 以新文件 commit 的時間為界：舊文件在送出整頁請求之後、commit 之前還可能再發請求（例如 Next.js 的 prefetch），那些也是死的；
+   * 新文件自己的請求都在 commit 之後才開始。
    */
   private readonly onDocLoaded = () => {
-    for (const [r, { at }] of this.inflight) if (at < this.docRequestAt) this.inflight.delete(r);
+    const cut = Math.max(this.docRequestAt, this.docCommitAt);
+    for (const [r, { at }] of this.inflight) if (at < cut) this.inflight.delete(r);
   };
   /** 主框架換頁的時間（牆上時間），判斷截圖空檔是不是換頁造成的。 */
   private readonly navAt: number[] = [];
