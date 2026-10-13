@@ -5,7 +5,17 @@ import type { Point } from './cursor.ts';
 import type { CaptureQuality } from './frames.ts';
 
 export type StatusKind = 'ok' | 'warn' | 'bad' | 'pending';
-export type Status = { kind: StatusKind; note?: string };
+/**
+ * 步驟的狀態標記。畫面上只顯示圖示＋白話（say）；evidence（依據，例如「story-2 第 39 步」）不上畫面，
+ * 只寫進 events.json 與 assemble 產出的 feature-timeline／index.html。舊寫法的 note 視為 evidence。
+ */
+export type Status = { kind: StatusKind; say?: string; evidence?: string; note?: string };
+/** 劇本裡 step() 的 status 寫法：新寫法是物件；舊寫法是字串（說明放在 note，視為 evidence）。 */
+export type StepStatus = { kind: StatusKind; say?: string; evidence?: string };
+
+/** 白話超過這麼多字就在畫面上截斷加「…」（events.json 留全文）。 */
+export const SAY_MAX_CHARS = 22;
+const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '', bad: '', pending: '等你決定：' };
 
 export type StepRecord = {
   index: number; // 1 起算
@@ -46,6 +56,37 @@ export type ChapterEvents = {
 };
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
+
+/** 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」；超過 SAY_MAX_CHARS 字截斷加「…」。 */
+export function statusSay(st: Pick<Status, 'kind' | 'say'>): string {
+  const say = (st.say ?? '').trim();
+  const text = st.kind === 'ok' ? say || STATUS_WORD.ok : `${STATUS_WORD[st.kind]}${say}`;
+  const chars = [...text];
+  return chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : text;
+}
+
+/** 圖示＋白話，例如「✅ 正常」「🟡 等你決定：名稱要不要改」。 */
+export function statusLabel(st: Pick<Status, 'kind' | 'say'>): string {
+  const say = statusSay(st);
+  return say ? `${STATUS_ICON[st.kind]} ${say}` : STATUS_ICON[st.kind];
+}
+
+/** 依據（不上畫面）：新寫法 evidence，舊寫法 note。 */
+export function statusEvidence(st: Pick<Status, 'evidence' | 'note'> | undefined): string | undefined {
+  const e = (st?.evidence ?? st?.note ?? '').trim();
+  return e || undefined;
+}
+
+/** 劇本給的 status（字串或物件）＋舊的 note → events.json 的 Status；全文保留，截斷只在畫面上做。 */
+export function normalizeStatus(status: StatusKind | StepStatus | undefined, note?: string): Status | undefined {
+  if (!status) return undefined;
+  if (typeof status === 'string') return { kind: status, ...(note ? { evidence: note } : {}) };
+  const out: Status = { kind: status.kind };
+  if (status.say?.trim()) out.say = status.say.trim();
+  const evidence = (status.evidence ?? note ?? '').trim();
+  if (evidence) out.evidence = evidence;
+  return out;
+}
 
 /** 段編號：id，舊資料用 number。 */
 export function chapterId(ev: Pick<ChapterEvents, 'id' | 'number'>): string | undefined {
