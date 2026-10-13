@@ -29,7 +29,7 @@ try {
     await t.step({
       caption: '平台首頁：不用登入就能看',
       narration: '歡迎來到輔大資管系專題管理平台。這一段先示範，還沒登入的訪客可以看到哪些公開頁面。',
-      status: 'ok', note: '公開頁面，免登入',
+      status: { kind: 'ok', say: '不用登入就能看', evidence: '公開頁面，免登入（分鏡 1-1）' },
     }, async () => {
       await t.hover(page.getByRole('heading', { level: 1 }));
     });
@@ -61,7 +61,7 @@ try {
     await t.step({
       caption: '優秀專題：歷屆得獎作品',
       narration: '接著打開上方選單的優秀專題，這裡收錄歷屆校級優秀專題與競賽得獎作品。',
-      status: 'warn', note: '測試站目前是示範屆別（DEMO）資料',
+      status: { kind: 'warn', say: '目前是示範資料', evidence: '測試站目前是示範屆別（DEMO）資料' },
     }, async () => {
       await t.click(nav('優秀專題'));
     });
@@ -93,7 +93,7 @@ try {
     await t.step({
       caption: '更多功能請登入',
       narration: '要繳交作業、填寫意願或查看分組，需要先登入。登入流程會在下一章示範。',
-      status: 'pending', note: '登入流程在下一章',
+      status: { kind: 'pending', say: '登入流程放下一章', evidence: '分鏡：登入流程在下一章' },
     }, async () => {
       await t.scroll(-300);
       await t.hover(page.getByRole('banner').getByRole('link', { name: '登入' }));

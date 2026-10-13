@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'playwright';
 import type { ChapterEvents } from '../events.ts';
-import { isPageChange, launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
+import { Chapter, isPageChange, launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
 
 const ANIMATED = `<body style="margin:0;background:#fff"><style>@keyframes mv{from{transform:translateX(0)}to{transform:translateX(300px)}}</style>
@@ -39,6 +39,32 @@ test('isPageChange：只有 origin 或路徑不同才算換頁，查詢字串與
   assert.equal(isPageChange('http://a/x', 'http://a/x#top'), false);
   assert.equal(isPageChange('http://a/x', 'http://a/y'), true);
   assert.equal(isPageChange('http://a/x', 'http://b/x'), true);
+});
+
+test('換頁回溯暫停後動作拋錯：暫停一定收尾（時鐘繼續走），不用開瀏覽器', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-pause-'));
+  try {
+    // 假分頁：withNavWatch 在動作拋錯之前只用到這幾個方法
+    const fakePage = { url: () => 'http://tutorial.test/', on() {}, off() {}, mainFrame: () => ({}) };
+    const t = new Chapter({ page: fakePage as unknown as Page, outDir: join(root, 'run'), chapter: '測試｜暫停收尾', tts: silentProvider() });
+    const priv = t as unknown as { t0Wall: number; pausedAt: number | null; pauses: unknown[]; navWatch: unknown; navDetected(w: unknown): void; withNavWatch(o: unknown, a: () => Promise<{ atMs: number }>): Promise<void> };
+    priv.t0Wall = Date.now();
+    await assert.rejects(
+      priv.withNavWatch({ stable: {}, linkTo: null, settleMs: 10 }, async () => {
+        priv.navDetected(priv.navWatch); // 模擬動作中同步偵測到換頁：回溯暫停已開
+        assert.notEqual(priv.pausedAt, null);
+        throw new Error('boom');
+      }),
+      /boom/,
+    );
+    assert.equal(priv.pausedAt, null, '暫停要收尾');
+    assert.equal(priv.pauses.length, 1, '暫停區間要記下來');
+    const before = t.now();
+    await new Promise((r) => setTimeout(r, 120));
+    assert.ok(t.now() - before >= 100, '時鐘要繼續走');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('換頁前還在飛的請求（Playwright 不會再通知結束）不會讓之後的 waitStable 等到逾時；逾時原因寫實際卡住的那一項', { timeout: 120_000 }, async () => {

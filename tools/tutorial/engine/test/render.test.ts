@@ -41,7 +41,10 @@ test('狀態標記白話：ok →「✅ 正常」、pending →「🟡 等你決
   assert.equal(statusLabel({ kind: 'bad', say: '按了沒反應' }), '❌ 按了沒反應');
   assert.equal(statusLabel({ kind: 'pending', say: '名稱要不要改' }), '🟡 等你決定：名稱要不要改');
   assert.equal(statusLabel({ kind: 'pending' }), '🟡 等你決定');
-  assert.equal(statusLabel({ kind: 'warn' }), '⚠️');
+  // warn／bad 沒寫 say 也要有白話，不能只有圖示
+  assert.equal(statusLabel({ kind: 'warn' }), '⚠️ 能用但有問題');
+  assert.equal(statusLabel({ kind: 'bad' }), '❌ 還不能用');
+  assert.equal(statusLabel({ kind: 'warn', note: '舊寫法只有依據' } as Parameters<typeof statusLabel>[0]), '⚠️ 能用但有問題');
   // 「等你決定：」前綴不佔 say 的 22 字額度：say 18／22 字不截，23 字才截
   const [s18, s22, s23] = [18, 22, 23].map((n) => '字'.repeat(n));
   assert.equal(statusLabel({ kind: 'pending', say: s18 }), `🟡 等你決定：${s18}`);
@@ -63,7 +66,7 @@ test('狀態標記白話：ok →「✅ 正常」、pending →「🟡 等你決
   const html = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'ok', evidence: 'story-2 第 43 步' } }, url: 'x' }, size);
   assert.ok(html.includes('✅') && html.includes('正常') && !html.includes('story-2'), html);
   const legacy = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'warn', note: '舊寫法的依據' } }, url: 'x' }, size);
-  assert.ok(legacy.includes('⚠️') && !legacy.includes('舊寫法的依據'), legacy);
+  assert.ok(legacy.includes('⚠️') && legacy.includes('能用但有問題') && !legacy.includes('舊寫法的依據'), legacy);
   const cut = overlayHtml({ step: { index: 2, caption: '列表怎麼看', status: { kind: 'pending', say: long } }, url: 'x' }, size);
   assert.ok(cut.includes(`等你決定：${[...long].slice(0, SAY_MAX_CHARS).join('')}…`) && !cut.includes(long), cut);
 });
@@ -75,6 +78,8 @@ test('displayUrl：換主機、解碼中文查詢字串、首頁只顯示主機�
   assert.equal(displayUrl(`http://localhost:3304/dashboard/admin/affairs?cohort=${uuid}&placement=honor`, 'test.fju.roy422.dev'), 'test.fju.roy422.dev/dashboard/admin/affairs?placement=honor');
   assert.equal(displayUrl(`http://localhost:3304/dashboard/admin/affairs?cohort=${uuid}`, 'test.fju.roy422.dev'), 'test.fju.roy422.dev/dashboard/admin/affairs');
   assert.equal(displayUrl(`http://localhost:3304/dashboard/admin/affairs/${uuid}?tab=1`, 'test.fju.roy422.dev'), `test.fju.roy422.dev/dashboard/admin/affairs/${uuid}?tab=1`, '路徑裡的 UUID 不動');
+  assert.equal(displayUrl(`http://x/a?tag=${uuid}&tag=honor`, 'h'), 'h/a?tag=honor', '同名參數只刪值是 UUID 的那一組');
+  assert.equal(displayUrl(`http://x/a?q=a%20b&cohort=${uuid}&k=1%2B1`, 'h'), 'h/a?q=a b&k=1+1', '其餘參數保留原本編碼（%20 是空白、不變成 +）');
 });
 
 test('overlaySegments：步驟或網址一變就切，沒步驟的空檔只有網址列', () => {

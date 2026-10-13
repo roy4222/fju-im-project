@@ -80,7 +80,7 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 | `outDir` | 這一章的輸出資料夾。 |
 | `chapter`、`subtitle` | 章名與標題卡副標（預設取 `｜` 之後）。章節全名是 `3-3｜學生｜繳交作業`。 |
 | `baseURL` | `t.goto('/x')` 的基準。 |
-| `displayOrigin` | 假網址列顯示的主機（本機錄影時填 `test.fju.roy422.dev`）。假網址列只是顯示用：值是 UUID 的查詢參數（例如 `?cohort=<uuid>`）不會顯示；`events.json` 的 `url` 事件仍是真實網址。 |
+| `displayOrigin` | 假網址列顯示的主機（本機錄影時填 `test.fju.roy422.dev`）。假網址列只是顯示用：值是 UUID 的查詢參數（例如 `?cohort=<uuid>`）不會顯示（同名參數只拿掉那一組，其餘保留原本編碼）；`events.json` 的 `url` 事件仍是真實網址。 |
 | `tts` | 配音 provider，預設 `sayProvider({ voice: 'Meijia', rate: 190 })`。 |
 
 ### `t.step({ caption, narration, status }, fn)`
@@ -89,8 +89,8 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 - `status`：`{ kind: 'ok' | 'warn' | 'bad' | 'pending', say?: string, evidence?: string }`，只在這一步出現在右上角。
   畫面上只顯示**圖示＋白話**（給 Roy 看的，不是依據）：
   - `ok` →「✅ 正常」，有 `say` 就「✅ 」＋say（例如「✅ 可以正常送出」）
-  - `warn` →「⚠️ 」＋say（例如「⚠️ 截止提醒還沒做」）
-  - `bad` →「❌ 」＋say（例如「❌ 按了沒反應」）
+  - `warn` →「⚠️ 」＋say（例如「⚠️ 截止提醒還沒做」；沒寫 say →「⚠️ 能用但有問題」）
+  - `bad` →「❌ 」＋say（例如「❌ 按了沒反應」；沒寫 say →「❌ 還不能用」）
   - `pending` →「🟡 等你決定：」＋say（例如「🟡 等你決定：名稱要不要改」）
 
   `say` 超過 22 字畫面上截斷加「…」（`events.json` 留全文）。`evidence`（依據，例如「story-2 第 39 步」「UX N-17」）**不上畫面**，
@@ -173,14 +173,14 @@ pnpm -C tools/tutorial typecheck
 - `cursor.test.ts`：每段 600～900 ms、逐格速度不超過上限、緩動起訖。
 - `recorder.test.ts`：
   - 頁面每格畫出章節時間的二進位條碼，從 `clip.mp4` **逐格（含重複格）**解碼：每一格的影片時間與畫面內容的章節時間差 ≤ 50 ms（實測中位數約 8 ms、最大約 19 ms）；點擊事件與 `onclick` 讓按鈕變色的第一格差 ≤ 50 ms；點擊座標換算正確、clip 是 1920×1000；步驟長度 ≥ 配音＋0.6 秒；`events.json` 有截圖品質。
-  - **兩路同時錄影**（兩個獨立程序、各自指定 2 個名額，跟開 `TUTORIAL_RECORD_SLOTS=2` 時一樣；`test/barcode-recording.ts`）：各自逐格誤差 ≤ 50 ms（實測最大約 17～24 ms）、每秒約 34 張、截圖品質合格。
+  - **兩路同時錄影**（兩個獨立程序、各自指定 2 個名額，跟開 `TUTORIAL_RECORD_SLOTS=2` 時一樣；`test/barcode-recording.ts`）：各自逐格誤差 ≤ 50 ms（實測最大約 17～24 ms）、沒有中止（間隔 ≤ 100 ms、≥ 20 張／秒）。兩路在 Mac mini 上本來就卡在單路標準邊緣（實測 24.8 張／秒、51 ms），單路標準由單路測試把關。
   - 錄影中分頁被關：動作立刻報錯、名額歸還、留下 `FAILED.txt`；輸出目錄已存在就拒絕。
   - `quality.system.end` 的採樣時間早於 clip.mp4 寫完（停止截圖那一刻的快照，不含編碼負載）。
   - `waitStable`：goto 與點連結換頁到「800 ms 才回應的圖」，影片每一格都是載好的圖。
   - SPA 換頁＋慢圖（逐格）：點擊時同步 `pushState`＋換內容、以及先換內容 200 ms 後才改網址，兩種都從點擊那一格起就是載好的新頁、沒有灰圖格，`url` 與 `click` 同一時刻；伺服器版本的頁面是另一種顏色，整頁重載會露餡。
   - 真的錄到未載入圖（`click(loc, false)` 不等穩定）：`quality.ok=false`、`unloadedImages` 指出哪幾秒哪張圖。
   - 截圖空檔：網頁自己卡 250 ms 只標記；錄影程序卡 300 ms（截圖跟不上）中止並報錯。
-- `waits.test.ts`：換頁前還在飛的請求（真的 HTTP 伺服器永遠不回）不會讓之後的 `waitStable` 等到逾時；逾時原因寫實際卡住的那一項（「網路一直沒停」列出網址、「畫面一直在變」附變動範圍）；步驟裡逾時的 `waitStable`、點了別頁連結卻沒換頁的等待都不佔影片時間；`press` 記進 events.json 且鍵真的送到頁面；表單裡按 Enter 送出換到慢圖頁，從按下那一格起就是載好的新頁、press 與 url 同一時刻；同路徑只改查詢字串（`replaceState`／`pushState`）不算換頁——逐格看到「載入中」的過程、沒有回溯暫停；同網址整頁重載仍算換頁、沒有灰圖。
+- `waits.test.ts`：換頁回溯暫停後動作拋錯，暫停一定收尾（假分頁、不開瀏覽器）；換頁前還在飛的請求（真的 HTTP 伺服器永遠不回）不會讓之後的 `waitStable` 等到逾時；逾時原因寫實際卡住的那一項（「網路一直沒停」列出網址、「畫面一直在變」附變動範圍）；步驟裡逾時的 `waitStable`、點了別頁連結卻沒換頁的等待都不佔影片時間；`press` 記進 events.json 且鍵真的送到頁面；表單裡按 Enter 送出換到慢圖頁，從按下那一格起就是載好的新頁、press 與 url 同一時刻；同路徑只改查詢字串（`replaceState`／`pushState`）不算換頁——逐格看到「載入中」的過程、沒有回溯暫停；同網址整頁重載仍算換頁、沒有灰圖。
 - `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長。
 - `runs.test.ts`：run 目錄原子建立與撞名拒絕；名額預設 1 路、第 2 路排隊印「等待錄影名額」、`TUTORIAL_RECORD_SLOTS=2` 可開第 2 路；指定 2 路時第 3 路排隊；鎖檔常駐、不自己回收。跨程序（`test/slot-holder.ts` 當獨立程序）：5 個程序同一毫秒搶 2 個名額、任何時刻持有者 ≤ 2（目錄裡留著舊鎖檔也一樣）；持有者被 `kill -9` 後名額自動釋放給排隊的。
 - `render.test.ts`：狀態白話規則（「✅ 正常」「🟡 等你決定：」、say 本身超過 22 字才截斷、前綴不佔額度、evidence／note 不上畫面）、假網址列不顯示 UUID 查詢參數、按鍵鍵帽字與片段切法；合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、底部字幕帶（深色、字幕在帶子裡）、頁面區 80～960 沒被蓋到、游標位置、波紋圓心與配音音量。

@@ -975,9 +975,11 @@ export class Chapter {
     };
     this.page.on('request', onReq);
     if (stable !== false) this.navWatch = watch;
+    // 最外層 finally：動作、等後續、等穩定任何一段拋錯，自己開的暫停都一定收尾（否則時鐘停住、之後的步驟長度都是 0）
     try {
-      this.actionBusyUntil = Date.now() + 2000;
-      watch.actionEvent = await action();
+      try {
+        this.actionBusyUntil = Date.now() + 2000;
+        watch.actionEvent = await action();
       await this.wait_(settleMs);
       if (stable !== false && !watch.navigated) {
         // 等這一下的後續：真的換頁（navDetected 會回溯暫停）、同文件改網址、或這一下發出的請求都結束。
@@ -998,11 +1000,10 @@ export class Chapter {
         // 網址變了卻沒收到 framenavigated（保險）
         if (!watch.navigated && isPageChange(before, this.page.url())) this.navDetected(watch);
       }
-    } finally {
-      this.page.off('request', onReq);
-      this.navWatch = null;
-    }
-    try {
+      } finally {
+        this.page.off('request', onReq);
+        this.navWatch = null;
+      }
       if (watch.navigated) {
         await this.page.waitForLoadState('load').catch(() => {});
         await this.waitStable(stable || {}); // 自己會暫停；已在暫停中就直接等

@@ -48,8 +48,13 @@ export function displayUrl(url: string, displayOrigin?: string): string {
   try {
     const u = new URL(url);
     const host = displayOrigin || u.host;
-    for (const [k, v] of [...u.searchParams]) if (UUID.test(v)) u.searchParams.delete(k);
-    const rest = safeDecode(`${u.pathname}${u.search}${u.hash}`);
+    // 直接在原始查詢字串上過濾：只拿掉值是 UUID 的那一組（同名的其他值留著），其餘參數保留原本的編碼
+    const query = u.search
+      .slice(1)
+      .split('&')
+      .filter((part) => part && !UUID.test(safeDecode(part.slice(part.indexOf('=') + 1))))
+      .join('&');
+    const rest = safeDecode(`${u.pathname}${query ? `?${query}` : ''}${u.hash}`);
     return rest === '/' ? host : `${host}${rest}`;
   } catch {
     return url;
