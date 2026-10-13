@@ -22,7 +22,7 @@ import { promisify } from 'node:util';
 import { chromium, type Browser, type CDPSession, type Frame, type Locator, type Page, type Request } from 'playwright';
 import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
 import type { ChapterEvent, ChapterEvents, StatusKind, StepRecord } from './events.ts';
-import { captureQuality, cfrSlots, GAP_SEVERE_MS, timeFrames, toChapterMs, type Pause, type RawFrame } from './frames.ts';
+import { captureQuality, cfrSlots, GAP_SEVERE_MS, GAP_WARN_MS, timeFrames, toChapterMs, type CaptureQuality, type Pause, type RawFrame } from './frames.ts';
 import { acquireRecordSlot, claimOutDir, DEFAULT_OUT_ROOT, FAILED_MARK, newRunDir, RECORDING_MARK, type RecordSlot, type SlotOptions } from './runs.ts';
 import { sayProvider, type TtsProvider } from './tts.ts';
 
@@ -65,10 +65,21 @@ const CAPTURE_GIVE_UP_MS = 5000;
  * 舊 session 的 captureScreenshot 會永遠不回應。
  */
 const CAPTURE_TIMEOUT_MS = 400;
-/** 點擊後換頁時，暫停往回推這麼久：網址變更的事件比新頁第一次畫出來晚一點，不能讓載到一半的畫面進影片。 */
-const NAV_BACKDATE_MS = 120;
 /** 點擊後最多等多久讓換頁完成（等的期間影片停在舊頁＋波紋）。 */
 const NAV_WAIT_MS = 8000;
+/** 錄影中每隔這麼久抽查一次畫面內有沒有還沒載好的圖片（記進 quality、不中止）。 */
+const IMAGE_CHECK_MS = 100;
+
+/** 點擊後監看換頁（送滑鼠事件前就裝上，否則同步的 SPA 換頁會漏掉）。 */
+type NavWatch = {
+  /** 裝上監看的那一刻（滑鼠還沒按下去）：偵測到換頁就從這一刻起暫停，新頁的任何畫面都不可能比它早。 */
+  startWall: number;
+  navigated: boolean;
+  /** 是這次換頁讓計時暫停的（不是在別人的 offRecord 裡）。 */
+  autoPaused: boolean;
+  /** 已記下的點擊事件：偵測到換頁後把它對到暫停那一刻。 */
+  clickEvent: { atMs: number } | null;
+};
 
 export type StepOptions = {
   /** 字幕：短句。 */
@@ -201,6 +212,17 @@ const JANK_OBSERVER = `(() => {
 
 const PERMANENT_CDP_ERROR = /Target closed|Session closed|has been closed|No target with given id|Target page, context or browser|crashed/i;
 
+/** 頁面內：畫面上看得到、但還沒載好的圖片（網址）。 */
+const UNLOADED_IMAGES = `(() => {
+  const vw = innerWidth, vh = innerHeight, out = [];
+  for (const img of document.images) {
+    if (img.complete) continue;
+    const r = img.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw && getComputedStyle(img).visibility !== 'hidden') out.push(img.currentSrc || img.src);
+  }
+  return out;
+})()`;
+
 export class Chapter {
   readonly page: Page;
   /** 這次錄影的 run 目錄（clip.mp4、events.json、audio/ 都在這裡）。 */
@@ -215,6 +237,7 @@ export class Chapter {
   private zoom: number;
   private cdp: CDPSession | null = null;
   private capturing: Promise<void> | null = null;
+  private watching: Promise<void> | null = null;
   private stopCapture = false;
   private slot: RecordSlot | null = null;
   private claimed = false;
@@ -249,17 +272,12 @@ export class Chapter {
   private readonly onCrash = () => this.abort(new Error('錄影中分頁當掉'));
   private readonly onNav = (f: Frame) => {
     if (f !== this.page.mainFrame()) return;
-    const now = Date.now();
-    this.navAt.push(now);
-    // 點擊引發的換頁：網址一變就暫停計時（往回推一點），等新頁穩定再繼續，影片直接切到載好的新頁
-    if (this.navWatch && this.pausedAt == null) {
-      this.pausedAt = Math.max(now - NAV_BACKDATE_MS, this.navWatch.minStart);
-      this.navAutoPaused = true;
-    }
+    this.navAt.push(Date.now());
+    // 點擊引發的換頁（整頁載入、pushState 都會發 framenavigated）：從點擊那一刻起暫停計時，等新頁穩定再繼續
+    if (this.navWatch) this.navDetected(this.navWatch);
     this.noteUrl();
   };
-  /** 點擊後監看換頁：minStart 是自動暫停最早可以從哪一刻開始（點擊事件之後）。 */
-  private navWatch: { minStart: number } | null = null;
+  private navWatch: NavWatch | null = null;
   /** 進行中的網路請求（waitStable 判斷網路安靜；長連線不算）。 */
   private readonly inflight = new Set<Request>();
   private readonly onReqStart = (r: Request) => {
@@ -268,11 +286,12 @@ export class Chapter {
   private readonly onReqEnd = (r: Request) => {
     this.inflight.delete(r);
   };
-  private navAutoPaused = false;
   /** 主框架換頁的時間（牆上時間），判斷截圖空檔是不是換頁造成的。 */
   private readonly navAt: number[] = [];
-  /** 網頁自己卡住造成的截圖空檔（不中止，記在 events.json）。 */
-  private readonly pageJank: { atMs: number; gapMs: number; reason: string; url: string }[] = [];
+  /** 網頁自己卡住造成的截圖空檔（牆上時間；不中止，收尾時換成章節時間記在 events.json）。 */
+  private readonly pageJank: { fromWall: number; toWall: number; reason: string; url: string }[] = [];
+  /** 錄影中抽查到畫面內有還沒載好的圖片的時刻（牆上時間）。 */
+  private readonly unloadedSeen: { wallMs: number; count: number; sample: string; url: string }[] = [];
 
   constructor(opts: ChapterOptions) {
     this.opts = opts;
@@ -320,6 +339,7 @@ export class Chapter {
     this.cdp = await this.page.context().newCDPSession(this.page);
     this.t0Wall = Date.now();
     this.capturing = this.captureLoop();
+    this.watching = this.imageWatch();
     await this.offRecord(() => this.calibrate());
     this.noteUrl();
   }
@@ -334,7 +354,7 @@ export class Chapter {
     if (!this.finished && !this.failure) this.failure = reason instanceof Error ? reason : new Error(reason ? String(reason) : '沒有呼叫 finish() 就結束');
     this.stopCapture = true;
     this.abortCtl.abort();
-    await Promise.race([this.capturing, sleep(3000)]).catch(() => {});
+    await Promise.race([Promise.allSettled([this.capturing, this.watching]), sleep(3000)]);
     await this.cdp?.detach().catch(() => {});
     this.slot?.release();
     this.page.off('close', this.onClose);
@@ -428,7 +448,7 @@ export class Chapter {
         const idle = t0 - prev.t1;
         const reason = idle > maxGap / 2 ? null : await this.pageCausedGap(prev.mid, mid);
         if (reason) {
-          this.pageJank.push({ atMs: Math.round(this.now()), gapMs: Math.round(mid - prev.mid), reason, url: this.page.url() });
+          this.pageJank.push({ fromWall: prev.mid, toWall: mid, reason, url: this.page.url() });
         } else return this.abort(
           new Error(
             `［${this.current?.caption ?? '步驟外'}］${this.page.url()} 截圖間隔 ${Math.round(mid - prev.mid)} ms（上限 ${maxGap} ms，最近動作：${this.lastAction}）：網頁沒有卡住、是截圖跟不上，機器太忙或同時錄影的路數太多，請重錄這一段`,
@@ -445,6 +465,35 @@ export class Chapter {
       writeFileSync(file, buf);
       this.raw.push({ file, wallMs: mid });
     }
+  }
+
+  /**
+   * 錄影中每 IMAGE_CHECK_MS 抽查畫面內有沒有還沒載好的圖片（例如換頁後沒等穩定就繼續錄，灰色佔位圖會進影片）；
+   * 收尾時合併成時間段寫進 quality.unloadedImages 並標 ok=false。暫停中不抽查。
+   */
+  private async imageWatch(): Promise<void> {
+    while (!this.stopCapture) {
+      await sleep(IMAGE_CHECK_MS);
+      if (this.stopCapture || this.pausedAt != null) continue;
+      const wallMs = Date.now();
+      const urls = (await this.page.evaluate(UNLOADED_IMAGES).catch(() => [])) as string[];
+      if (urls.length && this.pausedAt == null) this.unloadedSeen.push({ wallMs, count: urls.length, sample: urls[0], url: this.page.url() });
+    }
+  }
+
+  /** 抽查到的「還沒載好的圖片」合併成章節時間的時間段；落在暫停裡的（點擊後換頁是回溯暫停）不算。 */
+  private unloadedSpans(): NonNullable<CaptureQuality['unloadedImages']> {
+    const spans: NonNullable<CaptureQuality['unloadedImages']> = [];
+    for (const s of this.unloadedSeen) {
+      if (this.pauses.some((p) => s.wallMs > p.startWall && s.wallMs < p.endWall)) continue;
+      const ms = Math.round(toChapterMs(s.wallMs, this.t0Wall, this.pauses));
+      const last = spans.at(-1);
+      if (last && last.url === s.url && ms - last.toMs <= IMAGE_CHECK_MS * 2.5) {
+        last.toMs = ms;
+        last.count = Math.max(last.count, s.count);
+      } else spans.push({ fromMs: ms, toMs: ms, count: s.count, sample: s.sample, url: s.url });
+    }
+    return spans;
   }
 
   /** 截圖空檔 [from, to]（牆上時間）是不是網頁造成的：期間有主框架換頁、long task，或剛點擊完網頁在更新。 */
@@ -703,7 +752,7 @@ export class Chapter {
   }
 
   /**
-   * 點擊。若因此換頁（連結、整頁載入或 Next.js 的 RSC 換頁）：等網址變更，那一刻起暫停計時，
+   * 點擊。若因此換頁（連結、整頁載入或 Next.js 的 client-side 換頁）：從點擊那一刻起暫停計時，
    * 等新頁穩定（圖片、字型、版面）再繼續——影片從「點下去」直接切到載好的新頁。傳 false 不等。
    */
   async click(locator: Locator, stable: WaitStableOptions | false = {}): Promise<void> {
@@ -726,37 +775,60 @@ export class Chapter {
       if (r.resourceType() === 'document' || /[?&]_rsc=/.test(r.url()) || r.headers()['rsc'] === '1') navRequested = true;
     };
     this.page.on('request', onReq);
+    // 送滑鼠事件之前就開始監看換頁：Next.js 的 client-side 換頁（pushState）在 click 事件裡同步發生，
+    // framenavigated 會跟 mouse.up() 的回應同時到，晚一步才裝監看就會漏掉、把載到一半的新頁錄進去
+    const watch: NavWatch = { startWall: Date.now(), navigated: false, autoPaused: false, clickEvent: null };
+    if (stable !== false) this.navWatch = watch;
     try {
       this.actionBusyUntil = Date.now() + 2000;
       await this.page.mouse.down();
       await this.wait_(70);
       await this.page.mouse.up();
-      // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現
+      // 記在放開滑鼠（click 事件在這時觸發）且頁面畫出下一格之後：波紋與頁面反應同一格出現。
+      // 換頁已經讓計時暫停的話，now() 就是暫停那一刻（影片切到新頁的那一格）
       await this.nextPaint();
-      this.events.push({ type: 'click', atMs: this.now(), x: this.cursor.x, y: this.cursor.y });
-      if (stable !== false) this.navWatch = { minStart: Date.now() + 1 };
+      const clickEvent = { type: 'click' as const, atMs: this.now(), x: this.cursor.x, y: this.cursor.y };
+      this.events.push(clickEvent);
+      watch.clickEvent = clickEvent;
       await this.wait_(350);
       if (stable !== false && (linkTo || navRequested)) {
-        // 等換頁發生（網址變更時 onNav 會自動暫停計時）
+        // 等換頁發生（偵測到時 navDetected 會暫停計時）
         const until = Date.now() + NAV_WAIT_MS;
-        while (!this.navAutoPaused && this.page.url() === before && Date.now() < until) await this.wait_(30);
+        while (!watch.navigated && this.page.url() === before && Date.now() < until) await this.wait_(30);
       }
+      // 網址變了卻沒收到 framenavigated（保險）
+      if (stable !== false && !watch.navigated && this.page.url() !== before) this.navDetected(watch);
     } finally {
       this.page.off('request', onReq);
       this.navWatch = null;
     }
-    if (this.navAutoPaused) {
-      this.navAutoPaused = false;
-      try {
-        await this.page.waitForLoadState('load').catch(() => {});
-        await this.waitStable({ ...(stable || {}), offRecord: false });
-      } finally {
-        await this.endPause();
-      }
-    } else if (stable !== false && this.page.url() !== before) {
-      await this.waitStable({ offRecord: true, ...stable });
+    if (watch.navigated) {
+      if (watch.autoPaused) {
+        try {
+          await this.page.waitForLoadState('load').catch(() => {});
+          await this.waitStable({ ...(stable || {}), offRecord: false });
+        } finally {
+          await this.endPause();
+        }
+      } else await this.waitStable({ ...(stable || {}), offRecord: true }); // 已在 offRecord 裡：照樣等穩定
     }
     this.noteUrl();
+  }
+
+  /**
+   * 點擊後偵測到換頁（framenavigated，或網址變了）：從裝上監看那一刻（滑鼠按下去之前）起暫停計時——
+   * 新頁的任何畫面都不可能比它早，所以載到一半的畫面絕不會進影片；之後等新頁穩定再繼續。
+   * 暫停是回溯的：點擊到偵測之間已經截下的影格，收尾時會整段丟掉（只留暫停中最後一張當新頁的第一格）。
+   * 點擊事件也對到暫停那一刻，所以 click、url 與影片切到新頁的那一格是同一個時間。
+   */
+  private navDetected(w: NavWatch): void {
+    if (w.navigated) return;
+    w.navigated = true;
+    if (this.pausedAt == null) {
+      this.pausedAt = w.startWall;
+      w.autoPaused = true;
+    }
+    if (w.clickEvent) w.clickEvent.atMs = toChapterMs(this.pausedAt, this.t0Wall, this.pauses);
   }
 
   /** 點進欄位後逐字輸入（像人打字，每字 60～130 ms）。 */
@@ -832,6 +904,7 @@ export class Chapter {
     const durationMs = this.now();
     this.stopCapture = true;
     await this.capturing;
+    await Promise.race([this.watching, sleep(1500)]);
     this.check(); // 收尾前一刻若中止（例如間隔過大）就報錯
     await this.cdp?.detach().catch(() => {});
     // 錄影結束就歸還名額：後面的編碼與 render 不佔名額
@@ -854,8 +927,19 @@ export class Chapter {
       steps,
       durationMs,
     );
-    const jankWarnings = this.pageJank.map((j) => `章節時間 ${(j.atMs / 1000).toFixed(1)} 秒：${j.reason}，畫面停了 ${j.gapMs} ms（${j.url}）`);
-    for (const w of [...quality.warnings, ...jankWarnings]) console.warn(`注意（截圖品質）：${w}`);
+    // 空檔換成章節時間；被回溯暫停（點擊後換頁）吃掉、影片裡看不到的就不算
+    const chapter = (wall: number) => toChapterMs(wall, this.t0Wall, this.pauses);
+    const pageJank = this.pageJank
+      .map((j) => ({ atMs: Math.round(chapter(j.toWall)), gapMs: Math.round(chapter(j.toWall) - chapter(j.fromWall)), reason: j.reason, url: j.url }))
+      .filter((j) => j.gapMs > GAP_WARN_MS);
+    const jankWarnings = pageJank.map((j) => `章節時間 ${(j.atMs / 1000).toFixed(1)} 秒：${j.reason}，畫面停了 ${j.gapMs} ms（${j.url}）`);
+    const unloadedImages = this.unloadedSpans();
+    const unloadedWarnings = unloadedImages.map(
+      (u) =>
+        `章節時間 ${(u.fromMs / 1000).toFixed(1)}～${(u.toMs / 1000).toFixed(1)} 秒：畫面內有還沒載好的圖片（${u.count} 張，例如 ${u.sample}；${u.url}），` +
+        '這一段請用 waitStable 或 goto／click 自動等穩定',
+    );
+    for (const w of [...quality.warnings, ...jankWarnings, ...unloadedWarnings]) console.warn(`注意（截圖品質）：${w}`);
 
     // 每個格位一個編號連結，用 image2 以固定 30fps 讀：不經過 fps 換算
     // （concat 的 duration 0.033333 會讓 ffmpeg 重複與丟格，整段晚一格）
@@ -885,9 +969,10 @@ export class Chapter {
       clip: { file: 'clip.mp4', durationMs: Math.round((slots.length * 1000) / FPS), fps: FPS, captureLatencyMs },
       quality: {
         ...quality,
-        pageJank: this.pageJank,
-        warnings: [...quality.warnings, ...jankWarnings, ...this.warnings],
-        ok: quality.ok && this.warnings.length === 0,
+        pageJank,
+        unloadedImages,
+        warnings: [...quality.warnings, ...jankWarnings, ...unloadedWarnings, ...this.warnings],
+        ok: quality.ok && this.warnings.length === 0 && unloadedImages.length === 0,
       },
       displayOrigin: this.opts.displayOrigin ?? (this.opts.baseURL ? new URL(this.opts.baseURL).host : ''),
       cursorStart: { x: Math.round(this.size.width * 0.5), y: Math.round(this.size.height * 0.45) },

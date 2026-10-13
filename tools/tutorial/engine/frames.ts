@@ -67,6 +67,8 @@ export type CaptureQuality = SpanQuality & {
   warnings: string[];
   /** 網頁自己卡住或換頁造成的截圖空檔（不中止錄影，只標記）。 */
   pageJank?: { atMs: number; gapMs: number; reason: string; url: string }[];
+  /** 錄影中抽查到畫面內有還沒載好的圖片的時間段（章節時間；有就 ok=false）。 */
+  unloadedImages?: { fromMs: number; toMs: number; count: number; sample: string; url: string }[];
 };
 
 function spanQuality(times: readonly number[], from: number, to: number): SpanQuality {

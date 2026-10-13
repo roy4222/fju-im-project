@@ -1,7 +1,7 @@
 // 錄影的「場地」：每次錄影一個獨立 run 目錄（原子建立，撞名就拒絕），
-// 加上全機共用的錄影名額（同一台機器同時最多 2 路在錄，其餘排隊）。
+// 加上全機共用的錄影名額（同一台機器同時最多 2 路在錄，其餘排隊；用作業系統的檔案鎖，程序死掉自動釋放）。
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, constants, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
@@ -59,8 +59,14 @@ export function assertRunComplete(dir: string): void {
 }
 
 // ── 全機錄影名額 ─────────────────────────────────────
+//
+// 名額 ＝ 固定幾個鎖檔（slot-0.lock、slot-1.lock），用作業系統的 advisory lock（flock 語意：
+// open(2) 加 O_EXLOCK｜O_NONBLOCK，被別人持有就 EAGAIN）。持有者程序結束——包括 kill -9——核心會自動解鎖，
+// 所以不需要、也不可以自己判斷「過期」去刪鎖檔：兩個程序同時回收會互相刪掉對方剛拿到的鎖，變成 3 路同時錄。
+// 鎖檔永遠不刪；內容只是給等待訊息看的「誰在用」。
 
 export type RecordSlot = { index: number; file: string; release(): void };
+export type SlotHolder = { pid: number; host: string; label: string; since: string };
 
 export type SlotOptions = {
   /** 名額鎖放哪；預設 ~/work/tutorial-out/.record-slots（可用 TUTORIAL_SLOTS_DIR 覆寫）。 */
@@ -78,20 +84,28 @@ export function defaultSlotsDir(): string {
   return process.env.TUTORIAL_SLOTS_DIR ?? join(homedir(), 'work', 'tutorial-out', '.record-slots');
 }
 
-function alive(pid: number): boolean {
+/** macOS <sys/fcntl.h> 的 O_EXLOCK（0x0020）：open 時原子地拿 flock 式的獨占鎖。Node 沒把它放進 fs.constants。 */
+const O_EXLOCK = 0x0020;
+
+function slotFile(dir: string, i: number): string {
+  return join(dir, `slot-${i}.lock`);
+}
+
+/** 試著拿鎖（不等）：拿到回傳 fd（關掉就解鎖），被別的 open 持有就回傳 null。 */
+function tryLock(file: string): number | null {
+  if (process.platform !== 'darwin') throw new Error('錄影名額鎖只支援 macOS（open(2) 的 O_EXLOCK）');
   try {
-    process.kill(pid, 0);
-    return true;
+    return openSync(file, constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK | O_EXLOCK, 0o644);
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EAGAIN' || code === 'EWOULDBLOCK') return null;
+    throw e;
   }
 }
 
-type Holder = { pid: number; host: string; label: string; since: string };
-
-function readHolder(file: string): Holder | null {
+function readHolder(file: string): SlotHolder | null {
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as Holder;
+    return JSON.parse(readFileSync(file, 'utf8')) as SlotHolder;
   } catch {
     return null;
   }
@@ -99,7 +113,7 @@ function readHolder(file: string): Holder | null {
 
 /**
  * 拿一個錄影名額；滿了就排隊（每秒重試），開始等時印「等待錄影名額」。
- * 持有者的程序已不在（同一台機器）就視為過期、直接回收。程序結束時自動歸還。
+ * release() 或程序結束（正常、當掉、kill -9 都算）就歸還。
  */
 export async function acquireRecordSlot(opts: SlotOptions = {}): Promise<RecordSlot> {
   const dir = opts.dir ?? defaultSlotsDir();
@@ -112,35 +126,23 @@ export async function acquireRecordSlot(opts: SlotOptions = {}): Promise<RecordS
   for (;;) {
     if (opts.signal?.aborted) throw new Error('等待錄影名額時被取消');
     for (let i = 0; i < max; i++) {
-      const file = join(dir, `slot-${i}.lock`);
-      let fd: number;
-      try {
-        fd = openSync(file, 'wx');
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-        const h = readHolder(file);
-        if (h && h.host === hostname() && !alive(h.pid)) {
-          try {
-            unlinkSync(file); // 前一個程序沒歸還就結束了
-          } catch {}
-          i--;
-        }
-        continue;
-      }
-      const me: Holder = { pid: process.pid, host: hostname(), label, since: new Date().toISOString() };
-      writeSync(fd, JSON.stringify(me));
-      closeSync(fd);
+      const file = slotFile(dir, i);
+      const fd = tryLock(file);
+      if (fd == null) continue;
+      const me: SlotHolder = { pid: process.pid, host: hostname(), label, since: new Date().toISOString() };
+      ftruncateSync(fd);
+      writeSync(fd, JSON.stringify(me), 0);
       let released = false;
       const release = () => {
         if (released) return;
         released = true;
         process.off('exit', release);
-        const h = readHolder(file);
-        if (h && h.pid === me.pid && h.since === me.since) {
-          try {
-            unlinkSync(file);
-          } catch {}
-        }
+        try {
+          ftruncateSync(fd); // 清掉「誰在用」
+        } catch {}
+        try {
+          closeSync(fd); // 關掉就解鎖
+        } catch {}
       };
       process.on('exit', release);
       if (waitingSince) log(`拿到錄影名額 ${i + 1}/${max}（等了 ${((Date.now() - waitingSince) / 1000).toFixed(0)} 秒）`);
@@ -150,11 +152,26 @@ export async function acquireRecordSlot(opts: SlotOptions = {}): Promise<RecordS
     if (!waitingSince) waitingSince = now;
     if (now - lastLog >= 30_000) {
       lastLog = now;
-      const holders = Array.from({ length: max }, (_, i) => readHolder(join(dir, `slot-${i}.lock`)))
-        .filter((h): h is Holder => !!h)
+      const holders = Array.from({ length: max }, (_, i) => readHolder(slotFile(dir, i)))
+        .filter((h): h is SlotHolder => !!h)
         .map((h) => h.label);
       log(`等待錄影名額…（同時最多 ${max} 路，錄影中：${holders.join('、') || '—'}）`);
     }
     await sleep(opts.pollMs ?? 1000);
   }
+}
+
+/** 每個名額現在有沒有人持有（真的試著上鎖再放掉）與鎖檔裡記的持有者；測試與排錯用。 */
+export function probeRecordSlots({ dir = defaultSlotsDir(), max = DEFAULT_RECORD_SLOTS }: { dir?: string; max?: number } = {}): {
+  index: number;
+  held: boolean;
+  holder: SlotHolder | null;
+}[] {
+  return Array.from({ length: max }, (_, i) => {
+    const file = slotFile(dir, i);
+    if (!existsSync(file)) return { index: i, held: false, holder: null };
+    const fd = tryLock(file);
+    if (fd != null) closeSync(fd);
+    return { index: i, held: fd == null, holder: fd == null ? readHolder(file) : null };
+  });
 }

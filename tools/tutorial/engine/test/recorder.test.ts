@@ -4,15 +4,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import type { Page } from 'playwright';
 import { analyze, H, recordBarcode, W, ZOOM, type Raw, type Recorded } from './barcode-recording.ts';
 import { launchTutorialBrowser, NARRATION_TAIL_MS, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
 import type { ChapterEvents } from '../events.ts';
-import { FAILED_MARK, RECORDING_MARK } from '../runs.ts';
+import { FAILED_MARK, probeRecordSlots, RECORDING_MARK } from '../runs.ts';
 
 
 function summarize(name: string, r: Recorded) {
@@ -52,7 +53,7 @@ test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點�
     assert.ok(Math.abs(probed * 1000 - ev.clip.durationMs) <= 50, `clip ${probed}s vs ${ev.clip.durationMs}ms`);
     // 錄完：錄影中標記拿掉、沒有失敗檔、名額歸還
     assert.ok(!existsSync(join(r.outDir, RECORDING_MARK)) && !existsSync(join(r.outDir, FAILED_MARK)));
-    assert.deepEqual(readdirSync(join(root, 'slots')), []);
+    assert.ok(probeRecordSlots({ dir: join(root, 'slots'), max: 2 }).every((s) => !s.held), '名額要歸還');
   } finally {
     await browser.close();
     if (!process.env.KEEP) rmSync(root, { recursive: true, force: true });
@@ -103,11 +104,11 @@ test('錄影中分頁被關：動作立刻報錯、截圖停止、名額歸還�
     await t.dispose();
     assert.ok(existsSync(join(outDir, FAILED_MARK)));
     assert.ok(!existsSync(join(outDir, RECORDING_MARK)));
-    assert.deepEqual(readdirSync(slots), [], '名額要歸還');
+    assert.ok(probeRecordSlots({ dir: slots, max: 2 }).every((s) => !s.held), '名額要歸還');
     // 同一個 outDir 再錄一次：開始前就拒絕
     const page2 = await newTutorialPage(browser);
     await assert.rejects(startChapter({ page: page2, outDir, chapter: '測試｜撞名', tts: silentProvider(), slots: { dir: slots } }), /已存在，拒絕覆蓋/);
-    assert.deepEqual(readdirSync(slots), []);
+    assert.ok(probeRecordSlots({ dir: slots, max: 2 }).every((s) => !s.held));
   } finally {
     await browser.close();
     rmSync(root, { recursive: true, force: true });
@@ -220,6 +221,141 @@ test('截圖空檔分兩種：網頁自己卡住（long task）只標記不中�
       await t2.dispose();
     }
     assert.ok(existsSync(join(root, 'starved', FAILED_MARK)));
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ── SPA 換頁（Next.js 的 client-side 換頁）＋慢圖 ──────────────────
+
+/** 三頁各一張 800 ms 才回應的圖（沒載好時是灰底 #eee）；第 2、3 頁用 SPA 方式換過去，伺服器版本是紅圖（若真的整頁重載就會露餡）。 */
+async function spaSite(page: Page): Promise<void> {
+  const png = (c: string) => execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', `color=c=${c}:s=200x200`, '-frames:v', '1', '-f', 'image2', '-c:v', 'png', '-']);
+  const imgs: Record<string, Buffer> = { '/red.png': png('red'), '/blue.png': png('blue'), '/lime.png': png('lime') };
+  const html = (img: string, link = '') => `<img src="${img}" style="position:absolute;left:100px;top:100px;width:200px;height:200px;background:#eee">${link}`;
+  const link = (id: string, href: string, call: string) =>
+    `<a id=${id} href="${href}" onclick="event.preventDefault();${call}" style="position:absolute;left:500px;top:150px;font-size:40px">下一頁</a>`;
+  const pages = { two: html('/blue.png', link('next2', '/three', "spa('three', 200)")), three: html('/lime.png') };
+  const doc = `<body style="margin:0;background:#fff">${html('/red.png', link('next', '/two', "spa('two', 0)"))}
+<script>
+  const pages = ${JSON.stringify(pages)};
+  // delay 0：點擊時同步 pushState＋換內容（Next.js <Link> 到已 prefetch 的頁面就是這樣）
+  // delay > 0：先換內容、網址晚一點才變（App Router 先 commit 畫面，網址在 effect 裡更新）
+  function spa(name, delay) {
+    const go = () => history.pushState({}, '', '/' + name);
+    if (!delay) go();
+    document.body.innerHTML = pages[name];
+    if (delay) setTimeout(go, delay);
+  }
+</script></body>`;
+  await page.route('http://tutorial.test/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (imgs[path]) {
+      await new Promise((r) => setTimeout(r, 800));
+      return route.fulfill({ body: imgs[path], contentType: 'image/png' });
+    }
+    return route.fulfill({ contentType: 'text/html', body: path === '/' ? doc : `<body style="margin:0">${html('/red.png')}</body>` });
+  });
+}
+
+/** 影片每一格在圖片中心（CSS 200,200 → 影片 300,300）的顏色。 */
+function centerColors(clip: string): [number, number, number][] {
+  const buf = execFileSync('ffmpeg', ['-v', 'error', '-i', clip, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 30 });
+  const n = buf.length / (W * H * 3);
+  return Array.from({ length: n }, (_, k) => {
+    const o = k * W * H * 3 + (300 * W + 300) * 3;
+    return [buf[o], buf[o + 1], buf[o + 2]];
+  });
+}
+const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
+const isBlue = ([r, g, b]: number[]) => b > 200 && r < 60 && g < 60;
+const isLime = ([r, g, b]: number[]) => g > 200 && r < 60 && b < 60;
+const isGray = ([r, g, b]: number[]) => [r, g, b].every((v) => v > 200 && v < 250) && Math.abs(r - b) < 12;
+
+test('點擊後 SPA 換頁（同步 pushState；或先換內容、網址晚 200 ms 才變）＋慢圖：從點擊那一格起就是載好的新頁，沒有灰圖格，url 與 click 同一時刻', { timeout: 120_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-spa-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await spaSite(page);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜SPA', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    try {
+      await t.goto('http://tutorial.test/');
+      await t.step({ caption: '同步換頁' }, async () => {
+        await t.click(page.locator('#next'));
+        await t.wait(500);
+      });
+      await t.step({ caption: '先換內容再改網址' }, async () => {
+        await t.click(page.locator('#next2'));
+        await t.wait(500);
+      });
+      const { clip, events } = await t.finish();
+      const ev = JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents;
+      const urlAt = (path: string) => {
+        const e = ev.events.find((x) => x.type === 'url' && new URL(x.url).pathname === path);
+        assert.ok(e && e.type === 'url', `沒有換到 ${path}：${JSON.stringify(ev.events.filter((x) => x.type === 'url'))}`);
+        return e.atMs;
+      };
+      const [t1, t2, t3] = [urlAt('/'), urlAt('/two'), urlAt('/three')];
+      const colors = centerColors(clip);
+      const frameMs = 1000 / ev.clip.fps;
+      const bad: string[] = [];
+      const seen = { red: 0, blue: 0, lime: 0 };
+      for (let k = Math.ceil(t1 / frameMs) + 1; k < colors.length; k++) {
+        const ms = k * frameMs;
+        const want = ms < t2 - frameMs ? 'red' : ms > t2 + frameMs && ms < t3 - frameMs ? 'blue' : ms > t3 + frameMs ? 'lime' : null;
+        if (!want) continue;
+        const ok = { red: isRed, blue: isBlue, lime: isLime }[want](colors[k]);
+        if (ok) seen[want]++;
+        else bad.push(`#${k}（${(ms / 1000).toFixed(2)} 秒）應為 ${want}，實際 ${colors[k]}${isGray(colors[k]) ? '（灰：圖還沒載好）' : ''}`);
+      }
+      assert.deepEqual(bad, [], `${bad.length}/${colors.length} 格不對`);
+      assert.ok(seen.red >= 5 && seen.blue >= 5 && seen.lime >= 5, JSON.stringify(seen));
+      const clicks = ev.events.filter((e) => e.type === 'click');
+      assert.equal(clicks.length, 2);
+      // 換頁的那一刻 ＝ 點擊的那一刻（暫停從點擊起算，影片從點下去直接切到載好的新頁）
+      assert.ok(Math.abs(t2 - clicks[0].atMs) <= 1, `同步換頁：url ${t2} vs click ${clicks[0].atMs}`);
+      assert.ok(Math.abs(t3 - clicks[1].atMs) <= 1, `晚換網址：url ${t3} vs click ${clicks[1].atMs}`);
+      assert.ok(ev.quality!.ok, JSON.stringify(ev.quality));
+      assert.ok(!ev.quality!.warnings.some((w) => w.includes('還沒載好')), ev.quality!.warnings.join('\n'));
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('真的錄到還沒載好的圖（click(…, false) 不等穩定）：quality.ok=false，warnings 指出哪幾秒', { timeout: 90_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-unloaded-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await spaSite(page);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜灰圖', tts: silentProvider(), slots: { dir: join(root, 'slots') } });
+    try {
+      await t.goto('http://tutorial.test/');
+      await t.step({ caption: '不等穩定' }, async () => {
+        await t.click(page.locator('#next'), false);
+        await t.wait(1200);
+      });
+      const { clip, events } = await t.finish();
+      const ev = JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents;
+      const click = ev.events.find((e) => e.type === 'click')!;
+      const colors = centerColors(clip);
+      const frameMs = 1000 / ev.clip.fps;
+      const gray = colors.filter((c, k) => k * frameMs > click.atMs && isGray(c)).length;
+      assert.ok(gray >= 10, `這個情境本來就會錄到灰圖（${gray} 格）`);
+      assert.equal(ev.quality!.ok, false, JSON.stringify(ev.quality));
+      const spans = ev.quality!.unloadedImages ?? [];
+      assert.ok(spans.length >= 1, JSON.stringify(ev.quality));
+      assert.ok(Math.abs(spans[0].fromMs - click.atMs) <= 250 && spans[0].toMs - spans[0].fromMs >= 400, JSON.stringify(spans));
+      assert.ok(ev.quality!.warnings.some((w) => w.includes('還沒載好的圖片') && w.includes('blue.png')), ev.quality!.warnings.join('\n'));
+    } finally {
+      await t.dispose();
+    }
   } finally {
     await browser.close();
     rmSync(root, { recursive: true, force: true });

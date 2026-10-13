@@ -45,16 +45,16 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 
 1. **一律用 `launchTutorialBrowser()`＋`newTutorialPage(browser)` 開分頁**。它們設好 1.5 倍放大（CSS 1280×667 → 1920×1000 實際像素）、繁中、台北時區。自己 `chromium.launch()` 或 `browser.newPage({ viewport })` 會得到 CSS 大小的模糊影格，`startChapter` 會直接報錯。錄影時會開一個 Chromium 視窗，不要動它、不要蓋住它。
 2. **每段一個獨立 run 目錄**。`startChapter` 不給 `outDir` 時自動建 `~/work/tutorial-out/runs/<段編號>-<章名>-<時間>-<亂碼>/`（印在 `t.outDir`）；給 `outDir` 的話它必須還不存在，已存在就立刻拒絕（不會覆蓋別人的錄影）。錄影中目錄裡有 `.recording`；失敗會留下 `FAILED.txt`，這兩種目錄 `render` 都會拒絕。`id` 填分鏡的段編號（`1-3`、`5A-2`），feature-table 的「章節與步驟」靠它對時間。
-3. **錄影名額：同一台機器同時最多 2 路在錄**（主腦定案；名額鎖在 `~/work/tutorial-out/.record-slots/`）。第 3 路起在 `startChapter` 排隊並印「等待錄影名額…」，前面有人錄完（`finish` 或 `dispose`）就自動開始。只有錄影佔名額，`render`／`assemble` 不佔，可以隨時跑。程序異常結束留下的鎖，下一個人會自動回收。
+3. **錄影名額：同一台機器同時最多 2 路在錄**（主腦定案；名額是 `~/work/tutorial-out/.record-slots/` 裡固定的 2 個鎖檔，用作業系統的檔案鎖）。第 3 路起在 `startChapter` 排隊並印「等待錄影名額…」，前面有人錄完（`finish` 或 `dispose`）就自動開始。只有錄影佔名額，`render`／`assemble` 不佔，可以隨時跑。程序結束——包括當掉、`kill -9`——核心會自動解鎖，所以不會有「過期的鎖」要回收；鎖檔本身永遠不刪，裡面只是記誰在用。
 4. **一定要 `try … finally { await chapter?.dispose(); await browser.close(); }`**。分頁被關、當掉、截圖卡住都會讓錄影中止：之後的每個動作立刻丟出原因，`dispose` 停止截圖並歸還名額，程序才能退出。
-5. **`waitStable`**：`t.goto()` 與「點擊後換頁」會自動等新頁穩定（網路安靜、畫面內圖片與字型載完、連續兩張截圖一樣），而且等的過程**不進影片**——影片從「點下去」直接切到載好的新頁，不會出現灰色未載入圖。換頁以外的情況（例如打開對話框、篩選後清單重排）自己呼叫：`await t.waitStable({ ready: '送出成功' })`，`ready` 可以是 Locator 或畫面上的一段字；要不進影片加 `offRecord: true`。等太久（預設 30 秒）會在指令列與 `events.json` 警告。
+5. **`waitStable`**：`t.goto()` 與「點擊後換頁」會自動等新頁穩定（網路安靜、畫面內圖片與字型載完、連續兩張截圖一樣），而且等的過程**不進影片**——影片從「點下去」直接切到載好的新頁，不會出現灰色未載入圖。換頁包括整頁載入與 Next.js 的 client-side 換頁（`<Link>` 點下去同步 `pushState`、或先換畫面網址晚一點才變，都算）：`t.click` 在送滑鼠事件前就開始監看，偵測到就從點擊那一刻起暫停，點擊到偵測之間截到的畫面整段丟掉；`events.json` 裡 `click` 與 `url` 的時間相同，就是影片切到新頁的那一格。換頁以外的情況（例如打開對話框、篩選後清單重排）自己呼叫：`await t.waitStable({ ready: '送出成功' })`，`ready` 可以是 Locator 或畫面上的一段字；要不進影片加 `offRecord: true`。等太久（預設 30 秒）會在指令列與 `events.json` 警告。
 6. **`offRecord` 做準備動作**：登入、補資料、切換身分、設定模擬時鐘等觀眾不需要看的事，包在 `t.offRecord(async () => { … })` 裡。期間的畫面不進影片，結束後直接切到當下畫面。密碼用 `t.type(locator, pw, { secret: true })` 或在 `offRecord` 裡打，`events.json` 不會留下原文。
-7. **截圖品質**：`events.json` 的 `quality` 記整段與每一步的截圖張數／秒與最大間隔。超過 50 ms 或平均低於 25 張／秒會警告並標 `ok: false`；錄影中（非暫停）兩張截圖間隔超過 100 ms 而且不是網頁自己造成的（long task、換頁、剛點擊後的更新會記在 `quality.pageJank`）就中止，訊息會寫在哪一步、哪個網址，重錄那一段即可。
+7. **截圖品質**：`events.json` 的 `quality` 記整段與每一步的截圖張數／秒與最大間隔。超過 50 ms 或平均低於 25 張／秒會警告並標 `ok: false`；錄影中（非暫停）兩張截圖間隔超過 100 ms 而且不是網頁自己造成的（long task、換頁、剛點擊後的更新會記在 `quality.pageJank`）就中止，訊息會寫在哪一步、哪個網址，重錄那一段即可。錄影中每 100 ms 另外抽查畫面內有沒有**還沒載好的圖片**（例如 `t.click(loc, false)` 不等穩定、或捲動後懶載入的圖）：有就記在 `quality.unloadedImages`（哪幾秒、哪張圖、哪個網址）並標 `ok: false`，在那一段加 `waitStable` 再重錄。
 8. **怎麼抽格自查**：錄完先看指令列有沒有「注意」，再看幾張畫面：
 
    ```sh
    D=~/work/tutorial-out/runs/<run 目錄>
-   jq '.quality | {ok, fps, maxGapMs, warnings}' $D/events.json           # 品質與警告
+   jq '.quality | {ok, fps, maxGapMs, warnings, unloadedImages}' $D/events.json   # 品質與警告（含錄到未載入圖的時段）
    jq -c '.events[] | select(.type=="url" or .type=="click")' $D/events.json  # 換頁與點擊的時間（ms）
    ffmpeg -v error -ss 12.5 -i $D/chapter.mp4 -frames:v 1 /tmp/check.png    # 成品第 12.5 秒（成品＝clip 時間＋2.5 秒標題卡）
    ```
@@ -85,7 +85,7 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 
 | 動作 | 行為 |
 |---|---|
-| `t.click(locator)` | 目標不在安全區（網址列下、字幕條上）就先平滑捲動；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。點的是連結或觸發換頁時，網址一變就暫停計時、等新頁穩定再繼續（`t.click(loc, false)` 不等）。 |
+| `t.click(locator)` | 目標不在安全區（網址列下、字幕條上）就先平滑捲動；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。點的是連結或觸發換頁（整頁或 SPA 的 `pushState`）時，從點擊那一刻起暫停計時、等新頁穩定再繼續，波紋與載好的新頁同一格出現（`t.click(loc, false)` 不等）。 |
 | `t.type(locator, text, { secret })` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。`secret: true` 時 events.json 只記遮罩。 |
 | `t.select(locator, value)` | 原生下拉：游標移過去＋波紋，直接選值（原生彈出層錄不到）。自訂下拉請用兩次 `t.click`。 |
 | `t.upload(locator, file, { via })` | file input 多半隱藏，`via` 指定游標要點的按鈕。 |
@@ -126,7 +126,7 @@ node engine/cli.ts assemble --out out/final --features feature-table.md out/01-v
 {
   "id": "3-3", "chapter": "學生｜繳交作業",
   "clip": { "file": "clip.mp4", "durationMs": 55400, "fps": 30, "captureLatencyMs": 10 },
-  "quality": { "ok": true, "fps": 34.1, "maxGapMs": 37, "p95GapMs": 31, "steps": [ … ], "pageJank": [], "warnings": [] },
+  "quality": { "ok": true, "fps": 34.1, "maxGapMs": 37, "p95GapMs": 31, "steps": [ … ], "pageJank": [], "unloadedImages": [], "warnings": [] },
   "steps": [{ "index": 1, "caption": "…", "narration": "…", "status": { "kind": "warn", "note": "…" },
               "startMs": 0, "endMs": 9288, "audio": { "file": "audio/step-01.wav", "startMs": 250, "durationMs": 8436 } }],
   "events": [{ "type": "move", "startMs": 300, "endMs": 1100, "from": {…}, "to": {…} },
@@ -152,8 +152,10 @@ pnpm -C tools/tutorial typecheck
   - **兩路同時錄影**（兩個獨立程序，跟實際一樣；`test/barcode-recording.ts`）：各自逐格誤差 ≤ 50 ms（實測最大約 17～24 ms）、每秒約 34 張、截圖品質合格。
   - 錄影中分頁被關：動作立刻報錯、名額歸還、留下 `FAILED.txt`；輸出目錄已存在就拒絕。
   - `waitStable`：goto 與點連結換頁到「800 ms 才回應的圖」，影片每一格都是載好的圖。
+  - SPA 換頁＋慢圖（逐格）：點擊時同步 `pushState`＋換內容、以及先換內容 200 ms 後才改網址，兩種都從點擊那一格起就是載好的新頁、沒有灰圖格，`url` 與 `click` 同一時刻；伺服器版本的頁面是另一種顏色，整頁重載會露餡。
+  - 真的錄到未載入圖（`click(loc, false)` 不等穩定）：`quality.ok=false`、`unloadedImages` 指出哪幾秒哪張圖。
   - 截圖空檔：網頁自己卡 250 ms 只標記；錄影程序卡 300 ms（截圖跟不上）中止並報錯。
-- `runs.test.ts`：run 目錄原子建立與撞名拒絕；錄影名額最多 2 路、第 3 路排隊印「等待錄影名額」、程序已結束的鎖會回收。
+- `runs.test.ts`：run 目錄原子建立與撞名拒絕；錄影名額最多 2 路、第 3 路排隊印「等待錄影名額」；鎖檔常駐、不自己回收。跨程序（`test/slot-holder.ts` 當獨立程序）：5 個程序同一毫秒搶 2 個名額、任何時刻持有者 ≤ 2（目錄裡留著舊鎖檔也一樣）；持有者被 `kill -9` 後名額自動釋放給排隊的。
 - `render.test.ts`：合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、字幕條、游標位置、波紋圓心與配音音量。
 - `assemble.test.ts`：說明欄的 YouTube 規則（第一行 0:00、時間碼遞增、間隔 ≥ 10 秒、最後一個時間碼到片尾 ≥ 10 秒、總字數上限、90 字截斷、短段合併）、功能時間軸連結、功能表解析（必要表頭、`\|`、欄數不符報錯、段編號與範圍）、時間碼回填與 index.html 時間碼。
 
