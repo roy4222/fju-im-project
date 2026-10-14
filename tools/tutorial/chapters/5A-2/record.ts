@@ -46,6 +46,8 @@ try {
   const pending = page.getByRole('region', { name: '待審核' });
   const accounts = page.getByRole('table', { name: '帳號列表' });
   const search = page.getByRole('searchbox', { name: '搜尋姓名、學號或 Email' });
+  // 示範資料有兩位周子瑜（114 屆組長 411410300、113 屆已停用的 410410500），用學號鎖定 114 屆那位。
+  const zhou = accounts.getByRole('row').filter({ hasText: '411410300' });
 
   await t.step({
     caption: '帳號管理總覽',
@@ -159,8 +161,8 @@ try {
   }, async () => {
     await t.type(search, '周子瑜');
     await t.press('Enter'); // 搜尋要按 Enter 才會篩選
-    await t.waitStable({ ready: accounts.getByRole('row').filter({ hasText: '周子瑜' }) });
-    await t.click(accounts.getByRole('button', { name: '更多 周子瑜' }));
+    await t.waitStable({ ready: zhou });
+    await t.click(zhou.getByRole('button', { name: '更多 周子瑜' }));
     await t.click(page.getByRole('menuitem', { name: '停用 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '停用 周子瑜' }) });
     await t.select(dialog.getByRole('combobox', { name: /^接任 G01 組長/ }), '許哲瑋（411410301）');
@@ -177,8 +179,8 @@ try {
     status: { kind: 'ok', evidence: 'story-6 第 16 步；⚠️ story-6 N-50：被停用的人登入頁沒說明原因（建議）' },
   }, async () => {
     // 停用後列表會刷新（「更多」換成「恢復」）；等刷新完再點，免得點在刷新前的位置。
-    await t.waitStable({ ready: accounts.getByRole('button', { name: '恢復 周子瑜' }) });
-    await t.click(accounts.getByRole('button', { name: '恢復 周子瑜' }));
+    await t.waitStable({ ready: zhou.getByRole('button', { name: '恢復 周子瑜' }) });
+    await t.click(zhou.getByRole('button', { name: '恢復 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '恢復 周子瑜' }) });
     await t.type(dialog.getByRole('textbox', { name: /^理由/ }), '復學');
     await t.click(dialog.getByRole('button', { name: '確認恢復' }));
