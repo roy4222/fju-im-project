@@ -99,7 +99,7 @@ try {
     await t.hover(dialog.getByText('沒問題').first());
     await t.hover(dialog.getByText(/若勾選「重要公告」，會通知 \d+ 位/));
     await t.hover(dialog.getByText('學生看到的樣子'));
-    await t.click(dialog.getByText('重要公告：逐人發站內通知給對象'));
+    await t.click(dialog.getByRole('checkbox', { name: /^重要公告/ }));
   });
 
   await t.step({

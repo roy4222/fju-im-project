@@ -129,9 +129,12 @@ try {
     const manage = main.getByRole('region', { name: '系辦管理' });
     await t.scroll(manage.getByText('匯出同意紀錄'));
     await t.hover(manage.getByRole('button', { name: '匯出可列印頁' }));
-    // 匯出是 target=_blank 的表單：新分頁不在錄影裡，關掉後重新整理，看這次匯出留下的紀錄
-    await t.click(manage.getByRole('button', { name: '匯出CSV 明細' }), false);
+    // 匯出是 target=_blank 的表單：開新分頁會拖慢錄影截圖，所以游標指到按鈕後，真正按下與關掉新分頁都在錄影外做，
+    // 再重新整理看這次匯出留下的紀錄
+    const csv = manage.getByRole('button', { name: '匯出CSV 明細' });
+    await t.hover(csv);
     await t.offRecord(async () => {
+      await csv.click();
       await page.waitForTimeout(1500);
       for (const p of page.context().pages()) if (p !== page) await p.close();
     });

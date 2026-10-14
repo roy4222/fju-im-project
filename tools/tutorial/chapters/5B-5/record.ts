@@ -93,6 +93,7 @@ try {
     // 「開新分頁看前台首頁」開的是新分頁，錄影只錄這一頁：直接在這一頁開首頁
     await t.goto('/');
     await t.hover(page.getByRole('heading', { level: 1 }));
+    await t.wait(2500);
     await t.scroll(page.getByRole('contentinfo'));
   });
 
