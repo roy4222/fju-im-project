@@ -1,5 +1,5 @@
 // 錄影的「場地」：每次錄影一個獨立 run 目錄（原子建立，撞名就拒絕），
-// 加上全機共用的錄影名額（同一台機器同時最多 2 路在錄，其餘排隊；用作業系統的檔案鎖，程序死掉自動釋放）。
+// 加上全機共用的錄影名額（同一台機器預設同時只有 1 路在錄，其餘排隊；用作業系統的檔案鎖，程序死掉自動釋放）。
 
 import { closeSync, constants, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
@@ -11,8 +11,11 @@ export const RECORDING_MARK = '.recording';
 /** 錄影失敗時留下的說明檔。 */
 export const FAILED_MARK = 'FAILED.txt';
 
-/** 主腦定案：同一台機器同時最多 2 路在錄（再多截圖會掉到每秒 25 張以下）。 */
-export const DEFAULT_RECORD_SLOTS = 2;
+/**
+ * 預設同一台機器同時只錄 1 路（第 2 輪定案：Mac mini 2 路同時錄時截圖間隔多次 100～639 ms）。
+ * 要開第 2 路用環境變數 TUTORIAL_RECORD_SLOTS=2（每一路都要設同一個值，名額才一致）。
+ */
+export const DEFAULT_RECORD_SLOTS = 1;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -71,7 +74,7 @@ export type SlotHolder = { pid: number; host: string; label: string; since: stri
 export type SlotOptions = {
   /** 名額鎖放哪；預設 ~/work/tutorial-out/.record-slots（可用 TUTORIAL_SLOTS_DIR 覆寫）。 */
   dir?: string;
-  /** 同時幾路；預設 2（可用 TUTORIAL_RECORD_SLOTS 覆寫）。 */
+  /** 同時幾路；預設 1（可用 TUTORIAL_RECORD_SLOTS 覆寫）。 */
   max?: number;
   /** 誰在用（印在等待訊息與鎖檔裡）。 */
   label?: string;

@@ -15,7 +15,7 @@ export type StepStatus = { kind: StatusKind; say?: string; evidence?: string };
 
 /** 白話超過這麼多字就在畫面上截斷加「…」（events.json 留全文）。 */
 export const SAY_MAX_CHARS = 22;
-const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '', bad: '', pending: '等你決定：' };
+const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '能用但有問題', bad: '還不能用', pending: '等你決定' };
 
 export type StepRecord = {
   index: number; // 1 起算
@@ -33,8 +33,26 @@ export type ChapterEvent =
   | { type: 'type'; startMs: number; endMs: number; text: string }
   | { type: 'select'; atMs: number; value: string }
   | { type: 'upload'; atMs: number; file: string }
-  | { type: 'scroll'; startMs: number; endMs: number; dy: number }
+  | { type: 'scroll'; startMs: number; endMs: number; dy: number; dx?: number }
+  | { type: 'press'; atMs: number; key: string }
   | { type: 'url'; atMs: number; url: string };
+
+/** 按鍵提示在畫面上停留多久。 */
+export const PRESS_HINT_MS = 800;
+
+const KEY_LABEL: Record<string, string> = {
+  Enter: '⏎ Enter', Escape: 'Esc', Tab: '⇥ Tab', Backspace: '⌫ Backspace', Delete: '⌦ Delete', Space: '␣ Space', ' ': '␣ Space',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
+  Meta: '⌘', Control: 'Ctrl', Alt: '⌥', Shift: '⇧', ControlOrMeta: '⌘',
+};
+
+/** Playwright 的按鍵名（例如 Enter、Control+A、Meta+K）→ 畫面上的鍵帽字（⏎ Enter、Ctrl A、⌘ K）。 */
+export function keyLabel(key: string): string {
+  return key
+    .split('+')
+    .map((k) => KEY_LABEL[k] ?? (k.length === 1 ? k.toUpperCase() : k))
+    .join(' ');
+}
 
 export type ChapterEvents = {
   version: 1;
@@ -43,7 +61,8 @@ export type ChapterEvents = {
   chapter: string;
   number?: number;
   subtitle?: string;
-  output: { width: number; height: number; chromeHeight: number };
+  /** captionHeight：下方字幕帶（頁面區在網址列與字幕帶之間）；舊資料沒有這欄，字幕改畫在頁面上。 */
+  output: { width: number; height: number; chromeHeight: number; captionHeight?: number };
   page: { width: number; height: number; zoom: number };
   /** captureLatencyMs：開頭校正量到的「畫面內容 → 截圖」延遲，影格時間已扣掉。 */
   clip: { file: string; durationMs: number; fps: number; captureLatencyMs: number };
@@ -57,12 +76,15 @@ export type ChapterEvents = {
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
 
-/** 畫面上顯示的白話（不含圖示）：ok 沒寫 say 就是「正常」；pending 前面加「等你決定：」；超過 SAY_MAX_CHARS 字截斷加「…」。 */
+/**
+ * 畫面上顯示的白話（不含圖示）。沒寫 say 時用預設：ok「正常」、warn「能用但有問題」、bad「還不能用」、pending「等你決定」；
+ * pending 有 say 時是「等你決定：」＋say。say 本身超過 SAY_MAX_CHARS 字才截斷加「…」——先截 say 再加前綴，前綴不佔 say 的額度。
+ */
 export function statusSay(st: Pick<Status, 'kind' | 'say'>): string {
-  const say = (st.say ?? '').trim();
-  const text = st.kind === 'ok' ? say || STATUS_WORD.ok : `${STATUS_WORD[st.kind]}${say}`;
-  const chars = [...text];
-  return chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : text;
+  const chars = [...(st.say ?? '').trim()];
+  const say = chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : chars.join('');
+  if (!say) return STATUS_WORD[st.kind];
+  return st.kind === 'pending' ? `${STATUS_WORD.pending}：${say}` : say;
 }
 
 /** 圖示＋白話，例如「✅ 正常」「🟡 等你決定：名稱要不要改」。 */
