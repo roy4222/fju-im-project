@@ -175,6 +175,8 @@ try {
     narration: '恢復後角色和學籍不變，原密碼還能登入。',
     status: { kind: 'ok', evidence: 'story-6 第 16 步；⚠️ story-6 N-50：被停用的人登入頁沒說明原因（建議）' },
   }, async () => {
+    // 停用後列表會刷新（「更多」換成「恢復」）；等刷新完再點，免得點在刷新前的位置。
+    await t.waitStable({ ready: accounts.getByRole('button', { name: '恢復 周子瑜' }) });
     await t.click(accounts.getByRole('button', { name: '恢復 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '恢復 周子瑜' }) });
     await t.type(dialog.getByRole('textbox', { name: /^理由/ }), '復學');
