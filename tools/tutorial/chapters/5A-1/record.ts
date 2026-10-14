@@ -53,7 +53,7 @@ try {
 
   await t.step({
     caption: '五張統計磚',
-    narration: '五張磚：待審帳號、逾期未繳、還沒評完的老師、等老師同意的組、主機儲存用量。點了進對應頁。',
+    narration: '五張磚：待審帳號、逾期未繳、還沒評完的老師、等老師同意的組、主機儲存用量。前四張可以點進對應頁；主機儲存只顯示用量。',
     status: { kind: 'ok', evidence: 'story-2 第 44 步；「缺評老師」已改白話（story-3 N-15）' },
   }, async () => {
     await t.hover(page.getByRole('link', { name: /^審核帳號 \d/ }));
