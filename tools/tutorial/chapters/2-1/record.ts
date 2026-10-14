@@ -194,6 +194,8 @@ try {
     await t.hover(hello);
     await t.wait(400);
     await t.hover(main.getByText(/現在是「階段 1/));
+    await t.wait(400);
+    await t.hover(main.getByText('還沒分組', { exact: true }));
   });
 
   await t.step({

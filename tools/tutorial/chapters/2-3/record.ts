@@ -69,12 +69,15 @@ try {
 
   await t.step({
     caption: '進老師首頁',
-    narration: '存好直接進老師首頁。新老師還沒指導任何組，各區塊都是空狀態。',
+    narration: '存好直接進老師首頁。新老師還沒有評分和指導組，這幾塊是空的；公告、活動和待指導的產學組照常顯示。',
     status: { kind: 'ok', evidence: 'story-1 第 31 步' },
   }, async () => {
     await t.hover(main.getByRole('heading', { name: new RegExp(`歡迎回來，${teacher.name}`) }));
     await t.wait(600);
-    await t.scroll(400);
+    await t.scroll(main.getByRole('heading', { name: '我的評分' }));
+    await t.hover(main.getByRole('heading', { name: '我的評分' }));
+    await t.wait(400);
+    await t.hover(main.getByRole('heading', { name: '待指導的產學組' }));
   });
 
   await t.finish();

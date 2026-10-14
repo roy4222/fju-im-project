@@ -87,7 +87,7 @@ try {
     await t.click(dialog.getByRole('button', { name: '關閉' }));
     await t.select(main.getByRole('combobox', { name: '排序方式' }), '日期（舊到新）');
     await t.waitStable();
-    await t.hover(main.getByRole('listitem').first());
+    await t.hover(main.getByRole('button', { name: /^2025-05-22 / })); // 舊到新：最早的一筆排到第一張
   });
 
   await t.finish();
