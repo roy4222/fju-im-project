@@ -31,8 +31,8 @@ await recordChapter({ id: '3-3', chapter: '學生｜繳交作業' }, async (t, p
   await t.step(
     {
       caption: '四種繳交狀態',
-      narration: '每一列寫是個人一份還是整組一份、現在的狀態、還剩幾天。這裡標題叫作業、側欄叫我的繳交、系辦叫繳交項目。',
-      status: { kind: 'pending', say: '作業／我的繳交要不要統一叫繳交項目', evidence: '用詞#30＋UX N-06' },
+      narration: '每一列寫是個人一份還是整組一份、現在的狀態、還剩幾天。學生端叫我的繳交，系辦端叫繳交項目；要不要統一，等你決定。',
+      status: { kind: 'pending', say: '我的繳交／繳交項目要不要統一', evidence: '用詞#30＋UX N-06（系辦首頁「各繳交項目完成率」；專題事務篩選叫「文件繳交」）' },
     },
     async () => {
       await t.hover(row('指導老師意願調查表').getByText('草稿已存'));
