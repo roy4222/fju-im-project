@@ -96,7 +96,7 @@ try {
 
   await t.step({
     caption: 'main 的 CI 與最近合併',
-    narration: '右邊是 main 最新一次 CI 的結果，和最近五個合併的 PR；點了會到 GitHub，影片不點。',
+    narration: '往下是最新一次自動檢查結果，以及最近合併的程式變更；點了會到 GitHub，影片不點。',
     status: { kind: 'ok', evidence: '既有保證' },
   }, async () => {
     await t.scroll(main.getByText('main 最新 CI'));

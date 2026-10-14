@@ -113,7 +113,7 @@ await recordChapter({ id: '3-2', chapter: '學生｜我的組別：找組員、�
   await t.step(
     {
       caption: '最後一位確認，組別成立',
-      narration: '換冷佳霓按確認。全員到齊，組別當場成立，四個人和提案人都會收到通知。',
+      narration: '換冷佳霓按確認。全員到齊，組別當場成立，全組四人，包括提案人，都會收到通知。',
       status: { kind: 'ok', evidence: 'story-2 第 8 步' },
     },
     async () => {
