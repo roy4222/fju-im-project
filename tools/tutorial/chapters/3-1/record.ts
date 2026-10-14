@@ -7,7 +7,7 @@ await recordChapter({ id: '3-1', chapter: '學生｜學生首頁、時間軸、�
   const nav = page.getByRole('navigation', { name: '後台導覽' });
 
   await t.offRecord(() => loginAs(page, '鄭凱文', '/dashboard/student'));
-  await t.waitStable({ offRecord: true });
+  await t.waitStable();
 
   await t.step(
     {

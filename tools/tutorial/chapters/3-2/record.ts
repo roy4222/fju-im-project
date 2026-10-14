@@ -13,7 +13,7 @@ await recordChapter({ id: '3-2', chapter: '學生｜我的組別：找組員、�
   const typeAndCase = main.getByRole('region', { name: '組別類型與合作案' });
   const switchTo = async (name: string, home: string) => {
     await t.offRecord(() => loginAs(page, name, home));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
   };
 
   await switchTo('應宥丞', '/dashboard/student');

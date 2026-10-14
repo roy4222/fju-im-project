@@ -9,7 +9,7 @@ await recordChapter({ id: '3-5', chapter: '學生｜站內同意書' }, async (t
   const progress = doc.getByRole('region', { name: '進度' });
 
   await t.offRecord(() => loginAs(page, '鄭凱文', '/dashboard/student'));
-  await t.waitStable({ offRecord: true });
+  await t.waitStable();
 
   await t.step(
     { caption: '同意書在哪', narration: '系辦建了同意書，首頁和側欄徽章都會提醒輪到你。', status: { kind: 'ok', evidence: 'story-3 第 28 步' } },

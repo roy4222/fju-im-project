@@ -69,7 +69,7 @@ await recordChapter({ id: '0', chapter: '開場｜完整教學', subtitle: '這�
   await page.context().clearCookies();
   await t.goto('/'); // goto 本身不進影片
   await t.offRecord(() => showCard(page, TITLE));
-  await t.waitStable({ offRecord: true });
+  await t.waitStable();
 
   await t.step(
     {

@@ -7,7 +7,7 @@ await recordChapter({ id: '3-4', chapter: '學生｜登入後前台：歷屆專�
   const top = page.getByRole('navigation', { name: '主導覽' });
 
   await t.offRecord(() => loginAs(page, '林彥廷', '/dashboard/student'));
-  await t.waitStable({ offRecord: true });
+  await t.waitStable();
 
   await t.step(
     {
@@ -34,6 +34,7 @@ await recordChapter({ id: '3-4', chapter: '學生｜登入後前台：歷屆專�
       await t.hover(top.getByRole('link', { name: '歷屆專題', exact: true }));
       await t.click(page.getByRole('banner').getByRole('link', { name: '歷屆專題一覽', exact: true }));
       await t.click(main.getByRole('navigation', { name: '屆別篩選' }).getByRole('link', { name: '只看得獎' }));
+      await t.waitStable();
       await t.hover(main.getByRole('searchbox', { name: '搜尋題目、組別、指導老師' }));
     },
   );
@@ -63,6 +64,7 @@ await recordChapter({ id: '3-4', chapter: '學生｜登入後前台：歷屆專�
     async () => {
       await t.click(top.getByRole('link', { name: '產學合作' }));
       await t.click(main.getByRole('navigation', { name: '連結狀態' }).getByRole('link', { name: '已有組別' }));
+      await t.waitStable();
       await t.hover(main.getByRole('link', { name: /^昱鋼精機工業/ }).getByText('已有 1 組'));
     },
   );
@@ -90,6 +92,7 @@ await recordChapter({ id: '3-4', chapter: '學生｜登入後前台：歷屆專�
     async () => {
       await t.click(top.getByRole('link', { name: '檔案下載' }));
       await t.click(main.getByRole('navigation', { name: '檔案分類' }).getByRole('link', { name: '範本與格式' }));
+      await t.waitStable();
       const item = main.getByRole('listitem').filter({ has: page.getByRole('heading', { name: '專案計畫書範本 2026' }) });
       // 下載不換頁：不等穩定（不然會一直等換頁）。
       await t.click(item.getByRole('link', { name: /^下載/ }), false);

@@ -81,7 +81,7 @@ export async function recordChapter(
 }
 
 /**
- * DRY_RUN=1：不錄影、不佔名額，用無頭 Chromium（CSS 1280×667）照劇本把每個動作做一次，
+ * DRY_RUN=1：不錄影、不佔名額，用無頭 Chromium（CSS 1280×587）照劇本把每個動作做一次，
  * 只驗證定位器找得到、流程走得通；每一步結束截一張圖到 /tmp/tutorial-dry/<id>/。
  */
 async function dryRun(
@@ -94,7 +94,7 @@ async function dryRun(
   fs.rmSync(shots, { recursive: true, force: true });
   fs.mkdirSync(shots, { recursive: true });
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 667 }, locale: 'zh-TW', timezoneId: 'Asia/Taipei' });
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 587 }, locale: 'zh-TW', timezoneId: 'Asia/Taipei' });
     const page = await ctx.newPage();
     let n = 0;
     let caption = '';

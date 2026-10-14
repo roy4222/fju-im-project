@@ -12,7 +12,7 @@ await recordChapter({ id: '3-3', chapter: '學生｜繳交作業' }, async (t, p
   const submit = () => main.getByRole('button', { name: '代表全組正式送出' });
 
   await t.offRecord(() => loginAs(page, '林彥廷', '/dashboard/student'));
-  await t.waitStable({ offRecord: true });
+  await t.waitStable();
 
   await t.step(
     {
@@ -46,6 +46,7 @@ await recordChapter({ id: '3-3', chapter: '學生｜繳交作業' }, async (t, p
     { caption: '只看待繳', narration: '待繳分頁把沒送出的都列出來，已逾期的也算進去，提醒去找系辦補交。', status: { kind: 'ok', evidence: 'story-2 N-07（10/13 已修）' } },
     async () => {
       await t.click(main.getByRole('navigation', { name: '篩選' }).getByRole('link', { name: /^待繳/ }));
+      await t.waitStable({ ready: main.getByRole('heading', { name: '待繳' }) });
     },
   );
 
