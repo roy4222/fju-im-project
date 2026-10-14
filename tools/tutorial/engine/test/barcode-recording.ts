@@ -9,7 +9,9 @@ import type { Browser } from 'playwright';
 import { CAPTION_HEIGHT, CHROME_HEIGHT, launchTutorialBrowser, newTutorialPage, startChapter } from '../recorder.ts';
 import { silentProvider } from '../tts.ts';
 import type { ChapterEvents } from '../events.ts';
+import { timeFrames, type Pause, type RawFrame } from '../frames.ts';
 import { CAPTURE_OPTS } from './env.ts';
+import { checkClick, checkFrames, type ClickCheck, type FrameCheck } from './checks.ts';
 
 const BITS = 20;
 const BLOCK = 40;
@@ -59,8 +61,9 @@ function decode(clip: string): { codes: number[]; pressed: boolean[] } {
   return { codes, pressed };
 }
 
-export type Raw = { ev: ChapterEvents; clip: string; synced: number[]; outDir: string };
-export type Recorded = Raw & { errors: number[]; clickErr: number };
+/** captures：每一張進影片的截圖的章節時間（keepFrames 留下的 frames/raw.json，換算方式與引擎相同：扣延遲、扣暫停）。 */
+export type Raw = { ev: ChapterEvents; clip: string; synced: number[]; outDir: string; captures: number[] };
+export type Recorded = Raw & { frames: FrameCheck[]; click: ClickCheck; errors: number[]; clickErr: number };
 
 /**
  * 錄一段條碼章節：兩步（第二步前因合成配音暫停計時），第一步點一下按鈕。
@@ -70,8 +73,8 @@ export async function recordBarcode(browser: Browser, root: string, slotsDir: st
   const page = await newTutorialPage(browser);
   await page.setContent(PAGE);
   const outDir = join(root, label);
-  // 看對齊與一致性，不看截圖速率：機器忙時不要因截圖間隔中止（見 env.ts）
-  const t = await startChapter({ page, outDir, chapter: `測試｜${label}`, tts: silentProvider(150), slots: { dir: slotsDir, max: 2 }, ...CAPTURE_OPTS });
+  // 看對齊與一致性，不看截圖速率：機器忙時不要因截圖間隔中止（見 env.ts）；留下原始影格的時間表（frames/raw.json）算每一格的局部上限
+  const t = await startChapter({ page, outDir, chapter: `測試｜${label}`, tts: silentProvider(150), slots: { dir: slotsDir, max: 2 }, keepFrames: true, ...CAPTURE_OPTS });
   // 每步開頭把頁面條碼對到章節時間（暫停後章節時鐘會位移，要重設）；記下設好的時間，
   // 分析只從這之後開始，免得把還沒重設的舊條碼算成誤差
   const synced: number[] = [];
@@ -90,32 +93,34 @@ export async function recordBarcode(browser: Browser, root: string, slotsDir: st
       await t.wait(1500);
     });
     const { clip, events } = await t.finish();
-    return { ev: JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents, clip, synced, outDir };
+    const raw = JSON.parse(readFileSync(join(outDir, 'frames', 'raw.json'), 'utf8')) as { t0Wall: number; pauses: Pause[]; captureLatencyMs: number; raw: RawFrame[] };
+    const captures = timeFrames(
+      raw.raw.map((f) => ({ file: f.file, wallMs: f.wallMs - raw.captureLatencyMs })),
+      raw.t0Wall,
+      raw.pauses,
+    ).map((f) => f.ms);
+    return { ev: JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents, clip, synced, outDir, captures };
   } finally {
     await t.dispose();
     await page.close();
   }
 }
 
-/** 逐格解碼、算誤差。 */
-export function analyze({ ev, clip, synced, outDir }: Raw): Recorded {
-  {
-    const { codes, pressed } = decode(clip);
-    const frameMs = 1000 / ev.clip.fps;
-    // 逐格（含重複格）：第 k 格顯示的條碼值就是那張畫面內容的章節時間
-    const errors: number[] = [];
-    for (const [i, s] of ev.steps.entries()) {
-      // 最後一格不算：下一步合成配音的暫停中，畫面會停在暫停期間最後一張（內容正確，但條碼還在走）
-      for (let k = Math.ceil((synced[i] + 100) / frameMs); (k + 1) * frameMs < s.endMs; k++) {
-        if (codes[k] !== 0) errors.push(k * frameMs - codes[k]);
-      }
-    }
-    const click = ev.events.find((e) => e.type === 'click');
-    assert.ok(click && click.type === 'click');
-    const clickErr = pressed.findIndex(Boolean) * frameMs - click.atMs;
-    assert.deepEqual([click.x, click.y], [1575, 690], '點擊座標落在按鈕中心（影片像素＝CSS×1.5）');
-    return { ev, clip, synced, errors, clickErr, outDir };
-  }
+/**
+ * 逐格解碼、對每一格與點擊做局部檢查（checks.ts）。
+ * errors／clickErr 是總誤差（格位時間 − 內容時間），印摘要與算中位數用；過不過看 frames／click。
+ */
+export function analyze({ ev, clip, synced, outDir, captures }: Raw): Recorded {
+  const { codes, pressed } = decode(clip);
+  const frameMs = 1000 / ev.clip.fps;
+  // 每一步從條碼對好時間之後 100 ms 起看；最後一格不算：下一步合成配音的暫停中，畫面會停在暫停期間最後一張（內容正確，但條碼還在走）
+  const ranges = ev.steps.map((s, i) => ({ fromMs: synced[i] + 100, toMs: s.endMs }));
+  const frames = checkFrames(captures, codes, ranges, frameMs);
+  const clickEv = ev.events.find((e) => e.type === 'click');
+  assert.ok(clickEv && clickEv.type === 'click');
+  assert.deepEqual([clickEv.x, clickEv.y], [1575, 690], '點擊座標落在按鈕中心（影片像素＝CSS×1.5）');
+  const click = checkClick(captures, clickEv.atMs, pressed.findIndex(Boolean), frameMs);
+  return { ev, clip, synced, outDir, captures, frames, click, errors: frames.map((f) => f.errMs), clickErr: click.errMs };
 }
 
 

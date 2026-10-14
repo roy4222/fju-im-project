@@ -1,5 +1,5 @@
 // 真的開 Chromium 錄影：頁面每個 rAF 把「章節時間」畫成二進位條碼，
-// 再從 clip.mp4 逐格（含重複格）解碼，證明影片時間與事件時間對齊（誤差 ≤ 50 ms）。
+// 再從 clip.mp4 逐格（含重複格）解碼，證明影片時間與事件時間對齊——每一格的上限只看這一格前後的局部截圖間隔（checks.ts）。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,18 +11,8 @@ import { promisify } from 'node:util';
 import type { Page } from 'playwright';
 import { analyze, H, recordBarcode, W, ZOOM, type Raw, type Recorded } from './barcode-recording.ts';
 import { launchTutorialBrowser, NARRATION_TAIL_MS, newTutorialPage, startChapter } from '../recorder.ts';
-import { GAP_SEVERE_MS, GAP_WARN_MS, MIN_FPS } from '../frames.ts';
-import { alignBound, CAPTURE_OPTS, STRICT } from './env.ts';
-
-/** 見 env.ts：只斷言引擎不變量（quality.ok 與數字一致、沒有超過中止門檻），張數達不達標只印出來；STRICT 時才當失敗。回傳有沒有達到單路標準。 */
-function assertQualityConsistent(name: string, q: NonNullable<ChapterEvents['quality']>): boolean {
-  const meets = q.fps >= MIN_FPS && q.maxGapMs <= GAP_WARN_MS && q.steps.every((s) => s.fps >= MIN_FPS && s.maxGapMs <= GAP_WARN_MS);
-  assert.ok(q.maxGapMs <= (CAPTURE_OPTS.maxGapMs ?? GAP_SEVERE_MS), `${name}：間隔 ${q.maxGapMs} ms 已超過中止門檻卻沒中止`);
-  assert.equal(q.ok && q.warnings.length === 0, meets, `${name}：quality.ok 要跟數字一致 ${JSON.stringify(q)}`);
-  if (!meets) console.log(`${name}：這次沒達到單路標準（${q.fps} 張／秒、最大間隔 ${q.maxGapMs} ms；loadavg ${q.system?.start.loadavg1}→${q.system?.peak.loadavg1}），引擎已正確標記 ok=false`);
-  if (STRICT) assert.ok(meets, `${name}：TUTORIAL_STRICT_QUALITY 要求達到單路標準 ${JSON.stringify(q)}`);
-  return meets;
-}
+import { CAPTURE_OPTS } from './env.ts';
+import { assertQualityConsistent, frameViolations } from './checks.ts';
 import { silentProvider } from '../tts.ts';
 import type { ChapterEvents } from '../events.ts';
 import { FAILED_MARK, probeRecordSlots, RECORDING_MARK } from '../runs.ts';
@@ -31,28 +21,35 @@ import { FAILED_MARK, probeRecordSlots, RECORDING_MARK } from '../runs.ts';
 function summarize(name: string, r: Recorded) {
   const abs = r.errors.map(Math.abs).sort((a, b) => a - b);
   const q = r.ev.quality!;
+  const residual = Math.max(...r.frames.map((f) => Math.abs(f.residualMs)));
+  const gaps = r.frames.map((f) => f.gapMs);
   console.log(
-    `${name}：逐格 ${abs.length} 格 |誤差| 中位數 ${abs[abs.length >> 1].toFixed(1)} ms、最大 ${abs.at(-1)!.toFixed(1)} ms；` +
-      `點擊（onclick）誤差 ${r.clickErr.toFixed(1)} ms；截圖 ${q.fps} 張／秒、最大間隔 ${q.maxGapMs} ms`,
+    `${name}：逐格 ${abs.length} 格 |誤差| 中位數 ${abs[abs.length >> 1].toFixed(1)} ms、最大 ${abs.at(-1)!.toFixed(1)} ms（殘差最大 ${residual.toFixed(1)} ms；局部間隔 ${Math.min(...gaps).toFixed(0)}～${Math.max(...gaps).toFixed(0)} ms）；` +
+      `點擊（onclick）誤差 ${r.clickErr.toFixed(1)} ms（局部範圍 ${r.click.loMs.toFixed(1)}～${r.click.hiMs.toFixed(1)}）；截圖 ${q.fps} 張／秒、最大間隔 ${q.maxGapMs} ms`,
   );
   return abs;
 }
 
-test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點擊與 onclick 反應對齊，步驟長度 ≥ 配音＋0.6 秒', { timeout: 120_000 }, async () => {
+/** 逐格與點擊都用局部上限（checks.ts）；中位數另外守住系統性偏移（校正或時鐘偏移壞掉會在這裡失敗，空機與 loadavg 11 時都是 7～12 ms）。 */
+function assertAligned(name: string, r: Recorded): void {
+  const abs = summarize(name, r);
+  assert.ok(abs.length > 100, `${name}：取樣太少：${abs.length}`);
+  assert.deepEqual(frameViolations(r.frames), [], `${name}：有格沒對齊`);
+  assert.ok(abs[abs.length >> 1] <= 25, `${name}：誤差中位數 ${abs[abs.length >> 1]} ms`);
+  const c = r.click;
+  assert.ok(c.ok, `${name}：點擊誤差 ${c.errMs.toFixed(1)} ms 不在局部範圍 ${c.loMs.toFixed(1)}～${c.hiMs.toFixed(1)} ms（點擊前兩張截圖 ${c.before.map((a) => a.toFixed(1)).join('、')}、後兩張 ${c.after.map((a) => a.toFixed(1)).join('、')}）`);
+}
+
+test('影片時間與事件時間逐格對齊（含重複格；每一格以局部截圖間隔為上限），點擊與 onclick 變色在點擊前後的局部截圖之間，步驟長度 ≥ 配音＋0.6 秒', { timeout: 120_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tutorial-rec-'));
   const browser = await launchTutorialBrowser();
   try {
     const r = analyze(await recordBarcode(browser, root, join(root, 'slots'), 'single'));
-    const abs = summarize('單路', r);
-    assert.ok(abs.length > 100, `取樣太少：${abs.length}`);
     const { ev, clip } = r;
-    // 截圖品質寫進 events.json；逐格誤差不會超過實際的截圖間隔
+    // 截圖品質寫進 events.json，旗標與數字一致；逐格與點擊各看局部上限
     assert.ok(ev.quality, '要有 quality');
-    const bound = alignBound(assertQualityConsistent('單路', ev.quality), ev.quality.maxGapMs);
-    assert.ok(abs.at(-1)! <= bound, `最大誤差 ${abs.at(-1)} ms（上限 ${bound}）`);
-    // 中位數不受機器負載影響（空機與 loadavg 11 時都是 7～12 ms）：校正或時鐘偏移壞掉會在這裡失敗
-    assert.ok(abs[abs.length >> 1] <= 25, `誤差中位數 ${abs[abs.length >> 1]} ms`);
-    assert.ok(Math.abs(r.clickErr) <= bound, `點擊誤差 ${r.clickErr} ms`);
+    assertQualityConsistent('單路', ev.quality);
+    assertAligned('單路', r);
     // 錄影當下的系統負載
     const sys = ev.quality.system!;
     assert.ok(sys.cpus > 0 && sys.totalMemMB > 0 && sys.start.loadavg1 >= 0 && sys.peak.loadavg1 >= sys.start.loadavg1 && sys.end.freeMemMB > 0, JSON.stringify(sys));
@@ -87,7 +84,7 @@ test('影片時間與事件時間逐格對齊（含重複格 ≤ 50 ms），點�
 
 // 兩路同時錄是 TUTORIAL_RECORD_SLOTS=2 才會發生的情況（預設 1 路）。這個測試要證明的是「兩路各自仍對得齊、不會中止」；
 // 截圖張數在 Mac mini 上兩路時本來就卡在單路標準的邊緣（實測 loadavg 4.5 時 24.8 張／秒、間隔 51 ms），張數不在這裡斷言。
-test('兩路同時錄影（兩個獨立程序，跟實際一樣）：各自逐格誤差不超過截圖間隔、沒有中止（間隔 ≤ 100 ms）', { timeout: 180_000 }, async () => {
+test('兩路同時錄影（兩個獨立程序，跟實際一樣）：各自逐格與點擊都在局部截圖間隔內、沒有中止', { timeout: 180_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tutorial-rec2-'));
   try {
     const slots = join(root, 'slots');
@@ -101,12 +98,8 @@ test('兩路同時錄影（兩個獨立程序，跟實際一樣）：各自逐�
       )
     ).map(analyze);
     rs.forEach((r, i) => {
-      const abs = summarize(`兩路並行 #${i + 1}`, r);
-      const q = r.ev.quality!;
-      const bound = alignBound(assertQualityConsistent(`兩路 #${i + 1}`, q), q.maxGapMs);
-      assert.ok(abs.at(-1)! <= bound, `#${i + 1} 最大誤差 ${abs.at(-1)} ms（上限 ${bound}）`);
-      assert.ok(abs[abs.length >> 1] <= 25, `#${i + 1} 誤差中位數 ${abs[abs.length >> 1]} ms`);
-      assert.ok(Math.abs(r.clickErr) <= bound, `#${i + 1} 點擊誤差 ${r.clickErr} ms`);
+      assertQualityConsistent(`兩路 #${i + 1}`, r.ev.quality!);
+      assertAligned(`兩路並行 #${i + 1}`, r);
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
