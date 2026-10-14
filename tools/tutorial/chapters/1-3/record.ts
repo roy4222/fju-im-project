@@ -85,6 +85,8 @@ try {
     status: { kind: 'ok', evidence: '既有保證' },
   }, async () => {
     await t.click(dialog.getByRole('button', { name: '關閉' }));
+    // 排序下拉要在固定頁首下方：先把篩選列帶到畫面上方三分之一
+    await t.scroll(main.getByRole('navigation', { name: '年份篩選' }));
     await t.select(main.getByRole('combobox', { name: '排序方式' }), '日期（舊到新）');
     await t.waitStable();
     await t.hover(main.getByRole('button', { name: /^2025-05-22 / })); // 舊到新：最早的一筆排到第一張
