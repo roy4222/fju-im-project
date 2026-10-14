@@ -142,7 +142,7 @@ try {
 
   await t.step({
     caption: '發布後的編輯器',
-    narration: '發布後頂列變成撤回、下架、發布更新；右邊的發布紀錄列每次發布、改內容、改截止、有沒有勾通知。',
+    narration: '發布後頂列變成撤回、下架、發布更新；頁面下方的發布紀錄列每次發布、改內容、改截止、有沒有勾通知。',
     status: { kind: 'ok', evidence: 'story-2 第 24 步' },
   }, async () => {
     await t.click(main.getByRole('link', { name: '編輯：示範：期中報告初稿' }));

@@ -86,7 +86,7 @@ try {
 
   await t.step({
     caption: '開放補交',
-    narration: '填期限和理由，學生會收到通知；名單上只有他變成補交中。',
+    narration: '填期限和理由，學生會收到通知。他的狀態仍顯示未繳，下方列出補交期限；其他人仍是已截止。',
     status: { kind: 'ok', evidence: 'UX 學期中系辦 任務 7' },
   }, async () => {
     await t.click(main.getByRole('button', { name: '讓他補交' }));
