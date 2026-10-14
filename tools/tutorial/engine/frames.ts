@@ -62,6 +62,10 @@ export const GAP_SEVERE_MS = 100;
 export const MIN_FPS = 25;
 
 export type SpanQuality = { fps: number; maxGapMs: number; p95GapMs: number; ok: boolean };
+/** 錄影當下的系統負載（判斷截圖間隔過大是不是機器太忙）：loadavg 與可用記憶體（MB；macOS 的 free 偏保守）。 */
+export type LoadSample = { /** 採樣時間（epoch ms）。 */ at: number; loadavg1: number; loadavg5: number; freeMemMB: number };
+/** end 是「停止截圖那一刻」的快照：之後的 ffmpeg 解碼／編碼負載不算進來。 */
+export type SystemLoad = { cpus: number; totalMemMB: number; start: LoadSample; peak: { loadavg1: number; freeMemMB: number }; end: LoadSample };
 export type CaptureQuality = SpanQuality & {
   steps: (SpanQuality & { index: number })[];
   warnings: string[];
@@ -69,6 +73,8 @@ export type CaptureQuality = SpanQuality & {
   pageJank?: { atMs: number; gapMs: number; reason: string; url: string }[];
   /** 錄影中抽查到畫面內有還沒載好的圖片的時間段（章節時間；有就 ok=false）。 */
   unloadedImages?: { fromMs: number; toMs: number; count: number; sample: string; url: string }[];
+  /** 錄影開始、期間峰值與結束時的系統負載。 */
+  system?: SystemLoad;
 };
 
 function spanQuality(times: readonly number[], from: number, to: number): SpanQuality {

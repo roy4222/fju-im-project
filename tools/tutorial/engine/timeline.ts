@@ -1,11 +1,14 @@
 // 後製時間軸：純函式。把 events.json 換成「輸出影片時間」上的疊加片段與游標動畫。
 
 import { cursorAt, type Move, type Point } from './cursor.ts';
-import type { ChapterEvents, Status } from './events.ts';
+import { keyLabel, PRESS_HINT_MS, type ChapterEvents, type Status } from './events.ts';
 
 export type OverlayState = {
+  /** overlaySegments 只放畫面用得到的 kind 與 say（evidence 不進疊加層，也不會讓片段多切一刀）。 */
   step?: { index: number; caption: string; status?: Status };
   url?: string;
+  /** 正在顯示的按鍵提示（鍵帽字），按下後停留 PRESS_HINT_MS。 */
+  press?: string;
 };
 
 export type Segment = { startMs: number; endMs: number; state: OverlayState };
@@ -15,6 +18,8 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
   const cuts = new Set<number>([0, ev.clip.durationMs]);
   for (const s of ev.steps) cuts.add(s.startMs).add(s.endMs);
   for (const e of ev.events) if (e.type === 'url') cuts.add(e.atMs);
+  const presses = ev.events.filter((e) => e.type === 'press');
+  for (const e of presses) cuts.add(e.atMs).add(Math.min(ev.clip.durationMs, e.atMs + PRESS_HINT_MS));
   const times = [...cuts].filter((t) => t >= 0 && t <= ev.clip.durationMs).sort((a, b) => a - b);
   const urls = ev.events.filter((e) => e.type === 'url');
   const segs: Segment[] = [];
@@ -23,9 +28,11 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
     if (b <= a) continue;
     const s = ev.steps.find((x) => x.startMs <= a && a < x.endMs);
     const u = [...urls].reverse().find((x) => x.atMs <= a) ?? urls[0];
+    const p = [...presses].reverse().find((x) => x.atMs <= a && a < x.atMs + PRESS_HINT_MS);
     const state: OverlayState = {
-      step: s ? { index: s.index, caption: s.caption, status: s.status } : undefined,
+      step: s ? { index: s.index, caption: s.caption, status: s.status ? { kind: s.status.kind, ...(s.status.say ? { say: s.status.say } : {}) } : undefined } : undefined,
       url: u ? displayUrl(u.url, ev.displayOrigin) : undefined,
+      ...(p ? { press: keyLabel(p.key) } : {}),
     };
     const prev = segs.at(-1);
     if (prev && JSON.stringify(prev.state) === JSON.stringify(state)) prev.endMs = b;
@@ -34,12 +41,20 @@ export function overlaySegments(ev: ChapterEvents): Segment[] {
   return segs;
 }
 
-/** 假網址列顯示的字：主機＋路徑＋查詢，不顯示 https://。 */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 假網址列顯示的字：主機＋路徑＋查詢，不顯示 https://；值是 UUID 的查詢參數（例如 ?cohort=<uuid>）不顯示（events.json 仍是真實網址）。 */
 export function displayUrl(url: string, displayOrigin?: string): string {
   try {
     const u = new URL(url);
     const host = displayOrigin || u.host;
-    const rest = safeDecode(`${u.pathname}${u.search}${u.hash}`);
+    // 直接在原始查詢字串上過濾：只拿掉值是 UUID 的那一組（同名的其他值留著），其餘參數保留原本的編碼
+    const query = u.search
+      .slice(1)
+      .split('&')
+      .filter((part) => part && !UUID.test(safeDecode(part.slice(part.indexOf('=') + 1))))
+      .join('&');
+    const rest = safeDecode(`${u.pathname}${query ? `?${query}` : ''}${u.hash}`);
     return rest === '/' ? host : `${host}${rest}`;
   } catch {
     return url;

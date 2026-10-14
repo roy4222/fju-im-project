@@ -2,7 +2,7 @@
 // 中文字（PingFang TC／Noto Sans TC）與彩色 emoji 都交給瀏覽器排版。
 
 import type { Browser } from 'playwright';
-import { STATUS_ICON, type StatusKind } from './events.ts';
+import { STATUS_ICON, statusSay, type StatusKind } from './events.ts';
 import { BRAND_ORANGE, type OverlayState } from './timeline.ts';
 
 const FONT = `"PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", "Heiti TC", sans-serif`;
@@ -25,14 +25,17 @@ function page(width: number, height: number, body: string, background = 'transpa
 }
 
 /** 一個疊加片段的整張 HTML（透明底）。 */
-export function overlayHtml(state: OverlayState, size: { width: number; height: number; chromeHeight: number }, stepLabel?: string): string {
+export function overlayHtml(state: OverlayState, size: { width: number; height: number; chromeHeight: number; captionHeight?: number }, stepLabel?: string): string {
   const { width, chromeHeight } = size;
+  const captionHeight = size.captionHeight ?? 0;
   const st = state.step?.status;
-  // 狀態標記放在假網址列右端：永遠在右上角，又不會蓋住網站自己的導覽列
+  // 狀態標記放在假網址列右端：永遠在右上角，又不會蓋住網站自己的導覽列。
+  // 只顯示圖示＋白話（say；超過 22 字截斷），依據（evidence／舊的 note）不上畫面
+  const say = st ? statusSay(st) : '';
   const badge = st
     ? `<div style="flex:none;max-width:900px;height:56px;display:flex;align-items:center;gap:12px;padding:0 24px 0 16px;border-radius:28px;background:#fff;border:3px solid ${STATUS_COLOR[st.kind]};box-shadow:0 2px 10px rgba(0,0,0,.12)">
         <span style="font-size:32px;line-height:1;font-family:'Apple Color Emoji','Noto Color Emoji',sans-serif">${STATUS_ICON[st.kind]}</span>
-        ${st.note ? `<span style="font-size:27px;font-weight:600;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(st.note)}</span>` : ''}
+        ${say ? `<span style="font-size:27px;font-weight:600;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(say)}</span>` : ''}
       </div>`
     : '';
   const parts: string[] = [];
@@ -45,15 +48,31 @@ export function overlayHtml(state: OverlayState, size: { width: number; height: 
     </div>
     ${badge}
   </div>`);
-  if (state.step) {
-    const label = stepLabel ?? String(state.step.index);
-    parts.push(`<div style="position:absolute;left:0;right:0;bottom:44px;display:flex;justify-content:center">
-      <div style="max-width:${width - 240}px;display:flex;align-items:center;gap:26px;padding:22px 40px 22px 24px;border-radius:22px;background:rgba(17,20,28,.86);box-shadow:0 10px 30px rgba(0,0,0,.25)">
-        <span style="flex:none;min-width:64px;height:64px;padding:0 14px;border-radius:32px;background:${BRAND_ORANGE};color:#fff;font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center">${esc(label)}</span>
-        <span style="color:#fff;font-size:46px;font-weight:600;line-height:1.3">${esc(state.step.caption)}</span>
-      </div></div>`);
+  const label = state.step ? esc(stepLabel ?? String(state.step.index)) : '';
+  const badgeHtml = state.step
+    ? `<span style="flex:none;min-width:64px;height:64px;padding:0 14px;border-radius:32px;background:${BRAND_ORANGE};color:#fff;font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center">${label}</span>
+        <span style="color:#fff;font-size:46px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(state.step.caption)}</span>`
+    : '';
+  if (captionHeight > 0) {
+    // 專用字幕帶：在頁面區外（底部），字幕與按鍵提示都放這裡，網頁內容永遠不被蓋住
+    parts.push(`<div style="position:absolute;left:0;right:0;bottom:0;height:${captionHeight}px;background:#11141C;border-top:1px solid #2A2F3A;display:flex;align-items:center;justify-content:center;padding:0 ${state.press ? 360 : 120}px">
+      <div style="max-width:100%;display:flex;align-items:center;gap:26px">${badgeHtml}</div>
+    </div>`);
+    if (state.press) parts.push(keycapHtml(state.press, { right: 48, bottom: Math.round((captionHeight - 58) / 2) }));
+  } else {
+    // 舊版面（沒有字幕帶的 events.json）：字幕浮在頁面底部
+    if (state.step) {
+      parts.push(`<div style="position:absolute;left:0;right:0;bottom:44px;display:flex;justify-content:center">
+      <div style="max-width:${width - 240}px;display:flex;align-items:center;gap:26px;padding:22px 40px 22px 24px;border-radius:22px;background:rgba(17,20,28,.86);box-shadow:0 10px 30px rgba(0,0,0,.25)">${badgeHtml}</div></div>`);
+    }
+    if (state.press) parts.push(keycapHtml(state.press, { right: 40, bottom: 190 }));
   }
   return page(width, size.height, parts.join(''));
+}
+
+/** 按鍵提示：小鍵帽（白底、灰框、底下一道陰影）。 */
+function keycapHtml(label: string, pos: { right: number; bottom: number }): string {
+  return `<div style="position:absolute;right:${pos.right}px;bottom:${pos.bottom}px;display:flex;align-items:center;gap:8px;padding:10px 22px;border-radius:14px;background:#F8F9FB;border:2px solid #C9CED6;box-shadow:0 5px 0 #B5BBC5,0 8px 18px rgba(0,0,0,.25);color:#1F2937;font-size:30px;font-weight:600;letter-spacing:.5px;white-space:nowrap">${esc(label)}</div>`;
 }
 
 function urlParts(url: string): string {

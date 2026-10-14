@@ -5,7 +5,17 @@ import type { Point } from './cursor.ts';
 import type { CaptureQuality } from './frames.ts';
 
 export type StatusKind = 'ok' | 'warn' | 'bad' | 'pending';
-export type Status = { kind: StatusKind; note?: string };
+/**
+ * 步驟的狀態標記。畫面上只顯示圖示＋白話（say）；evidence（依據，例如「story-2 第 39 步」）不上畫面，
+ * 只寫進 events.json 與 assemble 產出的 feature-timeline／index.html。舊寫法的 note 視為 evidence。
+ */
+export type Status = { kind: StatusKind; say?: string; evidence?: string; note?: string };
+/** 劇本裡 step() 的 status 寫法：新寫法是物件；舊寫法是字串（說明放在 note，視為 evidence）。 */
+export type StepStatus = { kind: StatusKind; say?: string; evidence?: string };
+
+/** 白話超過這麼多字就在畫面上截斷加「…」（events.json 留全文）。 */
+export const SAY_MAX_CHARS = 22;
+const STATUS_WORD: Record<StatusKind, string> = { ok: '正常', warn: '能用但有問題', bad: '還不能用', pending: '等你決定' };
 
 export type StepRecord = {
   index: number; // 1 起算
@@ -23,8 +33,26 @@ export type ChapterEvent =
   | { type: 'type'; startMs: number; endMs: number; text: string }
   | { type: 'select'; atMs: number; value: string }
   | { type: 'upload'; atMs: number; file: string }
-  | { type: 'scroll'; startMs: number; endMs: number; dy: number }
+  | { type: 'scroll'; startMs: number; endMs: number; dy: number; dx?: number }
+  | { type: 'press'; atMs: number; key: string }
   | { type: 'url'; atMs: number; url: string };
+
+/** 按鍵提示在畫面上停留多久。 */
+export const PRESS_HINT_MS = 800;
+
+const KEY_LABEL: Record<string, string> = {
+  Enter: '⏎ Enter', Escape: 'Esc', Tab: '⇥ Tab', Backspace: '⌫ Backspace', Delete: '⌦ Delete', Space: '␣ Space', ' ': '␣ Space',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
+  Meta: '⌘', Control: 'Ctrl', Alt: '⌥', Shift: '⇧', ControlOrMeta: '⌘',
+};
+
+/** Playwright 的按鍵名（例如 Enter、Control+A、Meta+K）→ 畫面上的鍵帽字（⏎ Enter、Ctrl A、⌘ K）。 */
+export function keyLabel(key: string): string {
+  return key
+    .split('+')
+    .map((k) => KEY_LABEL[k] ?? (k.length === 1 ? k.toUpperCase() : k))
+    .join(' ');
+}
 
 export type ChapterEvents = {
   version: 1;
@@ -33,7 +61,8 @@ export type ChapterEvents = {
   chapter: string;
   number?: number;
   subtitle?: string;
-  output: { width: number; height: number; chromeHeight: number };
+  /** captionHeight：下方字幕帶（頁面區在網址列與字幕帶之間）；舊資料沒有這欄，字幕改畫在頁面上。 */
+  output: { width: number; height: number; chromeHeight: number; captionHeight?: number };
   page: { width: number; height: number; zoom: number };
   /** captureLatencyMs：開頭校正量到的「畫面內容 → 截圖」延遲，影格時間已扣掉。 */
   clip: { file: string; durationMs: number; fps: number; captureLatencyMs: number };
@@ -46,6 +75,40 @@ export type ChapterEvents = {
 };
 
 export const STATUS_ICON: Record<StatusKind, string> = { ok: '✅', warn: '⚠️', bad: '❌', pending: '🟡' };
+
+/**
+ * 畫面上顯示的白話（不含圖示）。沒寫 say 時用預設：ok「正常」、warn「能用但有問題」、bad「還不能用」、pending「等你決定」；
+ * pending 有 say 時是「等你決定：」＋say。say 本身超過 SAY_MAX_CHARS 字才截斷加「…」——先截 say 再加前綴，前綴不佔 say 的額度。
+ */
+export function statusSay(st: Pick<Status, 'kind' | 'say'>): string {
+  const chars = [...(st.say ?? '').trim()];
+  const say = chars.length > SAY_MAX_CHARS ? `${chars.slice(0, SAY_MAX_CHARS).join('')}…` : chars.join('');
+  if (!say) return STATUS_WORD[st.kind];
+  return st.kind === 'pending' ? `${STATUS_WORD.pending}：${say}` : say;
+}
+
+/** 圖示＋白話，例如「✅ 正常」「🟡 等你決定：名稱要不要改」。 */
+export function statusLabel(st: Pick<Status, 'kind' | 'say'>): string {
+  const say = statusSay(st);
+  return say ? `${STATUS_ICON[st.kind]} ${say}` : STATUS_ICON[st.kind];
+}
+
+/** 依據（不上畫面）：新寫法 evidence，舊寫法 note。 */
+export function statusEvidence(st: Pick<Status, 'evidence' | 'note'> | undefined): string | undefined {
+  const e = (st?.evidence ?? st?.note ?? '').trim();
+  return e || undefined;
+}
+
+/** 劇本給的 status（字串或物件）＋舊的 note → events.json 的 Status；全文保留，截斷只在畫面上做。 */
+export function normalizeStatus(status: StatusKind | StepStatus | undefined, note?: string): Status | undefined {
+  if (!status) return undefined;
+  if (typeof status === 'string') return { kind: status, ...(note ? { evidence: note } : {}) };
+  const out: Status = { kind: status.kind };
+  if (status.say?.trim()) out.say = status.say.trim();
+  const evidence = (status.evidence ?? note ?? '').trim();
+  if (evidence) out.evidence = evidence;
+  return out;
+}
 
 /** 段編號：id，舊資料用 number。 */
 export function chapterId(ev: Pick<ChapterEvents, 'id' | 'number'>): string | undefined {

@@ -51,6 +51,36 @@ test('錄影名額：最多 2 路，第 3 路排隊並印「等待錄影名額�
   }
 });
 
+test('錄影名額預設 1 路：第 2 路排隊；TUTORIAL_RECORD_SLOTS=2 可以開第 2 路', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tutorial-slots-'));
+  const saved = process.env.TUTORIAL_RECORD_SLOTS;
+  delete process.env.TUTORIAL_RECORD_SLOTS;
+  try {
+    const s1 = await acquireRecordSlot({ dir, label: 'A', pollMs: 50 });
+    let got = false;
+    const logs: string[] = [];
+    const p2 = acquireRecordSlot({ dir, label: 'B', pollMs: 50, log: (m) => logs.push(m) }).then((s) => {
+      got = true;
+      return s;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(got, false, '預設 1 路：第 2 路要等');
+    assert.ok(logs[0]?.includes('同時最多 1 路'), logs.join('\n'));
+    s1.release();
+    (await p2).release();
+    process.env.TUTORIAL_RECORD_SLOTS = '2';
+    const a = await acquireRecordSlot({ dir, label: 'A' });
+    const b = await acquireRecordSlot({ dir, label: 'B' }); // 不用等
+    assert.notEqual(a.index, b.index);
+    a.release();
+    b.release();
+  } finally {
+    if (saved == null) delete process.env.TUTORIAL_RECORD_SLOTS;
+    else process.env.TUTORIAL_RECORD_SLOTS = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('錄影名額：鎖檔常駐、不自己回收；沒有程序持有就是空的名額（舊鎖檔內容無所謂）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tutorial-slots-'));
   try {
