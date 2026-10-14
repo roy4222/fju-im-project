@@ -124,9 +124,9 @@ try {
     await t.click(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '通知', exact: true }));
     await t.hover(main.getByText(/跟你有關的事件都會出現在這裡/));
     await t.click(main.getByRole('navigation', { name: '依屆別篩選' }).getByRole('link', { name: '示範 114 屆（DEMO-114）' }));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.click(main.getByRole('region', { name: '通知列表' }).getByRole('button', { name: /標為已讀$/ }).first());
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
   });
 
   await t.finish();

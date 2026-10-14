@@ -53,7 +53,7 @@ try {
     await t.wait(300);
     await t.press('Enter'); // 畫面顯示鍵帽；送出後換網址（?q=）
     await page.waitForURL(/[?&]q=/);
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(main.getByRole('link', { name: /114 學年度專題分組作業與指導老師意願調查開始受理/ }));
   });
 
@@ -90,7 +90,7 @@ try {
   }, async () => {
     await t.click(nav.getByRole('link', { name: '專題規則', exact: true }));
     await t.click(main.getByRole('navigation', { name: '規則目錄' }).getByRole('link', { name: '四、專題分組、選取指導老師' }));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(main.getByText(/註四：若老師有產學合作/));
   });
 

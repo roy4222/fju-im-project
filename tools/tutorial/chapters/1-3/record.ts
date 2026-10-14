@@ -29,7 +29,7 @@ try {
     await t.click(nav.getByRole('link', { name: '優秀專題', exact: true }));
     await t.hover(main.getByRole('navigation', { name: '屆別篩選' }).getByRole('link', { name: '全部屆別' }));
     await t.select(main.getByRole('combobox', { name: '排序方式' }), '優秀專題優先');
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
   });
 
   await t.step({
@@ -38,15 +38,15 @@ try {
     status: { kind: 'ok', evidence: 'story-1 第 4 步' },
   }, async () => {
     await t.click(main.getByRole('button', { name: /城市微光：公共資訊可讀性改善/ }));
-    await t.waitStable({ ready: dialog, offRecord: true });
+    await t.waitStable({ ready: dialog });
     await t.hover(dialog.getByRole('heading', { level: 2 }));
     await t.wait(600);
     await t.click(dialog.getByRole('button', { name: '下一件' }));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.wait(600);
     // 回到「城市微光」：下一步看它的詳情頁（有影片入口）
     await t.click(dialog.getByRole('button', { name: '上一件' }));
-    await t.waitStable({ ready: dialog.getByRole('heading', { name: '城市微光：公共資訊可讀性改善' }), offRecord: true });
+    await t.waitStable({ ready: dialog.getByRole('heading', { name: '城市微光：公共資訊可讀性改善' }) });
   });
 
   await t.step({
@@ -76,7 +76,7 @@ try {
     await t.hover(main.getByRole('link', { name: '歷屆專題' }));
     await t.wait(300);
     await t.click(main.getByRole('button', { name: /全國大專校院資訊應用服務創新競賽/ }).first());
-    await t.waitStable({ ready: dialog, offRecord: true });
+    await t.waitStable({ ready: dialog });
   });
 
   await t.step({
@@ -86,7 +86,7 @@ try {
   }, async () => {
     await t.click(dialog.getByRole('button', { name: '關閉' }));
     await t.select(main.getByRole('combobox', { name: '排序方式' }), '日期（舊到新）');
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(main.getByRole('listitem').first());
   });
 

@@ -90,12 +90,12 @@ try {
   }, async () => {
     await t.click(claim.getByRole('button', { name: '擔任 G06 的指導老師' }));
     const dialog = page.getByRole('dialog', { name: '擔任 G06 的指導老師' });
-    await t.waitStable({ ready: dialog, offRecord: true });
+    await t.waitStable({ ready: dialog });
     await t.hover(dialog.getByText(/第一位確認的老師就是指導老師/));
     await t.wait(400);
     await t.click(dialog.getByRole('button', { name: '指定為我的組別' }));
     const done = dialog.getByRole('heading', { name: 'G06 已指定為你的組別' });
-    await t.waitStable({ ready: done, offRecord: true });
+    await t.waitStable({ ready: done });
     await t.hover(done);
   });
 
@@ -108,7 +108,7 @@ try {
     const all = main.getByRole('region', { name: '全部組別' });
     await t.scroll(all);
     await t.type(all.getByRole('textbox', { name: '搜尋組別或組員…' }), 'G06');
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(all.getByRole('row', { name: /^G06 / }).getByRole('cell', { name: '李孟儒（你）' }));
   });
 
@@ -167,7 +167,7 @@ try {
     await t.hover(view.getByRole('definition').filter({ hasText: '第 1 版' }));
     await t.wait(300);
     await t.click(view.getByRole('group').getByText('顯示'));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
   });
 
   await t.finish();

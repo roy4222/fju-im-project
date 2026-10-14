@@ -49,7 +49,7 @@ try {
     status: { kind: 'ok', evidence: 'story-1 第 2 步' },
   }, async () => {
     await t.scroll(region('最新公告'));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(region('最新公告').getByRole('link', { name: '查看更多' }));
   });
 
@@ -68,11 +68,11 @@ try {
     status: { kind: 'ok', evidence: 'UX N-02（10/13 已修：seed-demo 自帶 5 件優秀專題與 6 筆榮譽）' },
   }, async () => {
     await t.scroll(region('優秀專題'));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(region('優秀專題').getByRole('listitem').first());
     await t.wait(600);
     await t.scroll(region('榮譽與競賽'));
-    await t.waitStable({ offRecord: true });
+    await t.waitStable();
     await t.hover(region('榮譽與競賽').getByRole('heading', { name: '榮譽與競賽' }));
   });
 

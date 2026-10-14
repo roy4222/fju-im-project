@@ -67,12 +67,12 @@ try {
   }, async () => {
     await t.click(banner.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
-    await t.waitStable({ ready: menu, offRecord: true });
+    await t.waitStable({ ready: menu });
     await t.hover(menu.getByRole('menuitem', { name: '登出' }));
     await t.wait(300);
     await t.click(menu.getByRole('menuitem', { name: '我的帳號' }));
     await page.waitForURL(/\/account$/);
-    await t.waitStable({ ready: main.getByRole('heading', { name: '我的帳號' }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('heading', { name: '我的帳號' }) });
   });
 
   await t.step({
@@ -87,7 +87,7 @@ try {
     await t.type(phone, '0912-345-678');
     await t.click(main.getByRole('button', { name: '儲存變更' }));
     const done = main.getByText('聯絡資料已更新。');
-    await t.waitStable({ ready: done, offRecord: true });
+    await t.waitStable({ ready: done });
     await t.hover(done);
   });
 
@@ -114,7 +114,7 @@ try {
     await t.type(main.getByLabel('再輸入一次新密碼'), 'Demo-new-pass-02', { secret: true });
     await t.click(main.getByRole('button', { name: '設定新密碼' }));
     const err = main.getByText('兩次輸入的新密碼不一樣。');
-    await t.waitStable({ ready: err, offRecord: true });
+    await t.waitStable({ ready: err });
     await t.hover(err);
   });
 
@@ -136,10 +136,10 @@ try {
   }, async () => {
     await t.click(banner.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
-    await t.waitStable({ ready: menu, offRecord: true });
+    await t.waitStable({ ready: menu });
     await t.click(menu.getByRole('menuitem', { name: '登出' }));
     const login = banner.getByRole('link', { name: '登入', exact: true });
-    await t.waitStable({ ready: login, offRecord: true });
+    await t.waitStable({ ready: login });
     await t.hover(login);
   });
 

@@ -35,7 +35,7 @@ try {
     await t.click(main.getByRole('button', { name: '登入', exact: true }));
     await page.waitForURL(/\/account\/change-password/);
     const title = main.getByRole('heading', { name: '請先更改密碼' });
-    await t.waitStable({ ready: title, offRecord: true });
+    await t.waitStable({ ready: title });
     await t.hover(title);
   });
 
@@ -49,7 +49,7 @@ try {
     await t.type(main.getByLabel('再輸入一次新密碼'), newPassword, { secret: true });
     await t.click(main.getByRole('button', { name: '設定新密碼' }));
     await page.waitForURL(/\/account\/setup/);
-    await t.waitStable({ ready: main.getByRole('heading', { name: /^第一次登入/ }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('heading', { name: /^第一次登入/ }) });
   });
 
   await t.step({
@@ -64,7 +64,7 @@ try {
     await t.type(main.getByRole('textbox', { name: '手機' }), '0912-000-777');
     await t.click(main.getByRole('button', { name: '儲存並進入老師首頁' }));
     await page.waitForURL(/\/dashboard\/teacher/);
-    await t.waitStable({ ready: main.getByRole('heading', { name: new RegExp(`歡迎回來，${teacher.name}`) }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('heading', { name: new RegExp(`歡迎回來，${teacher.name}`) }) });
   });
 
   await t.step({

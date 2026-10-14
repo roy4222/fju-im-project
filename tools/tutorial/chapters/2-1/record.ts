@@ -87,7 +87,7 @@ try {
     await t.type(main.getByLabel('確認密碼'), student.password, { secret: true });
     await t.click(main.getByRole('button', { name: '送出註冊' }));
     await page.waitForURL(/\/register\/pending/);
-    await t.waitStable({ ready: main.getByRole('heading', { name: '等待系辦審核' }), offRecord: true });
+    await t.waitStable({ ready: main.getByRole('heading', { name: '等待系辦審核' }) });
   });
 
   await t.step({
@@ -112,7 +112,7 @@ try {
     await phone.fill('');
     await t.type(phone, '0912-000-889');
     await t.click(main.getByRole('button', { name: '儲存修改' }));
-    await t.waitStable({ ready: main.getByText(/第 2 版/).first(), offRecord: true });
+    await t.waitStable({ ready: main.getByText(/第 2 版/).first() });
     await t.hover(main.getByText(/第 2 版/).first());
   });
 
@@ -147,13 +147,13 @@ try {
   }, async () => {
     await t.click(main.getByRole('button', { name: `審核 ${student.name}` }));
     const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` });
-    await t.waitStable({ ready: dialog, offRecord: true });
+    await t.waitStable({ ready: dialog });
     await t.hover(dialog.getByRole('combobox', { name: '核准進哪一屆' }));
     await t.click(dialog.getByRole('radio', { name: '當面核對學生證或其他身分證件' }));
     await t.type(dialog.getByRole('textbox', { name: /^理由/ }), '當面核對學生證，資料無誤');
     await t.click(dialog.getByRole('button', { name: '核准' }));
     const done = dialog.getByRole('status').getByText('已核准');
-    await t.waitStable({ ready: done, offRecord: true });
+    await t.waitStable({ ready: done });
     await t.hover(dialog.getByRole('status').getByText(/已開通，進入 示範 114 屆/));
   });
 
@@ -170,7 +170,7 @@ try {
     await t.type(main.getByLabel('密碼', { exact: true }), 'wrong-password-0000', { secret: true });
     await t.click(main.getByRole('button', { name: '登入', exact: true }));
     const alert = main.getByRole('alert').filter({ hasText: 'Email 或密碼不正確。' });
-    await t.waitStable({ ready: alert, offRecord: true });
+    await t.waitStable({ ready: alert });
     await t.hover(alert);
   });
 
@@ -190,7 +190,7 @@ try {
     await t.click(main.getByRole('button', { name: '登入', exact: true }));
     await page.waitForURL(/\/dashboard\/student/);
     const hello = main.getByRole('heading', { name: `歡迎回來，${student.name}` });
-    await t.waitStable({ ready: hello, offRecord: true });
+    await t.waitStable({ ready: hello });
     await t.hover(hello);
     await t.wait(400);
     await t.hover(main.getByText(/現在是「階段 1/));
