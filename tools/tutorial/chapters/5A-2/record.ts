@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Locator, Page } from 'playwright';
+import type { Page } from 'playwright';
 import { launchTutorialBrowser, newTutorialPage, renderChapter, startChapter, type Chapter } from '../../engine/index.ts';
 
 const ID = '5A-2';
@@ -46,13 +46,6 @@ try {
   const pending = page.getByRole('region', { name: '待審核' });
   const accounts = page.getByRole('table', { name: '帳號列表' });
   const search = page.getByRole('searchbox', { name: '搜尋姓名、學號或 Email' });
-  // 帳號列表的「操作」欄在表格右側、超出畫面寬度；引擎只會上下捲，所以先把表格平滑橫捲過去再點。
-  const reveal = async (loc: Locator) => {
-    await t.scroll(loc);
-    await loc.evaluate((el) => el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }));
-    await t.wait(900);
-    return loc;
-  };
 
   await t.step({
     caption: '帳號管理總覽',
@@ -166,7 +159,7 @@ try {
   }, async () => {
     await t.type(search, '周子瑜');
     await t.waitStable({ ready: accounts.getByRole('button', { name: '更多 周子瑜' }) });
-    await t.click(await reveal(accounts.getByRole('button', { name: '更多 周子瑜' })));
+    await t.click(accounts.getByRole('button', { name: '更多 周子瑜' }));
     await t.click(page.getByRole('menuitem', { name: '停用 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '停用 周子瑜' }) });
     await t.select(dialog.getByRole('combobox', { name: /^接任 G01 組長/ }), '許哲瑋（411410301）');
@@ -182,7 +175,7 @@ try {
     narration: '恢復後角色和學籍不變，原密碼還能登入。',
     status: { kind: 'ok', evidence: 'story-6 第 16 步；⚠️ story-6 N-50：被停用的人登入頁沒說明原因（建議）' },
   }, async () => {
-    await t.click(await reveal(accounts.getByRole('button', { name: '恢復 周子瑜' })));
+    await t.click(accounts.getByRole('button', { name: '恢復 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '恢復 周子瑜' }) });
     await t.type(dialog.getByRole('textbox', { name: /^理由/ }), '復學');
     await t.click(dialog.getByRole('button', { name: '確認恢復' }));
@@ -216,7 +209,7 @@ try {
     await search.fill('');
     await t.type(search, '呂承恩');
     await t.waitStable({ ready: accounts.getByRole('button', { name: '更多 呂承恩' }) });
-    await t.click(await reveal(accounts.getByRole('button', { name: '更多 呂承恩' })));
+    await t.click(accounts.getByRole('button', { name: '更多 呂承恩' }));
     await t.click(page.getByRole('menuitem', { name: '刪除 呂承恩 的個人資料' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: /的個人資料（保留紀錄）$/ }) });
     await t.hover(dialog.getByText('做了就不能復原'));

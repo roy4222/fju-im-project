@@ -140,12 +140,7 @@ try {
     narration: '要寄信給某一組，按一下就複製全組信箱。',
     status: { kind: 'ok', evidence: 'UX 新手系辦 任務 8' },
   }, async () => {
-    // 組員信箱欄在表格右側、超出畫面寬度；引擎只會上下捲，所以先把表格平滑橫捲到按鈕。
-    const copy = groups.getByRole('button', { name: '複製本組信箱：G07' });
-    await t.scroll(copy);
-    await copy.evaluate((el) => el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }));
-    await t.wait(900);
-    await t.click(copy);
+    await t.click(groups.getByRole('button', { name: '複製本組信箱：G07' }));
     await t.waitStable({ ready: toast(/^已複製/) });
     await t.hover(toast(/^已複製/));
   });

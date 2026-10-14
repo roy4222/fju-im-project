@@ -122,8 +122,7 @@ try {
     await t.hover(dialog.getByText(/^從後台「已取消」清單/));
     await t.hover(dialog.getByText(/^不能。刪除紀錄會留在操作紀錄/));
     await t.click(dialog.getByRole('button', { name: '刪除這個活動' }));
-    await t.waitStable({ ready: danger.getByRole('button', { name: `刪除活動：${event}` }).first(), offRecord: true }).catch(() => {});
-    await t.wait(800);
+        await t.wait(800);
   });
 
   // 第 2 階段開始日：照時間軸卡片上的日期（seed-demo 會平移日期，不寫死）。
