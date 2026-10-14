@@ -72,7 +72,7 @@ try {
   const claim = main.getByRole('region', { name: '擔任產學組指導老師' });
   await t.step({
     caption: '等老師擔任的產學組',
-    narration: '上面這張表只列還沒有指導老師的產學組，看得到組員、組長、連結的合作案。',
+    narration: '這張表列出產學組；標「可擔任」的還沒有指導老師，已經有老師的組也會列出來。看得到組員、組長和合作案。',
     status: { kind: 'ok', evidence: 'story-2 第 13 步' },
   }, async () => {
     await t.scroll(claim);
@@ -81,6 +81,8 @@ try {
     await t.hover(claim.getByRole('row', { name: /^G06 / }).getByRole('cell', { name: /昱鋼精機工業/ }));
     await t.wait(300);
     await t.hover(claim.getByRole('row', { name: /^G06 / }).getByRole('cell', { name: '可擔任' }));
+    await t.wait(300);
+    await t.hover(claim.getByRole('row', { name: /^G02 / }).getByRole('cell', { name: /^已有指導老師/ }));
   });
 
   await t.step({
@@ -157,9 +159,9 @@ try {
   });
 
   await t.step({
-    caption: '版本內容與核對碼',
-    narration: '內容唯讀，附件每次下載都重新確認你還是指導老師；有爭議時展開檔案核對碼。',
-    status: { kind: 'pending', say: '「檔案核對碼」「表單第 N 版」用詞', evidence: '用詞#8（檔案核對碼）、#10（表單第 N 版）' },
+    caption: '版本內容與證明編號',
+    narration: '內容唯讀，跟送出當時一樣；有爭議時展開繳交證明編號。這次送出沒有附件，沒有示範下載時的身分確認。',
+    status: { kind: 'pending', say: '「繳交證明編號」「表單第 N 版」用詞', evidence: '用詞#8（分鏡寫「檔案核對碼」，畫面是「繳交證明編號」）、#10（表單第 N 版）' },
   }, async () => {
     const view = main.getByRole('region', { name: /第 1 次送出$/ });
     await t.hover(view.getByText('唯讀・這是第 1 次送出當時的內容'));
