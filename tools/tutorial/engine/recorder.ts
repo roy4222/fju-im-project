@@ -25,7 +25,7 @@ import { cursorAt, planMove, type Move, type Point } from './cursor.ts';
 import { normalizeStatus, PRESS_HINT_MS, type ChapterEvent, type ChapterEvents, type StatusKind, type StepRecord, type StepStatus } from './events.ts';
 import { captureQuality, cfrSlots, GAP_SEVERE_MS, GAP_WARN_MS, timeFrames, toChapterMs, type CaptureQuality, type LoadSample, type Pause, type RawFrame, type SystemLoad } from './frames.ts';
 import { acquireRecordSlot, claimOutDir, DEFAULT_OUT_ROOT, FAILED_MARK, newRunDir, RECORDING_MARK, type RecordSlot, type SlotOptions } from './runs.ts';
-import { sayProvider, type TtsProvider } from './tts.ts';
+import { ttsFromEnv, type TtsProvider } from './tts.ts';
 
 const run = promisify(execFile);
 const runBuf = promisify(execFile) as unknown as (
@@ -405,7 +405,7 @@ export class Chapter {
     this.page = opts.page;
     this.id = opts.id ?? (opts.number != null ? String(opts.number) : undefined);
     this.outDir = opts.outDir ?? newRunDir(opts.outRoot ?? DEFAULT_OUT_ROOT, `${this.id ?? ''} ${opts.chapter}`);
-    this.tts = opts.tts ?? sayProvider();
+    this.tts = opts.tts ?? ttsFromEnv();
     const vp = opts.viewport ?? { width: 1920, height: 1080 };
     this.size = pageArea(vp);
     // zoom 在 start() 從分頁的 devicePixelRatio 讀；先放預設值
