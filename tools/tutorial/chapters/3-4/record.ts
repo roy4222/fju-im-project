@@ -12,7 +12,7 @@ await recordChapter({ id: '3-4', chapter: '學生｜登入後前台：歷屆專�
   await t.step(
     {
       caption: '登入後的首頁',
-      narration: '登入後首頁多一列我的工作：待繳幾件、逾期幾件、近期截止。右上角變成「我的後台」。',
+      narration: '登入後首頁多一列我的工作：待繳幾件、近期截止。右上角變成「我的後台」。',
       status: { kind: 'pending', say: '我的後台／首頁要不要統一叫法', evidence: '用詞#29（我的後台／首頁／我的專題 統一「我的首頁」？）；UX N-08 已修' },
     },
     async () => {
