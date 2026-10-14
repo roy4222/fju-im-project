@@ -93,6 +93,8 @@ await recordChapter({ id: '3-2', chapter: '學生｜我的組別：找組員、�
       const dialog = page.getByRole('dialog');
       await t.waitStable({ ready: dialog.getByText('拒絕這份提案？') });
       await t.hover(dialog.getByText('拒絕後這次組隊就不會成立', { exact: false }));
+      // 對話框多停一下，配音講完「不真的拒絕」再按「先不要」。
+      await t.wait(3500);
       await t.click(dialog.getByRole('button', { name: '先不要' }));
     },
   );
