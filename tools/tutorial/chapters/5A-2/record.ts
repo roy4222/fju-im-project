@@ -158,7 +158,8 @@ try {
     status: { kind: 'ok', evidence: 'story-6 第 13～14 步' },
   }, async () => {
     await t.type(search, '周子瑜');
-    await t.waitStable({ ready: accounts.getByRole('button', { name: '更多 周子瑜' }) });
+    await t.press('Enter'); // 搜尋要按 Enter 才會篩選
+    await t.waitStable({ ready: accounts.getByRole('row').filter({ hasText: '周子瑜' }) });
     await t.click(accounts.getByRole('button', { name: '更多 周子瑜' }));
     await t.click(page.getByRole('menuitem', { name: '停用 周子瑜' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: '停用 周子瑜' }) });
@@ -210,7 +211,8 @@ try {
   }, async () => {
     await search.fill('');
     await t.type(search, '呂承恩');
-    await t.waitStable({ ready: accounts.getByRole('button', { name: '更多 呂承恩' }) });
+    await t.press('Enter'); // 搜尋要按 Enter 才會篩選
+    await t.waitStable({ ready: accounts.getByRole('row').filter({ hasText: '呂承恩' }) });
     await t.click(accounts.getByRole('button', { name: '更多 呂承恩' }));
     await t.click(page.getByRole('menuitem', { name: '刪除 呂承恩 的個人資料' }));
     await t.waitStable({ ready: dialog.getByRole('heading', { name: /的個人資料（保留紀錄）$/ }) });
