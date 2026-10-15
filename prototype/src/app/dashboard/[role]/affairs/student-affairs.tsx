@@ -26,7 +26,7 @@ export function StudentAffairs({ tab = "open" }: { tab?: string }) {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-[26px] font-extrabold tracking-tight">交作業</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{MY_GROUP.no}・點卡片看說明與上傳</p>
+          <p className="tabular mt-1 text-sm text-muted-foreground">{MY_GROUP.no}</p>
         </div>
         <nav aria-label="篩選" className="inline-flex rounded-2xl bg-card p-1.5 ring-1 ring-border/80" data-filter>
           {TODO_TABS.map((t) => {
@@ -53,7 +53,6 @@ export function StudentAffairs({ tab = "open" }: { tab?: string }) {
         <div className="flex flex-col items-center gap-2 rounded-3xl border border-dashed border-border bg-card/60 px-6 py-16 text-center">
           <IconChecklist className="size-8 text-muted-foreground" />
           <p className="text-[15px] font-bold">沒有{active.label}的作業</p>
-          {active.key === "overdue" ? <p className="text-sm text-muted-foreground">很好，沒有漏交的。</p> : null}
         </div>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" data-cards>

@@ -6,7 +6,7 @@ import { CURRENT_USERS, UNGROUPED } from "@/lib/fixtures";
 import type { InviteState, Proposal } from "@/lib/student-v1";
 
 /**
- * 組隊（成組期）：目前提案的邀請狀態 → 撤回後可以重新發起提案；下方找組員。
+ * 找隊員（還沒成組）：目前的邀請狀態 → 撤回後可以重新邀請；右邊找隊員。
  * 原型：全部是本地 state，重新整理就回到假資料。
  */
 const STATE: Record<InviteState, { label: string; cls: string; icon: typeof IconCheck }> = {
@@ -35,14 +35,14 @@ export function TeamBuilder({ proposal }: { proposal: Proposal }) {
 
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-      {/* 提案 */}
+      {/* 邀請 */}
       <section aria-labelledby="proposal-title" className="dash-card p-6" data-proposal>
         {current ? (
           <>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 id="proposal-title" className="flex items-center gap-2 text-[17px] font-extrabold"><IconFlag className="size-5 text-brand" /> 目前的提案</h2>
-                <p className="tabular mt-1 text-[13px] text-muted-foreground">{current.by} 發起・{current.expires?.slice(5).replace("-", "/")} 前沒回覆就過期</p>
+                <h2 id="proposal-title" className="flex items-center gap-2 text-[17px] font-extrabold"><IconFlag className="size-5 text-brand" /> 目前的邀請</h2>
+                <p className="tabular mt-1 text-[13px] text-muted-foreground">{current.expires?.slice(5).replace("-", "/")} 前要回覆</p>
               </div>
               <span className="tabular rounded-full bg-accent px-3 py-1 text-sm font-extrabold text-primary">{accepted}/5 到齊</span>
             </div>
@@ -52,7 +52,7 @@ export function TeamBuilder({ proposal }: { proposal: Proposal }) {
             <ul className="mt-5 flex flex-col gap-2.5">
               <li className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3.5 py-2.5">
                 <span className="inline-flex size-9 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-primary-foreground">{me.name.slice(-2)}</span>
-                <span className="flex-1 text-sm font-bold">{me.name}（你，提案人）</span>
+                <span className="flex-1 text-sm font-bold">{me.name}（你）</span>
                 <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-bold ${STATE.accepted.cls}`}><IconCheck className="size-3.5" />已加入</span>
               </li>
               {current.invites.map((i) => {
@@ -71,13 +71,13 @@ export function TeamBuilder({ proposal }: { proposal: Proposal }) {
             </ul>
             <div className="mt-5 flex flex-wrap gap-2">
               <button type="button" onClick={() => setReminded(true)} disabled={reminded} className="btn-fju h-11 rounded-xl px-4 text-sm disabled:opacity-60"><IconBell className="size-4" />{reminded ? "已提醒還沒回覆的人" : "提醒還沒回覆的人"}</button>
-              <button type="button" onClick={() => setCurrent(null)} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-border px-4 text-sm font-bold transition-colors hover:bg-accent">撤回提案</button>
+              <button type="button" onClick={() => setCurrent(null)} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-border px-4 text-sm font-bold transition-colors hover:bg-accent">撤回邀請</button>
             </div>
           </>
         ) : (
           <>
-            <h2 id="proposal-title" className="flex items-center gap-2 text-[17px] font-extrabold"><IconFlag className="size-5 text-brand" /> 發起提案</h2>
-            <p className="mt-1 text-sm text-muted-foreground">從右邊找組員勾選最多 4 位，加上你共 5 人；每個人用自己的帳號接受後才成組。</p>
+            <h2 id="proposal-title" className="flex items-center gap-2 text-[17px] font-extrabold"><IconFlag className="size-5 text-brand" /> 邀請組員</h2>
+            <p className="mt-1 text-sm text-muted-foreground">最多 4 位</p>
             <ul className="mt-5 flex flex-wrap gap-2" aria-label="已選的組員">
               <li className="inline-flex items-center gap-1.5 rounded-full bg-primary py-1 pr-3 pl-1 text-[13px] font-bold text-primary-foreground"><span className="inline-flex size-6 items-center justify-center rounded-full bg-white/20 text-[11px]">{me.name.slice(-1)}</span>{me.name}（你）</li>
               {picked.map((no) => {
@@ -86,22 +86,21 @@ export function TeamBuilder({ proposal }: { proposal: Proposal }) {
               })}
               {Array.from({ length: 4 - picked.length }, (_, i) => <li key={`empty-${i}`} className="inline-flex h-8 w-20 items-center justify-center rounded-full border-2 border-dashed border-border text-[12px] text-muted-foreground">空位</li>)}
             </ul>
-            <button type="button" onClick={send} disabled={picked.length === 0} className="btn-fju mt-5 h-11 rounded-xl px-5 text-sm disabled:cursor-not-allowed disabled:opacity-50"><IconSend className="size-4" /> 送出提案（邀請 {picked.length} 位）</button>
+            <button type="button" onClick={send} disabled={picked.length === 0} className="btn-fju mt-5 h-11 rounded-xl px-5 text-sm disabled:cursor-not-allowed disabled:opacity-50"><IconSend className="size-4" /> 送出邀請（{picked.length} 位）</button>
           </>
         )}
       </section>
 
-      {/* 找組員 */}
+      {/* 找隊員 */}
       <section aria-labelledby="find-title" className="rounded-3xl bg-accent/60 p-5" data-find>
         <div className="flex items-center justify-between gap-3">
-          <h2 id="find-title" className="text-[17px] font-extrabold">找組員</h2>
+          <h2 id="find-title" className="text-[17px] font-extrabold">找隊員</h2>
           <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-semibold">
-            <span>公開我在找組</span>
+            <span>讓別人找到我</span>
             <input type="checkbox" role="switch" checked={open} onChange={(e) => setOpen(e.target.checked)} className="peer sr-only" />
             <span aria-hidden className="relative h-6 w-10 rounded-full bg-border transition-colors peer-checked:bg-success peer-focus-visible:ring-3 peer-focus-visible:ring-ring/40 after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-card after:shadow after:transition-transform peer-checked:after:translate-x-4" />
           </label>
         </div>
-        <p className="mt-1 text-[12px] text-muted-foreground">只列出也開了公開的同屆未分組同學。</p>
         <ul className="mt-4 flex flex-col gap-2">
           {classmates.map((c) => {
             const on = picked.includes(c.studentNo);

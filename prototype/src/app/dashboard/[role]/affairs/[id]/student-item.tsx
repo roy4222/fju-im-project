@@ -35,16 +35,15 @@ function StudentItemBody({ item, base, tab: tabParam }: { item: ManagedItem; bas
   const locked = !s.editable;
 
   const banner = s.overdue
-    ? { tone: "danger", text: `逾期未繳（${s.detail.replace("・需系辦重開", "")}）。需要補交請聯絡系辦重新開放。` }
+    ? { tone: "danger", text: `逾期未繳（${s.detail.replace("・需系辦重開", "")}），要補交請找系辦` }
     : s.submitted
-      ? { tone: "success", text: `已繳 v${version}・${lastBy} 於 ${lastAt} 送出・${s.editable ? "截止前可重送，以最後一次為準" : "截止後唯讀"}。` }
+      ? { tone: "success", text: `已繳第 ${version} 次・${lastBy}・${lastAt}${s.editable ? "" : "・已截止"}` }
       : { tone: s.state === "draft" ? "brand" : "info", text: `${s.headline}・${s.detail}${item.dueAt ? `・${formatDue(item.dueAt)}截止` : ""}${block ? `・${block.text}` : ""}` };
   const BANNER: Record<string, string> = { danger: "bg-destructive-subtle text-destructive-on-subtle", success: "bg-success-subtle text-success-on-subtle", brand: "bg-brand-subtle text-brand-on-subtle", info: "bg-info-subtle text-info-on-subtle" };
   const info: [string, string][] = [
     ["截止時間", item.dueAt ? `${item.dueAt} 23:59` : "無"],
     ["階段", item.stage ?? "未指定"],
     ["附件", item.attachments ? `${item.attachments} 個` : "無"],
-    ["重送", s.editable ? "截止前可重送" : "截止後唯讀"],
   ];
   const cta = s.submitted ? (s.editable ? "重送" : null) : s.action;
 
@@ -79,7 +78,7 @@ function StudentItemBody({ item, base, tab: tabParam }: { item: ManagedItem; bas
               {item.attachments ? <ul className="mt-3 flex flex-col gap-1.5">{Array.from({ length: item.attachments }, (_, i) => <li key={i}><a href="#" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-brand"><IconPaperclip className="size-4" />附件 {i + 1}.pdf</a></li>)}</ul> : null}
             </section>
             <section id="submit" className="scroll-mt-4">
-              <h2 className="mb-3 text-[15px] font-bold">{locked ? "已截止・唯讀" : s.submitted ? "重送" : "填寫與繳交"}</h2>
+              <h2 className="mb-3 text-[15px] font-bold">{locked ? "已截止" : s.submitted ? "重送" : "填寫"}</h2>
               <GroupForm
                 fields={fields}
                 state={s.state}

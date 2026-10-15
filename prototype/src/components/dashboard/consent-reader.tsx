@@ -32,7 +32,6 @@ export function ConsentReader({ file, version, updatedAt, children, alreadyDone 
             <li key={c.no} className="flex gap-3"><span className="w-6 shrink-0 font-bold text-primary">{c.no}、</span><span>{c.text}</span></li>
           ))}
         </ol>
-        <p className="text-xs text-muted-foreground">摘要僅供閱讀；以下方 PDF 全文為準。</p>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-border/70 px-5 py-3 text-sm">
         <IconFileTypePdf className="size-5 text-destructive" />

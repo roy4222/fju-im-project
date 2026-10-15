@@ -24,7 +24,7 @@ export function StudentConsent() {
       <header className="flex flex-wrap items-center gap-4 rounded-3xl bg-accent/70 p-5 md:p-6">
         <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><IconSignature className="size-6" /></span>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold tracking-[0.06em] text-muted-foreground">同意書・沒有截止日</p>
+          <p className="text-[12px] font-bold tracking-[0.06em] text-muted-foreground">同意書</p>
           <h1 className="text-[22px] font-extrabold tracking-tight">{SIGNOFF.title}</h1>
         </div>
         <TodoTag todo={todo} />
@@ -51,7 +51,6 @@ export function StudentConsent() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">五位都同意後輪到 {SIGNOFF.teacherApproval.name} 老師簽核。老師簽核前可以改變表態。</p>
         </aside>
       </div>
     </div>

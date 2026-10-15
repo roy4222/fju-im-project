@@ -38,7 +38,7 @@ export function itemStatus(item: ManagedItem, override?: SubmissionState): ItemS
   if (submitted) {
     return {
       state, submitted, version, lastBy: last?.by, lastAt: last?.at, editable, overdue: false,
-      headline: `已繳 v${version}`, headlineTone: "success",
+      headline: `已繳第 ${version} 次`, headlineTone: "success",
       detail: editable ? "截止前可重送" : "截止後唯讀",
       action: editable ? "查看或重送" : "查看",
     };
@@ -47,7 +47,7 @@ export function itemStatus(item: ManagedItem, override?: SubmissionState): ItemS
     return { state, submitted, editable: false, overdue: true, headline: "逾期未繳", headlineTone: "danger", detail: item.dueAt ? `逾期 ${Math.abs(daysUntil(item.dueAt))} 天・需系辦重開` : "已截止", action: "查看" };
   }
   if (state === "resubmit") return { state, submitted, editable, overdue, headline: "需重送", headlineTone: "brand", detail: "老師退回，修改後重送", action: "重送" };
-  if (state === "draft") return { state, submitted, editable, overdue, headline: "未繳", headlineTone: "brand", detail: "草稿已存，尚未正式送出", action: "繼續填寫" };
+  if (state === "draft") return { state, submitted, editable, overdue, headline: "未繳", headlineTone: "brand", detail: "草稿已存", action: "繼續填寫" };
   return { state, submitted, editable, overdue, headline: "未繳", headlineTone: "muted", detail: item.dueAt ? "尚未開始" : "無截止", action: "去繳交" };
 }
 
@@ -65,7 +65,7 @@ const DRAFT_META: Record<string, { editor: string; savedAt: string }> = {
 
 /** 填寫單位一列（S-02）：整組一份要列組別、目前編輯者、最後儲存；個人一份就只寫個人 */
 export function fillUnit(item: ManagedItem, savedAt?: string): { group: boolean; text: string } {
-  if (item.form === "personal") return { group: false, text: "個人一份・每位同學各自填寫" };
+  if (item.form === "personal") return { group: false, text: "個人填寫" };
   const s = itemStatus(item);
   const meta = DRAFT_META[item.id];
   const parts = ["整組一份", MY_GROUP.no];

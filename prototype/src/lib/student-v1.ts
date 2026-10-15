@@ -66,7 +66,7 @@ export function nextDue(): StudentTodo | undefined {
 
 /* ------------------------------------------------------------------ 組別 */
 
-/** 示範切換：成組期（預設，對應 TODAY 08-17）／已成組 */
+/** 示範切換：還沒成組（預設，對應 TODAY 08-17）／已成組 */
 export type Phase = "forming" | "formed";
 
 export function groupView(phase: Phase) {
@@ -74,10 +74,10 @@ export function groupView(phase: Phase) {
   const members: Member[] = formed ? MY_GROUP.members.map((m) => ({ ...m, confirmed: true })) : MY_GROUP.members;
   const advisor = formed ? TEACHERS.find((t) => t.id === MY_GROUP.advisorId) ?? null : null;
   const milestones = [
-    { id: "proposal", title: "提案完成", done: true, at: "08-11", hint: "五人提案送出" },
-    { id: "formed", title: "正式成組", done: formed, at: formed ? "08-17" : undefined, hint: formed ? "五人都已確認" : `還差 ${members.filter((m) => !m.confirmed).length} 人確認` },
-    { id: "midterm", title: "期中交件", done: false, hint: "2027/03 系統發展文件" },
-    { id: "final", title: "成果發表", done: false, hint: "2027/05 公開發表" },
+    { id: "proposal", title: "邀請組員", done: true, at: "08-11", hint: "" },
+    { id: "formed", title: "成組", done: formed, at: formed ? "08-17" : undefined, hint: `還差 ${members.filter((m) => !m.confirmed).length} 人確認` },
+    { id: "midterm", title: "期中交件", done: false, hint: "2027/03" },
+    { id: "final", title: "成果發表", done: false, hint: "2027/05" },
   ];
   return { formed, members, advisor, milestones, me: CURRENT_USERS.student };
 }
@@ -93,7 +93,7 @@ export type Proposal = {
   note?: string;
 };
 
-/** 提案紀錄（新的在前）。目前這筆在成組期是「等待回覆」，已成組時是「已成組」 */
+/** 邀請紀錄（新的在前）。目前這筆在還沒成組時是「等待回覆」，已成組時是「已成組」 */
 export function proposals(phase: Phase): Proposal[] {
   const current: Proposal = {
     id: "p-02",
@@ -117,30 +117,30 @@ export function proposals(phase: Phase): Proposal[] {
       { name: "黃詩涵", studentNo: "411410145", state: "accepted", at: "08-06 14:01" },
       { name: "冷佳霓", studentNo: "411410444", state: "declined", at: "08-07 09:12" },
     ],
-    note: "冷佳霓婉拒後撤回，重新找組員",
+    note: "冷佳霓婉拒後撤回",
   };
   return [current, first];
 }
 
 export type GroupEvent = { at: string; text: string; who: string; tone?: "brand" | "success" | "muted" };
 
-/** 異動紀錄（新的在前，唯讀；異動、換組長、指派老師由系辦處理） */
+/** 組別動態（新的在前，唯讀） */
 export function groupEvents(phase: Phase): GroupEvent[] {
   const base: GroupEvent[] = [
     { at: "2026-08-12 10:40", text: "吳柏諺確認加入", who: "吳柏諺", tone: "success" },
     { at: "2026-08-11 21:02", text: "黃詩涵確認加入", who: "黃詩涵", tone: "success" },
-    { at: "2026-08-11 20:15", text: "林彥廷發起提案，邀請 4 位同學", who: "林彥廷", tone: "brand" },
+    { at: "2026-08-11 20:15", text: "林彥廷邀請 4 位同學", who: "林彥廷", tone: "brand" },
   ];
   if (phase === "forming") return base;
   return [
     { at: "2026-09-25 15:30", text: "系辦指派指導老師：陳建宏", who: "系辦", tone: "brand" },
-    { at: "2026-08-17 09:30", text: "五人都已確認，第 07 組正式成立", who: "系統", tone: "success" },
+    { at: "2026-08-17 09:30", text: "五人都已確認，第 07 組成組", who: "系統", tone: "success" },
     { at: "2026-08-16 22:10", text: "蔡育瑄、鄭凱文確認加入", who: "蔡育瑄", tone: "success" },
     ...base,
   ];
 }
 
-/** 找組員：本人開啟公開的同屆未分組學生 */
+/** 找隊員：本人開啟公開的同屆未分組學生 */
 export function openClassmates() {
   return UNGROUPED.filter((u) => u.openToJoin);
 }

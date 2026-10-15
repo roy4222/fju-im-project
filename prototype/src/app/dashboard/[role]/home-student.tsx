@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { IconArrowRight, IconCalendarEvent, IconPin } from "@tabler/icons-react";
 import { SectionHead, TodoRow, dueText, md } from "@/components/dashboard/student-v1";
-import { CURRENT_USERS, NEWS, currentStage, daysUntil } from "@/lib/fixtures";
+import { DueCalendar } from "@/components/dashboard/due-calendar";
+import { CURRENT_USERS, NEWS, TODAY_YMD, currentStage, daysUntil } from "@/lib/fixtures";
 import { nextDue, studentTodos } from "@/lib/student-v1";
 
 /**
- * 學生首頁 v1（Roy 2026-10-15，Q71）：只有三區——「現在」卡、待辦、公告。
- * 不要學期進度條、階段四格、三個小格、行事曆、「接下來」、任何表格。
+ * 學生首頁 v1（Roy 2026-10-15，Q71）：「現在」卡（.hero 花紋）、待辦＋小月曆、公告。
+ * 不要學期進度條、階段四格、三個小格、「接下來」、任何表格；月曆只打點截止日（第 2 輪）。
  * 「下一件要交的」與待辦、交作業、側欄徽章同一個口徑（lib/student-v1.ts）。
  */
 const HOME_TODOS = 5;
@@ -27,9 +28,8 @@ export function StudentHome() {
   return (
     <div className="flex flex-col gap-7">
       {/* 1. 現在 */}
-      <section aria-labelledby="now-title" data-region="now" className="relative overflow-hidden rounded-[24px] bg-primary text-primary-foreground">
-        <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 size-72 rounded-full bg-[radial-gradient(circle,color-mix(in_oklch,var(--brand)_55%,transparent),transparent_70%)] opacity-60" />
-        <div className="relative grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center md:p-8">
+      <section aria-labelledby="now-title" data-region="now" className="hero text-primary-foreground">
+        <div className="grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center md:p-8">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-primary-foreground/75">{name}，你好</p>
             <h1 id="now-title" className="mt-2 text-[26px] leading-tight font-extrabold tracking-tight md:text-[30px]">
@@ -63,7 +63,7 @@ export function StudentHome() {
         </div>
       </section>
 
-      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         {/* 2. 待辦 */}
         <section aria-labelledby="todo-title" data-region="todo">
           <SectionHead id="todo-title" title="待辦" href={`${base}/affairs`} link="全部作業" />
@@ -72,10 +72,17 @@ export function StudentHome() {
           </ul>
         </section>
 
-        {/* 3. 公告 */}
-        <section aria-labelledby="news-title" data-region="news">
-          <SectionHead id="news-title" title="公告" href="/news" link="全部公告" />
-          <ul className="flex flex-col gap-2.5">
+        {/* 3. 月曆：只打點截止日 */}
+        <section aria-labelledby="cal-title">
+          <SectionHead id="cal-title" title="截止日" />
+          <DueCalendar todos={studentTodos()} today={TODAY_YMD} base={base} />
+        </section>
+      </div>
+
+      {/* 4. 公告 */}
+      <section aria-labelledby="news-title" data-region="news">
+        <SectionHead id="news-title" title="公告" href="/news" link="全部公告" />
+        <ul className="grid gap-2.5 md:grid-cols-2">
             {news.map((n) => (
               <li key={n.id}>
                 <Link href={`/news/${n.id}`} className="dash-card-hover flex items-start gap-3.5 rounded-2xl border border-border/80 bg-card p-3.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
@@ -93,9 +100,8 @@ export function StudentHome() {
                 </Link>
               </li>
             ))}
-          </ul>
-        </section>
-      </div>
+        </ul>
+      </section>
     </div>
   );
 }
