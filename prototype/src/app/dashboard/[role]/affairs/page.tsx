@@ -11,7 +11,7 @@ export default async function AffairsPage({ params, searchParams }: PageProps<"/
   const { role } = await params;
   const sp = await searchParams;
   if (!isValidRole(role)) notFound();
-  if (role === "student") return <StudentAffairs role={role} tab={typeof sp.tab === "string" ? sp.tab : "all"} />;
+  if (role === "student") return <StudentAffairs tab={typeof sp.tab === "string" ? sp.tab : "open"} />;
   if (role === "teacher") return <TeacherAffairs role={role} />;
   return <AdminAffairs role={role} placement={typeof sp.placement === "string" ? sp.placement : "all"} />;
 }

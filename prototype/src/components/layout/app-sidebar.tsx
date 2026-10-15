@@ -74,8 +74,8 @@ export function AppSidebar({ role }: { role: Role }) {
 
       <SidebarContent className="px-3 pt-2">
         {groups.map((group) => (
-          <SidebarGroup key={group.title} className="py-0.5">
-            <SidebarGroupLabel className="dash-nav-label h-6 px-3 text-[11px] tracking-[0.08em] text-muted-foreground">{group.title}</SidebarGroupLabel>
+          <SidebarGroup key={group.title || "main"} className="py-0.5">
+            {group.title ? <SidebarGroupLabel className="dash-nav-label h-6 px-3 text-[11px] tracking-[0.08em] text-muted-foreground">{group.title}</SidebarGroupLabel> : null}
             <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 const href = base + item.href;

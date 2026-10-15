@@ -276,6 +276,21 @@ export const MANAGED_ITEMS: ManagedItem[] = [
     form: "group",
   },
   {
+    /* 學生後台 v1（Roy 2026-10-15）：示範「逾期」狀態用的個人作業；沒有 progress，不影響老師矩陣與系辦逾期總數 */
+    id: "mi-015",
+    title: "個人專題興趣問卷",
+    placement: "submission",
+    summary: "每位同學各自填寫有興趣的題目方向與擅長技能，供分組與指導老師參考。",
+    publishedAt: "2026-08-03",
+    dueAt: "2026-08-14",
+    audience: "114 學年度學生",
+    status: "published",
+    schemaVersion: 1,
+    myState: "overdue",
+    stage: "分組",
+    form: "personal",
+  },
+  {
     id: "mi-013",
     title: "專題分組名單確認表",
     placement: "submission",
@@ -897,7 +912,7 @@ export type Notification = {
 export const NOTIFICATIONS: Record<Role, Notification[]> = {
   student: [
     { id: "n-s1", kind: "due", title: "指導老師意願調查表 9 天後截止", body: "草稿尚未送出；組別成立後任一組員送出即完成。", at: "08-17 09:00", read: false, href: "/dashboard/student/affairs/mi-014" },
-    { id: "n-s2", kind: "signoff", title: "專題成果授權同意書等你同意", body: "已有 3 位組員同意。", at: "08-16 21:13", read: false, href: "/dashboard/student/signoff" },
+    { id: "n-s2", kind: "signoff", title: "專題成果授權同意書等你同意", body: "已有 3 位組員同意。", at: "08-16 21:13", read: false, href: "/dashboard/student/affairs/consent" },
     { id: "n-s3", kind: "submission", title: "專題分組名單確認表已繳交", body: "黃詩涵於 08-14 送出，版本 v1。", at: "08-14 16:20", read: true, href: "/dashboard/student/affairs/mi-013" },
     { id: "n-s4", kind: "system", title: "第 07 組還有 2 位成員未確認", body: "蔡育瑄、鄭凱文尚未確認加入。", at: "08-13 10:02", read: true, href: "/dashboard/student/groups" },
   ],
@@ -1038,6 +1053,12 @@ export const FORM_SCHEMAS: Record<string, FormField[]> = {
     { id: "f4", type: "textarea", label: "摘要", help: "300 字內", required: true },
     { id: "f5", type: "text", label: "預計使用技術", placeholder: "例：Next.js、PostgreSQL" },
     { id: "f6", type: "text", label: "產學合作單位（如有）" },
+    { id: "f7", type: "file", label: "摘要初稿檔案", required: true, meta: "PDF，10 MB 以內" },
+  ],
+  "mi-015": [
+    { id: "f1", type: "textarea", label: "有興趣的題目方向", required: true, placeholder: "一行一個" },
+    { id: "f2", type: "checkbox", label: "擅長的技能", options: ["前端", "後端", "資料分析", "UI 設計", "專案管理"] },
+    { id: "f3", type: "file", label: "個人作品集（選填）", meta: "PDF，10 MB 以內" },
   ],
   "mi-011": [
     { id: "f1", type: "groupinfo", label: "組別資訊" },
@@ -1190,7 +1211,7 @@ export const SCHEDULE: Stage[] = [
     id: "st-archive", title: "成品繳交與同意書", summary: "繳交系統與文件完稿，完成成果授權同意書後封存。", from: "2027-06-01", to: "2027-06-12", status: "upcoming",
     tasks: [
       { role: "student", label: "專題成品完稿", href: "/dashboard/student/affairs", due: "2027-06-12" },
-      { role: "student", label: "成果授權同意書", href: "/dashboard/student/signoff", due: "2027-06-12" },
+      { role: "student", label: "成果授權同意書", href: "/dashboard/student/affairs/consent", due: "2027-06-12" },
       { role: "teacher", label: "同意書簽核", href: "/dashboard/teacher/signoff", due: "2027-06-19" },
       { role: "admin", label: "封存本屆、公開優秀專題", href: "/dashboard/admin/files", due: "2027-06-30" },
     ],

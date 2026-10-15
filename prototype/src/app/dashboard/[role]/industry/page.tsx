@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { IconArrowRight, IconBriefcase, IconBuilding, IconEyeOff, IconLink } from "@tabler/icons-react";
+import { notFound, redirect } from "next/navigation";
+import { IconBriefcase, IconEyeOff, IconLink } from "@tabler/icons-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageTitle, Panel, Pill, StatTile } from "@/components/dashboard/primitives";
 import { Ring } from "@/components/dashboard/charts";
@@ -19,22 +19,8 @@ export default async function IndustryPage({ params, searchParams }: PageProps<"
   const publicCount = INDUSTRY.filter((i) => i.publishStatus === "public").length;
   const open = INDUSTRY.filter((i) => i.status === "open").length;
 
-  if (role === "student") {
-    return (
-      <div className="flex flex-col gap-5">
-        <PageTitle title="產學合作" description="老師建立的合作案；產學組可連結合作案，公司與部門自動帶入。" actions={<Link href="/industry" className={buttonVariants({ variant: "outline", size: "lg", className: "press rounded-lg" })}>前台列表 <IconArrowRight /></Link>} />
-        <div className="grid gap-4 md:grid-cols-2">
-          {INDUSTRY.filter((i) => i.publishStatus === "public").map((i) => (
-            <Link key={i.id} href={`/industry/${i.id}`} className="card-lift flex items-center gap-4 rounded-xl border border-border bg-card p-5">
-              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-subtle text-brand-on-subtle"><IconBuilding className="size-5" /></span>
-              <span className="min-w-0 flex-1"><span className="block truncate font-bold">{i.company}</span><span className="block truncate text-sm text-muted-foreground">{i.title}</span></span>
-              {i.status === "claimed" ? <Pill tone="info">已有 {i.linkedGroups} 組</Pill> : <Pill tone="brand">尚未指派</Pill>}
-            </Link>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  /* 學生 v1：學生後台不放產學合作，看前台列表（Roy 2026-10-15） */
+  if (role === "student") redirect("/industry");
 
   const base = `/dashboard/${role}/industry`;
   const tab = (key: "mine" | "all", label: string) => (

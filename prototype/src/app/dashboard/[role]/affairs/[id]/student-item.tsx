@@ -50,7 +50,7 @@ function StudentItemBody({ item, base, tab: tabParam }: { item: ManagedItem; bas
 
   return (
     <div className="flex flex-col gap-5">
-      <Link href={`${base}/affairs`} className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"><IconArrowLeft className="size-4" /> 作業區</Link>
+      <Link href={`${base}/affairs`} className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"><IconArrowLeft className="size-4" /> 交作業</Link>
       <div className="dash-card overflow-hidden">
         <div className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="min-w-0">
@@ -99,20 +99,21 @@ function StudentItemBody({ item, base, tab: tabParam }: { item: ManagedItem; bas
             {versions.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">還沒有送出過。</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead><tr className="text-left text-[12px] text-muted-foreground"><th className="py-2 font-semibold">第幾次</th><th className="py-2 font-semibold">送出者</th><th className="py-2 font-semibold">時間</th><th className="hidden py-2 font-semibold sm:table-cell">備註</th><th className="py-2"></th></tr></thead>
-                <tbody>
-                  {versions.map((v, i) => (
-                    <tr key={v.version} className="border-t border-border/70">
-                      <td className="tabular py-3 font-semibold">第 {v.version} 次{i === 0 ? <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span> : null}</td>
-                      <td className="py-3">{v.by}</td>
-                      <td className="tabular py-3 text-muted-foreground">{v.at}</td>
-                      <td className="hidden py-3 text-muted-foreground sm:table-cell">{v.note ?? "—"}</td>
-                      <td className="py-1 text-right"><Link href={`${base}/affairs/${item.id}?tab=history&version=${v.version}`} className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-semibold text-primary transition-colors hover:bg-accent">查看內容</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              /* 學生 v1：繳交歷史改成時間線卡片，不用表格 */
+              <ol className="relative flex flex-col gap-3 before:absolute before:top-3 before:bottom-3 before:left-[15px] before:w-0.5 before:bg-border" data-history>
+                {versions.map((v, i) => (
+                  <li key={v.version} className="relative flex items-start gap-4">
+                    <span className={`relative z-10 mt-2.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold ring-4 ring-card ${i === 0 ? "bg-success text-success-foreground" : "bg-muted text-muted-foreground"}`}>{v.version}</span>
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-border/80 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold">第 {v.version} 次・{v.by}{i === 0 ? <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span> : null}</p>
+                        <p className="tabular text-[13px] text-muted-foreground">{v.at}{v.note ? `・${v.note}` : ""}</p>
+                      </div>
+                      <Link href={`${base}/affairs/${item.id}?tab=history&version=${v.version}`} className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-semibold text-primary transition-colors hover:bg-accent">查看內容</Link>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             )}
           </div>
         )}

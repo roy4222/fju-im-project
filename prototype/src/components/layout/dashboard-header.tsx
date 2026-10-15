@@ -34,6 +34,13 @@ export function DashboardHeader({ role }: { role: Role }) {
 
       <div className="ml-auto flex items-center gap-1.5">
         <DashThemeToggle />
+        {/* 學生 v1（Roy 2026-10-15）：通知只留鈴鐺，點了直接開通知頁 */}
+        {role === "student" ? (
+          <Link href={`/dashboard/${role}/inbox`} className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={`通知，${unread} 則未讀`}>
+            <IconBell className="size-4.5" />
+            {unread ? <span className="notif-dot absolute top-2 right-2 size-2 rounded-full bg-brand" /> : null}
+          </Link>
+        ) : (
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -73,6 +80,7 @@ export function DashboardHeader({ role }: { role: Role }) {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
 
         <form ref={logoutForm} method="post" action="/api/proto-role" className="hidden">
           <input type="hidden" name="role" value="guest" />

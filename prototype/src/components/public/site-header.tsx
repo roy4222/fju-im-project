@@ -45,6 +45,7 @@ function navFor(role: ViewerRole): NavItem[] {
       ],
       match: (p) => p.startsWith("/projects") || p.startsWith("/honors"),
     },
+    { label: "專題時程", href: "/timeline", match: (p) => p.startsWith("/timeline") },
     { label: "產學合作", href: "/industry", match: (p) => p.startsWith("/industry") },
     { label: "檔案下載", href: "/files", match: (p) => p.startsWith("/files") },
   ];

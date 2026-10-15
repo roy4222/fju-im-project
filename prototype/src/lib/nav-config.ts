@@ -1,4 +1,5 @@
-import { NOTIFICATIONS, mySignoffPending, pendingAccounts, studentOpenItems, teacherGradingCounts, teacherSignReady, type Role } from "@/lib/fixtures";
+import { NOTIFICATIONS, pendingAccounts, teacherGradingCounts, teacherSignReady, type Role } from "@/lib/fixtures";
+import { studentOpenCount } from "@/lib/student-v1";
 
 /**
  * 登入後導覽。對應規格 §3.3 的六個核心區域。
@@ -14,8 +15,8 @@ export type NavItem = { href: string; label: string; icon: NavIcon; roles: Role[
  */
 function badgeFor(role: Role, href: string): number | undefined {
   if (href === "/inbox") return NOTIFICATIONS[role].filter((n) => !n.read).length || undefined;
-  if (role === "student" && href === "/affairs") return studentOpenItems().length || undefined;
-  if (role === "student" && href === "/signoff") return mySignoffPending() ? 1 : undefined;
+  /* 學生 v1：同意書併進交作業，徽章＝交作業「待交」數（作業＋同意書，同一個函式） */
+  if (role === "student" && href === "/affairs") return studentOpenCount() || undefined;
   if (role === "teacher" && href === "/grading") return teacherGradingCounts().remaining || undefined;
   if (role === "teacher" && href === "/signoff") return teacherSignReady().length || undefined;
   if (role === "admin" && href === "/accounts") return pendingAccounts().length || undefined;
@@ -27,16 +28,14 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "總覽",
     items: [
-      { href: "", label: "首頁", icon: "dashboard", roles: ["student", "teacher", "admin"] },
-      { href: "/timeline", label: "專題時間軸", icon: "timeline", roles: ["student"] },
+      { href: "", label: "首頁", icon: "dashboard", roles: ["teacher", "admin"] },
       { href: "/timeline", label: "時間軸設定", icon: "timeline", roles: ["admin"] },
-      { href: "/inbox", label: "通知", icon: "inbox", roles: ["student", "teacher", "admin"] },
+      { href: "/inbox", label: "通知", icon: "inbox", roles: ["teacher", "admin"] },
     ],
   },
   {
     title: "專題事務",
     items: [
-      { href: "/affairs", label: "作業區", icon: "affairs", roles: ["student"] },
       { href: "/affairs", label: "專題事務", icon: "affairs", roles: ["admin"] },
       { href: "/editor", label: "內容編輯器", icon: "editor", roles: ["admin"] },
       { href: "/files", label: "檔案管理", icon: "files", roles: ["admin"] },
@@ -45,9 +44,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "分組與產學",
     items: [
-      { href: "/groups", label: "我的組別", icon: "groups", roles: ["student"] },
       { href: "/groups", label: "分組總覽", icon: "groups", roles: ["teacher", "admin"] },
-      { href: "/industry", label: "產學合作", icon: "industry", roles: ["student", "teacher", "admin"] },
+      { href: "/industry", label: "產學合作", icon: "industry", roles: ["teacher", "admin"] },
     ],
   },
   {
@@ -55,7 +53,6 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/grading", label: "評分", icon: "grading", roles: ["teacher"] },
       { href: "/grading", label: "成績管理", icon: "grading", roles: ["admin"] },
-      { href: "/signoff", label: "同意書", icon: "signoff", roles: ["student"] },
       { href: "/signoff", label: "簽核", icon: "signoff", roles: ["teacher", "admin"] },
     ],
   },
@@ -68,10 +65,25 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+/**
+ * 學生後台 v1（Roy 2026-10-15，Q71～Q73）：側欄只有三項、不分組標題。
+ * 通知只留右上角鈴鐺；時程搬到前台 /timeline；同意書是交作業裡的一張卡；產學合作、成績說明不在學生側欄。
+ */
+const STUDENT_NAV: NavGroup[] = [
+  {
+    title: "",
+    items: [
+      { href: "", label: "首頁", icon: "dashboard", roles: ["student"] },
+      { href: "/affairs", label: "交作業", icon: "affairs", roles: ["student"] },
+      { href: "/groups", label: "組別", icon: "groups", roles: ["student"] },
+    ],
+  },
+];
+
 export const ROLE_LABEL: Record<Role, string> = { student: "學生", teacher: "指導老師", admin: "系辦管理員" };
 
 export function navForRole(role: Role): NavGroup[] {
-  return NAV_GROUPS.map((g) => ({
+  return (role === "student" ? STUDENT_NAV : NAV_GROUPS).map((g) => ({
     ...g,
     items: g.items.filter((i) => i.roles.includes(role)).map((i) => { const n = badgeFor(role, i.href); return n ? { ...i, badge: { [role]: n } } : i; }),
   })).filter((g) => g.items.length > 0);
@@ -86,5 +98,6 @@ export function titleFor(role: Role, pathname: string): string {
   const base = `/dashboard/${role}`;
   const items = navForRole(role).flatMap((g) => g.items);
   const match = items.filter((i) => (i.href === "" ? pathname === base : pathname.startsWith(base + i.href))).sort((a, b) => b.href.length - a.href.length)[0];
+  if (!match && pathname.startsWith(`${base}/inbox`)) return "通知";
   return match?.label ?? "專題管理平台";
 }

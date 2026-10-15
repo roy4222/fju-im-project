@@ -1,37 +1,101 @@
-import { IconClipboardText, IconSchool, IconUpload } from "@tabler/icons-react";
-import { Spot, type HomeModel } from "@/components/dashboard/home-widgets";
-import { CURRENT_USERS, MANAGED_ITEMS, MY_GROUP, SIGNOFF, TODAY_YMD, currentStage, isSubmittedState, studentOpenItems, type Role } from "@/lib/fixtures";
+import Link from "next/link";
+import { IconArrowRight, IconCalendarEvent, IconPin } from "@tabler/icons-react";
+import { SectionHead, TodoRow, dueText, md } from "@/components/dashboard/student-v1";
+import { CURRENT_USERS, NEWS, currentStage, daysUntil } from "@/lib/fixtures";
+import { nextDue, studentTodos } from "@/lib/student-v1";
 
-/* ============================================================ 學生 */
-export function studentHome(role: Role): HomeModel {
-  const base = `/dashboard/${role}`;
+/**
+ * 學生首頁 v1（Roy 2026-10-15，Q71）：只有三區——「現在」卡、待辦、公告。
+ * 不要學期進度條、階段四格、三個小格、行事曆、「接下來」、任何表格。
+ * 「下一件要交的」與待辦、交作業、側欄徽章同一個口徑（lib/student-v1.ts）。
+ */
+const HOME_TODOS = 5;
+const HOME_NEWS = 5;
+
+export function StudentHome() {
+  const base = "/dashboard/student";
   const stage = currentStage();
-  const open = studentOpenItems();
-  const next = open[0];
-  const overdue = open.filter((i) => i.myState === "overdue");
-  const submitted = MANAGED_ITEMS.filter((i) => isSubmittedState(i.myState));
-  const confirmed = MY_GROUP.members.filter((m) => m.confirmed).length;
+  const left = daysUntil(stage.to);
+  const next = nextDue();
+  const todos = studentTodos().slice(0, HOME_TODOS);
+  /* 公告：置頂在前，其餘新到舊（AC-V10：置頂順序要保留）；老師限定的不給學生看 */
+  const news = NEWS.filter((n) => n.audience !== "teachers")
+    .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.date.localeCompare(a.date))
+    .slice(0, HOME_NEWS);
   const name = CURRENT_USERS.student.name;
-  const approvals = SIGNOFF.studentApprovals.filter((a) => a.approved).length;
-  const myPending = SIGNOFF.studentApprovals.some((a) => a.name === name && !a.approved);
-  return {
-    role,
-    layout: "student",
-    name,
-    line: open.length ? `現在是「${stage.title}」。作業區還有 ${open.length} 件沒送出${overdue.length ? `，其中 ${overdue.length} 件已逾期` : ""}。` : `現在是「${stage.title}」。作業區沒有待繳的東西。`,
-    /* 下一步＝最近截止那件（studentOpenItems 已依截止排序）；有下一步就不再放泛用的「去作業區」 */
-    next: next ? { title: next.title, due: next.dueAt ?? TODAY_YMD, href: `${base}/affairs/${next.id}`, label: next.myState === "draft" ? "繼續填寫" : "去繳交" } : undefined,
-    heroIllustration: <Spot icon={<IconSchool className="size-16" strokeWidth={1.4} />} />,
-    /* Roy 2026-09-10：作業區／我的組別／同意書不再各占一張卡，縮成歡迎色塊底部三格 */
-    chips: [
-      { label: "作業待繳", value: `${open.length} 件`, href: `${base}/affairs?tab=open`, hot: open.length > 0 },
-      { label: "組員確認", value: `${confirmed}/5`, href: `${base}/groups` },
-      { label: "同意書", value: myPending ? "等你同意" : `${approvals}/5`, href: `${base}/signoff` },
-    ],
-    stats: [
-      { key: "open", label: "待繳", icon: <IconClipboardText />, value: open.length, unit: "件", tone: open.length ? "brand" : "default", href: `${base}/affairs?tab=open` },
-      { key: "done", label: "已繳交", icon: <IconUpload />, value: submitted.length, unit: "件", href: `${base}/affairs?tab=done` },
-    ],
-    modules: [],
-  };
+
+  return (
+    <div className="flex flex-col gap-7">
+      {/* 1. 現在 */}
+      <section aria-labelledby="now-title" data-region="now" className="relative overflow-hidden rounded-[24px] bg-primary text-primary-foreground">
+        <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 size-72 rounded-full bg-[radial-gradient(circle,color-mix(in_oklch,var(--brand)_55%,transparent),transparent_70%)] opacity-60" />
+        <div className="relative grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center md:p-8">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-primary-foreground/75">{name}，你好</p>
+            <h1 id="now-title" className="mt-2 text-[26px] leading-tight font-extrabold tracking-tight md:text-[30px]">
+              現在是<span className="text-brand">「{stage.title}」</span>階段
+            </h1>
+            <p className="tabular mt-2 text-[15px] text-primary-foreground/80">{md(stage.from)} – {md(stage.to)}・還有 {left} 天</p>
+            <Link href="/timeline" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-full bg-white/12 px-4 text-sm font-bold ring-1 ring-white/25 transition-colors hover:bg-white/20 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/60">
+              看完整時程 <IconArrowRight className="size-4" />
+            </Link>
+          </div>
+          {next ? (
+            <Link href={base + next.href} className="group block rounded-2xl bg-card p-5 text-card-foreground shadow-[0_10px_30px_rgba(0,20,50,0.25)] transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/70">
+              <span className="text-[12px] font-bold tracking-[0.06em] text-brand-on-subtle">下一件要交的</span>
+              <span className="mt-1.5 block text-[18px] leading-snug font-extrabold">{next.title}</span>
+              <span className="tabular mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+                <IconCalendarEvent className="size-4" />
+                {dueText(next).date}
+                {dueText(next).rel ? <span className="font-bold text-brand-on-subtle">・{dueText(next).rel}</span> : null}
+              </span>
+              <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-primary">
+                {next.draft ? "繼續填寫" : "去交"}
+                <IconArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          ) : (
+            <div className="rounded-2xl bg-card p-5 text-card-foreground">
+              <span className="text-[12px] font-bold tracking-[0.06em] text-success-on-subtle">下一件要交的</span>
+              <span className="mt-1.5 block text-[18px] font-extrabold">目前沒有要交的</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        {/* 2. 待辦 */}
+        <section aria-labelledby="todo-title" data-region="todo">
+          <SectionHead id="todo-title" title="待辦" href={`${base}/affairs`} link="全部作業" />
+          <ul className="flex flex-col gap-2.5">
+            {todos.map((t) => <TodoRow key={t.id} todo={t} base={base} />)}
+          </ul>
+        </section>
+
+        {/* 3. 公告 */}
+        <section aria-labelledby="news-title" data-region="news">
+          <SectionHead id="news-title" title="公告" href="/news" link="全部公告" />
+          <ul className="flex flex-col gap-2.5">
+            {news.map((n) => (
+              <li key={n.id}>
+                <Link href={`/news/${n.id}`} className="dash-card-hover flex items-start gap-3.5 rounded-2xl border border-border/80 bg-card p-3.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
+                  <span className="tabular flex size-12 shrink-0 flex-col items-center justify-center rounded-xl bg-accent text-primary">
+                    <span className="text-[11px] leading-none font-semibold">{Number(n.date.slice(5, 7))} 月</span>
+                    <span className="mt-0.5 text-[18px] leading-none font-extrabold">{Number(n.date.slice(8, 10))}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
+                      {n.pinned ? <span className="inline-flex items-center gap-0.5 rounded-full bg-brand-subtle px-1.5 py-px text-brand-on-subtle"><IconPin className="size-3" />置頂</span> : null}
+                      {n.category}
+                    </span>
+                    <span className="mt-0.5 line-clamp-2 text-[14.5px] leading-snug font-bold">{n.title}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
+  );
 }

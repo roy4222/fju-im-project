@@ -40,6 +40,12 @@ export function PrototypeBar({ role }: { role: ViewerRole }) {
               </button>
             ))}
           </form>
+          {/* 學生後台 v1（Roy 2026-10-15）：一鍵切成學生並進後台 */}
+          <form method="post" action="/api/proto-role" className="mt-2">
+            <input type="hidden" name="role" value="student" />
+            <input type="hidden" name="returnTo" value="/dashboard/student" />
+            <button type="submit" className="w-full rounded-md bg-brand py-1.5 text-[13px] font-bold hover:brightness-110">進學生後台 →</button>
+          </form>
           <p className="mt-2 text-xs leading-relaxed text-white/80">照片暫用系網素材，資料為虛構示範。</p>
         </>
       ) : null}

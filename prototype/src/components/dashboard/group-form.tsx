@@ -143,7 +143,7 @@ export function ReceiptStamp({ receipt, title, backHref }: { receipt: Receipt; t
         <dt className="text-muted-foreground">組別</dt><dd className="font-semibold">{receipt.group}</dd>
       </dl>
       <p className="text-xs text-muted-foreground">全組看到同一個版本。截止前可重送，以最後一次為準。</p>
-      <Link href={backHref} className="btn-fju h-11 w-full rounded-lg text-sm">回作業區</Link>
+      <Link href={backHref} className="btn-fju h-11 w-full rounded-lg text-sm">回交作業</Link>
     </div>
   );
 }
@@ -190,7 +190,7 @@ function Field({ field: f, readOnly, value, error, onChange, refFn }: { field: F
       return (
         <div className="flex flex-col gap-1.5">
           {label}
-          <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors hover:bg-brand-subtle/30 ${error ? "border-destructive" : "border-border hover:border-brand"} ${readOnly ? "pointer-events-none opacity-60" : ""}`}>
+          <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors hover:bg-brand-subtle/30 focus-within:ring-3 focus-within:ring-brand/30 ${error ? "border-destructive" : "border-border hover:border-brand"} ${readOnly ? "pointer-events-none opacity-60" : ""}`}>
             <IconCloudUpload className="size-5 text-brand" />
             <span className="font-semibold">{str ? str : "拖放或點擊上傳"}</span>
             <span className="text-xs text-muted-foreground">{str ? "已選檔案" : f.meta}</span>
