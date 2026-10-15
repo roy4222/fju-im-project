@@ -1,35 +1,29 @@
-import Link from "next/link";
 import type { Metadata } from "next";
-import { AuthCard, Field } from "@/components/public/auth-card";
-import { GoogleIcon } from "@/components/public/google-icon";
+import { AuthAside, AuthSplit, REGISTER_STEPS } from "@/components/public/auth-split";
+import { DEMO_GOOGLE_ACCOUNTS, ROSTER_114 } from "@/lib/fixtures";
+import { RegisterFlow, type Step, type Via } from "./register-flow";
 
 export const metadata: Metadata = { title: "註冊", alternates: { canonical: "/register" } };
 
-/** 註冊（規格 §2.4）：姓名、學號、屆別、手機、聯絡 Email；不收生日與照片。原型送出後到等待審核頁。 */
-export default function RegisterPage() {
+const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : "");
+
+/**
+ * 註冊 v2（Q53／Q54，2026-10-15）：三步驟、左右分割。
+ * 網址可帶 ?step=1|2|3|done&via=email|google&email=…&name=… 直接進到某一步（原型截圖與示範用）。
+ */
+export default async function RegisterPage({ searchParams }: PageProps<"/register">) {
+  const sp = await searchParams;
+  const rawStep = one(sp.step);
+  const step: Step = rawStep === "2" ? 2 : rawStep === "3" ? 3 : rawStep === "done" ? "done" : 1;
+  const via: Via = one(sp.via) === "google" ? "google" : "email";
+  const fallbackEmail = via === "google" ? DEMO_GOOGLE_ACCOUNTS[0].email : step === 1 ? "" : "yiting.lin@gmail.com";
   return (
-    <AuthCard title="註冊" description="請用學籍姓名與學號。老師帳號由系辦建立。" width="max-w-[560px]">
-      <form action="/register/pending" className="flex flex-col gap-4">
-        <button type="button" className="inline-flex h-12 items-center justify-center gap-2.5 rounded-md border border-border font-bold transition-colors hover:bg-accent">
-          <GoogleIcon /> 使用 Google 帳號註冊
-        </button>
-        <div className="flex items-center gap-3 text-[13px] text-muted-foreground"><span className="h-px flex-1 bg-border" />或填寫 Email 與密碼<span className="h-px flex-1 bg-border" /></div>
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field id="name" label="姓名" placeholder="與學籍相同" required autoComplete="name" />
-          <Field id="studentNo" label="學號" placeholder="411410123" required />
-        </div>
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field id="cohort" label="屆別／專題年度" placeholder="114 學年度" required />
-          <Field id="phone" label="手機" placeholder="09xx-xxx-xxx" required autoComplete="tel" />
-        </div>
-        <Field id="email" label="聯絡 Email" type="email" placeholder="name@mail.fju.edu.tw" required autoComplete="email" />
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field id="password" label="密碼" type="password" placeholder="至少 12 字元" autoComplete="new-password" />
-          <Field id="password2" label="確認密碼" type="password" autoComplete="new-password" />
-        </div>
-        <button type="submit" className="btn-fju h-12 text-base">建立帳號</button>
-        <p className="text-center text-[13px] text-muted-foreground">已有帳號？<Link href="/login" className="font-bold text-brand hover:underline">登入</Link></p>
-      </form>
-    </AuthCard>
+    <AuthSplit aside={<AuthAside eyebrow="註冊流程" title="註冊後會發生什麼" steps={REGISTER_STEPS} footnote="資料只用於專題課程與系辦核對身分，詳見隱私權政策。" />}>
+      <RegisterFlow
+        initial={{ step, via, email: one(sp.email) || fallbackEmail, name: one(sp.name) || (via === "google" ? DEMO_GOOGLE_ACCOUNTS[0].name : "") }}
+        rosterEmails={ROSTER_114.map((r) => r.email)}
+        googleAccounts={DEMO_GOOGLE_ACCOUNTS}
+      />
+    </AuthSplit>
   );
 }

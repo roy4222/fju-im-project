@@ -60,6 +60,7 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
       <div className="border-t border-white/15 dark:border-border">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-4 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 輔仁大學資訊管理學系</p>
+          <Link href="/privacy" className="link-ink self-start hover:text-white [--brand:var(--color-white)] sm:self-auto">隱私權政策</Link>
         </div>
       </div>
     </footer>

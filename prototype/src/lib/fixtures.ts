@@ -1293,3 +1293,24 @@ export function pendingAccounts(): Account[] {
 export function overdueGroupCount(): number {
   return MANAGED_ITEMS.reduce((a, i) => a + (i.progress?.overdue ?? 0), 0);
 }
+
+/**
+ * 註冊原型（v2）：本屆名單上登記的 Email，以及「使用 Google 繼續」時跳出的示範帳號。
+ * 規則：用 Google 而且 Email 和名單登記的相同 → 直接開通；其他一律進系辦待審。
+ */
+export const ROSTER_114: { studentNo: string; name: string; email: string }[] = [
+  { studentNo: "411410488", name: "蔡宜蓁", email: "411410488@m365.fju.edu.tw" },
+  { studentNo: "411410123", name: "林彥廷", email: "411410123@m365.fju.edu.tw" },
+  { studentNo: "411410145", name: "黃詩涵", email: "411410145@m365.fju.edu.tw" },
+  { studentNo: "411410466", name: "許廷瑋", email: "411410466@m365.fju.edu.tw" },
+];
+
+export function isRosterEmail(email: string): boolean {
+  const e = email.trim().toLowerCase();
+  return ROSTER_114.some((r) => r.email === e);
+}
+
+export const DEMO_GOOGLE_ACCOUNTS: { name: string; email: string; demo: string }[] = [
+  { name: "蔡宜蓁", email: "411410488@m365.fju.edu.tw", demo: "名單上有這個 Email → 直接開通" },
+  { name: "許庭瑋", email: "tingwei.hsu@gmail.com", demo: "名單上沒有這個 Email → 系辦待審" },
+];
