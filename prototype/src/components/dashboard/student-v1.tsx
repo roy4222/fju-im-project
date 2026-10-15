@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { IconAlertTriangle, IconCheck, IconChevronRight, IconClock, IconPin, IconSignature } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCheck, IconChevronRight, IconClock, IconFileText, IconPin, IconSignature, IconSpeakerphone } from "@tabler/icons-react";
+import { CardFx } from "@/components/dashboard/card-fx";
 import { daysUntil, type NewsItem } from "@/lib/fixtures";
 import type { StudentTodo, TodoStatus } from "@/lib/student-v1";
 
@@ -44,80 +45,97 @@ export function TodoTag({ todo }: { todo: StudentTodo }) {
   );
 }
 
-/** 左邊色條：一眼看出狀態 */
-export const STRIP: Record<TodoStatus, string> = {
-  soon: "before:bg-brand",
-  overdue: "before:bg-destructive",
-  done: "before:bg-success",
-  open: "before:bg-border",
+/** 狀態色（第 3 輪首頁卡片：彩色邊框＋大圖示＋實心狀態膠囊）。白字都 ≥4.5:1，所以橘用深橘 */
+export const TINT: Record<TodoStatus, string> = {
+  overdue: "var(--destructive)",
+  soon: "var(--brand-deep)",
+  done: "var(--success)",
+  open: "oklch(0.52 0.03 253)",
 };
 
-/** 首頁待辦一列：名稱、截止日、狀態標籤，其他都不放 */
-export function TodoRow({ todo, base }: { todo: StudentTodo; base: string }) {
+/** 首頁待辦卡：名稱、截止日、狀態，其他都不放；滑過有漣漪 */
+export function TodoCard({ todo, base }: { todo: StudentTodo; base: string }) {
   const due = dueText(todo);
+  const tint = TINT[todo.status];
+  const Icon = todo.kind === "consent" ? IconSignature : IconFileText;
   return (
     <li>
       <Link
         href={base + todo.href}
         data-todo={todo.status}
-        className={`dash-card-hover group relative flex items-center gap-3 overflow-hidden rounded-2xl border border-border/80 bg-card py-3.5 pr-3 pl-5 before:absolute before:inset-y-0 before:left-0 before:w-1.5 ${STRIP[todo.status]} focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40`}
+        className="fx-card dash-card-hover group flex h-full flex-col rounded-2xl border-2 p-4 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
+        style={{ borderColor: `color-mix(in oklch, ${tint} 42%, transparent)`, background: `color-mix(in oklch, ${tint} 6%, var(--card))` }}
       >
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            {todo.kind === "consent" ? <IconSignature className="size-4 shrink-0 text-primary" aria-label="同意書" /> : null}
-            <span className={`truncate text-[15px] font-bold ${todo.status === "done" ? "text-muted-foreground" : ""}`}>{todo.title}</span>
-          </span>
-          <span className="tabular mt-0.5 block text-[13px] text-muted-foreground">
-            {due.date}
-            {due.rel ? <span className={todo.status === "overdue" ? "text-destructive" : todo.status === "soon" ? "font-semibold text-brand-on-subtle" : ""}>・{due.rel}</span> : null}
+        <CardFx tint={tint} />
+        <span className="flex items-start justify-between gap-2">
+          <span className="inline-flex size-12 items-center justify-center rounded-full text-white" style={{ background: tint }}><Icon className="size-6" strokeWidth={1.8} /></span>
+          <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-bold whitespace-nowrap text-white" style={{ background: tint }}>
+            {TAG[todo.status].icon}
+            {tagLabel(todo)}
           </span>
         </span>
-        <TodoTag todo={todo} />
-        <IconChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        <span className="mt-3.5 line-clamp-2 text-[16px] leading-snug font-extrabold">{todo.title}</span>
+        <span className="tabular mt-auto pt-2 text-[14px] font-bold text-muted-foreground">
+          {due.date}
+          {due.rel ? <span style={{ color: todo.status === "overdue" || todo.status === "soon" ? tint : undefined }}>・{due.rel}</span> : null}
+        </span>
       </Link>
     </li>
   );
 }
 
-/** 區塊標題：名詞＋右邊一個「全部 →」 */
+/** 區塊標題（第 3 輪）：大而粗的名詞，後面接一條細線，最右邊一個「全部 →」 */
 export function SectionHead({ id, title, href, link, count }: { id: string; title: string; href?: string; link?: string; count?: number }) {
   return (
-    <div className="mb-3 flex items-baseline justify-between gap-3">
-      <h2 id={id} className="text-[17px] font-extrabold tracking-tight">
+    <div className="mb-4 flex items-center gap-4">
+      <h2 id={id} className="section-title shrink-0">
         {title}
-        {count !== undefined ? <span className="tabular ml-2 text-sm font-semibold text-muted-foreground">{count}</span> : null}
+        {count !== undefined ? <span className="tabular ml-2 text-base font-bold text-muted-foreground">{count}</span> : null}
       </h2>
+      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
       {href ? (
-        <Link href={href} className="inline-flex shrink-0 items-center gap-0.5 rounded-md text-[13px] font-semibold text-primary transition-colors hover:text-brand">
+        <Link href={href} className="inline-flex shrink-0 items-center gap-0.5 rounded-md text-[14px] font-bold text-primary transition-colors hover:text-brand">
           {link}
-          <IconChevronRight className="size-3.5" />
+          <IconChevronRight className="size-4" />
         </Link>
       ) : null}
     </div>
   );
 }
 
-/** 首頁公告卡片（學生、老師共用）：日期方塊＋分類＋標題，兩欄 */
+/** 頁面大標題（第 3 輪，學生、老師共用） */
+export function PageTitle({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="page-title">{title}</h1>
+        {sub ? <p className="tabular mt-1.5 text-[15px] font-semibold text-muted-foreground">{sub}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** 首頁公告（學生、老師共用）：一張清單，喇叭圖示＋標題＋日期 */
 export function NewsList({ news }: { news: NewsItem[] }) {
   return (
-    <ul className="grid gap-2.5 md:grid-cols-2">
-        {news.map((n) => (
-          <li key={n.id}>
-            <Link href={`/news/${n.id}`} className="dash-card-hover flex items-start gap-3.5 rounded-2xl border border-border/80 bg-card p-3.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
-              <span className="tabular flex size-12 shrink-0 flex-col items-center justify-center rounded-xl bg-accent text-primary">
-                <span className="text-[11px] leading-none font-semibold">{Number(n.date.slice(5, 7))} 月</span>
-                <span className="mt-0.5 text-[18px] leading-none font-extrabold">{Number(n.date.slice(8, 10))}</span>
+    <ul className="overflow-hidden rounded-2xl border border-border/80 bg-card">
+      {news.map((n) => (
+        <li key={n.id} className="border-b border-border/70 last:border-0">
+          <Link href={`/news/${n.id}`} className="group flex items-center gap-3.5 px-4 py-3.5 transition-colors hover:bg-accent/50 focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring/40 md:px-5">
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-brand-on-subtle"><IconSpeakerphone className="size-[18px]" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
+                {n.pinned ? <span className="inline-flex items-center gap-0.5 rounded-full bg-brand-subtle px-1.5 py-px text-brand-on-subtle"><IconPin className="size-3" />置頂</span> : null}
+                {n.category}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
-                  {n.pinned ? <span className="inline-flex items-center gap-0.5 rounded-full bg-brand-subtle px-1.5 py-px text-brand-on-subtle"><IconPin className="size-3" />置頂</span> : null}
-                  {n.category}
-                </span>
-                <span className="mt-0.5 line-clamp-2 text-[14.5px] leading-snug font-bold">{n.title}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
+              <span className="mt-0.5 block truncate text-[15px] font-bold">{n.title}</span>
+            </span>
+            <span className="tabular hidden shrink-0 text-[13px] text-muted-foreground sm:inline">{n.date.replaceAll("-", "/")}</span>
+            <IconChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        </li>
+      ))}
     </ul>
   );
 }

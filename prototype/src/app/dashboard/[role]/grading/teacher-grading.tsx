@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { IconClock, IconFilter } from "@tabler/icons-react";
 import { useGradeRecords } from "@/lib/grading-store";
+import { CardFx } from "@/components/dashboard/card-fx";
 import { GRADE_STATE_LABEL, GRADING_GROUPS, RUBRIC, TEACHER_BASE as base, gradingCounts, scoreSummary, type GradeState } from "@/lib/teacher-v2";
 
 /**
@@ -34,7 +35,7 @@ export function TeacherGrading() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-[26px] font-extrabold tracking-tight">評分</h1>
+      <h1 className="page-title">評分</h1>
 
       <section aria-label="評分進度" className="dash-card flex flex-col gap-4 p-6 md:flex-row md:items-center md:gap-8" data-progress>
         <p className="shrink-0 text-[28px] leading-none font-extrabold tracking-tight">
@@ -74,7 +75,8 @@ export function TeacherGrading() {
             const filled = RUBRIC.length - sum.missing;
             return (
               <li key={g.groupId}>
-                <article className="dash-card flex h-full flex-col p-5" data-group-card={g.groupId}>
+                <article className="fx-card dash-card dash-card-hover flex h-full flex-col p-5" data-group-card={g.groupId}>
+                  <CardFx tint={rec.state === "submitted" ? "var(--success)" : "var(--brand-deep)"} />
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="tabular text-[12px] font-bold text-muted-foreground">{g.no}</p>

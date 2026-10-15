@@ -20,7 +20,7 @@ export function myGroups(): Group[] {
 
 /* ------------------------------------------------------------------ 評分 */
 
-/** 評分項目的類型：滿分制（分數按鈕＋輸入）、等第制（等第按鈕）、通過制（通過／不通過） */
+/** 評分項目的類型：分數制（數字輸入框）、等第制（下拉選單）、通過制（通過／不通過切換）。項目、權重、說明由系辦設定 */
 export type CriterionKind = "score" | "letter" | "pass";
 export type Criterion = { id: string; name: string; weight: number; hint: string; kind: CriterionKind };
 
@@ -32,7 +32,6 @@ export const RUBRIC: Criterion[] = [
   { id: "c5", name: "資料安全檢核", weight: 0, hint: "個資有遮罩、帳密沒有寫死", kind: "pass" },
 ];
 
-export const SCORE_STEPS = [60, 70, 80, 90, 100];
 /** 等第換算分數（算總分用） */
 export const LETTERS: { label: string; value: number }[] = [
   { label: "A+", value: 95 },
@@ -45,13 +44,20 @@ export const PASS_LABEL = { pass: "通過", fail: "不通過" } as const;
 
 export type Scores = Record<string, { value?: string; comment?: string }>;
 
+/** 分數制 0～100 的數字；等第要在表上；通過制只有 pass／fail。不合法的值算「沒填」 */
+export function validValue(c: Criterion, v: string): boolean {
+  if (c.kind === "score") return /^\d+(\.\d)?$/.test(v) && Number(v) >= 0 && Number(v) <= 100;
+  if (c.kind === "letter") return LETTERS.some((l) => l.label === v);
+  return v === "pass" || v === "fail";
+}
+
 /** 總分＝滿分制與等第制依權重加總（等第照上表換算）；通過制不計分但要填 */
 export function scoreSummary(scores: Scores): { total: number; missing: number } {
   let total = 0;
   let missing = 0;
   for (const c of RUBRIC) {
     const v = scores[c.id]?.value;
-    if (!v) { missing++; continue; }
+    if (!v || !validValue(c, v)) { missing++; continue; }
     if (c.kind === "score") total += (Number(v) * c.weight) / 100;
     if (c.kind === "letter") total += ((LETTERS.find((l) => l.label === v)?.value ?? 0) * c.weight) / 100;
   }

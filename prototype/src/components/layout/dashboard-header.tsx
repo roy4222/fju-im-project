@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { IconBell, IconCalendarDue, IconChecklist, IconChevronDown, IconLogout, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconSettings } from "@tabler/icons-react";
+import { IconBell, IconCalendarDue, IconPhoto, IconChecklist, IconChevronDown, IconLogout, IconSignature, IconSwitchHorizontal, IconUpload, IconUserCheck, IconUserCircle, IconSettings } from "@tabler/icons-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { titleFor, ROLE_LABEL } from "@/lib/nav-config";
 import { DashThemeToggle } from "@/components/layout/dash-theme";
+import { AvatarDialog, UserAvatar } from "@/components/dashboard/avatar";
 import { CURRENT_USERS, NOTIFICATIONS, type Notification, type Role } from "@/lib/fixtures";
 
 const ROLES: Role[] = ["student", "teacher", "admin"];
@@ -22,6 +23,9 @@ export function DashboardHeader({ role }: { role: Role }) {
   const notes = NOTIFICATIONS[role];
   const unread = notes.filter((n) => !n.read).length;
   const logoutForm = useRef<HTMLFormElement>(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  /* 原型第 3 輪：學生、老師的頁面自己有大標題，頂列不再重複頁名 */
+  const v3 = role !== "admin";
 
   function switchRole(next: Role) {
     router.push(pathname.replace(`/dashboard/${role}`, `/dashboard/${next}`));
@@ -30,7 +34,7 @@ export function DashboardHeader({ role }: { role: Role }) {
   return (
     <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 px-3 md:px-5">
       <SidebarTrigger className="size-9 rounded-lg" />
-      <h1 className="ml-1 truncate text-[15px] font-bold">{title}</h1>
+      {v3 ? null : <h1 className="ml-1 truncate text-[15px] font-bold">{title}</h1>}
 
       <div className="ml-auto flex items-center gap-1.5">
         <DashThemeToggle />
@@ -89,8 +93,8 @@ export function DashboardHeader({ role }: { role: Role }) {
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <button type="button" className="ml-1 inline-flex h-9 items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition-colors hover:bg-accent" aria-label="帳號選單">
-                <span className="inline-flex size-7 items-center justify-center rounded-full bg-brand-subtle text-xs font-bold text-brand-on-subtle">{user.name.slice(0, 1)}</span>
+              <button type="button" className="ml-1 inline-flex h-10 items-center gap-2 rounded-full py-1 pr-2 pl-1 transition-colors hover:bg-accent" aria-label="帳號選單">
+                <UserAvatar id={user.id} name={user.name} className="size-8" />
                 <span className="hidden text-[13px] font-semibold sm:inline">{user.name}</span>
                 <IconChevronDown className="hidden size-3.5 text-muted-foreground sm:inline" />
               </button>
@@ -99,6 +103,7 @@ export function DashboardHeader({ role }: { role: Role }) {
           <DropdownMenuContent align="end" className="w-56 p-1.5">
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground">{user.name}・{ROLE_LABEL[role]}</DropdownMenuLabel>
+              <DropdownMenuItem className="h-9 px-2.5 text-[14px]" onClick={() => setAvatarOpen(true)}><IconPhoto /> 換頭像</DropdownMenuItem>
               <DropdownMenuItem className="h-9 px-2.5 text-[14px]" render={<Link href="/account" />}><IconUserCircle /> 個人資料</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -116,6 +121,7 @@ export function DashboardHeader({ role }: { role: Role }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <AvatarDialog id={user.id} name={user.name} open={avatarOpen} onOpenChange={setAvatarOpen} />
     </header>
   );
 }

@@ -617,3 +617,71 @@
   }
   @media (prefers-reduced-motion: reduce) { .tl-body, .tl-card { transition: none; } }
 }
+
+/* ========================================================================== */
+/* 原型第 3 輪（Roy 2026-10-15）：學生、老師共用的新外框。                         */
+/* 深藍側欄（選中＝深橘塊）、白色內容面板、大而粗的頁標題、區塊標題接細線、           */
+/* 「現在」橫幅換成深橘（花紋照舊）。系辦不套，維持原本外框。                         */
+/* ========================================================================== */
+@layer components {
+  :root { --brand-deep: oklch(0.555 0.16 45); --navy: oklch(0.3233 0.1025 253.89); }
+  .dark { --brand-deep: oklch(0.5 0.14 45); --navy: oklch(0.2 0.045 253.89); }
+
+  .dash-v3.dash-frame { --sidebar: var(--navy); background: var(--navy); }
+  .dash-v3.dash-frame [data-slot="sidebar-inner"] { background: transparent; box-shadow: none; border-radius: 0; }
+  .dash-v3 .dash-surface { background: oklch(0.99 0.003 250) !important; box-shadow: none !important; }
+  .dash-v3 .dash-header { background: oklch(0.99 0.003 250); border-bottom-color: transparent; }
+  .dark .dash-v3 .dash-surface, .dark .dash-v3 .dash-header { background: oklch(0.19 0.012 253.89) !important; }
+
+  /* 大標題＋區塊標題後的細線 */
+  .page-title { font-size: 32px; line-height: 1.15; font-weight: 900; letter-spacing: -0.02em; color: var(--navy); }
+  @media (min-width: 768px) { .page-title { font-size: 40px; } }
+  .dark .page-title { color: var(--foreground); }
+  .section-title { font-size: 22px; font-weight: 900; letter-spacing: -0.01em; color: var(--navy); }
+  .dark .section-title { color: var(--foreground); }
+
+  /* 「現在」橫幅：深橘底（白字 ≥4.5:1）＋原本的兩個圓形花紋 */
+  .dash-v3 .hero { background: var(--brand-deep); }
+  .dash-v3 .hero::before { background: oklch(0.62 0.16 50); opacity: 0.75; }
+  .dash-v3 .hero::after { background: oklch(0.5 0.15 42); opacity: 0.7; }
+  .dark .dash-v3 .hero { background: var(--brand-deep); }
+  .dark .dash-v3 .hero::before { background: oklch(0.55 0.14 48); }
+  .dark .dash-v3 .hero::after { background: oklch(0.44 0.13 42); }
+}
+
+/* ========================================================================== */
+/* 卡片漣漪（原型第 3 輪，靈感是 Claude 桌面 App 背景）：滑鼠進卡片時從游標擴散一圈光、        */
+/* 游標附近浮出一片隨機字元，移動時字元跟著換；離開淡出。只在有滑鼠的裝置、沒開減少動態時。   */
+/* 用法：卡片加 .fx-card，裡面放 <CardFx />（components/dashboard/card-fx.tsx）。          */
+/* ========================================================================== */
+@layer components {
+  .fx-card { position: relative; isolation: isolate; overflow: hidden; }
+  .fx-layer { position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 350ms ease; --fx-c: var(--fx-tint, var(--brand)); }
+  .fx-card[data-fx="on"] > .fx-layer { opacity: 1; }
+  .fx-glow { position: absolute; inset: 0; background: radial-gradient(280px circle at var(--fx-x, 50%) var(--fx-y, 50%), color-mix(in oklch, var(--fx-c) 13%, transparent), transparent 70%); }
+  .fx-chars { position: absolute; inset: -2px; overflow: hidden; font: 600 11px/15px var(--font-mono, ui-monospace), ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.12em; word-break: break-all; white-space: normal;
+    color: color-mix(in oklch, var(--fx-c) 70%, var(--foreground));
+    opacity: 0.32;
+    -webkit-mask-image: radial-gradient(150px circle at var(--fx-x, 50%) var(--fx-y, 50%), #000 0%, rgb(0 0 0 / 0.45) 40%, transparent 72%);
+            mask-image: radial-gradient(150px circle at var(--fx-x, 50%) var(--fx-y, 50%), #000 0%, rgb(0 0 0 / 0.45) 40%, transparent 72%); }
+  .fx-ring { position: absolute; left: var(--fx-x0, 50%); top: var(--fx-y0, 50%); width: 520px; height: 520px; margin: -260px 0 0 -260px; border-radius: 9999px; opacity: 0; transform: scale(0.04);
+    background: radial-gradient(circle, transparent 58%, color-mix(in oklch, var(--fx-c) 22%, transparent) 66%, transparent 72%); }
+  .fx-ring[data-go] { animation: fx-ring 1100ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+  @keyframes fx-ring { from { transform: scale(0.04); opacity: 1; } to { transform: scale(1); opacity: 0; } }
+  @media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) { .fx-layer { display: none; } }
+}
+
+/* 側欄本體（不放 @layer：要蓋過 sidebar 元件自帶的 data-active 等 utility）（桌機在 dash-frame 裡、手機在 Sheet 裡，所以用 .dash-sidebar-v3 自己帶變數） */
+.dash-sidebar-v3 { --sidebar: var(--navy); --sidebar-foreground: #fff; --sidebar-accent: oklch(1 0 0 / 8%); --sidebar-accent-foreground: #fff; --sidebar-border: oklch(1 0 0 / 12%); }
+.dash-sidebar-v3 .dash-logo { filter: brightness(0) invert(1); }
+.dash-sidebar-v3 .dash-brand-sub { color: oklch(1 0 0 / 65%); }
+.dash-sidebar-v3 .dash-nav-item { color: oklch(1 0 0 / 78%); height: 2.75rem; font-size: 15px; }
+.dash-sidebar-v3 .dash-nav-item:hover { background: oklch(1 0 0 / 8%); color: #fff; }
+.dash-sidebar-v3 .dash-nav-active, .dash-sidebar-v3 .dash-nav-active:hover { background: var(--brand-deep); color: #fff; box-shadow: 0 6px 16px -8px oklch(0.4 0.15 45 / 70%); }
+.dash-sidebar-v3 .dash-nav-active svg { color: #fff; }
+.dash-sidebar-v3 [data-sidebar="menu-badge"] { top: 0.75rem; }
+.dash-sidebar-v3 [data-active] + [data-sidebar="menu-badge"] { background: #fff; color: var(--brand-deep); }
+.dark .dash-sidebar-v3 .dash-nav-active, .dark .dash-sidebar-v3 .dash-nav-active:hover { background: var(--brand-deep); }
+
+.dash-sidebar-v3 [data-sidebar="group-label"] { color: oklch(1 0 0 / 55%); }
+.dash-sidebar-v3 .dash-nav-item span { font-size: 15px; }

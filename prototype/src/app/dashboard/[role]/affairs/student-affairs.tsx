@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { IconCalendarEvent, IconChecklist, IconFileText, IconSignature } from "@tabler/icons-react";
-import { TodoTag, dueText } from "@/components/dashboard/student-v1";
+import { TINT, TodoTag, dueText } from "@/components/dashboard/student-v1";
+import { CardFx } from "@/components/dashboard/card-fx";
 import { MY_GROUP } from "@/lib/fixtures";
 import { TODO_TABS, studentTodos, type TodoTab } from "@/lib/student-v1";
 
@@ -25,8 +26,8 @@ export function StudentAffairs({ tab = "open" }: { tab?: string }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-extrabold tracking-tight">交作業</h1>
-          <p className="tabular mt-1 text-sm text-muted-foreground">{MY_GROUP.no}</p>
+          <h1 className="page-title">交作業</h1>
+          <p className="tabular mt-1.5 text-[15px] font-semibold text-muted-foreground">{MY_GROUP.no}</p>
         </div>
         <nav aria-label="篩選" className="inline-flex rounded-2xl bg-card p-1.5 ring-1 ring-border/80" data-filter>
           {TODO_TABS.map((t) => {
@@ -64,8 +65,9 @@ export function StudentAffairs({ tab = "open" }: { tab?: string }) {
                 <Link
                   href={base + t.href}
                   data-card={t.id}
-                  className={`dash-card-hover group flex h-full flex-col rounded-3xl border p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${consent ? "border-primary/15 bg-accent/70" : "border-border/80 bg-card"}`}
+                  className={`fx-card dash-card-hover group flex h-full flex-col rounded-3xl border p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${consent ? "border-primary/15 bg-accent/70" : "border-border/80 bg-card"}`}
                 >
+                  <CardFx tint={consent ? "var(--primary)" : TINT[t.status]} />
                   <div className="flex items-start justify-between gap-3">
                     <span className={`inline-flex size-11 items-center justify-center rounded-2xl ${consent ? "bg-primary text-primary-foreground" : t.status === "overdue" ? "bg-destructive-subtle text-destructive-on-subtle" : t.status === "done" ? "bg-success-subtle text-success-on-subtle" : "bg-brand-subtle text-brand-on-subtle"}`}>
                       {consent ? <IconSignature className="size-5" /> : <IconFileText className="size-5" />}

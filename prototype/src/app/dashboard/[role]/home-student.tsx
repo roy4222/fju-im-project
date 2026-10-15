@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { IconArrowRight, IconCalendarEvent } from "@tabler/icons-react";
-import { NewsList, SectionHead, TodoRow, dueText, md } from "@/components/dashboard/student-v1";
-import { DueCalendar } from "@/components/dashboard/due-calendar";
-import { CURRENT_USERS, NEWS, TODAY_YMD, currentStage, daysUntil } from "@/lib/fixtures";
+import { NewsList, PageTitle, SectionHead, TodoCard, dueText, md } from "@/components/dashboard/student-v1";
+import { NEWS, currentStage, daysUntil } from "@/lib/fixtures";
 import { nextDue, studentTodos } from "@/lib/student-v1";
 
 /**
- * 學生首頁 v1（Roy 2026-10-15，Q71）：「現在」卡（.hero 花紋）、待辦＋小月曆、公告。
- * 不要學期進度條、階段四格、三個小格、「接下來」、任何表格；月曆只打點截止日（第 2 輪）。
+ * 學生首頁 v1（Roy 2026-10-15，Q71）：「現在」卡（.hero 花紋）、待辦、公告。
+ * 不要學期進度條、階段四格、三個小格、「接下來」、任何表格。
+ * 第 3 輪：大標題、深橘「現在」橫幅、待辦改彩框卡片（滑過有漣漪）；小月曆拿掉，搬到「看完整時程」（/timeline）。
  * 「下一件要交的」與待辦、交作業、側欄徽章同一個口徑（lib/student-v1.ts）。
  */
 const HOME_TODOS = 5;
@@ -23,25 +23,24 @@ export function StudentHome() {
   const news = NEWS.filter((n) => n.audience !== "teachers")
     .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.date.localeCompare(a.date))
     .slice(0, HOME_NEWS);
-  const name = CURRENT_USERS.student.name;
 
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-8">
+      <PageTitle title="首頁" />
+
       {/* 1. 現在 */}
-      <section aria-labelledby="now-title" data-region="now" className="hero text-primary-foreground">
+      <section aria-labelledby="now-title" data-region="now" className="hero text-white">
         <div className="grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center md:p-8">
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-primary-foreground/75">{name}，你好</p>
-            <h1 id="now-title" className="mt-2 text-[26px] leading-tight font-extrabold tracking-tight md:text-[30px]">
-              現在是<span className="text-brand">「{stage.title}」</span>階段
-            </h1>
-            <p className="tabular mt-2 text-[15px] text-primary-foreground/80">{md(stage.from)} – {md(stage.to)}・還有 {left} 天</p>
-            <Link href="/timeline" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-full bg-white/12 px-4 text-sm font-bold ring-1 ring-white/25 transition-colors hover:bg-white/20 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/60">
+            <p className="text-[14px] font-bold text-white">現在<span aria-hidden className="ml-3 inline-block h-px w-10 bg-white/70 align-middle" /></p>
+            <h2 id="now-title" className="mt-2 text-[30px] leading-tight font-black tracking-tight md:text-[40px]">{stage.title}階段</h2>
+            <p className="tabular mt-2 text-[16px] font-semibold text-white">{md(stage.from)} – {md(stage.to)}・還有 {left} 天</p>
+            <Link href="/timeline" className="mt-5 inline-flex h-11 items-center gap-1.5 rounded-full bg-white px-5 text-[15px] font-extrabold text-[var(--navy)] shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/70">
               看完整時程 <IconArrowRight className="size-4" />
             </Link>
           </div>
           {next ? (
-            <Link href={base + next.href} className="group block rounded-2xl bg-card p-5 text-card-foreground shadow-[0_10px_30px_rgba(0,20,50,0.25)] transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/70">
+            <Link href={base + next.href} className="group block rounded-2xl bg-card p-5 text-card-foreground shadow-[0_10px_30px_rgba(80,30,0,0.25)] transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/70">
               <span className="text-[12px] font-bold tracking-[0.06em] text-brand-on-subtle">下一件要交的</span>
               <span className="mt-1.5 block text-[18px] leading-snug font-extrabold">{next.title}</span>
               <span className="tabular mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -63,21 +62,13 @@ export function StudentHome() {
         </div>
       </section>
 
-      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        {/* 2. 待辦 */}
-        <section aria-labelledby="todo-title" data-region="todo">
-          <SectionHead id="todo-title" title="待辦" href={`${base}/affairs`} link="全部作業" />
-          <ul className="flex flex-col gap-2.5">
-            {todos.map((t) => <TodoRow key={t.id} todo={t} base={base} />)}
-          </ul>
-        </section>
-
-        {/* 3. 月曆：只打點截止日 */}
-        <section aria-labelledby="cal-title">
-          <SectionHead id="cal-title" title="截止日" />
-          <DueCalendar todos={studentTodos()} today={TODAY_YMD} base={base} />
-        </section>
-      </div>
+      {/* 2. 待辦 */}
+      <section aria-labelledby="todo-title" data-region="todo">
+        <SectionHead id="todo-title" title="待辦" href={`${base}/affairs`} link="全部作業" />
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {todos.map((t) => <TodoCard key={t.id} todo={t} base={base} />)}
+        </ul>
+      </section>
 
       {/* 4. 公告 */}
       <section aria-labelledby="news-title" data-region="news">

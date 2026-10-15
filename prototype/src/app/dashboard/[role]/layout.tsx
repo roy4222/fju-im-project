@@ -11,6 +11,7 @@ import { DashThemeRoot } from "@/components/layout/dash-theme";
 /**
  * 後台外框（2026-09-09 第三輪，Roy 給的 Ace Academy 參考）：
  * 淡藍底、白色圓角側欄、內容區是另一塊圓角面板（shadcn inset 變體）；卡片白、圓角大、無邊框陰影很淡。
+ * 原型第 3 輪（Roy 2026-10-15）：學生、老師改成深藍側欄＋白色面板（.dash-v3）；系辦維持原樣。
  */
 export default async function DashboardLayout({ children, params }: LayoutProps<"/dashboard/[role]">) {
   const { role } = await params;
@@ -18,7 +19,7 @@ export default async function DashboardLayout({ children, params }: LayoutProps<
 
   return (
     <DashThemeRoot>
-    <SidebarProvider className="dash-frame" style={{ "--sidebar-width": "16.5rem", "--sidebar-width-icon": "3.75rem" } as React.CSSProperties}>
+    <SidebarProvider className={`dash-frame ${role === "admin" ? "" : "dash-v3"}`} style={{ "--sidebar-width": "16.5rem", "--sidebar-width-icon": "3.75rem" } as React.CSSProperties}>
       <AppSidebar role={role} />
       <SidebarInset className="dash-surface min-w-0">
         <Suspense fallback={null}>

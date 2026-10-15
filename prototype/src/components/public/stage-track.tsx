@@ -112,3 +112,41 @@ export function NowStrip({ stage, nextLabel }: { stage: Stage; nextLabel?: { lab
     </div>
   );
 }
+
+/**
+ * 精簡階段軸（原型第 3 輪，「看完整時程」頁上方）：只有階段名、日期、目前在哪；各階段要交的東西在下面的月曆。
+ * 桌機橫的、手機直的。過去綠勾、現在深橘、未來灰。
+ */
+export function StageRail({ stages }: { stages: Stage[] }) {
+  const dot = (s: Stage) =>
+    s.status === "current" ? "size-8 bg-[var(--brand-deep)] text-white shadow-[0_0_0_6px_color-mix(in_oklch,var(--brand-deep)_18%,transparent)]" : s.status === "done" ? "size-6 bg-success text-success-foreground" : "size-6 border-[3px] border-border bg-card";
+  const icon = (s: Stage) => (s.status === "done" ? <IconCheck className="size-3.5" strokeWidth={3} /> : s.status === "current" ? <IconFlag className="size-4" /> : null);
+  return (
+    <>
+      <ol className="hidden rounded-3xl border border-border bg-card px-4 pt-6 pb-5 lg:grid" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} data-track="horizontal">
+        {stages.map((s, i) => (
+          <li key={s.id} data-status={s.status} className="relative flex flex-col items-center px-1 text-center">
+            {i > 0 ? <span aria-hidden className={`absolute top-4 right-1/2 left-[-50%] h-1 -translate-y-1/2 ${s.status === "upcoming" ? "bg-border" : "bg-success"}`} /> : null}
+            <span className="flex h-8 items-center"><span className={`relative z-10 inline-flex items-center justify-center rounded-full ${dot(s)}`}>{icon(s)}</span></span>
+            {s.status === "current" ? <span className="mt-2 rounded-full bg-[var(--brand-deep)] px-2 py-px text-[11px] font-bold text-white">現在</span> : <span className="mt-2 h-[18px]" />}
+            <span className={`mt-1 text-[15px] leading-snug font-extrabold ${s.status === "upcoming" ? "text-muted-foreground" : ""}`}>{s.title}</span>
+            <span className="tabular text-[12px] text-muted-foreground">{range(s.from, s.to)}</span>
+            {s.status === "current" ? <span className="tabular text-[12px] font-bold text-brand-on-subtle">還有 {daysUntil(s.to)} 天</span> : null}
+          </li>
+        ))}
+      </ol>
+      <ol className="relative flex flex-col gap-3 rounded-3xl border border-border bg-card p-4 before:absolute before:top-7 before:bottom-7 before:left-[31px] before:w-1 before:rounded-full before:bg-border lg:hidden" data-track="vertical">
+        {stages.map((s) => (
+          <li key={s.id} data-status={s.status} className="relative flex min-h-8 items-center gap-3">
+            <span className="flex w-8 shrink-0 justify-center"><span className={`relative z-10 inline-flex items-center justify-center rounded-full ring-4 ring-card ${dot(s)}`}>{icon(s)}</span></span>
+            <span className="min-w-0 flex-1">
+              <span className={`text-[15px] font-extrabold ${s.status === "upcoming" ? "text-muted-foreground" : ""}`}>{s.title}</span>
+              {s.status === "current" ? <span className="ml-2 rounded-full bg-[var(--brand-deep)] px-2 py-px align-middle text-[11px] font-bold text-white">現在</span> : null}
+            </span>
+            <span className="tabular shrink-0 text-[12px] text-muted-foreground">{range(s.from, s.to)}</span>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}

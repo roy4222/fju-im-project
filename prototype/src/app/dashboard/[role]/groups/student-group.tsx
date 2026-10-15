@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { IconAward, IconCheck, IconChevronRight, IconLock, IconConfetti, IconCrown, IconFlag, IconHistory, IconMail, IconPresentation, IconSchool, IconUsersGroup } from "@tabler/icons-react";
+import { IconCheck, IconLock, IconConfetti, IconCrown, IconFlag, IconHistory, IconMail, IconSchool } from "@tabler/icons-react";
+import { UserAvatar } from "@/components/dashboard/avatar";
 import { MY_GROUP } from "@/lib/fixtures";
 import { groupEvents, groupView, proposals, type Phase, type Proposal } from "@/lib/student-v1";
 import { TeamBuilder } from "./team-builder";
@@ -9,6 +10,7 @@ import { TeamBuilder } from "./team-builder";
  * - 我的組：組名、成員頭像（組長皇冠）、指導老師卡（直接顯示 Email）、里程碑徽章（達成上色、未達成灰鎖）。
  * - 找隊員：邀請組員、邀請狀態、找隊員名單；成組後顯示「已成組」。
  * - 紀錄：組別動態、邀請紀錄，用時間線，不用表格。
+ * 第 3 輪：上方組名卡（組名＋一句簡介）、組員卡（插畫頭像）、老師卡（頭像）、里程碑線。
  * 示範切換 ?phase=formed：還沒成組（預設，對應原型的今天 08-17）／已成組；三個分頁都跟著變。
  */
 type Tab = "mine" | "team" | "log";
@@ -33,12 +35,13 @@ export function StudentGroup({ tab: tabParam, phase: phaseParam }: { tab?: strin
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* 組名卡：組名＋一句簡介；右上是原型的示範切換 */}
+      <section className="dash-card flex flex-wrap items-start justify-between gap-4 p-6 md:p-7" data-group-head>
         <div className="min-w-0">
-          <p className="tabular text-[13px] font-bold text-muted-foreground">{MY_GROUP.no}・{MY_GROUP.type === "INDUSTRY" ? "產學合作" : "一般專題"}</p>
-          <h1 className="mt-0.5 text-[26px] leading-tight font-extrabold tracking-tight">{MY_GROUP.title}</h1>
+          <p className="tabular text-[14px] font-bold text-muted-foreground">{MY_GROUP.no}・{MY_GROUP.type === "INDUSTRY" ? "產學合作" : "一般專題"}</p>
+          <h1 className="page-title mt-1 text-balance">{MY_GROUP.title}</h1>
+          {MY_GROUP.summary ? <p className="mt-2 text-[15px] text-muted-foreground">{MY_GROUP.summary}</p> : null}
         </div>
-        {/* 原型示範切換 */}
         <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border bg-card/70 px-2 py-1.5" data-phase-toggle>
           <span className="pl-1.5 text-[12px] font-bold text-muted-foreground">示範</span>
           {(["forming", "formed"] as const).map((p) => (
@@ -47,7 +50,7 @@ export function StudentGroup({ tab: tabParam, phase: phaseParam }: { tab?: strin
             </Link>
           ))}
         </div>
-      </div>
+      </section>
 
       <nav aria-label="組別分頁" className="flex gap-1 border-b border-border" data-group-tabs>
         {TABS.map((t) => (
@@ -63,78 +66,74 @@ export function StudentGroup({ tab: tabParam, phase: phaseParam }: { tab?: strin
 }
 
 /* ---------------------------------------------------------------- 我的組 */
-const BADGE_ICON = { proposal: IconFlag, formed: IconUsersGroup, midterm: IconAward, final: IconPresentation } as const;
-const BADGE_TINT = { proposal: "oklch(0.62 0.16 250)", formed: "oklch(0.6 0.14 152)", midterm: "oklch(0.68 0.17 51)", final: "oklch(0.58 0.17 300)" } as const;
-
+/* 第 3 輪（照 A-group 的排版）：組員卡（插畫頭像、組長皇冠）＋指導老師卡＋下方一條里程碑線（達成深橘打勾、未達成灰鎖） */
 function MineTab({ v }: { v: ReturnType<typeof groupView> }) {
   const confirmed = v.members.filter((m) => m.confirmed).length;
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <section aria-labelledby="members-title" className="dash-card p-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="members-title" className="text-[17px] font-extrabold">成員</h2>
-          <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${v.formed ? "bg-success-subtle text-success-on-subtle" : "bg-brand-subtle text-brand-on-subtle"}`}>{v.formed ? "已成組" : `${confirmed}/5 人已確認`}</span>
-        </div>
-        <ol className="mt-6 grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-5" data-members>
-          {v.members.map((m) => (
-            <li key={m.id} className="flex flex-col items-center text-center">
-              <span className="relative">
-                {m.isLeader ? <IconCrown aria-label="組長" className="absolute -top-4 left-1/2 size-6 -translate-x-1/2 fill-[oklch(0.84_0.15_85)] text-[oklch(0.62_0.13_70)]" strokeWidth={1.6} /> : null}
-                <span className={`inline-flex size-16 items-center justify-center rounded-full text-[18px] font-extrabold ${m.confirmed ? "bg-primary text-primary-foreground" : "border-2 border-dashed border-border bg-muted text-muted-foreground"}`}>{m.name.slice(-2)}</span>
-              </span>
-              <span className={`mt-2 text-sm ${m.id === v.me.id ? "font-extrabold" : "font-semibold"}`}>{m.name}{m.id === v.me.id ? "（你）" : ""}</span>
-              <span className="text-[12px] text-muted-foreground">{m.isLeader ? "組長" : m.confirmed ? "組員" : "等待確認"}</span>
-            </li>
-          ))}
-        </ol>
-
-        <h2 className="mt-8 text-[17px] font-extrabold">里程碑</h2>
-        <ol className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4" data-badges>
-          {v.milestones.map((b, i) => {
-            const Icon = BADGE_ICON[b.id as keyof typeof BADGE_ICON];
-            const tint = BADGE_TINT[b.id as keyof typeof BADGE_TINT];
-            return (
-              <li key={b.id} data-done={b.done} className={`relative flex flex-col items-center rounded-2xl px-3 py-5 text-center ${b.done ? "" : "bg-muted/60"}`} style={b.done ? { background: `color-mix(in oklch, ${tint} 14%, var(--card))` } : undefined}>
-                {/* 桌機：卡片之間的箭頭 */}
-                {i > 0 ? <IconChevronRight aria-hidden className="absolute top-1/2 -left-3 hidden size-4 -translate-y-1/2 text-muted-foreground/60 md:block" /> : null}
-                <span className="relative inline-flex size-14 items-center justify-center">
-                  <Icon className={`size-11 ${b.done ? "" : "text-muted-foreground/45"}`} strokeWidth={1.5} style={b.done ? { color: tint } : undefined} />
-                  {b.done ? (
-                    <span className="absolute -right-1 -bottom-1 inline-flex size-6 items-center justify-center rounded-full bg-success text-success-foreground ring-3 ring-card"><IconCheck className="size-3.5" strokeWidth={3} /></span>
-                  ) : (
-                    <span className="absolute -right-1 -bottom-1 inline-flex size-6 items-center justify-center rounded-full bg-muted-foreground/70 text-white ring-3 ring-card" aria-label="未達成"><IconLock className="size-3.5" strokeWidth={2.4} /></span>
-                  )}
+    <div className="flex flex-col gap-5">
+      <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <section aria-labelledby="members-title" className="dash-card p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="members-title" className="text-[18px] font-extrabold">組員<span className="tabular ml-1.5 text-[15px] font-bold text-muted-foreground">（{v.members.length} 人）</span></h2>
+            <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${v.formed ? "bg-success-subtle text-success-on-subtle" : "bg-brand-subtle text-brand-on-subtle"}`}>{v.formed ? "已成組" : `${confirmed}/5 人已確認`}</span>
+          </div>
+          <ol className="mt-7 grid grid-cols-3 gap-x-3 gap-y-7 sm:grid-cols-5" data-members>
+            {v.members.map((m) => (
+              <li key={m.id} className="flex flex-col items-center text-center">
+                <span className="relative">
+                  {m.isLeader ? <IconCrown aria-label="組長" className="absolute -top-5 left-1/2 z-10 size-6 -translate-x-1/2 fill-[var(--brand-deep)] text-[var(--brand-deep)]" strokeWidth={1.6} /> : null}
+                  <UserAvatar id={m.id} name={m.name} className={`size-20 md:size-24 ${m.confirmed ? "" : "opacity-45 grayscale"}`} />
+                  {!m.confirmed ? <span className="absolute inset-0 rounded-full border-2 border-dashed border-muted-foreground/50" aria-hidden /> : null}
                 </span>
-                <span className={`mt-3 text-[15px] font-extrabold ${b.done ? "" : "text-muted-foreground"}`} style={b.done ? { color: `color-mix(in oklch, ${tint} 75%, black)` } : undefined}>{b.title}</span>
-                <span className="tabular mt-0.5 text-[12px] text-muted-foreground">{b.done ? `${b.at} 完成` : b.hint}</span>
+                <span className={`mt-2.5 text-[15px] ${m.id === v.me.id ? "font-extrabold" : "font-bold"}`}>{m.name}{m.id === v.me.id ? "（你）" : ""}</span>
+                <span className={`text-[13px] font-semibold ${m.isLeader ? "text-[var(--brand-deep)]" : "text-muted-foreground"}`}>{m.isLeader ? "組長" : m.confirmed ? "組員" : "等待確認"}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section aria-labelledby="advisor-title" className="dash-card flex flex-col p-6" data-advisor>
+          <h2 id="advisor-title" className="text-[18px] font-extrabold">指導老師</h2>
+          {v.advisor ? (
+            <div className="mt-5 flex flex-1 flex-col items-center text-center">
+              <UserAvatar id={v.advisor.id} name={v.advisor.name} className="size-24" />
+              <p className="mt-3 text-[19px] font-extrabold">{v.advisor.name} 老師</p>
+              <p className="text-[13px] text-muted-foreground">資訊管理學系</p>
+              <a href={`mailto:${v.advisor.email}`} className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold break-all text-primary underline-offset-2 hover:underline" data-advisor-email><IconMail className="size-4 shrink-0" />{v.advisor.email}</a>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-1 flex-col items-center text-center">
+              <span className="inline-flex size-24 items-center justify-center rounded-full border-2 border-dashed border-border bg-muted/50 text-muted-foreground"><IconSchool className="size-10" strokeWidth={1.4} /></span>
+              <p className="mt-3 text-[17px] font-extrabold">還沒有指導老師</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">9/25 抽籤後公布</p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section aria-labelledby="ms-title" className="dash-card p-6">
+        <h2 id="ms-title" className="text-[18px] font-extrabold">里程碑</h2>
+        <ol className="mt-6 flex flex-col gap-6 md:grid md:grid-cols-4 md:gap-0" data-badges>
+          {v.milestones.map((b, i) => {
+            const prevDone = i > 0 && v.milestones[i - 1].done;
+            return (
+              <li key={b.id} data-done={b.done} className="relative flex items-center gap-4 md:flex-col md:gap-0 md:text-center">
+                {/* 連接線：桌機橫的、手機直的；兩端都達成才上色 */}
+                {i > 0 ? <span aria-hidden className={`absolute md:top-7 md:right-1/2 md:left-[-50%] md:h-[3px] md:w-auto max-md:-top-6 max-md:left-[27px] max-md:h-6 max-md:w-[3px] ${prevDone && b.done ? "bg-[var(--brand-deep)]" : "bg-border"}`} /> : null}
+                {b.done ? (
+                  <span className="relative z-10 inline-flex size-14 shrink-0 items-center justify-center rounded-full bg-[var(--brand-deep)] text-white shadow-[0_8px_20px_-8px_oklch(0.5_0.15_45/70%)]"><IconCheck className="size-7" strokeWidth={3} /></span>
+                ) : (
+                  <span className="relative z-10 inline-flex size-14 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-4 ring-card" aria-label="未達成"><IconLock className="size-6" strokeWidth={2} /></span>
+                )}
+                <span className="min-w-0 md:mt-3">
+                  <span className={`block text-[16px] font-extrabold ${b.done ? "" : "text-muted-foreground"}`}>{b.title}</span>
+                  <span className="tabular block text-[13px] text-muted-foreground">{b.done ? `${b.at} 完成` : b.hint}</span>
+                </span>
               </li>
             );
           })}
         </ol>
       </section>
-
-      <aside aria-labelledby="advisor-title" className="flex flex-col gap-4">
-        <section className={`rounded-3xl p-5 ${v.advisor ? "bg-accent/70" : "border border-dashed border-border bg-card/60"}`} data-advisor>
-          <h2 id="advisor-title" className="text-[13px] font-bold text-muted-foreground">指導老師</h2>
-          {v.advisor ? (
-            <>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><IconSchool className="size-7" strokeWidth={1.6} /></span>
-                <div>
-                  <p className="text-[19px] font-extrabold">{v.advisor.name} 老師</p>
-                  <p className="text-[13px] text-muted-foreground">資訊管理學系</p>
-                </div>
-              </div>
-              <a href={`mailto:${v.advisor.email}`} className="mt-4 flex items-center gap-1.5 text-sm font-semibold break-all text-primary underline-offset-2 hover:underline" data-advisor-email><IconMail className="size-4 shrink-0" />{v.advisor.email}</a>
-            </>
-          ) : (
-            <>
-              <p className="mt-3 text-[17px] font-extrabold">還沒有指導老師</p>
-              <p className="mt-1 text-sm text-muted-foreground">9/25 抽籤後公布</p>
-            </>
-          )}
-        </section>
-      </aside>
     </div>
   );
 }
@@ -193,7 +192,7 @@ function LogTab({ phase }: { phase: Phase }) {
             <ul className="mt-3 flex flex-wrap gap-2">
               {p.invites.map((i) => (
                 <li key={i.studentNo} className="inline-flex items-center gap-1.5 rounded-full bg-muted/70 py-1 pr-3 pl-1 text-[13px]">
-                  <span className="inline-flex size-6 items-center justify-center rounded-full bg-card text-[11px] font-bold">{i.name.slice(-1)}</span>
+                  <UserAvatar id={MY_GROUP.members.find((m) => m.studentNo === i.studentNo)?.id ?? i.studentNo} name={i.name} className="size-6" />
                   <span className="font-semibold">{i.name}</span>
                   <span className={`font-semibold ${INVITE[i.state]}`}>{INVITE_LABEL[i.state]}</span>
                 </li>

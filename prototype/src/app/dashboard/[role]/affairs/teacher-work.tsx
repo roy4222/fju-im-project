@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { IconChevronRight } from "@tabler/icons-react";
+import { CardFx } from "@/components/dashboard/card-fx";
 import { MemberStack, PageHead, TabBar, WorkLegend, WorkSquare } from "@/components/dashboard/teacher-v2";
 import { GROUPS, SIGNOFF } from "@/lib/fixtures";
 import { DOT_LABEL, TEACHER_BASE as base, approvedStudents, consentsWaitingForMe, groupWork, myConsents, myGroups, shortTitle, workItems } from "@/lib/teacher-v2";
@@ -39,7 +40,8 @@ function WorkTab() {
           const overdue = work.some((w) => w.dot === "overdue");
           return (
             <li key={g.id}>
-              <Link href={`${base}/affairs/group/${g.id}`} data-group-card={g.id} className="dash-card-hover group flex h-full flex-col gap-4 rounded-3xl border border-border/80 bg-card p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
+              <Link href={`${base}/affairs/group/${g.id}`} data-group-card={g.id} className="fx-card dash-card-hover group flex h-full flex-col gap-4 rounded-3xl border border-border/80 bg-card p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
+                <CardFx tint={overdue ? "var(--destructive)" : "var(--brand-deep)"} />
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="tabular text-[12px] font-bold text-muted-foreground">{g.no}</p>

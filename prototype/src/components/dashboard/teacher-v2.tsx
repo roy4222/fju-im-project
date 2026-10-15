@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { IconAlertTriangle, IconCheck, IconCrown } from "@tabler/icons-react";
 import type { Member } from "@/lib/fixtures";
 import type { DotState } from "@/lib/teacher-v2";
+import { UserAvatar } from "@/components/dashboard/avatar";
 
 /**
  * 老師後台 v2 共用小元件（Roy 2026-10-15）：分頁列、組員頭像、作業狀態小方塊。
@@ -24,24 +25,24 @@ export function PageHead({ title, sub, children }: { title: string; sub?: string
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-[26px] font-extrabold tracking-tight">{title}</h1>
-        {sub ? <p className="tabular mt-1 text-sm text-muted-foreground">{sub}</p> : null}
+        <h1 className="page-title">{title}</h1>
+        {sub ? <p className="tabular mt-1.5 text-[15px] font-semibold text-muted-foreground">{sub}</p> : null}
       </div>
       {children}
     </div>
   );
 }
 
-/** 組員頭像疊在一起；approved 有值時，同意的人打勾 */
+/** 組員頭像疊在一起；approved 有值時，同意的人打勾、還沒同意的變灰 */
 export function MemberStack({ members, approved }: { members: Member[]; approved?: Set<string> }) {
   return (
-    <ul className="flex -space-x-1" aria-label="組員">
+    <ul className="flex -space-x-1.5" aria-label="組員">
       {members.map((m) => {
         const ok = approved?.has(m.name);
         return (
-          <li key={m.id} title={m.name} className={`relative inline-flex size-10 items-center justify-center rounded-full text-[11px] font-bold ring-2 ring-card ${approved ? (ok ? "bg-success-subtle text-success-on-subtle" : "bg-muted text-muted-foreground") : "bg-accent text-primary"}`}>
-            {m.name.slice(-2)}
-            {m.isLeader && !approved ? <IconCrown aria-label="組長" className="absolute -top-2.5 left-1/2 size-4 -translate-x-1/2 fill-[oklch(0.84_0.15_85)] text-[oklch(0.62_0.13_70)]" /> : null}
+          <li key={m.id} title={m.name} className="relative inline-flex rounded-full ring-2 ring-card">
+            <UserAvatar id={m.id} name={m.name} className={`size-10 ${approved && !ok ? "opacity-45 grayscale" : ""}`} />
+            {m.isLeader && !approved ? <IconCrown aria-label="組長" className="absolute -top-3 left-1/2 size-4 -translate-x-1/2 fill-[var(--brand-deep)] text-[var(--brand-deep)]" /> : null}
             {ok ? <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-card"><IconCheck className="size-2.5" strokeWidth={3} /></span> : null}
           </li>
         );

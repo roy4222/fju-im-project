@@ -82,6 +82,8 @@ export type Group = {
   members: Member[];
   industryId?: string;
   status: "forming" | "active" | "exception";
+  /** 一句話簡介（組別頁上方用） */
+  summary?: string;
 };
 
 export const MY_GROUP: Group = {
@@ -91,6 +93,7 @@ export const MY_GROUP: Group = {
   type: "GENERAL",
   advisorId: "u-102",
   status: "forming",
+  summary: "讓閒置的教室、討論室被看見，媒合更多使用。",
   members: [
     { id: "u-401", name: "林彥廷", studentNo: "411410123", isLeader: true, confirmed: true },
     { id: "u-402", name: "黃詩涵", studentNo: "411410145", confirmed: true },

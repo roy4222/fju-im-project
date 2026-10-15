@@ -57,16 +57,18 @@ export function AppSidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const base = `/dashboard/${role}`;
   const groups = navForRole(role);
+  /* 原型第 3 輪：學生、老師用深藍側欄（logo 反白、選中深橘塊） */
+  const v3 = role !== "admin";
 
   return (
-    <Sidebar collapsible="icon" variant="inset" className="dash-sidebar">
+    <Sidebar collapsible="icon" variant="inset" className={`dash-sidebar ${v3 ? "dash-sidebar-v3" : ""}`}>
       <SidebarHeader className="px-4 pt-4 pb-1">
         <Link href={base} className="flex h-11 items-center group-data-[collapsible=icon]:justify-center" aria-label="回首頁">
           <span className="relative block h-10 w-[172px] overflow-hidden group-data-[collapsible=icon]:hidden">
-            <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" fill sizes="172px" className="object-contain object-left" priority />
+            <Image src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" fill sizes="172px" className="dash-logo object-contain object-left" priority />
           </span>
           <span className="relative hidden size-9 overflow-hidden group-data-[collapsible=icon]:block">
-            <Image src="/brand/fju-im-logo.png" alt="" fill sizes="160px" className="object-cover object-left" />
+            <Image src="/brand/fju-im-logo.png" alt="" fill sizes="160px" className="dash-logo object-cover object-left" />
           </span>
         </Link>
         <span className="dash-brand-sub truncate pl-0.5 text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">專題管理平台</span>

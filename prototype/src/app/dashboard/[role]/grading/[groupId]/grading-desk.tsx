@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { IconAlertCircle, IconArrowLeft, IconCircleCheckFilled, IconDownload, IconFileTypePdf, IconMaximize, IconMinus, IconPlayerPlayFilled, IconPlus, IconSchool } from "@tabler/icons-react";
 import { saveGradeRecord, stampNow, useGradeRecord } from "@/lib/grading-store";
-import { GRADE_STATE_LABEL, GRADING_GROUPS, LETTERS, PASS_LABEL, RUBRIC, SCORE_STEPS, TEACHER_BASE as base, scoreSummary, type Criterion, type GradingGroup, type Scores } from "@/lib/teacher-v2";
-import { STATE_CHIP } from "../teacher-grading";
+import { GRADE_STATE_LABEL, GRADING_GROUPS, LETTERS, PASS_LABEL, RUBRIC, TEACHER_BASE as base, scoreSummary, validValue, type Criterion, type GradingGroup, type Scores } from "@/lib/teacher-v2";
 
 /**
  * 老師：單組評分 v2（Roy 2026-10-15，Q78～Q79；照 grading-mock/grading-group.png、grading-history.png）。
  * 左：這組的作品（報告、附件、影片）；右：固定評分卡（權重、一句說明、依類型的按鈕、評語、即時總分）。
  * 送出後老師自己能改，按「重新送出」；紀錄只留 2～3 行。
+ * 第 3 輪（Roy：不要一直按按鈕、第 2 輪「有點詭異」）：分數制＝數字輸入框（／滿分、超出範圍即時提示）、
+ * 等第制＝下拉選單、通過制＝兩個選項的切換；評分卡像一張乾淨的表單，少框線少色塊。項目由系辦設定，老師不能改。
  */
 export function GradingDesk({ groupId }: { groupId: string }) {
   const router = useRouter();
@@ -61,18 +62,18 @@ export function GradingDesk({ groupId }: { groupId: string }) {
         <div className="min-w-0">
           <Link href={`${base}/grading`} className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"><IconArrowLeft className="size-4" /> 評分</Link>
           <div className="mt-1 flex flex-wrap items-center gap-3">
-            <h1 className="text-[24px] leading-tight font-extrabold tracking-tight md:text-[28px]">{group.no}・{group.title}</h1>
-            <span className="tabular rounded-full bg-card px-3 py-1 text-sm font-bold ring-1 ring-border" data-position>第 {index + 1}／{GRADING_GROUPS.length} 組</span>
+            <h1 className="page-title !text-[26px] md:!text-[32px]">{group.no}・{group.title}</h1>
+            <span className="tabular text-[15px] font-bold text-muted-foreground" data-position>第 {index + 1}／{GRADING_GROUPS.length} 組</span>
           </div>
         </div>
         <div className="flex gap-2">
-          <button type="button" disabled={!prev} onClick={() => prev && go(prev)} className="inline-flex h-10 items-center rounded-xl px-4 text-sm font-bold ring-1 ring-primary/40 transition-colors hover:bg-accent disabled:opacity-40">上一組</button>
-          <button type="button" disabled={!next} onClick={() => next && go(next)} className="inline-flex h-10 items-center rounded-xl px-4 text-sm font-bold text-brand-on-subtle ring-1 ring-brand/60 transition-colors hover:bg-brand-subtle disabled:opacity-40">下一組</button>
+          <button type="button" disabled={!prev} onClick={() => prev && go(prev)} className="inline-flex h-11 items-center rounded-xl bg-card px-4 text-sm font-bold ring-1 ring-border transition-colors hover:bg-accent disabled:opacity-40">上一組</button>
+          <button type="button" disabled={!next} onClick={() => next && go(next)} className="inline-flex h-11 items-center rounded-xl bg-card px-4 text-sm font-bold ring-1 ring-border transition-colors hover:bg-accent disabled:opacity-40">下一組</button>
         </div>
       </div>
 
       {submitted && lastSent ? (
-        <p className="tabular flex flex-wrap items-center gap-2 rounded-2xl bg-success-subtle px-4 py-3 text-sm font-bold text-success-on-subtle" data-sent-banner>
+        <p className="tabular flex flex-wrap items-center gap-2 text-sm font-bold text-success-on-subtle" data-sent-banner>
           <IconCircleCheckFilled className="size-5" />
           已送出・{lastSent.at}
           {changed ? <span className="font-semibold text-brand-on-subtle">・有修改還沒重新送出</span> : null}
@@ -83,24 +84,24 @@ export function GradingDesk({ groupId }: { groupId: string }) {
         <WorkPanel group={group} log={rec.log} />
 
         <aside aria-labelledby="rubric-title" className="dash-card flex flex-col overflow-hidden lg:sticky lg:top-4 lg:max-h-[calc(100svh-6rem)]" data-rubric>
-          <div className="flex items-center justify-between border-b border-border/70 px-5 py-4">
-            <h2 id="rubric-title" className="text-[17px] font-extrabold">評分規準</h2>
-            <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${STATE_CHIP[rec.state]}`}>{GRADE_STATE_LABEL[rec.state]}</span>
+          <div className="flex items-baseline justify-between px-6 pt-5">
+            <h2 id="rubric-title" className="text-[18px] font-extrabold">評分</h2>
+            <span className="text-[13px] font-bold text-muted-foreground">{GRADE_STATE_LABEL[rec.state]}</span>
           </div>
-          <ol className="flex flex-col divide-y divide-border/70 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          <ol className="flex flex-col px-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {RUBRIC.map((c) => <CriterionRow key={c.id} c={c} value={scores[c.id]?.value} comment={scores[c.id]?.comment} onChange={(p) => set(c.id, p)} />)}
           </ol>
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border/70 bg-card px-5 py-4 lg:static" data-total>
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border/70 bg-card px-6 py-4 lg:static" data-total>
             <div className="mr-auto">
-              <p className="tabular text-sm font-bold">總分 <span className="text-[28px] leading-none font-extrabold text-brand">{sum.total}</span> <span className="text-muted-foreground">／100</span></p>
+              <p className="tabular text-sm font-bold">總分 <span className="text-[28px] leading-none font-black text-foreground">{sum.total}</span> <span className="text-muted-foreground">／100</span></p>
               {sum.missing ? (
                 <p className="mt-1 flex items-center gap-1 text-[13px] font-bold text-destructive" data-missing={sum.missing}><IconAlertCircle className="size-4" />還有 {sum.missing} 項沒填</p>
               ) : flash ? (
                 <p className="mt-1 text-[13px] font-bold text-success-on-subtle" role="status">{flash}</p>
               ) : null}
             </div>
-            <button type="button" onClick={saveDraft} disabled={edits === null} className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-bold text-brand-on-subtle ring-1 ring-brand/60 transition-colors hover:bg-brand-subtle disabled:opacity-40">儲存草稿</button>
-            <button type="button" onClick={send} disabled={sum.missing > 0 || (submitted && !changed)} className="inline-flex h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-white transition-colors hover:bg-brand/90 disabled:opacity-40">{submitted ? "重新送出" : "正式送出"}</button>
+            <button type="button" onClick={saveDraft} disabled={edits === null} className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-bold text-foreground ring-1 ring-border transition-colors hover:bg-accent disabled:opacity-40">儲存草稿</button>
+            <button type="button" onClick={send} disabled={sum.missing > 0 || (submitted && !changed)} className="inline-flex h-11 items-center rounded-xl bg-[var(--brand-deep)] px-5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40">{submitted ? "重新送出" : "正式送出"}</button>
           </div>
         </aside>
       </div>
@@ -109,45 +110,60 @@ export function GradingDesk({ groupId }: { groupId: string }) {
 }
 
 /* ---------------------------------------------------------------- 評分項目 */
+const FIELD = "rounded-xl bg-muted/60 font-bold outline-none ring-1 ring-transparent transition-[background-color,box-shadow] hover:bg-muted focus:bg-card focus:ring-2 focus:ring-ring/50";
+
 function CriterionRow({ c, value, comment, onChange }: { c: Criterion; value?: string; comment?: string; onChange: (p: { value?: string; comment?: string }) => void }) {
-  const options = c.kind === "score" ? SCORE_STEPS.map(String) : c.kind === "letter" ? LETTERS.map((l) => l.label) : (["pass", "fail"] as const);
-  const custom = c.kind === "score" && value && !SCORE_STEPS.includes(Number(value));
+  const id = `crit-${c.id}`;
+  const bad = !!value && !validValue(c, value);
   return (
-    <li className="px-5 py-4" data-criterion={c.kind}>
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-[15px] font-extrabold">{c.name}</h3>
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[12px] font-bold text-primary">{c.weight ? `占 ${c.weight}%` : "不計分"}</span>
-        {!value ? <span aria-hidden className="size-1.5 rounded-full bg-destructive" /> : null}
-      </div>
-      <p className="mt-0.5 text-[13px] text-muted-foreground">{c.hint}</p>
-      <div role="radiogroup" aria-label={c.name} className={`mt-2.5 grid gap-1.5 ${c.kind === "pass" ? "grid-cols-2" : "grid-cols-5"}`}>
-        {options.map((o) => {
-          const on = value === o;
-          const label = c.kind === "pass" ? PASS_LABEL[o as "pass" | "fail"] : o;
-          const onCls = c.kind === "pass" ? (o === "pass" ? "bg-success text-success-foreground" : "bg-destructive text-white") : "bg-brand text-white";
-          return (
-            <button key={o} type="button" role="radio" aria-checked={on} onClick={() => onChange({ value: o })} className={`tabular h-10 rounded-lg text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring/40 ${on ? onCls : "bg-card ring-1 ring-border hover:bg-accent"}`}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-2 flex gap-2">
+    <li className="border-b border-border/50 py-4 last:border-0" data-criterion={c.kind}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 pt-1">
+          <label htmlFor={c.kind === "pass" ? undefined : id} id={`${id}-label`} className="flex items-center gap-1.5 text-[15px] font-extrabold">
+            {c.name}
+            {!value ? <span aria-hidden className="size-1.5 rounded-full bg-destructive" /> : null}
+          </label>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">{c.hint}・{c.weight ? `占 ${c.weight}%` : "不計分"}</p>
+        </div>
+
         {c.kind === "score" ? (
-          <input
-            type="number"
-            min={0}
-            max={100}
-            inputMode="numeric"
-            aria-label={`${c.name} 分數`}
-            placeholder="其他"
-            value={custom ? value : ""}
-            onChange={(e) => onChange({ value: e.target.value === "" ? undefined : String(Math.min(100, Math.max(0, Number(e.target.value)))) })}
-            className={`tabular h-10 w-20 shrink-0 rounded-lg border px-2.5 text-sm font-bold outline-none focus:border-ring focus:ring-3 focus:ring-ring/30 ${custom ? "border-brand bg-brand-subtle" : "border-border bg-card"}`}
-          />
-        ) : null}
-        <input type="text" aria-label={`${c.name} 評語`} placeholder="評語（選填）" value={comment ?? ""} onChange={(e) => onChange({ comment: e.target.value })} className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-muted/40 px-3 text-sm outline-none focus:border-ring focus:bg-card focus:ring-3 focus:ring-ring/30" />
+          <div className="flex shrink-0 items-baseline gap-1.5">
+            <input
+              id={id}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              max={100}
+              aria-label={`${c.name} 分數`}
+              aria-invalid={bad || undefined}
+              aria-describedby={bad ? `${id}-err` : undefined}
+              placeholder="—"
+              value={value ?? ""}
+              onChange={(e) => onChange({ value: e.target.value === "" ? undefined : e.target.value })}
+              className={`tabular h-11 w-20 px-2 text-center text-[18px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none ${FIELD} ${bad ? "!bg-destructive-subtle !ring-destructive text-destructive" : ""}`}
+            />
+            <span className="tabular text-[15px] font-bold text-muted-foreground">／100</span>
+          </div>
+        ) : c.kind === "letter" ? (
+          <select id={id} aria-label={`${c.name} 等第`} value={value ?? ""} onChange={(e) => onChange({ value: e.target.value || undefined })} className={`h-11 w-32 shrink-0 cursor-pointer px-3 text-[15px] ${FIELD}`}>
+            <option value="" disabled>選擇等第</option>
+            {LETTERS.map((l) => <option key={l.label} value={l.label}>{l.label}</option>)}
+          </select>
+        ) : (
+          <div role="radiogroup" aria-label={c.name} className="inline-flex shrink-0 rounded-xl bg-muted/60 p-1">
+            {(["pass", "fail"] as const).map((o) => {
+              const on = value === o;
+              return (
+                <button key={o} type="button" role="radio" aria-checked={on} onClick={() => onChange({ value: o })} className={`h-9 rounded-lg px-4 text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring/40 ${on ? `bg-card shadow-sm ${o === "pass" ? "text-success-on-subtle" : "text-destructive"}` : "text-muted-foreground hover:text-foreground"}`}>
+                  {PASS_LABEL[o]}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+      {bad ? <p id={`${id}-err`} role="alert" className="mt-1.5 text-right text-[13px] font-bold text-destructive">請填 0～100 的分數</p> : null}
+      <input type="text" aria-label={`${c.name} 評語`} placeholder="評語（選填）" value={comment ?? ""} onChange={(e) => onChange({ comment: e.target.value })} className={`mt-2.5 h-9 w-full px-3 text-[13.5px] !font-normal ${FIELD}`} />
     </li>
   );
 }
@@ -183,7 +199,7 @@ function WorkPanel({ group, log }: { group: GradingGroup; log: { at: string; tex
         <ul className="flex flex-col gap-2">
           {files.map((f) => (
             <li key={f.name}>
-              <a href="#" className="flex items-center gap-3 rounded-xl px-3 py-2.5 ring-1 ring-border transition-colors hover:bg-accent">
+              <a href="#" className="flex items-center gap-3 rounded-xl bg-muted/40 px-3 py-2.5 transition-colors hover:bg-accent">
                 <IconFileTypePdf className="size-5 shrink-0 text-destructive" />
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">{f.name}<span className="tabular font-normal text-muted-foreground">・{f.size}</span></span>
                 <IconDownload className="size-4 text-muted-foreground" />
