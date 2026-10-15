@@ -10,6 +10,7 @@ import {
   COHORT_FLAG_LABEL,
   COHORT_NAME_MAX_LENGTH,
   COHORT_STATUS_LABEL,
+  cohortLabel,
   getCohortStatusQuery,
 } from '@/composition/cohorts'
 
@@ -32,6 +33,7 @@ export default async function AdminCohortsPage() {
     id: cohort.id,
     code: cohort.code,
     name: cohort.name,
+    label: cohortLabel(cohort),
     statusLabel: COHORT_STATUS_LABEL[cohort.status],
     canActivate: cohort.status === 'preparing',
     isDefaultWorking: cohort.isDefaultWorking,

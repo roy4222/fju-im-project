@@ -38,6 +38,7 @@ export type GradeExportRequest = {
 export type GradeExportResult = {
   readonly format: GradeExportFormat
   readonly cohortCode: string
+  readonly cohortName: string
   readonly groupCount: number
   readonly rowCount: number
   readonly body: string | Uint8Array

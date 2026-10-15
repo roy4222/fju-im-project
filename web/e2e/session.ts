@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { Pool } from 'pg'
 import type { APIRequestContext } from '@playwright/test'
@@ -47,7 +48,9 @@ export async function createTestSession(
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能造測試登入狀態')
 
   counter += 1
-  const email = `e2e-${role ?? 'pending'}-${Date.now()}-${counter}@example.com`
+  // 平行 worker 各有自己的 counter，同一毫秒註冊會撞名（groups spec 出過）：再加 worker 編號與隨機尾碼。
+  const worker = process.env.TEST_WORKER_INDEX ?? 'x'
+  const email = `e2e-${role ?? 'pending'}-${Date.now()}-w${worker}-${counter}-${randomBytes(3).toString('hex')}@example.com`
 
   // 每次註冊帶一個隨機的來源 IP：註冊限速是每 IP 每小時 30 次（契約 03 §6；票 7 起由 app 自己算，
   // 套件那一層對 `/sign-up/email` 關掉了）。CI 直連 app 時，沒帶標頭的請求全部落在同一個

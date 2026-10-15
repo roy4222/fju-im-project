@@ -327,8 +327,11 @@ describe('1. 全組、目前主指導、系辦看到同一份版本歷史；組�
   })
 
   it('名單頁完成率以組為單位：G1 送兩版、G2 送一版＝2／2；老師看自己的組也同一個口徑', async () => {
-    const { itemId } = await groupScenario()
+    const { cohortId, itemId } = await groupScenario()
+    // 屆別帶名稱（系1）：名單頁頂端標「第 43 屆（代碼）」。
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = $1`, [cohortId])
     const roster = (await rosterQuery.roster(adminActor(), itemId))!
+    expect(roster.item.cohortName).toBe('第 43 屆')
     expect(roster.entries).toHaveLength(2)
     expect(completionOf(roster.item, roster.entries, await businessClock.now())).toMatchObject({ required: 2, done: 2, percent: 100 })
     const mine = (await advisor.item(teacherActor(t1), itemId))!
@@ -429,6 +432,10 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     // T1 在前面的情境也指導過別屆的組；這一屆只有 G1。
     const here = matrix.groups.filter((g) => g.cohortId === cohortId)
     expect(here.map((g) => g.groupId)).toEqual([g1])
+    // 屆別帶名稱（系1）：老師專題事務的組別列標「名稱（代碼）」，不只代碼。
+    expect(here[0]!.cohortName).toBe(here[0]!.cohortCode)
+    await owner.sql(`update cohorts set name = '第 43 屆' where id = $1`, [cohortId])
+    expect((await advisor.matrix(teacherActor(t1)))!.groups.find((g) => g.groupId === g1)!.cohortName).toBe('第 43 屆')
     expect(here[0]!.memberNames).toEqual(expect.arrayContaining(['組長小明', '組員小華']))
     expect(matrix.items.map((i) => i.itemId)).toContain(itemId)
     const cells = matrix.cells.filter((c) => c.itemId === itemId)

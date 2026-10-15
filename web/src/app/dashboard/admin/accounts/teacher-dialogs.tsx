@@ -240,7 +240,7 @@ export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
                 </>
               ) : (
                 <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                  帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組會失效）。
+                  帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組就不能再登入）。
                 </p>
               )}
               <div className="flex justify-end">
@@ -391,7 +391,7 @@ export function TemporaryPasswordDialog({
     setDone(null)
   }
 
-  /** 「重新核發」：換一個請求編號，舊的那組會失效。 */
+  /** 「重新核發」：換一個請求編號，舊的那組就不能再登入。 */
   function reissue() {
     setDone(null)
     setMethod('')
@@ -470,14 +470,14 @@ export function TemporaryPasswordDialog({
               {done.temporaryPassword ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼已經失效，舊的登入也會被登出；
+                    <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼不能再登入，舊的登入也會被登出；
                     本人用這組登入後必須先改密碼。怎麼確認本人的、操作者與時間都已寫入紀錄。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
               ) : (
                 <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                  這次已經核發過了，但密碼無法再顯示。要的話請重新核發，舊的那組會失效。
+                  這次已經核發過了，但密碼無法再顯示。要的話請重新核發，舊的那組就不能再登入。
                 </p>
               )}
               <div className="flex justify-end gap-2">
@@ -526,7 +526,7 @@ export function TemporaryPasswordDialog({
               <div>
                 <h2 className="text-lg font-extrabold text-foreground">發臨時密碼給 {target.name}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  舊密碼會立刻失效、舊的登入會被登出；新的一次性密碼只顯示一次，本人登入後必須改密碼。
+                  舊密碼立刻不能再登入、舊的登入會被登出；新的一次性密碼只顯示一次，本人登入後必須改密碼。
                 </p>
               </div>
               <dl className="grid grid-cols-[4.5rem_1fr] gap-y-1 rounded-lg bg-muted px-4 py-3 text-sm">

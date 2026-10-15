@@ -49,7 +49,7 @@ function group(code: string, requirements: Record<string, number>, evaluations: 
 }
 
 function book(groups: GradebookGroup[]): Gradebook {
-  return { cohort: { id: 'c', code: '115', archived: false }, version: { id: 'v', versionNo: 1, stages: STAGES }, groups, pendingReviews: [] }
+  return { cohort: { id: 'c', code: '115', name: '第 43 屆', archived: false }, version: { id: 'v', versionNo: 1, stages: STAGES }, groups, pendingReviews: [] }
 }
 
 describe('匯出的各老師分數欄', () => {

@@ -190,7 +190,7 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
   await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
   await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
   await expect(dialog.getByRole('article', { name: '學生看到的樣子' })).toContainText('週五下午兩點在 LM503。')
-  await expect(dialog.getByTestId('recipient-preview')).toContainText('通知會寫給 3 位')
+  await expect(dialog.getByTestId('recipient-preview')).toContainText('若勾選「重要公告」，會通知 3 位')
   await dialog.getByRole('button', { name: '發布', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText(`「${title}」已發布到公告`)
   expect(alerts, '正文裡的腳本不能執行').toEqual([])

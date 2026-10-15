@@ -70,6 +70,7 @@ export {
   decodeInboxCursor,
   encodeInboxCursor,
   INBOX_PAGE_SIZE,
+  inboxCohortText,
   inboxFilterParam,
   normalizeTestNotification,
   NOTIFICATION_KIND_LABEL,

@@ -304,6 +304,10 @@ test('組長把產學組連結到合作案、換案（理由必填，全組與�
   await expect(panel.getByRole('status')).toContainText(`G01 已連結「${COMPANY}・資訊部」`)
   await page.reload()
   await expect(page.getByTestId('linked-opportunity')).toContainText(`${COMPANY}・資訊部`)
+  // 驗收 P-01：合作案詳情的「連結的組別」標「名稱（代碼）・組別」，不只代碼。
+  await page.goto(`/industry/${a}`)
+  await expect(page.getByRole('region', { name: '連結的組別' })).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
+  await page.goto('/dashboard/student/groups')
   // 有合作案之後，組長不能自己改類型。
   await expect(page.getByTestId('type-change-blocked')).toContainText('已經連結合作案')
 
@@ -330,7 +334,8 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await signIn(page, ownerB)
   await page.goto('/dashboard/teacher/industry')
   const item = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY_B })
-  await expect(item).toContainText(`${CODE}・G01`)
+  // 驗收 P-01：屆別顯示「名稱（代碼）」，不只代碼。
+  await expect(item).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
   await item.getByRole('button', { name: '解除連結：G01' }).click()
   const dialog = page.getByRole('dialog', { name: '解除 G01 的連結' })
   await dialog.getByRole('button', { name: '確認解除' }).click()
@@ -417,7 +422,7 @@ test('管理員組別名單：篩選、排序、組員信箱欄與「複製本�
   const csvDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: '匯出篩選結果（CSV）' }).click()
   const csvFile = await csvDownload
-  expect(csvFile.suggestedFilename()).toMatch(new RegExp(`^組別名單-${CODE}-\\d{8}-\\d{4}\\.csv$`))
+  expect(csvFile.suggestedFilename()).toMatch(new RegExp(`^${CODE}產學測試\\(${CODE}\\)_組別名單_\\d{8}-\\d{4}\\.csv$`))
   const csv = await readFile((await csvFile.path())!, 'utf8')
   expect(csv.charCodeAt(0)).toBe(0xfeff)
   const lines = csv.slice(1).trim().split('\r\n')
@@ -465,6 +470,9 @@ test('老師與學生看不到組員登入信箱（只有管理員的名單有�
   await signIn(page, owner)
   await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
   await expect(page.getByRole('region', { name: '全部組別' })).toContainText('G01')
+  // 驗收 P-01：多屆並存時的屆別切換標「名稱（代碼）」（只有一屆時不出現切換）。
+  const pills = page.getByRole('navigation', { name: '選擇屆別' })
+  if (await pills.count()) await expect(pills.getByRole('link', { name: `${CODE} 產學測試（${CODE}）`, exact: true })).toHaveAttribute('aria-current', 'page')
   expect(await page.content()).not.toContain(memberEmails.get('G01')![1]!)
   await signIn(page, leader)
   await page.goto('/dashboard/student/groups')

@@ -12,12 +12,14 @@ import { PgTestNotificationCommand } from '@/infrastructure/notifications/pg-tes
 
 // 頁面要用的純規則（app 對 application 只能帶型別，執行期的東西經 composition 轉出去）。
 export {
+  inboxCohortText,
   inboxFilterParam,
   notificationKindLabel,
   parseInboxFilter,
   SOURCE_STATE_TEXT,
   TEST_NOTIFICATION_TITLE_MAX_LENGTH,
 } from '@/application/notifications'
+export { cohortLabel } from '@/composition/cohorts'
 export { businessClockOverrideEnabled } from '@/composition/notifications'
 let inbox: PgInbox | undefined
 let testNotification: TestNotificationCommand | undefined
