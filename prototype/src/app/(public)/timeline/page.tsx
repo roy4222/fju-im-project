@@ -16,7 +16,10 @@ export const metadata: Metadata = { title: "專題時程", robots: { index: fals
  */
 function itemsFor(role: Role): CalItem[] {
   const events: CalItem[] = CALENDAR_EVENTS.filter((e) => e.kind !== "deadline" || role !== "student").map((e) => ({
-    id: e.id, date: e.date, title: e.title.replace(/截止$/, ""), tone: e.kind, tag: CALENDAR_KIND_LABEL[e.kind], href: e.href, time: e.time,
+    id: e.id, date: e.date, title: e.title.replace(/截止$/, ""), tone: e.kind, time: e.time,
+    /* 學生的收件截止：老師、系辦看得到日期，但連結是學生交作業頁，不給點 */
+    tag: e.kind === "deadline" ? "學生截止" : CALENDAR_KIND_LABEL[e.kind],
+    href: e.kind === "deadline" ? undefined : e.href,
   }));
   if (role === "student") {
     const due: CalItem[] = studentTodos().filter((t) => t.due).map((t) => ({
