@@ -120,6 +120,7 @@ export function PendingStatus({ initial }: { initial: { state: ReviewState; prof
             <dt className="text-muted-foreground">地點</dt>
             <dd className="font-semibold text-foreground">
               <span className="inline-flex items-center gap-1"><IconMapPin className="size-4 text-brand" aria-hidden />利瑪竇大樓 LM306（資管系辦公室）</span>
+              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">新北市新莊區中正路 510 號</span>
             </dd>
             <dt className="text-muted-foreground">要帶</dt>
             <dd className="text-foreground">學生證（或其他附照片的身分證件）</dd>
@@ -171,7 +172,7 @@ export function PendingStatus({ initial }: { initial: { state: ReviewState; prof
       </section>
 
       <p className="text-[13px] leading-relaxed text-muted-foreground">
-        有問題可以來信 <a href="mailto:im@mail.fju.edu.tw" className="font-semibold text-foreground underline underline-offset-2">im@mail.fju.edu.tw</a> 或打 02-2905-2696。
+        有問題可以打系辦電話 <a href="tel:+886229052666" className="font-semibold text-foreground underline underline-offset-2">02-2905-2666</a>。
         <Link href="/" className="ml-1 font-semibold text-brand hover:underline">回到首頁</Link>
       </p>
 

@@ -25,7 +25,7 @@ export default function PrivacyPage() {
         </section>
         <section>
           <h2 className="text-lg font-bold">聯絡我們</h2>
-          <p className="mt-2">對個人資料有疑問，請洽資管系辦公室（利瑪竇大樓 LM306）或來信 <a href="mailto:im@mail.fju.edu.tw" className="font-semibold underline underline-offset-2">im@mail.fju.edu.tw</a>。</p>
+          <p className="mt-2">對個人資料有疑問，請洽資管系辦公室（利瑪竇大樓 LM306）或打 <a href="tel:+886229052666" className="font-semibold underline underline-offset-2">02-2905-2666</a>。</p>
         </section>
       </div>
       <Link href="/register" className="btn-fju-outline mt-12 h-11 px-6 text-[15px]">回到註冊</Link>

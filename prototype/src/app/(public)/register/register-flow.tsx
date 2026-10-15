@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { useRouter } from "next/navigation";
-import { IconArrowLeft, IconChevronDown, IconCircleCheckFilled, IconMailCheck, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconCircleCheckFilled, IconMailCheck, IconX } from "@tabler/icons-react";
 import { DemoBox, GoogleButton, OrDivider, OtpInput, PasswordField, StepBar, TextField, type StepState } from "@/components/public/auth-fields";
-import { AsideSteps, REGISTER_STEPS } from "@/components/public/auth-split";
 import { GoogleIcon } from "@/components/public/google-icon";
 
 export type Step = 1 | 2 | 3 | "done";
@@ -18,6 +17,19 @@ type Props = {
 };
 
 const RESEND_SECONDS = 120;
+/** 正式網站的密碼規則 */
+const PASSWORD_MIN = 12;
+
+/** 第 ① 步的檢查：空白和格式錯誤分開講，訊息顯示在欄位下方 */
+function accountErrors(email: string, password: string): Record<string, string> {
+  const e: Record<string, string> = {};
+  const em = email.trim();
+  if (!em) e.email = "請輸入 Email";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) e.email = "Email 格式不正確，例如 name@mail.fju.edu.tw";
+  if (!password) e.password = "請輸入密碼";
+  else if (password.length < PASSWORD_MIN) e.password = `密碼至少 ${PASSWORD_MIN} 個字元（目前 ${password.length} 個）`;
+  return e;
+}
 
 /**
  * 註冊 v2（Q53，2026-10-15）：① 建立帳號 → ② 驗證 Email → ③ 填學生資料。
@@ -53,6 +65,15 @@ export function RegisterFlow({ initial, rosterEmails, googleAccounts }: Props) {
     { label: "填學生資料", state: step === 3 ? "current" : step === "done" ? "done" : "todo" },
   ];
 
+  function clearError(key: string) {
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[key];
+      return rest;
+    });
+  }
+
   function chooseGoogle(account: { name: string; email: string }) {
     setPickerOpen(false);
     setVia("google");
@@ -64,11 +85,14 @@ export function RegisterFlow({ initial, rosterEmails, googleAccounts }: Props) {
 
   function submitAccount(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const next: Record<string, string> = {};
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) next.email = "請輸入有效的 Email，例如 name@mail.fju.edu.tw";
-    if (password.length < 8) next.password = "密碼至少 8 個字元";
+    const next = accountErrors(email, password);
     setErrors(next);
-    if (Object.keys(next).length) return;
+    const first = Object.keys(next)[0];
+    if (first) {
+      // 焦點移到第一個有錯的欄位，報讀器會念出它的錯誤說明
+      document.getElementById(first)?.focus();
+      return;
+    }
     setVia("email");
     setStep(2);
   }
@@ -102,8 +126,8 @@ export function RegisterFlow({ initial, rosterEmails, googleAccounts }: Props) {
           <GoogleButton onClick={() => setPickerOpen(true)} aria-haspopup="dialog">使用 Google 繼續</GoogleButton>
           <OrDivider />
           <form noValidate onSubmit={submitAccount} className="flex flex-col gap-4">
-            <TextField id="email" label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@mail.fju.edu.tw" autoComplete="email" error={errors.email} required />
-            <PasswordField id="password" label="密碼" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" hint="至少 8 個字元" error={errors.password} required />
+            <TextField id="email" label="Email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); clearError("email"); }} placeholder="name@mail.fju.edu.tw" autoComplete="email" error={errors.email} required />
+            <PasswordField id="password" label="密碼" value={password} onChange={(e) => { setPassword(e.target.value); clearError("password"); }} autoComplete="new-password" hint={`至少 ${PASSWORD_MIN} 個字元`} minLength={PASSWORD_MIN} error={errors.password} required />
             <button type="submit" className="btn-fju mt-1 h-12 text-base">下一步</button>
           </form>
           <p className="text-center text-sm text-muted-foreground">
@@ -157,15 +181,6 @@ export function RegisterFlow({ initial, rosterEmails, googleAccounts }: Props) {
           </form>
           <p className="text-center text-[13px] text-muted-foreground">之後用「使用 Google 繼續」登入即可。</p>
         </section>
-      ) : null}
-
-      {step === 1 ? (
-        <details className="group rounded-lg border border-border lg:hidden">
-          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-bold [&::-webkit-details-marker]:hidden">
-            註冊後會發生什麼？<IconChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
-          </summary>
-          <AsideSteps steps={REGISTER_STEPS} tone="light" className="px-4 pb-4" />
-        </details>
       ) : null}
 
       {pickerOpen ? <GooglePicker accounts={googleAccounts} onPick={chooseGoogle} onClose={() => setPickerOpen(false)} /> : null}

@@ -37,7 +37,7 @@ export function SiteFooter({ role }: { role: ViewerRole }) {
           <p className="mt-3 text-[13px] leading-loose opacity-85">
             242 新北市新莊區中正路 510 號 利瑪竇大樓
             <br />
-            電話 +886-2-2905-2696
+            電話 02-2905-2666
             <br />
             專題相關事務請洽系辦公室
           </p>

@@ -93,7 +93,7 @@ export function QuickLinks({ role }: { role: ViewerRole }) {
     member
       ? { icon: <IconKey className="size-5.5" />, title: "我的入口", links: [[role === "teacher" ? "老師工作台" : role === "admin" ? "管理後台" : "我的專題事務", `/dashboard/${role}`], ["檔案下載", "/files"], ["個人資料", "/account"], ["歷屆專題一覽", "/projects"]] }
       : { icon: <IconKey className="size-5.5" />, title: "使用平台", links: [["登入", "/login"], ["註冊", "/register"], ["忘記密碼", "/forgot-password"]] },
-    { icon: <IconMail className="size-5.5" />, title: "系辦聯絡", links: [["新莊區中正路 510 號 利瑪竇大樓", "https://www.im.fju.edu.tw/"], ["電話 +886-2-2905-2696", "tel:+886229052696"], ["im@mail.fju.edu.tw", "mailto:im@mail.fju.edu.tw"], ["系網 im.fju.edu.tw", "https://www.im.fju.edu.tw/"]] },
+    { icon: <IconMail className="size-5.5" />, title: "系辦聯絡", links: [["新莊區中正路 510 號 利瑪竇大樓", "https://www.im.fju.edu.tw/"], ["電話 02-2905-2666", "tel:+886229052666"], ["系網 im.fju.edu.tw", "https://www.im.fju.edu.tw/"]] },
   ];
   return (
     <section className="relative overflow-hidden bg-background" aria-label="快速入口">
