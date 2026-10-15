@@ -21,6 +21,8 @@ export default async function IndustryPage({ params, searchParams }: PageProps<"
 
   /* 學生 v1：學生後台不放產學合作，看前台列表（Roy 2026-10-15） */
   if (role === "student") redirect("/industry");
+  /* 老師 v2：合作案在分組總覽的分頁 */
+  if (role === "teacher") redirect("/dashboard/teacher/groups?tab=industry");
 
   const base = `/dashboard/${role}/industry`;
   const tab = (key: "mine" | "all", label: string) => (
@@ -29,8 +31,8 @@ export default async function IndustryPage({ params, searchParams }: PageProps<"
 
   return (
     <div className="flex flex-col gap-5">
-      <PageTitle title="合作案" description={role === "teacher" ? "建立、編輯、下架自己的合作案；聯絡資料只有負責老師與系辦看得到。" : "管理全部合作案與組別連結。"} actions={<IndustryFormDialog />} />
-      {role === "teacher" ? (
+      <PageTitle title="合作案" description="管理全部合作案與組別連結。" actions={<IndustryFormDialog />} />
+      {scope === "mine" ? (
         <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex gap-1 rounded-xl border border-border bg-card p-1">{tab("mine", `我的 ${myCases.length} 件`)}{tab("all", `全部 ${INDUSTRY.length} 件`)}</div>
           <p className="tabular text-sm text-muted-foreground">全體尚未指派組別 <b className="text-foreground">{open}</b> 件</p>

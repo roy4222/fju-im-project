@@ -1,17 +1,12 @@
 import { notFound } from "next/navigation";
-import { PageTitle } from "@/components/dashboard/primitives";
-import { GradingWorkbench } from "@/components/dashboard/grading-workbench";
 import { isValidRole } from "@/lib/nav-config";
-import { EVALUATION_QUEUE } from "@/lib/fixtures";
+import { GRADING_GROUPS } from "@/lib/teacher-v2";
+import { GradingDesk } from "./grading-desk";
 
 export default async function GradingGroupPage({ params }: PageProps<"/dashboard/[role]/grading/[groupId]">) {
   const { role, groupId } = await params;
   if (!isValidRole(role) || role !== "teacher") notFound();
-  if (!EVALUATION_QUEUE.some((e) => e.groupId === groupId)) notFound();
-  return (
-    <div className="flex flex-col gap-5">
-      <PageTitle title="評分工作台" description="只有你被指派的組別。暫存只有你看得到，送出後鎖定。" />
-      <GradingWorkbench role={role} groupId={groupId} />
-    </div>
-  );
+  if (!GRADING_GROUPS.some((g) => g.groupId === groupId)) notFound();
+  /* key：換組時整個評分卡重來，不帶上一組沒存的修改 */
+  return <GradingDesk key={groupId} groupId={groupId} />;
 }

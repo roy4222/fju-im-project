@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { IconArrowRight, IconCalendarEvent, IconPin } from "@tabler/icons-react";
-import { SectionHead, TodoRow, dueText, md } from "@/components/dashboard/student-v1";
+import { IconArrowRight, IconCalendarEvent } from "@tabler/icons-react";
+import { NewsList, SectionHead, TodoRow, dueText, md } from "@/components/dashboard/student-v1";
 import { DueCalendar } from "@/components/dashboard/due-calendar";
 import { CURRENT_USERS, NEWS, TODAY_YMD, currentStage, daysUntil } from "@/lib/fixtures";
 import { nextDue, studentTodos } from "@/lib/student-v1";
@@ -82,25 +82,7 @@ export function StudentHome() {
       {/* 4. 公告 */}
       <section aria-labelledby="news-title" data-region="news">
         <SectionHead id="news-title" title="公告" href="/news" link="全部公告" />
-        <ul className="grid gap-2.5 md:grid-cols-2">
-            {news.map((n) => (
-              <li key={n.id}>
-                <Link href={`/news/${n.id}`} className="dash-card-hover flex items-start gap-3.5 rounded-2xl border border-border/80 bg-card p-3.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40">
-                  <span className="tabular flex size-12 shrink-0 flex-col items-center justify-center rounded-xl bg-accent text-primary">
-                    <span className="text-[11px] leading-none font-semibold">{Number(n.date.slice(5, 7))} 月</span>
-                    <span className="mt-0.5 text-[18px] leading-none font-extrabold">{Number(n.date.slice(8, 10))}</span>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
-                      {n.pinned ? <span className="inline-flex items-center gap-0.5 rounded-full bg-brand-subtle px-1.5 py-px text-brand-on-subtle"><IconPin className="size-3" />置頂</span> : null}
-                      {n.category}
-                    </span>
-                    <span className="mt-0.5 line-clamp-2 text-[14.5px] leading-snug font-bold">{n.title}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-        </ul>
+        <NewsList news={news} />
       </section>
     </div>
   );

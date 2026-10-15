@@ -145,7 +145,7 @@ export const GROUPS: Group[] = [
     no: "第 05 組",
     title: "二手教科書交易平台",
     type: "GENERAL",
-    advisorId: "u-105",
+    advisorId: "u-102",
     status: "active",
     members: mkMembers("41141", 340, ["田家瑜", "阮柏毅", "曾語彤", "崔浩然", "翁苡榛"]),
   },
@@ -164,7 +164,7 @@ export const GROUPS: Group[] = [
     no: "第 08 組",
     title: "長照機構家屬溝通看板",
     type: "GENERAL",
-    advisorId: "u-103",
+    advisorId: "u-102",
     status: "active",
     members: mkMembers("41141", 370, ["巫佳蓁", "郝彥丞", "岳庭妤", "解軍豪", "麥若彤"]),
   },
@@ -176,6 +176,16 @@ export const GROUPS: Group[] = [
     advisorId: null,
     status: "exception",
     members: mkMembers("41141", 380, ["柯亦辰", "宮宇薇", "潘冠霖", "尤思穎"]),
+  },
+  {
+    /* 老師 v2（Roy Q80）：還沒連到合作案的產學組，示範「負責老師把產學組連到自己的合作案」 */
+    id: "g-10",
+    no: "第 10 組",
+    title: "物流車隊油耗與路線分析",
+    type: "INDUSTRY",
+    advisorId: "u-102",
+    status: "active",
+    members: mkMembers("41141", 390, ["童冠宇", "嚴詩婷", "魏承恩", "葉羽彤", "蕭睿哲"]),
   },
 ];
 
@@ -917,8 +927,8 @@ export const NOTIFICATIONS: Record<Role, Notification[]> = {
     { id: "n-s4", kind: "system", title: "第 07 組還有 2 位成員未確認", body: "蔡育瑄、鄭凱文尚未確認加入。", at: "08-13 10:02", read: true, href: "/dashboard/student/groups" },
   ],
   teacher: [
-    { id: "n-t1", kind: "grading", title: "系統驗收：第 07 組待評分", body: "評分表已開放，送出後鎖定。", at: "08-17 08:30", read: false, href: "/dashboard/teacher/grading/g-07" },
-    { id: "n-t2", kind: "signoff", title: "第 08 組同意書等待老師同意", body: "五位學生已全數同意。", at: "08-16 22:05", read: false, href: "/dashboard/teacher/signoff" },
+    { id: "n-t1", kind: "grading", title: "系統驗收：第 07 組待評分", body: "評分表已開放。", at: "08-17 08:30", read: false, href: "/dashboard/teacher/grading/g-07" },
+    { id: "n-t2", kind: "signoff", title: "第 02 組同意書等待老師同意", body: "五位學生已全數同意。", at: "08-16 22:05", read: false, href: "/dashboard/teacher/signoff" },
     { id: "n-t3", kind: "submission", title: "第 02 組送出分組意向登記", body: "版本 v2，附件 1 個。", at: "08-15 17:44", read: true, href: "/dashboard/teacher/affairs" },
     { id: "n-t4", kind: "system", title: "2 個產學組尚未指派老師", body: "第 03 組、第 06 組可認領。", at: "08-12 09:00", read: true, href: "/dashboard/teacher/groups" },
   ],
@@ -989,6 +999,7 @@ const SIGNOFF_SEED: Record<string, { students: number; teacher: boolean }> = {
   "g-06": { students: 5, teacher: false }, // 尚未指派老師
   "g-08": { students: 5, teacher: true },
   "g-09": { students: 0, teacher: false },
+  "g-10": { students: 4, teacher: false },
 };
 export type SignoffState = "students" | "teacher" | "complete" | "revision";
 export const SIGNOFF_PROGRESS = GROUPS.map((g) => {

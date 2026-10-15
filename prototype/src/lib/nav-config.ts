@@ -1,5 +1,6 @@
-import { NOTIFICATIONS, pendingAccounts, teacherGradingCounts, teacherSignReady, type Role } from "@/lib/fixtures";
+import { NOTIFICATIONS, pendingAccounts, type Role } from "@/lib/fixtures";
 import { studentOpenCount } from "@/lib/student-v1";
+import { consentsWaitingForMe, gradingCounts } from "@/lib/teacher-v2";
 
 /**
  * 登入後導覽。對應規格 §3.3 的六個核心區域。
@@ -17,8 +18,9 @@ function badgeFor(role: Role, href: string): number | undefined {
   if (href === "/inbox") return NOTIFICATIONS[role].filter((n) => !n.read).length || undefined;
   /* 學生 v1：同意書併進交作業，徽章＝交作業「待交」數（作業＋同意書，同一個函式） */
   if (role === "student" && href === "/affairs") return studentOpenCount() || undefined;
-  if (role === "teacher" && href === "/grading") return teacherGradingCounts().remaining || undefined;
-  if (role === "teacher" && href === "/signoff") return teacherSignReady().length || undefined;
+  /* 老師 v2：評分＝還沒送出的組；作業區＝待我同意的同意書 */
+  if (role === "teacher" && href === "/grading") return gradingCounts().remaining || undefined;
+  if (role === "teacher" && href === "/affairs") return consentsWaitingForMe().length || undefined;
   if (role === "admin" && href === "/accounts") return pendingAccounts().length || undefined;
   return undefined;
 }
@@ -80,10 +82,26 @@ const STUDENT_NAV: NavGroup[] = [
   },
 ];
 
+/**
+ * 老師後台 v2（Roy 2026-10-15，Q77～Q84）：側欄只有四項。通知只留鈴鐺；
+ * 同意書在作業區的分頁、合作案在分組總覽的分頁（舊網址 /signoff、/industry 轉過去）。
+ */
+const TEACHER_NAV: NavGroup[] = [
+  {
+    title: "",
+    items: [
+      { href: "", label: "首頁", icon: "dashboard", roles: ["teacher"] },
+      { href: "/grading", label: "評分", icon: "grading", roles: ["teacher"] },
+      { href: "/affairs", label: "作業區", icon: "affairs", roles: ["teacher"] },
+      { href: "/groups", label: "分組總覽", icon: "groups", roles: ["teacher"] },
+    ],
+  },
+];
+
 export const ROLE_LABEL: Record<Role, string> = { student: "學生", teacher: "指導老師", admin: "系辦管理員" };
 
 export function navForRole(role: Role): NavGroup[] {
-  return (role === "student" ? STUDENT_NAV : NAV_GROUPS).map((g) => ({
+  return (role === "student" ? STUDENT_NAV : role === "teacher" ? TEACHER_NAV : NAV_GROUPS).map((g) => ({
     ...g,
     items: g.items.filter((i) => i.roles.includes(role)).map((i) => { const n = badgeFor(role, i.href); return n ? { ...i, badge: { [role]: n } } : i; }),
   })).filter((g) => g.items.length > 0);
