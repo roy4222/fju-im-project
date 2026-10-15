@@ -31,11 +31,12 @@ function hardSplit(s: string, max: number): string[] {
   return out;
 }
 
-/** 文字 → 一則一則（每則是幾行）。先照標點切成子句，子句裝成行，每兩行一則。 */
-export function splitNarration(text: string, maxLine = LINE_MAX, maxLines = LINES_MAX): string[][] {
-  const clean = text.replace(/\s+/g, ' ').trim();
-  if (!clean) return [];
-  const pieces = (clean.match(CLAUSE) ?? [clean]).flatMap((c) => hardSplit(c, maxLine));
+/** 句尾（一則字幕盡量在這裡結束）。 */
+const SENTENCE = /[^。！？；!?;]+[。！？；!?;]*[」』）)]*|[。！？；!?;」』）)]+/gu;
+
+/** 一句 → 行：照標點切成子句，子句依序裝進 ≤ maxLine 的行（子句本身太長就硬切）。 */
+function sentenceLines(sentence: string, maxLine: number): string[] {
+  const pieces = (sentence.match(CLAUSE) ?? [sentence]).flatMap((c) => hardSplit(c, maxLine));
   const lines: string[] = [];
   let cur = '';
   for (const p of pieces) {
@@ -46,9 +47,35 @@ export function splitNarration(text: string, maxLine = LINE_MAX, maxLines = LINE
     cur += p;
   }
   if (cur.trim()) lines.push(cur.trim());
+  return lines.filter(Boolean);
+}
+
+/**
+ * 文字 → 一則一則（每則是幾行）。先切成句子（。！？；），每句另起一行；整句放得進目前這則就放，
+ * 放不下就換新的一則；一句本身超過 maxLines 行才在句子中間（標點處）分則。
+ */
+export function splitNarration(text: string, maxLine = LINE_MAX, maxLines = LINES_MAX): string[][] {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
   const cues: string[][] = [];
-  for (let i = 0; i < lines.length; i += maxLines) cues.push(lines.slice(i, i + maxLines).filter(Boolean));
-  return cues.filter((c) => c.length);
+  let cur: string[] = [];
+  for (const sentence of clean.match(SENTENCE) ?? [clean]) {
+    const lines = sentenceLines(sentence, maxLine);
+    if (!lines.length) continue;
+    if (cur.length + lines.length <= maxLines) {
+      cur.push(...lines);
+      continue;
+    }
+    if (cur.length) cues.push(cur);
+    cur = [];
+    for (let i = 0; i < lines.length; i += maxLines) {
+      const chunk = lines.slice(i, i + maxLines);
+      if (chunk.length === maxLines) cues.push(chunk);
+      else cur = chunk;
+    }
+  }
+  if (cur.length) cues.push(cur);
+  return cues;
 }
 
 /** 一句配音 → 字幕則；時間依每則字數（寬度）比例分配，最後一則剛好結束在 endMs。 */

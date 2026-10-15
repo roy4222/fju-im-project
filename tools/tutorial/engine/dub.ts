@@ -17,6 +17,14 @@ export const DUB_GAP_MS = 200;
 /** 新配音太長時最多加速到幾倍。 */
 export const MAX_TEMPO = 1.25;
 
+/** 頭尾低於 -50 dB 的靜音削掉，各留 50 ms。 */
+const TRIM_SILENCE = [
+  'silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05',
+  'areverse',
+  'silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05',
+  'areverse',
+].join(',');
+
 /** 一句新配音：clip 時間的起播點與新音檔長度。 */
 export type FitInput = { index: number; startMs: number; durationMs: number };
 /** availableMs：到下一句起播（最後一句到 clip 結束）前 gapMs；tempo：要加速幾倍（1＝原速，短的後面自然是靜音）。 */
@@ -87,10 +95,19 @@ export async function dubChapter(opts: DubOptions): Promise<DubResult> {
   }
   const maxTempo = opts.maxTempo ?? MAX_TEMPO;
 
-  // 1) 每步重念（provider 自己有快取）
+  // 1) 每步重念（provider 自己有快取），轉成 48k 單聲道並削掉頭尾靜音（Gemini 前後各有 0.2～0.35 秒空白，
+  //    不削的話字幕會比聲音早出現、也白白吃掉可用時間）
+  const audioDir = join(outDir, 'audio');
+  rmSync(audioDir, { recursive: true, force: true });
+  mkdirSync(audioDir, { recursive: true });
   const speeches = new Map<number, { file: string; durationMs: number }>();
   const narrated = ev.steps.filter((s) => s.narration.trim() && s.audio);
-  for (const s of narrated) speeches.set(s.index, await opts.tts.synth(s.narration, join(outDir, '.tts')));
+  for (const s of narrated) {
+    const raw = await opts.tts.synth(s.narration, join(outDir, '.tts'));
+    const file = join(audioDir, `raw-${String(s.index).padStart(2, '0')}.wav`);
+    await run('ffmpeg', ['-y', '-v', 'error', '-i', raw.file, '-af', `aresample=48000,aformat=channel_layouts=mono,${TRIM_SILENCE}`, '-ar', '48000', '-ac', '1', file]);
+    speeches.set(s.index, { file, durationMs: await probeDurationMs(file) });
+  }
 
   // 2) 放不放得下
   const { fits, over } = fitSpeech(
@@ -107,15 +124,12 @@ export async function dubChapter(opts: DubOptions): Promise<DubResult> {
     throw new Error(overflowMessage(label, over, maxTempo));
   }
 
-  // 3) 每句轉成 48k 單聲道，需要時加速（截在可用時間內，atempo 的長度有幾 ms 誤差）
-  const audioDir = join(outDir, 'audio');
-  rmSync(audioDir, { recursive: true, force: true });
-  mkdirSync(audioDir, { recursive: true });
+  // 3) 需要時加速（截在可用時間內，atempo 的長度有幾 ms 誤差）
   const played = new Map<number, number>();
   const files: string[] = [];
   for (const f of fits) {
     const out = join(audioDir, `step-${String(f.index).padStart(2, '0')}.wav`);
-    const af = ['aresample=48000', 'aformat=channel_layouts=mono', ...(f.tempo > 1 ? [`atempo=${f.tempo}`, `atrim=0:${(f.availableMs / 1000).toFixed(3)}`] : [])].join(',');
+    const af = ['anull', ...(f.tempo > 1 ? [`atempo=${f.tempo}`, `atrim=0:${(f.availableMs / 1000).toFixed(3)}`] : [])].join(',');
     await run('ffmpeg', ['-y', '-v', 'error', '-i', speeches.get(f.index)!.file, '-af', af, '-ar', '48000', '-ac', '1', out]);
     played.set(f.index, await probeDurationMs(out));
     files.push(out);

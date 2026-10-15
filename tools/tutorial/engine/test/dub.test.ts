@@ -77,7 +77,7 @@ function makeChapter(dir: string): ChapterEvents {
   return ev;
 }
 
-/** 假 TTS：依文字查長度，產生 440 Hz 正弦波 wav；記錄被叫了幾次。 */
+/** 假 TTS：依文字查長度，產生 440 Hz 正弦波 wav，前後各墊 0.3 秒靜音（像 Gemini）；記錄被叫了幾次。 */
 function toneProvider(dir: string, msByText: Record<string, number>): TtsProvider & { calls: string[] } {
   const calls: string[] = [];
   return {
@@ -87,7 +87,7 @@ function toneProvider(dir: string, msByText: Record<string, number>): TtsProvide
       mkdirSync(dir, { recursive: true });
       const ms = msByText[text];
       const file = join(dir, `tone-${calls.length}.wav`);
-      execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=f=440:d=${ms / 1000}`, '-ar', '24000', '-ac', '1', file]);
+      execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=f=440:d=${ms / 1000}`, '-af', 'adelay=300,apad=pad_dur=0.3', '-ar', '24000', '-ac', '1', file]);
       return { file, durationMs: await probeDurationMs(file) };
     },
   };
@@ -112,7 +112,7 @@ test('重配一段：影像逐格不變、長度不變、新配音接在原起�
     const src = join(root, 'chapters', '9-9');
     makeChapter(src);
     const before = readFileSync(join(src, '9-9.mp4'));
-    // 第一步 4 秒（可用 3750−250−200＝3300 ms → 1.213 倍）、第三步 1 秒（原速）
+    // 第一步 4 秒（削掉頭尾靜音、各留 50 ms 後 4.1 秒；可用 3750−250−200＝3300 ms → 1.243 倍）、第三步 1 秒（1.1 秒，原速）
     const tts = toneProvider(join(root, 'tts'), { '第一步先打開首頁，看到下一步框。': 4000, '再看繳交歷史。': 1000 });
     const out = join(root, 'dub-Test', '9-9');
     const r = await dubChapter({ dir: src, tts, outDir: out });
@@ -123,8 +123,9 @@ test('重配一段：影像逐格不變、長度不變、新配音接在原起�
     assert.ok(Math.abs((await probeDurationMs(r.file)) - 8500) < 60);
     assert.deepEqual(readFileSync(join(src, '9-9.mp4')), before, '來源不能被改');
 
-    assert.deepEqual(r.steps.map((s) => [s.index, s.tempo]), [[1, 1.213], [3, 1]]);
-    assert.ok(r.maxTempo === 1.213);
+    assert.deepEqual(r.steps.map((s) => [s.index, s.tempo]), [[1, 1.243], [3, 1]]);
+    assert.equal(r.maxTempo, 1.243);
+    assert.ok(Math.abs(r.steps[0].newMs - 4100) < 30, `削完靜音 ${r.steps[0].newMs} ms`);
     const meta = JSON.parse(readFileSync(join(out, 'chapter.json'), 'utf8')) as ChapterMeta;
     assert.equal(meta.file, '9-9.mp4');
     const s1 = meta.steps[0].audio!;
@@ -132,16 +133,17 @@ test('重配一段：影像逐格不變、長度不變、新配音接在原起�
     assert.equal(s1.startMs, 2750);
     assert.ok(s1.durationMs <= 3300 && s1.durationMs > 3200, `加速後 ${s1.durationMs} ms`);
     assert.equal(s3.startMs, 6250);
-    assert.ok(Math.abs(s3.durationMs - 1000) < 30);
+    assert.ok(Math.abs(s3.durationMs - 1100) < 30);
     assert.equal(meta.steps[1].audio, undefined);
 
     const srt = readFileSync(r.srt, 'utf8');
     assert.match(srt, /^1\n00:00:02,750 --> /);
-    assert.match(srt, /00:00:06,250 --> 00:00:07,2\d\d\n再看繳交歷史。\n/);
+    assert.match(srt, /00:00:06,250 --> 00:00:07,3\d\d\n再看繳交歷史。\n/);
     assert.ok(readFileSync(r.vtt, 'utf8').startsWith('WEBVTT'));
 
     // 聲音對得上字幕：字幕期間有聲、句與句之間的空檔靜音、標題卡靜音
     assert.ok(rms(r.file, 2.85, 5.9) > -30, '第一句期間要有聲音');
+    assert.ok(rms(r.file, 2.82, 2.92) > -30, '頭的靜音削掉了：字幕一出現就有聲音');
     assert.ok(rms(r.file, 6.1, 6.2) < -60, '第一句結束到第三句起播之間要安靜');
     assert.ok(rms(r.file, 6.35, 7.15) > -30, '第三句期間要有聲音');
     assert.ok(rms(r.file, 0.1, 2.6) < -60, '標題卡沒有配音');
@@ -157,7 +159,7 @@ test('重配一段：有一句超過 1.25 倍就報錯列出、不輸出影片�
     makeChapter(src);
     const tts = toneProvider(join(root, 'tts'), { '第一步先打開首頁，看到下一步框。': 4500, '再看繳交歷史。': 1000 });
     const out = join(root, 'dub-Test', '9-9');
-    await assert.rejects(dubChapter({ dir: src, tts, outDir: out }), (e: Error) => /第 1 步/.test(e.message) && /1\.36 倍/.test(e.message) && !/第 3 步/.test(e.message));
+    await assert.rejects(dubChapter({ dir: src, tts, outDir: out }), (e: Error) => /第 1 步/.test(e.message) && /1\.39 倍/.test(e.message) && !/第 3 步/.test(e.message));
     assert.ok(!existsSync(join(out, '9-9.mp4')));
     const report = JSON.parse(readFileSync(join(out, 'dub.json'), 'utf8'));
     assert.equal(report.ok, false);
