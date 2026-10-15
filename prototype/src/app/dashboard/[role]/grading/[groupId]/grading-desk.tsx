@@ -170,7 +170,7 @@ function WorkPanel({ group, log }: { group: GradingGroup; log: { at: string; tex
         </div>
         <div className="flex justify-center bg-[oklch(0.42_0.01_253)] px-4 py-6">
           <div className="flex aspect-[3/4] w-full max-w-[17rem] flex-col items-center bg-white px-6 pt-8 pb-5 text-center text-[oklch(0.25_0.05_253)] shadow-lg">
-            <p className="text-[19px] leading-snug font-extrabold">{group.title}</p>
+            <p className="text-[17px] leading-snug font-extrabold text-balance">{group.title}</p>
             <p className="mt-1 text-[13px] font-bold">專題成果報告</p>
             <span className="mt-6 inline-flex size-20 items-center justify-center rounded-full bg-[oklch(0.93_0.04_250)] text-[oklch(0.45_0.12_250)]"><IconSchool className="size-10" strokeWidth={1.4} /></span>
             <p className="tabular mt-auto text-[11px] leading-relaxed">輔仁大學資訊管理學系<br />{group.no}・2026 年 10 月</p>

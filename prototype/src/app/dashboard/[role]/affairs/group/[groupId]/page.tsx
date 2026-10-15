@@ -40,13 +40,11 @@ export default async function TeacherGroupWorkPage({ params }: PageProps<"/dashb
               {dot === "done" && sub?.version ? (
                 <div className="rounded-2xl bg-muted/50 px-4 py-3">
                   <p className="tabular text-sm font-bold">第 {sub.version} 次・{sub.submittedBy}・{sub.at?.slice(5).replace("-", "/")}</p>
-                  {files.length || item.attachments ? (
-                    <ul className="mt-2 flex flex-wrap gap-2">
-                      {(files.length ? files : [`${item.title}.pdf`]).map((f) => (
-                        <li key={f}><a href="#" className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-[13px] font-semibold text-primary ring-1 ring-border hover:bg-accent"><IconPaperclip className="size-3.5" />{f}</a></li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {(files.length ? files : [`${item.title}.pdf`]).map((f) => (
+                      <li key={f}><a href="#" className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-[13px] font-semibold text-primary ring-1 ring-border hover:bg-accent"><IconPaperclip className="size-3.5" />{f}</a></li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
             </li>

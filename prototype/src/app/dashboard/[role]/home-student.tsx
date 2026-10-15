@@ -11,7 +11,7 @@ import { nextDue, studentTodos } from "@/lib/student-v1";
  * 「下一件要交的」與待辦、交作業、側欄徽章同一個口徑（lib/student-v1.ts）。
  */
 const HOME_TODOS = 5;
-const HOME_NEWS = 5;
+const HOME_NEWS = 4;
 
 export function StudentHome() {
   const base = "/dashboard/student";

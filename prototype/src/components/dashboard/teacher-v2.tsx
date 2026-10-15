@@ -35,11 +35,11 @@ export function PageHead({ title, sub, children }: { title: string; sub?: string
 /** 組員頭像疊在一起；approved 有值時，同意的人打勾 */
 export function MemberStack({ members, approved }: { members: Member[]; approved?: Set<string> }) {
   return (
-    <ul className="flex -space-x-2" aria-label="組員">
+    <ul className="flex -space-x-1" aria-label="組員">
       {members.map((m) => {
         const ok = approved?.has(m.name);
         return (
-          <li key={m.id} title={m.name} className={`relative inline-flex size-9 items-center justify-center rounded-full text-[11px] font-bold ring-2 ring-card ${approved ? (ok ? "bg-success-subtle text-success-on-subtle" : "bg-muted text-muted-foreground") : "bg-accent text-primary"}`}>
+          <li key={m.id} title={m.name} className={`relative inline-flex size-10 items-center justify-center rounded-full text-[11px] font-bold ring-2 ring-card ${approved ? (ok ? "bg-success-subtle text-success-on-subtle" : "bg-muted text-muted-foreground") : "bg-accent text-primary"}`}>
             {m.name.slice(-2)}
             {m.isLeader && !approved ? <IconCrown aria-label="組長" className="absolute -top-2.5 left-1/2 size-4 -translate-x-1/2 fill-[oklch(0.84_0.15_85)] text-[oklch(0.62_0.13_70)]" /> : null}
             {ok ? <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-card"><IconCheck className="size-2.5" strokeWidth={3} /></span> : null}

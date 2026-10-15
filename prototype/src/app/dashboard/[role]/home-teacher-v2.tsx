@@ -6,7 +6,7 @@ import { IconAlertTriangle, IconArrowRight, IconChecklist, IconChevronRight, Ico
 import { NewsList, SectionHead } from "@/components/dashboard/student-v1";
 import { NEWS } from "@/lib/fixtures";
 import { useGradeRecords } from "@/lib/grading-store";
-import { ME, TEACHER_BASE as base, consentsWaitingForMe, gradingCounts, groupsMissingWork, nextToGrade, shortTitle } from "@/lib/teacher-v2";
+import { GRADING_GROUPS, ME, TEACHER_BASE as base, consentsWaitingForMe, gradingCounts, groupsMissingWork, nextToGrade, shortTitle } from "@/lib/teacher-v2";
 
 /**
  * 老師首頁 v2（Roy 2026-10-15，Q77～Q78）：「現在」卡（待評 N 組＋繼續評分，只出現一次）、三張待辦卡、公告。
@@ -51,7 +51,7 @@ export function TeacherHome() {
       <section aria-labelledby="todo-title" data-region="todo">
         <SectionHead id="todo-title" title="待辦" />
         <ul className="grid gap-4 md:grid-cols-3">
-          <TodoCard href={`${base}/grading`} tint="oklch(0.68 0.17 51)" icon={<IconChecklist className="size-6" />} label="待評分" count={counts.remaining} unit="組" names={[]} />
+          <TodoCard href={`${base}/grading`} tint="oklch(0.68 0.17 51)" icon={<IconChecklist className="size-6" />} label="待評分" count={counts.remaining} unit="組" names={GRADING_GROUPS.filter((g) => (records[g.groupId] ?? g.seed).state !== "submitted").map((g) => `${g.no}・${g.title}`)} />
           <TodoCard href={`${base}/affairs?tab=consent`} tint="oklch(0.58 0.17 300)" icon={<IconSignature className="size-6" />} label="待我同意的同意書" count={consents.length} unit="份" names={consents.map((c) => `${c.groupNo}・${shortTitle(c.title)}`)} />
           <TodoCard href={`${base}/affairs`} tint="oklch(0.6 0.2 25)" icon={<IconAlertTriangle className="size-6" />} label="缺件的組" count={missing.length} unit="組" names={missing.map((g) => `${g.no}・${shortTitle(g.title)}`)} />
         </ul>
