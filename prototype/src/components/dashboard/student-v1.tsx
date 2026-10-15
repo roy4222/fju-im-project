@@ -63,24 +63,36 @@ export function TodoCard({ todo, base }: { todo: StudentTodo; base: string }) {
       <Link
         href={base + todo.href}
         data-todo={todo.status}
-        className="fx-card dash-card-hover group flex h-full flex-col rounded-2xl border-2 p-4 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
+        className="fx-card dash-card-hover group flex h-full items-center gap-3.5 rounded-2xl border-2 p-4 sm:flex-col sm:items-stretch sm:gap-0 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         style={{ borderColor: `color-mix(in oklch, ${tint} 42%, transparent)`, background: `color-mix(in oklch, ${tint} 6%, var(--card))` }}
       >
         <CardFx tint={tint} />
-        <span className="flex items-start justify-between gap-2">
+        {/* 手機：圖示在左、文字在右；平板以上：圖示＋膠囊一列，標題、日期往下排 */}
+        <span className="flex shrink-0 items-start justify-between gap-2">
           <span className="inline-flex size-12 items-center justify-center rounded-full text-white" style={{ background: tint }}><Icon className="size-6" strokeWidth={1.8} /></span>
-          <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-bold whitespace-nowrap text-white" style={{ background: tint }}>
-            {TAG[todo.status].icon}
-            {tagLabel(todo)}
-          </span>
+          <Pill todo={todo} tint={tint} className="hidden sm:inline-flex" />
         </span>
-        <span className="mt-3.5 line-clamp-2 text-[16px] leading-snug font-extrabold">{todo.title}</span>
-        <span className="tabular mt-auto pt-2 text-[14px] font-bold text-muted-foreground">
-          {due.date}
-          {due.rel ? <span style={{ color: todo.status === "overdue" || todo.status === "soon" ? tint : undefined }}>・{due.rel}</span> : null}
+        <span className="flex min-w-0 flex-1 flex-col sm:mt-3.5">
+          <span className="line-clamp-2 text-[16px] leading-snug font-extrabold">{todo.title}</span>
+          <span className="tabular mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1.5 text-[14px] font-bold text-muted-foreground sm:pt-2">
+            <span>
+              {due.date}
+              {due.rel ? <span style={{ color: todo.status === "overdue" || todo.status === "soon" ? tint : undefined }}>・{due.rel}</span> : null}
+            </span>
+            <Pill todo={todo} tint={tint} className="inline-flex sm:hidden" />
+          </span>
         </span>
       </Link>
     </li>
+  );
+}
+
+function Pill({ todo, tint, className }: { todo: StudentTodo; tint: string; className: string }) {
+  return (
+    <span className={`h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-bold whitespace-nowrap text-white ${className}`} style={{ background: tint }}>
+      {TAG[todo.status].icon}
+      {tagLabel(todo)}
+    </span>
   );
 }
 

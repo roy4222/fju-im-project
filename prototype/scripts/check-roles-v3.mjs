@@ -1,9 +1,11 @@
 /**
- * 原型第 2 輪點擊驗收＋截圖（學生 A1～A7、老師 B1～B5），桌機 1440 與手機 390。
+ * 原型第 3 輪點擊驗收＋截圖（第 2 輪的學生 A1～A7、老師 B1～B5 照舊，加上第 3 輪 C1～C6），桌機 1440 與手機 390（觸控）。
+ *   C1 新外框（深藍側欄、深橘現在橫幅、大標題）　C2 頭像與換頭像　C3 首頁拿掉小月曆、時程頁＝階段軸＋完整月曆
+ *   C4 卡片漣漪（滑鼠才有、手機沒有）　C5 評分改輸入框（分數／等第下拉／通過切換、超出範圍提示）　C6 系辦首頁沒有主機儲存
  *
- *   BASE_URL=http://mac-mini.tail89e7a6.ts.net:3100 node scripts/check-roles-v2.mjs
+ *   BASE_URL=http://mac-mini.tail89e7a6.ts.net:3100 node scripts/check-roles-v3.mjs
  *
- * 截圖存到 ~/work/proto-shots/roles-v2/（SHOTS_DIR 可改），學生 student-*、老師 teacher-*。失敗時以非 0 結束。
+ * 截圖存到 ~/work/proto-shots/roles-v3/（SHOTS_DIR 可改），學生 student-*、老師 teacher-*。失敗時以非 0 結束。
  */
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,7 +13,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 
 const BASE = process.env.BASE_URL ?? "http://mac-mini.tail89e7a6.ts.net:3100";
-const OUT = process.env.SHOTS_DIR ?? join(homedir(), "work/proto-shots/roles-v2");
+const OUT = process.env.SHOTS_DIR ?? join(homedir(), "work/proto-shots/roles-v3");
 mkdirSync(OUT, { recursive: true });
 const browser = process.env.CHROME_PATH
   ? await chromium.launch({ executablePath: process.env.CHROME_PATH })
@@ -27,7 +29,8 @@ async function shot(page, name) {
 }
 
 async function newPage(viewport, tag) {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor: tag === "mobile" ? 2 : 1 });
+  const mobile = tag === "mobile";
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: mobile ? 2 : 1, hasTouch: mobile, isMobile: mobile });
   const page = await ctx.newPage();
   page.on("response", (r) => {
     if (!r.url().includes("/_next/static/")) return;
@@ -54,6 +57,77 @@ async function sidebarLabels(page, tag) {
   return labels.filter((l) => l !== "回到前台");
 }
 
+/** C1：學生、老師的側欄是深藍、選中那項是深橘；「現在」橫幅是深橘；頁面有大標題 */
+async function checkShell(page, w) {
+  const look = await page.evaluate(() => {
+    /* 顏色一律畫到 canvas 換成 rgb 再比（computed style 可能是 oklch／lab） */
+    const ctx2d = document.createElement("canvas").getContext("2d");
+    const rgb = (el) => {
+      if (!el) return null;
+      ctx2d.clearRect(0, 0, 1, 1);
+      ctx2d.fillStyle = getComputedStyle(el).backgroundColor;
+      ctx2d.fillRect(0, 0, 1, 1);
+      return [...ctx2d.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    };
+    return { frame: rgb(document.querySelector(".dash-frame")), hero: rgb(document.querySelector('[data-region="now"]')), title: !!document.querySelector("h1.page-title") };
+  });
+  const [fr, , fb] = look.frame;
+  const [hr, hg, hb] = look.hero;
+  expect(fb > fr + 40 && fr < 40 && fb < 140, `外框不是深藍：rgb(${look.frame})`);
+  expect(hr > 150 && hr > hb + 100 && hg < 110, `現在橫幅不是深橘：rgb(${look.hero})`);
+  expect(look.title, "頁面沒有大標題 h1.page-title");
+  ok(`${w} C1 深藍外框 rgb(${look.frame})、深橘現在橫幅 rgb(${look.hero})、大標題`);
+}
+
+/** C4：卡片漣漪——桌機滑鼠滑過會亮、離開會退；手機（觸控）整層不顯示 */
+async function checkRipple(page, sel, tag, w, label) {
+  const card = page.locator(sel).first();
+  await card.waitFor();
+  const layer = card.locator(".fx-layer");
+  expect(await layer.count() === 1, `${label}沒有漣漪層`);
+  if (tag === "mobile") {
+    /* Playwright 用滑鼠事件點過之後，Chromium 的 hover 媒體查詢會變；用一頁乾淨的觸控分頁檢查 */
+    const fresh = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, storageState: await page.context().storageState() });
+    const fp = await fresh.newPage();
+    await fp.goto(page.url(), { waitUntil: "networkidle" });
+    const fl = fp.locator(sel).first().locator(".fx-layer");
+    expect(await fl.evaluate((el) => getComputedStyle(el).display) === "none", `${label}手機不該有漣漪層`);
+    await fp.locator(sel).first().evaluate((el) => el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" })));
+    expect(await fp.locator(sel).first().evaluate((el) => el.dataset.fx) === undefined, `${label}觸控不該觸發漣漪`);
+    await fresh.close();
+    ok(`${w} C4 ${label}：手機不做 hover 漣漪`);
+    return;
+  }
+  const box = await card.boundingBox();
+  await page.mouse.move(box.x - 30, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 6 });
+  await page.waitForFunction((s) => document.querySelector(s)?.dataset.fx === "on", sel);
+  const chars = (await card.locator("[data-fx-chars]").textContent()) ?? "";
+  expect(chars.length > 500, "漣漪字元沒有出現");
+  const first = chars.slice(0, 40);
+  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2, { steps: 6 });
+  await page.waitForTimeout(120);
+  expect(((await card.locator("[data-fx-chars]").textContent()) ?? "").slice(0, 40) !== first, "移動時字元沒有換");
+  await page.mouse.move(box.x + box.width / 2, box.y - 60);
+  await page.waitForFunction((s) => document.querySelector(s)?.dataset.fx === undefined, sel);
+  ok(`${w} C4 ${label}：滑過亮起、移動換字、離開退掉`);
+}
+
+/** C2：右上帳號選單 → 換頭像 → 選第 n 張預設 → 頂列頭像換掉 */
+async function changeAvatar(page, name, n) {
+  await page.getByRole("button", { name: "帳號選單" }).click();
+  await page.getByRole("menuitem", { name: "換頭像" }).click();
+  const dlg = page.locator("[data-avatar-dialog]");
+  await dlg.waitFor();
+  expect(await dlg.getByRole("radio").count() === 12, "預設頭像應有 12 張");
+  await dlg.getByRole("button", { name: "上傳照片" }).waitFor();
+  await dlg.getByRole("radio", { name: `預設頭像 ${n}` }).click();
+  await dlg.getByRole("button", { name: "儲存" }).click();
+  await dlg.waitFor({ state: "hidden" });
+  const want = `avatar-${String(n).padStart(2, "0")}`;
+  await page.waitForFunction(([nm, wnt]) => document.querySelector(`[aria-label="帳號選單"] img[alt="${nm}"]`)?.getAttribute("src")?.includes(wnt), [name, want]);
+}
+
 /* ================================================================ 學生 */
 async function student(viewport, tag) {
   const { ctx, page } = await newPage(viewport, tag);
@@ -75,19 +149,14 @@ async function student(viewport, tag) {
   ok(`${w} 側欄只有 首頁｜交作業｜組別`);
   if (tag === "mobile") { await shot(page, `student-${tag}-00-sidebar`); await page.keyboard.press("Escape"); await page.waitForTimeout(300); }
 
-  // 首頁：現在卡（A1 .hero 花紋）、待辦、小月曆（A2）、公告
-  for (const r of ["now", "todo", "calendar", "news"]) await page.locator(`[data-region="${r}"]`).waitFor();
+  // 首頁：現在卡（A1 .hero 花紋）、待辦、公告；C3 小月曆已拿掉
+  for (const r of ["now", "todo", "news"]) await page.locator(`[data-region="${r}"]`).waitFor();
   expect(await page.locator('[data-region="now"].hero').count() === 1, "現在卡沒有用 .hero 花紋");
   ok(`${w} A1 現在卡用 .hero 花紋`);
-  const dueDays = page.locator('[data-region="calendar"] [data-due]');
-  expect(await dueDays.count() >= 2, "月曆 8 月應有截止日打點");
-  await dueDays.first().click();
-  await page.locator('[data-region="calendar"] [aria-live] li a').first().waitFor();
-  await page.getByRole("button", { name: "下個月" }).click();
-  expect(await dueDays.count() >= 1, "月曆 9 月應有截止日打點");
-  await page.getByRole("button", { name: "上個月" }).click();
-  expect(await page.locator('[data-region="calendar"] table').count() === 0, "月曆不是表格");
-  ok(`${w} A2 小月曆：截止日打點、點日期列出當天要交的、可換月`);
+  expect(await page.locator('[data-region="calendar"]').count() === 0, "首頁不該再有小月曆");
+  ok(`${w} C3 首頁拿掉小月曆`);
+  await checkShell(page, w);
+  expect(await page.locator('[aria-label="帳號選單"] img[alt="林彥廷"]').count() === 1, "頂列沒有頭像");
   const todoCount = await page.locator('[data-region="todo"] li').count();
   expect(todoCount > 0 && todoCount <= 5, `待辦卡片數量不對：${todoCount}`);
   const newsCount = await page.locator('[data-region="news"] li').count();
@@ -96,6 +165,7 @@ async function student(viewport, tag) {
   expect(await page.locator("table").count() === 0, "首頁不該有表格");
   ok(`${w} 首頁：現在卡＋待辦 ${todoCount} 張（逾期／快到期／已交都有）＋公告 ${newsCount} 則，沒有表格`);
   await shot(page, `student-${tag}-01-home`);
+  await checkRipple(page, '[data-region="todo"] [data-todo="soon"]', tag, w, "首頁待辦卡");
 
   // 鍵盤：Tab 能走到「看完整時程」
   await page.locator('[data-region="now"]').getByRole("link", { name: /看完整時程/ }).focus();
@@ -107,6 +177,18 @@ async function student(viewport, tag) {
   expect(await page.locator("table").count() === 0, "時程頁不該有表格");
   ok(`${w} 「看完整時程」用鍵盤 Enter → /timeline，標出目前階段`);
   await shot(page, `student-${tag}-02-timeline`);
+  const dueDays = page.locator('[data-region="calendar"] [data-due]');
+  expect(await dueDays.count() >= 4, "月曆 8 月應標出截止日與活動");
+  const aug = await page.locator('[data-region="calendar"] [aria-live] li').allInnerTexts();
+  expect(aug.some((t) => t.includes("截止")) && aug.some((t) => t.includes("活動")), `8 月清單要同時有截止與活動：${aug.join("｜")}`);
+  await dueDays.first().click();
+  await page.locator('[data-region="calendar"] [aria-live] li a').first().waitFor();
+  expect(await page.locator('[data-region="calendar"] [aria-live] li').count() < aug.length, "點日期後應只列那天");
+  await page.getByRole("button", { name: "下個月" }).click();
+  expect(await dueDays.count() >= 1, "月曆 9 月應有標記");
+  await page.getByRole("button", { name: "上個月" }).click();
+  expect(await page.getByText(/Google/).count() === 0, "不要放 Google 日曆佔位");
+  ok(`${w} C3 時程頁＝階段軸＋完整月曆：截止日＋活動、點日期只看那天、可換月，沒有 Google 佔位`);
 
   // 鈴鐺 → 通知頁
   await page.goto(`${BASE}/dashboard/student`, { waitUntil: "networkidle" });
@@ -125,6 +207,9 @@ async function student(viewport, tag) {
   }
   expect(await page.locator("table").count() === 0, "交作業不該有表格");
   ok(`${w} 交作業：待交／已交／逾期 切換，同意書在待交`);
+  await filter.getByRole("link", { name: /^待交/ }).click();
+  await page.locator('[data-card="mi-014"]').waitFor();
+  await checkRipple(page, '[data-card="mi-014"]', tag, w, "交作業卡");
 
   // 點進作業詳情：說明、上傳區、繳交歷史
   await filter.getByRole("link", { name: /^待交/ }).click();
@@ -160,6 +245,9 @@ async function student(viewport, tag) {
   ok(`${w} A3／A5 組別：我的組｜找隊員｜紀錄、示範 還沒成組／已成組，沒有怪詞與系辦說明`);
   await page.locator("[data-members] li").first().waitFor();
   await page.getByLabel("組長").waitFor();
+  expect(await page.locator("[data-members] img").count() === 5, "組員卡每人要有頭像");
+  await page.locator("[data-group-head]").getByText(/讓閒置的教室/).waitFor();
+  ok(`${w} C2 組名卡有一句簡介、組員都有插畫頭像`);
   expect(await page.locator('[data-badges] li[data-done="true"]').count() === 1, "還沒成組應只有 1 個里程碑上色");
   expect(await page.locator('[data-badges] [aria-label="未達成"]').count() === 3, "未達成的里程碑要有灰鎖");
   await shot(page, `student-${tag}-07-group-mine-forming`);
@@ -190,10 +278,17 @@ async function student(viewport, tag) {
   const mail = page.locator("[data-advisor-email]");
   expect((await mail.getAttribute("href")) === "mailto:chen.ch@mail.fju.edu.tw" && (await mail.innerText()).includes("chen.ch@mail.fju.edu.tw"), "老師卡要直接顯示可點的 Email");
   expect(await page.getByText("寫信給老師").count() === 0, "老師卡不該有「寫信給老師」按鈕");
+  expect(await page.locator('[data-advisor] img[alt="陳建宏"]').count() === 1, "老師卡要有頭像");
   ok(`${w} A4 已成組：老師卡直接顯示 Email（mailto）、徽章跟著變`);
   await shot(page, `student-${tag}-11-group-mine-formed`);
   await page.locator("[data-phase-toggle]").getByRole("link", { name: "還沒成組" }).click();
   await page.waitForURL((u) => !u.search.includes("phase"));
+
+  // C2 換頭像：選第 6 張 → 頂列、組員卡都換
+  await changeAvatar(page, "林彥廷", 6);
+  await shot(page, `student-${tag}-12-avatar-changed`);
+  expect((await page.locator('[data-members] img[alt="林彥廷"]').getAttribute("src")).includes("avatar-06"), "組員卡的頭像沒跟著換");
+  ok(`${w} C2 換頭像：12 張預設＋上傳照片，選了之後頂列與組員卡一起換`);
 
   await ctx.close();
 }
@@ -212,12 +307,14 @@ async function teacher(viewport, tag) {
 
   // B1 首頁
   for (const r of ["now", "todo", "news"]) await page.locator(`[data-region="${r}"]`).waitFor();
+  await checkShell(page, w);
   expect(await page.locator('[data-region="now"].hero').count() === 1, "老師現在卡沒有 .hero 花紋");
   expect(await page.getByText("繼續評分", { exact: true }).count() === 1, "「繼續評分」應只出現一次");
   expect(await page.locator("[data-todo-card]").count() === 3, "待辦卡應有 3 張");
   expect(await page.locator("table, .recharts-wrapper").count() === 0, "首頁不該有表格或圓環");
   ok(`${w} B1 首頁：現在卡（待評 N 組＋繼續評分一次）、3 張待辦卡、公告，沒有圓環與表格`);
   await shot(page, `teacher-${tag}-01-home`);
+  await checkRipple(page, '[data-todo-card="待評分"]', tag, w, "老師首頁待辦卡");
   await page.getByRole("button", { name: /通知，/ }).click();
   await page.getByRole("menuitem", { name: "查看全部通知" }).click();
   await page.waitForURL("**/dashboard/teacher/inbox");
@@ -234,27 +331,41 @@ async function teacher(viewport, tag) {
   expect(await page.locator("table").count() === 0, "評分總覽不該有表格");
   ok(`${w} B2 評分總覽：已評 3／5 組、篩選 全部／待評／草稿／已送出、每組一張卡`);
   await shot(page, `teacher-${tag}-02-grading`);
+  await checkRipple(page, '[data-group-card="g-07"]', tag, w, "評分組卡");
 
   // B3 單組評分（第 07 組是草稿）
   await page.locator('[data-group-card="g-07"]').getByRole("link", { name: "繼續評分" }).click();
   await page.waitForURL("**/grading/g-07");
   await page.locator("[data-position]").getByText("第 3／5 組").waitFor();
   for (const k of ["score", "letter", "pass"]) expect(await page.locator(`[data-criterion="${k}"]`).count() >= 1, `缺少 ${k} 類型的評分項目`);
-  expect(await page.locator('[data-criterion="pass"] [role="radio"]').count() === 2, "通過制應只有 通過／不通過 兩顆");
+  expect(await page.locator('[data-criterion="score"] input[type="number"]').count() === 3, "分數制要是數字輸入框");
+  expect(await page.locator('[data-criterion="score"] [role="radio"], [data-criterion="letter"] [role="radio"]').count() === 0, "分數、等第不該再是一排按鈕");
+  expect(await page.locator('[data-criterion="letter"] select').count() === 1, "等第制要是下拉選單");
+  expect(await page.locator('[data-criterion="pass"] [role="radio"]').count() === 2, "通過制應只有 通過／不通過 兩個選項");
+  expect(await page.locator('[data-criterion="score"]').first().getByText("／100").count() === 1, "分數框旁要顯示／滿分");
   await page.locator("[data-missing]").getByText("還有 2 項沒填").waitFor();
   await shot(page, `teacher-${tag}-03-grading-group`);
-  await page.getByRole("radiogroup", { name: "成果表達" }).getByRole("radio", { name: "A", exact: true }).click();
+  const q1 = page.getByLabel("問題定義 分數");
+  await q1.fill("120");
+  await page.locator('[data-criterion="score"]').first().getByRole("alert").getByText("請填 0～100 的分數").waitFor();
+  await page.locator("[data-missing]").getByText("還有 3 項沒填").waitFor();
+  await shot(page, `teacher-${tag}-03b-grading-out-of-range`);
+  await q1.fill("95");
+  expect(await page.locator("[data-rubric]").getByRole("alert").count() === 0, "改回範圍內提示要消失");
+  ok(`${w} C5 分數超出範圍即時提示（120 → 提示、總分不算），改回 95 提示消失`);
+  await page.getByLabel("成果表達 等第").selectOption("A");
   await page.getByRole("radiogroup", { name: "資料安全檢核" }).getByRole("radio", { name: "通過", exact: true }).click();
   expect(await page.locator("[data-missing]").count() === 0, "填完後不該還有「沒填」");
+  expect(await page.getByText(/新增項目|編輯項目|調整權重/).count() === 0, "老師不能改評分項目");
   await page.getByRole("button", { name: "正式送出" }).click();
   await page.locator("[data-sent-banner]").waitFor();
   await page.locator("[data-log]").getByText(/送出 [\d.]+ 分/).waitFor();
-  await page.getByRole("radiogroup", { name: "問題定義" }).getByRole("radio", { name: "100" }).click();
+  await q1.fill("100");
   await page.locator("[data-sent-banner]").getByText("有修改還沒重新送出").waitFor();
   await page.getByRole("button", { name: "重新送出" }).click();
   await page.locator("[data-log]").getByText(/修改後重新送出 [\d.]+ 分/).waitFor();
   expect(await page.locator("[data-log] li").count() <= 3, "紀錄最多 3 行");
-  ok(`${w} B3 單組評分：分數／等第／通過三種按鈕、即時總分與「還有 N 項沒填」、送出 → 改分 → 重新送出，紀錄 ${await page.locator("[data-log] li").count()} 行`);
+  ok(`${w} B3／C5 單組評分：分數輸入框（／100）、等第下拉、通過切換、即時總分與「還有 N 項沒填」、送出 → 改分 → 重新送出，紀錄 ${await page.locator("[data-log] li").count()} 行`);
   await shot(page, `teacher-${tag}-04-grading-sent`);
   await page.getByRole("button", { name: "下一組" }).click();
   await page.waitForURL("**/grading/g-05");
@@ -270,7 +381,9 @@ async function teacher(viewport, tag) {
   expect(await cards.count() === 5, `作業區應有 5 組卡片，實際 ${await cards.count()}`);
   for (const d of ["done", "missing", "overdue"]) expect(await page.locator(`[data-dot="${d}"]`).count() > 0, `作業區缺少 ${d} 的小方塊`);
   expect(await page.locator("table").count() === 0, "作業區不該有表格");
+  expect(await page.locator("[data-cards] [data-group-card] img").count() >= 20, "作業區組卡的組員要有頭像");
   await shot(page, `teacher-${tag}-05-work`);
+  await checkRipple(page, '[data-cards] [data-group-card="g-07"]', tag, w, "作業區組卡");
   await page.locator('[data-group-card="g-08"]').click();
   await page.waitForURL("**/affairs/group/g-08");
   await page.locator('[data-items] [data-item="overdue"]').waitFor();
@@ -315,14 +428,39 @@ async function teacher(viewport, tag) {
   await page.goto(`${T}/industry`, { waitUntil: "networkidle" });
   expect(page.url().endsWith("/dashboard/teacher/groups?tab=industry"), `舊 /industry 沒轉到分組總覽：${page.url()}`);
 
+  // 老師也有完整時程頁（同一頁，月曆是老師自己的期限＋系上活動）
+  await page.goto(`${T}`, { waitUntil: "networkidle" });
+  await page.locator('[data-region="now"]').getByRole("link", { name: /看完整時程/ }).click();
+  await page.waitForURL("**/timeline");
+  await page.locator('[data-region="calendar"] [data-due]').first().waitFor();
+  await shot(page, `teacher-${tag}-11-timeline`);
+  ok(`${w} C3 老師「看完整時程」→ 同一頁階段軸＋月曆`);
+
+  // C2 老師換頭像
+  await page.goto(`${T}`, { waitUntil: "networkidle" });
+  await changeAvatar(page, "陳建宏", 11);
+  ok(`${w} C2 老師換頭像`);
+
+  await ctx.close();
+}
+
+/* ================================================================ 系辦 */
+async function admin() {
+  const { ctx, page } = await newPage({ width: 1440, height: 900 }, "desktop");
+  await enter(page, "admin");
+  await page.locator("main").waitFor();
+  expect(!(await page.locator("main").innerText()).includes("主機儲存"), "系辦首頁不該有主機儲存");
+  expect(await page.locator(".dash-v3").count() === 0, "系辦這輪不換外框");
+  ok("1440px 系辦 C6 首頁沒有主機儲存；外框維持原樣");
   await ctx.close();
 }
 
 try {
-  for (const [vp, tag] of [[{ width: 1440, height: 900 }, "desktop"], [{ width: 390, height: 844 }, "mobile"]]) {
+  for (const [vp, tag] of [[{ width: 1440, height: 900 }, "desktop"], [{ width: 390, height: 844 }, "mobile"]].filter(([, t]) => !process.env.ONLY || process.env.ONLY === t)) {
     await student(vp, tag);
     await teacher(vp, tag);
   }
+  await admin();
 } finally {
   await browser.close();
 }
