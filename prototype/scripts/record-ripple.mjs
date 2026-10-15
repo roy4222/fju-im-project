@@ -1,5 +1,5 @@
 /**
- * 原型第 3 輪：錄一段卡片漣漪（約 8 秒）——學生首頁待辦卡、老師評分組卡，滑鼠慢慢掃過。
+ * 原型第 3 輪：錄一段卡片漣漪（約 8～9 秒）——學生首頁待辦卡、老師評分組卡，滑鼠慢慢掃過。
  *
  *   BASE_URL=http://mac-mini.tail89e7a6.ts.net:3100 node scripts/record-ripple.mjs
  *
@@ -28,6 +28,7 @@ await setup.close();
 
 const ctx = await browser.newContext({ viewport: size, storageState: state, recordVideo: { dir: TMP, size } });
 const page = await ctx.newPage();
+const t0 = Date.now();
 
 async function sweep(sel, ms) {
   const cards = page.locator(sel);
@@ -46,18 +47,20 @@ await page.goto(`${BASE}/dashboard/student`, { waitUntil: "networkidle" });
 await page.locator('[data-region="todo"]').scrollIntoViewIfNeeded();
 await page.evaluate(() => window.scrollBy(0, -120));
 await page.waitForTimeout(400);
-await sweep('[data-region="todo"] [data-todo]', 4500);
+/* 影片從開分頁就開始錄，前面的載入時間剪掉 */
+const start = (Date.now() - t0) / 1000;
+await sweep('[data-region="todo"] [data-todo]', 3000);
 
 await page.goto(`${BASE}/api/proto-role?role=teacher&returnTo=/dashboard/teacher/grading`, { waitUntil: "networkidle" });
 await page.locator("[data-cards]").scrollIntoViewIfNeeded();
-await page.waitForTimeout(300);
-await sweep("[data-cards] [data-group-card]", 3500);
+await page.waitForTimeout(700);
+await sweep("[data-cards] [data-group-card]", 2000);
 
 await ctx.close();
 await browser.close();
 const webm = join(TMP, readdirSync(TMP).find((f) => f.endsWith(".webm")));
 try {
-  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", webm, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", join(OUT, "ripple.mp4")]);
+  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-ss", start.toFixed(2), "-i", webm, "-t", "9.5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", join(OUT, "ripple.mp4")]);
   console.log(`✓ ${join(OUT, "ripple.mp4")}`);
 } catch {
   renameSync(webm, join(OUT, "ripple.webm"));
