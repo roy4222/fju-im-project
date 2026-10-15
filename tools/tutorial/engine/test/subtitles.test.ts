@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { finalCues, placeChapters } from '../assemble.ts';
-import type { ChapterMeta } from '../render.ts';
+import type { ChapterMeta } from '../meta.ts';
 import { buildCues, LINE_MAX, narrationCues, splitNarration, textWidth, toSrt, toVtt } from '../subtitles.ts';
 
 const N2 = '每一列寫是個人一份還是整組一份、現在的狀態、還剩幾天。學生端叫我的繳交，系辦端叫繳交項目；要不要統一，等你決定。';

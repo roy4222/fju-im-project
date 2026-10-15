@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GEMINI_TTS_MODEL, geminiProvider, OPENROUTER_SPEECH_URL, parsePcmType, pcmToWav, ttsFromEnv } from '../tts.ts';
+import { GEMINI_TTS_MODEL, geminiProvider, OPENROUTER_SPEECH_URL, parsePcmType, pcmToWav, redactSecrets, TtsQuotaError, ttsFromEnv } from '../tts.ts';
 
 const KEY = 'sk-or-test-secret';
 
@@ -127,7 +127,7 @@ test('Gemini：429 一直來就在 maxAttempts 次後放棄；402 沒額度直�
 
     const broke = fakeFetch([{ status: 402, body: '{"error":"Insufficient credits"}' }]);
     const q = geminiProvider({ voice: 'Orus', cacheDir: dir, fetch: broke.fn, apiKey: async () => KEY, sleep: noSleep });
-    await assert.rejects(q.synth('二', '/unused'), (e: Error) => /402/.test(e.message) && /額度/.test(e.message) && !e.message.includes(KEY));
+    await assert.rejects(q.synth('二', '/unused'), (e: Error) => e instanceof TtsQuotaError && /402/.test(e.message) && /額度/.test(e.message) && !e.message.includes(KEY));
     assert.equal(broke.calls.length, 1);
 
     const bad = fakeFetch([{ status: 400, body: 'mp3 not supported' }]);
@@ -148,4 +148,53 @@ test('ttsFromEnv：gemini 要聲音；沒設就是 say', () => {
   const s = ttsFromEnv({});
   assert.equal(s.name, 'say');
   assert.equal(s.voice, 'Meijia');
+});
+
+test('Gemini：收到標頭後讀 body 斷線、HTTP 520 都退避重試', async () => {
+  for (const scenario of ['body-disconnect', 'http-520'] as const) {
+    const dir = tmp();
+    try {
+      const ok = fakeFetch([{ status: 200, ms: 500 }]);
+      let n = 0;
+      const flaky = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (n++ === 0) {
+          if (scenario === 'http-520') return new Response('Unknown upstream error', { status: 520 });
+          const body = new ReadableStream({ start: (c) => c.error(new TypeError('terminated')) });
+          return new Response(body, { status: 200, headers: { 'content-type': 'audio/pcm;rate=24000;channels=1' } });
+        }
+        return ok.fn(url, init);
+      }) as typeof fetch;
+      const p = geminiProvider({ voice: 'Orus', cacheDir: dir, fetch: flaky, apiKey: async () => KEY, sleep: noSleep });
+      assert.equal((await p.synth(scenario, '/unused')).durationMs, 500, scenario);
+      assert.equal(p.stats.calls, 2, scenario);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('Gemini：HTTP 錯誤內容或連線錯誤裡帶著金鑰，丟出的訊息都遮掉（含 sk-or- 開頭、Bearer 後面的字）', async () => {
+  const fake = 'FAKE-REVIEW-KEY-DO-NOT-USE';
+  const cases: [string, typeof fetch][] = [
+    ['http-401', (async () => new Response(`Invalid authorization: ${fake}`, { status: 401 })) as typeof fetch],
+    ['http-500', (async () => new Response(`upstream saw Bearer ${fake}`, { status: 500 })) as typeof fetch],
+    ['transport', (async () => { throw new Error(`proxy rejected Bearer ${fake} and key ${fake}`); }) as typeof fetch],
+    ['quota', (async () => new Response(`no credits for ${fake}`, { status: 402 })) as typeof fetch],
+  ];
+  for (const [name, f] of cases) {
+    const dir = tmp();
+    try {
+      const p = geminiProvider({ voice: 'Orus', cacheDir: dir, fetch: f, apiKey: async () => fake, sleep: noSleep, maxAttempts: 2 });
+      await assert.rejects(p.synth(name, '/unused'), (e: Error) => {
+        assert.ok(!e.message.includes(fake), `${name} 洩漏金鑰：${e.message}`);
+        assert.match(e.message, /\*\*\*/, name);
+        return true;
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  assert.equal(redactSecrets('key sk-or-v1-abc_DEF-123 end'), 'key sk-or-*** end');
+  assert.equal(redactSecrets('Authorization: Bearer abc.def'), 'Authorization: Bearer ***');
+  assert.equal(redactSecrets('x MYKEY y MYKEY', ['MYKEY']), 'x *** y ***');
 });

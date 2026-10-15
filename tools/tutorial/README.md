@@ -143,14 +143,14 @@ node engine/cli.ts assemble --out out/final --features feature-table.md out/01-v
 已 render 的一段，不開瀏覽器、不重錄，換一個 TTS 把每步配音重念、接在**原本的起播時間**混成新音軌，影像直接複製（`-c:v copy`，逐格不變）：
 
 ```sh
-TUTORIAL_TTS=gemini TUTORIAL_TTS_VOICE=Charon node engine/cli.ts dub ~/work/tutorial-out/chapters/3-3 [更多段…] [--out-root ~/work/tutorial-out] [--max-tempo 1.25]
+TUTORIAL_TTS=gemini TUTORIAL_TTS_VOICE=Charon node engine/cli.ts dub ~/work/tutorial-out/chapters/3-3 [更多段…] [--out-root ~/work/tutorial-out] [--max-tempo 1.3]
 node engine/cli.ts assemble --out ~/work/tutorial-out/dub-Charon/final --features feature-table.md ~/work/tutorial-out/dub-Charon/{0,1-1,…}
 ```
 
 - 來源是 `chapters/<段>/`（`events.json`＋`<段>.mp4`）或 run 目錄（`events.json`＋`chapter.mp4`）。輸出到 `<out-root>/dub-<聲音>/<段>/`：`<段>.mp4`、`<段>.srt`／`.vtt`、`chapter.json`（`assemble` 可以直接吃）、`dub.json`（每步原長、新長、可用時間、加速倍率）、`audio/`。**不會寫回來源資料夾**（`chapters/<段>/` 是已上傳影片的來源）。
-- Gemini：OpenRouter `google/gemini-3.8-flash-tts`，聲音由 `TUTORIAL_TTS_VOICE` 指定（候選 Charon、Orus、Algenib、Alnilam、Iapetus、Kore），模型可用 `TUTORIAL_TTS_MODEL` 換。只能拿 `pcm`（24 kHz 單聲道 s16le），引擎轉成 wav。依「模型＋聲音＋文字」雜湊快取在 `~/work/tutorial-out/tts-cache/`，**重跑不重複計費**；指令最後印「API 呼叫 N 次、快取命中 M 句」。429／5xx 退避重試（429 照 `Retry-After`），402（沒額度）直接停。
-- 每句先削掉頭尾靜音（低於 −50 dB，各留 50 ms；Gemini 前後各有 0.2～0.35 秒空白），所以字幕起訖跟聽到的聲音差 50 ms 內。
-- 可用時間＝到下一句起播前 0.2 秒（最後一句到 clip 結束前 0.2 秒）。比較短就照原速、後面是靜音；比較長就用 `atempo` 加速，上限 1.25 倍。**有任何一句要超過上限，這段就不輸出影片**，指令列出哪幾步、要幾倍（`dub.json` 也有），縮短配音或重錄那幾步再跑；其他段照跑，最後非 0 結束。
+- Gemini：OpenRouter `google/gemini-3.8-flash-tts`，聲音由 `TUTORIAL_TTS_VOICE` 指定（候選 Charon、Orus、Algenib、Alnilam、Iapetus、Kore），模型可用 `TUTORIAL_TTS_MODEL` 換。只能拿 `pcm`（24 kHz 單聲道 s16le），引擎轉成 wav。依「模型＋聲音＋文字」雜湊快取在 `~/work/tutorial-out/tts-cache/`，**重跑不重複計費**；指令最後印「API 呼叫 N 次、快取命中 M 句」。429／所有 5xx／連線失敗（含收到標頭後讀內容時斷線）退避重試（429 照 `Retry-After`）；402（沒額度）**整批停下**，後面的段不再打 API、列為沒做。錯誤訊息一律遮掉金鑰（金鑰原字、`sk-or-…`、`Bearer …` 換成 `***`）。
+- 每句先**響度正規化**到 −16 LUFS（原片 Meijia 整片的響度；樣本峰值不超過 −1 dBFS），再削掉頭尾低於 −45 dB 的部分（靜音、換氣聲、底噪，各留 50 ms；Gemini 前後各有 0.2～0.35 秒空白、偶爾有 −55 dB 左右的換氣聲），所以各句、各段一樣大聲，字幕起訖跟聽到的聲音差 50 ms 內。每句加了幾 dB 記在 `dub.json` 的 `gainDb`。
+- 可用時間＝到下一句起播前 0.2 秒（最後一句到 clip 結束前 0.2 秒）。比較短就照原速、後面是靜音；比較長就用 `atempo` 加速，上限 1.3 倍（`--max-tempo` 只能調低，非數字或大於 1.3 直接拒絕）；超過 1.2 倍的句子在指令列以「注意」列出（不擋）。**有任何一句要超過上限，這段就不輸出影片**，指令列出哪幾步、要幾倍（3 位小數；`dub.json` 也有），縮短配音或重錄那幾步再跑；其他段照跑，最後非 0 結束。
 - `dub` 也吃 `TUTORIAL_TTS=say`（例如 `TUTORIAL_TTS_VOICE=Meijia`），可以先免費試流程。
 
 ## 錄影輸出 `events.json`
@@ -186,6 +186,9 @@ pnpm -C tools/tutorial test        # 需要 macOS 有畫面的工作階段（會
 pnpm -C tools/tutorial typecheck
 ```
 
+- **不開瀏覽器**（只要 ffmpeg）：`assemble`、`checks`、`cursor`、`dub`、`runs`、`subtitles`、`tts`——`cd tools/tutorial && node --test --test-concurrency=1 engine/test/{assemble,checks,cursor,dub,runs,subtitles,tts}.test.ts`。重配音與組裝的程式（`dub.ts`、`assemble.ts`、`meta.ts`）不載入 Playwright。
+- **要 Chromium**：`recorder`、`render`（實際 render 一章，標題卡與疊加層是 Chromium 畫的）、`scroll`、`waits`。沒裝 Chromium 的環境這四個會失敗，不屬於上一組。
+
 - `cursor.test.ts`：每段 600～900 ms、逐格速度不超過上限、緩動起訖。
 - `recorder.test.ts`：
   - 頁面每格畫出章節時間的二進位條碼，從 `clip.mp4` **逐格（含重複格）**解碼：每一格的影片時間與畫面內容的章節時間差：截圖達單路標準時 ≤ 50 ms，沒達標時 ≤ 實際最大間隔＋30 ms（量化誤差 ≈ 間隔 − 半格，再加負載下的延遲抖動），中位數一律 ≤ 25 ms（空機實測中位數約 8 ms、最大約 19 ms）；點擊事件與 `onclick` 讓按鈕變色的第一格同樣；點擊座標換算正確、clip 是 1920×880；步驟長度 ≥ 配音＋0.6 秒；`events.json` 有截圖品質且 `quality.ok` 與數字一致、沒有中止。**截圖張數是機器表現**（別的程序同時跑、loadavg 9～11 時會掉到 22 張／秒、間隔 70～160 ms），測試只檢查引擎有沒有正確標記，而且看畫面內容／事件時間的測試不因此中止（測試裡把中止門檻放寬到 300 ms，門檻本身另有專門測試；見 `test/env.ts`）；要用產品門檻驗機器（> 100 ms 中止、≥ 25 張／秒、≤ 50 ms、`quality.ok`）在空機上跑 `TUTORIAL_STRICT_QUALITY=1 pnpm -C tools/tutorial test`。
@@ -200,8 +203,8 @@ pnpm -C tools/tutorial typecheck
 - `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長。
 - `runs.test.ts`：run 目錄原子建立與撞名拒絕；名額預設 1 路、第 2 路排隊印「等待錄影名額」、`TUTORIAL_RECORD_SLOTS=2` 可開第 2 路；指定 2 路時第 3 路排隊；鎖檔常駐、不自己回收。跨程序（`test/slot-holder.ts` 當獨立程序）：5 個程序同一毫秒搶 2 個名額、任何時刻持有者 ≤ 2（目錄裡留著舊鎖檔也一樣）；持有者被 `kill -9` 後名額自動釋放給排隊的。
 - `render.test.ts`：狀態白話規則（「✅ 正常」「🟡 等你決定：」、say 本身超過 22 字才截斷、前綴不佔額度、evidence／note 不上畫面）、假網址列不顯示 UUID 查詢參數、按鍵鍵帽字與片段切法；合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、底部字幕帶（深色、字幕在帶子裡）、頁面區 80～960 沒被蓋到、游標位置、波紋圓心與配音音量。
-- `tts.test.ts`（假 HTTP，不打真 API）：請求格式、pcm→wav 標頭與長度、同文字同聲音走快取（重跑也是）、換聲音或模型才重打、429 照 `Retry-After` 退避再重試、502 與連線失敗重試、一直 429 到次數上限放棄、402 不重試、錯誤訊息不含金鑰、失敗不留快取檔。
-- `dub.test.ts`：可用時間的算法、短→原速、長→加速到剛好放得下、超過 1.25 倍→列出；實際用 ffmpeg 重配一段（假 TTS 是前後墊 0.3 秒靜音的正弦波）：影像 framemd5 逐格相同、長度不變、來源檔沒被動、頭尾靜音削掉、字幕期間有聲／句間與標題卡靜音、`chapter.json` 的配音時間；超過上限時報錯、不出 mp4；輸出不能寫回來源。
+- `tts.test.ts`（假 HTTP，不打真 API）：請求格式、pcm→wav 標頭與長度、同文字同聲音走快取（重跑也是）、換聲音或模型才重打、429 照 `Retry-After` 退避再重試、502／520 與連線失敗、收到標頭後讀內容斷線都重試、一直 429 到次數上限放棄、402 不重試（`TtsQuotaError`）、HTTP 錯誤內容或連線錯誤帶著金鑰時訊息被遮掉、失敗不留快取檔。
+- `dub.test.ts`：可用時間的算法、短→原速、長→加速到剛好放得下、超過 1.3 倍→列出、上限不合法（2、NaN、∞、< 1）在 API、批次與 CLI 都拒絕且不打 TTS、響度增益的算法；實際用 ffmpeg 重配一段（假 TTS 是前後墊靜音＋小 33 dB「換氣聲」的正弦波，兩句差 12 dB）：影像 framemd5 逐格相同、長度不變、來源檔沒被動、頭尾靜音與換氣聲削掉（門檻放回 −50 dB 這個測試會失敗）、兩句正規化後都在 −16 LUFS 附近且差 ≤ 1 LU、字幕期間有聲／句間與標題卡靜音、`chapter.json` 的配音時間；超過上限時報錯（倍率 3 位小數）、不出 mp4；輸出不能寫回來源；批次第一段回 402 就整批停下（API 呼叫數維持 1）。
 - `subtitles.test.ts`：每則 ≤ 2 行、每行 ≤ 18 字、字一個不少、斷在標點、盡量在句尾分則、沒標點的長字串硬切、時間依字數分配且遞增不重疊、SRT／VTT 時間碼格式、整片字幕的章節位移與標題卡不出字幕。
 - `assemble.test.ts`：說明欄的 YouTube 規則（第一行 0:00、時間碼遞增、間隔 ≥ 10 秒、最後一個時間碼到片尾 ≥ 10 秒、總字數上限、90 字截斷、短段合併）、功能時間軸連結、步驟狀態與依據只進 feature-timeline／index.html、功能表解析（必要表頭、`\|`、欄數不符報錯、段編號與範圍）、時間碼回填與 index.html 時間碼。
 

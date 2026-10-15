@@ -109,11 +109,28 @@ async function keychainKey(): Promise<string> {
   throw new Error('讀不到 OpenRouter 金鑰：鑰匙圈沒有 OPENROUTER_API_KEY（security find-generic-password -s OPENROUTER_API_KEY），也沒有同名環境變數');
 }
 
-const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+/** OpenRouter 回 402：額度不足。批次要整批停下（再叫下一段也只是一樣的 402）。 */
+export class TtsQuotaError extends Error {
+  override name = 'TtsQuotaError';
+}
+
+/** 不重試的錯誤（4xx、空音檔）。 */
+class TtsFatalError extends Error {}
+
+/** 錯誤訊息遮掉金鑰：金鑰原字、`sk-or-…`、`Bearer …` 一律換成 ***。 */
+export function redactSecrets(message: string, secrets: readonly string[] = []): string {
+  let out = message;
+  for (const s of secrets) if (s) out = out.split(s).join('***');
+  return out.replace(/sk-or-[\w-]+/g, 'sk-or-***').replace(/(Bearer\s+)[^\s"',;]+/gi, '$1***');
+}
+
+/** 429 與所有 5xx 都退避重試。 */
+const retryable = (status: number) => status === 429 || (status >= 500 && status <= 599);
 
 /**
  * OpenRouter `google/gemini-3.8-flash-tts`。只接受 response_format=pcm，回 s16le（預設 24 kHz 單聲道），轉成 wav 放進快取。
- * 429／5xx 退避重試（429 有 Retry-After 就照它）；402 是沒額度，直接停。錯誤訊息不含金鑰。
+ * 429／5xx／連線失敗（含收到標頭後讀 body 時斷線）退避重試（429 有 Retry-After 就照它）；402 是沒額度，丟 TtsQuotaError。
+ * 所有錯誤訊息都遮掉金鑰。
  */
 export function geminiProvider(opts: GeminiOptions): GeminiProvider {
   const model = opts.model ?? GEMINI_TTS_MODEL;
@@ -124,37 +141,37 @@ export function geminiProvider(opts: GeminiOptions): GeminiProvider {
   const getKey = opts.apiKey ?? keychainKey;
   const stats = { calls: 0, cacheHits: 0 };
   let key: Promise<string> | undefined;
+  const backoff = (attempt: number) => Math.min(30_000, 1000 * 2 ** (attempt - 1));
 
-  async function request(text: string): Promise<{ pcm: Uint8Array; rate: number; channels: number }> {
-    key ??= getKey();
-    const auth = await key;
+  async function request(text: string, auth: string): Promise<{ pcm: Uint8Array; rate: number; channels: number }> {
     for (let attempt = 1; ; attempt++) {
       stats.calls++;
-      let res: Response;
+      let failure: string;
+      let waitMs = backoff(attempt);
       try {
-        res = await doFetch(OPENROUTER_SPEECH_URL, {
+        const res = await doFetch(OPENROUTER_SPEECH_URL, {
           method: 'POST',
           headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ model, input: text, voice: opts.voice, response_format: 'pcm' }),
         });
+        if (res.ok) {
+          // body 也在 try 裡：收到標頭後斷線一樣重試
+          const pcm = new Uint8Array(await res.arrayBuffer());
+          if (pcm.length < 2) throw new TtsFatalError(`Gemini TTS 回傳空音檔（${opts.voice}）：${text.slice(0, 20)}…`);
+          return { pcm, ...parsePcmType(res.headers.get('content-type')) };
+        }
+        const body = (await res.text().catch(() => '')).slice(0, 200);
+        if (res.status === 402) throw new TtsQuotaError(`Gemini TTS 回 402：OpenRouter 沒有額度了，先儲值再跑（${body}）`);
+        if (!retryable(res.status)) throw new TtsFatalError(`Gemini TTS 回 ${res.status}（第 ${attempt} 次）：${body}`);
+        failure = `回 ${res.status}：${body}`;
+        const retryAfter = Number(res.headers.get('retry-after'));
+        if (Number.isFinite(retryAfter) && retryAfter > 0) waitMs = retryAfter * 1000;
       } catch (e) {
-        // 連線失敗（斷線、逾時）跟 5xx 一樣退避重試
-        if (attempt >= maxAttempts) throw new Error(`Gemini TTS 連不上（第 ${attempt} 次）：${(e as Error).message}`);
-        await sleep(Math.min(30_000, 1000 * 2 ** (attempt - 1)));
-        continue;
+        if (e instanceof TtsQuotaError || e instanceof TtsFatalError) throw e;
+        failure = `連不上：${(e as Error).message}`; // 斷線、逾時、讀 body 中斷
       }
-      if (res.ok) {
-        const pcm = new Uint8Array(await res.arrayBuffer());
-        if (pcm.length < 2) throw new Error(`Gemini TTS 回傳空音檔（${opts.voice}）：${text.slice(0, 20)}…`);
-        return { pcm, ...parsePcmType(res.headers.get('content-type')) };
-      }
-      const body = (await res.text().catch(() => '')).slice(0, 200);
-      if (res.status === 402) throw new Error(`Gemini TTS 回 402：OpenRouter 沒有額度了，先儲值再跑（${body}）`);
-      if (!RETRY_STATUS.has(res.status) || attempt >= maxAttempts) {
-        throw new Error(`Gemini TTS 回 ${res.status}（第 ${attempt} 次）：${body}`);
-      }
-      const retryAfter = Number(res.headers.get('retry-after'));
-      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : Math.min(30_000, 1000 * 2 ** (attempt - 1)));
+      if (attempt >= maxAttempts) throw new Error(`Gemini TTS 試了 ${attempt} 次都失敗，最後一次${failure}`);
+      await sleep(waitMs);
     }
   }
 
@@ -167,7 +184,18 @@ export function geminiProvider(opts: GeminiOptions): GeminiProvider {
       if (existsSync(wav)) {
         stats.cacheHits++;
       } else {
-        const { pcm, rate, channels } = await request(text);
+        key ??= getKey();
+        let auth = '';
+        let got: Awaited<ReturnType<typeof request>>;
+        try {
+          auth = await key;
+          got = await request(text, auth);
+        } catch (e) {
+          // 任何錯誤（HTTP body、連線錯誤）都可能帶著金鑰原文：遮掉再往外丟
+          const msg = redactSecrets((e as Error).message, [auth]);
+          throw e instanceof TtsQuotaError ? new TtsQuotaError(msg) : new Error(msg);
+        }
+        const { pcm, rate, channels } = got;
         const tmp = `${wav}.${process.pid}.tmp`;
         writeFileSync(tmp, pcmToWav(pcm, rate, channels));
         renameSync(tmp, wav);

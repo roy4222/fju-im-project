@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { statusLabel, type ChapterEvents, type StatusKind } from './events.ts';
-import { chapterMeta, type ChapterMeta, type ChapterMetaStep } from './render.ts';
+import { chapterMeta, type ChapterMeta, type ChapterMetaStep } from './meta.ts';
 import { buildCues, toSrt, toVtt, type Cue } from './subtitles.ts';
 import { probeDurationMs } from './tts.ts';
 
