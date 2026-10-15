@@ -130,11 +130,19 @@ export function geminiProvider(opts: GeminiOptions): GeminiProvider {
     const auth = await key;
     for (let attempt = 1; ; attempt++) {
       stats.calls++;
-      const res = await doFetch(OPENROUTER_SPEECH_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: text, voice: opts.voice, response_format: 'pcm' }),
-      });
+      let res: Response;
+      try {
+        res = await doFetch(OPENROUTER_SPEECH_URL, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, input: text, voice: opts.voice, response_format: 'pcm' }),
+        });
+      } catch (e) {
+        // 連線失敗（斷線、逾時）跟 5xx 一樣退避重試
+        if (attempt >= maxAttempts) throw new Error(`Gemini TTS 連不上（第 ${attempt} 次）：${(e as Error).message}`);
+        await sleep(Math.min(30_000, 1000 * 2 ** (attempt - 1)));
+        continue;
+      }
       if (res.ok) {
         const pcm = new Uint8Array(await res.arrayBuffer());
         if (pcm.length < 2) throw new Error(`Gemini TTS 回傳空音檔（${opts.voice}）：${text.slice(0, 20)}…`);

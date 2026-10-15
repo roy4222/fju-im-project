@@ -100,6 +100,23 @@ test('Gemini：429 退避後重試成功（有 Retry-After 照它），502 也�
   }
 });
 
+test('Gemini：連線失敗（fetch 丟錯）也退避重試', async () => {
+  const dir = tmp();
+  try {
+    const ok = fakeFetch([{ status: 200, ms: 500 }]);
+    let n = 0;
+    const flaky = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (n++ === 0) throw new TypeError('fetch failed');
+      return ok.fn(url, init);
+    }) as typeof fetch;
+    const p = geminiProvider({ voice: 'Orus', cacheDir: dir, fetch: flaky, apiKey: async () => KEY, sleep: noSleep });
+    assert.equal((await p.synth('斷線', '/unused')).durationMs, 500);
+    assert.equal(p.stats.calls, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('Gemini：429 一直來就在 maxAttempts 次後放棄；402 沒額度直接停、不重試；錯誤訊息不含金鑰', async () => {
   const dir = tmp();
   try {
