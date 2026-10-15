@@ -10,14 +10,22 @@ import { safeNextPath } from '@/shared/safe-next'
  * 用原生 `<form action={...}>`，所以**沒有 JavaScript 也登得進去**。
  * cookie 由 `nextCookies()` 外掛帶進回應（見 auth-instance）。
  */
-export async function signInAction(_state: { error?: string } | undefined, formData: FormData) {
+type SignInState = { error: string; values: { email: string }; attempt: number } | undefined
+
+export async function signInAction(state: SignInState, formData: FormData): Promise<SignInState> {
   const email = String(formData.get('email') ?? '').trim()
   const password = String(formData.get('password') ?? '')
   const next = String(formData.get('next') ?? '')
 
-  if (!email || !password) {
-    return { error: '請輸入 Email 與密碼。' }
-  }
+  // 失敗時把 Email 帶回去讓表單保留（網站問題 #2）；**密碼不帶回**，使用者重打密碼就好。
+  // 長得離譜的值不回傳，免得把巨大字串送回瀏覽器。
+  const failed = (error: string): SignInState => ({
+    error,
+    values: { email: email.length <= 254 ? email : '' },
+    attempt: (state?.attempt ?? 0) + 1,
+  })
+
+  if (!email || !password) return failed('請輸入 Email 與密碼。')
 
   const incoming = await headers()
   // Caddy 會帶 X-Real-IP（見 Caddyfile）；本機直連時退回 x-forwarded-for。
@@ -25,7 +33,7 @@ export async function signInAction(_state: { error?: string } | undefined, formD
     incoming.get('x-real-ip') ?? incoming.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
 
   const result = await signIn({ email, password, ip })
-  if (!result.ok) return { error: result.message }
+  if (!result.ok) return failed(result.message)
 
   // 被要求改密的人一律先去改密頁，`next` 不能把他帶去別的地方（票 #48 第 3 節）。
   // 其他人回原本要去的頁面；`next` 只接受站內相對路徑（規則與測試見 shared/safe-next），
