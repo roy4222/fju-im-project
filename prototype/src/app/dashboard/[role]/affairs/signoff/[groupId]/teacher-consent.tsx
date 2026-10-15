@@ -16,7 +16,7 @@ export function TeacherConsent({ groupId }: { groupId: string }) {
   const approved = approvedStudents(groupId);
   const ok = new Set(approved.map((a) => a.name));
   const waiting = g.members.filter((m) => !ok.has(m.name));
-  const chip = p.state === "teacher" ? { label: "待我同意", cls: "bg-brand text-white" } : p.state === "complete" ? { label: "已完成", cls: "bg-success-subtle text-success-on-subtle" } : { label: "學生收集中", cls: "bg-card text-muted-foreground" };
+  const chip = p.state === "teacher" ? { label: "待我同意", cls: "bg-brand text-brand-foreground" } : p.state === "complete" ? { label: "已完成", cls: "bg-success-subtle text-success-on-subtle" } : { label: "學生收集中", cls: "bg-card text-muted-foreground" };
 
   return (
     <div className="flex flex-col gap-5">

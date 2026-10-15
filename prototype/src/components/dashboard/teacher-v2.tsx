@@ -14,7 +14,7 @@ export function TabBar({ label, tabs, active }: { label: string; tabs: { key: st
       {tabs.map((t) => (
         <Link key={t.key} href={t.href} scroll={false} aria-current={t.key === active ? "page" : undefined} className={`-mb-px inline-flex h-11 items-center gap-1.5 border-b-[3px] px-4 text-[15px] font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring/40 ${t.key === active ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
           {t.label}
-          {t.count ? <span className="tabular inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] text-white">{t.count}</span> : null}
+          {t.count ? <span className="tabular inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] text-brand-foreground">{t.count}</span> : null}
         </Link>
       ))}
     </nav>
@@ -42,7 +42,7 @@ export function MemberStack({ members, approved }: { members: Member[]; approved
         return (
           <li key={m.id} title={m.name} className="relative inline-flex rounded-full ring-2 ring-card">
             <UserAvatar id={m.id} name={m.name} className={`size-10 ${approved && !ok ? "opacity-45 grayscale" : ""}`} />
-            {m.isLeader && !approved ? <IconCrown aria-label="組長" className="absolute -top-3 left-1/2 size-4 -translate-x-1/2 fill-[var(--brand-deep)] text-[var(--brand-deep)]" /> : null}
+            {m.isLeader && !approved ? <IconCrown aria-label="組長" className="absolute -top-3 left-1/2 size-4 -translate-x-1/2 fill-brand text-brand" /> : null}
             {ok ? <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-card"><IconCheck className="size-2.5" strokeWidth={3} /></span> : null}
           </li>
         );
@@ -54,7 +54,7 @@ export function MemberStack({ members, approved }: { members: Member[]; approved
 const SQUARE: Record<DotState, string> = {
   done: "bg-success text-success-foreground",
   missing: "bg-muted text-muted-foreground ring-1 ring-inset ring-border",
-  overdue: "bg-destructive text-white",
+  overdue: "bg-destructive text-destructive-foreground",
 };
 
 export function WorkSquare({ state, title }: { state: DotState; title: string }) {

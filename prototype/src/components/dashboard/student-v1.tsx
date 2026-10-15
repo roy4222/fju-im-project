@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { IconAlertTriangle, IconCheck, IconChevronRight, IconClock, IconFileText, IconPin, IconSignature, IconSpeakerphone } from "@tabler/icons-react";
-import { CardFx } from "@/components/dashboard/card-fx";
 import { daysUntil, type NewsItem } from "@/lib/fixtures";
 import type { StudentTodo, TodoStatus } from "@/lib/student-v1";
 
@@ -45,15 +44,15 @@ export function TodoTag({ todo }: { todo: StudentTodo }) {
   );
 }
 
-/** 狀態色（第 3 輪首頁卡片：彩色邊框＋大圖示＋實心狀態膠囊）。白字都 ≥4.5:1，所以橘用深橘 */
+/** 狀態色（第 3 輪首頁卡片：彩色邊框＋大圖示＋實心狀態膠囊）。顏色在 globals.css 的 --st-*，深淺色各一套 */
 export const TINT: Record<TodoStatus, string> = {
-  overdue: "var(--destructive)",
-  soon: "var(--brand-deep)",
-  done: "var(--success)",
-  open: "oklch(0.52 0.03 253)",
+  overdue: "var(--st-overdue)",
+  soon: "var(--st-soon)",
+  done: "var(--st-done)",
+  open: "var(--st-open)",
 };
 
-/** 首頁待辦卡：名稱、截止日、狀態，其他都不放；滑過有漣漪 */
+/** 首頁待辦卡：名稱、截止日、狀態，其他都不放。 */
 export function TodoCard({ todo, base }: { todo: StudentTodo; base: string }) {
   const due = dueText(todo);
   const tint = TINT[todo.status];
@@ -63,13 +62,12 @@ export function TodoCard({ todo, base }: { todo: StudentTodo; base: string }) {
       <Link
         href={base + todo.href}
         data-todo={todo.status}
-        className="fx-card dash-card-hover group flex h-full items-center gap-3.5 rounded-2xl border-2 p-4 sm:flex-col sm:items-stretch sm:gap-0 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
+        className="dash-card-hover group flex h-full items-center gap-3.5 rounded-2xl border-2 p-4 sm:flex-col sm:items-stretch sm:gap-0 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         style={{ borderColor: `color-mix(in oklch, ${tint} 42%, transparent)`, background: `color-mix(in oklch, ${tint} 6%, var(--card))` }}
       >
-        <CardFx tint={tint} />
         {/* 手機：圖示在左、文字在右；平板以上：圖示＋膠囊一列，標題、日期往下排 */}
         <span className="flex shrink-0 items-start justify-between gap-2">
-          <span className="inline-flex size-12 items-center justify-center rounded-full text-white" style={{ background: tint }}><Icon className="size-6" strokeWidth={1.8} /></span>
+          <span className="inline-flex size-12 items-center justify-center rounded-full text-[var(--on-tint)]" style={{ background: tint }}><Icon className="size-6" strokeWidth={1.8} /></span>
           <Pill todo={todo} tint={tint} className="hidden sm:inline-flex" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col sm:mt-3.5">
@@ -89,7 +87,7 @@ export function TodoCard({ todo, base }: { todo: StudentTodo; base: string }) {
 
 function Pill({ todo, tint, className }: { todo: StudentTodo; tint: string; className: string }) {
   return (
-    <span className={`h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-bold whitespace-nowrap text-white ${className}`} style={{ background: tint }}>
+    <span className={`h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-bold whitespace-nowrap text-[var(--on-tint)] ${className}`} style={{ background: tint }}>
       {TAG[todo.status].icon}
       {tagLabel(todo)}
     </span>

@@ -101,7 +101,7 @@ export function GradingDesk({ groupId }: { groupId: string }) {
               ) : null}
             </div>
             <button type="button" onClick={saveDraft} disabled={edits === null} className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-bold text-foreground ring-1 ring-border transition-colors hover:bg-accent disabled:opacity-40">儲存草稿</button>
-            <button type="button" onClick={send} disabled={sum.missing > 0 || (submitted && !changed)} className="inline-flex h-11 items-center rounded-xl bg-[var(--brand-deep)] px-5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40">{submitted ? "重新送出" : "正式送出"}</button>
+            <button type="button" onClick={send} disabled={sum.missing > 0 || (submitted && !changed)} className="inline-flex h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-brand-foreground transition-colors hover:bg-brand/90 disabled:opacity-40">{submitted ? "重新送出" : "正式送出"}</button>
           </div>
         </aside>
       </div>

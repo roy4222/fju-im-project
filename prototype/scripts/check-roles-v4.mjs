@@ -1,11 +1,14 @@
 /**
- * 原型第 3 輪點擊驗收＋截圖（第 2 輪的學生 A1～A7、老師 B1～B5 照舊，加上第 3 輪 C1～C6），桌機 1440 與手機 390（觸控）。
- *   C1 新外框（深藍側欄、深橘現在橫幅、大標題）　C2 頭像與換頭像　C3 首頁拿掉小月曆、時程頁＝階段軸＋完整月曆
- *   C4 卡片漣漪（滑鼠才有、手機沒有）　C5 評分改輸入框（分數／等第下拉／通過切換、超出範圍提示）　C6 系辦首頁沒有主機儲存
+ * 原型第 4 輪點擊驗收＋截圖（第 2 輪的學生 A1～A7、老師 B1～B5、第 3 輪 C2、C3、C5、C6 照舊），桌機 1440 與手機 390（觸控），
+ * 淺色、深色各跑一整套（後台深淺色存在 localStorage fju-dash-theme）。第 4 輪改動：
+ *   C1 外框顏色回到第 2 輪（淡藍框＋白側欄、深藍「現在」橫幅）；深色＝夜藍外框、深藍橫幅；頁面有大標題
+ *   C4 卡片漣漪拿掉；「現在」橫幅的金屬像素拖尾：桌機滑鼠移動會畫、不擋按鈕點擊；手機、減少動態不掛
+ *   C7 深色對比：在實際畫面量字色與底色（底色從截圖取像素），內文 4.5:1、大字 3:1；淺色只列出數值
  *
- *   BASE_URL=http://mac-mini.tail89e7a6.ts.net:3100 node scripts/check-roles-v3.mjs
+ *   BASE_URL=http://mac-mini.tail89e7a6.ts.net:3100 node scripts/check-roles-v4.mjs
+ *   THEMES=dark 只跑深色；ONLY=desktop|mobile 只跑一種寬度
  *
- * 截圖存到 ~/work/proto-shots/roles-v3/（SHOTS_DIR 可改），學生 student-*、老師 teacher-*。失敗時以非 0 結束。
+ * 截圖存到 ~/work/proto-shots/roles-v4/（SHOTS_DIR 可改），檔名 student-*-light／-dark、teacher-*-light／-dark。失敗時以非 0 結束。
  */
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -13,7 +16,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 
 const BASE = process.env.BASE_URL ?? "http://mac-mini.tail89e7a6.ts.net:3100";
-const OUT = process.env.SHOTS_DIR ?? join(homedir(), "work/proto-shots/roles-v3");
+const OUT = process.env.SHOTS_DIR ?? join(homedir(), "work/proto-shots/roles-v4");
 mkdirSync(OUT, { recursive: true });
 const browser = process.env.CHROME_PATH
   ? await chromium.launch({ executablePath: process.env.CHROME_PATH })
@@ -23,14 +26,16 @@ let jsOk = 0;
 const ok = (msg) => console.log("✓", msg);
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
+let THEME = "light";
 async function shot(page, name) {
   await page.waitForTimeout(350);
-  await page.screenshot({ path: join(OUT, `${name}.png`), fullPage: true });
+  await page.screenshot({ path: join(OUT, `${name}-${THEME}.png`), fullPage: true });
 }
 
 async function newPage(viewport, tag) {
   const mobile = tag === "mobile";
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: mobile ? 2 : 1, hasTouch: mobile, isMobile: mobile });
+  await ctx.addInitScript((t) => { try { localStorage.setItem("fju-dash-theme", t); } catch {} }, THEME);
   const page = await ctx.newPage();
   page.on("response", (r) => {
     if (!r.url().includes("/_next/static/")) return;
@@ -57,60 +62,105 @@ async function sidebarLabels(page, tag) {
   return labels.filter((l) => l !== "回到前台");
 }
 
-/** C1：學生、老師的側欄是深藍、選中那項是深橘；「現在」橫幅是深橘；頁面有大標題 */
+
+/** C1：外框、「現在」橫幅的顏色回到第 2 輪；深色是夜藍外框；頁面有大標題 */
 async function checkShell(page, w) {
+  /* 顏色一律畫到 canvas 換成 rgb 再比（computed style 可能是 oklch／lab） */
   const look = await page.evaluate(() => {
-    /* 顏色一律畫到 canvas 換成 rgb 再比（computed style 可能是 oklch／lab） */
-    const ctx2d = document.createElement("canvas").getContext("2d");
-    const rgb = (el) => {
-      if (!el) return null;
-      ctx2d.clearRect(0, 0, 1, 1);
-      ctx2d.fillStyle = getComputedStyle(el).backgroundColor;
-      ctx2d.fillRect(0, 0, 1, 1);
-      return [...ctx2d.getImageData(0, 0, 1, 1).data.slice(0, 3)];
-    };
-    return { frame: rgb(document.querySelector(".dash-frame")), hero: rgb(document.querySelector('[data-region="now"]')), title: !!document.querySelector("h1.page-title") };
+    const x = document.createElement("canvas").getContext("2d");
+    x.fillStyle = getComputedStyle(document.querySelector(".dash-frame")).backgroundColor;
+    x.fillRect(0, 0, 1, 1);
+    return { frame: [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)], title: !!document.querySelector("h1.page-title"), dark: !!document.querySelector(".dark .dash-frame") };
   });
-  const [fr, , fb] = look.frame;
-  const [hr, hg, hb] = look.hero;
-  expect(fb > fr + 40 && fr < 40 && fb < 140, `外框不是深藍：rgb(${look.frame})`);
-  expect(hr > 150 && hr > hb + 100 && hg < 110, `現在橫幅不是深橘：rgb(${look.hero})`);
+  const [fr, fg, fb] = look.frame;
+  const hero = await pixelAt(page, '[data-region="now"]', 8, 60);
+  const [hr, , hb] = hero;
+  expect(look.dark === (THEME === "dark"), `主題不是 ${THEME}`);
+  if (THEME === "light") expect(fr > 220 && fg > 225 && fb > 240 && fb >= fr, `外框不是第 2 輪的淡藍：rgb(${look.frame})`);
+  else expect(fb > fr + 15 && fb < 70 && fr < 40, `深色外框不是夜藍：rgb(${look.frame})`);
+  expect(hb > hr + 40 && hr < 40 && hb < 140, `現在橫幅不是深藍：rgb(${hero})`);
   expect(look.title, "頁面沒有大標題 h1.page-title");
-  ok(`${w} C1 深藍外框 rgb(${look.frame})、深橘現在橫幅 rgb(${look.hero})、大標題`);
+  ok(`${w} C1 ${THEME === "light" ? "淡藍外框" : "夜藍外框"} rgb(${look.frame})、深藍現在橫幅 rgb(${hero})、大標題`);
 }
 
-/** C4：卡片漣漪——桌機滑鼠滑過會亮、離開會退；手機（觸控）整層不顯示 */
-async function checkRipple(page, sel, tag, w, label) {
-  const card = page.locator(sel).first();
-  await card.waitFor();
-  const layer = card.locator(".fx-layer");
-  expect(await layer.count() === 1, `${label}沒有漣漪層`);
+/** 截圖取某元素內 (dx, dy) 那一點的實際像素（漸層、半透明都算進去）。解碼用另一頁 about:blank，避開站上 CSP。 */
+async function pixelAt(page, sel, dx, dy) {
+  const el = page.locator(sel).filter({ visible: true }).first();
+  await el.evaluate((n) => n.scrollIntoView({ block: "center" }));
+  const box = await el.boundingBox();
+  const buf = await page.screenshot({ clip: { x: box.x + dx, y: box.y + dy, width: 1, height: 1 } });
+  const dec = await page.context().newPage();
+  const px = await dec.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    const g = c.getContext("2d");
+    g.drawImage(img, 0, 0, 1, 1);
+    return [...g.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+  }, buf.toString("base64"));
+  await dec.close();
+  return px;
+}
+
+const lum = (rgb) => { const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+const contrastLog = [];
+
+/** C7：sel 的字色對上它背後的實際底色（在元素左邊／上方 bg 偏移處取像素）。深色才擋，淺色只記錄。 */
+async function contrast(page, w, label, sel, { min = 4.5, at = [-3, 0.5], bgFrom } = {}) {
+  const el = page.locator(sel).filter({ visible: true }).first();
+  await el.evaluate((n) => n.scrollIntoView({ block: "center" }));
+  const box = await el.boundingBox();
+  const [dx, fy] = at;
+  const bg = bgFrom ? await pixelAt(page, ...bgFrom) : await pixelAt(page, sel, dx, box.height * fy);
+  const fgA = await el.evaluate((n) => {
+    const x = document.createElement("canvas").getContext("2d");
+    x.fillStyle = getComputedStyle(n).color;
+    x.fillRect(0, 0, 1, 1);
+    return [...x.getImageData(0, 0, 1, 1).data];
+  });
+  const a = fgA[3] / 255;
+  const fg = fgA.slice(0, 3).map((v, i) => Math.round(v * a + bg[i] * (1 - a)));
+  const r = ratio(fg, bg);
+  contrastLog.push(`${THEME}\t${w}\t${label}\t${r.toFixed(2)}:1\tfg rgb(${fg}) bg rgb(${bg})`);
+  if (THEME === "dark") expect(r >= min, `${label} 對比 ${r.toFixed(2)}:1 < ${min}（fg rgb(${fg})、bg rgb(${bg})）`);
+  return r;
+}
+
+/** C4：「現在」橫幅的金屬像素拖尾——桌機滑鼠移過會畫、不擋點擊；手機（觸控）與減少動態都不掛 */
+async function checkTrail(page, tag, w) {
+  const hero = page.locator('[data-region="now"]');
   if (tag === "mobile") {
     /* Playwright 用滑鼠事件點過之後，Chromium 的 hover 媒體查詢會變；用一頁乾淨的觸控分頁檢查 */
     const fresh = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, storageState: await page.context().storageState() });
     const fp = await fresh.newPage();
     await fp.goto(page.url(), { waitUntil: "networkidle" });
-    const fl = fp.locator(sel).first().locator(".fx-layer");
-    expect(await fl.evaluate((el) => getComputedStyle(el).display) === "none", `${label}手機不該有漣漪層`);
-    await fp.locator(sel).first().evaluate((el) => el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" })));
-    expect(await fp.locator(sel).first().evaluate((el) => el.dataset.fx) === undefined, `${label}觸控不該觸發漣漪`);
+    await fp.locator('[data-region="now"]').waitFor();
+    expect(await fp.locator("[data-hero-trail]").count() === 0, "手機不該掛像素拖尾");
     await fresh.close();
-    ok(`${w} C4 ${label}：手機不做 hover 漣漪`);
+    ok(`${w} C4 手機（觸控）不掛像素拖尾`);
     return;
   }
-  const box = await card.boundingBox();
-  await page.mouse.move(box.x - 30, box.y + box.height / 2);
-  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 6 });
-  await page.waitForFunction((s) => document.querySelector(s)?.dataset.fx === "on", sel);
-  const chars = (await card.locator("[data-fx-chars]").textContent()) ?? "";
-  expect(chars.length > 500, "漣漪字元沒有出現");
-  const first = chars.slice(0, 40);
-  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2, { steps: 6 });
-  await page.waitForTimeout(120);
-  expect(((await card.locator("[data-fx-chars]").textContent()) ?? "").slice(0, 40) !== first, "移動時字元沒有換");
-  await page.mouse.move(box.x + box.width / 2, box.y - 60);
-  await page.waitForFunction((s) => document.querySelector(s)?.dataset.fx === undefined, sel);
-  ok(`${w} C4 ${label}：滑過亮起、移動換字、離開退掉`);
+  expect(await hero.locator("[data-hero-trail] canvas").count() === 1, "現在橫幅沒有像素拖尾");
+  expect(await page.locator(".fx-card, .fx-layer").count() === 0, "卡片漣漪應該拿掉了");
+  const box = await hero.boundingBox();
+  const before = await hero.screenshot();
+  for (let i = 0; i <= 24; i++) await page.mouse.move(box.x + 60 + i * (box.width * 0.5 / 24), box.y + box.height * (0.45 + 0.25 * Math.sin(i / 3)));
+  const after = await hero.screenshot();
+  expect(!before.equals(after), "滑鼠移過橫幅，畫面沒有出現拖尾");
+  // 不擋點擊：橫幅上的連結（看完整時程／繼續評分）在自己的中心點是最上層
+  const top = await hero.locator("a").evaluateAll((as) => as.every((a) => { const r = a.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return a.contains(hit); }));
+  expect(top, "拖尾擋住了橫幅上的連結");
+  expect(await hero.locator("[data-hero-trail]").evaluate((n) => getComputedStyle(n).pointerEvents) === "none", "拖尾層要 pointer-events: none");
+  await page.mouse.move(box.x + box.width / 2, box.y - 80);
+  const rm = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", storageState: await page.context().storageState() });
+  const rp = await rm.newPage();
+  await rp.goto(page.url(), { waitUntil: "networkidle" });
+  expect(await rp.locator("[data-hero-trail]").count() === 0, "減少動態時不該掛像素拖尾");
+  await rm.close();
+  ok(`${w} C4 現在橫幅：滑鼠移過畫出像素拖尾、連結可點（pointer-events: none）；減少動態不掛；卡片漣漪已拿掉`);
 }
 
 /** C2：右上帳號選單 → 換頭像 → 選第 n 張預設 → 頂列頭像換掉 */
@@ -165,7 +215,18 @@ async function student(viewport, tag) {
   expect(await page.locator("table").count() === 0, "首頁不該有表格");
   ok(`${w} 首頁：現在卡＋待辦 ${todoCount} 張（逾期／快到期／已交都有）＋公告 ${newsCount} 則，沒有表格`);
   await shot(page, `student-${tag}-01-home`);
-  await checkRipple(page, '[data-region="todo"] [data-todo="soon"]', tag, w, "首頁待辦卡");
+  await checkTrail(page, tag, w);
+  await contrast(page, w, "大標題／面板", "h1.page-title", { min: 3 });
+  await contrast(page, w, "現在橫幅小字", '[data-region="now"] p', { at: [-6, 0.5] });
+  await contrast(page, w, "現在橫幅階段名（大字）", '[data-region="now"] h2 span', { min: 3, at: [-2, 0.15] });
+  await contrast(page, w, "區塊標題右側連結", '[data-region="todo"] a[href$="/affairs"]', { at: [-3, 0.5] });
+  for (const st of ["overdue", "soon", "done", "open"]) {
+    await contrast(page, w, `待辦卡標題（${st}）`, `[data-todo="${st}"] .line-clamp-2`, { at: [-3, 0.5] });
+    await contrast(page, w, `狀態膠囊字（${st}）`, `[data-todo="${st}"] span.rounded-full.h-7`, { at: [5, 0.5] });
+  }
+  for (const st of ["overdue", "soon"]) await contrast(page, w, `截止相對日（${st}）`, `[data-todo="${st}"] .tabular span span`, { bgFrom: [`[data-todo="${st}"]`, 8, 8] });
+  await contrast(page, w, "次要字（截止日）", '[data-todo="open"] .tabular', { at: [-3, 0.5] });
+  if (tag === "desktop") await contrast(page, w, "側欄選中項", ".dash-nav-active span", { at: [-4, 0.5] });
 
   // 鍵盤：Tab 能走到「看完整時程」
   await page.locator('[data-region="now"]').getByRole("link", { name: /看完整時程/ }).focus();
@@ -209,7 +270,6 @@ async function student(viewport, tag) {
   ok(`${w} 交作業：待交／已交／逾期 切換，同意書在待交`);
   await filter.getByRole("link", { name: /^待交/ }).click();
   await page.locator('[data-card="mi-014"]').waitFor();
-  await checkRipple(page, '[data-card="mi-014"]', tag, w, "交作業卡");
 
   // 點進作業詳情：說明、上傳區、繳交歷史
   await filter.getByRole("link", { name: /^待交/ }).click();
@@ -314,7 +374,9 @@ async function teacher(viewport, tag) {
   expect(await page.locator("table, .recharts-wrapper").count() === 0, "首頁不該有表格或圓環");
   ok(`${w} B1 首頁：現在卡（待評 N 組＋繼續評分一次）、3 張待辦卡、公告，沒有圓環與表格`);
   await shot(page, `teacher-${tag}-01-home`);
-  await checkRipple(page, '[data-todo-card="待評分"]', tag, w, "老師首頁待辦卡");
+  await checkTrail(page, tag, w);
+  await contrast(page, w, "老師現在橫幅小字", '[data-region="now"] p', { at: [-6, 0.5] });
+  await contrast(page, w, "老師待辦卡標題", '[data-todo-card="待評分"] .text-\\[15px\\]', { at: [-3, 0.5] });
   await page.getByRole("button", { name: /通知，/ }).click();
   await page.getByRole("menuitem", { name: "查看全部通知" }).click();
   await page.waitForURL("**/dashboard/teacher/inbox");
@@ -331,7 +393,7 @@ async function teacher(viewport, tag) {
   expect(await page.locator("table").count() === 0, "評分總覽不該有表格");
   ok(`${w} B2 評分總覽：已評 3／5 組、篩選 全部／待評／草稿／已送出、每組一張卡`);
   await shot(page, `teacher-${tag}-02-grading`);
-  await checkRipple(page, '[data-group-card="g-07"]', tag, w, "評分組卡");
+  await contrast(page, w, "評分組卡主要按鈕（橘底）", '[data-group-card] a.bg-brand', { at: [4, 0.5] });
 
   // B3 單組評分（第 07 組是草稿）
   await page.locator('[data-group-card="g-07"]').getByRole("link", { name: "繼續評分" }).click();
@@ -383,7 +445,6 @@ async function teacher(viewport, tag) {
   expect(await page.locator("table").count() === 0, "作業區不該有表格");
   expect(await page.locator("[data-cards] [data-group-card] img").count() >= 20, "作業區組卡的組員要有頭像");
   await shot(page, `teacher-${tag}-05-work`);
-  await checkRipple(page, '[data-cards] [data-group-card="g-07"]', tag, w, "作業區組卡");
   await page.locator('[data-group-card="g-08"]').click();
   await page.waitForURL("**/affairs/group/g-08");
   await page.locator('[data-items] [data-item="overdue"]').waitFor();
@@ -456,9 +517,12 @@ async function admin() {
 }
 
 try {
+  for (const theme of (process.env.THEMES ?? "light,dark").split(",")) {
+  THEME = theme;
   for (const [vp, tag] of [[{ width: 1440, height: 900 }, "desktop"], [{ width: 390, height: 844 }, "mobile"]].filter(([, t]) => !process.env.ONLY || process.env.ONLY === t)) {
     await student(vp, tag);
     await teacher(vp, tag);
+  }
   }
   await admin();
 } finally {
@@ -468,4 +532,5 @@ if (bad.length) {
   console.error("✗ 有失敗的資源或錯誤：\n" + bad.join("\n"));
   process.exit(1);
 }
+console.log("\n對比（實際畫面量測）：\n" + contrastLog.join("\n"));
 console.log(`✓ JS／CSS 資源 ${jsOk} 個都 200/304；截圖在 ${OUT}`);

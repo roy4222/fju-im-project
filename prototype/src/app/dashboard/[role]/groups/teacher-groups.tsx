@@ -89,7 +89,7 @@ function AdviseButton({ g, onConfirm }: { g: Group; onConfirm: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<button type="button" className="inline-flex h-10 shrink-0 items-center rounded-xl bg-brand px-4 text-sm font-bold text-white transition-colors hover:bg-brand/90" />}>擔任指導老師</DialogTrigger>
+      <DialogTrigger render={<button type="button" className="inline-flex h-10 shrink-0 items-center rounded-xl bg-brand px-4 text-sm font-bold text-brand-foreground transition-colors hover:bg-brand/90" />}>擔任指導老師</DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogTitle className="text-lg font-extrabold">擔任指導老師？</DialogTitle>
         <DialogDescription>{g.no}・{shortTitle(g.title)}</DialogDescription>

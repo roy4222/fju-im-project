@@ -81,12 +81,12 @@ function MineTab({ v }: { v: ReturnType<typeof groupView> }) {
             {v.members.map((m) => (
               <li key={m.id} className="flex flex-col items-center text-center">
                 <span className="relative">
-                  {m.isLeader ? <IconCrown aria-label="組長" className="absolute -top-5 left-1/2 z-10 size-6 -translate-x-1/2 fill-[var(--brand-deep)] text-[var(--brand-deep)]" strokeWidth={1.6} /> : null}
+                  {m.isLeader ? <IconCrown aria-label="組長" className="absolute -top-5 left-1/2 z-10 size-6 -translate-x-1/2 fill-brand text-brand" strokeWidth={1.6} /> : null}
                   <UserAvatar id={m.id} name={m.name} className={`size-20 md:size-24 ${m.confirmed ? "" : "opacity-45 grayscale"}`} />
                   {!m.confirmed ? <span className="absolute inset-0 rounded-full border-2 border-dashed border-muted-foreground/50" aria-hidden /> : null}
                 </span>
                 <span className={`mt-2.5 text-[15px] ${m.id === v.me.id ? "font-extrabold" : "font-bold"}`}>{m.name}{m.id === v.me.id ? "（你）" : ""}</span>
-                <span className={`text-[13px] font-semibold ${m.isLeader ? "text-[var(--brand-deep)]" : "text-muted-foreground"}`}>{m.isLeader ? "組長" : m.confirmed ? "組員" : "等待確認"}</span>
+                <span className={`text-[13px] font-semibold ${m.isLeader ? "text-brand-on-subtle" : "text-muted-foreground"}`}>{m.isLeader ? "組長" : m.confirmed ? "組員" : "等待確認"}</span>
               </li>
             ))}
           </ol>
@@ -119,9 +119,9 @@ function MineTab({ v }: { v: ReturnType<typeof groupView> }) {
             return (
               <li key={b.id} data-done={b.done} className="relative flex items-center gap-4 md:flex-col md:gap-0 md:text-center">
                 {/* 連接線：桌機橫的、手機直的；兩端都達成才上色 */}
-                {i > 0 ? <span aria-hidden className={`absolute md:top-7 md:right-1/2 md:left-[-50%] md:h-[3px] md:w-auto max-md:-top-6 max-md:left-[27px] max-md:h-6 max-md:w-[3px] ${prevDone && b.done ? "bg-[var(--brand-deep)]" : "bg-border"}`} /> : null}
+                {i > 0 ? <span aria-hidden className={`absolute md:top-7 md:right-1/2 md:left-[-50%] md:h-[3px] md:w-auto max-md:-top-6 max-md:left-[27px] max-md:h-6 max-md:w-[3px] ${prevDone && b.done ? "bg-brand" : "bg-border"}`} /> : null}
                 {b.done ? (
-                  <span className="relative z-10 inline-flex size-14 shrink-0 items-center justify-center rounded-full bg-[var(--brand-deep)] text-white shadow-[0_8px_20px_-8px_oklch(0.5_0.15_45/70%)]"><IconCheck className="size-7" strokeWidth={3} /></span>
+                  <span className="relative z-10 inline-flex size-14 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground shadow-[0_8px_20px_-8px_color-mix(in_oklch,var(--brand)_70%,transparent)]"><IconCheck className="size-7" strokeWidth={3} /></span>
                 ) : (
                   <span className="relative z-10 inline-flex size-14 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-4 ring-card" aria-label="未達成"><IconLock className="size-6" strokeWidth={2} /></span>
                 )}

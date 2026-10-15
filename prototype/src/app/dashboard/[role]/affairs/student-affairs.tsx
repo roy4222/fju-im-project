@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { IconCalendarEvent, IconChecklist, IconFileText, IconSignature } from "@tabler/icons-react";
-import { TINT, TodoTag, dueText } from "@/components/dashboard/student-v1";
-import { CardFx } from "@/components/dashboard/card-fx";
+import { TodoTag, dueText } from "@/components/dashboard/student-v1";
 import { MY_GROUP } from "@/lib/fixtures";
 import { TODO_TABS, studentTodos, type TodoTab } from "@/lib/student-v1";
 
@@ -13,7 +12,7 @@ import { TODO_TABS, studentTodos, type TodoTab } from "@/lib/student-v1";
 const TONE: Record<TodoTab, { on: string; dot: string }> = {
   open: { on: "bg-primary text-primary-foreground", dot: "bg-brand" },
   done: { on: "bg-success text-success-foreground", dot: "bg-success" },
-  overdue: { on: "bg-destructive text-white", dot: "bg-destructive" },
+  overdue: { on: "bg-destructive text-destructive-foreground", dot: "bg-destructive" },
 };
 
 export function StudentAffairs({ tab = "open" }: { tab?: string }) {
@@ -65,9 +64,8 @@ export function StudentAffairs({ tab = "open" }: { tab?: string }) {
                 <Link
                   href={base + t.href}
                   data-card={t.id}
-                  className={`fx-card dash-card-hover group flex h-full flex-col rounded-3xl border p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${consent ? "border-primary/15 bg-accent/70" : "border-border/80 bg-card"}`}
+                  className={`dash-card-hover group flex h-full flex-col rounded-3xl border p-5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${consent ? "border-primary/15 bg-accent/70" : "border-border/80 bg-card"}`}
                 >
-                  <CardFx tint={consent ? "var(--primary)" : TINT[t.status]} />
                   <div className="flex items-start justify-between gap-3">
                     <span className={`inline-flex size-11 items-center justify-center rounded-2xl ${consent ? "bg-primary text-primary-foreground" : t.status === "overdue" ? "bg-destructive-subtle text-destructive-on-subtle" : t.status === "done" ? "bg-success-subtle text-success-on-subtle" : "bg-brand-subtle text-brand-on-subtle"}`}>
                       {consent ? <IconSignature className="size-5" /> : <IconFileText className="size-5" />}

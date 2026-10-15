@@ -73,14 +73,14 @@ export function AvatarDialog({ id, name, open, onOpenChange }: { id: string; nam
               <button key={src} type="button" role="radio" aria-checked={on} aria-label={`預設頭像 ${i + 1}`} onClick={() => setPicked(src)} className={`relative rounded-full transition-transform hover:scale-105 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${on ? "ring-3 ring-brand ring-offset-2 ring-offset-background" : ""}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={src} alt="" className="aspect-square w-full rounded-full object-cover" />
-                {on ? <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full bg-brand text-white"><IconCheck className="size-3" strokeWidth={3} /></span> : null}
+                {on ? <span className="absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground"><IconCheck className="size-3" strokeWidth={3} /></span> : null}
               </button>
             );
           })}
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => close(false)} className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-bold text-muted-foreground hover:bg-accent">取消</button>
-          <button type="button" disabled={!picked || picked === current} onClick={() => { if (picked) setAvatar(id, picked); close(false); }} className="inline-flex h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-white transition-colors hover:bg-brand/90 disabled:opacity-40">儲存</button>
+          <button type="button" disabled={!picked || picked === current} onClick={() => { if (picked) setAvatar(id, picked); close(false); }} className="inline-flex h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-brand-foreground transition-colors hover:bg-brand/90 disabled:opacity-40">儲存</button>
         </div>
       </DialogContent>
     </Dialog>

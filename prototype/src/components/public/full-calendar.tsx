@@ -13,7 +13,7 @@ export type CalItem = { id: string; date: string; title: string; tone: Tone; tag
 export type Tone = "deadline" | "overdue" | "done" | "event" | "competition";
 
 const TONE: Record<Tone, { dot: string; chip: string }> = {
-  deadline: { dot: "bg-[var(--brand-deep)]", chip: "bg-brand-subtle text-brand-on-subtle" },
+  deadline: { dot: "bg-brand", chip: "bg-brand-subtle text-brand-on-subtle" },
   overdue: { dot: "bg-destructive", chip: "bg-destructive-subtle text-destructive-on-subtle" },
   done: { dot: "bg-success", chip: "bg-success-subtle text-success-on-subtle" },
   event: { dot: "bg-primary", chip: "bg-accent text-primary" },
@@ -81,7 +81,7 @@ export function FullCalendar({ items, today }: { items: CalItem[]; today: string
                 data-due={evs.length ? key : undefined}
                 className={`flex min-h-14 flex-col items-stretch gap-1 p-1.5 text-left transition-colors focus-visible:relative focus-visible:z-10 focus-visible:outline-3 focus-visible:outline-ring/50 md:min-h-[6.5rem] md:p-2 ${on ? "bg-accent" : "bg-card hover:bg-accent/50"}`}
               >
-                <span className={`tabular inline-flex size-7 items-center justify-center self-center rounded-full text-[13px] md:self-start ${isToday ? "bg-[var(--brand-deep)] font-extrabold text-white" : evs.length ? "font-extrabold" : "text-muted-foreground"}`}>{d}</span>
+                <span className={`tabular inline-flex size-7 items-center justify-center self-center rounded-full text-[13px] md:self-start ${isToday ? "bg-brand font-extrabold text-brand-foreground" : evs.length ? "font-extrabold" : "text-muted-foreground"}`}>{d}</span>
                 {/* 手機：只打點 */}
                 <span className="flex justify-center gap-0.5 md:hidden">{evs.slice(0, 3).map((e) => <span key={e.id} className={`size-1.5 rounded-full ${TONE[e.tone].dot}`} />)}</span>
                 {/* 桌機：寫事件名 */}

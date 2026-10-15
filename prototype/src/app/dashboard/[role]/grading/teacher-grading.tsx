@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import { IconClock, IconFilter } from "@tabler/icons-react";
 import { useGradeRecords } from "@/lib/grading-store";
-import { CardFx } from "@/components/dashboard/card-fx";
 import { GRADE_STATE_LABEL, GRADING_GROUPS, RUBRIC, TEACHER_BASE as base, gradingCounts, scoreSummary, type GradeState } from "@/lib/teacher-v2";
 
 /**
@@ -58,7 +57,7 @@ export function TeacherGrading() {
           const n = f.key === "all" ? rows.length : rows.filter((r) => r.rec.state === f.key).length;
           const on = f.key === filter;
           return (
-            <button key={f.key} type="button" onClick={() => setFilter(f.key)} aria-pressed={on} className={`inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${on ? "bg-brand text-white" : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground"}`}>
+            <button key={f.key} type="button" onClick={() => setFilter(f.key)} aria-pressed={on} className={`inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${on ? "bg-brand text-brand-foreground" : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground"}`}>
               {f.label}
               <span className={`tabular text-xs ${on ? "opacity-85" : ""}`}>{n}</span>
             </button>
@@ -75,8 +74,7 @@ export function TeacherGrading() {
             const filled = RUBRIC.length - sum.missing;
             return (
               <li key={g.groupId}>
-                <article className="fx-card dash-card dash-card-hover flex h-full flex-col p-5" data-group-card={g.groupId}>
-                  <CardFx tint={rec.state === "submitted" ? "var(--success)" : "var(--brand-deep)"} />
+                <article className="dash-card dash-card-hover flex h-full flex-col p-5" data-group-card={g.groupId}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="tabular text-[12px] font-bold text-muted-foreground">{g.no}</p>
@@ -93,7 +91,7 @@ export function TeacherGrading() {
                       {rec.state === "pending" ? "還沒開始" : <><span className="text-[22px] leading-none font-extrabold text-foreground">{sum.total}</span> 分</>}
                       {rec.lastEdited ? <span className="mt-1 flex items-center gap-1"><IconClock className="size-3.5" />{rec.lastEdited}</span> : null}
                     </span>
-                    <Link href={`${base}/grading/${g.groupId}`} className={`inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${rec.state === "submitted" ? "text-brand-on-subtle ring-1 ring-brand/50 hover:bg-brand-subtle" : "bg-brand text-white hover:bg-brand/90"}`}>
+                    <Link href={`${base}/grading/${g.groupId}`} className={`inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-bold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40 ${rec.state === "submitted" ? "text-brand-on-subtle ring-1 ring-brand/50 hover:bg-brand-subtle" : "bg-brand text-brand-foreground hover:bg-brand/90"}`}>
                       {rec.state === "submitted" ? "查看或修改" : "繼續評分"}
                     </Link>
                   </div>

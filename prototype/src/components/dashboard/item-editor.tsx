@@ -343,7 +343,7 @@ export function ItemEditor({ initial, meta }: { initial: Draft; meta: EditorMeta
               <ul className="divide-y divide-border rounded-lg border border-border text-sm" aria-label="發布前檢查">
                 {checks.map((c) => (
                   <li key={c.key} className={`flex min-h-10 items-center gap-3 px-4 py-1.5 ${c.ok ? "" : "bg-destructive-subtle/40"}`}>
-                    <span className={`inline-flex size-4.5 shrink-0 items-center justify-center rounded-full ${c.ok ? "bg-success text-success-foreground" : "bg-destructive text-white"}`}>{c.ok ? <IconCheck className="size-3" strokeWidth={3} /> : <IconAlertCircle className="size-3" />}</span>
+                    <span className={`inline-flex size-4.5 shrink-0 items-center justify-center rounded-full ${c.ok ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground"}`}>{c.ok ? <IconCheck className="size-3" strokeWidth={3} /> : <IconAlertCircle className="size-3" />}</span>
                     <span className="w-16 shrink-0 text-muted-foreground">{c.label}</span>
                     <span className={`min-w-0 flex-1 truncate font-semibold ${c.ok ? "" : "text-destructive"}`}>{c.ok ? c.value : c.fix}</span>
                     {!c.ok ? <button type="button" onClick={() => { setTab(c.section); document.getElementById(`sec-${c.section}`)?.scrollIntoView({ block: "start" }); }} className="shrink-0 text-xs font-semibold text-destructive underline-offset-2 hover:underline">回去補</button> : null}
@@ -441,7 +441,7 @@ export function ItemEditor({ initial, meta }: { initial: Draft; meta: EditorMeta
               <ul className="divide-y divide-border rounded-lg border border-border text-sm">
                 {checks.map((c) => (
                   <li key={c.key} className={`flex min-h-10 items-center gap-3 px-3 py-1.5 ${c.ok ? "" : "bg-destructive-subtle/40"}`}>
-                    <span className={`inline-flex size-4.5 shrink-0 items-center justify-center rounded-full ${c.ok ? "bg-success text-success-foreground" : "bg-destructive text-white"}`}>{c.ok ? <IconCheck className="size-3" strokeWidth={3} /> : <IconAlertCircle className="size-3" />}</span>
+                    <span className={`inline-flex size-4.5 shrink-0 items-center justify-center rounded-full ${c.ok ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground"}`}>{c.ok ? <IconCheck className="size-3" strokeWidth={3} /> : <IconAlertCircle className="size-3" />}</span>
                     <span className="w-16 shrink-0 text-muted-foreground">{c.label}</span>
                     <span className={`min-w-0 flex-1 truncate font-semibold ${c.ok ? "" : "text-destructive"}`}>{c.ok ? c.value : c.fix}</span>
                     {!c.ok ? <button type="button" onClick={() => { setPublishStep(null); setTab(c.section); }} className="shrink-0 text-xs font-semibold text-destructive underline-offset-2 hover:underline">回去補</button> : null}

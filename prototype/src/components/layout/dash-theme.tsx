@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 
@@ -32,6 +32,13 @@ const Ctx = createContext<{ dark: boolean; toggle: (origin?: { x: number; y: num
 export function DashThemeRoot({ children }: { children: ReactNode }) {
   const dark = useSyncExternalStore(subscribe, readDark, () => false);
   const busy = useRef(false);
+
+  /* 第 4 輪：側欄抽屜（手機）、下拉選單、對話框都 portal 到 <body>，不在下面那層 .dark 裡；
+     在後台時把 dark 也掛到 body，離開後台（unmount）就拿掉，前台照舊固定白。layout effect 才趕得上 View Transition 的快照。 */
+  useLayoutEffect(() => {
+    document.body.classList.toggle("dark", dark);
+    return () => document.body.classList.remove("dark");
+  }, [dark]);
 
   function toggle(origin?: { x: number; y: number }) {
     if (busy.current) return;
