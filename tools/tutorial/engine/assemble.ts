@@ -4,8 +4,9 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { statusLabel, type StatusKind } from './events.ts';
-import type { ChapterMeta, ChapterMetaStep } from './render.ts';
+import { statusLabel, type ChapterEvents, type StatusKind } from './events.ts';
+import { chapterMeta, type ChapterMeta, type ChapterMetaStep } from './meta.ts';
+import { buildCues, toSrt, toVtt, type Cue } from './subtitles.ts';
 import { probeDurationMs } from './tts.ts';
 
 const run = promisify(execFile);
@@ -382,6 +383,26 @@ export function indexHtml(placed: readonly PlacedChapter[], features: FeatureTab
 `;
 }
 
+// ── 字幕 ─────────────────────────────────────────────
+
+/** 整片的配音全文字幕：每步配音一則（太長切多則），起訖＝這句在整片的實際起播與結束；標題卡沒有配音、不出字幕。 */
+export function finalCues(placed: readonly PlacedChapter[]): Cue[] {
+  return buildCues(
+    placed.flatMap((c) =>
+      c.steps.flatMap((s) => (s.narration && s.audio ? [{ narration: s.narration, startMs: c.offsetMs + s.audio.startMs, endMs: c.offsetMs + s.audio.startMs + s.audio.durationMs }] : [])),
+    ),
+  );
+}
+
+/** 舊的 chapter.json 沒有配音全文：旁邊有 events.json 就從那裡補（錄影時的配音）。 */
+function withNarration(m: ChapterMeta, dir: string): ChapterMeta {
+  const evFile = join(dir, 'events.json');
+  if (m.steps.some((s) => s.narration) || !existsSync(evFile)) return m;
+  const ev = JSON.parse(readFileSync(evFile, 'utf8')) as ChapterEvents;
+  const byIndex = new Map(chapterMeta(ev, m.titleMs, m.file).steps.map((s) => [s.index, s]));
+  return { ...m, steps: m.steps.map((s) => ({ ...s, narration: byIndex.get(s.index)?.narration, audio: byIndex.get(s.index)?.audio })) };
+}
+
 // ── 主流程 ───────────────────────────────────────────
 
 export type AssembleOptions = {
@@ -392,13 +413,15 @@ export type AssembleOptions = {
   featureTable?: string;
 };
 
-export async function assemble(opts: AssembleOptions): Promise<{ final: string; description: string; featureTimeline: string; html: string; warnings: string[] }> {
+export async function assemble(
+  opts: AssembleOptions,
+): Promise<{ final: string; description: string; featureTimeline: string; html: string; srt?: string; vtt?: string; warnings: string[] }> {
   const outDir = resolve(opts.outDir);
   mkdirSync(outDir, { recursive: true });
   const metas = opts.chapters.map((p) => {
     const f = p.endsWith('.json') ? p : join(p, 'chapter.json');
     if (!existsSync(f)) throw new Error(`找不到 ${f}：先 render 這一章`);
-    const m = JSON.parse(readFileSync(f, 'utf8')) as ChapterMeta;
+    const m = withNarration(JSON.parse(readFileSync(f, 'utf8')) as ChapterMeta, dirname(f));
     return { ...m, file: resolve(dirname(f), m.file) };
   });
   // 用實際檔案長度排時間（concat 也是照檔案長度接）
@@ -433,5 +456,16 @@ export async function assemble(opts: AssembleOptions): Promise<{ final: string; 
   const html = join(outDir, 'index.html');
   writeFileSync(html, indexHtml(placed, features, basename(final)));
   writeFileSync(join(outDir, 'timeline.json'), JSON.stringify(placed, null, 2));
-  return { final, description, featureTimeline: featureTimelineFile, html, warnings };
+  const cues = finalCues(placed);
+  const silent = placed.filter((c) => !c.steps.some((s) => s.narration && s.audio)).map((c) => c.label);
+  if (silent.length) warnings.push(`${silent.length} 段沒有配音全文（chapter.json 是舊版、旁邊也沒有 events.json），字幕裡沒有它們：${silent.slice(0, 10).join('、')}`);
+  let srt: string | undefined;
+  let vtt: string | undefined;
+  if (cues.length) {
+    srt = join(outDir, 'final.srt');
+    vtt = join(outDir, 'final.vtt');
+    writeFileSync(srt, toSrt(cues));
+    writeFileSync(vtt, toVtt(cues));
+  }
+  return { final, description, featureTimeline: featureTimelineFile, html, srt, vtt, warnings };
 }

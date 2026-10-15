@@ -1,8 +1,10 @@
-// 配音 provider。預設用 macOS 內建 say（繁中 Meijia）；要換服務就實作 TtsProvider。
+// 配音 provider。預設用 macOS 內建 say（繁中 Meijia）；TUTORIAL_TTS=gemini 改用 OpenRouter 的 Gemini TTS（見 ttsFromEnv）。
+// 要換服務就實作 TtsProvider。
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -39,6 +41,190 @@ export function sayProvider({ voice = 'Meijia', rate = 190 }: SayOptions = {}): 
       return { file: wav, durationMs: await probeDurationMs(wav) };
     },
   };
+}
+
+// ── Gemini TTS（OpenRouter） ─────────────────────────────
+
+export const GEMINI_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+export const OPENROUTER_SPEECH_URL = 'https://openrouter.ai/api/v1/audio/speech';
+export const DEFAULT_TTS_CACHE = join(homedir(), 'work', 'tutorial-out', 'tts-cache');
+
+/** s16le 裸 PCM → WAV（加 44 byte 標頭）。 */
+export function pcmToWav(pcm: Uint8Array, rate = 24000, channels = 1): Buffer {
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'ascii');
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write('WAVE', 8, 'ascii');
+  h.write('fmt ', 12, 'ascii');
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20); // PCM
+  h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * channels * 2, 28);
+  h.writeUInt16LE(channels * 2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write('data', 36, 'ascii');
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
+/** 「audio/pcm;rate=24000;channels=1」→ { rate, channels }（缺的用預設）。 */
+export function parsePcmType(contentType: string | null): { rate: number; channels: number } {
+  const get = (k: string, d: number) => {
+    const m = (contentType ?? '').match(new RegExp(`${k}=(\\d+)`));
+    return m ? Number(m[1]) : d;
+  };
+  return { rate: get('rate', 24000), channels: get('channels', 1) };
+}
+
+export type GeminiOptions = {
+  voice: string;
+  model?: string;
+  /** 快取資料夾：依「模型＋聲音＋文字」雜湊存 wav，重跑不重複計費。 */
+  cacheDir?: string;
+  /** 金鑰；預設從 macOS 鑰匙圈讀 OPENROUTER_API_KEY（只在快取沒命中時讀）。 */
+  apiKey?: () => Promise<string>;
+  /** 測試用：假 HTTP。 */
+  fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  /** 429／5xx 最多試幾次（含第一次）。 */
+  maxAttempts?: number;
+};
+
+export type GeminiProvider = TtsProvider & {
+  /** 這個 provider 打了幾次 API（含重試）、快取命中幾次。 */
+  readonly stats: { calls: number; cacheHits: number };
+};
+
+async function keychainKey(): Promise<string> {
+  const fromEnv = process.env.OPENROUTER_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const { stdout } = await run('security', ['find-generic-password', '-s', 'OPENROUTER_API_KEY', '-w']);
+    const key = stdout.trim();
+    if (key) return key;
+  } catch {
+    // 落到下面的錯誤
+  }
+  throw new Error('讀不到 OpenRouter 金鑰：鑰匙圈沒有 OPENROUTER_API_KEY（security find-generic-password -s OPENROUTER_API_KEY），也沒有同名環境變數');
+}
+
+/** OpenRouter 回 402：額度不足。批次要整批停下（再叫下一段也只是一樣的 402）。 */
+export class TtsQuotaError extends Error {
+  override name = 'TtsQuotaError';
+}
+
+/** 不重試的錯誤（4xx、空音檔）。 */
+class TtsFatalError extends Error {}
+
+/** 錯誤訊息遮掉金鑰：金鑰原字、`sk-or-…`、`Bearer …` 一律換成 ***。 */
+export function redactSecrets(message: string, secrets: readonly string[] = []): string {
+  let out = message;
+  for (const s of secrets) if (s) out = out.split(s).join('***');
+  return out.replace(/sk-or-[\w-]+/g, 'sk-or-***').replace(/(Bearer\s+)[^\s"',;]+/gi, '$1***');
+}
+
+/** 429 與所有 5xx 都退避重試。 */
+const retryable = (status: number) => status === 429 || (status >= 500 && status <= 599);
+
+/**
+ * OpenRouter `google/gemini-3.8-flash-tts`。只接受 response_format=pcm，回 s16le（預設 24 kHz 單聲道），轉成 wav 放進快取。
+ * 429／5xx／連線失敗（含收到標頭後讀 body 時斷線）退避重試（429 有 Retry-After 就照它）；402 是沒額度，丟 TtsQuotaError。
+ * 所有錯誤訊息都遮掉金鑰。
+ */
+export function geminiProvider(opts: GeminiOptions): GeminiProvider {
+  const model = opts.model ?? GEMINI_TTS_MODEL;
+  const cacheDir = opts.cacheDir ?? DEFAULT_TTS_CACHE;
+  const doFetch = opts.fetch ?? fetch;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const maxAttempts = opts.maxAttempts ?? 6;
+  const getKey = opts.apiKey ?? keychainKey;
+  const stats = { calls: 0, cacheHits: 0 };
+  let key: Promise<string> | undefined;
+  const backoff = (attempt: number) => Math.min(30_000, 1000 * 2 ** (attempt - 1));
+
+  async function request(text: string, auth: string): Promise<{ pcm: Uint8Array; rate: number; channels: number }> {
+    for (let attempt = 1; ; attempt++) {
+      stats.calls++;
+      let failure: string;
+      let waitMs = backoff(attempt);
+      try {
+        const res = await doFetch(OPENROUTER_SPEECH_URL, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, input: text, voice: opts.voice, response_format: 'pcm' }),
+        });
+        if (res.ok) {
+          // body 也在 try 裡：收到標頭後斷線一樣重試
+          const pcm = new Uint8Array(await res.arrayBuffer());
+          if (pcm.length < 2) throw new TtsFatalError(`Gemini TTS 回傳空音檔（${opts.voice}）：${text.slice(0, 20)}…`);
+          return { pcm, ...parsePcmType(res.headers.get('content-type')) };
+        }
+        const body = (await res.text().catch(() => '')).slice(0, 200);
+        if (res.status === 402) throw new TtsQuotaError(`Gemini TTS 回 402：OpenRouter 沒有額度了，先儲值再跑（${body}）`);
+        if (!retryable(res.status)) throw new TtsFatalError(`Gemini TTS 回 ${res.status}（第 ${attempt} 次）：${body}`);
+        failure = `回 ${res.status}：${body}`;
+        const retryAfter = Number(res.headers.get('retry-after'));
+        if (Number.isFinite(retryAfter) && retryAfter > 0) waitMs = retryAfter * 1000;
+      } catch (e) {
+        if (e instanceof TtsQuotaError || e instanceof TtsFatalError) throw e;
+        failure = `連不上：${(e as Error).message}`; // 斷線、逾時、讀 body 中斷
+      }
+      if (attempt >= maxAttempts) throw new Error(`Gemini TTS 試了 ${attempt} 次都失敗，最後一次${failure}`);
+      await sleep(waitMs);
+    }
+  }
+
+  return {
+    stats,
+    async synth(text) {
+      mkdirSync(cacheDir, { recursive: true });
+      const hash = createHash('sha256').update(`${model}\n${opts.voice}\n${text}`).digest('hex').slice(0, 20);
+      const wav = join(cacheDir, `gemini-${opts.voice}-${hash}.wav`);
+      if (existsSync(wav)) {
+        stats.cacheHits++;
+      } else {
+        key ??= getKey();
+        let auth = '';
+        let got: Awaited<ReturnType<typeof request>>;
+        try {
+          auth = await key;
+          got = await request(text, auth);
+        } catch (e) {
+          // 任何錯誤（HTTP body、連線錯誤）都可能帶著金鑰原文：遮掉再往外丟
+          const msg = redactSecrets((e as Error).message, [auth]);
+          throw e instanceof TtsQuotaError ? new TtsQuotaError(msg) : new Error(msg);
+        }
+        const { pcm, rate, channels } = got;
+        const tmp = `${wav}.${process.pid}.tmp`;
+        writeFileSync(tmp, pcmToWav(pcm, rate, channels));
+        renameSync(tmp, wav);
+      }
+      return { file: wav, durationMs: wavDurationMs(wav) };
+    },
+  };
+}
+
+/** 讀 wav 標頭算長度（只支援本檔寫的 44 byte 標準標頭）。 */
+function wavDurationMs(file: string): number {
+  const buf = readFileSync(file);
+  const channels = buf.readUInt16LE(22);
+  const rate = buf.readUInt32LE(24);
+  const bits = buf.readUInt16LE(34);
+  return Math.round(((buf.length - 44) / (rate * channels * (bits / 8))) * 1000);
+}
+
+/**
+ * 依環境變數選 provider：TUTORIAL_TTS=gemini（聲音 TUTORIAL_TTS_VOICE，必填；模型 TUTORIAL_TTS_MODEL 可省）；
+ * 其他或沒設＝macOS say（TUTORIAL_TTS_VOICE 沒設就是 Meijia）。
+ */
+export function ttsFromEnv(env: NodeJS.ProcessEnv = process.env): TtsProvider & { name: string; voice: string } {
+  const voice = env.TUTORIAL_TTS_VOICE?.trim();
+  if (env.TUTORIAL_TTS === 'gemini') {
+    if (!voice) throw new Error('TUTORIAL_TTS=gemini 要配 TUTORIAL_TTS_VOICE（例如 Charon、Orus、Algenib、Alnilam、Iapetus、Kore）');
+    return Object.assign(geminiProvider({ voice, model: env.TUTORIAL_TTS_MODEL?.trim() || undefined }), { name: 'gemini', voice });
+  }
+  return Object.assign(sayProvider(voice ? { voice } : {}), { name: 'say', voice: voice ?? 'Meijia' });
 }
 
 /** 測試用：產生指定長度的靜音，不需要 say。 */

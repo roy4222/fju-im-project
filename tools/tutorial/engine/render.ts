@@ -8,36 +8,16 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
-import { chapterId, chapterLabel, statusEvidence, type ChapterEvents, type StatusKind } from './events.ts';
+import { chapterId, type ChapterEvents } from './events.ts';
+import { chapterMeta, narrationMix, TITLE_MS, type ChapterMeta } from './meta.ts';
 import { overlayHtml, renderHtmlPngs, titleCardHtml } from './overlay.ts';
 import { assertRunComplete } from './runs.ts';
 import { cursorAss, overlaySegments } from './timeline.ts';
 
 const run = promisify(execFile);
 
-export const TITLE_MS = 2500;
-
-/** 給 assemble 用的章節摘要（時間是本章輸出影片時間）。 */
-export type ChapterMeta = {
-  label: string;
-  /** 分鏡的段編號（例如 3-3）。 */
-  id?: string;
-  number?: number;
-  chapter: string;
-  /** 相對於 chapter.json 所在資料夾。 */
-  file: string;
-  durationMs: number;
-  titleMs: number;
-  steps: ChapterMetaStep[];
-};
-
-/** 一步的摘要：status 是物件（kind＋白話 say＋依據 evidence）；舊的 chapter.json 裡是字串 kind。 */
-export type ChapterMetaStep = {
-  index: number;
-  caption: string;
-  startMs: number;
-  status?: { kind: StatusKind; say?: string; evidence?: string } | StatusKind;
-};
+export { chapterMeta, narrationMix, TITLE_MS } from './meta.ts';
+export type { ChapterMeta, ChapterMetaStep } from './meta.ts';
 
 export type RenderOptions = {
   /** 錄影輸出資料夾（裡面有 events.json、clip.mp4、audio/）。 */
@@ -97,13 +77,7 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
   const audios = ev.steps.filter((s) => s.audio);
   const audioInputs = audios.flatMap((s) => ['-i', join(dir, s.audio!.file)]);
   const T = (totalMs / 1000).toFixed(3);
-  const aFilters = audios.map((s, i) => {
-    const d = Math.round(titleMs + s.audio!.startMs);
-    return `[${i + 2}:a]aresample=48000,aformat=channel_layouts=mono,adelay=${d}:all=1[a${i}]`;
-  });
-  const audioGraph = audios.length
-    ? `${aFilters.join(';')};${audios.map((_, i) => `[a${i}]`).join('')}amix=inputs=${audios.length}:normalize=0:duration=longest,apad,atrim=0:${T},afade=t=out:st=${(totalMs / 1000 - 0.4).toFixed(3)}:d=0.4,aformat=channel_layouts=stereo[a]`
-    : `anullsrc=r=48000:cl=stereo,atrim=0:${T}[a]`;
+  const audioGraph = narrationMix(audios.map((s) => titleMs + s.audio!.startMs), totalMs, 2);
 
   const graph = [
     `color=c=white:s=${width}x${height}:r=${ev.clip.fps}:d=${T}[bg]`,
@@ -132,23 +106,7 @@ export async function renderChapter(opts: RenderOptions): Promise<{ file: string
     { cwd: work, maxBuffer: 1 << 24 },
   );
 
-  const meta: ChapterMeta = {
-    label: chapterLabel(ev),
-    id,
-    number: ev.number,
-    chapter: ev.chapter,
-    file: relative(dir, out),
-    durationMs: totalMs,
-    titleMs,
-    steps: ev.steps.map((s) => ({
-      index: s.index,
-      caption: s.caption,
-      startMs: Math.round(titleMs + s.startMs),
-      ...(s.status
-        ? { status: { kind: s.status.kind, ...(s.status.say ? { say: s.status.say } : {}), ...(statusEvidence(s.status) ? { evidence: statusEvidence(s.status) } : {}) } }
-        : {}),
-    })),
-  };
+  const meta = chapterMeta(ev, titleMs, relative(dir, out));
   writeFileSync(join(dir, 'chapter.json'), JSON.stringify(meta, null, 2));
   return { file: out, meta };
 }
