@@ -20,8 +20,10 @@ export const MAX_TEMPO = 1.3;
 export const WARN_TEMPO = 1.2;
 /** 每句配音正規化到的響度（原片 Meijia 整片約 −16 LUFS）。 */
 export const TARGET_LUFS = -16;
-/** 正規化後樣本峰值不超過這個值（dBFS）。 */
+/** 正規化後用限幅器把瞬間峰值壓在這個值以下（dBFS）。 */
 const PEAK_CEILING_DB = -1;
+/** 正規化＋限幅：Gemini 的語音峰值比響度高 15 dB 上下，只靠增益會被峰值卡住到不了目標，所以超過的瞬間峰值交給限幅器。 */
+const limiter = `alimiter=limit=${10 ** (PEAK_CEILING_DB / 20)}:level=disabled:latency=1`;
 
 /** 頭尾低於 −45 dB 的部分（靜音、換氣、底噪）削掉，各留 50 ms；先正規化再削，門檻相對於語音是固定的。 */
 const TRIM_SILENCE = [
@@ -46,12 +48,10 @@ export async function measureLoudness(file: string): Promise<{ lufs: number; pea
   return { lufs: Number(json.input_i), peakDb: Number(json.input_tp) };
 }
 
-/** 正規化到 target 要加幾 dB（峰值不超過 PEAK_CEILING_DB；量不到響度就不動）。 */
-export function loudnessGainDb(m: { lufs: number; peakDb: number }, target = TARGET_LUFS): number {
+/** 正規化到 target 要加幾 dB（峰值由限幅器處理；量不到響度就不動）。 */
+export function loudnessGainDb(m: { lufs: number }, target = TARGET_LUFS): number {
   if (!Number.isFinite(m.lufs)) return 0;
-  const gain = target - m.lufs;
-  const headroom = Number.isFinite(m.peakDb) ? PEAK_CEILING_DB - m.peakDb : gain;
-  return Math.round(Math.min(gain, headroom) * 100) / 100;
+  return Math.round((target - m.lufs) * 100) / 100;
 }
 
 /** 一句新配音：clip 時間的起播點與新音檔長度。 */
@@ -139,7 +139,7 @@ export async function dubChapter(opts: DubOptions): Promise<DubResult> {
     const raw = await opts.tts.synth(s.narration, join(outDir, '.tts'));
     const file = join(audioDir, `raw-${String(s.index).padStart(2, '0')}.wav`);
     const gainDb = loudnessGainDb(await measureLoudness(raw.file), target);
-    await run('ffmpeg', ['-y', '-v', 'error', '-i', raw.file, '-af', `aresample=48000,aformat=channel_layouts=mono,volume=${gainDb}dB,${TRIM_SILENCE}`, '-ar', '48000', '-ac', '1', file]);
+    await run('ffmpeg', ['-y', '-v', 'error', '-i', raw.file, '-af', `aresample=48000,aformat=channel_layouts=mono,volume=${gainDb}dB,${limiter},${TRIM_SILENCE}`, '-ar', '48000', '-ac', '1', file]);
     speeches.set(s.index, { file, durationMs: await probeDurationMs(file), gainDb });
   }
 

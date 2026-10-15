@@ -149,7 +149,7 @@ node engine/cli.ts assemble --out ~/work/tutorial-out/dub-Charon/final --feature
 
 - 來源是 `chapters/<段>/`（`events.json`＋`<段>.mp4`）或 run 目錄（`events.json`＋`chapter.mp4`）。輸出到 `<out-root>/dub-<聲音>/<段>/`：`<段>.mp4`、`<段>.srt`／`.vtt`、`chapter.json`（`assemble` 可以直接吃）、`dub.json`（每步原長、新長、可用時間、加速倍率）、`audio/`。**不會寫回來源資料夾**（`chapters/<段>/` 是已上傳影片的來源）。
 - Gemini：OpenRouter `google/gemini-3.8-flash-tts`，聲音由 `TUTORIAL_TTS_VOICE` 指定（候選 Charon、Orus、Algenib、Alnilam、Iapetus、Kore），模型可用 `TUTORIAL_TTS_MODEL` 換。只能拿 `pcm`（24 kHz 單聲道 s16le），引擎轉成 wav。依「模型＋聲音＋文字」雜湊快取在 `~/work/tutorial-out/tts-cache/`，**重跑不重複計費**；指令最後印「API 呼叫 N 次、快取命中 M 句」。429／所有 5xx／連線失敗（含收到標頭後讀內容時斷線）退避重試（429 照 `Retry-After`）；402（沒額度）**整批停下**，後面的段不再打 API、列為沒做。錯誤訊息一律遮掉金鑰（金鑰原字、`sk-or-…`、`Bearer …` 換成 `***`）。
-- 每句先**響度正規化**到 −16 LUFS（原片 Meijia 整片的響度；樣本峰值不超過 −1 dBFS），再削掉頭尾低於 −45 dB 的部分（靜音、換氣聲、底噪，各留 50 ms；Gemini 前後各有 0.2～0.35 秒空白、偶爾有 −55 dB 左右的換氣聲），所以各句、各段一樣大聲，字幕起訖跟聽到的聲音差 50 ms 內。每句加了幾 dB 記在 `dub.json` 的 `gainDb`。
+- 每句先**響度正規化**到 −16 LUFS（原片 Meijia 整片的響度；Gemini 的峰值比響度高 15 dB 上下，只靠增益會被峰值卡住，所以超過 −1 dBFS 的瞬間峰值交給限幅器 `alimiter`），再削掉頭尾低於 −45 dB 的部分（靜音、換氣聲、底噪，各留 50 ms；Gemini 前後各有 0.2～0.35 秒空白、偶爾有 −55 dB 左右的換氣聲），所以各句、各段一樣大聲，字幕起訖跟聽到的聲音差 50 ms 內。每句加了幾 dB 記在 `dub.json` 的 `gainDb`。
 - 可用時間＝到下一句起播前 0.2 秒（最後一句到 clip 結束前 0.2 秒）。比較短就照原速、後面是靜音；比較長就用 `atempo` 加速，上限 1.3 倍（`--max-tempo` 只能調低，非數字或大於 1.3 直接拒絕）；超過 1.2 倍的句子在指令列以「注意」列出（不擋）。**有任何一句要超過上限，這段就不輸出影片**，指令列出哪幾步、要幾倍（3 位小數；`dub.json` 也有），縮短配音或重錄那幾步再跑；其他段照跑，最後非 0 結束。
 - `dub` 也吃 `TUTORIAL_TTS=say`（例如 `TUTORIAL_TTS_VOICE=Meijia`），可以先免費試流程。
 

@@ -62,11 +62,11 @@ test('加速上限：非有限值、小於 1、大於 1.3 都拒絕（API 與 fi
   assert.equal(checkMaxTempo(1.25), 1.25);
 });
 
-test('響度增益：補到目標 LUFS、峰值不超過 −1 dBFS、量不到就不動', () => {
-  assert.equal(loudnessGainDb({ lufs: -20, peakDb: -10 }), 4);
-  assert.equal(loudnessGainDb({ lufs: -20, peakDb: -3 }), 2);
-  assert.equal(loudnessGainDb({ lufs: -12, peakDb: -2 }), -4);
-  assert.equal(loudnessGainDb({ lufs: Number.NEGATIVE_INFINITY, peakDb: -99 }), 0);
+test('響度增益：補到目標 LUFS（峰值交給限幅器，不限制增益）、量不到就不動', () => {
+  assert.equal(loudnessGainDb({ lufs: -20 }), 4);
+  assert.equal(loudnessGainDb({ lufs: -12 }), -4);
+  assert.equal(loudnessGainDb({ lufs: -17.234 }, -16), 1.23);
+  assert.equal(loudnessGainDb({ lufs: Number.NEGATIVE_INFINITY }), 0);
 });
 
 // ── 實際用 ffmpeg 重配一段（假 TTS：每句是指定長度的正弦波） ──
@@ -188,6 +188,10 @@ test('重配一段：影像逐格不變、長度不變、新配音接在原起�
     const l3 = await lufsAt(r.file, 6.3, 7.3, root);
     assert.ok(Math.abs(l1 + 16) <= 1.5 && Math.abs(l3 + 16) <= 1.5, `響度 ${l1} / ${l3}`);
     assert.ok(Math.abs(l1 - l3) <= 1, `兩句差 ${Math.abs(l1 - l3)} LU`);
+    for (const f of ['step-01.wav', 'step-03.wav']) {
+      const { peakDb } = await measureLoudness(join(out, 'audio', f));
+      assert.ok(peakDb <= -0.5, `${f} 峰值 ${peakDb} dBTP（限幅在 −1 dBFS）`);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
