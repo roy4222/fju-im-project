@@ -19,6 +19,18 @@ test('切行：每則最多 2 行、每行 ≤ 18 個全形字，文字一個字
   for (const l of lines.slice(0, -1)) assert.match(l, /[，。、；：！？]$/, `「${l}」沒斷在標點`);
 });
 
+test('沒標點的長子句：切在詞與詞之間、平均分、左括號不留在行尾、標點不在行首', () => {
+  assert.deepEqual(splitNarration('公告分類填「競賽資訊」才會出現在前台競賽頁並多出日期欄。').flat().length, 2);
+  const lines = splitNarration('訪客看不到的會直接寫「訪客看不到這一筆」。').flat();
+  assert.equal(lines.join(''), '訪客看不到的會直接寫「訪客看不到這一筆」。');
+  for (const l of lines) {
+    assert.ok(textWidth(l) >= 5, `「${l}」太短（孤字）`);
+    assert.doesNotMatch(l, /[「『（]$/);
+    assert.doesNotMatch(l, /^[，。、；：！？」』）]/);
+  }
+  assert.deepEqual(splitNarration('還沒設屆別時這裡會有「前往屆別設定」按鈕。').flat(), ['還沒設屆別時這裡會有', '「前往屆別設定」按鈕。']);
+});
+
 test('分則：盡量在句尾換下一則，不把一句拆在兩則之間', () => {
   assert.deepEqual(splitNarration('整組一份的作業，同組共用一份草稿，任何一位送出就代表全組。上面有截止、附件和組員。'), [
     ['整組一份的作業，同組共用一份草稿，', '任何一位送出就代表全組。'],
@@ -34,8 +46,10 @@ test('切行：短句一則一行；沒有標點的長字串硬切；半形字�
   assert.deepEqual(splitNarration('只看待繳'), [['只看待繳']]);
   const long = '一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十';
   const chunks = splitNarration(long);
-  assert.deepEqual(chunks.flat().map((l) => [...l].length), [18, 18, 4]);
-  assert.deepEqual(chunks.map((c) => c.length), [2, 1]);
+  const lens = chunks.flat().map((l) => [...l].length);
+  assert.equal(chunks.flat().join(''), long);
+  assert.equal(lens.length, 3);
+  assert.ok(Math.max(...lens) <= 18 && Math.max(...lens) - Math.min(...lens) <= 3, `平均切：${lens}`);
   assert.equal(textWidth('G07 組長'), 1.5 + 0.5 + 2);
   assert.deepEqual(splitNarration('   '), []);
 });

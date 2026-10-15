@@ -16,16 +16,56 @@ export function textWidth(s: string): number {
 /** 可以斷開的標點（斷在標點後面）；後面緊接的右引號／右括號跟著前一段。 */
 const CLAUSE = /[^，。、；：！？,;:!?]+[，。、；：！？,;:!?]*[」』）)]*|[，。、；：！？,;:!?」』）)]+/gu;
 
-/** 把一段寬度超過 max 的字硬切成每段 ≤ max。 */
+const WORDS = new Intl.Segmenter('zh-Hant', { granularity: 'word' });
+const PUNCT_ONLY = /^[\s，。、；：！？,.;:!?」』）)]+$/u;
+
+const OPEN_ONLY = /^[「『（(]+$/u;
+
+/** 斷詞：標點黏在前一個詞後面、左括號黏在下一個詞前面（行首不是標點、行尾不是左括號）；單一個詞比 max 還寬才逐字切。 */
+function words(s: string, max: number): string[] {
+  const out: string[] = [];
+  let open = '';
+  for (const { segment } of WORDS.segment(s)) {
+    if (OPEN_ONLY.test(segment)) open += segment;
+    else if (out.length && !open && PUNCT_ONLY.test(segment)) out[out.length - 1] += segment;
+    else {
+      out.push(open + segment);
+      open = '';
+    }
+  }
+  if (open) out.push(open);
+  return out.flatMap((w) => {
+    if (textWidth(w) <= max) return [w];
+    const parts: string[] = [];
+    let cur = '';
+    for (const ch of w) {
+      if (cur && textWidth(cur + ch) > max) {
+        parts.push(cur);
+        cur = '';
+      }
+      cur += ch;
+    }
+    return cur ? [...parts, cur] : parts;
+  });
+}
+
+/**
+ * 沒有標點可斷、又比一行寬的子句：在詞與詞之間切成寬度平均的幾段（每段 ≤ max），
+ * 不會切在詞中間，也不會剩一兩個字孤零零一行。
+ */
 function hardSplit(s: string, max: number): string[] {
+  const total = textWidth(s);
+  if (total <= max) return [s];
+  const target = total / Math.ceil(total / max);
   const out: string[] = [];
   let cur = '';
-  for (const ch of s) {
-    if (cur && textWidth(cur + ch) > max) {
+  for (const w of words(s, max)) {
+    const next = textWidth(cur + w);
+    if (cur && (next > max || (next > target + 1 && textWidth(cur) >= target - 2))) {
       out.push(cur);
       cur = '';
     }
-    cur += ch;
+    cur += w;
   }
   if (cur) out.push(cur);
   return out;

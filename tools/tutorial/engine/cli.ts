@@ -3,11 +3,13 @@
 //   node engine/cli.ts assemble --out <資料夾> [--features feature-table.md] <章節資料夾…>
 //   TUTORIAL_TTS=gemini TUTORIAL_TTS_VOICE=Charon node engine/cli.ts dub [--out-root ~/work/tutorial-out] [--max-tempo 1.25] <章節資料夾…>
 
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { assemble } from './assemble.ts';
 import { dubChapter } from './dub.ts';
+import { chapterId, type ChapterEvents } from './events.ts';
 import { renderChapter } from './render.ts';
 import { ttsFromEnv } from './tts.ts';
 
@@ -38,8 +40,10 @@ if (cmd === 'render' && positionals.length >= 1) {
   const root = join(values['out-root'] ?? join(homedir(), 'work', 'tutorial-out'), `dub-${tts.voice}`);
   const failed: string[] = [];
   for (const dir of positionals) {
-    const id = dir.replace(/\/+$/, '').split('/').at(-1)!;
+    let id = basename(resolve(dir));
     try {
+      // 輸出子目錄用段編號（來源是 run 目錄時資料夾名不是段編號）
+      id = chapterId(JSON.parse(readFileSync(join(dir, 'events.json'), 'utf8')) as ChapterEvents) ?? id;
       const r = await dubChapter({ dir, tts, outDir: join(root, id), maxTempo: values['max-tempo'] ? Number(values['max-tempo']) : undefined, titleMs: values['title-ms'] ? Number(values['title-ms']) : undefined });
       const sped = r.steps.filter((s) => s.tempo > 1).map((s) => `第 ${s.index} 步 ${s.tempo} 倍`);
       console.log(`${r.file}  最快 ${r.maxTempo} 倍${sped.length ? `（${sped.join('、')}）` : '（全部原速）'}\n${r.srt}`);
