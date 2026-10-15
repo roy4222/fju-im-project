@@ -103,7 +103,7 @@ export function RegisterFlow({ initial, rosterEmails, googleAccounts }: Props) {
           <OrDivider />
           <form noValidate onSubmit={submitAccount} className="flex flex-col gap-4">
             <TextField id="email" label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@mail.fju.edu.tw" autoComplete="email" error={errors.email} required />
-            <PasswordField id="password" label="密碼" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="至少 8 個字元" autoComplete="new-password" hint="至少 8 個字元" error={errors.password} required />
+            <PasswordField id="password" label="密碼" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" hint="至少 8 個字元" error={errors.password} required />
             <button type="submit" className="btn-fju mt-1 h-12 text-base">下一步</button>
           </form>
           <p className="text-center text-sm text-muted-foreground">
@@ -260,10 +260,10 @@ function VerifyStep({ email, headingRef, onBack, onVerified }: { email: string; 
 /** 仿 Google 帳號選擇器。兩個帳號就是「已開通／待審」的示範切換 */
 function GooglePicker({ accounts, onPick, onClose }: { accounts: Props["googleAccounts"]; onPick: (a: { name: string; email: string }) => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 不在 cleanup 裡 close()：close 會觸發 onClose，StrictMode 重跑 effect 時會把剛開的選擇器關掉
   useEffect(() => {
     const d = dialogRef.current;
-    d?.showModal();
-    return () => d?.close();
+    if (d && !d.open) d.showModal();
   }, []);
   return (
     <dialog
