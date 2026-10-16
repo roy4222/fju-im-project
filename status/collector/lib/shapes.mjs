@@ -1,7 +1,8 @@
 // 每個輸出檔的白名單（設計方案 §3.3 與 S-1 的 src/lib/data/types.ts，加上 collector 自己補的欄位：
 // github 的 fetchedAt／apiCalls／fetchErrorAt、ci.attempt；health 的 gatusOk／error；vm 的 offsiteDir／prodEnvError／prodDns；
-// acceptance-index 的 requiredItems）。寫檔前 files.mjs 用這裡的形狀投影：不在清單的欄位一律不輸出，值不合樣式就整檔不寫。
-import { T } from './shape.mjs'
+// acceptance-index 的 requiredItems）。DV 設計方案 §7：vm 的 disk／diskError、backup 的 lastOk、新檔 metrics.json、usage.json。
+// 寫檔前 files.mjs 用這裡的形狀投影：不在清單的欄位一律不輸出，值不合樣式就整檔不寫。
+import { ShapeError, T } from './shape.mjs'
 
 export const SHA40 = /^[0-9a-f]{40}$/
 /** ISO 8601：collector 的 toISOString、GitHub 的 Z、acceptance-night.sh 的 +0800、Gatus 的奈秒都收。 */
@@ -25,8 +26,26 @@ const EVENT = /^[a-z0-9-]{1,40}$/
 const BRANCH = /^[^\s~^:?*[\]\\'"<>]{1,255}$/
 /** 備份檔名：只排除控制字元與引號、角括號、直線（內容交給黑名單）。 */
 const FILE_NAME = /^[^\p{Cc}"'<>|]{1,255}$/u
+/** 絕對路徑（disk.path：statfs 量的掛載點）。 */
+const ABS_PATH = /^\/[A-Za-z0-9._/-]{0,255}$/
+/** 日期（usage.json 的 day、window）。 */
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+/** audit_events.action 的代碼（submission.upload、account.change_password…）。 */
+const ACTION = /^[a-z][a-z0-9_.-]{0,99}$/
 /** 自由文字（錯誤訊息、原因）：沒有樣式，只限長度；內容交給第二道黑名單。 */
 const text = (max) => T.str(null, max)
+/** 有範圍的整數與數字（shape.mjs 的 T 只有不限範圍的 int）。 */
+const intIn = (min, max) => (v, at) => {
+  const n = T.int()(v, at)
+  if (n < min || n > max) throw new ShapeError(at, `要在 ${min}～${max}`)
+  return n
+}
+const numIn = (min, max) => (v, at) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new ShapeError(at, '要是數字')
+  if (v < min || v > max) throw new ShapeError(at, `要在 ${min}～${max}`)
+  return v
+}
+const count = intIn(0, Number.MAX_SAFE_INTEGER)
 
 const stamp = { generatedAt: T.str(ISO) }
 
@@ -105,6 +124,18 @@ const backup = T.obj({
   latest: T.nullable(T.obj({ name: T.str(FILE_NAME), bytes: T.int(), mtime: T.str(ISO) })),
   offsiteDir: T.oneOf(['missing', 'ok', 'empty']),
   lastRecord: T.nullable(T.obj({ at: T.nullable(T.str(ISO)), ok: T.bool() })),
+  /** 最後一筆成功備份；後面的失敗與 drill 不覆蓋（vm.mjs lastOkBackup）。 */
+  lastOk: T.nullable(T.obj({ at: T.str(ISO), bytes: T.nullable(count) })),
+})
+
+/** vm.json 的 disk：statfs 量 inbox 掛載點所在的檔案系統（vm.mjs diskFromStatfs）。statfs 失敗時沿用上一版，也用這個形狀重驗。 */
+export const DISK = T.obj({
+  path: T.str(ABS_PATH),
+  totalBytes: count,
+  usedBytes: count,
+  availBytes: count,
+  percent: intIn(0, 100),
+  checkedAt: T.str(ISO),
 })
 
 /** ops/status-envcheck.sh 的輸出：只有鍵名與 false/absent/other（§3.8 G5）。多出來的欄位一律不輸出。 */
@@ -126,6 +157,39 @@ export const VM = T.obj({
   prodEnv: T.nullable(ENVCHECK),
   prodEnvError: T.nullable(text(300)),
   prodDns: T.obj({ host: T.str(HOST), hasA: T.bool(), checkedAt: T.str(ISO) }),
+  disk: T.nullable(DISK),
+  /** statfs 失敗的分類文字（err.code 或 statfs-failed），不放原始訊息。 */
+  diskError: T.nullable(T.str(WORD)),
+})
+
+const metricsSite = T.nullable(
+  T.obj({
+    fetchedAt: T.str(ISO),
+    uptime24h: T.nullable(numIn(0, 1)),
+    uptime7d: numIn(0, 1),
+    avgMs24h: T.nullable(numIn(0, Number.MAX_SAFE_INTEGER)),
+    failures24h: T.nullable(count),
+    points: T.arr(T.obj({ at: T.str(ISO), ms: numIn(0, Number.MAX_SAFE_INTEGER), ok: T.bool() }), 288),
+  }),
+)
+
+/** metrics.json（DV 設計方案 §7.3，DV-12 寫檔）：Gatus 兩站端點 24h 回應時間與可用率；拿不到的站是 null。 */
+export const METRICS = T.obj({
+  ...stamp,
+  gatusOk: T.bool(),
+  error: T.nullable(text(300)),
+  sites: T.obj({ test: metricsSite, prod: metricsSite }),
+})
+
+const ROLE = T.oneOf(['student', 'teacher', 'admin'])
+
+/** usage.json（DV 設計方案 §7.5，DV-B1 產生）：只有計數，沒有 ID、Email、名字；action 是陣列裡的值，不當物件鍵。 */
+export const USAGE = T.obj({
+  ...stamp,
+  site: T.oneOf(['test', 'prod']),
+  window: T.obj({ from: T.str(DAY), to: T.str(DAY) }),
+  daily: T.arr(T.obj({ day: T.str(DAY), role: ROLE, activeUsers: count, events: count }), 360),
+  actions: T.arr(T.obj({ action: T.str(ACTION), role: ROLE, count7d: count, count30d: count, countTerm: count }), 500),
 })
 
 /** acceptance-index.json 一夜的各欄（acceptance.mjs 分欄驗證：不合的那欄改 null、標原因，plan 與時間合法就保留，不回退）。 */
@@ -171,6 +235,8 @@ const BY_FILE = {
   'github.json': GITHUB,
   'health.json': HEALTH,
   'vm.json': VM,
+  'metrics.json': METRICS,
+  'usage.json': USAGE,
   'acceptance-index.json': ACCEPTANCE_INDEX,
   'collector.json': COLLECTOR,
 }

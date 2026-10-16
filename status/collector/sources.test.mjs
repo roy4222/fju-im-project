@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { judgeAccessGuard, judgeHealthBody, lastResults, siteHealth } from './lib/health.mjs'
 import { findLeaks, findLeaksInValue, findSensitiveKeys, scrubIp } from './lib/redact.mjs'
-import { lastBackupRecord, normalizeDigest, parseDeployLog } from './lib/vm.mjs'
+import { lastBackupRecord, lastOkBackup, normalizeDigest, parseDeployLog } from './lib/vm.mjs'
 
 describe('遮蔽（同 summarize-night.sh 規則＋IP）', () => {
   it.each([
@@ -121,6 +121,33 @@ describe('VM 紀錄解析', () => {
     ].join('\n')
     expect(lastBackupRecord(text)).toEqual({ at: 'b', ok: false })
     expect(lastBackupRecord('')).toBeNull()
+  })
+  it('上次成功（lastOk）：成功備份→失敗備份→成功 drill＋壞行，取第一筆成功備份的時間與大小', () => {
+    const text = [
+      JSON.stringify({ kind: 'backup', status: 'ok', started_at: '2026-10-11T02:59:00Z', finished_at: '2026-10-11T03:00:00Z', bytes: 1200 }),
+      JSON.stringify({ kind: 'backup', status: 'failed', finished_at: '2026-10-12T03:00:00Z', error: '取得 Doppler 秘密失敗' }),
+      JSON.stringify({ kind: 'drill', status: 'ok', finished_at: '2026-10-12T04:00:00Z', bytes: 9 }),
+      '{"kind":"backup","status":"ok"',
+    ].join('\n')
+    expect(lastOkBackup(text)).toEqual({ at: '2026-10-11T03:00:00Z', bytes: 1200 })
+    expect(JSON.stringify(lastOkBackup(text))).not.toContain('Doppler')
+  })
+  it('上次成功：finished_at 缺才用 started_at；bytes 不是非負整數就 null；時間格式不對的那筆不算', () => {
+    const ok = (r) => JSON.stringify({ kind: 'backup', status: 'ok', ...r })
+    expect(lastOkBackup(ok({ started_at: '2026-10-11T02:59:00Z', bytes: '12' }))).toEqual({ at: '2026-10-11T02:59:00Z', bytes: null })
+    expect(lastOkBackup(ok({ finished_at: '2026-10-11T03:00:00Z', bytes: 1.5 }))).toEqual({ at: '2026-10-11T03:00:00Z', bytes: null })
+    expect(lastOkBackup(ok({ finished_at: '2026-10-11T03:00:00Z', bytes: -1 }))).toEqual({ at: '2026-10-11T03:00:00Z', bytes: null })
+    const text = [ok({ finished_at: '2026-10-10T03:00:00Z', bytes: 7 }), ok({ finished_at: '昨天' }), ok({})].join('\n')
+    expect(lastOkBackup(text)).toEqual({ at: '2026-10-10T03:00:00Z', bytes: 7 })
+  })
+  it('上次成功：沒有任何成功備份（只有失敗與 drill、空檔、沒有檔）是 null', () => {
+    const text = [
+      JSON.stringify({ kind: 'backup', status: 'failed', finished_at: '2026-10-12T03:00:00Z' }),
+      JSON.stringify({ kind: 'drill', status: 'ok', finished_at: '2026-10-12T04:00:00Z' }),
+    ].join('\n')
+    expect(lastOkBackup(text)).toBeNull()
+    expect(lastOkBackup('')).toBeNull()
+    expect(lastOkBackup(null)).toBeNull()
   })
 })
 

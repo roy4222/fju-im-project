@@ -161,12 +161,17 @@ describe('AC-S-8 一輪收集的輸出', () => {
       mtime: new Date(NOW.getTime() - 3600e3).toISOString(),
     })
     expect(vmj.backups.prod.lastRecord).toEqual({ at: '2026-10-11T03:00:00Z', ok: true })
-    expect(vmj.backups.test).toEqual({ latest: null, offsiteDir: 'missing', lastRecord: null })
+    expect(vmj.backups.prod.lastOk).toEqual({ at: '2026-10-11T03:00:00Z', bytes: null })
+    expect(vmj.backups.test).toEqual({ latest: null, offsiteDir: 'missing', lastRecord: null, lastOk: null })
     expect(vmj.prodEnv.flags.BUSINESS_CLOCK_OVERRIDE_ENABLED).toBe('false')
     expect(vmj.prodEnvError).toBeNull()
     // 只回有沒有 A 記錄，不寫 IP
     expect(vmj.prodDns).toEqual({ host: 'fju.roy422.dev', hasA: true, checkedAt: NOW.toISOString() })
     expect(JSON.stringify(vmj)).not.toContain('203.0.113.7')
+    // 主機儲存：statfs 量 inbox 掛載點（baseConfig 沒注入 statfs，用真的 fs.statfs）
+    expect(vmj.disk).toMatchObject({ path: path.join(vm.fju, 'status', 'inbox'), checkedAt: NOW.toISOString() })
+    expect(vmj.disk.percent).toBeGreaterThanOrEqual(0)
+    expect(vmj.diskError).toBeNull()
 
     const idx = read('acceptance-index.json')
     expect(idx).toMatchObject({ runs: [], latestFullAttempt: null, requiredItems: ['security-static', 'story-1'], requiredItemsSourceSha: MAIN_SHA })
@@ -510,7 +515,7 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
     await rounds(cfg, 2)
     expect(Object.keys(read('github.json')).sort()).toEqual(['apiCalls', 'ci', 'fetchError', 'fetchedAt', 'generatedAt', 'healthCron', 'image', 'mainSha', 'prs'])
     expect(Object.keys(read('health.json')).sort()).toEqual(['accessGuard', 'generatedAt', 'prod', 'test'])
-    expect(Object.keys(read('vm.json')).sort()).toEqual(['backups', 'deploys', 'generatedAt', 'prodDns', 'prodEnv', 'prodEnvError'])
+    expect(Object.keys(read('vm.json')).sort()).toEqual(['backups', 'deploys', 'disk', 'diskError', 'generatedAt', 'prodDns', 'prodEnv', 'prodEnvError'])
     expect(Object.keys(read('acceptance-index.json')).sort()).toEqual(['generatedAt', 'latestFullAttempt', 'requiredItems', 'requiredItemsSourceSha', 'runs'])
     expect(Object.keys(read('collector.json')).sort()).toEqual(['generatedAt', 'sources'])
   })

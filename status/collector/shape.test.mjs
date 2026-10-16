@@ -94,12 +94,14 @@ describe('serializeChecked：寫檔前兩道把關（白名單投影 → 黑名�
     generatedAt: at,
     deploys: { test: [], prod: [] },
     backups: {
-      test: { latest: null, offsiteDir: 'missing', lastRecord: null },
-      prod: { latest: { name: 'a.dump', bytes: 1, mtime: at }, offsiteDir: 'ok', lastRecord: { at, ok: true } },
+      test: { latest: null, offsiteDir: 'missing', lastRecord: null, lastOk: null },
+      prod: { latest: { name: 'a.dump', bytes: 1, mtime: at }, offsiteDir: 'ok', lastRecord: { at, ok: true }, lastOk: { at, bytes: 1 } },
     },
     prodEnv: { site: 'prod', checkedAt: at, missing: [], forbiddenPresent: [], flags: { REGISTRATION_OPEN: 'absent', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false' } },
     prodEnvError: null,
     prodDns: { host: 'fju.roy422.dev', hasA: true, checkedAt: at },
+    disk: { path: '/srv/fju/status/inbox', totalBytes: 100, usedBytes: 62, availBytes: 38, percent: 62, checkedAt: at },
+    diskError: null,
   }
 
   it('白名單外的欄位不管在哪一層都不會進輸出（連鍵名沒有提示的值也一樣）', () => {

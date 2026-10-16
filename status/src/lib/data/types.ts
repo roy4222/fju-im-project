@@ -87,6 +87,11 @@ export type BackupInfo = {
   latest: { name: string; bytes: number; mtime: IsoTime } | null
   /** `records.jsonl` 最後一筆 */
   lastRecord: { at: IsoTime; ok: boolean } | null
+  /**
+   * `records.jsonl` 最後一筆**成功**備份（`kind:"backup"`、`status:"ok"`）；後面的失敗與 drill 不覆蓋。
+   * 沒有成功過是 null；舊版 collector 寫的 vm.json 沒有這欄（DV 設計方案 §7.2）。
+   */
+  lastOk?: { at: IsoTime; bytes: number | null } | null
 }
 
 /** `ops/status-envcheck.sh prod` 的輸出（只有鍵名與 false/absent/other，§3.8 G5）。 */
@@ -103,6 +108,21 @@ export type EnvCheck = {
 
 export type Site = 'test' | 'prod'
 
+/** `vm.json.disk`：statfs 量 inbox 掛載點所在的檔案系統（VM 根磁碟；DV 設計方案 §7.2）。 */
+export type DiskUsage = {
+  path: string
+  totalBytes: number
+  usedBytes: number
+  availBytes: number
+  /** round(used / (used + avail) × 100)，跟 `df` 的 Use% 一致 */
+  percent: number
+  /** 量成功的時間；本輪失敗時保留上次成功的值與時間 */
+  checkedAt: IsoTime
+}
+
+/** `vm.json.prodDns`：正式站網域有沒有 A 記錄（不寫 IP）。 */
+export type ProdDnsCheck = { host: string; hasA: boolean; checkedAt: IsoTime }
+
 /** `vm.json` */
 export type VmData = CollectorStamp & {
   /** 最後 5 筆，新到舊 */
@@ -110,6 +130,50 @@ export type VmData = CollectorStamp & {
   backups: Record<Site, BackupInfo>
   /** envcheck 結果原樣；還沒有任何結果是 null */
   prodEnv: EnvCheck | null
+  /** 下面三欄舊版 collector 沒寫，讀端要能吃沒有的情況。 */
+  prodDns?: ProdDnsCheck
+  /** 從沒量成功過是 null */
+  disk?: DiskUsage | null
+  /** 本輪 statfs 失敗的分類文字（`EACCES`、`statfs-failed`…）；不是 null 時 `disk` 是上次成功值，畫面標灰 */
+  diskError?: string | null
+}
+
+/** `metrics.json` 一個點（Gatus 一次檢查）。 */
+export type MetricsPoint = { at: IsoTime; ms: number; ok: boolean }
+
+/** `metrics.json.sites.<站>`：24h 窗口內的點（舊到新，≤ 288）與統計；窗口內 0 筆時三個統計是 null。 */
+export type SiteMetrics = {
+  /** 這站資料成功抓到的時間；本輪失敗時保留上次的值與時間 */
+  fetchedAt: IsoTime
+  /** 0～1 */
+  uptime24h: number | null
+  /** 0～1，Gatus uptimes/7d API 的數字 */
+  uptime7d: number
+  avgMs24h: number | null
+  failures24h: number | null
+  points: MetricsPoint[]
+}
+
+/** `metrics.json`（DV 設計方案 §7.3）：Gatus 兩站端點的回應時間與可用率。 */
+export type MetricsData = CollectorStamp & {
+  /** 本輪 Gatus 有沒有抓成功；false 時 `sites` 是上次成功值 */
+  gatusOk: boolean
+  error: string | null
+  /** 拿不到端點（且沒有上一版）的站是 null */
+  sites: Record<Site, SiteMetrics | null>
+}
+
+export type UsageRole = 'student' | 'teacher' | 'admin'
+
+/** `usage.json`（DV 設計方案 §7.5）：只有計數，沒有 ID、Email、名字。正式站上線前檔案不存在。 */
+export type UsageReport = CollectorStamp & {
+  site: Site
+  /** YYYY-MM-DD */
+  window: { from: string; to: string }
+  /** 最多 120 天 × 3 角色 */
+  daily: { day: string; role: UsageRole; activeUsers: number; events: number }[]
+  /** `action` 是 `audit_events.action` 代碼，白話名由 `lib/usage/actions.ts` 對照 */
+  actions: { action: string; role: UsageRole; count7d: number; count30d: number; countTerm: number }[]
 }
 
 /** run.json 的 item（`ops/acceptance-night.sh` write_run_json）。 */
@@ -339,6 +403,8 @@ export type DataFiles = {
   'github.json': GithubData
   'health.json': HealthData
   'vm.json': VmData
+  'metrics.json': MetricsData
+  'usage.json': UsageReport
   'acceptance-index.json': AcceptanceIndex
   'collector.json': CollectorStatus
   'repo/tickets.json': RepoCopy<TicketsFile>

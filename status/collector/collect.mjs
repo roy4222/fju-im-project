@@ -14,7 +14,7 @@
 //   STATUS_GATUS_URL（http://gatus:8080）、STATUS_HOSTS（四個網址，逗號或空白分隔，可只寫子網域名）、
 //   ACCESS_TEAM_DOMAIN（<team>.cloudflareaccess.com；沒設時接受任何 *.cloudflareaccess.com）、
 //   STATUS_GITHUB_REPO（roy4222/fju-im-project）、STATUS_HEALTH_URL_TEST／_PROD、STATUS_PROD_DNS_HOST、
-//   STATUS_HTTP_TIMEOUT_MS（15000）。STATUS_GITHUB_API／_RAW、STATUS_ACCESS_PROBE_TEMPLATE 只給測試換假上游。
+//   STATUS_HTTP_TIMEOUT_MS（15000）、STATUS_DISK_PATH（選用；主機儲存要 statfs 的路徑，沒設就量 STATUS_INBOX_DIR）。STATUS_GITHUB_API／_RAW、STATUS_ACCESS_PROBE_TEMPLATE 只給測試換假上游。
 import dns from 'node:dns'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -57,6 +57,8 @@ export function configFromEnv(env = process.env) {
     prodDnsHost: env.STATUS_PROD_DNS_HOST || 'fju.roy422.dev',
     resolve4: (host) => dns.promises.resolve4(host),
     timeoutMs: Number(env.STATUS_HTTP_TIMEOUT_MS) || 15000,
+    // 沒設是 null：lib/vm.mjs 用 ?? 退回 inboxDir。
+    diskPath: env.STATUS_DISK_PATH || null,
   }
 }
 
@@ -118,9 +120,10 @@ export async function runOnce(cfg, now = new Date()) {
     fail('health', err)
   }
 
-  // 4. VM 上的紀錄
+  // 4. VM 上的紀錄（上一版只用來在 statfs 失敗時沿用 disk）
   try {
-    const vm = await collectVm(cfg, now)
+    const prevVm = readJson(path.join(cfg.dataDir, 'vm.json')).value ?? null
+    const vm = await collectVm(cfg, now, prevVm)
     writeJsonChecked(cfg.dataDir, 'vm.json', { generatedAt: at, ...vm })
     ok('vm')
   } catch (err) {
