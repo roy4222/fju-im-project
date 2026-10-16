@@ -146,7 +146,7 @@ test('在非預設屆別編輯後按「專題事務」返回，仍停在那一�
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/${itemId}`)
   // 頁內左上角的返回連結（側欄也有一個「專題事務」，那個不帶屆別）。
-  await page.getByRole('main').getByRole('link', { name: '專題事務', exact: true }).click()
+  await page.getByRole('main').getByRole('link', { name: '公告與作業', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
   await expect(page.getByRole('navigation', { name: '選擇屆別' }).getByRole('link', { name: `第 44 屆 ${stamp}（${CODE}）`, exact: true })).toHaveAttribute(
     'aria-current',
