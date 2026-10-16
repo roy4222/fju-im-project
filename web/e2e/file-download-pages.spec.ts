@@ -1,5 +1,7 @@
+import fs from 'node:fs/promises'
 import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { PUBLIC_IMAGE_MAX_AGE_SECONDS } from '../src/application/ops/files'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -225,3 +227,347 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
   expect(await snapshot(await fetchFile(student, DOCUMENT, crypto.randomUUID()))).toEqual(strangerBefore)
   expect(await snapshot(await fetchFile(student, DOCUMENT, 'not-a-uuid'))).toEqual(strangerBefore)
 })
+
+/**
+ * V4（第 1 批訪客，設計方案 §3.4；AC-V18～V25、V35）：公開圖片讓瀏覽器快取，私有檔與非圖片檔絕不快取。
+ *
+ * 可快取＝訪客走同一條下載政策也放行（`publicRead`）**而且** `mime_detected` 是 PNG／JPEG。資料都走真的後台畫面建
+ * （海報、公告封面與附件、首頁大圖都是真的上傳），每一步都用 API 抓回應標頭核對：
+ * - 草稿海報、沒獎項的已發布海報、「本屆學生」公告的 PNG 附件、公開公告的 PDF 附件：`private, no-store`、沒有 ETag、
+ *   帶 `If-None-Match` 也照樣 200；
+ * - 有獎項的海報、公開公告的 PNG 封面、首頁現任大圖：`public, max-age=…, must-revalidate`＋強 ETag，帶 ETag 回 304；
+ * - 下架、換圖之後帶舊 ETag：先授權再看 ETag，拿到 401／303，不是 304。
+ * 304 與 HEAD 不漏檔案描述子：找出本機 app 程序（聽 BASE_URL 那個埠的程序），連打 50 次 304、20 次 HEAD 前後數它開著的檔。
+ */
+test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', () => {
+  const V4 = `${CODE}-V4`
+  const PUBLIC_CACHE = `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`
+  /** 1×1 的真 PNG（上傳收檔會看簽章，`mime_detected = image/png`）。 */
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+  /**
+   * 海報：真 PNG 後面補 512 KB（收檔只看簽章）。要大過串流一次讀的量：小檔一讀就到結尾、自己關檔，
+   * 304 沒取消串流也看不出漏檔案描述子，AC-V19 的 fd 檢查就沒有意義。
+   */
+  const BIG_PNG = Buffer.concat([PNG, Buffer.alloc(512 * 1024)])
+  /** 4×3 的真 PNG（首頁大圖）。 */
+  const HERO = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAD0lEQVR4nGNgME5DIJwcAIc5By0Ywt6kAAAAAElFTkSuQmCC', 'base64')
+
+  let posterId: string
+  let coverId: string
+  let publicPdfId: string
+  let publicItemId: string
+
+  async function storedFile(id: string) {
+    const row = (
+      await pool.query<{ checksum: string; mime_detected: string; storage_key: string }>(
+        'select checksum, mime_detected, storage_key from stored_files where id = $1',
+        [id],
+      )
+    ).rows[0]!
+    return row
+  }
+
+  /** 可快取：200 全檔、公開快取標頭、強 ETag＝checksum；其他下載標頭照舊。 */
+  async function expectPublic(response: APIResponse, id: string) {
+    const { checksum } = await storedFile(id)
+    const headers = response.headers()
+    expect(response.status()).toBe(200)
+    expect(headers['cache-control']).toBe(PUBLIC_CACHE)
+    expect(headers['etag']).toBe(`"${checksum}"`)
+    expect(headers['content-disposition']).toMatch(/^attachment;/)
+    expect(headers['x-content-type-options']).toBe('nosniff')
+    // CSP 與 c0f32bd 相同、跟私有下載同一套（V4 不動 CSP；AC-V18 依主腦 10/16 裁定在 A 改成這樣）。
+    // 路由自己設的 `default-src 'none'; sandbox` 會被 `proxy.ts` 蓋成全站 CSP（改版前就是如此），檔案回應的 CSP 加固另列 B 票。
+    const privateCsp = (await fetchFile(null, {}, crypto.randomUUID())).headers()['content-security-policy']
+    expect(headers['content-security-policy']?.replace(/'nonce-[^']+'/g, "'nonce-*'")).toBe(privateCsp?.replace(/'nonce-[^']+'/g, "'nonce-*'"))
+    expect(headers['x-file-checksum-sha256']).toBe(checksum)
+    expect(headers['content-length']).toBe(String((await response.body()).length))
+  }
+
+  /** 不可快取：`private, no-store`、沒有 ETag。 */
+  function expectPrivate(response: APIResponse, status: number) {
+    expect(response.status()).toBe(status)
+    expect(response.headers()['cache-control']).toBe('private, no-store')
+    expect(response.headers()['etag']).toBeUndefined()
+  }
+
+  /** 200 全檔但不可快取，帶 `If-None-Match` 也照樣 200 全檔（不看 ETag、不回 304）。 */
+  async function expectPrivateDownload(as: TestSession | null, id: string) {
+    const { checksum } = await storedFile(id)
+    for (const headers of [{}, { 'if-none-match': `"${checksum}"` }] as Record<string, string>[]) {
+      const response = await fetchFile(as, headers, id)
+      expectPrivate(response, 200)
+      expect(response.headers()['content-disposition']).toMatch(/^attachment;/)
+      expect(response.headers()['x-content-type-options']).toBe('nosniff')
+      expect(response.headers()['x-file-checksum-sha256']).toBe(checksum)
+      expect((await response.body()).length).toBeGreaterThan(0)
+    }
+  }
+
+  /** 完整編輯器發布一則公告（可帶封面與附件），回項目 ID。 */
+  async function publishItem(
+    page: Page,
+    input: { title: string; audience: 'public' | 'cohort_students'; cover?: Buffer; attachment?: { name: string; mimeType: string; buffer: Buffer } },
+  ): Promise<string> {
+    await asAdmin(page)
+    await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+    await page.locator('#ed-title').fill(input.title)
+    await page.locator('#ed-body').fill('V4 快取標頭的測試公告。')
+    await page.getByLabel('誰看得到').selectOption(input.audience)
+    if (input.cover) {
+      await page.locator('label', { hasText: '上傳封面' }).locator('input[type=file]').setInputFiles({ name: 'cover.png', mimeType: 'image/png', buffer: input.cover })
+      await expect(page.getByRole('img', { name: '封面預覽' })).toBeVisible()
+    }
+    if (input.attachment) {
+      await page.locator('label', { hasText: '加入附件' }).locator('input[type=file]').setInputFiles(input.attachment)
+      await expect(page.getByRole('list', { name: '附件' })).toContainText(input.attachment.name)
+    }
+    await page.getByRole('button', { name: '發布', exact: true }).click()
+    const check = page.getByRole('dialog', { name: '發布前檢查' })
+    await check.getByRole('button', { name: '確認發布' }).click()
+    await expect(check.getByRole('status')).toBeVisible()
+    await check.getByRole('button', { name: '繼續編輯' }).click()
+    await expect(page.getByTestId('item-status')).toHaveText('發布中')
+    return (await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, input.title])).rows[0]!.id
+  }
+
+  test.beforeAll(async () => {
+    await pool.query(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, 'G01', 'general', now(), now(), 'system')`,
+      [cohortId],
+    )
+  })
+
+  test('AC-V24：草稿海報只在草稿上 → 系辦拿得到但不可快取；沒獎項的已發布海報 → 學生拿得到但不可快取、訪客 401', async ({ page }) => {
+    await asAdmin(page)
+    await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
+    const create = page.getByRole('form', { name: '建立成果展示草稿' })
+    await create.getByLabel('組別').selectOption({ label: 'G01' })
+    await create.getByRole('button', { name: '建立草稿' }).click()
+    await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
+    const g01 = page.getByTestId('showcase-draft').filter({ hasText: 'G01' })
+    await g01.getByLabel('題目').fill(`${V4} 快取海報`)
+    await g01.getByLabel('摘要').fill('V4 測試用的作品。')
+    await g01.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: BIG_PNG })
+    await expect(g01.getByTestId('poster-name')).toContainText('poster.png')
+    await g01.getByRole('button', { name: '儲存草稿' }).click()
+    await expect(g01.getByRole('status')).toContainText('G01 的成果展示草稿已儲存')
+
+    const draft = (
+      await pool.query<{ entry_id: string; poster_file_id: string }>(
+        `select d.entry_id, d.poster_file_id from showcase_drafts d join showcase_entries e on e.id = d.entry_id where e.cohort_id = $1`,
+        [cohortId],
+      )
+    ).rows[0]!
+    posterId = draft.poster_file_id
+    expect((await storedFile(posterId)).mime_detected).toBe('image/png')
+    const admin = await sharedTestSession(page.request, 'admin')
+    // 草稿海報 D：系辦 200 不可快取；訪客 401。
+    await expectPrivateDownload(admin, posterId)
+    expectPrivate(await fetchFile(null, {}, posterId), 401)
+
+    // 發布（沒有獎項）→ 海報 U：登入的學生 200 不可快取；訪客 401。
+    await g01.getByLabel(/已取得這組同學同意公開/).check()
+    await g01.getByRole('button', { name: '發布', exact: true }).click()
+    await expect(g01.getByRole('group', { name: '公開' }).getByRole('status')).toContainText('已發布（第 1 版）')
+    expect(
+      (await pool.query('select v.poster_file_id from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.id = $1', [draft.entry_id]))
+        .rows[0]!.poster_file_id,
+    ).toBe(posterId)
+    await expectPrivateDownload(student, posterId)
+    expectPrivate(await fetchFile(null, {}, posterId), 401)
+  })
+
+  test('AC-V18、V23：有獎項的已發布海報 → 訪客與學生都拿到公開快取標頭與 ETag', async ({ page }) => {
+    await asAdmin(page)
+    await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
+    const awardForm = page.getByTestId('showcase-draft').filter({ hasText: 'G01' }).getByRole('form', { name: /的獎項/ })
+    await awardForm.getByLabel('獎項等級').selectOption('excellent')
+    await awardForm.getByLabel(/獎項名稱/).fill('V4 優秀專題')
+    await awardForm.getByRole('button', { name: '儲存獎項' }).click()
+    await expect(awardForm.getByRole('status')).toContainText('V4 優秀專題')
+
+    await expectPublic(await fetchFile(null, {}, posterId), posterId)
+    await expectPublic(await fetchFile(student, {}, posterId), posterId)
+  })
+
+  test('AC-V19：帶對的 ETag（含 W/ 與多值）回 304、沒有 body；帶錯的回 200 全檔；連打 50 次 304（＋20 次 HEAD）不漏檔案描述子', async () => {
+    const { checksum, storage_key } = await storedFile(posterId)
+    for (const ifNoneMatch of [`"${checksum}"`, `W/"${checksum}"`, `"x", "${checksum}"`]) {
+      const response = await fetchFile(null, { 'if-none-match': ifNoneMatch }, posterId)
+      expect(response.status(), ifNoneMatch).toBe(304)
+      expect(response.headers()['cache-control']).toBe(PUBLIC_CACHE)
+      expect(response.headers()['etag']).toBe(`"${checksum}"`)
+      expect(response.headers()['content-length']).toBeUndefined()
+      expect((await response.body()).length).toBe(0)
+    }
+    await expectPublic(await fetchFile(null, { 'if-none-match': '"not-this-one"' }, posterId), posterId)
+
+    const pid = await serverPid()
+    test.skip(pid === null, `找不到本機聽 ${BASE_URL} 的 app 程序（例如 app 在容器裡），fd 檢查只在本機 next start 上跑`)
+    const before = await openFiles(pid!)
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    for (let i = 0; i < 50; i++) {
+      const response = await context.get(`/api/files/${posterId}`, { headers: { 'if-none-match': `"${checksum}"` } })
+      expect(response.status()).toBe(304)
+    }
+    // HEAD 也一樣（Next 拿 GET 回 HEAD）：只有標頭、不漏檔案描述子。
+    for (let i = 0; i < 20; i++) {
+      const response = await context.head(`/api/files/${posterId}`)
+      expect(response.status()).toBe(200)
+      expect(response.headers()['cache-control']).toBe(PUBLIC_CACHE)
+    }
+    await context.dispose()
+    // 檔案描述子用 /proc/<pid>/fd 數（等同 `lsof -p <pid>`）：這張海報的本體一個都不該開著，開著的一般檔案總數也不增加。
+    await expect.poll(async () => (await openFiles(pid!)).filter((f) => f.endsWith(storage_key)).length).toBe(0)
+    const after = await openFiles(pid!)
+    expect(after.length, `打之前 ${before.length} 個、之後 ${after.length} 個`).toBeLessThanOrEqual(before.length)
+  })
+
+  test('AC-V21、V35：公開公告的 PNG 封面可快取；同一則的 PDF 附件不可快取；下架後封面帶舊 ETag 是 401 不是 304', async ({ page }) => {
+    publicItemId = await publishItem(page, {
+      title: `${V4} 公開公告`,
+      audience: 'public',
+      cover: PNG,
+      attachment: { name: '公開簡章.pdf', mimeType: 'application/pdf', buffer: PDF },
+    })
+    const item = (
+      await pool.query<{ cover_file_id: string }>(
+        'select v.cover_file_id from managed_items m join item_versions v on v.id = m.current_content_version_id where m.id = $1',
+        [publicItemId],
+      )
+    ).rows[0]!
+    coverId = item.cover_file_id
+    publicPdfId = (await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [publicItemId])).rows[0]!.file_id
+    expect((await storedFile(coverId)).mime_detected).toBe('image/png')
+    expect((await storedFile(publicPdfId)).mime_detected).toBe('application/pdf')
+
+    // AC-V35：訪客政策放行的 PDF，訪客與本屆學生各兩次（含帶 If-None-Match）都 200 全檔、不可快取。
+    await expectPrivateDownload(null, publicPdfId)
+    await expectPrivateDownload(student, publicPdfId)
+
+    // AC-V21：封面公開可快取；系辦下架後訪客帶舊 ETag → 401（不是 304），系辦仍拿得到但不可快取。
+    await expectPublic(await fetchFile(null, {}, coverId), coverId)
+    const etag = (await fetchFile(null, {}, coverId)).headers()['etag']!
+    await page.goto(`/dashboard/admin/editor/${publicItemId}`)
+    await page.getByRole('button', { name: '下架', exact: true }).click()
+    await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
+    await expect(page.getByTestId('item-status')).toHaveText('已下架')
+    for (const headers of [{}, { 'if-none-match': etag }] as Record<string, string>[]) expectPrivate(await fetchFile(null, headers, coverId), 401)
+    const navigation = await fetchFile(null, { ...DOCUMENT, 'if-none-match': etag }, coverId)
+    expect(navigation.status()).toBe(303)
+    expect(navigation.headers()['cache-control']).toBe('private, no-store')
+    await expectPrivateDownload(await sharedTestSession(page.request, 'admin'), coverId)
+  })
+
+  test('AC-V22：「本屆學生」公告的 PNG 附件 → 本屆學生拿得到但不可快取（是圖片也一樣）；訪客 401', async ({ page }) => {
+    const itemId = await publishItem(page, {
+      title: `${V4} 本屆學生公告`,
+      audience: 'cohort_students',
+      attachment: { name: '學生限定.png', mimeType: 'image/png', buffer: PNG },
+    })
+    const id = (await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [itemId])).rows[0]!.file_id
+    expect((await storedFile(id)).mime_detected).toBe('image/png')
+    await expectPrivateDownload(student, id)
+    expectPrivate(await fetchFile(null, {}, id), 401)
+  })
+
+  test('AC-V20：首頁大圖換圖前公開可快取；換圖後舊圖帶 ETag 是 401、document 是 303，新圖公開', async ({ page }) => {
+    // 首頁是全站共用的：只在後台上傳兩張圖（不按儲存，標語與說明都不動），用 owner 連線切 `hero_file_id`，
+    // 結束一定切回原值，把跟 `home-settings.spec` 重疊的時間壓到最短。
+    await asAdmin(page)
+    await page.goto('/dashboard/admin/home-settings')
+    const upload = async (name: string) => {
+      await page.getByLabel('選擇首頁大圖').setInputFiles({ name, mimeType: 'image/png', buffer: HERO })
+      await expect(page.getByTestId('hero-name')).toContainText(name)
+      let id = ''
+      await expect
+        .poll(async () => {
+          id = (await pool.query<{ id: string }>(`select id from stored_files where original_name = $1 and status = 'stored'`, [name])).rows[0]?.id ?? ''
+          return id
+        })
+        .not.toBe('')
+      return id
+    }
+    const f0 = await upload(`${V4}-hero-0.png`)
+    const f1 = await upload(`${V4}-hero-1.png`)
+    const admin = await sharedTestSession(page.request, 'admin')
+    const original = (await pool.query<{ hero_file_id: string | null }>('select hero_file_id from home_settings where id = 1')).rows[0]
+    const setHero = (id: string | null) =>
+      pool.query(
+        `insert into home_settings (id, hero_file_id, updated_by_user_id) values (1, $1, $2)
+         on conflict (id) do update set hero_file_id = excluded.hero_file_id`,
+        [id, admin.userId],
+      )
+    try {
+      await setHero(f0)
+      await expectPublic(await fetchFile(null, {}, f0), f0)
+      const etag = (await fetchFile(null, {}, f0)).headers()['etag']!
+      await setHero(f1)
+      for (const headers of [{}, { 'if-none-match': etag }] as Record<string, string>[]) expectPrivate(await fetchFile(null, headers, f0), 401)
+      const navigation = await fetchFile(null, { ...DOCUMENT, 'if-none-match': etag }, f0)
+      expect(navigation.status()).toBe(303)
+      expect(navigation.headers()['location']).toBe(`/login?next=${encodeURIComponent(`/api/files/${f0}`)}`)
+      expect(navigation.headers()['cache-control']).toContain('no-store')
+      await expectPublic(await fetchFile(null, {}, f1), f1)
+    } finally {
+      if (original) await pool.query('update home_settings set hero_file_id = $1 where id = 1', [original.hero_file_id])
+      else await pool.query('delete from home_settings where id = 1')
+    }
+  })
+
+  test('AC-V25：不存在的 UUID、不是 UUID：JSON 401／303 都 private, no-store、沒有 ETag', async () => {
+    for (const id of [crypto.randomUUID(), 'not-a-uuid']) {
+      const api = await fetchFile(null, {}, id)
+      expectPrivate(api, 401)
+      expect(await api.json()).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+      const navigation = await fetchFile(null, DOCUMENT, id)
+      expect(navigation.status()).toBe(303)
+      expect(navigation.headers()['cache-control']).toBe('private, no-store')
+      expect(navigation.headers()['etag']).toBeUndefined()
+    }
+  })
+})
+
+/**
+ * 本機 app 程序：聽 BASE_URL 那個埠的程序（讀 /proc/net/tcp* 找 LISTEN 的 socket inode，再對 /proc/<pid>/fd）。
+ * 也可以用 `E2E_SERVER_PID` 直接指定。不是 Linux、或 app 在容器裡（只看得到轉發的程序）就回 null。
+ */
+async function serverPid(): Promise<number | null> {
+  if (process.env.E2E_SERVER_PID) return Number(process.env.E2E_SERVER_PID)
+  const url = new URL(BASE_URL)
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
+  const inodes = new Set<string>()
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    const text = await fs.readFile(table, 'utf8').catch(() => '')
+    for (const line of text.split('\n').slice(1)) {
+      const cols = line.trim().split(/\s+/)
+      if (cols.length < 10 || cols[3] !== '0A') continue
+      if (parseInt(cols[1]!.split(':')[1]!, 16) === port) inodes.add(cols[9]!)
+    }
+  }
+  if (inodes.size === 0) return null
+  for (const entry of await fs.readdir('/proc').catch(() => [] as string[])) {
+    if (!/^\d+$/.test(entry)) continue
+    const fds = await fs.readdir(`/proc/${entry}/fd`).catch(() => [] as string[])
+    for (const fd of fds) {
+      const link = await fs.readlink(`/proc/${entry}/fd/${fd}`).catch(() => '')
+      const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1]
+      if (inode && inodes.has(inode)) {
+        // 只認跑 node 的程序（Caddy 之類的轉發程序不算）。
+        const cmdline = await fs.readFile(`/proc/${entry}/cmdline`, 'utf8').catch(() => '')
+        return /node|next/.test(cmdline) ? Number(entry) : null
+      }
+    }
+  }
+  return null
+}
+
+/** 程序開著的一般檔案（不含 socket、pipe、/dev）。 */
+async function openFiles(pid: number): Promise<string[]> {
+  const links = await Promise.all(
+    (await fs.readdir(`/proc/${pid}/fd`)).map((fd) => fs.readlink(`/proc/${pid}/fd/${fd}`).catch(() => '')),
+  )
+  return links.filter((l) => l.startsWith('/') && !l.startsWith('/dev/'))
+}

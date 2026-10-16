@@ -5,8 +5,9 @@ import path from 'node:path'
 import type { Pool, PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ANONYMOUS, rosterAccessDenied, type ResolvedActor } from '@/application/accounts'
-import type { UploadRules } from '@/application/ops'
+import { isCacheableDownload, type FileFacts, type FilePurpose, type UploadRules } from '@/application/ops'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
+import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 
@@ -406,5 +407,147 @@ describe('下載：每次重新授權（FIL-03）', () => {
     expect((await storage.upload(adminId, ticket.ticket, streamOf(CSV), CSV.length)).ok).toBe(true)
     await db.sql(`update stored_files set storage_key = '../../../etc/hosts' where id = $1`, [ticket.fileId])
     await expect(storage.authorizeDownload(actor(adminId, ['admin']), ticket.fileId)).rejects.toThrow(/根目錄/)
+  })
+})
+
+describe('publicRead：訪客走同一條政策也放行＝此刻對所有人公開（V4，設計方案 §3.4）', () => {
+  // 海報與公告附件的政策用假的，形狀照真的政策（poster-policy、attachment-policy）：
+  // 誰看得到只看「這個檔現在是哪一種」，真的資料關聯由各自的整合測試與 e2e 證明。首頁大圖用真的政策。
+  type Visibility = 'everyone' | 'members' | 'admins' | 'students'
+  const visibility = new Map<string, Visibility>()
+  const calls: { purpose: FilePurpose; actor: ResolvedActor; facts: FileFacts }[] = []
+  const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'))
+  let pngStorage: FsFileStorage
+
+  const byVisibility = (purpose: FilePurpose) => (a: ResolvedActor, f: FileFacts) => {
+    calls.push({ purpose, actor: a, facts: f })
+    const v = visibility.get(f.id)
+    if (v === 'everyone') return true
+    if (a.kind !== 'authenticated') return false
+    if (v === 'members') return true
+    if (v === 'students') return a.roles.includes('student') || a.roles.includes('admin')
+    return v === 'admins' && a.roles.includes('admin')
+  }
+
+  beforeAll(async () => {
+    const hero = createHeroPhotoPolicy(() => app)
+    pngStorage = new FsFileStorage({
+      root: () => root,
+      environmentMaxBytes: () => 100 * 1024 * 1024,
+      ticketSecret: () => SECRET,
+      policies: {
+        poster: byVisibility('poster'),
+        attachment: byVisibility('attachment'),
+        photo: (a, f) => {
+          calls.push({ purpose: 'photo', actor: a, facts: f })
+          return hero(a, f)
+        },
+      },
+      publicReadPurposes: ['photo'],
+      db: () => app,
+    })
+  })
+
+  async function storedPng(purpose: FilePurpose, name: string): Promise<string> {
+    const rules: UploadRules = { purpose, allowedTypes: ['png'], maxBytes: 1024, scope: { kind: 'global' } }
+    const issued = await pngStorage.issueUploadTicket(adminId, { fileName: name, declaredMime: 'image/png' }, rules)
+    if (!issued.ok) throw new Error(issued.message)
+    const uploaded = await pngStorage.upload(adminId, issued.receipt.ticket, streamOf(PNG), PNG.length)
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    return issued.receipt.fileId
+  }
+
+  async function download(who: ResolvedActor, fileId: string) {
+    calls.splice(0)
+    const result = await pngStorage.authorizeDownload(who, fileId)
+    if (!result.ok) return { result, calls: calls.splice(0) }
+    await result.receipt.body.cancel()
+    return { result, receipt: result.receipt, calls: calls.splice(0) }
+  }
+
+  const admin = () => actor(adminId, ['admin'])
+  const student = () => actor(studentId, ['student'])
+
+  it('海報：發布中有獎項的對所有人公開；沒獎項（只給登入者）與草稿（只給系辦）不是公開', async () => {
+    const award = await storedPng('poster', 'award.png')
+    const noAward = await storedPng('poster', 'no-award.png')
+    const draft = await storedPng('poster', 'draft.png')
+    visibility.set(award, 'everyone').set(noAward, 'members').set(draft, 'admins')
+
+    for (const who of [admin(), student()]) {
+      const got = await download(who, award)
+      expect(got.receipt).toMatchObject({ publicRead: true, mime: 'image/png' })
+      expect(isCacheableDownload(got.receipt!)).toBe(true)
+    }
+    const visitor = await download(ANONYMOUS, award)
+    expect(visitor.receipt).toMatchObject({ publicRead: true, mime: 'image/png' })
+
+    for (const who of [admin(), student()]) {
+      const got = await download(who, noAward)
+      expect(got.receipt?.publicRead).toBe(false)
+      expect(isCacheableDownload(got.receipt!)).toBe(false)
+    }
+    expect((await download(ANONYMOUS, noAward)).result).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+
+    const draftAdmin = await download(admin(), draft)
+    expect(draftAdmin.receipt?.publicRead).toBe(false)
+    expect((await download(student(), draft)).result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  it('公告附件：對象「公開訪客」的公開；對象「本屆學生」的（就算是 PNG）不是公開', async () => {
+    const publicCover = await storedPng('attachment', 'cover.png')
+    const studentOnly = await storedPng('attachment', 'students.png')
+    visibility.set(publicCover, 'everyone').set(studentOnly, 'students')
+
+    expect((await download(student(), publicCover)).receipt?.publicRead).toBe(true)
+    const privatePng = await download(student(), studentOnly)
+    expect(privatePng.receipt).toMatchObject({ publicRead: false, mime: 'image/png' })
+    expect(isCacheableDownload(privatePng.receipt!)).toBe(false)
+    expect((await download(admin(), studentOnly)).receipt?.publicRead).toBe(false)
+    expect((await download(ANONYMOUS, studentOnly)).result).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+  })
+
+  it('首頁大圖（真的政策）：現任那張公開；換圖後舊圖對誰都拿不到', async () => {
+    const current = await storedPng('photo', 'hero-now.png')
+    const old = await storedPng('photo', 'hero-old.png')
+    await db.sql(
+      `insert into home_settings (id, hero_file_id, updated_by_user_id) values (1, $1, $2)
+       on conflict (id) do update set hero_file_id = excluded.hero_file_id`,
+      [old, adminId],
+    )
+    expect((await download(ANONYMOUS, old)).receipt?.publicRead).toBe(true)
+    await db.sql('update home_settings set hero_file_id = $1 where id = 1', [current])
+
+    for (const who of [ANONYMOUS, admin(), student(), actor(studentId, ['student'], 'pending')]) {
+      expect((await download(who, current)).receipt?.publicRead).toBe(true)
+    }
+    expect((await download(ANONYMOUS, old)).result).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect((await download(admin(), old)).result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  it('登入者多問一次政策：以訪客身分、同一份檔案事實（不重查）；訪客與比照訪客的人不多問', async () => {
+    const award = await storedPng('poster', 'award-2.png')
+    visibility.set(award, 'everyone')
+
+    const loggedIn = await download(student(), award)
+    expect(loggedIn.calls.map((c) => c.actor.kind)).toEqual(['authenticated', 'anonymous'])
+    expect(loggedIn.calls[1]!.actor).toBe(ANONYMOUS)
+    expect(loggedIn.calls[1]!.facts).toBe(loggedIn.calls[0]!.facts)
+
+    expect((await download(ANONYMOUS, award)).calls).toHaveLength(1)
+
+    const hero = await storedPng('photo', 'hero-gated.png')
+    await db.sql('update home_settings set hero_file_id = $1 where id = 1', [hero])
+    const gated = await download(actor(studentId, ['student'], 'pending'), hero)
+    expect(gated.receipt?.publicRead).toBe(true)
+    expect(gated.calls.map((c) => c.actor)).toEqual([ANONYMOUS])
+  })
+
+  it('不放行的人不會被多問一次（拒絕路徑的查詢形狀不變）', async () => {
+    const draft = await storedPng('poster', 'draft-2.png')
+    visibility.set(draft, 'admins')
+    const denied = await download(student(), draft)
+    expect(denied.result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(denied.calls).toHaveLength(1)
   })
 })

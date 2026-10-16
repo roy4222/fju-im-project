@@ -362,6 +362,21 @@ export function contentDispositionFor(displayName: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
 }
 
+/**
+ * 公開圖片在瀏覽器快取的秒數（Q62 定案 5 分鐘）。可見性會變（下架、撤回、換圖、刪除），
+ * 所以只給瀏覽器短時間，過期後必須回來重新授權（`must-revalidate`）；伺服器端永遠不快取授權結果（契約 02 §8）。
+ */
+export const PUBLIC_IMAGE_MAX_AGE_SECONDS = 300
+
+/**
+ * 下載回應能不能讓瀏覽器快取：只有訪客也拿得到（`publicRead`）**而且**是 PNG／JPEG 圖片。
+ * `mime` 是上傳收檔時依驗證後的檔型寫入的 `mime_detected`（不是使用者宣告的），判不出來就是 octet-stream。
+ * 私有檔、公開的 PDF／Office／ZIP 一律不可快取。
+ */
+export function isCacheableDownload(d: Pick<FileDownload, 'publicRead' | 'mime'>): boolean {
+  return d.publicRead && (d.mime === 'image/png' || d.mime === 'image/jpeg')
+}
+
 /** 容量的顯示字（上限訊息、檔案管理列表）：全站同一套 KB／MB／GB，見 `shared/format-bytes.ts`。 */
 export { formatBytes }
 
@@ -427,6 +442,11 @@ export type FileDownload = {
   readonly sizeBytes: number
   readonly mime: string
   readonly checksum: string
+  /**
+   * 訪客（`ANONYMOUS`）走同一條政策也會放行＝這個檔此刻對所有人公開。
+   * 只表示「訪客也拿得到」，不等於可快取（見 `isCacheableDownload`）。
+   */
+  readonly publicRead: boolean
   readonly body: ReadableStream<Uint8Array>
 }
 

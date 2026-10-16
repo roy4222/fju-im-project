@@ -22,6 +22,7 @@ import {
   type DeclaredUpload,
   type DownloadPolicies,
   type FileDownload,
+  type FileFacts,
   type FilePurpose,
   type FileRef,
   type FileStorage,
@@ -395,18 +396,23 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     if (gatedToVisitor && !this.#options.publicReadPurposes!.includes(row.purpose)) return denied()
 
     const policy = this.#options.policies[row.purpose]
+    const facts: FileFacts = {
+      id: row.id,
+      purpose: row.purpose,
+      ownerUserId: row.owner_user_id,
+      scope: row.scope,
+      cohortId: row.cohort_id,
+      references: refs.rows.map((r) => ({ refType: r.ref_type, refId: r.ref_id })),
+    }
     const allowed =
       policy !== undefined &&
       // 狀態被擋的人以訪客身分問政策：角色、組別都帶不進去，只拿得到訪客也拿得到的檔。
-      (await policy(gatedToVisitor ? ANONYMOUS_ACTOR : actor, {
-        id: row.id,
-        purpose: row.purpose,
-        ownerUserId: row.owner_user_id,
-        scope: row.scope,
-        cohortId: row.cohort_id,
-        references: refs.rows.map((r) => ({ refType: r.ref_type, refId: r.ref_id })),
-      }))
+      (await policy(gatedToVisitor ? ANONYMOUS_ACTOR : actor, facts))
     if (!allowed) return denied()
+    // 這個檔此刻對所有人公開嗎（V4：可快取的前提之一）：訪客走同一條政策也放行才算。
+    // 訪客與比照訪客的人剛才問的就是訪客版，不必再問；登入者多問一次，用同一份事實、不重查檔案與引用。
+    // 不准用 `publicReadPurposes` 或用途名稱推論公開——那是「狀態被擋的人比照訪客」，不是「這些用途公開」。
+    const publicRead = anonymous || gatedToVisitor ? true : await policy(ANONYMOUS_ACTOR, facts)
 
     const fullPath = this.#resolve(row.storage_key)
     try {
@@ -422,6 +428,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
         sizeBytes: Number(row.size_bytes),
         mime: row.mime_detected ?? 'application/octet-stream',
         checksum: row.checksum ?? '',
+        publicRead,
         body,
       },
       meta(now),

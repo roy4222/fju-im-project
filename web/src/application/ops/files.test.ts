@@ -5,6 +5,8 @@ import {
   createContentInspector,
   effectiveMaxBytes,
   extensionOf,
+  isCacheableDownload,
+  PUBLIC_IMAGE_MAX_AGE_SECONDS,
   sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,
@@ -153,5 +155,38 @@ describe('檔名與路徑', () => {
     expect(tricky).not.toMatch(/[\r\n]/)
     expect(tricky.startsWith('attachment; filename="')).toBe(true)
     expect(tricky).toContain("filename*=UTF-8''")
+  })
+})
+
+describe('公開圖片可快取（V4，設計方案 §3.4）', () => {
+  it('只有訪客也拿得到的 PNG／JPEG 可快取', () => {
+    expect(isCacheableDownload({ publicRead: true, mime: 'image/png' })).toBe(true)
+    expect(isCacheableDownload({ publicRead: true, mime: 'image/jpeg' })).toBe(true)
+  })
+
+  it('公開但不是 PNG／JPEG 的檔（PDF、Office、ZIP、判不出型別）不快取', () => {
+    for (const mime of [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/zip',
+      'application/octet-stream',
+      'text/csv',
+      'image/gif',
+      'image/svg+xml',
+      'IMAGE/PNG',
+      '',
+    ]) {
+      expect(isCacheableDownload({ publicRead: true, mime }), mime).toBe(false)
+    }
+  })
+
+  it('私有檔就算是 PNG／JPEG 也不快取', () => {
+    expect(isCacheableDownload({ publicRead: false, mime: 'image/png' })).toBe(false)
+    expect(isCacheableDownload({ publicRead: false, mime: 'image/jpeg' })).toBe(false)
+    expect(isCacheableDownload({ publicRead: false, mime: 'application/pdf' })).toBe(false)
+  })
+
+  it('瀏覽器快取秒數是 5 分鐘（Q62 定案）', () => {
+    expect(PUBLIC_IMAGE_MAX_AGE_SECONDS).toBe(300)
   })
 })

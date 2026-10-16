@@ -64,6 +64,9 @@ export async function uploadFile(
 /** 下載用的 `Content-Disposition`（路由只能經 composition 拿到執行期的規則）。 */
 export { contentDispositionFor as contentDisposition } from '@/application/ops'
 
+/** 這個下載能不能讓瀏覽器快取、快取幾秒（V4：只有公開的 PNG／JPEG；路由不自己比對 MIME）。 */
+export { isCacheableDownload, PUBLIC_IMAGE_MAX_AGE_SECONDS } from '@/application/ops'
+
 /** `/api/files/[id]`：每次下載都重新認人、重新授權。 */
 export async function downloadFile(headers: Headers, fileId: string): Promise<Result<FileDownload>> {
   const actor = await resolveActor(headers)
