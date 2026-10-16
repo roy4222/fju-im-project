@@ -49,7 +49,7 @@ export default async function TimelinePage() {
       <PublicPage title="專題時程" description={data.cohortName ?? undefined} crumbs={[{ label: '專題時程' }]}>
         <div className="flex flex-col gap-8">
           {view ? <StageRail view={view} /> : <p className="text-sm text-muted-foreground">本屆時程還沒設定</p>}
-          <FullCalendar entries={entries} today={taipeiDateOf(data.now)} />
+          <FullCalendar entries={entries} today={taipeiDateOf(data.now)} perspective={data.perspective} />
         </div>
       </PublicPage>
     </SiteShell>

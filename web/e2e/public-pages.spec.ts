@@ -473,7 +473,6 @@ test('撤回（還沒有人作答）：回到草稿，學生打開網址看到�
 test('前台「專題時程」行事曆：屆別活動與收件截止（臺灣日期），只給老師的活動不出現', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/timeline')
-  await expect(page.getByRole('main')).not.toContainText(TEACHER_ACTIVITY)
 
   // 活動（現在＋3 天）與截止（現在＋20 天）可能跨月：各自翻到那個月（讀畫面上的年月再算差），驗右欄「M 月」清單。
   const calendar = page.getByTestId('student-calendar')
@@ -488,6 +487,8 @@ test('前台「專題時程」行事曆：屆別活動與收件截止（臺灣�
   }
   const activityDay = ymd(new Date(Date.now() + 3 * 86_400_000))
   await expect(await showMonth(activityDay)).toContainText(ACTIVITY)
+  // 老師活動跟 ACTIVITY 同一天：翻到那個月再驗，否則它本來就不在畫面上、否定斷言會空轉。
+  await expect(page.getByRole('main')).not.toContainText(TEACHER_ACTIVITY)
   const dueDay = ymd(due)
   const month = await showMonth(dueDay)
   await expect(month.getByRole('listitem').filter({ hasText: SUBMISSION })).toContainText('截止')

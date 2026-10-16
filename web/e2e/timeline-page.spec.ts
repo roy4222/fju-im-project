@@ -240,11 +240,12 @@ test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（�
   await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
   await expect(monthRow(calendar, aDay, ACTIVITY_A)).toContainText('活動')
   await expect(calendar.getByRole('button', { name: new RegExp(`^${aDay}`) }).locator('[data-tone="event"]')).toHaveCount(1)
+  // B 跟 A 同一天：在 A 那個月顯示中驗，否定斷言才不會空轉。
+  await expect(page.getByRole('main')).not.toContainText(ACTIVITY_B)
   const dDay = ymd(at(D_DAY))
   await showMonth(calendar, dDay)
   await expect(monthRow(calendar, dDay, ACTIVITY_D)).toContainText('已取消')
   await expect(calendar.getByRole('button', { name: new RegExp(`^${dDay}`) }).locator('[data-tone="canceled"]')).toHaveCount(1)
-  await expect(page.getByRole('main')).not.toContainText(ACTIVITY_B)
 
   // 截止：那個月的右欄有「期中報告」標「截止」；點那天，「這天的行程」只列當天。
   const dueDay = ymd(at(DUE_DAY))
@@ -288,11 +289,11 @@ test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的�
     await showMonth(calendar, aDay)
     await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
     await expect(monthRow(calendar, aDay, ACTIVITY_B)).toHaveCount(1)
-    // 沒有任何「截止」標籤（圖例的「截止」不算）：各月清單都沒有截止列、整頁沒有期中報告。
-    await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
+    // 沒有任何「截止」：圖例不列、截止那個月也沒有期中報告。
     const dueDay = ymd(at(DUE_DAY))
     await showMonth(calendar, dueDay)
-    await expect(calendar.getByRole('list', { name: monthLabel(dueDay), exact: true }).getByText('截止', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
+    await expect(calendar.getByText('截止', { exact: true })).toHaveCount(0)
   }
 })
 

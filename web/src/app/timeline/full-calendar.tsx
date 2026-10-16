@@ -10,6 +10,7 @@ import {
   shiftMonth,
   type CalendarEntry,
   type CalendarTone,
+  type Perspective,
   type YearMonth,
 } from '@/app/timeline/calendar-model'
 import { cn } from '@/shared/cn'
@@ -55,7 +56,16 @@ function EntryRow({ entry, withDate }: { entry: CalendarEntry; withDate: boolean
   )
 }
 
-export function FullCalendar({ entries, today }: { entries: readonly CalendarEntry[]; today: TaipeiDate }) {
+/** 老師／系辦視角沒有截止資料（Q125），圖例也不列「截止」。 */
+export function FullCalendar({
+  entries,
+  today,
+  perspective,
+}: {
+  entries: readonly CalendarEntry[]
+  today: TaipeiDate
+  perspective: Perspective
+}) {
   const [view, setView] = useState<YearMonth>(() => monthOf(today))
   const [picked, setPicked] = useState<TaipeiDate | null>(null)
 
@@ -129,10 +139,12 @@ export function FullCalendar({ entries, today }: { entries: readonly CalendarEnt
           })}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border/70 pt-3 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-primary" />
-            截止
-          </span>
+          {perspective === 'student' ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-primary" />
+              截止
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-ink" />
             活動
