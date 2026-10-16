@@ -60,7 +60,7 @@ function Card({ e }: { e: TeacherQueueEntry }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="tabular text-[11px] text-muted-foreground">{cohortLabel({ name: e.cohortName, code: e.cohortCode })}</p>
+          <p className="tabular truncate text-[11px] text-muted-foreground">{cohortLabel({ name: e.cohortName, code: e.cohortCode })}</p>
           <h2 className="tabular mt-0.5 truncate text-[17px] leading-snug font-extrabold text-foreground">{title}</h2>
         </div>
         <span className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -74,16 +74,16 @@ function Card({ e }: { e: TeacherQueueEntry }) {
           )}
         </span>
       </div>
-      <div className="mt-auto flex items-end justify-between gap-3 text-[13px] text-muted-foreground">
+      <div className="mt-auto flex flex-wrap items-end justify-between gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
         {status === 'submitted' && e.finalScore !== null ? (
-          <span className="tabular">
+          <span className="tabular whitespace-nowrap">
             <span className="text-[22px] leading-none font-extrabold text-foreground">{e.finalScore}</span> 分
           </span>
         ) : (
           <span>{status === 'draft' ? '繼續評分' : '開始評分'}</span>
         )}
         {status === 'submitted' && e.submittedAt ? (
-          <span className="tabular inline-flex items-center gap-1">
+          <span className="tabular inline-flex items-center gap-1 whitespace-nowrap text-xs">
             <IconClock className="size-3.5" aria-hidden />
             {`${formatTaipeiMinute(e.submittedAt)} 送出`}
           </span>
