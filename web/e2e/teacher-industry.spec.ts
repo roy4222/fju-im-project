@@ -115,3 +115,24 @@ test('系辦新建合作案後不重新載入，同一列下架、重新發布�
   await signIn(page, admin)
   await createThenToggle(page, '/dashboard/admin/industry', `系辦連按${stamp}`, teacher.userId)
 })
+
+/**
+ * 老師規格 TE-08（Q81）：說明句、對話框提示不再叫老師「去找系辦」；只有被擋下的錯誤訊息可以留（AC-TE-31）。
+ * 主內容區（含還沒打開的新增、發布、下架對話框）的文字都掃一遍；頁面一開始沒有被擋訊息，所以一句都不該有。
+ * 「只有你與系辦看得到」是誰看得到的說明，不是叫人去找系辦，不在這裡擋。
+ */
+test('老師的合作案頁與對話框沒有「請洽系辦」這類說明句（AC-TE-31）', async ({ page }) => {
+  await signIn(page, teacher)
+  await page.goto('/dashboard/teacher/industry')
+  const dialog = page.getByRole('dialog', { name: '新增合作案' })
+  await expect(async () => {
+    if (!(await dialog.isVisible())) await page.getByRole('button', { name: '新增合作案' }).click()
+    await expect(dialog).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await expect(dialog.getByText('只有我與系辦', { exact: true })).toBeVisible()
+
+  // 只掃主內容區：body 的 textContent 會連 <script> 裡的 RSC 資料（前台頁尾那句聯絡資訊）一起算進來。
+  const text = (await page.locator('main').textContent()) ?? ''
+  expect(text).toContain('專題／合作內容') // 對話框裡的表單也掃到了
+  expect(text).not.toMatch(/洽系辦|系辦退回|交系辦|聯絡系辦/)
+})
