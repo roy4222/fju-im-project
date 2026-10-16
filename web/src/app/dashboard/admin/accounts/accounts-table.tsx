@@ -34,7 +34,7 @@ const BUTTON =
 const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
 
 // 網站問題 #7（AD-11）：拿掉表格最小寬度，次要欄（系級、建立）窄螢幕先藏，操作欄貼右邊；1280 寬整張放得下、不用橫捲。
-const WIDE_ONLY = 'hidden 2xl:table-cell'
+const WIDE_ONLY = 'hidden min-[1800px]:table-cell'
 const STICKY_CELL = 'sticky right-0 bg-card shadow-[-1px_0_0_var(--color-border)]'
 
 export type SortHeader = { readonly href: string; readonly active: 'asc' | 'desc' | null }
@@ -236,19 +236,29 @@ export function AccountsTable(props: AccountsTableProps) {
                     )}
                     data-initial={r.name.slice(0, 1)}
                   >
-                    {r.name}
+                    {/* 長名字截斷、滑過看全名，不把整張表撐寬（#7）。 */}
+                    <span className="inline-block max-w-[6rem] truncate align-middle 2xl:max-w-[10rem]" title={r.name}>
+                      {r.name}
+                    </span>
                   </td>
                   <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{r.studentNo ?? '—'}</td>
                   <td className={cn(DT.td, WIDE_ONLY, 'whitespace-nowrap')}>{r.departmentClass || '—'}</td>
-                  <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{cohortText(r)}</td>
-                  <td className={cn(DT.td, 'max-w-[14rem] truncate text-muted-foreground')} title={r.loginEmail}>
-                    {r.loginEmail}
+                  <td className={cn(DT.td, 'tabular whitespace-nowrap')}>
+                    <span className="block max-w-[7rem] truncate" title={cohortText(r)}>
+                      {cohortText(r)}
+                    </span>
+                  </td>
+                  <td className={cn(DT.td, 'text-muted-foreground')}>
+                    <span className="block max-w-[9rem] truncate 2xl:max-w-[14rem]" title={r.loginEmail}>
+                      {r.loginEmail}
+                    </span>
                   </td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>
                     {r.roles.length > 0 ? r.roles.map((role) => roleLabel[role]).join('、') : '—'}
                   </td>
                   <td className={cn(DT.td, 'whitespace-nowrap')}>
-                    <span className="flex items-center gap-2">
+                    {/* 狀態與附註上下排，窄螢幕不把欄撐寬（#7）。 */}
+                    <span className="flex flex-col items-start gap-0.5 2xl:flex-row 2xl:items-center 2xl:gap-2">
                       <Pill tone={STATUS_TONE[r.status]}>{statusLabel[r.status]}</Pill>
                       {r.status === 'pending' && r.applicationState === 'rejected' ? (
                         <span className="text-xs text-muted-foreground">已退回</span>
@@ -289,7 +299,7 @@ export function AccountsTable(props: AccountsTableProps) {
                       ) : null}
                       {r.userId !== currentUserId ? <RowMoreMenu row={r} roleLabel={roleLabel} /> : null}
                       {r.status === 'pending' && r.applicationState === 'pending' ? (
-                        <span className="text-xs text-muted-foreground">在上方待審核清單審核</span>
+                        <span className="sr-only text-xs text-muted-foreground 2xl:not-sr-only">在上方待審核清單審核</span>
                       ) : null}
                     </span>
                   </td>
