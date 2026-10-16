@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-10-12T09:00:00+08:00",
+  "sources": {
+    "github": {
+      "ok": true,
+      "at": "2026-10-12T09:00:00+08:00",
+      "error": null
+    },
+    "repo": {
+      "ok": true,
+      "at": "2026-10-12T09:00:00+08:00",
+      "error": null
+    },
+    "health": {
+      "ok": true,
+      "at": "2026-10-12T09:00:00+08:00",
+      "error": null
+    },
+    "vm": {
+      "ok": true,
+      "at": "2026-10-12T09:00:00+08:00",
+      "error": null
+    },
+    "acceptance": {
+      "ok": true,
+      "at": "2026-10-12T09:00:00+08:00",
+      "error": null
+    }
+  }
+}
