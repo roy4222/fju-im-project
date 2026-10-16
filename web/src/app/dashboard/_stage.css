@@ -1,0 +1,17 @@
+/* ==========================================================================
+   「現在」橫幅（_stage.tsx 的 HomeHero；共用規格 §3.4）。由 _stage.tsx import。
+
+   從 globals.css 搬過來（SH-4）：系網深藍底＋兩個藍圓。顏色只讀 SH-2 的 --hero-* token（淺深兩套在
+   globals.css 的 :root／.dark），這裡不寫色值（Roy：不改色）。
+   子元素一律疊在藍圓上面（z-index 1）；有像素拖尾時 hero-trail.css 把拖尾放 1、其他提到 2。
+   ========================================================================== */
+@layer components {
+  .hero { position: relative; overflow: hidden; border-radius: 22px; background: var(--hero-bg); color: var(--hero-fg); box-shadow: inset 0 0 0 1px var(--hero-ring); }
+  .hero::before { content: ''; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 9999px; background: var(--hero-dot); opacity: var(--hero-dot-opacity); }
+  .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: var(--hero-dot-2); opacity: calc(var(--hero-dot-opacity) - 0.1); }
+  .hero > * { position: relative; z-index: 1; }
+
+  /* 「看完整時程」白膠囊（底色＝橫幅字色 --hero-fg，白）：淺色字是深藍 --ink；深色模式 --ink 變淺，改用同樣是深藍的 --ink-foreground。 */
+  .hero-pill { background: var(--hero-fg); color: var(--ink); }
+  .dark .hero-pill { color: var(--ink-foreground); }
+}

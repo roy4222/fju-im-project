@@ -523,13 +523,6 @@
   .dash-nav-active, .dash-nav-active:hover { background: oklch(0.93 0.035 253); color: var(--ink); }
   .dash-nav-active svg { color: var(--ink); }
 
-  /* 歡迎色塊：系網深藍滿版＋兩個淡藍大圓 */
-  /* 顏色全讀 --hero-* token（深淺兩套在 :root／.dark），這段規則本身之後由 SH-4 搬進 _stage.css。 */
-  .hero { position: relative; overflow: hidden; border-radius: 22px; background: var(--hero-bg); color: var(--hero-fg); box-shadow: inset 0 0 0 1px var(--hero-ring); }
-  .hero::before { content: ''; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 9999px; background: var(--hero-dot); opacity: var(--hero-dot-opacity); }
-  .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: var(--hero-dot-2); opacity: calc(var(--hero-dot-opacity) - 0.1); }
-  .hero > * { position: relative; z-index: 1; }
-
   /* 首頁色塊卡（原型 home-widgets，2026-09-25 對齊）：淡色底，只用在原型用到的地方——
      學生行事曆（sky）、老師的可認領產學組（mint）與同意書（lilac）、「接下來」的天數方塊。其他地方不要拿來裝飾。 */
   .tint { --tint: oklch(0.7 0.1 250); background: color-mix(in oklch, var(--tint) 16%, var(--card)); border-color: color-mix(in oklch, var(--tint) 28%, var(--card)); }
