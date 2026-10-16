@@ -1,6 +1,7 @@
 import Link from 'next/link'
-import type { ReactNode } from 'react'
-import { IconArrowRight } from '@tabler/icons-react'
+import { isValidElement, type ReactNode } from 'react'
+import { IconArrowRight, IconCalendarEvent } from '@tabler/icons-react'
+import { HeroTrail } from '@/app/_ui/fx/hero-trail'
 import type { ResolvedActor } from '@/application/accounts'
 import type { Cohort, CohortSchedule, StagePosition } from '@/application/cohorts'
 import {
@@ -9,21 +10,21 @@ import {
   getBusinessClockQuery,
   getCohortStatusQuery,
   getTimelineQuery,
-  stageLastDate,
   stagePositionAt,
 } from '@/composition/cohorts'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, formatTaipeiMinute, taipeiDateOf, type TaipeiDate } from '@/shared/time'
+import './_stage.css'
 
 /**
- * 三角色首頁頂端的歡迎色塊＋「現在階段」（票 11；S02-05；外觀 2026-09-25 對齊原型 `HeroWelcome`）。
+ * 三角色首頁頂端的「現在」橫幅（票 11；S02-05；2026-10-16 共用 SH-4 照原型 v4 重寫）。
  *
  * 階段文案固定三態：尚未開始／階段 n：名稱／年度階段已結束（沒設階段時說「尚未設定階段」）。
  * 用業務鐘算：測試站把模擬鐘推開，三個角色的首頁一起變。
  * 只講時間，不講誰做完了什麼——進入期中不代表已交期中報告（產品模組 02 §4）。
  *
  * 看哪一屆：學生看自己所屬的屆別；老師與管理員看預設工作屆別（切換屆別在後面的票）。
- * 外觀是原型的深藍歡迎色塊（`.hero`）；橘色只給主要動作、「下一步」與目前這一段。
+ * 外觀是原型的深藍橫幅（`.hero`，樣式在 `_stage.css`）；橘色只給主要動作與目前這一段。
  */
 
 export type StageContext = {
@@ -97,189 +98,164 @@ export function cohortProgress(ctx: StageContext): number | null {
   return Math.max(0, Math.min(100, Math.round((done / total) * 100)))
 }
 
-/** 「現在是『階段 2：期中』。」這一句裡的階段字（e2e 用 `stage-text` 斷言）。 */
-function StageSentence({ ctx, perspective }: { ctx: StageContext; perspective: 'student' | 'staff' }) {
+/** 職員視角沒有預設屆別時的那一句（AC-SH-68：不再叫人去「屆別」頁，側欄已經沒有那一項）。 */
+const NO_COHORT = {
+  student: '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。',
+  staff: '還沒有設定後台預設查看的屆別。',
+} as const
+
+/**
+ * 橫幅的大字：現在在哪一段（e2e 用 `stage-text` 斷言，內容是 `describeStagePosition` 的字，例如「階段 2：期中」）。
+ * 還沒有屆別或沒排階段時改成一句說明，字小一號。`text` 是角色頁自己給的字（`stage` prop），沒給就從業務鐘算。
+ */
+function StageSentence({ ctx, perspective, text }: { ctx: StageContext; perspective: 'student' | 'staff'; text?: string }) {
   if (!ctx.cohort || !ctx.position) {
-    return <>{perspective === 'student' ? '你還沒有歸屬的屆別；帳號核准並歸到某一屆之後，這裡會顯示現在的階段。' : '還沒有設定後台預設查看的屆別；到「屆別」頁指定後，這裡會顯示現在的階段。'}</>
+    return <p className="mt-2 max-w-[40ch] text-[18px] leading-snug font-bold md:text-[20px]">{NO_COHORT[perspective]}</p>
   }
+  return (
+    <p className="mt-2 text-[32px] leading-tight font-black tracking-tight break-keep md:text-[40px]">
+      <span className="text-primary" data-testid="stage-text">
+        {text ?? describeStagePosition(ctx.position)}
+      </span>
+    </p>
+  )
+}
+
+/** 大字下面那行：這一段的日期與剩幾天；尚未開始時說第 1 階段哪天開始。`daysLeft` 是 null 就不寫天數。 */
+function stageDetail(ctx: StageContext, daysLeft: number | null): string | null {
   const p = ctx.position
+  const days = daysLeft === null ? null : daysLeft === 0 ? '今天是最後一天' : `還有 ${daysLeft} 天`
+  if (p?.kind === 'in_stage') {
+    const start = ctx.schedule?.stages.find((s) => s.seq === p.seq)?.startDate
+    const range = start ? `${formatTaipeiDate(start).slice(5)} – ${formatTaipeiDate(p.lastDate).slice(5)}` : null
+    return [range, days].filter(Boolean).join('・') || null
+  }
+  if (p?.kind === 'not_started') return `第 1 階段 ${formatTaipeiDate(p.firstStartDate).slice(5)} 開始`
+  return days
+}
+
+/** 這一段還剩幾天（最後一天是 0）；不在某一段裡就是 null。 */
+function daysLeftOf(ctx: StageContext): number | null {
+  return ctx.position?.kind === 'in_stage' ? daysBetween(ctx.today, ctx.position.lastDate) : null
+}
+
+/** @deprecated SH-4 起橫幅不畫小格，傳了也不會顯示；三角色首頁改完後刪。 */
+export type HeroChip = { label: string; value: string; href: string; hot?: boolean; testId?: string }
+export type HeroNext = { title: string; due: string; href: string; label: string }
+
+function isHeroNext(next: HeroNext | ReactNode): next is HeroNext {
+  return typeof next === 'object' && next !== null && !isValidElement(next) && typeof (next as { href?: unknown }).href === 'string'
+}
+
+/** 右欄白卡：學生是「下一件要交的」，職員是「下一步」；角色頁要別的樣子就直接傳 ReactNode。 */
+function NextCard({ next, perspective }: { next: HeroNext; perspective: 'student' | 'staff' }) {
   return (
     <>
-      現在是「<span data-testid="stage-text">{describeStagePosition(p)}</span>」
-      {p.kind === 'in_stage' ? `，到 ${formatTaipeiDate(p.lastDate).slice(5)}` : p.kind === 'not_started' ? `，第 1 階段 ${formatTaipeiDate(p.firstStartDate).slice(5)} 開始` : ''}。
+      <p className="text-[12px] font-bold tracking-[0.06em] text-primary-on-subtle">{perspective === 'student' ? '下一件要交的' : '下一步'}</p>
+      <p className="mt-1.5 text-[18px] leading-snug font-extrabold">{next.title}</p>
+      <p className="mt-2 flex items-center gap-1.5 text-[14px] text-muted-foreground tabular-nums">
+        <IconCalendarEvent className="size-4 shrink-0" aria-hidden />
+        {next.due}
+      </p>
+      <Link href={next.href} className="btn-fju mt-4 h-11 rounded-lg px-5 text-[14px] max-sm:w-full">
+        {next.label}
+        <IconArrowRight className="size-4" aria-hidden />
+      </Link>
     </>
   )
 }
 
-export type HeroChip = { label: string; value: string; href: string; hot?: boolean; testId?: string }
-export type HeroNext = { title: string; due: string; href: string; label: string }
-
 /**
- * 歡迎色塊。`compact`＝管理員版（一列、不放插圖，原型 home-admin：別讓歡迎語把待處理推下去）。
- * 學生版多一條「本屆階段」（四段，現在這段是橘色）；老師版是本屆進度條。
+ * 三角色首頁頂端的「現在」橫幅（共用 SH-4；原型 v4 home-student／home-teacher-v2）。
+ * 左欄：歡迎（h1）、小字「現在」＋角色自己的一句、大字階段、日期與剩幾天、「看完整時程」＋主要動作（只一顆）。
+ * 右欄：`next` 白卡（`hero-next`）；沒有 `next` 時左欄佔滿。
+ * `trail`（學生、老師）在橫幅底下掛金屬像素拖尾；手機、觸控、減少動態不載入。
+ * 舊版的進度條、階段四格、小格、插圖、compact 都拿掉了：那幾個 props 只為了三角色首頁還沒改前能編譯，傳了會被忽略。
  */
 export function HomeHero({
   ctx,
   perspective,
   name,
   line,
+  stage,
   cta,
-  chips,
+  timelineHref,
   next,
-  icon,
-  showStages = false,
-  showProgress = false,
-  compact = false,
+  trail = false,
 }: {
   ctx: StageContext
   perspective: 'student' | 'staff'
   name: string
-  line?: string
-  cta?: { href: string; label: string }
+  /** 「現在」旁邊角色自己的一句，例如「還有 2 件作業要交」。 */
+  line: ReactNode
+  /** 大字與天數改用角色頁給的；沒給就從 `ctx` 算。 */
+  stage?: { text: string; daysLeft: number | null }
+  /** 主要動作，整個橫幅只有這一顆。 */
+  cta?: { label: string; href: string }
+  /** 「看完整時程」連到哪；沒給就不顯示。 */
+  timelineHref?: string
+  next?: HeroNext | ReactNode
+  trail?: boolean
+  /** @deprecated 傳了會被忽略 */
   chips?: readonly HeroChip[]
-  next?: HeroNext
+  /** @deprecated 傳了會被忽略 */
   icon?: ReactNode
+  /** @deprecated 傳了會被忽略 */
   showStages?: boolean
+  /** @deprecated 傳了會被忽略 */
   showProgress?: boolean
+  /** @deprecated 傳了會被忽略 */
   compact?: boolean
 }) {
   const eyebrow = [heroDate(ctx.today), ctx.cohort ? cohortLabel(ctx.cohort) : null].filter(Boolean).join('・')
   // 測試站撥過模擬鐘時註明（短，免得手機上換行）。
   const simulated = ctx.simulated ? `・模擬鐘 ${formatTaipeiMinute(ctx.businessNow).slice(5)}` : ''
-  const ctaLink = cta ? (
-    <Link href={cta.href} className="btn-fju h-10 shrink-0 rounded-xl px-4 text-[14px]">
-      {cta.label}
-      <IconArrowRight className="size-4" aria-hidden />
-    </Link>
-  ) : null
-
-  if (compact) {
-    return (
-      <section aria-label="現在階段" className="hero flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-5">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-white/75 tabular-nums">
-            {eyebrow}
-            {simulated}
-          </p>
-          <h1 className="mt-1 text-[22px] leading-tight font-extrabold tracking-tight">歡迎回來，{name}</h1>
-          <p className="mt-0.5 text-[13px] text-white/85">
-            <StageSentence ctx={ctx} perspective={perspective} />
-            {line}
-          </p>
-        </div>
-        {ctaLink}
-      </section>
-    )
-  }
-
-  const progress = showProgress ? cohortProgress(ctx) : null
-  const schedule = ctx.schedule
-  const currentSeq = ctx.position?.kind === 'in_stage' ? ctx.position.seq : null
+  const detail = ctx.cohort && ctx.position ? stageDetail(ctx, stage ? stage.daysLeft : daysLeftOf(ctx)) : null
+  const hasNext = next !== undefined && next !== null && next !== false
 
   return (
-    <section aria-label="現在階段" className="hero flex min-h-[220px] items-stretch">
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-5 p-6 md:p-7">
-        <div>
-          <p className="text-[13px] font-semibold text-white/75 tabular-nums">
+    <section aria-label="現在階段" className="hero">
+      {trail ? <HeroTrail /> : null}
+      <div className={cn('grid gap-6 p-6 md:p-8', hasNext && 'md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center')}>
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-bold text-white/85">歡迎回來，{name}</h1>
+          <p className="mt-0.5 text-[12px] font-semibold text-white/70 tabular-nums">
             {eyebrow}
             {simulated}
           </p>
-          <h1 className="mt-2 text-[28px] leading-tight font-extrabold tracking-tight md:text-[32px]">歡迎回來，{name}</h1>
-          <p className="mt-2 max-w-[46ch] text-[15px] text-white/85">
-            <StageSentence ctx={ctx} perspective={perspective} />
-            {line}
+          <p className="mt-5 text-[14px] font-bold">
+            現在
+            <span aria-hidden className="mx-3 inline-block h-px w-10 bg-white/70 align-middle" />
+            {line ? <span className="font-semibold text-white/85">{line}</span> : null}
           </p>
-        </div>
-
-        {next ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-white/10 px-4 py-3" data-testid="hero-next">
-            <div className="min-w-0 flex-1 basis-[14rem]">
-              <p className="text-[11px] font-bold tracking-[0.06em] text-primary">下一步</p>
-              <p className="truncate text-[15px] font-bold">{next.title}</p>
-              <p className="text-[13px] text-white/80 tabular-nums">{next.due}</p>
-            </div>
-            <Link href={next.href} className="btn-fju h-11 rounded-lg px-5 text-[14px] max-sm:w-full">
-              {next.label}
-              <IconArrowRight className="size-4" aria-hidden />
-            </Link>
-          </div>
-        ) : null}
-
-        {progress !== null || cta ? (
-          <div className="flex flex-wrap items-center gap-4">
-            {progress !== null ? (
-              <div className="min-w-[220px] flex-1">
-                <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-white/80">
-                  <span>{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆進度</span>
-                  <span className="text-[15px] font-extrabold text-white tabular-nums">{progress}%</span>
-                </div>
-                {/* 進度條用 SVG 屬性畫寬度：正式站 CSP 不收 style 屬性。 */}
-                <svg className="block h-2.5 w-full" role="img" aria-label={`本屆進度 ${progress}%`}>
-                  <rect width="100%" height="100%" rx="5" fill="rgb(255 255 255 / 0.18)" />
-                  <rect width={`${Math.max(progress, 2)}%`} height="100%" rx="5" fill="var(--primary)" />
-                </svg>
-              </div>
-            ) : null}
-            {ctaLink}
-          </div>
-        ) : null}
-
-        {showStages && schedule?.yearEndDate && schedule.stages.length > 0 ? (
-          // 欄數看這一欄自己的寬度（container query），不看視窗：1280 寬時旁邊還有右欄，這一欄其實很窄（N-07）。
-          <div className="@container">
-            <p className="mb-1.5 text-[12px] font-semibold text-white/80">{ctx.cohort ? `${cohortLabel(ctx.cohort)} ` : ''}本屆階段</p>
-            <ol aria-label="本屆階段" className="grid grid-cols-2 gap-2 @xl:grid-cols-4">
-              {schedule.stages.map((stage, index) => (
-                <li
-                  key={stage.seq}
-                  aria-current={stage.seq === currentSeq ? 'step' : undefined}
-                  className={cn(
-                    'rounded-xl px-3 py-2 text-[13px] leading-snug',
-                    stage.seq === currentSeq ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white/90',
-                  )}
+          <StageSentence ctx={ctx} perspective={perspective} text={stage?.text} />
+          {detail ? <p className="mt-2 text-[16px] font-semibold tabular-nums">{detail}</p> : null}
+          {timelineHref || cta ? (
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              {timelineHref ? (
+                <Link
+                  href={timelineHref}
+                  className="hero-pill inline-flex h-11 items-center gap-1.5 rounded-full px-5 text-[15px] font-extrabold shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white/70"
                 >
-                  {/* 名稱不在詞中間斷行；名稱（最多 20 字）真的比一格還寬時才折，不溢出。 */}
-                  <p className="font-semibold break-keep wrap-anywhere">
-                    {stage.seq}. {stage.name}
-                  </p>
-                  <p className="text-[11px] whitespace-nowrap tabular-nums opacity-80">
-                    {formatTaipeiDate(stage.startDate).slice(5)} – {formatTaipeiDate(stageLastDate(schedule.stages, schedule.yearEndDate!, index)).slice(5)}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
-
-        {chips?.length ? (
-          <div className="flex flex-wrap gap-2">
-            {chips.map((c) => (
-              <Link
-                key={c.label}
-                href={c.href}
-                className={cn(
-                  'inline-flex h-9 items-center gap-2 rounded-xl px-3 text-[13px] transition-colors',
-                  c.hot ? 'bg-primary text-primary-foreground hover:bg-[oklch(0.7_0.16_55)]' : 'bg-white/12 text-white/90 hover:bg-white/20',
-                )}
-              >
-                <span className="font-medium">{c.label}</span>
-                <span className="font-extrabold tabular-nums" data-testid={c.testId}>
-                  {c.value}
-                </span>
-              </Link>
-            ))}
+                  看完整時程
+                  <IconArrowRight className="size-4" aria-hidden />
+                </Link>
+              ) : null}
+              {cta ? (
+                <Link href={cta.href} className="btn-fju h-11 rounded-full px-5 text-[15px]">
+                  {cta.label}
+                  <IconArrowRight className="size-4" aria-hidden />
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {hasNext ? (
+          <div className="min-w-0 rounded-2xl bg-card p-5 text-card-foreground shadow-[0_10px_30px_rgba(0,20,50,0.25)]" data-testid="hero-next">
+            {isHeroNext(next) ? <NextCard next={next} perspective={perspective} /> : next}
           </div>
         ) : null}
       </div>
-      {icon ? (
-        // 有「本屆階段」時插圖到很寬才出現：它占 260px，1280 寬時會把階段小卡擠到一個字一行（N-07）。
-        <div
-          className={cn('hidden w-[260px] shrink-0 items-center justify-center pr-6', showStages && schedule?.stages.length ? '2xl:flex' : 'md:flex')}
-          aria-hidden
-        >
-          <span className="spot size-[150px] [&_svg]:size-16">{icon}</span>
-        </div>
-      ) : null}
     </section>
   )
 }

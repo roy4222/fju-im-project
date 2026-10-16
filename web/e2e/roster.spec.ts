@@ -174,7 +174,9 @@ test.afterAll(async () => {
 
 async function homePending(page: Page): Promise<string> {
   await page.goto('/dashboard/student')
-  return (await page.getByTestId('home-pending').textContent()) ?? ''
+  // 共用 SH-4：橫幅拿掉小格，改讀側欄「作業區」徽章（同一個待繳數；0 時徽章不顯示）。
+  const badge = affairsBadge(page)
+  return `${(await badge.count()) ? ((await badge.textContent()) ?? '').trim() : '0'} 件`
 }
 
 /** 側欄「作業區」的數字徽章（票 30）；0 時不顯示。 */

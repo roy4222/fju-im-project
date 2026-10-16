@@ -251,6 +251,7 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
   await expect(await stageText(page, '/dashboard/teacher')).toHaveText('階段 2：期中')
   await signInAs(page, 'student')
   await expect(await stageText(page, '/dashboard/student')).toHaveText('階段 2：期中')
+  await page.goto('/dashboard/student/timeline')
   await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('期末')
 
   // 年度結束日當天：仍是最後一段；隔天：年度階段已結束。倒退也可以。
