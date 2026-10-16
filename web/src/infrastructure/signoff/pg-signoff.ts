@@ -1726,7 +1726,7 @@ export class PgSignoffQuery implements SignoffQuery {
                 s.state, s.cause, v.participants, v.created_real_at, s.updated_at as status_updated_at
            from advisor_assignments a
            join groups g on g.id = a.group_id and g.status = 'active'
-           join cohorts c on c.id = g.cohort_id
+           join cohorts c on c.id = g.cohort_id and c.status <> 'archived'
            join signoff_packages p on p.group_id = g.id
            join signoff_package_versions v on v.id = p.current_version_id
            join signoff_version_status s on s.version_id = v.id
