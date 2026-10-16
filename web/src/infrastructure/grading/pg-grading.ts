@@ -29,6 +29,7 @@ import {
   type ScoresInput,
   type SetRequirementInput,
   type TeacherBench,
+  type TeacherBenchPage,
   type TeacherGroupAssignment,
   type TeacherQueueEntry,
 } from '@/application/grading'
@@ -978,9 +979,8 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
    * 評分單組頁（TE-11）：評閱桌（4 句）、隊列（3 句）、本組正式繳交與附件（3 句）三路並行，固定 10 句、深度 2。
    * 上一組／下一組由頁面用 `queue` 算，不另查；附件一次批次讀，不逐份呼叫 `receiverVersion`。
    * 沒注入繳交查詢是組裝錯誤（程式寫錯，不是使用者會走到的路），直接 throw；`getGradingQuery()` 一定有注入。
-   * 回傳型別寫成 `ReturnType<…>`：`TeacherBenchPage` 還沒從 `application/grading` 公開入口匯出（不在本票可改檔案）。
    */
-  async teacherBenchPage(actor: ResolvedActor, groupId: string): ReturnType<GradingQuery['teacherBenchPage']> {
+  async teacherBenchPage(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBenchPage>> {
     if (!this.#submissions) throw new Error('PgGradingQuery 沒有注入繳交查詢（composition/grading.ts 的 getGradingQuery）。')
     const [loaded, queue, submissions] = await Promise.all([
       this.#bench(actor, groupId),
