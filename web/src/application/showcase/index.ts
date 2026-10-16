@@ -56,7 +56,9 @@ export type {
 } from '@/application/showcase/ports'
 export {
   ARCHIVE_SORT_OPTIONS,
+  FEATURED_AWARD_OPTIONS,
   FEATURED_SORT_OPTIONS,
+  parseShowcaseAward,
   parseShowcaseSort,
 } from '@/application/showcase/public'
 export {

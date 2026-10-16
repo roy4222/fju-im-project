@@ -251,6 +251,8 @@ export type ShowcaseListFilter = {
   readonly cohort?: string
   /** 只要有獎項等級的（歷屆一覽的「只看得獎」；優秀專題本來就只有得獎的）。 */
   readonly awardOnly?: boolean
+  /** 只要某一種獎項等級（優秀專題頁的獎項篩選，Q51）；空＝不限。 */
+  readonly award?: ShowcaseAward
   /** 關鍵字：題目、摘要、組別（登入後的歷屆一覽另外比對指導老師）。 */
   readonly q?: string
   readonly sort?: ShowcaseSort

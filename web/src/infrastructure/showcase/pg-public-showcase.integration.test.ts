@@ -271,6 +271,14 @@ describe('優秀專題（公開）', () => {
     expect((await query.featured({ sort: 'cohort-asc' })).map((c) => c.cohortCode)).toEqual(['113', '114'])
   })
 
+  it('獎項篩選（Q51）：只要優秀專題、只要佳作；可以跟屆別、關鍵字疊加取交集', async () => {
+    expect((await query.featured({ award: 'excellent' })).map((c) => c.title)).toEqual(['城市微光'])
+    expect((await query.featured({ award: 'merit' })).map((c) => c.title)).toEqual(['安心路徑'])
+    expect((await query.featured({ award: 'merit', cohort: '113', q: 'g03' })).map((c) => c.title)).toEqual(['安心路徑'])
+    expect(await query.featured({ award: 'merit', cohort: '114' })).toEqual([])
+    expect(await query.featured({ award: 'excellent', q: 'g03' })).toEqual([])
+  })
+
   it('屆別 pill 只列有發布作品的屆（撤稿的 112 不算）；優秀專題頁只算有獎項等級的（只有沒得獎作品的 115 不算）', async () => {
     expect(await query.cohorts()).toEqual(['115', '114', '113'])
     expect(await query.cohorts({ featuredOnly: true })).toEqual(['114', '113'])
@@ -469,6 +477,8 @@ describe('第三波 W2：用發布指令發布、首頁輪播順序、刪除', (
     try {
       expect((await query.featured()).map((c) => c.title)).toEqual(['安心路徑', '城市微光'])
       expect((await query.featured({ sort: 'cohort' })).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
+      // 優秀專題頁的預設排序明傳 `home`（Q51）：跟首頁輪播（不傳）同一個順序。
+      expect((await query.featured({ sort: 'home' })).map((c) => c.title)).toEqual(['安心路徑', '城市微光'])
       await app.query('update showcase_entries set home_position = 2 where id = $1', [published.entryId])
       await app.query('update showcase_entries set home_position = 3 where id = $1', [other.entryId])
       expect((await query.featured()).map((c) => c.title)).toEqual(['城市微光', '安心路徑'])
