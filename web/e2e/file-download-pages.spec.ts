@@ -276,8 +276,8 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect(headers['etag']).toBe(`"${checksum}"`)
     expect(headers['content-disposition']).toMatch(/^attachment;/)
     expect(headers['x-content-type-options']).toBe('nosniff')
-    // CSP 跟其他下載回應同一套（V4 不動 CSP）。AC-V18 寫的 `default-src 'none'; sandbox` 是路由自己設的值，
-    // 但 `proxy.ts` 對經過它的回應一律蓋成全站 CSP（改版前就是這樣），這一段已回報架構師，不在 V4 範圍。
+    // CSP 與 c0f32bd 相同、跟私有下載同一套（V4 不動 CSP；AC-V18 依主腦 10/16 裁定在 A 改成這樣）。
+    // 路由自己設的 `default-src 'none'; sandbox` 會被 `proxy.ts` 蓋成全站 CSP（改版前就是如此），檔案回應的 CSP 加固另列 B 票。
     const privateCsp = (await fetchFile(null, {}, crypto.randomUUID())).headers()['content-security-policy']
     expect(headers['content-security-policy']?.replace(/'nonce-[^']+'/g, "'nonce-*'")).toBe(privateCsp?.replace(/'nonce-[^']+'/g, "'nonce-*'"))
     expect(headers['x-file-checksum-sha256']).toBe(checksum)
