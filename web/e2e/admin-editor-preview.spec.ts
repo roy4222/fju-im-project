@@ -158,3 +158,22 @@ test('手機寬：預覽窗格預設收起，頂列「預覽」可以展開', as
   const paneBox = (await pane.boundingBox())!
   expect(paneBox.y).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height)
 })
+
+test('成功預覽後手動「檢查與預覽」斷線：窗格寫原因、清掉舊預覽', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await page.locator('#ed-title').fill('斷線預覽')
+  await page.locator('#ed-body').fill('<p>斷線前<strong>看得到</strong></p>')
+  const pane = page.getByRole('region', { name: '預覽', exact: true })
+  await expect(pane.locator('strong')).toHaveText('看得到')
+
+  // 之後的 Server Action 都斷線（頁面不重新載入）。
+  await page.route('**/dashboard/admin/editor/new**', (route) =>
+    route.request().method() === 'POST' && route.request().headers()['next-action'] ? route.abort('failed') : route.continue(),
+  )
+  await page.getByRole('region', { name: '預覽確認' }).getByRole('button', { name: '檢查與預覽' }).click()
+  await expect(pane).toContainText('連線中斷，請再按一次。')
+  await expect(pane.locator('strong')).toHaveCount(0)
+  await expect(pane).not.toContainText('斷線前')
+})

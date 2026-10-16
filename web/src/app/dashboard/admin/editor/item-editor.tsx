@@ -108,7 +108,7 @@ function SectionHead({ n, id, title, hint, right }: { n: number; id: string; tit
  * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
  */
 function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
-  if (html === null) {
+  if (html === null || error) {
     return (
       <div className="text-sm text-muted-foreground">
         <p>填好標題、開始打正文就會出現預覽</p>
@@ -391,6 +391,7 @@ export function ItemEditor({
       await runReview()
     } catch {
       setReviewError('連線中斷，請再按一次。')
+      setBodyPreview(null)
     } finally {
       setBusy(null)
     }
