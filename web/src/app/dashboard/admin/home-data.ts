@@ -1,4 +1,4 @@
-import type { AccountDirectoryCommand, AccountSummary, ResolvedActor } from '@/application/accounts'
+import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { GradebookQuery, GradingQuery, PendingReview } from '@/application/grading'
 import type { GroupQuery } from '@/application/groups'
 import type { ItemListRow, ItemQuery } from '@/application/items'
@@ -7,7 +7,7 @@ import type { Completion, RosterQuery } from '@/application/submissions'
 import type { StageContext } from '@/app/dashboard/_stage'
 import type { Tone } from '@/app/_ui/dashboard/cards'
 import { remainingCount, teacherProgress, type TeacherProgress } from '@/app/dashboard/admin/grading/progress'
-import { getAccountDirectoryCommand } from '@/composition/accounts'
+import { loadAdminSummary } from '@/app/_ui/workload'
 import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
 import { getItemQuery } from '@/composition/items'
@@ -24,12 +24,12 @@ export const NEWS_LIMIT = 3
  * 系辦首頁讀資料用的 port（AD-02；AC-AD-04 用假物件計數）。
  *
  * 只有這七個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
- * - 待審帳號數：共用 SH-P2 還沒合併，直接呼叫 `summary(actor)`（側欄徽章另外再讀一次）；SH-P2 合併後改讀 `loadAdminSummary(actor.userId)`（AD-13／AD-21）。
+ * - 待審帳號數：讀共用 SH-P2 的 `loadAdminSummary(actor.userId)`，跟側欄徽章同一次請求共用，不多讀一次（AD-13）。讀不到是 null。
  * - 分組：首頁只要組數與人數，傳 `{ history: false }` 不讀歷程（共用 SH-P4）；系辦分組頁維持預設（看歷程）。
  * - 完成率與逾期：一次讀完全屆發布中作業的名單事實（`completionFacts()`，AD-19／AD-13），不再逐份讀 `roster()`；型別上只拿得到它。
  */
 export type AdminHomePorts = {
-  readonly accounts: Pick<AccountDirectoryCommand, 'summary'>
+  readonly accounts: { readonly summary: (userId: string) => Promise<AccountSummary | null> }
   readonly groups: Pick<GroupQuery, 'overview'>
   readonly grading: Pick<GradingQuery, 'adminBoard'>
   readonly gradebook: Pick<GradebookQuery, 'gradebook'>
@@ -40,7 +40,7 @@ export type AdminHomePorts = {
 
 export function adminHomePorts(): AdminHomePorts {
   return {
-    accounts: getAccountDirectoryCommand(),
+    accounts: { summary: loadAdminSummary },
     groups: getGroupQuery(),
     grading: getGradingQuery(),
     gradebook: getGradebookQuery(),
@@ -97,12 +97,12 @@ export type AdminHome = {
  */
 export async function loadAdminHome(
   ports: AdminHomePorts,
-  actor: ResolvedActor,
+  actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
   ctx: Pick<StageContext, 'cohort' | 'businessNow'>,
 ): Promise<AdminHome> {
   const cohortId = ctx.cohort?.id ?? null
-  const [summaryResult, overview, gradingResult, signoffResult, items, gradebookResult, rosters] = await Promise.all([
-    ports.accounts.summary(actor),
+  const [summary, overview, gradingResult, signoffResult, items, gradebookResult, rosters] = await Promise.all([
+    ports.accounts.summary(actor.userId),
     cohortId ? ports.groups.overview(cohortId, { history: false }) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.signoff.adminBoard(actor, cohortId) : Promise.resolve(null),
@@ -137,7 +137,7 @@ export async function loadAdminHome(
   const news = items.filter((i) => i.placement === 'news')
 
   return {
-    summary: summaryResult.ok ? summaryResult.receipt : null,
+    summary,
     groups: {
       total: groups.length,
       students: groups.reduce((a, g) => a + g.members.length, 0),

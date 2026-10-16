@@ -15,7 +15,7 @@ const NOW = new Date('2026-10-16T10:00:00+08:00')
 const DAY = 86_400_000
 const ctx = { cohort: { id: 'c43' } as never, businessNow: NOW }
 const noCohort = { cohort: null, businessNow: NOW }
-const actor = { kind: 'authenticated', userId: 'u-admin', roles: ['admin'], status: 'active' } as unknown as ResolvedActor
+const actor = { kind: 'authenticated', userId: 'u-admin', roles: ['admin'], status: 'active' } as unknown as Extract<ResolvedActor, { kind: 'authenticated' }>
 
 function ok<R>(receipt: R) {
   return { ok: true as const, receipt: { ...receipt, requestId: 'r', serverTime: NOW.toISOString() } }
@@ -106,7 +106,7 @@ function fakePorts(f: Fixture = {}) {
       .filter((i) => (i.placement === 'submission' || i.placement === 'requirement') && i.status === 'published' && i.receiverUnit !== 'none')
       .map((i) => rosters.get(i.id) ?? roster(i.id, i.receiverUnit === 'group' ? 'group' : 'individual', NOW, []))
   const ports = {
-    accounts: { summary: vi.fn(async () => ok(f.summary ?? summary())) },
+    accounts: { summary: vi.fn<AdminHomePorts['accounts']['summary']>(async () => f.summary ?? summary()) },
     groups: { overview: vi.fn(async () => f.overview ?? overview([])) },
     grading: { adminBoard: vi.fn(async () => ok(f.board ?? board([]))) },
     gradebook: { gradebook: vi.fn(async () => ok({ version: null, groups: [], pendingReviews: f.pendingReviews ?? [] })) },
@@ -128,7 +128,8 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
       await loadAdminHome(ports, actor, ctx)
 
       expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
-      expect(ports.accounts.summary).toHaveBeenCalledWith(actor)
+      // 共用 SH-P2：經 `loadAdminSummary(actor.userId)`，跟側欄徽章共用同一次讀取。
+      expect(ports.accounts.summary).toHaveBeenCalledWith('u-admin')
       expect(ports.groups.overview).toHaveBeenCalledTimes(1)
       // 共用 SH-P4：首頁不讀分組歷程。
       expect(ports.groups.overview).toHaveBeenCalledWith('c43', { history: false })
@@ -289,7 +290,7 @@ describe('AC-AD-02 待辦卡數字為 0 也在', () => {
 
   it('讀不到帳號統計：待審卡仍在，寫「—」與原因，不寫「沒有待辦」', async () => {
     const ports = fakePorts()
-    ports.accounts.summary.mockResolvedValueOnce({ ok: false, code: 'FORBIDDEN', message: 'x' } as never)
+    ports.accounts.summary.mockResolvedValueOnce(null)
     const cards = adminTodoCards(await loadAdminHome(ports, actor, ctx))
     expect(cards[0]).toMatchObject({ title: '待審帳號 —', meta: '讀不到帳號統計', pill: undefined })
   })
