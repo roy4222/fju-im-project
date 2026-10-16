@@ -335,7 +335,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/grading': '成績表',
     '/dashboard/teacher/grading': '草稿只有你和系辦看得到。',
     // 簽核與精選（票 25）。
-    '/dashboard/admin/signoff': '系辦不能代替任何人同意',
+    '/dashboard/admin/signoff': '新增站內同意書',
     // 操作紀錄（票 36）。
     '/dashboard/admin/audit': '只搜近 7 天、最多 200 筆',
     '/dashboard/admin/showcase': '草稿不會公開',
