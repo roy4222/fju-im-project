@@ -254,17 +254,17 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-test('系辦首頁：逾期磚分開寫「欠繳 3 人、1 組」與「發布中 3 個收件項目」；有更正待復核的提示與入口', async ({ page }) => {
+test('系辦首頁：逾期卡分開寫「欠繳 3 人、1 組」與「發布中 3 個作業」；有更正待復核的提示與入口', async ({ page }) => {
   await asAdmin(page)
   await page.goto('/dashboard/admin')
 
   const tile = page.getByRole('link').filter({ hasText: '逾期未繳' })
   await expect(tile).toContainText('4')
   await expect(tile).toContainText('欠繳 3 人、1 組')
-  await expect(tile).toContainText('發布中 3 個繳交項目')
+  await expect(tile).toContainText('發布中 3 個作業')
   await expect(tile).not.toContainText('份收件')
-  // 驗收 P-05：評分磚寫「尚未完成評分的老師」，不寫像催繳的「缺評老師」。
-  await expect(page.getByRole('link').filter({ hasText: '尚未完成評分的老師' })).toBeVisible()
+  // 驗收 P-05：評分卡寫「評分還差」（AD-02），不寫像催繳的「缺評老師」。
+  await expect(page.getByRole('link').filter({ hasText: '評分還差' })).toBeVisible()
   await expect(page.getByText('缺評老師')).toHaveCount(0)
 
   const notice = page.getByTestId('pending-review-notice')

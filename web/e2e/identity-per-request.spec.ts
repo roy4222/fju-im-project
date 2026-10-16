@@ -21,7 +21,7 @@ const PASSWORD = 'E2e-Password-Correct-9'
 /** 只有有權限的人才看得到的一段字（同 `pages.spec.ts` 的 FINGERPRINTS）。 */
 const STUDENT_HOME = '專題行事曆'
 const TEACHER_HOME = '待辦'
-const ADMIN_HOME = '各繳交項目完成率'
+const ADMIN_HOME = '作業完成率'
 
 async function owner<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能改帳號狀態與角色')
