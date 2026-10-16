@@ -313,7 +313,7 @@ export default async function AdminAccountsPage({
         </Panel>
 
         {/* 少用的整批動作收進預設收合的一區（不是另一頁）；`<details>` 收合不需要 JS。 */}
-        <details className="dash-card group/roster overflow-hidden">
+        <details aria-label="名單與停用" className="dash-card group/roster overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3.5 text-[15px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
             <IconChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform group-open/roster:rotate-90" />
             名單與停用
