@@ -1,4 +1,4 @@
-import { contentDisposition, downloadFile } from '@/composition/files'
+import { contentDisposition, downloadFile, isCacheableDownload, PUBLIC_IMAGE_MAX_AGE_SECONDS } from '@/composition/files'
 
 /**
  * `GET /api/files/[id]`：每次下載都重新授權（契約 02 §6、契約 03 §4；模組 10 FIL-03）。
@@ -20,6 +20,26 @@ function isDocumentNavigation(headers: Headers): boolean {
   return headers.get('sec-fetch-dest') === 'document'
 }
 
+/**
+ * 公開圖片（訪客也拿得到的 PNG／JPEG，判斷在 `isCacheableDownload`）讓瀏覽器短時間快取（V4）。
+ * 可見性會變（下架、撤回、換圖、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給瀏覽器
+ * `PUBLIC_IMAGE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
+ * 不加 `vary: cookie`：公開回應對任何人都一樣；私有回應是 `no-store`，不會被存。
+ */
+const PUBLIC_IMAGE = {
+  'cache-control': `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`,
+  'x-content-type-options': 'nosniff',
+}
+
+/**
+ * `If-None-Match` 裡有沒有這個 ETag（逗號分隔、弱比較：去掉 `W/` 再比）。
+ * `*` 不當命中：只有明確帶著這張圖的 ETag 才回 304，多回一次 200 不會錯。
+ */
+function matchesETag(ifNoneMatch: string | null, etag: string): boolean {
+  if (!ifNoneMatch) return false
+  return ifNoneMatch.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await params
   const result = await downloadFile(request.headers, id)
@@ -35,10 +55,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   const file = result.receipt
-  return new Response(file.body, {
+  // 先授權、再看 If-None-Match：下架或換圖後帶舊 ETag 重打，拿到的是上面的 401／403／303，不是 304。
+  const cacheable = isCacheableDownload(file)
+  const etag = cacheable && file.checksum ? `"${file.checksum}"` : null
+  if (etag && matchesETag(request.headers.get('if-none-match'), etag)) {
+    // 授權時已經開了檔（串流），不讀就要取消，否則檔案描述子要等 GC 才關，大量 304 會把 fd 用完。
+    await file.body.cancel()
+    return new Response(null, { status: 304, headers: { ...PUBLIC_IMAGE, etag } })
+  }
+  // 沒有另外寫 HEAD：Next 拿 GET 來回 HEAD、只送標頭，不會替我們關掉串流；同 304，先取消再回。
+  const head = request.method === 'HEAD'
+  if (head) await file.body.cancel()
+  return new Response(head ? null : file.body, {
     status: 200,
     headers: {
-      ...PRIVATE,
+      ...(cacheable ? PUBLIC_IMAGE : PRIVATE),
+      ...(etag ? { etag } : {}),
       // 一律下載、不在瀏覽器裡開：就算內容被判讀成 HTML 也不會在本站網域執行。
       'content-type': file.mime,
       'content-disposition': contentDisposition(file.originalName),
