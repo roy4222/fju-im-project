@@ -321,6 +321,77 @@ const moduleBoundary = {
   },
 }
 
+/**
+ * Server Action、Route Handler 不可讀快取住的身分（SH-P1，設計方案 §3.10）。
+ *
+ * `renderActor`（含別名 `shellViewer`）是 React `cache`，同一個請求只解析一次；
+ * `requireSignedIn`／`requireRole` 內部讀它，`workload`、學生 `todos` 兩個 loader 也是。
+ * Server Action 會在同一個請求裡先改狀態（停用、改角色、登出）再重畫，快取住的舊身分
+ * 可能被拿去做判斷，所以 action／route 只准用不快取的 `currentActor()`。
+ *
+ * 管的檔：`actions.ts`、`route.ts`，以及任何有 `'use server'` 指令（檔頭或函式內）的檔。
+ */
+const CACHED_GUARD_EXPORTS = new Set(['renderActor', 'shellViewer', 'requireRole', 'requireSignedIn'])
+const CACHED_LOADER_MODULES = new Set(['@/app/_ui/workload', '@/app/dashboard/student/_todo/todos'])
+
+const noCachedActorInActions = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Server Action、Route Handler 只能用不快取的 currentActor()' },
+    schema: [],
+    messages: {
+      guardExport:
+        'Server Action／Route Handler 不可 import `{{name}}`（快取住的身分）；改用不快取的 `currentActor()`（設計方案 §3.10）。',
+      loaderModule:
+        'Server Action／Route Handler 不可 import {{source}}（內部讀快取住的身分 `renderActor()`）；改用 `currentActor()` 後呼叫用例（設計方案 §3.10）。',
+    },
+  },
+  create(context) {
+    const filename = context.filename ?? context.getFilename()
+    const byName = /(^|[\\/])(actions|route)\.tsx?$/.test(filename)
+    let hasUseServer = false
+    const pending = []
+
+    const isUseServer = (statement) =>
+      statement.type === 'ExpressionStatement' &&
+      statement.expression.type === 'Literal' &&
+      statement.expression.value === 'use server'
+
+    function checkFunctionBody(node) {
+      if (node.body?.type === 'BlockStatement' && node.body.body.some(isUseServer)) hasUseServer = true
+    }
+
+    return {
+      Program(node) {
+        hasUseServer = topLevelDirectives(node).includes('use server')
+      },
+      FunctionDeclaration: checkFunctionBody,
+      FunctionExpression: checkFunctionBody,
+      ArrowFunctionExpression: checkFunctionBody,
+      ImportDeclaration(node) {
+        const source = node.source.value
+        if (CACHED_LOADER_MODULES.has(source)) {
+          pending.push({ node, messageId: 'loaderModule', data: { source } })
+          return
+        }
+        if (source !== '@/app/_ui/guard') return
+        for (const spec of node.specifiers) {
+          if (spec.type === 'ImportNamespaceSpecifier') {
+            pending.push({ node: spec, messageId: 'guardExport', data: { name: `* as ${spec.local.name}` } })
+          } else if (spec.type === 'ImportSpecifier') {
+            const name = spec.imported.type === 'Identifier' ? spec.imported.name : spec.imported.value
+            if (CACHED_GUARD_EXPORTS.has(name)) pending.push({ node: spec, messageId: 'guardExport', data: { name } })
+          }
+        }
+      },
+      'Program:exit'() {
+        if (!byName && !hasUseServer) return
+        for (const report of pending) context.report(report)
+      },
+    }
+  },
+}
+
 export default {
   meta: { name: 'eslint-plugin-fju', version: '0.1.0' },
   rules: {
@@ -329,5 +400,6 @@ export default {
     'server-only-header': serverOnlyHeader,
     'external-packages': externalPackages,
     'module-boundary': moduleBoundary,
+    'no-cached-actor-in-actions': noCachedActorInActions,
   },
 }

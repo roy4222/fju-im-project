@@ -89,6 +89,8 @@ export default tseslint.config(
       // 母 spec §4.3：跨模組只能經公開入口 index.ts，而且只能 type-only
       //（執行期呼叫走 composition 注入的 port）。
       'fju/module-boundary': 'error',
+      // SH-P1：Server Action／Route Handler 只能用不快取的 currentActor()（設計方案 §3.10）。
+      'fju/no-cached-actor-in-actions': 'error',
     },
   },
   {
