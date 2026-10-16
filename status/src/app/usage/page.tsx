@@ -81,7 +81,7 @@ function RoleChips({ range, role }: { range: UsageRange; role: RoleFilter }) {
 
 function ActiveUsersCard({ role, value }: { role: UsageRole; value: number | null }) {
   return (
-    <Card data-testid={`active-users-${role}`} size="sm">
+    <Card data-testid={`active-users-${role}`}>
       <CardHeader>
         <CardDescription className="flex items-center gap-2">
           每日活躍人數

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { UsageReport, UsageRole } from '@/lib/data/types'
 
 import { actionLabel } from './actions'
+import { niceMax } from './bar-chart'
 import { parseRange, parseRole, rangeFrom, summarize, termStart, TOP_N } from './usage'
 
 const day = (offset: number) => new Date(Date.parse('2026-10-12T00:00:00Z') - offset * 86400e3).toISOString().slice(0, 10)
@@ -140,5 +141,16 @@ describe('長條圖與很少用的功能', () => {
     expect(actionLabel('account.change_password')).toBe('改密碼')
     expect(actionLabel('toString')).toBe('toString')
     expect(actionLabel('no.such')).toBe('no.such')
+  })
+})
+
+describe('長條圖的 X 軸上限', () => {
+  it('比最大值大的好看數字、切 4 格', () => {
+    expect(niceMax(3842)).toBe(4000)
+    expect(niceMax(15210)).toBe(16000)
+    expect(niceMax(23600)).toBe(24000)
+    expect(niceMax(7)).toBe(8)
+    expect(niceMax(1)).toBe(4)
+    expect(niceMax(0)).toBe(4)
   })
 })

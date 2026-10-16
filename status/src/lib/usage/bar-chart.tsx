@@ -11,12 +11,12 @@ const BAR = 18
 const BOX = { width: 720, left: 200, right: 64, top: 8, bottom: 28 } as const
 const TICKS = 4
 
-/** 比 max 大的「好看」上限（1、2、2.5、5 × 10ⁿ），再切成 TICKS 格。 */
+/** 比 max 大的「好看」上限：每格是 1、1.5、2、2.5、3、4、5、6、8 × 10ⁿ，共 TICKS 格。 */
 export function niceMax(max: number): number {
   if (max <= 0) return TICKS
   const raw = max / TICKS
   const pow = 10 ** Math.floor(Math.log10(raw))
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw) ?? 10 * pow
+  const step = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * pow).find((s) => s >= raw) ?? 10 * pow
   return Math.max(TICKS, Math.ceil(step) * TICKS)
 }
 
