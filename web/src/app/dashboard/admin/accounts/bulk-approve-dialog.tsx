@@ -114,8 +114,13 @@ type Phase =
   | { kind: 'preview'; preview: BulkApprovalPreview; items: Item[]; previewSkipped: string[] }
   | { kind: 'done'; receipt: BulkApprovalReceipt }
 
-/** 「核准勾選的 N 位」按鈕與對話框。沒勾任何人時不出現（不留點了沒反應的入口）。 */
-export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
+/**
+ * 「核准勾選的 N 位」按鈕與對話框。沒勾任何人時不出現（不留點了沒反應的入口）。
+ *
+ * `offRosterIds`：名單比對不到或資料不符的人（Q93：不能批次核准）。勾到他們時按鈕旁寫一句「名單外的要逐一核對」；
+ * 送出時伺服器照樣把他們略過並寫原因，畫面只提醒、不代替伺服器判斷。
+ */
+export function BulkApproveDialog({ labels, offRosterIds = [] }: { labels: ReviewLabels; offRosterIds?: readonly string[] }) {
   const router = useRouter()
   const { selected, clear } = useSelection()
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -181,9 +186,15 @@ export function BulkApproveDialog({ labels }: { labels: ReviewLabels }) {
   }
 
   if (selected.size === 0 && !isOpen) return null
+  const offRosterSelected = offRosterIds.some((id) => selected.has(id))
 
   return (
     <>
+      {offRosterSelected ? (
+        <span className="text-xs text-muted-foreground" data-testid="bulk-approve-off-roster">
+          名單外的要逐一核對
+        </span>
+      ) : null}
       {selected.size > 0 ? (
         <button type="button" onClick={open} className={cn(BUTTON, PRIMARY, 'h-8 px-3 text-[0.8rem]')}>
           核准勾選的 {selected.size} 位

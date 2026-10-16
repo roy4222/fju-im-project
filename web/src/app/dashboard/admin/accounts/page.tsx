@@ -1,11 +1,10 @@
 import Link from 'next/link'
-import { IconAlertTriangle, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { IconAlertTriangle, IconChevronRight, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { Ring } from '@/app/_ui/dashboard/charts'
 import { ClearFilters, Pager, SearchForm } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
-import { FilterTag, PageTitle, Panel, PANEL_TABLE_HEAD, PANEL_TABLE_ROW, PanelEmpty } from '@/app/_ui/dashboard/primitives'
+import { PageTitle, Panel, PanelEmpty } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import type { DirectoryFilter, DirectorySort } from '@/application/accounts'
 import {
@@ -70,44 +69,19 @@ function sortHeaders(filter: DirectoryFilter): Record<DirectorySort, SortHeader>
   return Object.fromEntries(entries) as Record<DirectorySort, SortHeader>
 }
 
-/** 原型的「環形磚」：左邊一個完成率圓環，右邊標籤、大數字／總數、一行說明；整塊是篩選連結。 */
-function RingTile({
-  label,
-  value,
-  total,
-  hint,
-  href,
-  active,
-  hot = false,
-  barClassName,
-}: {
-  label: string
-  value: number | null
-  total: number
-  hint: string
-  href: string
-  active: boolean
-  hot?: boolean
-  barClassName: string
-}) {
-  const pct = value !== null && total > 0 ? (value / total) * 100 : 0
+/** 帳號列表上方的篩選膠囊（D-6／Q116：取代三顆圓環磚）：數字跟字在同一顆，點了就篩、再點一次取消。 */
+function StatusPill({ label, value, href, active, hot = false }: { label: string; value: number | null; href: string; active: boolean; hot?: boolean }) {
   return (
     <Link
       href={href}
       aria-current={active ? 'true' : undefined}
-      className={cn('dash-card dash-card-hover flex items-center gap-4 px-5 py-4', active && 'border-brand ring-1 ring-brand')}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm font-semibold whitespace-nowrap transition-colors',
+        active ? 'border-ink bg-ink text-ink-foreground' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+      )}
     >
-      <Ring value={pct} size={64} stroke={8} barClassName={barClassName} decorative>
-        <span className="tabular text-xs font-extrabold">{Math.round(pct)}%</span>
-      </Ring>
-      <span className="min-w-0">
-        <span className="block text-[12px] font-semibold text-muted-foreground">{label}</span>
-        <span className={cn('tabular block text-[28px] leading-none font-extrabold', hot && 'text-brand')}>
-          {value ?? '—'}
-          <span className="ml-1 text-[12px] font-medium text-muted-foreground">／{total}</span>
-        </span>
-        <span className="mt-1 block truncate text-[12px] text-muted-foreground">{hint}</span>
-      </span>
+      {label}
+      <span className={cn('tabular', !active && hot && value ? 'text-brand' : null)}>{value ?? '—'}</span>
     </Link>
   )
 }
@@ -126,6 +100,9 @@ export default async function AdminAccountsPage({
   const versions = listed.ok ? listed.receipt.versions : []
   const pendingResult = await getRegistrationCommand().listPending(actor)
   const pending = pendingResult.ok ? pendingResult.receipt : null
+  const applications = pending?.applications ?? []
+  // 名單比對不到或資料不符的人不能批次核准（伺服器會略過），勾到時按鈕旁提醒要逐一核對（Q93）。
+  const offRosterIds = applications.filter((a) => a.match.status !== 'matched').map((a) => a.applicationId)
   const filter = normalizeDirectoryFilter(await searchParams)
   const accounts = getAccountDirectoryCommand()
   const directoryResult = await accounts.list(actor, filter)
@@ -142,16 +119,16 @@ export default async function AdminAccountsPage({
     ? `尚未設定身分的帳號${filter.status ? `（${ACCOUNT_STATUS_LABEL[filter.status]}）` : ''}`
     : filter.status
       ? `${ACCOUNT_STATUS_LABEL[filter.status]}帳號`
-      : '全部帳號'
+      : '帳號列表'
   const page = Math.min(filter.page, totalPages)
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
-      {/* 外觀照原型 `/dashboard/admin/accounts`（票 36）：標題＋主要動作、環形磚、待審核、全部帳號 Data Table。 */}
+      {/* AD-11（設計方案 §3.5）：審核在前 → 帳號列表（篩選膠囊帶數字）→ 收合的「名單與停用」。 */}
       <div className="flex flex-col gap-5">
         <PageTitle
-          title="帳號管理"
-          description={`${everyone} 筆。名單匯入、註冊審核、停用、匯出與臨時密碼都在這一區；系統不存可查看的密碼，只能核發一次性臨時密碼。`}
+          title="帳號"
+          description="系統不存可查看的密碼，只能核發一次性臨時密碼。"
           actions={
             <>
               {/* 票 8：新增老師與發臨時密碼（用 Email 找人）。每一列的「發臨時密碼」在下方帳號表格裡。 */}
@@ -161,54 +138,23 @@ export default async function AdminAccountsPage({
           }
         />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <RingTile
-            label="待審核"
-            value={summary?.pending ?? null}
-            total={everyone}
-            hint={summary ? `其中 ${summary.pendingApplications} 筆申請等你審核` : ''}
-            href={statusHref('pending')}
-            active={filter.status === 'pending'}
-            hot
-            barClassName="stroke-brand"
-          />
-          <RingTile
-            label="已核准"
-            value={summary?.active ?? null}
-            total={everyone}
-            hint={summary ? `學生 ${summary.activeStudents} 人` : ''}
-            href={statusHref('active')}
-            active={filter.status === 'active'}
-            barClassName="stroke-ink"
-          />
-          <RingTile
-            label="已停用"
-            value={summary?.disabled ?? null}
-            total={everyone}
-            hint="停用不是刪除，可以恢復"
-            href={statusHref('disabled')}
-            active={filter.status === 'disabled'}
-            barClassName="stroke-border"
-          />
-          {/* 票 10b：只有登入身分、我方什麼都沒有的帳號（建帳號時系統出錯留下的，或註冊了還沒送申請的）。 */}
-          <RingTile
-            label="未設定身分"
-            value={summary?.orphans ?? null}
-            total={everyone}
-            hint="沒有身分與申請，要補上身分或停用"
-            href={`${BASE}${directoryQueryString({ ...filter, status: null, orphan: !filter.orphan, page: 1 })}`}
-            active={filter.orphan}
-            barClassName="stroke-destructive"
-          />
-        </div>
-
         {/* 第三波 W6：勾選後「核准勾選的 N 位」一起核准；需要人判斷的列由伺服器自動略過並寫原因。 */}
-        <BulkApproveProvider pendingIds={(pending?.applications ?? []).map((a) => a.applicationId)}>
+        <BulkApproveProvider pendingIds={applications.map((a) => a.applicationId)}>
         <Panel
-          title={`待審核${pending ? `（${pending.applications.length}）` : ''}`}
+          title={pending ? `待審核 ${applications.length} 位` : '待審核'}
           icon={<IconUserCheck />}
-          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人。可以勾選多位一起核准"
-          action={<BulkApproveDialog labels={REVIEW_LABELS} />}
+          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人"
+          action={
+            applications.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                  <BulkApproveSelectAll applicationIds={applications.map((a) => a.applicationId)} />
+                  全選
+                </label>
+                <BulkApproveDialog labels={REVIEW_LABELS} offRosterIds={offRosterIds} />
+              </div>
+            ) : null
+          }
           aria-label="待審核"
         >
           {pending && !pending.registrationOpenCohort ? (
@@ -216,56 +162,59 @@ export default async function AdminAccountsPage({
               目前沒有設定新註冊學生加入的屆別：不在本屆名單上的人核准時要手動選屆別。可以到「屆別」頁設定。
             </p>
           ) : null}
-          {(pending?.applications ?? []).length === 0 ? (
+          {applications.length === 0 ? (
             <PanelEmpty title="目前沒有待審核的註冊。" hint="學生改過資料時，要重新打開核對才能核准。" />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[44rem] text-sm">
-                <thead>
-                  <tr className={PANEL_TABLE_HEAD}>
-                    <th scope="col" className="w-10 py-2.5 pl-5">
-                      <BulkApproveSelectAll applicationIds={pending!.applications.map((a) => a.applicationId)} />
+            // 每人一張卡。外層仍是 table／row：卡片是一列一列的同款資料，讀屏照表格念，既有 e2e 也照列找人。
+            <table aria-label="待審核清單" className="block px-5 pb-5">
+              <thead className="sr-only">
+                <tr>
+                  {['勾選', '姓名與 Email', '學號與系級', '比對結果', '送出時間', '操作'].map((h) => (
+                    <th key={h} scope="col">
+                      {h}
                     </th>
-                    {['姓名', '學號', '系級', '比對結果', '最後更新'].map((h) => (
-                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold">
-                        {h}
-                      </th>
-                    ))}
-                    <th scope="col" className="px-5 py-2.5 font-semibold">
-                      操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pending!.applications.map((a) => (
-                    <tr key={a.applicationId} className={PANEL_TABLE_ROW}>
-                      <td className="py-2.5 pl-5">
-                        <BulkApproveCheckbox applicationId={a.applicationId} name={a.appliedName} />
-                      </td>
-                      <td className="px-4 py-2.5 font-semibold whitespace-nowrap text-foreground">{a.appliedName}</td>
-                      <td className="tabular px-4 py-2.5">{a.studentNo}</td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">{a.departmentClass || '—'}</td>
-                      <td className="px-4 py-2.5">
-                        <EvidencePills flags={a.flags} labels={REVIEW_LABELS} />
-                      </td>
-                      <td className="tabular px-4 py-2.5 whitespace-nowrap text-muted-foreground">
-                        {formatTaipeiMinute(new Date(a.updatedAt))}
-                        {a.revision > 1 ? <span className="ml-1 text-xs">（第 {a.revision} 版）</span> : null}
-                      </td>
-                      <td className="px-5 py-2.5">
-                        <ReviewDialog
-                          key={`r-${a.applicationId}-${a.revision}`}
-                          application={a}
-                          cohorts={pending!.cohorts}
-                          registrationOpenCohort={pending!.registrationOpenCohort}
-                          labels={REVIEW_LABELS}
-                        />
-                      </td>
-                    </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              </thead>
+              <tbody className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                {applications.map((a) => (
+                  <tr
+                    key={a.applicationId}
+                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 rounded-lg border border-border bg-background p-3.5"
+                  >
+                    <td className="row-span-4 pt-0.5">
+                      <BulkApproveCheckbox applicationId={a.applicationId} name={a.appliedName} />
+                    </td>
+                    <td className="min-w-0">
+                      <span className="block truncate font-semibold text-foreground">{a.appliedName}</span>
+                      <span className="block truncate text-xs text-muted-foreground" title={a.loginEmail}>
+                        {a.loginEmail}
+                      </span>
+                    </td>
+                    <td className="row-span-4 self-center">
+                      <ReviewDialog
+                        key={`r-${a.applicationId}-${a.revision}`}
+                        application={a}
+                        cohorts={pending!.cohorts}
+                        registrationOpenCohort={pending!.registrationOpenCohort}
+                        labels={REVIEW_LABELS}
+                      />
+                    </td>
+                    <td className="text-sm">
+                      <span className="tabular">{a.studentNo}</span>
+                      <span className="text-muted-foreground">・{a.departmentClass || '—'}</span>
+                    </td>
+                    <td>
+                      <EvidencePills flags={a.flags} labels={REVIEW_LABELS} />
+                    </td>
+                    <td className="tabular text-xs text-muted-foreground">
+                      {formatTaipeiMinute(new Date(a.updatedAt))} 送出
+                      {a.revision > 1 ? <span className="ml-1">（第 {a.revision} 版）</span> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </Panel>
         </BulkApproveProvider>
@@ -274,19 +223,25 @@ export default async function AdminAccountsPage({
           title={listTitle}
           icon={<IconUsers />}
           description={filtered ? undefined : '搜尋、篩選、排序；勾選或全選篩選結果後匯出 CSV'}
-          action={<ImportRosterDialog />}
           bodyClassName="p-4"
           aria-label="帳號"
         >
           {directory ? (
             <div className="space-y-3">
-              {filter.status || filter.orphan ? (
-                <FilterTag
-                  label={filter.orphan ? '尚未設定身分的帳號' : ACCOUNT_STATUS_LABEL[filter.status!]}
-                  count={`${directory.total}／${everyone} 筆`}
-                  clearHref={hrefWith({ status: null, orphan: false })}
+              {/* D-6（Q116）：原本的三顆圓環磚改成表格上方一列帶數字的篩選膠囊；「未設定身分」（票 10b）一起留著。 */}
+              <nav aria-label="依狀態篩選" className="flex flex-wrap gap-2">
+                <StatusPill label="全部" value={summary ? everyone : null} href={hrefWith({ status: null, orphan: false })} active={!filter.status && !filter.orphan} />
+                <StatusPill label="待審核" value={summary?.pending ?? null} href={statusHref('pending')} active={filter.status === 'pending' && !filter.orphan} hot />
+                <StatusPill label="已核准" value={summary?.active ?? null} href={statusHref('active')} active={filter.status === 'active' && !filter.orphan} />
+                <StatusPill label="已停用" value={summary?.disabled ?? null} href={statusHref('disabled')} active={filter.status === 'disabled' && !filter.orphan} />
+                <StatusPill
+                  label="未設定身分"
+                  value={summary?.orphans ?? null}
+                  href={`${BASE}${directoryQueryString({ ...filter, status: null, orphan: !filter.orphan, page: 1 })}`}
+                  active={filter.orphan}
+                  hot
                 />
-              ) : null}
+              </nav>
               <AccountsTable
                 rows={directory.rows}
                 total={directory.total}
@@ -357,81 +312,81 @@ export default async function AdminAccountsPage({
           )}
         </Panel>
 
-        <Panel
-          title="歷次匯入的學生名單"
-          icon={<IconFileSpreadsheet />}
-          description="每次匯入都另存一份，舊的不會被蓋掉；名單只協助審核比對，不會自動核准任何人"
-          aria-label="名單"
-        >
-          {versions.length === 0 ? (
-            <PanelEmpty title="還沒有匯入過名單。" hint="按「全部帳號」右上的「匯入名單 CSV」上傳本屆名單。" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] text-sm">
-                <thead>
-                  <tr className={PANEL_TABLE_HEAD}>
-                    {['屆別', '匯入者', '匯入時間', '有效', '重複／缺欄／衝突', '原檔'].map((h) => (
-                      <th key={h} scope="col" className="px-4 py-2.5 font-semibold first:pl-5 last:pr-5">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
+        {/* 少用的整批動作收進預設收合的一區（不是另一頁）；`<details>` 收合不需要 JS。 */}
+        <details className="dash-card group/roster overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3.5 text-[15px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
+            <IconChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform group-open/roster:rotate-90" />
+            名單與停用
+          </summary>
+          <div className="flex flex-col gap-5 border-t border-border/70 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                上傳本屆名單 CSV。每次匯入都另存一份，舊的不會被蓋掉；名單只協助審核比對，不會自動核准任何人。
+              </p>
+              <ImportRosterDialog />
+            </div>
+
+            <section aria-label="歷次匯入">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-foreground">
+                <IconFileSpreadsheet aria-hidden className="size-4 text-muted-foreground" />
+                歷次匯入
+              </h3>
+              {versions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">還沒有匯入過名單。</p>
+              ) : (
+                <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                   {versions.map((v) => (
-                    <tr key={v.id} className={PANEL_TABLE_ROW}>
-                      <td className="px-4 py-2.5 pl-5">
-                        {v.cohortName}（{v.cohortCode}）
-                      </td>
-                      <td className="px-4 py-2.5">{v.importedBy}</td>
-                      <td className="tabular px-4 py-2.5 text-muted-foreground">{formatTaipeiMinute(new Date(v.importedAt))}</td>
-                      <td className="tabular px-4 py-2.5 font-semibold">{v.counts.valid}</td>
-                      <td className="tabular px-4 py-2.5 whitespace-nowrap">
-                        {v.counts.duplicate}／{v.counts.missing}／{v.counts.conflict}
-                      </td>
-                      <td className="px-4 py-2.5 pr-5">
+                    <li key={v.id}>
+                      <article
+                        aria-label={`${v.cohortName}（${v.cohortCode}）名單`}
+                        className="flex h-full flex-col gap-1 rounded-lg border border-border bg-background p-3.5 text-sm"
+                      >
+                        <span className="font-semibold text-foreground">
+                          {v.cohortName}（{v.cohortCode}）
+                        </span>
+                        <span className="tabular text-xs text-muted-foreground">
+                          {formatTaipeiMinute(new Date(v.importedAt))}・{v.importedBy}
+                        </span>
+                        <span className="tabular">
+                          有效 <span className="font-semibold">{v.counts.valid}</span> 筆
+                          <span className="text-muted-foreground">
+                            ・重複 {v.counts.duplicate}・缺欄 {v.counts.missing}・衝突 {v.counts.conflict}
+                          </span>
+                        </span>
                         {v.fileId ? (
                           // 下載每次都經 /api/files/[id] 重新授權；別人拿到這個網址也打不開。
                           <a
                             href={`/api/files/${v.fileId}`}
                             title={v.fileName ?? undefined}
                             aria-label={`下載原檔${v.fileName ? ` ${v.fileName}` : ''}`}
-                            className="font-semibold whitespace-nowrap text-primary underline-offset-4 hover:underline"
+                            className="mt-auto truncate pt-1 font-semibold text-primary underline-offset-4 hover:underline"
                             download
                           >
-                            下載
+                            下載原檔{v.fileName ? `・${v.fileName}` : ''}
                           </a>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </tr>
+                        ) : null}
+                      </article>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+                </ul>
+              )}
+            </section>
 
-        <p className="text-xs text-muted-foreground">
-          停用不是刪除：資料與紀錄都保留、可以恢復；停用的人在任何分頁做下一個動作就會被登出。
-        </p>
-
-        {/* 第三波 §9 規則 1（驗收 P-06）：批次停用一次影響很多人，跟例行的匯出拉開，放在頁面底部的危險操作區。 */}
-        <Panel
-          title="危險操作"
-          icon={<IconAlertTriangle />}
-          description="一次停用多個帳號"
-          aria-label="危險操作"
-          className="border border-destructive/30"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-5 py-4">
-            <p className="text-sm text-muted-foreground">
-              上傳 TXT 或貼上學號（一行一個），先預覽再寫理由確認。停用的人會被登出，資料保留、之後可以逐一恢復。
-            </p>
-            <BulkDisableDialog maxChars={BULK_MAX_CHARS} />
+            {/* 第三波 §9 規則 1（驗收 P-06）：批次停用一次影響很多人，跟例行的匯出拉開，放在最後的危險操作區。 */}
+            <section aria-label="危險操作" className="rounded-lg border border-destructive/30 p-4">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-destructive-on-subtle">
+                <IconAlertTriangle aria-hidden className="size-4" />
+                危險操作
+              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  上傳 TXT 或貼上學號（一行一個），先預覽再寫理由確認。停用不是刪除：資料與紀錄都保留、之後可以逐一恢復；停用的人在任何分頁做下一個動作就會被登出。
+                </p>
+                <BulkDisableDialog maxChars={BULK_MAX_CHARS} />
+              </div>
+            </section>
           </div>
-        </Panel>
+        </details>
       </div>
     </DashboardShell>
   )

@@ -33,6 +33,10 @@ const BUTTON =
   'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
 const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
 
+// 網站問題 #7（AD-11）：拿掉表格最小寬度，次要欄（系級、建立）窄螢幕先藏，操作欄貼右邊；1280 寬整張放得下、不用橫捲。
+const WIDE_ONLY = 'hidden 2xl:table-cell'
+const STICKY_CELL = 'sticky right-0 bg-card shadow-[-1px_0_0_var(--color-border)]'
+
 export type SortHeader = { readonly href: string; readonly active: 'asc' | 'desc' | null }
 
 export type AccountsTableProps = {
@@ -182,7 +186,7 @@ export function AccountsTable(props: AccountsTableProps) {
       ) : null}
 
       <DataTableFrame>
-        <table className={cn(DT.table, 'min-w-[60rem]')} aria-label="帳號列表">
+        <table className={DT.table} aria-label="帳號列表">
           <thead className={DT.thead}>
             <tr>
               <th scope="col" className={cn(DT.th, 'w-10')}>
@@ -199,13 +203,13 @@ export function AccountsTable(props: AccountsTableProps) {
               </th>
               <th scope="col" className={DT.th}>{header('姓名')}</th>
               <th scope="col" className={DT.th}>{header('學號', 'studentNo')}</th>
-              <th scope="col" className={DT.th}>{header('系級')}</th>
+              <th scope="col" className={cn(DT.th, WIDE_ONLY)}>{header('系級')}</th>
               <th scope="col" className={DT.th}>{header('屆別', 'cohort')}</th>
               <th scope="col" className={DT.th}>{header('Email')}</th>
               <th scope="col" className={DT.th}>{header('角色')}</th>
               <th scope="col" className={DT.th}>{header('狀態', 'status')}</th>
-              <th scope="col" className={DT.th}>{header('建立', 'createdAt')}</th>
-              <th scope="col" className={DT.th}>操作</th>
+              <th scope="col" className={cn(DT.th, WIDE_ONLY)}>{header('建立', 'createdAt')}</th>
+              <th scope="col" className={cn(DT.th, STICKY_CELL, 'bg-muted')}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -235,7 +239,7 @@ export function AccountsTable(props: AccountsTableProps) {
                     {r.name}
                   </td>
                   <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{r.studentNo ?? '—'}</td>
-                  <td className={cn(DT.td, 'whitespace-nowrap')}>{r.departmentClass || '—'}</td>
+                  <td className={cn(DT.td, WIDE_ONLY, 'whitespace-nowrap')}>{r.departmentClass || '—'}</td>
                   <td className={cn(DT.td, 'tabular whitespace-nowrap')}>{cohortText(r)}</td>
                   <td className={cn(DT.td, 'max-w-[14rem] truncate text-muted-foreground')} title={r.loginEmail}>
                     {r.loginEmail}
@@ -260,8 +264,8 @@ export function AccountsTable(props: AccountsTableProps) {
                       ) : null}
                     </span>
                   </td>
-                  <td className={cn(DT.td, 'tabular whitespace-nowrap text-muted-foreground')}>{taipeiDateOf(new Date(r.createdAt))}</td>
-                  <td className={cn(DT.td, 'whitespace-nowrap')}>
+                  <td className={cn(DT.td, WIDE_ONLY, 'tabular whitespace-nowrap text-muted-foreground')}>{taipeiDateOf(new Date(r.createdAt))}</td>
+                  <td className={cn(DT.td, STICKY_CELL, 'whitespace-nowrap')}>
                     <span className="flex items-center gap-1">
                       {/* T6 系6：列上只留常用的「發臨時密碼」「恢復」；少用與危險的操作（停用、去識別化）收進「更多」。 */}
                       {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
