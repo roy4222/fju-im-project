@@ -329,7 +329,7 @@ export default async function AdminGroupsPage({
                       </span>
                     )}
                   </span>,
-                  <span key="members" className="block max-w-[12rem] text-sm text-muted-foreground">
+                  <span key="members" className="block max-w-[10rem] text-sm text-muted-foreground">
                     <span className="block truncate" title={g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}>
                       {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
                     </span>
