@@ -192,6 +192,19 @@ async function versionRows(page: Page, tableName: string): Promise<string[]> {
   return out
 }
 
+/** 學生繳交歷史時間線的每一項「第幾次＋送出者」，格式同 versionRows。 */
+async function timelineRows(page: Page, listName: string): Promise<string[]> {
+  await expect(page.getByRole('list', { name: listName })).toBeVisible()
+  const out: string[] = []
+  for (const item of await page.getByRole('list', { name: listName }).getByRole('listitem').all()) {
+    const text = (await item.innerText()).replace(/\s+/g, ' ')
+    const no = /第 (\d+) 次/.exec(text)?.[1]
+    const who = ['組長一號', '組員二號'].find((n) => text.includes(n))
+    out.push(`v${no}:${who}`)
+  }
+  return out
+}
+
 async function submitAs(page: Page, who: Person, topic: string, file?: { name: string; buffer: Buffer }) {
   await signIn(page, who)
   await page.goto(`/dashboard/student/affairs/${itemId}`)
@@ -261,7 +274,7 @@ test('1. 全組、目前主指導、系辦看到同一份版本歷史；名單�
   // 組員：繳交歷史。
   await signIn(page, s2)
   await page.goto(`/dashboard/student/affairs/${itemId}?tab=history`)
-  const byStudent = await versionRows(page, '繳交歷史')
+  const byStudent = await timelineRows(page, '繳交歷史')
   expect(byStudent).toEqual(['v2:組員二號', 'v1:組長一號'])
 
   // 目前主指導：矩陣 → 點 G1 的格子 → 同一份版本。

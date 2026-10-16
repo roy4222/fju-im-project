@@ -372,7 +372,7 @@ test('4. 截止前換檔重送：第 2 版採計，第 1 版的附件與 checksu
 
   await page.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
   await page.goto(`${itemPath()}?tab=history`)
-  await expect(page.getByRole('table', { name: '繳交歷史' })).toContainText('組員二號')
+  await expect(page.getByRole('list', { name: '繳交歷史' })).toContainText('組員二號')
   await page.goto(`${itemPath()}?tab=history&version=1`)
   const old = page.getByTestId('version-view')
   await expect(old).toContainText('已被後來的版本取代')

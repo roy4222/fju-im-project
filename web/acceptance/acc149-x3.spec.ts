@@ -319,7 +319,7 @@ test('x3:14 SUB-11 SUB-16 COH-10 推過截止（隔天 00:00:07）：學生 2 �
   )
   await shot(s2, 'stale-page-rejected')
   await s2.reload()
-  await expect(s2.getByRole('main')).toContainText('已截止・唯讀；需要補交請聯絡系辦重新開放。')
+  await expect(s2.getByRole('main')).toContainText('已截止・唯讀')
   console.log(`x3:14 截止後上方橫幅：${(await s2.getByTestId('affair-banner').innerText()).replace(/\s+/g, ' ')}`)
   await expect(s2.getByRole('button', { name: '正式送出' })).toHaveCount(0)
   await expect(s2.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
@@ -378,12 +378,12 @@ test('x3:17 COH-10 業務鐘倒退回現在：學生 2 又可以送，草稿還�
 test('x3:18 COH-10 COH-04 倒退不改既有版本、不復活逾期的提案', async () => {
   const s1 = student(0).page
   await s1.goto(`/dashboard/student/affairs/${itemId}?tab=history`)
-  const rows = s1.getByRole('table', { name: '繳交歷史' }).locator('tbody tr')
+  const rows = s1.getByRole('list', { name: '繳交歷史' }).getByRole('listitem')
   await expect(rows).toHaveCount(2)
   await rows.last().getByRole('link', { name: '查看內容' }).click()
   await expect(s1.getByTestId('version-view')).toContainText('截止前第一版')
   await s1.goto(`/dashboard/student/affairs/${itemId}?tab=history`)
-  await s1.getByRole('table', { name: '繳交歷史' }).locator('tbody tr').first().getByRole('link', { name: '查看內容' }).click()
+  await s1.getByRole('list', { name: '繳交歷史' }).getByRole('listitem').first().getByRole('link', { name: '查看內容' }).click()
   await expect(s1.getByTestId('version-view')).toContainText('截止分鐘內的第二版')
   await shot(s1, 'history-intact')
   await openMyGroup(s1)

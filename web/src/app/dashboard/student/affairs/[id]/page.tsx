@@ -27,7 +27,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  *
  * 只有自己（整組一份：自己此刻所在的組）在目前收件名單上才看得到（不在名單上一律 404，不透露這份收件存在）。
  * 內容頁：組別資訊（整組一份）→ 截止、階段、附件、重送規則 → 作業說明 → 欄位（上傳、儲存草稿、正式送出、收件章回執）。
- * 繳交歷史：每一次正式送出（第幾次、送出者、時間、回執編號），點進去看那一次的內容與附件（唯讀）。
+ * 繳交歷史：時間線列出每一次正式送出（第幾次、送出者、時間），點進去看那一次的內容與附件（唯讀）。
  */
 export default async function StudentAffairPage({
   params,
@@ -105,20 +105,26 @@ export default async function StudentAffairPage({
     reopenUntil,
   })
   const reopenText = reopenUntil ? `系辦已開放${item.receiverUnit === 'group' ? '你們這一組' : '你'}補交到 ${formatTaipeiMinute(reopenUntil)}（臺灣時間，含此分鐘）` : null
+  // 學生頁不寫「請聯絡系辦」、免繳不寫長句（Q69、Q127）：逾期只寫「已截止」，免繳只寫「免繳」。
+  const detail = item.exempt ? '免繳' : status.overdue ? '已截止' : status.detail
   const banner = reopenText
     ? latest
       ? `${reopenText}・已繳第 ${latest.versionNo} 次，期限前可重送`
       : reopenText
     : latest
-      ? `已繳第 ${latest.versionNo} 次・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${status.detail}`
-      : `${status.headline}・${status.detail}`
+      ? `已繳第 ${latest.versionNo} 次・${latest.submittedByName} 於 ${formatTaipeiSecond(latest.receivedBusinessAt)} 送出・${detail}`
+      : item.exempt
+        ? '免繳'
+        : `${status.headline}・${detail}`
   const lockedText = item.exempt
-    ? '系辦已將你設為免繳這一項（系辦可恢復），不需要填寫。'
+    ? '免繳'
     : phase === 'not_open'
       ? `還沒開放：${item.opensAt ? formatTaipeiMinute(item.opensAt) : ''}（臺灣時間）開放後才能填寫與送出。`
       : phase === 'closed'
-        ? '已截止・唯讀；需要補交請聯絡系辦重新開放。'
+        ? '已截止・唯讀'
         : null
+  // 逾期（截止了還沒交）多一句，不帶聯絡方式（Q127）。
+  const lockedHint = status.overdue ? '可向系辦申請補交' : null
   // 截止後、尚未開放：欄位顯示草稿（沒有草稿就顯示最後一次送出的內容）。
   const latestVersion = !item.draft && latest ? await query.myVersion(userId, id, latest.versionNo) : null
   const shown: Answers = item.draft?.answers ?? latestVersion?.answers ?? {}
@@ -242,6 +248,7 @@ export default async function StudentAffairPage({
                   initialSavedText={item.draft ? formatTaipeiMinute(item.draft.updatedAt) : null}
                   editable={status.editable}
                   lockedText={lockedText}
+                  lockedHint={lockedHint}
                   submittedVersion={latest?.versionNo ?? null}
                   groupCode={group?.code ?? null}
                 />
@@ -267,6 +274,11 @@ function LateBadge() {
   )
 }
 
+/** 最新那一次（老師、系辦看的也是這一版）。 */
+function AdoptedBadge() {
+  return <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">採計</span>
+}
+
 /** 回作業區（原型：左箭頭＋灰字）。 */
 function BackLink() {
   return (
@@ -274,7 +286,7 @@ function BackLink() {
       href="/dashboard/student/affairs"
       className="inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
     >
-      <IconArrowLeft className="size-4" aria-hidden /> 我的繳交
+      <IconArrowLeft className="size-4" aria-hidden /> 交作業
     </Link>
   )
 }
@@ -309,54 +321,44 @@ function GroupBar({ group }: { group: GroupSummary }) {
   )
 }
 
+/** 繳交歷史時間線：最新在上，每一次一個圓形編號、送出者、時間，最新那次「採計」。 */
 function History({ item }: { item: MyItemDetail }) {
   if (item.versions.length === 0) {
     return <p className="px-6 py-10 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
   }
   return (
-    <div className="overflow-x-auto p-6">
-      <table className="w-full min-w-[36rem] text-sm" aria-label="繳交歷史">
-        <thead className="text-left text-[12px] text-muted-foreground">
-          <tr>
-            <th scope="col" className="py-2 font-medium">
-              第幾次
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              送出者
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              送出時間（臺灣時間）
-            </th>
-            <th scope="col" className="py-2">
-              <span className="sr-only">動作</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {item.versions.map((v, index) => (
-            <tr key={v.versionNo} className="border-t border-border/70">
-              <td className="py-3 font-semibold tabular-nums">
-                第 {v.versionNo} 次
-                {index === 0 ? (
-                  <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
-                ) : null}
+    <ol className="flex flex-col p-6" aria-label="繳交歷史">
+      {item.versions.map((v, index) => (
+        <li key={v.versionNo} className="relative flex gap-4 pb-5 last:pb-0">
+          {index < item.versions.length - 1 ? <span aria-hidden className="absolute top-9 bottom-0 left-[17px] w-px bg-border" /> : null}
+          <span
+            aria-hidden
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold tabular-nums',
+              index === 0 ? 'bg-brand text-brand-foreground' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {v.versionNo}
+          </span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-4 gap-y-1">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tabular-nums">
+                第 {v.versionNo} 次・{v.submittedByName}
+                {index === 0 ? <AdoptedBadge /> : null}
                 {v.late ? <LateBadge /> : null}
-              </td>
-              <td className="py-3">{v.submittedByName}</td>
-              <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
-              <td className="py-1 text-right">
-                <Link
-                  href={`/dashboard/student/affairs/${item.itemId}?tab=history&version=${v.versionNo}`}
-                  className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-accent"
-                >
-                  查看內容
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}（臺灣時間）</p>
+            </div>
+            <Link
+              href={`/dashboard/student/affairs/${item.itemId}?tab=history&version=${v.versionNo}`}
+              className="inline-flex h-10 items-center rounded-lg px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-accent"
+            >
+              查看內容
+            </Link>
+          </div>
+        </li>
+      ))}
+    </ol>
   )
 }
 
@@ -379,7 +381,7 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
           <dd className="font-semibold tabular-nums">
             第 {version.versionNo} 次
             {version.isLatest ? (
-              <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
+              <AdoptedBadge />
             ) : (
               <span className="ml-2 text-xs font-normal text-muted-foreground">已被後來的版本取代</span>
             )}
@@ -393,10 +395,6 @@ function VersionView({ item, version }: { item: MyItemDetail; version: MyVersion
         <div className="flex gap-4">
           <dt className="w-16 shrink-0 text-muted-foreground">送出時間</dt>
           <dd className="font-semibold tabular-nums">{formatTaipeiSecond(version.receivedBusinessAt)}</dd>
-        </div>
-        <div className="flex gap-4">
-          <dt className="w-16 shrink-0 text-muted-foreground">表單</dt>
-          <dd className="tabular-nums">第 {version.schemaVersionNo} 版</dd>
         </div>
         <ReceiptNoDisclosure requestId={version.requestId} className="sm:col-span-2" />
       </dl>

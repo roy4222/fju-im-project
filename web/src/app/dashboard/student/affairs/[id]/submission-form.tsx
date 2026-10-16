@@ -88,6 +88,7 @@ export function SubmissionForm({
   initialSavedText,
   editable,
   lockedText,
+  lockedHint,
   submittedVersion: initialSubmittedVersion,
   groupCode,
 }: {
@@ -101,6 +102,8 @@ export function SubmissionForm({
   editable: boolean
   /** 不能填的原因（尚未開放、已截止、免填）；可以填時是 null。 */
   lockedText: string | null
+  /** 唯讀原因下面的補充一句（逾期：可向系辦申請補交）。 */
+  lockedHint: string | null
   submittedVersion: number | null
   /** 整組一份時的組別代號；個人收件是 null。 */
   groupCode: string | null
@@ -269,9 +272,10 @@ export function SubmissionForm({
       }}
     >
       {lockedText ? (
-        <p className="rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" role="status">
-          {lockedText}
-        </p>
+        <div className="rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" role="status">
+          <p>{lockedText}</p>
+          {lockedHint ? <p className="mt-1 text-muted-foreground">{lockedHint}</p> : null}
+        </div>
       ) : null}
 
       {conflict ? (
@@ -401,8 +405,6 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
         </dd>
         <dt className="text-muted-foreground">送出時間</dt>
         <dd className="font-semibold tabular-nums">{receipt.receivedText}（臺灣時間）</dd>
-        <dt className="text-muted-foreground">表單</dt>
-        <dd className="tabular-nums">第 {receipt.schemaVersionNo} 版</dd>
         {receipt.files.length > 0 ? (
           <>
             <dt className="text-muted-foreground">附件</dt>

@@ -282,7 +282,8 @@ test('不在名單上的學生打不開別人的收件；尚未開放與已截�
 
   await page.goto(`/dashboard/student/affairs/${itemIds.overdue}`)
   await expect(page.getByTestId('affair-banner')).toContainText('逾期未繳')
-  await expect(page.getByText('已截止・唯讀；需要補交請聯絡系辦重新開放。')).toBeVisible()
+  await expect(page.getByText('已截止・唯讀', { exact: true })).toBeVisible()
+  await expect(page.getByRole('main')).toContainText('可向系辦申請補交')
   await expect(page.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
 })
 
@@ -400,8 +401,8 @@ test('本人看得到每一次正式送出的版本（繳交歷史、當時的�
   await signIn(page, s1)
   await page.goto(openPath())
   await page.getByRole('link', { name: /繳交歷史（2）/ }).click()
-  const history = page.getByRole('table', { name: '繳交歷史' })
-  await expect(history.getByRole('row')).toHaveCount(3)
+  const history = page.getByRole('list', { name: '繳交歷史' })
+  await expect(history.getByRole('listitem')).toHaveCount(2)
   const rows = await versions(itemIds.open, s1.userId)
   // 繳交證明編號不再印在歷史列表（W13b：預設收合），改在每一版的內容頁收合顯示。
   await expect(history).not.toContainText(rows[0]!.request_id)
