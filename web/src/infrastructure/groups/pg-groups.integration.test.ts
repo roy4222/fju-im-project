@@ -832,3 +832,68 @@ describe('管理員分組總覽', () => {
     expect(ungrouped.map(([no]) => no)).not.toContain(a!.studentNo)
   })
 })
+
+describe('分組歷程改成可選（SH-P4）', () => {
+  /** 包一層數 SQL 句數的讀取端：`history: false` 要少掉歷程那幾句。 */
+  function countingQuery(): { query: PgGroupQuery; sqls: string[] } {
+    const sqls: string[] = []
+    const reader = {
+      query: (text: string, values?: unknown[]) => {
+        sqls.push(text)
+        return app.query(text, values)
+      },
+    } as unknown as Pick<Pool, 'query'>
+    return { query: new PgGroupQuery(() => reader), sqls }
+  }
+
+  /** 兩組，第一組換過組長（歷程有一筆 leader_changed）。 */
+  async function cohortWithHistory() {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b, c, d] = await students(cohortId, 4)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    await confirmAll(await mustPropose(c!, [d!]), [c!, d!])
+    const g01 = (await query.cohortGroups(cohortId))[0]!
+    const changed = await groups.changeLeader(
+      staffActor(adminId, 'admin'),
+      { groupId: g01.id, revision: g01.revision, newLeaderUserId: b!.id, reason: '換人帶' },
+      randomUUID(),
+    )
+    expect(changed).toMatchObject({ ok: true })
+    return { cohortId, a: a!, b: b! }
+  }
+
+  it('overview 給 { history: false }：每組 history 是 []、其他欄位與預設呼叫深相等，且不跑歷程那 5 句', async () => {
+    const { cohortId } = await cohortWithHistory()
+    const { query: counted, sqls } = countingQuery()
+
+    const full = await counted.overview(cohortId)
+    const fullCount = sqls.length
+    sqls.length = 0
+    const lean = await counted.overview(cohortId, { history: false })
+
+    expect(full.groups.some((g) => g.history.length > 0)).toBe(true)
+    expect(lean.groups.map((g) => g.history)).toEqual([[], []])
+    expect(lean).toEqual({ ...full, groups: full.groups.map((g) => ({ ...g, history: [] })) })
+    expect(sqls).toHaveLength(fullCount - 5)
+  })
+
+  it('不給 opts 時照舊帶歷程（等於 { history: true }）；cohortGroups、studentView 也吃 { history: false }', async () => {
+    const { cohortId, a, b } = await cohortWithHistory()
+
+    const byDefault = await query.overview(cohortId)
+    expect(await query.overview(cohortId, { history: true })).toEqual(byDefault)
+    expect(byDefault.groups[0]!.history.map((h) => [h.kind, h.userName, h.reason])).toEqual([['leader_changed', b.name, '換人帶']])
+
+    const teacherDefault = await query.cohortGroups(cohortId)
+    expect(teacherDefault[0]!.history.map((h) => h.kind)).toEqual(['leader_changed'])
+    expect(await query.cohortGroups(cohortId, { history: false })).toEqual(teacherDefault.map((g) => ({ ...g, history: [] })))
+
+    const studentDefault = await query.studentView(a.id, cohortId)
+    expect(studentDefault.group?.history.map((h) => h.kind)).toEqual(['leader_changed'])
+    const studentLean = await query.studentView(a.id, cohortId, { history: false })
+    expect(studentLean).toEqual({ ...studentDefault, group: { ...studentDefault.group!, history: [] } })
+    // 提案歷史（StudentGroupView.history）不是組別歷程，不受影響。
+    expect(studentLean.history).toEqual(studentDefault.history)
+    expect(studentLean.history.length).toBeGreaterThan(0)
+  })
+})

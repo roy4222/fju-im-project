@@ -305,21 +305,25 @@ export type CohortGroupingOverview = {
   readonly ungrouped: readonly UngroupedStudent[]
 }
 
+/**
+ * `studentView`、`overview`、`cohortGroups` 的 `opts.history`（SH-P4）：預設 `true`；`false` 時每個
+ * `GroupSummary.history` 是 `[]`，也不查歷程（省 5 句），給不顯示歷程的頁用（系辦首頁、老師分組總覽）。
+ */
 export interface GroupQuery {
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
-  studentView(userId: string, cohortId: string): Promise<StudentGroupView>
+  studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
   /**
    * 找組員名單：同屆、已核准、未停用、沒有有效組、本人開啟公開的學生，只回姓名、學號、聯絡 Email。
    * 看的人不是同屆學生、老師或管理員就回空的。自己不列在自己的名單裡。
    */
   teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]>
   /** 管理員分組總覽（呼叫端守門）。 */
-  overview(cohortId: string): Promise<CohortGroupingOverview>
+  overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview>
   /**
    * 一屆已成立的組別、成員與主指導（老師的「分組」頁；所有老師都可查看一般與產學組別，呼叫端守門）。
    * 歷程不帶理由與操作者。
    */
-  cohortGroups(cohortId: string): Promise<GroupSummary[]>
+  cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]>
   /** 管理員指派對話框的老師選項：帳號正常、目前是老師。 */
   teacherOptions(): Promise<TeacherOption[]>
   /** 這位老師目前指導幾組（未封存的屆別）。 */

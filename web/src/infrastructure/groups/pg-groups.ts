@@ -1735,14 +1735,14 @@ export class PgGroupQuery implements GroupQuery {
     this.#reader = reader
   }
 
-  async studentView(userId: string, cohortId: string): Promise<StudentGroupView> {
+  async studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView> {
     const db = this.#reader()
     const membership = await db.query<{ group_id: string }>(
       `select group_id from group_memberships where user_id = $1 and cohort_id = $2 and valid_to is null`,
       [userId, cohortId],
     )
     const groupId = membership.rows[0]?.group_id
-    const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId], false))[0] ?? null) : null
+    const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId], false, opts?.history ?? true))[0] ?? null) : null
 
     const mine = await this.#proposals(
       `where p.cohort_id = $1 and exists (select 1 from proposal_invitations i where i.proposal_id = p.id and i.user_id = $2)
@@ -1783,9 +1783,9 @@ export class PgGroupQuery implements GroupQuery {
     return rows.rows.map((r) => ({ name: r.name, studentNo: r.student_no, contactEmail: r.contact_email }))
   }
 
-  async overview(cohortId: string): Promise<CohortGroupingOverview> {
+  async overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview> {
     if (!isUuid(cohortId)) return { groups: [], openProposals: [], closedProposals: [], ungrouped: [] }
-    const groups = await this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], true)
+    const groups = await this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], true, opts?.history ?? true)
     const openProposals = await this.#proposals(`where p.cohort_id = $1 and p.state = 'open' order by p.expires_business_at`, [cohortId], true)
     const closedProposals = await this.#proposals(
       `where p.cohort_id = $1 and p.state = 'terminated' order by p.closed_real_at desc limit 20`,
@@ -1816,9 +1816,9 @@ export class PgGroupQuery implements GroupQuery {
     }
   }
 
-  async cohortGroups(cohortId: string): Promise<GroupSummary[]> {
+  async cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]> {
     if (!isUuid(cohortId)) return []
-    return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false)
+    return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false, opts?.history ?? true)
   }
 
   async teacherOptions(): Promise<TeacherOption[]> {
@@ -1847,8 +1847,12 @@ export class PgGroupQuery implements GroupQuery {
     return Number(rows.rows[0]?.n ?? 0)
   }
 
-  /** `forAdmin`：歷程帶理由與操作的管理員；學生看的一律不帶（和作廢理由同一政策）。 */
-  async #groups(where: string, values: unknown[], forAdmin: boolean): Promise<GroupSummary[]> {
+  /**
+   * `forAdmin`：歷程帶理由與操作的管理員；學生看的一律不帶（和作廢理由同一政策）。
+   * `withHistory`：`false` 時不查歷程（`#history` 那 5 句），每組 `history` 回 `[]`（SH-P4）。
+   * 組別一句之後，組員、主指導、合作案、歷程四段彼此獨立，並行查（SH-P4）。
+   */
+  async #groups(where: string, values: unknown[], forAdmin: boolean, withHistory: boolean): Promise<GroupSummary[]> {
     const db = this.#reader()
     const groups = await db.query<{
       id: string
@@ -1864,42 +1868,60 @@ export class PgGroupQuery implements GroupQuery {
     )
     if (groups.rows.length === 0) return []
     const ids = groups.rows.map((g) => g.id)
-    const members = await db.query<{
-      group_id: string
-      user_id: string
-      name: string
-      student_no: string | null
-      is_leader: boolean
-      login_email: string | null
-    }>(
-      // 登入信箱（票 20 複製本組信箱、匯出）只在管理員的查詢裡 select；學生與老師的查詢連這一欄都不讀。
-      `select m.group_id, m.user_id, ${personName('p', 'u')} as name, p.student_no,
-              exists (select 1 from group_leaders l
-                       where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
-              ${forAdmin ? 'u.email' : 'null::text'} as login_email
-         from group_memberships m
-         join users u on u.id = m.user_id
-         left join user_profiles p on p.user_id = m.user_id
-        where m.group_id = any($1::uuid[]) and m.valid_to is null
-        order by is_leader desc, p.student_no`,
-      [ids],
-    )
-    const advisors = await db.query<{
-      group_id: string
-      teacher_user_id: string
-      teacher_name: string
-      source: AdvisorSource
-      valid_from: Date
-      contact_email: string | null
-    }>(
-      `select a.group_id, a.teacher_user_id, ${personName('p', 'u')} as teacher_name,
-              a.source, a.valid_from, p.contact_email
-         from advisor_assignments a
-         join users u on u.id = a.teacher_user_id
-         left join user_profiles p on p.user_id = a.teacher_user_id
-        where a.group_id = any($1::uuid[]) and a.valid_to is null`,
-      [ids],
-    )
+    const [members, advisors, links, history] = await Promise.all([
+      db.query<{
+        group_id: string
+        user_id: string
+        name: string
+        student_no: string | null
+        is_leader: boolean
+        login_email: string | null
+      }>(
+        // 登入信箱（票 20 複製本組信箱、匯出）只在管理員的查詢裡 select；學生與老師的查詢連這一欄都不讀。
+        `select m.group_id, m.user_id, ${personName('p', 'u')} as name, p.student_no,
+                exists (select 1 from group_leaders l
+                         where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
+                ${forAdmin ? 'u.email' : 'null::text'} as login_email
+           from group_memberships m
+           join users u on u.id = m.user_id
+           left join user_profiles p on p.user_id = m.user_id
+          where m.group_id = any($1::uuid[]) and m.valid_to is null
+          order by is_leader desc, p.student_no`,
+        [ids],
+      ),
+      db.query<{
+        group_id: string
+        teacher_user_id: string
+        teacher_name: string
+        source: AdvisorSource
+        valid_from: Date
+        contact_email: string | null
+      }>(
+        `select a.group_id, a.teacher_user_id, ${personName('p', 'u')} as teacher_name,
+                a.source, a.valid_from, p.contact_email
+           from advisor_assignments a
+           join users u on u.id = a.teacher_user_id
+           left join user_profiles p on p.user_id = a.teacher_user_id
+          where a.group_id = any($1::uuid[]) and a.valid_to is null`,
+        [ids],
+      ),
+      // 目前連結的合作案（票 20）：只帶名稱（公司＋部門，登入者可見的公開欄位）與狀態。
+      db.query<{
+        group_id: string
+        link_id: string
+        opportunity_id: string
+        company_name: string
+        department: string
+        status: OpportunityStatus
+      }>(
+        `select l.group_id, l.id as link_id, o.id as opportunity_id, o.company_name, o.department, o.status
+           from opportunity_links l
+           join industry_opportunities o on o.id = l.opportunity_id
+          where l.group_id = any($1::uuid[]) and l.valid_to is null`,
+        [ids],
+      ),
+      withHistory ? this.#history(ids, forAdmin) : new Map<string, GroupHistoryEntry[]>(),
+    ])
     const advisorOf = new Map(
       advisors.rows.map((a) => [
         a.group_id,
@@ -1912,21 +1934,6 @@ export class PgGroupQuery implements GroupQuery {
         },
       ]),
     )
-    // 目前連結的合作案（票 20）：只帶名稱（公司＋部門，登入者可見的公開欄位）與狀態。
-    const links = await db.query<{
-      group_id: string
-      link_id: string
-      opportunity_id: string
-      company_name: string
-      department: string
-      status: OpportunityStatus
-    }>(
-      `select l.group_id, l.id as link_id, o.id as opportunity_id, o.company_name, o.department, o.status
-         from opportunity_links l
-         join industry_opportunities o on o.id = l.opportunity_id
-        where l.group_id = any($1::uuid[]) and l.valid_to is null`,
-      [ids],
-    )
     const linkOf = new Map(
       links.rows.map((l) => [
         l.group_id,
@@ -1938,7 +1945,6 @@ export class PgGroupQuery implements GroupQuery {
         },
       ]),
     )
-    const history = await this.#history(ids, forAdmin)
     return groups.rows.map((g) => ({
       id: g.id,
       cohortId: g.cohort_id,
