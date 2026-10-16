@@ -77,23 +77,29 @@ export function rawRoutes({ repo = 'roy4222/fju-im-project', sha = MAIN_SHA, bod
   return out
 }
 
-function gatusResult(success, minutesAgo, now) {
+function gatusResult(success, minutesAgo, now, extra = {}) {
   return {
     status: success ? 200 : 502,
     success,
     timestamp: new Date(now.getTime() - minutesAgo * 60000).toISOString(),
     conditionResults: [{ condition: '[STATUS] == 200', success }],
+    // Gatus 的 time.Duration：JSON 是奈秒整數（1000 奈秒 → 0 ms）
     duration: 1000,
+    ...extra,
   }
 }
 
-export function gatusRoutes(now, { testResults = [true, true, true, true, true, true] } = {}) {
+/**
+ * 假 Gatus。uptimes 可換掉兩站 uptimes/7d 的回應（給 { status, body } 測失敗）；
+ * extraResultFields 塞進每筆 result（測規格外欄位不進 metrics.json）。
+ */
+export function gatusRoutes(now, { testResults = [true, true, true, true, true, true], uptimes = {}, extraResultFields = {} } = {}) {
   // Gatus 的 results 舊到新：最後一個是最近一次。
   const site = (name, list) => ({
     name,
     group: 'site',
     key: `site_${name}`,
-    results: list.map((s, i) => gatusResult(s, (list.length - i) * 5, now)),
+    results: list.map((s, i) => gatusResult(s, (list.length - i) * 5, now, extraResultFields)),
   })
   const access = HOSTS.map((h) => ({
     name: h,
@@ -101,8 +107,12 @@ export function gatusRoutes(now, { testResults = [true, true, true, true, true, 
     key: `access_${h.replaceAll('.', '-')}`,
     results: [{ status: 302, success: true, timestamp: now.toISOString() }],
   }))
+  // uptimes/7d 回 text/plain 的 %f（Gatus api/raw.go UptimeRaw）
+  const uptime = (name, value) => () => uptimes[name] ?? { body: value, headers: { 'content-type': 'text/plain' } }
   return {
     'GET /gatus/api/v1/endpoints/statuses': () => ({ body: [site('test', testResults), site('prod', [false]), ...access] }),
+    'GET /gatus/api/v1/endpoints/site_test/uptimes/7d': uptime('test', '0.999000'),
+    'GET /gatus/api/v1/endpoints/site_prod/uptimes/7d': uptime('prod', '0.000000'),
   }
 }
 
