@@ -362,10 +362,9 @@ test('AC-34：1280×800 老師首頁每張卡片標題完整，沒有被截成�
     els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent ?? ''),
   )
   expect(clipped).toEqual([])
-  for (const title of ['我的評分', '給老師的公告', '本屆活動', '待指導的產學組', '同意書', '指導中的組別', '合作案']) {
+  for (const title of ['待辦', '給老師的公告', '本屆活動']) {
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
   }
-  const signoff = page.locator('section').filter({ has: page.getByRole('heading', { name: '同意書', exact: true }) })
-  await expect(signoff).toContainText('還有 3 位同學未同意')
-  await expect(signoff).not.toContainText('等待學生同意・')
+  // 這份同意書還在收學生同意：沒有輪到老師，「待我同意的同意書」卡不出現。
+  await expect(page.getByTestId('todo-signoff')).toHaveCount(0)
 })
