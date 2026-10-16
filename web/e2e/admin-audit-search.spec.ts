@@ -47,7 +47,7 @@ test('首頁設定與操作紀錄：h1「設定」、四個分頁、目前頁標
   await expectSettingsTabs(page, '/dashboard/admin/home-settings')
   // description 只留第一句（第二句「按『儲存並更新首頁』後立刻生效…」砍掉）。
   await expect(page.getByRole('main')).toContainText('前台首頁最上面的大圖與兩行標語。')
-  await expect(page.getByRole('main')).not.toContainText('不需要另外發布')
+  await expect(page.getByRole('main')).not.toContainText('後立刻生效，所有訪客重新整理就會看到')
 
   await page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '操作紀錄', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`${AUDIT}$`))
@@ -81,8 +81,10 @@ test('操作紀錄姓名搜尋：只過濾已載入的、不打伺服器；比�
 
   const search = page.getByRole('searchbox', { name: '搜尋姓名或對象' })
   const requests: string[] = []
+  // 側欄、分頁列的 `<Link>` 會在背景預抓（帶 `next-router-prefetch`），那不是搜尋打的，不算。
   page.on('request', (r) => {
-    if (['document', 'fetch', 'xhr'].includes(r.resourceType())) requests.push(r.url())
+    if (r.headers()['next-router-prefetch']) return
+    if (['document', 'fetch', 'xhr'].includes(r.resourceType())) requests.push(`${r.method()} ${r.url()}`)
   })
 
   // 對「對象」欄：只剩 A 那一筆。
