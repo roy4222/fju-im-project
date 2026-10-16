@@ -6,11 +6,11 @@ import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
-import { formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
+import { cohortLabel, formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { getHomeSettingsQuery, resolveHome } from '@/composition/site'
-import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
+import { getSubmissionQuery, pendingCount, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -35,11 +35,13 @@ export default async function HomePage() {
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  const [hero, latest, featured, honors, competitions, activities] = await Promise.all([
+  const [hero, latest, featured, featuredCohorts, honors, competitions, activities] = await Promise.all([
     // 首頁大圖與兩行標語（第三波 W3「首頁設定」）：存了就生效；沒設定或恢復預設時跟改版前一字不差。
     getHomeSettingsQuery().current().then(resolveHome),
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
+    // 公開卡不帶屆別名稱（白名單）；跟 /projects/featured 一樣另查屆別清單，卡片標「第 43 屆（115）」。
+    getPublicShowcaseQuery().cohortChoices({ featuredOnly: true }),
     // 榮譽依得獎日期（沒填退回發布日）排好才取 4 則，跟 /honors 的「新到舊」一致。
     items.list(actor, 'honor', { limit: 4, order: 'awarded' }),
     // 進行中＝報名中＋決賽／結果；在查詢裡先篩狀態再取筆數，較早發布的進行中競賽不會被截掉。
@@ -47,6 +49,11 @@ export default async function HomePage() {
     // 近期活動（設計方案 D-4）：系辦設成「公開」、還沒結束的活動，訪客也看得到；結束了自然消失。
     getTimelineQuery().publicActivities(4),
   ])
+  const featuredCohortName = new Map(featuredCohorts.map((c) => [c.code, c.name]))
+  const featuredCohortLabel = (code: string) => {
+    const name = featuredCohortName.get(code)
+    return name ? cohortLabel({ name, code }) : code
+  }
   // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
   const rank = { open: 0, result: 1, closed: 2 } as const
   const competitionCards = competitions
@@ -219,7 +226,7 @@ export default async function HomePage() {
                       title={p.title}
                       tags={
                         <>
-                          <Tag tone="ink">{p.cohortCode} 屆</Tag>
+                          <Tag tone="ink">{featuredCohortLabel(p.cohortCode)}</Tag>
                           {p.groupCode ? <Tag>{p.groupCode}</Tag> : null}
                         </>
                       }
@@ -411,8 +418,10 @@ function PanelTitle({
 }
 
 type MyWork = {
-  /** 學生：還在開放、還沒正式送出的收件數（跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
+  /** 學生：還沒正式送出的收件數，含已逾期（P-08；跟學生首頁「待繳交」同一份查詢、同一個函式）；不是學生是 null。 */
   readonly pending: number | null
+  /** 學生：待繳裡已截止還沒送出的件數（作業區「逾期未繳」同一個狀態函式，跟學生首頁那句一樣講出來）；不是學生是 null。 */
+  readonly overdue: number | null
   /**
    * 收件截止三筆（學生首頁行事曆同一份 `myDeadlines`；只查收件名單，老師、系辦的截止不在裡面）：
    * 只列還沒到的、近的在前（`homeDeadlines`；逾期的不列，Roy 2026-09-08）。
@@ -422,7 +431,7 @@ type MyWork = {
 
 /** 首頁「我的工作」要的資料：都是學生首頁已經在用的查詢，這裡只取前幾筆。 */
 async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<MyWork> {
-  if (actor.kind !== 'authenticated') return { pending: null, deadlines: [] }
+  if (actor.kind !== 'authenticated') return { pending: null, overdue: null, deadlines: [] }
   const student = actorHasRole(actor, 'student')
   const [deadlines, items, now] = await Promise.all([
     getPublicItemQuery().myDeadlines(actor),
@@ -431,6 +440,7 @@ async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<
   ])
   return {
     pending: student ? pendingCount(items, now) : null,
+    overdue: student ? items.filter((i) => receiverStatus(i, i, now).overdue).length : null,
     deadlines: homeDeadlines(deadlines, now),
   }
 }
@@ -464,7 +474,12 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                   <span className="text-[17px] font-bold text-foreground" data-testid="home-work-pending">
                     待繳交 {work.pending} 件
                   </span>
-                  <span className="text-[13px] text-muted-foreground">還在開放、還沒正式送出的繳交項目</span>
+                  <span className="text-[13px] text-muted-foreground">還沒正式送出的繳交項目（已逾期的請找系辦補交）</span>
+                  {work.overdue ? (
+                    <span className="text-[13px] font-semibold text-destructive" data-testid="home-work-overdue">
+                      其中 {work.overdue} 件已逾期
+                    </span>
+                  ) : null}
                 </Link>
               </li>
               <li>

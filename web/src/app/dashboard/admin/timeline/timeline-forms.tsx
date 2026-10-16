@@ -88,6 +88,9 @@ function useCloseOnSuccess(state: TimelineActionState, close: () => void) {
 
 // ── 階段與日期 ──────────────────────────────────────────────────────────────
 
+/** 第 1 階段（分組期）在做什麼（Q40）：時間軸卡片與編輯對話框都固定顯示；不改資料庫裡的階段名稱。 */
+export const GROUPING_PERIOD_HINT = '分組期：組隊、選指導老師、交提案的期間'
+
 export type StageDraft = { name: string; startDate: string; description: string }
 
 export function ScheduleEditor({
@@ -170,6 +173,7 @@ export function ScheduleEditor({
                         placeholder="例：系統驗收"
                         className={INPUT}
                       />
+                      {seq === 1 ? <p className="mt-1 text-xs text-muted-foreground">{GROUPING_PERIOD_HINT}</p> : null}
                     </div>
                     <div>
                       <label htmlFor={`stage${seq}-start`} className={LABEL}>

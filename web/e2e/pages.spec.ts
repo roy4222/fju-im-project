@@ -323,6 +323,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/inbox': '全部標為已讀',
     '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
+    '/dashboard/teacher/groups': '一般組由系辦依抽籤結果指派；所有組別都看得到',
     // 合作案管理（票 20）。
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
@@ -365,6 +366,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
+    { path: '/dashboard/teacher/groups', wrongRole: 'student' },
     { path: '/dashboard/admin/affairs', wrongRole: 'student' },
     { path: '/dashboard/admin/editor/new', wrongRole: 'teacher' },
     // 檔案管理（票 35）。

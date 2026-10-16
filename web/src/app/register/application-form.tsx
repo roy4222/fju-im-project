@@ -1,5 +1,6 @@
 'use client'
 import { useActionState } from 'react'
+import { PasswordInput } from '@/app/_ui/password-input'
 
 /**
  * 註冊表單與「修改資料」表單（票 7；原型 `/register` 的版型）。
@@ -57,20 +58,31 @@ function Input({
       <label htmlFor={id} className="block text-sm font-semibold text-foreground">
         {label}
       </label>
-      <input
-        id={id}
-        name={name}
-        type={type}
-        required
-        defaultValue={defaultValue}
-        autoComplete={autoComplete}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        aria-invalid={invalid || undefined}
-        aria-describedby={hint ? `${id}-hint` : undefined}
-        className={INPUT}
-      />
+      {type === 'password' ? (
+        <PasswordInput
+          id={id}
+          name={name}
+          autoComplete={autoComplete}
+          invalid={invalid}
+          describedBy={hint ? `${id}-hint` : undefined}
+          className={INPUT}
+        />
+      ) : (
+        <input
+          id={id}
+          name={name}
+          type={type}
+          required
+          defaultValue={defaultValue}
+          autoComplete={autoComplete}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          aria-invalid={invalid || undefined}
+          aria-describedby={hint ? `${id}-hint` : undefined}
+          className={INPUT}
+        />
+      )}
       {hint ? (
         <p id={`${id}-hint`} className="mt-1 text-xs text-muted-foreground">
           {hint}

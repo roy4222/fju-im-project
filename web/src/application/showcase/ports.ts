@@ -24,6 +24,7 @@ export type CreateDraftReceipt = {
 export type CreateBackfillReceipt = {
   readonly entryId: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly title: string
   readonly revision: number
 }
@@ -105,6 +106,7 @@ export type ShowcaseDraftView = {
   readonly entryId: string
   readonly cohortId: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly cohortArchived: boolean
   /** 歷屆補登沒有組別（`group_id` 為 null）。 */
   readonly groupId: string | null
@@ -136,7 +138,7 @@ export type ShowcaseDraftView = {
 
 export type ShowcaseBoard = {
   /** 建立草稿用的屆別（沒有可用的屆別是 null）。 */
-  readonly cohort: { readonly id: string; readonly code: string; readonly archived: boolean } | null
+  readonly cohort: { readonly id: string; readonly code: string; readonly name: string; readonly archived: boolean } | null
   /** 建立草稿那一屆有效（沒解散）的組別，以及它有沒有（未刪除的）條目：一組一屆只能有一個，刪掉後可以再建。 */
   readonly groups: readonly { readonly id: string; readonly code: string; readonly entryId: string | null }[]
   /** 看板上的作品（篩選的屆別，或全部含歷屆）；已刪除的不在這裡。新屆在前、同屆依組別。 */

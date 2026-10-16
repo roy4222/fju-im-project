@@ -131,7 +131,7 @@ export type AdminGroupRow = {
 }
 
 export type AdminSignoffBoard = {
-  readonly cohort: { readonly id: string; readonly code: string; readonly archived: boolean }
+  readonly cohort: { readonly id: string; readonly code: string; readonly name: string; readonly archived: boolean }
   readonly groups: readonly AdminGroupRow[]
 }
 
@@ -143,6 +143,7 @@ export type VersionDetail = {
   readonly groupId: string
   readonly groupCode: string
   readonly cohortCode: string
+  readonly cohortName: string
   /** 已經過伺服器端清洗的全文 HTML，畫面直接輸出。 */
   readonly contentHtml: string
   readonly contentChecksum: string
@@ -193,6 +194,7 @@ export type TeacherSignoffCard = {
   readonly groupId: string
   readonly groupCode: string
   readonly cohortCode: string
+  readonly cohortName: string
   readonly purpose: SignoffPurpose
   readonly current: VersionSummary
   /** 這位老師是不是這一版快照裡的主指導、表態了沒有（票 26 卡片的「輪到你／等待學生」）。 */

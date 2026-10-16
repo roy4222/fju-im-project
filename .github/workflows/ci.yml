@@ -124,6 +124,28 @@ jobs:
           APP_VERSION: ${{ github.sha }}
       # 映像本身也要建得起來（app、worker、migrate 共用）。S00 只 build，不推 GHCR。
       - run: docker build -f web/Dockerfile --build-arg GIT_COMMIT=${{ github.sha }} -t fju-web:ci .
+      # PD-1：開發工具不能再被拉進映像（better-auth 的 optional peer 曾經把 vitest、esbuild 帶進
+      # migrate/node_modules）。另外確認 migrate、seed、worker 在映像裡解析得到全部套件：
+      # 沒給連線設定時它們會自己拒絕執行，只要錯誤不是「找不到模組」就算過。
+      - name: 映像套件檢查（不含開發工具、入口解析得到套件）
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh fju-web:ci -c \
+            'for d in /app/node_modules/.pnpm /app/migrate/node_modules/.pnpm; do ls "$d" | sed "s|^|$d: |"; done' \
+            > /tmp/image-packages.txt
+          echo "映像裡共 $(wc -l < /tmp/image-packages.txt) 個套件"
+          if grep -E ': (vitest|@vitest\+[^@]+|esbuild|@esbuild\+[^@]+)@' /tmp/image-packages.txt; then
+            echo "映像裡有開發工具套件（上面列出的），不能進正式映像"; exit 1
+          fi
+          for entry in migrate/web/scripts/migrate.mjs migrate/web/scripts/seed-a1.mjs \
+                       migrate/web/scripts/seed-e2e.mjs migrate/web/scripts/seed-demo.mjs \
+                       migrate/web/dist/worker.mjs; do
+            out=$(docker run --rm fju-web:ci timeout 20 node "$entry" 2>&1 || true)
+            echo "== $entry"; echo "$out" | head -3
+            if echo "$out" | grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (module|package)'; then
+              echo "$entry 在映像裡缺套件"; exit 1
+            fi
+          done
 
   e2e-smoke:
     runs-on: ubuntu-latest

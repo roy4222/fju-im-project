@@ -93,11 +93,24 @@ function json(value) {
   return { __json: value }
 }
 
+/** 內文日期記號用的平移（`seed` 建好時鐘後換成它的 `day`）；記號格式見 `demo/data.mjs` 檔頭。 */
+let textDay = (ymd) => ymd
+
+/** 把內文的 `{{md|月日|年月日:YYYY-MM-DD}}` 換成平移後的日期，內文提到的日期才會跟活動、截止日對得上。 */
+function datedText(text) {
+  return text.replace(/\{\{(md|月日|年月日):(\d{4}-\d{2}-\d{2})\}\}/g, (_, format, ymd) => {
+    const [y, m, d] = textDay(ymd).split('-').map(Number)
+    if (format === 'md') return `${m}/${d}`
+    return format === '月日' ? `${m} 月 ${d} 日` : `${y} 年 ${m} 月 ${d} 日`
+  })
+}
+
 async function insert(db, table, row) {
   const cols = Object.keys(row)
   const values = cols.map((c) => {
     const v = row[c]
-    return v && typeof v === 'object' && '__json' in v ? JSON.stringify(v.__json) : v
+    if (typeof v === 'string') return datedText(v)
+    return v && typeof v === 'object' && '__json' in v ? datedText(JSON.stringify(v.__json)) : v
   })
   const params = cols.map((_, i) => `$${i + 1}`)
   await db.query(`insert into ${table} (${cols.join(', ')}) values (${params.join(', ')})`, values)
@@ -407,6 +420,7 @@ async function seed(db, phases) {
   const anchor = phases.current ? process.env.DEMO_ANCHOR_DATE || taipeiYmd(now) : await seededAnchor(db, now)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) throw new Error(`DEMO_ANCHOR_DATE 要是 YYYY-MM-DD，收到 ${anchor}`)
   const { offsetDays, day, at, stamp } = makeClock(anchor)
+  textDay = day
   const realNow = new Date()
   const counts = {}
   const count = (k, n = 1) => (counts[k] = (counts[k] ?? 0) + n)
