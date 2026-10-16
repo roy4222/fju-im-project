@@ -36,11 +36,11 @@ async function render(name: ScenarioName) {
 }
 
 const state = (html: string, id: string) => html.match(new RegExp(`data-testid="gate-${id}" data-state="(\\w+)"`))?.[1]
-/** 某條卡片的 HTML（到下一條卡片或補充資訊為止）。 */
+/** 某條卡片的 HTML（到下一條卡片或 </main> 為止）。 */
 const card = (html: string, id: string) => {
   const start = html.indexOf(`data-testid="gate-${id}"`)
   const rest = html.slice(start + 1)
-  const end = rest.search(/data-testid="gate-G\d"|補充資訊/)
+  const end = rest.search(/data-testid="gate-G\d"|<\/main>/)
   return rest.slice(0, end)
 }
 const NOT_YET = /data-can-go-live="false"[\s\S]*還不能上線/
@@ -149,24 +149,6 @@ describe('能不能上線頁（AC-S-19）', () => {
     expect(html).toMatch(NOT_YET)
   })
 
-  it('版本卡片：三個 SHA 一致不標黃；正式站部署落後時標黃', async () => {
-    const html = await render('a')
-    expect(html).toMatch(/data-testid="version-test" data-mismatch="false"/)
-    expect(html).toMatch(/data-testid="version-prod" data-mismatch="false"/)
-    const s = SCENARIOS.a()
-    s.vm!.deploys.prod[0]!.tag = '463931b000000000000000000000000000000000'
-    const { dataDir, acceptanceDir } = await writeScenario(path.join(root, 'version'), s)
-    vi.stubEnv('STATUS_DATA_DIR', dataDir)
-    vi.stubEnv('STATUS_ACCEPTANCE_DIR', acceptanceDir)
-    const out = renderToStaticMarkup(
-      <TooltipProvider>
-        <SidebarProvider>{await GoLivePage()}</SidebarProvider>
-      </TooltipProvider>,
-    )
-    expect(out).toMatch(/data-testid="version-prod" data-mismatch="true"/)
-    expect(out).toContain('版本不一致')
-  })
-
   it('G3：collector 判 ok:false（worker 心跳逾時）、六筆都 true → G3 紅、還不能上線', async () => {
     const s = SCENARIOS.a()
     s.health!.test!.ok = false
@@ -196,5 +178,45 @@ describe('能不能上線頁（AC-S-19）', () => {
     )
     for (const id of ['G1', 'G2', 'G3', 'G4', 'G5']) expect(state(html, id)).toBe('grey')
     expect(html).toMatch(NOT_YET)
+  })
+
+  it('AC-DV-10：沒有補充資訊卡與版本卡；tested-commit 在 G2 卡、30 分鐘句在 G3 卡、G5 卡沒有「自己確認」', async () => {
+    const html = await render('a')
+    expect(html).not.toContain('補充資訊')
+    expect(html).not.toContain('data-testid="version-card"')
+    expect(card(html, 'G2')).toMatch(/data-testid="tested-commit">最近一次完整驗收：[^<，]+，測的是 [0-9a-f]{7}；main 目前是 [0-9a-f]{7}/)
+    expect(card(html, 'G3')).toContain('30 分鐘內有過失敗算資料不夠')
+    expect(card(html, 'G5')).not.toContain('自己確認')
+  })
+
+  it('AC-DV-09：沒有 A 記錄 → G5 紅、卡上寫出 host；沒有 DNS 資料 → G5 灰', async () => {
+    const s = SCENARIOS.a()
+    s.vm!.prodDns!.hasA = false
+    let { dataDir, acceptanceDir } = await writeScenario(path.join(root, 'dns-no-a'), s)
+    vi.stubEnv('STATUS_DATA_DIR', dataDir)
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', acceptanceDir)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(NOW))
+    const red = renderToStaticMarkup(
+      <TooltipProvider>
+        <SidebarProvider>{await GoLivePage()}</SidebarProvider>
+      </TooltipProvider>,
+    )
+    expect(state(red, 'G5')).toBe('red')
+    expect(card(red, 'G5')).toContain('fju.roy422.dev 沒有 A 記錄')
+    expect(red).toMatch(NOT_YET)
+
+    const g = SCENARIOS.a()
+    delete g.vm!.prodDns
+    ;({ dataDir, acceptanceDir } = await writeScenario(path.join(root, 'dns-missing'), g))
+    vi.stubEnv('STATUS_DATA_DIR', dataDir)
+    vi.stubEnv('STATUS_ACCEPTANCE_DIR', acceptanceDir)
+    const grey = renderToStaticMarkup(
+      <TooltipProvider>
+        <SidebarProvider>{await GoLivePage()}</SidebarProvider>
+      </TooltipProvider>,
+    )
+    expect(state(grey, 'G5')).toBe('grey')
+    expect(card(grey, 'G5')).toContain('DNS 檢查沒有資料')
   })
 })

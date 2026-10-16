@@ -332,6 +332,31 @@ describe('G1、G3、G4、G5 的灰與紅', () => {
       'BUSINESS_CLOCK_OVERRIDE_ENABLED 不是 false',
     ])
   })
+
+  it('G5（AC-DV-09）：缺 prodDns 或 DNS 檢查超過 26 小時 → 灰「DNS 檢查沒有資料」', () => {
+    const missing = green()
+    delete missing.vm!.prodDns
+    expect(gate(missing, 'G5')).toMatchObject({ state: 'grey', summary: 'DNS 檢查沒有資料' })
+    const stale = green()
+    stale.vm!.prodDns!.checkedAt = new Date(now.getTime() - 27 * 3_600_000).toISOString()
+    expect(gate(stale, 'G5')).toMatchObject({ state: 'grey', summary: 'DNS 檢查沒有資料' })
+    expect(run(missing).canGoLive).toBe(false)
+  })
+
+  it('G5（AC-DV-09）：hasA:false → 紅、原因帶欄位裡的 host；envcheck 也壞時兩種原因都列', () => {
+    const noA = green()
+    noA.vm!.prodDns!.hasA = false
+    const g = gate(noA, 'G5')
+    expect(g.state).toBe('red')
+    expect(g.reasons).toContain('fju.roy422.dev 沒有 A 記錄')
+    const other = green()
+    other.vm!.prodDns = { ...other.vm!.prodDns!, host: 'example.test', hasA: false }
+    expect(gate(other, 'G5').reasons).toContain('example.test 沒有 A 記錄')
+    noA.vm!.prodEnv = { ...noA.vm!.prodEnv!, missing: ['DATABASE_URL'] }
+    const both = gate(noA, 'G5')
+    expect(both.state).toBe('red')
+    expect(both.reasons).toEqual(['缺少：DATABASE_URL', 'fju.roy422.dev 沒有 A 記錄'])
+  })
 })
 
 describe('小工具', () => {
