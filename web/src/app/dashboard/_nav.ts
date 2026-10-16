@@ -1,55 +1,102 @@
-import type { NavItem } from '@/app/_ui/site-shell'
 import type { Role } from '@/application/accounts'
+
+/**
+ * 側欄圖示的名字（共用 SH-1a）。清單只放字串，圖示元件由 client 端 `_ui/dashboard-frame.tsx` 的
+ * `NAV_ICONS` 對照：Server Component 不能把元件函式傳給 client（RSC 序列化會錯）。
+ */
+export const NAV_ICON_NAMES = [
+  'home',
+  'timeline',
+  'inbox',
+  'affairs',
+  'editor',
+  'files',
+  'showcase',
+  'home-settings',
+  'groups',
+  'industry',
+  'grading',
+  'signoff',
+  'accounts',
+  'cohorts',
+  'clock',
+  'audit',
+  'tasks',
+  'settings',
+] as const
+export type NavIconName = (typeof NAV_ICON_NAMES)[number]
+
+/**
+ * 側欄一項。`activeFor`：這些網址也算在這一項（被收進分頁的頁）；`group`：舊清單的分組標題，
+ * 只在過渡期有值（各角色的側欄切換票拿掉）。型別原本在 `site-shell.tsx`，那裡 re-export。
+ */
+export type NavItem = {
+  readonly href: string
+  readonly label: string
+  readonly icon: NavIconName
+  readonly activeFor?: readonly string[]
+  readonly group?: string
+}
+
+/** 側欄這一項在 `current` 這頁要不要亮。 */
+export function isNavActive(item: NavItem, current: string): boolean {
+  return item.href === current || (item.activeFor?.includes(current) ?? false)
+}
+
+/** 頁首標題：亮著那一項的名字；都沒亮就是角色名。 */
+export function navTitle(items: readonly NavItem[], current: string, roleLabel: string): string {
+  return items.find((item) => isNavActive(item, current))?.label ?? roleLabel
+}
 
 /**
  * 三種後台的側欄掛載點與**受保護路由清單**（票 #47）。
  *
  * 分組、順序、名稱照原型 `prototype/src/lib/nav-config.ts`（票 35 對齊系辦與老師；學生在票 38）。
- * 分組與圖示由 `_ui/dashboard-frame.tsx` 依網址最後一段對應；這裡的順序就是同一組內的順序。
+ * 每項的 `icon`、`group` 照舊外框依網址段推斷的結果寫死（SH-1a）；同一組的項目要排在一起。
  * 只放已經做出來的頁：沒做的功能不要先放上去，不然使用者會點進去撲空
  * （原型的「內容編輯器」依 Vault 04「單一入口」不放）。
  */
 export const ADMIN_NAV: readonly NavItem[] = [
   // 總覽
-  { href: '/dashboard/admin', label: '首頁' },
-  { href: '/dashboard/admin/timeline', label: '時間軸設定' },
+  { href: '/dashboard/admin', label: '首頁', icon: 'home', group: '總覽' },
+  { href: '/dashboard/admin/timeline', label: '時間軸設定', icon: 'timeline', group: '總覽' },
   // 通知（票 12）：頂列鈴鐺之外，原型側欄也有入口。
-  { href: '/dashboard/admin/inbox', label: '通知' },
+  { href: '/dashboard/admin/inbox', label: '通知', icon: 'inbox', group: '總覽' },
   // 專題事務
-  { href: '/dashboard/admin/affairs', label: '專題事務' },
+  { href: '/dashboard/admin/affairs', label: '專題事務', icon: 'affairs', group: '專題事務' },
   // 檔案管理（票 35）：全站檔案的檢視（下載、引用位置），不另做一套檔案系統。
-  { href: '/dashboard/admin/files', label: '檔案管理' },
+  { href: '/dashboard/admin/files', label: '檔案管理', icon: 'files', group: '專題事務' },
   // 精選（票 25）：替各組建精選草稿（不發布）。原型沒有這一項，放在專題事務組。
-  { href: '/dashboard/admin/showcase', label: '成果展示' },
+  { href: '/dashboard/admin/showcase', label: '成果展示', icon: 'showcase', group: '專題事務' },
   // 首頁設定（第三波 W3／W5）：前台首頁大圖與兩行標語，存了就生效；頁面與守衛由 W3 提供。
-  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
+  { href: '/dashboard/admin/home-settings', label: '首頁設定', icon: 'home-settings', group: '專題事務' },
   // 分組與產學
-  { href: '/dashboard/admin/groups', label: '分組總覽' },
+  { href: '/dashboard/admin/groups', label: '分組總覽', icon: 'groups', group: '分組與產學' },
   // 產學合作（票 20）：全部合作案與組別連結。
-  { href: '/dashboard/admin/industry', label: '產學合作' },
+  { href: '/dashboard/admin/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
   // 評分與簽核：成績管理（票 23／24）＝方案版本、指派、成績表；簽核（票 25／26）。
-  { href: '/dashboard/admin/grading', label: '成績管理' },
-  { href: '/dashboard/admin/signoff', label: '站內同意書' },
+  { href: '/dashboard/admin/grading', label: '成績管理', icon: 'grading', group: '評分與同意書' },
+  { href: '/dashboard/admin/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
   // 系統管理
-  { href: '/dashboard/admin/accounts', label: '帳號管理' },
+  { href: '/dashboard/admin/accounts', label: '帳號管理', icon: 'accounts', group: '系統管理' },
   // 屆別（票 5）：原型併在時間軸頁；正式碼另一頁，放系統管理組。
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
+  { href: '/dashboard/admin/cohorts', label: '屆別', icon: 'cohorts', group: '系統管理' },
   // 操作紀錄（票 36）：稽核紀錄唯讀清單，只給管理員。
-  { href: '/dashboard/admin/audit', label: '操作紀錄' },
+  { href: '/dashboard/admin/audit', label: '操作紀錄', icon: 'audit', group: '系統管理' },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
   // 總覽
-  { href: '/dashboard/teacher', label: '首頁' },
-  { href: '/dashboard/teacher/inbox', label: '通知' },
+  { href: '/dashboard/teacher', label: '首頁', icon: 'home', group: '總覽' },
+  { href: '/dashboard/teacher/inbox', label: '通知', icon: 'inbox', group: '總覽' },
   // 各組繳交狀態（票 22）：原型側欄沒有這一項（入口在首頁），正式碼保留，放專題事務組。
-  { href: '/dashboard/teacher/affairs', label: '各組繳交' },
+  { href: '/dashboard/teacher/affairs', label: '各組繳交', icon: 'affairs', group: '專題事務' },
   // 分組與產學：分組總覽（票 19，產學組認領與全部組別）、產學合作（票 20，自己的合作案）。
-  { href: '/dashboard/teacher/groups', label: '分組總覽' },
-  { href: '/dashboard/teacher/industry', label: '產學合作' },
+  { href: '/dashboard/teacher/groups', label: '分組總覽', icon: 'groups', group: '分組與產學' },
+  { href: '/dashboard/teacher/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
   // 評分與簽核：評分工作台（票 23，只有被指派的組別）、簽核（票 25／26）。
-  { href: '/dashboard/teacher/grading', label: '評分' },
-  { href: '/dashboard/teacher/signoff', label: '站內同意書' },
+  { href: '/dashboard/teacher/grading', label: '評分', icon: 'grading', group: '評分與同意書' },
+  { href: '/dashboard/teacher/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
 ]
 
 /**
@@ -58,18 +105,18 @@ export const TEACHER_NAV: readonly NavItem[] = [
  * 頁面 `/dashboard/student/grading` 與下面的守衛保留，直接打網址看到「學生不會看到分數」說明。
  */
 export const STUDENT_NAV: readonly NavItem[] = [
-  { href: '/dashboard/student', label: '首頁' },
+  { href: '/dashboard/student', label: '首頁', icon: 'home', group: '總覽' },
   // 專題時間軸（票 38）：本屆階段與日期，唯讀。
-  { href: '/dashboard/student/timeline', label: '專題時間軸' },
+  { href: '/dashboard/student/timeline', label: '專題時間軸', icon: 'timeline', group: '總覽' },
   // 通知匣（票 12）：頂列鈴鐺之外，原型學生側欄也有一列。
-  { href: '/dashboard/student/inbox', label: '通知' },
+  { href: '/dashboard/student/inbox', label: '通知', icon: 'inbox', group: '總覽' },
   // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
-  { href: '/dashboard/student/affairs', label: '我的繳交' },
-  { href: '/dashboard/student/groups', label: '我的組別' },
+  { href: '/dashboard/student/affairs', label: '我的繳交', icon: 'affairs', group: '專題事務' },
+  { href: '/dashboard/student/groups', label: '我的組別', icon: 'groups', group: '分組與產學' },
   // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
-  { href: '/dashboard/student/industry', label: '產學合作' },
+  { href: '/dashboard/student/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
   // 同意書（票 25、26；原型學生側欄叫「同意書」）：自己組別的簽核版本全文與逐人同意。
-  { href: '/dashboard/student/signoff', label: '站內同意書' },
+  { href: '/dashboard/student/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
 ]
 
 /**

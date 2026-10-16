@@ -13,8 +13,10 @@ import {
   IconHistory,
   IconHome,
   IconLayoutDashboard,
+  IconListCheck,
   IconPencilPlus,
   IconSchool,
+  IconSettings,
   IconSignature,
   IconUsers,
   IconUsersGroup,
@@ -40,52 +42,45 @@ import {
 } from '@/app/_ui/ui/sidebar'
 import { TooltipProvider } from '@/app/_ui/ui/tooltip'
 import { DashThemeToggle } from '@/app/_ui/dash-theme'
-
-type Item = { href: string; label: string }
+import { isNavActive, navTitle, type NavIconName, type NavItem } from '@/app/dashboard/_nav'
 
 /**
- * 側欄分組與圖示（原型 `lib/nav-config.ts` 的五組）。
- *
- * 用網址最後一段對應，不改 `_nav.ts` 的清單格式：之後的票在清單加一列，
- * 這裡對得到就自動有圖示與分組；對不到的落在最後一組、用預設圖示。
+ * 側欄圖示（原型 `lib/nav-config.ts`）：`_nav.ts` 只寫名字，這裡對成元件。
+ * 放在 client 檔：Server Component 不能把元件函式當 props 傳過來（RSC 序列化會錯）。
  */
-const GROUPS = ['總覽', '專題事務', '分組與產學', '評分與同意書', '系統管理'] as const
-type Group = (typeof GROUPS)[number]
-
-const SEGMENTS: Record<string, { group: Group; icon: Icon }> = {
-  '': { group: '總覽', icon: IconLayoutDashboard },
-  timeline: { group: '總覽', icon: IconCalendarTime },
-  inbox: { group: '總覽', icon: IconBell },
-  affairs: { group: '專題事務', icon: IconClipboardText },
-  editor: { group: '專題事務', icon: IconPencilPlus },
-  files: { group: '專題事務', icon: IconFolders },
-  // 公開精選（票 25）：成果發布，放在專題事務。
-  showcase: { group: '專題事務', icon: IconAward },
-  'home-settings': { group: '專題事務', icon: IconHome },
-  groups: { group: '分組與產學', icon: IconUsersGroup },
-  industry: { group: '分組與產學', icon: IconBuildingFactory2 },
-  grading: { group: '評分與同意書', icon: IconChecklist },
-  signoff: { group: '評分與同意書', icon: IconSignature },
-  accounts: { group: '系統管理', icon: IconUsers },
-  cohorts: { group: '系統管理', icon: IconSchool },
-  clock: { group: '系統管理', icon: IconClock },
-  audit: { group: '系統管理', icon: IconHistory },
+const NAV_ICONS: Record<NavIconName, Icon> = {
+  home: IconLayoutDashboard,
+  timeline: IconCalendarTime,
+  inbox: IconBell,
+  affairs: IconClipboardText,
+  editor: IconPencilPlus,
+  files: IconFolders,
+  // 公開精選（票 25）：成果發布。
+  showcase: IconAward,
+  'home-settings': IconHome,
+  groups: IconUsersGroup,
+  industry: IconBuildingFactory2,
+  grading: IconChecklist,
+  signoff: IconSignature,
+  accounts: IconUsers,
+  cohorts: IconSchool,
+  clock: IconClock,
+  audit: IconHistory,
+  tasks: IconListCheck,
+  settings: IconSettings,
 }
 
-function segmentOf(href: string): string {
-  // /dashboard/<角色>/<段> → <段>；角色首頁 → ''
-  return href.split('/').slice(3, 4)[0] ?? ''
-}
-
-function grouped(items: readonly Item[]): { title: Group; items: (Item & { icon: Icon })[] }[] {
-  const byGroup = new Map<Group, (Item & { icon: Icon })[]>()
+/**
+ * 依每項的 `group` 分段（同一組的項目在清單裡排在一起）。沒有 `group` 的項目自成一段、不顯示組名。
+ */
+function sections(items: readonly NavItem[]): { title?: string; items: NavItem[] }[] {
+  const out: { title?: string; items: NavItem[] }[] = []
   for (const item of items) {
-    const meta = SEGMENTS[segmentOf(item.href)] ?? { group: '系統管理' as const, icon: IconLayoutDashboard }
-    const list = byGroup.get(meta.group) ?? []
-    list.push({ ...item, icon: meta.icon })
-    byGroup.set(meta.group, list)
+    const last = out.at(-1)
+    if (last && last.title === item.group) last.items.push(item)
+    else out.push({ title: item.group, items: [item] })
   }
-  return GROUPS.filter((g) => byGroup.has(g)).map((g) => ({ title: g, items: byGroup.get(g)! }))
+  return out
 }
 
 /**
@@ -115,7 +110,7 @@ export function DashboardFrame({
   sidebarOpen?: boolean
   /** 側欄數字徽章：href → 數字（伺服器算好；沒有就不顯示）。 */
   badges?: Readonly<Record<string, number>>
-  items: readonly Item[]
+  items: readonly NavItem[]
   current: string
   homeHref: string
   /** 兼任角色的「切換到另一個後台」（票 41；伺服器依本人角色算好，單一角色是空的）。 */
@@ -124,8 +119,10 @@ export function DashboardFrame({
   signOutFormId: string
   children: ReactNode
 }) {
-  const groups = grouped(items)
-  const title = items.find((item) => item.href === current)?.label ?? roleLabel
+  const groups = sections(items)
+  const title = navTitle(items, current, roleLabel)
+  // 兼任時標出現在在哪個後台（Q103）；單一角色不顯示。
+  const workbench = switchLinks.length > 0 ? `目前：${roleLabel}後台` : null
   const accountLinks: AccountLink[] = [
     { href: '/account', label: '我的帳號', icon: 'account' },
     ...switchLinks,
@@ -150,17 +147,30 @@ export function DashboardFrame({
           <span className="truncate pl-0.5 text-[12px] font-semibold text-muted-foreground group-data-[collapsible=icon]:hidden">
             專題管理平台
           </span>
+          {workbench ? (
+            // 收合成圖示時只顯示角色首字（偽元素，不進文字內容），滑過看 title 全文。
+            <p
+              data-testid="workbench-indicator"
+              title={workbench}
+              data-initial={roleLabel.slice(0, 1)}
+              className="truncate pl-0.5 text-[12px] font-semibold text-primary group-data-[collapsible=icon]:text-center group-data-[collapsible=icon]:after:content-[attr(data-initial)]"
+            >
+              <span className="group-data-[collapsible=icon]:hidden">{workbench}</span>
+            </p>
+          ) : null}
         </SidebarHeader>
 
         <SidebarContent className="px-3 pt-2">
           <nav aria-label="後台導覽">
-            {groups.map((group) => (
-              <SidebarGroup key={group.title} className="py-0.5">
-                <SidebarGroupLabel className="h-6 px-3 text-[11px] tracking-[0.08em] text-muted-foreground">{group.title}</SidebarGroupLabel>
+            {groups.map((group, index) => (
+              <SidebarGroup key={`${index}-${group.title ?? ''}`} className="py-0.5">
+                {group.title ? (
+                  <SidebarGroupLabel className="h-6 px-3 text-[11px] tracking-[0.08em] text-muted-foreground">{group.title}</SidebarGroupLabel>
+                ) : null}
                 <SidebarMenu className="gap-0.5">
                   {group.items.map((item) => {
-                    const active = item.href === current
-                    const ItemIcon = item.icon
+                    const active = isNavActive(item, current)
+                    const ItemIcon = NAV_ICONS[item.icon]
                     const badge = badges[item.href]
                     return (
                       <SidebarMenuItem key={item.href}>
