@@ -5,7 +5,7 @@ import { currentActor } from '@/app/_ui/guard'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
 import { Crumbs, FirstCharAccent, imageSrc, ListEmpty, PillLink } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
-import { SiteShell } from '@/app/_ui/site-shell'
+import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
 import { taipeiDateOf } from '@/shared/time'
 
@@ -37,6 +37,9 @@ export default async function HonorsPage({
   const sort = one(sp.sort) === 'date-asc' ? 'date-asc' : 'date'
   const open = one(sp.item) || undefined
   const actor = await currentActor()
+  // 入口依權限（Q47）：只有進得了自己後台的人才給「歷屆專題」連結；訪客、待審、還沒改臨時密碼的人
+  // 點了也打不開 `/projects`。跟導覽列、首頁用同一個判斷。
+  const member = isMember(actor)
   const query = getPublicItemQuery()
   // 依得獎日期排好才取 200 筆（查詢裡排）：發布順序跟得獎順序不同時，也拿得到最新（或最舊）的那一批。
   const [all, matched] = await Promise.all([
@@ -74,7 +77,7 @@ export default async function HonorsPage({
 
   return (
     <SiteShell current="/honors" bare>
-      {/* 頁首帶同 `PublicPageHead`，只是說明裡的「歷屆專題」要能點（N-13）。 */}
+      {/* 頁首帶同 `PublicPageHead`，只是登入者看到的說明裡「歷屆專題」要能點（N-13）。 */}
       <div className="border-b border-border bg-muted/50">
         <div className="mx-auto max-w-6xl px-5 py-9">
           <Crumbs items={[{ label: '榮譽榜' }]} />
@@ -82,11 +85,17 @@ export default async function HonorsPage({
             <FirstCharAccent text="榮譽榜" />
           </h1>
           <p className="mt-2.5 max-w-3xl text-[15px] text-muted-foreground">
-            收錄本系專題在校內外競賽的得獎紀錄與照片；歷屆專題作品請看「
-            <Link href="/projects" className="font-semibold text-primary hover:underline">
-              歷屆專題
-            </Link>
-            」。
+            {member ? (
+              <>
+                收錄本系專題在校內外競賽的得獎紀錄與照片；歷屆專題作品請看「
+                <Link href="/projects" className="font-semibold text-primary hover:underline">
+                  歷屆專題
+                </Link>
+                」。
+              </>
+            ) : (
+              '收錄本系專題在校內外競賽的得獎紀錄與照片。'
+            )}
           </p>
         </div>
       </div>
