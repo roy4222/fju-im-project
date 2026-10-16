@@ -41,7 +41,7 @@ function OpportunityCardView({ card }: { card: OpportunityCard }) {
             <span className="text-[13px] text-muted-foreground">{card.department}</span>
           </div>
         </div>
-        {card.linkedGroupCount > 0 ? <Tag tone="ink">已有 {card.linkedGroupCount} 組</Tag> : <Tag>尚無組別</Tag>}
+        {card.linkedGroupCount > 0 ? <Tag tone="ink">已有 {card.linkedGroupCount} 組・仍可加入</Tag> : <Tag>尚無組別</Tag>}
       </div>
       <p className="line-clamp-3 text-base leading-snug font-semibold break-words text-foreground">{card.summary}</p>
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-[13px] text-muted-foreground">
