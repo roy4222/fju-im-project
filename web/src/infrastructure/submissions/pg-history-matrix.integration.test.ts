@@ -7,8 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
+import type { SchemeStageInput } from '@/application/grading'
 import type { ItemInput } from '@/application/items'
-import { completionOf, receiverStatus } from '@/application/submissions'
+import { completionOf, receiverStatus, type GroupVersionWithFiles } from '@/application/submissions'
+import { PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgItemCommand } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
@@ -780,5 +782,214 @@ describe('6. 老師名單也認得系辦開放的個別補交（W10b）', () => 
     } finally {
       businessNow = BEFORE_DUE
     }
+  })
+})
+
+describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版的完整附件（AC-TE-48）', () => {
+  const FILE_FIELDS = [
+    { key: 'topic', type: 'text', label: '題目', required: true },
+    { key: 'report', type: 'file', label: '報告', required: true, fileRules: { allowedTypes: ['pdf'], maxMiB: 1 } },
+    { key: 'source', type: 'file', label: '原始碼', required: false, fileRules: { allowedTypes: ['zip'], maxMiB: 1 } },
+    { key: 'appendix', type: 'file', label: '附錄', required: false, fileRules: { allowedTypes: ['pdf'], maxMiB: 1 } },
+    { key: 'data', type: 'file', label: '資料', required: false, fileRules: { allowedTypes: ['zip'], maxMiB: 1 } },
+  ]
+  // 空的 ZIP（只有 end of central directory）：過得了內容檢查，存成 application/zip。
+  const ZIP = new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...new Array<number>(18).fill(0)])
+  const FILE_OF: Record<string, { ext: string; mime: string; bytes: Uint8Array }> = {
+    report: { ext: 'pdf', mime: 'application/pdf', bytes: PDF },
+    source: { ext: 'zip', mime: 'application/zip', bytes: ZIP },
+    appendix: { ext: 'pdf', mime: 'application/pdf', bytes: PDF },
+    data: { ext: 'zip', mime: 'application/zip', bytes: ZIP },
+  }
+
+  async function uploadTo(s: Person, itemId: string, fieldKey: string, name: string): Promise<string> {
+    const { mime, bytes } = FILE_OF[fieldKey]!
+    const ticket = await submissions.requestUpload(studentActor(s), itemId, fieldKey, { fileName: name, declaredMime: mime, declaredSize: bytes.length })
+    if (!ticket.ok) throw new Error(`${ticket.code} ${ticket.message}`)
+    const result = await storage.upload(s.id, ticket.receipt.ticket, streamOf(bytes), bytes.length)
+    if (!result.ok) throw new Error(`${result.code} ${result.message}`)
+    return (result.receipt as { fileId: string }).fileId
+  }
+
+  /** 上傳指定欄位的檔案後正式送出；回這一版的檔案 ID。 */
+  async function submitFiles(s: Person, itemId: string, keys: string[]): Promise<string[]> {
+    seq += 1
+    const answers: Record<string, string> = { topic: `題目 ${seq}` }
+    for (const key of keys) answers[key] = await uploadTo(s, itemId, key, `${key}-${seq}.${FILE_OF[key]!.ext}`)
+    await saveAndSubmit(s, itemId, answers)
+    return keys.map((k) => answers[k]!)
+  }
+
+  /** G1（S1、S2，主指導 T1）兩份整組作業各一版、各附一份 PDF 與一份 zip；G2 一版。 */
+  async function filesScenario() {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId, '組長小明')
+    const s2 = await newStudent(cohortId, '組員小華')
+    const s6 = await newStudent(cohortId, '別組小美')
+    seq += 1
+    const g1 = await newGroup(cohortId, `G1-${seq}`, [s1, s2], t1)
+    const g2 = await newGroup(cohortId, `G2-${seq}`, [s6], t3)
+    const itemA = await published(cohortId, stageId, { title: '期中報告', fields: FILE_FIELDS })
+    const itemB = await published(cohortId, stageId, { title: '系統驗收報告', fields: FILE_FIELDS })
+    const g1Files = [...(await submitFiles(s1, itemA, ['report', 'source'])), ...(await submitFiles(s2, itemB, ['report', 'source']))]
+    const g2Files = await submitFiles(s6, itemA, ['report', 'source'])
+    const evaluator = await newUser('評分老師', 'teacher')
+    return { cohortId, s1, s2, s6, g1, g2, itemA, itemB, g1Files, g2Files, evaluator }
+  }
+
+  async function evaluate(groupId: string, teacherId: string) {
+    await owner.sql(
+      `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+       values (gen_random_uuid(), $1, 'mid', $2, now(), $3)`,
+      [groupId, teacherId, adminId],
+    )
+  }
+
+  /** 資料庫裡這組每一版的附件（逐欄），跟查詢結果比。 */
+  async function attachmentsInDb(groupId: string) {
+    const rows = await owner.sql(
+      `select v.item_id, v.version_no, sf.file_id, f.original_name, coalesce(f.mime_detected, 'application/octet-stream') as mime, f.size_bytes
+         from submission_versions v
+         join submission_files sf on sf.submission_version_id = v.id
+         join stored_files f on f.id = sf.file_id
+        where v.receiver_kind = 'group' and v.receiver_id = $1`,
+      [groupId],
+    )
+    return rows.rows
+      .map((r) => [r.item_id, r.version_no, r.file_id, r.original_name, r.mime, Number(r.size_bytes)])
+      .sort((a, b) => String(a[2]).localeCompare(String(b[2])))
+  }
+
+  function flatten(listed: readonly GroupVersionWithFiles[]) {
+    return listed
+      .flatMap((v) => v.attachments.map((a) => [v.itemId, v.versionNo, a.fileId, a.name, a.mime, a.sizeBytes]))
+      .sort((a, b) => String(a[2]).localeCompare(String(b[2])))
+  }
+
+  function countingPool(pool: Pool): { db: Pick<Pool, 'query'>; count: () => number; reset: () => void } {
+    let n = 0
+    const query = (...args: unknown[]) => {
+      n += 1
+      return (pool.query as (...a: unknown[]) => unknown)(...args)
+    }
+    return { db: { query } as unknown as Pick<Pool, 'query'>, count: () => n, reset: () => (n = 0) }
+  }
+
+  it('groupVersionsWithFiles：版本與 groupVersions 相同；每一版附件與資料庫逐欄相等、PDF 是 application/pdf；共用草稿、別組不出現', async () => {
+    const { s1, s6, g1, g2, itemA, g1Files, g2Files, evaluator } = await filesScenario()
+    const outsider = await newUser('無關的老師', 'teacher')
+    // 還沒指派：空的。
+    expect(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1)).toEqual([])
+    await evaluate(g1, evaluator)
+
+    // 共用草稿的附件不算正式版本。
+    const draftFile = await uploadTo(s1, itemA, 'report', 'draft.pdf')
+    const current = (await query.myItem(s1.id, itemA))?.draft?.revision ?? 0
+    expect((await submissions.saveDraft(studentActor(s1), itemA, current, { topic: '還沒送', report: draftFile }, randomUUID())).ok).toBe(true)
+
+    const listed = (await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1))!
+    const withoutFiles = listed.map((v) => ({
+      itemId: v.itemId,
+      title: v.title,
+      versionNo: v.versionNo,
+      receivedBusinessAt: v.receivedBusinessAt,
+      submittedByName: v.submittedByName,
+    }))
+    expect(withoutFiles).toEqual(await advisor.groupVersions(teacherActor(evaluator), g1))
+    expect(listed.map((v) => [v.title, v.versionNo, v.attachments.length])).toEqual([
+      ['期中報告', 1, 2],
+      ['系統驗收報告', 1, 2],
+    ])
+    expect(flatten(listed)).toEqual(await attachmentsInDb(g1))
+    const files = listed.flatMap((v) => v.attachments)
+    expect(files.map((f) => f.fileId).sort()).toEqual([...g1Files].sort())
+    expect(files.filter((f) => f.name.endsWith('.pdf')).map((f) => f.mime)).toEqual(['application/pdf', 'application/pdf'])
+    expect(files.filter((f) => f.name.endsWith('.zip')).map((f) => f.mime)).toEqual(['application/zip', 'application/zip'])
+    expect(files.every((f) => f.sizeBytes > 0)).toBe(true)
+    const ids = files.map((f) => f.fileId)
+    expect(ids).not.toContain(draftFile)
+    for (const f of g2Files) expect(ids).not.toContain(f)
+
+    // 列得出來的附件就是下載得到的（同一個授權）。
+    for (const f of files) expect(await download(teacherActor(evaluator), f.fileId)).toBe('ok')
+
+    // 偵測不到型別的檔案：mime 跟下載回應一樣退回 application/octet-stream。
+    const zip = files.find((f) => f.name.endsWith('.zip'))!
+    await owner.sql('update stored_files set mime_detected = null where id = $1', [zip.fileId])
+    const again = (await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1))!
+    expect(again.flatMap((v) => v.attachments).find((f) => f.fileId === zip.fileId)?.mime).toBe('application/octet-stream')
+    expect(flatten(again)).toEqual(await attachmentsInDb(g1))
+
+    // 別組、無關的老師、學生、壞的組別 ID。
+    expect(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g2)).toEqual([])
+    expect(await advisor.groupVersionsWithFiles(teacherActor(outsider), g1)).toEqual([])
+    expect(await advisor.groupVersionsWithFiles(studentActor(s6), g1)).toBeNull()
+    expect(await advisor.groupVersionsWithFiles(teacherActor(evaluator), 'G1')).toBeNull()
+    // 主指導本來就讀得到同一份。
+    expect(flatten((await advisor.groupVersionsWithFiles(teacherActor(t1), g1))!)).toEqual(flatten(again))
+  })
+
+  it('groupVersionsWithFiles × teacherBenchPage：附件固定 3 句、單組頁固定 10 句；版本 2→6、每版附件加倍句數不變', async () => {
+    const { cohortId, s1, s2, g1, itemA, itemB, evaluator } = await filesScenario()
+    const outsider = await newUser('無關的老師', 'teacher')
+    const grading = new PgGradingCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      events: new PgEventPublisher(),
+      businessClock,
+      pool: () => app,
+    })
+    const stages: SchemeStageInput[] = [{ name: '系統驗收', weight: 100, items: [{ name: '功能完整', type: 'number', max: 100, weight: 100 }] }]
+    const scheme = await grading.createSchemeVersion(adminActor(), { cohortId, stages }, randomUUID())
+    if (!scheme.ok) throw new Error(scheme.message)
+    expect((await grading.publishScheme(adminActor(), { versionId: scheme.receipt.versionId }, randomUUID())).ok).toBe(true)
+    expect((await grading.assign(adminActor(), { groupId: g1, stageKey: 's1', teacherUserId: evaluator }, randomUUID())).ok).toBe(true)
+
+    const counter = countingPool(app)
+    const countedAdvisor = new PgAdvisorSubmissionQuery(() => counter.db, new PgSubmissionLateFlags(() => app))
+    const countedGrading = new PgGradingQuery(() => counter.db, countedAdvisor)
+    const measure = async () => {
+      counter.reset()
+      const listed = await countedAdvisor.groupVersionsWithFiles(teacherActor(evaluator), g1)
+      const filesCount = counter.count()
+      counter.reset()
+      const page = await countedGrading.teacherBenchPage(teacherActor(evaluator), g1)
+      return { listed: listed!, filesCount, pageCount: counter.count(), page }
+    }
+
+    const before = await measure()
+    expect(before.listed).toHaveLength(2)
+    expect(before.filesCount).toBe(3)
+    expect(before.pageCount).toBe(10)
+    expect(before.page.ok && before.page.receipt.submissions).toEqual(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1))
+    expect(before.page.ok && before.page.receipt.leaderName).toBe('組長小明')
+
+    // 每份作業再送兩版、每版附四份檔（原本兩份）：6 版。
+    for (const [s, itemId] of [
+      [s1, itemA],
+      [s2, itemB],
+      [s2, itemA],
+      [s1, itemB],
+    ] as const)
+      await submitFiles(s, itemId, ['report', 'source', 'appendix', 'data'])
+    const after = await measure()
+    expect(after.listed.map((v) => [v.title, v.versionNo, v.attachments.length])).toEqual([
+      ['期中報告', 3, 4],
+      ['期中報告', 2, 4],
+      ['期中報告', 1, 2],
+      ['系統驗收報告', 3, 4],
+      ['系統驗收報告', 2, 4],
+      ['系統驗收報告', 1, 2],
+    ])
+    expect(flatten(after.listed)).toEqual(await attachmentsInDb(g1))
+    expect(after.filesCount).toBe(3)
+    expect(after.pageCount).toBe(10)
+    expect(after.page.ok && after.page.receipt.submissions).toEqual(after.listed)
+
+    // 沒有評分指派：單組頁 NOT_ASSIGNED（守衛不變）、附件查詢是空陣列（不發附件那一句）。
+    counter.reset()
+    expect(await countedAdvisor.groupVersionsWithFiles(teacherActor(outsider), g1)).toEqual([])
+    expect(counter.count()).toBe(2)
+    expect(await countedGrading.teacherBenchPage(teacherActor(outsider), g1)).toMatchObject({ ok: false, code: 'NOT_ASSIGNED' })
   })
 })
