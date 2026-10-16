@@ -319,7 +319,7 @@
         { "item": "story-4", "steps": [2, 3, 4, 5, 6, 7, 9] },
         { "item": "story-5", "steps": [8] }
       ],
-      "e2e": []
+      "e2e": ["web/e2e/showcase-admin.spec.ts"]
     },
     {
       "key": "signoff",
@@ -391,7 +391,7 @@
       "frontFeature": "home-mywork",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "submissions",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-news",
@@ -400,34 +400,34 @@
       "frontFeature": "news",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-news",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-archive",
       "page": "/",
       "name": "首頁・歷屆專題一覽（登入後）",
       "frontFeature": "archive",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/showcase",
+      "adminFeature": "showcase-admin",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-featured",
       "page": "/",
       "name": "首頁・優秀專題輪播",
       "frontFeature": "featured",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/showcase",
+      "adminFeature": "showcase-admin",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-honors",
       "page": "/",
       "name": "首頁・榮譽與競賽：榮譽",
       "frontFeature": "honors",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/affairs",
+      "adminFeature": "affairs-news",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-competitions",
@@ -436,7 +436,7 @@
       "frontFeature": "competitions",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-news",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-activities",
@@ -445,7 +445,7 @@
       "frontFeature": "activities",
       "adminPage": "/dashboard/admin/timeline",
       "adminFeature": "timeline-activities",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "home-quicklinks",
@@ -474,7 +474,7 @@
       "frontFeature": "news",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-news",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-news-detail",
@@ -483,7 +483,7 @@
       "frontFeature": "news",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-news",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-competitions",
@@ -492,61 +492,61 @@
       "frontFeature": "competitions",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-news",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-honors",
       "page": "/honors",
       "name": "榮譽榜",
       "frontFeature": "honors",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/affairs",
+      "adminFeature": "affairs-news",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-featured",
       "page": "/projects/featured",
       "name": "優秀專題",
       "frontFeature": "featured",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/showcase",
+      "adminFeature": "showcase-admin",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-projects",
       "page": "/projects",
       "name": "歷屆專題（登入後）",
       "frontFeature": "archive",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/showcase",
+      "adminFeature": "showcase-admin",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-project-detail",
       "page": "/projects/[id]",
       "name": "專題內容頁（登入後）",
       "frontFeature": "archive",
-      "adminPage": null,
-      "adminFeature": null,
-      "crud": { "create": "無", "edit": "無", "delete": "無" }
+      "adminPage": "/dashboard/admin/showcase",
+      "adminFeature": "showcase-admin",
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-industry",
       "page": "/industry",
       "name": "產學合作（登入後）",
       "frontFeature": "industry",
-      "adminPage": "/dashboard/teacher/industry",
+      "adminPage": "/dashboard/admin/industry",
       "adminFeature": "industry-manage",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-industry-detail",
       "page": "/industry/[id]",
       "name": "合作案內容頁（登入後）",
       "frontFeature": "industry",
-      "adminPage": "/dashboard/teacher/industry",
+      "adminPage": "/dashboard/admin/industry",
       "adminFeature": "industry-manage",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-files",
@@ -555,7 +555,7 @@
       "frontFeature": "files",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-rules-resources",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-rules",
@@ -564,7 +564,7 @@
       "frontFeature": "rules",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "affairs-rules-resources",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-student-affairs",
@@ -573,7 +573,7 @@
       "frontFeature": "submissions",
       "adminPage": "/dashboard/admin/affairs",
       "adminFeature": "submissions",
-      "crud": { "create": "有", "edit": "有", "delete": "只能下架" }
+      "crud": { "create": "有", "edit": "有", "delete": "有" }
     },
     {
       "key": "page-headings",
