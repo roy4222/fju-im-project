@@ -3,8 +3,9 @@ import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
- * 第三波 W9（AC-29；N-33、N-148）：系辦建立方案草稿後，提示說清楚「發布」在下方「評分方案」區塊的「版本紀錄」裡；
+ * 第三波 W9（AC-29；N-33、N-148）：系辦建立方案草稿後，提示說清楚「發布」在下方版本紀錄第 1 版那張卡；
  * 在版本紀錄按「發布」之後，「（草稿）；按發布…」那句不再留在畫面上。
+ * AD-08 起評分規則在子頁 `/dashboard/admin/grading/rules`，版本紀錄是頁內區塊（不是對話框）。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -35,16 +36,16 @@ test.afterAll(async () => {
   await pool?.end()
 })
 
-async function openAdminGrading(page: Page) {
+async function openRules(page: Page) {
   const session = await sharedTestSession(page.request, 'admin')
   await page.context().clearCookies()
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
-  await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '成績管理', exact: true })).toBeVisible()
+  await page.goto(`/dashboard/admin/grading/rules?cohort=${cohortId}`)
+  await expect(page.getByRole('heading', { name: '評分規則', exact: true })).toBeVisible()
 }
 
 test('建立方案草稿：提示指出「發布」在版本紀錄；發布後那句草稿提示消失', async ({ page }) => {
-  await openAdminGrading(page)
+  await openRules(page)
 
   await page.getByRole('button', { name: '建立新版評分規則' }).click()
   const editor = page.getByRole('dialog', { name: '建立新版評分規則' })
@@ -53,17 +54,13 @@ test('建立方案草稿：提示指出「發布」在版本紀錄；發布後�
 
   const hint = page.getByRole('status').filter({ hasText: '已建立評分規則第 1 版（草稿）' })
   await expect(hint).toBeVisible()
-  await expect(hint).toContainText('「發布」在下方「評分規則」區塊的「版本紀錄」裡，點開後按第 1 版那列的「發布」')
+  await expect(hint).toContainText('「發布」在下方版本紀錄第 1 版那張卡')
 
-  await page.getByRole('button', { name: /^版本紀錄/ }).click()
-  const versions = page.getByRole('dialog', { name: '評分規則各版' })
+  const versions = page.getByRole('region', { name: '版本紀錄' })
   await expect(versions).toBeVisible()
   await versions.getByRole('button', { name: '發布第 1 版' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已發布')
 
-  // 關掉版本紀錄回到頁面（對話框開著時背後的字讀不到，不能拿來證明「消失」）。
-  await versions.getByRole('button', { name: '關閉', exact: true }).click()
-  await expect(versions).toBeHidden()
   await expect(page.getByRole('button', { name: '建立新版評分規則' })).toBeVisible()
   await expect(page.getByText('已建立評分規則第 1 版（草稿）')).toHaveCount(0)
   await expect(page.getByText('按「發布」後老師才會用這一版')).toHaveCount(0)

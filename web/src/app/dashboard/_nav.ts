@@ -141,6 +141,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/clock', role: 'admin' },
   // 評分（票 23）；老師的評閱桌 `/dashboard/teacher/grading/<組別>` 同一個守衛。
   { path: '/dashboard/admin/grading', role: 'admin' },
+  // 評分規則子頁（AD-08）：評分規則、版本紀錄、每組要幾份評分與指派。
+  { path: '/dashboard/admin/grading/rules', role: 'admin' },
   { path: '/dashboard/teacher/grading', role: 'teacher' },
   { path: '/dashboard/student/grading', role: 'student' },
   { path: '/dashboard/teacher', role: 'teacher' },

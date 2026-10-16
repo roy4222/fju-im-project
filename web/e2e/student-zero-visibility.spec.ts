@@ -215,7 +215,11 @@ test('對照組：同一批數值在管理員頁與老師評閱桌看得到（�
   const admin = await sharedTestSession(request, 'admin')
   const adminPage = await fetchTarget(request, admin.cookie, `/dashboard/admin/grading?cohort=${cohortId}`, 'html')
   expect(adminPage.status).toBe(200)
-  expect(adminPage.hits.map((h) => h.match)).toEqual(expect.arrayContaining(['70.39', '45.87']))
+  expect(adminPage.hits.map((h) => h.match)).toEqual(expect.arrayContaining(['70.39']))
+  // AD-08：暫存分數在評分規則子頁的「評分要求與指派」裡（老師列「45.87（未正式）」）。
+  const rulesPage = await fetchTarget(request, admin.cookie, `/dashboard/admin/grading/rules?cohort=${cohortId}`, 'html')
+  expect(rulesPage.status).toBe(200)
+  expect(rulesPage.hits.map((h) => h.match)).toEqual(expect.arrayContaining(['45.87']))
   // 票 24：計算明細頁看得到每一份分數與平均。
   const detail = await fetchTarget(request, admin.cookie, `/dashboard/admin/grading/${groupId}`, 'html')
   expect(detail.status).toBe(200)
