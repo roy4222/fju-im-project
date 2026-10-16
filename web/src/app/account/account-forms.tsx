@@ -6,6 +6,7 @@ import {
   setPasswordAction,
   updateContactAction,
 } from './actions'
+import { PasswordInput } from '@/app/_ui/password-input'
 
 export type AccountFormState =
   | { error: string; code?: string; field?: string; values?: Record<string, string>; attempt: number }
@@ -146,14 +147,12 @@ export function SetPasswordForm({ minLength }: { minLength: number }) {
           <label htmlFor="field-newPassword" className={LABEL}>
             新密碼
           </label>
-          <input
+          <PasswordInput
             id="field-newPassword"
             name="newPassword"
-            type="password"
-            required
             autoComplete="new-password"
-            aria-invalid={state?.field === 'newPassword' || undefined}
-            aria-describedby="field-newPassword-hint"
+            invalid={state?.field === 'newPassword'}
+            describedBy="field-newPassword-hint"
             className={INPUT}
           />
           <p id="field-newPassword-hint" className="mt-1 text-xs text-muted-foreground">
@@ -164,13 +163,11 @@ export function SetPasswordForm({ minLength }: { minLength: number }) {
           <label htmlFor="field-passwordConfirm" className={LABEL}>
             確認新密碼
           </label>
-          <input
+          <PasswordInput
             id="field-passwordConfirm"
             name="passwordConfirm"
-            type="password"
-            required
             autoComplete="new-password"
-            aria-invalid={state?.field === 'passwordConfirm' || undefined}
+            invalid={state?.field === 'passwordConfirm'}
             className={INPUT}
           />
         </div>
