@@ -143,6 +143,8 @@ describe('逐欄對照模組 04／05 附錄 A', () => {
       'registration_deadline', 'event_date', 'awarded_on',
       // 第三波 W0（0012）：刪除標記（只有草稿或已下架能刪，不實體刪列）。
       'deleted_at', 'deleted_by_user_id',
+      // 第 1 批 V1（0014）：公告置頂。
+      'pinned_at',
     ],
     item_audience_groups: ['item_id', 'group_id', 'created_at'],
     item_versions: [

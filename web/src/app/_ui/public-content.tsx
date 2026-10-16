@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconCrown, IconFileText, IconLock, IconSearch, IconSearchOff, IconTrophy } from '@tabler/icons-react'
+import { IconCrown, IconFileText, IconLock, IconPin, IconSearch, IconSearchOff, IconTrophy } from '@tabler/icons-react'
 import type { ItemFileSummary, PublicItemCard } from '@/application/items'
 import type { ShowcaseAward } from '@/application/showcase'
 import { cn } from '@/shared/cn'
@@ -103,9 +103,20 @@ export function PublicPage({
 }
 
 /** 原型 Tag：4px 圓角細框；橘＝分類，深藍＝狀態（登入可見、已有組別）。 */
-export function Tag({ children, tone = 'brand', className }: { children: ReactNode; tone?: 'brand' | 'ink'; className?: string }) {
+export function Tag({
+  children,
+  tone = 'brand',
+  className,
+  'data-testid': testId,
+}: {
+  children: ReactNode
+  tone?: 'brand' | 'ink'
+  className?: string
+  'data-testid'?: string
+}) {
   return (
     <span
+      data-testid={testId}
       className={cn(
         'inline-flex h-6 shrink-0 items-center rounded-[4px] border bg-background px-2 text-xs font-semibold whitespace-nowrap',
         tone === 'brand' ? 'border-primary text-primary' : 'border-ink text-ink',
@@ -218,7 +229,7 @@ export function SearchField({
   )
 }
 
-/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就用示意照片）、日期、標題、標籤。 */
+/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就用示意照片）、日期、標題、標籤（置頂的最前面標「置頂」，第 1 批 V1）。 */
 export function NewsCard({ card, priority = false }: { card: PublicItemCard; priority?: boolean }) {
   return (
     <Link
@@ -234,6 +245,9 @@ export function NewsCard({ card, priority = false }: { card: PublicItemCard; pri
           alt=""
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
           loading={priority ? 'eager' : 'lazy'}
+          // 寬高只是 16:9 的比例提示（先留好版位、不跳動）；實際大小照 CSS。
+          width={1280}
+          height={720}
         />
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4.5">
@@ -241,8 +255,14 @@ export function NewsCard({ card, priority = false }: { card: PublicItemCard; pri
           {publishedDate(card)}
         </time>
         <h2 className="type-card-title text-foreground transition-colors group-hover:text-primary">{card.title}</h2>
-        {card.category || card.audienceKind !== 'public' ? (
+        {card.pinnedAt || card.category || card.audienceKind !== 'public' ? (
           <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
+            {card.pinnedAt ? (
+              <Tag data-testid="pinned-tag" className="bg-primary text-primary-foreground">
+                <IconPin className="mr-1 size-3" aria-hidden />
+                置頂
+              </Tag>
+            ) : null}
             {card.category ? <Tag>{card.category}</Tag> : null}
             {card.audienceKind !== 'public' ? (
               <Tag tone="ink">

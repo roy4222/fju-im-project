@@ -53,10 +53,11 @@ type Row = {
   registration_deadline: string | null
   event_date: string | null
   awarded_on: string | null
+  pinned_at: Date | null
 }
 
 const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id, m.receiver_unit,
-       m.cover_file_id, m.actual_opened_at,
+       m.cover_file_id, m.actual_opened_at, m.pinned_at,
        to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline,
        to_char(m.event_date, 'YYYY-MM-DD') as event_date,
        to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on,
@@ -106,10 +107,14 @@ function competitionStatusSql(status: CompetitionStatus, today: string): string 
            and (m.event_date is null or m.event_date < ${today}))`
 }
 
-/** 列表排序。得獎日期沒填的退回發布日的臺灣日期（與榮譽榜畫面同一個「日期」）。 */
+/**
+ * 列表排序。得獎日期沒填的退回發布日的臺灣日期（與榮譽榜畫面同一個「日期」）。
+ * 預設（`newest`）置頂的公告排最前、多則置頂時後置頂的在前（第 1 批 V1，D3「要」、D9）：前台公告、首頁、
+ * 競賽、學生與老師後台首頁的公告區都是這一份。只有公告會有置頂（CHECK），其他位置的順序不變。
+ */
 const AWARDED_DAY = `coalesce(m.awarded_on, (m.actual_opened_at at time zone 'Asia/Taipei')::date)`
 const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
-  newest: 'm.actual_opened_at desc, m.id desc',
+  newest: 'm.pinned_at desc nulls last, m.actual_opened_at desc, m.id desc',
   oldest: 'm.actual_opened_at asc, m.id asc',
   awarded: `${AWARDED_DAY} desc, m.actual_opened_at desc, m.id desc`,
   'awarded-asc': `${AWARDED_DAY} asc, m.actual_opened_at asc, m.id asc`,
@@ -292,6 +297,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
         registrationDeadline: r.registration_deadline,
         eventDate: r.event_date,
         awardedOn: r.awarded_on,
+        pinnedAt: r.pinned_at,
       }
     })
   }

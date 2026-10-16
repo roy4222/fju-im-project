@@ -9,6 +9,7 @@ import {
   failedChecks,
   normalizeItemInput,
   normalizeSchema,
+  pinDenial,
   publishChecks,
   renderBodyHtml,
   sanitizeBody,
@@ -407,5 +408,18 @@ describe('競賽資訊的報名截止與活動日（票 39，0011）', () => {
     expect(competitionStatus({ registrationDeadline: '2026-10-03', eventDate: null }, '2026-10-04')).toBe('closed')
     expect(competitionStatus({ registrationDeadline: null, eventDate: '2026-10-03' }, '2026-10-01')).toBe('result')
     expect(competitionStatus({ registrationDeadline: null, eventDate: null }, '2026-10-01')).toBeNull()
+  })
+})
+
+describe('pinDenial（第 1 批 V1：公告置頂）', () => {
+  it('只有發布中的公告可以置頂；其他位置與狀態回給系辦看的句子', () => {
+    expect(pinDenial({ placement: 'news', status: 'published' })).toBeNull()
+    expect(pinDenial({ placement: 'news', status: 'draft' })).toBe('只有發布中的公告可以置頂，請先發布。')
+    expect(pinDenial({ placement: 'news', status: 'archived' })).toBe('只有發布中的公告可以置頂，請先發布。')
+    for (const placement of ['honor', 'resource', 'submission', 'requirement', 'rules']) {
+      expect(pinDenial({ placement, status: 'published' })).toBe('只有公告可以置頂。')
+    }
+    // 位置不對先講位置（草稿的榮譽也是「只有公告」）。
+    expect(pinDenial({ placement: 'honor', status: 'draft' })).toBe('只有公告可以置頂。')
   })
 })

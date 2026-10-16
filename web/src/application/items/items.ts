@@ -178,6 +178,16 @@ export function competitionStatus(
   return 'closed'
 }
 
+/**
+ * 能不能置頂（第 1 批 V1；Q48-a）：只有**發布中的公告**可以置頂；其他回給系辦看的句子。
+ * 取消置頂不檢查（撤回、下架時已自動清掉，剩下的一定是發布中的公告）。多則置頂不設上限（D9）。
+ */
+export function pinDenial(item: { readonly placement: string; readonly status: ItemStatus }): string | null {
+  if (item.placement !== 'news') return '只有公告可以置頂。'
+  if (item.status !== 'published') return '只有發布中的公告可以置頂，請先發布。'
+  return null
+}
+
 /** 表單送來的原樣（字串為主，時間是 `datetime-local` 的臺灣時間）。 */
 export type ItemInput = {
   readonly cohortId: string

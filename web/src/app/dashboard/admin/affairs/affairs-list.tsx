@@ -1,8 +1,10 @@
 'use client'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { IconClipboardText, IconExternalLink, IconSearch } from '@tabler/icons-react'
+import { IconClipboardText, IconExternalLink, IconPin, IconPinnedOff, IconSearch } from '@tabler/icons-react'
 import { BTN_OUTLINE_SM, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
+import { setPinnedAction } from '@/app/dashboard/admin/affairs/actions'
 import { cn } from '@/shared/cn'
 
 /**
@@ -10,6 +12,9 @@ import { cn } from '@/shared/cn'
  *
  * 種類篩選照舊是網址參數（伺服器篩好再傳進來）；搜尋框只在已經載入的列裡找標題與對象，不另外查資料庫。
  * 桌面是七欄格線（可見範圍併在對象第二行，1280 寬時標題欄才有約 14rem）、手機每列自動堆疊成卡片（原型同一套 class）。
+ *
+ * 發布中的公告列多一顆「置頂／取消置頂」（第 1 批 V1）：按完在卡片頂端寫回饋句、`router.refresh()` 重抓列。
+ * 按鈕的無障礙名稱帶標題（「置頂「標題」」），跟同一列的「編輯：標題」一樣不會跟別列撞名。
  */
 
 export type AffairRow = {
@@ -28,6 +33,10 @@ export type AffairRow = {
   roster: { text: string; href: string | null } | null
   publicHref: string | null
   editHref: string
+  /** 已置頂（狀態欄多一顆「置頂」）。 */
+  pinned: boolean
+  /** 可以置頂／取消置頂：發布中的公告。 */
+  canPin: boolean
 }
 
 const GRID = 'md:grid-cols-[5rem_minmax(14rem,1fr)_4.5rem_8rem_7.5rem_6.5rem_6.5rem]'
@@ -41,8 +50,26 @@ export function AffairsList({
   filters: readonly { key: string; label: string; href: string; active: boolean }[]
   emptyText: string
 }) {
+  const router = useRouter()
   const [q, setQ] = useState('')
+  const [pinning, setPinning] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
   const query = q.trim().toLowerCase()
+
+  async function togglePin(row: AffairRow) {
+    setPinning(row.id)
+    setFeedback(null)
+    try {
+      // 置頂是「設成目標狀態」：同一顆再按一次也不會重複做，所以每按一次用新的請求編號。
+      const result = await setPinnedAction(row.id, !row.pinned, crypto.randomUUID())
+      setFeedback({ ok: result.ok, text: result.ok ? (result.message ?? '已完成。') : result.message })
+      if (result.ok) router.refresh()
+    } catch {
+      setFeedback({ ok: false, text: '連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。' })
+    } finally {
+      setPinning(null)
+    }
+  }
   const shown = rows.filter((r) => !query || r.title.toLowerCase().includes(query) || r.audience.toLowerCase().includes(query))
 
   const tools = (
@@ -70,6 +97,18 @@ export function AffairsList({
   return (
     <Panel title="全部內容" icon={<IconClipboardText />} action={<div className="hidden sm:block">{tools}</div>}>
       <div className="border-t border-border px-5 py-3 sm:hidden">{tools}</div>
+      {feedback ? (
+        <p
+          role="status"
+          data-testid="pin-feedback"
+          className={cn(
+            'border-t border-border px-5 py-2.5 text-sm font-semibold',
+            feedback.ok ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
+          )}
+        >
+          {feedback.text}
+        </p>
+      ) : null}
       <div
         className={cn('hidden gap-3 border-t border-border px-5 py-2 text-xs font-semibold text-muted-foreground md:grid', GRID)}
         aria-hidden
@@ -100,8 +139,13 @@ export function AffairsList({
                 </Link>
               ) : null}
             </div>
-            <span>
+            <span className="flex flex-wrap gap-1">
               <Pill tone={r.status === 'published' ? 'success' : 'default'}>{r.statusLabel}</Pill>
+              {r.pinned ? (
+                <Pill tone="brand" data-testid="pinned-pill">
+                  置頂
+                </Pill>
+              ) : null}
             </span>
             <div className="min-w-0 text-xs text-muted-foreground md:text-sm">
               <span className="block truncate">{r.audience}</span>
@@ -128,7 +172,19 @@ export function AffairsList({
                 <span className="text-muted-foreground">—</span>
               )}
             </span>
-            <span className="flex gap-1.5 md:justify-end">
+            <span className="flex flex-wrap gap-1.5 md:justify-end">
+              {r.canPin ? (
+                <button
+                  type="button"
+                  className={BTN_OUTLINE_SM}
+                  aria-label={r.pinned ? `取消置頂「${r.title}」` : `置頂「${r.title}」`}
+                  disabled={pinning !== null}
+                  onClick={() => togglePin(r)}
+                >
+                  {r.pinned ? <IconPinnedOff aria-hidden className="size-3.5" /> : <IconPin aria-hidden className="size-3.5" />}
+                  {r.pinned ? '取消置頂' : '置頂'}
+                </button>
+              ) : null}
               {r.roster?.href ? (
                 <Link href={r.roster.href} className={BTN_OUTLINE_SM} aria-label={`繳交：${r.title}`}>
                   繳交

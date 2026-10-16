@@ -18,6 +18,7 @@ import {
   LIFECYCLE_NEXT_STATUS,
   lifecycleCheck,
   normalizeItemInput,
+  pinDenial,
   publishChecks,
   sanitizeBody,
   snapshotDueAt,
@@ -36,6 +37,7 @@ import {
   type ItemStatus,
   type LifecycleAction,
   type LifecycleReceipt,
+  type PinReceipt,
   type Placement,
   type PublishReceipt,
   type ReceiverUnit,
@@ -110,6 +112,7 @@ type ItemRow = {
   registration_deadline: string | null
   event_date: string | null
   awarded_on: string | null
+  pinned_at: Date | null
   draft_schema: { fields: FormField[] }
   revision: number
 }
@@ -961,9 +964,11 @@ export class PgItemCommand implements ItemCommand {
         })
       }
 
+      // 撤回、下架同一筆順手取消置頂（第 1 批 V1）；重新發布不恢復，要置頂再按一次。
       await tx.query(
         `update managed_items
-            set status = $2, deadline_version = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+            set status = $2, deadline_version = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5,
+                pinned_at = case when $2 = 'published' then pinned_at end
           where id = $1`,
         [itemId, status, deadlineVersion, realAt, userId],
       )
@@ -1140,6 +1145,69 @@ export class PgItemCommand implements ItemCommand {
     })
   }
 
+  // ── 置頂（第 1 批 V1；Q48-a） ─────────────────────────────────────────────────
+
+  /**
+   * 置頂／取消置頂：交易形狀同 `changeStatus`（鎖、帳本、稽核），但只寫 `pinned_at`——不動 `revision`
+   * （編輯器開著的草稿存檔不會變成「別人改過」）、不動 `updated_at`（工作台的順序不因置頂跳動）、
+   * 不切版本、不寫發布紀錄、不發事件。置頂時間用真實時間（多則置頂時後置頂的在前，D9；不設上限）。
+   * 已經是目標狀態：帳本照記、回 ok，不改資料也不寫稽核（原本的置頂時間不變）。
+   */
+  async setPinned(actor: ResolvedActor, itemId: string, pinned: boolean, requestId: string): Promise<Result<PinReceipt>> {
+    const denied = authorizeAdmin(actor, pinned ? '置頂公告' : '取消置頂公告')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId)) return itemNotFound()
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lock(tx, itemId)
+      if (!locked) return itemNotFound()
+      const { item } = locked
+
+      const realAt = this.#realClock.now()
+      const action = pinned ? 'item.pin' : 'item.unpin'
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: action,
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, pinned })),
+          scope: 'cohort',
+          cohortId: item.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<PinReceipt>(begun)
+      if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
+      const refusal = pinned ? pinDenial(item) : null
+      if (refusal) return err('VALIDATION_FAILED', refusal)
+
+      if ((item.pinned_at !== null) !== pinned) {
+        await tx.query('update managed_items set pinned_at = $2 where id = $1', [itemId, pinned ? realAt : null])
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: userId,
+          role: 'admin',
+          action,
+          targetType: SUBJECT_TYPE,
+          targetId: itemId,
+          scope: 'cohort',
+          cohortId: item.cohort_id,
+          realAt,
+          businessAt,
+          payload: { placement: item.placement, title: item.title, pinnedBefore: item.pinned_at?.toISOString() ?? null },
+        })
+      }
+
+      const receipt = { itemId, title: item.title, pinned, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   #normalize(input: ItemInput): { ok: true; value: ItemDraft } | Err {
@@ -1191,7 +1259,7 @@ export class PgItemCommand implements ItemCommand {
               deadline_version, current_content_version_id, current_schema_version_id, title, summary, body_html,
               cover_file_id, category, to_char(registration_deadline, 'YYYY-MM-DD') as registration_deadline,
               to_char(event_date, 'YYYY-MM-DD') as event_date, to_char(awarded_on, 'YYYY-MM-DD') as awarded_on,
-              draft_schema, revision, deleted_at is not null as deleted
+              pinned_at, draft_schema, revision, deleted_at is not null as deleted
          from managed_items where id = $1${live} for update`,
       [itemId],
     )
@@ -1474,6 +1542,7 @@ type ListRow = {
   receiver_unit: ReceiverUnit
   due_at: Date | null
   actual_opened_at: Date | null
+  pinned_at: Date | null
   updated_at: Date
   roster_count: string
 }
@@ -1495,7 +1564,7 @@ export class PgItemQuery implements ItemQuery {
     if (!isUuid(cohortId)) return []
     const rows = await this.#reader().query<ListRow>(
       `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.due_at, m.actual_opened_at,
-              m.updated_at,
+              m.pinned_at, m.updated_at,
               (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
                 where a.item_id = m.id) as group_codes,
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
@@ -1515,6 +1584,7 @@ export class PgItemQuery implements ItemQuery {
       receiverUnit: r.receiver_unit,
       dueAt: r.due_at,
       actualOpenedAt: r.actual_opened_at,
+      pinnedAt: r.pinned_at,
       updatedAt: r.updated_at,
       rosterCount: Number(r.roster_count),
     }))
