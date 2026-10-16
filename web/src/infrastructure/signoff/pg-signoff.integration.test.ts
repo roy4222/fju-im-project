@@ -612,4 +612,19 @@ describe('讀取邊界（SGN-10 入口）', () => {
     expect(row.packages.final_document).toBeNull()
     expect(await query.adminBoard(actor(s.teacher.id, ['teacher']), s.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
+
+  it('封存屆別不在 teacherView；同一位老師本屆的組照列；舊屆版本頁直接網址仍讀得到（網站問題 #3、AC-TE-25／26）', async () => {
+    const old = await scenario({ size: 3 })
+    const v1 = await mustCreate(old)
+    const current = await scenario({ size: 3 })
+    await owner.sql(`update advisor_assignments set teacher_user_id = $1 where group_id = $2`, [old.teacher.id, current.groupId])
+    const v2 = await mustCreate(current)
+    const teacher = actor(old.teacher.id, ['teacher'])
+    expect((await query.teacherView(teacher)).map((c) => c.current.versionId).sort()).toEqual([v1.versionId, v2.versionId].sort())
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [old.cohortId])
+
+    expect((await query.teacherView(teacher)).map((c) => c.current.versionId)).toEqual([v2.versionId])
+    expect(await query.versionDetail(teacher, v1.versionId)).toMatchObject({ ok: true })
+  })
 })

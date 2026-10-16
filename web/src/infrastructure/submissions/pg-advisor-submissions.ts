@@ -49,6 +49,12 @@ const MY_GROUPS = `
     from advisor_assignments a join groups g on g.id = a.group_id
    where a.teacher_user_id = $1 and a.valid_to is null and g.status = 'active'`
 
+/**
+ * 同上，只留未封存屆別的組（網站問題 #3）：總表的組與個人作業列表用它，不混進以前屆別的組。
+ * `#scope` 與名單、紀錄、版本的查詢刻意維持 `MY_GROUPS`（已用項目屆別限定），舊屆收件的直接網址照樣開得了。
+ */
+const MY_CURRENT_GROUPS = `${MY_GROUPS} and exists (select 1 from cohorts cc where cc.id = g.cohort_id and cc.status <> 'archived')`
+
 /** 名單列取一列：目前那一列優先，否則最後一次移出的（跟管理員名單頁同一個排序）。 */
 const PICK_ORDER = `(r.eligible_to_business_at is null) desc, r.eligible_to_business_at desc nulls first, r.eligible_from_business_at desc, r.id desc`
 
@@ -151,7 +157,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
               (select array_agg(coalesce(p.display_name, u.name) order by coalesce(p.display_name, u.name))
                  from group_memberships gm join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
                 where gm.group_id = g.id and gm.valid_to is null) as member_names
-         from (${MY_GROUPS}) g join cohorts c on c.id = g.cohort_id
+         from (${MY_CURRENT_GROUPS}) g join cohorts c on c.id = g.cohort_id
         order by c.code desc, g.code`,
       [actor.userId],
     )
@@ -211,7 +217,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
         submitted: string
       }>(
         `with mine as (
-           select gm.user_id, g.cohort_id from (${MY_GROUPS}) g join group_memberships gm on gm.group_id = g.id and gm.valid_to is null
+           select gm.user_id, g.cohort_id from (${MY_CURRENT_GROUPS}) g join group_memberships gm on gm.group_id = g.id and gm.valid_to is null
          )
          select m.id, m.title, m.cohort_id, s.name as stage_name, m.opens_at, m.due_at, vs.effective_from_version_no,
                 (select count(*) from response_rosters r

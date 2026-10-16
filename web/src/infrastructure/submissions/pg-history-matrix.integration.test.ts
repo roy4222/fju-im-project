@@ -456,6 +456,29 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [g1])
     expect((await advisor.matrix(teacherActor(t1)))!.groups.map((g) => g.groupId)).not.toContain(g1)
   })
+
+  it('屆別封存後：matrix 沒有這組、這一屆的項目與格子；#scope／版本仍拿得到（舊屆直接網址照樣開，網站問題 #3、AC-TE-25／26）', async () => {
+    const { cohortId, stageId, g1, itemId } = await groupScenario()
+    const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
+    expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
+    await publish(personal.itemId, personal.revision)
+    const before = (await advisor.matrix(teacherActor(t1)))!
+    expect(before.groups.map((g) => g.groupId)).toContain(g1)
+    expect(before.individualItems.map((i) => i.itemId)).toContain(personal.itemId)
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+
+    const after = (await advisor.matrix(teacherActor(t1)))!
+    expect(after.groups.map((g) => g.groupId)).not.toContain(g1)
+    expect(after.groups.some((g) => g.cohortId === cohortId)).toBe(false)
+    expect(after.items.map((i) => i.itemId)).not.toContain(itemId)
+    expect(after.cells.some((c) => c.groupId === g1)).toBe(false)
+    expect(after.individualItems.map((i) => i.itemId)).not.toContain(personal.itemId)
+    // 舊屆收件的直接網址（通知匣舊連結）：項目、該組紀錄、單一版本都還在。
+    expect((await advisor.item(teacherActor(t1), itemId))!.entries.map((e) => e.receiverId)).toEqual([g1])
+    expect((await advisor.receiver(teacherActor(t1), itemId, g1))!.versions.map((v) => v.versionNo)).toEqual([2, 1])
+    expect(await advisor.receiverVersion(teacherActor(t1), itemId, g1, 1)).not.toBeNull()
+  })
 })
 
 describe('4. 被移出的人只看得到自己還在組裡時的版本', () => {
