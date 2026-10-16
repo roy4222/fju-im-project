@@ -37,14 +37,30 @@ export type StageContext = {
   readonly simulated: boolean
 }
 
+/**
+ * 首頁每次都先跑這裡，查詢盡量同時發（共用 SH-P3）：
+ * 學生的屆別直接從身分拿，屆別、階段、業務鐘一起查；職員要等預設工作屆別回來才知道查哪一屆的階段。
+ * 業務鐘只在測試站（模擬鐘開啟）才讀資料庫。
+ */
 export async function loadStage(actor: ResolvedActor, perspective: 'student' | 'staff'): Promise<StageContext> {
   const cohortQuery = getCohortStatusQuery()
-  const membership = actor.kind === 'authenticated' ? actor.cohortMemberships[0] : undefined
-  const [cohort, clock] = await Promise.all([
-    perspective === 'student' ? (membership ? cohortQuery.get(membership.cohortId) : Promise.resolve(null)) : cohortQuery.defaultWorking(),
-    getBusinessClockQuery().state(),
-  ])
-  const schedule = cohort ? await getTimelineQuery().schedule(cohort.id) : null
+  const timelineQuery = getTimelineQuery()
+  const clockState = getBusinessClockQuery().state()
+  let cohort: Cohort | null
+  let schedule: CohortSchedule | null
+  let clock: Awaited<typeof clockState>
+  if (perspective === 'student') {
+    const cohortId = actor.kind === 'authenticated' ? actor.cohortMemberships[0]?.cohortId : undefined
+    ;[cohort, schedule, clock] = await Promise.all([
+      cohortId ? cohortQuery.get(cohortId) : null,
+      cohortId ? timelineQuery.schedule(cohortId) : null,
+      clockState,
+    ])
+  } else {
+    ;[cohort, clock] = await Promise.all([cohortQuery.defaultWorking(), clockState])
+    schedule = cohort ? await timelineQuery.schedule(cohort.id) : null
+  }
+  if (!cohort) schedule = null
   return {
     cohort,
     schedule,
