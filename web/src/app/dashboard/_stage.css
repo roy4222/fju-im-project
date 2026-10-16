@@ -11,7 +11,7 @@
   .hero::after { content: ''; position: absolute; right: 120px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: var(--hero-dot-2); opacity: calc(var(--hero-dot-opacity) - 0.1); }
   .hero > * { position: relative; z-index: 1; }
 
-  /* 「看完整時程」白膠囊：淺色字是深藍 --ink；深色模式 --ink 變淺，改用同樣是深藍的 --ink-foreground。 */
-  .hero-pill { background: #fff; color: var(--ink); }
+  /* 「看完整時程」白膠囊（底色＝橫幅字色 --hero-fg，白）：淺色字是深藍 --ink；深色模式 --ink 變淺，改用同樣是深藍的 --ink-foreground。 */
+  .hero-pill { background: var(--hero-fg); color: var(--ink); }
   .dark .hero-pill { color: var(--ink-foreground); }
 }

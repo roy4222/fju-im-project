@@ -122,15 +122,17 @@ function StageSentence({ ctx, perspective, text }: { ctx: StageContext; perspect
 }
 
 /** 大字下面那行：這一段的日期與剩幾天；尚未開始時說第 1 階段哪天開始。`daysLeft` 是 null 就不寫天數。 */
-function stageDetail(ctx: StageContext, daysLeft: number | null): string | null {
+function stageDetail(ctx: StageContext, stage?: { daysLeft: number | null }): string | null {
   const p = ctx.position
+  const daysLeft = stage ? stage.daysLeft : daysLeftOf(ctx)
   const days = daysLeft === null ? null : daysLeft === 0 ? '今天是最後一天' : `還有 ${daysLeft} 天`
   if (p?.kind === 'in_stage') {
     const start = ctx.schedule?.stages.find((s) => s.seq === p.seq)?.startDate
     const range = start ? `${formatTaipeiDate(start).slice(5)} – ${formatTaipeiDate(p.lastDate).slice(5)}` : null
     return [range, days].filter(Boolean).join('・') || null
   }
-  if (p?.kind === 'not_started') return `第 1 階段 ${formatTaipeiDate(p.firstStartDate).slice(5)} 開始`
+  // 角色頁自己給了天數就照它說；否則尚未開始時說第 1 階段哪天開始。
+  if (p?.kind === 'not_started' && !stage) return `第 1 階段 ${formatTaipeiDate(p.firstStartDate).slice(5)} 開始`
   return days
 }
 
@@ -210,8 +212,10 @@ export function HomeHero({
   const eyebrow = [heroDate(ctx.today), ctx.cohort ? cohortLabel(ctx.cohort) : null].filter(Boolean).join('・')
   // 測試站撥過模擬鐘時註明（短，免得手機上換行）。
   const simulated = ctx.simulated ? `・模擬鐘 ${formatTaipeiMinute(ctx.businessNow).slice(5)}` : ''
-  const detail = ctx.cohort && ctx.position ? stageDetail(ctx, stage ? stage.daysLeft : daysLeftOf(ctx)) : null
-  const hasNext = next !== undefined && next !== null && next !== false
+  // 沒有屆別時只有那一句說明，`stage` 也不顯示（沒有「現在」可說）。
+  const detail = ctx.cohort && ctx.position ? stageDetail(ctx, stage) : null
+  // `next={n && <卡/>}` 這類寫法 n 是 0 或空字串時不畫空白卡。
+  const hasNext = next != null && next !== false && next !== true && next !== 0 && next !== ''
 
   return (
     <section aria-label="現在階段" className="hero">

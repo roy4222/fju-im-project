@@ -127,6 +127,17 @@ describe('其他狀態', () => {
     expect(html).not.toMatch(/還有 \d+ 天/)
   })
 
+  it('尚未開始時 stage 給的天數照樣顯示', () => {
+    const notStarted: Ctx = { ...ctx, position: { kind: 'not_started', firstStartDate: '2026-12-25' } }
+    expect(render({ ctx: notStarted })).toContain('第 1 階段 12-25 開始')
+    expect(render({ ctx: notStarted, stage: { text: '尚未開始', daysLeft: 6 } })).toContain('還有 6 天')
+  })
+
+  it('next 是 0 或空字串（`n && <卡/>` 寫法）不畫空白卡', () => {
+    expect(render({ next: 0 })).not.toContain('hero-next')
+    expect(render({ next: '' })).not.toContain('hero-next')
+  })
+
   it('這一段最後一天寫「今天是最後一天」', () => {
     const html = render({ ctx: { ...ctx, today: '2026-12-31' } })
     expect(html).toContain('今天是最後一天')
