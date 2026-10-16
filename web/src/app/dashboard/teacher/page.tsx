@@ -34,8 +34,9 @@ export default async function TeacherHomePage() {
   const actor = await requireRole(BASE, 'teacher')
   const { stage: ctx, workload, queue, signoffCards, matrix, news, activities } = await loadTeacherHome(actor)
 
-  const counted = queue.length - workload.toGrade
-  const line = queue.length ? `待評 ${workload.toGrade} 組・已評 ${counted}／${queue.length}` : '這一階段沒有你的評分指派'
+  // 全部送出後只寫「已評 y／y」（AC-TE-02），不寫「待評 0 組」。
+  const graded = `已評 ${queue.length - workload.toGrade}／${queue.length}`
+  const line = !queue.length ? '這一階段沒有你的評分指派' : workload.toGrade ? `待評 ${workload.toGrade} 組・${graded}` : graded
   const { ready } = teacherSignoffSummary(signoffCards)
   const missing = missingSubmissions(matrix, ctx.businessNow)
 
