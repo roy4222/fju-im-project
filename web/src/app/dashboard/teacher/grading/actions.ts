@@ -6,7 +6,7 @@ import type { Err } from '@/shared/result'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
 /**
- * 老師評分工作台的 Server Action（票 23）：暫存、正式送出。
+ * 老師評分卡的 Server Action（票 23；TE-06b 改名「儲存草稿」）：儲存草稿、正式送出。
  *
  * 規則與授權全在用例裡判（本人的有效指派、分數範圍、已送出不能改、帳本冪等）；這裡只把瀏覽器送來的分數收斂成
  * 一層「項目 key → 字串」，把結果翻成畫面要的回饋。請求編號由畫面產生：同一次送出（連點、斷線重試）帶同一個編號。
