@@ -240,7 +240,7 @@ export async function onboardStudents(
 
 export async function openMyGroup(page: Page) {
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 /** 學生發起一般專題提案（同學學號依序填）。 */

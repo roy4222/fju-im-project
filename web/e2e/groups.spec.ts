@@ -112,7 +112,7 @@ function feedback(page: Page, role: 'status' | 'alert') {
 async function openStudentPage(page: Page, index: number) {
   await signIn(page, students[index]!)
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 async function proposeAll(page: Page) {
@@ -163,11 +163,11 @@ test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Emai
 
   await openStudentPage(page, 0)
   await expect(page.getByRole('region', { name: '找組員名單' })).not.toContainText(students[1]!.name)
-  // 名單空了：給下一步（N-10），連到產學合作案、或洽系辦。
+  // 名單空了只寫一句（Q69、Q73）：不叫人洽系辦、不連產學合作案。
   const empty = page.getByRole('region', { name: '找組員名單' })
-  await expect(empty).toContainText('目前沒有公開找組員的同學。')
-  await expect(empty).toContainText('或洽系辦')
-  await expect(empty.getByRole('link', { name: '看產學合作案' })).toHaveAttribute('href', '/dashboard/student/industry')
+  await expect(empty).toContainText('目前沒有公開找組員的同學')
+  await expect(empty).not.toContainText('或洽系辦')
+  await expect(empty.getByRole('link')).toHaveCount(0)
 })
 
 test('發起五人提案：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份提案', async ({ page }) => {

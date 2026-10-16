@@ -406,7 +406,6 @@ test('x3:19 COH-04 GRP-12 推到第 2 階段（+31 天）：系辦與學生都�
     await s1.getByLabel(/^同學 1 的學號/).fill(student(1).studentNo)
     await form.click()
     await expect(s1.getByRole('main')).toContainText('分組期已經結束')
-    await expect(s1.getByRole('main')).toContainText('需要分組請聯絡系辦')
   }
   await shot(s1, 'proposal-after-grouping')
 })

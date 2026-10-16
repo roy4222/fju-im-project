@@ -147,7 +147,7 @@ function student(i: number): Student {
 
 async function openMyGroup(page: Page) {
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 function groupRow(page: Page) {

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import Link from 'next/link'
 import { IconCheck, IconHistory, IconMail, IconUserPlus, IconUsers } from '@tabler/icons-react'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
@@ -13,7 +12,14 @@ import {
   type MyProposalRole,
 } from '@/app/dashboard/student/groups/group-forms'
 import { IndustryPanel } from '@/app/dashboard/student/groups/industry-panel'
-import { cohortLabel, describeGroupSize, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
+import {
+  cohortLabel,
+  describeGroupSize,
+  getBusinessClock,
+  getCohortStatusQuery,
+  getTimelineQuery,
+  groupingDeadline,
+} from '@/composition/cohorts'
 import {
   CHANGE_REASON_MAX_LENGTH,
   describeGroupHistory,
@@ -30,7 +36,7 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '我的組別｜資管系專題平台' }
+export const metadata = { title: '組別｜資管系專題平台' }
 
 /** 座位格的欄數（Tailwind 要看得到完整的 class 名稱，所以列出來）。 */
 const SEAT_COLS: Record<number, string> = {
@@ -64,7 +70,7 @@ export default async function StudentGroupsPage({
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/groups">
       <div className="flex flex-col gap-5">
-        <PageTitle title="我的組別" description="每位成員各自按確認，全員確認的那一刻組別才成立。" />
+        <PageTitle title="組別" description="每位成員各自按確認，全員確認的那一刻組別才成立。" />
         {children}
       </div>
     </DashboardShell>
@@ -96,6 +102,9 @@ export default async function StudentGroupsPage({
           overdue,
         }
       : null
+  // 還沒分組也沒有提案：分組期已過就不給表單，只說「分組期已經結束」（Q69：不寫「請聯絡系辦」）。
+  const deadline = !view.group && !proposal ? groupingDeadline(await getTimelineQuery().schedule(cohortId)) : null
+  const groupingClosed = deadline !== null && businessNow.getTime() >= deadline.getTime()
   const size = describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)
   const confirmedCount = proposal ? proposal.invitations.filter((i) => i.state === 'confirmed').length : 0
 
@@ -137,9 +146,7 @@ export default async function StudentGroupsPage({
                   {view.group.advisor ? (
                     <span className="font-semibold text-foreground">{view.group.advisor.teacherName}</span>
                   ) : (
-                    <span>
-                      尚未指派（{view.group.groupType === 'industry' ? '產學組由老師擔任或系辦指派' : '一般組由系辦依抽籤結果指派'}）
-                    </span>
+                    <span>還沒有指導老師</span>
                   )}
                 </p>
               </div>
@@ -152,7 +159,6 @@ export default async function StudentGroupsPage({
               <span className="tabular font-semibold text-foreground">
                 {view.group.members.length} 人・{formatTaipeiMinute(view.group.establishedBusinessAt)} 成立
               </span>
-              <span>・成立後的成員異動、換組長、指導老師指派由系辦處理；組別類型與合作案見下方。</span>
             </div>
             {view.group.history.length > 0 ? (
               <ol aria-label="組別異動" className="flex flex-col gap-1 border-t border-border/70 px-6 py-3 text-sm">
@@ -190,6 +196,11 @@ export default async function StudentGroupsPage({
               <span>・每個人用自己的帳號按確認；全員確認後組別成立。組隊中不能改名單或類型，要改請撤回後重新發起。</span>
             </div>
           </>
+        ) : groupingClosed ? (
+          <div className="px-6 pt-6 pb-2">
+            <h2 className="text-[15px] font-bold">分組期已經結束</h2>
+            <p className="tabular mt-1 mb-4 text-[13px] text-muted-foreground">{formatTaipeiMinute(deadline!)} 截止，不能再發起提案。</p>
+          </div>
         ) : (
           <div className="px-6 pt-6 pb-2">
             <h2 className="text-[15px] font-bold">發起提案</h2>
@@ -241,16 +252,7 @@ export default async function StudentGroupsPage({
           {teammates.length === 0 ? (
             <PanelEmpty
               icon={<IconUserPlus />}
-              title="目前沒有公開找組員的同學。"
-              // 還沒分組才給下一步（N-10）：先看合作案，或洽系辦。
-              hint={view.group ? undefined : '還找不到組員？可以先看看老師的產學合作案，或洽系辦。'}
-              action={
-                view.group ? undefined : (
-                  <Link href="/dashboard/student/industry" className="text-sm font-semibold text-ink hover:underline">
-                    看產學合作案
-                  </Link>
-                )
-              }
+              title="目前沒有公開找組員的同學"
             />
           ) : (
             <ul className="divide-y divide-border">
