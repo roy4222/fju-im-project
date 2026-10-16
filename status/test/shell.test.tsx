@@ -111,19 +111,19 @@ describe('AC-DV-02 深色跟系統', () => {
   })
 })
 
-describe('AC-DV-03 四個占位頁', () => {
+// 占位頁會被各頁面票換成正式內容（DV-3、DV-4、DV-5、DV-6），這裡只驗 <h1> 不變；內容由各頁自己的測試驗。
+describe('AC-DV-03 四個子頁', () => {
   const PAGES = [
-    ['服務健康', HealthPage, 'href="/go-live"'],
-    ['部署與 CI', DeployPage, '/actions"'],
-    ['錯誤紀錄', ErrorsPage, `href="${toolEntries().find((t) => t.key === 'logs')!.url}"`],
-    ['備份與儲存', BackupPage, 'href="/go-live"'],
+    ['服務健康', HealthPage],
+    ['部署與 CI', DeployPage],
+    ['錯誤紀錄', ErrorsPage],
+    ['備份與儲存', BackupPage],
   ] as const
-  for (const [title, Page, link] of PAGES) {
-    it(`${title}：<h1> 是頁名，內容連到現在的正本`, () => {
-      const html = renderPage(<Page />)
+  for (const [title, Page] of PAGES) {
+    it(`${title}：<h1> 是頁名`, async () => {
+      vi.stubEnv('STATUS_DATA_DIR', baseData)
+      const html = renderPage(await Page())
       expect(html).toMatch(new RegExp(`<h1[^>]*>${title}</h1>`))
-      expect(html).toContain('data-testid="placeholder"')
-      expect(html).toContain(link)
     })
   }
 })
