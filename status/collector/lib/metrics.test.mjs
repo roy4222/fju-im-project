@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startServer } from '../testing/fakes.mjs'
 import { classifyError, fetchMetrics, parseUptime, summarizeResults } from './metrics.mjs'
+import { serializeChecked } from './files.mjs'
 import { HttpError } from './http.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -75,6 +76,8 @@ describe('真 Gatus 回應存檔', () => {
     expect(m.sites.test.uptime7d).toBe(0.999)
     expect(m.sites.prod.uptime7d).toBe(0.25)
     expect(JSON.stringify(m)).not.toContain('hostname')
+    // 過得了寫檔前的白名單與遮蔽（result 的 hostname 是 IP，不能漏到輸出）
+    expect(() => serializeChecked('metrics.json', { generatedAt: NOW.toISOString(), ...m })).not.toThrow()
     // statuses 一次＋兩站 uptimes 各一次
     expect(server.seen.filter((s) => s.startsWith('GET /gatus/'))).toHaveLength(3)
   })
