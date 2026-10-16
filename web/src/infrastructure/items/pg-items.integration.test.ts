@@ -1882,3 +1882,208 @@ describe('指導老師（第三波 W4；Q13、Q14，AC-32、AC-33）：本屆公
     expect((await events(itemId, 'item.announced'))[0]!.recipients).toEqual([s.member.id])
   })
 })
+
+describe('公告置頂（第 1 批 V1；Q48-a，AC-V01～V03、V07～V10）', () => {
+  const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
+
+  /** 發布一則公告（預設公開），再把第一次發布時間改成測試要的樣子（排序看它）。 */
+  async function news(cohortId: string, title: string, openedAt: string, patch: Partial<ItemInput> = {}) {
+    const item = await mustCreate(cohortId, {
+      placement: 'news',
+      title,
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      dueAt: '',
+      fields: [],
+      ...patch,
+    })
+    const published = await mustPublish(item.itemId, 1, false)
+    await owner.sql('update managed_items set actual_opened_at = $2 where id = $1', [item.itemId, openedAt])
+    return { itemId: item.itemId, revision: published.revision }
+  }
+
+  async function mustPin(itemId: string, pinned = true) {
+    const result = await items.setPinned(adminActor(), itemId, pinned, randomUUID())
+    if (!result.ok) throw new Error(`${result.code} ${result.message}`)
+    return result.receipt
+  }
+
+  const titles = async (actor: ResolvedActor, tag: string, filter: { order?: 'oldest'; category?: string } = {}) =>
+    (await publicQuery.list(actor, 'news', { q: tag, ...filter })).map((c) => c.title.replace(`${tag} `, ''))
+
+  it('置頂後排最前、卡片帶置頂時間；revision、版本、發布紀錄都不動，稽核一筆 item.pin；oldest 不受影響', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    await news(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    const b = await news(cohortId, `${tag} B`, '2026-09-10T00:00:00Z')
+    await news(cohortId, `${tag} C`, '2026-09-20T00:00:00Z')
+    expect(await titles(ANONYMOUS, tag)).toEqual(['C', 'B', 'A'])
+
+    const versionsBefore = await count('select count(*) as n from item_versions where item_id = $1', [b.itemId])
+    const publicationsBefore = await count('select count(*) as n from item_publications where item_id = $1', [b.itemId])
+    const receipt = await mustPin(b.itemId)
+    expect(receipt).toMatchObject({ itemId: b.itemId, title: `${tag} B`, pinned: true })
+
+    expect(await titles(ANONYMOUS, tag)).toEqual(['B', 'C', 'A'])
+    expect(await titles(ANONYMOUS, tag, { order: 'oldest' })).toEqual(['A', 'B', 'C'])
+    const cards = await publicQuery.list(ANONYMOUS, 'news', { q: tag })
+    expect(cards.map((c) => c.pinnedAt !== null)).toEqual([true, false, false])
+    const row = await itemRow(b.itemId)
+    expect(row.pinned_at).toBeInstanceOf(Date)
+    expect(row.revision).toBe(b.revision)
+    expect(await count('select count(*) as n from item_versions where item_id = $1', [b.itemId])).toBe(versionsBefore)
+    expect(await count('select count(*) as n from item_publications where item_id = $1', [b.itemId])).toBe(publicationsBefore)
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.pin'`, [b.itemId])).toBe(1)
+    // 後台工作台也看得到置頂。
+    expect((await query.list(cohortId)).find((r) => r.id === b.itemId)!.pinnedAt).toEqual(row.pinned_at)
+
+    // 分類篩選時置頂的仍在該分類結果最前（AC-V03）。
+    await owner.sql(`update managed_items set category = '活動' where title like $1`, [`${tag} %`])
+    expect(await titles(ANONYMOUS, tag, { category: '活動' })).toEqual(['B', 'C', 'A'])
+  })
+
+  it('同一個請求編號重送拿回原回執；已經置頂再按一次回 ok、置頂時間不變、不再寫稽核；取消置頂回到日期序', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await news(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    await news(cohortId, `${tag} B`, '2026-09-10T00:00:00Z')
+    const requestId = randomUUID()
+    const first = await items.setPinned(adminActor(), a.itemId, true, requestId)
+    const replay = await items.setPinned(adminActor(), a.itemId, true, requestId)
+    expect(first.ok && replay.ok && replay.receipt).toEqual(first.ok && first.receipt)
+    const pinnedAt = (await itemRow(a.itemId)).pinned_at
+
+    const again = await items.setPinned(adminActor(), a.itemId, true, randomUUID())
+    expect(again.ok && again.receipt.pinned).toBe(true)
+    expect((await itemRow(a.itemId)).pinned_at).toEqual(pinnedAt)
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.pin'`, [a.itemId])).toBe(1)
+
+    expect(await mustPin(a.itemId, false)).toMatchObject({ pinned: false })
+    expect((await itemRow(a.itemId)).pinned_at).toBeNull()
+    expect(await titles(ANONYMOUS, tag)).toEqual(['B', 'A'])
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.unpin'`, [a.itemId])).toBe(1)
+    // 已經沒置頂再取消一次：ok、不寫稽核。
+    expect(await mustPin(a.itemId, false)).toMatchObject({ pinned: false })
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.unpin'`, [a.itemId])).toBe(1)
+  })
+
+  it('多則置頂不設上限、後置頂的在前，都排在未置頂之前（D9；AC-V07）', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await news(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    const b = await news(cohortId, `${tag} B`, '2026-09-02T00:00:00Z')
+    const c = await news(cohortId, `${tag} C`, '2026-09-03T00:00:00Z')
+    await news(cohortId, `${tag} D`, '2026-09-30T00:00:00Z')
+    for (const item of [a, b, c]) {
+      await mustPin(item.itemId)
+      // 置頂時間用真實時間；隔一下確保先後分得出來。
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(await titles(ANONYMOUS, tag)).toEqual(['C', 'B', 'A', 'D'])
+  })
+
+  it('撤回、下架同一筆清掉置頂；重新發布不恢復（AC-V08）', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await news(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    const b = await news(cohortId, `${tag} B`, '2026-09-10T00:00:00Z')
+    await mustPin(a.itemId)
+    await mustPin(b.itemId)
+
+    const archived = await items.changeStatus(adminActor(), a.itemId, a.revision, 'archive', randomUUID())
+    expect(archived.ok).toBe(true)
+    expect((await itemRow(a.itemId)).pinned_at).toBeNull()
+    expect(await titles(ANONYMOUS, tag)).toEqual(['B'])
+    const republished = await items.changeStatus(adminActor(), a.itemId, a.revision + 1, 'republish', randomUUID())
+    expect(republished.ok).toBe(true)
+    expect((await itemRow(a.itemId)).pinned_at).toBeNull()
+    const cards = await publicQuery.list(ANONYMOUS, 'news', { q: tag })
+    expect(cards.map((card) => [card.title.replace(`${tag} `, ''), card.pinnedAt !== null])).toEqual([
+      ['B', true],
+      ['A', false],
+    ])
+
+    const withdrawn = await items.changeStatus(adminActor(), b.itemId, b.revision, 'withdraw', randomUUID())
+    expect(withdrawn.ok).toBe(true)
+    expect((await itemRow(b.itemId)).pinned_at).toBeNull()
+  })
+
+  it('草稿、已下架、榮譽擋下並回給系辦看的句子，資料不變；學生 FORBIDDEN；找不到的 ID（AC-V02）', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const draft = await mustCreate(cohortId, {
+      placement: 'news',
+      title: `${tag} 草稿`,
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      dueAt: '',
+      fields: [],
+    })
+    const refusedDraft = await items.setPinned(adminActor(), draft.itemId, true, randomUUID())
+    expect(refusedDraft.ok ? null : [refusedDraft.code, refusedDraft.message]).toEqual([
+      'VALIDATION_FAILED',
+      '只有發布中的公告可以置頂，請先發布。',
+    ])
+
+    // 榮譽不從編輯器建（示範資料與匯入直接寫）：先發布成公告，再把位置改成榮譽。
+    const honor = await news(cohortId, `${tag} 榮譽`, '2026-09-01T00:00:00Z')
+    await owner.sql(`update managed_items set placement = 'honor' where id = $1`, [honor.itemId])
+    const refusedHonor = await items.setPinned(adminActor(), honor.itemId, true, randomUUID())
+    expect(refusedHonor.ok ? null : refusedHonor.message).toBe('只有公告可以置頂。')
+
+    const student = await newStudent(cohortId)
+    const published = await news(cohortId, `${tag} 公告`, '2026-09-02T00:00:00Z')
+    const byStudent = await items.setPinned(studentActor(student), published.itemId, true, randomUUID())
+    expect(byStudent.ok || byStudent.code).toBe('FORBIDDEN')
+    const missing = await items.setPinned(adminActor(), randomUUID(), true, randomUUID())
+    expect(missing.ok || missing.code).toBe('VALIDATION_FAILED')
+
+    for (const itemId of [draft.itemId, honor.itemId, published.itemId]) expect((await itemRow(itemId)).pinned_at).toBeNull()
+    expect(
+      await count(`select count(*) as n from audit_events where target_id = any($1::uuid[]) and action = 'item.pin'`, [
+        [draft.itemId, honor.itemId, published.itemId],
+      ]),
+    ).toBe(0)
+    // DB 也擋：不是公告的列寫不進置頂時間。
+    await expect(owner.sql('update managed_items set pinned_at = now() where id = $1', [honor.itemId])).rejects.toThrow(
+      /managed_items_pinned_news_check/,
+    )
+  })
+
+  it('編輯器開著的舊 revision 在置頂之後照樣存得進去，置頂保留（AC-V09）', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await news(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    await mustPin(a.itemId)
+    const updated = await items.updatePublished(
+      adminActor(),
+      a.itemId,
+      a.revision,
+      input(cohortId, {
+        placement: 'news',
+        title: `${tag} A`,
+        summary: '改過的摘要',
+        audienceKind: 'public',
+        receiverUnit: 'none',
+        dueAt: '',
+        fields: [],
+      }),
+      { notify: false },
+      randomUUID(),
+    )
+    expect(updated.ok || `${updated.code} ${updated.message}`).toBe(true)
+    const row = await itemRow(a.itemId)
+    expect([row.summary, row.pinned_at instanceof Date]).toEqual(['改過的摘要', true])
+  })
+
+  it('本屆學生的置頂公告：訪客看不到，同屆學生的公告列表第一則就是它（AC-V10）', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const student = await newStudent(cohortId)
+    const s = await news(cohortId, `${tag} 本屆`, '2026-09-01T00:00:00Z', { audienceKind: 'cohort_students' })
+    await news(cohortId, `${tag} 公開`, '2026-09-10T00:00:00Z')
+    await mustPin(s.itemId)
+    expect(await titles(ANONYMOUS, tag)).toEqual(['公開'])
+    expect(await titles(studentActor(student), tag)).toEqual(['本屆', '公開'])
+  })
+})

@@ -89,6 +89,12 @@ export const managedItems = pgTable(
     eventDate: date('event_date', { mode: 'string' }),
     /** 榮譽榜的得獎日期（0011，票 39；臺灣日曆日）：年份篩選與排序用它，沒填才退回發布日。只有榮譽能填。 */
     awardedOn: date('awarded_on', { mode: 'string' }),
+    /**
+     * 公告置頂（0014，第 1 批 V1；Q48-a）：系辦在工作台一鍵置頂的時間，前台公告與競賽頁置頂的排最前、
+     * 多則置頂時後置頂的在前（D9）。只有公告能置頂；撤回、下架時清掉，重新發布不恢復。
+     * 置頂是列表上的展示動作，不動 `revision`、不切版本、不寫發布紀錄。
+     */
+    pinnedAt: timestamp('pinned_at', tz),
     /** 收件欄位的工作副本 `{ fields: [...] }`；發布時切成 `form_schema_versions`。 */
     draftSchema: jsonb('draft_schema').notNull().default(sql`'{"fields":[]}'::jsonb`),
     revision: integer('revision').notNull().default(1),
@@ -149,6 +155,7 @@ export const managedItems = pgTable(
       sql`${t.eventDate} is null or ${t.registrationDeadline} is null or ${t.eventDate} >= ${t.registrationDeadline}`,
     ),
     check('managed_items_awarded_on_check', sql`${t.awardedOn} is null or ${t.placement} = 'honor'`),
+    check('managed_items_pinned_news_check', sql`${t.pinnedAt} is null or ${t.placement} = 'news'`),
     // 刪除時間與刪除者成對；只有草稿或已下架能刪。
     check(
       'managed_items_deleted_check',
@@ -166,6 +173,7 @@ export const managedItems = pgTable(
     ),
     index('managed_items_cohort_status_placement_idx').on(t.cohortId, t.status, t.placement),
     index('managed_items_cohort_due_idx').on(t.cohortId, t.dueAt),
+    index('managed_items_pinned_idx').on(t.pinnedAt.desc()).where(sql`${t.pinnedAt} is not null`),
   ],
 )
 

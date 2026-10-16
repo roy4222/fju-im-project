@@ -123,6 +123,9 @@ export default async function AffairsPage({
       publicHref:
         r.status !== 'published' ? null : r.placement === 'news' ? `/news/${r.id}` : r.placement === 'honor' ? '/honors' : null,
       editHref: `/dashboard/admin/editor/${r.id}`,
+      // 置頂（第 1 批 V1）：只有發布中的公告有按鈕（規則同 `pinDenial`；撤回、下架時已自動取消置頂）。
+      pinned: r.pinnedAt !== null,
+      canPin: r.placement === 'news' && r.status === 'published',
     }
   })
 

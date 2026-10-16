@@ -1,0 +1,3 @@
+ALTER TABLE "managed_items" ADD COLUMN "pinned_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "managed_items_pinned_idx" ON "managed_items" USING btree ("pinned_at" DESC NULLS LAST) WHERE "managed_items"."pinned_at" is not null;--> statement-breakpoint
+ALTER TABLE "managed_items" ADD CONSTRAINT "managed_items_pinned_news_check" CHECK ("managed_items"."pinned_at" is null or "managed_items"."placement" = 'news');

@@ -58,6 +58,9 @@ export type UpdateReceipt = {
   readonly notifiedCount: number
 }
 
+/** 置頂／取消置頂的回執（第 1 批 V1）：`pinned` 是做完之後的狀態。 */
+export type PinReceipt = { readonly itemId: string; readonly title: string; readonly pinned: boolean }
+
 export type StartItemUploadInput = {
   readonly cohortId: string
   readonly kind: ItemFileKind
@@ -125,6 +128,12 @@ export interface ItemCommand {
    * 之後後台查詢、前台、附件下載都當作不存在。不能恢復；已寄的通知不收回；附件檔案與引用照留。
    */
   delete(actor: ResolvedActor, itemId: string, revision: number, requestId: string): Promise<Result<DeleteReceipt>>
+  /**
+   * 置頂／取消置頂（第 1 批 V1；Q48-a）：只限發布中的公告（`pinDenial`）。置頂是列表上的展示動作——
+   * 只寫 `pinned_at`、稽核 `item.pin`／`item.unpin`，**不動 `revision`**（編輯器開著的草稿存檔不會衝突）、
+   * 不切版本、不寫發布紀錄、不發事件。已經是目標狀態再按一次回 ok、不改任何東西（原本的置頂時間不變）。
+   */
+  setPinned(actor: ResolvedActor, itemId: string, pinned: boolean, requestId: string): Promise<Result<PinReceipt>>
 }
 
 export type ItemReview = {
@@ -163,6 +172,8 @@ export type ItemListRow = {
   readonly receiverUnit: ReceiverUnit
   readonly dueAt: Date | null
   readonly actualOpenedAt: Date | null
+  /** 置頂時間（第 1 批 V1）；沒置頂是 null。 */
+  readonly pinnedAt: Date | null
   readonly updatedAt: Date
   /**
    * 應交數（個人＝人、組別＝組）：目前名單、不含免填與已移出，跟收件名單頁完成率的分母同一個口徑
@@ -282,6 +293,8 @@ export type PublicItemCard = {
   readonly eventDate: string | null
   /** 榮譽榜的得獎日期（臺灣日曆日；0011）；沒填是 null（畫面退回發布日）。 */
   readonly awardedOn: string | null
+  /** 置頂時間（第 1 批 V1）：有值時卡片標「置頂」。只有公告會有。 */
+  readonly pinnedAt: Date | null
 }
 
 /**
@@ -304,7 +317,7 @@ export type PublicListFilter = {
   readonly q?: string
   readonly limit?: number
   /**
-   * 預設新的在前；規則頁用 `oldest`（先發布的章節在前）。
+   * 預設新的在前，**置頂的公告排最前**（多則置頂時後置頂的在前；第 1 批 V1，D3、D9）；規則頁用 `oldest`（先發布的章節在前）。
    * 榮譽用 `awarded`／`awarded-asc`：依得獎日期（沒填退回發布日的臺灣日期）排，**排好才取 `limit` 筆**。
    */
   readonly order?: 'newest' | 'oldest' | 'awarded' | 'awarded-asc'

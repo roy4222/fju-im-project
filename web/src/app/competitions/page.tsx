@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { IconArrowRight, IconTrophy } from '@tabler/icons-react'
+import { IconArrowRight, IconPin, IconTrophy } from '@tabler/icons-react'
 import { currentActor } from '@/app/_ui/guard'
 import { imageSrc, ListEmpty, PillLink, PublicPageHead, Tag } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
@@ -37,6 +37,9 @@ const isStatus = (value: string): value is CompetitionStatus => value in STATUS
  * 狀態由日期推導（原型 `competitionStatus`、Roy 2026-09-08）：系辦在編輯器填報名截止日與活動日（0011，票 39），
  * 截止日（含）以前＝報名中、活動日（含）以前＝決賽／結果、都過了＝已結束；「今天」是業務時間的臺灣日期。
  * 兩個日期都沒填的舊公告沒有狀態：只出現在「全部」、排在最後。
+ *
+ * 置頂（第 1 批 V1）：預設排序（截止日新到舊）置頂的排最前、多則置頂時後置頂的在前（D9），再照狀態與截止日；
+ * 使用者自己選「名稱」或「截止日舊到新」時置頂不插隊（D2），卡片一樣標「置頂」。
  */
 export default async function CompetitionsPage({
   searchParams,
@@ -60,10 +63,11 @@ export default async function CompetitionsPage({
   const withStatus = cards.map((c) => ({ ...c, status: competitionStatus(c, today) }))
   const filtered = status ? withStatus.filter((c) => c.status === status) : withStatus
   const rank = (s: CompetitionStatus | null) => (s === null ? 3 : STATUS_ORDER[s])
+  const pinnedTime = (c: (typeof cards)[number]) => c.pinnedAt?.getTime() ?? -Infinity
   const items = [...filtered].sort((a, b) => {
     if (sort === 'title') return a.title.localeCompare(b.title, 'zh-Hant')
     if (sort === 'deadline-asc') return deadlineOf(a).localeCompare(deadlineOf(b))
-    return rank(a.status) - rank(b.status) || deadlineOf(b).localeCompare(deadlineOf(a))
+    return pinnedTime(b) - pinnedTime(a) || rank(a.status) - rank(b.status) || deadlineOf(b).localeCompare(deadlineOf(a))
   })
   const keep = (patch: { status?: CompetitionStatus | null }) => {
     const p = new URLSearchParams()
@@ -132,11 +136,25 @@ export default async function CompetitionsPage({
                 >
                   <div className="relative aspect-video overflow-hidden sm:aspect-auto sm:min-h-52">
                     {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
+                    {/* 寬高只是 16:9 的比例提示（先留好版位）；實際大小照 CSS。 */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={imageSrc(c.id, c.cover?.fileId)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+                    <img
+                      src={imageSrc(c.id, c.cover?.fileId)}
+                      alt=""
+                      loading="lazy"
+                      width={1280}
+                      height={720}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
                   </div>
                   <div className="flex flex-col gap-2.5 p-6">
                     <div className="flex flex-wrap items-center gap-2">
+                      {c.pinnedAt ? (
+                        <Tag data-testid="pinned-tag" className="bg-primary text-primary-foreground">
+                          <IconPin className="mr-1 size-3" aria-hidden />
+                          置頂
+                        </Tag>
+                      ) : null}
                       {c.status ? (
                         <Tag tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Tag>
                       ) : (

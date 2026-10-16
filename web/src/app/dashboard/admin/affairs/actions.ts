@@ -7,7 +7,7 @@ import type { Result } from '@/shared/result'
 
 /**
  * 專題事務的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket；
- * 票 16：撤回、下架、重新發布；第三波 W1：刪除、榮譽的得獎日期。
+ * 票 16：撤回、下架、重新發布；第三波 W1：刪除、榮譽的得獎日期；第 1 批 V1：公告置頂。
  *
  * 規則與授權全在用例裡判（只有狀態正常的管理員）；這裡只把瀏覽器送來的東西整理成用例要的形狀、
  * 把結果翻成畫面要的回饋。檔案位元組不走 Server Action，由瀏覽器直接 POST 到 `/api/files/upload`。
@@ -178,6 +178,28 @@ export async function deleteItemAction(
       itemId: r.receipt.itemId,
       cohortId: r.receipt.cohortId,
       sentence: `「${r.receipt.title}」已刪除。後台清單與前台都看不到了，不能恢復；已寄出的通知不會收回。`,
+    }),
+    (d) => d.sentence,
+  )
+}
+
+/**
+ * 置頂／取消置頂（第 1 批 V1）：只限發布中的公告（規則在用例）。不動 revision，工作台按完由畫面 `router.refresh()`。
+ */
+export async function setPinnedAction(
+  itemId: string,
+  pinned: boolean,
+  requestId: string,
+): Promise<ItemActionOutcome<{ itemId: string; pinned: boolean }>> {
+  const result = await getItemCommand().setPinned(await currentActor(), str(itemId, 100), pinned === true, str(requestId, 100))
+  return toOutcome(
+    result,
+    (r) => ({
+      itemId: r.receipt.itemId,
+      pinned: r.receipt.pinned,
+      sentence: r.receipt.pinned
+        ? `「${r.receipt.title}」已置頂，前台公告與競賽資訊會排在最前面。`
+        : `「${r.receipt.title}」已取消置頂。`,
     }),
     (d) => d.sentence,
   )
