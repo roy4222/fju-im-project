@@ -2,6 +2,7 @@ import type { ResolvedActor } from '@/application/accounts'
 import type { EvaluationState, ScoreInput } from '@/application/grading/evaluation'
 import type { GroupResult, OverrideSummary, RemovalChoice } from '@/application/grading/gradebook'
 import type { SchemeStage, SchemeStageInput, SchemeVersionStatus } from '@/application/grading/scheme'
+import type { GroupVersionWithFiles } from '@/application/submissions'
 import type { Result } from '@/shared/result'
 
 /**
@@ -141,6 +142,12 @@ export type TeacherQueueEntry = {
   readonly total: number
   /** 票 24：系辦退回、還沒重新送出。 */
   readonly returned: boolean
+  /** 本組現任組長的顯示名（`group_leaders.valid_to is null`）；沒有組長是 null。 */
+  readonly leaderName: string | null
+  /** 正式送出（採計）的這位老師階段分數（兩位小數，照目前方案版本算）；還沒送出是 null。 */
+  readonly finalScore: string | null
+  /** 採計那一筆的送出時間；還沒送出是 null。 */
+  readonly submittedAt: Date | null
 }
 
 /** 系辦退回（票 24）：老師看得到理由與時間，退回前的分數預填回表單。 */
@@ -175,6 +182,16 @@ export type TeacherBench = {
   readonly entries: readonly BenchEntry[]
 }
 
+/**
+ * 評分單組頁一次讀齊的資料（TE-11）：評閱桌＋組長＋老師自己的整份隊列（算上一組／下一組）＋本組正式繳交與附件。
+ * `submissions` 是**作業版本**（不是評分送出紀錄）；評分老師讀得到本組整組正式版本，授權跟 `groupVersions` 相同。
+ */
+export type TeacherBenchPage = TeacherBench & {
+  readonly leaderName: string | null
+  readonly queue: readonly TeacherQueueEntry[]
+  readonly submissions: readonly GroupVersionWithFiles[]
+}
+
 /** 票 19 重派對話框：原老師在本組的評分指派（`groups.GradingAssignmentSummary` 的形狀）。 */
 export type TeacherGroupAssignment = {
   readonly id: string
@@ -206,6 +223,8 @@ export interface GradingQuery {
   teacherQueue(actor: ResolvedActor): Promise<readonly TeacherQueueEntry[]>
   /** 老師的評閱桌：只回本人在這一組的有效指派；沒有 → `NOT_ASSIGNED`。 */
   teacherBench(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBench>>
+  /** 評分單組頁：`teacherBench`、`teacherQueue`、本組正式繳交（含附件）並行一次讀；守衛同 `teacherBench`（沒有指派 → `NOT_ASSIGNED`）。 */
+  teacherBenchPage(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBenchPage>>
 }
 
 /** 給票 19 重派對話框用：某老師在某組的有效評分指派（管理員頁面才會呼叫）。 */

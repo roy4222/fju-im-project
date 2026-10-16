@@ -5,6 +5,7 @@ import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type I
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
 import type { SchemeStageInput } from '@/application/grading'
+import type { GroupVersionWithFiles } from '@/application/submissions'
 import { PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
@@ -555,5 +556,162 @@ describe('正式送出與鎖定（GRD-04）', () => {
       [[a1, a2]],
     )
     expect(events.rows[0]!.n).toBe(2)
+  })
+})
+
+// ── TE-11：評分隊列三欄、評分單組頁一次讀齊（AC-TE-47、AC-TE-48） ─────────────────────────
+
+/** 包一層計數的連線：量「幾句 SQL」（不是幾次 port 呼叫）。 */
+function countingPool(pool: Pool): { db: Pick<Pool, 'query'>; count: () => number; reset: () => void } {
+  let n = 0
+  const query = (...args: unknown[]) => {
+    n += 1
+    return (pool.query as (...a: unknown[]) => unknown)(...args)
+  }
+  return { db: { query } as unknown as Pick<Pool, 'query'>, count: () => n, reset: () => (n = 0) }
+}
+
+/** 換組長＝結束舊列＋插新列（跟分組用例同一個形狀）。 */
+async function setLeader(groupId: string, userId: string) {
+  await owner.sql(`update group_leaders set valid_to = now() where group_id = $1 and valid_to is null`, [groupId])
+  await owner.sql(
+    `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id) values (gen_random_uuid(), $1, $2, now(), $3)`,
+    [groupId, userId, adminId],
+  )
+}
+
+/** T1 三組指派：G01 已正式送出 84.29、G02 草稿、G03 未填；三組各有現任組長，G02 換過一次組長。T2 只評 G02。 */
+async function queueScenario() {
+  const cohortId = await newCohort()
+  await publishedScheme(cohortId)
+  const [l1, l2old, l2, l3] = [await newUser('組長甲', 'student'), await newUser('舊組長', 'student'), await newUser('新組長乙', 'student'), await newUser('組長丙', 'student')]
+  const g1 = await newGroup(cohortId, 'G01', [l1])
+  const g2 = await newGroup(cohortId, 'G02', [l2old, l2])
+  const g3 = await newGroup(cohortId, 'G03', [l3])
+  await setLeader(g1, l1)
+  await setLeader(g2, l2old)
+  await setLeader(g2, l2)
+  await setLeader(g3, l3)
+  const t1 = await newUser('甲老師', 'teacher')
+  const t2 = await newUser('乙老師', 'teacher')
+  const [a1, a2] = [await assignOk(g1, t1), await assignOk(g2, t1)]
+  await assignOk(g3, t1)
+  await assignOk(g2, t2)
+  const sent = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '80', i2: '88.58' } }, randomUUID())
+  if (!sent.ok) throw new Error(sent.message)
+  const saved = await command.saveDraft(teacherActor({ id: t1 }), { assignmentId: a2, scores: { i1: '70' } }, randomUUID())
+  if (!saved.ok) throw new Error(saved.message)
+  return { cohortId, g1, g2, g3, t1, t2, a1, l1 }
+}
+
+/** 拿掉每次都不同的 requestId、serverTime，剩下的才能逐欄比。 */
+function strip<R extends { requestId: string; serverTime: string }>(receipt: R): Omit<R, 'requestId' | 'serverTime'> {
+  const rest: Partial<R> = { ...receipt }
+  delete rest.requestId
+  delete rest.serverTime
+  return rest as Omit<R, 'requestId' | 'serverTime'>
+}
+
+describe('TE-11 teacherQueue：組長、總分、送出時間（AC-TE-47）', () => {
+  it('teacherQueue 每筆有現任組長；已送出那組有總分與送出時間，草稿、未填兩欄是 null；仍是 3 句 SQL', async () => {
+    const { t1, a1 } = await queueScenario()
+    const counter = countingPool(app)
+    const counted = new PgGradingQuery(() => counter.db)
+    const queue = await counted.teacherQueue(teacherActor({ id: t1 }))
+    expect(counter.count()).toBe(3)
+
+    const submittedAt = (
+      await owner.sql(
+        `select e.submitted_real_at from evaluations e join evaluation_status s on s.evaluation_id = e.id
+          where e.assignment_id = $1 and s.state = 'counted'`,
+        [a1],
+      )
+    ).rows[0]!.submitted_real_at as Date
+    expect(queue.map((e) => [e.groupCode, e.state, e.leaderName, e.finalScore, e.submittedAt])).toEqual([
+      ['G01', 'counted', '組長甲', '84.29', submittedAt],
+      ['G02', 'draft', '新組長乙', null, null],
+      ['G03', 'empty', '組長丙', null, null],
+    ])
+    // 既有欄位照舊。
+    expect(queue[1]).toMatchObject({ filled: 1, total: 2, returned: false, stageKey: 's1', stageName: '系統驗收' })
+  })
+})
+
+describe('TE-11 teacherBenchPage：評分單組頁一次讀齊（AC-TE-48）', () => {
+  function fakeSubmissions(result: readonly GroupVersionWithFiles[] | null) {
+    const calls: [ResolvedActor, string][] = []
+    return {
+      calls,
+      result,
+      async groupVersionsWithFiles(who: ResolvedActor, groupId: string) {
+        calls.push([who, groupId])
+        return this.result
+      },
+    }
+  }
+  const SUBMISSIONS: GroupVersionWithFiles[] = [
+    {
+      itemId: randomUUID(),
+      title: '期中報告',
+      versionNo: 2,
+      receivedBusinessAt: new Date('2026-11-01T02:00:00Z'),
+      submittedByName: '組長甲',
+      attachments: [
+        { fileId: randomUUID(), name: 'report.pdf', mime: 'application/pdf', sizeBytes: 1234 },
+        { fileId: randomUUID(), name: 'source.zip', mime: 'application/zip', sizeBytes: 22 },
+      ],
+    },
+  ]
+
+  it('teacherBenchPage 的 bench 與 teacherBench 逐欄相等、queue 與 teacherQueue 相等、submissions 是繳交查詢的結果；組長正確', async () => {
+    const { g1, t1 } = await queueScenario()
+    const port = fakeSubmissions(SUBMISSIONS)
+    const pageQuery = new PgGradingQuery(() => app, port)
+    const page = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1)
+    const bench = await query.teacherBench(teacherActor({ id: t1 }), g1)
+    if (!page.ok || !bench.ok) throw new Error('應該讀得到')
+    const { leaderName, queue, submissions, ...benchPart } = strip(page.receipt)
+    expect(benchPart).toEqual(strip(bench.receipt))
+    expect(queue).toEqual(await query.teacherQueue(teacherActor({ id: t1 })))
+    expect(submissions).toEqual(SUBMISSIONS)
+    expect(port.calls).toEqual([[teacherActor({ id: t1 }), g1]])
+    expect(leaderName).toBe('組長甲')
+    expect(benchPart.entries[0]).toMatchObject({ state: 'counted', finalScore: '84.29' })
+
+    // 繳交查詢回 null（不是老師等）時當空陣列。
+    port.result = null
+    const empty = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1)
+    expect(empty.ok && empty.receipt.submissions).toEqual([])
+  })
+
+  it('teacherBenchPage 守衛不變：T2 沒有 G01 指派 NOT_ASSIGNED、學生 FORBIDDEN、不是 UUID NOT_ASSIGNED；都不帶任何分數', async () => {
+    const { g1, t2, l1 } = await queueScenario()
+    const pageQuery = new PgGradingQuery(() => app, fakeSubmissions(SUBMISSIONS))
+    expect(await pageQuery.teacherBenchPage(teacherActor({ id: t2 }), g1)).toMatchObject({ ok: false, code: 'NOT_ASSIGNED' })
+    expect(await pageQuery.teacherBenchPage(teacherActor({ id: t2 }), 'G01')).toMatchObject({ ok: false, code: 'NOT_ASSIGNED' })
+    const student = await pageQuery.teacherBenchPage(actor(l1, ['student']), g1)
+    expect(student).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(JSON.stringify(student)).not.toContain('84.29')
+  })
+
+  it('teacherBenchPage 句數固定：評閱桌 4 句＋隊列 3 句（繳交另計）；指派從 3 加到 9 句數不變', async () => {
+    const { cohortId, g1, t1 } = await queueScenario()
+    const counter = countingPool(app)
+    const pageQuery = new PgGradingQuery(() => counter.db, fakeSubmissions(SUBMISSIONS))
+
+    await pageQuery.teacherBench(teacherActor({ id: t1 }), g1)
+    expect(counter.count()).toBe(4)
+    counter.reset()
+    await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1)
+    expect(counter.count()).toBe(7)
+
+    // 再加 6 個指派（5 組＋G01 第二階段）→ 9 個。
+    for (const code of ['G04', 'G05', 'G06', 'G07', 'G08']) await assignOk(await newGroup(cohortId, code), t1)
+    await assignOk(g1, t1, 's2')
+    counter.reset()
+    const page = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1)
+    expect(counter.count()).toBe(7)
+    expect(page.ok && page.receipt.queue).toHaveLength(9)
+    expect(page.ok && page.receipt.entries.map((e) => e.stage.key)).toEqual(['s1', 's2'])
   })
 })

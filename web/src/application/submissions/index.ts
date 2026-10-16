@@ -44,6 +44,8 @@ export type {
   AdvisorReceiverView,
   AdvisorSubmissionQuery,
   GroupVersionEntry,
+  GroupVersionWithFiles,
+  VersionAttachment,
   AdvisorVisibilityView,
   AnswerFile,
   DraftReceipt,

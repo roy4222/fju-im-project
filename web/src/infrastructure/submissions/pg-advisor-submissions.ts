@@ -13,10 +13,12 @@ import {
   type AdvisorReceiverView,
   type AdvisorSubmissionQuery,
   type GroupVersionEntry,
+  type GroupVersionWithFiles,
   type MyVersionDetail,
   type RosterEntry,
   type RosterItem,
   type SubmissionViewer,
+  type VersionAttachment,
 } from '@/application/submissions'
 import { getPool } from '@/infrastructure/db/client'
 import { rosterItemOf, toEntry, type EntryRow } from '@/infrastructure/submissions/pg-roster'
@@ -350,32 +352,54 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
   }
 
   async groupVersions(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionEntry[] | null> {
+    const rows = await this.#groupVersionRows(actor, groupId)
+    return rows && rows.map(toGroupVersion)
+  }
+
+  async groupVersionsWithFiles(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionWithFiles[] | null> {
+    const rows = await this.#groupVersionRows(actor, groupId)
+    if (!rows) return null
+    if (rows.length === 0) return []
+    // 只對讀得到的版本批次讀一次附件（不逐份查）；mime 跟下載回應的 content-type 同一個來源（`mime_detected`）。
+    const files = await this.#reader().query<{ version_id: string; file_id: string; name: string; mime: string; size_bytes: string | number | null }>(
+      `select sf.submission_version_id as version_id, sf.file_id, f.original_name as name,
+              coalesce(f.mime_detected, 'application/octet-stream') as mime, f.size_bytes
+         from submission_files sf join stored_files f on f.id = sf.file_id
+        where sf.submission_version_id = any($1::uuid[])
+        order by sf.submission_version_id, sf.field_key, sf.file_id`,
+      [rows.map((r) => r.version_id)],
+    )
+    const byVersion = new Map<string, VersionAttachment[]>()
+    for (const f of files.rows) {
+      const list = byVersion.get(f.version_id) ?? []
+      list.push({ fileId: f.file_id, name: f.name, mime: f.mime, sizeBytes: Number(f.size_bytes ?? 0) })
+      byVersion.set(f.version_id, list)
+    }
+    return rows.map((r) => ({ ...toGroupVersion(r), attachments: byVersion.get(r.version_id) ?? [] }))
+  }
+
+  /** `groupVersions` 與 `groupVersionsWithFiles` 共用：某組讀得到的整組正式版本列（同一段授權）。不是老師回 null。 */
+  async #groupVersionRows(actor: ResolvedActor, groupId: string): Promise<GroupVersionRow[] | null> {
     if (!isTeacher(actor) || !isUuid(groupId)) return null
     const db = this.#reader()
-    const viewer = await viewerOf(db, actor)
-    if (!viewer) return null
     // 事實與附件下載政策同一段（VERSION_ACCESS_COLUMNS）：列得出來的版本就是點得開、下載得到的。
-    const rows = await db.query<
-      VersionAccessRow & { item_id: string; title: string; version_no: number; received_business_at: Date; submitted_by_name: string }
-    >(
-      `select v.item_id, m.title, v.version_no, v.received_business_at,
-              coalesce(nullif(btrim(sp.display_name), ''), su.name) as submitted_by_name, ${VERSION_ACCESS_COLUMNS}
-         from submission_versions v
-         join managed_items m on m.id = v.item_id
-         join form_schema_versions sv on sv.id = v.schema_version_id
-         join users su on su.id = v.submitted_by_user_id
-         left join user_profiles sp on sp.user_id = v.submitted_by_user_id
-        where v.receiver_kind = 'group' and v.receiver_id = $1 and m.status = 'published'
-        order by m.title, v.item_id, v.version_no desc`,
-      [groupId],
-    )
-    return readable(viewer, rows.rows).map((r) => ({
-      itemId: r.item_id,
-      title: r.title,
-      versionNo: r.version_no,
-      receivedBusinessAt: r.received_business_at,
-      submittedByName: r.submitted_by_name,
-    }))
+    const [viewer, rows] = await Promise.all([
+      viewerOf(db, actor),
+      db.query<GroupVersionRow>(
+        `select v.id as version_id, v.item_id, m.title, v.version_no, v.received_business_at,
+                coalesce(nullif(btrim(sp.display_name), ''), su.name) as submitted_by_name, ${VERSION_ACCESS_COLUMNS}
+           from submission_versions v
+           join managed_items m on m.id = v.item_id
+           join form_schema_versions sv on sv.id = v.schema_version_id
+           join users su on su.id = v.submitted_by_user_id
+           left join user_profiles sp on sp.user_id = v.submitted_by_user_id
+          where v.receiver_kind = 'group' and v.receiver_id = $1 and m.status = 'published'
+          order by m.title, v.item_id, v.version_no desc`,
+        [groupId],
+      ),
+    ])
+    if (!viewer) return null
+    return readable(viewer, rows.rows)
   }
 
   /**
@@ -407,6 +431,25 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     const rows = await db.query<EntryRow>(STUDENT_ENTRIES, [itemId, teacherId, item.cohortId, receiverId, visibility.effective])
     if (receiverId && rows.rows.length === 0) return null
     return { item, entries: rows.rows.map(toEntry), effective: visibility.effective }
+  }
+}
+
+type GroupVersionRow = VersionAccessRow & {
+  version_id: string
+  item_id: string
+  title: string
+  version_no: number
+  received_business_at: Date
+  submitted_by_name: string
+}
+
+function toGroupVersion(r: GroupVersionRow): GroupVersionEntry {
+  return {
+    itemId: r.item_id,
+    title: r.title,
+    versionNo: r.version_no,
+    receivedBusinessAt: r.received_business_at,
+    submittedByName: r.submitted_by_name,
   }
 }
 

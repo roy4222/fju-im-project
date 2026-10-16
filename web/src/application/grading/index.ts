@@ -108,9 +108,11 @@ export type {
   ScoresInput,
   SetRequirementInput,
   TeacherBench,
+  TeacherBenchPage,
   TeacherGroupAssignment,
   TeacherQueueEntry,
 } from '@/application/grading/ports'
+export type { GroupVersionWithFiles } from '@/application/submissions'
 export {
   describeAssignEvaluatorReceipt,
   describeDraftReceipt,
