@@ -11,6 +11,7 @@ import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
 import { otherWorkbenches, roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
+import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { checkStatus, isRegistrationOpen } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
 
@@ -173,25 +174,25 @@ function SiteFooter({
     <footer className="bg-ink text-ink-foreground">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
         <div>
-          <p className="text-lg font-bold">輔仁大學資訊管理學系</p>
+          <p className="text-lg font-bold">{SITE_CONTACT.department}</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
-            242 新北市新莊區中正路 510 號 利瑪竇大樓 LM306
+            {SITE_CONTACT.address}
             <br />
             電話{' '}
-            <a href="tel:+886229052666" className="hover:underline">
-              02-2905-2666
+            <a href={SITE_CONTACT.phoneHref} className="hover:underline">
+              {SITE_CONTACT.phone}
             </a>
             <br />
             系網{' '}
-            <a href="https://www.im.fju.edu.tw/" className="hover:underline">
-              im.fju.edu.tw
+            <a href={SITE_CONTACT.siteHref} className="hover:underline">
+              {SITE_CONTACT.siteLabel}
             </a>
             <br />
-            透過機測、專題及產業實習讓學生動手做。
+            {SITE_CONTACT.slogan}
             <br />
-            專題相關事務請洽系辦公室
+            {SITE_CONTACT.officeNote}
             <br />
-            業界合作或產學洽詢，也請直接聯絡系辦。
+            {SITE_CONTACT.industryNote}
           </p>
         </div>
         {columns.map((col) => (

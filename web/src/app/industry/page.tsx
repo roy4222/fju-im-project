@@ -4,6 +4,7 @@ import { IconArrowRight, IconBriefcase, IconBuilding, IconUser } from '@tabler/i
 import type { OpportunityCard } from '@/application/groups'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { ListEmpty, PillLink, PublicPage, SearchField, Tag } from '@/app/_ui/public-content'
+import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getOpportunityQuery } from '@/composition/groups'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
@@ -141,8 +142,8 @@ export default async function IndustryPage({
           </ul>
         )}
         <p className="text-[13px] text-muted-foreground">共 {cards.length} 件合作案。想合作請找指導老師；還沒有組別或指導老師，請洽系辦（
-          <a href="tel:+886229052666" className="underline underline-offset-2 hover:text-foreground">
-            02-2905-2666
+          <a href={SITE_CONTACT.phoneHref} className="underline underline-offset-2 hover:text-foreground">
+            {SITE_CONTACT.phone}
           </a>
           ）。
         </p>

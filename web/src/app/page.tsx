@@ -5,6 +5,7 @@ import { actorHasRole, isRegistrationOpen } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
+import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel, formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
@@ -72,9 +73,18 @@ export default async function HomePage() {
     <SiteShell bare>
       {/* Hero：校園照片疊深藍漸層（系網首屏是照片，不是文字 hero）。 */}
       <section className="relative overflow-hidden bg-ink text-ink-foreground" aria-label="專題管理平台">
-        {/* 照片不走 next/image：它會輸出被正式站 CSP 擋的 style 屬性。自訂圖的 alt 是系辦填的圖片說明；預設圖是裝飾。 */}
+        {/* 照片不走 next/image：它會輸出被正式站 CSP 擋的 style 屬性。自訂圖的 alt 是系辦填的圖片說明；預設圖是裝飾。
+            首屏圖不 lazy、提早抓；寬高只是比例提示，實際大小由 CSS 決定（第 1 批 §3.5）。 */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={hero.heroSrc} alt={hero.heroAlt} className="absolute inset-0 h-full w-full object-cover opacity-55" data-testid="home-hero-image" />
+        <img
+          src={hero.heroSrc}
+          alt={hero.heroAlt}
+          className="absolute inset-0 h-full w-full object-cover opacity-55"
+          width={1280}
+          height={720}
+          fetchPriority="high"
+          data-testid="home-hero-image"
+        />
         <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden />
         <div className="relative mx-auto flex min-h-[440px] max-w-6xl flex-col justify-center gap-5 px-5 py-16 md:min-h-[520px]">
           <span className="inline-flex items-center gap-2.5 text-[15px] font-bold tracking-widest opacity-90">
@@ -108,8 +118,8 @@ export default async function HomePage() {
           <ListEmpty className="mt-10" title="目前還沒有公告" hint="系辦發布公告後會出現在這裡。" />
         ) : (
           <div className="mt-10 grid gap-8 md:grid-cols-2 lg:grid-cols-[300px_300px_minmax(0,1fr)]">
-            {cards.map((card, index) => (
-              <NewsCard key={card.id} card={card} priority={index === 0} />
+            {cards.map((card) => (
+              <NewsCard key={card.id} card={card} />
             ))}
             {rest.length > 0 ? (
               <ul className="flex flex-col gap-5 pt-1.5 md:col-span-2 lg:col-span-1">
@@ -254,6 +264,8 @@ export default async function HomePage() {
               src={honors[0] ? imageSrc(honors[0].id, honors[0].cover?.fileId) : '/placeholder/applause.jpg'}
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
+              width={1280}
+              height={720}
               loading="lazy"
             />
           </div>
@@ -356,7 +368,14 @@ function PhotoCard({ href, image, title, tags, badge }: { href: string; image: s
     >
       <div className="relative aspect-video overflow-hidden bg-muted">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+        <img
+          src={image}
+          alt=""
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          width={1280}
+          height={720}
+          loading="lazy"
+        />
         {badge}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4.5">
@@ -603,19 +622,28 @@ function QuickLinks({ home, member, registrationOpen }: { home: string | null; m
       icon: <IconMail className="size-5.5" aria-hidden />,
       title: '系辦聯絡',
       links: [
-        // 聯絡資料照系網（第三波 W3；Q2＋電話）。不放 Email、傳真、辦公時間：官方來源不一致。
-        { label: '242 新北市新莊區中正路 510 號 利瑪竇大樓 LM306', href: 'https://www.im.fju.edu.tw/' },
-        { label: '電話 02-2905-2666', href: 'tel:+886229052666' },
-        { label: '系網 im.fju.edu.tw', href: 'https://www.im.fju.edu.tw/' },
+        // 聯絡資料只寫在 `site-contact.ts` 一份（頁尾、忘記密碼頁、產學頁同一份）。
+        { label: SITE_CONTACT.address, href: SITE_CONTACT.siteHref },
+        { label: `電話 ${SITE_CONTACT.phone}`, href: SITE_CONTACT.phoneHref },
+        { label: `系網 ${SITE_CONTACT.siteLabel}`, href: SITE_CONTACT.siteHref },
       ],
-      note: '透過機測、專題及產業實習讓學生動手做。業界合作或產學洽詢，也請直接聯絡系辦。',
+      note: `${SITE_CONTACT.slogan}${SITE_CONTACT.industryNote}`,
     },
   ]
   return (
     <section className="relative mt-24 overflow-hidden bg-background" aria-label="快速入口">
-      {/* 原型：淡化的建築照（約三成），只在上下緣淡進背景；裝飾圖不 lazy，免得整頁截圖時還沒載入。 */}
+      {/* 原型：淡化的建築照（約三成），只在上下緣淡進背景。在頁面最底、只是裝飾，捲到附近才載入，不跟首屏搶頻寬；
+          寬高照原圖 1200×407。 */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/placeholder/building.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" data-testid="quicklinks-photo" />
+      <img
+        src="/placeholder/building.jpg"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover opacity-30"
+        width={1200}
+        height={407}
+        loading="lazy"
+        data-testid="quicklinks-photo"
+      />
       <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-transparent to-background/80" aria-hidden />
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 py-18 md:grid-cols-3">
         {cols.map((c) => (
