@@ -212,6 +212,7 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
   await openStudentPage(page, 2)
+  await page.goto('/dashboard/student/groups?tab=log')
   const history = page.getByRole('region', { name: '提案紀錄' })
   await expect(history).toContainText('沒有成立：管理員作廢')
   await expect(history).not.toContainText('系辦內部')
@@ -223,7 +224,10 @@ test('拒絕：整份終止、全員釋放；重新發起是新提案，所有�
   await page.getByRole('button', { name: '拒絕' }).click()
   await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
   await expect(feedback(page, 'status')).toContainText('這次組隊沒有成立（被拒絕）')
+  // 提案紀錄在「紀錄」分頁（AC-ST-18）；重新發起在「找隊員」。
+  await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
+  await page.goto('/dashboard/student/groups?tab=team')
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 

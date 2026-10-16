@@ -340,12 +340,14 @@ test('x3:15 GRP-12 提案逾期：整份終止、學生 1 收到通知、又看�
     .poll(
       async () => {
         await openMyGroup(page)
+        await page.goto('/dashboard/student/groups?tab=log')
         return page.getByRole('region', { name: '提案紀錄' }).filter({ hasText: '沒有成立：逾期' }).count()
       },
       { timeout: 150_000, intervals: [5_000, 10_000] },
     )
     .toBeGreaterThan(0)
   await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText(`${student(0).name} 發起的一般專題提案`)
+  await page.goto('/dashboard/student/groups?tab=team')
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
   await shot(page, 'proposal-expired')
   await waitForInbox(page, '/dashboard/student/inbox', '這次組隊沒有成立（逾期），大家都可以重新組隊')
@@ -387,7 +389,9 @@ test('x3:18 COH-10 COH-04 倒退不改既有版本、不復活逾期的提案', 
   await expect(s1.getByTestId('version-view')).toContainText('截止分鐘內的第二版')
   await shot(s1, 'history-intact')
   await openMyGroup(s1)
+  await s1.goto('/dashboard/student/groups?tab=log')
   await expect(s1.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：逾期')
+  await s1.goto('/dashboard/student/groups?tab=team')
   await expect(s1.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 

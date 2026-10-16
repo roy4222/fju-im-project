@@ -290,12 +290,14 @@ test('學生的「我的組別」看得到指導老師與指派歷程（看不�
   await expect(row.getByRole('status')).toContainText(`已指派 ${NAME_A} 老師指導 G02`)
 
   await signIn(page, viewer)
-  await page.goto('/dashboard/student/groups')
+  await page.goto('/dashboard/student/groups?tab=mine')
   await expect(page.getByTestId('my-advisor')).toContainText(NAME_A)
+  // 異動在「紀錄」分頁（AC-ST-18）；理由整頁都不出現。
+  await page.goto('/dashboard/student/groups?tab=log')
   const history = page.getByRole('list', { name: '組別異動' })
   await expect(history).toContainText(`指導老師 ${NAME_A} → ${NAME_B}`)
   await expect(history).toContainText(`解除指導老師 ${NAME_B}`)
-  await expect(page.getByRole('region', { name: '我的組別狀態' })).not.toContainText('抽籤更正')
+  await expect(page.getByRole('main')).not.toContainText('抽籤更正')
 })
 
 async function uploadBatch(page: Page, name: string, csv: string) {

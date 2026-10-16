@@ -230,15 +230,17 @@ test('換組長：填理由換給另一位成員；只換組長不發成員異�
 
 test('學生的「我的組別」看得到組長與異動歷程，但看不到理由', async ({ page }) => {
   await signIn(page, viewer)
-  await page.goto('/dashboard/student/groups')
+  await page.goto('/dashboard/student/groups?tab=mine')
   const status = page.getByRole('region', { name: '我的組別狀態' })
-  await expect(status).toContainText('組別 G01')
+  await expect(status).toContainText('G01')
   await expect(page.getByRole('list', { name: '組員' }).getByRole('listitem').filter({ hasText: '組長' })).toContainText(members[1]!.name)
+  // 異動在「紀錄」分頁（AC-ST-18）；理由整頁都不出現。
+  await page.goto('/dashboard/student/groups?tab=log')
   const history = page.getByRole('list', { name: '組別異動' })
   await expect(history).toContainText(`${newcomer.name} 加入`)
   await expect(history).toContainText(`組長 ${members[2]!.name} → ${members[1]!.name}`)
-  await expect(status).not.toContainText('原組長請辭')
-  await expect(status).not.toContainText('轉系')
+  await expect(page.getByRole('main')).not.toContainText('原組長請辭')
+  await expect(page.getByRole('main')).not.toContainText('轉系')
 })
 
 /**
