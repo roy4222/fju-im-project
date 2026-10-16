@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { IconAlertCircle, IconAlertTriangle, IconCheck, IconEye, IconSend, IconTrash } from '@tabler/icons-react'
 import { BackLink, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import {
@@ -102,6 +102,32 @@ function SectionHead({ n, id, title, hint, right }: { n: number; id: string; tit
   )
 }
 
+/**
+ * 正文旁的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染 textarea 原字。
+ * 渲染方式照 `affairs/item-form-parts.tsx` 的 `StudentView`（`prose-item`）先複製一份在這裡，之後由 AD-04 合併回去。
+ * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
+ */
+function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
+  if (html === null) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        <p>填好標題、開始打正文就會出現預覽</p>
+        {/* 不用 alert／status：頁面其他地方已經有一份，同名的提示會讓「唯一那一則」變兩則。 */}
+        {error ? <p className="mt-2 font-semibold text-destructive">{error}</p> : null}
+      </div>
+    )
+  }
+  if (html === '') return <p className="text-sm text-muted-foreground">正文還是空的。</p>
+  return <div className="prose-item space-y-2 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+const WIDE = '(min-width: 1024px)'
+function subscribeWide(onChange: () => void) {
+  const query = window.matchMedia(WIDE)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
 /** 撤回、下架、重新發布的確認文案（票 16；產品模組 04 §4.5）。規則由伺服器判，這裡只說清楚會發生什麼。 */
 const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain: string; confirm: string }> = {
   withdraw: {
@@ -121,7 +147,7 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
     label: '重新發布',
     title: '重新發布？',
     explain:
-      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間。發布前檢查會再跑一次：已經截止的繳交項目不能直接重新發布。',
+      '恢復成下架前的那一版，對象又看得到；實際開放時間維持第一次發布的時間。發布前檢查會再跑一次：已經截止的作業不能直接重新發布。',
     confirm: '確認重新發布',
   },
 }
@@ -130,7 +156,7 @@ const LIFECYCLE: Record<LifecycleAction, { label: string; title: string; explain
 const DELETE_LABEL: Record<string, string> = {
   news: '刪除這則公告',
   resource: '刪除這份資源',
-  submission: '刪除這個繳交項目',
+  submission: '刪除這個作業',
   rules: '刪除這節規則',
   honor: '刪除這則榮譽',
 }
@@ -176,6 +202,12 @@ export function ItemEditor({
   const [reviewError, setReviewError] = useState<string | null>(null)
   // 檢查沒跑完是因為哪一欄（伺服器回的 `field`）：新建頁還沒填標題時，檢查表先列這一項，照原型給「回去補」。
   const [reviewErrorField, setReviewErrorField] = useState<string | null>(null)
+  // 正文旁預覽：最近一次檢查的結果（成功＝淨化後的正文、失敗＝null）。打字中 `review` 會先清空，這裡不跟著閃。
+  const [bodyPreview, setBodyPreview] = useState<string | null>(null)
+  // 預覽窗格開關：null＝還沒按過，照螢幕寬度（桌面開、手機收）。
+  const [previewChoice, setPreviewChoice] = useState<boolean | null>(null)
+  const wide = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => true)
+  const previewOpen = previewChoice ?? wide
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [notify, setNotify] = useState(true)
   const [done, setDone] = useState<string | null>(null)
@@ -345,9 +377,11 @@ export function ItemEditor({
       setReview(null)
       setReviewError(result.message)
       setReviewErrorField(result.field ?? null)
+      setBodyPreview(null)
       return null
     }
     setReview(result.data)
+    setBodyPreview(result.data.bodyHtml)
     return result.data
   }
 
@@ -438,10 +472,12 @@ export function ItemEditor({
             setReview(result.data)
             setReviewError(null)
             setReviewErrorField(null)
+            setBodyPreview(result.data.bodyHtml)
           } else {
             setReview(null)
             setReviewError(result.message)
             setReviewErrorField(result.field ?? null)
+            setBodyPreview(null)
           }
         })
         .catch(() => {
@@ -450,6 +486,7 @@ export function ItemEditor({
           setReview(null)
           setReviewError('自動檢查連線中斷；請按「檢查與預覽」再試一次。')
           setReviewErrorField(null)
+          setBodyPreview(null)
         })
     }, seq === 1 ? 0 : 700) // 打開頁面時馬上檢查一次；之後停手 0.7 秒才重跑
     return () => clearTimeout(timer)
@@ -490,17 +527,18 @@ export function ItemEditor({
       </div>
     ) : null
 
-  async function previewFromTopBar() {
-    setTab('preview')
-    await onPreview()
-    document.getElementById('sec-preview')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  // 頂列「預覽」只開關正文旁的窗格（不多打伺服器，內容沿用自動檢查）；手機打開時切到窗格所在的「內容」分頁。
+  function togglePreview() {
+    const next = !previewOpen
+    setPreviewChoice(next)
+    if (next) setTab('content')
   }
 
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">{heading}</h1>
       {/* 回到這一筆所屬的屆別，不落回預設工作屆（設計方案 §13-2）。 */}
-      <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} label="專題事務" />
+      <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} label="公告與作業" />
 
       <div className="dash-card overflow-clip">
         {/* 頂列：標題｜儲存狀態｜存草稿｜預覽｜發布 */}
@@ -528,7 +566,7 @@ export function ItemEditor({
                 存草稿
               </button>
             ) : null}
-            <button type="button" className={SECONDARY} onClick={() => void previewFromTopBar()} disabled={busy !== null}>
+            <button type="button" className={SECONDARY} onClick={togglePreview} aria-expanded={previewOpen} aria-controls="ed-body-preview">
               <IconEye aria-hidden /> 預覽
             </button>
             {status === 'published' && !hasResponses ? (
@@ -592,21 +630,39 @@ export function ItemEditor({
         <section aria-labelledby="sec-content" className={section('content')}>
           <SectionHead n={1} id="sec-content" title="內容" hint="公告與資源的主體；學生打開先看到這段" />
           <div className="flex flex-col gap-4 px-5 pb-6 lg:px-6">
-            <div className="rounded-lg border border-input focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/25">
-              <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-                <label htmlFor="ed-body" className="text-xs font-semibold">
-                  正文
-                </label>
-                <span className="ml-auto text-[11px] text-muted-foreground">可以直接打字；進階排版可用 HTML</span>
+            {/* 正文與即時預覽：桌面並排、窄螢幕預覽在下方（預設收起，頂列「預覽」打開）。 */}
+            <div className={cn('grid gap-4', previewOpen && 'lg:grid-cols-2')}>
+              <div className="min-w-0 rounded-lg border border-input focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/25">
+                <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+                  <label htmlFor="ed-body" className="text-xs font-semibold">
+                    正文（網頁排版格式，可直接打字）
+                  </label>
+                </div>
+                <textarea
+                  id="ed-body"
+                  rows={10}
+                  className="w-full resize-y bg-transparent px-4 py-3 text-[15px] leading-relaxed outline-none"
+                  value={state.body}
+                  onChange={(e) => patch({ body: e.target.value })}
+                  placeholder={collects ? '要交什麼、格式、上限。學生在作業說明看到的就是這段。' : '寫公告內容。段落之間空一行。'}
+                />
               </div>
-              <textarea
-                id="ed-body"
-                rows={10}
-                className="w-full resize-y bg-transparent px-4 py-3 text-[15px] leading-relaxed outline-none"
-                value={state.body}
-                onChange={(e) => patch({ body: e.target.value })}
-                placeholder={collects ? '要交什麼、格式、上限。學生在作業說明看到的就是這段。' : '寫公告內容。段落之間空一行。'}
-              />
+              <section
+                id="ed-body-preview"
+                aria-labelledby="ed-body-preview-title"
+                // 還沒按過：交給 CSS（手機收起），伺服器渲染與第一次畫面不會先閃出窗格。
+                className={cn(
+                  'min-w-0 rounded-lg border border-border bg-muted/30',
+                  previewChoice === null ? 'max-lg:hidden' : !previewChoice && 'hidden',
+                )}
+              >
+                <h3 id="ed-body-preview-title" className="border-b border-border px-3 py-1.5 text-xs font-semibold">
+                  預覽
+                </h3>
+                <div className="px-4 py-3" data-testid="body-preview">
+                  <BodyPreview html={bodyPreview} error={reviewError} />
+                </div>
+              </section>
             </div>
             <p className="-mt-2 text-xs text-muted-foreground">
               直接打字即可（空一行分段）；要排版可用簡單的 HTML：段落、粗體、清單、標題、連結。其他標籤與程式碼存檔時會被清掉。
@@ -940,7 +996,7 @@ export function ItemEditor({
                 </>
               ) : null}
               {collects && !published ? (
-                <p className="text-xs text-muted-foreground">新的繳交項目一定會通知名單上需要繳交的人（站內通知）。</p>
+                <p className="text-xs text-muted-foreground">新的作業一定會通知名單上需要繳交的人（站內通知）。</p>
               ) : honor ? (
                 <p className="text-xs text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
               ) : (
@@ -978,7 +1034,7 @@ export function ItemEditor({
             <dt className="text-muted-foreground">對象</dt>
             <dd className="font-semibold break-words">「{state.title || '（未命名）'}」</dd>
             <dt className="text-muted-foreground">範圍</dt>
-            <dd>專題事務清單、前台網址、附件連結都會當作不存在（顯示「找不到這個頁面」）。</dd>
+            <dd>公告與作業清單、前台網址、附件連結都會當作不存在（顯示「找不到這個頁面」）。</dd>
             <dt className="text-muted-foreground">後果</dt>
             <dd>刪除後後台清單也看不到、不能恢復；已寄的通知不會收回。</dd>
           </dl>

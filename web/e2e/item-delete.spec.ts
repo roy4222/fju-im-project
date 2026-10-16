@@ -186,8 +186,8 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await page.getByRole('button', { name: '下架', exact: true }).click()
   await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
   await expect(page.getByTestId('item-status')).toHaveText('已下架')
-  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這個繳交項目' }).click()
-  await page.getByRole('dialog', { name: '刪除這個繳交項目？' }).getByRole('button', { name: '刪除這個繳交項目' }).click()
+  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這個作業' }).click()
+  await page.getByRole('dialog', { name: '刪除這個作業？' }).getByRole('button', { name: '刪除這個作業' }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
 
   // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍是連結，點進去是中文 404。
