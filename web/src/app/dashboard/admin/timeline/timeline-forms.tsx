@@ -449,7 +449,7 @@ export function CreateActivityForm({ cohortId, requestId, ...limits }: { cohortI
       <button type="button" className={PRIMARY} onClick={dialog.open}>
         <IconPlus aria-hidden /> 新增活動
       </button>
-      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從繳交項目自動帶進日曆。">
+      <Dialog dialog={dialog} wide title="新增活動" description="說明會、成果發表這類活動。作業截止不用在這裡加，會從作業自動帶進日曆。">
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="cohortId" value={cohortId} />
           <input type="hidden" name="requestId" value={requestId} />

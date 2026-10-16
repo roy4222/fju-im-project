@@ -1,0 +1,9 @@
+{
+  "$comment": "perf:lab 每路由的身分與固定動作。click：link:<連結字>／button:<按鈕字>／CSS 選擇器；waitFor：新頁出現這個元素才算切頁完成。新路由加自己的列，不改既有列；側欄字被切換票改了，就由那張票改對應列的 click。",
+  "/dashboard/student": { "as": "student", "actions": [{ "click": "link:我的繳交", "waitFor": "main h1" }] },
+  "/dashboard/student/affairs": { "as": "student", "actions": [{ "click": "link:我的組別", "waitFor": "main h1" }] },
+  "/dashboard/teacher": { "as": "teacher", "actions": [{ "click": "link:評分", "waitFor": "main h1" }] },
+  "/dashboard/teacher/grading": { "as": "teacher", "actions": [{ "click": "link:各組繳交", "waitFor": "main h1" }] },
+  "/dashboard/admin": { "as": "admin", "actions": [{ "click": "link:帳號管理", "waitFor": "main h1" }] },
+  "/dashboard/admin/accounts": { "as": "admin", "actions": [{ "click": "link:專題事務", "waitFor": "main h1" }] }
+}

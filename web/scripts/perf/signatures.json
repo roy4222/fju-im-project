@@ -1,0 +1,21 @@
+{
+  "$comment": "perf:sql 的分類簽名（正規化後語句的前綴：去註解、去雙引號、常數換成 ?、空白合一、小寫）。identity＝身分（session、使用者、角色、老師 needsSetup）；badge＝徽章（未讀數、老師待評 teacherQueue、老師待同意 teacherView、系辦 summary）；其餘算 page。程式改了查詢文字就要跟著改這裡（perf:sql --dump <route> 看正規化後的樣子）。",
+  "identity": [
+    "select id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, impersonated_by, login_method from sessions ",
+    "select id, name, email, email_verified, image, created_at, updated_at, role, banned, ban_reason, ban_expires, status, must_change_password, deidentified_at from users where users.id = $1",
+    "select status, must_change_password, deidentified_at from users where id = $1",
+    "select users.id, users.status, users.must_change_password, users.deidentified_at, user_profiles.cohort_id, users.name, user_profiles.display_name from users left join user_profiles ",
+    "select role from role_assignments where (role_assignments.user_id = $1 and role_assignments.revoked_real_at is null)",
+    "select exists ( select ? from role_assignments where user_id = $1 and role = ? and revoked_real_at is null ) and not exists ( select ? from user_profiles where user_id = $1 and profile_completed_at is not null ) as needs"
+  ],
+  "badge": [
+    "select count(*) as n from notifications where recipient_user_id = $1 and read_at is null",
+    "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages from evaluator_assignments ",
+    "select distinct on (e.assignment_id) e.assignment_id, e.kind, e.scheme_version_id, e.scores, e.submitted_real_at, s.state from evaluations ",
+    "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
+    "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no, s.state, s.cause, v.participants, ",
+    "select version_id, user_id, role, result, reason, real_at from approvals where version_id = any($1::uuid[])",
+    "select id, name from users where id = any($1::uuid[]) and deidentified_at is not null",
+    "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
+  ]
+}

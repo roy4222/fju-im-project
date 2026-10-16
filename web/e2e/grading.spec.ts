@@ -342,7 +342,7 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
 test('學生：「成績」頁只有一句說明；直接開評分管理、工作台網址都被擋', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/dashboard/student/grading')
-  await expect(page.getByRole('heading', { name: '評分由老師與系辦處理，學生不會看到分數' })).toBeVisible()
+  await expect(page).toHaveURL(/\/dashboard\/student$/)
   await expect(page.locator('body')).not.toContainText('84.29')
 
   for (const path of ['/dashboard/admin/grading', '/dashboard/teacher/grading', `/dashboard/teacher/grading/${groupIds.get('G01')}`]) {

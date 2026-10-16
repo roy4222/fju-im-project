@@ -84,5 +84,7 @@ export async function requireRole(pathname: string, role: Role) {
   if (role === 'teacher' && actor.kind === 'authenticated' && (await getTeacherSetupCommand().needsSetup(actor.userId))) {
     redirect(TEACHER_SETUP_PATH)
   }
+  // 暖徽章快取（SH-P2）：跟頁面自己的查詢同時跑，外框拿到同一個 promise。動態 import 是因為 nav-badges.ts 靜態 import 本檔。
+  void import('@/app/_ui/nav-badges').then((m) => m.navBadgeCounts(role)).catch(() => undefined)
   return actor
 }

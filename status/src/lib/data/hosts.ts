@@ -1,18 +1,11 @@
 /**
- * 三頁與三個工具的入口（設計方案 §2、Q30）。
+ * 三個外部工具的入口（設計方案 §2、Q30）：側欄「外部工具」與錯誤紀錄的 Dozzle 連結用。
+ * 站內頁的導覽在 `nav.ts`；總覽不再畫入口卡與工具卡（DV 設計方案 §4.6）。
  *
  * 網址只放這裡：四個網址都是 `roy422.dev` 底下一層子網域（Cloudflare 免費憑證涵蓋），
  * 與 `ops/status/cloudflared.yml` 的 ingress 對應（S-4 由 STATUS_HOSTS 產生）；兩邊要一起改。
  */
 export const DEFAULT_BASE_DOMAIN = 'roy422.dev'
-
-export type PageEntry = { href: string; title: string; description: string }
-
-export const PAGES: PageEntry[] = [
-  { href: '/map', title: '驗收地圖', description: '哪個角色的哪個功能真的被點過、有沒有截圖；前台每一區對應哪個管理後台' },
-  { href: '/progress', title: '開發進度', description: '每張票做到哪、PR 狀態、票清單跟 GitHub 有沒有對上' },
-  { href: '/go-live', title: '能不能上線', description: '五條上線條件各自綠、紅、灰，與原因' },
-]
 
 export type ToolEntry = { key: 'vm' | 'logs' | 'db'; title: string; tool: string; description: string; url: string }
 

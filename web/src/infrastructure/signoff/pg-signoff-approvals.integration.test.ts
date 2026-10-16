@@ -746,7 +746,7 @@ describe('匯出（S11-09、SGN-11）', () => {
     const csv = r.receipt.body
     expect(csv.startsWith('﻿')).toBe(true)
     const header = csv.slice(1).split('\r\n')[0]!
-    for (const col of ['屆別', '組別', '簽核用途', '版本', '內容 checksum', '附件版本', '應簽參與者集合', '事件 ID', '當時姓名', '學號', '角色', '這次登入方式', '按鈕原文', '結果', '理由', '真實時間（臺灣）', '業務時間（臺灣）']) {
+    for (const col of ['屆別', '組別', '簽核用途', '版本', '內容核對碼', '附件版本', '應簽參與者集合', '紀錄編號', '當時姓名', '學號', '角色', '這次登入方式', '按鈕原文', '結果', '理由', '真實時間（臺灣）', '業務時間（臺灣）']) {
       expect(header).toContain(`"${col}"`)
     }
     expect(header).not.toMatch(/IP|瀏覽器|token/i)

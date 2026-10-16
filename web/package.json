@@ -31,7 +31,12 @@
     "db:grants": "node scripts/generate-grants.mjs",
     "seed:a1": "node scripts/seed-a1.mjs",
     "seed:e2e": "node scripts/seed-e2e.mjs",
-    "seed:demo": "node scripts/seed-demo.mjs"
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "perf:db": "node scripts/perf/db.mjs",
+    "perf:sql": "node scripts/perf/sql.mjs",
+    "perf:bundle": "node scripts/perf/bundle.mjs",
+    "perf:lab": "node scripts/perf/lab.mjs",
+    "perf:trail": "node scripts/perf/trail.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
