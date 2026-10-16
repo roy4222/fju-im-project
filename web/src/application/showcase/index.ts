@@ -12,6 +12,7 @@ export {
   SHOWCASE_LIMITS,
   VIDEO_URL_MESSAGE,
 } from '@/application/showcase/draft'
+export { youtubeEmbedUrl, youtubeVideoId } from '@/application/showcase/video'
 export {
   AWARD_LABEL_MAX,
   AWARD_LEVEL_LABEL,

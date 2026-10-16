@@ -8,6 +8,7 @@ import { AwardBadge, GoneNotice, imageSrc, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel } from '@/composition/cohorts'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
+import { youtubeEmbedUrl, youtubeVideoId } from '@/composition/showcase-video'
 
 /** 同一個請求裡 metadata 與頁面共用一次查詢。 */
 const load = cache(async (id: string) => getPublicShowcaseQuery().entry(await currentActor(), id))
@@ -55,6 +56,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const backHref = member ? '/projects' : '/projects/featured'
   const backLabel = member ? '歷屆專題一覽' : '優秀專題'
   const image = imageSrc(item.id, item.posterFileId)
+  // 嵌入網址只在讀取端產生（Q49）：存的是系辦填的原字串；舊的非 YouTube 連結解析不到，退回另開新視窗。
+  const videoId = item.videoUrl ? youtubeVideoId(item.videoUrl) : null
   // 屆別顯示「名稱（代碼）」（系1）。訪客只查有優秀專題的屆別，不從名稱表看出哪一屆有沒得獎的作品。
   const names = await getPublicShowcaseQuery().cohortChoices({ featuredOnly: !member })
   const cohort = cohortLabel({ name: names.find((c) => c.code === item.cohortCode)?.name ?? item.cohortCode, code: item.cohortCode })
@@ -93,23 +96,39 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           </div>
           <h1 className="text-[26px] leading-snug font-extrabold text-foreground sm:text-[32px]">{item.title}</h1>
           <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
-            {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
-            {item.videoUrl ? (
+            {videoId ? (
+              // CSP frame-src 已放行 www.youtube.com（youtube-nocookie 維持被擋）。
+              <iframe
+                src={youtubeEmbedUrl(videoId)}
+                title="三分鐘影片"
+                allow="accelerometer; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+                className="absolute inset-0 h-full w-full"
+                data-testid="video-embed"
+              />
+            ) : (
               <>
-                <a
-                  href={item.videoUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="absolute top-1/2 left-1/2 inline-flex size-18 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background/92 text-primary shadow-lg transition-transform hover:scale-105"
-                  aria-label="播放三分鐘影片（另開新視窗）"
-                >
-                  <IconPlayerPlay className="size-7" />
-                </a>
-                <span className="absolute bottom-4 left-4 rounded bg-black/60 px-2 py-1 text-xs text-white">三分鐘影片・系上 YouTube 不公開連結</span>
+                {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。作品頁主視覺不 lazy；寬高只給比例，實際大小由 CSS 決定。 */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt="" width={1280} height={720} className="absolute inset-0 h-full w-full object-cover" />
+                {item.videoUrl ? (
+                  <>
+                    <a
+                      href={item.videoUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="absolute top-1/2 left-1/2 inline-flex size-18 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background/92 text-primary shadow-lg transition-transform hover:scale-105"
+                      aria-label="播放三分鐘影片（另開新視窗）"
+                    >
+                      <IconPlayerPlay className="size-7" />
+                    </a>
+                    <span className="absolute bottom-4 left-4 rounded bg-black/60 px-2 py-1 text-xs text-white">影片連結（另開新視窗）</span>
+                  </>
+                ) : null}
               </>
-            ) : null}
+            )}
           </div>
           <section className="flex flex-col gap-2.5">
             <h2 className="text-xl font-bold text-ink">摘要</h2>
@@ -145,7 +164,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <figure className="flex flex-col items-center gap-2">
               <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={image} alt="成果海報" className="absolute inset-0 h-full w-full object-contain" />
+                <img src={image} alt="成果海報" loading="lazy" width={900} height={1200} className="absolute inset-0 h-full w-full object-contain" />
               </div>
               <figcaption className="text-[13px] text-muted-foreground">成果海報</figcaption>
             </figure>
