@@ -6,7 +6,7 @@ import { describeLifecycleReceipt, describePublishReceipt, describeUpdateReceipt
 import type { Result } from '@/shared/result'
 
 /**
- * 專題事務的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket；
+ * 公告與作業的 Server Action（票 15）：建立、存草稿、發布前檢查、發布、發布更新、附件上傳 ticket；
  * 票 16：撤回、下架、重新發布；第三波 W1：刪除、榮譽的得獎日期；第 1 批 V1：公告置頂。
  *
  * 規則與授權全在用例裡判（只有狀態正常的管理員）；這裡只把瀏覽器送來的東西整理成用例要的形狀、
@@ -164,7 +164,7 @@ export async function changeItemStatusAction(
 }
 
 /**
- * 刪除（第三波 W1）：只限草稿與已下架、收件沒有任何回答（規則在用例）。成功後畫面回到專題事務清單。
+ * 刪除（第三波 W1）：只限草稿與已下架、收件沒有任何回答（規則在用例）。成功後畫面回到公告與作業清單。
  */
 export async function deleteItemAction(
   itemId: string,

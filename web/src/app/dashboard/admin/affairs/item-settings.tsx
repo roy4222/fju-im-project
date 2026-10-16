@@ -131,7 +131,7 @@ export function SettingsFields({
           </option>
         ))}
       </select>
-      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">繳交項目只能發給本屆學生或指定組別。</p> : null}
+      {collects ? <p className="mt-1.5 text-xs text-muted-foreground">作業只能發給本屆學生或指定組別。</p> : null}
       {honor ? (
         <p className="mt-1.5 text-xs text-muted-foreground">榮譽榜是公開頁：「誰看得到」固定「公開訪客」，不用繳交、不發通知。</p>
       ) : null}

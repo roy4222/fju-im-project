@@ -361,6 +361,31 @@ export function RecipientList({ recipients, notifyWhen }: { recipients: Recipien
   )
 }
 
+/** 正文：只吃伺服器清理過的 HTML（`review.bodyHtml`），不渲染使用者原字。 */
+function ItemBody({ html, className }: { html: string; className?: string }) {
+  return <div className={cn('prose-item space-y-2 leading-relaxed', className)} dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+/**
+ * 正文旁的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染 textarea 原字。
+ * AD-16 先把這段複製在 `editor/item-editor.tsx` 裡，AD-04 合併回這裡、跟 `StudentView` 共用 `ItemBody`；
+ * 編輯器那份本地副本換成 import 這個（不在 AD-04 可改的檔裡，另行處理）。
+ * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
+ */
+export function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
+  if (html === null || error) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        <p>填好標題、開始打正文就會出現預覽</p>
+        {/* 不用 alert／status：頁面其他地方已經有一份，同名的提示會讓「唯一那一則」變兩則。 */}
+        {error ? <p className="mt-2 font-semibold text-destructive">{error}</p> : null}
+      </div>
+    )
+  }
+  if (html === '') return <p className="text-sm text-muted-foreground">正文還是空的。</p>
+  return <ItemBody html={html} className="text-sm" />
+}
+
 /** 學生（或訪客）看到的樣子：用伺服器清理過的正文。 */
 export function StudentView({
   state,
@@ -382,9 +407,7 @@ export function StudentView({
       </p>
       <h3 className="mt-1 text-[17px] font-extrabold">{state.title || '（未命名）'}</h3>
       {state.summary ? <p className="mt-1 text-muted-foreground">{state.summary}</p> : null}
-      {review.bodyHtml ? (
-        <div className="prose-item mt-3 space-y-2 leading-relaxed" dangerouslySetInnerHTML={{ __html: review.bodyHtml }} />
-      ) : null}
+      {review.bodyHtml ? <ItemBody html={review.bodyHtml} className="mt-3" /> : null}
       {state.attachments.length > 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">附件：{state.attachments.map((a) => a.name).join('、')}</p>
       ) : null}

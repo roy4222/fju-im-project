@@ -8,7 +8,7 @@ import { setPinnedAction } from '@/app/dashboard/admin/affairs/actions'
 import { cn } from '@/shared/cn'
 
 /**
- * 專題事務工作台的「全部內容」卡（票 35；原型 `affairs/admin-affairs.tsx`）。
+ * 公告與作業工作台的「全部內容」卡（票 35；原型 `affairs/admin-affairs.tsx`）。
  *
  * 種類篩選照舊是網址參數（伺服器篩好再傳進來）；搜尋框只在已經載入的列裡找標題與對象，不另外查資料庫。
  * 桌面是七欄格線（可見範圍併在對象第二行，1280 寬時標題欄才有約 14rem）、手機每列自動堆疊成卡片（原型同一套 class）。

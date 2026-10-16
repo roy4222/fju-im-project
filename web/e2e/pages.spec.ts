@@ -325,7 +325,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 合作案管理（票 20）。
     '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
-    '/dashboard/admin/affairs': '用完整編輯器建立',
+    '/dashboard/admin/affairs': '完整編輯器',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '還有地方在用的檔案不能刪',
     '/dashboard/admin/editor/new': '存草稿',
