@@ -438,6 +438,11 @@ export interface AdvisorSubmissionQuery {
    * 評分老師在評閱桌用：本組有效評分指派的老師讀得到；主指導本來就讀得到。不是老師回 null。
    */
   groupVersions(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionEntry[] | null>
+  /**
+   * 同 `groupVersions`（同一個授權、同樣的版本與順序），每一版再帶上它的附件（評分單組頁初開就要列檔案）。
+   * 附件一次批次讀（不逐份查），固定 3 句；`mime` 與下載回應的 `content-type` 同源。不是老師回 null。
+   */
+  groupVersionsWithFiles(actor: ResolvedActor, groupId: string): Promise<readonly GroupVersionWithFiles[] | null>
 }
 
 /** 一組的一個正式版本（評閱桌「本組正式繳交」一列）。 */
@@ -448,3 +453,14 @@ export type GroupVersionEntry = {
   readonly receivedBusinessAt: Date
   readonly submittedByName: string
 }
+
+/** 某一版的一個附件（`submission_files` × `stored_files`）。`mime` 是偵測到的型別，沒有時 `application/octet-stream`。 */
+export type VersionAttachment = {
+  readonly fileId: string
+  readonly name: string
+  readonly mime: string
+  readonly sizeBytes: number
+}
+
+/** 一組的一個正式版本＋它的附件（評分單組頁左欄一列）。 */
+export type GroupVersionWithFiles = GroupVersionEntry & { readonly attachments: readonly VersionAttachment[] }

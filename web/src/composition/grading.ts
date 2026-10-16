@@ -9,6 +9,8 @@ import type {
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getOperationLedger } from '@/composition/ops'
+import { getAdvisorSubmissionQuery } from '@/composition/submissions'
+import { getPool } from '@/infrastructure/db/client'
 import { MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 
@@ -34,8 +36,12 @@ function query(): PgGradingQuery {
   return gradingQuery
 }
 
+let teacherGradingQuery: PgGradingQuery | undefined
+
+/** 老師評分頁用：多注入模組 05 的繳交查詢（`teacherBenchPage` 的本組正式繳交與附件，TE-11）。 */
 export function getGradingQuery(): GradingQuery {
-  return query()
+  teacherGradingQuery ??= new PgGradingQuery(getPool, getAdvisorSubmissionQuery())
+  return teacherGradingQuery
 }
 
 export function getAssignmentsForTeacherQuery(): AssignmentsForTeacherQuery {
