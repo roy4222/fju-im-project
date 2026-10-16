@@ -91,6 +91,19 @@ function SumBadge({ label, sum }: { label: string; sum: number }) {
   )
 }
 
+/**
+ * 建立草稿後那句話的後半（「發布」在哪）照評分規則子頁的樣子講（AD-08）：版本紀錄是每版一張卡。
+ * 前半句（「已建立…（草稿）；按「發布」後老師才會用這一版。」）原樣保留；認不出來的句子原樣顯示。
+ */
+const DRAFT_CREATED = /^(已建立評分規則第 (\d+) 版（草稿）；按「發布」後老師才會用這一版。)/
+
+function draftCreatedMessage(message: string, locked: boolean): string {
+  const m = DRAFT_CREATED.exec(message)
+  if (!m) return message
+  const where = locked ? `「查看重算影響（尚不套用）」在下方版本紀錄第 ${m[2]} 版那張卡。` : `「發布」在下方版本紀錄第 ${m[2]} 版那張卡。`
+  return `${m[1]}${where}`
+}
+
 /** 建立新方案版本：從目前（或最新）版本複製起草；權重即時合計，不合 100 伺服器也會擋。 */
 export function SchemeEditor({
   cohortId,
@@ -98,12 +111,15 @@ export function SchemeEditor({
   baseLabel,
   requestId,
   disabledReason,
+  locked = false,
 }: {
   cohortId: string
   base: readonly SchemeStage[]
   baseLabel: string | null
   requestId: string
   disabledReason: string | null
+  /** 目前版本已鎖定：新草稿不能直接發布，提示改指「查看重算影響」。 */
+  locked?: boolean
 }) {
   const [state, action, pending] = useActionState(createSchemeVersionAction, undefined)
   const dialog = useDialog()
@@ -139,7 +155,7 @@ export function SchemeEditor({
         <IconPlus className="size-4" aria-hidden />
         建立新版評分規則
       </button>
-      <Feedback state={state?.ok && state !== dismissed ? state : undefined} />
+      <Feedback state={state?.ok && state !== dismissed ? { ok: true, message: draftCreatedMessage(state.message, locked) } : undefined} />
       <dialog ref={dialog.ref} aria-label="建立新版評分規則" className={cn(DIALOG, 'w-[min(48rem,calc(100vw-2rem))]')}>
         <form action={action} className="space-y-4 p-5">
           <div>
