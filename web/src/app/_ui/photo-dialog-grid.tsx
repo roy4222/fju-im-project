@@ -28,6 +28,7 @@ export type PhotoEntry = {
  * 卡片點開 dialog，圖用 contain 不裁切（人物照不裁）；dialog 內可上一件／下一件。`initialOpenId` 給 `?item=` 深連結。
  *
  * 圖片用一般 `<img>`：`next/image` 會輸出 style 屬性，被正式站 CSP 擋。
+ * 寬高只是 16:9 的比例提示（實際大小由 CSS 決定）；卡片 lazy，dialog 大圖開了才渲染、不 lazy。
  */
 export function PhotoDialogGrid({
   entries,
@@ -63,6 +64,8 @@ export function PhotoDialogGrid({
                   src={e.image}
                   alt=""
                   loading="lazy"
+                  width={1280}
+                  height={720}
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                 />
                 <AwardBadge award={e.award} label={e.awardLabel} className="absolute top-3 left-3 shadow-md" />
@@ -92,7 +95,13 @@ export function PhotoDialogGrid({
             <>
               <div className="relative min-h-[260px] bg-[#0b1a2b] md:min-h-[440px]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={current.image} alt={current.title} className="absolute inset-0 h-full w-full object-contain" />
+                <img
+                  src={current.image}
+                  alt={current.title}
+                  width={1280}
+                  height={720}
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
               </div>
               <div className="flex flex-col gap-3.5 p-7">
                 <div className="flex flex-wrap gap-1.5">

@@ -32,6 +32,8 @@ function ProjectCard({ project: p }: { project: SignedInShowcaseCard }) {
           src={imageSrc(p.id, p.posterFileId)}
           alt=""
           loading="lazy"
+          width={1280}
+          height={720}
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
         <AwardBadge award={p.award} label={p.awardLabel} className="absolute top-3 left-3 shadow-md" />
