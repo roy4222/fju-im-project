@@ -323,7 +323,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
     '/dashboard/teacher/groups': '一般組由系辦指派。',
     // 合作案管理（票 20）。
-    '/dashboard/admin/industry': '全部合作案與組別連結',
+    '/dashboard/admin/industry': '合作案摘要',
     '/dashboard/admin/affairs': '用完整編輯器建立',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '還有地方在用的檔案不能刪',
