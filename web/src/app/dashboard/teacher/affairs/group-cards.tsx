@@ -43,14 +43,30 @@ export type GroupCard = {
   readonly required: number
 }
 
-/** 作業名的前兩個字（用 code point 切，不會把字切半）。 */
-export function shortName(title: string): string {
-  return Array.from(title.trim()).slice(0, 2).join('')
+/**
+ * 方塊裡的短名：作業名的前兩個字（用 code point 切，不會把字切半）。
+ * 同一屆幾份作業開頭撞名時（「專題說明會…」「專題分組…」），跳過跟撞名者共同的開頭，取接下來兩個字（「說明」「分組」）。
+ */
+export function shortNames(titles: readonly string[]): string[] {
+  const chars = titles.map((t) => Array.from(t.trim()))
+  return chars.map((mine, i) => {
+    const head = mine.slice(0, 2).join('')
+    let shared = 0
+    chars.forEach((other, j) => {
+      if (j === i || other.slice(0, 2).join('') !== head) return
+      let n = 0
+      while (n < mine.length && n < other.length && mine[n] === other[n]) n += 1
+      shared = Math.max(shared, n)
+    })
+    if (shared === 0) return head
+    const rest = mine.slice(shared, shared + 2)
+    return rest.length > 0 ? rest.join('') : mine.slice(-2).join('')
+  })
 }
 
 /** 一格的顏色與狀態字（純函式：同一組事實、同一個業務時間，一定得到同一個結果）。 */
-export function cellOf(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixCell | undefined, businessNow: Date): GroupCardCell {
-  const base = { itemId: item.itemId, title: item.title, short: shortName(item.title) }
+export function cellOf(item: AdvisorMatrixItem, short: string, groupId: string, cell: AdvisorMatrixCell | undefined, businessNow: Date): GroupCardCell {
+  const base = { itemId: item.itemId, title: item.title, short }
   if (!cell) return { ...base, kind: 'inactive', status: '不在名單', detail: '', href: null }
   const href = `/dashboard/teacher/affairs/${item.itemId}?group=${groupId}`
   const category = categoryOf(cell)
@@ -72,10 +88,11 @@ export function cellOf(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMa
 /** 整個卡片格的資料：只列老師此刻指導的組；欄只放那一組所在屆別的作業（別屆的作業不屬於這一組）。 */
 export function buildGroupCards(matrix: AdvisorMatrix, businessNow: Date): GroupCard[] {
   const cellByKey = new Map(matrix.cells.map((c) => [`${c.groupId}:${c.itemId}`, c]))
+  const itemsOf = (cohortId: string) => matrix.items.filter((item) => item.cohortId === cohortId)
   return matrix.groups.map((group) => {
-    const cells = matrix.items
-      .filter((item) => item.cohortId === group.cohortId)
-      .map((item) => cellOf(item, group.groupId, cellByKey.get(`${group.groupId}:${item.itemId}`), businessNow))
+    const items = itemsOf(group.cohortId)
+    const shorts = shortNames(items.map((item) => item.title))
+    const cells = items.map((item, i) => cellOf(item, shorts[i]!, group.groupId, cellByKey.get(`${group.groupId}:${item.itemId}`), businessNow))
     const counted = cells.filter((c) => c.kind !== 'inactive')
     return {
       groupId: group.groupId,
@@ -151,23 +168,25 @@ export function GroupCards({ cards }: { cards: readonly GroupCard[] }) {
                 })}
               </ul>
             ) : null}
-            <div className="mt-auto border-t border-border pt-2 text-xs text-muted-foreground">
-              <p className="tabular font-semibold text-foreground">
-                已交 {card.done}／{card.required}
-              </p>
-              {card.cells.length > 0 ? (
-                <p className="mt-0.5 leading-relaxed">
-                  {card.cells.map((cell, i) => (
-                    <span key={cell.itemId}>
-                      {i > 0 ? '・' : null}
-                      {cell.title} {cell.status}
-                    </span>
-                  ))}
+            {card.cells.length > 0 ? (
+              <div className="mt-auto border-t border-border pt-2 text-xs">
+                <p className="tabular font-semibold text-foreground">
+                  已交 {card.done}／{card.required}
                 </p>
-              ) : (
-                <p className="mt-0.5">這一屆還沒有整組一份的作業。</p>
-              )}
-            </div>
+                <ul className="mt-1 flex flex-col gap-0.5 text-muted-foreground">
+                  {card.cells.map((cell) => (
+                    <li key={cell.itemId} className="flex min-w-0 items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate" title={cell.title}>
+                        {cell.title}
+                      </span>
+                      <span className={cn('shrink-0', cell.kind === 'overdue' && 'text-destructive-on-subtle', cell.kind === 'late' && 'text-warning-on-subtle')}> {cell.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-auto border-t border-border pt-2 text-xs text-muted-foreground">這一屆還沒有整組一份的作業。</p>
+            )}
           </li>
         ))}
       </ul>
