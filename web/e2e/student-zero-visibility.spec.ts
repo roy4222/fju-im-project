@@ -54,8 +54,13 @@ const FIXED_PAGES = [
   '/dashboard/student/groups',
   '/dashboard/student/affairs',
   '/dashboard/student/inbox',
-  '/dashboard/student/grading',
 ]
+/** ST-7 拿掉的三個舊學生頁只轉頁（Q126）：不算「要打得開的頁」，改驗 3xx、轉到哪、回應不夾帶分數。 */
+const LEGACY_REDIRECTS: Record<string, string> = {
+  '/dashboard/student/grading': '/dashboard/student',
+  '/dashboard/student/industry': '/industry',
+  '/dashboard/student/timeline': '/timeline',
+}
 const APIS = ['/api/health', '/api/auth/get-session']
 /** 管理員的匯出（票 20 組別名單、票 6 帳號、票 24 成績）：學生從本站頁面送出（同源）也要被拒，回應不能帶任何資料。 */
 const EXPORTS = ['/api/admin/groups/export', '/api/admin/accounts/export', '/api/admin/grading/export']
@@ -237,14 +242,40 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
   const home = await request.get('/dashboard/student', { headers: { cookie } })
   expect(home.status()).toBe(200)
   const discovered = [...(await home.text()).matchAll(/href="(\/dashboard\/student[^"?#]*)"/g)].map((m) => m[1]!)
-  const pages = [...new Set([...FIXED_PAGES, ...discovered])].sort()
-  expect(pages).toContain('/dashboard/student/grading')
+  // ST-7：成績頁已拿掉，首頁不再連到它（直接開舊網址的轉址在下面 `redirected` 驗）。
+  expect(discovered).not.toContain('/dashboard/student/grading')
+  const pages = [...new Set([...FIXED_PAGES, ...discovered])].filter((url) => !(url in LEGACY_REDIRECTS)).sort()
 
   const targets: Target[] = []
   for (const url of pages) {
     for (const variant of ['html', 'rsc'] as const) targets.push(await fetchTarget(request, cookie, url, variant))
   }
   for (const url of APIS) targets.push(await fetchTarget(request, cookie, url, 'json'))
+
+  // 舊網址（側欄切換前仍連著 timeline、industry）：學生直接開被轉走，HTML 與 RSC 回應都沒有分數字樣。
+  // HTML 是 3xx＋location；RSC（站內換頁）是 200＋flight 裡的 `NEXT_REDIRECT;replace;<目標>;307;`，由瀏覽器端轉頁。
+  const redirected: (Target & { redirectTo: string | null; mentionsScore: boolean })[] = []
+  for (const url of Object.keys(LEGACY_REDIRECTS)) {
+    for (const variant of ['html', 'rsc'] as const) {
+      const headers: Record<string, string> = { cookie }
+      if (variant === 'rsc') headers.RSC = '1'
+      const response = await request.get(variant === 'rsc' ? `${url}?_rsc` : url, { headers, maxRedirects: 0 })
+      const body = await response.text()
+      redirected.push({
+        url,
+        variant,
+        status: response.status(),
+        contentType: response.headers()['content-type'] ?? '',
+        bytes: body.length,
+        hits: scanBody(body, KNOWN_VALUES),
+        redirectTo:
+          variant === 'html'
+            ? new URL(response.headers()['location'] ?? '', BASE_URL).pathname
+            : (/NEXT_REDIRECT;\w+;([^;]+);30[78];/.exec(body)?.[1] ?? null),
+        mentionsScore: body.includes('分數') || body.includes('成績'),
+      })
+    }
+  }
 
   const forbiddenUrls = [
     `/dashboard/admin/grading?cohort=${cohortId}`,
@@ -287,7 +318,7 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
     })
   }
 
-  const hitCount = [...targets, ...forbidden, ...exportsDenied].reduce((sum, t) => sum + t.hits.length, 0)
+  const hitCount = [...targets, ...redirected, ...forbidden, ...exportsDenied].reduce((sum, t) => sum + t.hits.length, 0)
   const report = {
     ticket: '票 23（#234）＋票 24（#235）學生零可見掃描',
     generatedAt: new Date().toISOString(),
@@ -296,15 +327,16 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
     knownValues: KNOWN_VALUES,
     fieldPattern: String(/"(scores?|teacherScore|finalScore|stageScore|evaluationId|evaluations|grade|grades|rank|ranking|comment|comments|counted)"\s*:/),
     scanned: targets,
+    redirected,
     forbidden,
     exportsDenied,
-    summary: { pages: pages.length, responses: targets.length + forbidden.length + exportsDenied.length, hits: hitCount },
+    summary: { pages: pages.length, responses: targets.length + redirected.length + forbidden.length + exportsDenied.length, hits: hitCount },
   }
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true })
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`)
   await testInfo.attach('student-zero-visibility.json', { body: JSON.stringify(report, null, 2), contentType: 'application/json' })
   console.log(
-    `[學生零可見掃描] ${pages.length} 頁 × HTML／RSC＋${APIS.length} 支 API＋${forbidden.length} 個評分網址＋${exportsDenied.length} 支匯出，共 ${report.summary.responses} 份回應，命中 ${hitCount} 筆（報告：${path.relative(process.cwd(), REPORT_PATH)}）`,
+    `[學生零可見掃描] ${pages.length} 頁 × HTML／RSC＋${APIS.length} 支 API＋${redirected.length} 份舊網址轉址＋${forbidden.length} 個評分網址＋${exportsDenied.length} 支匯出，共 ${report.summary.responses} 份回應，命中 ${hitCount} 筆（報告：${path.relative(process.cwd(), REPORT_PATH)}）`,
   )
 
   for (const t of targets) {
@@ -312,6 +344,12 @@ test('學生零可見：學生可達的每一頁（HTML 與 RSC）與 API 都沒
     // 真的掃到 RSC flight 資料（不是被導走的空回應）。
     if (t.variant === 'rsc') expect(t.contentType, `${t.url} 的 RSC 回應`).toContain('text/x-component')
     expect(t.hits, `${t.variant} ${t.url} 不該有分數或評分欄位`).toEqual([])
+  }
+  for (const r of redirected) {
+    expect(r.variant === 'html' ? [302, 303, 307, 308] : [200], `${r.variant} ${r.url} 應該轉址`).toContain(r.status)
+    expect(r.redirectTo, `${r.variant} ${r.url} 轉去哪`).toBe(LEGACY_REDIRECTS[r.url])
+    expect(r.hits, `${r.variant} ${r.url} 的轉址回應不該夾帶分數`).toEqual([])
+    expect(r.mentionsScore, `${r.variant} ${r.url} 的轉址回應不該有「分數」「成績」`).toBe(false)
   }
   for (const f of forbidden) {
     expect([302, 303, 307, 308], f.url).toContain(f.status)

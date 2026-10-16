@@ -139,8 +139,10 @@ test.describe('以 S01（學生）', () => {
     await expect(nav.getByRole('link', { name: '站內同意書', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: '成績', exact: true })).toHaveCount(0)
 
-    expect((await page.goto('/dashboard/student/grading'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '評分由老師與系辦處理，學生不會看到分數' })).toBeVisible()
+    const grading = await page.request.get('/dashboard/student/grading', { maxRedirects: 0 })
+    expect([302, 303, 307, 308]).toContain(grading.status())
+    expect(grading.headers()['location']).toMatch(/\/dashboard\/student$/)
+    expect(await grading.text()).not.toContain('分數')
   })
 
   test('自己的後台與帳號頁都打得開', async ({ page }) => {
@@ -332,16 +334,12 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
     '/dashboard/admin/grading': '成績表',
     '/dashboard/teacher/grading': '草稿只有你和系辦看得到。',
-    '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
     // 簽核與精選（票 25）。
     '/dashboard/admin/signoff': '系辦不能代替任何人同意',
     // 操作紀錄（票 36）。
     '/dashboard/admin/audit': '誰、何時、對哪個對象、做了什麼、為什麼',
     '/dashboard/admin/showcase': '草稿不會公開',
     '/dashboard/student/signoff': '每個人只代表自己一票',
-    // 專題時間軸與產學合作（票 38）。
-    '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
-    '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
     // 首頁設定（第三波 W3）。
     '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
     // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
@@ -378,7 +376,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 評分（票 23）。
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/grading', wrongRole: 'student' },
-    { path: '/dashboard/student/grading', wrongRole: 'teacher' },
     // 簽核與精選（票 25）。
     { path: '/dashboard/admin/signoff', wrongRole: 'student' },
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
@@ -387,9 +384,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
     // 首頁設定（第三波 W3）。
     { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
-    // 專題時間軸與產學合作（票 38）。
-    { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
-    { path: '/dashboard/student/industry', wrongRole: 'admin' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
   ]
