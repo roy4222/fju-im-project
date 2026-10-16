@@ -118,8 +118,8 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
       expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
       expect(ports.accounts.summary).toHaveBeenCalledWith(actor)
       expect(ports.groups.overview).toHaveBeenCalledTimes(1)
-      // 共用 SH-P4 還沒合併：不傳 `{ history: false }`。
-      expect(ports.groups.overview).toHaveBeenCalledWith('c43')
+      // 共用 SH-P4：首頁不讀分組歷程。
+      expect(ports.groups.overview).toHaveBeenCalledWith('c43', { history: false })
       expect(ports.grading.adminBoard).toHaveBeenCalledTimes(1)
       expect(ports.gradebook.gradebook).toHaveBeenCalledTimes(1)
       expect(ports.gradebook.gradebook).toHaveBeenCalledWith(actor, 'c43')

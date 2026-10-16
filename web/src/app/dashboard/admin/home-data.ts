@@ -25,7 +25,7 @@ export const NEWS_LIMIT = 3
  *
  * 只有這七個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
  * - 待審帳號數：共用 SH-P2 還沒合併，直接呼叫 `summary(actor)`（側欄徽章另外再讀一次）；SH-P2 合併後改讀 `loadAdminSummary(actor.userId)`（AD-13／AD-21）。
- * - 分組：共用 SH-P4 還沒合併，`overview(cohortId)` 不傳 `{ history: false }`（參數還不存在）。
+ * - 分組：首頁只要組數與人數，傳 `{ history: false }` 不讀歷程（共用 SH-P4）；系辦分組頁維持預設（看歷程）。
  * - 完成率與逾期：AD-19 的 `completionFacts()` 還沒合併，照舊每份發布中作業讀一次 `roster()`；改成一次聚合讀取是 AD-13。
  */
 export type AdminHomePorts = {
@@ -103,7 +103,7 @@ export async function loadAdminHome(
   const cohortId = ctx.cohort?.id ?? null
   const [summaryResult, overview, gradingResult, signoffResult, items, gradebookResult] = await Promise.all([
     ports.accounts.summary(actor),
-    cohortId ? ports.groups.overview(cohortId) : Promise.resolve(null),
+    cohortId ? ports.groups.overview(cohortId, { history: false }) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.signoff.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.items.list(cohortId) : Promise.resolve([]),
