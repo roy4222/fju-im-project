@@ -1236,6 +1236,7 @@ describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-
         'cover',
         'eventDate',
         'id',
+        'pinnedAt',
         'placement',
         'publishedAt',
         'registrationDeadline',

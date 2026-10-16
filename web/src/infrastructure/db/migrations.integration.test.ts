@@ -136,7 +136,7 @@ const EXPECTED_TABLES = [
   ...W0_TABLES,
 ].sort()
 
-const LATEST = '0013_w15_showcase_one_per_group'
+const LATEST = '0014_v1_news_pinned'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(

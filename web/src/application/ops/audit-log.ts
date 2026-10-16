@@ -175,6 +175,8 @@ const ACTION_LABEL: Record<string, string> = {
   'item.withdraw': '撤回專題事務',
   'item.archive': '下架專題事務',
   'item.republish': '重新發布專題事務',
+  'item.pin': '置頂專題事務',
+  'item.unpin': '取消置頂專題事務',
   'item.delete': '刪除專題事務',
   'item.deleted': '刪除專題事務',
   'item.published': '發布專題事務',
