@@ -1249,6 +1249,7 @@ export class PgOpportunityQuery implements OpportunityQuery {
     const limit = Number.isFinite(opts.limit) && opts.limit! >= 1 ? Math.min(200, Math.floor(opts.limit!)) : 50
     const offset = Number.isFinite(opts.offset) && opts.offset! > 0 ? Math.floor(opts.offset!) : 0
     const values: unknown[] = [limit, offset]
+    // 資料庫 CHECK 只准草稿與已下架打刪除標記，已發布條件已經擋掉被刪的案；NOT_DELETED 照所有讀合作案的查詢一起帶，是第二道防線。
     const where = [`o.status = 'published'`, NOT_DELETED]
     const q = (opts.q ?? '').trim().slice(0, 100)
     if (q) {
