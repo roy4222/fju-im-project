@@ -3,7 +3,7 @@
  * 版本卡與 main CI 詳情的正本在這頁（§2）；其他頁只放結論與連結。
  */
 import type { DeployLogEntry, GithubData, HealthData, IsoTime, Site, VmData, WorkflowRunInfo } from '@/lib/data/types'
-import { buildVersionRows, shortSha, type VersionRow } from '@/lib/data/version'
+import { buildVersionRows, type VersionRow } from '@/lib/data/version'
 import { formatAge } from '@/lib/gate/gates'
 
 /** 每站最多列幾筆部署（§8.2 列表上限）。 */
@@ -27,8 +27,10 @@ export type HealthCronView = { state: RunState; label: string; url: string; at: 
 export type DeployRow = {
   at: IsoTime
   event: string
-  /** 短 SHA；deploy_log 沒寫 tag 是 null */
+  /** deploy_log 原樣的 tag（可能是 SHA、或回滾時的完整映像名稱）；沒寫是 null */
   tag: string | null
+  /** 畫面用：裡面的 git SHA 縮成 7 碼、sha256 縮成 12 碼，其他字不動 */
+  tagShort: string | null
   /** 完整 digest；本機建的映像（deploy_log 寫 none）是 null */
   digest: string | null
   ok: boolean
@@ -82,9 +84,25 @@ const EVENT_LABEL: Record<string, string> = {
   'e2e-seed-failed': '種子資料失敗',
 }
 
+/** 只縮寫 tag 裡的雜湊：`ghcr.io/x/web:7162644000…` → `ghcr.io/x/web:7162644`；`t2`、`main` 這種原樣。 */
+export function abbreviateTag(tag: string | null): string | null {
+  if (!tag) return null
+  return tag
+    .replace(/sha256:([0-9a-f]{12})[0-9a-f]{52}/gi, 'sha256:$1…')
+    .replace(/(^|[^0-9a-f])([0-9a-f]{7})[0-9a-f]{33}(?![0-9a-f])/gi, '$1$2')
+}
+
 export function deployRow(e: DeployLogEntry): DeployRow {
   const ok = e.event === 'deployed'
-  return { at: e.at, event: e.event, tag: shortSha(e.tag), digest: e.digest, ok, result: EVENT_LABEL[e.event] ?? e.event }
+  return {
+    at: e.at,
+    event: e.event,
+    tag: e.tag,
+    tagShort: abbreviateTag(e.tag),
+    digest: e.digest,
+    ok,
+    result: EVENT_LABEL[e.event] ?? e.event,
+  }
 }
 
 export function buildDeployView(

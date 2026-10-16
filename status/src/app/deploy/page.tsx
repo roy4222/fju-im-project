@@ -139,7 +139,15 @@ function DeploysCard({ site, rows }: { site: "test" | "prod"; rows: DeployRow[] 
               {rows.map((r, i) => (
                 <TableRow key={`${r.at}-${i}`} data-testid="deploy-row" data-ok={r.ok ? "true" : "false"}>
                   <TableCell className="whitespace-nowrap">{formatTime(r.at)}</TableCell>
-                  <TableCell>{r.tag ? <code className="font-mono text-xs">{r.tag}</code> : "—"}</TableCell>
+                  <TableCell className="break-all">
+                    {r.tag ? (
+                      <code className="font-mono text-xs" title={r.tag}>
+                        {r.tagShort}
+                      </code>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                   <TableCell>
                     {r.digest ? (
                       <code className="font-mono text-xs" title={r.digest}>

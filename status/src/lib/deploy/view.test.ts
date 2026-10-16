@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DeployLogEntry, GithubData, VmData } from '@/lib/data/types'
 
-import { buildDeployView, deployRow, formatTime, runView } from './view'
+import { abbreviateTag, buildDeployView, deployRow, formatTime, runView } from './view'
 
 const NOW = new Date('2026-10-12T09:05:00+08:00')
 const SHA = '7162644000000000000000000000000000000000'
@@ -84,9 +84,18 @@ describe('buildDeployView（DV 設計方案 §5.2）', () => {
   })
 
   it('部署列：tag 變短 SHA、digest 為 null 原樣留 null、非 deployed 算失敗', () => {
-    expect(deployRow(entry(1, { digest: null }))).toMatchObject({ tag: '7162644', digest: null, ok: true, result: '成功' })
+    expect(deployRow(entry(1, { digest: null }))).toMatchObject({ tag: SHA, tagShort: '7162644', digest: null, ok: true, result: '成功' })
     expect(deployRow(entry(1, { event: 'rolled-back' }))).toMatchObject({ ok: false, result: '已回滾' })
-    expect(deployRow(entry(1, { event: 'something-new', tag: null }))).toMatchObject({ ok: false, result: 'something-new', tag: null })
+    expect(deployRow(entry(1, { event: 'something-new', tag: null }))).toMatchObject({ ok: false, result: 'something-new', tag: null, tagShort: null })
+  })
+
+  it('回滾紀錄（ops/deploy.sh rollback-done）的 tag 是完整映像名稱：原樣保留，畫面只縮 SHA', () => {
+    const image = `ghcr.io/roy4222/fju-web:${SHA}`
+    const r = deployRow(entry(1, { event: 'rollback-done', tag: image, digest: null }))
+    expect(r).toMatchObject({ tag: image, tagShort: 'ghcr.io/roy4222/fju-web:7162644', digest: null, ok: false })
+    expect(abbreviateTag(`ghcr.io/roy4222/fju-web@sha256:${'a'.repeat(64)}`)).toBe(`ghcr.io/roy4222/fju-web@sha256:${'a'.repeat(12)}…`)
+    expect(abbreviateTag('ghcr.io/x/web:t2')).toBe('ghcr.io/x/web:t2')
+    expect(abbreviateTag('abc1234')).toBe('abc1234')
   })
 
   it('時間印台北時間；壞掉的字串原樣回', () => {

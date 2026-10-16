@@ -143,6 +143,17 @@ describe('部署與 CI 頁（AC-DV-20）', () => {
     expect(prod).not.toContain('sha256:')
   })
 
+  it('回滾紀錄的 tag 是完整映像名稱：畫面看得出回滾到哪個版本，title 是完整值', async () => {
+    const s = SCENARIOS.a()
+    const image = 'ghcr.io/roy4222/fju-web:463931b000000000000000000000000000000000'
+    s.vm!.deploys.prod = [{ at: '2026-10-12T01:00:00Z', event: 'rollback-done', tag: image, digest: null }, ...s.vm!.deploys.prod]
+    const { dataDir } = await writeScenario(path.join(root, 'rollback'), s)
+    const prod = section(await renderDir(dataDir), 'deploys-prod')
+    expect(prod).toContain(`title="${image}"`)
+    expect(prod).toContain('>ghcr.io/roy4222/fju-web:463931b</code>')
+    expect(prod).toContain('rollback-done')
+  })
+
   it('沒有任何資料：頁面照常出來，版本卡在、三張卡灰、兩個部署表寫沒有紀錄', async () => {
     const empty = await mkdtemp(path.join(root, 'empty-'))
     const html = await renderDir(empty)
