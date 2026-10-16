@@ -39,11 +39,10 @@ export default async function AdminCohortsPage() {
   const cohorts = await getCohortStatusQuery().list()
   const registrationOpen = cohorts.find((cohort) => cohort.isRegistrationOpen) ?? null
   const defaultWorking = cohorts.find((cohort) => cohort.isDefaultWorking) ?? null
-  // 卡上的學生數、組數：每屆一次分組總覽（不讀歷程）。屆數是個位數；要回到單一查詢得在
-  // `CohortStatusQuery` 加帶計數的查詢（application 層，不在本票）。
-  const overviews = await Promise.all(cohorts.map((cohort) => getGroupQuery().overview(cohort.id, { history: false })))
+  // 卡上的學生數、組數：一句 SQL 算完全部屆別（不逐屆查），沒出現在 Map 裡的屆別是 0。
+  const counts = await getGroupQuery().countsByCohort()
 
-  const rows: CohortRow[] = cohorts.map((cohort, index) => ({
+  const rows: CohortRow[] = cohorts.map((cohort) => ({
     id: cohort.id,
     code: cohort.code,
     name: cohort.name,
@@ -53,8 +52,8 @@ export default async function AdminCohortsPage() {
     canActivate: cohort.status === 'preparing',
     isDefaultWorking: cohort.isDefaultWorking,
     isRegistrationOpen: cohort.isRegistrationOpen,
-    studentCount: overviews[index]!.groups.reduce((sum, group) => sum + group.members.length, 0) + overviews[index]!.ungrouped.length,
-    groupCount: overviews[index]!.groups.length,
+    studentCount: counts.get(cohort.id)?.students ?? 0,
+    groupCount: counts.get(cohort.id)?.groups ?? 0,
     // 每次渲染都發新的編號：成功後頁面重整就換一組，同一張表單重送才會被認成同一次。
     requestIds: { defaultWorking: randomUUID(), registrationOpen: randomUUID(), activate: randomUUID() },
   }))
