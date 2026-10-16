@@ -376,7 +376,7 @@ describe('逐人表態與老師最後同意（SGN-02、03、04、07）', () => {
     expect(adminProgress.agreed).toBe(2)
     expect(mine.progress).toEqual(adminProgress)
     expect(teacherCard.current.progress).toEqual(adminProgress)
-    expect(adminProgress.missing).toEqual([...s.members.slice(2).map((m) => m.name), `${s.teacher.name}（指導老師）`])
+    expect(adminProgress.missing).toEqual(s.members.slice(2).map((m) => m.name))
     expect(mine.viewer).toMatchObject({ role: 'student', voted: 'agree', canRespond: false })
     const other = (await query.studentView(student(s.members[3]!))).versions[0]!
     expect(other.viewer).toMatchObject({ role: 'student', voted: null, canRespond: true })
@@ -692,7 +692,7 @@ describe('重置、重開（建新版本）、作廢（S11-07、S11-12）', () =
 })
 
 describe('提醒未同意者（S11-11）', () => {
-  it('收件人＝還沒表態的學生＋主指導（還沒輪到也算）；已同意的人不收；24 小時內再按被拒並說上次時間；過了 24 小時可以再提醒', async () => {
+  it('收集中收件人＝還沒表態的學生（還沒輪到的主指導不收）；已同意的人不收；24 小時內再按被拒並說上次時間；過了 24 小時可以再提醒', async () => {
     realNow = new Date('2027-01-05T02:00:00Z')
     const s = await scenario()
     const v = await mustCreate(s)
@@ -701,8 +701,8 @@ describe('提醒未同意者（S11-11）', () => {
     expect(await signoff.remind(student(s.members[0]!), { versionId: v.versionId }, randomUUID())).toMatchObject({ ok: false, code: 'FORBIDDEN' })
 
     const r = await signoff.remind(admin(), { versionId: v.versionId }, randomUUID())
-    expect(r).toMatchObject({ ok: true, receipt: { studentCount: 3, advisorIncluded: true } })
-    expect(await recipientsOf('signoff.reminded', v.versionId)).toEqual([...s.members.slice(2).map((m) => m.id), s.teacher.id].sort())
+    expect(r).toMatchObject({ ok: true, receipt: { studentCount: 3, advisorIncluded: false } })
+    expect(await recipientsOf('signoff.reminded', v.versionId)).toEqual(s.members.slice(2).map((m) => m.id).sort())
 
     realNow = new Date('2027-01-06T01:59:00Z')
     const again = await signoff.remind(admin(), { versionId: v.versionId }, randomUUID())
@@ -936,5 +936,23 @@ describe('換老師後舊老師失權含看不到（產品 07 §8；2026-09-25 R
     expect(await canOpen(oldTeacher, mid.versionId)).toBe(true)
     expect(await canDownload(oldTeacher, draft.posterFileId)).toBe(true)
     expect(await query.versionDetail(newTeacher, mid.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+})
+
+describe('提醒：輪到老師時只提醒老師（網站問題 #4）', () => {
+  it('學生全員同意進入等老師：缺誰只剩老師；提醒的收件人只有主指導', async () => {
+    realNow = new Date('2027-03-01T02:00:00Z')
+    const s = await scenario({ size: 3 })
+    const v = await mustCreate(s)
+    for (const m of s.members) await mustVote(student(m), v.versionId)
+    expect(await statusOf(v.versionId)).toMatchObject({ state: 'teacher_pending' })
+    const board = await query.adminBoard(admin(), s.cohortId)
+    if (!board.ok) throw new Error(board.message)
+    expect(board.receipt.groups.find((g) => g.groupId === s.groupId)!.packages.result_confirmation!.progress.missing).toEqual([`${s.teacher.name}（指導老師）`])
+
+    const r = await signoff.remind(admin(), { versionId: v.versionId }, randomUUID())
+    expect(r).toMatchObject({ ok: true, receipt: { studentCount: 0, advisorIncluded: true } })
+    expect(await recipientsOf('signoff.reminded', v.versionId)).toEqual([s.teacher.id])
+    realNow = new Date('2027-01-05T02:00:00Z')
   })
 })
