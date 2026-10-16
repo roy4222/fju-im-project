@@ -188,8 +188,8 @@ test('老師認領產學組：按「指定為我的組別」後看到回執；�
   expect(await activeAdvisor('G01')).toEqual([teacherA.userId])
   expect(await recipientsOf('advisor.assigned', 'G01')).toEqual([sorted(...memberIds.get('G01')!, teacherA.userId)])
 
-  await page.goto('/dashboard/teacher')
-  await expect(page.getByTestId('home-advised')).toContainText('我的 1 組')
+  await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
+  await expect(page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('row').filter({ hasText: 'G01' })).toContainText('你指導中')
 })
 
 async function claimPage(browser: Browser, session: TestSession) {
