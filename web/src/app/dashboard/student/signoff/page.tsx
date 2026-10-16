@@ -6,8 +6,9 @@ import { EmptyState } from '@/app/_ui/primitives'
 import { RespondForm } from '@/app/dashboard/_signoff/respond-form'
 import { MyResponse } from '@/app/dashboard/_signoff/version-view'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
+import { studentSignoff } from '@/app/dashboard/student/_todo/todos'
 import { ConsentVersion } from '@/app/dashboard/student/signoff/consent-view'
-import { BUTTON_TEXT, getSignoffQuery, MAX_REASON_CHARS } from '@/composition/signoff'
+import { BUTTON_TEXT, MAX_REASON_CHARS } from '@/composition/signoff'
 
 export const metadata = { title: '站內同意書｜資管系專題平台' }
 
@@ -19,16 +20,18 @@ export const metadata = { title: '站內同意書｜資管系專題平台' }
  * 版本因組員或主指導變更而失效時，上方顯示原因與「等待管理員建立新版」，沒有表態按鈕；
  * 系辦建好新版後重新整理，這裡就換成新版（目前版本才會出現在這一頁）。
  */
-export default async function StudentSignoffPage() {
+export default async function StudentSignoffPage({ searchParams }: { searchParams: Promise<{ version?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/student/signoff', 'student')
-  const view = await getSignoffQuery().studentView(actor)
+  // 跟側欄徽章、交作業列表讀同一份（ST-1 的 seam，同一次請求只查一次）。
+  const view = await studentSignoff(actor.userId)
+  const versions = pick(view.versions, (await searchParams).version)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/signoff">
       <div className="flex flex-col gap-5">
         <PageTitle title="站內同意書" description="每個人只代表自己一票；全部組員同意後才輪到指導老師。" />
-        {view.versions.length === 0 ? (
+        {versions.length === 0 ? (
           <EmptyState
             title="目前沒有待處理的同意書"
             description={
@@ -39,7 +42,7 @@ export default async function StudentSignoffPage() {
             action={view.groupCode ? undefined : { href: '/dashboard/student/groups', label: '前往我的組別' }}
           />
         ) : (
-          view.versions.map((v) => (
+          versions.map((v) => (
             <ConsentVersion
               key={v.versionId}
               v={v}
@@ -67,4 +70,14 @@ export default async function StudentSignoffPage() {
       </div>
     </DashboardShell>
   )
+}
+
+/**
+ * 交作業的同意書卡帶 `?version=<versionId>` 進來 → 只看那一版；沒帶、或那一版不是本組簽核包目前的版本（舊連結）→ 列出每個簽核包目前那一版。
+ * 失效／作廢但指標還指著它的版本仍在清單裡，所以從舊連結進來看得到 `signoff-invalidated` 的說明。
+ */
+function pick<T extends { versionId: string }>(versions: readonly T[], version: string | string[] | undefined): readonly T[] {
+  const id = typeof version === 'string' ? version : undefined
+  const hit = id ? versions.filter((v) => v.versionId === id) : []
+  return hit.length > 0 ? hit : versions
 }
