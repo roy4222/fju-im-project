@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { AuthCard } from '@/app/_ui/primitives'
+import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { NarrowShell } from '@/app/_ui/site-shell'
 
 export const metadata: Metadata = {
@@ -31,8 +32,8 @@ export default function ForgotPasswordPage() {
             <h2 className="font-bold text-foreground">用 Email 與密碼登入的</h2>
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
               請聯絡系辦公室（電話{' '}
-              <a href="tel:+886229052666" className="font-semibold text-foreground hover:underline">
-                02-2905-2666
+              <a href={SITE_CONTACT.phoneHref} className="font-semibold text-foreground hover:underline">
+                {SITE_CONTACT.phone}
               </a>
               ）。系辦核對你的身分後會發一組臨時密碼，只顯示一次；
               用它登入後，系統會要求你立刻設定新密碼。
