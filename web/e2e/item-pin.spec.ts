@@ -5,11 +5,13 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * 第 1 批 V1（Q48-a）：公告置頂。驗收 AC-V01～V05、V07～V10（定案 D2 不插隊、D3 後台首頁跟著置頂優先、
  * D9 不設上限且後置頂的在前），以及 AC-V27① 的公告卡與競賽卡 `<img>` 屬性。
+ * 第 1 批 V7 延伸：AC-V06 首頁「進行中的競賽」置頂優先；AC-V27① `/news` 每張公告卡都 lazy。
  *
  * 系辦在專題事務工作台按「置頂」→ 前台 `/news`、首頁最新公告、`/competitions` 置頂的排最前並標「置頂」；
  * 下架清掉置頂、重新發布不恢復；本屆學生的置頂公告訪客看不到、學生的公告列表與後台首頁排第一。
  *
- * 前台列表用 `?q=CODE` 只看本檔的資料（同一個資料庫裡還有別支 spec 的公告）。結尾把本檔的置頂全部取消，
+ * 前台列表用 `?q=CODE` 只看本檔的資料（同一個資料庫裡還有別支 spec 的公告）。AC-V06 的三則競賽用另一個
+ * 代碼 `HOME`（不進 `?q=CODE` 的列表，AC-V07、V08 的順序不受影響）。結尾把本檔的置頂全部取消，
  * 免得影響別支 spec 的首頁與後台首頁順序。
  */
 
@@ -27,6 +29,10 @@ const H = `${CODE} 榮譽 H`
 const K1 = `${CODE} 競賽 K1`
 const K2 = `${CODE} 競賽 K2`
 const S = `${CODE} 本屆公告 S`
+const HOME = `V7H-${stamp}`
+const HK1 = `${HOME} 競賽 K1`
+const HK2 = `${HOME} 競賽 K2`
+const HK3 = `${HOME} 競賽 K3`
 
 let pool: Pool
 let cohortId: string
@@ -77,7 +83,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   // 本檔的置頂全部取消（不動別支 spec 的資料）。
-  await pool?.query(`update managed_items set pinned_at = null where title like $1`, [`${CODE} %`])
+  await pool?.query(`update managed_items set pinned_at = null where title like $1 or title like $2`, [`${CODE} %`, `${HOME} %`])
   await pool?.end()
 })
 
@@ -134,13 +140,10 @@ async function newsTitles(page: Page): Promise<string[]> {
   return page.getByTestId('news-card').getByRole('heading').allTextContents()
 }
 
-/**
- * 列表卡片的圖（AC-V27①）：寬高（16:9 比例提示）；`lazy` 另外選。`/news` 頁自己傳 `priority={index < 3}`
- * （`news/page.tsx`，不在本票範圍），前三張的 `loading` 不在這裡驗。
- */
-async function expectListImage(card: Locator, options: { lazy: boolean }) {
+/** 列表卡片的圖（AC-V27①）：`loading="lazy"`＋寬高（16:9 比例提示）。`/news` 前三張也 lazy（V7 拿掉 NewsCard 的 `priority`）。 */
+async function expectListImage(card: Locator) {
   const img = card.locator('img')
-  if (options.lazy) await expect(img).toHaveAttribute('loading', 'lazy')
+  await expect(img).toHaveAttribute('loading', 'lazy')
   await expect(img).toHaveAttribute('width', '1280')
   await expect(img).toHaveAttribute('height', '720')
 }
@@ -193,13 +196,13 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   await expect(affairRow(page, B).getByRole('button', { name: `置頂「${B}」` })).toBeVisible()
 })
 
-test('AC-V03、V27①：訪客 /news 第一張是置頂的 A（帶「置頂」），B 第二；卡片圖有寬高', async ({ page }) => {
+test('AC-V03、V27①：訪客 /news 第一張是置頂的 A（帶「置頂」），B 第二；卡片圖都 lazy、有寬高', async ({ page }) => {
   await page.context().clearCookies()
   expect(await newsTitles(page)).toEqual([A, B])
   const cards = page.getByTestId('news-card')
   await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
   await expect(cards.nth(1).getByTestId('pinned-tag')).toHaveCount(0)
-  for (const card of await cards.all()) await expectListImage(card, { lazy: false })
+  for (const card of await cards.all()) await expectListImage(card)
 })
 
 test('AC-V04：首頁最新公告第一張是 A（帶「置頂」），B 第二；右側列表不含 A、B', async ({ page }) => {
@@ -212,6 +215,47 @@ test('AC-V04：首頁最新公告第一張是 A（帶「置頂」），B 第二�
   await expect(cards.nth(1)).toContainText(B)
   await expect(region.locator('ul')).not.toContainText(A)
   await expect(region.locator('ul')).not.toContainText(B)
+})
+
+/** 首頁「進行中的競賽」每張卡是本題的哪一則（AC-V06）；別支 spec 的競賽記成 `other`。 */
+async function homeCompetitionTitles(page: Page): Promise<string[]> {
+  await page.goto('/')
+  const cards = page.getByTestId('home-competitions').getByRole('listitem')
+  await expect(cards.first()).toBeVisible()
+  return (await cards.allTextContents()).map((text) => [HK1, HK2, HK3].find((title) => text.includes(title)) ?? 'other')
+}
+
+test('AC-V06：首頁「進行中的競賽」置頂的 K2（決賽／結果）排在報名中的 K1 前面並標「置頂」，K3 最後；多則置頂時後置頂的在前', async ({ page }) => {
+  test.setTimeout(180_000)
+  await asAdmin(page)
+  // K2、K3 已過報名截止、活動還沒結束＝決賽／結果；K3 比 K2 早發布。K1 報名中、最晚發布。
+  await publishNews(page, HK3, { competition: { deadline: '2000-01-01', event: '2099-12-31' } })
+  await publishNews(page, HK2, { competition: { deadline: '2000-01-01', event: '2099-12-31' } })
+  await publishNews(page, HK1, { competition: { deadline: '2099-12-31', event: '2099-12-31' } })
+  await togglePin(page, HK2, true)
+
+  await page.context().clearCookies()
+  const titles = await homeCompetitionTitles(page)
+  expect(titles.slice(0, 2)).toEqual([HK2, HK1])
+  // 首頁只放 3 張、資料庫裡可能還有別支 spec 的報名中競賽會排在 K3 前面；本題的卡照 K2、K1、K3 的次序出現。
+  const ours = titles.filter((t) => t !== 'other')
+  expect(ours).toEqual([HK2, HK1, HK3].slice(0, ours.length))
+  const cards = page.getByTestId('home-competitions').getByRole('listitem')
+  await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
+  await expect(cards.nth(0)).toContainText('決賽／結果')
+  await expect(cards.nth(1).getByTestId('pinned-tag')).toHaveCount(0)
+  await expect(cards.nth(1)).toContainText('報名中')
+
+  // D9：再把 K1 也置頂，後置頂的 K1 在前、K2 第二，兩張都標「置頂」。
+  await asAdmin(page)
+  await togglePin(page, HK1, true)
+  await page.context().clearCookies()
+  expect((await homeCompetitionTitles(page)).slice(0, 2)).toEqual([HK1, HK2])
+  await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
+  await expect(cards.nth(1).getByTestId('pinned-tag')).toHaveText('置頂')
+
+  // 本題的置頂用完就取消，不影響後面幾題與別支 spec 的首頁順序。
+  await pool.query(`update managed_items set pinned_at = null where title like $1`, [`${HOME} %`])
 })
 
 test('AC-V05、V27①：競賽頁預設排序置頂的 K2 第一；照名稱排時不插隊、仍標「置頂」', async ({ page }) => {
@@ -229,7 +273,7 @@ test('AC-V05、V27①：競賽頁預設排序置頂的 K2 第一；照名稱排�
   await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
   await expect(cards.nth(1)).toContainText(K1)
   await expect(cards.nth(1).getByTestId('pinned-tag')).toHaveCount(0)
-  for (const card of await cards.all()) await expectListImage(card, { lazy: true })
+  for (const card of await cards.all()) await expectListImage(card)
 
   await page.goto(`/competitions?q=${encodeURIComponent(CODE)}&sort=title`)
   await expect(cards.nth(0)).toContainText(K1)

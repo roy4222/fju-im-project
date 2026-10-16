@@ -63,9 +63,9 @@ export default async function NewsPage({
           />
         ) : (
           <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {cards.map((card, index) => (
+            {cards.map((card) => (
               <li key={card.id}>
-                <NewsCard card={card} priority={index < 3} />
+                <NewsCard card={card} />
               </li>
             ))}
           </ul>

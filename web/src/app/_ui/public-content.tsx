@@ -229,8 +229,8 @@ export function SearchField({
   )
 }
 
-/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就用示意照片）、日期、標題、標籤（置頂的最前面標「置頂」，第 1 批 V1）。 */
-export function NewsCard({ card, priority = false }: { card: PublicItemCard; priority?: boolean }) {
+/** 公告卡（原型 `PhotoCard`）：16:9 封面（沒有封面就用示意照片）、日期、標題、標籤（置頂的最前面標「置頂」，第 1 批 V1）。圖一律 lazy（第 1 批 V7）。 */
+export function NewsCard({ card }: { card: PublicItemCard }) {
   return (
     <Link
       href={`/news/${card.id}`}
@@ -244,7 +244,7 @@ export function NewsCard({ card, priority = false }: { card: PublicItemCard; pri
           src={coverSrc(card)}
           alt=""
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-          loading={priority ? 'eager' : 'lazy'}
+          loading="lazy"
           // 寬高只是 16:9 的比例提示（先留好版位、不跳動）；實際大小照 CSS。
           width={1280}
           height={720}
