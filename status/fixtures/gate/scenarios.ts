@@ -184,6 +184,10 @@ export function green(): Scenario {
         forbiddenPresent: [],
         flags: { REGISTRATION_OPEN: 'absent', BUSINESS_CLOCK_OVERRIDE_ENABLED: 'false' },
       },
+      // G5 改讀 prodDns 後（DV-9），情境 (a) 要有 A 記錄才維持五綠。
+      prodDns: { host: 'fju.roy422.dev', hasA: true, checkedAt: AT },
+      disk: { path: '/srv/fju/status/inbox', totalBytes: 85899345920, usedBytes: 50594713600, availBytes: 31009665024, percent: 62, checkedAt: AT },
+      diskError: null,
     },
     index: {
       generatedAt: AT,

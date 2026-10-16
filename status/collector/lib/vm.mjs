@@ -1,10 +1,11 @@
-// vm.json（設計方案 §3.3）：唯讀掛入的 deploy_log、備份紀錄、offsite 目錄、envcheck 結果。
+// vm.json（設計方案 §3.3）：唯讀掛入的 deploy_log、備份紀錄、offsite 目錄、envcheck 結果，
+// 以及 inbox 掛載點所在檔案系統的用量（DV 設計方案 §7.2）。
 // 只取固定幾個欄位；deploy_log 的原因欄、備份紀錄的錯誤訊息都不帶出來。
 import fs from 'node:fs'
 import path from 'node:path'
 import { readJson } from './files.mjs'
 import { ShapeError, project } from './shape.mjs'
-import { ENVCHECK } from './shapes.mjs'
+import { DISK, ENVCHECK, ISO } from './shapes.mjs'
 
 const SITES = ['test', 'prod']
 
@@ -42,19 +43,86 @@ function readText(file) {
   }
 }
 
-/** records.jsonl 最後一筆 kind=backup 的 {at, ok}；壞行略過（同 ops/lib/backup-record.mjs）。 */
-export function lastBackupRecord(text) {
-  let last = null
+/** records.jsonl 裡 kind=backup 的紀錄，依檔案順序；壞行略過（同 ops/lib/backup-record.mjs）。 */
+function backupRecords(text) {
+  const out = []
   for (const line of (text ?? '').split('\n')) {
     if (!line.trim()) continue
     try {
       const r = JSON.parse(line)
-      if (r && r.kind === 'backup') last = r
+      if (r && r.kind === 'backup') out.push(r)
     } catch {
       // 寫到一半的行
     }
   }
+  return out
+}
+
+/** records.jsonl 最後一筆 kind=backup 的 {at, ok}。 */
+export function lastBackupRecord(text) {
+  const last = backupRecords(text).at(-1)
   return last ? { at: last.finished_at ?? last.started_at ?? null, ok: last.status === 'ok' } : null
+}
+
+/**
+ * 最後一筆成功備份（kind=backup、status=ok）的 {at, bytes}：後面的失敗備份與 drill 不會蓋掉它（DV 設計方案 §7.2）。
+ * at 取 finished_at、缺才取 started_at；時間不是 ISO 的那筆不算（不然整個 vm.json 會被白名單擋下）。bytes 不是非負整數就 null。
+ */
+export function lastOkBackup(text) {
+  for (const r of backupRecords(text).reverse()) {
+    if (r.status !== 'ok') continue
+    const at = r.finished_at ?? r.started_at
+    if (typeof at !== 'string' || !ISO.test(at)) continue
+    return { at, bytes: Number.isInteger(r.bytes) && r.bytes >= 0 ? r.bytes : null }
+  }
+  return null
+}
+
+/** statfs 結果 → vm.json 的 disk。算法同 web/src/application/ops/storage.ts usageFromStatfs：百分比分母是已用＋可用（跟 df 的 Use% 一致）。 */
+export function diskFromStatfs(st, diskPath, now) {
+  const usedBytes = (st.blocks - st.bfree) * st.bsize
+  const availBytes = st.bavail * st.bsize
+  const denominator = usedBytes + availBytes
+  return {
+    path: diskPath,
+    totalBytes: st.blocks * st.bsize,
+    usedBytes,
+    availBytes,
+    percent: denominator > 0 ? Math.round((usedBytes / denominator) * 100) : 0,
+    checkedAt: now.toISOString(),
+  }
+}
+
+/** statfs 失敗的分類文字：只放 err.code（例如 EACCES），認不得就 statfs-failed；原始訊息含路徑，不帶出來。 */
+export function diskErrorCode(err) {
+  const code = err?.code
+  return typeof code === 'string' && /^[A-Z0-9_]{1,32}$/.test(code) ? code : 'statfs-failed'
+}
+
+/** 上一版 vm.json 的 disk：照白名單重新投影一次，壞掉或沒有就當作從沒量成功過。 */
+function previousDisk(prevVm) {
+  const disk = prevVm && typeof prevVm === 'object' && !Array.isArray(prevVm) ? prevVm.disk : null
+  if (disk == null) return null
+  try {
+    return project(DISK, disk)
+  } catch (err) {
+    if (!(err instanceof ShapeError)) throw err
+    return null
+  }
+}
+
+/**
+ * 主機儲存：statfs(cfg.diskPath，預設 inboxDir)。失敗時保留上一版的 disk（連同它原本的 checkedAt），只記本輪錯誤。
+ * 量到的值先過白名單：路徑或數字不合（例如 STATUS_DISK_PATH 給了相對路徑）也算這輪失敗，不讓整個 vm.json 寫不出來。
+ */
+async function measureDisk(cfg, now, prevVm) {
+  const statfs = cfg.statfs ?? fs.promises.statfs
+  const diskPath = cfg.diskPath ?? cfg.inboxDir
+  try {
+    return { disk: project(DISK, diskFromStatfs(await statfs(diskPath), diskPath, now)), diskError: null }
+  } catch (err) {
+    return { disk: previousDisk(prevVm), diskError: diskErrorCode(err) }
+  }
 }
 
 /** offsite/<站>/ 底下（含子目錄，最多三層）mtime 最新的一般檔。目錄不存在回 null。 */
@@ -82,7 +150,8 @@ export function latestFile(dir, depth = 3) {
   return { file: best ?? null }
 }
 
-export async function collectVm(cfg, now) {
+/** prevVm 是上一版 vm.json 的內容（沒有或讀不到就給 null），只用來在 statfs 失敗時沿用 disk。 */
+export async function collectVm(cfg, now, prevVm = null) {
   const deploys = {}
   const backups = {}
   for (const site of SITES) {
@@ -92,11 +161,13 @@ export async function collectVm(cfg, now) {
     const dir = path.join(cfg.offsiteRoot, site)
     const found = latestFile(dir)
     const file = found?.file ?? null
+    const records = readText(path.join(cfg.fjuRoot, site, 'backups', 'records.jsonl'))
     // 欄位名照 S-1 的 types.ts（BackupInfo.latest）；offsiteDir 多分「目錄不存在」與「空目錄」。
     backups[site] = {
       latest: file ? { name: file.name, bytes: file.bytes, mtime: file.mtime } : null,
       offsiteDir: found === null ? 'missing' : file ? 'ok' : 'empty',
-      lastRecord: lastBackupRecord(readText(path.join(cfg.fjuRoot, site, 'backups', 'records.jsonl'))),
+      lastRecord: lastBackupRecord(records),
+      lastOk: lastOkBackup(records),
     }
   }
 
@@ -122,11 +193,15 @@ export async function collectVm(cfg, now) {
     hasA = false
   }
 
+  const { disk, diskError } = await measureDisk(cfg, now, prevVm)
+
   return {
     deploys,
     backups,
     prodEnv,
     prodEnvError,
     prodDns: { host: cfg.prodDnsHost, hasA, checkedAt: now.toISOString() },
+    disk,
+    diskError,
   }
 }
