@@ -4,7 +4,7 @@ import { cohortLabel } from '@/composition/cohorts'
 import { GROUP_TYPE_LABEL } from '@/composition/groups'
 import { categoryOf, receiverStatus } from '@/composition/submissions'
 import { cn } from '@/shared/cn'
-import { formatTaipeiMinute } from '@/shared/time'
+import { formatTaipeiMinute, isDeadlinePassed } from '@/shared/time'
 
 /**
  * 老師作業區「各組繳交」的卡片格（TE-04；取代原本的 client DataTable 矩陣）。
@@ -75,7 +75,8 @@ export function cellOf(item: AdvisorMatrixItem, short: string, groupId: string, 
   if (category === 'exempt') return { ...base, kind: 'inactive', status: status.headline, detail: '', href }
   if (cell.latestVersionNo !== null) {
     const detail = cell.latestReceivedAt ? `${cell.latestSubmittedByName ?? ''}・${formatTaipeiMinute(cell.latestReceivedAt)}` : ''
-    const late = item.dueAt !== null && cell.latestReceivedAt !== null && cell.latestReceivedAt.getTime() > item.dueAt.getTime()
+    // 跟收件的截止判定同一個規則：截止分鐘含這一分鐘（17:00 截止、17:00:30 送出仍準時）。
+    const late = item.dueAt !== null && cell.latestReceivedAt !== null && isDeadlinePassed(cell.latestReceivedAt, item.dueAt)
     return late
       ? { ...base, kind: 'late', status: `逾期補交（${status.headline}）`, detail, href }
       : { ...base, kind: 'submitted', status: status.headline, detail, href }
