@@ -25,6 +25,7 @@ import {
   type LeaderPanel,
   type LinkedGroupRef,
   type LinkOpportunityInput,
+  type LinkOption,
   type LinkReceipt,
   type ManagedOpportunity,
   type NormalizedOpportunity,
@@ -1240,6 +1241,33 @@ export class PgOpportunityQuery implements OpportunityQuery {
         deleteBlocker: opportunityDeleteBlocker({ status: r.status, linkedGroupCodes: opportunityLinks.map((l) => l.groupCode) }),
       }
     })
+  }
+
+  async linkOptions(actor: ResolvedActor, opts: { q?: string; limit?: number; offset?: number } = {}): Promise<readonly LinkOption[]> {
+    if (actor.kind !== 'authenticated' || !canViewOpportunities(actor)) return []
+    if (!isAdminActor(actor) && !actor.roles.includes('teacher')) return []
+    const limit = Number.isFinite(opts.limit) && opts.limit! >= 1 ? Math.min(200, Math.floor(opts.limit!)) : 50
+    const offset = Number.isFinite(opts.offset) && opts.offset! > 0 ? Math.floor(opts.offset!) : 0
+    const values: unknown[] = [limit, offset]
+    const where = [`o.status = 'published'`, NOT_DELETED]
+    const q = (opts.q ?? '').trim().slice(0, 100)
+    if (q) {
+      // 跟 `list()` 一樣跳脫萬用字元：使用者打的 % 與 _ 是字，不是萬用字元。
+      values.push(q.replace(/[\\%_]/g, (c) => `\\${c}`))
+      where.push(`o.company_name ilike '%' || $${values.length} || '%'`)
+    }
+    // 只 select 這四欄（不讀聯絡資料與正文）；一次呼叫一句 SQL。
+    const rows = await this.#reader().query<{ id: string; company_name: string; department: string; owner_name: string }>(
+      `select o.id, o.company_name, o.department, ${personName('p', 'u')} as owner_name
+         from industry_opportunities o
+         join users u on u.id = o.owner_teacher_user_id
+         left join user_profiles p on p.user_id = o.owner_teacher_user_id
+        where ${where.join(' and ')}
+        order by o.company_name, o.id
+        limit $1 offset $2`,
+      values,
+    )
+    return rows.rows.map((r) => ({ id: r.id, companyName: r.company_name, department: r.department, ownerName: r.owner_name }))
   }
 
   async leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null> {

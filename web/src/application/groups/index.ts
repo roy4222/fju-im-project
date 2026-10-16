@@ -109,6 +109,7 @@ export type {
   LinkChange,
   LinkedGroupRef,
   LinkOpportunityInput,
+  LinkOption,
   LinkReceipt,
   ManagedOpportunity,
   NormalizedOpportunity,

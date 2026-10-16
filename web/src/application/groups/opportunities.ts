@@ -405,6 +405,14 @@ export type ManagedOpportunity = {
   readonly deleteBlocker: string | null
 }
 
+/** 「把組別連到合作案」對話框的選項（AD-17）：只有已發布、沒被刪的案，只帶這四個公開欄位（不含聯絡資料）。 */
+export type LinkOption = {
+  readonly id: string
+  readonly companyName: string
+  readonly department: string
+  readonly ownerName: string
+}
+
 /** 組別目前連結的合作案（組別頁、分組總覽、匯出都用）。 */
 export type GroupOpportunityLink = {
   readonly linkId: string
