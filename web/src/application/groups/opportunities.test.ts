@@ -158,10 +158,10 @@ describe('組別名單：篩選、排序（5.5）', () => {
   const teacher = '11111111-1111-4111-8111-111111111111'
   const groups = [
     group('G02', { groupType: 'industry' }),
-    group('G10', { advisor: { teacherUserId: teacher, teacherName: '甲老師', source: 'admin', since: new Date() } }),
+    group('G10', { advisor: { teacherUserId: teacher, teacherName: '甲老師', source: 'admin', since: new Date(), contactEmail: null } }),
     group('G01', {
       groupType: 'industry',
-      advisor: { teacherUserId: teacher, teacherName: '乙老師', source: 'claim', since: new Date() },
+      advisor: { teacherUserId: teacher, teacherName: '乙老師', source: 'claim', since: new Date(), contactEmail: null },
       opportunity: { linkId: 'l', opportunityId: 'o', name: '輔仁零售・資訊部', status: 'published' },
     }),
   ]

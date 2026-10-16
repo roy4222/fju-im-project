@@ -353,6 +353,22 @@ describe('確認與成立', () => {
     expect(view.group?.members.find((m) => m.isLeader)?.userId).toBe(members[0]!.id)
     expect(view.openProposal).toBeNull()
 
+    // 指導老師帶老師自己填的聯絡信箱（Q122），不是登入 Email（t1-groups@example.com）。
+    await owner.sql(
+      `insert into user_profiles (user_id, display_name, name_normalized, contact_email, profile_completed_at)
+       values ($1, 'T1', 'T1', 't1-contact@example.edu', now())`,
+      [teacherId],
+    )
+    await owner.sql(
+      `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+       values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '指派')`,
+      [groupId, teacherId, adminId],
+    )
+    expect((await query.studentView(members[2]!.id, cohortId)).group?.advisor).toMatchObject({
+      teacherUserId: teacherId,
+      contactEmail: 't1-contact@example.edu',
+    })
+
     // 第二組拿到 G02。
     const next = await students(cohortId, 5)
     const second = await mustPropose(next[0]!, next.slice(1))

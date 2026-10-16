@@ -1890,9 +1890,10 @@ export class PgGroupQuery implements GroupQuery {
       teacher_name: string
       source: AdvisorSource
       valid_from: Date
+      contact_email: string | null
     }>(
       `select a.group_id, a.teacher_user_id, ${personName('p', 'u')} as teacher_name,
-              a.source, a.valid_from
+              a.source, a.valid_from, p.contact_email
          from advisor_assignments a
          join users u on u.id = a.teacher_user_id
          left join user_profiles p on p.user_id = a.teacher_user_id
@@ -1902,7 +1903,13 @@ export class PgGroupQuery implements GroupQuery {
     const advisorOf = new Map(
       advisors.rows.map((a) => [
         a.group_id,
-        { teacherUserId: a.teacher_user_id, teacherName: a.teacher_name, source: a.source, since: a.valid_from },
+        {
+          teacherUserId: a.teacher_user_id,
+          teacherName: a.teacher_name,
+          source: a.source,
+          since: a.valid_from,
+          contactEmail: a.contact_email,
+        },
       ]),
     )
     // 目前連結的合作案（票 20）：只帶名稱（公司＋部門，登入者可見的公開欄位）與狀態。
