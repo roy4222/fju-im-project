@@ -183,6 +183,21 @@ async function startNative(name, port, pw, opts) {
   return { engine: 'native', name, port, bin, dir, logFile }
 }
 
+/** 量測庫的 log 全文（docker：容器 log；native：log 檔）。 */
+export function readDbLog(state) {
+  if (state.engine === 'native') return fs.readFileSync(state.logFile, 'utf8')
+  // docker logs 把 Postgres 寫在 stderr 的 log 印在 stderr；兩邊都收。
+  const r = run('docker', ['logs', state.name], { capture: true, maxBuffer: 1 << 30 })
+  return `${r.stdout ?? ''}${r.stderr ?? ''}`
+}
+
+/** `up` 收尾的防呆：log 裡出現 PERF_PASSWORD 明文就 exit 1（不印出密碼本身）。 */
+function assertNoPasswordInLog(state, pw) {
+  const log = readDbLog(state)
+  if (log.includes(pw)) fail(`量測庫的 log 裡出現 PERF_PASSWORD 明文；請 perf:db down${state.name === DEFAULT_NAME ? '' : ` --name ${state.name}`} 後回報。`)
+  console.log('已檢查：量測庫 log 裡沒有 PERF_PASSWORD 明文。')
+}
+
 function nodeScript(file, args, env) {
   must(process.execPath, [path.join(WEB_ROOT, file), ...args], { cwd: WEB_ROOT, env: { ...process.env, ...env } })
 }
@@ -211,11 +226,16 @@ async function up(opts) {
   console.log('migration…')
   nodeScript('scripts/migrate.mjs', [], env)
   const pool = new Pool({ connectionString: owner, max: 1 })
+  const client = await pool.connect()
   try {
     // migration 建了 fju_app 但不設密碼（同 ci.yml）。密碼用參數帶不進 ALTER ROLE，所以用 format(%L)。
-    const { rows } = await pool.query(`select format('alter role fju_app password %L', $1::text) as sql`, [pw])
-    await pool.query(rows[0].sql)
+    // 庫開著 log_statement=all：先把**這條連線**的語句記錄關掉，密碼才不會以明文進 log。
+    // 不用 ALTER ROLE fju_owner SET log_statement——那會讓 owner 送的 PERFMARK 標記也從 log 消失。
+    await client.query(`set log_statement = 'none'`)
+    const { rows } = await client.query(`select format('alter role fju_app password %L', $1::text) as sql`, [pw])
+    await client.query(rows[0].sql)
   } finally {
+    client.release()
     await pool.end()
   }
 
@@ -227,6 +247,8 @@ async function up(opts) {
     console.log('資料集 x3…')
     nodeScript('scripts/perf/dataset.mjs', ['x3'], env)
   }
+
+  assertNoPasswordInLog(state, pw)
 
   console.log('\n量測庫好了。起 app（BUSINESS_CLOCK_OVERRIDE_ENABLED 不要開，也不要起 worker——它的輪詢會算進 SQL）：')
   console.log(`  DATABASE_URL=postgres://fju_app@127.0.0.1:${port}/${DB}`)
