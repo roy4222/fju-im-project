@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconTrophy, IconUpload } from '@tabler/icons-react'
+import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconPin, IconTrophy, IconUpload } from '@tabler/icons-react'
 import { actorHasRole, isRegistrationOpen } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
@@ -55,13 +55,14 @@ export default async function HomePage() {
     const name = featuredCohortName.get(code)
     return name ? cohortLabel({ name, code }) : code
   }
-  // 「進行中的競賽」照原型先放報名中、再放決賽／結果；取前 3 則。
+  // 「進行中的競賽」置頂的排最前（多則置頂時後置頂的在前，D9），其餘照原型先放報名中、再放決賽／結果；取前 3 則（第 1 批 V7）。
   const rank = { open: 0, result: 1, closed: 2 } as const
+  const pinnedTime = (c: (typeof competitions)[number]) => c.pinnedAt?.getTime() ?? -Infinity
   const competitionCards = competitions
     .map((c) => ({ ...c, status: competitionStatus(c, today) }))
     // 「進行中」只放報名中與決賽／結果；已結束、沒填日期的不拿來補位（前台頁面清單：競賽取進行中 3 則）。
     .filter((c) => c.status === 'open' || c.status === 'result')
-    .sort((a, b) => (a.status ? rank[a.status] : 3) - (b.status ? rank[b.status] : 3))
+    .sort((a, b) => pinnedTime(b) - pinnedTime(a) || (a.status ? rank[a.status] : 3) - (b.status ? rank[b.status] : 3))
     .slice(0, 3)
   // 歷屆專題一覽（登入後）：`/projects` 同一份查詢；沒開通的人查詢本身就回 need_login。
   const archive = member ? await getPublicShowcaseQuery().archive(actor) : null
@@ -324,6 +325,12 @@ export default async function HomePage() {
                     className="flex h-full flex-col gap-1.5 rounded-[10px] border border-border bg-card p-4.5 transition-colors hover:border-primary"
                   >
                     <span className="flex flex-wrap items-center gap-2">
+                      {c.pinnedAt ? (
+                        <Tag data-testid="pinned-tag" className="bg-primary text-primary-foreground">
+                          <IconPin className="mr-1 size-3" aria-hidden />
+                          置頂
+                        </Tag>
+                      ) : null}
                       {c.status ? <Tag tone={COMPETITION_STATUS[c.status].tone}>{COMPETITION_STATUS[c.status].label}</Tag> : <Tag>{COMPETITION_CATEGORY}</Tag>}
                       <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-muted-foreground tabular-nums">
                         <IconClock className="size-3.5" aria-hidden />
