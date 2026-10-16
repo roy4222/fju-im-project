@@ -85,14 +85,14 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
-  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
+  const row = page.getByRole('region', { name: new RegExp(CODE) })
   await expect(row).toContainText('尚未開始（設定中）')
 })
 
 test('時間軸：填四個階段開始日與年度結束日；不遞增被拒，原日期保留', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/timeline')
-  await expect(page.getByRole('heading', { name: '時間軸設定', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: '時間軸' })).toContainText(CODE)
   await expect(page.getByText('這一屆還沒設定階段')).toBeVisible()
 
@@ -200,11 +200,11 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   await expect(facts).toContainText('不能改回尚未開始（設定中）')
   await confirm.getByRole('button', { name: '先不要' }).click()
   await expect(confirm).toBeHidden()
-  await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })).toContainText('尚未開始（設定中）')
+  await expect(page.getByRole('region', { name: new RegExp(CODE) })).toContainText('尚未開始（設定中）')
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   await confirm.getByRole('button', { name: '確定轉為進行中' }).click()
   await expect(feedback(page, 'status')).toContainText(new RegExp(`已把.*（${CODE}）轉為進行中`))
-  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: CODE, exact: true }) })
+  const row = page.getByRole('region', { name: new RegExp(CODE) })
   await expect(row).toContainText('進行中')
   await expect(page.getByRole('button', { name: `把 ${CODE} 轉為進行中` })).toHaveCount(0)
 

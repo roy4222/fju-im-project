@@ -298,6 +298,9 @@ export type UngroupedStudent = {
 }
 
 /** 管理員「分組總覽」。 */
+/** `countsByCohort` 一屆的計數。 */
+export type CohortHeadcount = { readonly students: number; readonly groups: number }
+
 export type CohortGroupingOverview = {
   readonly groups: readonly GroupSummary[]
   readonly openProposals: readonly ProposalSummary[]
@@ -319,6 +322,12 @@ export interface GroupQuery {
   teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]>
   /** 管理員分組總覽（呼叫端守門）。 */
   overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview>
+  /**
+   * 每一屆的學生數與組數（系辦屆別卡，AD-12；呼叫端守門）：一句 SQL 算完全部屆別，不逐屆查。
+   * 口徑跟 `overview` 一致：組數＝有效組（`active`）數；學生數＝有效組的現任成員＋未分組學生（`overview().ungrouped`）。
+   * 沒有任何組別與學生的屆別不在 Map 裡，呼叫端當 0。
+   */
+  countsByCohort(): Promise<ReadonlyMap<string, CohortHeadcount>>
   /**
    * 一屆已成立的組別、成員與主指導（老師的「分組」頁；所有老師都可查看一般與產學組別，呼叫端守門）。
    * 歷程不帶理由與操作者。

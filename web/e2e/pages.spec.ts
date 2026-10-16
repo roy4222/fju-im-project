@@ -103,8 +103,8 @@ test.describe('以 A1（管理員）', () => {
 
     // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
     await page.goto('/dashboard/admin/cohorts')
-    await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: '新增屆別' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增屆別' })).toBeVisible()
   })
 
   test('開老師與學生的後台會被帶到 403，下一步指回自己的首頁', async ({ page }) => {
@@ -309,12 +309,12 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
   const FINGERPRINTS: Record<string, string> = {
     '/dashboard/admin': '作業完成率',
     '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
-    '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
+    '/dashboard/admin/cohorts': '新註冊加入這屆',
     '/dashboard/teacher': '待辦',
     '/dashboard/student': '專題行事曆',
     // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
-    '/dashboard/admin/timeline': '編輯階段與日期',
+    '/dashboard/admin/timeline': '已排定的活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
     '/dashboard/admin/inbox': '全部標為已讀',
     '/dashboard/teacher/inbox': '全部標為已讀',
