@@ -119,6 +119,13 @@ async function latestVersionRow(page: Page, tableName: string) {
   return (await row.innerText()).replace(/\s+/g, ' ')
 }
 
+/** 學生繳交歷史時間線最上面那一項（最新）：第幾次、誰送的。 */
+async function latestTimelineRow(page: Page, listName: string) {
+  const item = page.getByRole('list', { name: listName }).getByRole('listitem').first()
+  await expect(item).toBeVisible()
+  return (await item.innerText()).replace(/\s+/g, ' ')
+}
+
 // ── 收尾 ───────────────────────────────────────────────────────────────────
 
 test.afterAll(async ({ browser }) => {
@@ -377,7 +384,7 @@ test('x2:36 SUB-10 SHW-09 整組收件：學生 1 送 v1、學生 2 重送 v2；
   await expect(s1).toHaveURL(new RegExp(`${path}(\\?|#|$)`))
   expect(new URL(s1.url()).pathname).toBe(fromInbox)
   await s1.goto(`${path}?tab=history`)
-  const byStudent = await latestVersionRow(s1, '繳交歷史')
+  const byStudent = await latestTimelineRow(s1, '繳交歷史')
   expect(byStudent).toContain('第 2 次')
   expect(byStudent).toContain(student(1).name)
   await s1.getByRole('link', { name: '查看內容' }).first().click()
