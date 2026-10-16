@@ -29,7 +29,8 @@ const DANGER = buttonVariants({ variant: 'destructive', size: 'lg', className: '
  * 第三波 W15：補登歷屆作品（選屆別＋題目，沒有組別）、首頁順序、公開中作品的「發布更新」（把改好的草稿換上前台）。
  */
 
-export type ShowcaseActionState = { ok: boolean; message: string } | undefined
+/** `field`：失敗時是哪一欄（目前只有存草稿的 `videoUrl` 會帶），訊息改顯示在那一欄下面。 */
+export type ShowcaseActionState = { ok: boolean; message: string; field?: string } | undefined
 
 export function CreateDraftForm({
   groups,
@@ -162,6 +163,10 @@ export function DraftEditor({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const posterChanged = (chosen?.fileId ?? null) !== (poster?.fileId ?? null)
+  // 影片欄的錯放在欄位下面（AC-V13），底部不再重複同一句；其他錯照舊在底部。
+  const videoError = state?.ok === false && state.field === 'videoUrl' ? state.message : null
+  const videoHintId = `video-hint-${entryId}`
+  const videoErrorId = `video-error-${entryId}`
 
   return (
     <form action={action} className="space-y-3" aria-label={`${groupCode} 的成果展示草稿`}>
@@ -192,21 +197,34 @@ export function DraftEditor({
           disabled={disabled}
         />
       </label>
-      <label className={LABEL}>
-        影片連結
-        <input
-          name="videoUrl"
-          type="url"
-          value={fields.videoUrl}
-          onChange={(e) => setFields({ ...fields, videoUrl: e.target.value })}
-          className={INPUT}
-          placeholder="https://"
-          disabled={disabled}
-          // 瀏覽器內建檢查只會說「請輸入網址。」：換成說得出怎麼改的同一句（驗收 P-05）。
-          onInvalid={(e) => e.currentTarget.setCustomValidity(videoUrlMessage)}
-          onInput={(e) => e.currentTarget.setCustomValidity('')}
-        />
-      </label>
+      <div>
+        <label className={LABEL}>
+          影片連結
+          <input
+            name="videoUrl"
+            type="url"
+            value={fields.videoUrl}
+            onChange={(e) => setFields({ ...fields, videoUrl: e.target.value })}
+            className={INPUT}
+            placeholder="https://"
+            disabled={disabled}
+            aria-invalid={videoError ? true : undefined}
+            aria-describedby={videoError ? `${videoErrorId} ${videoHintId}` : videoHintId}
+            // 瀏覽器內建檢查只會說「請輸入網址。」：換成說得出怎麼改的同一句（驗收 P-05）。
+            onInvalid={(e) => e.currentTarget.setCustomValidity(videoUrlMessage)}
+            onInput={(e) => e.currentTarget.setCustomValidity('')}
+          />
+        </label>
+        {/* 說明放在 label 外面：放裡面會變成欄位名稱的一部分。 */}
+        <p id={videoHintId} className="mt-1 text-xs text-muted-foreground">
+          只收 YouTube 影片網址（watch、youtu.be、shorts 都可以），不公開（unlisted）影片也可以。
+        </p>
+        {videoError ? (
+          <p role="alert" id={videoErrorId} className="mt-1 text-sm text-danger">
+            {videoError}
+          </p>
+        ) : null}
+      </div>
       <div>
         <span className={LABEL}>海報（PNG 或 JPG）</span>
         <div className="mt-1 flex flex-wrap items-center gap-3">
@@ -260,7 +278,7 @@ export function DraftEditor({
         </button>
         <span className="text-xs text-muted-foreground">草稿第 {revision} 版・存草稿不會改到前台，發布後才公開</span>
       </div>
-      <Feedback state={state} />
+      <Feedback state={videoError ? undefined : state} />
     </form>
   )
 }

@@ -30,11 +30,16 @@ const COMPETITION = `${stamp} 資訊應用服務創新競賽`
 const ENDED_COMPETITION = `${stamp} 已結束的競賽`
 const MEMBER = `${stamp}組員`
 const ADVISOR = `${stamp}老師`
+// 影片的兩種退路（V3，AC-V15、V27⑥）：題目不帶戳記，免得用 `?q=戳記` 的優秀專題列表多出卡片。
+const LEGACY = `舊影片連結作品 ${Math.random().toString(36).slice(2, 8)}`
+const NO_VIDEO = `沒有影片作品 ${Math.random().toString(36).slice(2, 8)}`
 
 let pool: Pool
 let entryId: string
 let draftId: string
 let plainId: string
+let legacyId: string
+let noVideoId: string
 
 async function one(sql: string, values: unknown[] = []): Promise<string> {
   return String((await pool.query(sql, values)).rows[0]!.id)
@@ -108,15 +113,15 @@ test.beforeAll(async () => {
     [g1, teacher, adminId],
   )
 
-  const entry = async (groupId: string, title: string) => {
+  const entry = async (groupId: string, title: string, videoUrl: string | null = 'https://youtu.be/e2e') => {
     const id = await one(
       `insert into showcase_entries (id, cohort_id, group_id, status, created_by_user_id) values (gen_random_uuid(), $1, $2, 'draft', $3) returning id`,
       [cohortId, groupId, adminId],
     )
     await pool.query(
       `insert into showcase_drafts (entry_id, title, summary, summary_checksum, video_url)
-       values ($1, $2, '公共資訊可讀性改善', encode(sha256(convert_to('公共資訊可讀性改善', 'UTF8')), 'hex'), 'https://youtu.be/e2e')`,
-      [id, title],
+       values ($1, $2, '公共資訊可讀性改善', encode(sha256(convert_to('公共資訊可讀性改善', 'UTF8')), 'hex'), $3)`,
+      [id, title, videoUrl],
     )
     return id
   }
@@ -138,6 +143,12 @@ test.beforeAll(async () => {
   const g3 = await group('G03')
   plainId = await entry(g3, PLAIN)
   await publish(plainId)
+  // 舊資料：影片不是 YouTube（直接寫進版本，模擬 V3 之前存的；不經草稿驗證、不 UPDATE 版本列）。
+  legacyId = await entry(await group('G04'), LEGACY, 'https://example.com/v.mp4')
+  await publish(legacyId)
+  noVideoId = await entry(await group('G05'), NO_VIDEO, null)
+  await publish(noVideoId)
+  await pool.query(`update showcase_entries set award_level = 'merit' where id = any($1)`, [[legacyId, noVideoId]])
 
   // 得獎日期 2019（不是今天的年份），年份篩選要看它、不是看發布日。
   await publishedItem(cohortId, adminId, 'honor', HONOR, '校外競賽', { awardedOn: '2019-06-15' })
@@ -191,6 +202,55 @@ test('訪客：優秀專題看得到已發布的、看不到草稿；點開一�
   await page.goto(`/projects/${plainId}`)
   await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(`/projects/${plainId}`)}$`))
   expect(await page.content()).not.toContain(PLAIN)
+})
+
+test('訪客：作品頁的 YouTube 影片直接嵌入播放；舊的非 YouTube 連結另開新視窗；沒影片只放主圖（V3：AC-V14、V15、V27⑥）', async ({ page }) => {
+  const cspErrors: string[] = []
+  page.on('console', (message) => {
+    if (/Content.Security.Policy/i.test(message.text())) cspErrors.push(message.text())
+  })
+  // 不真的連 YouTube：只看 CSP 放不放行、iframe 載不載得進來。
+  await page.route('https://www.youtube.com/embed/**', (route) => route.fulfill({ contentType: 'text/html', body: '<p>stub player</p>' }))
+
+  const response = await page.goto(`/projects/${entryId}`)
+  // CSP 不放寬：frame-src 仍只有 YouTube 與 Turnstile（youtube-nocookie 維持被擋）。
+  expect(response?.headers()['content-security-policy']).toContain('frame-src https://www.youtube.com https://challenges.cloudflare.com;')
+  const embed = page.getByTestId('video-embed')
+  await expect(embed).toHaveAttribute('src', 'https://www.youtube.com/embed/e2e')
+  await expect(embed).toHaveAttribute('title', '三分鐘影片')
+  await expect(embed).toHaveAttribute('allowfullscreen', '')
+  await embed.scrollIntoViewIfNeeded()
+  await expect.poll(() => page.frames().some((frame) => frame.url() === 'https://www.youtube.com/embed/e2e')).toBe(true)
+  await expect(page.frameLocator('[data-testid="video-embed"]').getByText('stub player')).toBeVisible()
+  // 有嵌入就不再放封面圖與另開新視窗的播放鍵。
+  await expect(page.getByRole('link', { name: '播放三分鐘影片（另開新視窗）' })).toHaveCount(0)
+  await expect(page.locator('main img[width="1280"]')).toHaveCount(0)
+
+  // 舊資料（AC-V15）：頁面正常、封面＋另開新視窗的連結。
+  const legacy = await page.goto(`/projects/${legacyId}`)
+  expect(legacy?.status()).toBe(200)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(LEGACY)
+  const link = page.getByRole('link', { name: '播放三分鐘影片（另開新視窗）' })
+  await expect(link).toHaveAttribute('href', 'https://example.com/v.mp4')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(link).toHaveAttribute('rel', 'noreferrer noopener')
+  await expect(page.getByText('影片連結（另開新視窗）', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('video-embed')).toHaveCount(0)
+  // AC-V27⑥：16:9 主圖給寬高、不 lazy（作品頁主視覺）。
+  const legacyImage = page.locator('main img[width="1280"]')
+  await expect(legacyImage).toHaveCount(1)
+  await expect(legacyImage).toHaveAttribute('height', '720')
+  expect(await legacyImage.getAttribute('loading')).toBeNull()
+
+  await page.goto(`/projects/${noVideoId}`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(NO_VIDEO)
+  await expect(page.getByTestId('video-embed')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '播放三分鐘影片（另開新視窗）' })).toHaveCount(0)
+  const image = page.locator('main img[width="1280"]')
+  await expect(image).toHaveAttribute('height', '720')
+  expect(await image.getAttribute('loading')).toBeNull()
+
+  expect(cspErrors).toEqual([])
 })
 
 test('訪客：歷屆專題一覽要登入；登入的學生看到組員與指導老師', async ({ page, context }) => {

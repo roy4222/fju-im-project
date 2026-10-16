@@ -59,7 +59,8 @@ export async function updateDraftAction(_state: ShowcaseActionState, formData: F
     },
     text(formData, 'requestId'),
   )
-  if (!result.ok) return { ok: false, message: result.message }
+  // 欄位錯（例如影片不是 YouTube）帶回是哪一欄，表單把訊息放在那一欄下面。
+  if (!result.ok) return { ok: false, message: result.message, field: typeof result.details?.field === 'string' ? result.details.field : undefined }
   refresh()
   return { ok: true, message: describeUpdateDraftReceipt(result.receipt) }
 }

@@ -1,11 +1,12 @@
 import type { FileTypeId } from '@/application/ops'
+import { youtubeVideoId } from '@/application/showcase/video'
 import { err, type Err } from '@/shared/result'
 
 /**
  * 精選草稿的純規則（模組實作設計 09 §2「草稿與版本分開」、§3「draft（編輯）」、附錄 A `showcase_drafts`；票 25／S11-03）。
  *
  * 草稿只存、不發布：儲存不需要授權、不跑個資檢查（那是 S12 發布時的事）。這裡只管「存進去的東西長得對」：
- * 題目與摘要的長度、影片連結是 http(s)、摘要怎麼正規化（算 checksum 的依據）。
+ * 題目與摘要的長度、影片連結是 YouTube 影片（Q49）、摘要怎麼正規化（算 checksum 的依據）。
  *
  * **摘要正規化**是授權範圍比對的基礎：`summary_checksum`＝sha256(正規化後的摘要)。
  * 簽核建版時直接讀草稿上的 checksum 凍結，S12 發布時的涵蓋比對也用同一份正規化——所以這裡只能有一份。
@@ -15,10 +16,10 @@ import { err, type Err } from '@/shared/result'
 export const SHOWCASE_LIMITS = { title: 200, summary: 2000, videoUrl: 500 } as const
 
 /**
- * 影片連結格式不對時的提示（驗收 P-05）：伺服器驗證與瀏覽器內建檢查（`type="url"`）用同一句，
- * 不讓瀏覽器只說「請輸入網址。」。http:// 仍收，提示只建議較安全的 https://。
+ * 影片連結格式不對、或不是 YouTube 影片時的提示（驗收 P-05、Q49）：伺服器驗證與瀏覽器內建檢查（`type="url"`）
+ * 全站只用這一句，不讓瀏覽器只說「請輸入網址。」。
  */
-export const VIDEO_URL_MESSAGE = '影片連結請填以 https:// 開頭的完整網址'
+export const VIDEO_URL_MESSAGE = '影片連結只收 YouTube 影片網址（例如 https://www.youtube.com/watch?v=… 或 https://youtu.be/…），不公開影片也可以。'
 
 /** 海報只收圖片（票 25：「海報走 FileStorage 並只收圖片」）。上限比照一般附件的圖片。 */
 export const POSTER_UPLOAD: { readonly allowedTypes: readonly FileTypeId[]; readonly maxBytes: number } = {
@@ -82,6 +83,10 @@ export function normalizeDraftFields(input: DraftFieldsInput): { ok: true; value
     } catch {
       return err('VALIDATION_FAILED', VIDEO_URL_MESSAGE, { details: { field: 'videoUrl' } })
     }
+    if (youtubeVideoId(rawUrl) === null) {
+      return err('VALIDATION_FAILED', VIDEO_URL_MESSAGE, { details: { field: 'videoUrl' } })
+    }
+    // 存原字串、不改寫成標準網址：簽核的授權範圍把 videoUrl 當字串算進 contentHash；嵌入網址在作品頁才產生。
     videoUrl = rawUrl
   }
   return { ok: true, value: { title, summary, videoUrl } }

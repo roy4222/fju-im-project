@@ -238,7 +238,7 @@ test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存
   const video = card.getByLabel('影片連結')
   await video.fill('youtu.be/t25-demo')
   await card.getByRole('button', { name: '儲存草稿' }).click()
-  expect(await video.evaluate((el) => (el as HTMLInputElement).validationMessage)).toBe('影片連結請填以 https:// 開頭的完整網址')
+  expect(await video.evaluate((el) => (el as HTMLInputElement).validationMessage)).toBe('影片連結只收 YouTube 影片網址（例如 https://www.youtube.com/watch?v=… 或 https://youtu.be/…），不公開影片也可以。')
   await video.fill('https://youtu.be/t25-demo')
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(card.getByTestId('poster-name')).toContainText('poster.png')
