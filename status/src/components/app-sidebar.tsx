@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ActivityIcon, DatabaseIcon, LayoutDashboardIcon, MapIcon, RocketIcon, ScrollTextIcon, ServerIcon, ListChecksIcon } from "lucide-react"
+import { ActivityIcon } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -14,45 +14,35 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import type { PageEntry, ToolEntry } from "@/lib/data/hosts"
-
-const PAGE_ICONS: Record<string, React.ReactNode> = {
-  "/": <LayoutDashboardIcon />,
-  "/map": <MapIcon />,
-  "/progress": <ListChecksIcon />,
-  "/go-live": <RocketIcon />,
-}
-
-const TOOL_ICONS: Record<ToolEntry["key"], React.ReactNode> = {
-  vm: <ServerIcon />,
-  logs: <ScrollTextIcon />,
-  db: <DatabaseIcon />,
-}
+import type { ToolEntry } from "@/lib/data/hosts"
+import { toolNavItems, visibleNavItems, type NavContext } from "@/lib/data/nav"
 
 export function AppSidebar({
-  pages,
+  nav,
   tools,
   ...props
-}: { pages: PageEntry[]; tools: ToolEntry[] } & React.ComponentProps<typeof Sidebar>) {
+}: { nav: NavContext; tools: ToolEntry[] } & React.ComponentProps<typeof Sidebar>) {
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton className="data-[slot=sidebar-menu-button]:p-1.5!" render={<Link href="/" />}>
+            <SidebarMenuButton
+              tooltip="開發者後台"
+              className="data-[slot=sidebar-menu-button]:p-1.5!"
+              render={<Link href="/" />}
+            >
               <ActivityIcon className="size-5!" />
-              <span className="text-base font-semibold">開發者後台</span>
+              <span className="text-base font-semibold group-data-[collapsible=icon]:hidden">開發者後台</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain
-          items={[{ href: "/", title: "總覽" }, ...pages].map((p) => ({ title: p.title, url: p.href, icon: PAGE_ICONS[p.href] }))}
-        />
+        <NavMain items={visibleNavItems(nav).map((p) => ({ title: p.title, url: p.href, icon: <p.icon /> }))} />
         <NavSecondary
-          label="工具"
-          items={tools.map((t) => ({ title: `${t.tool}・${t.title}`, url: t.url, icon: TOOL_ICONS[t.key] }))}
+          label="外部工具"
+          items={toolNavItems(tools).map(({ icon: Icon, ...t }) => ({ ...t, icon: <Icon /> }))}
           className="mt-auto"
         />
       </SidebarContent>

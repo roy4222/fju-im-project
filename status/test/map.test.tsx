@@ -284,7 +284,7 @@ describe('資料不夠時照樣畫得出來', () => {
 
   it('沒有 test-map.json：提示還沒有設定', async () => {
     vi.stubEnv('STATUS_DATA_DIR', await mkdtemp(path.join(tmpdir(), 'status-map-')))
-    expect(await render()).toContain('還沒有測試地圖設定')
+    expect(await render()).toContain('還沒有驗收地圖設定')
   })
 
   it('從來沒有 full 驗收：標題寫「還沒有任何完整驗收」', async () => {

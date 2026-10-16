@@ -27,7 +27,7 @@ afterEach(() => vi.unstubAllEnvs())
 describe('總覽頁', () => {
   it('三頁入口連到 /map、/progress、/go-live', async () => {
     const html = await render(fixtures)
-    for (const [id, title] of [['map', '測試地圖'], ['progress', '開發進度'], ['go-live', '能不能上線']]) {
+    for (const [id, title] of [['map', '驗收地圖'], ['progress', '開發進度'], ['go-live', '能不能上線']]) {
       expect(html).toMatch(new RegExp(`<a(?=[^>]*href="/${id}")(?=[^>]*data-testid="page-${id}")`))
       expect(html).toContain(title)
     }

@@ -1,3 +1,5 @@
+import type { Metadata } from "next"
+
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageShell } from "@/components/page-shell"
 import { readData, readSummaryJson } from "@/lib/data/read"
@@ -5,6 +7,8 @@ import { shortSha } from "@/lib/data/version"
 import { buildSections, buildTestMap, type TestMapView } from "@/lib/map/grid"
 
 import { CellDrawer, MatrixCard, Notice, SectionsCard, StaleBar } from "./map-view"
+
+export const metadata: Metadata = { title: "驗收地圖" }
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 
@@ -22,9 +26,9 @@ export default async function MapPage({
 
   if (testMap.status !== "ok") {
     return (
-      <PageShell title="測試地圖">
+      <PageShell title="驗收地圖">
         <Notice testId="map-no-config">
-          還沒有測試地圖設定（collector 的 repo/test-map.json{testMap.status === "invalid" ? `：${testMap.error}` : "不存在"}）。
+          還沒有驗收地圖設定（collector 的 repo/test-map.json{testMap.status === "invalid" ? `：${testMap.error}` : "不存在"}）。
         </Notice>
       </PageShell>
     )
@@ -43,7 +47,7 @@ export default async function MapPage({
   const roleName = cell ? testMap.data.roles.find((x) => x.key === cell.role)?.name ?? cell.role : ""
 
   return (
-    <PageShell title="測試地圖">
+    <PageShell title="驗收地圖">
       {view ? <StaleBar stale={view.stale} /> : null}
 
       <Card data-testid="map-run">
@@ -55,7 +59,7 @@ export default async function MapPage({
               : runId
                 ? ""
                 : "Mac mini 跑完一夜 full 驗收、推上來之後這裡才有格子。"}
-            測試地圖設定版本 {shortSha(testMap.data.sourceSha) ?? "不明"}。
+            驗收地圖設定版本 {shortSha(testMap.data.sourceSha) ?? "不明"}。
           </CardDescription>
         </CardHeader>
       </Card>
