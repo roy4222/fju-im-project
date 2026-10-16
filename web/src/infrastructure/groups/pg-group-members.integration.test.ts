@@ -398,7 +398,7 @@ describe('移出組員', () => {
     expect(history.find((h) => h.kind === 'leader_changed')).toMatchObject({ previousLeaderName: leader.name, userName: successor.name })
   })
 
-  it('移出最後一人：要走解散（之後才開放），先擋下，組員與組長都不動', async () => {
+  it('移出最後一人：只剩一人時不能再移出，先擋下，組員與組長都不動', async () => {
     const cohortId = await newCohort({ min: 2, max: 5 })
     const [a, b] = await students(cohortId, 2)
     const { groupId } = await establishGroup([a!, b!])
@@ -415,7 +415,7 @@ describe('移出組員', () => {
       randomUUID(),
     )
     expect(last).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    if (!last.ok) expect(last.message).toContain('解散')
+    if (!last.ok) expect(last.message).toContain('只剩一人時不能再移出')
     expect(await activeMemberIds(groupId)).toEqual([a!.id])
     expect(await expectOneLeaderWhoIsMember(groupId)).toBe(a!.id)
   })

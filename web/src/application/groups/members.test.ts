@@ -62,13 +62,13 @@ describe('移出的前置條件', () => {
     expect(decideRemoval({ memberIds: [A, B, C], leaderId: A, targetId: A, successorId: C })).toEqual({ ok: true, leaderChange: true })
   })
 
-  it('移出最後一人：要走解散（之後才開放），先擋；已經不在組裡 → NOT_MEMBER', () => {
+  it('移出最後一人：只剩一人時不能再移出，先擋；已經不在組裡 → NOT_MEMBER', () => {
     expect(decideRemoval({ memberIds: [A], leaderId: A, targetId: A, successorId: null })).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
     })
     const last = decideRemoval({ memberIds: [A], leaderId: A, targetId: A, successorId: null })
-    if (!last.ok) expect(last.message).toContain('解散')
+    if (!last.ok) expect(last.message).toContain('只剩一人時不能再移出')
     expect(decideRemoval({ memberIds: [A, B], leaderId: A, targetId: C, successorId: null })).toMatchObject({ ok: false, code: 'NOT_MEMBER' })
   })
 })
