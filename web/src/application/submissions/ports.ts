@@ -1,6 +1,7 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
 import type { DeclaredUpload, UploadTicket } from '@/application/ops'
+import type { ReceiverFacts } from '@/application/submissions/roster'
 import type { Answers } from '@/application/submissions/submissions'
 import type { Result } from '@/shared/result'
 
@@ -339,8 +340,23 @@ export type AdvisorVisibilityView = {
   readonly hasResponses: boolean
 }
 
+/**
+ * 系辦首頁算完成率與逾期用的事實（AD-19）：一份發布中收件的時間窗，加上名單上每一位收件者的事實。
+ * 只給 `completionOf`／`overdueReceiverIds` 要的欄位，不帶姓名、學號、組別代碼。
+ */
+export type ItemCompletionFacts = {
+  readonly item: Pick<RosterItem, 'itemId' | 'title' | 'receiverUnit' | 'opensAt' | 'dueAt'>
+  readonly entries: readonly (ReceiverFacts & { readonly receiverId: string })[]
+}
+
 export interface RosterQuery {
   roster(actor: ResolvedActor, itemId: string): Promise<ItemRoster | null>
+  /**
+   * 一屆**全部**發布中、會收件的項目與名單事實，一次讀完（AD-19，取代首頁逐份 `roster()` 的 N+1）。
+   * 順序與「收件項目」列表相同（最近更新的在前）。完成率與逾期**不在這裡算**：呼叫端照舊用 `completionOf`／`overdueReceiverIds`，
+   * 免繳、移出、補交期限、跨作業去重的規則與名單頁同一份程式。不是管理員、屆別 id 不對回空陣列。
+   */
+  completionFacts(actor: ResolvedActor, cohortId: string): Promise<readonly ItemCompletionFacts[]>
   /** 某一位收件者的名單歷史與正式版本。不在這份收件的名單上（從來沒在過）回 null。 */
   receiver(actor: ResolvedActor, itemId: string, receiverId: string): Promise<ReceiverDetail | null>
   /** 某一位收件者某一次正式送出的內容（唯讀）。 */

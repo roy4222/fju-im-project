@@ -5,6 +5,7 @@ import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
 import type { SubmissionLateFlags } from '@/application/ops'
 import type {
   AdvisorVisibilityView,
+  ItemCompletionFacts,
   ItemRoster,
   MyVersionDetail,
   ReceiverDetail,
@@ -76,6 +77,10 @@ export type EntryRow = {
   reopen_until?: Date | null
 }
 
+/** 同一收件者有多列時誰排第一：目前那一列優先，否則最後一次移出的（名單頁與首頁聚合查詢共用）。 */
+const CURRENT_ROW_FIRST = `(r.eligible_to_business_at is null) desc,
+              r.eligible_to_business_at desc nulls first, r.eligible_from_business_at desc, r.id desc`
+
 /**
  * 每個收件者取一列：目前那一列優先，否則最後一次移出的。`$1`＝項目；`$2`＝只看某一位（null＝全部）。
  * 人的學號看本屆學籍（沒有就看個人資料），組別看本屆目前的組；組別收件的名稱就是組別代號。
@@ -85,8 +90,7 @@ const ENTRIES = `
     select distinct on (r.receiver_kind, r.receiver_id) r.*
       from response_rosters r
      where r.item_id = $1 and ($2::uuid is null or r.receiver_id = $2::uuid)
-     order by r.receiver_kind, r.receiver_id, (r.eligible_to_business_at is null) desc,
-              r.eligible_to_business_at desc nulls first, r.eligible_from_business_at desc, r.id desc
+     order by r.receiver_kind, r.receiver_id, ${CURRENT_ROW_FIRST}
   )
   select r.receiver_kind, r.receiver_id,
          case when r.receiver_kind = 'group' then gr.code else coalesce(p.display_name, u.name) end as name,
@@ -108,6 +112,47 @@ const ENTRIES = `
     left join users su on su.id = latest.submitted_by_user_id
     left join user_profiles sp on sp.user_id = latest.submitted_by_user_id
    order by (r.eligible_to_business_at is not null), r.exempt, group_code nulls last, student_no nulls last, name`
+
+/**
+ * 首頁聚合查詢的項目範圍（`$1`＝屆別）：發布中、會收件（`collectsResponses`：繳交、需求）、有收件單位、沒刪除。
+ * 跟首頁原本逐份讀名單時挑的項目一樣（`admin/page.tsx` 的 `publishedIntake`，再加 `rosterItemOf` 的 `receiver_unit <> 'none'`）。
+ */
+const INTAKE_ITEMS = `
+  m.cohort_id = $1 and m.status = 'published' and m.placement in ('submission', 'requirement')
+  and m.receiver_unit <> 'none' and m.deleted_at is null`
+
+/** 一屆全部收件的名單事實：每份 × 每位收件者取一列（與 `ENTRIES` 同一個挑法），不讀姓名、學號、組別。 */
+const COMPLETION_FACTS = `
+  with picked as (
+    select distinct on (r.item_id, r.receiver_kind, r.receiver_id) r.*
+      from response_rosters r
+      join managed_items m on m.id = r.item_id
+     where ${INTAKE_ITEMS}
+     order by r.item_id, r.receiver_kind, r.receiver_id, ${CURRENT_ROW_FIRST}
+  )
+  select r.item_id, r.receiver_id, r.eligible_to_business_at, r.exempt,
+         facts.has_draft, latest.version_no as latest_version_no,
+         ${REOPEN_UNTIL}
+    from picked r
+    ${receiverFactsJoin('r.item_id', 'r.receiver_kind', 'r.receiver_id')}`
+
+type FactsItemRow = {
+  id: string
+  title: string
+  receiver_unit: ReceiverUnit
+  opens_at: Date | null
+  due_at: Date | null
+}
+
+type FactsEntryRow = {
+  item_id: string
+  receiver_id: string
+  eligible_to_business_at: Date | null
+  exempt: boolean
+  has_draft: boolean
+  latest_version_no: number | null
+  reopen_until: Date | null
+}
 
 export function toEntry(row: EntryRow): RosterEntry {
   return {
@@ -146,6 +191,36 @@ export class PgRosterQuery implements RosterQuery {
     if (!item) return null
     const rows = await this.#reader().query<EntryRow>(ENTRIES, [itemId, null])
     return { item, entries: rows.rows.map(toEntry) }
+  }
+
+  /** 首頁用（AD-19）：固定 2 句 SQL——項目一句、全部名單事實一句，不隨作業數增加。 */
+  async completionFacts(actor: ResolvedActor, cohortId: string): Promise<readonly ItemCompletionFacts[]> {
+    if (authorizeAdmin(actor) || !isUuid(cohortId)) return []
+    const db = this.#reader()
+    const [items, entries] = await Promise.all([
+      db.query<FactsItemRow>(
+        // 順序同「收件項目」列表（`PgItemQuery.list`）：首頁完成率只列前幾份，挑的要跟原本一樣。
+        `select m.id, m.title, m.receiver_unit, m.opens_at, m.due_at from managed_items m
+          where ${INTAKE_ITEMS} order by m.updated_at desc, m.id`,
+        [cohortId],
+      ),
+      db.query<FactsEntryRow>(COMPLETION_FACTS, [cohortId]),
+    ])
+    const byItem = new Map<string, ItemCompletionFacts['entries'][number][]>(items.rows.map((row) => [row.id, []]))
+    for (const row of entries.rows) {
+      byItem.get(row.item_id)?.push({
+        receiverId: row.receiver_id,
+        eligibleTo: row.eligible_to_business_at,
+        exempt: row.exempt,
+        hasDraft: row.has_draft,
+        latestVersionNo: row.latest_version_no,
+        reopenUntil: row.reopen_until,
+      })
+    }
+    return items.rows.map((row) => ({
+      item: { itemId: row.id, title: row.title, receiverUnit: row.receiver_unit, opensAt: row.opens_at, dueAt: row.due_at },
+      entries: byItem.get(row.id) ?? [],
+    }))
   }
 
   async receiver(actor: ResolvedActor, itemId: string, receiverId: string): Promise<ReceiverDetail | null> {

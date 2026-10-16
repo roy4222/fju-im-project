@@ -50,6 +50,7 @@ export type {
   AnswerFile,
   DraftReceipt,
   GroupSummary,
+  ItemCompletionFacts,
   ItemRoster,
   ReceiverDetail,
   RosterEntry,
