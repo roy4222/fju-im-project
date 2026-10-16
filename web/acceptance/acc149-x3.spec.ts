@@ -230,7 +230,7 @@ test('x3:8 匯入名單、兩位學生註冊並核准、登入', async ({ browse
 
 test('x3:9（讀取）學生 1 首頁行事曆看今天+3、+4、+5 天（判定在最後一個測試）', async () => {
   const page = student(0).page
-  await page.goto('/dashboard/student')
+  await page.goto('/timeline')
   try {
     const day5 = await calendarDay(page, ymd(5))
     const day3 = await calendarDay(page, ymd(3))
