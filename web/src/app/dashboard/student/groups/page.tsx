@@ -164,15 +164,15 @@ export default async function StudentGroupsPage({
       <p className="mt-1 text-[20px] font-extrabold tracking-tight">
         {group ? `${group.code}・${GROUP_TYPE_LABEL[group.groupType]}` : proposal ? `組隊中・${GROUP_TYPE_LABEL[proposal.groupType]}` : '還沒分組'}
       </p>
-      <p className="tabular mt-0.5 text-sm text-muted-foreground">
-        {group
-          ? `已成組・${group.members.length} 人`
-          : proposal
-            ? `提案中・${confirmedCount}／${proposal.invitations.length} 已確認`
-            : groupingClosed
-              ? '分組期已經結束'
-              : '找隊員、發起提案都在「找隊員」'}
-      </p>
+      {group || proposal || groupingClosed ? (
+        <p className="tabular mt-0.5 text-sm text-muted-foreground">
+          {group
+            ? `已成組・${group.members.length} 人`
+            : proposal
+              ? `提案中・${confirmedCount}／${proposal.invitations.length} 已確認`
+              : '分組期已經結束'}
+        </p>
+      ) : null}
     </div>
   )
 
