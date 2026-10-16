@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -55,7 +56,8 @@ function useDialog() {
   const ref = useRef<HTMLDialogElement>(null)
   const open = useCallback(() => ref.current?.showModal(), [])
   const close = useCallback(() => ref.current?.close(), [])
-  return { ref, open, close }
+  // 回傳值要穩定：每次 render 都給新物件的話，依賴它的 effect 每次都重跑（新建合作案後會無限重繪，網站問題 #1）。
+  return useMemo(() => ({ ref, open, close }), [open, close])
 }
 
 /** 送出但不讓 React 在 action 回來後重設表單：被伺服器拒絕時，已經打好的長段文字不能不見。 */
@@ -109,7 +111,8 @@ export function OpportunityFormDialog({
     } else if (state?.field) {
       formRef.current?.querySelector<HTMLElement>(`[name="${state.field}"]`)?.focus()
     }
-  }, [state, dialog, editing])
+    // 只看 action 回傳：dialog、editing 從這次 render 讀就對了，放進依賴會在 setVersion 重繪後再跑一次。
+  }, [state])
 
   const value = (field: OpportunityField) => initial?.values[field] ?? ''
   const field = (name: OpportunityField, options: { required?: boolean; textarea?: boolean; rows?: number; type?: string; span?: boolean } = {}) => {
