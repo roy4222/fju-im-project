@@ -177,6 +177,8 @@ describe('AC-AD-01 首頁只有一組待辦卡', () => {
     const home = await loadAdminHome(fakePorts(ac01()), actor, ctx)
     const cards = adminTodoCards(home)
     expect(cards.map((c) => c.title)).toEqual(['待審帳號 3', '逾期未繳 4', '評分還差 7 份', '等老師同意 2'])
+    // 待審卡不放小字：帳號統計沒有「最早 X 天前送出」，也不放跟待審無關的數字（主腦裁定）。
+    expect(cards[0]!.meta).toBeUndefined()
     expect(cards[1]!.meta).toBe('欠繳 3 人、1 組・發布中 3 個作業')
     expect(cards[2]!.meta).toBe('2 位老師未完成')
     expect(cards[3]!.meta).toBe('學生已全部同意')

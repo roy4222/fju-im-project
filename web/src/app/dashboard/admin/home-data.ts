@@ -181,7 +181,7 @@ export type AdminTodoCard = {
   readonly kind: TodoCardKind
   readonly tone: Tone
   readonly title: string
-  readonly meta: string
+  readonly meta?: string
   readonly href: string
   readonly pill?: { readonly tone: Tone; readonly label: string }
 }
@@ -203,7 +203,8 @@ export function adminTodoCards(home: AdminHome): readonly AdminTodoCard[] {
       kind: 'accounts',
       tone: 'alert',
       title: `待審帳號 ${summary ? pendingApps : '—'}`,
-      meta: summary ? `已核准學生 ${summary.activeStudents} 位` : '讀不到帳號統計',
+      // 「最早 X 天前送出」要帳號統計多一個欄位（B 階段）；在那之前不放小字（主腦裁定）。
+      meta: summary ? undefined : '讀不到帳號統計',
       href: `${BASE}/accounts?status=pending`,
       pill: summary ? (pendingApps > 0 ? OPEN('alert') : NONE) : undefined,
     },
