@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import Link from 'next/link'
+import { IconArrowLeft } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle } from '@/app/_ui/dashboard-primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -10,11 +12,12 @@ import { studentSignoff } from '@/app/dashboard/student/_todo/todos'
 import { ConsentVersion } from '@/app/dashboard/student/signoff/consent-view'
 import { BUTTON_TEXT, MAX_REASON_CHARS } from '@/composition/signoff'
 
-export const metadata = { title: '站內同意書｜資管系專題平台' }
+export const metadata = { title: '同意書｜資管系專題平台' }
 
 /**
- * 學生「同意書」（票 25、26；原型 `/dashboard/student/signoff`，票 38 換成原型版型）：自己**此刻所在組別**每個簽核包的目前那一版——
- * 左邊全文、附件、授權範圍與本人的表態（勾「已完整閱讀」→「我已閱讀並同意」→ 確認框；或不同意並填理由），右邊逐人進度。
+ * 學生「同意書」（票 25、26；ST-8 換成原型 `student-consent` 版型）：自己**此刻所在組別**每個簽核包的目前那一版——
+ * 左邊全文、附件、授權範圍與本人的表態（勾「已完整閱讀」→「我已閱讀並同意」→ 確認框；或不同意並填理由），右邊「全組表態」。
+ * 不在側欄：從交作業的同意書卡（`?version=<versionId>`）進來，所以頁首有回「交作業」的連結。
  * 誰是本人由登入者決定，別組的版本這裡拿不到（版本頁的讀取邊界見 `SignoffQuery.versionDetail`）。
  *
  * 版本因組員或主指導變更而失效時，上方顯示原因與「等待管理員建立新版」，沒有表態按鈕；
@@ -30,7 +33,14 @@ export default async function StudentSignoffPage({ searchParams }: { searchParam
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/signoff">
       <div className="flex flex-col gap-5">
-        <PageTitle title="站內同意書" description="每個人只代表自己一票；全部組員同意後才輪到指導老師。" />
+        <Link
+          href="/dashboard/student/affairs"
+          className="inline-flex w-fit items-center gap-1 rounded-md text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <IconArrowLeft className="size-4" aria-hidden /> 交作業
+        </Link>
+        {/* 只看一版時標題就是那一版（G01・最終文件授權）；空的或好幾版時頁面另有一個 h1。 */}
+        {versions.length === 1 ? null : <PageTitle title="同意書" />}
         {versions.length === 0 ? (
           <EmptyState
             title="目前沒有待處理的同意書"
@@ -46,27 +56,29 @@ export default async function StudentSignoffPage({ searchParams }: { searchParam
             <ConsentVersion
               key={v.versionId}
               v={v}
+              headingLevel={versions.length === 1 ? 1 : 2}
               action={
                 v.viewer.role === null ? null : (
-                <MyResponse
-                  v={v}
-                  form={
-                    <RespondForm
-                      versionId={v.versionId}
-                      contentChecksum={v.contentChecksum}
-                      requestId={randomUUID()}
-                      role="student"
-                      agreeText={BUTTON_TEXT.student.agree}
-                      rejectText={BUTTON_TEXT.student.reject}
-                      reasonMaxLength={MAX_REASON_CHARS}
-                    />
-                  }
-                />
+                  <MyResponse
+                    v={v}
+                    form={
+                      <RespondForm
+                        versionId={v.versionId}
+                        contentChecksum={v.contentChecksum}
+                        requestId={randomUUID()}
+                        role="student"
+                        agreeText={BUTTON_TEXT.student.agree}
+                        rejectText={BUTTON_TEXT.student.reject}
+                        reasonMaxLength={MAX_REASON_CHARS}
+                      />
+                    }
+                  />
                 )
               }
             />
           ))
         )}
+        <p className="text-xs text-muted-foreground">每個人只代表自己一票；全部組員同意後才輪到指導老師。任何人都不能替別人同意，系辦也不行；投了不能改。</p>
       </div>
     </DashboardShell>
   )
