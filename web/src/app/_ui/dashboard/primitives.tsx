@@ -14,16 +14,39 @@ import { cn } from '@/shared/cn'
  * 舊的 `_ui/primitives.tsx`（Card、Tile、PageHeader…）保留給還沒換版型的頁面，這裡是新增、不取代。
  */
 
-/** 頁標題：24px 特粗，一行灰字說明，右邊放主要動作。 */
-export function PageTitle({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+/**
+ * 頁標題：40px／900 深藍，一行灰字說明，右邊放主要動作；狀態句放 `note`，獨占標題列下方一列。
+ *
+ * 網站問題 #8（SH-3，設計方案 §3.7）：標題區至少 16rem，actions 放不下時整塊換到下一列，
+ * 標題不縮（以前 actions `shrink-0` 又很寬，標題被擠到寬 0、一字一行）。
+ */
+export function PageTitle({
+  title,
+  description,
+  actions,
+  note,
+}: {
+  title: string
+  description?: ReactNode
+  actions?: ReactNode
+  note?: ReactNode
+}) {
   return (
-    // 桌面：標題與說明在左、動作固定在右（說明再長也不把按鈕擠到下一行）；手機：動作排在說明下面。
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-[24px] leading-tight font-extrabold tracking-tight text-foreground">{title}</h1>
+    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div className="min-w-0 flex-[1_1_16rem]">
+        <h1 className="text-[40px] leading-tight font-black tracking-tight text-ink">{title}</h1>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex max-w-full flex-wrap items-center justify-end gap-2" data-testid="page-title-actions">
+          {actions}
+        </div>
+      ) : null}
+      {note ? (
+        <p role="status" className="basis-full text-sm text-muted-foreground">
+          {note}
+        </p>
+      ) : null}
     </div>
   )
 }

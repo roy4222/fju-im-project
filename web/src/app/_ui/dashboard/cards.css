@@ -1,0 +1,56 @@
+/* ==========================================================================
+   共用卡片（SH-3）：TodoCard、StatusPill、SectionHead。由 cards.tsx import。
+
+   顏色只**消費** token，不寫色值（Roy：不改色）：
+   - 七個 tone 讀 `--st-*`（SH-2 在 globals.css 定義淺深兩套）；還沒有時退回 `currentColor`，不會壞。
+   - 其餘用既有的 `--card`、`--border`、`--foreground`、`--muted-foreground`、`--ink`、`--accent`、`--ring`。
+   `data-tone` 只在 `.todo-card`／`.status-pill` 上解讀（前台首頁也有自己的 data-tone）。
+   ========================================================================== */
+@layer components {
+  :is(.todo-card, .status-pill)[data-tone="overdue"] { --tone: var(--st-overdue, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="soon"] { --tone: var(--st-soon, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="done"] { --tone: var(--st-done, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="open"] { --tone: var(--st-open, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="violet"] { --tone: var(--st-violet, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="alert"] { --tone: var(--st-alert, currentColor); }
+  :is(.todo-card, .status-pill)[data-tone="neutral"] { --tone: var(--st-neutral, currentColor); }
+
+  .todo-card {
+    display: flex; align-items: flex-start; gap: 14px; min-width: 0; padding: 14px 16px;
+    background: var(--card); color: var(--foreground);
+    border: 1px solid var(--border); border-left: 4px solid var(--tone); border-radius: 14px;
+    transition: background-color 150ms;
+  }
+  .todo-card:hover { background: color-mix(in oklch, var(--accent) 50%, var(--card)); }
+  .todo-card:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .todo-card-icon {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 12px;
+    color: var(--tone); background: color-mix(in oklch, var(--tone) 12%, transparent);
+  }
+  .todo-card-icon svg { width: 22px; height: 22px; }
+  .todo-card-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+  .todo-card-title { font-size: 15px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+  .todo-card-meta { font-size: 13px; line-height: 1.45; color: var(--muted-foreground); }
+  .todo-card > .status-pill { flex: none; margin-left: auto; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; line-height: 1.5; white-space: nowrap;
+    color: var(--tone); background: color-mix(in oklch, var(--tone) 14%, transparent);
+  }
+  .dark .status-pill { background: color-mix(in oklch, var(--tone) 18%, transparent); }
+
+  .section-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .section-head-title { font-size: 22px; font-weight: 900; line-height: 1.25; letter-spacing: -0.01em; color: var(--ink); }
+  .section-head-count {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 8px; border-radius: 999px;
+    font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--foreground); background: var(--muted);
+  }
+  .section-head-rule { flex: 1 1 auto; height: 1px; min-width: 16px; background: var(--border); }
+  .section-head-action {
+    display: inline-flex; flex: none; align-items: center; gap: 4px; font-size: 13px; font-weight: 600;
+    color: var(--muted-foreground); transition: color 150ms;
+  }
+  .section-head-action:hover { color: var(--foreground); }
+  .section-head-action svg { width: 14px; height: 14px; }
+}
