@@ -333,7 +333,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/editor/new': '存草稿',
     '/dashboard/student/affairs': '你需要繳交的每一項、狀態與截止',
     '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
-    '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
+    '/dashboard/admin/grading': '成績表',
     '/dashboard/teacher/grading': '評分草稿只有你和系辦看得到，正式送出後鎖定',
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
     // 簽核與精選（票 25）。
@@ -347,6 +347,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
     // 首頁設定（第三波 W3）。
     '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
+    // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
+    '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -392,6 +394,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 專題時間軸與產學合作（票 38）。
     { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
     { path: '/dashboard/student/industry', wrongRole: 'admin' },
+    // 評分規則子頁（AD-08）。
+    { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {
