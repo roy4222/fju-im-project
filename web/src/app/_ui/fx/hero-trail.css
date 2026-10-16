@@ -1,0 +1,10 @@
+/* ==========================================================================
+   現在橫幅的像素拖尾（hero-trail.tsx）：鋪滿 `.hero`、不擋點擊。
+   原型是「壓在文字底下、花紋上面」：`.hero::after`（右下的圓）沒設 z-index，拖尾要 z-index 1 才蓋得過它，
+   所以有拖尾時其他子元素提到 2（globals.css 的 `.hero > *` 是 1）。只在 `.hero` 裡有拖尾時生效。
+   ========================================================================== */
+@layer components {
+  .hero > .hero-trail { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+  .hero:has(> .hero-trail) > :not(.hero-trail) { z-index: 2; }
+  .hero-trail > canvas { display: block; width: 100%; height: 100%; }
+}
