@@ -9,7 +9,7 @@ export const DEFAULT_BASE_DOMAIN = 'roy422.dev'
 export type PageEntry = { href: string; title: string; description: string }
 
 export const PAGES: PageEntry[] = [
-  { href: '/map', title: '測試地圖', description: '哪個角色的哪個功能真的被點過、有沒有截圖；前台每一區對應哪個管理後台' },
+  { href: '/map', title: '驗收地圖', description: '哪個角色的哪個功能真的被點過、有沒有截圖；前台每一區對應哪個管理後台' },
   { href: '/progress', title: '開發進度', description: '每張票做到哪、PR 狀態、票清單跟 GitHub 有沒有對上' },
   { href: '/go-live', title: '能不能上線', description: '五條上線條件各自綠、紅、灰，與原因' },
 ]

@@ -47,7 +47,7 @@ export function StaleBar({ stale }: { stale: StaleRef[] }) {
       data-testid="map-stale"
       className="rounded-lg border border-yellow-300 bg-yellow-100 px-4 py-3 text-sm text-yellow-950 dark:border-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-100"
     >
-      測試地圖指到不存在的步驟：{stale.map((s) => `${s.item} 第 ${s.step} 步`).join("、")}。請更新 docs/status/test-map.json。
+      驗收地圖指到不存在的步驟：{stale.map((s) => `${s.item} 第 ${s.step} 步`).join("、")}。請更新 docs/status/test-map.json。
     </div>
   )
 }

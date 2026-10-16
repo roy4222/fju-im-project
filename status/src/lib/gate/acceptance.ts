@@ -212,7 +212,7 @@ export function evaluateAcceptance(input: AcceptanceGateInput): GateResult {
 }
 
 function summaryLink(runId: string) {
-  return { href: `/map`, label: `看 ${runId} 的測試地圖` }
+  return { href: `/map`, label: `看 ${runId} 的驗收地圖` }
 }
 
 /** (a′) 必要步驟齊全；(e) 每一步的結果。 */

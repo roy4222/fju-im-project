@@ -2,8 +2,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 /* 以下幾個 variant 原本在 `shadcn/tailwind.css`；只抄元件用到的部分，免得把 shadcn CLI 裝成執行期依賴。 */
 @custom-variant data-open {
   &:where([data-state="open"]),
@@ -132,7 +130,9 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+/* 深色跟著系統（Q98），不掛 .dark class、不加切換鈕。Tailwind 4 的 dark: 變體預設就是這個 media query。 */
+@media (prefers-color-scheme: dark) {
+  :root {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -164,6 +164,7 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+  }
 }
 
 @layer base {
