@@ -34,6 +34,8 @@ const MUST_FAIL = [
   ['lint-fixtures/src/infrastructure/invalid-imports-module-private.ts', 'fju/module-boundary'],
   // 包裝器是唯一入口（S01-03）：繞過它直接拿 Better Auth 實例要被擋
   ['lint-fixtures/src/application/demo/invalid-imports-auth-instance.ts', 'no-restricted-imports'],
+  // Server Action 讀快取住的身分要被擋（SH-P1，設計方案 §3.10）
+  ['lint-fixtures/src/app/demo/invalid-cached-actor/actions.ts', 'fju/no-cached-actor-in-actions'],
 ]
 
 /** 合法例：一個錯都不該有。 */

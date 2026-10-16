@@ -25,12 +25,18 @@ export async function currentActor(): Promise<ResolvedActor> {
 }
 
 /**
- * 外殼（頂列頭像、通知鈴鐺）用的「這次請求是誰」：同一次渲染只解析一次，頭像與鈴鐺共用。
+ * 畫面用的「這次請求是誰」：同一次 RSC render（layout、page、外殼）只解析一次。
  *
- * 刻意**不**把 `currentActor` 本身包 `cache`：Server Action 會在同一個請求裡先改狀態
- * （改密、登出）再重畫，快取住的舊身分可能被拿去做判斷。這裡只給顯示用，不做授權。
+ * React `cache` 以**請求**為範圍（Next 文件 `fetching-data.md`：scoped to the current
+ * request only，請求之間不共享）。一次 RSC render 內 layout、page、外殼都是讀取、沒有任何寫入，
+ * 三處看到同一瞬間的身分是正確的，不是過期。授權仍在每個用例裡再判一次（契約 03 §1）。
+ * Server Action 會在同一個請求裡先改狀態再重畫，所以 action／route 只准用不快取的
+ * `currentActor()`，由 lint 規則擋（`fju/no-cached-actor-in-actions`）。
  */
-export const shellViewer = cache(currentActor)
+export const renderActor = cache(currentActor)
+
+/** `renderActor` 的舊名（外殼的頭像與鈴鐺）；既有 import 不改。 */
+export const shellViewer = renderActor
 
 /** 三種後台各自的首頁；403 頁的「回到自己的首頁」也用這個。 */
 export function homeFor(actor: ResolvedActor): string {
@@ -49,7 +55,7 @@ export function homeFor(actor: ResolvedActor): string {
  * 帳號狀態擋下時導到對應的頁（待審核、必須改密）而不是丟一個錯誤頁。
  */
 export async function requireSignedIn(pathname: string, capability: Capability = 'business') {
-  const actor = await currentActor()
+  const actor = await renderActor()
   if (actor.kind === 'anonymous') redirect(`/login?next=${encodeURIComponent(pathname)}`)
 
   const blocked = checkStatus(actor, capability)
