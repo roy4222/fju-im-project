@@ -122,7 +122,14 @@ export function evaluateProdEnv(vm: VmData | null, now: Date): GateResult {
   ]
   if (env.flags?.REGISTRATION_OPEN !== 'false' && env.flags?.REGISTRATION_OPEN !== 'absent') reasons.push('REGISTRATION_OPEN 不是 false')
   if (env.flags?.BUSINESS_CLOCK_OVERRIDE_ENABLED !== 'false') reasons.push('BUSINESS_CLOCK_OVERRIDE_ENABLED 不是 false')
-  if (reasons.length) return { ...base, state: 'red', summary: `正式站設定有 ${reasons.length} 處不對`, reasons }
+  // 正式站網域的 A 記錄（設計方案 §7.4）：跟 envcheck 同一條 26 小時規則；envcheck 的紅優先，兩種原因都列。
+  const dns = vm.prodDns
+  const dnsAge = age(dns?.checkedAt, now)
+  const dnsFresh = !!dns && dnsAge !== null && dnsAge <= 26 * HOUR
+  const noA = dnsFresh && dns.hasA !== true ? `${dns.host} 沒有 A 記錄` : null
+  if (reasons.length) return { ...base, state: 'red', summary: `正式站設定有 ${reasons.length + (noA ? 1 : 0)} 處不對`, reasons: noA ? [...reasons, noA] : reasons }
+  if (noA) return { ...base, state: 'red', summary: noA, reasons: [noA] }
+  if (!dnsFresh) return { ...base, state: 'grey', summary: 'DNS 檢查沒有資料', reasons: [] }
   return { ...base, state: 'green', summary: `正式站設定齊全（${formatAge(a)}檢查）`, reasons: [] }
 }
 
