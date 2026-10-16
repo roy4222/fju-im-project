@@ -1,114 +1,43 @@
 import Link from 'next/link'
-import { IconAlertTriangle, IconChecklist, IconDatabase, IconPencilPlus, IconSignature, IconUserQuestion } from '@tabler/icons-react'
-import type { Completion } from '@/application/submissions'
+import type { ReactNode } from 'react'
+import { IconAlertTriangle, IconChecklist, IconPencilPlus, IconSignature, IconUserQuestion } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { HomeHero, loadStage } from '@/app/dashboard/_stage'
 import { Donut, LegendRow, ListRow, Meter, Panel, PanelEmpty, Pill } from '@/app/dashboard/_home'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { Tile } from '@/app/_ui/primitives'
+import { SectionHead, TodoCard } from '@/app/_ui/dashboard/cards'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { adminHeroCta } from '@/app/dashboard/admin/home-cta'
-import { getAccountDirectoryCommand } from '@/composition/accounts'
-import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
-import { getGroupQuery } from '@/composition/groups'
-import { collectsResponses, getItemQuery } from '@/composition/items'
-import { getOpsStatusQuery } from '@/composition/ops'
-import { getSignoffQuery } from '@/composition/signoff'
-import { completionOf, getRosterQuery, overdueReceiverIds } from '@/composition/submissions'
+import { adminHomePorts, adminTodoCards, heroLine, loadAdminHome, type TodoCardKind } from '@/app/dashboard/admin/home-data'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
 
 const BASE = '/dashboard/admin'
-/** 首頁的完成率列表最多列幾份收件；更多的到「專題事務」看。逾期磚不受這個限制（掃全部發布中的收件）。 */
-const INTAKE_LIMIT = 6
+
+const TODO_ICON: Record<TodoCardKind, ReactNode> = {
+  accounts: <IconUserQuestion />,
+  overdue: <IconAlertTriangle />,
+  grading: <IconChecklist />,
+  signoff: <IconSignature />,
+}
 
 /**
- * 管理員首頁（2026-09-25 外觀對齊原型 `home-admin`，區塊與順序照原型）：
- * 一列歡迎＋現在階段 → 四磚待處理（＋儲存與備份）→ 各收件項目完成率＋本屆分組 → 老師評分進度＋我發的公告。
+ * 管理員首頁（AD-02，設計方案 §3.1）：
+ * 歡迎列＋現在階段 → 「待辦」四張卡 →（有才出現）成績更正待復核 → 作業完成率＋本屆分組 → 老師評分進度＋我發的公告。
  *
- * 每個數字都接到真的處理路徑（原型 Codex A-05），讀取全部走既有的 composition 查詢，
- * 都是管理員才讀得到的（頁面守門，用例與查詢自己再判一次）。沒有資料時區塊照樣在，顯示 0 或一句空狀態。
- * 原型的「催繳」按鈕還沒有這個功能，不放假按鈕。
+ * 每個數字都接到真的處理路徑；資料全部由 `loadAdminHome` 讀（可注入 port，AC-AD-04 計數）。
+ * 「主機儲存」只在開發者後台看，這裡不讀。沒有資料時區塊照樣在，顯示 0 或一句空狀態。
  */
 export default async function AdminHomePage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住，App Router 會把 layout 與 page 並行渲染，
   // layout 丟掉 children 或 redirect 都來不及——那一頁已經被做出來、跟著 payload 送走了。
   const actor = await requireRole(BASE, 'admin')
   const ctx = await loadStage(actor, 'staff')
-  const cohortId = ctx.cohort?.id ?? null
-
-  const [summaryResult, storage, overview, gradingResult, signoffResult, items, gradebookResult] = await Promise.all([
-    getAccountDirectoryCommand().summary(actor),
-    // 儲存用量（票 28）：背景工作每小時量一次，這裡只讀最新一筆；≥80% 只在這裡標「警戒」，不推播。
-    getOpsStatusQuery().storageTile(actor),
-    cohortId ? getGroupQuery().overview(cohortId) : Promise.resolve(null),
-    cohortId ? getGradingQuery().adminBoard(actor, cohortId) : Promise.resolve(null),
-    cohortId ? getSignoffQuery().adminBoard(actor, cohortId) : Promise.resolve(null),
-    cohortId ? getItemQuery().list(cohortId) : Promise.resolve([]),
-    // 只拿「待復核的更正」做首頁提示（N-61）；成績表本身在「成績」頁。
-    cohortId ? getGradebookQuery().gradebook(actor, cohortId) : Promise.resolve(null),
-  ])
-  const summary = summaryResult.ok ? summaryResult.receipt : null
-  const grading = gradingResult?.ok ? gradingResult.receipt : null
-  const signoff = signoffResult?.ok ? signoffResult.receipt : null
-  const pendingReviews = gradebookResult?.ok ? gradebookResult.receipt.pendingReviews : []
-
-  // 發布中的收件全部讀名單：逾期磚要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
-  // 跟名單頁同一份名單、同一個 `completionOf`（分母不含免填與移出）。
-  const publishedIntake = items.filter((i) => collectsResponses(i.placement) && i.status === 'published')
-  const rosterQuery = getRosterQuery()
-  const rosters = (await Promise.all(publishedIntake.map((i) => rosterQuery.roster(actor, i.id)))).filter((r) => r !== null)
-  const allIntake: { id: string; title: string; unit: string; completion: Completion }[] = rosters.map((r) => ({
-    id: r.item.itemId,
-    title: r.item.title,
-    unit: r.item.receiverUnit === 'individual' ? '人' : '組',
-    completion: completionOf(r.item, r.entries, ctx.businessNow),
-  }))
-  const intake = allIntake.slice(0, INTAKE_LIMIT)
-  // 逾期：全部發布中收件上「截止了還沒正式送出」的收件者（人或組），同一位只算一次。
-  const overdueReceivers = overdueReceiverIds(rosters, ctx.businessNow)
-  // 磚上的數字照舊是上面那一個集合；標示拆成「欠繳幾人（幾組）」與「發布中幾個收件項目」（原本的母數），不再寫成「N 份收件」混單位（N-58、N-139）。
-  const overduePeople = overdueReceiverIds(
-    rosters.filter((r) => r.item.receiverUnit === 'individual'),
-    ctx.businessNow,
-  ).size
-  const overdueGroups = overdueReceivers.size - overduePeople
-  const overdueWho = [overduePeople ? `${overduePeople} 人` : '', overdueGroups ? `${overdueGroups} 組` : ''].filter(Boolean).join('、')
-  const worstOverdue = [...allIntake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
-
-  // 本屆分組
-  const groups = overview?.groups ?? []
-  const industry = groups.filter((g) => g.groupType === 'industry').length
-  const noAdvisorIndustry = groups.filter((g) => g.groupType === 'industry' && g.advisor === null).length
-  const ungrouped = overview?.ungrouped.length ?? 0
-  const openProposals = overview?.openProposals.length ?? 0
-  const students = groups.reduce((a, g) => a + g.members.length, 0)
-
-  // 評分：以老師為單位（被指派幾份、正式送出幾份），停用的老師也列出來。
-  const byTeacher = new Map<string, { userId: string; name: string; assigned: number; counted: number; inactive: boolean }>()
-  for (const a of grading?.assignments ?? []) {
-    const row = byTeacher.get(a.teacherUserId) ?? { userId: a.teacherUserId, name: a.teacherName, assigned: 0, counted: 0, inactive: a.teacherInactive }
-    row.assigned += 1
-    if (a.state === 'counted') row.counted += 1
-    byTeacher.set(a.teacherUserId, row)
-  }
-  const teachers = [...byTeacher.values()].sort((a, b) => a.counted / a.assigned - b.counted / b.assigned)
-  const assigned = teachers.reduce((a, t) => a + t.assigned, 0)
-  const counted = teachers.reduce((a, t) => a + t.counted, 0)
-  const missingTeachers = teachers.filter((t) => t.counted < t.assigned).length
-
-  // 簽核：目前那一版停在「等待指導老師」的組別。
-  const signGroups = signoff?.groups ?? []
-  const waitTeacher = signGroups.filter((g) => Object.values(g.packages).some((p) => p?.state === 'teacher_pending')).length
-  const signComplete = signGroups.filter((g) => Object.values(g.packages).some((p) => p?.state === 'complete')).length
-
-  const pendingApps = summary?.pendingApplications ?? 0
-  const news = items.filter((i) => i.placement === 'news')
-  const todo = pendingApps + overdueReceivers.size + missingTeachers + waitTeacher
+  const home = await loadAdminHome(adminHomePorts(), actor, ctx)
+  const { groups, intake, teachers, news, pendingReviews } = home
 
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '系辦'
-  const line = ctx.cohort ? `今天 ${todo} 件待處理；本屆 ${groups.length} 組、${students} 位學生已分組、${ungrouped} 位未分組。` : ''
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
@@ -117,59 +46,36 @@ export default async function AdminHomePage() {
           ctx={ctx}
           perspective="staff"
           name={name}
-          line={line}
+          line={heroLine(home, ctx.cohort !== null)}
           compact
-          cta={adminHeroCta(ctx, pendingApps)}
+          cta={adminHeroCta(ctx, home.summary?.pendingApplications ?? 0)}
         />
 
-        {/* 四磚＝四條處理路徑，數字旁寫母數與範圍；最後一格是儲存用量（票 28）。 */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <Tile
-            label="審核帳號"
-            icon={<IconUserQuestion />}
-            tone={pendingApps > 0 ? 'brand' : 'default'}
-            value={summary ? pendingApps : '—'}
-            of={summary ? `${summary.pending + summary.active + summary.disabled} 個帳號` : undefined}
-            hint={summary ? `已核准學生 ${summary.activeStudents} 位` : '讀不到帳號統計'}
-            href={`${BASE}/accounts?status=pending`}
-          />
-          <Tile
-            label="逾期未繳"
-            icon={<IconAlertTriangle />}
-            tone={overdueReceivers.size > 0 ? 'danger' : 'default'}
-            value={overdueReceivers.size}
-            hint={
-              overdueReceivers.size > 0
-                ? `欠繳 ${overdueWho}・發布中 ${allIntake.length} 個繳交項目${worstOverdue ? `；最多：${worstOverdue.title}` : ''}`
-                : `目前沒有逾期的繳交・發布中 ${allIntake.length} 個繳交項目`
-            }
-            href={worstOverdue && worstOverdue.completion.overdue > 0 ? `${BASE}/affairs/${worstOverdue.id}` : `${BASE}/affairs`}
-          />
-          <Tile
-            label="尚未完成評分的老師"
-            icon={<IconChecklist />}
-            value={missingTeachers}
-            of={`${teachers.length} 位`}
-            hint={assigned ? `評分 ${counted}／${assigned} 份・${Math.round((counted / assigned) * 100)}%` : '還沒有指派評分'}
-            href={`${BASE}/grading`}
-          />
-          <Tile
-            label="等老師同意"
-            icon={<IconSignature />}
-            value={waitTeacher}
-            of={`${groups.length} 組`}
-            hint={`完成 ${signComplete} 組`}
-            href={`${BASE}/signoff`}
-          />
-          <Tile label="主機儲存（整台）" icon={<IconDatabase />} value={storage.value} hint={storage.hint} />
-        </div>
+        {/* 一組待辦卡（Q88）：四條處理路徑，數字是 0 也在。 */}
+        <section aria-label="待辦" className="flex flex-col gap-3">
+          <SectionHead title="待辦" />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {adminTodoCards(home).map((card) => (
+              <TodoCard
+                key={card.kind}
+                tone={card.tone}
+                icon={TODO_ICON[card.kind]}
+                title={card.title}
+                meta={card.meta}
+                href={card.href}
+                pill={card.pill}
+                testId={`todo-${card.kind}`}
+              />
+            ))}
+          </div>
+        </section>
 
         {/* 成績更正待復核（N-61）：採計分數或方案變了，原更正暫不套用，要系辦去確認；沒有就不出現。 */}
         {pendingReviews.length > 0 ? (
           <div
             role="status"
             data-testid="pending-review-notice"
-            className="dash-card flex flex-wrap items-center gap-x-4 gap-y-2 border-destructive/40 px-5 py-3.5 text-sm"
+            className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-muted/50 px-5 py-3 text-sm"
           >
             <IconAlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden />
             <span className="min-w-0 flex-1">
@@ -189,10 +95,10 @@ export default async function AdminHomePage() {
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
           <div className="min-w-0 md:col-span-2">
-            {/* 「各繳交項目完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
-            <Panel title="各繳交項目完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs`, label: '專題事務' }} className="h-full">
+            {/* 「作業完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋，沒有屆別時也要在。 */}
+            <Panel title="作業完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs`, label: '專題事務' }} className="h-full">
               {intake.length === 0 ? (
-                <PanelEmpty>本屆還沒有發布中的繳交項目。到「專題事務」新增文件繳交後，這裡會顯示每一份的完成率。</PanelEmpty>
+                <PanelEmpty>本屆還沒有發布中的作業。到「專題事務」新增作業後，這裡會顯示每一份的完成率。</PanelEmpty>
               ) : (
                 <ul className="flex flex-col px-2 pb-2">
                   {intake.map((i) => {
@@ -226,44 +132,44 @@ export default async function AdminHomePage() {
           <div className="min-w-0">
             <Panel
               title="本屆分組"
-              description={`${groups.length} 組・${students} 人`}
+              description={`${groups.total} 組・${groups.students} 人`}
               action={{ href: `${BASE}/groups`, label: '總覽' }}
               className="h-full"
             >
               <div className="flex items-center gap-5 px-5 pt-1 pb-5">
                 <Donut
-                  label={`一般專題 ${groups.length - industry} 組、產學合作 ${industry} 組`}
+                  label={`一般專題 ${groups.total - groups.industry} 組、產學合作 ${groups.industry} 組`}
                   segments={[
-                    { value: groups.length - industry, color: 'var(--ink)' },
-                    { value: industry, color: 'var(--primary)' },
+                    { value: groups.total - groups.industry, color: 'var(--ink)' },
+                    { value: groups.industry, color: 'var(--primary)' },
                   ]}
                   center={
                     <span>
-                      <span className="block text-[22px] leading-none font-extrabold tabular-nums">{groups.length}</span>
+                      <span className="block text-[22px] leading-none font-extrabold tabular-nums">{groups.total}</span>
                       <span className="text-[10px] text-muted-foreground">組</span>
                     </span>
                   }
                 />
                 <ul className="flex flex-1 flex-col gap-2 text-sm">
-                  <LegendRow color="var(--ink)" label="一般專題" value={groups.length - industry} />
-                  <LegendRow color="var(--primary)" label="產學合作" value={industry} />
+                  <LegendRow color="var(--ink)" label="一般專題" value={groups.total - groups.industry} />
+                  <LegendRow color="var(--primary)" label="產學合作" value={groups.industry} />
                   <li className="flex items-center justify-between border-t border-border/70 pt-2">
-                    <Link href={`${BASE}/industry`} className="hover:underline">
+                    <Link href={`${BASE}/groups`} className="hover:underline">
                       產學未指派
                     </Link>
-                    <b className="tabular-nums">{noAdvisorIndustry}</b>
+                    <b className="tabular-nums">{groups.noAdvisorIndustry}</b>
                   </li>
                   <li className="flex items-center justify-between">
                     <Link href={`${BASE}/groups`} className="hover:underline">
                       未分組學生
                     </Link>
-                    <b className="tabular-nums">{ungrouped}</b>
+                    <b className="tabular-nums">{groups.ungrouped}</b>
                   </li>
                   <li className="flex items-center justify-between">
                     <Link href={`${BASE}/groups`} className="hover:underline">
                       進行中提案
                     </Link>
-                    <b className="tabular-nums">{openProposals}</b>
+                    <b className="tabular-nums">{groups.openProposals}</b>
                   </li>
                 </ul>
               </div>
@@ -271,54 +177,37 @@ export default async function AdminHomePage() {
           </div>
 
           <div className="min-w-0 md:col-span-2">
-            <Panel
-              title="老師評分進度"
-              description={`${counted}／${assigned} 份`}
-              action={{ href: `${BASE}/grading`, label: '成績' }}
-              className="h-full"
-            >
+            {/* 每位老師一張小卡（全部階段、排除解散組，跟成績頁同一個 teacherProgress，AC-AD-03）。 */}
+            <Panel title="老師評分進度" description={`還差 ${home.remaining} 份`} action={{ href: `${BASE}/grading`, label: '成績' }} className="h-full">
               {teachers.length === 0 ? (
                 <PanelEmpty>還沒有指派評分。到「成績」頁設定評分方案與指派老師後，這裡會列出每位老師的進度。</PanelEmpty>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm whitespace-nowrap">
-                    <thead>
-                      <tr className="text-left text-[12px] text-muted-foreground">
-                        <th scope="col" className="px-5 py-2 font-semibold">
-                          老師
-                        </th>
-                        <th scope="col" className="px-3 py-2 font-semibold">
-                          進度
-                        </th>
-                        <th scope="col" className="px-3 py-2 font-semibold">
-                          送出
-                        </th>
-                        <th scope="col" className="px-5 py-2">
-                          <span className="sr-only">狀態</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {teachers.map((t) => (
-                        <tr key={t.userId} className="border-t border-border/70">
-                          <td className="px-5 py-2.5 font-semibold">
-                            {t.name}
-                            {t.inactive ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">（已停用）</span> : null}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <Meter value={t.counted} total={t.assigned} done={t.counted === t.assigned} className="w-32" />
-                          </td>
-                          <td className="px-3 py-2.5 tabular-nums">
-                            {t.counted}／{t.assigned}
-                          </td>
-                          <td className="px-5 py-2.5 text-right">
-                            {t.counted === t.assigned ? <Pill tone="success">完成</Pill> : <Pill>還差 {t.assigned - t.counted} 份</Pill>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ul className="grid gap-3 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="每位老師的評分進度">
+                  {teachers.map((t) => {
+                    const done = t.counted === t.assigned
+                    return (
+                      <li key={t.userId} className="min-w-0">
+                        <Link
+                          href={`${BASE}/grading`}
+                          data-testid="teacher-progress-card"
+                          className="flex flex-col gap-2 rounded-xl border border-border px-4 py-3 transition-colors hover:bg-accent/60"
+                        >
+                          <span className="flex items-center justify-between gap-2 text-sm">
+                            <span className="truncate font-semibold text-foreground">
+                              {t.name}
+                              {t.inactive ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">（已停用）</span> : null}
+                            </span>
+                            {done ? <Pill tone="success">完成</Pill> : null}
+                          </span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            已評 {t.counted}／{t.assigned}
+                          </span>
+                          <Meter value={t.counted} total={t.assigned} done={done} />
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
             </Panel>
           </div>
@@ -326,7 +215,7 @@ export default async function AdminHomePage() {
           <div className="min-w-0">
             <Panel
               title="我發的公告"
-              description={`${news.length} 則`}
+              description={`${home.newsCount} 則`}
               action={
                 <Link
                   href={`${BASE}/editor/new`}
@@ -342,7 +231,7 @@ export default async function AdminHomePage() {
                 <PanelEmpty>本屆還沒有公告。按「發布公告」寫第一則。</PanelEmpty>
               ) : (
                 <ul>
-                  {news.slice(0, 5).map((n) => (
+                  {news.map((n) => (
                     <ListRow
                       key={n.id}
                       href={n.status === 'published' ? `/news/${n.id}` : `${BASE}/editor/${n.id}`}
