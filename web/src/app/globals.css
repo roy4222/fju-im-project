@@ -185,7 +185,8 @@
   --st-done: oklch(0.54 0.12 152);
   --st-open: oklch(0.52 0.03 253);
   --st-violet: oklch(0.58 0.17 300);
-  --st-alert: oklch(0.58 0.2 25);
+  /* alert＝黃（設計 §2.3）：跟 --warning 同色相，只把 L 降到白字 ≥ 4.5:1。 */
+  --st-alert: oklch(0.55 0.15 75);
   --st-neutral: oklch(0.5 0.012 253.89);
   --on-tint: #fff;
 
@@ -271,7 +272,7 @@
   --st-done: oklch(0.78 0.14 155);
   --st-open: oklch(0.76 0.04 255);
   --st-violet: oklch(0.78 0.12 300);
-  --st-alert: oklch(0.72 0.17 25);
+  --st-alert: oklch(0.82 0.14 82); /* 黃，同深色 --warning */
   --st-neutral: oklch(0.74 0.02 255);
   --on-tint: oklch(0.165 0.045 260);
 
