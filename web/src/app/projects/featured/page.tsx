@@ -6,7 +6,13 @@ import { imageSrc, ListEmpty, PillLink, PublicPageHead } from '@/app/_ui/public-
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel } from '@/composition/cohorts'
-import { FEATURED_SORT_OPTIONS, getPublicShowcaseQuery, parseShowcaseSort } from '@/composition/showcase'
+import {
+  FEATURED_AWARD_OPTIONS,
+  FEATURED_SORT_OPTIONS,
+  getPublicShowcaseQuery,
+  parseShowcaseAward,
+  parseShowcaseSort,
+} from '@/composition/showcase'
 
 export const metadata: Metadata = {
   title: '優秀專題｜資管系專題平台',
@@ -23,26 +29,41 @@ const one = (value: string | string[] | undefined) => (typeof value === 'string'
  * 公開：訪客可點開一圖一文 dialog 與完整詳情。資料只來自**已發布、有獎項等級**（優秀、佳作）精選條目的
  * 目前版本（白名單欄位）；沒得獎的只在登入後的歷屆一覽（產品模組 09 §9.1，0011）。
  * 組員與老師不在這一頁（訪客「登入後顯示」，見詳情頁）。
+ *
+ * 預設排序是「系辦指定順序」（跟首頁輪播同一個 `home`，Q51），乾淨網址＝首頁輪播的順序；獎項（優秀專題／佳作）
+ * 是篩選、不是排序。屆別、獎項、排序都是 pill 連結，跟搜尋框的 `q` 互相保留、取交集。
  */
 export default async function FeaturedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cohort?: string | string[]; item?: string | string[]; q?: string | string[]; sort?: string | string[] }>
+  searchParams: Promise<{
+    award?: string | string[]
+    cohort?: string | string[]
+    item?: string | string[]
+    q?: string | string[]
+    sort?: string | string[]
+  }>
 }) {
   const sp = await searchParams
   const cohort = one(sp.cohort).slice(0, 20)
   const q = one(sp.q).trim().slice(0, 100)
-  const rawSort = one(sp.sort)
-  const sort = parseShowcaseSort(rawSort, FEATURED_SORT_OPTIONS)
+  const sort = parseShowcaseSort(one(sp.sort), FEATURED_SORT_OPTIONS)
+  const award = parseShowcaseAward(one(sp.award))
   const open = one(sp.item) || undefined
   const query = getPublicShowcaseQuery()
-  const [cards, cohorts] = await Promise.all([query.featured({ cohort: cohort || undefined, q: q || undefined, sort }), query.cohortChoices({ featuredOnly: true })])
+  const [cards, cohorts] = await Promise.all([
+    query.featured({ cohort: cohort || undefined, q: q || undefined, sort, award }),
+    query.cohortChoices({ featuredOnly: true }),
+  ])
 
-  const keep = (c: string) => {
+  // 換一個條件、其他條件照留；預設值（系辦指定順序、全部獎項）不寫進網址，`/projects/featured` 乾淨網址＝預設。
+  const keep = (patch: { cohort?: string; award?: string; sort?: string }) => {
+    const next = { cohort, award: award ?? '', sort, ...patch }
     const p = new URLSearchParams()
-    if (c) p.set('cohort', c)
+    if (next.cohort) p.set('cohort', next.cohort)
     if (q) p.set('q', q)
-    if (rawSort && sort !== 'cohort') p.set('sort', sort)
+    if (next.award) p.set('award', next.award)
+    if (next.sort !== FEATURED_SORT_OPTIONS[0]!.value) p.set('sort', next.sort)
     const s = p.toString()
     return s ? `/projects/featured?${s}` : '/projects/featured'
   }
@@ -66,7 +87,7 @@ export default async function FeaturedPage({
     moreHref: `/projects/${p.id}`,
     moreLabel: '查看完整資料',
   }))
-  const filtered = Boolean(cohort || q)
+  const filtered = Boolean(cohort || q || award)
 
   return (
     <SiteShell current="/projects/featured" bare>
@@ -78,16 +99,34 @@ export default async function FeaturedPage({
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <nav className="flex flex-wrap gap-2" aria-label="屆別篩選">
-            <PillLink href={keep('')} active={!cohort}>
+            <PillLink href={keep({ cohort: '' })} active={!cohort}>
               全部屆別
             </PillLink>
             {cohorts.map((c) => (
-              <PillLink key={c.code} href={keep(c.code)} active={cohort === c.code}>
+              <PillLink key={c.code} href={keep({ cohort: c.code })} active={cohort === c.code}>
                 {cohortLabel(c)}
               </PillLink>
             ))}
           </nav>
-          <SearchSortBar placeholder="搜尋題目、摘要、組別" sortOptions={FEATURED_SORT_OPTIONS} />
+          {/* 排序改成下面的 pill（Q51）；共用元件不改，只是不傳排序選項，剩搜尋框。 */}
+          <SearchSortBar placeholder="搜尋題目、摘要、組別" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <nav className="flex flex-wrap items-center gap-2" aria-label="獎項篩選">
+            {FEATURED_AWARD_OPTIONS.map((o) => (
+              <PillLink key={o.value || 'all'} href={keep({ award: o.value })} active={(award ?? '') === o.value}>
+                {o.label}
+              </PillLink>
+            ))}
+          </nav>
+          <nav className="flex flex-wrap items-center gap-2" aria-label="排序">
+            <span className="text-sm text-muted-foreground">排序</span>
+            {FEATURED_SORT_OPTIONS.map((o) => (
+              <PillLink key={o.value} href={keep({ sort: o.value })} active={sort === o.value}>
+                {o.label}
+              </PillLink>
+            ))}
+          </nav>
         </div>
         {entries.length === 0 ? (
           <div className="flex flex-col items-center gap-3">

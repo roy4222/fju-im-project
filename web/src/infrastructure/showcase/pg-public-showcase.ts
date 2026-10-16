@@ -187,6 +187,10 @@ export class PgPublicShowcaseQuery implements PublicShowcaseQuery {
       values.push(cohort)
       where.push(`c.code = $${values.length}`)
     }
+    if (filter.award) {
+      values.push(filter.award)
+      where.push(`e.award_level = $${values.length}`)
+    }
     const q = filter.q?.trim().slice(0, 100)
     if (q) {
       values.push(likePattern(q))
