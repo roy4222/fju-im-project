@@ -167,7 +167,7 @@ test('停用組長：對話框要求指定接任；選了之後停用與換組�
   expect(status.rows[0]!.status).toBe('disabled')
 
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '分組總覽', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '分組', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: '全部組別' })).toContainText(`${b.name}（組長）`)
   await page.getByRole('region', { name: '全部組別' }).getByRole('button', { name: 'G01 詳情' }).click()
   const history = page.getByRole('dialog', { name: 'G01 詳情' }).getByRole('region', { name: '異動歷程' })

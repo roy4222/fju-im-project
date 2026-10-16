@@ -321,7 +321,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/inbox': '全部標為已讀',
     '/dashboard/teacher/inbox': '全部標為已讀',
     '/dashboard/student/inbox': '全部標為已讀',
-    '/dashboard/admin/groups': '學生自行提案、全員確認後成組',
+    '/dashboard/admin/groups': '全部組別',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
     '/dashboard/teacher/groups': '一般組由系辦依抽籤結果指派；所有組別都看得到',
     // 合作案管理（票 20）。

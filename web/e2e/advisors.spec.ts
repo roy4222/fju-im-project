@@ -149,7 +149,7 @@ async function openTeacherPage(page: Page, session: TestSession) {
 async function openAdminPage(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '分組總覽', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '分組', exact: true })).toBeVisible()
 }
 
 async function activeAdvisor(code: string): Promise<string[]> {
