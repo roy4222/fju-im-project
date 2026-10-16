@@ -26,7 +26,8 @@ function Feedback({ state }: { state: CohortActionState }) {
   )
 }
 
-const INPUT = `${INPUT_BASE} h-10`
+// 基底帶 `w-full`；這裡兩欄並排要自己給寬度，所以拿掉它。
+const INPUT = INPUT_BASE.replace('w-full ', '')
 const SUBMIT = 'btn-fju h-10 shrink-0 px-5 text-sm disabled:opacity-60'
 
 /**
@@ -53,7 +54,7 @@ export function CreateCohortForm({ requestId, codeMaxLength, nameMaxLength }: { 
           autoComplete="off"
           defaultValue={state?.values?.code}
           key={`code-${state?.values?.code ?? ''}`}
-          className={`${INPUT} w-36`}
+          className={`${INPUT} w-32 shrink-0`}
         />
         <label htmlFor="cohort-name" className="sr-only">
           名稱
@@ -67,7 +68,7 @@ export function CreateCohortForm({ requestId, codeMaxLength, nameMaxLength }: { 
           autoComplete="off"
           defaultValue={state?.values?.name}
           key={`name-${state?.values?.name ?? ''}`}
-          className={`${INPUT} w-full min-w-0 flex-1 sm:w-64`}
+          className={`${INPUT} min-w-0 flex-1 basis-40 sm:w-64 sm:flex-none sm:basis-auto`}
         />
         <button type="submit" disabled={pending} className={SUBMIT}>
           {pending ? '處理中…' : '新增屆別'}
@@ -195,8 +196,7 @@ export function CohortCards({ rows, flagLabels }: { rows: readonly CohortRow[]; 
               )}
               {/* 危險操作（第三波 §9 規則 1、AC-37、N-48）：「轉為進行中」不能回頭、整屆都看得到，跟日常的旗標按鈕拉開，先確認再送。 */}
               {row.canActivate ? (
-                <div
-                  role="group"
+                <section
                   aria-label="危險操作"
                   className="mt-auto flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2"
                 >
@@ -204,7 +204,7 @@ export function CohortCards({ rows, flagLabels }: { rows: readonly CohortRow[]; 
                     <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
                   </span>
                   <ActivateCohortButton row={row} action={activateAction} pending={activating} />
-                </div>
+                </section>
               ) : null}
             </section>
           </li>
