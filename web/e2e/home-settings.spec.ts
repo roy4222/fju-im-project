@@ -264,3 +264,37 @@ test('學生與老師打不開首頁設定', async ({ page }) => {
     await expect(page.getByRole('heading', { name: '首頁設定', exact: true })).toHaveCount(0)
   }
 })
+
+test('首頁圖片屬性：hero 不 lazy、提早抓；卡片、榮譽大圖與底部建築照 lazy；都有寬高（第 1 批 AC-V27 ①②③ 首頁）', async ({ browser }) => {
+  const { page, close } = await visitorHome(browser)
+  try {
+    const hero = page.getByTestId('home-hero-image')
+    await expect(hero).not.toHaveAttribute('loading')
+    await expect(hero).toHaveAttribute('fetchpriority', 'high')
+    await expect(hero).toHaveAttribute('width', /^\d+$/)
+    await expect(hero).toHaveAttribute('height', /^\d+$/)
+
+    const building = page.getByTestId('quicklinks-photo')
+    await expect(building).toHaveAttribute('loading', 'lazy')
+    await expect(building).toHaveAttribute('width', /^\d+$/)
+    await expect(building).toHaveAttribute('height', /^\d+$/)
+
+    // 榮譽大圖沒有得獎資料時是示意照片，一定在。
+    const honors = page.locator('section[aria-labelledby="home-honors"] img').first()
+    await expect(honors).toHaveAttribute('loading', 'lazy')
+    await expect(honors).toHaveAttribute('width', /^\d+$/)
+    await expect(honors).toHaveAttribute('height', /^\d+$/)
+
+    // 公告卡（含第一張）與優秀專題卡要看測試庫有沒有資料；有就每張都驗。公告卡的寬高屬 V1，這裡只驗 lazy。
+    for (const img of await page.locator('section[aria-labelledby="home-news"] [data-testid="news-card"] img').all()) {
+      await expect(img).toHaveAttribute('loading', 'lazy')
+    }
+    for (const img of await page.getByTestId('home-featured-list').locator('img').all()) {
+      await expect(img).toHaveAttribute('loading', 'lazy')
+      await expect(img).toHaveAttribute('width', /^\d+$/)
+      await expect(img).toHaveAttribute('height', /^\d+$/)
+    }
+  } finally {
+    await close()
+  }
+})
