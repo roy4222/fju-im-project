@@ -28,6 +28,8 @@ export type AdvisorInfo = {
   readonly source: AdvisorSource
   /** 業務時間。 */
   readonly since: Date
+  /** 老師自己填的聯絡信箱（`user_profiles.contact_email`，Q122），不是登入 Email；沒有個人資料列時為 null。 */
+  readonly contactEmail: string | null
 }
 
 /** 管理員指派對話框的老師選項：有效、目前是老師的帳號。 */
