@@ -22,11 +22,38 @@ describe('formatBytes', () => {
 })
 
 describe('backupSiteView', () => {
-  it('最新一筆成功 → 綠、時間是紀錄時間、大小是異地檔大小、不另外列上次成功', () => {
+  it('最新一筆成功 → 綠、時間是紀錄時間、大小是同一筆成功紀錄的大小、不另外列上次成功', () => {
     const v = backupSiteView(baseVm().backups.prod)
     expect(v).toMatchObject({ state: 'green', label: '成功', at: '2026-10-12T03:10:05+08:00', bytes: 234567, error: null })
     expect(v.lastOk).toBeNull()
-    expect(v.offsite).toEqual({ name: 'fju-prod-20261012.dump', bytes: 234567, mtime: '2026-10-12T03:10:00+08:00' })
+    expect(v.offsite).toEqual({ status: 'ok', name: 'fju-prod-20261012.dump', bytes: 234567, mtime: '2026-10-12T03:10:00+08:00' })
+  })
+
+  it('Review FIX：新備份成功、異地還沒同步 → 大小用同一筆成功紀錄的 lastOk.bytes，異地舊檔另列', () => {
+    const b: BackupInfo = {
+      latest: { name: 'fju-prod-20261011.dump', bytes: 1000, mtime: '2026-10-11T03:10:00+08:00' },
+      lastRecord: { at: '2026-10-12T03:10:05+08:00', ok: true },
+      lastOk: { at: '2026-10-12T03:10:05+08:00', bytes: 2000 },
+    }
+    const v = backupSiteView(b)
+    expect(v).toMatchObject({ state: 'green', at: '2026-10-12T03:10:05+08:00', bytes: 2000 })
+    expect(v.offsite).toMatchObject({ status: 'ok', name: 'fju-prod-20261011.dump', bytes: 1000 })
+  })
+
+  it('成功紀錄但沒有同一筆的 lastOk（舊版 collector）→ 大小不拿異地舊檔充數，顯示未知', () => {
+    const b: BackupInfo = {
+      latest: { name: 'fju-prod-20261011.dump', bytes: 1000, mtime: '2026-10-11T03:10:00+08:00' },
+      lastRecord: { at: '2026-10-12T03:10:05+08:00', ok: true },
+    }
+    expect(backupSiteView(b)).toMatchObject({ state: 'green', bytes: null })
+  })
+
+  it('Review FIX：異地目錄不存在／是空的（latest:null）→ 異地欄照列目錄狀態；舊版沒有 offsiteDir 才省略', () => {
+    const record = { at: '2026-10-12T03:10:05+08:00', ok: true }
+    const lastOk = { at: record.at, bytes: 2000 }
+    expect(backupSiteView({ latest: null, offsiteDir: 'missing', lastRecord: record, lastOk } as BackupInfo).offsite).toEqual({ status: 'missing' })
+    expect(backupSiteView({ latest: null, offsiteDir: 'empty', lastRecord: record, lastOk } as BackupInfo).offsite).toEqual({ status: 'empty' })
+    expect(backupSiteView({ latest: null, lastRecord: record, lastOk }).offsite).toBeNull()
   })
 
   it('異地檔 0 bytes → 紅「0 bytes」，仍給上次成功（失敗不覆蓋成功時間）', () => {

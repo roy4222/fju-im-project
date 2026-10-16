@@ -162,6 +162,29 @@ describe('AC-DV-22 /backup', () => {
     expect(card).not.toContain('data-threshold')
   })
 
+  it('Review FIX：新備份成功、異地還沒同步 → 大小顯示本次 2000 bytes（2.0 KB）那筆，異地舊檔 1000 bytes 另列', async () => {
+    const vm = baseVm()
+    vm.backups.prod = {
+      latest: { name: 'fju-prod-20261011.dump', bytes: 1000, mtime: '2026-10-11T03:10:00+08:00' },
+      lastRecord: { at: '2026-10-12T03:10:05+08:00', ok: true },
+      lastOk: { at: '2026-10-12T03:10:05+08:00', bytes: 2000 },
+    }
+    const html = await render(await writeVm('offsite-lag', vm))
+    const card = section(html, 'backup-prod')
+    expect(card).toContain(`data-testid="backup-size">${formatBytes(2000)}<`)
+    expect(formatBytes(2000)).not.toBe(formatBytes(1000))
+    expect(card).toMatch(new RegExp(`data-testid="backup-offsite"[\\s\\S]*fju-prod-20261011\\.dump[\\s\\S]*${formatBytes(1000)}`))
+  })
+
+  it('Review FIX：異地目錄不存在／是空的 → 異地欄照列目錄狀態', async () => {
+    for (const [dir, text] of [['missing', '目錄不存在'], ['empty', '目錄是空的']] as const) {
+      const vm = baseVm()
+      vm.backups.prod = { ...vm.backups.prod, latest: null, offsiteDir: dir } as VmData['backups']['prod']
+      const html = await render(await writeVm(`offsite-${dir}`, vm))
+      expect(section(html, 'backup-prod')).toMatch(new RegExp(`data-testid="backup-offsite" data-offsite="${dir}">[^<]*${text}`))
+    }
+  })
+
   it('舊版 vm.json（沒有 disk、lastOk）照樣畫、不 500', async () => {
     const vm = baseVm()
     delete vm.disk

@@ -38,6 +38,8 @@ const LINK = "underline-offset-4 hover:underline"
 
 const SITE_LABEL = { test: "測試站", prod: "正式站" } as const
 
+const OFFSITE_DIR_TEXT = { missing: "異地備份目錄不存在", empty: "異地備份目錄是空的" } as const
+
 /** 「現在」：G4 判斷資料是否過期用。抽成函式讓頁面本體保持純粹。 */
 const currentTime = () => new Date()
 
@@ -63,7 +65,9 @@ function BackupCard({ site, view }: { site: "test" | "prod"; view: BackupSiteVie
       <CardContent>
         <dl className="flex flex-col gap-1.5 text-sm">
           <Row label="時間">{view.at ? <time dateTime={view.at}>{formatTime(view.at)}</time> : "—"}</Row>
-          <Row label="大小">{view.bytes === null ? "—" : formatBytes(view.bytes)}</Row>
+          <Row label="大小">
+            <span data-testid="backup-size">{view.bytes === null ? "—" : formatBytes(view.bytes)}</span>
+          </Row>
           <Row label="錯誤">
             {view.error ? <span className={TEXT_CLASS[view.state]}>{view.error}</span> : "—"}
           </Row>
@@ -83,9 +87,15 @@ function BackupCard({ site, view }: { site: "test" | "prod"; view: BackupSiteVie
           ) : null}
           {view.offsite ? (
             <Row label="異地">
-              <span data-testid="backup-offsite">
-                <code className="font-mono text-xs">{view.offsite.name}</code>（{formatBytes(view.offsite.bytes)}，
-                <time dateTime={view.offsite.mtime}>{formatTime(view.offsite.mtime)}</time>）
+              <span data-testid="backup-offsite" data-offsite={view.offsite.status}>
+                {view.offsite.status === "ok" ? (
+                  <>
+                    <code className="font-mono text-xs">{view.offsite.name}</code>（{formatBytes(view.offsite.bytes)}，
+                    <time dateTime={view.offsite.mtime}>{formatTime(view.offsite.mtime)}</time>）
+                  </>
+                ) : (
+                  OFFSITE_DIR_TEXT[view.offsite.status]
+                )}
               </span>
             </Row>
           ) : null}

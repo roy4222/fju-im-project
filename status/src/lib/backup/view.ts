@@ -27,9 +27,17 @@ export type BackupSiteView = {
    * `'never'`＝collector 說從沒成功過；null＝不用列（最近一次就是成功，或舊版 collector 沒寫這欄）。
    */
   lastOk: { at: IsoTime; bytes: number | null } | 'never' | null
-  /** 異地最新檔（`backups.*.latest`）；沒有就不畫 */
-  offsite: { name: string; bytes: number; mtime: IsoTime } | null
+  /**
+   * 異地：有檔就列最新檔；collector 有寫 `offsiteDir` 但沒有檔，就列目錄狀態（不存在／空的）。
+   * null＝舊版 collector 沒寫 `offsiteDir` 也沒有檔，不畫。
+   */
+  offsite: OffsiteView | null
 }
+
+export type OffsiteView = { status: 'ok'; name: string; bytes: number; mtime: IsoTime } | { status: 'missing' | 'empty' }
+
+/** collector 有寫、`types.ts` 的 `BackupInfo` 還沒列的欄位（`collector/lib/vm.mjs`、`shapes.mjs`）。 */
+type BackupInfoRead = BackupInfo & { offsiteDir?: 'missing' | 'ok' | 'empty' }
 
 export type DiskView = {
   state: DiskState
@@ -53,10 +61,16 @@ export type BackupView = {
 
 const NO_DATA: BackupSiteView = { state: 'grey', label: '沒有資料', at: null, bytes: null, error: null, lastOk: null, offsite: null }
 
-export function backupSiteView(b: BackupInfo | null | undefined): BackupSiteView {
+function offsiteView(b: BackupInfoRead | null | undefined): OffsiteView | null {
+  const file = b?.latest ?? null
+  if (file) return { status: 'ok', name: file.name, bytes: file.bytes, mtime: file.mtime }
+  return b?.offsiteDir === 'missing' || b?.offsiteDir === 'empty' ? { status: b.offsiteDir } : null
+}
+
+export function backupSiteView(b: BackupInfoRead | null | undefined): BackupSiteView {
   const file = b?.latest ?? null
   const record = b?.lastRecord ?? null
-  const offsite = file ? { name: file.name, bytes: file.bytes, mtime: file.mtime } : null
+  const offsite = offsiteView(b)
   const lastOk = b?.lastOk === undefined ? null : b.lastOk === null ? ('never' as const) : b.lastOk
   const at = record?.at ?? file?.mtime ?? null
 
@@ -77,7 +91,10 @@ export function backupSiteView(b: BackupInfo | null | undefined): BackupSiteView
   if (file && !(file.bytes > 0)) {
     return { state: 'red', label: '0 bytes', at, bytes: 0, error: `備份檔 ${file.name} 是 0 bytes`, lastOk, offsite }
   }
-  return { state: 'green', label: '成功', at, bytes: file?.bytes ?? (b?.lastOk ? b.lastOk.bytes : null), error: null, lastOk: null, offsite }
+  // 大小要跟時間是同一筆：有紀錄就用同一筆成功紀錄的 lastOk.bytes（異地可能還沒同步到這次的檔）；
+  // 舊版 collector 沒有 lastOk 時不知道這次多大，寧可顯示「—」也不拿異地舊檔充數。沒有紀錄只有檔才用檔的大小。
+  const bytes = !record ? (file?.bytes ?? null) : b?.lastOk && b.lastOk.at === record.at ? b.lastOk.bytes : null
+  return { state: 'green', label: '成功', at, bytes, error: null, lastOk: null, offsite }
 }
 
 export function diskView(disk: DiskUsage | null | undefined, error: string | null | undefined): DiskView {
