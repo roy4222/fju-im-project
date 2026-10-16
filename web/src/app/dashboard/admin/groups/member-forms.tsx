@@ -350,7 +350,7 @@ export function GroupDetailButton({
               ))}
             </ul>
             {single ? (
-              <p className="text-xs text-muted-foreground">只剩一人：移出最後一人要走「解散」，解散功能之後才會開放。</p>
+              <p className="text-xs text-muted-foreground">只剩一人時不能再移出。</p>
             ) : null}
             {/* 只有一個移出對話框：移出成功後那一列會消失，對話框與回饋不能跟著那一列一起不見。 */}
             <RemoveMemberDialog

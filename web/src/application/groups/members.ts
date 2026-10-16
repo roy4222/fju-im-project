@@ -72,7 +72,7 @@ export function decideRemoval(input: {
     return err('NOT_MEMBER', '這位同學已經不在這個組別裡了，請重新整理頁面。')
   }
   if (memberIds.length === 1) {
-    return err('VALIDATION_FAILED', '這是這組最後一位成員：移出最後一人要走「解散」，解散功能之後才會開放，請先保留。')
+    return err('VALIDATION_FAILED', '只剩一人時不能再移出。')
   }
   if (targetId !== leaderId) {
     if (successorId) return err('VALIDATION_FAILED', '移出的不是組長，不需要指定接任。', { details: { field: 'successorLeaderUserId' } })

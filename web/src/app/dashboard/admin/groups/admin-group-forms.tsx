@@ -62,7 +62,7 @@ export function GroupingSettingsEditor({
   const dialog = useDialog()
   const [draft, setDraft] = useState(values)
   const [seenRevision, setSeenRevision] = useState(revision)
-  useCloseOnSuccess(state, dialog.close)
+  // 成功訊息留在對話框裡（AD-05）：按鈕在分頁列右側，訊息不再塞進標題列旁邊把版面撐開（網站問題 #8）。
 
   // 資料換版時，對話框的初始值跟著最新資料走（渲染中依 prop 調整 state）。
   if (seenRevision !== revision) {
@@ -91,12 +91,11 @@ export function GroupingSettingsEditor({
   )
 
   return (
-    <div className="space-y-3">
+    <div>
       <button type="button" className={SECONDARY} onClick={dialog.open}>
         <IconSettings aria-hidden />
         分組設定
       </button>
-      <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label={`${cohortLabel} 的分組設定`} className={DIALOG}>
         <form action={formAction} className="space-y-4 p-5">
           <h2 className={DIALOG_TITLE}>{cohortLabel} 的分組設定</h2>
@@ -111,10 +110,10 @@ export function GroupingSettingsEditor({
             {field('groupSizeMax', '每組最多人數', sizeLimit)}
             {field('proposalDefaultDays', '提案預設天數', daysLimit, '到期不會超過分組期')}
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={state} />
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
-              先不改
+              {state?.ok ? '關閉' : '先不改'}
             </button>
             <button type="submit" disabled={pending} className={PRIMARY}>
               {pending ? '處理中…' : '儲存'}

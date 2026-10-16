@@ -5,15 +5,15 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ClearFilters, DataTableToolbar, SearchForm } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
-import { CohortPills, PageTitle, Panel, PANEL_TABLE_HEAD, PANEL_TABLE_ROW, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
+import { CohortPills, PageTitle, Panel, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
 import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
-  COHORT_STATUS_LABEL,
   cohortLabel,
   describeGroupSize,
   getBusinessClock,
@@ -47,9 +47,15 @@ import {
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '分組總覽｜資管系專題平台' }
+export const metadata = { title: '分組｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/groups'
+
+/** 側欄「分組」底下的兩個分頁（設計方案 §2.1）；合作案頁掛同一組。 */
+const GROUP_TABS = [
+  { href: BASE, label: '分組總覽' },
+  { href: '/dashboard/admin/industry', label: '合作案' },
+] as const
 
 /**
  * 管理員「分組總覽」（票 13；原型 `/dashboard/admin/groups`）。
@@ -62,8 +68,12 @@ const BASE = '/dashboard/admin/groups'
  * 票 20：組別名單依類型、狀態、老師篩選與搜尋，表頭排序（都在網址上、伺服器算）；每組的組員登入信箱與
  * 「複製本組信箱」；勾選或整份篩選結果匯出 CSV／XLSX（帶信箱）；系辦改組別類型（保留既有關聯）。
  *
- * 外觀照原型（票 36）：標題下一行摘要、「未分組學生」、「全部組別」Data Table（搜尋、篩選鈕、排序、勾選），
+ * 外觀照原型（票 36）：「未分組學生」、「全部組別」Data Table（搜尋、篩選鈕、排序、勾選），
  * 原型沒有的提案兩塊放在後面。點組別代碼開詳情（原型的側板）。
+ *
+ * 系辦改版（AD-05，設計方案 §3.3）：`h1`「分組」＋分頁列（分組總覽｜合作案）；「分組設定」放分頁列右側
+ * （不放標題列，網站問題 #8；屆別膠囊名稱長，放分頁列下方）；頁首說明拿掉，指派數字搬到「全部組別」、分組設定摘要搬到「組隊中」；
+ * 「組隊中」「最近終止」改卡片；組別表多一欄「合作案」（連結入口由 AD-06 加在這一欄）。
  */
 
 function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
@@ -86,9 +96,12 @@ function rosterColumns(cohortId: string, filter: RosterFilter): RosterColumn[] {
     sortable('組別', 'code'),
     sortable('類型', 'type'),
     sortable('指導老師', 'advisor'),
+    // 「合作案」欄：AD-06 在產學組這一格加「連結合作案」入口；一般組不會有（Q47）。
+    { label: '合作案' },
     { label: '組員' },
     sortable('人數', 'members'),
-    sortable('成立時間', 'established'),
+    // 次要欄：1280 寬放不下時先收起來（網站問題 #7）。
+    { ...sortable('成立時間', 'established'), secondary: true },
   ]
 }
 
@@ -107,14 +120,15 @@ export default async function AdminGroupsPage({
   const cohort =
     cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
 
-  const shell = (children: React.ReactNode, title?: { description: React.ReactNode; actions?: React.ReactNode }) => (
+  const shell = (children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
       <div className="flex flex-col gap-5">
-        <PageTitle
-          title="分組總覽"
-          description={title?.description ?? '學生自行提案、全員確認後成組；這裡看進度、設定每組人數、處理卡住的提案。'}
-          actions={title?.actions}
-        />
+        <div>
+          <PageTitle title="分組" />
+          <div className="mt-4">
+            <AdminTabs label="分組分頁" current={BASE} items={GROUP_TABS} actions={actions} />
+          </div>
+        </div>
         {children}
       </div>
     </DashboardShell>
@@ -149,31 +163,15 @@ export default async function AdminGroupsPage({
   )
   const roster = applyRosterFilter(overview.groups, filter)
   const unassigned = overview.groups.filter((g) => !g.advisor).length
-  const industry = overview.groups.filter((g) => g.groupType === 'industry').length
   const grouped = overview.groups.reduce((sum, g) => sum + g.members.length, 0)
   const size = { min: cohort.groupSizeMin, max: cohort.groupSizeMax }
   const openToJoin = overview.ungrouped.filter((u) => u.openToJoin).length
   const filtered = filter.type !== 'all' || filter.status !== 'all' || filter.advisor !== 'all' || filter.q !== ''
-
-  const description = (
-    <>
-      <span className="tabular">
-        {cohortLabel(cohort)}・{COHORT_STATUS_LABEL[cohort.status]}・{overview.groups.length} 組、{grouped} 人已分組、{overview.ungrouped.length} 人未分組・產學{' '}
-        {industry} 組
-      </span>
-      <br className="sm:hidden" />
-      <span className="sm:before:content-['・']" data-testid="advisor-summary">
-        指導老師：{overview.groups.length - unassigned} 組已指派・{unassigned} 組尚未指派
-      </span>
-      <span className="block" data-testid="grouping-settings">
-        {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認、不超過分組期（組隊、選指導老師、交提案的期間）・進行中提案{' '}
-        {overview.openProposals.length} 份。學生自行提案、全員確認後成組；分類只影響流程與標示，不限制老師看見哪些組別。
-      </span>
-    </>
-  )
+  const industryUnlinked = overview.groups.filter((g) => g.groupType === 'industry' && !g.opportunity).length
 
   return shell(
     <>
+      {/* 屆別名稱長、測試站屆別多：放分頁列下方自己一列（擠在分頁列右側會把「分組設定」推到下一行）。 */}
       <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
 
       <Panel
@@ -195,7 +193,7 @@ export default async function AdminGroupsPage({
       <Panel
         title="全部組別"
         icon={<IconUsersGroup />}
-        description="點組別看成員、組長與異動；可搜尋、篩選、排序"
+        description={`${overview.groups.length} 組、${grouped} 人`}
         aria-label="全部組別"
         bodyClassName="p-4"
         action={
@@ -210,6 +208,11 @@ export default async function AdminGroupsPage({
         }
       >
         <div className="space-y-3">
+          {/* 頁首說明拿掉後，指派進度放在組別表上方一行（Panel 的灰字說明會被截斷，這裡要看得完整）。 */}
+          <p className="tabular text-sm text-muted-foreground" data-testid="advisor-summary">
+            指導老師已指派 {overview.groups.length - unassigned}／{overview.groups.length}・{unassigned} 組尚未指派
+            {industryUnlinked > 0 ? `・產學組未連結合作案 ${industryUnlinked}` : ''}
+          </p>
           {/* 原型 Data Table 的工具列：搜尋框＋篩選鈕（伺服器照網址算，選了就換頁）。 */}
           <DataTableToolbar>
             <SearchForm
@@ -310,22 +313,29 @@ export default async function AdminGroupsPage({
                     requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
                     reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
                   />,
-                  <span key="members" className="block max-w-[15rem] text-sm text-muted-foreground">
-                    <span className="block truncate" title={g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}>
-                      {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
-                    </span>
+                  <span key="opportunity" className="block max-w-[10rem] text-sm">
                     {g.opportunity ? (
-                      <span className="block truncate text-xs">
-                        合作案：
+                      <span className="block truncate" title={g.opportunity.name}>
                         <Link href={`/industry/${g.opportunity.opportunityId}`} className="font-semibold text-primary hover:underline">
                           {g.opportunity.name}
                         </Link>
-                        {g.opportunity.status === 'withdrawn' ? '（已下架）' : ''}
+                        {g.opportunity.status === 'withdrawn' ? <span className="text-xs text-muted-foreground">（已下架）</span> : null}
                       </span>
-                    ) : null}
+                    ) : g.groupType === 'industry' ? (
+                      <span className="text-xs whitespace-nowrap text-muted-foreground">尚未連結</span>
+                    ) : (
+                      <span className="text-muted-foreground" aria-label="一般專題不連合作案">
+                        —
+                      </span>
+                    )}
                   </span>,
-                  <span key="count" className={cn('tabular text-sm whitespace-nowrap', mismatch && 'font-semibold text-warning-on-subtle')}>
-                    {g.members.length} 人{mismatch ? '（與設定不符）' : ''}
+                  <span key="members" className="block max-w-[10rem] text-sm text-muted-foreground">
+                    <span className="block truncate" title={g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}>
+                      {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
+                    </span>
+                  </span>,
+                  <span key="count" className={cn('tabular block text-sm whitespace-nowrap', mismatch && 'font-semibold text-warning-on-subtle')}>
+                    {g.members.length} 人{mismatch ? <span className="block text-xs">（與設定不符）</span> : null}
                   </span>,
                   <span key="at" className="tabular text-sm whitespace-nowrap text-muted-foreground">
                     {formatTaipeiMinute(g.establishedBusinessAt)}
@@ -341,102 +351,79 @@ export default async function AdminGroupsPage({
       <Panel
         title="組隊中（等全員確認）"
         icon={<IconHourglass />}
-        description={`${overview.openProposals.length} 份等待全員確認`}
+        description={`${overview.openProposals.length} 份`}
         aria-label="組隊中（等全員確認）"
       >
-        {overview.openProposals.length === 0 ? (
-          <PanelEmpty title="沒有組隊中的提案。" />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[40rem] text-sm">
-              <thead>
-                <tr className={PANEL_TABLE_HEAD}>
-                  <th scope="col" className="px-5 py-2.5 font-semibold">提案人</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">類型</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">成員與確認</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">到期時間</th>
-                  <th scope="col" className="px-5 py-2.5">
-                    <span className="sr-only">動作</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.openProposals.map((p) => {
-                  const overdue = businessNow.getTime() >= p.expiresBusinessAt.getTime()
-                  return (
-                    <tr key={p.id} className={PANEL_TABLE_ROW}>
-                      <td className="px-5 py-3 font-semibold">{p.proposerName}</td>
-                      <td className="px-4 py-3">
-                        <Pill tone={p.groupType === 'industry' ? 'brand' : 'default'}>{GROUP_TYPE_LABEL[p.groupType]}</Pill>
-                      </td>
-                      <td className="px-4 py-3 text-sm">{p.invitations.map((i) => `${i.name}（${INVITATION_STATE_LABEL[i.state]}）`).join('、')}</td>
-                      <td className={cn('tabular px-4 py-3', overdue && 'font-semibold text-destructive')}>
-                        {formatTaipeiMinute(p.expiresBusinessAt)}
+        <div className="space-y-3 px-5 pb-5">
+          {/* 分組設定的摘要（原本在頁首說明）：學生發起提案時照這個擋。 */}
+          <p className="text-sm text-muted-foreground" data-testid="grouping-settings">
+            {describeGroupSize(cohort.groupSizeMin, cohort.groupSizeMax)}・提案 {cohort.proposalDefaultDays} 天內要全員確認、不超過分組期（組隊、選指導老師、交提案的期間）
+          </p>
+          {overview.openProposals.length === 0 ? (
+            <PanelEmpty title="沒有組隊中的提案。" />
+          ) : (
+            <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="組隊中的提案">
+              {overview.openProposals.map((p) => {
+                const overdue = businessNow.getTime() >= p.expiresBusinessAt.getTime()
+                return (
+                  <li key={p.id} className="flex flex-col gap-2 rounded-lg border border-border p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-foreground">{p.proposerName}</span>
+                      <Pill tone={p.groupType === 'industry' ? 'brand' : 'default'}>{GROUP_TYPE_LABEL[p.groupType]}</Pill>
+                      <span className="tabular text-xs text-muted-foreground">{p.invitations.length} 人</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{p.invitations.map((i) => `${i.name}（${INVITATION_STATE_LABEL[i.state]}）`).join('、')}</p>
+                    <div className="mt-auto flex flex-wrap items-end justify-between gap-2">
+                      <p className={cn('tabular text-xs', overdue ? 'font-semibold text-destructive' : 'text-muted-foreground')}>
+                        到期 {formatTaipeiMinute(p.expiresBusinessAt)}
                         {overdue ? '（已過期）' : ''}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <VoidProposalButton
-                          proposalId={p.id}
-                          label={`${p.proposerName}的提案`}
-                          requestId={randomUUID()}
-                          reasonMaxLength={VOID_REASON_MAX_LENGTH}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                      </p>
+                      <VoidProposalButton
+                        proposalId={p.id}
+                        label={`${p.proposerName}的提案`}
+                        requestId={randomUUID()}
+                        reasonMaxLength={VOID_REASON_MAX_LENGTH}
+                      />
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       </Panel>
 
       <Panel title="最近終止的提案" icon={<IconHistory />} aria-label="最近終止的提案">
         {overview.closedProposals.length === 0 ? (
           <PanelEmpty title="還沒有終止的提案。" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[36rem] text-sm">
-              <thead>
-                <tr className={PANEL_TABLE_HEAD}>
-                  <th scope="col" className="px-5 py-2.5 font-semibold">時間</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">提案人</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">原因</th>
-                  <th scope="col" className="px-5 py-2.5 font-semibold">作廢理由</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.closedProposals.map((p) => (
-                  <tr key={p.id} className={PANEL_TABLE_ROW}>
-                    <td className="tabular px-5 py-3 text-muted-foreground">{p.closedBusinessAt ? formatTaipeiMinute(p.closedBusinessAt) : ''}</td>
-                    <td className="px-4 py-3 font-semibold">{p.proposerName}</td>
-                    <td className="px-4 py-3">{p.terminationKind ? TERMINATION_KIND_LABEL[p.terminationKind] : ''}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{p.reason ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="grid gap-3 px-5 pb-5 md:grid-cols-2 2xl:grid-cols-3" aria-label="最近終止的提案清單">
+            {overview.closedProposals.map((p) => (
+              <li key={p.id} className="flex flex-col gap-1.5 rounded-lg border border-border p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-foreground">{p.proposerName}</span>
+                  {p.terminationKind ? <Pill>{TERMINATION_KIND_LABEL[p.terminationKind]}</Pill> : null}
+                </div>
+                <p className="tabular text-xs text-muted-foreground">{p.closedBusinessAt ? formatTaipeiMinute(p.closedBusinessAt) : ''}</p>
+                {p.reason ? <p className="text-sm text-muted-foreground">作廢理由：{p.reason}</p> : null}
+              </li>
+            ))}
+          </ul>
         )}
       </Panel>
     </>,
-    {
-      description,
-      actions: (
-        <GroupingSettingsEditor
-          cohortId={cohort.id}
-          cohortLabel={cohortLabel(cohort)}
-          revision={cohort.revision}
-          requestId={randomUUID()}
-          values={{
-            groupSizeMin: cohort.groupSizeMin,
-            groupSizeMax: cohort.groupSizeMax,
-            proposalDefaultDays: cohort.proposalDefaultDays,
-          }}
-          sizeLimit={GROUP_SIZE_LIMIT}
-          daysLimit={PROPOSAL_DAYS_LIMIT}
-        />
-      ),
-    },
+    <GroupingSettingsEditor
+      cohortId={cohort.id}
+      cohortLabel={cohortLabel(cohort)}
+      revision={cohort.revision}
+      requestId={randomUUID()}
+      values={{
+        groupSizeMin: cohort.groupSizeMin,
+        groupSizeMax: cohort.groupSizeMax,
+        proposalDefaultDays: cohort.proposalDefaultDays,
+      }}
+      sizeLimit={GROUP_SIZE_LIMIT}
+      daysLimit={PROPOSAL_DAYS_LIMIT}
+    />,
   )
 }

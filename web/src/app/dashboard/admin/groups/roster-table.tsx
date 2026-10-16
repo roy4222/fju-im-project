@@ -16,7 +16,18 @@ const GHOST_SM = BTN_ROW_GHOST
  * 信箱是帳號的登入信箱（不限 gmail.com），頁面只在管理員的查詢裡拿得到。
  */
 
-export type RosterColumn = { readonly label: string; readonly sortHref?: string; readonly active?: 'asc' | 'desc' | null }
+export type RosterColumn = {
+  readonly label: string
+  readonly sortHref?: string
+  readonly active?: 'asc' | 'desc' | null
+  /** 次要欄：寬度不夠（1280 以下的桌機）先收起來（網站問題 #7）。 */
+  readonly secondary?: boolean
+}
+
+/** 次要欄在 2xl 以下收起：1280 寬螢幕扣掉側欄後放不下全部欄位（`xl` 剛好從 1280 起算，所以用 `2xl`）。 */
+const SECONDARY_CELL = 'hidden 2xl:table-cell'
+/** 最後一欄（信箱與複製鈕）是這張表的操作欄：表格比框寬時固定在右側，按鈕永遠看得到、點得到。 */
+const STICKY_CELL = 'sticky right-0 bg-card shadow-[-1px_0_0_var(--color-border)]'
 
 export type RosterRow = {
   readonly id: string
@@ -186,7 +197,7 @@ export function GroupRosterTable({
         </p>
       ) : null}
       <DataTableFrame>
-        <table className={`${DT.table} min-w-[64rem]`}>
+        <table className={DT.table}>
           <thead className={DT.thead}>
             <tr>
               <th scope="col" className={`${DT.th} w-10`}>
@@ -202,13 +213,13 @@ export function GroupRosterTable({
                 <th
                   key={c.label || 'actions'}
                   scope="col"
-                  className={DT.th}
+                  className={cn(DT.th, c.secondary && SECONDARY_CELL)}
                   aria-sort={c.active === 'asc' ? 'ascending' : c.active === 'desc' ? 'descending' : undefined}
                 >
                   {c.sortHref ? <SortLink label={c.label} href={c.sortHref} active={c.active ?? null} /> : c.label}
                 </th>
               ))}
-              <th scope="col" className={DT.th}>
+              <th scope="col" className={cn(DT.th, STICKY_CELL, 'bg-muted')}>
                 組員信箱
               </th>
             </tr>
@@ -235,17 +246,18 @@ export function GroupRosterTable({
                     />
                   </td>
                   {row.cells.map((cell, index) => (
-                    <td key={index} className={DT.td}>
+                    <td key={index} className={cn(DT.td, columns[index]?.secondary && SECONDARY_CELL)}>
                       {cell}
                     </td>
                   ))}
-                  <td className={DT.td}>
-                    {/* 原型的列是單行：信箱排成一行、太長就截斷（滑過看全部），旁邊一顆複製鈕。 */}
+                  <td className={cn(DT.td, STICKY_CELL)}>
+                    {/* 原型的列是單行：信箱排成一行、太長就截斷（滑過看全部），旁邊一顆複製鈕。
+                        2xl 以下（1280 寬桌機）信箱文字只留給讀屏器，畫面只剩複製鈕，表格才不會比框寬（網站問題 #7）。 */}
                     <div className="flex items-center gap-1">
                       <ul
                         aria-label={`${row.code} 組員信箱`}
                         title={row.emails.join(', ')}
-                        className="max-w-[13rem] truncate text-xs text-muted-foreground [&>li]:inline [&>li+li]:before:content-['、']"
+                        className="sr-only text-xs 2xl:not-sr-only 2xl:max-w-[13rem] 2xl:truncate text-muted-foreground [&>li]:inline [&>li+li]:before:content-['、']"
                       >
                         {row.emails.map((email) => (
                           <li key={email}>{email}</li>
