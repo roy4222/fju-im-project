@@ -19,7 +19,7 @@ export type TeacherProgress = {
 
 export function teacherProgress(
   board: AdminGradingBoard,
-  opts: { readonly stageKey?: string; readonly excludeDissolved: true } = { excludeDissolved: true },
+  opts: { readonly stageKey?: string; readonly excludeDissolved: true },
 ): readonly TeacherProgress[] {
   const stageKeys = new Set(opts.stageKey !== undefined ? [opts.stageKey] : (board.current?.stages ?? []).map((s) => s.key))
   const activeGroupIds = new Set(board.groups.map((g) => g.id))
@@ -36,5 +36,5 @@ export function teacherProgress(
 
 /** 首頁「評分還差 N 份」：全部階段、排除解散組的 Σ（分母 − 分子）。 */
 export function remainingCount(board: AdminGradingBoard): number {
-  return teacherProgress(board).reduce((n, t) => n + (t.assigned - t.counted), 0)
+  return teacherProgress(board, { excludeDissolved: true }).reduce((n, t) => n + (t.assigned - t.counted), 0)
 }
