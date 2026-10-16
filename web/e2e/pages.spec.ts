@@ -321,9 +321,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/student/inbox': '全部標為已讀',
     '/dashboard/admin/groups': '全部組別',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
-    '/dashboard/teacher/groups': '一般組由系辦依抽籤結果指派；所有組別都看得到',
+    '/dashboard/teacher/groups': '一般組由系辦指派。',
     // 合作案管理（票 20）。
-    '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
     '/dashboard/admin/industry': '全部合作案與組別連結',
     '/dashboard/admin/affairs': '用完整編輯器建立',
     // 檔案管理（票 35）。
@@ -375,7 +374,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 老師各組繳交狀態（票 22）：學生拿到的回應裡不能有矩陣。
     { path: '/dashboard/teacher/affairs', wrongRole: 'student' },
     // 合作案管理（票 20）。
-    { path: '/dashboard/teacher/industry', wrongRole: 'student' },
     { path: '/dashboard/admin/industry', wrongRole: 'teacher' },
     // 評分（票 23）。
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },

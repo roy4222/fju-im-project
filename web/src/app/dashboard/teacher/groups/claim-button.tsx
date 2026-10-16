@@ -300,7 +300,7 @@ function ClaimForm({
         <h2 className="text-lg font-extrabold text-foreground">擔任 {row.code} 的指導老師</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {row.memberCount} 人{row.leaderName ? `・組長 ${row.leaderName}` : ''}。第一位確認的老師就是指導老師。
-          確認後全組會收到通知；之後要換老師請洽系辦重派。
+          確認後全組會收到通知。
         </p>
       </div>
       <input type="hidden" name="groupId" value={row.groupId} />
