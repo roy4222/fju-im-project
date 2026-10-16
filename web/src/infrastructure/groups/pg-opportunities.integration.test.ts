@@ -855,3 +855,125 @@ describe('組別名單：登入信箱與匯出（5.5、GRP-16、C18）', () => {
     expect(sheet).toContain(g.members[1]!.email)
   })
 })
+
+describe('合作案選項查詢 linkOptions（AC-AD-34）', () => {
+  // `linkOptions` 不分屆別：同檔其他案例種的已發布合作案都會被查到，所以這裡自己開一份 schema，裡面只有本案例種的六筆。
+  let linkOwner: IsolatedDatabase
+  let linkApp: Pool
+  let linkAdminId: string
+  let linkStudentId: string
+  let linkTeacherId: string
+  let calls: { text: string; values: unknown[] }[] = []
+  let linkQuery: PgOpportunityQuery
+
+  async function seedUser(name: string, role: 'admin' | 'teacher' | 'student', displayName?: string): Promise<string> {
+    const row = await linkOwner.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [name, `${role}-${randomUUID().slice(0, 8)}@fju.edu.tw`],
+    )
+    const id = String(row.rows[0]!.id)
+    if (displayName) {
+      await linkOwner.sql(
+        `insert into user_profiles (user_id, display_name, name_normalized, contact_email, profile_completed_at)
+         values ($1, $2, $2, $3, now())`,
+        [id, displayName, `${id}@contact.example.com`],
+      )
+    }
+    return id
+  }
+
+  async function seedOpportunity(companyName: string, status: 'draft' | 'published' | 'withdrawn', deleted = false) {
+    await linkOwner.sql(
+      `insert into industry_opportunities
+         (id, owner_teacher_user_id, company_name, department, content, requirements, notes, address, contact_name,
+          contact_phone, contact_email, status, published_business_at, withdrawn_business_at, created_by_kind, created_by_user_id,
+          deleted_at, deleted_by_user_id)
+       values (gen_random_uuid(), $1, $2, $3, '內容', '條件', '內部備註', '地址', '聯絡人', '02-0000-0000', 'secret@company.example.com',
+               $4, case when $4 = 'draft' then null else now() end, case when $4 = 'withdrawn' then now() else null end, 'user', $1,
+               case when $5 then now() else null end, case when $5 then $6::uuid else null end)`,
+      [linkTeacherId, companyName, `${companyName}部`, status, deleted, linkAdminId],
+    )
+  }
+
+  const linkActor = (userId: string, role: 'admin' | 'teacher' | 'student') => actor(userId, [role])
+
+  beforeAll(async () => {
+    linkOwner = await createIsolatedDatabase({ label: 'link_options', setup: migratedSchema })
+    linkApp = await poolAsRole(linkOwner, 'fju_app')
+    linkAdminId = await seedUser('A1', 'admin')
+    linkStudentId = await seedUser('S1', 'student')
+    linkTeacherId = await seedUser('t-account', 'teacher', '李老師')
+    await seedOpportunity('甲', 'published')
+    await seedOpportunity('丙', 'published')
+    await seedOpportunity('戊', 'published')
+    await seedOpportunity('草稿公司', 'draft')
+    await seedOpportunity('下架公司', 'withdrawn')
+    await seedOpportunity('已刪公司', 'withdrawn', true)
+    const counted = {
+      query: (text: string, values: unknown[]) => {
+        calls.push({ text, values })
+        return linkApp.query(text, values)
+      },
+    } as unknown as Pick<Pool, 'query'>
+    linkQuery = new PgOpportunityQuery({ businessClock, reader: () => counted })
+  })
+
+  afterAll(async () => {
+    await linkApp?.end()
+    await linkOwner?.close()
+  })
+
+  async function options(who: ResolvedActor, opts?: Parameters<PgOpportunityQuery['linkOptions']>[1]) {
+    calls = []
+    const result = await linkQuery.linkOptions(who, opts)
+    return { result, calls: [...calls] }
+  }
+
+  it('只回已發布、四個欄位、依公司名排序；可分頁、可搜尋、limit 夾到 200；學生回空陣列；一次一句 SQL', async () => {
+    const admin = linkActor(linkAdminId, 'admin')
+    const sorted = (
+      await linkOwner.sql(`select company_name from industry_opportunities where company_name in ('甲', '丙', '戊') order by company_name`)
+    ).rows.map((r) => String(r.company_name))
+
+    const all = await options(admin)
+    expect(all.result.map((o) => o.companyName)).toEqual(sorted)
+    expect(all.calls).toHaveLength(1)
+    for (const o of all.result) {
+      expect(Object.keys(o).sort()).toEqual(['companyName', 'department', 'id', 'ownerName'])
+      expect(o.department).toBe(`${o.companyName}部`)
+      expect(o.ownerName).toBe('李老師')
+    }
+    expect(JSON.stringify(all.result)).not.toContain('secret@company.example.com')
+    expect(all.calls[0]!.values).toContain(50)
+
+    const firstPage = await options(admin, { limit: 2 })
+    expect(firstPage.result.map((o) => o.companyName)).toEqual(sorted.slice(0, 2))
+    expect(firstPage.calls).toHaveLength(1)
+
+    const secondPage = await options(admin, { limit: 2, offset: 2 })
+    expect(secondPage.result.map((o) => o.companyName)).toEqual(sorted.slice(2))
+    expect(secondPage.calls).toHaveLength(1)
+
+    const searched = await options(admin, { q: '甲' })
+    expect(searched.result.map((o) => o.companyName)).toEqual(['甲'])
+    expect(searched.calls).toHaveLength(1)
+    // q 是參數、萬用字元被跳脫：搜「%」不會變成全部。
+    expect((await options(admin, { q: '%' })).result).toEqual([])
+
+    const capped = await options(admin, { limit: 1000 })
+    expect(capped.result).toHaveLength(3)
+    expect(capped.calls).toHaveLength(1)
+    expect(capped.calls[0]!.values).toContain(200)
+    expect(capped.calls[0]!.values).not.toContain(1000)
+    expect((await options(admin, { limit: 0 })).calls[0]!.values).toContain(50)
+
+    const teacher = await options(linkActor(linkTeacherId, 'teacher'))
+    expect(teacher.result).toHaveLength(3)
+
+    const student = await options(linkActor(linkStudentId, 'student'))
+    expect(student.result).toEqual([])
+    expect(student.calls).toHaveLength(0)
+    expect((await options(anonymous)).result).toEqual([])
+  })
+})

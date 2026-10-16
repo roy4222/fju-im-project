@@ -41,6 +41,7 @@ import type {
   GroupOpportunityLink,
   GroupTypeReceipt,
   LinkOpportunityInput,
+  LinkOption,
   LinkReceipt,
   ManagedOpportunity,
   OpportunityCard,
@@ -399,6 +400,11 @@ export interface OpportunityQuery {
   open(actor: ResolvedActor, opportunityId: string): Promise<OpportunityPage>
   /** 老師看自己的全部合作案（含草稿、下架）；系辦看全部。其他人回空陣列。 */
   manageList(actor: ResolvedActor): Promise<ManagedOpportunity[]>
+  /**
+   * 連結合作案的選項（AD-17）：已發布、沒被刪的案，依公司名排序；`q` 比對公司名，`limit` 預設 50、上限 200，可 `offset` 分頁。
+   * 系辦與老師可用，其他人回空陣列；只有系辦能用的畫面要在呼叫端另外守。
+   */
+  linkOptions(actor: ResolvedActor, opts?: { q?: string; limit?: number; offset?: number }): Promise<readonly LinkOption[]>
   /** 學生本人的組別在合作案與類型區塊要的資料；沒有組別回 null。 */
   leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null>
 }
