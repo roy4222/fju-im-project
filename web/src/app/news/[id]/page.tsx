@@ -75,9 +75,16 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
             {item.title}
           </h1>
           <div className="aspect-video overflow-hidden rounded-xl bg-muted">
-            {/* 上傳的封面走共用下載能力（每次重驗權限），直式海報不裁切；沒有封面時是示意照片。 */}
+            {/* 上傳的封面走共用下載能力（每次重驗權限），直式海報不裁切；沒有封面時是示意照片。
+                文章首圖不 lazy；寬高只是 16:9 的比例提示，實際大小由 CSS 決定。 */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={coverSrc(item)} alt="" className={item.cover ? 'h-full w-full object-contain' : 'h-full w-full object-cover'} />
+            <img
+              src={coverSrc(item)}
+              alt=""
+              width={1280}
+              height={720}
+              className={item.cover ? 'h-full w-full object-contain' : 'h-full w-full object-cover'}
+            />
           </div>
           {item.summary ? <p className="text-[17px] leading-relaxed text-muted-foreground">{item.summary}</p> : null}
           <CleanBody html={item.bodyHtml} className="space-y-4 text-[17px]" />
