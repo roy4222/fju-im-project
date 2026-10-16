@@ -1,123 +1,78 @@
-import Link from 'next/link'
-import { IconClipboardText, IconUser } from '@tabler/icons-react'
+import { IconClipboardText } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
-import { OUTLINE_BUTTON_SM, PageTitle, Panel, PanelEmpty, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
-import { MatrixTable, type MatrixCell, type MatrixItem, type MatrixRow } from '@/app/dashboard/teacher/affairs/matrix-table'
-import type { AdvisorMatrixCell, AdvisorMatrixItem, StatusTone } from '@/application/submissions'
-import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
-import { GROUP_TYPE_LABEL } from '@/composition/groups'
-import { categoryOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
-import { formatTaipeiMinute } from '@/shared/time'
+import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
+import { TabNav } from '@/app/dashboard/teacher/_ui/tab-nav'
+import { EntryList } from '@/app/dashboard/teacher/affairs/entry-list'
+import { buildGroupCards, GroupCards, type GroupCard } from '@/app/dashboard/teacher/affairs/group-cards'
+import { SignoffTab } from '@/app/dashboard/teacher/affairs/signoff-tab'
+import type { ResolvedActor } from '@/application/accounts'
+import type { AdvisorIndividualItem } from '@/application/submissions'
+import { getBusinessClock } from '@/composition/cohorts'
+import { getSignoffQuery } from '@/composition/signoff'
+import { getAdvisorSubmissionQuery } from '@/composition/submissions'
 
-export const metadata = { title: '各組繳交狀態｜資管系專題平台' }
+export const metadata = { title: '作業區｜資管系專題平台' }
 
-/** 狀態字的顏色（原型 `StateBadge`：已繳綠、逾期紅、其他灰；草稿老師看不到，不會出現）。 */
-const TONE: Record<StatusTone, PillTone> = { success: 'success', brand: 'brand', muted: 'default', info: 'info', danger: 'danger' }
+const BASE = '/dashboard/teacher/affairs'
+const TABS = [
+  { key: 'submissions', label: '各組繳交', href: BASE },
+  { key: 'signoff', label: '同意書', href: `${BASE}?tab=signoff` },
+] as const
+
+const DESCRIPTION = {
+  submissions: '你指導的每一組一張卡，一個小方塊一份作業。點小方塊看那一組每一次正式送出的內容。',
+  signoff: '你此刻指導的組別的同意書與進度。組員全部同意後才輪到你。',
+} as const
 
 /**
- * 老師「各組繳交狀態」（票 22；票 37 照原型 `/dashboard/teacher/affairs` 的「指導組別 × 收件項目」矩陣）。
+ * 老師作業區（TE-04，Q77、Q83）：分頁 `?tab=submissions`（預設）｜`?tab=signoff`。
  *
- * 只列老師**此刻**指導的組別（換掉的組下一次打開就不見了），欄是那些組所在屆別、發布中、整組一份的收件；
- * 每格是那一組的狀態（跟學生作業區、系辦名單頁同一個 `receiverStatus`），點進去看版本與內容。
- * 老師看不到共用草稿，所以沒交的格子一律是「未繳」，不會出現「草稿已存」。
- * 下面另列系辦開了主指導閱覽的個人收件（沒開的個人收件老師看不到，產品模組 05 §4；原型沒有這一塊）。
+ * - 各組繳交：只列老師**此刻**指導的組別（換掉的組下一次打開就不見了），每組一張卡、每份整組作業一個小方塊；
+ *   下面另列系辦開了主指導閱覽的個人作業。
+ * - 同意書：原 `/dashboard/teacher/signoff` 的卡片（那個網址先過角色檢查再轉到這裡）。
+ *
+ * 每個分頁只讀自己要的資料（一次 `Promise.all`）：各組繳交＝`matrix`＋業務時間；同意書＝`teacherView`。
+ * 不認得的 `tab` 一律當「各組繳交」，不轉頁（`pages.spec` 要直接拿到 200）。
  */
-export default async function TeacherAffairsPage() {
+export default async function TeacherAffairsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
-  const actor = await requireRole('/dashboard/teacher/affairs', 'teacher')
-  const [matrix, businessNow] = await Promise.all([getAdvisorSubmissionQuery().matrix(actor), getBusinessClock().now()])
-  const groups = matrix?.groups ?? []
-  const items = matrix?.items ?? []
-  const individual = matrix?.individualItems ?? []
-  const cellOf = new Map((matrix?.cells ?? []).map((c) => [`${c.groupId}:${c.itemId}`, c]))
-
-  const matrixItems: MatrixItem[] = items.map((item) => ({
-    itemId: item.itemId,
-    title: item.title,
-    due: item.dueAt ? formatTaipeiMinute(item.dueAt).slice(5) : null,
-  }))
-  const rows: MatrixRow[] = groups.map((group) => ({
-    groupId: group.groupId,
-    code: group.code,
-    meta: `${cohortLabel({ name: group.cohortName, code: group.cohortCode })}・${GROUP_TYPE_LABEL[group.groupType]}`,
-    members: group.memberNames.join('、'),
-    cells: Object.fromEntries(
-      items.map((item) => [
-        item.itemId,
-        cellView(item, group.groupId, item.cohortId === group.cohortId ? cellOf.get(`${group.groupId}:${item.itemId}`) : undefined, businessNow),
-      ]),
-    ),
-  }))
+  const actor = await requireRole(BASE, 'teacher')
+  const data = await loadAffairs(actor, (await searchParams).tab === 'signoff' ? 'signoff' : 'submissions')
 
   return (
-    <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/affairs">
+    <DashboardShell roleLabel="老師" items={TEACHER_NAV} current={BASE}>
       <div className="flex flex-col gap-5">
-        <PageTitle
-          title="各組繳交狀態"
-          description={`我的 ${groups.length} 個指導組別 × ${items.length} 個整組繳交項目。點狀態看每一次正式送出的版本與內容。`}
-        />
-
-        <Panel title="各組繳交總表" icon={<IconClipboardText />} description="點狀態看版本與內容" bodyClassName={groups.length > 0 && items.length > 0 ? 'p-4' : undefined}>
-          {groups.length === 0 ? (
-            <PanelEmpty
-              icon={<IconClipboardText />}
-              title="你目前沒有指導的組別"
-              hint="系辦指派或你在「分組總覽」擔任產學組指導老師之後，那些組的繳交狀態會出現在這裡。換老師後，原本的組就不會再出現。"
-              action={{ href: '/dashboard/teacher/groups', label: '到分組總覽' }}
-            />
-          ) : items.length === 0 ? (
-            <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的繳交項目" hint="系辦發布整組一份的繳交項目之後，會在這裡列出你指導的每一組交了沒。" />
-          ) : (
-            <MatrixTable items={matrixItems} rows={rows} />
-          )}
-        </Panel>
-
-        {individual.length > 0 ? (
-          <Panel title="開放指導老師閱覽的個人繳交項目" icon={<IconUser />} description="只看得到你指導的學生正式送出的回答，草稿不給">
-            <ul className="divide-y divide-border" data-testid="individual-items">
-              {individual.map((item) => (
-                <li key={item.itemId} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-accent/40">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-foreground">{item.title}</span>
-                    <span className="tabular block text-xs text-muted-foreground">
-                      {item.dueAt ? `${formatTaipeiMinute(item.dueAt)} 截止` : '無截止'}・欄位第 {item.effectiveFromVersionNo} 版起開放
-                    </span>
-                  </span>
-                  <span className="tabular text-sm font-semibold">
-                    已繳 {item.submitted}／{item.required} 位
-                  </span>
-                  <Link href={`/dashboard/teacher/affairs/${item.itemId}`} className={OUTLINE_BUTTON_SM}>
-                    查看
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        ) : null}
+        <PageTitle title="作業區" description={DESCRIPTION[data.tab]} />
+        <TabNav label="作業區分頁" tabs={TABS} current={data.tab} />
+        {data.tab === 'signoff' ? <SignoffTab cards={data.cards} /> : <SubmissionsTab cards={data.cards} individual={data.individual} />}
       </div>
     </DashboardShell>
   )
 }
 
-/** 一格的狀態字（跟學生作業區、系辦名單頁同一個 `receiverStatus`；草稿一律當沒有）。 */
-function cellView(item: AdvisorMatrixItem, groupId: string, cell: AdvisorMatrixCell | undefined, businessNow: Date): MatrixCell {
-  if (!cell) return null
-  const category = categoryOf(cell)
-  // 個別補交期限（W10b）跟名單同一個判斷：補交中、期限未到是「未繳」＋「系辦開放補交到…」，過了仍未交才逾期。
-  const facts = { exempt: cell.exempt, hasDraft: false, latestVersionNo: cell.latestVersionNo }
-  const status = receiverStatus(item, { ...facts, reopenUntil: cell.reopenUntil }, businessNow)
-  const reopened = cell.latestVersionNo === null && !status.overdue && receiverStatus(item, facts, businessNow).overdue
-  const headline = category === 'removed' ? '已不需要繳交（原名單移除）' : status.headline
-  const tone: PillTone = category === 'current' ? TONE[status.tone] : 'default'
-  let detail = ''
-  if (cell.latestVersionNo !== null && cell.latestReceivedAt) {
-    detail = `${cell.latestSubmittedByName ?? ''}・${formatTaipeiMinute(cell.latestReceivedAt)}`
-  } else if (category === 'current' && (reopened || status.headline === '尚未開放')) {
-    detail = status.detail
-  } else if (category === 'current' && !status.overdue) {
-    detail = '還沒正式送出'
-  }
-  return { headline, tone, detail, href: `/dashboard/teacher/affairs/${item.itemId}?group=${groupId}` }
+/** 這一頁唯一的讀取入口：依分頁只讀那一頁要的資料。 */
+async function loadAffairs(actor: ResolvedActor, tab: 'submissions' | 'signoff') {
+  if (tab === 'signoff') return { tab, cards: await getSignoffQuery().teacherView(actor) } as const
+  const [matrix, businessNow] = await Promise.all([getAdvisorSubmissionQuery().matrix(actor), getBusinessClock().now()])
+  return { tab, cards: matrix ? buildGroupCards(matrix, businessNow) : [], individual: matrix?.individualItems ?? [] } as const
+}
+
+function SubmissionsTab({ cards, individual }: { cards: readonly GroupCard[]; individual: readonly AdvisorIndividualItem[] }) {
+  const hasItems = cards.some((c) => c.cells.length > 0)
+  return (
+    <>
+      <Panel title="各組繳交" icon={<IconClipboardText />} description={cards.length > 0 ? `${cards.length} 組` : undefined}>
+        {cards.length === 0 ? (
+          <PanelEmpty icon={<IconClipboardText />} title="你目前沒有指導中的組別。" action={{ href: '/dashboard/teacher/groups', label: '到分組總覽' }} />
+        ) : !hasItems ? (
+          <PanelEmpty icon={<IconClipboardText />} title="還沒有整組一份的作業" hint="系辦發布整組一份的作業之後，會在這裡列出你指導的每一組交了沒。" />
+        ) : (
+          <GroupCards cards={cards} />
+        )}
+      </Panel>
+      <EntryList items={individual} />
+    </>
+  )
 }

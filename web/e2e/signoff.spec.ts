@@ -422,3 +422,16 @@ test('票 14 掛點：管理員加入組員後，目前版本同時失效；學�
   expect(versions.rows[0]!.n).toBe(2)
   expect(newcomerNo).toBeTruthy()
 })
+
+test('TE-04：舊網址「站內同意書」轉到作業區的同意書分頁；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
+  await signIn(page, teacher)
+  await page.goto('/dashboard/teacher/signoff')
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/affairs\?tab=signoff/)
+  const tabs = page.getByRole('navigation', { name: '作業區分頁' })
+  await expect(tabs.getByRole('link', { name: '同意書', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('teacher-signoff-card').filter({ hasText: 'G01・最終文件授權' })).toBeVisible()
+
+  await signIn(page, s01)
+  await page.goto('/dashboard/teacher/signoff')
+  await expect(page).toHaveURL(/\/403/)
+})

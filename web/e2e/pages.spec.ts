@@ -332,7 +332,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/files': '還有地方在用的檔案不能刪',
     '/dashboard/admin/editor/new': '存草稿',
     '/dashboard/student/affairs': '你需要繳交的每一項、狀態與截止',
-    '/dashboard/teacher/affairs': '點狀態看每一次正式送出的版本與內容',
+    '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
     '/dashboard/admin/grading': '每組要幾份評分、指派哪位老師評',
     '/dashboard/teacher/grading': '評分草稿只有你和系辦看得到，正式送出後鎖定',
     '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
@@ -341,7 +341,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 操作紀錄（票 36）。
     '/dashboard/admin/audit': '誰、何時、對哪個對象、做了什麼、為什麼',
     '/dashboard/admin/showcase': '草稿不會公開',
-    '/dashboard/teacher/signoff': '你此刻指導的組別的同意書與進度',
     '/dashboard/student/signoff': '每個人只代表自己一票',
     // 專題時間軸與產學合作（票 38）。
     '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
@@ -385,7 +384,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 簽核與精選（票 25）。
     { path: '/dashboard/admin/signoff', wrongRole: 'student' },
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
-    { path: '/dashboard/teacher/signoff', wrongRole: 'student' },
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
