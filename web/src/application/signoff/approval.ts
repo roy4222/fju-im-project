@@ -151,7 +151,7 @@ export type VersionProgress = {
   /** 已同意的學生數／應同意的學生數（三人組就是 3）。 */
   readonly agreed: number
   readonly total: number
-  /** 還沒表態的人（學生；輪到老師或還在收集時也列老師）。 */
+  /** 還沒表態的人：收集中只列學生；輪到老師（teacher_pending）才列老師（網站問題 #4）。 */
   readonly missing: readonly string[]
 }
 
@@ -173,7 +173,10 @@ export function buildProgress(participants: Participants, votes: readonly VoteRe
   }
   const pendingStates: readonly SignoffState[] = ['collecting', 'teacher_pending']
   const missing = pendingStates.includes(state)
-    ? [...students.filter((s) => s.result === null).map((s) => s.displayName), ...(advisor.result === null ? [`${advisor.displayName}（指導老師）`] : [])]
+    ? [
+        ...students.filter((s) => s.result === null).map((s) => s.displayName),
+        ...(state === 'teacher_pending' && advisor.result === null ? [`${advisor.displayName}（指導老師）`] : []),
+      ]
     : []
   return { students, advisor, agreed: students.filter((s) => s.result === 'agree').length, total: students.length, missing }
 }
@@ -224,11 +227,15 @@ export function remindable(state: SignoffState): boolean {
   return state === 'collecting' || state === 'teacher_pending'
 }
 
-/** 提醒名單：還沒表態的學生＋還沒表態的主指導（含還沒輪到但待簽的老師，S11-11）。 */
-export function remindRecipients(progress: VersionProgress): string[] {
+/**
+ * 提醒名單（S11-11）：收集中只提醒還沒表態的學生（還沒輪到的老師不提醒，網站問題 #4）；
+ * 輪到老師時只剩還沒表態的主指導；其他狀態不提醒。
+ */
+export function remindRecipients(progress: VersionProgress, state: SignoffState): string[] {
+  if (!remindable(state)) return []
   return [
     ...progress.students.filter((s) => s.result === null).map((s) => s.userId),
-    ...(progress.advisor.result === null ? [progress.advisor.userId] : []),
+    ...(state === 'teacher_pending' && progress.advisor.result === null ? [progress.advisor.userId] : []),
   ]
 }
 

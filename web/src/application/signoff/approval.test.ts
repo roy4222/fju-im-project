@@ -104,13 +104,27 @@ describe('狀態轉移', () => {
 })
 
 describe('進度與缺誰', () => {
-  it('人數照快照；缺誰列還沒表態的學生與老師；已結束的版本不列缺誰', () => {
+  it('人數照快照；收集中缺誰只列還沒表態的學生（不列還沒輪到的老師）；已結束的版本不列缺誰', () => {
     const at = new Date('2027-01-05T02:00:00Z')
     const p = buildProgress(participants, [{ userId: 's1', role: 'student', result: 'agree', reason: null, realAt: at }], 'collecting')
-    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙', '王老師（指導老師）'] })
+    expect(p).toMatchObject({ agreed: 1, total: 3, missing: ['乙', '丙'] })
     expect(p.students[0]).toMatchObject({ result: 'agree', at })
     expect(buildProgress(participants, [], 'void').missing).toEqual([])
-    expect(remindRecipients(p)).toEqual(['s2', 's3', 't1'])
+    expect(remindRecipients(p, 'collecting')).toEqual(['s2', 's3'])
+  })
+
+  it('等老師：缺誰與提醒名單都只有老師', () => {
+    const at = new Date('2027-01-05T02:00:00Z')
+    const votes = ['s1', 's2', 's3'].map((userId) => ({ userId, role: 'student' as const, result: 'agree' as const, reason: null, realAt: at }))
+    const p = buildProgress(participants, votes, 'teacher_pending')
+    expect(p).toMatchObject({ agreed: 3, total: 3, missing: ['王老師（指導老師）'] })
+    expect(remindRecipients(p, 'teacher_pending')).toEqual(['t1'])
+  })
+
+  it('已完成：缺誰與提醒名單都空（看狀態，不是因為大家剛好都投完）', () => {
+    const p = buildProgress(participants, [], 'complete')
+    expect(p.missing).toEqual([])
+    expect(remindRecipients(p, 'complete')).toEqual([])
   })
 })
 

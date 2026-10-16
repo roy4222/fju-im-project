@@ -184,9 +184,9 @@ test('逐人同意：勾已閱讀才按得下去、確認框只代表自己一�
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
   const cell = page.getByTestId('package-cell').filter({ hasText: '第 1 版' }).first()
   await expect(cell).toContainText('1／3')
-  await cell.getByText('缺 3 位').click()
+  await cell.getByText('缺 2 位').click()
   await expect(cell.getByTestId('missing-details')).toContainText(names.get(g1[1]!.userId)!)
-  await expect(cell.getByTestId('missing-details')).toContainText(`${T1_NAME}（指導老師）`)
+  await expect(cell.getByTestId('missing-details')).not.toContainText(`${T1_NAME}（指導老師）`)
 })
 
 test('重置：對話框列出將失效的簽署、理由必填；舊頁再按被拒；新版 v2 大家重新同意（舊同意留歷史）', async ({ page, context }) => {
@@ -327,7 +327,7 @@ test('匯出：可列印頁（新分頁）與 CSV 明細；每次匯出都留紀
 test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕不可用並寫上次時間；已完成的版本不能提醒', async ({ page }) => {
   g2v1 = await createVersion(page, 'G02')
   await page.getByRole('button', { name: '提醒未同意者' }).click()
-  await expect(page.getByRole('status').filter({ hasText: '已提醒' })).toContainText('已提醒 G02 同意書第 1 版還沒回覆的 3 位學生與指導老師')
+  await expect(page.getByRole('status').filter({ hasText: '已提醒' })).toContainText('已提醒 G02 同意書第 1 版還沒回覆的 3 位學生；24 小時內')
   await page.reload()
   await expect(page.getByRole('button', { name: '提醒未同意者' })).toBeDisabled()
   await expect(page.getByTestId('remind-blocked')).toContainText('已於')

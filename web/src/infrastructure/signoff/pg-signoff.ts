@@ -966,7 +966,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const participants = readParticipants(version.participants)
       if (!participants) return versionNotFound()
       const progress = buildProgress(participants, await votesOf(tx, [version.id]), status.state)
-      const recipients = remindRecipients(progress)
+      const recipients = remindRecipients(progress, status.state)
       if (recipients.length === 0) return err('CONFLICT', '這一版的參與者都已回覆，不需要提醒。')
       const advisorIncluded = recipients.includes(participants.advisor.userId)
       const { eventId } = await this.#events.publish(tx, {
