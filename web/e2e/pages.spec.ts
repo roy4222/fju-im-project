@@ -344,6 +344,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
     // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
     '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
+    // 設定總頁（AD-20）：時間軸卡的說明句。
+    '/dashboard/admin/settings': '四個階段與活動日期',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -386,6 +388,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
+    // 設定總頁（AD-20）。
+    { path: '/dashboard/admin/settings', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {
