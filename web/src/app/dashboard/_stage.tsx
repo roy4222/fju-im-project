@@ -224,7 +224,7 @@ export function HomeHero({
             {simulated}
           </p>
           <p className="mt-5 text-[14px] font-bold">
-            現在
+            <span>現在</span>
             <span aria-hidden className="mx-3 inline-block h-px w-10 bg-white/70 align-middle" />
             {line ? <span className="font-semibold text-white/85">{line}</span> : null}
           </p>
