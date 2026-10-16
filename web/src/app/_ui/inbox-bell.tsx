@@ -7,8 +7,9 @@ import { unreadCount } from '@/app/_ui/nav-badges'
  *
  * 是 server component：每次換頁重新算一次，沒有 client JS，也就不必為了它放寬 CSP。
  * 讀不到（資料庫暫時有問題）就只顯示鈴鐺、不顯示數字，不要讓整個後台跟著壞。
+ * `current` 是本頁網址：就在通知匣時鈴鐺標 `aria-current="page"`。
  */
-export async function InboxBell({ href }: { href: string }) {
+export async function InboxBell({ href, current }: { href: string; current?: string }) {
   // 跟側欄「通知」的徽章共用同一次查詢（nav-badges.ts）；讀不到是 undefined，當作 0。
   const unread = (await unreadCount()) ?? 0
   const label = unread > 0 ? `通知，${unread} 則未讀` : '通知，沒有未讀'
@@ -17,6 +18,7 @@ export async function InboxBell({ href }: { href: string }) {
     <Link
       href={href}
       aria-label={label}
+      aria-current={current === href ? 'page' : undefined}
       title={label}
       data-testid="inbox-bell"
       className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

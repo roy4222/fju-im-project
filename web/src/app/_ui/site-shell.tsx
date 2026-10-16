@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import type { ResolvedActor } from '@/application/accounts'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
+import type { NavItem } from '@/app/dashboard/_nav'
 import { homeFor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
@@ -55,10 +56,13 @@ const MEMBER_NAV: readonly HeaderNavItem[] = [
   { href: '/files', label: '檔案下載' },
 ]
 
+/** 頁尾的一個連結（後台側欄的 `NavItem` 要圖示，頁尾不用）。 */
+export type FooterLink = { href: string; label: string }
+
 /** 頁尾「內容」欄（原型 site-footer）：導覽攤平、不重複。 */
-function footerLinks(nav: readonly HeaderNavItem[]): NavItem[] {
+function footerLinks(nav: readonly HeaderNavItem[]): FooterLink[] {
   const seen = new Set<string>()
-  const links: NavItem[] = []
+  const links: FooterLink[] = []
   for (const item of nav) {
     for (const l of item.children ?? [item]) {
       if (seen.has(l.href)) continue
@@ -233,7 +237,8 @@ export async function NarrowShell({ children, wide = false }: { children: ReactN
   )
 }
 
-export type NavItem = { href: string; label: string }
+// 側欄項目的型別在 `dashboard/_nav.ts`（SH-1a）；舊的 import 路徑照用。
+export type { NavItem } from '@/app/dashboard/_nav'
 
 /**
  * 後台外殼：側欄＋頂列＋內容（原型 `dashboard/[role]/layout.tsx`）。
@@ -278,7 +283,7 @@ export async function DashboardShell({
         homeHref={base}
         switchLinks={switchLinks}
         // 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。
-        bell={<InboxBell href={`${base}/inbox`} />}
+        bell={<InboxBell href={`${base}/inbox`} current={current} />}
         signOutFormId={signOutFormId}
       >
         {children}
