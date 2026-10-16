@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { IconCheck, IconDownload, IconFileTypePdf, IconMinus, IconSignature, IconX } from '@tabler/icons-react'
-import { Pill } from '@/app/_ui/dashboard-primitives'
+import { StatusPill } from '@/app/_ui/dashboard/cards'
 import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
 import { consentTodo } from '@/app/dashboard/student/_todo/todos'
 import { Invalidated, StateBadge } from '@/app/dashboard/_signoff/version-view'
@@ -38,9 +38,9 @@ export function ConsentVersion({ v, action, headingLevel = 1 }: { v: VersionDeta
             {v.groupCode}・{PURPOSE_LABEL[v.purpose]}
           </Heading>
         </div>
-        <Pill tone={todo?.status === 'open' ? 'brand' : todo?.label === '已同意' ? 'success' : 'default'} className="h-7 px-3 text-[13px]">
+        <StatusPill tone={todo === null ? 'neutral' : todo.status === 'open' ? 'violet' : 'done'}>
           {todo?.label ?? signoffStateLabel(v.state, { cause: v.cause, newerVersionNo: newer })}
-        </Pill>
+        </StatusPill>
       </header>
 
       {v.state === 'revision' || v.state === 'superseded' || v.state === 'void' || (!v.isCurrent && v.state === 'complete') ? <Invalidated v={v} /> : null}
