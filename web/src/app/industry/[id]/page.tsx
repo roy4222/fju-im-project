@@ -89,7 +89,7 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            {o.linkedGroupCount > 0 ? <Tag tone="ink">已有 {o.linkedGroupCount} 組</Tag> : <Tag>尚無組別</Tag>}
+            {o.linkedGroupCount > 0 ? <Tag tone="ink">已有 {o.linkedGroupCount} 組{o.status === 'published' ? '・仍可加入' : ''}</Tag> : <Tag>尚無組別</Tag>}
           </div>
           <h1 id="opportunity-title" className="text-[26px] leading-snug font-extrabold break-words text-foreground sm:text-[32px]">
             {o.companyName}
