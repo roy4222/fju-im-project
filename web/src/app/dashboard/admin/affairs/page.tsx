@@ -25,7 +25,7 @@ export const metadata = { title: '公告與作業｜資管系專題平台' }
 const FILTERS = AFFAIRS_FILTERS
 
 // 「公告與作業」分頁列（系辦 AD-04；設計方案 §3.2）：三個既有路由之間的連結，各頁仍是自己的查詢。
-const TABS = [
+const AFFAIRS_TABS = [
   { href: '/dashboard/admin/affairs', label: '公告與作業' },
   { href: '/dashboard/admin/showcase', label: '成果展示' },
   { href: '/dashboard/admin/files', label: '檔案' },
@@ -60,7 +60,7 @@ export default async function AffairsPage({
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
       <PageTitle title="公告與作業" />
       <div className="mt-4">
-        <AdminTabs label="公告與作業分頁" current="/dashboard/admin/affairs" items={TABS} actions={actions} />
+        <AdminTabs label="公告與作業分頁" current="/dashboard/admin/affairs" items={AFFAIRS_TABS} actions={actions} />
       </div>
       <div className="flex flex-col gap-5">{children}</div>
     </DashboardShell>

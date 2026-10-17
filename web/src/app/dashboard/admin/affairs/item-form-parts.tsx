@@ -368,8 +368,7 @@ function ItemBody({ html, className }: { html: string; className?: string }) {
 
 /**
  * 正文旁的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染 textarea 原字。
- * AD-16 先把這段複製在 `editor/item-editor.tsx` 裡，AD-04 合併回這裡、跟 `StudentView` 共用 `ItemBody`；
- * 編輯器那份本地副本換成 import 這個（不在 AD-04 可改的檔裡，另行處理）。
+ * AD-16 先把這段複製在 `editor/item-editor.tsx` 裡，AD-04 合併回這裡、跟 `StudentView` 共用 `ItemBody`，編輯器改成 import。
  * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
  */
 export function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
