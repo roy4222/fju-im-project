@@ -185,6 +185,8 @@ export type AccountSummary = {
   readonly activeStudents: number
   /** 孤兒帳號（票 10b）。 */
   readonly orphans: number
+  /** 等系辦審的註冊申請裡最早的送出時間（同 `pendingApplications` 的條件）；沒有是 null（AD-21 首頁「最早 X 天前送出」）。 */
+  readonly oldestPendingAppliedAt: Date | null
 }
 
 // ── 匯出 ────────────────────────────────────────────────────────────────────

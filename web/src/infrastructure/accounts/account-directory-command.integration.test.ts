@@ -225,6 +225,33 @@ describe('列表與統計（做完的樣子 1）', () => {
     expect(summary.receipt.activeStudents).toBeLessThan(summary.receipt.active)
   })
 
+  it('最早待審送出時間（AD-21）：跟待審申請同一個條件取最早的 created_at；退回的不算', async () => {
+    const email = uniqueEmail('oldest')
+    const pending = await signUp(email, '最早待審')
+    const insert = (no: string, state: string, at: string) =>
+      db.sql(
+        `insert into registration_applications
+           (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, created_at, created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, '最早待審', $2, '0933-333-333', 'oldest@example.com', $3, $4, $5, 'user', $1)`,
+        [pending.userId, no, email, state, at],
+      )
+    await insert('0411400301', 'pending', '2001-01-02T00:00:00Z')
+    // 更早、但已被退回的申請不算。
+    await insert('0411400302', 'rejected', '2000-01-01T00:00:00Z')
+
+    const summary = await command.summary(adminActor())
+    expect(summary.ok && summary.receipt.oldestPendingAppliedAt).toEqual(new Date('2001-01-02T00:00:00Z'))
+
+    // 拿掉這筆後，回到資料庫裡其他待審申請的最早時間（沒有就是 null）。
+    await db.sql(`delete from registration_applications where user_id = $1`, [pending.userId])
+    const expected = await one<{ at: Date | null }>(
+      `select min(ra.created_at) as at from registration_applications ra join users x on x.id = ra.user_id
+        where ra.state = 'pending' and x.status = 'pending'`,
+    )
+    const after = await command.summary(adminActor())
+    expect(after.ok && after.receipt.oldestPendingAppliedAt).toEqual(expected.at)
+  })
+
   it('只有管理員：老師 FORBIDDEN、未登入 UNAUTHENTICATED', async () => {
     expect(await command.list(teacherActor(), DEFAULT_DIRECTORY_FILTER)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await command.summary({ kind: 'anonymous' })).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
