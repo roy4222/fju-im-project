@@ -355,3 +355,186 @@ describe('預設工作屆別與開放註冊屆別', () => {
     expect(await holders('is_default_working')).toEqual([holder.code])
   })
 })
+
+describe('封存與解封（AD-B4）', () => {
+  /** 進行中的屆別：用例建出籌備中，再用 owner 直接改狀態（轉進行中要先設階段，不是這裡要測的）。 */
+  async function activeCohort(prefix: string): Promise<{ id: string; code: string }> {
+    const code = uniqueCode(prefix)
+    const created = await command.create(authenticated(adminId), { code, name: code }, randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    await owner.sql(`update cohorts set status = 'active', year_end_date = current_date + 300 where id = $1`, [created.receipt.cohortId])
+    return { id: created.receipt.cohortId, code }
+  }
+
+  async function status(cohortId: string): Promise<string> {
+    const rows = await owner.sql(`select status from cohorts where id = $1`, [cohortId])
+    return String(rows.rows[0]!.status)
+  }
+
+  /** 沒有寫入任何東西：狀態紀錄（建立那筆以外）、稽核、帳本都沒有多。 */
+  async function writes(cohortId: string) {
+    return {
+      events: await count(
+        `select count(*) as n from cohort_status_events where cohort_id = $1 and from_status is not null`,
+        [cohortId],
+      ),
+      audits: await count(
+        `select count(*) as n from audit_events where target_id = $1 and action in ('cohort.archive', 'cohort.unarchive')`,
+        [cohortId],
+      ),
+      ledger: await count(
+        `select count(*) as n from operation_records where cohort_id = $1 and operation_kind in ('cohort.archive', 'cohort.unarchive')`,
+        [cohortId],
+      ),
+    }
+  }
+
+  it('封存進行中的屆別：狀態已封存、狀態紀錄帶理由、稽核 cohort.archive、帳本一筆；查詢帶出封存時間', async () => {
+    const cohort = await activeCohort('ARCH')
+    const requestId = randomUUID()
+    const result = await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: ' 年度結束 ' }, requestId)
+
+    expect(result).toMatchObject({ ok: true, receipt: { cohortId: cohort.id, status: 'archived', requestId } })
+    expect(await status(cohort.id)).toBe('archived')
+    const events = await owner.sql(
+      `select from_status, to_status, reason, actor_user_id from cohort_status_events
+        where cohort_id = $1 and from_status is not null`,
+      [cohort.id],
+    )
+    expect(events.rows).toEqual([
+      { from_status: 'active', to_status: 'archived', reason: '年度結束', actor_user_id: adminId },
+    ])
+    const audits = await owner.sql(`select action, payload from audit_events where target_id = $1 and action = 'cohort.archive'`, [
+      cohort.id,
+    ])
+    expect(audits.rows).toHaveLength(1)
+    expect(audits.rows[0]!.payload).toMatchObject({ from: 'active', to: 'archived', reason: '年度結束' })
+    expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })
+
+    const listed = await query.get(cohort.id)
+    expect(listed?.status).toBe('archived')
+    expect(listed?.archivedAt).toBeInstanceOf(Date)
+    expect((await query.list()).find((c) => c.id === cohort.id)?.archivedAt).toBeInstanceOf(Date)
+  })
+
+  it('同一個請求編號重送：回第一次的回執，只封存一次', async () => {
+    const cohort = await activeCohort('ARCH-RP')
+    const requestId = randomUUID()
+    const first = await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, requestId)
+    const second = await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, requestId)
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.receipt).toEqual(first.receipt)
+    expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })
+  })
+
+  it('預設工作屆別、開放註冊屆別不能封存：VALIDATION_FAILED，狀態不變、什麼都沒寫', async () => {
+    const working = await activeCohort('ARCH-DW')
+    const open = await activeCohort('ARCH-RO')
+    await command.setDefaultWorking(authenticated(adminId), working.id, randomUUID())
+    await command.setRegistrationOpen(authenticated(adminId), open.id, randomUUID())
+
+    expect(
+      await command.archive(authenticated(adminId), { cohortId: working.id, reason: '年度結束' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: '請先把預設工作屆別換成別屆。' })
+    expect(
+      await command.archive(authenticated(adminId), { cohortId: open.id, reason: '年度結束' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: '請先把開放報名屆別換成別屆。' })
+
+    for (const c of [working, open]) {
+      expect(await status(c.id)).toBe('active')
+      expect(await writes(c.id)).toEqual({ events: 0, audits: 0, ledger: 0 })
+    }
+  })
+
+  it('籌備中不能封存（VALIDATION_FAILED）；已封存再封存是 CONFLICT；都不寫', async () => {
+    const preparing = await newPreparing('ARCH-PR')
+    expect(
+      await command.archive(authenticated(adminId), { cohortId: preparing.id, reason: '年度結束' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: '還沒啟用的屆別不能封存，請直接刪除或啟用。' })
+    expect(await status(preparing.id)).toBe('preparing')
+    expect(await writes(preparing.id)).toEqual({ events: 0, audits: 0, ledger: 0 })
+
+    const cohort = await activeCohort('ARCH-2X')
+    await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, randomUUID())
+    expect(
+      await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '再一次' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })
+  })
+
+  it('理由空白或超過 200 字：VALIDATION_FAILED，不寫', async () => {
+    const cohort = await activeCohort('ARCH-RS')
+    for (const reason of ['', '   ', 'x'.repeat(201)]) {
+      expect(await command.archive(authenticated(adminId), { cohortId: cohort.id, reason }, randomUUID())).toMatchObject({
+        ok: false,
+        code: 'VALIDATION_FAILED',
+        details: { field: 'reason' },
+      })
+    }
+    expect(
+      (await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: 'x'.repeat(200) }, randomUUID())).ok,
+    ).toBe(true)
+  })
+
+  it('非管理員、還沒改密、找不到的屆別：被擋，狀態不變', async () => {
+    const cohort = await activeCohort('ARCH-AU')
+    const input = { cohortId: cohort.id, reason: '年度結束' }
+    expect(await command.archive(authenticated(teacherId, { roles: ['teacher'] }), input, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(
+      (await command.archive(authenticated(adminId, { mustChangePassword: true }), input, randomUUID())).ok,
+    ).toBe(false)
+    expect(
+      await command.archive(authenticated(adminId), { cohortId: randomUUID(), reason: '年度結束' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await command.unarchive(authenticated(teacherId, { roles: ['teacher'] }), input, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(await status(cohort.id)).toBe('active')
+    expect(await writes(cohort.id)).toEqual({ events: 0, audits: 0, ledger: 0 })
+  })
+
+  it('解除封存：回到進行中、狀態紀錄帶理由、稽核 cohort.unarchive；封存時間清掉；之後可以再拿旗標', async () => {
+    const cohort = await activeCohort('UNARCH')
+    await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, randomUUID())
+    const result = await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: '補登成績' }, randomUUID())
+
+    expect(result).toMatchObject({ ok: true, receipt: { cohortId: cohort.id, status: 'active' } })
+    expect(await status(cohort.id)).toBe('active')
+    const events = await owner.sql(
+      `select from_status, to_status, reason from cohort_status_events
+        where cohort_id = $1 and from_status is not null order by real_at, to_status`,
+      [cohort.id],
+    )
+    expect(events.rows).toContainEqual({ from_status: 'archived', to_status: 'active', reason: '補登成績' })
+    expect(
+      await count(`select count(*) as n from audit_events where target_id = $1 and action = 'cohort.unarchive'`, [cohort.id]),
+    ).toBe(1)
+    expect((await query.get(cohort.id))?.archivedAt).toBeNull()
+    expect((await command.setDefaultWorking(authenticated(adminId), cohort.id, randomUUID())).ok).toBe(true)
+  })
+
+  it('不是已封存的屆別解除封存：CONFLICT，不寫；理由空白 VALIDATION_FAILED', async () => {
+    const cohort = await activeCohort('UNARCH-X')
+    expect(
+      await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: '補登' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'CONFLICT' })
+    await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, randomUUID())
+    expect(
+      await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: ' ' }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await status(cohort.id)).toBe('archived')
+    expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })
+  })
+
+  async function newPreparing(prefix: string): Promise<{ id: string; code: string }> {
+    const code = uniqueCode(prefix)
+    const created = await command.create(authenticated(adminId), { code, name: code }, randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    return { id: created.receipt.cohortId, code }
+  }
+})
