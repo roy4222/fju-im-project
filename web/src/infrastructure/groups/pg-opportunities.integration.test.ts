@@ -453,6 +453,108 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     expect(afterWithdraw.ok ? 'ok' : afterWithdraw.code).toBe('OPPORTUNITY_NOT_LINKABLE')
   })
 
+  it('案主老師直接連結（TE-B3）：不必是指導老師、不發通知、稽核記老師；非案主老師被拒、已連別案 CONFLICT（AC-TE-39、AC-A-11～13）', async () => {
+    const t1 = await newTeacher('別案案主')
+    const t2 = await newTeacher('案主 T2')
+    const t3 = await newTeacher('老師 T3')
+    const cohort = await newCohort()
+    const g1 = await newGroup(cohort.id, 'G01', 'industry')
+    const g2 = await newGroup(cohort.id, 'G02', 'industry')
+    const general = await newGroup(cohort.id, 'G03', 'general')
+    const c0 = await createOpportunity(t1, { overrides: { companyName: '別案公司' } })
+    const c1 = await createOpportunity(t2, { overrides: { companyName: 'C1 公司' } })
+    const c2 = await createOpportunity(t3, { overrides: { companyName: 'C2 公司' } })
+    await command.link(actor(g2.leader.id, ['student']), { groupId: g2.id, revision: await revisionOf(g2.id), opportunityId: c0, reason: '' }, randomUUID())
+
+    // 對話框選項：只列未連案的產學組（組長名＋版本）；學生拿不到。
+    const before = (await query.teacherLinkTargets(actor(t2, ['teacher']))).filter((o) => o.cohortCode === cohort.code)
+    expect(before).toEqual([
+      { groupId: g1.id, groupCode: 'G01', cohortCode: cohort.code, cohortName: cohort.code, leaderName: g1.leader.name, revision: await revisionOf(g1.id) },
+    ])
+    expect(await query.teacherLinkTargets(actor(g1.leader.id, ['student']))).toEqual([])
+
+    // AC-A-12：T3 把 G01 連到 T2 的案 → FORBIDDEN。
+    const byOther = await command.link(actor(t3, ['teacher']), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c1, reason: '' }, randomUUID())
+    expect(byOther.ok ? 'ok' : [byOther.code, byOther.message]).toEqual(['FORBIDDEN', '只能把組別連到自己負責的合作案。'])
+    // T2 連到不是自己的 C2 也一樣被拒。
+    const toC2 = await command.link(actor(t2, ['teacher']), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c2, reason: '' }, randomUUID())
+    expect(toC2.ok ? 'ok' : toC2.code).toBe('FORBIDDEN')
+    // 一般組照樣不能連。
+    const toGeneral = await command.link(
+      actor(t2, ['teacher']),
+      { groupId: general.id, revision: await revisionOf(general.id), opportunityId: c1, reason: '' },
+      randomUUID(),
+    )
+    expect(toGeneral.ok ? 'ok' : toGeneral.code).toBe('OPPORTUNITY_NOT_LINKABLE')
+
+    // AC-A-11／AC-TE-39：T2（不是 G01 指導老師）連到自己的 C1 → 成功、一筆連結、不發通知、稽核記老師。
+    const linked = await command.link(actor(t2, ['teacher']), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c1, reason: '' }, randomUUID())
+    expect(linked.ok && linked.receipt.change).toBe('linked')
+    const links = await owner.sql('select opportunity_id, linked_by_user_id from opportunity_links where group_id = $1', [g1.id])
+    expect(links.rows).toEqual([{ opportunity_id: c1, linked_by_user_id: t2 }])
+    expect((await events('opportunity.linked', g1.id)).map((e) => e.recipients)).toEqual([[]])
+    expect(await events('opportunity.switched', g1.id)).toEqual([])
+    const audit = await owner.sql(`select actor_user_id, role from audit_events where action = 'opportunity.link' and target_id = $1`, [g1.id])
+    expect(audit.rows).toEqual([{ actor_user_id: t2, role: 'teacher' }])
+    const advisor = await owner.sql('select count(*) as n from advisor_assignments where group_id = $1', [g1.id])
+    expect(Number(advisor.rows[0]!.n)).toBe(0)
+    // 案主的管理列標出誰連的；連好之後 G01 不再是選項。
+    const managed = (await query.manageList(actor(t2, ['teacher']))).find((o) => o.id === c1)!
+    expect(managed.links.map((l) => [l.groupCode, l.linkedByName])).toEqual([['G01', '案主 T2']])
+    expect((await query.teacherLinkTargets(actor(t2, ['teacher']))).filter((o) => o.cohortCode === cohort.code)).toEqual([])
+
+    // AC-A-13：已連到別案的 G02 → CONFLICT（案主不能換案；換案只有組長／系辦）。
+    const switching = await command.link(actor(t2, ['teacher']), { groupId: g2.id, revision: await revisionOf(g2.id), opportunityId: c1, reason: '更適合' }, randomUUID())
+    expect(switching.ok ? 'ok' : [switching.code, switching.message]).toEqual(['CONFLICT', '這一組已連到別的合作案。'])
+    const g2Links = await owner.sql('select opportunity_id from opportunity_links where group_id = $1 and valid_to is null', [g2.id])
+    expect(g2Links.rows).toEqual([{ opportunity_id: c0 }])
+
+    // 沒有組長、老師、系辦身分的帳號：用一句話講清楚誰可以。
+    const nobody = await command.link(actor(t3, []), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c1, reason: '' }, randomUUID())
+    expect(nobody.ok ? 'ok' : nobody.message).toBe('只有組長、合作案負責老師或系辦可以連結合作案。')
+
+    // 封存屆別的組不能連。
+    const archivedCohort = await newCohort()
+    const g9 = await newGroup(archivedCohort.id, 'G09', 'industry')
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [archivedCohort.id])
+    const archived = await command.link(actor(t2, ['teacher']), { groupId: g9.id, revision: await revisionOf(g9.id), opportunityId: c1, reason: '' }, randomUUID())
+    expect(archived.ok ? 'ok' : archived.code).toBe('COHORT_ARCHIVED')
+  })
+
+  it('非案主老師連別人的案：組別已封存、已解散、不存在都先回 FORBIDDEN，不透露組別狀態（Review #568、AC-A-12）', async () => {
+    const t2 = await newTeacher('案主 T2 守衛')
+    const outsider = await newTeacher('老師 T3 守衛')
+    const c1 = await createOpportunity(t2, { overrides: { companyName: '守衛順序公司' } })
+    const draft = await createOpportunity(t2, { publish: false, overrides: { companyName: '守衛草稿' } })
+    const cohort = await newCohort()
+    const active = await newGroup(cohort.id, 'G71', 'industry')
+    const dissolved = await newGroup(cohort.id, 'G72', 'industry')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [dissolved.id])
+    const archivedCohort = await newCohort()
+    const archived = await newGroup(archivedCohort.id, 'G73', 'industry')
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [archivedCohort.id])
+
+    const cases: [string, string, string][] = [
+      ['active', active.id, c1],
+      ['archived', archived.id, c1],
+      ['dissolved', dissolved.id, c1],
+      ['missing', randomUUID(), c1],
+      ['draft', archived.id, draft],
+      ['missing-opportunity', archived.id, randomUUID()],
+    ]
+    for (const [label, groupId, opportunityId] of cases) {
+      const result = await command.link(actor(outsider, ['teacher']), { groupId, revision: 0, opportunityId, reason: '' }, randomUUID())
+      expect(result.ok ? 'ok' : [label, result.code, result.message]).toEqual([label, 'FORBIDDEN', '只能把組別連到自己負責的合作案。'])
+    }
+    // 案主本人照常看到組別狀態（授權過了才講狀態）。
+    const ownerArchived = await command.link(actor(t2, ['teacher']), { groupId: archived.id, revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerArchived.ok ? 'ok' : ownerArchived.code).toBe('COHORT_ARCHIVED')
+    const ownerDissolved = await command.link(actor(t2, ['teacher']), { groupId: dissolved.id, revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerDissolved.ok ? 'ok' : ownerDissolved.code).toBe('GROUP_DISSOLVED')
+    const ownerMissing = await command.link(actor(t2, ['teacher']), { groupId: randomUUID(), revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerMissing.ok ? 'ok' : ownerMissing.code).toBe('VALIDATION_FAILED')
+  })
+
   it('換案：理由必填、保留前後關係、通知全組與新舊兩位案主；舊畫面版本 CONFLICT', async () => {
     const t1 = await newTeacher('C1 案主')
     const t2 = await newTeacher('C2 案主')

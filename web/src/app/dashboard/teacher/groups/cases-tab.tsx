@@ -1,10 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { IconBriefcase } from '@tabler/icons-react'
-import type { ManagedOpportunity, OpportunityCard, OpportunityStatus } from '@/application/groups'
+import type { ManagedOpportunity, OpportunityCard, OpportunityQuery, OpportunityStatus } from '@/application/groups'
+import { currentActor } from '@/app/_ui/guard'
+import { LinkGroupDialog, type LinkTargetOption } from '@/app/dashboard/teacher/industry/link-dialog'
 import { Panel, PanelEmpty, Pill, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { LinkedGroupsCell, OpportunityFormDialog, OpportunityStatusButton } from '@/app/dashboard/teacher/industry/opportunity-forms'
-import { CHANGE_REASON_MAX_LENGTH, OPPORTUNITY_FIELD_LABEL, OPPORTUNITY_LIMITS, OPPORTUNITY_STATUS_LABEL } from '@/composition/groups'
+import {
+  CHANGE_REASON_MAX_LENGTH,
+  getOpportunityQuery,
+  OPPORTUNITY_FIELD_LABEL,
+  OPPORTUNITY_LIMITS,
+  OPPORTUNITY_STATUS_LABEL,
+} from '@/composition/groups'
 import { cohortLabel } from '@/composition/cohorts'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
@@ -26,11 +34,12 @@ export function NewOpportunityButton() {
  * 分組總覽的「合作案」分頁（TE-05；原 `/dashboard/teacher/industry` 整頁搬進來，舊網址先過角色檢查再轉到這裡）。
  *
  * 建立、編輯、發布、下架、重新發布自己的合作案；聯絡資料只有自己與系辦看得到。
- * 每一案列出連結的組別，可以解除（理由必填，通知該組與自己）。
+ * 每一案列出連結的組別（標「由誰連結」），可以解除（理由必填，通知該組與自己）；
+ * 已發布的案有「連結組別」（TE-B3）：案主直接把還沒連案的產學組連上來，不必是該組指導老師。
  * 「我的／全部」切換：「全部」用前台 `/industry` 同一段已發布合作案查詢（只有公開欄位），別人的案子只能看。
  * 表單元件仍在 `teacher/industry/opportunity-forms.tsx`（檔案不搬）。
  */
-export function CasesTab({
+export async function CasesTab({
   scope,
   items,
   cards,
@@ -76,12 +85,26 @@ export function CasesTab({
           )}
         </p>
       </div>
-      {scope === 'all' ? <AllOpportunities cards={cards} me={me} /> : <MyOpportunities items={items} />}
+      {scope === 'all' ? <AllOpportunities cards={cards} me={me} /> : <MyOpportunities items={items} targets={await linkTargets(items)} />}
     </>
   )
 }
 
-function MyOpportunities({ items }: { items: readonly ManagedOpportunity[] }) {
+type LinkTarget = Awaited<ReturnType<OpportunityQuery['teacherLinkTargets']>>[number]
+
+/** 「連結組別」的選項：一頁只查一次；沒有已發布的案就不查。 */
+async function linkTargets(items: readonly ManagedOpportunity[]): Promise<readonly LinkTargetOption[]> {
+  if (!items.some((o) => o.status === 'published')) return []
+  const targets = await getOpportunityQuery().teacherLinkTargets(await currentActor())
+  return targets.map((t: LinkTarget) => ({
+    groupId: t.groupId,
+    label: `${cohortLabel({ name: t.cohortName, code: t.cohortCode })}・${t.groupCode}`,
+    leaderName: t.leaderName,
+    revision: t.revision,
+  }))
+}
+
+function MyOpportunities({ items, targets }: { items: readonly ManagedOpportunity[]; targets: readonly LinkTargetOption[] }) {
   return (
     <Panel title="我的合作案" icon={<IconBriefcase />} description={`${items.length} 件`}>
       {items.length === 0 ? (
@@ -116,12 +139,20 @@ function MyOpportunities({ items }: { items: readonly ManagedOpportunity[] }) {
                   </p>
                 </div>
                 <LinkedGroupsCell
-                  links={o.links.map((l) => ({ linkId: l.linkId, groupCode: l.groupCode, cohortLabel: cohortLabel({ name: l.cohortName, code: l.cohortCode }) }))}
+                  links={o.links.map((l) => ({
+                    linkId: l.linkId,
+                    groupCode: l.groupCode,
+                    cohortLabel: cohortLabel({ name: l.cohortName, code: l.cohortCode }),
+                    linkedByName: l.linkedByName,
+                  }))}
                   opportunityName={name}
                   requestId={randomUUID()}
                   reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
                 />
                 <div className="flex flex-wrap items-center gap-2 md:justify-self-end">
+                  {o.status === 'published' ? (
+                    <LinkGroupDialog opportunityId={o.id} opportunityName={name} options={targets} requestId={randomUUID()} />
+                  ) : null}
                   {o.status !== 'withdrawn' ? (
                     <OpportunityFormDialog
                       labels={LABELS}

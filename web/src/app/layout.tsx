@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import './globals.css'
+import { GaScript } from './_analytics/ga-script'
+import { PageView } from './_analytics/page-view'
 
 // T2 方案 A：全站動態渲染，nonce 才能每個回應都不一樣（契約 03 §6、契約 02 §9）。
 // 快取只用在資料函式的 'use cache'，不在頁面層（契約 02 §8）。
@@ -14,7 +16,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-Hant-TW">
-      <body>{children}</body>
+      <body>
+        {children}
+        <GaScript />
+        <PageView />
+      </body>
     </html>
   )
 }

@@ -10,6 +10,7 @@ import { getAuditWriter } from '@/composition/ops'
 import { SqlBanStateGateway } from '@/infrastructure/accounts/ban-state'
 import { PgSessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation-executor'
 import { getPool } from '@/infrastructure/db/client'
+import { purgeMailOutbox } from '@/infrastructure/mail/mail-outbox-cleanup'
 import { proposalExpiryDueWorkHandler } from '@/infrastructure/notifications/due-work-handlers'
 import { PgDueWorkRunner, testNoopHandler } from '@/infrastructure/notifications/pg-due-work-runner'
 import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
@@ -44,6 +45,7 @@ export type WorkerOptions = {
   dueWorkIntervalMs?: number
   reconcileIntervalMs?: number
   storageIntervalMs?: number
+  mailOutboxCleanupIntervalMs?: number
   /** 要量哪個目錄所在的檔案系統；預設讀 `FILES_ROOT`。沒有值就不量（只記一次 log）。 */
   storageRoot?: () => string | undefined
   /** 拿著鎖的連線斷了：鎖已經不在，進程要結束讓 Compose 重啟（不然可能兩個 worker 同時跑）。 */
@@ -179,6 +181,12 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
       if (!storageSkipLogged) log('FILES_ROOT 目錄還不存在，這次不量磁碟', { root })
       storageSkipLogged = true
     }
+  })
+
+  // 寄信紀錄 90 天清理（VB-13）：每 6 小時一次。
+  every('寄信紀錄清理', options.mailOutboxCleanupIntervalMs ?? 6 * 60 * 60 * 1000, async () => {
+    const purged = await purgeMailOutbox(pool, new Date())
+    log(`mail outbox purged: ${purged}`)
   })
 
   log('背景工作已啟動（拿到單一實例鎖）', { version: options.version })
