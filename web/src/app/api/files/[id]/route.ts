@@ -85,7 +85,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       ...(etag ? { etag } : {}),
       // 一律下載、不在瀏覽器裡開：就算內容被判讀成 HTML 也不會在本站網域執行。
       'content-type': file.mime,
-      'content-disposition': contentDisposition(file.originalName),
+      // 頭像所有登入者都拿得到：不帶原始檔名（可能是「身分證.jpg」之類），內容也已經轉成 WebP。
+      'content-disposition': contentDisposition(avatar ? 'avatar.webp' : file.originalName),
       'content-length': String(file.sizeBytes),
       'content-security-policy': "default-src 'none'; sandbox",
       'x-file-checksum-sha256': file.checksum,

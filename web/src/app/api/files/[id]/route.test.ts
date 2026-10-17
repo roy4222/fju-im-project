@@ -52,6 +52,8 @@ describe('GET /api/files/[id]：頭像（SH-9）', () => {
     expect(response.headers.get('etag')).toBe(`"${CHECKSUM}"`)
     expect(response.headers.get('content-type')).toBe('image/webp')
     expect(response.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox")
+    // 原始檔名（me.jpg）不外流給其他登入者。
+    expect(response.headers.get('content-disposition')).toContain('filename="avatar.webp"')
   })
 
   it('帶相符的 If-None-Match → 304，標頭仍是 private, no-cache，串流已取消', async () => {
