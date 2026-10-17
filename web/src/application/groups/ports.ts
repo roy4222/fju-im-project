@@ -15,6 +15,8 @@ import type {
 import type {
   AddMemberInput,
   ChangeLeaderInput,
+  DissolveGroupInput,
+  DissolveReceipt,
   LeaderChangeReceipt,
   LeaderSuccession,
   LeadershipToSucceed,
@@ -97,12 +99,52 @@ export interface GroupCommand {
    */
   addMember(actor: ResolvedActor, input: AddMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /**
-   * 從某組移出：移出最後一人要走解散（解散之後才開放，先拒絕）；移出組長要同時指定接任。
+   * 從某組移出：移出最後一人要走解散（`dissolveGroup`；這裡拒絕）；移出組長要同時指定接任。
    * 被移出的人只收到本人的異動說明（`group.member_removed`），其他人收 `group.members_changed`。
    */
   removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /** 換組長：新組長要是有效成員；全組收 `group.leader_changed`。成員集合沒變，不觸發重簽。 */
   changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>>
+  /**
+   * 系辦解散組別（開站後，最小版；產品模組 03 §4「換成員與解散」、08 §4「組別解散」）。理由必填、帶組別版本。
+   * 同一筆交易：記下組員快照與當下評分方案版本（`group.dissolve` 稽核 payload）、結束全部組員資格與組長列、
+   * 結束該組有效評分指派並讓暫存失效（模組 06）、作廢目前簽核版本（模組 07）、組別標 dissolved；
+   * 通知解散前有效成員、主指導、評分工作因此停止的老師（去重，每人一則）。之後這組任何寫入都回 `GROUP_DISSOLVED`。
+   */
+  dissolveGroup(actor: ResolvedActor, input: DissolveGroupInput, requestId: string): Promise<Result<DissolveReceipt>>
+}
+
+/**
+ * 組別解散時停止評分工作（評分模組實作、分組的解散用例呼叫；A-19 把它放在分組這邊，評分的 `ports.ts`／`index.ts`
+ * 歸 A-01／A-05，跨模組又只能引用公開入口，B 階段設計方案 §17.2）。
+ *
+ * 組別解散時停止評分工作（開站後；產品模組 03 §4「解散：06 停止」、模組實作設計 03 §6「解散同交易 05／06／07」）。
+ *
+ * 由模組 03 的解散用例在**它的交易裡**呼叫（composition 注入，同 `SignoffParticipantHook` 的作法）；呼叫前組別列已經
+ * `FOR UPDATE`，所以跟評分寫入（組別 `FOR SHARE` → 指派 `FOR UPDATE`）同向排隊。
+ * 結束這組全部有效評分指派（`removal_choice` 留空＝因解散結束，不是改派）、暫存一律失效；已正式送出的分數照舊採計、凍結。
+ * 不發事件：評分工作停止的老師由解散事件一起通知（產品 08 §4「組別解散」每人一則）。
+ */
+export interface GradingDissolutionHook<Tx = unknown> {
+  endForDissolvedGroup(
+    tx: Tx,
+    input: {
+      readonly groupId: string
+      readonly cohortId: string
+      readonly actorUserId: string
+      /** 解散理由；寫進指派的結束理由與暫存失效的狀態事件。 */
+      readonly reason: string
+      readonly realAt: Date
+      readonly businessAt: Date
+    },
+  ): Promise<{
+    readonly endedAssignmentIds: readonly string[]
+    readonly invalidatedDraftIds: readonly string[]
+    /** 評分工作因此停止的老師（有效指派被結束的人，去重）。 */
+    readonly teacherUserIds: readonly string[]
+    /** 解散當下這屆評分方案的目前版本（還沒建方案就是 null）。 */
+    readonly schemeVersion: { readonly id: string; readonly versionNo: number; readonly status: string } | null
+  }>
 }
 
 /**
@@ -312,6 +354,17 @@ export type CohortGroupingOverview = {
  * `studentView`、`overview`、`cohortGroups` 的 `opts.history`（SH-P4）：預設 `true`；`false` 時每個
  * `GroupSummary.history` 是 `[]`，也不查歷程（省 5 句），給不顯示歷程的頁用（系辦首頁、老師分組總覽）。
  */
+/** 已解散的組別（管理員分組總覽的唯讀清單；資料凍結，成績在成績頁查看與匯出）。 */
+export type DissolvedGroupSummary = {
+  readonly id: string
+  readonly code: string
+  readonly groupType: GroupType
+  readonly dissolvedAt: Date
+  readonly reason: string
+  /** 解散當下的有效成員快照（組長標出）。 */
+  readonly members: readonly { readonly name: string; readonly studentNo: string | null; readonly isLeader: boolean }[]
+}
+
 export interface GroupQuery {
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
@@ -333,6 +386,8 @@ export interface GroupQuery {
    * 歷程不帶理由與操作者。
    */
   cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]>
+  /** 管理員分組總覽的「已解散的組別」（呼叫端守門）。新的在前。 */
+  dissolvedGroups(cohortId: string): Promise<DissolvedGroupSummary[]>
   /** 管理員指派對話框的老師選項：帳號正常、目前是老師。 */
   teacherOptions(): Promise<TeacherOption[]>
   /** 這位老師目前指導幾組（未封存的屆別）。 */
