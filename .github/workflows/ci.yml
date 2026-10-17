@@ -184,6 +184,7 @@ jobs:
       # 上傳檔案的存放根目錄（票 6）。CI 用 runner 上的暫存目錄；正式環境是 VM 的獨立 volume。
       FILES_ROOT: /tmp/fju-files
       FILE_MAX_BYTES: '104857600'
+      MAIL_CAPTURE: '1'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

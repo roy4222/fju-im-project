@@ -30,6 +30,8 @@ export default defineConfig({
           environment: 'node',
           // 整套開始前建好 runtime 角色、設好測試密碼（只一次）。見 test/global-setup.ts。
           globalSetup: ['./test/global-setup.ts'],
+          // 寄信一律擷取（只寫 mail_outbox、不打 Brevo）。見 test/mail-capture-setup.ts。
+          setupFiles: ['./test/mail-capture-setup.ts'],
           // 打真的 PostgreSQL，起連線比純運算慢。
           testTimeout: 30_000,
           hookTimeout: 30_000,

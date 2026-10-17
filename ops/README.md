@@ -104,7 +104,7 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 
 ### 7. 🖥️ 核對 Doppler 裡的值長得對不對
 
-我（agent）看不到值，所以這一步要你在 Doppler 網頁上自己對一次。兩個 config 各 17 個鍵（含 `REGISTRATION_OPEN`），重點：
+我（agent）看不到值，所以這一步要你在 Doppler 網頁上自己對一次。兩個 config 各 22 個鍵（含 `REGISTRATION_OPEN`，以及 B 階段加的寄信、Turnstile、GA4 五個），重點：
 
 | 鍵 | stg（測試站） | prd（正式站） |
 |---|---|---|
@@ -114,10 +114,19 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 | `FILES_ROOT` | 容器裡的路徑，例如 `/srv/fju/files`（每站實際存在 VM 的 `/srv/fju/<站>/files`） | 同左 |
 | `BUSINESS_CLOCK_OVERRIDE_ENABLED` | `true` | `false` |
 | `REGISTRATION_OPEN` | `true` | `false` |
+| `BREVO_API_KEY` | Brevo 後台的 API key（**必填**，少了就寄不出去，不會改存內文） | 同左（可同一把） |
+| `MAIL_FROM` | `專題管理平台 <noreply@roy422.dev>`（**必填**） | 同左 |
+| `TURNSTILE_SITE_KEY`／`TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 的站台金鑰（必填，少了註冊等表單會被擋） | 同左（網域要包含正式站） |
+| `GA4_MEASUREMENT_ID` | **留空**（只在正式站載入 GA4） | `G-` 開頭的評估 ID |
 
 - `REGISTRATION_OPEN` 是註冊開關，**不在必要鍵的檢查裡**：沒設的話 VM 上當作 `false`（關閉註冊），
   所以測試站要記得設 `true`，否則註冊頁會是 404。只有 CI／本機（不經 `docker-compose.vm.yml`）沒設才是開放。
   切換：改 Doppler 後跑 `sudo -u deploy /srv/fju/app/ops/site.sh <test|prod> docker compose up -d --no-deps app worker`（約 30 秒）。
+- 寄信、Turnstile、GA4 這五個鍵**不在必要鍵的檢查裡**（`ops/lib/site.sh` 不擋）：少了站照樣起得來，
+  只是寄信回失敗、表單被人機驗證擋、GA4 不載入。所以加完要自己對一次鍵名。
+- **`MAIL_CAPTURE` 絕對不要放進 Doppler**（stg、prd 都不要）：它是本機與 CI 的擷取模式，開了信不會寄出、整封存進資料庫。
+  就算誤設，`docker-compose.vm.yml` 也不轉交，程式也只在 `BETTER_AUTH_URL` 是 localhost／127.0.0.1 時才擷取。
+- `DB_POOL_MAX` 不放 Doppler：app 用程式預設 10，worker 的 2 寫在 `docker-compose.vm.yml`。
 - 連線字串的主機一定是 **`postgres`**（Compose 裡的服務名稱），不是 `localhost`、也不是 `fju-postgres`。
 - 密碼只用英數字（例如 `openssl rand -hex 24` 產生），連線字串就不用處理特殊字元。
 - `POSTGRES_USER`／`POSTGRES_PASSWORD`／`POSTGRES_DB` **只在第一次建資料庫時生效**；之後改 Doppler 不會改到資料庫。

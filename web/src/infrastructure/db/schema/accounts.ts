@@ -209,7 +209,7 @@ export const registrationApplications = pgTable(
     ),
     check(
       'registration_applications_verification_method_check',
-      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other')`,
+      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match')`,
     ),
     // 核准必記核實方式（模組 01 §2）。
     check(
@@ -305,7 +305,7 @@ export const userStatusEvents = pgTable(
     ),
     check(
       'user_status_events_verification_method_check',
-      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other')`,
+      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match')`,
     ),
     check('user_status_events_actor_kind_check', sql`${t.actorKind} in ('user','system','worker')`),
     check(

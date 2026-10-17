@@ -122,6 +122,9 @@ const S11_TABLES = [
 /** 第三波 W0 新增的兩張表：首頁設定（固定一列）與個別補交。 */
 const W0_TABLES = ['home_settings', 'submission_reopens']
 
+/** B 階段 VB-1 的 0015：寄信紀錄。 */
+const VB1_TABLES = ['mail_outbox']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -134,9 +137,10 @@ const EXPECTED_TABLES = [
   ...S10_TABLES,
   ...S11_TABLES,
   ...W0_TABLES,
+  ...VB1_TABLES,
 ].sort()
 
-const LATEST = '0014_v1_news_pinned'
+const LATEST = '0015_vb_mail_outbox_and_google_match'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -148,7 +152,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出六十八張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出六十九張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -184,6 +188,35 @@ describe('空庫 migration', () => {
 })
 
 describe('契約 01 §4 的約束確實建出來了', () => {
+  it('0015：三個核實方式 CHECK 都多了 google_email_match（Q42 自動開通），舊值照收、亂填照擋', async () => {
+    await withIsolatedDatabase({ label: 'vb1-verification-method', setup: migratedSchema }, async (db) => {
+      const defs = await db.sql(
+        `select conname, pg_get_constraintdef(c.oid) as def from pg_constraint c
+           join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname like '%verification_method_check' order by conname`,
+        [db.schemaName],
+      )
+      expect(defs.rows.map((r) => r.conname)).toEqual([
+        'audit_events_verification_method_check',
+        'registration_applications_verification_method_check',
+        'user_status_events_verification_method_check',
+      ])
+      for (const row of defs.rows) {
+        for (const method of ['id_document', 'school_channel', 'other', 'google_email_match']) {
+          expect(String(row.def), `${row.conname} 少了 ${method}`).toContain(`'${method}'`)
+        }
+      }
+      const audit = (method: string) =>
+        db.sql(
+          `insert into audit_events (id, actor_kind, action, target_type, target_id, scope, verification_method, real_at, business_at)
+           values (gen_random_uuid(), 'system', 'account.approve', 'registration_application', gen_random_uuid(), 'global', $1, now(), now())`,
+          [method],
+        )
+      await expect(audit('google_email_match')).resolves.toBeTruthy()
+      await expect(audit('guess')).rejects.toThrow(/audit_events_verification_method_check/)
+    })
+  })
+
   it('列舉欄用 CHECK 白名單，不用 pgEnum', async () => {
     await withIsolatedDatabase({ label: 'checks', setup: migratedSchema }, async (db) => {
       const enums = await db.sql('select typname from pg_type where typtype = $1', ['e'])

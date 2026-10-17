@@ -144,14 +144,21 @@ describe('.env.example', () => {
       'BUSINESS_CLOCK_OVERRIDE_ENABLED',
       'DATABASE_URL_OWNER',
       'DATABASE_URL_BACKUP',
+      // B 階段 VB-1：寄信、Turnstile、GA4，以及只限本機與 CI 的擷取模式。
+      'BREVO_API_KEY',
+      'MAIL_FROM',
+      'MAIL_CAPTURE',
+      'TURNSTILE_SITE_KEY',
+      'TURNSTILE_SECRET_KEY',
+      'GA4_MEASUREMENT_ID',
     ]) {
       expect(names, `少了 ${name}`).toContain(name)
     }
   })
 
-  it('不用的服務（Turnstile、R2、age、告警 webhook）不再列（Roy 2026-09-23 定案）', () => {
+  it('不用的服務（R2、age、告警 webhook）不再列（Roy 2026-09-23 定案；Turnstile 在 B 階段改成要用）', () => {
     const names = lines.map((l) => l.slice(0, -1))
-    for (const prefix of ['TURNSTILE_', 'R2_', 'AGE_', 'ALERT_WEBHOOK']) {
+    for (const prefix of ['R2_', 'AGE_', 'ALERT_WEBHOOK']) {
       expect(names.filter((n) => n.startsWith(prefix)), `${prefix}* 應該拿掉`).toEqual([])
     }
   })
@@ -237,6 +244,40 @@ describe('VM 兩站（docker-compose.vm.yml，2026-09-24）', () => {
       expect(keys).not.toContain('DATABASE_URL_OWNER')
       expect(keys).not.toContain('POSTGRES_PASSWORD')
     }
+  })
+
+  it('寄信、Turnstile、GA4 的鍵 app 與 worker 都拿得到；擷取模式與不用的服務一個都不給（B 階段 VB-1）', async () => {
+    const test = await siteConfig('test', {
+      ...FAKE_SITE_SECRETS,
+      BREVO_API_KEY: 'fake',
+      MAIL_FROM: '專題管理平台 <noreply@roy422.dev>',
+      // 就算 VM 的環境裡誤設了，compose 也不轉交。
+      MAIL_CAPTURE: '1',
+    })
+    for (const name of ['app', 'worker']) {
+      const env = test.services[name]?.environment ?? {}
+      const keys = Object.keys(env)
+      for (const key of ['BREVO_API_KEY', 'MAIL_FROM', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY', 'GA4_MEASUREMENT_ID']) {
+        expect(keys, `${name} 少了 ${key}`).toContain(key)
+      }
+      expect(env.MAIL_FROM).toBe('專題管理平台 <noreply@roy422.dev>')
+      expect(keys).not.toContain('MAIL_CAPTURE')
+      for (const prefix of ['R2_', 'AGE_', 'ALERT_WEBHOOK']) {
+        expect(keys.filter((k) => k.startsWith(prefix)), `${name} 不該有 ${prefix}*`).toEqual([])
+      }
+    }
+  })
+
+  it('寄信、Turnstile、GA4 的鍵 Doppler 沒設也起得來（留空，不像必要鍵一樣整個失敗）', async () => {
+    const test = await siteConfig('test')
+    expect(test.services.app?.environment?.BREVO_API_KEY).toBe('')
+    expect(test.services.app?.environment?.TURNSTILE_SECRET_KEY).toBe('')
+  })
+
+  it('worker 的連線池上限固定 2，app 不設（用程式預設 10，SH-B2）', async () => {
+    const test = await siteConfig('test')
+    expect(test.services.worker?.environment?.DB_POOL_MAX).toBe('2')
+    expect(Object.keys(test.services.app?.environment ?? {})).not.toContain('DB_POOL_MAX')
   })
 
   it('少一個秘密就整個失敗，不會用空值把容器建起來', async () => {
