@@ -13,7 +13,6 @@ import {
   ProposeForm,
   type MyProposalRole,
 } from '@/app/dashboard/student/groups/group-forms'
-import { IndustryPanel } from '@/app/dashboard/student/groups/industry-panel'
 import { groupMilestones } from '@/app/dashboard/student/groups/milestones'
 import type { GroupMember, ProposalSummary } from '@/application/groups'
 import {
@@ -25,11 +24,8 @@ import {
   groupingDeadline,
 } from '@/composition/cohorts'
 import {
-  CHANGE_REASON_MAX_LENGTH,
   describeGroupHistory,
   getGroupQuery,
-  getOpportunityQuery,
-  opportunityName,
   GROUP_TYPE_LABEL,
   GROUP_TYPES,
   INVITATION_STATE_LABEL,
@@ -69,7 +65,7 @@ type Seat = { key: string; name: string; studentNo: string; state: string; confi
  * 學生「組別」（票 13；學生規格 §3.6 ST-5）。
  *
  * 頁首一張卡寫「G07・一般專題」與一句摘要，底下三個分頁（`?tab=`，連結、不用 client state）：
- * - 我的組：組員頭像格（組長戴冠冕）、指導老師卡（聯絡 Email 直接列）、里程碑線；產學面板暫放最下方（ST-10 會拿掉）。
+ * - 我的組：組員頭像格（組長戴冠冕）、指導老師卡（聯絡 Email 直接列）、里程碑線。
  * - 找隊員：還沒成組時是提案狀態卡或發起提案表單、公開找組員開關與名單；已成組只一行說名單在「我的組」。
  * - 紀錄：組別異動與提案紀錄，兩段分開（Q129）。
  *
@@ -79,7 +75,7 @@ type Seat = { key: string; name: string; studentNo: string; state: string; confi
 export default async function StudentGroupsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string | string[]; opportunity?: string | string[] }>
+  searchParams: Promise<{ tab?: string | string[] }>
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/student/groups', 'student')
@@ -132,12 +128,10 @@ export default async function StudentGroupsPage({
   const tab: Tab = requested ?? (group ? 'mine' : 'team')
   const proposal = view.openProposal
 
-  // 每個分頁只查自己要的：名單只在找隊員（還沒成組）、里程碑與產學面板只在我的組（已成組）。
-  const [teammates, items, panel, schedule] = await Promise.all([
+  // 每個分頁只查自己要的：名單只在找隊員（還沒成組）、里程碑只在我的組（已成組）。
+  const [teammates, items, schedule] = await Promise.all([
     tab === 'team' && !group ? groupQuery.teammates(actor, cohortId) : null,
     tab === 'mine' && group ? studentItems(userId) : null,
-    // 組別類型與合作案（票 20）：組長能不能改類型、可以連哪些合作案，由查詢依本人身分算。
-    tab === 'mine' && group ? getOpportunityQuery().leaderPanel(actor, cohortId) : null,
     tab === 'team' && !group && !proposal ? getTimelineQuery().schedule(cohortId) : null,
   ])
   // 還沒分組也沒有提案：分組期已過就不給表單，只說「分組期已經結束」（Q69：不寫「請聯絡系辦」）。
@@ -313,25 +307,6 @@ export default async function StudentGroupsPage({
             }
           />
         </div>
-      ) : null}
-
-      {tab === 'mine' && group && panel ? (
-        <IndustryPanel
-          groupId={panel.groupId}
-          groupCode={panel.groupCode}
-          revision={panel.revision}
-          isLeader={panel.isLeader}
-          groupType={panel.groupType}
-          typeLabels={GROUP_TYPE_LABEL}
-          typeChangeBlockers={panel.typeChangeBlockers}
-          link={
-            panel.link ? { opportunityId: panel.link.opportunityId, name: panel.link.name, withdrawn: panel.link.status === 'withdrawn' } : null
-          }
-          linkable={panel.linkable.map((o) => ({ id: o.id, name: opportunityName(o), ownerName: o.ownerName }))}
-          preselect={typeof params.opportunity === 'string' ? params.opportunity : null}
-          requestIds={{ link: randomUUID(), type: randomUUID() }}
-          reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
-        />
       ) : null}
 
       {tab === 'team' && group ? (

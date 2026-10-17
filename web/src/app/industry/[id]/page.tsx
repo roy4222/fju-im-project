@@ -7,7 +7,7 @@ import { currentActor, requireSignedIn } from '@/app/_ui/guard'
 import { CleanBody, Crumbs, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel } from '@/composition/cohorts'
-import { getOpportunityQuery, OPPORTUNITY_STATUS_LABEL, studentCohortOf } from '@/composition/groups'
+import { getOpportunityQuery, OPPORTUNITY_STATUS_LABEL } from '@/composition/groups'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 /** 同一個請求裡 metadata 與頁面共用一次查詢。 */
@@ -67,12 +67,6 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
 
   if (page.access !== 'visible' && page.access !== 'withdrawn_linked') notFound()
   const o = page.opportunity
-  // 產學組組長：可以到「我的組別」把組別連到這一案（只在發布中、自己不是案主時顯示入口）。
-  const leaderPanel =
-    o.status === 'published' && studentCohortOf(actor)
-      ? await getOpportunityQuery().leaderPanel(actor, studentCohortOf(actor)!)
-      : null
-  const canLink = leaderPanel?.isLeader && leaderPanel.groupType === 'industry' && leaderPanel.link?.opportunityId !== o.id
 
   return (
     <SiteShell current="/industry">
@@ -168,11 +162,6 @@ export default async function IndustryDetailPage({ params }: { params: Promise<{
               <p className="text-sm text-muted-foreground">尚未有組別連結。</p>
             )}
             <p className="text-xs leading-relaxed text-muted-foreground">連結代表組別選用這個題目，不代表企業或老師已正式承諾合作。</p>
-            {canLink ? (
-              <Link href={`/dashboard/student/groups?opportunity=${o.id}#industry-link`} className="btn-fju mt-1 h-11 px-4 text-sm">
-                {leaderPanel?.link ? `把 ${leaderPanel.groupCode} 換到這個合作案` : `把 ${leaderPanel?.groupCode} 連結到這個合作案`}
-              </Link>
-            ) : null}
           </section>
           {o.canManage ? (
             <Link
