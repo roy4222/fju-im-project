@@ -42,6 +42,56 @@ DEPLOY_LOG="$STATE_DIR/deploy_log"
 say() { printf '[auto-deploy] %s\n' "$*"; }
 record() { printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$1" "$2" >> "$AUTO_LOG"; }
 
+# 部署成功後清舊的 fju-web 映像（Q172，2026-10-17：每版約 816MB，86 次合併就把 VM 根目錄塞滿）。
+# 只動 $IMAGE_REPO 這個 repository；保留：任何容器（含停止的、正式站、演練）在用的、:main、
+# 這次部署的 $1、previous_tag 記的前一版（回滾用）。其餘 `docker image rm`（不加 -f，刪不掉就跳過），
+# 最後 `docker image prune -f` 只清 dangling。任何一步讀不到保留清單就整個不清（寧可不清也不誤刪）。
+# 失敗只回非 0，呼叫端不讓它影響部署結果。
+cleanup_old_images() {
+  local current="$1" previous="" keep ids ref id size removed=0 freed=0 lock
+  # 有人正在部署任一站時不清：對方可能剛拉好映像、容器還沒建，會被當成沒人用。
+  for lock in "$STATE_DIR/deploy.lock" "$FJU_ROOT/prod/deploy/deploy.lock"; do
+    if [ -e "$lock" ] && ! flock --nonblock "$lock" true; then
+      say "清舊映像：$lock 被佔住（有部署在跑），這次不清。"
+      return 0
+    fi
+  done
+  if [ -s "$STATE_DIR/previous_tag" ]; then
+    # shellcheck disable=SC1091
+    previous="$(. "$STATE_DIR/previous_tag" && printf '%s' "${PREVIOUS_APP_IMAGE:-}")" || return 1
+  fi
+  ids="$(docker ps -aq)" || return 1
+  keep="$(
+    [ -z "$ids" ] || printf '%s\n' "$ids" | xargs docker inspect --format '{{.Image}}' || exit 1
+    for ref in "$IMAGE_REPO:$CHANNEL_TAG" "$IMAGE_REPO:$current" ${previous:+"$previous"}; do
+      docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true
+    done
+  )" || return 1
+  while IFS=$'\t' read -r ref id; do
+    case "$ref" in "$IMAGE_REPO:"*) ;; *) continue ;; esac
+    [ "${ref##*:}" != '<none>' ] || continue
+    if printf '%s\n' "$keep" | grep -qxF "$id"; then continue; fi
+    size="$(docker image inspect --format '{{.Size}}' "$id" 2>/dev/null || echo 0)"
+    if docker image rm "$ref" >/dev/null; then
+      removed=$((removed + 1))
+      # 同一個映像還有別的 tag 時只是拿掉標籤，不算釋放。
+      docker image inspect "$id" >/dev/null 2>&1 || freed=$((freed + size))
+    else
+      say "清舊映像：$ref 刪不掉，跳過。"
+      record cleanup-skip "$ref"
+    fi
+  done < <(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}'$'\t''{{.ID}}' "$IMAGE_REPO")
+  docker image prune -f >/dev/null || say "清舊映像：docker image prune 失敗（不影響部署）。"
+  freed="$(numfmt --to=iec "$freed" 2>/dev/null || printf '%s bytes' "$freed")"
+  say "清掉 $removed 個舊映像、釋放約 ${freed}。"
+  record cleanup "清掉 $removed 個舊映像、釋放約 ${freed}"
+}
+
+# 給測試用：被 source 時只載入上面的設定與函式，不跑下面的部署流程。
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
+
 if [ -e "$PAUSE_FILE" ]; then
   say "暫停中（$PAUSE_FILE 存在），不檢查。"
   exit 0
@@ -115,6 +165,11 @@ printf '%s\n' "$sha" > "$LAST_FILE"
 if [ "$rc" = 0 ]; then
   say "部署成功：$sha"
   record deployed "$sha"
+  # 部署已經成功：清理出任何問題都只記一行，不改 exit code。
+  if ! cleanup_old_images "$sha"; then
+    say "清舊映像失敗（讀不到容器或映像清單），這次不清；部署本身已成功。"
+    record cleanup-failed "$sha"
+  fi
 else
   say "部署失敗（exit ${rc}）：${sha}。deploy.sh 已依 previous_tag 回滾，細節看 ${DEPLOY_LOG}。"
   record failed "$sha"

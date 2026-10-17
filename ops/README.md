@@ -230,6 +230,11 @@ sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused      # 恢復
 要整個關掉：`sudo systemctl disable --now fju-auto-deploy.timer`；重新打開：`sudo systemctl enable --now fju-auto-deploy.timer`。
 
 自動部署的紀錄：`sudo cat /srv/fju/test/deploy/auto-deploy.log`（每行：時間、結果、SHA）。
+每次自動部署**成功**後會清舊的 `ghcr.io/roy4222/fju-web` 映像（Q172；每版約 816MB，不清會塞滿 VM 根目錄），
+保留：任何容器（含停止的、正式站 `fju-prod-*`、演練 `fju-drill-*`）在用的、`:main`、剛部署的這版、
+`previous_tag` 記的前一版（回滾用）；其餘 `docker image rm`（刪不掉就跳過），再 `docker image prune -f` 清 dangling。
+任一站正在部署時這輪不清；結果在紀錄裡記一行 `cleanup`（「清掉 N 個舊映像、釋放約 X」）。其他映像、volume 都不碰。
+要回滾到更舊的版本時，`deploy.sh` 會自己從 GHCR 重新拉。
 某個版本自動部署失敗後，同一個 SHA **不會**再自動重試；要重試就 `sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.last`。
 
 ### 測試站自動驗收（E2E 測試管理員＋Codex）

@@ -234,6 +234,29 @@ describe('ops/auto-deploy.sh：有新映像', () => {
     expect(second.calls.some((c) => c.startsWith('compose'))).toBe(false)
   })
 
+  it('部署成功後清舊映像（Q172）：清理在部署之後、只清 dangling、結果記一行', async () => {
+    markManualDeploy()
+    const r = await runAuto({ mainSha: SHA_B })
+    expect(r.code, r.stdout).toBe(0)
+    const deployedAt = r.calls.findIndex((c) => c.startsWith('compose up -d --no-deps app worker'))
+    const pruneAt = r.calls.indexOf('image prune -f')
+    expect(deployedAt).toBeGreaterThanOrEqual(0)
+    expect(pruneAt).toBeGreaterThan(deployedAt)
+    expect(r.calls).toContain('ps -aq')
+    expect(r.calls.some((c) => /image prune .*-a|system prune|image rm -f|image rm --force/.test(c))).toBe(false)
+    expect(r.autoLog).toMatch(/\tcleanup\t清掉 \d+ 個舊映像、釋放約 /)
+  })
+
+  it('已是最新、部署失敗 → 不清映像', async () => {
+    markManualDeploy()
+    const failed = await runAuto({ mainSha: SHA_B, failMigrate: true })
+    expect(failed.calls.some((c) => c.startsWith('image prune') || c.startsWith('image rm'))).toBe(false)
+    const upToDate = await runAuto({ mainSha: SHA_B })
+    expect(upToDate.stdout).toContain('已是最新')
+    expect(upToDate.calls.some((c) => c.startsWith('image prune') || c.startsWith('image rm') || c.startsWith('ps'))).toBe(false)
+    expect(upToDate.autoLog).not.toContain('\tcleanup')
+  })
+
   it('只會部署測試站：腳本裡沒有任何通往正式站的路徑', () => {
     const source = fs.readFileSync(autoDeploySh, 'utf8')
     expect(source).toContain('site_setup test')
