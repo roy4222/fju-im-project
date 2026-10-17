@@ -257,6 +257,10 @@
     "baseline": 225.4,
     "limit": 248
   },
+  "/reset-password": {
+    "baseline": 228.9,
+    "limit": 250
+  },
   "/rules": {
     "baseline": 222,
     "limit": 245
