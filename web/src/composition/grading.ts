@@ -7,6 +7,7 @@ import type {
   GradingResultsCommand,
   GradingSettlementCommand,
   GradingSettlementQuery,
+  GradingSnapshotQuery,
 } from '@/application/grading'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
@@ -16,6 +17,7 @@ import { getPool } from '@/infrastructure/db/client'
 import { PgGradingSettlementCommand, PgGradingSettlementQuery } from '@/infrastructure/grading/pg-grade-settlements'
 import { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
+import { PgGradingSnapshotQuery } from '@/infrastructure/grading/pg-grading-snapshot'
 
 /**
  * 模組 06 評分的實例組裝（票 23：評分方案、要求份數、指派、老師暫存與正式送出）。
@@ -90,6 +92,17 @@ export function getGradingSettlementQuery(): GradingSettlementQuery {
   return settlementQuery
 }
 
+let snapshotQuery: GradingSnapshotQuery | undefined
+
+/**
+ * B 階段 TE-B6：屆別評分快照（設計方案 §4.2）。**只給系辦成績管理頁**（`app/dashboard/admin/grading/page.tsx`）用；
+ * 首頁、評分規則頁、計算明細頁照舊用 `adminBoard`／`gradebook`。
+ */
+export function getGradingSnapshotQuery(): GradingSnapshotQuery {
+  snapshotQuery ??= new PgGradingSnapshotQuery()
+  return snapshotQuery
+}
+
 export { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT }
 
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
@@ -106,6 +119,7 @@ export {
   describeReturnReceipt,
   describeStageFormula,
   describeStageStatus,
+  deriveStageRows,
   normalizeGradeExportFilter,
   OVERRIDE_STATE_LABEL,
   REMOVAL_CHOICE_LABEL,
