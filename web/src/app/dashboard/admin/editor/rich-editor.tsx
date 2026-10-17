@@ -10,7 +10,7 @@ import { cn } from '@/shared/cn'
  *
  * 兩種模式的輸入區都叫 `#ed-body`、都以「正文」標題為名稱，同一時間只有一個在畫面上。
  *
- * 正文有 Tiptap 無法原樣保留的排版時（`tiptap-editor.tsx` 的格式指紋比對），自動留在「原始 HTML」並說明，
+ * 正文有 Tiptap 無法原樣保留的排版時（`tiptap-editor.tsx` 的標準形式比對），自動留在「原始 HTML」並說明，
  * 不讓所見即所得把格式改掉。
  */
 
@@ -35,13 +35,13 @@ export function RichEditor({
   placeholder: string
 }) {
   const [mode, setMode] = useState<Mode>('rich')
-  const [lossy, setLossy] = useState(false)
+  const [lossy, setLossy] = useState<string | null>(null)
   const modeButton = (m: Mode, text: string) => (
     <button
       type="button"
       aria-pressed={mode === m}
       onClick={() => {
-        setLossy(false)
+        setLossy(null)
         setMode(m)
       }}
       className={cn(
@@ -72,8 +72,8 @@ export function RichEditor({
           placeholder={placeholder}
           inputClass={LINK_INPUT}
           buttonClass={LINK_BUTTON}
-          onLossy={() => {
-            setLossy(true)
+          onLossy={(reason) => {
+            setLossy(reason)
             setMode('html')
           }}
         />
@@ -81,7 +81,7 @@ export function RichEditor({
         <>
           {lossy ? (
             <p role="status" className="border-b border-border bg-warning-subtle px-4 py-2 text-xs text-warning-on-subtle">
-              這份正文有所見即所得編輯器無法原樣保留的排版（例如清單項一開頭就是子清單或標題、沒有網址的連結），為了不弄丟格式，請在這裡用原始 HTML 修改。
+              這份正文無法原樣保留，已取消切換。{lossy}請用原始 HTML 修改，原文已完整保留。
             </p>
           ) : null}
           <textarea

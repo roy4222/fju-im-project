@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { sanitizeBody } from '../src/application/items/rich-text'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -545,4 +546,247 @@ test('Tiptap 無法原樣保留的正文：自動留在原始 HTML 並說明，�
   await page.goto(`/dashboard/admin/editor/${id}`)
   await expect(notice).toBeVisible()
   await expect(page.locator('textarea#ed-body')).toHaveValue(body)
+})
+
+/** 固定的規格例子；expected 只明列容許的 HTML 正規化，不呼叫產品的 canon 當 oracle。 */
+type RoundTripCase = { name: string; html: string; expected?: string; rich?: boolean }
+const ROUND_TRIPS: RoundTripCase[] = [
+  { name: 'p', html: '<p>段落</p>', rich: true },
+  { name: 'br', html: '<p>甲<br>乙<br><br>丙</p>', rich: true },
+  ...['strong', 'b', 'em', 'i', 'u', 's', 'code'].map((tag) => ({
+    name: tag, html: `<p><${tag}>格式</${tag}></p>`,
+    expected: `<p><${({ b: 'strong', i: 'em' } as Record<string, string>)[tag] ?? tag}>格式</${({ b: 'strong', i: 'em' } as Record<string, string>)[tag] ?? tag}></p>`, rich: true,
+  })),
+  ...['ul', 'ol'].map((tag) => ({ name: tag, html: `<${tag}><li>項目</li></${tag}>`, expected: `<${tag}><li><p>項目</p></li></${tag}>`, rich: true })),
+  { name: 'li', html: '<ul><li>一</li><li>二</li></ul>', expected: '<ul><li><p>一</p></li><li><p>二</p></li></ul>', rich: true },
+  ...['h2', 'h3', 'h4'].map((tag) => ({ name: tag, html: `<${tag}>標題</${tag}>`, rich: true })),
+  { name: 'blockquote', html: '<blockquote>引言</blockquote>', expected: '<blockquote><p>引言</p></blockquote>', rich: true },
+  { name: 'a', html: '<p><a href="/rules" title="規則">連結</a></p>', rich: true },
+  { name: 'hr', html: '<hr><hr>', rich: true },
+  { name: 'pre', html: '<pre>程式<br>  縮排</pre>', expected: '<pre><code>程式\n  縮排</code></pre>', rich: true },
+  ...['table', 'thead', 'tbody', 'tr', 'th', 'td'].map((tag) => ({
+    name: tag,
+    html: `<table>${tag === 'thead' ? '<thead>' : '<tbody>'}<tr><th>欄</th><td>格</td></tr>${tag === 'thead' ? '</thead>' : '</tbody>'}</table>`,
+    expected: '<table><tbody><tr><th><p>欄</p></th><td><p>格</p></td></tr></tbody></table>', rich: true,
+  })),
+  { name: 'a.href missing', html: '<p><a>無網址</a></p>', rich: false },
+  { name: 'a.href empty', html: '<p><a href="">空網址</a></p>', rich: false },
+  ...['https://example.com/a?x=1&y=2', 'http://example.com', 'mailto:a@example.com', '/rules', '#top', '?q=x', 'relative/path'].map((href) => ({
+    name: `a.href ${href}`, html: `<p><a href="${href}">網址</a></p>`, rich: true,
+  })),
+  { name: 'a.title missing', html: '<p><a href="/rules">無標題</a></p>', rich: true },
+  { name: 'a.title empty', html: '<p><a href="/rules" title="">空標題</a></p>', rich: true },
+  { name: 'a.title punctuation', html: '<p><a href="/rules" title="甲 &amp; &quot;乙&quot; &lt;丙&gt; | 丁">標題</a></p>', rich: true },
+  { name: 'a.target', html: '<p><a href="/rules" target="_self">開啟位置</a></p>', rich: true },
+  { name: 'a.rel', html: '<p><a href="/rules" rel="opener">連結關係</a></p>', rich: true },
+  ...['javascript:alert(1)', 'data:text/html,x', '//example.com', 'java&#9;script:alert(1)'].map((href) => ({
+    name: `a.href forbidden ${href}`, html: `<p><a href="${href}">不安全網址</a></p>`, rich: false,
+  })),
+  ...['strong', 'em', 'u', 's', 'a'].flatMap((tag) => {
+    const open = tag === 'a' ? '<a href="/rules" title="r1">' : `<${tag}>`
+    return [
+      { name: `r1 ${tag}/code`, html: `<p>${open}<code>行內碼</code></${tag}></p>`, rich: true },
+      { name: `r1 pre/${tag}`, html: `<pre><code>${open}區塊碼</${tag}></code></pre>`, rich: true },
+    ]
+  }),
+  { name: 'adjacent aliases', html: '<p><strong>甲</strong><b>乙</b><em>丙</em><i>丁</i></p>', expected: '<p><strong>甲</strong><strong>乙</strong><em>丙</em><em>丁</em></p>', rich: true },
+  { name: 'nested duplicate marks', html: '<p><strong><strong>雙層</strong></strong></p>', rich: false },
+  { name: 'paragraph boundaries', html: '<p>甲</p><p></p><p>乙</p>', rich: true },
+  { name: 'partial pre/code', html: '<pre>甲<code>乙</code>丙</pre>', rich: false },
+  { name: 'double pre/code', html: '<pre><code><code>雙層碼</code></code></pre>', rich: false },
+  { name: 'list first child is list', html: '<ul><li><ul><li>子清單</li></ul></li></ul>', rich: false },
+  { name: 'empty tbody first', html: '<table><tbody></tbody><tbody><tr><td>格</td></tr></tbody></table>', rich: false },
+  { name: 'empty tbody last', html: '<table><tbody><tr><td>格</td></tr></tbody><tbody></tbody></table>', rich: false },
+  { name: 'empty thead', html: '<table><thead></thead><tbody><tr><td>格</td></tr></tbody></table>', rich: false },
+  { name: 'thead after tbody', html: '<table><tbody><tr><td>內文</td></tr></tbody><thead><tr><th>表頭</th></tr></thead></table>', rich: false },
+  ...['thead', 'tbody', 'tr', 'th', 'td', 'li'].map((tag) => ({ name: `orphan ${tag}`, html: `<${tag}>游離元素</${tag}>`, rich: false })),
+  ...['p', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'h2', 'h3', 'h4', 'blockquote', 'a', 'code', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td'].map((tag) => ({
+    name: `empty ${tag}`, html: `<${tag}></${tag}>`,
+    expected: tag === 'blockquote' ? '<blockquote><p></p></blockquote>' : tag === 'pre' ? '<pre><code></code></pre>' : undefined,
+    // 空元素也必須保留；如果 Tiptap 不支援，留在 HTML 即可。
+    rich: ['thead', 'tbody', 'tr', 'th', 'td', 'li'].includes(tag) ? false : undefined,
+  })),
+  { name: 'template', html: '<template><p>模板正文</p></template>', expected: '<p>模板正文</p>', rich: false },
+  { name: 'title', html: '<title>標題正文</title>', expected: '<p>標題正文</p>', rich: false },
+  { name: 'head/title', html: '<head><title>文件標題</title></head>', expected: '<p>文件標題</p>', rich: false },
+  { name: 'colgroup text', html: '<colgroup>欄群正文</colgroup>', expected: '<p>欄群正文</p>' },
+  { name: 'xmp text', html: '<xmp><b>原樣標籤</b></xmp>', expected: '<p>&lt;b&gt;原樣標籤&lt;/b&gt;</p>' },
+  { name: 'span wrapper', html: '<p>甲<span>乙</span>丙</p>', expected: '<p>甲乙丙</p>', rich: true },
+  ...['script', 'style', 'textarea', 'option', 'noscript', 'iframe', 'object', 'embed', 'svg', 'math'].map((tag) => ({
+    name: `sanitizer removes ${tag}`, html: `<p>外前</p><${tag}>內文<strong>內格式</strong></${tag}><p>外後</p>`,
+    expected: tag === 'embed' ? '<p>外前</p><p>內文<strong>內格式</strong></p><p>外後</p>' : '<p>外前</p><p>外後</p>',
+  })),
+]
+
+/** 只排屬性順序；不去除元素、不合併文字或 marks。expected 的 p/code/tbody 由上表逐案明列。 */
+async function htmlTreeIn(page: Page, html: string) {
+  return page.evaluate((source) => {
+    const root = document.createElement('template')
+    root.innerHTML = source
+    const walk = (node: Node): unknown => node.nodeType === Node.TEXT_NODE
+      ? node.textContent
+      : [
+          (node as Element).tagName,
+          [...(node as Element).attributes].map((a) => [a.name, a.value]).sort(([a], [b]) => a!.localeCompare(b!)),
+          [...node.childNodes].map(walk),
+        ]
+    return [...root.content.childNodes].map(walk)
+  }, html)
+}
+
+test('白名單逐項 round-trip：25 元素、4 屬性、r1/r2、空元素與 sanitizer 語意（A-R6）', async ({ page }) => {
+  test.setTimeout(480_000)
+  await asAdmin(page)
+  const publicBodies: string[] = []
+  const expectedBodies: string[] = []
+  for (const [index, c] of ROUND_TRIPS.entries()) {
+    await test.step(c.name, async () => {
+      await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+      const title = `矩陣-${index}-${stamp}`
+      await page.locator('#ed-title').fill(title)
+      const source = `<p>前</p>${c.html}<p>尾</p>`
+      await (await rawHtml(page)).fill(source)
+      await page.getByRole('button', { name: '所見即所得', exact: true }).click()
+      const area = page.locator('textarea#ed-body')
+      const editor = page.locator('#ed-body[contenteditable="true"]')
+      await expect.poll(async () => (await area.isVisible()) || (await editor.isVisible())).toBe(true)
+      const rich = await editor.isVisible()
+      if (c.rich !== undefined) expect.soft(rich, `${c.name}: mode`).toBe(c.rich)
+      let expected: string
+      if (rich) {
+        await editor.locator('p', { hasText: '尾' }).last().click()
+        await page.keyboard.press('End')
+        await page.keyboard.type('。')
+        expected = sanitizeBody(`<p>前</p>${c.expected ?? c.html}<p>尾。</p>`)
+      } else {
+        await expect(page.getByRole('status').filter({ hasText: '無法原樣保留' })).toBeVisible()
+        await expect(area).toHaveValue(source)
+        await area.fill(source.replace('<p>尾</p>', '<p>尾。</p>'))
+        expected = sanitizeBody(source.replace('<p>尾</p>', '<p>尾。</p>'))
+      }
+      await saveDraft(page)
+      const saved = await bodyOf(title)
+      if (rich) {
+        expect.soft(await htmlTreeIn(page, saved.body), `${c.name}: stored`).toEqual(await htmlTreeIn(page, expected))
+        // 即使 browser 會修復游離元素，也不能把 Tiptap 丟元素當無損。
+        if (c.rich === false) expect.soft(saved.body, `${c.name}: lossy conversion`).toBe(expected)
+      } else expect.soft(saved.body, `${c.name}: stored raw`).toBe(expected)
+      // 再載入既有正文並在別處補字，確實觸發重寫；只存未編輯的正文抓不到載入時的漏攔。
+      await page.goto(`/dashboard/admin/editor/${saved.id}`)
+      await expect.poll(async () => (await area.isVisible()) || (await editor.isVisible())).toBe(true)
+      const reopened = await editor.isVisible() ? 'rich' : 'html'
+      if (reopened === 'rich') {
+        await editor.locator('p', { hasText: '尾。' }).last().click()
+        await page.keyboard.press('End')
+        await page.keyboard.type('?')
+        expected = sanitizeBody(`<p>前</p>${c.expected ?? c.html}<p>尾。?</p>`)
+      } else {
+        await expect(area).toHaveValue(saved.body)
+        await area.fill(saved.body.replace('<p>尾。</p>', '<p>尾。?</p>'))
+        expected = expected.replace('<p>尾。</p>', '<p>尾。?</p>')
+      }
+      await saveDraft(page)
+      const afterReopen = (await bodyOf(title)).body
+      if (reopened === 'rich') expect.soft(await htmlTreeIn(page, afterReopen), `${c.name}: reopen/edit/save`).toEqual(await htmlTreeIn(page, expected))
+      else expect.soft(afterReopen, `${c.name}: reopen/edit/save`).toBe(expected)
+      publicBodies.push(afterReopen)
+      expectedBodies.push(expected)
+      console.log(`ROUNDTRIP ${c.name}: switch=${rich ? 'rich' : 'html'} reopen=${reopened} checked`)
+    })
+  }
+  // 公開輸出仍由真正的前台 sanitizer 處理；整張表的固定預期一起核對。
+  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  const title = `矩陣前台-${stamp}`
+  await page.locator('#ed-title').fill(title)
+  const expected = expectedBodies.join('')
+  await (await rawHtml(page)).fill(publicBodies.join(''))
+  await publishPublic(page)
+  const saved = await bodyOf(title)
+  await page.context().clearCookies()
+  await page.goto(`/news/${saved.id}`)
+  expect(await htmlTreeIn(page, await page.locator('.prose-item').innerHTML())).toEqual(await htmlTreeIn(page, expected))
+})
+
+test('R2：無網址連結與 template/title 文字不得在切換、編輯、存檔或重開時消失', async ({ page }) => {
+  await asAdmin(page)
+  const cases = [
+    { name: 'a-no-href', html: '<p><a>無網址</a></p>', retained: '<a target="_blank" rel="noopener noreferrer nofollow">無網址</a>' },
+    { name: 'a-empty-href', html: '<p><a href="">空網址</a></p>', retained: '<a target="_blank" rel="noopener noreferrer nofollow">空網址</a>' },
+    { name: 'template', html: '<template><p>模板正文</p></template>', retained: '<p>模板正文</p>' },
+    { name: 'title', html: '<title>標題正文</title>', retained: '標題正文' },
+  ]
+  for (const c of cases) {
+    await test.step(c.name, async () => {
+      await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+      const title = `R2-${c.name}-${stamp}`
+      await page.locator('#ed-title').fill(title)
+      const source = `<p>前</p>${c.html}<p>尾</p>`
+      await (await rawHtml(page)).fill(source)
+      await page.getByRole('button', { name: '所見即所得', exact: true }).click()
+      // Soft assertions let the old head demonstrate every counterexample in one run.
+      await expect.soft(page.getByRole('status').filter({ hasText: '無法原樣保留' }), c.name).toBeVisible({ timeout: 1500 })
+      const area = page.locator('textarea#ed-body')
+      const rich = page.locator('#ed-body[contenteditable="true"]')
+      if (await area.isVisible()) {
+        await expect(area).toHaveValue(source)
+        await area.fill(source.replace('<p>尾</p>', '<p>尾。</p>'))
+      } else {
+        await rich.locator('p').last().click()
+        await page.keyboard.press('End')
+        await page.keyboard.type('。')
+      }
+      await saveDraft(page)
+      const saved = await bodyOf(title)
+      console.log(`R2 ${c.name}: ${saved.body}`)
+      expect.soft(saved.body, c.name).toContain(c.retained)
+      await page.goto(`/dashboard/admin/editor/${saved.id}`)
+      if (c.name.startsWith('a-')) {
+        await expect.soft(page.locator('textarea#ed-body'), `${c.name} reopen`).toHaveValue(saved.body, { timeout: 1500 })
+      } else {
+        await expect.soft(page.locator('#ed-body'), `${c.name} reopen`).toContainText(c.name === 'template' ? '模板正文' : '標題正文')
+      }
+    })
+  }
+})
+
+test('保留檢查的 XSS 回歸：切換與存檔、匿名前台、直接污染 DB 都不得執行 payload', async ({ page }) => {
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  const title = `保留檢查XSS-${stamp}`
+  await page.locator('#ed-title').fill(title)
+  const payload = '<p style="position:fixed" onclick="window.__a10xss=1">安全正文</p>' +
+    '<script>window.__a10xss=2</script><img src=x onerror="window.__a10xss=3">' +
+    '<a href="javascript:window.__a10xss=4">JS</a><a href="data:text/html,x">DATA</a>' +
+    '<iframe srcdoc="<script>parent.__a10xss=5</script>"></iframe><style>body{display:none}</style>' +
+    '<p><code><a href="javascript:window.__a10xss=6">碼連結</a></code></p>' +
+    '<pre><code><a href="java&#9;script:window.__a10xss=7">區塊連結</a></code></pre>' +
+    '<template><p onclick="window.__a10xss=8">模板文字</p></template><a href="https://example.com">安全連結</a>'
+  const unsafe = /<script|<iframe|<img|<style|\son\w+=|\sstyle=|javascript:|data:|__a10xss/i
+  const marker = () => page.evaluate(() => (window as unknown as { __a10xss?: number }).__a10xss)
+  await (await rawHtml(page)).fill(payload)
+  await page.getByRole('button', { name: '所見即所得', exact: true }).click()
+  await expect(page.locator('textarea#ed-body')).toHaveValue(payload)
+  await expect(page.getByRole('status').filter({ hasText: '無法原樣保留' })).toBeVisible()
+  expect(await marker()).toBeUndefined()
+  await saveDraft(page)
+  const saved = await bodyOf(title)
+  expect(saved.body).not.toMatch(unsafe)
+  expect(saved.body).toContain('模板文字')
+  await publishPublic(page)
+  await page.context().clearCookies()
+  const response = await page.goto(`/news?q=${encodeURIComponent(title)}`)
+  expect(response!.headers()['content-security-policy']).not.toContain("'unsafe-inline'")
+  await expect(page.getByTestId('news-card').filter({ hasText: title })).toBeVisible()
+  expect(await marker()).toBeUndefined()
+  await page.goto(`/news/${saved.id}`)
+  const front = page.locator('.prose-item')
+  await expect(front).toContainText('安全正文')
+  expect(await front.innerHTML()).not.toMatch(unsafe)
+  expect(await marker()).toBeUndefined()
+  await pool.query('update managed_items set body_html=$1 where id=$2', [payload, saved.id])
+  await page.reload()
+  expect(await front.innerHTML()).not.toMatch(unsafe)
+  await expect(front).toContainText('模板文字')
+  expect(await marker()).toBeUndefined()
+  console.log('XSS: switch/save, anonymous list/detail and poisoned DB output passed')
 })
