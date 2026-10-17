@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Editor } from '@tiptap/core'
+import { Editor, Mark, Node } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
@@ -51,9 +51,39 @@ function fromEditor(editor: Editor): string {
   return editor.isEmpty ? '' : editor.getHTML()
 }
 
+/**
+ * 行內程式碼：StarterKit 內建的 Code 會排除其他所有格式（`excludes: '_'`），舊正文裡
+ * `<a href="/rules"><code>規則</code></a>`、`<strong><code>x</code></strong>` 一進編輯器連結與粗體就沒了。
+ * 這裡改成可以跟粗斜體、底線、刪除線、連結並存。
+ */
+const InlineCode = Mark.create({
+  name: 'code',
+  excludes: '',
+  code: true,
+  parseHTML: () => [{ tag: 'code' }],
+  renderHTML: ({ HTMLAttributes }) => ['code', HTMLAttributes, 0],
+})
+
+/**
+ * 程式碼區塊：StarterKit 內建的 CodeBlock 不允許任何格式（`marks: ''`），`<pre>` 裡的粗體、連結會被丟掉。
+ * 這裡允許白名單裡除了行內程式碼以外的格式（`<pre><code>` 的 code 本來就是區塊本身）。
+ */
+const CodeBlock = Node.create({
+  name: 'codeBlock',
+  group: 'block',
+  content: 'text*',
+  marks: 'bold italic underline strike link',
+  code: true,
+  defining: true,
+  parseHTML: () => [{ tag: 'pre', preserveWhitespace: 'full' }],
+  renderHTML: ({ HTMLAttributes }) => ['pre', HTMLAttributes, ['code', 0]],
+})
+
 const EXTENSIONS = (placeholder: string) => [
   StarterKit.configure({
     heading: { levels: [2, 3, 4] },
+    code: false,
+    codeBlock: false,
     // 表格、分隔線後面不自動補空段落：切換模式不該多出內容。
     trailingNode: false,
     link: {
@@ -64,12 +94,101 @@ const EXTENSIONS = (placeholder: string) => [
       isAllowedUri: keepHref,
     },
   }),
+  InlineCode,
+  CodeBlock,
   Table.configure({ resizable: false }),
   TableRow,
   TableHeader,
   TableCell,
   Placeholder.configure({ placeholder }),
 ]
+
+/*
+ * 格式指紋：把正文攤成「每個字在哪種區塊裡、帶哪些格式」的序列，用來判斷 Tiptap 讀進來再寫出去有沒有改到東西。
+ * 允許的正規化不算改變：b→strong、i→em、補 p（清單項、儲存格、引言裡的文字）、補 tbody／丟 thead、
+ * pre 補 code、pre 裡的 br→換行、格式的巢狀順序、表格的 colgroup／style、連結的 target／rel、區塊邊界與連續空白。
+ * 有差就是 Tiptap 會改掉的組合（清單項一開頭就是子清單／標題／引言／程式碼區塊、沒有網址的 `<a>`、不在清單裡的 `<li>`），
+ * 這種正文不交給所見即所得，留在原始 HTML 編輯。
+ */
+const CONTAINERS: Record<string, string> = {
+  H2: 'h2', H3: 'h3', H4: 'h4', UL: 'ul', OL: 'ol', LI: 'li', BLOCKQUOTE: 'q', PRE: 'pre', TABLE: 'table', TR: 'tr', TH: 'th', TD: 'td',
+}
+// ProseMirror 當成區塊的標籤（其餘不認得的標籤只留文字，跟伺服器清理一樣）。
+const BOUNDARIES = new Set([
+  ...Object.keys(CONTAINERS), 'P', 'THEAD', 'TBODY', 'TFOOT', 'DIV', 'SECTION', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER',
+  'H1', 'H5', 'H6', 'HGROUP', 'ADDRESS', 'FIGURE', 'FIGCAPTION', 'DL', 'DD', 'FIELDSET', 'FORM', 'OUTPUT', 'CANVAS',
+])
+// 內容不算數的標籤（伺服器清理會連內容一起丟，ProseMirror 也不讀）。
+const SKIPPED = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'OPTION', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'COLGROUP', 'TEMPLATE', 'HEAD', 'TITLE'])
+const MARK_OF: Record<string, string> = { STRONG: 'b', B: 'b', EM: 'i', I: 'i', U: 'u', S: 's', CODE: 'code' }
+const LEAVES = new Set(['P', 'H2', 'H3', 'H4', 'PRE'])
+
+function formatSignature(html: string): string {
+  const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}</body>`, 'text/html')
+  const out: string[] = []
+  let space = false
+  const edge = (token: string) => {
+    space = false
+    if (out.at(-1) !== token) out.push(token)
+  }
+  const hasBlockChild = (el: Element) => [...el.children].some((c) => BOUNDARIES.has(c.tagName) || c.tagName === 'HR')
+  const walk = (node: globalThis.Node, ctx: string, marks: readonly string[], pre: boolean) => {
+    const key = `${ctx}{${[...new Set(marks)].sort().join(',')}}`
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        for (const ch of (child as Text).data) {
+          if (!pre && /[ \t\n\r\f]/.test(ch)) {
+            space = true
+            continue
+          }
+          if (space && out.length > 0 && !['¶', '↵', '∅', 'HR'].includes(out.at(-1)!)) out.push(' ')
+          space = false
+          out.push(`${key}${ch}`)
+        }
+        continue
+      }
+      if (child.nodeType !== 1) continue
+      const el = child as Element
+      const tag = el.tagName
+      if (SKIPPED.has(tag)) continue
+      if (tag === 'BR') {
+        // 程式碼區塊裡的 <br> 讀進來變成換行字元，看起來一樣。
+        if (pre) out.push(`${key}\n`)
+        else edge('↵')
+        continue
+      }
+      if (tag === 'HR') {
+        edge('¶')
+        edge('HR')
+        edge('¶')
+        continue
+      }
+      let nextMarks = marks
+      if (MARK_OF[tag] && !(pre && tag === 'CODE')) nextMarks = [...marks, MARK_OF[tag]]
+      if (tag === 'A') {
+        const href = el.getAttribute('href') ?? ''
+        const kept = href !== '' && keepHref(href) ? href : ''
+        const title = el.getAttribute('title') ?? ''
+        if (kept || title) nextMarks = [...nextMarks, `a(${kept}|${title})`]
+      }
+      if (!BOUNDARIES.has(tag)) {
+        walk(el, ctx, nextMarks, pre)
+        continue
+      }
+      edge('¶')
+      const before = out.length
+      walk(el, CONTAINERS[tag] ? `${ctx}/${CONTAINERS[tag]}` : ctx, nextMarks, pre || tag === 'PRE')
+      // 空的段落、空儲存格要算一格：Tiptap 自己補出來的空段落（例如清單項開頭補一段）就比得出來。
+      const leaf = LEAVES.has(tag) || ((tag === 'LI' || tag === 'TD' || tag === 'TH' || tag === 'BLOCKQUOTE') && !hasBlockChild(el))
+      if (leaf && out.slice(before).every((t) => t === '¶')) edge('∅')
+      edge('¶')
+    }
+  }
+  walk(doc.body, '', [], false)
+  while (out.at(-1) === '¶' || out.at(-1) === ' ') out.pop()
+  while (out[0] === '¶') out.shift()
+  return out.join('\u0000')
+}
 
 function ToolButton({
   label,
@@ -254,6 +373,7 @@ export function TiptapEditor({
   placeholder,
   inputClass,
   buttonClass,
+  onLossy,
 }: {
   value: string
   onChange: (html: string) => void
@@ -263,6 +383,8 @@ export function TiptapEditor({
   /** 連結網址輸入框與按鈕的 class（由 `rich-editor.tsx` 從表單共用樣式算好傳進來）。 */
   inputClass: string
   buttonClass: string
+  /** 這份正文 Tiptap 無法原樣保留：外面切回原始 HTML（編輯器沒有改到正文）。 */
+  onLossy: () => void
 }) {
   // 最近一次由編輯器送出去的字串：外面的 value 跟它不同，才是別處改了正文，要換掉編輯器內容。
   const emitted = useRef(value)
@@ -301,16 +423,31 @@ export function TiptapEditor({
       }),
   )
 
+  // 讀進來的內容跟 Tiptap 會寫出去的格式指紋不同 → 不交給所見即所得（掛上去前就判斷，正文一個字都不動）。
+  const [lossy] = useState(() => formatSignature(toEditorHtml(value)) !== formatSignature(fromEditor(editor)))
+  const onLossyRef = useRef(onLossy)
   useEffect(() => {
-    if (host.current) editor.mount(host.current)
-    return () => editor.unmount()
-  }, [editor])
+    onLossyRef.current = onLossy
+  }, [onLossy])
 
   useEffect(() => {
-    if (value === emitted.current) return
+    if (lossy) {
+      onLossyRef.current()
+      return
+    }
+    if (host.current) editor.mount(host.current)
+    return () => editor.unmount()
+  }, [editor, lossy])
+
+  useEffect(() => {
+    if (lossy || value === emitted.current) return
     emitted.current = value
-    editor.commands.setContent(toEditorHtml(value), { emitUpdate: false })
-  }, [editor, value])
+    const html = toEditorHtml(value)
+    editor.commands.setContent(html, { emitUpdate: false })
+    if (formatSignature(html) !== formatSignature(fromEditor(editor))) onLossyRef.current()
+  }, [editor, value, lossy])
+
+  if (lossy) return null
 
   return (
     <>
