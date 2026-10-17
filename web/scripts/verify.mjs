@@ -206,7 +206,8 @@ function runStep(name, command, args, { env, cwd = webDir } = {}) {
       buffer += chunk
       if (buffer.length > 200_000) buffer = buffer.slice(-100_000)
     }
-    const child = spawn(command, args, { cwd, env, stdio: ['inherit', 'pipe', 'pipe'] })
+    // stdin 不接終端機：子程序（例如 playwright）拿到 tty 可能切成 raw mode，Ctrl-C 就變成一般字元、送不出 SIGINT。
+    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     foreground = child
     child.stdout.on('data', (d) => {
       process.stdout.write(d)
