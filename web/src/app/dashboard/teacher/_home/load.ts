@@ -22,7 +22,8 @@ const TEACHER_NEWS: readonly AudienceKind[] = ['teachers', 'signed_in', 'groups'
  * `teacherQueue`／`teacherView`（AC-TE-08、AC-SH-37）。
  *
  * 「本屆活動」：老師目前指導的屆別（Q13「自己指導那一屆」，不一定是工作屆別）＋系辦設定的工作屆別；
- * 指導的屆別跟階段一起查，活動等兩者回來再查（每屆一句，同時發）。
+ * 指導的屆別跟階段一起查，活動等兩者回來再一句查完所有屆別（`activitiesFor`，TE-07b）。
+ * 「誰在看」（公告列表與指導屆別都要）同一次 render 只查一次（`viewerOf` 內的 React `cache`）。
  */
 export async function loadTeacherHome(actor: ResolvedActor) {
   // 頁面先過了 `requireRole`，這裡一定是登入的老師。
@@ -37,10 +38,9 @@ export async function loadTeacherHome(actor: ResolvedActor) {
     getPublicItemQuery().list(actor, 'news', { audiences: TEACHER_NEWS, limit: 5 }),
     Promise.all([stageRead, advisedRead]).then(async ([ctx, advisedCohorts]) => {
       const cohortIds = [...new Set([...(ctx.cohort ? [ctx.cohort.id] : []), ...advisedCohorts])]
-      const lists = await Promise.all(cohortIds.map((id) => getTimelineQuery().activities(id)))
+      const list = await getTimelineQuery().activitiesFor(cohortIds)
       // 今天以後、沒取消的，早的在前；「本屆學生」的活動只算指導的屆別（其他對象老師本來就在內）。
-      const upcoming = lists
-        .flat()
+      const upcoming = list
         .filter((a) => a.status === 'scheduled' && taipeiDateOf(a.startsAt) >= ctx.today)
         .filter((a) => a.audienceKind !== 'cohort_students' || advisedCohorts.includes(a.cohortId))
         .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())

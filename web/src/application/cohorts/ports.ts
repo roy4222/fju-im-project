@@ -139,6 +139,11 @@ export interface TimelineQuery {
   /** 依時間排序；含已取消的，畫面自己分。已刪除的不列。 */
   activities(cohortId: string): Promise<Activity[]>
   /**
+   * 多屆的活動一句查完（老師首頁「本屆活動」，TE-07b）：等於逐屆 `activities(id)` 合起來再依時間排序。
+   * 重複的 ID 只算一次；格式不對的 ID 略過；沒有可查的屆別回空陣列、不碰資料庫。
+   */
+  activitiesFor(cohortIds: readonly string[]): Promise<Activity[]>
+  /**
    * 首頁「近期活動」（設計方案 D-4）：跨屆別、對象「公開」、已排定、還沒結束的活動，依開始時間取前 `limit` 筆。
    * 「還沒結束」看真實時間：有結束時間看結束時間；全天活動看到當天（臺灣）結束；只有開始時間的看開始時間。
    */

@@ -630,6 +630,17 @@ export class PgTimelineQuery implements TimelineQuery {
     return rows.rows.map(toActivity)
   }
 
+  async activitiesFor(cohortIds: readonly string[]): Promise<Activity[]> {
+    const ids = [...new Set(cohortIds.filter(isCohortId))]
+    if (ids.length === 0) return []
+    const rows = await this.#reader().query<ActivityRow>(
+      `select ${ACTIVITY_COLUMNS} from project_events
+        where cohort_id = any($1::uuid[]) and deleted_at is null order by starts_at, created_at`,
+      [ids],
+    )
+    return rows.rows.map(toActivity)
+  }
+
   async publicActivities(limit: number): Promise<Activity[]> {
     // 全天活動存的是當天 00:00、沒有結束時間：算到隔天 00:00 才結束（臺灣沒有日光節約，加一天就是一天）。
     const rows = await this.#reader().query<ActivityRow>(
