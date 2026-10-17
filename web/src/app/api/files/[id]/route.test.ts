@@ -3,15 +3,11 @@ import type { FileDownload } from '@/application/ops'
 
 // 路由只管 HTTP：授權結果換成狀態碼與快取標頭。授權本身（含「換掉的頭像 → FILE_GONE」）在 file-storage 的整合測試。
 const downloadFile = vi.fn()
-vi.mock('@/composition/files', async () => {
-  const ops = await import('@/application/ops')
-  return {
-    downloadFile: (...args: unknown[]) => downloadFile(...args),
-    contentDisposition: ops.contentDispositionFor,
-    isCacheableDownload: ops.isCacheableDownload,
-    PUBLIC_IMAGE_MAX_AGE_SECONDS: ops.PUBLIC_IMAGE_MAX_AGE_SECONDS,
-  }
-})
+// 只換掉授權；拒絕回應與快取標頭（跟預覽路由共用的 HTTP 規則）用真的。
+vi.mock('@/composition/files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/composition/files')>()),
+  downloadFile: (...args: unknown[]) => downloadFile(...args),
+}))
 
 const { GET } = await import('./route')
 

@@ -906,6 +906,127 @@ function stateOf(current: CurrentEvaluation | undefined): EvaluationState {
 const SETTLED_AT = `(select gs.settled_at from grade_settlements gs
     where gs.cohort_id = c.id and gs.stage_key = a.stage_key and gs.released_at is null)`
 
+export type BoardGroupRow = { id: string; code: string; advisor_name: string | null }
+export type BoardRequirementRow = { group_id: string; stage_key: string; required_count: number; revision: number }
+export type BoardAssignmentRow = {
+  id: string
+  group_id: string
+  stage_key: string
+  teacher_user_id: string
+  teacher_name: string
+  inactive: boolean
+}
+
+/** 本屆每組每階段的要求份數（含 revision，評分規則頁改份數用）。 */
+export async function loadBoardRequirements(db: Pick<Pool, 'query'>, cohortId: string): Promise<BoardRequirementRow[]> {
+  const rows = await db.query<BoardRequirementRow>(
+    `select r.group_id, r.stage_key, r.required_count, r.revision
+       from stage_requirements r join groups g on g.id = r.group_id where g.cohort_id = $1`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+/** 本屆有效的評分指派（老師名、是否停用），依建立時間、id 排序。 */
+export async function loadBoardAssignments(db: Pick<Pool, 'query'>, cohortId: string): Promise<BoardAssignmentRow[]> {
+  const rows = await db.query<BoardAssignmentRow>(
+    `select a.id, a.group_id, a.stage_key, a.teacher_user_id,
+            coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
+            not (u.status = 'active' and u.deidentified_at is null
+                 and exists (select 1 from role_assignments r
+                              where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)) as inactive
+       from evaluator_assignments a
+       join groups g on g.id = a.group_id
+       join users u on u.id = a.teacher_user_id
+       left join user_profiles p on p.user_id = a.teacher_user_id
+      where g.cohort_id = $1 and a.valid_to is null
+      order by a.created_at, a.id`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+/** 可指派的老師（啟用、未去識別、有老師身分）。 */
+export async function loadActiveTeachers(db: Pick<Pool, 'query'>): Promise<{ id: string; name: string }[]> {
+  const rows = await db.query<{ id: string; name: string }>(
+    `select u.id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name
+       from users u left join user_profiles p on p.user_id = u.id
+      where u.status = 'active' and u.deidentified_at is null
+        and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
+      order by 2`,
+  )
+  return rows.rows
+}
+
+/**
+ * 系辦評分總覽的組裝（`adminBoard` 與屆別評分快照共用，A-05）：同一份資料列進來，兩邊組出的 DTO 一模一樣。
+ * `groups` 只放進行中的組（依代號排序）；`assignments` 是本屆有效指派（依建立時間、id 排序）。
+ */
+export function assembleAdminBoard(rows: {
+  readonly cohort: CohortRow
+  readonly scheme: SchemeRow | null
+  readonly versionRows: readonly VersionRow[]
+  readonly groups: readonly BoardGroupRow[]
+  readonly requirements: readonly BoardRequirementRow[]
+  readonly assignments: readonly BoardAssignmentRow[]
+  readonly latest: ReadonlyMap<string, CurrentEvaluation>
+  readonly teachers: readonly { id: string; name: string }[]
+}): AdminGradingBoard {
+  const { cohort, scheme, latest } = rows
+  const versions: SchemeVersionView[] = rows.versionRows.map((v) => ({
+    id: v.id,
+    versionNo: v.version_no,
+    status: v.status,
+    stages: readSchemeStages(v.stages),
+    isCurrent: v.id === scheme?.current_version_id,
+    createdAt: v.created_at,
+    lockedAt: v.locked_at,
+  }))
+  const stagesByVersion = new Map(versions.map((v) => [v.id, v.stages]))
+  const assignmentViews: AdminAssignmentView[] = rows.assignments.map((a) => {
+    const current = latest.get(a.id)
+    // 有採計看採計那一筆（正式送出後的新暫存不影響系辦看到的分數，AC-A-2），否則看最新暫存。
+    const row = current?.counted ?? current?.draft ?? null
+    // 正式分數一律照目前版本算（方案鎖定後套用新版本＝用新權重重算，票 24）；暫存照它填的版本算。
+    const currentStages = versions.find((v) => v.isCurrent)?.stages ?? []
+    const stage = row
+      ? current?.counted
+        ? stageOf(currentStages, a.stage_key)
+        : stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key)
+      : null
+    const summary = row && stage ? summarizeScores(stage, current?.counted ? row.scores : pick(stage, row.scores)) : null
+    return {
+      id: a.id,
+      groupId: a.group_id,
+      stageKey: a.stage_key,
+      teacherUserId: a.teacher_user_id,
+      teacherName: a.teacher_name,
+      teacherInactive: a.inactive,
+      state: stateOf(current),
+      score: summary?.score ?? null,
+      filled: summary?.filled ?? 0,
+      total: summary?.total ?? 0,
+      updatedAt: row?.submitted_real_at ?? null,
+      comment: row?.comment ?? null,
+    }
+  })
+  return {
+    cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
+    schemeId: scheme?.id ?? null,
+    versions,
+    current: versions.find((v) => v.isCurrent) ?? null,
+    groups: rows.groups.map((g) => ({ id: g.id, code: g.code, advisorName: g.advisor_name })),
+    requirements: rows.requirements.map((r) => ({
+      groupId: r.group_id,
+      stageKey: r.stage_key,
+      requiredCount: r.required_count,
+      revision: r.revision,
+    })),
+    assignments: assignmentViews,
+    teachers: rows.teachers.map((t) => ({ userId: t.id, name: t.name })),
+  }
+}
+
 export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery {
   readonly #reader: () => Pick<Pool, 'query'>
   readonly #submissions: Pick<AdvisorSubmissionQuery, 'groupVersionsWithFiles'> | undefined
@@ -936,18 +1057,8 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           )
         ).rows
       : []
-    const versions: SchemeVersionView[] = versionRows.map((v) => ({
-      id: v.id,
-      versionNo: v.version_no,
-      status: v.status,
-      stages: readSchemeStages(v.stages),
-      isCurrent: v.id === scheme?.current_version_id,
-      createdAt: v.created_at,
-      lockedAt: v.locked_at,
-    }))
-    const stagesByVersion = new Map(versions.map((v) => [v.id, v.stages]))
 
-    const groups = await db.query<{ id: string; code: string; advisor_name: string | null }>(
+    const groups = await db.query<BoardGroupRow>(
       `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name
          from groups g
          left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
@@ -957,88 +1068,25 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         order by g.code`,
       [cohortId],
     )
-    const requirements = await db.query<{ group_id: string; stage_key: string; required_count: number; revision: number }>(
-      `select r.group_id, r.stage_key, r.required_count, r.revision
-         from stage_requirements r join groups g on g.id = r.group_id where g.cohort_id = $1`,
-      [cohortId],
-    )
-    const assignments = await db.query<{
-      id: string
-      group_id: string
-      stage_key: string
-      teacher_user_id: string
-      teacher_name: string
-      inactive: boolean
-    }>(
-      `select a.id, a.group_id, a.stage_key, a.teacher_user_id,
-              coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
-              not (u.status = 'active' and u.deidentified_at is null
-                   and exists (select 1 from role_assignments r
-                                where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)) as inactive
-         from evaluator_assignments a
-         join groups g on g.id = a.group_id
-         join users u on u.id = a.teacher_user_id
-         left join user_profiles p on p.user_id = a.teacher_user_id
-        where g.cohort_id = $1 and a.valid_to is null
-        order by a.created_at, a.id`,
-      [cohortId],
-    )
+    const requirements = await loadBoardRequirements(db, cohortId)
+    const assignments = await loadBoardAssignments(db, cohortId)
     const latest = await latestEvaluations(
       db,
-      assignments.rows.map((a) => a.id),
+      assignments.map((a) => a.id),
     )
-    const assignmentViews: AdminAssignmentView[] = assignments.rows.map((a) => {
-      const current = latest.get(a.id)
-      // 有採計看採計那一筆（正式送出後的新暫存不影響系辦看到的分數，AC-A-2），否則看最新暫存。
-      const row = current?.counted ?? current?.draft ?? null
-      // 正式分數一律照目前版本算（方案鎖定後套用新版本＝用新權重重算，票 24）；暫存照它填的版本算。
-      const currentStages = versions.find((v) => v.isCurrent)?.stages ?? []
-      const stage = row
-        ? current?.counted
-          ? stageOf(currentStages, a.stage_key)
-          : stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key)
-        : null
-      const summary = row && stage ? summarizeScores(stage, current?.counted ? row.scores : pick(stage, row.scores)) : null
-      return {
-        id: a.id,
-        groupId: a.group_id,
-        stageKey: a.stage_key,
-        teacherUserId: a.teacher_user_id,
-        teacherName: a.teacher_name,
-        teacherInactive: a.inactive,
-        state: stateOf(current),
-        score: summary?.score ?? null,
-        filled: summary?.filled ?? 0,
-        total: summary?.total ?? 0,
-        updatedAt: row?.submitted_real_at ?? null,
-        comment: row?.comment ?? null,
-      }
-    })
-
-    const teachers = await db.query<{ id: string; name: string }>(
-      `select u.id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name
-         from users u left join user_profiles p on p.user_id = u.id
-        where u.status = 'active' and u.deidentified_at is null
-          and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
-        order by 2`,
-    )
+    const teachers = await loadActiveTeachers(db)
 
     return ok(
-      {
-        cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
-        schemeId: scheme?.id ?? null,
-        versions,
-        current: versions.find((v) => v.isCurrent) ?? null,
-        groups: groups.rows.map((g) => ({ id: g.id, code: g.code, advisorName: g.advisor_name })),
-        requirements: requirements.rows.map((r) => ({
-          groupId: r.group_id,
-          stageKey: r.stage_key,
-          requiredCount: r.required_count,
-          revision: r.revision,
-        })),
-        assignments: assignmentViews,
-        teachers: teachers.rows.map((t) => ({ userId: t.id, name: t.name })),
-      },
+      assembleAdminBoard({
+        cohort,
+        scheme: scheme ?? null,
+        versionRows,
+        groups: groups.rows,
+        requirements,
+        assignments,
+        latest,
+        teachers,
+      }),
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )
   }

@@ -30,8 +30,8 @@ export function cspDirectives({ nonce, development = false }: CspOptions): [stri
     // YouTube 縮圖與 blob／data（裁切預覽）；GA4 的追蹤像素（只有正式站設了量測 ID 才會載入）。
     ['img-src', "'self' blob: data: https://i.ytimg.com https://*.google-analytics.com https://*.googletagmanager.com"],
     ['font-src', "'self'"],
-    // 影片嵌入與 Turnstile widget。
-    ['frame-src', 'https://www.youtube.com https://challenges.cloudflare.com'],
+    // 影片嵌入與 Turnstile widget；'self' 給評分頁內嵌同站的檔案預覽（`/api/files/<id>/preview`，A-06）。
+    ['frame-src', "'self' https://www.youtube.com https://challenges.cloudflare.com"],
     // Turnstile；GA4 的事件送出（collect）。gtag 載入器本身靠 nonce＋strict-dynamic，script-src 不用改。
     [
       'connect-src',
