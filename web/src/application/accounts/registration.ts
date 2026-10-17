@@ -547,6 +547,19 @@ export function ownApplicationDenied(actor: ResolvedActor, capability: 'registra
   return actor.status === 'pending' ? null : 'FORBIDDEN'
 }
 
+/** 未驗證 Email 的密碼帳號送申請時的那一句（VB-2；設計方案 §3.2）。 */
+export const APPLY_EMAIL_UNVERIFIED_MESSAGE = '請先完成 Email 驗證。'
+
+/**
+ * 送註冊申請之前：用密碼註冊、還沒完成 Email 驗證的人不能送（B 階段 VB-2；AC-VI-50）。
+ *
+ * 只擋 `password`：Google 來的人 Email 已由 Google 證明。沒登入（第 1 步就要建帳號的舊單頁流程）不在這裡判斷，
+ * 也不擋已經有申請或角色的既有帳號——那些人不會再走 `apply`。
+ */
+export function applyDenial(user: { emailVerified: boolean; loginMethod: 'google' | 'password' | undefined }): string | null {
+  return user.loginMethod === 'password' && !user.emailVerified ? APPLY_EMAIL_UNVERIFIED_MESSAGE : null
+}
+
 // ── port ────────────────────────────────────────────────────────────────────
 
 /** 申請人自己看到的樣子。**沒有比對結果**（見檔頭第 2 條）。 */

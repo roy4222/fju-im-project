@@ -156,10 +156,15 @@ describe('封鎖路由對外一律 403', () => {
     ['POST', '/change-email'],
     ['POST', '/delete-user'],
     ['POST', '/unlink-account'],
-    ['POST', '/request-password-reset'],
-    ['POST', '/reset-password'],
     ['POST', '/send-verification-email'],
     ['GET', '/verify-email'],
+    // VB-2：email-otp 外掛帶進來、但不對外的端點（OTP 登入、OTP 重設密碼、換 Email）。
+    ['POST', '/sign-in/email-otp'],
+    ['POST', '/forget-password/email-otp'],
+    ['POST', '/email-otp/request-password-reset'],
+    ['POST', '/email-otp/reset-password'],
+    ['POST', '/email-otp/request-email-change'],
+    ['POST', '/email-otp/change-email'],
     ['GET', '/list-sessions'],
     ['POST', '/revoke-other-sessions'],
     ['GET', '/account-info'],
@@ -193,6 +198,56 @@ describe('封鎖路由對外一律 403', () => {
     expect(response.status).toBe(403)
     const body = (await response.json()) as { code?: string; message?: string }
     expect(body.code ?? body.message).toBeTruthy()
+  })
+})
+
+describe('VB-2：Email 驗證碼與重設密碼的分類（AC-VI-71）', () => {
+  const OPENED = [
+    '/email-otp/send-verification-otp',
+    '/email-otp/verify-email',
+    '/email-otp/check-verification-otp',
+    '/request-password-reset',
+    '/reset-password',
+    '/reset-password/:token',
+  ]
+
+  it('6 條新開的端點都是允許、不需要 session，而且不在封鎖清單', () => {
+    for (const path of OPENED) {
+      const route = ALLOWED_ROUTES.find((r) => r.path === path)
+      expect(route, path).toBeDefined()
+      expect(route!.session, path).toBe('none')
+      expect(route!.fresh, path).toBe(false)
+      expect(path in BLOCKED_ROUTE_REASONS, path).toBe(false)
+    }
+  })
+
+  it('仍封鎖、新封鎖的 8 條各有理由', () => {
+    for (const path of [
+      '/send-verification-email',
+      '/verify-email',
+      '/sign-in/email-otp',
+      '/forget-password/email-otp',
+      '/email-otp/request-password-reset',
+      '/email-otp/reset-password',
+      '/email-otp/request-email-change',
+      '/email-otp/change-email',
+    ]) {
+      expect(BLOCKED_ROUTE_REASONS[path], path).toMatch(/\S/)
+      expect(ALLOWED_ROUTES.some((r) => r.path === path), path).toBe(false)
+    }
+  })
+
+  it('打新開的端點不再是 403（進到套件與 hook 自己的判斷）', async () => {
+    const reset = await call('POST', '/request-password-reset', { email: 'nobody@example.com', redirectTo: '/reset-password' })
+    expect(reset.status).toBe(200)
+    const resetWithBadToken = await call('POST', '/reset-password', { token: 'nope', newPassword: 'Long-Enough-Password-1' })
+    expect(resetWithBadToken.status).toBe(400)
+    const check = await call('POST', '/email-otp/check-verification-otp', {
+      email: 'nobody@example.com',
+      type: 'email-verification',
+      otp: '000000',
+    })
+    expect(check.status).toBe(400)
   })
 })
 

@@ -74,7 +74,8 @@
     { "slice": "S11", "table": "showcase_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：發布時從草稿凍結的精選版本（S11 只建空表，S12 才寫）" },
     { "slice": "W0", "table": "submission_reopens", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：個別補交（第三波 W10 才寫）；再開一次就插新列，目前能不能補交看有沒有還沒到期的列" },
     { "slice": "W0", "table": "home_settings", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "首頁設定（固定一列 id=1；第三波 W3 才寫）：存了就生效，恢復預設是把內容欄清成 NULL，不刪列" },
-    { "slice": "VB1", "table": "mail_outbox", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "寄信紀錄（B 階段 VB-1）：每封信先寫一列再寄，正式列不存內文；保存 90 天後由 worker 刪（R5，VB-13），不是稽核表" }
+    { "slice": "VB1", "table": "mail_outbox", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "寄信紀錄（B 階段 VB-1）：每封信先寫一列再寄，正式列不存內文；保存 90 天後由 worker 刪（R5，VB-13），不是稽核表" },
+    { "slice": "B17", "table": "grade_settlements", "select": true, "insert": true, "update": ["released_at", "released_by_user_id", "release_reason"], "delete": false, "immutable": false, "worker": false, "note": "系辦結算（B 階段 A-01）：一屆一階段一筆現行結算；解除只填解除三欄，結算列不刪" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

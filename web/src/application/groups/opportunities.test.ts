@@ -144,8 +144,8 @@ function group(code: string, overrides: Partial<GroupSummary> = {}): GroupSummar
     establishedBusinessAt: new Date('2026-09-20T00:00:00Z'),
     revision: 1,
     members: [
-      { userId: `${code}-1`, name: `${code}組長`, studentNo: '041200001', isLeader: true, loginEmail: `${code.toLowerCase()}-1@school.example` },
-      { userId: `${code}-2`, name: `${code}組員`, studentNo: '041200002', isLeader: false, loginEmail: `${code.toLowerCase()}-2@gmail.com` },
+      { userId: `${code}-1`, name: `${code}組長`, studentNo: '041200001', isLeader: true, loginEmail: `${code.toLowerCase()}-1@school.example`, avatarPreset: null, avatarFileId: null },
+      { userId: `${code}-2`, name: `${code}組員`, studentNo: '041200002', isLeader: false, loginEmail: `${code.toLowerCase()}-2@gmail.com`, avatarPreset: null, avatarFileId: null },
     ],
     advisor: null,
     opportunity: null,
@@ -202,7 +202,7 @@ describe('複製本組信箱與匯出列（C18）', () => {
   })
 
   it('每位組員一列；CSV 開頭 BOM、全部加引號、公式字首加撇號', () => {
-    const g = group('G04', { members: [{ userId: 'x', name: '=cmd|calc', studentNo: '0412', isLeader: true, loginEmail: 'a@x.org' }] })
+    const g = group('G04', { members: [{ userId: 'x', name: '=cmd|calc', studentNo: '0412', isLeader: true, loginEmail: 'a@x.org', avatarPreset: null, avatarFileId: null }] })
     const rows = rosterExportRows('114', [g])
     expect(rows).toEqual([['114', 'G04', '一般專題', '尚未指派', '', '是', '0412', '=cmd|calc', 'a@x.org', 'a@x.org']])
     const csv = buildRosterCsv(rows)

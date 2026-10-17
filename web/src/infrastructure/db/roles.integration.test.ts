@@ -741,6 +741,14 @@ const SAMPLES: Record<string, Sample> = {
     updatable: { column: 'status', value: 'sent' },
     deleteWhere: 'true',
   },
+  grade_settlements: {
+    insert: () => ({
+      sql: `insert into grade_settlements (id, cohort_id, stage_key, settled_at, settled_by_user_id, reason, counted_evaluations, request_id)
+            values (gen_random_uuid(), $1, $2, now(), $3, '期中結算', 0, gen_random_uuid()::text)`,
+      values: [cohortId, unique('stage'), userId],
+    }),
+    updatable: { column: 'release_reason', value: '重開' },
+  },
 }
 
 beforeAll(async () => {

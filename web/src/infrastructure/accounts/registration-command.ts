@@ -2,6 +2,7 @@ import 'server-only'
 import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
+  applyDenial,
   BULK_APPROVAL_MAX,
   BULK_APPROVAL_SKIP_LABEL,
   bulkApprovalSkip,
@@ -62,7 +63,11 @@ import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 
 export type AccountCreation =
   | { readonly ok: true; readonly userId: string }
-  | { readonly ok: false; readonly reason: 'rate_limited' | 'email_taken' | 'invalid'; readonly message?: string }
+  | {
+      readonly ok: false
+      readonly reason: 'rate_limited' | 'email_taken' | 'invalid' | 'turnstile' | 'turnstile_unavailable' | 'mail_failed'
+      readonly message?: string
+    }
 
 /** 建帳號的那一步（預設是 Better Auth；測試可以換掉）。 */
 export type AccountCreator = (
@@ -76,7 +81,11 @@ export const betterAuthAccountCreator: AccountCreator = async (input, clientIp) 
     return { ok: true, userId: String(created.user.id) }
   } catch (error) {
     const e = error as { status?: string; body?: { code?: string; message?: string } }
-    if (e?.status === 'TOO_MANY_REQUESTS') return { ok: false, reason: 'rate_limited' }
+    if (e?.status === 'TOO_MANY_REQUESTS') return { ok: false, reason: 'rate_limited', message: e.body?.message }
+    // VB-2：Turnstile 與註冊後的第一封驗證碼（hook 與 email-otp 外掛丟的）。
+    if (e?.body?.code === 'TURNSTILE_REQUIRED') return { ok: false, reason: 'turnstile', message: e.body.message }
+    if (e?.body?.code === 'TURNSTILE_UNAVAILABLE') return { ok: false, reason: 'turnstile_unavailable', message: e.body.message }
+    if (e?.body?.code === 'MAIL_FAILED') return { ok: false, reason: 'mail_failed', message: e.body.message }
     // Better Auth 的 hook（after）已經把「Email 已被用過／格式不對」統一成 EMAIL_UNAVAILABLE（票 10）；
     // 套件原本的兩個代碼留著當保險。
     if (
@@ -191,8 +200,17 @@ export class PgRegistrationCommand implements RegistrationCommand {
     input: RegistrationInput,
     clientIp: string,
   ): Promise<Result<RegistrationReceipt> | RateLimited> {
-    // 已經登入的人再註冊一次會變成第二個帳號；請他先登出。
-    if (actor.kind === 'authenticated') return err('FORBIDDEN', '你已經登入了；要註冊另一個帳號請先登出。')
+    if (actor.kind === 'authenticated') {
+      // VB-2：用密碼註冊、還沒完成 Email 驗證的人不能送申請（AC-VI-50）。驗證狀態回資料庫讀，不信 session 快照。
+      const user = await this.#deps.db().query<{ email_verified: boolean }>(
+        'select email_verified from users where id = $1',
+        [actor.userId],
+      )
+      const denial = applyDenial({ emailVerified: user.rows[0]?.email_verified === true, loginMethod: actor.loginMethod })
+      if (denial) return err('FORBIDDEN', denial)
+      // 已經登入的人再註冊一次會變成第二個帳號；請他先登出。
+      return err('FORBIDDEN', '你已經登入了；要註冊另一個帳號請先登出。')
+    }
 
     const normalized = normalizeRegistrationInput(input)
     if (!normalized.ok) return normalized
@@ -205,8 +223,19 @@ export class PgRegistrationCommand implements RegistrationCommand {
     if (!created.ok) {
       if (created.reason === 'rate_limited') {
         const wait = waitAtMost(RATE_LIMITS.register.windowMs)
-        return { ok: false, code: 'RATE_LIMITED', message: `這個網路 ${wait}內的註冊次數已達上限，最晚 ${wait}後可以再試；仍無法註冊請聯絡系辦。` }
+        return {
+          ok: false,
+          code: 'RATE_LIMITED',
+          // hook 的訊息會說是哪一個桶（註冊次數或寄驗證碼次數）；沒有訊息時退回註冊那一句。
+          message: created.message ?? `這個網路 ${wait}內的註冊次數已達上限，最晚 ${wait}後可以再試；仍無法註冊請聯絡系辦。`,
+        }
       }
+      if (created.reason === 'turnstile') return err('TURNSTILE_REQUIRED', created.message ?? '請完成人機驗證。')
+      if (created.reason === 'turnstile_unavailable') {
+        return err('TURNSTILE_UNAVAILABLE', created.message ?? '人機驗證暫時無法使用，請稍後再試。')
+      }
+      // 帳號已經建好、只是驗證信沒寄出去：同一個 Email 之後再註冊會進續辦（VB-2），所以只請他稍後再試。
+      if (created.reason === 'mail_failed') return err('INTERNAL', created.message ?? '驗證信寄不出去，請稍後再試。')
       if (created.reason === 'email_taken') {
         // 統一訊息（工程模組 01 §3 `USER_EXISTS`）：不說這個 Email 是停用、待審還是正常帳號。
         return err('VALIDATION_FAILED', '這個 Email 無法用來註冊。如果你已經有帳號，請直接登入。', {
