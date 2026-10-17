@@ -91,6 +91,100 @@ export async function isResumableSignup(db: Queryable, userId: string): Promise<
   return result.rows[0]?.ok === true
 }
 
+// ── 清理（VB-14）與 Better Auth 入口的交錯：兩個「鎖內重驗」（Review 第 1 輪 P1 兩條） ───────────────────
+//
+// 套件 1.7.5 的 drizzle adapter 沒有交易（`@better-auth/core` 的 adapter factory `transaction: false` → 直接
+// `cb(adapter)`），`verify-email`／`sign-in/email` 端點也沒包 `runWithTransaction`；`databaseHooks` 與 adapter 的寫入
+// 各自向 pool 借連線，**不在同一 DB 交易**，hook 裡拿的鎖罩不到 adapter 之後那一筆寫入。所以兩條路各自把
+// 「判斷」跟「會違反不變條件的那一筆寫入」收進同一筆自己的交易、鎖同一個 users 列（跟清理 `scrubOne` 同一把鎖）：
+// - 驗碼：hook **先在鎖內自己寫** `email_verified = true`（帳號還有登入方式才寫），adapter 之後的 update 只是重寫同值。
+// - 登入：session 列由 adapter 插完之後，databaseHooks 裡 session create 的 after hook 在鎖內重驗明文密碼仍對上目前雜湊，對不上就在同一筆交易
+//   刪掉剛插的那列並丟 401；cookie 在 `createSession` 回來之後才設，所以這張 token 從來沒有發給任何人。
+// 不變條件：任何時刻都不會有「已驗證 ∧ 無 credential 密碼 ∧ 無其他登入方式」或「無 credential 密碼 ∧ 無其他登入方式 ∧ 有效 session」。
+// 鎖序：這兩筆交易**只鎖 users 列**（不取 advisory lock、不鎖 verifications），跟既有
+// `advisory(email) → users → verifications`（續辦）與 `users`（清理）同向；不碰 cohorts／groups／grading_schemes。
+
+/** `confirmEmailVerifiedUnderLock` 的結果。 */
+export type EmailVerifyConfirmation = 'verified' | 'no_login_method' | 'not_found'
+
+/**
+ * 公開驗碼（`/email-otp/verify-email`）把帳號標成已驗證之前的鎖內確認（VB-14 Review 第 1 輪 P1 第 1 條）。
+ *
+ * 鎖 users 列 → 帳號**還有登入方式**（credential 密碼不是 null，或有 credential 以外的 accounts 列）才在同一筆交易直接寫
+ * `email_verified = true` 並 commit；清理（`scrubOne`）拿同一把鎖重驗 `isResumableSignup` 時看到已驗證就跳過。
+ * 密碼已被清理清掉（而且沒有 Google）→ 什麼都不改、回 `no_login_method`，呼叫端丟錯讓使用者回第 1 步續辦
+ * （續辦會換新密碼，不會卡在「已驗證卻登不進去」）。這一步在套件消耗驗證碼**之後**才跑，走得到這裡的人已證明收得到那封信。
+ */
+export async function confirmEmailVerifiedUnderLock(db: Pool, email: string, now: Date = new Date()): Promise<EmailVerifyConfirmation> {
+  const normalized = normalizeEmail(email)
+  const tx = await db.connect()
+  try {
+    await tx.query('begin')
+    // 先鎖、再讀：READ COMMITTED 下每一句各取一次快照。鎖那一句若等過別人（清理）才拿到鎖，它自己那句的快照是等之前拍的、
+    // 看不到清理剛 commit 的 accounts 變更（而且清理不改 users 列，連 EvalPlanQual 重讀都不會發生）；所以登入方式一定要
+    // 用**拿到鎖之後的下一句**讀，才看得到最新狀態（`scrubOne`、`finishSignupResume` 同樣是鎖一句、重驗另一句）。
+    const locked = await tx.query<{ id: string }>('select u.id from users u where u.email = $1 for update of u', [normalized])
+    const userId = locked.rows[0]?.id
+    if (!userId) {
+      await tx.query('rollback')
+      return 'not_found'
+    }
+    const methods = await tx.query<{ has_password: boolean; has_other: boolean }>(
+      `select exists (select 1 from accounts a where a.user_id = $1 and a.provider_id = 'credential' and a.password is not null) as has_password,
+              exists (select 1 from accounts a where a.user_id = $1 and a.provider_id <> 'credential') as has_other`,
+      [userId],
+    )
+    if (!methods.rows[0]!.has_password && !methods.rows[0]!.has_other) {
+      await tx.query('rollback')
+      return 'no_login_method'
+    }
+    await tx.query('update users set email_verified = true, updated_at = $2 where id = $1', [userId, now])
+    await tx.query('commit')
+    return 'verified'
+  } catch (error) {
+    await tx.query('rollback').catch(() => undefined)
+    throw error
+  } finally {
+    tx.release()
+  }
+}
+
+/**
+ * 密碼登入建好 session 之後的鎖內重驗（VB-14 Review 第 1 輪 P1 第 2 條）。
+ *
+ * 鎖 users 列 → 讀目前的 credential 雜湊 → 用這次登入送來的明文再驗一次（`verify` 是套件的 scrypt 比對，實測約 46 ms）：
+ * 對得上＝端點驗過的那個雜湊到此刻仍是目前密碼（雜湊帶隨機鹽，同一組密碼重設兩次字串也不同，不會 ABA）→ 什麼都不動、回 true。
+ * 對不上（清理已把密碼清成 null、或信箱主人已用續辦換了新密碼並撤掉舊 session）→ 同一筆交易刪掉剛插的那一列、回 false，
+ * 呼叫端丟 401。清理跟這裡搶同一把鎖：清理先 commit → 這裡看到 null 刪掉自己；這裡先 commit → 清理接著刪掉全部 session。
+ */
+export async function revokeSessionUnlessPasswordCurrent(
+  db: Pool,
+  input: { userId: string; sessionId: string; verify: (hash: string) => Promise<boolean> },
+): Promise<boolean> {
+  const tx = await db.connect()
+  try {
+    await tx.query('begin')
+    await tx.query('select id from users where id = $1 for update', [input.userId])
+    const account = await tx.query<{ password: string | null }>(
+      `select password from accounts where user_id = $1 and provider_id = 'credential'`,
+      [input.userId],
+    )
+    const hash = account.rows[0]?.password ?? null
+    if (hash && (await input.verify(hash))) {
+      await tx.query('commit')
+      return true
+    }
+    await tx.query('delete from sessions where id = $1 and user_id = $2', [input.sessionId, input.userId])
+    await tx.query('commit')
+    return false
+  } catch (error) {
+    await tx.query('rollback').catch(() => undefined)
+    throw error
+  } finally {
+    tx.release()
+  }
+}
+
 /** 登入 Email 的比對形式（Better Auth 存的就是小寫）。 */
 export function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
@@ -129,9 +223,7 @@ async function currentOtpHash(db: Queryable, email: string, lock = false): Promi
     [emailOtpIdentifier(email)],
   )
   const value = row.rows[0]?.value
-  if (!value) return null
-  const at = value.lastIndexOf(':')
-  return at === -1 ? value : value.slice(0, at)
+  return value ? otpHashOf(value) : null
 }
 
 /**
@@ -144,14 +236,20 @@ export async function listSignupOtpRowIds(db: Queryable, email: string): Promise
   return rows.rows.map((r) => r.id)
 }
 
-/** 快照之後插進來的驗證碼列（鎖住）：`before` 是 `listSignupOtpRowIds` 拍的快照。 */
-async function otpRowsSince(tx: PoolClient, email: string, before: string[]): Promise<string[]> {
-  const rows = await tx.query<{ id: string }>(
+/** 快照之後插進來的驗證碼列（鎖住）：`before` 是 `listSignupOtpRowIds` 拍的快照。`value` 是 `<hash>:<錯誤次數>`。 */
+async function otpRowsSince(tx: PoolClient, email: string, before: string[]): Promise<{ id: string; value: string }[]> {
+  const rows = await tx.query<{ id: string; value: string }>(
     // `verifications.id` 是 uuid 欄（migration 定的；`auth.generated.ts` 寫 text 只是套件的描述）。
-    'select id from verifications where identifier = $1 and not (id = any($2::uuid[])) order by created_at, id for update',
+    'select id, value from verifications where identifier = $1 and not (id = any($2::uuid[])) order by created_at, id for update',
     [emailOtpIdentifier(email), before],
   )
-  return rows.rows.map((r) => r.id)
+  return rows.rows
+}
+
+/** 驗證碼列 `value`（`<hash>:<錯誤次數>`）的雜湊部分。 */
+function otpHashOf(value: string): string {
+  const at = value.lastIndexOf(':')
+  return at === -1 ? value : value.slice(0, at)
 }
 
 /** 同一個 Email 的「續辦綁定」與「續辦完成」排隊（交易級 advisory lock；鍵是 `signup-resume:<email>`）。 */
@@ -275,10 +373,13 @@ export async function checkSignupResumeTicket(
  * 30 分鐘；Review 第 2 輪：限速是固定視窗，光靠它每 181 秒一次就能無限延長）。**不看舊視窗有沒有過**：視窗過了、
  * 截止內的重寄就是要把它重開（主腦裁定）。已過截止回 `timed_out`、不改任何東西。
  *
- * 綁的是**最新那列**而不是「自己那列」：同一個 Email 的續辦重寄在 wrapper 裡排隊，自己那列正常就是最新的；
- * 快照之後多於一列只可能是別條路（公開重寄、別人開始續辦）在寄碼期間插的，套件的 check 只認最新那列，
- * 那封也寄到同一個信箱，綁最新的才完成得了；完成交易仍要求提交的碼＝最新那列＝綁的碼（版本檢查不變）。
- * 寄信失敗時呼叫端不會走到這裡（改走 `restoreSignupResumeOtp`）。
+ * 綁的是**本次寄出的那列**，不是「此刻全域最新那列」（VB-3 Review 第 4 輪交主腦、VB-14 一併收斂）：快照之後插進來的列
+ * **恰好一列**才是確定由這一次寄碼插、也確定寄出（寄失敗不會走到這裡）的那列，綁它的雜湊。快照之後多於一列＝別條路
+ * （公開重寄、別人開始續辦、另一個 process）在寄碼期間也插了列，分不出哪列是自己的、更不知道那列有沒有寄出，
+ * **一律不改綁**（fail closed）：舊版綁「全域最新」會把暫存列綁到一封沒寄出的碼（r4 反例），使用者手上那封反而完成不了。
+ * 不改綁時呼叫端照樣回 `sent`，完成會拿到「已失效」，下一次重寄只有一列插進來就綁得上。寄碼的 120 秒冷卻已改成
+ * 原子占位（auth-instance 的 `enforceOtpSendRate`），同一個 process 裡同一個 Email 的寄碼不會再交錯，多於一列只剩
+ * 註冊首封與多 process 兩種來源。完成交易仍要求提交的碼＝最新那列＝綁的碼（版本檢查不變）。
  */
 export async function rebindSignupResumeOtp(
   db: Pool,
@@ -303,15 +404,8 @@ export async function rebindSignupResumeOtp(
     const row = pending.rows[0]
     const parsed = row ? parsePending(row.value) : null
     const inserted = await otpRowsSince(tx, email, input.before)
-    const otpHash = await currentOtpHash(tx, email, true)
-    if (
-      !row ||
-      !parsed ||
-      parsed.userId !== userId ||
-      parsed.ticketHash !== hashSecret(input.ticket) ||
-      inserted.length === 0 ||
-      !otpHash
-    ) {
+    const otpHash = inserted.length === 1 ? otpHashOf(inserted[0]!.value) : null
+    if (!row || !parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket) || !otpHash) {
       await tx.query('rollback')
       return { ok: false, reason: 'expired' }
     }
@@ -373,7 +467,7 @@ export async function restoreSignupResumeOtp(db: Pool, input: { email: string; b
       await tx.query('rollback')
       return { removed: 0 }
     }
-    const removed = await tx.query('delete from verifications where id = $1', [inserted[0]])
+    const removed = await tx.query('delete from verifications where id = $1', [inserted[0]!.id])
     await tx.query('commit')
     return { removed: removed.rowCount ?? 0 }
   } catch (error) {

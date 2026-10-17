@@ -680,8 +680,13 @@ describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
 
-    // 直接呼叫改綁（沒有真的再寄一封）：快照給空陣列＝現有的列都算「這一次插的」，只驗截止。
-    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before: [] }, new Date(deadlineAt))).toEqual({
+    // 直接呼叫改綁（沒有真的再寄一封）：快照給「最新那列以外的全部」＝只有最新那列算「這一次插的」（改綁要求恰好一列），只驗截止。
+    const before = (
+      await db.sql(`select id from verifications where identifier = $1 order by created_at desc, id desc offset 1`, [
+        resume.emailOtpIdentifier(email),
+      ])
+    ).rows.map((r) => String(r.id))
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before }, new Date(deadlineAt))).toEqual({
       ok: false,
       reason: 'timed_out',
     })
@@ -689,7 +694,7 @@ describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
     expect(await passwordHash(id)).toBe(hash)
 
     // 截止前最後一毫秒：改綁放行，但期限只到截止；完成照常。
-    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before: [] }, new Date(deadlineAt - 1))).toEqual({ ok: true })
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before }, new Date(deadlineAt - 1))).toEqual({ ok: true })
     const rebound = await pendingRow(email)
     expect((JSON.parse(rebound.value) as { windowEndAt: number }).windowEndAt).toBe(deadlineAt)
     expect(rebound.expiresAt).toBe(deadlineAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
@@ -804,6 +809,7 @@ describe('續辦重寄並行（VB-3 Review 第 3 輪 Sol P2）', () => {
     captcha: Array<(response: Response) => void>
     sends: Array<{ otp: string; resolve: (response: Response) => void }>
     passCaptcha(index: number): void
+    failCaptcha(index: number): void
     deliver(index: number): void
     bounce(index: number): void
     drain(): void
@@ -830,6 +836,7 @@ describe('續辦重寄並行（VB-3 Review 第 3 輪 Sol P2）', () => {
       captcha,
       sends,
       passCaptcha: (index) => captcha[index]!(siteverifyOk()),
+      failCaptcha: (index) => captcha[index]!(siteverifyNo()),
       deliver: (index) => sends[index]!.resolve(brevoOk(index)),
       bounce: (index) => sends[index]!.resolve(brevoNo()),
       // 收尾：還停著的全部放失敗（已 resolve 過的再 resolve 是 no-op），讓懸著的呼叫結束。
@@ -1015,6 +1022,111 @@ describe('續辦重寄並行（VB-3 Review 第 3 輪 Sol P2）', () => {
     const latest = await latestDeliveredOtp(email)
     expect((JSON.parse(await pendingValue(email)) as { otpHash: string }).otpHash).toBe(resume.hashSecret(latest))
     const done = await at(121_000 + 740_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('VB-14 主腦補充 1（VB-2 冷卻競態）：公開重寄兩筆同時進來只放行一筆——siteverify 只打一次、第二筆當場 429；放行那筆 Turnstile 沒過就放掉冷卻，下一筆才進得來；寄成功後冷卻才真的開始', async () => {
+    const email = freshEmail('cooldown-pair')
+    await signUp(email)
+    const barrier = installBarrier()
+    await loadAuth(BREVO_MODE)
+    const outcomes: Promise<unknown>[] = []
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 121_000)
+      const a = wrapper.resendVerificationOtp({ email }, hdr())
+      const b = wrapper.resendVerificationOtp({ email }, hdr())
+      outcomes.push(a, b)
+      // 第二筆在 hook 第一步（占冷卻）就被擋下，不等第一筆、不打 Turnstile（舊版：兩筆都過了「先看再記」的冷卻檢查、siteverify 打兩次）。
+      await expect(b).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(1), { timeout: 5_000 })
+      await settle()
+      expect(barrier.captcha).toHaveLength(1)
+      expect(barrier.sends).toHaveLength(0)
+
+      // 第一筆 Turnstile 沒過：占的冷卻放掉（不算寄過），第三筆馬上進得來、打到 Turnstile。
+      barrier.failCaptcha(0)
+      await expect(a).rejects.toMatchObject({ body: { code: 'TURNSTILE_REQUIRED' } })
+      const c = wrapper.resendVerificationOtp({ email }, hdr())
+      outcomes.push(c)
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(2), { timeout: 5_000 })
+      barrier.passCaptcha(1)
+      await vi.waitFor(() => expect(barrier.sends).toHaveLength(1), { timeout: 5_000 })
+      // 第三筆寄送中、第四筆進來：冷卻已被第三筆占著 → 429，不打 Turnstile。
+      const d = wrapper.resendVerificationOtp({ email }, hdr())
+      outcomes.push(d)
+      await expect(d).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      barrier.deliver(0)
+      await c
+      expect(barrier.captcha).toHaveLength(2)
+      expect(barrier.sends).toHaveLength(1)
+      // 寄成功之後 120 秒內仍在冷卻；過了才放行。
+      await expect(wrapper.resendVerificationOtp({ email }, hdr())).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      expect(barrier.captcha).toHaveLength(2)
+      vi.setSystemTime(Date.now() + 121_000)
+      const e = wrapper.resendVerificationOtp({ email }, hdr())
+      outcomes.push(e)
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(3), { timeout: 5_000 })
+    } finally {
+      barrier.drain()
+      await Promise.allSettled(outcomes)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      await loadAuth()
+    }
+  })
+
+  it('VB-14 主腦補充 3（VB-3 Review 第 4 輪）：續辦重寄寄送期間別條路插了一列更新的碼 → 不綁「全域最新」那封沒寄出的碼：暫存列不改、對外仍 sent；那封外來碼完成不了；下一次重寄只插一列才綁得上、能完成', async () => {
+    const { email, id, ticket, ids, pending } = await prepare('rebind-own-row')
+    const barrier = installBarrier()
+    await loadAuth(BREVO_MODE)
+    const outcomes: Promise<unknown>[] = []
+    const FOREIGN = '135791'
+    let delivered = ''
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 242_000)
+      const a = wrapper.resendSignupResumeOtp({ email, ticket }, hdr())
+      outcomes.push(a)
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(1), { timeout: 5_000 })
+      barrier.passCaptcha(0)
+      await vi.waitFor(() => expect(barrier.sends).toHaveLength(1), { timeout: 5_000 })
+      expect(await otpRowIds(email)).toHaveLength(ids.length + 1)
+      // Brevo 還沒回：別條路（例如另一個 process 的公開重寄）替同一個 Email 又插了一列更新的碼，而且沒寄出。
+      // 時間用假的 `Date`（套件插列也是用它），這列才會是套件眼中「最新」的那列。
+      await db.sql(
+        `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
+         values (gen_random_uuid(), $1, $2, $4, $3, $3)`,
+        [resume.emailOtpIdentifier(email), `${resume.hashSecret(FOREIGN)}:0`, new Date(Date.now() + 5_000), new Date(Date.now() + 605_000)],
+      )
+      barrier.deliver(0)
+      expect(await a).toBe('sent')
+      delivered = barrier.sends[0]!.otp
+      expect(delivered).not.toBe(FOREIGN)
+      // 快照之後兩列、分不出哪列是自己寄出的 → 不改綁（舊版綁「全域最新」＝外來那封沒寄出的碼）。
+      expect(await otpRowIds(email)).toHaveLength(ids.length + 2)
+      expect(await pendingValue(email)).toBe(pending)
+    } finally {
+      barrier.drain()
+      await Promise.allSettled(outcomes)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      await loadAuth()
+    }
+    // 外來那封（套件眼中的最新碼）通得過查碼，但暫存列沒綁它 → SIGNUP_RESUME_EXPIRED、什麼都不改。
+    await expect(at(250_000, () => wrapper.completeSignupResume({ email, otp: FOREIGN, ticket }, headers()))).rejects.toMatchObject({
+      body: { code: 'SIGNUP_RESUME_EXPIRED' },
+    })
+    expect(await passwordHash(id)).not.toBe('')
+    expect(await pendingValue(email)).toBe(pending)
+    // 冷卻過後再寄：這次只插一列 → 綁它、能完成。
+    const idsBefore = await otpRowIds(email)
+    expect(await at(372_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('sent')
+    expect(await otpRowIds(email)).toHaveLength(idsBefore.length + 1)
+    const latest = await latestDeliveredOtp(email)
+    expect((JSON.parse(await pendingValue(email)) as { otpHash: string }).otpHash).toBe(resume.hashSecret(latest))
+    const done = await at(380_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))
     expect(done.userId).toBe(id)
     expect((await signIn(email, P2)).status).toBe(200)
   })
