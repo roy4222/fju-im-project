@@ -186,8 +186,8 @@
     "limit": 245
   },
   "/dashboard/teacher/grading/[groupId]": {
-    "baseline": 250.1,
-    "limit": 255
+    "baseline": 241.7,
+    "limit": 250
   },
   "/dashboard/teacher/groups": {
     "baseline": 229.2,
