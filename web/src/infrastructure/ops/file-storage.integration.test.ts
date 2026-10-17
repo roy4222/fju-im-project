@@ -551,3 +551,87 @@ describe('publicRead：訪客走同一條政策也放行＝此刻對所有人公
     expect(denied.calls).toHaveLength(1)
   })
 })
+
+describe('頭像：收檔轉換與換掉的檔（SH-9，設計方案 §2.2 ▶R2-5）', () => {
+  const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'))
+  const avatarRules: UploadRules = { purpose: 'avatar', allowedTypes: ['png'], maxBytes: 2 * 1024 * 1024, scope: { kind: 'global' } }
+  const pngRules: UploadRules = { purpose: 'submission', allowedTypes: ['png'], maxBytes: 1024, scope: { kind: 'global' } }
+  const OUTPUT = Buffer.from('RIFF\x00\x00\x00\x00WEBPfake-avatar-output', 'latin1')
+  let transformed: FsFileStorage
+  let failing: FsFileStorage
+
+  function options(transform: (input: Buffer) => Promise<{ bytes: Buffer; mime: string }>) {
+    return {
+      root: () => root,
+      environmentMaxBytes: () => 100 * 1024 * 1024,
+      ticketSecret: () => SECRET,
+      policies: {
+        avatar: (a: ResolvedActor) => a.kind === 'authenticated' && a.status === 'active',
+        submission: (a: ResolvedActor) => a.kind === 'authenticated' && a.status === 'active',
+      },
+      db: () => app,
+      transforms: { avatar: transform },
+    }
+  }
+
+  beforeAll(() => {
+    transformed = new FsFileStorage(options(async () => ({ bytes: OUTPUT, mime: 'image/webp' })))
+    failing = new FsFileStorage(
+      options(async () => {
+        throw new Error('sharp: Input buffer contains unsupported image format')
+      }),
+    )
+  })
+
+  async function uploaded(store: FsFileStorage, rules: UploadRules) {
+    const issued = await store.issueUploadTicket(studentId, { fileName: 'me.png', declaredMime: 'image/png' }, rules)
+    if (!issued.ok) throw new Error(issued.message)
+    return { fileId: issued.receipt.fileId, result: await store.upload(studentId, issued.receipt.ticket, streamOf(PNG), PNG.length) }
+  }
+
+  it('有轉換的用途：存下來的是輸出，size／checksum／mime 都以輸出重算；其他用途照原樣存', async () => {
+    const avatar = await uploaded(transformed, avatarRules)
+    const sha = createHash('sha256').update(OUTPUT).digest('hex')
+    expect(avatar.result).toMatchObject({ ok: true, receipt: { sizeBytes: OUTPUT.length, checksum: sha, mimeDetected: 'image/webp' } })
+    const row = await fileRow(avatar.fileId)
+    expect(row).toMatchObject({ status: 'stored', checksum: sha, mime_detected: 'image/webp' })
+    expect(Number(row.size_bytes)).toBe(OUTPUT.length)
+    expect(await fs.readFile(path.join(root, String(row.storage_key)))).toEqual(OUTPUT)
+
+    const plain = await uploaded(transformed, pngRules)
+    expect(plain.result).toMatchObject({ ok: true, receipt: { sizeBytes: PNG.length, mimeDetected: 'image/png' } })
+  })
+
+  it('轉換丟錯（sharp 解不開）：FILE_TYPE_REJECTED，列維持 uploading、暫存刪掉；下載仍是 FORBIDDEN（不是 404）', async () => {
+    const before = await tmpEntries()
+    const bad = await uploaded(failing, avatarRules)
+    expect(bad.result).toMatchObject({ ok: false, code: 'FILE_TYPE_REJECTED' })
+    expect(await fileRow(bad.fileId)).toMatchObject({ status: 'uploading', checksum: null })
+    expect(await tmpEntries()).toEqual(before)
+    expect(await failing.authorizeDownload(actor(studentId, ['student']), bad.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await failing.authorizeDownload(actor(adminId, ['admin']), bad.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  it('soft_deleted／purged 的頭像 → FILE_GONE（登入者）；訪客仍是 UNAUTHENTICATED、待審的人仍是 FORBIDDEN', async () => {
+    for (const status of ['soft_deleted', 'purged'] as const) {
+      const avatar = await uploaded(transformed, avatarRules)
+      expect((await transformed.authorizeDownload(actor(adminId, ['admin']), avatar.fileId)).ok).toBe(true)
+      await db.sql(`update stored_files set status = $2, soft_deleted_at = now() where id = $1`, [avatar.fileId, status])
+      for (const who of [actor(adminId, ['admin']), actor(studentId, ['student'])]) {
+        expect(await transformed.authorizeDownload(who, avatar.fileId)).toMatchObject({ ok: false, code: 'FILE_GONE' })
+      }
+      expect(await transformed.authorizeDownload(ANONYMOUS, avatar.fileId)).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+      expect(await transformed.authorizeDownload(actor(studentId, ['student'], 'pending'), avatar.fileId)).toMatchObject({
+        ok: false,
+        code: 'FORBIDDEN',
+      })
+    }
+  })
+
+  it('soft_deleted 的非頭像檔仍是 FORBIDDEN（私有檔「不存在」與「不是你的」同一句話）', async () => {
+    const plain = await uploaded(transformed, pngRules)
+    expect((await transformed.authorizeDownload(actor(studentId, ['student']), plain.fileId)).ok).toBe(true)
+    await db.sql(`update stored_files set status = 'soft_deleted', soft_deleted_at = now() where id = $1`, [plain.fileId])
+    expect(await transformed.authorizeDownload(actor(studentId, ['student']), plain.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+})

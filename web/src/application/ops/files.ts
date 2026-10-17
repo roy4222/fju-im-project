@@ -26,6 +26,7 @@ export type FilePurpose =
   | 'photo'
   | 'export'
   | 'signoff_attachment'
+  | 'avatar'
 
 /** 與 `file_references_ref_type_check` 一致。 */
 export type FileRefType =
@@ -37,13 +38,17 @@ export type FileRefType =
   | 'showcase_draft'
   | 'export'
   | 'roster_version'
+  | 'avatar'
 
 export type FileRef = { readonly refType: FileRefType; readonly refId: string }
 
 // ── 類型白名單與內容檢查 ─────────────────────────────────────────────────────
 
 /** v1 檔案政策的允許類型（模組 10 §11.2），每個用途再縮小。 */
-export type FileTypeId = 'csv' | 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'png' | 'jpg' | 'zip'
+export type FileTypeId = 'csv' | 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'png' | 'jpg' | 'webp' | 'zip'
+
+/** 簽章裡的 `null` 表示「這個位置什麼位元組都可以」（WebP 的 RIFF 檔頭中間 4 個位元組是檔案長度）。 */
+type Signature = readonly (number | null)[]
 
 type FileTypeSpec = {
   readonly extensions: readonly string[]
@@ -54,7 +59,7 @@ type FileTypeSpec = {
   readonly declaredMimes: readonly string[]
   /** 內容檢查通過後存進 `mime_detected` 的正規值，下載時也用這個。 */
   readonly canonicalMime: string
-  readonly content: { readonly kind: 'signature'; readonly signatures: readonly (readonly number[])[] } | { readonly kind: 'utf8_text' }
+  readonly content: { readonly kind: 'signature'; readonly signatures: readonly Signature[] } | { readonly kind: 'utf8_text' }
 }
 
 const ZIP_SIGNATURES = [[0x50, 0x4b, 0x03, 0x04]] as const
@@ -106,6 +111,13 @@ export const FILE_TYPES: Readonly<Record<FileTypeId, FileTypeSpec>> = {
     canonicalMime: 'image/jpeg',
     content: { kind: 'signature', signatures: [[0xff, 0xd8, 0xff]] },
   },
+  webp: {
+    extensions: ['webp'],
+    declaredMimes: ['image/webp', ''],
+    canonicalMime: 'image/webp',
+    // `RIFF` ＋ 4 個位元組長度 ＋ `WEBP`（SH-9；12 bytes，在 `SIGNATURE_HEAD_BYTES` 之內）。
+    content: { kind: 'signature', signatures: [[0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x57, 0x45, 0x42, 0x50]] },
+  },
   zip: {
     extensions: ['zip'],
     declaredMimes: ['application/zip', 'application/x-zip-compressed', GENERIC_BINARY, ''],
@@ -147,9 +159,9 @@ function looksLikeWindowsExecutable(head: Uint8Array): boolean {
 /** 看前幾個位元組就夠判斷簽章。 */
 export const SIGNATURE_HEAD_BYTES = 16
 
-function startsWith(head: Uint8Array, signature: readonly number[]): boolean {
+function startsWith(head: Uint8Array, signature: Signature): boolean {
   if (head.length < signature.length) return false
-  return signature.every((byte, index) => head[index] === byte)
+  return signature.every((byte, index) => byte === null || head[index] === byte)
 }
 
 /** 從檔名取副檔名（小寫、不含點）。沒有副檔名回空字串。 */
@@ -438,6 +450,8 @@ export type StoredFileContent = {
 
 export type FileDownload = {
   readonly fileId: string
+  /** 檔案用途：下載路由據此決定快取標頭（頭像 `private, no-cache`＋ETag，SH-9）。 */
+  readonly purpose: FilePurpose
   readonly originalName: string
   readonly sizeBytes: number
   readonly mime: string
