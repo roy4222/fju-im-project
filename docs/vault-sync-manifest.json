@@ -1,6 +1,6 @@
 {
   "date": "2026-09-25",
-  "scope": "Product module split and mirror, preservation verified. Engineering sources path-remapped only unless explicitly verified. No runtime validation. | 2026-09-12: product decisions from seven grill rounds mirrored (10 modules, matrix 149 cases, CONTEXT, decision logs, school checklist); engineering entries untouched except where noted. | 2026-09-12 full sync after Codex review: product fixes (SHW-11 etc.), engineering docs tree docs/engineering/, ADR 0001-0005, CONTEXT/FRONTEND-PAGES copies, ARCHITECTURE v2; rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round3.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round4.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round5.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round6.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round7.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round9.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round12.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round13.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-15: roster export and department/class amendment; issue updates only, no runtime acceptance. | 2026-09-15 S01 第一小批（#44–#48）：模組 01 附錄 A 補 department_class 三欄與 §12 的安裝後 gate 結果；契約 03 §2 依 better-auth 1.7.5 實際 route table 更名 /forget-password → /request-password-reset、補預設拒絕說明與 admin plugin 要求 admin session 的發現。來源與鏡像皆已更新並逐行核對（僅餘連結轉換差異）。 | 2026-09-16 S01 複核修正：契約 03 §2 記下 better-auth 1.7.5 的 freshAge 對 /link-social 與 /list-accounts 不生效（只有 /list-sessions 掛 freshSessionMiddleware），改由 hook 自己比對；§6 記下套件限速的鍵不含帳號、做不到「IP＋帳號」，登入與改密改由 app 記憶體那層負責，並留下 /sign-up/email 門檻（30 vs 契約 5）的待決。來源與鏡像逐行一致。 | 2026-09-16 S01 review 修正：SOP 01 步驟 1／3／7（Ubuntu 套件名、目錄擁有者、VM 覆蓋檔與 --no-deps）回寫。 | 2026-09-16 S14-01 複核修正：SOP 01 步驟 6 的檔案清單補上 docker-compose.vm.yml，並要求放好後先跑 config | grep published 確認只有 80／443。來源與鏡像除既有的相對連結轉換外逐行一致。 | 2026-09-16 S14-01 最終複核：SOP 01 步驟 6／7 明確宣告「三份 .env（SOP 02／#188）是前置」——Compose 會先解析所有服務的 env_file，--no-deps 擋不住；並更正步驟 7 那句自相矛盾的舊註記。來源與鏡像除既有的相對連結轉換外逐行一致。 | 2026-09-25: full Vault→repo resync after 9/16 (Vault 9/19–9/25 實作回寫與 Roy 定案); scope unchanged (existing manifest entries only); 15 slice sources remapped to <切片>/01 切片規格.md; one dead entry removed; rule v2-2026-09-12 (reconstructed, regression 90/90 byte-identical); 00 總索引 repo-only paragraph (2e66ead) written back to Vault; receipt docs/vault-sync-receipt-2026-09-25.json | 2026-10-12: CONTEXT 雙向合併（第三波術語＋W13c 用詞回寫 Vault；Vault 10/08 條目進鏡像），只動兩個既有 CONTEXT 條目；receipt docs/vault-sync-receipt-2026-10-12.json",
+  "scope": "Product module split and mirror, preservation verified. Engineering sources path-remapped only unless explicitly verified. No runtime validation. | 2026-09-12: product decisions from seven grill rounds mirrored (10 modules, matrix 149 cases, CONTEXT, decision logs, school checklist); engineering entries untouched except where noted. | 2026-09-12 full sync after Codex review: product fixes (SHW-11 etc.), engineering docs tree docs/engineering/, ADR 0001-0005, CONTEXT/FRONTEND-PAGES copies, ARCHITECTURE v2; rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round2: full engineering doc set (ARCHITECTURE v3.2, contracts v2, modules v2 with data dictionaries, slices v2 + case responsibility table, SOP v2, handbook v2 + scripts P00-P09/B01-B08); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round2.json | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-12-round3.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round4.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round5.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round6.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round7.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round8.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round9.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round10.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round11.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round12.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-12 round3: Codex second-round fixes (ARCHITECTURE v3.3, contracts v2.1, modules v2.1, slices v2.1 + responsibility v1.1, SOP 01/02/04/05 + new 00 Roy 前置工作清單, handbook v2.1, scripts v1.1); rule v2-2026-09-12; receipt docs/vault-sync-receipt-2026-09-13-round13.json; committed on branch docs/engineering-spec-2026-09-12 | 2026-09-15: roster export and department/class amendment; issue updates only, no runtime acceptance. | 2026-09-15 S01 第一小批（#44–#48）：模組 01 附錄 A 補 department_class 三欄與 §12 的安裝後 gate 結果；契約 03 §2 依 better-auth 1.7.5 實際 route table 更名 /forget-password → /request-password-reset、補預設拒絕說明與 admin plugin 要求 admin session 的發現。來源與鏡像皆已更新並逐行核對（僅餘連結轉換差異）。 | 2026-09-16 S01 複核修正：契約 03 §2 記下 better-auth 1.7.5 的 freshAge 對 /link-social 與 /list-accounts 不生效（只有 /list-sessions 掛 freshSessionMiddleware），改由 hook 自己比對；§6 記下套件限速的鍵不含帳號、做不到「IP＋帳號」，登入與改密改由 app 記憶體那層負責，並留下 /sign-up/email 門檻（30 vs 契約 5）的待決。來源與鏡像逐行一致。 | 2026-09-16 S01 review 修正：SOP 01 步驟 1／3／7（Ubuntu 套件名、目錄擁有者、VM 覆蓋檔與 --no-deps）回寫。 | 2026-09-16 S14-01 複核修正：SOP 01 步驟 6 的檔案清單補上 docker-compose.vm.yml，並要求放好後先跑 config | grep published 確認只有 80／443。來源與鏡像除既有的相對連結轉換外逐行一致。 | 2026-09-16 S14-01 最終複核：SOP 01 步驟 6／7 明確宣告「三份 .env（SOP 02／#188）是前置」——Compose 會先解析所有服務的 env_file，--no-deps 擋不住；並更正步驟 7 那句自相矛盾的舊註記。來源與鏡像除既有的相對連結轉換外逐行一致。 | 2026-09-25: full Vault→repo resync after 9/16 (Vault 9/19–9/25 實作回寫與 Roy 定案); scope unchanged (existing manifest entries only); 15 slice sources remapped to <切片>/01 切片規格.md; one dead entry removed; rule v2-2026-09-12 (reconstructed, regression 90/90 byte-identical); 00 總索引 repo-only paragraph (2e66ead) written back to Vault; receipt docs/vault-sync-receipt-2026-09-25.json | 2026-10-12: CONTEXT 雙向合併（第三波術語＋W13c 用詞回寫 Vault；Vault 10/08 條目進鏡像），只動兩個既有 CONTEXT 條目；receipt docs/vault-sync-receipt-2026-10-12.json | 2026-10-17: A 階段文件（#495、#498、#497／#503）repo→Vault 回寫 19 個 Vault 檔（三方合併保留 Vault 9/25、10/08 修訂；含 10/12 第三波時只改進 repo 副本的段落）；只更新這些條目的雜湊與 verified_at；同日 Review FIX 把 Vault 比鏡像新的 11 個條目（＋DASHBOARD-PAGES 副本）轉回 repo，鏡像與 Vault 只差連結格式；receipt docs/vault-sync-receipt-2026-10-17.json",
   "files": [
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
@@ -91,94 +91,94 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
       "destination": "docs/product/🧩 功能模組/01 帳號與權限.md",
-      "source_sha256": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8",
-      "mirror_sha256": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
+      "mirror_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。",
       "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/02 屆別與年度流程.md",
       "destination": "docs/product/🧩 功能模組/02 屆別與年度流程.md",
-      "source_sha256": "348574afa700904da1377e45193ba669c52757c63b73f7427911e47e4f9cc600",
-      "mirror_sha256": "348574afa700904da1377e45193ba669c52757c63b73f7427911e47e4f9cc600",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
+      "mirror_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/03 分組、指導與產學.md",
       "destination": "docs/product/🧩 功能模組/03 分組、指導與產學.md",
-      "source_sha256": "5b939f4f39163cb2abb5c5b63b2b02f22e505704648067c7e778e8fb8f848fba",
-      "mirror_sha256": "31e12c2ded7244e59132d8f6aeab1e628efac58bc4075fa18d5d499002f21125",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "dddeee263f7f2d823bce9d61d67835eea1775941b99e2c4de495f6eb0bbcfa39",
+      "mirror_sha256": "69a73bcdcd3848b24cf90f736c198d4600ff393d01d1804379bfcd7208bc7ff0",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/04 專題事務發布與編輯.md",
       "destination": "docs/product/🧩 功能模組/04 專題事務發布與編輯.md",
-      "source_sha256": "ba82aaa2d7dd96757723558e8f051f5b580b98ff0cccdaec8ce2c159d35cae3c",
-      "mirror_sha256": "ba82aaa2d7dd96757723558e8f051f5b580b98ff0cccdaec8ce2c159d35cae3c",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
+      "mirror_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/05 個人與組別繳交.md",
       "destination": "docs/product/🧩 功能模組/05 個人與組別繳交.md",
-      "source_sha256": "3a3ce3aa1f66fb25a8877d68135eb6208232233cfb26469edc8543f9dc17e501",
-      "mirror_sha256": "3a3ce3aa1f66fb25a8877d68135eb6208232233cfb26469edc8543f9dc17e501",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
+      "mirror_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/06 評分與成績.md",
       "destination": "docs/product/🧩 功能模組/06 評分與成績.md",
-      "source_sha256": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
-      "mirror_sha256": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
+      "mirror_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 全量核對：unchanged。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。",
       "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
       "destination": "docs/product/🧩 功能模組/07 線上簽核.md",
-      "source_sha256": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21",
-      "mirror_sha256": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "ccf544a3e5b94a9027adee2fc5abf663eeaf2e544792e94cefc8f203f074f500",
+      "mirror_sha256": "0996b1fe005f1523ac6898f084837c5f2918f1f3349db71f9dfdaecb589fb943",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
       "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
-      "source_sha256": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
-      "mirror_sha256": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
-      "verified_at": "2026-09-25T14:22:54.732103+00:00",
+      "source_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
+      "mirror_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 票 43 評分指派移出通知：Vault 回寫後重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
       "destination": "docs/product/🧩 功能模組/09 公開展示與共用介面.md",
-      "source_sha256": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769",
-      "mirror_sha256": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
+      "mirror_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/10 檔案與服務維運需求.md",
       "destination": "docs/product/🧩 功能模組/10 檔案與服務維運需求.md",
-      "source_sha256": "c3951a890591099ee0eed7d242916724c577a2b0d93726cebce25dcf2bdeb3dc",
-      "mirror_sha256": "c3951a890591099ee0eed7d242916724c577a2b0d93726cebce25dcf2bdeb3dc",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "906ee96f1ada22a549e96dc891bb9635a80c5ab6053625e8a96eb6c5bf474e10",
+      "mirror_sha256": "93ef914e0d69268c3a0fe848172428f8e71929644b3357f1ecd6fa0b6d9a4e4e",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "Screenshot audit; original section 1 onward preserved independently; product-relative new links",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/💬 討論與決策/2026-09-11 產品待討論清單.md",
@@ -192,11 +192,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📐 產品總規格.md",
       "destination": "docs/product/📐 產品總規格.md",
-      "source_sha256": "17ca8793a4a518a2e810892a55c3138b24748e5b832bd8aedc50695b63e964ba",
-      "mirror_sha256": "bd266aa5c96043f13c17d9fec0c43f27f902d32fc5f88e7a892c0e258a4dca18",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "1a0cb9027b9a1838a29441682e6a01d2cd7084968ec4ca80142b6b265bb620a0",
+      "mirror_sha256": "185ebe24cebd80ea7393fe6edd14b6a3d3b16e0d042760fd2e4989bff6eac806",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-09-25 全量核對：unchanged。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。",
       "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
@@ -256,11 +256,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/✅ 接受條件/03 案例覆蓋矩陣.md",
       "destination": "docs/product/✅ 接受條件/03 案例覆蓋矩陣.md",
-      "source_sha256": "899fcd774d02addf38374e5acc7c3043c9a91bd58bb3f8cd27184fcd9c370653",
-      "mirror_sha256": "899fcd774d02addf38374e5acc7c3043c9a91bd58bb3f8cd27184fcd9c370653",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "590394592ef21af278db04229daeedabf40d56ef6205f5328f0c981591e5024d",
+      "mirror_sha256": "01f22e09d42a693d2d288cf3ea3f93938b6464df0617910f5a30d34679f3016d",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/💬 討論與決策/2026-09-11 原規格承接對照.md",
@@ -301,11 +301,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
       "destination": "docs/product/🗺️ 前台頁面清單.md",
-      "source_sha256": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
-      "mirror_sha256": "01614d7964c531a894723e378c84a33039001132e80210657fcd2779b2baf9a7",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
+      "mirror_sha256": "4788efdb375f406181dcb683c7dd4324f36be221da8b8bd4c784cd1bc1197c36",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-09-25 全量核對：Vault 來源有改動，但轉換後與既有鏡像逐位元組相同。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗃️ 歷史與原稿/2026-09-11 產品模組拆分前/🗺️ 後台頁面清單.md",
@@ -319,11 +319,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
       "destination": "docs/product/🗺️ 後台頁面清單.md",
-      "source_sha256": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
-      "mirror_sha256": "3bba3e75168933c70d0d206eba5a122ed5aa16ee609dfce4ee7ca394efb62615",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
+      "mirror_sha256": "cb3e0f98655db594d2efa00d3ae136eec0c5dc75199daef7f479c356d3a50335",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗃️ 歷史與原稿/2026-09-11 產品模組拆分前/CONTEXT.md",
@@ -337,11 +337,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
       "destination": "docs/product/CONTEXT.md",
-      "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
-      "mirror_sha256": "7659118b13c3c9a8dfe3bbd00c4cf458650fb7161e0df273be98bf4bc7412104",
-      "verified_at": "2026-10-12T07:22:35.791190+00:00",
+      "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
+      "mirror_sha256": "b1ad124c7eab7637c70a1a4a07ca2d092b512075b6f179c24de09f924e1d129e",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "relative product links; outside references point to preserved Vault source",
-      "verification_note": "2026-10-12 雙向合併：repo 第三波（a43f42a 刪除三動作、網站與後台）與 W13c 用詞（59b0f3b，PR #385）回寫 Vault；Vault 10/08 新增的系統驗收、專題需求、網站驗收三條同步進鏡像。Vault 外連結轉成 Vault 絕對路徑。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。",
       "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
@@ -491,30 +491,30 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
       "destination": "CONTEXT.md",
-      "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
-      "mirror_sha256": "4e502431a986348a614a2a3ed3547958b953fd0d5d2d9be36d51b33cf3c0a809",
-      "verified_at": "2026-10-12T07:22:35.791190+00:00",
+      "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
+      "mirror_sha256": "498bc37582ce1d4a59cfe6494465b3cd9ac7e2314375d069d5d58d80949487c4",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-10-12 雙向合併：repo 第三波（a43f42a 刪除三動作、網站與後台）與 W13c 用詞（59b0f3b，PR #385）回寫 Vault；Vault 10/08 新增的系統驗收、專題需求、網站驗收三條同步進鏡像。Vault 外連結轉成 Vault 絕對路徑。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。 本檔為 docs/product/CONTEXT.md 的同文副本：除開頭相容說明外，只差連結格式（相對連結以本檔位置改寫）。",
       "verification_scope": "2026-09-15 bounded additive amendment; independently preserve existing source/mirror full text; no runtime verification"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
       "destination": "docs/FRONTEND-PAGES.md",
-      "source_sha256": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
-      "mirror_sha256": "0fbf79a1dc60cc7a372da4e6c8aca6f98ce3a983b050372945e3c38cd3c3120c",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
+      "mirror_sha256": "0f10f83bbb262e1459c46a6f86a638f813ed7496d847e20f52c64ed2094f659a",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 全量核對：Vault 來源有改動，但轉換後與既有鏡像逐位元組相同。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。 本檔為 docs/product/🗺️ 前台頁面清單.md 的同文副本：除開頭相容說明外，只差連結格式（相對連結以本檔位置改寫）。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
       "destination": "docs/DASHBOARD-PAGES.md",
-      "source_sha256": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
-      "mirror_sha256": "e17fb8ccdc8875c8a311cd9d9a80536ee6f2de9a357ce8d9f2f66d4ff2773cda",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
+      "mirror_sha256": "26fbd83307588a23dea8725d773c848e0737bc0f5aa444df2f4b277a3a0dec3e",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "links resolved to current product mirrors or Vault source",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。 本檔為 docs/product/🗺️ 後台頁面清單.md 的同文副本：除開頭相容說明外，只差連結格式（相對連結以本檔位置改寫）。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗃️ 歷史與原稿/2026-09-11 截圖核對前/🧩 功能模組/04 專題事務發布與編輯.md",
@@ -1591,11 +1591,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
       "destination": "docs/engineering/modules/03 分組、指導與產學.md",
-      "source_sha256": "52aa602bc83009a0c71cf0ed57b917ad848b9793384ed6251e3915369c9a54dd",
-      "mirror_sha256": "48c6b3316e80a32a08b7b20a8bf9070fc958c1e5a5b4124357163bd58952b002",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "3baf21b3a36440c59dc43da230ed2b4469621cea4525766fb107e8489cae83a1",
+      "mirror_sha256": "e0612a9c051b44509166f951ed360d422214ebdadd4ac8fbe99884eef659ecd5",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/01 帳號與權限.md",
@@ -1610,11 +1610,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
       "destination": "docs/engineering/contracts/03 安全與隱私.md",
-      "source_sha256": "f6fea23cf322b82904e770ca26c08fde3e6b880888df3fc4faf4f50690adaa15",
-      "mirror_sha256": "a2f1fc7fb509893190c92817cac72e5b3bc4923c95c25e32a2f9604400741004",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "25a2703fd177d357d67c10365293efc4188526b1f37ce159c592955aa241de31",
+      "mirror_sha256": "e62381766c8104f0498b9b948619143cb30e5cfdccd948fc5a24408b14e97523",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。",
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 同日 Review FIX：再把 Vault 全文轉回本鏡像（Vault 9/25 對齊、10/08 實況與另一份副本才有的段落），鏡像與 Vault 只差連結格式。",
       "source_path_checked_at": "2026-09-16T03:58:11.438379+00:00"
     },
     {
@@ -1638,11 +1638,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
       "destination": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
-      "source_sha256": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7",
-      "mirror_sha256": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
+      "mirror_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 Vault→repo 同步：Vault 有新修訂，重新轉換鏡像。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/01 資料模型與一致性.md",
@@ -1819,11 +1819,11 @@
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
       "destination": "docs/engineering/verification/scripts/B02 分組指導分支.md",
-      "source_sha256": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
-      "mirror_sha256": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
-      "verified_at": "2026-09-25T10:26:50.138388+00:00",
+      "source_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
+      "mirror_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
+      "verified_at": "2026-10-17T05:02:19.649839+00:00",
       "transform": "v2-2026-09-12",
-      "verification_note": "2026-09-25 全量核對：unchanged。"
+      "verification_note": "2026-10-17 repo→Vault 回寫（A 階段 #495、#498、#497／#503）：以三方合併（base＝上次同步的鏡像）把 repo 改動寫進 Vault，Vault 端既有修訂保留。 鏡像與 Vault 只差連結格式。"
     },
     {
       "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P04 正式成組與指導.md",

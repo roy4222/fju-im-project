@@ -1,5 +1,7 @@
 # 文件與開發入口
 
+> **2026-10-17 A 階段文件回寫 Vault**：#495、#498、#497／#503 改到的 22 個鏡像條目已回寫 Vault 對應的 19 個檔（產品十模組、總規格、覆蓋矩陣、前台／後台頁面清單、術語表、契約 02／03、工程模組 03、劇本 B02），連同 10/12 第三波只改進 repo 副本的段落；Vault 端 9/25 對齊與 10/08 實況全部保留。同日 Review FIX 把 Vault 比 `docs/` 新的 11 個條目（契約 03、工程模組 03、覆蓋矩陣、產品總規格、產品模組 01／02／03／07／10、前台／後台頁面清單）連同 `DASHBOARD-PAGES.md` 副本從 Vault 轉回，22 個條目的鏡像現在與 Vault 只差連結格式。`docs/plans/**`、`docs/status/**`、`docs/engineering/效能量測 SOP.md` 不鏡像。見 [receipt 2026-10-17](vault-sync-receipt-2026-10-17.json)。
+
 > **2026-10-12 術語表同步**：第三波（刪除三動作、網站與後台）與 W13c 用詞圈選（PR #385）的 `CONTEXT.md` 改動已回寫 Vault 術語表；Vault 10/08 新增的系統驗收、專題需求、網站驗收三條同步進 [docs/product/CONTEXT.md](<product/CONTEXT.md>) 與根 `CONTEXT.md`。只動這兩個 manifest 條目，見 [receipt 2026-10-12](vault-sync-receipt-2026-10-12.json)。10/12 定案在 Vault `🎯 專案目標/💬 討論與決策/2026-10-12 第三波與開發者後台定案.md`（不鏡像）。
 
 > **2026-09-25 Vault 鏡像同步**：9/16 之後 Vault 的實作回寫與 Roy 定案（契約、模組、SOP、切片、票草稿、產品模組）已重新轉換進 `docs/`，範圍照既有 manifest；切片 S00–S14 的 Vault 來源已搬到各自資料夾的 `01 切片規格.md`，repo 路徑不變。逐檔紀錄見 [receipt 2026-09-25](vault-sync-receipt-2026-09-25.json)。現行開發入口在 Vault `🛠️ 工程開發/🚀 開發計畫.md`（不鏡像）。
