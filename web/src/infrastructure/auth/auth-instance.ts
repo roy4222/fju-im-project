@@ -404,26 +404,40 @@ function createAuth() {
        * 未登入用 Google、Email 跟既有帳號相同時，套件只看 `email_verified` 就寫 google 列，之後才建 session；
        * 停用、去識別化的帳號 session 會被擋（上面的 `session.create.before`），但 google 列已經寫進去了。
        * 所以在寫入前從資料庫讀帳號狀態：停用、去識別化、Email 未驗證一律不連，回跟未驗證同一個
-       * `account_not_linked`（不說被停用，契約 03 §2；套件多帶的 `error_description` 由 `hooks.after` 的 callback 段拿掉，導回網址跟未驗證逐字相同）。
+       * `account_not_linked`（不說被停用，契約 03 §2）。
        *
        * 為什麼掛這裡：1.7.5 的隱性連結（`oauth2/link-account.mjs:88`）在 `internalAdapter.linkAccount` 前一行呼叫
        * `validateUserInfo`（`action: 'link-account'`），拒絕時套件把 code 原樣導回 `errorCallbackURL?error=`、失敗即關。
        * `databaseHooks.account.create.before` 也擋得到，但它擋下時套件回 `unable_to_link_account`（看得出跟未驗證不同），
        * 而且新 Google 帳號的第一列也經過它，要另外分辨。
        *
+       * 導回網址（Sol r2／r3）：套件原生的「未驗證不連」是 `link-account.mjs:79-84` 的早退（還沒叫到這裡），callback 用
+       * `redirectOnError('account_not_linked')` 導回、沒有說明；這裡的拒絕則被 `utils/validate-user-info.mjs:38-41` 包成
+       * APIError（message 一定非空；在這裡丟任何東西也只會變成 `validation_failed`，:29-37），`callback.mjs:240` 再把 message
+       * 原樣接成 `error_description`。源頭走不進原生路徑，所以拒絕時在 `implicitLinkRejections` 留下標記與套件這次用的
+       * errorURL（`parseState` 必填，`oauth2/state.mjs:62`；`callback.mjs:81` 就是拿它當底），由 `hooks.after` 的 callback 段
+       * 用原生同一種組法重建整個 Location。標記鍵是這次 dispatch 的 auth context：守衛與 `hooks.after` 拿到同一個物件
+       * （`api/dispatch.mjs:194-204` 每次 dispatch 複製一份，better-call `context.mjs:20` 原樣傳給端點與 middleware）。
+       *
        * 本人按「連結 Google」（OAuth state 帶 `link`）也會以 `link-account` 呼叫這裡：那條已由 `/link-social`
        * 的路由矩陣要求本人 active＋fresh session，不在這裡擋。讀不到 state 一律當隱性連結（失敗要關）。
        */
-      validateUserInfo: async ({ user, source }) => {
+      validateUserInfo: async ({ user, source }, ctx) => {
         if (source.action !== 'link-account') return
-        const state: unknown = await getOAuthState().catch(() => null)
-        if (state && typeof state === 'object' && (state as { link?: unknown }).link) return
+        const state = (await getOAuthState().catch(() => null)) as { link?: unknown; errorURL?: unknown } | null
+        if (state?.link) return
         const row = await getPool().query<{ status: string; deidentified_at: Date | null; email_verified: boolean }>(
           'select status, deidentified_at, email_verified from users where id = $1',
           [String(user.id ?? '')],
         )
         const target = row.rows[0]
         if (!target || target.status === 'disabled' || target.deidentified_at || !target.email_verified) {
+          // 跟 `parseState` 同一個預設（`oauth2/state.mjs:48`）；callback 走到這裡 state 一定有 errorURL，預設只是失敗要關。
+          const errorURL =
+            typeof state?.errorURL === 'string' && state.errorURL
+              ? state.errorURL
+              : ctx.context.options.onAPIError?.errorURL || `${ctx.context.baseURL}/error`
+          implicitLinkRejections.set(ctx.context, { errorURL })
           return { error: 'account_not_linked' }
         }
       },
@@ -877,6 +891,19 @@ function createAuth() {
           }
         }
 
+        // ── Google callback：隱性連結守衛拒絕 → 導回網址用套件原生「未驗證不連」同一種組法重建（Sol r2／r3） ──
+        //
+        // 只認守衛自己留下的標記（`implicitLinkRejections`，見 `user.validateUserInfo` 的說明），**不看**導回網址的參數：
+        // `/sign-in/social`、`/link-social` 是公開 API，callbackURL／errorCallbackURL 本來就可以自帶 `error=account_not_linked`，
+        // 成功登入、成功連結、Google 端拒絕（access_denied）都不能被碰。重建用套件這次的 errorURL 與同一個組法
+        // （`appendQueryParamsLikeBetterAuth`），`~`、`%20`、`+`、尾端 `&`、`#fragment` 才會跟原生逐字相同；
+        // 狀態碼與 Set-Cookie 不變（after hook 丟的 redirect 只換 Location，端點已累積的 Set-Cookie 由套件合併保留，
+        // `api/dispatch.mjs:30-37`）。放在 fju_ga_login 之前：守衛拒絕的 callback 不可能有 session，這裡丟出去也就一定不會寫登入 cookie。
+        const rejection = ctx.path.startsWith('/callback/') ? implicitLinkRejections.get(ctx.context) : undefined
+        if (rejection) {
+          throw ctx.redirect(appendQueryParamsLikeBetterAuth(rejection.errorURL, new URLSearchParams({ error: 'account_not_linked' })))
+        }
+
         // ── Google 登入成功 → 一次性分析 cookie（VB-5；B 設計方案 §7.3.1，▶R2-2） ─────────────
         //
         // 跟 `loginMethodForPath` 同一個判斷：callback 建了新 session＝用 Google 登入成功。callback 成功也是
@@ -884,15 +911,6 @@ function createAuth() {
         // 屬性跟密碼登入（`login/actions.ts` 的 `markPasswordLogin`）一樣：值只有登入方式、不設 HttpOnly（前台
         // `page-view.tsx` 要讀完清掉）、60 秒失效、HTTPS 站台才加 Secure。名稱＝前台 `_analytics/track.ts` 的
         // `LOGIN_COOKIE`（infrastructure 不能 import app，所以寫字面值）。
-        // 被拒絕連結（`account_not_linked`）的導回網址統一成同一個（Sol r2）：未驗證由套件自己擋、不帶說明；
-        // 停用、去識別化由上面的 `user.validateUserInfo` 擋，套件會多帶 `error_description`（APIError 的訊息不可能是空的，
-        // 源頭拿不掉）。在回應邊界拿掉它，四種情況的 Location 逐字相同，網址分辨不出帳號狀態。
-        if (ctx.path.startsWith('/callback/') && looksLikeApiError(returned)) {
-          const location = ctx.context.responseHeaders?.get('location')
-          const uniform = location ? withoutLinkRejectionDetail(location) : null
-          if (uniform && uniform !== location) throw ctx.redirect(uniform)
-        }
-
         if (ctx.path.startsWith('/callback/') && ctx.context.newSession) {
           const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
           ctx.setCookie('fju_ga_login', 'google', { path: '/', sameSite: 'lax', maxAge: 60, httpOnly: false, secure })
@@ -1002,13 +1020,31 @@ async function endpointJson(returned: unknown): Promise<unknown> {
   return looksLikeApiError(returned) ? null : (returned ?? null)
 }
 
-/** `account_not_linked` 的導回網址拿掉 `error_description`，其他網址回 null（`hooks.after` 的 callback 段用）。 */
-function withoutLinkRejectionDetail(location: string): string | null {
-  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(location)
-  const url = new URL(location, 'http://placeholder.invalid')
-  if (url.searchParams.get('error') !== 'account_not_linked' || !url.searchParams.has('error_description')) return null
-  url.searchParams.delete('error_description')
-  return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+/**
+ * 隱性連結守衛拒絕過的 dispatch（鍵是那次 dispatch 的 auth context，守衛與 `hooks.after` 拿到同一個物件；
+ * 值是套件這次 callback 導回用的 errorURL）。`hooks.after` 的 callback 段只認這個標記，不看導回網址的參數。
+ * WeakMap：請求結束、物件被回收，標記跟著消失，不會跨請求。
+ */
+const implicitLinkRejections = new WeakMap<object, { errorURL: string }>()
+
+/**
+ * 逐字抄自 `@better-auth/core` 1.7.5 `utils/url.ts` 的 `appendQueryParams`（套件沒有公開匯出：`better-auth` 的 exports map
+ * 只開 `./api`、`./oauth2` 等入口，都不含它；`@better-auth/core` 也不是本專案的直接相依）。套件 callback 的 `redirectOnError`
+ * 就是用它把 `error=` 接在 errorURL 後面（`api/routes/callback.mjs:80-86`）：用 `URL.search` setter 接字串，不經 `URLSearchParams`
+ * 重新序列化，所以 `~`、`%20`、`+` 原樣保留、尾端 `&` 不再補、`#fragment` 留在最後。守衛拒絕的導回網址用同一個函式重建，
+ * 四態才會逐字相同。升版 better-auth 時要跟套件原文對一次（integration 的四態測試也會抓到差異）。
+ */
+function appendQueryParamsLikeBetterAuth(input: string, params: URLSearchParams): string {
+  const URL_REFERENCE_ORIGIN = 'https://better-auth.invalid'
+  const relative = input.startsWith('/')
+  if (input.startsWith('//') || input.startsWith('/\\')) throw new TypeError('Expected an absolute or root-relative URL')
+  const parsedURL = relative ? new URL(input, URL_REFERENCE_ORIGIN) : new URL(input)
+  if (relative && parsedURL.origin !== URL_REFERENCE_ORIGIN) throw new TypeError('Expected an absolute or root-relative URL')
+  const query = params.toString()
+  if (!query) return input
+  const separator = parsedURL.search.endsWith('&') ? '' : '&'
+  parsedURL.search = parsedURL.search ? `${parsedURL.search}${separator}${query}` : query
+  return relative ? parsedURL.href.slice(parsedURL.origin.length) : parsedURL.href
 }
 
 /** 套件丟的 APIError（不同套件實體的類別 `instanceof` 會失敗，所以看形狀）。 */

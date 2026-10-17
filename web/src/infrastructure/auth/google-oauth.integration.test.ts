@@ -780,6 +780,97 @@ describe('同 Email 的 Google 自動連結（Q45，VB-5）', () => {
     for (const other of seen.slice(1)) expect(other).toEqual(seen[0])
   })
 
+  // ── Sol r3 P1：導回網址的序列化要跟套件原生「未驗證不連」逐字相同 ─────────────────────────
+  //
+  // 未驗證那一態是套件自己早退（1.7.5 `oauth2/link-account.mjs:79`），守衛根本沒被叫到，所以它就是「原生」的基準；
+  // 停用、去識別化（守衛擋的）要跟它逐字相同。`encodeURIComponent` 不轉 `~`，但 `URLSearchParams` 重新序列化會變 `%7E`，
+  // 所以合法的 next（例如 /account?tab=~）就分得出哪一態是守衛擋的；空白（%20、+）、尾端 &、#fragment、絕對網址同理。
+  const restrictedSetups = [
+    ['Email 未驗證', `update users set email_verified = false where id = $1`],
+    ['已停用', `update users set email_verified = true, status = 'disabled' where id = $1`],
+    ['已去識別化（status 還是 active）', `update users set email_verified = true, deidentified_at = now() where id = $1`],
+    ['已去識別化＋停用', `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`],
+  ] as const
+
+  /** 四態各走一次 callback（`rawCallback` 已斷言 302），回每一態的 Location 與 Set-Cookie 形狀（值每次不同，只比名稱與屬性）。第一個是未驗證（原生）。 */
+  async function restrictedShapes(start: () => Promise<Response>) {
+    const seen: { label: string; shape: { location: string; cookies: string[] } }[] = []
+    for (const [label, setup] of restrictedSetups) {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const result = await rawCallback(await start(), { sub: `sub-q45-shape-${seq}`, email, name: '不能連' })
+      seen.push({
+        label,
+        shape: { location: result.location, cookies: result.setCookie.map((c) => c.replace(/^([^=]+)=[^;]*/, '$1=<value>')).sort() },
+      })
+      expect(result.cookie).not.toContain('session_token')
+      expect(gaCookie(result.setCookie)).toBeUndefined()
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+    }
+    return seen
+  }
+
+  for (const [errorCallbackURL, native] of [
+    ['/login?next=%2Faccount%3Ftab%3D~', '/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked'],
+    ['/login?next=%2Fa%20b+c', '/login?next=%2Fa%20b+c&error=account_not_linked'],
+    ['/login?next=%2Faccount&', '/login?next=%2Faccount&error=account_not_linked'],
+    ['/login?next=%2Faccount%3Ftab%3D~#top', '/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked#top'],
+    [`${BASE_URL}/login?next=%2Faccount%3Ftab%3D~`, `${BASE_URL}/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked`],
+  ] as const) {
+    it(`errorCallbackURL=${errorCallbackURL}：四態的完整 Location、Set-Cookie 都等於套件原生未驗證的 ${native}`, async () => {
+      const seen = await restrictedShapes(() =>
+        post('/sign-in/social', { provider: 'google', callbackURL: '/login', errorCallbackURL, newUserCallbackURL: '/register/apply?via=google' }),
+      )
+      expect(seen[0]).toMatchObject({ label: 'Email 未驗證', shape: { location: native } })
+      for (const other of seen.slice(1)) expect(other.shape, other.label).toEqual(seen[0]!.shape)
+    })
+  }
+
+  // ── Sol r3 P2：「是不是守衛拒絕」只看守衛留下的標記，不看導回網址的參數 ─────────────────────
+  //
+  // `/sign-in/social`、`/link-social` 是公開 API，callbackURL／errorCallbackURL 可以自帶 `error=account_not_linked&error_description=…`。
+  // 沒被守衛擋的回應（成功登入、成功連結、Google 端拒絕）要跟 VB-5 之前完全一樣：原樣導回、該有的 cookie 都在。
+  const decoyCallbackURL = '/account?error=account_not_linked&error_description=keep'
+
+  it('callbackURL 自帶 error=account_not_linked：已驗證帳號 Google 登入成功 → 原樣導回、建 session、自動連結、寫 fju_ga_login', async () => {
+    const { email, userId } = await passwordAccount('active')
+    await db.sql(`update users set email_verified = true where id = $1`, [userId])
+    const result = await rawCallback(
+      await post('/sign-in/social', { provider: 'google', callbackURL: decoyCallbackURL, errorCallbackURL: '/login', newUserCallbackURL: '/register/apply?via=google' }),
+      { sub: `sub-q45-decoy-login-${seq}`, email, name: '已驗證' },
+    )
+    expect(result.location).toBe(decoyCallbackURL)
+    expect(result.cookie).toContain('session_token')
+    expect(gaCookie(result.setCookie)).toMatch(/^fju_ga_login=google;/)
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
+  it('callbackURL 自帶 error=account_not_linked：本人按「連結 Google」成功 → 原樣導回、連結寫入', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    const start = await post('/link-social', { provider: 'google', callbackURL: decoyCallbackURL, errorCallbackURL: '/account' }, cookie)
+    const result = await rawCallback(start, { sub: `sub-q45-decoy-link-${seq}`, email, name: '本人' }, cookie)
+    expect(result.location).toBe(decoyCallbackURL)
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
+  it('errorCallbackURL 自帶 error=account_not_linked、或 next 帶 ~：Google 端的 access_denied 照套件原樣補在後面', async () => {
+    for (const [errorCallbackURL, description, native] of [
+      ['/login?error=account_not_linked&error_description=keep', 'cancelled', '/login?error=account_not_linked&error_description=keep&error=access_denied&error_description=cancelled'],
+      ['/login?next=%2Faccount%3Ftab%3D~', 'keep~detail', '/login?next=%2Faccount%3Ftab%3D~&error=access_denied&error_description=keep%7Edetail'],
+    ] as const) {
+      const start = await post('/sign-in/social', { provider: 'google', callbackURL: '/login', errorCallbackURL })
+      const { url } = (await start.json()) as { url: string }
+      const response = await handlers.GET(
+        new Request(`${BASE_URL}/api/auth/callback/google?error=access_denied&error_description=${description}&state=${new URL(url).searchParams.get('state')}`, {
+          headers: { cookie: cookiesFrom(start) },
+        }),
+      )
+      expect(response.status, errorCallbackURL).toBe(302)
+      expect(response.headers.get('location'), errorCallbackURL).toBe(native)
+      expect(gaCookie(response.headers.getSetCookie())).toBeUndefined()
+    }
+  })
+
   it('守衛只管隱性連結：本人（active、fresh session、Email 未驗證）按「連結 Google」照樣連得上', async () => {
     const { email, userId, cookie } = await passwordAccount('active')
     expect(await one(`select email_verified from users where id = $1`, [userId])).toEqual({ email_verified: false })
