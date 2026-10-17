@@ -3,7 +3,7 @@ import { ADMIN_NAV, NAV_ICON_NAMES, STUDENT_NAV, TEACHER_NAV, isNavActive, navTi
 
 const LISTS = { ADMIN_NAV, TEACHER_NAV, STUDENT_NAV }
 /** 已經換成新側欄的清單（各角色切換票把自己加進來）：它們照設計方案 §3.1 會有 `activeFor`。 */
-const SWITCHED: readonly string[] = ['TEACHER_NAV']
+const SWITCHED: readonly string[] = ['TEACHER_NAV', 'ADMIN_NAV']
 
 describe('三份側欄清單（SH-1a）', () => {
   for (const [name, items] of Object.entries(LISTS)) {
@@ -41,7 +41,7 @@ describe('isNavActive', () => {
 
 describe('navTitle', () => {
   it('亮著那一項的名字', () => {
-    expect(navTitle(ADMIN_NAV, '/dashboard/admin/cohorts', '系辦')).toBe('屆別')
+    expect(navTitle(ADMIN_NAV, '/dashboard/admin/cohorts', '系辦')).toBe('設定')
   })
 
   it('沒有命中時回角色名', () => {

@@ -160,6 +160,15 @@ test('學生與老師打不開專題事務工作台與編輯器', async ({ page 
   await expect(page).toHaveURL(/\/403$/)
 })
 
+test('AC-AD-06：公告與作業、成果展示、檔案三頁整個 main（含頂列標題）都沒有「專題事務」（SH-1-AD 換側欄後）', async ({ page }) => {
+  await asAdmin(page)
+  for (const path of ['/dashboard/admin/affairs', '/dashboard/admin/showcase', '/dashboard/admin/files']) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
+    await expect(page.getByRole('main')).not.toContainText('專題事務')
+  }
+})
+
 test('三步驟快速建立公告：附件、清理正文、發布；細調欄位進同一筆；下載依對象', async ({ page }) => {
   const title = `${CODE} 專題說明會`
   const alerts: string[] = []
@@ -171,7 +180,7 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
-  await expect(page.getByRole('navigation').getByRole('link', { name: '專題事務' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '公告與作業', exact: true })).toHaveAttribute('aria-current', 'page')
 
   await page.getByRole('button', { name: '新增項目' }).click()
   const dialog = page.getByRole('dialog', { name: '新增項目' })

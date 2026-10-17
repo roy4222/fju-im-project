@@ -51,38 +51,40 @@ export function navTitle(items: readonly NavItem[], current: string, roleLabel: 
 /**
  * 三種後台的側欄掛載點與**受保護路由清單**（票 #47）。
  *
- * 分組、順序、名稱照原型 `prototype/src/lib/nav-config.ts`（票 35 對齊系辦與老師；學生在票 38）。
- * 每項的 `icon`、`group` 照舊外框依網址段推斷的結果寫死（SH-1a）；同一組的項目要排在一起。
- * 只放已經做出來的頁：沒做的功能不要先放上去，不然使用者會點進去撲空
- * （原型的「內容編輯器」依 Vault 04「單一入口」不放）。
+ * 系辦（SH-1-AD）：六項、不分組。被收進分頁的頁寫在 `activeFor`，進那些頁時亮所屬那一項、頁首標題也跟著它；
+ * 「通知」只在頂列鈴鐺。只放已經做出來的頁：沒做的功能不要先放上去，不然使用者會點進去撲空。
  */
 export const ADMIN_NAV: readonly NavItem[] = [
-  // 總覽
-  { href: '/dashboard/admin', label: '首頁', icon: 'home', group: '總覽' },
-  { href: '/dashboard/admin/timeline', label: '時間軸設定', icon: 'timeline', group: '總覽' },
-  // 通知（票 12）：頂列鈴鐺之外，原型側欄也有入口。
-  { href: '/dashboard/admin/inbox', label: '通知', icon: 'inbox', group: '總覽' },
-  // 專題事務
-  { href: '/dashboard/admin/affairs', label: '專題事務', icon: 'affairs', group: '專題事務' },
-  // 檔案管理（票 35）：全站檔案的檢視（下載、引用位置），不另做一套檔案系統。
-  { href: '/dashboard/admin/files', label: '檔案管理', icon: 'files', group: '專題事務' },
-  // 精選（票 25）：替各組建精選草稿（不發布）。原型沒有這一項，放在專題事務組。
-  { href: '/dashboard/admin/showcase', label: '成果展示', icon: 'showcase', group: '專題事務' },
-  // 首頁設定（第三波 W3／W5）：前台首頁大圖與兩行標語，存了就生效；頁面與守衛由 W3 提供。
-  { href: '/dashboard/admin/home-settings', label: '首頁設定', icon: 'home-settings', group: '專題事務' },
-  // 分組與產學
-  { href: '/dashboard/admin/groups', label: '分組總覽', icon: 'groups', group: '分組與產學' },
-  // 產學合作（票 20）：全部合作案與組別連結。
-  { href: '/dashboard/admin/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
-  // 評分與簽核：成績管理（票 23／24）＝方案版本、指派、成績表；簽核（票 25／26）。
-  { href: '/dashboard/admin/grading', label: '成績管理', icon: 'grading', group: '評分與同意書' },
-  { href: '/dashboard/admin/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
-  // 系統管理
-  { href: '/dashboard/admin/accounts', label: '帳號管理', icon: 'accounts', group: '系統管理' },
-  // 屆別（票 5）：原型併在時間軸頁；正式碼另一頁，放系統管理組。
-  { href: '/dashboard/admin/cohorts', label: '屆別', icon: 'cohorts', group: '系統管理' },
-  // 操作紀錄（票 36）：稽核紀錄唯讀清單，只給管理員。
-  { href: '/dashboard/admin/audit', label: '操作紀錄', icon: 'audit', group: '系統管理' },
+  { href: '/dashboard/admin', label: '首頁', icon: 'home' },
+  // 公告與作業：分頁列另有檔案管理、成果展示（AD-03、AD-04）。
+  {
+    href: '/dashboard/admin/affairs',
+    label: '公告與作業',
+    icon: 'affairs',
+    activeFor: ['/dashboard/admin/showcase', '/dashboard/admin/files'],
+  },
+  // 分組：合作案分頁（AD-07）。
+  { href: '/dashboard/admin/groups', label: '分組', icon: 'groups', activeFor: ['/dashboard/admin/industry'] },
+  // 成績：評分規則子頁（AD-08）、站內同意書分頁（AD-09）。
+  {
+    href: '/dashboard/admin/grading',
+    label: '成績',
+    icon: 'grading',
+    activeFor: ['/dashboard/admin/signoff', '/dashboard/admin/grading/rules'],
+  },
+  { href: '/dashboard/admin/accounts', label: '帳號', icon: 'accounts' },
+  // 設定總頁（AD-20）：四張卡連到屆別、時間軸（含模擬業務鐘）、首頁設定、操作紀錄（AD-12、AD-15）。
+  {
+    href: '/dashboard/admin/settings',
+    label: '設定',
+    icon: 'settings',
+    activeFor: [
+      '/dashboard/admin/cohorts',
+      '/dashboard/admin/timeline',
+      '/dashboard/admin/home-settings',
+      '/dashboard/admin/audit',
+    ],
+  },
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [

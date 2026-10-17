@@ -98,8 +98,8 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
 
   await page.goto('/dashboard/admin/files')
   await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
-  // 側欄有「檔案管理」且標成目前這一頁。
-  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '檔案管理' })).toHaveAttribute(
+  // 檔案管理收在「公告與作業」分頁列，側欄亮「公告與作業」（SH-1-AD）。
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '公告與作業', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
   )
