@@ -5,7 +5,9 @@
 
 Host fju-vm
   HostName 140.136.155.167
-  User roy422roy
+  # VM 的 sshd_config 只放行 AllowUsers gtuser fjubackup fjureset fjustatus；
+  # 所以登入帳號是 gtuser（不是 roy422roy，那個帳號 VM 不放行）。
+  User gtuser
   # 換成自己的私鑰；預設 ~/.ssh/id_ed25519
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
