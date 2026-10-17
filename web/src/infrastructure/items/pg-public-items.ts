@@ -1,4 +1,5 @@
 import 'server-only'
+import { cache } from 'react'
 import type { Pool } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import type { BusinessClockSource } from '@/application/cohorts'
@@ -33,6 +34,19 @@ import { viewerOf } from '@/infrastructure/items/viewer'
  *   正文只在打開單篇時給，而且已經過 `renderBodyHtml`。
  * - 對象細節（哪幾組）、收件名單、欄位、作者都不出現在前台的回應裡。
  */
+
+/**
+ * 「誰在看」同一請求只查一次（TE-07b）：老師首頁的公告列表與指導屆別各要一次，原本各查一遍。
+ *
+ * React `cache` 只在同一次 RSC render 內有效（render 以外——測試、Route Handler、Server Action——每次照查），
+ * 不跨請求、不跨使用者；key 是連線、`userId` 與這個 `actor` 物件本身，換一個 actor 物件（例如 Server Action
+ * 每次新解析的身分）就重查。放在這裡而不是 `viewer.ts`：worker 會經由附件政策打包 `viewer.ts`，不准依賴 react。
+ */
+const cachedViewerOf = cache((db: Pick<Pool, 'query'>, _userId: string | null, actor: ResolvedActor) => viewerOf(db, actor))
+
+function viewerFor(db: Pick<Pool, 'query'>, actor: ResolvedActor): Promise<Viewer> {
+  return cachedViewerOf(db, actor.kind === 'authenticated' ? actor.userId : null, actor)
+}
 
 const DEFAULT_LIMIT = 60
 const MAX_LIMIT = 200
@@ -137,13 +151,13 @@ export class PgPublicItemQuery implements PublicItemQuery {
 
   async list(actor: ResolvedActor, placement: Placement, filter: PublicListFilter = {}): Promise<PublicItemCard[]> {
     const db = this.#reader()
-    const rows = await this.#visibleRows(db, await viewerOf(db, actor), placement, filter)
+    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, filter)
     return this.#cards(db, rows)
   }
 
   async fullText(actor: ResolvedActor, placement: Placement): Promise<(PublicItemCard & { readonly bodyHtml: string })[]> {
     const db = this.#reader()
-    const rows = await this.#visibleRows(db, await viewerOf(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT })
+    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT })
     const cards = await this.#cards(db, rows)
     return cards.map((card, index) => ({ ...card, bodyHtml: renderBodyHtml(rows[index]!.body_html) }))
   }
@@ -196,7 +210,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
 
   async categories(actor: ResolvedActor, placement: Placement): Promise<string[]> {
     const db = this.#reader()
-    const viewer = await viewerOf(db, actor)
+    const viewer = await viewerFor(db, actor)
     const audience = audienceSql(viewer, 2)
     const rows = await db.query<{ category: string }>(
       `select distinct m.category from managed_items m
@@ -226,7 +240,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
 
   async myDeadlines(actor: ResolvedActor): Promise<MyDeadline[]> {
     const db = this.#reader()
-    const viewer = await viewerOf(db, actor)
+    const viewer = await viewerFor(db, actor)
     if (viewer.kind === 'anonymous' || actor.kind !== 'authenticated') return []
     // 目前有效＝還沒結束（eligible_to 為空），而且已經起算（eligible_from ≤ 現在的業務時間）：
     // 模擬鐘撥回名單建立之前時，那份收件還不算他的。
@@ -252,7 +266,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
   }
 
   async advisedCohortIds(actor: ResolvedActor): Promise<string[]> {
-    const viewer = await viewerOf(this.#reader(), actor)
+    const viewer = await viewerFor(this.#reader(), actor)
     return viewer.kind === 'user' ? [...viewer.advisedCohortIds] : []
   }
 
