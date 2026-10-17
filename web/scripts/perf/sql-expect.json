@@ -18,6 +18,12 @@
     "max": 49,
     "identity": 7
   },
+  "/dashboard/student/signoff": {
+    "as": "student",
+    "baseline": 15,
+    "max": 15,
+    "identity": 7
+  },
   "/timeline": {
     "as": "student",
     "baseline": 11,

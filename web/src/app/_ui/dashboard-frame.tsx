@@ -100,6 +100,7 @@ export function DashboardFrame({
   homeHref,
   switchLinks = [],
   bell,
+  avatar,
   signOutFormId,
   children,
 }: {
@@ -116,6 +117,8 @@ export function DashboardFrame({
   /** 兼任角色的「切換到另一個後台」（票 41；伺服器依本人角色算好，單一角色是空的）。 */
   switchLinks?: readonly AccountLink[]
   bell: ReactNode
+  /** 帳號選單的頭像（伺服器外殼 render 的 `UserAvatar`，同 `bell` 的做法）。 */
+  avatar?: ReactNode
   signOutFormId: string
   children: ReactNode
 }) {
@@ -232,7 +235,7 @@ export function DashboardFrame({
             {/* 深淺色切換（票 35；原型頂列在鈴鐺左邊）。 */}
             <DashThemeToggle />
             {bell}
-            <AccountMenu roleLabel={roleLabel} name={userName} links={accountLinks} signOutFormId={signOutFormId} compact />
+            <AccountMenu roleLabel={roleLabel} name={userName} links={accountLinks} signOutFormId={signOutFormId} compact avatar={avatar} />
           </div>
         </header>
         <div className="mx-auto w-full max-w-[1320px] min-w-0 flex-1 p-4 md:p-6 lg:px-8 lg:py-7">{children}</div>

@@ -4,7 +4,7 @@
     "select id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, impersonated_by, login_method from sessions ",
     "select id, name, email, email_verified, image, created_at, updated_at, role, banned, ban_reason, ban_expires, status, must_change_password, deidentified_at from users where users.id = $1",
     "select status, must_change_password, deidentified_at from users where id = $1",
-    "select users.id, users.status, users.must_change_password, users.deidentified_at, user_profiles.cohort_id, users.name, user_profiles.display_name from users left join user_profiles ",
+    "select users.id, users.status, users.must_change_password, users.deidentified_at, user_profiles.cohort_id, users.name, user_profiles.display_name, user_profiles.avatar_preset, user_profiles.avatar_file_id from users left join user_profiles ",
     "select role from role_assignments where (role_assignments.user_id = $1 and role_assignments.revoked_real_at is null)",
     "select exists ( select ? from role_assignments where user_id = $1 and role = ? and revoked_real_at is null ) and not exists ( select ? from user_profiles where user_id = $1 and profile_completed_at is not null ) as needs"
   ],
