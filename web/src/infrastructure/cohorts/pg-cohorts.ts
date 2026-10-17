@@ -8,24 +8,22 @@ import {
   isRequestId,
   normalizeCreateInput,
   normalizeGroupingSettings,
+  normalizeStatusReason,
   type ActivateCohortReceipt,
   type BusinessClockSource,
   type Cohort,
   type CohortCommand,
   type CohortFlag,
   type CohortStatus,
+  type CohortStatusInput,
   type CohortStatusQuery,
+  type CohortStatusReceipt,
   type CreateCohortInput,
   type CreateCohortReceipt,
   type GroupingSettingsInput,
   type SetCohortFlagReceipt,
   type SetGroupingSettingsReceipt,
 } from '@/application/cohorts'
-import {
-  normalizeStatusReason,
-  type CohortStatusInput,
-  type CohortStatusReceipt,
-} from '@/application/cohorts/cohorts'
 import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import {

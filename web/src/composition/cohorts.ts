@@ -92,6 +92,7 @@ export {
   COHORT_FLAG_LABEL,
   COHORT_NAME_MAX_LENGTH,
   COHORT_STATUS_LABEL,
+  COHORT_STATUS_REASON_MAX_LENGTH,
   cohortLabel,
   describeActivateReceipt,
   describeFlagReceipt,

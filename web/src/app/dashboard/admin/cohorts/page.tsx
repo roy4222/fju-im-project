@@ -10,10 +10,12 @@ import {
   COHORT_FLAG_LABEL,
   COHORT_NAME_MAX_LENGTH,
   COHORT_STATUS_LABEL,
+  COHORT_STATUS_REASON_MAX_LENGTH,
   cohortLabel,
   getCohortStatusQuery,
 } from '@/composition/cohorts'
 import { getGroupQuery } from '@/composition/groups'
+import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '屆別｜資管系專題平台' }
 
@@ -28,7 +30,8 @@ const SETTINGS_TABS = [
 /**
  * 屆別頁（票 5）：新增屆別、看狀態、指定「預設工作屆別」與「開放註冊屆別」。
  *
- * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；第三波放進危險操作區、先確認再送。封存與解封在後面的票。
+ * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；第三波放進危險操作區、先確認再送。
+ * AD-B4：進行中的卡有「封存這一屆」，已封存的卡顯示封存時間與「解除封存」，兩者都要填理由。
  * AD-12：掛「設定」分頁列，表格改每屆一張卡（學生數、組數），新增表單搬到分頁列右側。
  */
 export default async function AdminCohortsPage() {
@@ -49,13 +52,21 @@ export default async function AdminCohortsPage() {
     label: cohortLabel(cohort),
     statusLabel: COHORT_STATUS_LABEL[cohort.status],
     archived: cohort.status === 'archived',
+    archivedAtLabel: cohort.archivedAt ? formatTaipeiMinute(cohort.archivedAt) : null,
+    canArchive: cohort.status === 'active',
     canActivate: cohort.status === 'preparing',
     isDefaultWorking: cohort.isDefaultWorking,
     isRegistrationOpen: cohort.isRegistrationOpen,
     studentCount: counts.get(cohort.id)?.students ?? 0,
     groupCount: counts.get(cohort.id)?.groups ?? 0,
     // 每次渲染都發新的編號：成功後頁面重整就換一組，同一張表單重送才會被認成同一次。
-    requestIds: { defaultWorking: randomUUID(), registrationOpen: randomUUID(), activate: randomUUID() },
+    requestIds: {
+      defaultWorking: randomUUID(),
+      registrationOpen: randomUUID(),
+      activate: randomUUID(),
+      archive: randomUUID(),
+      unarchive: randomUUID(),
+    },
   }))
 
   return (
@@ -99,7 +110,7 @@ export default async function AdminCohortsPage() {
             </p>
           ) : null}
 
-          <CohortCards rows={rows} flagLabels={COHORT_FLAG_LABEL} />
+          <CohortCards rows={rows} flagLabels={COHORT_FLAG_LABEL} reasonMaxLength={COHORT_STATUS_REASON_MAX_LENGTH} />
         </div>
       </div>
     </DashboardShell>
