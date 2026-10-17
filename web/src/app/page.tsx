@@ -500,7 +500,7 @@ function WorkStrip({ home, work }: { home: string; work: MyWork }) {
                   <span className="text-[17px] font-bold text-foreground" data-testid="home-work-pending">
                     待繳交 {work.pending} 件
                   </span>
-                  <span className="text-[13px] text-muted-foreground">還沒正式送出的繳交項目（已逾期的請找系辦補交）</span>
+                  <span className="text-[13px] text-muted-foreground">還沒正式送出的作業（已逾期的請找系辦補交）</span>
                   {work.overdue ? (
                     <span className="text-[13px] font-semibold text-destructive" data-testid="home-work-overdue">
                       其中 {work.overdue} 件已逾期

@@ -12,30 +12,15 @@ import { describe, expect, it } from 'vitest'
  * AD-33c 擴大到 `src/application/**`、`src/infrastructure/**`：通知標題、錯誤訊息、回執也是使用者看得到的字。
  * 資料表定義（`db/schema/**`）與權限表（`db/permissions/**`）不掃；migration 在 `drizzle/`，本來就不在範圍內。
  *
+ * 「站內同意書」是術語表的正式用語（Signoff Package Version），不是舊名，不掃（AD-33d）。
+ *
  * 暫時留著的列在 ALLOWED，每一筆寫理由與次數（次數不對也會失敗，改掉之後記得把那一筆刪掉）。
  */
-const LEGACY_TERMS = ['專題事務', '繳交項目', '收件項目', '站內同意書', '← 評分'] as const
+const LEGACY_TERMS = ['專題事務', '繳交項目', '收件項目', '← 評分'] as const
 
 const WEB = fileURLToPath(new URL('..', import.meta.url))
 
-/** 「站內同意書」系辦整套（按鈕、對話框、表單名稱）e2e 用名字找元素，改名要連 spec 一起改，不在 AD-33b 範圍。 */
-const SIGNOFF_ADMIN = '系辦同意書整套仍叫「站內同意書」（e2e 用按鈕／對話框名字定位），要改名另開票連 spec 一起改'
-const OUT_OF_TICKET = '不在 AD-33b 可改檔案內，留給後續收尾票'
-
-const ALLOWED: readonly { file: string; term: (typeof LEGACY_TERMS)[number]; count: number; reason: string }[] = [
-  { file: 'src/app/dashboard/admin/signoff/new-version-dialog.tsx', term: '站內同意書', count: 3, reason: SIGNOFF_ADMIN },
-  { file: 'src/app/dashboard/admin/signoff/page.tsx', term: '站內同意書', count: 5, reason: SIGNOFF_ADMIN },
-  { file: 'src/app/dashboard/admin/signoff/signoff-forms.tsx', term: '站內同意書', count: 2, reason: SIGNOFF_ADMIN },
-  { file: 'src/app/dashboard/admin/signoff/[versionId]/page.tsx', term: '站內同意書', count: 1, reason: SIGNOFF_ADMIN },
-  { file: 'src/application/ops/audit-log.ts', term: '站內同意書', count: 2, reason: `操作紀錄跟系辦按鈕「新增站內同意書」同名；${SIGNOFF_ADMIN}` },
-  { file: 'src/app/dashboard/admin/groups/member-forms.tsx', term: '站內同意書', count: 2, reason: OUT_OF_TICKET },
-  { file: 'src/app/dashboard/admin/showcase/page.tsx', term: '站內同意書', count: 1, reason: OUT_OF_TICKET },
-  { file: 'src/app/dashboard/student/signoff/page.tsx', term: '站內同意書', count: 2, reason: OUT_OF_TICKET },
-  { file: 'src/app/dashboard/teacher/affairs/signoff-tab.tsx', term: '站內同意書', count: 1, reason: OUT_OF_TICKET },
-  { file: 'src/app/dashboard/teacher/affairs/[id]/page.tsx', term: '繳交項目', count: 3, reason: OUT_OF_TICKET },
-  { file: 'src/app/news/page.tsx', term: '專題事務', count: 2, reason: `前台（樣子已定稿）；${OUT_OF_TICKET}` },
-  { file: 'src/app/page.tsx', term: '繳交項目', count: 1, reason: `前台（樣子已定稿）；${OUT_OF_TICKET}` },
-]
+const ALLOWED: readonly { file: string; term: (typeof LEGACY_TERMS)[number]; count: number; reason: string }[] = []
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(path.join(WEB, dir), { withFileTypes: true, recursive: true })
@@ -76,7 +61,7 @@ function countHits(): Map<string, number> {
 }
 
 describe('畫面舊用詞（AD-33b、AD-33c，AC-AD-33）', () => {
-  it('src/app、src/application、src/infrastructure 的字串裡沒有「專題事務」「繳交項目」「收件項目」「站內同意書」「← 評分」（白名單除外，次數要對）', () => {
+  it('src/app、src/application、src/infrastructure 的字串裡沒有「專題事務」「繳交項目」「收件項目」「← 評分」（白名單除外，次數要對）', () => {
     const hits = Object.fromEntries(countHits())
     const allowed = Object.fromEntries(ALLOWED.map((a) => [`${a.file}｜${a.term}`, a.count]))
     expect(hits).toEqual(allowed)
