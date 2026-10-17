@@ -15,7 +15,7 @@
  * 三類相加等於 total。`duplicates` 是出現 ≥ 2 次的正規化語句，只是診斷、不另加總。
  *
  * 不跟隨轉址：`status` 是原始回應碼；不是 200 的列標 N/A，最後 exit 1（不輸出假零值）。
- * `--expect`：total 超過 max、identity 超過、或 noDuplicate 的簽名出現在 duplicates → exit 1，並列出 duplicates 與前 5 大表。
+ * `--expect`：total 超過 max、identity 超過、noDuplicate 的簽名出現在 duplicates、或該簽名一句都對不到 → exit 1，並列出 duplicates 與前 5 大表。
  * 沒給 `--routes` 時量 `--as` 那個角色的預設後台路由＋三個公開頁（匿名只量公開頁）。
  */
 /* global performance, fetch, URL, setTimeout */
@@ -114,13 +114,20 @@ export function topTables(rows, n = 5) {
   return [...tally].sort((a, b) => b[1] - a[1]).slice(0, n).map(([table, count]) => ({ table, count }))
 }
 
-/** `--expect` 的判定；回傳不合格的原因（空陣列＝過）。 */
-export function judge(row, expect) {
+/**
+ * `--expect` 的判定；回傳不合格的原因（空陣列＝過）。`sigs` 是該路由全部正規化語句：
+ * noDuplicate 的簽名一句都對不到也算失敗（查詢文字改了、簽名沒跟上時，不讓它永遠通過）。
+ */
+export function judge(row, expect, sigs = []) {
   if (!expect) return []
   const why = []
   if (typeof expect.max === 'number' && row.total > expect.max) why.push(`total ${row.total} > max ${expect.max}`)
   if (typeof expect.identity === 'number' && row.identity > expect.identity) why.push(`identity ${row.identity} > ${expect.identity}`)
   for (const p of expect.noDuplicate ?? []) {
+    if (!sigs.some((s) => s.startsWith(p))) {
+      why.push(`對不到任何一句（比對字串可能過期）：${p}`)
+      continue
+    }
     const hit = row.duplicates.find((d) => d.sig.startsWith(p))
     if (hit) why.push(`重複：${p}（${hit.count} 次）`)
   }
@@ -194,7 +201,7 @@ async function main() {
     const c = classify(statements, signatures)
     const row = { ...base, total: c.total, identity: c.identity, badge: c.badge, page: c.page, duplicates: c.duplicates }
     const expect = expectAll?.[m.route]
-    const why = expect && (!expect.as || expect.as === who.label) ? judge(row, expect) : []
+    const why = expect && (!expect.as || expect.as === who.label) ? judge(row, expect, c.rows.map((r) => r.sig)) : []
     if (why.length > 0) {
       failed = true
       row.fail = why

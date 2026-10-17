@@ -24,7 +24,7 @@
     "max": 59,
     "identity": 8,
     "noDuplicate": [
-      "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages from evaluator_assignments ",
+      "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages, ",
       "select distinct on (e.assignment_id) e.assignment_id, e.kind, e.scheme_version_id, e.scores, e.submitted_real_at, s.state from evaluations ",
       "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
       "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no, s.state, s.cause, v.participants, "
@@ -34,7 +34,10 @@
     "as": "teacher",
     "baseline": 32,
     "max": 32,
-    "identity": 8
+    "identity": 8,
+    "noDuplicate": [
+      "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages, "
+    ]
   },
   "/dashboard/teacher/affairs": {
     "as": "teacher",
