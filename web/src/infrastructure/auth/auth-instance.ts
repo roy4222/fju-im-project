@@ -135,12 +135,12 @@ function enforceOtpSendRate(email: string, ip: string): void {
   }
 }
 
-/** 只查不扣（續辦的寄碼用）：冷卻中、或 IP 桶已經超過上限就擋。 */
-function checkOtpSendRate(email: string, ip: string): void {
+/** 續辦的寄碼：查冷卻、扣 IP 桶，不扣 Email 桶（同一次註冊已扣過）。 */
+function checkResumeSendRate(email: string, ip: string): void {
   if (otpLimiters.cooldown.count(email) > 0) {
     throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
   }
-  if (otpLimiters.sendIp.count(ip) > RATE_LIMITS.otpSend.ip.max) {
+  if (!otpLimiters.sendIp.hit(ip).allowed) {
     throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
   }
 }
@@ -510,15 +510,15 @@ function createAuth() {
               message: `這個網路 ${waitAtMost(RATE_LIMITS.register.windowMs)}內的註冊次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.register.windowMs)}後可以再試；仍無法註冊請聯絡系辦。`,
             })
           }
-          // 註冊成功後伺服器會寄第一封驗證碼，所以寄碼額度在這裡扣一次（Email 桶與 IP 桶都扣；那封內部首寄不再扣）：
-          // 重送註冊不能繞過「10 分鐘 5 封／Email」，大量新 Email 也不能繞過「每小時 20 封／IP」（VB-2）。
-          // 不論這個 Email 已不已存在都扣，看不出差別；續辦的那封也不重扣（見寄碼分支）。
+          // 註冊成功後伺服器會寄第一封驗證碼，所以同一個 Email 的寄碼額度在這裡扣一次（那封內部首寄不再扣）：
+          // 重送註冊不能繞過「10 分鐘 5 封／Email」（VB-2）。不論這個 Email 已不已存在都扣，看不出差別。
+          //
+          // **第一封不扣「每小時 20 封／IP」**（2026-10-17 主腦裁定，Roy 定案「註冊 30 次／小時／IP」優先）：
+          // 每次註冊最多寄一封首封，所以首封的 IP 上限就是上面的註冊桶（30／小時／IP）；再扣 20 封桶的話，
+          // 同一間教室第 21 個人就註冊不了。重寄、續辦、我的帳號寄碼照常計入 20 封桶（見寄碼分支）。
           const signUpEmail = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
           if (signUpEmail && !otpLimiters.sendEmail.hit(signUpEmail).allowed) {
             throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
-          }
-          if (signUpEmail && !otpLimiters.sendIp.hit(ip).allowed) {
-            throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
           }
           const password = String(((ctx.body ?? {}) as { password?: unknown }).password ?? '')
           if (password.length < MIN_PASSWORD_LENGTH) {
@@ -547,7 +547,7 @@ function createAuth() {
           const context = !ctx.request && isInternalCall() ? currentOtpPurpose() : undefined
           const purpose = context && context.email === email ? context.purpose : undefined
           const ip = clientIpFrom(headers)
-          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過 Email 與 IP 額度，這裡只開始冷卻。
+          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過 Email 額度（IP 由註冊桶管），這裡只開始冷卻。
           if (purpose === 'signup-first') {
             otpLimiters.cooldown.hit(email)
             return
@@ -566,8 +566,9 @@ function createAuth() {
             }
             exempt = true
           }
-          // 續辦的寄碼：同一次 wrapper 呼叫裡的註冊已扣過額度，這裡只查冷卻與 IP 上限、不重扣（Review 第 1 輪）。
-          if (purpose === 'signup-resume-start') checkOtpSendRate(email, ip)
+          // 續辦的寄碼：同一次 wrapper 呼叫裡的註冊已扣過 Email 額度，這裡不重扣（Review 第 1 輪）；
+          // 冷卻照查，IP 照扣（續辦不是首封，計入 20 封／小時／IP）。
+          if (purpose === 'signup-resume-start') checkResumeSendRate(email, ip)
           else enforceOtpSendRate(email, ip)
           if (!exempt) await requireTurnstile(turnstileConfig, headers, 'resend')
           // 冷卻在這裡開始（過了限速與 Turnstile 才算），不看這個 Email 有沒有帳號：

@@ -653,12 +653,32 @@ describe('Review 第 1 輪：寄信例外、首封 IP、公開端點回應一致
     expect(await outbox(email)).toEqual([])
   })
 
-  it('同一個 IP 連續註冊 21 個新 Email：首封也算進每小時 20 封，第 21 個 429', async () => {
-    const headers = { 'x-real-ip': '198.51.100.21' }
+  it('主腦裁定（Roy「註冊 30 次／小時／IP」優先）：同 IP 第 30 次註冊成功（首封都寄出）、第 31 次 429 是註冊桶', async () => {
+    const headers = { 'x-real-ip': '198.51.100.30' }
+    const emails = Array.from({ length: 31 }, (_, i) => freshEmail(`first-ip-${i}`))
     const statuses: number[] = []
-    for (let i = 0; i < 21; i += 1) statuses.push((await signUp(freshEmail(`first-ip-${i}`), headers)).status)
-    expect(statuses.slice(0, 20)).toEqual(Array(20).fill(200))
-    expect(statuses[20]).toBe(429)
+    for (const email of emails) statuses.push((await signUp(email, headers)).status)
+    expect(statuses.slice(0, 30)).toEqual(Array(30).fill(200))
+    expect(statuses[30]).toBe(429)
+    const mails = await db.sql(
+      `select count(*)::int as n from mail_outbox where to_email = any($1) and template = 'email_otp'`,
+      [emails.slice(0, 30)],
+    )
+    expect(mails.rows[0]!.n).toBe(30)
+  })
+
+  it('主腦裁定：首封不佔 20 封／IP，同 IP 重寄照算：第 21 封重寄 429', async () => {
+    const headers = { 'x-real-ip': '198.51.100.31' }
+    const emails = Array.from({ length: 21 }, (_, i) => freshEmail(`resend-ip-${i}`))
+    for (const email of emails) expect((await signUp(email, headers)).status).toBe(200)
+    travel(121_000)
+    for (const email of emails.slice(0, 20)) {
+      const response = await call('POST', '/email-otp/send-verification-otp', { email, type: 'email-verification' }, headers)
+      expect(response.status, email).toBe(200)
+    }
+    const blocked = await call('POST', '/email-otp/send-verification-otp', { email: emails[20], type: 'email-verification' }, headers)
+    expect(blocked.status).toBe(429)
+    expect((await json(blocked)).message).toBe('這個網路寄驗證碼的次數已達上限，最晚 1 小時後可以再試。')
   })
 
   it('重寄冷卻：已註冊與不存在的 Email，連按兩次重寄的回應一樣（200、429）', async () => {
