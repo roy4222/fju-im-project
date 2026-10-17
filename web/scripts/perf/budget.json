@@ -105,6 +105,10 @@
     "baseline": 227.5,
     "limit": 250
   },
+  "/dashboard/admin/settings": {
+    "baseline": 222.3,
+    "limit": 245
+  },
   "/dashboard/admin/showcase": {
     "baseline": 229,
     "limit": 250

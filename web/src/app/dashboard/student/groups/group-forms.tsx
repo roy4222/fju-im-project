@@ -76,6 +76,8 @@ export function ProposeForm({
   studentNoMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState(proposeAction, undefined)
+  // 停在舊頁面時才會撞到分組截止；伺服器的句子尾巴叫人聯絡系辦，學生頁不寫（Q69），只留「分組期已經結束…」。
+  const shown = state && !state.ok ? { ...state, message: state.message.replace(/；需要分組請聯絡系辦。$/, '。') } : state
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="requestId" value={requestId} />
@@ -111,7 +113,7 @@ export function ProposeForm({
           </div>
         ))}
       </div>
-      <Feedback state={state} />
+      <Feedback state={shown} />
       <button type="submit" disabled={pending} className={PRIMARY}>
         {pending ? '處理中…' : '發起提案'}
       </button>

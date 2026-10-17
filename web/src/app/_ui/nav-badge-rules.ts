@@ -6,7 +6,7 @@ import type { Role } from '@/application/accounts'
  * 只算「現在輪到我做」的事：
  * - 三個角色的通知匣：本人未讀數。
  * - 學生：作業區還沒送出的收件、簽核裡輪到我表態的版本。
- * - 老師：還沒正式送出的評分、輪到我同意的組。
+ * - 老師：還沒正式送出的評分（評分）、輪到我同意的組（作業區）；側欄沒有通知徽章，未讀只在鈴鐺。
  * - 系辦：等審核的註冊申請。
  *
  * 0 不顯示（回 undefined）。數字由伺服器依本人讀好（`nav-badges.ts`），這裡是純規則、可以單獨測。
@@ -28,11 +28,15 @@ function segmentOf(href: string): string {
 export function badgeFor(role: Role, href: string, counts: BadgeCounts): number | undefined {
   const pick = (n: number | undefined) => (n && n > 0 ? n : undefined)
   const segment = segmentOf(href)
+  // 老師（SH-1-TE）：同意書搬進作業區，徽章跟著搬；通知只在鈴鐺，側欄不配。
+  if (role === 'teacher') {
+    if (segment === 'grading') return pick(counts.teacherToGrade)
+    if (segment === 'affairs') return pick(counts.teacherSignoff)
+    return undefined
+  }
   if (segment === 'inbox') return pick(counts.unread)
   if (role === 'student' && segment === 'affairs') return pick(counts.studentPending)
   if (role === 'student' && segment === 'signoff') return pick(counts.studentSignoff)
-  if (role === 'teacher' && segment === 'grading') return pick(counts.teacherToGrade)
-  if (role === 'teacher' && segment === 'signoff') return pick(counts.teacherSignoff)
   if (role === 'admin' && segment === 'accounts') return pick(counts.adminPendingApplications)
   return undefined
 }

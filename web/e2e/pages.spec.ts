@@ -98,7 +98,7 @@ test.describe('以 A1（管理員）', () => {
 
     // 帳號頁在票 9 已經是真功能（見 accounts.spec.ts）；這裡只確認打得開、有真的列表。
     await page.goto('/dashboard/admin/accounts')
-    await expect(page.getByRole('heading', { name: '帳號管理', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '帳號', exact: true })).toBeVisible()
     await expect(page.getByRole('table', { name: '帳號列表' })).toBeVisible()
 
     // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
@@ -310,7 +310,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
   /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
   const FINGERPRINTS: Record<string, string> = {
     '/dashboard/admin': '作業完成率',
-    '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
+    '/dashboard/admin/accounts': '名單與停用',
     '/dashboard/admin/cohorts': '新註冊加入這屆',
     '/dashboard/teacher': '待辦',
     '/dashboard/student': '專題行事曆',
@@ -322,13 +322,13 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/teacher/inbox': '全部標為已讀',
     '/dashboard/student/inbox': '全部標為已讀',
     '/dashboard/admin/groups': '全部組別',
-    '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
+    '/dashboard/student/groups': '組別分頁',
     '/dashboard/teacher/groups': '一般組由系辦指派。',
     // 合作案管理（票 20）。
     '/dashboard/admin/industry': '合作案摘要',
     '/dashboard/admin/affairs': '完整編輯器',
     // 檔案管理（票 35）。
-    '/dashboard/admin/files': '還有地方在用的檔案不能刪',
+    '/dashboard/admin/files': '編輯器加附件',
     '/dashboard/admin/editor/new': '存草稿',
     '/dashboard/student/affairs': '你需要繳交的每一項、狀態與截止',
     '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
@@ -344,6 +344,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
     // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
     '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
+    // 設定總頁（AD-20）：時間軸卡的說明句。
+    '/dashboard/admin/settings': '四個階段與活動日期',
   }
 
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
@@ -386,6 +388,8 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
+    // 設定總頁（AD-20）。
+    { path: '/dashboard/admin/settings', wrongRole: 'teacher' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

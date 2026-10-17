@@ -86,17 +86,13 @@ export const ADMIN_NAV: readonly NavItem[] = [
 ]
 
 export const TEACHER_NAV: readonly NavItem[] = [
-  // 總覽
-  { href: '/dashboard/teacher', label: '首頁', icon: 'home', group: '總覽' },
-  { href: '/dashboard/teacher/inbox', label: '通知', icon: 'inbox', group: '總覽' },
-  // 各組繳交狀態（票 22）：原型側欄沒有這一項（入口在首頁），正式碼保留，放專題事務組。
-  { href: '/dashboard/teacher/affairs', label: '各組繳交', icon: 'affairs', group: '專題事務' },
-  // 分組與產學：分組總覽（票 19，產學組認領與全部組別）、產學合作（票 20，自己的合作案）。
-  { href: '/dashboard/teacher/groups', label: '分組總覽', icon: 'groups', group: '分組與產學' },
-  { href: '/dashboard/teacher/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
-  // 評分與簽核：評分工作台（票 23，只有被指派的組別）、簽核（票 25／26）。
-  { href: '/dashboard/teacher/grading', label: '評分', icon: 'grading', group: '評分與同意書' },
-  { href: '/dashboard/teacher/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
+  { href: '/dashboard/teacher', label: '首頁', icon: 'home' },
+  // 評分工作台（票 23）；評閱桌 `/grading/<組別>` 傳的 current 就是這個 href。
+  { href: '/dashboard/teacher/grading', label: '評分', icon: 'grading' },
+  // 作業區（TE-04）：各組繳交與同意書分頁；舊網址 `/signoff` 轉進來，版本頁也亮這一項。
+  { href: '/dashboard/teacher/affairs', label: '作業區', icon: 'affairs', activeFor: ['/dashboard/teacher/signoff'] },
+  // 分組總覽（TE-05）：我的組別與合作案分頁；舊網址 `/industry` 轉進來。
+  { href: '/dashboard/teacher/groups', label: '分組總覽', icon: 'groups', activeFor: ['/dashboard/teacher/industry'] },
 ]
 
 /**
@@ -143,6 +139,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/grading', role: 'admin' },
   // 評分規則子頁（AD-08）：評分規則、版本紀錄、每組要幾份評分與指派。
   { path: '/dashboard/admin/grading/rules', role: 'admin' },
+  // 設定總頁（AD-20）：四張卡連到屆別、時間軸、首頁設定、操作紀錄。
+  { path: '/dashboard/admin/settings', role: 'admin' },
   { path: '/dashboard/teacher/grading', role: 'teacher' },
   { path: '/dashboard/student/grading', role: 'student' },
   { path: '/dashboard/teacher', role: 'teacher' },

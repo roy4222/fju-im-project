@@ -320,8 +320,9 @@ test('組長把產學組連結到合作案、換案（理由必填，全組與�
   await expect(panel.getByRole('status')).toContainText(`G01 已從「${COMPANY}・資訊部」換到「${COMPANY_B}・資訊部」`)
   expect(await recipientsOf('opportunity.switched', 'G01')).toEqual([sorted(...memberIds.get('G01')!, owner.userId, ownerB.userId)])
   await page.reload()
+  await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText(`合作案 ${COMPANY}・資訊部 → ${COMPANY_B}・資訊部`)
-  await expect(page.getByRole('region', { name: '我的組別狀態' })).not.toContainText('和企業討論後')
+  await expect(page.getByRole('main')).not.toContainText('和企業討論後')
 
   // 一般組組長：沒有連結表單。
   await signIn(page, generalLeader)
@@ -348,6 +349,7 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await signIn(page, leader)
   await page.goto('/dashboard/student/groups')
   await expect(page.getByTestId('linked-opportunity')).toContainText('還沒有連結合作案')
+  await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText(`解除合作案連結：${COMPANY_B}・資訊部`)
   // 通知匣看得到（背景工作投影），點進去是合作案頁。
   await expect(async () => {
@@ -366,6 +368,7 @@ test('組長在成組期內、沒有指導老師與合作案時自己改組別�
   await expect(page.getByRole('status').filter({ hasText: 'G02 的組別類型已從「一般專題」改成「產學合作」' })).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('group-type')).toContainText('產學合作')
+  await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText('組別類型 一般專題 → 產學合作')
 
   // 指派指導老師之後：組長不能自己改，畫面說明原因。
@@ -374,7 +377,7 @@ test('組長在成組期內、沒有指導老師與合作案時自己改組別�
      values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '抽籤')`,
     [groupIds.get('G02'), owner.userId, adminId],
   )
-  await page.reload()
+  await page.goto('/dashboard/student/groups')
   await expect(page.getByTestId('type-change-blocked')).toContainText('已經有指導老師')
   await expect(page.getByTestId('type-change-blocked')).toContainText('請聯絡系辦處理')
   await expect(page.getByRole('button', { name: /改成/ })).toHaveCount(0)

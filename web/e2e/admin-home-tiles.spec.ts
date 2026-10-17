@@ -279,9 +279,9 @@ test('檔案管理：說明要新增檔案請到專題事務，並附前往連�
   await asAdmin(page)
   await page.goto('/dashboard/admin/files')
   const hint = page.getByTestId('files-add-hint')
-  await expect(hint).toContainText('要新增檔案請到專題事務')
-  await hint.getByRole('link', { name: '前往專題事務' }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs$/)
+  await expect(hint).toContainText('去「公告與作業」的編輯器加附件')
+  await hint.getByRole('link', { name: '去編輯器' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/editor\/new$/)
 })
 
 test('老師打開沒被指派的評分頁：「找不到這個頁面」（不說原因）＋回到自己的首頁', async ({ page }) => {

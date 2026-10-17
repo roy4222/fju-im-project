@@ -112,7 +112,7 @@ function feedback(page: Page, role: 'status' | 'alert') {
 async function openStudentPage(page: Page, index: number) {
   await signIn(page, students[index]!)
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 async function proposeAll(page: Page) {
@@ -163,11 +163,11 @@ test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Emai
 
   await openStudentPage(page, 0)
   await expect(page.getByRole('region', { name: '找組員名單' })).not.toContainText(students[1]!.name)
-  // 名單空了：給下一步（N-10），連到產學合作案、或洽系辦。
+  // 名單空了只寫一句（Q69、Q73）：不叫人洽系辦、不連產學合作案。
   const empty = page.getByRole('region', { name: '找組員名單' })
-  await expect(empty).toContainText('目前沒有公開找組員的同學。')
-  await expect(empty).toContainText('或洽系辦')
-  await expect(empty.getByRole('link', { name: '看產學合作案' })).toHaveAttribute('href', '/dashboard/student/industry')
+  await expect(empty).toContainText('目前沒有公開找組員的同學')
+  await expect(empty).not.toContainText('或洽系辦')
+  await expect(empty.getByRole('link')).toHaveCount(0)
 })
 
 test('發起五人提案：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份提案', async ({ page }) => {
@@ -212,6 +212,7 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
   await openStudentPage(page, 2)
+  await page.goto('/dashboard/student/groups?tab=log')
   const history = page.getByRole('region', { name: '提案紀錄' })
   await expect(history).toContainText('沒有成立：管理員作廢')
   await expect(history).not.toContainText('系辦內部')
@@ -223,7 +224,10 @@ test('拒絕：整份終止、全員釋放；重新發起是新提案，所有�
   await page.getByRole('button', { name: '拒絕' }).click()
   await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
   await expect(feedback(page, 'status')).toContainText('這次組隊沒有成立（被拒絕）')
+  // 提案紀錄在「紀錄」分頁（AC-ST-18）；重新發起在「找隊員」。
+  await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
+  await page.goto('/dashboard/student/groups?tab=team')
   await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
 })
 

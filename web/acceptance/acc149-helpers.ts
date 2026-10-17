@@ -206,6 +206,8 @@ export type Student = NewStudent & { page: Page }
 export async function importRoster(admin: Page, code: string, students: NewStudent[]) {
   const csv = ['student_no,name,cohort,email,department_class', ...students.map((s) => `${s.studentNo},${s.name},${code},${s.email},${s.dept}`), ''].join('\n')
   await admin.goto('/dashboard/admin/accounts')
+  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
+  await admin.getByRole('group', { name: '名單與停用' }).locator('summary').click()
   await admin.getByRole('button', { name: '匯入名單 CSV' }).click()
   await admin.getByLabel('選擇名單 CSV 檔').setInputFiles({ name: `roster-${code}.csv`, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') })
   await expect(admin.getByTestId('roster-count-有效')).toHaveText(String(students.length))
@@ -240,7 +242,7 @@ export async function onboardStudents(
 
 export async function openMyGroup(page: Page) {
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 /** 學生發起一般專題提案（同學學號依序填）。 */

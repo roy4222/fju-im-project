@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ADMIN_NAV, NAV_ICON_NAMES, STUDENT_NAV, TEACHER_NAV, isNavActive, navTitle, type NavItem } from './_nav'
 
 const LISTS = { ADMIN_NAV, TEACHER_NAV, STUDENT_NAV }
+/** 已經換成新側欄的清單（各角色切換票把自己加進來）：它們照設計方案 §3.1 會有 `activeFor`。 */
+const SWITCHED: readonly string[] = ['TEACHER_NAV']
 
 describe('三份側欄清單（SH-1a）', () => {
   for (const [name, items] of Object.entries(LISTS)) {
@@ -14,7 +16,7 @@ describe('三份側欄清單（SH-1a）', () => {
       expect(new Set(runs).size).toBe(runs.length)
     })
 
-    it(`${name} 還沒有 activeFor（各角色切換票才加）`, () => {
+    it.skipIf(SWITCHED.includes(name))(`${name} 還沒有 activeFor（各角色切換票才加）`, () => {
       expect(items.filter((item) => item.activeFor !== undefined)).toEqual([])
     })
   }

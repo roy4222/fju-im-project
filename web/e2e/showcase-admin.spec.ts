@@ -102,7 +102,7 @@ async function asGuest(page: Page): Promise<Page> {
 const card = (page: Page, text: string) => page.getByTestId('showcase-draft').filter({ hasText: text })
 /** 那件作品的「公開」區（發布、下架、重新發布共用一句回饋）。 */
 const lifecycle = (page: Page, text: string) => card(page, text).getByRole('group', { name: '公開' })
-const row = (page: Page, text: string) => page.getByRole('region', { name: '作品一覽' }).getByRole('row').filter({ hasText: text })
+const row = (page: Page, text: string) => page.getByTestId('entry-card').filter({ hasText: text })
 
 test('AC-10：預設「全部（含歷屆）」，看得到封存屆別的歷屆作品；狀態與獎項欄有值；沒有閘門字樣；仍說草稿不會公開', async ({ page }) => {
   await asAdmin(page)
@@ -251,7 +251,7 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   await home.getByLabel(/首頁順序/).fill('1')
   await home.getByRole('button', { name: '儲存順序' }).click()
   await expect(home.getByRole('status')).toContainText('首頁順序已設為 1')
-  await expect(row(page, OLD_TITLE).getByRole('cell').nth(5)).toHaveText('1')
+  await expect(row(page, OLD_TITLE).getByTestId('entry-home-position')).toHaveText('1')
 
   // ② 補登歷屆作品：選封存的屆別、填題目；組別顯示「（歷屆補登）」。
   const BACK_TITLE = `${stamp} 補登的歷屆作品`
@@ -260,7 +260,7 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   await backfill.getByLabel('作品題目').fill(BACK_TITLE)
   await backfill.getByRole('button', { name: '補登作品' }).click()
   await expect(backfill.getByRole('status')).toContainText(`已補登${OLD_CODE}（${OLD_CODE}）「${BACK_TITLE}」`)
-  await expect(row(page, BACK_TITLE).getByRole('cell').nth(2)).toHaveText('（歷屆補登）')
+  await expect(row(page, BACK_TITLE).getByTestId('entry-group')).toHaveText('（歷屆補登）')
 
   // ③ 封存屆別作品：改摘要、換海報、存草稿 → 訪客仍是舊摘要；發布更新 → 訪客看到新摘要與新海報。
   const old = card(page, OLD_TITLE)
@@ -305,4 +305,40 @@ test('AC-39：首頁順序；補登歷屆作品（沒有組別）；封存屆別
   expect(v2.rows[0]!.pii_check).toMatchObject({ status: 'admin_attested', by: admin.userId })
   const entry = await pool.query(`select status, home_position from showcase_entries where id = $1`, [oldEntryId])
   expect(entry.rows[0]).toEqual({ status: 'published', home_position: 1 })
+})
+
+test('AC-AD-06、AC-AD-08：成果展示與檔案頁標題「公告與作業」、同一條三連結分頁列；作品一覽是卡片沒有表格；main 裡沒有「專題事務」', async ({ page }) => {
+  await asAdmin(page)
+  for (const [path, current] of [
+    ['/dashboard/admin/showcase', '成果展示'],
+    ['/dashboard/admin/files', '檔案'],
+  ] as const) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('公告與作業')
+    const tabs = page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link')
+    await expect(tabs).toHaveText(['公告與作業', '成果展示', '檔案'])
+    await expect(tabs.nth(0)).toHaveAttribute('href', '/dashboard/admin/affairs')
+    await expect(tabs.nth(1)).toHaveAttribute('href', '/dashboard/admin/showcase')
+    await expect(tabs.nth(2)).toHaveAttribute('href', '/dashboard/admin/files')
+    await expect(tabs.filter({ hasText: current })).toHaveAttribute('aria-current', 'page')
+    await expect(tabs.and(page.locator('[aria-current="page"]'))).toHaveCount(1)
+    // 側欄的「專題事務」到 SH-1-AD 才拿掉，這裡只看頁面本身。
+    await expect(page.getByRole('main').getByText('專題事務')).toHaveCount(0)
+  }
+
+  await page.goto('/dashboard/admin/showcase')
+  await expect(page.getByRole('main').locator('table')).toHaveCount(0)
+  const entry = row(page, OLD_TITLE)
+  await expect(entry.getByTestId('entry-group')).toHaveText('G09')
+  await expect(entry.getByRole('link', { name: '編輯' })).toHaveAttribute('href', /^#entry-/)
+  await expect(entry.getByRole('link', { name: '下架' })).toHaveAttribute('href', /^#entry-.+-publish$/)
+  // 分頁列右側：「建立草稿」「補登歷屆」兩個按鈕跳到下方表單，「草稿不會公開。」在旁邊。
+  const tabBar = page.getByRole('navigation', { name: '公告與作業分頁' }).locator('..')
+  await expect(tabBar.getByRole('link', { name: '建立草稿' })).toHaveAttribute('href', '#showcase-create')
+  await expect(tabBar.getByRole('link', { name: '補登歷屆' })).toHaveAttribute('href', '#showcase-backfill')
+  await expect(tabBar.getByText('草稿不會公開')).toBeVisible()
+  // 建立草稿表單只在「建草稿的屆別」有組別時才畫；開本檔自己建的屆別（有 G01），不受其他 spec 改動預設工作屆別影響。
+  await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
+  await expect(page.locator('#showcase-create').getByRole('form', { name: '建立成果展示草稿' })).toHaveCount(1)
+  await expect(page.locator('#showcase-backfill').getByRole('form', { name: '補登歷屆作品' })).toHaveCount(1)
 })
