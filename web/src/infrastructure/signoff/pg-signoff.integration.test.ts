@@ -7,7 +7,7 @@ import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
-import type { CreateVersionInput } from '@/application/signoff'
+import { SIGNOFF_PURPOSES, type CreateVersionInput } from '@/application/signoff'
 import { PgGroupCommand } from '@/infrastructure/groups/pg-groups'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
@@ -731,6 +731,86 @@ describe('讀取邊界（SGN-10 入口）', () => {
     expect(row.packages.result_confirmation).toMatchObject({ versionId: v1.versionId, state: 'collecting', studentCount: 3 })
     expect(row.packages.final_document).toBeNull()
     expect(await query.adminBoard(actor(s.teacher.id, ['teacher']), s.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  describe('首頁同意書計數 homeCounts（AD-21）', () => {
+    /** 照系辦首頁原本的算法，從 `adminBoard` 算出計數。 */
+    async function fromBoard(cohortId: string) {
+      const board = await query.adminBoard(admin(), cohortId)
+      if (!board.ok) throw new Error(board.message)
+      const gs = board.receipt.groups
+      return {
+        teacherPending: {
+          result_confirmation: gs.filter((g) => g.packages.result_confirmation?.state === 'teacher_pending').length,
+          final_document: gs.filter((g) => g.packages.final_document?.state === 'teacher_pending').length,
+        },
+        completeGroups: gs.filter((g) => SIGNOFF_PURPOSES.some((p) => g.packages[p]?.state === 'complete')).length,
+      }
+    }
+    async function counts(cohortId: string) {
+      const r = await query.homeCounts(admin(), cohortId)
+      if (!r.ok) throw new Error(r.message)
+      return { teacherPending: r.receipt.teacherPending, completeGroups: r.receipt.completeGroups }
+    }
+    const setState = (versionId: string, state: string) =>
+      owner.sql(
+        `update signoff_version_status set state = $2, completed_real_at = case when $2 = 'complete' then now() end where version_id = $1`,
+        [versionId, state],
+      )
+    const extraGroup = (cohortId: string, code: string, dissolved = false) =>
+      owner.sql(
+        `insert into groups (id, cohort_id, code, group_type, status, dissolved_real_at, dissolve_reason, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, $2, 'general', $3, $4, $5, now(), now(), 'system')`,
+        [cohortId, code, dissolved ? 'dissolved' : 'active', dissolved ? new Date() : null, dissolved ? '全組休學' : null],
+      )
+
+    it('同一份資料：等老師（兩個用途）、已完成、別屆、解散組、沒有同意書的組 → 與 adminBoard 算出來的相同；封存屆照樣相同', async () => {
+      const a = await scenario({ size: 3 })
+      const rc = await mustCreate(a)
+      await setState(rc.versionId, 'teacher_pending')
+      const draft = await showcaseDraft(a)
+      const fd = await mustCreate(a, { purpose: 'final_document', showcaseEntryId: draft.entryId })
+      await setState(fd.versionId, 'complete')
+      await extraGroup(a.cohortId, 'G02')
+      await extraGroup(a.cohortId, 'G03', true)
+
+      // 別屆的等老師不算進來。
+      const other = await scenario({ size: 3 })
+      await setState((await mustCreate(other)).versionId, 'teacher_pending')
+
+      const expected = await fromBoard(a.cohortId)
+      expect(expected).toEqual({ teacherPending: { result_confirmation: 1, final_document: 0 }, completeGroups: 1 })
+      expect(await counts(a.cohortId)).toEqual(expected)
+
+      // 第二組也等老師（期末文件），第一組改成兩個用途都完成：仍逐項相同。
+      const b = await scenario({ size: 3 })
+      const bDraft = await showcaseDraft(b)
+      await setState((await mustCreate(b, { purpose: 'final_document', showcaseEntryId: bDraft.entryId })).versionId, 'teacher_pending')
+      await setState(rc.versionId, 'complete')
+      expect(await counts(b.cohortId)).toEqual(await fromBoard(b.cohortId))
+      expect(await counts(a.cohortId)).toEqual({ teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 1 })
+      expect(await counts(a.cohortId)).toEqual(await fromBoard(a.cohortId))
+
+      // 解散的組（簽核包還在）不算。
+      const dissolved = await scenario({ size: 3 })
+      await setState((await mustCreate(dissolved)).versionId, 'teacher_pending')
+      await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '全組休學' where id = $1`, [dissolved.groupId])
+      expect(await counts(dissolved.cohortId)).toEqual({ teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 0 })
+      expect(await counts(dissolved.cohortId)).toEqual(await fromBoard(dissolved.cohortId))
+
+      await owner.sql(`update cohorts set status = 'archived' where id = $1`, [a.cohortId])
+      expect(await counts(a.cohortId)).toEqual(await fromBoard(a.cohortId))
+    })
+
+    it('空屆別全是 0、與 adminBoard 相同；不存在的屆別也是 0；不是管理員 FORBIDDEN、不是 uuid VALIDATION_FAILED', async () => {
+      const empty = await scenario({ size: 3 })
+      const zero = { teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 0 }
+      expect(await counts(empty.cohortId)).toEqual(zero)
+      expect(await fromBoard(empty.cohortId)).toEqual(zero)
+      expect(await counts(randomUUID())).toEqual(zero)
+      expect(await query.homeCounts(actor(empty.teacher.id, ['teacher']), empty.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      expect(await query.homeCounts(admin(), 'nope')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    })
   })
 
   it('封存屆別不在 teacherView；同一位老師本屆的組照列；舊屆版本頁直接網址仍讀得到（網站問題 #3、AC-TE-25／26）', async () => {

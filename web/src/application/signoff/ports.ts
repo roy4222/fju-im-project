@@ -261,9 +261,19 @@ export interface SignoffParticipantHook<Tx = unknown> {
   ): Promise<{ readonly voidedVersionIds: readonly string[] }>
 }
 
+export type AdminSignoffCounts = {
+  readonly teacherPending: Readonly<Record<SignoffPurpose, number>>
+  readonly completeGroups: number
+}
+
 export interface SignoffQuery {
   /** 管理員的簽核頁；不是管理員 → `FORBIDDEN`。 */
   adminBoard(actor: ResolvedActor, cohortId: string): Promise<Result<AdminSignoffBoard>>
+  /**
+   * 系辦首頁同意書卡（AD-21）：1 句 SQL。口徑同 `adminBoard`（本屆進行中的組、每個用途的目前版本）：
+   * 每個用途停在「等指導老師」的份數，與至少一個用途已完成的組數。不是管理員 → `FORBIDDEN`。
+   */
+  homeCounts(actor: ResolvedActor, cohortId: string): Promise<Result<AdminSignoffCounts>>
   /** 版本頁：管理員、該版參與者、該組此刻的組員與主指導看得到；其他人 `FORBIDDEN`（不透露版本存不存在）。 */
   versionDetail(actor: ResolvedActor, versionId: string): Promise<Result<VersionDetail>>
   /** 學生自己的簽核（誰由 actor 決定）；不是學生回空的。 */

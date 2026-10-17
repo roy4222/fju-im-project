@@ -1987,6 +1987,50 @@ export class PgGroupQuery implements GroupQuery {
     }
   }
 
+  async homeCounts(cohortId: string): ReturnType<GroupQuery['homeCounts']> {
+    if (!isUuid(cohortId)) return { total: 0, students: 0, ungrouped: 0, industry: 0, noAdvisorIndustry: 0, openProposals: 0 }
+    // 每一段條件逐字對齊 `overview()`：`#groups` 的組別、成員（join users）、主指導（join users），`#proposals` 的提案（join 提案人），
+    // 與未分組查詢。
+    const row = (
+      await this.#reader().query<{
+        total: number
+        students: number
+        ungrouped: number
+        industry: number
+        no_advisor_industry: number
+        open_proposals: number
+      }>(
+        `with g as (select g.id, g.group_type from groups g where g.cohort_id = $1 and g.status = 'active')
+         select (select count(*) from g)::int as total,
+                (select count(*) from group_memberships m join users u on u.id = m.user_id
+                  where m.group_id in (select id from g) and m.valid_to is null)::int as students,
+                (select count(*) from user_profiles p
+                   join users u on u.id = p.user_id
+                  where p.cohort_id = $1 and p.student_no is not null
+                    and u.status = 'active' and u.deidentified_at is null
+                    and exists (select 1 from role_assignments r
+                                 where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
+                    and not exists (select 1 from group_memberships m
+                                     where m.user_id = u.id and m.cohort_id = $1 and m.valid_to is null))::int as ungrouped,
+                (select count(*) from g where g.group_type = 'industry')::int as industry,
+                (select count(*) from g where g.group_type = 'industry'
+                    and not exists (select 1 from advisor_assignments a join users u on u.id = a.teacher_user_id
+                                     where a.group_id = g.id and a.valid_to is null))::int as no_advisor_industry,
+                (select count(*) from group_proposals p join users pu on pu.id = p.proposer_user_id
+                  where p.cohort_id = $1 and p.state = 'open')::int as open_proposals`,
+        [cohortId],
+      )
+    ).rows[0]!
+    return {
+      total: row.total,
+      students: row.students,
+      ungrouped: row.ungrouped,
+      industry: row.industry,
+      noAdvisorIndustry: row.no_advisor_industry,
+      openProposals: row.open_proposals,
+    }
+  }
+
   async countsByCohort(): Promise<ReadonlyMap<string, CohortHeadcount>> {
     // 三段各自 group by cohort_id，最後一句合起來；條件逐字對齊 `overview()` 的組別、成員與未分組查詢。
     const rows = await this.#reader().query<{ cohort_id: string; groups: string; members: string; ungrouped: string }>(
