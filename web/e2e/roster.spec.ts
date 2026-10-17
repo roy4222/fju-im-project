@@ -240,8 +240,8 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await signIn(page, waiter)
   expect(await homePending(page)).toBe('1 件')
   await expect(affairsBadge(page)).toHaveText('1')
-  // waiter 有一則未讀的收件通知：側欄「通知」也有徽章。
-  await expect(page.getByTestId('nav-badge-/dashboard/student/inbox')).toBeVisible()
+  // waiter 有一則未讀的收件通知：未讀數在頂列鈴鐺（SH-1-ST 起側欄沒有「通知」）。
+  await expect(page.getByTestId('inbox-bell-count')).toBeVisible()
 
   await signIn(page, admin)
   await page.goto(rosterPath())

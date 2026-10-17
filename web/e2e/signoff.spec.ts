@@ -209,8 +209,8 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
 
   await signIn(page, loner)
   await page.goto('/dashboard/student/signoff')
-  // 學生側欄照原型叫「同意書」（票 38）。
-  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/student/signoff')
+  // 學生側欄沒有同意書項（SH-1-ST）：同意書收進「交作業」，這頁亮它。
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '交作業', exact: true })).toHaveAttribute('href', '/dashboard/student/affairs')
   await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
   await expect(page.getByText('你目前不在任何組別裡')).toBeVisible()
 

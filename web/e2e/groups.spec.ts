@@ -137,7 +137,7 @@ async function openProposalId(): Promise<string> {
 
 test('學生從側欄進「我的組別」；老師與管理員打不開學生頁、學生打不開分組總覽', async ({ page }) => {
   await openStudentPage(page, 0)
-  await expect(page.getByRole('navigation').getByRole('link', { name: '我的組別' })).toBeVisible()
+  await expect(page.getByRole('navigation').getByRole('link', { name: '組別', exact: true })).toBeVisible()
   await expect(page.getByText('本屆每組 5 人（含你自己）')).toBeVisible()
 
   await page.goto('/dashboard/admin/groups')

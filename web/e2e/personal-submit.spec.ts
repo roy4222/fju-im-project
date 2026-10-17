@@ -250,7 +250,7 @@ const openPath = () => `/dashboard/student/affairs/${itemIds.open}`
 test('作業區只列自己名單上的個人收件，狀態分成尚未開放／進行中／逾期未繳', async ({ page }) => {
   await signIn(page, s1)
   await page.goto('/dashboard/student')
-  await page.getByRole('navigation').getByRole('link', { name: '我的繳交' }).click()
+  await page.getByRole('navigation').getByRole('link', { name: '交作業', exact: true }).click()
   await expect(page.getByRole('heading', { name: '交作業', exact: true })).toBeVisible()
 
   const list = page.getByRole('list', { name: '作業列表' })
