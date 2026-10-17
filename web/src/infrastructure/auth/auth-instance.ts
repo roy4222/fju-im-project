@@ -50,7 +50,14 @@ import {
 } from '@/infrastructure/auth/login-methods'
 import { isRegistrationOpen, REGISTRATION_CLOSED_MESSAGE } from '@/infrastructure/auth/registration-switch'
 import { readTurnstileConfig, verifyTurnstile, type TurnstileAction, type TurnstileConfig } from '@/infrastructure/auth/turnstile-verify'
-import { currentOtpPurpose, finishSignupResume, normalizeEmail, runWithOtpPurpose } from '@/infrastructure/auth/signup-resume'
+import {
+  confirmEmailVerifiedUnderLock,
+  currentOtpPurpose,
+  finishSignupResume,
+  normalizeEmail,
+  revokeSessionUnlessPasswordCurrent,
+  runWithOtpPurpose,
+} from '@/infrastructure/auth/signup-resume'
 import { emailOtpMail, passwordResetMail, type Mailer } from '@/application/mail'
 import { BrevoMailer } from '@/infrastructure/mail/brevo-mailer'
 import { CaptureMailer } from '@/infrastructure/mail/capture-mailer'
@@ -120,29 +127,47 @@ function tooMany(message: string): APIError {
 }
 
 /**
- * 寄驗證碼前的限速：冷卻 → Email 桶 → IP 桶。冷卻只看不計（真的寄出去才開始計時，見 `sendVerificationOTP`），
- * 冷卻中被擋不扣 10 分鐘的額度。
+ * 寄驗證碼前的限速：冷卻 → Email 桶 → IP 桶。
+ *
+ * 冷卻是**先占位再過關**（VB-14 一併修的 VB-2 競態；VB-3 難題工程師查到）：舊版是先 `count` 看、等 Turnstile 驗完才 `hit`，
+ * 兩筆同一個 Email 的寄碼同時進來會**都**通過冷卻檢查（各打一次 siteverify、各插一列碼）。現在第一步就 `hit`（同步、原子地
+ * 把 120 秒的唯一一格占走），同時進來的第二筆在這裡就 429；後面任何一關（Email 桶、IP 桶、Turnstile）沒過，占的那一格由
+ * `releaseOtpCooldown` 放掉，不算寄過。被擋的請求照舊不扣 10 分鐘的額度。
  */
 function enforceOtpSendRate(email: string, ip: string): void {
-  if (otpLimiters.cooldown.count(email) > 0) {
-    throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
+  claimOtpCooldown(email)
+  try {
+    if (!otpLimiters.sendEmail.hit(email).allowed) {
+      throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
+    }
+    if (!otpLimiters.sendIp.hit(ip).allowed) {
+      throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
+    }
+  } catch (error) {
+    releaseOtpCooldown(email)
+    throw error
   }
-  if (!otpLimiters.sendEmail.hit(email).allowed) {
-    throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
-  }
+}
+
+/** 續辦的寄碼：占冷卻、扣 IP 桶，不扣 Email 桶（同一次註冊已扣過）。IP 桶沒過一樣放掉冷卻。 */
+function checkResumeSendRate(email: string, ip: string): void {
+  claimOtpCooldown(email)
   if (!otpLimiters.sendIp.hit(ip).allowed) {
+    releaseOtpCooldown(email)
     throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
   }
 }
 
-/** 續辦的寄碼：查冷卻、扣 IP 桶，不扣 Email 桶（同一次註冊已扣過）。 */
-function checkResumeSendRate(email: string, ip: string): void {
-  if (otpLimiters.cooldown.count(email) > 0) {
+/** 占住這個 Email 的 120 秒冷卻（桶上限 1）：已有人占著就 429。 */
+function claimOtpCooldown(email: string): void {
+  if (!otpLimiters.cooldown.hit(email).allowed) {
     throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
   }
-  if (!otpLimiters.sendIp.hit(ip).allowed) {
-    throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
-  }
+}
+
+/** 占了冷卻但後面沒過關：放掉（占位期間別人都被擋在 `claimOtpCooldown`，所以直接清掉這個桶不會放掉別人的）。 */
+function releaseOtpCooldown(email: string): void {
+  otpLimiters.cooldown.reset(email)
 }
 
 /** 「一小時」比「1 小時」順口；畫面句跟驗收案例一致（AC-VI-59「請一小時後再試」）。 */
@@ -402,6 +427,29 @@ function createAuth() {
           // `input: false` 已經擋掉從請求體帶 status，這裡是第二層，連內部建立也一樣。
           before: async (user) => ({ data: { ...user, status: 'pending' } }),
         },
+        update: {
+          /**
+           * 公開驗碼把帳號標成已驗證之前的鎖內確認（VB-14 Review 第 1 輪 P1 第 1 條；設計在 `signup-resume.ts` 那段註解）。
+           *
+           * 套件的 `verify-email` 端點：消耗驗證碼 → `updateUser({ email, emailVerified: true })`；這個 hook 跑在 adapter 寫入之前，
+           * 但 hook 跟 adapter 不在同一筆交易、鎖罩不到那一筆寫入，所以在這裡**先在鎖內自己寫** `email_verified = true`
+           * （帳號還有登入方式才寫；跟清理 `scrubOne` 鎖同一個 users 列），adapter 之後只是重寫同值。密碼已被 7 天清理清掉
+           * 又沒有 Google → 不寫、丟錯讓使用者回第 1 步續辦（續辦換新密碼）；不這樣擋會留下「已驗證、沒密碼、不可續辦」
+           * 的死帳號（Sol 反例）。只管這一條公開路：其他會更新 users 的路（管理員、改名、續辦完成）不經這裡的判斷。
+           * 走到這裡的人已經交出正確的驗證碼（套件在 updateUser 之前就消耗了），回一句不同的錯不會多洩漏帳號狀態。
+           */
+          before: async (user, context) => {
+            if (context?.path !== '/email-otp/verify-email' || user.emailVerified !== true) return
+            const email = normalizeEmail(user.email ?? ((context.body ?? {}) as { email?: unknown }).email)
+            if (!email) return
+            if ((await confirmEmailVerifiedUnderLock(getPool(), email)) === 'no_login_method') {
+              throw new APIError('BAD_REQUEST', {
+                code: 'SIGNUP_RESUME_EXPIRED',
+                message: '這次註冊已經逾期（超過 7 天沒完成 Email 驗證），請回第 1 步重新填一次。',
+              })
+            }
+          },
+        },
       },
       session: {
         create: {
@@ -421,8 +469,27 @@ function createAuth() {
 
             return { data: { ...session, loginMethod: loginMethodForPath(context?.path) } }
           },
-          /** 帳號最近一次的登入方式（列表顯示用；不作判定）。 */
-          after: async (session) => {
+          /**
+           * 密碼登入：session 列插完之後的鎖內重驗（VB-14 Review 第 1 輪 P1 第 2 條；設計在 `signup-resume.ts` 那段註解）。
+           *
+           * 端點驗完舊雜湊到 adapter 插入 session 之間，清理可能已把密碼清成 null（或信箱主人已用續辦換新密碼並撤掉舊 session），
+           * 上面的 `before` 跟 adapter 的插入不在同一筆交易、鎖罩不到。所以在插入**之後**、cookie 設定**之前**（這個 hook 沒有交易時
+           * 由套件立刻執行、錯誤往上丟，`createSession` 丟錯端點就中止），在跟清理同一把 users 列鎖裡用這次的明文重驗目前雜湊：
+           * 對不上就在同一筆交易刪掉剛插的那列、丟 401（跟密碼錯同一個回應）。這張 token 從未發出，外面看不到任何有效 session。
+           * 只管 `/sign-in/email`：其他建 session 的路（Google callback、註冊後自動登入、續辦完成）不是清理的對象或自己在交易裡做。
+           */
+          after: async (session, context) => {
+            if (context?.path === '/sign-in/email') {
+              const password = String(((context.body ?? {}) as { password?: unknown }).password ?? '')
+              const kept = await revokeSessionUnlessPasswordCurrent(getPool(), {
+                userId: String(session.userId),
+                sessionId: String(session.id),
+                verify: (hash) => context.context.password.verify({ hash, password }),
+              })
+              if (!kept) {
+                throw new APIError('UNAUTHORIZED', { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' })
+              }
+            }
             const method = (session as { loginMethod?: string }).loginMethod
             if (method === 'google' || method === 'password') {
               await recordLastLoginMethod(String(session.userId), method)
@@ -567,13 +634,20 @@ function createAuth() {
             exempt = true
           }
           // 續辦的寄碼：同一次 wrapper 呼叫裡的註冊已扣過 Email 額度，這裡不重扣（Review 第 1 輪）；
-          // 冷卻照查，IP 照扣（續辦不是首封，計入 20 封／小時／IP）。
+          // 冷卻照占，IP 照扣（續辦不是首封，計入 20 封／小時／IP）。
           if (purpose === 'signup-resume-start') checkResumeSendRate(email, ip)
           else enforceOtpSendRate(email, ip)
-          if (!exempt) await requireTurnstile(turnstileConfig, headers, 'resend')
-          // 冷卻在這裡開始（過了限速與 Turnstile 才算），不看這個 Email 有沒有帳號：
-          // 存在與不存在的 Email 第二次重寄都一樣 429（Review 第 1 輪帳號列舉）。
-          otpLimiters.cooldown.hit(email)
+          // 冷卻在 `enforceOtpSendRate`／`checkResumeSendRate` 第一步就占住了（原子地，見那裡的說明），不看這個 Email
+          // 有沒有帳號：存在與不存在的 Email 第二次重寄都一樣 429（Review 第 1 輪帳號列舉）。Turnstile 沒過就放掉，
+          // 不算寄過；過了之後才真的進入 120 秒冷卻。
+          if (!exempt) {
+            try {
+              await requireTurnstile(turnstileConfig, headers, 'resend')
+            } catch (error) {
+              releaseOtpCooldown(email)
+              throw error
+            }
+          }
         }
 
         // ── Email 驗證碼：送碼。verify 與 check 共用一組桶（check 不能拿來繞過 verify 的上限） ──

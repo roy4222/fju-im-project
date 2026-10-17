@@ -112,6 +112,40 @@ const totals = async () =>
               (select count(*)::int from session_revocations) as revocations,
               (select count(*)::int from user_status_events) as status_events`)
 
+/**
+ * 另開一條連線先鎖住 users 列，讓兩邊依序排在後面；`release` 放掉。
+ * 用 `for no key update`：跟各條路的 `for update` 衝突（都得排隊），但**不擋** sessions 插入時對 users 列取的外鍵
+ * `for key share`——不然登入會先卡在插 session 那句，根本排不到鎖內重驗那句。
+ */
+async function holdUserRow(id: string) {
+  const client = await app.connect()
+  await client.query('begin')
+  await client.query('select 1 from users where id = $1 for no key update', [id])
+  return async () => {
+    await client.query('rollback')
+    client.release()
+  }
+}
+
+/** 等到有 `n` 個連線卡在這句 SQL 的鎖上。 */
+async function waitForLockWaiters(pattern: string, n: number) {
+  for (let i = 0; i < 200; i += 1) {
+    const row = await one(
+      `select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and query like $1`,
+      [`%${pattern}%`],
+    )
+    if (Number(row.n) >= n) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`等不到鎖：${pattern}`)
+}
+
+/** 各條路鎖 users 列的那句 SQL（`waitForLockWaiters` 用來認誰在排隊）。 */
+const SCRUB_LOCK = 'select created_at from users where id = $1 for update'
+const FINISH_LOCK = 'select id from users where email = $1 for update'
+const VERIFY_HOOK_LOCK = 'for update of u'
+const SIGNIN_HOOK_LOCK = 'select id from users where id = $1 for update'
+
 describe('scrubStaleSignups（AC-VI-81）', () => {
   it('甲（8 天）清密碼、刪 session、記一筆稽核，第二輪回 0；乙（6 天）、丙（有申請）、有角色、有 Google 的不動', async () => {
     const emailA = freshEmail('a')
@@ -215,38 +249,18 @@ describe('清理與續辦完成同時發生（R2-3 鎖序）', () => {
        values (gen_random_uuid(), $1, $2, now() + interval '10 minutes', now(), now())`,
       [
         resume.signupResumeIdentifier(email),
-        JSON.stringify({ userId: id, passwordHash: NEW_HASH, otpHash, ticketHash: resume.hashSecret(TICKET) }),
+        JSON.stringify({
+          userId: id,
+          passwordHash: NEW_HASH,
+          otpHash,
+          ticketHash: resume.hashSecret(TICKET),
+          deadlineAt: Date.now() + 30 * 60_000,
+          windowEndAt: Date.now() + 10 * 60_000,
+        }),
       ],
     )
     return { id, email }
   }
-
-  /** 另開一條連線先鎖住 users 列，讓兩邊依序排在後面；`release` 放掉。 */
-  async function holdUserRow(id: string) {
-    const client = await app.connect()
-    await client.query('begin')
-    await client.query('select 1 from users where id = $1 for update', [id])
-    return async () => {
-      await client.query('rollback')
-      client.release()
-    }
-  }
-
-  /** 等到有 `n` 個連線卡在這句 SQL 的鎖上。 */
-  async function waitForLockWaiters(pattern: string, n: number) {
-    for (let i = 0; i < 200; i += 1) {
-      const row = await one(
-        `select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and query like $1`,
-        [`%${pattern}%`],
-      )
-      if (Number(row.n) >= n) return
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    throw new Error(`等不到鎖：${pattern}`)
-  }
-
-  const SCRUB_LOCK = 'select created_at from users where id = $1 for update'
-  const FINISH_LOCK = 'select id from users where email = $1 for update'
 
   it('續辦先拿到鎖：續辦完成，清理鎖到後重驗不是半成品 → 跳過、不寫稽核，密碼是新的', async () => {
     const { id, email } = await pendingResume('race-finish-first')
@@ -282,6 +296,373 @@ describe('清理與續辦完成同時發生（R2-3 鎖序）', () => {
     // 已驗證的帳號不再是半成品：之後再跑也不會被清。
     expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(0)
     expect(await password(id)).toBe(NEW_HASH)
+  })
+})
+
+describe('清理與 Better Auth 入口的交錯（Review 第 1 輪 P1 兩條）', () => {
+  /**
+   * 兩條 P1：套件的 `verify-email`／`sign-in/email` 端點「判斷」與「寫入」之間沒有鎖，清理可以在中間 commit。
+   * 修法是把會違反不變條件的那一筆寫入收進**跟清理同一把 users 列鎖**的交易裡重驗（`confirmEmailVerifiedUnderLock`、
+   * `revokeSessionUnlessPasswordCurrent`）。這裡用 spy 把端點停在危險點、讓清理插隊，兩個方向都跑，
+   * 事後檢查不變條件：沒有「已驗證 ∧ 無密碼 ∧ 無 Google」、沒有「無密碼 ∧ 無 Google ∧ 有 session」。
+   */
+  type AnyAsync = (...args: unknown[]) => Promise<unknown>
+
+  /**
+   * 把 `target[method]` 停在第一次符合 `when` 的呼叫：`after: false` 停在原方法**之前**（判斷已做、寫入未做），
+   * `after: true` 停在原方法回來**之後**（寫入已做、後續 hook 未做）。`reached` 解析＝停住了；`release()` 放行。
+   */
+  function pauseAt(target: object, method: string, options: { when?: (args: unknown[]) => boolean; after?: boolean } = {}) {
+    const obj = target as Record<string, AnyAsync>
+    const original = obj[method]!
+    let fired = false
+    let onReached!: () => void
+    let onRelease!: () => void
+    const reached = new Promise<void>((resolve) => (onReached = resolve))
+    const released = new Promise<void>((resolve) => (onRelease = resolve))
+    const spy = vi.spyOn(obj, method).mockImplementation(async (...args: unknown[]) => {
+      const hit = !fired && (options.when?.(args) ?? true)
+      if (hit) fired = true
+      if (hit && !options.after) {
+        onReached()
+        await released
+      }
+      const result = await original.apply(target, args)
+      if (hit && options.after) {
+        onReached()
+        await released
+      }
+      return result
+    })
+    return {
+      reached,
+      release: () => onRelease(),
+      restore: () => spy.mockRestore(),
+    }
+  }
+
+  async function authContext() {
+    return (await import('@/infrastructure/auth/auth-instance')).getAuth().$context
+  }
+
+  /** 最新一封寄到這個信箱、有內文的驗證碼（擷取模式寫在 `mail_outbox`）。 */
+  async function latestOtp(email: string): Promise<string> {
+    const row = await one(
+      `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' and body_text is not null
+        order by created_at desc, id desc limit 1`,
+      [email],
+    )
+    return String(row.body_text).match(/驗證碼是 (\d{6})/)![1]!
+  }
+
+  const verifyEmail = (email: string, otp: string) => call('POST', '/email-otp/verify-email', { email, otp })
+  const code = async (response: Response) => ((await response.json()) as { code?: string }).code
+  const verified = async (id: string) =>
+    (await one(`select email_verified from users where id = $1`, [id])).email_verified as boolean
+  const hasGoogle = async (id: string) =>
+    Number((await one(`select count(*)::int as n from accounts where user_id = $1 and provider_id <> 'credential'`, [id])).n) > 0
+
+  /** 不變條件（任一時刻、事後都要成立）。 */
+  async function assertInvariant(id: string) {
+    const noLogin = (await password(id)) === null && !(await hasGoogle(id))
+    if (noLogin) {
+      expect(await verified(id), '無登入方式卻已驗證').toBe(false)
+      expect(await sessionCount(id), '無登入方式卻有 session').toBe(0)
+    }
+  }
+
+  async function resumeWorks(email: string, id: string) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 121_000)
+    try {
+      const outcome = await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, wrapper.authCallHeaders({ ip: '203.0.113.93' }))
+      expect(outcome).toMatchObject({ kind: 'resume', email })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(await resume.isResumableSignup(app, id)).toBe(true)
+  }
+
+  describe('P1-1 清理 vs 公開驗碼', () => {
+    it('清理先 commit，再拿仍有效的碼驗：400 SIGNUP_RESUME_EXPIRED，帳號仍未驗證、沒密碼、可續辦（舊版：200、已驗證卻沒密碼的死帳號）', async () => {
+      const email = freshEmail('verify-after-scrub')
+      const id = await signUp(email, 8)
+      const otp = await latestOtp(email)
+      expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(1)
+
+      const response = await verifyEmail(email, otp)
+      expect(response.status).toBe(400)
+      expect(await code(response)).toBe('SIGNUP_RESUME_EXPIRED')
+      expect(await verified(id)).toBe(false)
+      expect(await password(id)).toBeNull()
+      await assertInvariant(id)
+      await resumeWorks(email, id)
+    })
+
+    it('驗碼已消耗驗證碼、停在找帳號那一步，清理插隊 commit：驗碼 400、帳號一致（Sol 探針的交錯點）', async () => {
+      const email = freshEmail('verify-paused-then-scrub')
+      const id = await signUp(email, 8)
+      const otp = await latestOtp(email)
+      const gate = pauseAt((await authContext()).internalAdapter, 'findUserByEmail', { when: (args) => args[0] === email })
+      try {
+        const verifying = verifyEmail(email, otp)
+        await gate.reached
+        // 碼已被套件消耗、帳號還沒標已驗證：清理此刻看到的是半成品，照清。
+        expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(1)
+        gate.release()
+        const response = await verifying
+        expect(response.status).toBe(400)
+        expect(await code(response)).toBe('SIGNUP_RESUME_EXPIRED')
+      } finally {
+        gate.restore()
+      }
+      expect(await verified(id)).toBe(false)
+      expect(await password(id)).toBeNull()
+      expect(await sessionCount(id)).toBe(0)
+      await assertInvariant(id)
+      await resumeWorks(email, id)
+    })
+
+    it('驗碼的鎖內確認已 commit、停在套件寫 users 之前，清理插隊：清理重驗看到已驗證 → 0；驗碼 200、密碼還在、能登入（舊版：清理清掉密碼 → 死帳號）', async () => {
+      const email = freshEmail('verify-locked-then-scrub')
+      const id = await signUp(email, 8)
+      const otp = await latestOtp(email)
+      const gate = pauseAt((await authContext()).adapter, 'update', {
+        when: (args) => (args[0] as { model?: string }).model === 'user',
+      })
+      try {
+        const verifying = verifyEmail(email, otp)
+        await gate.reached
+        expect(await verified(id)).toBe(true)
+        expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(0)
+        gate.release()
+        expect((await verifying).status).toBe(200)
+      } finally {
+        gate.restore()
+      }
+      expect(await verified(id)).toBe(true)
+      expect(await password(id)).not.toBeNull()
+      expect(await scrubAudits(id)).toEqual([])
+      expect((await signIn(email, P1)).status).toBe(200)
+      await assertInvariant(id)
+    })
+
+    it('兩邊同時搶同一把 users 列鎖：先到先贏——驗碼先 → 驗完、清理跳過；清理先 → 清掉、驗碼 400', async () => {
+      // 驗碼先排隊
+      {
+        const email = freshEmail('lock-verify-first')
+        const id = await signUp(email, 8)
+        const otp = await latestOtp(email)
+        const release = await holdUserRow(id)
+        let verifying!: Promise<Response>
+        let scrub!: Promise<number>
+        try {
+          verifying = verifyEmail(email, otp)
+          await waitForLockWaiters(VERIFY_HOOK_LOCK, 1)
+          scrub = cleanup.scrubStaleSignups(app, new Date())
+          await waitForLockWaiters(SCRUB_LOCK, 1)
+        } finally {
+          await release()
+        }
+        expect((await verifying).status).toBe(200)
+        expect(await scrub).toBe(0)
+        expect(await verified(id)).toBe(true)
+        expect(await password(id)).not.toBeNull()
+        await assertInvariant(id)
+      }
+      // 清理先排隊（舊版的鎖內確認把「鎖」與「讀登入方式」寫在同一句：等到鎖時快照已舊、看不到清理剛清掉的密碼 → 200）
+      {
+        const email = freshEmail('lock-scrub-first')
+        const id = await signUp(email, 8)
+        const otp = await latestOtp(email)
+        const release = await holdUserRow(id)
+        let verifying!: Promise<Response>
+        let scrub!: Promise<number>
+        try {
+          scrub = cleanup.scrubStaleSignups(app, new Date())
+          await waitForLockWaiters(SCRUB_LOCK, 1)
+          verifying = verifyEmail(email, otp)
+          await waitForLockWaiters(VERIFY_HOOK_LOCK, 1)
+        } finally {
+          await release()
+        }
+        expect(await scrub).toBe(1)
+        const response = await verifying
+        expect(response.status).toBe(400)
+        expect(await code(response)).toBe('SIGNUP_RESUME_EXPIRED')
+        expect(await verified(id)).toBe(false)
+        expect(await password(id)).toBeNull()
+        await assertInvariant(id)
+        await resumeWorks(email, id)
+      }
+    })
+
+    it('有 Google 的帳號不受影響：清理不碰它（不是候選），驗碼照常 200', async () => {
+      const email = freshEmail('verify-google')
+      const id = await signUp(email, 8)
+      await db.sql(
+        `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
+         values (gen_random_uuid(), 'g-vb14-verify', 'google', $1, now(), now())`,
+        [id],
+      )
+      const otp = await latestOtp(email)
+      expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(0)
+      expect((await verifyEmail(email, otp)).status).toBe(200)
+      expect(await verified(id)).toBe(true)
+    })
+  })
+
+  describe('P1-2 清理 vs 密碼登入', () => {
+    const noSessionCookie = (cookie: string) => expect(cookie).not.toMatch(/session_token=[^;]+/)
+
+    it('登入驗完舊雜湊、停在建 session 之前（Sol 探針），清理插隊 commit：401、沒發 cookie、0 個 session；下一輪清理 0、稽核 1 筆（舊版：200、拿到有效 session）', async () => {
+      const email = freshEmail('login-paused-then-scrub')
+      const id = await signUp(email, 8)
+      const gate = pauseAt((await authContext()).password, 'verify')
+      try {
+        const loggingIn = signIn(email, P1)
+        await gate.reached
+        expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(1)
+        gate.release()
+        const result = await loggingIn
+        expect(result.status).toBe(401)
+        noSessionCookie(result.cookie)
+      } finally {
+        gate.restore()
+      }
+      expect(await sessionCount(id)).toBe(0)
+      expect(await password(id)).toBeNull()
+      expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(0)
+      expect(await scrubAudits(id)).toHaveLength(1)
+      await assertInvariant(id)
+      await resumeWorks(email, id)
+    })
+
+    it('登入的 session 列已插、停在鎖內重驗之前，清理插隊 commit（清掉密碼、刪掉那列）：401、0 個 session', async () => {
+      const email = freshEmail('login-inserted-then-scrub')
+      const id = await signUp(email, 8)
+      const before = await sessionCount(id) // 註冊會順手登入一次
+      const gate = pauseAt((await authContext()).adapter, 'create', {
+        when: (args) => (args[0] as { model?: string }).model === 'session',
+        after: true,
+      })
+      try {
+        const loggingIn = signIn(email, P1)
+        await gate.reached
+        expect(await sessionCount(id)).toBe(before + 1)
+        expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(1)
+        expect(await sessionCount(id)).toBe(0)
+        gate.release()
+        const result = await loggingIn
+        expect(result.status).toBe(401)
+        noSessionCookie(result.cookie)
+      } finally {
+        gate.restore()
+      }
+      expect(await sessionCount(id)).toBe(0)
+      await assertInvariant(id)
+    })
+
+    it('兩邊同時搶同一把 users 列鎖：登入先 → 登入 200 但清理緊接著刪掉那個 session（cookie 查不到人）；清理先 → 401', async () => {
+      // 登入先排隊：鎖內重驗時密碼還在 → 保留；清理接著拿鎖 → 清密碼、刪 session。沒有任何時刻「無密碼卻有 session」。
+      {
+        const email = freshEmail('lock-login-first')
+        const id = await signUp(email, 8)
+        const release = await holdUserRow(id)
+        let loggingIn!: Promise<{ status: number; cookie: string }>
+        let scrub!: Promise<number>
+        try {
+          loggingIn = signIn(email, P1)
+          await waitForLockWaiters(SIGNIN_HOOK_LOCK, 1)
+          scrub = cleanup.scrubStaleSignups(app, new Date())
+          await waitForLockWaiters(SCRUB_LOCK, 1)
+        } finally {
+          await release()
+        }
+        const result = await loggingIn
+        expect(result.status).toBe(200)
+        expect(await scrub).toBe(1)
+        expect(await sessionCount(id)).toBe(0)
+        expect(await sessionUser(result.cookie)).toBeNull()
+        await assertInvariant(id)
+      }
+      // 清理先排隊
+      {
+        const email = freshEmail('lock-scrub-first-login')
+        const id = await signUp(email, 8)
+        const release = await holdUserRow(id)
+        let loggingIn!: Promise<{ status: number; cookie: string }>
+        let scrub!: Promise<number>
+        try {
+          scrub = cleanup.scrubStaleSignups(app, new Date())
+          await waitForLockWaiters(SCRUB_LOCK, 1)
+          loggingIn = signIn(email, P1)
+          await waitForLockWaiters(SIGNIN_HOOK_LOCK, 1)
+        } finally {
+          await release()
+        }
+        expect(await scrub).toBe(1)
+        const result = await loggingIn
+        expect(result.status).toBe(401)
+        noSessionCookie(result.cookie)
+        expect(await sessionCount(id)).toBe(0)
+        await assertInvariant(id)
+      }
+    })
+
+    it('登入停在建 session 之前，信箱主人這時用續辦換成新密碼 P2：舊密碼那次登入 401、0 個 session；P2 登入 200', async () => {
+      const email = freshEmail('login-vs-resume-finish')
+      const id = await signUp(email, 8)
+      const OTP = '975310'
+      const TICKET = 'vb14-ticket-login'
+      const context = await authContext()
+      const newHash = await context.password.hash(P2)
+      await db.sql(
+        `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
+         values (gen_random_uuid(), $1, $2, now() + interval '10 minutes', now() + interval '1 second', now())`,
+        [resume.emailOtpIdentifier(email), `${resume.hashSecret(OTP)}:0`],
+      )
+      await db.sql(
+        `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
+         values (gen_random_uuid(), $1, $2, now() + interval '10 minutes', now(), now())`,
+        [
+          resume.signupResumeIdentifier(email),
+          JSON.stringify({
+            userId: id,
+            passwordHash: newHash,
+            otpHash: resume.hashSecret(OTP),
+            ticketHash: resume.hashSecret(TICKET),
+            deadlineAt: Date.now() + 30 * 60_000,
+            windowEndAt: Date.now() + 10 * 60_000,
+          }),
+        ],
+      )
+      const gate = pauseAt(context.password, 'verify')
+      try {
+        const loggingIn = signIn(email, P1)
+        await gate.reached
+        expect(await resume.finishSignupResume(app, { email, otp: OTP, ticket: TICKET })).toMatchObject({ ok: true, userId: id })
+        gate.release()
+        const result = await loggingIn
+        expect(result.status).toBe(401)
+        noSessionCookie(result.cookie)
+      } finally {
+        gate.restore()
+      }
+      expect(await sessionCount(id)).toBe(0)
+      expect(await verified(id)).toBe(true)
+      expect((await signIn(email, P2)).status).toBe(200)
+    })
+
+    it('沒被清理的正常登入不受影響：200、session 保留、最後登入方式照記', async () => {
+      const email = freshEmail('login-normal')
+      const id = await signUp(email, 6)
+      const before = await sessionCount(id)
+      const result = await signIn(email, P1)
+      expect(result.status).toBe(200)
+      expect(await sessionUser(result.cookie)).toBe(email)
+      expect(await sessionCount(id)).toBe(before + 1)
+    })
   })
 })
 

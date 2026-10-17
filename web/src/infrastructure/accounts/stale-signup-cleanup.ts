@@ -19,6 +19,15 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
  * 跟續辦完成（`finishSignupResume`：advisory lock → users 列）搶同一列時排隊：續辦先 commit 的話，
  * 這邊鎖到之後重驗已不是半成品（`email_verified = true`）就跳過；這邊先 commit 的話，續辦接著把密碼換成新的。
  * 第二輪因為密碼已是 null 不會再選到，可以放心重跑。
+ *
+ * 跟 Better Auth 的兩個公開入口（Review 第 1 輪 P1）也靠同一把 users 列鎖排隊——套件的 hook 跟 adapter 寫入不在同一筆
+ * 交易，所以那兩條路各自在 hook 裡開自己的交易鎖同一列重驗（`signup-resume.ts` 的 `confirmEmailVerifiedUnderLock`、
+ * `revokeSessionUnlessPasswordCurrent`）：
+ * - 公開驗碼（`/email-otp/verify-email`）：hook 鎖到之後帳號還有登入方式才自己寫 `email_verified = true`；這邊先清掉密碼
+ *   的話它看到沒密碼就拒絕（回「請回第 1 步」，帳號仍可續辦）；它先寫的話這邊重驗看到已驗證就跳過。
+ * - 密碼登入（`/sign-in/email`）：session 列插完之後 hook 鎖到、用這次的明文重驗目前雜湊；這邊先清掉的話它看到 null 就刪掉
+ *   剛插的那列、回 401（cookie 從未發出）；它先 commit 的話這邊接著把全部 session 刪掉。
+ * 兩條路都只鎖 users 列（不取 advisory lock、不鎖 verifications），跟續辦的 `advisory(email) → users → verifications` 同向。
  */
 
 export const STALE_SIGNUP_DAYS = 7

@@ -391,10 +391,11 @@ function isMailFailed(error: unknown): boolean {
  * 同一個 Email 的續辦重寄在這個 process 裡**排隊**（VB-3 Review 第 3 輪 Sol P2）：後到的等先到的整段做完（看票、寄碼、
  * 還原或改綁）才開始。
  *
- * 為什麼要：hook 的 120 秒冷卻是「先 `count` 檢查、Turnstile 驗過之後才 `hit`」（auth-instance 的 `enforceOtpSendRate`），
+ * 為什麼要：hook 的 120 秒冷卻當時是「先 `count` 檢查、Turnstile 驗過之後才 `hit`」（auth-instance 的 `enforceOtpSendRate`），
  * 兩筆同時進來會**都**通過檢查，各寄一封、各插一列；一筆寄失敗先還原、另一筆隨後寄成功，還原會誤撤對方的碼。排隊之後
  * 第二筆輪到時冷卻已記過，在 hook 就被擋下（`RATE_LIMITED`），不打 Turnstile、不寄、不插列——第一筆寄失敗也一樣
- * （冷卻在寄信之前就記了，第 2 輪已接受）。hook 本身的競態是既有的（公開重寄也有）、不在這張票改。
+ * （冷卻在寄信之前就記了，第 2 輪已接受）。hook 那個競態已在 VB-14 改成「第一步就原子地占住冷卻、後面沒過關才放掉」，
+ * 公開重寄也一樣只放行一筆；這條隊留著是第二道（同一張票的兩筆在這裡就排開，連 hook 的 429 都不用吃）。
  *
  * 只排同一個 Email，不持有資料庫連線（`DB_POOL_MAX=1` 規則不變）；掛在 `globalThis` 跟 `sharedRateLimiter` 同理
  * （不同 chunk、測試重載模組都要是同一條隊）。app 單一 process（限速器也是這個前提）；多 process 時冷卻與這裡都要改成共用。
@@ -434,8 +435,9 @@ function queueSignupResumeResend<T>(email: string, fn: () => Promise<T>): Promis
  * 4. 寄失敗（`MAIL_FAILED`）→ 在鎖裡只撤掉快照之後插的那**一**列（`restoreSignupResumeOtp`：多於一列＝別條路交錯、分不出
  *    是誰的，一列都不刪），綁定與期限都不動，原本那封的碼仍能完成；回 `mail_failed`。被冷卻／限速／Turnstile 擋下的照舊
  *    丟出去，什麼都不動。
- * 5. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：要求這一次插的那列還在，綁最新那列、視窗重設成
- *    `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦。
+ * 5. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：快照之後**恰好一列**（就是這一次插、也確定寄出的那列）才綁它，
+ *    視窗重設成 `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦；多於一列（別條路在寄碼期間也插了）分不出哪列是自己的，
+ *    不改綁（對外仍回 `sent`，完成會拿到「已失效」，再重寄一次就綁得上）——不綁「全域最新」，免得綁到一封沒寄出的碼。
  *
  * 錯誤次數：每一封新碼照套件規則各自有 5 次（`allowedAttempts`）；總嘗試次數仍受 `otpVerify` 桶
  * （每個 Email 10 分鐘 10 次、每個 IP 每小時 60 次）與寄碼上限約束，不會因為重寄變成無限次。
