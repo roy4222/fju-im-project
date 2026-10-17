@@ -241,6 +241,10 @@
     "baseline": 222,
     "limit": 245
   },
+  "/privacy": {
+    "baseline": 222,
+    "limit": 245
+  },
   "/projects": {
     "baseline": 224.6,
     "limit": 248
@@ -257,9 +261,17 @@
     "baseline": 226.1,
     "limit": 249
   },
+  "/register/apply": {
+    "baseline": 228.1,
+    "limit": 250
+  },
   "/register/pending": {
     "baseline": 225.4,
     "limit": 248
+  },
+  "/register/verify": {
+    "baseline": 228.9,
+    "limit": 250
   },
   "/reset-password": {
     "baseline": 228.9,

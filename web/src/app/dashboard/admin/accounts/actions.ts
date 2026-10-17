@@ -27,6 +27,8 @@ import {
   getRosterCommand,
   resolveActor,
 } from '@/composition/accounts'
+import { currentActor } from '@/app/_ui/guard'
+import { getAvatarCommand } from '@/composition/avatars'
 import { isSecretOnce, type Result } from '@/shared/result'
 
 /**
@@ -444,4 +446,18 @@ export async function repairOrphanAction(
   const role = input?.role === 'teacher' || input?.role === 'admin' ? input.role : ''
   const actor = await resolveActor(await headers())
   return toOutcome(await getAccountCommand().repairOrphan(actor, roleInput(input, role)))
+}
+
+// ── 重設頭像（AD-B2） ─────────────────────────────────────────────────────────
+//
+// 授權（只有系辦）、理由去頭尾空白後 1～200 字、目標帳號狀態都在用例裡再判一次。
+// 這裡只擋型別；理由不 trim、不截斷，交給用例判。
+
+export async function resetAvatarAction(userId: string, reason: string): Promise<ActionOutcome<null>> {
+  const id = text(userId, 100)
+  const why = text(reason, 2000)
+  if (id === null || why === null) return { ok: false, code: 'VALIDATION_FAILED', message: '請填理由（200 字以內）。', field: 'reason' }
+  const outcome = toOutcome(await getAvatarCommand().resetAvatar(await currentActor(), id, why))
+  if (outcome.ok) revalidatePath('/dashboard/admin/accounts')
+  return outcome.ok ? { ok: true, data: null } : outcome
 }

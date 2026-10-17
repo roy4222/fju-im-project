@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { fillItemBody } from './item-body'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -232,7 +233,7 @@ test('系辦發布五種對象的公告（組別與本屆勾「重要」）、�
   // 本屆學生、個人一份的收件（完整編輯器）。
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
-  await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
+  await fillItemBody(page, '請上傳期中報告 PDF。')
   await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
   await page.getByLabel('誰看得到').selectOption('cohort_students')

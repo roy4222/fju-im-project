@@ -550,7 +550,7 @@ describe('孤兒帳號（票 10b）', () => {
 
     // 一般列表也標得出來。
     const all = await command.list(adminActor(), filter({ q: orphanEmail }))
-    expect(all.ok && all.receipt.rows[0]).toMatchObject({ userId: orphan.userId, orphan: true })
+    expect(all.ok && all.receipt.rows[0]).toMatchObject({ userId: orphan.userId, orphan: true, avatarPreset: null, avatarFileId: null })
 
     const summary = await command.summary(adminActor())
     expect(summary.ok && summary.receipt.orphans).toBe(listed.receipt.total)

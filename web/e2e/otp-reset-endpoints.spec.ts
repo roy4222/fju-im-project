@@ -97,16 +97,14 @@ test.describe('有 Turnstile 金鑰：寄信端點沒 token 一律 400（AC-VI-6
     expect(response.status()).toBe(401)
   })
 
-  test('註冊頁（尚未掛 widget）送出：Server Action 那條一樣被擋，畫面「請完成人機驗證。」', async ({ page }) => {
+  test('註冊頁沒拿到 token 就送出：Server Action 那條一樣被擋，畫面「請完成人機驗證。」', async ({ page }) => {
+    // VB-3 已在第 1 步掛 widget；擋掉 Cloudflare，widget 就拿不到 token（隱藏欄是空的）。
+    await page.route('https://challenges.cloudflare.com/**', (route) => route.abort())
     await page.goto('/register')
-    await page.getByLabel('姓名').fill('人機驗證測試')
-    await page.getByLabel('學號').fill('411499001')
-    await page.getByLabel('系級').fill('資管二甲')
-    await page.getByLabel('手機').fill('0912-345-678')
-    await page.getByLabel('登入 Email').fill(`vb2-e2e-ts-form-${run}@example.com`)
+    await page.getByLabel('Email', { exact: true }).fill(`vb2-e2e-ts-form-${run}@example.com`)
     await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
     await page.getByLabel('確認密碼').fill(PASSWORD)
-    await page.getByRole('button', { name: '送出註冊' }).click()
+    await page.getByRole('button', { name: '建立帳號' }).click()
     await expect(page.getByText('請完成人機驗證。')).toBeVisible()
     await expect(page).toHaveURL(/\/register$/)
   })
@@ -118,14 +116,10 @@ test.describe('驗證信寄不出去（AC-VI-76 畫面段）', () => {
   test('註冊頁送出 → 「驗證信寄不出去，請稍後再試。」；mail_outbox 一列 failed、不存內文', async ({ page }) => {
     const email = `vb2-e2e-mailfail-${run}@example.com`
     await page.goto('/register')
-    await page.getByLabel('姓名').fill('寄信失敗測試')
-    await page.getByLabel('學號').fill('411499002')
-    await page.getByLabel('系級').fill('資管二甲')
-    await page.getByLabel('手機').fill('0912-345-678')
-    await page.getByLabel('登入 Email').fill(email)
+    await page.getByLabel('Email', { exact: true }).fill(email)
     await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
     await page.getByLabel('確認密碼').fill(PASSWORD)
-    await page.getByRole('button', { name: '送出註冊' }).click()
+    await page.getByRole('button', { name: '建立帳號' }).click()
     await expect(page.getByText('驗證信寄不出去，請稍後再試。')).toBeVisible()
     await page.screenshot({ path: process.env.E2E_SCREENSHOT ?? 'e2e/.artifacts/vb2-mail-fail.png', fullPage: true })
 
