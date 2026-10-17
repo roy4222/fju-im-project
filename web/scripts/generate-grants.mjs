@@ -41,6 +41,7 @@ const MIGRATION_BY_SLICE = {
   T39: 'drizzle/0011_t39_showcase_stage_fields.sql',
   W0: 'drizzle/0012_wave3_delete_home.sql',
   VB1: 'drizzle/0015_vb_mail_outbox_and_google_match.sql',
+  B17: 'drizzle/0017_te_b2a_grade_settlements.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'

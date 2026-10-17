@@ -205,6 +205,8 @@ export const evaluations = pgTable(
       .notNull()
       .references(() => gradingSchemeVersions.id, restrict),
     scores: jsonb('scores').notNull(),
+    /** 評語（B 階段 TE-B4；遷移 0018）：跟分數同一次寫入、隨列帶；空字串存成 null，最多 500 字。 */
+    comment: text('comment'),
     submittedRealAt: timestamp('submitted_real_at', tz).notNull(),
     submittedBusinessAt: timestamp('submitted_business_at', tz).notNull(),
     requestId: uuid('request_id').notNull(),
@@ -213,6 +215,7 @@ export const evaluations = pgTable(
     index('evaluations_assignment_idx').on(t.assignmentId, t.submittedRealAt),
     check('evaluations_kind_check', sql`${t.kind} in ('draft','final')`),
     check('evaluations_scores_check', sql`jsonb_typeof(${t.scores}) = 'object'`),
+    check('evaluations_comment_length_check', sql`${t.comment} is null or char_length(${t.comment}) <= 500`),
   ],
 )
 
@@ -315,5 +318,49 @@ export const overrideReviewState = pgTable(
   (t) => [
     check('override_review_state_state_check', sql`${t.state} in ('effective','pending_review','superseded')`),
     check('override_review_state_revision_check', sql`${t.revision} >= 1`),
+  ],
+)
+
+/**
+ * 系辦結算（B 階段 TE-B2a；遷移 0017、切片 B17）：一屆一個評分階段一筆現行結算。現行＝`released_at is null`，
+ * 部分唯一保證同屆同階段同時只有一筆現行；解除只填解除三欄（一起填或一起空），結算列本身不刪。
+ * 階段名不落表（讀的時候從目前方案版本找 `stage_key`）。結算期間老師不能暫存、送出、重送（用例在方案頭列鎖內查）。
+ */
+export const gradeSettlements = pgTable(
+  'grade_settlements',
+  {
+    id: uuid('id').primaryKey(),
+    cohortId: uuid('cohort_id')
+      .notNull()
+      .references(() => cohorts.id, restrict),
+    stageKey: text('stage_key').notNull(),
+    settledAt: timestamp('settled_at', tz).notNull(),
+    settledByUserId: uuid('settled_by_user_id')
+      .notNull()
+      .references(() => users.id, restrict),
+    reason: text('reason').notNull(),
+    /** 結算當下該屆該階段的採計份數。 */
+    countedEvaluations: integer('counted_evaluations').notNull(),
+    releasedAt: timestamp('released_at', tz),
+    releasedByUserId: uuid('released_by_user_id').references(() => users.id, restrict),
+    releaseReason: text('release_reason'),
+    requestId: text('request_id').notNull(),
+    createdAt: timestamp('created_at', tz).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('grade_settlements_active_one')
+      .on(t.cohortId, t.stageKey)
+      .where(sql`${t.releasedAt} is null`),
+    index('grade_settlements_cohort_idx').on(t.cohortId, t.settledAt.desc()),
+    check('grade_settlements_reason_check', sql`char_length(${t.reason}) between 1 and 500`),
+    check('grade_settlements_counted_check', sql`${t.countedEvaluations} >= 0`),
+    check(
+      'grade_settlements_release_reason_check',
+      sql`${t.releaseReason} is null or char_length(${t.releaseReason}) between 1 and 500`,
+    ),
+    check(
+      'grade_settlements_released_check',
+      sql`(${t.releasedAt} is null) = (${t.releasedByUserId} is null) and (${t.releasedAt} is null) = (${t.releaseReason} is null)`,
+    ),
   ],
 )
