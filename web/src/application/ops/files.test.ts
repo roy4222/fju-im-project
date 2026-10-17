@@ -156,6 +156,13 @@ describe('檔名與路徑', () => {
     expect(tricky.startsWith('attachment; filename="')).toBe(true)
     expect(tricky).toContain("filename*=UTF-8''")
   })
+
+  it('預覽路由（A-06）可以要 inline；檔名編碼與標頭注入的防護不變', () => {
+    expect(contentDispositionFor('報告.pdf', 'inline')).toBe(`inline; filename="__.pdf"; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf`)
+    const tricky = contentDispositionFor('a"\r\nSet-Cookie: x=1;.pdf', 'inline')
+    expect(tricky).not.toMatch(/[\r\n]/)
+    expect(tricky.startsWith('inline; filename="')).toBe(true)
+  })
 })
 
 describe('公開圖片可快取（V4，設計方案 §3.4）', () => {

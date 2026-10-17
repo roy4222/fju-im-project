@@ -31,7 +31,7 @@ describe('CSP 指令與契約 03 §6 一致（T2 方案 A）', () => {
       "'self' blob: data: https://i.ytimg.com https://*.google-analytics.com https://*.googletagmanager.com",
     )
     expect(directive(csp, 'font-src')).toBe("'self'")
-    expect(directive(csp, 'frame-src')).toBe('https://www.youtube.com https://challenges.cloudflare.com')
+    expect(directive(csp, 'frame-src')).toBe("'self' https://www.youtube.com https://challenges.cloudflare.com")
     expect(directive(csp, 'connect-src')).toBe(
       "'self' https://challenges.cloudflare.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
     )
