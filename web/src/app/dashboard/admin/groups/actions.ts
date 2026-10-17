@@ -3,18 +3,22 @@ import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { AdminGroupActionState } from '@/app/dashboard/admin/groups/admin-group-forms'
 import type { BatchActionOutcome } from '@/app/dashboard/admin/groups/advisor-forms'
+import type { LinkOptionsOutcome } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import type { AdvisorBatchPreview, AdvisorBatchReceipt, AdvisorUploadTicket } from '@/application/groups'
+import { actorHasRole, checkStatus } from '@/composition/accounts'
 import { describeGroupingSettingsReceipt, getCohortCommand } from '@/composition/cohorts'
 import {
   describeAdvisorBatchReceipt,
   describeAdvisorChangeReceipt,
   describeGroupTypeReceipt,
   describeLeaderChangeReceipt,
+  describeLinkReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,
   getAdvisorCommand,
   getGroupCommand,
   getOpportunityCommand,
+  getOpportunityQuery,
 } from '@/composition/groups'
 import type { Result } from '@/shared/result'
 
@@ -223,4 +227,44 @@ export async function changeGroupTypeAdminAction(
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeGroupTypeReceipt(result.receipt) }
+}
+
+// ── 把組別連到合作案（AD-06，設計方案 §3.3.1）──────────────────────────────────
+// 這兩個動作只給系辦：守衛寫在 action 本身，不靠 `linkOptions` 的角色規則（它對老師也回資料），
+// 也不讓組長拿系辦頁的動作去連（組長走學生頁自己的動作）。組別屆別是否還能寫（封存、唯讀）、
+// 只限產學組、版本過期、首次理由選填／換案理由必填，全部照用例 `link()` 判，失敗訊息照原字回。
+
+const LINK_FORBIDDEN = '只有系辦可以在這裡連結合作案。'
+/** 對話框一頁幾筆；頁面初始選項也用同一個數（page.tsx）。 */
+const LINK_OPTIONS_PAGE = 50
+
+function isAdmin(actor: Awaited<ReturnType<typeof currentActor>>): boolean {
+  return actorHasRole(actor, 'admin') && checkStatus(actor, 'business') === null
+}
+
+export async function linkOpportunityAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: LINK_FORBIDDEN }
+  const result = await getOpportunityCommand().link(
+    actor,
+    {
+      groupId: text(formData, 'groupId'),
+      revision: whole(formData, 'revision'),
+      opportunityId: text(formData, 'opportunityId'),
+      reason: text(formData, 'reason'),
+    },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeLinkReceipt(result.receipt) }
+}
+
+/** 對話框的搜尋與下一頁：每次一頁 50 筆（回傳剛好 50 筆時對話框才顯示「下一頁」）。 */
+export async function searchLinkOptionsAction(input: { q: string; offset: number }): Promise<LinkOptionsOutcome> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, code: 'FORBIDDEN', message: LINK_FORBIDDEN }
+  const q = typeof input?.q === 'string' ? input.q.slice(0, 100) : ''
+  const offset = typeof input?.offset === 'number' && Number.isInteger(input.offset) && input.offset > 0 ? input.offset : 0
+  return { ok: true, options: await getOpportunityQuery().linkOptions(actor, { q, limit: LINK_OPTIONS_PAGE, offset }) }
 }
