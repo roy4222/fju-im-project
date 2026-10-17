@@ -144,13 +144,13 @@
 
 ## 學生後台（原型 `/dashboard/student/…`；測試站用 `student` 工作階段；第 4 步不通過就全部略過）
 
-31. **學生首頁（含行事曆）**：`/dashboard/student`（`student-home`）
-32. **我的組別**：`/dashboard/student/groups`（`student-groups`）。**不要按「公開找組員」或發起提案。**這一輪的學生是新建的、**未分組**，測試站會看到「發起提案」表單，原型的學生已經在組裡（座位卡＋找組員）——兩邊資料狀態不同是預期的（主控台裁定）。**只比外框與版型元件**：側欄、頂列、頁標題、Panel 卡片、表單輸入框、按鈕、pill 的樣式；不比區塊內容與排列（已分組的版型以 #291 的截圖為準）。組別類型與提案紀錄見 K20。
-33. **作業區**：`/dashboard/student/affairs`（`student-affairs`）
-34. **成績**：`/dashboard/student/grading`（`student-grading`）
-35. **通知匣**：`/dashboard/student/inbox`（`student-inbox`）
-36. **專題時間軸**：`/dashboard/student/timeline`（`student-timeline`；票 38 新頁）。點一下目前階段以外的一張卡片看展開，再點回來。
-37. **作業內容**：作業區有收件的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
+31. **學生首頁**：`/dashboard/student`（`student-home`；2026-10-15 Q71 改成「現在」橫幅＋待辦卡＋公告，沒有行事曆）
+32. **組別**：`/dashboard/student/groups`（`student-groups`）。**不要按「公開找組員」或發起提案。**這一輪的學生是新建的、**未分組**，測試站會看到「發起提案」表單，原型的學生已經在組裡（座位卡＋找組員）——兩邊資料狀態不同是預期的（主控台裁定）。**只比外框與版型元件**：側欄、頂列、頁標題、Panel 卡片、表單輸入框、按鈕、pill 的樣式；不比區塊內容與排列（已分組的版型以 #291 的截圖為準）。組別類型與提案紀錄見 K20。
+33. **交作業**：`/dashboard/student/affairs`（`student-affairs`；卡片＋三個篩選，Q71）
+34. **成績**：`/dashboard/student/grading`（`student-grading`；2026-10-15 Q126 起轉回學生首頁，只截轉址結果）
+35. **通知匣**：`/dashboard/student/inbox`（`student-inbox`；側欄不再有入口，從鈴鐺進）
+36. **專題時程**：`/dashboard/student/timeline` 會轉到前台 `/timeline`（`student-timeline`；2026-10-15 Q85 改、ST-6）。截階段軌與整月行事曆，切一次下一月再切回來。
+37. **作業內容**：交作業有卡片的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
 38. **產學合作**：`/dashboard/student/industry`（`student-industry`；票 38 新頁）
 39. **同意書**：`/dashboard/student/signoff`（`student-signoff`）。**不要勾「已完整閱讀」或按同意／不同意。**
 
