@@ -133,12 +133,36 @@ type Deps = {
 }
 
 /**
- * 規則章節的新位置（A-14）：放到同屆規則的最後（`max+1`，同屆第一章是 1）。建立規則時用；存草稿把位置換成規則時
- * 也用（原本已有位置就保留，換離規則就清成 NULL）。同時建立兩章可能拿到同一個號，`moveRule` 遇到會整屆重編。
+ * 規則章節位置（A-14；Q198）的鎖與重編。
+ *
+ * 會改變「同屆規則集合」或位置的路徑——建立規則、存草稿換進／換出規則、刪除規則、上下移——**在取任何項目列鎖之前**
+ * 先拿這一屆的 advisory lock（`items.rules:<屆別>`），之後才是屆別（共享）→ 項目列。同屆這幾條路徑因此排隊：
+ * 並行把兩筆草稿改成規則不會拿到同一個號，移動時集合也不會被別人改掉。編輯規則內容、發布、撤回、下架不改集合，不拿這把鎖。
+ *
+ * 位置一律在這把鎖下整屆重編成 1..n（順序 `rules_position asc nulls last, actual_opened_at asc, id asc`，
+ * 跟前台、系辦清單同一個）：NULL、重複、缺號（刪掉中間一章）都在同一筆交易裡收掉。新加入的規則位置是 NULL，重編後排最後。
  */
-function nextRulesPosition(cohortId: string): string {
-  return `(select coalesce(max(o.rules_position), 0) + 1 from managed_items o
-            where o.cohort_id = ${cohortId} and o.placement = 'rules' and o.deleted_at is null)`
+async function lockRules(tx: PoolClient, cohortId: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended('items.rules:' || $1::uuid::text, 0))`, [cohortId])
+}
+
+async function renumberRules(tx: PoolClient, cohortId: string): Promise<void> {
+  await tx.query(
+    `update managed_items m set rules_position = v.pos
+       from (select id, row_number() over (order by rules_position asc nulls last, actual_opened_at asc, id asc) as pos
+               from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null) v
+      where m.id = v.id and m.rules_position is distinct from v.pos`,
+    [cohortId],
+  )
+}
+
+/** 不加鎖先讀項目的屆別與位置（屆別建立後不會換），決定要不要先拿規則鎖。 */
+async function headOf(tx: PoolClient, itemId: string): Promise<{ cohort_id: string; placement: string } | null> {
+  const head = await tx.query<{ cohort_id: string; placement: string }>(
+    'select cohort_id, placement from managed_items where id = $1',
+    [itemId],
+  )
+  return head.rows[0] ?? null
 }
 
 function itemNotFound(): Err {
@@ -221,6 +245,7 @@ export class PgItemCommand implements ItemCommand {
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
+      if (draft.placement === 'rules' && isUuid(draft.cohortId)) await lockRules(tx, draft.cohortId)
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [draft.cohortId])
       if (!cohort.rows[0]) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
 
@@ -249,10 +274,9 @@ export class PgItemCommand implements ItemCommand {
            (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, due_at,
             title, summary, body_html, cover_file_id, category, draft_schema,
             created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id,
-            registration_deadline, event_date, awarded_on, rules_position)
+            registration_deadline, event_date, awarded_on)
          values ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11, $12, $13, $14::jsonb,
-                 $15, 'user', $16, $15, $16, $17, $18, $19,
-                 case when $3 = 'rules' then ${nextRulesPosition('$2')} end)`,
+                 $15, 'user', $16, $15, $16, $17, $18, $19)`,
         [
           itemId,
           draft.cohortId,
@@ -275,6 +299,8 @@ export class PgItemCommand implements ItemCommand {
           draft.awardedOn,
         ],
       )
+      // 新規則排到同屆最後（位置 NULL → 重編成 n）。
+      if (draft.placement === 'rules') await renumberRules(tx, draft.cohortId)
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
       const files = await this.#syncFiles(tx, itemId, userId, { attachments: [], cover: null }, draft)
       if (files) return files
@@ -316,9 +342,15 @@ export class PgItemCommand implements ItemCommand {
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
+      // 換進或換出規則會改同屆規則集合：先拿規則鎖再鎖項目（鎖序見 `lockRules`）。
+      const head = await headOf(tx, itemId)
+      const rulesLocked = head !== null && (head.placement === 'rules' || draft.placement === 'rules')
+      if (rulesLocked) await lockRules(tx, head.cohort_id)
       const locked = await this.#lock(tx, itemId)
       if (!locked) return itemNotFound()
       const { item } = locked
+      // 不加鎖讀到之後、鎖到之前有人把它換成規則（那時 revision 也一定變了，下面照樣會擋）；保險起見不在沒鎖時動集合。
+      if (!rulesLocked && item.placement === 'rules') return staleRevision()
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -346,6 +378,8 @@ export class PgItemCommand implements ItemCommand {
       const files = await this.#syncFiles(tx, itemId, userId, { attachments: locked.attachmentIds, cover: item.cover_file_id }, draft)
       if (files) return files
       await this.#writeHead(tx, itemId, draft, userId, realAt)
+      // 換進規則 → 排到最後；換出規則 → 位置已清掉，其餘的補成連號。
+      if (rulesLocked && item.placement !== draft.placement) await renumberRules(tx, item.cohort_id)
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
 
       await this.#audit.append(tx, {
@@ -1090,9 +1124,14 @@ export class PgItemCommand implements ItemCommand {
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
+      // 刪掉規則會留下缺號：先拿規則鎖再鎖項目（鎖序見 `lockRules`），刪完同一筆交易補成連號。
+      const head = await headOf(tx, itemId)
+      const rulesLocked = head?.placement === 'rules'
+      if (rulesLocked) await lockRules(tx, head.cohort_id)
       const locked = await this.#lock(tx, itemId, { includeDeleted: true })
       if (!locked) return itemNotFound()
       const { item } = locked
+      if (!rulesLocked && item.placement === 'rules') return staleRevision()
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -1125,10 +1164,12 @@ export class PgItemCommand implements ItemCommand {
       }
       await tx.query(
         `update managed_items
-            set deleted_at = $2, deleted_by_user_id = $3, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+            set deleted_at = $2, deleted_by_user_id = $3, revision = revision + 1, updated_at = $2, updated_by_user_id = $3,
+                rules_position = null
           where id = $1`,
         [itemId, realAt, userId],
       )
+      if (rulesLocked) await renumberRules(tx, item.cohort_id)
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: userId,
@@ -1225,9 +1266,9 @@ export class PgItemCommand implements ItemCommand {
    * 規則章節上移／下移：跟同屆、placement rules、未刪除（含草稿、已下架）的項目中排在緊鄰的那一筆交換位置。
    * 排序跟前台 `/rules`、系辦「規則」篩選同一個：`rules_position asc nulls last, actual_opened_at asc, id asc`。
    *
-   * 鎖：屆別（共享）→ 同屆全部規則列依 id 排序 `FOR UPDATE`（包含要交換的兩列；兩個人同時移相鄰兩章時鎖序一致、
-   * 不會互鎖）。兩列都有位置而且不同 → 只交換這兩列；有 NULL（舊資料、換位置的草稿）或同號（同時建立）→ 照移完的
-   * 順序整屆重編 1..n，之後就是乾淨的序列。跟置頂一樣是展示動作：不動 `revision`、`updated_at`，不切版本、不發事件。
+   * 鎖序（見 `lockRules`）：規則鎖（這一屆）→ 屆別（共享）→ 項目列。規則鎖下集合不會被別人改，先整屆重編成 1..n
+   * （有 NULL、重複或缺號時才會真的改到列），再把自己跟完整序列裡的相鄰那一筆交換——所以一定只跨一章、回報的章次就是
+   * 移完的實際位置。跟置頂一樣是展示動作：不動 `revision`、`updated_at`，不切版本、不發事件。
    */
   async moveRule(
     actor: ResolvedActor,
@@ -1244,15 +1285,11 @@ export class PgItemCommand implements ItemCommand {
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
-      // 屆別建立後不會換（存草稿擋），先不加鎖讀出來，才能照鎖序先鎖屆別。
-      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
-      const cohortId = head.rows[0]?.cohort_id
-      if (!cohortId) return itemNotFound()
+      const head = await headOf(tx, itemId)
+      if (!head) return itemNotFound()
+      const cohortId = head.cohort_id
+      await lockRules(tx, cohortId)
       const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
-      await tx.query(
-        `select id from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by id for update`,
-        [cohortId],
-      )
       const found = await tx.query<{ id: string; title: string; placement: string }>(
         'select id, title, placement from managed_items where id = $1 and deleted_at is null for update',
         [itemId],
@@ -1277,40 +1314,25 @@ export class PgItemCommand implements ItemCommand {
       if (archivedBlocks(cohort.rows[0].status, item.placement)) return cohortArchived()
       if (item.placement !== 'rules') return err('VALIDATION_FAILED', '只有專題規則能調整章節順序。')
 
-      const siblings = await tx.query<{ id: string; rules_position: number | null }>(
-        `select id, rules_position from managed_items
-          where cohort_id = $1 and placement = 'rules' and deleted_at is null
-          order by rules_position asc nulls last, actual_opened_at asc, id asc`,
+      await renumberRules(tx, cohortId)
+      const siblings = await tx.query<{ id: string }>(
+        `select id from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by rules_position`,
         [cohortId],
       )
-      const order = siblings.rows
-      const index = order.findIndex((r) => r.id === itemId)
+      const order = siblings.rows.map((r) => r.id)
+      const index = order.indexOf(itemId)
       const target = direction === 'up' ? index - 1 : index + 1
       if (target < 0) return err('VALIDATION_FAILED', '已經在最上面了。')
       if (target >= order.length) return err('VALIDATION_FAILED', '已經在最下面了。')
 
-      const self = order[index]!
-      const neighbor = order[target]!
-      const before = order.map((r) => r.id)
-      let position: number
-      if (self.rules_position !== null && neighbor.rules_position !== null && self.rules_position !== neighbor.rules_position) {
-        await tx.query(
-          `update managed_items m set rules_position = v.pos
-             from (values ($1::uuid, $2::int), ($3::uuid, $4::int)) as v(id, pos) where m.id = v.id`,
-          [self.id, neighbor.rules_position, neighbor.id, self.rules_position],
-        )
-        position = neighbor.rules_position
-      } else {
-        const moved = [...before]
-        moved[index] = neighbor.id
-        moved[target] = self.id
-        await tx.query(
-          `update managed_items m set rules_position = v.pos
-             from unnest($1::uuid[]) with ordinality as v(id, pos) where m.id = v.id`,
-          [moved],
-        )
-        position = target + 1
-      }
+      // 重編後位置＝序列索引＋1：自己拿 target+1、鄰居拿 index+1。
+      const neighborId = order[target]!
+      await tx.query(
+        `update managed_items m set rules_position = v.pos
+           from (values ($1::uuid, $2::int), ($3::uuid, $4::int)) as v(id, pos) where m.id = v.id`,
+        [itemId, target + 1, neighborId, index + 1],
+      )
+      const position = target + 1
 
       await this.#audit.append(tx, {
         actorKind: 'user',
@@ -1323,7 +1345,7 @@ export class PgItemCommand implements ItemCommand {
         cohortId,
         realAt,
         businessAt,
-        payload: { title: item.title, direction, swappedWith: neighbor.id, positionBefore: self.rules_position, positionAfter: position },
+        payload: { title: item.title, direction, swappedWith: neighborId, positionBefore: index + 1, positionAfter: position },
       })
       const receipt = { itemId, title: item.title, position, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
@@ -1434,8 +1456,7 @@ export class PgItemCommand implements ItemCommand {
               title = $8, summary = $9, body_html = $10, cover_file_id = $11, category = $12, draft_schema = $13::jsonb,
               deadline_version = coalesce($14, deadline_version),
               registration_deadline = $17, event_date = $18, awarded_on = $19,
-              rules_position = case when $2 = 'rules'
-                                    then coalesce(rules_position, ${nextRulesPosition('managed_items.cohort_id')}) end,
+              rules_position = case when $2 = 'rules' then rules_position end,
               revision = revision + 1, updated_at = $15, updated_by_user_id = $16
         where id = $1`,
       [

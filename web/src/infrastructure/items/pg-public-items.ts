@@ -68,10 +68,11 @@ type Row = {
   event_date: string | null
   awarded_on: string | null
   pinned_at: Date | null
+  rules_position: number | null
 }
 
 const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id, m.receiver_unit,
-       m.cover_file_id, m.actual_opened_at, m.pinned_at,
+       m.cover_file_id, m.actual_opened_at, m.pinned_at, m.rules_position,
        to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline,
        to_char(m.event_date, 'YYYY-MM-DD') as event_date,
        to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on,
@@ -135,13 +136,30 @@ const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
 }
 
 /**
- * 規則章節（A-14；Q198）不看 `order`：屆內照系辦排的位置（`rules_position asc nulls last, actual_opened_at asc, id asc`，
- * 跟系辦「規則」篩選、`moveRule` 的鄰居同一個順序）。位置是各屆從 1 編，前台卻會列出所有屆別看得到的規則，
- * 所以先按屆別分段（該屆最早發布的那章在前）——不然兩屆的第 1 章、第 2 章會交錯。只有一屆時就是位置序；
- * 舊資料遷移時已依實際開放時間回填，所以沒人動過時跟原本的 `oldest` 一樣。
+ * 規則章節（A-14；Q198）不看 `order`。前台會列出所有屆別看得到的規則，位置卻是各屆從 1 編，所以分兩步：
+ * 1. **槽位**照遷移前的排法（實際開放時間、id）決定——第 k 個槽位屬於哪一屆，跟以前一模一樣；
+ * 2. 每一屆的章節照系辦排的位置（`rules_position asc nulls last, actual_opened_at asc, id asc`，跟系辦清單、`moveRule`
+ *    同一個順序）依序填回**該屆**的槽位。
+ * 回填後各屆位置就是時間序，所以沒人動過時整份順序跟遷移前完全一致（AC-A-40，跨屆交錯也一樣）；系辦移動只換該屆
+ * 自己槽位裡的章節，不會跑到別屆的位置。只有一屆時就是位置序。
  */
-const RULES_ORDER_SQL =
-  'min(m.actual_opened_at) over (partition by m.cohort_id) asc, m.cohort_id, m.rules_position asc nulls last, m.actual_opened_at asc, m.id asc'
+function rulesOrder<R extends Row>(rows: readonly R[]): R[] {
+  const bySlot = [...rows].sort((a, b) => compareOpened(a, b) || compareId(a, b))
+  const queues = new Map<string, R[]>()
+  for (const r of bySlot) queues.set(r.cohort_id, [...(queues.get(r.cohort_id) ?? []), r])
+  for (const queue of queues.values()) {
+    queue.sort((a, b) => (a.rules_position ?? Infinity) - (b.rules_position ?? Infinity) || compareOpened(a, b) || compareId(a, b))
+  }
+  return bySlot.map((slot) => queues.get(slot.cohort_id)!.shift()!)
+}
+
+function compareOpened(a: Row, b: Row): number {
+  return (a.actual_opened_at?.getTime() ?? Infinity) - (b.actual_opened_at?.getTime() ?? Infinity) || 0
+}
+
+function compareId(a: Row, b: Row): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
 
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
 function likePattern(q: string): string {
@@ -205,16 +223,19 @@ export class PgPublicItemQuery implements PublicItemQuery {
     values.push(...audience.values)
     where.push(audience.sql)
     const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? DEFAULT_LIMIT)), MAX_LIMIT)
-    values.push(limit)
+    // 規則要整份讀出來才排得出槽位（`rulesOrder`），排完再截；規則只有幾章。
+    const rules = placement === 'rules'
+    values.push(rules ? MAX_LIMIT : limit)
 
     const rows = await db.query<Row & { body_html: string }>(
       `select ${COLUMNS}, m.body_html from managed_items m
         where ${where.join(' and ')}
-        order by ${placement === 'rules' ? RULES_ORDER_SQL : ORDER_SQL[filter.order ?? 'newest']}
+        order by ${rules ? ORDER_SQL.oldest : ORDER_SQL[filter.order ?? 'newest']}
         limit $${values.length}`,
       values,
     )
-    return rows.rows.filter((r) => canViewItem(viewer, visibilityOf(r)))
+    const visible = rows.rows.filter((r) => canViewItem(viewer, visibilityOf(r)))
+    return rules ? rulesOrder(visible).slice(0, limit) : visible
   }
 
   async categories(actor: ResolvedActor, placement: Placement): Promise<string[]> {
