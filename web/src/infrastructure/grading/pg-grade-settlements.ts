@@ -15,7 +15,7 @@ import {
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { authorizeAdmin, badRequestId, cohortNotFound, inTransaction, replayed, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
-import { archived, isUuid, lockCohort, noScheme, stageOf } from '@/infrastructure/grading/pg-grading'
+import { archived, isUuid, lockCohort, noScheme, okList, stageOf } from '@/infrastructure/grading/pg-grading'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
@@ -364,9 +364,6 @@ export class PgGradingSettlementQuery implements GradingSettlementQuery {
       db.query<SettlementRow>(`${SETTLEMENT_SELECT} where gs.cohort_id = $1 order by gs.settled_at desc, gs.id desc`, [cohortId]),
       currentStages(db, cohortId),
     ])
-    return ok(
-      rows.rows.map((r) => toHistory(r, stageOf(stages, r.stage_key)?.name ?? r.stage_key)),
-      { requestId: uuidv7(), serverTime: new Date().toISOString() },
-    )
+    return okList(rows.rows.map((r) => toHistory(r, stageOf(stages, r.stage_key)?.name ?? r.stage_key)))
   }
 }

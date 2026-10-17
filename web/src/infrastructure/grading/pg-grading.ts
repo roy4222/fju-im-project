@@ -140,6 +140,14 @@ export function stageOf(stages: readonly SchemeStage[], key: string): SchemeStag
   return stages.find((s) => s.key === key) ?? null
 }
 
+/**
+ * 清單型的回執（契約寫 `Result<readonly X[]>`）：`ok()` 會把內容展開成物件、陣列就壞了，所以直接在陣列上掛
+ * `requestId`、`serverTime`——拿到的仍是陣列（可以 `map`），也滿足 `Receipt<readonly X[]>`。
+ */
+export function okList<T>(items: readonly T[]): Result<readonly T[]> {
+  return { ok: true, receipt: Object.assign([...items], { requestId: uuidv7(), serverTime: new Date().toISOString() }) }
+}
+
 /** 評語上限（B 階段 TE-B4；資料庫 `evaluations_comment_length_check` 同一個數，按字元數算）。 */
 export const MAX_COMMENT_LENGTH = 500
 
@@ -639,7 +647,6 @@ export class PgGradingCommand implements GradingCommand {
       )
       const previousCounted = kind === 'final' ? (counted.rows[0]?.evaluation_id ?? null) : null
 
-      if (kind === 'final') await reachFaultPoint('grading.final.before-insert')
       if (previousCounted) {
         await tx.query(
           `update evaluation_status set state = 'historical', revision = revision + 1, updated_at = $2, updated_by_user_id = $3
@@ -652,6 +659,7 @@ export class PgGradingCommand implements GradingCommand {
           [uuidv7(), previousCounted, teacherId, realAt],
         )
       }
+      if (kind === 'final') await reachFaultPoint('grading.final.before-insert')
       const evaluationId = uuidv7()
       await tx.query(
         `insert into evaluations
@@ -1144,7 +1152,7 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         order by o.real_at desc, o.id desc`,
       [cohortId],
     )
-    return ok(
+    return okList(
       rows.rows.map((o) => ({
         overrideId: o.id,
         groupId: o.group_id,
@@ -1153,7 +1161,6 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         newValue: exactScore(o.new_value),
         reason: o.reason,
       })),
-      { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )
   }
 
