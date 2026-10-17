@@ -174,6 +174,26 @@ export default tseslint.config(
     },
   },
   {
+    // GA4（VB-8，訪客規格 §3.10）：全站只經 `_analytics/track.ts` 的 trackEvent 送事件，
+    // 參數白名單才擋得住個資。gtag、dataLayer 只准 track.ts 與載入器 ga-script.tsx 碰。
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/app/_analytics/track.ts', 'src/app/_analytics/ga-script.tsx'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'gtag', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent（參數白名單）。' },
+        { name: 'dataLayer', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent（參數白名單）。' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'window', property: 'gtag', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent。' },
+        { object: 'window', property: 'dataLayer', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent。' },
+        { object: 'globalThis', property: 'gtag', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent。' },
+        { object: 'globalThis', property: 'dataLayer', message: 'GA4 事件一律經 @/app/_analytics/track 的 trackEvent。' },
+      ],
+    },
+  },
+  {
     files: [
       '**/*.test.ts',
       '**/*.integration.test.ts',

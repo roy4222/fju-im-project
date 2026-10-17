@@ -37,6 +37,13 @@ test('回應帶 CSP 與其他安全標頭（契約 03 §6）', async ({ page }) 
   expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/)
   expect(csp).toContain("object-src 'none'")
   expect(csp).toContain("frame-ancestors 'none'")
+  // GA4（VB-8）：送事件與追蹤像素的網域；script-src 不因 GA 改動（上面那行逐字斷言）。
+  expect(csp).toContain(
+    "connect-src 'self' https://challenges.cloudflare.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
+  )
+  expect(csp).toContain(
+    "img-src 'self' blob: data: https://i.ytimg.com https://*.google-analytics.com https://*.googletagmanager.com",
+  )
 
   expect(headers['x-content-type-options']).toBe('nosniff')
   expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin')

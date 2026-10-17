@@ -9,6 +9,7 @@ import { SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel } from '@/composition/cohorts'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
 import { youtubeEmbedUrl, youtubeVideoId } from '@/composition/showcase-video'
+import { VideoPlay } from '@/app/_analytics/video-play'
 
 /** 同一個請求裡 metadata 與頁面共用一次查詢。 */
 const load = cache(async (id: string) => getPublicShowcaseQuery().entry(await currentActor(), id))
@@ -98,7 +99,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
             {videoId ? (
               // CSP frame-src 已放行 www.youtube.com（youtube-nocookie 維持被擋）。
-              <iframe
+              <VideoPlay
                 src={youtubeEmbedUrl(videoId)}
                 title="三分鐘影片"
                 allow="accelerometer; encrypted-media; fullscreen; picture-in-picture"
