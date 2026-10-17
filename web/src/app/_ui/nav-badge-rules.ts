@@ -4,8 +4,7 @@ import type { Role } from '@/application/accounts'
  * 後台側欄的數字徽章規則（票 30；照原型 `prototype/src/lib/nav-config.ts` 的 `badgeFor`）。
  *
  * 只算「現在輪到我做」的事：
- * - 三個角色的通知匣：本人未讀數。
- * - 學生：作業區還沒送出的收件、簽核裡輪到我表態的版本。
+ * - 學生：交作業裡還要處理的（待交作業＋輪到我回覆的同意書）；側欄沒有通知徽章，未讀只在鈴鐺。
  * - 老師：還沒正式送出的評分（評分）、輪到我同意的組（作業區）；側欄沒有通知徽章，未讀只在鈴鐺。
  * - 系辦：等審核的註冊申請（帳號）；側欄沒有通知徽章，未讀只在鈴鐺。
  *
@@ -39,9 +38,8 @@ export function badgeFor(role: Role, href: string, counts: BadgeCounts): number 
     if (segment === 'accounts') return pick(counts.adminPendingApplications)
     return undefined
   }
-  if (segment === 'inbox') return pick(counts.unread)
+  // 學生（SH-1-ST）：只有交作業（`studentTodos` 口徑，同意書待回覆也算在裡面）；通知只在鈴鐺，側欄不配。
   if (role === 'student' && segment === 'affairs') return pick(counts.studentPending)
-  if (role === 'student' && segment === 'signoff') return pick(counts.studentSignoff)
   return undefined
 }
 

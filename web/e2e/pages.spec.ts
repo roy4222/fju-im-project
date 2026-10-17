@@ -132,7 +132,7 @@ test.describe('以 S01（學生）', () => {
     await signInAs(page, 'student')
     await page.goto('/dashboard/student')
     const nav = page.getByRole('navigation', { name: '後台導覽' })
-    await expect(nav.getByRole('link', { name: '站內同意書', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: '交作業', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: '成績', exact: true })).toHaveCount(0)
 
     const grading = await page.request.get('/dashboard/student/grading', { maxRedirects: 0 })
@@ -249,7 +249,7 @@ test.describe('手機寬度', () => {
     // 側欄的桌機版導覽在窄螢幕是收起來的；只剩頂列一顆「側欄選單」，按了才從左邊滑出來。
     await expect(page.getByRole('navigation', { name: '後台導覽' })).toBeHidden()
     await page.getByRole('button', { name: '側欄選單' }).click()
-    await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '我的組別' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '組別', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
 
     const overflows = await page.evaluate(

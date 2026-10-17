@@ -4,11 +4,9 @@ import type { Role } from '@/application/accounts'
 import { shellViewer } from '@/app/_ui/guard'
 import type { BadgeCounts } from '@/app/_ui/nav-badge-rules'
 import { loadAdminSummary, loadTeacherWorkload } from '@/app/_ui/workload'
+import { studentOpenCount, studentTodos } from '@/app/dashboard/student/_todo/todos'
 import { actorHasRole, checkStatus } from '@/composition/accounts'
-import { getBusinessClock } from '@/composition/cohorts'
 import { getInboxQuery } from '@/composition/inbox'
-import { getSignoffQuery } from '@/composition/signoff'
-import { getSubmissionQuery, pendingCount } from '@/composition/submissions'
 
 /**
  * 側欄徽章與通知鈴鐺的數字（票 30）。每一個都用 React `cache` 包：同一次渲染只算一次，
@@ -41,19 +39,10 @@ export const navBadgeCounts = cache(async (role: Role): Promise<BadgeCounts> => 
   const actor = await shellViewer()
   if (actor.kind !== 'authenticated' || checkStatus(actor, 'business') !== null || !actorHasRole(actor, role)) return {}
 
+  // 學生（SH-1-ST）：只有「交作業」一顆，跟首頁、交作業頁讀同一份 `studentTodos`（同一次渲染不重查）。
   if (role === 'student') {
-    const [unread, studentPending, studentSignoff] = await Promise.all([
-      unreadCount(),
-      safe('待繳數', async () => {
-        const [items, now] = await Promise.all([getSubmissionQuery().myItems(actor.userId), getBusinessClock().now()])
-        return pendingCount(items, now)
-      }),
-      safe('待表態數', async () => {
-        const view = await getSignoffQuery().studentView(actor)
-        return view.versions.filter((v) => v.isCurrent && v.viewer.canRespond).length
-      }),
-    ])
-    return { unread, studentPending, studentSignoff }
+    const studentPending = await safe('待辦數', async () => studentOpenCount(await studentTodos(actor.userId)))
+    return { studentPending }
   }
 
   if (role === 'teacher') {

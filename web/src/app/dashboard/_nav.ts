@@ -98,23 +98,19 @@ export const TEACHER_NAV: readonly NavItem[] = [
 ]
 
 /**
- * 學生側欄照原型的順序與字（票 38）：總覽（首頁、專題時間軸、通知）→ 作業區 → 我的組別、產學合作 → 同意書。
- * 第三波（Q7③）拿掉「成績」：學生看不到分數，側欄不放點了只有一句說明的入口。
- * 頁面 `/dashboard/student/grading` 與下面的守衛保留，直接打網址看到「學生不會看到分數」說明。
+ * 學生（SH-1-ST）：三項、不分組。「通知」只在頂列鈴鐺；同意書收進交作業（同意書卡），
+ * 時程在前台 `/timeline`（首頁橫幅「看完整時程」）。舊網址 `/timeline`、`/industry`、`/grading` 轉頁（ST-7）。
  */
 export const STUDENT_NAV: readonly NavItem[] = [
-  { href: '/dashboard/student', label: '首頁', icon: 'home', group: '總覽' },
-  // 專題時間軸（票 38）：本屆階段與日期，唯讀。
-  { href: '/dashboard/student/timeline', label: '專題時間軸', icon: 'timeline', group: '總覽' },
-  // 通知匣（票 12）：頂列鈴鐺之外，原型學生側欄也有一列。
-  { href: '/dashboard/student/inbox', label: '通知', icon: 'inbox', group: '總覽' },
-  // 作業區（票 17）：自己在收件名單上的個人收件；組別收件在票 21 併進來。
-  { href: '/dashboard/student/affairs', label: '我的繳交', icon: 'affairs', group: '專題事務' },
-  { href: '/dashboard/student/groups', label: '我的組別', icon: 'groups', group: '分組與產學' },
-  // 產學合作（票 38）：已發布的合作案卡片，點進前台詳情。
-  { href: '/dashboard/student/industry', label: '產學合作', icon: 'industry', group: '分組與產學' },
-  // 同意書（票 25、26；原型學生側欄叫「同意書」）：自己組別的簽核版本全文與逐人同意。
-  { href: '/dashboard/student/signoff', label: '站內同意書', icon: 'signoff', group: '評分與同意書' },
+  { href: '/dashboard/student', label: '首頁', icon: 'home' },
+  // 交作業（ST-3）：作業與同意書同一份清單；同意書頁、舊時間軸網址也亮這一項。
+  {
+    href: '/dashboard/student/affairs',
+    label: '交作業',
+    icon: 'tasks',
+    activeFor: ['/dashboard/student/signoff', '/dashboard/student/timeline'],
+  },
+  { href: '/dashboard/student/groups', label: '組別', icon: 'groups' },
 ]
 
 /**

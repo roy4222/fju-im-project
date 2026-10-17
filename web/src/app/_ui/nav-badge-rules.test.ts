@@ -11,13 +11,12 @@ const counts = {
 }
 
 describe('側欄徽章規則（原型 badgeFor）', () => {
-  it('學生：通知、作業區、簽核各自的數字；其他項目沒有徽章', () => {
-    const hrefs = ['/dashboard/student', '/dashboard/student/inbox', '/dashboard/student/affairs', '/dashboard/student/groups', '/dashboard/student/signoff']
-    expect(badgeMap('student', hrefs, counts)).toEqual({
-      '/dashboard/student/inbox': 3,
-      '/dashboard/student/affairs': 2,
-      '/dashboard/student/signoff': 1,
-    })
+  it('學生：只有交作業（待交作業＋待你回覆的同意書，studentTodos 口徑）；通知只在鈴鐺、同意書併進交作業', () => {
+    expect(badgeFor('student', '/dashboard/student/affairs', counts)).toBe(2)
+    expect(badgeFor('student', '/dashboard/student/inbox', counts)).toBeUndefined()
+    expect(badgeFor('student', '/dashboard/student/signoff', counts)).toBeUndefined()
+    const hrefs = ['/dashboard/student', '/dashboard/student/affairs', '/dashboard/student/groups']
+    expect(badgeMap('student', hrefs, counts)).toEqual({ '/dashboard/student/affairs': 2 })
   })
 
   it('老師：評分、作業區（待我同意的同意書）；通知只在鈴鐺', () => {
