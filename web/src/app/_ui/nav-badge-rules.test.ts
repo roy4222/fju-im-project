@@ -20,10 +20,15 @@ describe('側欄徽章規則（原型 badgeFor）', () => {
     })
   })
 
-  it('老師：通知、評分、簽核；系辦：通知、帳號', () => {
+  it('老師：評分、作業區（待我同意的同意書）；通知只在鈴鐺；系辦：通知、帳號', () => {
     expect(badgeFor('teacher', '/dashboard/teacher/grading', counts)).toBe(4)
-    expect(badgeFor('teacher', '/dashboard/teacher/signoff', counts)).toBe(1)
-    expect(badgeFor('teacher', '/dashboard/teacher/affairs', counts)).toBeUndefined()
+    expect(badgeFor('teacher', '/dashboard/teacher/affairs', counts)).toBe(1)
+    expect(badgeFor('teacher', '/dashboard/teacher/signoff', counts)).toBeUndefined()
+    expect(badgeFor('teacher', '/dashboard/teacher/inbox', counts)).toBeUndefined()
+    expect(badgeMap('teacher', ['/dashboard/teacher', '/dashboard/teacher/grading', '/dashboard/teacher/affairs', '/dashboard/teacher/groups'], counts)).toEqual({
+      '/dashboard/teacher/grading': 4,
+      '/dashboard/teacher/affairs': 1,
+    })
     expect(badgeFor('admin', '/dashboard/admin/accounts', counts)).toBe(5)
     expect(badgeFor('admin', '/dashboard/admin/inbox', counts)).toBe(3)
     expect(badgeFor('admin', '/dashboard/admin/signoff', counts)).toBeUndefined()

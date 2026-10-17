@@ -16,10 +16,13 @@ export function VersionTable({
   versions,
   hrefOf,
   label = '正式送出的版本',
+  showSchemaVersion = true,
 }: {
   versions: readonly VersionSummary[]
   hrefOf: (versionNo: number) => string
   label?: string
+  /** `false` 時不顯示「表單 第 N 版」那一欄（學生端用，Q67）。 */
+  showSchemaVersion?: boolean
 }) {
   if (versions.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
   return (
@@ -36,9 +39,11 @@ export function VersionTable({
             <th scope="col" className="py-2 font-medium">
               送出時間（臺灣時間）
             </th>
-            <th scope="col" className="py-2 font-medium">
-              表單
-            </th>
+            {showSchemaVersion ? (
+              <th scope="col" className="py-2 font-medium">
+                表單
+              </th>
+            ) : null}
             <th scope="col" className="py-2">
               <span className="sr-only">動作</span>
             </th>
@@ -56,7 +61,7 @@ export function VersionTable({
               </td>
               <td className="py-3">{v.submittedByName}</td>
               <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
-              <td className="py-3 tabular-nums">第 {v.schemaVersionNo} 版</td>
+              {showSchemaVersion ? <td className="py-3 tabular-nums">第 {v.schemaVersionNo} 版</td> : null}
               <td className="py-1 text-right">
                 <Link
                   href={hrefOf(v.versionNo)}
@@ -78,17 +83,20 @@ export function VersionContent({
   backHref,
   backLabel,
   title,
+  showSchemaVersion = true,
 }: {
   version: MyVersionDetail
   backHref: string
   backLabel: string
   title?: string
+  /** `false` 時不顯示「表單 第 N 版」那一列（學生端用，Q67）。 */
+  showSchemaVersion?: boolean
 }) {
   const fields = answerFields(version.fields)
   const facts: [string, string][] = [
     ['送出時間', formatTaipeiSecond(version.receivedBusinessAt)],
     ['送出者', version.submittedByName],
-    ['表單', `第 ${version.schemaVersionNo} 版`],
+    ...(showSchemaVersion ? [['表單', `第 ${version.schemaVersionNo} 版`] as [string, string]] : []),
   ]
   return (
     <div className="space-y-4" data-testid="version-view">
