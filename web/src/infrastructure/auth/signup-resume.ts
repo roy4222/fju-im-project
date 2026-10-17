@@ -100,15 +100,29 @@ async function currentOtpHash(db: Queryable, email: string, lock = false): Promi
   return at === -1 ? value : value.slice(0, at)
 }
 
-/** 同一個 Email 的續辦開始與完成排隊（PostgreSQL advisory lock；鍵是 `signup-resume:<email>`）。 */
+/** 同一個 Email 的「續辦綁定」與「續辦完成」排隊（交易級 advisory lock；鍵是 `signup-resume:<email>`）。 */
 function lockKey(email: string): string {
   return `signup-resume:${normalizeEmail(email)}`
 }
 
 /**
- * 續辦開始：在這個 Email 的鎖裡寄碼（`send` 由 wrapper 傳進來，走套件的寄碼端點），寄出去之後讀**這一次**驗證碼的雜湊，
- * 跟新密碼雜湊、續辦票一起暫存成一列（10 分鐘）。兩個人同時對同一個 Email 開始續辦會排隊，
- * 暫存列永遠對應「最新那封信的碼＋開始那一次填的密碼＋開始那一次拿到的票」。
+ * 續辦開始。順序固定：**先寄碼、再綁定**，而且寄碼期間不持有任何資料庫連線。
+ *
+ * - `send` 由 wrapper 傳進來，走套件的寄碼端點：套件在端點**裡面**產碼、寫 `verifications`（經它自己的 adapter 向
+ *   `getPool()` 借連線），再呼叫寄信回呼（寄信轉接器寫 `mail_outbox`，也向同一個池借）。所以這一步不能在自己
+ *   占著一條連線時做：`DB_POOL_MAX=1`（worker 容器是 2）時唯一那條被自己占著，套件借不到就死等到
+ *   `connectionTimeoutMillis`（Review 第 2 輪反例；`signup-resume.integration.test.ts` 的 `DB_POOL_MAX=1` 案例守住）。
+ *   寄不出去（`MAIL_FAILED`）或被冷卻／限速擋下就在這裡丟出去，什麼都不留。
+ * - 寄出去之後才開一筆**短交易**：拿跟 `finishSignupResume` 同一把交易級 advisory lock（同一個 Email 的綁定與完成
+ *   排隊）、重驗這個帳號還能續辦、鎖並讀**此刻最新那封**驗證碼的雜湊，連同新密碼雜湊、續辦票寫成一列（10 分鐘）。
+ *   交易裡只用這一條連線，不再向池借任何東西。
+ *
+ * 兩個人同時對同一個 Email 開始續辦：兩封都寄、綁定排隊，各自讀到的都是當時最新那封的碼，後寫的那一列留下來；
+ * 先寫的那個人完成時票對不上，拿到 `SIGNUP_RESUME_EXPIRED`。保證跟「寄碼也在鎖裡」的舊版一樣：完成仍要求
+ * 提交的碼＝最新那列＝暫存列綁的碼、票要對，而且暫存列的密碼與票永遠來自同一個請求（同一列、同一次寫入）。
+ *
+ * 帳號在寄碼之後、綁定之前變得不能續辦（例如信箱主人剛好完成了另一次續辦）→ 不留暫存、回 `not_resumable`，
+ * 呼叫端照舊丟 `EMAIL_UNAVAILABLE`。
  */
 export async function startSignupResume(
   db: Pool,
@@ -119,37 +133,41 @@ export async function startSignupResume(
     passwordHash: () => Promise<string>
     now?: () => Date
   },
-): Promise<{ ticket: string }> {
+): Promise<{ ok: true; ticket: string } | { ok: false; reason: 'not_resumable' }> {
   const email = normalizeEmail(input.email)
-  const client = await db.connect()
+  // 1) 寄碼：這時手上沒有任何連線（套件與寄信轉接器各自向池借、自己還）。
+  await input.send()
+  // 密碼雜湊（scrypt）不碰資料庫；放在寄碼之後，被冷卻／限速擋下的請求不白算一次。
+  const passwordHash = await input.passwordHash()
+  const ticket = randomBytes(32).toString('base64url')
+  const now = input.now?.() ?? new Date()
+
+  // 2) 綁定：一筆短交易，只用 `tx` 這一條連線。
+  const tx = await db.connect()
   try {
-    await client.query('select pg_advisory_lock(hashtext($1))', [lockKey(email)])
-    try {
-      await input.send()
-      const otpHash = await currentOtpHash(client, email)
-      if (!otpHash) throw new Error('續辦寄碼之後讀不到驗證碼')
-      const passwordHash = await input.passwordHash()
-      const ticket = randomBytes(32).toString('base64url')
-      const now = input.now?.() ?? new Date()
-      const identifier = signupResumeIdentifier(email)
-      const value = JSON.stringify({ userId: input.userId, passwordHash, otpHash, ticketHash: hashSecret(ticket) })
-      await client.query('begin')
-      await client.query('delete from verifications where identifier = $1', [identifier])
-      await client.query(
-        `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $5)`,
-        [uuidv7(), identifier, value, new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000), now],
-      )
-      await client.query('commit')
-      return { ticket }
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined)
-      throw error
-    } finally {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [lockKey(email)]).catch(() => undefined)
+    await tx.query('begin')
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey(email)])
+    if (!(await isResumableSignup(tx, input.userId))) {
+      await tx.query('rollback')
+      return { ok: false, reason: 'not_resumable' }
     }
+    const otpHash = await currentOtpHash(tx, email, true)
+    if (!otpHash) throw new Error('續辦寄碼之後讀不到驗證碼')
+    const identifier = signupResumeIdentifier(email)
+    const value = JSON.stringify({ userId: input.userId, passwordHash, otpHash, ticketHash: hashSecret(ticket) })
+    await tx.query('delete from verifications where identifier = $1', [identifier])
+    await tx.query(
+      `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $5)`,
+      [uuidv7(), identifier, value, new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000), now],
+    )
+    await tx.query('commit')
+    return { ok: true, ticket }
+  } catch (error) {
+    await tx.query('rollback').catch(() => undefined)
+    throw error
   } finally {
-    client.release()
+    tx.release()
   }
 }
 

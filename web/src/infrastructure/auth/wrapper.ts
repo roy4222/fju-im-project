@@ -289,8 +289,10 @@ export type SignUpOrResumeOutcome =
  * 先照常 `signUpEmail`（`hooks.before` 依序：註冊限速 → 寄碼額度 → 密碼長度 → Turnstile）。
  * 回 `EMAIL_UNAVAILABLE` 而且那個帳號**可以續辦**時，才在同一次呼叫裡：
  * 經內部入口對該 Email 寄一封驗證碼（不要第二個 Turnstile token——走到 `EMAIL_UNAVAILABLE` 代表 hook 已經驗過；
- * 寄碼額度在註冊那一步已扣過、這裡不重扣，冷卻與 IP 上限照查），寄出去之後才把新密碼雜湊、這封信的碼、續辦票
-綁成一列暫存（寄不出去就不留暫存）。同一個 Email 的續辦開始與完成用資料庫鎖排隊（`startSignupResume`）。
+ * 寄碼額度在註冊那一步已扣過、這裡不重扣，冷卻與 IP 上限照查），寄出去之後才在一筆短交易裡把新密碼雜湊、
+ * 最新那封信的碼、續辦票綁成一列暫存（寄不出去就不留暫存）。寄碼期間**不持有任何連線**——套件與寄信轉接器
+ * 都向同一個池借連線，占著一條再借在 `DB_POOL_MAX=1` 會死等（Review 第 2 輪；為什麼見 `startSignupResume`）。
+ * 綁定與續辦完成用同一把交易級資料庫鎖排隊。
  * 不可續辦的照舊丟原本的 `EMAIL_UNAVAILABLE`（不寄信、什麼都不動）。
  *
  * 續辦一定要跟註冊綁在同一個入口：拆成兩支的話，呼叫端可以不經註冊、不過 Turnstile 就直接觸發寄碼。
@@ -308,7 +310,7 @@ export async function signUpOrResume(
     const userId = await findUserIdByEmail(getPool(), email)
     if (!userId || !(await isResumableSignup(getPool(), userId))) throw error
 
-    const { ticket } = await startSignupResume(getPool(), {
+    const started = await startSignupResume(getPool(), {
       userId,
       email,
       send: () =>
@@ -321,7 +323,9 @@ export async function signUpOrResume(
         ),
       passwordHash: async () => (await getAuth().$context).password.hash(input.password),
     })
-    return { kind: 'resume', email, ticket }
+    // 寄碼之後、綁定之前帳號變得不能續辦（例如信箱主人剛完成另一次續辦）：沒留暫存，照舊丟原本那個錯。
+    if (!started.ok) throw error
+    return { kind: 'resume', email, ticket: started.ticket }
   }
 }
 
