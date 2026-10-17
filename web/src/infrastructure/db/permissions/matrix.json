@@ -7,7 +7,7 @@
   },
   "tables": [
     { "slice": "S00", "table": "users", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "Better Auth 更新；status／must_change_password／deidentified_at 只由 01 用例改（application 層保證）" },
-    { "slice": "S00", "table": "accounts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "密碼雜湊更新、Google 連結；不給 DELETE（unlink 不在產品範圍）" },
+    { "slice": "S00", "table": "accounts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "密碼雜湊更新、Google 連結；不給 DELETE（unlink 不在產品範圍）" },
     { "slice": "S00", "table": "sessions", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "套件建立、更新、撤銷；含擴充欄 login_method" },
     { "slice": "S00", "table": "verifications", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": false, "note": "套件建立與清除" },
     { "slice": "S00", "table": "cohorts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": true, "note": "頭列" },
