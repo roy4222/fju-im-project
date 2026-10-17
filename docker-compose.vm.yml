@@ -56,6 +56,14 @@ services:
       # 註冊開關（設計方案 §5）：stg true、prd false。Doppler 沒這個鍵時 VM 上預設關閉（寧可關著），
       # 所以不列進 ops/lib/site.sh 的必填鍵；只有不經這個檔的 CI／本機沒設才是開放。
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
+      # 寄信（Brevo）、Turnstile、GA4（B 階段 VB-1）：測試站與正式站都要設，但少了站仍起得來——寄信回失敗、
+      # Turnstile 擋表單、GA4 不載入——所以不用 `:?`，也不列進 ops/lib/site.sh 的必填鍵。
+      # 擷取模式 MAIL_CAPTURE 只限本機與 CI，刻意不在這裡（compose 測試會擋）。
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      GA4_MEASUREMENT_ID: ${GA4_MEASUREMENT_ID:-}
     volumes:
       # 附件放在 VM 上該站自己的目錄（vm-setup.sh 建好，擁有者是容器裡的 1001）。
       # 容器內的路徑就是 Doppler 的 FILES_ROOT，兩站可以用同一個值。
@@ -69,7 +77,10 @@ services:
   worker:
     container_name: fju-${FJU_SITE:?}-worker
     env_file: !reset []
-    environment: *app-secrets
+    environment:
+      <<: *app-secrets
+      # worker 跟 app 共用 client.ts 的連線池；worker 只做排程工作，上限 2 條就夠（SH-B2）。
+      DB_POOL_MAX: '2'
     volumes:
       - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
 
