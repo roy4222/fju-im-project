@@ -192,8 +192,11 @@ const draftCard = (page: Page) => page.getByTestId('showcase-draft').filter({ ha
 test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況與下一步；學生直接開管理員頁被擋', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/admin/signoff')
-  await expect(page.getByRole('link', { name: '成果展示', exact: true })).toHaveAttribute('href', '/dashboard/admin/showcase')
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '成績', exact: true })).toHaveAttribute('aria-current', 'page')
+  // 成果展示收在「公告與作業」分頁列（SH-1-AD）：到那頁找分頁連結，再回同意書頁驗空狀態。
+  await page.goto('/dashboard/admin/showcase')
+  await expect(page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '成果展示', exact: true })).toHaveAttribute('href', '/dashboard/admin/showcase')
+  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
   await expect(page.getByText('尚未建立同意書')).toBeVisible()
   await page.getByRole('button', { name: '新增站內同意書' }).click()
   await expect(page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })).toBeVisible()

@@ -20,7 +20,7 @@ describe('側欄徽章規則（原型 badgeFor）', () => {
     })
   })
 
-  it('老師：評分、作業區（待我同意的同意書）；通知只在鈴鐺；系辦：通知、帳號', () => {
+  it('老師：評分、作業區（待我同意的同意書）；通知只在鈴鐺', () => {
     expect(badgeFor('teacher', '/dashboard/teacher/grading', counts)).toBe(4)
     expect(badgeFor('teacher', '/dashboard/teacher/affairs', counts)).toBe(1)
     expect(badgeFor('teacher', '/dashboard/teacher/signoff', counts)).toBeUndefined()
@@ -29,9 +29,14 @@ describe('側欄徽章規則（原型 badgeFor）', () => {
       '/dashboard/teacher/grading': 4,
       '/dashboard/teacher/affairs': 1,
     })
+  })
+
+  it('系辦：只有帳號（等審核的註冊申請）；通知只在鈴鐺，其他項目沒有徽章', () => {
     expect(badgeFor('admin', '/dashboard/admin/accounts', counts)).toBe(5)
-    expect(badgeFor('admin', '/dashboard/admin/inbox', counts)).toBe(3)
+    expect(badgeFor('admin', '/dashboard/admin/inbox', counts)).toBeUndefined()
     expect(badgeFor('admin', '/dashboard/admin/signoff', counts)).toBeUndefined()
+    const hrefs = ['/dashboard/admin', '/dashboard/admin/affairs', '/dashboard/admin/groups', '/dashboard/admin/grading', '/dashboard/admin/accounts', '/dashboard/admin/settings']
+    expect(badgeMap('admin', hrefs, counts)).toEqual({ '/dashboard/admin/accounts': 5 })
   })
 
   it('別的角色的數字不會出現在這個角色的側欄（學生的待繳不會掛到老師的「各組繳交」）', () => {

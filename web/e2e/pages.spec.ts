@@ -61,36 +61,32 @@ test.describe('不登入', () => {
 })
 
 test.describe('以 A1（管理員）', () => {
-  test('看得到管理員首頁與側欄，側欄有「帳號管理」「屆別」', async ({ page }) => {
+  test('看得到管理員首頁與側欄，側欄有「帳號」「設定」', async ({ page }) => {
     await signInAs(page, 'admin')
     const response = await page.goto('/dashboard/admin')
     expect(response?.status()).toBe(200)
 
     // 首頁頂端是歡迎色塊（2026-09-25 對齊原型），h1 是「歡迎回來，<姓名>」。
     await expect(page.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
-    // 側欄有兩份：行動版收在 <details> 裡、桌機版直接展開。
-    // 桌機視窗下只有後者在可及性樹裡，所以這裡拿得到的就是看得見的那一份。
-    await expect(page.getByRole('link', { name: '帳號管理', exact: true })).toHaveAttribute(
+    // 桌機視窗下只有展開的那份側欄在可及性樹裡；分頁列有同名連結，所以 scope 到「後台導覽」（SH-1-AD）。
+    const nav = page.getByRole('navigation', { name: '後台導覽' })
+    await expect(nav.getByRole('link', { name: '帳號', exact: true })).toHaveAttribute(
       'href',
       '/dashboard/admin/accounts',
     )
-    await expect(page.getByRole('link', { name: '屆別', exact: true })).toHaveAttribute(
+    await expect(nav.getByRole('link', { name: '設定', exact: true })).toHaveAttribute(
       'href',
-      '/dashboard/admin/cohorts',
+      '/dashboard/admin/settings',
     )
   })
 
-  test('側欄「專題事務」下面有「首頁設定」（第三波 W5）', async ({ page }) => {
+  test('側欄不分組；「首頁設定」收進「設定」總頁、不在側欄（SH-1-AD）', async ({ page }) => {
     await signInAs(page, 'admin')
     await page.goto('/dashboard/admin')
-    const affairsGroup = page
-      .getByRole('navigation', { name: '後台導覽' })
-      .locator('[data-sidebar="group"]', { has: page.getByText('專題事務', { exact: true }) })
-    // 頁面與守衛由 W3 提供；這裡只驗入口在對的分組、連到對的網址。
-    await expect(affairsGroup.getByRole('link', { name: '首頁設定', exact: true })).toHaveAttribute(
-      'href',
-      '/dashboard/admin/home-settings',
-    )
+    const nav = page.getByRole('navigation', { name: '後台導覽' })
+    await expect(nav.getByRole('link', { name: '首頁', exact: true })).toBeVisible()
+    await expect(nav.locator('[data-sidebar="group-label"]')).toHaveCount(0)
+    await expect(nav.getByRole('link', { name: '首頁設定', exact: true })).toHaveCount(0)
   })
 
   test('點進「帳號」與「屆別」打得開，是真的列表而不是假資料', async ({ page }) => {
