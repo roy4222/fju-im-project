@@ -176,8 +176,7 @@ test('AC-VI-51 待審段＋52：三步進度、說明句、帶學生證；修改
   await expect(steps.nth(2)).toContainText('已開通／被退回')
   await expect(steps.nth(2)).toContainText('結果會寄到你的 Email')
   await expect(page.getByTestId('application-status')).toContainText('由系辦核對，通常 1～3 個工作天。')
-  // 前半句（Google Email 與名單相同立即開通）等 VB-6。
-  await expect(page.getByText('會立即開通')).toHaveCount(0)
+  await expect(page.getByTestId('application-status')).toContainText('用 Google 註冊且 Email 與名單相同會立即開通；其他由系辦核對，通常 1～3 個工作天。')
   await expect(page.getByTestId('bring-id')).toContainText('請帶學生證到系辦核對身分')
   await expect(page.getByTestId('bring-id')).toContainText('利瑪竇大樓 LM306')
   await expect(page.getByTestId('bring-id')).toContainText('02-2905-2666')
