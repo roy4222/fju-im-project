@@ -58,7 +58,7 @@ export function LoginCard({
 
   if (mode === 'forgot') {
     return (
-      <div ref={card} data-testid="login-card">
+      <div ref={card}>
         {/* 每次進來都重掛：上一輪的「已寄出」或錯誤不會殘留。 */}
         <ForgotPanel
           key={round}
@@ -131,7 +131,7 @@ function ForgotPanel({
 
   if (state?.status === 'sent') {
     return (
-      <div data-mode="sent">
+      <div data-testid="login-card" data-mode="sent">
         <AuthCard title="已寄出，請到信箱收信">
           <p className="text-sm leading-relaxed text-muted-foreground" data-testid="reset-sent">
             重設連結已寄到 <span className="font-semibold text-foreground">{state.email}</span>
@@ -145,7 +145,7 @@ function ForgotPanel({
 
   const error = state?.status === 'error' ? state : null
   return (
-    <div data-mode="forgot">
+    <div data-testid="login-card" data-mode="forgot">
       <AuthCard title="忘記密碼" description="輸入 Email，我們寄重設連結給你。">
         <form key={error?.attempt ?? 0} action={action} className="flex flex-col gap-4.5">
           <Field

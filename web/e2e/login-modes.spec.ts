@@ -129,7 +129,7 @@ test('AC-VI-58 /forgot-password 導到 /login?mode=forgot；沒有 JavaScript �
 
   const noJs = await newGuestPage(browser, { javaScriptEnabled: false })
   await noJs.goto('/login')
-  await noJs.locator('a[href="/forgot-password"]').click()
+  await card(noJs).locator('a[href="/forgot-password"]').click()
   await expect(noJs).toHaveURL(/\/login\?mode=forgot$/)
   await expect(card(noJs)).toContainText('輸入 Email，我們寄重設連結給你。')
   await card(noJs).getByLabel('Email').fill(`nojs-${run}@example.com`)
@@ -213,7 +213,7 @@ test('AC-VI-60 重設密碼：12 字、撤掉舊 session、連結只能用一次
   await page.getByLabel('新密碼').fill('a'.repeat(11))
   await page.getByLabel('確認密碼').fill('a'.repeat(11))
   await page.getByRole('button', { name: '重設密碼' }).click()
-  await expect(page.getByRole('alert')).toHaveText('密碼至少 12 字。')
+  await expect(page.getByRole('main').getByRole('alert')).toHaveText('密碼至少 12 字。')
 
   await page.getByLabel('新密碼').fill(NEW_PASSWORD)
   await page.getByLabel('確認密碼').fill(NEW_PASSWORD)

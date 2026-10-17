@@ -37,7 +37,8 @@ async function capture(context: BrowserContext): Promise<Capture> {
     const body = req.postData() ?? ''
     result.raw.push(`${req.url()}\n${body}`)
     const shared = Object.fromEntries(new URL(req.url()).searchParams)
-    const lines = body.split('\n').filter(Boolean)
+    // gtag 把多個事件併成一個請求時每行以 \r\n 結尾，只切 \n 會把 \r 留在最後一個值裡。
+    const lines = body.split(/\r?\n/).filter(Boolean)
     for (const line of lines.length ? lines : ['']) {
       result.hits.push({ ...shared, ...Object.fromEntries(new URLSearchParams(line)) })
     }
@@ -126,9 +127,9 @@ test('AC-VI-78 login (a)(d)：首頁 client navigation 到 /login、密碼登入
 
   // 之後的導頁不再送 login。
   const viewsBefore = events(c, 'page_view').length
-  await page.goto('/news')
-  await page.goto('/rules')
-  await expect.poll(() => events(c, 'page_view').length, { timeout: 15_000 }).toBeGreaterThan(viewsBefore + 1)
+  // 之後再點站內連結（client navigation，跟 page_view 同一個時機讀 cookie）。
+  await page.locator('a[href^="/dashboard/student/"]:visible').first().click()
+  await expect.poll(() => events(c, 'page_view').length, { timeout: 15_000 }).toBeGreaterThan(viewsBefore)
   expect(events(c, 'login')).toHaveLength(1)
   expectNoPii(c, [student.email])
   await context.close()
