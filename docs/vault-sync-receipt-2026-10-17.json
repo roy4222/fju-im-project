@@ -1,236 +1,259 @@
 {
  "date": "2026-10-17",
  "round": "A 階段文件回寫 Vault（DV-13 #495；VA-5、TE-09、ST-9、AD-18、SH-7 #498；程式內用詞 #497／#503）",
- "direction": "repo → Vault",
+ "direction": "repo → Vault（A 階段）；Review FIX 再 Vault → repo（Vault 比鏡像新的條目）",
  "rule": "v2-2026-09-12（反向：repo 相對連結轉回 Vault 路徑；連到未鏡像 repo 檔改 GitHub main 連結）",
- "verified_at": "2026-10-17T04:37:44.519827+00:00",
+ "verified_at": "2026-10-17T05:02:19.649839+00:00",
  "counts": {
   "vault-files-written": 19,
   "entries-touched": 22,
-  "vault-ahead-mirror-lags": 9,
+  "vault-ahead-mirror-lags": 0,
   "conflicts-integrated": 8,
-  "escalated": 0
+  "escalated": 0,
+  "vault-to-repo-resynced": 12
  },
  "files": [
   {
    "destination": "docs/product/🧩 功能模組/01 帳號與權限.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
-   "source_sha256_before": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8",
    "source_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
-   "mirror_sha256": "9a6c281d9285a5861144e06de0affb236cbf32cb140909c479f90ffe0100fab9",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "c06bf8d584951de75d8e5623defabe323d04eb910216894d107fddb0c6b1ddd6",
+   "manifest_source_sha256_before": "24088fe37bf3a354bc1aac0984fba3ec020653f0edae474bc96ca4b88fd7c9c8"
   },
   {
    "destination": "docs/product/🧩 功能模組/02 屆別與年度流程.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/02 屆別與年度流程.md",
-   "source_sha256_before": "348574afa700904da1377e45193ba669c52757c63b73f7427911e47e4f9cc600",
    "source_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
-   "mirror_sha256": "92df094fd757c4d9774d451989ec3b70c0102c40e7c510c76ed2b4b05e08bdca",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "491c613a64bef5da6d0af4fb3b5b817139c240e489402ffe71d53ecef92ae9a5",
+   "manifest_source_sha256_before": "348574afa700904da1377e45193ba669c52757c63b73f7427911e47e4f9cc600"
   },
   {
    "destination": "docs/product/🧩 功能模組/03 分組、指導與產學.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/03 分組、指導與產學.md",
-   "source_sha256_before": "5b939f4f39163cb2abb5c5b63b2b02f22e505704648067c7e778e8fb8f848fba",
    "source_sha256": "dddeee263f7f2d823bce9d61d67835eea1775941b99e2c4de495f6eb0bbcfa39",
-   "mirror_sha256": "4873f94559e4a4ed8db0e6656b9303f40bd1e2671e504e16dbfcff30fb585bea",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "69a73bcdcd3848b24cf90f736c198d4600ff393d01d1804379bfcd7208bc7ff0",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "121cace9d2d6f2f2dafee0093641bc731d06f8d5884ce89fe83e27354a75a9bd",
+   "manifest_source_sha256_before": "5b939f4f39163cb2abb5c5b63b2b02f22e505704648067c7e778e8fb8f848fba"
   },
   {
    "destination": "docs/product/🧩 功能模組/04 專題事務發布與編輯.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/04 專題事務發布與編輯.md",
-   "source_sha256_before": "ba82aaa2d7dd96757723558e8f051f5b580b98ff0cccdaec8ce2c159d35cae3c",
    "source_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
    "mirror_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "ba82aaa2d7dd96757723558e8f051f5b580b98ff0cccdaec8ce2c159d35cae3c",
+   "manifest_source_sha256_before": "ba82aaa2d7dd96757723558e8f051f5b580b98ff0cccdaec8ce2c159d35cae3c"
   },
   {
    "destination": "docs/product/🧩 功能模組/05 個人與組別繳交.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/05 個人與組別繳交.md",
-   "source_sha256_before": "3a3ce3aa1f66fb25a8877d68135eb6208232233cfb26469edc8543f9dc17e501",
    "source_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
    "mirror_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "3a3ce3aa1f66fb25a8877d68135eb6208232233cfb26469edc8543f9dc17e501",
+   "manifest_source_sha256_before": "3a3ce3aa1f66fb25a8877d68135eb6208232233cfb26469edc8543f9dc17e501"
   },
   {
    "destination": "docs/product/🧩 功能模組/06 評分與成績.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/06 評分與成績.md",
-   "source_sha256_before": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
    "source_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
    "mirror_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd",
+   "manifest_source_sha256_before": "5e6cb7babc996f24d7f08bb2e02577f79873520000ea30e74f6348be4eee1dbd"
   },
   {
    "destination": "docs/product/🧩 功能模組/07 線上簽核.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
-   "source_sha256_before": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21",
    "source_sha256": "ccf544a3e5b94a9027adee2fc5abf663eeaf2e544792e94cefc8f203f074f500",
-   "mirror_sha256": "5b51589c29ac89059476f19b3907ecc70e4019ce1d5d8830ad1e6fc3e8420333",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "0996b1fe005f1523ac6898f084837c5f2918f1f3349db71f9dfdaecb589fb943",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "baa55158d38dc0479240c12ab62ec77cff7a542a4f34329489387c6fbdda69d3",
+   "manifest_source_sha256_before": "2b40f37ccdcda40c18bca91dc641b5bb4215abf82c4b9b981b9fa64804e05c21"
   },
   {
    "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
-   "source_sha256_before": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
    "source_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
    "mirror_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4",
+   "manifest_source_sha256_before": "338dfc53027569cf8f20f5d0f1830dc9114b6c6109b822dcfe8d20fa7574d0e4"
   },
   {
    "destination": "docs/product/🧩 功能模組/09 公開展示與共用介面.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
-   "source_sha256_before": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769",
    "source_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
    "mirror_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769",
+   "manifest_source_sha256_before": "10165b6ea6beefe986388e03f44faa53e7cbbf887761476911afa29e72ead769"
   },
   {
    "destination": "docs/product/🧩 功能模組/10 檔案與服務維運需求.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/10 檔案與服務維運需求.md",
-   "source_sha256_before": "c3951a890591099ee0eed7d242916724c577a2b0d93726cebce25dcf2bdeb3dc",
    "source_sha256": "906ee96f1ada22a549e96dc891bb9635a80c5ab6053625e8a96eb6c5bf474e10",
-   "mirror_sha256": "cd3f280dd824817c261fb0b9470877aaa7e18fa53814fb6cff5958c8629f829a",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "93ef914e0d69268c3a0fe848172428f8e71929644b3357f1ecd6fa0b6d9a4e4e",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "32cdaa2cc46b8309d775fa9a36371b1841802eff2629c95137173165bcd98708",
+   "manifest_source_sha256_before": "c3951a890591099ee0eed7d242916724c577a2b0d93726cebce25dcf2bdeb3dc"
   },
   {
    "destination": "docs/product/📐 產品總規格.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📐 產品總規格.md",
-   "source_sha256_before": "17ca8793a4a518a2e810892a55c3138b24748e5b832bd8aedc50695b63e964ba",
    "source_sha256": "1a0cb9027b9a1838a29441682e6a01d2cd7084968ec4ca80142b6b265bb620a0",
-   "mirror_sha256": "1eb5e92e6147185e2257f23175c49d3e8b6a95c8d371fe6741e8c1466a83d755",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "185ebe24cebd80ea7393fe6edd14b6a3d3b16e0d042760fd2e4989bff6eac806",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "ea00b5ad6c2073b0e77f58fa90c81bc72a49fd848626f83ed57093d29d0f7962",
+   "manifest_source_sha256_before": "17ca8793a4a518a2e810892a55c3138b24748e5b832bd8aedc50695b63e964ba"
   },
   {
    "destination": "docs/product/✅ 接受條件/03 案例覆蓋矩陣.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/✅ 接受條件/03 案例覆蓋矩陣.md",
-   "source_sha256_before": "899fcd774d02addf38374e5acc7c3043c9a91bd58bb3f8cd27184fcd9c370653",
    "source_sha256": "590394592ef21af278db04229daeedabf40d56ef6205f5328f0c981591e5024d",
-   "mirror_sha256": "5f8dd15631854c51ac9f709af33056372bfca44e2f284257bfbda642e374fa98",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "01f22e09d42a693d2d288cf3ea3f93938b6464df0617910f5a30d34679f3016d",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "e6b5727520e9e61356f4e40f5424f3050a1c3e199ae0baa4fc207575fbac893e",
+   "manifest_source_sha256_before": "899fcd774d02addf38374e5acc7c3043c9a91bd58bb3f8cd27184fcd9c370653"
   },
   {
    "destination": "docs/product/🗺️ 前台頁面清單.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
-   "source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
    "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
-   "mirror_sha256": "ff66e4ba7774339b4a86b13576d291ae7d4ebd42c2f72769114d8e831d8c60f0",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "4788efdb375f406181dcb683c7dd4324f36be221da8b8bd4c784cd1bc1197c36",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
+   "manifest_source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c"
   },
   {
    "destination": "docs/product/🗺️ 後台頁面清單.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
-   "source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
    "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
-   "mirror_sha256": "a4c8b3ce510892be73ebc788d65d6c28ed28544f9d2bbe331519ad4083211885",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "cb3e0f98655db594d2efa00d3ae136eec0c5dc75199daef7f479c356d3a50335",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
+   "manifest_source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c"
   },
   {
    "destination": "docs/product/CONTEXT.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
-   "source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
    "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
    "mirror_sha256": "b1ad124c7eab7637c70a1a4a07ca2d092b512075b6f179c24de09f924e1d129e",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
+   "manifest_source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214"
   },
   {
    "destination": "CONTEXT.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
-   "source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
    "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
    "mirror_sha256": "498bc37582ce1d4a59cfe6494465b3cd9ac7e2314375d069d5d58d80949487c4",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
+   "manifest_source_sha256_before": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214"
   },
   {
    "destination": "docs/FRONTEND-PAGES.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
-   "source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
    "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
    "mirror_sha256": "0f10f83bbb262e1459c46a6f86a638f813ed7496d847e20f52c64ed2094f659a",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c",
+   "manifest_source_sha256_before": "cba0ac615f3d5ed03eafa38bff5f0fbe6313ba48a59e2b67d8de76947625af1c"
   },
   {
    "destination": "docs/DASHBOARD-PAGES.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
-   "source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
    "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
-   "mirror_sha256": "57295d2f4c59e8ead620a643dfadf3d59ae5b3b52cdc557829a4ac339bae0374",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "26fbd83307588a23dea8725d773c848e0737bc0f5aa444df2f4b277a3a0dec3e",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c",
+   "manifest_source_sha256_before": "4a2e097edd7bf55c906ae3f90a9fbe15410cf63b31a36235398c19996949e06c"
   },
   {
    "destination": "docs/engineering/modules/03 分組、指導與產學.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
-   "source_sha256_before": "52aa602bc83009a0c71cf0ed57b917ad848b9793384ed6251e3915369c9a54dd",
    "source_sha256": "3baf21b3a36440c59dc43da230ed2b4469621cea4525766fb107e8489cae83a1",
-   "mirror_sha256": "863c728e4cf7bc458a727294a5b4b6e1bd27fd95aa452d05b049477d776777fc",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "e0612a9c051b44509166f951ed360d422214ebdadd4ac8fbe99884eef659ecd5",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "fab69e4ce3e1f2236bfc9f3f9200fca9d961ec14ae8befe86f1d370a09f3d7ed",
+   "manifest_source_sha256_before": "52aa602bc83009a0c71cf0ed57b917ad848b9793384ed6251e3915369c9a54dd"
   },
   {
    "destination": "docs/engineering/contracts/03 安全與隱私.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
-   "source_sha256_before": "f6fea23cf322b82904e770ca26c08fde3e6b880888df3fc4faf4f50690adaa15",
    "source_sha256": "25a2703fd177d357d67c10365293efc4188526b1f37ce159c592955aa241de31",
-   "mirror_sha256": "76b8ea6c4af4631a3f08658256c0ab1522bbb6a5ab2bbfe752d1e75dde4949d0",
-   "direction": "repo → Vault",
-   "change": "repo-to-vault; vault-ahead-mirror-lags",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "mirror_sha256": "e62381766c8104f0498b9b948619143cb30e5cfdccd948fc5a24408b14e97523",
+   "direction": "repo → Vault，再 Vault → repo",
+   "change": "repo-to-vault; vault-to-repo-resync",
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "6ba92189816611086c72a696f3886bb107f7d8a7929bfe08a302a8090df1deeb",
+   "manifest_source_sha256_before": "f6fea23cf322b82904e770ca26c08fde3e6b880888df3fc4faf4f50690adaa15"
   },
   {
    "destination": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
-   "source_sha256_before": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7",
    "source_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "mirror_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7",
+   "manifest_source_sha256_before": "27bcf5bf7326e85134af3062bd422760c5c9fd166f10ca9e1d819a5ec6d466c7"
   },
   {
    "destination": "docs/engineering/verification/scripts/B02 分組指導分支.md",
    "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
-   "source_sha256_before": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
    "source_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
    "mirror_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
    "direction": "repo → Vault",
    "change": "repo-to-vault",
-   "verified_at": "2026-10-17T04:37:44.519827+00:00"
+   "verified_at": "2026-10-17T05:02:19.649839+00:00",
+   "source_sha256_before": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5",
+   "manifest_source_sha256_before": "684f2dbb1b5fd31d0b1ae6bcca5fbd7fe384ff352ad541e6e1d4ae1e34bd1fe5"
   }
  ],
  "not_mirrored": [
@@ -238,5 +261,15 @@
   "docs/plans/**",
   "docs/status/**"
  ],
- "notes": "在 Mac mini 執行，實際 Vault 路徑 ~/Documents/roy422-online-md-only（manifest 的 source 維持 /Users/lubaiyu/… 邏輯路徑）。每個 Vault 檔：ours＝Vault 現行、base＝上次同步時的 repo 鏡像（c0f32bd；後台頁面清單與 DASHBOARD-PAGES 用 5bf588d、FRONTEND-PAGES 用 2dea682，因 10/12 第三波已先改 repo 未回寫）、theirs＝origin/main 4a9e770，base／theirs 先做連結反向轉換再 git merge-file。同文副本（根 CONTEXT.md、docs/FRONTEND-PAGES.md、docs/DASHBOARD-PAGES.md）依序再合併一次，副本才有的 10/12 段落一併寫入。8 處衝突都是雙方在同段加註（同文副本合併 4、契約 03 1、工程模組 03 1、產品模組 03 2），整合規則：保留 Vault 已定案的 9/25 對齊（例外組取消、人數設定）與 10/08 實況，接上 repo 的 Q52／Q73／Q77 新用詞；已逐行檢查 A 階段新增行中含「例外組／五人」的 3 行，全部是 base 原句沿用，沒有新寫入與 Vault 9/25 定案相反的條文。核對：沒有任何 A 階段新增行在合併結果裡遺失（逐行比對）；寫回後新增連結都能解析（既有的 5 種 basename wikilink 原本就靠 Obsidian 名稱解析，未改）。Vault 端 10/16 起無修改（各檔 mtime 最晚 10/12）。沒有執行期驗證。"
+ "notes": "在 Mac mini 執行，實際 Vault 路徑 ~/Documents/roy422-online-md-only（manifest 的 source 維持 /Users/lubaiyu/… 邏輯路徑）。每個 Vault 檔：ours＝Vault 現行、base＝上次同步時的 repo 鏡像（c0f32bd；後台頁面清單與 DASHBOARD-PAGES 用 5bf588d、FRONTEND-PAGES 用 2dea682，因 10/12 第三波已先改 repo 未回寫）、theirs＝origin/main 4a9e770，base／theirs 先做連結反向轉換再 git merge-file。同文副本（根 CONTEXT.md、docs/FRONTEND-PAGES.md、docs/DASHBOARD-PAGES.md）依序再合併一次，副本才有的 10/12 段落一併寫入。8 處衝突都是雙方在同段加註（同文副本合併 4、契約 03 1、工程模組 03 1、產品模組 03 2），整合規則：保留 Vault 已定案的 9/25 對齊（例外組取消、人數設定）與 10/08 實況，接上 repo 的 Q52／Q73／Q77 新用詞；已逐行檢查 A 階段新增行中含「例外組／五人」的 3 行，全部是 base 原句沿用，沒有新寫入與 Vault 9/25 定案相反的條文。核對：沒有任何 A 階段新增行在合併結果裡遺失（逐行比對）；寫回後新增連結都能解析（既有的 5 種 basename wikilink 原本就靠 Obsidian 名稱解析，未改）。Vault 端 10/16 起無修改（各檔 mtime 最晚 10/12）。沒有執行期驗證。",
+ "review_fix": {
+  "pr": 504,
+  "at": "2026-10-17T05:02:19.649839+00:00",
+  "items": [
+   "source_sha256_before 改為寫入前 Vault 實際雜湊（讀 /tmp/vsync/written.json）；舊 manifest 9/25 值移到 manifest_source_sha256_before",
+   "Vault 比鏡像新的 11 條（契約 03、工程模組 03、覆蓋矩陣、產品總規格、產品模組 01／02／03／07／10、前台／後台頁面清單）＋DASHBOARD-PAGES 副本句尾，從 Vault 現行全文轉回 repo；轉換只在與 Vault 內容不同的行套用 Vault→repo 連結規則（對應鏡像的改 repo 相對路徑、其餘改 /Users/lubaiyu/… 絕對路徑、wikilink 改 markdown），其餘行維持 repo 原字；轉換後再正向轉一次與 Vault 逐行比對（去掉連結格式後）0 行差異；新增 55 個連結全部可解析",
+   "根 CONTEXT.md、FRONTEND-PAGES.md 經核對＝相容說明＋現行副本（相對連結改寫），不需改；說明句改成實況"
+  ],
+  "stale_note": "Vault 帶進 repo 的段落裡有「票 42，PR #328，待審」兩處，PR #328 已合併；屬狀態過時，不是畫面或行為不符，照規則不改 Vault、也不在鏡像自行改寫。"
+ }
 }
