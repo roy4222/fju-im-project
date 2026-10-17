@@ -497,6 +497,141 @@ describe('並發', () => {
   })
 })
 
+describe('A-19 鎖順序：套用方案與更正／復核', () => {
+  function gate() {
+    let arrive!: () => void
+    let release!: () => void
+    const arrived = new Promise<void>((resolve) => (arrive = resolve))
+    const held = new Promise<void>((resolve) => (release = resolve))
+    return { arrive, release, arrived, held }
+  }
+
+  // 只攔第一個操作已取得的鎖；第二個操作讓 PostgreSQL 自己排隊。
+  // 用 Proxy，不能改寫池中 client.query，否則 release 後下一個案例仍會帶著舊屏障。
+  function observedCommands(codes: string[], pause?: { sql: string; gate: ReturnType<typeof gate> }) {
+    let connected!: (pid: number) => void
+    const pid = new Promise<number>((resolve) => (connected = resolve))
+    const pool = {
+      connect: async () => {
+        const client = await app.connect()
+        connected(Number((await client.query('select pg_backend_pid() as pid')).rows[0].pid))
+        return new Proxy(client, {
+          get(target, key) {
+            if (key === 'query') {
+              return async (...args: unknown[]) => {
+                try {
+                  const result = await (target.query.bind(target) as (...a: unknown[]) => Promise<unknown>)(...args)
+                  if (pause && typeof args[0] === 'string' && args[0] === pause.sql) {
+                    pause.gate.arrive()
+                    await pause.gate.held
+                  }
+                  return result
+                } catch (error) {
+                  codes.push(String((error as { code?: string }).code))
+                  throw error
+                }
+              }
+            }
+            const value = Reflect.get(target, key)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+      },
+    } as unknown as Pool
+    return {
+      pid,
+      command: new PgGradingResultsCommand({
+        audit: new PgAuditWriter(), ledger: new PgOperationLedger(() => app),
+        events: new PgEventPublisher(), businessClock, pool: () => pool,
+      }),
+    }
+  }
+
+  async function blockedByOrFinished(secondPid: number, firstPid: number, operation: Promise<unknown>) {
+    let finished = false
+    void operation.then(() => (finished = true), () => (finished = true))
+    for (let i = 0; i < 500; i += 1) {
+      const waiting = await owner.sql('select $1::int = any(pg_blocking_pids($2)) as blocked', [firstPid, secondPid])
+      if (waiting.rows[0]!.blocked) return 'blocked'
+      if (finished) return 'finished'
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    throw new Error('第二個操作未完成，也沒有等待第一個操作的鎖')
+  }
+
+  for (const edit of ['override', 'resolveReview'] as const) {
+    for (const first of ['edit', 'apply'] as const) {
+      it(`${edit} / ${first}-first：依組別鎖序完成，沒有死鎖或 INTERNAL`, async () => {
+        const s = await scenario()
+        await must(grading.submitFinal(actor(s.t2, ['teacher']), { assignmentId: s.a2, scores: { i1: '80' } }, randomUUID()))
+        await must(grading.submitFinal(actor(s.t3, ['teacher']), { assignmentId: s.a3, scores: { i1: '90' } }, randomUUID()))
+        let detail = await book.groupDetail(admin(), s.groupId)
+        if (!detail.ok) throw new Error(detail.message)
+        const override = await must(results.override(admin(), {
+          groupId: s.groupId, newValue: '88', reason: '補考', basisHash: detail.receipt.basisHash,
+        }, randomUUID()))
+        if (edit === 'resolveReview') {
+          const changed = await must(grading.createSchemeVersion(admin(), {
+            cohortId: s.cohortId, stages: STAGES.map((stage) => ({ ...stage, name: `${stage.name}復核` })),
+          }, randomUUID()))
+          await applyScheme(changed.versionId)
+          detail = await book.groupDetail(admin(), s.groupId)
+          if (!detail.ok) throw new Error(detail.message)
+          expect(detail.receipt.overrides[0]?.state).toBe('pending_review')
+        }
+        const basisHash = detail.receipt.basisHash
+        const next = await must(grading.createSchemeVersion(admin(), {
+          cohortId: s.cohortId, stages: STAGES.map((stage) => ({ ...stage, name: `${stage.name}新版` })),
+        }, randomUUID()))
+        const preview = await book.previewSchemeVersion(admin(), next.versionId)
+        if (!preview.ok) throw new Error(preview.message)
+        const held = gate()
+        const codes: string[] = []
+        const editing = observedCommands(codes, first === 'edit' ? {
+          sql: 'select id, cohort_id, code, status from groups where id = $1 for update', gate: held,
+        } : undefined)
+        const applying = observedCommands(codes, first === 'apply' ? {
+          sql: 'select id, cohort_id, current_version_id, revision from grading_schemes where cohort_id = $1 for update', gate: held,
+        } : undefined)
+        const runEdit = () => edit === 'override'
+          ? editing.command.override(admin(), { groupId: s.groupId, newValue: '89', reason: '更正', basisHash }, randomUUID())
+          : editing.command.resolveReview(admin(), { overrideId: override.overrideId, decision: 'keep', newValue: null, reason: '確認', basisHash }, randomUUID())
+        const runApply = () => applying.command.applySchemeVersion(admin(), {
+          versionId: next.versionId, token: preview.receipt.token,
+        }, randomUUID())
+        const firstOperation = first === 'edit' ? runEdit() : runApply()
+        let secondOperation: ReturnType<typeof runEdit> | ReturnType<typeof runApply> | undefined
+        let waiting: string | undefined
+        try {
+          await Promise.race([held.arrived, firstOperation.then(() => { throw new Error('操作未到屏障即結束') })])
+          secondOperation = first === 'edit' ? runApply() : runEdit()
+          waiting = await blockedByOrFinished(
+            await (first === 'edit' ? applying.pid : editing.pid),
+            await (first === 'edit' ? editing.pid : applying.pid), secondOperation,
+          )
+        } finally {
+          held.release()
+          await Promise.allSettled([firstOperation, ...(secondOperation ? [secondOperation] : [])])
+        }
+        const firstResult = await firstOperation
+        const secondResult = await secondOperation!
+        const edited = first === 'edit' ? firstResult : secondResult
+        const applied = first === 'apply' ? firstResult : secondResult
+        console.info('A19_LOCK_RESULT', JSON.stringify({ edit, first, waiting, pgCodes: codes,
+          editResult: edited.ok ? 'OK' : edited.code, applyResult: applied.ok ? 'OK' : applied.code }))
+        expect(codes).not.toContain('40P01')
+        expect(applied).toMatchObject({ ok: true })
+        expect(edited).toMatchObject(first === 'edit' ? { ok: true } : { ok: false, code: 'CONFLICT' })
+        expect(waiting).toBe('blocked')
+        const after = await book.groupDetail(admin(), s.groupId)
+        if (!after.ok) throw new Error(after.message)
+        expect(after.receipt.version?.id).toBe(next.versionId)
+        expect(after.receipt.overrides.some((item) => item.state === 'pending_review')).toBe(true)
+      })
+    }
+  }
+})
+
 describe('Review 第 1 輪（PR #511）', () => {
   it('理由只留在系辦稽核：主指導讀作廢的簽核版本（目前狀態與歷程）、評分指派與暫存失效紀錄都看不到理由', async () => {
     const s = await scenario()

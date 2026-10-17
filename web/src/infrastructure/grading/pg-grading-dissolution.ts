@@ -9,7 +9,8 @@ import type { GradingDissolutionHook } from '@/application/grading'
  * - 有效評分指派全部結束：`valid_to`＝解散的業務時間（不早於起始）、`ended_real_at`＝解散的真實時間、
  *   `removal_choice` 留空——改派三選一一定有值，所以「結束但沒有選擇」就是因解散結束（成績表不標「已改派保留」）。
  * - 暫存一律失效（`draft` → `invalidated`，留狀態事件）；已正式送出的分數不動（凍結、照舊採計）。
- * - 方案版本只讀不鎖：記進解散的稽核 payload，給解散後的成績表釘版本用；鎖方案會跟套用新版本（先方案後組別）反向。
+ * - 方案版本只讀不鎖：記進解散的稽核 payload，給解散後的成績表釘版本用。
+ *   套用新版本先拿全屆組別 `FOR SHARE`，與解散已持有的組別 `FOR UPDATE` 互斥，快照不會被套用跨過。
  */
 export class PgGradingDissolution implements GradingDissolutionHook<PoolClient> {
   async endForDissolvedGroup(

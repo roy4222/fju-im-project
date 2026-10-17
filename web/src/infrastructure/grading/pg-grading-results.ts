@@ -91,7 +91,8 @@ import { RealClock, type Clock } from '@/shared/time'
  *   預覽之後任何改變採計集合的動作都讓 hash 對不上 → `CONFLICT`（要重新預覽），不會把剛送出的分數當暫存處理。
  * - 更正、復核：`cohorts FOR SHARE` → `groups FOR UPDATE`（和所有拿 `FOR SHARE` 的評分寫入互斥）→ 方案頭列 `FOR SHARE`
  *   → 鎖內重算最終成績與 `basis_hash`。
- * - 套用新方案版本：`cohorts FOR SHARE` → `grading_schemes FOR UPDATE`（和正式送出在方案頭列上排隊，同發布）→ 版本列。
+ * - 套用新方案版本：`cohorts FOR SHARE` → 全屆 `groups FOR SHARE`（依 id 排序）→ `grading_schemes FOR UPDATE` → 版本列。
+ *   必須先拿組別鎖，才能與更正／復核的 `groups FOR UPDATE` → 方案頭列 `FOR SHARE` 同向排隊。
  *
  * 基礎改變（正式送出、退回、改派、改份數、套用新版本）都在同一個交易裡呼叫 `flagOverridesForReview`：
  * 這一組生效中的更正進「待復核」，首次進入時通知管理員。
@@ -807,6 +808,9 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       const cohortId = owner.rows[0]?.cohort_id
       if (!cohortId) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
       const cohort = (await lockCohort(tx, cohortId))!
+      // 與解散、更正、復核同向：cohort → groups（依 id）→ scheme → version。
+      // 等組別鎖時不能持有方案／版本鎖；取鎖後才讀目前方案、重算預覽及待復核集合。
+      await tx.query('select id from groups where cohort_id = $1 order by id for share', [cohortId])
       const scheme = (
         await tx.query<SchemeRow>('select id, cohort_id, current_version_id, revision from grading_schemes where cohort_id = $1 for update', [cohortId])
       ).rows[0]!
@@ -832,10 +836,6 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<SchemeVersionReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort)
       if (target.status !== 'draft') return err('VALIDATION_FAILED', `v${target.version_no} 已經套用或發布過了，不需要再套用。`)
-      // 跟解散序列化（A-19 Review）：照 id 順序 `FOR SHARE` 這屆全部組別，解散（組別 `FOR UPDATE`）寫到一半就等它 commit。
-      // 之後的預覽與「哪些組有生效中的更正」都是新的語句、看得到剛解散的組；解散的組不重算、更正不進待復核。
-      // 解散不鎖方案（只讀目前版本），所以這裡先鎖方案再鎖組別不會反向互等。
-      await tx.query('select id from groups where cohort_id = $1 order by id for share', [cohortId])
       const current = scheme.current_version_id ? await versionRow(tx, scheme.current_version_id) : null
       if (current?.status !== 'locked') {
         return err('VALIDATION_FAILED', '目前的版本還沒鎖定（還沒有老師開始評分），直接按「發布」換版本就好。')
