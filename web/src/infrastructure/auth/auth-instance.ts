@@ -363,19 +363,23 @@ function createAuth() {
       /**
        * 帳號連結（模組 01 §2.3 Q-ACC02；契約 03 §3；票 10）。
        *
-       * - `disableImplicitLinking`：未登入時用 Google 登入、Email 跟既有帳號相同，**不自動合併**。
-       *   唯一例外是系辦預授權、還沒有任何登入方式的老師帳號（見 Google 設定的 `mapProfileToUser`）。
-       *   套件會把人導回 `errorCallbackURL?error=account_not_linked`，登入頁提示「用原方式登入後再連結」。
-       *   連結只能走 `/link-social`（本人、active、fresh session，路由矩陣與下面的 hook 管）。
+       * - `disableImplicitLinking: false`＋`requireLocalEmailVerified: true`（Q45，VB-5；visitor-r3 §3.7）：
+       *   未登入時用 Google 登入、Email 跟既有帳號相同，**只有本地帳號的 Email 已驗證**（`users.email_verified`）
+       *   而且 Google 也回報驗證過，套件才自動連結並登入（1.7.5 `oauth2/link-account.mjs:78-79`）。
+       *   本地沒驗證 → 套件把人導回 `errorCallbackURL?error=account_not_linked`，登入頁提示先用密碼登入、
+       *   到「我的帳號」驗證 Email 或連結 Google。`requireLocalEmailVerified` 套件預設也是 true，明寫是怕升版改預設。
+       *   **不加** `databaseHooks.account.create.before` 守衛：它會連本人 fresh session 的主動連結（`/link-social`）一起擋。
+       *   系辦預授權、還沒有任何登入方式的老師帳號另走 Google 設定的 `mapProfileToUser`。
        * - `allowDifferentEmails: false`：連結的 Google 帳號 Email 必須等於登入 Email。
        *   登入 Email 本人不能換（§2.3 Q3），連一個別的 Email 的 Google 進來等於多一個登入身分，先不開。
        * - `updateUserInfoOnLink: false`：連結不改姓名、頭像，更不改 Email。
        *
-       * 三個值都是套件預設（除了第一個），寫出來是為了讓「為什麼」留在設定旁邊，也讓測試直接讀來斷言。
+       * 這些值都是套件預設，寫出來是為了讓「為什麼」留在設定旁邊，也讓測試直接讀來斷言。
        */
       accountLinking: {
         enabled: true,
-        disableImplicitLinking: true,
+        disableImplicitLinking: false,
+        requireLocalEmailVerified: true,
         allowDifferentEmails: false,
         updateUserInfoOnLink: false,
       },
@@ -842,6 +846,18 @@ function createAuth() {
             await setSessionCookie(ctx, { session, user })
             return ctx.json({ success: true, resumed: true, userId: finished.userId })
           }
+        }
+
+        // ── Google 登入成功 → 一次性分析 cookie（VB-5；B 設計方案 §7.3.1，▶R2-2） ─────────────
+        //
+        // 跟 `loginMethodForPath` 同一個判斷：callback 建了新 session＝用 Google 登入成功。callback 成功也是
+        // 302（套件丟 redirect），所以放在下面 `instanceof APIError` 提早 return 之前；失敗的 callback 沒有 newSession，不寫。
+        // 屬性跟密碼登入（`login/actions.ts` 的 `markPasswordLogin`）一樣：值只有登入方式、不設 HttpOnly（前台
+        // `page-view.tsx` 要讀完清掉）、60 秒失效、HTTPS 站台才加 Secure。名稱＝前台 `_analytics/track.ts` 的
+        // `LOGIN_COOKIE`（infrastructure 不能 import app，所以寫字面值）。
+        if (ctx.path.startsWith('/callback/') && ctx.context.newSession) {
+          const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
+          ctx.setCookie('fju_ga_login', 'google', { path: '/', sameSite: 'lax', maxAge: 60, httpOnly: false, secure })
         }
 
         if (returned instanceof APIError) return
