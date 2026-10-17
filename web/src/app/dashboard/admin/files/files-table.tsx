@@ -9,7 +9,7 @@ import { cn } from '@/shared/cn'
  * 檔案管理的表格（票 35；原型 `files/files-table.tsx`＋`data-table`）：搜尋檔名、依類型篩、
  * 每列下載（走 `/api/files/<id>`，每次重新授權）與引用位置。
  *
- * 跟原型不同：沒有「上傳資源」與「刪除」——檔案一定掛在某個專題事務、繳交或名單上，
+ * 跟原型不同：沒有「上傳資源」與「刪除」——檔案一定掛在某個公告、作業、繳交或名單上，
  * 權限跟著那一筆走；獨立上傳與軟刪除屬於「檔案工作台／檔案回收」（開發計畫第 6 節，之後再做）。
  * 被引用的檔案照原型給「去解除引用」的方向（附件、封面進編輯器改）。
  */
@@ -119,7 +119,7 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
                     <td colSpan={8} className="h-40 text-center">
                       <p className="text-sm font-medium">{filtered ? '沒有符合條件的資料' : '沒有檔案'}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {filtered ? '換個關鍵字或清除條件。' : '專題事務的附件、學生的繳交檔案上傳後會出現在這裡。'}
+                        {filtered ? '換個關鍵字或清除條件。' : '公告與作業的附件、學生的繳交檔案上傳後會出現在這裡。'}
                       </p>
                     </td>
                   </tr>

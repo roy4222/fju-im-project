@@ -33,6 +33,8 @@ async function signInAs(page: Page, role: TestRole) {
 
 async function openImportDialog(page: Page) {
   await page.goto('/dashboard/admin/accounts')
+  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
+  await page.getByRole('group', { name: '名單與停用' }).locator('summary').click()
   await page.getByRole('button', { name: '匯入名單 CSV' }).click()
   await expect(page.getByRole('heading', { name: '匯入本屆名單' })).toBeVisible()
 }
@@ -86,7 +88,9 @@ test('管理員：選檔 → 預覽 → 匯入 → 版本列表看得到、原�
 
   // 版本列表：哪一屆、誰、何時、幾筆、原檔。
   await page.reload()
-  const row = page.getByRole('row').filter({ hasText: cohortName }).first()
+  // AD-11：歷次匯入改成卡片、收在「名單與停用」裡（AC-AD-21）；只換定位，下面的斷言不動。
+  await page.getByRole('group', { name: '名單與停用' }).locator('summary').click()
+  const row = page.getByRole('region', { name: '歷次匯入' }).getByRole('article').filter({ hasText: cohortName }).first()
   await expect(row).toBeVisible()
   await expect(row).toContainText('13')
   await expect(row).toContainText(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)

@@ -4,17 +4,19 @@ import { useRouter } from 'next/navigation'
 import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconSend } from '@tabler/icons-react'
 import { saveGradingDraftAction, submitGradingAction } from './actions'
 import type { FinalReceiptView } from '@/app/dashboard/teacher/grading/types'
+import { blockReason as blockReasonOf, CONFIRM_NOTE, itemErrors, missingCount, missingText, PASS_FAIL_OPTIONS, RECEIPT_NOTE, SAVED_NOTE } from '@/app/dashboard/teacher/grading/rules'
 import { DIALOG, GHOST_BUTTON, OUTLINE_BUTTON, PRIMARY_BUTTON, StampMark } from '@/app/dashboard/teacher/_ui/dash'
 import type { SchemeStage } from '@/application/grading'
 import { cn } from '@/shared/cn'
-import { formatScore, LETTER_GRADES, parseItemScore, teacherStageScore } from '@/shared/score'
+import { formatScore, LETTER_GRADES, teacherStageScore } from '@/shared/score'
 
 /**
- * 評分工作台的評分表（票 23；票 37 照原型 `GradingWorkbench` 右半邊：頂端組別＋儲存狀態、逐項一列、底部預覽總分與動作）。
+ * 單組評分頁右欄的評分卡（票 23、37；TE-06b 照 Q78 重做：數字項「／滿分」、等第下拉、通過制兩選一、
+ * 「還有 N 項沒填」、儲存草稿／正式送出；手機寬度動作列固定在畫面底部）。規則與字樣在 `rules.ts`。
  *
  * - 分數即時驗證與預覽總分只在瀏覽器（和伺服器同一份算式 `@/shared/score`），**伺服器再驗一次**才算數。
- * - 「暫存」可以沒填完；只有本人與系辦看得到，不算正式分數。
- * - 「正式送出」要每一項都有效，先確認再送；送出後拿到收件章、欄位變唯讀。要改需系辦退回（票 24）。
+ * - 「儲存草稿」可以沒填完；只有本人與系辦看得到，不算正式分數。
+ * - 「正式送出」要每一項都有效，先確認再送；送出後拿到收件章、欄位變唯讀（A 階段守衛沒變；自己重送是 B 的 TE-B1）。
  * - 同一次送出（連點、斷線重試）帶同一個請求編號，伺服器只算一次；內容一改就換新編號。
  */
 
@@ -87,16 +89,8 @@ export function GradingBench({
   }, [dirty, isLocked])
 
   const result = teacherStageScore(stage.items, stage.letterMap, values)
-  const errors = new Map<string, string>()
-  stage.items.forEach((item, index) => {
-    const raw = values[item.key]
-    if (!raw) return
-    const parsed = parseItemScore(item, raw)
-    if (!parsed.ok) {
-      errors.set(item.key, item.type === 'number' ? `第 ${index + 1} 項要填 0–${item.max} 的數字（最多兩位小數）` : `第 ${index + 1} 項選項不對`)
-    }
-  })
-  const missing = stage.items.filter((i) => !values[i.key]).length
+  const errors = itemErrors(stage.items, values)
+  const missing = missingCount(stage.items, values)
   const complete = missing === 0 && errors.size === 0
   const shownScore = isLocked && (receipt?.teacherScore ?? finalScore) ? (receipt?.teacherScore ?? finalScore)! : formatScore(result.score)
   const percent = Math.max(0, Math.min(100, Number(shownScore) || 0))
@@ -116,7 +110,7 @@ export function GradingBench({
 
   async function onSave() {
     if (errors.size > 0) {
-      setMessage({ tone: 'error', text: `${[...errors.values()][0]}，修正後才能暫存。` })
+      setMessage({ tone: 'error', text: `${[...errors.values()][0]}，修正後才能儲存草稿。` })
       return
     }
     setBusy('save')
@@ -132,12 +126,12 @@ export function GradingBench({
       }
       setSavedText(outcome.data.savedAtText)
       setDirty(false)
-      setMessage({ tone: 'ok', text: '已暫存到伺服器。評分草稿只有你和系辦看得到，不算正式分數。' })
-      // 左側佇列（與手機下拉）是伺服器元件：重抓一次讓「草稿 已填/總數」跟著變（N-154）。
+      setMessage({ tone: 'ok', text: SAVED_NOTE })
+      // 頁首自己的狀態 Pill（`my-status`）是伺服器元件：重抓一次讓「草稿 已填／總數」跟著變（N-154）。
       // 這個元件用 assignmentId 當 key，重抓不會重建，表單上的輸入與訊息都留著。
       router.refresh()
     } catch {
-      setMessage({ tone: 'error', text: '連線中斷，暫存可能沒有存到；請再按一次「暫存」。' })
+      setMessage({ tone: 'error', text: '連線中斷，草稿可能沒有存到；請再按一次「儲存草稿」。' })
     } finally {
       setBusy(null)
     }
@@ -170,43 +164,52 @@ export function GradingBench({
     }
   }
 
+  const submittedText = receipt?.receivedAtText ?? submittedAtText
   const status = isLocked
-    ? `已正式送出 ${receipt?.receivedAtText ?? submittedAtText ?? ''}`
+    ? `已正式送出${submittedText ? `・${submittedText}` : ''}`
     : busy === 'save'
       ? '儲存中…'
       : dirty
-        ? '有尚未暫存的修改'
+        ? '有尚未儲存的修改'
         : savedText
           ? `已儲存・系統記錄的儲存時間 ${savedText}`
           : '尚未儲存'
   const dot: SaveDotState = isLocked ? 'locked' : busy === 'save' ? 'saving' : dirty ? 'dirty' : savedText ? 'saved' : 'unsaved'
-  const blockReason = isLocked
-    ? '已正式送出並鎖定；要修改請聯絡系辦退回。'
-    : errors.size > 0
-      ? `${[...errors.values()][0]}，修正後才能正式送出。`
-      : missing > 0
-        ? `還差 ${missing} 項，填齊後才能正式送出。`
-        : '每一項都有效，可以正式送出。'
+  const blockReason = isLocked ? '已正式送出，分數已計入階段成績。' : blockReasonOf(errors, missing)
 
   return (
     <section aria-label={`${groupCode}「${stage.name}」評分表`} className="dash-card">
+      {/* 送出後：頂部一條綠色「已正式送出・{時間}」（就是 save-status 本身） */}
+      {isLocked ? (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="save-status"
+          className="tabular flex items-center gap-2 rounded-t-[18px] bg-success-subtle px-5 py-2.5 text-sm font-semibold text-success-on-subtle"
+        >
+          <IconCheck className="size-4 shrink-0" strokeWidth={3} aria-hidden />
+          {status}
+        </p>
+      ) : null}
       {/* 頂端一列：組別＋儲存狀態 */}
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-t-[18px] border-b border-border bg-card px-5 py-3">
+      <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-card px-5 py-3', isLocked ? null : 'rounded-t-[18px]')}>
         {/* 窄螢幕：組別這一塊獨占一行、儲存狀態換到下一行，eyebrow 才不會被擠成直排。 */}
         <div className="min-w-0 flex-1 basis-full sm:basis-0">
           <p className="tabular truncate text-xs font-semibold text-muted-foreground">{eyebrow}</p>
           <h2 className="truncate text-lg font-extrabold text-ink">{groupCode}</h2>
         </div>
-        <p role="status" aria-live="polite" data-testid="save-status" className="tabular inline-flex items-center gap-2 text-xs font-medium">
-          <SaveDot state={dot} />
-          <span className={isLocked || dot === 'saved' ? 'text-foreground' : 'text-muted-foreground'}>{status}</span>
-        </p>
+        {!isLocked ? (
+          <p role="status" aria-live="polite" data-testid="save-status" className="tabular inline-flex items-center gap-2 text-xs font-medium">
+            <SaveDot state={dot} />
+            <span className={dot === 'saved' ? 'text-foreground' : 'text-muted-foreground'}>{status}</span>
+          </p>
+        ) : null}
       </div>
       <p className="truncate px-5 pt-3 text-xs text-muted-foreground">{members}</p>
       {children ? <div className="flex flex-col gap-2 px-5 pt-3">{children}</div> : null}
       {draftFromOlderVersion && !isLocked ? (
         <p className="mx-5 mt-3 rounded-lg bg-primary-subtle px-3 py-2 text-xs text-primary-on-subtle">
-          系辦在你暫存之後更新了評分規則；已對應的分數保留，請確認後再暫存。
+          系辦在你儲存草稿之後更新了評分規則；已對應的分數保留，請確認後再儲存草稿。
         </p>
       ) : null}
 
@@ -217,21 +220,25 @@ export function GradingBench({
           const error = errors.get(item.key) ?? (serverBad.includes(item.key) ? '請檢查這一項' : null)
           const filled = value !== '' && !error
           const id = `score-${item.key}`
+          const name = `${index + 1}. ${item.name}`
           return (
-            <li
-              key={item.key}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-t border-border py-4 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_13.5rem_4rem] sm:gap-x-5"
-            >
-              <div className="col-span-2 min-w-0 sm:col-span-1">
-                <label htmlFor={id} className="block text-[15px] font-semibold text-foreground">
-                  {index + 1}. {item.name}
-                </label>
+            <li key={item.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-t border-border py-4 first:border-t-0">
+              <div className="col-span-2 min-w-0">
+                {item.type === 'passfail' ? (
+                  <p id={`${id}-name`} className="text-[15px] font-semibold text-foreground">
+                    {name}
+                  </p>
+                ) : (
+                  <label htmlFor={id} className="block text-[15px] font-semibold text-foreground">
+                    {name}
+                  </label>
+                )}
                 <p className="tabular text-xs text-muted-foreground">
                   {item.type === 'number'
                     ? `滿分 ${item.max}・占 ${item.weight}%`
                     : item.type === 'letter'
                       ? `等第 A–F・占 ${item.weight}%`
-                      : '通過／不通過（不計入分數）'}
+                      : '兩選一（不計入分數）'}
                 </p>
               </div>
               <div className="min-w-0">
@@ -258,20 +265,34 @@ export function GradingBench({
                           : 'border-input focus-visible:border-primary focus-visible:ring-primary/25',
                       )}
                     />
-                    <span className="tabular text-sm text-muted-foreground">/ {item.max}</span>
+                    <span className="tabular text-sm text-muted-foreground">／{item.max}</span>
                   </div>
+                ) : item.type === 'letter' ? (
+                  <select
+                    id={id}
+                    ref={(el) => {
+                      inputs.current[item.key] = el
+                    }}
+                    value={value}
+                    disabled={isLocked}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={error ? `${id}-error` : undefined}
+                    onChange={(e) => set(item.key, e.target.value)}
+                    className={cn(
+                      'tabular h-11 w-40 rounded-lg border bg-background px-3 text-[15px] font-bold outline-none focus-visible:ring-3 disabled:bg-muted disabled:opacity-70',
+                      error ? 'border-destructive focus-visible:ring-destructive/25' : 'border-input focus-visible:border-primary focus-visible:ring-primary/25',
+                    )}
+                  >
+                    <option value="">選擇等第</option>
+                    {LETTER_GRADES.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
-                  <div role="radiogroup" aria-labelledby={`${id}-label`} id={id} className="flex gap-1">
-                    <span id={`${id}-label`} className="sr-only">
-                      {item.name}
-                    </span>
-                    {(item.type === 'letter'
-                      ? LETTER_GRADES.map((g) => ({ value: g, label: g }))
-                      : [
-                          { value: 'pass', label: '通過' },
-                          { value: 'fail', label: '不通過' },
-                        ]
-                    ).map((option, optionIndex) => (
+                  <div role="radiogroup" aria-labelledby={`${id}-name`} id={id} className="inline-flex w-full max-w-60 gap-1 rounded-lg bg-muted p-1">
+                    {PASS_FAIL_OPTIONS.map((option, optionIndex) => (
                       <button
                         key={option.value}
                         type="button"
@@ -283,8 +304,8 @@ export function GradingBench({
                         }}
                         onClick={() => set(item.key, option.value)}
                         className={cn(
-                          'press h-11 flex-1 rounded-lg text-sm font-bold transition-colors duration-150 disabled:opacity-60',
-                          value === option.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-accent',
+                          'press h-9 flex-1 rounded-md text-sm font-bold transition-colors duration-150 disabled:opacity-60',
+                          value === option.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                         )}
                       >
                         {option.label}
@@ -299,7 +320,7 @@ export function GradingBench({
                   </p>
                 ) : null}
               </div>
-              <div className="tabular text-xs sm:text-right">
+              <div className="tabular text-right text-xs">
                 {isLocked ? (
                   <span className="text-muted-foreground">已計入成績</span>
                 ) : error ? (
@@ -317,11 +338,14 @@ export function GradingBench({
           )
         })}
       </ol>
-      {/* 手機底部固定列會蓋住最後一項，內容底部留空 */}
-      <div className="h-24 lg:hidden" aria-hidden />
-
-      {/* 底部：預覽總分＋動作（手機固定在底） */}
-      <div className="sticky bottom-0 z-10 rounded-b-[18px] border-t border-border bg-card lg:static">
+      {/* 底部：預覽總分＋動作。手機寬度固定在畫面底部（頁面底部已留空，不會蓋住最後一項）。 */}
+      <div
+        data-testid="bench-actions"
+        className={cn(
+          'rounded-b-[18px] border-t border-border bg-card',
+          isLocked ? null : 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-30 max-lg:rounded-none max-lg:shadow-[0_-4px_16px_rgb(0_0_0/0.08)]',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 pt-3">
           <p className="tabular text-sm" data-testid="score-preview">
             <span className="text-muted-foreground">{isLocked ? '計入成績的分數' : '預覽總分'}</span>{' '}
@@ -337,7 +361,7 @@ export function GradingBench({
           </div>
           {!isLocked && (missing > 0 || errors.size > 0) ? (
             <button type="button" onClick={focusFirstMissing} className="tabular text-xs font-semibold text-ink underline-offset-2 hover:underline">
-              {errors.size > 0 ? `${errors.size} 項需修正` : `還差 ${missing} 項`}
+              {errors.size > 0 ? `${errors.size} 項需修正` : missingText(missing)}
             </button>
           ) : null}
         </div>
@@ -357,7 +381,7 @@ export function GradingBench({
           {!isLocked ? (
             <div className="flex w-full gap-2 sm:w-auto">
               <button type="button" className={cn(OUTLINE_BUTTON, 'h-11 flex-1 px-4 sm:flex-none')} onClick={onSave} disabled={busy !== null}>
-                <IconDeviceFloppy /> {busy === 'save' ? '暫存中…' : '暫存'}
+                <IconDeviceFloppy /> {busy === 'save' ? '儲存中…' : '儲存草稿'}
               </button>
               <button
                 type="button"
@@ -379,7 +403,7 @@ export function GradingBench({
             正式送出 {groupCode}「{stage.name}」？
           </h2>
           <p className="text-sm text-muted-foreground">
-            送出後分數就鎖定，不能再改；要修改需系辦退回。這一份分數是 <b className="tabular text-foreground">{formatScore(result.score)}</b>。
+            這一份分數是 <b className="tabular text-foreground">{formatScore(result.score)}</b>。{CONFIRM_NOTE}
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <button type="button" className={cn(PRIMARY_BUTTON, 'h-10 flex-1')} onClick={onSubmit}>
@@ -408,7 +432,7 @@ export function GradingBench({
             <p className="tabular text-sm text-muted-foreground">
               計入成績的分數 <b className="text-[28px] font-extrabold text-foreground">{receipt.teacherScore}</b> / 100
             </p>
-            <p className="text-xs text-muted-foreground">已鎖定。多位老師時以算術平均計入階段成績；學生看不到分數。</p>
+            <p className="text-xs text-muted-foreground">{RECEIPT_NOTE}</p>
             <button type="button" className={OUTLINE_BUTTON} onClick={() => receiptDialog.current?.close()}>
               知道了
             </button>

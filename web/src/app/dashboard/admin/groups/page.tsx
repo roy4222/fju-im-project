@@ -11,6 +11,7 @@ import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
 import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
+import { LinkOpportunityButton } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
@@ -31,6 +32,7 @@ import {
   describeGroupHistory,
   getAdvisorGradingLookup,
   getGroupQuery,
+  getOpportunityQuery,
   GROUP_TYPE_LABEL,
   groupSizeWarning,
   INVITATION_STATE_LABEL,
@@ -73,7 +75,8 @@ const GROUP_TABS = [
  *
  * 系辦改版（AD-05，設計方案 §3.3）：`h1`「分組」＋分頁列（分組總覽｜合作案）；「分組設定」放分頁列右側
  * （不放標題列，網站問題 #8；屆別膠囊名稱長，放分頁列下方）；頁首說明拿掉，指派數字搬到「全部組別」、分組設定摘要搬到「組隊中」；
- * 「組隊中」「最近終止」改卡片；組別表多一欄「合作案」（連結入口由 AD-06 加在這一欄）。
+ * 「組隊中」「最近終止」改卡片；組別表多一欄「合作案」。
+ * AD-06（§3.3.1）：產學組的「合作案」格有「連結合作案／改連結」對話框（`link-opportunity-dialog.tsx`）。
  */
 
 function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
@@ -96,7 +99,7 @@ function rosterColumns(cohortId: string, filter: RosterFilter): RosterColumn[] {
     sortable('組別', 'code'),
     sortable('類型', 'type'),
     sortable('指導老師', 'advisor'),
-    // 「合作案」欄：AD-06 在產學組這一格加「連結合作案」入口；一般組不會有（Q47）。
+    // 「合作案」欄：產學組這一格有「連結合作案／改連結」（AD-06）；一般組不會有（Q47）。
     { label: '合作案' },
     { label: '組員' },
     sortable('人數', 'members'),
@@ -111,7 +114,7 @@ export default async function AdminGroupsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
-  await requireRole('/dashboard/admin/groups', 'admin')
+  const actor = await requireRole('/dashboard/admin/groups', 'admin')
 
   const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
   const params = await searchParams
@@ -148,10 +151,12 @@ export default async function AdminGroupsPage({
     )
   }
 
-  const [overview, businessNow, teachers] = await Promise.all([
+  const [overview, businessNow, teachers, linkOptions] = await Promise.all([
     getGroupQuery().overview(cohort.id),
     getBusinessClock().now(),
     getGroupQuery().teacherOptions(),
+    // 連結合作案對話框的初始選項（AD-06）：一句 SQL、只有已發布、前 50 筆；搜尋與換頁在對話框裡走 action。
+    getOpportunityQuery().linkOptions(actor, { limit: 50 }),
   ])
   const grading = getAdvisorGradingLookup()
   const gradingOf = new Map(
@@ -313,7 +318,7 @@ export default async function AdminGroupsPage({
                     requestIds={{ assign: randomUUID(), unassign: randomUUID() }}
                     reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
                   />,
-                  <span key="opportunity" className="block max-w-[10rem] text-sm">
+                  <div key="opportunity" className="max-w-[10rem] text-sm">
                     {g.opportunity ? (
                       <span className="block truncate" title={g.opportunity.name}>
                         <Link href={`/industry/${g.opportunity.opportunityId}`} className="font-semibold text-primary hover:underline">
@@ -322,13 +327,22 @@ export default async function AdminGroupsPage({
                         {g.opportunity.status === 'withdrawn' ? <span className="text-xs text-muted-foreground">（已下架）</span> : null}
                       </span>
                     ) : g.groupType === 'industry' ? (
-                      <span className="text-xs whitespace-nowrap text-muted-foreground">尚未連結</span>
-                    ) : (
+                      <span className="block text-xs whitespace-nowrap text-muted-foreground">尚未連結</span>
+                    ) : null}
+                    {g.groupType === 'industry' ? (
+                      <LinkOpportunityButton
+                        group={{ id: g.id, code: g.code, revision: g.revision }}
+                        current={g.opportunity?.name ?? null}
+                        initialOptions={linkOptions}
+                        requestId={randomUUID()}
+                        reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+                      />
+                    ) : g.opportunity ? null : (
                       <span className="text-muted-foreground" aria-label="一般專題不連合作案">
                         —
                       </span>
                     )}
-                  </span>,
+                  </div>,
                   <span key="members" className="block max-w-[10rem] text-sm text-muted-foreground">
                     <span className="block truncate" title={g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}>
                       {g.members.map((m) => (m.isLeader ? `${m.name}（組長）` : m.name)).join('、')}
