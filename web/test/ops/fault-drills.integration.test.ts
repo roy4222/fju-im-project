@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Pool } from 'pg'
@@ -16,14 +14,13 @@ import {
 import { migratedSchema } from '../migrations'
 
 /**
- * 票 28：四種故障演練的本機證明（真 PostgreSQL、真的背景工作迴圈；VM 上的實跑用 ops/fault-drill.sh）。
+ * 票 28：三種故障演練的本機證明（真 PostgreSQL、真的背景工作迴圈；VM 上的實跑用 ops/fault-drill.sh）。
  *
  * 1. 服務重啟：worker 停掉再起來，重新拿到單一實例鎖、心跳換成新版本、/api/health 回 ok；
  *    worker 被硬砍（連線直接斷）時 PostgreSQL 自己放鎖，下一個拿得到。
  * 2. 背景工作停擺：心跳超過 5 分鐘 → /api/health ok=false（503），部署的完整六項判定也不過；
  *    worker 回來後恢復。
  * 3. 毒事件：處理不了的到期工作退避、第 5 次 failed＋管理員告警；同一輪的其他到期工作照常完成。
- * 4. 磁碟 80%：量到 ≥80% 記成「警戒」，系辦首頁的磚第一段就寫「警戒」；不發任何通知。
  *
  * 全部以正式執行角色 `fju_app` 連線（背景工作與 app 在 VM 上就是用它）。
  */
@@ -33,15 +30,12 @@ const repoRoot = path.join(import.meta.dirname, '..', '..', '..')
 
 let owner: IsolatedDatabase
 let app: Pool
-let filesRoot: string
 
 type Modules = {
   worker: typeof import('@/composition/worker')
   health: typeof import('@/infrastructure/health/health-reader')
   runtime: typeof import('@/infrastructure/notifications/worker-runtime')
   runner: typeof import('@/infrastructure/notifications/pg-due-work-runner')
-  storage: typeof import('@/infrastructure/ops/storage-stats')
-  ops: typeof import('@/application/ops')
   notifications: typeof import('@/composition/notifications')
   cohorts: typeof import('@/composition/cohorts')
   db: typeof import('@/infrastructure/db/client')
@@ -62,18 +56,14 @@ beforeAll(async () => {
   url.username = 'fju_app'
   url.password = process.env.TEST_FJU_APP_PASSWORD ?? 'fju_app_local_test'
   url.searchParams.set('options', `-c search_path=${owner.schemaName}`)
-  filesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fju-drill-files-'))
   vi.resetModules()
   vi.stubEnv('DATABASE_URL', url.toString())
   vi.stubEnv('BUSINESS_CLOCK_OVERRIDE_ENABLED', 'true')
-  vi.stubEnv('FILES_ROOT', filesRoot)
   m = {
     worker: await import('@/composition/worker'),
     health: await import('@/infrastructure/health/health-reader'),
     runtime: await import('@/infrastructure/notifications/worker-runtime'),
     runner: await import('@/infrastructure/notifications/pg-due-work-runner'),
-    storage: await import('@/infrastructure/ops/storage-stats'),
-    ops: await import('@/application/ops'),
     notifications: await import('@/composition/notifications'),
     cohorts: await import('@/composition/cohorts'),
     db: await import('@/infrastructure/db/client'),
@@ -95,7 +85,6 @@ afterAll(async () => {
   await app?.end()
   await owner?.close()
   vi.unstubAllEnvs()
-  if (filesRoot) fs.rmSync(filesRoot, { recursive: true, force: true })
 })
 
 /** 部署用的健康判定（ops/check-health.mjs，預設完整六項）。 */
@@ -112,7 +101,6 @@ function startWorker(version: string, lockName: string) {
     projectionIntervalMs: 100,
     dueWorkIntervalMs: 100,
     reconcileIntervalMs: 60_000,
-    storageIntervalMs: 60_000,
     log,
   })
 }
@@ -224,52 +212,5 @@ describe('演練 3：毒事件（處理不了的到期工作）', () => {
     const later = await insertDue('test')
     expect(await runner.runOnce()).toMatchObject({ done: 1, failed: 0, retried: 0 })
     expect((await state(later)).state).toBe('done')
-  })
-})
-
-describe('演練 4：磁碟 80%', () => {
-  const GiB = 1024 ** 3
-  /** 假的 statfs：總共 100 個 1 GiB 的區塊，已用 `used` 個，其餘都給一般使用者用。 */
-  const fakeStatfs = (used: number) => async () => ({ bsize: GiB, blocks: 100, bfree: 100 - used, bavail: 100 - used })
-
-  it('量到 85%：記成警戒，磚上第一段寫「警戒」；量回 40% 之後恢復正常；全程不發通知', async () => {
-    fs.mkdirSync(path.join(filesRoot, 'files', '2026', '09'), { recursive: true })
-    fs.writeFileSync(path.join(filesRoot, 'files', '2026', '09', 'a'), Buffer.alloc(3000))
-    fs.mkdirSync(path.join(filesRoot, 'tmp'), { recursive: true })
-    fs.writeFileSync(path.join(filesRoot, 'tmp', 'b'), Buffer.alloc(500))
-    const eventsBefore = (await owner.sql('select count(*)::int as n from domain_events')).rows[0]!.n
-
-    const high = await m.storage.measureStorage({ root: filesRoot, db: app, statfs: fakeStatfs(85), drill: true })
-    await m.storage.recordStorageMeasurement(app, high)
-    const latest = await m.storage.readLatestStorage(app)
-    expect(latest).toMatchObject({ usedPercent: 85, alertLevel: 'warn80', drill: true, filesBytes: 3000, tmpBytes: 500 })
-    expect(latest!.dbBytes).toBeGreaterThan(0)
-    expect(m.ops.storageTileText(latest, new Date(), '09/25 12:00').hint.startsWith('警戒（≥80%）')).toBe(true)
-
-    const normal = await m.storage.measureStorage({ root: filesRoot, db: app, statfs: fakeStatfs(40) })
-    await m.storage.recordStorageMeasurement(app, normal)
-    expect(await m.storage.readLatestStorage(app)).toMatchObject({ usedPercent: 40, alertLevel: 'ok', drill: false })
-
-    // 只看站內、不推播（D-04）：量測不發事件，也就不會有通知。
-    expect((await owner.sql('select count(*)::int as n from domain_events')).rows[0]!.n).toBe(eventsBefore)
-    expect((await owner.sql('select count(*)::int as n from notifications')).rows[0]!.n).toBe(0)
-  })
-
-  it('背景工作一啟動就量一次真的檔案系統（每小時一次的第一次）', async () => {
-    const before = await m.storage.readLatestStorage(app)
-    const worker = await startWorker('v3', `drill-storage-${owner.schemaName}`)
-    try {
-      await vi.waitFor(
-        async () => {
-          const latest = await m.storage.readLatestStorage(app)
-          expect(latest?.measuredRealAt.getTime()).toBeGreaterThan(before?.measuredRealAt.getTime() ?? 0)
-          expect(latest?.path).toBe(filesRoot)
-          expect(latest?.totalBytes).toBeGreaterThan(0)
-        },
-        { timeout: 5_000 },
-      )
-    } finally {
-      await worker!.stop()
-    }
   })
 })

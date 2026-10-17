@@ -1,10 +1,10 @@
 import 'server-only'
 import type { ResolvedActor } from '@/application/accounts'
-import { formatGiB, type FileDownload, type FileListRow, type StoredFileReceipt } from '@/application/ops'
+import type { FileDownload, FileListRow, StoredFileReceipt } from '@/application/ops'
 import { createRateLimiter } from '@/shared/rate-limit'
 import type { Result } from '@/shared/result'
 import { checkStatus, resolveActor } from '@/composition/accounts'
-import { getFileStorage, getOpsStatusQuery } from '@/composition/ops'
+import { getFileStorage } from '@/composition/ops'
 import { getPool } from '@/infrastructure/db/client'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
 
@@ -17,12 +17,6 @@ export function getFileListQuery() {
     async list(actor: ResolvedActor): Promise<FileListRow[] | null> {
       if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
       return listStoredFiles(getPool())
-    },
-    /** 頁首「用量 X／Y」：最新一筆磁碟量測（票 28）；還沒量過回 null。 */
-    async usage(actor: ResolvedActor): Promise<{ used: string; total: string; measuredAt: Date } | null> {
-      const m = await getOpsStatusQuery().storage(actor)
-      if (!m) return null
-      return { used: formatGiB(m.usedBytes), total: formatGiB(m.usedBytes + m.freeBytes), measuredAt: m.measuredRealAt }
     },
   }
 }

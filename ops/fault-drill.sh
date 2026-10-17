@@ -8,9 +8,6 @@
 #     worker-stall   背景工作停擺：停掉 worker 超過 5 分鐘，確認 /api/health 變 503；再啟動，確認恢復
 #     poison         毒事件：插一件處理不了的到期工作＋一件正常的，確認正常那件照常完成、
 #                    毒工作退避到第 5 次標 failed 並發管理員告警
-#     disk80         磁碟 80%：在一顆 16 MiB 的記憶體磁碟上塞到 ~88% 再量一次（不碰真的硬碟），
-#                    確認量測記成「警戒」、沒有發任何通知；系辦首頁的「儲存與備份」磚會顯示這筆
-#     disk80-restore 量一次真的附件目錄，把磚換回實際用量（不做也會在下一個整點自己蓋過去）
 #   --execute       真的執行；沒帶就只印步驟
 #
 # 每次執行（成功或失敗）都在 /srv/fju/test/drills/fault-drills.log 加一行：時間、演練、結果、映像、細節。
@@ -66,13 +63,13 @@ done
 case "$SITE" in
   test) ;;
   prod) echo "故障演練只准對測試站（--site test）。正式站一律拒絕，什麼都沒做。" >&2; exit 1 ;;
-  '') echo "缺少 --site。用法：ops/fault-drill.sh --site test <restart|worker-stall|poison|disk80|disk80-restore> [--execute]" >&2; exit 1 ;;
+  '') echo "缺少 --site。用法：ops/fault-drill.sh --site test <restart|worker-stall|poison> [--execute]" >&2; exit 1 ;;
   *) echo "站台只能是 test（收到：${SITE}）" >&2; exit 1 ;;
 esac
 case "$CASE" in
-  restart|worker-stall|poison|disk80|disk80-restore) ;;
-  '') echo "缺少要跑的演練：restart、worker-stall、poison、disk80、disk80-restore" >&2; exit 1 ;;
-  *) echo "不認得的演練：${CASE}（只有 restart、worker-stall、poison、disk80、disk80-restore）" >&2; exit 1 ;;
+  restart|worker-stall|poison) ;;
+  '') echo "缺少要跑的演練：restart、worker-stall、poison" >&2; exit 1 ;;
+  *) echo "不認得的演練：${CASE}（只有 restart、worker-stall、poison）" >&2; exit 1 ;;
 esac
 
 # 真的執行才會動容器、寫 /srv/fju：先擋掉非 deploy 身分。演練（dry-run）任何人都能跑。
@@ -92,7 +89,6 @@ fi
 DRILL_DIR="${DRILL_DIR:-$SITE_ROOT/drills}"
 DRILL_LOG="$DRILL_DIR/fault-drills.log"
 DEPLOY_DIR="${DEPLOY_DIR:-$SITE_ROOT/deploy}"
-DRILL_VOLUME="${DRILL_VOLUME:-fju-${SITE}-drill-disk80}"
 if [ -n "${HEALTH_URL:-}" ]; then
   HEALTH_CURL_ARGS=()
 else
@@ -125,15 +121,6 @@ if [ "$DRY_RUN" = 1 ]; then
       plan "psql：插兩件 test_noop 到期工作（fault_drill_poison 一件、fault_drill_normal 一件，到期時間 2000-01-01）"
       plan "每 ${POLL_SECONDS} 秒查一次，最多 ${POISON_TIMEOUT_SECONDS} 秒：正常那件 done；毒工作 attempts 到 5、state=failed、有一筆 ops.worker_alert"
       ;;
-    disk80)
-      plan "docker volume create --opt type=tmpfs --opt o=size=16m,uid=1001 $DRILL_VOLUME"
-      plan "$COMPOSE run --rm --no-deps --pull never -v $DRILL_VOLUME:/drill-disk worker sh -c 'dd 14 MiB 到 /drill-disk && node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill'"
-      plan "psql：最新一筆量測要是 alert_level=warn80、drill=true；演練期間沒有任何跟磁碟有關的事件（＝不會有通知）"
-      plan "docker volume rm $DRILL_VOLUME"
-      ;;
-    disk80-restore)
-      plan "$COMPOSE exec -T worker node migrate/web/dist/worker.mjs --measure-storage-once"
-      ;;
   esac
   plan "echo '<時間>\t${CASE}\t<pass|fail>\t<映像>\t<細節>' >> $DRILL_LOG"
   say "這是演練，什麼都沒有執行。要真的跑請加 --execute（在 VM 上以 deploy 身分執行）。"
@@ -152,9 +139,8 @@ fi
 STARTED="$(date +%s)"
 IMAGE=""
 RECORDED=0
-# 結束時要收拾的東西（on_exit 看這兩個）：
+# 結束時要收拾的東西（on_exit 看這個）：
 STALLED_WORKER_CID=""   # worker-stall 停掉的 worker 容器；還沒確認帶回來之前一直有值
-DRILL_VOLUME_CREATED=0  # disk80 建的記憶體磁碟
 
 record() {
   local result="$1" detail="$2"
@@ -193,8 +179,7 @@ bring_worker_back() {
 
 # 任何方式結束（成功、失敗、set -e 中斷、Ctrl-C）都會走這裡：
 #   1. worker-stall 停掉的 worker 一定帶回來；
-#   2. disk80 的記憶體磁碟一定刪掉；
-#   3. 還沒寫紀錄就中途結束的，補一筆 fail（VM 第一次實跑時 worker-stall 就是這樣什麼都沒留下）。
+#   2. 還沒寫紀錄就中途結束的，補一筆 fail（VM 第一次實跑時 worker-stall 就是這樣什麼都沒留下）。
 # shellcheck disable=SC2329  # 由下面的 trap 呼叫。
 on_exit() {
   local rc=$? note=""
@@ -206,9 +191,6 @@ on_exit() {
       note="；⚠️ worker 沒能重新啟動，請手動：sudo -u ${FJU_DEPLOY_USER} docker start ${STALLED_WORKER_CID}"
     fi
     say "${note#；}" >&2
-  fi
-  if [ "$DRILL_VOLUME_CREATED" = 1 ]; then
-    docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1
   fi
   if [ "$RECORDED" != 1 ]; then
     record fail "腳本中途結束（結束碼 ${rc}）${note}"
@@ -263,7 +245,7 @@ APP_CID="$($COMPOSE ps -q app 2>/dev/null | head -1 || true)"
 [ -n "$APP_CID" ] || fail "Compose project ${COMPOSE_PROJECT_NAME} 裡沒有在跑的 app，先確認站台是起來的"
 # 目前部署的映像與 digest：從正在跑的 app 容器讀，export 給之後每一個 docker compose 指令。
 # 不設的話 Compose 會退回 docker-compose.yml 的預設 `ghcr.io/roy4222/fju-web:local` 並試著 build
-# （VM 上沒有原始碼，disk80 第一次實跑就是 `lstat /srv/fju/app/web: no such file or directory`）。
+# （VM 上沒有原始碼，早期演練第一次實跑就是 `lstat /srv/fju/app/web: no such file or directory`）。
 IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CID" 2>/dev/null || true)"
 [ -n "$IMAGE" ] || fail "讀不出 app 容器（${APP_CID}）的映像"
 APP_IMAGE="$IMAGE"
@@ -361,39 +343,5 @@ SQL
       fail "${POISON_TIMEOUT_SECONDS} 秒內兩件都沒被撿（都還是 pending、attempts 0）：worker 的到期迴圈沒在跑。看 log：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/site.sh test docker compose logs --tail 100 worker"
     fi
     fail "${POISON_TIMEOUT_SECONDS} 秒內沒有收斂：正常 ${normal_state:-?}、毒工作 ${poison_state:-?}、告警 ${alerts:-?} 筆"
-    ;;
-
-  disk80)
-    # 「不推播」怎麼驗：站內通知一定是從事件投影來的，所以看演練期間有沒有跟磁碟有關的事件。
-    # 不直接數通知：前一個演練（poison）的告警可能剛好在這幾秒內投影成通知，會誤判。
-    since="$(printf 'select now();\n' | psql_owner)"
-    docker volume rm -f "$DRILL_VOLUME" >/dev/null 2>&1 || true
-    # 16 MiB 的記憶體磁碟，擁有者是容器裡的 nextjs（1001）；演練完就刪，真的硬碟一個位元組都不寫。
-    DRILL_VOLUME_CREATED=1
-    docker volume create --driver local --opt type=tmpfs --opt device=tmpfs --opt o=size=16m,uid=1001 "$DRILL_VOLUME" >/dev/null
-    say "在 16 MiB 的記憶體磁碟塞 14 MiB，再用目前部署的映像量一次……"
-    # --pull never：只用本機已經有的那個映像（就是 app 正在跑的那個），不拉、也不會退回去 build。
-    out="$($COMPOSE run --rm --no-deps --pull never -v "$DRILL_VOLUME:/drill-disk" worker \
-      sh -c 'dd if=/dev/zero of=/drill-disk/fill bs=1048576 count=14 2>/dev/null; node migrate/web/dist/worker.mjs --measure-storage-once --path /drill-disk --drill' 2>&1)" \
-      || fail "量測指令失敗：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
-    printf '%s\n' "$out" | grep STORAGE_MEASURED || true
-    latest="$(printf "select payload->>'used_percent', payload->>'alert_level', payload->>'drill' from audit_events where action = 'storage.measured' order by real_at desc, id desc limit 1;\n" | psql_owner)"
-    IFS='|' read -r used level drill <<< "$latest"
-    storage_events="$(printf "select count(*) from domain_events where occurred_real_at >= '%s' and (type ilike '%%storage%%' or type ilike '%%disk%%' or source_type = 'storage' or payload::text ilike '%%storage%%');\n" "$since" | psql_owner)"
-    [ "$level" = warn80 ] || [ "$level" = critical ] || fail "最新量測是 ${used}%／${level}，不是警戒"
-    [ "$drill" = true ] || fail "最新量測不是演練寫的那一筆（${latest}）"
-    [ "$storage_events" = 0 ] || fail "量到 ${used}% 時發了 ${storage_events} 個跟磁碟有關的事件（會變成通知），違反「不推播」"
-    say "現在打開 https://$SITE_HOST/dashboard/admin ：「儲存與備份」磚應該是 ${used}%、說明第一段「警戒（≥80%）」、最後標「（故障演練）」。"
-    say "看完跑：sudo -u ${FJU_DEPLOY_USER} $APP_ROOT/ops/fault-drill.sh --site test disk80-restore --execute（不跑的話下一個整點也會自己蓋過去）"
-    pass "量到 ${used}%，記成 ${level}（演練），沒有發任何跟磁碟有關的事件／通知"
-    ;;
-
-  disk80-restore)
-    [ -n "$WORKER_CID" ] || fail "worker 沒有在跑，量不了；先恢復 worker"
-    out="$($COMPOSE exec -T worker node migrate/web/dist/worker.mjs --measure-storage-once 2>&1)" \
-      || fail "量測指令失敗：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
-    line="$(printf '%s\n' "$out" | grep STORAGE_MEASURED || true)"
-    say "${line:-$out}"
-    pass "已量一次真的附件目錄：${line#STORAGE_MEASURED }"
     ;;
 esac
