@@ -20,8 +20,8 @@ const BASE = '/dashboard/teacher'
  * 老師首頁（老師規格 §4.1，Q77；TE-07）：三段。
  *
  * 1. 「現在」橫幅：階段句＋「待評 N 組・已評 x／y」，唯一的行動鍵「繼續評分」（N＝0 不放，Q47）。
- *    N 與側欄「評分」徽章讀同一份 `loadTeacherWorkload`（沒正式送出的指派數）。共用 SH-4 的新 `HomeHero`（`timelineHref`、`trail`）
- *    還沒合併，先用舊的、不傳那兩個；也不傳已不用的進度條、小格、插圖。
+ *    N 與側欄「評分」徽章讀同一份 `loadTeacherWorkload`（沒正式送出的指派數）。橫幅帶「看完整時程」（`/timeline`，
+ *    老師側欄與前台導覽都沒有時程入口，只能從這裡進）與像素拖尾（`trail`，TE-07c）。
  * 2. 待辦：待評分、待我同意的同意書、缺件的組（`_home/todo-panels.tsx`）。
  * 3. 公告：「給老師的公告」（全部老師、所有已登入、我指導的組，新到舊 5 則）與「本屆活動」（Q13、Q14）。
  *
@@ -52,7 +52,9 @@ export default async function TeacherHomePage() {
           perspective="staff"
           name={name}
           line={line}
+          timelineHref="/timeline"
           cta={workload.toGrade ? { href: `${BASE}/grading`, label: '繼續評分' } : undefined}
+          trail
         />
 
         <TodoPanels queue={queue} ready={ready} missing={missing} />
