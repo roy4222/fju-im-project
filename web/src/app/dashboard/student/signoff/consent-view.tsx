@@ -68,7 +68,7 @@ export function ConsentVersion({ v, action, headingLevel = 1 }: { v: VersionDeta
                     <span className="min-w-0">
                       <span className="block font-semibold break-all">{a.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
+                        {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼（有爭議時查看） {a.checksum.slice(0, 12)}
                       </span>
                     </span>
                     <a
@@ -136,7 +136,7 @@ function History({ v }: { v: VersionDetail }) {
       <ul className="tabular flex flex-col gap-1">
         <li>
           <span className="font-semibold text-foreground">第 {v.versionNo} 版（這一版）</span>・{formatTaipeiMinute(v.createdAt)} {v.createdByName}{' '}
-          建立・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+          建立・文件一致性檢查碼（有爭議時查看） {v.contentChecksum.slice(0, 12)}
           （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
         </li>
         {others.map((h) => (

@@ -68,7 +68,7 @@ const LOGIN_LABEL = { google: 'Google', password: '密碼' } as const
 const ROLE_LABEL: Record<VoteRole, string> = { student: '學生', advisor: '主指導' }
 const LIFECYCLE_LABEL: Record<ExportLifecycle['action'], string> = {
   created: '建立版本',
-  reset: '系辦重置',
+  reset: '系辦重新收集同意',
   reopened: '系辦重開新版',
   voided: '作廢',
   superseded: '失效',

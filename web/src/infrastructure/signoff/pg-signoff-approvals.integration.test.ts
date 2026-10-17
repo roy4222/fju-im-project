@@ -785,7 +785,7 @@ describe('匯出（S11-09、SGN-11）', () => {
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img src=x')
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
-    expect(html).toContain('已被新版取代（系辦重置）')
+    expect(html).toContain('已被新版取代（系辦重新收集同意）')
     expect(html).toContain('系辦重開新版')
     for (const m of s.members) expect(html).toContain(m.name)
   })

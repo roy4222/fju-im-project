@@ -8,6 +8,7 @@ import {
   nextStateAfterVote,
   normalizeReason,
   REMIND_COOLDOWN_MS,
+  RESTART_LABEL,
   remindable,
   remindRecipients,
   restartKindFor,
@@ -17,7 +18,7 @@ import {
   type VoteFacts,
 } from '@/application/signoff/approval'
 import { buildSignoffCsv, buildSignoffPrintable, type SignoffExportData } from '@/application/signoff/export'
-import type { Participants } from '@/application/signoff/version'
+import { describeCause, type Participants } from '@/application/signoff/version'
 
 /** 票 26：表態、狀態轉移、重置／重開、提醒與匯出的純規則。 */
 
@@ -128,8 +129,10 @@ describe('進度與缺誰', () => {
   })
 })
 
-describe('重置、重開、作廢、提醒', () => {
-  it('收集中、等老師、已完成用「重置」；退回、失效、作廢用「重開新版」', () => {
+describe('重新收集同意、重開、作廢、提醒', () => {
+  it('收集中、等老師、已完成用「重新收集同意」；退回、失效、作廢用「重開新版」', () => {
+    expect(RESTART_LABEL).toEqual({ reset: '重新收集同意', reopen: '重開新版' })
+    expect(describeCause('reset')).toBe('系辦重新收集同意')
     expect(restartKindFor('collecting')).toBe('reset')
     expect(restartKindFor('teacher_pending')).toBe('reset')
     expect(restartKindFor('complete')).toBe('reset')
@@ -143,7 +146,7 @@ describe('重置、重開、作廢、提醒', () => {
     expect(['complete', 'superseded', 'void'].some((s) => supersedesOnRestart(s as 'complete'))).toBe(false)
   })
 
-  it('新版原因：因組員／老師變更而失效的沿用；其他一律系辦重置（CHECK 沒有 reopen）', () => {
+  it('新版原因：因組員／老師變更而失效的沿用；其他一律系辦重新收集同意（CHECK 沒有 reopen）', () => {
     expect(causeForRestart({ state: 'superseded', cause: 'member_change' })).toBe('member_change')
     expect(causeForRestart({ state: 'superseded', cause: 'advisor_change' })).toBe('advisor_change')
     expect(causeForRestart({ state: 'revision', cause: '錯字' })).toBe('reset')
@@ -223,5 +226,14 @@ describe('匯出', () => {
     const html = buildSignoffPrintable(data)
     expect(html).toContain('<p class="meta">第 43 屆（115）・版本 ID')
     expect(html).not.toContain('<p class="meta">115・')
+  })
+
+  it('操作歷程與原因：系辦的 reset 寫「系辦重新收集同意」，不寫「重置」', () => {
+    const lifecycle = [{ eventId: 'l1', action: 'reset', actorUserId: 'a1', actorName: '系辦', reason: '附件放錯', realAt: at, businessAt: at }] as const
+    const reset = { ...data, state: 'superseded', cause: 'reset', lifecycle } satisfies SignoffExportData
+    for (const out of [buildSignoffPrintable(reset), buildSignoffCsv(reset)]) {
+      expect(out).toContain('系辦重新收集同意')
+      expect(out).not.toContain('重置')
+    }
   })
 })

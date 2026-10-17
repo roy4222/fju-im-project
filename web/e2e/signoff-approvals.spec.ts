@@ -230,7 +230,7 @@ test('重置：對話框列出將失效的簽署、理由必填；舊頁再按�
   await expect(facts).toContainText('不能復原')
   await expect(dialog.getByTestId('restart-affected')).toContainText(`${names.get(g1[0]!.userId)}（同意）`)
   await dialog.getByRole('button', { name: '確定重新收集' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('請填寫重置的理由')
+  await expect(dialog.getByRole('alert')).toContainText('請填寫重新收集同意的理由')
   await dialog.getByLabel('理由（必填）').fill('附件放錯版本')
   await dialog.getByRole('button', { name: '確定重新收集' }).click()
   // 成功後直接帶到新版，上方是回執。
@@ -253,7 +253,7 @@ test('重置：對話框列出將失效的簽署、理由必填；舊頁再按�
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff/${g1v1}`)
-  await expect(page.getByTestId('signoff-invalidated')).toContainText('系辦重置')
+  await expect(page.getByTestId('signoff-invalidated')).toContainText('系辦重新收集同意')
   await expect(page.getByTestId('signoff-participants')).toContainText('同意・')
 })
 
