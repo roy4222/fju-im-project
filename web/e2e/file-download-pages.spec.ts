@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { PUBLIC_IMAGE_MAX_AGE_SECONDS } from '../src/application/ops/files'
@@ -277,7 +279,8 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect(headers['content-disposition']).toMatch(/^attachment;/)
     expect(headers['x-content-type-options']).toBe('nosniff')
     // CSP 與 c0f32bd 相同、跟私有下載同一套（V4 不動 CSP；AC-V18 依主腦 10/16 裁定在 A 改成這樣）。
-    // 路由自己設的 `default-src 'none'; sandbox` 會被 `proxy.ts` 蓋成全站 CSP（改版前就是如此），檔案回應的 CSP 加固另列 B 票。
+    // 下載路由自己設的 `default-src 'none'; sandbox` 會被 `proxy.ts` 蓋成全站 CSP（改版前就是如此）；
+    // 例外是預覽路由 `/api/files/<id>/preview`（A-06）：proxy 的 matcher 排除它，標頭由路由自己給（見檔尾的 A-06 區塊）。
     const privateCsp = (await fetchFile(null, {}, crypto.randomUUID())).headers()['content-security-policy']
     expect(headers['content-security-policy']?.replace(/'nonce-[^']+'/g, "'nonce-*'")).toBe(privateCsp?.replace(/'nonce-[^']+'/g, "'nonce-*'"))
     expect(headers['x-file-checksum-sha256']).toBe(checksum)
@@ -527,6 +530,278 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
       expect(navigation.headers()['cache-control']).toBe('private, no-store')
       expect(navigation.headers()['etag']).toBeUndefined()
     }
+  })
+})
+
+/**
+ * A-06（B 設計方案 §5；AC-A-17～20、AC-A-47、AC-A-48、AC-TE-11B 標頭與拒絕段）：檔案預覽端點 `/api/files/<id>/preview`。
+ *
+ * 權限跟下載路由同一個函式：評分老師 T1（G03 的有效評分指派）拿得到、沒指派的老師 T2 跟下載同樣被拒、指派結束後再開也被拒。
+ * 只有 PDF 與點陣圖 inline（`frame-ancestors 'self'`＋`SAMEORIGIN`）；docx 與內含 `<script>` 的 SVG 一律 302 回下載。
+ * 全站頁面仍是 `frame-ancestors 'none'`＋`DENY`，`frame-src` 只多 `'self'`，同站頁面真的嵌得進預覽。
+ *
+ * 繳交版本與檔案列直接用 owner 連線建（繳交流程是別張票的事）；檔案本體寫進 app 的 `FILES_ROOT`。
+ * 上傳收檔不收 SVG（類型白名單沒有它），所以「有人上傳了 SVG」只能這樣模擬：預覽看的是 `mime_detected`。
+ * 結束指派用 owner 連線寫「移除評審」會寫的欄位（`valid_to`、`ended_*`、`removal_choice`、`reason`）；
+ * 移除畫面本身在 grading-results.spec 驗，這裡要證的是「授權每次請求重算」。
+ */
+test.describe('A-06 檔案預覽端點：權限同下載、只內嵌 PDF／圖片、只讓本站嵌入', () => {
+  const PREVIEW_PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n')
+  const PREVIEW_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAD0lEQVR4nGNgME5DIJwcAIc5By0Ywt6kAAAAAElFTkSuQmCC', 'base64')
+  const EVIL_SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>document.title="pwned"</script><rect width="10" height="10"/></svg>')
+  const DOCX = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(60)])
+  const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  const files: Record<'pdf' | 'png' | 'svg' | 'docx', string> = { pdf: '', png: '', svg: '', docx: '' }
+  let t1: TestSession
+  let t2: TestSession
+  let adminUserId: string
+  let assignmentId: string
+
+  async function fetchPreview(as: TestSession | null, headers: Record<string, string> = {}, id: string = files.pdf): Promise<APIResponse> {
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    return context.get(`/api/files/${encodeURIComponent(id)}/preview`, {
+      headers: as ? { ...headers, cookie: as.cookie } : headers,
+      maxRedirects: 0,
+    })
+  }
+
+  /** 同一個請求打兩條路由：狀態、導向、快取標頭與內容都要相同（AC-A-47；proxy 加的全站標頭只在下載那條，不比）。 */
+  async function expectSameDenial(as: TestSession | null, headers: Record<string, string>, id: string) {
+    const [preview, download] = [await fetchPreview(as, headers, id), await fetchFile(as, headers, id)]
+    expect(preview.status()).toBe(download.status())
+    expect(preview.headers()['location']).toBe(download.headers()['location'])
+    expect(preview.headers()['cache-control']).toBe('private, no-store')
+    expect(download.headers()['cache-control']).toBe('private, no-store')
+    expect(preview.headers()['content-disposition']).toBeUndefined()
+    expect((await preview.body()).toString()).toBe((await download.body()).toString())
+    return preview
+  }
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000)
+    const filesRoot = process.env.FILES_ROOT
+    test.skip(!filesRoot, '要把檔案本體寫進 app 的 FILES_ROOT（verify 與 CI 都會設）')
+    const fresh = async () => {
+      const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+      try {
+        return await createTestSession(context, 'teacher')
+      } finally {
+        await context.dispose()
+      }
+    }
+    t1 = await fresh()
+    t2 = await fresh()
+    const adminContext = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    adminUserId = (await sharedTestSession(adminContext, 'admin')).userId
+    await adminContext.dispose()
+
+    const groupId = (
+      await pool.query<{ id: string }>(
+        `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, 'G03', 'general', now(), now(), 'system') returning id`,
+        [cohortId],
+      )
+    ).rows[0]!.id
+    assignmentId = (
+      await pool.query<{ id: string }>(
+        `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+         values (gen_random_uuid(), $1, 'mid', $2, now() - interval '1 hour', $3) returning id`,
+        [groupId, t1.userId, adminUserId],
+      )
+    ).rows[0]!.id
+    const itemRow = await pool.query<{ id: string }>(
+      `insert into managed_items (id, cohort_id, placement, audience_kind, title, created_by_kind)
+       values (gen_random_uuid(), $1, 'news', 'public', $2, 'system') returning id`,
+      [cohortId, `${CODE} 期中報告繳交`],
+    )
+    const schema = await pool.query<{ id: string }>(
+      `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id) values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+      [itemRow.rows[0]!.id, adminUserId],
+    )
+    const versionId = (
+      await pool.query<{ id: string }>(
+        `insert into submission_versions
+           (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+            received_real_at, received_business_at, request_id, membership_snapshot, deadline_version_at_submit)
+         values (gen_random_uuid(), $1, 'group', $2, 1, $3, '{}'::jsonb, $4, now(), now(), gen_random_uuid(), '[]'::jsonb, 1) returning id`,
+        [itemRow.rows[0]!.id, groupId, schema.rows[0]!.id, student.userId],
+      )
+    ).rows[0]!.id
+
+    const put = async (field: keyof typeof files, name: string, mime: string, extension: string, bytes: Buffer) => {
+      const id = crypto.randomUUID()
+      const storageKey = `e2e-a06/${stamp}/${id}`
+      await fs.mkdir(path.join(filesRoot!, path.dirname(storageKey)), { recursive: true })
+      await fs.writeFile(path.join(filesRoot!, storageKey), bytes)
+      const checksum = createHash('sha256').update(bytes).digest('hex')
+      await pool.query(
+        `insert into stored_files (id, owner_user_id, scope, cohort_id, purpose, original_name, size_bytes, mime_declared, mime_detected,
+                                   extension, checksum, status, storage_key, uploaded_real_at, finalized_at)
+         values ($1, $2, 'cohort', $3, 'submission', $4, $5, $6, $6, $7, $8, 'stored', $9, now(), now())`,
+        [id, student.userId, cohortId, name, bytes.length, mime, extension, checksum, storageKey],
+      )
+      await pool.query(`insert into submission_files (submission_version_id, file_id, field_key, checksum) values ($1, $2, $3, $4)`, [
+        versionId,
+        id,
+        field,
+        checksum,
+      ])
+      await pool.query(`insert into file_references (id, file_id, ref_type, ref_id) values (gen_random_uuid(), $1, 'submission_version', $2)`, [
+        id,
+        versionId,
+      ])
+      files[field] = id
+    }
+    await put('pdf', '期中報告.pdf', 'application/pdf', 'pdf', PREVIEW_PDF)
+    await put('png', '系統架構圖.png', 'image/png', 'png', PREVIEW_PNG)
+    await put('svg', '流程圖.svg', 'image/svg+xml', 'svg', EVIL_SVG)
+    await put('docx', '會議紀錄.docx', DOCX_MIME, 'docx', DOCX)
+  })
+
+  test('T1（G03 評分老師）預覽 PDF：200、inline、只讓本站嵌入、nosniff、不被 proxy 蓋成全站 CSP；下載仍是 attachment＋DENY', async () => {
+    const response = await fetchPreview(t1)
+    const headers = response.headers()
+    expect(response.status()).toBe(200)
+    expect(headers['content-type']).toBe('application/pdf')
+    expect(headers['content-disposition']).toMatch(/^inline;/)
+    expect(headers['content-disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('期中報告.pdf')}`)
+    expect(headers['x-frame-options']).toBe('SAMEORIGIN')
+    expect(headers['x-content-type-options']).toBe('nosniff')
+    // spike 結論：PDF 不加 sandbox（Chrome 在 iframe sandbox 屬性下顯示不了 PDF）；全站 CSP（nonce、frame-ancestors 'none'）沒蓋上來。
+    expect(headers['content-security-policy']).toBe("default-src 'none'; frame-ancestors 'self'")
+    expect(headers['cache-control']).toBe('private, no-store')
+    expect(await response.body()).toEqual(PREVIEW_PDF)
+
+    const png = await fetchPreview(t1, {}, files.png)
+    expect(png.status()).toBe(200)
+    expect(png.headers()['content-disposition']).toMatch(/^inline;/)
+    expect(png.headers()['content-security-policy']).toBe("default-src 'none'; frame-ancestors 'self'; sandbox")
+    expect(png.headers()['x-frame-options']).toBe('SAMEORIGIN')
+
+    const download = await fetchFile(t1, {}, files.pdf)
+    expect(download.status()).toBe(200)
+    expect(download.headers()['content-disposition']).toMatch(/^attachment;/)
+    expect(download.headers()['x-frame-options']).toBe('DENY')
+    expect(download.headers()['content-security-policy']).toContain("frame-ancestors 'none'")
+  })
+
+  test('AC-A-17：未登入開預覽 → 跟下載同樣的 401 JSON；瀏覽器直接開導去登入頁、登入後回到預覽', async () => {
+    for (const id of [files.pdf, crypto.randomUUID(), 'not-a-uuid']) {
+      const api = await expectSameDenial(null, {}, id)
+      expect(api.status()).toBe(401)
+      expect(await api.json()).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+      // iframe 裡被拒也是 JSON，不導頁。
+      expect((await expectSameDenial(null, { 'sec-fetch-dest': 'iframe' }, id)).status()).toBe(401)
+    }
+    const navigation = await fetchPreview(null, DOCUMENT)
+    expect(navigation.status()).toBe(303)
+    expect(navigation.headers()['location']).toBe(`/login?next=${encodeURIComponent(`/api/files/${files.pdf}/preview`)}`)
+    expect(navigation.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('AC-A-18：docx 開預覽 → 302 到下載路由，跟著走最後是 attachment', async () => {
+    const response = await fetchPreview(t1, {}, files.docx)
+    expect(response.status()).toBe(302)
+    expect(response.headers()['location']).toBe(`/api/files/${files.docx}`)
+    expect(response.headers()['content-disposition']).toBeUndefined()
+    expect((await response.body()).length).toBe(0)
+
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    const followed = await context.get(`/api/files/${files.docx}/preview`, { headers: { cookie: t1.cookie } })
+    expect(followed.status()).toBe(200)
+    expect(followed.url()).toBe(`${BASE_URL}/api/files/${files.docx}`)
+    expect(followed.headers()['content-disposition']).toMatch(/^attachment;/)
+    expect(followed.headers()['content-type']).toBe(DOCX_MIME)
+  })
+
+  test('AC-A-20：內含 <script> 的 SVG 開預覽 → 302 下載，不內嵌；瀏覽器開這個網址是下載、腳本沒有跑', async ({ page }) => {
+    const response = await fetchPreview(t1, {}, files.svg)
+    expect(response.status()).toBe(302)
+    expect(response.headers()['location']).toBe(`/api/files/${files.svg}`)
+    expect((await response.body()).length).toBe(0)
+
+    await page.context().clearCookies()
+    await page.context().addCookies([toPlaywrightCookie(t1.cookie, BASE_URL)])
+    await page.goto('/dashboard/teacher/grading')
+    const title = await page.title()
+    const download = page.waitForEvent('download')
+    await page.evaluate((url) => {
+      window.location.href = url
+    }, `/api/files/${files.svg}/preview`)
+    expect((await download).suggestedFilename()).toBe('流程圖.svg')
+    expect(await page.title()).toBe(title)
+  })
+
+  test('AC-A-19：頁面仍是 DENY＋frame-ancestors none、frame-src 多 self；同站頁面真的嵌得進預覽，嵌不進下載', async ({ page }) => {
+    await page.context().clearCookies()
+    for (const url of ['/', '/dashboard/teacher/grading']) {
+      if (url !== '/') await page.context().addCookies([toPlaywrightCookie(t1.cookie, BASE_URL)])
+      const response = await page.goto(url)
+      const headers = response!.headers()
+      expect(headers['x-frame-options'], url).toBe('DENY')
+      expect(headers['content-security-policy'], url).toContain("frame-ancestors 'none'")
+      expect(headers['content-security-policy'], url).toContain("frame-src 'self' https://www.youtube.com https://challenges.cloudflare.com;")
+    }
+
+    // 評分頁內嵌（A-07 會做成按鈕）：同站 iframe 載得到預覽的圖片；下載路由（DENY）被瀏覽器擋下。
+    const violations: string[] = []
+    page.on('console', (m) => {
+      if (/Refused to (frame|display)/.test(m.text())) violations.push(m.text())
+    })
+    const embed = (src: string) =>
+      page.evaluate((s) => {
+        const frame = document.createElement('iframe')
+        frame.src = s
+        frame.title = s
+        document.body.append(frame)
+      }, src)
+    const previewLoaded = page.waitForResponse((r) => r.url().endsWith(`/api/files/${files.png}/preview`))
+    await embed(`/api/files/${files.png}/preview`)
+    expect((await previewLoaded).status()).toBe(200)
+    await expect
+      .poll(async () => {
+        const frame = page.frames().find((f) => f.url().endsWith(`/api/files/${files.png}/preview`))
+        return frame ? frame.evaluate(() => document.querySelector('img')?.naturalWidth ?? 0) : -1
+      })
+      .toBe(4)
+    expect(violations).toEqual([])
+
+    await embed(`/api/files/${files.png}`)
+    await expect.poll(() => violations.length).toBeGreaterThan(0)
+    expect(violations.join('\n')).toContain(`/api/files/${files.png}`)
+  })
+
+  test('AC-A-47：沒有 G03 指派的老師 T2 開預覽 → 跟下載同一個結果（403／導 /403），沒有檔案內容', async () => {
+    for (const id of [files.pdf, files.png, files.docx, files.svg]) {
+      const api = await expectSameDenial(t2, {}, id)
+      expect(api.status()).toBe(403)
+      expect(await api.json()).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      const navigation = await expectSameDenial(t2, DOCUMENT, id)
+      expect(navigation.status()).toBe(303)
+      expect(navigation.headers()['location']).toBe('/403')
+    }
+  })
+
+  test('AC-A-48：T1 先預覽成功；指派結束後同一個 session 再開同一個網址 → 被拒（同下載），授權沒有快取', async ({ page }) => {
+    await page.context().clearCookies()
+    await page.context().addCookies([toPlaywrightCookie(t1.cookie, BASE_URL)])
+    const url = `/api/files/${files.png}/preview`
+    const before = await page.request.get(url, { maxRedirects: 0 })
+    expect(before.status()).toBe(200)
+
+    const ended = await pool.query(
+      `update evaluator_assignments
+          set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, removal_choice = 'keep', reason = 'e2e A-06：結束評分指派'
+        where id = $1 and valid_to is null`,
+      [assignmentId, adminUserId],
+    )
+    expect(ended.rowCount).toBe(1)
+
+    const after = await page.request.get(url, { maxRedirects: 0 })
+    expect(after.status()).toBe(403)
+    expect(await after.json()).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect((await page.request.get(`/api/files/${files.png}`, { maxRedirects: 0 })).status()).toBe(403)
+    await expectSameDenial(t1, {}, files.pdf)
   })
 })
 

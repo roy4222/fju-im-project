@@ -362,16 +362,17 @@ export function tempKeyFor(fileId: string): string {
 }
 
 /**
- * 下載用的 `Content-Disposition`（一律 attachment，不讓瀏覽器直接開）。
+ * 下載用的 `Content-Disposition`：預設 attachment，不讓瀏覽器直接開。
+ * `inline` 只給預覽路由（`/api/files/[id]/preview`，A-06）——它自己先擋掉 PDF／圖片以外的類型。
  *
  * `filename=` 給舊瀏覽器一個純 ASCII 的名字，`filename*=` 帶 UTF-8 的真名（RFC 6266／5987）。
  * 換行與引號在兩邊都拿掉，避免標頭注入。
  */
-export function contentDispositionFor(displayName: string): string {
+export function contentDispositionFor(displayName: string, disposition: 'attachment' | 'inline' = 'attachment'): string {
   const safe = sanitizeDisplayName(displayName)
   const ascii = safe.replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_')
   const encoded = encodeURIComponent(safe).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
+  return `${disposition}; filename="${ascii}"; filename*=UTF-8''${encoded}`
 }
 
 /**
