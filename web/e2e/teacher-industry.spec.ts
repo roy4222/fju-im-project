@@ -296,3 +296,126 @@ test('TE-05：我的組別分頁有「我指導的組」卡片、擔任產學組
   await expect(page.getByRole('region', { name: '我指導的組' }).getByTestId('my-group-G04')).toBeVisible()
   await expect(page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('row').filter({ hasText: 'G04' })).toContainText('你指導中')
 })
+
+/**
+ * TE-B3（A-04）：案主老師在「我的合作案」直接把組別連到自己的已發布案，不必是該組指導老師（D8）。
+ * 選項只列還沒連案的產學組（組別代碼＋組長名）；連好後列上標「由 {老師} 連結」；首次連結不發通知，
+ * 稽核記操作者是這位老師（AC-A-11、AC-TE-39 覆寫版）。AC-A-12／13 的拒絕在整合測試。
+ */
+test('TE-B3：案主老師「連結組別」選 G01 → 成功、標「由 T2 連結」、不發通知、稽核記老師（AC-A-11）', async ({ page }) => {
+  test.setTimeout(150_000)
+  const t2 = await freshSession('teacher')
+  const advisor = await freshSession('teacher')
+  const t2Name = `案主T2${stamp}`
+  await pool.query(`update user_profiles set display_name = $2, name_normalized = $2 where user_id = $1`, [t2.userId, t2Name])
+  const company = `連結組別${stamp}`
+  const name = `${company}・資訊部`
+  const code = `TEB3-${stamp}`
+  const at = new Date(Date.now() - 86_400_000)
+  const cohort = await pool.query<{ id: string }>(
+    `insert into cohorts (id, code, name, status, year_end_date, is_default_working, created_by_kind)
+     values (gen_random_uuid(), $1, $2, 'active', (now() + interval '300 days')::date, false, 'system') returning id`,
+    [code, `${code} 屆`],
+  )
+  const cohortId = cohort.rows[0]!.id
+  let seq = 0
+  async function group(groupCode: string): Promise<{ id: string; leader: string; members: string[] }> {
+    const members: { id: string; name: string }[] = []
+    for (let i = 0; i < 2; i += 1) {
+      seq += 1
+      const studentName = `TEB3組員${seq}`
+      const studentNo = `406${String(Date.now()).slice(-5)}${seq}`
+      const user = await pool.query<{ id: string }>(
+        `insert into users (id, name, email, email_verified, updated_at, status)
+         values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+        [studentName, `teb3-${stamp.toLowerCase()}-${seq}@example.com`],
+      )
+      const id = user.rows[0]!.id
+      await pool.query(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'student', $2, now())`,
+        [id, admin.userId],
+      )
+      await pool.query(
+        `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email)
+         values ($1, $2, $2, $3, $4, '0912000000', $5)`,
+        [id, studentName, studentNo, cohortId, `teb3-${seq}@contact.example.com`],
+      )
+      await pool.query(`insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)`, [cohortId, studentNo, id])
+      members.push({ id, name: studentName })
+    }
+    const ids = members.map((m) => m.id)
+    const row = await pool.query<{ id: string }>(
+      `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at,
+                           created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
+       values (gen_random_uuid(), $1, $2, 'industry', 'active', $4, $4, $4, 'user', $3, $4, $3) returning id`,
+      [cohortId, groupCode, ids[0], at],
+    )
+    const groupId = row.rows[0]!.id
+    await pool.query(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
+       select gen_random_uuid(), $1, $2, u, $4, 'user', $3, $4, $4 from unnest($5::uuid[]) as u`,
+      [groupId, cohortId, ids[0], at, ids],
+    )
+    await pool.query(
+      `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, created_at) values (gen_random_uuid(), $1, $2, $3, $2, $3)`,
+      [groupId, ids[0], at],
+    )
+    return { id: groupId, leader: members[0]!.name, members: ids }
+  }
+  const g01 = await group('G01')
+  const g02 = await group('G02')
+  // G01 的指導老師是別人（D8：案主不必是指導老師）。
+  await pool.query(
+    `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+     values (gen_random_uuid(), $1, $2, 'admin', $3, $4, '抽籤結果')`,
+    [g01.id, advisor.userId, at, admin.userId],
+  )
+
+  await signIn(page, t2)
+  await createThenToggle(page, '/dashboard/teacher/groups?tab=cases', company)
+  // G02 先由組長連到別案：選項裡不該出現。
+  const otherCase = await pool.query<{ id: string }>(
+    `insert into industry_opportunities
+       (id, owner_teacher_user_id, company_name, department, content, requirements, status,
+        published_business_at, created_by_kind, created_by_user_id)
+     values (gen_random_uuid(), $1, $2, '研發部', 'TE-B3 別案內容', '', 'published', now(), 'user', $1)
+     returning id`,
+    [advisor.userId, `別案${stamp}`],
+  )
+  await pool.query(
+    `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at)
+     values (gen_random_uuid(), $1, $2, $3, $4, $3)`,
+    [g02.id, otherCase.rows[0]!.id, at, g02.members[0]],
+  )
+
+  const notificationCount = async () =>
+    Number(
+      (await pool.query<{ n: string }>(`select count(*) as n from notifications where recipient_user_id = any($1::uuid[])`, [[...g01.members, t2.userId]]))
+        .rows[0]!.n,
+    )
+  const before = await notificationCount()
+
+  await page.reload()
+  const row = page.getByTestId('managed-opportunity').filter({ hasText: company })
+  const dialog = page.getByRole('dialog', { name: `連結組別到「${name}」` })
+  await expect(async () => {
+    if (!(await dialog.isVisible())) await row.getByRole('button', { name: `連結組別：${name}` }).click()
+    await expect(dialog).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  const g01Option = dialog.getByRole('radio', { name: new RegExp(`${code}）・G01`) })
+  await expect(dialog.getByText(new RegExp(`${code}）・G01`)).locator('..')).toContainText(`組長 ${g01.leader}`)
+  await expect(dialog.getByRole('radio', { name: new RegExp(`${code}）・G02`) })).toHaveCount(0)
+  await g01Option.check()
+  await dialog.getByRole('button', { name: '確認連結' }).click()
+  await expect(dialog).toBeHidden({ timeout: 5_000 })
+  await expect(row).toContainText(`G01`)
+  await expect(row).toContainText(`由 ${t2Name} 連結`)
+
+  const links = await pool.query('select linked_by_user_id from opportunity_links where group_id = $1 and valid_to is null', [g01.id])
+  expect(links.rows).toEqual([{ linked_by_user_id: t2.userId }])
+  const audit = await pool.query(`select actor_user_id, role from audit_events where action = 'opportunity.link' and target_id = $1`, [g01.id])
+  expect(audit.rows).toEqual([{ actor_user_id: t2.userId, role: 'teacher' }])
+  // 首次連結不發通知：等 worker 有機會處理事件後，組員與案主的通知筆數都沒變。
+  await page.waitForTimeout(3_000)
+  expect(await notificationCount()).toBe(before)
+})

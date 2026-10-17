@@ -420,6 +420,22 @@ export interface OpportunityQuery {
   linkOptions(actor: ResolvedActor, opts?: { q?: string; limit?: number; offset?: number }): Promise<readonly LinkOption[]>
   /** 學生本人的組別在合作案與類型區塊要的資料；沒有組別回 null。 */
   leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null>
+  /**
+   * 案主老師「連結組別」對話框的選項（TE-B3）：未封存屆別裡 active、產學合作、目前沒有連任何合作案的組，
+   * 依屆別、組別代碼排序。只有老師與系辦拿得到，其他人回空陣列。
+   */
+  teacherLinkTargets(actor: ResolvedActor): Promise<readonly TeacherLinkTarget[]>
+}
+
+/** 「連結組別」對話框的一個選項：組別代碼＋組長名，送出時帶 `revision`。 */
+export type TeacherLinkTarget = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly cohortCode: string
+  readonly cohortName: string
+  /** 目前的組長；沒有組長（例如組長剛被移出）是 null。 */
+  readonly leaderName: string | null
+  readonly revision: number
 }
 
 /** 組別名單匯出的結果（票 20；#105）：檔案內容與筆數，檔名由呼叫端依時間組。 */
