@@ -208,6 +208,9 @@ export type GroupMember = {
    * 學生與老師的查詢一律 null——同組學生看不到彼此的登入信箱（5.1 沒授權這件事）。
    */
   readonly loginEmail: string | null
+  /** 頭像（ST-12）：沒設定＝null，畫面用 hash 預設圖。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 /**

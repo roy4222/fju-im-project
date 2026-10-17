@@ -1587,15 +1587,46 @@ async function deidentifiedNames(db: Queryable, userIds: readonly string[]): Pro
   return new Map(rows.rows.map((r) => [r.id, displayPersonName(r.name)]))
 }
 
-/** 一批參與者快照（jsonb 原樣）裡，已去識別化的人 → 代稱。 */
-function pseudonymsForSnapshots(db: Queryable, raws: readonly unknown[]): Promise<Map<string, string>> {
-  return deidentifiedNames(
-    db,
-    raws.flatMap((raw) => {
-      const p = readParticipants(raw)
-      return p ? participantUserIds(p) : []
-    }),
+/** 快照裡一個人此刻的資料：代稱（只有已去識別化的人有）與頭像（ST-12；快照不存頭像，讀目前值）。 */
+type SnapshotProfile = { pseudonym: string | null; avatarPreset: number | null; avatarFileId: string | null }
+
+/**
+ * 一批參與者快照（jsonb 原樣）裡每個人此刻的代稱與頭像。一句查詢（取代原本只讀代稱的那一句，句數不變）；
+ * 代稱規則照舊只對 `deidentified_at is not null` 的人套用。
+ */
+async function profilesForSnapshots(db: Queryable, raws: readonly unknown[]): Promise<Map<string, SnapshotProfile>> {
+  const ids = [
+    ...new Set(
+      raws.flatMap((raw) => {
+        const p = readParticipants(raw)
+        return p ? participantUserIds(p) : []
+      }),
+    ),
+  ].filter((id) => id !== '')
+  if (ids.length === 0) return new Map()
+  const rows = await db.query<{ id: string; name: string; deidentified_at: Date | null; avatar_preset: number | null; avatar_file_id: string | null }>(
+    `select u.id, u.name, u.deidentified_at, p.avatar_preset, p.avatar_file_id
+       from users u left join user_profiles p on p.user_id = u.id
+      where u.id = any($1::uuid[])`,
+    [ids],
   )
+  return new Map(
+    rows.rows.map((r) => [
+      r.id,
+      {
+        pseudonym: r.deidentified_at ? displayPersonName(r.name) : null,
+        avatarPreset: r.avatar_preset,
+        avatarFileId: r.avatar_file_id,
+      },
+    ]),
+  )
+}
+
+/** `withPseudonyms` 要的 userId → 代稱（只留已去識別化的人）。 */
+function pseudonymsOf(profiles: ReadonlyMap<string, SnapshotProfile>): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [id, p] of profiles) if (p.pseudonym !== null) out.set(id, p.pseudonym)
+  return out
 }
 
 type SummaryRow = {
@@ -1612,9 +1643,9 @@ type SummaryRow = {
 function summaryOf(
   r: SummaryRow,
   votes: readonly (VoteRecord & { versionId: string })[],
-  pseudonyms: ReadonlyMap<string, string>,
+  profiles: ReadonlyMap<string, SnapshotProfile>,
 ): VersionSummary {
-  const participants = withPseudonyms(readParticipants(r.participants) ?? NO_PARTICIPANTS, pseudonyms)
+  const participants = withPseudonyms(readParticipants(r.participants) ?? NO_PARTICIPANTS, pseudonymsOf(profiles))
   const mine = votes.filter((v) => v.versionId === r.version_id)
   const times = [r.created_real_at, r.status_updated_at, ...mine.map((v) => v.realAt)].map((d) => new Date(d).getTime())
   return {
@@ -1624,7 +1655,7 @@ function summaryOf(
     cause: r.cause,
     studentCount: participants.students.length,
     createdAt: r.created_real_at,
-    progress: buildProgress(participants, mine, r.state),
+    progress: buildProgress(participants, mine, r.state, profiles),
     lastEventAt: new Date(Math.max(...times)),
   }
 }
@@ -1705,7 +1736,7 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         packages.rows.map((p) => p.version_id),
       )
-      const pseudonyms = await pseudonymsForSnapshots(
+      const profiles = await profilesForSnapshots(
         db,
         packages.rows.map((p) => p.participants),
       )
@@ -1713,7 +1744,7 @@ export class PgSignoffQuery implements SignoffQuery {
         const entry = showcase.rows.find((s) => s.group_id === g.id)
         const current = (purpose: SignoffPurpose): VersionSummary | null => {
           const p = packages.rows.find((r) => r.group_id === g.id && r.purpose === purpose)
-          return p ? summaryOf(p, votes, pseudonyms) : null
+          return p ? summaryOf(p, votes, profiles) : null
         }
         return {
           groupId: g.id,
@@ -1798,12 +1829,12 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         rows.rows.map((r) => r.version_id),
       )
-      const pseudonyms = await pseudonymsForSnapshots(
+      const profiles = await profilesForSnapshots(
         db,
         rows.rows.map((r) => r.participants),
       )
       return rows.rows.map((r) => {
-        const current = summaryOf(r, votes, pseudonyms)
+        const current = summaryOf(r, votes, profiles)
         const isSnapshotAdvisor = readParticipants(r.participants)?.advisor.userId === actor.userId
         return {
           groupId: r.group_id,
@@ -1831,7 +1862,7 @@ function canRead(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authentic
 /** 一批版本的明細要用的資料（歷史、代稱、表態、本人的組員／指導狀態），一次各查一句；`toDetailFrom` 只讀它、不碰資料庫。 */
 type DetailPrefetch = {
   historyOf: ReadonlyMap<string, VersionDetail['history']>
-  pseudonyms: ReadonlyMap<string, string>
+  profiles: ReadonlyMap<string, SnapshotProfile>
   votes: readonly (VoteRecord & { versionId: string })[]
   /** `${groupId}:${role}` → 本人此刻還是不是該組的組員（student）或主指導（teacher）。 */
   eligible: ReadonlyMap<string, boolean>
@@ -1850,7 +1881,7 @@ async function prefetchDetails(db: Queryable, rows: readonly VersionRow[], userI
     list.push({ versionId: h.version_id, versionNo: h.version_no, state: h.state, cause: h.cause, createdAt: h.created_real_at })
     historyOf.set(h.package_id, list)
   }
-  const pseudonyms = await pseudonymsForSnapshots(
+  const profiles = await profilesForSnapshots(
     db,
     rows.map((r) => r.participants),
   )
@@ -1869,7 +1900,7 @@ async function prefetchDetails(db: Queryable, rows: readonly VersionRow[], userI
     )
     for (const r of live.rows) eligible.set(`${r.group_id}:${r.role}`, true)
   }
-  return { historyOf, pseudonyms, votes, eligible }
+  return { historyOf, profiles, votes, eligible }
 }
 
 async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
@@ -1898,9 +1929,9 @@ function toDetailFrom(
   prefetched: DetailPrefetch,
   extras: DetailExtras = { exports: [], lastRemindedAt: null },
 ): VersionDetail {
-  const participants = withPseudonyms(readParticipants(row.participants) ?? NO_PARTICIPANTS, prefetched.pseudonyms)
+  const participants = withPseudonyms(readParticipants(row.participants) ?? NO_PARTICIPANTS, pseudonymsOf(prefetched.profiles))
   const votes = prefetched.votes.filter((v) => v.versionId === row.version_id)
-  const progress = buildProgress(participants, votes, row.state)
+  const progress = buildProgress(participants, votes, row.state, prefetched.profiles)
   const isCurrent = row.current_version_id === row.version_id
   const role = roleIn(participants, actor.userId)
   const eligible = role !== null && prefetched.eligible.get(`${row.group_id}:${role}`) === true

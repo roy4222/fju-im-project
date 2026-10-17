@@ -268,6 +268,18 @@ test('AC-ST-16：已成組預設「我的組」：頁首卡、三個分頁、組
   await expect(seats.filter({ hasText: '組長' })).toContainText(members[0]!.name)
   await expect(seats.filter({ hasText: '組長' }).locator('svg.tabler-icon-crown')).toHaveCount(1)
 
+  // 組員頭像實際渲染 32×32（AC-ST-29），桌機與手機寬都一樣。
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    const avatars = seats.locator('img')
+    await expect(avatars).toHaveCount(5)
+    for (let i = 0; i < 5; i++) {
+      const box = await avatars.nth(i).boundingBox()
+      expect(box?.width).toBeCloseTo(32, 0)
+      expect(box?.height).toBeCloseTo(32, 0)
+    }
+  }
+
   const advisor = page.getByTestId('my-advisor')
   await expect(advisor).toContainText(`${ADVISOR_NAME} 老師`)
   const mail = advisor.getByRole('link', { name: ADVISOR_CONTACT })
