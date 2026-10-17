@@ -91,10 +91,13 @@ export async function resendOtpAction(state: ResendFormState, formData: FormData
 
 /**
  * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3、第 2 輪）：憑這個瀏覽器的續辦票，不是登入 session。
- * 每次要新的 Turnstile token；冷卻與上限跟一般重寄同一組（hook）。票不對或過期時伺服器不寄信，畫面照樣說已寄出
- * （不透露原因）；之後填碼會得到「這次續辦已經失效」。
+ * 每次要新的 Turnstile token；冷卻與上限跟一般重寄同一組（hook）。票不對時伺服器不寄信，畫面照樣說已寄出
+ * （不透露原因）；之後填碼會得到「這次續辦已經失效」。10 分鐘視窗過了但截止內 → 伺服器照常寄新碼、視窗重開（主腦裁定）。
  * 信寄不出去 → 伺服器保留原本那封的碼與綁定，畫面說「暫時寄不出去」（跟一般重寄的失敗句同一句，不透露帳號狀態）；
- * 續辦已過絕對截止（開始起 30 分鐘）→ 不寄信，請他回上一步重新開始。
+ * 續辦已過絕對截止（開始起 30 分鐘）→ 不寄信，畫面「續辦已逾時，請重新開始」並給回第 1 步的連結（Email 帶著）。
+ * 持票的人本來就知道這個帳號在續辦，這一句不會多洩漏帳號狀態。票在伺服器已經作廢（重寄回逾時、填碼回已失效），
+ * cookie **不在這裡刪**：Server Action 回應會重新算這一頁，沒有票的續辦頁會導去登入，使用者就看不到這句與連結
+ * （e2e 抓到的）；cookie 最多再活 10 分鐘，回第 1 步重填會換成新票。
  */
 export async function resendResumeOtpAction(state: ResendFormState, formData: FormData): Promise<ResendFormState> {
   const attempt = (state?.attempt ?? 0) + 1
@@ -112,7 +115,9 @@ export async function resendResumeOtpAction(state: ResendFormState, formData: Fo
       return { error: authErrorMessage(error, '驗證碼暫時寄不出去，請稍後再試。').message, attempt }
     }
     if (outcome === 'mail_failed') return { error: '驗證碼暫時寄不出去，請稍後再試。', attempt }
-    if (outcome === 'timed_out') return { error: '續辦已逾時，請重新開始。', attempt }
+    if (outcome === 'timed_out') {
+      return { error: '續辦已逾時，請重新開始。', restartHref: `/register?email=${encodeURIComponent(resume.email)}`, attempt }
+    }
     // 暫存跟新碼一起延長 10 分鐘（最多到續辦開始後 30 分鐘；由伺服器管），續辦票的 cookie 也跟著延。
     jar.set(RESUME_COOKIE, encodeResume(resume), {
       httpOnly: true,

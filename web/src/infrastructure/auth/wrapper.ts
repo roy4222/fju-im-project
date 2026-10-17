@@ -375,7 +375,7 @@ export function resendVerificationOtp(input: { email: string }, headers: Headers
 }
 
 export type SignupResumeResendOutcome =
-  /** 已寄出並改綁（票不對、暫存過期、帳號已不能續辦時也回這個：不寄信、不改綁，但對外跟寄出分不出來）。 */
+  /** 已寄出並改綁（票不對、帳號已不能續辦時也回這個：不寄信、不改綁，但對外跟寄出分不出來）。 */
   | 'sent'
   /** 信寄不出去（Brevo 未設定、拒收或逾時）：原 OTP、原綁定、原期限都留著，沒寄出的新碼撤掉；請使用者稍後再試。 */
   | 'mail_failed'
@@ -389,8 +389,9 @@ function isMailFailed(error: unknown): boolean {
 /**
  * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3、第 2 輪）。`ticket` 是續辦開始時發給這個瀏覽器的那張票（HttpOnly cookie）。
  *
- * 1. 先看票（只讀）：票錯、暫存過期、帳號已不能續辦 → **不寄信**，回 `sent`（跟寄出時一樣，不透露原因；拿不到票的人
- *    本來就無從得知帳號狀態）。票對但已過絕對截止 → 不寄信，回 `timed_out`。
+ * 1. 先看票（只讀）：票錯、帳號已不能續辦 → **不寄信**，回 `sent`（跟寄出時一樣，不透露原因；拿不到票的人本來就無從
+ *    得知帳號狀態）。票對但已過絕對截止 → 不寄信，回 `timed_out`。票對、截止內、但這封碼的 10 分鐘視窗已過 → **照常寄**
+ *    並在第 4 步把視窗重開（主腦裁定：截止內重寄要復活視窗，不再「不寄信卻回 sent」）。
  * 2. 寄碼走**內部呼叫＋用途 `signup-resume-resend`**，而不是公開的 `resendVerificationOtp`：hook 不認得這個用途，
  *    照公開重寄處理——`headers` 要帶這一次的新 Turnstile token；120 秒冷卻、每個 Email 10 分鐘 5 封、每個 IP 每小時
  *    20 封都由 hook 照算，沒有旁路、不重設計數——差別只在寄信回呼會**等寄送結果**並回報失敗。公開路徑刻意不等
@@ -399,7 +400,7 @@ function isMailFailed(error: unknown): boolean {
  *    不必另做「outbox 送成功才改綁」的兩段式（那要改 mail 層）。
  * 3. 寄失敗（`MAIL_FAILED`）→ 在鎖裡撤掉套件寄信前已插的那列沒寄出的新碼（`restoreSignupResumeOtp`），綁定與期限
  *    都不動，原本那封的碼仍能完成；回 `mail_failed`。被冷卻／限速／Turnstile 擋下的照舊丟出去，什麼都不動。
- * 4. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：期限延到 `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦。
+ * 4. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：視窗重設成 `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦。
  *
  * 錯誤次數：每一封新碼照套件規則各自有 5 次（`allowedAttempts`）；總嘗試次數仍受 `otpVerify` 桶
  * （每個 Email 10 分鐘 10 次、每個 IP 每小時 60 次）與寄碼上限約束，不會因為重寄變成無限次。
@@ -428,7 +429,7 @@ export async function resendSignupResumeOtp(
   const rebound = await rebindSignupResumeOtp(getPool(), { email, ticket: input.ticket })
   // 看票與寄出之間剛好跨過截止：信已寄出，但這張票不能再用，照實說逾時。
   if (!rebound.ok && rebound.reason === 'timed_out') return 'timed_out'
-  // 寄出之後帳號才變得不能續辦（例如信箱主人剛好在別處完成）或暫存剛過期：信已寄出，對外一樣回正常；完成時會拿到「已失效」。
+  // 寄出之後帳號才變得不能續辦（例如信箱主人剛好在別處完成）或暫存列剛被別人改綁：信已寄出，對外一樣回正常；完成時會拿到「已失效」。
   return 'sent'
 }
 

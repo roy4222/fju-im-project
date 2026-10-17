@@ -58,6 +58,7 @@ export function VerifyForm({
 /**
  * 「重寄驗證碼」：載入時與每次寄出後倒數 120 秒，倒數中按鈕 disabled。
  * Turnstile 由頁面當 `turnstile` 傳進來（每次送出後 widget 自己 reset 拿新 token）。
+ * 續辦過了絕對截止時伺服器回 `restartHref`：錯誤句旁邊多一個「重新開始」連結回第 1 步（整頁導航、Email 帶著）。
  */
 export function ResendForm({
   action,
@@ -91,9 +92,19 @@ export function ResendForm({
       </button>
       <p aria-live="polite" className="text-center text-[13px]">
         {state?.error ? (
-          <span role="alert" className="font-semibold text-danger">
-            {state.error}
-          </span>
+          <>
+            <span role="alert" className="font-semibold text-danger">
+              {state.error}
+            </span>
+            {state.restartHref ? (
+              <>
+                {' '}
+                <a href={state.restartHref} className="font-bold text-primary underline">
+                  重新開始
+                </a>
+              </>
+            ) : null}
+          </>
         ) : state?.sentAt ? (
           <span className="font-semibold text-success">已重新寄出新的驗證碼，之前那封的碼不能再用。</span>
         ) : null}

@@ -397,6 +397,47 @@ test('AC-VI-49（Review P3）：續辦頁有重寄；冷卻內送出被伺服器
   await context.close()
 })
 
+test('主腦裁定（VB-3 Review 第 3 輪）：續辦過了絕對截止再重寄 → 「續辦已逾時，請重新開始」、填碼回已失效、重新開始連結回第 1 步', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const email = `vb3-resume-timeout-${run}@example.com`
+  const { context, page } = await fresh(browser)
+  await stepOne(page, email, P1)
+  await expect(page).toHaveURL(/\/register\/verify$/)
+  await page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
+  await expect(page).toHaveURL(/\/register\?email=/)
+  // 第一封的冷卻過了才能開始續辦。
+  await new Promise((resolve) => setTimeout(resolve, 122_000))
+  await stepOne(page, email, P2)
+  await expect(page).toHaveURL(/\/register\/verify\?resume=1$/)
+  const mails = (await otpMails(email)).length
+
+  // 絕對截止只看伺服器存在暫存列的值：把它改成已過（不用真的等 30 分鐘）。
+  const pending = await pool.query<{ value: string }>('select value from verifications where identifier = $1', [`signup-resume:${email}`])
+  const parsed = JSON.parse(pending.rows[0]!.value) as { deadlineAt: number }
+  await pool.query('update verifications set value = $2 where identifier = $1', [
+    `signup-resume:${email}`,
+    JSON.stringify({ ...parsed, deadlineAt: Date.now() - 1_000 }),
+  ])
+
+  // 剛寄過所以倒數中；硬送（拿掉 disabled）：逾時在看票那一步就回，不經冷卻、不寄信。
+  const resend = page.getByRole('button', { name: /重寄驗證碼/ })
+  await resend.evaluate((el) => el.removeAttribute('disabled'))
+  await resend.click()
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('續辦已逾時，請重新開始')
+  expect((await otpMails(email)).length).toBe(mails)
+
+  // 票在伺服器已作廢：手上那封的碼也完成不了（完成交易看的是列上的截止）。
+  await page.getByLabel('驗證碼第 1 位').fill(await latestOtp(email))
+  await expect(page.locator('#otp-error')).toContainText('這次續辦已經失效')
+  expect((await userRow(email))!.email_verified).toBe(false)
+
+  // 「重新開始」連結回第 1 步、Email 帶著。
+  await page.getByRole('link', { name: '重新開始' }).click()
+  await expect(page).toHaveURL(/\/register\?email=/)
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email)
+  await context.close()
+})
+
 test('AC-VI-54 畫面段：Google 新帳號到第 3 步，進度條第 1、2 格打勾、「Google 已驗證」', async ({ browser, playwright }) => {
   const { context, page } = await fresh(browser)
   const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })

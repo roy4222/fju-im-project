@@ -130,6 +130,21 @@ async function otpMails(email: string): Promise<string[]> {
   return rows.rows.map((r) => String(r.body_text).match(/驗證碼是 (\d{6})/)![1]!)
 }
 
+/**
+ * 讓套件做一次「順手清理」：`findVerificationValue`（`better-auth/dist/db/internal-adapter.mjs`）每次都會刪掉**所有**
+ * `expires_at < now` 的 verifications 列，不分 identifier；公開的 check 端點對任何 Email 都會呼叫它。
+ * 正式環境裡任何人查碼都會觸發，所以暫存列不能靠 `expires_at` 當 10 分鐘視窗（主腦裁定：視窗過了、截止內要能重寄復活）。
+ */
+async function triggerPluginCleanup(): Promise<void> {
+  const response = await call(
+    'POST',
+    '/email-otp/check-verification-otp',
+    { email: freshEmail('cleanup'), type: 'email-verification', otp: '000000' },
+    { 'x-real-ip': '203.0.113.99' },
+  )
+  expect(response.status).toBe(400)
+}
+
 async function counts(): Promise<{ users: number; accounts: number }> {
   const row = (
     await db.sql(`select (select count(*)::int from users) as users, (select count(*)::int from accounts) as accounts`)
@@ -289,8 +304,11 @@ describe('續辦流程（AC-VI-49）', () => {
     const email = freshEmail('expired')
     const id = await signUp(email)
     const ticket = await startResume(email, P2)
-    await db.sql(`update verifications set expires_at = now() - interval '1 minute' where identifier = $1`, [
+    // 10 分鐘視窗存在列的 JSON（`windowEndAt`）；`expires_at` 只是列的壽命（截止＋10 分鐘，給套件的順手清理看）。
+    const row = (await db.sql(`select value from verifications where identifier = $1`, [`signup-resume:${email}`])).rows[0]!
+    await db.sql(`update verifications set value = $2 where identifier = $1`, [
       `signup-resume:${email}`,
+      JSON.stringify({ ...(JSON.parse(String(row.value)) as object), windowEndAt: Date.now() - 60_000 }),
     ])
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
@@ -300,6 +318,13 @@ describe('續辦流程（AC-VI-49）', () => {
     expect(await passwordHash(id)).toBe(hash)
     const user = await db.sql(`select email_verified from users where id = $1`, [id])
     expect(user.rows[0]!.email_verified).toBe(false)
+    // `expires_at` 已過也擋（fail closed；直接打交易，不經套件——套件的順手清理會先把列刪掉）。
+    await db.sql(`update verifications set value = $2, expires_at = now() - interval '1 minute' where identifier = $1`, [
+      `signup-resume:${email}`,
+      String(row.value),
+    ])
+    expect(await resume.finishSignupResume(app, { email, otp, ticket })).toEqual({ ok: false, reason: 'expired' })
+    expect(await passwordHash(id)).toBe(hash)
   })
 
   it('寄碼期間帳號變得不能續辦（例如系辦處理了）→ 完成時整筆 rollback', async () => {
@@ -432,7 +457,7 @@ describe('續辦重寄（VB-3 Review 第 1 輪 P3）', () => {
     }
   }
 
-  it('票錯、暫存過期、帳號已不能續辦：不寄信、不改綁，回應跟寄出一樣（不丟錯）', async () => {
+  it('票錯、帳號已不能續辦：不寄信、不改綁，回應跟寄出一樣（不丟錯）', async () => {
     const email = freshEmail('resend-bad')
     const id = await signUp(email)
     const ticket = await startResume(email, P2)
@@ -442,9 +467,7 @@ describe('續辦重寄（VB-3 Review 第 1 輪 P3）', () => {
 
     // 票錯（冷卻已過，排除被冷卻擋下的可能）。
     await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket: 'not-the-ticket' }, headers()))
-    // 暫存過期（10 分鐘後）。
-    await at(121_000 + 601_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
-    // 帳號已不能續辦（例如已經驗證過）。
+    // 帳號已不能續辦（例如已經驗證過）。（10 分鐘視窗過了、截止內的重寄會照常寄：主腦裁定，見下一個 describe。）
     await db.sql(`update users set email_verified = true where id = $1`, [id])
     await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
     await db.sql(`update users set email_verified = false where id = $1`, [id])
@@ -583,9 +606,12 @@ describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
     // 票在「現在＋121 秒」建立：絕對截止＝那一刻＋30 分鐘。
     const ticket = await startResume(email, P2)
     const first = await pendingRow(email)
-    const deadlineAt = (JSON.parse(first.value) as { deadlineAt?: unknown }).deadlineAt
+    const { deadlineAt, windowEndAt } = JSON.parse(first.value) as { deadlineAt?: unknown; windowEndAt?: unknown }
     expect(deadlineAt).toBe(first.createdAt + resume.SIGNUP_RESUME_MAX_SECONDS * 1000)
-    expect(first.expiresAt).toBe(first.createdAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    expect(windowEndAt).toBe(first.createdAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    // 列本身活到截止再多 10 分鐘：續辦票 cookie 最多在最後一次寄出後 10 分鐘內還能帶回來，套件的順手清理不能先把列刪掉，
+    // 持票的人才一定看得到「續辦已逾時」而不是靜默的 sent。
+    expect(first.expiresAt).toBe((deadlineAt as number) + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
 
     // Review 的節奏：每 181 秒一次（每個 Email 10 分鐘 5 封的固定視窗擋不住）。截止前的每一次都放行，但期限封頂。
     let sent = 0
@@ -593,15 +619,20 @@ describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
       expect(await at(offset, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers())), `offset ${offset}`).toBe('sent')
       sent += 1
       const row = await pendingRow(email)
-      expect(row.expiresAt, `offset ${offset}`).toBeLessThanOrEqual(deadlineAt as number)
-      expect((JSON.parse(row.value) as { deadlineAt?: unknown }).deadlineAt, `offset ${offset}`).toBe(deadlineAt)
+      const json = JSON.parse(row.value) as { deadlineAt?: unknown; windowEndAt?: unknown }
+      expect(json.windowEndAt, `offset ${offset}`).toBeLessThanOrEqual(deadlineAt as number)
+      expect(json.deadlineAt, `offset ${offset}`).toBe(deadlineAt)
+      expect(row.expiresAt, `offset ${offset}`).toBe(first.expiresAt)
     }
     expect(sent).toBe(9)
     const capped = await pendingRow(email)
-    expect(capped.expiresAt).toBe(deadlineAt)
+    expect((JSON.parse(capped.value) as { windowEndAt?: unknown }).windowEndAt).toBe(deadlineAt)
     expect(await otpMails(email)).toHaveLength(2 + sent)
 
-    // 過了截止：不寄信、不改綁、不延長；回 timed_out（票對的人才會看到這一句）。
+    // 過了截止：先讓套件做一次順手清理（任何人查碼都會觸發），暫存列要還在，重寄才回得出 timed_out 而不是靜默的 sent。
+    await at(1_931_000, () => triggerPluginCleanup())
+    expect(await pendingRow(email)).toEqual(capped)
+    // 不寄信、不改綁、不延長；回 timed_out（票對的人才會看到這一句）。
     expect(await at(1_931_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('timed_out')
     expect(await otpMails(email)).toHaveLength(2 + sent)
     expect(await pendingRow(email)).toEqual(capped)
@@ -654,8 +685,58 @@ describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
 
     // 截止前最後一毫秒：改綁放行，但期限只到截止；完成照常。
     expect(await resume.rebindSignupResumeOtp(app, { email, ticket }, new Date(deadlineAt - 1))).toEqual({ ok: true })
-    expect((await pendingRow(email)).expiresAt).toBe(deadlineAt)
+    const rebound = await pendingRow(email)
+    expect((JSON.parse(rebound.value) as { windowEndAt: number }).windowEndAt).toBe(deadlineAt)
+    expect(rebound.expiresAt).toBe(deadlineAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
     expect(await resume.finishSignupResume(app, { email, otp, ticket }, new Date(deadlineAt - 1))).toMatchObject({ ok: true, userId: id })
+  })
+
+  /** 在「現在＋offset」跑，並回傳那一刻的時間（算視窗用）。 */
+  async function atWithNow<T>(offsetMs: number, fn: (now: number) => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const now = Date.now() + offsetMs
+    vi.setSystemTime(now)
+    try {
+      return await fn(now)
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('主腦裁定（第 3 輪）：10 分鐘視窗過了、30 分鐘截止內重寄 → 照常寄新碼、改綁、視窗＝min(現在＋10 分鐘, 截止)；新碼可完成；暫存列不被套件的順手清理刪掉', async () => {
+    const email = freshEmail('resend-revive')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const first = await pendingRow(email)
+    const { deadlineAt } = JSON.parse(first.value) as { deadlineAt: number }
+    const mails = (await otpMails(email)).length
+
+    // 視窗過了（票建立起 10 分鐘）：別人查碼觸發套件清理——過期的驗證碼列會被刪，暫存列要還在。
+    await at(121_000 + 601_000, () => triggerPluginCleanup())
+    expect(await otpRows(email)).toEqual([])
+    expect(await pendingRow(email)).toEqual(first)
+
+    // 截止內重寄：照常寄（冷卻、限速、Turnstile 跟公開重寄同一組 hook）、改綁到新碼、視窗＝現在＋10 分鐘。
+    const revivedAt = await atWithNow(121_000 + 609_000, async (now) => {
+      expect(await wrapper.resendSignupResumeOtp({ email, ticket }, headers())).toBe('sent')
+      return now
+    })
+    expect(await otpMails(email)).toHaveLength(mails + 1)
+    const revived = await pendingRow(email)
+    const revivedJson = JSON.parse(revived.value) as { otpHash: string; windowEndAt: number; deadlineAt: number }
+    expect(revivedJson.otpHash).toBe(resume.hashSecret((await otpMails(email)).at(-1)!))
+    expect(revivedJson.windowEndAt).toBe(revivedAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    expect(revivedJson.deadlineAt).toBe(deadlineAt)
+    expect(revived.expiresAt).toBe(first.expiresAt)
+
+    // 視窗又過了、截止前再寄一次：視窗封頂到截止；用最新的碼完成，P2 是新密碼。
+    expect(await at(1_400_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('sent')
+    expect(await otpMails(email)).toHaveLength(mails + 2)
+    expect((JSON.parse((await pendingRow(email)).value) as { windowEndAt: number }).windowEndAt).toBe(deadlineAt)
+    const latest = (await otpMails(email)).at(-1)!
+    const done = await at(1_410_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
   })
 })
 

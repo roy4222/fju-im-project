@@ -61,7 +61,11 @@ const KNOWN_CODES = new Set([
   'UNAUTHENTICATED',
 ])
 
-/** 續辦票的 cookie：只存在發起續辦的那個瀏覽器（HttpOnly），10 分鐘，跟暫存列一起到期。 */
+/**
+ * 續辦票的 cookie：只存在發起續辦的那個瀏覽器（HttpOnly），10 分鐘，每次重寄成功再延 10 分鐘。
+ * 伺服器的暫存列活到絕對截止（續辦開始起 30 分鐘）再多 10 分鐘（`signup-resume.ts` 的 `rowExpiresAt`），
+ * 所以 cookie 還帶得回票的期間，過了截止的重寄一定看得到「續辦已逾時」。
+ */
 export const RESUME_COOKIE = 'fju_signup_resume'
 export const RESUME_MAX_AGE = 10 * 60
 
@@ -85,4 +89,5 @@ export type SignupFormState =
 
 /** 第 2 步填碼、重寄兩個表單的狀態。 */
 export type VerifyFormState = { error: string; attempt: number } | undefined
-export type ResendFormState = { error?: string; sentAt?: number; attempt: number } | undefined
+/** `restartHref`：續辦已過絕對截止時給「重新開始」連結（回第 1 步、Email 帶著）。 */
+export type ResendFormState = { error?: string; restartHref?: string; sentAt?: number; attempt: number } | undefined
