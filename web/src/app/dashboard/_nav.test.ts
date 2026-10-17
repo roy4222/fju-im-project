@@ -41,7 +41,7 @@ describe('isNavActive', () => {
 
 describe('navTitle', () => {
   it('亮著那一項的名字', () => {
-    expect(navTitle(ADMIN_NAV, '/dashboard/admin/cohorts', '系辦')).toBe('屆別')
+    expect(navTitle(ADMIN_NAV, '/dashboard/admin/cohorts', '系辦')).toBe('設定')
   })
 
   it('沒有命中時回角色名', () => {
