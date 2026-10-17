@@ -1,4 +1,4 @@
-import type { Pool } from 'pg'
+import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RegistrationCommand, ResolvedActor } from '@/application/accounts'
 import {
@@ -915,6 +915,58 @@ describe('審核結果信（B 階段 VB-1，AC-VI-53）', () => {
     expect(done.receipt.approved.map((a) => a.appliedName)).toEqual(['寄信批次'])
     expect((await outboxOf(e1)).rows.map((r) => [r.template, r.status])).toEqual([['registration_result', 'captured']])
     expect((await outboxOf(e2)).rows).toEqual([])
+  })
+
+  it('連線池滿載：10 筆同時退回、10 筆同時核准都做完、各寄一封（交易連線先還回池子再寄信，Review 第 1 輪）', async () => {
+    // 正式設定的池子上限是 10。交易 commit 後若還抓著連線去寄信，寄信要的那一條永遠等不到 → 全部卡住。
+    // 這裡給取連線 5 秒逾時，卡住就變成寄信失敗（outbox 少列），測試直接紅，不會掛著。
+    const url = new URL(TEST_DATABASE_URL)
+    url.username = 'fju_app'
+    url.password = process.env.TEST_FJU_APP_PASSWORD ?? 'fju_app_local_test'
+    const full = new Pool({ connectionString: url.toString(), max: 10, connectionTimeoutMillis: 5_000, options: `-c search_path=${db.schemaName}` })
+    const { PgRegistrationCommand } = await import('@/infrastructure/accounts/registration-command')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
+    const { PgCohortStatusQuery } = await import('@/infrastructure/cohorts/pg-cohorts')
+    const { CaptureMailer } = await import('@/infrastructure/mail/capture-mailer')
+    const saturated = new PgRegistrationCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => full),
+      db: () => full,
+      cohorts: new PgCohortStatusQuery(() => full),
+      mail: { mailer: new CaptureMailer({ db: () => full }), siteUrl: BASE_URL },
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const batch = async (tag: string) => {
+        const emails = Array.from({ length: 10 }, (_, i) => uniqueEmail(`${tag}${i}`))
+        const users: string[] = []
+        for (const email of emails) users.push(await register({ studentNo: String(++studentNo), appliedName: '滿載測試', loginEmail: email }))
+        return { emails, users }
+      }
+      const countFor = async (emails: string[]) =>
+        Number((await one<{ n: number }>(`select count(*)::int as n from mail_outbox where to_email = any($1) and status = 'captured'`, [emails])).n)
+
+      const rejecting = await batch('pool-rej')
+      const rejected = await Promise.all(
+        await Promise.all(
+          rejecting.users.map(async (u) => ({ applicationId: await appOf(u), revision: 1, reason: '學號打錯', requestId: requestId() })),
+        ).then((inputs) => inputs.map((input) => saturated.reject(admin(), input))),
+      )
+      expect(rejected.filter((r) => r.ok)).toHaveLength(10)
+      expect(await countFor(rejecting.emails)).toBe(10)
+
+      const approving = await batch('pool-ok')
+      const inputs = await Promise.all(approving.users.map((u) => approveInput(u)))
+      const approved = await Promise.all(inputs.map((input) => saturated.approve(admin(), input)))
+      expect(approved.filter((r) => r.ok)).toHaveLength(10)
+      expect(await countFor(approving.emails)).toBe(10)
+      expect(full.waitingCount).toBe(0)
+      expect(errors).not.toHaveBeenCalled()
+    } finally {
+      errors.mockRestore()
+      await full.end()
+    }
   })
 
   it('寄信失敗（Brevo 500）：核准照樣成功、帳號開通，那一列記 failed、不存內文', async () => {

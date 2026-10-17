@@ -451,6 +451,20 @@ export class PgRegistrationCommand implements RegistrationCommand {
    * 預覽與核准之間名單、占用都可能變了，交易外先分類擋不住。單筆審核（`batch=false`）完全不走這一段。
    */
   async #approve(actor: ResolvedActor, input: ApproveInput, batch: boolean): Promise<Result<DecisionReceipt>> {
+    // 審核結果信在交易連線還回池子**之後**才寄：寄信也要向同一個池子拿連線，抓著不放的話池子滿載時全部卡死。
+    let mailTo: string | null = null
+    const result = await this.#approveInTx(actor, input, batch, (to) => (mailTo = to))
+    if (result.ok && mailTo !== null) await this.#notifyResult(mailTo, { decision: 'approved' })
+    return result
+  }
+
+  /** 核准的交易本體；commit 成功才呼叫 `committed`（回放、失敗都不呼叫，所以不會重寄）。 */
+  async #approveInTx(
+    actor: ResolvedActor,
+    input: ApproveInput,
+    batch: boolean,
+    committed: (to: string) => void,
+  ): Promise<Result<DecisionReceipt>> {
     const blocked = reviewAccessDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
     const shape = checkDecisionShape(input)
@@ -644,7 +658,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
-      await this.#notifyResult(row.login_email, { decision: 'approved' })
+      committed(row.login_email)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -768,6 +782,22 @@ export class PgRegistrationCommand implements RegistrationCommand {
     actor: ResolvedActor,
     input: { applicationId: string; revision: number; reason: string; requestId: string },
   ): Promise<Result<DecisionReceipt>> {
+    // 同 `#approve`：交易連線還回池子之後才寄信。
+    let mail: { to: string; reason: string } | null = null
+    const result = await this.#rejectInTx(actor, input, (to, reason) => (mail = { to, reason }))
+    if (result.ok && mail !== null) {
+      const { to, reason } = mail
+      await this.#notifyResult(to, { decision: 'rejected', reason })
+    }
+    return result
+  }
+
+  /** 退回的交易本體；commit 成功才呼叫 `committed`。 */
+  async #rejectInTx(
+    actor: ResolvedActor,
+    input: { applicationId: string; revision: number; reason: string; requestId: string },
+    committed: (to: string, reason: string) => void,
+  ): Promise<Result<DecisionReceipt>> {
     const blocked = reviewAccessDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
     const shape = checkDecisionShape(input)
@@ -837,7 +867,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
-      await this.#notifyResult(row.login_email, { decision: 'rejected', reason: decision.value.reason })
+      committed(row.login_email, decision.value.reason)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -850,7 +880,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
   // ── 內部 ──────────────────────────────────────────────────────────────────
 
   /**
-   * 審核結果信（設計方案 §3.1）：一定在交易 commit 之後呼叫。寄失敗只留 `mail_outbox.status = 'failed'`，
+   * 審核結果信（設計方案 §3.1）：一定在交易 commit、而且交易連線還回池子之後呼叫。寄失敗只留 `mail_outbox.status = 'failed'`，
    * 不回滾、不回錯給系辦（R6：不重試）；連寫 `mail_outbox` 都失敗也只記 log。回放（同請求編號重送）不會走到這裡。
    */
   async #notifyResult(to: string, outcome: RegistrationOutcome): Promise<void> {
