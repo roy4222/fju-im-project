@@ -355,6 +355,48 @@ test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦�
   for (const x of [a, b, c]) await x.context.close()
 })
 
+test('AC-VI-49（Review P3）：續辦頁有重寄；冷卻內送出被伺服器擋；冷卻後重寄收到新碼、用新碼完成', async ({ browser }) => {
+  test.setTimeout(420_000)
+  const email = `vb3-resume-resend-${run}@example.com`
+  const { context, page } = await fresh(browser)
+  await stepOne(page, email, P1)
+  await expect(page).toHaveURL(/\/register\/verify$/)
+  await page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
+  await expect(page).toHaveURL(/\/register\?email=/)
+  // 第一封的冷卻過了才能開始續辦。
+  await new Promise((resolve) => setTimeout(resolve, 122_000))
+  await stepOne(page, email, P2)
+  await expect(page).toHaveURL(/\/register\/verify\?resume=1$/)
+  const firstOtp = await latestOtp(email)
+
+  // 續辦頁有重寄鈕，剛寄過所以倒數中、disabled。
+  const resend = page.getByRole('button', { name: /重寄驗證碼/ })
+  await expect(resend).toContainText(/秒後可重寄/)
+  await expect(resend).toBeDisabled()
+
+  // 冷卻內硬送（拿掉 disabled）：伺服器擋下、不寄信。
+  const mails = (await otpMails(email)).length
+  await resend.evaluate((el) => el.removeAttribute('disabled'))
+  await resend.click()
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('驗證碼剛寄出')
+  expect((await otpMails(email)).length).toBe(mails)
+
+  // 冷卻過後重寄：多一封新碼。
+  await new Promise((resolve) => setTimeout(resolve, 122_000))
+  await expect(resend).toBeEnabled()
+  await resend.click()
+  await expect(page.getByText('已重新寄出新的驗證碼')).toBeVisible()
+  await expect.poll(async () => (await otpMails(email)).length).toBe(mails + 1)
+  const newOtp = await latestOtp(email)
+  expect(newOtp).not.toBe(firstOtp)
+
+  // 用新碼完成續辦 → 第 3 步；P2 是新密碼。
+  await page.getByLabel('驗證碼第 1 位').fill(newOtp)
+  await expect(page).toHaveURL(/\/register\/apply$/)
+  expect((await userRow(email))!.email_verified).toBe(true)
+  await context.close()
+})
+
 test('AC-VI-54 畫面段：Google 新帳號到第 3 步，進度條第 1、2 格打勾、「Google 已驗證」', async ({ browser, playwright }) => {
   const { context, page } = await fresh(browser)
   const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })

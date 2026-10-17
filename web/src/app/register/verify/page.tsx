@@ -6,7 +6,7 @@ import { EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, isRegistrationO
 import { backToSignupStep } from '../actions'
 import { decodeResume, RESUME_COOKIE } from '../_components/form-data'
 import { RegisterFrame } from '../_components/register-frame'
-import { resendOtpAction, verifyOtpAction } from './actions'
+import { resendOtpAction, resendResumeOtpAction, verifyOtpAction } from './actions'
 import { ResendForm, VerifyForm } from './verify-form'
 
 export const metadata = { title: '驗證 Email｜資管系專題平台', robots: { index: false } }
@@ -16,7 +16,7 @@ export const metadata = { title: '驗證 Email｜資管系專題平台', robots:
  *
  * - 一般：第 1 步建好帳號、已登入受限 session、還沒驗證的人。沒登入導去登入頁；已驗證的人照狀態往下走。
  * - 續辦（`?resume=1`）：同一個 Email 有一筆還沒完成的註冊，驗證碼已寄出；沒有 session，憑這個瀏覽器的
- *   續辦票 cookie。這個模式沒有「重寄」——重寄會換掉暫存綁定的那一封，要重來就回第 1 步。
+ *   續辦票 cookie。重寄走續辦專用的入口（寄出後把暫存改綁到新碼，VB-3 Review P3）。
  */
 export default async function RegisterVerifyPage({ searchParams }: { searchParams: Promise<{ resume?: string | string[] }> }) {
   if (!isRegistrationOpen()) notFound()
@@ -38,6 +38,7 @@ export default async function RegisterVerifyPage({ searchParams }: { searchParam
         }
       >
         <VerifyForm action={verifyOtpAction} mode="resume" />
+        <ResendForm action={resendResumeOtpAction} turnstile={<Turnstile action="resend" />} />
         <BackToStepOne />
       </RegisterFrame>
     )

@@ -2,12 +2,20 @@
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { clientIpFrom, EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, resolveActor } from '@/composition/accounts'
-import { authCallHeaders, completeSignupResume, resendVerificationOtp, verifyEmailWithOtp } from '@/composition/signup'
+import {
+  authCallHeaders,
+  completeSignupResume,
+  resendSignupResumeOtp,
+  resendVerificationOtp,
+  verifyEmailWithOtp,
+} from '@/composition/signup'
 import {
   authErrorMessage,
   decodeResume,
   field,
+  encodeResume,
   RESUME_COOKIE,
+  RESUME_MAX_AGE,
   type ResendFormState,
   type VerifyFormState,
 } from '../_components/form-data'
@@ -76,6 +84,37 @@ export async function resendOtpAction(state: ResendFormState, formData: FormData
     )
   } catch (error) {
     return { error: authErrorMessage(error, '驗證碼暫時寄不出去，請稍後再試。').message, attempt }
+  }
+  return { sentAt: Date.now(), attempt }
+}
+
+/**
+ * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3）：憑這個瀏覽器的續辦票，不是登入 session。
+ * 每次要新的 Turnstile token；冷卻與上限跟一般重寄同一組（hook）。票不對或過期時伺服器不寄信，畫面照樣說已寄出
+ * （不透露原因）；之後填碼會得到「這次續辦已經失效」。
+ */
+export async function resendResumeOtpAction(state: ResendFormState, formData: FormData): Promise<ResendFormState> {
+  const attempt = (state?.attempt ?? 0) + 1
+  const incoming = await headers()
+  const jar = await cookies()
+  const resume = decodeResume(jar.get(RESUME_COOKIE)?.value)
+  if (resume) {
+    try {
+      await resendSignupResumeOtp(
+        resume,
+        authCallHeaders({ ip: clientIpFrom(incoming), turnstileToken: field(formData, 'cf-turnstile-response', 4096) }),
+      )
+    } catch (error) {
+      return { error: authErrorMessage(error, '驗證碼暫時寄不出去，請稍後再試。').message, attempt }
+    }
+    // 暫存跟新碼一起延長 10 分鐘，續辦票的 cookie 也跟著延。
+    jar.set(RESUME_COOKIE, encodeResume(resume), {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: (process.env.BETTER_AUTH_URL ?? '').startsWith('https:'),
+      path: '/register',
+      maxAge: RESUME_MAX_AGE,
+    })
   }
   return { sentAt: Date.now(), attempt }
 }

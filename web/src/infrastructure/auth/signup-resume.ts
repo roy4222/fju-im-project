@@ -171,6 +171,80 @@ export async function startSignupResume(
   }
 }
 
+/**
+ * 續辦票對不對（續辦頁的重寄驗證碼用，寄信**之前**先看；VB-3 Review 第 1 輪 P3）。只讀、不鎖：
+ * 寄出之後的 `rebindSignupResumeOtp` 會在鎖裡再驗一次。票錯、暫存過期、帳號已不能續辦都回 false，呼叫端不寄信。
+ */
+export async function isValidSignupResumeTicket(
+  db: Queryable,
+  input: { email: string; ticket: string },
+  now: Date = new Date(),
+): Promise<boolean> {
+  const email = normalizeEmail(input.email)
+  const userId = await findUserIdByEmail(db, email)
+  if (!userId || !input.ticket) return false
+  const row = await db.query<{ value: string; expires_at: Date }>(
+    'select value, expires_at from verifications where identifier = $1',
+    [signupResumeIdentifier(email)],
+  )
+  const pending = row.rows[0]
+  if (!pending || new Date(pending.expires_at).getTime() <= now.getTime()) return false
+  const parsed = parsePending(pending.value)
+  if (!parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket)) return false
+  return isResumableSignup(db, userId)
+}
+
+/**
+ * 續辦重寄的改綁（VB-3 Review 第 1 輪 P3）：新的驗證碼**已經寄出**之後，把暫存列綁的碼換成此刻最新那封。
+ *
+ * 跟 `startSignupResume` 的綁定、`finishSignupResume` 同一把交易級 advisory lock；交易裡重驗：帳號還能續辦、
+ * 暫存沒過期、userId 與續辦票都對。全部成立才改 `otpHash`（密碼雜湊、票不動），舊碼從此對不上（完成時要求
+ * 提交的碼＝最新那列＝暫存綁的碼）。暫存到期時間延成「現在＋10 分鐘」，跟新碼一樣長；能延幾次由寄碼的限速決定
+ * （每個 Email 10 分鐘 5 封、每封要一個新的 Turnstile token）。寄信失敗時呼叫端不會走到這裡。
+ */
+export async function rebindSignupResumeOtp(
+  db: Pool,
+  input: { email: string; ticket: string },
+  now: Date = new Date(),
+): Promise<{ ok: true } | { ok: false; reason: SignupResumeFailure }> {
+  const email = normalizeEmail(input.email)
+  const tx = await db.connect()
+  try {
+    await tx.query('begin')
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey(email)])
+    const user = await tx.query<{ id: string }>('select id from users where email = $1 for update', [email])
+    const userId = user.rows[0]?.id
+    if (!userId || !(await isResumableSignup(tx, userId))) {
+      await tx.query('rollback')
+      return { ok: false, reason: 'not_resumable' }
+    }
+    const pending = await tx.query<{ value: string; expires_at: Date }>(
+      'select value, expires_at from verifications where identifier = $1 for update',
+      [signupResumeIdentifier(email)],
+    )
+    const row = pending.rows[0]
+    const parsed = row && new Date(row.expires_at).getTime() > now.getTime() ? parsePending(row.value) : null
+    const otpHash = await currentOtpHash(tx, email, true)
+    if (!parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket) || !otpHash) {
+      await tx.query('rollback')
+      return { ok: false, reason: 'expired' }
+    }
+    await tx.query('update verifications set value = $2, expires_at = $3, updated_at = $4 where identifier = $1', [
+      signupResumeIdentifier(email),
+      JSON.stringify({ ...parsed, otpHash }),
+      new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000),
+      now,
+    ])
+    await tx.query('commit')
+    return { ok: true }
+  } catch (error) {
+    await tx.query('rollback').catch(() => undefined)
+    throw error
+  } finally {
+    tx.release()
+  }
+}
+
 export type SignupResumeFailure = 'not_resumable' | 'expired'
 
 /**

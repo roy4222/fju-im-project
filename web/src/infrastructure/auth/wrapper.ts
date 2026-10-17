@@ -7,7 +7,9 @@ import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 import {
   findUserIdByEmail,
   isResumableSignup,
+  isValidSignupResumeTicket,
   normalizeEmail,
+  rebindSignupResumeOtp,
   runWithOtpPurpose,
   startSignupResume,
 } from '@/infrastructure/auth/signup-resume'
@@ -369,6 +371,26 @@ export function resendVerificationOtp(input: { email: string }, headers: Headers
   return withMailOutcome(() =>
     getAuth().api.sendVerificationOTP({ body: { email: input.email, type: 'email-verification' }, headers }),
   )
+}
+
+/**
+ * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3）。`ticket` 是續辦開始時發給這個瀏覽器的那張票（HttpOnly cookie）。
+ *
+ * 1. 先看票（只讀）：票錯、暫存過期、帳號已不能續辦 → **不寄信**，照樣正常回傳（跟寄出時一樣，不透露原因；
+ *    拿不到票的人本來就無從得知帳號狀態）。
+ * 2. 再走跟一般重寄同一條公開路徑：`headers` 帶這一次的新 Turnstile token；120 秒冷卻、每個 Email 10 分鐘 5 封、
+ *    每個 IP 每小時 20 封都由 hook 照算，沒有旁路、不重設計數。被擋或寄不出去就丟出去，**不改綁**。
+ * 3. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`），舊碼從此不能完成續辦。
+ *
+ * 錯誤次數：每一封新碼照套件規則各自有 5 次（`allowedAttempts`）；總嘗試次數仍受 `otpVerify` 桶
+ * （每個 Email 10 分鐘 10 次、每個 IP 每小時 60 次）與寄碼上限約束，不會因為重寄變成無限次。
+ */
+export async function resendSignupResumeOtp(input: { email: string; ticket: string }, headers: Headers): Promise<void> {
+  const email = normalizeEmail(input.email)
+  if (!(await isValidSignupResumeTicket(getPool(), { email, ticket: input.ticket }))) return
+  await resendVerificationOtp({ email }, headers)
+  // 寄出之後帳號才變得不能續辦（例如信箱主人剛好在別處完成）：信已寄出，對外一樣回正常；完成時會拿到「已失效」。
+  await rebindSignupResumeOtp(getPool(), { email, ticket: input.ticket })
 }
 
 /**

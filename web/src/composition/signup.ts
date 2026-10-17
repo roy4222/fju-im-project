@@ -7,6 +7,7 @@ import 'server-only'
 export {
   authCallHeaders,
   completeSignupResume,
+  resendSignupResumeOtp,
   resendVerificationOtp,
   signUpOrResume,
   verifyEmailWithOtp,

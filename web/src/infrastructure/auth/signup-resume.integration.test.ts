@@ -420,6 +420,94 @@ describe('續辦流程（AC-VI-49）', () => {
  * 規則：**同一請求內不得在持有交易連線時再向同池借連線。** 池只有一條時，任何一條路巢狀借連線都會在這裡逾時，
  * 所以把 VB-2 改動或新增的每條 auth 路徑都在池只有一條的實例上走一遍。
  */
+describe('續辦重寄（VB-3 Review 第 1 輪 P3）', () => {
+  /** 在「現在＋offset」的時間點跑（冷卻是用 Date 算的）。 */
+  async function at<T>(offsetMs: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + offsetMs)
+    try {
+      return await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('票錯、暫存過期、帳號已不能續辦：不寄信、不改綁，回應跟寄出一樣（不丟錯）', async () => {
+    const email = freshEmail('resend-bad')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const mails = (await otpMails(email)).length
+    const bound = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+      .value
+
+    // 票錯（冷卻已過，排除被冷卻擋下的可能）。
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket: 'not-the-ticket' }, headers()))
+    // 暫存過期（10 分鐘後）。
+    await at(121_000 + 601_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    // 帳號已不能續辦（例如已經驗證過）。
+    await db.sql(`update users set email_verified = true where id = $1`, [id])
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    await db.sql(`update users set email_verified = false where id = $1`, [id])
+
+    expect((await otpMails(email)).length).toBe(mails)
+    const after = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+      .value
+    expect(after).toBe(bound)
+  })
+
+  it('票對：寄一封新碼、改綁；新碼完成續辦（只能用一次），舊碼不能完成', async () => {
+    const email = freshEmail('resend-ok')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const oldOtp = (await otpMails(email)).at(-1)!
+    const hashBefore = await passwordHash(id)
+
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    const mails = await otpMails(email)
+    const newOtp = mails.at(-1)!
+    expect(mails).toHaveLength(3)
+    expect(newOtp).not.toBe(oldOtp)
+
+    // 舊碼：套件那一層已經不是最新那封 → 同一句 INVALID_OTP，密碼不變。
+    await expect(wrapper.completeSignupResume({ email, otp: oldOtp, ticket }, headers())).rejects.toMatchObject({
+      body: { code: 'INVALID_OTP' },
+    })
+    expect(await passwordHash(id)).toBe(hashBefore)
+
+    const done = await wrapper.completeSignupResume({ email, otp: newOtp, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect(await signIn(email, P2)).toMatchObject({ status: 200 })
+    // 新碼只能用一次。
+    await expect(wrapper.completeSignupResume({ email, otp: newOtp, ticket }, headers())).rejects.toMatchObject({
+      body: { code: 'INVALID_OTP' },
+    })
+  })
+
+  it('改綁之後才完成：暫存列綁的是新碼的雜湊', async () => {
+    const email = freshEmail('resend-bind')
+    await signUp(email)
+    const ticket = await startResume(email, P2)
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    const newOtp = (await otpMails(email)).at(-1)!
+    const row = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+    expect(JSON.parse(String(row.value)).otpHash).toBe(resume.hashSecret(newOtp))
+  })
+
+  it('冷卻 120 秒內再按：429 RATE_LIMITED、不寄信、不改綁（原本那封仍能完成）', async () => {
+    const email = freshEmail('resend-cool')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const mails = (await otpMails(email)).length
+    // 續辦那封在「現在＋121 秒」寄出；「現在＋150 秒」還在冷卻內。
+    await expect(at(150_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).rejects.toMatchObject({
+      body: { code: 'RATE_LIMITED' },
+    })
+    expect((await otpMails(email)).length).toBe(mails)
+    const done = await wrapper.completeSignupResume({ email, otp: (await otpMails(email)).at(-1)!, ticket }, headers())
+    expect(done.userId).toBe(id)
+  })
+})
+
 describe('Review 第 2 輪：DB_POOL_MAX=1（持有連線時不得再向同池借連線）', () => {
   beforeAll(async () => {
     await loadAuth({ DB_POOL_MAX: '1' })
