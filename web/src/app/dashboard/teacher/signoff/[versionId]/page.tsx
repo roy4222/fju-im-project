@@ -29,7 +29,7 @@ export default async function TeacherSignoffVersionPage({ params }: { params: Pr
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/signoff">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <BackLink href="/dashboard/teacher/signoff">回站內同意書</BackLink>
+          <BackLink href="/dashboard/teacher/affairs?tab=signoff">回同意書</BackLink>
           <PageTitle title="同意書內容" description="全文、附件、授權範圍與參與者；全部學生同意後才輪到你。" />
         </div>
         <VersionView

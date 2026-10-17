@@ -9,7 +9,7 @@ import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { ITEM_TEMPLATES } from '@/composition/items'
 
-export const metadata = { title: '新增專題事務｜資管系專題平台' }
+export const metadata = { title: '新增公告或作業｜資管系專題平台' }
 
 /**
  * 完整編輯器（新建）。這一頁**不在 GET 時建資料**：畫空白表單，第一次按「存草稿」或「發布」才建立項目，
@@ -38,10 +38,10 @@ export default async function NewItemPage({
   if (!cohort) {
     return shell(
       <div className="flex flex-col gap-5">
-        <PageTitle title="新增專題事務" description="寫內容、設繳交欄位與誰看得到，檢查過再發布；存草稿之前沒有人看得到。" />
+        <PageTitle title="新增公告或作業" description="寫內容、設繳交欄位與誰看得到，檢查過再發布；存草稿之前沒有人看得到。" />
         <EmptyState
         title="還沒有屆別"
-        description="專題事務要綁在某一屆；先到屆別頁新增一屆。"
+        description="公告與作業要綁在某一屆；先到屆別頁新增一屆。"
         action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }}
         />
       </div>,
@@ -78,7 +78,7 @@ export default async function NewItemPage({
       hasResponses={false}
       vocabulary={await editorVocabulary(cohort.id)}
       templates={ITEM_TEMPLATES}
-      heading="新增專題事務"
+      heading="新增公告或作業"
       meta={`綁定屆別：${cohortLabel(cohort)}（建立後不能換）・存草稿之前沒有人看得到`}
     />,
   )

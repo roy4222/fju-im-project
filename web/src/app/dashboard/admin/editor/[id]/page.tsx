@@ -11,7 +11,7 @@ import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery, ITEM_STATUS_LABEL, ITEM_TEMPLATES } from '@/composition/items'
 import { formatTaipeiMinute, toTaipeiDateTimeInput } from '@/shared/time'
 
-export const metadata = { title: '編輯專題事務｜資管系專題平台' }
+export const metadata = { title: '編輯公告或作業｜資管系專題平台' }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -79,7 +79,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
           hasResponses={item.hasResponses}
           vocabulary={await editorVocabulary(item.cohortId)}
           templates={ITEM_TEMPLATES}
-          heading="編輯專題事務"
+          heading="編輯公告或作業"
           publishedBefore={item.publications.length > 0}
           meta={`${cohort ? cohortLabel(cohort) : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
         />
