@@ -1,5 +1,6 @@
 import 'server-only'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { createHash, randomBytes } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 
@@ -11,8 +12,8 @@ import { uuidv7 } from 'uuidv7'
  * 也**不能刪掉那個帳號重建**（使用者列永不硬刪，`users`／`accounts` 沒有 DELETE 權限）。所以：
  *
  * 1. 第 1 步的註冊照舊回 `EMAIL_UNAVAILABLE`；wrapper 接著看那個帳號**可不可以續辦**（`isResumableSignup`）。
- * 2. 可以 → 對該 Email 寄一封驗證碼（內部入口，同一次註冊已驗過 Turnstile），新密碼的雜湊暫存在
- *    `verifications` 一列（10 分鐘），**不換密碼、不動 session**。
+ * 2. 可以 → 對該 Email 寄一封驗證碼（內部入口，同一次註冊已驗過 Turnstile），新密碼的雜湊連同這封信的碼、
+ *    一張續辦票（給發起的瀏覽器）暫存在 `verifications` 一列（10 分鐘），**不換密碼、不動 session**。
  * 3. 填對驗證碼 → 一筆交易內：`email_verified = true`、credential 密碼換成暫存的新雜湊、刪掉這個人全部舊 session
  *    （先前不知道是誰建的帳號，之前的登入一律作廢），之後才發新 session。
  *
@@ -77,50 +78,102 @@ export function emailOtpIdentifier(email: string): string {
   return `email-verification-otp-${normalizeEmail(email)}`
 }
 
-/** 暫存新密碼雜湊（同一個 Email 只留最新一列；10 分鐘到期）。 */
-export async function savePendingPassword(
+/**
+ * 跟套件 email-otp 外掛 `storeOTP: 'hashed'` 同一個雜湊（`plugins/email-otp/utils.mjs` 的 `defaultKeyHasher`：
+ * SHA-256、base64url 不補 `=`）。續辦完成時在自己的交易裡重算提交的碼，跟那一列比對（套件升版改格式時
+ * `signup-resume.integration.test.ts` 會紅）。續辦票（ticket）也用同一個雜湊存，不存明文。
+ */
+export function hashSecret(value: string): string {
+  return createHash('sha256').update(value).digest('base64url')
+}
+
+/** 現在這個 Email 的驗證碼那一列存的雜湊（`<hash>:<錯誤次數>` 的前半）；沒有回 null。 */
+async function currentOtpHash(db: Queryable, email: string, lock = false): Promise<string | null> {
+  const row = await db.query<{ value: string }>(
+    // 套件換碼是「再插一列」，同一個 identifier 可能有好幾列；它自己讀的是最新那一列，這裡也一樣。
+    `select value from verifications where identifier = $1 order by created_at desc, id desc limit 1${lock ? ' for update' : ''}`,
+    [emailOtpIdentifier(email)],
+  )
+  const value = row.rows[0]?.value
+  if (!value) return null
+  const at = value.lastIndexOf(':')
+  return at === -1 ? value : value.slice(0, at)
+}
+
+/** 同一個 Email 的續辦開始與完成排隊（PostgreSQL advisory lock；鍵是 `signup-resume:<email>`）。 */
+function lockKey(email: string): string {
+  return `signup-resume:${normalizeEmail(email)}`
+}
+
+/**
+ * 續辦開始：在這個 Email 的鎖裡寄碼（`send` 由 wrapper 傳進來，走套件的寄碼端點），寄出去之後讀**這一次**驗證碼的雜湊，
+ * 跟新密碼雜湊、續辦票一起暫存成一列（10 分鐘）。兩個人同時對同一個 Email 開始續辦會排隊，
+ * 暫存列永遠對應「最新那封信的碼＋開始那一次填的密碼＋開始那一次拿到的票」。
+ */
+export async function startSignupResume(
   db: Pool,
-  input: { userId: string; email: string; passwordHash: string; now?: Date },
-): Promise<void> {
-  const now = input.now ?? new Date()
-  const identifier = signupResumeIdentifier(input.email)
-  const value = JSON.stringify({ userId: input.userId, passwordHash: input.passwordHash })
-  const tx = await db.connect()
+  input: {
+    userId: string
+    email: string
+    send: () => Promise<unknown>
+    passwordHash: () => Promise<string>
+    now?: () => Date
+  },
+): Promise<{ ticket: string }> {
+  const email = normalizeEmail(input.email)
+  const client = await db.connect()
   try {
-    await tx.query('begin')
-    await tx.query('delete from verifications where identifier = $1', [identifier])
-    await tx.query(
-      `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $5)`,
-      [uuidv7(), identifier, value, new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000), now],
-    )
-    await tx.query('commit')
-  } catch (error) {
-    await tx.query('rollback').catch(() => undefined)
-    throw error
+    await client.query('select pg_advisory_lock(hashtext($1))', [lockKey(email)])
+    try {
+      await input.send()
+      const otpHash = await currentOtpHash(client, email)
+      if (!otpHash) throw new Error('續辦寄碼之後讀不到驗證碼')
+      const passwordHash = await input.passwordHash()
+      const ticket = randomBytes(32).toString('base64url')
+      const now = input.now?.() ?? new Date()
+      const identifier = signupResumeIdentifier(email)
+      const value = JSON.stringify({ userId: input.userId, passwordHash, otpHash, ticketHash: hashSecret(ticket) })
+      await client.query('begin')
+      await client.query('delete from verifications where identifier = $1', [identifier])
+      await client.query(
+        `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $5)`,
+        [uuidv7(), identifier, value, new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000), now],
+      )
+      await client.query('commit')
+      return { ticket }
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      await client.query('select pg_advisory_unlock(hashtext($1))', [lockKey(email)]).catch(() => undefined)
+    }
   } finally {
-    tx.release()
+    client.release()
   }
 }
 
 export type SignupResumeFailure = 'not_resumable' | 'expired'
 
 /**
- * 驗證碼已經對過之後的那一筆交易（呼叫端：auth-instance 的 `hooks.after`，`check-verification-otp` 成功時）。
+ * 續辦完成的那一筆交易（呼叫端：auth-instance 的 `hooks.after`，內部 `check-verification-otp` 成功時）。
  *
- * 鎖住使用者列、重驗謂詞，**刪掉**驗證碼那一列（`returning` 確保同一個碼只成功一次；兩個分頁同時送，第二個拿不到列就失敗）、
- * 刪掉暫存列並取出新密碼雜湊（過期的不算），再換密碼、標已驗證、刪掉這個人全部 session。
- * 任何一步不成立就整筆 rollback：不會出現「已驗證但還是舊密碼」的半套狀態。
+ * check 端點只負責「算錯誤次數、擋限速」；**真正的判斷在這筆交易裡重做一次**：
+ * 拿同一個 Email 的鎖、鎖使用者列重驗謂詞、鎖驗證碼那一列並用提交的碼重算雜湊比對，
+ * 再要求暫存列綁的是**同一個**碼（`otpHash`）與**同一張**續辦票（`ticketHash`）。
+ * 所以 check 通過之後才被另一個續辦換掉的碼與密碼（Review 反例）、或別人開始的續辦，都套用不到。
+ * 全部成立才消耗兩列、標已驗證、換密碼、刪掉這個人全部 session；任何一步不成立整筆 rollback。
  */
 export async function finishSignupResume(
   db: Pool,
-  email: string,
+  input: { email: string; otp: string; ticket: string },
   now: Date = new Date(),
 ): Promise<{ ok: true; userId: string; sessionsDeleted: number } | { ok: false; reason: SignupResumeFailure }> {
-  const normalized = normalizeEmail(email)
+  const normalized = normalizeEmail(input.email)
   const tx = await db.connect()
   try {
     await tx.query('begin')
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey(normalized)])
     const user = await tx.query<{ id: string }>('select id from users where email = $1 for update', [normalized])
     const userId = user.rows[0]?.id
     if (!userId || !(await isResumableSignup(tx, userId))) {
@@ -128,18 +181,29 @@ export async function finishSignupResume(
       return { ok: false, reason: 'not_resumable' }
     }
 
-    const otp = await tx.query('delete from verifications where identifier = $1 returning id', [emailOtpIdentifier(normalized)])
+    const otpHash = await currentOtpHash(tx, normalized, true)
     const pending = await tx.query<{ value: string; expires_at: Date }>(
-      'delete from verifications where identifier = $1 returning value, expires_at',
+      'select value, expires_at from verifications where identifier = $1 for update',
       [signupResumeIdentifier(normalized)],
     )
     const row = pending.rows[0]
     const parsed = row && new Date(row.expires_at).getTime() > now.getTime() ? parsePending(row.value) : null
-    if (otp.rowCount === 0 || !parsed || parsed.userId !== userId) {
+    if (
+      !otpHash ||
+      !parsed ||
+      parsed.userId !== userId ||
+      hashSecret(input.otp) !== otpHash ||
+      parsed.otpHash !== otpHash ||
+      parsed.ticketHash !== hashSecret(input.ticket)
+    ) {
       await tx.query('rollback')
       return { ok: false, reason: 'expired' }
     }
 
+    await tx.query('delete from verifications where identifier in ($1, $2)', [
+      emailOtpIdentifier(normalized),
+      signupResumeIdentifier(normalized),
+    ])
     await tx.query('update users set email_verified = true, updated_at = $2 where id = $1', [userId, now])
     const updated = await tx.query(
       `update accounts set password = $2, updated_at = $3 where user_id = $1 and provider_id = 'credential'`,
@@ -160,11 +224,15 @@ export async function finishSignupResume(
   }
 }
 
-function parsePending(value: string): { userId: string; passwordHash: string } | null {
+type PendingResume = { userId: string; passwordHash: string; otpHash: string; ticketHash: string }
+
+function parsePending(value: string): PendingResume | null {
   try {
-    const parsed = JSON.parse(value) as { userId?: unknown; passwordHash?: unknown }
-    if (typeof parsed.userId !== 'string' || typeof parsed.passwordHash !== 'string' || !parsed.passwordHash) return null
-    return { userId: parsed.userId, passwordHash: parsed.passwordHash }
+    const parsed = JSON.parse(value) as Partial<Record<keyof PendingResume, unknown>>
+    const { userId, passwordHash, otpHash, ticketHash } = parsed
+    if (typeof userId !== 'string' || typeof passwordHash !== 'string' || !passwordHash) return null
+    if (typeof otpHash !== 'string' || !otpHash || typeof ticketHash !== 'string' || !ticketHash) return null
+    return { userId, passwordHash, otpHash, ticketHash }
   } catch {
     return null
   }
@@ -177,19 +245,28 @@ function parsePending(value: string): { userId: string; passwordHash: string } |
  * hook 一定要**同時**看到 `isInternalCall()` 才採信這裡的內容。
  *
  * - `signup-first`：註冊成功後伺服器自己寄的第一封（auth-instance 的 `hooks.after`）。Turnstile 與額度都已在註冊那一步處理。
- * - `signup-resume-start`：續辦的寄碼。同一次 wrapper 呼叫裡的註冊已經過 Turnstile，不要第二個 token（限速照扣）。
+ * - `signup-resume-start`：續辦的寄碼。同一次 wrapper 呼叫裡的註冊已經過 Turnstile、也已扣過寄碼額度，
+ *   不要第二個 token、不重扣額度（仍檢查冷卻與 IP 上限）。
  * - `signup-resume-finish`：續辦的驗碼；驗過之後由 `hooks.after` 做 `finishSignupResume` 並發新 session。
  * - `account-verify`：已登入的人在「我的帳號」驗證自己的 Email（VB-5）。hook 要求本人 fresh session、
  *   Email 必須是 session 本人的登入 Email，不掛 Turnstile（限速照扣）。
  */
 export type OtpCallPurpose = 'signup-first' | 'signup-resume-start' | 'signup-resume-finish' | 'account-verify'
 
-const purposeStorage = new AsyncLocalStorage<{ readonly purpose: OtpCallPurpose; readonly email: string }>()
+type OtpCallContext = { readonly purpose: OtpCallPurpose; readonly email: string; readonly ticket?: string }
 
-export function runWithOtpPurpose<T>(purpose: OtpCallPurpose, email: string, fn: () => Promise<T>): Promise<T> {
-  return purposeStorage.run({ purpose, email: normalizeEmail(email) }, fn)
+const purposeStorage = new AsyncLocalStorage<OtpCallContext>()
+
+/** `ticket` 只有 `signup-resume-finish` 用：續辦開始時發給呼叫端的票，完成時要原樣帶回來。 */
+export function runWithOtpPurpose<T>(
+  purpose: OtpCallPurpose,
+  email: string,
+  fn: () => Promise<T>,
+  ticket?: string,
+): Promise<T> {
+  return purposeStorage.run({ purpose, email: normalizeEmail(email), ...(ticket ? { ticket } : {}) }, fn)
 }
 
-export function currentOtpPurpose(): { readonly purpose: OtpCallPurpose; readonly email: string } | undefined {
+export function currentOtpPurpose(): OtpCallContext | undefined {
   return purposeStorage.getStore()
 }

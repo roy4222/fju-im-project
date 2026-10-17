@@ -88,6 +88,19 @@ async function signUp(email: string, password = P1): Promise<string> {
   return String((await db.sql(`select id from users where email = $1`, [email])).rows[0]!.id)
 }
 
+/** 過了冷卻再開始續辦（註冊那封剛寄過，120 秒內寄不了第二封）；回傳續辦票。 */
+async function startResume(email: string, password: string): Promise<string> {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(Date.now() + 121_000)
+  try {
+    const outcome = await wrapper.signUpOrResume({ email, password, name: '測試' }, headers())
+    if (outcome.kind !== 'resume') throw new Error('沒有進續辦')
+    return outcome.ticket
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 async function signIn(email: string, password: string): Promise<{ status: number; cookie: string }> {
   const response = await call('POST', '/sign-in/email', { email, password })
   return { status: response.status, cookie: response.headers.get('set-cookie') ?? '' }
@@ -173,11 +186,8 @@ describe('續辦流程（AC-VI-49）', () => {
     const before = await counts()
     const hashBefore = await passwordHash(id)
 
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 121_000)
-    const started = await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())
-    vi.useRealTimers()
-    expect(started).toEqual({ kind: 'resume', email })
+    const ticket = await startResume(email, P2)
+    expect(ticket).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(await otpMails(email)).toHaveLength(2)
 
     // 寄碼這一步什麼都不換：密碼、session、驗證狀態照舊，新密碼只在暫存列（雜湊，不是明文）。
@@ -189,11 +199,11 @@ describe('續辦流程（AC-VI-49）', () => {
 
     const otp = (await otpMails(email)).at(-1)!
     await expect(
-      wrapper.completeSignupResume({ email, otp: otp === '000000' ? '111111' : '000000' }, headers()),
+      wrapper.completeSignupResume({ email, otp: otp === '000000' ? '111111' : '000000', ticket }, headers()),
     ).rejects.toMatchObject({ body: { code: 'INVALID_OTP' } })
     expect(await passwordHash(id)).toBe(hashBefore)
 
-    const done = await wrapper.completeSignupResume({ email, otp }, headers())
+    const done = await wrapper.completeSignupResume({ email, otp, ticket }, headers())
     expect(done.userId).toBe(id)
     const user = await db.sql(`select id, email_verified from users where email = $1`, [email])
     expect(user.rows).toEqual([{ id, email_verified: true }])
@@ -216,7 +226,7 @@ describe('續辦流程（AC-VI-49）', () => {
       `email-verification-otp-${email}`,
     ])
     expect(left.rowCount).toBe(0)
-    await expect(wrapper.completeSignupResume({ email, otp }, headers())).rejects.toMatchObject({
+    await expect(wrapper.completeSignupResume({ email, otp, ticket }, headers())).rejects.toMatchObject({
       body: { code: 'INVALID_OTP' },
     })
   })
@@ -268,16 +278,13 @@ describe('續辦流程（AC-VI-49）', () => {
   it('暫存的新密碼過期（10 分鐘）→ SIGNUP_RESUME_EXPIRED，什麼都不改', async () => {
     const email = freshEmail('expired')
     const id = await signUp(email)
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 121_000)
-    await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())
-    vi.useRealTimers()
+    const ticket = await startResume(email, P2)
     await db.sql(`update verifications set expires_at = now() - interval '1 minute' where identifier = $1`, [
       `signup-resume:${email}`,
     ])
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
-    await expect(wrapper.completeSignupResume({ email, otp }, headers())).rejects.toMatchObject({
+    await expect(wrapper.completeSignupResume({ email, otp, ticket }, headers())).rejects.toMatchObject({
       body: { code: 'SIGNUP_RESUME_EXPIRED' },
     })
     expect(await passwordHash(id)).toBe(hash)
@@ -288,14 +295,11 @@ describe('續辦流程（AC-VI-49）', () => {
   it('寄碼期間帳號變得不能續辦（例如系辦處理了）→ 完成時整筆 rollback', async () => {
     const email = freshEmail('changed')
     const id = await signUp(email)
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 121_000)
-    await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())
-    vi.useRealTimers()
+    const ticket = await startResume(email, P2)
     await db.sql(`update users set status = 'disabled' where id = $1`, [id])
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
-    await expect(wrapper.completeSignupResume({ email, otp }, headers())).rejects.toMatchObject({
+    await expect(wrapper.completeSignupResume({ email, otp, ticket }, headers())).rejects.toMatchObject({
       body: { code: 'EMAIL_UNAVAILABLE' },
     })
     expect(await passwordHash(id)).toBe(hash)
@@ -304,25 +308,75 @@ describe('續辦流程（AC-VI-49）', () => {
   it('同一個碼兩個分頁同時送：只有一個成功', async () => {
     const email = freshEmail('race')
     await signUp(email)
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 121_000)
-    await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())
-    vi.useRealTimers()
+    const ticket = await startResume(email, P2)
     const otp = (await otpMails(email)).at(-1)!
     const results = await Promise.allSettled([
-      wrapper.completeSignupResume({ email, otp }, headers()),
-      wrapper.completeSignupResume({ email, otp }, headers()),
+      wrapper.completeSignupResume({ email, otp, ticket }, headers()),
+      wrapper.completeSignupResume({ email, otp, ticket }, headers()),
     ])
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+  })
+
+  it('Review 第 1 輪：別人對同一個 Email 再開始續辦（換了碼與密碼）→ 原本的人用最新的碼也套用不到別人的密碼', async () => {
+    const email = freshEmail('overwrite')
+    const id = await signUp(email)
+    const hash = await passwordHash(id)
+    const victimTicket = await startResume(email, P2)
+    // 別人過了冷卻後用同一個 Email 再開始續辦，填自己的密碼。
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 242_000)
+    const attacker = await wrapper.signUpOrResume({ email, password: 'Attacker-Password-2026', name: '測試' }, headers())
+    vi.useRealTimers()
+    expect(attacker.kind).toBe('resume')
+    // 信箱主人拿到的是最新那封的碼；他手上的票是自己那一次的。
+    const latest = (await otpMails(email)).at(-1)!
+    await expect(wrapper.completeSignupResume({ email, otp: latest, ticket: victimTicket }, headers())).rejects.toMatchObject({
+      body: { code: 'SIGNUP_RESUME_EXPIRED' },
+    })
+    expect(await passwordHash(id)).toBe(hash)
+    expect((await signIn(email, 'Attacker-Password-2026')).status).toBe(401)
+    expect((await signIn(email, P1)).status).toBe(200)
+  })
+
+  it('Review 第 1 輪：驗證碼在 check 之後被新的一封換掉 → 完成交易用提交的碼重驗，拒絕', async () => {
+    const email = freshEmail('swap-after-check')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const first = (await otpMails(email)).at(-1)!
+    // 模擬「check 已通過、交易還沒跑」時別人換了一封新碼：直接打交易那一步。
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 242_000)
+    await wrapper.resendVerificationOtp({ email }, headers())
+    vi.useRealTimers()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const hash = await passwordHash(id)
+    const result = await resume.finishSignupResume(app, { email, otp: first, ticket })
+    expect(result).toEqual({ ok: false, reason: 'expired' })
+    expect(await passwordHash(id)).toBe(hash)
+  })
+
+  it('Review 第 1 輪：同一個 Email 每隔 121 秒續辦三次都進續辦（每次只扣一次寄碼額度）', async () => {
+    const email = freshEmail('resume-thrice')
+    await signUp(email)
+    const outcomes: string[] = []
+    for (let i = 1; i <= 3; i += 1) {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + i * 121_000)
+      try {
+        outcomes.push((await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())).kind)
+      } catch (error) {
+        outcomes.push(String((error as { body?: { code?: string } }).body?.code))
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+    expect(outcomes).toEqual(['resume', 'resume', 'resume'])
   })
 
   it('公開的 check 端點拿到對的碼也不會觸發續辦（只有內部入口＋續辦用途才會）', async () => {
     const email = freshEmail('public-check')
     const id = await signUp(email)
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 121_000)
-    await wrapper.signUpOrResume({ email, password: P2, name: '測試' }, headers())
-    vi.useRealTimers()
+    await startResume(email, P2)
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
     const response = await call('POST', '/email-otp/check-verification-otp', { email, type: 'email-verification', otp })

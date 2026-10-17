@@ -9,7 +9,7 @@ import {
   isResumableSignup,
   normalizeEmail,
   runWithOtpPurpose,
-  savePendingPassword,
+  startSignupResume,
 } from '@/infrastructure/auth/signup-resume'
 import { getPool } from '@/infrastructure/db/client'
 
@@ -42,6 +42,7 @@ function guard(handler: (request: Request) => Promise<Response>) {
     // 寄信結果的盒子（VB-2）：驗證碼信寄不出去時，寄碼端點才回得了 MAIL_FAILED（見 auth-instance 的 withMailOutcome）。
     const response = await withMailOutcome(() => handler(request))
     if (path === '/sign-up/email' && response.status === 422) return unifySignUpStatus(response)
+    if (OTP_CHECK_PATHS.has(path) && response.status > 400 && response.status < 500) return unifyOtpStatus(response)
     return response
   }
 }
@@ -54,6 +55,21 @@ function guard(handler: (request: Request) => Promise<Response>) {
  * 只改本來就是統一訊息的那種回應，其他 422 原樣放行。
  */
 async function unifySignUpStatus(response: Response): Promise<Response> {
+  return withStatus400(response, EMAIL_UNAVAILABLE_CODE)
+}
+
+/**
+ * 驗碼失敗的狀態碼統一成 400（VB-2 Review 第 1 輪）：`hooks.after` 已把內容換成同一個 `INVALID_OTP`，
+ * 但套件沿用端點原本的狀態碼（錯太多次是 403），光看狀態碼就分得出這個 Email 有沒有寄過碼。
+ */
+const OTP_CHECK_PATHS = new Set(['/email-otp/verify-email', '/email-otp/check-verification-otp'])
+
+async function unifyOtpStatus(response: Response): Promise<Response> {
+  return withStatus400(response, 'INVALID_OTP')
+}
+
+/** 內容的 `code` 是指定的那一個才改成 400，其他回應原樣放行。 */
+async function withStatus400(response: Response, expectedCode: string): Promise<Response> {
   const text = await response.clone().text()
   let code: unknown
   try {
@@ -61,7 +77,7 @@ async function unifySignUpStatus(response: Response): Promise<Response> {
   } catch {
     return response
   }
-  if (code !== EMAIL_UNAVAILABLE_CODE) return response
+  if (code !== expectedCode) return response
   return new Response(text, { status: 400, headers: response.headers })
 }
 
@@ -260,8 +276,12 @@ function isEmailUnavailable(error: unknown): boolean {
 export type SignUpOrResumeOutcome =
   /** 新帳號建好了（已登入受限 session；套件已在伺服器內寄出第一封驗證碼）。 */
   | { readonly kind: 'created'; readonly userId: string }
-  /** 這個 Email 有一筆還沒完成的註冊：驗證碼已寄出，新密碼暫存在伺服器；填對碼後呼叫 `completeSignupResume`。 */
-  | { readonly kind: 'resume'; readonly email: string }
+  /**
+   * 這個 Email 有一筆還沒完成的註冊：驗證碼已寄出，新密碼暫存在伺服器。`ticket` 是這一次續辦的票：
+   * 呼叫端要存在**發起續辦的那個瀏覽器**（例如 HttpOnly cookie），填碼時原樣交給 `completeSignupResume`。
+   * 別人對同一個 Email 開始的續辦拿不到這張票，信箱主人就不會在不知情下套用別人填的密碼。
+   */
+  | { readonly kind: 'resume'; readonly email: string; readonly ticket: string }
 
 /**
  * 註冊第 1 步（VB-3 的 Server Action 用；設計方案 §3.2「續辦」）。
@@ -269,7 +289,8 @@ export type SignUpOrResumeOutcome =
  * 先照常 `signUpEmail`（`hooks.before` 依序：註冊限速 → 寄碼額度 → 密碼長度 → Turnstile）。
  * 回 `EMAIL_UNAVAILABLE` 而且那個帳號**可以續辦**時，才在同一次呼叫裡：
  * 經內部入口對該 Email 寄一封驗證碼（不要第二個 Turnstile token——走到 `EMAIL_UNAVAILABLE` 代表 hook 已經驗過；
- * 限速與 120 秒冷卻照扣），寄出去之後才把新密碼雜湊暫存起來（寄不出去就不留暫存，免得之後配到別次的碼）。
+ * 寄碼額度在註冊那一步已扣過、這裡不重扣，冷卻與 IP 上限照查），寄出去之後才把新密碼雜湊、這封信的碼、續辦票
+綁成一列暫存（寄不出去就不留暫存）。同一個 Email 的續辦開始與完成用資料庫鎖排隊（`startSignupResume`）。
  * 不可續辦的照舊丟原本的 `EMAIL_UNAVAILABLE`（不寄信、什麼都不動）。
  *
  * 續辦一定要跟註冊綁在同一個入口：拆成兩支的話，呼叫端可以不經註冊、不過 Turnstile 就直接觸發寄碼。
@@ -287,17 +308,20 @@ export async function signUpOrResume(
     const userId = await findUserIdByEmail(getPool(), email)
     if (!userId || !(await isResumableSignup(getPool(), userId))) throw error
 
-    await withMailOutcome(() =>
-      runAsInternalCall(() =>
-        runWithOtpPurpose('signup-resume-start', email, () =>
-          getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+    const { ticket } = await startSignupResume(getPool(), {
+      userId,
+      email,
+      send: () =>
+        withMailOutcome(() =>
+          runAsInternalCall(() =>
+            runWithOtpPurpose('signup-resume-start', email, () =>
+              getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+            ),
+          ),
         ),
-      ),
-    )
-    const context = await getAuth().$context
-    const passwordHash = await context.password.hash(input.password)
-    await savePendingPassword(getPool(), { userId, email, passwordHash })
-    return { kind: 'resume', email }
+      passwordHash: async () => (await getAuth().$context).password.hash(input.password),
+    })
+    return { kind: 'resume', email, ticket }
   }
 }
 
@@ -306,21 +330,26 @@ export async function signUpOrResume(
  * （cookie 由 `nextCookies()` 帶進 Server Action 的回應）。不經公開 `verify-email` 端點的自動登入。
  *
  * 驗碼走 `check-verification-otp`（跟 verify 共用 otpVerify 桶、同一碼錯 5 次作廢）；交易與發 session 在
- * `hooks.after`，只認內部呼叫＋續辦用途。碼錯丟套件的 `INVALID_OTP`／`TOO_MANY_ATTEMPTS`／`OTP_EXPIRED`；
- * 暫存的新密碼過期丟 `SIGNUP_RESUME_EXPIRED`；帳號已經不能續辦丟 `EMAIL_UNAVAILABLE`。
+ * `hooks.after`，只認內部呼叫＋續辦用途，並在交易裡重驗碼、比對暫存列綁的碼與續辦票。
+ * 碼錯（含錯太多次、過期）一律丟 `INVALID_OTP`（跟公開端點同一個回應，不透露帳號狀態）；
+ * 暫存過期、碼已被新的一封換掉、票不對丟 `SIGNUP_RESUME_EXPIRED`；帳號已經不能續辦丟 `EMAIL_UNAVAILABLE`。
  */
 export async function completeSignupResume(
-  input: { email: string; otp: string },
+  input: { email: string; otp: string; ticket: string },
   headers: Headers,
 ): Promise<{ readonly userId: string; readonly headers: Headers }> {
   const email = normalizeEmail(input.email)
   const result = await runAsInternalCall(() =>
-    runWithOtpPurpose('signup-resume-finish', email, () =>
-      getAuth().api.checkVerificationOTP({
-        body: { email, type: 'email-verification', otp: input.otp },
-        headers,
-        returnHeaders: true,
-      }),
+    runWithOtpPurpose(
+      'signup-resume-finish',
+      email,
+      () =>
+        getAuth().api.checkVerificationOTP({
+          body: { email, type: 'email-verification', otp: input.otp },
+          headers,
+          returnHeaders: true,
+        }),
+      input.ticket,
     ),
   )
   const userId = (result.response as { userId?: unknown }).userId

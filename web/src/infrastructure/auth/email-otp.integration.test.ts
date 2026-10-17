@@ -188,9 +188,10 @@ describe('驗證碼：首寄、hashed、驗證（Turnstile 關閉）', () => {
       expect(response.status, `第 ${i} 次`).toBe(400)
       expect((await json(response)).code).toBe('INVALID_OTP')
     }
+    // 作廢之後正確碼也只得到同一句（不另回 TOO_MANY_ATTEMPTS，免得分得出帳號存不存在）。
     const late = await call('POST', '/email-otp/verify-email', { email, otp })
-    expect(late.status).toBe(403)
-    expect((await json(late)).code).toBe('TOO_MANY_ATTEMPTS')
+    expect(late.status).toBe(400)
+    expect(await json(late)).toEqual({ code: 'INVALID_OTP', message: '驗證碼不正確或已失效。請再確認一次，或重寄一封新的驗證碼。' })
     const user = await db.sql(`select email_verified from users where email = $1`, [email])
     expect(user.rows[0]!.email_verified).toBe(false)
   })
@@ -225,7 +226,7 @@ describe('驗證碼限速與冷卻（AC-VI-47、72）', () => {
     travel(120_000)
     const later = await call('POST', '/email-otp/send-verification-otp', { email, type: 'email-verification' })
     expect(later.status).toBe(200)
-    expect(await outbox(email)).toHaveLength(2)
+    await waitForOutbox(email, 'email_otp', 2)
     // 新的一封是新碼，舊碼不再能用（套件換掉了那一列）。
     const second = await latestOtp(email)
     if (second !== first) {
@@ -263,7 +264,7 @@ describe('驗證碼限速與冷卻（AC-VI-47、72）', () => {
       expect(response.status, `第 ${i} 次重寄`).toBe(200)
       vi.useRealTimers()
     }
-    expect((await outbox(email)).filter((m) => m.template === 'email_otp')).toHaveLength(5)
+    expect(await waitForOutbox(email, 'email_otp', 5)).toHaveLength(5)
   })
 
   it('(e) verify 與 check 交替送錯碼：沒有套件的 3 次／60 秒，共用 otpVerify 桶，第 11 次 429', async () => {
@@ -318,7 +319,8 @@ describe('驗證碼限速與冷卻（AC-VI-47、72）', () => {
     const emails: string[] = []
     for (let i = 0; i < 21; i += 1) {
       const email = freshEmail(`ip-${i}`)
-      expect((await signUp(email)).status).toBe(200)
+      // 註冊的首封也扣 IP 桶，所以每個人用自己的 IP 註冊，這裡只測「重寄」那 20 封。
+      expect((await signUp(email, { 'x-real-ip': `198.51.101.${i + 1}` })).status).toBe(200)
       emails.push(email)
     }
     travel(121_000)
@@ -594,7 +596,7 @@ describe('Turnstile：HTTP 與 Server Action 兩條路都擋', () => {
       { email, password: 'Another-Password-2026', name: '測試' },
       wrapper.authCallHeaders({ ip: '203.0.113.82', turnstileToken: token() }),
     )
-    expect(outcome).toEqual({ kind: 'resume', email })
+    expect(outcome).toMatchObject({ kind: 'resume', email })
     expect(siteverifyCalls - before).toBe(1)
     expect(await outbox(email)).toHaveLength(2)
   })
@@ -627,6 +629,127 @@ describe('Turnstile：HTTP 與 Server Action 兩條路都擋', () => {
     await expect(
       runAsInternalCall(() => instance.getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' } })),
     ).rejects.toMatchObject({ body: { code: 'TURNSTILE_REQUIRED' } })
+  })
+})
+
+// ── Review 第 1 輪反例（PR #577）：寄信例外、首封 IP 額度、公開端點不可列舉 ─────────────────
+
+describe('Review 第 1 輪：寄信例外、首封 IP、公開端點回應一致（Turnstile 關閉、擷取模式）', () => {
+  beforeAll(async () => {
+    await loadAuth({})
+  })
+  beforeEach(resetLimiters)
+
+  it('寄信直接丟例外（outbox 寫不進去）→ 註冊回 MAIL_FAILED，不是 200', async () => {
+    const email = freshEmail('mail-throw')
+    await db.sql(`revoke insert on mail_outbox from fju_app`)
+    try {
+      const response = await signUp(email)
+      expect(response.status).toBe(500)
+      expect(await json(response)).toMatchObject({ code: 'MAIL_FAILED', message: '驗證信寄不出去，請稍後再試。' })
+    } finally {
+      await db.sql(`grant insert on mail_outbox to fju_app`)
+    }
+    expect(await outbox(email)).toEqual([])
+  })
+
+  it('同一個 IP 連續註冊 21 個新 Email：首封也算進每小時 20 封，第 21 個 429', async () => {
+    const headers = { 'x-real-ip': '198.51.100.21' }
+    const statuses: number[] = []
+    for (let i = 0; i < 21; i += 1) statuses.push((await signUp(freshEmail(`first-ip-${i}`), headers)).status)
+    expect(statuses.slice(0, 20)).toEqual(Array(20).fill(200))
+    expect(statuses[20]).toBe(429)
+  })
+
+  it('重寄冷卻：已註冊與不存在的 Email，連按兩次重寄的回應一樣（200、429）', async () => {
+    const known = freshEmail('enum-known')
+    await signUp(known)
+    const unknown = freshEmail('enum-unknown')
+    travel(121_000)
+    const send = async (email: string) => {
+      const response = await call('POST', '/email-otp/send-verification-otp', { email, type: 'email-verification' })
+      return { status: response.status, body: await response.json() }
+    }
+    const knownPair = [await send(known), await send(known)]
+    const unknownPair = [await send(unknown), await send(unknown)]
+    expect(knownPair.map((r) => r.status)).toEqual([200, 429])
+    expect(unknownPair).toEqual(knownPair)
+  })
+
+  it('公開端點對照表：不存在／已註冊未驗證／已驗證三種 Email，重寄、忘記密碼、驗碼、查碼的回應完全一樣', async () => {
+    const unverified = freshEmail('table-unverified')
+    await signUp(unverified)
+    const verified = freshEmail('table-verified')
+    await signUp(verified)
+    await call('POST', '/email-otp/verify-email', { email: verified, otp: await latestOtp(verified) })
+    const unknown = freshEmail('table-unknown')
+    travel(121_000)
+    const probes: [string, (email: string) => unknown][] = [
+      ['/email-otp/send-verification-otp', (email) => ({ email, type: 'email-verification' })],
+      ['/request-password-reset', (email) => ({ email, redirectTo: '/reset-password' })],
+      ['/email-otp/verify-email', (email) => ({ email, otp: '000000' })],
+      ['/email-otp/check-verification-otp', (email) => ({ email, type: 'email-verification', otp: '000000' })],
+    ]
+    const table: Record<string, Record<string, string>> = {}
+    for (const [path, body] of probes) {
+      table[path] = {}
+      for (const [label, email] of [['不存在', unknown], ['未驗證', unverified], ['已驗證', verified]] as const) {
+        const response = await call('POST', path, body(email))
+        table[path][label] = `${response.status} ${JSON.stringify(await response.json())}`
+      }
+      const values = Object.values(table[path])
+      expect(new Set(values).size, `${path}：${JSON.stringify(table[path])}`).toBe(1)
+    }
+    console.log('[VB-2 列舉對照表]', JSON.stringify(table, null, 2))
+  })
+
+  for (const path of ['/email-otp/verify-email', '/email-otp/check-verification-otp']) {
+    it(`${path}：已寄過碼與不存在的 Email，各送錯碼 6 次，每次回應都一樣`, async () => {
+      const known = freshEmail('otp-known')
+      await signUp(known)
+      const otp = await latestOtp(known)
+      const wrong = otp === '000000' ? '111111' : '000000'
+      const unknown = freshEmail('otp-unknown')
+      const submit = async (email: string) => {
+        const response = await call('POST', path, { email, type: 'email-verification', otp: wrong })
+        return { status: response.status, body: await response.json() }
+      }
+      const knownResults = []
+      const unknownResults = []
+      for (let i = 0; i < 6; i += 1) {
+        knownResults.push(await submit(known))
+        unknownResults.push(await submit(unknown))
+      }
+      expect(knownResults).toEqual(unknownResults)
+      expect(knownResults[5]).toEqual({
+        status: 400,
+        body: { code: 'INVALID_OTP', message: '驗證碼不正確或已失效。請再確認一次，或重寄一封新的驗證碼。' },
+      })
+    })
+  }
+})
+
+describe('Review 第 1 輪：寄信設定缺漏時，公開重寄分不出帳號存不存在', () => {
+  beforeAll(async () => {
+    await loadAuth({ MAIL_CAPTURE: '', BREVO_API_KEY: '', MAIL_FROM: '' })
+  })
+  beforeEach(resetLimiters)
+
+  it('已註冊（寄不出去）與不存在的 Email：重寄回應一樣；寄失敗只留 outbox', async () => {
+    const known = freshEmail('enum-mail-known')
+    await signUp(known) // 首封寄不出去：註冊本身回 MAIL_FAILED（內部回報，保留）
+    const unknown = freshEmail('enum-mail-unknown')
+    travel(121_000)
+    const send = async (email: string) => {
+      const response = await call('POST', '/email-otp/send-verification-otp', { email, type: 'email-verification' })
+      return { status: response.status, body: await response.json() }
+    }
+    const knownResult = await send(known)
+    const unknownResult = await send(unknown)
+    expect(knownResult).toEqual({ status: 200, body: { success: true } })
+    expect(unknownResult).toEqual(knownResult)
+    const rows = await waitForOutbox(known, 'email_otp', 2)
+    expect(rows.map((r) => r.status)).toEqual(['failed', 'failed'])
   })
 })
 

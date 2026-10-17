@@ -135,6 +135,16 @@ function enforceOtpSendRate(email: string, ip: string): void {
   }
 }
 
+/** 只查不扣（續辦的寄碼用）：冷卻中、或 IP 桶已經超過上限就擋。 */
+function checkOtpSendRate(email: string, ip: string): void {
+  if (otpLimiters.cooldown.count(email) > 0) {
+    throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
+  }
+  if (otpLimiters.sendIp.count(ip) > RATE_LIMITS.otpSend.ip.max) {
+    throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
+  }
+}
+
 /** 「一小時」比「1 小時」順口；畫面句跟驗收案例一致（AC-VI-59「請一小時後再試」）。 */
 function inWords(windowMs: number): string {
   const text = waitAtMost(windowMs)
@@ -500,11 +510,15 @@ function createAuth() {
               message: `這個網路 ${waitAtMost(RATE_LIMITS.register.windowMs)}內的註冊次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.register.windowMs)}後可以再試；仍無法註冊請聯絡系辦。`,
             })
           }
-          // 註冊成功後伺服器會寄第一封驗證碼（`sendVerificationOnSignUp`），所以同一個 Email 的寄碼額度在這裡扣一次：
-          // 重送註冊不能繞過「10 分鐘 5 封」（VB-2）。不論這個 Email 已不已存在都扣，看不出差別。
+          // 註冊成功後伺服器會寄第一封驗證碼，所以寄碼額度在這裡扣一次（Email 桶與 IP 桶都扣；那封內部首寄不再扣）：
+          // 重送註冊不能繞過「10 分鐘 5 封／Email」，大量新 Email 也不能繞過「每小時 20 封／IP」（VB-2）。
+          // 不論這個 Email 已不已存在都扣，看不出差別；續辦的那封也不重扣（見寄碼分支）。
           const signUpEmail = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
           if (signUpEmail && !otpLimiters.sendEmail.hit(signUpEmail).allowed) {
             throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
+          }
+          if (signUpEmail && !otpLimiters.sendIp.hit(ip).allowed) {
+            throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
           }
           const password = String(((ctx.body ?? {}) as { password?: unknown }).password ?? '')
           if (password.length < MIN_PASSWORD_LENGTH) {
@@ -530,13 +544,18 @@ function createAuth() {
           }
           const email = normalizeEmail(body.email)
           const headers = ctx.request?.headers ?? ctx.headers
-          const purpose = !ctx.request && isInternalCall() ? currentOtpPurpose() : undefined
-          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過額度，這裡不再扣。
-          if (purpose?.purpose === 'signup-first' && purpose.email === email) return
+          const context = !ctx.request && isInternalCall() ? currentOtpPurpose() : undefined
+          const purpose = context && context.email === email ? context.purpose : undefined
+          const ip = clientIpFrom(headers)
+          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過 Email 與 IP 額度，這裡只開始冷卻。
+          if (purpose === 'signup-first') {
+            otpLimiters.cooldown.hit(email)
+            return
+          }
           let exempt = false
-          if (purpose?.purpose === 'signup-resume-start' && purpose.email === email) {
+          if (purpose === 'signup-resume-start') {
             exempt = true
-          } else if (purpose?.purpose === 'account-verify' && purpose.email === email) {
+          } else if (purpose === 'account-verify') {
             const session = await getAuthoritativeSessionFromCtx(ctx)
             if (!session?.user?.id) throw new APIError('UNAUTHORIZED', { code: 'UNAUTHENTICATED', message: '請重新登入。' })
             if (normalizeEmail(session.user.email) !== email) {
@@ -547,8 +566,13 @@ function createAuth() {
             }
             exempt = true
           }
-          enforceOtpSendRate(email, clientIpFrom(headers))
+          // 續辦的寄碼：同一次 wrapper 呼叫裡的註冊已扣過額度，這裡只查冷卻與 IP 上限、不重扣（Review 第 1 輪）。
+          if (purpose === 'signup-resume-start') checkOtpSendRate(email, ip)
+          else enforceOtpSendRate(email, ip)
           if (!exempt) await requireTurnstile(turnstileConfig, headers, 'resend')
+          // 冷卻在這裡開始（過了限速與 Turnstile 才算），不看這個 Email 有沒有帳號：
+          // 存在與不存在的 Email 第二次重寄都一樣 429（Review 第 1 輪帳號列舉）。
+          otpLimiters.cooldown.hit(email)
         }
 
         // ── Email 驗證碼：送碼。verify 與 check 共用一組桶（check 不能拿來繞過 verify 的上限） ──
@@ -714,6 +738,21 @@ function createAuth() {
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned
 
+        // ── 驗碼失敗一律同一個回應（Review 第 1 輪帳號列舉） ─────────────────────────────
+        //
+        // 套件對「有寄過碼的 Email」會依狀態回 403 `TOO_MANY_ATTEMPTS`、400 `OTP_EXPIRED`，對沒寄過碼（不存在）的
+        // 一律 400 `INVALID_OTP`——錯幾次就分得出帳號存不存在。所以 verify、check 的這幾種失敗全部翻成同一個
+        // 400 `INVALID_OTP`。錯 5 次作廢的規則照舊（套件把那一列刪了，之後正確碼也只會得到這一句）。
+        if (
+          (ctx.path === '/email-otp/verify-email' || ctx.path === '/email-otp/check-verification-otp') &&
+          looksLikeApiError(returned)
+        ) {
+          const code = String(((returned.body ?? {}) as { code?: unknown }).code ?? '')
+          if (OTP_FAILURE_CODES.has(code)) {
+            throw new APIError('BAD_REQUEST', { code: 'INVALID_OTP', message: OTP_INVALID_MESSAGE })
+          }
+        }
+
         // ── 註冊：Email 已被用過不透露（票 7 遺留；工程模組 01 §3 `USER_EXISTS` 統一訊息） ──
         //
         // 套件對已註冊的 Email 回 422 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`，跟其他錯誤一眼分得出來。
@@ -780,13 +819,17 @@ function createAuth() {
           const purpose = currentOtpPurpose()
           const email = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
           if (purpose?.purpose === 'signup-resume-finish' && purpose.email === email && !looksLikeApiError(returned)) {
-            const finished = await finishSignupResume(getPool(), email)
+            const finished = await finishSignupResume(getPool(), {
+              email,
+              otp: String(((ctx.body ?? {}) as { otp?: unknown }).otp ?? ''),
+              ticket: purpose.ticket ?? '',
+            })
             if (!finished.ok) {
               throw new APIError('BAD_REQUEST', {
                 code: finished.reason === 'expired' ? 'SIGNUP_RESUME_EXPIRED' : EMAIL_UNAVAILABLE_CODE,
                 message:
                   finished.reason === 'expired'
-                    ? '這次續辦已經逾時，請回第 1 步重新填一次。'
+                    ? '這次續辦已經失效（逾時或有更新的驗證信），請回第 1 步重新填一次。'
                     : EMAIL_UNAVAILABLE_MESSAGE,
               })
             }
@@ -844,15 +887,37 @@ function createAuth() {
           if (type !== 'email-verification') {
             throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
           }
-          const result = await mailer.send({ to: email, ...emailOtpMail(otp) })
-          if (!result.ok) {
+          const send = () => mailer.send({ to: email, ...emailOtpMail(otp) })
+          // 公開的重寄（HTTP、Server Action）不等寄信結果、也不回報失敗：存在與不存在的 Email
+          // （套件對不存在的根本不呼叫這裡）回應與耗時都一樣（Review 第 1 輪帳號列舉）。失敗只留 outbox 與 log。
+          if (!(isInternalCall() && currentOtpPurpose())) {
+            void send()
+              .then((result) => {
+                if (!result.ok) console.error('[auth] 驗證碼信寄不出去', { outboxId: result.outboxId, code: result.code })
+              })
+              .catch((error: unknown) => {
+                console.error('[auth] 驗證碼信寄送例外', error instanceof Error ? error.name : 'unknown')
+              })
+            return
+          }
+          // 內部入口（註冊首封、續辦、我的帳號）要回報失敗。`send()` 回失敗 Result 或直接丟例外（例如 outbox 寫不進去）
+          // 都先記進盒子再丟：套件會吞掉這裡丟的錯，靠盒子讓寄碼端點的 `hooks.after` 改回 MAIL_FAILED。
+          let failed = false
+          try {
+            const result = await send()
+            if (!result.ok) {
+              failed = true
+              console.error('[auth] 驗證碼信寄不出去', { outboxId: result.outboxId, code: result.code })
+            }
+          } catch (error) {
+            failed = true
+            console.error('[auth] 驗證碼信寄送例外', error instanceof Error ? error.name : 'unknown')
+          }
+          if (failed) {
             const outcome = mailOutcome.getStore()
             if (outcome) outcome.failed = true
-            else console.error('[auth] 驗證碼信寄不出去（不在 wrapper 入口內，無法回報呼叫端）', { outboxId: result.outboxId })
             throw mailFailedError()
           }
-          // 真的寄出去才開始 120 秒冷卻（註冊的第一封也算，AC-VI-47(b)）。
-          otpLimiters.cooldown.hit(normalizeEmail(email))
         },
       }),
       // 一定要放最後（官方要求）：讓 Server Action 裡呼叫 `auth.api.*` 時，
@@ -871,6 +936,10 @@ function hasIdToken(body: unknown): boolean {
   const value = (body as { idToken?: unknown }).idToken
   return value !== undefined && value !== null
 }
+
+/** 驗碼失敗的套件代碼（全部對外翻成同一個 `INVALID_OTP`）。 */
+const OTP_FAILURE_CODES = new Set(['INVALID_OTP', 'TOO_MANY_ATTEMPTS', 'OTP_EXPIRED', 'USER_NOT_FOUND'])
+export const OTP_INVALID_MESSAGE = '驗證碼不正確或已失效。請再確認一次，或重寄一封新的驗證碼。'
 
 /** 端點成功時的回傳內容（HTTP 那條是 `Response`，`auth.api` 那條是物件）；失敗回 null。 */
 async function endpointJson(returned: unknown): Promise<unknown> {
