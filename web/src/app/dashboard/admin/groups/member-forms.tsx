@@ -287,11 +287,12 @@ export function GroupDetailButton({
   const leader = group.members.find((m) => m.isLeader) ?? null
   const single = group.members.length <= 1
   // 歷程不隨頁面載入（SH-B4）：第一次打開才取；成員或組長變動後（頁面重新整理，詳情維持打開）重取。
-  const [opened, setOpened] = useState(false)
+  // 每次打開遞增載入序號並清掉舊結果：上次失敗（網路中斷）也能靠關閉重開重新載入；晚回來的舊回應不覆蓋新的。
+  const [loadSeq, setLoadSeq] = useState(0)
   const [history, setHistory] = useState<GroupHistoryOutcome | null>(null)
   const stamp = `${group.revision}:${group.members.map((m) => `${m.userId}${m.isLeader ? '*' : ''}`).join(',')}`
   useEffect(() => {
-    if (!opened) return
+    if (loadSeq === 0) return
     let current = true
     loadGroupHistoryAction(group.id)
       .then((outcome) => current && setHistory(outcome))
@@ -299,7 +300,7 @@ export function GroupDetailButton({
     return () => {
       current = false
     }
-  }, [opened, group.id, stamp])
+  }, [loadSeq, group.id, stamp])
 
   return (
     <div>
@@ -309,7 +310,8 @@ export function GroupDetailButton({
         className="tabular rounded-md text-sm font-bold whitespace-nowrap text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
         aria-label={`${group.code} 詳情`}
         onClick={() => {
-          setOpened(true)
+          setHistory(null)
+          setLoadSeq((n) => n + 1)
           dialog.open()
         }}
       >
