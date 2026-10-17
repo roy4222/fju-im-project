@@ -368,6 +368,8 @@ test('票 14 分組設定：每組最少 3 人（本屆 3–5 人）', async () 
 test('票 6／7 匯入名單、4 位學生註冊、管理員核准、學生登入', async ({ browser }) => {
   test.setTimeout(300_000)
   await admin.goto('/dashboard/admin/accounts')
+  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
+  await admin.getByRole('group', { name: '名單與停用' }).locator('summary').click()
   await admin.getByRole('button', { name: '匯入名單 CSV' }).click()
   const file = `roster-${CODE}.csv`
   await admin.getByLabel('選擇名單 CSV 檔').setInputFiles({ name: file, mimeType: 'text/csv', buffer: Buffer.from(ROSTER_CSV, 'utf8') })

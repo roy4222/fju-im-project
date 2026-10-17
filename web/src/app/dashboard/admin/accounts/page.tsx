@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { IconAlertTriangle, IconChevronRight, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
+import { loadAdminSummary } from '@/app/_ui/workload'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ClearFilters, Pager, SearchForm } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
@@ -107,8 +108,8 @@ export default async function AdminAccountsPage({
   const accounts = getAccountDirectoryCommand()
   const directoryResult = await accounts.list(actor, filter)
   const directory = directoryResult.ok ? directoryResult.receipt : null
-  const summaryResult = await accounts.summary(actor)
-  const summary = summaryResult.ok ? summaryResult.receipt : null
+  // 跟側欄徽章共用同一份（SH-P2，React cache）：同一請求只查一次 summary。
+  const summary = await loadAdminSummary(actor.userId)
   const totalPages = directory ? Math.max(1, Math.ceil(directory.total / directory.pageSize)) : 1
   const statusHref = (status: DirectoryFilter['status']) =>
     `${BASE}${directoryQueryString({ ...filter, status: filter.status === status ? null : status, orphan: false, page: 1 })}`
