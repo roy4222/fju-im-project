@@ -325,7 +325,7 @@ test('原始 HTML ↔ 所見即所得來回切換：表格、底線、粗斜體�
   await page.locator('#ed-title').fill(title)
 
   const source =
-    '<p>說明：<u>底線</u>、<b>甲</b><i>乙</i>、<a href="https://example.com" title="示例">連結</a></p>' +
+    '<p>說明：<u>底線</u>、<b>甲</b><i>乙</i>、<a href="https://example.com" title="示例">連結</a>、<a href="/rules">站內</a></p>' +
     '<table><tr><th>項目</th><th>期限</th></tr><tr><td>初稿</td><td>十月底</td></tr></table>'
   await (await rawHtml(page)).fill(source)
 
@@ -335,8 +335,8 @@ test('原始 HTML ↔ 所見即所得來回切換：表格、底線、粗斜體�
     await expect(editor.locator('u')).toHaveText('底線')
     await expect(editor.locator('strong, b')).toHaveText('甲')
     await expect(editor.locator('em, i')).toHaveText('乙')
-    await expect(editor.locator('a')).toHaveAttribute('href', 'https://example.com')
-    await expect(editor.locator('a')).toHaveAttribute('title', '示例')
+    await expect(editor.locator('a[title="示例"]')).toHaveAttribute('href', 'https://example.com')
+    await expect(editor.locator('a', { hasText: '站內' })).toHaveAttribute('href', '/rules')
     await expect(editor.locator('table tr')).toHaveCount(2)
     await expect(editor.locator('table tr').nth(0).locator('th, td')).toHaveText(['項目', '期限'])
     await expect(editor.locator('table tr').nth(1).locator('th, td')).toHaveText(['初稿', '十月底'])
@@ -354,6 +354,7 @@ test('原始 HTML ↔ 所見即所得來回切換：表格、底線、粗斜體�
   expect(serialized).toMatch(/<(em|i)>乙<\/(em|i)>/)
   expect(serialized).toMatch(/<a [^>]*href="https:\/\/example\.com"/)
   expect(serialized).toMatch(/<a [^>]*title="示例"/)
+  expect(serialized, '站內相對連結也要留著').toMatch(/<a [^>]*href="\/rules"[^>]*>站內<\/a>/)
 
   editor = await richMode(page)
   await expectEditor()
@@ -366,6 +367,7 @@ test('原始 HTML ↔ 所見即所得來回切換：表格、底線、粗斜體�
   expect(body).toMatch(/<(em|i)>乙<\/(em|i)>/)
   expect(body).toMatch(/<a [^>]*href="https:\/\/example\.com"/)
   expect(body).toMatch(/<a [^>]*title="示例"/)
+  expect(body).toMatch(/<a [^>]*href="\/rules"[^>]*>站內<\/a>/)
   const rows = [...body.matchAll(/<tr>(.*?)<\/tr>/g)].map((m) => [...m[1]!.matchAll(/<t[hd]>(.*?)<\/t[hd]>/g)].map((c) => c[1]!.replace(/<[^>]+>/g, '')))
   expect(rows).toEqual([
     ['項目', '期限'],

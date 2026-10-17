@@ -1,6 +1,7 @@
 'use client'
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
+import { INPUT, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
 import { cn } from '@/shared/cn'
 
 /**
@@ -18,6 +19,8 @@ const TiptapEditor = dynamic(() => import('./tiptap-editor').then((m) => m.Tipta
 type Mode = 'rich' | 'html'
 
 const LABEL_ID = 'ed-body-label'
+const LINK_INPUT = cn(INPUT, 'mt-0 h-8 min-h-8 min-w-0 flex-1 py-1')
+const LINK_BUTTON = cn(SECONDARY, 'h-8')
 
 export function RichEditor({
   value,
@@ -55,7 +58,7 @@ export function RichEditor({
         </div>
       </div>
       {mode === 'rich' ? (
-        <TiptapEditor value={value} onChange={onChange} labelledBy={LABEL_ID} placeholder={placeholder} />
+        <TiptapEditor value={value} onChange={onChange} labelledBy={LABEL_ID} placeholder={placeholder} inputClass={LINK_INPUT} buttonClass={LINK_BUTTON} />
       ) : (
         <textarea
           id="ed-body"

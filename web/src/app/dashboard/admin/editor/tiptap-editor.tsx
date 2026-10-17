@@ -1,22 +1,12 @@
 'use client'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
-import {
-  IconBlockquote,
-  IconBold,
-  IconItalic,
-  IconLink,
-  IconList,
-  IconListNumbers,
-  IconSeparatorHorizontal,
-  IconStrikethrough,
-  IconUnderline,
-} from '@tabler/icons-react'
-import { INPUT, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
-import { cn } from '@/shared/cn'
+
+/** 只用字串拼 class，不 import 頁面共用的樣式模組（理由同下面「打包體積」）。 */
+const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(' ')
 
 /**
  * 系辦正文的所見即所得編輯器（AD-B5，設計方案 §8.2）。只由 `rich-editor.tsx` 動態載入（不進 First Load JS）。
@@ -25,9 +15,23 @@ import { cn } from '@/shared/cn'
  * 段落、h2～h4、粗斜體、底線、刪除線、清單、引言、程式碼、分隔線、換行、連結（只收 http／https／mailto，
  * 保留 title）、表格（只為保留既有內容，工具列不給新增表格）。白名單沒有 `img`，所以不提供正文插圖。
  * 伺服器存檔前仍會再清一次，這裡不是信任點。
+ *
+ * 打包體積：直接用 `@tiptap/core`、不用 `@tiptap/react` 與圖示套件。那兩個跟其他頁共用
+ * `use-sync-external-store`／圖示底層模組，動態載入的這一塊一用到，打包器就會把其他頁（例如帳號管理）的
+ * 大塊 JS 拆開重排，First Load 多出約 2 KB、超過預算。這裡只靠 React 內建的 `useSyncExternalStore` 重畫工具列。
  */
 
+/** 工具列新插的連結只收這三種。 */
 const SAFE_HREF = /^(https?:|mailto:)/i
+/**
+ * 既有正文裡的連結：跟伺服器白名單一樣，三種協定或站內相對路徑（`/rules`、`#x`）都留；
+ * 其他協定（`javascript:` 等）與 `//` 開頭不收。不能比伺服器嚴，不然切換模式會把既有連結丟掉。
+ */
+function keepHref(url: string): boolean {
+  // 瀏覽器解析網址會略過空白與控制字元（`java\tscript:`），先拿掉再判斷。
+  const u = [...url].filter((c) => c.charCodeAt(0) > 0x20).join('')
+  return SAFE_HREF.test(u) || (!/^[a-z][a-z0-9+.-]*:/i.test(u) && !u.startsWith('//'))
+}
 
 /** 沒有任何標籤的純文字照伺服器的規則轉段落（空一行＝新段落、單一換行＝`<br>`），不然換行會被合併掉。 */
 const HAS_TAG = /<\/?[a-z][^>]*>/i
@@ -55,7 +59,7 @@ const EXTENSIONS = (placeholder: string) => [
     link: {
       openOnClick: false,
       defaultProtocol: 'https',
-      isAllowedUri: (url) => SAFE_HREF.test(url),
+      isAllowedUri: keepHref,
     },
   }),
   Table.configure({ resizable: false }),
@@ -85,7 +89,7 @@ function ToolButton({
       // 按下去不搶焦點，選取範圍才留得住。
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className={cn(
+      className={cx(
         'inline-flex h-7 min-w-7 items-center justify-center rounded px-1.5 text-xs font-semibold hover:bg-muted',
         active && 'bg-primary-subtle text-primary-on-subtle',
       )}
@@ -95,24 +99,31 @@ function ToolButton({
   )
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
-  const s = useEditorState({
-    editor,
-    selector: ({ editor: e }) => ({
-      paragraph: e.isActive('paragraph'),
-      h2: e.isActive('heading', { level: 2 }),
-      h3: e.isActive('heading', { level: 3 }),
-      bold: e.isActive('bold'),
-      italic: e.isActive('italic'),
-      underline: e.isActive('underline'),
-      strike: e.isActive('strike'),
-      bullet: e.isActive('bulletList'),
-      ordered: e.isActive('orderedList'),
-      quote: e.isActive('blockquote'),
-      link: e.isActive('link'),
-      href: (e.getAttributes('link').href as string | undefined) ?? '',
-    }),
-  })
+function Toolbar({ editor, inputClass, buttonClass }: { editor: Editor; inputClass: string; buttonClass: string }) {
+  // 每次編輯（含游標移動）editor.state 都換成新物件，工具列跟著重畫。
+  useSyncExternalStore(
+    (onChange) => {
+      editor.on('transaction', onChange)
+      return () => {
+        editor.off('transaction', onChange)
+      }
+    },
+    () => editor.state,
+  )
+  const s = {
+    paragraph: editor.isActive('paragraph'),
+    h2: editor.isActive('heading', { level: 2 }),
+    h3: editor.isActive('heading', { level: 3 }),
+    bold: editor.isActive('bold'),
+    italic: editor.isActive('italic'),
+    underline: editor.isActive('underline'),
+    strike: editor.isActive('strike'),
+    bullet: editor.isActive('bulletList'),
+    ordered: editor.isActive('orderedList'),
+    quote: editor.isActive('blockquote'),
+    link: editor.isActive('link'),
+    href: (editor.getAttributes('link').href as string | undefined) ?? '',
+  }
   const [linkOpen, setLinkOpen] = useState(false)
   const [href, setHref] = useState('')
   const [linkError, setLinkError] = useState<string | null>(null)
@@ -157,32 +168,32 @@ function Toolbar({ editor }: { editor: Editor }) {
         </ToolButton>
         <span aria-hidden className="mx-1 h-4 w-px bg-border" />
         <ToolButton label="粗體" active={s.bold} onClick={() => chain().toggleBold().run()}>
-          <IconBold size={15} aria-hidden />
+          <b>B</b>
         </ToolButton>
         <ToolButton label="斜體" active={s.italic} onClick={() => chain().toggleItalic().run()}>
-          <IconItalic size={15} aria-hidden />
+          <i className="font-serif">I</i>
         </ToolButton>
         <ToolButton label="底線" active={s.underline} onClick={() => chain().toggleUnderline().run()}>
-          <IconUnderline size={15} aria-hidden />
+          <u>U</u>
         </ToolButton>
         <ToolButton label="刪除線" active={s.strike} onClick={() => chain().toggleStrike().run()}>
-          <IconStrikethrough size={15} aria-hidden />
+          <s>S</s>
         </ToolButton>
         <span aria-hidden className="mx-1 h-4 w-px bg-border" />
         <ToolButton label="項目清單" active={s.bullet} onClick={() => chain().toggleBulletList().run()}>
-          <IconList size={15} aria-hidden />
+          • 清單
         </ToolButton>
         <ToolButton label="編號清單" active={s.ordered} onClick={() => chain().toggleOrderedList().run()}>
-          <IconListNumbers size={15} aria-hidden />
+          1. 清單
         </ToolButton>
         <ToolButton label="引用" active={s.quote} onClick={() => chain().toggleBlockquote().run()}>
-          <IconBlockquote size={15} aria-hidden />
+          引用
         </ToolButton>
         <ToolButton label="連結" active={s.link || linkOpen} onClick={() => (linkOpen ? setLinkOpen(false) : openLink())}>
-          <IconLink size={15} aria-hidden />
+          連結
         </ToolButton>
         <ToolButton label="分隔線" onClick={() => chain().setHorizontalRule().run()}>
-          <IconSeparatorHorizontal size={15} aria-hidden />
+          分隔線
         </ToolButton>
       </div>
       {linkOpen ? (
@@ -193,7 +204,7 @@ function Toolbar({ editor }: { editor: Editor }) {
           <input
             id="ed-body-link"
             type="url"
-            className={cn(INPUT, 'mt-0 h-8 min-h-8 min-w-0 flex-1 py-1')}
+            className={inputClass}
             placeholder="https://"
             value={href}
             autoFocus
@@ -208,13 +219,13 @@ function Toolbar({ editor }: { editor: Editor }) {
               }
             }}
           />
-          <button type="button" className={cn(SECONDARY, 'h-8')} onClick={applyLink}>
+          <button type="button" className={buttonClass} onClick={applyLink}>
             套用連結
           </button>
           {s.link ? (
             <button
               type="button"
-              className={cn(SECONDARY, 'h-8')}
+              className={buttonClass}
               onClick={() => {
                 chain().extendMarkRange('link').unsetLink().run()
                 setLinkOpen(false)
@@ -239,51 +250,70 @@ export function TiptapEditor({
   onChange,
   labelledBy,
   placeholder,
+  inputClass,
+  buttonClass,
 }: {
   value: string
   onChange: (html: string) => void
   /** 正文標題的 id（`aria-labelledby`）。 */
   labelledBy: string
   placeholder: string
+  /** 連結網址輸入框與按鈕的 class（由 `rich-editor.tsx` 從表單共用樣式算好傳進來）。 */
+  inputClass: string
+  buttonClass: string
 }) {
   // 最近一次由編輯器送出去的字串：外面的 value 跟它不同，才是別處改了正文，要換掉編輯器內容。
   const emitted = useRef(value)
-  const editor = useEditor({
-    extensions: EXTENSIONS(placeholder),
-    content: toEditorHtml(value),
-    // 正式站 CSP 的 style-src 只放 nonce，Tiptap 自己插的 <style> 會被擋；必要的樣式用下面的 class。
-    injectCSS: false,
-    editorProps: {
-      attributes: {
-        id: 'ed-body',
-        role: 'textbox',
-        'aria-multiline': 'true',
-        'aria-labelledby': labelledBy,
-        class: cn(
-          'prose-item min-h-56 space-y-2 px-4 py-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap outline-none',
-          '[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-muted-foreground [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
-          '[&_hr]:my-3 [&_hr]:border-border [&_.selectedCell]:bg-primary-subtle [&_td_p]:m-0 [&_th_p]:m-0',
-        ),
-      },
-    },
-    onUpdate: ({ editor: e }) => {
-      const html = fromEditor(e)
-      emitted.current = html
-      onChange(html)
-    },
-  })
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+  const host = useRef<HTMLDivElement>(null)
+  // 只在瀏覽器建（rich-editor 以 ssr: false 載入）；先不掛 DOM，下面的 effect 再掛上。
+  const [editor] = useState(
+    () =>
+      new Editor({
+        element: null,
+        extensions: EXTENSIONS(placeholder),
+        content: toEditorHtml(value),
+        // 正式站 CSP 的 style-src 只放 nonce，Tiptap 自己插的 <style> 會被擋；必要的樣式用下面的 class。
+        injectCSS: false,
+        editorProps: {
+          attributes: {
+            id: 'ed-body',
+            role: 'textbox',
+            'aria-multiline': 'true',
+            'aria-labelledby': labelledBy,
+            class: cx(
+              'prose-item min-h-56 space-y-2 px-4 py-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap outline-none',
+              '[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-muted-foreground [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
+              '[&_hr]:my-3 [&_hr]:border-border [&_.selectedCell]:bg-primary-subtle [&_td_p]:m-0 [&_th_p]:m-0',
+            ),
+          },
+        },
+        onUpdate: ({ editor: e }) => {
+          const html = fromEditor(e)
+          emitted.current = html
+          onChangeRef.current(html)
+        },
+      }),
+  )
 
   useEffect(() => {
-    if (!editor || value === emitted.current) return
+    if (host.current) editor.mount(host.current)
+    return () => editor.unmount()
+  }, [editor])
+
+  useEffect(() => {
+    if (value === emitted.current) return
     emitted.current = value
     editor.commands.setContent(toEditorHtml(value), { emitUpdate: false })
   }, [editor, value])
 
-  if (!editor) return null
   return (
     <>
-      <Toolbar editor={editor} />
-      <EditorContent editor={editor} />
+      <Toolbar editor={editor} inputClass={inputClass} buttonClass={buttonClass} />
+      <div ref={host} />
     </>
   )
 }
