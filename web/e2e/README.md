@@ -13,7 +13,8 @@ e2e 全部 spec 共用同一個資料庫、同一個 app 程序、同一組共�
 - 只在 `beforeAll` 寫一筆 `now(), now()`（讓鐘對齊真實時間）的不算改鐘，不用撥回。
 
 2026-10-17 核對：設成非現在時間的只有 `timeline.spec.ts`（`afterAll` 撥回）與
-`student-groups.spec.ts`（`finally`＋`afterAll` 撥回）；其餘寫這張表的 spec 都只寫 `now()`。
+`student-groups.spec.ts`（`finally` 撥回用的是載入時記下的 `now`，靠 `afterAll` 的 `new Date()` 補正）；
+其餘寫這張表的 spec 都只寫 `now()`。
 
 ## 上傳限速：`UPLOAD_RATE_MAX`
 

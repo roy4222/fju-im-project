@@ -1,5 +1,5 @@
 import { expect, test, type APIResponse } from '@playwright/test'
-import { FINGERPRINTS, PUBLIC_FINGERPRINTS } from './fingerprints'
+import { FINGERPRINTS, SITE_FINGERPRINTS } from './fingerprints'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -23,19 +23,19 @@ const OLD_PAGES = [
     path: '/dashboard/student/grading',
     target: '/dashboard/student',
     fingerprint: '評分由老師與系辦處理，學生不會看到分數',
-    landing: FINGERPRINTS['/dashboard/student']!,
+    landing: { selector: 'body', text: FINGERPRINTS['/dashboard/student']! },
   },
   {
     path: '/dashboard/student/industry',
     target: '/industry',
     fingerprint: '產學組的組長可以在「我的組別」把組別連結到合作案',
-    landing: PUBLIC_FINGERPRINTS['/industry'],
+    landing: SITE_FINGERPRINTS['/industry'],
   },
   {
     path: '/dashboard/student/timeline',
     target: '/timeline',
     fingerprint: '階段與日期由系辦在時間軸設定',
-    landing: PUBLIC_FINGERPRINTS['/timeline'],
+    landing: SITE_FINGERPRINTS['/timeline'],
   },
 ] as const
 
@@ -62,7 +62,7 @@ for (const { path, target, fingerprint, landing } of OLD_PAGES) {
     const landed = await page.goto(path)
     expect(landed?.status()).toBe(200)
     expect(new URL(page.url()).pathname).toBe(target)
-    await expect(page.locator('body'), '轉過去的頁要真的是新位置').toContainText(landing)
+    await expect(page.locator(landing.selector).first(), '轉過去的頁要真的是新位置').toContainText(landing.text)
   })
 
   for (const role of ['teacher', 'admin'] as const) {

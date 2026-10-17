@@ -52,11 +52,12 @@ export const TEACHER_HOME = FINGERPRINTS['/dashboard/teacher']!
 export const ADMIN_HOME = FINGERPRINTS['/dashboard/admin']!
 
 /**
- * 前台登入後才看得到的頁（不在後台受保護路由表裡，所以不放進 FINGERPRINTS）。
- * - `/industry`：頁首說明句。
- * - `/timeline`：行事曆圖例的「臺灣時間」，不論角色、有沒有屆別都會畫出來（頁名在 `<title>` 裡，不能當指紋）。
+ * 前台的頁（不在後台受保護路由表裡，所以不放進 FINGERPRINTS）。
+ * - `/industry`：頁首說明句，只在這一頁出現。
+ * - `/timeline`：沒有「不論角色、有沒有屆別都畫、又只在這一頁出現」的內文字（說明句是屆別名、
+ *   「臺灣時間」別頁也有），改看頁面的 `<h1>`；頁名也在 `<title>` 裡，所以只能配 `h1` 用，不能拿去搜整個回應。
  */
-export const PUBLIC_FINGERPRINTS = {
-  '/industry': '老師建立的合作案。',
-  '/timeline': '臺灣時間',
+export const SITE_FINGERPRINTS = {
+  '/industry': { selector: 'body', text: '老師建立的合作案。' },
+  '/timeline': { selector: 'h1', text: '專題時程' },
 } as const
