@@ -38,6 +38,7 @@ pnpm -C web perf:db check --base http://localhost:3399   # 三個帳號登入、
 ```sh
 pnpm -C web perf:sql --base http://localhost:3399 --as teacher [--routes /dashboard/teacher,…] \
   [--expect scripts/perf/sql-expect.json] [--json out.json] [--dump /dashboard/teacher]
+node --test 'scripts/perf/*.test.mjs'   # 判定邏輯的單元測試（scripts/perf 不在 vitest unit 專案裡）
 ```
 
 - `--as`：`student`／`teacher`／`admin`（上面的固定帳號）、`anonymous`、或任一 email（密碼同 `PERF_PASSWORD`）。
@@ -45,7 +46,7 @@ pnpm -C web perf:sql --base http://localhost:3399 --as teacher [--routes /dashbo
 - 每路由抓兩次（第一次暖機），只算第二次；owner 連線送 `PERFMARK BEGIN/END` 標記，從 log 取兩標記間 `fju_app` 的 `statement`／`execute`。log 來源：docker `docker logs <name>`、native 的 log 檔、或 `--log-cmd "<指令>"`。
 - 分類照 `signatures.json`（正規化後語句的**前綴**）：`identity`／`badge`／其餘 `page`，每條實際 SQL 都算一類，三類相加＝`total`。`duplicates` 只是診斷。`--dump <route>` 印出該路由每條正規化語句與分類——查詢文字改了，用它看新樣子、更新簽名。
 - 不跟隨轉址：`status` 是原始碼；不是 200 的列全標 `N/A`，exit 1。
-- `--expect`：`total > max`、`identity` 超過、或 `noDuplicate` 的簽名出現在 `duplicates` → exit 1，並列出 `duplicates` 與前 5 大表。`sql-expect.json` 的 `identity` 是 A 階段目標（一般 7、老師頁 8），在 SH-P1 合併前用它驗一定失敗，這是預期的。
+- `--expect`：`total > max`、`identity` 超過、`noDuplicate` 的簽名出現在 `duplicates`、或該簽名在這個路由一句都對不到（簽名過期）→ exit 1，並列出 `duplicates` 與前 5 大表。`sql-expect.json` 的 `identity` 是 A 階段目標（一般 7、老師頁 8），在 SH-P1 合併前用它驗一定失敗，這是預期的。
 
 ## 3. `perf:bundle`
 
