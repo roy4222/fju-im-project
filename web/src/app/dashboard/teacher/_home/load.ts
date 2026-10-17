@@ -23,7 +23,6 @@ const TEACHER_NEWS: readonly AudienceKind[] = ['teachers', 'signed_in', 'groups'
  *
  * 「本屆活動」：老師目前指導的屆別（Q13「自己指導那一屆」，不一定是工作屆別）＋系辦設定的工作屆別；
  * 指導的屆別跟階段一起查，活動等兩者回來再一句查完所有屆別（`activitiesFor`，TE-07b）。
- * 「誰在看」（公告列表與指導屆別都要）同一次 render 只查一次（`viewerOf` 內的 React `cache`）。
  */
 export async function loadTeacherHome(actor: ResolvedActor) {
   // 頁面先過了 `requireRole`，這裡一定是登入的老師。
