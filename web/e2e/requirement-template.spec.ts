@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { fillItemBody } from './item-body'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -139,7 +140,7 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(TITLE)
-  await page.getByLabel('正文').fill('請組長填寫專題需求表。')
+  await fillItemBody(page, '請組長填寫專題需求表。')
   await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   // 先選個人一份，證明套用範本會改回整組一份。
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()

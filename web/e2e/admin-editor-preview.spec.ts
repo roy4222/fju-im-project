@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { sanitizeBody } from '../src/application/items/rich-text'
+import { rawHtml, richMode } from './item-body'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -60,22 +61,6 @@ test.afterAll(async () => {
 async function asAdmin(page: Page) {
   await page.context().clearCookies()
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
-}
-
-/** 正文切到「原始 HTML」（textarea），回傳那個 textarea。 */
-async function rawHtml(page: Page) {
-  await page.getByRole('group', { name: '正文編輯方式' }).getByRole('button', { name: '原始 HTML' }).click()
-  const area = page.locator('textarea#ed-body')
-  await expect(area).toBeVisible()
-  return area
-}
-
-/** 正文切回所見即所得，回傳編輯區（contenteditable）。 */
-async function richMode(page: Page) {
-  await page.getByRole('group', { name: '正文編輯方式' }).getByRole('button', { name: '所見即所得' }).click()
-  const editor = page.locator('#ed-body[contenteditable="true"]')
-  await expect(editor).toBeVisible()
-  return editor
 }
 
 /** 數 Server Action 請求（自動檢查 `reviewItemAction` 就是走這個）。 */
