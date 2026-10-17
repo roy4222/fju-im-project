@@ -64,7 +64,7 @@ type ConsentOver = Partial<Pick<VersionDetail, 'state' | 'cause' | 'isCurrent' |
 
 function consent(over: ConsentOver = {}): VersionDetail {
   const versionId = over.versionId ?? 'v2'
-  const me = { userId: 'u-s', displayName: 'S', studentNo: '411', result: over.voted ?? null, reason: null, at: over.votedAt ?? null }
+  const me = { userId: 'u-s', displayName: 'S', studentNo: '411', result: over.voted ?? null, reason: null, at: over.votedAt ?? null, avatarPreset: null, avatarFileId: null }
   return {
     versionId,
     packageId: 'p1',
@@ -91,7 +91,7 @@ function consent(over: ConsentOver = {}): VersionDetail {
     history: [],
     progress: {
       students: [me],
-      advisor: { userId: 'u-t', displayName: 'T', studentNo: null, result: null, reason: null, at: null },
+      advisor: { userId: 'u-t', displayName: 'T', studentNo: null, result: null, reason: null, at: null, avatarPreset: null, avatarFileId: null },
       agreed: over.voted === 'agree' ? 1 : 0,
       total: 1,
       missing: [],

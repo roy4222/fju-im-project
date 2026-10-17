@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { IconCheck, IconDownload, IconFileTypePdf, IconMinus, IconSignature, IconX } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { StatusPill } from '@/app/_ui/dashboard/cards'
 import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
 import { consentTodo } from '@/app/dashboard/student/_todo/todos'
@@ -197,6 +198,7 @@ function WholeGroup({ v, newer }: { v: VersionDetail; newer: number | null }) {
               ) : (
                 <IconMinus className="size-4 shrink-0 text-muted-foreground" aria-label="還沒表態" />
               )}
+              <UserAvatar user={{ id: s.userId, name: s.displayName, avatarPreset: s.avatarPreset ?? null, avatarFileId: s.avatarFileId ?? null }} size={24} decorative />
               <span className={cn(me && 'font-bold')}>
                 {s.displayName}
                 {me ? '（你）' : ''}
@@ -209,7 +211,11 @@ function WholeGroup({ v, newer }: { v: VersionDetail; newer: number | null }) {
           )
         })}
         <li className="flex items-start gap-2.5 border-t border-border pt-2.5 text-sm" data-testid="progress-advisor">
-          <IconSignature className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <UserAvatar
+            user={{ id: p.advisor.userId, name: p.advisor.displayName, avatarPreset: p.advisor.avatarPreset ?? null, avatarFileId: p.advisor.avatarFileId ?? null }}
+            size={24}
+            decorative
+          />
           <span className="min-w-0">
             <span className="block">{p.advisor.displayName}（指導老師）</span>
             <span className={cn('block text-xs', p.advisor.result && p.advisor.result !== 'agree' ? 'text-destructive' : 'text-muted-foreground')}>

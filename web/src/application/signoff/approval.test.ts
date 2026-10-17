@@ -114,6 +114,20 @@ describe('進度與缺誰', () => {
     expect(remindRecipients(p, 'collecting')).toEqual(['s2', 's3'])
   })
 
+  it('頭像（ST-12）：沒給或查不到＝兩欄 null；給了就帶進學生與老師列', () => {
+    const none = buildProgress(participants, [], 'collecting')
+    expect(none.students[0]).toMatchObject({ avatarPreset: null, avatarFileId: null })
+    expect(none.advisor).toMatchObject({ avatarPreset: null, avatarFileId: null })
+    const avatars = new Map([
+      ['s1', { avatarPreset: 7, avatarFileId: null }],
+      ['t1', { avatarPreset: null, avatarFileId: 'f1' }],
+    ])
+    const p = buildProgress(participants, [], 'collecting', avatars)
+    expect(p.students[0]).toMatchObject({ avatarPreset: 7, avatarFileId: null })
+    expect(p.students[1]).toMatchObject({ avatarPreset: null, avatarFileId: null })
+    expect(p.advisor).toMatchObject({ avatarPreset: null, avatarFileId: 'f1' })
+  })
+
   it('等老師：缺誰與提醒名單都只有老師', () => {
     const at = new Date('2027-01-05T02:00:00Z')
     const votes = ['s1', 's2', 's3'].map((userId) => ({ userId, role: 'student' as const, result: 'agree' as const, reason: null, realAt: at }))
