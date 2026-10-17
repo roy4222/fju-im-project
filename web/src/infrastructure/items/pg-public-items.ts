@@ -134,6 +134,12 @@ const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
   'awarded-asc': `${AWARDED_DAY} asc, m.actual_opened_at asc, m.id asc`,
 }
 
+/**
+ * 規則章節（A-14；Q198）不看 `order`：一律照系辦排的位置，跟系辦「規則」篩選、`moveRule` 的鄰居同一個順序。
+ * 舊資料遷移時已依實際開放時間回填，所以沒人動過時跟原本的 `oldest` 一樣。
+ */
+const RULES_ORDER_SQL = 'm.rules_position asc nulls last, m.actual_opened_at asc, m.id asc'
+
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
 function likePattern(q: string): string {
   return `%${q.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
@@ -201,7 +207,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
     const rows = await db.query<Row & { body_html: string }>(
       `select ${COLUMNS}, m.body_html from managed_items m
         where ${where.join(' and ')}
-        order by ${ORDER_SQL[filter.order ?? 'newest']}
+        order by ${placement === 'rules' ? RULES_ORDER_SQL : ORDER_SQL[filter.order ?? 'newest']}
         limit $${values.length}`,
       values,
     )

@@ -61,6 +61,9 @@ export type UpdateReceipt = {
 /** 置頂／取消置頂的回執（第 1 批 V1）：`pinned` 是做完之後的狀態。 */
 export type PinReceipt = { readonly itemId: string; readonly title: string; readonly pinned: boolean }
 
+/** 規則章節上移／下移的回執（A-14）：`position` 是移完之後的位置（同屆規則從 1 起算）。 */
+export type RuleOrderReceipt = { readonly itemId: string; readonly title: string; readonly position: number }
+
 export type StartItemUploadInput = {
   readonly cohortId: string
   readonly kind: ItemFileKind
@@ -134,6 +137,13 @@ export interface ItemCommand {
    * 不切版本、不寫發布紀錄、不發事件。已經是目標狀態再按一次回 ok、不改任何東西（原本的置頂時間不變）。
    */
   setPinned(actor: ResolvedActor, itemId: string, pinned: boolean, requestId: string): Promise<Result<PinReceipt>>
+  /**
+   * 規則章節上移／下移（A-14；Q198）：跟同一屆、placement rules、未刪除（含草稿、已下架）的項目中位置緊鄰的那一筆
+   * 交換 `rules_position`。前台 `/rules` 只顯示其中發布中的子序列，所以前台的相對順序跟著動或不變（鄰居沒發布時）。
+   * 已經在最上／最下 → `VALIDATION_FAILED`「已經在最上面了。」／「已經在最下面了。」。稽核 `item.rule_moved`；
+   * 跟置頂一樣是展示動作，不動 `revision`、`updated_at`，不切版本、不發事件。
+   */
+  moveRule(actor: ResolvedActor, itemId: string, direction: 'up' | 'down', requestId: string): Promise<Result<RuleOrderReceipt>>
 }
 
 export type ItemReview = {
@@ -174,6 +184,8 @@ export type ItemListRow = {
   readonly actualOpenedAt: Date | null
   /** 置頂時間（第 1 批 V1）；沒置頂是 null。 */
   readonly pinnedAt: Date | null
+  /** 規則章節的位置（A-14）：只有規則有，同屆從 1 起算；其他位置與舊資料是 null。 */
+  readonly rulesPosition: number | null
   readonly updatedAt: Date
   /**
    * 應交數（個人＝人、組別＝組）：目前名單、不含免填與已移出，跟收件名單頁完成率的分母同一個口徑

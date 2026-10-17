@@ -2088,3 +2088,178 @@ describe('公告置頂（第 1 批 V1；Q48-a，AC-V01～V03、V07～V10）', ()
     expect(await titles(studentActor(student), tag)).toEqual(['本屆', '公開'])
   })
 })
+
+describe('規則章節上下移（A-14；Q198，AC-A-38、39、50）', () => {
+  const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
+  const RULE: Partial<ItemInput> = { placement: 'rules', audienceKind: 'public', receiverUnit: 'none', dueAt: '', fields: [] }
+
+  /** 建一章規則（預設發布），第一次發布時間改成測試要的樣子。 */
+  async function rule(cohortId: string, title: string, openedAt: string, publish = true) {
+    const item = await mustCreate(cohortId, { ...RULE, title })
+    if (!publish) return { itemId: item.itemId, revision: item.revision }
+    const published = await mustPublish(item.itemId, 1, false)
+    await owner.sql('update managed_items set actual_opened_at = $2 where id = $1', [item.itemId, openedAt])
+    return { itemId: item.itemId, revision: published.revision }
+  }
+
+  async function mustMove(itemId: string, direction: 'up' | 'down') {
+    const result = await items.moveRule(adminActor(), itemId, direction, randomUUID())
+    if (!result.ok) throw new Error(`${result.code} ${result.message}`)
+    return result.receipt
+  }
+
+  /** 系辦「規則」篩選看到的順序（同頁面：位置排；這裡的資料都有位置）。 */
+  const adminOrder = async (cohortId: string, tag: string) =>
+    (await query.list(cohortId))
+      .filter((r) => r.placement === 'rules')
+      .sort((a, b) => a.rulesPosition! - b.rulesPosition!)
+      .map((r) => r.title.replace(`${tag} `, ''))
+  /** 前台 `/rules`（`fullText`）與列表看到的順序；測試庫有別的測試的規則，用標籤濾。 */
+  const publicOrder = async (tag: string) => {
+    const full = (await publicQuery.fullText(ANONYMOUS, 'rules')).filter((c) => c.title.startsWith(`${tag} `))
+    const listed = await publicQuery.list(ANONYMOUS, 'rules', { q: tag, order: 'newest' })
+    expect(listed.map((c) => c.title)).toEqual(full.map((c) => c.title))
+    return full.map((c) => c.title.replace(`${tag} `, ''))
+  }
+
+  it('建立規則給同屆 max+1（各屆各自編、刪除的不算）；其他位置是 null', async () => {
+    const a = await newCohort()
+    const b = await newCohort()
+    const first = await rule(a.cohortId, '甲一', '2026-09-01T00:00:00Z', false)
+    const second = await rule(a.cohortId, '甲二', '2026-09-02T00:00:00Z', false)
+    const other = await rule(b.cohortId, '乙一', '2026-09-01T00:00:00Z', false)
+    const news = await mustCreate(a.cohortId, { ...RULE, placement: 'news', title: '公告' })
+    const positions = async (...ids: string[]) => Promise.all(ids.map(async (id) => (await itemRow(id)).rules_position))
+    expect(await positions(first.itemId, second.itemId, other.itemId, news.itemId)).toEqual([1, 2, 1, null])
+
+    const deleted = await items.delete(adminActor(), second.itemId, second.revision, randomUUID())
+    expect(deleted.ok).toBe(true)
+    const third = await rule(a.cohortId, '甲三', '2026-09-03T00:00:00Z', false)
+    expect(await positions(third.itemId)).toEqual([2])
+  })
+
+  it('AC-A-38：四章都已發布，第 3 章下移 → 系辦與前台第 3、4 章互換；不動 revision，稽核一筆 item.rule_moved', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const chapters = []
+    for (const [n, day] of [[1, '01'], [2, '02'], [3, '03'], [4, '04']] as const) {
+      chapters.push(await rule(cohortId, `${tag} 第${n}章`, `2026-09-${day}T00:00:00Z`))
+    }
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第3章', '第4章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第3章', '第4章'])
+
+    const third = chapters[2]!
+    const receipt = await mustMove(third.itemId, 'down')
+    expect(receipt).toMatchObject({ itemId: third.itemId, title: `${tag} 第3章`, position: 4 })
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+
+    expect((await itemRow(third.itemId)).revision).toBe(third.revision)
+    expect((await itemRow(chapters[3]!.itemId)).revision).toBe(chapters[3]!.revision)
+    const audit = await owner.sql(`select payload from audit_events where target_id = $1 and action = 'item.rule_moved'`, [third.itemId])
+    expect(audit.rows).toHaveLength(1)
+    expect(audit.rows[0]!.payload).toMatchObject({ direction: 'down', swappedWith: chapters[3]!.itemId, positionBefore: 3, positionAfter: 4 })
+  })
+
+  it('AC-A-39：第 1 章上移、最後一章下移 → VALIDATION_FAILED，順序不變、不寫稽核；同一個請求編號重送拿回原回執', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const one = await rule(cohortId, `${tag} 第1章`, '2026-09-01T00:00:00Z')
+    const two = await rule(cohortId, `${tag} 第2章`, '2026-09-02T00:00:00Z')
+
+    const top = await items.moveRule(adminActor(), one.itemId, 'up', randomUUID())
+    expect(top.ok ? null : [top.code, top.message]).toEqual(['VALIDATION_FAILED', '已經在最上面了。'])
+    const bottom = await items.moveRule(adminActor(), two.itemId, 'down', randomUUID())
+    expect(bottom.ok ? null : [bottom.code, bottom.message]).toEqual(['VALIDATION_FAILED', '已經在最下面了。'])
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章'])
+    expect(
+      await count(`select count(*) as n from audit_events where target_id = any($1::uuid[]) and action = 'item.rule_moved'`, [
+        [one.itemId, two.itemId],
+      ]),
+    ).toBe(0)
+
+    const requestId = randomUUID()
+    const first = await items.moveRule(adminActor(), two.itemId, 'up', requestId)
+    const replay = await items.moveRule(adminActor(), two.itemId, 'up', requestId)
+    expect(first.ok && replay.ok && replay.receipt).toEqual(first.ok && first.receipt)
+    expect(await adminOrder(cohortId, tag)).toEqual(['第2章', '第1章'])
+  })
+
+  it('AC-A-50：第 3 章是草稿 → 前台只有 1、2、4、5；第 2 章下移兩次，系辦 1、3、2、4、5 → 1、3、4、2、5，前台 1、2、4、5 → 1、4、2、5', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const ids: string[] = []
+    for (const n of [1, 2, 3, 4, 5]) {
+      ids.push((await rule(cohortId, `${tag} 第${n}章`, `2026-09-0${n}T00:00:00Z`, n !== 3)).itemId)
+    }
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第3章', '第4章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第5章'])
+
+    await mustMove(ids[1]!, 'down')
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第3章', '第2章', '第4章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第5章'])
+
+    await mustMove(ids[1]!, 'down')
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第3章', '第4章', '第2章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第4章', '第2章', '第5章'])
+  })
+
+  it('位置有 NULL 或同號（舊資料、同時建立）→ 照移完的順序整屆重編 1..n', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await rule(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    const b = await rule(cohortId, `${tag} B`, '2026-09-02T00:00:00Z')
+    const c = await rule(cohortId, `${tag} C`, '2026-09-03T00:00:00Z')
+    // A、B 同號；C 沒有位置（排最後）。
+    await owner.sql('update managed_items set rules_position = 5 where id = any($1::uuid[])', [[a.itemId, b.itemId]])
+    await owner.sql('update managed_items set rules_position = null where id = $1', [c.itemId])
+    expect(await publicOrder(tag)).toEqual(['A', 'B', 'C'])
+
+    expect(await mustMove(b.itemId, 'up')).toMatchObject({ position: 1 })
+    const positions = await Promise.all([a, b, c].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([2, 1, 3])
+    expect(await publicOrder(tag)).toEqual(['B', 'A', 'C'])
+  })
+
+  it('存草稿換成規則 → 排到同屆最後；換離規則 → 位置清掉', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z', false)
+    const news = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '原本是公告' })
+    const saved = await items.saveDraft(adminActor(), news.itemId, news.revision, input(cohortId, { ...RULE, title: '改成規則' }), randomUUID())
+    expect(saved.ok || `${saved.code} ${saved.message}`).toBe(true)
+    expect((await itemRow(news.itemId)).rules_position).toBe(2)
+
+    const back = await items.saveDraft(
+      adminActor(),
+      one.itemId,
+      one.revision,
+      input(cohortId, { ...RULE, placement: 'news', title: '改成公告' }),
+      randomUUID(),
+    )
+    expect(back.ok || `${back.code} ${back.message}`).toBe(true)
+    expect((await itemRow(one.itemId)).rules_position).toBeNull()
+  })
+
+  it('不是規則、學生、找不到、封存屆別都擋下，順序不變', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z')
+    const two = await rule(cohortId, '第2章', '2026-09-02T00:00:00Z')
+    const news = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '公告' })
+
+    const notRule = await items.moveRule(adminActor(), news.itemId, 'up', randomUUID())
+    expect(notRule.ok ? null : [notRule.code, notRule.message]).toEqual(['VALIDATION_FAILED', '只有專題規則能調整章節順序。'])
+    const student = await newStudent(cohortId)
+    const byStudent = await items.moveRule(studentActor(student), two.itemId, 'up', randomUUID())
+    expect(byStudent.ok || byStudent.code).toBe('FORBIDDEN')
+    const missing = await items.moveRule(adminActor(), randomUUID(), 'up', randomUUID())
+    expect(missing.ok || missing.code).toBe('VALIDATION_FAILED')
+    const sideways = await items.moveRule(adminActor(), two.itemId, 'left' as 'up', randomUUID())
+    expect(sideways.ok || sideways.code).toBe('VALIDATION_FAILED')
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const archived = await items.moveRule(adminActor(), two.itemId, 'up', randomUUID())
+    expect(archived.ok || archived.code).toBe('COHORT_ARCHIVED')
+    const positions = await Promise.all([one, two].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([1, 2])
+  })
+})

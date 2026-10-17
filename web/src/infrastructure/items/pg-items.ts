@@ -44,6 +44,7 @@ import {
   type RecipientPreview,
   type RecipientQueryInput,
   type ResponsePresence,
+  type RuleOrderReceipt,
   type SaveReceipt,
   type StartItemUploadInput,
   type UpdateChange,
@@ -129,6 +130,15 @@ type Deps = {
   businessClock: BusinessClockSource
   pool?: PoolSource
   realClock?: Clock
+}
+
+/**
+ * 規則章節的新位置（A-14）：放到同屆規則的最後（`max+1`，同屆第一章是 1）。建立規則時用；存草稿把位置換成規則時
+ * 也用（原本已有位置就保留，換離規則就清成 NULL）。同時建立兩章可能拿到同一個號，`moveRule` 遇到會整屆重編。
+ */
+function nextRulesPosition(cohortId: string): string {
+  return `(select coalesce(max(o.rules_position), 0) + 1 from managed_items o
+            where o.cohort_id = ${cohortId} and o.placement = 'rules' and o.deleted_at is null)`
 }
 
 function itemNotFound(): Err {
@@ -239,9 +249,10 @@ export class PgItemCommand implements ItemCommand {
            (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, due_at,
             title, summary, body_html, cover_file_id, category, draft_schema,
             created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id,
-            registration_deadline, event_date, awarded_on)
+            registration_deadline, event_date, awarded_on, rules_position)
          values ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11, $12, $13, $14::jsonb,
-                 $15, 'user', $16, $15, $16, $17, $18, $19)`,
+                 $15, 'user', $16, $15, $16, $17, $18, $19,
+                 case when $3 = 'rules' then ${nextRulesPosition('$2')} end)`,
         [
           itemId,
           draft.cohortId,
@@ -1208,6 +1219,118 @@ export class PgItemCommand implements ItemCommand {
     })
   }
 
+  // ── 規則章節排序（A-14；Q198） ────────────────────────────────────────────────
+
+  /**
+   * 規則章節上移／下移：跟同屆、placement rules、未刪除（含草稿、已下架）的項目中排在緊鄰的那一筆交換位置。
+   * 排序跟前台 `/rules`、系辦「規則」篩選同一個：`rules_position asc nulls last, actual_opened_at asc, id asc`。
+   *
+   * 鎖：屆別（共享）→ 同屆全部規則列依 id 排序 `FOR UPDATE`（包含要交換的兩列；兩個人同時移相鄰兩章時鎖序一致、
+   * 不會互鎖）。兩列都有位置而且不同 → 只交換這兩列；有 NULL（舊資料、換位置的草稿）或同號（同時建立）→ 照移完的
+   * 順序整屆重編 1..n，之後就是乾淨的序列。跟置頂一樣是展示動作：不動 `revision`、`updated_at`，不切版本、不發事件。
+   */
+  async moveRule(
+    actor: ResolvedActor,
+    itemId: string,
+    direction: 'up' | 'down',
+    requestId: string,
+  ): Promise<Result<RuleOrderReceipt>> {
+    const denied = authorizeAdmin(actor, '調整規則章節順序')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(itemId)) return itemNotFound()
+    if (direction !== 'up' && direction !== 'down') return err('VALIDATION_FAILED', '只能上移或下移。')
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      // 屆別建立後不會換（存草稿擋），先不加鎖讀出來，才能照鎖序先鎖屆別。
+      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
+      const cohortId = head.rows[0]?.cohort_id
+      if (!cohortId) return itemNotFound()
+      const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
+      await tx.query(
+        `select id from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by id for update`,
+        [cohortId],
+      )
+      const found = await tx.query<{ id: string; title: string; placement: string }>(
+        'select id, title, placement from managed_items where id = $1 and deleted_at is null for update',
+        [itemId],
+      )
+      const item = found.rows[0]
+      if (!item || !cohort.rows[0]) return itemNotFound()
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'item.rule_moved',
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, direction })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<RuleOrderReceipt>(begun)
+      if (archivedBlocks(cohort.rows[0].status, item.placement)) return cohortArchived()
+      if (item.placement !== 'rules') return err('VALIDATION_FAILED', '只有專題規則能調整章節順序。')
+
+      const siblings = await tx.query<{ id: string; rules_position: number | null }>(
+        `select id, rules_position from managed_items
+          where cohort_id = $1 and placement = 'rules' and deleted_at is null
+          order by rules_position asc nulls last, actual_opened_at asc, id asc`,
+        [cohortId],
+      )
+      const order = siblings.rows
+      const index = order.findIndex((r) => r.id === itemId)
+      const target = direction === 'up' ? index - 1 : index + 1
+      if (target < 0) return err('VALIDATION_FAILED', '已經在最上面了。')
+      if (target >= order.length) return err('VALIDATION_FAILED', '已經在最下面了。')
+
+      const self = order[index]!
+      const neighbor = order[target]!
+      const before = order.map((r) => r.id)
+      let position: number
+      if (self.rules_position !== null && neighbor.rules_position !== null && self.rules_position !== neighbor.rules_position) {
+        await tx.query(
+          `update managed_items m set rules_position = v.pos
+             from (values ($1::uuid, $2::int), ($3::uuid, $4::int)) as v(id, pos) where m.id = v.id`,
+          [self.id, neighbor.rules_position, neighbor.id, self.rules_position],
+        )
+        position = neighbor.rules_position
+      } else {
+        const moved = [...before]
+        moved[index] = neighbor.id
+        moved[target] = self.id
+        await tx.query(
+          `update managed_items m set rules_position = v.pos
+             from unnest($1::uuid[]) with ordinality as v(id, pos) where m.id = v.id`,
+          [moved],
+        )
+        position = target + 1
+      }
+
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: 'item.rule_moved',
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: { title: item.title, direction, swappedWith: neighbor.id, positionBefore: self.rules_position, positionAfter: position },
+      })
+      const receipt = { itemId, title: item.title, position, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   #normalize(input: ItemInput): { ok: true; value: ItemDraft } | Err {
@@ -1311,6 +1434,8 @@ export class PgItemCommand implements ItemCommand {
               title = $8, summary = $9, body_html = $10, cover_file_id = $11, category = $12, draft_schema = $13::jsonb,
               deadline_version = coalesce($14, deadline_version),
               registration_deadline = $17, event_date = $18, awarded_on = $19,
+              rules_position = case when $2 = 'rules'
+                                    then coalesce(rules_position, ${nextRulesPosition('managed_items.cohort_id')}) end,
               revision = revision + 1, updated_at = $15, updated_by_user_id = $16
         where id = $1`,
       [
@@ -1543,6 +1668,7 @@ type ListRow = {
   due_at: Date | null
   actual_opened_at: Date | null
   pinned_at: Date | null
+  rules_position: number | null
   updated_at: Date
   roster_count: string
 }
@@ -1564,7 +1690,7 @@ export class PgItemQuery implements ItemQuery {
     if (!isUuid(cohortId)) return []
     const rows = await this.#reader().query<ListRow>(
       `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.due_at, m.actual_opened_at,
-              m.pinned_at, m.updated_at,
+              m.pinned_at, m.rules_position, m.updated_at,
               (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
                 where a.item_id = m.id) as group_codes,
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
@@ -1585,6 +1711,7 @@ export class PgItemQuery implements ItemQuery {
       dueAt: r.due_at,
       actualOpenedAt: r.actual_opened_at,
       pinnedAt: r.pinned_at,
+      rulesPosition: r.rules_position,
       updatedAt: r.updated_at,
       rosterCount: Number(r.roster_count),
     }))
