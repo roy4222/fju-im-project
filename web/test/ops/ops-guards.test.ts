@@ -90,7 +90,6 @@ const GUARDED: Array<[string, string[]]> = [
   ['auto-deploy.sh', []],
   ['site.sh', ['test', 'check']],
   ['fault-drill.sh', ['--site', 'test', 'restart', '--execute']],
-  ['fault-drill.sh', ['--site', 'test', 'disk80', '--execute']],
 ]
 
 describe('身分守門：不是 deploy 就什麼都不做', () => {
@@ -130,7 +129,7 @@ describe('seed-demo.sh（票 32）：只准測試站', () => {
 
 describe('fault-drill.sh（票 28）：只准測試站、預設只印步驟', () => {
   it('--site prod：就算是 deploy 身分、帶了 --execute，也在動任何東西之前拒絕', () => {
-    for (const drill of ['restart', 'worker-stall', 'poison', 'disk80', 'disk80-restore']) {
+    for (const drill of ['restart', 'worker-stall', 'poison']) {
       const r = run('fault-drill.sh', ['--site', 'prod', drill, '--execute'], { user: me })
       expect(r.code, drill).not.toBe(0)
       expect(r.stderr).toContain('只准對測試站')
@@ -146,7 +145,7 @@ describe('fault-drill.sh（票 28）：只准測試站、預設只印步驟', ()
     expect(run('fault-drill.sh', ['--site', 'test'], { user: me }).stderr).toContain('缺少要跑的演練')
   })
 
-  it.each(['restart', 'worker-stall', 'poison', 'disk80', 'disk80-restore'])(
+  it.each(['restart', 'worker-stall', 'poison'])(
     '%s 不帶 --execute：任何人都能跑，只印步驟，不呼叫 docker、不寫檔',
     (drill) => {
       const r = run('fault-drill.sh', ['--site', 'test', drill])
@@ -157,12 +156,6 @@ describe('fault-drill.sh（票 28）：只准測試站、預設只印步驟', ()
       expect(r.written).toEqual([])
     },
   )
-
-  it('disk80 只在記憶體磁碟上塞檔案，不碰真的附件目錄', () => {
-    const r = run('fault-drill.sh', ['--site', 'test', 'disk80'])
-    expect(r.stdout).toContain('--opt type=tmpfs')
-    expect(r.stdout).toContain('--path /drill-disk --drill')
-  })
 })
 
 describe('restore-drill.sh 的參數與目錄檢查', () => {

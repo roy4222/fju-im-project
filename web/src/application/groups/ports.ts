@@ -313,6 +313,21 @@ export type UngroupedStudent = {
 /** `countsByCohort` 一屆的計數。 */
 export type CohortHeadcount = { readonly students: number; readonly groups: number }
 
+/** 系辦首頁「本屆分組」的計數（AD-21）：每個數字都跟 `overview()` 算出來的一樣，只是一句 SQL 算完。 */
+export type CohortGroupingCounts = {
+  /** 有效組（`active`）數。 */
+  readonly total: number
+  /** 有效組的現任成員數。 */
+  readonly students: number
+  /** `overview().ungrouped` 的人數。 */
+  readonly ungrouped: number
+  readonly industry: number
+  /** 產學組裡沒有現任主指導的組數。 */
+  readonly noAdvisorIndustry: number
+  /** `overview().openProposals` 的件數。 */
+  readonly openProposals: number
+}
+
 export type CohortGroupingOverview = {
   readonly groups: readonly GroupSummary[]
   readonly openProposals: readonly ProposalSummary[]
@@ -351,6 +366,8 @@ export interface GroupQuery {
    * 沒有任何組別與學生的屆別不在 Map 裡，呼叫端當 0。
    */
   countsByCohort(): Promise<ReadonlyMap<string, CohortHeadcount>>
+  /** 系辦首頁「本屆分組」只要計數（AD-21；呼叫端守門）：1 句 SQL，口徑逐項同 `overview()`。屆別不存在全是 0。 */
+  homeCounts(cohortId: string): Promise<CohortGroupingCounts>
   /**
    * 一屆已成立的組別、成員與主指導（老師的「分組」頁；所有老師都可查看一般與產學組別，呼叫端守門）。
    * 歷程不帶理由與操作者。

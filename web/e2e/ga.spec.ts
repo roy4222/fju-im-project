@@ -48,7 +48,7 @@ async function capture(context: BrowserContext): Promise<Capture> {
     const body = req.postData() ?? ''
     result.raw.push(`${req.url()}\n${body}`)
     const shared = Object.fromEntries(new URL(req.url()).searchParams)
-    const lines = body.split('\n').filter(Boolean)
+    const lines = body.split(/\r?\n/).filter(Boolean)
     for (const line of lines.length ? lines : ['']) {
       result.hits.push({ ...shared, ...Object.fromEntries(new URLSearchParams(line)) })
     }

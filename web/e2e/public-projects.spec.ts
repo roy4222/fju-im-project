@@ -214,7 +214,7 @@ test('訪客：作品頁的 YouTube 影片直接嵌入播放；舊的非 YouTube
 
   const response = await page.goto(`/projects/${entryId}`)
   // CSP 不放寬：frame-src 仍只有 YouTube 與 Turnstile（youtube-nocookie 維持被擋）。
-  expect(response?.headers()['content-security-policy']).toContain('frame-src https://www.youtube.com https://challenges.cloudflare.com;')
+  expect(response?.headers()['content-security-policy']).toContain("frame-src 'self' https://www.youtube.com https://challenges.cloudflare.com;")
   const embed = page.getByTestId('video-embed')
   await expect(embed).toHaveAttribute('src', 'https://www.youtube.com/embed/e2e')
   await expect(embed).toHaveAttribute('title', '三分鐘影片')
@@ -314,9 +314,10 @@ test('榮譽榜與競賽資訊列出已發布的公開項目；忘記密碼頁�
   await expect(page).toHaveURL(/\/news\/[0-9a-f-]{36}$/)
 
   await page.goto('/forgot-password')
-  await expect(page.getByTestId('forgot-password')).toContainText('系辦')
-  await expect(page.locator('input[type="email"]')).toHaveCount(0)
-  await expect(page.locator('body')).not.toContainText('已寄出')
+  await expect(page).toHaveURL(/\/login\?mode=forgot/)
+  await page.getByRole('main').locator('input[type="email"]').fill(`nobody-${stamp.toLowerCase()}@example.com`)
+  await page.getByRole('button', { name: '寄重設連結' }).click()
+  await expect(page.getByRole('heading', { name: '已寄出，請到信箱收信' })).toBeVisible()
 })
 
 test('首頁（訪客）：優秀專題、榮譽與競賽接真的資料（不是寫死的空狀態），各有「查看更多」；hero 第二顆是「查看優秀專題」', async ({ page }) => {

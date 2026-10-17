@@ -275,6 +275,64 @@ test('系辦首頁：逾期卡分開寫「欠繳 3 人、1 組」與「發布中
   await expect(page.getByRole('heading', { name: 'G01 計算明細' })).toBeVisible()
 })
 
+test('系辦首頁待審帳號卡（AC-A-35）：有待審寫「N 位待審・最早 X 天前送出」；兩筆（3 天前、今天）→「2 位待審・最早 3 天前送出」', async ({ page }) => {
+  // 待審是全站的數字：先看這個資料庫原本有沒有待審（獨立跑時是 0），沒有就驗「不顯示那句」與 AC 的原句。
+  const pendingSql = `select count(*)::int as n
+                        from registration_applications ra join users x on x.id = ra.user_id
+                       where ra.state = 'pending' and x.status = 'pending'`
+  const before = (await pool.query<{ n: number }>(pendingSql)).rows[0]!
+  await asAdmin(page)
+  const card = page.getByTestId('todo-accounts')
+  if (before.n === 0) {
+    await page.goto('/dashboard/admin')
+    await expect(card).toContainText('待審帳號 0')
+    await expect(card).not.toContainText('位待審')
+  }
+
+  const created: string[] = []
+  try {
+    // 時刻都以資料庫的 now() 為準（beforeAll 已把業務鐘拉回現在），不用測試機的 Date.now() 推算；
+    // 「3 天前」那筆再往前 12 小時、「今天」那筆在 1 小時前，避開整天切點，時鐘差幾分鐘也不會變成 2 天或跨日。
+    for (const [i, ago] of ['3 days 12 hours', '1 hour'].entries()) {
+      const email = `a12-${stamp.toLowerCase()}-${i}@example.com`
+      const user = await pool.query<{ id: string }>(
+        `insert into users (id, name, email, email_verified, updated_at, status)
+         values (gen_random_uuid(), $1, $2, true, now(), 'pending') returning id`,
+        [`待審申請${i}`, email],
+      )
+      const userId = user.rows[0]!.id
+      created.push(userId)
+      await pool.query(
+        `insert into registration_applications
+           (id, user_id, applied_name, student_no, phone, contact_email, login_email, created_at, created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, $2, $3, '0912-000-000', $4, $4, now() - $5::interval, 'user', $1)`,
+        [userId, `待審申請${i}`, `4129${String(Date.now()).slice(-5)}${i}`, email, ago],
+      )
+    }
+    const after = (await pool.query<{ n: number }>(pendingSql)).rows[0]!
+    await page.goto('/dashboard/admin')
+    await expect(card).toContainText(`待審帳號 ${after.n}`)
+    if (before.n === 0) {
+      await expect(card).toContainText('2 位待審・最早 3 天前送出')
+    } else {
+      // 共用庫裡還有別人的待審（最早那筆不是這裡建的）：只驗句型與人數。
+      await expect(card).toContainText(`${after.n} 位待審・`)
+    }
+  } finally {
+    if (created.length > 0) {
+      await pool.query('delete from registration_applications where user_id = any($1::uuid[])', [created])
+      await pool.query('delete from users where id = any($1::uuid[])', [created])
+    }
+  }
+})
+
+test('系辦首頁逾期卡連到「公告與作業」的「逾期」篩選（AD-B7）', async ({ page }) => {
+  await asAdmin(page)
+  await page.goto('/dashboard/admin')
+  await page.getByTestId('todo-overdue').click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?placement=overdue$/)
+})
+
 test('檔案管理：說明要新增檔案請到專題事務，並附前往連結', async ({ page }) => {
   await asAdmin(page)
   await page.goto('/dashboard/admin/files')
