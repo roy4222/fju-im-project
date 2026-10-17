@@ -239,7 +239,7 @@ async function submitScore(page: Page, teacher: TestSession, stageKey: string, s
   await bench.getByRole('button', { name: '正式送出' }).click()
   await page.getByRole('dialog', { name: '確認正式送出' }).getByRole('button', { name: '確認送出' }).click()
   const receipt = page.getByRole('dialog', { name: '已送出' })
-  await expect(receipt).toContainText('已鎖定')
+  await expect(receipt).toContainText('已計入階段成績')
   await receipt.getByRole('button', { name: '知道了' }).click()
 }
 

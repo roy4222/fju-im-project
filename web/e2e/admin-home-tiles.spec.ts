@@ -293,17 +293,17 @@ test('老師打開沒被指派的評分頁：「找不到這個頁面」（不�
   await expect(page).toHaveURL(/\/dashboard\/teacher$/)
 })
 
-test('老師暫存一組後，左側待評分清單立刻變成「草稿 1/2」，不用重新整理', async ({ page }) => {
+test('老師儲存草稿後，頁首自己的狀態立刻變成「草稿 1／2」，不用重新整理', async ({ page }) => {
   await signIn(page, grader)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G02')}?stage=mid`)
-  const queueRow = page.getByRole('list', { name: '待評分清單' }).getByRole('link').filter({ hasText: 'G02' })
-  await expect(queueRow).toContainText('未開始')
+  const myStatus = page.getByTestId('my-status')
+  await expect(myStatus).toHaveText('待評')
 
   const bench = page.getByRole('region', { name: 'G02「期中」評分表' })
   await bench.getByLabel('1. 技術').fill('88')
-  await bench.getByRole('button', { name: '暫存' }).click()
-  await expect(bench.getByRole('status').filter({ hasText: '已暫存到伺服器' })).toBeVisible()
-  await expect(queueRow).toContainText('草稿 1/2')
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByRole('status').filter({ hasText: '已儲存' }).first()).toBeVisible()
+  await expect(myStatus).toHaveText('草稿 1／2')
   // 重抓佇列不會把表單洗掉。
   await expect(bench.getByLabel('1. 技術')).toHaveValue('88')
 })

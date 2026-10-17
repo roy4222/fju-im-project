@@ -264,14 +264,14 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   const bench = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
   await bench.getByLabel('1. 功能完整度').fill('101')
   await expect(bench).toContainText('第 1 項要填 0–100 的數字')
-  await bench.getByRole('button', { name: '暫存' }).click()
-  await expect(bench.getByRole('alert')).toContainText('修正後才能暫存')
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByRole('alert')).toContainText('修正後才能儲存草稿')
   await expect(bench.getByRole('button', { name: '正式送出' })).toBeDisabled()
 
   await bench.getByLabel('1. 功能完整度').fill('80')
   await expect(bench.getByTestId('score-preview')).toContainText('40.00')
-  await expect(bench).toContainText('還差 1 項')
-  await bench.getByRole('button', { name: '暫存' }).click()
+  await expect(bench).toContainText('還有 1 項沒填')
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
   await expect(bench.getByTestId('save-status')).toContainText('已儲存')
   await expect(bench.getByTestId('save-status')).toContainText('系統記錄的儲存時間')
 
@@ -305,7 +305,7 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   const receipt = page.getByRole('dialog', { name: '已送出' })
   await expect(receipt).toContainText('G01・系統驗收')
   await expect(receipt).toContainText('84.29')
-  await expect(receipt).toContainText('已鎖定')
+  await expect(receipt).toContainText('已計入階段成績')
   await receipt.getByRole('button', { name: '知道了' }).click()
   await expect(bench.getByLabel('1. 功能完整度')).toBeDisabled()
 
