@@ -8,7 +8,7 @@ import { err, type Err } from '@/shared/result'
  * 都是規則問題，放在這裡單獨測。寫入與交易在 infrastructure。
  *
  * 票 5 交付「建立屆別」與「設預設工作屆別／開放註冊屆別」；票 11 加上「轉進行中」
- * （留 `cohort_status_events`）、階段與活動。封存與解封在後面的票（S13）。
+ * （留 `cohort_status_events`）、階段與活動。B 階段 AD-B4 加上封存與解封。
  */
 
 export type CohortStatus = 'preparing' | 'active' | 'archived'
@@ -35,6 +35,8 @@ export type Cohort = {
   readonly groupSizeMax: number
   readonly revision: number
   readonly createdAt: Date
+  /** 最近一次封存的時間（真實時間）；不是已封存時為 null。 */
+  readonly archivedAt: Date | null
 }
 
 /** 畫面上指一個屆別的寫法：「名稱（代碼）」，例如「第 43 屆（115）」（設計方案 §7 系1）。 */
@@ -227,4 +229,31 @@ export function describeGroupSize(min: number, max: number): string {
 
 export function describeGroupingSettingsReceipt(receipt: SetGroupingSettingsReceipt): string {
   return `已儲存${cohortLabel(receipt)}的分組設定：${describeGroupSize(receipt.groupSizeMin, receipt.groupSizeMax)}、提案 ${receipt.proposalDefaultDays} 天內要全員確認。`
+}
+
+/**
+ * 封存與解封（AD-B4；設計方案 §7）：兩個方向都要填理由（`cohort_status_events_archive_reason_check`）。
+ */
+export const COHORT_STATUS_REASON_MAX_LENGTH = 200
+
+export type CohortStatusInput = {
+  readonly cohortId: string
+  readonly reason: string
+}
+
+export type CohortStatusReceipt = {
+  readonly cohortId: string
+  readonly status: CohortStatus
+}
+
+/** 理由去掉前後空白後要有 1–200 字。 */
+export function normalizeStatusReason(reason: string): { ok: true; value: string } | Err {
+  const value = reason.trim()
+  if (!value) return err('VALIDATION_FAILED', '請填理由。', { details: { field: 'reason' } })
+  if (value.length > COHORT_STATUS_REASON_MAX_LENGTH) {
+    return err('VALIDATION_FAILED', `理由最多 ${COHORT_STATUS_REASON_MAX_LENGTH} 個字。`, {
+      details: { field: 'reason' },
+    })
+  }
+  return { ok: true, value }
 }

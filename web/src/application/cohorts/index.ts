@@ -8,6 +8,8 @@ export type {
   Cohort,
   CohortFlag,
   CohortStatus,
+  CohortStatusInput,
+  CohortStatusReceipt,
   CreateCohortInput,
   CreateCohortReceipt,
   GroupingSettingsInput,
@@ -22,6 +24,7 @@ export {
   COHORT_FLAGS,
   COHORT_NAME_MAX_LENGTH,
   COHORT_STATUS_LABEL,
+  COHORT_STATUS_REASON_MAX_LENGTH,
   describeActivateReceipt,
   describeFlagReceipt,
   describeGroupingSettingsReceipt,
@@ -31,6 +34,7 @@ export {
   isRequestId,
   normalizeCreateInput,
   normalizeGroupingSettings,
+  normalizeStatusReason,
   PROPOSAL_DAYS_LIMIT,
 } from '@/application/cohorts/cohorts'
 export type {
