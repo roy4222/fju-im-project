@@ -5,12 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 /**
- * 票 28 演練腳本在 VM 測試站第一次實跑時的三個問題（修正後的行為）：
+ * 票 28 演練腳本在 VM 測試站第一次實跑時的問題（修正後的行為）：
  *
  * 1. worker-stall：`docker compose start worker` 因為 worker 依賴 migrate（migrate 是 run --rm、沒有容器）而失敗，
  *    腳本直接結束、沒寫紀錄、worker 也沒回來。→ 改成 `docker start` 同一個容器；任何方式結束都把 worker 帶回、補一筆 fail。
  * 2. poison：worker 沒在跑時白等 300 秒。→ 先查 worker 心跳與 BUSINESS_CLOCK_OVERRIDE_ENABLED，不符直接判「前置不符」。
- * 3. disk80：沒設 APP_IMAGE，compose run 退回 `:local` 並試著 build。→ 從正在跑的 app 容器讀出映像 export，run 帶 --pull never。
  *
  * 不碰 Docker：docker、curl、flock 換成假的，假 docker 把每次呼叫（含當下的 APP_IMAGE）記到 calls.log。
  * 真實的 Compose 行為（依賴 migrate、映像退回 :local）由 ops/fault-drill-local.sh 在本機模擬站重現與驗證。
@@ -43,7 +42,6 @@ case "$1" in
         ;;
       stop) [ "\${FAIL_STOP:-0}" = 1 ] && { echo 'stop 爆炸' >&2; exit 5; }; exit 0 ;;
       exec) cat > /dev/null; exit 0 ;;
-      run) echo 'STORAGE_MEASURED used_percent=87.5 level=warn80 drill=true'; exit 0 ;;
       *) exit 0 ;;
     esac
     ;;
@@ -182,18 +180,5 @@ describe('poison：前置不符就直接判失敗，不白等', () => {
     const r = drill('poison', { POISON_TIMEOUT_SECONDS: '1' })
     expect(r.code).not.toBe(0)
     expect(r.log[0]).toContain('\tpoison\tfail\t')
-  })
-})
-
-describe('disk80：用目前部署的映像，不退回 :local、不 build', () => {
-  it('compose run 時 APP_IMAGE＝正在跑的 app 容器的映像，而且帶 --pull never；記憶體磁碟最後刪掉', () => {
-    const r = drill('disk80')
-    const run = r.calls.find((c) => / compose .*run --rm/.test(c))
-    expect(run, r.calls.join('\n')).toBeTruthy()
-    expect(run).toMatch(/^APP_IMAGE=ghcr\.io\/roy4222\/fju-web:abc123 \|/)
-    expect(run).toContain('--pull never')
-    expect(r.calls.some((c) => c.includes('volume rm -f fju-test-drill-disk80'))).toBe(true)
-    // 假 psql 什麼都不回，所以這裡會判「不是警戒」；重點是有留紀錄、映像欄是真的映像。
-    expect(r.log[0]).toContain('\tdisk80\tfail\tghcr.io/roy4222/fju-web:abc123\t')
   })
 })

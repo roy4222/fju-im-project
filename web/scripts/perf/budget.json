@@ -89,6 +89,10 @@
     "baseline": 228.7,
     "limit": 250
   },
+  "/dashboard/admin/grading/settle": {
+    "baseline": 228.7,
+    "limit": 250
+  },
   "/dashboard/admin/grading/rules": {
     "baseline": 241.4,
     "limit": 250
@@ -262,6 +266,10 @@
     "limit": 248
   },
   "/register/verify": {
+    "baseline": 228.9,
+    "limit": 250
+  },
+  "/reset-password": {
     "baseline": 228.9,
     "limit": 250
   },

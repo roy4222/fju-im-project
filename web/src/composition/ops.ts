@@ -4,22 +4,19 @@ import { rosterFileDownloadable, type ResolvedActor } from '@/application/accoun
 import {
   normalizeAuditWho,
   parseAuditQuery,
-  storageTileText,
   type AuditLog,
   type AuditWriter,
   type DownloadPolicies,
   type FileStorage,
   type OperationLedger,
-  type StorageMeasurement,
 } from '@/application/ops'
-import { formatTaipeiMinute } from '@/shared/time'
 import { getPool } from '@/infrastructure/db/client'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { readAuditLog } from '@/infrastructure/ops/pg-audit-log'
+import { avatarImageTransform } from '@/infrastructure/ops/avatar-image'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
-import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
@@ -99,29 +96,9 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 首頁大圖（第三波 W3）：只有目前首頁設定指到的那一張對所有人（含訪客）公開；換圖後舊圖回到「無法存取」。
   // 上傳憑證由首頁設定用例發（只給管理員，`scope = 'global'`），不寫 file_references。
   photo: createHeroPhotoPolicy(getPool),
-}
-
-/**
- * 維運狀態查詢（模組 10 §5 `OpsStatusQuery`；票 28 先做 `storage()`）。只給管理員：
- * 非管理員一律回 null（頁面本身已經先擋過一次）。
- */
-export function getOpsStatusQuery() {
-  return {
-    /** 最新一筆磁碟量測；還沒量過回 null。 */
-    async storage(actor: ResolvedActor): Promise<StorageMeasurement | null> {
-      if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
-      return readLatestStorage(getPool())
-    },
-    /** 系辦首頁「儲存與備份」磚的數字與說明（時間以台北時區顯示）。 */
-    async storageTile(actor: ResolvedActor): Promise<{ value: string; hint: string }> {
-      const measurement = await this.storage(actor)
-      return storageTileText(
-        measurement,
-        new Date(),
-        measurement ? formatTaipeiMinute(measurement.measuredRealAt) : '',
-      )
-    },
-  }
+  // 上傳的頭像（SH-9）：任何狀態正常的登入者都看得到（頭像出現在組員座位、表態列、帳號列表）；訪客 401。
+  // 換掉或清掉的頭像已標刪，在政策之前就回 404（`FILE_GONE`）。
+  avatar: (actor) => actor.kind === 'authenticated' && actor.status === 'active',
 }
 
 /**
@@ -147,6 +124,8 @@ export function getFileStorage(): FileStorage<PoolClient> {
     // 首頁大圖對所有人公開：待審、必須改密的人開首頁也要看得到（比照訪客；政策只放行目前那一張）。
     publicReadPurposes: ['photo'],
     db: getPool,
+    // 頭像收檔時縮成 256×256 WebP、清掉 EXIF；處理不了的圖不收（SH-9）。
+    transforms: { avatar: avatarImageTransform },
   })
   return fileStorage
 }

@@ -1772,6 +1772,34 @@ export class PgSignoffQuery implements SignoffQuery {
     })
   }
 
+  async homeCounts(actor: ResolvedActor, cohortId: string): ReturnType<SignoffQuery['homeCounts']> {
+    const blocked = authorizeAdmin(actor, '管理同意書')
+    if (blocked) return blocked
+    if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+    return this.#withClient(async (db) => {
+      // 條件逐字對齊 `adminBoard`：本屆 `active` 的組、`current_version_id` 的版本與其狀態。
+      const row = (
+        await db.query<{ result_confirmation: number; final_document: number; complete: number }>(
+          `select count(*) filter (where p.purpose = 'result_confirmation' and s.state = 'teacher_pending')::int as result_confirmation,
+                  count(*) filter (where p.purpose = 'final_document' and s.state = 'teacher_pending')::int as final_document,
+                  count(distinct p.group_id) filter (where s.state = 'complete')::int as complete
+             from signoff_packages p
+             join groups g on g.id = p.group_id and g.cohort_id = $1 and g.status = 'active'
+             join signoff_package_versions v on v.id = p.current_version_id
+             join signoff_version_status s on s.version_id = v.id`,
+          [cohortId],
+        )
+      ).rows[0]!
+      return ok(
+        {
+          teacherPending: { result_confirmation: row.result_confirmation, final_document: row.final_document },
+          completeGroups: row.complete,
+        },
+        { requestId: uuidv7(), serverTime: new Date().toISOString() },
+      )
+    })
+  }
+
   async versionDetail(actor: ResolvedActor, versionId: string): Promise<Result<VersionDetail>> {
     const blocked = statusGate(actor, 'business')
     if (blocked) return err(blocked, '請先登入並完成帳號設定。')

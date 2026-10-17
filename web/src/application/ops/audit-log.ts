@@ -60,11 +60,8 @@ export function parseAuditQuery(value: unknown): string | null {
   return q
 }
 
-/**
- * 不列進「操作紀錄」的事件：背景工作每小時寫一筆的磁碟量測（票 28 暫存在 `audit_events`，
- * 等 `storage_stats` 表補上就搬走）。它是量測、不是誰做的操作，列出來會把一週 168 筆洗滿整頁。
- */
-export const AUDIT_EXCLUDED_ACTIONS: readonly string[] = ['storage.measured']
+/** 不列進「操作紀錄」的事件（目前沒有；原本排除的磁碟量測已隨 A-17 移除）。 */
+export const AUDIT_EXCLUDED_ACTIONS: readonly string[] = []
 
 export type AuditLogEntry = {
   readonly id: string

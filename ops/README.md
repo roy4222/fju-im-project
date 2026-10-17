@@ -491,19 +491,13 @@ sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$(sudo -u deploy docker i
 
 預期：演練輸出裡有「健康條件：完整六項」，最後一行 `$ echo "<時間>	deployed	<SHA>	full" …`（這是演練，什麼都不會做）。
 
-### 磁碟用量（票 28）
+### 磁碟用量
 
-背景工作每小時量一次附件目錄（`FILES_ROOT`）所在的磁碟，部署後 worker 一起來也會先量一次。
-結果顯示在系辦首頁「儲存與備份」磚：用量百分比、等級（正常／**警戒 ≥80%**／危險 ≥90%）、已用／可用、量測時間。
-**只看站內、不推播**：到 80% 不發站內通知、不寄信（D-04）。超過 3 小時沒有新量測，磚上會標「量測過期」（多半是 worker 停了）。
-
-- 資料庫在另一個 volume，worker 看不到那顆的剩餘空間，只記資料庫大小；VM 上兩者在同一顆系統碟，所以磚上的百分比就是整顆碟。
-- 量測暫存在 `audit_events`（`action='storage.measured'`），等之後建 `storage_stats` 表再搬過去。
-- 想立刻重量一次：`sudo -u deploy /srv/fju/app/ops/site.sh test docker compose exec -T worker node migrate/web/dist/worker.mjs --measure-storage-once`
+磁碟 80% 告警改由 status collector 負責（`status/collector/lib/vm.mjs`）；web 的 worker 不再量磁碟，系辦首頁也沒有「儲存與備份」磚。
 
 ### 故障演練（票 28，只准測試站）
 
-四種故障各一個指令。每次跑完（成功或失敗）都在 `/srv/fju/test/drills/fault-drills.log` 加一行：
+三種故障各一個指令。每次跑完（成功或失敗）都在 `/srv/fju/test/drills/fault-drills.log` 加一行：
 時間、演練、pass／fail、映像、細節。**先不帶 `--execute` 看一次步驟**（誰都能跑、什麼都不做），再帶 `--execute` 真的跑。
 演練期間腳本拿著測試站的部署鎖，自動部署那一輪會記 `busy`、下一輪再試。`--site prod` 一律拒絕。
 
@@ -512,7 +506,6 @@ cd /srv/fju/app
 sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test restart --execute        # 約 1 分鐘
 sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test worker-stall --execute   # 約 6 分鐘（要等心跳過期）
 sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test poison --execute         # 約 3 分鐘
-sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80 --execute         # 約 30 秒
 ```
 
 | 演練 | 做什麼 | 通過的樣子 |
@@ -520,31 +513,22 @@ sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80 --execute     
 | `restart` 服務重啟 | `docker compose restart app worker` | 2 分鐘內完整六項再次通過，`commit` 與 `worker.version` 還是原本那一版 |
 | `worker-stall` 背景工作停擺 | 停掉 worker，每 10 秒看一次 `/api/health`；最多等 330 秒後再啟動 | 停掉約 5 分鐘後 `/api/health` 回 **503**、`ok:false`；重新啟動後完整六項恢復 |
 | `poison` 毒事件 | 用 psql 插兩件 `test_noop` 到期工作：一件對象種類是 `fault_drill_poison`（處理器一定失敗），一件正常 | 正常那件幾十秒內 `done`；毒工作退避 2／4／8／16 秒後第 5 次標 `failed`，管理員收到 1 則「到期工作失敗 5 次」告警 |
-| `disk80` 磁碟 80% | 開一顆 16 MiB 的**記憶體磁碟**塞 14 MiB（~88%），在上面量一次（**不碰真的硬碟**，演練完就刪） | 最新量測是「警戒」、標著演練；沒有發任何跟磁碟有關的事件（＝不推播）。打開 https://test.fju.roy422.dev/dashboard/admin ，「儲存與備份」磚顯示 ~88%、第一段「警戒（≥80%）」、結尾「（故障演練）」 |
 
-`disk80` 看完磚之後把數字換回真的：
-
-```bash
-sudo -u deploy /srv/fju/app/ops/fault-drill.sh --site test disk80-restore --execute
-```
-
-（不跑也沒關係，下一個整點 worker 自己會量一次蓋過去。）
-
-- 腳本會先從正在跑的 `fju-test-app` 容器讀出目前部署的映像（印一行「目前部署的映像：…」），之後每個 `docker compose` 指令都用那一版；`disk80` 不會去 pull 或 build。
+- 腳本會先從正在跑的 `fju-test-app` 容器讀出目前部署的映像（印一行「目前部署的映像：…」），之後每個 `docker compose` 指令都用那一版；不會去 pull 或 build。
 - `worker-stall` 用 `docker start` 把**同一個** worker 容器帶回來（不用 `docker compose start／up`：worker 在 Compose 裡依賴 migrate，而 migrate 是 `run --rm` 跑的、沒有容器）。
   **不管怎麼結束**（通過、失敗、出錯、Ctrl-C）都會把 worker 帶回並寫一行紀錄；真的帶不回來會印出要手動跑的 `docker start` 指令。
 - `worker-stall`、`poison` 開始前先確認 worker 在跑、60 秒內有心跳；`poison` 另外確認 worker 容器的 `BUSINESS_CLOCK_OVERRIDE_ENABLED=true`（`test_noop` 只在測試站有處理器）。不符就直接記「前置不符」並提示怎麼恢復，不會白等 5 分鐘。
   插進去的兩件工作留在資料庫裡當證據，不影響任何人。
 - 萬一 worker 被上一次演練留在停止狀態：`sudo -u deploy docker start fju-test-worker`，等 `/api/health` 的 `worker.lastTickAt` 是幾秒內再跑。
-- 跑完把紀錄貼回 Vault：`sudo cat /srv/fju/test/drills/fault-drills.log`，四行都是 `pass` 就把 SOP 05 的執行紀錄與票 28 第 3 點打勾。
+- 跑完把紀錄貼回 Vault：`sudo cat /srv/fju/test/drills/fault-drills.log`，三行都是 `pass` 就把 SOP 05 的執行紀錄與票 28 第 3 點打勾。
 
 **💻 在自己電腦先模擬一次（不碰 VM）**：同一支腳本、同一個映像，對一個本機的模擬站（`fju-faultsim-*`，跟本機開發的資料庫分開）跑。
 模擬站跟 VM 一樣是疊在 `docker-compose.yml` 上（worker 依賴 migrate、沒設 `APP_IMAGE` 會退回 `:local`），演練時也不給 `APP_IMAGE`：
 
 ```bash
 docker build -f web/Dockerfile --build-arg GIT_COMMIT=faultsim -t fju-web:faultsim .
-ops/fault-drill-local.sh                 # 五個照順序全跑，約 8 分鐘；跑完自動拆掉模擬站
-ops/fault-drill-local.sh disk80 --keep   # 只跑一個、留著看畫面（http://127.0.0.1:3928）
+ops/fault-drill-local.sh                 # 三個照順序全跑，約 8 分鐘；跑完自動拆掉模擬站
+ops/fault-drill-local.sh poison --keep   # 只跑一個、留著看畫面（http://127.0.0.1:3928）
 ```
 
 ### repo 的 ops／compose 檔改了之後

@@ -65,8 +65,8 @@
   },
   "/dashboard/admin": {
     "as": "admin",
-    "baseline": 77,
-    "max": 77,
+    "baseline": 26,
+    "max": 26,
     "identity": 7,
     "noDuplicate": [
       "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
@@ -95,8 +95,8 @@
   },
   "/dashboard/admin/grading": {
     "as": "admin",
-    "baseline": 40,
-    "max": 40,
+    "baseline": 23,
+    "max": 32,
     "identity": 7
   },
   "/dashboard/admin/settings": {
