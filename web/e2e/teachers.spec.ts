@@ -136,14 +136,10 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   // 搶先註冊：同一個 Email 被拒（統一訊息），不會多出一個帳號。
   const hijacker = await freshPage(browser)
   await hijacker.goto('/register')
-  await hijacker.getByLabel('姓名').fill('冒用者')
-  await hijacker.getByLabel('學號').fill('499999999')
-  await hijacker.getByLabel('系級').fill('資管二甲')
-  await hijacker.getByLabel('手機').fill('0912-345-678')
-  await hijacker.getByLabel('登入 Email').fill(email)
+  await hijacker.getByLabel('Email', { exact: true }).fill(email)
   await hijacker.getByLabel('密碼', { exact: true }).fill('Hijacker-Password-2026')
   await hijacker.getByLabel('確認密碼').fill('Hijacker-Password-2026')
-  await hijacker.getByRole('button', { name: '送出註冊' }).click()
+  await hijacker.getByRole('button', { name: '建立帳號' }).click()
   await expect(hijacker.getByText('這個 Email 無法用來註冊')).toBeVisible()
   await hijacker.context().close()
 
