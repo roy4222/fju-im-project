@@ -333,7 +333,7 @@ export class PgGradingSettlementQuery implements GradingSettlementQuery {
     this.#reader = reader
   }
 
-  async settlementOf(actor: ResolvedActor, cohortId: string, stageKey: string): Promise<Result<Settlement | null>> {
+  async settlementOf(actor: ResolvedActor, cohortId: string, stageKey: string): Promise<Result<{ readonly settlement: Settlement | null }>> {
     const blocked = statusGate(actor, 'business')
     if (blocked) return err(blocked, '請先登入並完成帳號設定。')
     if (actor.kind !== 'authenticated' || !(hasRole(actor, 'teacher') || canManageCohorts(actor))) {
@@ -349,10 +349,10 @@ export class PgGradingSettlementQuery implements GradingSettlementQuery {
       currentStages(db, cohortId),
     ])
     const row = rows.rows[0]
-    return ok(row ? toSettlement(row, stageOf(stages, row.stage_key)?.name ?? row.stage_key) : null, {
-      requestId: uuidv7(),
-      serverTime: new Date().toISOString(),
-    })
+    return ok(
+      { settlement: row ? toSettlement(row, stageOf(stages, row.stage_key)?.name ?? row.stage_key) : null },
+      { requestId: uuidv7(), serverTime: new Date().toISOString() },
+    )
   }
 
   async settlements(actor: ResolvedActor, cohortId: string): Promise<Result<readonly SettlementHistory[]>> {

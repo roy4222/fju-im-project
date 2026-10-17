@@ -577,8 +577,12 @@ export interface GradingSettlementCommand {
 }
 
 export interface GradingSettlementQuery {
-  /** 老師與系辦都可讀；非兩者 → FORBIDDEN。沒有現行結算是 null。 */
-  settlementOf(actor: ResolvedActor, cohortId: string, stageKey: string): Promise<Result<Settlement | null>>
+  /**
+   * 老師與系辦都可讀；非兩者 → FORBIDDEN。沒有現行結算時 `settlement` 是 null。
+   * （設計方案 §2.2 寫 `Result<Settlement | null>`，但 `Receipt<R>` 是 `R & {requestId, serverTime}`，null 放不進去——
+   * `ok(null)` 會變成只有 requestId 的物件、判斷「有沒有結算」會誤判——所以包一層。）
+   */
+  settlementOf(actor: ResolvedActor, cohortId: string, stageKey: string): Promise<Result<{ readonly settlement: Settlement | null }>>
   /** 系辦：該屆所有階段的現行結算＋歷史（新的在前）。 */
   settlements(actor: ResolvedActor, cohortId: string): Promise<Result<readonly SettlementHistory[]>>
 }
