@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconPin, IconTrophy, IconUpload } from '@tabler/icons-react'
-import { actorHasRole, isRegistrationOpen } from '@/composition/accounts'
+import { redirect } from 'next/navigation'
+import { actorHasRole, EMAIL_VERIFY_PATH, homeForUser, isRegistrationOpen } from '@/composition/accounts'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
@@ -32,6 +33,11 @@ export default async function HomePage() {
   // 登入後的區塊（我的工作、歷屆專題、我的入口）跟導覽用同一個判斷：待審核的人跟訪客一樣。
   const member = isMember(actor)
   const home = signedIn ? homeFor(actor) : null
+  // 用密碼註冊、還沒驗證 Email 的人先回註冊第 2 步（AC-VI-50 首頁段）。只有「沒有角色」的人才多問這一次
+  // （`homeForUser` 跟登入後導向同一套判斷）；訪客與已開通的人不多查。
+  if (actor.kind === 'authenticated' && home === '/register/pending' && (await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) {
+    redirect(EMAIL_VERIFY_PATH)
+  }
   const items = getPublicItemQuery()
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。

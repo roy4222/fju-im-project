@@ -171,8 +171,8 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   // 修改資料 → 第 2 版，狀態仍是待審。
   await student.getByLabel('手機').fill('0922-222-222')
   await student.getByRole('button', { name: '儲存修改' }).click()
-  await expect(student.getByRole('status')).toContainText('資料已更新為第 2 版，狀態仍是待審核')
-  await expect(student.getByRole('list', { name: '修改紀錄' })).toContainText('第 2 版（修改）')
+  await expect(student.getByRole('status')).toContainText('資料已更新，狀態仍是待審核；系辦會看到最新的資料。')
+  await expect(student.getByRole('list', { name: '修改紀錄' })).toContainText('・編輯')
 
   // 系辦：待審清單並列比對結果。
   const admin = await adminPage(browser)
@@ -197,7 +197,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）。
   await student.getByLabel('系級').fill('資管二乙')
   await student.getByRole('button', { name: '儲存修改' }).click()
-  await expect(student.getByRole('status')).toContainText('第 3 版')
+  await expect(student.getByRole('list', { name: '修改紀錄' }).getByText(/・編輯$/)).toHaveCount(2)
 
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准' }).click()

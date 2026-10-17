@@ -7,7 +7,7 @@ import { googleLinkErrorMessage } from '@/app/_ui/oauth-messages'
 import { PublicCard, PublicPage, Tag } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
-import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm } from './account-forms'
+import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm, VerifyEmailForm } from './account-forms'
 
 export const metadata = { title: '我的帳號｜資管系專題平台', robots: { index: false } }
 
@@ -20,6 +20,8 @@ export const metadata = { title: '我的帳號｜資管系專題平台', robots:
  *   **登入 Email 本人不能改**（§2.3 Q3），只顯示。
  * - 登入方式：Google 與密碼各一列。沒有的那一種可以在這裡「連結 Google」或「設定密碼」，
  *   兩者都要 fresh session（10 分鐘內登入過）；不夠新就請人重新登入確認身分。
+ * - 驗證 Email（VB-5，Q45）：登入 Email 還沒驗證的人（本批之前用密碼註冊的）在登入方式區多一顆「驗證 Email」；
+ *   驗證之後，同一個 Email 的 Google 登入會直接連到這個帳號。已驗證的人看不到。
  *
  * 與原型的差異：原型的「儲存變更」沒接、密碼列連到寄信重設；正式版寫 `user_profiles` 並回執，
  * 密碼列改成「更改密碼」（已有密碼）或「設定密碼」（只有 Google）。
@@ -27,7 +29,7 @@ export const metadata = { title: '我的帳號｜資管系專題平台', robots:
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; linked?: string; password?: string; error?: string | string[] }>
+  searchParams: Promise<{ saved?: string; linked?: string; password?: string; verified?: string; error?: string | string[] }>
 }) {
   const actor = await requireSignedIn('/account', 'business')
   const me = await getSelfAccountCommand().viewMine(await headers())
@@ -40,6 +42,8 @@ export default async function AccountPage({
       ? '已連結 Google。之後用 Google 或密碼登入，都會回到這個帳號。'
       : params.password === 'set' && me.loginMethods.password
         ? '密碼已設定。之後也可以用登入 Email 與這組密碼登入。'
+        : params.verified === 'email' && me.emailVerified
+          ? 'Email 已驗證。之後用同一個 Email 的 Google 登入，會直接連到這個帳號。'
         : typeof params.saved === 'string' && /^\d+$/.test(params.saved)
           ? '聯絡資料已更新。'
           : null
@@ -148,6 +152,15 @@ export default async function AccountPage({
                     設定之後，也可以用登入 Email（{me.loginEmail}）與這組密碼登入。
                   </p>
                   <SetPasswordForm minLength={PASSWORD_MIN_LENGTH} />
+                </div>
+              ) : null}
+
+              {!me.emailVerified ? (
+                <div className="border-t border-border pt-4" data-testid="verify-email">
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    登入 Email（{me.loginEmail}）還沒驗證。驗證之後，用同一個 Email 的 Google 登入會直接連到這個帳號。
+                  </p>
+                  <VerifyEmailForm />
                 </div>
               ) : null}
 

@@ -1,16 +1,22 @@
 'use client'
-import { useActionState, type ReactNode } from 'react'
+import { useActionState, useEffect, useState, type ReactNode } from 'react'
 import {
   linkGoogleAction,
   reconfirmAction,
+  sendAccountVerifyOtpAction,
   setPasswordAction,
   updateContactAction,
+  verifyAccountOtpAction,
 } from './actions'
 import { PasswordInput } from '@/app/_ui/password-input'
+import { OtpInput } from '@/app/register/_components/otp-input'
 
 export type AccountFormState =
   | { error: string; code?: string; field?: string; values?: Record<string, string>; attempt: number }
   | undefined
+
+/** 「驗證 Email」寄碼的結果：寄出（`sentAt`）或錯誤。 */
+export type VerifyEmailSendState = { sentAt?: number; error?: string; code?: string; attempt: number } | undefined
 
 /**
  * 帳號頁的三個表單（票 10；原型 `/account`）。
@@ -179,6 +185,80 @@ export function SetPasswordForm({ minLength }: { minLength: number }) {
     </form>
     {/* 表單不能巢狀：「重新登入」自己是一個 form，放在外面。 */}
     <FreshHint state={state} />
+    </div>
+  )
+}
+
+/** 重寄冷卻（伺服器 hook 一樣擋 120 秒；這裡只是顯示）。 */
+const RESEND_SECONDS = 120
+
+/**
+ * 「驗證 Email」（VB-5；visitor-r3 §3.7）：按下寄 6 碼到登入 Email，同一處出現 6 格，填對就回帳號頁。
+ * 不掛 Turnstile（本人 fresh session 擋；伺服器在 hook 裡查）。session 不夠新時伺服器回 `FRESH_SESSION_REQUIRED`，
+ * 這裡順手給「重新登入確認身分」。
+ */
+export function VerifyEmailForm() {
+  const [sent, sendAction, sending] = useActionState(sendAccountVerifyOtpAction, undefined)
+  const [checked, verifyAction, verifying] = useActionState(verifyAccountOtpAction, undefined)
+  const [opened, setOpened] = useState(false)
+  const [code, setCode] = useState('')
+  const [left, setLeft] = useState(0)
+
+  useEffect(() => {
+    if (!sent?.sentAt) return
+    setOpened(true)
+    setLeft(RESEND_SECONDS)
+  }, [sent?.sentAt])
+
+  useEffect(() => {
+    if (left <= 0) return
+    const timer = setTimeout(() => setLeft((s) => s - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [left])
+
+  // 驗證碼錯了：清空重填。
+  useEffect(() => {
+    if (checked?.attempt) setCode('')
+  }, [checked?.attempt])
+
+  return (
+    <div className="space-y-3">
+      {opened ? (
+        <form action={verifyAction} className="space-y-3">
+          <input type="hidden" name="otp" value={code} />
+          <p className="text-sm text-foreground" role="status">
+            驗證碼已寄到登入 Email，10 分鐘內有效。
+          </p>
+          <div className="max-w-sm">
+            <OtpInput value={code} onChange={setCode} invalid={Boolean(checked?.error)} />
+          </div>
+          <ErrorLine state={checked} />
+          <button type="submit" disabled={verifying} className={SECONDARY}>
+            {verifying ? '驗證中…' : '確認驗證碼'}
+          </button>
+        </form>
+      ) : null}
+      <form action={sendAction}>
+        {opened ? (
+          <button
+            type="submit"
+            disabled={sending || left > 0}
+            className="text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+          >
+            {sending ? '寄送中…' : left > 0 ? `重寄驗證碼（${left} 秒後可重寄）` : '重寄驗證碼'}
+          </button>
+        ) : (
+          <button type="submit" disabled={sending} className={SECONDARY}>
+            {sending ? '寄送中…' : '驗證 Email'}
+          </button>
+        )}
+      </form>
+      {sent?.error ? (
+        <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+          {sent.error}
+        </p>
+      ) : null}
+      {sent?.code === 'FRESH_SESSION_REQUIRED' ? <ReconfirmButton /> : null}
     </div>
   )
 }
