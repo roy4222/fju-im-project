@@ -2,7 +2,7 @@
 // 開發者後台的收集器（設計方案 §3.3，票 S-3）。在 fju-status 映像裡以
 //   node collector/collect.mjs --loop 600   （每 10 分鐘一輪，compose 的 collector 服務）
 //   node collector/collect.mjs --once       （跑一輪就結束，測試與手動用）
-// 執行。把 GitHub、Gatus、部署與備份紀錄、envcheck、驗收 inbox 整理成 STATUS_DATA_DIR 底下的 JSON。
+// 執行。把 GitHub、Gatus（健康與 24h 指標）、部署與備份紀錄、envcheck、驗收 inbox 整理成 STATUS_DATA_DIR 底下的 JSON。
 // 每個來源各自成敗：一個壞了只記在 collector.json，其他照常更新；任何錯誤都不讓程式結束。
 // 寫檔前兩道把關（lib/files.mjs）：先白名單投影（lib/shapes.mjs，只輸出規格列的欄位），再黑名單掃描（lib/redact.mjs）；
 // 任一道命中就整檔不寫、保留上一版。
@@ -22,6 +22,7 @@ import { buildAcceptanceIndex } from './lib/acceptance.mjs'
 import { publishVersion, readJson, serializeChecked, writeJsonChecked } from './lib/files.mjs'
 import { fetchGithub } from './lib/github.mjs'
 import { fetchHealth } from './lib/health.mjs'
+import { fetchMetrics } from './lib/metrics.mjs'
 import { scrubIp, findLeaks } from './lib/redact.mjs'
 import { REPO_FILES, fetchRepoFiles } from './lib/repo-files.mjs'
 import { collectVm } from './lib/vm.mjs'
@@ -138,6 +139,17 @@ export async function runOnce(cfg, now = new Date()) {
     ok('acceptance')
   } catch (err) {
     fail('acceptance', err)
+  }
+
+  // 6. Gatus 指標（上一版用來在 Gatus 不通或某站拿不到時沿用該站；檔案照寫，讓畫面知道是 Gatus 掛了）
+  try {
+    const prevMetrics = readJson(path.join(cfg.dataDir, 'metrics.json')).value ?? null
+    const metrics = await fetchMetrics(cfg, now, prevMetrics)
+    writeJsonChecked(cfg.dataDir, 'metrics.json', { generatedAt: at, ...metrics })
+    if (metrics.error) fail('metrics', new Error(metrics.error))
+    else ok('metrics')
+  } catch (err) {
+    fail('metrics', err)
   }
 
   const status = { generatedAt: at, sources }

@@ -7,14 +7,13 @@ import { EmptyState, PageHeader } from '@/app/_ui/primitives'
 import { VersionView } from '@/app/dashboard/_signoff/version-view'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { type DangerFacts, RemindButton, RestartButton, VoidButton } from '@/app/dashboard/admin/signoff/manage-forms'
-import type { VersionDetail } from '@/application/signoff'
+import type { RestartKind, VersionDetail } from '@/application/signoff'
 import { cohortLabel } from '@/composition/cohorts'
 import {
   getSignoffQuery,
   MAX_REASON_CHARS,
   nextRemindAt,
   PURPOSE_LABEL,
-  RESTART_LABEL,
   restartKindFor,
   VOTE_RESULT_LABEL,
 } from '@/composition/signoff'
@@ -24,11 +23,20 @@ export const metadata = { title: '同意書內容｜資管系專題平台' }
 
 /**
  * 管理員的簽核版本頁（票 25、26）：全文、附件、授權範圍、逐人進度與缺誰、版本歷史，以及系辦能做的事——
- * 提醒未同意者（24 小時一次）、重置或重開新版、作廢（理由必填）、匯出可列印頁與 CSV（每次匯出都留紀錄）。
+ * 提醒未同意者（24 小時一次）、重新收集同意或重開新版、作廢（理由必填）、匯出可列印頁與 CSV（每次匯出都留紀錄）。
  * 版本內容寫了就不能改；**沒有任何替人表態的入口**。
  */
 
 const FORMAT_LABEL = { printable: '可列印頁', csv: 'CSV 明細' } as const
+
+/**
+ * 重新收集／重開的顯示字（AD-09，用詞 #3「重置」→「重新收集同意（內容不變）」）。
+ * 只改這頁的按鈕、確認視窗與成功回執；後端拒絕字與失效原因仍用 `RESTART_LABEL`（「重置」），要改另開票。
+ */
+const RESTART_UI: Readonly<Record<RestartKind, { button: string; title: string; confirm: string; done: string }>> = {
+  reset: { button: '重新收集同意（內容不變）', title: '重新收集同意？', confirm: '確定重新收集', done: '已重新收集' },
+  reopen: { button: '重開新版', title: '重開新版？', confirm: '確定重開新版', done: '已重開新版' },
+}
 
 function remindBlocked(v: VersionDetail, now: Date): string | null {
   if (!v.isCurrent || (v.state !== 'collecting' && v.state !== 'teacher_pending')) return '只有收集中或等老師的目前版本可以提醒。'
@@ -37,7 +45,7 @@ function remindBlocked(v: VersionDetail, now: Date): string | null {
   return null
 }
 
-/** 重置／重開時將失效（不計入新版）的簽署。 */
+/** 重新收集／重開時將失效（不計入新版）的簽署。 */
 function affectedVotes(v: VersionDetail): string[] {
   const p = v.progress
   return [...p.students, p.advisor].filter((x) => x.result !== null).map((x) => `${x.displayName}（${VOTE_RESULT_LABEL[x.result!]}）`)
@@ -111,7 +119,7 @@ function Manage({ v }: { v: VersionDetail }) {
         )}
       </div>
 
-      {/* 危險操作（第三波 §9 規則 1、AC-37）：重置／重開、作廢跟日常的提醒、匯出拉開；確認視窗寫對象、範圍、後果、能不能恢復。 */}
+      {/* 危險操作（第三波 §9 規則 1、AC-37）：重新收集／重開、作廢跟日常的提醒、匯出拉開；確認視窗寫對象、範圍、後果、能不能恢復。 */}
       {v.isCurrent ? (
         <section aria-labelledby="signoff-danger" className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
           <h4 id="signoff-danger" className="flex items-center gap-1.5 text-sm font-bold text-destructive">
@@ -119,7 +127,7 @@ function Manage({ v }: { v: VersionDetail }) {
           </h4>
           <ul className="space-y-1 text-sm text-muted-foreground">
             <li>
-              <span className="font-semibold text-foreground">{RESTART_LABEL[kind]}</span>：用同樣內容建新版，全組每個人都要重新同意；這一版的回覆不再算數。
+              <span className="font-semibold text-foreground">{RESTART_UI[kind].button}</span>：用同樣內容建新版，全組每個人都要重新同意；這一版的回覆不再算數。
             </li>
             {v.state !== 'void' ? (
               <li>
@@ -132,7 +140,7 @@ function Manage({ v }: { v: VersionDetail }) {
               versionId={v.versionId}
               requestId={randomUUID()}
               kind={kind}
-              label={RESTART_LABEL[kind]}
+              label={RESTART_UI[kind]}
               affected={affected}
               facts={restartFacts(v, affected)}
               reasonMaxLength={MAX_REASON_CHARS}
@@ -163,11 +171,11 @@ export default async function AdminSignoffVersionPage({
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/signoff">
       <PageHeader title="同意書內容" description="同意書建立後內容不能改；要改就回站內同意書頁再建一版。系辦不能替任何人回覆。" />
       <Link href="/dashboard/admin/signoff" className="mb-4 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline">
-        ← 回站內同意書
+        ← 回同意書
       </Link>
       {detail.ok && (restarted === 'reset' || restarted === 'reopen') ? (
         <p role="status" className="mb-4 rounded-lg bg-primary-subtle px-4 py-3 text-sm text-primary-on-subtle">
-          已{RESTART_LABEL[restarted]}：這是新建的第 {detail.receipt.versionNo} 版
+          {RESTART_UI[restarted].done}：這是新建的第 {detail.receipt.versionNo} 版
           {/^\d+$/.test(from ?? '') ? `（內容與第 ${from} 版相同）` : ''}，參與者依此刻重新計算；舊版與舊的回覆留作歷史、不計入新版，
           每位參與學生已收到「輪到你同意」。
         </p>
@@ -175,7 +183,7 @@ export default async function AdminSignoffVersionPage({
       {detail.ok ? (
         <VersionView v={detail.receipt} historyHref={(id) => `/dashboard/admin/signoff/${id}`} action={<Manage v={detail.receipt} />} />
       ) : (
-        <EmptyState title="找不到這份同意書" description={detail.message} action={{ href: '/dashboard/admin/signoff', label: '回站內同意書' }} />
+        <EmptyState title="找不到這份同意書" description={detail.message} action={{ href: '/dashboard/admin/signoff', label: '回同意書' }} />
       )}
     </DashboardShell>
   )

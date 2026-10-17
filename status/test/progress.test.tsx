@@ -69,9 +69,14 @@ describe('開發進度頁（AC-S-13）', () => {
     expect(html).toContain('2026-10-12T08:30:00+08:00')
   })
 
-  it('右側：main 最新 CI 連到 run、最近 5 個合併的 PR', async () => {
+  it('右側：main 最新 CI 一行連到 /deploy（AC-DV-28、16）、最近 5 個合併的 PR', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-12T09:04:00+08:00') })
     const html = await render(fixtures)
-    expect(html).toContain('href="https://github.com/roy4222/fju-im-project/actions/runs/1001"')
+    vi.useRealTimers()
+    expect(html).not.toContain('data-testid="main-ci"')
+    const link = html.match(/<a [^>]*data-testid="main-ci-link"[^>]*>[^<]*<\/a>/)?.[0] ?? ''
+    expect(link).toContain('href="/deploy"')
+    expect(link).toContain('>main 最新 CI：✓ 4 分鐘前 → 看部署與 CI<')
     const recent = html.slice(html.indexOf('data-testid="recent-merged"'))
     expect(recent.match(/href="https:\/\/github.com\/roy4222\/fju-im-project\/pull\/\d+"/g)).toHaveLength(5)
   })

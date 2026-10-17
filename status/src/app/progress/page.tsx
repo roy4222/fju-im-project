@@ -1,12 +1,19 @@
+import Link from "next/link"
+
 import { PageShell } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/components/utils"
 import { dataOrNull, readData } from "@/lib/data/read"
-import type { TicketStatus } from "@/lib/data/types"
+import type { GithubData, TicketStatus } from "@/lib/data/types"
 import { shortSha } from "@/lib/data/version"
+import { runView, type RunState } from "@/lib/deploy/view"
+import { formatAge } from "@/lib/gate/gates"
 import { REPO_URL, buildProgress, type BatchSection, type ProgressView } from "@/lib/progress/progress"
+
+/** 「現在」：算多久前用。 */
+const currentTime = () => new Date()
 
 const STATUS_COLOR: Record<TicketStatus, string> = {
   todo: "bg-muted text-muted-foreground",
@@ -101,24 +108,27 @@ function BatchTable({ section }: { section: BatchSection }) {
   )
 }
 
-function SideCards({ view, ci }: { view: ProgressView; ci: { url: string; conclusion: string | null; headSha: string } | null }) {
+const CI_MARK: Record<RunState, string> = { green: "✓", red: "✗", grey: "…" }
+
+/** main 最新 CI 只留一行結論＋連到 /deploy（Q-DV-6）；詳情正本在部署與 CI 頁（DV 設計方案 §2）。 */
+function MainCiLink({ github, now }: { github: GithubData | null; now: Date }) {
+  const run = runView(github?.ci)
+  const at = github?.generatedAt ? Date.parse(github.generatedAt) : NaN
+  const age = Number.isNaN(at) ? null : formatAge(now.getTime() - at)
+  const result = run ? [CI_MARK[run.state], run.state === "green" ? null : run.label, age].filter(Boolean).join(" ") : "沒有資料"
+  return (
+    <p className="text-sm">
+      <Link href="/deploy" data-testid="main-ci-link" data-state={run?.state ?? "grey"} className="underline-offset-4 hover:underline">
+        main 最新 CI：{result} → 看部署與 CI
+      </Link>
+    </p>
+  )
+}
+
+function SideCards({ view, github, now }: { view: ProgressView; github: GithubData | null; now: Date }) {
   return (
     <div className="flex flex-col gap-4">
-      <Card data-testid="main-ci">
-        <CardHeader>
-          <CardDescription>main 最新 CI</CardDescription>
-          <CardTitle>
-            {ci ? (
-              <a href={ci.url} target="_blank" rel="noreferrer" className="underline-offset-4 hover:underline">
-                {shortSha(ci.headSha)}：{ci.conclusion ?? "還在跑"}
-              </a>
-            ) : (
-              "沒有資料"
-            )}
-          </CardTitle>
-          <CardDescription>Playwright 報告在這次執行的 artifact 裡。</CardDescription>
-        </CardHeader>
-      </Card>
+      <MainCiLink github={github} now={now} />
       <Card data-testid="recent-merged">
         <CardHeader>
           <CardDescription>最近 5 個合併的 PR</CardDescription>
@@ -167,7 +177,7 @@ export default async function ProgressPage() {
             </Card>
           )}
         </div>
-        <SideCards view={view} ci={github?.ci ?? null} />
+        <SideCards view={view} github={github} now={currentTime()} />
       </div>
       {view.sections.some((s) => s.rows.some((r) => r.mismatch)) ? (
         <p className="text-sm text-muted-foreground">
