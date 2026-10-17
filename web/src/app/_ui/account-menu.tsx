@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { IconChevronDown, IconLayoutDashboard, IconLogout, IconSwitchHorizontal, IconUserCircle, IconWorld } from '@tabler/icons-react'
 import {
   DropdownMenu,
@@ -19,7 +20,8 @@ const ICONS = { account: IconUserCircle, workbench: IconLayoutDashboard, site: I
 /**
  * 右上角的帳號選單（原型 `site-header`／`dashboard-header` 的頭像下拉）。
  *
- * 頭像放本人姓名的第一個字、旁邊寫姓名（Actor 解析身分時同一列順便帶回來，見 `actor-resolver.ts`）；
+ * 頭像是伺服器外殼算好傳進來的 `<UserAvatar>`（`avatar`；這裡是 client，不能自己 render server component）；
+ * 沒傳就放本人姓名的第一個字。旁邊寫姓名（Actor 解析身分時同一列順便帶回來，見 `actor-resolver.ts`），
  * 取不到姓名才退回角色字。下拉頂端寫姓名與角色。
  * 「登出」是 `<button form=…>`，送的是外殼裡那張看不見的登出表單（Server Action 的 POST）。
  */
@@ -29,6 +31,7 @@ export function AccountMenu({
   links,
   signOutFormId,
   compact = false,
+  avatar,
 }: {
   roleLabel: string
   /** 本人姓名；沒有就顯示角色。 */
@@ -37,6 +40,8 @@ export function AccountMenu({
   signOutFormId: string
   /** 後台頂列：頭像小一號。 */
   compact?: boolean
+  /** 頭像（`UserAvatar`，`decorative`）；沒有就顯示首字圓圈。 */
+  avatar?: ReactNode
 }) {
   const shown = name ?? roleLabel
   return (
@@ -51,15 +56,24 @@ export function AccountMenu({
               compact ? 'h-9' : '',
             )}
           >
-            <span
-              aria-hidden
-              className={cn(
-                'inline-flex items-center justify-center rounded-full bg-primary-subtle font-bold text-primary-on-subtle',
-                compact ? 'size-7 text-xs' : 'size-8.5 text-sm',
-              )}
-            >
-              {shown.slice(0, 1)}
-            </span>
+            {avatar ? (
+              <span
+                aria-hidden
+                className={cn('inline-flex shrink-0 overflow-hidden rounded-full [&>img]:size-full', compact ? 'size-7' : 'size-8.5')}
+              >
+                {avatar}
+              </span>
+            ) : (
+              <span
+                aria-hidden
+                className={cn(
+                  'inline-flex items-center justify-center rounded-full bg-primary-subtle font-bold text-primary-on-subtle',
+                  compact ? 'size-7 text-xs' : 'size-8.5 text-sm',
+                )}
+              >
+                {shown.slice(0, 1)}
+              </span>
+            )}
             <span className="hidden max-w-[10rem] truncate text-[13px] font-semibold whitespace-nowrap sm:inline">{shown}</span>
             <IconChevronDown className="hidden size-3.5 text-muted-foreground sm:inline" aria-hidden />
           </button>

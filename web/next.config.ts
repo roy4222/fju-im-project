@@ -14,6 +14,18 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   turbopack: { root: workspaceRoot },
   outputFileTracingRoot: workspaceRoot,
+  // 不送 `X-Powered-By: Next.js`（少洩一點版本資訊）。
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        // 100 張預設頭像（`public/avatars/NNN.webp`）內容不會變，瀏覽器快取一天（SH-8）。
+        // 上傳的頭像走 `/api/files/<id>`，快取規則在那支路由，不在這裡。
+        source: '/avatars/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400' }],
+      },
+    ]
+  },
 }
 
 export default nextConfig

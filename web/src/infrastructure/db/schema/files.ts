@@ -49,7 +49,7 @@ export const storedFiles = pgTable(
     check('stored_files_scope_cohort_check', sql`(${t.scope} = 'cohort') = (${t.cohortId} is not null)`),
     check(
       'stored_files_purpose_check',
-      sql`${t.purpose} in ('submission','attachment','roster_csv','advisor_csv','poster','photo','export','signoff_attachment')`,
+      sql`${t.purpose} in ('submission','attachment','roster_csv','advisor_csv','poster','photo','export','signoff_attachment','avatar')`,
     ),
     check(
       'stored_files_status_check',
@@ -92,7 +92,7 @@ export const fileReferences = pgTable(
   (t) => [
     check(
       'file_references_ref_type_check',
-      sql`${t.refType} in ('draft','submission_version','item_attachment','signoff_version','showcase_version','showcase_draft','export','roster_version')`,
+      sql`${t.refType} in ('draft','submission_version','item_attachment','signoff_version','showcase_version','showcase_draft','export','roster_version','avatar')`,
     ),
     // 契約 01 §11：同一引用者同時只有一筆有效引用；釋放後可以再插新列。
     uniqueIndex('file_references_active_ref')
