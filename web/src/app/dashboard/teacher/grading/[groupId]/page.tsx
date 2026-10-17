@@ -6,12 +6,13 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { VersionContent } from '@/app/dashboard/_submissions/version-parts'
 import { BackLink, OUTLINE_BUTTON, PageTitle, Pill } from '@/app/dashboard/teacher/_ui/dash'
-import type { NeighbourLink } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
+import type { BenchSnapshot, NeighbourLink } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
 import { GroupSubmissions } from '@/app/dashboard/teacher/grading/[groupId]/submissions'
 import { filterQueue, neighbours, parseFilter } from '@/app/dashboard/teacher/grading/filter'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
 import { myStatusOf } from '@/app/dashboard/teacher/grading/rules'
 import type { ResolvedActor } from '@/application/accounts'
+import type { BenchEntry } from '@/application/grading'
 import { cohortLabel } from '@/composition/cohorts'
 import { getGradingQuery } from '@/composition/grading'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
@@ -39,6 +40,39 @@ async function loadBenchPage(actor: ResolvedActor, groupId: string, search: Sear
       ? await getAdvisorSubmissionQuery().receiverVersion(actor, item, groupId, version)
       : null
   return { page: page.receipt, opened }
+}
+
+/**
+ * 評分卡排序快照、確認收據用的版本（Review #584 第 4 輪）：這個指派在資料庫裡每一筆寫入的時間戳取最大——
+ * 暫存／送出的 `submitted_real_at`（`savedAt`、`submittedAt`、每一次送出紀錄）、退回事件的 `real_at`（`returnedAt`）。
+ * 每次寫入都在組別＋指派的列鎖內取 `realAt` 再寫進只能 insert 的表，所以同一指派的寫入順序就是這些戳記的順序，
+ * 隨每次寫入嚴格變大；它**不是**這次讀頁面的時間（那是 `serverTime`，兩次讀取可能同一毫秒）。退回後最新暫存可能比
+ * 退回的那筆舊，所以不能只看 `savedAt`。結算／解除不寫評分列、不改這個版本（評分卡對那一軸只在同版本時比 `serverTime`）。
+ * 沒有任何寫入時是空字串（任何寫入都比它大）。
+ */
+function benchVersionOf(entry: BenchEntry): string {
+  const stamps = [entry.savedAt, entry.submittedAt, entry.returned?.returnedAt ?? null, ...entry.submissionHistory.map((h) => h.at)]
+  let latest = 0
+  for (const stamp of stamps) if (stamp && stamp.getTime() > latest) latest = stamp.getTime()
+  return latest === 0 ? '' : new Date(latest).toISOString()
+}
+
+/** 評分卡一次收到的伺服器事實（見 `BenchSnapshot`）。 */
+function benchSnapshotOf(entry: BenchEntry, serverTime: string): BenchSnapshot {
+  return {
+    version: benchVersionOf(entry),
+    serverTime,
+    scores: entry.scores,
+    comment: entry.comment,
+    hasFinal: entry.state === 'counted',
+    readOnly: entry.settled !== null || (entry.state === 'counted' && !entry.resubmittable),
+    settledAtText: entry.settled ? formatTaipeiMinute(entry.settled.settledAt) : null,
+    draftAfterFinal: entry.draftAfterFinal,
+    submissionHistory: entry.submissionHistory.map((h) => ({ no: h.no, atText: formatTaipeiSecond(h.at) })),
+    savedAtText: entry.savedAt ? formatTaipeiMinute(entry.savedAt) : null,
+    finalScore: entry.finalScore,
+    draftFromOlderVersion: entry.draftFromOlderVersion,
+  }
 }
 
 /**
@@ -116,17 +150,7 @@ export default async function TeacherGradingGroupPage({
               assignmentId={entry.assignmentId}
               groupCode={groupCode}
               stage={entry.stage}
-              initialScores={entry.scores}
-              initialComment={entry.comment}
-              hasFinal={entry.state === 'counted'}
-              readOnly={entry.settled !== null || (entry.state === 'counted' && !entry.resubmittable)}
-              settledAtText={entry.settled ? formatTaipeiMinute(entry.settled.settledAt) : null}
-              draftAfterFinal={entry.draftAfterFinal}
-              submissionHistory={entry.submissionHistory.map((h) => ({ no: h.no, atText: formatTaipeiSecond(h.at) }))}
-              savedAtText={entry.savedAt ? formatTaipeiMinute(entry.savedAt) : null}
-              finalScore={entry.finalScore}
-              draftFromOlderVersion={entry.draftFromOlderVersion}
-              serverTime={page.serverTime}
+              snapshot={benchSnapshotOf(entry, page.serverTime)}
               eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
               members={memberNames.join('、')}
             >

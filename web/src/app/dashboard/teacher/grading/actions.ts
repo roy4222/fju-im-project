@@ -10,7 +10,8 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
  *
  * 規則與授權全在用例裡判（本人的有效指派、分數範圍、評語 500 字、已結算不能改、帳本冪等）；這裡只把瀏覽器送來的分數收斂成
  * 一層「項目 key → 字串」，把結果翻成畫面要的回饋。請求編號由畫面產生：同一次送出（連點、斷線重試）帶同一個編號。
- * 老師是誰不從畫面帶，由用例依登入者決定。回執帶伺服器時間（ISO）：評分卡用它判斷重抓回來的資料是不是比這次寫入還舊。
+ * 老師是誰不從畫面帶，由用例依登入者決定。回執帶這次寫入的版本（`version`＝用例回執的 `serverTime`，就是這一列的 `submitted_real_at`）：
+ * 評分卡用它判斷這張收據是不是仍是已知最新的寫入、丟掉比這次寫入更早發出的重抓。
  */
 
 const str = (value: unknown, max = 100) => (typeof value === 'string' ? value.slice(0, max) : '')
@@ -46,7 +47,7 @@ export async function saveGradingDraftAction(
     str(requestId),
   )
   if (!result.ok) return fail(result)
-  return { ok: true, data: { savedAtText: formatTaipeiMinute(new Date(result.receipt.savedAt)), serverTime: result.receipt.serverTime } }
+  return { ok: true, data: { savedAtText: formatTaipeiMinute(new Date(result.receipt.savedAt)), version: result.receipt.serverTime } }
 }
 
 export async function submitGradingAction(
@@ -71,7 +72,7 @@ export async function submitGradingAction(
       gate: r.gate,
       receivedAtText: formatTaipeiSecond(new Date(r.receivedAt)),
       evaluationId: r.evaluationId,
-      serverTime: r.serverTime,
+      version: r.serverTime,
     },
   }
 }

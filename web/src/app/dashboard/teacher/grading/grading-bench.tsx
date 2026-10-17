@@ -1,9 +1,9 @@
 'use client'
-import { useEffect, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { IconAlertCircle, IconCheck, IconCopy, IconDeviceFloppy, IconSend } from '@tabler/icons-react'
 import { saveGradingDraftAction, submitGradingAction } from './actions'
-import { COMMENT_MAX, commentLength, type SubmissionRecord } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
+import { COMMENT_MAX, commentLength, type BenchSnapshot } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
 import type { BenchOutcome, FinalReceiptView } from '@/app/dashboard/teacher/grading/types'
 import { blockReason as blockReasonOf, CONFIRM_NOTE, itemErrors, missingCount, missingText, PASS_FAIL_OPTIONS, RECEIPT_NOTE, SAVED_NOTE } from '@/app/dashboard/teacher/grading/rules'
 import { DIALOG, GHOST_BUTTON, OUTLINE_BUTTON, Pill, PRIMARY_BUTTON, StampMark } from '@/app/dashboard/teacher/_ui/dash'
@@ -22,30 +22,25 @@ import { formatScore, LETTER_GRADES, parseItemScore, teacherStageScore } from '@
  *   「重新送出」以這一次為準、上一次改列歷史；「送出紀錄」列每一次送出時間。
  * - 評語（TE-B4）跟分數同一次存，最多 500 字：超過就在瀏覽器擋下、不送請求（伺服器另外也擋）。
  * - 系辦結算這一階段後（TE-B2b）全部唯讀、不顯示任何按鈕。
- * - 同一次送出（連點、斷線重試）帶同一個請求編號，伺服器只算一次；內容一改就換新編號。
+ * - 同一次送出（連點、斷線重試）帶同一個請求編號，伺服器只算一次。
  *
- * ## 狀態模型（Review #584 第 1、2 輪）：伺服器事實與編輯中的內容分開
+ * ## 狀態模型（Review #584 第 1～4 輪）：四條不變條件
  *
- * **伺服器事實**（已存的分數與評語、是否已採計、送出次數與紀錄、正式送出後有沒有草稿、儲存時間、是否結算）
- * 一律直接讀 props；元件用 assignmentId 當 key，`router.refresh()` 帶回新 props 不會重建元件。成功後**不在本地複製或
- * 推算**這些事實（次數不用「本地長度＋1」），只重抓一次讓 props 跟上；同一個請求編號重試時伺服器回同一張回執，畫面次數仍以
- * 伺服器為準，不會多一筆。
+ * 前三輪每多一種「客戶端自動對齊伺服器」就多一組反例；第 4 輪改成只守四條規則，守不住的格子一律交給老師選，不自動合併。
  *
- * **編輯中的內容**（`buffer`）另外放，配 `editVersion`（每次輸入 +1）與 `savedVersion`（伺服器已收到的版本）：
- * `dirty = editVersion !== savedVersion`。每個請求記下發出時的版本與內容（`sent`），成功回應只在版本沒變時清 dirty；
- * 回應期間續打的內容保留，狀態列仍標「有尚未儲存的修改」。
+ * 1. **資料庫的寫入版本是唯一排序鍵**（`snapshot.version`，`page.tsx` 從該指派每筆寫入的戳記算；收據的 `version` 同一把尺）。
+ *    重抓回來的快照比已接受／已知的版本舊 → 整包丟掉；同版本但評分軸事實不同 → 不覆寫，丟掉並重抓一次（以版本去重，再對不上就提示重新整理）；
+ *    同版本、評分軸相同、只差結算／顯示軸 → `serverTime` 嚴格較新才接受，相同就丟掉並重抓。畫面只讀「最後接受」的快照
+ *    （`state.applied`），不直接讀 props，所以被丟掉的舊快照連次數、唯讀都畫不回去。
+ * 2. **`{requestId, payload}` 不可變**（`pending`）：按下時把欄位原值凍結成 payload，重試原樣送出，不重讀欄位、不正規化。
+ *    再按一次時只有「同一種動作、欄位原值跟 payload 一字不差、而且上一次沒有定論（中斷）或已確認」才沿用同一個編號；
+ *    任何程式性換掉 buffer（改用伺服器內容、恢復未存內容、對齊）之後原值不同，自然就是新的一次、新的編號。
+ * 3. **收據只在「收據版本 ≥ 目前已知最新版本」時確認**（清未存）；比已知的舊＝這次送的內容已被之後的寫入取代 →
+ *    維持未存、出衝突區讓老師選，不開收件章。
+ * 4. **未存內容依版本保存成列表**（`stashes`）：轉唯讀時還有未存就收一筆，恢復／丟棄只動指定那筆；
+ *    **render 裡零 dispatch**——新快照在 effect 處理，用「已處理的 key」ref 去重，reducer 拒絕也不會再被 dispatch。
  *
- * **新 props 到（`server` 事件）**，照這個順序判：
- * 1. 比已套用的快照舊、或比最近一次成功寫入的伺服器時間舊（寫入前就發出的重抓）→ 丟掉，等更新的回來。
- * 2. 伺服器內容等於最近一次送出的內容（或同內容重送、次數有加）→ 是自己這次寫入到了：中斷／逾時那一次也在這裡確認
- *    「其實已送達」，版本沒變才清 dirty。
- * 3. 否則內容有變＝別的分頁或裝置改過：沒有未存修改就對齊並提示；有未存修改且仍可編輯 → 衝突提示讓老師選
- *    「改用伺服器的內容」或「保留我的修改」，不自動覆蓋。
- * 4. 變成唯讀（系辦結算）而且還有未存修改 → 未存內容收進 `stash` 顯示在提示區（可複製；解除結算後可恢復），
- *    唯讀欄位顯示伺服器存的值，不把沒存成功的內容鎖成唯讀。
- * 5. 次數變了而不是自己送的 → 提示「別的分頁或裝置已送出到第 N 次」。
- *
- * 事件 → state 的完整對照表在 PR #584 說明。
+ * 事件 → state 的完整對照表（每一列 × 四條不變條件）在 Review 第 4 輪的交付說明（PR #584 討論串）。
  */
 
 /** 結算後的說明（設計方案 §2.5）。 */
@@ -77,34 +72,48 @@ function SaveDot({ state }: { state: SaveDotState }) {
   return <span aria-hidden className={cn('inline-block size-2 shrink-0 rounded-full', cls)} />
 }
 
-// ───────────── 本地 state：編輯中的內容 vs 伺服器快照 ─────────────
+// ───────────── 本地 state：編輯中的內容 vs 已接受的伺服器快照 ─────────────
 
-/** 一份分數＋評語。 */
+/** 一份分數＋評語。buffer 與 payload 放欄位原值；比對用 `normalizeContent` 後的形狀。 */
 type Content = { readonly values: Readonly<Record<string, string>>; readonly comment: string }
 
-/** 伺服器事實的快照（從 props 來；只拿來比對「變了什麼」，畫面一律直接讀 props）。 */
-type ServerSnapshot = {
-  /** 全部事實序列化：變了才需要對齊。 */
-  readonly key: string
-  /** 這份資料在伺服器讀出的時間（ISO）；比已套用的舊就丟掉。 */
-  readonly serverTime: string
+/** 已接受的伺服器快照：props 的 `BenchSnapshot` 加上比對用的正規化內容與兩把 key。 */
+type Applied = BenchSnapshot & {
   /** 伺服器存的分數與評語（正規化後，和 `normalizeContent` 同一種形狀）。 */
   readonly content: Content
   /** 正式送出的次數。 */
   readonly count: number
-  readonly readOnly: boolean
-  readonly savedAtText: string | null
+  /** 評分軸事實：版本、內容、次數、儲存時間、草稿狀態、是否採計。同版本時這些必須一致。 */
+  readonly factsKey: string
+  /** 全部事實（含 serverTime、唯讀、結算時間、採計分數…）：一字不差就是同一份。 */
+  readonly fullKey: string
 }
 
-/** 最近一次送出的寫入：回應前、或回應中斷／逾時後，等伺服器事實確認。 */
-type SentWrite = {
+/**
+ * 一次儲存／送出的操作：按下那一刻凍結的 `{requestId, payload}`，重試原樣送、不重讀欄位。
+ * `inflight` 等回應；`interrupted` 回應中斷或逾時（不知道有沒有送到）；`acked` 伺服器已確認（收據或重抓對上）。
+ */
+type PendingOp = {
   readonly kind: 'save' | 'submit'
-  /** 發出時的編輯版本。 */
-  readonly version: number
-  /** 發出的內容（正規化後）。 */
+  readonly requestId: string
+  /** 送出的欄位原值。 */
+  readonly payload: Content
+  /** payload 正規化後：跟重抓回來的伺服器內容比「是不是自己這次寫入」。 */
+  readonly normalized: Content
+  /** 按下時的編輯版本：回應回來時版本沒變才算「現在欄位裡的就是已存的」。 */
+  readonly editVersion: number
+  readonly phase: 'inflight' | 'interrupted' | 'acked'
+}
+
+/** 轉唯讀時沒存進去的一份內容（依版本保存，恢復／丟棄只動這一筆）。 */
+type StashEntry = {
+  readonly id: number
+  /** 收進來時伺服器的版本與結算時間（顯示用）。 */
+  readonly version: string
+  readonly settledAtText: string | null
   readonly content: Content
-  /** 伺服器回成功的時間；還沒回應（中斷、逾時）是 null。 */
-  readonly serverTime: string | null
+  /** 收進來時伺服器存的內容（正規化）：提示區只列跟它不一樣的項目。 */
+  readonly server: Content
 }
 
 type Message = { readonly tone: 'ok' | 'info' | 'error'; readonly text: string }
@@ -113,35 +122,39 @@ type Local = {
   readonly buffer: Content
   readonly editVersion: number
   readonly savedVersion: number
-  readonly applied: ServerSnapshot
-  readonly sent: SentWrite | null
+  readonly applied: Applied
+  /** 已知的伺服器最新版本：已接受快照與已確認收據的最大值；比它舊的快照、收據都不算。 */
+  readonly knownVersion: string
+  readonly pending: PendingOp | null
   readonly busy: 'save' | 'submit' | null
   /** 儲存成功的回執先顯示在狀態列，props 的儲存時間跟上就不用了。 */
   readonly ack: { readonly savedAtText: string } | null
   /** 伺服器的新內容（別的分頁或裝置改的）與本地未存修改衝突，等老師選。 */
   readonly conflict: Content | null
-  /** 轉唯讀時沒存進去的內容。 */
-  readonly stash: Content | null
-  /** 這次動作的結果（成功、被拒、中斷）。 */
+  readonly stashes: readonly StashEntry[]
+  readonly nextStashId: number
+  /** 這次動作的結果（成功、被拒、中斷、舊收據）。 */
   readonly message: Message | null
   /** 同步類提示（別的分頁送出過、上一次其實已送達、已結算…）。 */
   readonly notice: Message | null
   /** 伺服器指出有問題的項目。 */
   readonly serverBad: readonly string[]
+  /** 同版本卻內容不同（或同版本同 serverTime 卻不同）而被丟掉的快照**版本**：effect 對每個版本重抓一次，不覆寫；再對不上就提示重新整理。 */
+  readonly inconsistent: string | null
 }
 
 type Event =
   | { type: 'edit'; key: string; value: string }
   | { type: 'edit-comment'; value: string }
-  | { type: 'sending'; kind: 'save' | 'submit'; content: Content }
-  | { type: 'sent-ok'; kind: 'save' | 'submit'; version: number; serverTime: string; savedAtText: string | null; text: string | null; textIfEdited: string }
+  | { type: 'sending'; op: PendingOp }
+  | { type: 'sent-ok'; requestId: string; version: string; savedAtText: string | null; text: string | null; textIfEdited: string }
   | { type: 'sent-rejected'; text: string; fields: readonly string[] }
   | { type: 'sent-interrupted'; text: string }
-  | { type: 'server'; snapshot: ServerSnapshot }
+  | { type: 'server'; snapshot: Applied }
   | { type: 'use-server' }
   | { type: 'keep-mine' }
-  | { type: 'restore-stash' }
-  | { type: 'drop-stash' }
+  | { type: 'restore-stash'; id: number }
+  | { type: 'drop-stash'; id: number }
   | { type: 'message'; message: Message | null }
 
 /** 跟伺服器同一套正規化（數字去尾零、空白項拿掉、只有空白的評語當沒有），兩邊才比得出「一樣」。 */
@@ -156,15 +169,35 @@ function normalizeContent(stage: SchemeStage, content: Content): Content {
   return { values, comment: content.comment.trim() === '' ? '' : content.comment }
 }
 
-const sameContent = (a: Content, b: Content) => JSON.stringify([a.values, a.comment]) === JSON.stringify([b.values, b.comment])
+const contentKey = (c: Content) => JSON.stringify([c.values, c.comment])
+const sameContent = (a: Content, b: Content) => contentKey(a) === contentKey(b)
+/** 欄位原值一字不差（含 `74.00` 與 `74` 的差別）：決定能不能沿用同一個請求編號。 */
+const sameRaw = (a: Content, b: Content) => contentKey(a) === contentKey(b)
+const laterOf = (a: string, b: string) => (a > b ? a : b)
+
+/** props 的快照 → 可比對的 `Applied`。 */
+function toApplied(stage: SchemeStage, s: BenchSnapshot): Applied {
+  const content = normalizeContent(stage, { values: s.scores, comment: s.comment ?? '' })
+  const count = s.submissionHistory.length
+  const factsKey = JSON.stringify([s.version, content.values, content.comment, count, s.savedAtText, s.draftAfterFinal, s.hasFinal])
+  const fullKey = JSON.stringify([factsKey, s.serverTime, s.readOnly, s.settledAtText, s.finalScore, s.draftFromOlderVersion, s.submissionHistory])
+  return { ...s, content, count, factsKey, fullKey }
+}
 
 const staleNotice = (count: number): Message => ({
   tone: 'info',
   text: `這一份評分在別的分頁或裝置已送出到第 ${count} 次，畫面已更新為最新狀態。`,
 })
 const updatedNotice: Message = { tone: 'info', text: '這一份評分在別的地方有更新，畫面已更新為最新狀態。' }
+const staleReceiptNote = (kind: 'save' | 'submit', count: number): Message => ({
+  tone: 'error',
+  text:
+    kind === 'submit'
+      ? `這一次「重新送出」的內容在送出後已被別的分頁或裝置的送出取代（目前是第 ${count} 次，計入成績的是伺服器上的內容）；你這裡的修改仍未送出，可改用伺服器的內容，或再按一次「重新送出」。`
+      : '這一次「儲存草稿」的內容之後已被別的分頁或裝置更新；你這裡的修改仍未儲存，可改用伺服器的內容，或再按一次「儲存草稿」。',
+})
 
-function reduce(state: Local, event: Event): Local {
+function reduce(stage: SchemeStage, state: Local, event: Event): Local {
   switch (event.type) {
     case 'edit':
       return {
@@ -176,119 +209,175 @@ function reduce(state: Local, event: Event): Local {
     case 'edit-comment':
       return { ...state, buffer: { ...state.buffer, comment: event.value }, editVersion: state.editVersion + 1 }
     case 'sending':
-      return {
-        ...state,
-        busy: event.kind,
-        message: null,
-        sent: { kind: event.kind, version: state.editVersion, content: event.content, serverTime: null },
-      }
+      return { ...state, busy: event.op.kind, message: null, pending: event.op }
     case 'sent-ok': {
-      const edited = event.version !== state.editVersion
+      const op = state.pending
+      if (!op || op.requestId !== event.requestId) return { ...state, busy: null }
+      if (event.version < laterOf(state.knownVersion, state.applied.version)) {
+        // 3. 舊收據：這次送的內容在那之後已被更新的寫入取代。不清未存、不當作已存；這個操作到此結束（再按就是新的一次）。
+        const dirty = state.editVersion !== state.savedVersion
+        return {
+          ...state,
+          busy: null,
+          pending: null,
+          message: staleReceiptNote(op.kind, state.applied.count),
+          // 有未存修改：出衝突區讓老師選；沒有（送的本來就是已存的內容）：對齊伺服器並提示。
+          ...(dirty
+            ? { conflict: state.applied.content }
+            : { buffer: state.applied.content, savedVersion: state.editVersion, serverBad: [], notice: staleNotice(state.applied.count) }),
+        }
+      }
+      const edited = op.editVersion !== state.editVersion
       return {
         ...state,
         busy: null,
-        savedVersion: edited ? state.savedVersion : event.version,
-        sent: state.sent ? { ...state.sent, serverTime: event.serverTime } : null,
+        pending: { ...op, phase: 'acked' },
+        knownVersion: laterOf(state.knownVersion, event.version),
+        savedVersion: edited ? state.savedVersion : op.editVersion,
         ack: event.savedAtText ? { savedAtText: event.savedAtText } : state.ack,
         message: edited ? { tone: 'info', text: event.textIfEdited } : event.text ? { tone: 'ok', text: event.text } : null,
         serverBad: [],
       }
     }
     case 'sent-rejected':
-      return { ...state, busy: null, sent: null, message: { tone: 'error', text: event.text }, serverBad: event.fields }
+      return { ...state, busy: null, pending: null, message: { tone: 'error', text: event.text }, serverBad: event.fields }
     case 'sent-interrupted':
-      // `sent` 留著：之後重抓回來的內容對得上，就知道其實已經送到。
-      return { ...state, busy: null, message: { tone: 'error', text: event.text } }
+      // `pending` 留著（interrupted）：之後重抓對上內容就知道其實已送到；再按一次（原值沒變）沿用同一個編號。
+      return { ...state, busy: null, pending: state.pending ? { ...state.pending, phase: 'interrupted' } : null, message: { tone: 'error', text: event.text } }
     case 'server':
-      return onServer(state, event.snapshot)
+      return onServer(stage, state, event.snapshot)
     case 'use-server':
+      // 改用伺服器的內容＝放棄原本那一次操作（還在路上的除外，它的回應會自己判）。
       return {
         ...state,
         buffer: state.applied.content,
         savedVersion: state.editVersion,
         conflict: null,
         serverBad: [],
+        pending: state.pending?.phase === 'inflight' ? state.pending : null,
         notice: state.applied.count > 0 ? staleNotice(state.applied.count) : updatedNotice,
       }
     case 'keep-mine':
       return { ...state, conflict: null }
-    case 'restore-stash':
-      if (!state.stash || state.applied.readOnly) return state
-      return { ...state, buffer: state.stash, editVersion: state.editVersion + 1, stash: null, notice: null }
+    case 'restore-stash': {
+      const entry = state.stashes.find((s) => s.id === event.id)
+      if (!entry || state.applied.readOnly) return state
+      return {
+        ...state,
+        buffer: entry.content,
+        editVersion: state.editVersion + 1,
+        stashes: state.stashes.filter((s) => s.id !== event.id),
+        pending: state.pending?.phase === 'inflight' ? state.pending : null,
+        notice: null,
+      }
+    }
     case 'drop-stash':
-      return { ...state, stash: null }
+      return { ...state, stashes: state.stashes.filter((s) => s.id !== event.id) }
     case 'message':
       return { ...state, message: event.message }
   }
 }
 
-/** 新 props 到：對照上一份快照決定 buffer、dirty、提示怎麼變（順序見檔頭）。 */
-function onServer(state: Local, next: ServerSnapshot): Local {
+const unresolvedNotice: Message = { tone: 'error', text: '伺服器回傳的資料跟畫面對不上，請重新整理頁面。' }
+
+/**
+ * 同版本卻對不上的快照：第一次把**版本**記進 `inconsistent`，effect 重抓一次；重抓回來同版本仍對不上就不再抓，
+ * 改成提示老師重新整理——收斂到「畫面提示、人來決定」。不能拿 `fullKey` 去重：它含每次讀取都不同的 `serverTime`，
+ * 壞資料會變成無限重抓。
+ */
+function rejectInconsistent(state: Local, next: Applied): Local {
+  if (state.inconsistent !== next.version) return { ...state, inconsistent: next.version }
+  return state.notice === unresolvedNotice ? state : { ...state, notice: unresolvedNotice }
+}
+
+/**
+ * 新快照到：先照不變條件 1 決定收不收，收了再對照上一份決定 buffer、未存、提示怎麼變。
+ * 拒絕時回同一個 state（React 不重繪）；「同版本卻不同」交給 `rejectInconsistent`（以版本去重重抓一次）。
+ */
+function onServer(stage: SchemeStage, state: Local, next: Applied): Local {
   const prev = state.applied
-  if (next.key === prev.key) return state
-  // 1. 比已套用的舊（refresh 回應亂序），或比最近一次成功寫入還早（寫入前就發出的重抓）：丟掉，等更新的回來。
-  if (next.serverTime < prev.serverTime) return state
-  if (state.sent?.serverTime && next.serverTime < state.sent.serverTime) return state
+  if (next.fullKey === prev.fullKey) return state
+  const floor = laterOf(state.knownVersion, prev.version)
+  // 1a. 比已接受／已知的寫入版本舊（重抓亂序、寫入前就發出的重抓）：整包丟掉。
+  if (next.version < floor) return state
+  if (next.version === prev.version) {
+    // 1b. 同版本：評分軸事實必須一致，不一致就是壞掉的或偽造的快照 → 不覆寫，丟掉並重抓一次。
+    if (next.factsKey !== prev.factsKey) return rejectInconsistent(state, next)
+    // 1c. 只差結算／顯示軸（結算、解除、採計分數重算）：讀出時間嚴格較新才接受；相同不覆寫（重抓），較舊丟掉。
+    if (next.serverTime < prev.serverTime) return state
+    if (next.serverTime === prev.serverTime) return rejectInconsistent(state, next)
+  }
 
   const dirtyBefore = state.editVersion !== state.savedVersion
   const contentChanged = !sameContent(next.content, prev.content)
   const countDelta = next.count - prev.count
-  const sent = state.sent
-  const ownWrite =
-    sent !== null && sameContent(next.content, sent.content) && (contentChanged || (sent.kind === 'submit' && countDelta > 0))
+  const pending = state.pending
+  const ownWrite = pending !== null && next.version > prev.version && sameContent(next.content, pending.normalized)
 
-  let out: Local = { ...state, applied: next }
+  let out: Local = { ...state, applied: next, knownVersion: laterOf(state.knownVersion, next.version), inconsistent: null }
   if (next.savedAtText !== prev.savedAtText) out = { ...out, ack: null }
 
   if (ownWrite) {
     // 2. 自己這次寫入到了。
     let savedVersion = state.savedVersion
     let notice = state.notice
-    if (sent.serverTime === null) {
+    if (pending.phase === 'interrupted') {
       // 回應中斷／逾時的那一次其實已送達：以伺服器事實確認，版本沒變才算已存。
-      if (sent.version === state.editVersion) savedVersion = sent.version
+      if (pending.editVersion === state.editVersion) savedVersion = pending.editVersion
       notice =
-        sent.kind === 'submit'
+        pending.kind === 'submit'
           ? { tone: 'info', text: `上一次「重新送出」其實已經送達（第 ${next.count} 次），沒有重複計分；畫面已更新。` }
           : { tone: 'info', text: '上一次「儲存草稿」其實已經存到，畫面已更新。' }
-    } else if (sent.kind === 'submit' && countDelta > 1) {
+    } else if (pending.kind === 'submit' && countDelta > 1) {
       notice = { tone: 'info', text: `這一份評分也在別的分頁或裝置送出過，目前是第 ${next.count} 次。` }
     }
     const clean = state.editVersion === savedVersion
-    out = { ...out, sent: null, savedVersion, notice, buffer: clean ? next.content : state.buffer, serverBad: clean ? [] : state.serverBad }
+    // 乾淨才對齊欄位，而且只有正規化後真的不同才換（`74.00` 對 `74` 不換：老師打的原值留著，再按一次仍是同一個編號）。
+    const buffer = clean && !sameContent(normalizeContent(stage, state.buffer), next.content) ? next.content : state.buffer
+    out = {
+      ...out,
+      pending: pending.phase === 'inflight' ? pending : { ...pending, phase: 'acked' },
+      savedVersion,
+      notice,
+      buffer,
+      serverBad: clean ? [] : state.serverBad,
+    }
   } else if (contentChanged) {
-    // 3. 別的分頁或裝置改過（或退回預填）。
+    // 3. 別的分頁或裝置改過（或退回預填）。已確認的那次操作已被取代，再按就是新的一次；中斷的留著讓收據判定。
+    const keep = pending && pending.phase !== 'acked' ? pending : null
     if (dirtyBefore && !next.readOnly) {
-      out = { ...out, conflict: next.content, sent: null }
+      out = { ...out, conflict: next.content, pending: keep }
     } else {
       out = {
         ...out,
         buffer: dirtyBefore ? state.buffer : next.content,
         savedVersion: dirtyBefore ? state.savedVersion : state.editVersion,
         serverBad: dirtyBefore ? state.serverBad : [],
-        sent: null,
+        pending: keep,
         notice: countDelta > 0 ? staleNotice(next.count) : updatedNotice,
       }
     }
-  } else {
-    if (sent?.serverTime) out = { ...out, sent: null }
-    // 5. 內容沒變、次數變了而不是自己送的。
-    if (countDelta > 0) out = { ...out, notice: staleNotice(next.count) }
+  } else if (countDelta > 0) {
+    // 內容沒變、次數變了而不是自己送的（同內容重送）。
+    out = { ...out, notice: staleNotice(next.count) }
   }
 
-  // 4. 變成唯讀（系辦結算）：還有未存修改就收進 stash，欄位顯示伺服器存的值。
+  // 4. 變成唯讀（系辦結算）：還有未存修改就收成一筆 stash，欄位顯示伺服器存的值；解除時提醒可恢復。
   const dirtyAfter = out.editVersion !== out.savedVersion
   if (next.readOnly && dirtyAfter) {
+    const entry: StashEntry = { id: out.nextStashId, version: next.version, settledAtText: next.settledAtText, content: out.buffer, server: next.content }
     out = {
       ...out,
-      stash: out.buffer,
+      stashes: [...out.stashes, entry],
+      nextStashId: out.nextStashId + 1,
       buffer: next.content,
       savedVersion: out.editVersion,
       conflict: null,
       serverBad: [],
+      pending: null,
       notice: { tone: 'info', text: '系辦已結算這一階段，你剛才尚未儲存的修改沒有存入；內容保留在下面，可以複製。' },
     }
-  } else if (!next.readOnly && prev.readOnly && out.stash) {
+  } else if (!next.readOnly && prev.readOnly && out.stashes.length > 0) {
     out = { ...out, notice: { tone: 'info', text: '系辦已解除結算，可以再修改；之前沒存入的內容可以按「恢復」填回表單。' } }
   }
   return out
@@ -298,17 +387,7 @@ export function GradingBench({
   assignmentId,
   groupCode,
   stage,
-  initialScores,
-  initialComment,
-  hasFinal,
-  readOnly,
-  settledAtText,
-  draftAfterFinal,
-  submissionHistory,
-  savedAtText,
-  finalScore,
-  draftFromOlderVersion,
-  serverTime,
+  snapshot,
   eyebrow,
   members,
   children,
@@ -316,24 +395,8 @@ export function GradingBench({
   assignmentId: string
   groupCode: string
   stage: SchemeStage
-  /** 伺服器存的分數（暫存或採計那一筆；被退回時是退回前的）。 */
-  initialScores: Readonly<Record<string, string>>
-  initialComment: string | null
-  /** 已有一筆採計（正式送出過、沒被退回）。 */
-  hasFinal: boolean
-  /** 不能再改：階段已結算（或已採計但不能重送）。伺服器判，重新整理會跟著變。 */
-  readOnly: boolean
-  /** 系辦結算時間；沒結算是 null。 */
-  settledAtText: string | null
-  /** 正式送出後又存了草稿、還沒重新送出。 */
-  draftAfterFinal: boolean
-  /** 第 1 次…第 n 次正式送出（舊的在前）。 */
-  submissionHistory: readonly SubmissionRecord[]
-  savedAtText: string | null
-  finalScore: string | null
-  draftFromOlderVersion: boolean
-  /** 這份 props 在伺服器讀出的時間（ISO）：重抓回來比較舊的資料不套用。 */
-  serverTime: string
+  /** 這次 render 伺服器給的事實；是否接受由不變條件 1 決定（見檔頭），畫面只讀接受的那一份。 */
+  snapshot: BenchSnapshot
   /** 頂端組別上面那一行小字（屆別・階段・方案版本）。 */
   eyebrow: string
   /** 組員姓名（一行）。 */
@@ -345,38 +408,56 @@ export function GradingBench({
   // hydration 完成前按鈕還沒掛上事件，而且 React 接手 textarea 時會把已設好的選取重設到開頭（Playwright 的 fill 在那一瞬間會變成前置貼入）。
   // 掛好後在 <section> 標 data-hydrated，e2e 等到它再開始輸入；畫面上沒有任何差別。
   const hydrated = useSyncExternalStore(subscribeNothing, () => true, () => false)
-  const snapshot: ServerSnapshot = {
-    key: JSON.stringify([initialScores, initialComment, hasFinal, readOnly, settledAtText, draftAfterFinal, submissionHistory, savedAtText, finalScore, serverTime]),
-    serverTime,
-    content: normalizeContent(stage, { values: initialScores, comment: initialComment ?? '' }),
-    count: submissionHistory.length,
-    readOnly,
-    savedAtText,
-  }
-  const [state, dispatch] = useReducer(reduce, snapshot, (first): Local => ({
-    buffer: { values: { ...initialScores }, comment: initialComment ?? '' },
+  const incoming = useMemo(() => toApplied(stage, snapshot), [stage, snapshot])
+  const [state, dispatch] = useReducer((current: Local, event: Event) => reduce(stage, current, event), incoming, (first): Local => ({
+    buffer: { values: { ...first.scores }, comment: first.comment ?? '' },
     editVersion: 0,
     savedVersion: 0,
     applied: first,
-    sent: null,
+    knownVersion: first.version,
+    pending: null,
     busy: null,
     ack: null,
     conflict: null,
-    stash: null,
+    stashes: [],
+    nextStashId: 1,
     message: null,
     notice: null,
     serverBad: [],
+    inconsistent: null,
   }))
-  // 伺服器才是事實：props 一變（router.refresh 回來）就在這一輪 render 對齊（reducer 回同一個 state 就不會再 render）。
-  if (state.applied.key !== snapshot.key) dispatch({ type: 'server', snapshot })
+  // 事件處理函式要看「現在」的 state（await 期間可能已有新快照），不用按下那一刻的 closure；每次 render 後更新。
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  })
 
-  const { buffer, busy, conflict, stash, message, notice, serverBad } = state
+  // 不變條件 4：新快照在 effect 處理、一份只 dispatch 一次（reducer 拒絕也不會再送），render 裡零 dispatch。
+  const handledKey = useRef(incoming.fullKey)
+  useEffect(() => {
+    if (handledKey.current === incoming.fullKey) return
+    handledKey.current = incoming.fullKey
+    dispatch({ type: 'server', snapshot: incoming })
+  }, [incoming])
+
+  // 不變條件 1：同版本卻內容不同的快照不覆寫，每個版本只重抓一次（以版本去重；`fullKey` 含 serverTime 每次都不同，拿它去重會無限重抓）。
+  const refetched = useRef(new Set<string>())
+  useEffect(() => {
+    const key = state.inconsistent
+    if (!key || refetched.current.has(key)) return
+    refetched.current.add(key)
+    router.refresh()
+  }, [state.inconsistent, router])
+
+  const applied = state.applied
+  const { hasFinal, readOnly, settledAtText, draftAfterFinal, submissionHistory, savedAtText, finalScore, draftFromOlderVersion } = applied
+  const { buffer, busy, conflict, stashes, message, notice, serverBad } = state
   const values = buffer.values
   const comment = buffer.comment
   const dirty = state.editVersion !== state.savedVersion
   const [receipt, setReceipt] = useState<FinalReceiptView | null>(null)
-  // 請求編號：內容一改就換（舊編號配新內容會被當成 REQUEST_MISMATCH）；有定論（成功、被拒）也換；中斷／逾時不換。
-  const requestIds = useRef({ save: newRequestId(), submit: newRequestId() })
+  // 連點在同一次 render 內兩次進來（React 還沒把 disabled 畫出來）：第二次直接略過，不會開第二個操作。
+  const busyRef = useRef(false)
   const confirmDialog = useRef<HTMLDialogElement>(null)
   const receiptDialog = useRef<HTMLDialogElement>(null)
   const inputs = useRef<Record<string, HTMLElement | null>>({})
@@ -414,19 +495,37 @@ export function GradingBench({
   const percent = Math.max(0, Math.min(100, Number(shownScore) || 0))
   const savedText = state.ack?.savedAtText ?? savedAtText
 
-  function touched() {
-    // 內容變了就是新的一次儲存／送出：換新的請求編號。
-    requestIds.current = { save: newRequestId(), submit: newRequestId() }
-  }
-
   function set(key: string, value: string) {
     dispatch({ type: 'edit', key, value })
-    touched()
   }
 
   function focusFirstMissing() {
     const item = stage.items.find((i) => !values[i.key] || errors.has(i.key))
     if (item) inputs.current[item.key]?.focus()
+  }
+
+  /**
+   * 不變條件 2：開始一次操作。欄位原值跟上一次（中斷或已確認）的 payload 一字不差、同一種動作 → 沿用同一個請求編號與 payload；
+   * 否則凍結現在的原值成新的一次。回傳 null＝這一刻已有操作在路上（連點）。
+   */
+  function beginOp(kind: 'save' | 'submit'): PendingOp | null {
+    if (busyRef.current) return null
+    busyRef.current = true
+    const current = stateRef.current
+    const previous = current.pending
+    const op: PendingOp =
+      previous && previous.kind === kind && previous.phase !== 'inflight' && sameRaw(previous.payload, current.buffer)
+        ? { ...previous, phase: 'inflight' }
+        : {
+            kind,
+            requestId: newRequestId(),
+            payload: current.buffer,
+            normalized: normalizeContent(stage, current.buffer),
+            editVersion: current.editVersion,
+            phase: 'inflight',
+          }
+    dispatch({ type: 'sending', op })
+    return op
   }
 
   /** 等伺服器回應，最多 `RESPONSE_TIMEOUT_MS`；逾時回 'timeout'，之後才回來的結果不用（再按一次會接到同一張回執）。 */
@@ -455,11 +554,16 @@ export function GradingBench({
     router.refresh()
   }
 
-  function rejected(kind: 'save' | 'submit', outcome: { message: string; fields?: readonly string[] }) {
-    requestIds.current[kind] = newRequestId()
+  function rejected(outcome: { message: string; fields?: readonly string[] }) {
     dispatch({ type: 'sent-rejected', text: outcome.message, fields: outcome.fields ?? [] })
     // 被拒（已結算、被退回、指派失效、版本衝突…）：重抓伺服器的事實，server 事件會把畫面對齊。
     router.refresh()
+  }
+
+  /** 不變條件 3：收據版本比已知最新的舊 → 不確認（reducer 會出衝突區）；這裡只決定要不要開收件章。 */
+  function receiptIsCurrent(version: string) {
+    const current = stateRef.current
+    return version >= laterOf(current.knownVersion, current.applied.version)
   }
 
   async function onSave() {
@@ -467,19 +571,16 @@ export function GradingBench({
       dispatch({ type: 'message', message: { tone: 'error', text: `${errors.size > 0 ? [...errors.values()][0] : commentError}，修正後才能儲存草稿。` } })
       return
     }
-    const version = state.editVersion
-    const content = buffer
-    dispatch({ type: 'sending', kind: 'save', content: normalizeContent(stage, content) })
+    const op = beginOp('save')
+    if (!op) return
     try {
-      const outcome = await withTimeout(saveGradingDraftAction(assignmentId, content.values, content.comment, requestIds.current.save))
+      const outcome = await withTimeout(saveGradingDraftAction(assignmentId, op.payload.values, op.payload.comment, op.requestId))
       if (outcome === 'timeout') return interrupted('save')
-      if (!outcome.ok) return rejected('save', outcome)
-      requestIds.current.save = newRequestId()
+      if (!outcome.ok) return rejected(outcome)
       dispatch({
         type: 'sent-ok',
-        kind: 'save',
-        version,
-        serverTime: outcome.data.serverTime,
+        requestId: op.requestId,
+        version: outcome.data.version,
         savedAtText: outcome.data.savedAtText,
         text: hasFinal ? SAVED_AFTER_FINAL_NOTE : SAVED_NOTE,
         textIfEdited: SAVED_BUT_EDITED_NOTE,
@@ -488,41 +589,45 @@ export function GradingBench({
       router.refresh()
     } catch {
       interrupted('save')
+    } finally {
+      busyRef.current = false
     }
   }
 
   async function onSubmit() {
     confirmDialog.current?.close()
-    const version = state.editVersion
-    const content = buffer
-    dispatch({ type: 'sending', kind: 'submit', content: normalizeContent(stage, content) })
+    const op = beginOp('submit')
+    if (!op) return
     try {
-      const outcome = await withTimeout(submitGradingAction(assignmentId, content.values, content.comment, requestIds.current.submit))
+      const outcome = await withTimeout(submitGradingAction(assignmentId, op.payload.values, op.payload.comment, op.requestId))
       if (outcome === 'timeout') return interrupted('submit')
-      if (!outcome.ok) return rejected('submit', outcome)
-      requestIds.current.submit = newRequestId()
-      setReceipt(outcome.data)
+      if (!outcome.ok) return rejected(outcome)
+      const current = receiptIsCurrent(outcome.data.version)
       dispatch({
         type: 'sent-ok',
-        kind: 'submit',
-        version,
-        serverTime: outcome.data.serverTime,
+        requestId: op.requestId,
+        version: outcome.data.version,
         savedAtText: null,
         text: null,
         textIfEdited: SUBMITTED_BUT_EDITED_NOTE,
       })
-      receiptDialog.current?.showModal()
+      // 舊收據（這次送的內容已被之後的送出取代）不開收件章：reducer 已出衝突區說明。
+      if (current) {
+        setReceipt(outcome.data)
+        receiptDialog.current?.showModal()
+      }
       // 次數、紀錄、採計分數都是伺服器事實：重抓，不在本地追加（同編號重試會回同一張回執，不會多一筆）。
       router.refresh()
     } catch {
       interrupted('submit')
+    } finally {
+      busyRef.current = false
     }
   }
 
-  async function copyStash() {
-    if (!stash) return
+  async function copyStash(entry: StashEntry) {
     try {
-      await navigator.clipboard.writeText(stashLines(stage, stash, snapshot.content).join('\n'))
+      await navigator.clipboard.writeText(stashLines(stage, entry.content, entry.server).join('\n'))
       dispatch({ type: 'message', message: { tone: 'ok', text: '已複製尚未儲存的內容。' } })
     } catch {
       dispatch({ type: 'message', message: { tone: 'error', text: '無法自動複製，請直接選取上面的文字。' } })
@@ -554,7 +659,13 @@ export function GradingBench({
       : blockReasonOf(errors, missing).replace('正式送出', submitWord)
 
   return (
-    <section aria-label={`${groupCode}「${stage.name}」評分表`} className="dash-card" data-server-time={serverTime} data-hydrated={hydrated ? '' : undefined}>
+    <section
+      aria-label={`${groupCode}「${stage.name}」評分表`}
+      className="dash-card"
+      data-server-time={applied.serverTime}
+      data-version={applied.version}
+      data-hydrated={hydrated ? '' : undefined}
+    >
       {/* 送出後：頂部一條綠色「已正式送出（第 n 次）・{時間}」（就是 save-status 本身） */}
       {hasFinal ? (
         <p
@@ -627,28 +738,37 @@ export function GradingBench({
           </div>
         </div>
       ) : null}
-      {stash ? (
-        <div role="status" data-testid="bench-stash" className="mx-5 mt-3 flex flex-col gap-2 rounded-lg bg-warning-subtle px-3 py-2 text-sm text-foreground">
-          <p className="font-semibold">尚未儲存的修改（沒有存入）</p>
-          <ul className="tabular flex flex-col gap-0.5 text-sm">
-            {stashLines(stage, stash, snapshot.content).map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <div className="flex flex-wrap gap-2">
-            {readOnly ? (
-              <button type="button" className={cn(OUTLINE_BUTTON, 'h-9 px-3')} onClick={copyStash}>
-                <IconCopy className="size-3.5" aria-hidden /> 複製未儲存的內容
-              </button>
-            ) : (
-              <button type="button" className={cn(OUTLINE_BUTTON, 'h-9 px-3')} onClick={() => dispatch({ type: 'restore-stash' })}>
-                恢復未儲存的內容
-              </button>
-            )}
-            <button type="button" className={cn(GHOST_BUTTON, 'h-9 px-3')} onClick={() => dispatch({ type: 'drop-stash' })}>
-              不用了
-            </button>
-          </div>
+      {stashes.length > 0 ? (
+        <div role="status" data-testid="bench-stash" className="mx-5 mt-3 flex flex-col gap-3 rounded-lg bg-warning-subtle px-3 py-2 text-sm text-foreground">
+          <p className="font-semibold">尚未儲存的修改（沒有存入）{stashes.length > 1 ? `・${stashes.length} 份` : ''}</p>
+          {stashes.map((entry) => (
+            <div key={entry.id} data-testid="bench-stash-entry" className="flex flex-col gap-2">
+              {stashes.length > 1 || entry.settledAtText ? (
+                <p className="tabular text-xs text-muted-foreground">
+                  {entry.settledAtText ? `結算（${entry.settledAtText}）時` : '轉成唯讀時'}沒存入的內容
+                </p>
+              ) : null}
+              <ul className="tabular flex flex-col gap-0.5 text-sm">
+                {stashLines(stage, entry.content, entry.server).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                {readOnly ? (
+                  <button type="button" className={cn(OUTLINE_BUTTON, 'h-9 px-3')} onClick={() => copyStash(entry)}>
+                    <IconCopy className="size-3.5" aria-hidden /> 複製未儲存的內容
+                  </button>
+                ) : (
+                  <button type="button" className={cn(OUTLINE_BUTTON, 'h-9 px-3')} onClick={() => dispatch({ type: 'restore-stash', id: entry.id })}>
+                    恢復未儲存的內容
+                  </button>
+                )}
+                <button type="button" className={cn(GHOST_BUTTON, 'h-9 px-3')} onClick={() => dispatch({ type: 'drop-stash', id: entry.id })}>
+                  不用了
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -788,10 +908,7 @@ export function GradingBench({
           rows={3}
           aria-invalid={commentError ? true : undefined}
           aria-describedby="bench-comment-count"
-          onChange={(e) => {
-            dispatch({ type: 'edit-comment', value: e.target.value })
-            touched()
-          }}
+          onChange={(e) => dispatch({ type: 'edit-comment', value: e.target.value })}
           className={cn(
             'min-h-20 rounded-lg border bg-background px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-150 focus-visible:ring-3 disabled:bg-muted disabled:opacity-70',
             commentError
@@ -943,7 +1060,7 @@ export function GradingBench({
   )
 }
 
-/** 提示區列出沒存入的內容：只列跟伺服器存的不一樣的項目與評語。 */
+/** 提示區列出沒存入的內容：只列跟伺服器（收進來當時）存的不一樣的項目與評語。 */
 function stashLines(stage: SchemeStage, stash: Content, server: Content): string[] {
   const lines: string[] = []
   for (const item of stage.items) {

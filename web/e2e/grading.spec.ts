@@ -10,10 +10,11 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 3. 老師工作台只看到自己的指派；填 0–100 暫存（只有本人與管理員看得到）；正式送出後仍可改、重新送出（B 階段 TE-B1）。
  *    方案在第一位老師開始填（第一份暫存）時鎖定結構（產品 06 §4「7.5」）。
  * 3b. B 階段 A-02：送出紀錄、正式送出後的草稿（「有尚未送出的修改」）、評語 500 字前端擋、系辦結算後唯讀。
- * 3c. Review #584 的五個反例（r1 ①②、r2 ①②③）：多分頁重送、結算後被拒存、回應中斷後同編號重試、
- *     等回應時續打、未存就被動結算。用 page.route 攔 Server Action 的 POST 模擬延遲與中斷。
- *     這個檔是 serial：一條失敗其餘就略過，所以要在舊版重現「每一條都紅」時，用 `GRADING_E2E_SKIP=r1-2,r2-1`
- *     跳過已證明的反例再跑一次；正常驗收不設。
+ * 3c. Review #584 的十個反例（r1 ①②、r2 ①②③、r3 ①～⑤）：多分頁重送、結算後被拒存、回應中斷後同編號重試、
+ *     等回應時續打、未存就被動結算；第 4 輪：重試原樣送凍結的 payload、舊收據不清未存、改用伺服器內容後是新的一次、
+ *     未存內容依版本保存成列表、較舊／相同時間戳的 RSC 快照整包丟掉不崩。用 page.route 攔 Server Action 的 POST 模擬延遲
+ *     與中斷、攔 RSC GET 重放舊快照。這個檔是 serial：一條失敗其餘就略過，所以要在舊版重現「每一條都紅」時，
+ *     用 `GRADING_E2E_SKIP=r1-2,r2-1` 這類 tag 跳過已證明的反例再跑一次；正常驗收不設。
  * 4. 學生的「成績」頁只有一句說明；學生零可見的全面掃描在 student-zero-visibility.spec.ts。
  *
  * 併發只一筆採計、同請求編號重送、學生呼叫任何評分用例 FORBIDDEN、資料庫 trigger 由整合測試證明
@@ -821,6 +822,305 @@ test('Review #584 r2 反例③：還沒儲存的修改＋系辦在別處結算 �
   await expect(score).toHaveValue(storedScore)
   await expect(bench.getByTestId('bench-stash')).toContainText('功能完整度：83')
   await expect(bench.getByTestId('bench-stash')).toContainText('結算前還沒存的評語')
+})
+
+// ───────────── Review #584 第 4 輪（Astra r3）的五個反例：凍結 payload、舊收據、新操作、stash 列表、舊快照 ─────────────
+
+/** 從現在起收集這個分頁送出的 Server Action POST 原文（含請求編號；同一次操作重試必須一字不差）。 */
+function collectActionBodies(page: Page) {
+  const bodies: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.headers()['next-action']) bodies.push(r.postData() ?? '')
+  })
+  return bodies
+}
+
+/** Server Action POST 的參數陣列：`[assignmentId, scores, comment, requestId]`。 */
+function actionArgs(body: string): [string, Record<string, string>, string, string] {
+  return JSON.parse(body) as [string, Record<string, string>, string, string]
+}
+
+const isRscGet = (r: { method(): string; headers(): Record<string, string>; url(): string }) =>
+  r.method() === 'GET' && r.headers()['rsc'] === '1' && r.url().includes('/dashboard/teacher/grading/')
+
+/** 送 focus 讓評分卡重抓一次，只等 RSC 回應回來（不要求畫面套用——重放舊快照時就是要它不套用）。 */
+async function focusAndWaitRsc(page: Page) {
+  const synced = page.waitForResponse((r) => isRscGet(r.request()), { timeout: 15_000 })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await synced
+  await page.waitForTimeout(400)
+}
+
+/** 另一個分頁（同一位老師）把第一項改成 `value` 並重新送出，等 DB 採計變成它。 */
+async function otherTabResubmit(other: Page, value: string) {
+  const b = await benchReady(other)
+  await b.getByLabel('1. 功能完整度').fill(value)
+  await b.getByTestId('resubmit').click()
+  await other.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await other.getByRole('dialog', { name: '已送出' }).getByRole('button', { name: '知道了' }).click()
+  await expect.poll(async () => (await storedEvaluation('counted'))?.scores[await firstItemKey()]).toBe(value)
+}
+
+test('Review #584 r3 反例①：送出 74.00 回應中斷 → 重抓對上（伺服器存 74）→ 再按一次送的是凍結的原 payload 與同一個請求編號：拿到同一張回執、不是 REQUEST_MISMATCH、DB 不多一筆', async ({ page }) => {
+  test.skip(skipped('r3-1'), '重現舊版紅燈時用 GRADING_E2E_SKIP 跳過')
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  const score = bench.getByLabel('1. 功能完整度')
+  await expect(bench.getByTestId('resubmit')).toBeVisible()
+  const before = await submissionCount()
+  const bodies = collectActionBodies(page)
+
+  await score.fill('74.00')
+  const held = await holdNextAction(page)
+  await bench.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await held.received
+  held.drop()
+  await expect(bench.getByRole('alert')).toContainText('連線中斷')
+  expect(await submissionCount()).toBe(before + 1)
+
+  // 切回前景：伺服器存的是正規化後的 74，對得上這次送的內容 → 其實已送達；欄位裡老師打的原值不動。
+  await refocus(page, bench)
+  await expect(bench.getByTestId('bench-stale')).toContainText('其實已經送達')
+  await expect(bench.getByTestId('save-status')).toContainText(`第 ${before + 1} 次`)
+
+  // 再按一次：送的必須是凍結的 `{requestId, payload}`（74.00），不是從欄位重讀或正規化後的 74 → 伺服器回同一張回執。
+  await bench.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await expect(page.getByRole('dialog', { name: '已送出' })).toBeVisible()
+  await page.getByRole('dialog', { name: '已送出' }).getByRole('button', { name: '知道了' }).click()
+  await expect(bench.getByRole('alert')).toHaveCount(0)
+  expect(bodies).toHaveLength(2)
+  expect(bodies[1]).toBe(bodies[0])
+  expect(actionArgs(bodies[0]!)[1][await firstItemKey()]).toBe('74.00')
+  await refocus(page, bench)
+  expect(await submissionCount()).toBe(before + 1)
+  await expect(bench.getByTestId('save-status')).toContainText(`第 ${before + 1} 次`)
+  await expect(score).toHaveValue('74.00')
+  expect((await storedEvaluation('counted'))!.scores[await firstItemKey()]).toBe('74')
+})
+
+test('Review #584 r3 反例②：A 送 81 回應中斷、B 再送 91 → A 切回前景看到衝突、選「保留我的修改」後重試 → 拿回的是舊收據：不清未存、不開收件章、欄位仍是 81，DB 仍是 91；之後結算 → 唯讀欄顯示 91、81 進未存清單', async ({ page, context }) => {
+  test.skip(skipped('r3-2'), '重現舊版紅燈時用 GRADING_E2E_SKIP 跳過')
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const scoreA = benchA.getByLabel('1. 功能完整度')
+  await expect(benchA.getByTestId('resubmit')).toBeVisible()
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  await benchReady(other)
+  const key = await firstItemKey()
+  const before = await submissionCount()
+
+  await scoreA.fill('81')
+  const held = await holdNextAction(page)
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await held.received
+  await otherTabResubmit(other, '91')
+  held.drop()
+  await expect(benchA.getByRole('alert')).toContainText('連線中斷')
+  expect(await submissionCount()).toBe(before + 2)
+
+  // 切回前景：伺服器是 B 的 91，A 還有未存的 81 → 衝突區讓老師選。
+  await refocus(page, benchA)
+  await expect(benchA.getByTestId('bench-conflict')).toBeVisible()
+  await expect(scoreA).toHaveValue('81')
+  await expect(benchA.getByTestId('save-status')).toContainText(`第 ${before + 2} 次`)
+  await benchA.getByRole('button', { name: '保留我的修改' }).click()
+
+  // 重試：伺服器回 81 那一次的舊收據（版本比已知的 91 舊）→ 不能把 81 當成已存、不開收件章；老師仍可選。
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await expect(benchA.getByTestId('edit-status')).toContainText('有尚未儲存的修改')
+  await expect(page.getByRole('dialog', { name: '已送出' })).not.toBeVisible()
+  await expect(benchA.getByRole('alert')).toContainText('已被別的分頁或裝置的送出取代')
+  await expect(benchA.getByTestId('bench-conflict')).toBeVisible()
+  await expect(scoreA).toHaveValue('81')
+  await expect(benchA.getByTestId('score-preview')).not.toContainText('計入成績的分數')
+  expect((await storedEvaluation('counted'))!.scores[key]).toBe('91')
+  expect(await submissionCount()).toBe(before + 2)
+
+  // 系辦結算 → 切回前景：唯讀欄顯示伺服器的 91，沒存成功的 81 保留在未存清單。
+  await settleG01Stage()
+  await refocus(page, benchA)
+  await expect(scoreA).toBeDisabled()
+  await expect(scoreA).toHaveValue('91')
+  await expect(benchA.getByTestId('bench-stash')).toContainText('功能完整度：81')
+  await expect(benchA.getByTestId('bench-conflict')).toHaveCount(0)
+  await other.close()
+})
+
+test('Review #584 r3 反例③：A 送 82 回應中斷、B 再送 92 → A 切回前景選「改用伺服器的內容」→ 再按「重新送出」是新的一次：新請求編號、payload 是 92，拿到收件章、不是 REQUEST_MISMATCH', async ({ page, context }) => {
+  test.skip(skipped('r3-3'), '重現舊版紅燈時用 GRADING_E2E_SKIP 跳過')
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const scoreA = benchA.getByLabel('1. 功能完整度')
+  await expect(benchA.getByTestId('resubmit')).toBeVisible()
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  await benchReady(other)
+  const key = await firstItemKey()
+  const before = await submissionCount()
+  const bodies = collectActionBodies(page)
+
+  await scoreA.fill('82')
+  const held = await holdNextAction(page)
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await held.received
+  await otherTabResubmit(other, '92')
+  held.drop()
+  await expect(benchA.getByRole('alert')).toContainText('連線中斷')
+
+  await refocus(page, benchA)
+  await expect(benchA.getByTestId('bench-conflict')).toBeVisible()
+  await benchA.getByRole('button', { name: '改用伺服器的內容' }).click()
+  await expect(scoreA).toHaveValue('92')
+  await expect(benchA.getByTestId('bench-conflict')).toHaveCount(0)
+  await expect(benchA.getByTestId('edit-status')).toHaveCount(0)
+
+  // 內容已換成伺服器的：這一按是新的一次操作，不能沿用 82 那次的請求編號。
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await expect(page.getByRole('dialog', { name: '已送出' })).toBeVisible()
+  await page.getByRole('dialog', { name: '已送出' }).getByRole('button', { name: '知道了' }).click()
+  await expect(benchA.getByRole('alert')).toHaveCount(0)
+  expect(bodies).toHaveLength(2)
+  const [first, second] = [actionArgs(bodies[0]!), actionArgs(bodies[1]!)]
+  expect(first[1][key]).toBe('82')
+  expect(second[1][key]).toBe('92')
+  expect(second[3]).not.toBe(first[3])
+  await refocus(page, benchA)
+  expect(await submissionCount()).toBe(before + 3)
+  await expect(benchA.getByTestId('save-status')).toContainText(`第 ${before + 3} 次`)
+  expect((await storedEvaluation('counted'))!.scores[key]).toBe('92')
+  await other.close()
+})
+
+test('Review #584 r3 反例④：未存 83／評語 → 結算 → 解除 → 不恢復也不丟棄、再改 84／新評語 → 再結算：兩份未存內容都保留；解除後只恢復第二份、第一份仍在，按「不用了」才消失', async ({ page }) => {
+  test.skip(skipped('r3-4'), '重現舊版紅燈時用 GRADING_E2E_SKIP 跳過')
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  const score = bench.getByLabel('1. 功能完整度')
+  const comment = bench.getByLabel('評語（選填，最多 500 字）')
+  await expect(bench.getByTestId('resubmit')).toBeVisible()
+  const storedScore = await score.inputValue()
+  const stash = bench.getByTestId('bench-stash')
+  const entries = stash.getByTestId('bench-stash-entry')
+
+  await score.fill('83')
+  await comment.fill('第一份未存的評語')
+  await settleG01Stage()
+  await refocus(page, bench)
+  await expect(score).toBeDisabled()
+  await expect(stash).toContainText('功能完整度：83')
+  await expect(stash).toContainText('第一份未存的評語')
+
+  // 解除結算：不恢復、不丟棄，直接再改、再被結算 → 第一份不能被第二份蓋掉。
+  await releaseG01Stage()
+  await refocus(page, bench)
+  await expect(score).toBeEnabled()
+  await expect(score).toHaveValue(storedScore)
+  await score.fill('84')
+  await comment.fill('第二份未存的評語')
+  await settleG01Stage()
+  await refocus(page, bench)
+  await expect(score).toBeDisabled()
+  await expect(stash).toContainText('第一份未存的評語')
+  await expect(stash).toContainText('第二份未存的評語')
+  await expect(entries).toHaveCount(2)
+  await expect(entries.nth(0)).toContainText('功能完整度：83')
+  await expect(entries.nth(1)).toContainText('功能完整度：84')
+
+  // 解除後只恢復第二份：第一份仍在清單；按第一份的「不用了」才消失。
+  await releaseG01Stage()
+  await refocus(page, bench)
+  await expect(score).toBeEnabled()
+  await entries.nth(1).getByRole('button', { name: '恢復未儲存的內容' }).click()
+  await expect(score).toHaveValue('84')
+  await expect(comment).toHaveValue('第二份未存的評語')
+  await expect(bench.getByTestId('edit-status')).toContainText('有尚未儲存的修改')
+  await expect(entries).toHaveCount(1)
+  await expect(entries.nth(0)).toContainText('功能完整度：83')
+  await expect(entries.nth(0)).toContainText('第一份未存的評語')
+  await entries.nth(0).getByRole('button', { name: '不用了' }).click()
+  await expect(stash).toHaveCount(0)
+  await expect(score).toHaveValue('84')
+  expect((await storedEvaluation('counted'))!.scores[await firstItemKey()]).toBe(storedScore)
+})
+
+test('Review #584 r3 反例⑤：B 重送後，A 重放較舊的 RSC 快照（原時間戳、以及偽造成相同時間戳）→ 整包丟掉：沒有 React 錯誤、畫面仍是 B 的分數與新次數；下一次正常重抓照常接受', async ({ page, context }) => {
+  test.skip(skipped('r3-5'), '重現舊版紅燈時用 GRADING_E2E_SKIP 跳過')
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const scoreA = benchA.getByLabel('1. 功能完整度')
+  await expect(benchA.getByTestId('resubmit')).toBeVisible()
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  await benchReady(other)
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  // 錄下一份真的（較舊的）RSC 快照。
+  let oldBody: Buffer | null = null
+  let oldHeaders: Record<string, string> = {}
+  const capture = async (route: Route) => {
+    if (!isRscGet(route.request())) return route.continue()
+    const response = await route.fetch()
+    oldBody = await response.body()
+    oldHeaders = response.headers()
+    return route.fulfill({ response })
+  }
+  await page.route('**/dashboard/teacher/grading/**', capture)
+  await refocus(page, benchA)
+  await page.unroute('**/dashboard/teacher/grading/**', capture)
+  expect(oldBody).not.toBeNull()
+  const oldTime = (await benchA.getAttribute('data-server-time'))!
+  const oldStatus = (await benchA.getByTestId('save-status').innerText()).match(/第 \d+ 次/)![0]
+  const before = await submissionCount()
+
+  // B 重送 77 → A 切回前景跟上。
+  await otherTabResubmit(other, '77')
+  await refocus(page, benchA)
+  await expect(scoreA).toHaveValue('77')
+  const newTime = (await benchA.getAttribute('data-server-time'))!
+  const newStatus = `第 ${before + 1} 次`
+  await expect(benchA.getByTestId('save-status')).toContainText(newStatus)
+  expect(newStatus).not.toBe(oldStatus)
+
+  // 1. 重放較舊的快照（原時間戳）：版本比已接受的舊 → 整包丟掉，畫面不動、不崩。
+  const replayOld = (route: Route) => (isRscGet(route.request()) ? route.fulfill({ status: 200, headers: oldHeaders, body: oldBody! }) : route.continue())
+  await page.route('**/dashboard/teacher/grading/**', replayOld)
+  await focusAndWaitRsc(page)
+  await expect(scoreA).toHaveValue('77')
+  await expect(benchA.getByTestId('save-status')).toContainText(newStatus)
+  await expect(benchA).toHaveAttribute('data-server-time', newTime)
+  await page.unroute('**/dashboard/teacher/grading/**', replayOld)
+
+  // 2. 把舊快照的時間戳偽造成跟目前接受的一樣：排序鍵是資料庫寫入版本不是時間，舊版本一樣丟掉。
+  const tied = oldBody!.toString().split(oldTime).join(newTime)
+  expect(tied).not.toBe(oldBody!.toString())
+  const replayTied = (route: Route) => (isRscGet(route.request()) ? route.fulfill({ status: 200, headers: oldHeaders, body: tied }) : route.continue())
+  await page.route('**/dashboard/teacher/grading/**', replayTied)
+  await focusAndWaitRsc(page)
+  await expect(scoreA).toHaveValue('77')
+  await expect(benchA.getByTestId('save-status')).toContainText(newStatus)
+  await page.unroute('**/dashboard/teacher/grading/**', replayTied)
+  expect(pageErrors).toEqual([])
+  await expect(page.getByText('This page couldn’t load')).toHaveCount(0)
+
+  // 3. 下一次正常重抓照常接受（時間戳變新），畫面仍是 77。
+  await refocus(page, benchA)
+  await expect(scoreA).toHaveValue('77')
+  await expect(benchA.getByTestId('save-status')).toContainText(newStatus)
+  expect(await submissionCount()).toBe(before + 1)
+  await other.close()
 })
 
 /** 階段第一項（功能完整度）的 key：DB 裡的分數用 key 存；照評一最新一筆評分所用的方案版本查。 */
