@@ -459,7 +459,7 @@ function Seats({ seats, label }: { seats: Seat[]; label: string }) {
             )}
           >
             {m.avatar ? (
-              <UserAvatar user={m.avatar} size={64} decorative className="size-full" />
+              <UserAvatar user={m.avatar} size={32} decorative />
             ) : (
               <span aria-hidden>{m.name.slice(0, 1)}</span>
             )}

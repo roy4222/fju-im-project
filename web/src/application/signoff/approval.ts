@@ -144,8 +144,8 @@ export type ParticipantProgress = {
   readonly reason: string | null
   readonly at: Date | null
   /** 頭像（ST-12）：快照不存，呼叫端給目前值；沒給或查不到 → null（＝hash 預設圖）。 */
-  readonly avatarPreset?: number | null
-  readonly avatarFileId?: string | null
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 export type VersionProgress = {

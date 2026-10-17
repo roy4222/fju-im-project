@@ -209,8 +209,8 @@ export type GroupMember = {
    */
   readonly loginEmail: string | null
   /** 頭像（ST-12）：沒設定＝null，畫面用 hash 預設圖。 */
-  readonly avatarPreset?: number | null
-  readonly avatarFileId?: string | null
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 /**
