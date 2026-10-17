@@ -8,6 +8,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -56,6 +57,13 @@ export const userProfiles = pgTable(
     openToJoin: boolean('open_to_join').notNull().default(false),
     /** 只是列表顯示用；判定一律看 `sessions.login_method`（模組 01 §2）。 */
     loginMethodLast: text('login_method_last'),
+    /** 選了第幾張預設頭像（1～100）；兩欄都 NULL 時依帳號 hash 固定一張（Q105）。 */
+    avatarPreset: smallint('avatar_preset'),
+    /** 上傳的頭像；有值時優先於 `avatar_preset`。檔案被刪時自動清成 NULL。 */
+    avatarFileId: uuid('avatar_file_id').references(() => storedFiles.id, {
+      onDelete: 'set null',
+      onUpdate: 'restrict',
+    }),
     profileCompletedAt: timestamp('profile_completed_at', tz),
     revision: integer('revision').notNull().default(1),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
@@ -70,6 +78,7 @@ export const userProfiles = pgTable(
       'user_profiles_login_method_last_check',
       sql`${t.loginMethodLast} is null or ${t.loginMethodLast} in ('google','password')`,
     ),
+    check('user_profiles_avatar_preset_check', sql`${t.avatarPreset} between 1 and 100`),
     index('user_profiles_cohort_idx').on(t.cohortId),
     index('user_profiles_student_no_idx').on(t.studentNo),
   ],

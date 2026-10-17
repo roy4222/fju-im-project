@@ -14,6 +14,8 @@ export type {
 } from '@/application/accounts/actor'
 export { ANONYMOUS, canPerform, hasRole, statusGate } from '@/application/accounts/actor'
 export type { ActorResolver } from '@/application/accounts/ports'
+export type { AvatarUser } from '@/application/accounts/avatar'
+export { AVATAR_MAX_BYTES, AVATAR_PRESET_COUNT, avatarHashPreset, avatarUrl } from '@/application/accounts/avatar'
 export type {
   ChangePasswordInput,
   ChangePasswordOutcome,
