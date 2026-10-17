@@ -166,11 +166,13 @@ function SiteFooter({
         ? [
             { href: '/account', label: '我的帳號' },
             { href: viewer.workbench.href, label: viewer.workbench.label },
+            { href: '/privacy', label: '隱私權政策' },
           ]
         : [
             { href: '/login', label: '登入' },
             ...(registrationOpen ? [{ href: '/register', label: '註冊' }] : []),
             { href: '/forgot-password', label: '忘記密碼' },
+            { href: '/privacy', label: '隱私權政策' },
           ],
     },
   ]

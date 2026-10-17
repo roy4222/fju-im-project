@@ -11,7 +11,7 @@ export function googleSignInErrorMessage(code: unknown): string | null {
   if (typeof code !== 'string' || code === '') return null
   if (code === 'account_not_linked') {
     // §2.3：同 Email 已經有帳號時一律拒絕，並提示改用原方式登入後再連結。
-    return '這個 Google 帳號的 Email 已經有帳號了，系統不會自動合併。請先用原本的 Email 與密碼登入，再到「我的帳號」連結 Google。'
+    return '這個 Email 已經有帳號。請先用 Email 與密碼登入，到「我的帳號」驗證 Email 或連結 Google，之後就可以直接用 Google 登入。'
   }
   if (code === 'access_denied') return '你取消了 Google 登入。可以再試一次，或改用 Email 與密碼。'
   // 註冊關閉時（設計方案 §5），沒有帳號的 Google 身分不會被建成新帳號。

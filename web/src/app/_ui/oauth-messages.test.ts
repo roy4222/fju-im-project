@@ -10,7 +10,7 @@ describe('Google 失敗代碼的文案（票 10）', () => {
   })
 
   it('同 Email 已有帳號：提示用原方式登入後再連結（§2.3）', () => {
-    expect(googleSignInErrorMessage('account_not_linked')).toContain('先用原本的 Email 與密碼登入')
+    expect(googleSignInErrorMessage('account_not_linked')).toContain('請先用 Email 與密碼登入')
   })
 
   it('停用帳號被擋（unable_to_create_session）跟其他失敗是同一句，不透露帳號狀態', () => {
