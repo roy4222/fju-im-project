@@ -4,6 +4,8 @@ import type { ClockOverride, SetBusinessClockInput } from '@/application/cohorts
 import type {
   ActivateCohortReceipt,
   Cohort,
+  CohortStatusInput,
+  CohortStatusReceipt,
   CreateCohortInput,
   CreateCohortReceipt,
   GroupingSettingsInput,
@@ -51,6 +53,13 @@ export interface CohortCommand {
     expectedRevision: number,
     requestId: string,
   ): Promise<Result<SetGroupingSettingsReceipt>>
+  /**
+   * 進行中→已封存（AD-B4）。理由必填 1–200 字。籌備中、預設工作屆別、開放註冊屆別回 `VALIDATION_FAILED`；
+   * 已封存回 `CONFLICT`。同一筆交易寫 `cohort_status_events`（帶理由）、稽核 `cohort.archive`；不發事件。
+   */
+  archive(actor: ResolvedActor, input: CohortStatusInput, requestId: string): Promise<Result<CohortStatusReceipt>>
+  /** 已封存→進行中（AD-B4）。理由必填；不是已封存回 `CONFLICT`。稽核 `cohort.unarchive`。 */
+  unarchive(actor: ResolvedActor, input: CohortStatusInput, requestId: string): Promise<Result<CohortStatusReceipt>>
 }
 
 /**

@@ -21,6 +21,11 @@ import {
   type SetCohortFlagReceipt,
   type SetGroupingSettingsReceipt,
 } from '@/application/cohorts'
+import {
+  normalizeStatusReason,
+  type CohortStatusInput,
+  type CohortStatusReceipt,
+} from '@/application/cohorts/cohorts'
 import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import {
@@ -59,11 +64,15 @@ type Row = {
   group_size_max: number
   revision: number
   created_at: Date
+  archived_at: Date | null
 }
 
 const COLUMNS =
   "id, code, name, status, is_default_working, is_registration_open, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date, " +
-  'proposal_default_days, group_size_min, group_size_max, revision, created_at'
+  'proposal_default_days, group_size_min, group_size_max, revision, created_at, ' +
+  // 已封存卡上的「已封存 {時間}」：最近一筆進入已封存的狀態紀錄（同一句查完，不另外逐屆查）。
+  "case when status = 'archived' then (select max(e.real_at) from cohort_status_events e " +
+  "where e.cohort_id = cohorts.id and e.to_status = 'archived') end as archived_at"
 
 function toCohort(row: Row): Cohort {
   return {
@@ -79,6 +88,7 @@ function toCohort(row: Row): Cohort {
     groupSizeMax: row.group_size_max,
     revision: row.revision,
     createdAt: row.created_at,
+    archivedAt: row.archived_at,
   }
 }
 
@@ -478,6 +488,99 @@ export class PgCohortCommand implements CohortCommand {
     })
   }
 
+  /**
+   * 封存與解封（AD-B4；設計方案 §7）。
+   *
+   * 封存前置：狀態是進行中，而且不是預設工作屆別或開放註冊屆別（旗標不能留在封存的屆別上）。
+   * 同一筆交易：改狀態、寫 `cohort_status_events`（帶理由）、稽核、帳本。沒有消費者，所以不發事件。
+   * 封存後的寫入擋法都是既有守衛（各模組看 `status = 'archived'` 回 `COHORT_ARCHIVED`），這裡不另寫。
+   */
+  archive(actor: ResolvedActor, input: CohortStatusInput, requestId: string) {
+    return this.#changeStatus(actor, input, requestId, 'archive')
+  }
+
+  unarchive(actor: ResolvedActor, input: CohortStatusInput, requestId: string) {
+    return this.#changeStatus(actor, input, requestId, 'unarchive')
+  }
+
+  async #changeStatus(
+    actor: ResolvedActor,
+    input: CohortStatusInput,
+    requestId: string,
+    mode: 'archive' | 'unarchive',
+  ): Promise<Result<CohortStatusReceipt>> {
+    const denied = authorizeAdmin(actor, mode === 'archive' ? '封存屆別' : '解除封存屆別')
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    const { cohortId } = input
+    if (!isCohortId(cohortId)) return cohortNotFound()
+    const normalized = normalizeStatusReason(input.reason)
+    if (!normalized.ok) return normalized
+    const reason = normalized.value
+    const userId = actorUserId(actor)
+    const operation = mode === 'archive' ? 'cohort.archive' : 'cohort.unarchive'
+    const businessAt = await this.#businessClock.now()
+
+    return this.#inTransaction(async (tx) => {
+      const found = await tx.query<Row>(`select ${COLUMNS} from cohorts where id = $1 for update`, [cohortId])
+      const target = found.rows[0]
+      if (!target) return cohortNotFound()
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: operation,
+          requestId,
+          fingerprint: sha256(canonicalJson({ cohortId, reason })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<CohortStatusReceipt>(begun)
+
+      const from = target.status
+      if (mode === 'archive') {
+        if (from === 'archived') return err('CONFLICT', `${cohortLabel(target)}已經封存了，請重新整理頁面。`)
+        if (from === 'preparing') {
+          return err('VALIDATION_FAILED', '還沒啟用的屆別不能封存，請直接刪除或啟用。')
+        }
+        if (target.is_default_working) return err('VALIDATION_FAILED', '請先把預設工作屆別換成別屆。')
+        if (target.is_registration_open) return err('VALIDATION_FAILED', '請先把開放報名屆別換成別屆。')
+      } else if (from !== 'archived') {
+        return err('CONFLICT', `${cohortLabel(target)}不是已封存，不用解除封存；請重新整理頁面。`)
+      }
+      const to: CohortStatus = mode === 'archive' ? 'archived' : 'active'
+
+      await tx.query(
+        `update cohorts
+            set status = $4, revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+          where id = $1`,
+        [cohortId, realAt, userId, to],
+      )
+      await insertStatusEvent(tx, { cohortId, from, to, userId, realAt, businessAt, reason })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: operation,
+        targetType: 'cohort',
+        targetId: cohortId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: { code: target.code, from, to, reason },
+      })
+
+      const receipt = { cohortId, status: to, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   /** 唯一鍵被同時送出的另一筆搶先（代碼、或兩個旗標的部分唯一索引）：回衝突，請使用者重載。 */
   #inTransaction<R>(body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
     return inTransaction(this.#pool, 'cohorts', body, (constraint) =>
@@ -498,12 +601,14 @@ async function insertStatusEvent(
     userId: string
     realAt: Date
     businessAt: Date
+    /** 進出「已封存」時必填（`cohort_status_events_archive_reason_check`）。 */
+    reason?: string
   },
 ): Promise<void> {
   await tx.query(
-    `insert into cohort_status_events (id, cohort_id, from_status, to_status, actor_user_id, real_at, business_at)
-     values ($1, $2, $3, $4, $5, $6, $7)`,
-    [uuidv7(), event.cohortId, event.from, event.to, event.userId, event.realAt, event.businessAt],
+    `insert into cohort_status_events (id, cohort_id, from_status, to_status, reason, actor_user_id, real_at, business_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [uuidv7(), event.cohortId, event.from, event.to, event.reason ?? null, event.userId, event.realAt, event.businessAt],
   )
 }
 
