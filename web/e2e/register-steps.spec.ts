@@ -248,7 +248,8 @@ test('AC-VI-50（Review P1）：未驗證的人經等待審核頁舊的「送出
   // 讓等待審核頁打得開（那頁對沒申請的人顯示舊的送出表單），再改回未驗證後送出：舊 Action 自己要擋。
   await pool.query('update users set email_verified = true where email = $1', [email])
   await page.goto('/register/pending')
-  await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
+  // VB-6：已驗證、還沒送申請的人開等待審核頁 → 改導第 3 步（visitor-r3）；下面改從第 3 步的表單送。
+  await expect(page).toHaveURL(/\/register\/apply$/)
   await pool.query('update users set email_verified = false where email = $1', [email])
   await page.getByLabel('姓名').fill('舊入口')
   await page.getByLabel('學號').fill('411499101')
