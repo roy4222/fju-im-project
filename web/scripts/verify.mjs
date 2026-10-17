@@ -201,6 +201,7 @@ function runStep(name, command, args, { env, cwd = webDir } = {}) {
   current = { name, command: display, started }
   return new Promise((resolve) => {
     let buffer = ''
+    let errBuffer = ''
     const keep = (chunk) => {
       buffer += chunk
       if (buffer.length > 200_000) buffer = buffer.slice(-100_000)
@@ -214,11 +215,18 @@ function runStep(name, command, args, { env, cwd = webDir } = {}) {
     child.stderr.on('data', (d) => {
       process.stderr.write(d)
       keep(d.toString())
+      errBuffer = (errBuffer + d.toString()).slice(-100_000)
     })
     const finish = (ok, extra = '') => {
       foreground = null
       current = null
-      const result = { name, command: display, status: ok ? 'pass' : 'fail', ms: Date.now() - started, tail: tailOf(buffer + extra) }
+      const tail = tailOf(buffer + extra)
+      // vitest 的錯誤細節走 stderr，常被之後的 stdout 進度擠出尾段；不在尾段裡就另外附 stderr 的尾巴。
+      const errTail = tailOf(errBuffer).filter((line) => line.trim() && !line.includes('ELIFECYCLE'))
+      if (!ok && errTail.length > 0 && !errTail.every((line) => tail.includes(line))) {
+        tail.push(`── stderr 最後 ${Math.min(errTail.length, 20)} 行 ──`, ...errTail.slice(-20))
+      }
+      const result = { name, command: display, status: ok ? 'pass' : 'fail', ms: Date.now() - started, tail }
       results.push(result)
       resolve(ok)
     }
