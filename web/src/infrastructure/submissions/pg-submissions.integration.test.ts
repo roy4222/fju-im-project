@@ -1201,6 +1201,6 @@ describe('設免繳／恢復（B 階段 A-08、AC-A-21～24）：只改名單列
     const entry = (await roster().roster(adminActor(), itemId))!.entries.find((e) => e.receiverId === groupId)!
     expect(entry).toMatchObject({ receiverKind: 'group', exempt: true, exemptReason: '整組改交紙本' })
     expect((await set(adminActor(), itemId, groupId, false)).ok).toBe(true)
-    expect((await audits(itemId)).map((a) => a.payload.receiverKind)).toEqual(['group', 'group'])
+    expect((await audits(itemId)).map((a) => (a.payload as { receiverKind: string }).receiverKind)).toEqual(['group', 'group'])
   })
 })
