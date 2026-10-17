@@ -1021,7 +1021,8 @@ function createAuth() {
         //
         // HTTP（`POST /api/auth/sign-out`）與 Server Action→`auth.api` 都經過這裡，所以不放在 `wrapper.ts`。
         // 登出丟這一張 cookie（跟 resolver 同一個讀法 `getSessionCookie`）；改密碼、撤 session 丟這個人全部；
-        // 重設密碼的人沒登入、回應也不帶是誰，整份清掉（罕見路徑，寧可全清）。
+        // 重設密碼是靠信裡的 token、回應也不帶是誰（送出的人就算剛好登入著，也不一定是被重設的那個人），
+        // 整份清掉（罕見路徑，寧可全清）。
         const bustsIdentity = ['/sign-out', '/change-password', '/reset-password', '/revoke-session', '/revoke-sessions'].includes(ctx.path)
         if (bustsIdentity && !looksLikeApiError(returned)) {
           const cache = getIdentityCache()
@@ -1029,7 +1030,7 @@ function createAuth() {
           const userId =
             (returned as { user?: { id?: unknown } } | undefined)?.user?.id ?? ctx.context.session?.user.id
           if (ctx.path === '/sign-out' && token) cache.bustToken(token)
-          else if (typeof userId === 'string' && userId) cache.bustUser(userId)
+          else if (ctx.path !== '/reset-password' && typeof userId === 'string' && userId) cache.bustUser(userId)
           else cache.clear()
         }
 
