@@ -15,6 +15,7 @@ import {
 import type { AccountRow, AccountStatus, DirectoryFilter, DirectorySort, Role } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
+import { AvatarResetDialog } from './avatar-reset-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type DialogOpener, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
@@ -49,6 +50,8 @@ export type AccountsTableProps = {
   readonly sortHeaders: Record<DirectorySort, SortHeader>
   /** 票 8 的「發臨時密碼」對話框要用的核實方式標籤（app 對 application 只能帶型別，值由頁面傳進來）。 */
   readonly verificationLabels: VerificationLabels
+  /** 每列目前的頭像（伺服器畫好；重設頭像對話框用，只有已核准、已停用的人有）。 */
+  readonly avatars: Readonly<Record<string, ReactNode>>
   /** 工具列左邊（搜尋框與篩選鈕，伺服器組好傳進來）。 */
   readonly toolbar?: ReactNode
 }
@@ -297,7 +300,7 @@ export function AccountsTable(props: AccountsTableProps) {
                           }}
                         />
                       ) : null}
-                      {r.userId !== currentUserId ? <RowMoreMenu row={r} roleLabel={roleLabel} /> : null}
+                      {r.userId !== currentUserId ? <RowMoreMenu row={r} roleLabel={roleLabel} avatar={props.avatars[r.userId]} /> : null}
                       {r.status === 'pending' && r.applicationState === 'pending' ? (
                         <span className="sr-only text-xs text-muted-foreground 2xl:not-sr-only">在上方待審核清單審核</span>
                       ) : null}
@@ -324,12 +327,13 @@ function cohortText(r: AccountRow): string {
  * 對話框留在列上（選單關掉就消失，放不進去），選單項只負責打開；一個項目都沒有就不顯示「更多」。
  * 自己那一列由呼叫端擋掉；已去識別化的列一律沒有「更多」。
  */
-function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record<Role, string> }) {
+function RowMoreMenu({ row: r, roleLabel, avatar }: { row: AccountRow; roleLabel: Record<Role, string>; avatar: ReactNode }) {
   const orphanRef = useRef<DialogOpener>(null)
   const grantRef = useRef<DialogOpener>(null)
   const revokeRef = useRef<DialogOpener>(null)
   const deidentifyRef = useRef<DialogOpener>(null)
   const disableRef = useRef<DialogOpener>(null)
+  const avatarResetRef = useRef<DialogOpener>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   // 票 10b：孤兒帳號先補建角色（或停用）。
@@ -341,7 +345,9 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
   const canDeidentify = r.status === 'active' || r.status === 'disabled'
   // 票 9／10b：已核准的人與孤兒帳號可以停用（停用的人在列上按「恢復」）。
   const canDisable = r.status === 'active' || (r.status === 'pending' && r.orphan)
-  if (r.status === 'deidentified' || (!canRepair && !canRevoke && !canGrant && !canDeidentify && !canDisable)) return null
+  // AD-B2：重設頭像（有個人資料的人：已核准或已停用；已去識別化的列沒有「更多」）。
+  const canAvatarReset = r.status === 'active' || r.status === 'disabled'
+  if (r.status === 'deidentified' || (!canAvatarReset && !canRepair && !canRevoke && !canGrant && !canDeidentify && !canDisable)) return null
 
   const target = roleTarget(r, roleLabel)
   // 等選單關完再開對話框，焦點才會留在對話框裡。開之前先把焦點放回「更多」：
@@ -383,9 +389,14 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
               取消管理員
             </DropdownMenuItem>
           ) : null}
+          {canAvatarReset ? (
+            <DropdownMenuItem aria-label={`重設頭像 ${r.name}`} onClick={later(avatarResetRef)}>
+              重設頭像
+            </DropdownMenuItem>
+          ) : null}
           {canDisable || canDeidentify ? (
             <>
-              {canRepair || canGrant || canRevoke ? <DropdownMenuSeparator /> : null}
+              {canRepair || canGrant || canRevoke || canAvatarReset ? <DropdownMenuSeparator /> : null}
               {/* 第三波 §9 規則 1、AC-37：停用、去識別化在選單裡另成「危險操作」一組；對象、後果、能不能恢復寫在對話框。 */}
               <DropdownMenuGroup>
                 <DropdownMenuLabel>危險操作</DropdownMenuLabel>
@@ -414,6 +425,13 @@ function RowMoreMenu({ row: r, roleLabel }: { row: AccountRow; roleLabel: Record
         />
       ) : null}
       {canDeidentify ? <DeidentifyDialog account={{ userId: r.userId, name: r.name }} opener={deidentifyRef} /> : null}
+      {canAvatarReset ? (
+        <AvatarResetDialog
+          account={{ userId: r.userId, name: r.name }}
+          avatar={avatar}
+          opener={avatarResetRef}
+        />
+      ) : null}
     </>
   )
 }

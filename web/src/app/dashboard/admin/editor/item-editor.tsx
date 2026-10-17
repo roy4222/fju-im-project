@@ -36,6 +36,7 @@ import {
 import { fieldFromSchema, HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
 import { FieldsEditor, SettingsFields } from '@/app/dashboard/admin/affairs/item-settings'
 import { sectionOfField } from '@/app/dashboard/admin/editor/field-section'
+import { RichEditor } from '@/app/dashboard/admin/editor/rich-editor'
 import type { ItemReview, ItemTemplate } from '@/application/items'
 import { cn } from '@/shared/cn'
 
@@ -615,21 +616,11 @@ export function ItemEditor({
           <div className="flex flex-col gap-4 px-5 pb-6 lg:px-6">
             {/* 正文與即時預覽：桌面並排、窄螢幕預覽在下方（預設收起，頂列「預覽」打開）。 */}
             <div className={cn('grid gap-4', previewOpen && 'lg:grid-cols-2')}>
-              <div className="min-w-0 rounded-lg border border-input focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/25">
-                <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-                  <label htmlFor="ed-body" className="text-xs font-semibold">
-                    正文（網頁排版格式，可直接打字）
-                  </label>
-                </div>
-                <textarea
-                  id="ed-body"
-                  rows={10}
-                  className="w-full resize-y bg-transparent px-4 py-3 text-[15px] leading-relaxed outline-none"
-                  value={state.body}
-                  onChange={(e) => patch({ body: e.target.value })}
-                  placeholder={collects ? '要交什麼、格式、上限。學生在作業說明看到的就是這段。' : '寫公告內容。段落之間空一行。'}
-                />
-              </div>
+              <RichEditor
+                value={state.body}
+                onChange={(body) => patch({ body })}
+                placeholder={collects ? '要交什麼、格式、上限。學生在作業說明看到的就是這段。' : '寫公告內容。段落之間空一行。'}
+              />
               <section
                 id="ed-body-preview"
                 aria-labelledby="ed-body-preview-title"
@@ -648,7 +639,7 @@ export function ItemEditor({
               </section>
             </div>
             <p className="-mt-2 text-xs text-muted-foreground">
-              直接打字即可（空一行分段）；要排版可用簡單的 HTML：段落、粗體、清單、標題、連結。其他標籤與程式碼存檔時會被清掉。
+              直接打字，用上方工具列排版（標題、粗斜體、清單、引用、連結）；也可切「原始 HTML」直接改。圖片請用封面或附件，其他標籤與程式碼存檔時會被清掉。
             </p>
             <div>
               <label htmlFor="ed-summary" className={LABEL}>

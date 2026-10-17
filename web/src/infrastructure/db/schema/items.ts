@@ -95,6 +95,12 @@ export const managedItems = pgTable(
      * 置頂是列表上的展示動作，不動 `revision`、不切版本、不寫發布紀錄。
      */
     pinnedAt: timestamp('pinned_at', tz),
+    /**
+     * 規則章節的位置（0019，A-14；Q198）：同一屆、placement rules、未刪除的項目之間的順序，前台 `/rules` 與系辦
+     * 「規則」篩選都依它排（`rules_position asc nulls last, actual_opened_at asc, id asc`）。建立規則時給同屆 `max+1`，
+     * 系辦上移／下移是跟鄰居交換。其他位置一律 NULL。不加 check：舊資料與換位置的草稿可能是 NULL，排在最後。
+     */
+    rulesPosition: integer('rules_position'),
     /** 收件欄位的工作副本 `{ fields: [...] }`；發布時切成 `form_schema_versions`。 */
     draftSchema: jsonb('draft_schema').notNull().default(sql`'{"fields":[]}'::jsonb`),
     revision: integer('revision').notNull().default(1),
@@ -174,6 +180,9 @@ export const managedItems = pgTable(
     index('managed_items_cohort_status_placement_idx').on(t.cohortId, t.status, t.placement),
     index('managed_items_cohort_due_idx').on(t.cohortId, t.dueAt),
     index('managed_items_pinned_idx').on(t.pinnedAt.desc()).where(sql`${t.pinnedAt} is not null`),
+    index('managed_items_rules_position_idx')
+      .on(t.cohortId, t.rulesPosition)
+      .where(sql`${t.placement} = 'rules' and ${t.deletedAt} is null`),
   ],
 )
 

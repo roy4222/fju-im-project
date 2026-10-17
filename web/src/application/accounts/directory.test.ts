@@ -103,6 +103,8 @@ function row(patch: Partial<AccountRow>): AccountRow {
     applicationState: null,
     createdAt: '2026-09-01T00:00:00.000Z',
     orphan: false,
+    avatarPreset: null,
+    avatarFileId: null,
     ...patch,
   }
 }

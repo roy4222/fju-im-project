@@ -145,6 +145,8 @@ describe('逐欄對照模組 04／05 附錄 A', () => {
       'deleted_at', 'deleted_by_user_id',
       // 第 1 批 V1（0014）：公告置頂。
       'pinned_at',
+      // B 階段 A-14（0019）：規則章節位置。
+      'rules_position',
     ],
     item_audience_groups: ['item_id', 'group_id', 'created_at'],
     item_versions: [
