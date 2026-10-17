@@ -85,8 +85,8 @@ function parseArgs(argv) {
   for (const file of [...parsed.unit, ...(parsed.integration ?? []), ...(parsed.e2e ?? [])]) {
     if (!fs.existsSync(path.join(webDir, file))) throw new Error(`找不到 ${file}（路徑相對 web/）`)
   }
-  if (parsed.unit.length > 0 && !parsed.integration && !parsed.e2e) parsed.static = true
-  if (!parsed.integration && !parsed.e2e) parsed.static = true
+  // 給了單元測試檔、或沒指定 --integration／--e2e，就跑 lint＋typecheck＋單元。
+  if (parsed.unit.length > 0 || (!parsed.integration && !parsed.e2e)) parsed.static = true
   return parsed
 }
 
