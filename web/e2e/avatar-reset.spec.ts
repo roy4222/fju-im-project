@@ -80,9 +80,18 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
 
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
   await page.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
-  await dialog.getByLabel('理由（必填，對方看不到）').fill('  不當圖片  ')
+  // 字數用同一把尺（非 BMP 字算一個字）：𠮷 ×201 前端擋下、什麼都沒寫；×200 可送。
+  const fill = dialog.getByLabel('理由（必填，對方看不到）')
+  await fill.fill('𠮷'.repeat(201))
   await dialog.getByRole('button', { name: '重設', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText('已重設頭像')
+  await expect(dialog.getByRole('alert')).toContainText('200 字以內')
+  expect((await pool.query(`select count(*)::int as n from audit_events where action = 'account.avatar_reset' and target_id = $1`, [target.userId])).rows[0]).toEqual({ n: 0 })
+
+  const reasonText = '𠮷'.repeat(200)
+  await fill.fill(`  ${reasonText}  `)
+  await dialog.getByRole('button', { name: '重設', exact: true }).click()
+  // 成功後對話框直接關閉。
+  await expect(dialog).toBeHidden()
 
   // AC-AD-B9：稽核帶理由（去頭尾空白）、操作者；兩欄清空。
   const audit = await pool.query(
@@ -90,14 +99,18 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
     [target.userId],
   )
   expect(audit.rows).toHaveLength(1)
-  expect(audit.rows[0]).toMatchObject({ actor_user_id: session.userId, reason: '不當圖片', payload: { reason: '不當圖片', avatarPreset: PRESET } })
-  if (SHOTS) console.log('audit_events row:', JSON.stringify(audit.rows[0]))
+  expect(audit.rows[0]).toMatchObject({ actor_user_id: session.userId, reason: reasonText, payload: { reason: reasonText, avatarPreset: PRESET } })
+  if (SHOTS) console.log('audit_events row:', JSON.stringify(audit.rows[0]).slice(0, 200))
   expect((await pool.query('select avatar_preset, avatar_file_id from user_profiles where user_id = $1', [target.userId])).rows[0]).toEqual({
     avatar_preset: null,
     avatar_file_id: null,
   })
 
-  await dialog.getByRole('button', { name: '關閉' }).click()
+  // 重開後顯示依帳號 id 固定的預設圖（不是剛才選的那張）。
+  await page.reload()
+  await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
+  await page.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
+  await expect(dialog.locator('img')).toHaveAttribute('src', /^\/avatars\/\d{3}\.webp$/)
   await context.close()
 })
 

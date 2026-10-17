@@ -40,13 +40,11 @@ export function AvatarResetDialog({
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState(false)
 
   useImperativeHandle(opener, () => ({
     open: () => {
       setReason('')
       setError(null)
-      setDone(false)
       setIsOpen(true)
       dialogRef.current?.showModal()
     },
@@ -54,7 +52,6 @@ export function AvatarResetDialog({
 
   function onClosed() {
     setIsOpen(false)
-    if (done) router.refresh()
   }
 
   async function submit(event: React.FormEvent) {
@@ -64,7 +61,7 @@ export function AvatarResetDialog({
       setError('請填理由。')
       return
     }
-    if (trimmed.length > REASON_MAX) {
+    if (Array.from(trimmed).length > REASON_MAX) {
       setError(`理由請在 ${REASON_MAX} 字以內。`)
       return
     }
@@ -72,7 +69,11 @@ export function AvatarResetDialog({
     setError(null)
     try {
       const result = await resetAvatarAction(a.userId, trimmed)
-      if (result.ok) setDone(true)
+      if (result.ok) {
+        // 成功：直接關掉對話框；列表在 action 裡已 revalidate，這裡刷新讓列表頭像更新。
+        dialogRef.current?.close()
+        router.refresh()
+      }
       else setError(result.message)
     } catch {
       setError('結果未知：可能已經完成。請關閉後重新整理確認。')
@@ -89,15 +90,7 @@ export function AvatarResetDialog({
       className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs"
     >
       <div className="p-5">
-        {!isOpen ? null : done ? (
-          <div className="space-y-3 text-center" role="status">
-            <p className="inline-block rounded-full bg-muted px-3 py-1 text-sm font-medium text-foreground">已重設頭像</p>
-            <p className="text-sm text-muted-foreground">{a.name} 的頭像已回到預設圖，理由、操作者與時間已寫入紀錄。</p>
-            <button type="button" onClick={() => dialogRef.current?.close()} className={cn(BUTTON, SECONDARY)}>
-              關閉
-            </button>
-          </div>
-        ) : (
+        {!isOpen ? null : (
           <form onSubmit={submit} className="space-y-4">
             <h2 className="text-lg font-extrabold text-foreground">重設 {a.name} 的頭像</h2>
             <div className="flex items-center gap-4">
