@@ -72,10 +72,14 @@ jobs:
         run: pnpm --ignore-workspace run typecheck
       - name: lint
         run: pnpm --ignore-workspace run lint
+      - name: audit
+        run: pnpm --ignore-workspace audit --audit-level=high
       - name: test
         run: pnpm --ignore-workspace run test
       - name: build
         run: pnpm --ignore-workspace run build
+      - name: bundle-size
+        run: node scripts/bundle-size.mjs
       # 人維護的設定檔格式（S-2）。S-2 合併前檔案還不在，先跳過。
       - name: docs/status 格式檢查
         working-directory: .
