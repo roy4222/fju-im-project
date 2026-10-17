@@ -85,7 +85,7 @@ export type AdvisorChangeReceipt = {
 
 export function describeAdvisorChangeReceipt(receipt: AdvisorChangeReceipt): string {
   const signoff = receipt.supersededSignoffCount
-    ? `站內同意書目前的版本已作廢（指導老師變更），請到「站內同意書」建立新版。`
+    ? `同意書目前的版本已作廢（指導老師變更），請到「同意書」建立新版。`
     : ''
   return describeChange(receipt) + signoff
 }

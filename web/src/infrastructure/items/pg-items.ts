@@ -132,11 +132,11 @@ type Deps = {
 }
 
 function itemNotFound(): Err {
-  return err('VALIDATION_FAILED', '找不到這個項目，請回到專題事務列表重新整理。')
+  return err('VALIDATION_FAILED', '找不到這個項目，請回到公告與作業列表重新整理。')
 }
 
 function cohortArchived(): Err {
-  return err('COHORT_ARCHIVED', '這一屆已經封存，不能再建立或修改專題事務。')
+  return err('COHORT_ARCHIVED', '這一屆已經封存，不能再建立或修改公告或作業。')
 }
 
 /**
@@ -201,7 +201,7 @@ export class PgItemCommand implements ItemCommand {
   // ── 建立與存草稿 ────────────────────────────────────────────────────────────
 
   async create(actor: ResolvedActor, input: ItemInput, requestId: string): Promise<Result<SaveReceipt>> {
-    const denied = authorizeAdmin(actor, '建立專題事務')
+    const denied = authorizeAdmin(actor, '建立公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     const normalized = this.#normalize(input)
@@ -294,7 +294,7 @@ export class PgItemCommand implements ItemCommand {
     input: ItemInput,
     requestId: string,
   ): Promise<Result<SaveReceipt>> {
-    const denied = authorizeAdmin(actor, '編輯專題事務')
+    const denied = authorizeAdmin(actor, '編輯公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return itemNotFound()
@@ -371,7 +371,7 @@ export class PgItemCommand implements ItemCommand {
     options: { readonly notify: boolean },
     requestId: string,
   ): Promise<Result<PublishReceipt>> {
-    const denied = authorizeAdmin(actor, '發布專題事務')
+    const denied = authorizeAdmin(actor, '發布公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return itemNotFound()
@@ -523,7 +523,7 @@ export class PgItemCommand implements ItemCommand {
     options: { readonly notify: boolean },
     requestId: string,
   ): Promise<Result<UpdateReceipt>> {
-    const denied = authorizeAdmin(actor, '修改專題事務')
+    const denied = authorizeAdmin(actor, '修改公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return itemNotFound()
@@ -563,7 +563,7 @@ export class PgItemCommand implements ItemCommand {
         return err('VALIDATION_FAILED', '已發布的項目不能換顯示的區塊；要換區塊請另建一筆。')
       }
       if (!sameTime(draft.opensAt, item.opens_at)) {
-        return err('VALIDATION_FAILED', '已發布的繳交項目不能改開放時間（實際開放時間已經記下）。')
+        return err('VALIDATION_FAILED', '已發布的作業不能改開放時間（實際開放時間已經記下）。')
       }
 
       const contentChanged =
@@ -781,7 +781,7 @@ export class PgItemCommand implements ItemCommand {
   // ── 上傳 ────────────────────────────────────────────────────────────────────
 
   async startUpload(actor: ResolvedActor, input: StartItemUploadInput): Promise<Result<UploadTicket>> {
-    const denied = authorizeAdmin(actor, '上傳專題事務的附件')
+    const denied = authorizeAdmin(actor, '上傳公告或作業的附件')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(input.cohortId)) return err('VALIDATION_FAILED', '請先選擇屆別。')
     const rules = ITEM_UPLOAD[input.kind]
@@ -799,7 +799,7 @@ export class PgItemCommand implements ItemCommand {
   // ── 發布前檢查與預覽 ────────────────────────────────────────────────────────
 
   async review(actor: ResolvedActor, input: ItemInput, itemId: string | null): Promise<Result<ItemReview>> {
-    const denied = authorizeAdmin(actor, '檢查專題事務')
+    const denied = authorizeAdmin(actor, '檢查公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (itemId !== null && !isUuid(itemId)) return itemNotFound()
     const normalized = this.#normalize(input)
@@ -875,7 +875,7 @@ export class PgItemCommand implements ItemCommand {
     options: { readonly notify?: boolean } = {},
   ): Promise<Result<LifecycleReceipt>> {
     if (!LIFECYCLE_ACTIONS.includes(action)) return err('VALIDATION_FAILED', '不認得這個動作，請重新整理頁面。')
-    const denied = authorizeAdmin(actor, `${LIFECYCLE_LABEL[action]}專題事務`)
+    const denied = authorizeAdmin(actor, `${LIFECYCLE_LABEL[action]}公告或作業`)
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return itemNotFound()
@@ -1071,7 +1071,7 @@ export class PgItemCommand implements ItemCommand {
    * 已寄的通知不收回（點開是找不到）。屆別封存時只有榮譽可以刪（同其他寫入）。
    */
   async delete(actor: ResolvedActor, itemId: string, revision: number, requestId: string): Promise<Result<DeleteReceipt>> {
-    const denied = authorizeAdmin(actor, '刪除專題事務')
+    const denied = authorizeAdmin(actor, '刪除公告或作業')
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return itemNotFound()

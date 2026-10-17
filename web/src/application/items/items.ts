@@ -372,7 +372,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   const audienceKind = String(input.audienceKind) as AudienceKind
   if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇誰看得到。', 'audienceKind')
   if (collects && !COLLECTION_AUDIENCES.includes(audienceKind)) {
-    return invalid('繳交項目只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+    return invalid('作業只能發給「本屆學生」或「指定組別」。', 'audienceKind')
   }
   if (placement === HONOR_PLACEMENT && audienceKind !== 'public') {
     return invalid('榮譽榜是公開頁，對象只能是「公開訪客」。', 'audienceKind')
@@ -514,8 +514,8 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
   if (collects) {
     const opens = state.opensAt ?? openAt
     checks.push(
-      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這個繳交項目屬於哪個階段' },
-      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '繳交項目一定要有截止時間' },
+      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這個作業屬於哪個階段' },
+      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '作業一定要有截止時間' },
       {
         key: 'window',
         label: '時間',

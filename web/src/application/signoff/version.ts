@@ -83,9 +83,9 @@ export function buildParticipants(
   advisor: AdvisorParticipant | null,
   groupCode: string,
 ): { ok: true; value: Participants } | Err {
-  if (members.length === 0) return err('VALIDATION_FAILED', `${groupCode} 目前沒有有效組員，不能建立站內同意書。`)
+  if (members.length === 0) return err('VALIDATION_FAILED', `${groupCode} 目前沒有有效組員，不能建立同意書。`)
   if (!advisor) {
-    return err('VALIDATION_FAILED', `${groupCode} 目前沒有指導老師；請先到「分組」指派，再建立站內同意書。`)
+    return err('VALIDATION_FAILED', `${groupCode} 目前沒有指導老師；請先到「分組」指派，再建立同意書。`)
   }
   const students = [...members].sort((a, b) =>
     (a.studentNo ?? '￿').localeCompare(b.studentNo ?? '￿') || a.displayName.localeCompare(b.displayName, 'zh-Hant'),

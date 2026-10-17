@@ -141,7 +141,7 @@ export const EVENT_CATALOG = {
    */
   'item.published': {
     consumers: ['notifications'],
-    notification: { kind: 'submission', defaultTitle: '有一份新的繳交項目' },
+    notification: { kind: 'submission', defaultTitle: '有一份新的作業' },
   },
   /**
    * 公告、資源發布（票 15；產品模組 08 §4「重要公告發布→受眾」）：管理員勾「重要」才發，一般公告只留發布紀錄。
@@ -150,7 +150,7 @@ export const EVENT_CATALOG = {
    */
   'item.announced': {
     consumers: ['notifications'],
-    notification: { kind: 'system', defaultTitle: '有新的專題事務公告' },
+    notification: { kind: 'system', defaultTitle: '有新的公告' },
   },
   /**
    * 組別正式送出（票 21；產品模組 05 §4.6「每次正式送出版本通知其他有效組員；暫存不通知；老師不收」）。
@@ -167,7 +167,7 @@ export const EVENT_CATALOG = {
    */
   'submission.reopened': {
     consumers: ['notifications'],
-    notification: { kind: 'submission', defaultTitle: '系辦開放你補交一份繳交項目' },
+    notification: { kind: 'submission', defaultTitle: '系辦開放你補交一份作業' },
   },
   /**
    * 已發布項目的發布更新（票 15；產品模組 08 §4「小幅修改→管理員選擇」）：管理員選通知才發。
@@ -175,7 +175,7 @@ export const EVENT_CATALOG = {
    */
   'item.updated': {
     consumers: ['notifications'],
-    notification: { kind: 'system', defaultTitle: '專題事務已更新', titlePrefix: '（已更新）' },
+    notification: { kind: 'system', defaultTitle: '公告或作業已更新', titlePrefix: '（已更新）' },
   },
   /**
    * 撤回、下架、重新發布（票 16；產品模組 04 §4.5）。產品事件矩陣沒有這三種的通知：
@@ -227,7 +227,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.version_created': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '有一份站內同意書輪到你同意' },
+    notification: { kind: 'signoff', defaultTitle: '有一份同意書輪到你同意' },
   },
   /**
    * 簽核版本失效（票 25；模組 07 §3「any→superseded：只標狀態、寫 cause、發事件 signoff.superseded」）。
@@ -258,7 +258,7 @@ export const EVENT_CATALOG = {
    */
   'signoff.completed': {
     consumers: ['notifications'],
-    notification: { kind: 'signoff', defaultTitle: '這一版站內同意書已全員同意' },
+    notification: { kind: 'signoff', defaultTitle: '這一版同意書已全員同意' },
   },
   /**
    * 學生不同意或老師退回，版本回到修正中（票 26）。產品 08 矩陣沒有這一列；照 S11-05 暫定的收件人：

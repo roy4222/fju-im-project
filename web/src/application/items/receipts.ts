@@ -35,7 +35,7 @@ export function describeUpdateReceipt(receipt: UpdateReceipt): string {
   const notified = receipt.notify
     ? `已建立 ${receipt.notifiedCount} 則站內通知。`
     : receipt.notifiedCount > 0
-      ? `沒有通知既有對象；新加入名單的 ${receipt.notifiedCount} 位收到新繳交項目的通知。`
+      ? `沒有通知既有對象；新加入名單的 ${receipt.notifiedCount} 位收到新作業的通知。`
       : '沒有發通知。'
   return `「${receipt.title}」已更新：${changed}。${roster}${due}${notified}`
 }
