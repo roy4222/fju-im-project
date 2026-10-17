@@ -241,6 +241,10 @@
     "baseline": 222,
     "limit": 245
   },
+  "/privacy": {
+    "baseline": 222,
+    "limit": 245
+  },
   "/projects": {
     "baseline": 224.6,
     "limit": 248
