@@ -14,6 +14,7 @@ import { formatTaipeiMinute } from '@/shared/time'
  *
  * 伺服器元件：切階段（`?stage=`）與篩選（`?filter=`）都是 `<Link>`，在伺服器端過濾，沒有瀏覽器端 JS。
  * 單組頁左側的舊 `GradingQueue`／`QueueSelect` 不在這裡用（TE-06b 才移除）。
+ * B 階段：正式送出後又存了草稿的卡加「有未送出修改」、系辦結算的階段加「已結算」（設計方案 §1.5、§2.5）。
  */
 
 const FILTERS: readonly { key: GradingFilter; label: string }[] = [
@@ -65,6 +66,12 @@ function Card({ e }: { e: TeacherQueueEntry }) {
         </div>
         <span className="flex shrink-0 flex-wrap justify-end gap-1">
           {e.returned ? <Pill tone="danger">被退回</Pill> : null}
+          {e.settled ? <Pill testId="card-settled">已結算</Pill> : null}
+          {e.draftAfterFinal && !e.settled ? (
+            <Pill tone="brand" testId="card-draft-after-final">
+              有未送出修改
+            </Pill>
+          ) : null}
           {status === 'submitted' ? (
             <Pill tone="success">已送出</Pill>
           ) : status === 'draft' ? (
