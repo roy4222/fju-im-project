@@ -1,11 +1,13 @@
 import 'server-only'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { admin } from 'better-auth/plugins'
+import { admin, emailOTP } from 'better-auth/plugins'
 import { nextCookies } from 'better-auth/next-js'
+import { setSessionCookie } from 'better-auth/cookies'
 import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx, getOAuthState } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
-import { getDb } from '@/infrastructure/db/client'
+import { getDb, getPool } from '@/infrastructure/db/client'
 import * as schema from '@/infrastructure/db/schema'
 import {
   pathHasAnyAllowedMethod,
@@ -13,7 +15,7 @@ import {
   routeAccess,
   sessionRequirement,
 } from '@/infrastructure/auth/route-matrix'
-import { isInternalCall } from '@/infrastructure/auth/internal-call'
+import { isInternalCall, runAsInternalCall } from '@/infrastructure/auth/internal-call'
 import {
   isFullyActive,
   isUsableSession,
@@ -47,7 +49,12 @@ import {
   SIGN_UP_EMAIL_ERROR_CODES,
 } from '@/infrastructure/auth/login-methods'
 import { isRegistrationOpen, REGISTRATION_CLOSED_MESSAGE } from '@/infrastructure/auth/registration-switch'
-import { RATE_LIMITS } from '@/shared/rate-limit'
+import { readTurnstileConfig, verifyTurnstile, type TurnstileAction, type TurnstileConfig } from '@/infrastructure/auth/turnstile-verify'
+import { currentOtpPurpose, finishSignupResume, normalizeEmail, runWithOtpPurpose } from '@/infrastructure/auth/signup-resume'
+import { emailOtpMail, passwordResetMail, type Mailer } from '@/application/mail'
+import { BrevoMailer } from '@/infrastructure/mail/brevo-mailer'
+import { CaptureMailer } from '@/infrastructure/mail/capture-mailer'
+import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * Better Auth 實例（S01-02）。
@@ -87,6 +94,126 @@ export function loginMethodForPath(path: string | undefined): 'google' | 'passwo
   return 'password'
 }
 
+// ── Email 驗證碼與重設密碼（B 階段 VB-2；visitor-r3 設計方案 §3.2、§3.4、§3.8） ─────────────
+
+/**
+ * 驗證碼與重設密碼的限速桶（門檻在 `RATE_LIMITS`）。都在 `hooks.before` 裡算：HTTP 與 Server Action→`auth.api`
+ * 兩條路都經過那裡，所以共用同一組桶（掛在 `globalThis`，Route Handler 與頁面在不同 chunk 也是同一份）。
+ */
+const otpLimiters = {
+  sendEmail: sharedRateLimiter('otp-send-email', RATE_LIMITS.otpSend.email),
+  sendIp: sharedRateLimiter('otp-send-ip', RATE_LIMITS.otpSend.ip),
+  cooldown: sharedRateLimiter('otp-resend-cooldown', RATE_LIMITS.otpResendCooldown),
+  verifyEmail: sharedRateLimiter('otp-verify-email', RATE_LIMITS.otpVerify.email),
+  verifyIp: sharedRateLimiter('otp-verify-ip', RATE_LIMITS.otpVerify.ip),
+  resetEmail: sharedRateLimiter('password-reset-email', RATE_LIMITS.passwordReset.email),
+  resetIp: sharedRateLimiter('password-reset-ip', RATE_LIMITS.passwordReset.ip),
+}
+
+/** 測試用：清掉驗證碼與重設密碼的全部限速計數（含 120 秒冷卻）。 */
+export function resetEmailOtpLimiters(): void {
+  for (const limiter of Object.values(otpLimiters)) limiter.clear()
+}
+
+function tooMany(message: string): APIError {
+  return new APIError('TOO_MANY_REQUESTS', { code: 'RATE_LIMITED', message })
+}
+
+/**
+ * 寄驗證碼前的限速：冷卻 → Email 桶 → IP 桶。冷卻只看不計（真的寄出去才開始計時，見 `sendVerificationOTP`），
+ * 冷卻中被擋不扣 10 分鐘的額度。
+ */
+function enforceOtpSendRate(email: string, ip: string): void {
+  if (otpLimiters.cooldown.count(email) > 0) {
+    throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
+  }
+  if (!otpLimiters.sendEmail.hit(email).allowed) {
+    throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
+  }
+  if (!otpLimiters.sendIp.hit(ip).allowed) {
+    throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
+  }
+}
+
+/** 「一小時」比「1 小時」順口；畫面句跟驗收案例一致（AC-VI-59「請一小時後再試」）。 */
+function inWords(windowMs: number): string {
+  const text = waitAtMost(windowMs)
+  return text === '1 小時' ? '一小時' : text
+}
+
+/**
+ * 寄信轉接器（設計方案 §3.1）。規則跟 `composition/mail.ts` 的 `chooseMailer` 一致：`MAIL_CAPTURE=1` **而且**
+ * `BETTER_AUTH_URL` 是本機才擷取，其他一律 Brevo（缺金鑰回 `MAIL_NOT_CONFIGURED`，不降級成擷取）。
+ *
+ * 為什麼不直接用 composition 那一份：這個檔在 infrastructure，分層不准往上引用 composition；
+ * 兩邊判斷一致由 `email-otp.integration.test.ts` 逐組合比對守住。
+ */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+export function authMailerKind(env: { MAIL_CAPTURE?: string; BETTER_AUTH_URL?: string }): 'brevo' | 'capture' {
+  if (env.MAIL_CAPTURE !== '1') return 'brevo'
+  try {
+    return env.BETTER_AUTH_URL && LOCAL_HOSTS.has(new URL(env.BETTER_AUTH_URL).hostname) ? 'capture' : 'brevo'
+  } catch {
+    return 'brevo'
+  }
+}
+
+function createAuthMailer(): Mailer {
+  return authMailerKind({ MAIL_CAPTURE: process.env.MAIL_CAPTURE, BETTER_AUTH_URL: process.env.BETTER_AUTH_URL }) ===
+    'capture'
+    ? new CaptureMailer({ db: getPool })
+    : new BrevoMailer({
+        db: getPool,
+        config: { apiKey: process.env.BREVO_API_KEY, from: process.env.MAIL_FROM, replyTo: process.env.MAIL_REPLY_TO },
+      })
+}
+
+/**
+ * 這一次 `auth.api`／HTTP 呼叫裡，驗證碼信有沒有寄失敗。
+ *
+ * 套件 1.7.5 會把寄信回呼丟的錯吞掉（`runInBackgroundOrAwait` 只記 log），回呼 throw 傳不回呼叫端。
+ * 所以回呼只在這個盒子裡記一筆，寄碼端點的 `hooks.after` 看到就改回 `MAIL_FAILED`。
+ * 盒子由 wrapper 在每個入口開（HTTP 的 route handler、各個 Server Action 用的函式），見 `withMailOutcome`。
+ */
+const mailOutcome = new AsyncLocalStorage<{ failed: boolean }>()
+
+export function withMailOutcome<T>(fn: () => Promise<T>): Promise<T> {
+  return mailOutcome.run({ failed: false }, fn)
+}
+
+function mailFailedError(): APIError {
+  return new APIError('INTERNAL_SERVER_ERROR', { code: 'MAIL_FAILED', message: '驗證信寄不出去，請稍後再試。' })
+}
+
+/** 重設連結直接指到站內的 `/reset-password?token=…`（不經套件的 `/api/auth/reset-password/:token` 轉址）。 */
+function resetPasswordUrl(token: string): string {
+  const origin = (process.env.BETTER_AUTH_URL ?? '').replace(/\/+$/, '')
+  return `${origin}/reset-password?token=${encodeURIComponent(token)}`
+}
+
+/**
+ * Turnstile（設計方案 §3.8）：token 來自標頭 `x-turnstile-token`（HTTP 直接帶；Server Action 把表單隱藏欄
+ * `cf-turnstile-response` 的值放進傳給 `auth.api.*` 的同名標頭）。兩條路走同一段。
+ * 金鑰都沒設＝功能關閉（`verifyTurnstile` 直接放行）。
+ */
+async function requireTurnstile(
+  config: TurnstileConfig,
+  headers: Headers | undefined,
+  action: TurnstileAction,
+): Promise<void> {
+  const ip = clientIpFrom(headers)
+  const verdict = await verifyTurnstile(headers?.get('x-turnstile-token'), ip === 'unknown' ? null : ip, action, { config })
+  if (verdict.ok) return
+  if (verdict.reason === 'unavailable') {
+    throw new APIError('SERVICE_UNAVAILABLE', {
+      code: 'TURNSTILE_UNAVAILABLE',
+      message: '人機驗證暫時無法使用，請稍後再試。',
+    })
+  }
+  throw new APIError('BAD_REQUEST', { code: 'TURNSTILE_REQUIRED', message: '請完成人機驗證。' })
+}
+
 /**
  * 實例是**延後建立**的：`betterAuth()` 會馬上要一條資料庫連線，
  * 而 `next build` 收集路由設定時並沒有 `DATABASE_URL`（憑證由維運在執行期帶進容器）。
@@ -103,6 +230,9 @@ function createAuth() {
   // 註冊開關（設計方案 §5）：建實例時讀一次，三處（密碼註冊、Google 新帳號、hook）用同一個值。
   // 切換要重建容器，見 `registration-switch.ts`。
   const registrationOpen = isRegistrationOpen()
+  // Turnstile 金鑰也在這裡讀一次：只設一個鍵的話，第一次建實例就丟錯（AC-VI-67），不會半套上線。
+  const turnstileConfig = readTurnstileConfig()
+  const mailer = createAuthMailer()
   return betterAuth({
     database: drizzleAdapter(getDb(), { provider: 'pg', schema, usePlural: true }),
     advanced: {
@@ -158,10 +288,40 @@ function createAuth() {
         // Server Action 與直接打 API 同一個桶。Caddy 沒有設限速；密碼登入的跨帳號防護
         // 由 app 的每 IP 失敗桶負責（`sign-in-rate-limit.ts`，票 T3）。
         '/sign-in/social': false,
+        // Email 驗證碼三條（VB-2）：email-otp 外掛自帶 3 次／60 秒，鍵只有 IP＋路徑（跨帳號共用一桶），
+        // 而且只在 HTTP 跑、Server Action 不經過。關掉，改由 hooks.before 的 otpSend／otpVerify 桶負責。
+        '/email-otp/send-verification-otp': false,
+        '/email-otp/check-verification-otp': false,
+        '/email-otp/verify-email': false,
+        // 忘記密碼（VB-2）：套件預設 3 次／60 秒／IP，同一個校園出口後面第 4 個人就被擋。改由 passwordReset 桶負責。
+        '/request-password-reset': false,
       },
     },
     // 關閉註冊時套件自己也擋（400 `EMAIL_PASSWORD_SIGN_UP_DISABLED`）；對外的那一句中文由 hook 先回。
-    emailAndPassword: { enabled: true, disableSignUp: !registrationOpen },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: !registrationOpen,
+      /**
+       * 忘記密碼寄重設連結（VB-2；設計方案 §3.4）。連結 30 分鐘有效、只能用一次（套件 consume）。
+       *
+       * **不等寄信結果**：對外不論 Email 存不存在、寄得出去與否都回同一句（不洩漏帳號存在），
+       * 要是在這裡等 Brevo，「有帳號」的請求會明顯比較慢。寄失敗只留 `mail_outbox.status='failed'` 與一行 log
+       * （log 不含連結與 token）。
+       */
+      sendResetPassword: async ({ user, token }) => {
+        void mailer
+          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token)) })
+          .then((result) => {
+            if (!result.ok) console.error('[auth] 重設密碼信寄不出去', { outboxId: result.outboxId, code: result.code })
+          })
+          .catch((error: unknown) => {
+            console.error('[auth] 重設密碼信寄送例外', error instanceof Error ? error.name : 'unknown')
+          })
+      },
+      resetPasswordTokenExpiresIn: 30 * 60,
+      // 重設成功＝撤掉這個人全部 session（不設的話套件不撤；AC-VI-60）。
+      revokeSessionsOnPasswordReset: true,
+    },
     socialProviders: {
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID ?? '',
@@ -340,11 +500,92 @@ function createAuth() {
               message: `這個網路 ${waitAtMost(RATE_LIMITS.register.windowMs)}內的註冊次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.register.windowMs)}後可以再試；仍無法註冊請聯絡系辦。`,
             })
           }
+          // 註冊成功後伺服器會寄第一封驗證碼（`sendVerificationOnSignUp`），所以同一個 Email 的寄碼額度在這裡扣一次：
+          // 重送註冊不能繞過「10 分鐘 5 封」（VB-2）。不論這個 Email 已不已存在都扣，看不出差別。
+          const signUpEmail = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
+          if (signUpEmail && !otpLimiters.sendEmail.hit(signUpEmail).allowed) {
+            throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
+          }
           const password = String(((ctx.body ?? {}) as { password?: unknown }).password ?? '')
           if (password.length < MIN_PASSWORD_LENGTH) {
             throw new APIError('BAD_REQUEST', {
               code: 'VALIDATION_FAILED',
               message: `密碼至少要 ${MIN_PASSWORD_LENGTH} 個字元。`,
+            })
+          }
+          // 順序固定：限速 → Turnstile → 重複 Email（`hooks.after` 的 EMAIL_UNAVAILABLE）。被限速的不消耗 siteverify；
+          // Turnstile 在重複 Email 之前，續辦才能說「這一次註冊的 token 已經驗過」（設計方案 §3.8）。
+          await requireTurnstile(turnstileConfig, ctx.request?.headers ?? ctx.headers, 'signup')
+        }
+
+        // ── Email 驗證碼：寄碼（VB-2；設計方案 §3.2、§3.7、§3.8） ─────────────────────
+        //
+        // 公開入口（HTTP、Server Action 重寄）一律要 Turnstile（resend）。兩種內部入口不掛 widget：
+        // 續辦的寄碼（同一次註冊已驗過 token）與「我的帳號」驗證 Email（本人＋fresh session＋只能寄給自己的登入 Email）。
+        // 其他內部呼叫不豁免。限速三種入口都扣。
+        if (ctx.path === '/email-otp/send-verification-otp') {
+          const body = (ctx.body ?? {}) as { email?: unknown; type?: unknown }
+          if (body.type !== 'email-verification') {
+            throw new APIError('BAD_REQUEST', { code: 'VALIDATION_FAILED', message: '只能寄 Email 驗證碼。' })
+          }
+          const email = normalizeEmail(body.email)
+          const headers = ctx.request?.headers ?? ctx.headers
+          const purpose = !ctx.request && isInternalCall() ? currentOtpPurpose() : undefined
+          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過額度，這裡不再扣。
+          if (purpose?.purpose === 'signup-first' && purpose.email === email) return
+          let exempt = false
+          if (purpose?.purpose === 'signup-resume-start' && purpose.email === email) {
+            exempt = true
+          } else if (purpose?.purpose === 'account-verify' && purpose.email === email) {
+            const session = await getAuthoritativeSessionFromCtx(ctx)
+            if (!session?.user?.id) throw new APIError('UNAUTHORIZED', { code: 'UNAUTHENTICATED', message: '請重新登入。' })
+            if (normalizeEmail(session.user.email) !== email) {
+              throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '只能驗證自己的登入 Email。' })
+            }
+            if (!isFreshSession(session.session.createdAt)) {
+              throw new APIError('FORBIDDEN', { code: 'FRESH_SESSION_REQUIRED', message: '這個操作需要重新登入確認身分。' })
+            }
+            exempt = true
+          }
+          enforceOtpSendRate(email, clientIpFrom(headers))
+          if (!exempt) await requireTurnstile(turnstileConfig, headers, 'resend')
+        }
+
+        // ── Email 驗證碼：送碼。verify 與 check 共用一組桶（check 不能拿來繞過 verify 的上限） ──
+        if (ctx.path === '/email-otp/verify-email' || ctx.path === '/email-otp/check-verification-otp') {
+          const body = (ctx.body ?? {}) as { email?: unknown; type?: unknown }
+          if (ctx.path === '/email-otp/check-verification-otp' && body.type !== 'email-verification') {
+            throw new APIError('BAD_REQUEST', { code: 'VALIDATION_FAILED', message: '只能檢查 Email 驗證碼。' })
+          }
+          const email = normalizeEmail(body.email)
+          if (!otpLimiters.verifyEmail.hit(email).allowed) {
+            throw tooMany(`驗證碼試太多次了，請 ${waitAtMost(RATE_LIMITS.otpVerify.email.windowMs)}後再試。`)
+          }
+          if (!otpLimiters.verifyIp.hit(clientIpFrom(ctx.request?.headers ?? ctx.headers)).allowed) {
+            throw tooMany(`這個網路送驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpVerify.ip.windowMs)}後可以再試。`)
+          }
+        }
+
+        // ── 忘記密碼：寄重設連結（設計方案 §3.4）。限速 → Turnstile（reset） ───────────────
+        if (ctx.path === '/request-password-reset') {
+          const headers = ctx.request?.headers ?? ctx.headers
+          const email = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
+          if (!otpLimiters.resetEmail.hit(email).allowed) {
+            throw tooMany(`寄太多次了，請${inWords(RATE_LIMITS.passwordReset.email.windowMs)}後再試。`)
+          }
+          if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
+            throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
+          }
+          await requireTurnstile(turnstileConfig, headers, 'reset')
+        }
+
+        // ── 重設密碼：新密碼長度跟註冊、改密同一條（套件預設只要 8 字） ─────────────────
+        if (ctx.path === '/reset-password') {
+          const newPassword = String(((ctx.body ?? {}) as { newPassword?: unknown }).newPassword ?? '')
+          if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            throw new APIError('BAD_REQUEST', {
+              code: 'VALIDATION_FAILED',
+              message: `密碼至少 ${MIN_PASSWORD_LENGTH} 字。`,
             })
           }
         }
@@ -492,6 +733,33 @@ function createAuth() {
           }
         }
 
+        // ── 註冊成功 → 寄第一封驗證碼（VB-2；設計方案 §3.2） ─────────────────────────
+        //
+        // 以內部呼叫打寄碼端點（用途 `signup-first`，hook 不再要 token、不再扣額度），寄不出去就讓註冊回 MAIL_FAILED。
+        // 帳號已經建好：之後同一個 Email 再註冊會進續辦。
+        if (ctx.path === '/sign-up/email' && !looksLikeApiError(returned)) {
+          const created = (await endpointJson(returned)) as { user?: { email?: unknown } } | null
+          const email = normalizeEmail(created?.user?.email)
+          if (email) {
+            const headers = ctx.request?.headers ?? ctx.headers
+            await withMailOutcome(() =>
+              runAsInternalCall(() =>
+                runWithOtpPurpose('signup-first', email, () =>
+                  getAuth().api.sendVerificationOTP({
+                    body: { email, type: 'email-verification' },
+                    ...(headers ? { headers } : {}),
+                  }),
+                ),
+              ),
+            )
+          }
+        }
+
+        // 寄碼端點：回呼寄失敗（被套件吞掉的那種）在這裡改回錯誤。
+        if (ctx.path === '/email-otp/send-verification-otp' && !looksLikeApiError(returned) && mailOutcome.getStore()?.failed) {
+          throw mailFailedError()
+        }
+
         // ── 每 IP 跨帳號登入失敗（票 T3） ─────────────────────────────────
         //
         // 只算 401：帳號不存在、沒有密碼、密碼錯都是同一個 401（`INVALID_EMAIL_OR_PASSWORD`），
@@ -502,6 +770,34 @@ function createAuth() {
             recordIpFailure(clientIpFrom(ctx.request?.headers ?? ctx.headers))
           }
           return
+        }
+
+        // ── 續辦完成（VB-2；設計方案 §3.2）：驗證碼剛由 check 端點確認是對的 ─────────────
+        //
+        // 只認「內部呼叫＋續辦用途＋同一個 Email」：公開的 check 端點永遠走不到這裡。
+        // `finishSignupResume` 一筆交易做完（消耗驗證碼、標已驗證、換密碼、刪舊 session），之後才發新 session。
+        if (ctx.path === '/email-otp/check-verification-otp' && !ctx.request && isInternalCall()) {
+          const purpose = currentOtpPurpose()
+          const email = normalizeEmail(((ctx.body ?? {}) as { email?: unknown }).email)
+          if (purpose?.purpose === 'signup-resume-finish' && purpose.email === email && !looksLikeApiError(returned)) {
+            const finished = await finishSignupResume(getPool(), email)
+            if (!finished.ok) {
+              throw new APIError('BAD_REQUEST', {
+                code: finished.reason === 'expired' ? 'SIGNUP_RESUME_EXPIRED' : EMAIL_UNAVAILABLE_CODE,
+                message:
+                  finished.reason === 'expired'
+                    ? '這次續辦已經逾時，請回第 1 步重新填一次。'
+                    : EMAIL_UNAVAILABLE_MESSAGE,
+              })
+            }
+            const session = await ctx.context.internalAdapter.createSession(finished.userId)
+            const user = await ctx.context.internalAdapter.findUserById(finished.userId)
+            if (!session || !user) {
+              throw new APIError('INTERNAL_SERVER_ERROR', { code: 'INTERNAL', message: '登入失敗，請改用 Email 與新密碼登入。' })
+            }
+            await setSessionCookie(ctx, { session, user })
+            return ctx.json({ success: true, resumed: true, userId: finished.userId })
+          }
         }
 
         if (returned instanceof APIError) return
@@ -523,6 +819,42 @@ function createAuth() {
     },
     plugins: [
       admin(),
+      /**
+       * Email 驗證碼（VB-2；設計方案 §3.2）。只用 `email-verification` 一種：OTP 登入、OTP 重設密碼、
+       * 換 Email 的端點在路由矩陣擋掉，寄信回呼也拒絕其他型別。
+       *
+       * - `storeOTP: 'hashed'`：`verifications` 只存雜湊（套件預設是明文，一定要寫）。
+       * - 第一封驗證碼在註冊成功後由伺服器自己寄（`hooks.after` 的 sign-up 分支以內部呼叫打寄碼端點），
+       *   不再由前端用同一個 Turnstile token 打第二次（token 只能驗一次）。**不用**套件的
+       *   `sendVerificationOnSignUp`：它的寄信排在我們的 `hooks.after` 之後、錯誤又被吞掉，
+       *   寄不出去時註冊照樣回成功，畫面就說不出「驗證信寄不出去」（AC-VI-76）。
+       * - `allowedAttempts: 5`：同一個碼錯 5 次作廢（跟限速桶無關）。
+       * - `disableSignUp`：不讓驗證碼端點順手建帳號。
+       * - 套件自己的限速在上面 `rateLimit.customRules` 關掉。
+       */
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 10 * 60,
+        allowedAttempts: 5,
+        storeOTP: 'hashed',
+        sendVerificationOnSignUp: false,
+        overrideDefaultEmailVerification: false,
+        disableSignUp: true,
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          if (type !== 'email-verification') {
+            throw new APIError('FORBIDDEN', { code: 'FORBIDDEN', message: '這個入口不對外開放。' })
+          }
+          const result = await mailer.send({ to: email, ...emailOtpMail(otp) })
+          if (!result.ok) {
+            const outcome = mailOutcome.getStore()
+            if (outcome) outcome.failed = true
+            else console.error('[auth] 驗證碼信寄不出去（不在 wrapper 入口內，無法回報呼叫端）', { outboxId: result.outboxId })
+            throw mailFailedError()
+          }
+          // 真的寄出去才開始 120 秒冷卻（註冊的第一封也算，AC-VI-47(b)）。
+          otpLimiters.cooldown.hit(normalizeEmail(email))
+        },
+      }),
       // 一定要放最後（官方要求）：讓 Server Action 裡呼叫 `auth.api.*` 時，
       // 套件設的 cookie 真的會被帶進回應。登入表單走 Server Action（契約 02 §7），
       // 沒有它就會「登入成功但沒有 session」。
@@ -538,6 +870,12 @@ function hasIdToken(body: unknown): boolean {
   if (typeof body !== 'object' || body === null) return false
   const value = (body as { idToken?: unknown }).idToken
   return value !== undefined && value !== null
+}
+
+/** 端點成功時的回傳內容（HTTP 那條是 `Response`，`auth.api` 那條是物件）；失敗回 null。 */
+async function endpointJson(returned: unknown): Promise<unknown> {
+  if (returned instanceof Response) return returned.status === 200 ? returned.clone().json() : null
+  return looksLikeApiError(returned) ? null : (returned ?? null)
 }
 
 /** 套件丟的 APIError（不同套件實體的類別 `instanceof` 會失敗，所以看形狀）。 */

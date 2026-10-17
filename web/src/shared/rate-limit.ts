@@ -132,4 +132,29 @@ export const RATE_LIMITS = {
    * 跨帳號的密碼猜測由 `signInFailuresPerIp` 擋（票 T3）。
    */
   signInSocial: { max: 120, windowMs: 60 * 60 * 1000 },
+  /**
+   * 寄 Email 驗證碼（B 階段 VB-2；visitor-r3 設計方案 §3.2）：同一個 Email 10 分鐘 5 封、同一個 IP 每小時 20 封。
+   * 套用在 `/email-otp/send-verification-otp`（HTTP、Server Action、內部入口都經 `hooks.before`）
+   * 與註冊成功後伺服器自己寄的第一封（sign-up 分支扣 email 桶一次）。
+   */
+  otpSend: {
+    email: { max: 5, windowMs: 10 * 60 * 1000 },
+    ip: { max: 20, windowMs: 60 * 60 * 1000 },
+  },
+  /** 重寄冷卻：同一個 Email 120 秒內只能寄一封（前端倒數只是顯示，擋在伺服器）。 */
+  otpResendCooldown: { max: 1, windowMs: 120 * 1000 },
+  /**
+   * 送驗證碼：同一個 Email 10 分鐘 10 次、同一個 IP 每小時 60 次。`/email-otp/verify-email` 與
+   * `/email-otp/check-verification-otp` 共用這一組桶（check 不能拿來繞過 verify 的上限）。
+   * 單一驗證碼另有「錯 5 次作廢」（套件的 `allowedAttempts`），跟這裡無關。
+   */
+  otpVerify: {
+    email: { max: 10, windowMs: 10 * 60 * 1000 },
+    ip: { max: 60, windowMs: 60 * 60 * 1000 },
+  },
+  /** 忘記密碼寄重設連結：同一個 Email 每小時 5 封、同一個 IP 每小時 20 封。 */
+  passwordReset: {
+    email: { max: 5, windowMs: 60 * 60 * 1000 },
+    ip: { max: 20, windowMs: 60 * 60 * 1000 },
+  },
 } as const
