@@ -20,12 +20,12 @@ export const metadata = { title: '登入｜資管系專題平台' }
  * 其他 → `next`（經 `safeNextPath`）或自己的首頁。跟密碼登入的 Server Action 同一套規則。
  *
  * 外框是左圖右卡（`AuthSplit`）；卡片有登入、忘記密碼、已寄出三種模式（`login-card.tsx`）。
- * `?mode=forgot`（`/forgot-password` 導過來的）直接開在忘記密碼模式。
+ * `?mode=forgot`（`/forgot-password` 導過來的）直接開在忘記密碼模式；模式由卡片自己讀網址。
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string | string[]; error?: string | string[]; mode?: string | string[] }>
+  searchParams: Promise<{ next?: string | string[]; error?: string | string[] }>
 }) {
   const params = await searchParams
   // 不合格的 `next` 當作沒帶：不放進表單、也不顯示「登入後會回到…」。
@@ -37,13 +37,11 @@ export default async function LoginPage({
     redirect(actor.status === 'active' && next ? next : home)
   }
   const googleError = googleSignInErrorMessage(params.error)
-  const mode = params.mode === 'forgot' ? 'forgot' : 'login'
 
   return (
     <SiteShell bare>
       <AuthSplit image={{ src: '/placeholder/campus.jpg', alt: '輔仁大學校園', width: 960, height: 639 }}>
         <LoginCard
-          initialMode={mode}
           next={next}
           notice={
             <>

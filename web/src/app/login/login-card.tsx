@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useActionState, useEffect, useRef, useState, type ReactNode } from 'react'
 import { trackEvent } from '@/app/_analytics/track'
 import { ActionForm, Field, HiddenField } from '@/app/_ui/form'
@@ -12,7 +13,8 @@ export type LoginMode = 'login' | 'forgot'
 /**
  * 登入卡三種模式（visitor-r3 設計方案 §3.4；原型 `login-card.tsx`）：登入、忘記密碼、已寄出。
  *
- * - 同一張卡切換，不整頁跳轉；網址跟著換成 `/login` 或 `/login?mode=forgot`（`replaceState`，不多一筆歷史）。
+ * - 畫面由網址的 `?mode=` 決定：卡內切換用 `replaceState` 改網址（不多一筆歷史、不整頁跳轉），
+ *   從頂部或頁尾的「登入」連結回到 `/login` 也一樣回登入模式；忘記密碼面板卸掉，已寄出與錯誤狀態跟著清掉。
  * - 「忘記密碼？」仍是 `<a href="/forgot-password">`：沒有 JavaScript 時照連結走，伺服器再導回 `?mode=forgot`。
  * - 兩種表單之間 Email 互相帶過去（「返回登入」時登入欄已經填好）。
  * - 只畫目前這個模式的表單：畫面上永遠只有一個 Email 欄。
@@ -20,21 +22,19 @@ export type LoginMode = 'login' | 'forgot'
  * Google 鈕、Turnstile、註冊提示句是伺服器畫好的節點，由頁面傳進來。
  */
 export function LoginCard({
-  initialMode,
   next,
   notice,
   google,
   turnstile,
   registerHint,
 }: {
-  initialMode: LoginMode
   next: string | null
   notice?: ReactNode
   google: ReactNode
   turnstile?: ReactNode
   registerHint?: ReactNode
 }) {
-  const [mode, setMode] = useState<LoginMode>(initialMode)
+  const mode: LoginMode = useSearchParams().get('mode') === 'forgot' ? 'forgot' : 'login'
   const [email, setEmail] = useState('')
   // 換模式時重掛表單，讓 Email 欄吃到新的預設值。
   const [round, setRound] = useState(0)
@@ -47,7 +47,6 @@ export function LoginCard({
   const switchTo = (target: LoginMode, carried?: string) => {
     const typed = carried ?? card.current?.querySelector<HTMLInputElement>('input[name="email"]')?.value ?? ''
     setEmail(typed.trim())
-    setMode(target)
     setRound((r) => r + 1)
     const url = new URL(window.location.href)
     if (target === 'forgot') url.searchParams.set('mode', 'forgot')

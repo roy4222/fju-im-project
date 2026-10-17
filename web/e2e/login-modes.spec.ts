@@ -148,6 +148,34 @@ test('AC-VI-79 登入頁提示句（R11）', async ({ browser }) => {
   await page.context().close()
 })
 
+for (const state of ['forgot', 'sent'] as const) {
+  for (const where of ['header', 'footer'] as const) {
+    test(`Review #587：${state} 模式點${where === 'header' ? '頂部' : '頁尾'}「登入」→ 網址 /login、回到登入表單`, async ({ browser }) => {
+      const page = await newGuestPage(browser)
+      await page.goto('/login')
+      await card(page).locator('a[href="/forgot-password"]').click()
+      await expect(card(page)).toHaveAttribute('data-mode', 'forgot')
+      if (state === 'sent') {
+        await card(page).getByLabel('Email').fill(`nav-${where}-${run}@example.com`)
+        await card(page).getByRole('button', { name: '寄重設連結' }).click()
+        await expect(card(page)).toHaveAttribute('data-mode', 'sent')
+      }
+
+      await page.locator(`${where} a[href="/login"]:visible`).first().click()
+      await expect(page).toHaveURL(/\/login$/)
+      await expect(card(page)).toHaveAttribute('data-mode', 'login')
+      await expect(card(page).getByLabel('密碼', { exact: true })).toBeVisible()
+      await expect(card(page).getByRole('button', { name: '登入', exact: true })).toBeVisible()
+
+      // 再按「忘記密碼？」是全新的一輪：不會直接跳回上一輪的「已寄出」。
+      await card(page).locator('a[href="/forgot-password"]').click()
+      await expect(card(page)).toHaveAttribute('data-mode', 'forgot')
+      await expect(card(page).getByRole('button', { name: '寄重設連結' })).toBeVisible()
+      await page.context().close()
+    })
+  }
+}
+
 let studentEmail = ''
 let resetLink = ''
 
