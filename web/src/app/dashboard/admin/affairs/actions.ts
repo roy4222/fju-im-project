@@ -205,6 +205,29 @@ export async function setPinnedAction(
   )
 }
 
+/**
+ * 規則章節上移／下移（A-14）：同屆規則跟緊鄰的那一章交換位置（規則在用例；首尾回「已經在最上／下面了。」）。
+ * 不動 revision，工作台按完由畫面 `router.refresh()`。
+ */
+export async function moveRuleAction(
+  itemId: string,
+  direction: 'up' | 'down',
+  requestId: string,
+): Promise<ItemActionOutcome<{ itemId: string; position: number }>> {
+  // 方向照原樣交給用例判（不是 up／down 會被擋），不在這裡默默改成某一邊。
+  const way = str(direction, 10) as 'up' | 'down'
+  const result = await getItemCommand().moveRule(await currentActor(), str(itemId, 100), way, str(requestId, 100))
+  return toOutcome(
+    result,
+    (r) => ({
+      itemId: r.receipt.itemId,
+      position: r.receipt.position,
+      sentence: `「${r.receipt.title}」已移到第 ${r.receipt.position} 章，前台專題規則的順序同步更新。`,
+    }),
+    (d) => d.sentence,
+  )
+}
+
 export async function startItemUploadAction(input: {
   cohortId: string
   kind: 'attachment' | 'cover'
