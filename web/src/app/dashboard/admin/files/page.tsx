@@ -5,19 +5,27 @@ import { PageTitle } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { FilesTable, type FileKind, type FileRowView } from '@/app/dashboard/admin/files/files-table'
-import { FILE_LIST_LIMIT, getFileListQuery } from '@/composition/files'
+import { getFileListQuery } from '@/composition/files'
 import { formatBytes } from '@/shared/format-bytes'
-import { formatTaipeiMinute, taipeiDateOf } from '@/shared/time'
+import { taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '檔案管理｜資管系專題平台' }
+
+/** 「公告與作業」底下的三個分頁（設計方案 §3.2；`/affairs`、`/showcase` 用同一組）。 */
+const AFFAIRS_TABS = [
+  { href: '/dashboard/admin/affairs', label: '公告與作業' },
+  { href: '/dashboard/admin/showcase', label: '成果展示' },
+  { href: '/dashboard/admin/files', label: '檔案' },
+] as const
 
 /** 附件依所在項目的位置叫不同名字（原型「公開資源／公告附件／組別繳交」）。 */
 const ATTACHMENT_LABEL: Record<string, string> = {
   news: '公告附件',
   resource: '資源附件',
   rules: '規則附件',
-  submission: '繳交項目附件',
+  submission: '作業附件',
 }
 
 const OTHER_LABEL: Record<string, string> = {
@@ -32,7 +40,7 @@ const OTHER_LABEL: Record<string, string> = {
 }
 
 /**
- * 被引用、但不是專題事務附件也不是繳交檔案時，「用在哪裡」寫實際用途（N-87），不寫「（系統紀錄）」。
+ * 被引用、但不是公告與作業的附件也不是繳交檔案時，「用在哪裡」寫實際用途（N-87），不寫「（系統紀錄）」。
  * 這類檔案沒有可以點進去的頁面，只說它是做什麼的。
  */
 const IN_USE_LABEL: Record<string, string> = {
@@ -42,7 +50,7 @@ const IN_USE_LABEL: Record<string, string> = {
   photo: '成果展示素材',
   signoff_attachment: '同意書附件',
   export: '匯出檔',
-  attachment: '專題事務附件',
+  attachment: '公告與作業附件',
 }
 
 function view(row: FileListRow): FileRowView {
@@ -92,28 +100,26 @@ function view(row: FileListRow): FileRowView {
 export default async function AdminFilesPage({ searchParams }: { searchParams: Promise<{ kind?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/admin/files', 'admin')
-  const query = getFileListQuery()
-  const [rows, usage] = await Promise.all([query.list(actor), query.usage(actor)])
+  const rows = await getFileListQuery().list(actor)
   if (!rows) notFound()
 
   const wanted = (await searchParams).kind
   const initialKind: FileKind | 'all' = wanted === 'item' || wanted === 'submission' || wanted === 'other' ? wanted : 'all'
-  const usageText = usage ? `整台主機已用 ${usage.used}／${usage.total}（${formatTaipeiMinute(usage.measuredAt)} 量測）` : '主機容量還沒量測'
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/files">
       <div className="flex flex-col gap-5">
-        <PageTitle
-          title="檔案管理"
-          description={`${rows.length}${rows.length >= FILE_LIST_LIMIT ? '+' : ''} 個檔案・${usageText}・還有地方在用的檔案不能刪`}
-        />
-        {/* 這一頁只看不上傳（N-138）：檔案都掛在公告、資源、收件底下，新增要到專題事務的編輯頁。 */}
+        <div>
+          <PageTitle title="公告與作業" />
+          <div className="mt-4">
+            <AdminTabs label="公告與作業分頁" current="/dashboard/admin/files" items={AFFAIRS_TABS} />
+          </div>
+        </div>
+        {/* 這一頁只看不上傳（N-138）：檔案都掛在公告、資源、作業底下，新增要到編輯器夾帶附件。 */}
         <p data-testid="files-add-hint" className="dash-card flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm text-muted-foreground">
-          <span className="min-w-0 flex-1">
-            這裡只列出已經上傳的檔案。要新增檔案請到專題事務：新增或編輯公告、資源、繳交項目時夾帶附件，存檔後就會出現在這裡。
-          </span>
-          <Link href="/dashboard/admin/affairs" className="shrink-0 font-semibold text-primary-on-subtle hover:underline">
-            前往專題事務
+          <span className="min-w-0 flex-1">要新增檔案，去「公告與作業」的編輯器加附件。</span>
+          <Link href="/dashboard/admin/editor/new" className="shrink-0 font-semibold text-primary-on-subtle hover:underline">
+            去編輯器
           </Link>
         </p>
         <FilesTable rows={rows.map(view)} initialKind={initialKind} />
