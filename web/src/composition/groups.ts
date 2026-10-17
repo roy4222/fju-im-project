@@ -3,7 +3,6 @@ import type { PoolClient } from 'pg'
 import type {
   AdvisorCommand,
   AdvisorGradingLookup,
-  GradingDissolutionHook,
   GroupCommand,
   GroupQuery,
   LeaderSuccessionHook,
@@ -11,6 +10,7 @@ import type {
   OpportunityQuery,
   ProposalExpiryHandler,
 } from '@/application/groups'
+import type { GradingDissolutionHook } from '@/application/grading'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getAssignmentsForTeacherQuery } from '@/composition/grading'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
@@ -32,7 +32,7 @@ let dissolutionHook: GradingDissolutionHook<PoolClient> | undefined
 
 /**
  * 組別解散時停止評分工作（A-19；評分模組的實作，注入分組的解散用例、同交易）。
- * 放這裡不放 `composition/grading.ts`：那檔歸 A-01／A-05（B 階段設計方案 §17.2）。介面在 `application/groups/ports.ts`。
+ * 放這裡不放 `composition/grading.ts`：那檔歸 A-01／A-05（B 階段設計方案 §17.2）。介面在 `application/grading/dissolution.ts`。
  */
 export function getGradingDissolutionHook(): GradingDissolutionHook<PoolClient> {
   dissolutionHook ??= new PgGradingDissolution()

@@ -35,7 +35,6 @@ import {
   type DissolveGroupInput,
   type DissolveReceipt,
   type ExpireOutcome,
-  type GradingDissolutionHook,
   type GroupCommand,
   type GroupHistoryEntry,
   type GroupQuery,
@@ -63,6 +62,7 @@ import {
   type TerminationKind,
   type UngroupedStudent,
 } from '@/application/groups'
+import type { GradingDissolutionHook } from '@/application/grading'
 import type { DueWorkScheduler, EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import type { SignoffParticipantHook } from '@/application/signoff'

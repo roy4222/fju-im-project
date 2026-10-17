@@ -182,7 +182,6 @@ export type {
   CohortGroupingOverview,
   CohortHeadcount,
   GroupHistoryEntry,
-  GradingDissolutionHook,
   GroupCommand,
   GroupMember,
   GroupQuery,

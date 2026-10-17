@@ -1,7 +1,7 @@
 import 'server-only'
 import { uuidv7 } from 'uuidv7'
 import type { PoolClient } from 'pg'
-import type { GradingDissolutionHook } from '@/application/groups'
+import type { GradingDissolutionHook } from '@/application/grading'
 
 /**
  * 組別解散時停止評分工作（開站後；`GradingDissolutionHook`）。在解散用例的交易裡跑，組別列已經 `FOR UPDATE`。
