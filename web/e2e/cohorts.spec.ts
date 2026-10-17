@@ -237,13 +237,14 @@ test.describe('封存與解封', () => {
     expect(audits.rows[0]!.n).toBe(1)
   })
 
-  test('AC-A-28 封存後學生在該屆組別頁寫入：看到「已封存」', async ({ page }) => {
+  /** 綁在已封存的 C 的未分組學生，`openToJoin` 是他一開始的「公開找組員」開關；登入成他。 */
+  async function signInAsArchivedStudent(page: Page, openToJoin: boolean) {
     const student = await createTestSession(page.request, 'student')
     const studentNo = `4${Date.now().toString().slice(-8)}`
     await pool.query(
-      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email)
-       values ($1, 'e2e 封存學生', 'e2e 封存學生', $2, $3, '0912000000', $4)`,
-      [student.userId, studentNo, cohortC, `arch-${studentNo}@contact.example.com`],
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email, open_to_join)
+       values ($1, 'e2e 封存學生', 'e2e 封存學生', $2, $3, '0912000000', $4, $5)`,
+      [student.userId, studentNo, cohortC, `arch-${studentNo}@contact.example.com`, openToJoin],
     )
     await pool.query(`insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)`, [
       cohortC,
@@ -252,12 +253,49 @@ test.describe('封存與解封', () => {
     ])
     await page.context().clearCookies()
     await page.context().addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
+    return student
+  }
+
+  /** 這位學生的開關現值與「公開找組員」稽核筆數：被拒時兩者都不該變。 */
+  async function openToJoinState(userId: string) {
+    const flag = await pool.query(`select open_to_join from user_profiles where user_id = $1`, [userId])
+    const audits = await pool.query(
+      `select count(*)::int as n from audit_events where action = 'group.set_open_to_join' and actor_user_id = $1`,
+      [userId],
+    )
+    return { open: flag.rows[0]!.open_to_join as boolean, audits: audits.rows[0]!.n as number }
+  }
+
+  test('AC-A-28 封存後學生在該屆組別頁寫入：發起提案看到「已封存」', async ({ page }) => {
+    await signInAsArchivedStudent(page, false)
 
     await page.goto('/dashboard/student/groups')
     await page.getByRole('button', { name: '發起提案' }).click()
     await expect(feedback(page, 'alert')).toContainText('已封存')
     const proposals = await pool.query(`select count(*)::int as n from group_proposals where cohort_id = $1`, [cohortC])
     expect(proposals.rows[0]!.n).toBe(0)
+  })
+
+  test('AC-A-28 封存後按「公開找組員」：看到「已封存」，開關仍是未公開、沒有稽核', async ({ page }) => {
+    const student = await signInAsArchivedStudent(page, false)
+
+    await page.goto('/dashboard/student/groups?tab=team')
+    await page.getByRole('button', { name: '公開找組員' }).click()
+    await expect(feedback(page, 'alert')).toContainText('已封存')
+    expect(await openToJoinState(student.userId)).toEqual({ open: false, audits: 0 })
+    await page.reload()
+    await expect(page.getByText('公開找組員：未公開')).toBeVisible()
+  })
+
+  test('AC-A-28 封存後按「關閉公開」：看到「已封存」，開關仍是已公開、沒有稽核', async ({ page }) => {
+    const student = await signInAsArchivedStudent(page, true)
+
+    await page.goto('/dashboard/student/groups?tab=team')
+    await page.getByRole('button', { name: '關閉公開' }).click()
+    await expect(feedback(page, 'alert')).toContainText('已封存')
+    expect(await openToJoinState(student.userId)).toEqual({ open: true, audits: 0 })
+    await page.reload()
+    await expect(page.getByText('公開找組員：已公開')).toBeVisible()
   })
 
   test('AC-A-27 解除封存：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {

@@ -781,6 +781,38 @@ describe('公開找組員', () => {
     const flags = await owner.sql('select user_id, open_to_join from user_profiles where user_id = any($1::uuid[])', [[viewer!.id, a!.id]])
     expect(Object.fromEntries(flags.rows.map((r) => [r.user_id, r.open_to_join]))).toEqual({ [viewer!.id]: true, [a!.id]: true })
   })
+
+  it('屆別封存後：公開、關閉兩個方向都回 COHORT_ARCHIVED，開關、稽核、帳本都不變（AC-A-28）', async () => {
+    const cohortId = await newCohort()
+    const [opened, closed] = await students(cohortId, 2)
+    await groups.setOpenToJoin(studentActor(opened!), true, randomUUID())
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const before = {
+      audits: await count(`select count(*) as n from audit_events where action = 'group.set_open_to_join' and cohort_id = $1`, [cohortId]),
+      ledger: await count(`select count(*) as n from operation_records where operation_kind = 'group.set_open_to_join' and cohort_id = $1`, [
+        cohortId,
+      ]),
+    }
+
+    expect(await groups.setOpenToJoin(studentActor(closed!), true, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+    expect(await groups.setOpenToJoin(studentActor(opened!), false, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+
+    const flags = await owner.sql('select user_id, open_to_join from user_profiles where user_id = any($1::uuid[])', [[opened!.id, closed!.id]])
+    expect(Object.fromEntries(flags.rows.map((r) => [r.user_id, r.open_to_join]))).toEqual({ [opened!.id]: true, [closed!.id]: false })
+    expect({
+      audits: await count(`select count(*) as n from audit_events where action = 'group.set_open_to_join' and cohort_id = $1`, [cohortId]),
+      ledger: await count(`select count(*) as n from operation_records where operation_kind = 'group.set_open_to_join' and cohort_id = $1`, [
+        cohortId,
+      ]),
+    }).toEqual(before)
+    expect(before).toEqual({ audits: 1, ledger: 1 })
+  })
 })
 
 describe('分組設定（管理員）', () => {
