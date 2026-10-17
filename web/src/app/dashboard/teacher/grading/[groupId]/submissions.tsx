@@ -1,20 +1,22 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconDownload, IconExternalLink, IconPaperclip } from '@tabler/icons-react'
+import { IconDownload, IconPaperclip } from '@tabler/icons-react'
 import type { SubmissionRow } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
+import { PreviewableAttachment } from '@/app/dashboard/teacher/grading/[groupId]/preview-pane'
 import { Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
+import { isPreviewableMime } from '@/composition/files'
 import { formatBytes } from '@/shared/format-bytes'
 import { formatTaipeiMinute } from '@/shared/time'
 
 /**
- * 評分單組頁的左欄「本組正式繳交」（TE-06b，Q78；A 不內嵌）。伺服器元件。
+ * 評分單組頁的左欄「本組正式繳交」（TE-06b，Q78；B 階段 TE-B5 加頁內檢視）。伺服器元件。
  *
  * 每個整組作業最新一次正式送出的版本一列：作業名、第 N 版、送出時間、附件清單。附件在初開頁就列出
  * （TE-11 `teacherBenchPage.submissions[].attachments` 一次帶回，不逐份讀版本內容）。
- * - PDF（偵測到的 `mime` 是 `application/pdf`）：「在新分頁開啟 PDF」。走既有下載介面 `/api/files/{id}`，
- *   回應仍是 `content-disposition: attachment`，所以多數瀏覽器會**下載**而不是在分頁裡顯示。
- * - 其他附件：「下載」。
- * - 不放 `src` 指向 `/api/files/…` 的 `<iframe>`／`<img>`：頁面 CSP 的 `frame-src` 沒有 `'self'`，內嵌預覽是 B 的 TE-B5。
+ * - PDF 與圖片（偵測到的 `mime`）：「在頁內檢視」＋「下載」。按下在該列下方開預覽窗格（`preview-pane.tsx`，client），
+ *   `<iframe>` 指向預覽端點 `/api/files/{id}/preview`（A-06：inline、只讓本站嵌入；頁面 CSP `frame-src` 有 `'self'`）。
+ *   SVG 等不在預覽白名單的圖片：窗格只說請下載，不嵌入（預覽端點對它們會 302 導下載）。
+ * - 其他附件：只有「下載」（`/api/files/{id}`，`attachment`）。
  * 點作業名（`?item=&version=`）時由 `opened` 顯示該版的文字內容（既有行為）。
  */
 
@@ -62,23 +64,27 @@ export function GroupSubmissions({
                 <p className="text-xs text-muted-foreground">沒有附件</p>
               ) : (
                 <ul aria-label={`${v.title}的附件`} className="flex flex-col gap-1.5">
-                  {v.attachments.map((f) => (
-                    <li key={f.fileId} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2">
-                      <span className="min-w-0 flex-1 break-all text-sm text-foreground">{f.name}</span>
-                      <span className="tabular shrink-0 text-xs text-muted-foreground">{formatBytes(f.sizeBytes)}</span>
-                      {f.mime === 'application/pdf' ? (
-                        <a href={`/api/files/${f.fileId}`} target="_blank" rel="noopener noreferrer" className={LINK}>
-                          <IconExternalLink aria-hidden />
-                          在新分頁開啟 PDF<span className="sr-only">：{f.name}</span>
-                        </a>
-                      ) : (
+                  {v.attachments.map((f) =>
+                    f.mime === 'application/pdf' || f.mime.startsWith('image/') ? (
+                      <PreviewableAttachment
+                        key={f.fileId}
+                        fileId={f.fileId}
+                        name={f.name}
+                        mime={f.mime}
+                        sizeText={formatBytes(f.sizeBytes)}
+                        previewable={isPreviewableMime(f.mime)}
+                      />
+                    ) : (
+                      <li key={f.fileId} data-testid="attachment" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                        <span className="min-w-0 flex-1 break-all text-sm text-foreground">{f.name}</span>
+                        <span className="tabular shrink-0 text-xs text-muted-foreground">{formatBytes(f.sizeBytes)}</span>
                         <a href={`/api/files/${f.fileId}`} className={LINK}>
                           <IconDownload aria-hidden />
                           下載<span className="sr-only">：{f.name}</span>
                         </a>
-                      )}
-                    </li>
-                  ))}
+                      </li>
+                    ),
+                  )}
                 </ul>
               )}
             </li>

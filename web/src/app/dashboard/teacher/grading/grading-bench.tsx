@@ -34,7 +34,7 @@ import { formatScore, LETTER_GRADES, parseItemScore, teacherStageScore } from '@
  *    同版本、評分軸相同、只差顯示軸 → 讀出時間嚴格較新才接受。畫面只讀「最後接受」的快照（`state.applied`），不直接讀 props。
  * 2. **`{requestId, payload}` 不可變**（`pending`）：按下時把欄位原值凍結成 payload，重送原樣送出，不重讀欄位、不正規化。
  * 3. **收據只在「收據版本 ≥ 目前已知最新版本」時確認**；比已知的舊＝這次送的內容已被之後的寫入取代 → 不當作已存、出衝突區讓老師選，不開收件章。
- * 4. **未存內容保存成列表**（`stashes`）、恢復／丟棄只動指定那筆；**render 裡零 dispatch**——新快照在 effect 處理，用「已處理的 key」ref 去重。
+ * 4. **未存內容保存成列表**（`stashes`）、只能複製或按「不用了」丟棄指定那筆（不自動恢復進欄位）；**render 裡零 dispatch**——新快照在 effect 處理，用「已處理的 key」ref 去重。
  *
  * 簡化規則：
  * - **S1 送達只靠收據**：有沒有送到只看該請求編號的收據。回應中斷／逾時 → `pending` 進入 `interrupted`（上一次結果不明），
@@ -184,12 +184,17 @@ const countNotice = (count: number): Message => ({ tone: 'info', text: `伺服�
 const updatedNotice: Message = { tone: 'info', text: '這一份評分在別的地方有更新，畫面已更新為最新狀態。' }
 const unresolvedNotice: Message = { tone: 'error', text: '伺服器回傳的資料跟畫面對不上，請重新整理頁面。' }
 const settledNotice: Message = { tone: 'info', text: '系辦已結算這一階段，你剛才尚未儲存的修改沒有存入；內容保留在下面，可以複製。' }
-const staleReceiptNote = (kind: 'save' | 'submit', count: number): Message => ({
+/** 舊收據的訊息；`dirty`：欄位跟伺服器確認的內容不同（沒有未存就不說「仍未儲存」）。 */
+const staleReceiptNote = (kind: 'save' | 'submit', count: number, dirty: boolean): Message => ({
   tone: 'error',
   text:
     kind === 'submit'
-      ? `這一次「重新送出」的內容在送出後已被別的分頁或裝置的送出取代（目前是第 ${count} 次，計入成績的是伺服器上的內容）；你這裡的修改仍未送出，可改用伺服器的內容，或再按一次「重新送出」。`
-      : '這一次「儲存草稿」的內容之後已被別的分頁或裝置更新；你這裡的修改仍未儲存，可改用伺服器的內容，或再按一次「儲存草稿」。',
+      ? `這一次「重新送出」的內容在送出後已被別的分頁或裝置的送出取代（目前是第 ${count} 次，計入成績的是伺服器上的內容）；${
+          dirty ? '你這裡的修改仍未送出，可改用伺服器的內容，或再按一次「重新送出」。' : '畫面已是伺服器上的內容，沒有尚未儲存的修改。'
+        }`
+      : `這一次「儲存草稿」的內容之後已被別的分頁或裝置更新；${
+          dirty ? '你這裡的修改仍未儲存，可改用伺服器的內容，或再按一次「儲存草稿」。' : '畫面已是伺服器上的內容，沒有尚未儲存的修改。'
+        }`,
 })
 
 function reduce(stage: SchemeStage, state: Local, event: Event): Local {
@@ -209,8 +214,10 @@ function reduce(stage: SchemeStage, state: Local, event: Event): Local {
       const op = state.pending
       if (!op || op.requestId !== event.requestId) return { ...state, busy: null }
       if (event.version < laterOf(state.knownVersion, state.applied.version)) {
-        // 不變條件 3：舊收據——這次送的內容在那之後已被更新的寫入取代。不當作已存；有未存就出衝突區讓老師選。
-        return { ...state, busy: null, pending: null, message: staleReceiptNote(op.kind, state.applied.count), conflict: dirty() ? state.applied.content : state.conflict }
+        // 不變條件 3：舊收據——這次送的內容在那之後已被更新的寫入取代。不當作已存；有未存就出衝突區讓老師選，
+        // 沒有未存（欄位已跟伺服器確認的內容相同）就沒有要選的，衝突區收起。
+        const unsaved = dirty()
+        return { ...state, busy: null, pending: null, message: staleReceiptNote(op.kind, state.applied.count, unsaved), conflict: unsaved ? state.applied.content : null }
       }
       // S1＋S2：收據確認的是凍結的 payload；等待期間有沒有續改＝現在的欄位跟 payload 比。
       const confirmed = normalizeContent(stage, op.payload)
@@ -220,6 +227,8 @@ function reduce(stage: SchemeStage, state: Local, event: Event): Local {
         busy: null,
         pending: null,
         confirmed,
+        // 收據確認了這一次，之前（中斷期間別處更新而出現）的衝突區就不再成立。
+        conflict: null,
         knownVersion: laterOf(state.knownVersion, event.version),
         ack: event.savedAtText ? { savedAtText: event.savedAtText } : state.ack,
         message: edited ? { tone: 'info', text: event.textIfEdited } : event.text ? { tone: 'ok', text: event.text } : null,
@@ -905,9 +914,14 @@ export function GradingBench({
           <span className="min-w-0 basis-full text-xs text-muted-foreground sm:flex-1 sm:basis-auto">{blockReason}</span>
           {readOnly ? null : interrupted ? (
             // S1：上一次結果不明，只能原樣再送一次（同編號、同 payload）；收據到了才會回到一般動作。
-            <button type="button" data-testid="resend" className={cn(PRIMARY_BUTTON, 'w-full px-4 sm:w-auto')} onClick={onResend} disabled={busy !== null}>
-              <IconSend /> {busy ? '送出中…' : '再送一次'}
-            </button>
+            <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
+              <button type="button" data-testid="resend" className={cn(PRIMARY_BUTTON, 'w-full px-4 sm:w-auto')} onClick={onResend} disabled={busy !== null}>
+                <IconSend /> {busy ? '送出中…' : '再送一次'}
+              </button>
+              <span data-testid="resend-note" className="text-xs text-muted-foreground">
+                送出的是中斷當時的內容
+              </span>
+            </div>
           ) : (
             <div className="flex w-full gap-2 sm:w-auto">
               <button type="button" className={cn(OUTLINE_BUTTON, 'h-11 flex-1 px-4 sm:flex-none')} onClick={onSave} disabled={busy !== null}>
