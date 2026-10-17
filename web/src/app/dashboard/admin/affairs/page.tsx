@@ -18,6 +18,7 @@ import {
   PLACEMENT_LABEL,
   RECEIVER_UNIT_LABEL,
 } from '@/composition/items'
+import { completionOf, getRosterQuery } from '@/composition/submissions'
 import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '公告與作業｜資管系專題平台' }
@@ -44,13 +45,16 @@ const AFFAIRS_TABS = [
  * 「管理歷屆榮譽」入口（不是「還沒有屆別」的死路）。
  *
  * 系辦 AD-04：標題用側欄名「公告與作業」、下方掛分頁列；頁首不放說明段落（AC-AD-06、07）。
+ *
+ * 「逾期」篩選（AD-B7）：發布中、已截止、還有人沒正式送出的文件繳交，列上寫「逾期 N 人」。只有這個篩選才多讀
+ * 一次全屆名單事實（`completionFacts`，跟系辦首頁逾期卡同一個查詢、同一個 `completionOf`），其他篩選的查詢不變。
  */
 export default async function AffairsPage({
   searchParams,
 }: {
   searchParams: Promise<{ cohort?: string | string[]; placement?: string | string[] }>
 }) {
-  await requireRole('/dashboard/admin/affairs', 'admin')
+  const actor = await requireRole('/dashboard/admin/affairs', 'admin')
 
   const view = affairsView(await getCohortStatusQuery().list(), await searchParams)
   const filter = view.filter
@@ -87,12 +91,23 @@ export default async function AffairsPage({
   }
 
   const { cohorts, cohort } = view
-  const [rows, vocabulary, businessNow] = await Promise.all([
+  const [rows, vocabulary, businessNow, facts] = await Promise.all([
     getItemQuery().list(cohort.id),
     editorVocabulary(cohort.id),
     getBusinessClock().now(),
+    filter === 'overdue' ? getRosterQuery().completionFacts(actor, cohort.id) : Promise.resolve([]),
   ])
-  const shown = rows.filter((r) => filter === 'all' || r.placement === filter)
+  // 每份收件的欠繳數：口徑同名單頁與首頁逾期卡（目前名單、不含免填與移出、沒有正式版本、狀態是逾期）。
+  const overdueOf = new Map(facts.map((f) => [f.item.itemId, completionOf(f.item, f.entries, businessNow).overdue]))
+  const shown = rows.filter((r) =>
+    filter === 'overdue'
+      ? r.placement === 'submission' &&
+        r.status === 'published' &&
+        r.dueAt !== null &&
+        isDeadlinePassed(businessNow, r.dueAt) &&
+        (overdueOf.get(r.id) ?? 0) > 0
+      : filter === 'all' || r.placement === filter,
+  )
   // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
   const archived = cohort.status === 'archived'
   const query = (patch: Record<string, string>) => {
@@ -117,6 +132,7 @@ export default async function AffairsPage({
       isDue: r.dueAt !== null,
       // 截止含當分鐘（Vault 04 §4）：跟收件判定用同一個 helper。
       overdue: r.dueAt !== null && isDeadlinePassed(businessNow, r.dueAt),
+      overdueText: filter === 'overdue' ? `逾期 ${overdueOf.get(r.id) ?? 0} ${r.receiverUnit === 'group' ? '組' : '人'}` : null,
       // 收件名單頁（票 18）：數字＝應交數（不含免填），跟名單頁完成率的分母同一個口徑。
       roster: collects
         ? r.status === 'draft'
@@ -172,7 +188,9 @@ export default async function AffairsPage({
             ? '這一屆還沒有任何公告或作業。按「新增項目」建立第一筆。'
             : honorView
               ? '這一屆還沒有榮譽。按「新增榮譽」建立第一則。'
-              : '這個種類還沒有項目。'
+              : filter === 'overdue'
+                ? '這一屆目前沒有逾期未繳的文件繳交。'
+                : '這個種類還沒有項目。'
         }
       />
     </>,

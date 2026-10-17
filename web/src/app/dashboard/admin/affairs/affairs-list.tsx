@@ -15,6 +15,8 @@ import { cn } from '@/shared/cn'
  *
  * 發布中的公告列多一顆「置頂／取消置頂」（第 1 批 V1）：按完在卡片頂端寫回饋句、`router.refresh()` 重抓列。
  * 按鈕的無障礙名稱帶標題（「置頂「標題」」），跟同一列的「編輯：標題」一樣不會跟別列撞名。
+ *
+ * 「逾期」篩選（AD-B7）的列在狀態欄多一顆「逾期 N 人／組」。
  */
 
 export type AffairRow = {
@@ -29,6 +31,8 @@ export type AffairRow = {
   /** 截止日已過（紅字）。 */
   overdue: boolean
   isDue: boolean
+  /** 「逾期」篩選才有：欠繳的字（「逾期 2 人」）；其他篩選不讀名單，是 null。 */
+  overdueText: string | null
   /** 收件名單連結的字（「應交 2 位（個人一份）」）；不是收件或還是草稿時是說明文字。 */
   roster: { text: string; href: string | null } | null
   publicHref: string | null
@@ -144,6 +148,11 @@ export function AffairsList({
               {r.pinned ? (
                 <Pill tone="brand" data-testid="pinned-pill">
                   置頂
+                </Pill>
+              ) : null}
+              {r.overdueText ? (
+                <Pill tone="danger" data-testid="overdue-pill">
+                  {r.overdueText}
                 </Pill>
               ) : null}
             </span>
