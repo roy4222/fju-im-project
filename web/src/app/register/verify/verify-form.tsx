@@ -21,20 +21,22 @@ export function VerifyForm({
   const [code, setCode] = useState('')
   const form = useRef<HTMLFormElement>(null)
   const lastSubmitted = useRef('')
+  const seenAttempt = useRef(0)
 
-  // 伺服器回錯：清空，讓人重填（AC-VI-47「欄位清空」）。
+  // 「伺服器回錯 → 清空」與「6 碼填滿 → 自動送出」放同一個 effect：收到新的錯誤時清空後立刻 return，
+  // 不然同一輪裡舊的 6 碼還在，會被自動再送一次（一次錯碼變兩次 POST，提早耗掉驗證次數；VB-3 Review）。
   useEffect(() => {
-    if (!state?.attempt) return
-    setCode('')
-    lastSubmitted.current = ''
-  }, [state?.attempt])
-
-  // 6 碼填滿自動送出（同一串不重送）。
-  useEffect(() => {
+    const attempt = state?.attempt ?? 0
+    if (attempt !== seenAttempt.current) {
+      seenAttempt.current = attempt
+      lastSubmitted.current = ''
+      setCode('')
+      return
+    }
     if (!isCompleteOtp(code) || pending || lastSubmitted.current === code) return
     lastSubmitted.current = code
     form.current?.requestSubmit()
-  }, [code, pending])
+  }, [code, pending, state?.attempt])
 
   return (
     <form ref={form} action={formAction} className="flex flex-col gap-4">

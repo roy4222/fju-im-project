@@ -1,12 +1,22 @@
 'use server'
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { clientIpFrom, getRegistrationCommand, isRegistrationOpen, PASSWORD_MIN_LENGTH, resolveActor, signOut } from '@/composition/accounts'
+import {
+  clientIpFrom,
+  EMAIL_VERIFY_PATH,
+  getRegistrationCommand,
+  homeForUser,
+  isRegistrationOpen,
+  PASSWORD_MIN_LENGTH,
+  resolveActor,
+  signOut,
+} from '@/composition/accounts'
 import { authCallHeaders, signUpOrResume } from '@/composition/signup'
 import type { ApplicationFormState } from './application-form'
 import {
   authErrorMessage,
   decodeResume,
+  EMAIL_UNVERIFIED_MESSAGE,
   encodeResume,
   failed,
   field,
@@ -111,6 +121,10 @@ export async function reviseApplicationAction(
   const expectedRevision = rawRevision === '' ? null : /^\d+$/.test(rawRevision) ? Number(rawRevision) : NaN
 
   const actor = await resolveActor(await headers())
+  // 還沒驗證 Email 的人不能經這個舊入口送出第一份申請（VB-3 Review；用例層同樣會擋）。
+  if (actor.kind === 'authenticated' && (await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) {
+    return failed(state, EMAIL_UNVERIFIED_MESSAGE, values)
+  }
   const result = await getRegistrationCommand().reviseMine(
     actor,
     {

@@ -4,6 +4,9 @@ import type { ApplicationFormState, ApplicationFormValues } from '../application
  * 註冊各步的 Server Action 共用的小工具（`'use server'` 檔只能匯出 async 函式，所以放這裡）。
  */
 
+/** 跟用例層 `APPLY_EMAIL_UNVERIFIED_MESSAGE` 同一句（app 不能從 application 帶值）。 */
+export const EMAIL_UNVERIFIED_MESSAGE = '請先完成 Email 驗證。'
+
 /** 表單欄位一律當字串讀；不是字串或長得離譜就當沒填（用例會回「請填…」）。 */
 export function field(formData: FormData, name: string, max = 300): string {
   const value = formData.get(name)

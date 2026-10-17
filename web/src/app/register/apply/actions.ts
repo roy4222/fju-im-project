@@ -2,10 +2,7 @@
 import { headers } from 'next/headers'
 import { EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, resolveActor } from '@/composition/accounts'
 import type { ApplicationFormState } from '../application-form'
-import { failed, valuesOf } from '../_components/form-data'
-
-/** 跟用例層 `APPLY_EMAIL_UNVERIFIED_MESSAGE` 同一句（app 不能從 application 帶值）。 */
-const EMAIL_UNVERIFIED_MESSAGE = '請先完成 Email 驗證。'
+import { EMAIL_UNVERIFIED_MESSAGE, failed, valuesOf } from '../_components/form-data'
 
 /**
  * 註冊第 3 步「填學生資料」送出（VB-3）：第一次送申請，成功後畫面送 GA `done` 再到等待審核頁。

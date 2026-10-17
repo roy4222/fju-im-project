@@ -166,11 +166,23 @@ test('AC-VI-46／48／51／50：建立帳號 → 驗證碼由伺服器寄出 →
     await expect(page, route).toHaveURL(/\/register\/verify$/)
   }
 
-  // 錯的碼：同一句、欄位清空。
+  // 錯的碼：同一句、欄位清空；**只送一次**（Review：清空與自動送出曾在同一輪各跑一次，一次錯碼變兩次 POST）。
+  const verifyPosts: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/register/verify') verifyPosts.push(request.url())
+  })
   const wrong = otp === '000000' ? '111111' : '000000'
   await page.getByLabel('驗證碼第 1 位').fill(wrong)
   await expect(page.getByRole('main').getByRole('alert')).toContainText('驗證碼不正確')
   await expect(page.getByLabel('驗證碼第 1 位')).toHaveValue('')
+  await page.waitForTimeout(1000)
+  expect(verifyPosts).toHaveLength(1)
+  // 套件把錯誤次數記在驗證碼那一列（`<hash>:<次數>`）：一次錯碼只算一次。
+  const attempts = await pool.query<{ value: string }>(
+    `select value from verifications where identifier = 'email-verification-otp-' || $1 order by created_at desc limit 1`,
+    [email],
+  )
+  expect(attempts.rows[0]?.value.split(':').at(-1)).toBe('1')
 
   // AC-VI-48：正確的碼 → 第 3 步；第 2 格打勾、第 3 格 current；驗證碼那列被刪。
   await page.getByLabel('驗證碼第 1 位').fill(otp)
@@ -225,6 +237,27 @@ test('AC-VI-50：未驗證的人直接送第 3 步 → 「請先完成 Email 驗
   const user = await userRow(email)
   const apps = await pool.query('select 1 from registration_applications where user_id = $1', [user!.id])
   expect(apps.rowCount).toBe(0)
+  await context.close()
+})
+
+test('AC-VI-50（Review P1）：未驗證的人經等待審核頁舊的「送出申請資料」入口送第一份申請 → 擋下、不建申請', async ({ browser }) => {
+  const email = `vb3-legacy-${run}@example.com`
+  const { context, page } = await fresh(browser)
+  await stepOne(page, email, P1)
+  await expect(page).toHaveURL(/\/register\/verify$/)
+  // 讓等待審核頁打得開（那頁對沒申請的人顯示舊的送出表單），再改回未驗證後送出：舊 Action 自己要擋。
+  await pool.query('update users set email_verified = true where email = $1', [email])
+  await page.goto('/register/pending')
+  await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
+  await pool.query('update users set email_verified = false where email = $1', [email])
+  await page.getByLabel('姓名').fill('舊入口')
+  await page.getByLabel('學號').fill('411499101')
+  await page.getByLabel('系級').fill('資管二甲')
+  await page.getByLabel('手機').fill('0912-345-678')
+  await page.getByRole('button', { name: '送出申請' }).click()
+  await expect(page.getByRole('main').getByRole('alert')).toHaveText('請先完成 Email 驗證。')
+  const user = await userRow(email)
+  expect((await pool.query('select 1 from registration_applications where user_id = $1', [user!.id])).rowCount).toBe(0)
   await context.close()
 })
 

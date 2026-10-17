@@ -2,6 +2,7 @@ import 'server-only'
 import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import {
+  APPLY_EMAIL_UNVERIFIED_MESSAGE,
   applyDenial,
   BULK_APPROVAL_MAX,
   BULK_APPROVAL_SKIP_LABEL,
@@ -337,8 +338,10 @@ export class PgRegistrationCommand implements RegistrationCommand {
     try {
       await tx.query('begin')
       // 先鎖這個人（同一個人兩個分頁同時送出時排隊），再看最新一筆申請。
-      const user = await tx.query<{ email: string; status: string }>(
-        'select email, status from users where id = $1 for update',
+      const user = await tx.query<{ email: string; status: string; email_verified: boolean; has_google: boolean }>(
+        `select u.email, u.status, u.email_verified,
+                exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google') as has_google
+           from users u where u.id = $1 for update of u`,
         [actor.userId],
       )
       const loginEmail = user.rows[0]?.email
@@ -401,6 +404,12 @@ export class PgRegistrationCommand implements RegistrationCommand {
       if (expectedRevision !== null) {
         await tx.query('rollback')
         return err('CONFLICT', '系辦剛剛處理了你的申請，請重新整理看最新狀態。')
+      }
+      // 第一次送申請：用密碼註冊、還沒驗證 Email（也沒有 Google 登入方式）的人不能送（VB-3 Review；AC-VI-50）。
+      // 驗證狀態讀剛鎖住的那一列，不信 session 快照；跟 `homeForUser` 導去驗證頁的判斷同一個條件。
+      if (!latest && user.rows[0]?.email_verified !== true && user.rows[0]?.has_google !== true) {
+        await tx.query('rollback')
+        return err('FORBIDDEN', APPLY_EMAIL_UNVERIFIED_MESSAGE)
       }
       const applicationId = await this.#insertApplication(
         tx,
