@@ -134,6 +134,26 @@ async function currentOtpHash(db: Queryable, email: string, lock = false): Promi
   return at === -1 ? value : value.slice(0, at)
 }
 
+/**
+ * 這個 Email 目前全部驗證碼列的 id：續辦重寄在寄碼**之前**拍的快照（VB-3 Review 第 3 輪 Sol P2）。
+ * 套件的寄碼端點在呼叫寄信回呼之前就插一列新碼（`resolveOTP`：再插一列、不刪舊列），自己拿不到那列的 id；
+ * 寄完拿同一個快照比對，「不在快照裡的列」就是寄碼期間插進來的。只讀、不鎖、不持有連線（寄碼期間不能占連線）。
+ */
+export async function listSignupOtpRowIds(db: Queryable, email: string): Promise<string[]> {
+  const rows = await db.query<{ id: string }>('select id from verifications where identifier = $1', [emailOtpIdentifier(email)])
+  return rows.rows.map((r) => r.id)
+}
+
+/** 快照之後插進來的驗證碼列（鎖住）：`before` 是 `listSignupOtpRowIds` 拍的快照。 */
+async function otpRowsSince(tx: PoolClient, email: string, before: string[]): Promise<string[]> {
+  const rows = await tx.query<{ id: string }>(
+    // `verifications.id` 是 uuid 欄（migration 定的；`auth.generated.ts` 寫 text 只是套件的描述）。
+    'select id from verifications where identifier = $1 and not (id = any($2::uuid[])) order by created_at, id for update',
+    [emailOtpIdentifier(email), before],
+  )
+  return rows.rows.map((r) => r.id)
+}
+
 /** 同一個 Email 的「續辦綁定」與「續辦完成」排隊（交易級 advisory lock；鍵是 `signup-resume:<email>`）。 */
 function lockKey(email: string): string {
   return `signup-resume:${normalizeEmail(email)}`
@@ -249,15 +269,20 @@ export async function checkSignupResumeTicket(
  * 續辦重寄的改綁（VB-3 Review 第 1 輪 P3）：新的驗證碼**已經寄出**之後，把暫存列綁的碼換成此刻最新那封。
  *
  * 跟 `startSignupResume` 的綁定、`finishSignupResume` 同一把交易級 advisory lock；交易裡重驗：帳號還能續辦、
- * 列還在壽命內、userId 與續辦票都對、還沒過絕對截止。全部成立才改 `otpHash`（密碼雜湊、票不動），舊碼從此對不上
+ * 列還在壽命內、userId 與續辦票都對、還沒過絕對截止、**這一次寄碼插的那列還在**（`before` 是寄碼前的快照，
+ * 快照之後一列都沒有＝自己那列已被別的路徑清掉，不綁）。全部成立才改 `otpHash`（密碼雜湊、票不動），舊碼從此對不上
  * （完成時要求提交的碼＝最新那列＝暫存綁的碼）。視窗重設成「現在＋10 分鐘」但**不超過列上的絕對截止**（票建立起
  * 30 分鐘；Review 第 2 輪：限速是固定視窗，光靠它每 181 秒一次就能無限延長）。**不看舊視窗有沒有過**：視窗過了、
  * 截止內的重寄就是要把它重開（主腦裁定）。已過截止回 `timed_out`、不改任何東西。
+ *
+ * 綁的是**最新那列**而不是「自己那列」：同一個 Email 的續辦重寄在 wrapper 裡排隊，自己那列正常就是最新的；
+ * 快照之後多於一列只可能是別條路（公開重寄、別人開始續辦）在寄碼期間插的，套件的 check 只認最新那列，
+ * 那封也寄到同一個信箱，綁最新的才完成得了；完成交易仍要求提交的碼＝最新那列＝綁的碼（版本檢查不變）。
  * 寄信失敗時呼叫端不會走到這裡（改走 `restoreSignupResumeOtp`）。
  */
 export async function rebindSignupResumeOtp(
   db: Pool,
-  input: { email: string; ticket: string },
+  input: { email: string; ticket: string; before: string[] },
   now: Date = new Date(),
 ): Promise<{ ok: true } | { ok: false; reason: SignupResumeFailure }> {
   const email = normalizeEmail(input.email)
@@ -277,8 +302,16 @@ export async function rebindSignupResumeOtp(
     )
     const row = pending.rows[0]
     const parsed = row ? parsePending(row.value) : null
+    const inserted = await otpRowsSince(tx, email, input.before)
     const otpHash = await currentOtpHash(tx, email, true)
-    if (!row || !parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket) || !otpHash) {
+    if (
+      !row ||
+      !parsed ||
+      parsed.userId !== userId ||
+      parsed.ticketHash !== hashSecret(input.ticket) ||
+      inserted.length === 0 ||
+      !otpHash
+    ) {
       await tx.query('rollback')
       return { ok: false, reason: 'expired' }
     }
@@ -314,40 +347,33 @@ export async function rebindSignupResumeOtp(
 export type SignupResumeFailure = 'not_resumable' | 'expired' | 'timed_out'
 
 /**
- * 續辦重寄**寄失敗**後的還原（VB-3 Review 第 2 輪）。
+ * 續辦重寄**寄失敗**後的還原（VB-3 Review 第 2 輪；第 3 輪 Sol P2 改成只撤回本次那一列）。
  *
  * 套件的寄碼端點在呼叫寄信回呼**之前**就插了一列新碼（`plugins/email-otp/routes.mjs` 的 `resolveOTP`：再插一列、不刪舊列），
  * 而 check 端點只認最新那列——信沒寄出卻把那列留著，使用者手上那封的碼在套件那一層就會被當成不是最新
- * （r2 反例的「舊碼失效、新碼沒送到」）。所以在同一把鎖裡：暫存列還是這張票的 → 刪掉比暫存綁的那列**更新**的驗證碼列
- * （就是沒寄出的那封），綁定列的密碼、票、碼、期限都不動。暫存列已不是這張票的（別人剛改綁）或綁的那列已不在
- * （錯太多次被套件刪掉）→ 什麼都不做。
- * 綁的那列已被套件順手清掉（視窗過了才重寄、又剛好寄失敗）→ 子查詢是 NULL、一列都不刪：沒寄出的那列留著也沒人有它的碼，
+ * （r2 反例的「舊碼失效、新碼沒送到」）。
+ *
+ * 哪一列是本次插的：`before` 是寄碼前拍的驗證碼列 id 快照，快照之後插進來的列**恰好一列**就是它（同一個 Email 的
+ * 續辦重寄在 wrapper 裡排隊，不會有兩筆重寄同時插列），在鎖裡只刪那一列；綁定列的密碼、票、碼、期限都不動。
+ * 不看暫存列綁的是哪一列（第 2 輪的版本是「刪掉比綁的那列更新的全部」：視窗過了、綁的那列已被套件清理之後再寄失敗，
+ * 子查詢是 NULL、沒寄出的那列殘留；兩筆並行一敗一成，先還原的會把另一筆剛寄出的碼一起刪掉——Sol 反例），
+ * 也不看票：撤回自己沒寄出的那列，不論暫存列此刻是誰的都安全。
+ * 快照之後一列都沒有（例如自己那列已被完成交易一起刪掉）→ 什麼都不做。快照之後**多於一列**＝別條路（公開重寄、
+ * 別人開始續辦）在寄碼期間也插了列，分不出哪一列是自己的 → 一列都不刪（寧可多留一列沒寄出的碼，也不刪別人剛寄出的），
  * 下一次重寄成功會改綁到更新的那列。
- * 兩個人同時對同一個 Email 操作而剛好一邊寄失敗：可能把另一邊剛寄出、還沒綁定的那列一起撤掉，對方完成時會拿到
- * 「已失效」重新開始；不會讓任何人用自己沒有的碼完成。
  */
-export async function restoreSignupResumeOtp(db: Pool, input: { email: string; ticket: string }): Promise<{ removed: number }> {
+export async function restoreSignupResumeOtp(db: Pool, input: { email: string; before: string[] }): Promise<{ removed: number }> {
   const email = normalizeEmail(input.email)
   const tx = await db.connect()
   try {
     await tx.query('begin')
     await tx.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey(email)])
-    const pending = await tx.query<{ value: string }>('select value from verifications where identifier = $1 for update', [
-      signupResumeIdentifier(email),
-    ])
-    const parsed = pending.rows[0] ? parsePending(pending.rows[0].value) : null
-    if (!parsed || parsed.ticketHash !== hashSecret(input.ticket)) {
+    const inserted = await otpRowsSince(tx, email, input.before)
+    if (inserted.length !== 1) {
       await tx.query('rollback')
       return { removed: 0 }
     }
-    // 驗證碼列的 value 是 `<雜湊>:<錯誤次數>`，雜湊是 base64url（沒有冒號）。
-    const removed = await tx.query(
-      `delete from verifications
-        where identifier = $1
-          and split_part(value, ':', 1) <> $2
-          and created_at >= (select min(created_at) from verifications where identifier = $1 and split_part(value, ':', 1) = $2)`,
-      [emailOtpIdentifier(email), parsed.otpHash],
-    )
+    const removed = await tx.query('delete from verifications where id = $1', [inserted[0]])
     await tx.query('commit')
     return { removed: removed.rowCount ?? 0 }
   } catch (error) {
