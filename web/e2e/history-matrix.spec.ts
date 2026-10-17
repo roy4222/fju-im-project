@@ -415,3 +415,36 @@ test('4. 個人回答：老師預設看不到；系辦在名單頁開主指導�
   await signIn(page, t3)
   expect((await page.goto(`/dashboard/teacher/affairs/${personalId}?person=${s1.userId}&version=1`))?.status()).toBe(404)
 })
+
+test('A-18. 教務區歷屆下拉：屆別封存後預設看不到，從下拉選「已封存」那一屆可以查看（唯讀）；沒指導過的老師下拉沒有這一屆', async ({ page }) => {
+  await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+
+  // T3 此刻指導 G1：預設（進行中的屆別）看不到封存屆的組；下拉列得出這一屆並標「已封存」。
+  await signIn(page, t3)
+  await page.goto('/dashboard/teacher/affairs')
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toHaveCount(0)
+  await expect(page.getByTestId('cohort-archived-note')).toHaveCount(0)
+  const select = page.getByTestId('cohort-select')
+  const archivedOption = select.locator('option', { hasText: '已封存' })
+  await expect(archivedOption).toHaveCount(1)
+
+  // 選已封存的那一屆：網址帶 ?cohort=，只有該屆的組與作業，顯示唯讀提示，可點進去看歷史版本。
+  await select.selectOption({ label: (await archivedOption.textContent())! })
+  await expect(page).toHaveURL(new RegExp(`\\?cohort=${cohortId}`))
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toContainText('已繳第 3 次')
+  await expect(page.getByTestId('cohort-archived-note')).toContainText('已封存')
+  await expect(select).toHaveValue(cohortId)
+  await page.getByTestId(`matrix-row-${G1}`).getByTestId('matrix-cell').first().click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/teacher/affairs/${itemId}`))
+
+  // 選回預設：又看不到。
+  await page.goto('/dashboard/teacher/affairs?cohort=' + cohortId)
+  await page.getByTestId('cohort-select').selectOption('')
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toHaveCount(0)
+
+  // T1 已經不指導 G1（改派給 T3）：直接打這一屆的網址也是空的，下拉沒有這一屆。
+  await signIn(page, t1)
+  await page.goto(`/dashboard/teacher/affairs?cohort=${cohortId}`)
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toHaveCount(0)
+  await expect(page.getByTestId('cohort-select').locator(`option[value="${cohortId}"]`)).toHaveCount(0)
+})

@@ -439,7 +439,17 @@ export type AdvisorIndividualItem = AdvisorMatrixItem & {
   readonly submitted: number
 }
 
+/** 歷屆下拉的一個選項：老師此刻有指導組別的屆別（含已封存；A-18、Q136）。 */
+export type AdvisorCohortOption = {
+  readonly cohortId: string
+  readonly code: string
+  readonly name: string
+  readonly archived: boolean
+}
+
 export type AdvisorMatrix = {
+  /** 老師此刻有指導組別的所有屆別（新到舊）。老師完全沒有指導組別時省略（回的是全空矩陣）。 */
+  readonly cohorts?: readonly AdvisorCohortOption[]
   readonly groups: readonly AdvisedGroup[]
   readonly items: readonly AdvisorMatrixItem[]
   readonly cells: readonly AdvisorMatrixCell[]
@@ -472,7 +482,11 @@ export type AdvisorReceiverView = {
  * 就是點得開、附件下載得到的。換掉的老師、不是主指導的老師回 null（頁面 404）。
  */
 export interface AdvisorSubmissionQuery {
-  matrix(actor: ResolvedActor): Promise<AdvisorMatrix | null>
+  /**
+   * 指導組別 × 收件項目矩陣。不給 `cohortId`＝所有未封存屆別（現況）；給了＝只那一屆（含已封存，唯讀；A-18、Q136）。
+   * 指定的屆別老師沒有指導組別（或不是合法 id）＝空矩陣，不透露那一屆存不存在。
+   */
+  matrix(actor: ResolvedActor, cohortId?: string): Promise<AdvisorMatrix | null>
   item(actor: ResolvedActor, itemId: string): Promise<AdvisorItemView | null>
   receiver(actor: ResolvedActor, itemId: string, receiverId: string): Promise<AdvisorReceiverView | null>
   receiverVersion(actor: ResolvedActor, itemId: string, receiverId: string, versionNo: number): Promise<MyVersionDetail | null>

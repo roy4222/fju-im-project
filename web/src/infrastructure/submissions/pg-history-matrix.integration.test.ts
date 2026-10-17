@@ -481,6 +481,32 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     expect((await advisor.receiver(teacherActor(t1), itemId, g1))!.versions.map((v) => v.versionNo)).toEqual([2, 1])
     expect(await advisor.receiverVersion(teacherActor(t1), itemId, g1, 1)).not.toBeNull()
   })
+
+  it('指定屆別（A-18、Q136）：已封存屆別只回該屆的組、項目、格子（唯讀）；不指定行為同前；沒指導過的屆別與亂填一律空', async () => {
+    const { cohortId, s1, g1, itemId } = await groupScenario()
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+
+    const dflt = (await advisor.matrix(teacherActor(t1)))!
+    expect(dflt.groups.some((g) => g.cohortId === cohortId)).toBe(false)
+    // 下拉選項永遠列得出老師指導過的屆別，已封存的標出來。
+    expect(dflt.cohorts!.find((c) => c.cohortId === cohortId)).toMatchObject({ archived: true })
+
+    const picked = (await advisor.matrix(teacherActor(t1), cohortId))!
+    expect(picked.groups.map((g) => g.groupId)).toContain(g1)
+    expect(new Set(picked.groups.map((g) => g.cohortId))).toEqual(new Set([cohortId]))
+    expect(picked.items.map((i) => i.itemId)).toContain(itemId)
+    expect(new Set(picked.items.map((i) => i.cohortId))).toEqual(new Set([cohortId]))
+    expect(picked.cells.some((c) => c.groupId === g1 && c.itemId === itemId)).toBe(true)
+
+    // 別的老師沒指導過這一屆：看不到任何東西，也看不到屆別選項。
+    const other = await newUser('另一位老師', 'teacher')
+    expect(await advisor.matrix(teacherActor(other), cohortId)).toEqual({ groups: [], items: [], cells: [], individualItems: [] })
+    // 亂填的屆別 id：空，不丟錯。
+    expect((await advisor.matrix(teacherActor(t1), 'not-a-uuid'))!.groups).toEqual([])
+    expect((await advisor.matrix(teacherActor(t1), randomUUID()))!.groups).toEqual([])
+    // 學生仍然是 null。
+    expect(await advisor.matrix(studentActor(s1), cohortId)).toBeNull()
+  })
 })
 
 describe('4. 被移出的人只看得到自己還在組裡時的版本', () => {
