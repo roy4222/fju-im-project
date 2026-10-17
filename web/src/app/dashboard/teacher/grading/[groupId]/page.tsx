@@ -49,6 +49,7 @@ async function loadBenchPage(actor: ResolvedActor, groupId: string, search: Sear
  * 不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個階段時，用評分卡上方的階段切換。
  *
  * 被系辦退回、還沒重新送出：評分卡上方顯示退回理由與時間，退回前的分數預填回表單（票 24）。
+ * 正式送出後仍可改、重新送出（B 階段 TE-B1）；系辦結算這一階段後整張唯讀（TE-B2b）。哪些能改由 `BenchEntry` 決定。
  */
 export default async function TeacherGradingGroupPage({
   params,
@@ -116,10 +117,14 @@ export default async function TeacherGradingGroupPage({
               groupCode={groupCode}
               stage={entry.stage}
               initialScores={entry.scores}
-              locked={entry.state === 'counted'}
+              initialComment={entry.comment}
+              hasFinal={entry.state === 'counted'}
+              readOnly={entry.settled !== null || (entry.state === 'counted' && !entry.resubmittable)}
+              settledAtText={entry.settled ? formatTaipeiMinute(entry.settled.settledAt) : null}
+              draftAfterFinal={entry.draftAfterFinal}
+              submissionHistory={entry.submissionHistory.map((h) => ({ no: h.no, atText: formatTaipeiSecond(h.at) }))}
               savedAtText={entry.savedAt ? formatTaipeiMinute(entry.savedAt) : null}
               finalScore={entry.finalScore}
-              submittedAtText={entry.submittedAt ? formatTaipeiSecond(entry.submittedAt) : null}
               draftFromOlderVersion={entry.draftFromOlderVersion}
               eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
               members={memberNames.join('、')}

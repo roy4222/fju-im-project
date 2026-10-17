@@ -7,8 +7,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  *
  * 1. 管理員建評分方案版本（階段、項目、滿分、權重）；權重不合 100 不能建立、不能發布。
  * 2. 管理員設每組每階段要幾份評分並指派老師，老師收到通知；票 19 重派對話框列出原老師在本組的評分指派。
- * 3. 老師工作台只看到自己的指派；填 0–100 暫存（只有本人與管理員看得到）；正式送出後鎖定。
+ * 3. 老師工作台只看到自己的指派；填 0–100 暫存（只有本人與管理員看得到）；正式送出後仍可改、重新送出（B 階段 TE-B1）。
  *    方案在第一位老師開始填（第一份暫存）時鎖定結構（產品 06 §4「7.5」）。
+ * 3b. B 階段 A-02：送出紀錄、正式送出後的草稿（「有尚未送出的修改」）、評語 500 字前端擋、系辦結算後唯讀。
  * 4. 學生的「成績」頁只有一句說明；學生零可見的全面掃描在 student-zero-visibility.spec.ts。
  *
  * 併發只一筆採計、同請求編號重送、學生呼叫任何評分用例 FORBIDDEN、資料庫 trigger 由整合測試證明
@@ -292,7 +293,7 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   await expect(page.locator('body')).not.toContainText('40.00')
 })
 
-test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；方案 v1 已鎖定，新版本不能直接發布', async ({ page }) => {
+test('正式送出：收件章回執；欄位仍可改、出現「重新送出」與送出紀錄 1 次；方案 v1 已鎖定，新版本不能直接發布', async ({ page }) => {
   await signIn(page, t1)
   await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
   const bench = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
@@ -307,13 +308,17 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   await expect(receipt).toContainText('84.29')
   await expect(receipt).toContainText('已計入階段成績')
   await receipt.getByRole('button', { name: '知道了' }).click()
-  await expect(bench.getByLabel('1. 功能完整度')).toBeDisabled()
+  // B 階段 TE-B1：送出後欄位仍可改，按鈕換成「重新送出」。
+  await expect(bench.getByLabel('1. 功能完整度')).toBeEnabled()
+  await expect(bench.getByTestId('resubmit')).toBeVisible()
 
   await page.reload()
-  const locked = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
-  await expect(locked.getByTestId('save-status')).toContainText('已正式送出')
-  await expect(locked.getByLabel('2. 文件')).toBeDisabled()
-  await expect(locked.getByRole('button', { name: '正式送出' })).toHaveCount(0)
+  const sent = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
+  await expect(sent.getByTestId('save-status')).toContainText('已正式送出（第 1 次）')
+  await expect(sent.getByLabel('2. 文件')).toBeEnabled()
+  await expect(sent.getByTestId('resubmit')).toBeVisible()
+  await expect(sent.getByRole('button', { name: '正式送出' })).toHaveCount(0)
+  await expect(sent.getByTestId('submit-history').getByRole('listitem')).toHaveCount(1)
   const counted = await pool.query(
     `select count(*)::int as n from evaluation_status s join evaluator_assignments a on a.id = s.assignment_id
       where a.group_id = $1 and a.teacher_user_id = $2 and s.state = 'counted'`,
@@ -337,6 +342,164 @@ test('正式送出：收件章回執、欄位鎖定；重新整理仍鎖定；�
   // 票 24：鎖定後的新版本不能直接發布，只能「查看重算影響（尚不套用）」（先看重算預覽再確認）。
   await expect(v2.getByRole('button', { name: '發布第 2 版' })).toHaveCount(0)
   await expect(v2.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' })).toBeVisible()
+})
+
+/** 評分卡；`page` 已經是 t1。 */
+async function openBench(page: Page) {
+  await page.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  return page.getByRole('region', { name: 'G01「系統驗收」評分表' })
+}
+
+/** G01 評一正式送出過的評分：採計幾筆、歷史幾筆（草稿不算）。 */
+async function evaluationStates() {
+  const states = await pool.query<{ state: string; n: number }>(
+    `select s.state, count(*)::int as n from evaluation_status s join evaluator_assignments a on a.id = s.assignment_id
+      where a.group_id = $1 and a.teacher_user_id = $2 and s.state in ('counted', 'historical') group by s.state`,
+    [groupIds.get('G01'), t1.userId],
+  )
+  return Object.fromEntries(states.rows.map((r) => [r.state, r.n]))
+}
+
+test('AC-A-2：正式送出後只「儲存草稿」→ 出現「有尚未送出的修改」、總覽卡標「有未送出修改」；系辦看到的採計分數仍是 84.29', async ({ page }) => {
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  await bench.getByLabel('1. 功能完整度').fill('90')
+  await bench.getByLabel('評語（選填，最多 500 字）').fill('第二次：功能補齊')
+  await expect(bench.getByTestId('score-preview')).toContainText('89.29')
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByTestId('draft-after-final')).toHaveText('有尚未送出的修改')
+
+  await page.reload()
+  const again = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
+  await expect(again.getByTestId('draft-after-final')).toBeVisible()
+  await expect(again.getByLabel('1. 功能完整度')).toHaveValue('90')
+  await expect(again.getByLabel('評語（選填，最多 500 字）')).toHaveValue('第二次：功能補齊')
+  await expect(again.getByTestId('save-status')).toContainText('已正式送出（第 1 次）')
+  expect(await evaluationStates()).toEqual({ counted: 1 })
+
+  await page.goto('/dashboard/teacher/grading')
+  const card = page.getByRole('list', { name: '評分清單' }).getByTestId('grading-card').filter({ hasText: 'G01' })
+  await expect(card).toContainText('已送出')
+  await expect(card.getByTestId('card-draft-after-final')).toHaveText('有未送出修改')
+
+  await openRules(page)
+  await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出84.29`)
+})
+
+test('AC-A-3（前端）：評語 501 字 → 表單擋下「評語最多 500 字」、不送請求；刪到 500 字就能存', async ({ page }) => {
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  await expect(bench.getByTestId('draft-after-final')).toBeVisible()
+  const comment = bench.getByLabel('評語（選填，最多 500 字）')
+  await comment.fill('評'.repeat(501))
+  await expect(bench.getByTestId('comment-error')).toHaveText('評語最多 500 字')
+  await expect(bench).toContainText('501／500')
+  await expect(bench.getByTestId('resubmit')).toBeDisabled()
+
+  const posts: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST') posts.push(r.url())
+  })
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByRole('alert')).toContainText('評語最多 500 字，修正後才能儲存草稿')
+  expect(posts).toEqual([])
+
+  await comment.fill('評'.repeat(500))
+  await expect(bench.getByTestId('comment-error')).toHaveCount(0)
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByTestId('draft-after-final')).toBeVisible()
+  const saved = await pool.query<{ len: number }>(
+    `select char_length(e.comment)::int as len from evaluations e join evaluator_assignments a on a.id = e.assignment_id
+      where a.group_id = $1 and a.teacher_user_id = $2 order by e.submitted_real_at desc limit 1`,
+    [groupIds.get('G01'), t1.userId],
+  )
+  expect(saved.rows[0]!.len).toBe(500)
+})
+
+test('AC-A-1：改分數與評語後「重新送出」→ 第 2 次、送出紀錄兩筆；counted 1、historical 1（resubmitted）；系辦沒有新通知', async ({ page }) => {
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  await bench.getByLabel('評語（選填，最多 500 字）').fill('重送：功能補齊，文件維持')
+  const before = new Date()
+  await bench.getByTestId('resubmit').click()
+  const confirm = page.getByRole('dialog', { name: '確認重新送出' })
+  await expect(confirm).toContainText('89.29')
+  await expect(confirm).toContainText('上一次送出的分數改列為歷史紀錄')
+  await confirm.getByRole('button', { name: '確認送出' }).click()
+  const receipt = page.getByRole('dialog', { name: '已送出' })
+  await expect(receipt).toContainText('89.29')
+  await receipt.getByRole('button', { name: '知道了' }).click()
+  await expect(bench.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+  await expect(bench.getByTestId('draft-after-final')).toHaveCount(0)
+
+  await page.reload()
+  const again = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
+  await expect(again.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+  const history = again.getByTestId('submit-history')
+  await history.getByText('送出紀錄（2 次）').click()
+  await expect(history.getByRole('listitem')).toHaveCount(2)
+  await expect(history.getByRole('listitem').nth(0)).toContainText('第 1 次送出')
+  await expect(history.getByRole('listitem').nth(1)).toContainText('第 2 次送出')
+  await expect(history.getByRole('listitem').nth(1)).toContainText('（目前採計）')
+  await expect(again.getByTestId('score-preview')).toContainText('計入成績的分數')
+  await expect(again.getByTestId('score-preview')).toContainText('89.29')
+
+  expect(await evaluationStates()).toEqual({ counted: 1, historical: 1 })
+  const reason = await pool.query<{ reason: string | null }>(
+    `select ev.reason from evaluation_status_events ev
+       join evaluation_status s on s.evaluation_id = ev.evaluation_id
+       join evaluator_assignments a on a.id = s.assignment_id
+      where a.group_id = $1 and a.teacher_user_id = $2 and s.state = 'historical'
+      order by ev.real_at desc limit 1`,
+    [groupIds.get('G01'), t1.userId],
+  )
+  expect(reason.rows[0]?.reason).toBe('resubmitted')
+  const adminEvents = await pool.query<{ n: number }>(
+    `select count(*)::int as n from domain_events where occurred_real_at >= $1 and $2 = any(recipients)`,
+    [before, adminId],
+  )
+  expect(adminEvents.rows[0]!.n).toBe(0)
+
+  await openRules(page)
+  await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出89.29`)
+})
+
+test('AC-A-6：系辦結算「系統驗收」後，老師舊頁按「儲存草稿」被擋（CONFLICT 含「已結算」）；重新整理全唯讀、「已結算」Pill、沒有按鈕；總覽卡標「已結算」', async ({ page }) => {
+  await signIn(page, t1)
+  const bench = await openBench(page)
+  await expect(bench.getByTestId('resubmit')).toBeVisible()
+
+  // 結算的畫面是 A-03 的；這裡直接寫一筆現行結算（跟 settleStage 寫的同一張表、同一個欄位組合）。
+  const assignment = await pool.query<{ stage_key: string }>(
+    `select stage_key from evaluator_assignments where group_id = $1 and teacher_user_id = $2 and valid_to is null`,
+    [groupIds.get('G01'), t1.userId],
+  )
+  await pool.query(
+    `insert into grade_settlements (id, cohort_id, stage_key, settled_at, settled_by_user_id, reason, counted_evaluations, request_id)
+     values (gen_random_uuid(), $1, $2, now(), $3, 'e2e 結算', 1, gen_random_uuid()::text)`,
+    [cohortId, assignment.rows[0]!.stage_key, adminId],
+  )
+
+  await bench.getByLabel('1. 功能完整度').fill('70')
+  await bench.getByRole('button', { name: '儲存草稿' }).click()
+  await expect(bench.getByRole('alert')).toContainText('已結算')
+
+  await page.reload()
+  const settled = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
+  await expect(settled.getByTestId('settled-pill')).toHaveText('已結算')
+  await expect(settled.getByTestId('settled-notice')).toContainText('這個階段成績已由系辦結算，如需修改請聯絡系辦')
+  await expect(settled.getByLabel('1. 功能完整度')).toBeDisabled()
+  await expect(settled.getByLabel('1. 功能完整度')).toHaveValue('90')
+  await expect(settled.getByLabel('評語（選填，最多 500 字）')).toBeDisabled()
+  await expect(settled.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
+  await expect(settled.getByTestId('resubmit')).toHaveCount(0)
+  await expect(settled.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+  await expect(settled.getByTestId('save-status')).not.toContainText('可再修改')
+  expect(await evaluationStates()).toEqual({ counted: 1, historical: 1 })
+
+  await page.goto('/dashboard/teacher/grading')
+  const card = page.getByRole('list', { name: '評分清單' }).getByTestId('grading-card').filter({ hasText: 'G01' })
+  await expect(card.getByTestId('card-settled')).toHaveText('已結算')
 })
 
 test('學生：「成績」頁只有一句說明；直接開評分管理、工作台網址都被擋', async ({ page }) => {

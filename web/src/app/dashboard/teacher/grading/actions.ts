@@ -6,9 +6,9 @@ import type { Err } from '@/shared/result'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
 /**
- * 老師評分卡的 Server Action（票 23；TE-06b 改名「儲存草稿」）：儲存草稿、正式送出。
+ * 老師評分卡的 Server Action（票 23；TE-06b 改名「儲存草稿」；B 階段 A-02 加評語、正式送出後可重送）：儲存草稿、正式送出。
  *
- * 規則與授權全在用例裡判（本人的有效指派、分數範圍、已送出不能改、帳本冪等）；這裡只把瀏覽器送來的分數收斂成
+ * 規則與授權全在用例裡判（本人的有效指派、分數範圍、評語 500 字、已結算不能改、帳本冪等）；這裡只把瀏覽器送來的分數收斂成
  * 一層「項目 key → 字串」，把結果翻成畫面要的回饋。請求編號由畫面產生：同一次送出（連點、斷線重試）帶同一個編號。
  * 老師是誰不從畫面帶，由用例依登入者決定。
  */
@@ -24,6 +24,9 @@ function scoresOf(raw: unknown): Record<string, string> {
   return out
 }
 
+/** 評語原樣交給用例判（500 字上限在用例）；這裡只擋非字串與明顯過長的輸入，不截成 500，免得 501 字被默默收下。 */
+const commentOf = (value: unknown) => (typeof value === 'string' ? value.slice(0, 2000) : null)
+
 function fail(result: Err): BenchOutcome<never> {
   const fields = Array.isArray(result.details?.fields)
     ? (result.details.fields as unknown[]).filter((f): f is string => typeof f === 'string')
@@ -34,21 +37,27 @@ function fail(result: Err): BenchOutcome<never> {
 export async function saveGradingDraftAction(
   assignmentId: string,
   scores: unknown,
+  comment: unknown,
   requestId: string,
 ): Promise<BenchOutcome<{ savedAtText: string }>> {
   const result = await getGradingCommand().saveDraft(
     await currentActor(),
-    { assignmentId: str(assignmentId), scores: scoresOf(scores) },
+    { assignmentId: str(assignmentId), scores: scoresOf(scores), comment: commentOf(comment) },
     str(requestId),
   )
   if (!result.ok) return fail(result)
   return { ok: true, data: { savedAtText: formatTaipeiMinute(new Date(result.receipt.savedAt)) } }
 }
 
-export async function submitGradingAction(assignmentId: string, scores: unknown, requestId: string): Promise<BenchOutcome<FinalReceiptView>> {
+export async function submitGradingAction(
+  assignmentId: string,
+  scores: unknown,
+  comment: unknown,
+  requestId: string,
+): Promise<BenchOutcome<FinalReceiptView>> {
   const result = await getGradingCommand().submitFinal(
     await currentActor(),
-    { assignmentId: str(assignmentId), scores: scoresOf(scores) },
+    { assignmentId: str(assignmentId), scores: scoresOf(scores), comment: commentOf(comment) },
     str(requestId),
   )
   if (!result.ok) return fail(result)
