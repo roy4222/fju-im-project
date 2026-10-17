@@ -135,10 +135,13 @@ const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
 }
 
 /**
- * 規則章節（A-14；Q198）不看 `order`：一律照系辦排的位置，跟系辦「規則」篩選、`moveRule` 的鄰居同一個順序。
+ * 規則章節（A-14；Q198）不看 `order`：屆內照系辦排的位置（`rules_position asc nulls last, actual_opened_at asc, id asc`，
+ * 跟系辦「規則」篩選、`moveRule` 的鄰居同一個順序）。位置是各屆從 1 編，前台卻會列出所有屆別看得到的規則，
+ * 所以先按屆別分段（該屆最早發布的那章在前）——不然兩屆的第 1 章、第 2 章會交錯。只有一屆時就是位置序；
  * 舊資料遷移時已依實際開放時間回填，所以沒人動過時跟原本的 `oldest` 一樣。
  */
-const RULES_ORDER_SQL = 'm.rules_position asc nulls last, m.actual_opened_at asc, m.id asc'
+const RULES_ORDER_SQL =
+  'min(m.actual_opened_at) over (partition by m.cohort_id) asc, m.cohort_id, m.rules_position asc nulls last, m.actual_opened_at asc, m.id asc'
 
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
 function likePattern(q: string): string {

@@ -2204,6 +2204,23 @@ describe('規則章節上下移（A-14；Q198，AC-A-38、39、50）', () => {
     expect(await publicOrder(tag)).toEqual(['第1章', '第4章', '第2章', '第5章'])
   })
 
+  it('前台列出多個屆別的規則時按屆別分段（先發布的屆別在前），屆內照位置；不會兩屆交錯', async () => {
+    const early = await newCohort()
+    const late = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    // 舊排法（實際開放時間）：甲1、甲2、乙1、乙2。遷移後沒人動過要一樣。
+    const a1 = await rule(early.cohortId, `${tag} 甲1`, '2025-09-01T00:00:00Z')
+    const a2 = await rule(early.cohortId, `${tag} 甲2`, '2025-09-02T00:00:00Z')
+    await rule(late.cohortId, `${tag} 乙1`, '2026-09-01T00:00:00Z')
+    const b2 = await rule(late.cohortId, `${tag} 乙2`, '2026-09-02T00:00:00Z')
+    expect(await publicOrder(tag)).toEqual(['甲1', '甲2', '乙1', '乙2'])
+
+    await mustMove(a2.itemId, 'up')
+    await mustMove(b2.itemId, 'up')
+    expect(await publicOrder(tag)).toEqual(['甲2', '甲1', '乙2', '乙1'])
+    expect((await itemRow(a1.itemId)).rules_position).toBe(2)
+  })
+
   it('位置有 NULL 或同號（舊資料、同時建立）→ 照移完的順序整屆重編 1..n', async () => {
     const { cohortId } = await newCohort()
     const tag = randomUUID().slice(0, 8)
