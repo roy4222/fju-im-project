@@ -36,6 +36,8 @@ export type RosterRow = {
   readonly emails: readonly string[]
   /** 其他欄位（伺服器端組好的內容，可能含指派、詳情等按鈕）。 */
   readonly cells: readonly ReactNode[]
+  /** 列動作（放在固定在右側的操作欄、複製鈕旁邊；例如 A-19 的「解散」）。 */
+  readonly actions?: ReactNode
 }
 
 /** 把字串放進剪貼簿。`navigator.clipboard` 不能用時（非安全來源、權限被擋）退回選取文字＋複製指令。 */
@@ -264,6 +266,7 @@ export function GroupRosterTable({
                         ))}
                       </ul>
                       <CopyEmailsButton code={row.code} emails={row.emails} />
+                      {row.actions}
                     </div>
                   </td>
                 </tr>

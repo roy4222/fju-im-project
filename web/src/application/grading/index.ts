@@ -23,6 +23,7 @@ export {
   SCHEME_STATUS_LABEL,
 } from '@/application/grading/scheme'
 export type { EvaluationState, ScoreInput } from '@/application/grading/evaluation'
+export type { GradingDissolutionHook } from '@/application/grading/dissolution'
 export { EVALUATION_STATE_LABEL, normalizeScores, summarizeScores } from '@/application/grading/evaluation'
 export type {
   CountedEvaluation,

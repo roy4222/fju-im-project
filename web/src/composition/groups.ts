@@ -10,11 +10,13 @@ import type {
   OpportunityQuery,
   ProposalExpiryHandler,
 } from '@/application/groups'
+import type { GradingDissolutionHook } from '@/application/grading'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getAssignmentsForTeacherQuery } from '@/composition/grading'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { getSignoffParticipantHook } from '@/composition/signoff'
+import { PgGradingDissolution } from '@/infrastructure/grading/pg-grading-dissolution'
 import { PgAdvisorCommand } from '@/infrastructure/groups/pg-advisors'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
 import { PgOpportunityCommand, PgOpportunityQuery } from '@/infrastructure/groups/pg-opportunities'
@@ -26,6 +28,16 @@ import { PgOpportunityCommand, PgOpportunityQuery } from '@/infrastructure/group
 let groupCommand: PgGroupCommand | undefined
 let groupQuery: GroupQuery | undefined
 let advisorCommand: AdvisorCommand | undefined
+let dissolutionHook: GradingDissolutionHook<PoolClient> | undefined
+
+/**
+ * 組別解散時停止評分工作（A-19；評分模組的實作，注入分組的解散用例、同交易）。
+ * 放這裡不放 `composition/grading.ts`：那檔歸 A-01／A-05（B 階段設計方案 §17.2）。介面在 `application/grading/dissolution.ts`。
+ */
+export function getGradingDissolutionHook(): GradingDissolutionHook<PoolClient> {
+  dissolutionHook ??= new PgGradingDissolution()
+  return dissolutionHook
+}
 
 function command(): PgGroupCommand {
   groupCommand ??= new PgGroupCommand({
@@ -36,6 +48,8 @@ function command(): PgGroupCommand {
     businessClock: getBusinessClock(),
     // 票 25：加入／移出組員時同交易讓目前簽核版本失效。
     signoff: getSignoffParticipantHook(),
+    // 開站後：解散組別時同交易結束評分指派、暫存失效。
+    grading: getGradingDissolutionHook(),
   })
   return groupCommand
 }
@@ -119,6 +133,7 @@ export {
   describeAdvisorChangeReceipt,
   describeGroupHistory,
   describeConfirmReceipt,
+  describeDissolveReceipt,
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,
