@@ -36,21 +36,30 @@ export type StaleSignupCleanupOptions = {
 export async function scrubStaleSignups(db: Pool, now: Date, options: StaleSignupCleanupOptions = {}): Promise<number> {
   const audit = options.audit ?? new PgAuditWriter()
   const cutoff = new Date(now.getTime() - STALE_SIGNUP_DAYS * DAY_MS)
-  const candidates = await db.query<{ id: string }>(
-    `select u.id from users u
-      where u.status = 'pending'
-        and u.email_verified = false
-        and u.created_at < $1
-        and exists (select 1 from accounts a
-                     where a.user_id = u.id and a.provider_id = 'credential' and a.password is not null)
-      order by u.id
-      limit $2`,
-    [cutoff, options.batch ?? STALE_SIGNUP_BATCH],
-  )
-
+  const batch = options.batch ?? STALE_SIGNUP_BATCH
+  const businessAt = options.businessAt ?? now
   let scrubbed = 0
-  for (const { id } of candidates.rows) {
-    if (await scrubOne(db, id, cutoff, now, options.businessAt ?? now, audit)) scrubbed += 1
+  // 粗篩只看 users／accounts 欄位，完整謂詞在每個帳號的交易裡判斷；不合格的（有角色、有申請…）會一直留在
+  // 粗篩結果裡，所以用 keyset（`id > lastId`）往後掃到沒有候選為止，不然前一整批不合格就永遠輪不到後面的。
+  let lastId: string | null = null
+  for (;;) {
+    const { rows }: { rows: { id: string }[] } = await db.query<{ id: string }>(
+      `select u.id from users u
+        where u.status = 'pending'
+          and u.email_verified = false
+          and u.created_at < $1
+          and ($3::uuid is null or u.id > $3::uuid)
+          and exists (select 1 from accounts a
+                       where a.user_id = u.id and a.provider_id = 'credential' and a.password is not null)
+        order by u.id
+        limit $2`,
+      [cutoff, batch, lastId],
+    )
+    for (const { id } of rows) {
+      if (await scrubOne(db, id, cutoff, now, businessAt, audit)) scrubbed += 1
+    }
+    if (rows.length < batch) break
+    lastId = rows[rows.length - 1]!.id
   }
   return scrubbed
 }

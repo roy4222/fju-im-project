@@ -284,3 +284,34 @@ describe('清理與續辦完成同時發生（R2-3 鎖序）', () => {
     expect(await password(id)).toBe(NEW_HASH)
   })
 })
+
+describe('候選分批（Review 第 1 輪 P2）', () => {
+  it('前 200 筆（一整批）都不可續辦、第 201 筆合格 → 一次執行就清到第 201 筆', async () => {
+    // 200 個滿 8 天、有密碼但有角色的帳號；id 全部排在真的帳號前面（uuidv7 一定比 0000… 大）。
+    await db.sql(
+      `with fake as (
+         select ('00000000-0000-7000-8000-' || lpad(n::text, 12, '0'))::uuid as id, n
+           from generate_series(1, $1::int) as n
+       ), u as (
+         insert into users (id, name, email, created_at)
+         select id, '不合格', 'vb14-batch-' || n || '@example.com', now() - interval '8 days' from fake
+         returning id
+       ), a as (
+         insert into accounts (id, account_id, provider_id, user_id, password, updated_at)
+         select gen_random_uuid(), id::text, 'credential', id, 'hash', now() from u
+       )
+       insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+       select gen_random_uuid(), id, 'teacher', id, now() from u`,
+      [cleanup.STALE_SIGNUP_BATCH],
+    )
+    const target = await signUp(freshEmail('batch-201'), 8)
+
+    expect(await cleanup.scrubStaleSignups(app, new Date())).toBe(1)
+    expect(await password(target)).toBeNull()
+    expect(await scrubAudits(target)).toHaveLength(1)
+    const untouched = await one(
+      `select count(*)::int as n from accounts where account_id like '00000000-0000-7000-8000-%' and password = 'hash'`,
+    )
+    expect(Number(untouched.n)).toBe(cleanup.STALE_SIGNUP_BATCH)
+  })
+})
