@@ -588,3 +588,24 @@ export interface GradingSettlementQuery {
   /** 系辦：該屆所有階段的現行結算＋歷史（新的在前）。 */
   settlements(actor: ResolvedActor, cohortId: string): Promise<Result<readonly SettlementHistory[]>>
 }
+
+/**
+ * 屆別評分快照（B 階段 TE-B6；設計方案 §4）：系辦成績管理頁一次讀完屆別、方案版本、組別、組員、指派與事實，
+ * `board`（老師評分進度）與 `gradebook`（階段完成率、成績表、更正）都從同一份資料組出來，形狀與 `adminBoard`／`gradebook` 相同。
+ * 階段篩選不在這裡（頁面對快照做，見 `snapshot.ts`）。
+ */
+export type CohortGradingSnapshot = {
+  readonly board: AdminGradingBoard
+  readonly gradebook: Gradebook
+  /** 現行結算（未解除），依階段代號排序。 */
+  readonly settlements: readonly Settlement[]
+  readonly loadedAt: Date
+}
+
+export interface GradingSnapshotQuery {
+  /**
+   * 只有系辦；非系辦 → FORBIDDEN「只有系辦可以看評分管理。」。屆別不存在 → VALIDATION_FAILED「找不到這個屆別，請重新整理頁面。」
+   * （設計方案 §4.2 寫 NOT_FOUND，但錯誤碼表沒有 NOT_FOUND，跟 `adminBoard`／`gradebook`／結算一樣用 VALIDATION_FAILED。）
+   */
+  cohortSnapshot(actor: ResolvedActor, cohortId: string): Promise<Result<CohortGradingSnapshot>>
+}

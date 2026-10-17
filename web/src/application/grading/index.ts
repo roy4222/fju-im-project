@@ -98,6 +98,7 @@ export type {
   AssignEvaluatorReceipt,
   AssignmentsForTeacherQuery,
   BenchEntry,
+  CohortGradingSnapshot,
   CreateSchemeVersionInput,
   DraftReceipt,
   FinalReceipt,
@@ -106,6 +107,7 @@ export type {
   GradingQuery,
   GradingSettlementCommand,
   GradingSettlementQuery,
+  GradingSnapshotQuery,
   ReleaseReceipt,
   RequirementReceipt,
   SchemeVersionReceipt,
@@ -120,6 +122,8 @@ export type {
   TeacherGroupAssignment,
   TeacherQueueEntry,
 } from '@/application/grading/ports'
+export type { StageProgressRow } from '@/application/grading/snapshot'
+export { deriveStageRows } from '@/application/grading/snapshot'
 export type { GroupVersionWithFiles } from '@/application/submissions'
 export {
   describeAssignEvaluatorReceipt,

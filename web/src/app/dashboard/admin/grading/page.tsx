@@ -15,9 +15,9 @@ import {
   adoptedFinal,
   describeMissing,
   describeOverride,
+  deriveStageRows,
   describeStageStatus,
-  getGradebookQuery,
-  getGradingQuery,
+  getGradingSnapshotQuery,
   normalizeGradeExportFilter,
   selectExportGroups,
   unassignedSlots,
@@ -40,7 +40,8 @@ const TABS = [
  * 系辦「成績」分頁（AD-08；設計方案 §3.4）：只留三件事——評分進度卡片、成績表（篩選與匯出）、需要重新確認的更正。
  * 評分規則、版本紀錄、每組要幾份評分與指派都在子頁 `/dashboard/admin/grading/rules`（一年用一兩次）。
  *
- * 讀取三次：屆別、`adminBoard`（老師評分進度）、`gradebook`（階段完成率、成績表、更正）。
+ * 讀取兩次：屆別清單、屆別評分快照（`cohortSnapshot`，B 階段 TE-B6）——老師評分進度用快照的 `board`，
+ * 階段完成率、成績表、更正用快照的 `gradebook`，同一份資料只讀一次（≤32 句 SQL，AC-A-15）。
  * 老師評分進度與首頁同一個 `teacherProgress()`（AC-AD-03），階段膠囊預設「全部階段」（Q115）。
  * 計算明細、退回、更正與復核在 `/dashboard/admin/grading/<組別>`。
  */
@@ -114,41 +115,27 @@ export default async function AdminGradingPage({
     )
   }
 
-  const [board, gradebook] = await Promise.all([
-    getGradingQuery().adminBoard(actor, cohort.id),
-    getGradebookQuery().gradebook(actor, cohort.id),
-  ])
-  if (!board.ok) return shell(<QuietState title="讀不到評分資料" hint={board.message} />)
-  if (!gradebook.ok) return shell(<QuietState title="讀不到成績" hint={gradebook.message} />)
+  const snapshot = await getGradingSnapshotQuery().cohortSnapshot(actor, cohort.id)
+  if (!snapshot.ok) return shell(<QuietState title="讀不到評分資料" hint={snapshot.message} />)
+  const { board, gradebook } = snapshot.receipt
   // 成績表的篩選與匯出同一份（屆別＋階段＋組別＋完成狀態；伺服器重新算）。
   const filter = normalizeGradeExportFilter({ stage: params.fstage, group: params.fgroup, status: params.fstatus })
-  const { current } = board.receipt
+  const { current } = board
   // 伺服器端的屆別狀態為準。
-  const archived = board.receipt.cohort.archived
+  const archived = board.cohort.archived
   const stages = current?.stages ?? []
   // 階段膠囊：預設「全部階段」（Q115）；選了某階段，階段卡與老師卡都只算那一階段。
   const stage = stages.find((s) => s.key === params.stage) ?? null
 
-  // 各階段完成率：已正式送出（採計中）的份數／需要的份數，從成績表同一份資料算；解散的組評分已停止，不算。
-  const stageRows = (stage ? [stage] : stages).map((s) => {
-    let done = 0
-    let total = 0
-    for (const g of gradebook.receipt.groups) {
-      if (g.dissolved) continue
-      const r = g.result.stages.find((x) => x.key === s.key)
-      if (!r || r.required === null) continue
-      total += r.required
-      done += Math.min(r.counted.length, r.required)
-    }
-    return { key: s.key, name: s.name, done, total }
-  })
-  const teachers = teacherProgress(board.receipt, { ...(stage ? { stageKey: stage.key } : {}), excludeDissolved: true })
+  // 各階段完成率（解散的組不算；見 `deriveStageRows`）。
+  const stageRows = deriveStageRows(snapshot.receipt, stage?.key ?? null)
+  const teachers = teacherProgress(board, { ...(stage ? { stageKey: stage.key } : {}), excludeDissolved: true })
 
   return shell(
     <>
       {archived ? (
         <p role="status" data-testid="cohort-archived" className="rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-          {cohortLabel(board.receipt.cohort)}已封存，只能查看與匯出；要修改請先解封。
+          {cohortLabel(board.cohort)}已封存，只能查看與匯出；要修改請先解封。
         </p>
       ) : null}
 
@@ -202,7 +189,7 @@ export default async function AdminGradingPage({
         </section>
       ) : null}
 
-      <GradebookSection book={gradebook.receipt} filter={filter} />
+      <GradebookSection book={gradebook} filter={filter} />
     </>,
   )
 }
