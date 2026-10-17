@@ -58,6 +58,8 @@ const EXTENSIONS = (placeholder: string) => [
     trailingNode: false,
     link: {
       openOnClick: false,
+      // 自動連結開著時，連結尾端繼續打的字會併進連結（Link 的 inclusive 跟著 autolink）；要連結用工具列。
+      autolink: false,
       defaultProtocol: 'https',
       isAllowedUri: keepHref,
     },
