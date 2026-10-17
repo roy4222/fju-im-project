@@ -12,7 +12,8 @@ import { err, type Err, type Result } from '@/shared/result'
  * 那邊每個方法一開頭就先呼叫這裡的授權與驗證。
  *
  * 三條貫穿全檔的規則：
- * 1. **沒有自動核准**（Q-ACC01）：名單比對只產生「比對結果」給系辦看，不改任何狀態。
+ * 1. **只有一種自動核准**（Q42，2026-10-15；部分推翻 Q-ACC01）：用 Google 註冊、Google 已驗證的 Email
+ *    與本屆名單登記的 Email 完全相同（`autoApprovalEligible`）；其他一律系辦核實，名單比對只產生「比對結果」給系辦看。
  * 2. **比對結果只給系辦看**：申請人自己的頁面不顯示命中與否——不然任何人拿別人的學號註冊
  *    再改幾次，就能問出「某學號在不在名單上」（契約 03 §4 最小揭露）。
  * 3. **核准依當時的申請資料版本**：學生改過資料，舊畫面上的核准一律 `CONFLICT`。
@@ -322,15 +323,22 @@ export function evidenceFlags(match: RosterMatch, duplicates: DuplicateInfo): Ev
 
 // ── 核准與退回 ──────────────────────────────────────────────────────────────
 
-export type VerificationMethod = 'id_document' | 'school_channel' | 'other'
+export type VerificationMethod = 'id_document' | 'school_channel' | 'other' | 'google_email_match'
 
-/** 核實方式（2026-09-12 第二輪定案）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。 */
-export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other']
+/**
+ * 核實方式（2026-09-12 第二輪定案）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。
+ * `google_email_match` 是 Q42 自動開通，只由系統寫入（VB-6）；系辦能選的是 `MANUAL_VERIFICATION_METHODS`。
+ */
+export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other', 'google_email_match']
+
+/** 系辦審核、新增老師、核發臨時密碼時可以選的核實方式（不含系統自動開通那一種）。 */
+export const MANUAL_VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other']
 
 export const VERIFICATION_LABEL: Record<VerificationMethod, string> = {
   id_document: '當面核對學生證或其他身分證件',
   school_channel: '經校方授權人員透過既有可信管道確認',
   other: '用其他方式確認本人',
+  google_email_match: 'Google Email 與名單相同（自動開通）',
 }
 
 /** 核實說明哪幾種必填：校方管道要記「由誰、透過什麼管道」；其他方式要說明是什麼方式。 */
@@ -338,12 +346,14 @@ export const VERIFICATION_NOTE_REQUIRED: Record<VerificationMethod, boolean> = {
   id_document: false,
   school_channel: true,
   other: true,
+  google_email_match: false,
 }
 
 export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
   id_document: '選填，例如「9/24 系辦櫃台核對學生證」',
   school_channel: '必填：由誰、透過什麼管道確認',
   other: '必填：說明用了什麼方式確認本人',
+  google_email_match: '系統自動開通，不用填',
 }
 
 export type ApprovalDecision = {
@@ -352,8 +362,9 @@ export type ApprovalDecision = {
   readonly reason: string | null
 }
 
+/** 人能選的核實方式；`google_email_match` 只由系統寫入，送進來一律當沒選。 */
 function isVerificationMethod(value: string): value is VerificationMethod {
-  return (VERIFICATION_METHODS as readonly string[]).includes(value)
+  return (MANUAL_VERIFICATION_METHODS as readonly string[]).includes(value)
 }
 
 /** 核准的欄位檢查：核實方式必選、校方管道與其他方式要寫說明、理由選填。 */
@@ -501,6 +512,39 @@ export function bulkApprovalSkip(
   return null
 }
 
+// ── Q42 自動開通（VB-6） ───────────────────────────────────────────────────
+
+/**
+ * 第一次送申請時能不能直接開通（Q42；visitor-r3 §3.6，R1／R2 定案）。全部成立才 true：
+ *
+ * - 用 Google 登入，而且 Email 已驗證（密碼註冊就算 Email 相同也不算：本條要守的規則，AC-VI-56 (a)）；
+ * - Email＋學號＋姓名命中名單的**同一列**（`matchRoster` 的 `hit`：姓名相符、Email 比對 `same`）；
+ * - 那一列在**開放註冊屆別**；
+ * - 批次核准的資格也成立（`bulkApprovalSkip === null`：學號沒被占用、沒有別人同學號待審、只有一屆）。
+ *
+ * Email 比對沿用 `matchRoster` 的全址 `trim().toLowerCase()`（R2）：不移除 `+suffix`、不做 Unicode 正規化。
+ * 任一不符就是 false，呼叫端照舊進待審，不報錯。
+ */
+export function autoApprovalEligible(input: {
+  loginMethod: 'google' | 'password' | undefined
+  emailVerified: boolean
+  match: RosterMatch
+  registrationOpenCohortId: string | null
+  bulkApprovalSkip: BulkApprovalSkip | null
+}): boolean {
+  const { match } = input
+  return (
+    input.loginMethod === 'google' &&
+    input.emailVerified &&
+    match.status === 'matched' &&
+    match.emailComparison === 'same' &&
+    match.hit !== null &&
+    input.registrationOpenCohortId !== null &&
+    match.hit.cohortId === input.registrationOpenCohortId &&
+    input.bulkApprovalSkip === null
+  )
+}
+
 /** 預覽的一列：每一位的姓名、學號、名單比對結果，以及會不會被略過。 */
 export type BulkApprovalPreviewRow = {
   readonly applicationId: string
@@ -608,7 +652,12 @@ export type PendingList = {
 
 export type RegistrationReceipt = { readonly userId: string }
 
-export type RevisionReceipt = { readonly applicationId: string; readonly revision: number }
+export type RevisionReceipt = {
+  readonly applicationId: string
+  readonly revision: number
+  /** 第一次送出就 Q42 自動開通了（VB-6）；畫面改顯示「帳號已開通」。 */
+  readonly autoApproved?: boolean
+}
 
 export type DecisionReceipt = {
   readonly applicationId: string
