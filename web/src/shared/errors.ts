@@ -57,6 +57,8 @@ export const ERROR_CODES = [
   'RECEIPT_EXPIRED',
   // 系統
   'INTERNAL',
+  // Turnstile siteverify 連不上（503；fail closed，請稍後再試）。B 階段 VB-2。
+  'TURNSTILE_UNAVAILABLE',
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]
@@ -131,6 +133,7 @@ const CATEGORY: Record<ErrorCode, ErrorCategory> = {
   DRAFT_NEEDS_REVIEW: 'input',
   RECEIPT_EXPIRED: 'ledger',
   INTERNAL: 'system',
+  TURNSTILE_UNAVAILABLE: 'system',
 }
 
 /**

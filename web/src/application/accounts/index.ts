@@ -77,6 +77,7 @@ export type {
   BulkApprovalReceipt,
   BulkApprovalSkip,
 } from '@/application/accounts/registration'
+export { APPLY_EMAIL_UNVERIFIED_MESSAGE, applyDenial } from '@/application/accounts/registration'
 export {
   APPLIED_NAME_MAX_LENGTH,
   BULK_APPROVAL_MAX,

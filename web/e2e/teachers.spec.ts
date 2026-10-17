@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -180,6 +181,14 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
 }) => {
   const student = await freshPage(browser)
   const session = await createTestSession(student.request, null)
+  // VB-2 之後「沒驗證 Email、沒送申請」的密碼帳號登入會先被帶去 /register/verify（AC-VI-50）；
+  // 這條測的是臨時密碼，前置當成已驗證 Email 的待審學生。
+  const owner = new Pool({ connectionString: process.env.DATABASE_URL_OWNER })
+  try {
+    await owner.query('update users set email_verified = true where email = $1', [session.email])
+  } finally {
+    await owner.end()
+  }
   await student.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   await student.goto('/register/pending')
   await expect(student).toHaveURL(/\/register\/pending$/)
