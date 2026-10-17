@@ -14,12 +14,13 @@ export type SubmissionRow = GroupVersionWithFiles
 export type SubmissionRecord = { readonly no: number; readonly atText: string }
 
 /**
- * 評分卡一次收到的伺服器事實（`page.tsx` 從 `BenchEntry` 組好整包傳進來；Review #584 第 4 輪）。
+ * 評分卡一次收到的伺服器事實（`page.tsx` 從 `BenchEntry` 組好整包傳進來；Review #584 第 4、5 輪）。
  * 評分卡只顯示「最後接受」的那一份，不直接讀零散 props——重抓回來比較舊的一份整包丟掉，畫面不會退回舊值。
  *
  * - `version`：這個指派在資料庫的寫入版本（`page.tsx` 的 `benchVersionOf`）：每次暫存、送出、退回的寫入戳記取最大，
  *   同一指派的寫入在列鎖內依序發生，所以它隨每次寫入嚴格變大；是排序快照、確認收據、保存未存內容的唯一鍵。
- * - `serverTime`：這份資料在伺服器讀出的時間；只拿來排「同一個 `version`、只差結算／顯示軸」的兩份快照（嚴格較新才接受）。
+ * - `serverTime`：這份資料在伺服器讀出的時間；只拿來排「同一個 `version`、只差顯示軸」的兩份快照（嚴格較新才接受）。
+ *   結算**不**靠它：評分卡一旦接受過 `readOnly` 的快照就鎖到整頁重載（第 5 輪 S3），之後的快照不能解鎖。
  */
 export type BenchSnapshot = {
   readonly version: string

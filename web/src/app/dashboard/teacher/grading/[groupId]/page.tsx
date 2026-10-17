@@ -43,11 +43,11 @@ async function loadBenchPage(actor: ResolvedActor, groupId: string, search: Sear
 }
 
 /**
- * 評分卡排序快照、確認收據用的版本（Review #584 第 4 輪）：這個指派在資料庫裡每一筆寫入的時間戳取最大——
+ * 評分卡排序快照、確認收據用的版本（Review #584 第 4、5 輪）：這個指派在資料庫裡每一筆寫入的時間戳取最大——
  * 暫存／送出的 `submitted_real_at`（`savedAt`、`submittedAt`、每一次送出紀錄）、退回事件的 `real_at`（`returnedAt`）。
  * 每次寫入都在組別＋指派的列鎖內取 `realAt` 再寫進只能 insert 的表，所以同一指派的寫入順序就是這些戳記的順序，
  * 隨每次寫入嚴格變大；它**不是**這次讀頁面的時間（那是 `serverTime`，兩次讀取可能同一毫秒）。退回後最新暫存可能比
- * 退回的那筆舊，所以不能只看 `savedAt`。結算／解除不寫評分列、不改這個版本（評分卡對那一軸只在同版本時比 `serverTime`）。
+ * 退回的那筆舊，所以不能只看 `savedAt`。結算／解除不寫評分列、不改這個版本（評分卡對結算是單向鎖：看過唯讀就鎖到整頁重載，不靠快照解鎖）。
  * 沒有任何寫入時是空字串（任何寫入都比它大）。
  */
 function benchVersionOf(entry: BenchEntry): string {
