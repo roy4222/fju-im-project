@@ -58,8 +58,7 @@ export default async function RegisterPage({
       />
       <p className="text-center text-xs leading-relaxed text-muted-foreground">
         繼續即表示你同意本站的
-        {/* /privacy 由 VB-11 建；合併前是 404，預取那一頁的請求不會結束，所以不預取。 */}
-        <Link href="/privacy" prefetch={false} className="font-semibold text-foreground underline underline-offset-2 hover:text-primary">
+        <Link href="/privacy" className="font-semibold text-foreground underline underline-offset-2 hover:text-primary">
           隱私權政策
         </Link>
         。
