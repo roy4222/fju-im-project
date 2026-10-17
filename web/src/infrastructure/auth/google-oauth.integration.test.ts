@@ -724,6 +724,38 @@ describe('同 Email 的 Google 自動連結（Q45，VB-5）', () => {
     expect(gaCookie(failed.headers.getSetCookie())).toBeUndefined()
   })
 
+  // Sol r1 P1：本地已驗證但帳號停用／去識別化時，登入本來就會失敗（session hook 擋），但套件會先寫 google 列。
+  // 隱性連結寫入前要先看資料庫的帳號狀態；本人主動連結不受影響。
+  for (const [label, setup] of [
+    ['已停用', `update users set email_verified = true, status = 'disabled' where id = $1`],
+    ['已去識別化（status 還是 active）', `update users set email_verified = true, deidentified_at = now() where id = $1`],
+    ['已去識別化＋停用', `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`],
+    ['Email 未驗證', `update users set email_verified = false where id = $1`],
+  ] as const) {
+    it(`本地帳號${label} → 同 Email 的 Google 不連結：沒有新的 google 列、沒有 session、跟未驗證同一個 account_not_linked`, async () => {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const result = await rawCallback(await signInStart(), { sub: `sub-q45-blocked-${seq}`, email, name: '不能連' })
+      // 守衛擋下時套件多帶 `error_description`（登入頁只讀 `error`，畫面句子相同）。
+      const location = new URL(result.location, BASE_URL)
+      expect(location.pathname).toBe('/login')
+      expect(location.searchParams.get('error')).toBe('account_not_linked')
+      expect(result.cookie).not.toContain('session_token')
+      expect(gaCookie(result.setCookie)).toBeUndefined()
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+      expect(await one(`select count(*)::int as n from accounts where provider_id = 'google' and account_id = $1`, [`sub-q45-blocked-${seq}`])).toEqual({ n: 0 })
+    })
+  }
+
+  it('守衛只管隱性連結：本人（active、fresh session、Email 未驗證）按「連結 Google」照樣連得上', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    expect(await one(`select email_verified from users where id = $1`, [userId])).toEqual({ email_verified: false })
+    const start = await post('/link-social', { provider: 'google', callbackURL: '/account?linked=google', errorCallbackURL: '/account' }, cookie)
+    const result = await rawCallback(start, { sub: `sub-q45-active-${seq}`, email, name: '本人' }, cookie)
+    expect(result.location).toBe('/account?linked=google')
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
   it('本人按「連結 Google」的 callback 不是登入：不寫 fju_ga_login', async () => {
     const { email, userId, cookie } = await passwordAccount('active')
     const start = await post('/link-social', { provider: 'google', callbackURL: '/account?linked=google', errorCallbackURL: '/account' }, cookie)

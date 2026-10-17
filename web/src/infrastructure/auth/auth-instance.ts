@@ -398,6 +398,35 @@ function createAuth() {
         mustChangePassword: { type: 'boolean', required: true, defaultValue: false, input: false },
         deidentifiedAt: { type: 'date', required: false, input: false },
       },
+      /**
+       * 隱性連結寫入前的守衛（Q45，VB-5；Sol r1 P1）。
+       *
+       * 未登入用 Google、Email 跟既有帳號相同時，套件只看 `email_verified` 就寫 google 列，之後才建 session；
+       * 停用、去識別化的帳號 session 會被擋（上面的 `session.create.before`），但 google 列已經寫進去了。
+       * 所以在寫入前從資料庫讀帳號狀態：停用、去識別化、Email 未驗證一律不連，回跟未驗證同一個
+       * `account_not_linked`（登入頁顯示同一句，不說被停用，契約 03 §2；套件會多帶 `error_description`，畫面不讀它）。
+       *
+       * 為什麼掛這裡：1.7.5 的隱性連結（`oauth2/link-account.mjs:88`）在 `internalAdapter.linkAccount` 前一行呼叫
+       * `validateUserInfo`（`action: 'link-account'`），拒絕時套件把 code 原樣導回 `errorCallbackURL?error=`、失敗即關。
+       * `databaseHooks.account.create.before` 也擋得到，但它擋下時套件回 `unable_to_link_account`（看得出跟未驗證不同），
+       * 而且新 Google 帳號的第一列也經過它，要另外分辨。
+       *
+       * 本人按「連結 Google」（OAuth state 帶 `link`）也會以 `link-account` 呼叫這裡：那條已由 `/link-social`
+       * 的路由矩陣要求本人 active＋fresh session，不在這裡擋。讀不到 state 一律當隱性連結（失敗要關）。
+       */
+      validateUserInfo: async ({ user, source }) => {
+        if (source.action !== 'link-account') return
+        const state: unknown = await getOAuthState().catch(() => null)
+        if (state && typeof state === 'object' && (state as { link?: unknown }).link) return
+        const row = await getPool().query<{ status: string; deidentified_at: Date | null; email_verified: boolean }>(
+          'select status, deidentified_at, email_verified from users where id = $1',
+          [String(user.id ?? '')],
+        )
+        const target = row.rows[0]
+        if (!target || target.status === 'disabled' || target.deidentified_at || !target.email_verified) {
+          return { error: 'account_not_linked' }
+        }
+      },
     },
     databaseHooks: {
       user: {
