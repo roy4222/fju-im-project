@@ -10,6 +10,7 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
+import { groupsGradingPorts, loadAdvisorGrading } from '@/app/dashboard/admin/groups/groups-data'
 import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
 import { LinkOpportunityButton } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
@@ -30,7 +31,6 @@ import {
   ADVISOR_CSV_MAX_BYTES,
   CHANGE_REASON_MAX_LENGTH,
   describeGroupHistory,
-  getAdvisorGradingLookup,
   getGroupQuery,
   getOpportunityQuery,
   GROUP_TYPE_LABEL,
@@ -158,14 +158,8 @@ export default async function AdminGroupsPage({
     // 連結合作案對話框的初始選項（AD-06）：一句 SQL、只有已發布、前 50 筆；搜尋與換頁在對話框裡走 action。
     getOpportunityQuery().linkOptions(actor, { limit: 50 }),
   ])
-  const grading = getAdvisorGradingLookup()
-  const gradingOf = new Map(
-    await Promise.all(
-      overview.groups
-        .filter((g) => g.advisor)
-        .map(async (g) => [g.id, [...(await grading.assignmentsFor(g.id, g.advisor!.teacherUserId))]] as const),
-    ),
-  )
+  // 重派對話框要列的原老師評分指派：整屆讀一次 `adminBoard`，不逐組查（AD-14）。
+  const gradingOf = await loadAdvisorGrading(groupsGradingPorts(), actor, cohort.id, overview.groups)
   const roster = applyRosterFilter(overview.groups, filter)
   const unassigned = overview.groups.filter((g) => !g.advisor).length
   const grouped = overview.groups.reduce((sum, g) => sum + g.members.length, 0)
