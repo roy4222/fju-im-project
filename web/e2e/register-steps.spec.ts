@@ -90,7 +90,7 @@ test('AC-VI-45：第 1 步只有 Email、密碼、確認密碼；桌機左圖右
   await expect(page.getByRole('button', { name: '顯示密碼' })).toHaveCount(2)
   await expect(page.getByLabel('確認密碼')).toBeVisible()
   await expect(page.getByText('繼續即表示你同意本站的隱私權政策')).toBeVisible()
-  await expect(page.getByRole('link', { name: '隱私權政策' })).toHaveAttribute('href', '/privacy')
+  await expect(page.getByRole('main').getByRole('link', { name: '隱私權政策' })).toHaveAttribute('href', '/privacy')
   await expect(page.getByRole('button', { name: '建立帳號' })).toBeVisible()
   for (const label of ['姓名', '學號', '系級', '手機']) await expect(page.getByLabel(label)).toHaveCount(0)
   // ≥1024px：左邊校園照片看得到。
@@ -169,7 +169,7 @@ test('AC-VI-46／48／51／50：建立帳號 → 驗證碼由伺服器寄出 →
   // 錯的碼：同一句、欄位清空。
   const wrong = otp === '000000' ? '111111' : '000000'
   await page.getByLabel('驗證碼第 1 位').fill(wrong)
-  await expect(page.getByRole('alert')).toContainText('驗證碼不正確')
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('驗證碼不正確')
   await expect(page.getByLabel('驗證碼第 1 位')).toHaveValue('')
 
   // AC-VI-48：正確的碼 → 第 3 步；第 2 格打勾、第 3 格 current；驗證碼那列被刪。
@@ -221,14 +221,14 @@ test('AC-VI-50：未驗證的人直接送第 3 步 → 「請先完成 Email 驗
   await page.getByLabel('系級').fill('資管二甲')
   await page.getByLabel('手機').fill('0912-345-678')
   await page.getByRole('button', { name: '送出申請' }).click()
-  await expect(page.getByRole('alert')).toHaveText('請先完成 Email 驗證。')
+  await expect(page.getByRole('main').getByRole('alert')).toHaveText('請先完成 Email 驗證。')
   const user = await userRow(email)
   const apps = await pool.query('select 1 from registration_applications where user_id = $1', [user!.id])
   expect(apps.rowCount).toBe(0)
   await context.close()
 })
 
-test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦；舊 session 失效；既有帳號一律同一句、不寄信', async ({ browser }) => {
+test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦；舊 session 失效；既有帳號一律同一句、不寄信', async ({ browser, playwright }) => {
   test.setTimeout(240_000)
   const email = `vb3-resume-${run}@example.com`
   const a = await fresh(browser)
@@ -299,16 +299,19 @@ test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦�
      insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) select gen_random_uuid(), id, 'teacher', id, now() from u`,
     [teacherEmail],
   )
-  const student = await createTestSession(c.page.request, 'student')
-  await c.context.clearCookies()
-  const disabled = await createTestSession(c.page.request, null)
+  // 一個 request context 只註冊一個帳號：帶著前一個的 cookie 再註冊會被 Better Auth 的 Origin 檢查擋。
+  const mint = async (role: 'student' | null) => {
+    const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+    return createTestSession(request, role).finally(() => request.dispose())
+  }
+  const student = await mint('student')
+  const disabled = await mint(null)
   await pool.query(`update users set status = 'disabled' where id = $1`, [disabled.userId])
-  await c.context.clearCookies()
   for (const target of [teacherEmail, student.email, disabled.email]) {
     const mailsFor = (await pool.query('select 1 from mail_outbox where to_email = $1', [target])).rowCount
     const d = await fresh(browser)
     await stepOne(d.page, target, P2)
-    await expect(d.page.getByRole('alert')).toHaveText('這個 Email 無法用來註冊。如果你已經有帳號，請直接登入。')
+    await expect(d.page.getByRole('main').getByRole('alert')).toHaveText('這個 Email 無法用來註冊。如果你已經有帳號，請直接登入。')
     await expect(d.page).toHaveURL(/\/register$/)
     expect((await pool.query('select 1 from mail_outbox where to_email = $1', [target])).rowCount, target).toBe(mailsFor)
     await d.context.close()
@@ -319,9 +322,10 @@ test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦�
   for (const x of [a, b, c]) await x.context.close()
 })
 
-test('AC-VI-54 畫面段：Google 新帳號到第 3 步，進度條第 1、2 格打勾、「Google 已驗證」', async ({ browser }) => {
+test('AC-VI-54 畫面段：Google 新帳號到第 3 步，進度條第 1、2 格打勾、「Google 已驗證」', async ({ browser, playwright }) => {
   const { context, page } = await fresh(browser)
-  const session = await createTestSession(page.request, null)
+  const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+  const session = await createTestSession(request, null).finally(() => request.dispose())
   // session.ts 鑄的是密碼 session；改成 Google 登入方式的新帳號（Email 由 Google 證明）。
   await pool.query('update users set email_verified = true where id = $1', [session.userId])
   await pool.query(

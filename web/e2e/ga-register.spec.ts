@@ -123,9 +123,8 @@ test('AC-VI-78 register_step：走完三步，step 依序 1、2、3、done；不
   await page.getByLabel('手機').fill('0912-345-678')
   await page.getByRole('button', { name: '送出申請' }).click()
   await expect(page).toHaveURL(/\/register\/pending$/)
-  // 離開頁面讓 GA 把排隊中的事件送出來。
-  await page.goto('about:blank')
-  await expect.poll(() => steps(c), { timeout: 15_000 }).toEqual(['1', '2', '3', 'done'])
+  // `done` 在畫面換頁前送出；GA 排隊幾秒才送（離開頁面時的 beacon 攔不到，所以在頁內等）。
+  await expect.poll(() => steps(c), { timeout: 20_000 }).toEqual(['1', '2', '3', 'done'])
 
   const all = c.raw.join('\n')
   for (const value of [email, name, studentNo, '0912-345-678']) {
@@ -146,6 +145,7 @@ test('沒設 GA ID 的那一台：註冊第 1 步零請求、HTML 不含 googlet
   })
   const response = await page.goto(`${BASE_URL}/register`)
   expect(await response!.text()).not.toContain('googletagmanager')
-  await page.waitForLoadState('networkidle')
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(2000)
   expect(requests).toEqual([])
 })

@@ -253,9 +253,17 @@
     "baseline": 226.1,
     "limit": 249
   },
+  "/register/apply": {
+    "baseline": 228.1,
+    "limit": 250
+  },
   "/register/pending": {
     "baseline": 225.4,
     "limit": 248
+  },
+  "/register/verify": {
+    "baseline": 228.9,
+    "limit": 250
   },
   "/rules": {
     "baseline": 222,
