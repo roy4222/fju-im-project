@@ -283,11 +283,8 @@ test('AC-ST-16：已成組預設「我的組」：頁首卡、三個分頁、組
   await expect(steps.nth(2)).toContainText(`已完成ST5 提案書 ${stamp}${md(submittedAt)}`)
   await expect(steps.nth(3)).toContainText(`還沒到ST5 期末報告 ${stamp}${Number(ymd(laterDue).split('-')[1])} 月`)
 
-  // 拿掉的填充句（產學面板在 ST-10 才拿掉，面板外不能有）。
-  for (const text of ['請聯絡系辦', '由系辦處理', '組別類型與合作案見下方']) {
-    await expect(status).not.toContainText(text)
-    await expect(page.getByRole('navigation', { name: '組別分頁' })).not.toContainText(text)
-  }
+  // 拿掉的填充句（產學面板 ST-10 已拿掉，整頁都不能有）。
+  for (const text of ['請聯絡系辦', '由系辦處理', '組別類型與合作案見下方']) await expect(main).not.toContainText(text)
 
   // ?tab=mine 與沒帶參數是同一頁。
   await page.goto(`${GROUPS}?tab=mine`)

@@ -96,7 +96,7 @@ export default async function IndustryPage({
     <SiteShell current="/industry" bare>
       <PublicPage
         title="產學合作"
-        description="老師建立的合作案。產學組的組長可以在「我的組別」把組別連結到合作案。"
+        description="老師建立的合作案。"
         className="flex flex-col gap-6"
       >
         <div className="flex flex-wrap items-center justify-between gap-4">

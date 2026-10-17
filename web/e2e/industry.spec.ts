@@ -8,8 +8,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 票 20（#231）：合作案與組別名單匯出（含複製本組信箱）。「做完的樣子」逐條走：
  *
  * 1. 老師建立、發布、下架、重新發布合作案；登入者看公開欄位，聯絡資訊只有案主與系辦看得到（連 HTML 原始碼裡都沒有）。
- * 2. 產學組組長把組別連結到合作案、換案（理由必填）；案主解除連結並通知。
- * 3. 組長在三個條件內自行改組別類型，否則畫面說明原因、交系辦處理（系辦改類型保留既有關聯）。
+ * 2. 系辦把產學組連結到合作案、換案（換案理由必填）；案主解除連結並通知。學生側沒有連結與改類型的入口（Q73）。
+ * 3. 系辦改組別類型（保留既有關聯）。
  * 4. 管理員篩選、排序本屆組別名單；每組有組員信箱欄與「複製本組信箱」；匯出 CSV／XLSX 帶登入信箱。
  * 查詢層的欄位白名單、並發與版本衝突由整合測試 pg-opportunities.integration.test.ts 證明。
  *
@@ -289,46 +289,76 @@ test('老師建立合作案（先存草稿再發布）；下架、重新發布�
   await expect(item).toContainText('已發布')
 })
 
-test('組長把產學組連結到合作案、換案（理由必填，全組與兩位案主收到通知）；非組長與一般組看不到連結表單', async ({ page }) => {
+/** 系辦在「全部組別」開 G01 的連結對話框，搜尋公司名縮到那一案再選（e2e 資料庫共用，已發布的案可能超過一頁）。 */
+async function linkAsAdmin(page: Page, title: string, company: string, reason: string | null) {
+  await signInAdmin(page)
+  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  const groups = page.getByRole('region', { name: '全部組別' })
+  await groups.getByRole('button', { name: title.startsWith('把 G01 改連') ? '改連結 G01' : '連結合作案 G01' }).click()
+  const dialog = page.getByRole('dialog', { name: title })
+  await dialog.getByLabel('搜尋公司名').fill(company)
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('data-query', company)
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('aria-busy', 'false')
+  await dialog.getByLabel('合作案').selectOption(await opportunityId(company))
+  if (reason !== null) await dialog.getByLabel('理由').fill(reason)
+  await dialog.getByRole('button', { name: '連結', exact: true }).click()
+  return { groups, dialog }
+}
+
+test('系辦把產學組連結到合作案、換案（換案理由必填，全組與兩位案主收到通知）；學生側沒有連結與改類型的入口，一般組沒有連結按鈕', async ({ page }) => {
   await createOpportunity(page, ownerB, COMPANY_B, true)
   const a = await opportunityId(COMPANY)
   const b = await opportunityId(COMPANY_B)
 
-  // 從合作案詳情頁的「連結到這個合作案」進來，選單已經預選好。
+  // Q73：組長在合作案詳情與組別頁都沒有連結入口，說明句也不再叫組長自己連。
   await signIn(page, leader)
   await page.goto(`/industry/${a}`)
-  await page.getByRole('link', { name: '把 G01 連結到這個合作案' }).click()
-  const panel = page.locator('#industry-link')
-  await expect(panel.getByLabel('選一個已發布的合作案')).toHaveValue(a)
-  await panel.getByRole('button', { name: '把 G01 連結到這個合作案' }).click()
-  await expect(panel.getByRole('status')).toContainText(`G01 已連結「${COMPANY}・資訊部」`)
-  await page.reload()
-  await expect(page.getByTestId('linked-opportunity')).toContainText(`${COMPANY}・資訊部`)
+  await expect(page.getByRole('heading', { name: COMPANY, level: 1 })).toBeVisible()
+  await expect(page.getByRole('link', { name: /連結到這個合作案|換到這個合作案/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /連結到這個合作案|換到這個合作案/ })).toHaveCount(0)
+  await page.goto('/industry')
+  await expect(page.getByRole('main')).toContainText('老師建立的合作案。')
+  await expect(page.getByRole('main')).not.toContainText('產學組的組長可以在「我的組別」把組別連結到合作案')
+  for (const tab of ['mine', 'team', 'log']) {
+    await page.goto(`/dashboard/student/groups?tab=${tab}`)
+    await expect(page.getByRole('main')).toContainText('G01・產學合作')
+    await expect(page.getByRole('region', { name: '組別類型與合作案' })).toHaveCount(0)
+    for (const id of ['group-type', 'linked-opportunity', 'type-change-blocked']) await expect(page.getByTestId(id)).toHaveCount(0)
+    await expect(page.locator('#industry-link')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /改成/ })).toHaveCount(0)
+  }
+
+  // 系辦首次連結：理由可留空。
+  const first = await linkAsAdmin(page, '把 G01 連到合作案', COMPANY, null)
+  await expect(first.dialog).toBeHidden()
+  await expect(first.groups.getByRole('status')).toContainText(`G01 已連結「${COMPANY}・資訊部」`)
   // 驗收 P-01：合作案詳情的「連結的組別」標「名稱（代碼）・組別」，不只代碼。
   await page.goto(`/industry/${a}`)
   await expect(page.getByRole('region', { name: '連結的組別' })).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
-  await page.goto('/dashboard/student/groups')
-  // 有合作案之後，組長不能自己改類型。
-  await expect(page.getByTestId('type-change-blocked')).toContainText('已經連結合作案')
 
   // 換案：沒填理由被擋，填了才換。
-  await panel.getByLabel('換到另一個合作案').selectOption(b)
-  await panel.getByRole('button', { name: '確認換案' }).click()
-  await expect(panel.getByRole('alert')).toContainText('換案一定要填理由')
-  await panel.getByLabel('換案理由（必填）').fill('和企業討論後改做物流題目')
-  await panel.getByRole('button', { name: '確認換案' }).click()
-  await expect(panel.getByRole('status')).toContainText(`G01 已從「${COMPANY}・資訊部」換到「${COMPANY_B}・資訊部」`)
+  const blocked = await linkAsAdmin(page, '把 G01 改連到別的合作案', COMPANY_B, null)
+  await expect(blocked.dialog.getByRole('alert')).toContainText('換案一定要填理由')
+  await blocked.dialog.getByLabel('理由').fill('和企業討論後改做物流題目')
+  await blocked.dialog.getByRole('button', { name: '連結', exact: true }).click()
+  await expect(blocked.dialog).toBeHidden()
+  await expect(blocked.groups.getByRole('status')).toContainText(`G01 已從「${COMPANY}・資訊部」換到「${COMPANY_B}・資訊部」`)
   expect(await recipientsOf('opportunity.switched', 'G01')).toEqual([sorted(...memberIds.get('G01')!, owner.userId, ownerB.userId)])
-  await page.reload()
+  await page.goto(`/industry/${b}`)
+  await expect(page.getByRole('region', { name: '連結的組別' })).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
+
+  // 一般組：系辦頁的 G02 列沒有連結按鈕。
+  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  const groups = page.getByRole('region', { name: '全部組別' })
+  await expect(groups.getByRole('button', { name: '連結合作案 G03' })).toBeVisible()
+  await expect(groups.getByRole('button', { name: /^(連結合作案|改連結) G02$/ })).toHaveCount(0)
+
+  // 組員在「紀錄」看到系辦的連結與換案，看不到系辦填的理由。
+  await signIn(page, leader)
   await page.goto('/dashboard/student/groups?tab=log')
+  await expect(page.getByRole('list', { name: '組別異動' })).toContainText(`連結合作案：${COMPANY}・資訊部`)
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText(`合作案 ${COMPANY}・資訊部 → ${COMPANY_B}・資訊部`)
   await expect(page.getByRole('main')).not.toContainText('和企業討論後')
-
-  // 一般組組長：沒有連結表單。
-  await signIn(page, generalLeader)
-  await page.goto('/dashboard/student/groups')
-  await expect(page.getByTestId('linked-opportunity')).toContainText('一般專題不連結合作案')
-  await expect(page.locator('#industry-link').getByRole('button')).toHaveCount(0)
 })
 
 test('案主解除連結：理由必填，該組與案主收到通知；組員的頁面顯示還沒有連結', async ({ page }) => {
@@ -347,8 +377,6 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   expect(await recipientsOf('opportunity.unlinked', 'G01')).toEqual([sorted(...memberIds.get('G01')!, ownerB.userId)])
 
   await signIn(page, leader)
-  await page.goto('/dashboard/student/groups')
-  await expect(page.getByTestId('linked-opportunity')).toContainText('還沒有連結合作案')
   await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText(`解除合作案連結：${COMPANY_B}・資訊部`)
   // 通知匣看得到（背景工作投影），點進去是合作案頁。
@@ -360,27 +388,24 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await expect(page).toHaveURL(new RegExp(`/industry/${await opportunityId(COMPANY_B)}$`))
 })
 
-test('組長在成組期內、沒有指導老師與合作案時自己改組別類型；有指導老師後畫面說明原因、交系辦處理', async ({ page }) => {
+test('系辦改組別類型：先把 G02 改成產學合作、組員看得到異動；有指導老師後改回一般專題，對話框列出保留的關聯，理由必填', async ({ page }) => {
+  await signInAdmin(page)
+  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  const toIndustry = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G02' })
+  await toIndustry.getByRole('button', { name: '改組別類型：G02' }).click()
+  const first = page.getByRole('dialog', { name: '改 G02 的組別類型' })
+  await first.getByLabel('理由（必填）').fill('組長申請改成產學合作')
+  await first.getByRole('button', { name: '確認改成產學合作' }).click()
+  await expect(toIndustry.getByRole('status')).toContainText('G02 的組別類型已從「一般專題」改成「產學合作」')
   await signIn(page, generalLeader)
-  await page.goto('/dashboard/student/groups')
-  await expect(page.getByTestId('group-type')).toContainText('一般專題')
-  await page.getByRole('button', { name: '改成產學合作' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'G02 的組別類型已從「一般專題」改成「產學合作」' })).toBeVisible()
-  await page.reload()
-  await expect(page.getByTestId('group-type')).toContainText('產學合作')
   await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('list', { name: '組別異動' })).toContainText('組別類型 一般專題 → 產學合作')
 
-  // 指派指導老師之後：組長不能自己改，畫面說明原因。
   await pool.query(
     `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
      values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '抽籤')`,
     [groupIds.get('G02'), owner.userId, adminId],
   )
-  await page.goto('/dashboard/student/groups')
-  await expect(page.getByTestId('type-change-blocked')).toContainText('已經有指導老師')
-  await expect(page.getByTestId('type-change-blocked')).toContainText('請聯絡系辦處理')
-  await expect(page.getByRole('button', { name: /改成/ })).toHaveCount(0)
 
   // 系辦處理：對話框列出保留的關聯，理由必填。
   await signInAdmin(page)
