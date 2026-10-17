@@ -5,7 +5,7 @@
 #
 #   --image   要演練的映像（預設 fju-web:faultsim；先用 docker build 建好，見 ops/README.md）
 #   --keep    跑完不要拆掉模擬站（要自己看畫面時用；之後再跑一次不帶 --keep 就會拆）
-#   演練      restart、worker-stall、poison、disk80、disk80-restore；不給就五個照順序全跑
+#   演練      restart、worker-stall、poison；不給就三個照順序全跑
 #             （worker-stall 會真的等 5 分多鐘，那是 /api/health 判定停擺的門檻）
 #
 # 做什麼：用 docker-compose.faultsim.yml 起一個獨立的模擬站（fju-faultsim-*，跟本機開發的
@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ "${#CASES[@]}" -gt 0 ] || CASES=(restart worker-stall poison disk80 disk80-restore)
+[ "${#CASES[@]}" -gt 0 ] || CASES=(restart worker-stall poison)
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "找不到映像 ${IMAGE}。先建：docker build -f web/Dockerfile --build-arg GIT_COMMIT=faultsim -t ${IMAGE} ." >&2
@@ -99,7 +99,6 @@ drill_env=(
   HEALTH_URL="$HEALTH_URL"
   DRILL_DIR="$WORK/drills"
   DEPLOY_DIR="$WORK/deploy"
-  DRILL_VOLUME=fju-faultsim-drill-disk80
   POSTGRES_USER=x POSTGRES_PASSWORD=x POSTGRES_DB=x DATABASE_URL=x DATABASE_URL_OWNER=x APP_DB_PASSWORD=x
   BETTER_AUTH_SECRET=x BETTER_AUTH_URL=x GOOGLE_CLIENT_ID=x GOOGLE_CLIENT_SECRET=x
   FILES_ROOT=/srv/fju/files FILE_MAX_BYTES=104857600 BUSINESS_CLOCK_OVERRIDE_ENABLED=true

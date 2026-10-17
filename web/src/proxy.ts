@@ -42,5 +42,8 @@ export const config = {
   // `api/files/upload` 也排除：只要經過 proxy，Next 就會先把請求 body 緩衝進記憶體，
   // 超過 `proxyClientMaxBodySize`（預設 10MB）的部分**靜靜截斷**而不報錯——大檔案會被存成半截。
   // 那條路由回的是 JSON，自己帶 nosniff 與 no-store，不需要這裡的 CSP。
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/files/upload).*)'],
+  // `api/files/<id>/preview`（A-06）也排除：它要讓本站頁面嵌入（`frame-ancestors 'self'`＋`SAMEORIGIN`），
+  // 經過這裡會被蓋成全站的 `frame-ancestors 'none'`＋`DENY`。標頭由路由自己給齊；只排除剛好這個路徑（`$`），
+  // `/api/files/<id>/preview/…` 之類的其他路徑照樣拿到全站標頭。
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/files/upload|api/files/[^/]+/preview$).*)'],
 }

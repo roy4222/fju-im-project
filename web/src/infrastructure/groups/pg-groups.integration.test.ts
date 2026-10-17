@@ -870,6 +870,70 @@ describe('管理員分組總覽', () => {
   })
 })
 
+describe('首頁分組計數 homeCounts（AD-21）', () => {
+  /** 照系辦首頁原本的算法，從 `overview()` 算出計數。 */
+  async function fromOverview(cohortId: string) {
+    const o = await query.overview(cohortId, { history: false })
+    const industry = o.groups.filter((g) => g.groupType === 'industry')
+    return {
+      total: o.groups.length,
+      students: o.groups.reduce((n, g) => n + g.members.length, 0),
+      ungrouped: o.ungrouped.length,
+      industry: industry.length,
+      noAdvisorIndustry: industry.filter((g) => g.advisor === null).length,
+      openProposals: o.openProposals.length,
+    }
+  }
+
+  it('同一份資料：一般／產學、有無指導老師、解散組、進行中與作廢提案、未分組 → 與 overview 算出來的相同；封存屆照樣相同', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b, c, d, e, f, g, h, i, j] = await students(cohortId, 10)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    const industryNoAdvisor = await propose(c!, [d!], 'industry')
+    if (!industryNoAdvisor.ok) throw new Error(industryNoAdvisor.message)
+    await confirmAll(industryNoAdvisor.receipt.proposalId, [c!, d!])
+    const industryWithAdvisor = await propose(e!, [f!], 'industry')
+    if (!industryWithAdvisor.ok) throw new Error(industryWithAdvisor.message)
+    await confirmAll(industryWithAdvisor.receipt.proposalId, [e!, f!])
+    await confirmAll(await mustPropose(g!, [h!]), [g!, h!])
+    await mustPropose(i!, [j!])
+    const voided = await mustPropose((await newStudent(cohortId)), [await newStudent(cohortId)])
+    await groups.voidProposal(staffActor(adminId, 'admin'), voided, '測試作廢', randomUUID())
+    await newStudent(cohortId)
+
+    const all = await query.cohortGroups(cohortId, { history: false })
+    const byCode = new Map(all.map((x) => [x.members.map((m) => m.studentNo).sort().join(), x]))
+    const withAdvisor = byCode.get([e!.studentNo, f!.studentNo].sort().join())!
+    await owner.sql(
+      `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+       values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '指派')`,
+      [withAdvisor.id, teacherId, adminId],
+    )
+    const doomed = byCode.get([g!.studentNo, h!.studentNo].sort().join())!
+    expect(
+      await groups.dissolveGroup(staffActor(adminId, 'admin'), { groupId: doomed.id, revision: doomed.revision, reason: '全組休學' }, randomUUID()),
+    ).toMatchObject({ ok: true })
+
+    const expected = await fromOverview(cohortId)
+    // 確認測資真的涵蓋每一種情況（解散組不算、產學有無老師各一、進行中提案一件、未分組有人）。
+    expect(expected).toMatchObject({ total: 3, students: 6, industry: 2, noAdvisorIndustry: 1, openProposals: 1 })
+    expect(expected.ungrouped).toBeGreaterThanOrEqual(5)
+    expect(await query.homeCounts(cohortId)).toEqual(expected)
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    expect(await query.homeCounts(cohortId)).toEqual(await fromOverview(cohortId))
+  })
+
+  it('空屆別、不存在的屆別、不是 uuid：全是 0，與 overview 相同', async () => {
+    const zero = { total: 0, students: 0, ungrouped: 0, industry: 0, noAdvisorIndustry: 0, openProposals: 0 }
+    const empty = await newCohort()
+    expect(await query.homeCounts(empty)).toEqual(zero)
+    expect(await fromOverview(empty)).toEqual(zero)
+    expect(await query.homeCounts(randomUUID())).toEqual(zero)
+    expect(await query.homeCounts('not-a-uuid')).toEqual(zero)
+  })
+})
+
 describe('分組歷程改成可選（SH-P4）', () => {
   /** 包一層數 SQL 句數的讀取端：`history: false` 要少掉歷程那幾句。 */
   function countingQuery(): { query: PgGroupQuery; sqls: string[] } {

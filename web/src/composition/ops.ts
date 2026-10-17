@@ -4,15 +4,12 @@ import { rosterFileDownloadable, type ResolvedActor } from '@/application/accoun
 import {
   normalizeAuditWho,
   parseAuditQuery,
-  storageTileText,
   type AuditLog,
   type AuditWriter,
   type DownloadPolicies,
   type FileStorage,
   type OperationLedger,
-  type StorageMeasurement,
 } from '@/application/ops'
-import { formatTaipeiMinute } from '@/shared/time'
 import { getPool } from '@/infrastructure/db/client'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
@@ -20,7 +17,6 @@ import { readAuditLog } from '@/infrastructure/ops/pg-audit-log'
 import { avatarImageTransform } from '@/infrastructure/ops/avatar-image'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
-import { readLatestStorage } from '@/infrastructure/ops/storage-stats'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
@@ -103,29 +99,6 @@ export const DOWNLOAD_POLICIES: DownloadPolicies = {
   // 上傳的頭像（SH-9）：任何狀態正常的登入者都看得到（頭像出現在組員座位、表態列、帳號列表）；訪客 401。
   // 換掉或清掉的頭像已標刪，在政策之前就回 404（`FILE_GONE`）。
   avatar: (actor) => actor.kind === 'authenticated' && actor.status === 'active',
-}
-
-/**
- * 維運狀態查詢（模組 10 §5 `OpsStatusQuery`；票 28 先做 `storage()`）。只給管理員：
- * 非管理員一律回 null（頁面本身已經先擋過一次）。
- */
-export function getOpsStatusQuery() {
-  return {
-    /** 最新一筆磁碟量測；還沒量過回 null。 */
-    async storage(actor: ResolvedActor): Promise<StorageMeasurement | null> {
-      if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
-      return readLatestStorage(getPool())
-    },
-    /** 系辦首頁「儲存與備份」磚的數字與說明（時間以台北時區顯示）。 */
-    async storageTile(actor: ResolvedActor): Promise<{ value: string; hint: string }> {
-      const measurement = await this.storage(actor)
-      return storageTileText(
-        measurement,
-        new Date(),
-        measurement ? formatTaipeiMinute(measurement.measuredRealAt) : '',
-      )
-    },
-  }
 }
 
 /**
