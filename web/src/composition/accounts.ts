@@ -253,8 +253,26 @@ export async function homeForUser(userId: string): Promise<string> {
   if (roles.includes('admin')) return '/dashboard/admin'
   if (roles.includes('teacher')) return '/dashboard/teacher'
   if (roles.includes('student')) return '/dashboard/student'
+  // 用密碼註冊、還沒驗證 Email、也還沒送申請的人先去驗證（VB-2；設計方案 §3.2）。角色優先：
+  // 本批之前註冊、已核准但沒驗證的人上面就回去了；已經送過申請（舊流程）的人照舊去等待審核頁。
+  if (await needsEmailVerification(userId)) return EMAIL_VERIFY_PATH
   // 登入了但還沒有角色＝還在等審核。
   return '/register/pending'
+}
+
+/** 註冊第 2 步（驗證 Email）的路徑；頁面由 VB-3 建。 */
+export const EMAIL_VERIFY_PATH = '/register/verify'
+
+/** 沒驗證 Email、沒有 Google 登入方式、沒有任何註冊申請（呼叫端已確認沒有角色）。 */
+async function needsEmailVerification(userId: string): Promise<boolean> {
+  const result = await getPool().query<{ needs: boolean }>(
+    `select (not u.email_verified
+             and not exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google')
+             and not exists (select 1 from registration_applications ra where ra.user_id = u.id)) as needs
+       from users u where u.id = $1`,
+    [userId],
+  )
+  return result.rows[0]?.needs === true
 }
 
 /** 登出目前這一台。 */

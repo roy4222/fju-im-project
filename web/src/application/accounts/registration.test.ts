@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedActor } from '@/application/accounts/actor'
 import {
+  applyDenial,
   BULK_APPROVAL_SKIP_LABEL,
   bulkApprovalSkip,
   evidenceFlags,
@@ -319,5 +320,21 @@ describe('授權', () => {
     expect(ownApplicationDenied({ ...pending, mustChangePassword: true }, 'registration.reviseOwn')).toBe(
       'PASSWORD_CHANGE_REQUIRED',
     )
+  })
+})
+
+describe('送申請前的 Email 驗證（VB-2，AC-VI-50）', () => {
+  it('密碼註冊、還沒驗證 Email → 「請先完成 Email 驗證。」', () => {
+    expect(applyDenial({ loginMethod: 'password', emailVerified: false })).toBe('請先完成 Email 驗證。')
+  })
+
+  it('已驗證、或 Google 來的人放行', () => {
+    expect(applyDenial({ loginMethod: 'password', emailVerified: true })).toBeNull()
+    expect(applyDenial({ loginMethod: 'google', emailVerified: false })).toBeNull()
+    expect(applyDenial({ loginMethod: 'google', emailVerified: true })).toBeNull()
+  })
+
+  it('讀不到登入方式（舊 session）不在這條擋，交給呼叫端的其他規則', () => {
+    expect(applyDenial({ loginMethod: undefined, emailVerified: false })).toBeNull()
   })
 })
