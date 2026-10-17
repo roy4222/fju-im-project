@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { poolConfigFromEnv } from '@/infrastructure/db/client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getPool, poolConfigFromEnv } from '@/infrastructure/db/client'
 
 const url = 'postgres://fju_app@localhost:5432/fju'
 
@@ -28,5 +28,34 @@ describe('poolConfigFromEnv', () => {
 
   it('缺 DATABASE_URL 報錯', () => {
     expect(() => poolConfigFromEnv({})).toThrow('缺少 DATABASE_URL')
+  })
+})
+
+describe('getPool', () => {
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  it('同一程序、同一設定共用一個池；重新載入模組（Next 分開打包的情況）也拿到同一個', async () => {
+    vi.stubEnv('DATABASE_URL', url)
+    const first = getPool()
+    expect(getPool()).toBe(first)
+    vi.resetModules()
+    const reloaded = await import('@/infrastructure/db/client')
+    expect(reloaded.getPool()).toBe(first)
+  })
+
+  it('換了 DATABASE_URL 或 DB_POOL_MAX 就換新池', () => {
+    vi.stubEnv('DATABASE_URL', url)
+    const first = getPool()
+    vi.stubEnv('DATABASE_URL', `${url}_other`)
+    const second = getPool()
+    expect(second).not.toBe(first)
+    expect(second.options.connectionString).toBe(`${url}_other`)
+    vi.stubEnv('DB_POOL_MAX', '3')
+    const third = getPool()
+    expect(third).not.toBe(second)
+    expect(third.options.max).toBe(3)
   })
 })

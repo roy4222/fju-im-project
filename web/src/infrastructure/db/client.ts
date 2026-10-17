@@ -35,17 +35,21 @@ function poolMax(raw: string | undefined): number {
 /**
  * 池掛在 `globalThis`：Next 會把這個檔分別打包進頁面與 Route Handler，模組層級的變數
  * 各有一份，`DB_POOL_MAX=3` 實測會開到 6 條。掛在程序共用的物件上才是「一個程序一個池」。
+ * 以連線設定為鍵：設定變了（只有測試會在同一程序換 `DATABASE_URL`）就換新池、關掉舊池。
  */
-const holder = globalThis as typeof globalThis & { __fjuDbPool?: Pool }
+const holder = globalThis as typeof globalThis & { __fjuDbPool?: { key: string; pool: Pool } }
 
 export function getPool(): Pool {
-  if (!holder.__fjuDbPool) {
-    const pool = new Pool(poolConfigFromEnv(process.env))
-    // 閒置連線被 PostgreSQL 斷掉時 pg 會發 'error'；沒有 listener 會讓整個程序崩潰。
-    pool.on('error', (error) => console.error('[db] 閒置連線發生錯誤', error.message))
-    holder.__fjuDbPool = pool
-  }
-  return holder.__fjuDbPool
+  const config = poolConfigFromEnv(process.env)
+  const key = `${config.max}|${config.connectionString}`
+  const current = holder.__fjuDbPool
+  if (current?.key === key) return current.pool
+  if (current) void current.pool.end().catch(() => undefined)
+  const pool = new Pool(config)
+  // 閒置連線被 PostgreSQL 斷掉時 pg 會發 'error'；沒有 listener 會讓整個程序崩潰。
+  pool.on('error', (error) => console.error('[db] 閒置連線發生錯誤', error.message))
+  holder.__fjuDbPool = { key, pool }
+  return pool
 }
 
 export function getDb() {
