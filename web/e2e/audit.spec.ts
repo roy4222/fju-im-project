@@ -45,10 +45,12 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   await page.goto('/dashboard/admin/audit?role=student')
   await expect(page.getByTestId('audit-entry').filter({ hasText: CODE })).toHaveCount(0)
 
-  // 只讀：清單區塊裡沒有按鈕、沒有表單。
+  // 只讀：清單區塊裡唯一的按鈕與表單是搜尋（A-11：GET 表單、不改資料），沒有任何修改入口。
   const events = page.getByRole('region', { name: '操作清單' })
-  await expect(events.getByRole('button')).toHaveCount(0)
-  await expect(events.locator('form')).toHaveCount(0)
+  await expect(events.getByRole('button')).toHaveCount(1)
+  await expect(events.getByRole('button', { name: '搜尋' })).toHaveCount(1)
+  await expect(events.locator('form')).toHaveCount(1)
+  await expect(events.locator('form')).toHaveAttribute('method', 'get')
 })
 
 test('學生與老師打開操作紀錄被擋，拿不到任何一筆', async ({ page }) => {
