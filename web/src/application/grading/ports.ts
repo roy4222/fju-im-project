@@ -344,6 +344,8 @@ export type EvaluationHistoryEntry = {
   /** 最近一次狀態變化的理由（退回理由、替換、失效原因）。 */
   readonly lastReason: string | null
   readonly lastChangedAt: Date | null
+  /** 這一份的評語（B 階段 TE-B4；AC-A-4 系辦在計算明細看全文）；沒填是 null。 */
+  readonly comment: string | null
 }
 
 export type AssignmentHistoryEntry = {

@@ -46,3 +46,35 @@ export function avatarUrl(user: AvatarUser): string {
   const n = isPreset(user.avatarPreset) ? user.avatarPreset : avatarHashPreset(user.id)
   return `/avatars/${String(n).padStart(3, '0')}.webp`
 }
+
+// ── 換頭像、重設（SH-9） ─────────────────────────────────────────────────────
+
+/** 本人換頭像：選一張預設圖，或用剛上傳完成的頭像檔。 */
+export type AvatarChoice = { readonly preset: number } | { readonly fileId: string }
+
+/** 上傳頭像收的類型（縮圖後一律存成 WebP）。 */
+export const AVATAR_UPLOAD_TYPES = ['png', 'jpg', 'webp'] as const
+
+/** 系辦重設頭像的理由上限（去頭尾空白後 1～200 字）。 */
+export const AVATAR_RESET_REASON_MAX = 200
+
+/** 送來的選擇長得對不對：預設圖編號 1～100，或一個檔案編號字串（是不是 uuid、是不是本人的由用例查）。 */
+export function parseAvatarChoice(input: unknown): AvatarChoice | null {
+  if (typeof input !== 'object' || input === null) return null
+  const value = input as { preset?: unknown; fileId?: unknown }
+  if ('preset' in value && !('fileId' in value)) {
+    return typeof value.preset === 'number' && isPreset(value.preset) ? { preset: value.preset } : null
+  }
+  if ('fileId' in value && !('preset' in value)) {
+    return typeof value.fileId === 'string' && value.fileId !== '' ? { fileId: value.fileId } : null
+  }
+  return null
+}
+
+/** 重設理由：去頭尾空白後 1～200 字（以字計，同資料庫 `char_length`）；不合回 null。 */
+export function normalizeAvatarResetReason(reason: unknown): string | null {
+  if (typeof reason !== 'string') return null
+  const trimmed = reason.trim()
+  const length = Array.from(trimmed).length
+  return length >= 1 && length <= AVATAR_RESET_REASON_MAX ? trimmed : null
+}
