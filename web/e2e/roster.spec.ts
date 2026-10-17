@@ -10,8 +10,11 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 3. 學生首頁待辦數與名單頁一致（同一個學生：首頁「待繳交」＝作業區「待繳」；送出後首頁少一件、名單頁多一位已繳）。
  * 另外：學生、老師打不開名單頁；學生通知匣裡的收件通知點得進作業區那一份（票 16 遺留）。
  *
- * 收件用 owner 連線直接建成「已發布」的樣子（發布流程由 affairs.spec 走過）；免填與移出的「操作」在之後的票，
- * 這裡也用 owner 連線寫成那個樣子。學生的正式送出走真的畫面。
+ * 收件用 owner 連線直接建成「已發布」的樣子（發布流程由 affairs.spec 走過）；前三條的免填與移出用 owner 連線寫成那個樣子。
+ * 學生的正式送出走真的畫面。
+ *
+ * B 階段 A-08（AC-A-21～24）：設免繳／恢復走畫面。另建一份已截止、只有兩位學生（沒有免繳）的作業，免繳數走 0 → 1 → 0；
+ * 最後一條把屆別封存，兩份作業的名單都不再有「設免繳」「恢復」（API 的 `COHORT_ARCHIVED` 在整合測試）。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -289,4 +292,144 @@ test('學生通知匣：收件通知點得進作業區那一份', async ({ page 
   await page.goto('/dashboard/student/inbox')
   const item = page.getByTestId('inbox-item').filter({ hasText: TITLE })
   await expect(item.getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
+})
+
+// ── B 階段 A-08：設免繳／恢復（AC-A-21～24）────────────────────────────────────
+
+const EXEMPT_TITLE = `${CODE} 實習證明`
+let exemptItemId: string
+const exemptPath = () => `/dashboard/admin/affairs/${exemptItemId}`
+
+/** 已發布、已截止（一小時前）的個人收件，名單只有 doer 與 waiter。 */
+async function closedItem(): Promise<string> {
+  const id = (
+    await pool.query<{ id: string }>(
+      `insert into managed_items
+         (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, actual_opened_at, due_at,
+          title, summary, body_html, draft_schema, created_by_kind, created_by_user_id, updated_by_user_id)
+       values (gen_random_uuid(), $1, 'submission', 'cohort_students', 'individual',
+               (select id from cohort_stages where cohort_id = $1 and seq = 1), 'draft', null, $2, $3,
+               $4, '一句話摘要', '<p>請上傳實習證明。</p>', $5::jsonb, 'user', $6, $6)
+       returning id`,
+      [cohortId, minute(-2 * DAY), minute(-3600_000), EXEMPT_TITLE, JSON.stringify({ fields: FIELDS }), admin.userId],
+    )
+  ).rows[0]!.id
+  const content = await pool.query<{ id: string }>(
+    `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2, '一句話摘要', '<p>請上傳實習證明。</p>', $3) returning id`,
+    [id, EXEMPT_TITLE, admin.userId],
+  )
+  const schema = await pool.query<{ id: string }>(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2::jsonb, $3) returning id`,
+    [id, JSON.stringify({ fields: FIELDS }), admin.userId],
+  )
+  await pool.query(
+    `update managed_items set status = 'published', current_content_version_id = $2, current_schema_version_id = $3 where id = $1`,
+    [id, content.rows[0]!.id, schema.rows[0]!.id],
+  )
+  for (const s of [doer, waiter]) {
+    await pool.query(
+      `insert into response_rosters
+         (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, $2, 'user', $3, now() - interval '2 days', 'auto', 'user', $4)`,
+      [id, cohortId, s.userId, admin.userId],
+    )
+  }
+  return id
+}
+
+async function exemptAudits(action: string): Promise<number> {
+  const r = await pool.query<{ n: string }>(
+    `select count(*) as n from audit_events where action = $1 and target_id = $2 and payload->>'receiverId' = $3`,
+    [action, exemptItemId, waiter.userId],
+  )
+  return Number(r.rows[0]!.n)
+}
+
+test('AC-A-21／23：對 S1 按「設免繳」——理由留空提示「請填理由」不送出；填了理由就移到「免繳」、分頁數免繳 1、分母少 1、留稽核', async ({ page }) => {
+  exemptItemId = await closedItem()
+  await signIn(page, admin)
+  await page.goto(exemptPath())
+  const tabs = page.getByRole('navigation', { name: '名單分類' })
+  await expect(tabs.getByRole('link', { name: /目前名單\s*2/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /免繳\s*0/ })).toBeVisible()
+  await expect(page.getByTestId('completion-rate')).toHaveText('0／2')
+
+  const row = page.getByTestId('roster-current').getByTestId('roster-row').filter({ hasText: waiter.name })
+  await row.getByRole('button', { name: '設免繳' }).click()
+  const dialog = page.getByRole('dialog', { name: `設 ${waiter.name} 免繳` })
+  await expect(dialog).toBeVisible()
+  // 理由欄的標示照實說誰看得到（開放老師閱覽時主指導讀得到名單列的理由；Review 第 1 輪）。
+  await expect(dialog.getByLabel('理由（200 字內；開放老師閱覽時，主指導也看得到）')).toBeVisible()
+  await expect(dialog).not.toContainText('只有系辦看得到')
+
+  // AC-A-23：留空（只打空白）按確定——畫面提示、不發請求。
+  const posts: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST') posts.push(r.url())
+  })
+  await dialog.getByLabel(/理由/).fill('   ')
+  await dialog.getByRole('button', { name: '確定' }).click()
+  await expect(dialog.getByTestId('exempt-reason-error')).toHaveText('請填理由')
+  expect(posts).toEqual([])
+  expect(await exemptAudits('submission.exempt_set')).toBe(0)
+
+  await dialog.getByLabel(/理由/).fill('已在校外實習單位繳交紙本')
+  await expect(dialog.getByTestId('exempt-reason-error')).toHaveCount(0)
+  await dialog.getByRole('button', { name: '確定' }).click()
+
+  await expect(tabs.getByRole('link', { name: /免繳\s*1/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /目前名單\s*1/ })).toBeVisible()
+  await expect(page.getByTestId('completion-rate')).toHaveText('0／1')
+  await expect(page.getByTestId('roster-current')).not.toContainText(waiter.name)
+  await tabs.getByRole('link', { name: /免繳/ }).click()
+  await expect(page.getByTestId('roster-exempt')).toContainText(waiter.name)
+  await expect(page.getByTestId('roster-exempt')).toContainText('已在校外實習單位繳交紙本')
+  expect(await exemptAudits('submission.exempt_set')).toBe(1)
+})
+
+test('AC-A-22：對免繳的 S1 按「恢復」——回到目前名單、免繳 0、逾期依截止重算（已截止 → 逾期未繳）', async ({ page }) => {
+  await signIn(page, admin)
+  await page.goto(`${exemptPath()}?list=exempt`)
+  const row = page.getByTestId('roster-exempt').getByTestId('roster-row').filter({ hasText: waiter.name })
+  await row.getByRole('button', { name: '恢復' }).click()
+  const dialog = page.getByRole('dialog', { name: `恢復 ${waiter.name} 需繳交` })
+  await dialog.getByRole('button', { name: '確定' }).click()
+
+  const tabs = page.getByRole('navigation', { name: '名單分類' })
+  await expect(tabs.getByRole('link', { name: /免繳\s*0/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /目前名單\s*2/ })).toBeVisible()
+  await expect(page.getByTestId('completion-rate')).toHaveText('0／2')
+  await page.goto(exemptPath())
+  const back = page.getByTestId('roster-current').getByTestId('roster-row').filter({ hasText: waiter.name })
+  await expect(back.getByTestId('roster-status')).toHaveText('逾期未繳')
+  await expect(back.getByRole('button', { name: '設免繳' })).toBeVisible()
+  expect(await exemptAudits('submission.exempt_cleared')).toBe(1)
+  // 恢復後理由清空。
+  const r = await pool.query(`select exempt, exempt_reason from response_rosters where item_id = $1 and receiver_id = $2`, [
+    exemptItemId,
+    waiter.userId,
+  ])
+  expect(r.rows).toEqual([{ exempt: false, exempt_reason: null }])
+})
+
+// 這一條會把屆別封存，放最後（serial）。
+test('AC-A-24：屆別封存後，名單上沒有「設免繳」「恢復」按鈕', async ({ page }) => {
+  await signIn(page, admin)
+  // 封存前：兩種按鈕都在（第一份作業有一位免繳的人）。
+  await page.goto(rosterPath())
+  await expect(page.getByTestId('roster-current').getByRole('button', { name: '設免繳' })).toHaveCount(2)
+  await page.goto(`${rosterPath()}?list=exempt`)
+  await expect(page.getByTestId('roster-exempt').getByRole('button', { name: '恢復' })).toHaveCount(1)
+
+  await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+  for (const path of [rosterPath(), exemptPath()]) {
+    for (const list of ['', '?list=exempt']) {
+      await page.goto(`${path}${list}`)
+      await expect(page.getByRole('navigation', { name: '名單分類' })).toBeVisible()
+      await expect(page.getByRole('button', { name: '設免繳' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '恢復' })).toHaveCount(0)
+    }
+  }
 })
