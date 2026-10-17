@@ -18,7 +18,6 @@ import {
   describeStageFormula,
   describeStageStatus,
   getGradebookQuery,
-  getGradingQuery,
   OVERRIDE_STATE_LABEL,
   REMOVAL_CHOICE_LABEL,
 } from '@/composition/grading'
@@ -75,10 +74,15 @@ export default async function GroupGradeDetailPage({
 
   if (!detail.ok) return shell('計算明細', <EmptyState title="讀不到這一組的成績" description={detail.message} />)
   const d = detail.receipt
-  // 評語（B 階段 AC-A-4）：契約把評語放在 `AdminAssignmentView.comment`（有採計是採計那筆，否則最新暫存），從屆別評分總覽取這一組的。
-  // 讀不到就不顯示評語，不擋整頁。
-  const board = await getGradingQuery().adminBoard(actor, d.group.cohortId)
-  const comments = board.ok ? board.receipt.assignments.filter((a) => a.groupId === d.group.id && a.comment) : []
+  // 評語（B 階段 AC-A-4）：計入成績的那幾份（含已改派保留分數的）＋還沒送出的最新評分草稿（同指派比它新的都沒有才算）；
+  // 退回、歷史、失效、被正式送出蓋過的舊草稿不列。`evaluations` 同階段新的在前。
+  const seen = new Set<string>()
+  const comments = d.evaluations.filter((e) => {
+    const newest = !seen.has(e.assignmentId)
+    seen.add(e.assignmentId)
+    if (e.comment === null) return false
+    return e.state === 'counted' || (e.state === 'draft' && newest)
+  })
   const readOnly = d.group.archived || d.group.dissolved
   const current = d.overrides.find((o) => o.state !== 'superseded') ?? null
   const adopted = adoptedFinal(d.result, current)
@@ -235,7 +239,7 @@ export default async function GroupGradeDetailPage({
                   {comments
                     .filter((a) => a.stageKey === s.key)
                     .map((a) => (
-                      <li key={a.id} className="rounded-lg bg-muted px-3 py-2 text-sm" data-testid="stage-comment">
+                      <li key={a.evaluationId} className="rounded-lg bg-muted px-3 py-2 text-sm" data-testid="stage-comment">
                         <p className="text-xs text-muted-foreground">
                           {a.teacherName}
                           {a.state === 'counted' ? '' : '・評分草稿（未送出）'}

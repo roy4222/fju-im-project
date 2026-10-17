@@ -368,6 +368,48 @@ describe('結算期間的退回（B 階段 AC-A-7；設計方案 §2.3、§2.6 �
   })
 })
 
+describe('計算明細的評語（B 階段 AC-A-4）', () => {
+  async function submitWithComment(teacherId: string, assignmentId: string, value: string, comment: string): Promise<string> {
+    const r = await command.submitFinal(teacher(teacherId), { assignmentId, scores: { i1: value }, comment }, randomUUID())
+    if (!r.ok) throw new Error(r.message)
+    return r.receipt.evaluationId
+  }
+  async function commentsOf(groupId: string) {
+    const r = await book.groupDetail(adminActor(), groupId)
+    if (!r.ok) throw new Error(r.message)
+    return Object.fromEntries(r.receipt.evaluations.map((e) => [e.evaluationId, e.comment]))
+  }
+
+  it('每一份帶出評語（沒填是 null）；改派選「保留」後舊老師那一份仍帶評語', async () => {
+    const s = await standard()
+    const e1 = await submitWithComment(s.t1, s.a1, '80', '簡報清楚\n展示不足')
+    const e3 = await submit(s.t3, s.a3, '84.29')
+    expect(await commentsOf(s.groupId)).toMatchObject({ [e1]: '簡報清楚\n展示不足', [e3]: null })
+
+    const p = await preview(s.a1)
+    const kept = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, reason: '甲老師出國', basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(kept.ok).toBe(true)
+    const detail = await book.groupDetail(adminActor(), s.groupId)
+    if (!detail.ok) throw new Error(detail.message)
+    expect(detail.receipt.result.stages[0]!.counted.find((c) => c.evaluationId === e1)).toMatchObject({ assignmentEnded: true })
+    expect(detail.receipt.evaluations.find((e) => e.evaluationId === e1)).toMatchObject({ state: 'counted', comment: '簡報清楚\n展示不足' })
+  })
+
+  it('已解散的組：計算明細仍帶出評語', async () => {
+    const s = await standard()
+    const e2 = await submitWithComment(s.t2, s.a2, '90', '期末作品完整')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [s.groupId])
+    const detail = await book.groupDetail(adminActor(), s.groupId)
+    if (!detail.ok) throw new Error(detail.message)
+    expect(detail.receipt.group.dissolved).toBe(true)
+    expect(detail.receipt.evaluations.find((e) => e.evaluationId === e2)).toMatchObject({ state: 'counted', comment: '期末作品完整' })
+  })
+})
+
 describe('管理員更正與待復核（GRD-08、GRD-15）', () => {
   it('最終未完成 FINAL_INCOMPLETE；完成後更正保留原值與理由、不動老師輸入；基礎改變進待復核並通知管理員一次；沿用建新版本', async () => {
     const s = await standard()

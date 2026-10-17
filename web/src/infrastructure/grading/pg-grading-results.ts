@@ -1285,9 +1285,10 @@ export class PgGradebookQuery implements GradebookQuery {
         submitted_real_at: Date
         last_reason: string | null
         last_at: Date | null
+        comment: string | null
       }>(
         `select e.id, e.assignment_id, a.stage_key, ${TEACHER_NAME_SQL} as teacher_name, e.kind, s.state, e.scores, e.submitted_real_at,
-                ev.reason as last_reason, ev.real_at as last_at
+                ev.reason as last_reason, ev.real_at as last_at, e.comment
            from evaluations e
            join evaluation_status s on s.evaluation_id = e.id
            join evaluator_assignments a on a.id = e.assignment_id
@@ -1336,6 +1337,7 @@ export class PgGradebookQuery implements GradebookQuery {
         submittedAt: e.submitted_real_at,
         lastReason: e.last_reason,
         lastChangedAt: e.last_at,
+        comment: e.comment,
       }
     })
     const assignmentRows: AssignmentHistoryEntry[] = assignments.rows.map((a) => ({
