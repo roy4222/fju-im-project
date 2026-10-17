@@ -22,7 +22,7 @@ status: v6-role-split-in-progress
 | 系辦（6 項，Q87～Q92） | 首頁、公告與作業、分組、成績、帳號、設定 | 公告與作業：`/showcase`、`/files`；分組：`/industry`；成績：`/signoff`、`/grading/rules`；設定：`/cohorts`、`/timeline`、`/home-settings`、`/audit`（都在 `/dashboard/admin/` 下；「設定」本身連 `/settings` 總頁，Q104） | 帳號＝等審核的註冊申請 |
 
 - **側欄第一項叫「首頁」**（Q110）。
-- **通知只從頂列鈴鐺進**（Q71、Q77、Q88）：三個角色的側欄都沒有「通知」，未讀數只在鈴鐺；`/dashboard/<角色>/inbox` 頁保留，鈴鐺「看全部通知」連過去，在通知頁時鈴鐺標目前頁（SH-1a #446）。
+- **通知只從頂列鈴鐺進**（Q71、Q77、Q88）：三個角色的側欄都沒有「通知」，未讀數只在鈴鐺；`/dashboard/<角色>/inbox` 頁保留，鈴鐺本身就是連到這頁的連結（點了直接進通知匣，沒有下拉選單），在通知頁時鈴鐺標目前頁（SH-1a #446）。
 - **兼任標示**（Q103）：同時有老師與系辦身分的人，側欄 logo 下方寫「目前：老師後台」或「目前：系辦後台」；單一角色不顯示。
 - **「現在」橫幅**（SH-4 #457）：三角色首頁頂端，歡迎、現在階段、日期與剩幾天、角色自己的一句、只一顆主要動作；「看完整時程」連前台 `/timeline`（目前學生有，老師、系辦首頁還沒傳）。
 - **Pixel Trail**（SH-5 #444）：只掛在「現在」橫幅，由 `HomeHero` 的 `trail` 開；`next/dynamic` 延後載入，只在 `pointer: fine` 且沒有 `prefers-reduced-motion: reduce` 時掛；手機、觸控、減少動態不渲染也不下載 chunk；`pointer-events: none` 不擋點擊。2026-10-17 核對：學生首頁已傳 `trail`，老師首頁還沒傳（老師 AC-TE-09 留給整合驗收）。

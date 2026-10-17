@@ -58,7 +58,7 @@
    - 做：在目前目錄建 `CODEX-X3-roster-<T>.csv`（`student_no,name,cohort,email,department_class` 加兩行，屆別 `CODEX-X3-<T>`），帳號頁「匯入名單 CSV」→「匯入 2 筆」→「關閉」。`s1`、`s2` 打開 `https://test.fju.roy422.dev/register` 照上表註冊；`admin` 各按「審核 <姓名>」、勾「當面核對學生證或其他身分證件」、「核准」、「關閉」；兩位 `close` 再 `open`，用 Email 與測試密碼登入。
    - 預期：兩位都到 `/dashboard/student`。
 9. **學生行事曆與活動清單一致**（COH-02、COH-03、NTF-13）（工作階段 `s1`）
-   - 做：打開 `https://test.fju.roy422.dev/dashboard/student`，在行事曆找 今天+3、今天+4、今天+5 天那幾格（需要時按「下個月」）。
+   - 做：打開 `https://test.fju.roy422.dev/dashboard/student`，點「現在」橫幅的「看完整時程」到前台 `/timeline`，在下方整月行事曆找 今天+3、今天+4、今天+5 天那幾格（需要時按「下個月」；2026-10-15 Q71、Q85 改：學生首頁已沒有行事曆）。
    - 預期：今天+5 天有 `CODEX-X3-<T> 說明會`，今天+3 天**沒有**；今天+4 天的 `CODEX-X3-<T> 成果發表` 有刪除線或「已取消」字樣（不是進行中的樣子）。
 10. **發起提案：到期時間是 3 天後**（GRP-12）（工作階段 `s1`）
     - 做：打開 `https://test.fju.roy422.dev/dashboard/student/groups`，「一般專題」、同學 1 `7<T>02`，按「發起提案」。**`s2` 不要確認。**

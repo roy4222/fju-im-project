@@ -149,7 +149,7 @@
 33. **交作業**：`/dashboard/student/affairs`（`student-affairs`；卡片＋三個篩選，Q71）
 34. **成績**：`/dashboard/student/grading`（`student-grading`；2026-10-15 Q126 起轉回學生首頁，只截轉址結果）
 35. **通知匣**：`/dashboard/student/inbox`（`student-inbox`；側欄不再有入口，從鈴鐺進）
-36. **專題時程**：`/dashboard/student/timeline` 會轉到前台 `/timeline`（`student-timeline`；2026-10-15 Q85 改、ST-6）。截階段軌與整月行事曆，切一次下一月再切回來。
+36. **專題時程**：`/dashboard/student/timeline` 會轉到前台 `/timeline`（`student-timeline`；2026-10-15 Q85 改、ST-6）。截階段軌與整月行事曆，按一次「下個月」再切回來。
 37. **作業內容**：交作業有卡片的話，點第一個看 `/dashboard/student/affairs/<id>`（原型 `/dashboard/student/affairs/mi-011`），再點「繳交歷史」分頁（`student-affair`）。**不要按儲存草稿或正式送出。**
 38. **產學合作**：`/dashboard/student/industry`（`student-industry`；票 38 新頁）
 39. **同意書**：`/dashboard/student/signoff`（`student-signoff`）。**不要勾「已完整閱讀」或按同意／不同意。**
