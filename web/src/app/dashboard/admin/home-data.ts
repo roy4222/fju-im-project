@@ -1,5 +1,5 @@
 import type { AccountSummary, ResolvedActor } from '@/application/accounts'
-import type { GradebookQuery, GradingQuery, PendingReview } from '@/application/grading'
+import type { GradingQuery, PendingReview } from '@/application/grading'
 import type { GroupQuery } from '@/application/groups'
 import type { ItemListRow, ItemQuery } from '@/application/items'
 import type { SignoffPurpose, SignoffQuery } from '@/application/signoff'
@@ -8,7 +8,7 @@ import type { StageContext } from '@/app/dashboard/_stage'
 import type { Tone } from '@/app/_ui/dashboard/cards'
 import { remainingCount, teacherProgress, type TeacherProgress } from '@/app/dashboard/admin/grading/progress'
 import { loadAdminSummary } from '@/app/_ui/workload'
-import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
+import { getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
 import { getItemQuery } from '@/composition/items'
 import { getSignoffQuery, SIGNOFF_PURPOSES } from '@/composition/signoff'
@@ -19,20 +19,21 @@ const BASE = '/dashboard/admin'
 export const INTAKE_LIMIT = 6
 /** 「我發的公告」列幾則。 */
 export const NEWS_LIMIT = 3
+const DAY_MS = 86_400_000
 
 /**
  * 系辦首頁讀資料用的 port（AD-02；AC-AD-04 用假物件計數）。
  *
- * 只有這七個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
- * - 待審帳號數：讀共用 SH-P2 的 `loadAdminSummary(actor.userId)`，跟側欄徽章同一次請求共用，不多讀一次（AD-13）。讀不到是 null。
+ * 只有這六個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
+ * - 待審帳號數與最早送出時間：讀共用 SH-P2 的 `loadAdminSummary(actor.userId)`，跟側欄徽章同一次請求共用，不多讀一次（AD-13）。讀不到是 null。
+ * - 成績更正待復核：讀 `grading.pendingReviews`（1 句），不再讀整張成績表（AD-21）。
  * - 分組：首頁只要組數與人數，傳 `{ history: false }` 不讀歷程（共用 SH-P4）；系辦分組頁維持預設（看歷程）。
  * - 完成率與逾期：一次讀完全屆發布中作業的名單事實（`completionFacts()`，AD-19／AD-13），不再逐份讀 `roster()`；型別上只拿得到它。
  */
 export type AdminHomePorts = {
   readonly accounts: { readonly summary: (userId: string) => Promise<AccountSummary | null> }
   readonly groups: Pick<GroupQuery, 'overview'>
-  readonly grading: Pick<GradingQuery, 'adminBoard'>
-  readonly gradebook: Pick<GradebookQuery, 'gradebook'>
+  readonly grading: Pick<GradingQuery, 'adminBoard' | 'pendingReviews'>
   readonly signoff: Pick<SignoffQuery, 'adminBoard'>
   readonly items: Pick<ItemQuery, 'list'>
   readonly roster: Pick<RosterQuery, 'completionFacts'>
@@ -43,7 +44,6 @@ export function adminHomePorts(): AdminHomePorts {
     accounts: { summary: loadAdminSummary },
     groups: getGroupQuery(),
     grading: getGradingQuery(),
-    gradebook: getGradebookQuery(),
     signoff: getSignoffQuery(),
     items: getItemQuery(),
     roster: getRosterQuery(),
@@ -55,6 +55,8 @@ export type IntakeRow = { readonly id: string; readonly title: string; readonly 
 export type AdminHome = {
   /** null＝讀不到帳號統計。 */
   readonly summary: AccountSummary | null
+  /** 最早一筆待審申請送出到現在（業務時間）幾整天；沒有待審或讀不到是 null。 */
+  readonly oldestPendingDays: number | null
   readonly groups: {
     readonly total: number
     readonly students: number
@@ -72,8 +74,6 @@ export type AdminHome = {
     readonly total: number
     readonly people: number
     readonly groups: number
-    /** 欠繳最多那份作業；沒有逾期是 null。 */
-    readonly worst: { readonly id: string; readonly title: string } | null
   }
   /** 老師評分進度：全部階段、排除解散組（AC-AD-03，與成績頁同一個 `teacherProgress`）。 */
   readonly teachers: readonly TeacherProgress[]
@@ -101,14 +101,14 @@ export async function loadAdminHome(
   ctx: Pick<StageContext, 'cohort' | 'businessNow'>,
 ): Promise<AdminHome> {
   const cohortId = ctx.cohort?.id ?? null
-  const [summary, overview, gradingResult, signoffResult, items, gradebookResult, rosters] = await Promise.all([
+  const [summary, overview, gradingResult, signoffResult, items, reviewsResult, rosters] = await Promise.all([
     ports.accounts.summary(actor.userId),
     cohortId ? ports.groups.overview(cohortId, { history: false }) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.signoff.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.items.list(cohortId) : Promise.resolve([]),
     // 只拿「待復核的更正」做首頁提示（N-61）；成績表本身在「成績」頁。
-    cohortId ? ports.gradebook.gradebook(actor, cohortId) : Promise.resolve(null),
+    cohortId ? ports.grading.pendingReviews(actor, cohortId) : Promise.resolve(null),
     // 發布中的作業全部讀名單事實：逾期卡要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
     // 一次讀完（固定 2 句 SQL），順序同作業清單；算法照舊用名單頁同一個 `completionOf`／`overdueReceiverIds`（分母不含免填與移出）。
     cohortId ? ports.roster.completionFacts(actor, cohortId) : Promise.resolve([]),
@@ -124,7 +124,6 @@ export async function loadAdminHome(
     rosters.filter((r) => r.item.receiverUnit === 'individual'),
     ctx.businessNow,
   ).size
-  const worst = [...allIntake].sort((a, b) => b.completion.overdue - a.completion.overdue)[0]
 
   const groups = overview?.groups ?? []
   const grading = gradingResult?.ok ? gradingResult.receipt : null
@@ -136,8 +135,11 @@ export async function loadAdminHome(
 
   const news = items.filter((i) => i.placement === 'news')
 
+  const oldest = summary && summary.pendingApplications > 0 ? summary.oldestPendingAppliedAt : null
+
   return {
     summary,
+    oldestPendingDays: oldest ? Math.max(0, Math.floor((ctx.businessNow.getTime() - oldest.getTime()) / DAY_MS)) : null,
     groups: {
       total: groups.length,
       students: groups.reduce((a, g) => a + g.members.length, 0),
@@ -152,7 +154,6 @@ export async function loadAdminHome(
       total: overdueTotal,
       people: overduePeople,
       groups: overdueTotal - overduePeople,
-      worst: worst && worst.completion.overdue > 0 ? { id: worst.id, title: worst.title } : null,
     },
     teachers: grading ? teacherProgress(grading, { excludeDissolved: true }) : [],
     remaining: grading ? remainingCount(grading) : 0,
@@ -161,7 +162,7 @@ export async function loadAdminHome(
       complete: signGroups.filter((g) => SIGNOFF_PURPOSES.some((p) => g.packages[p]?.state === 'complete')).length,
       purpose: mostWaiting && mostWaiting.n > 0 ? mostWaiting.purpose : null,
     },
-    pendingReviews: gradebookResult?.ok ? gradebookResult.receipt.pendingReviews : [],
+    pendingReviews: reviewsResult?.ok ? [...reviewsResult.receipt] : [],
     newsCount: news.length,
     news: news.slice(0, NEWS_LIMIT),
   }
@@ -187,6 +188,11 @@ export type AdminTodoCard = {
 const NONE = { tone: 'done', label: '沒有待辦' } as const
 const OPEN = (tone: Tone) => ({ tone, label: '待處理' })
 
+function pendingMeta(pending: number, oldestDays: number | null): string | undefined {
+  if (pending === 0 || oldestDays === null) return undefined
+  return `${pending} 位待審・${oldestDays === 0 ? '今天送出' : `最早 ${oldestDays} 天前送出`}`
+}
+
 /**
  * 「待辦」區的四張卡（AC-AD-01、02；設計方案 §3.1）。數字是 0 也照樣有這張卡，膠囊寫「沒有待辦」；不算「今天 N 件」總數。
  * 顏色照共用 SH-3 的 tone 規則：待審 `alert`、逾期 `overdue`、評分進行中 `open`、同意書 `violet`。
@@ -201,8 +207,8 @@ export function adminTodoCards(home: AdminHome): readonly AdminTodoCard[] {
       kind: 'accounts',
       tone: 'alert',
       title: `待審帳號 ${summary ? pendingApps : '—'}`,
-      // 「最早 X 天前送出」要帳號統計多一個欄位（B 階段）；在那之前不放小字（主腦裁定）。
-      meta: summary ? undefined : '讀不到帳號統計',
+      // 有待審才寫「N 位待審・最早 X 天前送出」（AD-21）；沒有待審不放小字。
+      meta: summary ? pendingMeta(pendingApps, home.oldestPendingDays) : '讀不到帳號統計',
       href: `${BASE}/accounts?status=pending`,
       pill: summary ? (pendingApps > 0 ? OPEN('alert') : NONE) : undefined,
     },
@@ -211,8 +217,8 @@ export function adminTodoCards(home: AdminHome): readonly AdminTodoCard[] {
       tone: 'overdue',
       title: `逾期未繳 ${overdue.total}`,
       meta: [overdue.total > 0 ? `欠繳 ${overdueWho}` : '', `發布中 ${home.published} 個作業`].filter(Boolean).join('・'),
-      // Q114：A 先連既有逾期名單（欠繳最多那份作業）；「逾期」篩選是 B（AD-B7）。
-      href: overdue.worst ? `${BASE}/affairs/${overdue.worst.id}` : `${BASE}/affairs`,
+      // 有逾期就連「公告與作業」的「逾期」篩選（AD-B7）。
+      href: overdue.total > 0 ? `${BASE}/affairs?placement=overdue` : `${BASE}/affairs`,
       pill: overdue.total > 0 ? OPEN('overdue') : NONE,
     },
     {

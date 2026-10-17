@@ -290,7 +290,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (blocked) return denied(blocked)
 
     const row = (
-      await this.#deps.db().query<Record<keyof AccountSummary, string>>(
+      await this.#deps.db().query<Record<Exclude<keyof AccountSummary, 'oldestPendingAppliedAt'>, string> & { oldestPendingAppliedAt: Date | null }>(
         `select
            (select count(*) from registration_applications ra join users x on x.id = ra.user_id
              where ra.state = 'pending' and x.status = 'pending') as "pendingApplications",
@@ -302,7 +302,9 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
                and exists (select 1 from role_assignments r
                             where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
            ) as "activeStudents",
-           count(*) filter (where ${orphanCondition('u')}) as "orphans"
+           count(*) filter (where ${orphanCondition('u')}) as "orphans",
+           (select min(ra.created_at) from registration_applications ra join users x on x.id = ra.user_id
+             where ra.state = 'pending' and x.status = 'pending') as "oldestPendingAppliedAt"
          from users u`,
       )
     ).rows[0]!
@@ -314,6 +316,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         disabled: Number(row.disabled),
         activeStudents: Number(row.activeStudents),
         orphans: Number(row.orphans),
+        oldestPendingAppliedAt: row.oldestPendingAppliedAt,
       },
       meta(this.#clock.now()),
     )
