@@ -978,7 +978,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         recipients,
         recipientBasis: { basis: 'signoff_participants_not_voted', versionId: version.id },
         payload: {
-          // 學生還在同意中時，同一則也發給還沒輪到的老師：標題要對兩邊都正確（Q38）；輪到老師時維持原字。
+          // 學生還在同意中時只發給學生（網站問題 #4／TE-02：還沒輪到的老師不提醒，取代 Q38）；標題的括號句仍保留給學生看；輪到老師時維持原字。
           title:
             status.state === 'teacher_pending'
               ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`
