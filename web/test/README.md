@@ -88,7 +88,7 @@ disable()                         // 清掉註冊並還原旗標
 
 目前約定的注入點：`uow.before-commit`、`uow.after-commit`、`outbox.after-insert`、
 `worker.before-claim`、`worker.after-claim`、`worker.before-handler`、`file.after-upload`、
-`group.establish.after-release`、`group.member.add.before-insert`、`item.publish.after-roster`、`advisor.claim.before-insert`。
+`group.establish.after-release`、`group.member.add.before-insert`、`group.dissolve.after-writes`、`item.publish.after-roster`、`advisor.claim.before-insert`。
 要加新的注入點就改 `@/shared/fault-points` 的 `FaultPointName`。
 沒開旗標時 `injectFault` 會直接丟錯，避免注入行為不小心留在 production 路徑上。
 
@@ -103,3 +103,44 @@ disable()                         // 清掉註冊並還原旗標
 `test/harness.integration.test.ts` 證明：兩個測試並行寫同名表不衝突、schema 在 close 後真的消失、
 屏障能讓兩筆交易在指定點會合（後到的那筆確實被鎖擋住直到前一筆 commit）、逾時與 abort 會報錯、
 交易 helper 會 rollback、注入點沒開旗標時是 no-op、manifest 欄位齊全。
+
+## A-19 解散組別：鎖順序回歸（PR #511）
+
+`src/infrastructure/groups/pg-group-dissolve.integration.test.ts` 的「A-19 鎖順序：套用方案與更正／復核」
+包含 `override / edit-first`、`override / apply-first`、`resolveReview / edit-first`、`resolveReview / apply-first` 四案。
+第一個操作在真實資料庫取鎖後暫停；第二個操作由 `pg_blocking_pids` 證實等待指定的第一個 backend，才放行屏障。
+不攔第二個鎖的完成，避免修正後的正確排隊反而被測試屏障卡住。交易一律在 `finally` 放行並排空。
+
+行為斷言：更正／復核先取得組別鎖時，兩操作皆成功；套用先取得組別鎖時，套用成功，舊成績基礎的更正／復核回 `CONFLICT`。
+四案均不得出現 PostgreSQL `40P01` 或操作 `INTERNAL`，且最後版本與待復核狀態正確。
+
+### 新增／改動鎖盤點
+
+以下是 A-19 相對 `stage-b 0baeb17` 的全部四個新增顯式 SQL 取鎖點；S＝`FOR SHARE`，U＝`FOR UPDATE`。
+沒有新增或改動 advisory lock。組別集合一律依 id 排序，單組操作只有一列。
+
+| SQL 點 | 修正後完整順序 | 掃描結論 |
+|---|---|---|
+| `pg-grading-results.ts`：`applySchemeVersion` 全屆 groups S | cohort S → groups S（id）→ scheme U → target version U → override states U | 原先 scheme／version 在 groups 前；本次移到 groups 後 |
+| `pg-grading-dissolution.ts`：active assignments U | caller cohort S → group U → assignments U（id） | scheme／version 只讀；與套用以 group 鎖互斥 |
+| 同檔：draft evaluation statuses U | 上列 → statuses U（evaluation_id） | 不回頭取 group 或 scheme |
+| `pg-signoff.ts`：`voidForDissolution` 的 `FOR UPDATE OF p,s` | 上列解散順序 → packages／current version statuses U（查詢依 purpose 排序） | group U 先排除同組簽核寫入；不把 JOIN 宣稱成保證先 p 後 s |
+
+`dissolveGroup` 是新 caller，重用既有 `#lockGroup` 的 cohort S → group U；這兩個 SQL 本身沒有改動。
+以下同時掃描相關既有路徑，確認沒有 scheme／version → group 的反向取鎖：
+
+| 寫入路徑 | 鎖順序 |
+|---|---|
+| `override`／`resolveReview` | cohort S → group U → scheme S；復核再取 override state U |
+| `returnEvaluation` | cohort S → group S → scheme S → assignment U → evaluation status U |
+| `removeAssignment` | cohort S → group S → scheme S → assignments U（id）→ target assignment U → requirement U → draft statuses U |
+| `setRequirement`／`assign` | cohort S → group S → scheme S → requirement U／新增 assignment |
+| `saveDraft`／`submitFinal` | cohort S → group S → scheme S → assignment U；首份評分 UPDATE version 也在 group 後 |
+| `createSchemeVersion`／`publishScheme` | cohort S → scheme U → version；不回頭鎖 group |
+| 簽核 create／respond／restart／void／remind | cohort S → group S → package U → status U |
+| 簽核 participant-change hook | caller 已持 group U／NO KEY UPDATE，才取 packages／statuses |
+| `lockLeaderships` | groups 依 id 逐一取鎖；不碰評分方案／版本 |
+
+這是原碼路徑盤點；並行實測範圍為四個新案例、原有解散／套用雙向案例及解散／送分案例。
+`c752a0b` 尚無全組鎖，edit-first 兩案會因先行更正／復核得到 `CONFLICT` 而失敗，並非死鎖；
+`9cb6f18` 四案均重現 `40P01`。修正後四案通過。第一輪理由保密、明確 null 方案快照、解散與套用序列化的斷言保留。
