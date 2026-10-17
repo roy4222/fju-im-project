@@ -709,7 +709,7 @@ test('票 16 訪客：/news 看得到公開公告，內容頁的附件直接下�
   }
 })
 
-test('票 20 甲老師建立並發布合作案；組長（學生 2）把組別連結到它', async () => {
+test('票 20 甲老師建立並發布合作案；系辦把組別連結到它，組長（學生 2）在紀錄看到', async () => {
   await teacherA.goto('/dashboard/teacher/industry')
   await teacherA.getByRole('button', { name: '新增合作案' }).click()
   const dialog = teacherA.getByRole('dialog', { name: '新增合作案' })
@@ -729,15 +729,21 @@ test('票 20 甲老師建立並發布合作案；組長（學生 2）把組別�
   expect(opportunityId).toMatch(/^[0-9a-f-]{36}$/)
   await shot(teacherA, 'opportunity-published')
 
+  // Q73：連結合作案只由系辦做（AD-06 對話框）；先搜尋公司名，等下拉換成搜尋結果再選。
+  await openAdminGroups(admin)
+  await admin.getByRole('region', { name: '全部組別' }).getByRole('button', { name: `連結合作案 ${group}` }).click()
+  const linkDialog = admin.getByRole('dialog', { name: `把 ${group} 連到合作案` })
+  await linkDialog.getByLabel('搜尋公司名').fill(COMPANY)
+  await expect(linkDialog.getByTestId('link-options')).toHaveAttribute('data-query', COMPANY)
+  await expect(linkDialog.getByTestId('link-options')).toHaveAttribute('aria-busy', 'false')
+  await linkDialog.getByLabel('合作案').selectOption(opportunityId)
+  await linkDialog.getByRole('button', { name: '連結', exact: true }).click()
+  await expect(linkDialog).toBeHidden()
+  await expect(admin.getByRole('region', { name: '全部組別' }).getByRole('status')).toContainText(`${group} 已連結「${OPPORTUNITY}」`)
+
   const leader = student(1).page
-  await leader.goto(`/industry/${opportunityId}`)
-  await leader.getByRole('link', { name: `把 ${group} 連結到這個合作案` }).click()
-  const panel = leader.locator('#industry-link')
-  await expect(panel.getByLabel('選一個已發布的合作案')).toHaveValue(opportunityId)
-  await panel.getByRole('button', { name: `把 ${group} 連結到這個合作案` }).click()
-  await expect(panel.getByRole('status')).toContainText(`${group} 已連結「${OPPORTUNITY}」`)
-  await leader.reload()
-  await expect(leader.getByTestId('linked-opportunity')).toContainText(OPPORTUNITY)
+  await leader.goto('/dashboard/student/groups?tab=log')
+  await expect(leader.getByRole('list', { name: '組別異動' })).toContainText(`連結合作案：${OPPORTUNITY}`)
   await shot(leader, 'opportunity-linked')
 })
 
