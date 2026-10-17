@@ -1,12 +1,12 @@
 import { IconChecklist } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
+import { loadTeacherWorkload } from '@/app/_ui/workload'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { PageTitle, Panel, PanelEmpty, SegmentBar } from '@/app/dashboard/teacher/_ui/dash'
 import { filterQueue, parseFilter, pickStage } from '@/app/dashboard/teacher/grading/filter'
 import { GradingOverviewList } from '@/app/dashboard/teacher/grading/overview-list'
 import type { StageOption } from '@/app/dashboard/teacher/grading/overview-types'
-import { getGradingQuery } from '@/composition/grading'
 
 export const metadata = { title: '評分｜資管系專題平台' }
 
@@ -14,7 +14,8 @@ export const metadata = { title: '評分｜資管系專題平台' }
  * 老師「評分」總覽（票 23、37；TE-06a 照 Q78 重做）：只列本人被指派的組別。
  * 誰是本人由登入者決定；別的老師的指派、暫存一律看不到。點一張卡進單組評分 `/dashboard/teacher/grading/<組別>`。
  *
- * 一次 `teacherQueue` 讀完；階段、篩選、已評幾組都在記憶體算（設計方案 §5：頁面自己 ≤ 3 句）。
+ * 待評清單讀共用 `loadTeacherWorkload(userId).queue`（TE-06c，`_ui/workload.ts`）：側欄徽章讀的是同一份，
+ * 同一請求只查一次（AC-SH-37）。階段、篩選、已評幾組都在記憶體算（設計方案 §5：頁面自己 ≤ 3 句）。
  */
 export default async function TeacherGradingPage({
   searchParams,
@@ -23,7 +24,7 @@ export default async function TeacherGradingPage({
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/teacher/grading', 'teacher')
-  const [queue, search] = await Promise.all([getGradingQuery().teacherQueue(actor), searchParams])
+  const [{ queue }, search] = await Promise.all([loadTeacherWorkload(actor.userId), searchParams])
 
   const stages: StageOption[] = []
   for (const e of queue) if (!stages.some((s) => s.key === e.stageKey)) stages.push({ key: e.stageKey, name: e.stageName })
