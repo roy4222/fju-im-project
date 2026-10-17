@@ -148,7 +148,7 @@ export default async function TeacherAffairPage({
         title={individual ? '我指導的學生' : '我的指導組別'}
         unit={unit}
         entries={entries}
-        emptyText={individual ? '你指導的組裡沒有人在這個繳交項目的名單上。' : '你指導的組都不在這個繳交項目的名單上。'}
+        emptyText={individual ? '你指導的組裡沒有人在這份作業的名單上。' : '你指導的組都不在這份作業的名單上。'}
       />
       <div className="flex flex-col gap-5">
         <Panel title="繳交進度" icon={<IconFileText />} description={`需要繳交 ${completion.required} ${unit}`} testId="completion">
@@ -200,7 +200,7 @@ export default async function TeacherAffairPage({
                 {f.required ? <span className="shrink-0 text-[11px] text-destructive">必填</span> : null}
               </li>
             ))}
-            {fields.length === 0 ? <li className="py-1 text-muted-foreground">這個繳交項目沒有要填的欄位。</li> : null}
+            {fields.length === 0 ? <li className="py-1 text-muted-foreground">這份作業沒有要填的欄位。</li> : null}
           </ul>
         </Panel>
       </div>

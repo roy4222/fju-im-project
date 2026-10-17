@@ -6,7 +6,7 @@ import { getPublicItemQuery } from '@/composition/items'
 
 export const metadata: Metadata = {
   title: '最新公告｜資管系專題平台',
-  description: '輔大資管系專題公告：專題事務、競賽資訊、活動與規則異動。',
+  description: '輔大資管系專題公告：公告與作業、競賽資訊、活動與規則異動。',
   alternates: { canonical: '/news' },
 }
 
@@ -43,7 +43,7 @@ export default async function NewsPage({
 
   return (
     <SiteShell current="/news" bare>
-      <PublicPage title="最新公告" description="專題事務、競賽資訊、活動與規則異動，依發布日期排序。" className="flex flex-col gap-8">
+      <PublicPage title="最新公告" description="公告與作業、競賽資訊、活動與規則異動，依發布日期排序。" className="flex flex-col gap-8">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <nav aria-label="公告分類" className="flex flex-wrap gap-2">
             {['', ...categories].map((c) => (
