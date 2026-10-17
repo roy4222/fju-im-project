@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { sharedTestSession, toPlaywrightCookie } from './session'
+import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
  * 票 5（#216）：建立屆別與開放註冊。「做完的樣子」三條逐條走一次：
@@ -10,6 +10,8 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * 3. 沒有設開放註冊屆別時，畫面提示管理員處理，不自行猜測。
  *
  * 全程用真的表單與按鈕；重新整理後再看一次，確認是存進資料庫而不是只改畫面。
+ *
+ * B 階段 AD-B4（A-09）在最後加封存／解封（AC-A-25～28）。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -20,6 +22,8 @@ test.describe.configure({ mode: 'serial' })
 const stamp = Date.now().toString(36).toUpperCase()
 const CODE_A = `E2E-${stamp}-A`
 const CODE_B = `E2E-${stamp}-B`
+// 封存／解封（AD-B4）用的進行中屆別；在封存那幾條才建，前面的案例看不到它。
+const CODE_C = `E2E-${stamp}-C`
 
 test.beforeAll(async () => {
   // 兩個旗標是全系唯一的狀態。先把它們清掉，第 3 條「沒有開放註冊屆別」才看得到；
@@ -147,5 +151,133 @@ test.describe('手機寬度', () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     )
     expect(overflows, '窄螢幕不應該出現橫向捲動').toBe(false)
+  })
+})
+
+/**
+ * AD-B4 封存／解封（設計方案 §7；AC-A-25～28）。
+ *
+ * 進行中的屆別用 owner 連線直接建（轉進行中要先設階段，不是這裡要測的），封存與解封全走畫面。
+ * 「老師評分隊列不列已封存屆別」是既有守衛（`pg-grading.ts` 的 `c.status <> 'archived'`），這裡不重建評分資料。
+ */
+test.describe('封存與解封', () => {
+  let pool: Pool
+  let cohortC: string
+
+  test.beforeAll(async () => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+    // 每組 1 人：學生頁的「發起提案」不用填同學學號，按下去就會打到用例（AC-A-28）。
+    const created = await pool.query<{ id: string }>(
+      `insert into cohorts (id, code, name, status, year_end_date, group_size_min, group_size_max, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'active', current_date + 300, 1, 1, 'system') returning id`,
+      [CODE_C, `${CODE_C} 封存測試`],
+    )
+    cohortC = created.rows[0]!.id
+  })
+
+  test.afterAll(async () => {
+    await pool?.end()
+  })
+
+  async function openStatusDialog(page: Page, button: '封存這一屆' | '解除封存', name: string) {
+    await rowOf(page, CODE_C).getByRole('button', { name: `${button}：${CODE_C}` }).click()
+    const dialog = page.getByRole('dialog', { name })
+    await expect(dialog).toBeVisible()
+    return dialog
+  }
+
+  test('AC-A-26 預設工作屆別不能封存：看到「請先把預設工作屆別換成別屆」，狀態不變', async ({ page }) => {
+    await signInAsAdmin(page)
+    await page.goto('/dashboard/admin/cohorts')
+
+    await page.getByRole('button', { name: `把 ${CODE_C} 設為後台預設查看的屆別` }).click()
+    await expect(rowOf(page, CODE_C)).toContainText('後台預設查看中')
+
+    const dialog = await openStatusDialog(page, '封存這一屆', `封存${CODE_C}？`)
+    await dialog.getByLabel(/理由/).fill('年度結束')
+    await dialog.getByRole('button', { name: '確定封存' }).click()
+    await expect(feedback(page, 'alert')).toContainText('請先把預設工作屆別換成別屆')
+    await expect(rowOf(page, CODE_C)).toContainText('進行中')
+
+    // 預設工作屆別還給 A，下一條才封存得了。
+    await page.getByRole('button', { name: `把 ${CODE_A} 設為後台預設查看的屆別` }).click()
+    await expect(feedback(page, 'status')).toContainText(new RegExp(`原本的.*（${CODE_C}）已自動取消`))
+    const row = await pool.query(`select status from cohorts where id = $1`, [cohortC])
+    expect(row.rows[0]!.status).toBe('active')
+  })
+
+  test('AC-A-25 封存：理由留空擋在視窗裡；填了理由 → 卡片已封存、只剩「解除封存」，留狀態紀錄與稽核', async ({ page }) => {
+    await signInAsAdmin(page)
+    await page.goto('/dashboard/admin/cohorts')
+
+    const dialog = await openStatusDialog(page, '封存這一屆', `封存${CODE_C}？`)
+    await dialog.getByRole('button', { name: '確定封存' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('請填理由。')
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByLabel(/理由/).fill('115 學年度結束')
+    await dialog.getByRole('button', { name: '確定封存' }).click()
+    await expect(feedback(page, 'status')).toContainText(`已封存${CODE_C} 封存測試（${CODE_C}）`)
+
+    // 重新整理：存在資料庫。卡上只有「已封存 {時間}」與「解除封存」，旗標按鈕都不見了。
+    await page.reload()
+    const card = rowOf(page, CODE_C)
+    await expect(card.getByTestId('archived-at')).toContainText(/已封存 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)
+    await expect(card.getByRole('button')).toHaveCount(1)
+    await expect(card.getByRole('button', { name: `解除封存：${CODE_C}` })).toBeVisible()
+
+    const events = await pool.query(
+      `select from_status, to_status, reason from cohort_status_events where cohort_id = $1 and to_status = 'archived'`,
+      [cohortC],
+    )
+    expect(events.rows).toEqual([{ from_status: 'active', to_status: 'archived', reason: '115 學年度結束' }])
+    const audits = await pool.query(`select count(*)::int as n from audit_events where target_id = $1 and action = 'cohort.archive'`, [
+      cohortC,
+    ])
+    expect(audits.rows[0]!.n).toBe(1)
+  })
+
+  test('AC-A-28 封存後學生在該屆組別頁寫入：看到「已封存」', async ({ page }) => {
+    const student = await createTestSession(page.request, 'student')
+    const studentNo = `4${Date.now().toString().slice(-8)}`
+    await pool.query(
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email)
+       values ($1, 'e2e 封存學生', 'e2e 封存學生', $2, $3, '0912000000', $4)`,
+      [student.userId, studentNo, cohortC, `arch-${studentNo}@contact.example.com`],
+    )
+    await pool.query(`insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)`, [
+      cohortC,
+      studentNo,
+      student.userId,
+    ])
+    await page.context().clearCookies()
+    await page.context().addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
+
+    await page.goto('/dashboard/student/groups')
+    await page.getByRole('button', { name: '發起提案' }).click()
+    await expect(feedback(page, 'alert')).toContainText('已封存')
+    const proposals = await pool.query(`select count(*)::int as n from group_proposals where cohort_id = $1`, [cohortC])
+    expect(proposals.rows[0]!.n).toBe(0)
+  })
+
+  test('AC-A-27 解除封存：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {
+    await signInAsAdmin(page)
+    await page.goto('/dashboard/admin/cohorts')
+
+    const dialog = await openStatusDialog(page, '解除封存', `解除封存${CODE_C}？`)
+    await dialog.getByLabel(/理由/).fill('補登成績')
+    await dialog.getByRole('button', { name: '確定解除封存' }).click()
+    await expect(feedback(page, 'status')).toContainText(`已解除封存${CODE_C} 封存測試（${CODE_C}）`)
+
+    await page.reload()
+    await expect(rowOf(page, CODE_C)).toContainText('進行中')
+    await expect(page.getByRole('button', { name: `把 ${CODE_C} 設為後台預設查看的屆別` })).toBeVisible()
+    await expect(rowOf(page, CODE_C).getByRole('button', { name: `封存這一屆：${CODE_C}` })).toBeVisible()
+
+    const audits = await pool.query(
+      `select count(*)::int as n from audit_events where target_id = $1 and action = 'cohort.unarchive'`,
+      [cohortC],
+    )
+    expect(audits.rows[0]!.n).toBe(1)
   })
 })
