@@ -1,12 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { currentActor, homeFor } from '@/app/_ui/guard'
-import { ActionForm, Field, HiddenField } from '@/app/_ui/form'
+import { Turnstile } from '@/app/_turnstile/turnstile'
+import { AuthSplit } from '@/app/_ui/auth-split'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
-import { AuthCard } from '@/app/_ui/primitives'
-import { NarrowShell } from '@/app/_ui/site-shell'
-import { signInAction } from '@/app/login/actions'
+import { SiteShell } from '@/app/_ui/site-shell'
 import { GoogleButton } from '@/app/login/google-button'
+import { LoginCard } from '@/app/login/login-card'
 import { isRegistrationOpen } from '@/composition/accounts'
 import { safeNextPath } from '@/shared/safe-next'
 
@@ -18,11 +18,14 @@ export const metadata = { title: '登入｜資管系專題平台' }
  * 已經登入的人再開這一頁會被送回自己該去的地方。Google 登入回來也是落在這裡
  * （callbackURL＝`/login?next=…`），由這一段分流：被要求改密 → 改密頁；待審 → 等待審核頁；
  * 其他 → `next`（經 `safeNextPath`）或自己的首頁。跟密碼登入的 Server Action 同一套規則。
+ *
+ * 外框是左圖右卡（`AuthSplit`）；卡片有登入、忘記密碼、已寄出三種模式（`login-card.tsx`）。
+ * `?mode=forgot`（`/forgot-password` 導過來的）直接開在忘記密碼模式。
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string | string[]; error?: string | string[] }>
+  searchParams: Promise<{ next?: string | string[]; error?: string | string[]; mode?: string | string[] }>
 }) {
   const params = await searchParams
   // 不合格的 `next` 當作沒帶：不放進表單、也不顯示「登入後會回到…」。
@@ -34,56 +37,44 @@ export default async function LoginPage({
     redirect(actor.status === 'active' && next ? next : home)
   }
   const googleError = googleSignInErrorMessage(params.error)
+  const mode = params.mode === 'forgot' ? 'forgot' : 'login'
 
   return (
-    <NarrowShell>
-      <AuthCard title="登入" description="學生、老師與系辦使用同一個入口。">
-        {next ? (
-          <p className="mb-4 rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-            登入後會回到你原本要去的頁面。
-          </p>
-        ) : null}
-        {googleError ? (
-          <p role="alert" className="mb-4 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle" data-testid="google-error">
-            {googleError}
-          </p>
-        ) : null}
-
-        <GoogleButton from="login" next={next} label="使用 Google 帳號登入" />
-
-        <div className="my-5 flex items-center gap-3 text-[13px] text-muted-foreground">
-          <span className="h-px flex-1 bg-border" />
-          或使用 Email 與密碼
-          <span className="h-px flex-1 bg-border" />
-        </div>
-
-        <ActionForm action={signInAction} submitLabel="登入">
-          <Field label="Email" name="email" type="email" autoComplete="username" />
-          <Field
-            label="密碼"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            trailing={
-              // 原型位置：密碼標籤右側。「不寄信、找系辦」的說明在忘記密碼頁。
-              <Link href="/forgot-password" className="text-[13px] font-semibold text-primary hover:underline">
-                忘記密碼
-              </Link>
-            }
-          />
-          {next ? <HiddenField name="next" value={next} /> : null}
-        </ActionForm>
-        {/* 註冊說明只放這裡（首頁 hero 改介紹專題）；註冊關閉時（設計方案 §5）整段不出現。 */}
-        {isRegistrationOpen() ? (
-          <p className="mt-4 text-center text-[13px] text-muted-foreground">
-            還沒有帳號？
-            <Link className="font-bold text-primary hover:underline" href="/register">
-              註冊
-            </Link>
-            <span className="mt-1 block text-xs">學生用系上發的信箱或 Google 註冊，系辦核准後才會開通。</span>
-          </p>
-        ) : null}
-      </AuthCard>
-    </NarrowShell>
+    <SiteShell bare>
+      <AuthSplit image={{ src: '/placeholder/campus.jpg', alt: '輔仁大學校園', width: 960, height: 639 }}>
+        <LoginCard
+          initialMode={mode}
+          next={next}
+          notice={
+            <>
+              {next ? (
+                <p className="mb-4 rounded-md bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
+                  登入後會回到你原本要去的頁面。
+                </p>
+              ) : null}
+              {googleError ? (
+                <p role="alert" className="mb-4 rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle" data-testid="google-error">
+                  {googleError}
+                </p>
+              ) : null}
+            </>
+          }
+          google={<GoogleButton from="login" next={next} label="使用 Google 帳號登入" />}
+          turnstile={<Turnstile action="reset" />}
+          registerHint={
+            // 註冊說明只放這裡（首頁 hero 改介紹專題）；註冊關閉時（設計方案 §5）整段不出現。句子照 R11。
+            isRegistrationOpen() ? (
+              <p className="mt-4 text-center text-[13px] text-muted-foreground" data-testid="register-hint">
+                還沒有帳號？學生請先
+                <Link className="font-bold text-primary hover:underline" href="/register">
+                  註冊
+                </Link>
+                。
+              </p>
+            ) : null
+          }
+        />
+      </AuthSplit>
+    </SiteShell>
   )
 }
