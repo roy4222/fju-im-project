@@ -332,5 +332,11 @@ test('AC-AD-06、AC-AD-08：成果展示與檔案頁標題「公告與作業」�
   await expect(entry.getByTestId('entry-group')).toHaveText('G09')
   await expect(entry.getByRole('link', { name: '編輯' })).toHaveAttribute('href', /^#entry-/)
   await expect(entry.getByRole('link', { name: '下架' })).toHaveAttribute('href', /^#entry-.+-publish$/)
-  await expect(page.getByText('草稿不會公開')).toBeVisible()
+  // 分頁列右側：「建立草稿」「補登歷屆」兩個按鈕跳到下方表單，「草稿不會公開。」在旁邊。
+  const tabBar = page.getByRole('navigation', { name: '公告與作業分頁' }).locator('..')
+  await expect(tabBar.getByRole('link', { name: '建立草稿' })).toHaveAttribute('href', '#showcase-create')
+  await expect(tabBar.getByRole('link', { name: '補登歷屆' })).toHaveAttribute('href', '#showcase-backfill')
+  await expect(tabBar.getByText('草稿不會公開')).toBeVisible()
+  await expect(page.locator('#showcase-create').getByRole('form', { name: '建立成果展示草稿' })).toHaveCount(1)
+  await expect(page.locator('#showcase-backfill').getByRole('form', { name: '補登歷屆作品' })).toHaveCount(1)
 })

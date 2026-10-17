@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
-import { EmptyState } from '@/app/_ui/primitives'
+import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { PageTitle, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
@@ -57,12 +57,12 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
     label: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c),
   }))
 
-  const shell = (children: React.ReactNode) => (
+  const shell = (children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/showcase">
       <div className="mb-5">
         <PageTitle title="公告與作業" />
         <div className="mt-4">
-          <AdminTabs label="公告與作業分頁" current="/dashboard/admin/showcase" items={AFFAIRS_TABS} />
+          <AdminTabs label="公告與作業分頁" current="/dashboard/admin/showcase" items={AFFAIRS_TABS} actions={actions} />
         </div>
       </div>
       {children}
@@ -102,14 +102,11 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         })}
       </nav>
 
-      {/* 建立草稿與補登歷屆：表單是 V3 的元件（不改），直接攤開，不再包說明卡。 */}
+      {/* 建立草稿與補登歷屆：表單是 V3 的元件（不改），直接攤開、不再包說明卡；分頁列右側的兩個按鈕跳到這裡。 */}
       <div className="mb-6 grid gap-4 rounded-card border border-border bg-background p-4 lg:grid-cols-2">
-        <section aria-labelledby="showcase-create-heading" className="space-y-2">
-          <p className="flex flex-wrap items-baseline gap-x-2">
-            <span id="showcase-create-heading" className="text-sm font-semibold text-ink">
-              建立草稿{createCohort ? `・${cohortLabel(createCohort)}` : ''}
-            </span>
-            <span className="text-xs text-muted-foreground">草稿不會公開。</span>
+        <section id="showcase-create" aria-labelledby="showcase-create-heading" className="scroll-mt-20 space-y-2">
+          <p id="showcase-create-heading" className="text-sm font-semibold text-ink">
+            建立草稿{createCohort ? `・${cohortLabel(createCohort)}` : ''}
           </p>
           {!createCohort ? (
             <p className="text-sm text-muted-foreground">目前沒有進行中的屆別，只能補登歷屆作品。</p>
@@ -119,7 +116,7 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
             <CreateDraftForm groups={withoutDraft} requestId={randomUUID()} />
           )}
         </section>
-        <section aria-labelledby="showcase-backfill-heading" className="space-y-2 lg:border-l lg:border-border lg:pl-4">
+        <section id="showcase-backfill" aria-labelledby="showcase-backfill-heading" className="scroll-mt-20 space-y-2 lg:border-l lg:border-border lg:pl-4">
           <p id="showcase-backfill-heading" className="text-sm font-semibold text-ink">
             補登歷屆
           </p>
@@ -273,6 +270,13 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
           )
         })}
       </section>
+    </>,
+    <>
+      <span className="text-xs text-muted-foreground">草稿不會公開。</span>
+      <LinkButton href="#showcase-create">建立草稿</LinkButton>
+      <LinkButton href="#showcase-backfill" variant="secondary">
+        補登歷屆
+      </LinkButton>
     </>,
   )
 }
