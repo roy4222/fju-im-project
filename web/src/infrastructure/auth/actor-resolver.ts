@@ -8,7 +8,8 @@ import {
   type ResolvedActor,
   type Role,
 } from '@/application/accounts'
-import { getDb } from '@/infrastructure/db/client'
+import { teacherNeedsSetup } from '@/infrastructure/accounts/teacher-setup'
+import { getDb, getPool } from '@/infrastructure/db/client'
 import { roleAssignments, userProfiles, users } from '@/infrastructure/db/schema'
 import { getIdentityCache, type IdentityCache } from '@/infrastructure/auth/identity-cache'
 import { getSessionFromHeaders } from '@/infrastructure/auth/wrapper'
@@ -88,8 +89,6 @@ export class DbActorResolver implements ActorResolver {
         // 帳號選單的頭像也在同一句讀（SH-8），不另查。
         avatarPreset: userProfiles.avatarPreset,
         avatarFileId: userProfiles.avatarFileId,
-        // 老師要不要先補資料（票 8）也在同一句讀，`requireRole('teacher')` 不再每次另查（B 設計方案 §4.1）。
-        profileCompletedAt: userProfiles.profileCompletedAt,
       })
       .from(users)
       .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
@@ -106,6 +105,8 @@ export class DbActorResolver implements ActorResolver {
 
     const roles = assignments.map((a) => a.role as Role)
     // 這次登入實際用的方式（hook 建 session 時依端點寫入 `sessions.login_method`）；讀不到就不帶，需要它的用例會拒絕。
+    // 老師要不要先補資料（票 8）：未命中時跟身分一起查好、隨快取存著，`requireRole('teacher')` 不再每次另查（B 設計方案 §4.1）。
+    const teacherSetupPending = roles.includes('teacher') ? await teacherNeedsSetup(getPool(), row.id) : undefined
     const method = (session.session as { loginMethod?: unknown } | undefined)?.loginMethod
     const loginMethod = method === 'google' || method === 'password' ? method : undefined
 
@@ -123,8 +124,7 @@ export class DbActorResolver implements ActorResolver {
       displayName: (row.displayName ?? row.name).trim() || undefined,
       avatarPreset: row.avatarPreset,
       avatarFileId: row.avatarFileId,
-      // 跟 `PgTeacherSetupCommand.needsSetup` 同一個條件：有老師角色、而且 profile 還沒補完。
-      ...(roles.includes('teacher') ? { teacherSetupPending: row.profileCompletedAt === null } : {}),
+      ...(teacherSetupPending === undefined ? {} : { teacherSetupPending }),
       ...(loginMethod ? { loginMethod } : {}),
     }
     return { actor, session: { token: session.session.token, expiresAt: new Date(session.session.expiresAt) } }
