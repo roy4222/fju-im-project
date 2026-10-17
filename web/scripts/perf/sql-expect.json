@@ -84,6 +84,12 @@
     "max": 40,
     "identity": 7
   },
+  "/dashboard/admin/settings": {
+    "as": "admin",
+    "baseline": 9,
+    "max": 9,
+    "identity": 7
+  },
   "/": {
     "as": "anonymous",
     "baseline": 10,

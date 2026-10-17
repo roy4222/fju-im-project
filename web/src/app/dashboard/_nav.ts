@@ -139,6 +139,8 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/grading', role: 'admin' },
   // 評分規則子頁（AD-08）：評分規則、版本紀錄、每組要幾份評分與指派。
   { path: '/dashboard/admin/grading/rules', role: 'admin' },
+  // 設定總頁（AD-20）：四張卡連到屆別、時間軸、首頁設定、操作紀錄。
+  { path: '/dashboard/admin/settings', role: 'admin' },
   { path: '/dashboard/teacher/grading', role: 'teacher' },
   { path: '/dashboard/student/grading', role: 'student' },
   { path: '/dashboard/teacher', role: 'teacher' },
