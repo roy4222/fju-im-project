@@ -2,10 +2,12 @@
 import { useActionState, useState } from 'react'
 import { dissolveGroupAction } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useDialog } from './admin-group-forms'
+import { IconUsersMinus } from '@tabler/icons-react'
 import { BTN_ROW_GHOST } from '@/app/_ui/dashboard/look'
+import { cn } from '@/shared/cn'
 
 /**
- * 系辦解散組別（A-19；PR #333，B 階段設計方案 §17.2）。從「全部組別」名單的列動作開啟（`roster-table.tsx` 的操作欄）；
+ * 系辦解散組別（A-19；PR #333，B 階段設計方案 §17.2）。從「全部組別」名單的列動作開啟（`roster-table.tsx` 的操作欄，圖示鈕）；
  * 不放在組別詳情（`member-forms.tsx` 歸 SH-B4）。
  *
  * 兩步：先填理由，再看一次後果、按「確定解散」才送出（二次確認）。帶組別版本，別人先改過就被擋。
@@ -35,8 +37,9 @@ export function DissolveGroupButton({
 
   return (
     <div>
-      <button type="button" className={BTN_ROW_GHOST} aria-label={`解散 ${group.code}`} onClick={dialog.open}>
-        解散
+      {/* 跟旁邊的「複製本組信箱」一樣只放圖示：操作欄在 1280 寬也要放得下（AC-AD-23）。 */}
+      <button type="button" className={cn(BTN_ROW_GHOST, 'px-1.5')} title="解散組別" aria-label={`解散 ${group.code}`} onClick={dialog.open}>
+        <IconUsersMinus className="size-3.5" aria-hidden />
       </button>
       <dialog ref={dialog.ref} aria-label={`解散 ${group.code}？`} className={DIALOG} onClose={() => setConfirming(false)}>
         <form key={group.revision} action={formAction} className="space-y-4 p-5">

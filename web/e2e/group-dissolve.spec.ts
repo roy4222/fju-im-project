@@ -5,10 +5,12 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * 開站後：系辦解散組別（最小版）。走真的畫面：
  *
- * 1. 分組總覽 → 組別詳情 → 「解散組別」：沒填理由不能下一步；下一步看後果、按「確定解散」才送出（二次確認）。
+ * 1. 分組總覽 → 「全部組別」那一列的「解散」（A-19：從名單列動作開，不在組別詳情裡）：沒填理由不能下一步；
+ *    下一步看後果、按「確定解散」才送出（二次確認）。
  * 2. 解散後這組離開「全部組別」、出現在「已解散的組別」（回執、時間、理由、解散時成員）；組員回到「未分組學生」。
  * 3. 資料庫：組別 dissolved、組員資格與組長列結束、一則 group.dissolved 通知給兩位組員。
  * 4. 學生的「我的組別」不再有這組。
+ * 5. AC-A-45：三人組 G03（有指導老師、已送出一份分數）解散 → 三位組員與指導老師各一則通知；成績表 G03 標「已解散」、分數照舊。
  * 權限、同交易、凍結、評分與簽核連動、並發由整合測試 pg-group-dissolve.integration.test.ts 證明。
  */
 
@@ -28,9 +30,37 @@ let groupId: string
 let adminId: string
 const members: Member[] = []
 let viewer: TestSession
+let g03Id: string
+let advisor: TestSession
+const g03Members: Member[] = []
 
 function ymd(date: Date): string {
   return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
+}
+
+const STAGES = [
+  { key: 'mid', name: '期中', weight: 100, letterMap: null, items: [{ key: 'i1', name: '總分', type: 'number', max: 100, weight: 100 }] },
+]
+
+async function insertGroup(code: string, people: readonly Member[], at: Date): Promise<string> {
+  const group = await pool.query<{ id: string }>(
+    `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at,
+                         created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
+     values (gen_random_uuid(), $1, $4, 'general', 'active', $3, $3, $3, 'user', $2, $3, $2) returning id`,
+    [cohortId, people[0]!.userId, at, code],
+  )
+  const id = group.rows[0]!.id
+  await pool.query(
+    `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
+     select gen_random_uuid(), $1, $2, u, $5, 'user', $3, $5, $5 from unnest($4::uuid[]) as u`,
+    [id, cohortId, people[0]!.userId, people.map((m) => m.userId), at],
+  )
+  await pool.query(
+    `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, created_at)
+     values (gen_random_uuid(), $1, $2, $3, $2, $3)`,
+    [id, people[0]!.userId, at],
+  )
+  return id
 }
 
 async function insertStudent(userId: string | null, index: number): Promise<Member> {
@@ -97,23 +127,44 @@ test.beforeAll(async () => {
   members.push(await insertStudent(viewer.userId, 2))
 
   const establishedAt = new Date(now.getTime() - 86_400_000)
-  const group = await pool.query<{ id: string }>(
-    `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at,
-                         created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
-     values (gen_random_uuid(), $1, 'G01', 'general', 'active', $3, $3, $3, 'user', $2, $3, $2) returning id`,
-    [cohortId, members[0]!.userId, establishedAt],
-  )
-  groupId = group.rows[0]!.id
+  groupId = await insertGroup('G01', members, establishedAt)
+
+  // AC-A-45：G03 三人、指導老師兼期中評分老師，已正式送出 80 分。
+  const teacherContext = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  advisor = await createTestSession(teacherContext, 'teacher')
+  await teacherContext.dispose()
+  for (const i of [3, 4, 5]) g03Members.push(await insertStudent(null, i))
+  g03Id = await insertGroup('G03', g03Members, establishedAt)
   await pool.query(
-    `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
-     select gen_random_uuid(), $1, $2, u, $5, 'user', $3, $5, $5 from unnest($4::uuid[]) as u`,
-    [groupId, cohortId, members[0]!.userId, members.map((m) => m.userId), establishedAt],
+    `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+     values (gen_random_uuid(), $1, $2, 'admin', $3, $4, '指派')`,
+    [g03Id, advisor.userId, establishedAt, adminId],
   )
-  await pool.query(
-    `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, created_at)
-     values (gen_random_uuid(), $1, $2, $3, $2, $3)`,
-    [groupId, members[0]!.userId, establishedAt],
+  const scheme = await pool.query<{ id: string }>(
+    `insert into grading_schemes (id, cohort_id, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+    [cohortId, `${CODE} 評分方案`],
   )
+  const version = await pool.query<{ id: string }>(
+    `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, locked_at, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2::jsonb, 'locked', now(), $3) returning id`,
+    [scheme.rows[0]!.id, JSON.stringify(STAGES), adminId],
+  )
+  await pool.query('update grading_schemes set current_version_id = $2 where id = $1', [scheme.rows[0]!.id, version.rows[0]!.id])
+  await pool.query(`insert into stage_requirements (group_id, stage_key, required_count, created_by_user_id) values ($1, 'mid', 1, $2)`, [g03Id, adminId])
+  const assignment = await pool.query<{ id: string }>(
+    `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+     values (gen_random_uuid(), $1, 'mid', $2, now() - interval '1 hour', $3) returning id`,
+    [g03Id, advisor.userId, adminId],
+  )
+  const evaluation = await pool.query<{ id: string }>(
+    `insert into evaluations (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id)
+     values (gen_random_uuid(), $1, 'final', $2, '{"i1":"80"}'::jsonb, now(), now(), gen_random_uuid()) returning id`,
+    [assignment.rows[0]!.id, version.rows[0]!.id],
+  )
+  await pool.query(`insert into evaluation_status (evaluation_id, assignment_id, state) values ($1, $2, 'counted')`, [
+    evaluation.rows[0]!.id,
+    assignment.rows[0]!.id,
+  ])
 })
 
 test.afterAll(async () => {
@@ -128,12 +179,10 @@ async function signIn(page: Page, session: TestSession) {
 test('系辦解散：理由必填、二次確認；解散後改列在「已解散的組別」，組員回到未分組並收到通知', async ({ page }) => {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '分組總覽', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '分組', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByRole('region', { name: '已解散的組別' })).toHaveCount(0)
 
-  await page.getByRole('region', { name: '全部組別' }).getByRole('button', { name: 'G01 詳情' }).click()
-  const detail = page.getByRole('dialog', { name: 'G01 詳情' })
-  await detail.getByRole('button', { name: '解散組別' }).click()
+  await page.getByRole('region', { name: '全部組別' }).getByRole('button', { name: '解散 G01', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '解散 G01？' })
   await expect(dialog).toContainText(`${members[0]!.name}、${members[1]!.name}`)
   const next = dialog.getByRole('button', { name: '下一步' })
@@ -183,4 +232,43 @@ test('學生的「我的組別」不再有解散的組', async ({ page }) => {
   await page.goto('/dashboard/student/groups')
   await expect(page.getByRole('region', { name: '我的組別狀態' })).toBeVisible()
   await expect(page.getByRole('region', { name: '我的組別狀態' })).not.toContainText('組別 G01')
+})
+
+async function gradebookRow(page: Page) {
+  await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
+  await expect(page.getByRole('heading', { name: '成績', exact: true })).toBeVisible()
+  return page.getByTestId('gradebook-row-G03')
+}
+
+test('AC-A-45：解散 G03 → 離開名單、列在「已解散的組別」；三位組員與指導老師各一則通知；成績表標「已解散」、分數照舊', async ({ page }) => {
+  await signIn(page, await sharedTestSession(page.request, 'admin'))
+  const before = await gradebookRow(page)
+  await expect(before).toContainText('80.00')
+  await expect(before).not.toContainText('已解散')
+
+  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  const roster = page.getByRole('region', { name: '全部組別' })
+  await expect(roster.getByTestId('roster-row').filter({ has: page.getByRole('button', { name: 'G03 詳情' }) })).toHaveCount(1)
+  await roster.getByRole('button', { name: '解散 G03', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '解散 G03？' })
+  await dialog.getByLabel('理由（必填）').fill('三人皆轉系')
+  await dialog.getByRole('button', { name: '下一步' }).click()
+  await dialog.getByRole('button', { name: '確定解散' }).click()
+
+  const dissolved = page.getByRole('region', { name: '已解散的組別' })
+  await expect(dissolved.getByRole('status')).toContainText('已解散 G03：3 人回到未分組')
+  await expect(dissolved).toContainText('三人皆轉系')
+  await expect(roster.getByRole('button', { name: 'G03 詳情' })).toHaveCount(0)
+
+  // 指導老師也是評分老師：去重後一人一則。
+  const events = await pool.query<{ recipients: string[] }>(
+    `select recipients from domain_events where type = 'group.dissolved' and source_id = $1`,
+    [g03Id],
+  )
+  expect(events.rows).toHaveLength(1)
+  expect([...events.rows[0]!.recipients].sort()).toEqual([...g03Members.map((m) => m.userId), advisor.userId].sort())
+
+  const after = await gradebookRow(page)
+  await expect(after).toContainText('已解散')
+  await expect(after).toContainText('80.00')
 })
