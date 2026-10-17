@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { IconAlertTriangle, IconChevronRight, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { requireRole } from '@/app/_ui/guard'
 import { loadAdminSummary } from '@/app/_ui/workload'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -245,6 +246,12 @@ export default async function AdminAccountsPage({
               </nav>
               <AccountsTable
                 rows={directory.rows}
+                // 重設頭像對話框要顯示的目前頭像（UserAvatar 是 Server Component，在這裡先畫好再傳進 client 表格）。
+                avatars={Object.fromEntries(
+                  directory.rows
+                    .filter((r) => r.status === 'active' || r.status === 'disabled')
+                    .map((r) => [r.userId, <UserAvatar key={r.userId} size={64} user={{ id: r.userId, name: r.name, avatarPreset: r.avatarPreset, avatarFileId: r.avatarFileId }} />]),
+                )}
                 total={directory.total}
                 filter={filter}
                 currentUserId={actor.kind === 'authenticated' ? actor.userId : ''}

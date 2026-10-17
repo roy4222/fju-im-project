@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { ItemListRow } from '@/application/items'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
 import { EmptyState, LinkButton } from '@/app/_ui/primitives'
@@ -22,6 +23,16 @@ import { completionOf, getRosterQuery } from '@/composition/submissions'
 import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '公告與作業｜資管系專題平台' }
+
+/** 規則章節的順序：`rules_position asc nulls last, actual_opened_at asc nulls last, id asc`（同前台與 `moveRule`）。 */
+function byRulesPosition(a: ItemListRow, b: ItemListRow): number {
+  const last = Number.MAX_SAFE_INTEGER
+  return (
+    (a.rulesPosition ?? last) - (b.rulesPosition ?? last) ||
+    (a.actualOpenedAt?.getTime() ?? last) - (b.actualOpenedAt?.getTime() ?? last) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+}
 
 const FILTERS = AFFAIRS_FILTERS
 
@@ -48,6 +59,9 @@ const AFFAIRS_TABS = [
  *
  * 「逾期」篩選（AD-B7）：發布中、已截止、還有人沒正式送出的文件繳交，列上寫「逾期 N 人」。只有這個篩選才多讀
  * 一次全屆名單事實（`completionFacts`，跟系辦首頁逾期卡同一個查詢、同一個 `completionOf`），其他篩選的查詢不變。
+ *
+ * 「專題規則」篩選（A-14）：依章節位置排（跟前台 `/rules`、`moveRule` 的鄰居同一個順序），每列多「上移」「下移」；
+ * 首尾停用用的就是這份排好的清單（同屆、未刪除的規則，含草稿與已下架），跟伺服器的邊界判定一致。其他篩選照舊依更新時間。
  */
 export default async function AffairsPage({
   searchParams,
@@ -108,6 +122,7 @@ export default async function AffairsPage({
         (overdueOf.get(r.id) ?? 0) > 0
       : filter === 'all' || r.placement === filter,
   )
+  if (filter === 'rules') shown.sort(byRulesPosition)
   // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
   const archived = cohort.status === 'archived'
   const query = (patch: Record<string, string>) => {
@@ -116,7 +131,7 @@ export default async function AffairsPage({
     return `/dashboard/admin/affairs?${next.toString()}`
   }
 
-  const list: AffairRow[] = shown.map((r) => {
+  const list: AffairRow[] = shown.map((r, index) => {
     const collects = collectsResponses(r.placement)
     return {
       id: r.id,
@@ -149,6 +164,7 @@ export default async function AffairsPage({
       // 置頂（第 1 批 V1）：只有發布中的公告有按鈕（規則同 `pinDenial`；撤回、下架時已自動取消置頂）。
       pinned: r.pinnedAt !== null,
       canPin: r.placement === 'news' && r.status === 'published',
+      move: filter === 'rules' && !archived ? { up: index > 0, down: index < shown.length - 1 } : null,
     }
   })
 

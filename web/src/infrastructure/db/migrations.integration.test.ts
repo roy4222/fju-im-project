@@ -17,7 +17,8 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面倒數第二組）。
  * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
  * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面倒數第二組）。
- * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面最後一組）。
+ * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面倒數第二組）。
+ * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -145,7 +146,7 @@ const EXPECTED_TABLES = [
   ...A01_TABLES,
 ].sort()
 
-const LATEST = '0018_te_b4_evaluation_comment'
+const LATEST = '0019_rules_position'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -514,6 +515,60 @@ describe('0017、0018（A-01）：已套 0016、有資料的庫升到 0018', () 
       )
       await db.sql(`update grade_settlements set released_at = now(), released_by_user_id = $2, release_reason = '重開' where id = $1`, [first, userId])
       await expect(settle()).resolves.toBeTruthy()
+    })
+  })
+})
+
+describe('0019（A-14）：已套 0018、有資料的庫升到 0019：回填順序', () => {
+  it('同屆未刪除的規則依實際開放時間從 1 編號、各屆各自編；刪除的與其他位置是 null', async () => {
+    await withIsolatedDatabase({ label: 'm0019' }, async (db) => {
+      await applyMigrations(db, '0018_te_b4_evaluation_comment')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0019@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = async (code: string) =>
+        String(
+          (
+            await db.sql(
+              `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), $1, $1, 'active', '2027-06-30', 'system') returning id`,
+              [code],
+            )
+          ).rows[0]!.id,
+        )
+      const c113 = await cohort('113')
+      const c114 = await cohort('114')
+      const item = async (cohortId: string, placement: string, title: string, openedAt: string | null, deleted = false) =>
+        String(
+          (
+            await db.sql(
+              `insert into managed_items (id, cohort_id, placement, audience_kind, title, actual_opened_at, created_by_kind, deleted_at, deleted_by_user_id)
+               values (gen_random_uuid(), $1, $2, 'public', $3, $4, 'system', $5, $6) returning id`,
+              [cohortId, placement, title, openedAt, deleted ? new Date() : null, deleted ? userId : null],
+            )
+          ).rows[0]!.id,
+        )
+      // 插入順序故意打亂：回填看實際開放時間，不看插入順序。
+      const third = await item(c113, 'rules', '第三章', '2026-09-03T00:00:00Z')
+      const first = await item(c113, 'rules', '第一章', '2026-09-01T00:00:00Z')
+      const gone = await item(c113, 'rules', '已刪除', '2026-08-01T00:00:00Z', true)
+      const second = await item(c113, 'rules', '第二章', '2026-09-02T00:00:00Z')
+      const never = await item(c113, 'rules', '從未發布', null)
+      const news = await item(c113, 'news', '公告', '2026-09-01T00:00:00Z')
+      const other = await item(c114, 'rules', '別屆第一章', '2026-09-05T00:00:00Z')
+
+      await applyMigration(db, '0019_rules_position')
+
+      const positions = await db.sql(`select id, rules_position from managed_items`)
+      const at = new Map(positions.rows.map((r) => [String(r.id), r.rules_position]))
+      expect([first, second, third, never].map((id) => at.get(id))).toEqual([1, 2, 3, 4])
+      expect(at.get(other)).toBe(1)
+      expect(at.get(gone)).toBeNull()
+      expect(at.get(news)).toBeNull()
+      const index = await db.sql(`select indexdef from pg_indexes where schemaname = $1 and indexname = 'managed_items_rules_position_idx'`, [
+        db.schemaName,
+      ])
+      expect(String(index.rows[0]!.indexdef)).toMatch(/\(cohort_id, rules_position\) WHERE .*placement = 'rules'.*deleted_at IS NULL/)
     })
   })
 })

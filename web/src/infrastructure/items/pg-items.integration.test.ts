@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { enableFaultInjection, failAt } from '../../../test/fault-injection'
@@ -2086,5 +2086,609 @@ describe('公告置頂（第 1 批 V1；Q48-a，AC-V01～V03、V07～V10）', ()
     await mustPin(s.itemId)
     expect(await titles(ANONYMOUS, tag)).toEqual(['公開'])
     expect(await titles(studentActor(student), tag)).toEqual(['本屆', '公開'])
+  })
+})
+
+describe('規則章節上下移（A-14；Q198，AC-A-38、39、50）', () => {
+  const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
+  const RULE: Partial<ItemInput> = { placement: 'rules', audienceKind: 'public', receiverUnit: 'none', dueAt: '', fields: [] }
+
+  /** 建一章規則（預設發布），第一次發布時間改成測試要的樣子。 */
+  async function rule(cohortId: string, title: string, openedAt: string, publish = true) {
+    const item = await mustCreate(cohortId, { ...RULE, title })
+    if (!publish) return { itemId: item.itemId, revision: item.revision }
+    const published = await mustPublish(item.itemId, 1, false)
+    await owner.sql('update managed_items set actual_opened_at = $2 where id = $1', [item.itemId, openedAt])
+    return { itemId: item.itemId, revision: published.revision }
+  }
+
+  async function mustMove(itemId: string, direction: 'up' | 'down') {
+    const result = await items.moveRule(adminActor(), itemId, direction, randomUUID())
+    if (!result.ok) throw new Error(`${result.code} ${result.message}`)
+    return result.receipt
+  }
+
+  /** 系辦「規則」篩選看到的順序（同頁面：位置排；這裡的資料都有位置）。 */
+  const adminOrder = async (cohortId: string, tag: string) =>
+    (await query.list(cohortId))
+      .filter((r) => r.placement === 'rules')
+      .sort((a, b) => a.rulesPosition! - b.rulesPosition!)
+      .map((r) => r.title.replace(`${tag} `, ''))
+  /** 前台 `/rules`（`fullText`）與列表看到的順序；測試庫有別的測試的規則，用標籤濾。 */
+  const publicOrder = async (tag: string) => {
+    const full = (await publicQuery.fullText(ANONYMOUS, 'rules')).filter((c) => c.title.startsWith(`${tag} `))
+    const listed = await publicQuery.list(ANONYMOUS, 'rules', { q: tag, order: 'newest' })
+    expect(listed.map((c) => c.title)).toEqual(full.map((c) => c.title))
+    return full.map((c) => c.title.replace(`${tag} `, ''))
+  }
+
+  it('建立規則給同屆 max+1（各屆各自編、刪除的不算）；其他位置是 null', async () => {
+    const a = await newCohort()
+    const b = await newCohort()
+    const first = await rule(a.cohortId, '甲一', '2026-09-01T00:00:00Z', false)
+    const second = await rule(a.cohortId, '甲二', '2026-09-02T00:00:00Z', false)
+    const other = await rule(b.cohortId, '乙一', '2026-09-01T00:00:00Z', false)
+    const news = await mustCreate(a.cohortId, { ...RULE, placement: 'news', title: '公告' })
+    const positions = async (...ids: string[]) => Promise.all(ids.map(async (id) => (await itemRow(id)).rules_position))
+    expect(await positions(first.itemId, second.itemId, other.itemId, news.itemId)).toEqual([1, 2, 1, null])
+
+    const deleted = await items.delete(adminActor(), second.itemId, second.revision, randomUUID())
+    expect(deleted.ok).toBe(true)
+    const third = await rule(a.cohortId, '甲三', '2026-09-03T00:00:00Z', false)
+    expect(await positions(third.itemId)).toEqual([2])
+  })
+
+  it('AC-A-38：四章都已發布，第 3 章下移 → 系辦與前台第 3、4 章互換；不動 revision，稽核一筆 item.rule_moved', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const chapters = []
+    for (const [n, day] of [[1, '01'], [2, '02'], [3, '03'], [4, '04']] as const) {
+      chapters.push(await rule(cohortId, `${tag} 第${n}章`, `2026-09-${day}T00:00:00Z`))
+    }
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第3章', '第4章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第3章', '第4章'])
+
+    const third = chapters[2]!
+    const receipt = await mustMove(third.itemId, 'down')
+    expect(receipt).toMatchObject({ itemId: third.itemId, title: `${tag} 第3章`, position: 4 })
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+
+    expect((await itemRow(third.itemId)).revision).toBe(third.revision)
+    expect((await itemRow(chapters[3]!.itemId)).revision).toBe(chapters[3]!.revision)
+    const audit = await owner.sql(`select payload from audit_events where target_id = $1 and action = 'item.rule_moved'`, [third.itemId])
+    expect(audit.rows).toHaveLength(1)
+    expect(audit.rows[0]!.payload).toMatchObject({ direction: 'down', swappedWith: chapters[3]!.itemId, positionBefore: 3, positionAfter: 4 })
+  })
+
+  it('AC-A-39：第 1 章上移、最後一章下移 → VALIDATION_FAILED，順序不變、不寫稽核；同一個請求編號重送拿回原回執', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const one = await rule(cohortId, `${tag} 第1章`, '2026-09-01T00:00:00Z')
+    const two = await rule(cohortId, `${tag} 第2章`, '2026-09-02T00:00:00Z')
+
+    const top = await items.moveRule(adminActor(), one.itemId, 'up', randomUUID())
+    expect(top.ok ? null : [top.code, top.message]).toEqual(['VALIDATION_FAILED', '已經在最上面了。'])
+    const bottom = await items.moveRule(adminActor(), two.itemId, 'down', randomUUID())
+    expect(bottom.ok ? null : [bottom.code, bottom.message]).toEqual(['VALIDATION_FAILED', '已經在最下面了。'])
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章'])
+    expect(
+      await count(`select count(*) as n from audit_events where target_id = any($1::uuid[]) and action = 'item.rule_moved'`, [
+        [one.itemId, two.itemId],
+      ]),
+    ).toBe(0)
+
+    const requestId = randomUUID()
+    const first = await items.moveRule(adminActor(), two.itemId, 'up', requestId)
+    const replay = await items.moveRule(adminActor(), two.itemId, 'up', requestId)
+    expect(first.ok && replay.ok && replay.receipt).toEqual(first.ok && first.receipt)
+    expect(await adminOrder(cohortId, tag)).toEqual(['第2章', '第1章'])
+  })
+
+  it('AC-A-50：第 3 章是草稿 → 前台只有 1、2、4、5；第 2 章下移兩次，系辦 1、3、2、4、5 → 1、3、4、2、5，前台 1、2、4、5 → 1、4、2、5', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const ids: string[] = []
+    for (const n of [1, 2, 3, 4, 5]) {
+      ids.push((await rule(cohortId, `${tag} 第${n}章`, `2026-09-0${n}T00:00:00Z`, n !== 3)).itemId)
+    }
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第2章', '第3章', '第4章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第5章'])
+
+    await mustMove(ids[1]!, 'down')
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第3章', '第2章', '第4章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第2章', '第4章', '第5章'])
+
+    await mustMove(ids[1]!, 'down')
+    expect(await adminOrder(cohortId, tag)).toEqual(['第1章', '第3章', '第4章', '第2章', '第5章'])
+    expect(await publicOrder(tag)).toEqual(['第1章', '第4章', '第2章', '第5章'])
+  })
+
+  it('前台列出多個屆別的規則時按屆別分段（先發布的屆別在前），屆內照位置；不會兩屆交錯', async () => {
+    const early = await newCohort()
+    const late = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    // 舊排法（實際開放時間）：甲1、甲2、乙1、乙2。遷移後沒人動過要一樣。
+    const a1 = await rule(early.cohortId, `${tag} 甲1`, '2025-09-01T00:00:00Z')
+    const a2 = await rule(early.cohortId, `${tag} 甲2`, '2025-09-02T00:00:00Z')
+    await rule(late.cohortId, `${tag} 乙1`, '2026-09-01T00:00:00Z')
+    const b2 = await rule(late.cohortId, `${tag} 乙2`, '2026-09-02T00:00:00Z')
+    expect(await publicOrder(tag)).toEqual(['甲1', '甲2', '乙1', '乙2'])
+
+    await mustMove(a2.itemId, 'up')
+    await mustMove(b2.itemId, 'up')
+    expect(await publicOrder(tag)).toEqual(['甲2', '甲1', '乙2', '乙1'])
+    expect((await itemRow(a1.itemId)).rules_position).toBe(2)
+  })
+
+  it('位置有 NULL 或同號（舊資料、同時建立）→ 照移完的順序整屆重編 1..n', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await rule(cohortId, `${tag} A`, '2026-09-01T00:00:00Z')
+    const b = await rule(cohortId, `${tag} B`, '2026-09-02T00:00:00Z')
+    const c = await rule(cohortId, `${tag} C`, '2026-09-03T00:00:00Z')
+    // A、B 同號；C 沒有位置（排最後）。
+    await owner.sql('update managed_items set rules_position = 5 where id = any($1::uuid[])', [[a.itemId, b.itemId]])
+    await owner.sql('update managed_items set rules_position = null where id = $1', [c.itemId])
+    expect(await publicOrder(tag)).toEqual(['A', 'B', 'C'])
+
+    expect(await mustMove(b.itemId, 'up')).toMatchObject({ position: 1 })
+    const positions = await Promise.all([a, b, c].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([2, 1, 3])
+    expect(await publicOrder(tag)).toEqual(['B', 'A', 'C'])
+  })
+
+  it('存草稿換成規則 → 排到同屆最後；換離規則 → 位置清掉', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z', false)
+    const news = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '原本是公告' })
+    const saved = await items.saveDraft(adminActor(), news.itemId, news.revision, input(cohortId, { ...RULE, title: '改成規則' }), randomUUID())
+    expect(saved.ok || `${saved.code} ${saved.message}`).toBe(true)
+    expect((await itemRow(news.itemId)).rules_position).toBe(2)
+
+    const back = await items.saveDraft(
+      adminActor(),
+      one.itemId,
+      one.revision,
+      input(cohortId, { ...RULE, placement: 'news', title: '改成公告' }),
+      randomUUID(),
+    )
+    expect(back.ok || `${back.code} ${back.message}`).toBe(true)
+    expect((await itemRow(one.itemId)).rules_position).toBeNull()
+    // 換出去的那一章留下的缺號同一筆交易補掉。
+    expect((await itemRow(news.itemId)).rules_position).toBe(1)
+  })
+
+  it('AC-A-40：前台跨屆槽位照遷移前（時間、id）——甲1、乙1、甲2 沒人動過時不變；移動只在該屆自己的槽位裡換', async () => {
+    const a = await newCohort()
+    const b = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a1 = await rule(a.cohortId, `${tag} 甲1`, '2026-09-01T00:00:00Z')
+    await rule(b.cohortId, `${tag} 乙1`, '2026-09-02T00:00:00Z')
+    const a2 = await rule(a.cohortId, `${tag} 甲2`, '2026-09-03T00:00:00Z')
+    expect(await publicOrder(tag)).toEqual(['甲1', '乙1', '甲2'])
+
+    await mustMove(a2.itemId, 'up')
+    expect(await publicOrder(tag)).toEqual(['甲2', '乙1', '甲1'])
+    await mustMove(a1.itemId, 'up')
+    expect(await publicOrder(tag)).toEqual(['甲1', '乙1', '甲2'])
+  })
+
+  it('Review 反例：位置重複（A=1、B=2、C=2）時 A 下移只跨一章 → B、A、C，之後整屆是 1..n', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const a = await rule(cohortId, `${tag} A`, '2026-09-05T00:00:00Z')
+    const b = await rule(cohortId, `${tag} B`, '2026-09-02T00:00:00Z')
+    const c = await rule(cohortId, `${tag} C`, '2026-09-03T00:00:00Z')
+    await owner.sql('update managed_items set rules_position = $2 where id = $1', [a.itemId, 1])
+    await owner.sql('update managed_items set rules_position = 2 where id = any($1::uuid[])', [[b.itemId, c.itemId]])
+    // 同號時依實際開放時間：A、B、C。
+    expect(await publicOrder(tag)).toEqual(['A', 'B', 'C'])
+
+    expect(await mustMove(a.itemId, 'down')).toMatchObject({ position: 2 })
+    const positions = await Promise.all([a, b, c].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([2, 1, 3])
+    expect(await publicOrder(tag)).toEqual(['B', 'A', 'C'])
+  })
+
+  it('Review 反例：刪掉中間一章 → 同一筆交易補成連號；之後移動回報的就是實際章次', async () => {
+    const { cohortId } = await newCohort()
+    const tag = randomUUID().slice(0, 8)
+    const chapters: { itemId: string; revision: number }[] = []
+    for (const n of [1, 2, 3, 4]) chapters.push(await rule(cohortId, `${tag} 第${n}章`, `2026-09-0${n}T00:00:00Z`, false))
+    const deleted = await items.delete(adminActor(), chapters[1]!.itemId, chapters[1]!.revision, randomUUID())
+    expect(deleted.ok).toBe(true)
+    const positions = async () => Promise.all(chapters.map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(await positions()).toEqual([1, null, 2, 3])
+
+    expect(await mustMove(chapters[3]!.itemId, 'up')).toMatchObject({ position: 2 })
+    expect(await positions()).toEqual([1, null, 3, 2])
+  })
+
+  /** 等條件成立（最多 `ms`）；拿來當並行測試的屏障，逾時不丟錯，讓斷言去判。 */
+  async function waitFor(condition: () => Promise<boolean> | boolean, ms = 3000) {
+    const until = Date.now() + ms
+    while (Date.now() < until) {
+      if (await condition()) return
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  }
+
+  /** 卡在屏障（`barrierPid`）上、或卡在「卡在屏障上的交易」上的連線數。 */
+  async function blockedBehind(barrierPid: number): Promise<number> {
+    const rows = await owner.sql(
+      `select count(*) as n from pg_stat_activity a
+        where $1 = any(pg_blocking_pids(a.pid))
+           or exists (select 1 from unnest(pg_blocking_pids(a.pid)) b where $1 = any(pg_blocking_pids(b)))`,
+      [barrierPid],
+    )
+    return Number(rows.rows[0]!.n)
+  }
+
+  function settled<T>(promise: Promise<T>): () => boolean {
+    let done = false
+    void promise.finally(() => {
+      done = true
+    })
+    return () => done
+  }
+
+  it('Review 反例：並行把兩筆公告草稿改成規則，不會拿到同一個位置', async () => {
+    const { cohortId } = await newCohort()
+    await rule(cohortId, '第1章', '2026-09-01T00:00:00Z', false)
+    const x = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '公告 X' })
+    const y = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '公告 Y' })
+
+    // 屏障：擋住稽核寫入，兩筆存草稿都會停在「位置算好、還沒 commit」。
+    const barrier = await owner.pool.connect()
+    try {
+      await barrier.query('begin')
+      await barrier.query('lock table audit_events in share mode')
+      const pid = (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+      const save = (item: typeof x, title: string) =>
+        items.saveDraft(adminActor(), item.itemId, item.revision, input(cohortId, { ...RULE, title }), randomUUID())
+      const both = [save(x, '第X章'), save(y, '第Y章')]
+      await waitFor(async () => (await blockedBehind(pid)) >= 2)
+      await barrier.query('commit')
+      const results = await Promise.all(both)
+      expect(results.map((r) => r.ok || `${r.code} ${r.message}`)).toEqual([true, true])
+    } finally {
+      barrier.release()
+    }
+    const positions = await owner.sql(
+      `select rules_position from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by rules_position`,
+      [cohortId],
+    )
+    expect(positions.rows.map((r) => r.rules_position)).toEqual([1, 2, 3])
+  })
+
+  it('Review 反例：移動卡在編輯中的章節時，另一筆公告改成規則再移動，不會互鎖（不回 INTERNAL）', async () => {
+    const { cohortId } = await newCohort()
+    // id 依建立先後：N < R < S。位置 S=1、R=2；N 之後才改成規則（排最後）。
+    const n = await mustCreate(cohortId, { ...RULE, placement: 'news', title: 'N' })
+    const r = await rule(cohortId, 'R', '2026-09-01T00:00:00Z')
+    const sItem = await rule(cohortId, 'S', '2026-09-02T00:00:00Z')
+    await owner.sql('update managed_items set rules_position = 1 where id = $1', [sItem.itemId])
+    await owner.sql('update managed_items set rules_position = 2 where id = $1', [r.itemId])
+
+    // 屏障：模擬「S 正在被編輯」——另一筆交易握著 S 的列鎖。
+    const barrier = await owner.pool.connect()
+    let results: { ok: boolean; code?: string; message?: string }[] = []
+    try {
+      await barrier.query('begin')
+      await barrier.query('select 1 from managed_items where id = $1 for update', [sItem.itemId])
+      const pid = (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+
+      const m1 = items.moveRule(adminActor(), r.itemId, 'down', randomUUID())
+      const m1Done = settled(m1)
+      await waitFor(async () => m1Done() || (await blockedBehind(pid)) >= 1)
+      const convert = items.saveDraft(adminActor(), n.itemId, n.revision, input(cohortId, { ...RULE, title: 'N' }), randomUUID())
+      const convertDone = settled(convert)
+      await waitFor(async () => convertDone() || (await blockedBehind(pid)) >= 2)
+      const m2 = items.moveRule(adminActor(), n.itemId, 'up', randomUUID())
+      const m2Done = settled(m2)
+      await waitFor(async () => m2Done() || (await blockedBehind(pid)) >= (convertDone() ? 2 : 3), 1000)
+      await barrier.query('commit')
+      results = (await Promise.all([m1, convert, m2])).map((x) => (x.ok ? { ok: true } : { ok: false, code: x.code, message: x.message }))
+    } finally {
+      barrier.release()
+    }
+    expect(results.filter((x) => x.code === 'INTERNAL' || x.code === 'CONFLICT')).toEqual([])
+    expect(results[1]).toEqual({ ok: true })
+    const positions = await owner.sql(
+      `select rules_position from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by rules_position`,
+      [cohortId],
+    )
+    expect(positions.rows.map((x) => x.rules_position)).toEqual([1, 2, 3])
+  })
+
+  it('Review 反例反向：公告 N 正在被編輯（握著列鎖）時，把 N 改成規則、再對 S、R 上下移 → 三筆都排在編輯之後完成，不互鎖', async () => {
+    const { cohortId } = await newCohort()
+    const n = await mustCreate(cohortId, { ...RULE, placement: 'news', title: 'N' })
+    const r = await rule(cohortId, 'R', '2026-09-01T00:00:00Z')
+    const sItem = await rule(cohortId, 'S', '2026-09-02T00:00:00Z')
+
+    // 屏障：模擬「N 正在被編輯」——另一筆交易握著 N 的列鎖。改成規則的交易會握著規則鎖等 N；兩個移動排在規則鎖後面。
+    const barrier = await owner.pool.connect()
+    let results: { ok: boolean; code?: string; message?: string }[] = []
+    try {
+      await barrier.query('begin')
+      await barrier.query('select 1 from managed_items where id = $1 for update', [n.itemId])
+      const pid = (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+
+      const convert = items.saveDraft(adminActor(), n.itemId, n.revision, input(cohortId, { ...RULE, title: 'N' }), randomUUID())
+      const convertDone = settled(convert)
+      await waitFor(async () => convertDone() || (await blockedBehind(pid)) >= 1)
+      const m1 = items.moveRule(adminActor(), sItem.itemId, 'up', randomUUID())
+      const m1Done = settled(m1)
+      await waitFor(async () => m1Done() || (await blockedBehind(pid)) >= 2)
+      const m2 = items.moveRule(adminActor(), r.itemId, 'down', randomUUID())
+      const m2Done = settled(m2)
+      await waitFor(async () => m2Done() || (await blockedBehind(pid)) >= 3, 1000)
+      await barrier.query('commit')
+      results = (await Promise.all([convert, m1, m2])).map((x) => (x.ok ? { ok: true } : { ok: false, code: x.code, message: x.message }))
+    } finally {
+      barrier.release()
+    }
+    expect(results.filter((x) => x.code === 'INTERNAL' || x.code === 'CONFLICT')).toEqual([])
+    expect(results[0]).toEqual({ ok: true })
+    const positions = await owner.sql(
+      `select rules_position from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by rules_position`,
+      [cohortId],
+    )
+    expect(positions.rows.map((x) => x.rules_position)).toEqual([1, 2, 3])
+  })
+
+  /** 這一列此刻是不是被別的交易鎖著（`FOR UPDATE NOWAIT` 撞 55P03 就是）。 */
+  async function rowLocked(itemId: string): Promise<boolean> {
+    const probe = await owner.pool.connect()
+    try {
+      await probe.query('begin')
+      try {
+        await probe.query('select 1 from managed_items where id = $1 for update nowait', [itemId])
+        return false
+      } catch (error) {
+        if ((error as { code?: string }).code === '55P03') return true
+        throw error
+      } finally {
+        await probe.query('rollback')
+      }
+    } finally {
+      probe.release()
+    }
+  }
+
+  /** r2 反例的資料：草稿規則 A、已發布規則 B、C，和一份兩邊都要附上的檔案 F。 */
+  async function r2Fixture() {
+    const { cohortId } = await newCohort()
+    const a = await rule(cohortId, 'r2 A', '2026-09-01T00:00:00Z', false)
+    const b = await rule(cohortId, 'r2 B', '2026-09-02T00:00:00Z')
+    const c = await rule(cohortId, 'r2 C', '2026-09-03T00:00:00Z')
+    const fileId = await uploadPdf(adminId, cohortId)
+    const toNews = () =>
+      items.saveDraft(adminActor(), a.itemId, a.revision, input(cohortId, { ...RULE, placement: 'news', title: 'r2 A', attachmentFileIds: [fileId] }), randomUUID())
+    const editB = () =>
+      items.updatePublished(adminActor(), b.itemId, b.revision, input(cohortId, { ...RULE, title: 'r2 B', attachmentFileIds: [fileId] }), { notify: false }, randomUUID())
+    const verify = async (results: { ok: boolean; code?: string; message?: string }[]) => {
+      expect(results).toEqual([{ ok: true }, { ok: true }])
+      const positions = await Promise.all([a, b, c].map(async (x) => (await itemRow(x.itemId)).rules_position))
+      expect(positions).toEqual([null, 1, 2])
+      const attached = await owner.sql('select item_id from item_attachments where file_id = $1', [fileId])
+      expect(attached.rows.map((row) => String(row.item_id)).sort()).toEqual([a.itemId, b.itemId].sort())
+    }
+    return { a, b, c, fileId, toNews, editB, verify }
+  }
+
+  const outcome = (x: { ok: boolean; code?: string; message?: string }) => (x.ok ? { ok: true } : { ok: false, code: x.code, message: x.message })
+
+  it('Review r2 反例：草稿規則 A 換成公告並附上 F，同屆已發布規則 B 同時附上 F（A 先鎖到檔案）→ 兩筆都成功、不互鎖；A 握著檔案列時整屆規則列已先鎖好', async () => {
+    const { b, c, toNews, editB, verify } = await r2Fixture()
+    // 屏障：擋住 item_attachments 的寫入——A 的存草稿會停在「檔案列 F 已鎖、附件表還沒改」，正是 Review 反例的交錯點。
+    const barrier = await owner.pool.connect()
+    let results: { ok: boolean; code?: string; message?: string }[] = []
+    let siblingsLocked: boolean[] = []
+    try {
+      await barrier.query('begin')
+      await barrier.query('lock table item_attachments in share mode')
+      const pid = (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+
+      const first = toNews()
+      const firstDone = settled(first)
+      await waitFor(async () => firstDone() || (await blockedBehind(pid)) >= 1)
+      // A 握著檔案列的這一刻，同屆其他規則列（B、C）必須已經被 A 鎖住：項目列一律在檔案列之前（鎖序第 3、4 步）。
+      siblingsLocked = await Promise.all([rowLocked(b.itemId), rowLocked(c.itemId)])
+      const second = editB()
+      const secondDone = settled(second)
+      await waitFor(async () => secondDone() || (await blockedBehind(pid)) >= 2)
+      await barrier.query('commit')
+      results = (await Promise.all([first, second])).map(outcome)
+    } finally {
+      barrier.release()
+    }
+    expect(siblingsLocked).toEqual([true, true])
+    await verify(results)
+  })
+
+  it('Review r2 反例反向：已發布規則 B 先附上 F（握著自己那一列與檔案列），草稿規則 A 再換成公告並附上 F → A 排在 B 後面完成，不互鎖', async () => {
+    const { toNews, editB, verify } = await r2Fixture()
+    const barrier = await owner.pool.connect()
+    let results: { ok: boolean; code?: string; message?: string }[] = []
+    try {
+      await barrier.query('begin')
+      await barrier.query('lock table item_attachments in share mode')
+      const pid = (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+
+      const first = editB()
+      const firstDone = settled(first)
+      await waitFor(async () => firstDone() || (await blockedBehind(pid)) >= 1)
+      const second = toNews()
+      const secondDone = settled(second)
+      await waitFor(async () => secondDone() || (await blockedBehind(pid)) >= 2)
+      await barrier.query('commit')
+      results = (await Promise.all([second, first])).map(outcome)
+    } finally {
+      barrier.release()
+    }
+    await verify(results)
+  })
+
+  /** 屏障：握住這一屆的規則集合 advisory lock（鎖序第 1 步），會換集合的交易都停在拿任何列鎖之前；回 pid 給 `blockedBehind`。 */
+  async function holdRuleSet(barrier: PoolClient, cohortId: string): Promise<number> {
+    await barrier.query('begin')
+    await barrier.query(`select pg_advisory_xact_lock(hashtextextended('items.rules:' || $1::uuid::text, 0))`, [cohortId])
+    return (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+  }
+
+  /** 放行屏障後等兩筆都收完；斷言失敗時也要收，不留握著鎖的連線與懸著的交易。 */
+  async function releaseRuleSet(barrier: PoolClient, pending: readonly Promise<unknown>[]) {
+    await barrier.query('rollback').catch(() => undefined)
+    barrier.release()
+    await Promise.allSettled(pending)
+  }
+
+  for (const [from, to] of [
+    ['rules', 'news'],
+    ['news', 'rules'],
+  ] as const) {
+    it(`Review r3 反例：同一個請求編號並行送兩次「${from} → ${to}」存草稿（都先讀到舊位置、排在規則鎖後面）→ 兩筆都回同一份回執，只寫一次`, async () => {
+      const { cohortId } = await newCohort()
+      const draft = await mustCreate(cohortId, { ...RULE, placement: from, title: 'r3 重送' })
+      const next = input(cohortId, { ...RULE, placement: to, title: 'r3 重送' })
+      const requestId = randomUUID()
+      const barrier = await owner.pool.connect()
+      let twice: ReturnType<typeof items.saveDraft>[] = []
+      let results: Awaited<ReturnType<typeof items.saveDraft>>[] = []
+      try {
+        const pid = await holdRuleSet(barrier, cohortId)
+        // 兩筆都在屏障放行前送出：不加鎖讀到的都是舊位置，然後一起卡在規則鎖上；放行後規則鎖一次只給一筆，
+        // 第二筆鎖到時第一筆已經 commit、位置已換——這就是 Review 第 3 輪的交錯。
+        twice = [
+          items.saveDraft(adminActor(), draft.itemId, draft.revision, next, requestId),
+          items.saveDraft(adminActor(), draft.itemId, draft.revision, next, requestId),
+        ]
+        await waitFor(async () => (await blockedBehind(pid)) >= 2)
+        expect(await blockedBehind(pid)).toBe(2)
+        await barrier.query('commit')
+        results = await Promise.all(twice)
+      } finally {
+        await releaseRuleSet(barrier, twice)
+      }
+      expect(results.map(outcome)).toEqual([{ ok: true }, { ok: true }])
+      expect(results[1]).toEqual(results[0])
+      const row = await itemRow(draft.itemId)
+      expect([row.placement, Number(row.revision)]).toEqual([to, 2])
+      expect(await count('select count(*) as n from operation_records where request_id = $1', [requestId])).toBe(1)
+      expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.save_draft'`, [draft.itemId])).toBe(1)
+    })
+  }
+
+  it('Review r3 同型：同一個請求編號並行刪同一章草稿規則兩次（排在規則鎖後面）→ 兩筆都回同一份回執，只刪一次、其餘補成連號', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z')
+    const gone = await rule(cohortId, '第2章', '2026-09-02T00:00:00Z', false)
+    const three = await rule(cohortId, '第3章', '2026-09-03T00:00:00Z')
+    const requestId = randomUUID()
+    const barrier = await owner.pool.connect()
+    let twice: ReturnType<typeof items.delete>[] = []
+    let results: Awaited<ReturnType<typeof items.delete>>[] = []
+    try {
+      const pid = await holdRuleSet(barrier, cohortId)
+      twice = [
+        items.delete(adminActor(), gone.itemId, gone.revision, requestId),
+        items.delete(adminActor(), gone.itemId, gone.revision, requestId),
+      ]
+      await waitFor(async () => (await blockedBehind(pid)) >= 2)
+      expect(await blockedBehind(pid)).toBe(2)
+      await barrier.query('commit')
+      results = await Promise.all(twice)
+    } finally {
+      await releaseRuleSet(barrier, twice)
+    }
+    expect(results.map(outcome)).toEqual([{ ok: true }, { ok: true }])
+    expect(results[1]).toEqual(results[0])
+    expect((await itemRow(gone.itemId)).deleted_at).not.toBeNull()
+    const positions = await Promise.all([one, three].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([1, 2])
+    expect(await count('select count(*) as n from operation_records where request_id = $1', [requestId])).toBe(1)
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.deleted'`, [gone.itemId])).toBe(1)
+  })
+
+  it('Review r2 反例：同屆 201 章、第 201 章上移到第 200 位 → 前台整本目錄照位置列出全部 201 章；取 200 筆也是排完才截，第 200 位的那一章在、被擠到第 201 位的不在', async () => {
+    // 用自己的隔離資料庫：共用庫裡別的案例建的規則會占掉槽位，看不出截取的邊界。
+    const own = await createIsolatedDatabase({ label: 'rules201', setup: migratedSchema })
+    const ownApp = await poolAsRole(own, 'fju_app')
+    try {
+      const admin = await own.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status)
+         values (gen_random_uuid(), 'A', 'a-rules201@example.com', true, now(), 'active') returning id`,
+      )
+      const cohort = await own.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
+         values (gen_random_uuid(), 'R201', 'R201', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      const actor = adminActor(String(admin.rows[0]!.id))
+      const ownItems = new PgItemCommand({
+        audit: new PgAuditWriter(),
+        ledger: new PgOperationLedger(() => ownApp),
+        events: new PgEventPublisher(),
+        dueWork: new PgDueWorkScheduler({ testKindsEnabled: false }),
+        files: storage,
+        responses: new PgResponsePresence(),
+        businessClock,
+        pool: () => ownApp,
+      })
+      const ownPublic = new PgPublicItemQuery(businessClock, () => ownApp)
+
+      const chapters: string[] = []
+      for (let no = 1; no <= 201; no += 1) {
+        const created = await ownItems.create(actor, input(cohortId, { ...RULE, title: `第${no}章` }), randomUUID())
+        if (!created.ok) throw new Error(`${created.code} ${created.message}`)
+        const published = await ownItems.publish(actor, created.receipt.itemId, 1, { notify: false }, randomUUID())
+        if (!published.ok) throw new Error(`${published.code} ${published.message}`)
+        chapters.push(created.receipt.itemId)
+      }
+      // 發布時間依章次遞增（遷移前的時間序），位置 1..201。
+      await own.sql(
+        `update managed_items set actual_opened_at = timestamptz '2026-09-01T00:00:00Z' + rules_position * interval '1 minute'
+          where cohort_id = $1`,
+        [cohortId],
+      )
+      const moved = await ownItems.moveRule(actor, chapters[200]!, 'up', randomUUID())
+      expect(moved.ok && moved.receipt.position).toBe(200)
+
+      const expected = [...Array.from({ length: 199 }, (_, i) => `第${i + 1}章`), '第201章', '第200章']
+      const full = await ownPublic.fullText(ANONYMOUS, 'rules')
+      expect(full.map((c) => c.title)).toEqual(expected)
+      const capped = await ownPublic.list(ANONYMOUS, 'rules', { limit: 200 })
+      expect(capped.map((c) => c.title)).toEqual(expected.slice(0, 200))
+      expect(capped.at(-1)?.title).toBe('第201章')
+    } finally {
+      await ownApp.end()
+      await own.close()
+    }
+  })
+
+  it('不是規則、學生、找不到、封存屆別都擋下，順序不變', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z')
+    const two = await rule(cohortId, '第2章', '2026-09-02T00:00:00Z')
+    const news = await mustCreate(cohortId, { ...RULE, placement: 'news', title: '公告' })
+
+    const notRule = await items.moveRule(adminActor(), news.itemId, 'up', randomUUID())
+    expect(notRule.ok ? null : [notRule.code, notRule.message]).toEqual(['VALIDATION_FAILED', '只有專題規則能調整章節順序。'])
+    const student = await newStudent(cohortId)
+    const byStudent = await items.moveRule(studentActor(student), two.itemId, 'up', randomUUID())
+    expect(byStudent.ok || byStudent.code).toBe('FORBIDDEN')
+    const missing = await items.moveRule(adminActor(), randomUUID(), 'up', randomUUID())
+    expect(missing.ok || missing.code).toBe('VALIDATION_FAILED')
+    const sideways = await items.moveRule(adminActor(), two.itemId, 'left' as 'up', randomUUID())
+    expect(sideways.ok || sideways.code).toBe('VALIDATION_FAILED')
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const archived = await items.moveRule(adminActor(), two.itemId, 'up', randomUUID())
+    expect(archived.ok || archived.code).toBe('COHORT_ARCHIVED')
+    const positions = await Promise.all([one, two].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([1, 2])
   })
 })
