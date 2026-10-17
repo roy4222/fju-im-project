@@ -8,7 +8,9 @@ import { NarrowShell } from '@/app/_ui/site-shell'
 import {
   APPLIED_NAME_MAX_LENGTH,
   DEPARTMENT_CLASS_MAX_LENGTH,
+  EMAIL_VERIFY_PATH,
   getRegistrationCommand,
+  homeForUser,
   PASSWORD_MIN_LENGTH,
 } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
@@ -41,6 +43,8 @@ export default async function RegisterPendingPage({
   const home = homeFor(actor)
   const elsewhere = home === '/register/pending' ? '/' : home
   if (actor.status !== 'pending') redirect(elsewhere)
+  // 用密碼註冊、還沒驗證 Email 的人先回第 2 步（VB-3；AC-VI-50）。其他頁的狀態閘門都把待審的人帶到這裡。
+  if ((await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) redirect(EMAIL_VERIFY_PATH)
 
   const viewed = await getRegistrationCommand().viewMine(actor)
   if (!viewed.ok) redirect(elsewhere)

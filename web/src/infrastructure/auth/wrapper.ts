@@ -5,9 +5,13 @@ import { authPathFromUrl, routeAccess } from '@/infrastructure/auth/route-matrix
 import { runAsInternalCall } from '@/infrastructure/auth/internal-call'
 import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
 import {
+  checkSignupResumeTicket,
   findUserIdByEmail,
   isResumableSignup,
+  listSignupOtpRowIds,
   normalizeEmail,
+  rebindSignupResumeOtp,
+  restoreSignupResumeOtp,
   runWithOtpPurpose,
   startSignupResume,
 } from '@/infrastructure/auth/signup-resume'
@@ -369,6 +373,104 @@ export function resendVerificationOtp(input: { email: string }, headers: Headers
   return withMailOutcome(() =>
     getAuth().api.sendVerificationOTP({ body: { email: input.email, type: 'email-verification' }, headers }),
   )
+}
+
+export type SignupResumeResendOutcome =
+  /** 已寄出並改綁（票不對、帳號已不能續辦時也回這個：不寄信、不改綁，但對外跟寄出分不出來）。 */
+  | 'sent'
+  /** 信寄不出去（Brevo 未設定、拒收或逾時）：原 OTP、原綁定、原期限都留著，沒寄出的新碼撤掉；請使用者稍後再試。 */
+  | 'mail_failed'
+  /** 票對、但已過續辦的絕對截止（票建立起 30 分鐘）：不寄信、不改綁；請使用者重新開始。 */
+  | 'timed_out'
+
+function isMailFailed(error: unknown): boolean {
+  return (error as { body?: { code?: unknown } } | null)?.body?.code === 'MAIL_FAILED'
+}
+
+/**
+ * 同一個 Email 的續辦重寄在這個 process 裡**排隊**（VB-3 Review 第 3 輪 Sol P2）：後到的等先到的整段做完（看票、寄碼、
+ * 還原或改綁）才開始。
+ *
+ * 為什麼要：hook 的 120 秒冷卻是「先 `count` 檢查、Turnstile 驗過之後才 `hit`」（auth-instance 的 `enforceOtpSendRate`），
+ * 兩筆同時進來會**都**通過檢查，各寄一封、各插一列；一筆寄失敗先還原、另一筆隨後寄成功，還原會誤撤對方的碼。排隊之後
+ * 第二筆輪到時冷卻已記過，在 hook 就被擋下（`RATE_LIMITED`），不打 Turnstile、不寄、不插列——第一筆寄失敗也一樣
+ * （冷卻在寄信之前就記了，第 2 輪已接受）。hook 本身的競態是既有的（公開重寄也有）、不在這張票改。
+ *
+ * 只排同一個 Email，不持有資料庫連線（`DB_POOL_MAX=1` 規則不變）；掛在 `globalThis` 跟 `sharedRateLimiter` 同理
+ * （不同 chunk、測試重載模組都要是同一條隊）。app 單一 process（限速器也是這個前提）；多 process 時冷卻與這裡都要改成共用。
+ * 別條路（`startSignupResume`、公開重寄）不排這條隊：寄碼前後的快照比對會把那種交錯當成「分不出哪列是自己的」保守處理。
+ */
+function queueSignupResumeResend<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  const registry = ((globalThis as { __fjuSignupResumeResendQueue?: Map<string, Promise<void>> }).__fjuSignupResumeResendQueue ??=
+    new Map())
+  const previous = registry.get(email) ?? Promise.resolve()
+  const run = previous.then(fn)
+  const tail: Promise<void> = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  registry.set(email, tail)
+  void tail.then(() => {
+    if (registry.get(email) === tail) registry.delete(email)
+  })
+  return run
+}
+
+/**
+ * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3、第 2 輪、第 3 輪）。`ticket` 是續辦開始時發給這個瀏覽器的那張票（HttpOnly cookie）。
+ * 同一個 Email 的呼叫在 `queueSignupResumeResend` 裡排隊，整段（看票、寄碼、還原或改綁）一次只跑一筆。
+ *
+ * 1. 先看票（只讀）：票錯、帳號已不能續辦 → **不寄信**，回 `sent`（跟寄出時一樣，不透露原因；拿不到票的人本來就無從
+ *    得知帳號狀態）。票對但已過絕對截止 → 不寄信，回 `timed_out`。票對、截止內、但這封碼的 10 分鐘視窗已過 → **照常寄**
+ *    並在第 4 步把視窗重開（主腦裁定：截止內重寄要復活視窗，不再「不寄信卻回 sent」）。
+ * 2. 寄碼走**內部呼叫＋用途 `signup-resume-resend`**，而不是公開的 `resendVerificationOtp`：hook 不認得這個用途，
+ *    照公開重寄處理——`headers` 要帶這一次的新 Turnstile token；120 秒冷卻、每個 Email 10 分鐘 5 封、每個 IP 每小時
+ *    20 封都由 hook 照算，沒有旁路、不重設計數——差別只在寄信回呼會**等寄送結果**並回報失敗。公開路徑刻意不等
+ *    （防帳號列舉；Review 第 2 輪反例：Brevo 未設定時 outbox 記 failed、函式照樣成功、改綁新碼，舊碼失效新碼沒到）。
+ *    寄信轉接器是同步的（插 outbox → 打 Brevo → 標 sent／failed，沒有 worker 重試），所以結果在同一次呼叫就拿得到，
+ *    不必另做「outbox 送成功才改綁」的兩段式（那要改 mail 層）。
+ * 3. 寄碼前先拍這個 Email 驗證碼列 id 的快照（`listSignupOtpRowIds`；只讀、不占連線）：套件在呼叫寄信回呼之前就插一列
+ *    新碼，自己拿不到那列的 id，寄完拿快照比對才知道哪一列是這一次插的。
+ * 4. 寄失敗（`MAIL_FAILED`）→ 在鎖裡只撤掉快照之後插的那**一**列（`restoreSignupResumeOtp`：多於一列＝別條路交錯、分不出
+ *    是誰的，一列都不刪），綁定與期限都不動，原本那封的碼仍能完成；回 `mail_failed`。被冷卻／限速／Turnstile 擋下的照舊
+ *    丟出去，什麼都不動。
+ * 5. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：要求這一次插的那列還在，綁最新那列、視窗重設成
+ *    `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦。
+ *
+ * 錯誤次數：每一封新碼照套件規則各自有 5 次（`allowedAttempts`）；總嘗試次數仍受 `otpVerify` 桶
+ * （每個 Email 10 分鐘 10 次、每個 IP 每小時 60 次）與寄碼上限約束，不會因為重寄變成無限次。
+ */
+export function resendSignupResumeOtp(
+  input: { email: string; ticket: string },
+  headers: Headers,
+): Promise<SignupResumeResendOutcome> {
+  const email = normalizeEmail(input.email)
+  return queueSignupResumeResend(email, () => resendSignupResumeOtpQueued(email, input.ticket, headers))
+}
+
+async function resendSignupResumeOtpQueued(email: string, ticket: string, headers: Headers): Promise<SignupResumeResendOutcome> {
+  const status = await checkSignupResumeTicket(getPool(), { email, ticket })
+  if (status === 'invalid') return 'sent'
+  if (status === 'timed_out') return 'timed_out'
+  const before = await listSignupOtpRowIds(getPool(), email)
+  try {
+    await withMailOutcome(() =>
+      runAsInternalCall(() =>
+        runWithOtpPurpose('signup-resume-resend', email, () =>
+          getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+        ),
+      ),
+    )
+  } catch (error) {
+    if (!isMailFailed(error)) throw error
+    await restoreSignupResumeOtp(getPool(), { email, before })
+    return 'mail_failed'
+  }
+  const rebound = await rebindSignupResumeOtp(getPool(), { email, ticket, before })
+  // 看票與寄出之間剛好跨過截止：信已寄出，但這張票不能再用，照實說逾時。
+  if (!rebound.ok && rebound.reason === 'timed_out') return 'timed_out'
+  // 寄出之後帳號才變得不能續辦（例如信箱主人剛好在別處完成）或暫存列剛被別人改綁：信已寄出，對外一樣回正常；完成時會拿到「已失效」。
+  return 'sent'
 }
 
 /**

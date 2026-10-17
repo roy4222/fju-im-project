@@ -198,7 +198,7 @@ function googleSignIn(who: { sub: string; email: string; name: string; emailVeri
     provider: 'google',
     callbackURL: '/login',
     errorCallbackURL: '/login',
-    newUserCallbackURL: '/register/pending?via=google',
+    newUserCallbackURL: '/register/apply?via=google',
     ...overrides,
   }).then((start) => finishAtGoogle(start, who))
 }
@@ -302,7 +302,7 @@ describe('Google 首次登入（ACC-13）', () => {
     const email = uniq('first')
     const who = { sub: `sub-first-${seq}`, email, name: 'Google 王小明' }
     const first = await googleSignIn(who)
-    expect(first.location).toBe('/register/pending?via=google')
+    expect(first.location).toBe('/register/apply?via=google')
     expect(first.cookie).toContain('session_token')
 
     const user = await one<{ id: string; status: string; name: string }>(`select id, status, name from users where email = $1`, [email])
