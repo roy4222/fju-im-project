@@ -11,7 +11,7 @@ import type { ResolvedActor } from '@/application/accounts'
 import type { SchemeStageInput } from '@/application/grading'
 import { PgGradingDissolution } from '@/infrastructure/grading/pg-grading-dissolution'
 import { PgGradingCommand } from '@/infrastructure/grading/pg-grading'
-import { PgGradebookQuery } from '@/infrastructure/grading/pg-grading-results'
+import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
@@ -19,7 +19,7 @@ import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
-import { PgSignoffCommand } from '@/infrastructure/signoff/pg-signoff'
+import { PgSignoffCommand, PgSignoffQuery } from '@/infrastructure/signoff/pg-signoff'
 
 /**
  * 開站後：系辦解散組別（最小版；產品模組 03 §4「換成員與解散」、08 §4「組別解散」；模組實作設計 03 §6）。
@@ -44,6 +44,7 @@ let groupQuery: PgGroupQuery
 let grading: PgGradingCommand
 let book: PgGradebookQuery
 let signoff: PgSignoffCommand
+let results: PgGradingResultsCommand
 
 function actor(userId: string, roles: ('admin' | 'teacher' | 'student')[]): ResolvedActor {
   return { kind: 'authenticated', userId, roles, status: 'active', mustChangePassword: false, cohortMemberships: [] }
@@ -89,7 +90,8 @@ async function must<T>(p: Promise<{ ok: true; receipt: T } | { ok: false; code: 
  * 三人組 G01（S1 組長）、主指導 T0；方案期中兩份、期末一份：T1 期中已送出 80、T2 期中只存暫存、T3 期末還沒動；
  * 一個進行中的簽核版本。
  */
-async function scenario() {
+/** 三人組 G01（S1 組長）、主指導 T0；這屆還沒有評分方案。 */
+async function bareGroup() {
   seq += 1
   const cohort = await owner.sql(
     `insert into cohorts (id, code, name, status, year_end_date, group_size_min, group_size_max, created_by_kind)
@@ -126,7 +128,12 @@ async function scenario() {
      values (gen_random_uuid(), $1, $2, 'admin', now() - interval '30 days', $3, '指派')`,
     [groupId, t0, adminId],
   )
+  return { cohortId, groupId, s1, s2, s3, t0, t1, t2, t3 }
+}
 
+async function scenario() {
+  const base = await bareGroup()
+  const { cohortId, groupId, t1, t2, t3 } = base
   const created = await must(grading.createSchemeVersion(admin(), { cohortId, stages: STAGES }, randomUUID()))
   await must(grading.publishScheme(admin(), { versionId: created.versionId }, randomUUID()))
   await must(grading.setRequirement(admin(), { groupId, stageKey: 'mid', requiredCount: 2, revision: 0 }, randomUUID()))
@@ -143,10 +150,17 @@ async function scenario() {
       randomUUID(),
     ),
   )
-  return { cohortId, groupId, s1, s2, s3, t0, t1, t2, t3, a1, a2, a3, counted, draft, schemeVersionId: created.versionId, signoffVersionId: version.versionId }
+  return { ...base, a1, a2, a3, counted, draft, schemeVersionId: created.versionId, signoffVersionId: version.versionId }
 }
 
 type Scenario = Awaited<ReturnType<typeof scenario>>
+
+/** 套用新版評分規則（目前版本已鎖定時的換版）：先看影響拿 token 再套用，要成功。 */
+async function applyScheme(versionId: string, via: PgGradingResultsCommand = results) {
+  const preview = await book.previewSchemeVersion(admin(), versionId)
+  if (!preview.ok) throw new Error(preview.message)
+  return must(via.applySchemeVersion(admin(), { versionId, token: preview.receipt.token }, randomUUID()))
+}
 
 async function revisionOf(groupId: string): Promise<number> {
   return Number((await owner.sql('select revision from groups where id = $1', [groupId])).rows[0]!.revision)
@@ -210,6 +224,7 @@ beforeAll(async () => {
   const common = { audit: new PgAuditWriter(), ledger: new PgOperationLedger(() => app), businessClock, pool: () => app }
   signoff = new PgSignoffCommand({ ...common, events: new PgEventPublisher(), files: storage })
   grading = new PgGradingCommand({ ...common, events: new PgEventPublisher() })
+  results = new PgGradingResultsCommand({ ...common, events: new PgEventPublisher() })
   book = new PgGradebookQuery(() => app)
   groups = new PgGroupCommand({
     ...common,
@@ -316,7 +331,8 @@ describe('同一筆交易', () => {
       .rows
     expect(assignments).toHaveLength(3)
     for (const a of assignments) {
-      expect(a).toMatchObject({ removal_choice: null, reason: '組別解散：全組休學' })
+      // 老師看得到指派的結束理由：只寫中性的「組別解散」，系辦填的理由留在稽核（A-19 Review）。
+      expect(a).toMatchObject({ removal_choice: null, reason: '組別解散' })
       expect((a.ended_real_at as Date).getTime()).toBe(at)
     }
     expect((await owner.sql('select state from evaluation_status where evaluation_id = $1', [s.draft])).rows[0]!.state).toBe('invalidated')
@@ -326,8 +342,11 @@ describe('同一筆交易', () => {
     ).toBe(1)
     expect((await owner.sql('select state, cause from signoff_version_status where version_id = $1', [fresh.versionId])).rows[0]).toEqual({
       state: 'void',
-      cause: '組別解散：全組休學',
+      cause: '組別解散',
     })
+    expect(
+      (await owner.sql(`select reason from audit_events where action = 'signoff.version_void' and target_id = $1`, [fresh.versionId])).rows[0]!.reason,
+    ).toBe('組別解散：全組休學')
     // 已失效的舊版不動（失效原因寫了就不能改）。
     expect((await owner.sql('select state from signoff_version_status where version_id = $1', [s.signoffVersionId])).rows[0]!.state).toBe('superseded')
 
@@ -412,9 +431,12 @@ describe('解散後：凍結、可查、可匯出', () => {
       `update group_memberships m set updated_at = g.dissolved_real_at from groups g where g.id = m.group_id and m.group_id = $1 and m.user_id = $2`,
       [s.groupId, s.s3],
     )
-    // 解散後另發布一個新版本：解散的組仍照解散當下那一版。
+    // 解散後另套用一個新版本（目前版本已鎖定，要走預覽→套用）：解散的組仍照解散當下那一版。
     const next = await must(grading.createSchemeVersion(admin(), { cohortId: s.cohortId, stages: STAGES.map((x) => ({ ...x, name: `${x.name}新` })) }, randomUUID()))
-    await grading.publishScheme(admin(), { versionId: next.versionId }, randomUUID())
+    await applyScheme(next.versionId)
+    expect((await owner.sql('select current_version_id from grading_schemes where cohort_id = $1', [s.cohortId])).rows[0]!.current_version_id).toBe(
+      next.versionId,
+    )
 
     const r = await book.gradebook(admin(), s.cohortId)
     if (!r.ok) throw new Error(r.message)
@@ -472,5 +494,147 @@ describe('並發', () => {
       disable()
     }
     expect(await count(`select count(*) as n from evaluation_status where assignment_id = $1 and state = 'counted'`, [s.a2])).toBe(0)
+  })
+})
+
+describe('Review 第 1 輪（PR #511）', () => {
+  it('理由只留在系辦稽核：主指導讀作廢的簽核版本（目前狀態與歷程）、評分指派與暫存失效紀錄都看不到理由', async () => {
+    const s = await scenario()
+    const secret = '學生隱私SECRET511'
+    expect(await dissolve(s, { reason: secret })).toMatchObject({ ok: true })
+    const detail = await new PgSignoffQuery({ pool: () => app }).versionDetail(actor(s.t0, ['teacher']), s.signoffVersionId)
+    expect(detail).toMatchObject({ ok: true, receipt: { cause: '組別解散' } })
+    expect(JSON.stringify(detail)).not.toContain(secret)
+    expect(JSON.stringify((await owner.sql('select reason from evaluator_assignments where group_id = $1', [s.groupId])).rows)).not.toContain(secret)
+    expect(
+      JSON.stringify((await owner.sql('select reason from evaluation_status_events where evaluation_id = $1', [s.draft])).rows),
+    ).not.toContain(secret)
+    // 系辦稽核仍留完整理由。
+    expect(
+      (await owner.sql(`select reason from audit_events where action = 'signoff.version_void' and target_id = $1`, [s.signoffVersionId])).rows[0]!.reason,
+    ).toBe(`組別解散：${secret}`)
+  })
+
+  it('解散時還沒有評分方案：之後才發布第一版，解散的組仍是「沒有方案」（版本、階段都不變）', async () => {
+    const s = await bareGroup()
+    expect(
+      await groups.dissolveGroup(admin(), { groupId: s.groupId, revision: await revisionOf(s.groupId), reason: '全組休學' }, randomUUID()),
+    ).toMatchObject({ ok: true })
+    const before = await book.groupDetail(admin(), s.groupId)
+    const created = await must(grading.createSchemeVersion(admin(), { cohortId: s.cohortId, stages: STAGES }, randomUUID()))
+    await must(grading.publishScheme(admin(), { versionId: created.versionId }, randomUUID()))
+    const after = await book.groupDetail(admin(), s.groupId)
+    if (!before.ok || !after.ok) throw new Error('查不到成績明細')
+    expect(before.receipt.version).toBeNull()
+    expect(after.receipt.version).toBeNull()
+    expect(after.receipt.result.stages).toEqual(before.receipt.result.stages)
+    const bookAfter = await book.gradebook(admin(), s.cohortId)
+    if (!bookAfter.ok) throw new Error(bookAfter.message)
+    expect(bookAfter.receipt.groups.find((g) => g.id === s.groupId)).toMatchObject({ versionNo: null, result: { stages: [] } })
+  })
+
+  /** 有一份生效中的更正（期中兩份、期末一份都送出）與一份可以套用的新版本。 */
+  async function withEffectiveOverride() {
+    const s = await scenario()
+    await must(grading.submitFinal(actor(s.t2, ['teacher']), { assignmentId: s.a2, scores: { i1: '80' } }, randomUUID()))
+    await must(grading.submitFinal(actor(s.t3, ['teacher']), { assignmentId: s.a3, scores: { i1: '90' } }, randomUUID()))
+    const before = await book.groupDetail(admin(), s.groupId)
+    if (!before.ok) throw new Error(before.message)
+    const override = await must(
+      results.override(admin(), { groupId: s.groupId, newValue: '88', reason: '補考', basisHash: before.receipt.basisHash }, randomUUID()),
+    )
+    const next = await must(grading.createSchemeVersion(admin(), { cohortId: s.cohortId, stages: STAGES.map((x) => ({ ...x, name: `${x.name}新` })) }, randomUUID()))
+    const overrideState = async () =>
+      String((await owner.sql('select state from override_review_state where override_id = $1', [override.overrideId])).rows[0]!.state)
+    return { s, next, overrideState }
+  }
+
+  async function waitForLockWait(until: Promise<unknown>) {
+    let settled = false
+    void until.then(
+      () => (settled = true),
+      () => (settled = true),
+    )
+    for (let i = 0; i < 300 && !settled; i += 1) {
+      const waiting = await owner.sql(`select count(*) as n from pg_locks where not granted`)
+      if (Number(waiting.rows[0]!.n) > 0) return
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+
+  it('並發：解散寫到一半、系辦同時套用新版本 → 套用等解散 commit，預覽已過期被擋；凍結的更正維持生效中', async () => {
+    const { s, next, overrideState } = await withEffectiveOverride()
+    const preview = await book.previewSchemeVersion(admin(), next.versionId)
+    if (!preview.ok) throw new Error(preview.message)
+    const disable = enableFaultInjection()
+    try {
+      let reached!: () => void
+      const arrived = new Promise<void>((resolve) => (reached = resolve))
+      let release!: () => void
+      const held = new Promise<void>((resolve) => (release = resolve))
+      injectFault('group.dissolve.after-writes', async () => {
+        reached()
+        await held
+      })
+      const dissolving = dissolve(s)
+      await arrived
+      const applying = results.applySchemeVersion(admin(), { versionId: next.versionId, token: preview.receipt.token }, randomUUID())
+      await waitForLockWait(applying)
+      release()
+      expect(await dissolving).toMatchObject({ ok: true })
+      expect(await applying).toMatchObject({ ok: false, code: 'CONFLICT' })
+    } finally {
+      disable()
+    }
+    expect(await overrideState()).toBe('effective')
+  })
+
+  it('並發：套用新版本鎖住組別後、系辦同時解散 → 解散等套用 commit 才寫；解散的組釘在剛套用的版本', async () => {
+    const { s, next } = await withEffectiveOverride()
+    const preview = await book.previewSchemeVersion(admin(), next.versionId)
+    if (!preview.ok) throw new Error(preview.message)
+    let reached!: () => void
+    const arrived = new Promise<void>((resolve) => (reached = resolve))
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    // 套用的交易在「鎖完組別」那一句之後停住（包一層 pool，攔那句查詢）。
+    const pausing = {
+      connect: async () => {
+        const client = await app.connect()
+        const query = client.query.bind(client) as (...args: unknown[]) => Promise<unknown>
+        return Object.assign(client, {
+          query: async (...args: unknown[]) => {
+            const result = await query(...args)
+            if (typeof args[0] === 'string' && args[0].includes('order by id for share')) {
+              reached()
+              await held
+            }
+            return result
+          },
+        })
+      },
+    } as unknown as Pool
+    const pausedResults = new PgGradingResultsCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      events: new PgEventPublisher(),
+      businessClock,
+      pool: () => pausing,
+    })
+    const applying = pausedResults.applySchemeVersion(admin(), { versionId: next.versionId, token: preview.receipt.token }, randomUUID())
+    await arrived
+    let dissolvedFirst = false
+    const dissolving = dissolve(s).then((r) => {
+      dissolvedFirst = true
+      return r
+    })
+    await waitForLockWait(dissolving)
+    expect(dissolvedFirst).toBe(false)
+    release()
+    expect(await applying).toMatchObject({ ok: true })
+    expect(await dissolving).toMatchObject({ ok: true })
+    const detail = await book.groupDetail(admin(), s.groupId)
+    if (!detail.ok) throw new Error(detail.message)
+    expect(detail.receipt.version?.id).toBe(next.versionId)
   })
 })

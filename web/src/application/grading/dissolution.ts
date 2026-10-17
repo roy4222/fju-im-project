@@ -18,7 +18,7 @@ export interface GradingDissolutionHook<Tx = unknown> {
       readonly groupId: string
       readonly cohortId: string
       readonly actorUserId: string
-      /** 解散理由；寫進指派的結束理由與暫存失效的狀態事件。 */
+      /** 解散理由（只留在系辦的稽核）；指派的結束理由與暫存失效的事件只寫中性的「組別解散」，因為評分老師看得到。 */
       readonly reason: string
       readonly realAt: Date
       readonly businessAt: Date

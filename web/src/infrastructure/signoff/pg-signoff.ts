@@ -484,7 +484,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         for update of p, s`,
       [input.groupId],
     )
-    const cause = `組別解散：${input.reason}`
+    // 版本狀態的原因老師與組員都看得到（版本頁、歷程）：只寫中性的「組別解散」；系辦填的理由只進稽核（A-19 Review）。
+    const cause = '組別解散'
     const voided: string[] = []
     for (const row of rows.rows.filter((r) => !isTerminal(r.state))) {
       await tx.query(
@@ -515,7 +516,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         targetId: row.version_id,
         scope: 'cohort',
         cohortId: row.cohort_id,
-        reason: cause,
+        reason: `組別解散：${input.reason}`,
         realAt: input.realAt,
         businessAt: input.businessAt,
         payload: { eventId, from: row.state, groupId: input.groupId, purpose: row.purpose, versionNo: row.version_no, cause: 'group_dissolved' },

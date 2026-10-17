@@ -28,7 +28,8 @@ export class PgGradingDissolution implements GradingDissolutionHook<PoolClient> 
       [input.groupId],
     )
     const ids = actives.rows.map((a) => a.id)
-    const why = `組別解散：${input.reason}`
+    // 指派的結束理由與暫存失效的原因，評分老師看得到：只寫中性的「組別解散」；系辦填的理由留在 `group.dissolve` 稽核（A-19 Review）。
+    const why = '組別解散'
     let drafts: string[] = []
     if (ids.length > 0) {
       await tx.query(

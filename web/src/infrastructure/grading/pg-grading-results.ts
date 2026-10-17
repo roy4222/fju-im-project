@@ -832,6 +832,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<SchemeVersionReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort)
       if (target.status !== 'draft') return err('VALIDATION_FAILED', `v${target.version_no} 已經套用或發布過了，不需要再套用。`)
+      // 跟解散序列化（A-19 Review）：照 id 順序 `FOR SHARE` 這屆全部組別，解散（組別 `FOR UPDATE`）寫到一半就等它 commit。
+      // 之後的預覽與「哪些組有生效中的更正」都是新的語句、看得到剛解散的組；解散的組不重算、更正不進待復核。
+      // 解散不鎖方案（只讀目前版本），所以這裡先鎖方案再鎖組別不會反向互等。
+      await tx.query('select id from groups where cohort_id = $1 order by id for share', [cohortId])
       const current = scheme.current_version_id ? await versionRow(tx, scheme.current_version_id) : null
       if (current?.status !== 'locked') {
         return err('VALIDATION_FAILED', '目前的版本還沒鎖定（還沒有老師開始評分），直接按「發布」換版本就好。')
@@ -1096,7 +1100,8 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
  * 解散組別釘住的方案版本（產品模組 03 §4「解散：原組別資料凍結」）：解散當下套用的那一版。
  *
  * 解散命令（開站後）在 `group.dissolve` 稽核記下當下的目前版本（`schemeVersionId`），有就直接用——連「還沒鎖定的已發布版本」
- * 也準。沒有記錄（解散命令之前、測試直接改狀態的資料）才用下面的推算：
+ * 也準。記的是 `null`（解散時這屆還沒有方案）就釘在「沒有方案」：回傳的 Map 有這組、值是 `null`，呼叫端不能再退回目前版本，
+ * 否則解散後才發布的第一版會被算進凍結的組（A-19 Review）。沒有記錄（解散命令之前、測試直接改狀態的資料）才用下面的推算：
  *
  * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
  * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
@@ -1120,20 +1125,21 @@ const DISSOLVED_MEMBER_SQL = `case
   else gm.updated_at >= g.dissolved_real_at
 end`
 
-async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, NonNullable<CurrentVersion>>> {
+async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, CurrentVersion>> {
   if (groupIds.length === 0) return new Map()
-  const rows = await db.query<{ group_id: string; id: string; version_no: number; stages: unknown }>(
-    `select g.id as group_id, v.id, v.version_no, v.stages
+  const rows = await db.query<{ group_id: string; recorded: boolean; id: string | null; version_no: number | null; stages: unknown }>(
+    `select g.id as group_id, rec.recorded is not null as recorded, v.id, v.version_no, v.stages
        from groups g
-       join grading_schemes s on s.cohort_id = g.cohort_id
        left join lateral (
-         select (da.payload->>'schemeVersionId')::uuid as version_id from audit_events da
+         select true as recorded, (da.payload->>'schemeVersionId')::uuid as version_id from audit_events da
           where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id
           order by da.real_at desc limit 1
        ) rec on true
-       join lateral (
+       left join grading_schemes s on s.cohort_id = g.cohort_id
+       left join lateral (
          select x.id, x.version_no, x.stages from grading_scheme_versions x
-          where x.scheme_id = s.id and (x.id = rec.version_id or (rec.version_id is null and x.status = 'locked'))
+          where x.scheme_id = s.id
+            and ((rec.recorded and x.id = rec.version_id) or (rec.recorded is null and x.status = 'locked'))
           order by x.locked_at <= g.dissolved_real_at desc,
                    case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
                    case when x.locked_at <= g.dissolved_real_at then x.version_no end desc,
@@ -1143,7 +1149,13 @@ async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds:
       where g.id = any($1::uuid[]) and g.status = 'dissolved'`,
     [groupIds],
   )
-  return new Map(rows.rows.map((r) => [r.group_id, { id: r.id, versionNo: r.version_no, stages: readSchemeStages(r.stages) }]))
+  const pinned = new Map<string, CurrentVersion>()
+  for (const r of rows.rows) {
+    const version = r.id !== null ? { id: r.id, versionNo: r.version_no!, stages: readSchemeStages(r.stages) } : null
+    // 有解散記錄：照記錄（含「沒有方案」）。沒有記錄又推算不出（從沒鎖定過）：不放，呼叫端照目前版本。
+    if (r.recorded || version) pinned.set(r.group_id, version)
+  }
+  return pinned
 }
 
 export class PgGradebookQuery implements GradebookQuery {
@@ -1196,7 +1208,7 @@ export class PgGradebookQuery implements GradebookQuery {
     const book: GradebookGroup[] = groups.rows.map((g) => {
       const f = facts.get(g.id)!
       const latest = overrides.rows.find((o) => o.group_id === g.id)
-      const own = pinned.get(g.id) ?? version
+      const own = pinned.has(g.id) ? pinned.get(g.id)! : version
       return {
         id: g.id,
         code: g.code,
@@ -1248,7 +1260,8 @@ export class PgGradebookQuery implements GradebookQuery {
     ).rows[0]
     if (!head) return groupNotFound()
     // 解散的組用解散當下的方案版本算（凍結；見 `dissolvedVersions`）。
-    const version = (await dissolvedVersions(db, [groupId])).get(groupId) ?? (await currentVersionOf(db, head.cohort_id))
+    const pinned = await dissolvedVersions(db, [groupId])
+    const version = pinned.has(groupId) ? pinned.get(groupId)! : await currentVersionOf(db, head.cohort_id)
     const stages = version?.stages ?? []
     const facts = await loadGroupFacts(db, groupId)
     const nameOfStage = (key: string) => stageOf(stages, key)?.name ?? key
