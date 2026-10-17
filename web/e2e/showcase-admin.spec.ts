@@ -337,6 +337,8 @@ test('AC-AD-06、AC-AD-08：成果展示與檔案頁標題「公告與作業」�
   await expect(tabBar.getByRole('link', { name: '建立草稿' })).toHaveAttribute('href', '#showcase-create')
   await expect(tabBar.getByRole('link', { name: '補登歷屆' })).toHaveAttribute('href', '#showcase-backfill')
   await expect(tabBar.getByText('草稿不會公開')).toBeVisible()
+  // 建立草稿表單只在「建草稿的屆別」有組別時才畫；開本檔自己建的屆別（有 G01），不受其他 spec 改動預設工作屆別影響。
+  await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
   await expect(page.locator('#showcase-create').getByRole('form', { name: '建立成果展示草稿' })).toHaveCount(1)
   await expect(page.locator('#showcase-backfill').getByRole('form', { name: '補登歷屆作品' })).toHaveCount(1)
 })
