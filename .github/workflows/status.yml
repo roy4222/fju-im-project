@@ -72,10 +72,22 @@ jobs:
         run: pnpm --ignore-workspace run typecheck
       - name: lint
         run: pnpm --ignore-workspace run lint
+      - name: audit-gate test
+        run: node --test scripts/audit-gate.test.mjs
+      # pnpm 11 的 `audit --ignore` 寫入豁免後直接 exit 0、不再檢查其他漏洞，所以不用它：
+      # 先取完整 JSON（有漏洞時會非零結束），再由 audit-gate 驗結構與逐條檢查 high／critical。
+      # 單條豁免 GHSA-vfj7-8cjw-p6xm 在 scripts/audit-gate.mjs，升版與移除追蹤 #570。
+      # 非 JSON、含 error、結構或必要欄位異常全部失敗；說明見 status/README.md「已知豁免」。
+      - name: audit
+        run: |
+          pnpm --ignore-workspace audit --audit-level high --json > "$RUNNER_TEMP/audit.json" || true
+          node scripts/audit-gate.mjs "$RUNNER_TEMP/audit.json"
       - name: test
         run: pnpm --ignore-workspace run test
       - name: build
         run: pnpm --ignore-workspace run build
+      - name: bundle-size
+        run: node scripts/bundle-size.mjs
       # 人維護的設定檔格式（S-2）。S-2 合併前檔案還不在，先跳過。
       - name: docs/status 格式檢查
         working-directory: .
