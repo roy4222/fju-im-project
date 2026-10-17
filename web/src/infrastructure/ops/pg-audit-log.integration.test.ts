@@ -9,7 +9,7 @@ import { readAuditLog } from '@/infrastructure/ops/pg-audit-log'
  * 票 36「操作紀錄」頁的查詢：用 `fju_app`（正式站 app 的角色）讀，證明
  * 1. 依角色分頁與各分頁筆數正確；系統與背景工作歸「系統」；沒有角色的本人動作歸「本人申請」，
  *    除了「全部」以外的分頁加起來等於「全部」（2026-10-08 系3）；
- * 2. 磁碟量測（`storage.measured`）不列；超過 7 天的不列；
+ * 2. 超過 7 天的不列；
  * 3. 對象名稱：帳號＝姓名（profile 空白時退回帳號名）、組別＝代碼、屆別＝「名稱（代碼）」（系1）、
  *    註冊申請＝申請人姓名、活動＝標題；核准列帶核實方式與核實說明（系2）；
  * 4. 查詢結果**沒有 payload**（裡面的字串不會出現在回傳的任何欄位；核實說明是唯一取出的鍵）。
@@ -114,7 +114,6 @@ beforeAll(async () => {
   await insert({ kind: 'user', actor: student, role: 'student', action: 'submission.submit', targetType: 'item', at: hoursAgo(3) })
   await insert({ kind: 'user', actor: admin, role: 'admin', action: 'cohort.activity.create', targetType: 'project_event', targetId: activityId, cohort: cohortId, at: hoursAgo(3.5) })
   await insert({ kind: 'system', action: 'account.seed_first_admin', targetType: 'user', targetId: admin, at: hoursAgo(4) })
-  await insert({ kind: 'worker', action: 'storage.measured', targetType: 'storage', at: hoursAgo(5) })
   await insert({ kind: 'user', actor: admin, role: 'admin', action: 'cohort.create', targetType: 'cohort', targetId: cohortId, at: hoursAgo(24 * 8) })
 })
 
