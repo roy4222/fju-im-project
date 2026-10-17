@@ -177,6 +177,7 @@ export type {
   AdvisorCommand,
   AdvisorGradingLookup,
   CohortGroupingOverview,
+  CohortHeadcount,
   GroupHistoryEntry,
   GroupCommand,
   GroupMember,

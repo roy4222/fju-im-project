@@ -1,0 +1,260 @@
+{
+  "$comment": "perf:bundle 的預算（KB，gzip）。baseline＝c0f32bd 用同一算法實測；c0f32bd 之後才有的路由（/timeline）是加列當下的 main（0528845）量的。limit＝min(ceil(baseline×1.1), 250)（Q106）。新路由加自己的列，不改既有列。",
+  "$shared": {
+    "baseline": 222,
+    "limit": 230
+  },
+  "$rules": {
+    "homeRoutesMustNotContain": [
+      "recharts"
+    ]
+  },
+  "/": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/403": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/account": {
+    "baseline": 225.7,
+    "limit": 249
+  },
+  "/account/change-password": {
+    "baseline": 224.7,
+    "limit": 248
+  },
+  "/account/setup": {
+    "baseline": 224.7,
+    "limit": 248
+  },
+  "/competitions": {
+    "baseline": 224.6,
+    "limit": 248
+  },
+  "/dashboard/admin": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/admin/accounts": {
+    "baseline": 246,
+    "limit": 250
+  },
+  "/dashboard/admin/affairs": {
+    "baseline": 237.7,
+    "limit": 250
+  },
+  "/dashboard/admin/affairs/[id]": {
+    "baseline": 225.8,
+    "limit": 249
+  },
+  "/dashboard/admin/audit": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/admin/clock": {
+    "baseline": 223.3,
+    "limit": 246
+  },
+  "/dashboard/admin/cohorts": {
+    "baseline": 227,
+    "limit": 250
+  },
+  "/dashboard/admin/editor/[id]": {
+    "baseline": 241.7,
+    "limit": 250
+  },
+  "/dashboard/admin/editor/new": {
+    "baseline": 241.7,
+    "limit": 250
+  },
+  "/dashboard/admin/files": {
+    "baseline": 225.7,
+    "limit": 249
+  },
+  "/dashboard/admin/grading": {
+    "baseline": 245.4,
+    "limit": 250
+  },
+  "/dashboard/admin/grading/[groupId]": {
+    "baseline": 228.7,
+    "limit": 250
+  },
+  "/dashboard/admin/grading/apply/[versionId]": {
+    "baseline": 228.7,
+    "limit": 250
+  },
+  "/dashboard/admin/grading/reassign/[assignmentId]": {
+    "baseline": 228.7,
+    "limit": 250
+  },
+  "/dashboard/admin/groups": {
+    "baseline": 237.8,
+    "limit": 250
+  },
+  "/dashboard/admin/home-settings": {
+    "baseline": 227.3,
+    "limit": 250
+  },
+  "/dashboard/admin/inbox": {
+    "baseline": 224.9,
+    "limit": 248
+  },
+  "/dashboard/admin/industry": {
+    "baseline": 227.5,
+    "limit": 250
+  },
+  "/dashboard/admin/showcase": {
+    "baseline": 229,
+    "limit": 250
+  },
+  "/dashboard/admin/signoff": {
+    "baseline": 227.2,
+    "limit": 250
+  },
+  "/dashboard/admin/signoff/[versionId]": {
+    "baseline": 225.9,
+    "limit": 249
+  },
+  "/dashboard/admin/timeline": {
+    "baseline": 229.7,
+    "limit": 250
+  },
+  "/dashboard/student": {
+    "baseline": 224.2,
+    "limit": 247
+  },
+  "/dashboard/student/affairs": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/student/affairs/[id]": {
+    "baseline": 228.7,
+    "limit": 250
+  },
+  "/dashboard/student/grading": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/student/groups": {
+    "baseline": 226.2,
+    "limit": 249
+  },
+  "/dashboard/student/inbox": {
+    "baseline": 224.3,
+    "limit": 247
+  },
+  "/dashboard/student/industry": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/student/signoff": {
+    "baseline": 226.3,
+    "limit": 249
+  },
+  "/dashboard/student/timeline": {
+    "baseline": 224,
+    "limit": 247
+  },
+  "/dashboard/teacher": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/teacher/affairs": {
+    "baseline": 227.1,
+    "limit": 250
+  },
+  "/dashboard/teacher/affairs/[id]": {
+    "baseline": 224.8,
+    "limit": 248
+  },
+  "/dashboard/teacher/grading": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/teacher/grading/[groupId]": {
+    "baseline": 241.7,
+    "limit": 250
+  },
+  "/dashboard/teacher/groups": {
+    "baseline": 229.2,
+    "limit": 250
+  },
+  "/dashboard/teacher/inbox": {
+    "baseline": 224.8,
+    "limit": 248
+  },
+  "/dashboard/teacher/industry": {
+    "baseline": 227.5,
+    "limit": 250
+  },
+  "/dashboard/teacher/signoff": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/dashboard/teacher/signoff/[versionId]": {
+    "baseline": 226.3,
+    "limit": 249
+  },
+  "/files": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/forgot-password": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/honors": {
+    "baseline": 226.6,
+    "limit": 250
+  },
+  "/industry": {
+    "baseline": 223.8,
+    "limit": 247
+  },
+  "/industry/[id]": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/login": {
+    "baseline": 225.5,
+    "limit": 249
+  },
+  "/news": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/news/[id]": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/projects": {
+    "baseline": 224.6,
+    "limit": 248
+  },
+  "/projects/[id]": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/projects/featured": {
+    "baseline": 226.6,
+    "limit": 250
+  },
+  "/register": {
+    "baseline": 226.1,
+    "limit": 249
+  },
+  "/register/pending": {
+    "baseline": 225.4,
+    "limit": 248
+  },
+  "/rules": {
+    "baseline": 222,
+    "limit": 245
+  },
+  "/timeline": {
+    "baseline": 225.8,
+    "limit": 249
+  }
+}

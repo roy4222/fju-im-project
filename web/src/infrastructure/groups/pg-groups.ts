@@ -29,6 +29,7 @@ import {
   type AdvisorSource,
   type ChangeLeaderInput,
   type CohortGroupingOverview,
+  type CohortHeadcount,
   type ConfirmReceipt,
   type ExpireOutcome,
   type GroupCommand,
@@ -1814,6 +1815,42 @@ export class PgGroupQuery implements GroupQuery {
         (r): UngroupedStudent => ({ name: r.name, studentNo: r.student_no, openToJoin: r.open_to_join, inProposal: r.in_proposal }),
       ),
     }
+  }
+
+  async countsByCohort(): Promise<ReadonlyMap<string, CohortHeadcount>> {
+    // 三段各自 group by cohort_id，最後一句合起來；條件逐字對齊 `overview()` 的組別、成員與未分組查詢。
+    const rows = await this.#reader().query<{ cohort_id: string; groups: string; members: string; ungrouped: string }>(
+      `with g as (
+         select cohort_id, count(*) as n from groups where status = 'active' group by cohort_id
+       ), m as (
+         select g.cohort_id, count(*) as n
+           from group_memberships m
+           join groups g on g.id = m.group_id
+          where g.status = 'active' and m.valid_to is null
+          group by g.cohort_id
+       ), u as (
+         select p.cohort_id, count(*) as n
+           from user_profiles p
+           join users u on u.id = p.user_id
+          where p.cohort_id is not null and p.student_no is not null
+            and u.status = 'active' and u.deidentified_at is null
+            and exists (select 1 from role_assignments r
+                         where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
+            and not exists (select 1 from group_memberships m
+                             where m.user_id = u.id and m.cohort_id = p.cohort_id and m.valid_to is null)
+          group by p.cohort_id
+       ), ids as (
+         select cohort_id from g union select cohort_id from m union select cohort_id from u
+       )
+       select ids.cohort_id, coalesce(g.n, 0) as groups, coalesce(m.n, 0) as members, coalesce(u.n, 0) as ungrouped
+         from ids
+         left join g on g.cohort_id = ids.cohort_id
+         left join m on m.cohort_id = ids.cohort_id
+         left join u on u.cohort_id = ids.cohort_id`,
+    )
+    return new Map(
+      rows.rows.map((r) => [r.cohort_id, { groups: Number(r.groups), students: Number(r.members) + Number(r.ungrouped) }]),
+    )
   }
 
   async cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]> {

@@ -1,0 +1,105 @@
+{
+  "$comment": "perf:sql --expect 的預期（c0f32bd 隔離庫 normal 實測，見 README）。baseline＝c0f32bd 的 total；max＝A 階段門檻「不比基準差」；identity＝A 目標（一般 7、老師頁含 needsSetup 8）；noDuplicate＝具名 workload 查詢（AC-SH-37）的簽名前綴，出現在 duplicates 就失敗。新路由加自己的列，不改既有列。",
+  "/dashboard/student": {
+    "as": "student",
+    "baseline": 57,
+    "max": 57,
+    "identity": 7
+  },
+  "/dashboard/student/affairs": {
+    "as": "student",
+    "baseline": 32,
+    "max": 32,
+    "identity": 7
+  },
+  "/dashboard/student/groups": {
+    "as": "student",
+    "baseline": 49,
+    "max": 49,
+    "identity": 7
+  },
+  "/dashboard/teacher": {
+    "as": "teacher",
+    "baseline": 59,
+    "max": 59,
+    "identity": 8,
+    "noDuplicate": [
+      "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages from evaluator_assignments ",
+      "select distinct on (e.assignment_id) e.assignment_id, e.kind, e.scheme_version_id, e.scores, e.submitted_real_at, s.state from evaluations ",
+      "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
+      "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no, s.state, s.cause, v.participants, "
+    ]
+  },
+  "/dashboard/teacher/grading": {
+    "as": "teacher",
+    "baseline": 32,
+    "max": 32,
+    "identity": 8
+  },
+  "/dashboard/teacher/affairs": {
+    "as": "teacher",
+    "baseline": 33,
+    "max": 33,
+    "identity": 8
+  },
+  "/dashboard/teacher/groups": {
+    "as": "teacher",
+    "baseline": 39,
+    "max": 39,
+    "identity": 8
+  },
+  "/dashboard/admin": {
+    "as": "admin",
+    "baseline": 77,
+    "max": 77,
+    "identity": 7,
+    "noDuplicate": [
+      "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
+    ]
+  },
+  "/dashboard/admin/affairs": {
+    "as": "admin",
+    "baseline": 27,
+    "max": 27,
+    "identity": 7
+  },
+  "/dashboard/admin/accounts": {
+    "as": "admin",
+    "baseline": 32,
+    "max": 32,
+    "identity": 7,
+    "noDuplicate": [
+      "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
+    ]
+  },
+  "/dashboard/admin/groups": {
+    "as": "admin",
+    "baseline": 49,
+    "max": 49,
+    "identity": 7
+  },
+  "/dashboard/admin/grading": {
+    "as": "admin",
+    "baseline": 40,
+    "max": 40,
+    "identity": 7
+  },
+  "/": {
+    "as": "anonymous",
+    "baseline": 10,
+    "max": 10,
+    "identity": 7
+  },
+  "/honors": {
+    "as": "anonymous",
+    "baseline": 4,
+    "max": 4,
+    "identity": 7
+  },
+  "/news": {
+    "as": "anonymous",
+    "baseline": 3,
+    "max": 3,
+    "identity": 7
+  }
+}

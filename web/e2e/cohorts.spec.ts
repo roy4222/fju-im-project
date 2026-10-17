@@ -43,7 +43,7 @@ async function signInAsAdmin(page: Page) {
 }
 
 function rowOf(page: Page, code: string) {
-  return page.getByRole('row').filter({ has: page.getByRole('cell', { name: code, exact: true }) })
+  return page.getByRole('region', { name: new RegExp(code) })
 }
 
 /**
@@ -64,7 +64,7 @@ test('沒有開放註冊屆別時，屆別頁提示管理員處理', async ({ pa
   await signInAsAdmin(page)
   await page.goto('/dashboard/admin/cohorts')
 
-  await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
   const notice = page.getByRole('note', { name: '尚未設定新註冊學生加入的屆別' })
   await expect(notice).toBeVisible()
   await expect(notice).toContainText('系統不會自己猜')
