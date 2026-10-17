@@ -13,6 +13,7 @@
     "worker": "node dist/worker.mjs",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify.mjs",
     "lint": "eslint src test e2e acceptance eslint-rules scripts",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
