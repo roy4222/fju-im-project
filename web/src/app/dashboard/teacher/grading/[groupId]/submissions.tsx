@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { IconDownload, IconPaperclip } from '@tabler/icons-react'
+import { IconDownload, IconEye, IconPaperclip, IconX } from '@tabler/icons-react'
 import type { SubmissionRow } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
 import { PreviewableAttachment } from '@/app/dashboard/teacher/grading/[groupId]/preview-pane'
 import { Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
@@ -21,6 +21,9 @@ import { formatTaipeiMinute } from '@/shared/time'
  */
 
 const LINK = 'inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary-on-subtle underline-offset-2 hover:underline [&_svg]:size-3.5'
+
+/** 「在頁內檢視」／「收起檢視」的圖示：在伺服器畫好傳給 client 的附件列，不把圖示元件帶進評分頁的 JS。 */
+const PREVIEW_ICONS = { open: <IconEye aria-hidden />, close: <IconX aria-hidden /> }
 
 /** 每個作業只留最新一版（`submissions` 依作業、版本新到舊排）。 */
 export function latestByItem(rows: readonly SubmissionRow[]): SubmissionRow[] {
@@ -64,27 +67,38 @@ export function GroupSubmissions({
                 <p className="text-xs text-muted-foreground">沒有附件</p>
               ) : (
                 <ul aria-label={`${v.title}的附件`} className="flex flex-col gap-1.5">
-                  {v.attachments.map((f) =>
-                    f.mime === 'application/pdf' || f.mime.startsWith('image/') ? (
+                  {v.attachments.map((f) => {
+                    const info = (
+                      <>
+                        <span className="min-w-0 flex-1 break-all text-sm text-foreground">{f.name}</span>
+                        <span className="tabular shrink-0 text-xs text-muted-foreground">{formatBytes(f.sizeBytes)}</span>
+                      </>
+                    )
+                    const download = (
+                      <a href={`/api/files/${f.fileId}`} className={LINK}>
+                        <IconDownload aria-hidden />
+                        下載<span className="sr-only">：{f.name}</span>
+                      </a>
+                    )
+                    return f.mime === 'application/pdf' || f.mime.startsWith('image/') ? (
                       <PreviewableAttachment
                         key={f.fileId}
                         fileId={f.fileId}
                         name={f.name}
-                        mime={f.mime}
-                        sizeText={formatBytes(f.sizeBytes)}
+                        pdf={f.mime === 'application/pdf'}
                         previewable={isPreviewableMime(f.mime)}
-                      />
+                        icons={PREVIEW_ICONS}
+                        download={download}
+                      >
+                        {info}
+                      </PreviewableAttachment>
                     ) : (
                       <li key={f.fileId} data-testid="attachment" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2">
-                        <span className="min-w-0 flex-1 break-all text-sm text-foreground">{f.name}</span>
-                        <span className="tabular shrink-0 text-xs text-muted-foreground">{formatBytes(f.sizeBytes)}</span>
-                        <a href={`/api/files/${f.fileId}`} className={LINK}>
-                          <IconDownload aria-hidden />
-                          下載<span className="sr-only">：{f.name}</span>
-                        </a>
+                        {info}
+                        {download}
                       </li>
-                    ),
-                  )}
+                    )
+                  })}
                 </ul>
               )}
             </li>
