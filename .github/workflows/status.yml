@@ -73,7 +73,7 @@ jobs:
       - name: lint
         run: pnpm --ignore-workspace run lint
       # braces GHSA-vfj7-8cjw-p6xm 尚無修補版（first_patched_version: null），只在 lint 開發依賴路徑，
-      # 不進映像；有修補版時拿掉 --ignore 並升版。
+      # 不進映像；有修補版時拿掉 --ignore 並升版。追蹤 issue #570，說明見 status/README.md「已知豁免」。
       - name: audit
         run: pnpm --ignore-workspace audit --audit-level=high --ignore GHSA-vfj7-8cjw-p6xm
       - name: test
