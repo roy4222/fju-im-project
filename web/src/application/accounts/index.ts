@@ -13,9 +13,15 @@ export type {
   Role,
 } from '@/application/accounts/actor'
 export { ANONYMOUS, canPerform, hasRole, statusGate } from '@/application/accounts/actor'
-export type { ActorResolver } from '@/application/accounts/ports'
-export type { AvatarUser } from '@/application/accounts/avatar'
+export type { ActorResolver, AvatarCommand } from '@/application/accounts/ports'
+export type { AvatarChoice, AvatarUser } from '@/application/accounts/avatar'
 export { AVATAR_MAX_BYTES, AVATAR_PRESET_COUNT, avatarHashPreset, avatarUrl } from '@/application/accounts/avatar'
+export {
+  AVATAR_RESET_REASON_MAX,
+  AVATAR_UPLOAD_TYPES,
+  normalizeAvatarResetReason,
+  parseAvatarChoice,
+} from '@/application/accounts/avatar'
 export type {
   ChangePasswordInput,
   ChangePasswordOutcome,

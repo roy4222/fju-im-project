@@ -42,6 +42,8 @@ export const ERROR_CODES = [
   'PII_DETECTED',
   'FILE_REFERENCED',
   'FINAL_INCOMPLETE',
+  // 換掉或清掉的頭像（SH-9）：下載路由回 404，不導 /403。
+  'FILE_GONE',
   // 併發
   'CONFLICT',
   'REQUEST_MISMATCH',
@@ -119,6 +121,7 @@ const CATEGORY: Record<ErrorCode, ErrorCategory> = {
   ASSET_NOT_APPROVED: 'state',
   PII_DETECTED: 'state',
   FILE_REFERENCED: 'state',
+  FILE_GONE: 'state',
   FINAL_INCOMPLETE: 'state',
   CONFLICT: 'concurrency',
   REQUEST_MISMATCH: 'concurrency',

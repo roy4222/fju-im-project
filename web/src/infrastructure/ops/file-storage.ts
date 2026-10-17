@@ -73,7 +73,15 @@ export type FileStorageOptions = {
   readonly clock?: Clock
   /** ticket 有效時間，預設 15 分鐘。 */
   readonly ticketTtlMs?: number
+  /**
+   * 用途 → 收檔後的轉換（SH-9：頭像縮成 256×256 WebP、清掉 EXIF）。內容檢查通過後、標 `stored` 之前套用，
+   * 存下來的是輸出，`size_bytes`、`checksum`、`mime_detected` 都以輸出重算。轉換丟錯＝這個檔不收
+   * （`FILE_TYPE_REJECTED`），列維持 `uploading` 等 GC，永遠不會變成可下載的檔。
+   */
+  readonly transforms?: Partial<Record<FilePurpose, FileTransform>>
 }
+
+export type FileTransform = (input: Buffer) => Promise<{ bytes: Buffer; mime: string }>
 
 type FileRow = {
   id: string
@@ -91,6 +99,15 @@ type FileRow = {
 }
 
 const DENIED = '無法存取這個檔案。'
+
+/**
+ * 換掉或清掉的頭像（`soft_deleted`／`purged`）回 404（SH-9，設計方案 §2.2.3 ▶R2-5）：頭像網址本來就在每個人的 HTML 裡，
+ * 404 不洩漏什麼，又能讓帶舊 ETag 回來問的瀏覽器拿不到 304。只限這兩種狀態的 avatar：`uploading`（含縮圖失敗留下的列）
+ * 與其他用途的非 stored 檔照舊是「無法存取」（私有檔的「不存在」與「不是你的」仍同一句話）。
+ */
+function isGoneAvatar(row: Pick<FileRow, 'purpose' | 'status'>): boolean {
+  return row.purpose === 'avatar' && (row.status === 'soft_deleted' || row.status === 'purged')
+}
 
 function meta(now: Date) {
   return { requestId: uuidv7(), serverTime: now.toISOString() }
@@ -242,8 +259,24 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       return failure
     }
 
-    const checksum = hash.digest('hex')
-    const mimeDetected = FILE_TYPES[claims.type].canonicalMime
+    let checksum = hash.digest('hex')
+    let mimeDetected = FILE_TYPES[claims.type].canonicalMime
+    let sizeBytes = received
+    const transform = this.#options.transforms?.[row.purpose]
+    if (transform) {
+      // 暫存檔已經限過大小（頭像 ≤ 2 MiB），整個讀進記憶體處理，再用輸出覆寫暫存檔。
+      let output: { bytes: Buffer; mime: string }
+      try {
+        output = await transform(await fs.readFile(tempPath))
+      } catch {
+        await fs.rm(tempPath, { force: true })
+        return err('FILE_TYPE_REJECTED', '這張圖片無法處理，請換一張。')
+      }
+      await fs.writeFile(tempPath, output.bytes, { mode: 0o600 })
+      checksum = createHash('sha256').update(output.bytes).digest('hex')
+      mimeDetected = output.mime
+      sizeBytes = output.bytes.length
+    }
     try {
       await fs.mkdir(path.dirname(finalPath), { recursive: true })
       await fs.rename(tempPath, finalPath)
@@ -252,7 +285,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
             set status = 'stored', size_bytes = $2, checksum = $3, mime_detected = $4,
                 finalized_at = $5, revision = revision + 1, updated_at = $5
           where id = $1 and status = 'uploading'`,
-        [row.id, received, checksum, mimeDetected, this.#clock.now()],
+        [row.id, sizeBytes, checksum, mimeDetected, this.#clock.now()],
       )
       if (updated.rowCount !== 1) {
         await fs.rm(finalPath, { force: true })
@@ -265,7 +298,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     }
 
     return ok(
-      { fileId: row.id, originalName: row.original_name, sizeBytes: received, checksum, mimeDetected },
+      { fileId: row.id, originalName: row.original_name, sizeBytes, checksum, mimeDetected },
       meta(now),
     )
   }
@@ -382,16 +415,21 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     const found = await this.#options.db().query<FileRow>(
       `select id, owner_user_id, purpose, scope, cohort_id, status, storage_key, original_name, extension,
               size_bytes, checksum, mime_detected
-         from stored_files where id = $1 and status = 'stored'`,
+         from stored_files where id = $1`,
       [fileId],
     )
-    const row = found.rows[0]
+    const candidate = found.rows[0]
     // 「沒有這個檔」也照樣查一次引用再拒絕：跟「有這個檔但不是你的」走同樣的查詢，
     // 回同一句話，回應時間也不會因為少查一次而露出檔案存不存在。
     const refs = await this.#options.db().query<{ ref_type: FileRef['refType']; ref_id: string }>(
       `select ref_type, ref_id from file_references where file_id = $1 and released_at is null`,
       [fileId],
     )
+    // 換掉的頭像：登入者（狀態正常）拿 404；訪客與狀態被擋的人跟其他拒絕一樣（401／無法存取）。
+    if (candidate && isGoneAvatar(candidate) && !anonymous && !gatedToVisitor) {
+      return err('FILE_GONE', '這張頭像已經換掉了。')
+    }
+    const row = candidate?.status === 'stored' ? candidate : undefined
     if (!row) return denied()
     if (gatedToVisitor && !this.#options.publicReadPurposes!.includes(row.purpose)) return denied()
 
@@ -424,6 +462,7 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     return ok(
       {
         fileId: row.id,
+        purpose: row.purpose,
         originalName: row.original_name,
         sizeBytes: Number(row.size_bytes),
         mime: row.mime_detected ?? 'application/octet-stream',

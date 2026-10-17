@@ -53,6 +53,7 @@ import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
+import { softDeleteAvatarFile } from '@/infrastructure/accounts/avatar-store'
 
 /**
  * 帳號列表、停用／恢復、批次停用與匯出（工程模組 01 §3 active⇄disabled、§5 `AccountCommand`／`UserDirectoryQuery`；票 9）。
@@ -1096,10 +1097,18 @@ async function scrubPersonalData(tx: PoolClient, userId: string, now: Date): Pro
       where id = $1`,
     [userId, pseudonym, email, now],
   )
+  // 頭像（SH-9，Q105）：兩欄清成 null（回到 hash 預設圖），上傳過的那張同一交易標刪，舊網址馬上 404。
+  const avatar = await tx.query<{ avatar_file_id: string | null }>(
+    'select avatar_file_id from user_profiles where user_id = $1 for update',
+    [userId],
+  )
+  const avatarFileId = avatar.rows[0]?.avatar_file_id
+  if (avatarFileId) await softDeleteAvatarFile(tx, avatarFileId, now)
   await tx.query(
     `update user_profiles
         set display_name = $2, name_normalized = $2, student_no = null, department_class = null, phone = null,
             contact_email = $3, open_to_join = false, login_method_last = null,
+            avatar_preset = null, avatar_file_id = null,
             revision = revision + 1, updated_at = $4
       where user_id = $1`,
     [userId, pseudonym, email, now],
