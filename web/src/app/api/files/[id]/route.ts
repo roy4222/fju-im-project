@@ -6,6 +6,7 @@ import { contentDisposition, downloadFile, isCacheableDownload, PUBLIC_IMAGE_MAX
  * 別人拿到這個網址也沒用——網址裡的 ID 猜不到，但**不靠猜不到保密**：
  * 沒登入 401、沒權限 403，而且「沒有這個檔」跟「不是你的」回一模一樣的 403。
  * 瀏覽器直接開網址時，同樣的結果改成導去登入頁或 `/403`（見 `isDocumentNavigation`）。
+ * 唯一的例外是換掉或清掉的頭像（`FILE_GONE`，SH-9）：一律 404，瀏覽器直接開也是，不導 `/403`。
  */
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,12 @@ const PUBLIC_IMAGE = {
 }
 
 /**
+ * 上傳的頭像（SH-9，B 設計方案 §2.2.3 ▶R-6）：瀏覽器可以存，但**每次用之前都要回來問**（`no-cache`），
+ * 所以換圖或重設後舊網址立刻 404（Q109）；沒換就是 304，不必重傳。只給登入者看，所以是 `private`。
+ */
+const AVATAR = { 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff' }
+
+/**
  * `If-None-Match` 裡有沒有這個 ETag（逗號分隔、弱比較：去掉 `W/` 再比）。
  * `*` 不當命中：只有明確帶著這張圖的 ETag 才回 304，多回一次 200 不會錯。
  */
@@ -44,6 +51,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const result = await downloadFile(request.headers, id)
   if (!result.ok) {
+    if (result.code === 'FILE_GONE') {
+      return Response.json({ ok: false, code: result.code, message: result.message }, { status: 404, headers: PRIVATE })
+    }
     // 沒登入去登入頁（登入後直接下載）；不是你的、已下架、不存在一律 /403，三者導向相同。
     // 導向也帶 no-store：快取住匿名時的導向，登入後會被彈回登入頁。INTERNAL 不導，維持 500 JSON。
     if (result.code !== 'INTERNAL' && isDocumentNavigation(request.headers)) {
@@ -55,13 +65,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   const file = result.receipt
-  // 先授權、再看 If-None-Match：下架或換圖後帶舊 ETag 重打，拿到的是上面的 401／403／303，不是 304。
+  // 先授權、再看 If-None-Match：下架或換圖後帶舊 ETag 重打，拿到的是上面的 401／403／303／404，不是 304。
   const cacheable = isCacheableDownload(file)
-  const etag = cacheable && file.checksum ? `"${file.checksum}"` : null
+  const avatar = file.purpose === 'avatar'
+  const cacheHeaders = cacheable ? PUBLIC_IMAGE : avatar ? AVATAR : PRIVATE
+  const etag = (cacheable || avatar) && file.checksum ? `"${file.checksum}"` : null
   if (etag && matchesETag(request.headers.get('if-none-match'), etag)) {
     // 授權時已經開了檔（串流），不讀就要取消，否則檔案描述子要等 GC 才關，大量 304 會把 fd 用完。
     await file.body.cancel()
-    return new Response(null, { status: 304, headers: { ...PUBLIC_IMAGE, etag } })
+    return new Response(null, { status: 304, headers: { ...cacheHeaders, etag } })
   }
   // 沒有另外寫 HEAD：Next 拿 GET 來回 HEAD、只送標頭，不會替我們關掉串流；同 304，先取消再回。
   const head = request.method === 'HEAD'
@@ -69,11 +81,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return new Response(head ? null : file.body, {
     status: 200,
     headers: {
-      ...(cacheable ? PUBLIC_IMAGE : PRIVATE),
+      ...cacheHeaders,
       ...(etag ? { etag } : {}),
       // 一律下載、不在瀏覽器裡開：就算內容被判讀成 HTML 也不會在本站網域執行。
       'content-type': file.mime,
-      'content-disposition': contentDisposition(file.originalName),
+      // 頭像所有登入者都拿得到：不帶原始檔名（可能是「身分證.jpg」之類），內容也已經轉成 WebP。
+      'content-disposition': contentDisposition(avatar ? 'avatar.webp' : file.originalName),
       'content-length': String(file.sizeBytes),
       'content-security-policy': "default-src 'none'; sandbox",
       'x-file-checksum-sha256': file.checksum,
