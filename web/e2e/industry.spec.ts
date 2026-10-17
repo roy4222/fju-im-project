@@ -361,7 +361,7 @@ test('系辦把產學組連結到合作案、換案（換案理由必填，全�
   await expect(page.getByRole('main')).not.toContainText('和企業討論後')
 })
 
-test('案主解除連結：理由必填，該組與案主收到通知；組員的頁面顯示還沒有連結', async ({ page }) => {
+test('案主解除連結：理由必填，該組與案主收到通知；組員在「紀錄」看到解除', async ({ page }) => {
   await signIn(page, ownerB)
   await page.goto('/dashboard/teacher/industry')
   const item = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY_B })
