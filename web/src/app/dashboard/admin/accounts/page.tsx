@@ -56,7 +56,7 @@ const VERIFICATION_LABELS: VerificationLabels = {
   teacherNoteHint: { ...VERIFICATION_NOTE_HINT, id_document: '選填，例如「10/9 系辦核對教職員證」' },
 }
 
-export const metadata = { title: '帳號管理｜資管系專題平台' }
+export const metadata = { title: '帳號｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/accounts'
 
