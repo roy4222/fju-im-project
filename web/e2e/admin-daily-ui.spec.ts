@@ -97,7 +97,7 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
   ).rows[0]!.id
 
   await page.goto('/dashboard/admin/files')
-  await expect(page.getByRole('heading', { name: '檔案管理', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
   // 側欄有「檔案管理」且標成目前這一頁。
   await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '檔案管理' })).toHaveAttribute(
     'aria-current',

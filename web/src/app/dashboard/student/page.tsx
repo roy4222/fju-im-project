@@ -1,116 +1,111 @@
 import Link from 'next/link'
-import { IconChevronRight, IconSchool } from '@tabler/icons-react'
+import { IconChevronRight, IconFileText, IconPin, IconSignature } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
-import { daysBetween, HomeHero, loadStage, type HeroChip, type HeroNext } from '@/app/dashboard/_stage'
-import { Panel, PanelEmpty } from '@/app/dashboard/_home'
+import { HomeHero, loadStage, type HeroNext } from '@/app/dashboard/_stage'
+import { Panel, PanelEmpty, Pill } from '@/app/dashboard/_home'
 import { DashboardShell } from '@/app/_ui/site-shell'
+import { SectionHead, TodoCard, type Tone } from '@/app/_ui/dashboard/cards'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
-import { StudentCalendar, type CalendarEntry } from '@/app/dashboard/student/_calendar'
-import { calendarEntries, upcoming } from '@/app/dashboard/student/calendar-entries'
-import { homePendingLine } from '@/app/dashboard/student/home-pending'
-import { getTimelineQuery } from '@/composition/cohorts'
-import { getGroupQuery } from '@/composition/groups'
+import { dueText } from '@/app/dashboard/student/_todo/due-text'
+import { homeTodos, nextDue, studentItems, studentOpenCount, studentTodos, type StudentTodo } from '@/app/dashboard/student/_todo/todos'
 import { getPublicItemQuery } from '@/composition/items'
-import { getSignoffQuery } from '@/composition/signoff'
-import { getSubmissionQuery, pendingCount, receiverStatus } from '@/composition/submissions'
-import { cn } from '@/shared/cn'
-import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
+import { taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '學生首頁｜資管系專題平台' }
 
 const BASE = '/dashboard/student'
 
+/** 待辦卡顏色（學生規格 §3.2）：同意書待表態是紫色，其他照狀態；顏色本身由 `TodoCard` 的 `data-tone` 處理。 */
+function toneOf(todo: StudentTodo): Tone {
+  if (todo.kind === 'consent' && todo.status === 'open') return 'violet'
+  switch (todo.status) {
+    case 'overdue':
+      return 'overdue'
+    case 'soon':
+      return 'soon'
+    case 'open':
+      return 'open'
+    case 'notOpen':
+      return 'neutral'
+    case 'done':
+    case 'exempt':
+      return 'done'
+  }
+}
+
 /**
- * 學生首頁（2026-09-25 外觀對齊原型 `home-student`，區塊與順序照原型；Roy 2026-09-10：四塊壓一屏）：
- * 左欄歡迎色塊（現在階段、下一步、本屆階段、作業／組別／同意書三格）＋公告；右欄專題行事曆＋接下來。
+ * 學生首頁（ST-2，學生規格 §3.2）：「現在」橫幅 → 待辦卡（最多 5 張）→ 公告 5 則。
  *
- * 讀取全部是既有、只讀本人的查詢：作業區的 `myItems`、本人可見的截止與屆別活動、本人的組別、
- * 本人組別的簽核版本、本人看得到的公告（依角色與屆別過濾）。
+ * 待辦與「下一件要交的」都從 ST-1 的 `studentTodos` 來（跟側欄徽章、交作業列表同一份清單），不在這頁另算。
+ * 行事曆與「接下來」搬到前台 `/timeline`，橫幅的「看完整時程」連過去。
  */
 export default async function StudentHomePage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住，App Router 會把 layout 與 page 並行渲染，
   // layout 丟掉 children 或 redirect 都來不及——那一頁已經被做出來、跟著 payload 送走了。
   const actor = await requireRole(BASE, 'student')
-  const ctx = await loadStage(actor, 'student')
-
-  // 行事曆（票 16）：屆別活動（票 11）＋收件截止（票 15），都是現有資料組出來的，不另外存。
-  // 看哪一屆跟頂端的階段一樣：自己所屬的屆別。「今天」用業務鐘（測試站撥模擬鐘，月曆跟著走）。
-  const cohortId = ctx.cohort?.id
-  // 待繳交（票 18）：跟作業區「待繳」、管理員名單頁「未繳」同一份查詢（`myItems`）、同一個狀態函式。
   const userId = actor.kind === 'authenticated' ? actor.userId : ''
-  const [activities, deadlines, myItems, groupView, signoff, news] = await Promise.all([
-    cohortId ? getTimelineQuery().activities(cohortId) : Promise.resolve([]),
-    getPublicItemQuery().myDeadlines(actor),
-    getSubmissionQuery().myItems(userId),
-    cohortId ? getGroupQuery().studentView(userId, cohortId) : Promise.resolve(null),
-    getSignoffQuery().studentView(actor),
+  // `studentItems` 有 React cache：`studentTodos` 已經讀過，這裡只是拿同一個業務鐘的「現在」算截止字。
+  const [ctx, todos, [, now], news] = await Promise.all([
+    loadStage(actor, 'student'),
+    studentTodos(userId),
+    studentItems(userId),
     getPublicItemQuery().list(actor, 'news', { limit: 5 }),
   ])
-  const today = ctx.today
-  const entries = calendarEntries(activities, deadlines)
-  const next8 = upcoming(entries, today, 8)
-  // 待繳含逾期未繳（驗收第 2 章 P-08）：逾期的要找系辦補交，不能說「沒有待繳」。
-  const pending = pendingCount(myItems, ctx.businessNow)
-  const overdue = myItems.filter((i) => receiverStatus(i, i, ctx.businessNow).overdue).length
 
-  // 下一步＝還沒送出、最早截止的那一份（原型 Codex S-05）。
-  const nextItem = myItems
-    .filter((i) => i.dueAt && receiverStatus(i, i, ctx.businessNow).pending)
-    .sort((a, b) => a.dueAt!.getTime() - b.dueAt!.getTime())[0]
-  const next: HeroNext | undefined = nextItem?.dueAt
-    ? (() => {
-        const due = taipeiDateOf(nextItem.dueAt)
-        const d = daysBetween(today, due)
-        return {
-          title: nextItem.title,
-          due: `${formatTaipeiDate(due).slice(5)} 截止・${d === 0 ? '今天' : `剩 ${d} 天`}`,
-          href: `${BASE}/affairs/${nextItem.itemId}`,
-          label: nextItem.hasDraft ? '繼續填寫' : '去繳交',
-        }
-      })()
+  const upNext = nextDue(todos)
+  const next: HeroNext | undefined = upNext
+    ? { title: upNext.title, due: dueText(upNext, now), href: upNext.href, label: upNext.draft ? '繼續填寫' : '去交' }
     : undefined
-
-  // 組員確認：已成組看組別；提案中看全員確認進度；都沒有就是還沒分組。
-  const group = groupView?.group ?? null
-  const proposal = groupView?.openProposal ?? null
-  const groupChip: HeroChip = group
-    ? { label: '我的組別', value: `${group.code}・${group.members.length} 人`, href: `${BASE}/groups` }
-    : proposal
-      ? {
-          label: '組員確認',
-          value: `${proposal.invitations.filter((i) => i.state === 'confirmed').length}/${proposal.invitations.length}`,
-          href: `${BASE}/groups`,
-          hot: true,
-        }
-      : { label: '我的組別', value: '還沒分組', href: `${BASE}/groups` }
-  // 同意書（票 26）：輪到我表態的版本數；沒有就顯示目前有幾份。
-  const current = signoff.versions.filter((v) => v.isCurrent)
-  const mine = current.filter((v) => v.viewer.canRespond).length
-
+  const cards = homeTodos(todos)
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'
-  const line = homePendingLine(pending, overdue)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current={BASE}>
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="flex min-w-0 flex-col gap-5">
-          <HomeHero
-            ctx={ctx}
-            perspective="student"
-            name={name}
-            line={line}
-            next={next}
-            showStages
-            showProgress
-            icon={<IconSchool strokeWidth={1.4} />}
-            chips={[
-              { label: '作業待繳', value: `${pending} 件`, href: `${BASE}/affairs?tab=open`, hot: pending > 0, testId: 'home-pending' },
-              groupChip,
-              { label: '同意書', value: mine ? '等你同意' : `${current.length} 份`, href: `${BASE}/signoff`, hot: mine > 0 },
-            ]}
-          />
+      <div className="flex flex-col gap-6">
+        <HomeHero
+          ctx={ctx}
+          perspective="student"
+          name={name}
+          line={upNext ? `下一件要交的是「${upNext.title}」` : '目前沒有要交的'}
+          timelineHref="/timeline"
+          next={next ?? <p className="text-[15px] font-bold">目前沒有要交的</p>}
+          trail
+        />
 
-          <Panel title="公告" action={{ href: '/news', label: '全部' }} className="min-h-0 flex-1">
+        <section aria-label="待辦" className="flex flex-col gap-3">
+          <SectionHead title="待辦" count={studentOpenCount(todos)} action={{ label: '全部作業', href: `${BASE}/affairs` }} />
+          {cards.length === 0 ? (
+            <p className="text-sm text-muted-foreground">目前沒有要交的作業</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {cards.map((todo) => (
+                <TodoCard
+                  key={`${todo.kind}-${todo.id}`}
+                  tone={toneOf(todo)}
+                  icon={todo.kind === 'consent' ? <IconSignature /> : <IconFileText />}
+                  title={todo.title}
+                  meta={
+                    // 整組一份的作業加小字「整組」（Q128）。
+                    todo.unit === 'group' ? (
+                      <>
+                        <span className="font-semibold">整組</span>・{dueText(todo, now)}
+                      </>
+                    ) : (
+                      dueText(todo, now)
+                    )
+                  }
+                  pill={{ label: todo.label }}
+                  href={todo.href}
+                  testId={`todo-${todo.id}`}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 「公告」區的結構（region 名「公告」、Panel 標題、`/news/` 連結列）是 AC-V10 `item-pin.spec.ts` 的定位，不要改。 */}
+        <div role="region" aria-label="公告">
+          <Panel title="公告" action={{ href: '/news', label: '全部公告' }}>
             {news.length === 0 ? (
               <PanelEmpty>目前沒有公告。</PanelEmpty>
             ) : (
@@ -126,8 +121,16 @@ export default async function StudentHomePage() {
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-semibold text-foreground">{n.title}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {n.category ?? '公告'}
+                          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            {n.pinnedAt ? (
+                              <Pill tone="brand">
+                                <span data-testid="pinned-tag" className="inline-flex items-center">
+                                  <IconPin className="mr-0.5 size-3" aria-hidden />
+                                  置頂
+                                </span>
+                              </Pill>
+                            ) : null}
+                            <span className="truncate">{n.category ?? '公告'}</span>
                           </span>
                         </span>
                         <IconChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -139,73 +142,7 @@ export default async function StudentHomePage() {
             )}
           </Panel>
         </div>
-
-        <div className="flex min-w-0 flex-col gap-5">
-          {/* 「專題行事曆」只有學生看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋。 */}
-          <Panel title="專題行事曆" description="系辦設定" tint="sky" className="shrink-0">
-            <StudentCalendar entries={entries} today={today} />
-          </Panel>
-
-          <Panel title="接下來" action={{ href: `${BASE}/affairs`, label: '我的繳交' }} className="min-h-0 flex-1">
-            <UpcomingList entries={next8} today={today} />
-          </Panel>
-        </div>
       </div>
     </DashboardShell>
-  )
-}
-
-/** 接下來（原型 UpcomingCard）：本週／之後兩段，左邊是「還有幾天」的色塊。 */
-function UpcomingList({ entries, today }: { entries: readonly CalendarEntry[]; today: string }) {
-  if (entries.length === 0) {
-    return <PanelEmpty>最近沒有繳交截止或活動。系辦排上活動、發布繳交項目後會出現在這裡。</PanelEmpty>
-  }
-  const withDays = entries.map((e) => ({ ...e, days: daysBetween(today, e.date) }))
-  const groups = [
-    { label: '本週', items: withDays.filter((e) => e.days <= 7) },
-    { label: '之後', items: withDays.filter((e) => e.days > 7) },
-  ].filter((g) => g.items.length > 0)
-  return (
-    <div className="flex flex-col gap-1 px-3 pb-3" data-testid="upcoming">
-      {groups.map((g) => (
-        <div key={g.label}>
-          <p className="px-2 pt-1 pb-1 text-[11px] font-bold tracking-[0.06em] text-muted-foreground">{g.label}</p>
-          <ul className="flex flex-col gap-1">
-            {g.items.map((e) => {
-              const body = (
-                <>
-                  <span
-                    className={cn(
-                      'tint spot size-11 shrink-0 rounded-xl text-[13px] font-extrabold tabular-nums',
-                      e.kind === 'deadline' ? 'tint-peach' : 'tint-sky',
-                    )}
-                  >
-                    {e.days === 0 ? '今' : `${e.days}天`}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-bold text-foreground">{e.title}</span>
-                    <span className="block truncate text-xs text-muted-foreground tabular-nums">
-                      {e.kind === 'deadline' ? '截止' : '活動'}・{formatTaipeiDate(e.date).slice(5)} {e.time}
-                    </span>
-                  </span>
-                  {e.href ? <IconChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
-                </>
-              )
-              return (
-                <li key={e.id}>
-                  {e.href ? (
-                    <Link href={e.href} className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-accent/60">
-                      {body}
-                    </Link>
-                  ) : (
-                    <div className="flex items-center gap-3 rounded-xl px-2 py-2">{body}</div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      ))}
-    </div>
   )
 }
