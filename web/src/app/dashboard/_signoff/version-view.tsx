@@ -86,7 +86,7 @@ export function VersionView({
             {v.groupCode}・{PURPOSE_LABEL[v.purpose]}・同意書第 {v.versionNo} 版
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {cohortLabel({ name: v.cohortName, code: v.cohortCode })}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+            {cohortLabel({ name: v.cohortName, code: v.cohortCode })}・{v.createdByName} 建立於 {formatTaipeiMinute(v.createdAt)}・文件一致性檢查碼（有爭議時查看） {v.contentChecksum.slice(0, 12)}
             （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
           </p>
         </div>
@@ -117,7 +117,7 @@ export function VersionView({
                   {a.name}
                 </a>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
+                  {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼（有爭議時查看） {a.checksum.slice(0, 12)}
                 </span>
               </li>
             ))}

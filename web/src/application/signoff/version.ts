@@ -37,7 +37,7 @@ export const CAUSE_LABEL: Readonly<Record<SupersedeCause, string>> = {
   member_change: '組員變更',
   advisor_change: '指導老師變更',
   content_change: '內容變更',
-  reset: '系辦重置',
+  reset: '系辦重新收集同意',
 }
 
 /** 失效或作廢的原因給人看的樣子：是四種代碼之一就翻成中文，否則是管理員填的理由原文。 */

@@ -31,7 +31,7 @@ const FORMAT_LABEL = { printable: '可列印頁', csv: 'CSV 明細' } as const
 
 /**
  * 重新收集／重開的顯示字（AD-09，用詞 #3「重置」→「重新收集同意（內容不變）」）。
- * 只改這頁的按鈕、確認視窗與成功回執；後端拒絕字與失效原因仍用 `RESTART_LABEL`（「重置」），要改另開票。
+ * 這頁的按鈕、確認視窗與成功回執用這裡的字；後端拒絕字用 `RESTART_LABEL`、失效原因用 `describeCause()`，都已改成「重新收集同意」（A-16）。
  */
 const RESTART_UI: Readonly<Record<RestartKind, { button: string; title: string; confirm: string; done: string }>> = {
   reset: { button: '重新收集同意（內容不變）', title: '重新收集同意？', confirm: '確定重新收集', done: '已重新收集' },

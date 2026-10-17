@@ -191,7 +191,7 @@ export function buildProgress(participants: Participants, votes: readonly VoteRe
  */
 export type RestartKind = 'reset' | 'reopen'
 
-export const RESTART_LABEL: Readonly<Record<RestartKind, string>> = { reset: '重置', reopen: '重開新版' }
+export const RESTART_LABEL: Readonly<Record<RestartKind, string>> = { reset: '重新收集同意', reopen: '重開新版' }
 
 export function restartKindFor(state: SignoffState): RestartKind {
   return state === 'collecting' || state === 'teacher_pending' || state === 'complete' ? 'reset' : 'reopen'
