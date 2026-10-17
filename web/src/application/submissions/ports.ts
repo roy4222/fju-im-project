@@ -10,7 +10,7 @@ import type { Result } from '@/shared/result'
  *
  * 寫入的 port 自己做授權（在目前收件名單上、帳號正常、不是免填；組別收件還要此刻是那一組的有效組員）；
  * 收件者（本人或本組）一律由伺服器從登入者推出來，畫面不能指定。
- * 查詢的 port 只回「這個人自己的（或自己這一組的）」，呼叫它的頁面另外守角色。名單管理、免填、重開在後面的票（S08）。
+ * 查詢的 port 只回「這個人自己的（或自己這一組的）」，呼叫它的頁面另外守角色。系辦的個別補交見 `reopen`（W10）、設免繳／恢復見 `setExempt`（B 階段 A-08）；名單的加入與移出在後面的票（S08）。
  */
 
 export type DraftReceipt = {
@@ -67,6 +67,24 @@ export type ReopenInput = {
   readonly reason: string
 }
 
+/** 設免繳或恢復的輸入（B 階段 A-08；設計方案 §6）。 */
+export type ExemptInput = {
+  readonly itemId: string
+  /** 個人一份＝學生的 user id；整組一份＝組別 id。 */
+  readonly receiverId: string
+  /** true＝設免繳；false＝恢復需繳交。 */
+  readonly exempt: boolean
+  /** 設免繳時必填 1–200 字（系辦名單與稽核看得到，開放老師閱覽時主指導也看得到；不通知學生）；恢復時不用。 */
+  readonly reason?: string
+}
+
+/** 設免繳或恢復之後的回執（A-08）。 */
+export type ExemptReceipt = {
+  readonly itemId: string
+  readonly receiverId: string
+  readonly exempt: boolean
+}
+
 export interface SubmissionCommand {
   /**
    * 存草稿（個人收件）。`revision` 是畫面讀到的草稿版本號（還沒有草稿＝0）；
@@ -98,6 +116,15 @@ export interface SubmissionCommand {
    * 只通知那一位（整組＝那一組目前的組員）；其他人的截止規則完全不變。不改名單、不動項目的截止時間。
    */
   reopen(actor: ResolvedActor, itemId: string, receiverId: string, input: ReopenInput, requestId: string): Promise<Result<ReopenReceipt>>
+  /**
+   * 系辦對目前名單上的一位學生（整組一份：一組）設免繳或恢復（B 階段 A-08；設計方案 §6）。
+   * 改的是目前那一列名單（`exempt`、`exempt_reason`，恢復時理由清成 null），不刪列、不動任何繳交：
+   * 已經正式送出過的人也能設免繳，版本與附件原樣保留，恢復後照原狀態顯示（Q-A3）。不通知學生。
+   * 守門：不是系辦 `FORBIDDEN`；設免繳理由不是 1–200 字 `VALIDATION_FAILED`（`details.field='reason'`）；
+   * 找不到作業或作業不收件 `VALIDATION_FAILED`；屆別封存 `COHORT_ARCHIVED`；不在目前名單 `NOT_IN_ROSTER`；
+   * 已經是同一個狀態 `CONFLICT`。同一個 `requestId` 重送回第一次的回執。
+   */
+  setExempt(actor: ResolvedActor, input: ExemptInput, requestId: string): Promise<Result<ExemptReceipt>>
 }
 
 // ── 查詢 ──────────────────────────────────────────────────────────────────────

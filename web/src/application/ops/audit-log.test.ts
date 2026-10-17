@@ -62,6 +62,15 @@ const ALSO_LABELED: readonly string[] = [
   'home.reset',
   'submission.reopen',
   'submission.reopened',
+  // B 階段預先登記、還沒有程式寫入的代碼（各票寫入後移到 WRITTEN_AUDIT_ACTIONS）。
+  'cohort.archive',
+  'cohort.unarchive',
+  'grading.settle',
+  'grading.release',
+  'item.rule_moved',
+  'account.avatar_update',
+  'account.avatar_reset',
+  'account.stale_signup_scrubbed',
 ]
 
 /**
@@ -143,6 +152,8 @@ const WRITTEN_AUDIT_ACTIONS: readonly string[] = [
   'submission.submit',
   'submission.advisor_visibility.enable',
   'submission.advisor_visibility.disable',
+  'submission.exempt_set',
+  'submission.exempt_cleared',
   'grading.assign',
   'grading.assignment_remove',
   'grading.export',

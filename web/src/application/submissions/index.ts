@@ -49,6 +49,8 @@ export type {
   AdvisorVisibilityView,
   AnswerFile,
   DraftReceipt,
+  ExemptInput,
+  ExemptReceipt,
   GroupSummary,
   ItemCompletionFacts,
   ItemRoster,
