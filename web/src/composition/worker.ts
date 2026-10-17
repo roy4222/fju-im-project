@@ -8,6 +8,7 @@ import { getProposalExpiryHandler } from '@/composition/groups'
 import { businessClockOverrideEnabled, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter } from '@/composition/ops'
 import { SqlBanStateGateway } from '@/infrastructure/accounts/ban-state'
+import { scrubStaleSignups } from '@/infrastructure/accounts/stale-signup-cleanup'
 import { PgSessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation-executor'
 import { getPool } from '@/infrastructure/db/client'
 import { purgeMailOutbox } from '@/infrastructure/mail/mail-outbox-cleanup'
@@ -27,6 +28,7 @@ import {
  * - 投影：每 5 秒把事件投影成通知；每一輪都寫心跳（`/api/health` 的 `worker.lastTickAt`）。
  * - 到期工作：每 30 秒看業務鐘，撿到期的工作交給 handler（提案到期；測試站另有 `test_noop`）。
  * - 撤 session 收斂：每 5 分鐘回收過期租約、做掉排著的工作、核對停用／恢復是否真的生效。
+ * - 半成品帳號清理：每小時把滿 7 天沒完成註冊的帳號清密碼、刪 session（VB-14）。
  *
  * 啟動時每個迴圈都先立刻跑一次：部署的健康判定只等 60 秒，心跳要在那之前出現。
  * 磁碟用量不在這裡量（A-17）：由 status collector 負責。
@@ -41,6 +43,7 @@ export type WorkerOptions = {
   dueWorkIntervalMs?: number
   reconcileIntervalMs?: number
   mailOutboxCleanupIntervalMs?: number
+  staleSignupCleanupIntervalMs?: number
   /** 拿著鎖的連線斷了：鎖已經不在，進程要結束讓 Compose 重啟（不然可能兩個 worker 同時跑）。 */
   onLockLost?: (error: unknown) => void
   log?: (message: string, detail?: Record<string, unknown>) => void
@@ -140,6 +143,12 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
   every('寄信紀錄清理', options.mailOutboxCleanupIntervalMs ?? 6 * 60 * 60 * 1000, async () => {
     const purged = await purgeMailOutbox(pool, new Date())
     log(`mail outbox purged: ${purged}`)
+  })
+
+  // 半成品帳號 7 天軟性處理（VB-14）：每小時一次。
+  every('半成品帳號清理', options.staleSignupCleanupIntervalMs ?? 60 * 60 * 1000, async () => {
+    const scrubbed = await scrubStaleSignups(pool, new Date(), { audit: getAuditWriter(), businessAt: await businessClock.now() })
+    if (scrubbed > 0) log('半成品帳號清理完成一輪', { scrubbed })
   })
 
   log('背景工作已啟動（拿到單一實例鎖）', { version: options.version })
