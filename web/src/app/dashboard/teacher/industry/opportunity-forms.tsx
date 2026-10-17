@@ -272,8 +272,8 @@ export function LinkedGroupsCell({
   requestId,
   reasonMaxLength,
 }: {
-  /** `cohortLabel`：屆別顯示名稱「名稱（代碼）」，由伺服器端算好。 */
-  links: readonly { linkId: string; groupCode: string; cohortLabel: string }[]
+  /** `cohortLabel`：屆別顯示名稱「名稱（代碼）」，由伺服器端算好；`linkedByName`：誰連的（TE-B3）。 */
+  links: readonly { linkId: string; groupCode: string; cohortLabel: string; linkedByName: string }[]
   opportunityName: string
   requestId: string
   reasonMaxLength: number
@@ -297,6 +297,7 @@ export function LinkedGroupsCell({
               <span className="tabular truncate font-semibold text-foreground">
                 {l.cohortLabel}・{l.groupCode}
               </span>
+              <span>由 {l.linkedByName} 連結</span>
               <button
                 type="button"
                 className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
