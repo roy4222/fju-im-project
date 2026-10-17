@@ -129,7 +129,8 @@ test.beforeAll(async () => {
 
   server = spawn(process.execPath, [path.join(webRoot, 'node_modules/next/dist/bin/next'), 'start', '-p', String(GA_PORT)], {
     cwd: webRoot,
-    env: { ...process.env, GA4_MEASUREMENT_ID: 'G-TEST', PORT: String(GA_PORT) },
+    // BETTER_AUTH_URL 指向這一台：同分頁登入、登出的案例要在這一台走真的登入表單。
+    env: { ...process.env, GA4_MEASUREMENT_ID: 'G-TEST', PORT: String(GA_PORT), BETTER_AUTH_URL: GA_URL },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   server.stdout?.on('data', (chunk) => (serverLog += chunk))
@@ -246,6 +247,50 @@ test('AC-VI-68、AC-VI-78 學生：搜尋字不外流、角色 student；作品�
   expectDeidentifiedPageViews(c)
   expectNoPii(c, ['王小明', 'wang@example.com', '?q=', stamp, entryId, 'dQw4w9WgXcQ', student.email])
   expect(cspErrors).toEqual([])
+  await context.close()
+})
+
+test('AC-VI-68 同分頁登入、登出（不整頁重載）：之後的 page_view 角色跟著變成 student、再回到 guest', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: GA_URL })
+  const student = await sharedTestSession(context.request, 'student')
+  const c = await capture(context)
+  const page = await context.newPage()
+  const roleViews = (role: string) => events(c, 'page_view').filter((hit) => hit['up.role'] === role)
+
+  await page.goto('/')
+  await expect.poll(() => roleViews('guest').length, { timeout: 15_000 }).toBeGreaterThan(0)
+  // 整頁重載會把這個記號洗掉；最後還在就證明全程是 client navigation。
+  await page.evaluate(() => ((window as unknown as { __sameDocument: boolean }).__sameDocument = true))
+
+  await page.locator('a[href^="/login"]:visible').first().click()
+  await expect(page).toHaveURL(/\/login/)
+  await page.getByLabel('Email').fill(student.email)
+  await page.getByLabel('密碼', { exact: true }).fill('E2e-Password-Correct-9')
+  await page.getByRole('button', { name: '登入', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 })
+  await expect.poll(() => roleViews('student').length, { timeout: 15_000 }).toBeGreaterThan(0)
+  const afterLogin = events(c, 'page_view').length
+
+  await page.getByRole('button', { name: '帳號選單' }).click()
+  await page.getByRole('menuitem', { name: '登出' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  await expect
+    .poll(() => events(c, 'page_view').slice(afterLogin).map((hit) => hit['up.role']), { timeout: 15_000 })
+    .toContain('guest')
+  expect(await page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument)).toBe(true)
+
+  // 登入後送的 page_view 角色都是 student，登出後都是 guest；GA 的 dataLayer 也看得到兩次更新。
+  const views = events(c, 'page_view')
+  console.log(`登入／登出前後的 page_view：${JSON.stringify(views.map((hit) => [hit.dt, hit['up.role']]))}`)
+  expect(views.slice(afterLogin).every((hit) => hit['up.role'] === 'guest')).toBe(true)
+  const updates = await page.evaluate(() =>
+    ((window as unknown as { dataLayer: IArguments[] }).dataLayer ?? [])
+      .map((entry) => Array.from(entry))
+      .filter((args) => args[0] === 'set' && args[1] === 'user_properties')
+      .map((args) => (args[2] as { role: string }).role),
+  )
+  expect(updates).toEqual(expect.arrayContaining(['student', 'guest']))
+  expectNoPii(c, [student.email])
   await context.close()
 })
 

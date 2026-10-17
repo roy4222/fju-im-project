@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isGaEvent, loginMethodFromCookie, pageFields, sanitizeParams, trackEvent } from './track'
+import { isGaEvent, loginMethodFromCookie, pageFields, sanitizeParams, setUserRole, trackEvent } from './track'
 import { gaRole } from './ga-role'
 
 describe('事件白名單（R3 四事件＋page_view）', () => {
@@ -110,5 +110,38 @@ describe('gaRole：只傳角色', () => {
     expect(gaRole({ ...base, roles: ['student'], status: 'active' })).toBe('student')
     expect(gaRole({ ...base, roles: ['student', 'teacher'], status: 'active' })).toBe('teacher')
     expect(gaRole({ ...base, roles: ['teacher', 'admin'], status: 'active' })).toBe('admin')
+  })
+})
+
+describe('setUserRole：登入、登出後更新角色', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('set user_properties.role；沒有 gtag 或值不在枚舉就不動', () => {
+    const gtag = vi.fn()
+    vi.stubGlobal('window', { gtag })
+    setUserRole('student')
+    setUserRole('wang@example.com' as never)
+    expect(gtag.mock.calls).toEqual([['set', 'user_properties', { role: 'student' }]])
+    vi.stubGlobal('window', {})
+    expect(() => setUserRole('guest')).not.toThrow()
+  })
+
+  it('之後的事件參數帶 user_properties.role（GA 只在角色變動時才送 up.role，光 set 不會送）', () => {
+    const gtag = vi.fn()
+    vi.stubGlobal('window', { gtag, location: { origin: 'https://fju.example', pathname: '/dashboard/student' } })
+    setUserRole('student')
+    trackEvent('page_view')
+    expect(gtag.mock.calls.at(-1)).toEqual([
+      'event',
+      'page_view',
+      {
+        page_location: 'https://fju.example/dashboard/student',
+        page_referrer: '',
+        page_title: '/dashboard/student',
+        user_properties: { role: 'student' },
+      },
+    ])
   })
 })

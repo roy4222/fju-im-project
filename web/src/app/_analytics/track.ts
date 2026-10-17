@@ -1,3 +1,4 @@
+import type { GaRole } from './ga-role'
 import { routeName } from './route-names'
 
 /**
@@ -74,17 +75,37 @@ export function loginMethodFromCookie(cookieString: string): GaParams['login']['
 
 type Gtag = (command: 'event' | 'set', ...args: unknown[]) => void
 
+const ROLES: readonly GaRole[] = ['guest', 'student', 'teacher', 'admin', 'pending']
+
+function currentGtag(): Gtag | null {
+  if (typeof window === 'undefined') return null
+  const gtag = (window as unknown as { gtag?: Gtag }).gtag
+  return typeof gtag === 'function' ? gtag : null
+}
+
+/**
+ * 更新唯一的使用者屬性 `role`（登入、登出後由 `ga-role-sync.tsx` 呼叫）。
+ * 之後送出的每個事件都帶新角色；值不在枚舉裡就不動。
+ */
+let userRole: GaRole | null = null
+
+export function setUserRole(role: GaRole): void {
+  const gtag = currentGtag()
+  if (!gtag || !ROLES.includes(role)) return
+  userRole = role
+  gtag('set', 'user_properties', { role })
+}
+
 export function trackEvent<E extends GaEvent>(
   name: E,
   ...[params]: GaParams[E] extends Record<string, never> ? [params?: GaParams[E]] : [params: GaParams[E]]
 ): void {
-  if (typeof window === 'undefined') return
-  const gtag = (window as unknown as { gtag?: Gtag }).gtag
-  if (typeof gtag !== 'function') return
+  const gtag = currentGtag()
+  if (!gtag) return
   const clean = sanitizeParams(name, params)
   if (!clean) return
   const page = pageFields(window.location.origin, window.location.pathname)
   // 先 set 再送：GA 自己補送的事件（user_engagement 等）也只會帶去識別的位置。
   gtag('set', page)
-  gtag('event', name, { ...clean, ...page })
+  gtag('event', name, { ...clean, ...page, ...(userRole ? { user_properties: { role: userRole } } : {}) })
 }

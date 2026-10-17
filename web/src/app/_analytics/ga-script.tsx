@@ -2,6 +2,7 @@ import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import { renderActor } from '@/app/_ui/guard'
 import { gaRole, type GaRole } from './ga-role'
+import { GaRoleSync } from './ga-role-sync'
 import { OTHER_ROUTE } from './route-names'
 
 /**
@@ -11,6 +12,8 @@ import { OTHER_ROUTE } from './route-names'
  *   沒設（測試站、CI、本機）→ 什麼都不輸出，頁面上沒有任何 Google 的請求。
  * - 不自動送 `page_view`（GA 預設會帶完整網址、referrer、標題）；頁面瀏覽由 `<PageView />` 經 `trackEvent` 送。
  * - 不設 `user_id`；唯一的使用者屬性是角色。沒有登入 cookie 的訪客直接當 `guest`，不解析身分。
+ * - 角色會變：登入、登出都是 Server Action 改 cookie，Next 會連 layout 一起重畫，`<GaRoleSync>` 拿到新角色就更新
+ *   user_properties（inline script 只在整頁載入時跑一次，不能靠它）。
  * - 初始化是帶 nonce 的 inline script，HTML 解析到就跑，所以 hydration 後第一個 `page_view` 一定排得進佇列。
  *   gtag 載入器由它自己的 nonce 放行，它再插入的腳本靠 `strict-dynamic`（`script-src` 不用改）。
  */
@@ -46,6 +49,7 @@ export async function GaScript() {
         src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`}
         strategy="afterInteractive"
       />
+      <GaRoleSync role={role} />
     </>
   )
 }
