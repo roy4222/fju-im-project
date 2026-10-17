@@ -223,8 +223,8 @@ test('1. 同組任一人存草稿，另一位打開看到同一份；未成組�
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs')
   const row = page.getByTestId(`affair-${itemId}`)
-  await expect(row).toContainText(`整組一份（${G1}）`)
-  await row.getByRole('link', { name: `${CODE} 期中報告` }).click()
+  await expect(row).toContainText('整組')
+  await row.click()
   await expect(page.getByTestId('group-bar')).toContainText(G1)
   await expect(page.getByTestId('group-bar')).toContainText('組長 組長一號')
   await expect(page.getByTestId('group-bar')).toContainText('指導老師')
@@ -340,8 +340,8 @@ test('3. 任一組員代表全組送出：收件章回執、另一位組員收�
 
   // 另一位組員：作業區同步打勾、通知匣有一則（背景工作投影）。
   await signIn(page, s1)
-  await page.goto('/dashboard/student/affairs')
-  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('已繳第 1 次')
+  await page.goto('/dashboard/student/affairs?tab=done')
+  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('已交第 1 次')
   await expect
     .poll(
       async () =>

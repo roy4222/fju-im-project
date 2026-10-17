@@ -605,7 +605,7 @@ test('票 21 組別共用草稿、上傳 PDF、組長代表全組送出；其他
   const path = `/dashboard/student/affairs/${itemIds.group}`
   const s1 = student(0).page
   await s1.goto('/dashboard/student/affairs')
-  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText(`整組一份（${group}）`)
+  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText('整組')
   await s1.goto(path)
   await expect(s1.getByTestId('group-bar')).toContainText(group)
   await s1.getByLabel('專題題目').fill('站驗收：智慧校園導覽')
@@ -631,8 +631,8 @@ test('票 21 組別共用草稿、上傳 PDF、組長代表全組送出；其他
   await shot(s2, 'group-receipt')
   await receipt.getByRole('button', { name: '關閉' }).click()
 
-  await s1.goto('/dashboard/student/affairs')
-  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText('已繳第 1 次')
+  await s1.goto('/dashboard/student/affairs?tab=done')
+  await expect(s1.getByTestId(`affair-${itemIds.group}`)).toContainText('已交第 1 次')
   await waitForInbox(s1, `正式送出了「${GROUP_ITEM}」`)
   await shot(s1, 'group-submitted-notice')
 })
