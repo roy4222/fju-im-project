@@ -9,6 +9,9 @@ import { describe, expect, it } from 'vitest'
  * （Q83「專題事務」→「公告與作業」、「繳交項目」→「作業」）。系辦「評分」改叫「成績」，返回連結「← 評分」也算舊名。這支掃 `src/app/**` 與操作紀錄的對照表，
  * 字串常值、模板字串、JSX 文字裡出現舊名就失敗。註解不算；測試檔不掃。
  *
+ * AD-33c 擴大到 `src/application/**`、`src/infrastructure/**`：通知標題、錯誤訊息、回執也是使用者看得到的字。
+ * 資料表定義（`db/schema/**`）與權限表（`db/permissions/**`）不掃；migration 在 `drizzle/`，本來就不在範圍內。
+ *
  * 暫時留著的列在 ALLOWED，每一筆寫理由與次數（次數不對也會失敗，改掉之後記得把那一筆刪掉）。
  */
 const LEGACY_TERMS = ['專題事務', '繳交項目', '收件項目', '站內同意書', '← 評分'] as const
@@ -53,9 +56,15 @@ function literalTexts(file: string): string[] {
   return out
 }
 
+/** 使用者看不到的資料庫定義：表名、欄位說明、權限名。 */
+const NOT_USER_FACING = /^src\/infrastructure\/db\/(schema|permissions)\//
+
 function countHits(): Map<string, number> {
   const hits = new Map<string, number>()
-  for (const file of [...sourceFiles('src/app'), 'src/application/ops/audit-log.ts']) {
+  const files = [...sourceFiles('src/app'), ...sourceFiles('src/application'), ...sourceFiles('src/infrastructure')].filter(
+    (f) => !NOT_USER_FACING.test(f),
+  )
+  for (const file of files) {
     for (const literal of literalTexts(file)) {
       for (const term of LEGACY_TERMS) {
         const n = literal.split(term).length - 1
@@ -66,8 +75,8 @@ function countHits(): Map<string, number> {
   return hits
 }
 
-describe('畫面舊用詞（AD-33b，AC-AD-33）', () => {
-  it('src/app 與操作紀錄的字串裡沒有「專題事務」「繳交項目」「收件項目」「站內同意書」「← 評分」（白名單除外，次數要對）', () => {
+describe('畫面舊用詞（AD-33b、AD-33c，AC-AD-33）', () => {
+  it('src/app、src/application、src/infrastructure 的字串裡沒有「專題事務」「繳交項目」「收件項目」「站內同意書」「← 評分」（白名單除外，次數要對）', () => {
     const hits = Object.fromEntries(countHits())
     const allowed = Object.fromEntries(ALLOWED.map((a) => [`${a.file}｜${a.term}`, a.count]))
     expect(hits).toEqual(allowed)

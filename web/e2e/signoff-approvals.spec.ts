@@ -284,7 +284,7 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
   await expect(page.getByTestId('progress-advisor')).toContainText('同意・')
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText(/這一版站內同意書全員已同意/)).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByText(/這一版同意書全員已同意/)).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   // 驗收 P-07：白話寫「不代表校方正式接受這份同意紀錄」，不用「校方採認」。
   await expect(page.getByText(/不代表校方正式接受這份同意紀錄/)).toBeVisible()
@@ -407,7 +407,7 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   await dialog.getByLabel('指導老師').selectOption({ label: `${T2_NAME}（${t2.email}）` })
   await dialog.getByLabel('理由（必填）').fill(`${T1_NAME}休假`)
   await dialog.getByRole('button', { name: '確認重派' }).click()
-  await expect(row.getByRole('status')).toContainText('站內同意書目前的版本已作廢（指導老師變更），請到「站內同意書」建立新版')
+  await expect(row.getByRole('status')).toContainText('同意書目前的版本已作廢（指導老師變更），請到「同意書」建立新版')
 
   const versions = await pool.query<{ n: number }>(
     `select count(*)::int as n from signoff_package_versions v join signoff_packages p on p.id = v.package_id

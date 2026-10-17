@@ -1051,7 +1051,7 @@ async function deidentifyBlockers(db: Queryable, target: LockedAccount, actorUse
   )
   if (signoffs.rows.length > 0) {
     const groups = [...new Set(signoffs.rows.map((r) => r.group_code))].join('、')
-    blockers.push(`他還在 ${groups} 進行中的站內同意書裡，請先到分組做成員異動（或讓同意書換版）再刪除個人資料。`)
+    blockers.push(`他還在 ${groups} 進行中的同意書裡，請先到分組做成員異動（或讓同意書換版）再刪除個人資料。`)
   }
   return blockers
 }

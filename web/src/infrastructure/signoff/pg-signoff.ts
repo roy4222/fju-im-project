@@ -185,7 +185,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
   }
 
   async createVersion(actor: ResolvedActor, input: CreateVersionInput, requestId: string): Promise<Result<CreateVersionReceipt>> {
-    const blocked = authorizeAdmin(actor, '建立站內同意書')
+    const blocked = authorizeAdmin(actor, '建立同意書')
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     const checked = checkInput(input)
@@ -608,7 +608,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: [...stillIn, participants!.advisor.userId],
             recipientBasis: { basis: 'signoff_participants_effective_at_completion', versionId: version.id },
             payload: {
-              title: `${label} 這一版站內同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
+              title: `${label} 這一版同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -684,7 +684,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
    */
   async #restart(kind: RestartKind, actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>> {
     const what = RESTART_LABEL[kind]
-    const blocked = authorizeAdmin(actor, `${what}站內同意書`)
+    const blocked = authorizeAdmin(actor, `${what}同意書`)
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -848,7 +848,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
 
   /** 作廢目前這一版（S11-07）：理由必填；之後誰都不能再表態。已完成的作廢等於撤回這份授權。 */
   async voidVersion(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<VoidReceipt>> {
-    const blocked = authorizeAdmin(actor, '作廢站內同意書')
+    const blocked = authorizeAdmin(actor, '作廢同意書')
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -1585,7 +1585,7 @@ export class PgSignoffQuery implements SignoffQuery {
   }
 
   async adminBoard(actor: ResolvedActor, cohortId: string): Promise<Result<AdminSignoffBoard>> {
-    const blocked = authorizeAdmin(actor, '管理站內同意書')
+    const blocked = authorizeAdmin(actor, '管理同意書')
     if (blocked) return blocked
     if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     return this.#withClient(async (db) => {

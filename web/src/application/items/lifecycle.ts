@@ -68,7 +68,7 @@ export function lifecycleCheck(
  * 下架的項目不能改截止，所以提示的下一步是另建一份或維持下架留紀錄。
  */
 export function describeRepublishExpired(dueAt: Date): string {
-  return `這個繳交項目的截止（${formatTaipeiMinute(dueAt)}，臺灣時間）已經過了，不能直接重新發布。要再讓學生繳交請另建一個新的繳交項目並設新的截止；只是要保留紀錄的話維持下架即可。`
+  return `這個作業的截止（${formatTaipeiMinute(dueAt)}，臺灣時間）已經過了，不能直接重新發布。要再讓學生繳交請另建一個新的作業並設新的截止；只是要保留紀錄的話維持下架即可。`
 }
 
 /** 刪除被擋時的固定文案（畫面停用按鈕旁、伺服器拒絕都用這兩句）。 */

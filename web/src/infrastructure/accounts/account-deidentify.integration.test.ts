@@ -297,7 +297,7 @@ describe('前置條件與二次確認', () => {
     const s = await student('0411404021', '簽核甲')
     const { versionId } = await signoffWith(s.userId, '簽核甲', '0411404021', 'G40A')
     const preview = await command.previewDeidentify(adminActor(), s.userId)
-    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的站內同意書/)
+    expect(preview.ok && preview.receipt.blockers.join()).toMatch(/G40A 進行中的同意書/)
     const blocked = await command.deidentify(
       adminActor(),
       { userId: s.userId, reason: '本人申請', confirmText: s.email, requestId: requestId() },
