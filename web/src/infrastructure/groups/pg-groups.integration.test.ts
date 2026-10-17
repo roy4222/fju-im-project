@@ -928,4 +928,16 @@ describe('分組歷程改成可選（SH-P4）', () => {
     expect(studentLean.history).toEqual(studentDefault.history)
     expect(studentLean.history.length).toBeGreaterThan(0)
   })
+
+  it('groupHistory(groupId)：和 overview 預設帶的該組歷程相同（含理由與操作者）；不存在的組回空的（SH-B4）', async () => {
+    const { cohortId } = await cohortWithHistory()
+    const full = await query.overview(cohortId)
+    const g01 = full.groups[0]!
+    const history = await query.groupHistory(g01.id)
+    expect(history).toEqual(g01.history)
+    expect(history.map((h) => [h.kind, h.reason])).toEqual([['leader_changed', '換人帶']])
+    expect(history[0]!.byName).not.toBeNull()
+    expect(await query.groupHistory(full.groups[1]!.id)).toEqual([])
+    expect(await query.groupHistory(randomUUID())).toEqual([])
+  })
 })

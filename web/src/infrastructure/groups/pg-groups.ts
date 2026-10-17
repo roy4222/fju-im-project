@@ -2023,6 +2023,10 @@ export class PgGroupQuery implements GroupQuery {
     )
   }
 
+  async groupHistory(groupId: string): Promise<GroupHistoryEntry[]> {
+    return (await this.#history([groupId], true)).get(groupId) ?? []
+  }
+
   async cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]> {
     if (!isUuid(cohortId)) return []
     return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false, opts?.history ?? true)

@@ -228,6 +228,30 @@ test('換組長：填理由換給另一位成員；只換組長不發成員異�
   await expect(history).toContainText('理由：原組長請辭，全組同意')
 })
 
+test('歷程第一次載入失敗：依提示關閉再打開，會重新載入並列出歷程', async ({ page }) => {
+  await openAdminPage(page)
+  let failed = false
+  await page.route('**/dashboard/admin/groups*', async (route) => {
+    const req = route.request()
+    if (!failed && req.method() === 'POST' && req.headers()['next-action']) {
+      failed = true
+      await route.abort('failed')
+      return
+    }
+    await route.fallback()
+  })
+  const detail = await openDetail(page)
+  const history = detail.getByRole('region', { name: '異動歷程' })
+  await expect(history.getByRole('alert')).toBeVisible()
+  expect(failed).toBe(true)
+  await detail.getByRole('button', { name: '關閉' }).click()
+  await expect(detail).toBeHidden()
+
+  await openDetail(page)
+  await expect(history.getByRole('alert')).toHaveCount(0)
+  await expect(history.getByRole('listitem').first()).toBeVisible()
+})
+
 test('學生的「我的組別」看得到組長與異動歷程，但看不到理由', async ({ page }) => {
   await signIn(page, viewer)
   await page.goto('/dashboard/student/groups?tab=mine')
