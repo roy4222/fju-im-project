@@ -2,7 +2,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { Pool } from 'pg'
+import { crc32, deflateSync } from 'node:zlib'
+import type { Pool, PoolClient } from 'pg'
 import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ANONYMOUS, type ResolvedActor } from '@/application/accounts'
@@ -75,6 +76,63 @@ async function uploadFixture(who: ResolvedActor = student()): Promise<string> {
   return fileId
 }
 
+/**
+ * 包一層連線池：交易開始後的**第一句** SQL 先停住，等測試放行（用來重現「請求已進來、還沒拿到任何鎖」時別人改了帳號）。
+ * 用 Proxy 包 client，不改池子裡那個 client 本身（還回池子後別人拿到的是乾淨的）。
+ */
+function pauseFirstStatement(pool: Pool) {
+  let markReached!: () => void
+  const reached = new Promise<void>((resolve) => (markReached = resolve))
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  const db = {
+    async connect() {
+      const client = await pool.connect()
+      let paused = false
+      return new Proxy(client, {
+        get(target, prop) {
+          if (prop === 'query') {
+            return async (...args: unknown[]) => {
+              if (!paused && args[0] !== 'begin') {
+                paused = true
+                markReached()
+                await gate
+              }
+              return (target.query as (...a: unknown[]) => unknown)(...args)
+            }
+          }
+          const value = Reflect.get(target, prop)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      }) as PoolClient
+    },
+  }
+  return { db, reached, release }
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const head = Buffer.alloc(4)
+  head.writeUInt32BE(data.length)
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(body))
+  return Buffer.concat([head, body, crc])
+}
+
+/** 檔頭宣告 16000×16000、交錯式 RGB 的 PNG（PR #585 Review 的尺寸炸彈；真的解碼約 866 MiB）。 */
+function pngBomb(): Buffer {
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(16_000, 0)
+  ihdr.writeUInt32BE(16_000, 4)
+  ihdr.set([8, 2, 0, 0, 1], 8)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(Buffer.alloc(256 * 1024))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
 async function auditRows(action: string, targetId: string) {
   return (
     await db.sql(
@@ -110,6 +168,10 @@ beforeAll(async () => {
   studentId = await insertUser('student@example.com')
   otherId = await insertUser('other@example.com')
   noProfileId = await insertUser('no-profile@example.com', false)
+  await db.sql(
+    `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'admin', $1, now())`,
+    [adminId],
+  )
 
   files = new FsFileStorage({
     root: () => root,
@@ -221,6 +283,16 @@ describe('上傳的拒絕路徑（AC-SH-45、AC-SH-84）', () => {
     expect(renamed.uploaded).toMatchObject({ ok: false, code: 'FILE_TYPE_REJECTED' })
   })
 
+  it('尺寸炸彈（檔頭宣告 16000×16000 交錯 PNG，檔案遠小於 2 MiB）：解碼前拒絕、說明尺寸上限；列維持 uploading', async () => {
+    const bomb = pngBomb()
+    expect(bomb.length).toBeLessThan(2 * 1024 * 1024)
+    const { uploaded, fileId } = await upload(student(), bomb, 'bomb.png', 'image/png')
+    expect(uploaded).toMatchObject({ ok: false, code: 'FILE_TYPE_REJECTED' })
+    expect(uploaded && !uploaded.ok && uploaded.message).toContain('4096×4096')
+    expect(await one('select status from stored_files where id = $1', [fileId])).toEqual({ status: 'uploading' })
+    expect(await files.authorizeDownload(student(), fileId!)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
   it('WebP 收（同樣縮成 256×256）', async () => {
     const webp = await sharp({ create: { width: 500, height: 300, channels: 3, background: '#22aa66' } }).webp().toBuffer()
     const { uploaded, fileId } = await upload(student(), webp, 'me.webp', 'image/webp')
@@ -311,5 +383,53 @@ describe('系辦重設（AC-SH-47）', () => {
     expect(await profile(otherId)).toEqual({ avatar_preset: 9, avatar_file_id: null })
     expect((await auditRows('account.avatar_reset', otherId)).length).toBe(before)
     expect(await command.resetAvatar(admin(), otherId, '字'.repeat(200))).toMatchObject({ ok: true })
+  })
+})
+
+describe('並發：帳號在請求途中被停用（PR #585 Review）', () => {
+  it('換頭像：請求進來、還沒拿鎖時帳號被停用 → 放行後重驗失敗（ACCOUNT_DISABLED），頭像沒寫進去', async () => {
+    const r = await db.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), 'race@example.com', 'race@example.com', false, now(), 'active') returning id`,
+    )
+    const raceId = String(r.rows[0]!.id)
+    await db.sql(`insert into user_profiles (user_id, display_name, name_normalized, contact_email) values ($1, 'r', 'r', 'r@example.com')`, [raceId])
+    const fileId = await uploadFixture(actor(raceId, ['student']))
+
+    const paused = pauseFirstStatement(app)
+    const racing = new PgAvatarCommand({ db: () => paused.db, audit: new PgAuditWriter(), files })
+    const pending = racing.updateAvatar(actor(raceId, ['student']), { fileId })
+    await paused.reached
+    await db.sql(`update users set status = 'disabled' where id = $1`, [raceId])
+    paused.release()
+
+    expect(await pending).toMatchObject({ ok: false, code: 'ACCOUNT_DISABLED' })
+    expect(await profile(raceId)).toEqual({ avatar_preset: null, avatar_file_id: null })
+    expect(await one('select count(*)::int as n from file_references where file_id = $1', [fileId])).toEqual({ n: 0 })
+  })
+
+  it('系辦重設：請求進來、還沒拿鎖時操作者被停用 → 放行後 lockAdmins 重驗失敗（FORBIDDEN），目標頭像不變、沒有稽核', async () => {
+    const r = await db.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), 'admin-race@example.com', 'admin-race@example.com', false, now(), 'active') returning id`,
+    )
+    const operatorId = String(r.rows[0]!.id)
+    await db.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'admin', $1, now())`,
+      [operatorId],
+    )
+    expect((await command.updateAvatar(actor(otherId, ['student']), { preset: 11 })).ok).toBe(true)
+    const before = (await auditRows('account.avatar_reset', otherId)).length
+
+    const paused = pauseFirstStatement(app)
+    const racing = new PgAvatarCommand({ db: () => paused.db, audit: new PgAuditWriter(), files })
+    const pending = racing.resetAvatar(actor(operatorId, ['admin']), otherId, '不當圖片')
+    await paused.reached
+    await db.sql(`update users set status = 'disabled' where id = $1`, [operatorId])
+    paused.release()
+
+    expect(await pending).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await profile(otherId)).toEqual({ avatar_preset: 11, avatar_file_id: null })
+    expect((await auditRows('account.avatar_reset', otherId)).length).toBe(before)
   })
 })

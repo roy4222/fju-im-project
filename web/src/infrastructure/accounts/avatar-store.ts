@@ -17,13 +17,15 @@ import { isUuid, type AuditWriter, type DeclaredUpload, type FileStorage, type U
 import type { ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
+import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 
 /**
  * 頭像的寫入（SH-9；B 設計方案 §2.2；Q105、Q109）。讀的部分在身分解析器（SH-8，`actor-resolver.ts` 同一句多讀兩欄）。
  *
  * - 上傳：`avatarUploadTicket` 發票券 → 瀏覽器 POST `/api/files/upload?ticket=`（同一個限流桶）→ `FsFileStorage`
  *   收檔時縮成 256×256 WebP、清掉 EXIF（`avatar-image.ts`），成功才是 `stored`。
- * - 換頭像（`updateAvatar`）與系辦重設（`resetAvatar`）在**同一個交易**裡：鎖本人的 `user_profiles` 列 →
+ * - 換頭像（`updateAvatar`）與系辦重設（`resetAvatar`）在**同一個交易**裡，鎖序同帳號操作（停用、去識別化）：
+ *   （重設先 `lockAdmins` 重驗操作者）→ 鎖 `users` 列（`FOR NO KEY UPDATE`）並重驗狀態 → 鎖 `user_profiles` 列 →
  *   （換成上傳檔時）經 `FileStorage.attach` 驗「本人上傳、purpose avatar、已 stored」並寫 `file_references(avatar, userId)`
  *   → 舊的上傳檔立刻標刪、釋放引用（Q109，舊網址馬上 404）→ 更新兩欄 → 稽核。
  * - 去識別化（`account-directory-command.ts` 的 `scrubPersonalData`）用同一個 `softDeleteAvatarFile`。
@@ -80,6 +82,18 @@ function denied(code: ErrorCode, forbidden: string): Err {
   return err(code, messages[code] ?? '目前的帳號狀態不能做這件事。')
 }
 
+/**
+ * 鎖帳號列並讀**此刻**的狀態（同 `account-directory-command.ts` 的 `lockAccounts`：`FOR NO KEY UPDATE`）。
+ * 請求開始時解析的 actor 可能已經過時：等鎖期間被停用或去識別化，這裡讀到的是 commit 之後的值。
+ */
+async function lockUser(tx: PoolClient, userId: string): Promise<{ active: boolean } | undefined> {
+  const found = await tx.query<{ active: boolean }>(
+    `select (status = 'active' and deidentified_at is null) as active from users where id = $1 for no key update`,
+    [userId],
+  )
+  return found.rows[0]
+}
+
 async function lockProfile(tx: PoolClient, userId: string): Promise<ProfileAvatar | undefined> {
   const found = await tx.query<ProfileAvatar>(
     `select avatar_preset, avatar_file_id from user_profiles where user_id = $1 for update`,
@@ -113,6 +127,9 @@ export class PgAvatarCommand implements AvatarCommand {
     const now = this.#clock.now()
     const userId = actor.userId
     return this.#inTx(async (tx) => {
+      // 先鎖帳號再鎖個人資料：去識別化、停用同一個人時兩邊排隊，不會在去識別化清完頭像之後又寫回去。
+      const account = await lockUser(tx, userId)
+      if (!account?.active) return err('ACCOUNT_DISABLED', '這個帳號目前不能換頭像。')
       const before = await lockProfile(tx, userId)
       if (!before) return err('CONFLICT', NO_PROFILE)
 
@@ -170,6 +187,10 @@ export class PgAvatarCommand implements AvatarCommand {
 
     const now = this.#clock.now()
     return this.#inTx(async (tx) => {
+      // 鎖序同停用、去識別化：先整組管理員（重驗操作者此刻仍是有效系辦），再目標帳號，再個人資料。
+      const admins = await lockAdmins(tx)
+      if (!isEffectiveAdmin(admins, actor.userId)) return denied('FORBIDDEN', '只有系辦可以重設頭像。')
+      if (!(await lockUser(tx, userId))) return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
       const before = await lockProfile(tx, userId)
       if (!before) return err('CONFLICT', NO_PROFILE)
       if (before.avatar_file_id) await softDeleteAvatarFile(tx, before.avatar_file_id, now)

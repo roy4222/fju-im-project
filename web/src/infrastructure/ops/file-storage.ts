@@ -83,6 +83,12 @@ export type FileStorageOptions = {
 
 export type FileTransform = (input: Buffer) => Promise<{ bytes: Buffer; mime: string }>
 
+/**
+ * 轉換拒絕這個檔、而且有一句給使用者看的理由（例如頭像尺寸太大）。`upload()` 回 `FILE_TYPE_REJECTED` 帶這句話；
+ * 其他錯誤（解不開的檔）一律回「這張圖片無法處理」。
+ */
+export class FileTransformRejected extends Error {}
+
 type FileRow = {
   id: string
   owner_user_id: string
@@ -268,9 +274,9 @@ export class FsFileStorage implements FileStorage<PoolClient> {
       let output: { bytes: Buffer; mime: string }
       try {
         output = await transform(await fs.readFile(tempPath))
-      } catch {
+      } catch (error) {
         await fs.rm(tempPath, { force: true })
-        return err('FILE_TYPE_REJECTED', '這張圖片無法處理，請換一張。')
+        return err('FILE_TYPE_REJECTED', error instanceof FileTransformRejected ? error.message : '這張圖片無法處理，請換一張。')
       }
       await fs.writeFile(tempPath, output.bytes, { mode: 0o600 })
       checksum = createHash('sha256').update(output.bytes).digest('hex')

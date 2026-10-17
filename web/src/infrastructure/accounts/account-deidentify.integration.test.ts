@@ -490,6 +490,76 @@ describe('去識別化本身（ACC-14）', () => {
     expect(await files.authorizeDownload(adminActor(), file.id)).toMatchObject({ ok: false, code: 'FILE_GONE' })
   })
 
+  it('並發（PR #585 Review）：換頭像的請求還沒拿鎖時被去識別化 → 放行後換圖失敗，頭像保持清空、新檔沒被引用', async () => {
+    const s = await student('0411404042', '頭像乙')
+    const file = await one<{ id: string }>(
+      `insert into stored_files (id, owner_user_id, scope, purpose, original_name, size_bytes, mime_declared, mime_detected, extension,
+                                 checksum, status, storage_key, uploaded_real_at, finalized_at)
+       values (gen_random_uuid(), $1, 'global', 'avatar', 'me.jpg', 10, 'image/jpeg', 'image/webp', 'jpg', $2, 'stored',
+               'files/2026/10/' || gen_random_uuid(), now(), now())
+       returning id`,
+      [s.userId, 'd'.repeat(64)],
+    )
+    const { PgAvatarCommand } = await import('@/infrastructure/accounts/avatar-store')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { FsFileStorage } = await import('@/infrastructure/ops/file-storage')
+    const files = new FsFileStorage({
+      root: () => '/nonexistent-avatar-root',
+      environmentMaxBytes: () => 1024,
+      ticketSecret: () => 'integration-test-secret-integration-test',
+      policies: {},
+      db: () => app,
+    })
+
+    // 交易開始後第一句 SQL 先停住（請求已進來、還沒拿任何鎖）；Proxy 包 client，不改池子裡的 client。
+    let markReached!: () => void
+    const reached = new Promise<void>((resolve) => (markReached = resolve))
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const pausing = {
+      async connect() {
+        const client = await app.connect()
+        let paused = false
+        return new Proxy(client, {
+          get(target, prop) {
+            if (prop === 'query') {
+              return async (...args: unknown[]) => {
+                if (!paused && args[0] !== 'begin') {
+                  paused = true
+                  markReached()
+                  await gate
+                }
+                return (target.query as (...a: unknown[]) => unknown)(...args)
+              }
+            }
+            const value = Reflect.get(target, prop)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        }) as import('pg').PoolClient
+      },
+    }
+    const avatars = new PgAvatarCommand({ db: () => pausing, audit: new PgAuditWriter(), files })
+    const self: ResolvedActor = { kind: 'authenticated', userId: s.userId, roles: ['student'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+
+    const pending = avatars.updateAvatar(self, { fileId: file.id })
+    await reached
+    const done = await command.deidentify(
+      adminActor(),
+      { userId: s.userId, reason: '本人申請刪除個資', confirmText: s.email, requestId: requestId() },
+      { headers: admin.headers },
+    )
+    expect(done).toMatchObject({ ok: true })
+    release()
+
+    expect(await pending).toMatchObject({ ok: false, code: 'ACCOUNT_DISABLED' })
+    expect(await one('select avatar_preset, avatar_file_id from user_profiles where user_id = $1', [s.userId])).toEqual({
+      avatar_preset: null,
+      avatar_file_id: null,
+    })
+    expect(await count('select count(*) as n from file_references where file_id = $1', [file.id])).toBe(0)
+    expect(await count(`select count(*) as n from audit_events where action = 'account.avatar_update' and target_id = $1`, [s.userId])).toBe(0)
+  })
+
   it('從停用狀態也能做；同一個請求重送回同一張回執，換新請求或恢復都被拒（不可逆）', async () => {
     const s = await student('0411404041', '冪等甲')
     expect(
