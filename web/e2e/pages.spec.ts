@@ -313,7 +313,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/admin/accounts': '名單與停用',
     '/dashboard/admin/cohorts': '新註冊加入這屆',
     '/dashboard/teacher': '待辦',
-    '/dashboard/student': '專題行事曆',
+    '/dashboard/student': '看完整時程',
     // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
     '/dashboard/admin/timeline': '已排定的活動',

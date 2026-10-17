@@ -19,7 +19,7 @@ const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
 
 /** 只有有權限的人才看得到的一段字（同 `pages.spec.ts` 的 FINGERPRINTS）。 */
-const STUDENT_HOME = '專題行事曆'
+const STUDENT_HOME = '看完整時程'
 const TEACHER_HOME = '待辦'
 const ADMIN_HOME = '作業完成率'
 
