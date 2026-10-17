@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
+import { AuditQueryInvalidError, parseAuditQuery } from '@/application/ops'
 import { readAuditLog } from '@/infrastructure/ops/pg-audit-log'
 
 /**
@@ -124,7 +125,7 @@ afterAll(async () => {
 
 describe('readAuditLog', () => {
   it('全部分頁：新到舊、不含磁碟量測與 7 天前的紀錄；各分頁筆數與附理由筆數', async () => {
-    const log = await readAuditLog(app, 'all', NOW)
+    const log = await readAuditLog(app, 'all', null, NOW)
     expect(log.entries.map((e) => e.action)).toEqual([
       'account.approve',
       'account.disable',
@@ -140,15 +141,15 @@ describe('readAuditLog', () => {
   })
 
   it('系3：沒有角色的本人動作（送出註冊申請）歸「本人申請」，分頁加起來等於全部', async () => {
-    const log = await readAuditLog(app, 'all', NOW)
+    const log = await readAuditLog(app, 'all', null, NOW)
     expect(log.counts.other).toBe(1)
     const { all, ...tabs } = log.counts
     expect(Object.values(tabs).reduce((sum, n) => sum + n, 0)).toBe(all)
-    expect((await readAuditLog(app, 'other', NOW)).entries.map((e) => e.action)).toEqual(['registration.apply'])
+    expect((await readAuditLog(app, 'other', null, NOW)).entries.map((e) => e.action)).toEqual(['registration.apply'])
   })
 
   it('系2：核准列看得到被核准的人、核實方式與核實說明；其他列沒有核實說明', async () => {
-    const log = await readAuditLog(app, 'all', NOW)
+    const log = await readAuditLog(app, 'all', null, NOW)
     const byAction = Object.fromEntries(log.entries.map((e) => [e.action, e]))
     expect(byAction['account.approve']).toMatchObject({
       targetType: 'registration_application',
@@ -163,12 +164,12 @@ describe('readAuditLog', () => {
   })
 
   it('依角色分頁；系統分頁收 system 與 worker', async () => {
-    expect((await readAuditLog(app, 'teacher', NOW)).entries.map((e) => e.action)).toEqual(['advisor.claim'])
-    expect((await readAuditLog(app, 'system', NOW)).entries.map((e) => e.actorKind)).toEqual(['system'])
+    expect((await readAuditLog(app, 'teacher', null, NOW)).entries.map((e) => e.action)).toEqual(['advisor.claim'])
+    expect((await readAuditLog(app, 'system', null, NOW)).entries.map((e) => e.actorKind)).toEqual(['system'])
   })
 
   it('操作者與對象的名字：profile 空白退回帳號名；屆別顯示「名稱（代碼）」；系統沒有操作者', async () => {
-    const log = await readAuditLog(app, 'all', NOW)
+    const log = await readAuditLog(app, 'all', null, NOW)
     const byAction = Object.fromEntries(log.entries.map((e) => [e.action, e]))
     expect(byAction['account.disable']).toMatchObject({ actorName: '系辦甲', targetName: 'student-al', reason: '休學', role: 'admin' })
     expect(byAction['advisor.claim']).toMatchObject({ actorName: '陳老師', targetName: '115 紀錄（115-AL）', cohortCode: '115-AL' })
@@ -176,8 +177,49 @@ describe('readAuditLog', () => {
   })
 
   it('回傳內容沒有 payload', async () => {
-    const log = await readAuditLog(app, 'all', NOW)
+    const log = await readAuditLog(app, 'all', null, NOW)
     expect(JSON.stringify(log)).not.toContain(SECRET)
     for (const e of log.entries) expect(Object.keys(e)).not.toContain('payload')
+  })
+
+  it('AC-A-32：搜尋字 ILIKE 比對操作者名、email 與對象名；分頁籤數字與附理由筆數隨搜尋過濾', async () => {
+    const byName = await readAuditLog(app, 'all', '系辦甲', NOW)
+    expect(byName.q).toBe('系辦甲')
+    // 系辦甲做了 4 筆（approve、disable、activity.create 與被 seed_first_admin 指為對象的那筆）。
+    expect(byName.entries.map((e) => e.action)).toEqual(['account.approve', 'account.disable', 'cohort.activity.create', 'account.seed_first_admin'])
+    expect(byName.counts).toEqual({ all: 4, admin: 3, teacher: 0, student: 0, other: 0, system: 1 })
+    expect(byName.withReason).toBe(1)
+
+    // email（大小寫不分）與對象名（註冊申請＝申請人、活動標題、屆別名稱）。
+    expect((await readAuditLog(app, 'all', 'TEACHER-AL@EXAMPLE', NOW)).entries.map((e) => e.action)).toEqual(['advisor.claim'])
+    expect((await readAuditLog(app, 'all', '林申請', NOW)).entries.map((e) => e.action)).toEqual(['account.approve', 'registration.apply'])
+    expect((await readAuditLog(app, 'all', '期末成果', NOW)).entries.map((e) => e.action)).toEqual(['cohort.activity.create'])
+    // 與角色分頁同時用：分頁只剩該角色的列，其他分頁數字仍是搜尋後的數字。
+    const both = await readAuditLog(app, 'student', '林申請', NOW)
+    expect(both.entries).toEqual([])
+    expect(both.counts.all).toBe(2)
+    // 沒有符合的：空。
+    const none = await readAuditLog(app, 'all', '沒有這個人', NOW)
+    expect(none.entries).toEqual([])
+    expect(none.counts.all).toBe(0)
+  })
+
+  it('搜尋字的 % _ \\ 當一般字，不是萬用字元', async () => {
+    expect((await readAuditLog(app, 'all', '%', NOW)).counts.all).toBe(0)
+    expect((await readAuditLog(app, 'all', '_', NOW)).counts.all).toBe(0)
+    expect((await readAuditLog(app, 'all', '\\', NOW)).counts.all).toBe(0)
+  })
+
+  it('AC-A-33：搜尋字 trim 後 1–50 字；空白當沒搜尋；51 字 VALIDATION_FAILED', () => {
+    expect(parseAuditQuery('  王小明 ')).toBe('王小明')
+    expect(parseAuditQuery('   ')).toBeNull()
+    expect(parseAuditQuery(undefined)).toBeNull()
+    expect(parseAuditQuery('a'.repeat(50))).toBe('a'.repeat(50))
+    expect(() => parseAuditQuery('a'.repeat(51))).toThrow(AuditQueryInvalidError)
+    try {
+      parseAuditQuery('王'.repeat(51))
+    } catch (e) {
+      expect((e as AuditQueryInvalidError).code).toBe('VALIDATION_FAILED')
+    }
   })
 })

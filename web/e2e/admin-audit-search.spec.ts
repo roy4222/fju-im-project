@@ -6,8 +6,8 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
  *
  * 1. AC-AD-24（本票兩頁）：`h1`「設定」；分頁列四項（屆別｜時間軸｜首頁設定｜操作紀錄），目前頁 `aria-current`；
  *    從首頁設定點「操作紀錄」分頁到 `/audit`。屆別、時間軸兩頁的分頁列歸 AD-12，各自的 spec 驗。
- * 2. AC-AD-26：搜尋只過濾已載入的這批——不打伺服器、網址不變；只比對「誰」「對象」兩欄；清空後全部回來；
- *    搜尋框下一句「只搜近 7 天、最多 200 筆」；角色篩選膠囊與搜尋可同時用。
+ * 2. AC-A-32／AC-A-33（A-11 反轉 AC-AD-26）：搜尋由伺服器做——Enter 送出後網址帶 `q=`、打一次伺服器；比對「誰」「對象」；
+ *    分頁籤數字隨結果；清除回全部；搜尋框下一句「只搜近 7 天、最多 200 筆（在伺服器搜尋）」；欄位擋在 50 字；角色膠囊與搜尋可同時用。
  * 種資料走畫面新增兩屆（跟 `audit.spec.ts` 同一招），「對象」欄是屆別「名稱（代碼）」。
  */
 
@@ -60,7 +60,7 @@ test('首頁設定與操作紀錄：h1「設定」、四個分頁、目前頁標
   await expectSettingsTabs(page, '/dashboard/admin/home-settings')
 })
 
-test('操作紀錄姓名搜尋：只過濾已載入的、不打伺服器；比對誰與對象；清空全回來；可與角色膠囊同時用（AC-AD-26）', async ({ page }) => {
+test('操作紀錄伺服器端搜尋：Enter 送出網址帶 q、打一次伺服器；籤數字隨結果；清除全回來；可與角色膠囊同時用（AC-A-32）', async ({ page }) => {
   await signIn(page, 'admin')
   for (const code of [CODE_A, CODE_B]) {
     await page.goto('/dashboard/admin/cohorts')
@@ -76,8 +76,11 @@ test('操作紀錄姓名搜尋：只過濾已載入的、不打伺服器；比�
   const entryB = entries.filter({ hasText: CODE_B })
   await expect(entryA).toHaveCount(1)
   await expect(entryB).toHaveCount(1)
-  await expect(page.getByRole('main')).toContainText('只搜近 7 天、最多 200 筆')
-  const total = await entries.count()
+  await expect(page.getByRole('main')).toContainText('只搜近 7 天、最多 200 筆（在伺服器搜尋）')
+  const pills = page.getByRole('navigation', { name: '依角色篩選' })
+  const adminPill = pills.getByRole('link', { name: /^管理員/ })
+  const pillCount = async (name: RegExp) => Number(((await pills.getByRole('link', { name }).innerText()).match(/\d+/) ?? ['-1'])[0])
+  const totalAll = await pillCount(/^全部/)
 
   const search = page.getByRole('searchbox', { name: '搜尋姓名或對象' })
   const requests: string[] = []
@@ -87,46 +90,69 @@ test('操作紀錄姓名搜尋：只過濾已載入的、不打伺服器；比�
     if (['document', 'fetch', 'xhr'].includes(r.resourceType())) requests.push(`${r.method()} ${r.url()}`)
   })
 
-  // 對「對象」欄：只剩 A 那一筆。
+  // 對「對象」欄：Enter 送出 → 網址帶 q、打一次伺服器、只剩 A 那一筆、全部籤數字變 1。
   await search.fill(CODE_A)
-  await expect(entryA).toHaveCount(1)
-  await expect(entryB).toHaveCount(0)
+  await search.press('Enter')
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?q=${CODE_A}$`))
+  expect(requests).toHaveLength(1)
   await expect(entries).toHaveCount(1)
-  await expect(page).toHaveURL(new RegExp(`${AUDIT}$`))
-  expect(requests).toEqual([])
+  await expect(entryA).toHaveCount(1)
+  await expect(pills.getByRole('link', { name: /^全部/ })).toContainText('1')
+  await expect(search).toHaveValue(CODE_A)
 
   // 大小寫不分。
   await search.fill(CODE_A.toLowerCase())
+  await search.press('Enter')
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?q=${CODE_A.toLowerCase()}$`))
   await expect(entries).toHaveCount(1)
 
-  // 清空：全部回來。
-  await search.fill('')
-  await expect(entries).toHaveCount(total)
+  // 清除：回到沒有 q 的網址，全部回來。
+  await page.getByRole('link', { name: '清除' }).click()
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}$`))
+  await expect(entries.first()).toBeVisible()
+  expect(await pillCount(/^全部/)).toBe(totalAll)
 
   // 對「誰」欄：用 A 那筆的操作者姓名搜，兩筆都還在（同一個管理員做的）。
   const actor = (await entryA.locator('span.truncate').first().innerText()).trim()
   expect(actor.length).toBeGreaterThan(0)
   await search.fill(actor)
+  await search.press('Enter')
+  await expect(page).toHaveURL(/\?q=/)
   await expect(entryA).toHaveCount(1)
   await expect(entryB).toHaveCount(1)
 
-  // 找不到：清單空、給一句原因。
+  // 找不到：清單空、給一句原因、籤數字為 0。
   await search.fill(`沒有這個人-${stamp}`)
+  await search.press('Enter')
   await expect(entries).toHaveCount(0)
   await expect(page.getByRole('list', { name: '操作紀錄清單' })).toContainText('找不到')
-  expect(requests).toEqual([])
+  await expect(pills.getByRole('link', { name: /^全部/ })).toContainText('0')
 
-  // 角色膠囊仍是連結（網址篩選），與搜尋同時用。
-  const pills = page.getByRole('navigation', { name: '依角色篩選' })
-  await pills.getByRole('link', { name: /^管理員/ }).click()
-  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?role=admin$`))
-  await expect(pills.getByRole('link', { name: /^管理員/ })).toHaveAttribute('aria-current', 'page')
+  // 角色膠囊與搜尋同時用：膠囊連結帶著 q。
   await search.fill(CODE_B)
+  await search.press('Enter')
+  await expect(entries).toHaveCount(1)
+  await expect(adminPill).toHaveAttribute('href', new RegExp(`role=admin&q=${CODE_B}$`))
+  await adminPill.click()
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?role=admin&q=${CODE_B}$`))
+  await expect(adminPill).toHaveAttribute('aria-current', 'page')
   await expect(entryB).toHaveCount(1)
   await expect(entries).toHaveCount(1)
 
   await pills.getByRole('link', { name: /^學生/ }).click()
-  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?role=student$`))
-  await search.fill(CODE_B)
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?role=student&q=${CODE_B}$`))
   await expect(entries).toHaveCount(0)
+})
+
+test('操作紀錄搜尋字上限：欄位擋在 50 字；網址硬塞 51 字 → 不搜、顯示說明（AC-A-33）', async ({ page }) => {
+  await signIn(page, 'admin')
+  await page.goto(AUDIT)
+  const search = page.getByRole('searchbox', { name: '搜尋姓名或對象' })
+  await expect(search).toHaveAttribute('maxlength', '50')
+  await search.fill('王'.repeat(60))
+  await expect(search).toHaveValue('王'.repeat(50))
+
+  await page.goto(`${AUDIT}?q=${encodeURIComponent('王'.repeat(51))}`)
+  await expect(page.getByRole('alert')).toContainText('最多 50 字')
+  await expect(page.getByTestId('audit-entry').first()).toBeVisible()
 })

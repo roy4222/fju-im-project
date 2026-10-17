@@ -9,6 +9,8 @@ import { AuditSearch, type AuditSearchRow } from '@/app/dashboard/admin/audit/au
 import type { AuditLogEntry, AuditWhoFilter } from '@/application/ops'
 import {
   AUDIT_PAGE_LIMIT,
+  AUDIT_QUERY_MAX_LENGTH,
+  AuditQueryInvalidError,
   AUDIT_WHO_FILTERS,
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,
@@ -39,7 +41,7 @@ const SETTINGS_TABS = [
  *
  * 資料是既有的稽核紀錄（`audit_events`），這一頁只讀、沒有任何修改入口。一頁一個焦點＝清單，各角色筆數放在篩選膠囊上。
  * 角色篩選用網址（`?role=`）：重新整理不會丟，也不用在瀏覽器裝整份資料。
- * AD-15：掛「設定」分頁列、角色分頁改成膠囊、拿掉頁首說明；加姓名搜尋（`audit-search.tsx`，只過濾已載入的這批）。
+ * AD-15：掛「設定」分頁列、角色分頁改成膠囊、拿掉頁首說明；姓名搜尋（`audit-search.tsx`；B 階段 A-11 起由伺服器搜尋近 7 天全部紀錄，`?q=`）。
  * 只給管理員：頁面先 `requireRole`，查詢再判一次（非管理員拿到 null）；payload 不讀也不顯示
  * （唯一例外：核准註冊的核實說明，見 `application/ops/audit-log.ts` 檔頭）。
  */
@@ -68,6 +70,15 @@ function verificationText(e: AuditLogEntry): string | null {
   return `怎麼確認是本人：${labels[e.verificationMethod]}${note ? `／${note}` : ''}`
 }
 
+/** 角色分頁／清除鈕的網址；搜尋字跟著走。 */
+function auditHref(role: AuditWhoFilter, q: string): string {
+  const qs = new URLSearchParams()
+  if (role !== 'all') qs.set('role', role)
+  if (q) qs.set('q', q)
+  const s = qs.toString()
+  return s ? `${BASE}?${s}` : BASE
+}
+
 function tone(e: AuditLogEntry): 'brand' | 'default' | 'info' {
   const who = auditWhoOf(e)
   return who === 'admin' ? 'brand' : who === 'system' ? 'default' : 'info'
@@ -81,13 +92,21 @@ export default async function AdminAuditPage({
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/admin/audit', 'admin')
   const params = await searchParams
-  const log = await getAuditLogQuery().recent(actor, params.role)
+  // 搜尋字在伺服器判：超過 50 字（`VALIDATION_FAILED`）就不搜、顯示說明；其餘照常。
+  let log: Awaited<ReturnType<ReturnType<typeof getAuditLogQuery>['recent']>>
+  let queryError: string | undefined
+  try {
+    log = await getAuditLogQuery().recent(actor, params.role, params.q)
+  } catch (e) {
+    if (!(e instanceof AuditQueryInvalidError)) throw e
+    queryError = e.message
+    log = await getAuditLogQuery().recent(actor, params.role)
+  }
+  const q = log?.q ?? ''
   const who: AuditWhoFilter = log?.who ?? 'all'
 
   const rows: AuditSearchRow[] = (log?.entries ?? []).map((e) => ({
     id: e.id,
-    who: actorLabel(e),
-    target: describeAuditTarget(e),
     node: (
       <li
         key={e.id}
@@ -137,7 +156,7 @@ export default async function AdminAuditPage({
                 return (
                   <Link
                     key={key}
-                    href={key === 'all' ? BASE : `${BASE}?role=${key}`}
+                    href={auditHref(key, q)}
                     aria-current={on ? 'page' : undefined}
                     className={cn(
                       'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-semibold whitespace-nowrap transition-colors',
@@ -157,7 +176,16 @@ export default async function AdminAuditPage({
             ) : (
               <div className="flex flex-col">
                 {/* 搜尋框下這句是 Q113 定案的範圍說明，也是 `pages.spec` 的指紋：整句一個字串，不拆成多段文字節點。 */}
-                <AuditSearch rows={rows} note={`只搜近 ${AUDIT_WINDOW_DAYS} 天、最多 ${AUDIT_PAGE_LIMIT} 筆`} emptyText="這個角色最近沒有操作。" />
+                <AuditSearch
+                  rows={rows}
+                  note={`只搜近 ${AUDIT_WINDOW_DAYS} 天、最多 ${AUDIT_PAGE_LIMIT} 筆（在伺服器搜尋）`}
+                  emptyText="這個角色最近沒有操作。"
+                  q={q}
+                  role={who}
+                  maxLength={AUDIT_QUERY_MAX_LENGTH}
+                  clearHref={auditHref(who, '')}
+                  error={queryError}
+                />
                 {log.truncated ? (
                   <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
                     只列最近 {AUDIT_PAGE_LIMIT} 筆；更早的紀錄仍保存在系統裡、不會被刪除。
