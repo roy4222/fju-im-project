@@ -44,11 +44,17 @@ function windowEndAt(now: Date, deadlineAt: number): number {
 }
 
 /**
- * 暫存列的 `expires_at`：**不是**視窗，只是列的壽命——截止再多 10 分鐘。
+ * 續辦票 cookie 的壽命（秒）＝暫存列的壽命：截止再多 10 分鐘。續辦開始時設一次，重寄**不延**。
+ * cookie 要活到截止：不然視窗（10 分鐘）一過 cookie 也沒了，瀏覽器根本到不了「截止內重寄復活」；cookie 又不能比列活得久：
+ * 帶得回票的期間列都要在，持票的人才一定看到「續辦已逾時」而不是靜默的「已寄出」。
+ */
+export const SIGNUP_RESUME_COOKIE_SECONDS = SIGNUP_RESUME_MAX_SECONDS + SIGNUP_RESUME_TTL_SECONDS
+
+/**
+ * 暫存列的 `expires_at`：**不是**視窗，只是列的壽命——截止再多 10 分鐘（跟 cookie 一樣長，見 `SIGNUP_RESUME_COOKIE_SECONDS`）。
  * 套件的 `findVerificationValue`（`better-auth/dist/db/internal-adapter.mjs`）每次都順手刪掉**所有** `expires_at < now`
  * 的列，不分 identifier，任何人查碼都會觸發；視窗若存在 `expires_at`，視窗一過列就可能被別人的查碼刪掉，截止內的
- * 重寄復活就不確定了。多留 10 分鐘是因為續辦票的 cookie（`RESUME_MAX_AGE`）最多在最後一次寄出後 10 分鐘內還帶得回來，
- * 列要撐到那時候，持票的人才一定看到「續辦已逾時」而不是靜默的「已寄出」。壽命內每條路都另外看 `windowEndAt` 與 `deadlineAt`。
+ * 重寄復活就不確定了。壽命內每條路都另外看 `windowEndAt` 與 `deadlineAt`。
  */
 function rowExpiresAt(deadlineAt: number): Date {
   return new Date(deadlineAt + SIGNUP_RESUME_TTL_SECONDS * 1000)

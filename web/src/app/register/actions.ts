@@ -11,7 +11,7 @@ import {
   resolveActor,
   signOut,
 } from '@/composition/accounts'
-import { authCallHeaders, signUpOrResume } from '@/composition/signup'
+import { authCallHeaders, SIGNUP_RESUME_COOKIE_SECONDS, signUpOrResume } from '@/composition/signup'
 import type { ApplicationFormState } from './application-form'
 import {
   authErrorMessage,
@@ -21,7 +21,6 @@ import {
   failed,
   field,
   RESUME_COOKIE,
-  RESUME_MAX_AGE,
   valuesOf,
   type SignupFormState,
 } from './_components/form-data'
@@ -77,7 +76,7 @@ export async function signUpStepAction(state: SignupFormState, formData: FormDat
       sameSite: 'lax',
       secure: (process.env.BETTER_AUTH_URL ?? '').startsWith('https:'),
       path: '/register',
-      maxAge: RESUME_MAX_AGE,
+      maxAge: SIGNUP_RESUME_COOKIE_SECONDS,
     })
     redirect('/register/verify?resume=1')
   }

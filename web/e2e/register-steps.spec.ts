@@ -355,7 +355,7 @@ test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦�
   for (const x of [a, b, c]) await x.context.close()
 })
 
-test('AC-VI-49（Review P3）：續辦頁有重寄；冷卻內送出被伺服器擋；冷卻後重寄收到新碼、用新碼完成', async ({ browser }) => {
+test('AC-VI-49（Review P3）＋第 3 輪：續辦頁有重寄；冷卻內送出被伺服器擋；10 分鐘視窗過了、冷卻後重寄照常收到新碼（視窗復活）、用新碼完成', async ({ browser }) => {
   test.setTimeout(420_000)
   const email = `vb3-resume-resend-${run}@example.com`
   const { context, page } = await fresh(browser)
@@ -381,6 +381,13 @@ test('AC-VI-49（Review P3）：續辦頁有重寄；冷卻內送出被伺服器
   await expect(page.getByRole('main').getByRole('alert')).toContainText('驗證碼剛寄出')
   expect((await otpMails(email)).length).toBe(mails)
 
+  // 這封碼的 10 分鐘視窗過了（只改伺服器存的 windowEndAt；截止 30 分鐘未到）：截止內的重寄要照常寄、把視窗重開（主腦裁定）。
+  // 續辦票 cookie 活到截止＋10 分鐘，所以瀏覽器這時還帶得回票。
+  const pendingRow = await pool.query<{ value: string }>('select value from verifications where identifier = $1', [`signup-resume:${email}`])
+  await pool.query('update verifications set value = $2 where identifier = $1', [
+    `signup-resume:${email}`,
+    JSON.stringify({ ...(JSON.parse(pendingRow.rows[0]!.value) as object), windowEndAt: Date.now() - 1_000 }),
+  ])
   // 冷卻過後重寄：多一封新碼。
   await new Promise((resolve) => setTimeout(resolve, 122_000))
   await expect(resend).toBeEnabled()
@@ -390,7 +397,12 @@ test('AC-VI-49（Review P3）：續辦頁有重寄；冷卻內送出被伺服器
   const newOtp = await latestOtp(email)
   expect(newOtp).not.toBe(firstOtp)
 
-  // 用新碼完成續辦 → 第 3 步；P2 是新密碼。
+  // 視窗重開：windowEndAt 變回未來、截止不變；用新碼完成續辦 → 第 3 步；P2 是新密碼。
+  const revived = JSON.parse(
+    (await pool.query<{ value: string }>('select value from verifications where identifier = $1', [`signup-resume:${email}`])).rows[0]!.value,
+  ) as { windowEndAt: number; deadlineAt: number }
+  expect(revived.windowEndAt).toBeGreaterThan(Date.now())
+  expect(revived.deadlineAt).toBe((JSON.parse(pendingRow.rows[0]!.value) as { deadlineAt: number }).deadlineAt)
   await page.getByLabel('驗證碼第 1 位').fill(newOtp)
   await expect(page).toHaveURL(/\/register\/apply$/)
   expect((await userRow(email))!.email_verified).toBe(true)
@@ -410,6 +422,11 @@ test('主腦裁定（VB-3 Review 第 3 輪）：續辦過了絕對截止再重�
   await stepOne(page, email, P2)
   await expect(page).toHaveURL(/\/register\/verify\?resume=1$/)
   const mails = (await otpMails(email)).length
+  // 續辦票 cookie 的壽命＝截止（30 分鐘）＋10 分鐘，跟伺服器的暫存列一樣長（視窗過了還能重寄；過了截止一定看得到逾時句）。
+  const ticketCookie = (await context.cookies()).find((c) => c.name === 'fju_signup_resume')
+  expect(ticketCookie).toBeDefined()
+  expect(ticketCookie!.expires).toBeGreaterThan(Date.now() / 1000 + 39 * 60)
+  expect(ticketCookie!.expires).toBeLessThanOrEqual(Date.now() / 1000 + 40 * 60 + 5)
 
   // 絕對截止只看伺服器存在暫存列的值：把它改成已過（不用真的等 30 分鐘）。
   const pending = await pool.query<{ value: string }>('select value from verifications where identifier = $1', [`signup-resume:${email}`])

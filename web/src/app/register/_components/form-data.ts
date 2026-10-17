@@ -62,12 +62,11 @@ const KNOWN_CODES = new Set([
 ])
 
 /**
- * 續辦票的 cookie：只存在發起續辦的那個瀏覽器（HttpOnly），10 分鐘，每次重寄成功再延 10 分鐘。
- * 伺服器的暫存列活到絕對截止（續辦開始起 30 分鐘）再多 10 分鐘（`signup-resume.ts` 的 `rowExpiresAt`），
- * 所以 cookie 還帶得回票的期間，過了截止的重寄一定看得到「續辦已逾時」。
+ * 續辦票的 cookie：只存在發起續辦的那個瀏覽器（HttpOnly）。壽命跟伺服器的暫存列一樣（絕對截止再多 10 分鐘；
+ * `SIGNUP_RESUME_COOKIE_SECONDS`，由 `register/actions.ts` 在續辦開始時設一次，重寄不延）：視窗過了、截止內還能重寄復活，
+ * 而 cookie 還帶得回票的期間，過了截止的重寄一定看得到「續辦已逾時」。
  */
 export const RESUME_COOKIE = 'fju_signup_resume'
-export const RESUME_MAX_AGE = 10 * 60
 
 /** 票是 base64url（沒有 `.`），Email 也編成 base64url，用 `.` 接起來。 */
 export function encodeResume(input: { ticket: string; email: string }): string {

@@ -14,9 +14,7 @@ import {
   authErrorMessage,
   decodeResume,
   field,
-  encodeResume,
   RESUME_COOKIE,
-  RESUME_MAX_AGE,
   type ResendFormState,
   type VerifyFormState,
 } from '../_components/form-data'
@@ -97,35 +95,29 @@ export async function resendOtpAction(state: ResendFormState, formData: FormData
  * 續辦已過絕對截止（開始起 30 分鐘）→ 不寄信，畫面「續辦已逾時，請重新開始」並給回第 1 步的連結（Email 帶著）。
  * 持票的人本來就知道這個帳號在續辦，這一句不會多洩漏帳號狀態。票在伺服器已經作廢（重寄回逾時、填碼回已失效），
  * cookie **不在這裡刪**：Server Action 回應會重新算這一頁，沒有票的續辦頁會導去登入，使用者就看不到這句與連結
- * （e2e 抓到的）；cookie 最多再活 10 分鐘，回第 1 步重填會換成新票。
+ * （e2e 抓到的）；cookie 跟暫存列同壽命（截止＋10 分鐘，開始時設一次、重寄不延），回第 1 步重填會換成新票。
+ * 續辦頁還開著但 cookie 已經沒了（壽命到了或被清掉）→ 一樣是「續辦已逾時」與連結（不查伺服器、不寄信；
+ * 之前會說「已寄出」卻什麼都沒寄）。
  */
 export async function resendResumeOtpAction(state: ResendFormState, formData: FormData): Promise<ResendFormState> {
   const attempt = (state?.attempt ?? 0) + 1
   const incoming = await headers()
   const jar = await cookies()
   const resume = decodeResume(jar.get(RESUME_COOKIE)?.value)
-  if (resume) {
-    let outcome: SignupResumeResendOutcome
-    try {
-      outcome = await resendSignupResumeOtp(
-        resume,
-        authCallHeaders({ ip: clientIpFrom(incoming), turnstileToken: field(formData, 'cf-turnstile-response', 4096) }),
-      )
-    } catch (error) {
-      return { error: authErrorMessage(error, '驗證碼暫時寄不出去，請稍後再試。').message, attempt }
-    }
-    if (outcome === 'mail_failed') return { error: '驗證碼暫時寄不出去，請稍後再試。', attempt }
-    if (outcome === 'timed_out') {
-      return { error: '續辦已逾時，請重新開始。', restartHref: `/register?email=${encodeURIComponent(resume.email)}`, attempt }
-    }
-    // 暫存跟新碼一起延長 10 分鐘（最多到續辦開始後 30 分鐘；由伺服器管），續辦票的 cookie 也跟著延。
-    jar.set(RESUME_COOKIE, encodeResume(resume), {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: (process.env.BETTER_AUTH_URL ?? '').startsWith('https:'),
-      path: '/register',
-      maxAge: RESUME_MAX_AGE,
-    })
+  if (!resume) return { error: '續辦已逾時，請重新開始。', restartHref: '/register', attempt }
+  let outcome: SignupResumeResendOutcome
+  try {
+    outcome = await resendSignupResumeOtp(
+      resume,
+      authCallHeaders({ ip: clientIpFrom(incoming), turnstileToken: field(formData, 'cf-turnstile-response', 4096) }),
+    )
+  } catch (error) {
+    return { error: authErrorMessage(error, '驗證碼暫時寄不出去，請稍後再試。').message, attempt }
   }
+  if (outcome === 'mail_failed') return { error: '驗證碼暫時寄不出去，請稍後再試。', attempt }
+  if (outcome === 'timed_out') {
+    return { error: '續辦已逾時，請重新開始。', restartHref: `/register?email=${encodeURIComponent(resume.email)}`, attempt }
+  }
+  // 視窗跟新碼一起重開 10 分鐘（最多到續辦開始後 30 分鐘；由伺服器管）；cookie 開始時就設到截止＋10 分鐘，這裡不動。
   return { sentAt: Date.now(), attempt }
 }
