@@ -466,6 +466,13 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     const c2 = await createOpportunity(t3, { overrides: { companyName: 'C2 公司' } })
     await command.link(actor(g2.leader.id, ['student']), { groupId: g2.id, revision: await revisionOf(g2.id), opportunityId: c0, reason: '' }, randomUUID())
 
+    // 對話框選項：只列未連案的產學組（組長名＋版本）；學生拿不到。
+    const before = (await query.teacherLinkTargets(actor(t2, ['teacher']))).filter((o) => o.cohortCode === cohort.code)
+    expect(before).toEqual([
+      { groupId: g1.id, groupCode: 'G01', cohortCode: cohort.code, cohortName: cohort.code, leaderName: g1.leader.name, revision: await revisionOf(g1.id) },
+    ])
+    expect(await query.teacherLinkTargets(actor(g1.leader.id, ['student']))).toEqual([])
+
     // AC-A-12：T3 把 G01 連到 T2 的案 → FORBIDDEN。
     const byOther = await command.link(actor(t3, ['teacher']), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c1, reason: '' }, randomUUID())
     expect(byOther.ok ? 'ok' : [byOther.code, byOther.message]).toEqual(['FORBIDDEN', '只能把組別連到自己負責的合作案。'])
@@ -491,6 +498,10 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     expect(audit.rows).toEqual([{ actor_user_id: t2, role: 'teacher' }])
     const advisor = await owner.sql('select count(*) as n from advisor_assignments where group_id = $1', [g1.id])
     expect(Number(advisor.rows[0]!.n)).toBe(0)
+    // 案主的管理列標出誰連的；連好之後 G01 不再是選項。
+    const managed = (await query.manageList(actor(t2, ['teacher']))).find((o) => o.id === c1)!
+    expect(managed.links.map((l) => [l.groupCode, l.linkedByName])).toEqual([['G01', '案主 T2']])
+    expect((await query.teacherLinkTargets(actor(t2, ['teacher']))).filter((o) => o.cohortCode === cohort.code)).toEqual([])
 
     // AC-A-13：已連到別案的 G02 → CONFLICT（案主不能換案；換案只有組長／系辦）。
     const switching = await command.link(actor(t2, ['teacher']), { groupId: g2.id, revision: await revisionOf(g2.id), opportunityId: c1, reason: '更適合' }, randomUUID())

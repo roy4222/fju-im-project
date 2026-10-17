@@ -109,6 +109,9 @@ type GroupRow = {
 
 type CohortRow = { id: string; code: string; status: CohortStatus }
 
+/** `TeacherLinkTarget` 沒從 `application/groups` 的入口匯出（入口不在 A-04 可改範圍），從介面取型別。 */
+type TeacherLinkTarget = Awaited<ReturnType<OpportunityQuery['teacherLinkTargets']>>[number]
+
 type Deps = {
   audit: AuditWriter<PoolClient>
   ledger: OperationLedger<PoolClient>
@@ -1310,23 +1313,61 @@ export class PgOpportunityQuery implements OpportunityQuery {
       linkable,
     }
   }
+
+  async teacherLinkTargets(actor: ResolvedActor): Promise<readonly TeacherLinkTarget[]> {
+    if (actor.kind !== 'authenticated' || !canViewOpportunities(actor)) return []
+    if (!isAdminActor(actor) && !actor.roles.includes('teacher')) return []
+    // 一句 SQL：組長名用目前有效的組長列；已連任何一案（含已下架的案）的組不列，換案只有組長與系辦能做。
+    const rows = await this.#reader().query<{ id: string; code: string; cohort_code: string; cohort_name: string; leader_name: string | null; revision: number }>(
+      `select g.id, g.code, c.code as cohort_code, c.name as cohort_name, g.revision,
+              (select ${personName('p', 'u')} from group_leaders gl
+                 join users u on u.id = gl.user_id
+                 left join user_profiles p on p.user_id = gl.user_id
+                where gl.group_id = g.id and gl.valid_to is null limit 1) as leader_name
+         from groups g
+         join cohorts c on c.id = g.cohort_id
+        where c.status <> 'archived' and g.status = 'active' and g.group_type = 'industry'
+          and not exists (select 1 from opportunity_links l where l.group_id = g.id and l.valid_to is null)
+        order by c.code desc, g.code`,
+    )
+    return rows.rows.map((r) => ({
+      groupId: r.id,
+      groupCode: r.code,
+      cohortCode: r.cohort_code,
+      cohortName: r.cohort_name,
+      leaderName: r.leader_name,
+      revision: r.revision,
+    }))
+  }
 }
 
 async function linkedGroups(db: Pick<Pool, 'query'>, opportunityIds: string[]): Promise<Map<string, LinkedGroupRef[]>> {
   const result = new Map<string, LinkedGroupRef[]>()
   if (opportunityIds.length === 0) return result
-  const rows = await db.query<{ opportunity_id: string; link_id: string; group_id: string; code: string; cohort_code: string; cohort_name: string; valid_from: Date }>(
-    `select l.opportunity_id, l.id as link_id, g.id as group_id, g.code, c.code as cohort_code, c.name as cohort_name, l.valid_from
+  const rows = await db.query<{
+    opportunity_id: string
+    link_id: string
+    group_id: string
+    code: string
+    cohort_code: string
+    cohort_name: string
+    valid_from: Date
+    linked_by_name: string
+  }>(
+    `select l.opportunity_id, l.id as link_id, g.id as group_id, g.code, c.code as cohort_code, c.name as cohort_name, l.valid_from,
+            ${personName('p', 'u')} as linked_by_name
        from opportunity_links l
        join groups g on g.id = l.group_id
        join cohorts c on c.id = g.cohort_id
+       join users u on u.id = l.linked_by_user_id
+       left join user_profiles p on p.user_id = l.linked_by_user_id
       where l.opportunity_id = any($1::uuid[]) and l.valid_to is null
       order by c.code desc, g.code`,
     [opportunityIds],
   )
   for (const r of rows.rows) {
     const list = result.get(r.opportunity_id) ?? []
-    list.push({ linkId: r.link_id, groupId: r.group_id, groupCode: r.code, cohortCode: r.cohort_code, cohortName: r.cohort_name, linkedAt: r.valid_from })
+    list.push({ linkId: r.link_id, groupId: r.group_id, groupCode: r.code, cohortCode: r.cohort_code, cohortName: r.cohort_name, linkedAt: r.valid_from, linkedByName: r.linked_by_name })
     result.set(r.opportunity_id, list)
   }
   return result
