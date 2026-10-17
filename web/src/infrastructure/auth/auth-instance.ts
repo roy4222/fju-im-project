@@ -127,15 +127,15 @@ function tooMany(message: string): APIError {
 }
 
 /**
- * 寄驗證碼前的限速：冷卻 → Email 桶 → IP 桶。
+ * 寄驗證碼前的限速：冷卻 → Email 桶 → IP 桶。回傳占到的冷卻位（給 Turnstile 沒過時 `releaseOtpCooldown`）。
  *
  * 冷卻是**先占位再過關**（VB-14 一併修的 VB-2 競態；VB-3 難題工程師查到）：舊版是先 `count` 看、等 Turnstile 驗完才 `hit`，
- * 兩筆同一個 Email 的寄碼同時進來會**都**通過冷卻檢查（各打一次 siteverify、各插一列碼）。現在第一步就 `hit`（同步、原子地
+ * 兩筆同一個 Email 的寄碼同時進來會**都**通過冷卻檢查（各打一次 siteverify、各插一列碼）。現在第一步就占位（同步、原子地
  * 把 120 秒的唯一一格占走），同時進來的第二筆在這裡就 429；後面任何一關（Email 桶、IP 桶、Turnstile）沒過，占的那一格由
  * `releaseOtpCooldown` 放掉，不算寄過。被擋的請求照舊不扣 10 分鐘的額度。
  */
-function enforceOtpSendRate(email: string, ip: string): void {
-  claimOtpCooldown(email)
+function enforceOtpSendRate(email: string, ip: string): OtpCooldownClaim {
+  const claim = claimOtpCooldown(email)
   try {
     if (!otpLimiters.sendEmail.hit(email).allowed) {
       throw tooMany(`寄太多次了，請 ${waitAtMost(RATE_LIMITS.otpSend.email.windowMs)}後再試。`)
@@ -144,30 +144,56 @@ function enforceOtpSendRate(email: string, ip: string): void {
       throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
     }
   } catch (error) {
-    releaseOtpCooldown(email)
+    releaseOtpCooldown(claim)
     throw error
   }
+  return claim
 }
 
 /** 續辦的寄碼：占冷卻、扣 IP 桶，不扣 Email 桶（同一次註冊已扣過）。IP 桶沒過一樣放掉冷卻。 */
-function checkResumeSendRate(email: string, ip: string): void {
-  claimOtpCooldown(email)
+function checkResumeSendRate(email: string, ip: string): OtpCooldownClaim {
+  const claim = claimOtpCooldown(email)
   if (!otpLimiters.sendIp.hit(ip).allowed) {
-    releaseOtpCooldown(email)
+    releaseOtpCooldown(claim)
     throw tooMany(`這個網路寄驗證碼的次數已達上限，最晚 ${waitAtMost(RATE_LIMITS.otpSend.ip.windowMs)}後可以再試。`)
   }
+  return claim
 }
+
+/** 一次占到的冷卻位：哪個 Email、冷卻桶裡那個視窗的版本（`RateLimiter.claim` 發的 token）。 */
+type OtpCooldownClaim = { readonly email: string; readonly token: number }
 
 /** 占住這個 Email 的 120 秒冷卻（桶上限 1）：已有人占著就 429。 */
-function claimOtpCooldown(email: string): void {
-  if (!otpLimiters.cooldown.hit(email).allowed) {
+function claimOtpCooldown(email: string): OtpCooldownClaim {
+  const verdict = otpLimiters.cooldown.claim(email)
+  if (!verdict.allowed) {
     throw tooMany(`驗證碼剛寄出，請等 ${RATE_LIMITS.otpResendCooldown.windowMs / 1000} 秒再重寄。`)
   }
+  return { email, token: verdict.token }
 }
 
-/** 占了冷卻但後面沒過關：放掉（占位期間別人都被擋在 `claimOtpCooldown`，所以直接清掉這個桶不會放掉別人的）。 */
-function releaseOtpCooldown(email: string): void {
+/**
+ * 占了冷卻但後面沒過關：**只放掉自己占的那一格**（compare-and-delete；VB-14 Review 第 2 輪 P2）。
+ *
+ * 舊版無條件 `reset(email)`：公開重寄 A 占位、停在 Turnstile 時，同一個 Email 的註冊首封寄出並重開了冷卻，
+ * A 之後 Turnstile 沒過一放就把首封的冷卻清掉，緊接著的重寄立刻 200、第二封寄出。現在占位帶視窗版本，
+ * 視窗已經被別人（首封、或過期後的新占位）重開就不動。
+ */
+function releaseOtpCooldown(claim: OtpCooldownClaim): void {
+  otpLimiters.cooldown.release(claim.email, claim.token)
+}
+
+/**
+ * 註冊首封寄出：不占位（同一次註冊已過 Turnstile、已在 sign-up 分支扣過 Email 額度），直接**重開**這個 Email 的
+ * 120 秒冷卻視窗（新的版本號，從現在起算）。
+ *
+ * 不能只 `hit`：這時若有公開重寄 A 正占著位（停在 Turnstile），`hit` 被拒、視窗仍是 A 的版本，A 失敗一放就把
+ * 首封的冷卻放掉（Review 第 2 輪 P2 的交錯）。重開之後 A 的 `releaseOtpCooldown` 對不上版本，不會動它。
+ * A 之後 Turnstile 通過的話兩封都寄——跟首封從不等冷卻的既有行為一樣（父版也是）。
+ */
+function startOtpCooldown(email: string): void {
   otpLimiters.cooldown.reset(email)
+  otpLimiters.cooldown.claim(email)
 }
 
 /** 「一小時」比「1 小時」順口；畫面句跟驗收案例一致（AC-VI-59「請一小時後再試」）。 */
@@ -614,9 +640,10 @@ function createAuth() {
           const context = !ctx.request && isInternalCall() ? currentOtpPurpose() : undefined
           const purpose = context && context.email === email ? context.purpose : undefined
           const ip = clientIpFrom(headers)
-          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過 Email 額度（IP 由註冊桶管），這裡只開始冷卻。
+          // 註冊成功後的第一封：同一次註冊已過 Turnstile、也已在 sign-up 分支扣過 Email 額度（IP 由註冊桶管），這裡只開始冷卻
+          // （重開視窗，正占著位、之後會失敗的公開重寄放不掉它；見 `startOtpCooldown`）。
           if (purpose === 'signup-first') {
-            otpLimiters.cooldown.hit(email)
+            startOtpCooldown(email)
             return
           }
           let exempt = false
@@ -635,16 +662,15 @@ function createAuth() {
           }
           // 續辦的寄碼：同一次 wrapper 呼叫裡的註冊已扣過 Email 額度，這裡不重扣（Review 第 1 輪）；
           // 冷卻照占，IP 照扣（續辦不是首封，計入 20 封／小時／IP）。
-          if (purpose === 'signup-resume-start') checkResumeSendRate(email, ip)
-          else enforceOtpSendRate(email, ip)
+          const claim = purpose === 'signup-resume-start' ? checkResumeSendRate(email, ip) : enforceOtpSendRate(email, ip)
           // 冷卻在 `enforceOtpSendRate`／`checkResumeSendRate` 第一步就占住了（原子地，見那裡的說明），不看這個 Email
-          // 有沒有帳號：存在與不存在的 Email 第二次重寄都一樣 429（Review 第 1 輪帳號列舉）。Turnstile 沒過就放掉，
-          // 不算寄過；過了之後才真的進入 120 秒冷卻。
+          // 有沒有帳號：存在與不存在的 Email 第二次重寄都一樣 429（Review 第 1 輪帳號列舉）。Turnstile 沒過就放掉
+          // **自己占的那一格**（別人在這段期間重開的不動），不算寄過；過了之後才真的進入 120 秒冷卻。
           if (!exempt) {
             try {
               await requireTurnstile(turnstileConfig, headers, 'resend')
             } catch (error) {
-              releaseOtpCooldown(email)
+              releaseOtpCooldown(claim)
               throw error
             }
           }
