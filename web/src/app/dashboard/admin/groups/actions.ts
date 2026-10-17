@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { currentActor } from '@/app/_ui/guard'
 import type { AdminGroupActionState } from '@/app/dashboard/admin/groups/admin-group-forms'
 import type { BatchActionOutcome } from '@/app/dashboard/admin/groups/advisor-forms'
+import type { GroupHistoryOutcome } from '@/app/dashboard/admin/groups/member-forms'
 import type { LinkOptionsOutcome } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import type { AdvisorBatchPreview, AdvisorBatchReceipt, AdvisorUploadTicket } from '@/application/groups'
 import { actorHasRole, checkStatus } from '@/composition/accounts'
@@ -16,13 +17,16 @@ import {
   describeLeaderChangeReceipt,
   describeLinkReceipt,
   describeMemberChangeReceipt,
+  describeGroupHistory,
   describeTerminateReceipt,
   getAdvisorCommand,
   getGroupCommand,
+  getGroupQuery,
   getOpportunityCommand,
   getOpportunityQuery,
 } from '@/composition/groups'
 import type { Result } from '@/shared/result'
+import { formatTaipeiMinute } from '@/shared/time'
 
 /**
  * 管理員「分組總覽」的動作：分組設定（每組人數、提案預設天數）、作廢提案（票 13）；
@@ -285,4 +289,21 @@ export async function searchLinkOptionsAction(input: { q: string; offset: number
   const q = typeof input?.q === 'string' ? input.q.slice(0, 100) : ''
   const offset = typeof input?.offset === 'number' && Number.isInteger(input.offset) && input.offset > 0 ? input.offset : 0
   return { ok: true, options: await getOpportunityQuery().linkOptions(actor, { q, limit: LINK_OPTIONS_PAGE, offset }) }
+}
+
+/** 組別詳情打開時才取異動歷程（SH-B4）；系辦分組頁本身不載歷程。 */
+export async function loadGroupHistoryAction(groupId: string): Promise<GroupHistoryOutcome> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: '只有系辦可以查看組別異動歷程。' }
+  if (typeof groupId !== 'string' || !UUID.test(groupId)) return { ok: false, message: '找不到這個組別。' }
+  const entries = await getGroupQuery().groupHistory(groupId)
+  return {
+    ok: true,
+    history: entries.map((h, index) => ({
+      key: `${index}`,
+      atLabel: formatTaipeiMinute(h.at),
+      text: describeGroupHistory(h),
+      reason: h.reason,
+    })),
+  }
 }
