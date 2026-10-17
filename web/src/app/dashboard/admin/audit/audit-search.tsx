@@ -1,51 +1,82 @@
-'use client'
-
-import { useId, useState, type ReactNode } from 'react'
+import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { IconSearch } from '@tabler/icons-react'
 
-/** 每一列：伺服器已經畫好的 `<li>`，加上「誰」「對象」兩欄的字（搜尋只比對這兩欄）。 */
-export type AuditSearchRow = { id: string; who: string; target: string; node: ReactNode }
-
-const fold = (s: string) => s.normalize('NFKC').toLowerCase()
+/** 每一列：伺服器已經畫好的 `<li>`。 */
+export type AuditSearchRow = { id: string; node: ReactNode }
 
 /**
- * 操作紀錄的姓名搜尋（AD-15；設計方案 §3.6、AC-AD-26、Q113）。
+ * 操作紀錄的搜尋（AD-15、AD-B6；設計方案 §9、AC-A-32、AC-A-33、Q113）。
  *
- * A 階段只過濾**已載入**的那批（近 7 天、最多 200 筆）：在瀏覽器裡做字串比對，不打伺服器、網址不變。
- * 不符合的列直接不渲染（不是藏起來），清空就全部回來。角色篩選膠囊是網址（`?role=`），兩者可以同時用。
- * 伺服器端搜尋是 B（AD-B6）。
+ * 伺服器端搜尋：GET 表單（`?role=&q=`），Enter 送出，由伺服器對近 7 天的全部紀錄比對「誰」與「對象」，
+ * 清單與分頁籤數字都隨搜尋字變。欄位擋在 `maxLength`（UTF-16 單位，與伺服器同一把尺）；清除鈕是回到沒有 `q` 的網址。
+ * 表單以 `role|q` 當 key：導覽（清除、切角色）後輸入框重新掛載，不會留著沒送出的字。
  */
-export function AuditSearch({ rows, note, emptyText }: { rows: readonly AuditSearchRow[]; note: string; emptyText: string }) {
-  const [q, setQ] = useState('')
-  const id = useId()
-  const needle = fold(q.trim())
-  const shown = needle ? rows.filter((r) => fold(r.who).includes(needle) || fold(r.target).includes(needle)) : rows
-
+export function AuditSearch({
+  rows,
+  note,
+  emptyText,
+  q,
+  role,
+  maxLength,
+  clearHref,
+  error,
+}: {
+  rows: readonly AuditSearchRow[]
+  note: string
+  emptyText: string
+  /** 目前生效的搜尋字（網址 `q`）；沒搜尋給空字串。 */
+  q: string
+  /** 目前的角色分頁（`all` 不帶進網址）。 */
+  role: string
+  maxLength: number
+  clearHref: string
+  /** 搜尋字不合格時的說明（清單改回沒有搜尋的結果）。 */
+  error?: string
+}) {
   return (
     <div className="flex flex-col">
       <div className="border-b border-border px-5 py-3">
-        <label htmlFor={id} className="sr-only">
-          搜尋姓名或對象
-        </label>
-        <div className="relative w-full sm:w-72">
-          <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <input
-            id={id}
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="搜尋姓名或對象"
-            autoComplete="off"
-            className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent py-1 pr-2.5 pl-8 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
-        </div>
+        <form key={`${role}|${q}`} method="get" role="search" className="flex flex-wrap items-center gap-2">
+          {role !== 'all' ? <input type="hidden" name="role" value={role} /> : null}
+          <label htmlFor="audit-q" className="sr-only">
+            搜尋姓名或對象
+          </label>
+          <div className="relative w-full sm:w-72">
+            <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <input
+              id="audit-q"
+              name="q"
+              type="search"
+              defaultValue={q}
+              maxLength={maxLength}
+              placeholder="搜尋姓名或對象"
+              autoComplete="off"
+              className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent py-1 pr-2.5 pl-8 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <button type="submit" className="h-9 rounded-lg border border-input px-3 text-sm font-semibold hover:bg-accent">
+            搜尋
+          </button>
+          {q ? (
+            <Link href={clearHref} className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+              清除
+            </Link>
+          ) : null}
+        </form>
         <p className="mt-1.5 text-xs text-muted-foreground">{note}</p>
+        {error ? (
+          <p role="alert" className="mt-1.5 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
       </div>
       <ol aria-label="操作紀錄清單">
-        {shown.map((r) => r.node)}
-        {rows.length === 0 ? <li className="px-5 py-8 text-center text-sm text-muted-foreground">{emptyText}</li> : null}
-        {rows.length > 0 && shown.length === 0 ? (
-          <li className="px-5 py-8 text-center text-sm text-muted-foreground">{`找不到「${q.trim()}」；只比對「誰」與「對象」兩欄。`}</li>
+        {rows.map((r) => r.node)}
+        {rows.length === 0 ? (
+          <li className="px-5 py-8 text-center text-sm text-muted-foreground">
+            {q ? `找不到「${q}」；只比對「誰」與「對象」兩欄。` : emptyText}
+          </li>
         ) : null}
       </ol>
     </div>

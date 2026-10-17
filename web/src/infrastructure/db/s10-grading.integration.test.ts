@@ -188,7 +188,7 @@ describe('逐欄對照附錄 A', () => {
     },
     evaluations: {
       id: 'NO', assignment_id: 'NO', kind: 'NO', scheme_version_id: 'NO', scores: 'NO',
-      submitted_real_at: 'NO', submitted_business_at: 'NO', request_id: 'NO',
+      submitted_real_at: 'NO', submitted_business_at: 'NO', request_id: 'NO', comment: 'YES',
     },
     evaluation_status: {
       evaluation_id: 'NO', assignment_id: 'NO', state: 'NO', revision: 'NO', created_at: 'NO', updated_at: 'NO',

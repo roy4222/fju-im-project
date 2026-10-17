@@ -352,6 +352,11 @@ describe('確認與成立', () => {
     expect(view.group?.code).toBe('G01')
     expect(view.group?.members.find((m) => m.isLeader)?.userId).toBe(members[0]!.id)
     expect(view.openProposal).toBeNull()
+    // 組員頭像（ST-12）：沒設定＝null；設了就跟著組員資料出來。
+    expect(view.group?.members.every((m) => m.avatarPreset === null && m.avatarFileId === null)).toBe(true)
+    await owner.sql(`update user_profiles set avatar_preset = 12 where user_id = $1`, [members[1]!.id])
+    const withAvatar = await query.studentView(members[2]!.id, cohortId)
+    expect(withAvatar.group?.members.find((m) => m.userId === members[1]!.id)).toMatchObject({ avatarPreset: 12, avatarFileId: null })
 
     // 指導老師帶老師自己填的聯絡信箱（Q122），不是登入 Email（t1-groups@example.com）。
     await owner.sql(
@@ -927,5 +932,17 @@ describe('分組歷程改成可選（SH-P4）', () => {
     // 提案歷史（StudentGroupView.history）不是組別歷程，不受影響。
     expect(studentLean.history).toEqual(studentDefault.history)
     expect(studentLean.history.length).toBeGreaterThan(0)
+  })
+
+  it('groupHistory(groupId)：和 overview 預設帶的該組歷程相同（含理由與操作者）；不存在的組回空的（SH-B4）', async () => {
+    const { cohortId } = await cohortWithHistory()
+    const full = await query.overview(cohortId)
+    const g01 = full.groups[0]!
+    const history = await query.groupHistory(g01.id)
+    expect(history).toEqual(g01.history)
+    expect(history.map((h) => [h.kind, h.reason])).toEqual([['leader_changed', '換人帶']])
+    expect(history[0]!.byName).not.toBeNull()
+    expect(await query.groupHistory(full.groups[1]!.id)).toEqual([])
+    expect(await query.groupHistory(randomUUID())).toEqual([])
   })
 })

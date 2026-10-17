@@ -646,6 +646,24 @@ describe('批次查詢的角色鍵（SH-B5 Review 修）', () => {
   })
 })
 
+describe('表態列的頭像（ST-12）', () => {
+  it('快照不存頭像：表態列讀此刻的 user_profiles；沒設定＝null；學生頁與老師頁同一份', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    await owner.sql(`update user_profiles set avatar_preset = 7 where user_id = $1`, [s.members[0]!.id])
+    await owner.sql(`update user_profiles set avatar_preset = 9 where user_id = $1`, [s.teacher.id])
+    const student = await query.studentView(actor(s.members[1]!.id, ['student']))
+    const progress = student.versions.find((x) => x.versionId === v.versionId)!.progress
+    expect(progress.students[0]).toMatchObject({ userId: s.members[0]!.id, avatarPreset: 7, avatarFileId: null })
+    expect(progress.students[1]).toMatchObject({ avatarPreset: null, avatarFileId: null })
+    expect(progress.advisor).toMatchObject({ avatarPreset: 9, avatarFileId: null })
+    const teacher = await query.teacherView(actor(s.teacher.id, ['teacher']))
+    expect(teacher[0]!.current.progress.students[0]).toMatchObject({ avatarPreset: 7 })
+    const detail = await query.versionDetail(actor(s.members[0]!.id, ['student']), v.versionId)
+    expect(detail.ok && detail.receipt.progress.students[0]).toMatchObject({ avatarPreset: 7 })
+  })
+})
+
 describe('系辦重置／重開被擋的句子（AC-A-42）', () => {
   it('學生按重置／重開：句子通順、不疊字；狀態不對時指向「重新收集同意（內容不變）」', async () => {
     const s = await scenario()

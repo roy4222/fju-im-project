@@ -21,7 +21,8 @@ describe('預設拒絕', () => {
     expect(routeAccess('/admin/ban-user', 'POST')).toBe('blocked')
     expect(routeAccess('/update-user', 'POST')).toBe('blocked')
     expect(routeAccess('/unlink-account', 'POST')).toBe('blocked')
-    expect(routeAccess('/request-password-reset', 'POST')).toBe('blocked')
+    // VB-2：忘記密碼改成對外開放（寄重設連結），不再是封鎖例子。
+    expect(routeAccess('/request-password-reset', 'POST')).toBe('allowed')
     expect(routeAccess('/這個端點根本不存在', 'POST')).toBe('blocked')
   })
 
@@ -56,8 +57,8 @@ describe('路徑參數', () => {
     expect(routeAccess('/callback', 'GET')).toBe('blocked')
   })
 
-  it('`/reset-password/:token` 是封鎖路由，帶什麼 token 都一樣', () => {
-    expect(routeAccess('/reset-password/anything', 'GET')).toBe('blocked')
+  it('`/reset-password/:token` 是允許路由（VB-2 重設連結），帶什麼 token 都一樣', () => {
+    expect(routeAccess('/reset-password/anything', 'GET')).toBe('allowed')
   })
 
   it('路徑裡的正則字元不會被當成萬用字元', () => {

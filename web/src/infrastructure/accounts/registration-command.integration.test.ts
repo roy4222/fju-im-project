@@ -828,7 +828,7 @@ describe('審核結果信（B 階段 VB-1，AC-VI-53）', () => {
     (await one<{ id: string }>(`select id from registration_applications where user_id = $1 and state = 'pending'`, [userId])).id
   const outboxOf = (email: string) =>
     db.sql(
-      `select template, to_email, subject, body_text, status, error from mail_outbox where to_email = $1 order by created_at`,
+      `select template, to_email, subject, body_text, status, error from mail_outbox where to_email = $1 and template = 'registration_result' order by created_at`,
       [email],
     )
   const approveInput = async (userId: string) => ({
@@ -945,7 +945,7 @@ describe('審核結果信（B 階段 VB-1，AC-VI-53）', () => {
         return { emails, users }
       }
       const countFor = async (emails: string[]) =>
-        Number((await one<{ n: number }>(`select count(*)::int as n from mail_outbox where to_email = any($1) and status = 'captured'`, [emails])).n)
+        Number((await one<{ n: number }>(`select count(*)::int as n from mail_outbox where to_email = any($1) and template = 'registration_result' and status = 'captured'`, [emails])).n)
 
       const rejecting = await batch('pool-rej')
       const rejected = await Promise.all(

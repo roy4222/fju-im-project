@@ -6,7 +6,9 @@ import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
 import type { SchemeStageInput } from '@/application/grading'
 import type { GroupVersionWithFiles } from '@/application/submissions'
-import { PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
+import { teacherProgress } from '@/app/dashboard/admin/grading/progress'
+import { latestEvaluations, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
+import { PgGradebookQuery } from '@/infrastructure/grading/pg-grading-results'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -109,7 +111,11 @@ async function assignOk(groupId: string, teacherId: string, stageKey = 's1'): Pr
 }
 
 async function countedCount(assignmentId: string): Promise<number> {
-  const r = await owner.sql(`select count(*)::int as n from evaluation_status where assignment_id = $1 and state = 'counted'`, [assignmentId])
+  return stateCount(assignmentId, 'counted')
+}
+
+async function stateCount(assignmentId: string, state: string): Promise<number> {
+  const r = await owner.sql(`select count(*)::int as n from evaluation_status where assignment_id = $1 and state = $2`, [assignmentId, state])
   return Number(r.rows[0]!.n)
 }
 
@@ -467,7 +473,7 @@ describe('暫存（GRD-03、GRD-12）', () => {
 })
 
 describe('正式送出與鎖定（GRD-04）', () => {
-  it('沒填齊不能送；送出後有收件回執、採計一筆、方案鎖定；再送 CONFLICT（需先退回）；再暫存也不行', async () => {
+  it('沒填齊不能送；送出後有收件回執、採計一筆、方案鎖定；再送 ok（重送：舊的成歷史、reason resubmitted）；再暫存 ok、latestEvaluations 回 {counted, draft}', async () => {
     const cohortId = await newCohort()
     const { versionId } = await publishedScheme(cohortId)
     const groupId = await newGroup(cohortId, 'G01')
@@ -493,18 +499,29 @@ describe('正式送出與鎖定（GRD-04）', () => {
     expect(replay.ok && replay.receipt.evaluationId).toBe(sent.ok && sent.receipt.evaluationId)
     expect(await countedCount(a1)).toBe(1)
 
-    const again = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '90', i2: '90' } }, randomUUID())
-    expect(again).toMatchObject({ ok: false, code: 'CONFLICT' })
-    if (!again.ok) expect(again.message).toContain('退回')
-    expect(await command.saveDraft(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '1' } }, randomUUID())).toMatchObject({
-      ok: false,
-      code: 'CONFLICT',
-    })
-
     const bench = await query.teacherBench(teacherActor({ id: t1 }), groupId)
     expect(bench.ok && bench.receipt.entries[0]).toMatchObject({ state: 'counted', finalScore: '84.29', scores })
     const board = await query.adminBoard(adminActor(), cohortId)
     expect(board.ok && board.receipt.current).toMatchObject({ status: 'locked' })
+
+    // B 階段 TE-B1：正式送出後可以重送——舊的採計改成歷史（事件 reason='resubmitted'），新的一筆採計，採計恰一筆。
+    const again = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '90', i2: '90' } }, randomUUID())
+    expect(again).toMatchObject({ ok: true, receipt: { teacherScore: '90.00' } })
+    expect(await countedCount(a1)).toBe(1)
+    expect(await stateCount(a1, 'historical')).toBe(1)
+    const last = await owner.sql(
+      `select ev.reason from evaluation_status_events ev where ev.evaluation_id = $1 order by ev.real_at desc, ev.id desc limit 1`,
+      [sent.ok ? sent.receipt.evaluationId : ''],
+    )
+    expect(last.rows).toEqual([{ reason: 'resubmitted' }])
+
+    // 再暫存也可以：採計不變，latestEvaluations 回 {counted, draft} 兩筆。
+    const draft = await command.saveDraft(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '1' } }, randomUUID())
+    expect(draft).toMatchObject({ ok: true })
+    expect(await countedCount(a1)).toBe(1)
+    const current = (await latestEvaluations(app, [a1])).get(a1)
+    expect(current?.counted?.scores).toEqual({ i1: '90', i2: '90' })
+    expect(current?.draft?.scores).toEqual({ i1: '1' })
   })
 
   it('方案鎖定後：建新版本可以（草稿），直接發布換掉現版 SCHEME_LOCKED', async () => {
@@ -523,7 +540,7 @@ describe('正式送出與鎖定（GRD-04）', () => {
     })
   })
 
-  it('同一指派兩個不同請求編號同時正式送出：只有一筆採計，另一筆 CONFLICT', async () => {
+  it('同一指派兩個不同請求編號同時正式送出：兩個都 ok（在指派列排隊、後到的成重送），採計恰一筆、歷史一筆', async () => {
     const cohortId = await newCohort()
     await publishedScheme(cohortId)
     const groupId = await newGroup(cohortId, 'G01')
@@ -532,9 +549,9 @@ describe('正式送出與鎖定（GRD-04）', () => {
     const results = await Promise.all(
       ['70', '90'].map((v) => command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: v, i2: v } }, randomUUID())),
     )
-    expect(results.filter((r) => r.ok)).toHaveLength(1)
-    expect(results.find((r) => !r.ok)).toMatchObject({ code: 'CONFLICT' })
+    expect(results.filter((r) => r.ok)).toHaveLength(2)
     expect(await countedCount(a1)).toBe(1)
+    expect(await stateCount(a1, 'historical')).toBe(1)
   })
 
   it('兩位老師各自送出同一組：各一筆採計；狀態紀錄每筆都有「建立」事件', async () => {
@@ -715,3 +732,210 @@ describe('TE-11 teacherBenchPage：評分單組頁一次讀齊（AC-TE-48）', (
     expect(page.ok && page.receipt.entries.map((e) => e.stage.key)).toEqual(['s1', 's2'])
   })
 })
+
+// ── B 階段 TE-B1／TE-B4：正式送出後暫存、重送、評語（AC-TE-33～36、AC-TE-51、AC-A-1～3） ─────────────
+
+describe('TE-B1 正式送出後暫存與重送（AC-TE-33、AC-TE-51、AC-A-1、AC-A-2）', () => {
+  it('送出 84.29 → 暫存 90：評閱桌顯示草稿、正式分數仍 84.29、draftAfterFinal；系辦採計不變 → 重送：第 2 次、歷史一筆、不發通知', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const t2 = await newUser('乙老師', 'teacher')
+    const a1 = await assignOk(groupId, t1)
+    await assignOk(groupId, t2)
+    const first = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '80', i2: '88.58' } }, randomUUID())
+    if (!first.ok) throw new Error(first.message)
+    const eventsBefore = await domainEventCount(cohortId)
+
+    // AC-TE-51／AC-A-2：正式送出後只暫存。
+    const draft = await command.saveDraft(
+      teacherActor({ id: t1 }),
+      { assignmentId: a1, scores: { i1: '90', i2: '88.58' }, comment: '第一項補強後再看' },
+      randomUUID(),
+    )
+    expect(draft).toMatchObject({ ok: true })
+    const bench = await query.teacherBench(teacherActor({ id: t1 }), groupId)
+    expect(bench.ok && bench.receipt.entries[0]).toMatchObject({
+      state: 'counted',
+      scores: { i1: '90', i2: '88.58' },
+      finalScore: '84.29',
+      comment: '第一項補強後再看',
+      draftAfterFinal: true,
+      resubmittable: true,
+      settled: null,
+    })
+    expect(bench.ok && bench.receipt.entries[0]!.submissionHistory).toHaveLength(1)
+    const queue = await query.teacherQueue(teacherActor({ id: t1 }))
+    expect(queue[0]).toMatchObject({ state: 'counted', finalScore: '84.29', draftAfterFinal: true, settled: false })
+    const board = await query.adminBoard(adminActor(), cohortId)
+    expect(board.ok && board.receipt.assignments.find((a) => a.id === a1)).toMatchObject({ state: 'counted', score: '84.29', comment: null })
+
+    // T2 不能動 T1 的指派（AC-TE-35）。
+    expect(
+      await command.submitFinal(teacherActor({ id: t2 }), { assignmentId: a1, scores: { i1: '1', i2: '1' } }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'NOT_ASSIGNED' })
+
+    // AC-TE-33／AC-A-1：重新送出。
+    const resent = await command.submitFinal(
+      teacherActor({ id: t1 }),
+      { assignmentId: a1, scores: { i1: '90', i2: '88.58' }, comment: '第一項補強後再看' },
+      randomUUID(),
+    )
+    expect(resent).toMatchObject({ ok: true, receipt: { teacherScore: '89.29' } })
+    expect(await countedCount(a1)).toBe(1)
+    expect(await stateCount(a1, 'historical')).toBe(1)
+    const after = await query.teacherBench(teacherActor({ id: t1 }), groupId)
+    if (!after.ok) throw new Error(after.message)
+    const entry = after.receipt.entries[0]!
+    expect(entry).toMatchObject({ state: 'counted', finalScore: '89.29', draftAfterFinal: false, comment: '第一項補強後再看' })
+    expect(entry.submissionHistory.map((h) => h.no)).toEqual([1, 2])
+    expect(entry.submissionHistory[1]!.at).toEqual(entry.submittedAt)
+    const boardAfter = await query.adminBoard(adminActor(), cohortId)
+    expect(boardAfter.ok && boardAfter.receipt.assignments.find((a) => a.id === a1)).toMatchObject({
+      score: '89.29',
+      comment: '第一項補強後再看',
+    })
+    // 重送不通知系辦（D6）：沒有新的領域事件；稽核記「重新送出」。
+    expect(await domainEventCount(cohortId)).toBe(eventsBefore)
+    const audit = await owner.sql(
+      `select payload from audit_events where action = 'grading.submit_final' and target_id = $1`,
+      [resent.ok ? resent.receipt.evaluationId : ''],
+    )
+    expect(audit.rows[0]!.payload).toMatchObject({ resubmitted: true, previousEvaluationId: first.receipt.evaluationId })
+  })
+
+  it('被退回後的流程不變：退回那筆不是採計，再送出是第 2 次送出、不產生歷史', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const a1 = await assignOk(groupId, t1)
+    const first = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '80', i2: '80' } }, randomUUID())
+    if (!first.ok) throw new Error(first.message)
+    await owner.sql(`update evaluation_status set state = 'returned' where evaluation_id = $1`, [first.receipt.evaluationId])
+    await owner.sql(
+      `insert into evaluation_status_events (id, evaluation_id, from_state, to_state, reason, actor_kind, actor_user_id, real_at)
+       values (gen_random_uuid(), $1, 'counted', 'returned', '請補評語', 'user', $2, now())`,
+      [first.receipt.evaluationId, adminId],
+    )
+    const bench = await query.teacherBench(teacherActor({ id: t1 }), groupId)
+    expect(bench.ok && bench.receipt.entries[0]).toMatchObject({ state: 'empty', resubmittable: false, returned: { reason: '請補評語' } })
+    const again = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '85', i2: '85' } }, randomUUID())
+    expect(again).toMatchObject({ ok: true })
+    expect([await countedCount(a1), await stateCount(a1, 'historical'), await stateCount(a1, 'returned')]).toEqual([1, 0, 1])
+    const after = await query.teacherBench(teacherActor({ id: t1 }), groupId)
+    expect(after.ok && after.receipt.entries[0]!.submissionHistory.map((h) => h.no)).toEqual([1, 2])
+  })
+})
+
+describe('TE-B4 評語（AC-A-3 API 半）', () => {
+  it('評語跟分數同一次寫入；空白存成 null；501 字 VALIDATION_FAILED（什麼都沒寫）、500 字（含 emoji 算一個字）可以', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const a1 = await assignOk(groupId, t1)
+    const me = teacherActor({ id: t1 })
+
+    const tooLong = await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: '字'.repeat(501) }, randomUUID())
+    expect(tooLong).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'comment' } })
+    expect(
+      await command.submitFinal(me, { assignmentId: a1, scores: { i1: '80', i2: '80' }, comment: '字'.repeat(501) }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    const rows = await owner.sql(`select count(*)::int as n from evaluations where assignment_id = $1`, [a1])
+    expect(rows.rows[0]!.n).toBe(0)
+
+    expect(await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: '   ' }, randomUUID())).toMatchObject({ ok: true })
+    const blank = await query.teacherBench(me, groupId)
+    expect(blank.ok && blank.receipt.entries[0]).toMatchObject({ state: 'draft', comment: null })
+
+    const emoji = '👍'.repeat(500)
+    expect(await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: emoji }, randomUUID())).toMatchObject({ ok: true })
+    const saved = await query.teacherBench(me, groupId)
+    expect(saved.ok && saved.receipt.entries[0]!.comment).toBe(emoji)
+    const stored = await owner.sql(`select comment from evaluations where assignment_id = $1 order by submitted_real_at desc limit 1`, [a1])
+    expect(stored.rows[0]!.comment).toBe(emoji)
+  })
+
+  it('同一請求編號：評語不同 → REQUEST_MISMATCH；沒評語的請求指紋跟加欄之前一樣（同內容重放回原回執）', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const groupId = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const a1 = await assignOk(groupId, t1)
+    const me = teacherActor({ id: t1 })
+    const requestId = randomUUID()
+    const first = await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' } }, requestId)
+    const replay = await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: null }, requestId)
+    expect(replay.ok && replay.receipt.evaluationId).toBe(first.ok && first.receipt.evaluationId)
+    expect(await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: '不同' }, requestId)).toMatchObject({
+      ok: false,
+      code: 'REQUEST_MISMATCH',
+    })
+  })
+})
+
+// ── AD-21 供應端：pendingReviews／progressSummary 各 1 句（設計方案 §10） ─────────────────────────────
+
+describe('AD-21 系辦首頁供應端', () => {
+  it('pendingReviews 跟成績表的 pendingReviews 相同、1 句；progressSummary 跟 teacherProgress 同口徑、1 句；非系辦 FORBIDDEN', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const g2 = await newGroup(cohortId, 'G02')
+    const gone = await newGroup(cohortId, 'G03')
+    const t1 = await newUser('甲老師', 'teacher')
+    const t2 = await newUser('乙老師', 'teacher')
+    const a1 = await assignOk(g1, t1)
+    await assignOk(g1, t2)
+    await assignOk(g2, t1, 's2')
+    await assignOk(gone, t2)
+    await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '80', i2: '80' } }, randomUUID())
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [gone])
+
+    // 兩筆更正：G01 待復核、G02 生效中；只有 G01 列出。
+    const { versionId } = (await owner.sql(`select current_version_id as "versionId" from grading_schemes where cohort_id = $1`, [cohortId]))
+      .rows[0] as { versionId: string }
+    for (const [groupId, state, value] of [
+      [g1, 'pending_review', '91.5'],
+      [g2, 'effective', '70'],
+    ] as const) {
+      const o = await owner.sql(
+        `insert into grade_overrides (id, group_id, scheme_version_id, original_value, new_value, basis_hash, reason, actor_user_id, real_at)
+         values (gen_random_uuid(), $1, $2, 80, $3, 'x', '口試加分', $4, now()) returning id`,
+        [groupId, versionId, value, adminId],
+      )
+      await owner.sql(`insert into override_review_state (override_id, state) values ($1, $2)`, [o.rows[0]!.id, state])
+    }
+
+    const counter = countingPool(app)
+    const counted = new PgGradingQuery(() => counter.db)
+    const reviews = await counted.pendingReviews(adminActor(), cohortId)
+    expect(counter.count()).toBe(1)
+    const book = await new PgGradebookQuery(() => app).gradebook(adminActor(), cohortId)
+    if (!reviews.ok || !book.ok) throw new Error('應該讀得到')
+    expect([...reviews.receipt]).toEqual(book.receipt.pendingReviews)
+    expect(reviews.receipt.map((r) => r.groupCode)).toEqual(['G01'])
+
+    counter.reset()
+    const summary = await counted.progressSummary(adminActor(), cohortId)
+    expect(counter.count()).toBe(1)
+    const board = await query.adminBoard(adminActor(), cohortId)
+    if (!summary.ok || !board.ok) throw new Error('應該讀得到')
+    const progress = teacherProgress(board.receipt, { excludeDissolved: true })
+    expect({ counted: summary.receipt.counted, required: summary.receipt.required }).toEqual({
+      counted: progress.reduce((n, t) => n + t.counted, 0),
+      required: progress.reduce((n, t) => n + t.assigned, 0),
+    })
+    expect({ counted: summary.receipt.counted, required: summary.receipt.required }).toEqual({ counted: 1, required: 3 })
+
+    expect(await query.pendingReviews(teacherActor({ id: t1 }), cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await query.progressSummary(teacherActor({ id: t1 }), cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+})
+
+async function domainEventCount(cohortId: string): Promise<number> {
+  const r = await owner.sql(`select count(*)::int as n from domain_events where cohort_id = $1`, [cohortId])
+  return Number(r.rows[0]!.n)
+}

@@ -37,6 +37,30 @@ export const AUDIT_WINDOW_DAYS = 7
 export const AUDIT_PAGE_LIMIT = 200
 
 /**
+ * 搜尋字長度上限（AD-B6；trim 後 1–50 個 UTF-16 單位，即 JS 的 `.length`）。
+ * 畫面欄位的 `maxlength` 也是這個計量，前後端同一把尺（補充平面字如 𠮷 算 2）；伺服器收到更長的回 `VALIDATION_FAILED`。
+ */
+export const AUDIT_QUERY_MAX_LENGTH = 50
+
+/** 搜尋字不合格（trim 後超過 `AUDIT_QUERY_MAX_LENGTH` 字）。 */
+export class AuditQueryInvalidError extends Error {
+  readonly code = 'VALIDATION_FAILED'
+  constructor() {
+    super(`搜尋字最多 ${AUDIT_QUERY_MAX_LENGTH} 字。`)
+  }
+}
+
+/** 網址參數 `q` 正規化：trim；空字串當作沒有搜尋（null）；超過上限丟 `AuditQueryInvalidError`。 */
+export function parseAuditQuery(value: unknown): string | null {
+  const v = Array.isArray(value) ? value[0] : value
+  if (typeof v !== 'string') return null
+  const q = v.trim()
+  if (q === '') return null
+  if (q.length > AUDIT_QUERY_MAX_LENGTH) throw new AuditQueryInvalidError()
+  return q
+}
+
+/**
  * 不列進「操作紀錄」的事件：背景工作每小時寫一筆的磁碟量測（票 28 暫存在 `audit_events`，
  * 等 `storage_stats` 表補上就搬走）。它是量測、不是誰做的操作，列出來會把一週 168 筆洗滿整頁。
  */
@@ -69,6 +93,8 @@ export type AuditLogEntry = {
 export type AuditLog = {
   /** 這一份是哪個分頁（網址參數正規化後的值）。 */
   readonly who: AuditWhoFilter
+  /** 搜尋字（已 trim）；沒搜尋為 null。分頁籤數字與清單都隨它過濾。 */
+  readonly q: string | null
   readonly since: Date
   readonly entries: readonly AuditLogEntry[]
   /** 各分頁的筆數（整個時間窗，不受筆數上限影響）。 */
@@ -226,7 +252,7 @@ const ACTION_LABEL: Record<string, string> = {
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',
-  'signoff.version_reset': '重置同意書',
+  'signoff.version_reset': '重新收集同意書',
   'signoff.version_supersede': '同意書被新版取代',
   'signoff.version_void': '作廢同意書',
   'signoff.respond': '回覆同意書',
@@ -298,6 +324,9 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   showcase_entry: '成果展示',
   storage: '儲存空間',
 }
+
+/** 對象類型的中文對照（[代碼, 中文]），給稽核查詢在 SQL 裡組出和畫面一樣的對象文字（搜尋用）。 */
+export const AUDIT_TARGET_TYPE_LABEL_ENTRIES: readonly (readonly [string, string])[] = Object.entries(TARGET_TYPE_LABEL)
 
 export function auditTargetTypeLabel(targetType: string): string {
   return TARGET_TYPE_LABEL[targetType] ?? targetType

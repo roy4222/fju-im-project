@@ -5,13 +5,16 @@ import type {
   GradingCommand,
   GradingQuery,
   GradingResultsCommand,
+  GradingSettlementCommand,
+  GradingSettlementQuery,
 } from '@/application/grading'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getOperationLedger } from '@/composition/ops'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
 import { getPool } from '@/infrastructure/db/client'
-import { MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
+import { PgGradingSettlementCommand, PgGradingSettlementQuery } from '@/infrastructure/grading/pg-grade-settlements'
+import { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 
 /**
@@ -68,7 +71,26 @@ export function getGradebookQuery(): GradebookQuery {
   return gradebookQuery
 }
 
-export { MAX_REQUIRED_COUNT }
+let settlementCommand: GradingSettlementCommand | undefined
+let settlementQuery: GradingSettlementQuery | undefined
+
+/** B 階段 TE-B2a：系辦結算、解除結算（不發通知）。 */
+export function getGradingSettlementCommand(): GradingSettlementCommand {
+  settlementCommand ??= new PgGradingSettlementCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    businessClock: getBusinessClock(),
+  })
+  return settlementCommand
+}
+
+/** B 階段 TE-B2a：老師與系辦讀現行結算；系辦讀結算紀錄。 */
+export function getGradingSettlementQuery(): GradingSettlementQuery {
+  settlementQuery ??= new PgGradingSettlementQuery()
+  return settlementQuery
+}
+
+export { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT }
 
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
 export {

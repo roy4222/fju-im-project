@@ -13,7 +13,7 @@ import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/adv
 import { DissolveGroupButton } from '@/app/dashboard/admin/groups/dissolve-dialog'
 import { DissolvedGroups } from '@/app/dashboard/admin/groups/dissolved-groups'
 import { groupsGradingPorts, loadAdvisorGrading } from '@/app/dashboard/admin/groups/groups-data'
-import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
+import { GroupDetailButton, UngroupedStudents } from '@/app/dashboard/admin/groups/member-forms'
 import { LinkOpportunityButton } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
@@ -25,14 +25,13 @@ import {
   GROUP_SIZE_LIMIT,
   PROPOSAL_DAYS_LIMIT,
 } from '@/composition/cohorts'
-import type { GroupHistoryEntry, RosterFilter, RosterSort } from '@/application/groups'
+import type { RosterFilter, RosterSort } from '@/application/groups'
 import {
   ADVISOR_BATCH_KIND_LABEL,
   applyRosterFilter,
   ADVISOR_BATCH_OUTCOME_LABEL,
   ADVISOR_CSV_MAX_BYTES,
   CHANGE_REASON_MAX_LENGTH,
-  describeGroupHistory,
   getGroupQuery,
   getOpportunityQuery,
   GROUP_TYPE_LABEL,
@@ -82,10 +81,6 @@ const GROUP_TABS = [
  * A-19（PR #333）：名單每列的操作欄有「解散」（`dissolve-dialog.tsx`）；解散的組離開名單，改列在下方「已解散的組別」
  * （`dissolved-groups.tsx`）。
  */
-
-function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
-  return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text: describeGroupHistory(h), reason: h.reason }
-}
 
 function rosterHref(cohortId: string, filter: RosterFilter, overrides: Partial<RosterFilter> = {}): string {
   const query = rosterQueryString(filter, overrides)
@@ -156,7 +151,7 @@ export default async function AdminGroupsPage({
   }
 
   const [overview, businessNow, teachers, linkOptions, dissolvedGroups] = await Promise.all([
-    getGroupQuery().overview(cohort.id),
+    getGroupQuery().overview(cohort.id, { history: false }),
     getBusinessClock().now(),
     getGroupQuery().teacherOptions(),
     // 連結合作案對話框的初始選項（AD-06）：一句 SQL、只有已發布、前 50 筆；搜尋與換頁在對話框裡走 action。
@@ -291,7 +286,6 @@ export default async function AdminGroupsPage({
                       revision: g.revision,
                       typeLabel: GROUP_TYPE_LABEL[g.groupType],
                       members: g.members.map((m) => ({ ...m })),
-                      history: g.history.map(historyItem),
                     }}
                     size={size}
                     requestIds={{ remove: randomUUID(), leader: randomUUID() }}

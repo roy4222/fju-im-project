@@ -143,6 +143,9 @@ export type ParticipantProgress = {
   readonly result: VoteResult | null
   readonly reason: string | null
   readonly at: Date | null
+  /** 頭像（ST-12）：快照不存，呼叫端給目前值；沒給或查不到 → null（＝hash 預設圖）。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 export type VersionProgress = {
@@ -156,11 +159,17 @@ export type VersionProgress = {
 }
 
 /** 參與者快照＋這一版的表態 → 進度。三個角色的畫面都用這一份，所以看到的數字與缺誰一致（SGN-10）。 */
-export function buildProgress(participants: Participants, votes: readonly VoteRecord[], state: SignoffState): VersionProgress {
+export function buildProgress(
+  participants: Participants,
+  votes: readonly VoteRecord[],
+  state: SignoffState,
+  avatars?: ReadonlyMap<string, { readonly avatarPreset: number | null; readonly avatarFileId: string | null }>,
+): VersionProgress {
+  const avatarOf = (userId: string) => ({ avatarPreset: avatars?.get(userId)?.avatarPreset ?? null, avatarFileId: avatars?.get(userId)?.avatarFileId ?? null })
   const voteOf = (userId: string) => votes.find((v) => v.userId === userId) ?? null
   const students = participants.students.map((s): ParticipantProgress => {
     const v = voteOf(s.userId)
-    return { userId: s.userId, displayName: s.displayName, studentNo: s.studentNo, result: v?.result ?? null, reason: v?.reason ?? null, at: v?.realAt ?? null }
+    return { userId: s.userId, displayName: s.displayName, studentNo: s.studentNo, result: v?.result ?? null, reason: v?.reason ?? null, at: v?.realAt ?? null, ...avatarOf(s.userId) }
   })
   const a = voteOf(participants.advisor.userId)
   const advisor: ParticipantProgress = {
@@ -170,6 +179,7 @@ export function buildProgress(participants: Participants, votes: readonly VoteRe
     result: a?.result ?? null,
     reason: a?.reason ?? null,
     at: a?.realAt ?? null,
+    ...avatarOf(participants.advisor.userId),
   }
   const pendingStates: readonly SignoffState[] = ['collecting', 'teacher_pending']
   const missing = pendingStates.includes(state)

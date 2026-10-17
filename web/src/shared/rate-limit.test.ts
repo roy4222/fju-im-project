@@ -86,6 +86,46 @@ describe('契約 03 §6 的門檻值', () => {
   })
 })
 
+describe('Email 驗證碼與重設密碼的門檻（VB-2，AC-VI-72）', () => {
+  it('寄驗證碼 5 次／10 分鐘／Email、20 次／小時／IP；重寄冷卻 1 次／120 秒', () => {
+    expect(RATE_LIMITS.otpSend).toEqual({
+      email: { max: 5, windowMs: 600_000 },
+      ip: { max: 20, windowMs: 3_600_000 },
+    })
+    expect(RATE_LIMITS.otpResendCooldown).toEqual({ max: 1, windowMs: 120_000 })
+  })
+
+  it('送驗證碼 10 次／10 分鐘／Email、60 次／小時／IP', () => {
+    expect(RATE_LIMITS.otpVerify).toEqual({
+      email: { max: 10, windowMs: 600_000 },
+      ip: { max: 60, windowMs: 3_600_000 },
+    })
+  })
+
+  it('重設密碼 5 次／小時／Email、20 次／小時／IP', () => {
+    expect(RATE_LIMITS.passwordReset).toEqual({
+      email: { max: 5, windowMs: 3_600_000 },
+      ip: { max: 20, windowMs: 3_600_000 },
+    })
+  })
+
+  it('冷卻：120 秒內第二封被擋，滿 120 秒放行', () => {
+    let now = 0
+    const limiter = createRateLimiter({ ...RATE_LIMITS.otpResendCooldown, now: () => now })
+    expect(limiter.hit('otp:a@example.com').allowed).toBe(true)
+    now = 119_999
+    expect(limiter.hit('otp:a@example.com').allowed).toBe(false)
+    now = 120_000
+    expect(limiter.hit('otp:a@example.com').allowed).toBe(true)
+  })
+
+  it('既有的登入、註冊、改密門檻不變', () => {
+    expect(RATE_LIMITS.signIn).toEqual({ max: 10, windowMs: 600_000 })
+    expect(RATE_LIMITS.register).toEqual({ max: 30, windowMs: 3_600_000 })
+    expect(RATE_LIMITS.changePassword).toEqual({ max: 5, windowMs: 3_600_000 })
+  })
+})
+
 describe('sharedRateLimiter：同一個程序只有一份', () => {
   it('同名拿到同一個計數（Route Handler 與 Server Action 在不同 chunk 也共用），不同名互不影響', () => {
     const a = sharedRateLimiter('test-shared', { max: 1, windowMs: 60_000 })
