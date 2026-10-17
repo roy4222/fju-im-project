@@ -1,0 +1,29 @@
+## 1 首頁  url=/dashboard/student  頁首標題=首頁  group-label=0  鈴鐺aria-current=null
+   首頁 /dashboard/student [aria-current=page]
+   交作業 /dashboard/student/affairs
+   組別 /dashboard/student/groups
+## 02 點「交作業」  url=/dashboard/student/affairs  頁首標題=交作業  group-label=0  鈴鐺aria-current=null
+   首頁 /dashboard/student
+   交作業 /dashboard/student/affairs [aria-current=page]
+   組別 /dashboard/student/groups
+## 03 點「組別」  url=/dashboard/student/groups  頁首標題=組別  group-label=0  鈴鐺aria-current=null
+   首頁 /dashboard/student
+   交作業 /dashboard/student/affairs
+   組別 /dashboard/student/groups [aria-current=page]
+## 04 點「首頁」  url=/dashboard/student  頁首標題=首頁  group-label=0  鈴鐺aria-current=null
+   首頁 /dashboard/student [aria-current=page]
+   交作業 /dashboard/student/affairs
+   組別 /dashboard/student/groups
+## 05 開 /dashboard/student/signoff  url=/dashboard/student/signoff  頁首標題=交作業  group-label=0  鈴鐺aria-current=null
+   首頁 /dashboard/student
+   交作業 /dashboard/student/affairs [aria-current=page]
+   組別 /dashboard/student/groups
+## 06 開 /dashboard/student/inbox  url=/dashboard/student/inbox  頁首標題=學生  group-label=0  鈴鐺aria-current=page
+   首頁 /dashboard/student
+   交作業 /dashboard/student/affairs
+   組別 /dashboard/student/groups
+## /dashboard/student/timeline → 307 /timeline
+## /dashboard/student/industry → 307 /industry
+## /dashboard/student/grading → 307 /dashboard/student
+## 只有 1 件作業的學生：交作業徽章=1
+## 什麼都沒有的學生：交作業徽章不出現
