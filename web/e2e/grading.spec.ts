@@ -318,6 +318,8 @@ test('正式送出：收件章回執；欄位仍可改、出現「重新送出�
   await expect(sent.getByLabel('2. 文件')).toBeEnabled()
   await expect(sent.getByTestId('resubmit')).toBeVisible()
   await expect(sent.getByRole('button', { name: '正式送出' })).toHaveCount(0)
+  // 「送出紀錄」是摺疊區：打開才看得到每一次送出。
+  await sent.getByTestId('submit-history').getByText('送出紀錄（1 次）').click()
   await expect(sent.getByTestId('submit-history').getByRole('listitem')).toHaveCount(1)
   const counted = await pool.query(
     `select count(*)::int as n from evaluation_status s join evaluator_assignments a on a.id = s.assignment_id
