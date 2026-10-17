@@ -359,6 +359,22 @@ describe('停用組長：一定要同時指定接任（GRP-18）', () => {
     expect(await snapshot(g.leader.id, g.groupId)).toEqual(before)
   })
 
+  it('開站後：卡住的最後一位組員 → 系辦解散這組之後就能正常停用（不需要接任）', async () => {
+    const g = await groupWith(2)
+    expect(await disable(g.members[1]!.id)).toMatchObject({ ok: true })
+    expect(await disable(g.leader.id)).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+
+    const dissolved = await groups.dissolveGroup(
+      adminActor(),
+      { groupId: g.groupId, revision: await revisionOf(g.groupId), reason: '全組僅剩一人，系辦解散' },
+      randomUUID(),
+    )
+    expect(dissolved).toMatchObject({ ok: true })
+    expect(await accounts.successionOptions(adminActor(), g.leader.id)).toMatchObject({ ok: true, receipt: { leaderships: [] } })
+    expect(await disable(g.leader.id)).toMatchObject({ ok: true, receipt: { status: 'disabled' } })
+    expect(await count('select count(*) as n from group_leaders where group_id = $1 and valid_to is null', [g.groupId])).toBe(0)
+  })
+
   it('封存屆別的組是唯讀歷史：停用當年的組長不需要接任，組長列也不動', async () => {
     const g = await groupWith(3)
     await owner.sql(`update cohorts set status = 'archived' where id = $1`, [g.cohortId])
