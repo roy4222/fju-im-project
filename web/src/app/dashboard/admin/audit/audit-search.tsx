@@ -9,7 +9,8 @@ export type AuditSearchRow = { id: string; node: ReactNode }
  * 操作紀錄的搜尋（AD-15、AD-B6；設計方案 §9、AC-A-32、AC-A-33、Q113）。
  *
  * 伺服器端搜尋：GET 表單（`?role=&q=`），Enter 送出，由伺服器對近 7 天的全部紀錄比對「誰」與「對象」，
- * 清單與分頁籤數字都隨搜尋字變。欄位擋在 `maxLength` 字；清除鈕是回到沒有 `q` 的網址。
+ * 清單與分頁籤數字都隨搜尋字變。欄位擋在 `maxLength`（UTF-16 單位，與伺服器同一把尺）；清除鈕是回到沒有 `q` 的網址。
+ * 表單以 `role|q` 當 key：導覽（清除、切角色）後輸入框重新掛載，不會留著沒送出的字。
  */
 export function AuditSearch({
   rows,
@@ -36,7 +37,7 @@ export function AuditSearch({
   return (
     <div className="flex flex-col">
       <div className="border-b border-border px-5 py-3">
-        <form method="get" role="search" className="flex flex-wrap items-center gap-2">
+        <form key={`${role}|${q}`} method="get" role="search" className="flex flex-wrap items-center gap-2">
           {role !== 'all' ? <input type="hidden" name="role" value={role} /> : null}
           <label htmlFor="audit-q" className="sr-only">
             搜尋姓名或對象

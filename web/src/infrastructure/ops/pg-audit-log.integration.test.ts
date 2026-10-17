@@ -204,6 +204,18 @@ describe('readAuditLog', () => {
     expect(none.counts.all).toBe(0)
   })
 
+  it('對象搜尋與畫面上的對象文字一致：類型、屆別後綴都搜得到；「系統」也算「誰」；counts 與清單同一條件', async () => {
+    const actions = async (q: string) => (await readAuditLog(app, 'all', q, NOW)).entries.map((e) => e.action)
+    expect(await actions('註冊申請')).toEqual(['account.approve', 'registration.apply'])
+    expect(await actions('帳號・student')).toEqual(['account.disable'])
+    expect(await actions('屆別')).toEqual(['advisor.claim'])
+    // 屆別後綴（非屆別類型的列才有）：核准與新增活動；屆別本身那列不帶後綴。
+    expect(await actions('（115 紀錄）')).toEqual(['account.approve', 'cohort.activity.create'])
+    expect(await actions('系統')).toEqual(['account.seed_first_admin'])
+    const log = await readAuditLog(app, 'all', '註冊申請', NOW)
+    expect(log.counts).toMatchObject({ all: 2, admin: 1, other: 1 })
+  })
+
   it('搜尋字的 % _ \\ 當一般字，不是萬用字元', async () => {
     expect((await readAuditLog(app, 'all', '%', NOW)).counts.all).toBe(0)
     expect((await readAuditLog(app, 'all', '_', NOW)).counts.all).toBe(0)
@@ -216,6 +228,9 @@ describe('readAuditLog', () => {
     expect(parseAuditQuery(undefined)).toBeNull()
     expect(parseAuditQuery('a'.repeat(50))).toBe('a'.repeat(50))
     expect(() => parseAuditQuery('a'.repeat(51))).toThrow(AuditQueryInvalidError)
+    // 補充平面字（𠮷 ＝ 2 個 UTF-16 單位）：與畫面欄位 maxlength 同一把尺。
+    expect(parseAuditQuery('𠮷'.repeat(25))).toBe('𠮷'.repeat(25))
+    expect(() => parseAuditQuery('𠮷'.repeat(26))).toThrow(AuditQueryInvalidError)
     try {
       parseAuditQuery('王'.repeat(51))
     } catch (e) {

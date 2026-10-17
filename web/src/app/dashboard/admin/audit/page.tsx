@@ -96,7 +96,7 @@ export default async function AdminAuditPage({
   let log: Awaited<ReturnType<ReturnType<typeof getAuditLogQuery>['recent']>>
   let queryError: string | undefined
   try {
-    log = await getAuditLogQuery().recent(actor, params.role, params.q)
+    log = await getAuditLogQuery().recent(actor, params.role, { q: Array.isArray(params.q) ? params.q[0] : params.q })
   } catch (e) {
     if (!(e instanceof AuditQueryInvalidError)) throw e
     queryError = e.message

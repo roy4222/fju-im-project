@@ -130,10 +130,10 @@ export function getOpsStatusQuery() {
  */
 export function getAuditLogQuery() {
   return {
-    /** `q`：搜尋字（網址 `?q=`）；trim 後超過 50 字丟 `AuditQueryInvalidError`（`VALIDATION_FAILED`）。 */
-    async recent(actor: ResolvedActor, who: unknown, q?: unknown): Promise<AuditLog | null> {
+    /** `options.q`：搜尋字（網址 `?q=`）；trim 後超過 50 字丟 `AuditQueryInvalidError`（`VALIDATION_FAILED`）。 */
+    async recent(actor: ResolvedActor, who: unknown, options: { q?: string } = {}): Promise<AuditLog | null> {
       if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
-      return readAuditLog(getPool(), normalizeAuditWho(who), parseAuditQuery(q))
+      return readAuditLog(getPool(), normalizeAuditWho(who), parseAuditQuery(options.q))
     },
   }
 }

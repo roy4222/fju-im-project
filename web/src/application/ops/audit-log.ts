@@ -36,7 +36,10 @@ export function normalizeAuditWho(value: unknown): AuditWhoFilter {
 export const AUDIT_WINDOW_DAYS = 7
 export const AUDIT_PAGE_LIMIT = 200
 
-/** 搜尋字長度上限（AD-B6；trim 後 1–50 字）。畫面欄位擋在 50，伺服器收到更長的回 `VALIDATION_FAILED`。 */
+/**
+ * 搜尋字長度上限（AD-B6；trim 後 1–50 個 UTF-16 單位，即 JS 的 `.length`）。
+ * 畫面欄位的 `maxlength` 也是這個計量，前後端同一把尺（補充平面字如 𠮷 算 2）；伺服器收到更長的回 `VALIDATION_FAILED`。
+ */
 export const AUDIT_QUERY_MAX_LENGTH = 50
 
 /** 搜尋字不合格（trim 後超過 `AUDIT_QUERY_MAX_LENGTH` 字）。 */
@@ -53,7 +56,7 @@ export function parseAuditQuery(value: unknown): string | null {
   if (typeof v !== 'string') return null
   const q = v.trim()
   if (q === '') return null
-  if ([...q].length > AUDIT_QUERY_MAX_LENGTH) throw new AuditQueryInvalidError()
+  if (q.length > AUDIT_QUERY_MAX_LENGTH) throw new AuditQueryInvalidError()
   return q
 }
 
@@ -321,6 +324,9 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   showcase_entry: '成果展示',
   storage: '儲存空間',
 }
+
+/** 對象類型的中文對照（[代碼, 中文]），給稽核查詢在 SQL 裡組出和畫面一樣的對象文字（搜尋用）。 */
+export const AUDIT_TARGET_TYPE_LABEL_ENTRIES: readonly (readonly [string, string])[] = Object.entries(TARGET_TYPE_LABEL)
 
 export function auditTargetTypeLabel(targetType: string): string {
   return TARGET_TYPE_LABEL[targetType] ?? targetType

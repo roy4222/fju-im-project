@@ -153,6 +153,36 @@ test('操作紀錄搜尋字上限：欄位擋在 50 字；網址硬塞 51 字 �
   await expect(search).toHaveValue('王'.repeat(50))
 
   await page.goto(`${AUDIT}?q=${encodeURIComponent('王'.repeat(51))}`)
-  await expect(page.getByRole('alert')).toContainText('最多 50 字')
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('最多 50 字')
   await expect(page.getByTestId('audit-entry').first()).toBeVisible()
+})
+
+test('操作紀錄搜尋框：搜尋後改字不送出，再按清除或切換角色 → 輸入框跟著網址重置', async ({ page }) => {
+  await signIn(page, 'admin')
+  await page.goto(`${AUDIT}?q=${encodeURIComponent(CODE_A)}`)
+  const search = page.getByRole('searchbox', { name: '搜尋姓名或對象' })
+  await expect(search).toHaveValue(CODE_A)
+
+  await search.fill('還沒送出的字')
+  await page.getByRole('link', { name: '清除' }).click()
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}$`))
+  await expect(search).toHaveValue('')
+
+  await page.goto(`${AUDIT}?q=${encodeURIComponent(CODE_A)}`)
+  await search.fill('還沒送出的字')
+  await page.getByRole('navigation', { name: '依角色篩選' }).getByRole('link', { name: /^老師/ }).click()
+  await expect(page).toHaveURL(new RegExp(`${AUDIT}\\?role=teacher&q=`))
+  await expect(search).toHaveValue(CODE_A)
+})
+
+test('操作紀錄搜尋字上限用同一把尺：補充平面字 𠮷 ×25 可搜，×26 欄位擋住、網址送入被拒', async ({ page }) => {
+  await signIn(page, 'admin')
+  await page.goto(AUDIT)
+  const search = page.getByRole('searchbox', { name: '搜尋姓名或對象' })
+  await search.fill('𠮷'.repeat(26))
+  await expect(search).toHaveValue('𠮷'.repeat(25))
+  await page.goto(`${AUDIT}?q=${encodeURIComponent('𠮷'.repeat(25))}`)
+  await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0)
+  await page.goto(`${AUDIT}?q=${encodeURIComponent('𠮷'.repeat(26))}`)
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('最多 50 字')
 })

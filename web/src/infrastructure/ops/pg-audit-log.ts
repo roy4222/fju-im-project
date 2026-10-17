@@ -3,6 +3,7 @@ import type { Pool } from 'pg'
 import {
   AUDIT_EXCLUDED_ACTIONS,
   AUDIT_PAGE_LIMIT,
+  AUDIT_TARGET_TYPE_LABEL_ENTRIES,
   AUDIT_WHO_FILTERS,
   AUDIT_WINDOW_DAYS,
   type AuditLog,
@@ -78,8 +79,10 @@ export async function readAuditLog(
              else null
            end as target_name,
            c.code as cohort_code, c.name as cohort_name,
-           au.email as actor_email, ap.contact_email as actor_contact_email
+           au.email as actor_email, ap.contact_email as actor_contact_email,
+           tl.label as target_type_label
       from audit_events a
+      left join unnest($4::text[], $5::text[]) as tl(type, label) on tl.type = a.target_type
       left join users au on au.id = a.actor_user_id
       left join user_profiles ap on ap.user_id = a.actor_user_id
       left join users tu on a.target_type = 'user' and tu.id = a.target_id
@@ -95,16 +98,25 @@ export async function readAuditLog(
   ), hit as (
     select * from ev a
      where $3::text is null
-        or a.actor_name ilike $3 escape '\\' or a.actor_email ilike $3 escape '\\' or a.actor_contact_email ilike $3 escape '\\'
-        or a.target_name ilike $3 escape '\\'
+        -- 「誰」：畫面上的操作者文字（含「系統」「背景工作」）、帳號 email、聯絡 email。
+        or (case a.actor_kind when 'worker' then '背景工作' when 'system' then '系統'
+                 else coalesce(nullif(btrim(a.actor_name), ''), '（已不存在的帳號）') end) ilike $3 escape '\\'
+        or a.actor_email ilike $3 escape '\\' or a.actor_contact_email ilike $3 escape '\\'
+        -- 「對象」：和 describeAuditTarget 同一串字（類型・名字（屆別）），搜得到畫面上看到的任何一段。
+        or (coalesce(a.target_type_label, a.target_type)
+            || case when nullif(btrim(a.target_name), '') is not null then '・' || btrim(a.target_name) else '' end
+            || case when a.target_type <> 'cohort' and coalesce(nullif(btrim(a.cohort_name), ''), a.cohort_code) is not null
+                    then '（' || coalesce(nullif(btrim(a.cohort_name), ''), a.cohort_code) || '）' else '' end) ilike $3 escape '\\'
   )`
+  const labelTypes = AUDIT_TARGET_TYPE_LABEL_ENTRIES.map(([type]) => type)
+  const labelTexts = AUDIT_TARGET_TYPE_LABEL_ENTRIES.map(([, label]) => label)
 
   const countResult = await db.query<Record<AuditWhoFilter | 'with_reason', string>>(
     `${ev}
      select ${AUDIT_WHO_FILTERS.map((w) => `count(*) filter (where ${WHO_SQL[w]}) as "${w}"`).join(', ')},
             count(*) filter (where nullif(btrim(a.reason), '') is not null) as with_reason
        from hit a`,
-    [since, AUDIT_EXCLUDED_ACTIONS, pattern],
+    [since, AUDIT_EXCLUDED_ACTIONS, pattern, labelTypes, labelTexts],
   )
   const raw = countResult.rows[0]
   const counts = Object.fromEntries(AUDIT_WHO_FILTERS.map((w) => [w, Number(raw?.[w] ?? 0)])) as Record<AuditWhoFilter, number>
@@ -116,8 +128,8 @@ export async function readAuditLog(
        from hit a
       where ${WHO_SQL[who]}
       order by a.real_at desc, a.id desc
-      limit $4`,
-    [since, AUDIT_EXCLUDED_ACTIONS, pattern, AUDIT_PAGE_LIMIT],
+      limit $6`,
+    [since, AUDIT_EXCLUDED_ACTIONS, pattern, labelTypes, labelTexts, AUDIT_PAGE_LIMIT],
   )
 
   const entries: AuditLogEntry[] = rows.rows.map((r) => ({
