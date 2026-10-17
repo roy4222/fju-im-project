@@ -1,4 +1,4 @@
-import type { AccountDirectoryCommand, AccountSummary, ResolvedActor } from '@/application/accounts'
+import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { GradebookQuery, GradingQuery, PendingReview } from '@/application/grading'
 import type { GroupQuery } from '@/application/groups'
 import type { ItemListRow, ItemQuery } from '@/application/items'
@@ -7,10 +7,10 @@ import type { Completion, RosterQuery } from '@/application/submissions'
 import type { StageContext } from '@/app/dashboard/_stage'
 import type { Tone } from '@/app/_ui/dashboard/cards'
 import { remainingCount, teacherProgress, type TeacherProgress } from '@/app/dashboard/admin/grading/progress'
-import { getAccountDirectoryCommand } from '@/composition/accounts'
+import { loadAdminSummary } from '@/app/_ui/workload'
 import { getGradebookQuery, getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
-import { collectsResponses, getItemQuery } from '@/composition/items'
+import { getItemQuery } from '@/composition/items'
 import { getSignoffQuery, SIGNOFF_PURPOSES } from '@/composition/signoff'
 import { completionOf, getRosterQuery, overdueReceiverIds } from '@/composition/submissions'
 
@@ -24,23 +24,23 @@ export const NEWS_LIMIT = 3
  * 系辦首頁讀資料用的 port（AD-02；AC-AD-04 用假物件計數）。
  *
  * 只有這七個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
- * - 待審帳號數：共用 SH-P2 還沒合併，直接呼叫 `summary(actor)`（側欄徽章另外再讀一次）；SH-P2 合併後改讀 `loadAdminSummary(actor.userId)`（AD-13／AD-21）。
+ * - 待審帳號數：讀共用 SH-P2 的 `loadAdminSummary(actor.userId)`，跟側欄徽章同一次請求共用，不多讀一次（AD-13）。讀不到是 null。
  * - 分組：首頁只要組數與人數，傳 `{ history: false }` 不讀歷程（共用 SH-P4）；系辦分組頁維持預設（看歷程）。
- * - 完成率與逾期：AD-19 的 `completionFacts()` 還沒合併，照舊每份發布中作業讀一次 `roster()`；改成一次聚合讀取是 AD-13。
+ * - 完成率與逾期：一次讀完全屆發布中作業的名單事實（`completionFacts()`，AD-19／AD-13），不再逐份讀 `roster()`；型別上只拿得到它。
  */
 export type AdminHomePorts = {
-  readonly accounts: Pick<AccountDirectoryCommand, 'summary'>
+  readonly accounts: { readonly summary: (userId: string) => Promise<AccountSummary | null> }
   readonly groups: Pick<GroupQuery, 'overview'>
   readonly grading: Pick<GradingQuery, 'adminBoard'>
   readonly gradebook: Pick<GradebookQuery, 'gradebook'>
   readonly signoff: Pick<SignoffQuery, 'adminBoard'>
   readonly items: Pick<ItemQuery, 'list'>
-  readonly roster: Pick<RosterQuery, 'roster'>
+  readonly roster: Pick<RosterQuery, 'completionFacts'>
 }
 
 export function adminHomePorts(): AdminHomePorts {
   return {
-    accounts: getAccountDirectoryCommand(),
+    accounts: { summary: loadAdminSummary },
     groups: getGroupQuery(),
     grading: getGradingQuery(),
     gradebook: getGradebookQuery(),
@@ -92,29 +92,27 @@ export type AdminHome = {
 }
 
 /**
- * 系辦首頁的全部資料。每個 port 呼叫一次（`roster()` 除外，見 `AdminHomePorts`），讀取全部是管理員才讀得到的查詢
+ * 系辦首頁的全部資料。每個 port 呼叫一次、不隨作業數增加（AC-AD-04），讀取全部是管理員才讀得到的查詢
  * （頁面守門，用例與查詢自己再判一次）。沒有屆別時只讀帳號統計，其餘是 0 或空的。
  */
 export async function loadAdminHome(
   ports: AdminHomePorts,
-  actor: ResolvedActor,
+  actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
   ctx: Pick<StageContext, 'cohort' | 'businessNow'>,
 ): Promise<AdminHome> {
   const cohortId = ctx.cohort?.id ?? null
-  const [summaryResult, overview, gradingResult, signoffResult, items, gradebookResult] = await Promise.all([
-    ports.accounts.summary(actor),
+  const [summary, overview, gradingResult, signoffResult, items, gradebookResult, rosters] = await Promise.all([
+    ports.accounts.summary(actor.userId),
     cohortId ? ports.groups.overview(cohortId, { history: false }) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.signoff.adminBoard(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.items.list(cohortId) : Promise.resolve([]),
     // 只拿「待復核的更正」做首頁提示（N-61）；成績表本身在「成績」頁。
     cohortId ? ports.gradebook.gradebook(actor, cohortId) : Promise.resolve(null),
+    // 發布中的作業全部讀名單事實：逾期卡要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
+    // 一次讀完（固定 2 句 SQL），順序同作業清單；算法照舊用名單頁同一個 `completionOf`／`overdueReceiverIds`（分母不含免填與移出）。
+    cohortId ? ports.roster.completionFacts(actor, cohortId) : Promise.resolve([]),
   ])
-
-  // 發布中的作業全部讀名單：逾期卡要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
-  // 跟名單頁同一份名單、同一個 `completionOf`（分母不含免填與移出）。
-  const publishedIntake = items.filter((i) => collectsResponses(i.placement) && i.status === 'published')
-  const rosters = (await Promise.all(publishedIntake.map((i) => ports.roster.roster(actor, i.id)))).filter((r) => r !== null)
   const allIntake: IntakeRow[] = rosters.map((r) => ({
     id: r.item.itemId,
     title: r.item.title,
@@ -139,7 +137,7 @@ export async function loadAdminHome(
   const news = items.filter((i) => i.placement === 'news')
 
   return {
-    summary: summaryResult.ok ? summaryResult.receipt : null,
+    summary,
     groups: {
       total: groups.length,
       students: groups.reduce((a, g) => a + g.members.length, 0),

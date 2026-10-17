@@ -1,10 +1,11 @@
-import { describe, expect, it, test, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { AdminAssignmentView, AdminGradingBoard, Gradebook } from '@/application/grading'
 import type { CohortGroupingOverview } from '@/application/groups'
 import type { ItemListRow } from '@/application/items'
 import type { AdminSignoffBoard, SignoffPurpose, SignoffState } from '@/application/signoff'
-import type { ItemRoster } from '@/application/submissions'
+import type { ItemCompletionFacts, ItemRoster } from '@/application/submissions'
+import { overdueReceiverIds } from '@/composition/submissions'
 import { adminTodoCards, heroLine, INTAKE_LIMIT, loadAdminHome, NEWS_LIMIT, type AdminHome, type AdminHomePorts } from './home-data'
 
 // 系辦首頁的資料載入（AD-02）：AC-AD-04 的 port 計數（接線），AC-AD-01／02 的待辦卡、AC-AD-03 的評分還差。
@@ -14,7 +15,7 @@ const NOW = new Date('2026-10-16T10:00:00+08:00')
 const DAY = 86_400_000
 const ctx = { cohort: { id: 'c43' } as never, businessNow: NOW }
 const noCohort = { cohort: null, businessNow: NOW }
-const actor = { kind: 'authenticated', userId: 'u-admin', roles: ['admin'], status: 'active' } as unknown as ResolvedActor
+const actor = { kind: 'authenticated', userId: 'u-admin', roles: ['admin'], status: 'active' } as unknown as Extract<ResolvedActor, { kind: 'authenticated' }>
 
 function ok<R>(receipt: R) {
   return { ok: true as const, receipt: { ...receipt, requestId: 'r', serverTime: NOW.toISOString() } }
@@ -93,17 +94,28 @@ type Fixture = {
   pendingReviews?: Gradebook['pendingReviews']
 }
 
-/** 計數假 port：每個方法都是 vi.fn，回固定測資。 */
+/**
+ * 計數假 port：每個方法都是 vi.fn，回固定測資。
+ * `completionFacts` 照真查詢的挑法回：作業清單裡發布中、會收件的每一份（順序同清單），名單沒給的是空名單。
+ * `roster` 也放著（型別上首頁拿不到它），只為了斷言它 0 次。
+ */
 function fakePorts(f: Fixture = {}) {
   const rosters = new Map((f.rosters ?? []).map((r) => [r.item.itemId, r]))
+  const facts = (): ItemCompletionFacts[] =>
+    (f.items ?? [])
+      .filter((i) => (i.placement === 'submission' || i.placement === 'requirement') && i.status === 'published' && i.receiverUnit !== 'none')
+      .map((i) => rosters.get(i.id) ?? roster(i.id, i.receiverUnit === 'group' ? 'group' : 'individual', NOW, []))
   const ports = {
-    accounts: { summary: vi.fn(async () => ok(f.summary ?? summary())) },
+    accounts: { summary: vi.fn<AdminHomePorts['accounts']['summary']>(async () => f.summary ?? summary()) },
     groups: { overview: vi.fn(async () => f.overview ?? overview([])) },
     grading: { adminBoard: vi.fn(async () => ok(f.board ?? board([]))) },
     gradebook: { gradebook: vi.fn(async () => ok({ version: null, groups: [], pendingReviews: f.pendingReviews ?? [] })) },
     signoff: { adminBoard: vi.fn(async () => ok(f.signoff ?? signoffBoard([]))) },
     items: { list: vi.fn(async () => [...(f.items ?? [])]) },
-    roster: { roster: vi.fn(async (_actor: ResolvedActor, itemId: string) => rosters.get(itemId) ?? roster(itemId, 'individual', NOW, [])) },
+    roster: {
+      roster: vi.fn(async (_actor: ResolvedActor, itemId: string) => rosters.get(itemId) ?? roster(itemId, 'individual', NOW, [])),
+      completionFacts: vi.fn<AdminHomePorts['roster']['completionFacts']>(async () => facts()),
+    },
   }
   return ports as typeof ports & AdminHomePorts
 }
@@ -116,7 +128,8 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
       await loadAdminHome(ports, actor, ctx)
 
       expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
-      expect(ports.accounts.summary).toHaveBeenCalledWith(actor)
+      // 共用 SH-P2：經 `loadAdminSummary(actor.userId)`，跟側欄徽章共用同一次讀取。
+      expect(ports.accounts.summary).toHaveBeenCalledWith('u-admin')
       expect(ports.groups.overview).toHaveBeenCalledTimes(1)
       // 共用 SH-P4：首頁不讀分組歷程。
       expect(ports.groups.overview).toHaveBeenCalledWith('c43', { history: false })
@@ -130,15 +143,44 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
     })
   }
 
-  // AD-19 的 `completionFacts()` 合併後由 AD-13 打開：改成一次聚合讀取，不再逐份讀名單。
-  test.todo('1／8／80 份發布中作業：roster() 都 0 次')
-  test.todo('1／8／80 份發布中作業：completionFacts() 都 1 次，逾期人數與 overdueReceiverIds 對同一組 facts 的結果相同')
+  // AD-13：完成率與逾期改成一次聚合讀取（AD-19 的 `completionFacts()`），不再逐份讀名單。
+  for (const n of [1, 8, 80]) {
+    it(`${n} 份發布中作業：roster() 0 次`, async () => {
+      const ports = fakePorts({ items: Array.from({ length: n }, (_, i) => item(`i${i}`)) })
+      await loadAdminHome(ports, actor, ctx)
+      expect(ports.roster.roster).not.toHaveBeenCalled()
+    })
+
+    it(`${n} 份發布中作業：completionFacts() 1 次，逾期人數與 overdueReceiverIds 對同一組 facts 的結果相同`, async () => {
+      // 每份作業都已截止：偶數份個人作業（s0 每份都欠、s1 只欠這份），奇數份整組作業（G01 欠）。
+      const items = Array.from({ length: n }, (_, i) => item(`i${i}`, { receiverUnit: i % 2 ? 'group' : 'individual' }))
+      const rosters = items.map((it, i) =>
+        i % 2
+          ? roster(it.id, 'group', new Date(NOW.getTime() - DAY), [{ id: 'G01' }, { id: 'G02', submitted: true }])
+          : roster(it.id, 'individual', new Date(NOW.getTime() - DAY), [{ id: 's0' }, { id: `s1-${i}` }, { id: 's2', submitted: true }]),
+      )
+      const ports = fakePorts({ items, rosters })
+      const home = await loadAdminHome(ports, actor, ctx)
+
+      expect(ports.roster.completionFacts).toHaveBeenCalledTimes(1)
+      expect(ports.roster.completionFacts).toHaveBeenCalledWith(actor, 'c43')
+      const facts: readonly ItemCompletionFacts[] = await ports.roster.completionFacts.mock.results[0]!.value
+      const people = overdueReceiverIds(facts.filter((r) => r.item.receiverUnit === 'individual'), NOW).size
+      expect(home.overdue.total).toBe(overdueReceiverIds(facts, NOW).size)
+      expect(home.overdue.people).toBe(people)
+      expect(home.overdue.groups).toBe(home.overdue.total - people)
+      // 手算：個人作業 ceil(n/2) 份 → s0 一位＋每份一位 s1-*；整組作業有就是 G01 一組。
+      const individual = Math.ceil(n / 2)
+      expect(home.overdue).toMatchObject({ people: 1 + individual, groups: n > 1 ? 1 : 0 })
+      expect(home.published).toBe(n)
+    })
+  }
 
   it('沒有屆別：只讀帳號統計，其餘不讀', async () => {
     const ports = fakePorts()
     const home = await loadAdminHome(ports, actor, noCohort)
     expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
-    for (const fn of [ports.groups.overview, ports.grading.adminBoard, ports.gradebook.gradebook, ports.signoff.adminBoard, ports.items.list, ports.roster.roster]) {
+    for (const fn of [ports.groups.overview, ports.grading.adminBoard, ports.gradebook.gradebook, ports.signoff.adminBoard, ports.items.list, ports.roster.roster, ports.roster.completionFacts]) {
       expect(fn).not.toHaveBeenCalled()
     }
     expect(home.published).toBe(0)
@@ -248,7 +290,7 @@ describe('AC-AD-02 待辦卡數字為 0 也在', () => {
 
   it('讀不到帳號統計：待審卡仍在，寫「—」與原因，不寫「沒有待辦」', async () => {
     const ports = fakePorts()
-    ports.accounts.summary.mockResolvedValueOnce({ ok: false, code: 'FORBIDDEN', message: 'x' } as never)
+    ports.accounts.summary.mockResolvedValueOnce(null)
     const cards = adminTodoCards(await loadAdminHome(ports, actor, ctx))
     expect(cards[0]).toMatchObject({ title: '待審帳號 —', meta: '讀不到帳號統計', pill: undefined })
   })
