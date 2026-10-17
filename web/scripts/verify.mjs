@@ -99,6 +99,8 @@ fs.mkdirSync(runDir, { recursive: true })
 
 const owned = { containers: [], groups: [], createdFiles: [] }
 let foreground = null
+/** 正在跑的那一步；被 Ctrl-C 打斷時拿來在摘要記一筆「中斷」。 */
+let current = null
 let cleanedUp = false
 
 function sleepSync(ms) {
@@ -152,6 +154,12 @@ process.on('exit', cleanup)
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
     console.error(`\n[verify] 收到 ${signal}，停掉自己啟動的程序與容器…`)
+    if (current) {
+      results.push({ ...current, status: 'fail', ms: Date.now() - current.started, tail: [`被 ${signal} 中斷`] })
+      current = null
+    } else {
+      results.push({ name: '中斷', command: '-', status: 'fail', ms: 0, tail: [`被 ${signal} 中斷`] })
+    }
     cleanup()
     printSummary()
     process.exit(signal === 'SIGINT' ? 130 : 143)
@@ -190,6 +198,7 @@ function runStep(name, command, args, { env, cwd = webDir } = {}) {
   const display = [command, ...args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')
   console.log(`\n▶ ${name}\n  $ ${display}`)
   const started = Date.now()
+  current = { name, command: display, started }
   return new Promise((resolve) => {
     let buffer = ''
     const keep = (chunk) => {
@@ -208,6 +217,7 @@ function runStep(name, command, args, { env, cwd = webDir } = {}) {
     })
     const finish = (ok, extra = '') => {
       foreground = null
+      current = null
       const result = { name, command: display, status: ok ? 'pass' : 'fail', ms: Date.now() - started, tail: tailOf(buffer + extra) }
       results.push(result)
       resolve(ok)
@@ -225,12 +235,15 @@ function skipStep(name, reason) {
 async function checkStep(name, command, fn) {
   console.log(`\n▶ ${name}\n  $ ${command}`)
   const started = Date.now()
+  current = { name, command, started }
   try {
     const note = await fn()
+    current = null
     if (note) console.log(`  ${note}`)
     results.push({ name, command, status: 'pass', ms: Date.now() - started, tail: [], note })
     return true
   } catch (error) {
+    current = null
     const message = error instanceof Error ? error.message : String(error)
     console.error(message)
     results.push({ name, command, status: 'fail', ms: Date.now() - started, tail: tailOf(message) })
