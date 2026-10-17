@@ -402,7 +402,13 @@ async function runIntegration(files) {
   })
   if (!ok) return skipStep(name, '資料庫沒起來')
   ensureComposeEnvFiles()
-  const env = forceEnv(baseEnv(), { TEST_DATABASE_URL: pg.ownerUrl, DATABASE_URL_OWNER: pg.ownerUrl, DATABASE_URL: pg.appUrl })
+  // 整合測試只靠 TEST_DATABASE_URL 找資料庫（test/runtime-roles.ts）。DATABASE_URL／DATABASE_URL_OWNER 一律拿掉：
+  // 有些測試（compose）刻意刪掉這些鍵來驗「少了秘密就拒絕」，替它補回會讓案例假失敗；shell 裡的值也可能指到共用庫。
+  const env = forceEnv(baseEnv(), { TEST_DATABASE_URL: pg.ownerUrl })
+  for (const key of ['DATABASE_URL', 'DATABASE_URL_OWNER']) {
+    if (key in env) console.log(`[verify] 整合測試不傳 ${key}（只用 TEST_DATABASE_URL）`)
+    delete env[key]
+  }
   await runStep(name, 'pnpm', ['run', 'test:integration', ...files], { env })
 }
 
