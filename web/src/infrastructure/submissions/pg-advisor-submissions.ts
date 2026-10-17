@@ -143,9 +143,25 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     this.#lateFlags = lateFlags
   }
 
-  async matrix(actor: ResolvedActor): Promise<AdvisorMatrix | null> {
+  async matrix(actor: ResolvedActor, rawCohortId?: string): Promise<AdvisorMatrix | null> {
     if (!isTeacher(actor)) return null
+    // UUID 大小寫視為同一個（網址可能是大寫）；不是 UUID 的原樣留著，下面當空矩陣。
+    const cohortId = rawCohortId?.toLowerCase()
     const db = this.#reader()
+    // 下拉選項＝老師**曾經**指導過的屆別（含已換掉、解散的組；Q136），只是選項；內容仍只給目前有效的指導關係（下面的查詢）。
+    // 指定屆別：改用 MY_GROUPS（含已封存屆別）加屆別條件；老師在那一屆沒有指導組別就自然是空的。
+    const picked = cohortId !== undefined
+    const cohortRows = await db.query<{ id: string; code: string; name: string; status: string }>(
+      `select c.id, c.code, c.name, c.status from cohorts c
+        where c.id in (select g.cohort_id from advisor_assignments a join groups g on g.id = a.group_id where a.teacher_user_id = $1)
+        order by c.code desc`,
+      [actor.userId],
+    )
+    if (cohortRows.rows.length === 0) return { groups: [], items: [], cells: [], individualItems: [] }
+    const cohorts = cohortRows.rows.map((c) => ({ cohortId: c.id, code: c.code, name: c.name, archived: c.status === 'archived' }))
+    const empty = { cohorts, groups: [], items: [], cells: [], individualItems: [] }
+    if (picked && !isUuid(cohortId)) return empty
+    const mineSql = (cohortParam: number) => (picked ? `${MY_GROUPS} and g.cohort_id = $${cohortParam}` : MY_CURRENT_GROUPS)
     const groups = await db.query<{
       id: string
       code: string
@@ -159,9 +175,9 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
               (select array_agg(coalesce(p.display_name, u.name) order by coalesce(p.display_name, u.name))
                  from group_memberships gm join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
                 where gm.group_id = g.id and gm.valid_to is null) as member_names
-         from (${MY_CURRENT_GROUPS}) g join cohorts c on c.id = g.cohort_id
+         from (${mineSql(2)}) g join cohorts c on c.id = g.cohort_id
         order by c.code desc, g.code`,
-      [actor.userId],
+      picked ? [actor.userId, cohortId] : [actor.userId],
     )
     const advised: AdvisedGroup[] = groups.rows.map((g) => ({
       groupId: g.id,
@@ -172,7 +188,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       cohortName: g.cohort_name,
       memberNames: g.member_names ?? [],
     }))
-    if (advised.length === 0) return { groups: [], items: [], cells: [], individualItems: [] }
+    if (advised.length === 0) return empty
     const cohortIds = [...new Set(advised.map((g) => g.cohortId))]
     const groupIds = advised.map((g) => g.groupId)
 
@@ -219,7 +235,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
         submitted: string
       }>(
         `with mine as (
-           select gm.user_id, g.cohort_id from (${MY_CURRENT_GROUPS}) g join group_memberships gm on gm.group_id = g.id and gm.valid_to is null
+           select gm.user_id, g.cohort_id from (${mineSql(3)}) g join group_memberships gm on gm.group_id = g.id and gm.valid_to is null
          )
          select m.id, m.title, m.cohort_id, s.name as stage_name, m.opens_at, m.due_at, vs.effective_from_version_no,
                 (select count(*) from response_rosters r
@@ -237,7 +253,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
                           where x.item_id = m.id order by x.set_at desc, x.id desc limit 1) vs on vs.enabled
           where m.cohort_id = any($2::uuid[]) and m.status = 'published' and m.receiver_unit = 'individual' and m.deleted_at is null
           order by m.due_at nulls last, m.title`,
-        [actor.userId, cohortIds],
+        picked ? [actor.userId, cohortIds, cohortId] : [actor.userId, cohortIds],
       ),
     ])
     const toItem = (r: { id: string; title: string; cohort_id: string; stage_name: string | null; opens_at: Date | null; due_at: Date | null }): AdvisorMatrixItem => ({
@@ -249,6 +265,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
       dueAt: r.due_at,
     })
     return {
+      cohorts,
       groups: advised,
       items: items.rows.map(toItem),
       cells: cells.rows.map(
