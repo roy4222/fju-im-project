@@ -7,6 +7,7 @@ import {
   type IsolatedDatabase,
 } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
+import { randomUUID } from 'node:crypto'
 import type { Pool } from 'pg'
 
 /**
@@ -128,6 +129,21 @@ async function otpMails(email: string): Promise<string[]> {
     [email],
   )
   return rows.rows.map((r) => String(r.body_text).match(/驗證碼是 (\d{6})/)![1]!)
+}
+
+/**
+ * 讓套件做一次「順手清理」：`findVerificationValue`（`better-auth/dist/db/internal-adapter.mjs`）每次都會刪掉**所有**
+ * `expires_at < now` 的 verifications 列，不分 identifier；公開的 check 端點對任何 Email 都會呼叫它。
+ * 正式環境裡任何人查碼都會觸發，所以暫存列不能靠 `expires_at` 當 10 分鐘視窗（主腦裁定：視窗過了、截止內要能重寄復活）。
+ */
+async function triggerPluginCleanup(): Promise<void> {
+  const response = await call(
+    'POST',
+    '/email-otp/check-verification-otp',
+    { email: freshEmail('cleanup'), type: 'email-verification', otp: '000000' },
+    { 'x-real-ip': '203.0.113.99' },
+  )
+  expect(response.status).toBe(400)
 }
 
 async function counts(): Promise<{ users: number; accounts: number }> {
@@ -289,8 +305,11 @@ describe('續辦流程（AC-VI-49）', () => {
     const email = freshEmail('expired')
     const id = await signUp(email)
     const ticket = await startResume(email, P2)
-    await db.sql(`update verifications set expires_at = now() - interval '1 minute' where identifier = $1`, [
+    // 10 分鐘視窗存在列的 JSON（`windowEndAt`）；`expires_at` 只是列的壽命（截止＋10 分鐘，給套件的順手清理看）。
+    const row = (await db.sql(`select value from verifications where identifier = $1`, [`signup-resume:${email}`])).rows[0]!
+    await db.sql(`update verifications set value = $2 where identifier = $1`, [
       `signup-resume:${email}`,
+      JSON.stringify({ ...(JSON.parse(String(row.value)) as object), windowEndAt: Date.now() - 60_000 }),
     ])
     const hash = await passwordHash(id)
     const otp = (await otpMails(email)).at(-1)!
@@ -300,6 +319,13 @@ describe('續辦流程（AC-VI-49）', () => {
     expect(await passwordHash(id)).toBe(hash)
     const user = await db.sql(`select email_verified from users where id = $1`, [id])
     expect(user.rows[0]!.email_verified).toBe(false)
+    // `expires_at` 已過也擋（fail closed；直接打交易，不經套件——套件的順手清理會先把列刪掉）。
+    await db.sql(`update verifications set value = $2, expires_at = now() - interval '1 minute' where identifier = $1`, [
+      `signup-resume:${email}`,
+      String(row.value),
+    ])
+    expect(await resume.finishSignupResume(app, { email, otp, ticket })).toEqual({ ok: false, reason: 'expired' })
+    expect(await passwordHash(id)).toBe(hash)
   })
 
   it('寄碼期間帳號變得不能續辦（例如系辦處理了）→ 完成時整筆 rollback', async () => {
@@ -420,6 +446,580 @@ describe('續辦流程（AC-VI-49）', () => {
  * 規則：**同一請求內不得在持有交易連線時再向同池借連線。** 池只有一條時，任何一條路巢狀借連線都會在這裡逾時，
  * 所以把 VB-2 改動或新增的每條 auth 路徑都在池只有一條的實例上走一遍。
  */
+describe('續辦重寄（VB-3 Review 第 1 輪 P3）', () => {
+  /** 在「現在＋offset」的時間點跑（冷卻是用 Date 算的）。 */
+  async function at<T>(offsetMs: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + offsetMs)
+    try {
+      return await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('票錯、帳號已不能續辦：不寄信、不改綁，回應跟寄出一樣（不丟錯）', async () => {
+    const email = freshEmail('resend-bad')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const mails = (await otpMails(email)).length
+    const bound = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+      .value
+
+    // 票錯（冷卻已過，排除被冷卻擋下的可能）。
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket: 'not-the-ticket' }, headers()))
+    // 帳號已不能續辦（例如已經驗證過）。（10 分鐘視窗過了、截止內的重寄會照常寄：主腦裁定，見下一個 describe。）
+    await db.sql(`update users set email_verified = true where id = $1`, [id])
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    await db.sql(`update users set email_verified = false where id = $1`, [id])
+
+    expect((await otpMails(email)).length).toBe(mails)
+    const after = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+      .value
+    expect(after).toBe(bound)
+  })
+
+  it('票對：寄一封新碼、改綁；新碼完成續辦（只能用一次），舊碼不能完成', async () => {
+    const email = freshEmail('resend-ok')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const oldOtp = (await otpMails(email)).at(-1)!
+    const hashBefore = await passwordHash(id)
+
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    const mails = await otpMails(email)
+    const newOtp = mails.at(-1)!
+    expect(mails).toHaveLength(3)
+    expect(newOtp).not.toBe(oldOtp)
+
+    // 舊碼：套件那一層已經不是最新那封 → 同一句 INVALID_OTP，密碼不變。
+    await expect(wrapper.completeSignupResume({ email, otp: oldOtp, ticket }, headers())).rejects.toMatchObject({
+      body: { code: 'INVALID_OTP' },
+    })
+    expect(await passwordHash(id)).toBe(hashBefore)
+
+    const done = await wrapper.completeSignupResume({ email, otp: newOtp, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect(await signIn(email, P2)).toMatchObject({ status: 200 })
+    // 新碼只能用一次。
+    await expect(wrapper.completeSignupResume({ email, otp: newOtp, ticket }, headers())).rejects.toMatchObject({
+      body: { code: 'INVALID_OTP' },
+    })
+  })
+
+  it('改綁之後才完成：暫存列綁的是新碼的雜湊', async () => {
+    const email = freshEmail('resend-bind')
+    await signUp(email)
+    const ticket = await startResume(email, P2)
+    await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))
+    const newOtp = (await otpMails(email)).at(-1)!
+    const row = (await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])).rows[0]!
+    expect(JSON.parse(String(row.value)).otpHash).toBe(resume.hashSecret(newOtp))
+  })
+
+  it('冷卻 120 秒內再按：429 RATE_LIMITED、不寄信、不改綁（原本那封仍能完成）', async () => {
+    const email = freshEmail('resend-cool')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const mails = (await otpMails(email)).length
+    // 續辦那封在「現在＋121 秒」寄出；「現在＋150 秒」還在冷卻內。
+    await expect(at(150_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).rejects.toMatchObject({
+      body: { code: 'RATE_LIMITED' },
+    })
+    expect((await otpMails(email)).length).toBe(mails)
+    const done = await wrapper.completeSignupResume({ email, otp: (await otpMails(email)).at(-1)!, ticket }, headers())
+    expect(done.userId).toBe(id)
+  })
+})
+
+/**
+ * VB-3 Review 第 2 輪（PR #590）：續辦重寄的兩條反例。
+ * 1. Brevo 未設定（或寄失敗）時函式仍回成功、改綁新碼、延長期限 → 舊碼失效、新碼沒送到。
+ * 2. 同一張票每 181 秒重寄一次，暫存期限無上限地延長（固定視窗額度一直重開）。
+ * 主腦裁定：續辦絕對上限＝票建立起 30 分鐘（存在暫存列、不由 client 帶）；寄送失敗保留原 OTP 與綁定、不延長。
+ */
+describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
+  async function at<T>(offsetMs: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + offsetMs)
+    try {
+      return await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  async function pendingRow(email: string): Promise<{ value: string; expiresAt: number; createdAt: number }> {
+    const row = (
+      await db.sql(`select value, expires_at, created_at from verifications where identifier = $1`, [
+        resume.signupResumeIdentifier(email),
+      ])
+    ).rows[0]!
+    return {
+      value: String(row.value),
+      expiresAt: new Date(row.expires_at as string).getTime(),
+      createdAt: new Date(row.created_at as string).getTime(),
+    }
+  }
+
+  async function otpRows(email: string): Promise<string[]> {
+    const rows = await db.sql(`select value from verifications where identifier = $1 order by created_at, id`, [
+      resume.emailOtpIdentifier(email),
+    ])
+    return rows.rows.map((r) => String(r.value))
+  }
+
+  it('反例 1：Brevo 未設定 → 回 mail_failed、暫存列（綁定與期限）原封不動、沒寄出的新碼撤掉，原本那封的碼仍能完成', async () => {
+    const email = freshEmail('resend-mailfail')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const oldOtp = (await otpMails(email)).at(-1)!
+    const pendingBefore = await pendingRow(email)
+    const otpRowsBefore = await otpRows(email)
+    expect(otpRowsBefore).toHaveLength(2)
+
+    // 正式寄信模式但沒有金鑰：Brevo 轉接器記 failed／not_configured，不降級成擷取。
+    await loadAuth({ MAIL_CAPTURE: '', BREVO_API_KEY: '', MAIL_FROM: '' })
+    try {
+      expect(await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('mail_failed')
+    } finally {
+      await loadAuth()
+    }
+    const outbox = (
+      await db.sql(`select status, error from mail_outbox where to_email = $1 order by created_at desc, id desc limit 1`, [email])
+    ).rows[0]
+    expect(outbox).toEqual({ status: 'failed', error: 'not_configured' })
+
+    // 不改綁、不延長。
+    expect(await pendingRow(email)).toEqual(pendingBefore)
+    // 套件在寄信前已插的那列新碼撤掉，否則 check 端點只認最新那列、舊碼在那一層就失效。
+    expect(await otpRows(email)).toEqual(otpRowsBefore)
+
+    // 原本那封的碼仍能完成續辦。
+    const done = await wrapper.completeSignupResume({ email, otp: oldOtp, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('反例 2：同一張票每 181 秒重寄 → 期限最多到票建立後 30 分鐘；過了截止重寄回 timed_out、不寄信、不改綁，完成回 SIGNUP_RESUME_EXPIRED', async () => {
+    const email = freshEmail('resend-deadline')
+    await signUp(email)
+    // 票在「現在＋121 秒」建立：絕對截止＝那一刻＋30 分鐘。
+    const ticket = await startResume(email, P2)
+    const first = await pendingRow(email)
+    const { deadlineAt, windowEndAt } = JSON.parse(first.value) as { deadlineAt?: unknown; windowEndAt?: unknown }
+    expect(deadlineAt).toBe(first.createdAt + resume.SIGNUP_RESUME_MAX_SECONDS * 1000)
+    expect(windowEndAt).toBe(first.createdAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    // 列本身活到截止再多 10 分鐘：續辦票 cookie 最多在最後一次寄出後 10 分鐘內還能帶回來，套件的順手清理不能先把列刪掉，
+    // 持票的人才一定看得到「續辦已逾時」而不是靜默的 sent。
+    expect(first.expiresAt).toBe((deadlineAt as number) + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+
+    // Review 的節奏：每 181 秒一次（每個 Email 10 分鐘 5 封的固定視窗擋不住）。截止前的每一次都放行，但期限封頂。
+    let sent = 0
+    for (let offset = 302_000; offset < 1_921_000; offset += 181_000) {
+      expect(await at(offset, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers())), `offset ${offset}`).toBe('sent')
+      sent += 1
+      const row = await pendingRow(email)
+      const json = JSON.parse(row.value) as { deadlineAt?: unknown; windowEndAt?: unknown }
+      expect(json.windowEndAt, `offset ${offset}`).toBeLessThanOrEqual(deadlineAt as number)
+      expect(json.deadlineAt, `offset ${offset}`).toBe(deadlineAt)
+      expect(row.expiresAt, `offset ${offset}`).toBe(first.expiresAt)
+    }
+    expect(sent).toBe(9)
+    const capped = await pendingRow(email)
+    expect((JSON.parse(capped.value) as { windowEndAt?: unknown }).windowEndAt).toBe(deadlineAt)
+    expect(await otpMails(email)).toHaveLength(2 + sent)
+
+    // 過了截止：先讓套件做一次順手清理（任何人查碼都會觸發），暫存列要還在，重寄才回得出 timed_out 而不是靜默的 sent。
+    await at(1_931_000, () => triggerPluginCleanup())
+    expect(await pendingRow(email)).toEqual(capped)
+    // 不寄信、不改綁、不延長；回 timed_out（票對的人才會看到這一句）。
+    expect(await at(1_931_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('timed_out')
+    expect(await otpMails(email)).toHaveLength(2 + sent)
+    expect(await pendingRow(email)).toEqual(capped)
+
+    // 完成：截止那一刻起交易就擋（直接打交易、時鐘給截止），經 wrapper 也是 SIGNUP_RESUME_EXPIRED。
+    const latest = (await otpMails(email)).at(-1)!
+    expect(await resume.finishSignupResume(app, { email, otp: latest, ticket }, new Date(deadlineAt as number))).toEqual({
+      ok: false,
+      reason: 'expired',
+    })
+    await expect(at(1_931_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))).rejects.toMatchObject({
+      body: { code: 'SIGNUP_RESUME_EXPIRED' },
+    })
+  })
+
+  it('新用途 signup-resume-resend 沒有旁路：Turnstile 有設定而沒帶 token → TURNSTILE_REQUIRED、不寄信、不改綁', async () => {
+    const email = freshEmail('resend-turnstile')
+    await signUp(email)
+    const ticket = await startResume(email, P2)
+    const before = await pendingRow(email)
+    const mails = (await otpMails(email)).length
+    await loadAuth({ TURNSTILE_SITE_KEY: '1x00000000000000000000AA', TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA' })
+    try {
+      await expect(at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).rejects.toMatchObject({
+        body: { code: 'TURNSTILE_REQUIRED' },
+      })
+    } finally {
+      await loadAuth()
+    }
+    expect((await otpMails(email)).length).toBe(mails)
+    expect(await pendingRow(email)).toEqual(before)
+  })
+
+  it('截止存在暫存列、不由 client 帶：expires_at 被改到截止之後也沒用，改綁與完成都看 deadlineAt', async () => {
+    const email = freshEmail('deadline-row')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const { value } = await pendingRow(email)
+    const deadlineAt = (JSON.parse(value) as { deadlineAt: number }).deadlineAt
+    await db.sql(`update verifications set expires_at = $2 where identifier = $1`, [
+      resume.signupResumeIdentifier(email),
+      new Date(deadlineAt + 3_600_000),
+    ])
+    const hash = await passwordHash(id)
+    const otp = (await otpMails(email)).at(-1)!
+
+    // 直接呼叫改綁（沒有真的再寄一封）：快照給空陣列＝現有的列都算「這一次插的」，只驗截止。
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before: [] }, new Date(deadlineAt))).toEqual({
+      ok: false,
+      reason: 'timed_out',
+    })
+    expect(await resume.finishSignupResume(app, { email, otp, ticket }, new Date(deadlineAt))).toEqual({ ok: false, reason: 'expired' })
+    expect(await passwordHash(id)).toBe(hash)
+
+    // 截止前最後一毫秒：改綁放行，但期限只到截止；完成照常。
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket, before: [] }, new Date(deadlineAt - 1))).toEqual({ ok: true })
+    const rebound = await pendingRow(email)
+    expect((JSON.parse(rebound.value) as { windowEndAt: number }).windowEndAt).toBe(deadlineAt)
+    expect(rebound.expiresAt).toBe(deadlineAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    expect(await resume.finishSignupResume(app, { email, otp, ticket }, new Date(deadlineAt - 1))).toMatchObject({ ok: true, userId: id })
+  })
+
+  /** 在「現在＋offset」跑，並回傳那一刻的時間（算視窗用）。 */
+  async function atWithNow<T>(offsetMs: number, fn: (now: number) => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const now = Date.now() + offsetMs
+    vi.setSystemTime(now)
+    try {
+      return await fn(now)
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('主腦裁定（第 3 輪）：10 分鐘視窗過了、30 分鐘截止內重寄 → 照常寄新碼、改綁、視窗＝min(現在＋10 分鐘, 截止)；新碼可完成；暫存列不被套件的順手清理刪掉', async () => {
+    const email = freshEmail('resend-revive')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const first = await pendingRow(email)
+    const { deadlineAt } = JSON.parse(first.value) as { deadlineAt: number }
+    const mails = (await otpMails(email)).length
+
+    // 視窗過了（票建立起 10 分鐘）：別人查碼觸發套件清理——過期的驗證碼列會被刪，暫存列要還在。
+    await at(121_000 + 601_000, () => triggerPluginCleanup())
+    expect(await otpRows(email)).toEqual([])
+    expect(await pendingRow(email)).toEqual(first)
+
+    // 截止內重寄：照常寄（冷卻、限速、Turnstile 跟公開重寄同一組 hook）、改綁到新碼、視窗＝現在＋10 分鐘。
+    const revivedAt = await atWithNow(121_000 + 609_000, async (now) => {
+      expect(await wrapper.resendSignupResumeOtp({ email, ticket }, headers())).toBe('sent')
+      return now
+    })
+    expect(await otpMails(email)).toHaveLength(mails + 1)
+    const revived = await pendingRow(email)
+    const revivedJson = JSON.parse(revived.value) as { otpHash: string; windowEndAt: number; deadlineAt: number }
+    expect(revivedJson.otpHash).toBe(resume.hashSecret((await otpMails(email)).at(-1)!))
+    expect(revivedJson.windowEndAt).toBe(revivedAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+    expect(revivedJson.deadlineAt).toBe(deadlineAt)
+    expect(revived.expiresAt).toBe(first.expiresAt)
+
+    // 視窗又過了、截止前再寄一次：視窗封頂到截止；用最新的碼完成，P2 是新密碼。
+    expect(await at(1_400_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('sent')
+    expect(await otpMails(email)).toHaveLength(mails + 2)
+    expect((JSON.parse((await pendingRow(email)).value) as { windowEndAt: number }).windowEndAt).toBe(deadlineAt)
+    const latest = (await otpMails(email)).at(-1)!
+    const done = await at(1_410_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+})
+
+/**
+ * VB-3 Review 第 3 輪（Sol）P2：兩筆續辦重寄**並行**。
+ * 套件的寄碼端點在呼叫寄信回呼之前就插了一列新碼；舊版寄失敗的還原是「刪掉比綁定那列更新的全部驗證碼列」——
+ * 一筆寄失敗先還原、另一筆隨後寄成功 → 還原誤刪成功那筆的碼（回 sent、收到的碼卻完成不了）；視窗過了、舊碼已被套件清理
+ * 之後再寄失敗 → 子查詢找不到綁的那列、沒寄出的新碼殘留。修法：同一個 Email 的重寄在同一個 process 裡排隊（第二筆等第一筆
+ * 做完，再被冷卻擋下）；寄碼前拍驗證碼列 id 的快照，失敗只撤「不在快照裡」且恰好一列的那一列，成功要求本次那列還在才改綁。
+ *
+ * 屏障：把 Cloudflare siteverify 與 Brevo 兩個對外 `fetch` 換成可控制的 promise，才能把一筆重寄停在「Turnstile 驗證中」或
+ * 「Brevo 寄送中」，看另一筆有沒有擠進來。Brevo 模式下 `mail_outbox.body_text` 是 NULL，驗證碼從送給 Brevo 的內容抓。
+ */
+describe('續辦重寄並行（VB-3 Review 第 3 輪 Sol P2）', () => {
+  const IP = '203.0.113.92'
+  const BREVO_MODE = {
+    MAIL_CAPTURE: '',
+    BREVO_API_KEY: 'barrier-only',
+    MAIL_FROM: 'barrier@example.com',
+    TURNSTILE_SITE_KEY: 'barrier',
+    TURNSTILE_SECRET_KEY: 'barrier',
+  }
+
+  async function at<T>(offsetMs: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + offsetMs)
+    try {
+      return await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  async function otpRowIds(email: string): Promise<string[]> {
+    const rows = await db.sql(`select id from verifications where identifier = $1 order by created_at, id`, [
+      resume.emailOtpIdentifier(email),
+    ])
+    return rows.rows.map((r) => String(r.id))
+  }
+
+  async function pendingValue(email: string): Promise<string> {
+    const rows = await db.sql(`select value from verifications where identifier = $1`, [resume.signupResumeIdentifier(email)])
+    return String(rows.rows[0]!.value)
+  }
+
+  /** 最新一封**有內文**的驗證碼信（寄失敗的那封 `body_text` 是 NULL，`otpMails` 會炸）。 */
+  async function latestDeliveredOtp(email: string): Promise<string> {
+    const rows = await db.sql(
+      `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' and body_text is not null
+        order by created_at desc, id desc limit 1`,
+      [email],
+    )
+    return String(rows.rows[0]!.body_text).match(/驗證碼是 (\d{6})/)![1]!
+  }
+
+  /** 真實時間等一下（只假 `Date`，`setTimeout` 是真的）：排隊中的那筆若會擠進來，這段時間就會打到 Turnstile／Brevo。 */
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 300))
+
+  type Barrier = {
+    captcha: Array<(response: Response) => void>
+    sends: Array<{ otp: string; resolve: (response: Response) => void }>
+    passCaptcha(index: number): void
+    deliver(index: number): void
+    bounce(index: number): void
+    drain(): void
+  }
+
+  function installBarrier(): Barrier {
+    const captcha: Barrier['captcha'] = []
+    const sends: Barrier['sends'] = []
+    vi.stubGlobal('fetch', (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('challenges.cloudflare.com')) return new Promise<Response>((resolve) => captcha.push(resolve))
+      if (String(url).includes('api.brevo.com')) {
+        const payload = JSON.parse(String(init?.body)) as { textContent: string }
+        const otp = payload.textContent.match(/驗證碼是 (\d{6})/)![1]!
+        return new Promise<Response>((resolve) => sends.push({ otp, resolve }))
+      }
+      throw new Error(`測試裡不該打 ${String(url)}`)
+    })
+    const siteverifyOk = () =>
+      new Response(JSON.stringify({ success: true, action: 'resend', hostname: '127.0.0.1' }), { status: 200 })
+    const siteverifyNo = () => new Response(JSON.stringify({ success: false }), { status: 200 })
+    const brevoOk = (index: number) => new Response(JSON.stringify({ messageId: `barrier-${index}` }), { status: 201 })
+    const brevoNo = () => new Response(JSON.stringify({ code: 'invalid_parameter' }), { status: 400 })
+    return {
+      captcha,
+      sends,
+      passCaptcha: (index) => captcha[index]!(siteverifyOk()),
+      deliver: (index) => sends[index]!.resolve(brevoOk(index)),
+      bounce: (index) => sends[index]!.resolve(brevoNo()),
+      // 收尾：還停著的全部放失敗（已 resolve 過的再 resolve 是 no-op），讓懸著的呼叫結束。
+      drain: () => {
+        for (const resolve of captcha) resolve(siteverifyNo())
+        for (const send of sends) send.resolve(brevoNo())
+      },
+    }
+  }
+
+  /** 擷取模式先把續辦開好，再換成 Brevo＋Turnstile 模式裝屏障。 */
+  async function prepare(label: string): Promise<{ email: string; id: string; ticket: string; oldOtp: string; ids: string[]; pending: string }> {
+    const email = freshEmail(label)
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const oldOtp = (await otpMails(email)).at(-1)!
+    const ids = await otpRowIds(email)
+    expect(ids).toHaveLength(2)
+    return { email, id, ticket, oldOtp, ids, pending: await pendingValue(email) }
+  }
+
+  const hdr = () => wrapper.authCallHeaders({ ip: IP, turnstileToken: randomUUID() })
+
+  /**
+   * 同一張票兩筆同時進來：第一筆停在 Turnstile 驗證中時，第二筆**不能**擠進來（舊版：兩筆都過了冷卻檢查，siteverify 被打兩次）；
+   * 第一筆寄送期間也一樣。第一筆做完後第二筆才輪到，被冷卻擋下（RATE_LIMITED）、沒打 Turnstile、沒插新碼列。
+   */
+  async function runPair(barrier: Barrier, email: string, ticket: string, idsBefore: string[]) {
+    const a = wrapper.resendSignupResumeOtp({ email, ticket }, hdr())
+    const b = wrapper.resendSignupResumeOtp({ email, ticket }, hdr())
+    await vi.waitFor(() => expect(barrier.captcha).toHaveLength(1), { timeout: 5_000 })
+    await settle()
+    expect(barrier.captcha).toHaveLength(1)
+    expect(barrier.sends).toHaveLength(0)
+    barrier.passCaptcha(0)
+    await vi.waitFor(() => expect(barrier.sends).toHaveLength(1), { timeout: 5_000 })
+    await settle()
+    expect(barrier.captcha).toHaveLength(1)
+    // 套件在寄信回呼之前就插了這一筆的新碼列。
+    expect(await otpRowIds(email)).toHaveLength(idsBefore.length + 1)
+    return { a, b }
+  }
+
+  it('一成一敗（Sol 反例）：第一筆寄失敗、第二筆排隊後被冷卻擋下；只撤回寄失敗那一列，原碼可用；冷卻過後寄成功 → 綁的就是寄出的那封、能完成', async () => {
+    const { email, id, ticket, oldOtp, ids, pending } = await prepare('pair-fail-then-ok')
+    const barrier = installBarrier()
+    await loadAuth(BREVO_MODE)
+    let delivered = ''
+    const outcomes: Promise<unknown>[] = []
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 242_000)
+      const { a, b } = await runPair(barrier, email, ticket, ids)
+      outcomes.push(a, b)
+      barrier.bounce(0)
+      expect(await a).toBe('mail_failed')
+      await expect(b).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      expect(barrier.captcha).toHaveLength(1)
+      expect(barrier.sends).toHaveLength(1)
+      // 只撤回寄失敗那一列：列集合跟寄之前一模一樣，暫存列原封不動。
+      expect(await otpRowIds(email)).toEqual(ids)
+      expect(await pendingValue(email)).toBe(pending)
+
+      // 冷卻過了再寄一次，這次 Brevo 收了：多一列、綁的是這封的碼。
+      vi.setSystemTime(Date.now() + 121_000)
+      const c = wrapper.resendSignupResumeOtp({ email, ticket }, hdr())
+      outcomes.push(c)
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(2), { timeout: 5_000 })
+      barrier.passCaptcha(1)
+      await vi.waitFor(() => expect(barrier.sends).toHaveLength(2), { timeout: 5_000 })
+      barrier.deliver(1)
+      expect(await c).toBe('sent')
+      delivered = barrier.sends[1]!.otp
+      expect(delivered).not.toBe(oldOtp)
+      expect(await otpRowIds(email)).toHaveLength(ids.length + 1)
+      expect((JSON.parse(await pendingValue(email)) as { otpHash: string }).otpHash).toBe(resume.hashSecret(delivered))
+    } finally {
+      barrier.drain()
+      await Promise.allSettled(outcomes)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      await loadAuth()
+    }
+    const done = await wrapper.completeSignupResume({ email, otp: delivered, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('兩成：第一筆寄成功、第二筆排隊後被冷卻擋下（不打 Turnstile、不寄、不插列）；只多一列、綁的是寄出的那封、能完成', async () => {
+    const { email, id, ticket, ids } = await prepare('pair-ok-ok')
+    const barrier = installBarrier()
+    await loadAuth(BREVO_MODE)
+    let delivered = ''
+    const outcomes: Promise<unknown>[] = []
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 242_000)
+      const { a, b } = await runPair(barrier, email, ticket, ids)
+      outcomes.push(a, b)
+      barrier.deliver(0)
+      expect(await a).toBe('sent')
+      await expect(b).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      expect(barrier.captcha).toHaveLength(1)
+      expect(barrier.sends).toHaveLength(1)
+      delivered = barrier.sends[0]!.otp
+      expect(await otpRowIds(email)).toHaveLength(ids.length + 1)
+      expect((JSON.parse(await pendingValue(email)) as { otpHash: string }).otpHash).toBe(resume.hashSecret(delivered))
+    } finally {
+      barrier.drain()
+      await Promise.allSettled(outcomes)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      await loadAuth()
+    }
+    const done = await wrapper.completeSignupResume({ email, otp: delivered, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('兩敗：第一筆寄失敗、第二筆排隊後被冷卻擋下；冷卻過後再寄又失敗 → 列集合與暫存列都跟寄之前一樣（不累積），原碼仍能完成', async () => {
+    const { email, id, ticket, oldOtp, ids, pending } = await prepare('pair-fail-fail')
+    const barrier = installBarrier()
+    await loadAuth(BREVO_MODE)
+    const outcomes: Promise<unknown>[] = []
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 242_000)
+      const { a, b } = await runPair(barrier, email, ticket, ids)
+      outcomes.push(a, b)
+      barrier.bounce(0)
+      expect(await a).toBe('mail_failed')
+      await expect(b).rejects.toMatchObject({ body: { code: 'RATE_LIMITED' } })
+      expect(await otpRowIds(email)).toEqual(ids)
+      expect(await pendingValue(email)).toBe(pending)
+
+      vi.setSystemTime(Date.now() + 121_000)
+      const c = wrapper.resendSignupResumeOtp({ email, ticket }, hdr())
+      outcomes.push(c)
+      await vi.waitFor(() => expect(barrier.captcha).toHaveLength(2), { timeout: 5_000 })
+      barrier.passCaptcha(1)
+      await vi.waitFor(() => expect(barrier.sends).toHaveLength(2), { timeout: 5_000 })
+      expect(await otpRowIds(email)).toHaveLength(ids.length + 1)
+      barrier.bounce(1)
+      expect(await c).toBe('mail_failed')
+      expect(await otpRowIds(email)).toEqual(ids)
+      expect(await pendingValue(email)).toBe(pending)
+    } finally {
+      barrier.drain()
+      await Promise.allSettled(outcomes)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      await loadAuth()
+    }
+    const done = await wrapper.completeSignupResume({ email, otp: oldOtp, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('復活前舊碼已被套件清理＋寄失敗 → 沒寄出的新碼撤掉、0 殘留列、暫存列不動；之後寄成功才綁新碼、能完成', async () => {
+    const email = freshEmail('revive-mailfail')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const pending = await pendingValue(email)
+
+    // 視窗過了（票建立起 10 分鐘）：別人查碼觸發套件清理，舊碼列沒了、暫存列還在。
+    await at(121_000 + 601_000, () => triggerPluginCleanup())
+    expect(await otpRowIds(email)).toEqual([])
+    expect(await pendingValue(email)).toBe(pending)
+
+    // 截止內重寄但 Brevo 未設定 → mail_failed；套件寄信前插的那列要撤掉（舊版：綁的那列已不在、子查詢是 NULL、一列都不刪 → 殘留 1 列）。
+    await loadAuth({ MAIL_CAPTURE: '', BREVO_API_KEY: '', MAIL_FROM: '' })
+    try {
+      expect(await at(121_000 + 609_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('mail_failed')
+    } finally {
+      await loadAuth()
+    }
+    expect(await otpRowIds(email)).toEqual([])
+    expect(await pendingValue(email)).toBe(pending)
+
+    // 冷卻過了、截止內再寄，這次寄出：只有這一列、綁的是它、視窗復活、能完成。
+    expect(await at(121_000 + 730_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('sent')
+    expect(await otpRowIds(email)).toHaveLength(1)
+    const latest = await latestDeliveredOtp(email)
+    expect((JSON.parse(await pendingValue(email)) as { otpHash: string }).otpHash).toBe(resume.hashSecret(latest))
+    const done = await at(121_000 + 740_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+})
+
 describe('Review 第 2 輪：DB_POOL_MAX=1（持有連線時不得再向同池借連線）', () => {
   beforeAll(async () => {
     await loadAuth({ DB_POOL_MAX: '1' })
@@ -462,7 +1062,7 @@ describe('Review 第 2 輪：DB_POOL_MAX=1（持有連線時不得再向同池�
     expect(pending.rowCount).toBe(1)
   })
 
-  it('池只有一條連線時 VB-2 每條路都走得完：首封、我的帳號寄碼、重寄、查碼、驗碼、續辦完成、忘記密碼、重設密碼', async () => {
+  it('池只有一條連線時 VB-2 每條路都走得完：首封、我的帳號寄碼、重寄、查碼、驗碼、續辦重寄、續辦完成、忘記密碼、重設密碼', async () => {
     const ip = '203.0.113.91'
     // 註冊 → 伺服器寄首封（hooks.after 以內部呼叫打寄碼端點）。
     const email = freshEmail('pool-all')
@@ -494,6 +1094,11 @@ describe('Review 第 2 輪：DB_POOL_MAX=1（持有連線時不得再向同池�
     const other = freshEmail('pool-all-resume')
     const otherId = await signUp(other)
     const ticket = await startResume(other, P2)
+    // 續辦重寄：寄碼前的快照、寄碼、鎖裡的改綁各自借連線，沒有巢狀借連線（第 3 輪加的快照也一樣）。
+    travel(242_000)
+    expect(await wrapper.resendSignupResumeOtp({ email: other, ticket }, headers())).toBe('sent')
+    vi.useRealTimers()
+    expect(await otpMails(other)).toHaveLength(3)
     const done = await wrapper.completeSignupResume({ email: other, otp: (await otpMails(other)).at(-1)!, ticket }, headers())
     expect(done.userId).toBe(otherId)
     expect((await signIn(other, P2)).status).toBe(200)

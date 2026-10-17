@@ -58,7 +58,7 @@ test('登入頁：Google 大鈕導去 Google（state＋PKCE），next 經過 saf
   expect(stored).toMatchObject({
     callbackURL: '/login?next=%2Faccount',
     errorURL: '/login?next=%2Faccount',
-    newUserURL: '/register/pending?via=google',
+    newUserURL: '/register/apply?via=google',
   })
   await expectStateCookie(context)
 })
@@ -95,7 +95,7 @@ test('註冊頁：Google 註冊鈕也導去 Google，失敗回註冊頁', async 
   await expect.poll(google).not.toBeNull()
   expectGoogleAuthorizeUrl(google())
   const stored = await storedCallback(google()!.searchParams.get('state')!)
-  expect(stored).toMatchObject({ errorURL: '/register', newUserURL: '/register/pending?via=google' })
+  expect(stored).toMatchObject({ errorURL: '/register', newUserURL: '/register/apply?via=google' })
   await expectStateCookie(context)
 })
 

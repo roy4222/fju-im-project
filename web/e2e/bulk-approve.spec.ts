@@ -48,18 +48,42 @@ async function adminPage(browser: Browser): Promise<Page> {
   return page
 }
 
+/** 擷取模式下最新一封驗證碼信的 6 碼（VB-3 三步註冊的第 2 步）。 */
+async function latestOtp(email: string): Promise<string> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+  try {
+    for (let i = 0; i < 50; i += 1) {
+      const row = await pool.query<{ body_text: string | null }>(
+        `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' order by created_at desc limit 1`,
+        [email],
+      )
+      const otp = /(\d{6})/.exec(row.rows[0]?.body_text ?? '')?.[1]
+      if (otp) return otp
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error(`mail_outbox 沒有 ${email} 的驗證碼（e2e 要 MAIL_CAPTURE=1）`)
+  } finally {
+    await pool.end()
+  }
+}
+
 async function register(browser: Browser, s: { name: string; studentNo: string; email: string }) {
   const context = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
   const page = await context.newPage()
   await page.goto('/register')
+  await page.getByLabel('Email', { exact: true }).fill(s.email)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByLabel('確認密碼').fill(PASSWORD)
+  await page.getByRole('button', { name: '建立帳號' }).click()
+  // VB-3：註冊改三步。第 2 步的驗證碼從擷取模式的 mail_outbox 讀（MAIL_CAPTURE=1）。
+  await expect(page).toHaveURL(/\/register\/verify$/)
+  await page.getByLabel('驗證碼第 1 位').fill(await latestOtp(s.email))
+  await expect(page).toHaveURL(/\/register\/apply$/)
   await page.getByLabel('姓名').fill(s.name)
   await page.getByLabel('學號').fill(s.studentNo)
   await page.getByLabel('系級').fill('資管二甲')
   await page.getByLabel('手機').fill('0912-345-678')
-  await page.getByLabel('登入 Email').fill(s.email)
-  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await page.getByLabel('確認密碼').fill(PASSWORD)
-  await page.getByRole('button', { name: '送出註冊' }).click()
+  await page.getByRole('button', { name: '送出申請' }).click()
   await expect(page).toHaveURL(/\/register\/pending$/)
   await context.close()
 }

@@ -366,7 +366,7 @@ describe('本人：看與改自己的申請（§2.4 Q7）', () => {
     expect(result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
 
-  it('沒有申請單的待審帳號（直接打 API 註冊的）：看到 none，補送一次就有第 1 版', async () => {
+  it('沒有申請單的待審帳號（直接打 API 註冊的）：看到 none；沒驗證 Email 送不出（不建申請），驗證後補送一次就有第 1 版', async () => {
     const email = uniqueEmail('api-only')
     const response = await handlers.POST(
       new Request(`${BASE_URL}/api/auth/sign-up/email`, {
@@ -380,11 +380,15 @@ describe('本人：看與改自己的申請（§2.4 Q7）', () => {
     const actor = pendingActor(id)
     expect(await command.viewMine(actor)).toMatchObject({ ok: true, receipt: { state: 'none', current: null, loginEmail: email } })
 
-    const submitted = await command.reviseMine(
-      actor,
-      { appliedName: '補送同學', studentNo: '411500123', departmentClass: '資管二乙', phone: '0933333333', contactEmail: email },
-      null,
-    )
+    const fields = { appliedName: '補送同學', studentNo: '411500123', departmentClass: '資管二乙', phone: '0933333333', contactEmail: email }
+    // VB-3 Review：沒驗證 Email 的密碼帳號重放舊的「修改資料」入口送第一份申請 → 擋下，不建申請（AC-VI-50）。
+    // 判斷讀資料庫，session 快照說什麼都一樣。
+    const unverified = await command.reviseMine({ ...pendingActor(id), loginMethod: 'password' } as ResolvedActor, fields, null)
+    expect(unverified).toMatchObject({ ok: false, code: 'FORBIDDEN', message: '請先完成 Email 驗證。' })
+    expect(await one<{ n: number }>(`select count(*)::int as n from registration_applications where user_id = $1`, [id])).toEqual({ n: 0 })
+
+    await one(`update users set email_verified = true where id = $1 returning id`, [id])
+    const submitted = await command.reviseMine(actor, fields, null)
     expect(submitted).toMatchObject({ ok: true, receipt: { revision: 1 } })
     expect(await command.viewMine(actor)).toMatchObject({ ok: true, receipt: { state: 'pending' } })
   })

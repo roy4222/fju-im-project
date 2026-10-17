@@ -59,6 +59,13 @@ test.describe('不登入', () => {
     await page.goto('/register/pending')
     await expect(page).toHaveURL(/\/login\?next=%2Fregister%2Fpending/)
   })
+
+  test('/register/verify、/register/apply 需要登入（VB-3：註冊第 2、3 步是本人的帳號）', async ({ page }) => {
+    await page.goto('/register/verify')
+    await expect(page).toHaveURL(/\/login\?next=%2Fregister%2Fverify/)
+    await page.goto('/register/apply')
+    await expect(page).toHaveURL(/\/login\?next=%2Fregister%2Fapply/)
+  })
 })
 
 test.describe('以 A1（管理員）', () => {
@@ -220,6 +227,18 @@ test.describe('臨時密碼還沒改的人', () => {
 })
 
 test.describe('待審核的人（有 session 但還沒核准）', () => {
+  // VB-3：沒驗證 Email、沒送申請的密碼帳號會先被帶去 /register/verify；這裡測的是「已驗證、還沒核准」的人。
+  test.beforeAll(async ({ playwright }) => {
+    const request = await playwright.request.newContext({ baseURL: BASE_URL })
+    const session = await sharedTestSession(request, null).finally(() => request.dispose())
+    const owner = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+    try {
+      await owner.query('update users set email_verified = true where id = $1', [session.userId])
+    } finally {
+      await owner.end()
+    }
+  })
+
   test('開後台會被帶到等待審核頁，不是 403', async ({ page }) => {
     await signInAs(page, null)
     await page.goto('/dashboard/student')
