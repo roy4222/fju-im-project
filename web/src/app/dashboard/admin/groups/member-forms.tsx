@@ -1,6 +1,6 @@
 'use client'
 import { useActionState, useEffect, useState } from 'react'
-import { addMemberAction, changeLeaderAction, removeMemberAction } from './actions'
+import { addMemberAction, changeLeaderAction, loadGroupHistoryAction, removeMemberAction } from './actions'
 import {
   DIALOG,
   Feedback,
@@ -262,6 +262,7 @@ export function UngroupedStudents({
 
 export type GroupDetailMember = { userId: string; name: string; studentNo: string | null; isLeader: boolean }
 export type GroupDetailHistory = { key: string; atLabel: string; text: string; reason: string | null }
+export type GroupHistoryOutcome = { ok: true; history: GroupDetailHistory[] } | { ok: false; message: string }
 type DetailGroup = { id: string; code: string; revision: number; members: GroupDetailMember[] }
 
 /**
@@ -274,7 +275,7 @@ export function GroupDetailButton({
   requestIds,
   reasonMaxLength,
 }: {
-  group: DetailGroup & { typeLabel: string; history: GroupDetailHistory[] }
+  group: DetailGroup & { typeLabel: string }
   size: Size
   requestIds: { remove: string; leader: string }
   reasonMaxLength: number
@@ -285,6 +286,20 @@ export function GroupDetailButton({
   const [removing, setRemoving] = useState<GroupDetailMember | null>(null)
   const leader = group.members.find((m) => m.isLeader) ?? null
   const single = group.members.length <= 1
+  // 歷程不隨頁面載入（SH-B4）：第一次打開才取；成員或組長變動後（頁面重新整理，詳情維持打開）重取。
+  const [opened, setOpened] = useState(false)
+  const [history, setHistory] = useState<GroupHistoryOutcome | null>(null)
+  const stamp = `${group.revision}:${group.members.map((m) => `${m.userId}${m.isLeader ? '*' : ''}`).join(',')}`
+  useEffect(() => {
+    if (!opened) return
+    let current = true
+    loadGroupHistoryAction(group.id)
+      .then((outcome) => current && setHistory(outcome))
+      .catch(() => current && setHistory({ ok: false, message: '歷程載入失敗，請關閉後再開一次。' }))
+    return () => {
+      current = false
+    }
+  }, [opened, group.id, stamp])
 
   return (
     <div>
@@ -293,7 +308,10 @@ export function GroupDetailButton({
         type="button"
         className="tabular rounded-md text-sm font-bold whitespace-nowrap text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
         aria-label={`${group.code} 詳情`}
-        onClick={dialog.open}
+        onClick={() => {
+          setOpened(true)
+          dialog.open()
+        }}
       >
         {group.code}
       </button>
@@ -366,9 +384,17 @@ export function GroupDetailButton({
 
           <section aria-label="異動歷程" className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground">異動歷程</h3>
-            {group.history.length > 0 ? (
+            {history === null ? (
+              <p className="text-sm text-muted-foreground">
+                載入中…
+              </p>
+            ) : !history.ok ? (
+              <p role="alert" className="text-sm text-danger">
+                {history.message}
+              </p>
+            ) : history.history.length > 0 ? (
               <ol className="space-y-2 text-sm">
-                {group.history.map((h) => (
+                {history.history.map((h) => (
                   <li key={h.key} className="rounded-lg border border-border px-3 py-2">
                     <p className="text-foreground">
                       <span className="mr-2 text-xs text-muted-foreground tabular-nums">{h.atLabel}</span>
