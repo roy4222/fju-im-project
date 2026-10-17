@@ -289,11 +289,11 @@ test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的�
     await showMonth(calendar, aDay)
     await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
     await expect(monthRow(calendar, aDay, ACTIVITY_B)).toHaveCount(1)
-    // 沒有任何「截止」：圖例不列、截止那個月也沒有期中報告。
+    // 學生截止（Q125 B 案、B15）：截止那個月有期中報告、標「學生截止」，連到老師／系辦的公告與作業列表。
     const dueDay = ymd(at(DUE_DAY))
     await showMonth(calendar, dueDay)
-    await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
-    await expect(calendar.getByText('截止', { exact: true })).toHaveCount(0)
+    await expect(monthRow(calendar, dueDay, SUBMISSION)).toContainText('學生截止')
+    await expect(monthRow(calendar, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}` : '/dashboard/teacher/affairs')
   }
 })
 

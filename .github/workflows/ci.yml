@@ -122,6 +122,8 @@ jobs:
         env:
           GIT_COMMIT: ${{ github.sha }}
           APP_VERSION: ${{ github.sha }}
+      # 每個路由的 First Load JS（gzip）不能超過 web/scripts/perf/budget.json 的上限（SH-B3）。
+      - run: pnpm -C web perf:bundle
       # 映像本身也要建得起來（app、worker、migrate 共用）。S00 只 build，不推 GHCR。
       - run: docker build -f web/Dockerfile --build-arg GIT_COMMIT=${{ github.sha }} -t fju-web:ci .
       # PD-1：開發工具不能再被拉進映像（better-auth 的 optional peer 曾經把 vitest、esbuild 帶進
@@ -184,6 +186,10 @@ jobs:
       # 上傳檔案的存放根目錄（票 6）。CI 用 runner 上的暫存目錄；正式環境是 VM 的獨立 volume。
       FILES_ROOT: /tmp/fju-files
       FILE_MAX_BYTES: '104857600'
+      MAIL_CAPTURE: '1'
+      # e2e 會連續換身分、重複上傳：身分快取關掉才不會讀到舊角色；上傳限流放寬才不會合跑時 429。
+      IDENTITY_CACHE_TTL_SECONDS: '0'
+      UPLOAD_RATE_MAX: '1000'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
