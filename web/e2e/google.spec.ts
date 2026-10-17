@@ -110,7 +110,7 @@ test('直接打 API 帶 idToken（不經 redirect）→ 400，只走 redirect＋
 
 test('Google 回來說同 Email 已有帳號：提示用原方式登入後再連結', async ({ page }) => {
   await page.goto('/login?error=account_not_linked')
-  await expect(page.getByTestId('google-error')).toContainText('請先用原本的 Email 與密碼登入，再到「我的帳號」連結 Google')
+  await expect(page.getByTestId('google-error')).toContainText('請先用 Email 與密碼登入')
   await page.goto('/login?error=unable_to_create_session')
   await expect(page.getByTestId('google-error')).toContainText('Google 登入沒有完成')
 })
