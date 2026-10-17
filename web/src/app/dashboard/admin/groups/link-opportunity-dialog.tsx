@@ -50,6 +50,8 @@ export function LinkOpportunityButton({
   const [options, setOptions] = useState<readonly LinkOption[]>(initialOptions)
   const [selected, setSelected] = useState(initialOptions[0]?.id ?? '')
   const [loading, setLoading] = useState(false)
+  /** 目前下拉是哪個查詢的結果（測試靠它等查詢回來）。 */
+  const [appliedQ, setAppliedQ] = useState('')
   const [searchError, setSearchError] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [seenRevision, setSeenRevision] = useState(group.revision)
@@ -68,7 +70,16 @@ export function LinkOpportunityButton({
   const load = async (nextQ: string, nextOffset: number) => {
     const seq = ++latest.current
     setLoading(true)
-    const result = await searchLinkOptionsAction({ q: nextQ, offset: nextOffset })
+    let result: LinkOptionsOutcome
+    try {
+      result = await searchLinkOptionsAction({ q: nextQ, offset: nextOffset })
+    } catch {
+      // 查詢中會鎖住下拉與「連結」：請求丟例外也要解鎖，不能一直停在「查詢中…」。
+      if (seq !== latest.current) return
+      setLoading(false)
+      setSearchError('查詢合作案失敗，請再試一次。')
+      return
+    }
     if (seq !== latest.current) return
     setLoading(false)
     if (!result.ok) {
@@ -77,8 +88,11 @@ export function LinkOpportunityButton({
     }
     setSearchError(null)
     setOffset(nextOffset)
+    setAppliedQ(nextQ)
     setOptions(result.options)
-    setSelected(result.options[0]?.id ?? '')
+    // 原本選的案還在新清單裡就保留，不悄悄換成第一筆（否則按「連結」會連到別的案）。
+    const options = result.options
+    setSelected((prev) => (options.some((o) => o.id === prev) ? prev : (options[0]?.id ?? '')))
   }
 
   const search = (value: string) => {
@@ -138,7 +152,7 @@ export function LinkOpportunityButton({
               className={INPUT}
             />
           </div>
-          <div>
+          <div data-testid="link-options" data-query={appliedQ} aria-busy={loading}>
             <label htmlFor={ids.pick} className={LABEL}>
               合作案
             </label>
@@ -148,7 +162,7 @@ export function LinkOpportunityButton({
                 name="opportunityId"
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
-                aria-busy={loading}
+                disabled={loading}
                 className={INPUT}
               >
                 {options.map((o) => (
@@ -206,7 +220,7 @@ export function LinkOpportunityButton({
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               取消
             </button>
-            <button type="submit" disabled={pending || selected === ''} className={PRIMARY}>
+            <button type="submit" disabled={pending || loading || selected === ''} className={PRIMARY}>
               {pending ? '處理中…' : '連結'}
             </button>
           </div>

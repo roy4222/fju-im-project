@@ -128,6 +128,9 @@ async function openGroups(page: Page, cohort: string) {
 /** 縮到本次的案：搜尋框打戳記，等下拉換成搜尋結果。 */
 async function narrowTo(dialog: ReturnType<Page['getByRole']>, term: string, expected: number) {
   await dialog.getByLabel('搜尋公司名').fill(term)
+  // 等這個查詢真的回來（初始清單筆數剛好相同時，只看筆數等於沒等）。
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('data-query', term.trim())
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('aria-busy', 'false')
   await expect(dialog.getByLabel('合作案').locator('option')).toHaveCount(expected)
 }
 
@@ -212,6 +215,38 @@ test('AC-AD-11 過期：兩個分頁同時開，A 先換成功，B 再送看到�
 
   expect((await audits('opportunity.switch', groupIds.get('G03')!)).map((a) => a.reason)).toEqual(['業師更換', 'A 換回甲'])
   await pageB.context().close()
+})
+
+test('搜尋結果回來時，原本選的案還在清單裡就保留選取；查詢中下拉與「連結」鎖住（Review FIX）', async ({ page }) => {
+  const groups = await openGroups(page, cohortId)
+  await groups.getByRole('button', { name: '改連結 G03' }).click()
+  const dialog = page.getByRole('dialog', { name: '把 G03 改連到別的合作案' })
+  await narrowTo(dialog, TAG, 2)
+  const pick = dialog.getByLabel('合作案')
+  // 選「不是第一筆」的那一案：舊版查詢回來會把下拉改回第一筆。
+  const [first, second] = await pick.locator('option').allTextContents()
+  expect(second).toBeTruthy()
+  await pick.selectOption({ label: second! })
+
+  // 讓下一次選項查詢晚 1.5 秒回來（Server Action 是帶 next-action 標頭的 POST）。
+  await page.route('**/dashboard/admin/groups**', async (route) => {
+    if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
+      await new Promise((r) => setTimeout(r, 1_500))
+    }
+    await route.continue()
+  })
+  await dialog.getByLabel('搜尋公司名').fill(`${TAG} `)
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('aria-busy', 'true')
+  await expect(pick).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: '連結', exact: true })).toBeDisabled()
+
+  await expect(dialog.getByTestId('link-options')).toHaveAttribute('aria-busy', 'false')
+  await expect(pick.locator('option')).toHaveCount(2)
+  await expect(pick).toBeEnabled()
+  await expect(pick.locator('option:checked')).toHaveText(second!)
+  expect(first).not.toBe(second)
+  await page.unroute('**/dashboard/admin/groups**')
+  await dialog.getByRole('button', { name: '取消' }).click()
 })
 
 test('AC-AD-12 一般組 G01：列上與詳情都沒有連結入口', async ({ page }) => {
