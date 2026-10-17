@@ -35,8 +35,20 @@ export { FILE_LIST_LIMIT } from '@/infrastructure/ops/file-list'
  * 路由只管 HTTP（標頭、狀態碼、串流），「這個人是誰、能不能做」都在這裡與共用檔案能力裡判。
  */
 
-/** 上傳限速（契約 03 §6：20 次／10 分鐘／使用者）。 */
-const uploadLimiter = createRateLimiter({ max: 20, windowMs: 10 * 60 * 1000 })
+/**
+ * 上傳限速的次數上限（契約 03 §6：20 次／10 分鐘／使用者）。
+ *
+ * `UPLOAD_RATE_MAX` 可以蓋掉（SH-B10：e2e 同一個共用帳號跨 spec 會超過 20 次，設 1000）。
+ * 沒設或不是正整數就用 20：`NaN` 會讓限速永遠放行、`0` 會全擋，打錯 env 不能變成關掉限速。
+ */
+export function uploadRateMax(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.UPLOAD_RATE_MAX?.trim()
+  if (!raw || !/^\d+$/.test(raw)) return 20
+  const max = Number(raw)
+  return Number.isSafeInteger(max) && max > 0 ? max : 20
+}
+
+const uploadLimiter = createRateLimiter({ max: uploadRateMax(), windowMs: 10 * 60 * 1000 })
 
 export type UploadOutcome =
   | Result<StoredFileReceipt>

@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test } from '@playwright/test'
 import { Pool } from 'pg'
+import { ADMIN_HOME, STUDENT_HOME, TEACHER_HOME } from './fingerprints'
 import { createTestSession, grantExtraRole } from './session'
 
 /**
@@ -18,10 +19,7 @@ const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
 
-/** 只有有權限的人才看得到的一段字（同 `pages.spec.ts` 的 FINGERPRINTS）。 */
-const STUDENT_HOME = '看完整時程'
-const TEACHER_HOME = '待辦'
-const ADMIN_HOME = '作業完成率'
+// STUDENT_HOME／TEACHER_HOME／ADMIN_HOME：只有有權限的人才看得到的一段字，取自 `fingerprints.ts`。
 
 async function owner<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能改帳號狀態與角色')

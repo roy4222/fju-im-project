@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse } from '@playwright/test'
+import { FINGERPRINTS, SITE_FINGERPRINTS } from './fingerprints'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -13,11 +14,29 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 
-/** 舊網址 → 學生被轉去的地方，以及舊頁面的指紋（轉址回應裡不該再出現）。 */
+/**
+ * 舊網址 → 學生被轉去的地方、舊頁面的指紋（轉址回應裡不該再出現），
+ * 以及新位置的指紋（跟著轉過去後一定要在，證明真的到了那一頁，SH-B10）。
+ */
 const OLD_PAGES = [
-  { path: '/dashboard/student/grading', target: '/dashboard/student', fingerprint: '評分由老師與系辦處理，學生不會看到分數' },
-  { path: '/dashboard/student/industry', target: '/industry', fingerprint: '產學組的組長可以在「我的組別」把組別連結到合作案' },
-  { path: '/dashboard/student/timeline', target: '/timeline', fingerprint: '階段與日期由系辦在時間軸設定' },
+  {
+    path: '/dashboard/student/grading',
+    target: '/dashboard/student',
+    fingerprint: '評分由老師與系辦處理，學生不會看到分數',
+    landing: { selector: 'body', text: FINGERPRINTS['/dashboard/student']! },
+  },
+  {
+    path: '/dashboard/student/industry',
+    target: '/industry',
+    fingerprint: '產學組的組長可以在「我的組別」把組別連結到合作案',
+    landing: SITE_FINGERPRINTS['/industry'],
+  },
+  {
+    path: '/dashboard/student/timeline',
+    target: '/timeline',
+    fingerprint: '階段與日期由系辦在時間軸設定',
+    landing: SITE_FINGERPRINTS['/timeline'],
+  },
 ] as const
 
 const REDIRECT = [302, 303, 307, 308]
@@ -28,7 +47,7 @@ function locationPath(response: APIResponse): string {
   return new URL(location!, BASE_URL).pathname
 }
 
-for (const { path, target, fingerprint } of OLD_PAGES) {
+for (const { path, target, fingerprint, landing } of OLD_PAGES) {
   test(`${path}：學生被轉到 ${target}，回應沒有舊頁內容`, async ({ request, page }) => {
     const { cookie } = await sharedTestSession(request, 'student')
     const response = await request.get(path, { headers: { cookie }, maxRedirects: 0 })
@@ -43,6 +62,7 @@ for (const { path, target, fingerprint } of OLD_PAGES) {
     const landed = await page.goto(path)
     expect(landed?.status()).toBe(200)
     expect(new URL(page.url()).pathname).toBe(target)
+    await expect(page.locator(landing.selector).first(), '轉過去的頁要真的是新位置').toContainText(landing.text)
   })
 
   for (const role of ['teacher', 'admin'] as const) {

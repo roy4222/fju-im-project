@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { FINGERPRINTS } from './fingerprints'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
 /**
@@ -303,47 +304,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     }
   })
 
-  /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
-  const FINGERPRINTS: Record<string, string> = {
-    '/dashboard/admin': '作業完成率',
-    '/dashboard/admin/accounts': '名單與停用',
-    '/dashboard/admin/cohorts': '新註冊加入這屆',
-    '/dashboard/teacher': '待辦',
-    '/dashboard/student': '看完整時程',
-    // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
-    // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
-    '/dashboard/admin/timeline': '已排定的活動',
-    '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
-    '/dashboard/admin/inbox': '全部標為已讀',
-    '/dashboard/teacher/inbox': '全部標為已讀',
-    '/dashboard/student/inbox': '全部標為已讀',
-    '/dashboard/admin/groups': '全部組別',
-    '/dashboard/student/groups': '組別分頁',
-    '/dashboard/teacher/groups': '一般組由系辦指派。',
-    // 合作案管理（票 20）。
-    '/dashboard/admin/industry': '合作案摘要',
-    '/dashboard/admin/affairs': '完整編輯器',
-    // 檔案管理（票 35）。
-    '/dashboard/admin/files': '編輯器加附件',
-    '/dashboard/admin/editor/new': '存草稿',
-    '/dashboard/student/affairs': '篩選作業',
-    '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
-    '/dashboard/admin/grading': '成績表',
-    '/dashboard/teacher/grading': '草稿只有你和系辦看得到。',
-    // 簽核與精選（票 25）。
-    '/dashboard/admin/signoff': '新增站內同意書',
-    // 操作紀錄（票 36）。
-    '/dashboard/admin/audit': '只搜近 7 天、最多 200 筆',
-    '/dashboard/admin/showcase': '草稿不會公開',
-    '/dashboard/student/signoff': '每個人只代表自己一票',
-    // 首頁設定（第三波 W3）。
-    '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
-    // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
-    '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
-    // 設定總頁（AD-20）：時間軸卡的說明句。
-    '/dashboard/admin/settings': '四個階段與活動日期',
-  }
-
+  // FINGERPRINTS 在 `fingerprints.ts`（SH-B10：與 identity-per-request、student-redirects 共用）。
   /** 與 `src/app/dashboard/_nav.ts` 的 `PROTECTED_ROUTES` 對應；新增頁面時兩邊一起補。 */
   const PROTECTED: { path: string; wrongRole: 'admin' | 'teacher' | 'student' }[] = [
     { path: '/dashboard/admin', wrongRole: 'student' },
