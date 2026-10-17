@@ -1,6 +1,6 @@
 'use server'
 import { currentActor } from '@/app/_ui/guard'
-import type { BenchOutcome, FinalReceiptView } from '@/app/dashboard/teacher/grading/types'
+import type { BenchOutcome, DraftReceiptView, FinalReceiptView } from '@/app/dashboard/teacher/grading/types'
 import { getGradingCommand } from '@/composition/grading'
 import type { Err } from '@/shared/result'
 import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
@@ -10,7 +10,7 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
  *
  * 規則與授權全在用例裡判（本人的有效指派、分數範圍、評語 500 字、已結算不能改、帳本冪等）；這裡只把瀏覽器送來的分數收斂成
  * 一層「項目 key → 字串」，把結果翻成畫面要的回饋。請求編號由畫面產生：同一次送出（連點、斷線重試）帶同一個編號。
- * 老師是誰不從畫面帶，由用例依登入者決定。
+ * 老師是誰不從畫面帶，由用例依登入者決定。回執帶伺服器時間（ISO）：評分卡用它判斷重抓回來的資料是不是比這次寫入還舊。
  */
 
 const str = (value: unknown, max = 100) => (typeof value === 'string' ? value.slice(0, max) : '')
@@ -39,14 +39,14 @@ export async function saveGradingDraftAction(
   scores: unknown,
   comment: unknown,
   requestId: string,
-): Promise<BenchOutcome<{ savedAtText: string }>> {
+): Promise<BenchOutcome<DraftReceiptView>> {
   const result = await getGradingCommand().saveDraft(
     await currentActor(),
     { assignmentId: str(assignmentId), scores: scoresOf(scores), comment: commentOf(comment) },
     str(requestId),
   )
   if (!result.ok) return fail(result)
-  return { ok: true, data: { savedAtText: formatTaipeiMinute(new Date(result.receipt.savedAt)) } }
+  return { ok: true, data: { savedAtText: formatTaipeiMinute(new Date(result.receipt.savedAt)), serverTime: result.receipt.serverTime } }
 }
 
 export async function submitGradingAction(
@@ -71,6 +71,7 @@ export async function submitGradingAction(
       gate: r.gate,
       receivedAtText: formatTaipeiSecond(new Date(r.receivedAt)),
       evaluationId: r.evaluationId,
+      serverTime: r.serverTime,
     },
   }
 }

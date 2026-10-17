@@ -126,6 +126,7 @@ export default async function TeacherGradingGroupPage({
               savedAtText={entry.savedAt ? formatTaipeiMinute(entry.savedAt) : null}
               finalScore={entry.finalScore}
               draftFromOlderVersion={entry.draftFromOlderVersion}
+              serverTime={page.serverTime}
               eyebrow={`${cohortLabel({ name: cohortName, code: cohortCode })}・${entry.stage.name}・評分規則第 ${versionNo} 版`}
               members={memberNames.join('、')}
             >
