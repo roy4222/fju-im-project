@@ -4,6 +4,7 @@
  * - 一般篩選只列未封存的屆別；「榮譽」篩選連已封存的也列（榮譽是跨屆的公開紀錄）。
  * - 一個屆別都沒有 → `none`（「還沒有屆別」）。
  * - 屆別全部封存、又不是榮譽篩選 → `only-archived`：不能新增一般項目，但要留「歷屆榮譽」入口，不能變成死路。
+ * - 「逾期」不是種類（AD-B7）：發布中、已截止、還有人沒正式送出的文件繳交；頁面另讀名單事實才篩得出來。
  */
 
 export const AFFAIRS_FILTERS = [
@@ -13,6 +14,7 @@ export const AFFAIRS_FILTERS = [
   { key: 'submission', label: '文件繳交' },
   { key: 'rules', label: '專題規則' },
   { key: 'honor', label: '榮譽' },
+  { key: 'overdue', label: '逾期' },
 ] as const
 
 export type AffairsFilter = (typeof AFFAIRS_FILTERS)[number]['key']
