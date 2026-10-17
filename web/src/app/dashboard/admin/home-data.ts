@@ -27,14 +27,15 @@ const DAY_MS = 86_400_000
  * 只有這六個：主機儲存（`storageTile`）只在開發者後台看，型別上就沒有，首頁不可能呼叫它。
  * - 待審帳號數與最早送出時間：讀共用 SH-P2 的 `loadAdminSummary(actor.userId)`，跟側欄徽章同一次請求共用，不多讀一次（AD-13）。讀不到是 null。
  * - 成績更正待復核：讀 `grading.pendingReviews`（1 句），不再讀整張成績表（AD-21）。
- * - 分組：首頁只要組數與人數，傳 `{ history: false }` 不讀歷程（共用 SH-P4）；系辦分組頁維持預設（看歷程）。
+ * - 分組：首頁只要計數，讀 `groups.homeCounts`（1 句，口徑同 `overview()`；AD-21），不讀整份總覽。
+ * - 同意書：只要「等老師」與「已完成」的數字，讀 `signoff.homeCounts`（1 句，口徑同 `adminBoard`；AD-21）。
  * - 完成率與逾期：一次讀完全屆發布中作業的名單事實（`completionFacts()`，AD-19／AD-13），不再逐份讀 `roster()`；型別上只拿得到它。
  */
 export type AdminHomePorts = {
   readonly accounts: { readonly summary: (userId: string) => Promise<AccountSummary | null> }
-  readonly groups: Pick<GroupQuery, 'overview'>
+  readonly groups: Pick<GroupQuery, 'homeCounts'>
   readonly grading: Pick<GradingQuery, 'adminBoard' | 'pendingReviews'>
-  readonly signoff: Pick<SignoffQuery, 'adminBoard'>
+  readonly signoff: Pick<SignoffQuery, 'homeCounts'>
   readonly items: Pick<ItemQuery, 'list'>
   readonly roster: Pick<RosterQuery, 'completionFacts'>
 }
@@ -101,11 +102,11 @@ export async function loadAdminHome(
   ctx: Pick<StageContext, 'cohort' | 'businessNow'>,
 ): Promise<AdminHome> {
   const cohortId = ctx.cohort?.id ?? null
-  const [summary, overview, gradingResult, signoffResult, items, reviewsResult, rosters] = await Promise.all([
+  const [summary, groupCounts, gradingResult, signoffResult, items, reviewsResult, rosters] = await Promise.all([
     ports.accounts.summary(actor.userId),
-    cohortId ? ports.groups.overview(cohortId, { history: false }) : Promise.resolve(null),
+    cohortId ? ports.groups.homeCounts(cohortId) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
-    cohortId ? ports.signoff.adminBoard(actor, cohortId) : Promise.resolve(null),
+    cohortId ? ports.signoff.homeCounts(actor, cohortId) : Promise.resolve(null),
     cohortId ? ports.items.list(cohortId) : Promise.resolve([]),
     // 只拿「待復核的更正」做首頁提示（N-61）；成績表本身在「成績」頁。
     cohortId ? ports.grading.pendingReviews(actor, cohortId) : Promise.resolve(null),
@@ -125,11 +126,10 @@ export async function loadAdminHome(
     ctx.businessNow,
   ).size
 
-  const groups = overview?.groups ?? []
   const grading = gradingResult?.ok ? gradingResult.receipt : null
 
-  const signGroups = signoffResult?.ok ? signoffResult.receipt.groups : []
-  const waitingBy = SIGNOFF_PURPOSES.map((p) => ({ purpose: p, n: signGroups.filter((g) => g.packages[p]?.state === 'teacher_pending').length }))
+  const sign = signoffResult?.ok ? signoffResult.receipt : null
+  const waitingBy = SIGNOFF_PURPOSES.map((p) => ({ purpose: p, n: sign?.teacherPending[p] ?? 0 }))
   const waiting = waitingBy.reduce((a, w) => a + w.n, 0)
   const mostWaiting = [...waitingBy].sort((a, b) => b.n - a.n)[0]
 
@@ -140,14 +140,7 @@ export async function loadAdminHome(
   return {
     summary,
     oldestPendingDays: oldest ? Math.max(0, Math.floor((ctx.businessNow.getTime() - oldest.getTime()) / DAY_MS)) : null,
-    groups: {
-      total: groups.length,
-      students: groups.reduce((a, g) => a + g.members.length, 0),
-      ungrouped: overview?.ungrouped.length ?? 0,
-      industry: groups.filter((g) => g.groupType === 'industry').length,
-      noAdvisorIndustry: groups.filter((g) => g.groupType === 'industry' && g.advisor === null).length,
-      openProposals: overview?.openProposals.length ?? 0,
-    },
+    groups: groupCounts ?? { total: 0, students: 0, ungrouped: 0, industry: 0, noAdvisorIndustry: 0, openProposals: 0 },
     published: allIntake.length,
     intake: allIntake.slice(0, INTAKE_LIMIT),
     overdue: {
@@ -159,7 +152,7 @@ export async function loadAdminHome(
     remaining: grading ? remainingCount(grading) : 0,
     signoff: {
       waiting,
-      complete: signGroups.filter((g) => SIGNOFF_PURPOSES.some((p) => g.packages[p]?.state === 'complete')).length,
+      complete: sign?.completeGroups ?? 0,
       purpose: mostWaiting && mostWaiting.n > 0 ? mostWaiting.purpose : null,
     },
     pendingReviews: reviewsResult?.ok ? [...reviewsResult.receipt] : [],

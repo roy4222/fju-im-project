@@ -3,7 +3,7 @@ import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { AdminAssignmentView, AdminGradingBoard, PendingReview } from '@/application/grading'
 import type { CohortGroupingOverview } from '@/application/groups'
 import type { ItemListRow } from '@/application/items'
-import type { AdminSignoffBoard, SignoffPurpose, SignoffState } from '@/application/signoff'
+import { SIGNOFF_PURPOSES, type AdminSignoffBoard, type SignoffPurpose, type SignoffState } from '@/application/signoff'
 import type { ItemCompletionFacts, ItemRoster } from '@/application/submissions'
 import { overdueReceiverIds } from '@/composition/submissions'
 import { adminTodoCards, heroLine, INTAKE_LIMIT, loadAdminHome, NEWS_LIMIT, type AdminHome, type AdminHomePorts } from './home-data'
@@ -84,6 +84,29 @@ function signoffBoard(states: readonly (Partial<Record<SignoffPurpose, SignoffSt
   } as unknown as AdminSignoffBoard
 }
 
+/** 假 `groups.homeCounts`：照 `overview()` 的口徑從總覽測資算（真查詢的一致性在 pg-groups 整合測試）。 */
+function groupCountsOf(o: CohortGroupingOverview) {
+  const industry = o.groups.filter((g) => g.groupType === 'industry')
+  return {
+    total: o.groups.length,
+    students: o.groups.reduce((a, g) => a + g.members.length, 0),
+    ungrouped: o.ungrouped.length,
+    industry: industry.length,
+    noAdvisorIndustry: industry.filter((g) => g.advisor === null).length,
+    openProposals: o.openProposals.length,
+  }
+}
+
+/** 假 `signoff.homeCounts`：照 `adminBoard` 的口徑從總表測資算（真查詢的一致性在 pg-signoff 整合測試）。 */
+function signoffCountsOf(b: AdminSignoffBoard) {
+  return {
+    teacherPending: Object.fromEntries(
+      SIGNOFF_PURPOSES.map((p) => [p, b.groups.filter((g) => g.packages[p]?.state === 'teacher_pending').length]),
+    ) as Record<SignoffPurpose, number>,
+    completeGroups: b.groups.filter((g) => SIGNOFF_PURPOSES.some((p) => g.packages[p]?.state === 'complete')).length,
+  }
+}
+
 type Fixture = {
   summary?: AccountSummary
   items?: readonly ItemListRow[]
@@ -107,7 +130,7 @@ function fakePorts(f: Fixture = {}) {
       .map((i) => rosters.get(i.id) ?? roster(i.id, i.receiverUnit === 'group' ? 'group' : 'individual', NOW, []))
   const ports = {
     accounts: { summary: vi.fn<AdminHomePorts['accounts']['summary']>(async () => f.summary ?? summary()) },
-    groups: { overview: vi.fn(async () => f.overview ?? overview([])) },
+    groups: { homeCounts: vi.fn(async () => groupCountsOf(f.overview ?? overview([]))) },
     grading: {
       adminBoard: vi.fn(async () => ok(f.board ?? board([]))),
       pendingReviews: vi.fn<AdminHomePorts['grading']['pendingReviews']>(async () => ({
@@ -115,7 +138,7 @@ function fakePorts(f: Fixture = {}) {
         receipt: Object.assign([...(f.pendingReviews ?? [])], { requestId: 'r', serverTime: NOW.toISOString() }),
       })),
     },
-    signoff: { adminBoard: vi.fn(async () => ok(f.signoff ?? signoffBoard([]))) },
+    signoff: { homeCounts: vi.fn(async () => ok(signoffCountsOf(f.signoff ?? signoffBoard([])))) },
     items: { list: vi.fn(async () => [...(f.items ?? [])]) },
     roster: {
       roster: vi.fn(async (_actor: ResolvedActor, itemId: string) => rosters.get(itemId) ?? roster(itemId, 'individual', NOW, [])),
@@ -127,7 +150,7 @@ function fakePorts(f: Fixture = {}) {
 
 describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
   for (const n of [1, 8, 80]) {
-    it(`${n} 份發布中作業：summary、overview、評分、待復核更正、同意書、作業清單各 1 次；不讀成績表、沒有 storageTile`, async () => {
+    it(`${n} 份發布中作業：summary、分組計數、評分、待復核更正、同意書計數、作業清單各 1 次；不讀成績表、沒有 storageTile`, async () => {
       const items = Array.from({ length: n }, (_, i) => item(`i${i}`))
       const ports = fakePorts({ items })
       await loadAdminHome(ports, actor, ctx)
@@ -135,14 +158,15 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
       expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
       // 共用 SH-P2：經 `loadAdminSummary(actor.userId)`，跟側欄徽章共用同一次讀取。
       expect(ports.accounts.summary).toHaveBeenCalledWith('u-admin')
-      expect(ports.groups.overview).toHaveBeenCalledTimes(1)
-      // 共用 SH-P4：首頁不讀分組歷程。
-      expect(ports.groups.overview).toHaveBeenCalledWith('c43', { history: false })
+      // AD-21：分組與同意書只讀計數（各 1 句），型別上拿不到整份總覽。
+      expect(ports.groups.homeCounts).toHaveBeenCalledTimes(1)
+      expect(ports.groups.homeCounts).toHaveBeenCalledWith('c43')
       expect(ports.grading.adminBoard).toHaveBeenCalledTimes(1)
       // AD-21：待復核更正只讀 1 句的 `pendingReviews`，不再讀整張成績表（型別上就沒有 gradebook）。
       expect(ports.grading.pendingReviews).toHaveBeenCalledTimes(1)
       expect(ports.grading.pendingReviews).toHaveBeenCalledWith(actor, 'c43')
-      expect(ports.signoff.adminBoard).toHaveBeenCalledTimes(1)
+      expect(ports.signoff.homeCounts).toHaveBeenCalledTimes(1)
+      expect(ports.signoff.homeCounts).toHaveBeenCalledWith(actor, 'c43')
       expect(ports.items.list).toHaveBeenCalledTimes(1)
       // 主機儲存不在首頁的 port 裡（只在開發者後台看）：型別上就沒有 ops，所以 storageTile 一定是 0 次。
       expect(Object.keys(ports).sort()).toEqual(['accounts', 'grading', 'groups', 'items', 'roster', 'signoff'])
@@ -186,7 +210,7 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
     const ports = fakePorts()
     const home = await loadAdminHome(ports, actor, noCohort)
     expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
-    for (const fn of [ports.groups.overview, ports.grading.adminBoard, ports.grading.pendingReviews, ports.signoff.adminBoard, ports.items.list, ports.roster.roster, ports.roster.completionFacts]) {
+    for (const fn of [ports.groups.homeCounts, ports.grading.adminBoard, ports.grading.pendingReviews, ports.signoff.homeCounts, ports.items.list, ports.roster.roster, ports.roster.completionFacts]) {
       expect(fn).not.toHaveBeenCalled()
     }
     expect(home.published).toBe(0)
