@@ -416,7 +416,7 @@ test('4. 個人回答：老師預設看不到；系辦在名單頁開主指導�
   expect((await page.goto(`/dashboard/teacher/affairs/${personalId}?person=${s1.userId}&version=1`))?.status()).toBe(404)
 })
 
-test('A-18. 教務區歷屆下拉：屆別封存後預設看不到，從下拉選「已封存」那一屆可以查看（唯讀）；沒指導過的老師下拉沒有這一屆', async ({ page }) => {
+test('A-18. 教務區歷屆下拉：屆別封存後預設看不到，從下拉選「已封存」那一屆可以查看（唯讀）；曾指導後改派的老師下拉有這一屆但看不到內容', async ({ page }) => {
   await pool.query(`update cohorts set status = 'archived' where id = $1`, [cohortId])
 
   // T3 此刻指導 G1：預設（進行中的屆別）看不到封存屆的組；下拉列得出這一屆並標「已封存」。
@@ -442,9 +442,15 @@ test('A-18. 教務區歷屆下拉：屆別封存後預設看不到，從下拉�
   await page.getByTestId('cohort-select').selectOption('')
   await expect(page.getByTestId(`matrix-row-${G1}`)).toHaveCount(0)
 
-  // T1 已經不指導 G1（改派給 T3）：直接打這一屆的網址也是空的，下拉沒有這一屆。
+  // 網址上的 UUID 大寫也一樣：下拉停在該屆、唯讀提示在、資料照出。
+  await page.goto(`/dashboard/teacher/affairs?cohort=${cohortId.toUpperCase()}`)
+  await expect(page.getByTestId('cohort-select')).toHaveValue(cohortId)
+  await expect(page.getByTestId('cohort-archived-note')).toBeVisible()
+  await expect(page.getByTestId(`matrix-row-${G1}`)).toBeVisible()
+
+  // T1 曾經指導 G1、已改派給 T3：下拉仍列得出這一屆（曾指導過），但內容是空的——看不到 T3 目前的組。
   await signIn(page, t1)
   await page.goto(`/dashboard/teacher/affairs?cohort=${cohortId}`)
+  await expect(page.getByTestId('cohort-select').locator(`option[value="${cohortId}"]`)).toHaveCount(1)
   await expect(page.getByTestId(`matrix-row-${G1}`)).toHaveCount(0)
-  await expect(page.getByTestId('cohort-select').locator(`option[value="${cohortId}"]`)).toHaveCount(0)
 })

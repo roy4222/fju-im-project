@@ -498,7 +498,16 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     expect(new Set(picked.items.map((i) => i.cohortId))).toEqual(new Set([cohortId]))
     expect(picked.cells.some((c) => c.groupId === g1 && c.itemId === itemId)).toBe(true)
 
-    // 別的老師沒指導過這一屆：看不到任何東西，也看不到屆別選項。
+    // 大寫 UUID 等同小寫。
+    expect((await advisor.matrix(teacherActor(t1), cohortId.toUpperCase()))!.groups.map((g) => g.groupId)).toContain(g1)
+    // 曾經指導、後來改派：選項還在，但內容拿不到（只給目前有效的指導關係）。
+    const successor = await newUser('接手老師', 'teacher')
+    await assignAdvisor(g1, successor)
+    const former = (await advisor.matrix(teacherActor(t1), cohortId))!
+    expect(former.cohorts!.map((c) => c.cohortId)).toContain(cohortId)
+    expect(former).toMatchObject({ groups: [], items: [], cells: [], individualItems: [] })
+    expect((await advisor.matrix(teacherActor(successor), cohortId))!.groups.map((g) => g.groupId)).toContain(g1)
+    // 從沒指導過這一屆的老師：看不到任何東西，選項也沒有。
     const other = await newUser('另一位老師', 'teacher')
     expect(await advisor.matrix(teacherActor(other), cohortId)).toEqual({ groups: [], items: [], cells: [], individualItems: [] })
     // 亂填的屆別 id：空，不丟錯。

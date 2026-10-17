@@ -143,14 +143,18 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     this.#lateFlags = lateFlags
   }
 
-  async matrix(actor: ResolvedActor, cohortId?: string): Promise<AdvisorMatrix | null> {
+  async matrix(actor: ResolvedActor, rawCohortId?: string): Promise<AdvisorMatrix | null> {
     if (!isTeacher(actor)) return null
+    // UUID 大小寫視為同一個（網址可能是大寫）；不是 UUID 的原樣留著，下面當空矩陣。
+    const cohortId = rawCohortId?.toLowerCase()
     const db = this.#reader()
+    // 下拉選項＝老師**曾經**指導過的屆別（含已換掉、解散的組；Q136），只是選項；內容仍只給目前有效的指導關係（下面的查詢）。
     // 指定屆別：改用 MY_GROUPS（含已封存屆別）加屆別條件；老師在那一屆沒有指導組別就自然是空的。
     const picked = cohortId !== undefined
     const cohortRows = await db.query<{ id: string; code: string; name: string; status: string }>(
       `select c.id, c.code, c.name, c.status from cohorts c
-        where c.id in (select x.cohort_id from (${MY_GROUPS}) x) order by c.code desc`,
+        where c.id in (select g.cohort_id from advisor_assignments a join groups g on g.id = a.group_id where a.teacher_user_id = $1)
+        order by c.code desc`,
       [actor.userId],
     )
     if (cohortRows.rows.length === 0) return { groups: [], items: [], cells: [], individualItems: [] }

@@ -61,8 +61,8 @@ async function loadAffairs(actor: ResolvedActor, tab: 'submissions' | 'signoff',
   const [matrix, businessNow] = await Promise.all([getAdvisorSubmissionQuery().matrix(actor, cohortId), getBusinessClock().now()])
   const cohorts = matrix?.cohorts ?? []
   const options: CohortOption[] = cohorts.map((c) => ({ cohortId: c.cohortId, label: cohortLabel({ name: c.name, code: c.code }), archived: c.archived }))
-  // 網址上的屆別不是老師指導過的屆別（亂填、換掉的組）：下拉回到預設，矩陣本來就是空的。
-  const picked = cohorts.find((c) => c.cohortId === cohortId)
+  // 網址上的屆別不是老師曾經指導過的屆別（亂填）：下拉回到預設，矩陣本來就是空的。UUID 不分大小寫。
+  const picked = cohorts.find((c) => c.cohortId === cohortId?.toLowerCase())
   return {
     tab,
     cards: matrix ? buildGroupCards(matrix, businessNow) : [],
