@@ -1,28 +1,29 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconChevronDown, IconSignature, IconUsersGroup } from '@tabler/icons-react'
+import { IconSignature, IconUsersGroup } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { Donut, SegmentCells } from '@/app/_ui/dashboard/charts'
 import { CohortPills, PageTitle, Panel, PanelEmpty, QuietState } from '@/app/_ui/dashboard/primitives'
 import { StateBadge } from '@/app/dashboard/_signoff/version-view'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { NewVersionDialog } from '@/app/dashboard/admin/signoff/new-version-dialog'
 import { CreateVersionForm, type GroupOption } from '@/app/dashboard/admin/signoff/signoff-forms'
 import type { AdminGroupRow, SignoffPurpose, VersionSummary } from '@/application/signoff'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { describeCause, getSignoffQuery, SIGNOFF_PURPOSES, VOTE_RESULT_LABEL } from '@/composition/signoff'
+import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '站內同意書｜資管系專題平台' }
+export const metadata = { title: '同意書｜資管系專題平台' }
 
 /**
- * 管理員「簽核管理」（票 25、26；原型 `/dashboard/admin/signoff`）。
+ * 系辦「成績」側欄項的「同意書」分頁（AD-09；設計方案 §3.4；票 25、26）。
  *
- * 外觀照原型（票 36）：標題右上「新增簽核」開對話框（裡面是原本的建立簽核版本表單：貼全文、選附件、
- * 參與者快照；最終文件授權從精選草稿凍結範圍），下面左「整體進度」圓環、右「各組進度」逐人小格。
- * 每組兩個用途目前那一版各一列（缺誰可展開、最後事件時間），點版本號進版本頁看全文與歷史，
- * 在那裡提醒、重置、重開、作廢、匯出（票 26）。系辦沒有任何「替人同意」的入口。
+ * 分頁列右側「新增站內同意書」開對話框（貼全文、選附件、參與者快照；最終文件授權從精選草稿凍結範圍）；
+ * 下面用途篩選膠囊、左「整體進度」圓環、右「各組進度」每組一張卡（逐人小格、還沒回覆的人、版本與狀態）。
+ * 點版本號進版本頁看全文與歷史，在那裡提醒、重新收集或重開、作廢、匯出（票 26）。系辦沒有任何「替人同意」的入口。
  */
 
 function toOption(g: AdminGroupRow): GroupOption {
@@ -48,17 +49,16 @@ const CELL_TONE = {
 } as const
 
 /**
- * 一組一列（原型「各組進度」：組別｜逐人小格｜缺 N 位（可展開）｜版本與狀態）。
- * 每格一位學生、右邊短格是主指導；資料和學生頁、老師頁是同一份進度。第二行小字是最後事件時間與失效原因。
+ * 一組一張卡（AC-AD-19）：組別、版本與狀態、逐人小格、還沒回覆的人；第二行小字是最後事件時間與失效原因。
+ * 每格一位學生、右邊短格是主指導；資料和學生頁、老師頁是同一份進度。
  */
-function GroupRow({ code, summary }: { code: string; summary: VersionSummary | null }) {
-  const grid = 'grid items-center gap-x-3 gap-y-1.5 md:grid-cols-[4.5rem_minmax(0,1fr)_9rem_auto]'
+function GroupCard({ code, summary }: { code: string; summary: VersionSummary | null }) {
   if (!summary) {
     return (
-      <div className={grid}>
+      <div className="flex flex-col gap-2">
         <span className="tabular text-sm font-bold">{code}</span>
         <SegmentCells label="尚未建立" cells={[]} trailing="bg-muted" />
-        <span className="px-2 text-sm text-muted-foreground">尚未建立</span>
+        <span className="text-sm text-muted-foreground">尚未建立</span>
       </div>
     )
   }
@@ -67,31 +67,9 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
   const teacherTurn = summary.state === 'teacher_pending'
   const advisorTone = p.advisor.result ? (p.advisor.result === 'agree' ? 'bg-success' : CELL_TONE[p.advisor.result]) : 'bg-muted'
   return (
-    <div className={grid} data-testid="package-cell">
-      <span className="tabular text-sm font-bold">{code}</span>
-      <SegmentCells
-        label={`學生 ${p.agreed}／${p.total} 已同意，指導老師${p.advisor.result === 'agree' ? '已' : '未'}同意`}
-        cells={p.students.map((s) => (s.result ? CELL_TONE[s.result] : 'bg-muted'))}
-        trailing={advisorTone}
-      />
-      <div className="min-w-0 text-sm">
-        {p.missing.length > 0 ? (
-          <details className="group" data-testid="missing-details">
-            <summary
-              className={`inline-flex h-8 cursor-pointer list-none items-center gap-1 rounded-lg px-2 font-semibold transition-colors hover:bg-accent [&::-webkit-details-marker]:hidden ${teacherTurn ? 'text-brand' : 'text-foreground'}`}
-            >
-              {teacherTurn ? `等 ${p.advisor.displayName}` : `缺 ${p.missing.length} 位`}
-              <IconChevronDown className="size-4 transition-transform duration-150 group-open:rotate-180" aria-hidden />
-            </summary>
-            <p className="mt-1.5 mb-1 rounded-lg bg-muted/40 px-3 py-2.5 text-sm text-foreground">還沒回覆：{p.missing.join('、')}</p>
-          </details>
-        ) : (
-          <span className={`px-2 font-semibold ${summary.state === 'complete' ? 'text-success-on-subtle' : 'text-muted-foreground'}`}>
-            {summary.state === 'complete' ? '完成' : '—'}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 md:justify-self-end">
+    <div className="flex flex-col gap-2" data-testid="package-cell">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="tabular text-sm font-bold">{code}</span>
         <Link
           href={`/dashboard/admin/signoff/${summary.versionId}`}
           className="tabular text-sm font-bold text-ink underline-offset-4 hover:underline"
@@ -100,11 +78,26 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
         </Link>
         {/* 清單列的是目前版本：被取代就表示還沒有新版。 */}
         <StateBadge state={summary.state} cause={summary.cause} newerVersionNo={null} />
-        <span className="tabular text-xs text-muted-foreground">
+        <span className="tabular ml-auto text-xs text-muted-foreground">
           {p.agreed}／{p.total}
         </span>
       </div>
-      <p className="tabular text-xs text-muted-foreground md:col-span-3 md:col-start-2">
+      <SegmentCells
+        label={`學生 ${p.agreed}／${p.total} 已同意，指導老師${p.advisor.result === 'agree' ? '已' : '未'}同意`}
+        cells={p.students.map((s) => (s.result ? CELL_TONE[s.result] : 'bg-muted'))}
+        trailing={advisorTone}
+      />
+      {p.missing.length > 0 ? (
+        <p className="text-sm text-foreground" data-testid="missing-details">
+          <span className={`font-semibold ${teacherTurn ? 'text-brand' : ''}`}>{teacherTurn ? `等 ${p.advisor.displayName}` : `缺 ${p.missing.length} 位`}</span>
+          <span className="text-muted-foreground">・還沒回覆：{p.missing.join('、')}</span>
+        </p>
+      ) : (
+        <p className={`text-sm font-semibold ${summary.state === 'complete' ? 'text-success-on-subtle' : 'text-muted-foreground'}`}>
+          {summary.state === 'complete' ? '完成' : '—'}
+        </p>
+      )}
+      <p className="tabular text-xs text-muted-foreground">
         {cause && summary.state === 'superseded' ? `${cause}，待建新版・` : null}
         {cause && summary.state === 'revision' ? `理由：${cause}・` : null}
         最後動作 {formatTaipeiMinute(summary.lastEventAt)}
@@ -120,22 +113,48 @@ function GroupRow({ code, summary }: { code: string; summary: VersionSummary | n
 
 const COLUMN_LABEL: Record<SignoffPurpose, string> = { result_confirmation: '期中結果確認', final_document: '最終文件授權' }
 
+const BASE = '/dashboard/admin/signoff'
+
+/** 「成績」側欄項底下的分頁（設計方案 §3.4），與 `grading/page.tsx` 同一組。 */
+const TABS = [
+  { href: '/dashboard/admin/grading', label: '成績管理' },
+  { href: BASE, label: '同意書' },
+] as const
+
 export default async function AdminSignoffPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[]; purpose?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
-  const actor = await requireRole('/dashboard/admin/signoff', 'admin')
+  const actor = await requireRole(BASE, 'admin')
 
   const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
   const params = await searchParams
   const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts.find((c) => c.isDefaultWorking) ?? cohorts[0] ?? null
+  const board = cohort ? await getSignoffQuery().adminBoard(actor, cohort.id) : null
+  const groups = board?.ok ? board.receipt.groups : []
 
-  const shell = (children: React.ReactNode, title?: { description: string; actions?: React.ReactNode }) => (
-    <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/signoff">
+  // 「新增站內同意書」常駐在分頁列右側（沒有屆別或讀不到資料時對話框裡說明原因）；pages.spec 指紋用這顆按鈕。
+  const shell = (children: React.ReactNode) => (
+    <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
       <div className="flex flex-col gap-5">
-        <PageTitle
-          title="站內同意書"
-          description={title?.description ?? '系辦只能發布、重開或重置，不能代替任何人同意。'}
-          actions={title?.actions}
-        />
+        <div>
+          <PageTitle title="成績" />
+          <AdminTabs
+            label="成績分頁"
+            current={BASE}
+            items={TABS}
+            actions={
+              <NewVersionDialog>
+                {groups.length === 0 ? (
+                  <QuietState title={cohort ? '這一屆還沒有組別' : '還沒有屆別'} hint={cohort ? '分組成立後才能建立站內同意書。' : '先到屆別頁新增一屆。'} />
+                ) : (
+                  <CreateVersionForm groups={groups.map(toOption)} requestId={randomUUID()} />
+                )}
+              </NewVersionDialog>
+            }
+          />
+        </div>
+        {cohort ? (
+          <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
+        ) : null}
         {children}
       </div>
     </DashboardShell>
@@ -155,10 +174,8 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
     )
   }
 
-  const board = await getSignoffQuery().adminBoard(actor, cohort.id)
-  if (!board.ok) return shell(<QuietState title="讀不到站內同意書資料" hint={board.message} />)
-  const { groups } = board.receipt
-  // 原型只有一份同意書；正式碼每組有兩個用途（期中結果確認、最終文件授權），用分頁切換，一次看一個用途、一組一列。
+  if (!board?.ok) return shell(<QuietState title="讀不到站內同意書資料" hint={board?.message} />)
+  // 每組有兩個用途（期中結果確認、最終文件授權），用篩選膠囊切換，一次看一個用途、一組一張卡。
   // 預設看第一個已經有版本的用途。
   const hasAny = (p: SignoffPurpose) => groups.some((g) => g.packages[p] !== null)
   const wanted = Array.isArray(params.purpose) ? params.purpose[0] : params.purpose
@@ -179,11 +196,31 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
     { name: '退回或作廢', value: needsAdmin, className: 'stroke-destructive', swatch: 'bg-destructive' },
     { name: '尚未建立', value: notCreated, className: 'stroke-muted', swatch: 'bg-muted' },
   ]
-  const base = `/dashboard/admin/signoff?cohort=${cohort.id}`
+  const base = `${BASE}?cohort=${cohort.id}`
 
   return shell(
     <>
-      <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `/dashboard/admin/signoff?cohort=${id}`} />
+      <nav aria-label="選擇用途" className="flex flex-wrap items-center gap-2">
+        {SIGNOFF_PURPOSES.map((p) => {
+          const on = p === purpose
+          return (
+            <Link
+              key={p}
+              href={`${base}&purpose=${p}`}
+              aria-current={on ? 'page' : undefined}
+              className={cn(
+                'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition-colors',
+                on ? 'border-ink bg-ink text-ink-foreground' : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              {COLUMN_LABEL[p]}
+              <span className={cn('tabular text-xs font-medium', on ? 'text-ink-foreground/80' : 'text-muted-foreground')}>
+                {groups.filter((g) => g.packages[p] !== null).length}
+              </span>
+            </Link>
+          )
+        })}
+      </nav>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <Panel title="整體進度" icon={<IconSignature />} description={`${COLUMN_LABEL[purpose]}・完成 ${complete}／${total} 組`} aria-label="整體進度">
@@ -218,52 +255,25 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
               </li>
             </ul>
           </div>
-          <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
-            提醒未同意者、匯出在點版本號進去的版本頁；重置或重開新版、作廢在同一頁下方的「危險操作」區，按之前會寫清楚影響誰、能不能恢復。系辦不能代替任何人同意。
-          </p>
         </Panel>
 
-        <Panel title="各組進度" icon={<IconUsersGroup />} description="每格＝一位學生、右邊短格＝老師；點「缺 N 位」看是誰" aria-label="各組同意書">
-          <nav aria-label="選擇用途" className="flex flex-wrap items-center gap-1 border-b border-border px-3">
-            {SIGNOFF_PURPOSES.map((p) => {
-              const on = p === purpose
-              return (
-                <Link
-                  key={p}
-                  href={`${base}&purpose=${p}`}
-                  aria-current={on ? 'page' : undefined}
-                  className={`relative inline-flex h-10 items-center gap-1 px-3 text-sm font-semibold transition-colors ${on ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  {COLUMN_LABEL[p]}
-                  <span className="tabular text-xs font-medium text-muted-foreground">
-                    {groups.filter((g) => g.packages[p] !== null).length}
-                  </span>
-                  <span
-                    aria-hidden
-                    className={`absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand transition-transform duration-150 ${on ? 'scale-x-100' : 'scale-x-0'}`}
-                  />
-                </Link>
-              )
-            })}
-          </nav>
+        <Panel title="各組進度" icon={<IconUsersGroup />} description={`${cohortLabel(cohort)}・${COLUMN_LABEL[purpose]}`} aria-label="各組同意書">
           {groups.length === 0 ? (
             <PanelEmpty title="這一屆還沒有組別" hint="分組成立後才能建立站內同意書。" />
           ) : (
             <>
               {allVersions === 0 ? (
-                <p className="border-b border-border/70 px-5 py-3 text-sm text-muted-foreground">
-                  尚未建立同意書：按右上「新增站內同意書」選一組、貼上全文，就能建立第一份站內同意書。
-                </p>
+                <p className="px-5 pb-3 text-sm text-muted-foreground">尚未建立同意書：按「新增站內同意書」選一組、貼上全文。</p>
               ) : null}
-              <ul className="flex flex-col px-5 py-2">
+              <ul className="grid gap-3 px-5 pb-5 md:grid-cols-2">
                 {groups.map((g) => (
                   <li
                     key={g.groupId}
-                    className="border-b border-border/70 py-3 last:border-0"
+                    className="rounded-lg border border-border p-4"
                     data-testid="signoff-group-row"
                     title={`${g.groupCode}：${g.members.length} 位學生＋${g.advisorName ?? '尚無指導老師'}`}
                   >
-                    <GroupRow code={g.groupCode} summary={g.packages[purpose]} />
+                    <GroupCard code={g.groupCode} summary={g.packages[purpose]} />
                   </li>
                 ))}
               </ul>
@@ -272,17 +282,5 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
         </Panel>
       </div>
     </>,
-    {
-      description: `${cohortLabel(cohort)}・${groups.length} 組、${allVersions} 個目前版本。系辦只能發布、重開或重置，不能代替任何人同意。`,
-      actions: (
-        <NewVersionDialog>
-          {groups.length === 0 ? (
-            <QuietState title="這一屆還沒有組別" hint="分組成立後才能建立站內同意書。" />
-          ) : (
-            <CreateVersionForm groups={groups.map(toOption)} requestId={randomUUID()} />
-          )}
-        </NewVersionDialog>
-      ),
-    },
   )
 }

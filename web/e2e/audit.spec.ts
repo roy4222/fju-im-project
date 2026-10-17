@@ -30,7 +30,7 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   await expect(page.getByRole('main').getByRole('status')).toContainText(CODE)
 
   await page.goto('/dashboard/admin/audit')
-  await expect(page.getByRole('heading', { name: '操作紀錄', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
   // 屆別顯示「名稱（代碼）」（系1），所以只比對代碼。
   const entry = page.getByTestId('audit-entry').filter({ hasText: CODE })
   await expect(entry).toHaveCount(1)
@@ -57,7 +57,7 @@ test('學生與老師打開操作紀錄被擋，拿不到任何一筆', async ({
     await signIn(page, role)
     await page.goto('/dashboard/admin/audit')
     await expect(page.getByTestId('audit-entry')).toHaveCount(0)
-    await expect(page.getByRole('heading', { name: '操作紀錄', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '設定', exact: true })).toHaveCount(0)
   }
 })
 
