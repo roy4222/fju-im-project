@@ -536,6 +536,15 @@ export class PgOpportunityCommand implements OpportunityCommand {
     const businessNow = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
+      // 授權先於組別狀態（Review #568）：不是組長的老師對不是自己負責的案（含不存在、草稿）一律 FORBIDDEN，
+      // 不先回組別找不到、已封存、已解散，免得透露組別狀態。這裡只讀不鎖，鎖順序不變；鎖住之後下面再驗一次。
+      if (!admin && teacher && !(await isCurrentLeader(tx, input.groupId, actorId))) {
+        const owned = await tx.query('select 1 from industry_opportunities where id = $1 and owner_teacher_user_id = $2 and deleted_at is null', [
+          input.opportunityId,
+          actorId,
+        ])
+        if (owned.rows.length === 0) return err('FORBIDDEN', '只能把組別連到自己負責的合作案。')
+      }
       const locked = await lockGroup(tx, input.groupId)
       if (!locked) return groupNotFound()
       const { group, cohort } = locked

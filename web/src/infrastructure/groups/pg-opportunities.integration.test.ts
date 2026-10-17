@@ -521,6 +521,40 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     expect(archived.ok ? 'ok' : archived.code).toBe('COHORT_ARCHIVED')
   })
 
+  it('非案主老師連別人的案：組別已封存、已解散、不存在都先回 FORBIDDEN，不透露組別狀態（Review #568、AC-A-12）', async () => {
+    const t2 = await newTeacher('案主 T2 守衛')
+    const outsider = await newTeacher('老師 T3 守衛')
+    const c1 = await createOpportunity(t2, { overrides: { companyName: '守衛順序公司' } })
+    const draft = await createOpportunity(t2, { publish: false, overrides: { companyName: '守衛草稿' } })
+    const cohort = await newCohort()
+    const active = await newGroup(cohort.id, 'G71', 'industry')
+    const dissolved = await newGroup(cohort.id, 'G72', 'industry')
+    await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '測試' where id = $1`, [dissolved.id])
+    const archivedCohort = await newCohort()
+    const archived = await newGroup(archivedCohort.id, 'G73', 'industry')
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [archivedCohort.id])
+
+    const cases: [string, string, string][] = [
+      ['active', active.id, c1],
+      ['archived', archived.id, c1],
+      ['dissolved', dissolved.id, c1],
+      ['missing', randomUUID(), c1],
+      ['draft', archived.id, draft],
+      ['missing-opportunity', archived.id, randomUUID()],
+    ]
+    for (const [label, groupId, opportunityId] of cases) {
+      const result = await command.link(actor(outsider, ['teacher']), { groupId, revision: 0, opportunityId, reason: '' }, randomUUID())
+      expect(result.ok ? 'ok' : [label, result.code, result.message]).toEqual([label, 'FORBIDDEN', '只能把組別連到自己負責的合作案。'])
+    }
+    // 案主本人照常看到組別狀態（授權過了才講狀態）。
+    const ownerArchived = await command.link(actor(t2, ['teacher']), { groupId: archived.id, revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerArchived.ok ? 'ok' : ownerArchived.code).toBe('COHORT_ARCHIVED')
+    const ownerDissolved = await command.link(actor(t2, ['teacher']), { groupId: dissolved.id, revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerDissolved.ok ? 'ok' : ownerDissolved.code).toBe('GROUP_DISSOLVED')
+    const ownerMissing = await command.link(actor(t2, ['teacher']), { groupId: randomUUID(), revision: 0, opportunityId: c1, reason: '' }, randomUUID())
+    expect(ownerMissing.ok ? 'ok' : ownerMissing.code).toBe('VALIDATION_FAILED')
+  })
+
   it('換案：理由必填、保留前後關係、通知全組與新舊兩位案主；舊畫面版本 CONFLICT', async () => {
     const t1 = await newTeacher('C1 案主')
     const t2 = await newTeacher('C2 案主')
