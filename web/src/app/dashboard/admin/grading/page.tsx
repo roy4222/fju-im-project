@@ -32,6 +32,7 @@ const RULES = `${BASE}/rules`
 /** 「成績」側欄項底下的分頁（設計方案 §3.4）；評分規則是子頁連結，不是分頁。 */
 const TABS = [
   { href: BASE, label: '成績管理' },
+  { href: `${BASE}/settle`, label: '結算' },
   { href: '/dashboard/admin/signoff', label: '同意書' },
 ] as const
 

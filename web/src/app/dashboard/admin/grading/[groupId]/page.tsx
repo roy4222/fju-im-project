@@ -18,6 +18,7 @@ import {
   describeStageFormula,
   describeStageStatus,
   getGradebookQuery,
+  getGradingQuery,
   OVERRIDE_STATE_LABEL,
   REMOVAL_CHOICE_LABEL,
 } from '@/composition/grading'
@@ -74,6 +75,10 @@ export default async function GroupGradeDetailPage({
 
   if (!detail.ok) return shell('計算明細', <EmptyState title="讀不到這一組的成績" description={detail.message} />)
   const d = detail.receipt
+  // 評語（B 階段 AC-A-4）：契約把評語放在 `AdminAssignmentView.comment`（有採計是採計那筆，否則最新暫存），從屆別評分總覽取這一組的。
+  // 讀不到就不顯示評語，不擋整頁。
+  const board = await getGradingQuery().adminBoard(actor, d.group.cohortId)
+  const comments = board.ok ? board.receipt.assignments.filter((a) => a.groupId === d.group.id && a.comment) : []
   const readOnly = d.group.archived || d.group.dissolved
   const current = d.overrides.find((o) => o.state !== 'superseded') ?? null
   const adopted = adoptedFinal(d.result, current)
@@ -221,6 +226,24 @@ export default async function GroupGradeDetailPage({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            ) : null}
+            {comments.some((a) => a.stageKey === s.key) ? (
+              <div className="space-y-2" aria-label={`${s.name} 評語`} data-testid="stage-comments">
+                <p className="text-sm font-semibold text-foreground">評語</p>
+                <ul className="space-y-2">
+                  {comments
+                    .filter((a) => a.stageKey === s.key)
+                    .map((a) => (
+                      <li key={a.id} className="rounded-lg bg-muted px-3 py-2 text-sm" data-testid="stage-comment">
+                        <p className="text-xs text-muted-foreground">
+                          {a.teacherName}
+                          {a.state === 'counted' ? '' : '・評分草稿（未送出）'}
+                        </p>
+                        <p className="mt-0.5 whitespace-pre-wrap break-words text-foreground">{a.comment}</p>
+                      </li>
+                    ))}
+                </ul>
               </div>
             ) : null}
             {d.missing.filter((m) => m.stageKey === s.key).length > 0 ? (
