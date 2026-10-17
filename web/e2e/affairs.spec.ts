@@ -170,7 +170,7 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '專題事務', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation').getByRole('link', { name: '專題事務' })).toBeVisible()
 
   await page.getByRole('button', { name: '新增項目' }).click()

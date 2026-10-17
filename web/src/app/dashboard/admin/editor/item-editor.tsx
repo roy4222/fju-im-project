@@ -15,6 +15,7 @@ import {
 } from '@/app/dashboard/admin/affairs/actions'
 import {
   AttachmentPicker,
+  BodyPreview,
   CheckList,
   CoverPicker,
   DIALOG,
@@ -100,25 +101,6 @@ function SectionHead({ n, id, title, hint, right }: { n: number; id: string; tit
       {right ? <div className="ml-auto">{right}</div> : null}
     </div>
   )
-}
-
-/**
- * 正文旁的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染 textarea 原字。
- * 渲染方式照 `affairs/item-form-parts.tsx` 的 `StudentView`（`prose-item`）先複製一份在這裡，之後由 AD-04 合併回去。
- * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
- */
-function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
-  if (html === null || error) {
-    return (
-      <div className="text-sm text-muted-foreground">
-        <p>填好標題、開始打正文就會出現預覽</p>
-        {/* 不用 alert／status：頁面其他地方已經有一份，同名的提示會讓「唯一那一則」變兩則。 */}
-        {error ? <p className="mt-2 font-semibold text-destructive">{error}</p> : null}
-      </div>
-    )
-  }
-  if (html === '') return <p className="text-sm text-muted-foreground">正文還是空的。</p>
-  return <div className="prose-item space-y-2 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 const WIDE = '(min-width: 1024px)'

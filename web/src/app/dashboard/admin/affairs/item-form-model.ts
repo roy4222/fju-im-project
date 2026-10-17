@@ -2,7 +2,7 @@ import type { FormField } from '@/application/items'
 import { formatBytes } from '@/shared/format-bytes'
 
 /**
- * 專題事務編輯器的資料形狀與純函式（票 15）。**不是** Client Component：
+ * 公告與作業編輯器的資料形狀與純函式（票 15）。**不是** Client Component：
  * 伺服器頁面（把項目轉成編輯器狀態）與瀏覽器（送出前轉成 Server Action 的內容）都要用。
  */
 

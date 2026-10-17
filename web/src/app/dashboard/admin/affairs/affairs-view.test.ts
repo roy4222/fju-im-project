@@ -6,7 +6,7 @@ const setup = { id: 's', status: 'setup', isDefaultWorking: false }
 const old1 = { id: 'h1', status: 'archived', isDefaultWorking: false }
 const old2 = { id: 'h2', status: 'archived', isDefaultWorking: false }
 
-describe('affairsView：專題事務列表顯示哪一屆（第三波 W1b）', () => {
+describe('affairsView：公告與作業列表顯示哪一屆（第三波 W1b）', () => {
   it('一個屆別都沒有：none（不論篩選）', () => {
     expect(affairsView([], {})).toEqual({ state: 'none', filter: 'all' })
     expect(affairsView([], { placement: 'honor' })).toEqual({ state: 'none', filter: 'honor' })

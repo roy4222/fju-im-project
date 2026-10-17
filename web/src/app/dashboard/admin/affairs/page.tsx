@@ -4,11 +4,12 @@ import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
 import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { AffairsList, type AffairRow } from '@/app/dashboard/admin/affairs/affairs-list'
 import { AFFAIRS_FILTERS, affairsView } from '@/app/dashboard/admin/affairs/affairs-view'
 import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
-import { COHORT_STATUS_LABEL, cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import {
   AUDIENCE_LABEL,
   collectsResponses,
@@ -19,12 +20,19 @@ import {
 } from '@/composition/items'
 import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
-export const metadata = { title: '專題事務｜資管系專題平台' }
+export const metadata = { title: '公告與作業｜資管系專題平台' }
 
 const FILTERS = AFFAIRS_FILTERS
 
+// 「公告與作業」分頁列（系辦 AD-04；設計方案 §3.2）：三個既有路由之間的連結，各頁仍是自己的查詢。
+const AFFAIRS_TABS = [
+  { href: '/dashboard/admin/affairs', label: '公告與作業' },
+  { href: '/dashboard/admin/showcase', label: '成果展示' },
+  { href: '/dashboard/admin/files', label: '檔案' },
+] as const
+
 /**
- * 專題事務工作台（票 15；原型 `/dashboard/admin/affairs`）。
+ * 公告與作業工作台（票 15；原型 `/dashboard/admin/affairs`）。
  *
  * 公告、資源、文件繳交全部從這裡建立：日常用「新增項目」三步驟，要細調欄位、附件、封面再進完整編輯器
  * （同一個項目 ID）。編輯器不另放側欄入口（產品模組 04「單一入口」）。
@@ -34,6 +42,8 @@ const FILTERS = AFFAIRS_FILTERS
  * 系辦才點得到歷屆（例如示範資料 DEMO-113、DEMO-112）的榮譽並進編輯器；頁首多一顆「新增榮譽」，帶目前選的屆別。
  * 封存屆別只能動榮譽，所以那時不放「新增項目」與一般的完整編輯器入口。屆別全部封存時，一般篩選改成說明＋
  * 「管理歷屆榮譽」入口（不是「還沒有屆別」的死路）。
+ *
+ * 系辦 AD-04：標題用側欄名「公告與作業」、下方掛分頁列；頁首不放說明段落（AC-AD-06、07）。
  */
 export default async function AffairsPage({
   searchParams,
@@ -46,21 +56,21 @@ export default async function AffairsPage({
   const filter = view.filter
   const honorView = filter === 'honor'
 
-  const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
+  const shell = (children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <div className="flex flex-col gap-5">
-        <PageTitle title="專題事務" description={description} actions={actions} />
-        {children}
+      <PageTitle title="公告與作業" />
+      <div className="mt-4">
+        <AdminTabs label="公告與作業分頁" current="/dashboard/admin/affairs" items={AFFAIRS_TABS} actions={actions} />
       </div>
+      <div className="flex flex-col gap-5">{children}</div>
     </DashboardShell>
   )
 
   if (view.state === 'only-archived') {
     return shell(
-      '目前沒有進行中的屆別；歷屆榮譽仍可在這裡管理。',
       <EmptyState
         title="屆別都已封存"
-        description="封存的屆別不能再新增公告、資源或繳交項目；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
+        description="封存的屆別不能再新增公告、資源或作業；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
         action={{ href: '/dashboard/admin/affairs?placement=honor', label: '管理歷屆榮譽' }}
       />,
     )
@@ -68,10 +78,9 @@ export default async function AffairsPage({
 
   if (view.state === 'none') {
     return shell(
-      '公告、資源下載、文件繳交都從這裡建立、發布與修改。',
       <EmptyState
         title="還沒有屆別"
-        description="專題事務要綁在某一屆；先到屆別頁新增一屆。"
+        description="公告與作業要綁在某一屆；先到屆別頁新增一屆。"
         action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }}
       />,
     )
@@ -86,8 +95,6 @@ export default async function AffairsPage({
   const shown = rows.filter((r) => filter === 'all' || r.placement === filter)
   // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
   const archived = cohort.status === 'archived'
-  const published = rows.filter((r) => r.status === 'published').length
-  const collecting = rows.filter((r) => collectsResponses(r.placement) && r.status === 'published').length
   const query = (patch: Record<string, string>) => {
     const next = new URLSearchParams({ cohort: cohort.id, ...(filter !== 'all' ? { placement: filter } : {}), ...patch })
     if (next.get('placement') === 'all') next.delete('placement')
@@ -130,7 +137,6 @@ export default async function AffairsPage({
   })
 
   return shell(
-    `${cohortLabel(cohort)}・${COHORT_STATUS_LABEL[cohort.status]}・${rows.length} 項・發布中 ${published}・開放繳交中 ${collecting}`,
     <>
       {cohorts.length > 1 ? (
         <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
@@ -163,7 +169,7 @@ export default async function AffairsPage({
         filters={FILTERS.map((f) => ({ key: f.key, label: f.label, href: query({ placement: f.key }), active: filter === f.key }))}
         emptyText={
           filter === 'all'
-            ? '這一屆還沒有任何專題事務。按「新增項目」建立第一筆。'
+            ? '這一屆還沒有任何公告或作業。按「新增項目」建立第一筆。'
             : honorView
               ? '這一屆還沒有榮譽。按「新增榮譽」建立第一則。'
               : '這個種類還沒有項目。'
@@ -179,7 +185,7 @@ export default async function AffairsPage({
       {archived ? null : (
         <>
           <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
-            用完整編輯器建立
+            完整編輯器
           </LinkButton>
           <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
         </>

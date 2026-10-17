@@ -54,7 +54,7 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
       {changedText ? <p className="mt-1 text-xs text-muted-foreground tabular-nums">{changedText}</p> : null}
       {blocked ? (
         <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs" data-testid="visibility-blocked">
-          已經有人作答，不能再開放：那些同學填寫時沒看到「指導老師可查看」的告知。需要老師看，請另建一份繳交項目並在發布前開好。
+          已經有人作答，不能再開放：那些同學填寫時沒看到「指導老師可查看」的告知。需要老師看，請另建一份作業並在發布前開好。
         </p>
       ) : null}
       <button type="button" className={cn(enabled ? BUTTON : PRIMARY, 'mt-3 w-full')} disabled={blocked} onClick={open}>
@@ -90,7 +90,7 @@ export function VisibilityPanel({ itemId, enabled, effectiveFromVersionNo, chang
               <h2 className="text-lg font-extrabold">{enabled ? '關閉指導老師閱覽？' : '開放指導老師閱覽？'}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {enabled
-                  ? '關閉後老師馬上看不到這份繳交項目的個人回答與附件；學生填寫頁的告知也會拿掉。之後要再開，必須還沒有人作答。'
+                  ? '關閉後老師馬上看不到這份作業的個人回答與附件；學生填寫頁的告知也會拿掉。之後要再開，必須還沒有人作答。'
                   : '開放後，學生填寫頁會先出現「你的指導老師可以查看正式送出的回答」。學生目前組別的指導老師看得到正式版本（草稿不給）；換老師後舊老師就看不到。'}
               </p>
             </div>

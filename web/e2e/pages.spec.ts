@@ -326,7 +326,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/teacher/groups': '一般組由系辦指派。',
     // 合作案管理（票 20）。
     '/dashboard/admin/industry': '合作案摘要',
-    '/dashboard/admin/affairs': '用完整編輯器建立',
+    '/dashboard/admin/affairs': '完整編輯器',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '編輯器加附件',
     '/dashboard/admin/editor/new': '存草稿',
