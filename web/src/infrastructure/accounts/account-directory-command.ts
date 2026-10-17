@@ -143,6 +143,8 @@ const DIRECTORY_BASE = `
          coalesce(up.phone, ra.phone) as phone,
          coalesce(up.contact_email, ra.contact_email) as contact_email,
          up.cohort_id,
+         up.avatar_preset,
+         up.avatar_file_id,
          c.code as cohort_code,
          c.name as cohort_name,
          ra.state as application_state,
@@ -183,6 +185,8 @@ type DirectoryRow = {
   phone: string | null
   contact_email: string | null
   cohort_id: string | null
+  avatar_preset: number | null
+  avatar_file_id: string | null
   cohort_code: string | null
   cohort_name: string | null
   application_state: 'pending' | 'approved' | 'rejected' | null
@@ -208,6 +212,8 @@ function toAccountRow(r: DirectoryRow): AccountRow {
     applicationState: r.application_state === 'pending' || r.application_state === 'rejected' ? r.application_state : null,
     createdAt: new Date(r.created_at).toISOString(),
     orphan: r.is_orphan,
+    avatarPreset: r.avatar_preset,
+    avatarFileId: r.avatar_file_id,
   }
 }
 
