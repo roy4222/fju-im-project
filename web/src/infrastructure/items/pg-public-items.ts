@@ -184,17 +184,23 @@ export class PgPublicItemQuery implements PublicItemQuery {
 
   async fullText(actor: ResolvedActor, placement: Placement): Promise<(PublicItemCard & { readonly bodyHtml: string })[]> {
     const db = this.#reader()
-    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT })
+    // 規則是整本目錄：全部列出，不受筆數上限（A-14 Review 第 2 輪：201 章時第 200 位的那一章不能漏）。
+    const all = placement === 'rules'
+    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT }, all)
     const cards = await this.#cards(db, rows)
     return cards.map((card, index) => ({ ...card, bodyHtml: renderBodyHtml(rows[index]!.body_html) }))
   }
 
-  /** 發布中、這個位置、看的人在對象內（SQL 條件＋逐筆 `canViewItem` 複核）。 */
+  /**
+   * 發布中、這個位置、看的人在對象內（SQL 條件＋逐筆 `canViewItem` 複核）。
+   * `all`：規則整本列出、不截筆數（只有 `fullText` 用）。
+   */
   async #visibleRows(
     db: Pick<Pool, 'query'>,
     viewer: Viewer,
     placement: Placement,
     filter: PublicListFilter,
+    all = false,
   ): Promise<(Row & { body_html: string })[]> {
     const values: unknown[] = [placement]
     const where = [`m.placement = $1`, `m.status = 'published'`, `m.deleted_at is null`]
@@ -223,19 +229,22 @@ export class PgPublicItemQuery implements PublicItemQuery {
     values.push(...audience.values)
     where.push(audience.sql)
     const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? DEFAULT_LIMIT)), MAX_LIMIT)
-    // 規則要整份讀出來才排得出槽位（`rulesOrder`），排完再截；規則只有幾章。
+    // 規則要**整份**讀出來才排得出槽位（`rulesOrder`）：SQL 不截（先依時間截會把排進前面的新章漏掉），排完才依上限截；
+    // 整本目錄（`all`）不截。其他位置照舊在 SQL 排好再 limit。
     const rules = placement === 'rules'
-    values.push(rules ? MAX_LIMIT : limit)
+    if (!rules) values.push(limit)
 
     const rows = await db.query<Row & { body_html: string }>(
       `select ${COLUMNS}, m.body_html from managed_items m
         where ${where.join(' and ')}
         order by ${rules ? ORDER_SQL.oldest : ORDER_SQL[filter.order ?? 'newest']}
-        limit $${values.length}`,
+        ${rules ? '' : `limit $${values.length}`}`,
       values,
     )
     const visible = rows.rows.filter((r) => canViewItem(viewer, visibilityOf(r)))
-    return rules ? rulesOrder(visible).slice(0, limit) : visible
+    if (!rules) return visible
+    const ordered = rulesOrder(visible)
+    return all ? ordered : ordered.slice(0, limit)
   }
 
   async categories(actor: ResolvedActor, placement: Placement): Promise<string[]> {
