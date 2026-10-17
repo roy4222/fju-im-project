@@ -163,6 +163,8 @@ test('票 5 建屆別，設為開放註冊與預設工作屆別', async () => {
 
 test('票 6 上傳名單 CSV：預覽 → 匯入 → 原檔可下載', async () => {
   await admin.goto('/dashboard/admin/accounts')
+  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
+  await admin.getByRole('group', { name: '名單與停用' }).locator('summary').click()
   await admin.getByRole('button', { name: '匯入名單 CSV' }).click()
   await expect(admin.getByRole('heading', { name: '匯入本屆名單' })).toBeVisible()
   await admin.getByLabel('選擇名單 CSV 檔').setInputFiles({

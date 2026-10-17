@@ -206,6 +206,8 @@ export type Student = NewStudent & { page: Page }
 export async function importRoster(admin: Page, code: string, students: NewStudent[]) {
   const csv = ['student_no,name,cohort,email,department_class', ...students.map((s) => `${s.studentNo},${s.name},${code},${s.email},${s.dept}`), ''].join('\n')
   await admin.goto('/dashboard/admin/accounts')
+  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
+  await admin.getByRole('group', { name: '名單與停用' }).locator('summary').click()
   await admin.getByRole('button', { name: '匯入名單 CSV' }).click()
   await admin.getByLabel('選擇名單 CSV 檔').setInputFiles({ name: `roster-${code}.csv`, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') })
   await expect(admin.getByTestId('roster-count-有效')).toHaveText(String(students.length))
