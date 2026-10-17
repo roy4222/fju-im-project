@@ -1,8 +1,9 @@
 'use server'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getSelfAccountCommand, signOut } from '@/composition/accounts'
-import type { AccountFormState } from './account-forms'
+import { clientIpFrom, getSelfAccountCommand, signOut } from '@/composition/accounts'
+import { authCallHeaders, sendOwnVerificationOtp, verifyEmailWithOtp } from '@/composition/signup'
+import type { AccountFormState, VerifyEmailSendState } from './account-forms'
 
 /**
  * 本人帳號頁的動作（契約 02 §7：寫用 Server Action）。
@@ -71,4 +72,55 @@ export async function setPasswordAction(state: AccountFormState, formData: FormD
   })
   if (!result.ok) return failed(state, result)
   redirect('/account?password=set')
+}
+
+// ── 驗證 Email（VB-5；visitor-r3 §3.7、AC-VI-62）──────────────────────────────
+//
+// 寄碼走 wrapper 的內部入口：不掛 Turnstile，hook 要求本人 fresh session、只能寄給自己的登入 Email，
+// 限速與 120 秒冷卻照扣。填對碼後 `users.email_verified = true`，之後同 Email 的 Google 登入會自動連結。
+
+/** hook 回來的錯誤翻成一句話；訊息本來就是給人看的中文、不透露帳號狀態。 */
+const VERIFY_ERROR_CODES = new Set(['FRESH_SESSION_REQUIRED', 'RATE_LIMITED', 'MAIL_FAILED', 'INVALID_OTP', 'UNAUTHENTICATED'])
+
+function verifyFailure(error: unknown, fallback: string): { code: string; message: string } {
+  const body = (error as { body?: { code?: unknown; message?: unknown } } | null)?.body
+  const code = typeof body?.code === 'string' ? body.code : ''
+  if (code === 'FRESH_SESSION_REQUIRED') {
+    return { code, message: '要驗證 Email，請重新登入確認是你本人（登入後 10 分鐘內可以操作）。' }
+  }
+  if (VERIFY_ERROR_CODES.has(code) && typeof body?.message === 'string' && body.message) return { code, message: body.message }
+  console.error('[account] 驗證 Email 時認證服務回了預期以外的錯誤', code || (error as { status?: unknown } | null)?.status)
+  return { code: code || 'INTERNAL', message: fallback }
+}
+
+/** 按「驗證 Email」或「重寄驗證碼」：寄一封 6 碼到自己的登入 Email。 */
+export async function sendAccountVerifyOtpAction(state: VerifyEmailSendState): Promise<VerifyEmailSendState> {
+  const attempt = (state?.attempt ?? 0) + 1
+  const incoming = await headers()
+  const me = await getSelfAccountCommand().viewMine(incoming)
+  if (!me) redirect(`/login?next=${encodeURIComponent('/account')}`)
+  if (me.emailVerified) redirect('/account')
+  try {
+    await sendOwnVerificationOtp(new Headers(incoming))
+  } catch (error) {
+    const { code, message } = verifyFailure(error, '驗證碼暫時寄不出去，請稍後再試。')
+    return { error: message, code, attempt }
+  }
+  return { sentAt: Date.now(), attempt }
+}
+
+/** 填驗證碼：對了就回帳號頁顯示「Email 已驗證」。 */
+export async function verifyAccountOtpAction(state: AccountFormState, formData: FormData): Promise<AccountFormState> {
+  const otp = field(formData, 'otp', 20).replace(/\s/g, '')
+  if (!/^\d{6}$/.test(otp)) return failed(state, { message: '請輸入完整的 6 位數驗證碼。' })
+  const incoming = await headers()
+  const me = await getSelfAccountCommand().viewMine(incoming)
+  if (!me) redirect(`/login?next=${encodeURIComponent('/account')}`)
+  if (me.emailVerified) redirect('/account?verified=email')
+  try {
+    await verifyEmailWithOtp({ email: me.loginEmail, otp }, authCallHeaders({ ip: clientIpFrom(incoming) }))
+  } catch (error) {
+    return failed(state, verifyFailure(error, '驗證暫時無法完成，請稍後再試。'))
+  }
+  redirect('/account?verified=email')
 }

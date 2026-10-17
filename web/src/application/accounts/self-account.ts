@@ -37,6 +37,8 @@ export type MyAccount = {
   /** 登入 Email：本人不能改。 */
   readonly loginEmail: string
   readonly name: string
+  /** 登入 Email 驗證過了沒（`/account` 的「驗證 Email」只給還沒驗證的人；VB-5）。 */
+  readonly emailVerified: boolean
   /** 個人資料列（核准後才有；老師由系辦建立）。沒有就是 null。 */
   readonly profile: {
     readonly displayName: string

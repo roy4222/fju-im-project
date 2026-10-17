@@ -10,6 +10,7 @@ export {
   completeSignupResume,
   resendSignupResumeOtp,
   resendVerificationOtp,
+  sendOwnVerificationOtp,
   signUpOrResume,
   verifyEmailWithOtp,
   type SignupResumeResendOutcome,

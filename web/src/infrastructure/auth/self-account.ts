@@ -93,7 +93,10 @@ export class BetterAuthSelfAccountCommand implements SelfAccountCommand {
     if (!me.ok) return null
 
     const db = getPool()
-    const user = await db.query<{ email: string; name: string }>('select email, name from users where id = $1', [me.userId])
+    const user = await db.query<{ email: string; name: string; email_verified: boolean }>(
+      'select email, name, email_verified from users where id = $1',
+      [me.userId],
+    )
     const profile = await db.query<{
       display_name: string
       student_no: string | null
@@ -116,6 +119,7 @@ export class BetterAuthSelfAccountCommand implements SelfAccountCommand {
       status: me.state.status,
       loginEmail: user.rows[0]?.email ?? '',
       name: user.rows[0]?.name ?? '',
+      emailVerified: user.rows[0]?.email_verified === true,
       profile: row
         ? {
             displayName: row.display_name,
