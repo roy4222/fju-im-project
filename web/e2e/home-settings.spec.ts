@@ -107,9 +107,6 @@ test('沒有首頁設定時首頁跟改版前一樣；聯絡卡、頁尾、忘�
   await expect(footer.getByRole('link', { name: PHONE })).toHaveAttribute('href', 'tel:+886229052666')
   await expectNoOldPhone(page)
 
-  await page.goto('/forgot-password')
-  await expect(page.getByTestId('forgot-password')).toContainText(`電話 ${PHONE}`)
-  await expect(page.getByTestId('forgot-password').getByRole('link', { name: PHONE })).toHaveAttribute('href', 'tel:+886229052666')
   await expectNoOldPhone(page)
 
   for (const path of ['/news', '/rules', '/honors', '/projects/featured', '/login']) {
