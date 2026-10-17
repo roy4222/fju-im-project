@@ -404,7 +404,7 @@ function createAuth() {
        * 未登入用 Google、Email 跟既有帳號相同時，套件只看 `email_verified` 就寫 google 列，之後才建 session；
        * 停用、去識別化的帳號 session 會被擋（上面的 `session.create.before`），但 google 列已經寫進去了。
        * 所以在寫入前從資料庫讀帳號狀態：停用、去識別化、Email 未驗證一律不連，回跟未驗證同一個
-       * `account_not_linked`（登入頁顯示同一句，不說被停用，契約 03 §2；套件會多帶 `error_description`，畫面不讀它）。
+       * `account_not_linked`（不說被停用，契約 03 §2；套件多帶的 `error_description` 由 `hooks.after` 的 callback 段拿掉，導回網址跟未驗證逐字相同）。
        *
        * 為什麼掛這裡：1.7.5 的隱性連結（`oauth2/link-account.mjs:88`）在 `internalAdapter.linkAccount` 前一行呼叫
        * `validateUserInfo`（`action: 'link-account'`），拒絕時套件把 code 原樣導回 `errorCallbackURL?error=`、失敗即關。
@@ -884,6 +884,15 @@ function createAuth() {
         // 屬性跟密碼登入（`login/actions.ts` 的 `markPasswordLogin`）一樣：值只有登入方式、不設 HttpOnly（前台
         // `page-view.tsx` 要讀完清掉）、60 秒失效、HTTPS 站台才加 Secure。名稱＝前台 `_analytics/track.ts` 的
         // `LOGIN_COOKIE`（infrastructure 不能 import app，所以寫字面值）。
+        // 被拒絕連結（`account_not_linked`）的導回網址統一成同一個（Sol r2）：未驗證由套件自己擋、不帶說明；
+        // 停用、去識別化由上面的 `user.validateUserInfo` 擋，套件會多帶 `error_description`（APIError 的訊息不可能是空的，
+        // 源頭拿不掉）。在回應邊界拿掉它，四種情況的 Location 逐字相同，網址分辨不出帳號狀態。
+        if (ctx.path.startsWith('/callback/') && looksLikeApiError(returned)) {
+          const location = ctx.context.responseHeaders?.get('location')
+          const uniform = location ? withoutLinkRejectionDetail(location) : null
+          if (uniform && uniform !== location) throw ctx.redirect(uniform)
+        }
+
         if (ctx.path.startsWith('/callback/') && ctx.context.newSession) {
           const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
           ctx.setCookie('fju_ga_login', 'google', { path: '/', sameSite: 'lax', maxAge: 60, httpOnly: false, secure })
@@ -991,6 +1000,15 @@ export const OTP_INVALID_MESSAGE = '驗證碼不正確或已失效。請再確�
 async function endpointJson(returned: unknown): Promise<unknown> {
   if (returned instanceof Response) return returned.status === 200 ? returned.clone().json() : null
   return looksLikeApiError(returned) ? null : (returned ?? null)
+}
+
+/** `account_not_linked` 的導回網址拿掉 `error_description`，其他網址回 null（`hooks.after` 的 callback 段用）。 */
+function withoutLinkRejectionDetail(location: string): string | null {
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(location)
+  const url = new URL(location, 'http://placeholder.invalid')
+  if (url.searchParams.get('error') !== 'account_not_linked' || !url.searchParams.has('error_description')) return null
+  url.searchParams.delete('error_description')
+  return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
 }
 
 /** 套件丟的 APIError（不同套件實體的類別 `instanceof` 會失敗，所以看形狀）。 */

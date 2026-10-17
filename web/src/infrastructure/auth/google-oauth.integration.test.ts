@@ -736,16 +736,49 @@ describe('同 Email 的 Google 自動連結（Q45，VB-5）', () => {
       const { email, userId } = await passwordAccount('active')
       await db.sql(setup, [userId])
       const result = await rawCallback(await signInStart(), { sub: `sub-q45-blocked-${seq}`, email, name: '不能連' })
-      // 守衛擋下時套件多帶 `error_description`（登入頁只讀 `error`，畫面句子相同）。
-      const location = new URL(result.location, BASE_URL)
-      expect(location.pathname).toBe('/login')
-      expect(location.searchParams.get('error')).toBe('account_not_linked')
+      expect(result.location).toBe('/login?error=account_not_linked')
       expect(result.cookie).not.toContain('session_token')
       expect(gaCookie(result.setCookie)).toBeUndefined()
       expect(await googleRows(userId)).toEqual({ n: 0 })
       expect(await one(`select count(*)::int as n from accounts where provider_id = 'google' and account_id = $1`, [`sub-q45-blocked-${seq}`])).toEqual({ n: 0 })
     })
   }
+
+  it('四種不能連的本地帳號（停用、去識別化、去識別化＋停用、未驗證）：回應碼、Location、Set-Cookie 形狀逐字相同（不能拿來列舉帳號狀態）', async () => {
+    const setups = [
+      `update users set email_verified = true, status = 'disabled' where id = $1`,
+      `update users set email_verified = true, deidentified_at = now() where id = $1`,
+      `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`,
+      `update users set email_verified = false where id = $1`,
+    ]
+    const seen: { status: number; location: string; cookies: string[] }[] = []
+    for (const setup of setups) {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const start = await post('/sign-in/social', {
+        provider: 'google',
+        callbackURL: '/login',
+        errorCallbackURL: '/login?next=%2Faccount',
+        newUserCallbackURL: '/register/apply?via=google',
+      })
+      const { url } = (await start.json()) as { url: string }
+      nextIdentity = { sub: `sub-q45-same-${seq}`, email, name: '不能連' }
+      const callback = await handlers.GET(
+        new Request(`${BASE_URL}/api/auth/callback/google?code=code-${seq}&state=${new URL(url).searchParams.get('state')}`, {
+          headers: { cookie: cookiesFrom(start) },
+        }),
+      )
+      seen.push({
+        status: callback.status,
+        location: callback.headers.get('location') ?? '',
+        // 值每次都不同（state 等），比名稱與屬性。
+        cookies: callback.headers.getSetCookie().map((c) => c.replace(/^([^=]+)=[^;]*/, '$1=<value>')).sort(),
+      })
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+    }
+    expect(seen[0]).toMatchObject({ status: 302, location: '/login?next=%2Faccount&error=account_not_linked' })
+    for (const other of seen.slice(1)) expect(other).toEqual(seen[0])
+  })
 
   it('守衛只管隱性連結：本人（active、fresh session、Email 未驗證）按「連結 Google」照樣連得上', async () => {
     const { email, userId, cookie } = await passwordAccount('active')
