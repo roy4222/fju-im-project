@@ -466,6 +466,44 @@ test('AC-A-1：改分數與評語後「重新送出」→ 第 2 次、送出紀�
   await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出89.29`)
 })
 
+test('Review #584 反例②：兩個分頁先後重送 → 後送的分頁顯示第 4 次、紀錄 4 筆；先送的分頁回到前景後也更新成第 4 次並提示', async ({ page, context }) => {
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  const benchB = other.getByRole('region', { name: 'G01「系統驗收」評分表' })
+  await expect(benchA.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+  await expect(benchB.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+
+  async function resubmit(target: Page, bench: typeof benchA, text: string) {
+    await bench.getByLabel('評語（選填，最多 500 字）').fill(text)
+    await bench.getByTestId('resubmit').click()
+    await target.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+    await target.getByRole('dialog', { name: '已送出' }).getByRole('button', { name: '知道了' }).click()
+  }
+
+  await resubmit(page, benchA, '分頁 A 的第三次')
+  await expect(benchA.getByTestId('save-status')).toContainText('已正式送出（第 3 次）')
+
+  // 分頁 B 還停在第 2 次的畫面就重送：伺服器是第 4 次，畫面要跟伺服器，不是自己加一。
+  await resubmit(other, benchB, '分頁 B 的第四次')
+  await expect(benchB.getByTestId('save-status')).toContainText('已正式送出（第 4 次）')
+  await expect(benchB.getByTestId('bench-stale')).toContainText('第 4 次')
+  await benchB.getByTestId('submit-history').getByText('送出紀錄（4 次）').click()
+  await expect(benchB.getByTestId('submit-history').getByRole('listitem')).toHaveCount(4)
+  expect(await evaluationStates()).toEqual({ counted: 1, historical: 3 })
+
+  // 分頁 A 回到前景（focus）→ 重抓，跟上第 4 次與分頁 B 的評語。
+  await page.bringToFront()
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(benchA.getByTestId('save-status')).toContainText('已正式送出（第 4 次）')
+  await expect(benchA.getByTestId('bench-stale')).toContainText('第 4 次')
+  await expect(benchA.getByLabel('評語（選填，最多 500 字）')).toHaveValue('分頁 B 的第四次')
+  await benchA.getByTestId('submit-history').getByText('送出紀錄（4 次）').click()
+  await expect(benchA.getByTestId('submit-history').getByRole('listitem')).toHaveCount(4)
+  await other.close()
+})
+
 test('AC-A-6：系辦結算「系統驗收」後，老師舊頁按「儲存草稿」被擋（CONFLICT 含「已結算」）；重新整理全唯讀、「已結算」Pill、沒有按鈕；總覽卡標「已結算」', async ({ page }) => {
   await signIn(page, t1)
   const bench = await openBench(page)
@@ -483,8 +521,16 @@ test('AC-A-6：系辦結算「系統驗收」後，老師舊頁按「儲存草�
   )
 
   await bench.getByLabel('1. 功能完整度').fill('70')
+  await bench.getByLabel('評語（選填，最多 500 字）').fill('結算後才改的評語')
   await bench.getByRole('button', { name: '儲存草稿' }).click()
   await expect(bench.getByRole('alert')).toContainText('已結算')
+  // Review #584 反例①：被拒存的 70 與評語不能留在畫面上被鎖成唯讀；不重新整理就換回伺服器存的。
+  await expect(bench.getByLabel('1. 功能完整度')).toBeDisabled()
+  await expect(bench.getByLabel('1. 功能完整度')).toHaveValue('90')
+  await expect(bench.getByLabel('評語（選填，最多 500 字）')).toHaveValue('分頁 B 的第四次')
+  await expect(bench.getByTestId('score-preview')).toContainText('計入成績的分數')
+  await expect(bench.getByTestId('score-preview')).toContainText('89.29')
+  await expect(bench.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
 
   await page.reload()
   const settled = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
@@ -495,9 +541,9 @@ test('AC-A-6：系辦結算「系統驗收」後，老師舊頁按「儲存草�
   await expect(settled.getByLabel('評語（選填，最多 500 字）')).toBeDisabled()
   await expect(settled.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
   await expect(settled.getByTestId('resubmit')).toHaveCount(0)
-  await expect(settled.getByTestId('save-status')).toContainText('已正式送出（第 2 次）')
+  await expect(settled.getByTestId('save-status')).toContainText('已正式送出（第 4 次）')
   await expect(settled.getByTestId('save-status')).not.toContainText('可再修改')
-  expect(await evaluationStates()).toEqual({ counted: 1, historical: 1 })
+  expect(await evaluationStates()).toEqual({ counted: 1, historical: 3 })
 
   await page.goto('/dashboard/teacher/grading')
   const card = page.getByRole('list', { name: '評分清單' }).getByTestId('grading-card').filter({ hasText: 'G01' })

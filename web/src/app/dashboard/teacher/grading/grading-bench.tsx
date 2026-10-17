@@ -97,18 +97,62 @@ export function GradingBench({
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState<'save' | 'submit' | null>(null)
   const [savedText, setSavedText] = useState(savedAtText)
-  const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const [message, setMessage] = useState<{ tone: 'ok' | 'info' | 'error'; text: string } | null>(null)
   const [serverBad, setServerBad] = useState<readonly string[]>([])
   const [receipt, setReceipt] = useState<FinalReceiptView | null>(null)
-  // 送出後先在這裡更新（不用等 router.refresh 回來）；元件用 assignmentId 當 key，重抓不會重建。
+  // 送出後先在這裡更新（不用等 router.refresh 回來）；元件用 assignmentId 當 key，重抓不會重建，
+  // 所以伺服器資料一變（下面的 snapshot），就照伺服器重新同步。
   const [final, setFinal] = useState(hasFinal)
   const [counted, setCounted] = useState(finalScore)
   const [history, setHistory] = useState(submissionHistory)
   const [pendingEdit, setPendingEdit] = useState(draftAfterFinal)
+
+  // 伺服器才是事實（Review #584）：每次 router.refresh 帶回不同的資料，就把本地狀態對齊伺服器。
+  // - 採計、送出次數與紀錄、正式送出後的草稿、儲存時間：一律換成伺服器的（別的分頁重送過也會跟上）。
+  // - 分數與評語：沒有未存的修改、或已經唯讀（結算後被拒存）時，換回伺服器存的；不把沒存成功的內容顯示成已存。
+  //   還有未存的修改而且仍可編輯時保留輸入，讓老師自己決定要不要存。
+  // - 送出次數跟這裡以為的不一樣（別的分頁或裝置重送過）：提示一聲。
+  const snapshot = JSON.stringify([initialScores, initialComment, hasFinal, readOnly, settledAtText, draftAfterFinal, submissionHistory, savedAtText, finalScore])
+  const [syncedSnapshot, setSyncedSnapshot] = useState(snapshot)
+  if (syncedSnapshot !== snapshot) {
+    setSyncedSnapshot(snapshot)
+    setFinal(hasFinal)
+    setCounted(finalScore)
+    setHistory(submissionHistory)
+    setPendingEdit(draftAfterFinal)
+    setSavedText(savedAtText)
+    if (!dirty || readOnly) {
+      setValues({ ...initialScores })
+      setComment(initialComment ?? '')
+      setDirty(false)
+      setServerBad([])
+    }
+    if (submissionHistory.length !== history.length) {
+      setMessage({
+        tone: 'info',
+        text: hasFinal
+          ? `這一份評分在別的分頁或裝置已送出到第 ${submissionHistory.length} 次，畫面已更新為最新狀態。`
+          : '這一份評分在別的地方有更新，畫面已更新為最新狀態。',
+      })
+    }
+  }
   const requestIds = useRef({ save: newRequestId(), submit: newRequestId() })
   const confirmDialog = useRef<HTMLDialogElement>(null)
   const receiptDialog = useRef<HTMLDialogElement>(null)
   const inputs = useRef<Record<string, HTMLElement | null>>({})
+
+  // 回到這個分頁時重抓一次：別的分頁或裝置送出過，這裡的次數、紀錄與唯讀狀態才會跟上。
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') router.refresh()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [router])
 
   // 還有沒存的輸入時，離開頁面先問一聲。
   useEffect(() => {
@@ -159,7 +203,8 @@ export function GradingBench({
       if (!outcome.ok) {
         setMessage({ tone: 'error', text: outcome.message })
         setServerBad(outcome.fields ?? [])
-        if (outcome.code === 'CONFLICT') router.refresh()
+        // 被拒（已結算、被退回、指派失效…）：重抓伺服器的事實，上面的 snapshot 同步會把畫面對齊。
+        router.refresh()
         return
       }
       setSavedText(outcome.data.savedAtText)
@@ -186,13 +231,15 @@ export function GradingBench({
         requestIds.current.submit = newRequestId()
         setMessage({ tone: 'error', text: outcome.message })
         setServerBad(outcome.fields ?? [])
-        if (outcome.code === 'CONFLICT') router.refresh()
+        // 被拒（已結算、被退回、指派失效…）：重抓伺服器的事實，上面的 snapshot 同步會把畫面對齊。
+        router.refresh()
         return
       }
       requestIds.current.submit = newRequestId()
       setReceipt(outcome.data)
       setFinal(true)
       setCounted(outcome.data.teacherScore)
+      // 先記一筆讓畫面立刻有反應；下面 router.refresh 回來會換成伺服器的完整紀錄（次數以伺服器為準）。
       setHistory((list) => [...list, { no: list.length + 1, atText: outcome.data.receivedAtText }])
       setPendingEdit(false)
       setDirty(false)
@@ -492,10 +539,15 @@ export function GradingBench({
         </div>
         {message ? (
           <p
-            role={message.tone === 'ok' ? 'status' : 'alert'}
+            role={message.tone === 'error' ? 'alert' : 'status'}
+            data-testid={message.tone === 'info' ? 'bench-stale' : undefined}
             className={cn(
               'mx-5 mt-3 rounded-lg px-3 py-2 text-sm',
-              message.tone === 'ok' ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
+              message.tone === 'ok'
+                ? 'bg-success-subtle text-success-on-subtle'
+                : message.tone === 'info'
+                  ? 'bg-primary-subtle text-primary-on-subtle'
+                  : 'bg-destructive-subtle text-destructive-on-subtle',
             )}
           >
             {message.text}
