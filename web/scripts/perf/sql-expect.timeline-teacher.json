@@ -1,0 +1,9 @@
+{
+  "$comment": "B15：/timeline 的 teacher 視角（staff 多 1 句 ItemQuery.list）。stage-b 0baeb17＋B15 隔離庫 normal 實測。sql-expect.json 一條路由只能配一個 as（sql.mjs 先比 expect.as），所以老師、系辦各一檔；SH-B1 重基準時同步更新。",
+  "/timeline": {
+    "as": "teacher",
+    "baseline": 12,
+    "max": 12,
+    "identity": 7
+  }
+}

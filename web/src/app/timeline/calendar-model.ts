@@ -1,5 +1,6 @@
 import type { StudentTodo } from '@/app/dashboard/student/_todo/todos'
 import type { Activity } from '@/application/cohorts'
+import type { ItemListRow } from '@/application/items'
 import { taipeiDateOf, taipeiTimeOf, type TaipeiDate } from '@/shared/time'
 
 /**
@@ -9,7 +10,7 @@ import { taipeiDateOf, taipeiTimeOf, type TaipeiDate } from '@/shared/time'
  * - 屆別活動（`TimelineQuery.activities`）：學生看不到對象「只給老師」的（NTF-13）；老師／系辦看得到。
  *   取消的**仍列在原日期**、標「已取消」、灰色（COH-03）；改期的只出現在新日期——同一個活動只有一筆（NTF-03）。
  * - 學生自己的作業截止：ST-1 的 `itemTodo` 算好的 `due`（補交期限優先）與狀態，這裡只換成標籤，不另推口徑。
- *   老師／系辦視角不列截止（Q125：A 只列階段與活動）。
+ *   老師／系辦視角列該屆已發布作業的截止，標「學生截止」（Q125 B 案、B15；來源 `staffDeadlines`）。
  *
  * 日期一律是**臺灣日曆日**：凌晨 00:30 的事在 UTC 是前一天，瀏覽器自己換會差一天。
  * 月格也只用 UTC 方法算那串日期本身，不碰瀏覽器時區。
@@ -26,7 +27,7 @@ export type CalendarEntry = {
   readonly title: string
   readonly kind: 'deadline' | 'event'
   readonly canceled: boolean
-  /** 右欄清單的狀態標籤：逾期／已交／截止／活動／已取消。 */
+  /** 右欄清單的狀態標籤：逾期／已交／截止／學生截止／活動／已取消。 */
   readonly label: string
   readonly tone: CalendarTone
   /** 截止點下去去作業那一份；活動沒有自己的頁面是 null。 */
@@ -37,6 +38,16 @@ export type CalendarEntry = {
 export type DeadlineSource = Pick<StudentTodo, 'id' | 'title' | 'due' | 'status' | 'href'>
 
 export type Perspective = 'student' | 'staff'
+
+export type StaffDeadlineRow = Pick<ItemListRow, 'id' | 'title' | 'status' | 'dueAt'>
+
+/**
+ * 老師／系辦視角的學生截止（B15）：`ItemQuery.list(cohortId)` 裡已發布、有截止日的那幾篇。
+ * 不是哪個學生的進度，狀態一律當「未到」；連到後台的列表頁（兩頁都沒有單篇錨點）。
+ */
+export function staffDeadlines(rows: readonly StaffDeadlineRow[], href: string): DeadlineSource[] {
+  return rows.flatMap((r) => (r.status === 'published' && r.dueAt ? [{ id: r.id, title: r.title, due: r.dueAt, status: 'open' as const, href }] : []))
+}
 
 /** 月份：`m` 是 1–12。 */
 export type YearMonth = { readonly y: number; readonly m: number }
@@ -79,26 +90,23 @@ export function calendarEntries(
         href: null,
       }
     })
-  const dues: CalendarEntry[] =
-    perspective === 'staff'
-      ? []
-      : deadlines.flatMap((d) =>
-          d.due
-            ? [
-                {
-                  id: `due-${d.id}`,
-                  date: taipeiDateOf(d.due),
-                  time: taipeiTimeOf(d.due),
-                  title: d.title,
-                  kind: 'deadline' as const,
-                  canceled: false,
-                  label: deadlineLabel(d.status),
-                  tone: 'deadline' as const,
-                  href: d.href,
-                },
-              ]
-            : [],
-        )
+  const dues: CalendarEntry[] = deadlines.flatMap((d) =>
+    d.due
+      ? [
+          {
+            id: `due-${d.id}`,
+            date: taipeiDateOf(d.due),
+            time: taipeiTimeOf(d.due),
+            title: d.title,
+            kind: 'deadline' as const,
+            canceled: false,
+            label: perspective === 'staff' ? '學生截止' : deadlineLabel(d.status),
+            tone: 'deadline' as const,
+            href: d.href,
+          },
+        ]
+      : [],
+  )
   // 同一天：全天的排最前，其餘照時間。
   const key = (e: CalendarEntry) => `${e.date} ${e.time === '全天' ? '00:00' : e.time}`
   return [...events, ...dues].sort((a, b) => key(a).localeCompare(key(b)))

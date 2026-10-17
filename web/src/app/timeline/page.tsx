@@ -4,11 +4,12 @@ import { requireSignedIn } from '@/app/_ui/guard'
 import { PublicPage } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { itemTodo, studentItems } from '@/app/dashboard/student/_todo/todos'
-import { calendarEntries, type DeadlineSource } from '@/app/timeline/calendar-model'
+import { calendarEntries, staffDeadlines, type DeadlineSource } from '@/app/timeline/calendar-model'
 import { FullCalendar } from '@/app/timeline/full-calendar'
 import { StageRail } from '@/app/timeline/stage-rail'
 import { actorHasRole } from '@/composition/accounts'
 import { getBusinessClock, getCohortStatusQuery, getTimelineQuery, timelineView } from '@/composition/cohorts'
+import { getItemQuery } from '@/composition/items'
 import { taipeiDateOf } from '@/shared/time'
 
 export const metadata: Metadata = {
@@ -35,7 +36,8 @@ type Loaded = {
  * 看的人不同，看到的不同（Q47）：
  * - 學生：**自己所屬那一屆**（`studentSchedule`，屆別由登入者推，網址帶不進來）的階段、學生看得到的活動
  *   （不含「只給老師」）、自己的作業截止（ST-1 的 `studentItems`＋`itemTodo`，補交期限優先）。
- * - 老師／系辦：後台預設查看的屆別（`defaultWorking`）的階段與全部活動；A 不列學生截止（Q125）。
+ * - 老師／系辦：後台預設查看的屆別（`defaultWorking`）的階段、全部活動，與該屆已發布作業的「學生截止」
+ *   （Q125 B 案、B15；`ItemQuery.list`，連到老師／系辦的公告與作業列表）。
  * - 其他登入者（沒有這三種角色）：不給任何屆別資料。
  */
 export default async function TimelinePage() {
@@ -72,8 +74,14 @@ async function load(actor: Awaited<ReturnType<typeof requireSignedIn>>): Promise
   }
   if (actorHasRole(actor, 'teacher') || actorHasRole(actor, 'admin')) {
     const [cohort, now] = await Promise.all([getCohortStatusQuery().defaultWorking(), getBusinessClock().now()])
-    const [schedule, activities] = cohort ? await Promise.all([timeline.schedule(cohort.id), timeline.activities(cohort.id)]) : [null, []]
-    return { cohortName: cohort?.name ?? null, schedule, activities, deadlines: [], now, perspective: 'staff' }
+    if (!cohort) return { cohortName: null, schedule: null, activities: [], deadlines: [], now, perspective: 'staff' }
+    const [schedule, activities, items] = await Promise.all([
+      timeline.schedule(cohort.id),
+      timeline.activities(cohort.id),
+      getItemQuery().list(cohort.id),
+    ])
+    const href = actorHasRole(actor, 'admin') ? `/dashboard/admin/affairs?cohort=${cohort.id}` : '/dashboard/teacher/affairs'
+    return { cohortName: cohort.name, schedule, activities, deadlines: staffDeadlines(items, href), now, perspective: 'staff' }
   }
   return { cohortName: null, schedule: null, activities: [], deadlines: [], now: await getBusinessClock().now(), perspective: 'staff' }
 }
