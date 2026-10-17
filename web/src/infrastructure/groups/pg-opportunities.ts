@@ -523,7 +523,8 @@ export class PgOpportunityCommand implements OpportunityCommand {
     if (blocked) return blocked
     if (actor.kind !== 'authenticated') return err('UNAUTHENTICATED', '請先登入。')
     const admin = isAdminActor(actor)
-    if (!admin && !actor.roles.includes('student')) return err('FORBIDDEN', '只有組長或系辦可以連結合作案。')
+    const teacher = actor.roles.includes('teacher')
+    if (!admin && !teacher && !actor.roles.includes('student')) return err('FORBIDDEN', '只有組長、合作案負責老師或系辦可以連結合作案。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(String(input.groupId ?? ''))) return groupNotFound()
     if (!isUuid(String(input.opportunityId ?? ''))) return err('VALIDATION_FAILED', '請選要連結的合作案。', { details: { field: 'opportunityId' } })
@@ -553,13 +554,10 @@ export class PgOpportunityCommand implements OpportunityCommand {
       if (begun.outcome !== 'fresh') return replayed<LinkReceipt>(begun)
       const closed = writeBlocked(cohort, group, '連結合作案')
       if (closed) return closed
-      if (!admin && !(await isCurrentLeader(tx, group.id, actorId))) {
-        return err('FORBIDDEN', '只有組長可以連結或更換合作案；請請組長操作。')
-      }
-      if (group.revision !== input.revision) return staleRevision()
-      if (group.group_type !== 'industry') {
-        return err('OPPORTUNITY_NOT_LINKABLE', `${group.code} 是一般專題，不能連結合作案；要改成產學合作請先改組別類型。`)
-      }
+      // 身分（TE-B3）：系辦、這一組的組長，或目標案的負責老師（不必是這組的指導老師，D8）。
+      const leader = !admin && (await isCurrentLeader(tx, group.id, actorId))
+      const byOwner = !admin && !leader
+      if (byOwner && !teacher) return err('FORBIDDEN', '只有組長可以連結或更換合作案；請請組長操作。')
 
       const target = await tx.query<{ id: string; owner_teacher_user_id: string; company_name: string; department: string; status: OpportunityStatus }>(
         `select id, owner_teacher_user_id, company_name, department, status from industry_opportunities
@@ -569,6 +567,11 @@ export class PgOpportunityCommand implements OpportunityCommand {
       const opportunity = target.rows[0]
       // 別人的草稿當作不存在（不透露草稿）；已下架的明講不收新連結。
       if (!opportunity || (opportunity.status === 'draft' && !admin)) return notFound()
+      if (byOwner && opportunity.owner_teacher_user_id !== actorId) return err('FORBIDDEN', '只能把組別連到自己負責的合作案。')
+      if (group.revision !== input.revision) return staleRevision()
+      if (group.group_type !== 'industry') {
+        return err('OPPORTUNITY_NOT_LINKABLE', `${group.code} 是一般專題，不能連結合作案；要改成產學合作請先改組別類型。`)
+      }
       const name = opportunityName({ companyName: opportunity.company_name, department: opportunity.department })
       if (opportunity.status !== 'published') {
         return err('OPPORTUNITY_NOT_LINKABLE', `「${name}」${opportunity.status === 'withdrawn' ? '已下架，不接受新連結' : '還沒發布，不能連結'}。`)
@@ -576,6 +579,8 @@ export class PgOpportunityCommand implements OpportunityCommand {
 
       const current = await activeLink(tx, group.id)
       if (current?.opportunity_id === opportunity.id) return err('VALIDATION_FAILED', `${group.code} 已經連結「${name}」了。`)
+      // 案主只做首次連結；換案仍只有組長與系辦（AC-A-13）。
+      if (current && byOwner) return err('CONFLICT', '這一組已連到別的合作案。')
       let reason: string | null = null
       if (current) {
         const normalized = normalizeLinkReason(String(input.reason ?? ''), '換案')
@@ -630,7 +635,7 @@ export class PgOpportunityCommand implements OpportunityCommand {
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: actorId,
-        role: admin ? 'admin' : 'student',
+        role: admin ? 'admin' : leader ? 'student' : 'teacher',
         action: current ? 'opportunity.switch' : 'opportunity.link',
         targetType: 'group',
         targetId: group.id,
