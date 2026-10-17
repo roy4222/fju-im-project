@@ -4,6 +4,8 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { AuditSearch, type AuditSearchRow } from '@/app/dashboard/admin/audit/audit-search'
 import type { AuditLogEntry, AuditWhoFilter } from '@/application/ops'
 import {
   AUDIT_PAGE_LIMIT,
@@ -24,11 +26,20 @@ export const metadata = { title: '操作紀錄｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/audit'
 
+/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
+const SETTINGS_TABS = [
+  { href: '/dashboard/admin/cohorts', label: '屆別' },
+  { href: '/dashboard/admin/timeline', label: '時間軸' },
+  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
+  { href: '/dashboard/admin/audit', label: '操作紀錄' },
+] as const
+
 /**
  * 管理員「操作紀錄」（票 36；原型 `/dashboard/admin/audit`；模組 10「依角色篩選，每筆有時間、人、動作、對象、理由；不可修改」）。
  *
- * 資料是既有的稽核紀錄（`audit_events`），這一頁只讀、沒有任何修改入口。一頁一個焦點＝清單，數字放標題下一行。
- * 角色分頁用網址（`?role=`）：重新整理不會丟，也不用在瀏覽器裝整份資料。
+ * 資料是既有的稽核紀錄（`audit_events`），這一頁只讀、沒有任何修改入口。一頁一個焦點＝清單，各角色筆數放在篩選膠囊上。
+ * 角色篩選用網址（`?role=`）：重新整理不會丟，也不用在瀏覽器裝整份資料。
+ * AD-15：掛「設定」分頁列、角色分頁改成膠囊、拿掉頁首說明；加姓名搜尋（`audit-search.tsx`，只過濾已載入的這批）。
  * 只給管理員：頁面先 `requireRole`，查詢再判一次（非管理員拿到 null）；payload 不讀也不顯示
  * （唯一例外：核准註冊的核實說明，見 `application/ops/audit-log.ts` 檔頭）。
  */
@@ -73,92 +84,89 @@ export default async function AdminAuditPage({
   const log = await getAuditLogQuery().recent(actor, params.role)
   const who: AuditWhoFilter = log?.who ?? 'all'
 
+  const rows: AuditSearchRow[] = (log?.entries ?? []).map((e) => ({
+    id: e.id,
+    who: actorLabel(e),
+    target: describeAuditTarget(e),
+    node: (
+      <li
+        key={e.id}
+        data-testid="audit-entry"
+        className="grid items-start gap-3 border-b border-border px-5 py-3.5 last:border-0 md:grid-cols-[9rem_9rem_minmax(0,1fr)]"
+      >
+        <time dateTime={e.realAt.toISOString()} className="tabular text-xs text-muted-foreground">
+          {formatTaipeiMinute(e.realAt)}
+        </time>
+        <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+          <span
+            aria-hidden
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-[10px] font-bold text-brand-on-subtle"
+          >
+            {actorLabel(e).slice(0, 1)}
+          </span>
+          <span className="truncate">{actorLabel(e)}</span>
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone={tone(e)} title={auditActionTitle(e.action)}>
+              {auditActionLabel(e.action)}
+            </Pill>
+            <span className="truncate text-sm text-foreground">{describeAuditTarget(e)}</span>
+          </div>
+          {verificationText(e) ? <p className="mt-1 text-sm break-words text-muted-foreground">{verificationText(e)}</p> : null}
+          {e.reason?.trim() ? <p className="mt-1 text-sm break-words text-muted-foreground">理由：{e.reason}</p> : null}
+        </div>
+      </li>
+    ),
+  }))
+
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
-      <div className="flex flex-col gap-5">
-        <PageTitle
-          title="操作紀錄"
-          description={
-            log
-              ? `近 ${AUDIT_WINDOW_DAYS} 天 ${log.counts.all} 筆・管理員操作 ${log.counts.admin} 筆・附理由 ${log.withReason} 筆（重開、更正、例外都必填）。誰、何時、對哪個對象、做了什麼、為什麼；不可修改。`
-              : '誰、何時、對哪個對象、做了什麼、為什麼；不可修改。'
-          }
-        />
-        <Panel title="操作清單" icon={<IconHistory />} aria-label="操作清單">
-          {!log ? (
-            <PanelEmpty title="讀不到操作紀錄" hint="請重新整理頁面；一直這樣請通知維運。" />
-          ) : (
-            <div className="flex flex-col">
-              <nav className="flex flex-wrap items-center gap-1 border-b border-border px-3" aria-label="依角色篩選">
-                {AUDIT_WHO_FILTERS.map((key) => {
-                  const on = who === key
-                  return (
-                    <Link
-                      key={key}
-                      href={key === 'all' ? BASE : `${BASE}?role=${key}`}
-                      aria-current={on ? 'page' : undefined}
-                      className={cn(
-                        'relative inline-flex h-10 items-center gap-1 px-3 text-sm font-semibold transition-colors',
-                        on ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {AUDIT_WHO_LABEL[key]} <span className="tabular text-xs font-medium text-muted-foreground">{log.counts[key]}</span>
-                      <span
-                        aria-hidden
-                        className={cn(
-                          'absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand transition-transform duration-150',
-                          on ? 'scale-x-100' : 'scale-x-0',
-                        )}
-                      />
-                    </Link>
-                  )
-                })}
-              </nav>
-              <ol aria-label="操作紀錄清單">
-                {log.entries.map((e) => (
-                  <li
-                    key={e.id}
-                    data-testid="audit-entry"
-                    className="grid items-start gap-3 border-b border-border px-5 py-3.5 last:border-0 md:grid-cols-[9rem_9rem_minmax(0,1fr)]"
+      {/* 分頁列自帶下方間距（`mb-5`），所以標題＋分頁列在外層，內容另一層 `gap-5`（同 AD-12 的屆別、時間軸）。 */}
+      <div>
+        <PageTitle title="設定" />
+        <div className="mt-3">
+          <AdminTabs label="設定分頁" current={BASE} items={SETTINGS_TABS} />
+        </div>
+        <div className="flex flex-col gap-5">
+          {log ? (
+            // 角色篩選是分頁列下的膠囊（設計方案 §3.6）；仍是網址（`?role=`），重新整理不會丟。
+            <nav aria-label="依角色篩選" className="inline-flex max-w-full gap-1 self-start overflow-x-auto rounded-xl border border-border bg-card p-1">
+              {AUDIT_WHO_FILTERS.map((key) => {
+                const on = who === key
+                return (
+                  <Link
+                    key={key}
+                    href={key === 'all' ? BASE : `${BASE}?role=${key}`}
+                    aria-current={on ? 'page' : undefined}
+                    className={cn(
+                      'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-semibold whitespace-nowrap transition-colors',
+                      on ? 'bg-ink text-ink-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
                   >
-                    <time dateTime={e.realAt.toISOString()} className="tabular text-xs text-muted-foreground">
-                      {formatTaipeiMinute(e.realAt)}
-                    </time>
-                    <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-                      <span
-                        aria-hidden
-                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-[10px] font-bold text-brand-on-subtle"
-                      >
-                        {actorLabel(e).slice(0, 1)}
-                      </span>
-                      <span className="truncate">{actorLabel(e)}</span>
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Pill tone={tone(e)} title={auditActionTitle(e.action)}>
-                          {auditActionLabel(e.action)}
-                        </Pill>
-                        <span className="truncate text-sm text-foreground">{describeAuditTarget(e)}</span>
-                      </div>
-                      {verificationText(e) ? (
-                        <p className="mt-1 text-sm break-words text-muted-foreground">{verificationText(e)}</p>
-                      ) : null}
-                      {e.reason?.trim() ? <p className="mt-1 text-sm break-words text-muted-foreground">理由：{e.reason}</p> : null}
-                    </div>
-                  </li>
-                ))}
-                {log.entries.length === 0 ? (
-                  <li className="px-5 py-8 text-center text-sm text-muted-foreground">這個角色最近沒有操作。</li>
+                    {AUDIT_WHO_LABEL[key]}{' '}
+                    <span className={cn('tabular text-xs font-medium', on ? 'text-ink-foreground/80' : 'text-muted-foreground')}>{log.counts[key]}</span>
+                  </Link>
+                )
+              })}
+            </nav>
+          ) : null}
+          <Panel title="操作清單" icon={<IconHistory />} aria-label="操作清單">
+            {!log ? (
+              <PanelEmpty title="讀不到操作紀錄" hint="請重新整理頁面；一直這樣請通知維運。" />
+            ) : (
+              <div className="flex flex-col">
+                {/* 搜尋框下這句是 Q113 定案的範圍說明，也是 `pages.spec` 的指紋：整句一個字串，不拆成多段文字節點。 */}
+                <AuditSearch rows={rows} note={`只搜近 ${AUDIT_WINDOW_DAYS} 天、最多 ${AUDIT_PAGE_LIMIT} 筆`} emptyText="這個角色最近沒有操作。" />
+                {log.truncated ? (
+                  <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+                    只列最近 {AUDIT_PAGE_LIMIT} 筆；更早的紀錄仍保存在系統裡、不會被刪除。
+                  </p>
                 ) : null}
-              </ol>
-              {log.truncated ? (
-                <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
-                  只列最近 {AUDIT_PAGE_LIMIT} 筆；更早的紀錄仍保存在系統裡、不會被刪除。
-                </p>
-              ) : null}
-            </div>
-          )}
-        </Panel>
+              </div>
+            )}
+          </Panel>
+        </div>
       </div>
     </DashboardShell>
   )

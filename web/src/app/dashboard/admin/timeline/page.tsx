@@ -6,6 +6,7 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import {
   ActivityActions,
   ActivityNotice,
@@ -43,6 +44,14 @@ const DAY = 86_400_000
 
 export const metadata = { title: '時間軸設定｜資管系專題平台' }
 
+/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
+const SETTINGS_TABS = [
+  { href: '/dashboard/admin/cohorts', label: '屆別' },
+  { href: '/dashboard/admin/timeline', label: '時間軸' },
+  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
+  { href: '/dashboard/admin/audit', label: '操作紀錄' },
+] as const
+
 /**
  * 時間軸設定（票 11；原型 `/dashboard/admin/timeline`）。
  *
@@ -50,6 +59,7 @@ export const metadata = { title: '時間軸設定｜資管系專題平台' }
  * 「現在第幾階段」用業務鐘算——測試站把模擬鐘推開，這裡與三角色首頁一起變。
  * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」。
  * 刪除已取消的活動（第三波 W11）放在頁面最底下的「危險操作」區（§9 規則 1），不跟改期、取消並列。
+ * AD-12：掛「設定」分頁列（新增活動放分頁列右側），三個 Panel 拿掉說明句，「系統時間」改「目前時間（臺灣）」。
  */
 export default async function AdminTimelinePage({
   searchParams,
@@ -66,9 +76,13 @@ export default async function AdminTimelinePage({
 
   const shell = (description: string, children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
-      <div className="flex flex-col gap-5">
-        <PageTitle title="時間軸設定" description={description} actions={actions} />
-        {children}
+      {/* 分頁列自帶下方間距（`mb-5`），所以標題＋分頁列在外層，內容另一層 `gap-5`。 */}
+      <div>
+        <PageTitle title="設定" description={description} />
+        <div className="mt-3">
+          <AdminTabs label="設定分頁" current="/dashboard/admin/timeline" items={SETTINGS_TABS} actions={actions} />
+        </div>
+        <div className="flex flex-col gap-5">{children}</div>
       </div>
     </DashboardShell>
   )
@@ -148,7 +162,7 @@ export default async function AdminTimelinePage({
     rangeText: current?.range,
     progressText: progress,
   }
-  const meta = `系統時間 ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
+  const meta = `目前時間（臺灣） ${formatTaipeiSecond(now)}${clock.latest ? '（模擬中）' : ''}${
     schedule.yearEndDate ? `・年度結束日 ${formatTaipeiDate(schedule.yearEndDate)}` : ''
   }`
 
@@ -205,7 +219,7 @@ export default async function AdminTimelinePage({
         <Panel
           title="已排定的活動"
           icon={<IconCalendarEvent />}
-          description={`${scheduled.length} 個・說明會、成果發表這類獨立活動`}
+          description={`${scheduled.length} 個`}
           aria-label="已排定的活動"
         >
           {scheduled.length === 0 ? (
@@ -259,14 +273,10 @@ export default async function AdminTimelinePage({
         <Panel
           title="危險操作"
           icon={<IconAlertTriangle />}
-          description="刪除後不能恢復"
           aria-label="危險操作"
           className="border border-destructive/30"
         >
-          <div className="space-y-3 border-t border-border px-5 py-3">
-            <p className="text-sm text-muted-foreground">
-              只有已取消的活動可以刪除；刪除後從後台、學生與老師的行事曆、首頁都消失，不能恢復。排定中的請先「取消活動」。
-            </p>
+          <div className="border-t border-border px-5 py-3 empty:hidden">
             <ActivityNotice />
           </div>
           {activities.length === 0 ? (

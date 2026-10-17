@@ -101,13 +101,13 @@ export const CSV_HEADER = [
   '簽核用途',
   '版本',
   '版本 ID',
-  '內容 checksum',
+  '內容核對碼',
   '附件版本',
   '授權範圍',
   '應簽參與者集合',
   '目前版本狀態',
   '紀錄類型',
-  '事件 ID',
+  '紀錄編號',
   '帳號 ID',
   '當時姓名',
   '學號',
@@ -258,7 +258,7 @@ ${scopeHtml}
 <h2>參與者（應簽 ${data.participants.students.length} 位學生＋主指導）</h2>
 <table><thead><tr><th>姓名</th><th>學號</th><th>角色</th><th>結果</th><th>時間</th></tr></thead><tbody>${participantRows}</tbody></table>
 <h2>操作歷程</h2>
-<table><thead><tr><th>真實時間</th><th>業務時間</th><th>動作</th><th>操作者</th><th>角色</th><th>登入方式</th><th>按鈕原文</th><th>理由</th><th>事件 ID</th></tr></thead><tbody>${
+<table><thead><tr><th>真實時間</th><th>業務時間</th><th>動作</th><th>操作者</th><th>角色</th><th>登入方式</th><th>按鈕原文</th><th>理由</th><th>紀錄編號</th></tr></thead><tbody>${
     history || '<tr><td colspan="9">還沒有任何紀錄。</td></tr>'
   }</tbody></table>
 <p class="meta">系統證明的是站內內容確認與同意紀錄，不代表已證明使用者完整閱讀，也不代表校方已核可。</p>
