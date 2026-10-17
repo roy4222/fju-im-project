@@ -36,6 +36,7 @@ import {
   type RosterMatch,
 } from '@/application/accounts'
 import { isRequestId, type CohortStatusQuery } from '@/application/cohorts'
+import { registrationResultMail, type Mailer, type RegistrationOutcome } from '@/application/mail'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -100,6 +101,11 @@ export type RegistrationCommandDeps = {
   readonly cohorts: CohortStatusQuery
   readonly createAccount?: AccountCreator
   readonly clock?: Clock
+  /**
+   * 審核結果通知信（B 階段 VB-1，Q68）：核准／退回 commit 之後寄給申請人的登入 Email。
+   * `siteUrl` 是信裡連結的根網址（同 `BETTER_AUTH_URL`）。沒注入就不寄（只有不在乎寄信的測試會這樣）。
+   */
+  readonly mail?: { readonly mailer: Mailer; readonly siteUrl: string }
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -638,6 +644,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
+      await this.#notifyResult(row.login_email, { decision: 'approved' })
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -830,6 +837,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
+      await this.#notifyResult(row.login_email, { decision: 'rejected', reason: decision.value.reason })
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -840,6 +848,20 @@ export class PgRegistrationCommand implements RegistrationCommand {
   }
 
   // ── 內部 ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 審核結果信（設計方案 §3.1）：一定在交易 commit 之後呼叫。寄失敗只留 `mail_outbox.status = 'failed'`，
+   * 不回滾、不回錯給系辦（R6：不重試）；連寫 `mail_outbox` 都失敗也只記 log。回放（同請求編號重送）不會走到這裡。
+   */
+  async #notifyResult(to: string, outcome: RegistrationOutcome): Promise<void> {
+    const mail = this.#deps.mail
+    if (!mail) return
+    try {
+      await mail.mailer.send({ to, ...registrationResultMail(outcome, mail.siteUrl) })
+    } catch (error) {
+      console.error('[registration] 審核結果信寫入失敗（審核已完成）', error instanceof Error ? error.name : 'unknown error')
+    }
+  }
 
   /** 建一筆新的待審申請（第 1 版）＋快照＋稽核。回申請 ID。 */
   async #insertApplication(

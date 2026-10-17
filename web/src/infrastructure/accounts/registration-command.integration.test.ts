@@ -23,6 +23,7 @@ const PASSWORD = 'Correct-Horse-Battery-9'
 let db: IsolatedDatabase
 let app: Pool
 let command: RegistrationCommand
+let failingMailCommand: RegistrationCommand
 let handlers: typeof import('@/infrastructure/auth/wrapper').authRouteHandlers
 let resetSignUpLimiter: () => void
 let adminId: string
@@ -90,11 +91,26 @@ beforeAll(async () => {
   const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
   const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
   const { PgCohortStatusQuery } = await import('@/infrastructure/cohorts/pg-cohorts')
-  command = new PgRegistrationCommand({
+  const { CaptureMailer } = await import('@/infrastructure/mail/capture-mailer')
+  const { BrevoMailer } = await import('@/infrastructure/mail/brevo-mailer')
+  const deps = {
     audit: new PgAuditWriter(),
     ledger: new PgOperationLedger(() => app),
     db: () => app,
     cohorts: new PgCohortStatusQuery(() => app),
+  }
+  // 審核結果信（VB-1）：一般用例注入擷取 mailer；另一個實例的 Brevo 永遠回 500，驗「寄失敗不影響審核」。
+  command = new PgRegistrationCommand({ ...deps, mail: { mailer: new CaptureMailer({ db: () => app }), siteUrl: BASE_URL } })
+  failingMailCommand = new PgRegistrationCommand({
+    ...deps,
+    mail: {
+      mailer: new BrevoMailer({
+        db: () => app,
+        config: { apiKey: 'fake-key', from: '專題管理平台 <noreply@example.com>' },
+        fetch: async () => new Response(JSON.stringify({ code: 'internal_error' }), { status: 500 }),
+      }),
+      siteUrl: BASE_URL,
+    },
   })
 
   const user = async (email: string, name: string) =>
@@ -750,14 +766,14 @@ describe('批次核准：預覽之後名單變了（第三波 W6 審查修正）
 
   it('預覽後名單改成姓名不符：每筆在自己的交易裡重查資格，略過、仍待審、沒有核准紀錄', async () => {
     const cohort = await newCohort('113')
-    await rosterVersion(cohort, [['411300001', '改名前']])
-    const userId = await register({ studentNo: '411300001', appliedName: '改名前' })
+    await rosterVersion(cohort, [['410900001', '改名前']])
+    const userId = await register({ studentNo: '410900001', appliedName: '改名前' })
     const id = await appOf(userId)
     const preview = await command.previewApproveMany(admin(), [id])
     expect(preview).toMatchObject({ ok: true, receipt: { rows: [{ applicationId: id, skip: null }] } })
 
     // 系辦確認前，名單換了一版：姓名變了。
-    await rosterVersion(cohort, [['411300001', '改名後']])
+    await rosterVersion(cohort, [['410900001', '改名後']])
     const done = await command.approveMany(admin(), input([{ applicationId: id, revision: 1, requestId: requestId() }]))
     expect(done).toMatchObject({
       ok: true,
@@ -802,5 +818,122 @@ describe('批次核准：預覽之後名單變了（第三波 W6 審查修正）
       await command.approveMany(admin(), input([{ applicationId: b, revision: 1, requestId: requestId() }], [b])),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await one(`select status from users where id = $1`, [offRoster])).toEqual({ status: 'pending' })
+  })
+})
+
+describe('審核結果信（B 階段 VB-1，AC-VI-53）', () => {
+  const admin = () => activeActor(adminId, ['admin'])
+  let studentNo = 411500700
+  const appOf = async (userId: string) =>
+    (await one<{ id: string }>(`select id from registration_applications where user_id = $1 and state = 'pending'`, [userId])).id
+  const outboxOf = (email: string) =>
+    db.sql(
+      `select template, to_email, subject, body_text, status, error from mail_outbox where to_email = $1 order by created_at`,
+      [email],
+    )
+  const approveInput = async (userId: string) => ({
+    applicationId: await appOf(userId), revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort115, requestId: requestId(),
+  })
+
+  it('核准後 mail_outbox 有一列寄給登入 Email、連到 /login；不含姓名與學號；同請求編號重送不再寄', async () => {
+    const email = uniqueEmail('mail-ok')
+    const no = String(++studentNo)
+    const userId = await register({ studentNo: no, appliedName: '寄信測試', loginEmail: email })
+    const input = await approveInput(userId)
+    expect(await command.approve(admin(), input)).toMatchObject({ ok: true, receipt: { decision: 'approved' } })
+
+    const { rows } = await outboxOf(email)
+    expect(rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】帳號已開通',
+        body_text: `你的帳號已開通，請到 ${BASE_URL}/login 登入。`,
+        status: 'captured',
+        error: null,
+      },
+    ])
+    expect(String(rows[0]!.body_text)).not.toContain('寄信測試')
+    expect(String(rows[0]!.body_text)).not.toContain(no)
+
+    expect(await command.approve(admin(), input)).toMatchObject({ ok: true })
+    expect((await outboxOf(email)).rows).toHaveLength(1)
+  })
+
+  it('退回後的信帶理由並連到 /register/pending', async () => {
+    const email = uniqueEmail('mail-reject')
+    const userId = await register({ studentNo: String(++studentNo), appliedName: '退回測試', loginEmail: email })
+    const rejected = await command.reject(admin(), { applicationId: await appOf(userId), revision: 1, reason: '學號打錯', requestId: requestId() })
+    expect(rejected).toMatchObject({ ok: true, receipt: { decision: 'rejected' } })
+    expect((await outboxOf(email)).rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】註冊申請被退回',
+        body_text: `你的註冊申請被退回。理由：學號打錯。請到 ${BASE_URL}/register/pending 修改後重新送出。`,
+        status: 'captured',
+        error: null,
+      },
+    ])
+  })
+
+  it('批次核准：每位核准的人各一封，略過的人沒有', async () => {
+    const e1 = uniqueEmail('mail-bulk1')
+    const e2 = uniqueEmail('mail-bulk2')
+    // 自己一屆、自己一份名單，不跟上面的案例搶學號。
+    const cohort108 = String(
+      (
+        await db.sql(
+          `insert into cohorts (id, code, name, created_by_kind, is_registration_open)
+           values (gen_random_uuid(), '108', '108 學年度專題', 'system', false) returning id`,
+        )
+      ).rows[0]!.id,
+    )
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+          [cohort108, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    await db.sql(
+      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+       values (gen_random_uuid(), $1, '410800777', '寄信批次', '寄信批次')`,
+      [version],
+    )
+    const u1 = await register({ studentNo: '410800777', appliedName: '寄信批次', loginEmail: e1 })
+    const u2 = await register({ studentNo: '411599999', appliedName: '不在名單', loginEmail: e2 })
+    const items = [
+      { applicationId: await appOf(u1), revision: 1, requestId: requestId() },
+      { applicationId: await appOf(u2), revision: 1, requestId: requestId() },
+    ]
+    const done = await command.approveMany(admin(), { items, previewSkipped: [], verificationMethod: 'id_document', verificationNote: '', reason: '' })
+    if (!done.ok) throw new Error(done.message)
+    expect(done.receipt.skipped.map((s) => [s.appliedName, s.reason])).toEqual([['不在名單', '名單比對不到，請個別審核']])
+    expect(done.receipt.approved.map((a) => a.appliedName)).toEqual(['寄信批次'])
+    expect((await outboxOf(e1)).rows.map((r) => [r.template, r.status])).toEqual([['registration_result', 'captured']])
+    expect((await outboxOf(e2)).rows).toEqual([])
+  })
+
+  it('寄信失敗（Brevo 500）：核准照樣成功、帳號開通，那一列記 failed、不存內文', async () => {
+    const email = uniqueEmail('mail-fail')
+    const userId = await register({ studentNo: String(++studentNo), appliedName: '寄失敗', loginEmail: email })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const approved = await failingMailCommand.approve(admin(), await approveInput(userId))
+    errors.mockRestore()
+    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved' } })
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'active' })
+    expect((await outboxOf(email)).rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】帳號已開通',
+        body_text: null,
+        status: 'failed',
+        error: 'brevo_500_internal_error',
+      },
+    ])
   })
 })
