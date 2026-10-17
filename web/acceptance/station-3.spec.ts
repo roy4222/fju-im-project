@@ -147,7 +147,7 @@ function student(i: number): Student {
 
 async function openMyGroup(page: Page) {
   await page.goto('/dashboard/student/groups')
-  await expect(page.getByRole('heading', { name: '我的組別', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
 function groupRow(page: Page) {
@@ -462,7 +462,7 @@ test('票 13 學生 1 發起三人提案（產學合作），三人逐一確認�
     }
   }
   const s3 = student(2).page
-  await expect(s3.getByRole('region', { name: '我的組別狀態' })).toContainText(`組別 ${group}`)
+  await expect(s3.getByRole('region', { name: '我的組別狀態' })).toContainText(`${group}`)
   await expect(s3.getByRole('list', { name: '組員' }).getByRole('listitem').filter({ hasText: '組長' })).toContainText(student(0).name)
   await shot(s3, 'group-established')
 })
@@ -492,10 +492,12 @@ test('票 14 管理員把學生 4 加入這一組（理由必填）、把組長�
 
   const s4 = student(3).page
   await openMyGroup(s4)
-  await expect(s4.getByRole('region', { name: '我的組別狀態' })).toContainText(`組別 ${group}`)
+  await expect(s4.getByRole('region', { name: '我的組別狀態' })).toContainText(`${group}`)
+  // 異動在「紀錄」分頁（AC-ST-18）；理由整頁都不出現。
+  await s4.goto('/dashboard/student/groups?tab=log')
   const history = s4.getByRole('list', { name: '組別異動' })
   await expect(history).toContainText(`組長 ${student(0).name} → ${student(1).name}`)
-  await expect(s4.getByRole('region', { name: '我的組別狀態' })).not.toContainText('原組長請辭')
+  await expect(s4.getByRole('main')).not.toContainText('原組長請辭')
 })
 
 test('票 19 管理員指派甲老師為主指導（理由必填）；學生看得到指導老師', async () => {
