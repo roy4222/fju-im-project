@@ -1,4 +1,7 @@
-import { expect, request as playwrightRequest, test, type Page, type Route } from '@playwright/test'
+import { createHash, randomUUID } from 'node:crypto'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { chromium, expect, request as playwrightRequest, test, type Page, type Route } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -1307,3 +1310,307 @@ async function firstItemKey() {
   const stageKey = await stageKeyOfG01()
   return row.rows[0]!.stages.find((st) => st.key === stageKey)!.items[0]!.key
 }
+
+// ───────────── A-07（B 設計方案 §5，TE-B5）：評分頁「在頁內檢視」PDF／圖片 ─────────────
+
+/** 一頁、印一行 Helvetica 字的最小 PDF（xref 位移照實算），人工截圖時看得到這行字。 */
+function textPdf(line: string): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  const stream = `BT /F1 28 Tf 72 760 Td (${line}) Tj ET`
+  objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
+  let out = '%PDF-1.4\n'
+  const offsets: number[] = []
+  objects.forEach((body, i) => {
+    offsets.push(out.length)
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`
+  })
+  const xref = out.length
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
+
+const PREVIEW_FILES = {
+  pdf: { name: '期末報告.pdf', mime: 'application/pdf', extension: 'pdf', bytes: textPdf('TE-11B test page') },
+  png: {
+    name: '系統架構圖.png',
+    mime: 'image/png',
+    extension: 'png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAD0lEQVR4nGNgME5DIJwcAIc5By0Ywt6kAAAAAElFTkSuQmCC', 'base64'),
+  },
+  svg: {
+    name: '流程圖.svg',
+    mime: 'image/svg+xml',
+    extension: 'svg',
+    bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>document.title="pwned"</script><rect width="10" height="10"/></svg>'),
+  },
+  docx: {
+    name: '會議紀錄.docx',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    extension: 'docx',
+    bytes: Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(60)]),
+  },
+} as const
+
+/**
+ * G01 一份已發布的整組作業「期末報告」與一次正式送出（附 PDF、PNG、SVG、docx）。繳交流程是別張票的事，
+ * 跟 file-download-pages.spec 的 A-06 區塊一樣直接用 owner 連線建；檔案本體寫進 app 的 `FILES_ROOT`。
+ * 上傳收檔不收 SVG，「有人交了 SVG」只能這樣模擬（頁面看的是 `mime_detected`）。回傳各檔的 id。
+ */
+async function seedG01Attachments(filesRoot: string): Promise<Record<keyof typeof PREVIEW_FILES, string>> {
+  const groupId = groupIds.get('G01')!
+  const stage = await pool.query<{ id: string }>(
+    `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+     values (gen_random_uuid(), $1, 1, '期末', $2, 'system') returning id`,
+    [cohortId, ymd(new Date(Date.now() - 30 * 86_400_000))],
+  )
+  const title = `${CODE} 期末報告`
+  const item = await pool.query<{ id: string }>(
+    `insert into managed_items
+       (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, due_at,
+        title, summary, body_html, draft_schema, created_by_kind, created_by_user_id, updated_by_user_id)
+     values (gen_random_uuid(), $1, 'submission', 'cohort_students', 'group', $2, 'draft', now() + interval '10 days',
+             $3, 'A-07 e2e', '<p>請繳交。</p>', '{"fields":[]}'::jsonb, 'user', $4, $4)
+     returning id`,
+    [cohortId, stage.rows[0]!.id, title, adminId],
+  )
+  const itemId = item.rows[0]!.id
+  const content = await pool.query<{ id: string }>(
+    `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2, 'A-07 e2e', '<p>請繳交。</p>', $3) returning id`,
+    [itemId, title, adminId],
+  )
+  const schema = await pool.query<{ id: string }>(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+    [itemId, adminId],
+  )
+  await pool.query(
+    `update managed_items set status = 'published', actual_opened_at = now() - interval '1 day', current_content_version_id = $2, current_schema_version_id = $3
+      where id = $1`,
+    [itemId, content.rows[0]!.id, schema.rows[0]!.id],
+  )
+  const version = await pool.query<{ id: string }>(
+    `insert into submission_versions
+       (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+        received_real_at, received_business_at, request_id, membership_snapshot, deadline_version_at_submit)
+     values (gen_random_uuid(), $1, 'group', $2, 1, $3, '{}'::jsonb, $4, now(), now(), gen_random_uuid(), '[]'::jsonb, 1) returning id`,
+    [itemId, groupId, schema.rows[0]!.id, student.userId],
+  )
+  const versionId = version.rows[0]!.id
+  const ids = {} as Record<keyof typeof PREVIEW_FILES, string>
+  for (const [field, f] of Object.entries(PREVIEW_FILES) as [keyof typeof PREVIEW_FILES, (typeof PREVIEW_FILES)[keyof typeof PREVIEW_FILES]][]) {
+    const id = randomUUID()
+    const storageKey = `e2e-a07/${stamp}/${id}`
+    await fs.mkdir(path.join(filesRoot, path.dirname(storageKey)), { recursive: true })
+    await fs.writeFile(path.join(filesRoot, storageKey), f.bytes)
+    const checksum = createHash('sha256').update(f.bytes).digest('hex')
+    await pool.query(
+      `insert into stored_files (id, owner_user_id, scope, cohort_id, purpose, original_name, size_bytes, mime_declared, mime_detected,
+                                 extension, checksum, status, storage_key, uploaded_real_at, finalized_at)
+       values ($1, $2, 'cohort', $3, 'submission', $4, $5, $6, $6, $7, $8, 'stored', $9, now(), now())`,
+      [id, student.userId, cohortId, f.name, f.bytes.length, f.mime, f.extension, checksum, storageKey],
+    )
+    await pool.query(`insert into submission_files (submission_version_id, file_id, field_key, checksum) values ($1, $2, $3, $4)`, [
+      versionId,
+      id,
+      field,
+      checksum,
+    ])
+    await pool.query(`insert into file_references (id, file_id, ref_type, ref_id) values (gen_random_uuid(), $1, 'submission_version', $2)`, [id, versionId])
+    ids[field] = id
+  }
+  return ids
+}
+
+/** 附件列按鈕／連結的無障礙名稱（圖示與 sr-only 檔名之間會多一個空白）。 */
+const fileAction = (word: string, file: string) => new RegExp(`^${word}\\s*：${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+
+test('A-07 AC-A-16／AC-TE-11B（顯示段）：PDF「在頁內檢視」→ 頁內 iframe 指向 /preview、沒有 sandbox，回應 200＋inline＋SAMEORIGIN；PNG 嵌入有 sandbox 且顯示成圖片；SVG 只說請下載、不嵌入；docx 只有下載', async ({ page }) => {
+  const filesRoot = process.env.FILES_ROOT
+  test.skip(!filesRoot, '要把檔案本體寫進 app 的 FILES_ROOT（verify 與 CI 都會設）')
+  const ids = await seedG01Attachments(filesRoot!)
+  await signIn(page, t1)
+  await openBench(page)
+  const list = page.getByRole('list', { name: `${CODE} 期末報告的附件` })
+  const row = (name: string) => list.getByTestId('attachment').filter({ hasText: name })
+  const pdfRow = row(PREVIEW_FILES.pdf.name)
+  await expect(pdfRow).toHaveAttribute('data-hydrated', '')
+  // 舊的「在新分頁開啟 PDF」改成頁內檢視；下載一直都在。
+  await expect(page.getByText('在新分頁開啟 PDF')).toHaveCount(0)
+  await expect(pdfRow.getByRole('link', { name: fileAction('下載', PREVIEW_FILES.pdf.name) })).toHaveAttribute('href', `/api/files/${ids.pdf}`)
+
+  // PDF：按下才嵌入；iframe 指向預覽端點、不加 sandbox（Chromium 在 sandbox 屬性下顯示不了 PDF）。
+  await expect(pdfRow.locator('iframe')).toHaveCount(0)
+  const pdfLoaded = page.waitForResponse((r) => r.url().endsWith(`/api/files/${ids.pdf}/preview`))
+  await pdfRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.pdf.name) }).click()
+  const pdfFrame = pdfRow.getByTestId('preview-pane').locator('iframe')
+  await expect(pdfFrame).toHaveAttribute('src', `/api/files/${ids.pdf}/preview`)
+  await expect(pdfFrame).toHaveAttribute('title', PREVIEW_FILES.pdf.name)
+  expect(await pdfFrame.getAttribute('sandbox')).toBeNull()
+  const pdf = await pdfLoaded
+  expect(pdf.status()).toBe(200)
+  expect(pdf.headers()['content-type']).toBe('application/pdf')
+  expect(pdf.headers()['content-disposition']).toMatch(/^inline/)
+  expect(pdf.headers()['x-frame-options']).toBe('SAMEORIGIN')
+  expect(pdf.headers()['content-security-policy']).toContain("frame-ancestors 'self'")
+  // 收起：iframe 拿掉。
+  await pdfRow.getByRole('button', { name: fileAction('收起檢視', PREVIEW_FILES.pdf.name) }).click()
+  await expect(pdfRow.getByTestId('preview-pane')).toHaveCount(0)
+
+  // PNG：嵌入時加 sandbox（全部限制），照樣顯示成圖片（4×3）。
+  const pngRow = row(PREVIEW_FILES.png.name)
+  const pngLoaded = page.waitForResponse((r) => r.url().endsWith(`/api/files/${ids.png}/preview`))
+  await pngRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.png.name) }).click()
+  const pngFrame = pngRow.getByTestId('preview-pane').locator('iframe')
+  await expect(pngFrame).toHaveAttribute('sandbox', '')
+  const png = await pngLoaded
+  expect(png.status()).toBe(200)
+  expect(png.headers()['content-disposition']).toMatch(/^inline/)
+  expect(png.headers()['x-frame-options']).toBe('SAMEORIGIN')
+  await expect
+    .poll(async () => {
+      const frame = page.frames().find((f) => f.url().endsWith(`/api/files/${ids.png}/preview`))
+      return frame ? frame.evaluate(() => document.querySelector('img')?.naturalWidth ?? 0).catch(() => -2) : -1
+    })
+    .toBe(4)
+
+  // SVG：是圖片但不在預覽白名單（預覽端點會 302 導下載）→ 窗格只說請下載，不嵌入、不打預覽端點。
+  const svgRequests: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes(`/api/files/${ids.svg}`)) svgRequests.push(r.url())
+  })
+  const svgRow = row(PREVIEW_FILES.svg.name)
+  await svgRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.svg.name) }).click()
+  await expect(svgRow.getByTestId('preview-pane')).toContainText('這種檔案不能在頁內檢視，請下載')
+  await expect(svgRow.getByTestId('preview-pane').locator('iframe')).toHaveCount(0)
+  expect(svgRequests).toEqual([])
+
+  // docx：只有下載。
+  const docxRow = row(PREVIEW_FILES.docx.name)
+  await expect(docxRow.getByRole('button')).toHaveCount(0)
+  await expect(docxRow.getByRole('link', { name: fileAction('下載', PREVIEW_FILES.docx.name) })).toHaveAttribute('href', `/api/files/${ids.docx}`)
+
+  // PDF 實際顯示是人工驗收（預設的 headless shell 沒有 PDF 檢視器）：設 A07_SCREENSHOT_DIR 時另開完整版 Chromium
+  //（`channel: 'chromium'`，有內建 PDF 檢視器）以 T1 打開同一個窗格，截一張證據圖。
+  const shotDir = process.env.A07_SCREENSHOT_DIR
+  if (shotDir) {
+    const browser = await chromium.launch({ channel: 'chromium' })
+    try {
+      const desktop = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1440, height: 1000 } })
+      await desktop.addCookies([toPlaywrightCookie(t1.cookie, BASE_URL)])
+      const shot = await desktop.newPage()
+      await openBench(shot)
+      const shotRow = shot.getByRole('list', { name: `${CODE} 期末報告的附件` }).getByTestId('attachment').filter({ hasText: PREVIEW_FILES.pdf.name })
+      await expect(shotRow).toHaveAttribute('data-hydrated', '')
+      await shotRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.pdf.name) }).click()
+      await expect.poll(() => shot.frames().some((f) => f.url().startsWith('chrome-extension://'))).toBe(true)
+      await shot.waitForTimeout(2_000)
+      await shotRow.getByTestId('preview-pane').scrollIntoViewIfNeeded()
+      await shot.screenshot({ path: path.join(shotDir, 'a07-grading-inline-pdf.png') })
+    } finally {
+      await browser.close()
+    }
+  }
+})
+
+/** 攔下一個 Server Action 的 POST 直接中斷：伺服器完全沒收到（同 r4 反例①）。回傳解除攔截的函式。 */
+async function abortNextAction(page: Page) {
+  let aborted = false
+  const pattern = '**/dashboard/teacher/grading/**'
+  const handler = async (route: Route) => {
+    const r = route.request()
+    if (!aborted && r.method() === 'POST' && r.headers()['next-action']) {
+      aborted = true
+      return route.abort('failed')
+    }
+    return route.continue()
+  }
+  await page.route(pattern, handler)
+  return async () => {
+    expect(aborted).toBe(true)
+    await page.unroute(pattern, handler)
+  }
+}
+
+test('A-07 收尾（A-02 r5 ①③）：重新送出 86 的 POST 沒到伺服器 → 別的分頁送出 96 → 切回前景出現衝突區 → 直接按「再送一次」成功：收件章、衝突區消失、不再說有未存；「再送一次」旁註明送的是中斷當時的內容', async ({ page, context }) => {
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const scoreA = benchA.getByLabel('1. 功能完整度')
+  await expect(benchA.getByTestId('resubmit')).toBeVisible()
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  await benchReady(other)
+  const key = await firstItemKey()
+  const before = await submissionCount()
+
+  await scoreA.fill('86')
+  const unroute = await abortNextAction(page)
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await expect(benchA.getByRole('alert')).toContainText('連線中斷')
+  await unroute()
+  await expect(benchA.getByTestId('resend-note')).toHaveText('送出的是中斷當時的內容')
+  expect(await submissionCount()).toBe(before)
+
+  await otherTabResubmit(other, '96')
+  await refocus(page, benchA)
+  await expect(benchA.getByTestId('bench-conflict')).toBeVisible()
+  await expect(scoreA).toHaveValue('86')
+
+  // 不選衝突區，直接「再送一次」：原請求沒到過伺服器 → 這次寫入、版本比 96 新 → 收據確認，衝突區不再成立。
+  await benchA.getByTestId('resend').click()
+  await expect(page.getByRole('dialog', { name: '已送出' })).toBeVisible()
+  await page.getByRole('dialog', { name: '已送出' }).getByRole('button', { name: '知道了' }).click()
+  await expect(benchA.getByTestId('bench-conflict')).toHaveCount(0)
+  await expect(benchA.getByText('你這裡還有尚未儲存的修改')).toHaveCount(0)
+  await expect(benchA.getByTestId('edit-status')).toHaveCount(0)
+  await expect(benchA.getByTestId('resend')).toHaveCount(0)
+  expect((await storedEvaluation('counted'))!.scores[key]).toBe('86')
+  expect(await submissionCount()).toBe(before + 2)
+  await other.close()
+})
+
+test('A-07 收尾（A-02 r5 ②）：送 87 回應中斷（伺服器已寫）→ 別的分頁送出 97 → 切回前景把欄位改成 97 → 「再送一次」拿到舊收據：訊息不說「仍未送出」、改說畫面已是伺服器的內容，衝突區消失', async ({ page, context }) => {
+  await releaseG01Stage()
+  await signIn(page, t1)
+  const benchA = await openBench(page)
+  const scoreA = benchA.getByLabel('1. 功能完整度')
+  await expect(benchA.getByTestId('resubmit')).toBeVisible()
+  const other = await context.newPage()
+  await other.goto(`/dashboard/teacher/grading/${groupIds.get('G01')}`)
+  await benchReady(other)
+  const key = await firstItemKey()
+  const before = await submissionCount()
+
+  await scoreA.fill('87')
+  const held = await holdNextAction(page)
+  await benchA.getByTestId('resubmit').click()
+  await page.getByRole('dialog', { name: '確認重新送出' }).getByRole('button', { name: '確認送出' }).click()
+  await held.received
+  await otherTabResubmit(other, '97')
+  held.drop()
+  await expect(benchA.getByRole('alert')).toContainText('連線中斷')
+  await refocus(page, benchA)
+  await expect(benchA.getByTestId('bench-conflict')).toBeVisible()
+
+  // 自己把欄位改成跟伺服器一樣：沒有未存了，但上一次（87）的結果仍不明，動作列仍只有「再送一次」。
+  await scoreA.fill('97')
+  await expect(benchA.getByTestId('edit-status')).toHaveCount(0)
+  await benchA.getByTestId('resend').click()
+  const alert = benchA.getByRole('alert')
+  await expect(alert).toContainText('已被別的分頁或裝置的送出取代')
+  await expect(alert).toContainText('畫面已是伺服器上的內容，沒有尚未儲存的修改')
+  await expect(alert).not.toContainText('仍未送出')
+  await expect(benchA.getByTestId('bench-conflict')).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '已送出' })).not.toBeVisible()
+  expect((await storedEvaluation('counted'))!.scores[key]).toBe('97')
+  expect(await submissionCount()).toBe(before + 2)
+  await other.close()
+})
