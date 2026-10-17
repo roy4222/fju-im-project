@@ -24,6 +24,7 @@ import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getLeaderSuccessionHook } from '@/composition/groups'
+import { getMailer, mailSiteUrl } from '@/composition/mail'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { err, type Result } from '@/shared/result'
 import { taipeiParts } from '@/shared/time'
@@ -82,6 +83,7 @@ export function getRegistrationCommand(): RegistrationCommand {
     ledger: getOperationLedger(),
     db: getPool,
     cohorts: getCohortStatusQuery(),
+    mail: { mailer: getMailer(), siteUrl: mailSiteUrl() },
   })
   return registrationCommand
 }
