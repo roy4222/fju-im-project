@@ -6,7 +6,7 @@ import { BTN_OUTLINE, BTN_OUTLINE_SM, BTN_PRIMARY, DIALOG, FIELD_LABEL, TEXTAREA
 /**
  * 名單列的「設免繳」／「恢復」（B 階段 A-08；設計方案 §6）。
  *
- * 設免繳：按鈕開對話框填理由（1–200 字，只留在名單與稽核，不通知學生）；理由留空按確定，畫面直接提示「請填理由」、不送請求。
+ * 設免繳：按鈕開對話框填理由（1–200 字；系辦名單與稽核看得到，開放老師閱覽時主指導也看得到；不通知學生）；理由留空按確定，畫面直接提示「請填理由」、不送請求。
  * 恢復：對話框確認一次就送。已經交過的人也能設免繳，繳交內容保留；恢復後照原本的狀態顯示。
  * 成功後頁面刷新，這一列會移到另一個分頁（免繳／目前名單），分頁數與完成率跟著重算；失敗的句子留在對話框裡。
  */
@@ -71,7 +71,7 @@ export function ExemptDialog({ itemId, receiverId, name, exempt, requestId }: Ex
           <input type="hidden" name="requestId" value={requestId} />
           {exempt ? null : (
             <label className={FIELD_LABEL}>
-              理由（200 字內，只有系辦看得到）
+              理由（200 字內；開放老師閱覽時，主指導也看得到）
               <textarea
                 name="reason"
                 maxLength={200}

@@ -360,6 +360,9 @@ test('AC-A-21／23：對 S1 按「設免繳」——理由留空提示「請填�
   await row.getByRole('button', { name: '設免繳' }).click()
   const dialog = page.getByRole('dialog', { name: `設 ${waiter.name} 免繳` })
   await expect(dialog).toBeVisible()
+  // 理由欄的標示照實說誰看得到（開放老師閱覽時主指導讀得到名單列的理由；Review 第 1 輪）。
+  await expect(dialog.getByLabel('理由（200 字內；開放老師閱覽時，主指導也看得到）')).toBeVisible()
+  await expect(dialog).not.toContainText('只有系辦看得到')
 
   // AC-A-23：留空（只打空白）按確定——畫面提示、不發請求。
   const posts: string[] = []

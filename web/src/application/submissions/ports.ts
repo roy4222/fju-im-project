@@ -74,7 +74,7 @@ export type ExemptInput = {
   readonly receiverId: string
   /** true＝設免繳；false＝恢復需繳交。 */
   readonly exempt: boolean
-  /** 設免繳時必填 1–200 字（只留在名單與稽核，不通知學生）；恢復時不用。 */
+  /** 設免繳時必填 1–200 字（系辦名單與稽核看得到，開放老師閱覽時主指導也看得到；不通知學生）；恢復時不用。 */
   readonly reason?: string
 }
 
