@@ -110,6 +110,10 @@ const ACTION_LABEL: Record<string, string> = {
   'account.seed_e2e_admin': '建立測試管理員帳號',
   'account.deidentify': '刪除個人資料（保留紀錄）',
   'account.session_revocation.reconcile_limit': '登出同步未完成',
+  // B 階段預先登記（A-08 一次登記，後面的票不必再碰這張表）：SH-9／AD-B2 頭像、VB-14 清理未完成註冊。
+  'account.avatar_update': '更換頭像',
+  'account.avatar_reset': '系辦重設頭像',
+  'account.stale_signup_scrubbed': '清理未完成註冊帳號',
   'registration.apply': '送出註冊申請',
   'registration.revise': '修改註冊申請',
   'registration.resubmit': '重新送出註冊申請',
@@ -127,6 +131,9 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.activity.cancel': '取消活動',
   'cohort.activity.delete': '刪除活動',
   'cohort.activated': '屆別轉為進行中',
+  // B 階段 A-09 封存／解封（預先登記）。
+  'cohort.archive': '封存屆別',
+  'cohort.unarchive': '解除封存屆別',
   'activity.deleted': '刪除活動',
   'business_clock.set': '調整模擬時鐘',
   // 分組、指導與產學（模組 03）
@@ -180,6 +187,8 @@ const ACTION_LABEL: Record<string, string> = {
   'item.unpin': '取消置頂公告或作業',
   'item.delete': '刪除公告或作業',
   'item.deleted': '刪除公告或作業',
+  // B 階段 A-14 規則章節排序（預先登記）。
+  'item.rule_moved': '調整規則章節順序',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
@@ -189,6 +198,9 @@ const ACTION_LABEL: Record<string, string> = {
   'submission.submitted': '正式送出繳交',
   'submission.reopen': '開放補交',
   'submission.reopened': '開放補交',
+  // B 階段 A-08 設免繳／恢復（冪等鍵與稽核代碼同名）。
+  'submission.exempt_set': '設免繳',
+  'submission.exempt_cleared': '恢復需繳交',
   'submission.save_draft': '儲存繳交草稿',
   'submission.submit': '正式送出繳交',
   'submission.set_advisor_visibility': '設定指導老師閱覽',
@@ -208,6 +220,9 @@ const ACTION_LABEL: Record<string, string> = {
   'grading.override_resolve': '重新確認更正',
   'grading.override_review': '重新確認更正',
   'grading.export': '匯出成績',
+  // B 階段 A-01 結算（預先登記）。
+  'grading.settle': '結算成績',
+  'grading.release': '解除成績結算',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',
