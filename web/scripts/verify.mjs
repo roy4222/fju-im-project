@@ -95,7 +95,6 @@ function parseArgs(argv) {
 const worktreeHash = createHash('sha1').update(fs.realpathSync(repoRoot)).digest('hex').slice(0, 6)
 const runId = `${worktreeHash}${process.pid.toString(36)}${randomBytes(2).toString('hex')}`
 const runDir = path.join(os.tmpdir(), `fju-verify-${runId}`)
-fs.mkdirSync(runDir, { recursive: true })
 
 const owned = { containers: [], groups: [], createdFiles: [] }
 let foreground = null
@@ -186,7 +185,8 @@ function printSummary() {
     console.log(r.tail.join('\n'))
   }
   const failed = results.filter((x) => x.status === 'fail').length
-  console.log(`\n${failed === 0 ? '全部通過' : `${failed} 步失敗，app／worker log 在 ${runDir}`}；run id ${runId}`)
+  const logs = failed > 0 && fs.existsSync(runDir) && fs.readdirSync(runDir).some((f) => f.endsWith('.log'))
+  console.log(`\n${failed === 0 ? '全部通過' : `${failed} 步失敗`}${logs ? `，app／worker log 在 ${runDir}` : ''}；run id ${runId}`)
 }
 
 function tailOf(text) {
@@ -475,6 +475,7 @@ async function main() {
     console.error(error.message)
     process.exit(2)
   }
+  fs.mkdirSync(runDir, { recursive: true })
   console.log(`[verify] run id ${runId}（worktree ${repoRoot}）`)
   if (!(await ensureInstalled(baseEnv()))) {
     printSummary()
@@ -485,7 +486,9 @@ async function main() {
   if (args.e2e) await runE2e(args.e2e)
   cleanup()
   printSummary()
-  if (results.every((r) => r.status === 'pass')) fs.rmSync(runDir, { recursive: true, force: true })
+  // 失敗時留下 app／worker log 給人看；其他情況（含只跑靜態檢查）整個暫存目錄刪掉。
+  const keepLogs = results.some((r) => r.status !== 'pass') && fs.readdirSync(runDir).some((f) => f.endsWith('.log'))
+  if (!keepLogs) fs.rmSync(runDir, { recursive: true, force: true })
   process.exit(results.some((r) => r.status !== 'pass') ? 1 : 0)
 }
 
