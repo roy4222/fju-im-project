@@ -213,7 +213,7 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
 
   await signIn(page, otherTeacher)
   await page.goto('/dashboard/teacher/signoff')
-  await expect(page.getByRole('link', { name: '站內同意書', exact: true })).toHaveAttribute('href', '/dashboard/teacher/signoff')
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '作業區', exact: true })).toHaveAttribute('href', '/dashboard/teacher/affairs')
   await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
 
   await signIn(page, s01)
