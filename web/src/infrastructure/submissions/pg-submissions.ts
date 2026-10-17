@@ -29,6 +29,8 @@ import {
   type AnswerFile,
   type Answers,
   type DraftReceipt,
+  type ExemptInput,
+  type ExemptReceipt,
   type GroupSummary,
   type MyItemDetail,
   type MyItemRow,
@@ -747,6 +749,103 @@ export class PgSubmissionCommand implements SubmissionCommand {
         serverTime: realAt.toISOString(),
       }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId, receiverKind: kind, receiverId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  async setExempt(actor: ResolvedActor, input: ExemptInput, requestId: string): Promise<Result<ExemptReceipt>> {
+    const denied = authorizeAdmin(actor, '設定免繳')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    const itemId = typeof input?.itemId === 'string' ? input.itemId : ''
+    const receiverId = typeof input?.receiverId === 'string' ? input.receiverId : ''
+    if (typeof input?.exempt !== 'boolean') return err('VALIDATION_FAILED', '請重新整理頁面再試一次。')
+    const exempt = input.exempt
+    if (!isUuid(itemId)) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
+    if (!isUuid(receiverId)) return notInRoster()
+    // 恢復不用理由（也不存）；設免繳要 1–200 字。
+    const reason = exempt ? (typeof input.reason === 'string' ? input.reason.trim() : '') : null
+    if (reason !== null && (reason.length < 1 || reason.length > 200)) {
+      return err('VALIDATION_FAILED', '請填理由（1 到 200 字）。', { details: { field: 'reason' } })
+    }
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      // 鎖序：屆別（共享）→ 項目（共享）→ 那一列名單（獨占）。封存屆別拿屆別的獨占鎖，所以封存與設免繳不會交錯。
+      const head = await tx.query<{ cohort_id: string }>('select cohort_id from managed_items where id = $1 and deleted_at is null', [itemId])
+      const cohortId = head.rows[0]?.cohort_id
+      if (!cohortId) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
+      const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
+      const found = await tx.query<{ receiver_unit: string }>(
+        'select receiver_unit from managed_items where id = $1 and deleted_at is null for share',
+        [itemId],
+      )
+      const item = found.rows[0]
+      if (!item) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          // 冪等鍵跟稽核代碼同名（兩個都有中文標籤，不另造一個只給帳本用的代碼）。
+          operationKind: exempt ? 'submission.exempt_set' : 'submission.exempt_cleared',
+          requestId,
+          fingerprint: sha256(canonicalJson({ itemId, receiverId, exempt, reason })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ExemptReceipt>(begun)
+
+      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
+        return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
+      }
+      if (cohort.rows[0]?.status === 'archived') {
+        return err('COHORT_ARCHIVED', exempt ? '這一屆已經封存，不能再設免繳。' : '這一屆已經封存，不能再恢復需繳交。')
+      }
+      const group = item.receiver_unit === 'group'
+      const kind: 'user' | 'group' = group ? 'group' : 'user'
+      const roster = await tx.query<{ id: string; exempt: boolean; exempt_reason: string | null }>(
+        `select id, exempt, exempt_reason from response_rosters
+          where item_id = $1 and receiver_kind = $2 and receiver_id = $3 and eligible_to_business_at is null
+          for update`,
+        [itemId, kind, receiverId],
+      )
+      const row = roster.rows[0]
+      if (!row) return err('NOT_IN_ROSTER', group ? '這一組不在這個作業的名單上。' : '這位學生不在這個作業的名單上。')
+      if (row.exempt === exempt) {
+        return err('CONFLICT', exempt ? (group ? '這一組已經是免繳。' : '這位已經是免繳。') : group ? '這一組不是免繳。' : '這位不是免繳。')
+      }
+
+      // 只改名單列，不碰任何草稿、版本與附件（Q-A3：已繳交的人設免繳，繳交保留；恢復後照原狀態顯示）。
+      await tx.query(
+        `update response_rosters
+            set exempt = $2, exempt_reason = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+          where id = $1`,
+        [row.id, exempt, reason, realAt, userId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: exempt ? 'submission.exempt_set' : 'submission.exempt_cleared',
+        targetType: SUBJECT_TYPE,
+        targetId: itemId,
+        scope: 'cohort',
+        cohortId,
+        realAt,
+        businessAt,
+        payload: exempt
+          ? { receiverKind: kind, receiverId, reason }
+          : { receiverKind: kind, receiverId, previousReason: row.exempt_reason },
+      })
+      // 不發事件、不通知：免繳是系辦與學生線下談好的（設計方案 §6）。
+
+      const receipt = { itemId, receiverId, exempt, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId, receiverKind: kind, receiverId, exempt } })
       return { ok: true as const, receipt }
     })
   }

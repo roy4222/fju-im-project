@@ -1047,3 +1047,160 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     expect(await submissions.submit(studentActor(b1), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'DEADLINE_PASSED' })
   })
 })
+
+describe('設免繳／恢復（B 階段 A-08、AC-A-21～24）：只改名單列，繳交保留', () => {
+  const roster = () => new PgRosterQuery(() => app, lateFlags)
+  const set = (actor: ResolvedActor, itemId: string, receiverId: string, exempt: boolean, reason?: string, requestId = randomUUID()) =>
+    submissions.setExempt(actor, { itemId, receiverId, exempt, reason }, requestId)
+  const rosterRow = async (itemId: string, receiverId: string) =>
+    (
+      await owner.sql(
+        `select exempt, exempt_reason, revision, updated_by_user_id from response_rosters
+          where item_id = $1 and receiver_id = $2 and eligible_to_business_at is null`,
+        [itemId, receiverId],
+      )
+    ).rows[0]
+  const audits = async (itemId: string) =>
+    (
+      await owner.sql(
+        `select action, payload from audit_events where target_id = $1 and action like 'submission.exempt_%' order by real_at, id`,
+        [itemId],
+      )
+    ).rows
+
+  it('設免繳：名單列改免繳、分母少 1、稽核 submission.exempt_set；恢復：理由清空、回到目前名單、稽核 exempt_cleared；都不通知', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const s2 = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId)
+    const before = await roster().roster(adminActor(), itemId)
+    expect(completionOf(before!.item, before!.entries, businessNow)).toMatchObject({ required: 2, exempt: 0 })
+
+    const requestId = randomUUID()
+    const done = await set(adminActor(), itemId, s1.id, true, '  休學一學期  ', requestId)
+    expect(done).toMatchObject({ ok: true, receipt: { itemId, receiverId: s1.id, exempt: true, requestId } })
+    // 同一個請求編號重送只算一次、回同一張回執。
+    expect(await set(adminActor(), itemId, s1.id, true, '  休學一學期  ', requestId)).toEqual(done)
+    expect(await rosterRow(itemId, s1.id)).toMatchObject({ exempt: true, exempt_reason: '休學一學期', revision: 2, updated_by_user_id: adminId })
+
+    const after = await roster().roster(adminActor(), itemId)
+    const s1Entry = after!.entries.find((e) => e.receiverId === s1.id)!
+    expect(categoryOf(s1Entry)).toBe('exempt')
+    expect(s1Entry.exemptReason).toBe('休學一學期')
+    expect(completionOf(after!.item, after!.entries, businessNow)).toMatchObject({ required: 1, exempt: 1 })
+    // 學生端：作業區標免繳，送不出去。
+    expect((await query.myItems(s1.id))[0]).toMatchObject({ itemId, exempt: true })
+    expect(await submissions.saveDraft(studentActor(s1), itemId, 0, COMPLETE, randomUUID())).toMatchObject({ ok: false, code: 'EXEMPTED' })
+
+    const back = await set(adminActor(), itemId, s1.id, false)
+    expect(back).toMatchObject({ ok: true, receipt: { exempt: false } })
+    expect(await rosterRow(itemId, s1.id)).toMatchObject({ exempt: false, exempt_reason: null, revision: 3 })
+    const restored = await roster().roster(adminActor(), itemId)
+    expect(categoryOf(restored!.entries.find((e) => e.receiverId === s1.id)!)).toBe('current')
+    expect(completionOf(restored!.item, restored!.entries, businessNow)).toMatchObject({ required: 2, exempt: 0 })
+    expect((await submissions.saveDraft(studentActor(s1), itemId, 0, COMPLETE, randomUUID())).ok).toBe(true)
+
+    expect((await audits(itemId)).map((a) => [a.action, a.payload])).toEqual([
+      ['submission.exempt_set', { receiverKind: 'user', receiverId: s1.id, reason: '休學一學期' }],
+      ['submission.exempt_cleared', { receiverKind: 'user', receiverId: s1.id, previousReason: '休學一學期' }],
+    ])
+    // 不發事件（不通知學生）。
+    expect((await owner.sql(`select count(*) as n from domain_events where source_id = $1 and type like 'submission.%'`, [itemId])).rows[0]!.n).toBe('0')
+    // s2 沒被動到。
+    expect(await rosterRow(itemId, s2.id)).toMatchObject({ exempt: false, revision: 1 })
+  })
+
+  it('已正式送出的學生也能設免繳（Q-A3）：版本與草稿原封不動；恢復後照原狀態「已繳」', async () => {
+    const { student, itemId } = await scenario()
+    const saved = await mustSave(student, itemId, 0, COMPLETE)
+    expect((await submissions.submit(studentActor(student), itemId, saved.revision, randomUUID())).ok).toBe(true)
+    const snapshot = async () =>
+      (await owner.sql('select id, version_no, answers from submission_versions where item_id = $1 order by version_no', [itemId])).rows
+    const drafts = async () => (await owner.sql('select id, revision, answers from submission_drafts where item_id = $1', [itemId])).rows
+    const [versionsBefore, draftsBefore] = [await snapshot(), await drafts()]
+
+    expect((await set(adminActor(), itemId, student.id, true, '已用其他方式繳交')).ok).toBe(true)
+    expect(await snapshot()).toEqual(versionsBefore)
+    expect(await drafts()).toEqual(draftsBefore)
+    const exempted = (await roster().roster(adminActor(), itemId))!.entries.find((e) => e.receiverId === student.id)!
+    expect(categoryOf(exempted)).toBe('exempt')
+    expect(exempted.latestVersionNo).toBe(1)
+    expect((await roster().receiver(adminActor(), itemId, student.id))!.versions).toHaveLength(1)
+
+    expect((await set(adminActor(), itemId, student.id, false)).ok).toBe(true)
+    expect(await snapshot()).toEqual(versionsBefore)
+    const restored = await roster().roster(adminActor(), itemId)
+    const entry = restored!.entries.find((e) => e.receiverId === student.id)!
+    expect(categoryOf(entry)).toBe('current')
+    expect(receiverStatus(restored!.item, entry, businessNow).headline).toBe('已繳第 1 次')
+    expect(completionOf(restored!.item, restored!.entries, businessNow)).toMatchObject({ required: 1, done: 1 })
+  })
+
+  it('擋下來的情況：不是系辦、理由空白或太長、找不到作業、名單外、已移出、同一狀態、屆別封存；都不改名單也不留稽核', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const gone = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId)
+    await owner.sql(
+      `update response_rosters set eligible_to_business_at = eligible_from_business_at, removed_reason = '轉系' where item_id = $1 and receiver_id = $2`,
+      [itemId, gone.id],
+    )
+
+    expect(await set(studentActor(s1), itemId, s1.id, true, '自己設')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await set(teacherActor(), itemId, s1.id, true, '老師設')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    for (const reason of [undefined, '', '   ', '字'.repeat(201)]) {
+      expect(await set(adminActor(), itemId, s1.id, true, reason)).toMatchObject({
+        ok: false,
+        code: 'VALIDATION_FAILED',
+        details: { field: 'reason' },
+      })
+    }
+    expect((await set(adminActor(), itemId, s1.id, true, '字'.repeat(200))).ok).toBe(true)
+    expect((await set(adminActor(), itemId, s1.id, false)).ok).toBe(true)
+
+    expect(await set(adminActor(), randomUUID(), s1.id, true, '休學')).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: '找不到這個作業，請重新整理頁面。',
+    })
+    const outsider = await newStudent((await newCohort()).cohortId)
+    expect(await set(adminActor(), itemId, outsider.id, true, '休學')).toMatchObject({ ok: false, code: 'NOT_IN_ROSTER' })
+    expect(await set(adminActor(), itemId, gone.id, true, '休學')).toMatchObject({ ok: false, code: 'NOT_IN_ROSTER' })
+    expect(await set(adminActor(), itemId, s1.id, false)).toMatchObject({ ok: false, code: 'CONFLICT', message: '這位不是免繳。' })
+    expect((await set(adminActor(), itemId, s1.id, true, '休學')).ok).toBe(true)
+    expect(await set(adminActor(), itemId, s1.id, true, '再設一次')).toMatchObject({ ok: false, code: 'CONFLICT', message: '這位已經是免繳。' })
+
+    // 封存後：設與恢復都 COHORT_ARCHIVED，名單列不變。
+    const auditCount = (await audits(itemId)).length
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    expect(await set(adminActor(), itemId, s1.id, false)).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    const other = await newStudent(cohortId)
+    expect(await set(adminActor(), itemId, other.id, true, '休學')).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await rosterRow(itemId, s1.id)).toMatchObject({ exempt: true, exempt_reason: '休學' })
+    expect((await audits(itemId)).length).toBe(auditCount)
+    expect(await rosterRow(itemId, gone.id)).toBeUndefined()
+  })
+
+  it('整組一份：對一組設免繳與恢復，名單列是那一組', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const member = await newStudent(cohortId)
+    const g = await owner.sql(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, 'EX1', 'general', now(), now(), 'system') returning id`,
+      [cohortId],
+    )
+    const groupId = String(g.rows[0]!.id)
+    await owner.sql(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind) values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+      [groupId, cohortId, member.id],
+    )
+    const itemId = await published(cohortId, stageId, { receiverUnit: 'group' })
+    expect((await set(adminActor(), itemId, member.id, true, '個人不是收件者')).ok).toBe(false)
+    expect(await set(adminActor(), itemId, groupId, true, '整組改交紙本')).toMatchObject({ ok: true, receipt: { receiverId: groupId, exempt: true } })
+    expect(await set(adminActor(), itemId, groupId, true, '再一次')).toMatchObject({ ok: false, code: 'CONFLICT', message: '這一組已經是免繳。' })
+    const entry = (await roster().roster(adminActor(), itemId))!.entries.find((e) => e.receiverId === groupId)!
+    expect(entry).toMatchObject({ receiverKind: 'group', exempt: true, exemptReason: '整組改交紙本' })
+    expect((await set(adminActor(), itemId, groupId, false)).ok).toBe(true)
+    expect((await audits(itemId)).map((a) => a.payload.receiverKind)).toEqual(['group', 'group'])
+  })
+})
