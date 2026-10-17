@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { IconCheck, IconCrown, IconHistory, IconLock, IconMail, IconUserPlus, IconUsers } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -14,6 +15,7 @@ import {
   type MyProposalRole,
 } from '@/app/dashboard/student/groups/group-forms'
 import { groupMilestones } from '@/app/dashboard/student/groups/milestones'
+import type { AvatarUser } from '@/application/accounts'
 import type { GroupMember, ProposalSummary } from '@/application/groups'
 import {
   cohortLabel,
@@ -59,7 +61,17 @@ const SEAT_COLS: Record<number, string> = {
 }
 
 /** 一個座位：姓名、學號（同名同學分得出來）、狀態一行。 */
-type Seat = { key: string; name: string; studentNo: string; state: string; confirmed: boolean; leader: boolean; me: boolean }
+type Seat = {
+  key: string
+  name: string
+  studentNo: string
+  state: string
+  confirmed: boolean
+  leader: boolean
+  me: boolean
+  /** 已成組的組員才有；提案邀請（還沒成組）沒有，維持姓名首字占位。 */
+  avatar?: AvatarUser
+}
 
 /**
  * 學生「組別」（票 13；學生規格 §3.6 ST-5）。
@@ -411,6 +423,7 @@ function memberSeats(members: readonly GroupMember[], userId: string): Seat[] {
     confirmed: true,
     leader: m.isLeader,
     me: m.userId === userId,
+    avatar: { id: m.userId, name: m.name, avatarPreset: m.avatarPreset ?? null, avatarFileId: m.avatarFileId ?? null },
   }))
 }
 
@@ -428,7 +441,7 @@ function proposalSeats(proposal: ProposalSummary, userId: string): Seat[] {
 
 /**
  * 一排組員頭像（原型 StudentGroup 的座位）：已確認＝深藍實心＋右下綠勾；待確認＝灰框；組長頭上戴冠冕。
- * 頭像先用姓名首字的圓形占位（頭像上傳是 B 階段 ST-12）。每一位是 list 的一項（e2e 用「組員」清單找組長）。
+ * 已成組的組員顯示頭像（ST-12），提案邀請還沒成組，先用姓名首字的圓形占位。每一位是 list 的一項（e2e 用「組員」清單找組長）。
  */
 function Seats({ seats, label }: { seats: Seat[]; label: string }) {
   return (
@@ -445,7 +458,11 @@ function Seats({ seats, label }: { seats: Seat[]; label: string }) {
               m.confirmed ? 'bg-ink text-ink-foreground' : 'border-2 border-border bg-muted text-muted-foreground',
             )}
           >
-            <span aria-hidden>{m.name.slice(0, 1)}</span>
+            {m.avatar ? (
+              <UserAvatar user={m.avatar} size={32} decorative />
+            ) : (
+              <span aria-hidden>{m.name.slice(0, 1)}</span>
+            )}
             {m.confirmed ? (
               <span
                 className="absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-card"

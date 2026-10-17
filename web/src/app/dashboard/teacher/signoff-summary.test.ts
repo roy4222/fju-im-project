@@ -25,7 +25,7 @@ function card(patch: {
       // 摘要只看狀態與 mine，進度內容不影響；給一份最小的。
       progress: {
         students: [],
-        advisor: { userId: 't1', displayName: '老師', studentNo: null, result: null, reason: null, at: null },
+        advisor: { userId: 't1', displayName: '老師', studentNo: null, result: null, reason: null, at: null, avatarPreset: null, avatarFileId: null },
         agreed: 0,
         total: 0,
         missing: [],

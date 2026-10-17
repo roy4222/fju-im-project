@@ -2120,12 +2120,15 @@ export class PgGroupQuery implements GroupQuery {
         student_no: string | null
         is_leader: boolean
         login_email: string | null
+        avatar_preset: number | null
+        avatar_file_id: string | null
       }>(
         // 登入信箱（票 20 複製本組信箱、匯出）只在管理員的查詢裡 select；學生與老師的查詢連這一欄都不讀。
         `select m.group_id, m.user_id, ${personName('p', 'u')} as name, p.student_no,
                 exists (select 1 from group_leaders l
                          where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
-                ${forAdmin ? 'u.email' : 'null::text'} as login_email
+                ${forAdmin ? 'u.email' : 'null::text'} as login_email,
+                p.avatar_preset, p.avatar_file_id
            from group_memberships m
            join users u on u.id = m.user_id
            left join user_profiles p on p.user_id = m.user_id
@@ -2204,6 +2207,8 @@ export class PgGroupQuery implements GroupQuery {
           studentNo: m.student_no,
           isLeader: m.is_leader,
           loginEmail: forAdmin ? m.login_email : null,
+          avatarPreset: m.avatar_preset,
+          avatarFileId: m.avatar_file_id,
         })),
       advisor: advisorOf.get(g.id) ?? null,
       opportunity: linkOf.get(g.id) ?? null,
