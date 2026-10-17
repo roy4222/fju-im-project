@@ -66,6 +66,7 @@ import {
   notAssigned,
   runGrading,
   stageOf,
+  stageSettled,
   type CohortRow,
   type GroupRow,
   type SchemeRow,
@@ -85,7 +86,8 @@ import { RealClock, type Clock } from '@/shared/time'
  *
  * 鎖順序（契約 01 §6：cohorts → groups → 頭列；和票 23 同一條，所以不會互相卡死）：
  * - 退回：`cohorts FOR SHARE` → `groups FOR SHARE` → `grading_schemes FOR SHARE` → 那一份的 `evaluator_assignments FOR UPDATE`
- *   → `evaluation_status FOR UPDATE`（模組實作設計 06 §6 v2.2：和改派同序）。
+ *   → `evaluation_status FOR UPDATE`（模組實作設計 06 §6 v2.2：和改派同序）。結算檢查在方案頭列 `FOR SHARE` 之後查
+ *   `grade_settlements`（結算拿同一列 `FOR UPDATE`，兩邊排隊；B 階段 AC-A-7）；不加新鎖。
  * - 改派：… → 該組該階段**全部**有效指派依 id `FOR UPDATE` → 被移除的那一列 → `stage_requirements FOR UPDATE` → 鎖內重算
  *   `basis_hash` 和預覽比對。正式送出只鎖自己的指派列、退回鎖那一份的指派列、改份數鎖份數列，都會和改派排隊：
  *   預覽之後任何改變採計集合的動作都讓 hash 對不上 → `CONFLICT`（要重新預覽），不會把剛送出的分數當暫存處理。
@@ -268,6 +270,11 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<ReturnReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
+      const stageName = (stages ? stageOf(stages, assignment.stage_key)?.name : null) ?? assignment.stage_key
+      // B 階段 AC-A-7：結算期間不能退回（退回會讓採計份數變少）；在方案頭列鎖內查，跟結算排隊（設計方案 §2.3）。
+      if (await stageSettled(tx, cohort.id, assignment.stage_key)) {
+        return err('CONFLICT', `${stageName}已結算，要修改請先解除結算。`)
+      }
       if (assignment.valid_to !== null) {
         return err('NOT_ASSIGNED', '這位老師已經不是這一組這一階段的評分老師（指派已結束），退回後他無法處理；請先處理指派。')
       }
@@ -278,7 +285,6 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (!teacher) {
         return err('VALIDATION_FAILED', '這位老師的帳號已停用或不再是老師，退回後他無法重送；請先移除或改派評分老師。')
       }
-      const stageName = (stages ? stageOf(stages, assignment.stage_key)?.name : null) ?? assignment.stage_key
 
       await reachFaultPoint('grading.return.before-update')
       await tx.query(

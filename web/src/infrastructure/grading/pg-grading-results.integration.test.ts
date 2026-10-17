@@ -11,6 +11,7 @@ import { DEFAULT_GRADE_EXPORT_FILTER, type SchemeStageInput } from '@/applicatio
 import { PgGradeExporter } from '@/infrastructure/grading/pg-grade-export'
 import { PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
+import { PgGradingSettlementCommand } from '@/infrastructure/grading/pg-grade-settlements'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgInbox } from '@/infrastructure/notifications/pg-inbox'
 import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
@@ -36,6 +37,7 @@ let query: PgGradingQuery
 let results: PgGradingResultsCommand
 let book: PgGradebookQuery
 let exporter: PgGradeExporter
+let settlement: PgGradingSettlementCommand
 
 function actor(userId: string, roles: ('admin' | 'teacher' | 'student')[]): ResolvedActor {
   return { kind: 'authenticated', userId, roles, status: 'active', mustChangePassword: false, cohortMemberships: [] }
@@ -180,6 +182,7 @@ beforeAll(async () => {
   results = new PgGradingResultsCommand(deps)
   book = new PgGradebookQuery(() => app)
   exporter = new PgGradeExporter({ query: book, audit: new PgAuditWriter(), pool: () => app })
+  settlement = new PgGradingSettlementCommand({ audit: deps.audit, ledger: deps.ledger, businessClock, pool: () => app })
 })
 
 afterAll(async () => {
@@ -307,6 +310,61 @@ describe('退回重送（GRD-07）', () => {
       ok: false,
       code: 'NOT_ASSIGNED',
     })
+  })
+})
+
+describe('結算期間的退回（B 階段 AC-A-7；設計方案 §2.3、§2.6 覆寫 AC-TE-38）', () => {
+  async function settle(cohortId: string, stageKey: string): Promise<string> {
+    const r = await settlement.settleStage(adminActor(), { cohortId, stageKey, reason: '期末成績送教務處' }, randomUUID())
+    if (!r.ok) throw new Error(r.message)
+    return r.receipt.settlementId
+  }
+
+  it('已結算的階段退回 → CONFLICT「先解除結算」、狀態不變、不通知；別的階段照常；解除後可退回', async () => {
+    const s = await standard()
+    const mid = await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    const fin = await submit(s.t2, s.a2, '90')
+    const settlementId = await settle(s.cohortId, 'mid')
+    const eventsBefore = (await owner.sql(`select count(*)::int as n from domain_events where type = 'grading.returned'`)).rows[0]!.n
+
+    const blocked = await results.returnEvaluation(adminActor(), { evaluationId: mid, reason: '請補評語' }, randomUUID())
+    expect(blocked).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(!blocked.ok && blocked.message).toBe('期中已結算，要修改請先解除結算。')
+    expect(await stateOf(mid)).toBe('counted')
+    expect((await owner.sql(`select count(*)::int as n from domain_events where type = 'grading.returned'`)).rows[0]!.n).toBe(eventsBefore)
+
+    // 期末沒結算：照常退回。
+    expect(await results.returnEvaluation(adminActor(), { evaluationId: fin, reason: '重評' }, randomUUID())).toMatchObject({ ok: true })
+
+    const released = await settlement.releaseSettlement(adminActor(), { settlementId, reason: '老師要補評語' }, randomUUID())
+    expect(released.ok).toBe(true)
+    expect(await results.returnEvaluation(adminActor(), { evaluationId: mid, reason: '請補評語' }, randomUUID())).toMatchObject({ ok: true })
+    expect(await stateOf(mid)).toBe('returned')
+  })
+
+  it('結算前已成功的退回，用同一個請求編號重放：回原回執（帳本先於結算檢查）', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    const fin = await submit(s.t2, s.a2, '90')
+    const requestId = randomUUID()
+    expect(await results.returnEvaluation(adminActor(), { evaluationId: fin, reason: '重評' }, requestId)).toMatchObject({ ok: true })
+    await settle(s.cohortId, 'fin')
+    expect(await results.returnEvaluation(adminActor(), { evaluationId: fin, reason: '重評' }, requestId)).toMatchObject({ ok: true })
+  })
+
+  it('更正最終結果不受結算限制', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    await submit(s.t2, s.a2, '90')
+    await settle(s.cohortId, 'mid')
+    await settle(s.cohortId, 'fin')
+    const g = await groupRow(s.cohortId, s.groupId)
+    expect(
+      await results.override(adminActor(), { groupId: s.groupId, newValue: '88', reason: '口試補考', basisHash: g.basisHash }, randomUUID()),
+    ).toMatchObject({ ok: true })
   })
 })
 
