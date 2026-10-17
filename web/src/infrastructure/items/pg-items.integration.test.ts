@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { enableFaultInjection, failAt } from '../../../test/fault-injection'
@@ -2530,6 +2530,87 @@ describe('規則章節上下移（A-14；Q198，AC-A-38、39、50）', () => {
       barrier.release()
     }
     await verify(results)
+  })
+
+  /** 屏障：握住這一屆的規則集合 advisory lock（鎖序第 1 步），會換集合的交易都停在拿任何列鎖之前；回 pid 給 `blockedBehind`。 */
+  async function holdRuleSet(barrier: PoolClient, cohortId: string): Promise<number> {
+    await barrier.query('begin')
+    await barrier.query(`select pg_advisory_xact_lock(hashtextextended('items.rules:' || $1::uuid::text, 0))`, [cohortId])
+    return (await barrier.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+  }
+
+  /** 放行屏障後等兩筆都收完；斷言失敗時也要收，不留握著鎖的連線與懸著的交易。 */
+  async function releaseRuleSet(barrier: PoolClient, pending: readonly Promise<unknown>[]) {
+    await barrier.query('rollback').catch(() => undefined)
+    barrier.release()
+    await Promise.allSettled(pending)
+  }
+
+  for (const [from, to] of [
+    ['rules', 'news'],
+    ['news', 'rules'],
+  ] as const) {
+    it(`Review r3 反例：同一個請求編號並行送兩次「${from} → ${to}」存草稿（都先讀到舊位置、排在規則鎖後面）→ 兩筆都回同一份回執，只寫一次`, async () => {
+      const { cohortId } = await newCohort()
+      const draft = await mustCreate(cohortId, { ...RULE, placement: from, title: 'r3 重送' })
+      const next = input(cohortId, { ...RULE, placement: to, title: 'r3 重送' })
+      const requestId = randomUUID()
+      const barrier = await owner.pool.connect()
+      let twice: ReturnType<typeof items.saveDraft>[] = []
+      let results: Awaited<ReturnType<typeof items.saveDraft>>[] = []
+      try {
+        const pid = await holdRuleSet(barrier, cohortId)
+        // 兩筆都在屏障放行前送出：不加鎖讀到的都是舊位置，然後一起卡在規則鎖上；放行後規則鎖一次只給一筆，
+        // 第二筆鎖到時第一筆已經 commit、位置已換——這就是 Review 第 3 輪的交錯。
+        twice = [
+          items.saveDraft(adminActor(), draft.itemId, draft.revision, next, requestId),
+          items.saveDraft(adminActor(), draft.itemId, draft.revision, next, requestId),
+        ]
+        await waitFor(async () => (await blockedBehind(pid)) >= 2)
+        expect(await blockedBehind(pid)).toBe(2)
+        await barrier.query('commit')
+        results = await Promise.all(twice)
+      } finally {
+        await releaseRuleSet(barrier, twice)
+      }
+      expect(results.map(outcome)).toEqual([{ ok: true }, { ok: true }])
+      expect(results[1]).toEqual(results[0])
+      const row = await itemRow(draft.itemId)
+      expect([row.placement, Number(row.revision)]).toEqual([to, 2])
+      expect(await count('select count(*) as n from operation_records where request_id = $1', [requestId])).toBe(1)
+      expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.save_draft'`, [draft.itemId])).toBe(1)
+    })
+  }
+
+  it('Review r3 同型：同一個請求編號並行刪同一章草稿規則兩次（排在規則鎖後面）→ 兩筆都回同一份回執，只刪一次、其餘補成連號', async () => {
+    const { cohortId } = await newCohort()
+    const one = await rule(cohortId, '第1章', '2026-09-01T00:00:00Z')
+    const gone = await rule(cohortId, '第2章', '2026-09-02T00:00:00Z', false)
+    const three = await rule(cohortId, '第3章', '2026-09-03T00:00:00Z')
+    const requestId = randomUUID()
+    const barrier = await owner.pool.connect()
+    let twice: ReturnType<typeof items.delete>[] = []
+    let results: Awaited<ReturnType<typeof items.delete>>[] = []
+    try {
+      const pid = await holdRuleSet(barrier, cohortId)
+      twice = [
+        items.delete(adminActor(), gone.itemId, gone.revision, requestId),
+        items.delete(adminActor(), gone.itemId, gone.revision, requestId),
+      ]
+      await waitFor(async () => (await blockedBehind(pid)) >= 2)
+      expect(await blockedBehind(pid)).toBe(2)
+      await barrier.query('commit')
+      results = await Promise.all(twice)
+    } finally {
+      await releaseRuleSet(barrier, twice)
+    }
+    expect(results.map(outcome)).toEqual([{ ok: true }, { ok: true }])
+    expect(results[1]).toEqual(results[0])
+    expect((await itemRow(gone.itemId)).deleted_at).not.toBeNull()
+    const positions = await Promise.all([one, three].map(async (x) => (await itemRow(x.itemId)).rules_position))
+    expect(positions).toEqual([1, 2])
+    expect(await count('select count(*) as n from operation_records where request_id = $1', [requestId])).toBe(1)
+    expect(await count(`select count(*) as n from audit_events where target_id = $1 and action = 'item.deleted'`, [gone.itemId])).toBe(1)
   })
 
   it('Review r2 反例：同屆 201 章、第 201 章上移到第 200 位 → 前台整本目錄照位置列出全部 201 章；取 200 筆也是排完才截，第 200 位的那一章在、被擠到第 201 位的不在', async () => {

@@ -161,7 +161,9 @@ type Deps = {
  * 的交易彼此不會同時走到第 3 步），只是便宜的保險；檔案列依 id 則擋掉兩筆同時附上同一組檔案、順序相反的互等。
  *
  * 要不要拿第 1 步，在鎖任何列之前用不加鎖的讀決定（`headOf`）；鎖到之後 placement 跟當時讀到的不同就回 `staleRevision`，
- * 不在沒拿規則鎖的情況下動集合。
+ * 不在沒拿規則鎖的情況下動集合。這個判斷放在帳本 `begin` 的 replay／mismatch 之後、業務寫入之前：同一個請求編號並行重送時，
+ * 第二筆排在規則鎖後面才鎖到，看到的位置是第一筆剛換的，要先拿回原回執而不是回 CONFLICT（契約 01 §8；Review 第 3 輪）。
+ * 帳本前只剩「找不到項目／屆別」——帳本列的 `cohort_id` 要從那一列來、且有 FK，不是業務檢查。
  *
  * 位置一律在規則鎖下整屆重編成 1..n（順序 `rules_position asc nulls last, actual_opened_at asc, id asc`，
  * 跟前台、系辦清單同一個）：NULL、重複、缺號（刪掉中間一章）都在同一筆交易裡收掉。新加入的規則位置是 NULL，重編後排最後。
@@ -384,9 +386,6 @@ export class PgItemCommand implements ItemCommand {
       const locked = await this.#lock(tx, itemId)
       if (!locked) return itemNotFound()
       const { item } = locked
-      // 要不要拿規則鎖是照不加鎖讀到的 placement 決定的；鎖到之後不一樣（剛有人換過，revision 也一定變了）就當過期，
-      // 不在沒拿規則鎖的情況下動集合。
-      if (head && item.placement !== head.placement) return staleRevision()
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -402,6 +401,10 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SaveReceipt>(begun)
+      // 要不要拿規則鎖是照不加鎖讀到的 placement 決定的；鎖到之後不一樣（剛有人換過，revision 也一定變了）就當過期，
+      // 不在沒拿規則鎖的情況下動集合。只對第一次送達的請求判：同一個請求編號排在規則鎖後面重送時，位置是自己前一筆
+      // 換的，上面已經拿回原回執（Review 第 3 輪的反例）。
+      if (head && item.placement !== head.placement) return staleRevision()
       if (archivedBlocks(locked.cohortStatus, item.placement, draft.placement)) return cohortArchived()
       if (item.revision !== revision) return staleRevision()
       if (item.status !== 'draft') {
@@ -1167,7 +1170,6 @@ export class PgItemCommand implements ItemCommand {
       const locked = await this.#lock(tx, itemId, { includeDeleted: true })
       if (!locked) return itemNotFound()
       const { item } = locked
-      if (head && item.placement !== head.placement) return staleRevision()
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -1183,6 +1185,8 @@ export class PgItemCommand implements ItemCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<DeleteReceipt>(begun)
+      // 同 `saveDraft`：位置過期只對第一次送達的請求判，重送先拿回原回執。
+      if (head && item.placement !== head.placement) return staleRevision()
       if (locked.deleted) return itemNotFound()
       if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
       if (item.revision !== revision) return staleRevision()
