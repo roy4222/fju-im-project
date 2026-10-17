@@ -383,8 +383,17 @@ describe('設定值', () => {
     expect(authInstance.options.session?.cookieCache?.enabled).toBe(false)
   })
 
-  it('關掉同 Email 的隱含帳號合併', () => {
-    expect(authInstance.options.account?.accountLinking?.disableImplicitLinking).toBe(true)
+  // Q45（VB-5）：同 Email 的 Google 自動連結打開，但只限本地 Email 已驗證、Google 也驗證過、Email 相同。
+  // 未驗證／停用／去識別化不連結，守在 google-oauth.integration.test.ts「同 Email 的 Google 自動連結（Q45，VB-5）」
+  // （AC-VI-61 與四種受限帳號那幾條）。
+  it('同 Email 的隱含連結只在本地 Email 已驗證時開（Q45）：沒有免驗證的 trustedProviders、不允許不同 Email、連結不改資料', () => {
+    expect(authInstance.options.account?.accountLinking).toEqual({
+      enabled: true,
+      disableImplicitLinking: false,
+      requireLocalEmailVerified: true,
+      allowDifferentEmails: false,
+      updateUserInfoOnLink: false,
+    })
   })
 
   it('主鍵由應用產生（uuidv7），不是套件預設', () => {
