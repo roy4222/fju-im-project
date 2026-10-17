@@ -148,7 +148,7 @@ test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換�
   const startedAt = new Date()
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/home-settings')
-  await expect(page.getByRole('heading', { name: '首頁設定', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
 
   const line1 = `E2E 首頁標語 ${stamp}`
   const line2 = `第二行說明 ${stamp}`
@@ -261,7 +261,7 @@ test('學生與老師打不開首頁設定', async ({ page }) => {
     await signIn(page, role)
     await page.goto('/dashboard/admin/home-settings')
     await expect(page).toHaveURL(/\/403$/)
-    await expect(page.getByRole('heading', { name: '首頁設定', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '設定', exact: true })).toHaveCount(0)
   }
 })
 

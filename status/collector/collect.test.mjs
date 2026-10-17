@@ -85,7 +85,7 @@ describe('AC-S-8 一輪收集的輸出', () => {
     const status = read('collector.json')
 
     expect(Object.values(status.sources).every((s) => s.ok)).toBe(true)
-    for (const f of ['github.json', 'health.json', 'vm.json', 'acceptance-index.json', 'collector.json']) {
+    for (const f of ['github.json', 'health.json', 'vm.json', 'acceptance-index.json', 'metrics.json', 'collector.json']) {
       expect(read(f).generatedAt).toBe(NOW.toISOString())
     }
 
@@ -177,7 +177,7 @@ describe('AC-S-8 一輪收集的輸出', () => {
     expect(idx).toMatchObject({ runs: [], latestFullAttempt: null, requiredItems: ['security-static', 'story-1'], requiredItemsSourceSha: MAIN_SHA })
 
     expect(read('collector.json').sources).toEqual(
-      Object.fromEntries(['github', 'repo', 'health', 'vm', 'acceptance'].map((k) => [k, { ok: true, at: NOW.toISOString(), error: null }])),
+      Object.fromEntries(['github', 'repo', 'health', 'vm', 'acceptance', 'metrics'].map((k) => [k, { ok: true, at: NOW.toISOString(), error: null }])),
     )
   })
 
@@ -517,6 +517,7 @@ describe('AC-S-9 帳密連線字串與敏感欄位', () => {
     expect(Object.keys(read('health.json')).sort()).toEqual(['accessGuard', 'generatedAt', 'prod', 'test'])
     expect(Object.keys(read('vm.json')).sort()).toEqual(['backups', 'deploys', 'disk', 'diskError', 'generatedAt', 'prodDns', 'prodEnv', 'prodEnvError'])
     expect(Object.keys(read('acceptance-index.json')).sort()).toEqual(['generatedAt', 'latestFullAttempt', 'requiredItems', 'requiredItemsSourceSha', 'runs'])
+    expect(Object.keys(read('metrics.json')).sort()).toEqual(['error', 'gatusOk', 'generatedAt', 'sites'])
     expect(Object.keys(read('collector.json')).sort()).toEqual(['generatedAt', 'sources'])
   })
 })
@@ -582,6 +583,81 @@ describe('AC-S-10 GitHub 失敗', () => {
     const cfg = await start({ 'GET /api/repos/roy4222/fju-im-project/commits/main': () => ({ status: 500, body: {} }) })
     await runOnce(cfg, NOW)
     expect(read('github.json')).toMatchObject({ mainSha: null, ci: null, prs: [], fetchError: expect.stringContaining('HTTP 500') })
+  })
+})
+
+describe('AC-DV-06、07 metrics.json（Gatus 指標）', () => {
+  const gatusCount = () => server.seen.filter((s) => s.startsWith('GET /gatus/')).length
+
+  it('一輪寫出兩站 24h 指標；整輪對 Gatus ≤ 4 次（health 的 statuses 一次＋metrics 三次）', async () => {
+    const cfg = await start()
+    const before = gatusCount()
+    const status = await runOnce(cfg, NOW)
+    expect(gatusCount() - before).toBeLessThanOrEqual(4)
+    expect(server.seen.filter((s) => s.startsWith('GET /gatus/api/v1/endpoints/site_'))).toEqual([
+      'GET /gatus/api/v1/endpoints/site_test/uptimes/7d',
+      'GET /gatus/api/v1/endpoints/site_prod/uptimes/7d',
+    ])
+    expect(status.sources.metrics).toEqual({ ok: true, at: NOW.toISOString(), error: null })
+    const m = read('metrics.json')
+    expect(m).toMatchObject({ generatedAt: NOW.toISOString(), gatusOk: true, error: null })
+    expect(m.sites.test).toMatchObject({ fetchedAt: NOW.toISOString(), uptime24h: 1, uptime7d: 0.999, failures24h: 0 })
+    expect(m.sites.test.points).toHaveLength(6)
+    expect(m.sites.test.points[5]).toEqual({ at: new Date(NOW.getTime() - 5 * 60000).toISOString(), ms: 0, ok: true })
+    expect(m.sites.prod).toMatchObject({ uptime24h: 0, uptime7d: 0, failures24h: 1 })
+  })
+
+  it('Gatus 的 result 多了規格外欄位（hostname、password）：points 只有 at／ms／ok，檔案照寫', async () => {
+    const cfg = await start(gatusRoutes(NOW, { extraResultFields: { hostname: 'x', password: 'y' } }))
+    await runOnce(cfg, NOW)
+    const m = read('metrics.json')
+    expect(Object.keys(m).sort()).toEqual(['error', 'gatusOk', 'generatedAt', 'sites'])
+    for (const p of m.sites.test.points) expect(Object.keys(p).sort()).toEqual(['at', 'ms', 'ok'])
+    expect(fs.readFileSync(path.join(vm.dataDir, 'metrics.json'), 'utf8')).not.toContain('password')
+  })
+
+  it('Gatus 不通：保留上一輪兩站的值與原本的 fetchedAt、gatusOk:false、檔案照寫、sources.metrics.ok:false；不重試', async () => {
+    let cfg = await start()
+    const earlier = new Date(NOW.getTime() - 2 * 3600e3)
+    await runOnce(cfg, earlier)
+    const prev = read('metrics.json')
+    await server.close()
+
+    cfg = await start({ 'GET /gatus/api/v1/endpoints/statuses': () => ({ status: 502, body: 'bad gateway' }) })
+    const status = await runOnce(cfg, NOW)
+    // health 一次＋metrics 的 statuses 一次；statuses 失敗就不打 uptimes，也不重試
+    expect(gatusCount()).toBe(2)
+    const m = read('metrics.json')
+    expect(m).toMatchObject({ generatedAt: NOW.toISOString(), gatusOk: false, error: 'HTTP 502' })
+    expect(m.sites).toEqual(prev.sites)
+    expect(m.sites.test.fetchedAt).toBe(earlier.toISOString())
+    expect(status.sources.metrics).toMatchObject({ ok: false, error: 'HTTP 502' })
+    // 其他來源照常
+    expect(status.sources.vm.ok).toBe(true)
+  })
+
+  it('沒有上一版又連不到 Gatus：兩站是 null、檔案照寫', async () => {
+    const cfg = await start({ 'GET /gatus/api/v1/endpoints/statuses': () => ({ status: 503, body: '' }) })
+    await runOnce(cfg, NOW)
+    expect(read('metrics.json')).toEqual({ generatedAt: NOW.toISOString(), gatusOk: false, error: 'HTTP 503', sites: { test: null, prod: null } })
+  })
+
+  it('只有正式站的 uptimes/7d 失敗：正式站沿用上一版、測試站照常更新；每支只打一次', async () => {
+    let cfg = await start()
+    const earlier = new Date(NOW.getTime() - 600e3)
+    await runOnce(cfg, earlier)
+    const prev = read('metrics.json')
+    await server.close()
+
+    cfg = await start(gatusRoutes(NOW, { uptimes: { prod: { status: 500, body: 'oops' } } }))
+    const status = await runOnce(cfg, NOW)
+    expect(server.seen.filter((s) => s.endsWith('/uptimes/7d'))).toHaveLength(2)
+    const m = read('metrics.json')
+    expect(m.gatusOk).toBe(false)
+    expect(m.error).toBe('prod: HTTP 500')
+    expect(m.sites.prod).toEqual(prev.sites.prod)
+    expect(m.sites.test.fetchedAt).toBe(NOW.toISOString())
+    expect(status.sources.metrics.ok).toBe(false)
   })
 })
 
