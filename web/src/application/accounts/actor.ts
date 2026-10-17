@@ -41,6 +41,12 @@ export type Actor = {
    * 測試自己組的 actor 可以不帶；需要它的用例（簽核表態）沒有就拒絕。
    */
   readonly loginMethod?: 'google' | 'password'
+  /**
+   * 老師還沒補完首次資料（票 8；跟 `TeacherSetupCommand.needsSetup` 同一個條件）。resolver 跟身分同一句讀出來，
+   * 隨身分快取一起存，`requireRole('teacher')` 看這個導去補資料頁，不再每次另查（B 設計方案 §4.1）。
+   * 只有老師才帶；選填，測試自己組的 actor 可以不給（＝不用補）。
+   */
+  readonly teacherSetupPending?: boolean
 }
 
 /** 沒有有效 session 時的結果。刻意是明確的值，不是 `null`，呼叫端就漏不掉。 */

@@ -54,6 +54,7 @@ import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-rev
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 import { softDeleteAvatarFile } from '@/infrastructure/accounts/avatar-store'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 
 /**
  * 帳號列表、停用／恢復、批次停用與匯出（工程模組 01 §3 active⇄disabled、§5 `AccountCommand`／`UserDirectoryQuery`；票 9）。
@@ -902,6 +903,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
   }
 
   async #runRevocation(userId: string, context: AdminRequestContext) {
+    // 停用、恢復、批次停用、去識別化都在 commit 之後走到這裡：先丟身分快取，下一次請求就是新狀態（B 設計方案 §4.1）。
+    bustIdentity(userId)
     try {
       return await this.#revocations.runForUser(userId, context.headers)
     } catch (error) {

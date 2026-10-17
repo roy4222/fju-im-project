@@ -14,6 +14,7 @@ import type { AuditWriter } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 
 /**
  * 老師第一次登入補資料（產品模組 01 §2.4「老師帳號」；工程模組 01 附錄 A
@@ -150,6 +151,8 @@ export class PgTeacherSetupCommand implements TeacherSetupCommand {
         payload: { phoneProvided: profile.phone !== null },
       })
       await tx.query('commit')
+      // 身分快取裡的 `teacherSetupPending` 要跟著變，下一頁才不會又被導回補資料頁（B 設計方案 §4.1）。
+      bustIdentity(actor.userId)
       return ok({ completedAt: now.toISOString() }, { requestId: uuidv7(), serverTime: now.toISOString() })
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
