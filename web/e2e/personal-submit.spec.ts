@@ -251,21 +251,20 @@ test('作業區只列自己名單上的個人收件，狀態分成尚未開放�
   await signIn(page, s1)
   await page.goto('/dashboard/student')
   await page.getByRole('navigation').getByRole('link', { name: '我的繳交' }).click()
-  await expect(page.getByRole('heading', { name: '我的繳交', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '交作業', exact: true })).toBeVisible()
 
-  const table = page.locator('table')
-  await expect(table.getByRole('link', { name: `${CODE} 分組意向登記` })).toBeVisible()
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('未繳')
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('進行中')
+  const list = page.getByRole('list', { name: '作業列表' })
+  await expect(list.getByRole('link', { name: new RegExp(`${CODE} 分組意向登記`) })).toBeVisible()
+  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText(/待交|快到期/)
   await expect(page.getByTestId(`affair-${itemIds.later}`)).toContainText('尚未開放')
-  await expect(page.getByTestId(`affair-${itemIds.later}`)).toContainText('開放')
-  await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toContainText('逾期未繳')
+  // 逾期的不在預設的「待交」篩選，在「逾期」。
+  await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toHaveCount(0)
   // 別屆的、自己不在的組別的整組一份都不在這裡（s1 不是 G01 的組員）。
   await expect(page.getByText(`${CODE} 別屆的收件`)).toHaveCount(0)
   await expect(page.getByText(`${CODE} 整組一份的報告`)).toHaveCount(0)
 
-  await page.getByRole('link', { name: /逾期未繳/ }).first().click()
-  await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toBeVisible()
+  await page.getByRole('navigation', { name: '篩選作業' }).getByRole('link', { name: /逾期/ }).click()
+  await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toContainText('逾期')
   await expect(page.getByTestId(`affair-${itemIds.open}`)).toHaveCount(0)
 })
 
@@ -423,9 +422,9 @@ test('本人看得到每一次正式送出的版本（繳交歷史、當時的�
 
   // 作業區狀態跟著變。
   await signIn(page, s1)
-  await page.goto('/dashboard/student/affairs')
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已繳第 2 次')
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('截止前可重送')
+  await page.goto('/dashboard/student/affairs?tab=done')
+  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已交')
+  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已交第 2 次')
 })
 
 test('有人作答後，管理員編輯器裡的收件單位鎖住；沒人作答的仍可切換', async ({ page }) => {

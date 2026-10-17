@@ -258,7 +258,7 @@ test('2. 只有被開放的學生收到通知、能交，版本標「補交」',
 
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs')
-  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('系辦開放補交到')
+  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('補交到')
 
   await page.goto(`/dashboard/student/affairs/${itemId}`)
   await expect(page.getByTestId('affair-banner')).toContainText('系辦已開放你補交到')
