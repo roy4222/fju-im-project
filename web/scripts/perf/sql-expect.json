@@ -89,8 +89,8 @@
   },
   "/dashboard/admin/groups": {
     "as": "admin",
-    "baseline": 49,
-    "max": 49,
+    "baseline": 29,
+    "max": 29,
     "identity": 7
   },
   "/dashboard/admin/grading": {

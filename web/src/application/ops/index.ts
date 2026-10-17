@@ -54,6 +54,10 @@ export type { AuditLog, AuditLogEntry, AuditWhoFilter } from '@/application/ops/
 export {
   AUDIT_EXCLUDED_ACTIONS,
   AUDIT_PAGE_LIMIT,
+  AUDIT_QUERY_MAX_LENGTH,
+  AUDIT_TARGET_TYPE_LABEL_ENTRIES,
+  AuditQueryInvalidError,
+  parseAuditQuery,
   AUDIT_WHO_FILTERS,
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,

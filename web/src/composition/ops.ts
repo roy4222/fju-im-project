@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg'
 import { rosterFileDownloadable, type ResolvedActor } from '@/application/accounts'
 import {
   normalizeAuditWho,
+  parseAuditQuery,
   storageTileText,
   type AuditLog,
   type AuditWriter,
@@ -34,6 +35,7 @@ export {
   auditWhoOf,
   describeAuditTarget,
 } from '@/application/ops'
+export { AUDIT_QUERY_MAX_LENGTH, AuditQueryInvalidError } from '@/application/ops'
 
 /** 模組 10 的共用 port（稽核、帳本、檔案）。 */
 let auditWriter: AuditWriter<PoolClient> | undefined
@@ -128,9 +130,10 @@ export function getOpsStatusQuery() {
  */
 export function getAuditLogQuery() {
   return {
-    async recent(actor: ResolvedActor, who: unknown): Promise<AuditLog | null> {
+    /** `options.q`：搜尋字（網址 `?q=`）；trim 後超過 50 字丟 `AuditQueryInvalidError`（`VALIDATION_FAILED`）。 */
+    async recent(actor: ResolvedActor, who: unknown, options: { q?: string } = {}): Promise<AuditLog | null> {
       if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actor.roles.includes('admin')) return null
-      return readAuditLog(getPool(), normalizeAuditWho(who))
+      return readAuditLog(getPool(), normalizeAuditWho(who), parseAuditQuery(options.q))
     },
   }
 }
