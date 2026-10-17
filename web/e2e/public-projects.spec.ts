@@ -214,7 +214,7 @@ test('訪客：作品頁的 YouTube 影片直接嵌入播放；舊的非 YouTube
 
   const response = await page.goto(`/projects/${entryId}`)
   // CSP 不放寬：frame-src 仍只有 YouTube 與 Turnstile（youtube-nocookie 維持被擋）。
-  expect(response?.headers()['content-security-policy']).toContain('frame-src https://www.youtube.com https://challenges.cloudflare.com;')
+  expect(response?.headers()['content-security-policy']).toContain("frame-src 'self' https://www.youtube.com https://challenges.cloudflare.com;")
   const embed = page.getByTestId('video-embed')
   await expect(embed).toHaveAttribute('src', 'https://www.youtube.com/embed/e2e')
   await expect(embed).toHaveAttribute('title', '三分鐘影片')

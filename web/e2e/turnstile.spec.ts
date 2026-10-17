@@ -41,7 +41,7 @@ test('CSP 逐字不變：script-src 只靠 nonce＋strict-dynamic，Turnstile �
   const response = await page.goto('/register')
   const csp = response!.headers()['content-security-policy'] ?? ''
   expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'(;|$)/)
-  expect(csp).toContain('frame-src https://www.youtube.com https://challenges.cloudflare.com;')
+  expect(csp).toContain("frame-src 'self' https://www.youtube.com https://challenges.cloudflare.com;")
   // connect-src 只驗 Turnstile 需要的兩個來源還在，不寫死整串（VB-8 加了 GA 網域，之後還會增減）。
   const connectSrc = /(?:^|; )connect-src ([^;]*)/.exec(csp)?.[1]?.split(' ') ?? []
   expect(connectSrc).toEqual(expect.arrayContaining(["'self'", 'https://challenges.cloudflare.com']))
