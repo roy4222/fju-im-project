@@ -6,12 +6,12 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * 畫面用詞規則（AD-33b，AC-AD-33）：側欄與分頁列換成新名後，頁面上的字串還是一再冒出舊名
- * （Q83「專題事務」→「公告與作業」、「繳交項目」→「作業」）。這支掃 `src/app/**` 與操作紀錄的對照表，
+ * （Q83「專題事務」→「公告與作業」、「繳交項目」→「作業」）。系辦「評分」改叫「成績」，返回連結「← 評分」也算舊名。這支掃 `src/app/**` 與操作紀錄的對照表，
  * 字串常值、模板字串、JSX 文字裡出現舊名就失敗。註解不算；測試檔不掃。
  *
  * 暫時留著的列在 ALLOWED，每一筆寫理由與次數（次數不對也會失敗，改掉之後記得把那一筆刪掉）。
  */
-const LEGACY_TERMS = ['專題事務', '繳交項目', '收件項目', '站內同意書'] as const
+const LEGACY_TERMS = ['專題事務', '繳交項目', '收件項目', '站內同意書', '← 評分'] as const
 
 const WEB = fileURLToPath(new URL('..', import.meta.url))
 
@@ -67,7 +67,7 @@ function countHits(): Map<string, number> {
 }
 
 describe('畫面舊用詞（AD-33b，AC-AD-33）', () => {
-  it('src/app 與操作紀錄的字串裡沒有「專題事務」「繳交項目」「收件項目」「站內同意書」（白名單除外，次數要對）', () => {
+  it('src/app 與操作紀錄的字串裡沒有「專題事務」「繳交項目」「收件項目」「站內同意書」「← 評分」（白名單除外，次數要對）', () => {
     const hits = Object.fromEntries(countHits())
     const allowed = Object.fromEntries(ALLOWED.map((a) => [`${a.file}｜${a.term}`, a.count]))
     expect(hits).toEqual(allowed)

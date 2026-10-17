@@ -33,7 +33,7 @@ export default async function ApplySchemePage({ params }: { params: Promise<{ ve
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/grading">
       <Link href={back} className="mb-4 inline-flex text-sm font-medium text-muted-foreground hover:text-foreground">
-        ← 評分
+        ← 成績
       </Link>
       <header className="mb-5">
         <h1 className="text-xl font-semibold text-foreground">套用新版評分規則</h1>

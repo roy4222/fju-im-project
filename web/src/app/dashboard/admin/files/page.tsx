@@ -11,7 +11,7 @@ import { getFileListQuery } from '@/composition/files'
 import { formatBytes } from '@/shared/format-bytes'
 import { taipeiDateOf } from '@/shared/time'
 
-export const metadata = { title: '檔案管理｜資管系專題平台' }
+export const metadata = { title: '檔案｜資管系專題平台' }
 
 /** 「公告與作業」底下的三個分頁（設計方案 §3.2；`/affairs`、`/showcase` 用同一組）。 */
 const AFFAIRS_TABS = [

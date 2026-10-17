@@ -42,7 +42,7 @@ import { formatTaipeiDate, formatTaipeiSecond, taipeiDayEndExclusive, taipeiDayS
 
 const DAY = 86_400_000
 
-export const metadata = { title: '時間軸設定｜資管系專題平台' }
+export const metadata = { title: '時間軸｜資管系專題平台' }
 
 /** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
 const SETTINGS_TABS = [
