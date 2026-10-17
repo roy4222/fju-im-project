@@ -508,6 +508,157 @@ describe('續辦重寄（VB-3 Review 第 1 輪 P3）', () => {
   })
 })
 
+/**
+ * VB-3 Review 第 2 輪（PR #590）：續辦重寄的兩條反例。
+ * 1. Brevo 未設定（或寄失敗）時函式仍回成功、改綁新碼、延長期限 → 舊碼失效、新碼沒送到。
+ * 2. 同一張票每 181 秒重寄一次，暫存期限無上限地延長（固定視窗額度一直重開）。
+ * 主腦裁定：續辦絕對上限＝票建立起 30 分鐘（存在暫存列、不由 client 帶）；寄送失敗保留原 OTP 與綁定、不延長。
+ */
+describe('續辦重寄安全（VB-3 Review 第 2 輪）', () => {
+  async function at<T>(offsetMs: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + offsetMs)
+    try {
+      return await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  async function pendingRow(email: string): Promise<{ value: string; expiresAt: number; createdAt: number }> {
+    const row = (
+      await db.sql(`select value, expires_at, created_at from verifications where identifier = $1`, [
+        resume.signupResumeIdentifier(email),
+      ])
+    ).rows[0]!
+    return {
+      value: String(row.value),
+      expiresAt: new Date(row.expires_at as string).getTime(),
+      createdAt: new Date(row.created_at as string).getTime(),
+    }
+  }
+
+  async function otpRows(email: string): Promise<string[]> {
+    const rows = await db.sql(`select value from verifications where identifier = $1 order by created_at, id`, [
+      resume.emailOtpIdentifier(email),
+    ])
+    return rows.rows.map((r) => String(r.value))
+  }
+
+  it('反例 1：Brevo 未設定 → 回 mail_failed、暫存列（綁定與期限）原封不動、沒寄出的新碼撤掉，原本那封的碼仍能完成', async () => {
+    const email = freshEmail('resend-mailfail')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const oldOtp = (await otpMails(email)).at(-1)!
+    const pendingBefore = await pendingRow(email)
+    const otpRowsBefore = await otpRows(email)
+    expect(otpRowsBefore).toHaveLength(2)
+
+    // 正式寄信模式但沒有金鑰：Brevo 轉接器記 failed／not_configured，不降級成擷取。
+    await loadAuth({ MAIL_CAPTURE: '', BREVO_API_KEY: '', MAIL_FROM: '' })
+    try {
+      expect(await at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('mail_failed')
+    } finally {
+      await loadAuth()
+    }
+    const outbox = (
+      await db.sql(`select status, error from mail_outbox where to_email = $1 order by created_at desc, id desc limit 1`, [email])
+    ).rows[0]
+    expect(outbox).toEqual({ status: 'failed', error: 'not_configured' })
+
+    // 不改綁、不延長。
+    expect(await pendingRow(email)).toEqual(pendingBefore)
+    // 套件在寄信前已插的那列新碼撤掉，否則 check 端點只認最新那列、舊碼在那一層就失效。
+    expect(await otpRows(email)).toEqual(otpRowsBefore)
+
+    // 原本那封的碼仍能完成續辦。
+    const done = await wrapper.completeSignupResume({ email, otp: oldOtp, ticket }, headers())
+    expect(done.userId).toBe(id)
+    expect((await signIn(email, P2)).status).toBe(200)
+  })
+
+  it('反例 2：同一張票每 181 秒重寄 → 期限最多到票建立後 30 分鐘；過了截止重寄回 timed_out、不寄信、不改綁，完成回 SIGNUP_RESUME_EXPIRED', async () => {
+    const email = freshEmail('resend-deadline')
+    await signUp(email)
+    // 票在「現在＋121 秒」建立：絕對截止＝那一刻＋30 分鐘。
+    const ticket = await startResume(email, P2)
+    const first = await pendingRow(email)
+    const deadlineAt = (JSON.parse(first.value) as { deadlineAt?: unknown }).deadlineAt
+    expect(deadlineAt).toBe(first.createdAt + resume.SIGNUP_RESUME_MAX_SECONDS * 1000)
+    expect(first.expiresAt).toBe(first.createdAt + resume.SIGNUP_RESUME_TTL_SECONDS * 1000)
+
+    // Review 的節奏：每 181 秒一次（每個 Email 10 分鐘 5 封的固定視窗擋不住）。截止前的每一次都放行，但期限封頂。
+    let sent = 0
+    for (let offset = 302_000; offset < 1_921_000; offset += 181_000) {
+      expect(await at(offset, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers())), `offset ${offset}`).toBe('sent')
+      sent += 1
+      const row = await pendingRow(email)
+      expect(row.expiresAt, `offset ${offset}`).toBeLessThanOrEqual(deadlineAt as number)
+      expect((JSON.parse(row.value) as { deadlineAt?: unknown }).deadlineAt, `offset ${offset}`).toBe(deadlineAt)
+    }
+    expect(sent).toBe(9)
+    const capped = await pendingRow(email)
+    expect(capped.expiresAt).toBe(deadlineAt)
+    expect(await otpMails(email)).toHaveLength(2 + sent)
+
+    // 過了截止：不寄信、不改綁、不延長；回 timed_out（票對的人才會看到這一句）。
+    expect(await at(1_931_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).toBe('timed_out')
+    expect(await otpMails(email)).toHaveLength(2 + sent)
+    expect(await pendingRow(email)).toEqual(capped)
+
+    // 完成：截止那一刻起交易就擋（直接打交易、時鐘給截止），經 wrapper 也是 SIGNUP_RESUME_EXPIRED。
+    const latest = (await otpMails(email)).at(-1)!
+    expect(await resume.finishSignupResume(app, { email, otp: latest, ticket }, new Date(deadlineAt as number))).toEqual({
+      ok: false,
+      reason: 'expired',
+    })
+    await expect(at(1_931_000, () => wrapper.completeSignupResume({ email, otp: latest, ticket }, headers()))).rejects.toMatchObject({
+      body: { code: 'SIGNUP_RESUME_EXPIRED' },
+    })
+  })
+
+  it('新用途 signup-resume-resend 沒有旁路：Turnstile 有設定而沒帶 token → TURNSTILE_REQUIRED、不寄信、不改綁', async () => {
+    const email = freshEmail('resend-turnstile')
+    await signUp(email)
+    const ticket = await startResume(email, P2)
+    const before = await pendingRow(email)
+    const mails = (await otpMails(email)).length
+    await loadAuth({ TURNSTILE_SITE_KEY: '1x00000000000000000000AA', TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA' })
+    try {
+      await expect(at(242_000, () => wrapper.resendSignupResumeOtp({ email, ticket }, headers()))).rejects.toMatchObject({
+        body: { code: 'TURNSTILE_REQUIRED' },
+      })
+    } finally {
+      await loadAuth()
+    }
+    expect((await otpMails(email)).length).toBe(mails)
+    expect(await pendingRow(email)).toEqual(before)
+  })
+
+  it('截止存在暫存列、不由 client 帶：expires_at 被改到截止之後也沒用，改綁與完成都看 deadlineAt', async () => {
+    const email = freshEmail('deadline-row')
+    const id = await signUp(email)
+    const ticket = await startResume(email, P2)
+    const { value } = await pendingRow(email)
+    const deadlineAt = (JSON.parse(value) as { deadlineAt: number }).deadlineAt
+    await db.sql(`update verifications set expires_at = $2 where identifier = $1`, [
+      resume.signupResumeIdentifier(email),
+      new Date(deadlineAt + 3_600_000),
+    ])
+    const hash = await passwordHash(id)
+    const otp = (await otpMails(email)).at(-1)!
+
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket }, new Date(deadlineAt))).toEqual({ ok: false, reason: 'timed_out' })
+    expect(await resume.finishSignupResume(app, { email, otp, ticket }, new Date(deadlineAt))).toEqual({ ok: false, reason: 'expired' })
+    expect(await passwordHash(id)).toBe(hash)
+
+    // 截止前最後一毫秒：改綁放行，但期限只到截止；完成照常。
+    expect(await resume.rebindSignupResumeOtp(app, { email, ticket }, new Date(deadlineAt - 1))).toEqual({ ok: true })
+    expect((await pendingRow(email)).expiresAt).toBe(deadlineAt)
+    expect(await resume.finishSignupResume(app, { email, otp, ticket }, new Date(deadlineAt - 1))).toMatchObject({ ok: true, userId: id })
+  })
+})
+
 describe('Review 第 2 輪：DB_POOL_MAX=1（持有連線時不得再向同池借連線）', () => {
   beforeAll(async () => {
     await loadAuth({ DB_POOL_MAX: '1' })

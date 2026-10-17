@@ -11,5 +11,6 @@ export {
   resendVerificationOtp,
   signUpOrResume,
   verifyEmailWithOtp,
+  type SignupResumeResendOutcome,
   type SignUpOrResumeOutcome,
 } from '@/infrastructure/auth/wrapper'

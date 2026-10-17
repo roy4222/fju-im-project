@@ -13,7 +13,8 @@ import { uuidv7 } from 'uuidv7'
  *
  * 1. 第 1 步的註冊照舊回 `EMAIL_UNAVAILABLE`；wrapper 接著看那個帳號**可不可以續辦**（`isResumableSignup`）。
  * 2. 可以 → 對該 Email 寄一封驗證碼（內部入口，同一次註冊已驗過 Turnstile），新密碼的雜湊連同這封信的碼、
- *    一張續辦票（給發起的瀏覽器）暫存在 `verifications` 一列（10 分鐘），**不換密碼、不動 session**。
+ *    一張續辦票（給發起的瀏覽器）、絕對截止（票建立起 30 分鐘）暫存在 `verifications` 一列（10 分鐘，重寄可延但
+ *    不超過截止），**不換密碼、不動 session**。
  * 3. 填對驗證碼 → 一筆交易內：`email_verified = true`、credential 密碼換成暫存的新雜湊、刪掉這個人全部舊 session
  *    （先前不知道是誰建的帳號，之前的登入一律作廢），之後才發新 session。
  *
@@ -23,8 +24,20 @@ import { uuidv7 } from 'uuidv7'
 
 type Queryable = Pick<Pool, 'query'> | PoolClient
 
-/** 暫存新密碼雜湊的有效秒數（跟驗證碼同樣 10 分鐘）。 */
+/** 暫存新密碼雜湊的有效秒數（跟驗證碼同樣 10 分鐘）；續辦重寄把期限延到「現在＋10 分鐘」，但不超過絕對截止。 */
 export const SIGNUP_RESUME_TTL_SECONDS = 600
+
+/**
+ * 續辦的絕對上限（VB-3 Review 第 2 輪；主腦裁定）：從續辦開始（票建立）起 30 分鐘，不可延長。
+ * 存在暫存列的 `deadlineAt`（不由 client 帶）；每次重寄的期限取 `min(現在＋10 分鐘, 截止)`，重寄與完成都檢查截止。
+ * 沒有這一條時，同一張票每 181 秒重寄一次（固定視窗額度一直重開）就能無限延長暫存（Review 第 2 輪反例）。
+ */
+export const SIGNUP_RESUME_MAX_SECONDS = 1800
+
+/** 這一輪的期限：現在＋10 分鐘，但不超過絕對截止。 */
+function windowEnd(now: Date, deadlineAt: number): Date {
+  return new Date(Math.min(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000, deadlineAt))
+}
 
 /**
  * 這個帳號可不可以續辦（全部成立才算）：
@@ -114,7 +127,8 @@ function lockKey(email: string): string {
  *   `connectionTimeoutMillis`（Review 第 2 輪反例；`signup-resume.integration.test.ts` 的 `DB_POOL_MAX=1` 案例守住）。
  *   寄不出去（`MAIL_FAILED`）或被冷卻／限速擋下就在這裡丟出去，什麼都不留。
  * - 寄出去之後才開一筆**短交易**：拿跟 `finishSignupResume` 同一把交易級 advisory lock（同一個 Email 的綁定與完成
- *   排隊）、重驗這個帳號還能續辦、鎖並讀**此刻最新那封**驗證碼的雜湊，連同新密碼雜湊、續辦票寫成一列（10 分鐘）。
+ *   排隊）、重驗這個帳號還能續辦、鎖並讀**此刻最新那封**驗證碼的雜湊，連同新密碼雜湊、續辦票、絕對截止
+ *   （此刻＋30 分鐘）寫成一列（期限 10 分鐘）。
  *   交易裡只用這一條連線，不再向池借任何東西。
  *
  * 兩個人同時對同一個 Email 開始續辦：兩封都寄、綁定排隊，各自讀到的都是當時最新那封的碼，後寫的那一列留下來；
@@ -154,12 +168,13 @@ export async function startSignupResume(
     const otpHash = await currentOtpHash(tx, email, true)
     if (!otpHash) throw new Error('續辦寄碼之後讀不到驗證碼')
     const identifier = signupResumeIdentifier(email)
-    const value = JSON.stringify({ userId: input.userId, passwordHash, otpHash, ticketHash: hashSecret(ticket) })
+    const deadlineAt = now.getTime() + SIGNUP_RESUME_MAX_SECONDS * 1000
+    const value = JSON.stringify({ userId: input.userId, passwordHash, otpHash, ticketHash: hashSecret(ticket), deadlineAt })
     await tx.query('delete from verifications where identifier = $1', [identifier])
     await tx.query(
       `insert into verifications (id, identifier, value, expires_at, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $5)`,
-      [uuidv7(), identifier, value, new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000), now],
+      [uuidv7(), identifier, value, windowEnd(now, deadlineAt), now],
     )
     await tx.query('commit')
     return { ok: true, ticket }
@@ -171,27 +186,34 @@ export async function startSignupResume(
   }
 }
 
+export type SignupResumeTicketStatus = 'valid' | 'timed_out' | 'invalid'
+
 /**
- * 續辦票對不對（續辦頁的重寄驗證碼用，寄信**之前**先看；VB-3 Review 第 1 輪 P3）。只讀、不鎖：
- * 寄出之後的 `rebindSignupResumeOtp` 會在鎖裡再驗一次。票錯、暫存過期、帳號已不能續辦都回 false，呼叫端不寄信。
+ * 續辦票的狀態（續辦頁的重寄驗證碼用，寄信**之前**先看；VB-3 Review 第 1 輪 P3、第 2 輪）。只讀、不鎖：
+ * 寄出之後的 `rebindSignupResumeOtp` 會在鎖裡再驗一次。
+ * - `invalid`：票錯、暫存過期（10 分鐘）、帳號已不能續辦 → 呼叫端不寄信，回應跟寄出一樣（不透露原因）。
+ * - `timed_out`：票對、但已過絕對截止（票建立起 30 分鐘）→ 不寄信，回「續辦已逾時」。只有持票的人看得到這一句，
+ *   而他本來就知道這個帳號在續辦；票不對的人一律 `invalid`，所以多這一句不會多洩漏帳號狀態。
+ *   截止那一刻起 `expires_at` 也一定已過（期限永遠不超過截止），所以先看截止、再看期限。
  */
-export async function isValidSignupResumeTicket(
+export async function checkSignupResumeTicket(
   db: Queryable,
   input: { email: string; ticket: string },
   now: Date = new Date(),
-): Promise<boolean> {
+): Promise<SignupResumeTicketStatus> {
   const email = normalizeEmail(input.email)
   const userId = await findUserIdByEmail(db, email)
-  if (!userId || !input.ticket) return false
+  if (!userId || !input.ticket) return 'invalid'
   const row = await db.query<{ value: string; expires_at: Date }>(
     'select value, expires_at from verifications where identifier = $1',
     [signupResumeIdentifier(email)],
   )
   const pending = row.rows[0]
-  if (!pending || new Date(pending.expires_at).getTime() <= now.getTime()) return false
-  const parsed = parsePending(pending.value)
-  if (!parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket)) return false
-  return isResumableSignup(db, userId)
+  const parsed = pending ? parsePending(pending.value) : null
+  if (!pending || !parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket)) return 'invalid'
+  if (now.getTime() >= parsed.deadlineAt) return 'timed_out'
+  if (new Date(pending.expires_at).getTime() <= now.getTime()) return 'invalid'
+  return (await isResumableSignup(db, userId)) ? 'valid' : 'invalid'
 }
 
 /**
@@ -199,8 +221,9 @@ export async function isValidSignupResumeTicket(
  *
  * 跟 `startSignupResume` 的綁定、`finishSignupResume` 同一把交易級 advisory lock；交易裡重驗：帳號還能續辦、
  * 暫存沒過期、userId 與續辦票都對。全部成立才改 `otpHash`（密碼雜湊、票不動），舊碼從此對不上（完成時要求
- * 提交的碼＝最新那列＝暫存綁的碼）。暫存到期時間延成「現在＋10 分鐘」，跟新碼一樣長；能延幾次由寄碼的限速決定
- * （每個 Email 10 分鐘 5 封、每封要一個新的 Turnstile token）。寄信失敗時呼叫端不會走到這裡。
+ * 提交的碼＝最新那列＝暫存綁的碼）。暫存到期時間延成「現在＋10 分鐘」但**不超過列上的絕對截止**（票建立起 30 分鐘；
+ * Review 第 2 輪：限速是固定視窗，光靠它每 181 秒一次就能無限延長）。已過截止回 `timed_out`、不改任何東西。
+ * 寄信失敗時呼叫端不會走到這裡（改走 `restoreSignupResumeOtp`）。
  */
 export async function rebindSignupResumeOtp(
   db: Pool,
@@ -223,16 +246,24 @@ export async function rebindSignupResumeOtp(
       [signupResumeIdentifier(email)],
     )
     const row = pending.rows[0]
-    const parsed = row && new Date(row.expires_at).getTime() > now.getTime() ? parsePending(row.value) : null
+    const parsed = row ? parsePending(row.value) : null
     const otpHash = await currentOtpHash(tx, email, true)
-    if (!parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket) || !otpHash) {
+    if (!row || !parsed || parsed.userId !== userId || parsed.ticketHash !== hashSecret(input.ticket) || !otpHash) {
+      await tx.query('rollback')
+      return { ok: false, reason: 'expired' }
+    }
+    if (now.getTime() >= parsed.deadlineAt) {
+      await tx.query('rollback')
+      return { ok: false, reason: 'timed_out' }
+    }
+    if (new Date(row.expires_at).getTime() <= now.getTime()) {
       await tx.query('rollback')
       return { ok: false, reason: 'expired' }
     }
     await tx.query('update verifications set value = $2, expires_at = $3, updated_at = $4 where identifier = $1', [
       signupResumeIdentifier(email),
       JSON.stringify({ ...parsed, otpHash }),
-      new Date(now.getTime() + SIGNUP_RESUME_TTL_SECONDS * 1000),
+      windowEnd(now, parsed.deadlineAt),
       now,
     ])
     await tx.query('commit')
@@ -245,14 +276,62 @@ export async function rebindSignupResumeOtp(
   }
 }
 
-export type SignupResumeFailure = 'not_resumable' | 'expired'
+/**
+ * `timed_out` 只有改綁與票檢查會回（已過絕對截止）；完成交易逾時仍回 `expired`——auth-instance 的 `hooks.after`
+ * 只把 `expired` 翻成 `SIGNUP_RESUME_EXPIRED`（訊息已含「逾時…請回第 1 步」），其他都翻成 `EMAIL_UNAVAILABLE`。
+ */
+export type SignupResumeFailure = 'not_resumable' | 'expired' | 'timed_out'
+
+/**
+ * 續辦重寄**寄失敗**後的還原（VB-3 Review 第 2 輪）。
+ *
+ * 套件的寄碼端點在呼叫寄信回呼**之前**就插了一列新碼（`plugins/email-otp/routes.mjs` 的 `resolveOTP`：再插一列、不刪舊列），
+ * 而 check 端點只認最新那列——信沒寄出卻把那列留著，使用者手上那封的碼在套件那一層就會被當成不是最新
+ * （r2 反例的「舊碼失效、新碼沒送到」）。所以在同一把鎖裡：暫存列還是這張票的 → 刪掉比暫存綁的那列**更新**的驗證碼列
+ * （就是沒寄出的那封），綁定列的密碼、票、碼、期限都不動。暫存列已不是這張票的（別人剛改綁）或綁的那列已不在
+ * （錯太多次被套件刪掉）→ 什麼都不做。
+ * 兩個人同時對同一個 Email 操作而剛好一邊寄失敗：可能把另一邊剛寄出、還沒綁定的那列一起撤掉，對方完成時會拿到
+ * 「已失效」重新開始；不會讓任何人用自己沒有的碼完成。
+ */
+export async function restoreSignupResumeOtp(db: Pool, input: { email: string; ticket: string }): Promise<{ removed: number }> {
+  const email = normalizeEmail(input.email)
+  const tx = await db.connect()
+  try {
+    await tx.query('begin')
+    await tx.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey(email)])
+    const pending = await tx.query<{ value: string }>('select value from verifications where identifier = $1 for update', [
+      signupResumeIdentifier(email),
+    ])
+    const parsed = pending.rows[0] ? parsePending(pending.rows[0].value) : null
+    if (!parsed || parsed.ticketHash !== hashSecret(input.ticket)) {
+      await tx.query('rollback')
+      return { removed: 0 }
+    }
+    // 驗證碼列的 value 是 `<雜湊>:<錯誤次數>`，雜湊是 base64url（沒有冒號）。
+    const removed = await tx.query(
+      `delete from verifications
+        where identifier = $1
+          and split_part(value, ':', 1) <> $2
+          and created_at >= (select min(created_at) from verifications where identifier = $1 and split_part(value, ':', 1) = $2)`,
+      [emailOtpIdentifier(email), parsed.otpHash],
+    )
+    await tx.query('commit')
+    return { removed: removed.rowCount ?? 0 }
+  } catch (error) {
+    await tx.query('rollback').catch(() => undefined)
+    throw error
+  } finally {
+    tx.release()
+  }
+}
 
 /**
  * 續辦完成的那一筆交易（呼叫端：auth-instance 的 `hooks.after`，內部 `check-verification-otp` 成功時）。
  *
  * check 端點只負責「算錯誤次數、擋限速」；**真正的判斷在這筆交易裡重做一次**：
  * 拿同一個 Email 的鎖、鎖使用者列重驗謂詞、鎖驗證碼那一列並用提交的碼重算雜湊比對，
- * 再要求暫存列綁的是**同一個**碼（`otpHash`）與**同一張**續辦票（`ticketHash`）。
+ * 再要求暫存列綁的是**同一個**碼（`otpHash`）與**同一張**續辦票（`ticketHash`），而且還沒過列上的絕對截止
+ * （`expires_at` 本來就不會超過截止，但截止是存在列上的規則，不靠 `expires_at` 推）。
  * 所以 check 通過之後才被另一個續辦換掉的碼與密碼（Review 反例）、或別人開始的續辦，都套用不到。
  * 全部成立才消耗兩列、標已驗證、換密碼、刪掉這個人全部 session；任何一步不成立整筆 rollback。
  */
@@ -283,6 +362,7 @@ export async function finishSignupResume(
     if (
       !otpHash ||
       !parsed ||
+      now.getTime() >= parsed.deadlineAt ||
       parsed.userId !== userId ||
       hashSecret(input.otp) !== otpHash ||
       parsed.otpHash !== otpHash ||
@@ -316,15 +396,17 @@ export async function finishSignupResume(
   }
 }
 
-type PendingResume = { userId: string; passwordHash: string; otpHash: string; ticketHash: string }
+/** `deadlineAt`：絕對截止（epoch 毫秒），票建立時寫入、之後不動；沒有這個欄的列一律當無效（fail closed）。 */
+type PendingResume = { userId: string; passwordHash: string; otpHash: string; ticketHash: string; deadlineAt: number }
 
 function parsePending(value: string): PendingResume | null {
   try {
     const parsed = JSON.parse(value) as Partial<Record<keyof PendingResume, unknown>>
-    const { userId, passwordHash, otpHash, ticketHash } = parsed
+    const { userId, passwordHash, otpHash, ticketHash, deadlineAt } = parsed
     if (typeof userId !== 'string' || typeof passwordHash !== 'string' || !passwordHash) return null
     if (typeof otpHash !== 'string' || !otpHash || typeof ticketHash !== 'string' || !ticketHash) return null
-    return { userId, passwordHash, otpHash, ticketHash }
+    if (typeof deadlineAt !== 'number' || !Number.isFinite(deadlineAt) || deadlineAt <= 0) return null
+    return { userId, passwordHash, otpHash, ticketHash, deadlineAt }
   } catch {
     return null
   }
@@ -340,10 +422,19 @@ function parsePending(value: string): PendingResume | null {
  * - `signup-resume-start`：續辦的寄碼。同一次 wrapper 呼叫裡的註冊已經過 Turnstile、也已扣過寄碼額度，
  *   不要第二個 token、不重扣額度（仍檢查冷卻與 IP 上限）。
  * - `signup-resume-finish`：續辦的驗碼；驗過之後由 `hooks.after` 做 `finishSignupResume` 並發新 session。
+ * - `signup-resume-resend`：續辦頁的重寄（VB-3 Review 第 2 輪）。hook **不認得這個用途，就照公開重寄處理**：要這一次的
+ *   Turnstile token、冷卻、每 Email 與每 IP 桶都照扣（沒有旁路、不重設計數）；而寄信回呼看到「內部呼叫＋有用途」就會
+ *   **等寄送結果**並回報失敗（`hooks.after` 翻成 `MAIL_FAILED`），wrapper 才能在寄失敗時不改綁。公開路徑刻意不等結果
+ *   （防帳號列舉），續辦重寄不需要：走得到這裡的人持有這個帳號的續辦票。
  * - `account-verify`：已登入的人在「我的帳號」驗證自己的 Email（VB-5）。hook 要求本人 fresh session、
  *   Email 必須是 session 本人的登入 Email，不掛 Turnstile（限速照扣）。
  */
-export type OtpCallPurpose = 'signup-first' | 'signup-resume-start' | 'signup-resume-finish' | 'account-verify'
+export type OtpCallPurpose =
+  | 'signup-first'
+  | 'signup-resume-start'
+  | 'signup-resume-finish'
+  | 'signup-resume-resend'
+  | 'account-verify'
 
 type OtpCallContext = { readonly purpose: OtpCallPurpose; readonly email: string; readonly ticket?: string }
 
