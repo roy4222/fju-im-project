@@ -136,3 +136,163 @@ test('老師的合作案頁與對話框沒有「請洽系辦」這類說明句�
   expect(text).toContain('專題／合作內容') // 對話框裡的表單也掃到了
   expect(text).not.toMatch(/洽系辦|系辦退回|交系辦|聯絡系辦/)
 })
+
+/**
+ * 老師規格 TE-05（Q77、Q52）：分組總覽分成「我的組別｜合作案」兩個分頁；舊網址 `/dashboard/teacher/industry`
+ * 先過老師角色檢查再轉到「合作案」分頁（AC-TE-19、AC-TE-29、AC-TE-30）。
+ * 下面三條各自建資料，不依賴上面幾條的順序。
+ */
+async function freshSession(role: 'teacher' | 'student'): Promise<TestSession> {
+  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  try {
+    return await createTestSession(context, role)
+  } finally {
+    await context.dispose()
+  }
+}
+
+const tabsOf = (page: Page) => page.getByRole('navigation', { name: '分組總覽分頁' })
+
+test('TE-05：舊網址「合作案」轉到分組總覽的合作案分頁；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
+  const owner = await freshSession('teacher')
+  const student = await freshSession('student')
+  const company = `轉頁${stamp}`
+  await signIn(page, owner)
+  await createThenToggle(page, '/dashboard/teacher/groups?tab=cases', company)
+
+  await page.goto('/dashboard/teacher/industry')
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=cases$/)
+  await expect(tabsOf(page).getByRole('link', { name: '合作案', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('managed-opportunity').filter({ hasText: company })).toBeVisible()
+  // 「全部」照舊帶過去。
+  await page.goto('/dashboard/teacher/industry?scope=all')
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=cases&scope=all$/)
+  await expect(page.getByRole('navigation', { name: '合作案範圍' }).getByRole('link', { name: /^全部/ })).toHaveAttribute('aria-current', 'page')
+
+  await signIn(page, student)
+  await page.goto('/dashboard/teacher/industry')
+  await expect(page).toHaveURL(/\/403/)
+})
+
+test('TE-05：合作案分頁只有自己的案能編輯；「全部」看得到別人的案但沒有編輯鍵（AC-TE-30）', async ({ page }) => {
+  const mine = await freshSession('teacher')
+  const other = await freshSession('teacher')
+  const myCompany = `案主甲${stamp}`
+  const otherCompany = `案主乙${stamp}`
+  await signIn(page, other)
+  await createThenToggle(page, '/dashboard/teacher/groups?tab=cases', otherCompany)
+  await signIn(page, mine)
+  await createThenToggle(page, '/dashboard/teacher/groups?tab=cases', myCompany)
+
+  const myRow = page.getByTestId('managed-opportunity').filter({ hasText: myCompany })
+  await expect(myRow.getByRole('button', { name: `編輯：${myCompany}・資訊部` })).toBeVisible()
+  await expect(myRow.getByRole('button', { name: `下架：${myCompany}・資訊部` })).toBeVisible()
+  await expect(page.getByTestId('managed-opportunity').filter({ hasText: otherCompany })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '新增合作案' })).toBeVisible()
+  expect((await page.getByRole('main').textContent()) ?? '').not.toMatch(/洽系辦|系辦退回|交系辦|聯絡系辦/)
+
+  await page.goto('/dashboard/teacher/groups?tab=cases&scope=all')
+  const all = page.getByRole('list', { name: '全部合作案' })
+  await expect(all.getByRole('listitem').filter({ hasText: otherCompany })).toContainText('只有負責老師能編輯')
+  await expect(all.getByRole('listitem').filter({ hasText: otherCompany }).getByRole('button')).toHaveCount(0)
+  await expect(all.getByRole('listitem').filter({ hasText: myCompany })).toContainText('在「我的」管理')
+})
+
+test('TE-05：我的組別分頁有「我指導的組」卡片、擔任產學組、全部組別；擔任後重新整理多一張卡（AC-TE-19、AC-TE-29）', async ({ page }) => {
+  test.setTimeout(120_000)
+  const t1 = await freshSession('teacher')
+  const code = `TE05-${stamp}`
+  const day = (offset: number) => new Date(Date.now() + 8 * 3600_000 + offset * 86_400_000).toISOString().slice(0, 10)
+  const cohort = await pool.query<{ id: string }>(
+    `insert into cohorts (id, code, name, status, year_end_date, is_default_working, created_by_kind)
+     values (gen_random_uuid(), $1, $2, 'active', $3, false, 'system') returning id`,
+    [code, `${code} 分組總覽`, day(300)],
+  )
+  const cohortId = cohort.rows[0]!.id
+  let seq = 0
+  const at = new Date(Date.now() - 86_400_000)
+  const leaders = new Map<string, string>()
+  async function student(): Promise<{ id: string; name: string }> {
+    seq += 1
+    const name = `TE05組員${seq}`
+    const studentNo = `405${String(Date.now()).slice(-5)}${seq}`
+    const user = await pool.query<{ id: string }>(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [name, `te05-${stamp.toLowerCase()}-${seq}@example.com`],
+    )
+    const id = user.rows[0]!.id
+    await pool.query(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'student', $2, now())`,
+      [id, admin.userId],
+    )
+    await pool.query(
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email)
+       values ($1, $2, $2, $3, $4, '0912000000', $5)`,
+      [id, name, studentNo, cohortId, `te05-${seq}@contact.example.com`],
+    )
+    await pool.query(`insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)`, [cohortId, studentNo, id])
+    return { id, name }
+  }
+  async function group(groupCode: string, type: 'general' | 'industry', advisor: string | null) {
+    const members = [await student(), await student()]
+    const ids = members.map((m) => m.id)
+    const row = await pool.query<{ id: string }>(
+      `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at,
+                           created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id)
+       values (gen_random_uuid(), $1, $2, $3, 'active', $5, $5, $5, 'user', $4, $5, $4) returning id`,
+      [cohortId, groupCode, type, ids[0], at],
+    )
+    const groupId = row.rows[0]!.id
+    await pool.query(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id, created_at, updated_at)
+       select gen_random_uuid(), $1, $2, u, $4, 'user', $3, $4, $4 from unnest($5::uuid[]) as u`,
+      [groupId, cohortId, ids[0], at, ids],
+    )
+    await pool.query(
+      `insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id, created_at) values (gen_random_uuid(), $1, $2, $3, $2, $3)`,
+      [groupId, ids[0], at],
+    )
+    if (advisor) {
+      await pool.query(
+        `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+         values (gen_random_uuid(), $1, $2, 'admin', $3, $4, '抽籤結果')`,
+        [groupId, advisor, at, admin.userId],
+      )
+    }
+    leaders.set(groupCode, members[0]!.name)
+  }
+  await group('G01', 'industry', t1.userId)
+  await group('G02', 'general', t1.userId)
+  await group('G04', 'industry', null)
+
+  await signIn(page, t1)
+  await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
+  const tabs = tabsOf(page)
+  await expect(tabs.getByRole('link')).toHaveText(['我的組別', '合作案'])
+  await expect(tabs.getByRole('link', { name: '我的組別', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('main')).toContainText('一般組由系辦指派。')
+
+  const myGroups = page.getByRole('region', { name: '我指導的組' })
+  await expect(myGroups.getByRole('listitem')).toHaveCount(2)
+  const g01 = myGroups.getByTestId('my-group-G01')
+  await expect(g01).toContainText(`G01・${leaders.get('G01')}`)
+  await expect(g01).toContainText('產學合作')
+  await expect(myGroups.getByTestId('my-group-G02')).toContainText('一般專題')
+  await expect(g01.getByRole('link')).toHaveAttribute('href', '/dashboard/teacher/affairs')
+
+  const claim = page.getByRole('region', { name: '擔任產學組指導老師' })
+  await expect(claim.getByRole('row').filter({ hasText: 'G04' })).toContainText('可擔任')
+  await expect(page.getByRole('region', { name: '全部組別' }).getByPlaceholder('搜尋組別或組員…')).toBeVisible()
+  const text = (await page.getByRole('main').textContent()) ?? ''
+  expect(text).not.toContain('認領')
+  expect(text).not.toMatch(/洽系辦|系辦重派/)
+
+  await claim.getByRole('button', { name: '擔任 G04 的指導老師' }).click()
+  const dialog = page.getByRole('dialog', { name: '擔任 G04 的指導老師' })
+  await dialog.getByRole('button', { name: '指定為我的組別' }).click()
+  await expect(dialog.getByRole('status')).toContainText('G04 已指定為你的組別')
+  await page.reload()
+  await expect(page.getByRole('region', { name: '我指導的組' }).getByTestId('my-group-G04')).toBeVisible()
+  await expect(page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('row').filter({ hasText: 'G04' })).toContainText('你指導中')
+})

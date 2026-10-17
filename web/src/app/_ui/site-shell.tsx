@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import type { ResolvedActor } from '@/application/accounts'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
 import type { NavItem } from '@/app/dashboard/_nav'
-import { homeFor, shellViewer } from '@/app/_ui/guard'
+import { homeFor, renderActor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
@@ -260,14 +260,14 @@ export async function DashboardShell({
 }) {
   const base = current.split('/').slice(0, 3).join('/')
   const signOutFormId = 'dashboard-sign-out'
-  // 頭像的姓名：跟鈴鐺共用同一次身分解析（`shellViewer`），不另外查；只讀本人這一列。
-  const [viewer, jar] = await Promise.all([shellViewer(), cookies()])
+  const role = roleOfBase(base)
+  // 頭像的姓名：跟鈴鐺共用同一次身分解析（`renderActor`），不另外查；只讀本人這一列。
+  // 側欄數字徽章（票 30）：只算本人、輪到本人做的事；`requireRole` 已先暖好快取，這裡拿到同一個（SH-P2）。
+  const [viewer, jar, counts] = await Promise.all([renderActor(), cookies(), role ? navBadgeCounts(role) : {}])
   const name = viewer.kind === 'authenticated' ? viewer.displayName : undefined
   // 側欄上次是收合還是展開（瀏覽器切換時寫的 cookie）。
   const sidebarOpen = sidebarOpenFromCookie(jar.get(SIDEBAR_COOKIE_NAME)?.value)
-  // 側欄數字徽章（票 30）：只算本人、輪到本人做的事；同一次渲染只查一次（nav-badges.ts）。
-  const role = roleOfBase(base)
-  const badges = role ? badgeMap(role, items.map((i) => i.href), await navBadgeCounts(role)) : {}
+  const badges = role ? badgeMap(role, items.map((i) => i.href), counts) : {}
   // 兼任角色（票 41）：帳號選單多「切換到另一個後台」。只是連結，權限仍由每一頁的 requireRole 判。
   const switchLinks = viewer.kind === 'authenticated' ? roleSwitchLinks(viewer.roles, role) : []
   return (

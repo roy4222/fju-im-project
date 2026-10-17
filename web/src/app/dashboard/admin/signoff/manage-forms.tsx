@@ -7,10 +7,10 @@ import { buttonVariants } from '@/app/_ui/ui/button'
 
 /**
  * 系辦在版本頁上的管理動作（票 26；原型「提醒未同意者」「重置：列出將失效的簽署、原因必填」）。
- * 重置、重開、作廢都要填理由；提醒同一版 24 小時內一次。規則都在用例裡判，畫面只顯示伺服器回的句子。
+ * 重新收集同意（原「重置」，AD-09 只改畫面字）、重開、作廢都要填理由；提醒同一版 24 小時內一次。規則都在用例裡判，畫面只顯示伺服器回的句子。
  * **這裡沒有任何替人表態的按鈕。**
  *
- * 重置、重開、作廢放在版本頁的「危險操作」區（第三波 §9 規則 1、AC-37）：確認視窗寫對象、範圍、後果、能不能恢復。
+ * 重新收集、重開、作廢放在版本頁的「危險操作」區（第三波 §9 規則 1、AC-37）：確認視窗寫對象、範圍、後果、能不能恢復。
  */
 
 /** 危險動作的按鈕與確認鈕：淡紅，跟日常的白底按鈕分開。 */
@@ -60,7 +60,7 @@ export function RemindButton({ versionId, requestId, blockedReason }: { versionI
   )
 }
 
-/** 重置（收集中、等老師、已完成）或重開新版（退回、已失效、已作廢）：建新版、參與者依此刻重算；成功後直接帶到新版。 */
+/** 重新收集（收集中、等老師、已完成）或重開新版（退回、已失效、已作廢）：建新版、參與者依此刻重算；成功後直接帶到新版。 */
 export function RestartButton({
   versionId,
   requestId,
@@ -73,7 +73,8 @@ export function RestartButton({
   versionId: string
   requestId: string
   kind: 'reset' | 'reopen'
-  label: string
+  /** 按鈕、確認視窗標題、確認鈕各自的字（例如「重新收集同意（內容不變）」「重新收集同意？」「確定重新收集」）。 */
+  label: { button: string; title: string; confirm: string }
   /** 將失效（不計入新版）的簽署，給對話框列出。 */
   affected: readonly string[]
   facts: DangerFacts
@@ -85,14 +86,14 @@ export function RestartButton({
   return (
     <div className="space-y-2">
       <button type="button" className={DANGER} onClick={dialog.open}>
-        {label}
+        {label.button}
       </button>
-      <dialog ref={dialog.ref} aria-label={`${label}？`} className={DIALOG}>
+      <dialog ref={dialog.ref} aria-label={label.title} className={DIALOG}>
         <form action={formAction} className="space-y-4 p-5">
           <input type="hidden" name="versionId" value={versionId} />
           <input type="hidden" name="requestId" value={requestId} />
           <input type="hidden" name="kind" value={kind} />
-          <h2 className="text-lg font-extrabold text-foreground">{label}？</h2>
+          <h2 className="text-lg font-extrabold text-foreground">{label.title}</h2>
           <Facts facts={facts} />
           {affected.length > 0 ? (
             <div className="rounded-lg bg-surface px-3 py-2 text-sm" data-testid="restart-affected">
@@ -112,7 +113,7 @@ export function RestartButton({
               先不要
             </button>
             <button type="submit" disabled={pending} className={DANGER}>
-              {pending ? '處理中…' : `確定${label}`}
+              {pending ? '處理中…' : label.confirm}
             </button>
           </div>
         </form>

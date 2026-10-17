@@ -79,7 +79,7 @@ export function AdminTimeline({
       <TimelineZigzag
         stages={views}
         summary={summary}
-        emptyTasksText="這個階段的繳交項目與截止在專題事務設定。"
+        emptyTasksText="這個階段的作業與截止在專題事務設定。"
         headerActions={
           <>
             {extraActions}

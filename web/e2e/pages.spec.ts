@@ -103,8 +103,8 @@ test.describe('以 A1（管理員）', () => {
 
     // 屆別頁在票 5 已經是真功能（見 cohorts.spec.ts）；這裡只確認打得開、沒有假資料。
     await page.goto('/dashboard/admin/cohorts')
-    await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: '新增屆別' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增屆別' })).toBeVisible()
   })
 
   test('開老師與學生的後台會被帶到 403，下一步指回自己的首頁', async ({ page }) => {
@@ -139,8 +139,10 @@ test.describe('以 S01（學生）', () => {
     await expect(nav.getByRole('link', { name: '站內同意書', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: '成績', exact: true })).toHaveCount(0)
 
-    expect((await page.goto('/dashboard/student/grading'))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: '評分由老師與系辦處理，學生不會看到分數' })).toBeVisible()
+    const grading = await page.request.get('/dashboard/student/grading', { maxRedirects: 0 })
+    expect([302, 303, 307, 308]).toContain(grading.status())
+    expect(grading.headers()['location']).toMatch(/\/dashboard\/student$/)
+    expect(await grading.text()).not.toContain('分數')
   })
 
   test('自己的後台與帳號頁都打得開', async ({ page }) => {
@@ -309,22 +311,21 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
   const FINGERPRINTS: Record<string, string> = {
     '/dashboard/admin': '作業完成率',
     '/dashboard/admin/accounts': '名單匯入、註冊審核、停用、匯出與臨時密碼',
-    '/dashboard/admin/cohorts': '一屆專題從開放註冊到封存的整個流程',
+    '/dashboard/admin/cohorts': '新註冊加入這屆',
     '/dashboard/teacher': '待辦',
     '/dashboard/student': '專題行事曆',
     // 票 35 起這三頁的指紋要有屆別才出現（上面的 beforeAll 保證有）；
     // 頁名本身不能當指紋：它也在 <title>，未授權的轉址回應裡就有。
-    '/dashboard/admin/timeline': '編輯階段與日期',
+    '/dashboard/admin/timeline': '已排定的活動',
     '/dashboard/admin/clock': '把系統認定的「今天」設到任何一秒',
     '/dashboard/admin/inbox': '全部標為已讀',
     '/dashboard/teacher/inbox': '全部標為已讀',
     '/dashboard/student/inbox': '全部標為已讀',
     '/dashboard/admin/groups': '全部組別',
     '/dashboard/student/groups': '每位成員各自按確認，全員確認的那一刻組別才成立',
-    '/dashboard/teacher/groups': '一般組由系辦依抽籤結果指派；所有組別都看得到',
+    '/dashboard/teacher/groups': '一般組由系辦指派。',
     // 合作案管理（票 20）。
-    '/dashboard/teacher/industry': '建立、編輯、下架自己的合作案',
-    '/dashboard/admin/industry': '全部合作案與組別連結',
+    '/dashboard/admin/industry': '合作案摘要',
     '/dashboard/admin/affairs': '用完整編輯器建立',
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '還有地方在用的檔案不能刪',
@@ -333,16 +334,12 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
     '/dashboard/admin/grading': '成績表',
     '/dashboard/teacher/grading': '草稿只有你和系辦看得到。',
-    '/dashboard/student/grading': '評分由老師與系辦處理，學生不會看到分數',
     // 簽核與精選（票 25）。
-    '/dashboard/admin/signoff': '系辦不能代替任何人同意',
+    '/dashboard/admin/signoff': '新增站內同意書',
     // 操作紀錄（票 36）。
-    '/dashboard/admin/audit': '誰、何時、對哪個對象、做了什麼、為什麼',
+    '/dashboard/admin/audit': '只搜近 7 天、最多 200 筆',
     '/dashboard/admin/showcase': '草稿不會公開',
     '/dashboard/student/signoff': '每個人只代表自己一票',
-    // 專題時間軸與產學合作（票 38）。
-    '/dashboard/student/timeline': '階段與日期由系辦在時間軸設定',
-    '/dashboard/student/industry': '產學組的組長可以在「我的組別」把組別連結到合作案',
     // 首頁設定（第三波 W3）。
     '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
     // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
@@ -375,12 +372,10 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 老師各組繳交狀態（票 22）：學生拿到的回應裡不能有矩陣。
     { path: '/dashboard/teacher/affairs', wrongRole: 'student' },
     // 合作案管理（票 20）。
-    { path: '/dashboard/teacher/industry', wrongRole: 'student' },
     { path: '/dashboard/admin/industry', wrongRole: 'teacher' },
     // 評分（票 23）。
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/grading', wrongRole: 'student' },
-    { path: '/dashboard/student/grading', wrongRole: 'teacher' },
     // 簽核與精選（票 25）。
     { path: '/dashboard/admin/signoff', wrongRole: 'student' },
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
@@ -389,9 +384,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
     // 首頁設定（第三波 W3）。
     { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
-    // 專題時間軸與產學合作（票 38）。
-    { path: '/dashboard/student/timeline', wrongRole: 'teacher' },
-    { path: '/dashboard/student/industry', wrongRole: 'admin' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
   ]
