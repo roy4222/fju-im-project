@@ -220,7 +220,7 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   // 側欄徽章（票 30）跟首頁待繳同一個數。
   await expect(affairsBadge(page)).toHaveText('1')
   await page.goto('/dashboard/student/affairs')
-  await expect(page.getByRole('navigation', { name: '篩選' }).getByRole('link', { name: /待繳\s*1/ })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '篩選作業' }).getByRole('link', { name: /待交\s*1/ })).toBeVisible()
 
   await page.goto(`/dashboard/student/affairs/${itemId}`)
   await page.getByLabel('想做的題目').fill('校園導覽 App')

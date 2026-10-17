@@ -330,7 +330,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 檔案管理（票 35）。
     '/dashboard/admin/files': '編輯器加附件',
     '/dashboard/admin/editor/new': '存草稿',
-    '/dashboard/student/affairs': '你需要繳交的每一項、狀態與截止',
+    '/dashboard/student/affairs': '篩選作業',
     '/dashboard/teacher/affairs': '點小方塊看那一組每一次正式送出的內容。',
     '/dashboard/admin/grading': '成績表',
     '/dashboard/teacher/grading': '草稿只有你和系辦看得到。',

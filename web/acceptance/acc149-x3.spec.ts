@@ -327,9 +327,9 @@ test('x3:14 SUB-11 SUB-16 COH-10 推過截止（隔天 00:00:07）：學生 2 �
   if ((await field.count()) > 0) await expect(field).toHaveValue('149 補驗：學生二的草稿')
   else console.log('x3:14 觀察：截止後內容頁沒有顯示欄位（看不到草稿內容）')
   await shot(s2, 'read-only-after-deadline')
-  await s2.goto('/dashboard/student/affairs')
+  await s2.goto('/dashboard/student/affairs?tab=overdue')
   const row = s2.getByTestId(`affair-${itemId}`)
-  if ((await row.count()) > 0) await expect(row).not.toContainText('已繳')
+  if ((await row.count()) > 0) await expect(row).toContainText('逾期')
   else console.log('x3:14 觀察：截止後作業區沒有這一列')
 })
 

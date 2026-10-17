@@ -336,8 +336,9 @@ test('4. 被移出的人只看得到自己還在組裡時的版本（移出後�
   await submitAs(page, s1, '移出之後的版本', { name: '期中報告-v3.pdf', buffer: PDF_V3 })
 
   await signIn(page, s2)
-  await page.goto('/dashboard/student/affairs')
+  await page.goto('/dashboard/student/affairs?tab=done')
   await expect(page.getByTestId(`affair-${itemId}`)).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '以前的紀錄' })).toBeVisible()
   const records = page.getByTestId('my-records')
   await expect(records).toContainText(ITEM_TITLE)
   await expect(records).toContainText('你看得到 2 個版本')
