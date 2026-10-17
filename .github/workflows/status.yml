@@ -72,10 +72,29 @@ jobs:
         run: pnpm --ignore-workspace run typecheck
       - name: lint
         run: pnpm --ignore-workspace run lint
-      # braces GHSA-vfj7-8cjw-p6xm 尚無修補版（first_patched_version: null），只在 lint 開發依賴路徑，
-      # 不進映像；有修補版時拿掉 --ignore 並升版。追蹤 issue #570，說明見 status/README.md「已知豁免」。
+      # pnpm 11 的 `audit --ignore` 寫入豁免後直接 exit 0、不再檢查其他漏洞，所以不用它：
+      # 先取完整 JSON（允許非零結束），再逐條檢查 high／critical 且不在豁免清單的 advisory。
+      # 豁免清單（空白分隔）：braces GHSA-vfj7-8cjw-p6xm 尚無修補版（first_patched_version: null），
+      # 只在 lint 開發依賴路徑，不進映像；有修補版時升版並從清單拿掉。追蹤 issue #570，
+      # 說明見 status/README.md「已知豁免」。取不到合法 JSON（例如 registry 失敗）也算失敗。
       - name: audit
-        run: pnpm --ignore-workspace audit --audit-level=high --ignore GHSA-vfj7-8cjw-p6xm
+        env:
+          AUDIT_EXEMPT: 'GHSA-vfj7-8cjw-p6xm'
+        run: |
+          pnpm --ignore-workspace audit --audit-level high --json > "$RUNNER_TEMP/audit.json" || true
+          node -e '
+            const adv = Object.values(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).advisories);
+            const exempt = new Set(process.env.AUDIT_EXEMPT.split(/\s+/).filter(Boolean));
+            let bad = 0;
+            for (const a of adv) {
+              const skip = exempt.has(a.github_advisory_id);
+              const hit = ["high", "critical"].includes(a.severity) && !skip;
+              console.log((hit ? "FAIL " : skip ? "豁免 " : "略過 ") + a.severity + " " + a.github_advisory_id + " " + a.module_name);
+              if (hit) bad++;
+            }
+            console.log(adv.length + " 條 advisory，" + bad + " 條未豁免的 high／critical");
+            process.exit(bad ? 1 : 0);
+          ' "$RUNNER_TEMP/audit.json"
       - name: test
         run: pnpm --ignore-workspace run test
       - name: build
