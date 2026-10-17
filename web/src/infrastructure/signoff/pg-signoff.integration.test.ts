@@ -633,6 +633,19 @@ describe('學生頁批次查詢（SH-B5）', () => {
   })
 })
 
+describe('批次查詢的角色鍵（SH-B5 Review 修）', () => {
+  it('現任主指導開版本頁：viewer.role＝advisor、eligible＝true、voted＝null；學生 eligible＝true', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    const r = await query.versionDetail(actor(s.teacher.id, ['teacher']), v.versionId)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.receipt.viewer).toMatchObject({ role: 'advisor', eligible: true, voted: null })
+    const student = await query.versionDetail(actor(s.members[0]!.id, ['student']), v.versionId)
+    expect(student.ok && student.receipt.viewer).toMatchObject({ role: 'student', eligible: true })
+  })
+})
+
 describe('系辦重置／重開被擋的句子（AC-A-42）', () => {
   it('學生按重置／重開：句子通順、不疊字；狀態不對時指向「重新收集同意（內容不變）」', async () => {
     const s = await scenario()

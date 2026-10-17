@@ -1864,7 +1864,7 @@ async function prefetchDetails(db: Queryable, rows: readonly VersionRow[], userI
     const live = await db.query<{ group_id: string; role: VoteRole }>(
       `select group_id, 'student' as role from group_memberships where group_id = any($1::uuid[]) and user_id = $2 and valid_to is null
        union all
-       select group_id, 'teacher' as role from advisor_assignments where group_id = any($1::uuid[]) and teacher_user_id = $2 and valid_to is null`,
+       select group_id, 'advisor' as role from advisor_assignments where group_id = any($1::uuid[]) and teacher_user_id = $2 and valid_to is null`,
       [groupIds, userId],
     )
     for (const r of live.rows) eligible.set(`${r.group_id}:${r.role}`, true)
