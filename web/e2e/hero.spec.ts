@@ -108,6 +108,21 @@ for (const role of ['student', 'teacher', 'admin'] as const) {
   })
 }
 
+test('老師首頁：橫幅有「看完整時程」→ /timeline 與像素拖尾 hero-trail（AC-SH-55①、AC-TE-09）', async ({ page }) => {
+  // 拖尾只在桌機、非觸控、沒開減少動態時掛（預設的 Desktop Chrome 符合）。
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const hero = await openHome(page, 'teacher')
+  const timeline = hero.getByRole('link', { name: '看完整時程' })
+  await expect(timeline).toHaveAttribute('href', '/timeline')
+  await expect(hero.getByTestId('hero-trail')).toHaveCount(1)
+  await expect(hero.locator('canvas')).toHaveCount(1)
+
+  // 老師側欄與前台導覽都沒有時程入口：從橫幅實際點得到 /timeline。
+  await timeline.click()
+  await expect(page).toHaveURL(/\/timeline$/)
+  await expect(page.getByRole('heading', { level: 1, name: '專題時程' })).toBeVisible()
+})
+
 test('系辦沒有預設屆別：橫幅只說「還沒有設定後台預設查看的屆別。」，不再叫人去「屆別」頁（AC-SH-68）', async ({ page }) => {
   await pool.query('update cohorts set is_default_working = false where is_default_working')
   const hero = await openHome(page, 'admin')
