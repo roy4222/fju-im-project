@@ -564,6 +564,95 @@ describe('成員集合改變 → 目前版本同交易失效（票 14 掛點）'
   })
 })
 
+/** 包住 `pool().connect()` 回來的 client，數 `studentView` 內的 SQL（`#withClient` 走 `connect()`，包 `pool.query` 會數到 0；BEGIN／COMMIT／ROLLBACK 不計）。 */
+function countingPool(sink: string[]): Pool {
+  return new Proxy(app, {
+    get(target, prop, receiver) {
+      if (prop !== 'connect') return Reflect.get(target, prop, receiver)
+      return async () => {
+        const client = await target.connect()
+        return new Proxy(client, {
+          get(c, p, r) {
+            if (p !== 'query') return Reflect.get(c, p, r)
+            return (...args: unknown[]) => {
+              const text = typeof args[0] === 'string' ? args[0] : String((args[0] as { text?: string })?.text ?? '')
+              if (!/^\s*(begin|commit|rollback)\b/i.test(text)) sink.push(text)
+              return (c.query as (...a: unknown[]) => unknown)(...args)
+            }
+          },
+        })
+      }
+    },
+  }) as Pool
+}
+
+describe('學生頁批次查詢（SH-B5）', () => {
+  async function studentStatements(userId: string): Promise<{ n: number; view: Awaited<ReturnType<PgSignoffQuery['studentView']>> }> {
+    const sink: string[] = []
+    const counted = new PgSignoffQuery({ pool: () => countingPool(sink) })
+    const view = await counted.studentView(actor(userId, ['student']))
+    return { n: sink.length, view }
+  }
+
+  it('句數只跟用途包數無關：一包與兩包都是 6；同一包歷史由 1 筆增到 5 筆句數不變，回傳內容仍是各包目前版本＋完整歷史', async () => {
+    const s = await scenario()
+    const me = s.members[0]!.id
+    await mustCreate(s)
+    const oneBagOneVersion = await studentStatements(me)
+    for (let i = 0; i < 4; i += 1) await mustCreate(s, { content: `第 ${i + 2} 版內容` })
+    const oneBagFive = await studentStatements(me)
+    const draft = await showcaseDraft(s)
+    for (let i = 0; i < 5; i += 1) await mustCreate(s, { purpose: 'final_document', showcaseEntryId: draft.entryId, content: `最終第 ${i + 1} 版` })
+    const twoBags = await studentStatements(me)
+
+    expect(oneBagOneVersion.n).toBe(6)
+    expect(oneBagFive.n).toBe(6)
+    expect(twoBags.n).toBe(6)
+    expect(oneBagFive.view.versions).toHaveLength(1)
+    expect(oneBagFive.view.versions[0]!.versionNo).toBe(5)
+    expect(oneBagFive.view.versions[0]!.history.map((h) => h.versionNo)).toEqual([5, 4, 3, 2, 1])
+    expect(twoBags.view.versions.map((v) => [v.purpose, v.versionNo, v.history.length, v.viewer.role, v.viewer.eligible])).toEqual([
+      ['result_confirmation', 5, 5, 'student', true],
+      ['final_document', 5, 5, 'student', true],
+    ])
+  })
+
+  it('每包各配各的歷史與表態：本人在其中一包表態後，只有那一包的 voted／canRespond 變', async () => {
+    const s = await scenario()
+    const me = s.members[0]!.id
+    const draft = await showcaseDraft(s)
+    const a = await mustCreate(s)
+    await mustCreate(s, { purpose: 'final_document', showcaseEntryId: draft.entryId })
+    const checksum = String((await owner.sql('select content_checksum from signoff_package_versions where id = $1', [a.versionId])).rows[0]!.content_checksum)
+    const r = await signoff.respond({ ...actor(me, ['student']), loginMethod: 'password' } as ResolvedActor, { versionId: a.versionId, contentChecksum: checksum, decision: 'agree' }, randomUUID())
+    expect(r.ok).toBe(true)
+    const { view } = await studentStatements(me)
+    const byPurpose = Object.fromEntries(view.versions.map((v) => [v.purpose, v.viewer]))
+    expect(byPurpose.result_confirmation).toMatchObject({ voted: 'agree', canRespond: false })
+    expect(byPurpose.final_document).toMatchObject({ voted: null, canRespond: true })
+  })
+})
+
+describe('系辦重置／重開被擋的句子（AC-A-42）', () => {
+  it('學生按重置／重開：句子通順、不疊字；狀態不對時指向「重新收集同意（內容不變）」', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    const asStudent = actor(s.members[0]!.id, ['student'])
+    expect(await signoff.reset(asStudent, { versionId: v.versionId, reason: '想重置' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      message: '只有系辦管理員可以重新收集同意。',
+    })
+    expect(await signoff.reopen(asStudent, { versionId: v.versionId, reason: '想重開' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      message: '只有系辦管理員可以重開新版同意書。',
+    })
+    const wrongKind = await signoff.reopen(admin(), { versionId: v.versionId, reason: '想重開' }, randomUUID())
+    expect(wrongKind).toMatchObject({ ok: false, code: 'CONFLICT', message: '這一版還在收集同意或已完成，請改按「重新收集同意（內容不變）」。' })
+  })
+})
+
 describe('讀取邊界（SGN-10 入口）', () => {
   it('版本頁：管理員、參與學生、主指導讀得到；別組學生、別的老師 FORBIDDEN；被移出的參與者仍讀得到自己參與過的那一版', async () => {
     const s = await scenario()

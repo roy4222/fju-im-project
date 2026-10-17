@@ -745,7 +745,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
    */
   async #restart(kind: RestartKind, actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>> {
     const what = RESTART_LABEL[kind]
-    const blocked = authorizeAdmin(actor, `${what}同意書`)
+    const blocked = authorizeAdmin(actor, kind === 'reset' ? what : `${what}同意書`)
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -778,7 +778,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (restartKindFor(status.state) !== kind) {
         return err(
           'CONFLICT',
-          kind === 'reset' ? '這一版已退回、被取代或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重置」。',
+          kind === 'reset' ? '這一版已退回、被取代或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重新收集同意（內容不變）」。',
         )
       }
 
@@ -1773,9 +1773,8 @@ export class PgSignoffQuery implements SignoffQuery {
           group.id,
         ])
       ).rows
-      const versions: VersionDetail[] = []
-      for (const row of rows) versions.push(await toDetail(db, row, actor))
-      return { groupCode: group.code, versions }
+      const prefetched = await prefetchDetails(db, rows, actor.userId)
+      return { groupCode: group.code, versions: rows.map((row) => toDetailFrom(row, actor, prefetched)) }
     })
   }
 
@@ -1829,39 +1828,88 @@ function canRead(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authentic
   return canReadSignoffVersions(db, actor, [row.version_id])
 }
 
-async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
-  const history = await db.query<{ version_id: string; version_no: number; state: SignoffState; cause: string | null; created_real_at: Date }>(
-    `select v.id as version_id, v.version_no, s.state, s.cause, v.created_real_at
+/** 一批版本的明細要用的資料（歷史、代稱、表態、本人的組員／指導狀態），一次各查一句；`toDetailFrom` 只讀它、不碰資料庫。 */
+type DetailPrefetch = {
+  historyOf: ReadonlyMap<string, VersionDetail['history']>
+  pseudonyms: ReadonlyMap<string, string>
+  votes: readonly (VoteRecord & { versionId: string })[]
+  /** `${groupId}:${role}` → 本人此刻還是不是該組的組員（student）或主指導（teacher）。 */
+  eligible: ReadonlyMap<string, boolean>
+}
+
+async function prefetchDetails(db: Queryable, rows: readonly VersionRow[], userId: string): Promise<DetailPrefetch> {
+  const history = await db.query<{ package_id: string; version_id: string; version_no: number; state: SignoffState; cause: string | null; created_real_at: Date }>(
+    `select v.package_id, v.id as version_id, v.version_no, s.state, s.cause, v.created_real_at
        from signoff_package_versions v join signoff_version_status s on s.version_id = v.id
-      where v.package_id = $1 order by v.version_no desc`,
-    [row.package_id],
+      where v.package_id = any($1::uuid[]) order by v.package_id, v.version_no desc`,
+    [[...new Set(rows.map((r) => r.package_id))]],
   )
-  const participants = withPseudonyms(
-    readParticipants(row.participants) ?? NO_PARTICIPANTS,
-    await pseudonymsForSnapshots(db, [row.participants]),
+  const historyOf = new Map<string, VersionDetail['history'][number][]>()
+  for (const h of history.rows) {
+    const list = historyOf.get(h.package_id) ?? []
+    list.push({ versionId: h.version_id, versionNo: h.version_no, state: h.state, cause: h.cause, createdAt: h.created_real_at })
+    historyOf.set(h.package_id, list)
+  }
+  const pseudonyms = await pseudonymsForSnapshots(
+    db,
+    rows.map((r) => r.participants),
   )
-  const votes = await votesOf(db, [row.version_id])
+  const votes = await votesOf(
+    db,
+    rows.map((r) => r.version_id),
+  )
+  const groupIds = [...new Set(rows.map((r) => r.group_id))]
+  const eligible = new Map<string, boolean>()
+  if (groupIds.length > 0) {
+    const live = await db.query<{ group_id: string; role: VoteRole }>(
+      `select group_id, 'student' as role from group_memberships where group_id = any($1::uuid[]) and user_id = $2 and valid_to is null
+       union all
+       select group_id, 'teacher' as role from advisor_assignments where group_id = any($1::uuid[]) and teacher_user_id = $2 and valid_to is null`,
+      [groupIds, userId],
+    )
+    for (const r of live.rows) eligible.set(`${r.group_id}:${r.role}`, true)
+  }
+  return { historyOf, pseudonyms, votes, eligible }
+}
+
+async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
+  return toDetailFrom(row, actor, await prefetchDetails(db, [row], actor.userId), await detailExtras(db, row, actor))
+}
+
+/** 只有單版本頁要的附加資料（系辦才有）：匯出紀錄與最近提醒。學生視角一律不跑。 */
+async function detailExtras(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<DetailExtras> {
+  if (!actor.roles.includes('admin')) return { exports: [], lastRemindedAt: null }
+  const exports = (
+    await db.query<{ format: SignoffExportFormat; real_at: Date; by_name: string }>(
+      `select e.format, e.real_at, coalesce(nullif(btrim(p.display_name), ''), u.name) as by_name
+         from signoff_exports e join users u on u.id = e.exported_by_user_id left join user_profiles p on p.user_id = e.exported_by_user_id
+        where e.version_id = $1 order by e.real_at desc`,
+      [row.version_id],
+    )
+  ).rows.map((e) => ({ format: e.format, at: e.real_at, byName: e.by_name }))
+  return { exports, lastRemindedAt: await lastRemindedAt(db, row.version_id) }
+}
+
+type DetailExtras = { exports: VersionDetail['exports']; lastRemindedAt: Date | null }
+
+function toDetailFrom(
+  row: VersionRow,
+  actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
+  prefetched: DetailPrefetch,
+  extras: DetailExtras = { exports: [], lastRemindedAt: null },
+): VersionDetail {
+  const participants = withPseudonyms(readParticipants(row.participants) ?? NO_PARTICIPANTS, prefetched.pseudonyms)
+  const votes = prefetched.votes.filter((v) => v.versionId === row.version_id)
   const progress = buildProgress(participants, votes, row.state)
   const isCurrent = row.current_version_id === row.version_id
   const role = roleIn(participants, actor.userId)
-  const eligible = role !== null && (await stillEligible(db, row.group_id, actor.userId, role))
+  const eligible = role !== null && prefetched.eligible.get(`${row.group_id}:${role}`) === true
   const voted = votes.find((v) => v.userId === actor.userId)?.result ?? null
   // 按得下去＝和用例的 checkVote 同一套規則（用例在鎖內再判一次，這裡只決定畫面上要不要出按鈕）。
   const canRespond =
     role !== null &&
     checkVote({ isCurrent, state: row.state, cause: row.cause, checksumMatches: true, role, stillEligible: eligible, alreadyVoted: voted !== null }) ===
       null
-  const isAdmin = actor.roles.includes('admin')
-  const exports = isAdmin
-    ? (
-        await db.query<{ format: SignoffExportFormat; real_at: Date; by_name: string }>(
-          `select e.format, e.real_at, coalesce(nullif(btrim(p.display_name), ''), u.name) as by_name
-             from signoff_exports e join users u on u.id = e.exported_by_user_id left join user_profiles p on p.user_id = e.exported_by_user_id
-            where e.version_id = $1 order by e.real_at desc`,
-          [row.version_id],
-        )
-      ).rows.map((e) => ({ format: e.format, at: e.real_at, byName: e.by_name }))
-    : []
   return {
     versionId: row.version_id,
     packageId: row.package_id,
@@ -1883,10 +1931,10 @@ async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedA
     isCurrent,
     createdAt: row.created_real_at,
     createdByName: row.created_by_name,
-    history: history.rows.map((h) => ({ versionId: h.version_id, versionNo: h.version_no, state: h.state, cause: h.cause, createdAt: h.created_real_at })),
+    history: prefetched.historyOf.get(row.package_id) ?? [],
     progress,
     viewer: { userId: actor.userId, role, eligible, voted, canRespond },
-    lastRemindedAt: isAdmin ? await lastRemindedAt(db, row.version_id) : null,
-    exports,
+    lastRemindedAt: extras.lastRemindedAt,
+    exports: extras.exports,
   }
 }
