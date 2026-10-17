@@ -275,6 +275,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     const businessAt = await this.#businessClock.now()
 
     return this.#run(async (tx) => {
+      // 鎖順序同提案：屆別 FOR SHARE 在前。封存跟這個開關互斥，封存後兩個方向都不能改（AC-A-28）。
+      const cohort = await this.#shareCohort(tx, cohortId)
+      if (!cohort) return err('VALIDATION_FAILED', '找不到你的屆別，請聯絡系辦。')
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -289,6 +292,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<SetOpenToJoinReceipt>(begun)
+      if (cohort.status === 'archived') return cohortArchived()
 
       const profile = await tx.query<{ open_to_join: boolean }>(
         'select open_to_join from user_profiles where user_id = $1 for update',
