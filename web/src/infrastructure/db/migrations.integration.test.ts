@@ -140,7 +140,7 @@ const EXPECTED_TABLES = [
   ...VB1_TABLES,
 ].sort()
 
-const LATEST = '0015_vb_mail_outbox_and_google_match'
+const LATEST = '0016_avatar'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import type { ResolvedActor } from '@/application/accounts'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { DashboardFrame } from '@/app/_ui/dashboard-frame'
 import type { NavItem } from '@/app/dashboard/_nav'
 import { homeFor, renderActor, shellViewer } from '@/app/_ui/guard'
@@ -100,6 +101,27 @@ type Viewer = {
   otherWorkbenches: { href: string; label: string }[]
 }
 
+/**
+ * 帳號選單的頭像（SH-8）。頭像欄由身分解析同一句讀出來，不另查；三個外框都是 client，
+ * 所以在這裡（server）render 好，當 `ReactNode` 穿過 `SiteHeader`／`DashboardFrame` 交給 `AccountMenu`。
+ * 旁邊已經寫姓名，所以 `decorative`（`alt=""`）。
+ */
+function accountAvatar(actor: ResolvedActor): ReactNode {
+  if (actor.kind !== 'authenticated') return null
+  return (
+    <UserAvatar
+      user={{
+        id: actor.userId,
+        name: actor.displayName ?? '',
+        avatarPreset: actor.avatarPreset ?? null,
+        avatarFileId: actor.avatarFileId ?? null,
+      }}
+      size={32}
+      decorative
+    />
+  )
+}
+
 function viewerOf(actor: ResolvedActor): Viewer | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
@@ -140,6 +162,7 @@ export async function SiteShell({ children, current, bare = false }: { children:
         viewer={viewer}
         signOutFormId={SIGN_OUT_FORM_ID}
         registrationOpen={registrationOpen}
+        avatar={accountAvatar(actor)}
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
@@ -286,6 +309,7 @@ export async function DashboardShell({
         switchLinks={switchLinks}
         // 通知鈴鐺（票 12）：通知匣在各角色後台底下的 /inbox。
         bell={<InboxBell href={`${base}/inbox`} current={current} />}
+        avatar={accountAvatar(viewer)}
         signOutFormId={signOutFormId}
       >
         {children}
