@@ -147,6 +147,8 @@ describe('逐欄對照模組 04／05 附錄 A', () => {
       'pinned_at',
       // B 階段 A-14（0019）：規則章節位置。
       'rules_position',
+      // C 階段 C1-01（0021）：同意書模式與用途。
+      'consent_mode', 'consent_purpose',
     ],
     item_audience_groups: ['item_id', 'group_id', 'created_at'],
     item_versions: [
@@ -200,13 +202,15 @@ describe('約束反例', () => {
       dueAt?: string | null
       actualOpenedAt?: string | null
       schema?: string
+      consentMode?: string | null
+      consentPurpose?: string | null
     }
     const insertItem = (patch: ItemPatch = {}) =>
       db.sql(
         `insert into managed_items
            (id, cohort_id, placement, audience_kind, receiver_unit, status, stage_id, opens_at, due_at, actual_opened_at,
-            draft_schema, title, created_by_kind, created_by_user_id)
-         values (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, '標題', 'user', $11)
+            draft_schema, title, created_by_kind, created_by_user_id, consent_mode, consent_purpose)
+         values (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, '標題', 'user', $11, $12, $13)
          returning id`,
         [
           cohortId,
@@ -220,6 +224,8 @@ describe('約束反例', () => {
           patch.actualOpenedAt ?? null,
           patch.schema ?? '{"fields":[]}',
           userId,
+          patch.consentMode ?? null,
+          patch.consentPurpose ?? null,
         ],
       )
     /** 替項目補齊兩個目前版本，讓「發布過」的 CHECK 先滿足，才驗得到後面的約束。 */
@@ -258,13 +264,16 @@ describe('約束反例', () => {
     })
   })
 
-  it('收件只能開給本屆學生或指定組別（不開公開、所有登入者、全部老師）', async () => {
+  it('收件只能開給本屆學生、指定組別或老師（不開公開、所有登入者）；老師作業一律個人收件', async () => {
     await withIsolatedDatabase({ label: 'items-receiver-audience', setup: migratedSchema }, async (db) => {
       const { insertItem } = await seeded(db)
-      for (const audience of ['public', 'signed_in', 'teachers']) {
+      for (const audience of ['public', 'signed_in']) {
         await expect(insertItem({ audience })).rejects.toThrow(/managed_items_receiver_audience_check/)
       }
       await expect(insertItem({ audience: 'groups' })).resolves.toBeTruthy()
+      // 0021（C1-01，T3）：系辦可發作業給老師，但只能個人收件。
+      await expect(insertItem({ audience: 'teachers' })).resolves.toBeTruthy()
+      await expect(insertItem({ audience: 'teachers', unit: 'group' })).rejects.toThrow(/managed_items_teacher_receiver_check/)
       // 公告不收件，對象不受限。
       await expect(insertItem({ placement: 'news', unit: 'none', audience: 'public' })).resolves.toBeTruthy()
     })
@@ -280,7 +289,7 @@ describe('約束反例', () => {
     })
   })
 
-  it('收件草稿可以先存一半；離開草稿就一定要有階段與截止', async () => {
+  it('收件草稿可以先存一半；離開草稿就一定要有截止（0021 起不再要階段）', async () => {
     await withIsolatedDatabase({ label: 'items-schedule', setup: migratedSchema }, async (db) => {
       const { insertItem, withVersions } = await seeded(db)
       const itemId = (await insertItem({ stage: null, dueAt: null })).rows[0]!.id
@@ -288,12 +297,40 @@ describe('約束反例', () => {
       await expect(db.sql(`update managed_items set status = 'published' where id = $1`, [itemId])).rejects.toThrow(
         /managed_items_receiver_schedule_check/,
       )
-      await db.sql(
-        `update managed_items set stage_id = (select id from cohort_stages limit 1), due_at = '2026-11-15T15:59:00Z'
-          where id = $1`,
-        [itemId],
-      )
+      await db.sql(`update managed_items set due_at = '2026-11-15T15:59:00Z' where id = $1`, [itemId])
       await expect(db.sql(`update managed_items set status = 'published' where id = $1`, [itemId])).resolves.toBeTruthy()
+      expect((await db.sql(`select stage_id from managed_items where id = $1`, [itemId])).rows).toEqual([{ stage_id: null }])
+    })
+  })
+
+  it('0021：同意書模式與用途（站內表單整組收件、要有用途、截止選填；上傳簽名檔個人收件、沒有用途）', async () => {
+    await withIsolatedDatabase({ label: 'items-consent', setup: migratedSchema }, async (db) => {
+      const { insertItem, withVersions } = await seeded(db)
+      const form = { audience: 'groups', unit: 'group', consentMode: 'form', consentPurpose: 'final_document' }
+      await expect(insertItem({ ...form, consentMode: 'paper' })).rejects.toThrow(/managed_items_consent_mode_check/)
+      await expect(insertItem({ ...form, consentPurpose: 'whatever' })).rejects.toThrow(
+        /managed_items_consent_purpose_value_check/,
+      )
+      // 站內表單一定整組收件、一定有用途；上傳簽名檔一定個人收件、沒有用途；一般作業沒有用途。
+      await expect(insertItem({ ...form, unit: 'individual' })).rejects.toThrow(/managed_items_consent_unit_check/)
+      await expect(insertItem({ ...form, consentPurpose: null })).rejects.toThrow(/managed_items_consent_purpose_check/)
+      await expect(insertItem({ unit: 'group', consentMode: 'upload' })).rejects.toThrow(/managed_items_consent_unit_check/)
+      await expect(insertItem({ consentMode: 'upload', consentPurpose: 'final_document' })).rejects.toThrow(
+        /managed_items_consent_purpose_check/,
+      )
+      await expect(insertItem({ consentPurpose: 'result_confirmation' })).rejects.toThrow(/managed_items_consent_purpose_check/)
+      await expect(insertItem({ consentMode: 'upload' })).resolves.toBeTruthy()
+      await expect(insertItem({ ...form, consentPurpose: 'result_confirmation' })).resolves.toBeTruthy()
+
+      // 站內表單沒有截止也能發布；一般收件照舊要截止。
+      const formId = (await insertItem({ ...form, stage: null, dueAt: null })).rows[0]!.id
+      await withVersions(formId)
+      await expect(db.sql(`update managed_items set status = 'published' where id = $1`, [formId])).resolves.toBeTruthy()
+      const uploadId = (await insertItem({ consentMode: 'upload', stage: null, dueAt: null })).rows[0]!.id
+      await withVersions(uploadId)
+      await expect(db.sql(`update managed_items set status = 'published' where id = $1`, [uploadId])).rejects.toThrow(
+        /managed_items_receiver_schedule_check/,
+      )
     })
   })
 
@@ -395,7 +432,7 @@ describe('約束反例', () => {
       })
     })
 
-    it('免填一定有理由；移出一定同時有結束時間與理由', async () => {
+    it('免填理由選填但不能只有空白；移出一定同時有結束時間與理由', async () => {
       await withIsolatedDatabase({ label: 'roster-checks', setup: migratedSchema }, async (db) => {
         const { insert } = await roster(db)
         await expect(insert({ exempt: true, exemptReason: '  ' })).rejects.toThrow(/response_rosters_exempt_reason_check/)
@@ -404,6 +441,22 @@ describe('約束反例', () => {
         await expect(insert({ to: '2026-09-19T00:00:00Z', removed: '倒退' })).rejects.toThrow(
           /response_rosters_range_check/,
         )
+      })
+    })
+
+    it('0021（X2，AC-11）：免繳、補交的理由都可以留空', async () => {
+      await withIsolatedDatabase({ label: 'roster-optional-reason', setup: migratedSchema }, async (db) => {
+        const { insert, itemId, userId } = await roster(db)
+        await expect(insert({ exempt: true, exemptReason: null })).resolves.toBeTruthy()
+        const reopen = (reason: string | null) =>
+          db.sql(
+            `insert into submission_reopens (id, item_id, receiver_kind, receiver_id, due_at, reason, created_by_user_id)
+             values (gen_random_uuid(), $1, 'user', $2, '2026-11-20T15:59:00Z', $3, $2)`,
+            [itemId, userId, reason],
+          )
+        await expect(reopen(null)).resolves.toBeTruthy()
+        await expect(reopen('')).rejects.toThrow(/submission_reopens_reason_check/)
+        await expect(reopen('字'.repeat(201))).rejects.toThrow(/submission_reopens_reason_check/)
       })
     })
   })

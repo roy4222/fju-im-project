@@ -20,6 +20,7 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面倒數第二組）。
  * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面倒數第二組）。
  * C 階段 C2-21：0020 只放寬約束（理由選填、核實方式加 office_review／email_roster_match；仍七十張表）；已套 0019、有資料的庫升上來（下面最後一組）。
+ * C 階段 C1-01：0021 新增評分項目側表 `grading_stage_settings`（七十一張表），其餘是加欄與放寬（細節在 s04-items、pg-signoff、pg-grading 整合測試）。
  */
 
 beforeAll(async () => {
@@ -131,6 +132,9 @@ const VB1_TABLES = ['mail_outbox']
 /** B 階段 A-01 的 0017：系辦結算。 */
 const A01_TABLES = ['grade_settlements']
 
+/** C 階段 C1-01 的 0021：評分項目側表（對應作業、說明、評審組）。 */
+const C1_TABLES = ['grading_stage_settings']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -145,9 +149,10 @@ const EXPECTED_TABLES = [
   ...W0_TABLES,
   ...VB1_TABLES,
   ...A01_TABLES,
+  ...C1_TABLES,
 ].sort()
 
-const LATEST = '0020_c2_verification_office_review'
+const LATEST = '0021_c1_affairs_consent_grading'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -159,7 +164,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出七十張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出七十一張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -674,7 +679,7 @@ describe('0020（C2-21）：已套 0019、有資料的庫升到 0020：理由選
         [db.schemaName],
       )
       expect(gone.rows).toEqual([])
-      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C1_TABLES.includes(t)))
     })
   })
 })

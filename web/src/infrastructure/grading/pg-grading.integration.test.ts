@@ -939,3 +939,68 @@ async function domainEventCount(cohortId: string): Promise<number> {
   const r = await owner.sql(`select count(*)::int as n from domain_events where cohort_id = $1`, [cohortId])
   return Number(r.rows[0]!.n)
 }
+
+describe('0021（C1-01）：評分項目側表 grading_stage_settings 的 CHECK', () => {
+  it('一屆一項目一列；三欄至少一欄有值；說明 1–500 字、評審組 1–40 字；作業與屆別要存在', async () => {
+    const cohortId = await newCohort()
+    const item = await owner.sql(
+      `insert into managed_items (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, 'submission', 'cohort_students', 'group', '系統驗收文件', 'user', $2) returning id`,
+      [cohortId, adminId],
+    )
+    const itemId = String(item.rows[0]!.id)
+    const setting = (stageKey: string, fields: { itemId?: string | null; description?: string | null; panelKey?: string | null }) =>
+      app.query(
+        `insert into grading_stage_settings (cohort_id, stage_key, item_id, description, panel_key, updated_by_user_id)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [cohortId, stageKey, fields.itemId ?? null, fields.description ?? null, fields.panelKey ?? null, adminId],
+      )
+
+    await expect(setting('s1', { itemId })).resolves.toBeTruthy()
+    await expect(setting('s2', { description: '依發表當天表現評分', panelKey: 'final' })).resolves.toBeTruthy()
+    await expect(setting('s3', { panelKey: 'final' })).resolves.toBeTruthy()
+    await expect(setting('s1', { description: '重複' })).rejects.toThrow(/grading_stage_settings_pk/)
+    await expect(setting('s4', {})).rejects.toThrow(/grading_stage_settings_not_empty_check/)
+    await expect(setting('s4', { description: '' })).rejects.toThrow(/grading_stage_settings_description_check/)
+    await expect(setting('s4', { description: '字'.repeat(501) })).rejects.toThrow(/grading_stage_settings_description_check/)
+    await expect(setting('s4', { description: '字'.repeat(500) })).resolves.toBeTruthy()
+    await expect(setting('s5', { panelKey: '' })).rejects.toThrow(/grading_stage_settings_panel_key_check/)
+    await expect(setting('s5', { panelKey: 'p'.repeat(41) })).rejects.toThrow(/grading_stage_settings_panel_key_check/)
+    await expect(setting('', { description: '沒有代號' })).rejects.toThrow(/grading_stage_settings_stage_key_check/)
+    await expect(setting('s6', { itemId: randomUUID() })).rejects.toThrow(/grading_stage_settings_item_id_managed_items_id_fk/)
+
+    // 改了不建版：直接改欄位；三欄都清空不合法（清空＝刪列）。
+    await expect(
+      app.query(`update grading_stage_settings set description = '補一句說明', updated_at = now() where cohort_id = $1 and stage_key = 's1'`, [
+        cohortId,
+      ]),
+    ).resolves.toBeTruthy()
+    await expect(
+      app.query(`update grading_stage_settings set panel_key = null where cohort_id = $1 and stage_key = 's3'`, [cohortId]),
+    ).rejects.toThrow(/grading_stage_settings_not_empty_check/)
+    await expect(app.query(`delete from grading_stage_settings where cohort_id = $1 and stage_key = 's3'`, [cohortId])).resolves.toBeTruthy()
+    const rows = await owner.sql(`select stage_key from grading_stage_settings where cohort_id = $1 order by stage_key`, [cohortId])
+    expect(rows.rows.map((r) => r.stage_key)).toEqual(['s1', 's2', 's4'])
+  })
+
+  it('結算、解除結算的理由可以留空（AC-31 的資料庫面）；有填仍是 1–500 字、解除仍要解除時間與解除者', async () => {
+    const cohortId = await newCohort()
+    const settle = (reason: string | null) =>
+      app.query(
+        `insert into grade_settlements (id, cohort_id, stage_key, settled_at, settled_by_user_id, reason, counted_evaluations, request_id)
+         values (gen_random_uuid(), $1, 's1', now(), $2, $3, 0, gen_random_uuid()::text) returning id`,
+        [cohortId, adminId, reason],
+      )
+    await expect(settle('')).rejects.toThrow(/grade_settlements_reason_check/)
+    const first = String((await settle(null)).rows[0]!.id)
+    await expect(
+      app.query(`update grade_settlements set released_at = now() where id = $1`, [first]),
+    ).rejects.toThrow(/grade_settlements_released_check/)
+    await expect(
+      app.query(`update grade_settlements set released_at = now(), released_by_user_id = $2 where id = $1`, [first, adminId]),
+    ).resolves.toBeTruthy()
+    expect((await owner.sql(`select reason, release_reason from grade_settlements where id = $1`, [first])).rows).toEqual([
+      { reason: null, release_reason: null },
+    ])
+  })
+})
