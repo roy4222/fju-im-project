@@ -190,7 +190,7 @@ test.describe('封存與解封', () => {
     await pool?.end()
   })
 
-  async function openStatusDialog(page: Page, button: '封存' | '解除封存', name: string) {
+  async function openStatusDialog(page: Page, button: '封存' | '恢復', name: string) {
     await rowOf(page, CODE_C).getByRole('button', { name: `${button}：${CODE_C}` }).click()
     const dialog = page.getByRole('dialog', { name })
     await expect(dialog).toBeVisible()
@@ -238,7 +238,7 @@ test.describe('封存與解封', () => {
     expect(row.rows[0]!.status).toBe('active')
   })
 
-  test('AC-A-25 封存：理由選填；填了理由 → 卡片已封存、只剩「解除封存」，留狀態紀錄與稽核', async ({ page }) => {
+  test('AC-A-25 封存：理由選填；填了理由 → 卡片已封存、只剩「恢復」，留狀態紀錄與稽核', async ({ page }) => {
     await signInAsAdmin(page)
     await page.goto('/dashboard/admin/cohorts')
 
@@ -250,12 +250,13 @@ test.describe('封存與解封', () => {
     await dialog.getByRole('button', { name: '確定封存' }).click()
     await expect(feedback(page, 'status')).toContainText(`已封存${CODE_C} 封存測試（${CODE_C}）`)
 
-    // 重新整理：存在資料庫。卡上只有「已封存 {時間}」與「解除封存」，旗標按鈕都不見了。
+    // 重新整理：存在資料庫。卡上只有「已封存 {時間}」與「恢復」（C2 設計方案 §4.1），旗標按鈕都不見了。
     await page.reload()
     const card = rowOf(page, CODE_C)
     await expect(card.getByTestId('archived-at')).toContainText(/已封存 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)
     await expect(card.getByRole('button')).toHaveCount(1)
-    await expect(card.getByRole('button', { name: `解除封存：${CODE_C}` })).toBeVisible()
+    await expect(card.getByRole('button', { name: `恢復：${CODE_C}` })).toBeVisible()
+    await expect(card.getByRole('button', { name: `恢復：${CODE_C}` })).toHaveText('恢復')
 
     const events = await pool.query(
       `select from_status, to_status, reason from cohort_status_events where cohort_id = $1 and to_status = 'archived'`,
@@ -329,13 +330,13 @@ test.describe('封存與解封', () => {
     await expect(page.getByText('公開找組員：已公開')).toBeVisible()
   })
 
-  test('AC-A-27 解除封存：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {
+  test('AC-A-27 恢復（解除封存）：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {
     await signInAsAdmin(page)
     await page.goto('/dashboard/admin/cohorts')
 
-    const dialog = await openStatusDialog(page, '解除封存', `解除封存${CODE_C}？`)
+    const dialog = await openStatusDialog(page, '恢復', `恢復${CODE_C}？`)
     await dialog.getByLabel(/理由/).fill('補登成績')
-    await dialog.getByRole('button', { name: '確定解除封存' }).click()
+    await dialog.getByRole('button', { name: '確定恢復' }).click()
     await expect(feedback(page, 'status')).toContainText(`已解除封存${CODE_C} 封存測試（${CODE_C}）`)
 
     await page.reload()

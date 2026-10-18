@@ -103,7 +103,7 @@ export type CohortRow = {
   /** 畫面上的屆別寫法「名稱（代碼）」（系1），伺服器端用 `cohortLabel` 算好；也是卡片的 region 名。 */
   label: string
   statusLabel: string
-  /** 已封存的屆別卡上沒有旗標按鈕，只剩「解除封存」（AD-B4）。 */
+  /** 已封存的屆別卡上沒有旗標按鈕，只剩「恢復」（解除封存）（AD-B4）。 */
   archived: boolean
   /** 已封存卡上的「已封存 {時間}」，伺服器端格式化好的臺灣時間；不是已封存時為 null。 */
   archivedAtLabel: string | null
@@ -115,6 +115,8 @@ export type CohortRow = {
   archiveBlockedReason: string | null
   /** 籌備中的屆別才有「轉為進行中」（票 11；C2 起是狀態旁的小字鈕）。 */
   canActivate: boolean
+  /** 「轉為進行中」不能按時寫在旁邊的那一句（時程還沒排好）；能按或沒有這顆鈕時為 null。 */
+  activateBlockedReason: string | null
   isDefaultWorking: boolean
   isRegistrationOpen: boolean
   /** 本屆學生數（已分組成員＋未分組）與組數。 */
@@ -145,7 +147,7 @@ const BUTTON_LABEL: Record<Flag, string> = {
 /**
  * 屆別卡片（AD-12，取代原本 `min-w-[40rem]` 的表格）：每屆一張 `region`，名稱是「名稱（代碼）」。
  * 卡上（C2 設計方案 §4.1）：狀態膠囊（籌備中旁邊一顆「轉為進行中」小字）、學生數、組數、持有的旗標膠囊，
- * 按鈕只有「編輯」「封存」；已封存的卡只剩「解除封存」。換旗標在「編輯」視窗裡。
+ * 按鈕只有「編輯」「封存」；已封存的卡只剩「恢復」。換旗標在「編輯」視窗裡。
  */
 export function CohortCards({
   rows,
@@ -196,6 +198,12 @@ export function CohortCards({
                   {row.canActivate ? <ActivateCohortButton row={row} action={activateAction} pending={activating} /> : null}
                 </div>
               </div>
+              {/* 時程還沒排好：「轉為進行中」disabled，這裡寫同一句原因（跟按鈕的 title 相同）。 */}
+              {row.canActivate && row.activateBlockedReason ? (
+                <p className="-mt-2 text-right text-xs text-muted-foreground" data-testid="activate-blocked-reason">
+                  {row.activateBlockedReason}
+                </p>
+              ) : null}
               <dl className="flex gap-6 text-sm">
                 <div>
                   <dt className="text-xs text-muted-foreground">學生</dt>
@@ -356,7 +364,8 @@ function ActivateCohortButton({
     <>
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || row.activateBlockedReason !== null}
+        title={row.activateBlockedReason ?? undefined}
         aria-label={`把 ${row.code} 轉為進行中`}
         className={ACTIVATE_LINK}
         onClick={() => ref.current?.showModal()}
@@ -398,13 +407,13 @@ const STATUS_COPY = {
     facts: [
       ['範圍', '這一屆的組別、評分、簽核、成果都變成只能查看；老師的評分清單與「我的組別」不再列這一屆。'],
       ['後果', '按下就生效並留一筆狀態紀錄與操作紀錄。'],
-      ['能不能恢復', '可以，已封存的卡上有「解除封存」。'],
+      ['能不能恢復', '可以，已封存的卡上有「恢復」。'],
     ],
   },
   unarchive: {
-    button: '解除封存',
-    title: (label: string) => `解除封存${label}？`,
-    submit: '確定解除封存',
+    button: '恢復',
+    title: (label: string) => `恢復${label}？`,
+    submit: '確定恢復',
     facts: [
       ['範圍', '這一屆回到進行中；老師的評分清單、學生的組別頁可以再寫入。'],
       ['後果', '按下就生效並留一筆狀態紀錄與操作紀錄。'],
@@ -414,7 +423,7 @@ const STATUS_COPY = {
 } as const
 
 /**
- * 「封存」「解除封存」的確認視窗（AD-B4；設計方案 §7）：寫對象、範圍、後果、能不能恢復，理由選填（C2 設計方案 X2）。
+ * 「封存」「恢復」（解除封存）的確認視窗（AD-B4；設計方案 §7）：寫對象、範圍、後果、能不能恢復，理由選填（C2 設計方案 X2）。
  * 送出就關掉視窗，結果顯示在卡片列上方那一句回饋。
  */
 function CohortStatusButton({

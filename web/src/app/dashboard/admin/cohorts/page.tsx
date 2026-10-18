@@ -14,6 +14,8 @@ import {
   COHORT_STATUS_REASON_MAX_LENGTH,
   cohortLabel,
   getCohortStatusQuery,
+  getTimelineQuery,
+  STAGE_COUNT,
 } from '@/composition/cohorts'
 import { getGroupQuery } from '@/composition/groups'
 import { formatTaipeiMinute } from '@/shared/time'
@@ -22,7 +24,7 @@ export const metadata = { title: '屆別｜資管系專題平台' }
 
 /**
  * 封存按鈕不能按時寫在旁邊的那一句；能按回 null。條件照用例的封存前置（`pg-cohorts.ts` 的 `#changeStatus`），
- * 這裡只是先在畫面上說，用例仍會再擋一次。已封存的卡沒有封存鈕（只剩「解除封存」），不用原因。
+ * 這裡只是先在畫面上說，用例仍會再擋一次。已封存的卡沒有封存鈕（只剩「恢復」），不用原因。
  */
 function archiveBlockedReason(cohort: { status: string; isDefaultWorking: boolean; isRegistrationOpen: boolean }): string | null {
   if (cohort.status === 'archived') return null
@@ -36,7 +38,7 @@ function archiveBlockedReason(cohort: { status: string; isDefaultWorking: boolea
  * 屆別頁（票 5）：新增屆別、看狀態、指定「預設工作屆別」與「開放註冊屆別」。
  *
  * 票 11 加上「轉為進行中」（要先在時間軸設好階段與年度結束日）；第三波放進危險操作區、先確認再送。
- * AD-B4：進行中的卡有「封存」，已封存的卡顯示封存時間與「解除封存」，兩者都要填理由。
+ * AD-B4：進行中的卡有「封存」，已封存的卡顯示封存時間與「恢復」（解除封存），兩者都要填理由。
  * AD-12：掛「設定」分頁列，表格改每屆一張卡（學生數、組數），新增表單搬到分頁列右側。
  * C2-06（設計方案 §4.1）：「新增屆別」改按鈕開視窗；卡上按鈕只剩「編輯」「封存」，危險區拿掉；
  * 不能封存時按鈕 disabled，旁邊寫原因。
@@ -51,6 +53,18 @@ export default async function AdminCohortsPage() {
   const defaultWorking = cohorts.find((cohort) => cohort.isDefaultWorking) ?? null
   // 卡上的學生數、組數：一句 SQL 算完全部屆別（不逐屆查），沒出現在 Map 裡的屆別是 0。
   const counts = await getGroupQuery().countsByCohort()
+  // 籌備中的屆別才有「轉為進行中」：先看時程排好了沒（四個階段＋年度結束日，跟用例的前置相同），沒排好就停用並寫原因。
+  // 只查籌備中的屆，通常只有一兩屆。
+  const scheduleReady = new Map(
+    await Promise.all(
+      cohorts
+        .filter((cohort) => cohort.status === 'preparing')
+        .map(async (cohort) => {
+          const schedule = await getTimelineQuery().schedule(cohort.id)
+          return [cohort.id, schedule.stages.length === STAGE_COUNT && schedule.yearEndDate !== null] as const
+        }),
+    ),
+  )
 
   const rows: CohortRow[] = cohorts.map((cohort) => ({
     id: cohort.id,
@@ -63,6 +77,7 @@ export default async function AdminCohortsPage() {
     canArchive: archiveBlockedReason(cohort) === null,
     archiveBlockedReason: archiveBlockedReason(cohort),
     canActivate: cohort.status === 'preparing',
+    activateBlockedReason: scheduleReady.get(cohort.id) === false ? '先到專題時程排好四個階段' : null,
     isDefaultWorking: cohort.isDefaultWorking,
     isRegistrationOpen: cohort.isRegistrationOpen,
     studentCount: counts.get(cohort.id)?.students ?? 0,

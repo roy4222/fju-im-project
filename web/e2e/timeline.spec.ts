@@ -68,7 +68,7 @@ async function setClock(page: Page, local: string, reason: string) {
   await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
 }
 
-test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會被擋下', async ({ page }) => {
+test('建屆別、設為預設工作屆別；還沒設階段時「轉為進行中」停用並寫原因', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
   // C2-06：「新增屆別」開視窗填。
@@ -86,11 +86,13 @@ test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會�
   await page.getByRole('dialog', { name: `編輯${CODE}` }).getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
   await expect(feedback(page, 'status')).toContainText(new RegExp(`已把後台預設查看的屆別設為.*（${CODE}）`))
 
-  // 轉為進行中是狀態旁的小字鈕（C2-06），先確認再送。
-  await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
-  await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
+  // 轉為進行中是狀態旁的小字鈕（C2-06）：還沒排時程就 disabled，卡上寫原因、跟按鈕 title 同一句（AC-C2-13、§4.1）。
+  // 用例那一層的擋法（沒排時程回「還沒設定階段與年度結束日」）由 `pg-timeline.integration.test.ts` 負責。
   const row = page.getByRole('region', { name: new RegExp(CODE) })
+  const activate = row.getByRole('button', { name: `把 ${CODE} 轉為進行中` })
+  await expect(activate).toBeDisabled()
+  await expect(activate).toHaveAttribute('title', '先到專題時程排好四個階段')
+  await expect(row.getByTestId('activate-blocked-reason')).toHaveText('先到專題時程排好四個階段')
   await expect(row).toContainText('尚未開始（設定中）')
 })
 
