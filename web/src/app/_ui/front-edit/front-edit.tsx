@@ -42,9 +42,35 @@ function isKind(value: string | undefined): value is FeKind {
   return value !== undefined && Object.hasOwn(FE_FORMS, value)
 }
 
-function boxOf(el: Element): Box {
+/**
+ * 元素在頁面上「看得到的那一塊」：依每個會裁切的祖先（overflow 不是 visible，例如手機上可橫滑的卡片列）裁掉，
+ * 再裁到頁面寬度以內。整個被裁掉（滑到畫面外的卡片）回 `null`，不畫框也不放按鈕——否則畫面外的按鈕會把整頁撐寬。
+ * 每一則（`minVisibleRatio`）露出不到一半寬就當看不到：只剩一條邊的卡片放不下按鈕，按鈕會凸到畫面外。
+ * 橫滑時 scroll 事件會觸發重算（`update` 監聽 capture 階段的 scroll）。
+ */
+function boxOf(el: Element, minVisibleRatio = 0): Box | null {
   const r = el.getBoundingClientRect()
-  return { top: r.top + window.scrollY, left: r.left + window.scrollX, width: r.width, height: r.height }
+  let top = r.top
+  let left = r.left
+  let right = r.right
+  let bottom = r.bottom
+  for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+    const style = getComputedStyle(a)
+    if (style.overflowX !== 'visible') {
+      const c = a.getBoundingClientRect()
+      left = Math.max(left, c.left)
+      right = Math.min(right, c.right)
+    }
+    if (style.overflowY !== 'visible') {
+      const c = a.getBoundingClientRect()
+      top = Math.max(top, c.top)
+      bottom = Math.min(bottom, c.bottom)
+    }
+  }
+  left = Math.max(left, -window.scrollX)
+  right = Math.min(right, document.documentElement.clientWidth - window.scrollX)
+  if (right - left < Math.max(1, r.width * minVisibleRatio) || bottom - top < 1) return null
+  return { top: top + window.scrollY, left: left + window.scrollX, width: right - left, height: bottom - top }
 }
 
 function parseFields(raw: string | undefined): FeFields {
@@ -60,19 +86,23 @@ function parseFields(raw: string | undefined): FeFields {
 function scan(): { sections: SectionMark[]; items: ItemMark[] } {
   const sections: SectionMark[] = []
   for (const el of document.querySelectorAll<HTMLElement>('[data-fe-section]')) {
+    const box = boxOf(el)
+    if (!box) continue
     const add = el.dataset.feAdd
-    sections.push({ box: boxOf(el), label: el.dataset.feSection ?? '', add: isKind(add) ? add : null, cohort: el.dataset.feCohort ?? null })
+    sections.push({ box, label: el.dataset.feSection ?? '', add: isKind(add) ? add : null, cohort: el.dataset.feCohort ?? null })
   }
   const items: ItemMark[] = []
   for (const el of document.querySelectorAll<HTMLElement>('[data-fe-item]')) {
     const kind = el.dataset.feItem
     const id = el.dataset.feId
     if (!isKind(kind) || !id) continue
+    const box = boxOf(el, 0.5)
+    if (!box) continue
     const fields = parseFields(el.dataset.feFields)
     const rev = Number(el.dataset.feRev)
     const del = el.dataset.feDel
     items.push({
-      box: boxOf(el),
+      box,
       kind,
       id,
       revision: el.dataset.feRev !== undefined && Number.isInteger(rev) ? rev : null,

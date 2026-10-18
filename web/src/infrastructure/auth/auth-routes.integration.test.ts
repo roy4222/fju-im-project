@@ -373,6 +373,14 @@ describe('白名單路由與 hooks', () => {
     expect(set).toMatch(/SameSite=Lax/i)
     expect(set).toMatch(/Path=\//)
 
+    // 登出（所有入口共用的 /sign-out）：清掉提示。
+    const sessionCookie = (await call('POST', '/sign-in/email', { email, password })).headers.get('set-cookie') ?? ''
+    const signedOut = await call('POST', '/sign-out', {}, { cookie: `${sessionCookie.split(';')[0]}; fju_office=1` })
+    expect(signedOut.status).toBe(200)
+    const gone = officeCookie(signedOut)
+    expect(gone).toMatch(/^fju_office=;/)
+    expect(gone).toMatch(/Max-Age=0/i)
+
     // 撤掉系辦角色後，帶著舊提示再登入：清掉（Max-Age=0）。
     await db.sql(`update role_assignments set revoked_real_at = now() where user_id = $1`, [userId])
     const cleared = officeCookie(await call('POST', '/sign-in/email', { email, password }, { cookie: 'fju_office=1' }))

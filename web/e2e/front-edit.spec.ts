@@ -1,4 +1,4 @@
-import { expect, request as playwrightRequest, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -29,6 +29,7 @@ const RULE = `${stamp} 第一章 課程目的`
 let pool: Pool
 let admin: TestSession
 let student: TestSession
+const featuredIds: string[] = []
 
 async function one(sql: string, values: unknown[] = []): Promise<string> {
   return String((await pool.query(sql, values)).rows[0]!.id)
@@ -72,10 +73,35 @@ test.beforeAll(async () => {
     [COHORT],
   )
   for (const title of FILES) await publishedItem(cohortId, 'resource', title, CATEGORY)
+  // 首頁「優秀專題」4 張（手機上是可橫滑的一列；Review 第 1 輪：畫面外的卡片按鈕撐寬頁面）。afterAll 拿掉得獎，不影響別的 spec。
+  for (const n of [1, 2, 3, 4]) {
+    const groupId = await one(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+      [cohortId, `G0${n}`],
+    )
+    const entryId = await one(
+      `insert into showcase_entries (id, cohort_id, group_id, status, created_by_user_id) values (gen_random_uuid(), $1, $2, 'draft', $3) returning id`,
+      [cohortId, groupId, admin.userId],
+    )
+    const versionId = await one(
+      `insert into showcase_versions (id, entry_id, version_no, title, summary, summary_checksum, video_url, authorization_kind,
+                                      authorization_ref, pii_check, created_by_user_id, created_real_at)
+       values (gen_random_uuid(), $1, 1, $2, '摘要', encode(sha256(convert_to('摘要', 'UTF8')), 'hex'), null, 'external', gen_random_uuid(),
+               '{"passed": true}'::jsonb, $3, now()) returning id`,
+      [entryId, `${stamp} 優秀專題 ${n}`, admin.userId],
+    )
+    await pool.query(
+      `update showcase_entries set status = 'published', current_version_id = $2, award_level = 'excellent' where id = $1`,
+      [entryId, versionId],
+    )
+    featuredIds.push(entryId)
+  }
   await publishedItem(cohortId, 'rules', RULE, null)
 })
 
 test.afterAll(async () => {
+  if (featuredIds.length) await pool?.query(`update showcase_entries set award_level = null where id = any($1)`, [featuredIds])
   await pool?.end()
 })
 
@@ -108,6 +134,28 @@ function watchCsp(page: Page) {
   })
   return violations
 }
+
+/** main 裡每個區塊的名稱（aria-label 或 aria-labelledby 指到的標題）。 */
+function sectionNames(page: Page) {
+  return page.locator('main section').evaluateAll((sections) =>
+    sections.map((s) => s.getAttribute('aria-label') ?? document.getElementById(s.getAttribute('aria-labelledby') ?? '')?.textContent ?? ''),
+  )
+}
+
+/** 訪客開 / ：HTML 沒有標記、下載的 JS／CSS 沒有編輯層。 */
+async function expectVisitorHome(browser: Browser) {
+  const visitor = await browser.newContext()
+  const page = await visitor.newPage()
+  const assets = watchAssets(page)
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+  expect((await page.content()).includes('data-fe-')).toBe(false)
+  await expect(page.getByRole('button', { name: '編輯頁面' })).toHaveCount(0)
+  expect(assets).toEqual([])
+  await visitor.close()
+}
+
+const scrollWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth)
 
 async function officeCookie(context: BrowserContext) {
   return (await context.cookies()).find((c) => c.name === 'fju_office')
@@ -177,18 +225,28 @@ test.describe('系辦', () => {
     await anonymous.dispose()
   })
 
-  test('AC-C2-39 開關：按之前跟學生同畫面只多一顆按鈕；按之後框與按鈕；完成編輯全消失；重新整理保持；CSP 0', async ({ page, browser }) => {
+  test('AC-C2-39 開關：按之前跟原頁同畫面只多一顆按鈕；按之後框與按鈕；完成編輯全消失；重新整理保持；CSP 0', async ({ page, context, browser }) => {
     const csp = watchCsp(page)
     await signIn(page, admin.email)
     await page.goto('/')
 
-    // 按之前：main 的內容跟學生登入後一樣（區塊與文字），只多右下角一顆按鈕。
+    // 按之前：同一個系辦 session，編輯版（有提示 cookie）跟公開版（拿掉 cookie）的 main 內容一字不差，只多右下角一顆按鈕。
+    const mainText = (p: Page) => p.locator('main').innerText()
+    const editVersion = await mainText(page)
+    const hint = (await officeCookie(context))!
+    await context.clearCookies({ name: 'fju_office' })
+    await page.goto('/')
+    await expect(page.getByRole('button', { name: '編輯頁面' })).toHaveCount(0)
+    expect(await mainText(page)).toBe(editVersion)
+    await context.addCookies([hint])
+    await page.goto('/')
+
+    // 跨角色只比區塊結構（受眾不同的內容本來就可以不同）：main 的區塊名稱跟學生登入後一樣。
     const studentContext = await browser.newContext()
     await studentContext.addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
     const studentPage = await studentContext.newPage()
     await studentPage.goto('/')
-    const mainText = (p: Page) => p.locator('main').innerText()
-    expect(await mainText(page)).toBe(await mainText(studentPage))
+    expect(await sectionNames(page)).toEqual(await sectionNames(studentPage))
     await studentContext.close()
     const toggle = page.getByRole('button', { name: '編輯頁面' })
     await expect(toggle).toBeVisible()
@@ -275,7 +333,50 @@ test.describe('系辦', () => {
     await expect(page.getByTestId('resource').filter({ hasText: FILES[0]! })).toHaveCount(1)
   })
 
-  test('登出清掉提示 cookie', async ({ page, context }) => {
+  test('AC-C2-39 手機 390 寬：橫滑卡片開編輯後頁面不會被撐寬，滑動後按鈕跟著卡片', async ({ browser }) => {
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 } })
+    const page = await mobile.newPage()
+    await signIn(page, admin.email)
+    await page.goto('/')
+    const list = page.getByTestId('home-featured-list')
+    await expect(list.getByRole('listitem')).toHaveCount(4)
+    expect(await scrollWidth(page)).toBeLessThanOrEqual(390)
+
+    await page.getByRole('button', { name: '編輯頁面' }).click()
+    const layer = page.getByTestId('front-edit-layer')
+    await expect(layer.locator('.fe-item[data-fe-for="showcase"]').first()).toBeAttached()
+    // 每個框與按鈕都在 390 以內（畫面外、被橫滑列裁掉的卡片不放），頁面寬度不變。
+    const allInside = () =>
+      layer.locator('.fe-item, .fe-section, .fe-tools button').evaluateAll((els) =>
+        els.every((el) => {
+          const r = el.getBoundingClientRect()
+          return r.left >= -8 && r.right <= 390
+        }),
+      )
+    expect(await allInside()).toBe(true)
+    expect(await scrollWidth(page)).toBeLessThanOrEqual(390)
+
+    // 橫滑到下一張：重算位置，第二張卡的按鈕出現在畫面內、頁面仍不變寬。
+    const secondTitle = (await list.getByRole('listitem').nth(1).locator('.type-card-title').innerText()).trim()
+    await list.evaluate((el) => el.scrollBy({ left: el.clientWidth }))
+    await expect.poll(async () => (await list.getByRole('listitem').nth(1).boundingBox())?.x ?? 999).toBeLessThan(50)
+    // 同一則也會出現在「歷屆專題一覽」，所以只看落在橫滑列那一帶的按鈕。
+    const listBox = (await list.boundingBox())!
+    await expect
+      .poll(async () => {
+        for (const button of await layer.getByRole('button', { name: `編輯「${secondTitle}」` }).all()) {
+          const box = await button.boundingBox()
+          if (box && box.y >= listBox.y && box.y <= listBox.y + listBox.height && box.x >= 0 && box.x + box.width <= 390) return true
+        }
+        return false
+      })
+      .toBe(true)
+    await expect.poll(allInside).toBe(true)
+    expect(await scrollWidth(page)).toBeLessThanOrEqual(390)
+    await mobile.close()
+  })
+
+  test('登出清掉提示 cookie：後台登出鈕', async ({ page, context, browser }) => {
     await signIn(page, admin.email)
     expect((await officeCookie(context))?.value).toBe('1')
     await page.goto('/dashboard/admin')
@@ -285,5 +386,35 @@ test.describe('系辦', () => {
     expect(await officeCookie(context)).toBeUndefined()
     await page.goto('/')
     expect((await page.content()).includes('data-fe-')).toBe(false)
+    await expectVisitorHome(browser)
+  })
+
+  test('登出清掉提示 cookie：「重新登入確認身分」', async ({ page, context, browser }) => {
+    await signIn(page, admin.email)
+    expect((await officeCookie(context))?.value).toBe('1')
+    // 登入超過 10 分鐘才會出現這顆（同 google.spec 的做法）。
+    await pool.query(`update sessions set created_at = now() - interval '11 minutes' where user_id = $1`, [admin.userId])
+    await page.goto('/account')
+    await page.getByRole('button', { name: '重新登入確認身分' }).click()
+    await expect(page).toHaveURL(/\/login\?next=%2Faccount$/)
+    expect(await officeCookie(context)).toBeUndefined()
+    const assets = watchAssets(page)
+    await page.goto('/')
+    expect((await page.content()).includes('data-fe-')).toBe(false)
+    expect(assets).toEqual([])
+    await expectVisitorHome(browser)
+  })
+
+  test('登出清掉提示 cookie：直接打 POST /api/auth/sign-out', async ({ page, context, browser }) => {
+    await signIn(page, admin.email)
+    expect((await officeCookie(context))?.value).toBe('1')
+    const response = await context.request.post('/api/auth/sign-out', { headers: { origin: new URL(BASE_URL).origin }, data: {} })
+    expect(response.status()).toBe(200)
+    expect(await officeCookie(context)).toBeUndefined()
+    const assets = watchAssets(page)
+    await page.goto('/')
+    expect((await page.content()).includes('data-fe-')).toBe(false)
+    expect(assets).toEqual([])
+    await expectVisitorHome(browser)
   })
 })

@@ -1060,6 +1060,10 @@ function createAuth() {
           else cache.clear()
         }
 
+        // 登出成功 → 清掉前台編輯提示 cookie（C2-16；§6.2 第 4 點）。所有登出入口（後台登出鈕、「重新確認身分」、
+        // 直接打 `POST /api/auth/sign-out`）都經過這裡，Server Action 由 nextCookies 帶出去。
+        if (ctx.path === '/sign-out' && !looksLikeApiError(returned)) clearOfficeHint(ctx)
+
         if (returned instanceof APIError) return
 
         if (ctx.path === '/change-password') {
@@ -1182,7 +1186,13 @@ async function setOfficeHint(ctx: { setCookie: (name: string, value: string, opt
     return
   }
   const sent = (ctx.request?.headers ?? ctx.headers)?.get('cookie') ?? ''
-  if (/(?:^|;\s*)fju_office=/.test(sent)) ctx.setCookie('fju_office', '', { path: '/', sameSite: 'lax', httpOnly: true, secure, maxAge: 0 })
+  if (/(?:^|;\s*)fju_office=/.test(sent)) clearOfficeHint(ctx)
+}
+
+/** 清掉前台編輯提示 cookie（Max-Age=0；屬性跟設的時候一樣，瀏覽器才認得是同一張）。 */
+function clearOfficeHint(ctx: { setCookie: (name: string, value: string, options?: Record<string, unknown>) => unknown }): void {
+  const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
+  ctx.setCookie('fju_office', '', { path: '/', sameSite: 'lax', httpOnly: true, secure, maxAge: 0 })
 }
 
 /**
