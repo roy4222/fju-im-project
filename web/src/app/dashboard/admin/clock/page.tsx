@@ -34,7 +34,7 @@ export default async function AdminClockPage() {
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
       <PageHeader
         title="測試用時間"
-        description="測試站專用：把系統認定的「現在」調到任何一秒，用來測階段切換與截止前後；原因可以不寫。正式站沒有這一頁。"
+        description="測試站專用：把系統認定的「今天」設到任何一秒，用來測階段切換與截止前後；原因可以不寫。正式站沒有這一頁。"
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">

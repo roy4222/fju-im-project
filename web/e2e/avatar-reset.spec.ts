@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * AD-B2：系辦在帳號列表「更多」重設頭像（AC-AD-B8、AC-AD-B9）。
  *
- * 對話框顯示目前頭像、理由必填（空的先擋）；重設後兩欄清空、稽核 `account.avatar_reset` 帶理由；
+ * 對話框顯示目前頭像、理由選填；重設後兩欄清空、稽核 `account.avatar_reset` 帶理由；
  * 已去識別化的列沒有「更多」，也就沒有「重設頭像」。
  */
 

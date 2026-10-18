@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * 票 10b：帳號列表每一列的「設為管理員／取消管理員」與孤兒帳號，用**真的畫面**走一次。
  *
- * 1. 老師 → 設為管理員（理由必填）→ 業務角色與套件的 `users.role` 一起變；再取消回來。
+ * 1. 老師 → 設為管理員（理由選填）→ 業務角色與套件的 `users.role` 一起變；再取消回來。
  * 2. 自己那一列沒有「取消管理員」。
  * 3. 孤兒帳號（只有登入身分）：磚與篩選看得到；補建成老師；另一個直接停用。
  *
@@ -87,7 +87,7 @@ const adminState = (userId: string) =>
     ).rows[0],
   )
 
-test('老師設為管理員、再取消：業務角色與套件的 users.role 一起變，理由必填', async ({ browser }) => {
+test('老師設為管理員、再取消：業務角色與套件的 users.role 一起變，理由選填', async ({ browser }) => {
   const { page } = await adminPage(browser)
   const teacher = await seeded('teacher', `${tag}-老師`)
 
