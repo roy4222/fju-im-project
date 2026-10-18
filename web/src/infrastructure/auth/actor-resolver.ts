@@ -10,7 +10,7 @@ import {
 import { teacherNeedsSetup } from '@/infrastructure/accounts/teacher-setup'
 import { getDb, getPool } from '@/infrastructure/db/client'
 import { roleAssignments, userProfiles, users } from '@/infrastructure/db/schema'
-import { getIdentityCache, keyMatchesSession, sessionCacheKey, type IdentityCache } from '@/infrastructure/auth/identity-cache'
+import { getIdentityCache, type IdentityCache } from '@/infrastructure/auth/identity-cache'
 import { getSessionFromHeaders } from '@/infrastructure/auth/wrapper'
 
 type Authenticated = ResolvedActor & { kind: 'authenticated' }
@@ -43,18 +43,23 @@ export class DbActorResolver implements ActorResolver {
 
   async resolve(headers: Headers): Promise<ResolvedActor> {
     const cache = this.#cache()
-    // 鍵是那張 session cookie 的名字＋原始值（已簽章）；沒有、或有歧義（同名多張、secure 與一般混用）就不用快取。
-    const token = cache.enabled ? sessionCacheKey(headers) : null
-    if (token) {
-      const hit = cache.get(token, this.#now())
+    // 鍵是那張 session cookie 照套件規則解碼後的整個字串（含簽章）；沒有、有歧義（同名多張、secure 與一般混用）、
+    // 解析失敗、或套件還沒登記 cookie 名稱，就不用快取。
+    let cookie = cache.sessionCookie(headers)
+    if (cookie) {
+      const hit = cache.get(cookie.key, this.#now())
       if (hit) return hit
     }
 
     const ticket = cache.beginLoad()
     const loaded = await this.#load(headers)
-    // 確認「套件剛驗過的就是這張 cookie」才存。
-    if (token && loaded.session && keyMatchesSession(token, loaded.session.token)) {
-      cache.set(token, loaded.actor, { now: this.#now(), sessionExpiresAt: loaded.session.expiresAt, ticket })
+    if (loaded.session) {
+      // 程序的第一次：套件的 `hooks.after` 在這次 `getSession` 途中才登記 cookie 名稱，所以再解析一次。
+      cookie ??= cache.sessionCookie(headers)
+      // 確認「套件剛驗過的就是這張 cookie」才存：解碼後的 token 要跟套件驗簽後回的 session token 一模一樣。
+      if (cookie && cookie.token === loaded.session.token) {
+        cache.set(cookie, loaded.actor, { now: this.#now(), sessionExpiresAt: loaded.session.expiresAt, ticket })
+      }
     }
     return loaded.actor
   }

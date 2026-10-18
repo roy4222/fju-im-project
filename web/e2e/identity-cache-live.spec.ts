@@ -16,6 +16,7 @@ import { createTestSession } from './session'
  * - 暖管理頁（同一張 cookie 兩次 200）→ HTTP 登出／改密碼／重設密碼 → 同一張 cookie 下一次導 `/login`。
  * - 同名兩張 cookie、secure 與一般名稱混用：絕不拿到快取裡另一個人的管理頁。
  * - 先確認這台真的開著快取：直接改 DB 停用，暖過的 cookie 仍 200（Q189 接受的 60 秒延遲）。
+ * - 同一張 cookie 的三種等價寫法（Astra r2 P1）：都暖過 → 用其中一種登出／改密碼 → 三種寫法下一次都導 `/login`。
  */
 
 const ownerUrl = process.env.DATABASE_URL_OWNER
@@ -86,6 +87,28 @@ async function expectSignedOut(cookie: string) {
   expect([302, 303, 307, 308]).toContain(page.status)
   expect(page.location).toContain('/login')
   expect(page.body).not.toContain(ADMIN_HOME)
+}
+
+/**
+ * 同一張 cookie 的三種等價寫法（套件 better-call `parseCookies` 有 `%` 就 decodeURIComponent，再驗簽，所以都認）：
+ * Set-Cookie 原樣（簽章 `%2F`、`%2B`、`%3D`）、全解碼、只把 `=` 編碼。
+ */
+function spellings(cookie: string): { raw: string; decoded: string; half: string } {
+  const value = cookie.slice(cookie.indexOf('=') + 1)
+  const decoded = decodeURIComponent(value)
+  expect(decoded, 'Set-Cookie 原樣一定含 %3D').not.toBe(value)
+  return { raw: `${COOKIE}=${value}`, decoded: `${COOKIE}=${decoded}`, half: `${COOKIE}=${decoded.replace(/=$/, '%3D')}` }
+}
+
+/** 三種寫法套件都認是這個人（`/get-session` 不經我們的快取），而且管理頁都暖過。 */
+async function warmSpellings(admin: { cookie: string; userId: string }) {
+  const forms = spellings(admin.cookie)
+  for (const [label, cookie] of Object.entries(forms)) {
+    const session = JSON.parse((await open('/api/auth/get-session', cookie)).body) as { user?: { id?: string } } | null
+    expect(session?.user?.id, `${label}：套件要認得這種寫法`).toBe(admin.userId)
+    await warmAdmin(cookie)
+  }
+  return forms
 }
 
 async function signIn(email: string, password = PASSWORD): Promise<string> {
@@ -195,5 +218,25 @@ test('cookie 有歧義（同名兩張、secure＋一般混用）：絕不拿到�
     const page = await open('/dashboard/admin', cookie)
     const showsAdmin = page.status === 200 && page.body.includes(ADMIN_HOME)
     expect(showsAdmin, `${cookie.slice(0, 50)}…：套件認的是 ${session?.user?.id ?? '沒有人'}`).toBe(session?.user?.id === admin.userId)
+  }
+})
+
+test('同一張 cookie 三種等價寫法都暖過 → 用其中一種 HTTP 登出 → 三種寫法下一次都導 /login（Astra r2 P1）', async () => {
+  const admin = await createTestSession(api, 'admin')
+  const forms = await warmSpellings(admin)
+  expect((await post('/sign-out', {}, forms.decoded)).status).toBe(200)
+  expect((await open('/api/auth/get-session', forms.raw)).body).toBe('null')
+  for (const [label, cookie] of Object.entries(forms)) {
+    await test.step(`${label} 寫法已登出`, async () => expectSignedOut(cookie))
+  }
+})
+
+test('同一張 cookie 三種等價寫法都暖過 → 用其中一種 HTTP 改密碼 → 三種寫法下一次都導 /login', async () => {
+  const admin = await createTestSession(api, 'admin')
+  const forms = await warmSpellings(admin)
+  const changed = await post('/change-password', { currentPassword: PASSWORD, newPassword: 'E2e-Password-Changed-9' }, forms.half)
+  expect(changed.status, changed.body).toBe(200)
+  for (const [label, cookie] of Object.entries(forms)) {
+    await test.step(`${label} 寫法已登出`, async () => expectSignedOut(cookie))
   }
 })

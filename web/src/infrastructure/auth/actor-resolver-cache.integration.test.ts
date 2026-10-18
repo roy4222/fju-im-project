@@ -23,6 +23,9 @@ import { migratedSchema } from '../../../test/migrations'
  * 動作一律走真的入口：command 物件、或直接打 `/api/auth/*` 的 HTTP handler（不經 `wrapper.ts` 的 Server Action 包裝）。
  * SQL 句數算的是共用連線池（Better Auth 與 resolver 都用它）的 `query` 呼叫次數。
  * **不得以 TTL 0 的 e2e 代替**（▶R-5），所以這裡明確設 `IDENTITY_CACHE_TTL_SECONDS=60`。
+ *
+ * Astra r2 P1：同一張 cookie 的等價寫法（Set-Cookie 原樣、全解碼、只解碼一部分、加引號、簽章末字元 base64 可塑）
+ * 套件都認、都是同一個 session——登出其中一種之後，其餘寫法也不能再命中（鍵正規化＋ sessionToken 次要索引）。
  */
 
 const BASE_URL = 'http://127.0.0.1:3000'
@@ -62,6 +65,47 @@ function call(method: 'GET' | 'POST', path: string, body?: unknown, headers: Rec
 
 const cookieOf = (response: Response) => (response.headers.get('set-cookie') ?? '').split(';')[0]!
 const headersOf = (cookie: string) => new Headers({ cookie })
+const NAME = 'better-auth.session_token'
+
+/**
+ * 同一張 cookie 的等價寫法（套件 better-call `parseCookies`：去引號、有 `%` 就 decodeURIComponent，再驗簽）：
+ * Set-Cookie 原樣（簽章被 `encodeURIComponent` 過：`%2F`、`%2B`、`%3D`）、全解碼、只把 `=` 編碼、加引號。
+ * 解碼後都是同一個字串，所以快取應該只有一個鍵。
+ */
+function spellings(cookie: string): Record<string, string> {
+  const value = cookie.slice(cookie.indexOf('=') + 1)
+  const decoded = decodeURIComponent(value)
+  expect(decoded, 'Set-Cookie 原樣一定含 %3D').not.toBe(value)
+  return {
+    原樣: `${NAME}=${value}`,
+    全解碼: `${NAME}=${decoded}`,
+    半解碼: `${NAME}=${decoded.replace(/=$/, '%3D')}`,
+    引號: `${NAME}="${decoded}"`,
+  }
+}
+
+/**
+ * 簽章（32 位元組 → 44 字元 base64、一個 `=`）最後一個資料字元只有高 4 位元有用，低 2 位元是補位；
+ * `atob` 對四種寫法解出同一組位元組，套件的 HMAC 驗證全部通過。這四種**解碼後仍是不同字串**，只靠正規化清不掉。
+ */
+function signatureVariants(cookie: string): string[] {
+  const value = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1))
+  const dot = value.lastIndexOf('.')
+  const token = value.slice(0, dot)
+  const signature = value.slice(dot + 1)
+  expect(signature).toHaveLength(44)
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const index = alphabet.indexOf(signature[42]!)
+  return [0, 1, 2, 3].map((bits) => `${NAME}=${token}.${signature.slice(0, 42)}${alphabet[(index & ~3) | bits]}=`)
+}
+
+/** 套件自己認不認這張 cookie（`/get-session` 不經我們的快取）。 */
+async function packageSees(cookie: string): Promise<string | undefined> {
+  const response = await call('GET', '/get-session', undefined, { cookie })
+  expect(response.status).toBe(200)
+  const session = (await response.json()) as { user?: { id?: string } } | null
+  return session?.user?.id
+}
 
 async function signIn(email: string, password = PASSWORD): Promise<string> {
   const response = await call('POST', '/sign-in/email', { email, password })
@@ -223,6 +267,102 @@ describe('cookie 有歧義時不用快取（Sol r1 P1）', () => {
         cache: new (await import('@/infrastructure/auth/identity-cache')).IdentityCache({ ttlSeconds: 0 }),
       }).resolve(headersOf(cookie))
       expect(result).toEqual(uncached)
+    }
+    expect(cache().size).toBe(sizeBefore)
+  })
+})
+
+describe('同一張 cookie 的等價寫法（Astra r2 P1）', () => {
+  it('套件實際讀的 cookie 名稱就是快取認的那個；第一次 resolve 之後快取已登記、沒被停用', async () => {
+    const { getAuth } = await import('@/infrastructure/auth/auth-instance')
+    const { authCookies } = await getAuth().$context
+    expect(authCookies.sessionToken.name).toBe(NAME)
+    const s = await member(['student'])
+    await warm(s.cookie)
+    expect(cache().sessionCookieName).toBe(NAME)
+    expect(cache().disabledReason).toBeNull()
+  })
+
+  it('原樣、全解碼、半解碼、引號：套件都認、快取只有一個鍵；暖過其中一種，其餘寫法第一次就命中（0 句 SQL）', async () => {
+    const s = await member(['student'])
+    const forms = spellings(s.cookie)
+    for (const [label, cookie] of Object.entries(forms)) expect(await packageSees(cookie), label).toBe(s.userId)
+    const sizeBefore = cache().size
+    await warm(forms.原樣!)
+    expect(cache().size).toBe(sizeBefore + 1)
+    for (const [label, cookie] of Object.entries(forms)) {
+      const { result, queries } = await countQueries(() => resolve(cookie))
+      expect(queries, `${label} 應該命中同一個鍵`).toBe(0)
+      expect(result).toMatchObject({ kind: 'authenticated', userId: s.userId })
+    }
+    expect(cache().size).toBe(sizeBefore + 1)
+  })
+
+  /** 原樣、全解碼、半解碼各暖一次（這三種 r1 的程式也會各存一筆）；引號寫法只 resolve 一次（r1 不存它、現在歸到同一個鍵）。 */
+  async function warmAll(forms: Record<string, string>): Promise<void> {
+    for (const [label, cookie] of Object.entries(forms)) {
+      if (label === '引號') expect((await resolve(cookie)).kind).toBe('authenticated')
+      else await warm(cookie)
+    }
+  }
+
+  it('四種寫法都暖過 → 用其中一種 POST /sign-out → 四種寫法下一次全部 anonymous', async () => {
+    const s = await member(['student'])
+    const forms = spellings(s.cookie)
+    await warmAll(forms)
+    const response = await call('POST', '/sign-out', undefined, { cookie: forms.全解碼! })
+    expect(response.status).toBe(200)
+    for (const [label, cookie] of Object.entries(forms)) {
+      expect(await packageSees(cookie), `${label}：套件已經不認`).toBeUndefined()
+      expect((await resolve(cookie)).kind, `${label}：登出後不得再命中`).toBe('anonymous')
+    }
+  })
+
+  it('簽章末字元的四種 base64 寫法：套件都認、各是一個鍵（次要索引）；用其中一種登出 → 四種全部 anonymous', async () => {
+    const s = await member(['student'])
+    const variants = signatureVariants(s.cookie)
+    expect(new Set(variants).size).toBe(4)
+    for (const cookie of variants) expect(await packageSees(cookie), cookie.slice(-6)).toBe(s.userId)
+    const sizeBefore = cache().size
+    for (const cookie of variants) await warm(cookie)
+    expect(cache().size).toBe(sizeBefore + 4)
+    expect((await call('POST', '/sign-out', undefined, { cookie: variants[3]! })).status).toBe(200)
+    for (const cookie of variants) expect((await resolve(cookie)).kind, `${cookie.slice(-6)}：登出後不得再命中`).toBe('anonymous')
+    expect(cache().size).toBe(sizeBefore)
+  })
+
+  it('等價寫法與簽章變體都暖過 → 用其中一種 change-password → 全部 anonymous（userId 索引）', async () => {
+    const s = await member(['student'])
+    const forms = spellings(s.cookie)
+    const all = [...Object.values(forms), ...signatureVariants(s.cookie)]
+    await warmAll(forms)
+    for (const cookie of signatureVariants(s.cookie)) await warm(cookie)
+    const response = await call(
+      'POST',
+      '/change-password',
+      { currentPassword: PASSWORD, newPassword: 'Changed-Password-2027', revokeOtherSessions: false },
+      { cookie: spellings(s.cookie).半解碼! },
+    )
+    expect(response.status).toBe(200)
+    for (const cookie of all) expect((await resolve(cookie)).kind, cookie.slice(-10)).toBe('anonymous')
+  })
+
+  it('正規化失敗（`%` 解不開、引號只開不關）與歧義（同名兩張）：不讀不存，結果跟套件一致', async () => {
+    const s = await member(['student'])
+    await warm(s.cookie)
+    const sizeBefore = cache().size
+    const decoded = spellings(s.cookie).全解碼!
+    const bad = [
+      s.cookie.replace('%3D', '%ZZ'),
+      `${decoded.slice(0, NAME.length + 1)}"${decoded.slice(NAME.length + 1)}`,
+      `${s.cookie}; ${s.cookie}`,
+    ]
+    for (const cookie of bad) {
+      // 解不開、引號不配對的，套件連資料庫都不查就拒絕（0 句也是走套件的路）；同名兩張套件取第一張，那就一定是查過資料庫的。
+      const expected = await packageSees(cookie)
+      const { result, queries } = await countQueries(() => resolve(cookie))
+      expect(result.kind === 'authenticated' ? result.userId : undefined, cookie.slice(-12)).toBe(expected)
+      if (expected) expect(queries, `${cookie.slice(-12)} 是登入身分，必須來自資料庫而不是快取`).toBeGreaterThan(0)
     }
     expect(cache().size).toBe(sizeBefore)
   })
