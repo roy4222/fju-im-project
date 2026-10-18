@@ -151,10 +151,8 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await expect(temp.getByLabel('當面核對身分證件（教職員證、身分證）')).toBeVisible()
   await expect(temp).not.toContainText('學生證')
   await temp.getByLabel('經校方授權人員透過既有可信管道確認').check()
-  await temp.getByRole('button', { name: '產生一次性密碼' }).click()
-  // 校方管道要寫由誰、透過什麼管道——伺服器擋下。
-  await expect(temp.getByRole('alert')).toContainText('由誰、透過什麼管道')
   await temp.getByLabel(/怎麼確認的說明/).fill('系主任秘書以系上分機回撥確認')
+  // C2-10：發臨時密碼的核實方式伺服器一律記 office_review，不再因為校方管道沒寫說明而擋下（畫面的詢問由 C2-11 拿掉）。
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   const secret = (await temp.getByTestId('temporary-password').innerText()).trim()
   await temp.getByRole('button', { name: '關閉' }).click()

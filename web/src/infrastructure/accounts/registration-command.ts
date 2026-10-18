@@ -512,6 +512,16 @@ export class PgRegistrationCommand implements RegistrationCommand {
     const candidates = await this.#candidates(db, studentNos)
     const holders = await this.#activeHolders(db, studentNos)
     const pendingCounts = await this.#pendingCounts(db, studentNos)
+    // 先前被退回過（現在這筆是退回後重新送的；新申請的 revision 從 1 開始，不能靠版本判斷）。
+    const rejectedBefore = new Set<string>()
+    if (rows.rows.length > 0) {
+      const rejected = await db.query<{ user_id: string }>(
+        `select distinct user_id from registration_applications
+          where state = 'rejected' and user_id = any($1::uuid[])`,
+        [rows.rows.map((r) => r.user_id)],
+      )
+      for (const r of rejected.rows) rejectedBefore.add(r.user_id)
+    }
 
     const applications: PendingApplication[] = rows.rows.map((row) => {
       const fields = fieldsOf(row)
@@ -535,6 +545,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
         flags: evidenceFlags(match, duplicates),
         suggestedCohortId: suggestedApprovalCohort(match, registrationOpen?.id ?? null),
         cohortLocked: hitCohorts.size === 1,
+        previouslyRejected: rejectedBefore.has(row.user_id),
       }
     })
 
