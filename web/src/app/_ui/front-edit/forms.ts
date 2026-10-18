@@ -64,7 +64,7 @@ export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
 /** 視窗標題用的名稱：「編輯公告」「新增活動」。 */
 export const FE_KIND_LABEL: Record<FeKind, string> = {
   news: '公告',
-  submission: '繳交項目',
+  submission: '作業',
   rules: '規則',
   resource: '檔案',
   honor: '榮譽',
