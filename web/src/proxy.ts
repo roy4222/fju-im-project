@@ -63,8 +63,9 @@ export function proxy(request: NextRequest): NextResponse {
   let response: NextResponse
   if (rewriteTo) {
     requestHeaders.set(OFFICE_REWRITE_HEADER, '1')
-    // 目標用 `request.url` 的來源組（不用 `nextUrl.clone()`）：`next start --hostname 127.0.0.1` 時 nextUrl 的 host 會是
-    // localhost，跟請求的來源不同，Next 就把它當外部代理去 fetch，改寫標頭跟著丟掉（實測整頁 307 無限迴圈）。
+    // 已知限制（Next 16.3.8）：Next 把 proxy 裡的 127.x 主機名一律正規化成 localhost，`next start --hostname 127.0.0.1`
+    // 時改寫目標就跟伺服器自己的來源對不上，被當成外部網址代理出去、改寫標頭跟著丟掉（實測 307 無限迴圈）。
+    // 正式站（standalone，HOSTNAME=0.0.0.0）與 CI（`pnpm start`）不受影響，已實測。
     const target = new URL(`${rewriteTo}${request.nextUrl.search}`, request.url)
     response = NextResponse.rewrite(target, { request: { headers: requestHeaders } })
     // 系辦看到的頁面不能被 Cloudflare 或瀏覽器共用快取（§9；AC-C2-42）。
