@@ -5,6 +5,7 @@ import {
   MAX_DAY_PX,
   MIN_DAY_PX,
   activityAriaLabel,
+  activityEdgeAriaLabel,
   activityKeyMove,
   addDays,
   chartRange,
@@ -280,6 +281,15 @@ describe('車道配置', () => {
     expect(labelWidthPx('AI 展')).toBe(16 + 7 * 3 + 12)
   })
 
+  it('pinned：操作中的活動固定在原本那列，跨段也不換列（按鈕不被卸載）', () => {
+    const moved = act('x', '2026-11-19') // 已拖到第 2 段
+    expect(layoutActivities([moved], STAGES).place.get('x')).toEqual({ row: 1, lane: 0 })
+    expect(layoutActivities([moved], STAGES, undefined, { id: 'x', row: 0 }).place.get('x')).toEqual({ row: 0, lane: 0 })
+    // 其他活動不受影響
+    const other = act('y', '2026-11-20')
+    expect(layoutActivities([moved, other], STAGES, undefined, { id: 'x', row: 0 }).place.get('y')).toEqual({ row: 1, lane: 0 })
+  })
+
   it('已取消的活動不畫', () => {
     const layout = layoutActivities([act('a', '2026-10-05', '2026-10-05', { status: 'cancelled' })], STAGES)
     expect(layout.place.has('a')).toBe(false)
@@ -347,6 +357,12 @@ describe('aria-label', () => {
     expect(activityAriaLabel(act('說明會', '2027-03-05', '2027-03-05', { timeText: '14:00–16:00' }))).toBe(
       '說明會，3/5 14:00–16:00',
     )
+  })
+
+  it('活動兩端把手含名稱與那一端的現值', () => {
+    const a = act('說明會', '2027-02-10', '2027-02-12')
+    expect(activityEdgeAriaLabel(a, 'start')).toBe('「說明會」開始日 2/10（左右鍵調整）')
+    expect(activityEdgeAriaLabel(a, 'end')).toBe('「說明會」結束日 2/12（左右鍵調整）')
   })
 
   it('把手含現值', () => {

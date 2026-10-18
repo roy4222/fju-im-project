@@ -305,6 +305,8 @@ export function layoutActivities(
   stages: StageStart[],
   /** 畫面上至少佔幾天（短橫條的名字畫在右邊時也要算進去，避免跟同車道的下一條疊在一起）；預設照起訖。 */
   minDays: (a: GanttActivity) => number = () => 1,
+  /** 拖拉／鍵盤調整中的活動固定在這一列：跨段也不換列，按鈕才不會被卸載（焦點、指標捕捉、keyup 都還在）。 */
+  pinned?: { id: string; row: number },
 ): { place: Map<string, Placement>; laneCounts: number[] } {
   const rows = Math.max(1, stages.length)
   const laneEnds: string[][] = Array.from({ length: rows }, () => [])
@@ -313,7 +315,7 @@ export function layoutActivities(
     .filter((a) => a.status === 'scheduled')
     .toSorted((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate) || a.id.localeCompare(b.id))
   for (const a of sorted) {
-    const row = rowOfDate(a.startDate, stages)
+    const row = pinned?.id === a.id ? pinned.row : rowOfDate(a.startDate, stages)
     const ends = laneEnds[row] ?? []
     let lane = ends.findIndex((end) => end < a.startDate)
     if (lane === -1) lane = ends.length
@@ -378,6 +380,11 @@ export function movedMessage(title: string, span: DateSpan): string {
 
 export function activityAriaLabel(a: Pick<GanttActivity, 'title' | 'startDate' | 'endDate' | 'timeText'>): string {
   return `${a.title}，${rangeText(a.startDate, a.endDate)}${a.timeText ? ` ${a.timeText}` : ''}`
+}
+
+/** 活動兩端把手：「「說明會」開始日 2/10（左右鍵調整）」。 */
+export function activityEdgeAriaLabel(a: Pick<GanttActivity, 'title' | 'startDate' | 'endDate'>, edge: 'start' | 'end'): string {
+  return `「${a.title}」${edge === 'start' ? '開始日' : '結束日'} ${formatMD(edge === 'start' ? a.startDate : a.endDate)}（左右鍵調整）`
 }
 
 export function stageAriaLabel(s: { seq: number; name: string; startDate: string; lastDate: string | null }): string {

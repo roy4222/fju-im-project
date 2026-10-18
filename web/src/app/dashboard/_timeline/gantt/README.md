@@ -38,7 +38,7 @@ const Gantt = dynamic(() => import('../_timeline/gantt/gantt'), { ssr: false, lo
 |---|---|---|
 | `gantt` | 外框 | `data-mode="edit|view"` |
 | `gantt-stage` | 階段色塊 | edit 是 `button`、view 是 `span`；`data-seq`；`aria-label` 含名稱與日期 |
-| `gantt-handle` | 把手 | `data-kind`：`stage`（`data-seq`＝右邊那段）、`year-end`、`activity-start`、`activity-end`（橫條兩端，`aria-hidden`）。view 與手機都沒有 |
+| `gantt-handle` | 把手（都是 `button`） | `data-kind`：`stage`（`data-seq`＝右邊那段）、`year-end`、`activity-start`、`activity-end`（活動兩端，橫條外面的兄弟 button，`data-id`＝活動 id，`aria-label`「「說明會」開始日 2/10（左右鍵調整）」）。view 與手機都沒有 |
 | `gantt-bar` | 活動橫條 | edit 是 `button`（`data-id`）、view 是 `<a href="#activity-<id>">`；`aria-label`「名稱，3/10–3/12 時間」 |
 | `gantt-deadline` | 作業截止菱形 | 有 `href` 是 `<a>`；`title`／`aria-label`「作業截止：名稱，12/1」 |
 | `gantt-today` | 今天線 | `aria-label`「今天 3/3」 |
@@ -50,8 +50,8 @@ const Gantt = dynamic(() => import('../_timeline/gantt/gantt'), { ssr: false, lo
 | 操作 | 滑鼠 | 鍵盤（橫條或把手聚焦） | 結果 |
 |---|---|---|---|
 | 平移活動 | 拖橫條中間 | `←→` 一天、`Shift+←→` 一週 | 放開（鍵）就 `moveActivity` |
-| 改結束日 | 拉右端 | `Alt+←→` | 同上 |
-| 改開始日 | 拉左端 | `Alt+Shift+←→` | 同上 |
+| 改結束日 | 拉右端 | 橫條上 `Alt+←→`；或 Tab 到結束日把手按 `←→`／`Shift+←→` | 同上 |
+| 改開始日 | 拉左端 | 橫條上 `Alt+Shift+←→`；或 Tab 到開始日把手按 `←→`／`Shift+←→` | 同上 |
 | 編輯活動 | 點橫條 | `Enter` | `openEdit(id)` |
 | 刪除活動 | 選單「刪除」 | `Delete` | 確認框 →`remove` |
 | 選單 | 右鍵、長按 600ms | `Shift+F10`、`ContextMenu` | Esc／Tab／點外面關，焦點回橫條 |
@@ -60,6 +60,9 @@ const Gantt = dynamic(() => import('../_timeline/gantt/gantt'), { ssr: false, lo
 | 階段分界／年度結束日 | 拖把手放開 | `←→`／`Shift+←→` 調、`Enter` 送、`Esc` 或離開放棄 | `saveSchedule`；夾限：嚴格遞增、年度結束日不早於最後一段開始日 |
 | 縮放 | 「週」「月」、`Ctrl+滾輪` 微調 | — | 存 `localStorage`（`gantt-zoom`） |
 
+- Tab 順序：開始日把手 → 橫條 → 結束日把手。
+- 拖拉或鍵盤調整中，那條活動固定在原本那列（跨段也不換列）；送出後才換到新段那列，焦點還給同一條活動（或同一個把手）。
+- 拖過一條活動後只吞掉「那條」接著的那一次指標點擊；鍵盤的 Enter／空白鍵一律放行。
 - 拖拉中橫條（把手）旁顯示即時日期；螢幕報讀用 `aria-live="polite"`，停下 400ms 才讀一次。
 - 手機或觸控（`(pointer: coarse), (max-width: 767px)`）：沒有把手、不能拖，點一下編輯、長按開選單；橫條 `aria-disabled="true"`（AC-C3-40）。Playwright 的 `click()` 會把 `aria-disabled` 當成不可點，手機測試用 `dispatchEvent('click')` 或 `click({ force: true })`。
 - 觸控區：可點的列 `min-h-11`、縮放鈕 `pointer-coarse:size-11`（④ X-④-4）。

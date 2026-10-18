@@ -10,6 +10,7 @@ import {
   LONG_PRESS_MS,
   ZOOM_STORAGE_KEY,
   activityAriaLabel,
+  activityEdgeAriaLabel,
   activityKeyMove,
   addDays,
   chartRange,
@@ -30,6 +31,7 @@ import {
   needsEndTimePrompt,
   parseZoom,
   rangeText,
+  rowOfDate,
   scheduleInput,
   stageAriaLabel,
   stageLastDates,
@@ -73,6 +75,8 @@ function cssVars(vars: Record<string, string | number>) {
 }
 
 const px = (n: number) => `${n}px`
+/** 橫條最窄幾 px（跟 `gantt.css` 的 `--bw` 用法一致）。 */
+const MIN_BAR_PX = 12
 const spanOf = (a: DateSpan): DateSpan => ({ startDate: a.startDate, endDate: a.endDate })
 const sameSpan = (a: DateSpan, b: DateSpan) => a.startDate === b.startDate && a.endDate === b.endDate
 
@@ -124,7 +128,10 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
 
   const scroller = useRef<HTMLDivElement>(null)
   const press = useRef<Press | null>(null)
-  const suppressClick = useRef(false)
+  /** 剛被拖過（或長按開過選單）的活動 id：只吞掉它接著來的那一次「指標」點擊；鍵盤的點擊一律放行。 */
+  const suppressClick = useRef<string | null>(null)
+  /** 送出後換列會重新掛載按鈕：記下原本聚焦的是哪條活動的哪個元素，重畫後還回去。 */
+  const refocus = useRef<{ id: string; kind: string } | null>(null)
   const liveTimer = useRef<number | undefined>(undefined)
   const anchor = useRef<{ day: number; offset: number } | null>(null)
   /** 鍵盤調整中的值。用 ref：keydown 與 keyup 可能在同一次重畫前連著發生。 */
@@ -157,8 +164,13 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
   // 名字放不進橫條的（短活動、月檢視）改畫在橫條右邊；車道配置把那段寬度算進去。
   const barDays = (a: DateSpan) => diffDays(a.startDate, a.endDate) + 1
   const narrow = (a: GanttActivity) => barDays(a) * dayPx < labelWidthPx(a.title)
-  const layout = layoutActivities(shown, starts, (a) =>
-    narrow(a) ? barDays(a) + Math.ceil(labelWidthPx(a.title) / dayPx) : barDays(a),
+  // 拖拉／鍵盤調整中：那條固定在原本那列（跨段也不換列），放開送出後才換列（焦點由 `refocus` 還回去）。
+  const pinnedActivity = preview?.kind === 'activity' ? current.find((a) => a.id === preview.id) : undefined
+  const layout = layoutActivities(
+    shown,
+    starts,
+    (a) => (narrow(a) ? barDays(a) + Math.ceil(labelWidthPx(a.title) / dayPx) : barDays(a)),
+    pinnedActivity ? { id: pinnedActivity.id, row: rowOfDate(pinnedActivity.startDate, starts) } : undefined,
   )
   // 範圍只看伺服器資料：拖拉中不換原點，橫條才不會跳。
   const range = chartRange({ stages, yearEndDate, activities, deadlines, today })
@@ -172,6 +184,18 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
     if (el) el.scrollLeft = initialScrollLeft(today, range.startDate, dayPxRef.current)
     // 只在第一次畫時捲到今天前兩週。
   }, [])
+
+  // 每次重畫後：活動換列被重新掛載時，把焦點還給同一條活動（或同一個把手）。
+  useLayoutEffect(() => {
+    const want = refocus.current
+    if (!want) return
+    const id = CSS.escape(want.id)
+    const selector = want.kind === 'bar' ? `[data-testid="gantt-bar"][data-id="${id}"]` : `[data-kind="${want.kind}"][data-id="${id}"]`
+    const el = scroller.current?.querySelector<HTMLElement>(selector)
+    if (!el) return
+    refocus.current = null
+    if (document.activeElement !== el) el.focus()
+  })
 
   useLayoutEffect(() => {
     const el = scroller.current
@@ -250,6 +274,9 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
       return
     }
     const before = moved[a.id]
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const keep = focused?.dataset.id === a.id ? { id: a.id, kind: focused.dataset.kind ?? 'bar' } : null
+    refocus.current = keep
     setMoved((m) => ({ ...m, [a.id]: { revision: a.revision, span: next } }))
     feedback('', '')
     const result = await editor.moveActivity(a.id, a.revision, next.startDate, next.endDate)
@@ -257,7 +284,10 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
       feedback(movedMessage(a.title, next), '')
       return
     }
-    // 回彈到這次拖之前的位置。
+    // 回彈到這次拖之前的位置（可能又換回原本那列）。
+    // 焦點還在這條活動上（或換列時掉到 body）才還回去；使用者已經移到別處就不搶。
+    const now = document.activeElement
+    if (keep && (now === document.body || (now instanceof HTMLElement && now.dataset.id === a.id))) refocus.current = keep
     setMoved((m) => {
       const rest = { ...m }
       if (before) rest[a.id] = before
@@ -267,14 +297,13 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
     feedback('', result.message)
   }
 
-  const onBarPointerDown = (e: PointerEvent<HTMLElement>, a: GanttActivity) => {
-    suppressClick.current = false
+  const onBarPointerDown = (e: PointerEvent<HTMLElement>, a: GanttActivity, mode: DragMode = 'move') => {
+    suppressClick.current = null
     if (!editable || e.button !== 0) return
-    const edge = (e.target as HTMLElement).dataset.edge
     const p: Press = {
       kind: 'activity',
       activity: a,
-      mode: edge === 'start' || edge === 'end' ? edge : 'move',
+      mode,
       pointerId: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
@@ -283,11 +312,14 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
       timer: undefined,
     }
     const el = e.currentTarget
-    p.timer = window.setTimeout(() => {
-      p.longPressed = true
-      suppressClick.current = true
-      openMenu(a, el, { x: p.x0, y: p.y0 })
-    }, LONG_PRESS_MS)
+    // 長按開選單只在橫條本體；兩端把手只拿來拉。
+    if (mode === 'move') {
+      p.timer = window.setTimeout(() => {
+        p.longPressed = true
+        suppressClick.current = a.id
+        openMenu(a, el, { x: p.x0, y: p.y0 })
+      }, LONG_PRESS_MS)
+    }
     press.current = p
     if (draggable) el.setPointerCapture(e.pointerId)
   }
@@ -323,7 +355,8 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
     window.clearTimeout(p.timer)
     press.current = null
     if (!p.dragging) return
-    suppressClick.current = true
+    // 只有被拖的那條活動要吞掉接著的 click；階段把手沒有 click 動作，不設。
+    if (p.kind === 'activity') suppressClick.current = p.activity.id
     setPreview(null)
     const days = dayDelta(e.clientX - p.x0, dayPx)
     if (p.kind === 'activity') void commitActivity(p.activity, moveActivityDates(p.activity, p.mode, days))
@@ -336,11 +369,11 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
     setPreview(null)
   }
 
-  const onBarClick = (a: GanttActivity) => {
-    if (suppressClick.current) {
-      suppressClick.current = false
-      return
-    }
+  const onBarClick = (e: MouseEvent<HTMLElement>, a: GanttActivity) => {
+    const suppressed = suppressClick.current === a.id
+    suppressClick.current = null
+    // `detail === 0`：鍵盤（Enter／空白鍵）觸發的 click，一律放行。
+    if (suppressed && e.detail !== 0) return
     editor?.openEdit(a.id)
   }
 
@@ -362,6 +395,19 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
     const pending = keyPending.current
     const from = pending && 'id' in pending && pending.id === a.id ? pending.span : spanOf(a)
     const span = moveActivityDates(from, step.mode, step.days)
+    keyPending.current = { id: a.id, span }
+    setPreview({ kind: 'activity', id: a.id, span })
+    announce(rangeText(span.startDate, span.endDate))
+  }
+
+  /** 兩端把手的鍵盤：`←→` 一天、`Shift+←→` 一週，只改那一端；放開鍵就存。 */
+  const onEdgeKeyDown = (e: KeyboardEvent<HTMLElement>, a: GanttActivity, edge: 'start' | 'end') => {
+    const days = handleKeyStep(e)
+    if (!days) return
+    e.preventDefault()
+    const pending = keyPending.current
+    const from = pending && 'id' in pending && pending.id === a.id ? pending.span : spanOf(a)
+    const span = moveActivityDates(from, edge, days)
     keyPending.current = { id: a.id, span }
     setPreview({ kind: 'activity', id: a.id, span })
     announce(rangeText(span.startDate, span.endDate))
@@ -616,11 +662,13 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                     const base = current.find((c) => c.id === a.id) ?? a
                     const lane = layout.place.get(a.id)?.lane ?? 0
                     const dragging = preview?.kind === 'activity' && preview.id === a.id
-                    const vars = cssVars({
+                    const barVars = {
                       '--x': px(x(a.startDate)),
                       '--w': px(barDays(a) * dayPx),
+                      '--bw': px(Math.max(barDays(a) * dayPx, MIN_BAR_PX)),
                       '--lane': lane,
-                    })
+                    }
+                    const vars = cssVars(barVars)
                     const text = (
                       <span className="gantt-bar-text">
                         {a.title}
@@ -642,7 +690,23 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         </a>
                       )
                     }
-                    return (
+                    const edgeButton = (edge: 'start' | 'end') => (
+                      <button
+                        key={`${a.id}-${edge}`}
+                        type="button"
+                        data-testid="gantt-handle"
+                        data-kind={`activity-${edge}`}
+                        data-id={a.id}
+                        aria-label={activityEdgeAriaLabel(a, edge)}
+                        className={cn('gantt-bar-edge', edge === 'start' ? 'is-start' : 'is-end')}
+                        ref={cssVars(barVars)}
+                        onPointerDown={(e) => onBarPointerDown(e, base, edge)}
+                        {...pressHandlers}
+                        onKeyDown={(e) => onEdgeKeyDown(e, base, edge)}
+                        onKeyUp={(e) => onBarKeyUp(e, base)}
+                      />
+                    )
+                    const bar = (
                       <button
                         key={a.id}
                         type="button"
@@ -655,7 +719,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         ref={vars}
                         onPointerDown={(e) => onBarPointerDown(e, base)}
                         {...pressHandlers}
-                        onClick={() => onBarClick(base)}
+                        onClick={(e) => onBarClick(e, base)}
                         onContextMenu={(e) => {
                           e.preventDefault()
                           openMenu(base, e.currentTarget, e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : undefined)
@@ -663,9 +727,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         onKeyDown={(e) => onBarKeyDown(e, base)}
                         onKeyUp={(e) => onBarKeyUp(e, base)}
                       >
-                        {draggable ? <span data-edge="start" data-testid="gantt-handle" data-kind="activity-start" className="gantt-bar-edge is-start" aria-hidden="true" /> : null}
                         {text}
-                        {draggable ? <span data-edge="end" data-testid="gantt-handle" data-kind="activity-end" className="gantt-bar-edge is-end" aria-hidden="true" /> : null}
                         {dragging ? (
                           <span className="gantt-chip" aria-hidden="true">
                             {rangeText(a.startDate, a.endDate)}
@@ -673,6 +735,8 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         ) : null}
                       </button>
                     )
+                    // 兩端把手是橫條外面的兄弟 button（Tab 順序：開始日把手 → 橫條 → 結束日把手）。
+                    return draggable ? [edgeButton('start'), bar, edgeButton('end')] : bar
                   })}
                 </div>
               </div>
