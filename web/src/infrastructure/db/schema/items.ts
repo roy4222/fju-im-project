@@ -56,7 +56,10 @@ export const managedItems = pgTable(
     audienceKind: text('audience_kind').notNull(),
     /** 收件單位：none（公告、資源）、individual（每人一份）、group（每組一份）。有回答後鎖定（用例守）。 */
     receiverUnit: text('receiver_unit').notNull().default('none'),
-    /** 所屬階段：收件必設；延長截止到下一階段也不自動改（產品模組 04「發布檢查與時間邊界」）。 */
+    /**
+     * 所屬階段：C 階段（0021，C1-01）起不再必填、UI 不再寫；欄位保留、nullable、不回填。
+     * 已核對下游沒有人讀（只有編輯器本身與 `pg-items.ts` 寫入）。
+     */
     stageId: uuid('stage_id').references(() => cohortStages.id, restrict),
     status: text('status').notNull().default('draft'),
     /** 設定的開放時間；NULL＝發布即開放。 */
@@ -101,6 +104,13 @@ export const managedItems = pgTable(
      * 系辦上移／下移是跟鄰居交換。其他位置一律 NULL。不加 check：舊資料與換位置的草稿可能是 NULL，排在最後。
      */
     rulesPosition: integer('rules_position'),
+    /**
+     * 同意書模式（0021，C1-01；設計方案① §1.1）：NULL＝一般作業；`form`＝站內同意表單（整組收件，發布時建簽核包）；
+     * `upload`＝下載 PDF 簽名再上傳（就是有檔案欄的個人作業）。發布後鎖定（用例守）。
+     */
+    consentMode: text('consent_mode'),
+    /** 同意書用途（0021）：只有 `form` 模式有值，決定簽核包的 `purpose` 與要不要凍結授權範圍。 */
+    consentPurpose: text('consent_purpose'),
     /** 收件欄位的工作副本 `{ fields: [...] }`；發布時切成 `form_schema_versions`。 */
     draftSchema: jsonb('draft_schema').notNull().default(sql`'{"fields":[]}'::jsonb`),
     revision: integer('revision').notNull().default(1),
@@ -128,20 +138,42 @@ export const managedItems = pgTable(
     ),
     check('managed_items_receiver_unit_check', sql`${t.receiverUnit} in ('none','individual','group')`),
     check('managed_items_status_check', sql`${t.status} in ('draft','published','archived')`),
-    // 收件只開給學生：本屆學生或指定組別（產品模組 04「單一入口與收件單位」；不開公開、所有登入者、全部老師）。
+    // 收件對象：本屆學生、指定組別或老師（0021 起系辦可發作業給老師；不開公開、所有登入者）。
     check(
       'managed_items_receiver_audience_check',
-      sql`${t.receiverUnit} = 'none' or ${t.audienceKind} in ('cohort_students','groups')`,
+      sql`${t.receiverUnit} = 'none' or ${t.audienceKind} in ('cohort_students','groups','teachers')`,
+    ),
+    // 老師作業一律個人收件（0021）。
+    check(
+      'managed_items_teacher_receiver_check',
+      sql`${t.audienceKind} <> 'teachers' or ${t.receiverUnit} in ('none','individual')`,
+    ),
+    check('managed_items_consent_mode_check', sql`${t.consentMode} is null or ${t.consentMode} in ('form','upload')`),
+    // 站內同意表單整組收件（一組一包）；上傳簽名檔是個人作業（0021）。
+    check(
+      'managed_items_consent_unit_check',
+      sql`${t.consentMode} is null or (${t.consentMode} = 'upload' and ${t.receiverUnit} = 'individual')
+          or (${t.consentMode} = 'form' and ${t.receiverUnit} = 'group')`,
+    ),
+    check(
+      'managed_items_consent_purpose_value_check',
+      sql`${t.consentPurpose} is null or ${t.consentPurpose} in ('result_confirmation','final_document')`,
+    ),
+    // 只有站內同意表單有用途，而且一定要有（0021）。
+    check(
+      'managed_items_consent_purpose_check',
+      sql`(${t.consentMode} is not distinct from 'form') = (${t.consentPurpose} is not null)`,
     ),
     // 只有收件類位置能收件；公告、資源一定是 none。
     check(
       'managed_items_receiver_placement_check',
       sql`${t.receiverUnit} = 'none' or ${t.placement} in ('submission','requirement')`,
     ),
-    // 收件一離開草稿就一定有階段與截止。
+    // 收件一離開草稿就一定有截止（0021 起不再要階段；站內同意表單的截止選填）。用 is not distinct from：一般作業的 consent_mode 是 NULL，
+    // 寫成 `= 'form'` 會讓整條變 NULL 而放行。
     check(
       'managed_items_receiver_schedule_check',
-      sql`${t.status} = 'draft' or ${t.receiverUnit} = 'none' or (${t.stageId} is not null and ${t.dueAt} is not null)`,
+      sql`${t.status} = 'draft' or ${t.receiverUnit} = 'none' or ${t.consentMode} is not distinct from 'form' or ${t.dueAt} is not null`,
     ),
     // 截止不得早於開放（設定的開放；沒設就是實際開放）。
     check('managed_items_due_after_open_check', sql`${t.dueAt} >= coalesce(${t.opensAt}, ${t.actualOpenedAt})`),
@@ -312,10 +344,10 @@ export const responseRosters = pgTable(
   (t) => [
     check('response_rosters_receiver_kind_check', sql`${t.receiverKind} in ('user','group')`),
     check('response_rosters_source_check', sql`${t.source} in ('auto','admin')`),
-    // 免填一定有理由（產品模組 05「管理員可對個別人設免填，必填理由」）。
+    // 免填理由 0021 起選填；有填就不能只有空白。
     check(
       'response_rosters_exempt_reason_check',
-      sql`not ${t.exempt} or length(btrim(coalesce(${t.exemptReason}, ''))) > 0`,
+      sql`${t.exemptReason} is null or length(btrim(${t.exemptReason})) > 0`,
     ),
     // 移出一定有結束時間與理由；還在名單上就兩個都沒有。
     check(

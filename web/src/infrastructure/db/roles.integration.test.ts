@@ -749,6 +749,15 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'release_reason', value: '重開' },
   },
+  grading_stage_settings: {
+    insert: () => ({
+      sql: `insert into grading_stage_settings (cohort_id, stage_key, description, updated_by_user_id)
+            values ($1, $2, '依發表當天表現評分', $3)`,
+      values: [cohortId, unique('stage'), userId],
+    }),
+    updatable: { column: 'description', value: '改過的說明' },
+    deleteWhere: 'true',
+  },
 }
 
 beforeAll(async () => {
