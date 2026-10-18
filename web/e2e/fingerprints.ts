@@ -8,7 +8,7 @@
 /** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
 export const FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin': '作業完成率',
-  '/dashboard/admin/accounts': '名單與停用',
+  '/dashboard/admin/accounts': '系上所有帳號都在這裡',
   '/dashboard/admin/cohorts': '新註冊加入這屆',
   '/dashboard/teacher': '待辦',
   '/dashboard/student': '看完整時程',
