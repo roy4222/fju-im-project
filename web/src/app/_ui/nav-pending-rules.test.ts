@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { navKey, shouldTrackClick, type AnchorLike, type ClickLike } from '@/app/_ui/nav-pending-rules'
+import { clickIntent, navKey, shouldTrackClick, type AnchorLike, type ClickLike } from '@/app/_ui/nav-pending-rules'
 
 const HERE = 'https://im.example.edu/dashboard/admin/accounts?page=1'
 
@@ -73,5 +73,25 @@ describe('shouldTrackClick：哪些點擊要追蹤換頁骨架', () => {
   it('mailto:、tel: 不追蹤', () => {
     expect(shouldTrackClick(anchor('mailto:im@example.edu'), left, HERE)).toBe(false)
     expect(shouldTrackClick(anchor('tel:0229052000'), left, HERE)).toBe(false)
+  })
+})
+
+describe('clickIntent：開始、取消、不理', () => {
+  it('換到別的導覽鍵 → start（含同頁 ?page=2）', () => {
+    expect(clickIntent(anchor('/dashboard/admin/groups'), left, HERE)).toBe('start')
+    expect(clickIntent(anchor('/dashboard/admin/accounts?page=2'), left, HERE)).toBe('start')
+  })
+
+  it('點回目前這一頁（同鍵、含純 hash）→ cancel：慢的換頁途中點回來，舊骨架要清掉', () => {
+    expect(clickIntent(anchor('/dashboard/admin/accounts?page=1'), left, HERE)).toBe('cancel')
+    expect(clickIntent(anchor('#top'), left, HERE)).toBe('cancel')
+  })
+
+  it('不是這個分頁的換頁 → ignore（不能清掉進行中的骨架）', () => {
+    const same = anchor('/dashboard/admin/accounts?page=1')
+    expect(clickIntent(same, { ...left, metaKey: true }, HERE)).toBe('ignore')
+    expect(clickIntent(anchor('/dashboard/admin/accounts?page=1', { target: '_blank' }), left, HERE)).toBe('ignore')
+    expect(clickIntent(anchor('/api/files/1'), left, HERE)).toBe('ignore')
+    expect(clickIntent(anchor('https://www.fju.edu.tw/'), left, HERE)).toBe('ignore')
   })
 })

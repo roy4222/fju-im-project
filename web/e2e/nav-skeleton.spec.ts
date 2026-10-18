@@ -325,3 +325,53 @@ test('前台：訪客點主導覽，慢的換頁也出現內容骨架（頂列�
   await page.waitForURL('**/rules')
   await expect(pending(page)).toHaveCount(0)
 })
+
+/**
+ * 取消回歸（Review 第 1 輪）：慢的換頁還沒到就點回目前這一頁 → Next 取消那次導覽、網址不變，
+ * 骨架不能留著（2.5 秒、8.5 秒都不能有，也不能冒出「仍在載入」）。
+ */
+async function expectCancelledClean(page: Page, here: string) {
+  await page.waitForTimeout(2500)
+  expect(new URL(page.url()).pathname).toBe(here)
+  await expect(pending(page)).toHaveCount(0)
+  await expect(skeleton(page)).toBeHidden()
+  await page.waitForTimeout(6000)
+  expect(new URL(page.url()).pathname).toBe(here)
+  await expect(pending(page)).toHaveCount(0)
+  await expect(skeleton(page)).toBeHidden()
+  await expect(skeleton(page).getByText('仍在載入……')).toHaveCount(0)
+}
+
+test.describe('取消：慢的換頁途中點回目前這一頁，骨架不殘留', () => {
+  test.setTimeout(60_000)
+
+  test('學生：慢點「交作業」→ 立刻點「首頁」', async ({ page }) => {
+    await signIn(page, student)
+    await delayRsc(page, AFFAIRS, 10_000)
+    await page.goto(HOME)
+    await sidebarLink(page, '交作業').click()
+    await page.waitForTimeout(100)
+    await sidebarLink(page, '首頁').click()
+    await expectCancelledClean(page, HOME)
+  })
+
+  test('前台：慢點「專題規則」→ 立刻點 logo', async ({ page }) => {
+    await page.context().clearCookies()
+    await delayRsc(page, '/rules', 10_000)
+    await page.goto('/')
+    await page.getByRole('navigation', { name: '主導覽', exact: true }).getByRole('link', { name: '專題規則' }).click()
+    await page.waitForTimeout(100)
+    await page.locator('header a[href="/"]').first().click()
+    await expectCancelledClean(page, '/')
+  })
+
+  test('系辦：慢點「公告與作業」→ 立刻點「首頁」', async ({ page }) => {
+    await signIn(page, admin)
+    await delayRsc(page, '/dashboard/admin/affairs', 10_000)
+    await page.goto('/dashboard/admin')
+    await sidebarLink(page, '公告與作業').click()
+    await page.waitForTimeout(100)
+    await sidebarLink(page, '首頁').click()
+    await expectCancelledClean(page, '/dashboard/admin')
+  })
+})

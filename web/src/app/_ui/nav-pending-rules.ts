@@ -15,17 +15,30 @@ export function navKey(url: string | URL): string {
   return search ? `${parsed.pathname}?${search}` : parsed.pathname
 }
 
-export function shouldTrackClick(anchor: AnchorLike, event: ClickLike, currentUrl: string): boolean {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false
-  if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return false
+/**
+ * 這一下點擊對骨架的意思：
+ * - `start`：同一個分頁換到另一個導覽鍵，開始計時。
+ * - `cancel`：同一個分頁、但點回目前這一頁（含純 hash）——Next 會取消還沒到的導覽、網址不變，
+ *   舊的計時器與骨架要清掉，不開新的。
+ * - `ignore`：不是這個分頁的換頁（修飾鍵、另開分頁、下載、外站、/api/）。
+ */
+export type ClickIntent = 'start' | 'cancel' | 'ignore'
+
+export function clickIntent(anchor: AnchorLike, event: ClickLike, currentUrl: string): ClickIntent {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return 'ignore'
+  if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return 'ignore'
   let next: URL
   try {
     next = new URL(anchor.href, currentUrl)
   } catch {
-    return false
+    return 'ignore'
   }
   const current = new URL(currentUrl)
-  if (next.origin !== current.origin) return false
-  if (next.pathname === '/api' || next.pathname.startsWith('/api/')) return false
-  return navKey(next) !== navKey(current)
+  if (next.origin !== current.origin) return 'ignore'
+  if (next.pathname === '/api' || next.pathname.startsWith('/api/')) return 'ignore'
+  return navKey(next) !== navKey(current) ? 'start' : 'cancel'
+}
+
+export function shouldTrackClick(anchor: AnchorLike, event: ClickLike, currentUrl: string): boolean {
+  return clickIntent(anchor, event, currentUrl) === 'start'
 }

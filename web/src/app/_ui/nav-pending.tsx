@@ -3,7 +3,7 @@
 import './nav-pending.css'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { navKey, shouldTrackClick } from '@/app/_ui/nav-pending-rules'
+import { clickIntent, navKey } from '@/app/_ui/nav-pending-rules'
 
 /**
  * 換頁載入骨架（C4-06，設計方案 §7）：不用 `loading.tsx`（殼在 page 裡、守衛的 3xx／404 會被串流蓋成 200），
@@ -11,7 +11,7 @@ import { navKey, shouldTrackClick } from '@/app/_ui/nav-pending-rules'
  *
  * - 開始：同源連結點擊（規則見 `nav-pending-rules.ts`）或 `popstate`；150 ms 內完成的換頁不閃。
  * - 完成：`usePathname()`＋`useSearchParams()` 變了 → 清 `html[data-nav-pending]` 與全部計時器。
- * - 快速連點：先清舊計時器再重新計時；返回／前進命中快取時鍵可能已提交，開始與 150 ms 時都比一次。
+ * - 快速連點：先清舊計時器再重新計時；點回目前這一頁（導覽被取消）只清不開；返回／前進命中快取時鍵可能已提交，開始與 150 ms 時都比一次。
  * - 8 秒還沒到：不算完成，骨架留著並加「仍在載入……」＋重新整理連結。
  * - 骨架顯示只靠 `html[data-nav-pending]` 的 CSS；沒有 `style=`（CSP）。
  * - 監聽與計時放在 Suspense 外：Suspense 裡的內容 hydrate 得晚，放裡面的話換頁完成前都沒在聽點擊。
@@ -63,7 +63,10 @@ export function NavPending() {
     const onClick = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.('a[href]')
       if (!(anchor instanceof HTMLAnchorElement)) return
-      if (!shouldTrackClick(anchor, event, window.location.href)) return
+      const intent = clickIntent(anchor, event, window.location.href)
+      if (intent === 'ignore') return
+      // 點回目前這一頁：還沒到的導覽被取消，清掉骨架與計時器、不開新的（AC-69 取消分支）。
+      if (intent === 'cancel') return clear()
       start(navKey(new URL(anchor.href, window.location.href)))
     }
     const onPopState = () => start(navKey(window.location.href))
