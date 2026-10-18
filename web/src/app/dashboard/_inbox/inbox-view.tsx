@@ -14,7 +14,7 @@ import {
 import type { ResolvedActor } from '@/application/accounts'
 import type { InboxItem } from '@/application/notifications'
 import { PageTitle, Panel, pillClass } from '@/app/_ui/dashboard-kit'
-import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/_inbox/inbox-forms'
+import { MarkAllReadButton, MarkReadButton, OpenNotificationButton } from '@/app/dashboard/_inbox/inbox-forms'
 import {
   cohortLabel,
   getInboxQuery,
@@ -34,7 +34,8 @@ import { formatTaipeiMinute } from '@/shared/time'
  * 屆別篩選只列出本人通知裡出現過的屆別（含已封存的舊屆）。未讀的列底色較深、有點。
  *
  * 外觀照原型（票 35）：頁首「通知／N 則未讀」＋右側「全部標為已讀」，下面一張「全部」卡，
- * 每列左邊是類型圖示方塊。原型整列是連結；這裡列上還有「標為已讀」表單，所以只有標題是連結。
+ * 每列左邊是類型圖示方塊。原型整列是連結；這裡有來源頁的列點標題（C2-15：送表單、標已讀再導過去），
+ * 沒有來源頁的列才有「標為已讀」。
  */
 
 const KIND_ICON: Record<string, Icon> = {
@@ -118,7 +119,7 @@ export async function InboxView({
         ) : (
           <ul aria-label="通知列表" className="divide-y divide-border border-t border-border">
             {page.items.map((item) => (
-              <InboxRow key={item.id} item={item} />
+              <InboxRow key={item.id} item={item} inbox={basePath} />
             ))}
           </ul>
         )}
@@ -141,7 +142,7 @@ export async function InboxView({
   )
 }
 
-function InboxRow({ item }: { item: InboxItem }) {
+function InboxRow({ item, inbox }: { item: InboxItem; inbox: string }) {
   const unread = item.readAt === null
   const blocked = item.source.state === 'forbidden' || item.source.state === 'withdrawn'
   const title = blocked ? SOURCE_STATE_TEXT[item.source.state as 'forbidden' | 'withdrawn'] : item.title
@@ -172,9 +173,7 @@ function InboxRow({ item }: { item: InboxItem }) {
             {inboxCohortText(item)}
           </span>
           {href ? (
-            <Link href={href} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')}>
-              {title}
-            </Link>
+            <OpenNotificationButton notificationId={item.id} title={title} inbox={inbox} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')} />
           ) : (
             <span className={cn('min-w-0 truncate text-[15px]', unread ? 'font-bold' : 'font-medium')}>{title}</span>
           )}
@@ -191,7 +190,7 @@ function InboxRow({ item }: { item: InboxItem }) {
           <>
             <span className="size-2 rounded-full bg-primary" aria-hidden />
             <span className="sr-only">未讀</span>
-            <MarkReadButton notificationId={item.id} title={title} />
+            {href ? null : <MarkReadButton notificationId={item.id} title={title} />}
           </>
         ) : (
           <span className="text-xs text-muted-foreground">已讀</span>

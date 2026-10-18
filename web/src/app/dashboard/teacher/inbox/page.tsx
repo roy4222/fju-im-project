@@ -15,7 +15,7 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { PageTitle, Panel, PanelEmpty } from '@/app/dashboard/teacher/_ui/dash'
-import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/teacher/inbox/inbox-forms'
+import { MarkAllReadButton, MarkReadButton, OpenNotificationButton } from '@/app/dashboard/teacher/inbox/inbox-forms'
 import {
   cohortLabel,
   getInboxQuery,
@@ -119,7 +119,7 @@ export default async function TeacherInboxPage({ searchParams }: { searchParams:
           ) : (
             <ul className="divide-y divide-border">
               {page.items.map((item) => (
-                <InboxRow key={item.id} item={item} />
+                <InboxRow key={item.id} item={item} inbox={basePath} />
               ))}
             </ul>
           )}
@@ -140,7 +140,7 @@ export default async function TeacherInboxPage({ searchParams }: { searchParams:
   )
 }
 
-function InboxRow({ item }: { item: InboxItem }) {
+function InboxRow({ item, inbox }: { item: InboxItem; inbox: string }) {
   const unread = item.readAt === null
   const blocked = item.source.state === 'forbidden' || item.source.state === 'withdrawn'
   const title = blocked ? SOURCE_STATE_TEXT[item.source.state as 'forbidden' | 'withdrawn'] : item.title
@@ -161,9 +161,7 @@ function InboxRow({ item }: { item: InboxItem }) {
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{notificationKindLabel(item.kind)}</span>
           <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">{inboxCohortText(item)}</span>
           {href ? (
-            <Link href={href} className={cn('min-w-0 truncate text-[15px] text-foreground hover:underline', unread ? 'font-bold' : 'font-medium')}>
-              {title}
-            </Link>
+            <OpenNotificationButton notificationId={item.id} title={title} inbox={inbox} className={cn('min-w-0 truncate text-[15px] text-foreground hover:underline', unread ? 'font-bold' : 'font-medium')} />
           ) : (
             <span className={cn('min-w-0 truncate text-[15px] text-foreground', unread ? 'font-bold' : 'font-medium')}>{title}</span>
           )}
@@ -178,7 +176,7 @@ function InboxRow({ item }: { item: InboxItem }) {
           <>
             <span className="size-2 rounded-full bg-primary" aria-hidden />
             <span className="sr-only">未讀</span>
-            <MarkReadButton notificationId={item.id} title={title} />
+            {href ? null : <MarkReadButton notificationId={item.id} title={title} />}
           </>
         ) : (
           <span className="text-xs text-muted-foreground">已讀</span>

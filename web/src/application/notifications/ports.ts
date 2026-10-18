@@ -6,6 +6,7 @@ import type {
   InboxFilter,
   InboxPage,
   MarkReadReceipt,
+  OpenNotificationReceipt,
   TestNotificationInput,
   TestNotificationReceipt,
 } from '@/application/notifications/inbox'
@@ -47,6 +48,11 @@ export interface InboxQuery {
  */
 export interface InboxCommand {
   markRead(actor: ResolvedActor, notificationId: string): Promise<Result<MarkReadReceipt>>
+  /**
+   * 點開一則通知（C2-15）：確認是本人的、回來源**重新解析**連結、標已讀，回點進去的地方
+   * （沒有來源頁時 `href` 是 null）。別人的或不存在的一樣回 `FORBIDDEN`、什麼都不改。
+   */
+  open(actor: ResolvedActor, notificationId: string): Promise<Result<OpenNotificationReceipt>>
   /** 把目前篩選範圍內本人的未讀全部標已讀。 */
   markAllRead(actor: ResolvedActor, filter: InboxFilter): Promise<Result<MarkReadReceipt>>
 }
