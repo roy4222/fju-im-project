@@ -1,6 +1,11 @@
 'use server'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { currentActor } from '@/app/_ui/guard'
+import type { AvatarChoice } from '@/application/accounts'
+import type { DeclaredUpload, UploadTicket } from '@/application/ops'
+import { getAvatarCommand } from '@/composition/avatars'
+import type { Result } from '@/shared/result'
 import { clientIpFrom, getSelfAccountCommand, signOut } from '@/composition/accounts'
 import { authCallHeaders, sendOwnVerificationOtp, verifyEmailWithOtp } from '@/composition/signup'
 import type { AccountFormState, VerifyEmailSendState } from './account-forms'
@@ -123,4 +128,18 @@ export async function verifyAccountOtpAction(state: AccountFormState, formData: 
     return failed(state, verifyFailure(error, '驗證暫時無法完成，請稍後再試。'))
   }
   redirect('/account?verified=email')
+}
+
+// ── 頭像（VB-10；SH-9 的用例，B 設計方案 §2.2.1）──────────────────────────────
+//
+// 上傳、縮圖、EXIF、大小與本人檢查都在 `AvatarCommand` 與 `/api/files/upload`；這裡只取出現在是誰再轉呼叫。
+
+/** 要一張上傳頭像的票券；之後瀏覽器把位元組直接 POST 到 `/api/files/upload`。 */
+export async function avatarUploadTicketAction(input: DeclaredUpload): Promise<Result<UploadTicket>> {
+  return getAvatarCommand().avatarUploadTicket(await currentActor(), input)
+}
+
+/** 換頭像：選預設圖（`{ preset }`）或剛上傳完成的檔（`{ fileId }`）。 */
+export async function updateAvatarAction(input: AvatarChoice): Promise<Result<void>> {
+  return getAvatarCommand().updateAvatar(await currentActor(), input)
 }
