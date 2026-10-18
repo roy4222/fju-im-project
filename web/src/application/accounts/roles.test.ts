@@ -11,11 +11,11 @@ import { REASON_MAX_LENGTH } from '@/application/accounts/registration'
 /** 票 10b：管理員角色授予／取消與孤兒帳號的純規則。寫入與鎖在 `role-assignment.integration.test.ts`。 */
 
 describe('normalizeRoleChange', () => {
-  it('只收管理員角色；理由必填、去頭尾空白、有上限、不收控制字元', () => {
+  it('只收管理員角色；理由選填（C2 X2，留空存 null）、去頭尾空白、有上限、不收控制字元', () => {
     expect(normalizeRoleChange({ role: 'admin', reason: '  新任承辦人 ' })).toEqual({ ok: true, value: { role: 'admin', reason: '新任承辦人' } })
     expect(normalizeRoleChange({ role: 'teacher', reason: '理由' })).toMatchObject({ ok: false, details: { field: 'role' } })
-    expect(normalizeRoleChange({ role: 'admin', reason: '   ' })).toMatchObject({ ok: false, details: { field: 'reason' } })
-    expect(normalizeRoleChange({ role: 'admin', reason: undefined })).toMatchObject({ ok: false, details: { field: 'reason' } })
+    expect(normalizeRoleChange({ role: 'admin', reason: '   ' })).toEqual({ ok: true, value: { role: 'admin', reason: null } })
+    expect(normalizeRoleChange({ role: 'admin', reason: undefined })).toEqual({ ok: true, value: { role: 'admin', reason: null } })
     expect(normalizeRoleChange({ role: 'admin', reason: 'x'.repeat(REASON_MAX_LENGTH + 1) })).toMatchObject({ ok: false, details: { field: 'reason' } })
     expect(normalizeRoleChange({ role: 'admin', reason: 'a\u0000b' })).toMatchObject({ ok: false, details: { field: 'reason' } })
     expect(normalizeRoleChange({ role: 'admin', reason: '第一行\n第二行' })).toMatchObject({ ok: true })
@@ -65,10 +65,10 @@ describe('isOrphan：孤兒帳號', () => {
 })
 
 describe('normalizeOrphanRepair', () => {
-  it('只能補老師或管理員；理由必填', () => {
+  it('只能補老師或管理員；理由選填', () => {
     expect(normalizeOrphanRepair({ role: 'teacher', reason: '補建' })).toEqual({ ok: true, value: { role: 'teacher', reason: '補建' } })
     expect(normalizeOrphanRepair({ role: 'admin', reason: '補建' })).toMatchObject({ ok: true })
     expect(normalizeOrphanRepair({ role: 'student', reason: '補建' })).toMatchObject({ ok: false, details: { field: 'role' } })
-    expect(normalizeOrphanRepair({ role: 'teacher', reason: '' })).toMatchObject({ ok: false, details: { field: 'reason' } })
+    expect(normalizeOrphanRepair({ role: 'teacher', reason: '' })).toEqual({ ok: true, value: { role: 'teacher', reason: null } })
   })
 })

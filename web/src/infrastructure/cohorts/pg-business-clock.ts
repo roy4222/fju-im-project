@@ -45,7 +45,7 @@ type OverrideRow = {
   previous_business_at: Date | null
   set_by_user_id: string
   set_by_name: string | null
-  reason: string
+  reason: string | null
 }
 
 const SELECT_OVERRIDES = `select o.id, o.environment, o.business_at, o.real_at, o.previous_business_at,

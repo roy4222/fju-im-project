@@ -86,10 +86,6 @@ export function BulkDisableDialog({ maxChars }: { maxChars: number }) {
   }
 
   async function confirm(p: BulkPreview) {
-    if (!reason.trim()) {
-      setError('請寫停用的理由。')
-      return
-    }
     setBusy(true)
     setError(null)
     try {
@@ -303,7 +299,7 @@ function PreviewStep({
 
       {p.hits.length > 0 ? (
         <label className="block text-sm font-medium text-foreground">
-          理由 <span className="font-normal text-muted-foreground">・必填，會寫入每一位的紀錄</span>
+          理由（選填，會留在操作紀錄）
           <textarea
             rows={2}
             value={reason}

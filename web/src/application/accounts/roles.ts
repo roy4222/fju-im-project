@@ -27,18 +27,19 @@ export type RoleChangeInput = {
   readonly requestId: string
 }
 
-export type RoleChange = { readonly role: GrantableRole; readonly reason: string }
+export type RoleChange = { readonly role: GrantableRole; readonly reason: string | null }
 
-function reasonOf(value: unknown): { ok: true; value: string } | Err {
+/** 理由選填（C2 設計方案 X2）：留空存 `null`。 */
+function reasonOf(value: unknown): { ok: true; value: string | null } | Err {
   const reason = typeof value === 'string' ? value.trim() : ''
-  if (!reason) return err('VALIDATION_FAILED', '請寫理由，會留在稽核紀錄裡。', { details: { field: 'reason' } })
+  if (!reason) return { ok: true, value: null }
   if (reason.length > REASON_MAX_LENGTH || hasControlChars(reason, true)) {
     return err('VALIDATION_FAILED', `理由最多 ${REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }
   return { ok: true, value: reason }
 }
 
-/** 授予或移除管理員：角色只能是 admin、理由必填。 */
+/** 授予或移除管理員：角色只能是 admin、理由選填。 */
 export function normalizeRoleChange(input: { role: unknown; reason: unknown }): { ok: true; value: RoleChange } | Err {
   if (input.role !== 'admin') return err('VALIDATION_FAILED', '只能設定或取消管理員角色。', { details: { field: 'role' } })
   const reason = reasonOf(input.reason)
@@ -124,7 +125,7 @@ export type OrphanRepairInput = {
   readonly requestId: string
 }
 
-export function normalizeOrphanRepair(input: { role: unknown; reason: unknown }): { ok: true; value: { role: OrphanRole; reason: string } } | Err {
+export function normalizeOrphanRepair(input: { role: unknown; reason: unknown }): { ok: true; value: { role: OrphanRole; reason: string | null } } | Err {
   if (input.role !== 'teacher' && input.role !== 'admin') {
     return err('VALIDATION_FAILED', '請選擇要補上的身分。', { details: { field: 'role' } })
   }

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   AVATAR_MAX_BYTES,
   AVATAR_PRESET_COUNT,
+  AVATAR_RESET_REASON_MAX,
   avatarHashPreset,
   avatarUrl,
+  normalizeAvatarResetReason,
   type AvatarUser,
 } from '@/application/accounts/avatar'
 
@@ -67,5 +69,15 @@ describe('avatarUrl', () => {
 describe('AVATAR_MAX_BYTES', () => {
   it('上傳上限 2 MB', () => {
     expect(AVATAR_MAX_BYTES).toBe(2 * 1024 * 1024)
+  })
+})
+
+describe('重設頭像的理由', () => {
+  it('選填（C2 X2）：留空存 null、去頭尾空白；超過 200 字或不是字串拒絕', () => {
+    expect(normalizeAvatarResetReason('   ')).toEqual({ ok: true, value: null })
+    expect(normalizeAvatarResetReason(' 不當圖片 ')).toEqual({ ok: true, value: '不當圖片' })
+    expect(normalizeAvatarResetReason('字'.repeat(AVATAR_RESET_REASON_MAX))).toMatchObject({ ok: true })
+    expect(normalizeAvatarResetReason('字'.repeat(AVATAR_RESET_REASON_MAX + 1))).toEqual({ ok: false })
+    expect(normalizeAvatarResetReason(42)).toEqual({ ok: false })
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { businessNowFrom, normalizeClockInput } from '@/application/cohorts/business-clock'
+import { businessNowFrom, CLOCK_REASON_MAX_LENGTH, normalizeClockInput } from '@/application/cohorts/business-clock'
 
 describe('businessNowFrom：設定後業務鐘繼續走', () => {
   it('沒有任何設定：等於真實時間', () => {
@@ -23,11 +23,14 @@ describe('normalizeClockInput', () => {
     if (result.ok) expect(result.value.businessAt.toISOString()).toBe('2027-03-01T02:00:01.000Z')
   })
 
-  it('原因必填', () => {
+  it('原因選填（C2 X2）：留空存 null；超過上限拒絕', () => {
     expect(normalizeClockInput({ businessAt: '2027-03-01T10:00:00', reason: '  ' })).toMatchObject({
+      ok: true,
+      value: { reason: null },
+    })
+    expect(normalizeClockInput({ businessAt: '2027-03-01T10:00:00', reason: 'x'.repeat(CLOCK_REASON_MAX_LENGTH + 1) })).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
-      message: '請填原因：為什麼要調整模擬時鐘。',
       details: { field: 'reason' },
     })
   })

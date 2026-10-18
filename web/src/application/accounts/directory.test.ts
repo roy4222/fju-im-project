@@ -138,8 +138,9 @@ describe('匯出 CSV', () => {
 })
 
 describe('停用理由', () => {
-  it('必填、有上限、不收控制字元', () => {
-    expect(normalizeStatusReason('  ').ok).toBe(false)
+  it('選填（C2 X2）：留空存 null；有上限、不收控制字元', () => {
+    expect(normalizeStatusReason('  ')).toEqual({ ok: true, value: null })
+    expect(normalizeStatusReason(undefined)).toEqual({ ok: true, value: null })
     expect(normalizeStatusReason('x'.repeat(501)).ok).toBe(false)
     expect(normalizeStatusReason('a\u0000b').ok).toBe(false)
     const ok = normalizeStatusReason(' 休學\n一學期 ')

@@ -8,7 +8,7 @@ import type { DialogOpener } from './role-dialogs'
 /**
  * 系辦重設某人的頭像（AD-B2；B 設計方案 §2.3）。
  *
- * 顯示目前頭像、寫理由（去頭尾空白後 1～200 字，空的先擋）、按「重設」。
+ * 顯示目前頭像、寫理由（選填；去頭尾空白後最多 200 字）、按「重設」。
  * 重設後對方回到依帳號 id 固定的預設圖；理由只寫進稽核，對方看不到。規則在用例，這裡的擋是為了少跑一趟。
  */
 
@@ -57,10 +57,6 @@ export function AvatarResetDialog({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     const trimmed = reason.trim()
-    if (trimmed.length === 0) {
-      setError('請填理由。')
-      return
-    }
     if (Array.from(trimmed).length > REASON_MAX) {
       setError(`理由請在 ${REASON_MAX} 字以內。`)
       return
@@ -100,7 +96,7 @@ export function AvatarResetDialog({
               </p>
             </div>
             <label className="block text-sm font-medium text-foreground">
-              理由（必填，對方看不到）
+              理由（選填，會留在操作紀錄）
               <textarea
                 rows={3}
                 value={reason}

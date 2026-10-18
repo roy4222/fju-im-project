@@ -599,8 +599,8 @@ async function insertStatusEvent(
     userId: string
     realAt: Date
     businessAt: Date
-    /** 進出「已封存」時必填（`cohort_status_events_archive_reason_check`）。 */
-    reason?: string
+    /** 進出「已封存」時的理由；選填（C2 設計方案 X2；0020 已拿掉封存理由 CHECK），沒寫存 `null`。 */
+    reason?: string | null
   },
 ): Promise<void> {
   await tx.query(

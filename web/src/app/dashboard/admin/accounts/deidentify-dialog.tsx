@@ -68,10 +68,6 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!preview || blocked) return
-    if (!reason.trim()) {
-      setError('請寫刪除個人資料的理由。')
-      return
-    }
     if (!confirmOk) {
       setError('請照打這個帳號的登入 Email。')
       return
@@ -189,7 +185,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
                   ) : (
                     <>
                       <label className="block text-sm font-medium text-foreground">
-                        理由 <span className="font-normal text-muted-foreground">・必填，會寫入紀錄</span>
+                        理由（選填，會留在操作紀錄）
                         <textarea
                           rows={2}
                           value={reason}
@@ -235,7 +231,7 @@ export function DeidentifyDialog({ account: a, opener }: { account: DeidentifyTa
                   取消
                 </button>
                 {preview && !blocked ? (
-                  <button type="submit" className={cn(BUTTON, DANGER)} disabled={busy || !confirmOk || !reason.trim()}>
+                  <button type="submit" className={cn(BUTTON, DANGER)} disabled={busy || !confirmOk}>
                     {busy ? '處理中…' : '確認刪除個人資料'}
                   </button>
                 ) : null}

@@ -111,10 +111,8 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await menu.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` }).click()
   const grant = page.getByRole('dialog', { name: `設為管理員 ${teacher.name}` })
   await expect(grant).toContainText('只給系辦與負責的老師')
-  // 沒寫理由不送。
-  await grant.getByRole('button', { name: '確認設為管理員' }).click()
-  await expect(grant.getByRole('alert')).toHaveText('請寫理由。')
-  await grant.getByLabel(/理由/).fill('e2e：新任承辦人')
+  // 理由選填（C2 X2；AC-C2-11）：留空直接送也成功。
+  await expect(grant.getByLabel('理由（選填，會留在操作紀錄）')).toHaveValue('')
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('status')).toContainText('已設為管理員')
   await grant.getByRole('button', { name: '關閉' }).click()

@@ -13,10 +13,10 @@ import {
 } from '@/composition/cohorts'
 import { formatTaipeiSecond, toTaipeiDateTimeInput } from '@/shared/time'
 
-export const metadata = { title: '模擬時鐘｜資管系專題平台' }
+export const metadata = { title: '測試用時間｜資管系專題平台' }
 
 /**
- * 模擬業務鐘（票 11；產品模組 02 §4「模擬業務日期規則」）。
+ * 測試用時間（票 11；產品模組 02 §4「模擬業務日期規則」；C2-02 從「模擬時鐘」改名）。
  *
  * 只有測試站（`BUSINESS_CLOCK_OVERRIDE_ENABLED=true`）有這一頁；正式站連網址都是 404，
  * 設定用例也會拒絕（見 actions.ts）。它只改階段、開放、截止、到期這些業務判斷，
@@ -33,8 +33,8 @@ export default async function AdminClockPage() {
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/timeline">
       <PageHeader
-        title="模擬時鐘"
-        description="測試站專用：把系統認定的「今天」設到任何一秒，用來驗階段切換與截止前後。正式站沒有這個功能。"
+        title="測試用時間"
+        description="測試站專用：把系統認定的「現在」調到任何一秒，用來測階段切換與截止前後；原因可以不寫。正式站沒有這一頁。"
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
@@ -64,7 +64,7 @@ export default async function AdminClockPage() {
             </span>,
             h.setByName ?? '—',
             <span key="reason" className="block min-w-[10rem]">
-              {h.reason}
+              {h.reason ?? '—'}
             </span>,
             <span key="before" className="whitespace-nowrap tabular-nums">
               {h.previousBusinessAt ? formatTaipeiSecond(h.previousBusinessAt) : '—'}

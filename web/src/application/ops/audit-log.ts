@@ -159,7 +159,7 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.archive': '封存屆別',
   'cohort.unarchive': '解除封存屆別',
   'activity.deleted': '刪除活動',
-  'business_clock.set': '調整模擬時鐘',
+  'business_clock.set': '調整測試用時間',
   // 分組、指導與產學（模組 03）
   'group.dissolve': '解散組別',
   'group.establish': '組別成立',
@@ -306,7 +306,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   registration_application: '註冊申請',
   roster_version: '匯入的學生名單',
   cohort: '屆別',
-  business_clock: '模擬時鐘',
+  business_clock: '測試用時間',
   home_settings: '首頁設定',
   project_event: '活動',
   group: '組別',

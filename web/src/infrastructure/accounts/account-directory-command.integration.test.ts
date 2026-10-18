@@ -296,7 +296,7 @@ describe('停用即失效、恢復可再登入（做完的樣子 2；ACC-09）',
     expect(await command.disable(adminActor(), { userId: admin.userId, reason: 'x', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
       ok: false, code: 'FORBIDDEN',
     })
-    expect(await command.disable(adminActor(), { ...input, reason: '  ', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+    expect(await command.disable(adminActor(), { ...input, reason: 'x'.repeat(501), requestId: requestId() }, { headers: admin.headers })).toMatchObject({
       ok: false, code: 'VALIDATION_FAILED',
     })
     expect(await command.disable(teacherActor(), { ...input, requestId: requestId() }, { headers: admin.headers })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
@@ -600,6 +600,23 @@ describe('孤兒帳號（票 10b）', () => {
     const restored = await command.restore(adminActor(), { userId: s.userId, reason: '恢復', requestId: requestId() }, { headers: admin.headers })
     expect(restored).toMatchObject({ ok: true, receipt: { status: 'active' } })
     expect(await one(`select status from users where id = $1`, [s.userId])).toEqual({ status: 'active' })
+  })
+
+  it('理由選填（C2 X2；AC-C2-11）：留空停用、恢復都成功，狀態事件與稽核的理由是 NULL', async () => {
+    const s = await student('0411400198', '空理由甲')
+    expect(await command.disable(adminActor(), { userId: s.userId, reason: '  ', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+      ok: true, receipt: { status: 'disabled' },
+    })
+    expect(await command.restore(adminActor(), { userId: s.userId, reason: '', requestId: requestId() }, { headers: admin.headers })).toMatchObject({
+      ok: true, receipt: { status: 'active' },
+    })
+    const events = await db.sql(`select to_status, reason from user_status_events where user_id = $1 order by real_at, id`, [s.userId])
+    expect(events.rows).toEqual([{ to_status: 'disabled', reason: null }, { to_status: 'active', reason: null }])
+    const audits = await db.sql(
+      `select action, reason from audit_events where target_id = $1 and action in ('account.disable', 'account.restore') order by real_at, id`,
+      [s.userId],
+    )
+    expect(audits.rows).toEqual([{ action: 'account.disable', reason: null }, { action: 'account.restore', reason: null }])
   })
 })
 

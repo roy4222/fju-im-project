@@ -63,14 +63,13 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
   const dialog = page.getByRole('dialog', { name: `重設 ${name} 的頭像` })
   await expect(dialog.locator('img')).toHaveAttribute('src', `/avatars/${String(PRESET).padStart(3, '0')}.webp`)
   await expect(dialog.locator('img')).toHaveAttribute('width', '64')
-  const reason = dialog.getByLabel('理由（必填，對方看不到）')
+  const reason = dialog.getByLabel('理由（選填，會留在操作紀錄）')
   await expect(reason).toBeVisible()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/avatar-reset-dialog.png` })
 
-  // 空理由（含只有空白）先擋，不打伺服器。
+  // 理由選填（C2 X2）：空的不擋（留空送出的情形見 AC-C2-11 的 SQL 證據）；只填不送，什麼都沒改。
   await reason.fill('   ')
-  await dialog.getByRole('button', { name: '重設', exact: true }).click()
-  await expect(dialog.getByRole('alert')).toContainText('請填理由')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
   expect((await pool.query('select avatar_preset from user_profiles where user_id = $1', [target.userId])).rows[0]).toEqual({ avatar_preset: PRESET })
 
   // 取消不改。
@@ -81,7 +80,7 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
   await page.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
   // 字數用同一把尺（非 BMP 字算一個字）：𠮷 ×201 前端擋下、什麼都沒寫；×200 可送。
-  const fill = dialog.getByLabel('理由（必填，對方看不到）')
+  const fill = dialog.getByLabel('理由（選填，會留在操作紀錄）')
   await fill.fill('𠮷'.repeat(201))
   await dialog.getByRole('button', { name: '重設', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('200 字以內')

@@ -232,7 +232,7 @@ export function describeGroupingSettingsReceipt(receipt: SetGroupingSettingsRece
 }
 
 /**
- * 封存與解封（AD-B4；設計方案 §7）：兩個方向都要填理由（`cohort_status_events_archive_reason_check`）。
+ * 封存與解封（AD-B4；設計方案 §7）：理由選填（C2 設計方案 X2；0020 已拿掉封存理由 CHECK），有寫最多 200 字。
  */
 export const COHORT_STATUS_REASON_MAX_LENGTH = 200
 
@@ -246,10 +246,10 @@ export type CohortStatusReceipt = {
   readonly status: CohortStatus
 }
 
-/** 理由去掉前後空白後要有 1–200 字。 */
-export function normalizeStatusReason(reason: string): { ok: true; value: string } | Err {
+/** 理由選填（C2 設計方案 X2）：去掉前後空白後留空存 `null`，有寫最多 200 字。 */
+export function normalizeStatusReason(reason: string): { ok: true; value: string | null } | Err {
   const value = reason.trim()
-  if (!value) return err('VALIDATION_FAILED', '請填理由。', { details: { field: 'reason' } })
+  if (!value) return { ok: true, value: null }
   if (value.length > COHORT_STATUS_REASON_MAX_LENGTH) {
     return err('VALIDATION_FAILED', `理由最多 ${COHORT_STATUS_REASON_MAX_LENGTH} 個字。`, {
       details: { field: 'reason' },

@@ -55,7 +55,7 @@ export type AvatarChoice = { readonly preset: number } | { readonly fileId: stri
 /** 上傳頭像收的類型（縮圖後一律存成 WebP）。 */
 export const AVATAR_UPLOAD_TYPES = ['png', 'jpg', 'webp'] as const
 
-/** 系辦重設頭像的理由上限（去頭尾空白後 1～200 字）。 */
+/** 系辦重設頭像的理由上限（去頭尾空白後最多 200 字；選填）。 */
 export const AVATAR_RESET_REASON_MAX = 200
 
 /** 送來的選擇長得對不對：預設圖編號 1～100，或一個檔案編號字串（是不是 uuid、是不是本人的由用例查）。 */
@@ -71,10 +71,13 @@ export function parseAvatarChoice(input: unknown): AvatarChoice | null {
   return null
 }
 
-/** 重設理由：去頭尾空白後 1～200 字（以字計，同資料庫 `char_length`）；不合回 null。 */
-export function normalizeAvatarResetReason(reason: unknown): string | null {
-  if (typeof reason !== 'string') return null
+/**
+ * 重設理由：選填（C2 設計方案 X2）。去頭尾空白後留空 → `null`；有寫最多 200 字（以字計，同資料庫 `char_length`）。
+ * 不是字串或超過上限回 `{ ok: false }`。
+ */
+export function normalizeAvatarResetReason(reason: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (typeof reason !== 'string') return { ok: false }
   const trimmed = reason.trim()
-  const length = Array.from(trimmed).length
-  return length >= 1 && length <= AVATAR_RESET_REASON_MAX ? trimmed : null
+  if (!trimmed) return { ok: true, value: null }
+  return Array.from(trimmed).length <= AVATAR_RESET_REASON_MAX ? { ok: true, value: trimmed } : { ok: false }
 }
