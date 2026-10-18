@@ -30,7 +30,6 @@ import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
-import { betterAuthAccountCalls, type AccountAuthCalls } from '@/infrastructure/accounts/account-command'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 
@@ -42,8 +41,8 @@ import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/stud
  * （主鍵擋同屆同學號）→ `role_assignments` 撤舊插新 → 收件名單（舊屆移出、新屆截止前的個人收件加入）→
  * 稽核 `account.profile_edit`（before/after 含 `role`）→ 帳本。
  *
- * 主角色換了：commit 後撤對方所有登入（`revokeUserSessions`）＋丟身分快取，跟發臨時密碼同一個排法
- * （`account-command.ts`）——對方下一個請求就是未登入，重登才拿到新身分。只改姓名、學號、屆別不撤登入，
+ * 主角色換了：同一個交易裡刪掉他當下所有的 session（停用、去識別化同一個作法），commit 後丟身分快取——
+ * 對方下一個請求就是未登入，重登才拿到新身分；重送只回第一次的回執，不會刪到之後的新登入。只改姓名、學號、屆別不登出，
  * 只丟身分快取（下一個請求照新屆別）。
  *
  * 管理員勾不在這裡：畫面沿用既有的 `grantRole`／`revokeRole`（另記 `account.grant_role`／`revoke_role`）。
@@ -55,7 +54,6 @@ export type ProfileEditDeps = {
   readonly ledger: OperationLedger<PoolClient>
   readonly db: () => Pool
   readonly businessClock: BusinessClockSource
-  readonly auth?: AccountAuthCalls
   readonly clock?: Clock
 }
 
@@ -96,12 +94,10 @@ type Snapshot = { name: string; studentNo: string | null; cohortId: string | nul
 export class PgProfileEditCommand implements ProfileEditCommand {
   readonly #deps: ProfileEditDeps
   readonly #clock: Clock
-  readonly #auth: AccountAuthCalls
 
   constructor(deps: ProfileEditDeps) {
     this.#deps = deps
     this.#clock = deps.clock ?? new RealClock()
-    this.#auth = deps.auth ?? betterAuthAccountCalls
   }
 
   async view(actor: ResolvedActor, userId: string): Promise<Result<ProfileEditView>> {
@@ -141,7 +137,7 @@ export class PgProfileEditCommand implements ProfileEditCommand {
     )
   }
 
-  async edit(actor: ResolvedActor, authHeaders: Headers, input: ProfileEditInput): Promise<Result<ProfileEditReceipt>> {
+  async edit(actor: ResolvedActor, input: ProfileEditInput): Promise<Result<ProfileEditReceipt>> {
     const blocked = accountAdminDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
     const normalized = normalizeProfileEdit(input)
@@ -170,8 +166,9 @@ export class PgProfileEditCommand implements ProfileEditCommand {
       if (begun.outcome === 'replay') {
         await tx.query('commit')
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
-        // 重送也要把撤 session 做完（上一次可能就是撤銷失敗才重送的）。
-        return this.#finish(authHeaders, begun.receipt as ProfileEditReceipt, now, edit.requestId)
+        // 重送只回第一次的回執：登出舊登入已經在第一次的交易裡做完，不能再刪本人之後的新登入（Review 第 2 輪）。
+        bustIdentity(edit.userId)
+        return ok(begun.receipt as ProfileEditReceipt, meta(now, edit.requestId))
       }
       const fail = async (code: ErrorCode, message: string, field?: string) => {
         await tx.query('rollback')
@@ -284,6 +281,18 @@ export class PgProfileEditCommand implements ProfileEditCommand {
         )
       }
 
+      // 3a. 主角色換了：在同一個交易裡刪掉他**此刻已有**的登入（停用、去識別化同一個作法，PR #302）。
+      //     commit 那一刻舊登入就沒了；交易之後本人重新登入拿到的新 session 不會被任何重送碰到。
+      //     刪不掉就整筆回滾、回可重試的錯誤（Review 第 1 輪第 4 項）：同一個請求編號再送是全新的一次。
+      if (roleChanged) {
+        try {
+          await tx.query('delete from sessions where user_id = $1', [target.userId])
+        } catch (error) {
+          console.error('[account] 編輯帳號時登出舊登入失敗', (error as { name?: string })?.name ?? 'unknown error')
+          return fail('INTERNAL', '沒能登出他原本的登入，這次沒有存。請再按一次「儲存」。')
+        }
+      }
+
       // 3b. 管理員勾：沿用既有 grant／revoke 的寫法（含套件欄 `users.role`），另記 `account.grant_role`／`revoke_role`。
       if (adminChange === 'grant') {
         await tx.query(
@@ -375,25 +384,8 @@ export class PgProfileEditCommand implements ProfileEditCommand {
       tx.release()
     }
 
-    return this.#finish(authHeaders, receipt, now, edit.requestId)
-  }
-
-  /**
-   * commit（或重送）之後：主角色換了就撤對方所有登入，再丟身分快取。
-   * 撤銷失敗回可重試的錯誤（Review 第 1 輪第 4 項）：同一個請求編號再送一次會走重送、補撤，不會重做寫入。
-   */
-  async #finish(authHeaders: Headers, receipt: ProfileEditReceipt, now: Date, requestId: string): Promise<Result<ProfileEditReceipt>> {
-    if (receipt.roleChanged) {
-      try {
-        await this.#auth.revokeUserSessions(authHeaders, { userId: receipt.userId })
-      } catch (error) {
-        console.error('[account] 編輯帳號後撤銷登入失敗', (error as { name?: string })?.name ?? 'unknown error')
-        bustIdentity(receipt.userId)
-        return err('INTERNAL', '資料已經存好，但沒能登出他原本的登入。請再按一次「儲存」（不會重複做）。')
-      }
-    }
     bustIdentity(receipt.userId)
-    return ok(receipt, meta(now, requestId))
+    return ok(receipt, meta(now, edit.requestId))
   }
 }
 

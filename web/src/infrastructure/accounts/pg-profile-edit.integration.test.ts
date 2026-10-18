@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
@@ -19,7 +19,7 @@ import { PgSubmissionCommand } from '@/infrastructure/submissions/pg-submissions
  * C2-08：帳號列「編輯」（調屆、學生↔老師互轉；設計方案 §3.8、§3.9；AC-C2-21、22、23）。
  *
  * 全部以正式執行角色 `fju_app` 連線；作業用真用例建立與發布、繳交用真用例送出（`submission_versions` 是真的），
- * 名單就是發布時展開的那一份。業務鐘是假鐘；撤 session 用假的套件呼叫記下來（真的撤 session 在 e2e 走一次）。
+ * 名單就是發布時展開的那一份。業務鐘是假鐘；登入是直接寫的 `sessions` 列（真的登入、登出在 e2e 走一次）。
  *
  * 「做完的樣子」對照：
  * 1. 調屆（AC-C2-21a）：`user_profiles` 三欄、`student_identities` 舊列不在新列在、舊屆名單移出、新屆截止前的個人收件加入、
@@ -36,9 +36,48 @@ let adminId: string
 let command: PgProfileEditCommand
 let items: PgItemCommand
 let submissions: PgSubmissionCommand
-const revoked: string[] = []
-/** 大於 0 時，下一次撤 session 丟錯（Review 第 1 輪第 4 項）。 */
-let failRevoke = 0
+/** 大於 0 時，交易裡下一次刪 session 丟錯（Review 第 1 輪第 4 項、第 2 輪）。 */
+let failSessionDelete = 0
+
+/** 正式執行角色的連線，外包一層：交易裡刪 session 的那一句可以注入失敗。 */
+function faultyPool(): Pool {
+  return new Proxy(app, {
+    get(target, key) {
+      if (key !== 'connect') return Reflect.get(target, key)
+      // `pool.query` 內部用 callback 形式的 connect，那條照原樣走；只換用例自己開交易的 `await pool.connect()`。
+      return async (...args: unknown[]) => {
+        if (args.length > 0) return (target.connect as (...a: unknown[]) => unknown).apply(target, args)
+        const client = await target.connect()
+        return new Proxy(client, {
+          get(c, k) {
+            if (k !== 'query') return Reflect.get(c, k)
+            return (text: unknown, ...rest: unknown[]) => {
+              if (typeof text === 'string' && text.trimStart().startsWith('delete from sessions') && failSessionDelete > 0) {
+                failSessionDelete -= 1
+                return Promise.reject(new Error('刪 session 失敗（測試）'))
+              }
+              return (c.query as (...args: unknown[]) => unknown).call(c, text, ...rest)
+            }
+          },
+        })
+      }
+    },
+  }) as Pool
+}
+
+/** 替這個人造一個登入（跟套件寫的欄位一樣）；回 session id。 */
+async function login(userId: string): Promise<string> {
+  const id = randomUUID()
+  await owner.sql(
+    `insert into sessions (id, expires_at, token, updated_at, user_id, login_method) values ($1, now() + interval '1 day', $2, now(), $3, 'password')`,
+    [id, randomUUID(), userId],
+  )
+  return id
+}
+
+async function sessionsOf(userId: string): Promise<string[]> {
+  return (await owner.sql(`select id from sessions where user_id = $1 order by id`, [userId])).rows.map((r) => String(r.id))
+}
 const businessNow = new Date('2026-10-01T02:00:00Z')
 const businessClock = { now: async () => new Date(businessNow.getTime()) }
 
@@ -191,7 +230,7 @@ async function snapshot(userId: string) {
 }
 
 const edit = (userId: string, patch: { name: string; role: string | null; studentNo?: string; cohortId?: string; admin?: boolean }) =>
-  command.edit(adminActor(), new Headers(), { userId, studentNo: '', cohortId: '', requestId: randomUUID(), ...patch })
+  command.edit(adminActor(), { userId, studentNo: '', cohortId: '', requestId: randomUUID(), ...patch })
 
 beforeAll(async () => {
   await assertTestDatabaseReachable()
@@ -232,19 +271,8 @@ beforeAll(async () => {
   command = new PgProfileEditCommand({
     audit: new PgAuditWriter(),
     ledger: new PgOperationLedger(() => app),
-    db: () => app,
+    db: faultyPool,
     businessClock,
-    auth: {
-      createUser: vi.fn(),
-      setUserPassword: vi.fn(),
-      revokeUserSessions: async (_headers, input) => {
-        if (failRevoke > 0) {
-          failRevoke -= 1
-          throw new Error('套件撤銷失敗（測試）')
-        }
-        revoked.push(input.userId)
-      },
-    },
   })
 
   c115 = await newCohort('115')
@@ -266,6 +294,7 @@ describe('調屆（AC-C2-21a）', () => {
     const groupOnly = await published(c116, '116 組別收件', { receiverUnit: 'group' })
     expect(await currentRoster(sx1.id)).toEqual([old])
 
+    const session = await login(sx1.id)
     const done = await edit(sx1.id, { name: '  SX1 改名 ', role: 'student', studentNo: '411012399', cohortId: c116.id })
     expect(done).toMatchObject({ ok: true, receipt: { name: 'SX1 改名', role: 'student', cohortCode: '116', roleChanged: false } })
 
@@ -286,7 +315,8 @@ describe('調屆（AC-C2-21a）', () => {
     )
     expect(audit.payload.before).toMatchObject({ name: 'SX1', studentNo: sx1.studentNo, cohortCode: '115', role: 'student' })
     expect(audit.payload.after).toMatchObject({ name: 'SX1 改名', studentNo: '411012399', cohortCode: '116', role: 'student' })
-    expect(revoked).not.toContain(sx1.id)
+    // 只改學號屆別不登出。
+    expect(await sessionsOf(sx1.id)).toEqual([session])
   })
 
   it('封存的屆不能改過去', async () => {
@@ -301,6 +331,7 @@ describe('調屆（AC-C2-21a）', () => {
 describe('學生↔老師互轉（AC-C2-21b、c）', () => {
   it('學生 → 老師：student 撤、teacher 新增；占用刪、學號屆別清空；名單移出；稽核含 role；撤 session', async () => {
     const sx = await newStudent('SX1b', c116.id)
+    await login(sx.id)
     await published(c116, '116 作業 b')
     expect((await currentRoster(sx.id)).length).toBeGreaterThan(0)
 
@@ -320,13 +351,14 @@ describe('學生↔老師互轉（AC-C2-21b、c）', () => {
       [sx.id],
     )
     expect([audit.payload.before.role, audit.payload.after.role]).toEqual(['student', 'teacher'])
-    expect(revoked).toContain(sx.id)
+    expect(await sessionsOf(sx.id)).toEqual([])
     // 重登落在老師後台（不被送去老師補資料頁）：學生原本就補過資料。
     expect(await one(`select profile_completed_at is not null as done from user_profiles where user_id = $1`, [sx.id])).toEqual({ done: true })
   })
 
   it('老師 → 學生：teacher 撤、student 新增；占用插、個人資料寫入；新屆名單加入；撤 session', async () => {
     const t2 = await newTeacher('T2')
+    await login(t2)
     const item = await published(c116, '116 作業 c')
 
     const done = await edit(t2, { name: 'T2', role: 'student', studentNo: '411099001', cohortId: c116.id })
@@ -340,7 +372,7 @@ describe('學生↔老師互轉（AC-C2-21b、c）', () => {
     expect(s.identities).toEqual([{ cohort_id: c116.id, student_no: '411099001' }])
     expect(s.profile).toMatchObject({ student_no: '411099001', cohort_id: c116.id })
     expect(s.roster).toContain(item)
-    expect(revoked).toContain(t2)
+    expect(await sessionsOf(t2)).toEqual([])
   })
 
   it('還沒補資料的老師（沒有 user_profiles）也能改成學生：補一列個人資料', async () => {
@@ -439,7 +471,7 @@ describe('前置不成立（AC-C2-22）：擋下，資料庫無變動', () => {
     const t = await newTeacher('旁觀')
     const teacher: ResolvedActor = { kind: 'authenticated', userId: t, roles: ['teacher'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
     expect(await command.view(teacher, t)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await command.edit(teacher, new Headers(), { userId: t, name: 'x', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() })).toMatchObject({
+    expect(await command.edit(teacher, { userId: t, name: 'x', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() })).toMatchObject({
       ok: false,
       code: 'FORBIDDEN',
     })
@@ -462,8 +494,8 @@ describe('學號占用（AC-C2-23）', () => {
   it('同一個請求編號重送只做一次', async () => {
     const s = await newStudent('重送', c115.id)
     const input = { userId: s.id, name: '重送改名', role: 'student', studentNo: s.studentNo, cohortId: c115.id, requestId: randomUUID() }
-    expect(await command.edit(adminActor(), new Headers(), input)).toMatchObject({ ok: true })
-    expect(await command.edit(adminActor(), new Headers(), input)).toMatchObject({ ok: true, receipt: { name: '重送改名' } })
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true })
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true, receipt: { name: '重送改名' } })
     expect((await snapshot(s.id)).audits).toBe(1)
   })
 })
@@ -528,16 +560,47 @@ describe('Review 第 1 輪', () => {
     expect(await snapshot(s.id)).toEqual(before)
   })
 
-  it('第 4 項：撤 session 失敗 → 回可重試的錯誤；同一個請求重送會補撤，然後回成功', async () => {
+  it('第 4 項：登出舊登入失敗 → 回可重試的錯誤、什麼都沒存；同一個請求重送才真的存好並登出', async () => {
     const sx = await newStudent('撤銷失敗', c116.id)
+    const old = await login(sx.id)
     const input = { userId: sx.id, name: '撤銷失敗', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() }
-    failRevoke = 1
-    const first = await command.edit(adminActor(), new Headers(), input)
+    const before = await snapshot(sx.id)
+    failSessionDelete = 1
+    const first = await command.edit(adminActor(), input)
     expect(first).toMatchObject({ ok: false, code: 'INTERNAL' })
-    expect(revoked).not.toContain(sx.id)
-    const again = await command.edit(adminActor(), new Headers(), input)
+    expect(await sessionsOf(sx.id)).toEqual([old])
+    expect(await snapshot(sx.id)).toEqual(before)
+    const again = await command.edit(adminActor(), input)
     expect(again).toMatchObject({ ok: true, receipt: { roleChanged: true } })
-    expect(revoked).toContain(sx.id)
+    expect(await sessionsOf(sx.id)).toEqual([])
     expect((await snapshot(sx.id)).audits).toBe(1)
+  })
+})
+
+describe('Review 第 2 輪：重送不能登出互轉之後的新登入', () => {
+  it('互轉成功 → 本人重新登入 → 同一個請求重送：新登入還在，只回原回執', async () => {
+    const sx = await newStudent('重送新登入', c116.id)
+    const old = await login(sx.id)
+    const input = { userId: sx.id, name: '重送新登入', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() }
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true, receipt: { roleChanged: true } })
+    expect(await sessionsOf(sx.id)).not.toContain(old)
+    const fresh = await login(sx.id)
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true, receipt: { roleChanged: true } })
+    expect(await sessionsOf(sx.id)).toEqual([fresh])
+    expect((await snapshot(sx.id)).audits).toBe(1)
+  })
+
+  it('登出失敗 → 可重試錯誤 → 重送：舊登入被撤、回成功；本人重登後再重送：新登入不再被撤', async () => {
+    const sx = await newStudent('失敗再重送', c116.id)
+    const old = await login(sx.id)
+    const input = { userId: sx.id, name: '失敗再重送', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() }
+    failSessionDelete = 1
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: false, code: 'INTERNAL' })
+    expect(await sessionsOf(sx.id)).toEqual([old])
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true })
+    expect(await sessionsOf(sx.id)).toEqual([])
+    const fresh = await login(sx.id)
+    expect(await command.edit(adminActor(), input)).toMatchObject({ ok: true })
+    expect(await sessionsOf(sx.id)).toEqual([fresh])
   })
 })

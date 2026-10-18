@@ -51,10 +51,9 @@ export async function editAccountAction(input: {
   if (userId === null || name === null || (role === null && input?.role !== null) || studentNo === null || cohortId === null || requestId === null) {
     return { ok: false, code: 'VALIDATION_FAILED', message: '欄位格式不對，請重新打開視窗再試。' }
   }
-  const incoming = await headers()
-  const actor = await resolveActor(incoming)
+  const actor = await resolveActor(await headers())
   return toOutcome(
-    await getProfileEditCommand().edit(actor, new Headers(incoming), {
+    await getProfileEditCommand().edit(actor, {
       userId,
       name,
       role,

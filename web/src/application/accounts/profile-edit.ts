@@ -93,8 +93,8 @@ export type ProfileEditReceipt = {
 export interface ProfileEditCommand {
   /** 開視窗時讀：目前的欄位、屆別選項、各種前置條件的原因句。 */
   view(actor: ResolvedActor, userId: string): Promise<Result<ProfileEditView>>
-  /** 存：同一個交易改個人資料、學號占用、角色、收件名單、稽核；主角色換了 commit 後撤對方的登入。 */
-  edit(actor: ResolvedActor, authHeaders: Headers, input: ProfileEditInput): Promise<Result<ProfileEditReceipt>>
+  /** 存：同一個交易改個人資料、學號占用、角色（含管理員勾）、收件名單、稽核；主角色換了同一個交易登出他當下的登入。 */
+  edit(actor: ResolvedActor, input: ProfileEditInput): Promise<Result<ProfileEditReceipt>>
 }
 
 // ── 原因句（四句不能存的原因＋學號占用） ───────────────────────────────────────
