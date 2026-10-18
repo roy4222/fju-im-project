@@ -213,6 +213,7 @@ const ACTION_LABEL: Record<string, string> = {
   'item.deleted': '刪除公告或作業',
   // B 階段 A-14 規則章節排序（預先登記）。
   'item.rule_moved': '調整規則章節順序',
+  'item.category_renamed': '資源分類改名',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
