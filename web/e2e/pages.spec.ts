@@ -242,9 +242,8 @@ test.describe('待審核的人（有 session 但還沒核准）', () => {
   test('開後台會被帶到等待審核頁，不是 403', async ({ page }) => {
     await signInAs(page, null)
     await page.goto('/dashboard/student')
-    await expect(page).toHaveURL(/\/register\/pending$/)
-    // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁請他補送（票 7）。
-    await expect(page.getByRole('heading', { name: '還沒送出申請資料' })).toBeVisible()
+    // 這個測試帳號是直接打註冊 API 建的，沒有申請資料：等待審核頁再把他帶到第 3 步補填（VB-6；visitor-r3）。
+    await expect(page).toHaveURL(/\/register\/apply$/)
   })
 
   test('公開首頁跟訪客一樣：沒有「我的工作」、歷屆專題，也沒有產學合作與檔案下載的入口', async ({ page }) => {

@@ -140,6 +140,7 @@ const ACTION_LABEL: Record<string, string> = {
   'registration.apply': '送出註冊申請',
   'registration.revise': '修改註冊申請',
   'registration.resubmit': '重新送出註冊申請',
+  'registration.auto_approve': '自動開通註冊（Google Email 與名單相同）',
   'roster.import': '匯入學生名單',
   'session.revoke': '強制登出',
   // 屆別與時間軸（模組 02）

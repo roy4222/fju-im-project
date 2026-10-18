@@ -265,6 +265,10 @@
     "baseline": 228.1,
     "limit": 250
   },
+  "/register/apply/done": {
+    "baseline": 225.2,
+    "limit": 248
+  },
   "/register/pending": {
     "baseline": 225.4,
     "limit": 248

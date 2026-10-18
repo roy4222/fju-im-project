@@ -4,6 +4,7 @@ import { uuidv7 } from 'uuidv7'
 import {
   APPLY_EMAIL_UNVERIFIED_MESSAGE,
   applyDenial,
+  autoApprovalEligible,
   BULK_APPROVAL_MAX,
   BULK_APPROVAL_SKIP_LABEL,
   bulkApprovalSkip,
@@ -58,8 +59,11 @@ import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
  * **註冊為什麼分兩步**：帳號（`users`＋密碼）由 Better Auth 建，它只存自己宣告過的欄位，
  * 學號、手機、系級放不進去；而本票不能加 migration。所以先請套件建帳號（受限 session），
  * 再用自己的交易寫申請單＋第 1 版快照＋稽核。第二步萬一失敗，帳號是一個「待審、沒有申請單」的人——
- * 他登入後在等待審核頁看到「還沒送出申請資料」的表單，補送一次就回到正軌（`reviseMine` 的 `none` 分支）。
+ * 他登入後被帶到第 3 步「填學生資料」，補送一次就回到正軌（`reviseMine` 的 `none` 分支）。
  * 直接打 `POST /api/auth/sign-up/email` 註冊的人也走同一條補送路。
+ *
+ * **Q42 自動開通**（VB-6）：Google 來的人第一次送申請、Email＋學號＋姓名命中開放註冊屆別名單的同一列、
+ * 學號沒人用時，同一筆交易直接核准（`#autoApprove`）。操作者是系統，不寄「帳號已開通」信（畫面直接告訴他）。
  */
 
 export type AccountCreation =
@@ -117,6 +121,9 @@ export type RegistrationCommandDeps = {
    */
   readonly mail?: { readonly mailer: Mailer; readonly siteUrl: string }
 }
+
+/** Q42 自動開通寫進狀態流水、稽核與角色授予的理由。 */
+const AUTO_APPROVE_REASON = 'Google Email 與名單相同，自動開通'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** 待審清單一次最多列幾筆（一屆幾百人，不需要分頁）。 */
@@ -314,6 +321,18 @@ export class PgRegistrationCommand implements RegistrationCommand {
     )
   }
 
+  async autoApprovedMine(actor: ResolvedActor): Promise<boolean> {
+    if (actor.kind !== 'authenticated') return false
+    // 讀資料庫（不信網址或畫面帶來的值）；看最近一筆，之後被系辦更正過的不算。
+    const latest = await this.#deps.db().query<{ state: string; verification_method: string | null }>(
+      `select state, verification_method from registration_applications
+        where user_id = $1 order by created_at desc, id desc limit 1`,
+      [actor.userId],
+    )
+    const row = latest.rows[0]
+    return row?.state === 'approved' && row.verification_method === 'google_email_match'
+  }
+
   async reviseMine(
     actor: ResolvedActor,
     input: ApplicationFields,
@@ -323,6 +342,19 @@ export class PgRegistrationCommand implements RegistrationCommand {
     if (blocked || actor.kind !== 'authenticated') {
       return denied(blocked ?? 'UNAUTHENTICATED', '帳號已經開通；學號與屆別要更正請聯絡系辦。')
     }
+    // 未驗證 Email 的人不能送、也不能改申請（VB-2／VB-6；AC-VI-50）：所有路徑都在這裡先擋。
+    // 驗證狀態回資料庫讀，不信 session 快照；有 Google 登入方式的人 Email 已由 Google 證明（同 `homeForUser`）。
+    const self = await this.#deps.db().query<{ email_verified: boolean; has_google: boolean }>(
+      `select u.email_verified,
+              exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google') as has_google
+         from users u where u.id = $1`,
+      [actor.userId],
+    )
+    const unverified = applyDenial({
+      emailVerified: self.rows[0]?.email_verified === true || self.rows[0]?.has_google === true,
+      loginMethod: actor.loginMethod,
+    })
+    if (unverified) return err('FORBIDDEN', unverified)
     if (expectedRevision !== null && (!Number.isInteger(expectedRevision) || expectedRevision < 1)) {
       return err('VALIDATION_FAILED', '頁面資料不完整，請重新整理後再試。')
     }
@@ -337,6 +369,16 @@ export class PgRegistrationCommand implements RegistrationCommand {
     const tx = await this.#deps.db().connect()
     try {
       await tx.query('begin')
+      // Google 來的人第一次送出可能自動開通（Q42）：開放註冊屆別先 FOR SHARE（鎖序 cohorts → users →
+      // registration_applications → student_identities，同契約 01 §6），交易內「哪一屆開放」不會被換掉。
+      const openCohort =
+        actor.loginMethod === 'google'
+          ? ((
+              await tx.query<CohortChoice>(
+                `select id, code, name from cohorts where is_registration_open and status <> 'archived' for share`,
+              )
+            ).rows[0] ?? null)
+          : null
       // 先鎖這個人（同一個人兩個分頁同時送出時排隊），再看最新一筆申請。
       const user = await tx.query<{ email: string; status: string; email_verified: boolean; has_google: boolean }>(
         `select u.email, u.status, u.email_verified,
@@ -411,16 +453,33 @@ export class PgRegistrationCommand implements RegistrationCommand {
         await tx.query('rollback')
         return err('FORBIDDEN', APPLY_EMAIL_UNVERIFIED_MESSAGE)
       }
-      const applicationId = await this.#insertApplication(
+      const inserted = await this.#insertApplication(
         tx,
         actor.userId,
         fields,
         loginEmail,
         now,
         latest ? 'registration.resubmit' : 'registration.apply',
+        // 只有 Google 來的人要用鎖住的開放屆別比對；其他人照舊讓 `#match` 自己查。
+        actor.loginMethod === 'google' ? (openCohort?.id ?? null) : undefined,
       )
+      // Q42 只看第一次送出：被退回後重送不自動開通（系辦的決定不由系統推翻）。
+      const autoApproved =
+        !latest &&
+        openCohort !== null &&
+        (await this.#autoApprove(tx, {
+          userId: actor.userId,
+          applicationId: inserted.id,
+          fields,
+          match: inserted.match,
+          rosterVersionId: inserted.rosterVersionId,
+          openCohort,
+          loginMethod: actor.loginMethod,
+          emailVerified: user.rows[0]?.email_verified === true,
+          now,
+        }))
       await tx.query('commit')
-      return ok({ applicationId, revision: 1 }, meta(now))
+      return ok({ applicationId: inserted.id, revision: 1, ...(autoApproved ? { autoApproved: true } : {}) }, meta(now))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
       if (isUniqueViolation(error)) return err('CONFLICT', '申請剛剛已經送出了，請重新整理頁面。')
@@ -587,57 +646,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
         return err('STUDENT_NO_TAKEN', takenMessage)
       }
 
-      await tx.query(`update users set status = 'active', name = $2, updated_at = $3 where id = $1`, [
-        row.user_id,
-        row.applied_name,
-        now,
-      ])
-      await tx.query(
-        `insert into user_profiles
-           (user_id, display_name, name_normalized, student_no, department_class, cohort_id, phone, contact_email,
-            login_method_last, created_at, updated_at, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8,
-                 -- 申請人最近一次的登入方式（票 10；顯示用）：最近一個 session 的 login_method；
-                 -- session 都過期被清掉了，就看帳號上有沒有密碼。
-                 coalesce(
-                   (select s.login_method from sessions s where s.user_id = $1 order by s.created_at desc limit 1),
-                   case when exists (select 1 from accounts a where a.user_id = $1 and a.provider_id = 'credential')
-                        then 'password' else 'google' end
-                 ),
-                 $9, $9, $10)
-         on conflict (user_id) do update set
-           display_name = excluded.display_name,
-           name_normalized = excluded.name_normalized,
-           student_no = excluded.student_no,
-           department_class = excluded.department_class,
-           cohort_id = excluded.cohort_id,
-           phone = excluded.phone,
-           contact_email = excluded.contact_email,
-           login_method_last = excluded.login_method_last,
-           revision = user_profiles.revision + 1,
-           updated_at = excluded.updated_at,
-           updated_by_user_id = excluded.updated_by_user_id`,
-        [
-          row.user_id,
-          row.applied_name,
-          normalizeName(row.applied_name),
-          row.student_no,
-          row.department_class,
-          cohort.cohortId,
-          row.phone,
-          row.contact_email,
-          now,
-          actor.userId,
-        ],
-      )
-      await tx.query(
-        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
-         select $1, $2, 'student', $3, $4, $5
-          where not exists (
-            select 1 from role_assignments where user_id = $2 and role = 'student' and revoked_real_at is null
-          )`,
-        [uuidv7(), row.user_id, actor.userId, now, '註冊審核核准'],
-      )
+      await this.#activateStudent(tx, row, cohort.cohortId, now, { byUserId: actor.userId, roleReason: '註冊審核核准' })
       await tx.query(
         `insert into user_status_events
            (id, user_id, from_status, to_status, reason, verification_method, actor_kind, actor_user_id, real_at)
@@ -931,7 +940,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
     }
   }
 
-  /** 建一筆新的待審申請（第 1 版）＋快照＋稽核。回申請 ID。 */
+  /** 建一筆新的待審申請（第 1 版）＋快照＋稽核。回申請 ID 與這次的名單比對。 */
   async #insertApplication(
     tx: PoolClient,
     userId: string,
@@ -939,9 +948,10 @@ export class PgRegistrationCommand implements RegistrationCommand {
     loginEmail: string,
     now: Date,
     action: 'registration.apply' | 'registration.resubmit',
-  ): Promise<string> {
+    registrationOpenId?: string | null,
+  ): Promise<{ id: string; match: RosterMatch; rosterVersionId: string | null }> {
     const id = uuidv7()
-    const { match, rosterVersionId } = await this.#match(tx, fields, loginEmail)
+    const { match, rosterVersionId } = await this.#match(tx, fields, loginEmail, registrationOpenId)
     await tx.query(
       `insert into registration_applications
          (id, user_id, revision, applied_name, student_no, department_class, phone, contact_email, login_email,
@@ -978,7 +988,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       businessAt: now,
       payload: { applicationId: id, revision: 1 },
     })
-    return id
+    return { id, match, rosterVersionId }
   }
 
   async #latestApplication(db: Queryable, userId: string, forUpdate = false): Promise<ApplicationRow | null> {
@@ -1030,6 +1040,170 @@ export class PgRegistrationCommand implements RegistrationCommand {
       )
     }
     return { ok: true, row }
+  }
+
+  /**
+   * 核准的共同步驟（系辦核准與 Q42 自動開通共用）：帳號轉正常、寫個人資料、給學生角色。
+   * 學號占用由呼叫端先做（各自決定撞到時怎麼辦）。`byUserId` 寫進個人資料的修改者與角色的授予者。
+   */
+  async #activateStudent(
+    tx: PoolClient,
+    row: Pick<ApplicationRow, 'user_id' | 'applied_name' | 'student_no' | 'department_class' | 'phone' | 'contact_email'>,
+    cohortId: string,
+    now: Date,
+    by: { byUserId: string; roleReason: string },
+  ): Promise<void> {
+    await tx.query(`update users set status = 'active', name = $2, updated_at = $3 where id = $1`, [
+      row.user_id,
+      row.applied_name,
+      now,
+    ])
+    await tx.query(
+      `insert into user_profiles
+         (user_id, display_name, name_normalized, student_no, department_class, cohort_id, phone, contact_email,
+          login_method_last, created_at, updated_at, updated_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8,
+               -- 申請人最近一次的登入方式（票 10；顯示用）：最近一個 session 的 login_method；
+               -- session 都過期被清掉了，就看帳號上有沒有密碼。
+               coalesce(
+                 (select s.login_method from sessions s where s.user_id = $1 order by s.created_at desc limit 1),
+                 case when exists (select 1 from accounts a where a.user_id = $1 and a.provider_id = 'credential')
+                      then 'password' else 'google' end
+               ),
+               $9, $9, $10)
+       on conflict (user_id) do update set
+         display_name = excluded.display_name,
+         name_normalized = excluded.name_normalized,
+         student_no = excluded.student_no,
+         department_class = excluded.department_class,
+         cohort_id = excluded.cohort_id,
+         phone = excluded.phone,
+         contact_email = excluded.contact_email,
+         login_method_last = excluded.login_method_last,
+         revision = user_profiles.revision + 1,
+         updated_at = excluded.updated_at,
+         updated_by_user_id = excluded.updated_by_user_id`,
+      [
+        row.user_id,
+        row.applied_name,
+        normalizeName(row.applied_name),
+        row.student_no,
+        row.department_class,
+        cohortId,
+        row.phone,
+        row.contact_email,
+        now,
+        by.byUserId,
+      ],
+    )
+    await tx.query(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+       select $1, $2, 'student', $3, $4, $5
+        where not exists (
+          select 1 from role_assignments where user_id = $2 and role = 'student' and revoked_real_at is null
+        )`,
+      [uuidv7(), row.user_id, by.byUserId, now, by.roleReason],
+    )
+  }
+
+  /**
+   * Q42 自動開通（VB-6；visitor-r3 §3.6、R1／R2）：剛建好的第 1 版申請，在同一筆交易裡判斷能不能直接核准。
+   *
+   * 呼叫端已經鎖住開放註冊屆別（FOR SHARE）、本人 users 列，申請也是這個交易建的。學號占用在交易內重查
+   * （`bulkApprovalSkip` 的占用、同學號待審），再以 `student_identities` 主鍵收尾：兩個人同時用同一個學號，
+   * 後到的撞主鍵 → 回到 savepoint、安靜留在待審（不報錯，R1「任一不符走系辦核實」）。
+   *
+   * 操作者是系統：申請的核准者留空、狀態流水與稽核 `actor_kind = 'system'`；`role_assignments` 的授予者
+   * 欄不能空，記申請人自己、理由寫明是自動開通。不寄「帳號已開通」信（畫面直接說）。回 true 代表已開通。
+   */
+  async #autoApprove(
+    tx: PoolClient,
+    input: {
+      userId: string
+      applicationId: string
+      fields: ApplicationFields
+      match: RosterMatch
+      rosterVersionId: string | null
+      openCohort: CohortChoice
+      loginMethod: 'google' | 'password' | undefined
+      emailVerified: boolean
+      now: Date
+    },
+  ): Promise<boolean> {
+    const { userId, fields, match, openCohort, now } = input
+    const key = fields.studentNo.toUpperCase()
+    const holders = (await this.#activeHolders(tx, [fields.studentNo])).get(key) ?? []
+    const duplicates: DuplicateInfo = {
+      activeHolders: holders.filter((h) => h.userId !== userId).map(({ name, cohortCode }) => ({ name, cohortCode })),
+      otherPending: Math.max(0, ((await this.#pendingCounts(tx, [fields.studentNo])).get(key) ?? 0) - 1),
+    }
+    const eligible = autoApprovalEligible({
+      loginMethod: input.loginMethod,
+      emailVerified: input.emailVerified,
+      match,
+      registrationOpenCohortId: openCohort.id,
+      bulkApprovalSkip: bulkApprovalSkip({ match, duplicates }, [openCohort]),
+    })
+    if (!eligible) return false
+
+    await tx.query('savepoint auto_approve')
+    try {
+      await occupyStudentNo(tx, openCohort.id, fields.studentNo, userId, now)
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error
+      await tx.query('rollback to savepoint auto_approve')
+      return false
+    }
+    await tx.query('release savepoint auto_approve')
+
+    await this.#activateStudent(
+      tx,
+      {
+        user_id: userId,
+        applied_name: fields.appliedName,
+        student_no: fields.studentNo,
+        department_class: fields.departmentClass,
+        phone: fields.phone,
+        contact_email: fields.contactEmail,
+      },
+      openCohort.id,
+      now,
+      { byUserId: userId, roleReason: '自動開通（Google Email 與名單相同）' },
+    )
+    await tx.query(
+      `insert into user_status_events
+         (id, user_id, from_status, to_status, reason, verification_method, actor_kind, actor_user_id, real_at)
+       values ($1, $2, 'pending', 'active', $3, 'google_email_match', 'system', null, $4)`,
+      [uuidv7(), userId, AUTO_APPROVE_REASON, now],
+    )
+    await tx.query(
+      `update registration_applications
+          set state = 'approved', decided_by_user_id = null, decided_real_at = $2,
+              verification_method = 'google_email_match', verification_note = null, reason = null,
+              assigned_cohort_id = $3, updated_at = $2
+        where id = $1`,
+      [input.applicationId, now, openCohort.id],
+    )
+    await this.#deps.audit.append(tx, {
+      actorKind: 'system',
+      action: 'registration.auto_approve',
+      targetType: 'registration_application',
+      targetId: input.applicationId,
+      scope: 'cohort',
+      cohortId: openCohort.id,
+      reason: AUTO_APPROVE_REASON,
+      verificationMethod: 'google_email_match',
+      realAt: now,
+      businessAt: now,
+      payload: {
+        userId,
+        revision: 1,
+        rosterVersionId: input.rosterVersionId,
+        rosterMatch: match.status,
+        emailComparison: match.emailComparison,
+      },
+    })
+    return true
   }
 
   /** 對這份申請做一次名單比對（用這個交易看得到的名單）。 */
