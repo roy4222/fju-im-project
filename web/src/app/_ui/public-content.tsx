@@ -304,7 +304,7 @@ export function coverSrc(card: Pick<PublicItemCard, 'id' | 'cover'>): string {
 export function ListItem({ href, title, meta }: { href: string; title: string; meta: ReactNode }) {
   return (
     <li className="fju-list-item flex flex-col gap-1.5 py-1.5">
-      <Link href={href} className="link-ink text-[17px] leading-snug font-bold">
+      <Link href={href} className="text-[17px] leading-snug font-bold text-foreground transition-colors hover:text-primary focus-visible:text-primary">
         {title}
       </Link>
       <div className="flex flex-wrap items-center gap-2.5">{meta}</div>

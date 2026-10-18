@@ -3,7 +3,7 @@ import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
- * 第 1 批 V6（Q51）：優秀專題預設照「系辦指定順序」（跟首頁輪播同一個順序）、獎項改成篩選、排序與獎項都是 pill。
+ * 第 1 批 V6（Q51）：優秀專題預設照「預設排序」（跟首頁輪播同一個順序）、獎項改成篩選、排序與獎項都是 pill。
  *
  * - AC-V28：首頁輪播與 `/projects/featured`（無參數）同序；網址不帶 `sort`。
  * - AC-V29：系辦改首頁順序後，兩頁一起變。
@@ -186,11 +186,11 @@ test('AC-V30：獎項 pill 篩選，可以跟屆別、搜尋疊加取交集', as
   expect(await cardTitles(page)).toEqual([Y])
 })
 
-test('AC-V31：排序是兩顆 pill、沒有下拉；屆別（新到舊）→ Z、Y、X；系辦指定順序 → 網址沒有 sort、回 X、Y、Z', async ({ page }) => {
+test('AC-V31：排序是兩顆 pill、沒有下拉；屆別（新到舊）→ Z、Y、X；預設排序 → 網址沒有 sort、回 X、Y、Z', async ({ page }) => {
   await page.goto(`/projects/featured?q=${encodeURIComponent(stamp)}`)
   const sorts = page.getByRole('navigation', { name: '排序' })
-  await expect(sorts.getByRole('link')).toHaveText(['系辦指定順序', '屆別（新到舊）'])
-  await expect(sorts.getByRole('link', { name: '系辦指定順序' })).toHaveAttribute('aria-current', 'page')
+  await expect(sorts.getByRole('link')).toHaveText(['預設排序', '屆別（新到舊）'])
+  await expect(sorts.getByRole('link', { name: '預設排序' })).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('select')).toHaveCount(0)
   await expect(page.getByRole('searchbox', { name: '搜尋題目、摘要、組別' })).toBeVisible()
 
@@ -200,7 +200,7 @@ test('AC-V31：排序是兩顆 pill、沒有下拉；屆別（新到舊）→ Z�
   await expect(page.getByTestId('photo-card').first()).toContainText(Z)
   expect(mine(await cardTitles(page))).toEqual([Z, Y, X])
 
-  await sorts.getByRole('link', { name: '系辦指定順序' }).click()
+  await sorts.getByRole('link', { name: '預設排序' }).click()
   await expect(page).not.toHaveURL(/[?&]sort=/)
   await expect(page.getByTestId('photo-card').first()).toContainText(X)
   expect(mine(await cardTitles(page))).toEqual([X, Y, Z])
@@ -213,7 +213,7 @@ test('AC-V33：看不懂的獎項與舊的排序值當作無篩選、預設排�
   expect(response?.status()).toBe(200)
   expect(await cardTitles(page)).toEqual(clean)
   await expect(page.getByRole('navigation', { name: '獎項篩選' }).getByRole('link', { name: '全部獎項' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('navigation', { name: '排序' }).getByRole('link', { name: '系辦指定順序' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: '排序' }).getByRole('link', { name: '預設排序' })).toHaveAttribute('aria-current', 'page')
 
   await page.goto(`/projects/featured?award=xxx&sort=excellent&q=${encodeURIComponent(stamp)}`)
   expect(mine(await cardTitles(page))).toEqual([X, Y, Z])

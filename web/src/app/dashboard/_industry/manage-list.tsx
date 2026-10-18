@@ -150,7 +150,7 @@ function List({
                   <span className="tabular text-xs text-muted-foreground">{formatTaipeiDate(taipeiDateOf(o.publishedAt))} 發布</span>
                 ) : null}
               </div>
-              <Link href={`/industry/${o.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground">
+              <Link href={`/industry/${o.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground hover:text-primary">
                 {o.fields.companyName}
               </Link>
               <p className="truncate text-sm text-muted-foreground">

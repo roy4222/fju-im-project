@@ -468,9 +468,9 @@
   .card-lift:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0, 51, 102, 0.16); }
   .card-lift:active { transform: translateY(-1px) scale(0.99); transition-duration: 100ms; }
 
-  /* 文字連結：橘色底線從左長出 */
-  .link-ink { background-image: linear-gradient(var(--primary), var(--primary)); background-repeat: no-repeat; background-size: 0% 2px; background-position: 0 100%; transition: background-size 250ms cubic-bezier(0.2, 0.7, 0.2, 1), color 200ms; }
-  .link-ink:hover, .link-ink:focus-visible { background-size: 100% 2px; color: var(--primary); }
+  /* 文字連結：滑過只變色、不畫底線（A26） */
+  .link-ink { transition: color 200ms; }
+  .link-ink:hover, .link-ink:focus-visible { color: var(--primary); }
 
   /* 導覽列項目：底部橘線滑入 */
   .nav-ink { position: relative; }

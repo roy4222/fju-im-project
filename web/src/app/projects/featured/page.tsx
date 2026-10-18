@@ -30,7 +30,7 @@ const one = (value: string | string[] | undefined) => (typeof value === 'string'
  * 目前版本（白名單欄位）；沒得獎的只在登入後的歷屆一覽（產品模組 09 §9.1，0011）。
  * 組員與老師不在這一頁（訪客「登入後顯示」，見詳情頁）。
  *
- * 預設排序是「系辦指定順序」（跟首頁輪播同一個 `home`，Q51），乾淨網址＝首頁輪播的順序；獎項（優秀專題／佳作）
+ * 預設排序是「預設排序」（跟首頁輪播同一個 `home`，Q51），乾淨網址＝首頁輪播的順序；獎項（優秀專題／佳作）
  * 是篩選、不是排序。屆別、獎項、排序都是 pill 連結，跟搜尋框的 `q` 互相保留、取交集。
  */
 export default async function FeaturedPage({
@@ -56,7 +56,7 @@ export default async function FeaturedPage({
     query.cohortChoices({ featuredOnly: true }),
   ])
 
-  // 換一個條件、其他條件照留；預設值（系辦指定順序、全部獎項）不寫進網址，`/projects/featured` 乾淨網址＝預設。
+  // 換一個條件、其他條件照留；預設值（預設排序、全部獎項）不寫進網址，`/projects/featured` 乾淨網址＝預設。
   const keep = (patch: { cohort?: string; award?: string; sort?: string }) => {
     const next = { cohort, award: award ?? '', sort, ...patch }
     const p = new URLSearchParams()
