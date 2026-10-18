@@ -301,6 +301,17 @@ test('完整編輯器建立整組收件：空收件擋下；展開名單看到�
   await expect(page.getByRole('radio', { name: '整組一份', exact: true })).toBeChecked()
 })
 
+test('從編輯器返回列表：原本的作業還在列表上（返回連結帶 placement=all）', async ({ page }) => {
+  const title = `${CODE} 期中報告`
+  const item = await itemByTitle(title)
+
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/editor/${item.id}`)
+  await page.getByRole('main').getByRole('link', { name: '公告與作業', exact: true }).click()
+  await expect(page).toHaveURL(/placement=all/)
+  await expect(page.getByTestId('affair-row').filter({ hasText: title })).toHaveCount(1)
+})
+
 test('發布更新：小幅修改選不通知就不發事件；還沒人作答時可以切換收件單位，名單跟著重算', async ({ page }) => {
   const title = `${CODE} 期中報告`
   const item = await itemByTitle(title)

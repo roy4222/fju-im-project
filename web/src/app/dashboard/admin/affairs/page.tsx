@@ -128,7 +128,7 @@ export default async function AffairsPage({
             <Link
               key={c.id}
               // 榮譽篩選下換屆別仍停在榮譽（才看得到封存屆別）；其他篩選照舊回到全部。
-              href={honorView ? query({ cohort: c.id }) : `/dashboard/admin/affairs?cohort=${c.id}`}
+              href={honorView || filter === 'all' ? query({ cohort: c.id }) : `/dashboard/admin/affairs?cohort=${c.id}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
