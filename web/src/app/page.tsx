@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconPin, IconTrophy, IconUpload } from '@tabler/icons-react'
 import { redirect } from 'next/navigation'
 import { actorHasRole, EMAIL_VERIFY_PATH, homeForUser, isRegistrationOpen } from '@/composition/accounts'
-import { currentActor, homeFor } from '@/app/_ui/guard'
+import { homeFor, renderActor } from '@/app/_ui/guard'
 import { homeDeadlines, type DeadlineTone, type HomeDeadline } from '@/app/_ui/home-deadlines'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
 import { SITE_CONTACT } from '@/app/_ui/site-contact'
@@ -28,7 +28,7 @@ import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
  * 照片用原型的示意照（`public/placeholder/`）。
  */
 export default async function HomePage() {
-  const actor = await currentActor()
+  const actor = await renderActor()
   const signedIn = actor.kind === 'authenticated'
   // 登入後的區塊（我的工作、歷屆專題、我的入口）跟導覽用同一個判斷：待審核的人跟訪客一樣。
   const member = isMember(actor)
@@ -462,7 +462,7 @@ type MyWork = {
 }
 
 /** 首頁「我的工作」要的資料：都是學生首頁已經在用的查詢，這裡只取前幾筆。 */
-async function myWork(actor: Awaited<ReturnType<typeof currentActor>>): Promise<MyWork> {
+async function myWork(actor: Awaited<ReturnType<typeof renderActor>>): Promise<MyWork> {
   if (actor.kind !== 'authenticated') return { pending: null, overdue: null, deadlines: [] }
   const student = actorHasRole(actor, 'student')
   const [deadlines, items, now] = await Promise.all([

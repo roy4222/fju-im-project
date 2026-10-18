@@ -18,6 +18,7 @@ import type { ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 
 /**
  * 頭像的寫入（SH-9；B 設計方案 §2.2；Q105、Q109）。讀的部分在身分解析器（SH-8，`actor-resolver.ts` 同一句多讀兩欄）。
@@ -126,7 +127,7 @@ export class PgAvatarCommand implements AvatarCommand {
 
     const now = this.#clock.now()
     const userId = actor.userId
-    return this.#inTx(async (tx) => {
+    const result = await this.#inTx(async (tx) => {
       // 先鎖帳號再鎖個人資料：去識別化、停用同一個人時兩邊排隊，不會在去識別化清完頭像之後又寫回去。
       const account = await lockUser(tx, userId)
       if (!account?.active) return err('ACCOUNT_DISABLED', '這個帳號目前不能換頭像。')
@@ -174,6 +175,9 @@ export class PgAvatarCommand implements AvatarCommand {
       })
       return ok(undefined, meta(now))
     })
+    // 外殼頭像跟身分一起快取（B 設計方案 §4.1）：commit 之後丟掉，下一頁就是新頭像。
+    if (result.ok) bustIdentity(userId)
+    return result
   }
 
   async resetAvatar(actor: ResolvedActor, userId: string, reason: string): Promise<Result<void>> {
@@ -186,7 +190,7 @@ export class PgAvatarCommand implements AvatarCommand {
     }
 
     const now = this.#clock.now()
-    return this.#inTx(async (tx) => {
+    const result = await this.#inTx(async (tx) => {
       // 鎖序同停用、去識別化：先整組管理員（重驗操作者此刻仍是有效系辦），再目標帳號，再個人資料。
       const admins = await lockAdmins(tx)
       if (!isEffectiveAdmin(admins, actor.userId)) return denied('FORBIDDEN', '只有系辦可以重設頭像。')
@@ -215,6 +219,8 @@ export class PgAvatarCommand implements AvatarCommand {
       })
       return ok(undefined, meta(now))
     })
+    if (result.ok) bustIdentity(userId)
+    return result
   }
 
   /** 開交易跑 `work`：回 `ok` 才 commit，回錯誤或丟錯都 rollback。 */
