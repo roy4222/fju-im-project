@@ -290,3 +290,31 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   await expect(rowOf(page, students[2]!.name)).toContainText('已停用')
   await expect(rowOf(page, students[0]!.name)).toContainText('已核准')
 })
+
+test('AC-A-41：審核對話框的驗證方式只有三種人工方式，沒有「Google 比對」', async ({ browser, playwright }) => {
+  const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { origin: new URL(BASE_URL).origin } })
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  const name = `${tag}-待審`
+  try {
+    const session = await createTestSession(request)
+    await pool.query(
+      `insert into registration_applications
+         (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, created_by_kind, created_by_user_id)
+       values (gen_random_uuid(), $1, $2, $3, '資管二甲', '0912-345-678', $4, $4, 'user', $1)`,
+      [session.userId, name, `0${prefix}099`, session.email],
+    )
+  } finally {
+    await pool.end()
+    await request.dispose()
+  }
+  const page = await adminPage(browser)
+  await page.goto('/dashboard/admin/accounts')
+  await page.getByRole('button', { name: `審核 ${name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `審核 ${name}` })
+  const fieldset = dialog.getByRole('group', { name: /怎麼確認是本人/ })
+  await expect(fieldset.getByRole('radio')).toHaveCount(3)
+  await expect(fieldset).toContainText('當面核對學生證或其他身分證件')
+  await expect(fieldset).toContainText('經校方授權人員透過既有可信管道確認')
+  await expect(fieldset).toContainText('用其他方式確認本人')
+  await expect(dialog).not.toContainText('Google')
+})

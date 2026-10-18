@@ -29,6 +29,7 @@ import {
   VERIFICATION_NOTE_HINT,
   VERIFICATION_NOTE_REQUIRED,
 } from '@/composition/accounts'
+import { MANUAL_VERIFICATION_METHODS } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
@@ -41,7 +42,7 @@ import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } fr
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
-  methods: VERIFICATION_METHODS,
+  methods: MANUAL_VERIFICATION_METHODS,
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,
