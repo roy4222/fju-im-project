@@ -539,8 +539,8 @@
   .dark .tint { background: color-mix(in oklch, var(--tint) 12%, var(--card)); border-color: color-mix(in oklch, var(--tint) 22%, var(--card)); }
   .dark .spot { color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, white); }
   /* 深色外框：L0 外框 → 側欄 → L1 內容面板，面板只靠一圈細光分界（不用陰影）。 */
-  .dark .dash-frame { --sidebar: oklch(0.165 0.045 260); }
-  .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.185 0.05 259); box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%); }
+  .dark .dash-frame { --sidebar: oklch(0.225 0.045 260); }
+  .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.245 0.05 259); box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%); }
   .dark .dash-surface { background: var(--background) !important; box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%) !important; }
   .dark .dash-header { background: var(--background); border-bottom-color: var(--border); }
   .dark .dash-card { border-color: var(--border); }
