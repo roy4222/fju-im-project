@@ -51,10 +51,10 @@ const STEPS = ['類型', '內容', '發布'] as const
 const GHOST =
   'press inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-muted disabled:opacity-40'
 
-function emptyState(cohortId: string): EditorState {
+function emptyState(cohortId: string, placement: string): EditorState {
   return {
     cohortId,
-    placement: 'news',
+    placement,
     title: '',
     summary: '',
     body: '',
@@ -74,11 +74,22 @@ function emptyState(cohortId: string): EditorState {
   }
 }
 
-export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; vocabulary: EditorVocabulary }) {
+/** `label`：按鈕、對話框名稱與標題（各分頁用「新增公告／作業／資源／規則」）；`placement`：開窗時預選的發布位置，步驟 1 仍可改。 */
+export function QuickCreateDialog({
+  cohortId,
+  vocabulary,
+  label = '新增項目',
+  placement = 'news',
+}: {
+  cohortId: string
+  vocabulary: EditorVocabulary
+  label?: string
+  placement?: string
+}) {
   const router = useRouter()
   const dialog = useRef<HTMLDialogElement>(null)
   const [step, setStep] = useState(0)
-  const [state, setState] = useState<EditorState>(() => emptyState(cohortId))
+  const [state, setState] = useState<EditorState>(() => emptyState(cohortId, placement))
   const [saved, setSaved] = useState<{ itemId: string; revision: number } | null>(null)
   const [review, setReview] = useState<ItemReview | null>(null)
   const [notify, setNotify] = useState(true)
@@ -94,7 +105,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
 
   function open() {
     setStep(0)
-    setState(emptyState(cohortId))
+    setState(emptyState(cohortId, placement))
     setSaved(null)
     setReview(null)
     setNotify(true)
@@ -176,10 +187,10 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
   return (
     <>
       <button type="button" className={cn(PRIMARY, 'h-10')} onClick={open}>
-        <IconPencilPlus aria-hidden /> 新增項目
+        <IconPencilPlus aria-hidden /> {label}
       </button>
       {/* 關掉時刷新列表（建立、存草稿、發布都可能改了列表）。 */}
-      <dialog ref={dialog} aria-label="新增項目" className={DIALOG} onClose={() => router.refresh()}>
+      <dialog ref={dialog} aria-label={label} className={DIALOG} onClose={() => router.refresh()}>
         {done ? (
           <div className="flex flex-col items-center gap-3 px-8 py-10 text-center">
             <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-subtle text-success-on-subtle">
@@ -200,7 +211,7 @@ export function QuickCreateDialog({ cohortId, vocabulary }: { cohortId: string; 
           <div className="flex max-h-[85vh] flex-col">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
               <div>
-                <h2 className="text-lg font-extrabold">新增項目</h2>
+                <h2 className="text-lg font-extrabold">{label}</h2>
                 <p className="mt-0.5 text-sm text-muted-foreground">{['選類型、寫標題、定對象', '內容與附件', '發布前檢查'][step]}</p>
               </div>
               <ol className="flex shrink-0 items-center gap-2 whitespace-nowrap" aria-label="步驟">

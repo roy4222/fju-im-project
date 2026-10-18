@@ -328,6 +328,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
   /**
    * 評分老師讀得到的某組、某份整組收件的正式版本（新到舊）：已發布、整組一份、而且是因「本組有效評分指派」放行
    * （同一段 `VERSION_ACCESS_COLUMNS` 事實＋`canReadSubmission`，跟附件下載、`groupVersions` 一致）。
+   * C 階段起那個指派的評分項目要在側表連到**這份作業**才算（§3.2）；沒連結的作業回空。
    */
   async #evaluatorVersions(
     actor: Extract<ResolvedActor, { kind: 'authenticated' }>,

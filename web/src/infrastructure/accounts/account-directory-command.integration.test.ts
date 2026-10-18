@@ -211,6 +211,42 @@ describe('列表與統計（做完的樣子 1）', () => {
     expect(desc.ok && desc.receipt.rows.map((r) => r.studentNo)).toEqual(['0411400102', '0411400101'])
   })
 
+  it('帳號列帶出目前所在的組（C2-07；AC-C2-32）：只認本屆有效的那一列，離組或別屆的組不算', async () => {
+    const grouped = await student('0411400111', '組別甲')
+    const left = await student('0411400112', '組別乙')
+    const loner = await student('0411400113', '組別丙')
+    const group = async (cohortId: string, code: string) =>
+      String(
+        (
+          await db.sql(
+            `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+             values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+            [cohortId, code],
+          )
+        ).rows[0]!.id,
+      )
+    const g03 = await group(cohort114, 'G03')
+    const g04 = await group(cohort114, 'G04')
+    const member = (groupId: string, userId: string, validTo: string | null) =>
+      db.sql(
+        `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, valid_to, added_by_kind)
+         values (gen_random_uuid(), $1, $2, $3, now() - interval '10 days', $4::timestamptz, 'system')`,
+        [groupId, cohort114, userId, validTo],
+      )
+    await member(g04, grouped.userId, new Date(Date.now() - 5 * 86_400_000).toISOString())
+    await member(g03, grouped.userId, null)
+    await member(g04, left.userId, new Date(Date.now() - 86_400_000).toISOString())
+
+    const listed = await command.list(adminActor(), filter({ q: '組別' }))
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) return
+    const byId = new Map(listed.receipt.rows.map((r) => [r.userId, r]))
+    expect(listed.receipt.total).toBe(3)
+    expect(byId.get(grouped.userId)).toMatchObject({ groupId: g03, groupCode: 'G03', cohortId: cohort114 })
+    expect(byId.get(left.userId)).toMatchObject({ groupId: null, groupCode: null })
+    expect(byId.get(loner.userId)).toMatchObject({ groupId: null, groupCode: null })
+  })
+
   it('統計磚：待審核、已核准、已停用、已核准學生', async () => {
     const summary = await command.summary(adminActor())
     expect(summary.ok).toBe(true)

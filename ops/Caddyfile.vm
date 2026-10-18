@@ -3,8 +3,9 @@
 # 與 repo 根目錄那份 Caddyfile 的差別：
 #   - 根目錄那份是**本機**用的：`:80`、`auto_https off`，不申請憑證。
 #   - 這一份綁兩個真實 host，由 Caddy 自己向 Let's Encrypt 取得憑證。
-#     DNS 兩筆 A 記錄（Cloudflare 只當 DNS，不走 proxy）與校方對內 80／443 必須先就緒，
-#     否則 HTTP-01 驗證會失敗。
+#     DNS 兩筆 A 記錄與校方對內 80／443 必須先就緒，否則 HTTP-01 驗證會失敗。
+#     兩種模式都能用，不必配合切換時間：Cloudflare 灰雲（只當 DNS）時連線來自訪客本人，
+#     橘雲（代理）時連線來自 Cloudflare、真實 IP 在 CF-Connecting-IP（見下面 trusted_proxies）。
 #
 # 某一站還沒部署時，那個 host 回 502，另一站不受影響。
 # 改完這份要 `docker compose -f docker-compose.edge.yml restart caddy`（admin 關掉了，不能 reload）。
@@ -17,6 +18,12 @@
 	# 瀏覽器就不會先去撞一個不通的 UDP 443。
 	servers {
 		protocols h1 h2
+		# 只有從 Cloudflare 來的連線，才相信它帶的 CF-Connecting-IP；其他來源帶這個標頭一律忽略，
+		# {client_ip} 就是連線 IP（所以灰雲、橘雲、直連都正確，偽造標頭無效）。
+		# 範圍抓取日期 2026-10-19，來源 https://www.cloudflare.com/ips-v4 與 /ips-v6；
+		# 與 ops/cloudflare-origin-lock.sh 是同一份，更新時兩個檔一起改。
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
 	}
 }
 
@@ -44,7 +51,7 @@ fju.roy422.dev {
 	import common
 	reverse_proxy fju-prod-app:3000 {
 		header_up X-Forwarded-Proto {scheme}
-		header_up X-Real-IP {remote_host}
+		header_up X-Real-IP {client_ip}
 	}
 }
 
@@ -54,6 +61,6 @@ test.fju.roy422.dev {
 	header X-Robots-Tag "noindex, nofollow"
 	reverse_proxy fju-test-app:3000 {
 		header_up X-Forwarded-Proto {scheme}
-		header_up X-Real-IP {remote_host}
+		header_up X-Real-IP {client_ip}
 	}
 }

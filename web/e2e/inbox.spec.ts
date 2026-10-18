@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
@@ -26,10 +27,10 @@ let s02: TestSession
 let cohortCode: string
 
 /** 每位學生用自己的 request context 註冊：共用一個的話第二次會帶著第一位的 cookie，被 Better Auth 當成跨站請求擋下。 */
-async function freshStudent(): Promise<TestSession> {
+async function freshStudent(role: 'student' | 'teacher' = 'student'): Promise<TestSession> {
   const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
   try {
-    return await createTestSession(context, 'student')
+    return await createTestSession(context, role)
   } finally {
     await context.dispose()
   }
@@ -169,4 +170,154 @@ test('再發兩則（一則屬某一屆）：屆別篩選只看得到那一屆�
   // 資料庫裡是真的已讀（不是畫面自己藏起來）。
   const unread = await pool.query(`select count(*)::int as n from notifications where recipient_user_id = $1 and read_at is null`, [s01.userId])
   expect(unread.rows[0].n).toBe(0)
+})
+
+/** 一則發布中、公開的公告（通知的來源頁是 `/news/<id>`）。 */
+async function publishedNews(title: string, adminId: string): Promise<string> {
+  const itemId = (
+    await pool.query<{ id: string }>(
+      `insert into managed_items
+         (id, cohort_id, placement, audience_kind, status, actual_opened_at, title, summary, body_html,
+          created_by_kind, created_by_user_id, updated_by_user_id)
+       values (gen_random_uuid(), (select id from cohorts where code = $1), 'news', 'public', 'draft', now(), $2, '摘要', '<p>內容</p>', 'user', $3, $3)
+       returning id`,
+      [cohortCode, title, adminId],
+    )
+  ).rows[0]!.id
+  const content = await pool.query<{ id: string }>(
+    `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2, '摘要', '<p>內容</p>', $3) returning id`,
+    [itemId, title, adminId],
+  )
+  const schema = await pool.query<{ id: string }>(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id) values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+    [itemId, adminId],
+  )
+  await pool.query(`update managed_items set status = 'published', current_content_version_id = $2, current_schema_version_id = $3 where id = $1`, [
+    itemId,
+    content.rows[0]!.id,
+    schema.rows[0]!.id,
+  ])
+  return itemId
+}
+
+/** 直接寫一則未讀通知（事件不掛投影列，背景工作不會碰它）。回通知的 id。 */
+async function notify(userId: string, title: string, sourceRef: { type: string; id: string }): Promise<string> {
+  const rows = await pool.query<{ id: string }>(
+    `with event as (
+       insert into domain_events (id, type, scope, source_type, source_id, actor_kind, occurred_real_at, occurred_business_at)
+       values (gen_random_uuid(), 'item.published', 'global', $3, $4, 'system', now(), now()) returning id
+     )
+     insert into notifications (id, event_id, recipient_user_id, scope, kind, title, source_ref, created_at)
+     select gen_random_uuid(), event.id, $1, 'global', 'system', $2, $5::jsonb, now() from event returning id`,
+    [userId, title, sourceRef.type, sourceRef.id, JSON.stringify(sourceRef)],
+  )
+  return rows.rows[0]!.id
+}
+
+/** 收集頁面錯誤與 console 的 hydration 錯誤（React #418 等）；`check()` 前先等網路靜下來、hydration 跑完。 */
+function watchHydration(page: Page) {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && /hydrat|#418|#423|#425/i.test(m.text())) errors.push(`console: ${m.text()}`)
+  })
+  return {
+    async check() {
+      await page.waitForLoadState('networkidle')
+      expect(errors).toEqual([])
+    },
+  }
+}
+
+async function readAt(...ids: string[]) {
+  const rows = await pool.query<{ id: string; read_at: Date | null }>(`select id, read_at from notifications where id = any($1::uuid[])`, [ids])
+  return Object.fromEntries(rows.rows.map((r) => [r.id, r.read_at]))
+}
+
+test('C2-15（AC-C2-36）：有來源的通知點標題就算已讀並導去來源頁；沒來源的仍要按「標為已讀」；別人的編號被導回自己的收件匣', async ({ page }) => {
+  const admin = await sharedTestSession(page.request, 'admin')
+  const teacher = await freshStudent('teacher')
+  const newsTitle = `C2-15 公告 ${stamp}`
+  const newsId = await publishedNews(newsTitle, admin.userId)
+  const titleA = `C2-15 有來源 ${stamp} A`
+  const titleB = `C2-15 來源已撤回 ${stamp} B`
+  const noteA = await notify(s01.userId, titleA, { type: 'item', id: newsId })
+  // 來源項目不在了：沒有連結，只顯示標題。
+  const noteB = await notify(s01.userId, titleB, { type: 'item', id: crypto.randomUUID() })
+  const noteT = await notify(teacher.userId, `C2-15 給老師 ${stamp}`, { type: 'item', id: newsId })
+  const noteO = await notify(admin.userId, `C2-15 給系辦 ${stamp}`, { type: 'item', id: newsId })
+
+  // 直接 GET 收件匣：只看不改。A 的標題是按鈕、列上沒有「標為已讀」；B 仍有「標為已讀」；「全部標為已讀」還在。
+  // 首次載入沒有 hydration 錯誤（表單不能包在 <p> 裡）。
+  const hydration = watchHydration(page)
+  await useCookie(page, s01.cookie)
+  await page.goto('/dashboard/student/inbox')
+  await hydration.check()
+  const rowA = page.getByTestId('inbox-item').filter({ hasText: titleA })
+  const rowB = page.getByTestId('inbox-item').filter({ hasText: titleB })
+  await expect(rowA).toHaveAttribute('data-read', 'false')
+  await expect(rowA.getByRole('button', { name: titleA, exact: true })).toBeVisible()
+  await expect(rowA.getByRole('link')).toHaveCount(0)
+  await expect(rowA.getByRole('button', { name: `把「${titleA}」標為已讀` })).toHaveCount(0)
+  await expect(rowB.getByRole('button', { name: `把「${titleB}」標為已讀` })).toBeVisible()
+  await expect(page.getByRole('button', { name: '全部標為已讀' })).toBeVisible()
+  expect(await readAt(noteA, noteB)).toEqual({ [noteA]: null, [noteB]: null })
+
+  // (c) 換成 S02 的 session、對 A 的編號送點開動作：導回 S02 自己的收件匣，A 不變、S02 沒有多出任何列。
+  await page.context().clearCookies()
+  await page.context().addCookies([toPlaywrightCookie(s02.cookie, BASE_URL)])
+  await rowA.getByRole('button', { name: titleA, exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/student\/inbox$/)
+  await expect(page.getByText('還沒有通知')).toBeVisible()
+  expect((await readAt(noteA))[noteA]).toBeNull()
+  const s02Rows = await pool.query(`select count(*)::int as n from notifications where recipient_user_id = $1`, [s02.userId])
+  expect(s02Rows.rows[0].n).toBe(0)
+
+  // (a) S01 點 A 的標題：落在公告頁；回收件匣 A 已讀（不再粗體、沒有「標為已讀」）。(b) B 不碰仍未讀。
+  await useCookie(page, s01.cookie)
+  await page.goto('/dashboard/student/inbox')
+  await rowA.getByRole('button', { name: titleA, exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/news/${newsId}$`))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(newsTitle)
+  await page.goto('/dashboard/student/inbox')
+  await expect(rowA).toHaveAttribute('data-read', 'true')
+  await expect(rowA.getByRole('button', { name: titleA, exact: true })).not.toHaveClass(/font-bold/)
+  await expect(rowB).toHaveAttribute('data-read', 'false')
+  const sql = await pool.query<{ id: string; read_at: Date | null }>(`select id, read_at from notifications where id in ($1, $2)`, [noteA, noteB])
+  writeFileSync(test.info().outputPath('C2-15-sql-1.json'), JSON.stringify(sql.rows.map((r) => ({ note: r.id === noteA ? 'A（點過）' : 'B（沒點）', ...r })), null, 2))
+  const evidence = Object.fromEntries(sql.rows.map((r) => [r.id, r.read_at]))
+  expect(evidence[noteA]).not.toBeNull()
+  expect(evidence[noteB]).toBeNull()
+
+  // B 按「標為已讀」才已讀。
+  await rowB.getByRole('button', { name: `把「${titleB}」標為已讀` }).click()
+  await expect(rowB).toHaveAttribute('data-read', 'true')
+  expect((await readAt(noteB))[noteB]).not.toBeNull()
+
+  // (c) 跨角色：系辦收件匣的表單留著、換成學生 S02 的 session 點標題 → 回 S02 自己（學生）的收件匣，不是 /403；系辦那則不變。
+  await useCookie(page, admin.cookie)
+  await page.goto('/dashboard/admin/inbox')
+  await page.context().clearCookies()
+  await page.context().addCookies([toPlaywrightCookie(s02.cookie, BASE_URL)])
+  const titleO = `C2-15 給系辦 ${stamp}`
+  await page.getByTestId('inbox-item').filter({ hasText: titleO }).getByRole('button', { name: titleO, exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/student\/inbox$/)
+  await expect(page.getByText('還沒有通知')).toBeVisible()
+  expect((await readAt(noteO))[noteO]).toBeNull()
+
+  // (d) 老師、系辦各點自己那則：各落在來源頁、各自那則已讀；首次載入都沒有 hydration 錯誤。
+  for (const [who, path, note] of [
+    [teacher, '/dashboard/teacher/inbox', noteT],
+    [admin, '/dashboard/admin/inbox', noteO],
+  ] as const) {
+    await useCookie(page, who.cookie)
+    await page.goto(path)
+    await hydration.check()
+    const title = who === teacher ? `C2-15 給老師 ${stamp}` : `C2-15 給系辦 ${stamp}`
+    expect((await readAt(note))[note]).toBeNull()
+    await page.getByTestId('inbox-item').filter({ hasText: title }).getByRole('button', { name: title, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/news/${newsId}$`))
+    expect((await readAt(note))[note]).not.toBeNull()
+  }
 })

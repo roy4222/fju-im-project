@@ -68,24 +68,31 @@ async function setClock(page: Page, local: string, reason: string) {
   await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
 }
 
-test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會被擋下', async ({ page }) => {
+test('建屆別、設為預設工作屆別；還沒設階段時「轉為進行中」停用並寫原因', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByLabel('代碼').fill(CODE)
-  await page.getByLabel('名稱').fill(`${CODE} 年度測試`)
+  // C2-06：「新增屆別」開視窗填。
   await page.getByRole('button', { name: '新增屆別' }).click()
+  const create = page.getByRole('dialog', { name: '新增屆別' })
+  await create.getByLabel('代碼').fill(CODE)
+  await create.getByLabel('名稱').fill(`${CODE} 年度測試`)
+  await create.getByRole('button', { name: '確定新增' }).click()
   await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE} 年度測試（${CODE}）`)
 
   // 重新整理：新增表單的回饋不留在畫面上，下面才只會有一句回饋。
   await page.reload()
-  await page.getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
+  // C2-06：換旗標在卡上「編輯」視窗裡。
+  await page.getByRole('button', { name: `編輯：${CODE}` }).click()
+  await page.getByRole('dialog', { name: `編輯${CODE}` }).getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
   await expect(feedback(page, 'status')).toContainText(new RegExp(`已把後台預設查看的屆別設為.*（${CODE}）`))
 
-  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
-  await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
-  await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
+  // 轉為進行中是狀態旁的小字鈕（C2-06）：還沒排時程就 disabled，卡上寫原因、跟按鈕 title 同一句（AC-C2-13、§4.1）。
+  // 用例那一層的擋法（沒排時程回「還沒設定階段與年度結束日」）由 `pg-timeline.integration.test.ts` 負責。
   const row = page.getByRole('region', { name: new RegExp(CODE) })
+  const activate = row.getByRole('button', { name: `把 ${CODE} 轉為進行中` })
+  await expect(activate).toBeDisabled()
+  await expect(activate).toHaveAttribute('title', '先到專題時程排好四個階段')
+  await expect(row.getByTestId('activate-blocked-reason')).toHaveText('先到專題時程排好四個階段')
   await expect(row).toContainText('尚未開始（設定中）')
 })
 
@@ -95,6 +102,11 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: '時間軸' })).toContainText(CODE)
   await expect(page.getByText('這一屆還沒設定階段')).toBeVisible()
+  // AC-C2-10：分頁標籤「專題時程」是目前頁；頁上沒有「調整模擬時鐘」連結（測試用時間直接打 /clock）。
+  await expect(page).toHaveTitle(/^專題時程｜/)
+  await expect(page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '專題時程', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: /模擬時鐘/ })).toHaveCount(0)
+  await expect(page.getByRole('main')).not.toContainText('調整模擬時鐘')
 
   await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 年度測試（${CODE}） 的階段與日期` })
@@ -188,8 +200,8 @@ test('活動：新增、改期、取消；取消後留在「已取消」、不�
 test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  // 第三波 AC-37：按鈕在「危險操作」區；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
-  const danger = page.getByRole('region', { name: '危險操作' })
+  // C2-06：按鈕是卡上狀態旁的小字（危險操作區拿掉）；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
+  const danger = page.getByRole('region', { name: new RegExp(CODE) })
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
   // 驗收 P-01：確認視窗標題寫「名稱（代碼）」。

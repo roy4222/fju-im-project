@@ -10,6 +10,7 @@ import {
   describeStageStatus,
   normalizeSchemeStages,
   normalizeScores,
+  optionalReason,
   readSchemeStages,
   summarizeScores,
   type ApplySchemeInput,
@@ -64,6 +65,8 @@ import {
   MAX_REQUIRED_COUNT,
   noScheme,
   notAssigned,
+  dropStaleStageSettings,
+  panelKeysOf,
   runGrading,
   stageOf,
   stageSettled,
@@ -138,6 +141,65 @@ function staleFinal(): Err {
 }
 
 /** 「新增」會讓要求份數 +1；已經到上限（和設定份數同一個上限）就不能再新增。 */
+/**
+ * 改派的評審組計畫（C1-04；預覽與執行共用，Review #718 第 1 輪）：被移除的項目屬於評審組時，評審組全部項目（`keys`）上
+ * 同一位老師的有效指派都一起處理（`items`；評審組一致時一定都有，沒有的項目就不用動）。
+ */
+type RemovalPlan = {
+  readonly keys: readonly string[]
+  readonly items: readonly { readonly assignmentId: string; readonly stageKey: string }[]
+}
+
+function removalPlanOf(
+  keys: readonly string[],
+  target: { readonly id: string; readonly stageKey: string; readonly teacherUserId: string },
+  facts: GroupFacts,
+): RemovalPlan {
+  const items = keys.flatMap((key) =>
+    key === target.stageKey
+      ? [{ assignmentId: target.id, stageKey: key }]
+      : facts.active
+          .filter((a) => a.stageKey === key && a.teacherUserId === target.teacherUserId)
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((a) => ({ assignmentId: a.id, stageKey: key })),
+  )
+  return { keys, items }
+}
+
+/**
+ * 改派的計算基礎：不屬於評審組時就是原本的 `stageBasisHash`；評審組時納入展開後的每個項目的要幾位老師評、有效指派、採計，
+ * 以及這次會動到哪些指派——預覽之後才加入評審組、另一個項目剛有人送出，都會變。
+ */
+function removalBasisHash(versionId: string | null, plan: RemovalPlan, facts: GroupFacts): string {
+  if (plan.keys.length === 1) return stageBasisHash(versionId, plan.keys[0]!, facts)
+  const ids = (values: readonly string[]) => [...values].sort()
+  return sha256(
+    canonicalJson({
+      kind: 'panel',
+      versionId,
+      items: plan.items.map((i) => `${i.stageKey}:${i.assignmentId}`),
+      stages: plan.keys.map((key) => ({
+        stageKey: key,
+        required: facts.requirements.get(key) ?? null,
+        active: ids(facts.active.filter((a) => a.stageKey === key).map((a) => a.id)),
+        counted: ids(facts.counted.filter((c) => c.stageKey === key).map((c) => c.evaluationId)),
+      })),
+    }),
+  )
+}
+
+/** 把同一個三選一套到計畫裡每個項目上（預覽用；執行時逐項寫入，結果相同）。 */
+function applyRemovalPlan(choice: RemovalChoice, plan: RemovalPlan, facts: GroupFacts) {
+  let next: { requirements: Map<string, number>; counted: GroupFacts['counted'] } = {
+    requirements: new Map(facts.requirements),
+    counted: [...facts.counted],
+  }
+  for (const item of plan.items) {
+    next = applyRemovalChoice(choice, { stageKey: item.stageKey, assignmentId: item.assignmentId, requirements: next.requirements, counted: next.counted })
+  }
+  return next
+}
+
 function addOverLimit(required: number): string {
   return `這一組已經需要 ${required} 位老師評分（上限 ${MAX_REQUIRED_COUNT} 位），不能再新增評分老師；請改選「保留」或「替換」。`
 }
@@ -190,7 +252,7 @@ async function insertOverride(
     originalValue: string
     newValue: string
     basisHash: string
-    reason: string
+    reason: string | null
     adminId: string
     realAt: Date
   },
@@ -366,11 +428,13 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
     if (choice === 'add' && !newTeacherId) {
       return err('VALIDATION_FAILED', '「明確新增」要選一位新的評分老師。', { details: { field: 'newTeacherUserId' } })
     }
-    const reason = reasonOf(input.reason, '移除或改派的理由')
+    // C1-04（X2）：理由選填；有填才驗長度。
+    const reason = optionalReason(input.reason, '移除或改派的理由', REASON_MAX)
     if (!reason.ok) return reason
     if (typeof input.basisHash !== 'string' || !HASH.test(input.basisHash)) return staleBasis()
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
+    const because = (prefix: string) => (reason.value ? `${prefix}：${reason.value}` : prefix)
 
     return runGrading(this.#pool, async (tx) => {
       const owner = await tx.query<{ group_id: string; stage_key: string }>(
@@ -382,11 +446,13 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       const locked = await lockGroupAndScheme(tx, found.group_id)
       if (!locked) return groupNotFound()
       const { cohort, group, stages, versionId } = locked
-      // 該組該階段全部有效指派依 id 上鎖（模組實作設計 06 §6 v2.1）；被移除的那一列就算已結束也鎖住再看。
+      // C1-04：被移除的項目屬於評審組時，評審組全部項目一起處理（設計方案① §1.3）。
+      const keys = stages && stageOf(stages, found.stage_key) ? await panelKeysOf(tx, cohort.id, found.stage_key, stages) : [found.stage_key]
+      // 這些項目全部有效指派依 (stage_key, id) 上鎖（模組實作設計 06 §6 v2.1）；被移除的那一列就算已結束也鎖住再看。
       const actives = await tx.query<AssignmentLockRow>(
         `select id, group_id, stage_key, teacher_user_id, valid_to from evaluator_assignments
-          where group_id = $1 and stage_key = $2 and valid_to is null order by id for update`,
-        [found.group_id, found.stage_key],
+          where group_id = $1 and stage_key = any($2::text[]) and valid_to is null order by stage_key, id for update`,
+        [found.group_id, keys],
       )
       const target = (
         await tx.query<AssignmentLockRow & { valid_from: Date }>(
@@ -394,12 +460,11 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
           [input.assignmentId],
         )
       ).rows[0]!
-      const requirement = (
-        await tx.query<{ required_count: number }>(
-          'select required_count from stage_requirements where group_id = $1 and stage_key = $2 for update',
-          [found.group_id, found.stage_key],
-        )
-      ).rows[0]
+      const requirementRows = await tx.query<{ stage_key: string; required_count: number }>(
+        'select stage_key, required_count from stage_requirements where group_id = $1 and stage_key = any($2::text[]) order by stage_key for update',
+        [found.group_id, keys],
+      )
+      const requirements = new Map(requirementRows.rows.map((r) => [r.stage_key, r.required_count]))
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -409,7 +474,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
           operationKind: 'grading.assignment_remove',
           requestId,
           fingerprint: sha256(
-            canonicalJson({ assignmentId: input.assignmentId, choice, newTeacherId, reason: reason.value, basisHash: input.basisHash }),
+            canonicalJson({ assignmentId: input.assignmentId, choice, newTeacherId, reason: reason.value ?? '', basisHash: input.basisHash }),
           ),
           scope: 'cohort',
           cohortId: cohort.id,
@@ -422,20 +487,14 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (target.valid_to !== null) return err('CONFLICT', '這個評分指派已經結束了（可能剛被別人處理），請重新整理頁面再預覽。')
 
       const facts = await loadGroupFacts(tx, group.id)
-      if (stageBasisHash(versionId, target.stage_key, facts) !== input.basisHash) return staleBasis()
-
-      const targetCounted = facts.counted.find((c) => c.assignmentId === target.id) ?? null
-      if (!targetCounted && choice !== 'replace') {
-        return err('VALIDATION_FAILED', '這位老師還沒有正式送出分數，沒有可保留的評分；請選「替換」（可以只移除，或換一位老師）。')
-      }
-      if (choice === 'add' && !requirement) {
-        return err('VALIDATION_FAILED', '這一組這一階段還沒設定需要幾位老師評分；請先設定再新增評分老師。')
-      }
-      if (choice === 'add' && requirement && requirement.required_count >= MAX_REQUIRED_COUNT) {
-        // 份數在鎖內讀（`stage_requirements FOR UPDATE`），和改份數排隊；「新增」會 +1，不能超過設定份數的上限。
-        return err('VALIDATION_FAILED', addOverLimit(requirement.required_count))
-      }
-      const stageName = (stages ? stageOf(stages, target.stage_key)?.name : null) ?? target.stage_key
+      // 跟預覽同一份評審組計畫與計算基礎：展開的項目、各項目的有效指派、採計、要幾位老師評任一變了 → CONFLICT（要重新預覽）。
+      const removal = removalPlanOf(keys, { id: target.id, stageKey: target.stage_key, teacherUserId: target.teacher_user_id }, facts)
+      if (removalBasisHash(versionId, removal, facts) !== input.basisHash) return staleBasis()
+      const plan = removal.items.map((i) => ({ id: i.assignmentId, stage_key: i.stageKey, teacher_user_id: target.teacher_user_id }))
+      const nameOf = (key: string) => (stages ? stageOf(stages, key)?.name : null) ?? key
+      const stageName = nameOf(target.stage_key)
+      // 評審組一起處理時，錯誤訊息前面標出是哪一個評分項目。
+      const label = (key: string, message: string) => (plan.length > 1 ? `「${nameOf(key)}」：${message}` : message)
       const oldTeacher = await tx.query<{ name: string }>(
         `select ${TEACHER_NAME_SQL} as name from users u left join user_profiles p on p.user_id = u.id where u.id = $1`,
         [target.teacher_user_id],
@@ -451,127 +510,159 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         if (newTeacher.userId === target.teacher_user_id) {
           return err('VALIDATION_FAILED', '接手的老師不能是同一位老師。', { details: { field: 'newTeacherUserId' } })
         }
-        if (actives.rows.some((a) => a.teacher_user_id === newTeacher!.userId)) {
-          // 產品 7.4：新老師原本已受指派，必須先處理重複，同一老師不因改派多算一票。
-          const dup = alreadyAssigned(newTeacher.name, group.code, stageName)
-          return err('VALIDATION_FAILED', `${dup.message}請先處理重複的指派。`, { details: { field: 'newTeacherUserId' } })
+      }
+
+      // 先把每個項目的既有規則都檢查完才寫（任一項目不行整筆不做）。
+      for (const a of plan) {
+        const counted = facts.counted.find((c) => c.assignmentId === a.id) ?? null
+        if (!counted && choice !== 'replace') {
+          return err(
+            'VALIDATION_FAILED',
+            label(a.stage_key, '這位老師還沒有正式送出分數，沒有可保留的評分；請選「替換」（可以只移除，或換一位老師）。'),
+          )
         }
-        if (facts.counted.some((c) => c.stageKey === target.stage_key && c.teacherUserId === newTeacher!.userId)) {
-          // 已結束的指派上還掛著他採計中的分數（之前改派選了保留）：再接手就一人兩票。
-          const counted = alreadyCounted(newTeacher.name, group.code, stageName)
-          return err('VALIDATION_FAILED', counted.message, { details: { field: 'newTeacherUserId' } })
+        const required = requirements.get(a.stage_key)
+        if (choice === 'add' && required === undefined) {
+          return err('VALIDATION_FAILED', label(a.stage_key, '這一組這一階段還沒設定需要幾位老師評分；請先設定再新增評分老師。'))
+        }
+        if (choice === 'add' && required !== undefined && required >= MAX_REQUIRED_COUNT) {
+          // 份數在鎖內讀（`stage_requirements FOR UPDATE`），和改份數排隊；「新增」會 +1，不能超過設定份數的上限。
+          return err('VALIDATION_FAILED', label(a.stage_key, addOverLimit(required)))
+        }
+        if (newTeacher) {
+          const name = nameOf(a.stage_key)
+          if (actives.rows.some((x) => x.stage_key === a.stage_key && x.teacher_user_id === newTeacher!.userId)) {
+            // 產品 7.4：新老師原本已受指派，必須先處理重複，同一老師不因改派多算一票。
+            const dup = alreadyAssigned(newTeacher.name, group.code, name)
+            return err('VALIDATION_FAILED', `${dup.message}請先處理重複的指派。`, { details: { field: 'newTeacherUserId' } })
+          }
+          if (facts.counted.some((c) => c.stageKey === a.stage_key && c.teacherUserId === newTeacher!.userId)) {
+            // 已結束的指派上還掛著他採計中的分數（之前改派選了保留）：再接手就一人兩票。
+            const dup = alreadyCounted(newTeacher.name, group.code, name)
+            return err('VALIDATION_FAILED', dup.message, { details: { field: 'newTeacherUserId' } })
+          }
         }
       }
 
       await reachFaultPoint('grading.reassign.before-write')
-      // 結束舊指派（業務時間不早於起始，模擬鐘倒退時也合法）。
-      await tx.query(
-        `update evaluator_assignments
-            set valid_to = greatest(valid_from, $2), ended_real_at = $3, ended_by_user_id = $4, removal_choice = $5, reason = $6,
-                revision = revision + 1, updated_at = $3
-          where id = $1`,
-        [target.id, businessNow, realAt, adminId, choice, reason.value],
-      )
-      // 暫存一律失效（保留原作者、內容、時間；只有管理員查得到歷史；不轉給新老師）。
-      const drafts = await tx.query<{ evaluation_id: string }>(
-        `select evaluation_id from evaluation_status where assignment_id = $1 and state = 'draft' order by evaluation_id for update`,
-        [target.id],
-      )
-      const statusChange = async (evaluationId: string, from: string, to: string, why: string) => {
+      let requiredAfter = requirements.get(target.stage_key) ?? null
+      let targetNewAssignmentId: string | null = null
+      for (const a of plan) {
+        const name = nameOf(a.stage_key)
+        const counted = facts.counted.find((c) => c.assignmentId === a.id) ?? null
+        // 結束舊指派（業務時間不早於起始，模擬鐘倒退時也合法）。
         await tx.query(
-          `update evaluation_status set state = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where evaluation_id = $1`,
-          [evaluationId, to, realAt, adminId],
+          `update evaluator_assignments
+              set valid_to = greatest(valid_from, $2), ended_real_at = $3, ended_by_user_id = $4, removal_choice = $5, reason = $6,
+                  revision = revision + 1, updated_at = $3
+            where id = $1`,
+          [a.id, businessNow, realAt, adminId, choice, reason.value],
         )
-        await tx.query(
-          `insert into evaluation_status_events (id, evaluation_id, from_state, to_state, reason, actor_kind, actor_user_id, real_at)
-           values ($1, $2, $3, $4, $5, 'user', $6, $7)`,
-          [uuidv7(), evaluationId, from, to, why, adminId, realAt],
+        // 暫存一律失效（保留原作者、內容、時間；只有管理員查得到歷史；不轉給新老師）。
+        const drafts = await tx.query<{ evaluation_id: string }>(
+          `select evaluation_id from evaluation_status where assignment_id = $1 and state = 'draft' order by evaluation_id for update`,
+          [a.id],
         )
-      }
-      for (const d of drafts.rows) await statusChange(d.evaluation_id, 'draft', 'invalidated', `評分指派已移除：${reason.value}`)
-      if (choice === 'replace' && targetCounted) {
-        await statusChange(targetCounted.evaluationId, 'counted', 'historical', `替換評分老師、重新評分：${reason.value}`)
-      }
-      let requiredAfter = requirement?.required_count ?? null
-      if (choice === 'add' && requirement) {
-        requiredAfter = requirement.required_count + 1
-        await tx.query(
-          `update stage_requirements set required_count = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
-            where group_id = $1 and stage_key = $2`,
-          [group.id, target.stage_key, requiredAfter, realAt, adminId],
-        )
-      }
+        const statusChange = async (evaluationId: string, from: string, to: string, why: string) => {
+          await tx.query(
+            `update evaluation_status set state = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where evaluation_id = $1`,
+            [evaluationId, to, realAt, adminId],
+          )
+          await tx.query(
+            `insert into evaluation_status_events (id, evaluation_id, from_state, to_state, reason, actor_kind, actor_user_id, real_at)
+             values ($1, $2, $3, $4, $5, 'user', $6, $7)`,
+            [uuidv7(), evaluationId, from, to, why, adminId, realAt],
+          )
+        }
+        for (const d of drafts.rows) await statusChange(d.evaluation_id, 'draft', 'invalidated', because('評分指派已移除'))
+        if (choice === 'replace' && counted) {
+          await statusChange(counted.evaluationId, 'counted', 'historical', because('替換評分老師、重新評分'))
+        }
+        const requiredBefore = requirements.get(a.stage_key) ?? null
+        let required = requiredBefore
+        if (choice === 'add' && requiredBefore !== null) {
+          required = requiredBefore + 1
+          await tx.query(
+            `update stage_requirements set required_count = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+              where group_id = $1 and stage_key = $2`,
+            [group.id, a.stage_key, required, realAt, adminId],
+          )
+        }
+        if (a.id === target.id) requiredAfter = required
 
-      let newAssignmentId: string | null = null
-      if (newTeacher) {
-        newAssignmentId = uuidv7()
-        await tx.query(
-          `insert into evaluator_assignments
-             (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id, previous_assignment_id, created_at, updated_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
-          [newAssignmentId, group.id, target.stage_key, newTeacher.userId, businessNow, adminId, target.id, realAt],
-        )
+        let newAssignmentId: string | null = null
+        if (newTeacher) {
+          newAssignmentId = uuidv7()
+          await tx.query(
+            `insert into evaluator_assignments
+               (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id, previous_assignment_id, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+            [newAssignmentId, group.id, a.stage_key, newTeacher.userId, businessNow, adminId, a.id, realAt],
+          )
+          await this.#events.publish(tx, {
+            type: 'grading.assigned',
+            scope: 'cohort',
+            cohortId: cohort.id,
+            source: { type: 'grading_assignment', id: newAssignmentId, version: 1 },
+            actor: { kind: 'user', userId: adminId },
+            recipients: [newTeacher.userId],
+            recipientBasis: { basis: 'evaluator_assignment', assignmentId: newAssignmentId },
+            payload: { title: `你被指派評分：${group.code}「${name}」`, groupId: group.id, code: group.code, stageKey: a.stage_key },
+            occurredRealAt: realAt,
+            occurredBusinessAt: businessNow,
+          })
+        }
+        if (a.id === target.id) targetNewAssignmentId = newAssignmentId
         await this.#events.publish(tx, {
-          type: 'grading.assigned',
+          type: 'grading.assignment_ended',
           scope: 'cohort',
           cohortId: cohort.id,
-          source: { type: 'grading_assignment', id: newAssignmentId, version: 1 },
+          source: { type: 'grading_assignment', id: a.id, version: 2 },
           actor: { kind: 'user', userId: adminId },
-          recipients: [newTeacher.userId],
-          recipientBasis: { basis: 'evaluator_assignment', assignmentId: newAssignmentId },
-          payload: { title: `你被指派評分：${group.code}「${stageName}」`, groupId: group.id, code: group.code, stageKey: target.stage_key },
+          // 票 43（NTF-07）：通知被移出的老師本人；同組其他評分老師、新老師（另收 grading.assigned）都不在這裡。
+          recipients: [a.teacher_user_id],
+          recipientBasis: { basis: 'evaluator_assignment', assignmentId: a.id },
+          // 本人異動說明：組別、階段、理由（選填）；不帶任何分數。
+          payload: {
+            title: because(`你已被移出 ${group.code}「${name}」的評分指派`),
+            groupId: group.id,
+            code: group.code,
+            stageKey: a.stage_key,
+            stageName: name,
+            reason: reason.value,
+            choice,
+            newAssignmentId,
+          },
           occurredRealAt: realAt,
           occurredBusinessAt: businessNow,
         })
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: adminId,
+          role: 'admin',
+          action: 'grading.assignment_remove',
+          targetType: 'group',
+          targetId: group.id,
+          scope: 'cohort',
+          cohortId: cohort.id,
+          realAt,
+          businessAt: businessNow,
+          payload: {
+            assignmentId: a.id,
+            stageKey: a.stage_key,
+            choice,
+            reason: reason.value,
+            oldTeacherUserId: a.teacher_user_id,
+            newTeacherUserId: newTeacher?.userId ?? null,
+            newAssignmentId,
+            requiredBefore,
+            requiredAfter: required,
+            invalidatedDrafts: drafts.rows.length,
+            historicalEvaluationId: choice === 'replace' ? (counted?.evaluationId ?? null) : null,
+            ...(plan.length > 1 ? { panelOf: target.id } : {}),
+          },
+        })
       }
-      await this.#events.publish(tx, {
-        type: 'grading.assignment_ended',
-        scope: 'cohort',
-        cohortId: cohort.id,
-        source: { type: 'grading_assignment', id: target.id, version: 2 },
-        actor: { kind: 'user', userId: adminId },
-        // 票 43（NTF-07）：通知被移出的老師本人；同組其他評分老師、新老師（另收 grading.assigned）都不在這裡。
-        recipients: [target.teacher_user_id],
-        recipientBasis: { basis: 'evaluator_assignment', assignmentId: target.id },
-        // 本人異動說明：組別、階段、理由；不帶任何分數。
-        payload: {
-          title: `你已被移出 ${group.code}「${stageName}」的評分指派：${reason.value}`,
-          groupId: group.id,
-          code: group.code,
-          stageKey: target.stage_key,
-          stageName,
-          reason: reason.value,
-          choice,
-          newAssignmentId,
-        },
-        occurredRealAt: realAt,
-        occurredBusinessAt: businessNow,
-      })
-      await this.#audit.append(tx, {
-        actorKind: 'user',
-        actorUserId: adminId,
-        role: 'admin',
-        action: 'grading.assignment_remove',
-        targetType: 'group',
-        targetId: group.id,
-        scope: 'cohort',
-        cohortId: cohort.id,
-        realAt,
-        businessAt: businessNow,
-        payload: {
-          assignmentId: target.id,
-          stageKey: target.stage_key,
-          choice,
-          reason: reason.value,
-          oldTeacherUserId: target.teacher_user_id,
-          newTeacherUserId: newTeacher?.userId ?? null,
-          newAssignmentId,
-          requiredBefore: requirement?.required_count ?? null,
-          requiredAfter,
-          invalidatedDrafts: drafts.rows.length,
-          historicalEvaluationId: choice === 'replace' ? (targetCounted?.evaluationId ?? null) : null,
-        },
-      })
       await flagOverridesForReview(tx, this.#events, {
         groupId: group.id,
         cohortId: cohort.id,
@@ -586,9 +677,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         newTeacherName: newTeacher?.name ?? null,
         choice,
         requiredCount: requiredAfter,
+        appliedStageKeys: plan.map((a) => a.stage_key),
       }
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
-      await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { assignmentId: target.id, newAssignmentId } })
+      await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { assignmentId: target.id, newAssignmentId: targetNewAssignmentId } })
       return { ok: true as const, receipt: full }
     })
   }
@@ -604,7 +696,8 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
     if (newValue === null) {
       return err('VALIDATION_FAILED', '更正後的最終成績要是 0–100、最多兩位小數。', { details: { field: 'newValue' } })
     }
-    const reason = reasonOf(input.reason, '更正理由')
+    // C1-04（X2）：理由選填；有填才驗長度。
+    const reason = optionalReason(input.reason, '更正理由', REASON_MAX)
     if (!reason.ok) return reason
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -620,7 +713,7 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
           actorUserId: adminId,
           operationKind: 'grading.override',
           requestId,
-          fingerprint: sha256(canonicalJson({ groupId: group.id, newValue, reason: reason.value, basisHash: input.basisHash })),
+          fingerprint: sha256(canonicalJson({ groupId: group.id, newValue, reason: reason.value ?? '', basisHash: input.basisHash })),
           scope: 'cohort',
           cohortId: cohort.id,
         },
@@ -858,6 +951,12 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
         `update grading_schemes set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
         [scheme.id, target.id, realAt, adminId],
       )
+      // C1-04：新版沒有的評分項目，側表列同交易刪掉（同發布；設計方案① §1.3）。
+      await dropStaleStageSettings(
+        tx,
+        cohortId,
+        readSchemeStages(target.stages).map((st) => st.key),
+      )
       // 解散的組釘在解散當下的版本、不因套用重算，所以它的更正也不進待復核（何況解散後不能復核）。
       const withOverrides = await tx.query<{ group_id: string }>(
         `select distinct o.group_id from grade_overrides o join override_review_state r on r.override_id = o.id
@@ -1041,7 +1140,7 @@ export type OverrideRow = {
   group_id: string
   original_value: string
   new_value: string
-  reason: string
+  reason: string | null
   state: OverrideState
   version_no: number
   actor_name: string
@@ -1453,6 +1552,11 @@ export class PgGradebookQuery implements GradebookQuery {
     if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
     const facts = await loadGroupFacts(db, target.group_id)
+    // C1-04：跟執行同一份評審組計畫（評審組其他項目上同一位老師的指派一起算進預覽、禁止原因與接手名單）。
+    const keys = await panelKeysOf(db, target.cohort_id, stage.key, version.stages)
+    const plan = removalPlanOf(keys, { id: target.id, stageKey: stage.key, teacherUserId: target.teacher_user_id }, facts)
+    const nameOf = (key: string) => stageOf(version.stages, key)?.name ?? key
+    const label = (key: string, message: string) => (plan.items.length > 1 ? `「${nameOf(key)}」：${message}` : message)
     const required = facts.requirements.get(stage.key) ?? null
     const before = computeStage(stage, required, facts.counted)
     const finalBefore = computeGroupResult(version.stages, facts.requirements, facts.counted).finalDisplay
@@ -1468,23 +1572,28 @@ export class PgGradebookQuery implements GradebookQuery {
            from users u left join user_profiles p on p.user_id = u.id
           where not (${TEACHER_INACTIVE_SQL})
             and not exists (select 1 from evaluator_assignments a
-                             where a.group_id = $1 and a.stage_key = $2 and a.teacher_user_id = u.id and a.valid_to is null)
+                             where a.group_id = $1 and a.stage_key = any($2::text[]) and a.teacher_user_id = u.id and a.valid_to is null)
           order by 2`,
-        [target.group_id, stage.key],
+        [target.group_id, plan.items.map((i) => i.stageKey)],
       ),
     ])
 
     const options: ReassignmentOption[] = (['keep', 'replace', 'add'] as const).map((choice) => {
-      const next = applyRemovalChoice(choice, { stageKey: stage.key, assignmentId: target.id, requirements: facts.requirements, counted: facts.counted })
+      const next = applyRemovalPlan(choice, plan, facts)
       const after = computeStage(stage, next.requirements.get(stage.key) ?? null, next.counted)
-      const blockedReason =
-        choice !== 'replace' && !hasCounted
-          ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
-          : choice === 'add' && required === null
-            ? '這一組這一階段還沒設定需要幾位老師評分。'
-            : choice === 'add' && required !== null && required >= MAX_REQUIRED_COUNT
-              ? addOverLimit(required)
-              : null
+      const blockerOf = (item: RemovalPlan['items'][number]): string | null => {
+        const itemRequired = facts.requirements.get(item.stageKey) ?? null
+        const reason =
+          choice !== 'replace' && !facts.counted.some((c) => c.assignmentId === item.assignmentId)
+            ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
+            : choice === 'add' && itemRequired === null
+              ? '這一組這一階段還沒設定需要幾位老師評分。'
+              : choice === 'add' && itemRequired !== null && itemRequired >= MAX_REQUIRED_COUNT
+                ? addOverLimit(itemRequired)
+                : null
+        return reason && label(item.stageKey, reason)
+      }
+      const blockedReason = plan.items.map(blockerOf).find((r) => r !== null) ?? null
       return {
         choice,
         blockedReason,
@@ -1516,9 +1625,13 @@ export class PgGradebookQuery implements GradebookQuery {
         options,
         // 接手的人不能是本人，也不能是在這一階段已有採計中評分的老師（改派時保留的舊分），否則一人兩票。
         teachers: teachers.rows
-          .filter((t) => t.id !== target.teacher_user_id && !facts.counted.some((c) => c.stageKey === stage.key && c.teacherUserId === t.id))
+          .filter(
+            (t) =>
+              t.id !== target.teacher_user_id &&
+              !facts.counted.some((c) => plan.items.some((i) => i.stageKey === c.stageKey) && c.teacherUserId === t.id),
+          )
           .map((t) => ({ userId: t.id, name: t.name })),
-        basisHash: stageBasisHash(version.id, stage.key, facts),
+        basisHash: removalBasisHash(version.id, plan, facts),
       },
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )

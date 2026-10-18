@@ -38,8 +38,8 @@ describe('新增老師的欄位', () => {
 
   it('直接新增會發臨時密碼，所以核實方式必選；選「其他」要寫說明', () => {
     expect(normalizeTeacherAccountInput({ ...base, mode: 'direct' })).toMatchObject({
-      ok: false,
-      details: { field: 'verificationMethod' },
+      ok: true,
+      value: { verification: { verificationMethod: 'office_review' } },
     })
     expect(normalizeTeacherAccountInput({ ...base, mode: 'direct', verificationMethod: 'other' })).toMatchObject({
       ok: false,
@@ -79,7 +79,10 @@ describe('新增老師的欄位', () => {
 
 describe('核發臨時密碼的欄位（跟註冊核准同一套核實方式）', () => {
   it('核實方式必選；校方管道要寫由誰、透過什麼管道', () => {
-    expect(normalizeTemporaryPasswordRequest({ verificationMethod: '', verificationNote: '', reason: '' })).toMatchObject({ ok: false })
+    expect(normalizeTemporaryPasswordRequest({ verificationMethod: '', verificationNote: '', reason: '' })).toMatchObject({
+      ok: true,
+      value: { verificationMethod: 'office_review' },
+    })
     expect(
       normalizeTemporaryPasswordRequest({ verificationMethod: 'school_channel', verificationNote: '', reason: '' }),
     ).toMatchObject({ ok: false, details: { field: 'verificationNote' } })

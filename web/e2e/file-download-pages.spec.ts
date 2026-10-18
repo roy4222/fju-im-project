@@ -133,8 +133,8 @@ async function snapshot(response: APIResponse) {
 test('系辦發布「本屆學生」公告並附 PDF', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
   await dialog.getByLabel('誰看得到').selectOption('cohort_students')
@@ -613,6 +613,11 @@ test.describe('A-06 檔案預覽端點：權限同下載、只內嵌 PDF／圖�
       `insert into managed_items (id, cohort_id, placement, audience_kind, title, created_by_kind)
        values (gen_random_uuid(), $1, 'news', 'public', $2, 'system') returning id`,
       [cohortId, `${CODE} 期中報告繳交`],
+    )
+    // C 階段起評分老師只讀得到自己評分項目連到的作業（C1-02 §3.2）：把 mid 連到這份作業。
+    await pool.query(
+      `insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, 'mid', $2, $3)`,
+      [cohortId, itemRow.rows[0]!.id, adminUserId],
     )
     const schema = await pool.query<{ id: string }>(
       `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id) values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,

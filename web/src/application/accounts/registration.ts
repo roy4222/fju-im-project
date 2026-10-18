@@ -323,22 +323,41 @@ export function evidenceFlags(match: RosterMatch, duplicates: DuplicateInfo): Ev
 
 // ── 核准與退回 ──────────────────────────────────────────────────────────────
 
-export type VerificationMethod = 'id_document' | 'school_channel' | 'other' | 'google_email_match'
+export type VerificationMethod =
+  | 'id_document'
+  | 'school_channel'
+  | 'other'
+  | 'google_email_match'
+  | 'office_review'
+  | 'email_roster_match'
 
 /**
- * 核實方式（2026-09-12 第二輪定案）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。
- * `google_email_match` 是 Q42 自動開通，只由系統寫入（VB-6）；系辦能選的是 `MANUAL_VERIFICATION_METHODS`。
+ * 核實方式（2026-09-12 第二輪定案；C 階段 C2-10 起畫面不再問）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。
+ * 系辦核准、新增成員、臨時密碼固定寫 `office_review`；前三種只留給舊資料顯示與匯出。
+ * `google_email_match`、`email_roster_match` 是自動開通，只由系統寫入（VB-6）；人送進來的值看 `MANUAL_VERIFICATION_METHODS`。
  */
-export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other', 'google_email_match']
+export const VERIFICATION_METHODS: readonly VerificationMethod[] = [
+  'id_document',
+  'school_channel',
+  'other',
+  'google_email_match',
+  'office_review',
+  'email_roster_match',
+]
 
-/** 系辦審核、新增老師、核發臨時密碼時可以選的核實方式（不含系統自動開通那一種）。 */
-export const MANUAL_VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other']
+/** 系辦審核、新增老師、核發臨時密碼時用得上的核實方式（不含系統自動開通的那兩種）。 */
+export const MANUAL_VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other', 'office_review']
+
+/** 沒帶核實方式時寫入的固定值。 */
+export const DEFAULT_VERIFICATION_METHOD: VerificationMethod = 'office_review'
 
 export const VERIFICATION_LABEL: Record<VerificationMethod, string> = {
   id_document: '當面核對學生證或其他身分證件',
   school_channel: '經校方授權人員透過既有可信管道確認',
   other: '用其他方式確認本人',
   google_email_match: 'Google Email 與名單相同（自動開通）',
+  office_review: '系辦審核',
+  email_roster_match: 'Email 已驗證且與名單相同（自動開通）',
 }
 
 /** 核實說明哪幾種必填：校方管道要記「由誰、透過什麼管道」；其他方式要說明是什麼方式。 */
@@ -347,6 +366,8 @@ export const VERIFICATION_NOTE_REQUIRED: Record<VerificationMethod, boolean> = {
   school_channel: true,
   other: true,
   google_email_match: false,
+  office_review: false,
+  email_roster_match: false,
 }
 
 export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
@@ -354,6 +375,8 @@ export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
   school_channel: '必填：由誰、透過什麼管道確認',
   other: '必填：說明用了什麼方式確認本人',
   google_email_match: '系統自動開通，不用填',
+  office_review: '不用填',
+  email_roster_match: '系統自動開通，不用填',
 }
 
 export type ApprovalDecision = {
@@ -367,13 +390,13 @@ function isVerificationMethod(value: string): value is VerificationMethod {
   return (MANUAL_VERIFICATION_METHODS as readonly string[]).includes(value)
 }
 
-/** 核准的欄位檢查：核實方式必選、校方管道與其他方式要寫說明、理由選填。 */
+/** 核准的欄位檢查：核實方式沒帶就是 `office_review`（畫面不再問）、舊的校方管道與其他方式仍要寫說明、理由選填。 */
 export function normalizeApproval(input: {
   verificationMethod: string
   verificationNote: string
   reason: string
 }): { ok: true; value: ApprovalDecision } | Err {
-  const method = input.verificationMethod.trim()
+  const method = input.verificationMethod.trim() || DEFAULT_VERIFICATION_METHOD
   if (!isVerificationMethod(method)) {
     return err('VALIDATION_FAILED', '請選擇怎麼確認是本人。', { details: { field: 'verificationMethod' } })
   }
@@ -642,6 +665,8 @@ export type PendingApplication = ApplicationFields & {
   readonly suggestedCohortId: string | null
   /** 能不能在對話框裡換屆別（只有一屆命中時由名單決定，不能換）。 */
   readonly cohortLocked: boolean
+  /** 這個人先前被退回過（待審清單標「已重送」）。 */
+  readonly previouslyRejected: boolean
 }
 
 export type PendingList = {

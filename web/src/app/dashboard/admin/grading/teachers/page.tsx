@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle, Panel, PanelEmpty } from '@/app/_ui/dashboard/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -27,7 +28,15 @@ export default async function GradingTeachersPage() {
         每一組由哪幾位老師評分，以及指派與改派。
       </p>
       <Panel title="評分老師">
-        <PanelEmpty title="這個分頁還在建置中" hint="目前指派與改派仍在「評分規則」分頁處理。" />
+        <PanelEmpty
+          title="這個分頁還在建置中"
+          hint="目前指派與改派仍在「評分規則」分頁處理。"
+          action={
+            <Link href="/dashboard/admin/grading/rules" className="text-sm font-medium text-primary hover:underline">
+              前往評分規則分頁
+            </Link>
+          }
+        />
       </Panel>
     </DashboardShell>
   )

@@ -185,8 +185,8 @@ async function quickPublish(
   options: { placement: RegExp; title: string; audience: string; group?: string; important: boolean; file?: Buffer },
 ) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: options.placement }).check()
   await dialog.getByLabel('標題').fill(options.title)
   await dialog.getByLabel('誰看得到').selectOption(options.audience)
@@ -344,7 +344,7 @@ test('AC-33：指定 G01 的重要公告通知 G01 的指導老師、點得開�
       { timeout: 30_000, intervals: [1_000, 2_000] },
     )
     .toBe(1)
-  await page.getByTestId('inbox-item').filter({ hasText: GROUP_NEWS }).getByRole('link', { name: GROUP_NEWS }).click()
+  await page.getByTestId('inbox-item').filter({ hasText: GROUP_NEWS }).getByRole('button', { name: GROUP_NEWS }).click()
   await expect(page).toHaveURL(new RegExp(`/news/${itemIds[GROUP_NEWS]}$`))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(GROUP_NEWS)
 

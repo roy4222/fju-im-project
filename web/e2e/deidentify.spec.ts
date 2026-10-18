@@ -69,10 +69,10 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(name)}`)
   // T6 系6：去識別化收在每列的「更多」選單（選單是 portal，項目從整頁找）。
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
-  await page.getByRole('menu').getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `刪除 ${name} 的個人資料` }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: `刪除 ${name} 的個人資料` }).click()
   const dialog = page.getByRole('dialog', { name: `刪除 ${name} 的個人資料` })
 
-  // 第三波 AC-37：去識別化在「更多」的「危險操作」組；確認視窗寫對象、後果、能不能恢復。
+  // C 階段規格② A23：「刪除個人資料」是「更多」的最後一項（沒有危險操作群組）；確認視窗寫對象、後果、能不能恢復。
   const facts = dialog.getByTestId('danger-facts')
   for (const k of ['對象', '後果', '能不能恢復']) await expect(facts).toContainText(k)
   await expect(facts).toContainText(name)

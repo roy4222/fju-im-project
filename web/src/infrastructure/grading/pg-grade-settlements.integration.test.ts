@@ -291,9 +291,9 @@ describe('結算守衛順序：FORBIDDEN → VALIDATION_FAILED → COHORT_ARCHIV
       expect(await query.settlements(who, s.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     }
     expect(await query.settlementOf(actor(student, ['student']), s.cohortId, 's1')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await settle(s.cohortId, randomUUID(), '   ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
+    expect(await settle(s.cohortId, randomUUID(), '   ')).toMatchObject({ ok: true, receipt: { reason: null } })
     expect(await settle(s.cohortId, randomUUID(), '字'.repeat(501))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(await settle(s.cohortId, randomUUID(), '字'.repeat(500))).toMatchObject({ ok: true })
+    expect(await settle(s.cohortId, randomUUID(), '字'.repeat(500))).toMatchObject({ ok: false, code: 'CONFLICT' })
     expect(
       await command.settleStage(adminActor(), { cohortId: s.cohortId, stageKey: 'nope', reason: '期中' }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
@@ -308,7 +308,7 @@ describe('結算守衛順序：FORBIDDEN → VALIDATION_FAILED → COHORT_ARCHIV
     expect(
       await command.settleStage(adminActor(), { cohortId: s.cohortId, stageKey: 'nope', reason: '期中' }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(await settle(s.cohortId, randomUUID(), '')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await settle(s.cohortId, randomUUID(), '')).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
     expect(
       await command.settleStage(adminActor(), { cohortId: s.cohortId, stageKey: 's2', reason: '期末' }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
@@ -426,5 +426,18 @@ describe('結算回執、重放、解除與紀錄（AC-TE-37、AC-TE-38）', () 
       ['第二次', true],
       ['第一次', false],
     ])
+  })
+})
+
+describe('C1-04 理由選填（X2；AC-31 後端）', () => {
+  it('結算理由留空 → 成功、理由存 null；解除結算理由留空 → 成功；紀錄裡兩個理由都是 null', async () => {
+    const s = await scenario()
+    const settled = await settle(s.cohortId, randomUUID(), '')
+    expect(settled).toMatchObject({ ok: true, receipt: { reason: null } })
+    if (!settled.ok) throw new Error(settled.message)
+    const released = await command.releaseSettlement(adminActor(), { settlementId: settled.receipt.settlementId }, randomUUID())
+    expect(released).toMatchObject({ ok: true })
+    const history = await query.settlements(adminActor(), s.cohortId)
+    expect(history.ok && history.receipt.map((h) => [h.reason, h.releaseReason, h.releasedAt !== null])).toEqual([[null, null, true]])
   })
 })

@@ -95,7 +95,7 @@ test('做完的樣子 1：三個磚、搜尋、篩選、排序', async ({ browse
   const page = await adminPage(browser)
   await page.goto('/dashboard/admin/accounts')
   for (const label of ['待審核', '已核准', '已停用']) {
-    await expect(page.getByRole('link', { name: new RegExp(`^${label}`) })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '依狀態篩選' }).getByRole('link', { name: new RegExp(`^${label}`) })).toBeVisible()
   }
 
   // 搜尋姓名 → 只剩這一輪的四個人；搜尋學號 → 一個。
@@ -149,9 +149,8 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
 
   const page = await adminPage(browser)
   await searchFor(page, target.name)
-  // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
-  await rowOf(page, target.name).getByRole('button', { name: `更多 ${target.name}` }).click()
-  await page.getByRole('menu').getByRole('menuitem', { name: `停用 ${target.name}` }).click()
+  // C 階段規格② A23：停用是列上直接一顆（不再收在「更多」的危險操作）。
+  await rowOf(page, target.name).getByRole('button', { name: `停用 ${target.name}` }).click()
   const dialog = page.getByRole('dialog', { name: `停用 ${target.name}` })
   await expect(dialog.getByLabel('理由（選填，會留在操作紀錄）')).toHaveValue('')
   await dialog.getByLabel(/理由/).fill('休學')
@@ -251,8 +250,7 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   const page = await adminPage(browser)
   // 先把 4 號單獨停用，好讓預覽裡有「已停用」。
   await searchFor(page, students[3]!.name)
-  await rowOf(page, students[3]!.name).getByRole('button', { name: `更多 ${students[3]!.name}` }).click()
-  await page.getByRole('menu').getByRole('menuitem', { name: `停用 ${students[3]!.name}` }).click()
+  await rowOf(page, students[3]!.name).getByRole('button', { name: `停用 ${students[3]!.name}` }).click()
   const single = page.getByRole('dialog', { name: `停用 ${students[3]!.name}` })
   await single.getByLabel(/理由/).fill('先停')
   await single.getByRole('button', { name: '確認停用' }).click()
@@ -260,11 +258,11 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   await single.getByRole('button', { name: '關閉' }).click()
 
   await searchFor(page, tag)
-  // 驗收 P-06：批次停用不跟匯出並排，在頁面底部的「危險操作」區（AD-11：收在預設收合的「名單與停用」裡，先展開）。
+  // 驗收 P-06：批次停用不跟匯出並排；C 階段規格② §3.5 搬到「已停用」分頁的標題列（AC-C2-30）。
+  await page.goto('/dashboard/admin/accounts/disabled')
   const toolbarButtons = page.getByRole('region', { name: '帳號' }).getByRole('button', { name: '批次停用（TXT）' })
   await expect(toolbarButtons).toHaveCount(0)
-  await page.getByRole('group', { name: '名單與停用' }).locator('summary').click()
-  await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '批次停用（TXT）' }).click()
+  await page.getByRole('button', { name: '批次停用（TXT）' }).click()
   const dialog = page.getByRole('dialog', { name: '批次停用' })
   // 格式不對：整份退件並指出行號。
   await dialog.getByLabel('或直接貼上學號').fill(`${students[1]!.studentNo},${students[1]!.name}`)
@@ -285,12 +283,13 @@ test('做完的樣子 4：批次停用貼學號，先預覽命中／已停用／
   await expect(dialog.getByRole('status')).toContainText('2 個帳號')
   await dialog.getByRole('button', { name: '關閉' }).click()
 
+  await searchFor(page, tag)
   await expect(rowOf(page, students[1]!.name)).toContainText('已停用')
   await expect(rowOf(page, students[2]!.name)).toContainText('已停用')
   await expect(rowOf(page, students[0]!.name)).toContainText('已核准')
 })
 
-test('AC-A-41：審核對話框的驗證方式只有三種人工方式，沒有「Google 比對」', async ({ browser, playwright }) => {
+test('AC-A-41 → AC-C2-15／19：核准視窗不再問怎麼確認是本人，名單沒有的人只選屆別', async ({ browser, playwright }) => {
   const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { origin: new URL(BASE_URL).origin } })
   const pool = new Pool({ connectionString: ownerUrl, max: 1 })
   const name = `${tag}-待審`
@@ -307,13 +306,12 @@ test('AC-A-41：審核對話框的驗證方式只有三種人工方式，沒有�
     await request.dispose()
   }
   const page = await adminPage(browser)
-  await page.goto('/dashboard/admin/accounts')
-  await page.getByRole('button', { name: `審核 ${name}` }).click()
-  const dialog = page.getByRole('dialog', { name: `審核 ${name}` })
-  const fieldset = dialog.getByRole('group', { name: /怎麼確認是本人/ })
-  await expect(fieldset.getByRole('radio')).toHaveCount(3)
-  await expect(fieldset).toContainText('當面核對學生證或其他身分證件')
-  await expect(fieldset).toContainText('經校方授權人員透過既有可信管道確認')
-  await expect(fieldset).toContainText('用其他方式確認本人')
+  await page.goto('/dashboard/admin/accounts/pending')
+  await page.getByRole('button', { name: `核准 ${name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `核准 ${name}` })
+  await expect(dialog.getByLabel('核准進哪一屆')).toBeVisible()
+  await expect(dialog.getByRole('group', { name: /怎麼確認是本人/ })).toHaveCount(0)
+  await expect(dialog.getByRole('radio')).toHaveCount(0)
+  await expect(dialog).not.toContainText('怎麼確認')
   await expect(dialog).not.toContainText('Google')
 })

@@ -23,7 +23,7 @@ const PLACEMENTS: readonly string[] = AFFAIRS_TAB_PLACEMENTS.rules
  *
  * 依章節位置排（A-14；跟前台 `/rules`、`moveRule` 的鄰居同一個順序），每列多「上移」「下移」；首尾停用用的就是這份排好的
  * 清單（同屆、未刪除的規則，含草稿與已下架），跟伺服器的邊界判定一致。封存屆別不會出現（`affairsView` 只列未封存的）。
- * 說明句以下的內容歸規格①；按鈕文字 C2-03 再改。
+ * 說明句以下的內容歸規格①。
  */
 export default async function AffairsRulesPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -79,13 +79,13 @@ export default async function AffairsRulesPage({ searchParams }: { searchParams:
           ))}
         </nav>
       ) : null}
-      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有專題規則。按「新增項目」建立第一筆。" />
+      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有專題規則。按「新增規則」建立第一筆。" />
     </>,
     <>
       <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
         完整編輯器
       </LinkButton>
-      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
+      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} label="新增規則" placement="rules" />
     </>,
   )
 }

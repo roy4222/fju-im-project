@@ -125,9 +125,8 @@ async function openDisableDialog(page: Page, member: Member) {
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(member.name)}`)
   const table = page.getByRole('table', { name: '帳號列表' })
   await expect(table).toBeVisible()
-  // 第三波 AC-37：停用收在每列「更多」的危險操作（選單是 portal，項目從整頁找）。
-  await table.getByRole('row').filter({ has: page.getByText(member.name, { exact: true }) }).getByRole('button', { name: `更多 ${member.name}` }).click()
-  await page.getByRole('menu').getByRole('menuitem', { name: `停用 ${member.name}` }).click()
+  // C 階段規格② A23：停用是列上直接一顆。
+  await table.getByRole('row').filter({ has: page.getByText(member.name, { exact: true }) }).getByRole('button', { name: `停用 ${member.name}` }).click()
   return page.getByRole('dialog', { name: `停用 ${member.name}` })
 }
 

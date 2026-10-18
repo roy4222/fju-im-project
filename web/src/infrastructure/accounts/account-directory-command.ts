@@ -148,6 +148,8 @@ const DIRECTORY_BASE = `
          up.avatar_file_id,
          c.code as cohort_code,
          c.name as cohort_name,
+         gm.group_id,
+         gm.group_code,
          ra.state as application_state,
          coalesce(
            (select array_agg(r.role order by r.role)
@@ -165,7 +167,15 @@ const DIRECTORY_BASE = `
        order by x.created_at desc, x.id desc
        limit 1
     ) ra on up.user_id is null
-    left join cohorts c on c.id = up.cohort_id`
+    left join cohorts c on c.id = up.cohort_id
+    left join lateral (
+      -- 本屆目前所在的組（一人同屆只有一個有效組，見 group_memberships_one_active）。
+      select m.group_id, g.code as group_code
+        from group_memberships m
+        join groups g on g.id = m.group_id
+       where m.user_id = u.id and m.cohort_id = up.cohort_id and m.valid_to is null
+       limit 1
+    ) gm on true`
 
 /** 排序鍵 → SQL（白名單；外面帶進來的字串永遠不會直接進 ORDER BY）。 */
 const ORDER_BY: Record<DirectoryFilter['sort'], string> = {
@@ -190,6 +200,8 @@ type DirectoryRow = {
   avatar_file_id: string | null
   cohort_code: string | null
   cohort_name: string | null
+  group_id: string | null
+  group_code: string | null
   application_state: 'pending' | 'approved' | 'rejected' | null
   roles: Role[]
   is_orphan: boolean
@@ -205,6 +217,8 @@ function toAccountRow(r: DirectoryRow): AccountRow {
     cohortId: r.cohort_id,
     cohortCode: r.cohort_code,
     cohortName: r.cohort_name,
+    groupId: r.group_id,
+    groupCode: r.group_code,
     phone: r.phone,
     loginEmail: r.login_email,
     contactEmail: r.contact_email,
