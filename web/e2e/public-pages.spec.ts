@@ -501,12 +501,11 @@ test('前台「專題時程」行事曆：屆別活動與收件截止（臺灣�
   await expect(day).toContainText('截止')
 })
 
-test('公開首頁「我的工作」：學生看到自己要交的收件截止與待繳數（跟學生首頁同一份資料），不是寫死的「沒有」', async ({ page }) => {
+test('公開首頁沒有「我的工作」：學生有要交的收件，首頁也不列（工作都在後台，C2-14）', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/')
-  const work = page.getByRole('region', { name: '我的工作' })
-  await expect(work.getByTestId('home-deadlines')).toContainText(SUBMISSION)
-  await expect(work.getByTestId('home-deadlines')).toContainText(`截止 ${ymd(due)}`)
-  await expect(work).not.toContainText('近期沒有要截止的項目')
-  await expect(work.getByTestId('home-work-pending')).toHaveText(/^待繳交 [1-9]\d* 件$/)
+  await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+  await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
+  await expect(page.getByTestId('home-deadlines')).toHaveCount(0)
+  await expect(page.getByTestId('home-work-pending')).toHaveCount(0)
 })
