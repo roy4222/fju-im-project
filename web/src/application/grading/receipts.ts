@@ -19,14 +19,20 @@ export function describeSchemeVersionReceipt(r: SchemeVersionReceipt): string {
     : `評分規則第 ${r.versionNo} 版已發布，老師評分用這一版。`
 }
 
+/** 評審組展開到別的項目時補一句（C1-04；只有自己一個項目就不加）。 */
+function panelNote(appliedStageKeys: readonly string[] | undefined): string {
+  const n = appliedStageKeys?.length ?? 0
+  return n > 1 ? `（同一組評審的 ${n} 個評分項目一起設定）` : ''
+}
+
 export function describeRequirementReceipt(r: RequirementReceipt): string {
   return r.requiredCount === 0
-    ? `${r.groupCode}「${r.stageName}」設為不需要評分。`
-    : `${r.groupCode}「${r.stageName}」要 ${r.requiredCount} 份評分。`
+    ? `${r.groupCode}「${r.stageName}」設為不需要評分${panelNote(r.appliedStageKeys)}。`
+    : `${r.groupCode}「${r.stageName}」要 ${r.requiredCount} 位老師評${panelNote(r.appliedStageKeys)}。`
 }
 
 export function describeAssignEvaluatorReceipt(r: AssignEvaluatorReceipt): string {
-  return `已指派 ${r.teacherName} 老師評 ${r.groupCode}「${r.stageName}」；老師已收到通知。`
+  return `已指派 ${r.teacherName} 老師評 ${r.groupCode}「${r.stageName}」${panelNote(r.appliedStageKeys)}；老師已收到通知。`
 }
 
 export function describeDraftReceipt(r: DraftReceipt): string {
@@ -43,8 +49,8 @@ export function describeReturnReceipt(r: ReturnReceipt): string {
 
 export function describeRemoveAssignmentReceipt(r: RemoveAssignmentReceipt): string {
   const who = r.newTeacherName ? `${r.teacherName} 老師 → ${r.newTeacherName} 老師` : `已移除 ${r.teacherName} 老師`
-  const count = r.requiredCount === null ? '' : `；每組需要 ${r.requiredCount} 位老師評分`
-  return `${r.groupCode}「${r.stageName}」${who}（${REMOVAL_CHOICE_LABEL[r.choice]}${count}）。`
+  const count = r.requiredCount === null ? '' : `；要 ${r.requiredCount} 位老師評`
+  return `${r.groupCode}「${r.stageName}」${who}（${REMOVAL_CHOICE_LABEL[r.choice]}${count}）${panelNote(r.appliedStageKeys)}。`
 }
 
 export function describeOverrideReceipt(r: OverrideReceipt): string {

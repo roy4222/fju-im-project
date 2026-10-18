@@ -13,7 +13,8 @@
  *     以及**送出當下在組裡**的人（`membership_snapshot`，票 22）：被移出的人只讀得到自己還在組裡時送出的版本，
  *     移出之後組裡再送的版本拿不到（契約 03 §1「被移出／解散後：本人唯讀自己的正式版本」；產品模組 05 SUB-20、25）。
  * - 受指派評分老師（票 24、S10-03）：**該組此刻有效**的評分指派（`evaluator_assignments.valid_to IS NULL`）的老師，
- *   可以讀該組的**正式版本**與附件（評分要看作品）；草稿、個人回答一律不行。指派一結束（移除、改派）就立刻讀不到，
+ *   可以讀該組的**正式版本**與附件（評分要看作品）；草稿、個人回答一律不行。C 階段起只限那個評分項目
+ *   連到的作業（側表 `grading_stage_settings`，§3.2）：只評 s1 的老師讀不到別份作業的版本。指派一結束（移除、改派）就立刻讀不到，
  *   不看歷史指派；主指導關係另外算，兩種身分互不影響（產品 06 §4「7.4」「移除的是該組該階段的評分授權」）。
  */
 
@@ -41,7 +42,10 @@ export type SubmissionHolder =
       readonly visibility: AdvisorVisibility | null
       /** 組別：送出當下的有效組員（`membership_snapshot`）；個人是 null。 */
       readonly membershipSnapshot: readonly string[] | null
-      /** 組別：此刻在這一組有有效評分指派的老師（任一階段）；個人是空的。 */
+      /**
+       * 組別：此刻在這一組有有效評分指派、**而且那個評分項目連到這一版的作業**的老師（C 階段規格① §3.2；
+       * 事實由 infrastructure 的 `version-access` 算）；個人是空的。
+       */
       readonly activeEvaluatorUserIds: readonly string[]
     }
 
@@ -62,4 +66,23 @@ export function canReadSubmission(viewer: SubmissionViewer, holder: SubmissionHo
   if (viewer.isTeacher && holder.receiverKind === 'group' && holder.activeEvaluatorUserIds.includes(viewer.userId)) return true
   if (!viewer.isTeacher || holder.currentAdvisorUserId === null || holder.currentAdvisorUserId !== viewer.userId) return false
   return holder.receiverKind === 'group' || advisorMayReadIndividual(holder.visibility, holder.schemaVersionNo)
+}
+
+/**
+ * 誰能填寫、上傳、正式送出一份作業（C 階段規格① §3.2、§5.3；AC-20）。
+ *
+ * - 學生：可以；在不在名單上、是不是組員由交易內的守門判（`NOT_IN_ROSTER`、`NOT_MEMBER`）。
+ * - 老師：只有本人在這份作業**目前**名單上（個人一份、`receiver_kind='user'`，例如給老師的作業）才可以；
+ *   不在名單上的老師一律 `FORBIDDEN`（頁面 403），不回「不在名單」——老師本來就不是收件者。
+ * - 其他人（只有管理員角色、沒有角色）：不行。
+ */
+export type ReceiverCandidate = {
+  readonly isStudent: boolean
+  readonly isTeacher: boolean
+  /** 本人此刻在這份作業的名單上（個人一份、沒有結束時間）。 */
+  readonly onRosterAsUser: boolean
+}
+
+export function mayFillAsReceiver(who: ReceiverCandidate): boolean {
+  return who.isStudent || (who.isTeacher && who.onRosterAsUser)
 }

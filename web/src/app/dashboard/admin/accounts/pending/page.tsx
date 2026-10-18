@@ -9,10 +9,6 @@ import {
   EVIDENCE_LABEL,
   EVIDENCE_NEEDS_ATTENTION,
   getRegistrationCommand,
-  VERIFICATION_LABEL,
-  VERIFICATION_METHODS,
-  VERIFICATION_NOTE_HINT,
-  VERIFICATION_NOTE_REQUIRED,
 } from '@/composition/accounts'
 import { formatTaipeiMinute } from '@/shared/time'
 import { BulkApproveCheckbox, BulkApproveDialog, BulkApproveProvider, BulkApproveSelectAll } from '../bulk-approve-dialog'
@@ -21,11 +17,6 @@ import { EvidencePills, ReviewDialog, type ReviewLabels } from '../review-dialog
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
-  // google_email_match 是系統自動開通寫的（VB-6），系辦不能選；與 MANUAL_VERIFICATION_METHODS 同一份清單。
-  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match'),
-  methodLabel: VERIFICATION_LABEL,
-  noteRequired: VERIFICATION_NOTE_REQUIRED,
-  noteHint: VERIFICATION_NOTE_HINT,
 }
 
 export const metadata = { title: '待審核｜資管系專題平台' }
@@ -33,8 +24,7 @@ export const metadata = { title: '待審核｜資管系專題平台' }
 const BASE = '/dashboard/admin/accounts/pending'
 
 /**
- * 帳號的「待審核」分頁（C 階段規格② §3.3）：原本在帳號頁最上面的待審 Panel 搬到這裡（C2-07），審核與批次核准的對話框不動
- * （核准一鍵、退回、去掉核實方式在 C2-10）。說明句是這條路由的 e2e 指紋（`e2e/fingerprints.ts`），改句子要一起改。
+ * 帳號的「待審核」分頁（C 階段規格② §3.3）：原本在帳號頁最上面的待審 Panel 搬到這裡（C2-07），核准一鍵、退回只問理由、不再問核實方式（C2-10）。說明句是這條路由的 e2e 指紋（`e2e/fingerprints.ts`），改句子要一起改。
  */
 export default async function AccountsPendingPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -69,7 +59,7 @@ export default async function AccountsPendingPage() {
                   <BulkApproveSelectAll applicationIds={applications.map((a) => a.applicationId)} />
                   全選
                 </label>
-                <BulkApproveDialog labels={REVIEW_LABELS} offRosterIds={offRosterIds} />
+                <BulkApproveDialog offRosterIds={offRosterIds} />
               </div>
             ) : null
           }
@@ -131,8 +121,8 @@ export default async function AccountsPendingPage() {
                     </td>
                     <td className="tabular text-xs text-muted-foreground">
                       {formatTaipeiMinute(new Date(a.updatedAt))} 送出
-                      {/* A19：不出現「第 N 版」；學生改過資料再送的，列尾一個灰字「已重送」。 */}
-                      {a.revision > 1 ? <span className="ml-1">・已重送</span> : null}
+                      {/* A19：不出現「第 N 版」；被退回後重送的，列尾一個灰字「已重送」（看有沒有被退回過的紀錄，不看版本：重送的新申請從第 1 版開始）。 */}
+                      {a.previouslyRejected ? <span className="ml-1">・已重送</span> : null}
                     </td>
                   </tr>
                 ))}

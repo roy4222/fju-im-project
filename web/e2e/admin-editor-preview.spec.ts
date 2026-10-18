@@ -89,7 +89,7 @@ test('正文旁預覽：先填標題才渲染、只渲染淨化後的正文、�
   await expect(body).toBeVisible()
   await expect(page.getByRole('main').getByRole('link', { name: '公告與作業', exact: true })).toHaveAttribute(
     'href',
-    `/dashboard/admin/affairs?cohort=${cohortId}`,
+    `/dashboard/admin/affairs?cohort=${cohortId}&placement=all`,
   )
 
   // 一開始與步驟 1：還沒有標題，只有提示句與原因，正文沒有渲染。

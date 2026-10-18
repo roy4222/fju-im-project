@@ -188,7 +188,7 @@ const affairsBadge = (page: Page) => page.getByTestId('nav-badge-/dashboard/stud
 
 test('名單頁三類分開；完成率＝已正式送出／應交數（免填與已移出不算）', async ({ page }) => {
   await signIn(page, admin)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  await page.goto(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
   // 工作台的「收件名單」欄是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
   await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /需要繳交 2 位/ }).click()
   await expect(page).toHaveURL(new RegExp(`${rosterPath()}$`))
@@ -291,7 +291,8 @@ test('學生通知匣：收件通知點得進作業區那一份', async ({ page 
   await signIn(page, waiter)
   await page.goto('/dashboard/student/inbox')
   const item = page.getByTestId('inbox-item').filter({ hasText: TITLE })
-  await expect(item.getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
+  await item.getByRole('button', { name: `新的收件：${TITLE}`, exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/student/affairs/${itemId}$`))
 })
 
 // ── B 階段 A-08：設免繳／恢復（AC-A-21～24）────────────────────────────────────

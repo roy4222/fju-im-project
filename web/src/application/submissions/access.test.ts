@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canReadSubmission, describeReceipt, type SubmissionHolder, type SubmissionViewer } from '@/application/submissions'
+import { canReadSubmission, describeReceipt, mayFillAsReceiver, type SubmissionHolder, type SubmissionViewer } from '@/application/submissions'
 
 /**
  * 票 21：誰能讀一份繳交與它的附件（契約 03 §1 的「組別共用草稿」「組別正式版本」「個人回答」三列）。
@@ -160,5 +160,19 @@ describe('收件章的一句話', () => {
     const base = { title: '期中報告', versionNo: 2, receivedBusinessAt: '2026-11-10T04:05:06Z' }
     expect(describeReceipt({ ...base, groupCode: 'G01' })).toContain('代表 G01 組第 2 次正式送出')
     expect(describeReceipt(base)).toContain('：第 2 次正式送出')
+  })
+})
+
+describe('誰能填寫與送出作業（C 階段規格① §3.2 authorizeReceiver；AC-20）', () => {
+  // [誰, 學生, 老師, 本人在這份作業名單上（個人一份）, 可以填]
+  const table: [string, boolean, boolean, boolean, boolean][] = [
+    ['學生（名單與組別由交易內守門判）', true, false, false, true],
+    ['名單上的老師（給老師的作業）', false, true, true, true],
+    ['不在名單上的老師', false, true, false, false],
+    ['只有管理員角色', false, false, true, false],
+    ['同時是學生與老師', true, true, false, true],
+  ]
+  it.each(table)('%s', (_label, isStudent, isTeacher, onRosterAsUser, allowed) => {
+    expect(mayFillAsReceiver({ isStudent, isTeacher, onRosterAsUser })).toBe(allowed)
   })
 })

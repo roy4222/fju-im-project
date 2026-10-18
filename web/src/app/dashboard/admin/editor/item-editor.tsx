@@ -279,7 +279,7 @@ export function ItemEditor({
         return
       }
       deleteDialog.current?.close()
-      router.push(`/dashboard/admin/affairs?cohort=${result.data.cohortId}`)
+      router.push(`/dashboard/admin/affairs?cohort=${result.data.cohortId}&placement=all`)
     } catch {
       setDeleteError('連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。')
     } finally {
@@ -522,7 +522,7 @@ export function ItemEditor({
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">{heading}</h1>
       {/* 回到這一筆所屬的屆別，不落回預設工作屆（設計方案 §13-2）。 */}
-      <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} label="公告與作業" />
+      <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}&placement=all`} label="公告與作業" />
 
       <div className="dash-card overflow-clip">
         {/* 頂列：標題｜儲存狀態｜存草稿｜預覽｜發布 */}
@@ -948,7 +948,7 @@ export function ItemEditor({
               <h2 className="text-xl font-extrabold">{published && dialogTitle === '發布更新前檢查' ? '已更新' : '已發布'}</h2>
               <Feedback tone="ok">{done}</Feedback>
               <div className="mt-1 flex gap-2">
-                <Link href={`/dashboard/admin/affairs?cohort=${state.cohortId}`} className={SECONDARY}>
+                <Link href={`/dashboard/admin/affairs?cohort=${state.cohortId}&placement=all`} className={SECONDARY}>
                   回列表
                 </Link>
                 <button type="button" className={PRIMARY} onClick={() => dialog.current?.close()}>

@@ -52,7 +52,7 @@ export default async function AffairsPage({
   const legacy = legacyAdminRedirect(BASE, params)
   if (legacy) redirect(legacy)
 
-  const view = affairsView(await getCohortStatusQuery().list(), params)
+  const view = affairsView(await getCohortStatusQuery().list(), { ...params, placement: params.placement ?? 'news' })
   const filter = view.filter
   const honorView = filter === 'honor'
 
@@ -110,8 +110,7 @@ export default async function AffairsPage({
   // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
   const archived = cohort.status === 'archived'
   const query = (patch: Record<string, string>) => {
-    const next = new URLSearchParams({ cohort: cohort.id, ...(filter !== 'all' ? { placement: filter } : {}), ...patch })
-    if (next.get('placement') === 'all') next.delete('placement')
+    const next = new URLSearchParams({ cohort: cohort.id, placement: filter, ...patch })
     return `/dashboard/admin/affairs?${next.toString()}`
   }
 
@@ -129,7 +128,7 @@ export default async function AffairsPage({
             <Link
               key={c.id}
               // 榮譽篩選下換屆別仍停在榮譽（才看得到封存屆別）；其他篩選照舊回到全部。
-              href={honorView ? query({ cohort: c.id }) : `/dashboard/admin/affairs?cohort=${c.id}`}
+              href={honorView || filter === 'all' ? query({ cohort: c.id }) : `/dashboard/admin/affairs?cohort=${c.id}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
@@ -154,7 +153,9 @@ export default async function AffairsPage({
         filters={FILTERS.map((f) => ({ key: f.key, label: f.label, href: query({ placement: f.key }), active: filter === f.key }))}
         emptyText={
           filter === 'all'
-            ? '這一屆還沒有任何公告或作業。按「新增項目」建立第一筆。'
+            ? '這一屆還沒有任何項目。按「新增公告」建立第一筆。'
+            : filter === 'news'
+              ? '這一屆還沒有公告。按「新增公告」建立第一筆。'
             : honorView
               ? '這一屆還沒有榮譽。按「新增榮譽」建立第一則。'
               : filter === 'overdue'
@@ -174,7 +175,7 @@ export default async function AffairsPage({
           <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
             完整編輯器
           </LinkButton>
-          <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
+          <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} label="新增公告" placement="news" />
         </>
       )}
     </>,

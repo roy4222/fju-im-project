@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconArrowDown, IconArrowUp, IconChevronLeft, IconChevronRight, IconSearch, IconSelector, IconX } from '@tabler/icons-react'
 import { buttonVariants } from '@/app/_ui/ui/button'
+import { TableScroll } from '@/app/_ui/ui/table'
 import { cn } from '@/shared/cn'
 
 /**
@@ -82,7 +83,7 @@ export function BulkBar({ children, className, ...rest }: { children: ReactNode;
 export function DataTableFrame({ children, className, maxHeight = true }: { children: ReactNode; className?: string; maxHeight?: boolean }) {
   return (
     <div className={cn('relative rounded-lg border border-border', className)}>
-      <div className={cn('overflow-auto', maxHeight && 'max-h-[32rem]')}>{children}</div>
+      <TableScroll className={cn('overflow-auto', maxHeight && 'max-h-[32rem]')}>{children}</TableScroll>
     </div>
   )
 }

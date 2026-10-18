@@ -30,7 +30,8 @@ import type { VerificationLabels } from '../temporary-password-dialog'
 
 // 已停用的人沒有「發臨時密碼」，表格仍要這份型別；跟全部帳號頁同一份文字。
 const VERIFICATION_LABELS: VerificationLabels = {
-  methods: VERIFICATION_METHODS,
+  // 對話框還在問核實方式（C2-09／C2-11 才拿掉）：自動開通與系辦審核那三個新值不是人能選的，排除（C2-10 Review）。
+  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match' && m !== 'office_review' && m !== 'email_roster_match'),
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,

@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import Link from 'next/link'
-import { IconDots, IconDownload, IconPencil } from '@tabler/icons-react'
+import { IconDots, IconDownload } from '@tabler/icons-react'
 import { BulkBar, DataTableFrame, DataTableToolbar, DT, EmptyRow, SortLink } from '@/app/_ui/data-table'
 import { Pill } from '@/app/_ui/dashboard/primitives'
 import {
@@ -16,6 +16,7 @@ import { cn } from '@/shared/cn'
 import { taipeiDateOf } from '@/shared/time'
 import { AvatarResetDialog } from './avatar-reset-dialog'
 import { DeidentifyDialog } from './deidentify-dialog'
+import { EditAccountDialog } from './edit-account-dialog'
 import { AdminRoleDialog, OrphanRepairDialog, type DialogOpener, type RoleTargetView } from './role-dialogs'
 import { StatusDialog } from './status-dialog'
 import { TemporaryPasswordDialog, type VerificationLabels } from './temporary-password-dialog'
@@ -32,8 +33,7 @@ const BUTTON =
   // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
   'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
 const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
-// 列上的小按鈕；停用是紅字細框（C 階段規格② §3.2：A23 拿掉危險操作群組，停用直接放列上）。
-const ROW_BUTTON = 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted'
+// 列上的停用是紅字細框（C 階段規格② §3.2：A23 拿掉危險操作群組，停用直接放列上）。
 const ROW_DANGER = 'h-7 border border-destructive/40 bg-background px-2.5 text-[0.8rem] font-medium text-destructive hover:bg-destructive/10'
 
 // 網站問題 #7（AD-11）：拿掉表格最小寬度，次要欄（系級、建立）窄螢幕先藏，操作欄貼右邊；1280 寬整張放得下、不用橫捲。
@@ -303,11 +303,8 @@ export function AccountsTable(props: AccountsTableProps) {
                     <span className="flex items-center gap-1">
                       {/* C 階段規格② §3.2：列上順序固定「編輯、發臨時密碼、停用／恢復、更多」。自己那一列都不顯示。 */}
                       {r.userId !== currentUserId && r.status !== 'deidentified' ? (
-                        // 編輯帳號由 C2-08 接上；先佔位置，讓列上順序跟定案一樣。
-                        <button type="button" className={cn(BUTTON, ROW_BUTTON)} disabled title="編輯帳號還沒開放" aria-label={`編輯 ${r.name}`}>
-                          <IconPencil aria-hidden />
-                          編輯
-                        </button>
+                        // C2-08：姓名、學號、調屆、學生↔老師互轉；停用、待審、未設定身分的人視窗裡直接寫原因。
+                        <EditAccountDialog account={{ userId: r.userId, name: r.name }} />
                       ) : null}
                       {/* 票 8：替這一列的人發臨時密碼（待審與已核准的人才有意義；停用的人登不進來）。 */}
                       {(r.status === 'active' || r.status === 'pending') && r.userId !== currentUserId ? (

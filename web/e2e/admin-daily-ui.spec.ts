@@ -81,8 +81,8 @@ test('檔案管理：專題事務的附件列在清單上，有引用位置、�
 
   // 用三步驟快速建立一則資源，附上一個 PDF（票 15 的流程）。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /資源下載/ }).check()
   await dialog.getByLabel('標題').fill(TITLE)
   await dialog.getByLabel('誰看得到').selectOption('signed_in')
@@ -130,7 +130,7 @@ test('筆電寬 1280：專題事務標題欄看得到、檔案管理不必橫捲
   await page.setViewportSize({ width: 1280, height: 720 })
 
   // 上一則測試在這個屆別建了一則資源，列表至少有一列。
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=all`)
   const title = page.getByTestId('affair-row').first().getByRole('link').first()
   await expect(title).toBeVisible()
   expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(200)

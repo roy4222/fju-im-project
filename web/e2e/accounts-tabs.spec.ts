@@ -7,7 +7,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie } from './sess
  *
  * - AC-C2-18：全部帳號只剩列表；標題列只有一顆「新增成員」。
  * - AC-C2-13（帳號部分）：沒有「危險操作」；列上依序「編輯、發臨時密碼、停用、更多」，「刪除個人資料」是「更多」最後一項。
- * - AC-C2-20：待審核分頁不寫「第 N 版」，學生改過資料再送的列尾寫「已重送」。
+ * - AC-C2-20：待審核分頁不寫「第 N 版」；被退回後重新送出的列尾寫「已重送」，從沒被退回過的不寫（走真的「退回 → 重送」）。
  * - AC-C2-30：已停用分頁只列停用的人，每列「恢復」、更多裡「刪除個人資料」；標題列「批次停用」；匯出在工具列。
  * - AC-C2-31：名單匯入分頁標題列「匯入名單」、「歷次匯入」、說明句寫自動開通。
  * - AC-C2-32：帳號列的屆別連到那一屆的分組總覽、組別連到那一組（分組頁連回帳號列由③做）。
@@ -31,7 +31,8 @@ const groupCode = `G${stamp.slice(-2)}`
 const people = {
   grouped: { name: `${tag}-有組`, studentNo: `0${prefix}001`, userId: '' },
   disabled: { name: `${tag}-停用`, studentNo: `0${prefix}002`, userId: '' },
-  resubmitted: { name: `${tag}-重送`, studentNo: `0${prefix}003`, userId: '' },
+  resubmitted: { name: `${tag}-重送`, studentNo: `0${prefix}003`, userId: '', cookie: '' },
+  fresh: { name: `${tag}-新申請`, studentNo: `0${prefix}004`, userId: '', cookie: '' },
 }
 
 test.beforeAll(async ({ playwright }) => {
@@ -73,15 +74,20 @@ test.beforeAll(async ({ playwright }) => {
     // 停用：狀態直接寫（停用流程本身由 accounts.spec 測）。
     await pool.query(`update users set status = 'disabled' where id = $1`, [people.disabled.userId])
 
-    // 待審、改過一次資料（第 2 版）的申請。
-    const pending = await createTestSession(request, null)
-    people.resubmitted.userId = pending.userId
-    await pool.query(
-      `insert into registration_applications
-         (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, revision, created_by_kind, created_by_user_id)
-       values (gen_random_uuid(), $1, $2, $3, '資管二甲', '0912-345-678', $4, $4, 2, 'user', $1)`,
-      [pending.userId, people.resubmitted.name, people.resubmitted.studentNo, pending.email],
-    )
+    // 兩個待審申請：「重送」那位等一下會被退回再重送；「新申請」從沒被退回過。
+    // 學生要用畫面重送，所以 Email 先標成已驗證（不然會被帶去驗證頁）。
+    for (const p of [people.resubmitted, people.fresh]) {
+      const pending = await createTestSession(request, null)
+      p.userId = pending.userId
+      p.cookie = pending.cookie
+      await pool.query(`update users set email_verified = true where id = $1`, [pending.userId])
+      await pool.query(
+        `insert into registration_applications
+           (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, revision, created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, $2, $3, '資管二甲', '0912-345-678', $4, $4, 1, 'user', $1)`,
+        [pending.userId, p.name, p.studentNo, pending.email],
+      )
+    }
   } finally {
     await pool.end()
     await request.dispose()
@@ -128,8 +134,14 @@ test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依
   const row = rowOf(page, name)
   await expect(row.getByRole('button')).toHaveText(['編輯', '發臨時密碼', '停用', ''])
   await expect(row.getByRole('button').last()).toHaveAccessibleName(`更多 ${name}`)
-  // 編輯帳號 C2-08 才接上，先佔位置。
-  await expect(row.getByRole('button', { name: `編輯 ${name}` })).toBeDisabled()
+  // 編輯帳號 C2-08 接上了：按得下去，打開「編輯帳號」視窗。
+  await expect(row.getByRole('button', { name: `編輯 ${name}` })).toBeEnabled()
+  await row.getByRole('button', { name: `編輯 ${name}` }).click()
+  const editDialog = page.getByRole('dialog', { name: `編輯帳號 ${name}` })
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.getByLabel('姓名')).toBeVisible()
+  await editDialog.getByRole('button', { name: '取消' }).click()
+  await expect(editDialog).toBeHidden()
 
   await row.getByRole('button', { name: `更多 ${name}` }).click()
   const menu = page.getByRole('menu')
@@ -138,14 +150,45 @@ test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依
   await expect(menu.getByRole('menuitem').last()).toHaveText('刪除個人資料')
 })
 
-test('AC-C2-20：待審核分頁不寫「第 N 版」，改過資料的列尾寫「已重送」', async ({ browser }) => {
+test('AC-C2-20：待審核分頁不寫「第 N 版」，退回後重送的列尾寫「已重送」，沒被退回過的不寫', async ({ browser }) => {
   const page = await adminPage(browser)
+  const pendingRow = (name: string) =>
+    page.getByRole('table', { name: '待審核清單' }).getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
+
+  // 退回前：兩位都是第一次送，都沒有「已重送」。
   const response = await page.goto('/dashboard/admin/accounts/pending')
   expect(response?.status()).toBe(200)
-  const row = page.getByRole('table', { name: '待審核清單' }).getByRole('row').filter({ has: page.getByText(people.resubmitted.name, { exact: true }) })
+  await expect(pendingRow(people.resubmitted.name)).not.toContainText('已重送')
+  await expect(pendingRow(people.fresh.name)).not.toContainText('已重送')
+
+  // 系辦在畫面上退回「重送」那位。
+  await page.getByRole('button', { name: `退回 ${people.resubmitted.name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `退回 ${people.resubmitted.name}` })
+  await dialog.getByLabel(/^理由/).fill('請補正系級後重新送出')
+  await dialog.getByRole('button', { name: '退回' }).click()
+  await expect(dialog.getByRole('status')).toContainText('已退回')
+  await dialog.getByRole('button', { name: '關閉' }).click()
+  await expect(pendingRow(people.resubmitted.name)).toHaveCount(0)
+
+  // 學生登入看到退回理由，用畫面重新送出（新的申請，版本從 1 開始）。
+  const context = await browser.newContext()
+  const student = await context.newPage()
+  await context.addCookies([toPlaywrightCookie(people.resubmitted.cookie, BASE_URL)])
+  await student.goto('/register/pending')
+  await expect(student.getByRole('heading', { name: '申請被退回' })).toBeVisible()
+  await student.getByRole('button', { name: '送出申請' }).click()
+  await expect(student.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
+  await context.close()
+
+  // 重送後：這位列尾「已重送」、沒有「第 N 版」；沒被退回過的那位沒有。
+  await page.goto('/dashboard/admin/accounts/pending')
+  const row = pendingRow(people.resubmitted.name)
   await expect(row).toContainText('已重送')
+  await expect(row).not.toContainText('第 1 版')
   await expect(row).not.toContainText('第 2 版')
-  await expect(row.getByRole('button', { name: `審核 ${people.resubmitted.name}` })).toBeVisible()
+  await expect(pendingRow(people.fresh.name)).not.toContainText('已重送')
+  await expect(row.getByRole('button', { name: `核准 ${people.resubmitted.name}` })).toBeVisible()
+  await expect(row.getByRole('button', { name: `退回 ${people.resubmitted.name}` })).toBeVisible()
 })
 
 test('AC-C2-30：已停用分頁只列停用的人，每列恢復與刪除個人資料，標題列批次停用，匯出在工具列', async ({ browser }) => {

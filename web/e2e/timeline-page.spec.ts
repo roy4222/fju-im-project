@@ -294,7 +294,7 @@ test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的�
     const dueDay = ymd(at(DUE_DAY))
     await showMonth(calendar, dueDay)
     await expect(monthRow(calendar, dueDay, SUBMISSION)).toContainText('學生截止')
-    await expect(monthRow(calendar, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}` : '/dashboard/teacher/affairs')
+    await expect(monthRow(calendar, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}&placement=all` : '/dashboard/teacher/affairs')
   }
 })
 

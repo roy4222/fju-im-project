@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { IconDownload, IconFile, IconFileText, IconFolders, IconPhoto, IconPresentation, IconSearch, IconX } from '@tabler/icons-react'
 import { Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
+import { TableScroll } from '@/app/_ui/ui/table'
 import { cn } from '@/shared/cn'
 
 /**
@@ -90,7 +91,7 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
         </div>
 
         <div className="relative rounded-lg border border-border">
-          <div className="max-h-[32rem] overflow-auto">
+          <TableScroll stickyFirst className="max-h-[32rem] overflow-auto">
             <table className="w-full min-w-[54rem] table-fixed text-sm" aria-label="檔案列表">
               {/* 檔名不設寬、吃剩下的；其餘固定 46rem，1280 寬側欄展開時檔名欄約 170px、不必橫捲。
                   min-w 54rem 讓手機橫捲時檔名欄仍有約 8rem（拿掉會被擠成 0），又小於 1280 的容器寬。 */}
@@ -182,7 +183,7 @@ export function FilesTable({ rows, initialKind }: { rows: readonly FileRowView[]
                 )}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </div>
         <p className="text-xs text-muted-foreground tabular-nums">
           {filtered ? `符合 ${shown.length} 筆・共 ${rows.length} 筆` : `共 ${rows.length} 筆`}

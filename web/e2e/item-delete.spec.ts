@@ -97,7 +97,7 @@ test('草稿：危險操作區按「刪除這則公告」→ 確認後回到清�
   await expect(confirm).toContainText('刪除後後台清單也看不到、不能恢復；已寄的通知不會收回。')
   await confirm.getByRole('button', { name: '刪除這則公告' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}&placement=all$`))
   await expect(page.getByRole('main')).not.toContainText(title)
   const audit = await pool.query(`select 1 from audit_events where target_id = $1 and action = 'item.deleted'`, [itemId])
   expect(audit.rowCount).toBe(1)
@@ -134,7 +134,7 @@ test('已下架的公開公告刪掉後：訪客與系辦開原網址都是「�
 
   await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這則公告' }).click()
   await page.getByRole('dialog', { name: '刪除這則公告？' }).getByRole('button', { name: '刪除這則公告' }).click()
-  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}&placement=all$`))
 
   const gone = await visitor.goto(`/news/${itemId}`)
   expect(gone?.status()).toBe(404)
@@ -188,11 +188,11 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await expect(page.getByTestId('item-status')).toHaveText('已下架')
   await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '刪除這個作業' }).click()
   await page.getByRole('dialog', { name: '刪除這個作業？' }).getByRole('button', { name: '刪除這個作業' }).click()
-  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}&placement=all$`))
 
-  // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍是連結，點進去是中文 404。
+  // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍點得進去（C2-15：標題是點開的按鈕），點進去是中文 404。
   await signIn(page, student)
-  const link = page.locator(`a[href="/dashboard/student/affairs/${itemId}"]`)
+  const link = page.getByTestId('inbox-item').filter({ hasText: title }).locator('form:has(input[name="inbox"]) button')
   await expect
     .poll(
       async () => {
