@@ -372,17 +372,18 @@ describe('系辦重設（AC-SH-47）', () => {
     })
   })
 
-  it('學生、老師呼叫 → FORBIDDEN；理由空白或超過 200 字 → VALIDATION_FAILED；什麼都沒改', async () => {
+  it('學生、老師呼叫 → FORBIDDEN；理由超過 200 字 → VALIDATION_FAILED；什麼都沒改；理由留空可以重設（C2 X2）', async () => {
     expect((await command.updateAvatar(actor(otherId, ['student']), { preset: 9 })).ok).toBe(true)
     const before = (await auditRows('account.avatar_reset', otherId)).length
     expect(await command.resetAvatar(student(), otherId, '不當圖片')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await command.resetAvatar(actor(teacherId, ['teacher']), otherId, '不當圖片')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await command.resetAvatar(admin(), otherId, '   ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await command.resetAvatar(admin(), otherId, '字'.repeat(201))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await command.resetAvatar(admin(), 'not-a-user', '不當圖片')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await profile(otherId)).toEqual({ avatar_preset: 9, avatar_file_id: null })
     expect((await auditRows('account.avatar_reset', otherId)).length).toBe(before)
     expect(await command.resetAvatar(admin(), otherId, '字'.repeat(200))).toMatchObject({ ok: true })
+    expect(await command.resetAvatar(admin(), otherId, '   ')).toMatchObject({ ok: true })
+    expect((await auditRows('account.avatar_reset', otherId)).at(-1)).toMatchObject({ reason: null, payload: { reason: null } })
   })
 })
 

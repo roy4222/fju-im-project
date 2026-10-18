@@ -23,7 +23,8 @@ export type ClockOverride = {
   readonly setByUserId: string
   /** 畫面顯示用；查詢時 join 使用者名稱。 */
   readonly setByName: string | null
-  readonly reason: string
+  /** 選填（C2 設計方案 X2）；沒寫是 `null`。 */
+  readonly reason: string | null
 }
 
 /** 業務時間＝最新設定的時刻＋自那時起的真實經過時間；沒有任何設定就等於真實時間。 */
@@ -43,13 +44,13 @@ export type SetBusinessClockInput = {
 
 export function normalizeClockInput(
   input: SetBusinessClockInput,
-): { ok: true; value: { businessAt: Date; reason: string } } | Err {
+): { ok: true; value: { businessAt: Date; reason: string | null } } | Err {
   const businessAt = parseTaipeiDateTime(input.businessAt)
   if (!businessAt) {
     return err('VALIDATION_FAILED', '請填要模擬的系統時間（臺灣時間，年月日與時分秒）。', { details: { field: 'businessAt' } })
   }
   const reason = input.reason.trim()
-  if (!reason) return err('VALIDATION_FAILED', '請填原因：為什麼要調整模擬時鐘。', { details: { field: 'reason' } })
+  if (!reason) return { ok: true, value: { businessAt, reason: null } }
   if (reason.length > CLOCK_REASON_MAX_LENGTH) {
     return err('VALIDATION_FAILED', `原因最多 ${CLOCK_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }

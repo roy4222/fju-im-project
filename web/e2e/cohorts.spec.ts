@@ -206,14 +206,13 @@ test.describe('封存與解封', () => {
     expect(row.rows[0]!.status).toBe('active')
   })
 
-  test('AC-A-25 封存：理由留空擋在視窗裡；填了理由 → 卡片已封存、只剩「解除封存」，留狀態紀錄與稽核', async ({ page }) => {
+  test('AC-A-25 封存：理由選填；填了理由 → 卡片已封存、只剩「解除封存」，留狀態紀錄與稽核', async ({ page }) => {
     await signInAsAdmin(page)
     await page.goto('/dashboard/admin/cohorts')
 
     const dialog = await openStatusDialog(page, '封存這一屆', `封存${CODE_C}？`)
-    await dialog.getByRole('button', { name: '確定封存' }).click()
-    await expect(dialog.getByRole('alert')).toHaveText('請填理由。')
-    await expect(dialog).toBeVisible()
+    // 理由選填（C2 X2）：標籤寫明選填、不是必填欄。
+    await expect(dialog.getByLabel('理由（選填，會留在操作紀錄）')).not.toHaveAttribute('aria-required')
 
     await dialog.getByLabel(/理由/).fill('115 學年度結束')
     await dialog.getByRole('button', { name: '確定封存' }).click()

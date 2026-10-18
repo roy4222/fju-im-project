@@ -170,7 +170,7 @@ describe('設為管理員', () => {
     expect(await one(`select role from users where id = $1`, [staff.userId])).toEqual({ role: 'admin' })
   })
 
-  it('理由必填、只能設管理員、不能對自己、學生／待審／停用不行、已經是管理員回 CONFLICT、非管理員被擋——都不改任何東西', async () => {
+  it('理由超過上限、只能設管理員、不能對自己、學生／待審／停用不行、已經是管理員回 CONFLICT、非管理員被擋——都不改任何東西', async () => {
     const a1 = await account({ roles: ['admin'] })
     const other = await account({ roles: ['admin'] })
     const teacher = await account({ roles: ['teacher'] })
@@ -180,7 +180,7 @@ describe('設為管理員', () => {
     const grant = (actor: ResolvedActor, userId: string, patch: Record<string, string> = {}) =>
       command.grantRole(actor, { userId, role: 'admin', reason: '理由', requestId: requestId(), ...patch })
 
-    expect(await grant(a1.actor, teacher.userId, { reason: '   ' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
+    expect(await grant(a1.actor, teacher.userId, { reason: 'x'.repeat(501) })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
     expect(await grant(a1.actor, teacher.userId, { role: 'teacher' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'role' } })
     expect(await grant(a1.actor, a1.userId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await grant(a1.actor, student.userId)).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
@@ -329,10 +329,11 @@ describe('孤兒帳號補建角色', () => {
       role: 'teacher',
       granted_by_user_id: a1.userId,
     })
-    expect(await one(`select from_status, to_status, actor_user_id from user_status_events where user_id = $1`, [orphan.userId])).toEqual({
+    expect(await one(`select from_status, to_status, actor_user_id, reason from user_status_events where user_id = $1`, [orphan.userId])).toEqual({
       from_status: 'pending',
       to_status: 'active',
       actor_user_id: a1.userId,
+      reason: '補上身分：新增老師時系統出錯，補建',
     })
     expect(await one(`select reason, payload from audit_events where action = 'account.repair_orphan' and target_id = $1`, [orphan.userId])).toEqual({
       reason: '新增老師時系統出錯，補建',
@@ -354,7 +355,19 @@ describe('孤兒帳號補建角色', () => {
     expect(await validAdmins(orphan.userId)).toEqual({ n: 1 })
   })
 
-  it('不是孤兒（有申請、有角色、有個人資料、已停用）、角色不對、沒寫理由、非管理員 → 拒絕且不改任何東西', async () => {
+  it('理由選填（C2 X2）：留空補建 → 狀態事件、角色與稽核的理由都是 NULL（不會存成「補上身分：null」）', async () => {
+    const a1 = await account({ roles: ['admin'] })
+    const orphan = await account({ status: 'pending' })
+    expect(await command.repairOrphan(a1.actor, { userId: orphan.userId, role: 'teacher', reason: '  ', requestId: requestId() })).toMatchObject({
+      ok: true,
+      receipt: { activated: true },
+    })
+    expect(await one(`select reason from user_status_events where user_id = $1`, [orphan.userId])).toEqual({ reason: null })
+    expect(await one(`select reason from role_assignments where user_id = $1`, [orphan.userId])).toEqual({ reason: null })
+    expect(await one(`select reason from audit_events where action = 'account.repair_orphan' and target_id = $1`, [orphan.userId])).toEqual({ reason: null })
+  })
+
+  it('不是孤兒（有申請、有角色、有個人資料、已停用）、角色不對、理由超過上限、非管理員 → 拒絕且不改任何東西', async () => {
     const a1 = await account({ roles: ['admin'] })
     const applicant = await account({ status: 'pending', application: true })
     const teacher = await account({ roles: ['teacher'] })
@@ -368,7 +381,7 @@ describe('孤兒帳號補建角色', () => {
       expect(await repair(a1.actor, who.userId)).toMatchObject({ ok: false, code: 'CONFLICT' })
     }
     expect(await repair(a1.actor, orphan.userId, { role: 'student' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'role' } })
-    expect(await repair(a1.actor, orphan.userId, { reason: '' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
+    expect(await repair(a1.actor, orphan.userId, { reason: 'x'.repeat(501) })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
     expect(await repair(teacher.actor, orphan.userId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await one(`select status from users where id = $1`, [orphan.userId])).toEqual({ status: 'pending' })
     expect(await one(`select count(*)::int as n from role_assignments where user_id = $1`, [orphan.userId])).toEqual({ n: 0 })

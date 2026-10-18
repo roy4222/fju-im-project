@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * 票 40：系辦用**真的畫面**完成一次去識別化（ACC-14）。
  *
- * 影響預覽 → 理由必填 → 照打登入 Email 才按得下去 → 回執只有代稱；
+ * 影響預覽 → 理由選填 → 照打登入 Email 才按得下去 → 回執只有代稱；
  * 之後原姓名搜不到、狀態篩選找得到代稱；本人舊分頁下一個動作就被登出，原 Email 也登入不了。
  */
 
@@ -83,7 +83,7 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await expect(dialog.getByRole('region', { name: '會清除' })).toBeVisible()
   await expect(dialog.getByTestId('deidentify-retained')).toContainText('操作紀錄')
 
-  // 沒寫理由、沒照打 Email 之前按不下去；打錯也按不下去。
+  // 理由選填（C2 X2）；沒照打 Email 之前按不下去，打錯也按不下去。
   const confirm = dialog.getByRole('button', { name: '確認刪除個人資料' })
   await expect(confirm).toBeDisabled()
   await dialog.getByLabel(/理由/).fill('本人申請刪除個資')

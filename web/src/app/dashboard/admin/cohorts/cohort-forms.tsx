@@ -332,7 +332,7 @@ const STATUS_COPY = {
     facts: [
       ['範圍', '這一屆的組別、評分、簽核、成果都變成只能查看；老師的評分清單與「我的組別」不再列這一屆。'],
       ['後果', '按下就生效並留一筆狀態紀錄與操作紀錄。預設工作屆別、開放註冊屆別不能封存，要先換成別屆。'],
-      ['能不能恢復', '可以，已封存的卡上有「解除封存」，同樣要填理由。'],
+      ['能不能恢復', '可以，已封存的卡上有「解除封存」。'],
     ],
   },
   unarchive: {
@@ -348,8 +348,8 @@ const STATUS_COPY = {
 } as const
 
 /**
- * 「封存這一屆」「解除封存」的確認視窗（AD-B4；設計方案 §7）：寫對象、範圍、後果、能不能恢復，理由必填。
- * 理由留空就在視窗裡提示「請填理由」、不送出；送出就關掉視窗，結果顯示在卡片列上方那一句回饋。
+ * 「封存這一屆」「解除封存」的確認視窗（AD-B4；設計方案 §7）：寫對象、範圍、後果、能不能恢復，理由選填（C2 設計方案 X2）。
+ * 送出就關掉視窗，結果顯示在卡片列上方那一句回饋。
  */
 function CohortStatusButton({
   row,
@@ -365,14 +365,10 @@ function CohortStatusButton({
   reasonMaxLength: number
 }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [missing, setMissing] = useState(false)
   const copy = STATUS_COPY[mode]
   const reasonId = `cohort-${mode}-reason-${row.id}`
   const facts: readonly (readonly [string, string])[] = [['對象', row.label], ...copy.facts]
-  const close = () => {
-    setMissing(false)
-    ref.current?.close()
-  }
+  const close = () => ref.current?.close()
   return (
     <>
       <button
@@ -384,19 +380,11 @@ function CohortStatusButton({
       >
         {copy.button}
       </button>
-      <dialog ref={ref} aria-label={copy.title(row.code)} className={DIALOG.lg} onClose={() => setMissing(false)}>
+      <dialog ref={ref} aria-label={copy.title(row.code)} className={DIALOG.lg}>
         <form
           action={action}
           noValidate
-          onSubmit={(event) => {
-            const reason = new FormData(event.currentTarget).get('reason')
-            if (!String(reason ?? '').trim()) {
-              event.preventDefault()
-              setMissing(true)
-              return
-            }
-            close()
-          }}
+          onSubmit={close}
           className="space-y-4 p-5"
         >
           <input type="hidden" name="cohortId" value={row.id} />
@@ -413,23 +401,9 @@ function CohortStatusButton({
             ))}
           </dl>
           <label htmlFor={reasonId} className={LABEL}>
-            理由（必填，最多 {reasonMaxLength} 字）
-            <textarea
-              id={reasonId}
-              name="reason"
-              rows={3}
-              maxLength={reasonMaxLength}
-              aria-required
-              aria-invalid={missing || undefined}
-              onChange={() => setMissing(false)}
-              className={TEXTAREA}
-            />
+            理由（選填，會留在操作紀錄）
+            <textarea id={reasonId} name="reason" rows={3} maxLength={reasonMaxLength} className={TEXTAREA} />
           </label>
-          {missing ? (
-            <p role="alert" className={ALERT}>
-              請填理由。
-            </p>
-          ) : null}
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <button type="button" className={CANCEL} onClick={close}>
               先不要

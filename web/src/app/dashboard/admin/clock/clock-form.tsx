@@ -5,7 +5,7 @@ import { cn } from '@/shared/cn'
 
 /**
  * 模擬業務鐘的表單（票 11）。時間用 `datetime-local` 帶秒（step=1），當臺灣時間解讀；
- * 原因必填。回饋一律是伺服器回的句子。
+ * 原因選填（C2 設計方案 X2），留空存 `null`。回饋一律是伺服器回的句子。
  */
 
 export type ClockActionState =
@@ -47,7 +47,7 @@ export function ClockForm({
         </div>
         <div>
           <label htmlFor="clock-reason" className="block text-sm font-medium text-ink">
-            原因
+            原因（選填，會留在操作紀錄）
           </label>
           <input
             id="clock-reason"

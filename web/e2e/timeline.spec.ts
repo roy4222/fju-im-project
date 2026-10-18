@@ -218,7 +218,7 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   ])
 })
 
-test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁的階段文字一起變', async ({ page, request }) => {
+test('模擬業務鐘：原因選填；推到各個時間點，三角色首頁的階段文字一起變', async ({ page, request }) => {
   // 學生要歸屬這一屆，首頁才看得到它（老師與管理員看預設工作屆別）。
   // 兩個帳號各用一個還沒有任何 cookie 的 request 註冊：註冊回應會留下 session cookie，
   // 帶著 cookie 又沒有 Origin 的第二次 POST 會被 Better Auth 當成 CSRF 擋下。
@@ -233,10 +233,14 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
 
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/clock')
-  await expect(page.getByRole('heading', { name: '模擬時鐘' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '測試用時間' })).toBeVisible()
+  await expect(page).toHaveTitle('測試用時間｜資管系專題平台')
+  // 原因選填（C2 X2；AC-C2-10）：留空也設得了，紀錄的原因是 NULL。
   await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill('2027-03-01T10:00')
   await page.getByRole('button', { name: '設定模擬時間' }).click()
-  await expect(feedback(page, 'alert')).toContainText('請填原因：為什麼要調整模擬時鐘。')
+  await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
+  const blank = await pool.query(`select reason from business_clock_overrides order by real_at desc, id desc limit 1`)
+  expect(blank.rows[0]).toEqual({ reason: null })
 
   // 第一階段開始日的前一晚：尚未開始。（設定後業務鐘會繼續走，所以不設在最後一秒；
   // 秒級邊界由單元測試證明。）

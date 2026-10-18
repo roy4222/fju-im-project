@@ -185,8 +185,8 @@ export class PgAvatarCommand implements AvatarCommand {
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED', '只有系辦可以重設頭像。')
     if (!isUserId(userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
     const normalized = normalizeAvatarResetReason(reason)
-    if (normalized === null) {
-      return err('VALIDATION_FAILED', '請填理由（200 字以內）。', { details: { field: 'reason' } })
+    if (!normalized.ok) {
+      return err('VALIDATION_FAILED', '理由最多 200 個字。', { details: { field: 'reason' } })
     }
 
     const now = this.#clock.now()
@@ -212,10 +212,10 @@ export class PgAvatarCommand implements AvatarCommand {
         targetType: 'user',
         targetId: userId,
         scope: 'global',
-        reason: normalized,
+        reason: normalized.value,
         realAt: now,
         businessAt: now,
-        payload: { reason: normalized, avatarPreset: before.avatar_preset, avatarFileId: before.avatar_file_id },
+        payload: { reason: normalized.value, avatarPreset: before.avatar_preset, avatarFileId: before.avatar_file_id },
       })
       return ok(undefined, meta(now))
     })

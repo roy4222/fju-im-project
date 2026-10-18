@@ -9,7 +9,7 @@ import type { DialogOpener } from './role-dialogs'
 /**
  * 停用／恢復一個帳號（票 9；原型 `/dashboard/admin/accounts` 的 ToggleStatusDialog）。
  *
- * 先講影響、理由必填，送出後顯示回執；關掉對話框才刷新列表（同審核對話框的作法）。
+ * 先講影響、理由選填，送出後顯示回執；關掉對話框才刷新列表（同審核對話框的作法）。
  * 規則都在伺服器：這裡只把輸入送過去、把結果照實顯示。
  *
  * 票 42：停用時先問伺服器「他是不是組長」。是組長就要在同一個對話框指定接任的組長
@@ -84,10 +84,6 @@ export function StatusDialog({ account: a, opener }: { account: StatusTarget; op
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!reason.trim()) {
-      setError(`請寫${verb}的理由。`)
-      return
-    }
     const missing = disabling ? (leaderships ?? []).find((l) => !successors[l.groupId]) : undefined
     if (missing) {
       setError(`請選接任 ${missing.groupCode} 組長的同學。`)
@@ -222,7 +218,7 @@ export function StatusDialog({ account: a, opener }: { account: StatusTarget; op
                   )
                 : null}
               <label className="block text-sm font-medium text-foreground">
-                理由 <span className="font-normal text-muted-foreground">・必填，會寫入紀錄</span>
+                理由（選填，會留在操作紀錄）
                 <textarea
                   rows={2}
                   value={reason}

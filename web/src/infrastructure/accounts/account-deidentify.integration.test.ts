@@ -246,10 +246,10 @@ describe('權限：只有系辦', () => {
 })
 
 describe('前置條件與二次確認', () => {
-  it('理由必填、照打的 Email 不對都擋下，什麼都沒改', async () => {
+  it('理由超過上限、照打的 Email 不對都擋下，什麼都沒改', async () => {
     const s = await student('0411404011', '確認甲')
     expect(
-      await command.deidentify(adminActor(), { userId: s.userId, reason: ' ', confirmText: s.email, requestId: requestId() }, { headers: admin.headers }),
+      await command.deidentify(adminActor(), { userId: s.userId, reason: 'x'.repeat(501), confirmText: s.email, requestId: requestId() }, { headers: admin.headers }),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(
       await command.deidentify(

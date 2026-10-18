@@ -278,10 +278,10 @@ function hasControlChars(value: string): boolean {
   return false
 }
 
-/** 停用、恢復、批次停用的理由：必填（工程模組 01 §3 狀態表的前置條件），會進稽核。 */
-export function normalizeStatusReason(raw: unknown): { ok: true; value: string } | Err {
+/** 停用、恢復、批次停用、去識別化的理由：選填（C2 設計方案 X2），留空存 `null`；有寫就進稽核。 */
+export function normalizeStatusReason(raw: unknown): { ok: true; value: string | null } | Err {
   const reason = typeof raw === 'string' ? raw.trim() : ''
-  if (!reason) return err('VALIDATION_FAILED', '請寫理由，例如「休學」「復學」。', { details: { field: 'reason' } })
+  if (!reason) return { ok: true, value: null }
   if (reason.length > REASON_MAX_LENGTH || hasControlChars(reason)) {
     return err('VALIDATION_FAILED', `理由最多 ${REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }

@@ -504,7 +504,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
           userId: target.userId,
           choices: successors.value,
           actorUserId: actor.userId,
-          reason: reason.value,
+          // 接任埠的理由仍是字串（組長列寫「帳號停用：…」）；停用理由選填（C2 X2），沒寫就標「未填理由」。
+          reason: reason.value ?? '未填理由',
           realAt: now,
         })
         if (!succeeded.ok) {
@@ -831,7 +832,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     target: LockedAccount,
     action: 'disable' | 'restore',
     to: 'disabled' | 'active' | 'pending',
-    reason: string,
+    reason: string | null,
     now: Date,
     bulkId: string | null,
   ): Promise<void> {

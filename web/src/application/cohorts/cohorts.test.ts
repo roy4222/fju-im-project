@@ -6,6 +6,7 @@ import {
   describeFlagReceipt,
   isRequestId,
   normalizeCreateInput,
+  normalizeStatusReason,
 } from '@/application/cohorts'
 import { cohortLabel } from '@/application/cohorts/cohorts'
 import type { ResolvedActor } from '@/application/accounts'
@@ -107,5 +108,13 @@ describe('設旗標的回饋句子', () => {
 describe('屆別的顯示名稱', () => {
   it('寫成「名稱（代碼）」', () => {
     expect(cohortLabel({ name: '第 43 屆', code: '115' })).toBe('第 43 屆（115）')
+  })
+})
+
+describe('封存／解封理由', () => {
+  it('選填（C2 X2）：留空存 null、去頭尾空白、超過 200 字拒絕', () => {
+    expect(normalizeStatusReason('   ')).toEqual({ ok: true, value: null })
+    expect(normalizeStatusReason(' 畢業 ')).toEqual({ ok: true, value: '畢業' })
+    expect(normalizeStatusReason('x'.repeat(201))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
   })
 })
