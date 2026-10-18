@@ -7,7 +7,13 @@
 
 export type ActorKind = 'user' | 'system' | 'worker'
 export type Scope = 'cohort' | 'global'
-export type VerificationMethod = 'id_document' | 'school_channel' | 'other' | 'google_email_match'
+export type VerificationMethod =
+  | 'id_document'
+  | 'school_channel'
+  | 'other'
+  | 'google_email_match'
+  | 'office_review'
+  | 'email_roster_match'
 
 /** 一筆稽核紀錄（契約 01 §4.3）。寫進去就改不掉。 */
 export type AuditEventInput = {

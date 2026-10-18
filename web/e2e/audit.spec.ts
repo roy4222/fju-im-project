@@ -8,7 +8,7 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
  * 1. 管理員做一件會留紀錄的事（新增屆別），操作紀錄最上面看得到：動作「新增屆別」、對象是那一屆、操作者有名字。
  * 2. 依角色分頁：「管理員」分頁看得到、「學生」分頁沒有這一筆；網址帶著分頁，重新整理不會丟。
  * 3. 頁面沒有任何修改入口（只讀）。
- * 4. 核准一個學生後，最上面那列看得到學生姓名、核實方式與核實說明；各分頁數字加起來等於「全部」（2026-10-08 系2、系3）。
+ * 4. 核准一個學生後，最上面那列看得到學生姓名與核實方式（系辦審核）；各分頁數字加起來等於「全部」（2026-10-08 系2、系3）。
  * 非管理員被擋在 `pages.spec` 逐條驗 `PROTECTED_ROUTES`（這一頁已登記）。
  */
 
@@ -93,7 +93,6 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const prefix = String(Date.now()).slice(-5)
   const student = { name: `紀錄生${prefix}`, studentNo: `5${prefix}001`, email: `audit-s-${stamp.toLowerCase()}@example.com` }
   const password = 'Student-Password-2026'
-  const note = `E2E 櫃台核對學生證 ${prefix}`
 
   // 屆別畫面有自己的 e2e；這裡直接種，只測「核准 → 操作紀錄」。
   const pool = new Pool({ connectionString: ownerUrl, max: 1 })
@@ -130,20 +129,18 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const page = await adminContext.newPage()
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/accounts/pending')
-  await page.getByRole('button', { name: `審核 ${student.name}` }).click()
-  const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` })
+  // 學生不在名單上：核准開小視窗，只選屆別。
+  await page.getByRole('button', { name: `核准 ${student.name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `核准 ${student.name}` })
   await dialog.getByLabel('核准進哪一屆').selectOption({ label: `${cohortName}（${cohortCode}）` })
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
-  await dialog.getByLabel(/^怎麼確認的說明/).fill(note)
-  await dialog.getByRole('button', { name: '核准' }).click()
+  await dialog.getByRole('button', { name: '核准', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
 
   await page.goto('/dashboard/admin/audit')
   // e2e 平行跑，別的檔可能剛好插進新紀錄，所以用學生姓名找那一列，不假設它在第一列。
   const top = page.getByTestId('audit-entry').filter({ hasText: '核准註冊' }).filter({ hasText: student.name })
   await expect(top).toHaveCount(1)
-  await expect(top).toContainText('當面核對')
-  await expect(top).toContainText(note)
+  await expect(top).toContainText('系辦審核')
 
   // 學生送出申請那筆沒有角色，落在「本人申請」。
   await page.goto('/dashboard/admin/audit?role=other')

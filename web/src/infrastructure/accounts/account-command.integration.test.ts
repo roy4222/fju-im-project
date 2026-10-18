@@ -210,7 +210,7 @@ describe('直接新增老師（ACC-06）', () => {
   it('直接新增一定要記核實方式；Email 已經有帳號就不能再建', async () => {
     const email = uniqueEmail('dup')
     expect(
-      await command.createTeacher(admin(), adminHeaders, { mode: 'direct', email, name: '沒核實', verificationMethod: '', verificationNote: '', requestId: requestId() }),
+      await command.createTeacher(admin(), adminHeaders, { mode: 'direct', email, name: '沒核實', verificationMethod: 'class_rep', verificationNote: '', requestId: requestId() }),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'verificationMethod' } })
     expect(await one('select count(*)::int as n from users where email = $1', [email])).toEqual({ n: 0 })
 
@@ -384,7 +384,7 @@ describe('核發臨時密碼（ACC-08、ACC-18）', () => {
     const student = await signUp(email)
     const base = { userId: student.userId, verificationMethod: 'id_document', verificationNote: '', reason: '' }
 
-    expect(await command.issueTemporaryPassword(admin(), adminHeaders, { ...base, verificationMethod: '', requestId: requestId() })).toMatchObject({
+    expect(await command.issueTemporaryPassword(admin(), adminHeaders, { ...base, verificationMethod: 'class_rep', requestId: requestId() })).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
       details: { field: 'verificationMethod' },

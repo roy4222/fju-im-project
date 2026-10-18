@@ -426,18 +426,13 @@ describe('系辦審核', () => {
     expect(stale).toMatchObject({ ok: false, code: 'CONFLICT', details: { currentRevision: 2 } })
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
 
-    // 核實方式必選。
-    const noMethod = await command.approve(admin(), {
-      applicationId: row.applicationId, revision: 2, verificationMethod: '', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
-    })
-    expect(noMethod).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'verificationMethod' } })
-
     const id = requestId()
     const input = {
-      applicationId: row.applicationId, revision: 2, verificationMethod: 'id_document', verificationNote: '9/24 櫃台核對學生證', reason: '', cohortId: null, requestId: id,
+      applicationId: row.applicationId, revision: 2, verificationMethod: '', verificationNote: '', reason: '', cohortId: null, requestId: id,
     }
+    // 不帶核實方式也能核准（C2-10；AC-C2-15）：寫入固定值 office_review。
     const approved = await command.approve(admin(), input)
-    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved', cohortName: '115 學年度專題', verificationMethod: 'id_document' } })
+    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved', cohortName: '115 學年度專題', verificationMethod: 'office_review' } })
 
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'active' })
     expect(await one(`select role, granted_by_user_id from role_assignments where user_id = $1`, [userId])).toEqual({ role: 'student', granted_by_user_id: adminId })
@@ -446,7 +441,7 @@ describe('系辦審核', () => {
       display_name: '林小華', cohort_id: cohort115, phone: '0955-555-555', department_class: '資管二乙',
     })
     expect(await one(`select from_status, to_status, verification_method, actor_user_id from user_status_events where user_id = $1`, [userId])).toEqual({
-      from_status: 'pending', to_status: 'active', verification_method: 'id_document', actor_user_id: adminId,
+      from_status: 'pending', to_status: 'active', verification_method: 'office_review', actor_user_id: adminId,
     })
     const decided = await one<Record<string, unknown>>(
       `select state, decided_by_user_id, verification_method, verification_note, assigned_cohort_id, roster_version_id is not null as has_version, revision
@@ -454,17 +449,17 @@ describe('系辦審核', () => {
       [row.applicationId],
     )
     expect(decided).toEqual({
-      state: 'approved', decided_by_user_id: adminId, verification_method: 'id_document', verification_note: '9/24 櫃台核對學生證',
+      state: 'approved', decided_by_user_id: adminId, verification_method: 'office_review', verification_note: null,
       assigned_cohort_id: cohort115, has_version: true, revision: 2,
     })
     expect(await one(`select verification_method, cohort_id from audit_events where action = 'account.approve' and target_id = $1`, [row.applicationId])).toEqual({
-      verification_method: 'id_document', cohort_id: cohort115,
+      verification_method: 'office_review', cohort_id: cohort115,
     })
 
     // 同一個請求編號重送：回同一份回執，不重做；內容不同就拒絕。
     const replay = await command.approve(admin(), input)
     expect(replay).toMatchObject({ ok: true, receipt: { decidedAt: (approved as { receipt: { decidedAt: string } }).receipt.decidedAt } })
-    expect(await command.approve(admin(), { ...input, verificationMethod: 'other', verificationNote: '改了' })).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
+    expect(await command.approve(admin(), { ...input, reason: '改了' })).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
     // 新的請求編號：已經處理過了。
     expect(await command.approve(admin(), { ...input, requestId: requestId() })).toMatchObject({ ok: false, code: 'CONFLICT' })
   })
@@ -577,6 +572,11 @@ describe('系辦審核', () => {
     expect(resubmitted).toMatchObject({ ok: true, receipt: { revision: 1 } })
     expect((resubmitted as { receipt: { applicationId: string } }).receipt.applicationId).not.toBe(rowSecond.applicationId)
     expect(await command.viewMine(pendingActor(second))).toMatchObject({ ok: true, receipt: { state: 'pending', rejection: null } })
+    // AC-C2-20：待審清單用「先前被退回過」標已重送（新申請的版本是 1，不能靠版本判斷）；沒被退回過的不標。
+    const relisted = await command.listPending(admin())
+    if (!relisted.ok) throw new Error(relisted.message)
+    expect(relisted.receipt.applications.find((a) => a.userId === second)).toMatchObject({ revision: 1, previouslyRejected: true })
+    expect(relisted.receipt.applications.find((a) => a.userId === first)?.previouslyRejected ?? false).toBe(false)
     expect(
       await command.approve(admin(), {
         applicationId: rowSecond.applicationId, revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
