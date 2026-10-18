@@ -249,7 +249,7 @@
   --info-foreground: oklch(0.18 0.05 258);
   --info-subtle: oklch(0.32 0.08 250);
   --info-on-subtle: oklch(0.88 0.07 245);
-  --destructive: oklch(0.72 0.17 25);
+  --destructive: oklch(0.83 0.15 25); /* C3 卡片變亮後，當字用對卡片 ≥ 4.5（舊 0.72 只有 3.8） */
   --destructive-foreground: oklch(0.18 0.05 258);
   --destructive-subtle: oklch(0.33 0.08 22);
   --destructive-on-subtle: oklch(0.89 0.08 25);
@@ -268,14 +268,14 @@
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: oklch(0.78 0.07 255 / 14%);
 
-  /* 狀態色：提亮同色相，實心膠囊上放深藍字；當字用時對卡片、對 18% 淡底也都 ≥ 4.5:1。 */
-  --st-overdue: oklch(0.72 0.17 25);
-  --st-soon: oklch(0.8 0.145 62);
-  --st-done: oklch(0.78 0.14 155);
-  --st-open: oklch(0.76 0.04 255);
-  --st-violet: oklch(0.78 0.12 300);
+  /* 狀態色：提亮同色相，實心膠囊上放深藍字；當字用時對卡片（#2B4266）、對疊在卡片上的 10% 淡底（下方 .dark .status-pill）都 ≥ 4.5:1。 */
+  --st-overdue: oklch(0.86 0.14 25);
+  --st-soon: oklch(0.82 0.145 62);
+  --st-done: oklch(0.8 0.14 155);
+  --st-open: oklch(0.82 0.04 255);
+  --st-violet: oklch(0.83 0.12 300);
   --st-alert: oklch(0.82 0.14 82); /* 黃，同深色 --warning */
-  --st-neutral: oklch(0.74 0.02 255);
+  --st-neutral: oklch(0.82 0.02 255);
   --on-tint: oklch(0.165 0.045 260);
 
   /* 橫幅：深藍漸層＋內圈細光，藍圓花紋淡到 0.35。 */
@@ -549,9 +549,6 @@
   .dark .dash-surface { background: var(--background) !important; box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%) !important; }
   .dark .dash-header { background: var(--background); border-bottom-color: var(--border); }
   .dark .dash-card { border-color: var(--border); }
-  /* 原生下拉：深底白字（color-scheme: dark 負責選項清單與捲軸）。 */
-  .dark select, .dark option { background-color: var(--card); color: var(--foreground); }
-  .dark select { border-color: var(--border); }
   .dark .dash-nav-item:hover { background: oklch(0.78 0.07 255 / 9%); }
   /* 深色啟用項：L3 底（--sidebar-accent）＋左側 3px 品牌橘條。 */
   .dark .dash-nav-active, .dark .dash-nav-active:hover { background: var(--sidebar-accent); color: var(--foreground); box-shadow: inset 3px 0 0 var(--primary); }
@@ -571,3 +568,16 @@
   to { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 50%) var(--reveal-y, 50%)); }
 }
 @media (prefers-reduced-motion: reduce) { ::view-transition-new(root) { animation: none; } }
+
+/* ---------------------------------------------------------------------------
+   深色 C3 的補強規則（刻意放在 @layer 外：沒有 layer 的規則勝過 utilities，
+   才壓得過各元件自己寫的 bg-background／text-foreground 等 class）。
+--------------------------------------------------------------------------- */
+/* 原生下拉：深底白字（color-scheme: dark 負責選項清單與捲軸）。 */
+.dark select, .dark option { background-color: var(--card); color: var(--foreground); }
+.dark select { border-color: var(--border); }
+/* 狀態膠囊淡底：卡片變亮後 18% 會讓字對比掉到 4.5 以下，降到 10%。 */
+.dark .status-pill { background: color-mix(in oklch, var(--tone) 10%, transparent); }
+/* 淺藍強調（§1.1 的 #8DB6E6，＝ --sidebar-primary）：連結與橫幅次要字；hover／focus 仍走 C2-19 的品牌橘。 */
+.dark .link-ink:not(:hover, :focus-visible) { color: var(--sidebar-primary); }
+.dark .hero .text-white\/70 { color: var(--sidebar-primary); }
