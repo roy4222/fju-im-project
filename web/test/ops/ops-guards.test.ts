@@ -185,6 +185,123 @@ describe('restore-drill.sh 的參數與目錄檢查', () => {
   })
 })
 
+describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', () => {
+  const lock = ops('cloudflare-origin-lock.sh')
+  const CHAIN = 'FJU-CF-ORIGIN'
+  const READONLY = /^(iptables|ip6tables) (-V|-S)/
+
+  function runLock(args: string[], fakeRoot: boolean) {
+    const bin = path.join(dir, 'bin')
+    const log = path.join(dir, 'fw.log')
+    fs.writeFileSync(log, '')
+    const fakes: Record<string, string> = {
+      iptables: '[ "$1" = -V ] && echo "iptables v1.8.10 (nf_tables)"',
+      ip6tables: '',
+      systemctl: '',
+      id: fakeRoot ? 'echo 0' : 'echo 1000',
+    }
+    for (const [name, body] of Object.entries(fakes)) {
+      const f = path.join(bin, name)
+      fs.writeFileSync(f, `#!/usr/bin/env bash\n${name === 'id' ? '' : `echo "${name} $*" >> "$FW_LOG"`}\n${body}\nexit 0\n`)
+      fs.chmodSync(f, 0o755)
+    }
+    const unitDir = path.join(dir, 'units')
+    const r = spawnSync('bash', [lock, ...args], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        FW_LOG: log,
+        FJU_CF_IFACE: 'eth0',
+        FJU_CF_UNIT_DIR: unitDir,
+      },
+      encoding: 'utf8',
+      timeout: 20_000,
+    })
+    return {
+      code: r.status,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      calls: fs.readFileSync(log, 'utf8').split('\n').filter(Boolean),
+      unitDir,
+    }
+  }
+
+  // 防火牆指令（iptables／ip6tables／systemctl）的序列，不含偵測用的唯讀呼叫。
+  const sequence = (lines: string[]) =>
+    lines
+      .map((l) => l.replace(/^\s*\+ /, ''))
+      .filter((l) => /^(iptables|ip6tables|systemctl) /.test(l))
+      .filter((l) => !READONLY.test(l))
+
+  it('不是 root、不帶 --execute：只印偵測結果與完整指令序列，沒有呼叫任何改規則的命令、沒寫單元', () => {
+    const r = runLock([], false)
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('偵測結果')
+    expect(r.stdout).toContain('iptables v1.8.10 (nf_tables)')
+    expect(r.stdout).toContain('這是預覽，什麼都沒有執行')
+    const printed = sequence(r.stdout.split('\n'))
+    expect(printed).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain(`ip6tables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain('systemctl enable fju-cf-origin-lock.service')
+    // 只有唯讀的偵測呼叫（-V、-S）；沒有任何一次真的改規則或碰 systemctl。
+    expect(r.calls.filter((c) => !READONLY.test(c))).toEqual([])
+    expect(fs.existsSync(r.unitDir)).toBe(false)
+    // 非 root 帶 --execute 也只印。
+    const x = runLock(['--execute'], false)
+    expect(x.code).toBe(0)
+    expect(x.stdout).toContain('不是 root：只印不做')
+    expect(x.calls.filter((c) => !READONLY.test(c))).toEqual([])
+    expect(fs.existsSync(x.unitDir)).toBe(false)
+  })
+
+  it('--execute（假 root、假 iptables／ip6tables／systemctl）：清鏈 → 建鏈 → 加規則 → jump → 寫單元 → enable', () => {
+    const r = runLock(['--execute'], true)
+    expect(r.code).toBe(0)
+    const done = sequence(r.calls)
+    for (const ipt of ['iptables', 'ip6tables']) {
+      const mine = done.filter((l) => l.startsWith(`${ipt} `))
+      const idx = (re: RegExp) => mine.findIndex((l) => re.test(l))
+      const flush = idx(new RegExp(`-F ${CHAIN}$`))
+      const create = idx(new RegExp(`-N ${CHAIN}$`))
+      const firstRule = idx(new RegExp(`-A ${CHAIN} `))
+      const drop = idx(new RegExp(`-A ${CHAIN} -j DROP$`))
+      const jump = idx(new RegExp(`-I DOCKER-USER 1 -j ${CHAIN}$`))
+      expect(flush, ipt).toBeGreaterThanOrEqual(0)
+      expect(create, ipt).toBeGreaterThan(flush)
+      expect(firstRule, ipt).toBeGreaterThan(create)
+      expect(drop, ipt).toBeGreaterThan(firstRule)
+      expect(jump, ipt).toBe(mine.length - 1)
+      // 只套外網介面、80／443、新連線；Cloudflare 範圍放行。
+      expect(mine).toContain(`${ipt} -A ${CHAIN} ! -i eth0 -j RETURN`)
+      expect(mine).toContain(`${ipt} -A ${CHAIN} -p tcp -m multiport ! --dports 80,443 -j RETURN`)
+      expect(mine).toContain(`${ipt} -A ${CHAIN} -m conntrack ! --ctstate NEW -j RETURN`)
+    }
+    expect(done).toContain(`iptables -A ${CHAIN} -s 173.245.48.0/20 -j RETURN`)
+    expect(done).toContain(`ip6tables -A ${CHAIN} -s 2400:cb00::/32 -j RETURN`)
+    // 規則全部做完才寫單元、enable。
+    const unitFile = path.join(r.unitDir, 'fju-cf-origin-lock.service')
+    expect(fs.existsSync(unitFile)).toBe(true)
+    const unitText = fs.readFileSync(unitFile, 'utf8')
+    expect(unitText).toContain('After=docker.service')
+    expect(unitText).toMatch(/ExecStart=.*cloudflare-origin-lock\.sh --execute/)
+    expect(done.slice(-2)).toEqual(['systemctl daemon-reload', 'systemctl enable fju-cf-origin-lock.service'])
+    const lastFw = Math.max(...done.map((l, i) => (/^ip6?tables /.test(l) ? i : -1)))
+    expect(lastFw).toBeLessThan(done.length - 2)
+  })
+
+  it('Caddyfile.vm 的 trusted_proxies 與腳本的 Cloudflare 範圍是同一份', () => {
+    const script = fs.readFileSync(lock, 'utf8')
+    const lists = [...script.matchAll(/^CF_V[46]=\(([^)]*)\)/gm)].map((m) => m[1]).join(' ')
+    const fromScript = [...lists.matchAll(/\b[0-9a-f:.]+\/\d+\b/g)].map((m) => m[0]).sort()
+    const caddy = fs.readFileSync(ops('Caddyfile.vm'), 'utf8')
+    const line = caddy.split('\n').find((l) => l.includes('trusted_proxies static'))!
+    const fromCaddy = line.replace(/^.*static\s+/, '').trim().split(/\s+/).sort()
+    expect(fromCaddy.length).toBeGreaterThan(10)
+    expect(fromScript).toEqual(fromCaddy)
+  })
+})
+
 describe('中文語系：$VAR 後面緊貼中文字', () => {
   const scripts = [
     ...fs.readdirSync(path.join(repoRoot, 'ops')).filter((f) => f.endsWith('.sh')),
