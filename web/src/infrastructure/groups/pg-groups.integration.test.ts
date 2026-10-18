@@ -360,8 +360,8 @@ describe('確認與成立', () => {
 
     // 指導老師帶老師自己填的聯絡信箱（Q122），不是登入 Email（t1-groups@example.com）。
     await owner.sql(
-      `insert into user_profiles (user_id, display_name, name_normalized, contact_email, profile_completed_at)
-       values ($1, 'T1', 'T1', 't1-contact@example.edu', now())`,
+      `insert into user_profiles (user_id, display_name, name_normalized, contact_email, avatar_preset, profile_completed_at)
+       values ($1, 'T1', 'T1', 't1-contact@example.edu', 33, now())`,
       [teacherId],
     )
     await owner.sql(
@@ -372,11 +372,26 @@ describe('確認與成立', () => {
     expect((await query.studentView(members[2]!.id, cohortId)).group?.advisor).toMatchObject({
       teacherUserId: teacherId,
       contactEmail: 't1-contact@example.edu',
+      // 老師頭像（C3-02）：同一句主指導查詢帶出。
+      avatarPreset: 33,
+      avatarFileId: null,
+    })
+    // 指派對話框的老師選項也帶頭像兩欄（C3-02）。
+    expect((await query.teacherOptions()).find((t) => t.userId === teacherId)).toMatchObject({
+      name: 'T1',
+      avatarPreset: 33,
+      avatarFileId: null,
     })
 
     // 第二組拿到 G02。
     const next = await students(cohortId, 5)
     const second = await mustPropose(next[0]!, next.slice(1))
+    // 建立中的成員格（C3-02）：邀請列帶頭像兩欄，沒設定＝null。
+    await owner.sql(`update user_profiles set avatar_preset = 45 where user_id = $1`, [next[2]!.id])
+    const invitations = (await query.studentView(next[0]!.id, cohortId)).openProposal?.invitations ?? []
+    expect(invitations).toHaveLength(5)
+    expect(invitations.find((i) => i.userId === next[2]!.id)).toMatchObject({ avatarPreset: 45, avatarFileId: null })
+    expect(invitations.find((i) => i.userId === next[1]!.id)).toMatchObject({ avatarPreset: null, avatarFileId: null })
     expect(await confirmAll(second, next)).toMatchObject({ receipt: { outcome: 'established', groupCode: 'G02' } })
   })
 
