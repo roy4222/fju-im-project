@@ -425,7 +425,7 @@ describe('其他表的約束反例', () => {
     })
   })
 
-  it('registration_applications：核准必須有核實方式，other 必須寫說明', async () => {
+  it('registration_applications：核准可不帶核實方式（0020），other 必須寫說明', async () => {
     await withIsolatedDatabase({ label: 'verify-check', setup: migratedSchema }, async (db) => {
       const { userId } = await seedForConstraints(db)
       await expect(
@@ -436,7 +436,7 @@ describe('其他表的約束反例', () => {
            values (gen_random_uuid(), $1, 'X', '410000003', '09', 'c@example.com', 'c@example.com', 'approved', 'user', $1)`,
           [userId],
         ),
-      ).rejects.toThrow(/registration_applications_approved_verification_check/)
+      ).resolves.toBeTruthy()
 
       await expect(
         db.sql(
