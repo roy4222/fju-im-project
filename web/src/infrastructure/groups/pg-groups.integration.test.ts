@@ -376,7 +376,12 @@ describe('確認與成立', () => {
       avatarPreset: 33,
       avatarFileId: null,
     })
-    // 指派對話框的老師選項也帶頭像兩欄（C3-02）。
+    // 指派對話框的老師選項也帶頭像兩欄（C3-02）；選項只列有老師角色的帳號，先補 T1 的角色。
+    await owner.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+       values (gen_random_uuid(), $1, 'teacher', $2, now())`,
+      [teacherId, adminId],
+    )
     expect((await query.teacherOptions()).find((t) => t.userId === teacherId)).toMatchObject({
       name: 'T1',
       avatarPreset: 33,
