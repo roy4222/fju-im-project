@@ -49,6 +49,7 @@ export default async function AdminHomePage() {
           line={heroLine(home, ctx.cohort !== null)}
           compact
           cta={adminHeroCta(ctx, home.summary?.pendingApplications ?? 0)}
+          trail
         />
 
         {/* 一組待辦卡（Q88）：四條處理路徑，數字是 0 也在。 */}
