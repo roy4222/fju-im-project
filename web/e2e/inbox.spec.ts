@@ -215,6 +215,21 @@ async function notify(userId: string, title: string, sourceRef: { type: string; 
   return rows.rows[0]!.id
 }
 
+/** 收集頁面錯誤與 console 的 hydration 錯誤（React #418 等）；`check()` 前先等網路靜下來、hydration 跑完。 */
+function watchHydration(page: Page) {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && /hydrat|#418|#423|#425/i.test(m.text())) errors.push(`console: ${m.text()}`)
+  })
+  return {
+    async check() {
+      await page.waitForLoadState('networkidle')
+      expect(errors).toEqual([])
+    },
+  }
+}
+
 async function readAt(...ids: string[]) {
   const rows = await pool.query<{ id: string; read_at: Date | null }>(`select id, read_at from notifications where id = any($1::uuid[])`, [ids])
   return Object.fromEntries(rows.rows.map((r) => [r.id, r.read_at]))
@@ -234,8 +249,11 @@ test('C2-15（AC-C2-36）：有來源的通知點標題就算已讀並導去來�
   const noteO = await notify(admin.userId, `C2-15 給系辦 ${stamp}`, { type: 'item', id: newsId })
 
   // 直接 GET 收件匣：只看不改。A 的標題是按鈕、列上沒有「標為已讀」；B 仍有「標為已讀」；「全部標為已讀」還在。
+  // 首次載入沒有 hydration 錯誤（表單不能包在 <p> 裡）。
+  const hydration = watchHydration(page)
   await useCookie(page, s01.cookie)
   await page.goto('/dashboard/student/inbox')
+  await hydration.check()
   const rowA = page.getByTestId('inbox-item').filter({ hasText: titleA })
   const rowB = page.getByTestId('inbox-item').filter({ hasText: titleB })
   await expect(rowA).toHaveAttribute('data-read', 'false')
@@ -277,13 +295,25 @@ test('C2-15（AC-C2-36）：有來源的通知點標題就算已讀並導去來�
   await expect(rowB).toHaveAttribute('data-read', 'true')
   expect((await readAt(noteB))[noteB]).not.toBeNull()
 
-  // (d) 老師、系辦各點自己那則：各落在來源頁、各自那則已讀。
+  // (c) 跨角色：系辦收件匣的表單留著、換成學生 S02 的 session 點標題 → 回 S02 自己（學生）的收件匣，不是 /403；系辦那則不變。
+  await useCookie(page, admin.cookie)
+  await page.goto('/dashboard/admin/inbox')
+  await page.context().clearCookies()
+  await page.context().addCookies([toPlaywrightCookie(s02.cookie, BASE_URL)])
+  const titleO = `C2-15 給系辦 ${stamp}`
+  await page.getByTestId('inbox-item').filter({ hasText: titleO }).getByRole('button', { name: titleO, exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/student\/inbox$/)
+  await expect(page.getByText('還沒有通知')).toBeVisible()
+  expect((await readAt(noteO))[noteO]).toBeNull()
+
+  // (d) 老師、系辦各點自己那則：各落在來源頁、各自那則已讀；首次載入都沒有 hydration 錯誤。
   for (const [who, path, note] of [
     [teacher, '/dashboard/teacher/inbox', noteT],
     [admin, '/dashboard/admin/inbox', noteO],
   ] as const) {
     await useCookie(page, who.cookie)
     await page.goto(path)
+    await hydration.check()
     const title = who === teacher ? `C2-15 給老師 ${stamp}` : `C2-15 給系辦 ${stamp}`
     expect((await readAt(note))[note]).toBeNull()
     await page.getByTestId('inbox-item').filter({ hasText: title }).getByRole('button', { name: title, exact: true }).click()

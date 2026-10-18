@@ -165,7 +165,7 @@ function InboxRow({ item, inbox }: { item: InboxItem; inbox: string }) {
         <KindIcon className="size-4.5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
             {notificationKindLabel(item.kind)}
           </span>
@@ -177,7 +177,7 @@ function InboxRow({ item, inbox }: { item: InboxItem; inbox: string }) {
           ) : (
             <span className={cn('min-w-0 truncate text-[15px]', unread ? 'font-bold' : 'font-medium')}>{title}</span>
           )}
-        </p>
+        </div>
         {item.source.state === 'archived' ? (
           <p className="mt-0.5 text-sm text-muted-foreground">{SOURCE_STATE_TEXT.archived}</p>
         ) : null}

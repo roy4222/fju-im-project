@@ -154,14 +154,14 @@ function Row({ item, inbox }: { item: InboxItem; inbox: string }) {
         <KindIcon className="size-4.5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{notificationKindLabel(item.kind)}</span>
           {href ? (
             <OpenNotificationButton notificationId={item.id} title={title} inbox={inbox} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')} />
           ) : (
             <span className={cn('min-w-0 truncate text-[15px]', unread ? 'font-bold' : 'font-medium')}>{title}</span>
           )}
-        </p>
+        </div>
         <p className="mt-0.5 text-sm text-muted-foreground">
           {inboxCohortText(item)}
           {item.source.state === 'archived' ? `・${SOURCE_STATE_TEXT.archived}` : ''}
