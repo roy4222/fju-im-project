@@ -43,9 +43,12 @@ async function signIn(page: Page, role: TestRole) {
 test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址篩選；頁面只讀', async ({ page }) => {
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByLabel('代碼').fill(CODE)
-  await page.getByLabel('名稱').fill(`${CODE} 操作紀錄測試`)
+  // C2-06：「新增屆別」開視窗填。
   await page.getByRole('button', { name: '新增屆別' }).click()
+  const create = page.getByRole('dialog', { name: '新增屆別' })
+  await create.getByLabel('代碼').fill(CODE)
+  await create.getByLabel('名稱').fill(`${CODE} 操作紀錄測試`)
+  await create.getByRole('button', { name: '確定新增' }).click()
   await expect(page.getByRole('main').getByRole('status')).toContainText(CODE)
 
   await page.goto('/dashboard/admin/audit')
