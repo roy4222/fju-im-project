@@ -137,3 +137,34 @@ test('系辦沒有預設屆別：橫幅只說「還沒有設定後台預設查�
   await expect(hero).not.toContainText('「屆別」頁')
   await expect(hero.getByTestId('stage-text')).toHaveCount(0)
 })
+
+test('老師首頁：三種待辦都在時，1280 寬四欄的卡片標題不截斷（C2-18）', async ({ page }) => {
+  const { userId } = sessions.get('teacher')!
+  const [gid, scheme, version, pack, pv, item, iv, fv] = await Promise.all(Array.from({ length: 8 }, () => pool.query<{ id: string }>('select gen_random_uuid() id').then((r) => r.rows[0]!.id)))
+  const run = async (sql: string, params: unknown[]) => void (await pool.query(sql, params))
+  const stageId = (await pool.query<{ id: string }>('select id from cohort_stages where cohort_id = $1 and seq = 1', [cohortId])).rows[0]!.id
+  await run(`insert into groups(id,cohort_id,code,group_type,established_real_at,established_business_at,created_by_kind) values($1,$2,'T01','general',now(),now(),'system')`, [gid, cohortId])
+  await run(`insert into advisor_assignments(id,group_id,teacher_user_id,source,valid_from,assigned_by_user_id,reason) values(gen_random_uuid(),$1,$2,'admin',now(),$2,'C2-18 fixture')`, [gid, userId])
+  await run(`insert into grading_schemes(id,cohort_id,name,created_by_kind) values($1,$2,'C2-18','system')`, [scheme, cohortId])
+  await run(`insert into grading_scheme_versions(id,scheme_id,version_no,stages,status,created_by_user_id) values($1,$2,1,$3::jsonb,'published',$4)`, [version, scheme, JSON.stringify([{ key: 'final', name: '期末', weight: 100, items: [{ key: 'report', name: '報告', type: 'number', max: 100, weight: 100 }] }]), userId])
+  await run('update grading_schemes set current_version_id=$2 where id=$1', [scheme, version])
+  await run(`insert into evaluator_assignments(id,group_id,stage_key,teacher_user_id,valid_from,assigned_by_user_id) values(gen_random_uuid(),$1,'final',$2,now(),$2)`, [gid, userId])
+  await run(`insert into signoff_packages(id,group_id,cohort_id,purpose,created_by_user_id) values($1,$2,$3,'result_confirmation',$4)`, [pack, gid, cohortId, userId])
+  await run(`insert into signoff_package_versions(id,package_id,version_no,content_text,content_checksum,participants,created_by_user_id,created_real_at,created_business_at) values($1,$2,1,'C2-18',encode(sha256(convert_to('C2-18','UTF8')),'hex'),$3::jsonb,$4,now(),now())`, [pv, pack, JSON.stringify({ students: [], advisor: { userId, displayName: 'C2-18 老師' } }), userId])
+  await run(`insert into signoff_version_status(version_id,state) values($1,'collecting')`, [pv])
+  await run('update signoff_packages set current_version_id=$2 where id=$1', [pack, pv])
+  await run(`update signoff_version_status set state='teacher_pending' where version_id=$1`, [pv])
+  await run(`insert into managed_items(id,cohort_id,placement,audience_kind,receiver_unit,stage_id,title,created_by_kind) values($1,$2,'submission','cohort_students','group',$3,'期末報告','system')`, [item, cohortId, stageId])
+  await run(`insert into item_versions(id,item_id,version_no,title,summary,body_html,created_by_user_id) values($1,$2,1,'期末報告','','',$3)`, [iv, item, userId])
+  await run(`insert into form_schema_versions(id,item_id,version_no,schema,created_by_user_id) values($1,$2,1,'{"fields":[]}',$3)`, [fv, item, userId])
+  await run(`update managed_items set status='published', actual_opened_at='2020-01-01', due_at='2021-01-01', current_content_version_id=$2, current_schema_version_id=$3 where id=$1`, [item, iv, fv])
+  await run(`insert into response_rosters(id,item_id,cohort_id,receiver_kind,receiver_id,eligible_from_business_at,source,created_by_kind) values(gen_random_uuid(),$1,$2,'group',$3,'2020-01-01','auto','system')`, [item, cohortId, gid])
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openHome(page, 'teacher')
+  for (const id of ['todo-grading', 'todo-signoff', 'todo-missing']) await expect(page.getByTestId(id)).toBeVisible()
+  const clipped = await page.locator('section[aria-label="待辦"] h2').evaluateAll((els) =>
+    els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => `${el.textContent} ${el.scrollWidth}>${el.clientWidth}`),
+  )
+  expect(clipped).toEqual([])
+})
