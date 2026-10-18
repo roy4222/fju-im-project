@@ -141,6 +141,65 @@ function staleFinal(): Err {
 }
 
 /** 「新增」會讓要求份數 +1；已經到上限（和設定份數同一個上限）就不能再新增。 */
+/**
+ * 改派的評審組計畫（C1-04；預覽與執行共用，Review #718 第 1 輪）：被移除的項目屬於評審組時，評審組全部項目（`keys`）上
+ * 同一位老師的有效指派都一起處理（`items`；評審組一致時一定都有，沒有的項目就不用動）。
+ */
+type RemovalPlan = {
+  readonly keys: readonly string[]
+  readonly items: readonly { readonly assignmentId: string; readonly stageKey: string }[]
+}
+
+function removalPlanOf(
+  keys: readonly string[],
+  target: { readonly id: string; readonly stageKey: string; readonly teacherUserId: string },
+  facts: GroupFacts,
+): RemovalPlan {
+  const items = keys.flatMap((key) =>
+    key === target.stageKey
+      ? [{ assignmentId: target.id, stageKey: key }]
+      : facts.active
+          .filter((a) => a.stageKey === key && a.teacherUserId === target.teacherUserId)
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((a) => ({ assignmentId: a.id, stageKey: key })),
+  )
+  return { keys, items }
+}
+
+/**
+ * 改派的計算基礎：不屬於評審組時就是原本的 `stageBasisHash`；評審組時納入展開後的每個項目的要幾位老師評、有效指派、採計，
+ * 以及這次會動到哪些指派——預覽之後才加入評審組、另一個項目剛有人送出，都會變。
+ */
+function removalBasisHash(versionId: string | null, plan: RemovalPlan, facts: GroupFacts): string {
+  if (plan.keys.length === 1) return stageBasisHash(versionId, plan.keys[0]!, facts)
+  const ids = (values: readonly string[]) => [...values].sort()
+  return sha256(
+    canonicalJson({
+      kind: 'panel',
+      versionId,
+      items: plan.items.map((i) => `${i.stageKey}:${i.assignmentId}`),
+      stages: plan.keys.map((key) => ({
+        stageKey: key,
+        required: facts.requirements.get(key) ?? null,
+        active: ids(facts.active.filter((a) => a.stageKey === key).map((a) => a.id)),
+        counted: ids(facts.counted.filter((c) => c.stageKey === key).map((c) => c.evaluationId)),
+      })),
+    }),
+  )
+}
+
+/** 把同一個三選一套到計畫裡每個項目上（預覽用；執行時逐項寫入，結果相同）。 */
+function applyRemovalPlan(choice: RemovalChoice, plan: RemovalPlan, facts: GroupFacts) {
+  let next: { requirements: Map<string, number>; counted: GroupFacts['counted'] } = {
+    requirements: new Map(facts.requirements),
+    counted: [...facts.counted],
+  }
+  for (const item of plan.items) {
+    next = applyRemovalChoice(choice, { stageKey: item.stageKey, assignmentId: item.assignmentId, requirements: next.requirements, counted: next.counted })
+  }
+  return next
+}
+
 function addOverLimit(required: number): string {
   return `這一組已經需要 ${required} 位老師評分（上限 ${MAX_REQUIRED_COUNT} 位），不能再新增評分老師；請改選「保留」或「替換」。`
 }
@@ -428,12 +487,10 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (target.valid_to !== null) return err('CONFLICT', '這個評分指派已經結束了（可能剛被別人處理），請重新整理頁面再預覽。')
 
       const facts = await loadGroupFacts(tx, group.id)
-      if (stageBasisHash(versionId, target.stage_key, facts) !== input.basisHash) return staleBasis()
-
-      // 評審組其他項目上同一位老師的有效指派（評審組一致時一定都有；沒有的項目就不用動）。
-      const plan = keys.flatMap((key) =>
-        key === target.stage_key ? [target] : actives.rows.filter((a) => a.stage_key === key && a.teacher_user_id === target.teacher_user_id),
-      )
+      // 跟預覽同一份評審組計畫與計算基礎：展開的項目、各項目的有效指派、採計、要幾位老師評任一變了 → CONFLICT（要重新預覽）。
+      const removal = removalPlanOf(keys, { id: target.id, stageKey: target.stage_key, teacherUserId: target.teacher_user_id }, facts)
+      if (removalBasisHash(versionId, removal, facts) !== input.basisHash) return staleBasis()
+      const plan = removal.items.map((i) => ({ id: i.assignmentId, stage_key: i.stageKey, teacher_user_id: target.teacher_user_id }))
       const nameOf = (key: string) => (stages ? stageOf(stages, key)?.name : null) ?? key
       const stageName = nameOf(target.stage_key)
       // 評審組一起處理時，錯誤訊息前面標出是哪一個評分項目。
@@ -1495,6 +1552,11 @@ export class PgGradebookQuery implements GradebookQuery {
     if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
     const facts = await loadGroupFacts(db, target.group_id)
+    // C1-04：跟執行同一份評審組計畫（評審組其他項目上同一位老師的指派一起算進預覽、禁止原因與接手名單）。
+    const keys = await panelKeysOf(db, target.cohort_id, stage.key, version.stages)
+    const plan = removalPlanOf(keys, { id: target.id, stageKey: stage.key, teacherUserId: target.teacher_user_id }, facts)
+    const nameOf = (key: string) => stageOf(version.stages, key)?.name ?? key
+    const label = (key: string, message: string) => (plan.items.length > 1 ? `「${nameOf(key)}」：${message}` : message)
     const required = facts.requirements.get(stage.key) ?? null
     const before = computeStage(stage, required, facts.counted)
     const finalBefore = computeGroupResult(version.stages, facts.requirements, facts.counted).finalDisplay
@@ -1510,23 +1572,28 @@ export class PgGradebookQuery implements GradebookQuery {
            from users u left join user_profiles p on p.user_id = u.id
           where not (${TEACHER_INACTIVE_SQL})
             and not exists (select 1 from evaluator_assignments a
-                             where a.group_id = $1 and a.stage_key = $2 and a.teacher_user_id = u.id and a.valid_to is null)
+                             where a.group_id = $1 and a.stage_key = any($2::text[]) and a.teacher_user_id = u.id and a.valid_to is null)
           order by 2`,
-        [target.group_id, stage.key],
+        [target.group_id, plan.items.map((i) => i.stageKey)],
       ),
     ])
 
     const options: ReassignmentOption[] = (['keep', 'replace', 'add'] as const).map((choice) => {
-      const next = applyRemovalChoice(choice, { stageKey: stage.key, assignmentId: target.id, requirements: facts.requirements, counted: facts.counted })
+      const next = applyRemovalPlan(choice, plan, facts)
       const after = computeStage(stage, next.requirements.get(stage.key) ?? null, next.counted)
-      const blockedReason =
-        choice !== 'replace' && !hasCounted
-          ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
-          : choice === 'add' && required === null
-            ? '這一組這一階段還沒設定需要幾位老師評分。'
-            : choice === 'add' && required !== null && required >= MAX_REQUIRED_COUNT
-              ? addOverLimit(required)
-              : null
+      const blockerOf = (item: RemovalPlan['items'][number]): string | null => {
+        const itemRequired = facts.requirements.get(item.stageKey) ?? null
+        const reason =
+          choice !== 'replace' && !facts.counted.some((c) => c.assignmentId === item.assignmentId)
+            ? '這位老師還沒有正式送出分數，沒有可保留的評分。'
+            : choice === 'add' && itemRequired === null
+              ? '這一組這一階段還沒設定需要幾位老師評分。'
+              : choice === 'add' && itemRequired !== null && itemRequired >= MAX_REQUIRED_COUNT
+                ? addOverLimit(itemRequired)
+                : null
+        return reason && label(item.stageKey, reason)
+      }
+      const blockedReason = plan.items.map(blockerOf).find((r) => r !== null) ?? null
       return {
         choice,
         blockedReason,
@@ -1558,9 +1625,13 @@ export class PgGradebookQuery implements GradebookQuery {
         options,
         // 接手的人不能是本人，也不能是在這一階段已有採計中評分的老師（改派時保留的舊分），否則一人兩票。
         teachers: teachers.rows
-          .filter((t) => t.id !== target.teacher_user_id && !facts.counted.some((c) => c.stageKey === stage.key && c.teacherUserId === t.id))
+          .filter(
+            (t) =>
+              t.id !== target.teacher_user_id &&
+              !facts.counted.some((c) => plan.items.some((i) => i.stageKey === c.stageKey) && c.teacherUserId === t.id),
+          )
           .map((t) => ({ userId: t.id, name: t.name })),
-        basisHash: stageBasisHash(version.id, stage.key, facts),
+        basisHash: removalBasisHash(version.id, plan, facts),
       },
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )

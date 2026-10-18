@@ -1439,3 +1439,90 @@ describe('C1-04 PublicGradingQuery（AC-33 查詢）', () => {
     expect(JSON.stringify(second)).not.toMatch(/teacher|group|score/i)
   })
 })
+
+describe('C1-04 改派的預覽與執行用同一份評審組計畫（Review #718 第 1 輪；AC-30a、GRD-13）', () => {
+  const book = () => new PgGradebookQuery(() => app)
+  async function assignmentOf(groupId: string, stageKey: string, teacherId: string): Promise<string> {
+    const r = await owner.sql(
+      `select id from evaluator_assignments where group_id = $1 and stage_key = $2 and teacher_user_id = $3 and valid_to is null`,
+      [groupId, stageKey, teacherId],
+    )
+    return String(r.rows[0]!.id)
+  }
+  async function previewOf(assignmentId: string) {
+    const r = await book().previewReassignment(adminActor(), assignmentId)
+    if (!r.ok) throw new Error(r.message)
+    return r.receipt
+  }
+  const replace = (assignmentId: string, basisHash: string) =>
+    resultsCommand.removeAssignment(adminActor(), { assignmentId, choice: 'replace', newTeacherUserId: null, basisHash }, randomUUID())
+  async function countedState(assignmentId: string) {
+    return (await owner.sql(`select state from evaluation_status where assignment_id = $1 order by created_at`, [assignmentId])).rows.map((r) => r.state)
+  }
+
+  it('P1：預覽 s1 後老師在同評審組的 s2 送出 88 → 帶舊 hash 替換 CONFLICT、88 仍採計；預覽後才加入評審組 → CONFLICT、s2 指派不動；重新預覽後兩項一起結束', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    await setting(cohortId, 's1', { panelKey: 'p1' })
+    await setting(cohortId, 's2', { panelKey: 'p1' })
+    await assignOk(g1, t1, 's1')
+    const s1 = await assignmentOf(g1, 's1', t1)
+    const s2 = await assignmentOf(g1, 's2', t1)
+    const stale = await previewOf(s1)
+    expect((await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: s2, scores: { i3: '88' } }, randomUUID())).ok).toBe(true)
+    expect(await replace(s1, stale.basisHash)).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(await countedState(s2)).toEqual(['counted'])
+    expect(await activeTeachers(g1, 's1')).toEqual([t1])
+
+    // 預覽時還不屬於評審組，執行前才加入：多出來的 s2 沒被預覽過 → CONFLICT。
+    const c2 = await newCohort()
+    await publishedScheme(c2)
+    const g2 = await newGroup(c2, 'G01')
+    await assignOk(g2, t1, 's1')
+    await assignOk(g2, t1, 's2')
+    const alone = await assignmentOf(g2, 's1', t1)
+    const before = await previewOf(alone)
+    await setting(c2, 's1', { panelKey: 'p1' })
+    expect(await setting(c2, 's2', { panelKey: 'p1' })).toMatchObject({ ok: true })
+    expect(await replace(alone, before.basisHash)).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(await activeTeachers(g2, 's2')).toEqual([t1])
+    const fresh = await previewOf(alone)
+    expect(await replace(alone, fresh.basisHash)).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['s1', 's2'] } })
+    expect([await activeTeachers(g2, 's1'), await activeTeachers(g2, 's2')]).toEqual([[], []])
+  })
+
+  it('P2：兩項 60／40、各要 1 位，甲兩項 50、乙兩項 100 → 預覽「替換甲」的最終成績就是執行後的 100.00（不是只算 s1 的 90.00）', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const [t1, t2] = [await newUser('甲老師', 'teacher'), await newUser('乙老師', 'teacher')]
+    await setting(cohortId, 's1', { panelKey: 'p1' })
+    await setting(cohortId, 's2', { panelKey: 'p1' })
+    expect((await command.setRequirement(adminActor(), { groupId: g1, stageKey: 's1', requiredCount: 1, revision: 0 }, randomUUID())).ok).toBe(true)
+    await assignOk(g1, t1, 's1')
+    await assignOk(g1, t2, 's1')
+    for (const [t, score] of [
+      [t1, '50'],
+      [t2, '100'],
+    ] as const) {
+      const a1 = await assignmentOf(g1, 's1', t)
+      const a2 = await assignmentOf(g1, 's2', t)
+      expect((await command.submitFinal(teacherActor({ id: t }), { assignmentId: a1, scores: { i1: score, i2: score } }, randomUUID())).ok).toBe(true)
+      expect((await command.submitFinal(teacherActor({ id: t }), { assignmentId: a2, scores: { i3: score } }, randomUUID())).ok).toBe(true)
+    }
+    const target = await assignmentOf(g1, 's1', t1)
+    const p = await previewOf(target)
+    const replaceOption = p.options.find((o) => o.choice === 'replace')!
+    expect(replaceOption.finalAfter).toBe('100.00')
+    expect(p.options.find((o) => o.choice === 'keep')!.blockedReason).toBeNull()
+    // 接手名單不含在評審組任一項目已有指派的乙。
+    expect(p.teachers.map((t) => t.userId)).not.toContain(t2)
+
+    expect(await replace(target, p.basisHash)).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['s1', 's2'] } })
+    const after = await book().gradebook(adminActor(), cohortId)
+    if (!after.ok) throw new Error(after.message)
+    expect(after.receipt.groups.find((g) => g.id === g1)!.result.finalDisplay).toBe(replaceOption.finalAfter)
+  })
+})
