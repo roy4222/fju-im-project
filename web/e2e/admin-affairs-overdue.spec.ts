@@ -182,7 +182,7 @@ async function asAdmin(page: Page) {
 
 test('AC-A-36：「逾期」篩選只列已截止、還有人沒交的那份，列上寫「逾期 2 人」', async ({ page }) => {
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=all`)
   const rows = page.getByTestId('affair-row')
   // 全部：四筆都在，沒有逾期標籤（其他篩選不讀名單）。
   await expect(rows).toHaveCount(4)

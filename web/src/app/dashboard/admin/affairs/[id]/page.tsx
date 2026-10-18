@@ -70,7 +70,7 @@ export default async function RosterPage({
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}`} label="公告與作業" />
+          <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}&placement=all`} label="公告與作業" />
           <div>
             <p className="text-xs font-semibold text-muted-foreground">
               {cohortLabel({ name: item.cohortName, code: item.cohortCode })}・文件繳交・{RECEIVER_UNIT_LABEL[item.receiverUnit]}
