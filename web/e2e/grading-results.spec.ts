@@ -381,7 +381,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await signIn(page, teachers[3]!)
   await expect(async () => {
     await page.goto('/dashboard/teacher/inbox')
-    await expect(page.getByRole('link', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByRole('button', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   await expect(page.getByTestId('inbox-item').filter({ hasText: '被移出' })).toHaveCount(0)
   await signIn(page, teachers[2]!)

@@ -190,9 +190,9 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await page.getByRole('dialog', { name: '刪除這個作業？' }).getByRole('button', { name: '刪除這個作業' }).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs\\?cohort=${cohortId}$`))
 
-  // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍是連結，點進去是中文 404。
+  // 學生：通知匣裡那一則（背景工作每 5 秒投影一輪）仍點得進去（C2-15：標題是點開的按鈕），點進去是中文 404。
   await signIn(page, student)
-  const link = page.locator(`a[href="/dashboard/student/affairs/${itemId}"]`)
+  const link = page.getByTestId('inbox-item').filter({ hasText: title }).locator('form:has(input[name="inbox"]) button')
   await expect
     .poll(
       async () => {

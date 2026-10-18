@@ -291,7 +291,8 @@ test('學生通知匣：收件通知點得進作業區那一份', async ({ page 
   await signIn(page, waiter)
   await page.goto('/dashboard/student/inbox')
   const item = page.getByTestId('inbox-item').filter({ hasText: TITLE })
-  await expect(item.getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
+  await item.getByRole('button', { name: `新的收件：${TITLE}`, exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/student/affairs/${itemId}$`))
 })
 
 // ── B 階段 A-08：設免繳／恢復（AC-A-21～24）────────────────────────────────────
