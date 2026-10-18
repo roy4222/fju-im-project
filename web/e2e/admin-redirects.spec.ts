@@ -141,7 +141,8 @@ test('打舊設定入口頁，瀏覽器落在屆別', async ({ page }) => {
   await asAdmin(page)
   await page.goto('/dashboard/admin/settings')
   expect(new URL(page.url()).pathname).toBe('/dashboard/admin/cohorts')
-  await expect(page.locator('body')).toContainText(FINGERPRINTS['/dashboard/admin/cohorts']!)
+  await expect(page.getByTestId('tab-intro')).toContainText('每一屆的開始、旗標與狀態')
+  await expect(page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '屆別', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 // ── 分頁列（AC-C2-05、07、08） ──
