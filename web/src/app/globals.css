@@ -203,7 +203,8 @@
   深色（只給後台用，前台固定白底；預設淺色、由頂列按鈕手動切，Q107）。SH-2 照原型第 4 輪重做：
   不是炭灰，是「系網深藍的夜」——中性色都帶 hue 258 的藍，由深到淺四層，靠明度差分層、不靠陰影：
     L0 外框／側欄 --sidebar 0.225 < L1 內容面 --background 0.255 < L2 卡片 --card 0.295 < L3 浮層 --popover 0.325
-  2026-10-18 Roy 選 A：底色各層 L +0.06（彩度、色相不變）。
+  2026-10-19 Roy 選 C3（規格④ §1）：頁面 #1E2B40、卡片／浮層 #2B4266、側欄／橫幅 #13305C、淺藍強調 #8DB6E6，字純白。
+  （下面的 L0～L3 是 A 版舊註解，底色已被 C3 取代。）
   品牌橘提亮（深藍上的橘字要過 AA）；實心橘、綠、紅上面一律放深藍字（*-foreground），不放白字。
   對比（WCAG 2，PR 附表）：內文、次要字、橘字、狀態色字對底都 ≥ 4.5:1，邊框對卡片 ≥ 1.5:1。
   與規格的兩處差異：--border 規格值 L0.78 對卡片只有 1.38:1，提 L 到 0.92（色相、透明度不動）；
@@ -211,10 +212,10 @@
   實色會讓欄位邊框看不見，改用原型的半透明值。
 */
 .dark {
-  --background: oklch(0.255 0.048 258);
-  --foreground: oklch(0.93 0.01 255);
-  --card: oklch(0.295 0.056 258);
-  --popover: oklch(0.325 0.06 258);
+  --background: #1e2b40;
+  --foreground: #fff;
+  --card: #2b4266;
+  --popover: #2b4266;
 
   --primary: oklch(0.76 0.16 58);
   --primary-foreground: oklch(0.165 0.045 260);
@@ -227,12 +228,12 @@
   --secondary: oklch(0.345 0.055 258);
   --secondary-foreground: oklch(0.95 0.015 65);
   --muted: oklch(0.33 0.052 258);
-  --muted-foreground: oklch(0.75 0.02 255);
+  --muted-foreground: #c9d6e8;
   --accent: oklch(0.355 0.062 258);
   --accent-foreground: oklch(0.93 0.01 255);
   --surface: oklch(0.275 0.052 258);
 
-  --border: oklch(0.92 0.07 255 / 16%);
+  --border: oklch(0.78 0.07 255 / 14%);
   --input: oklch(0.78 0.07 255 / 22%);
   --ring: oklch(0.76 0.16 58);
 
@@ -259,11 +260,11 @@
   --chart-4: oklch(0.76 0.1 155);
   --chart-5: oklch(0.77 0.035 255);
 
-  --sidebar: oklch(0.225 0.045 260);
-  --sidebar-primary: oklch(0.77 0.12 245);
+  --sidebar: #13305c;
+  --sidebar-primary: #8db6e6;
   --sidebar-primary-foreground: oklch(0.165 0.045 260);
   /* 側欄 hover 與啟用項的底（sidebar.tsx 的 data-active:bg-sidebar-accent）＝ L3。 */
-  --sidebar-accent: oklch(0.33 0.06 258);
+  --sidebar-accent: #2b4266;
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: oklch(0.78 0.07 255 / 14%);
 
@@ -278,7 +279,7 @@
   --on-tint: oklch(0.165 0.045 260);
 
   /* 橫幅：深藍漸層＋內圈細光，藍圓花紋淡到 0.35。 */
-  --hero-bg: linear-gradient(135deg, oklch(0.26 0.07 258), oklch(0.2 0.05 258));
+  --hero-bg: #13305c;
   --hero-ring: oklch(0.78 0.07 255 / 18%);
   --hero-dot-opacity: 0.35;
 }
@@ -365,6 +366,10 @@
 
   html {
     color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 
   body {
@@ -539,11 +544,14 @@
   .dark .tint { background: color-mix(in oklch, var(--tint) 12%, var(--card)); border-color: color-mix(in oklch, var(--tint) 22%, var(--card)); }
   .dark .spot { color: color-mix(in oklch, var(--tint, oklch(0.62 0.16 250)) 85%, white); }
   /* 深色外框：L0 外框 → 側欄 → L1 內容面板，面板只靠一圈細光分界（不用陰影）。 */
-  .dark .dash-frame { --sidebar: oklch(0.225 0.045 260); }
-  .dark .dash-frame [data-slot='sidebar-inner'] { background: oklch(0.245 0.05 259); box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%); }
+  .dark .dash-frame { --sidebar: #13305c; }
+  .dark .dash-frame [data-slot='sidebar-inner'] { background: #13305c; box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%); }
   .dark .dash-surface { background: var(--background) !important; box-shadow: inset 0 0 0 1px oklch(0.78 0.07 255 / 10%) !important; }
   .dark .dash-header { background: var(--background); border-bottom-color: var(--border); }
   .dark .dash-card { border-color: var(--border); }
+  /* 原生下拉：深底白字（color-scheme: dark 負責選項清單與捲軸）。 */
+  .dark select, .dark option { background-color: var(--card); color: var(--foreground); }
+  .dark select { border-color: var(--border); }
   .dark .dash-nav-item:hover { background: oklch(0.78 0.07 255 / 9%); }
   /* 深色啟用項：L3 底（--sidebar-accent）＋左側 3px 品牌橘條。 */
   .dark .dash-nav-active, .dark .dash-nav-active:hover { background: var(--sidebar-accent); color: var(--foreground); box-shadow: inset 3px 0 0 var(--primary); }
