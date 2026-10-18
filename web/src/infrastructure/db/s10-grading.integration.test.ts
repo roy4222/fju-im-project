@@ -273,10 +273,6 @@ describe('資料庫守的「只有一個」', () => {
     await withIsolatedDatabase({ label: 'assignment-checks', setup: migratedSchema }, async (db) => {
       const s = await seedGroup(db)
       const g = await seedGrading(db, s)
-      await expect(
-        db.sql(`update evaluator_assignments set valid_to = now(), ended_real_at = now() where id = $1`, [g.assignmentId]),
-      ).resolves.toBeTruthy()
-      await db.sql(`update evaluator_assignments set valid_to = null, ended_real_at = null where id = $1`, [g.assignmentId])
       await expect(db.sql(`update evaluator_assignments set removal_choice = 'keep' where id = $1`, [g.assignmentId])).rejects.toMatchObject({
         constraint: 'evaluator_assignments_ended_check',
       })
@@ -286,6 +282,9 @@ describe('資料庫守的「只有一個」', () => {
           [g.assignmentId],
         ),
       ).rejects.toMatchObject({ constraint: 'evaluator_assignments_removal_choice_check' })
+      await expect(
+        db.sql(`update evaluator_assignments set valid_to = now(), ended_real_at = now() where id = $1`, [g.assignmentId]),
+      ).resolves.toBeTruthy()
     })
   })
 
