@@ -134,8 +134,14 @@ test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依
   const row = rowOf(page, name)
   await expect(row.getByRole('button')).toHaveText(['編輯', '發臨時密碼', '停用', ''])
   await expect(row.getByRole('button').last()).toHaveAccessibleName(`更多 ${name}`)
-  // 編輯帳號 C2-08 才接上，先佔位置。
-  await expect(row.getByRole('button', { name: `編輯 ${name}` })).toBeDisabled()
+  // 編輯帳號 C2-08 接上了：按得下去，打開「編輯帳號」視窗。
+  await expect(row.getByRole('button', { name: `編輯 ${name}` })).toBeEnabled()
+  await row.getByRole('button', { name: `編輯 ${name}` }).click()
+  const editDialog = page.getByRole('dialog', { name: `編輯帳號 ${name}` })
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.getByLabel('姓名')).toBeVisible()
+  await editDialog.getByRole('button', { name: '取消' }).click()
+  await expect(editDialog).toBeHidden()
 
   await row.getByRole('button', { name: `更多 ${name}` }).click()
   const menu = page.getByRole('menu')
