@@ -37,6 +37,8 @@ let command: PgProfileEditCommand
 let items: PgItemCommand
 let submissions: PgSubmissionCommand
 const revoked: string[] = []
+/** 大於 0 時，下一次撤 session 丟錯（Review 第 1 輪第 4 項）。 */
+let failRevoke = 0
 const businessNow = new Date('2026-10-01T02:00:00Z')
 const businessClock = { now: async () => new Date(businessNow.getTime()) }
 
@@ -188,7 +190,7 @@ async function snapshot(userId: string) {
   }
 }
 
-const edit = (userId: string, patch: { name: string; role: string | null; studentNo?: string; cohortId?: string }) =>
+const edit = (userId: string, patch: { name: string; role: string | null; studentNo?: string; cohortId?: string; admin?: boolean }) =>
   command.edit(adminActor(), new Headers(), { userId, studentNo: '', cohortId: '', requestId: randomUUID(), ...patch })
 
 beforeAll(async () => {
@@ -236,6 +238,10 @@ beforeAll(async () => {
       createUser: vi.fn(),
       setUserPassword: vi.fn(),
       revokeUserSessions: async (_headers, input) => {
+        if (failRevoke > 0) {
+          failRevoke -= 1
+          throw new Error('套件撤銷失敗（測試）')
+        }
         revoked.push(input.userId)
       },
     },
@@ -459,5 +465,79 @@ describe('學號占用（AC-C2-23）', () => {
     expect(await command.edit(adminActor(), new Headers(), input)).toMatchObject({ ok: true })
     expect(await command.edit(adminActor(), new Headers(), input)).toMatchObject({ ok: true, receipt: { name: '重送改名' } })
     expect((await snapshot(s.id)).audits).toBe(1)
+  })
+})
+
+describe('Review 第 1 輪', () => {
+  it('第 1 項：學號忽略大小寫查重——同屆已有 ABC123，另一人改成 abc123 → 擋下；成功時占用一律存大寫', async () => {
+    await newStudent('大寫占用', c116.id, 'ABC123')
+    const other = await newStudent('小寫的人', c115.id)
+    const before = await snapshot(other.id)
+    expect(await edit(other.id, { name: '小寫的人', role: 'student', studentNo: 'abc123', cohortId: c116.id })).toMatchObject({
+      ok: false,
+      message: '這個學號在 116 屆已經有人',
+    })
+    expect(await snapshot(other.id)).toEqual(before)
+    // 老師轉學生也走同一條。
+    const t = await newTeacher('轉學生小寫')
+    expect(await edit(t, { name: '轉學生小寫', role: 'student', studentNo: 'abc123', cohortId: c116.id })).toMatchObject({ ok: false })
+    // 不撞號時：占用表存大寫，個人資料照填的原樣。
+    expect(await edit(other.id, { name: '小寫的人', role: 'student', studentNo: 'xyz789', cohortId: c116.id })).toMatchObject({ ok: true })
+    const s = await snapshot(other.id)
+    expect(s.identities).toEqual([{ cohort_id: c116.id, student_no: 'XYZ789' }])
+    expect(s.profile).toMatchObject({ student_no: 'xyz789' })
+  })
+
+  it('第 3 項：管理員勾與個資同一個交易——老師兼管理員改學生撞號 → 全部回滾，管理員還在', async () => {
+    await newStudent('撞號原主', c116.id, '411077001')
+    const t = await newTeacher('兼管理員撞號')
+    await grant(t, 'admin')
+    await owner.sql(`update users set role = 'admin' where id = $1`, [t])
+    const before = await snapshot(t)
+    expect(await edit(t, { name: '兼管理員撞號', role: 'student', studentNo: '411077001', cohortId: c116.id, admin: false })).toMatchObject({
+      ok: false,
+      message: '這個學號在 116 屆已經有人',
+    })
+    expect(await snapshot(t)).toEqual(before)
+    expect(await one(`select role from users where id = $1`, [t])).toEqual({ role: 'admin' })
+    // 改回老師、保留管理員：什麼都沒少。
+    expect(await edit(t, { name: '兼管理員撞號改名', role: 'teacher', admin: true })).toMatchObject({ ok: true })
+    expect((await snapshot(t)).roles).toEqual([
+      { role: 'admin', active: true },
+      { role: 'teacher', active: true },
+    ])
+    // 同一次取消管理員＋改學生：一起成功，另記一列 account.revoke_role，套件欄改回 user。
+    expect(await edit(t, { name: '兼管理員撞號改名', role: 'student', studentNo: '411077002', cohortId: c116.id, admin: false })).toMatchObject({
+      ok: true,
+    })
+    const s = await snapshot(t)
+    expect(s.roles.filter((r) => r.active)).toEqual([{ role: 'student', active: true }])
+    expect(await one(`select role from users where id = $1`, [t])).toEqual({ role: 'user' })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.revoke_role' and target_id = $1`, [t])).toEqual({ n: 1 })
+  })
+
+  it('第 3 項：勾管理員也在同一個交易（設為管理員另記 account.grant_role）；學生不能勾', async () => {
+    const t = await newTeacher('勾管理員')
+    expect(await edit(t, { name: '勾管理員', role: 'teacher', admin: true })).toMatchObject({ ok: true })
+    expect((await snapshot(t)).roles).toContainEqual({ role: 'admin', active: true })
+    expect(await one(`select role from users where id = $1`, [t])).toEqual({ role: 'admin' })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.grant_role' and target_id = $1`, [t])).toEqual({ n: 1 })
+    const s = await newStudent('學生勾管理員', c115.id)
+    const before = await snapshot(s.id)
+    expect(await edit(s.id, { name: '學生勾管理員', role: 'student', studentNo: s.studentNo, cohortId: c115.id, admin: true })).toMatchObject({ ok: false })
+    expect(await snapshot(s.id)).toEqual(before)
+  })
+
+  it('第 4 項：撤 session 失敗 → 回可重試的錯誤；同一個請求重送會補撤，然後回成功', async () => {
+    const sx = await newStudent('撤銷失敗', c116.id)
+    const input = { userId: sx.id, name: '撤銷失敗', role: 'teacher', studentNo: '', cohortId: '', requestId: randomUUID() }
+    failRevoke = 1
+    const first = await command.edit(adminActor(), new Headers(), input)
+    expect(first).toMatchObject({ ok: false, code: 'INTERNAL' })
+    expect(revoked).not.toContain(sx.id)
+    const again = await command.edit(adminActor(), new Headers(), input)
+    expect(again).toMatchObject({ ok: true, receipt: { roleChanged: true } })
+    expect(revoked).toContain(sx.id)
+    expect((await snapshot(sx.id)).audits).toBe(1)
   })
 })

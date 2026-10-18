@@ -4,6 +4,7 @@ import {
   canChangeRole,
   cohortLockedMessage,
   mainRoleOf,
+  membershipPhrase,
   normalizeProfileEdit,
   profileEditRowBlocker,
   STUDENT_FIELDS_REQUIRED,
@@ -24,7 +25,7 @@ describe('normalizeProfileEdit', () => {
   it('學生：姓名去頭尾空白、合併連續空白；學號去空白；屆別照收', () => {
     expect(normalizeProfileEdit(base)).toEqual({
       ok: true,
-      value: { userId: USER, name: '王 小明', role: 'student', studentNo: '411012345', cohortId: COHORT, requestId: REQUEST },
+      value: { userId: USER, name: '王 小明', role: 'student', studentNo: '411012345', cohortId: COHORT, requestId: REQUEST, admin: null },
     })
   })
 
@@ -37,6 +38,13 @@ describe('normalizeProfileEdit', () => {
 
   it('沒有主角色的職員：只改姓名', () => {
     expect(normalizeProfileEdit({ ...base, role: null })).toMatchObject({ ok: true, value: { role: null, studentNo: null, cohortId: null } })
+  })
+
+  it('管理員勾：沒給＝不動（null）；學生不能勾', () => {
+    expect(normalizeProfileEdit({ ...base, role: 'teacher', admin: true })).toMatchObject({ ok: true, value: { admin: true } })
+    expect(normalizeProfileEdit({ ...base, role: 'teacher', admin: false })).toMatchObject({ ok: true, value: { admin: false } })
+    expect(normalizeProfileEdit({ ...base, admin: false })).toMatchObject({ ok: true, value: { admin: false } })
+    expect(normalizeProfileEdit({ ...base, admin: true })).toMatchObject({ ok: false, details: { field: 'admin' } })
   })
 
   it('學生缺學號或屆別：「學生要有學號和屆別」', () => {
@@ -66,6 +74,7 @@ describe('canChangeCohort：有有效組別就不能調屆', () => {
       reason: '他在 115 屆第 3 組，先到分組把他移出才能改屆別',
       groupId: g3.groupId,
     })
+    expect(membershipPhrase(g3)).toBe('他在 115 屆第 3 組')
     expect(cohortLockedMessage(g3)).toBe('他在 115 屆第 3 組，先到分組把他移出才能改屆別')
   })
 })

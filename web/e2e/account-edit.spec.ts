@@ -260,6 +260,11 @@ test('AC-C2-22：在組不能調屆（連到那組）、改老師／改學生前
   await expect(save).toBeDisabled()
   await expect(save).toHaveAttribute('title', toTeacher)
   await expect(dialog.getByTestId('edit-blocked')).toHaveText(toTeacher)
+  // 組別那半句連到那一組（§3.9；Review 第 1 輪第 5 項）。
+  await expect(dialog.getByTestId('edit-blocked').getByRole('link', { name: `他在 ${CODE_A} 屆第 3 組` })).toHaveAttribute(
+    'href',
+    `/dashboard/admin/groups/${groupId}`,
+  )
   await dialog.getByRole('button', { name: '取消' }).click()
 
   // (c) 指導中 1 組、3 筆評分指派：不能改成學生。

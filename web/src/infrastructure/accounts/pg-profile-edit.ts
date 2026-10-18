@@ -7,7 +7,9 @@ import {
   canChangeCohort,
   canChangeRole,
   mainRoleOf,
+  membershipPhrase,
   normalizeProfileEdit,
+  remainingEffectiveAdmins,
   profileEditRowBlocker,
   studentNoTakenMessage,
   type ActiveMembership,
@@ -29,6 +31,8 @@ import { RealClock, type Clock } from '@/shared/time'
 import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { betterAuthAccountCalls, type AccountAuthCalls } from '@/infrastructure/accounts/account-command'
+import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
+import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 
 /**
  * 帳號列「編輯」（C 階段規格② §3.2 X10、§3.8 調屆、§3.9 學生↔老師互轉；票 C2-08）。
@@ -127,6 +131,10 @@ export class PgProfileEditCommand implements ProfileEditCommand {
         cohorts: cohorts.rows,
         cohortLock: lock.ok ? null : { reason: lock.reason, groupId: lock.groupId },
         toTeacherBlocked: role === 'student' ? canChangeRole(role, 'teacher', target.facts) : null,
+        toTeacherGroupLink:
+          role === 'student' && target.facts.memberships[0]
+            ? { text: membershipPhrase(target.facts.memberships[0]), groupId: target.facts.memberships[0].groupId }
+            : null,
         toStudentBlocked: role === 'teacher' ? canChangeRole(role, 'student', target.facts) : null,
       },
       meta(now, uuidv7()),
@@ -143,7 +151,7 @@ export class PgProfileEditCommand implements ProfileEditCommand {
     const now = this.#clock.now()
     const businessAt = await this.#deps.businessClock.now()
     const fingerprint = sha256(
-      canonicalJson({ userId: edit.userId, name: edit.name, role: edit.role, studentNo: edit.studentNo, cohortId: edit.cohortId }),
+      canonicalJson({ userId: edit.userId, name: edit.name, role: edit.role, studentNo: edit.studentNo, cohortId: edit.cohortId, admin: edit.admin }),
     )
 
     let receipt: ProfileEditReceipt
@@ -162,18 +170,24 @@ export class PgProfileEditCommand implements ProfileEditCommand {
       if (begun.outcome === 'replay') {
         await tx.query('commit')
         if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這次操作已經完成，回執已過期；請看帳號列表。')
-        return ok(begun.receipt as ProfileEditReceipt, meta(now, edit.requestId))
-      }
-
-      const target = await readTarget(tx, edit.userId, true)
-      if (!target) {
-        await tx.query('rollback')
-        return err('CONFLICT', '找不到這個帳號，請重新整理頁面。')
+        // 重送也要把撤 session 做完（上一次可能就是撤銷失敗才重送的）。
+        return this.#finish(authHeaders, begun.receipt as ProfileEditReceipt, now, edit.requestId)
       }
       const fail = async (code: ErrorCode, message: string, field?: string) => {
         await tx.query('rollback')
         return err(code, message, field ? { details: { field } } : undefined)
       }
+
+      // 管理員勾跟個資同一個交易（Review 第 1 輪第 3 項）：要動管理員就先鎖整組管理員列，**再**鎖目標帳號
+      // （跟 `account-command.ts` 的 grant／revoke 同一個鎖序，不會互相死結）。
+      const admins = edit.admin === null ? null : await lockAdmins(tx)
+      if (admins && !isEffectiveAdmin(admins, actor.userId)) {
+        await tx.query('rollback')
+        return denied('FORBIDDEN')
+      }
+
+      const target = await readTarget(tx, edit.userId, true)
+      if (!target) return fail('CONFLICT', '找不到這個帳號，請重新整理頁面。')
 
       const rowBlocked = profileEditRowBlocker(target, actor.userId)
       if (rowBlocked) return fail('CONFLICT', rowBlocked)
@@ -181,8 +195,13 @@ export class PgProfileEditCommand implements ProfileEditCommand {
       const from = mainRoleOf(target.roles)
       const roleBlocked = canChangeRole(from, edit.role, target.facts)
       if (roleBlocked) return fail('CONFLICT', roleBlocked, 'role')
-      if (edit.role === 'student' && target.roles.includes('admin')) {
+      const wasAdmin = target.roles.includes('admin')
+      const adminChange = edit.admin === null || edit.admin === wasAdmin ? null : edit.admin ? 'grant' : 'revoke'
+      if (edit.role === 'student' && wasAdmin && adminChange !== 'revoke') {
         return fail('CONFLICT', '管理員不能改成學生；請先取消管理員。', 'role')
+      }
+      if (adminChange === 'revoke' && admins && remainingEffectiveAdmins(admins, target.userId) < 1) {
+        return fail('CONFLICT', '這是最後一位管理員，不能取消；請先把另一個帳號設為管理員。', 'admin')
       }
 
       let cohortCode: string | null = null
@@ -208,6 +227,14 @@ export class PgProfileEditCommand implements ProfileEditCommand {
         after.cohortCode = target.cohortCode
       }
 
+      // 學號占用先查（忽略大小寫，Review 第 1 輪第 1 項）：主鍵大小寫敏感，擋不住 `abc123` 對上已存在的 `ABC123`。
+      const identityChanged = after.studentNo !== before.studentNo || after.cohortId !== before.cohortId || from !== edit.role
+      if (identityChanged && edit.role === 'student' && after.cohortId && after.studentNo) {
+        if (await studentNoHolder(tx, after.cohortId, after.studentNo, target.userId)) {
+          return fail('CONFLICT', studentNoTakenMessage(cohortCode ?? ''), 'studentNo')
+        }
+      }
+
       // 1. 個人資料（老師還沒補資料、職員可能沒有這一列：補一列，聯絡 Email 先用登入 Email）。
       if (target.hasProfile) {
         await tx.query(
@@ -227,19 +254,13 @@ export class PgProfileEditCommand implements ProfileEditCommand {
         )
       }
 
-      // 2. 學號占用：舊列刪、新列插（主鍵 (cohort_id, student_no) 擋同屆同學號）。
-      const identityChanged = after.studentNo !== before.studentNo || after.cohortId !== before.cohortId || from !== edit.role
+      // 2. 學號占用：舊列刪、新列插（一律存大寫；主鍵再擋一次同時送出的人）。
       if (identityChanged && edit.role !== null) {
         await tx.query(`delete from student_identities where user_id = $1`, [target.userId])
         if (edit.role === 'student') {
           await tx.query('savepoint occupy')
           try {
-            await tx.query(`insert into student_identities (cohort_id, student_no, user_id, created_at) values ($1, $2, $3, $4)`, [
-              after.cohortId,
-              after.studentNo,
-              target.userId,
-              now,
-            ])
+            await occupyStudentNo(tx, after.cohortId!, after.studentNo!, target.userId, now)
           } catch (error) {
             if ((error as { code?: string }).code !== '23505') throw error
             return fail('CONFLICT', studentNoTakenMessage(cohortCode ?? ''), 'studentNo')
@@ -261,6 +282,37 @@ export class PgProfileEditCommand implements ProfileEditCommand {
            values ($1, $2, $3, $4, $5, '編輯帳號')`,
           [uuidv7(), target.userId, edit.role, actor.userId, now],
         )
+      }
+
+      // 3b. 管理員勾：沿用既有 grant／revoke 的寫法（含套件欄 `users.role`），另記 `account.grant_role`／`revoke_role`。
+      if (adminChange === 'grant') {
+        await tx.query(
+          `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+           values ($1, $2, 'admin', $3, $4, '編輯帳號')`,
+          [uuidv7(), target.userId, actor.userId, now],
+        )
+        await tx.query(`update users set role = 'admin', updated_at = $2 where id = $1`, [target.userId, now])
+      } else if (adminChange === 'revoke') {
+        await tx.query(
+          `update role_assignments set revoked_by_user_id = $2, revoked_real_at = $3
+            where user_id = $1 and role = 'admin' and revoked_real_at is null`,
+          [target.userId, actor.userId, now],
+        )
+        await tx.query(`update users set role = 'user', updated_at = $2 where id = $1`, [target.userId, now])
+      }
+      if (adminChange) {
+        await this.#deps.audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: actor.userId,
+          role: 'admin',
+          action: adminChange === 'grant' ? 'account.grant_role' : 'account.revoke_role',
+          targetType: 'user',
+          targetId: target.userId,
+          scope: 'global',
+          realAt: now,
+          businessAt,
+          payload: { role: 'admin' },
+        })
       }
 
       // 4. 收件名單：不在新屆的目前名單列移出；新屆截止前的個人收件加入。
@@ -305,7 +357,15 @@ export class PgProfileEditCommand implements ProfileEditCommand {
         businessAt,
         payload: { before, after },
       })
-      receipt = { userId: target.userId, name: after.name, role: edit.role, cohortCode: after.cohortCode, roleChanged, changedAt: now.toISOString() }
+      receipt = {
+        userId: target.userId,
+        name: after.name,
+        role: edit.role,
+        cohortCode: after.cohortCode,
+        roleChanged,
+        admin: adminChange ? adminChange === 'grant' : wasAdmin,
+        changedAt: now.toISOString(),
+      }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
       await tx.query('commit')
     } catch (error) {
@@ -315,16 +375,25 @@ export class PgProfileEditCommand implements ProfileEditCommand {
       tx.release()
     }
 
+    return this.#finish(authHeaders, receipt, now, edit.requestId)
+  }
+
+  /**
+   * commit（或重送）之後：主角色換了就撤對方所有登入，再丟身分快取。
+   * 撤銷失敗回可重試的錯誤（Review 第 1 輪第 4 項）：同一個請求編號再送一次會走重送、補撤，不會重做寫入。
+   */
+  async #finish(authHeaders: Headers, receipt: ProfileEditReceipt, now: Date, requestId: string): Promise<Result<ProfileEditReceipt>> {
     if (receipt.roleChanged) {
       try {
         await this.#auth.revokeUserSessions(authHeaders, { userId: receipt.userId })
       } catch (error) {
-        // 不回錯：資料已改好；身分快取下面會丟，下一個請求照新角色判（舊角色的頁面進不去）。
         console.error('[account] 編輯帳號後撤銷登入失敗', (error as { name?: string })?.name ?? 'unknown error')
+        bustIdentity(receipt.userId)
+        return err('INTERNAL', '資料已經存好，但沒能登出他原本的登入。請再按一次「儲存」（不會重複做）。')
       }
     }
     bustIdentity(receipt.userId)
-    return ok(receipt, meta(now, edit.requestId))
+    return ok(receipt, meta(now, requestId))
   }
 }
 

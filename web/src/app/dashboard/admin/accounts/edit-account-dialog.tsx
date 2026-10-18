@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { IconPencil } from '@tabler/icons-react'
 import type { MainRole, ProfileEditReceipt, ProfileEditView } from '@/application/accounts'
 import { cn } from '@/shared/cn'
-import { grantAdminAction, revokeAdminAction } from './actions'
 import { editAccountAction, profileEditViewAction } from './edit-actions'
 
 /**
@@ -14,8 +13,8 @@ import { editAccountAction, profileEditViewAction } from './edit-actions'
  * 開視窗時向伺服器要一次「現在的樣子」：欄位、未封存的屆、不能改屆別／不能改角色的原因句。
  * 不能存時「儲存」disabled，按鈕 `title` 與下方小字同一句（A23）。規則都在伺服器再判一次，這裡只是先講。
  *
- * 角色＝「學生／老師」單選＋「管理員」勾。管理員勾沿用既有的設為／取消管理員（`actions.ts`），
- * 學生不能是管理員：選「學生」時管理員勾取消並鎖住；存的時候先取消管理員，再改角色。
+ * 角色＝「學生／老師」單選＋「管理員」勾。管理員勾跟個資一起送、伺服器同一個交易做完（授權與「最後一位管理員」
+ * 守門照既有規則），任何一步失敗全部回滾。學生不能是管理員：選「學生」時管理員勾取消並鎖住。
  */
 
 const BUTTON =
@@ -42,16 +41,14 @@ export function EditAccountDialog({ account }: { account: { readonly userId: str
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [receipt, setReceipt] = useState<ProfileEditReceipt | null>(null)
-  const [changedAdmin, setChangedAdmin] = useState(false)
-  const [requestIds, setRequestIds] = useState({ edit: '', admin: '' })
+  const [requestId, setRequestId] = useState('')
 
   async function open() {
     setView(null)
     setDraft(null)
     setError(null)
     setReceipt(null)
-    setChangedAdmin(false)
-    setRequestIds({ edit: crypto.randomUUID(), admin: crypto.randomUUID() })
+    setRequestId(crypto.randomUUID())
     ref.current?.showModal()
     try {
       const result = await profileEditViewAction({ userId: account.userId })
@@ -68,7 +65,7 @@ export function EditAccountDialog({ account }: { account: { readonly userId: str
   }
 
   function onClosed() {
-    if (receipt || changedAdmin) router.refresh()
+    if (receipt) router.refresh()
     setView(null)
     setDraft(null)
   }
@@ -86,47 +83,21 @@ export function EditAccountDialog({ account }: { account: { readonly userId: str
     setBusy(true)
     setError(null)
     try {
-      const wasAdmin = view.roles.includes('admin')
-      // 學生不能是管理員：要改成學生的管理員，先取消管理員再改角色。
-      if (wasAdmin && !draft.admin && !changedAdmin) {
-        const revoked = await revokeAdminAction({ userId: view.userId, reason: '', requestId: requestIds.admin })
-        if (!revoked.ok) {
-          setError(revoked.message)
-          return
-        }
-        setChangedAdmin(true)
+      // 同一個請求編號：結果未知或撤登入失敗時再按一次，伺服器走重送，不會重做。
+      const edited = await editAccountAction({
+        userId: view.userId,
+        name: draft.name,
+        role: draft.role,
+        studentNo: draft.role === 'student' ? draft.studentNo : '',
+        cohortId: draft.role === 'student' ? draft.cohortId : '',
+        requestId,
+        admin: draft.admin,
+      })
+      if (!edited.ok) {
+        setError(edited.message)
+        return
       }
-      const profileChanged =
-        draft.name.trim() !== view.name ||
-        draft.role !== view.role ||
-        (draft.role === 'student' && (draft.studentNo.trim() !== (view.studentNo ?? '') || draft.cohortId !== (view.cohortId ?? '')))
-      let done: ProfileEditReceipt | null = null
-      if (profileChanged) {
-        const edited = await editAccountAction({
-          userId: view.userId,
-          name: draft.name,
-          role: draft.role,
-          studentNo: draft.role === 'student' ? draft.studentNo : '',
-          cohortId: draft.role === 'student' ? draft.cohortId : '',
-          requestId: requestIds.edit,
-        })
-        if (!edited.ok) {
-          setError(edited.message)
-          return
-        }
-        done = edited.data
-      }
-      if (!wasAdmin && draft.admin && !changedAdmin) {
-        const granted = await grantAdminAction({ userId: view.userId, reason: '', requestId: requestIds.admin })
-        if (!granted.ok) {
-          setError(granted.message)
-          return
-        }
-        setChangedAdmin(true)
-      }
-      setReceipt(
-        done ?? { userId: view.userId, name: view.name, role: view.role, cohortCode: null, roleChanged: false, changedAt: new Date().toISOString() },
-      )
+      setReceipt(edited.data)
     } catch {
       setError('結果未知：可能已經存好。請再按一次（不會重複做），或關閉後重新整理。')
     } finally {
@@ -267,7 +238,7 @@ export function EditAccountDialog({ account }: { account: { readonly userId: str
                 </div>
                 {blocked ? (
                   <p id={`edit-blocked-${account.userId}`} className="text-xs text-muted-foreground" data-testid="edit-blocked">
-                    {blocked}
+                    <BlockedText text={blocked} link={view && draft?.role === 'teacher' ? view.toTeacherGroupLink : null} />
                   </p>
                 ) : null}
               </div>
@@ -275,6 +246,19 @@ export function EditAccountDialog({ account }: { account: { readonly userId: str
           )}
         </div>
       </dialog>
+    </>
+  )
+}
+
+/** 原因句；改老師時「他在 X 屆第 N 組」那半句連到那一組（§3.9），其餘文字不變。 */
+function BlockedText({ text, link }: { text: string; link: ProfileEditView['toTeacherGroupLink'] }) {
+  if (!link || !text.startsWith(link.text)) return <>{text}</>
+  return (
+    <>
+      <Link href={`/dashboard/admin/groups/${link.groupId}`} className="underline underline-offset-4 hover:text-primary">
+        {link.text}
+      </Link>
+      {text.slice(link.text.length)}
     </>
   )
 }

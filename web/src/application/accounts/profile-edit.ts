@@ -50,6 +50,8 @@ export type ProfileEditView = {
   readonly cohortLock: { readonly reason: string; readonly groupId: string } | null
   /** 改成老師／學生不成立時那一句（null＝可以改；角色本來就是那個也是 null）。 */
   readonly toTeacherBlocked: string | null
+  /** 改老師的原因裡「他在 X 屆第 N 組」那半句與它要連去的組（§3.9：組別那半句連到該組）；沒有組別是 null。 */
+  readonly toTeacherGroupLink: { readonly text: string; readonly groupId: string } | null
   readonly toStudentBlocked: string | null
 }
 
@@ -60,6 +62,8 @@ export type ProfileEditInput = {
   readonly studentNo: string
   readonly cohortId: string
   readonly requestId: string
+  /** 管理員勾（跟個資同一個交易）；沒給＝不動。 */
+  readonly admin?: boolean
 }
 
 export type NormalizedProfileEdit = {
@@ -69,6 +73,8 @@ export type NormalizedProfileEdit = {
   readonly studentNo: string | null
   readonly cohortId: string | null
   readonly requestId: string
+  /** null＝不動管理員角色。 */
+  readonly admin: boolean | null
 }
 
 export type ProfileEditReceipt = {
@@ -78,6 +84,8 @@ export type ProfileEditReceipt = {
   readonly cohortCode: string | null
   /** 主角色換了：對方的登入已撤掉，重登才拿到新身分。 */
   readonly roleChanged: boolean
+  /** 存完之後是不是管理員。 */
+  readonly admin: boolean
   readonly changedAt: string
 }
 
@@ -97,6 +105,11 @@ const NO_MAIN_ROLE = '這個帳號沒有學生或老師身分，請用「補上�
 
 function whereIs(m: ActiveMembership): string {
   return `${m.cohortCode} 屆${m.groupCode}`
+}
+
+/** 「他在 115 屆第 3 組」：改老師的原因裡要連到該組的那半句（`canChangeRole` 用同一句開頭）。 */
+export function membershipPhrase(m: ActiveMembership): string {
+  return `他在 ${whereIs(m)}`
 }
 
 /** 有組別不能調屆。 */
@@ -133,14 +146,16 @@ export function normalizeProfileEdit(input: ProfileEditInput): { ok: true; value
   if (!name) return invalid('name', '請填姓名。')
   if (name.length > TEACHER_NAME_MAX_LENGTH || hasControlChars(name)) return invalid('name', `姓名最多 ${TEACHER_NAME_MAX_LENGTH} 個字。`)
 
-  if (role !== 'student') return { ok: true, value: { userId: input.userId, name, role, studentNo: null, cohortId: null, requestId: input.requestId } }
+  const admin = typeof input.admin === 'boolean' ? input.admin : null
+  if (role === 'student' && admin === true) return invalid('admin', '學生帳號不能設為管理員；請用老師或職員的帳號。')
+  if (role !== 'student') return { ok: true, value: { userId: input.userId, name, role, studentNo: null, cohortId: null, requestId: input.requestId, admin } }
 
   const studentNo = input.studentNo.trim()
   const cohortId = input.cohortId.trim()
   if (!studentNo || !cohortId) return err('VALIDATION_FAILED', STUDENT_FIELDS_REQUIRED, { details: { field: studentNo ? 'cohortId' : 'studentNo' } })
   if (!STUDENT_NO_PATTERN.test(studentNo)) return invalid('studentNo', '學號只能有英文字母和數字。')
   if (!UUID_PATTERN.test(cohortId)) return invalid('cohortId', '請重新選屆別。')
-  return { ok: true, value: { userId: input.userId, name, role, studentNo, cohortId, requestId: input.requestId } }
+  return { ok: true, value: { userId: input.userId, name, role, studentNo, cohortId, requestId: input.requestId, admin } }
 }
 
 /** 調屆：目前有有效組別就不能改（設計方案 §3.8）。 */
@@ -159,7 +174,7 @@ export function canChangeRole(from: MainRole | null, to: MainRole | null, facts:
   const parts: string[] = []
   if (to === 'teacher') {
     const first = facts.memberships[0]
-    if (first) parts.push(`他在 ${whereIs(first)}`)
+    if (first) parts.push(membershipPhrase(first))
     if (facts.submissions > 0) parts.push(`有 ${facts.submissions} 筆繳交紀錄`)
     return parts.length === 0 ? null : `${parts.join('、')}，不能改成老師`
   }

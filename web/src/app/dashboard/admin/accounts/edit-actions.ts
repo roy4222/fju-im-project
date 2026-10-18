@@ -8,7 +8,7 @@ import type { Result } from '@/shared/result'
  * 帳號列「編輯」的兩個 Server Action（C2-08；設計方案 §3.2、§3.8、§3.9）。
  *
  * 授權、前置條件、學號占用都在用例裡再判一次（只有狀態正常的管理員），直接呼叫這裡繞不過去。
- * 管理員勾沿用 `actions.ts` 的 `grantAdminAction`／`revokeAdminAction`，不在這裡。
+ * 管理員勾跟個資一起送、同一個交易（Review 第 1 輪第 3 項）：任何一步失敗全部回滾。
  * 不在這裡 revalidate：視窗先顯示結果，關掉後才由畫面自己刷新列表（同其他帳號對話框）。
  */
 
@@ -40,6 +40,7 @@ export async function editAccountAction(input: {
   studentNo: string
   cohortId: string
   requestId: string
+  admin?: boolean
 }): Promise<ActionOutcome<ProfileEditReceipt>> {
   const userId = text(input?.userId, 100)
   const name = text(input?.name, 500)
@@ -52,5 +53,15 @@ export async function editAccountAction(input: {
   }
   const incoming = await headers()
   const actor = await resolveActor(incoming)
-  return toOutcome(await getProfileEditCommand().edit(actor, new Headers(incoming), { userId, name, role, studentNo, cohortId, requestId }))
+  return toOutcome(
+    await getProfileEditCommand().edit(actor, new Headers(incoming), {
+      userId,
+      name,
+      role,
+      studentNo,
+      cohortId,
+      requestId,
+      ...(typeof input?.admin === 'boolean' ? { admin: input.admin } : {}),
+    }),
+  )
 }

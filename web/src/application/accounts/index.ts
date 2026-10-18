@@ -245,6 +245,7 @@ export {
   canChangeRole,
   cohortLockedMessage,
   mainRoleOf,
+  membershipPhrase,
   normalizeProfileEdit,
   profileEditRowBlocker,
   STUDENT_FIELDS_REQUIRED,
