@@ -119,6 +119,14 @@ test('?placement=honor 不轉：200 留在公告頁，仍是「榮譽」篩選�
   await expect(page.getByTestId('affair-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
 })
 
+test('?placement= 是物件繼承來的屬性名（toString、constructor、__proto__）：不轉，200 留在公告頁', async ({ request }) => {
+  const { cookie } = await sharedTestSession(request, 'admin')
+  for (const placement of ['toString', 'constructor', '__proto__']) {
+    const response = await request.get(`/dashboard/admin/affairs?placement=${placement}`, { headers: { cookie }, maxRedirects: 0 })
+    expect(response.status(), placement).toBe(200)
+  }
+})
+
 // ── 側欄與設定（AC-C2-01、02、03） ──
 
 test('側欄六項不變；「設定」直接連屆別，點下去分頁列只有三個、「屆別」是目前頁', async ({ page }) => {

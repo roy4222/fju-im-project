@@ -39,17 +39,19 @@ function withQuery(target: string, params: SearchParams, drop?: string): string 
   return query ? `${target}?${query}` : target
 }
 
+/** 只認自己的鍵：網址來的字串可能是 `toString`、`constructor`、`__proto__`，不能拿到繼承的屬性。 */
+function own<T>(table: Readonly<Record<string, T>>, key: string | undefined): T | undefined {
+  return key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined
+}
+
 /** 舊網址（路徑＋query）→ 新網址；不是舊網址回 `null`（照常顯示這一頁）。 */
 export function legacyAdminRedirect(path: string, params: SearchParams = {}): string | null {
-  const paths: Readonly<Record<string, string>> = ADMIN_LEGACY_REDIRECTS.paths
-  const target = paths[path]
+  const target = own<string>(ADMIN_LEGACY_REDIRECTS.paths, path)
   if (target) return withQuery(target, params)
 
-  const queries: Readonly<Record<string, { key: string; to: Readonly<Record<string, string>> }>> = ADMIN_LEGACY_REDIRECTS.queries
-  const rule = queries[path]
+  const rule = own<{ key: string; to: Readonly<Record<string, string>> }>(ADMIN_LEGACY_REDIRECTS.queries, path)
   if (!rule) return null
   const raw = params[rule.key]
-  const value = Array.isArray(raw) ? raw[0] : raw
-  const to = value === undefined ? undefined : rule.to[value]
+  const to = own(rule.to, Array.isArray(raw) ? raw[0] : raw)
   return to ? withQuery(to, params, rule.key) : null
 }

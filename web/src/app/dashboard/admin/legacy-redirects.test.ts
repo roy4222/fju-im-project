@@ -38,6 +38,16 @@ describe('legacyAdminRedirect', () => {
     }
   })
 
+  it('placement 是物件繼承來的屬性名（toString、constructor、__proto__）時不轉，照原頁顯示', () => {
+    for (const placement of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+      expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement })).toBeNull()
+    }
+  })
+
+  it('路徑是物件繼承來的屬性名時也不轉', () => {
+    for (const path of ['toString', 'constructor', '__proto__']) expect(legacyAdminRedirect(path, { placement: 'rules' })).toBeNull()
+  })
+
   it('不是舊網址就不轉（首頁設定、同意書、帳號 ?status= 都還沒輪到）', () => {
     expect(legacyAdminRedirect('/dashboard/admin/home-settings')).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/signoff')).toBeNull()
