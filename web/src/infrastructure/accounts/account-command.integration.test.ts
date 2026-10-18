@@ -462,6 +462,123 @@ describe('核發臨時密碼（ACC-08、ACC-18）', () => {
   })
 })
 
+/** 重設密碼信不等寄信結果，所以 `mail_outbox` 的列會稍晚出現。 */
+async function waitForMail(email: string, count = 1) {
+  for (let i = 0; i < 60; i += 1) {
+    const rows = (
+      await db.sql(`select template, subject, body_text from mail_outbox where to_email = $1 order by created_at, id`, [email])
+    ).rows as { template: string; subject: string; body_text: string | null }[]
+    if (rows.length >= count) return rows
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(`等不到 ${email} 的信`)
+}
+
+describe('新增學生與「請設定密碼」信（AC-C2-27）', () => {
+  let cohortId: string
+  beforeAll(async () => {
+    cohortId = (
+      await one<{ id: string }>(
+        `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), 'c209', '115 學年度專題', 'system') returning id`,
+      )
+    ).id
+  })
+
+  it('學生直接開通：個人資料、學生角色、學號占用、狀態事件、稽核都有；沒有密碼；寄一封「請設定密碼」信，連結真的能設密碼', async () => {
+    const email = uniqueEmail('s1')
+    const rid = requestId()
+    const input = { name: '王小明', email, studentNo: 'a1234567', cohortId, requestId: rid }
+    const created = await command.createStudent(admin(), adminHeaders, input)
+    expect(created).toMatchObject({ ok: true, receipt: { email, name: '王小明', studentNo: 'a1234567', setupMailRequested: true } })
+    const userId = (created as { receipt: { userId: string } }).receipt.userId
+
+    expect(await one('select status, must_change_password from users where id = $1', [userId])).toEqual({ status: 'active', must_change_password: false })
+    expect(await one('select display_name, student_no, cohort_id, contact_email from user_profiles where user_id = $1', [userId])).toEqual({
+      display_name: '王小明',
+      student_no: 'a1234567',
+      cohort_id: cohortId,
+      contact_email: email,
+    })
+    expect(await one('select student_no from student_identities where user_id = $1', [userId])).toEqual({ student_no: 'A1234567' })
+    expect(await one(`select role, granted_by_user_id from role_assignments where user_id = $1 and revoked_real_at is null`, [userId])).toEqual({
+      role: 'student',
+      granted_by_user_id: adminId,
+    })
+    expect(await one(`select from_status, to_status, actor_user_id from user_status_events where user_id = $1`, [userId])).toEqual({
+      from_status: 'pending',
+      to_status: 'active',
+      actor_user_id: adminId,
+    })
+    expect(await one(`select actor_user_id from audit_events where action = 'account.create_student' and target_id = $1`, [userId])).toEqual({ actor_user_id: adminId })
+    expect(await one('select count(*)::int as n from accounts where user_id = $1', [userId])).toEqual({ n: 0 })
+    expect(await one('select count(*)::int as n from registration_applications where user_id = $1', [userId])).toEqual({ n: 0 })
+
+    const mails = await waitForMail(email)
+    expect(mails).toHaveLength(1)
+    expect(mails[0]).toMatchObject({ template: 'password_reset', subject: '【專題管理平台】請設定密碼' })
+    const token = decodeURIComponent(mails[0]!.body_text!.match(/token=([^。\s]+)/)![1]!)
+    const reset = await post('/reset-password', { token, newPassword: PASSWORD })
+    expect(reset.status, await reset.clone().text()).toBe(200)
+    expect((await signIn(email, PASSWORD)).status).toBe(200)
+
+    // 同一個請求重送：不重複建、不重寄信。
+    const replay = await command.createStudent(admin(), adminHeaders, input)
+    expect(replay).toMatchObject({ ok: true, receipt: { userId, setupMailRequested: null } })
+    expect(await one('select count(*)::int as n from users where lower(email) = $1', [email])).toEqual({ n: 1 })
+    expect(await waitForMail(email)).toHaveLength(1)
+  })
+
+  it('同屆同學號已有人 → STUDENT_NO_TAKEN（大小寫不分），沒建出帳號；Email 已有帳號也擋', async () => {
+    const first = uniqueEmail('s2')
+    expect(await command.createStudent(admin(), adminHeaders, { name: '甲', email: first, studentNo: 'B7654321', cohortId, requestId: requestId() })).toMatchObject({ ok: true })
+
+    const dupEmail = uniqueEmail('s3')
+    const clash = await command.createStudent(admin(), adminHeaders, { name: '乙', email: dupEmail, studentNo: 'b7654321', cohortId, requestId: requestId() })
+    expect(clash).toMatchObject({ ok: false, code: 'STUDENT_NO_TAKEN', details: { field: 'studentNo' } })
+    expect((clash as { message: string }).message).toMatch(/這個學號在 .+ 屆已經有人/)
+    expect(await one('select count(*)::int as n from users where lower(email) = $1', [dupEmail])).toEqual({ n: 0 })
+
+    const emailClash = await command.createStudent(admin(), adminHeaders, { name: '丙', email: first, studentNo: 'C1111111', cohortId, requestId: requestId() })
+    expect(emailClash).toMatchObject({ ok: false, details: { field: 'email' } })
+  })
+
+  it('欄位不齊、屆別不存在、非管理員都被擋，什麼都沒建', async () => {
+    const email = uniqueEmail('s4')
+    const ok = { name: '丁', email, studentNo: 'D2222222', cohortId, requestId: requestId() }
+    expect(await command.createStudent(admin(), adminHeaders, { ...ok, studentNo: '' })).toMatchObject({ ok: false, details: { field: 'studentNo' } })
+    expect(await command.createStudent(admin(), adminHeaders, { ...ok, cohortId: '0190a0a0-0000-7000-8000-00000000dead' })).toMatchObject({ ok: false, details: { field: 'cohortId' } })
+    expect(await command.createStudent(actorOf(adminId, ['teacher']), adminHeaders, ok)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await one('select count(*)::int as n from users where lower(email) = $1', [email])).toEqual({ n: 0 })
+  })
+
+  it('信交不出去：帳號照樣建好，回執說信沒寄（setupMailRequested=false）', async () => {
+    const failing = new (await import('@/infrastructure/accounts/account-command')).PgAccountCommand({
+      audit: new (await import('@/infrastructure/ops/audit-writer')).PgAuditWriter(),
+      ledger: new (await import('@/infrastructure/ops/operation-ledger')).PgOperationLedger(() => app),
+      db: () => app,
+      sendSetupMail: async () => {
+        throw new Error('mail down')
+      },
+    })
+    const email = uniqueEmail('s5')
+    const created = await failing.createStudent(admin(), adminHeaders, { name: '戊', email, studentNo: 'E3333333', cohortId, requestId: requestId() })
+    expect(created).toMatchObject({ ok: true, receipt: { setupMailRequested: false } })
+    expect(await one('select status from users where lower(email) = $1', [email])).toEqual({ status: 'active' })
+  })
+
+  it('替已開通的老師寄「請設定密碼」信：只有管理員；停用或不存在的帳號不寄', async () => {
+    const email = uniqueEmail('m1')
+    const teacher = await command.createTeacher(admin(), adminHeaders, { mode: 'preauthorize', email, name: '林老師', verificationMethod: '', verificationNote: '', requestId: requestId() })
+    const userId = (teacher as { receipt: { userId: string } }).receipt.userId
+    expect(await command.sendSetupMail(actorOf(adminId, ['teacher']), adminHeaders, { userId })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await command.sendSetupMail(admin(), adminHeaders, { userId })).toMatchObject({ ok: true, receipt: { requested: true } })
+    expect((await waitForMail(email))[0]).toMatchObject({ template: 'password_reset', subject: '【專題管理平台】請設定密碼' })
+    expect(await command.sendSetupMail(admin(), adminHeaders, { userId: '0190a0a0-0000-7000-8000-00000000dead' })).toMatchObject({ ok: false })
+    await db.sql(`update users set status = 'disabled' where id = $1`, [userId])
+    expect(await command.sendSetupMail(admin(), adminHeaders, { userId })).toMatchObject({ ok: false, code: 'CONFLICT' })
+  })
+})
+
 describe('秘密不進 log（契約 03 §3）', () => {
   it('這個檔核發過的每一組臨時密碼，都沒有出現在任何 console 輸出裡', () => {
     expect(issuedSecrets.length).toBeGreaterThanOrEqual(4)

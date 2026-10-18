@@ -165,6 +165,7 @@ export {
   DIRECTORY_STATUSES,
   directoryQueryString,
   normalizeDirectoryFilter,
+  normalizeNewMember,
   ROLE_LABEL,
   SEARCH_MAX_LENGTH,
 } from '@/application/accounts'

@@ -240,6 +240,16 @@ function createAuthMailer(): Mailer {
  */
 const mailOutcome = new AsyncLocalStorage<{ failed: boolean }>()
 
+/**
+ * 這一次 `requestPasswordReset` 寄的是不是系辦新增成員後的「請設定密碼」信（C2-09）。
+ * 套件的 `sendResetPassword` 回呼拿不到呼叫端的意圖，所以用這個盒子帶過去（只有 wrapper 的 `sendSetupPasswordMail` 會開）。
+ */
+const resetMailVariant = new AsyncLocalStorage<'setup'>()
+
+export function withSetupMailVariant<T>(fn: () => Promise<T>): Promise<T> {
+  return resetMailVariant.run('setup', fn)
+}
+
 export function withMailOutcome<T>(fn: () => Promise<T>): Promise<T> {
   return mailOutcome.run({ failed: false }, fn)
 }
@@ -372,7 +382,7 @@ function createAuth() {
        */
       sendResetPassword: async ({ user, token }) => {
         void mailer
-          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token)) })
+          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token), resetMailVariant.getStore()) })
           .then((result) => {
             if (!result.ok) console.error('[auth] 重設密碼信寄不出去', { outboxId: result.outboxId, code: result.code })
           })
@@ -746,10 +756,14 @@ function createAuth() {
           if (!otpLimiters.resetEmail.hit(email).allowed) {
             throw tooMany(`寄太多次了，請${inWords(RATE_LIMITS.passwordReset.email.windowMs)}後再試。`)
           }
-          if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
-            throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
+          // 系辦在後台替人寄「請設定密碼」信（內部呼叫，不是訪客的表單）：不受每 IP 桶與人機驗證限制，
+          // 每個 Email 的桶照扣（系辦連加幾十個人，不該被同一個出口 IP 的桶擋住）。
+          if (!(!ctx.request && isInternalCall() && resetMailVariant.getStore() === 'setup')) {
+            if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
+              throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
+            }
+            await requireTurnstile(turnstileConfig, headers, 'reset')
           }
-          await requireTurnstile(turnstileConfig, headers, 'reset')
         }
 
         // ── 重設密碼：新密碼長度跟註冊、改密同一條（套件預設只要 8 字） ─────────────────

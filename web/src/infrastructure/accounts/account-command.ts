@@ -5,11 +5,14 @@ import {
   accountAdminDenied,
   adminGrantProblem,
   isOrphan,
+  normalizeNewMember,
   normalizeOrphanRepair,
   normalizeRoleChange,
   normalizeTeacherAccountInput,
   normalizeTemporaryPasswordRequest,
+  normalizeName,
   remainingEffectiveAdmins,
+  studentNoTakenMessage,
   type AccountCommand,
   type AccountLookup,
   type AccountStatus,
@@ -19,6 +22,7 @@ import {
   type Role,
   type RoleChangeInput,
   type RoleChangeReceipt,
+  type StudentAccountReceipt,
   type TeacherAccountInput,
   type TeacherAccountReceipt,
   type TeacherCreatedWithSecret,
@@ -31,7 +35,8 @@ import { err, ok, type Err, type Result, type SecretOnce } from '@/shared/result
 import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
-import { internalAuth } from '@/infrastructure/auth/wrapper'
+import { internalAuth, sendSetupPasswordMail } from '@/infrastructure/auth/wrapper'
+import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { generateTemporaryPassword } from '@/infrastructure/accounts/temporary-password'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
 
@@ -85,6 +90,8 @@ export type AccountCommandDeps = {
   readonly ledger: OperationLedger<PoolClient>
   readonly db: () => Pool
   readonly auth?: AccountAuthCalls
+  /** 寄「請設定密碼」信（預設走 Better Auth 的重設密碼；測試可以換掉來模擬失敗）。 */
+  readonly sendSetupMail?: (headers: Headers, input: { email: string }) => Promise<unknown>
   readonly generatePassword?: () => string
   readonly clock?: Clock
 }
@@ -123,12 +130,14 @@ export class PgAccountCommand implements AccountCommand {
   readonly #clock: Clock
   readonly #auth: AccountAuthCalls
   readonly #generatePassword: () => string
+  readonly #sendSetupMail: (headers: Headers, input: { email: string }) => Promise<unknown>
 
   constructor(deps: AccountCommandDeps) {
     this.#deps = deps
     this.#clock = deps.clock ?? new RealClock()
     this.#auth = deps.auth ?? betterAuthAccountCalls
     this.#generatePassword = deps.generatePassword ?? (() => generateTemporaryPassword())
+    this.#sendSetupMail = deps.sendSetupMail ?? ((headers, input) => sendSetupPasswordMail(input, headers))
   }
 
   // ── 新增老師 ──────────────────────────────────────────────────────────────
@@ -254,6 +263,173 @@ export class PgAccountCommand implements AccountCommand {
     } finally {
       tx.release()
     }
+  }
+
+  // ── 新增學生 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 系辦親手加學生（Q-C2-9）：不走申請，直接開通。
+   *
+   * 跟新增老師一樣分兩段：交易裡先查學號有沒有人占用、再請套件建帳號（套件另開連線、自己 commit），
+   * 然後同一個交易寫個人資料、占用學號、學生角色、狀態事件、稽核、帳本。套件那步成功、我們這步失敗
+   * （或兩位系辦同時加同一個學號）會留下「待審、沒有角色」的帳號，Email 被占住；系辦重試會看到
+   * 「這個 Email 已經有帳號」，作法同新增老師（不自動認領）。
+   *
+   * 沒有密碼，commit 之後才寄「請設定密碼」信；信沒交出去不影響帳號（回執說明，系辦改用列上的臨時密碼）。
+   */
+  async createStudent(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: { name: string; email: string; studentNo: string; cohortId: string; requestId: string },
+  ): Promise<Result<StudentAccountReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新打開對話框再試。')
+    const normalized = normalizeNewMember({ kind: 'student', ...input })
+    if (!normalized.ok) return normalized
+    const member = normalized.value
+    if (member.kind !== 'student') return err('VALIDATION_FAILED', '請選擇要新增學生、老師或管理員。')
+
+    const now = this.#clock.now()
+    const fingerprint = sha256(
+      canonicalJson({ name: member.name, email: member.email, studentNo: member.studentNo.toUpperCase(), cohortId: member.cohortId }),
+    )
+
+    const tx = await this.#deps.db().connect()
+    let receipt: StudentAccountReceipt
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind: 'account.create_student', requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新打開對話框再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這個學生帳號已經建好了，回執已過期。')
+        return ok({ ...(begun.receipt as StudentAccountReceipt), setupMailRequested: null }, meta(now, input.requestId))
+      }
+
+      const cohort = await tx.query<{ code: string }>('select code from cohorts where id = $1', [member.cohortId])
+      if (!cohort.rowCount) {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', '找不到這個屆別，請重新選。', { details: { field: 'cohortId' } })
+      }
+      const cohortCode = cohort.rows[0]!.code
+      const existing = await tx.query('select 1 from users where lower(email) = $1', [member.email])
+      if (existing.rowCount) {
+        await tx.query('rollback')
+        return err('VALIDATION_FAILED', EMAIL_TAKEN_MESSAGE, { details: { field: 'email' } })
+      }
+      if (await studentNoHolder(tx, member.cohortId, member.studentNo, '00000000-0000-0000-0000-000000000000')) {
+        await tx.query('rollback')
+        return err('STUDENT_NO_TAKEN', studentNoTakenMessage(cohortCode), { details: { field: 'studentNo' } })
+      }
+
+      let userId: string
+      try {
+        const created = await this.#auth.createUser(authHeaders, { email: member.email, name: member.name })
+        userId = created.userId
+      } catch (error) {
+        await tx.query('rollback').catch(() => undefined)
+        if (isEmailTaken(error)) return err('VALIDATION_FAILED', EMAIL_TAKEN_MESSAGE, { details: { field: 'email' } })
+        throw error
+      }
+
+      try {
+        await occupyStudentNo(tx, member.cohortId, member.studentNo, userId, now)
+      } catch (error) {
+        await tx.query('rollback').catch(() => undefined)
+        if ((error as { code?: string })?.code === '23505') {
+          return err('STUDENT_NO_TAKEN', studentNoTakenMessage(cohortCode), { details: { field: 'studentNo' } })
+        }
+        throw error
+      }
+      await tx.query(`update users set status = 'active', must_change_password = false, updated_at = $2 where id = $1`, [userId, now])
+      await tx.query(
+        `insert into user_profiles
+           (user_id, display_name, name_normalized, student_no, cohort_id, contact_email, created_at, updated_at, updated_by_user_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $7, $8)`,
+        [userId, member.name, normalizeName(member.name), member.studentNo, member.cohortId, member.email, now, actor.userId],
+      )
+      await tx.query(
+        `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at, reason)
+         values ($1, $2, 'student', $3, $4, '系辦新增學生')`,
+        [uuidv7(), userId, actor.userId, now],
+      )
+      await tx.query(
+        `insert into user_status_events
+           (id, user_id, from_status, to_status, reason, verification_method, actor_kind, actor_user_id, real_at)
+         values ($1, $2, 'pending', 'active', '系辦新增學生', null, 'user', $3, $4)`,
+        [uuidv7(), userId, actor.userId, now],
+      )
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.create_student',
+        targetType: 'user',
+        targetId: userId,
+        scope: 'cohort',
+        cohortId: member.cohortId,
+        realAt: now,
+        businessAt: now,
+        payload: { email: member.email, studentNo: member.studentNo, cohortCode },
+      })
+
+      receipt = {
+        userId,
+        email: member.email,
+        name: member.name,
+        studentNo: member.studentNo,
+        cohortId: member.cohortId,
+        createdAt: now.toISOString(),
+        setupMailRequested: null,
+      }
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId } })
+      await tx.query('commit')
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+
+    bustIdentity(receipt.userId)
+    const mail = await this.#requestSetupMail(authHeaders, receipt.email)
+    return ok({ ...receipt, setupMailRequested: mail }, meta(now, input.requestId))
+  }
+
+  /** 交給套件寄「請設定密碼」信；寄不出去不丟錯（帳號已經建好），回 false 讓畫面提醒系辦。 */
+  async #requestSetupMail(authHeaders: Headers, email: string): Promise<boolean> {
+    try {
+      await this.#sendSetupMail(authHeaders, { email })
+      return true
+    } catch (error) {
+      console.error('[accounts] 請設定密碼信交不出去', (error as { body?: { code?: string } })?.body?.code ?? 'unknown')
+      return false
+    }
+  }
+
+  async sendSetupMail(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: { userId: string },
+  ): Promise<Result<{ readonly requested: boolean }>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!UUID_PATTERN.test(input.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    const found = await this.#deps
+      .db()
+      .query<{ email: string; status: AccountStatus }>('select email, status from users where id = $1 and deidentified_at is null', [input.userId])
+    const row = found.rows[0]
+    if (!row || row.status !== 'active') return err('CONFLICT', '只有已開通的帳號可以寄「請設定密碼」信。')
+    const requested = await this.#requestSetupMail(authHeaders, row.email)
+    return ok({ requested }, meta(this.#clock.now()))
   }
 
   // ── 查帳號 ────────────────────────────────────────────────────────────────

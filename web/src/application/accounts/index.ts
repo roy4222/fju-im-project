@@ -115,7 +115,11 @@ export {
 export type {
   AccountCommand,
   AccountLookup,
+  NewMemberInput,
+  NewMemberKind,
+  NormalizedNewMember,
   NormalizedTeacherAccount,
+  StudentAccountReceipt,
   TeacherAccountInput,
   TeacherAccountReceipt,
   TeacherCreatedWithSecret,
@@ -124,15 +128,18 @@ export type {
   TeacherProfileView,
   TeacherSetupCommand,
   TemporaryPasswordReceipt,
-} from '@/application/accounts/teachers'
+} from '@/application/accounts/members'
 export {
   accountAdminDenied,
+  NEW_MEMBER_KINDS,
+  NEW_STUDENT_FIELDS_REQUIRED,
+  normalizeNewMember,
   normalizeTeacherAccountInput,
   normalizeTeacherProfile,
   normalizeTemporaryPasswordRequest,
   TEACHER_NAME_MAX_LENGTH,
   teacherSetupDenied,
-} from '@/application/accounts/teachers'
+} from '@/application/accounts/members'
 export type {
   AccountDirectoryCommand,
   AccountRow,

@@ -141,6 +141,7 @@ const ACTION_LABEL: Record<string, string> = {
   'account.revoke_role': '取消管理員',
   'account.create_teacher': '新增老師',
   'account.preauthorize_teacher': '預先建立老師帳號',
+  'account.create_student': '新增學生',
   'account.issue_temporary_password': '核發臨時密碼',
   'account.issue_temporary_password_failed': '臨時密碼核發失敗',
   'account.complete_teacher_profile': '老師補完資料',
