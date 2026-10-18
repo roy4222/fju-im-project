@@ -48,10 +48,26 @@ describe('legacyAdminRedirect', () => {
     for (const path of ['toString', 'constructor', '__proto__']) expect(legacyAdminRedirect(path, { placement: 'rules' })).toBeNull()
   })
 
-  it('不是舊網址就不轉（首頁設定、同意書、帳號 ?status= 都還沒輪到）', () => {
+  it('帳號 ?status=pending|disabled 轉到「待審核」「已停用」分頁，status 拿掉、其餘 query 照帶（C2-07；AC-C2-08）', () => {
+    expect(legacyAdminRedirect('/dashboard/admin/accounts', { status: 'pending', q: '王' })).toBe(
+      '/dashboard/admin/accounts/pending?q=%E7%8E%8B',
+    )
+    expect(legacyAdminRedirect('/dashboard/admin/accounts', { status: 'disabled' })).toBe('/dashboard/admin/accounts/disabled')
+    expect(legacyAdminRedirect('/dashboard/admin/accounts', { role: 'student', status: ['disabled', 'pending'] })).toBe(
+      '/dashboard/admin/accounts/disabled?role=student',
+    )
+  })
+
+  it('帳號列表還在用的狀態篩選不轉：已核准、已刪除個人資料、沒帶、不認得的值、繼承來的屬性名', () => {
+    for (const status of ['active', 'deidentified', undefined, 'nope', 'toString', '__proto__']) {
+      expect(legacyAdminRedirect('/dashboard/admin/accounts', { status, q: '王' })).toBeNull()
+    }
+  })
+
+  it('不是舊網址就不轉（首頁設定、同意書還沒輪到；分頁本身不轉）', () => {
     expect(legacyAdminRedirect('/dashboard/admin/home-settings')).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/signoff')).toBeNull()
-    expect(legacyAdminRedirect('/dashboard/admin/accounts', { status: 'pending' })).toBeNull()
+    expect(legacyAdminRedirect('/dashboard/admin/accounts/pending', { status: 'disabled' })).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/affairs/resources', { placement: 'rules' })).toBeNull()
   })
 })

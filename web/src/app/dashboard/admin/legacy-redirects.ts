@@ -12,6 +12,13 @@ export const ADMIN_LEGACY_REDIRECTS = {
     '/dashboard/admin/settings': '/dashboard/admin/cohorts',
   },
   queries: {
+    '/dashboard/admin/accounts': {
+      key: 'status',
+      to: {
+        pending: '/dashboard/admin/accounts/pending',
+        disabled: '/dashboard/admin/accounts/disabled',
+      },
+    },
     '/dashboard/admin/affairs': {
       key: 'placement',
       to: {

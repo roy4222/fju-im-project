@@ -55,9 +55,9 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: `重設頭像 ${name}` })).toBeVisible()
-  // 放在「危險操作」群組之前。
+  // 放在最後一項「刪除個人資料」之前。
   const items = await menu.getByRole('menuitem').allInnerTexts()
-  expect(items.indexOf('重設頭像')).toBeLessThan(items.indexOf('停用'))
+  expect(items.indexOf('重設頭像')).toBeLessThan(items.indexOf('刪除個人資料'))
   await menu.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
 
   const dialog = page.getByRole('dialog', { name: `重設 ${name} 的頭像` })
