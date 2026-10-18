@@ -202,7 +202,8 @@
 /*
   深色（只給後台用，前台固定白底；預設淺色、由頂列按鈕手動切，Q107）。SH-2 照原型第 4 輪重做：
   不是炭灰，是「系網深藍的夜」——中性色都帶 hue 258 的藍，由深到淺四層，靠明度差分層、不靠陰影：
-    L0 外框／側欄 --sidebar 0.165 < L1 內容面 --background 0.195 < L2 卡片 --card 0.235 < L3 浮層 --popover 0.265
+    L0 外框／側欄 --sidebar 0.225 < L1 內容面 --background 0.255 < L2 卡片 --card 0.295 < L3 浮層 --popover 0.325
+  2026-10-18 Roy 選 A：底色各層 L +0.06（彩度、色相不變）。
   品牌橘提亮（深藍上的橘字要過 AA）；實心橘、綠、紅上面一律放深藍字（*-foreground），不放白字。
   對比（WCAG 2，PR 附表）：內文、次要字、橘字、狀態色字對底都 ≥ 4.5:1，邊框對卡片 ≥ 1.5:1。
   與規格的兩處差異：--border 規格值 L0.78 對卡片只有 1.38:1，提 L 到 0.92（色相、透明度不動）；
@@ -210,10 +211,10 @@
   實色會讓欄位邊框看不見，改用原型的半透明值。
 */
 .dark {
-  --background: oklch(0.195 0.048 258);
+  --background: oklch(0.255 0.048 258);
   --foreground: oklch(0.93 0.01 255);
-  --card: oklch(0.235 0.056 258);
-  --popover: oklch(0.265 0.06 258);
+  --card: oklch(0.295 0.056 258);
+  --popover: oklch(0.325 0.06 258);
 
   --primary: oklch(0.76 0.16 58);
   --primary-foreground: oklch(0.165 0.045 260);
@@ -223,13 +224,13 @@
   --ink: oklch(0.93 0.02 253.89);
   --ink-foreground: oklch(0.165 0.045 260);
 
-  --secondary: oklch(0.285 0.055 258);
+  --secondary: oklch(0.345 0.055 258);
   --secondary-foreground: oklch(0.95 0.015 65);
-  --muted: oklch(0.27 0.052 258);
+  --muted: oklch(0.33 0.052 258);
   --muted-foreground: oklch(0.75 0.02 255);
-  --accent: oklch(0.295 0.062 258);
+  --accent: oklch(0.355 0.062 258);
   --accent-foreground: oklch(0.93 0.01 255);
-  --surface: oklch(0.215 0.052 258);
+  --surface: oklch(0.275 0.052 258);
 
   --border: oklch(0.92 0.07 255 / 16%);
   --input: oklch(0.78 0.07 255 / 22%);
@@ -258,11 +259,11 @@
   --chart-4: oklch(0.76 0.1 155);
   --chart-5: oklch(0.77 0.035 255);
 
-  --sidebar: oklch(0.165 0.045 260);
+  --sidebar: oklch(0.225 0.045 260);
   --sidebar-primary: oklch(0.77 0.12 245);
   --sidebar-primary-foreground: oklch(0.165 0.045 260);
   /* 側欄 hover 與啟用項的底（sidebar.tsx 的 data-active:bg-sidebar-accent）＝ L3。 */
-  --sidebar-accent: oklch(0.27 0.06 258);
+  --sidebar-accent: oklch(0.33 0.06 258);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: oklch(0.78 0.07 255 / 14%);
 
