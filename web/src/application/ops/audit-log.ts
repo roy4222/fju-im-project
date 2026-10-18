@@ -150,6 +150,7 @@ const ACTION_LABEL: Record<string, string> = {
   'account.link_google': '連結 Google 登入',
   'account.bind_google_preauthorized': '預先建立的老師帳號綁定 Google',
   'account.repair_orphan': '替尚未設定身分的帳號補上身分',
+  'account.profile_edit': '編輯帳號（姓名、學號、屆別、角色）',
   'account.seed_first_admin': '建立第一位管理員',
   'account.seed_e2e_admin': '建立測試管理員帳號',
   'account.deidentify': '刪除個人資料（保留紀錄）',

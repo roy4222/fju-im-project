@@ -230,3 +230,23 @@ export {
   ORPHAN_ROLES,
   remainingEffectiveAdmins,
 } from '@/application/accounts/roles'
+export type {
+  ActiveMembership,
+  MainRole,
+  NormalizedProfileEdit,
+  ProfileEditCommand,
+  ProfileEditInput,
+  ProfileEditReceipt,
+  ProfileEditView,
+  RoleChangeFacts,
+} from '@/application/accounts/profile-edit'
+export {
+  canChangeCohort,
+  canChangeRole,
+  cohortLockedMessage,
+  mainRoleOf,
+  normalizeProfileEdit,
+  profileEditRowBlocker,
+  STUDENT_FIELDS_REQUIRED,
+  studentNoTakenMessage,
+} from '@/application/accounts/profile-edit'
