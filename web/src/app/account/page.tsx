@@ -8,6 +8,7 @@ import { PageTitle } from '@/app/_ui/dashboard/primitives'
 import { PublicCard, Tag } from '@/app/_ui/public-content'
 import { AvatarPicker } from '@/app/_ui/avatar/avatar-picker'
 import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
+import { DashThemeRoot } from '@/app/_ui/dash-theme'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV, STUDENT_NAV, TEACHER_NAV } from '@/app/dashboard/_nav'
 import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
@@ -80,6 +81,7 @@ export default async function AccountPage({
   const shell = shellFor(home)
 
   return (
+    <DashThemeRoot>
     <DashboardShell roleLabel={shell.roleLabel} items={shell.items} current={`${home}/account`}>
       <div className="flex min-w-0 max-w-3xl flex-col gap-6">
         <PageTitle title="我的帳號" description="姓名、學號、系級與屆別由系辦維護；手機與聯絡 Email 可以自己改。" />
@@ -214,6 +216,7 @@ export default async function AccountPage({
         </div>
       </div>
     </DashboardShell>
+    </DashThemeRoot>
   )
 }
 

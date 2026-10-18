@@ -165,6 +165,32 @@ test.describe('以 S01（學生）', () => {
     await expect(page.getByText('帳號狀態')).toHaveCount(0)
   })
 
+  test('帳號頁跟後台同一套深淺色：後台是深色進來仍深色、在帳號頁切換會記住、回前台不殘留（C2-13）', async ({ page }) => {
+    const isDark = () => page.evaluate(() => document.documentElement.classList.contains('dark'))
+    await signInAs(page, 'student')
+    await page.goto('/dashboard/student')
+    await page.evaluate(() => localStorage.setItem('fju-dash-theme', 'dark'))
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ① 後台已是深色 → 從選單進帳號頁仍是深色，按鈕文字對應目前狀態。
+    await page.goto('/account')
+    await expect.poll(isDark).toBe(true)
+    await expect(page.getByRole('button', { name: '切換為淺色' })).toBeVisible()
+
+    // ② 在帳號頁切成淺色再切回深色 → 重整仍是深色。
+    await page.getByRole('button', { name: '切換為淺色' }).click()
+    await expect.poll(isDark).toBe(false)
+    await page.getByRole('button', { name: '切換為深色' }).click()
+    await expect.poll(isDark).toBe(true)
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ③ 離開到前台 → 深色不殘留。
+    await page.goto('/')
+    await expect.poll(isDark).toBe(false)
+  })
+
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
     // 不用共用帳號：CI 只有一個 worker，共用學生帳號會跨檔沿用，先跑的 item-delete.spec 會替它補上
     // 學號與屆別，「姓名」旁邊就變成「學號」、登入 Email 被擠到下一列。這裡要一個確定沒有個人資料的學生。
