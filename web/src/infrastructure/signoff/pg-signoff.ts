@@ -227,12 +227,12 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       await tx.query(
         `insert into signoff_packages (id, group_id, cohort_id, purpose, created_at, created_by_user_id, updated_at, updated_by_user_id)
          values ($1, $2, $3, $4, $5, $6, $5, $6)
-         on conflict (group_id, purpose) do nothing`,
+         on conflict (group_id, purpose) where item_id is null do nothing`,
         [uuidv7(), group.id, cohort.id, input.purpose, realAt, adminId],
       )
       const pkg = (
         await tx.query<PackageRow>(
-          'select id, cohort_id, current_version_id from signoff_packages where group_id = $1 and purpose = $2 for update',
+          'select id, cohort_id, current_version_id from signoff_packages where group_id = $1 and purpose = $2 and item_id is null for update',
           [group.id, input.purpose],
         )
       ).rows[0]!
