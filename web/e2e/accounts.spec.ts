@@ -296,7 +296,7 @@ test('AC-A-41：審核對話框的驗證方式只有三種人工方式，沒有�
   const pool = new Pool({ connectionString: ownerUrl, max: 1 })
   const name = `${tag}-待審`
   try {
-    const session = await createTestSession(request)
+    const session = await createTestSession(request, null)
     await pool.query(
       `insert into registration_applications
          (id, user_id, applied_name, student_no, department_class, phone, contact_email, login_email, created_by_kind, created_by_user_id)
