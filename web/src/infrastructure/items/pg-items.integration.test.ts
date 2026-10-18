@@ -2912,7 +2912,7 @@ describe('站內同意書作業（C 階段規格① §1.2、AC-21、AC-21a）', 
     expect((await command.publish(adminActor(), created.receipt.itemId, 1, { notify: true }, randomUUID())).ok).toBe(true)
   })
 
-  it('發布後模式與用途鎖定；改正文才請 hook 建新版，只改標題不會；移出對象的組請 hook 作廢；不能撤回', async () => {
+  it('發布後模式與用途鎖定；改正文才請 hook 建新版，只改標題不會；移出對象的組請 hook 作廢；不發 item.updated；沒有回答仍可撤回', async () => {
     const { cohortId } = await newCohort()
     const s1 = await newStudent(cohortId)
     const s2 = await newStudent(cohortId)
@@ -2960,8 +2960,38 @@ describe('站內同意書作業（C 階段規格① §1.2、AC-21、AC-21a）', 
     expect(fake.calls.at(-1)).toEqual({ kind: 'groups_removed', itemId: created.receipt.itemId, groupIds: [g2] })
     expect(await events(created.receipt.itemId, 'item.published')).toHaveLength(0)
 
+    // 發布更新勾了通知也不發一般的「作業已更新」（同意書通知交給 hook，Review r1）。
+    expect(await events(created.receipt.itemId, 'item.updated')).toHaveLength(0)
+
+    // 沒有任何回答時 API 仍可撤回（規格 §2.5、T6；既有 lifecycle 守門）。
     const withdrawn = await command.changeStatus(adminActor(), created.receipt.itemId, narrowed.receipt.revision, 'withdraw', randomUUID())
-    expect(withdrawn.ok || withdrawn.code).toBe('VALIDATION_FAILED')
+    expect(withdrawn.ok).toBe(true)
+    expect((await itemRow(created.receipt.itemId)).status).toBe('draft')
+  })
+
+  it('只改截止、勾通知：不發一般的 item.updated（Review r1；AC-23）', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const g1 = await newGroup(cohortId, [s1], 'G01')
+    await assignAdvisor(g1, teacherId)
+    const fake = fakeConsentHook()
+    const command = itemsWith(fake.hook)
+    const base = consent({ consentPurpose: 'result_confirmation' })
+    const created = await command.create(adminActor(), input(cohortId, base), randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    const published = await command.publish(adminActor(), created.receipt.itemId, 1, { notify: false }, randomUUID())
+    if (!published.ok) throw new Error(published.message)
+    const updated = await command.updatePublished(
+      adminActor(),
+      created.receipt.itemId,
+      published.receipt.revision,
+      input(cohortId, { ...base, dueAt: '2026-12-31T23:59' }),
+      { notify: true },
+      randomUUID(),
+    )
+    expect(updated).toMatchObject({ ok: true, receipt: { changes: ['deadline'], notifiedCount: 0 } })
+    expect(await events(created.receipt.itemId, 'item.updated')).toHaveLength(0)
+    expect(fake.calls.map((c) => c.kind)).toEqual(['published'])
   })
 
   it('上傳簽名檔的同意書就是個人作業：照常發「新作業」、不呼叫 hook', async () => {

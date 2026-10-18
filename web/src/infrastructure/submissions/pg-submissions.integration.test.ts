@@ -332,6 +332,104 @@ describe('老師也能交作業（C 階段規格① §3.2、§5.3；AC-20）：�
   })
 })
 
+describe('站內同意書不走一般繳交；老師的「等你同意」（C 階段規格① §1.1、§3.2；Review r1）', () => {
+  /** 一屆、一組（S1，主指導 T1）、一份發布中的站內同意書。 */
+  async function consentScenario() {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const group = await owner.sql(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id, code`,
+      [cohortId, `CF-${seq}`],
+    )
+    const groupId = String(group.rows[0]!.id)
+    await owner.sql(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind) values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+      [groupId, cohortId, s1.id],
+    )
+    await owner.sql(
+      `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+       values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '指派')`,
+      [groupId, teacherId, adminId],
+    )
+    const itemId = await published(cohortId, stageId, {
+      title: '期中結果確認同意書',
+      body: '<p>本組同意期中結果。</p>',
+      receiverUnit: 'group',
+      consentMode: 'form',
+      consentPurpose: 'result_confirmation',
+      dueAt: '',
+      fields: [],
+    })
+    return { cohortId, stageId, s1, groupId, groupCode: String(group.rows[0]!.code), itemId }
+  }
+
+  /** 直接寫一個連到作業的簽核包＋目前版本（真的建包在 C1-03 的 hook）。 */
+  async function consentPackage(cohortId: string, groupId: string, itemId: string, advisorId: string) {
+    const pkg = await owner.sql(
+      `insert into signoff_packages (id, group_id, cohort_id, purpose, item_id, created_by_user_id)
+       values (gen_random_uuid(), $1, $2, 'result_confirmation', $3, $4) returning id`,
+      [groupId, cohortId, itemId, adminId],
+    )
+    const packageId = String(pkg.rows[0]!.id)
+    const version = await owner.sql(
+      `insert into signoff_package_versions
+         (id, package_id, version_no, content_text, content_checksum, participants, created_by_user_id, created_real_at, created_business_at)
+       values (gen_random_uuid(), $1, 1, '<p>同意</p>', encode(sha256(convert_to('<p>同意</p>', 'UTF8')), 'hex'), $2::jsonb, $3, now(), now())
+       returning id`,
+      [packageId, JSON.stringify({ students: [], advisor: { userId: advisorId, displayName: '老師', assignmentId: null } }), adminId],
+    )
+    const versionId = String(version.rows[0]!.id)
+    // 狀態新建時只能是 collecting（DB trigger），要等老師的再改過去。
+    await owner.sql(`insert into signoff_version_status (version_id, state) values ($1, 'collecting')`, [versionId])
+    await owner.sql('update signoff_packages set current_version_id = $2 where id = $1', [packageId, versionId])
+    return { packageId, versionId }
+  }
+
+  it('站內同意書：存草稿、正式送出、要上傳憑證一律 VALIDATION_FAILED，不留草稿也不留正式版本；上傳簽名檔模式照舊能存', async () => {
+    const { cohortId, stageId, s1, itemId } = await consentScenario()
+    expect(await submissions.saveDraft(studentActor(s1), itemId, 0, {}, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await submissions.submit(studentActor(s1), itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(
+      await submissions.requestUpload(studentActor(s1), itemId, 'topic', { fileName: 'a.pdf', declaredMime: 'application/pdf', declaredSize: 10 }),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(Number((await owner.sql('select count(*) as n from submission_drafts where item_id = $1', [itemId])).rows[0]!.n)).toBe(0)
+    expect(await versionCount(itemId)).toBe(0)
+
+    const upload = await published(cohortId, stageId, { title: '授權書（簽名上傳）', consentMode: 'upload', receiverUnit: 'individual' })
+    expect((await submissions.saveDraft(studentActor(s1), upload, 0, COMPLETE, randomUUID())).ok).toBe(true)
+  })
+
+  it('老師的作業區：目前版本 teacher_pending、快照主指導是本人 → 列「等你同意」；收集中、已完成、別的老師都不列', async () => {
+    const { cohortId, groupId, groupCode, itemId } = await consentScenario()
+    expect((await query.myItems(teacherId)).filter((r) => r.itemId === itemId)).toEqual([])
+    const { packageId, versionId } = await consentPackage(cohortId, groupId, itemId, teacherId)
+    // 收集中（還沒輪到老師）不列。
+    expect((await query.myItems(teacherId)).filter((r) => r.itemId === itemId)).toEqual([])
+    await owner.sql(`update signoff_version_status set state = 'teacher_pending' where version_id = $1`, [versionId])
+    const mine = (await query.myItems(teacherId)).filter((r) => r.itemId === itemId)
+    expect(mine).toEqual([
+      expect.objectContaining({
+        title: '期中結果確認同意書',
+        kind: 'consent_form',
+        formType: 'form',
+        receiverUnit: 'group',
+        groupCode,
+        consent: { state: 'teacher_pending', groupId, packageId, versionId },
+      }),
+    ])
+    // 別的老師（快照主指導不是他）不列；同意完（complete）就不再列。
+    seq += 1
+    const other = await owner.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [`別的老師${seq}`, `t${seq}-cf@example.com`],
+    )
+    expect((await query.myItems(String(other.rows[0]!.id))).filter((r) => r.itemId === itemId)).toEqual([])
+    await owner.sql(`update signoff_version_status set state = 'complete', completed_real_at = now() where version_id = $1`, [versionId])
+    expect((await query.myItems(teacherId)).filter((r) => r.itemId === itemId)).toEqual([])
+  })
+})
+
 describe('尚未開放：看設定的開放時間，不看實際開放時間', () => {
   it('發布當下就記了實際開放時間，但設定的開放時間還沒到：存草稿與送出都被拒、不產生版本', async () => {
     // 10/01 發布，設定 11/01 08:00（臺灣）開放。

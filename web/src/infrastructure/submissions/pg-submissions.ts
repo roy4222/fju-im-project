@@ -93,6 +93,8 @@ type ItemRow = {
   due_at: Date | null
   deadline_version: number
   current_schema_version_id: string | null
+  /** 同意書模式：`form`＝站內同意表單（同意在簽核包裡投，不走一般草稿與送出）；`upload` 與一般作業是 null 以外照舊。 */
+  consent_mode: string | null
 }
 
 type Receiver = { kind: 'user' | 'group'; id: string; groupCode: string | null; groupStatus: string | null }
@@ -657,7 +659,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
         ? (await tx.query<{ code: string; status: string }>('select code, status from groups where id = $1 for share', [receiverId])).rows[0]
         : undefined
       const found = await tx.query<ItemRow>(
-        `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id
+        `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id, consent_mode
            from managed_items where id = $1 and deleted_at is null for share`,
         [itemId],
       )
@@ -890,6 +892,10 @@ export class PgSubmissionCommand implements SubmissionCommand {
   /** 授權 → 屆別與組別 → 項目狀態 → 時間。回 null＝通過。 */
   #guard(locked: Locked, businessAt: Date): Err | null {
     const { item } = locked
+    // 站內同意書（C 階段規格① §1.1、§1.2）：同意在簽核包裡投，不能用一般草稿、送出、上傳交一份空的「已交」。
+    if (item.consent_mode === 'form') {
+      return err('VALIDATION_FAILED', '這是站內同意書，請在同意書頁按「我同意」或「不同意」，不用另外填寫或上傳。')
+    }
     if (item.receiver_unit === 'group') {
       if (!locked.receiver) return notMember()
     } else if (item.receiver_unit !== 'individual') {
@@ -950,7 +956,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
     }
 
     const found = await tx.query<ItemRow>(
-      `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id
+      `select id, cohort_id, title, status, receiver_unit, opens_at, due_at, deadline_version, current_schema_version_id, consent_mode
          from managed_items where id = $1 and deleted_at is null for share`,
       [itemId],
     )
@@ -1229,6 +1235,69 @@ export class PgSubmissionQuery implements SubmissionQuery {
 
   async myItems(userId: string): Promise<MyItemRow[]> {
     if (!isUuid(userId)) return []
+    const [rostered, awaiting] = await Promise.all([this.#rosterItems(userId), this.#awaitingAdvisorConsent(userId)])
+    // 沒有等同意的（學生、多數老師）就是名單查詢原本的順序；有才併進來、照截止再標題排。
+    if (awaiting.length === 0) return rostered
+    return [...rostered, ...awaiting].sort(
+      (a, b) =>
+        (a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) - (b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) ||
+        a.title.localeCompare(b.title),
+    )
+  }
+
+  /**
+   * 等這位主指導同意的站內同意書（C 階段規格① §3.2）：作業發布中、`consent_mode='form'`，包的**目前版本**狀態是
+   * `teacher_pending`、而且那一版參與者快照的主指導就是本人（換老師會建新版，舊老師的快照不再是目前版本）。一組一列。
+   */
+  async #awaitingAdvisorConsent(userId: string): Promise<MyItemRow[]> {
+    const rows = await this.#reader().query<{
+      id: string
+      title: string
+      cohort_id: string
+      opens_at: Date | null
+      due_at: Date | null
+      attachment_count: string
+      group_id: string
+      group_code: string
+      package_id: string
+      version_id: string
+    }>(
+      `select m.id, m.title, m.cohort_id, m.opens_at, m.due_at,
+              (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
+              g.id as group_id, g.code as group_code, p.id as package_id, pv.id as version_id
+         from signoff_packages p
+         join managed_items m on m.id = p.item_id
+         join groups g on g.id = p.group_id
+         join signoff_package_versions pv on pv.id = p.current_version_id
+         join signoff_version_status st on st.version_id = pv.id
+        where m.status = 'published' and m.deleted_at is null and m.consent_mode = 'form'
+          and st.state = 'teacher_pending'
+          and pv.participants -> 'advisor' ->> 'userId' = $1::text`,
+      [userId],
+    )
+    return rows.rows.map((r) => ({
+      itemId: r.id,
+      title: r.title,
+      kind: 'consent_form' as const,
+      formType: 'form' as const,
+      stageName: null,
+      cohortId: r.cohort_id,
+      stageSeq: null,
+      opensAt: r.opens_at,
+      dueAt: r.due_at,
+      attachmentCount: Number(r.attachment_count),
+      exempt: false,
+      hasDraft: false,
+      latestVersionNo: null,
+      latestReceivedAt: null,
+      receiverUnit: 'group' as const,
+      groupCode: r.group_code,
+      reopenUntil: null,
+      consent: { state: 'teacher_pending' as const, groupId: r.group_id, packageId: r.package_id, versionId: r.version_id },
+    }))
+  }
+
+  async #rosterItems(userId: string): Promise<MyItemRow[]> {
     const rows = await this.#reader().query<ListRow>(
       `select m.id, m.title, m.consent_mode, sv.schema, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at,
               r.exempt, m.receiver_unit, g.code as group_code,

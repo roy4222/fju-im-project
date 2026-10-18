@@ -165,6 +165,16 @@ export type MyItemRow = {
   readonly groupCode: string | null
   /** 系辦開的個別補交期限（W10，最晚的那一個；可能已過期，狀態字自己判）；沒有是 null。 */
   readonly reopenUntil: Date | null
+  /**
+   * 老師的「等你同意」（C 階段規格① §3.2）：站內同意書是整組收件、老師不在名單上，所以另外併進來——
+   * 目前版本的參與者快照裡主指導是這位老師、而且狀態是 `teacher_pending` 的包，一組一列。學生的列與一般作業沒有這欄。
+   */
+  readonly consent?: {
+    readonly state: 'teacher_pending'
+    readonly groupId: string
+    readonly packageId: string
+    readonly versionId: string
+  }
 }
 
 export type SubmissionFile = { readonly fileId: string; readonly name: string; readonly sizeBytes: number }

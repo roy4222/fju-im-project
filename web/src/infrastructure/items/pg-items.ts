@@ -738,8 +738,10 @@ export class PgItemCommand implements ItemCommand {
       )
       if (begun.outcome !== 'fresh') return replayed<UpdateReceipt>(begun)
       if (archivedBlocks(locked.cohortStatus, item.placement)) return cohortArchived()
-      // 榮譽榜不發通知（第三波 W1）。
-      const notify = options.notify && item.placement !== HONOR_PLACEMENT
+      // 榮譽榜不發通知（第三波 W1）。站內同意書不發一般的「作業已更新」：同意書的通知（內容已更新、輪到你同意）
+      // 由簽核模組的 hook 發，這裡再發會重複（C 階段規格① §1.2、AC-23）。
+      const consentForm = isConsentForm({ placement: item.placement, consentMode: item.consent_mode })
+      const notify = options.notify && item.placement !== HONOR_PLACEMENT && !consentForm
       if (item.revision !== revision) return staleRevision()
       if (item.status === 'draft') return err('VALIDATION_FAILED', '這個項目還是草稿；請按「存草稿」或「發布」。')
       if (item.status !== 'published') return err('VALIDATION_FAILED', '已下架的項目要先重新發布才能修改。')
@@ -863,7 +865,6 @@ export class PgItemCommand implements ItemCommand {
       }
 
       // 站內同意書：移出對象的組作廢目前版本；正文或附件有變，進行中的包建新版（只改標題、對象、截止不建新版）。
-      const consentForm = isConsentForm({ placement: item.placement, consentMode: item.consent_mode })
       if (consentForm) {
         const dropped = rosterRemoved.filter((k) => k.kind === 'group').map((k) => k.id)
         if (dropped.length > 0) {
@@ -1133,10 +1134,6 @@ export class PgItemCommand implements ItemCommand {
       const hasResponses = action === 'withdraw' ? await this.#responses.hasAnyResponse(tx, itemId) : false
       const allowed = lifecycleCheck(action, item.status, hasResponses)
       if (!allowed.ok) return err(allowed.code, allowed.message)
-      // 站內同意書發布時已經建了簽核包（一組一份作業一包）：撤回成草稿再發布會重建一次，所以不給撤回，改用下架。
-      if (action === 'withdraw' && isConsentForm({ placement: item.placement, consentMode: item.consent_mode })) {
-        return err('VALIDATION_FAILED', '站內同意書發布後已經建好每組的同意書，不能撤回成草稿；不要再收請改用下架。')
-      }
 
       if (action === 'republish') {
         // 重新發布＝回到發布中，所以發布前檢查照樣要過（開放時間用第一次的實際開放時間）；
