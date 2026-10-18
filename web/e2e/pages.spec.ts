@@ -157,6 +157,38 @@ test.describe('以 S01（學生）', () => {
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
+    // C2-13：帳號頁在後台外殼裡（學生側欄、沒有前台主導覽），三張卡、沒有「帳號狀態」卡。
+    await expect(page.getByRole('navigation', { name: '後台導覽' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).toHaveCount(0)
+    for (const name of ['頭像', '基本資料']) await expect(page.getByRole('region', { name })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '登入方式' })).toBeVisible()
+    await expect(page.getByText('帳號狀態')).toHaveCount(0)
+  })
+
+  test('帳號頁跟後台同一套深淺色：後台是深色進來仍深色、在帳號頁切換會記住、回前台不殘留（C2-13）', async ({ page }) => {
+    const isDark = () => page.evaluate(() => document.documentElement.classList.contains('dark'))
+    await signInAs(page, 'student')
+    await page.goto('/dashboard/student')
+    await page.evaluate(() => localStorage.setItem('fju-dash-theme', 'dark'))
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ① 後台已是深色 → 從選單進帳號頁仍是深色，按鈕文字對應目前狀態。
+    await page.goto('/account')
+    await expect.poll(isDark).toBe(true)
+    await expect(page.getByRole('button', { name: '切換為淺色' })).toBeVisible()
+
+    // ② 在帳號頁切成淺色再切回深色 → 重整仍是深色。
+    await page.getByRole('button', { name: '切換為淺色' }).click()
+    await expect.poll(isDark).toBe(false)
+    await page.getByRole('button', { name: '切換為深色' }).click()
+    await expect.poll(isDark).toBe(true)
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ③ 離開到前台 → 深色不殘留。
+    await page.goto('/')
+    await expect.poll(isDark).toBe(false)
   })
 
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
