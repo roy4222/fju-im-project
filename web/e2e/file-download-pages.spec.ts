@@ -614,6 +614,11 @@ test.describe('A-06 檔案預覽端點：權限同下載、只內嵌 PDF／圖�
        values (gen_random_uuid(), $1, 'news', 'public', $2, 'system') returning id`,
       [cohortId, `${CODE} 期中報告繳交`],
     )
+    // C 階段起評分老師只讀得到自己評分項目連到的作業（C1-02 §3.2）：把 mid 連到這份作業。
+    await pool.query(
+      `insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, 'mid', $2, $3)`,
+      [cohortId, itemRow.rows[0]!.id, adminUserId],
+    )
     const schema = await pool.query<{ id: string }>(
       `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id) values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
       [itemRow.rows[0]!.id, adminUserId],

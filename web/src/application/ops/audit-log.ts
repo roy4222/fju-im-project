@@ -234,6 +234,7 @@ const ACTION_LABEL: Record<string, string> = {
   'item.deleted': '刪除公告或作業',
   // B 階段 A-14 規則章節排序（預先登記）。
   'item.rule_moved': '調整規則章節順序',
+  'item.category_renamed': '資源分類改名',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
@@ -268,6 +269,7 @@ const ACTION_LABEL: Record<string, string> = {
   // B 階段 A-01 結算（預先登記）。
   'grading.settle': '結算成績',
   'grading.release': '解除成績結算',
+  'grading.stage_setting': '設定評分項目的對應作業與說明',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',

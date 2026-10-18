@@ -1,0 +1,143 @@
+/* ==========================================================================
+   專題時程甘特（規格③《設計方案》§9.3；C3-03）。原型 `proto-timeline` 方案 C 的版面：
+   左欄固定（月份／階段／每段一列／學生截止），右邊橫向捲動。
+
+   位置與寬度全部是 CSS 變數，由 `gantt.tsx` 用 CSSOM 寫（`el.style.setProperty`），不輸出 `style=` 屬性：
+   --gantt-day（每天幾 px）、--gantt-w（軌道總寬）、--x／--w（左緣、寬度；--bw 是橫條實際寬度，最窄 12px）、--lane（第幾車道）、--lanes（該列車道數）。
+   ========================================================================== */
+@layer components {
+  .gantt {
+    --gantt-label: 9.5rem;
+    --gantt-lane: 28px;
+    --gantt-line: color-mix(in oklch, var(--ink) 14%, var(--card));
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .gantt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+  .gantt-zoom { display: inline-flex; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
+  .gantt-zoom-btn { min-width: 2.5rem; height: 2rem; padding: 0 0.75rem; font-size: 0.875rem; font-weight: 600; background: var(--card); }
+  .gantt-zoom-btn + .gantt-zoom-btn { border-left: 1px solid var(--border); }
+  .gantt-zoom-btn[aria-pressed="true"] { background: var(--ink); color: var(--ink-foreground); }
+  .gantt-zoom-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .gantt-hint { font-size: 0.8125rem; color: var(--muted-foreground); }
+
+  .gantt-status, .gantt-alert { border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; font-weight: 600; }
+  .gantt-status { background: var(--success-subtle); color: var(--success-on-subtle); }
+  .gantt-alert { background: var(--destructive-subtle); color: var(--destructive-on-subtle); }
+
+  .gantt-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--card); }
+  .gantt-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .gantt-rows { position: relative; width: calc(var(--gantt-label) + var(--gantt-w) + 16px); }
+
+  .gantt-row { display: flex; border-bottom: 1px solid var(--gantt-line); }
+  .gantt-row:last-child { border-bottom: 0; }
+
+  /* 左欄：橫向捲動時黏在左邊 */
+  .gantt-label {
+    position: sticky; left: 0; z-index: 3; flex: none; width: var(--gantt-label); min-height: 2.75rem;
+    display: flex; flex-direction: column; justify-content: center; padding: 0.25rem 0.75rem;
+    background: var(--card); border-right: 1px solid var(--gantt-line); font-size: 0.8125rem; font-weight: 700;
+  }
+  .gantt-label-seq { font-size: 0.75rem; color: var(--muted-foreground); }
+  .gantt-label-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .gantt-track { position: relative; flex: none; width: var(--gantt-w); min-height: 2.75rem; }
+  .gantt-lane-track { height: max(2.75rem, calc(var(--lanes) * var(--gantt-lane) + 8px)); }
+  .gantt-lane-track.is-creatable { cursor: copy; }
+  .gantt-lane-track.is-creatable:hover { background: color-mix(in oklch, var(--accent) 45%, transparent); }
+
+  /* 月份與週刻度 */
+  .gantt-months { height: 2.75rem; }
+  .gantt-month {
+    position: absolute; top: 0; left: var(--x); width: var(--w); height: 100%;
+    padding: 0.25rem 0.5rem; border-left: 1px solid var(--gantt-line); font-size: 0.8125rem; font-weight: 700; white-space: nowrap; overflow: hidden;
+  }
+  .gantt-week {
+    position: absolute; bottom: 0.2rem; left: var(--x); padding-left: 3px;
+    border-left: 1px solid var(--gantt-line); font-size: 0.6875rem; color: var(--muted-foreground);
+  }
+
+  /* 階段色塊與把手 */
+  .gantt-stage {
+    position: absolute; top: 6px; bottom: 6px; left: var(--x); width: var(--w);
+    display: flex; align-items: center; gap: 0.375rem; padding: 0 0.5rem; overflow: hidden;
+    border-radius: 0.375rem; font-size: 0.8125rem; font-weight: 700; text-align: left; white-space: nowrap;
+    background: var(--info-subtle); color: var(--info-on-subtle);
+  }
+  .gantt-stage[data-seq="2"] { background: var(--primary-subtle); color: var(--primary-on-subtle); }
+  .gantt-stage[data-seq="3"] { background: var(--success-subtle); color: var(--success-on-subtle); }
+  .gantt-stage[data-seq="4"] { background: var(--warning-subtle); color: var(--warning-on-subtle); }
+  button.gantt-stage:hover { filter: brightness(0.97); }
+  button.gantt-stage:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .gantt-stage-seq {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem;
+    border-radius: 999px; background: var(--card); font-size: 0.6875rem;
+  }
+  .gantt-stage-name { overflow: hidden; text-overflow: ellipsis; }
+
+  .gantt-handle {
+    position: absolute; top: 2px; bottom: 2px; left: var(--x); z-index: 2; width: 12px; transform: translateX(-50%);
+    cursor: ew-resize; touch-action: none; border-radius: 4px; background: transparent;
+  }
+  .gantt-handle::after {
+    content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%; width: 4px; transform: translateX(-50%);
+    border-radius: 2px; background: var(--ink); opacity: 0.55;
+  }
+  .gantt-handle:hover::after, .gantt-handle:focus-visible::after, .gantt-handle.is-dragging::after { opacity: 1; }
+  .gantt-handle:focus-visible { outline: 2px solid var(--ring); }
+
+  /* 活動橫條 */
+  .gantt-bar {
+    position: absolute; left: var(--x); width: var(--bw); top: calc(4px + var(--lane) * var(--gantt-lane)); height: 24px;
+    display: flex; align-items: center; padding: 0 0.5rem; overflow: visible;
+    border-radius: 0.375rem; background: var(--ink); color: var(--ink-foreground);
+    font-size: 0.75rem; font-weight: 700; text-align: left; white-space: nowrap; text-decoration: none;
+  }
+  .gantt-bar:hover { filter: brightness(1.12); }
+  .gantt-bar:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .gantt-bar.is-draggable { cursor: grab; touch-action: none; }
+  .gantt-bar.is-dragging { cursor: grabbing; z-index: 2; box-shadow: 0 4px 12px color-mix(in oklch, var(--ink) 35%, transparent); }
+  .gantt-bar-text { overflow: hidden; text-overflow: ellipsis; }
+  /* 名字放不進橫條：畫在右邊（車道配置已把這段算進去，不會疊到下一條） */
+  .gantt-bar.is-narrow .gantt-bar-text { position: absolute; left: calc(100% + 8px); overflow: visible; color: var(--foreground); pointer-events: none; }
+  .gantt-bar-time { font-weight: 500; opacity: 0.85; }
+  /* 兩端把手：橫條外面的兄弟 button，跨在橫條邊緣（只蓋進橫條 3px，一天寬的短橫條中間仍是「整段平移」） */
+  .gantt-bar-edge {
+    position: absolute; z-index: 2; top: calc(4px + var(--lane) * var(--gantt-lane)); height: 24px; width: 8px;
+    cursor: ew-resize; touch-action: none; border-radius: 3px; background: transparent;
+  }
+  .gantt-bar-edge.is-start { left: calc(var(--x) - 5px); }
+  .gantt-bar-edge.is-end { left: calc(var(--x) + var(--bw) - 3px); }
+  .gantt-bar-edge:hover, .gantt-bar-edge:focus-visible { background: color-mix(in oklch, var(--primary) 70%, transparent); }
+  .gantt-bar-edge:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+  /* 拖拉中的即時日期 */
+  .gantt-chip {
+    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 4; padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem; background: var(--foreground); color: var(--background);
+    font-size: 0.75rem; font-weight: 700; white-space: nowrap; pointer-events: none;
+  }
+
+  /* 作業截止菱形（鎖住） */
+  .gantt-deadline {
+    position: absolute; top: 50%; left: var(--x); width: 12px; height: 12px;
+    transform: translate(-50%, -50%) rotate(45deg); border-radius: 2px; background: var(--destructive);
+  }
+  a.gantt-deadline:hover { background: color-mix(in oklch, var(--destructive) 80%, var(--ink)); }
+  .gantt-deadline:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* 今天：橘色直線，穿過所有列 */
+  .gantt-today {
+    position: absolute; top: 0; bottom: 0; left: calc(var(--gantt-label) + var(--x)); z-index: 1;
+    width: 2px; transform: translateX(-50%); background: var(--primary); pointer-events: none;
+  }
+
+  @media (max-width: 767px) {
+    .gantt { --gantt-label: 6.5rem; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .gantt-bar, .gantt-stage { transition: filter 120ms; }
+  }
+}

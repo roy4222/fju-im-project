@@ -1,0 +1,29 @@
+/* 表格橫向捲動提示與首欄固定（TableScroll，table.tsx）。 */
+.table-scroll::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 1.75rem;
+  pointer-events: none;
+  background: linear-gradient(to left, rgb(0 0 0 / 0.14), transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+.table-scroll[data-scroll="start"]::after,
+.table-scroll[data-scroll="mid"]::after {
+  opacity: 1;
+}
+
+.table-scroll[data-sticky-first] :is(th, td):first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--background);
+  box-shadow: 1px 0 0 var(--border);
+}
+.table-scroll[data-sticky-first] th:first-child {
+  background-color: var(--muted);
+  z-index: 2;
+}

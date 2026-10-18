@@ -16,7 +16,11 @@ import type { AdvisorVisibility, SubmissionHolder, SubmissionViewer } from '@/ap
  *   （組別要沒解散、屆別要跟項目同一屆——契約 03 §1「cohort_id 必比對」，跨屆的新老師看不到以前的回答）。
  * - 閱覽設定：這份收件最新的一列（只插不改）。
  * - 送出當下的組員：`membership_snapshot`。
- * - 此刻的評分老師（票 24、S10-03）：組別收件才有，該組 `evaluator_assignments.valid_to IS NULL` 的老師（屆別要跟項目同一屆）。
+ * - 此刻的評分老師（票 24、S10-03；C 階段規格① §3.2 改成依評分項目隔離）：組別收件才有，該組有效的評分指派
+ *   （`evaluator_assignments.valid_to IS NULL`，屆別要跟項目同一屆），**而且那個指派的評分項目在側表
+ *   `grading_stage_settings` 連到這一版的作業**（`gss.cohort_id = m.cohort_id and gss.stage_key = ea.stage_key
+ *   and gss.item_id = v.item_id`）。只評 s1 的老師讀不到別份作業的版本與附件；沒連結作業的評分項目不給任何繳交讀權。
+ *   欄位名 `evaluators` 與 `canReadSubmission` 不變（只是算進去的人變少）；主指導、組員、送出當下組員的規則不動。
  */
 export const VERSION_ACCESS_COLUMNS = `
   v.receiver_kind, v.receiver_id, sv.version_no as schema_version_no, v.membership_snapshot,
@@ -35,6 +39,8 @@ export const VERSION_ACCESS_COLUMNS = `
   case when v.receiver_kind = 'group'
     then coalesce((select array_agg(distinct ea.teacher_user_id::text) from evaluator_assignments ea
                      join groups eg on eg.id = ea.group_id and eg.cohort_id = m.cohort_id
+                     join grading_stage_settings gss
+                       on gss.cohort_id = m.cohort_id and gss.stage_key = ea.stage_key and gss.item_id = v.item_id
                     where ea.group_id = v.receiver_id and ea.valid_to is null), '{}'::text[])
     else '{}'::text[]
   end as evaluators`

@@ -15,6 +15,8 @@ import { holderOf, VERSION_ACCESS_COLUMNS, viewerOf, type VersionAccessRow } fro
  * - 目前主指導（`advisor_assignments.valid_to IS NULL`）：換老師後舊老師立刻拿不到。
  * - 這份收件最新的主指導閱覽設定（個人回答才用得到）。
  * - 那一版送出當下的組員（`membership_snapshot`，票 22）：被移出的人只拿得到自己還在組裡時那幾版的檔。
+ * - 此刻的評分老師（C 階段規格① §3.2）：只有評分項目在側表連到**那一版的作業**的指派才算（`VERSION_ACCESS_COLUMNS`
+ *   的 `evaluators`）；只評 s1 的老師下載不到別份作業的附件，下載與預覽同走這裡。
  *
  * 只看目前有效的引用（共用檔案能力先篩好 `released_at IS NULL`）：從草稿拿掉、也沒進任何正式版本的檔，誰都下載不到
  * （管理員也一樣——沒有引用的檔不屬於任何一份繳交）。剛傳完還沒存進草稿的檔同理。

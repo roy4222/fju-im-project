@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeRemoveAssignmentReceipt, describeSchemeVersionReceipt } from '@/application/grading/receipts'
+import {
+  describeAssignEvaluatorReceipt,
+  describeRemoveAssignmentReceipt,
+  describeRequirementReceipt,
+  describeSchemeVersionReceipt,
+} from '@/application/grading/receipts'
 
 /**
  * 第三波 W9（AC-29）：建立方案草稿後的那句話要說清楚「發布」鈕在哪；原句不刪（既有 e2e 比對前半句）。
@@ -20,8 +25,8 @@ describe('describeSchemeVersionReceipt', () => {
   })
 })
 
-describe('describeRemoveAssignmentReceipt（第三波 W13b：「要求份數」改白話）', () => {
-  it('改派後說「每組需要幾位老師評分」，不再出現「要求份數」', () => {
+describe('describeRemoveAssignmentReceipt（第三波 W13b：「要求份數」改白話；C1-04 用詞「要幾位老師評」）', () => {
+  it('改派後說「要幾位老師評」，不再出現「要求份數」', () => {
     const text = describeRemoveAssignmentReceipt({
       groupCode: 'G01',
       stageName: '期中',
@@ -29,8 +34,36 @@ describe('describeRemoveAssignmentReceipt（第三波 W13b：「要求份數」�
       newTeacherName: '丁',
       choice: 'replace',
       requiredCount: 2,
+      appliedStageKeys: ['s1'],
     })
-    expect(text).toBe('G01「期中」甲 老師 → 丁 老師（替換評分老師、重新評分；每組需要 2 位老師評分）。')
+    expect(text).toBe('G01「期中」甲 老師 → 丁 老師（替換評分老師、重新評分；要 2 位老師評）。')
     expect(text).not.toContain('要求份數')
+  })
+
+  it('評審組一起改派：補一句幾個評分項目一起設定', () => {
+    const text = describeRemoveAssignmentReceipt({
+      groupCode: 'G01',
+      stageName: '系統驗收',
+      teacherName: '乙',
+      newTeacherName: null,
+      choice: 'replace',
+      requiredCount: 3,
+      appliedStageKeys: ['s1', 's2'],
+    })
+    expect(text).toBe('G01「系統驗收」已移除 乙 老師（替換評分老師、重新評分；要 3 位老師評）（同一組評審的 2 個評分項目一起設定）。')
+  })
+})
+
+describe('describeRequirementReceipt／describeAssignEvaluatorReceipt（C1-04 用詞與評審組）', () => {
+  const base = { groupId: 'g', groupCode: 'G01', stageKey: 's1', stageName: '系統驗收' }
+  it('用詞「要幾位老師評」；評審組展開時補一句', () => {
+    expect(describeRequirementReceipt({ ...base, requiredCount: 3, appliedStageKeys: ['s1'] })).toBe('G01「系統驗收」要 3 位老師評。')
+    expect(describeRequirementReceipt({ ...base, requiredCount: 3, appliedStageKeys: ['s1', 's2'] })).toBe(
+      'G01「系統驗收」要 3 位老師評（同一組評審的 2 個評分項目一起設定）。',
+    )
+    expect(describeRequirementReceipt({ ...base, requiredCount: 0, appliedStageKeys: ['s1'] })).toBe('G01「系統驗收」設為不需要評分。')
+    expect(
+      describeAssignEvaluatorReceipt({ assignmentId: 'a', groupCode: 'G01', stageName: '系統驗收', teacherName: '甲', appliedStageKeys: ['s1', 's2'] }),
+    ).toBe('已指派 甲 老師評 G01「系統驗收」（同一組評審的 2 個評分項目一起設定）；老師已收到通知。')
   })
 })
