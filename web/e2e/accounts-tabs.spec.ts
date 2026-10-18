@@ -121,7 +121,7 @@ test('AC-C2-18：全部帳號只剩列表，標題列只有「新增成員」', 
   await expect(page.getByRole('dialog', { name: '新增老師' })).toBeVisible()
 })
 
-test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依序編輯、發臨時密碼、停用、更多', async ({ browser }) => {
+test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依序編輯、寄重設密碼信、停用、更多', async ({ browser }) => {
   const page = await adminPage(browser)
   for (const path of ['/dashboard/admin/accounts', '/dashboard/admin/accounts/disabled']) {
     await page.goto(path)
@@ -132,7 +132,7 @@ test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依
   const { name } = people.grouped
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(name)}`)
   const row = rowOf(page, name)
-  await expect(row.getByRole('button')).toHaveText(['編輯', '發臨時密碼', '停用', ''])
+  await expect(row.getByRole('button')).toHaveText(['編輯', '寄重設密碼信', '停用', ''])
   await expect(row.getByRole('button').last()).toHaveAccessibleName(`更多 ${name}`)
   // 編輯帳號 C2-08 接上了：按得下去，打開「編輯帳號」視窗。
   await expect(row.getByRole('button', { name: `編輯 ${name}` })).toBeEnabled()

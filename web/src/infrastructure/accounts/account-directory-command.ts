@@ -50,6 +50,7 @@ import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { requestPasswordReset } from '@/infrastructure/auth/wrapper'
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
@@ -71,6 +72,14 @@ import { bustIdentity } from '@/infrastructure/auth/identity-cache'
  * 顯示用的學號（`user_profiles`、`registration_applications`）照本人填的原樣保存，不動。
  */
 
+/**
+ * TODO(C2-11 第二步)：目前走公開的忘記密碼入口（吃每 IP／每 Email 限流；正式站還要 Turnstile，系辦會被擋）。
+ * 等 C2-09、C2-16 合併後，改用系辦內部呼叫的寄信函式（略過限流與 Turnstile）。
+ */
+function sendResetMailViaPublicPath(headers: Headers, input: { email: string }): Promise<unknown> {
+  return requestPasswordReset(input, headers)
+}
+
 export type AccountDirectoryCommandDeps = {
   readonly audit: AuditWriter<PoolClient>
   readonly ledger: OperationLedger<PoolClient>
@@ -82,6 +91,8 @@ export type AccountDirectoryCommandDeps = {
    * 正式組裝一定有（`composition/accounts.ts`）；不給時不檢查組長（票 9 的舊測試不需要分組）。
    */
   readonly leaders?: LeaderSuccessionHook<PoolClient>
+  /** 寄重設密碼信（預設走 `sendResetMailViaPublicPath`；測試可以換掉來模擬失敗）。 */
+  readonly requestPasswordReset?: (headers: Headers, input: { email: string }) => Promise<unknown>
 }
 
 /** 停用時帶來的接任：陣列、每筆都是兩個 uuid、數量合理；其他形狀一律當成格式錯誤。 */
@@ -157,7 +168,8 @@ const DIRECTORY_BASE = `
              where r.user_id = u.id and r.revoked_real_at is null),
            '{}'::text[]
          ) as roles,
-         ${orphanCondition('u')} as is_orphan
+         ${orphanCondition('u')} as is_orphan,
+         exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'credential') as has_password
     from users u
     left join user_profiles up on up.user_id = u.id
     left join lateral (
@@ -205,6 +217,7 @@ type DirectoryRow = {
   application_state: 'pending' | 'approved' | 'rejected' | null
   roles: Role[]
   is_orphan: boolean
+  has_password: boolean
   total?: string
 }
 
@@ -229,6 +242,7 @@ function toAccountRow(r: DirectoryRow): AccountRow {
     orphan: r.is_orphan,
     avatarPreset: r.avatar_preset,
     avatarFileId: r.avatar_file_id,
+    hasPassword: r.has_password,
   }
 }
 
@@ -404,6 +418,62 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       tx.release()
     }
     return ok({ csv: buildAccountsCsv(rows.map(toAccountRow)), count: rows.length }, meta(now))
+  }
+
+  // ── 寄重設密碼信（C2-11） ────────────────────────────────────────────────
+
+  async sendResetMail(actor: ResolvedActor, input: { userId: string }, context: AdminRequestContext): ReturnType<AccountDirectoryCommand['sendResetMail']> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isUserId(input?.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+
+    const db = this.#deps.db()
+    const target = (
+      await db.query<{ email: string; status: string; deidentified_at: Date | null; has_password: boolean }>(
+        `select u.email, u.status, u.deidentified_at,
+                exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'credential') as has_password
+           from users u where u.id = $1`,
+        [input.userId],
+      )
+    ).rows[0]
+    if (!target) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (target.deidentified_at || target.status === 'disabled') {
+      return err('VALIDATION_FAILED', '這個帳號已停用，登不進來；要寄重設密碼信請先恢復帳號。')
+    }
+    if (!target.has_password) return err('VALIDATION_FAILED', '這個帳號用 Google 登入，沒有密碼，不能寄重設密碼信。')
+
+    try {
+      await (this.#deps.requestPasswordReset ?? sendResetMailViaPublicPath)(context.headers, { email: target.email })
+    } catch (error) {
+      console.error('[accounts] 寄重設密碼信失敗', (error as { body?: { code?: unknown } } | null)?.body?.code ?? 'unknown')
+      return err('INTERNAL', '信寄不出去，請稍後再試；或改發臨時密碼給本人。')
+    }
+
+    const now = this.#clock.now()
+    const tx = await db.connect()
+    try {
+      await tx.query('begin')
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.reset_mail_sent',
+        targetType: 'user',
+        targetId: input.userId,
+        scope: 'global',
+        realAt: now,
+        businessAt: now,
+        // 不含連結與 token。
+        payload: { template: 'password_reset' },
+      })
+      await tx.query('commit')
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+    return ok({ userId: input.userId, email: target.email, validMinutes: 30, sentAt: now.toISOString() }, meta(now))
   }
 
   // ── 停用與恢復 ────────────────────────────────────────────────────────────
