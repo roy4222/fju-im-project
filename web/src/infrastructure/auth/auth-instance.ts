@@ -4,7 +4,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin, emailOTP } from 'better-auth/plugins'
 import { nextCookies } from 'better-auth/next-js'
-import { getSessionCookie, setSessionCookie } from 'better-auth/cookies'
+import { setSessionCookie } from 'better-auth/cookies'
 import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx, getOAuthState } from 'better-auth/api'
 import { uuidv7 } from 'uuidv7'
 import { getDb, getPool } from '@/infrastructure/db/client'
@@ -16,7 +16,7 @@ import {
   sessionRequirement,
 } from '@/infrastructure/auth/route-matrix'
 import { isInternalCall, runAsInternalCall } from '@/infrastructure/auth/internal-call'
-import { getIdentityCache } from '@/infrastructure/auth/identity-cache'
+import { getIdentityCache, sessionCacheKey } from '@/infrastructure/auth/identity-cache'
 import {
   isFullyActive,
   isUsableSession,
@@ -1020,13 +1020,13 @@ function createAuth() {
         // ── 登出、改／重設密碼、撤 session → 丟身分快取（SH-B1；B 設計方案 §4.1，▶R-5） ─────────────
         //
         // HTTP（`POST /api/auth/sign-out`）與 Server Action→`auth.api` 都經過這裡，所以不放在 `wrapper.ts`。
-        // 登出丟這一張 cookie（跟 resolver 同一個讀法 `getSessionCookie`）；改密碼、撤 session 丟這個人全部；
+        // 登出丟這一張 cookie（跟 resolver 同一個讀法 `sessionCacheKey`；有歧義讀不出來就整份清）；改密碼、撤 session 丟這個人全部；
         // 重設密碼是靠信裡的 token、回應也不帶是誰（送出的人就算剛好登入著，也不一定是被重設的那個人），
         // 整份清掉（罕見路徑，寧可全清）。
         const bustsIdentity = ['/sign-out', '/change-password', '/reset-password', '/revoke-session', '/revoke-sessions'].includes(ctx.path)
         if (bustsIdentity && !looksLikeApiError(returned)) {
           const cache = getIdentityCache()
-          const token = getSessionCookie(ctx.request?.headers ?? ctx.headers ?? new Headers())
+          const token = sessionCacheKey(ctx.request?.headers ?? ctx.headers ?? new Headers())
           const userId =
             (returned as { user?: { id?: unknown } } | undefined)?.user?.id ?? ctx.context.session?.user.id
           if (ctx.path === '/sign-out' && token) cache.bustToken(token)

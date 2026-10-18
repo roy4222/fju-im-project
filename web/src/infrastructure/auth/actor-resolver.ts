@@ -1,5 +1,4 @@
 import 'server-only'
-import { getSessionCookie } from 'better-auth/cookies'
 import { and, eq, isNull } from 'drizzle-orm'
 import {
   ANONYMOUS,
@@ -11,7 +10,7 @@ import {
 import { teacherNeedsSetup } from '@/infrastructure/accounts/teacher-setup'
 import { getDb, getPool } from '@/infrastructure/db/client'
 import { roleAssignments, userProfiles, users } from '@/infrastructure/db/schema'
-import { getIdentityCache, type IdentityCache } from '@/infrastructure/auth/identity-cache'
+import { getIdentityCache, keyMatchesSession, sessionCacheKey, type IdentityCache } from '@/infrastructure/auth/identity-cache'
 import { getSessionFromHeaders } from '@/infrastructure/auth/wrapper'
 
 type Authenticated = ResolvedActor & { kind: 'authenticated' }
@@ -44,8 +43,8 @@ export class DbActorResolver implements ActorResolver {
 
   async resolve(headers: Headers): Promise<ResolvedActor> {
     const cache = this.#cache()
-    // 鍵是 cookie 裡已簽章的 session token（`getSessionCookie` 是套件自己的讀法）。沒有 cookie 就是匿名，不查也不存。
-    const token = cache.enabled ? getSessionCookie(headers) : null
+    // 鍵是那張 session cookie 的名字＋原始值（已簽章）；沒有、或有歧義（同名多張、secure 與一般混用）就不用快取。
+    const token = cache.enabled ? sessionCacheKey(headers) : null
     if (token) {
       const hit = cache.get(token, this.#now())
       if (hit) return hit
@@ -53,9 +52,8 @@ export class DbActorResolver implements ActorResolver {
 
     const ticket = cache.beginLoad()
     const loaded = await this.#load(headers)
-    // 只在「套件驗過的就是這張 cookie」時存：同時帶 `__Secure-` 與一般兩種名字時，
-    // 我們拿來當鍵的那張不一定是套件驗的那張（簽章格式是 `<token>.<signature>`）。
-    if (token && loaded.session && token.startsWith(`${loaded.session.token}.`)) {
+    // 確認「套件剛驗過的就是這張 cookie」才存。
+    if (token && loaded.session && keyMatchesSession(token, loaded.session.token)) {
       cache.set(token, loaded.actor, { now: this.#now(), sessionExpiresAt: loaded.session.expiresAt, ticket })
     }
     return loaded.actor

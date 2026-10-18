@@ -128,15 +128,54 @@ function createIdentityCache(): IdentityCache {
   return cache
 }
 
-let shared: IdentityCache | undefined
+/**
+ * 放在 `globalThis`，不是模組變數：Next 會把同一個模組分別打包進 Route Handler（`/api/auth/*`）與 RSC 頁面，
+ * 各有一份模組實例。模組變數的話，HTTP 登出清的是 Route Handler 那份，頁面讀的那份還在，舊 cookie 照樣進得了頁面。
+ * 用 `Symbol.for` 當鍵，整個程序只有一份。
+ */
+const SHARED = Symbol.for('fju.identityCache')
+const holder = globalThis as typeof globalThis & { [SHARED]?: IdentityCache }
 
 /** 整個程序共用的那一份（第一次用到才讀環境變數）。 */
 export function getIdentityCache(): IdentityCache {
-  shared ??= createIdentityCache()
-  return shared
+  holder[SHARED] ??= createIdentityCache()
+  return holder[SHARED]
 }
 
 /** 會改身分的入口做完呼叫這個（見檔頭）。 */
 export function bustIdentity(userId: string): void {
   getIdentityCache().bustUser(userId)
+}
+
+/**
+ * 這次請求的快取鍵：`<cookie 名>=<原始值>`。**整個 cookie 標頭裡只能有一張 session cookie**——同名出現不只一次、
+ * 或 `__Secure-`／`__Host-`／一般／`-` 分隔這幾種寫法同時出現，一律回 `null`（不查也不存快取）。
+ * 不然「套件驗的是 B、快取用 A 當鍵」就會把 A 的身分給 B 的請求。
+ *
+ * 鍵含名字：存進快取前 resolver 會確認套件剛驗過的 session 就是這張 cookie（只有一張，所以名字也是套件讀的那個），
+ * 之後只有同名、同值的 cookie 會命中。名字前綴是套件預設的 `better-auth`（本專案沒改 `cookiePrefix`）。
+ */
+export function sessionCacheKey(headers: Headers): string | null {
+  const header = headers.get('cookie')
+  if (!header) return null
+  let found: string | null = null
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq === -1) continue
+    const name = part.slice(0, eq).trim()
+    if (!SESSION_COOKIE_NAMES.has(name.replace(/^__(Secure|Host)-/, ''))) continue
+    if (found !== null) return null
+    const value = part.slice(eq + 1).trim()
+    if (!value) return null
+    found = `${name}=${value}`
+  }
+  return found
+}
+
+/** 套件 `getSessionCookie` 認得的兩種 session cookie 寫法（去掉 `__Secure-`／`__Host-` 之後）。 */
+const SESSION_COOKIE_NAMES = new Set(['better-auth.session_token', 'better-auth-session_token'])
+
+/** 這把鍵是不是剛驗過的那個 session（簽章格式是 `<token>.<signature>`）。 */
+export function keyMatchesSession(key: string, sessionToken: string): boolean {
+  return key.slice(key.indexOf('=') + 1).startsWith(`${sessionToken}.`)
 }

@@ -207,6 +207,27 @@ describe('命中（AC-SH-73）', () => {
   })
 })
 
+describe('cookie 有歧義時不用快取（Sol r1 P1）', () => {
+  it('同名兩張、secure＋一般混用、__Secure- 那張是別人的：都拿不到別人的身分，而且不查也不存快取', async () => {
+    const a = await member(['admin'])
+    const b = await member(['student'])
+    expect((await warm(a.cookie)).roles).toContain('admin')
+    await warm(b.cookie)
+    const sizeBefore = cache().size
+    const aSecure = `__Secure-better-auth.session_token=${a.cookie.slice(a.cookie.indexOf('=') + 1)}`
+    for (const cookie of [`${b.cookie}; ${a.cookie}`, `${a.cookie}; ${b.cookie}`, `${b.cookie}; ${aSecure}`, `${aSecure}; ${b.cookie}`]) {
+      const { result, queries } = await countQueries(() => resolve(cookie))
+      expect(queries, `${cookie.slice(0, 40)}… 應該走未快取的路`).toBeGreaterThan(0)
+      // 套件自己挑哪一張是它的事；我們只要求結果跟「沒有快取」時一樣，絕不是快取裡另一個人的。
+      const uncached = await new (await import('@/infrastructure/auth/actor-resolver')).DbActorResolver({
+        cache: new (await import('@/infrastructure/auth/identity-cache')).IdentityCache({ ttlSeconds: 0 }),
+      }).resolve(headersOf(cookie))
+      expect(result).toEqual(uncached)
+    }
+    expect(cache().size).toBe(sizeBefore)
+  })
+})
+
 describe('每個失效點下一次請求生效（AC-SH-74）', () => {
   it('(a) 系辦停用 → 同一張 cookie 下一次 anonymous', async () => {
     const s = await member(['student'])

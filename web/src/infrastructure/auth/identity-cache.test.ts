@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedActor } from '@/application/accounts'
-import { IdentityCache, identityCacheTtlFromEnv } from './identity-cache'
+import { getIdentityCache, IdentityCache, identityCacheTtlFromEnv, keyMatchesSession, sessionCacheKey } from './identity-cache'
 
 /** 身分快取本身（B 設計方案 §4.1、§4.2）：假時鐘，全部用明確的 `now`。 */
 
@@ -144,5 +144,52 @@ describe('IDENTITY_CACHE_TTL_SECONDS', () => {
   it('測試執行器沒設時是 0（既有整合測試直接改資料庫）', () => {
     expect(identityCacheTtlFromEnv({ NODE_ENV: 'test' })).toBe(0)
     expect(identityCacheTtlFromEnv({ NODE_ENV: 'test', IDENTITY_CACHE_TTL_SECONDS: '60' })).toBe(60)
+  })
+})
+
+describe('快取鍵（sessionCacheKey）：只有一張 session cookie 才用快取', () => {
+  const NAME = 'better-auth.session_token'
+  const SECURE = '__Secure-better-auth.session_token'
+  const key = (cookie: string) => sessionCacheKey(new Headers({ cookie }))
+
+  it('只有一張：鍵是「名字=原始值」', () => {
+    expect(key(`theme=dark; ${NAME}=tokB.sig%2B; other=1`)).toBe(`${NAME}=tokB.sig%2B`)
+    expect(key(`${SECURE}=tokA.sig`)).toBe(`${SECURE}=tokA.sig`)
+  })
+
+  it('同一個值、不同名字是不同的鍵', () => {
+    expect(key(`${NAME}=tokA.sig`)).not.toBe(key(`${SECURE}=tokA.sig`))
+  })
+
+  it('沒有 cookie、沒有 session cookie、值是空的：null', () => {
+    expect(sessionCacheKey(new Headers())).toBeNull()
+    expect(key('theme=dark')).toBeNull()
+    expect(key(`${NAME}=`)).toBeNull()
+  })
+
+  it('同名兩張（不管順序）：null', () => {
+    expect(key(`${NAME}=tokB.sig; ${NAME}=tokA.sig`)).toBeNull()
+    expect(key(`${NAME}=tokA.sig; ${NAME}=tokB.sig`)).toBeNull()
+  })
+
+  it('secure 與一般名稱混用、或 __Host-／`-` 分隔的寫法同時出現：null', () => {
+    expect(key(`${NAME}=tokB.sig; ${SECURE}=tokA.sig`)).toBeNull()
+    expect(key(`${SECURE}=tokA.sig; ${NAME}=tokB.sig`)).toBeNull()
+    expect(key(`${NAME}=tokB.sig; __Host-better-auth.session_token=tokA.sig`)).toBeNull()
+    expect(key(`${NAME}=tokB.sig; better-auth-session_token=tokA.sig`)).toBeNull()
+  })
+
+  it('keyMatchesSession：值要以「剛驗過的 token.」開頭', () => {
+    expect(keyMatchesSession(`${NAME}=tokA.sig`, 'tokA')).toBe(true)
+    expect(keyMatchesSession(`${NAME}=tokA.sig`, 'tokB')).toBe(false)
+    expect(keyMatchesSession(`${NAME}=tokAB.sig`, 'tokA')).toBe(false)
+  })
+})
+
+describe('程序內只有一份', () => {
+  it('掛在 globalThis 的 Symbol.for 鍵上：不同模組實例拿到同一份', () => {
+    const cache = getIdentityCache()
+    expect((globalThis as Record<symbol, unknown>)[Symbol.for('fju.identityCache')]).toBe(cache)
+    expect(getIdentityCache()).toBe(cache)
   })
 })
