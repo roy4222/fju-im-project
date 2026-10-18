@@ -26,8 +26,11 @@ export default async function GroupsUnassignedPage() {
       <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
         這一屆還沒有加入任何組別的學生。
       </p>
+      <p className="-mt-2 mb-4 text-sm text-muted-foreground">
+        名單接上後，每一列會連到該學生在「帳號」的那一列，可以看他的屆別、狀態與聯絡信箱。
+      </p>
       <Panel title="未分組學生">
-        <PanelEmpty title="這個分頁還在建置中" hint="未分組學生的名單之後會列在這裡；目前請在「全部組別」分頁查看。" />
+        <PanelEmpty title="這個分頁還在建置中" hint="未分組學生的名單之後會列在這裡；目前請在「全部組別」分頁的「未分組學生」區塊查看。" />
       </Panel>
     </DashboardShell>
   )
