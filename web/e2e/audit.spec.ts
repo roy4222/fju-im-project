@@ -126,7 +126,7 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const adminContext = await browser.newContext()
   const page = await adminContext.newPage()
   await signIn(page, 'admin')
-  await page.goto('/dashboard/admin/accounts')
+  await page.goto('/dashboard/admin/accounts/pending')
   await page.getByRole('button', { name: `審核 ${student.name}` }).click()
   const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` })
   await dialog.getByLabel('核准進哪一屆').selectOption({ label: `${cohortName}（${cohortCode}）` })

@@ -76,9 +76,9 @@ export default async function AccountsDisabledPage({
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
-      <PageTitle title="帳號" />
+      <PageTitle title="帳號" actions={<BulkDisableDialog maxChars={BULK_MAX_CHARS} />} />
       <div className="mt-4">
-        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} actions={<BulkDisableDialog maxChars={BULK_MAX_CHARS} />} />
+        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} />
       </div>
       <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
         已停用、不能登入的帳號，可以在這裡恢復。

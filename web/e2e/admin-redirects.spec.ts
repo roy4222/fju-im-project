@@ -6,7 +6,8 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
 /**
  * C 階段規格② C2-01：後台路由總表、分頁列、舊網址轉址（設計方案 §2、§8；AC-C2-01～09）。
  *
- * - 舊網址（`/dashboard/admin/settings`、`/dashboard/admin/affairs?placement=resource|submission|requirement|rules`）每條三種回應：
+ * - 舊網址（`/dashboard/admin/settings`、`/dashboard/admin/affairs?placement=resource|submission|requirement|rules`、
+ *   C2-07 加的 `/dashboard/admin/accounts?status=pending|disabled`）每條三種回應：
  *   沒登入→登入頁、學生→`/403`、系辦→**307** 到新位置（頁面 `redirect()` 的 digest；用 `REDIRECT` 陣列斷，再斷 location），
  *   其餘 query 照帶；`?placement=honor` 不轉（①做完榮譽榜才轉）。
  * - 五個側欄項目的分頁列：標籤、順序、href、`aria-current`、側欄那一項亮；新分頁都 200。
@@ -85,6 +86,9 @@ const OLD_URLS = [
   { from: '/dashboard/admin/affairs?placement=submission', to: '/dashboard/admin/affairs/assignments' },
   { from: '/dashboard/admin/affairs?placement=requirement', to: '/dashboard/admin/affairs/assignments' },
   { from: '/dashboard/admin/affairs?cohort=115&placement=rules', to: '/dashboard/admin/affairs/rules?cohort=115' },
+  // C2-07（AC-C2-08）：帳號列表的舊狀態篩選轉到「待審核」「已停用」分頁。
+  { from: `/dashboard/admin/accounts?status=pending&q=${encodeURIComponent('王')}`, to: `/dashboard/admin/accounts/pending?q=${encodeURIComponent('王')}` },
+  { from: '/dashboard/admin/accounts?status=disabled', to: '/dashboard/admin/accounts/disabled' },
 ] as const
 
 for (const { from, to } of OLD_URLS) {
@@ -117,6 +121,12 @@ test('?placement=honor 不轉：200 留在公告頁，仍是「榮譽」篩選�
   expect(new URL(page.url()).pathname).toBe('/dashboard/admin/affairs')
   await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('affair-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
+})
+
+test('帳號列表還在用的 ?status=active 不轉：200 留在全部帳號', async ({ request }) => {
+  const { cookie } = await sharedTestSession(request, 'admin')
+  const response = await request.get('/dashboard/admin/accounts?status=active', { headers: { cookie }, maxRedirects: 0 })
+  expect(response.status()).toBe(200)
 })
 
 test('?placement= 是物件繼承來的屬性名（toString、constructor、__proto__）：不轉，200 留在公告頁', async ({ request }) => {
@@ -202,7 +212,7 @@ for (const { nav, tabs } of TAB_GROUPS) {
   })
 }
 
-test('「帳號分頁」：新的三個分頁 200、四個連結依序、側欄「帳號」亮（全部帳號的分頁列與內容在 C2-07）', async ({ page }) => {
+test('「帳號分頁」：四個分頁都 200、四個連結依序、側欄「帳號」亮、目前頁標 aria-current（AC-C2-08）', async ({ page }) => {
   await asAdmin(page)
   const tabs = [
     ['全部帳號', '/dashboard/admin/accounts'],
@@ -210,7 +220,7 @@ test('「帳號分頁」：新的三個分頁 200、四個連結依序、側欄�
     ['已停用', '/dashboard/admin/accounts/disabled'],
     ['名單匯入', '/dashboard/admin/accounts/roster'],
   ] as const
-  for (const [label, href] of tabs.slice(1)) {
+  for (const [label, href] of tabs) {
     const response = await page.goto(href)
     expect(response?.status(), href).toBe(200)
     const links = page.getByRole('navigation', { name: '帳號分頁' }).getByRole('link')

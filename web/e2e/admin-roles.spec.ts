@@ -96,18 +96,17 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await expect(row).toBeVisible()
   // 還不是管理員：只有「設為管理員」，沒有「取消管理員」。
   await expect(row.getByRole('button', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  // 列上只留常用的「發臨時密碼」；少用的與危險的收在「更多」（第三波 AC-37：停用、去識別化在「危險操作」組）。
+  // C 階段規格② §3.2（A23）：列上有「發臨時密碼」「停用」；「更多」沒有「危險操作」群組，「刪除個人資料」是最後一項。
   await expect(row.getByRole('button', { name: `發臨時密碼給 ${teacher.name}` })).toBeVisible()
-  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toBeVisible()
   await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
   await expect(row.getByRole('button', { name: `刪除 ${teacher.name} 的個人資料` })).toHaveCount(0)
 
   const menu = await openMore(page, teacher.name)
   await expect(menu.getByRole('menuitem', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  const danger = menu.getByRole('group', { name: '危險操作' })
-  await expect(danger.getByRole('menuitem', { name: `停用 ${teacher.name}` })).toBeVisible()
-  await expect(danger.getByRole('menuitem', { name: `刪除 ${teacher.name} 的個人資料` })).toBeVisible()
-  await expect(danger.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
+  await expect(menu.getByRole('group', { name: '危險操作' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: `停用 ${teacher.name}` })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem').last()).toHaveAccessibleName(`刪除 ${teacher.name} 的個人資料`)
   await menu.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` }).click()
   const grant = page.getByRole('dialog', { name: `設為管理員 ${teacher.name}` })
   await expect(grant).toContainText('只給系辦與負責的老師')
@@ -180,8 +179,7 @@ test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接�
   expect(repaired).toEqual({ status: 'active', roles: ['teacher'] })
 
   // 另一個孤兒：待審也能直接停用（沒有申請可以退回）。
-  const anotherMenu = await openMore(page, another.name)
-  await anotherMenu.getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `停用 ${another.name}` }).click()
+  await rowOf(page, another.name).getByRole('button', { name: `停用 ${another.name}` }).click()
   const disable = page.getByRole('dialog', { name: `停用 ${another.name}` })
   // 確認視窗寫對象、後果、能不能恢復（AC-37）。
   await expect(disable).toContainText(another.name)

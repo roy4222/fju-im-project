@@ -112,10 +112,10 @@ export default async function AdminAccountsPage({
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
       {/* C 階段規格② §3.1：這一頁只剩帳號列表；待審核、已停用、名單匯入各有自己的分頁。 */}
-      <PageTitle title="帳號" />
+      {/* 標題列只有一顆「新增成員」（A18）；「發臨時密碼」在每一列（A15）。 */}
+      <PageTitle title="帳號" actions={<NewMemberDialog labels={VERIFICATION_LABELS} />} />
       <div className="mt-4">
-        {/* 「新增成員」是這一頁唯一的主要動作（A18）；「發臨時密碼」在每一列（A15）。 */}
-        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} actions={<NewMemberDialog labels={VERIFICATION_LABELS} />} />
+        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} />
       </div>
       <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
         系上所有帳號都在這裡，可以搜尋、篩選、排序與匯出；系統不存可查看的密碼，只能核發一次性臨時密碼。

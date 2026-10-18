@@ -132,7 +132,7 @@ test.beforeAll(async () => {
 })
 
 function pendingRow(page: Page, name: string) {
-  // 帳號頁下方還有「全部帳號」表格，待審的人兩邊都有；這裡只看上方的待審核清單。
+  // 待審核清單（C2-07 起在「待審核」分頁；不看帳號列表）。
   return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
@@ -141,7 +141,7 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   const admin = await adminPage(browser)
 
   // 先個別核准同學號的另一位，讓 S3 的學號變成「已被使用」。單筆核准照舊（第一個同名的列）。
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   await admin.getByRole('button', { name: `審核 ${HOLDER.name}` }).first().click()
   const review = admin.getByRole('dialog', { name: `審核 ${HOLDER.name}` })
   await review.getByLabel('當面核對學生證或其他身分證件').check()
@@ -151,7 +151,7 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   await expect(pendingRow(admin, S3.name)).toHaveCount(1)
 
   // 沒勾任何人時沒有批次按鈕。
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   const pending = admin.getByRole('region', { name: '待審核' })
   await expect(pending.getByRole('button', { name: /^核准勾選的/ })).toHaveCount(0)
   for (const s of [S1, S2, S3]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
@@ -235,7 +235,7 @@ test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一�
     for (const s of [X, Y]) await register(browser, s)
 
     const admin = await adminPage(browser)
-    await admin.goto('/dashboard/admin/accounts')
+    await admin.goto('/dashboard/admin/accounts/pending')
     const pending = admin.getByRole('region', { name: '待審核' })
     for (const s of [X, Y]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
     await pending.getByRole('button', { name: '核准勾選的 2 位' }).click()
@@ -262,7 +262,7 @@ test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不
   const admin = await adminPage(browser)
   const teacher = { name: `批次老師${prefix}`, email: `w6-t-${run}@example.com` }
   await admin.goto('/dashboard/admin/accounts')
-  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  await admin.getByRole('button', { name: '新增成員', exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '新增老師' })
   await dialog.getByLabel('登入 Email').fill(teacher.email)
   await dialog.getByLabel('姓名').fill(teacher.name)
@@ -308,7 +308,7 @@ test('N-03：勾了兩位又逐一個別核准，批次按鈕只算仍在待審�
   for (const s of [A, B]) await register(browser, s)
 
   const admin = await adminPage(browser)
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   const pending = admin.getByRole('region', { name: '待審核' })
   for (const s of [A, B]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
   await expect(pending.getByRole('button', { name: '核准勾選的 2 位' })).toBeVisible()

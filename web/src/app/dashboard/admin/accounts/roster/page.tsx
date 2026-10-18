@@ -27,9 +27,9 @@ export default async function AccountsRosterPage() {
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
-      <PageTitle title="帳號" />
+      <PageTitle title="帳號" actions={<ImportRosterDialog />} />
       <div className="mt-4">
-        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} actions={<ImportRosterDialog />} />
+        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} />
       </div>
       <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
         匯入系上提供的學生名單，名單上的人註冊時可以自動開通。
