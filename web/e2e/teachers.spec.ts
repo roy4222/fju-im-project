@@ -187,7 +187,8 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
   }
   await student.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   await student.goto('/register/pending')
-  await expect(student).toHaveURL(/\/register\/pending$/)
+  // 沒送申請的待審帳號會被帶去第 3 步（VB-6）。
+  await expect(student).toHaveURL(/\/register\/apply$/)
 
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
@@ -230,8 +231,8 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
   await student.goto('/register/pending')
   await expect(student, '改密前連待審頁也不能看').toHaveURL(/\/account\/change-password$/)
   await changePassword(student, second)
-  // 待審學生改完密碼回等待審核頁。
-  await expect(student).toHaveURL(/\/register\/pending$/)
+  // 待審學生改完密碼回等待審核頁；沒送申請的待審帳號會被帶去第 3 步（VB-6）。
+  await expect(student).toHaveURL(/\/register\/apply$/)
   await student.context().close()
 })
 
