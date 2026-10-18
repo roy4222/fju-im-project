@@ -46,6 +46,7 @@ import { err, ok, type Err, type Result } from '@/shared/result'
 import { RATE_LIMITS, sharedRateLimiter } from '@/shared/rate-limit'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 import { signUpWithPassword } from '@/infrastructure/auth/wrapper'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
@@ -479,6 +480,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
           now,
         }))
       await tx.query('commit')
+      // 自動開通：commit 之後丟本人的身分快取，下一次請求就是已開通（同 `#approveInTx`）。
+      if (autoApproved) bustIdentity(actor.userId)
       return ok({ applicationId: inserted.id, revision: 1, ...(autoApproved ? { autoApproved: true } : {}) }, meta(now))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -705,6 +708,9 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
+      // commit 之後才丟當事人的身分快取：commit 前丟的話，同時進來的請求會把舊的「待審」再存回去（B 設計方案 §4.1）。
+      // 批次核准（`approveMany`）每一筆都經 `#approve` 走到這裡，不另外丟。
+      bustIdentity(row.user_id)
       committed(row.login_email)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
@@ -914,6 +920,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { applicationId: row.id } })
       await tx.query('commit')
+      // 身分快照不含申請狀態（退回後帳號仍是待審），這裡是預防性地跟失效點清單一致（契約 03 §2）。
+      bustIdentity(row.user_id)
       committed(row.login_email, decision.value.reason)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {

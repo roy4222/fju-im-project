@@ -4,6 +4,7 @@ import type {
   AccountDirectoryCommand,
   ActorResolver,
   AvatarCommand,
+  RegistrationCommand,
   ResolvedActor,
   TeacherSetupCommand,
 } from '@/application/accounts'
@@ -39,6 +40,9 @@ let directory: AccountDirectoryCommand
 let accounts: import('@/infrastructure/accounts/account-command').PgAccountCommand
 let avatars: AvatarCommand
 let teacherSetup: TeacherSetupCommand
+let registration: RegistrationCommand
+let openCohort: string
+let rosterVersion: string
 let sharedPool: Pool
 let resetLimiters: () => Promise<void>
 let admin: { userId: string; headers: Headers }
@@ -215,10 +219,34 @@ beforeAll(async () => {
   // 選預設圖不碰檔案儲存。
   avatars = new PgAvatarCommand({ db: () => app, audit: new PgAuditWriter(), files: {} as never })
   teacherSetup = new PgTeacherSetupCommand({ audit: new PgAuditWriter(), db: () => app })
+  const { PgRegistrationCommand } = await import('@/infrastructure/accounts/registration-command')
+  const { PgCohortStatusQuery } = await import('@/infrastructure/cohorts/pg-cohorts')
+  // 不注入 mail：審核結果信與快取無關。
+  registration = new PgRegistrationCommand({
+    audit: new PgAuditWriter(),
+    ledger: new PgOperationLedger(() => app),
+    db: () => app,
+    cohorts: new PgCohortStatusQuery(() => app),
+  })
 
   await resetLimiters()
   const a = await member(['admin'])
   admin = { userId: a.userId, headers: headersOf(a.cookie) }
+
+  // 註冊審核（AC-SH-74 j）：一個開放註冊的屆別＋一版名單；每案自己加名單列。
+  openCohort = (
+    await one<{ id: string }>(
+      `insert into cohorts (id, code, name, created_by_kind, is_registration_open)
+       values (gen_random_uuid(), 'SHB1B', 'SH-B1b 屆', 'system', true) returning id`,
+    )
+  ).id
+  rosterVersion = (
+    await one<{ id: string }>(
+      `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+       values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+      [openCohort, a.userId],
+    )
+  ).id
 })
 
 afterAll(async () => {
@@ -488,6 +516,104 @@ describe('每個失效點下一次請求生效（AC-SH-74）', () => {
     const repaired = await accounts.repairOrphan(adminActor(), { userId: p.userId, role: 'teacher', reason: '補建老師身分', requestId: requestId() })
     expect(repaired).toMatchObject({ ok: true, receipt: { activated: true } })
     expect(await resolve(p.cookie)).toMatchObject({ kind: 'authenticated', status: 'active', roles: ['teacher'], teacherSetupPending: true })
+  })
+})
+
+describe('註冊審核的失效點（AC-SH-74 j，SH-B1b）', () => {
+  let studentNoSeq = 0
+
+  /**
+   * 待審的申請人：名單上有他（學號＋姓名＋登入 Email 同一列），用密碼登入的 cookie 已送出第 1 版申請。
+   * 回傳前已暖快取並確認命中，快照是 `pending`、沒有角色。
+   */
+  async function applicant({ google = false } = {}) {
+    const p = await member([], { profile: false })
+    await db.sql(`update users set status = 'pending' where id = $1`, [p.userId])
+    const studentNo = `4119${String(++studentNoSeq).padStart(5, '0')}`
+    await db.sql(
+      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
+       values (gen_random_uuid(), $1, $2, '快取測試', '快取測試', '資管二甲', $3)`,
+      [rosterVersion, studentNo, p.email],
+    )
+    if (google) {
+      await db.sql(
+        `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
+         values (gen_random_uuid(), $1, 'google', $2, now(), now())`,
+        [`sub-${p.email}`, p.userId],
+      )
+    }
+    const actor = await warm(p.cookie)
+    expect(actor).toMatchObject({ status: 'pending', roles: [] })
+    const fields = { appliedName: '快取測試', studentNo, departmentClass: '資管二甲', phone: '0912-345-678', contactEmail: p.email }
+    return { ...p, actor, fields }
+  }
+
+  async function submitted() {
+    const p = await applicant()
+    const sent = await registration.reviseMine(p.actor, p.fields, null)
+    expect(sent).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(sent.ok && sent.receipt.autoApproved).toBeFalsy()
+    const applicationId = (sent as { receipt: { applicationId: string } }).receipt.applicationId
+    // 送申請不改身分快照，快取照樣命中。
+    await warm(p.cookie)
+    return { ...p, applicationId }
+  }
+
+  const approval = { verificationMethod: 'id_document', verificationNote: '櫃台核對學生證', reason: '' }
+
+  it('(j-核准) 系辦核准 → 同一張 cookie 下一次就是已開通的學生', async () => {
+    const p = await submitted()
+    const result = await registration.approve(adminActor(), {
+      applicationId: p.applicationId,
+      revision: 1,
+      ...approval,
+      cohortId: null,
+      requestId: requestId(),
+    })
+    expect(result).toMatchObject({ ok: true, receipt: { decision: 'approved' } })
+    expect(await resolve(p.cookie)).toMatchObject({ kind: 'authenticated', status: 'active', roles: ['student'] })
+  })
+
+  it('(j-批次) 批次核准兩位 → 兩人同一張 cookie 下一次都已開通', async () => {
+    const a = await submitted()
+    const b = await submitted()
+    const result = await registration.approveMany(adminActor(), {
+      items: [a, b].map((p) => ({ applicationId: p.applicationId, revision: 1, requestId: requestId() })),
+      previewSkipped: [],
+      ...approval,
+    })
+    expect(result).toMatchObject({ ok: true, receipt: { skipped: [] } })
+    expect(result.ok && result.receipt.approved).toHaveLength(2)
+    for (const p of [a, b]) {
+      expect(await resolve(p.cookie)).toMatchObject({ kind: 'authenticated', status: 'active', roles: ['student'] })
+    }
+  })
+
+  it('(j-退回) 系辦退回 → 下一次 resolve 回資料庫讀（快照仍是待審）；本人看到的申請狀態立即是退回', async () => {
+    const p = await submitted()
+    const result = await registration.reject(adminActor(), {
+      applicationId: p.applicationId,
+      revision: 1,
+      reason: '學號與學生證不符',
+      requestId: requestId(),
+    })
+    expect(result).toMatchObject({ ok: true, receipt: { decision: 'rejected' } })
+    // 身分快照不含申請狀態（退回後帳號仍是待審），所以只能驗「快取已清」：下一次要查資料庫。
+    const next = await countQueries(() => resolve(p.cookie))
+    expect(next.queries, '退回後同一張 cookie 應該回資料庫讀').toBeGreaterThan(0)
+    expect(next.result).toMatchObject({ kind: 'authenticated', status: 'pending', roles: [] })
+    // 待審頁讀的那條路（`viewMine`）直接讀資料庫，不經身分快取。
+    const mine = await registration.viewMine(next.result)
+    expect(mine).toMatchObject({ ok: true, receipt: { state: 'rejected', rejection: { reason: '學號與學生證不符' } } })
+  })
+
+  it('(j-自動開通) VB-6：Google 來、Email＋學號＋姓名命中開放屆別 → 送出即開通，同一張 cookie 下一次就是學生', async () => {
+    const p = await applicant({ google: true })
+    // 這張 cookie 是密碼登入的；自動開通看的是用例收到的 actor（同 registration-command 整合測試），快取以 userId 清。
+    const googleActor = { ...p.actor, loginMethod: 'google' } as ResolvedActor
+    const sent = await registration.reviseMine(googleActor, p.fields, null)
+    expect(sent).toMatchObject({ ok: true, receipt: { revision: 1, autoApproved: true } })
+    expect(await resolve(p.cookie)).toMatchObject({ kind: 'authenticated', status: 'active', roles: ['student'] })
   })
 })
 
