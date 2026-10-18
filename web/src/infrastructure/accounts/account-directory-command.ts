@@ -51,6 +51,8 @@ import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { requestPasswordReset } from '@/infrastructure/auth/wrapper'
+
+const MAIL_SETTLE_TIMEOUT_MS = 8000
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
@@ -71,14 +73,6 @@ import { bustIdentity } from '@/infrastructure/auth/identity-cache'
  * 並在寫入前用 `upper()` 再查一次（擋住正規化以前寫進去的小寫舊列）。
  * 顯示用的學號（`user_profiles`、`registration_applications`）照本人填的原樣保存，不動。
  */
-
-/**
- * TODO(C2-11 第二步)：目前走公開的忘記密碼入口（吃每 IP／每 Email 限流；正式站還要 Turnstile，系辦會被擋）。
- * 等 C2-09、C2-16 合併後，改用系辦內部呼叫的寄信函式（略過限流與 Turnstile）。
- */
-function sendResetMailViaPublicPath(headers: Headers, input: { email: string }): Promise<unknown> {
-  return requestPasswordReset(input, headers)
-}
 
 export type AccountDirectoryCommandDeps = {
   readonly audit: AuditWriter<PoolClient>
@@ -422,6 +416,40 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 
   // ── 寄重設密碼信（C2-11） ────────────────────────────────────────────────
 
+  /**
+   * TODO(C2-11 第二步)：目前走公開的忘記密碼入口（吃每 IP／每 Email 限流；正式站還要 Turnstile，系辦會被擋）。
+   * 等 C2-09、C2-16 合併後，改用系辦內部呼叫的寄信函式（略過限流與 Turnstile），這裡的「等寄送結果」照用。
+   *
+   * 套件的 `sendResetPassword` 回呼是背景寄送、結果不會傳回呼叫端（也不進 `withMailOutcome` 的盒子），
+   * 所以寄完後看這封信在 `mail_outbox` 的結果：失敗就丟錯，畫面才不會說「已寄出」。
+   */
+  async #sendViaPublicPath(headers: Headers, input: { email: string }): Promise<void> {
+    const db = this.#deps.db()
+    const since = (await db.query<{ now: Date }>('select clock_timestamp() as now')).rows[0]!.now
+    await requestPasswordReset(input, headers)
+    const deadline = Date.now() + MAIL_SETTLE_TIMEOUT_MS
+    for (;;) {
+      const row = (
+        await db.query<{ status: string }>(
+          `select status from mail_outbox
+            where to_email = $1 and template = 'password_reset' and created_at >= $2
+            order by created_at desc limit 1`,
+          [input.email, since],
+        )
+      ).rows[0]
+      if (row && row.status !== 'queued') {
+        if (row.status === 'failed') throw new Error('mail_failed')
+        return
+      }
+      if (Date.now() >= deadline) {
+        // 逾時還排著：信已交給寄送程序，當成寄出；完全沒有這封信＝根本沒寄。
+        if (row) return
+        throw new Error('mail_missing')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
   async sendResetMail(actor: ResolvedActor, input: { userId: string }, context: AdminRequestContext): ReturnType<AccountDirectoryCommand['sendResetMail']> {
     const blocked = accountAdminDenied(actor)
     if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
@@ -429,8 +457,9 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
 
     const db = this.#deps.db()
     const target = (
-      await db.query<{ email: string; status: string; deidentified_at: Date | null; has_password: boolean }>(
+      await db.query<{ email: string; status: string; deidentified_at: Date | null; has_password: boolean; has_google: boolean }>(
         `select u.email, u.status, u.deidentified_at,
+                exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google') as has_google,
                 exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'credential') as has_password
            from users u where u.id = $1`,
         [input.userId],
@@ -440,10 +469,15 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     if (target.deidentified_at || target.status === 'disabled') {
       return err('VALIDATION_FAILED', '這個帳號已停用，登不進來；要寄重設密碼信請先恢復帳號。')
     }
-    if (!target.has_password) return err('VALIDATION_FAILED', '這個帳號用 Google 登入，沒有密碼，不能寄重設密碼信。')
+    if (!target.has_password) {
+      return err(
+        'VALIDATION_FAILED',
+        target.has_google ? '這個帳號用 Google 登入，沒有密碼，不能寄重設密碼信。' : '這個帳號尚未設定密碼，不能寄重設密碼信；請改發臨時密碼。',
+      )
+    }
 
     try {
-      await (this.#deps.requestPasswordReset ?? sendResetMailViaPublicPath)(context.headers, { email: target.email })
+      await (this.#deps.requestPasswordReset ?? ((h, i) => this.#sendViaPublicPath(h, i)))(context.headers, { email: target.email })
     } catch (error) {
       console.error('[accounts] 寄重設密碼信失敗', (error as { body?: { code?: unknown } } | null)?.body?.code ?? 'unknown')
       return err('INTERNAL', '信寄不出去，請稍後再試；或改發臨時密碼給本人。')
