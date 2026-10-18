@@ -64,8 +64,8 @@ test('三步驟對話框選「榮譽／競賽」：對象鎖公開、沒有收�
   const title = `${CODE} 校內專題競賽第一名`
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   const honor = dialog.getByRole('radio', { name: /榮譽／競賽/ })
   await expect(dialog).toContainText('前台「榮譽榜」的一則得獎消息，可附照片')
   await honor.check()
@@ -164,8 +164,8 @@ test('專題事務列表選「榮譽」：屆別含已封存的，點得到歷�
   await expect(page).toHaveURL(new RegExp(`cohort=${historyCohortId}`))
   await expect(page).toHaveURL(/placement=honor/)
 
-  // 封存屆別只能動榮譽：沒有「新增項目」，「新增榮譽」帶這一屆。
-  await expect(page.getByRole('button', { name: '新增項目' })).toHaveCount(0)
+  // 封存屆別只能動榮譽：沒有「新增公告」，「新增榮譽」帶這一屆。
+  await expect(page.getByRole('button', { name: '新增公告' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: '新增榮譽' })).toHaveAttribute(
     'href',
     `/dashboard/admin/editor/new?cohort=${historyCohortId}&placement=honor`,
@@ -182,6 +182,6 @@ test('專題事務列表選「榮譽」：屆別含已封存的，點得到歷�
     'href',
     `/dashboard/admin/editor/new?cohort=${cohortId}&placement=honor`,
   )
-  await expect(page.getByRole('button', { name: '新增項目' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增公告' })).toBeVisible()
   await expect(page.getByTestId('affair-row').filter({ hasText: `${CODE} 校內專題競賽第一名` })).toBeVisible()
 })

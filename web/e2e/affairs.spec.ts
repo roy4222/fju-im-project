@@ -183,8 +183,8 @@ test('三步驟快速建立公告：附件、清理正文、發布；細調欄�
   await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '公告與作業', exact: true })).toHaveAttribute('aria-current', 'page')
 
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /公告/ }).check()
   await dialog.getByLabel('標題').fill(title)
   await dialog.getByLabel('誰看得到').selectOption('cohort_students')

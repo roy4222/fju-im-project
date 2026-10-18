@@ -166,8 +166,8 @@ async function quickPublish(
   },
 ) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: options.placement }).check()
   await dialog.getByLabel('標題').fill(options.title)
   await dialog.getByLabel('誰看得到').selectOption(options.audience)
