@@ -5,6 +5,7 @@ import { PageTitle, StatTile } from '@/app/_ui/dashboard/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GROUP_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { randomUUID } from 'node:crypto'
 import { ManageOpportunityList, OpportunityDangerZone } from '@/app/dashboard/_industry/manage-list'
 import { OpportunityFormDialog } from '@/app/dashboard/_industry/opportunity-forms'
@@ -20,12 +21,6 @@ import {
 export const metadata = { title: '合作案｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/industry'
-
-/** 側欄「分組」底下的兩個分頁（設計方案 §2.1），和分組總覽頁同一組。 */
-const GROUP_TABS = [
-  { href: '/dashboard/admin/groups', label: '分組總覽' },
-  { href: BASE, label: '合作案' },
-] as const
 
 /**
  * 系辦「合作案」（票 20；原型 `/dashboard/admin/industry`）：全部合作案與組別連結。
@@ -58,6 +53,9 @@ export default async function AdminIndustryPage() {
               actions={<OpportunityFormDialog labels={labels} requestId={randomUUID()} teachers={teachers} />}
             />
           </div>
+          <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+            老師開的產學合作案，以及每一案由哪幾組承接。
+          </p>
         </div>
         <section aria-label="合作案摘要" className="grid gap-4 sm:grid-cols-3">
           <StatTile

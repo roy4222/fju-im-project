@@ -6,6 +6,7 @@ import { EmptyState, LinkButton } from '@/app/_ui/primitives'
 import { PageTitle, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { AFFAIRS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import {
   AwardForm,
   BackfillForm,
@@ -25,13 +26,6 @@ export const metadata = { title: '成果展示｜資管系專題平台' }
 const STATUS_TONE: Record<'draft' | 'published' | 'withdrawn', PillTone> = { draft: 'default', published: 'success', withdrawn: 'danger' }
 /** 卡片上的公開動作連結：跳到逐件管理裡那件作品的「公開」區。 */
 const LIFECYCLE_LINK: Record<'draft' | 'published' | 'withdrawn', string> = { draft: '發布', published: '下架', withdrawn: '重新發布' }
-
-/** 「公告與作業」底下的三個分頁（設計方案 §3.2；`/affairs`、`/files` 用同一組）。 */
-const AFFAIRS_TABS = [
-  { href: '/dashboard/admin/affairs', label: '公告與作業' },
-  { href: '/dashboard/admin/showcase', label: '成果展示' },
-  { href: '/dashboard/admin/files', label: '檔案' },
-] as const
 
 /**
  * 管理員「精選」（票 25／S11-03；第三波 W2，設計方案 §4）。
@@ -64,6 +58,9 @@ export default async function AdminShowcasePage({ searchParams }: { searchParams
         <div className="mt-4">
           <AdminTabs label="公告與作業分頁" current="/dashboard/admin/showcase" items={AFFAIRS_TABS} actions={actions} />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          每一組的成果展示頁，發布後出現在前台的歷屆專題。
+        </p>
       </div>
       {children}
     </DashboardShell>

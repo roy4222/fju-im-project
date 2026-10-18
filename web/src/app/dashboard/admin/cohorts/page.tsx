@@ -4,6 +4,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { PageTitle } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { SETTINGS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { CohortCards, CreateCohortForm, type CohortRow } from '@/app/dashboard/admin/cohorts/cohort-forms'
 import {
   COHORT_CODE_MAX_LENGTH,
@@ -18,14 +19,6 @@ import { getGroupQuery } from '@/composition/groups'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '屆別｜資管系專題平台' }
-
-/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
-const SETTINGS_TABS = [
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
-  { href: '/dashboard/admin/audit', label: '操作紀錄' },
-] as const
 
 /**
  * 屆別頁（票 5）：新增屆別、看狀態、指定「預設工作屆別」與「開放註冊屆別」。
@@ -82,6 +75,9 @@ export default async function AdminCohortsPage() {
             actions={<CreateCohortForm requestId={randomUUID()} codeMaxLength={COHORT_CODE_MAX_LENGTH} nameMaxLength={COHORT_NAME_MAX_LENGTH} />}
           />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          每一屆的開始、旗標與狀態；新註冊的人會加入開放註冊的那一屆。
+        </p>
         <div className="flex flex-col gap-5">
           {registrationOpen ? null : (
             <div

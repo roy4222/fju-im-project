@@ -8,6 +8,7 @@ import { FacetMenu } from '@/app/_ui/data-table-facet'
 import { CohortPills, PageTitle, Panel, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GROUP_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
 import { DissolveGroupButton } from '@/app/dashboard/admin/groups/dissolve-dialog'
@@ -53,12 +54,6 @@ import { formatTaipeiMinute } from '@/shared/time'
 export const metadata = { title: '分組｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/groups'
-
-/** 側欄「分組」底下的兩個分頁（設計方案 §2.1）；合作案頁掛同一組。 */
-const GROUP_TABS = [
-  { href: BASE, label: '分組總覽' },
-  { href: '/dashboard/admin/industry', label: '合作案' },
-] as const
 
 /**
  * 管理員「分組總覽」（票 13；原型 `/dashboard/admin/groups`）。
@@ -130,6 +125,9 @@ export default async function AdminGroupsPage({
           <div className="mt-4">
             <AdminTabs label="分組分頁" current={BASE} items={GROUP_TABS} actions={actions} />
           </div>
+          <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+            這一屆的所有組別、組員與指導老師。
+          </p>
         </div>
         {children}
       </div>

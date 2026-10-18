@@ -7,6 +7,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { SETTINGS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import {
   ActivityActions,
   ActivityNotice,
@@ -44,14 +45,6 @@ const DAY = 86_400_000
 
 export const metadata = { title: '時間軸｜資管系專題平台' }
 
-/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
-const SETTINGS_TABS = [
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
-  { href: '/dashboard/admin/audit', label: '操作紀錄' },
-] as const
-
 /**
  * 時間軸設定（票 11；原型 `/dashboard/admin/timeline`）。
  *
@@ -82,6 +75,9 @@ export default async function AdminTimelinePage({
         <div className="mt-3">
           <AdminTabs label="設定分頁" current="/dashboard/admin/timeline" items={SETTINGS_TABS} actions={actions} />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          專題四個階段的開始日與這一屆的各項活動日期。
+        </p>
         <div className="flex flex-col gap-5">{children}</div>
       </div>
     </DashboardShell>

@@ -6,19 +6,13 @@ import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { AFFAIRS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { FilesTable, type FileKind, type FileRowView } from '@/app/dashboard/admin/files/files-table'
 import { getFileListQuery } from '@/composition/files'
 import { formatBytes } from '@/shared/format-bytes'
 import { taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '檔案｜資管系專題平台' }
-
-/** 「公告與作業」底下的三個分頁（設計方案 §3.2；`/affairs`、`/showcase` 用同一組）。 */
-const AFFAIRS_TABS = [
-  { href: '/dashboard/admin/affairs', label: '公告與作業' },
-  { href: '/dashboard/admin/showcase', label: '成果展示' },
-  { href: '/dashboard/admin/files', label: '檔案' },
-] as const
 
 /** 附件依所在項目的位置叫不同名字（原型「公開資源／公告附件／組別繳交」）。 */
 const ATTACHMENT_LABEL: Record<string, string> = {
@@ -114,6 +108,9 @@ export default async function AdminFilesPage({ searchParams }: { searchParams: P
           <div className="mt-4">
             <AdminTabs label="公告與作業分頁" current="/dashboard/admin/files" items={AFFAIRS_TABS} />
           </div>
+          <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+            掛在公告、資源、作業底下的檔案，以及每個檔案被哪些項目引用。
+          </p>
         </div>
         {/* 這一頁只看不上傳（N-138）：檔案都掛在公告、資源、作業底下，新增要到編輯器夾帶附件。 */}
         <p data-testid="files-add-hint" className="dash-card flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm text-muted-foreground">

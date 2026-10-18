@@ -6,19 +6,12 @@ import { PageTitle } from '@/app/_ui/dashboard/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { SETTINGS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { HomeSettingsForm } from '@/app/dashboard/admin/home-settings/home-settings-form'
 import { getHomeSettingsQuery, HERO_UPLOAD, HOME_DEFAULTS, HOME_LIMITS } from '@/composition/site'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '首頁設定｜資管系專題平台' }
-
-/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
-const SETTINGS_TABS = [
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
-  { href: '/dashboard/admin/audit', label: '操作紀錄' },
-] as const
 
 /**
  * 首頁設定（第三波 W3；設計方案 §3，Q18、Q32）：首頁最上面的大圖與兩行標語，存了就生效。
@@ -36,6 +29,9 @@ export default async function AdminHomeSettingsPage() {
       <div className="mt-3">
         <AdminTabs label="設定分頁" current="/dashboard/admin/home-settings" items={SETTINGS_TABS} />
       </div>
+      <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+        這一頁不在分頁列上；之後改成在前台直接編輯首頁大圖與標語。
+      </p>
       <Card
         title="首頁大圖與標語"
         description="會出現在前台首頁的最上方（所有人都看得到，包含沒登入的訪客）。"
