@@ -41,7 +41,8 @@ import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } fr
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
-  methods: VERIFICATION_METHODS,
+  // google_email_match 是系統自動開通寫的（VB-6），系辦不能選；與 MANUAL_VERIFICATION_METHODS 同一份清單。
+  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match'),
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,
