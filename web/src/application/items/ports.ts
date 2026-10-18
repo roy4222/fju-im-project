@@ -2,6 +2,8 @@ import type { ResolvedActor } from '@/application/accounts'
 import type {
   AudienceKind,
   CompetitionStatus,
+  ConsentMode,
+  ConsentPurpose,
   FormField,
   ItemFileKind,
   ItemInput,
@@ -40,6 +42,11 @@ export type PublishReceipt = {
   readonly rosterCount: number
   /** 這次的事件寫給幾個人（通知由背景工作投影）。 */
   readonly notifiedCount: number
+  /**
+   * 站內同意書（`consent_mode='form'`）才有：建了幾個簽核包、哪幾組沒建（沒有主指導或沒有組員，繳交狀況頁顯示「尚未建立」）。
+   * 站內同意書不發「新作業」通知（`item.published`），通知由簽核包的「輪到你同意」發。其他作業是 null。
+   */
+  readonly consent: { readonly created: number; readonly skipped: readonly { readonly groupId: string; readonly reason: 'no_advisor' | 'no_members' }[] } | null
 }
 
 export type UpdateChange = 'content' | 'schema' | 'settings' | 'deadline'
@@ -63,6 +70,12 @@ export type PinReceipt = { readonly itemId: string; readonly title: string; read
 
 /** 規則章節上移／下移的回執（A-14）：`position` 是移完之後的位置（同屆規則從 1 起算）。 */
 export type RuleOrderReceipt = { readonly itemId: string; readonly title: string; readonly position: number }
+
+/** 規則章節整批排序的回執（C 階段規格① §3.1）：`count` 是這一屆排了幾章。 */
+export type RulesReorderReceipt = { readonly cohortId: string; readonly count: number }
+
+/** 資源分類改名的回執（C 階段規格① §11.3 `resource_category`）：`count` 是改到幾筆資源（跨屆）。 */
+export type RenameCategoryReceipt = { readonly from: string; readonly to: string; readonly count: number }
 
 export type StartItemUploadInput = {
   readonly cohortId: string
@@ -144,6 +157,24 @@ export interface ItemCommand {
    * 跟置頂一樣是展示動作，不動 `revision`、`updated_at`，不切版本、不發事件。
    */
   moveRule(actor: ResolvedActor, itemId: string, direction: 'up' | 'down', requestId: string): Promise<Result<RuleOrderReceipt>>
+  /**
+   * 專題規則整批排序（C 階段規格① §3.1，拖曳排序用；`moveRule` 保留給上下移）。`orderedIds` 必須正好等於這一屆
+   * 全部未刪除規則（含草稿、已下架）的集合、不重複，否則 `VALIDATION_FAILED`；照順序寫成 1..n。
+   * 跟 `moveRule` 一樣是展示動作：鎖序同 `lockRuleSet`、不動 `revision`、不切版本、不發事件，稽核 `item.rules_reordered`。
+   * 順序跟現在一樣也回 ok（不寫稽核）。
+   */
+  reorderRules(actor: ResolvedActor, cohortId: string, orderedIds: readonly string[], requestId: string): Promise<Result<RulesReorderReceipt>>
+  /**
+   * 資源分類改名（C 階段規格① §11.3 `resource_category`；前台 `/files` 依名稱合併跨屆資源，所以範圍是**所有屆別**）：
+   * `placement='resource'`、未刪除、`category=from` 的每一列改成 `to`、`revision+1`；一筆交易。
+   * 新名稱已經是別的資源分類 → `VALIDATION_FAILED`「已有這個分類」；沒有任何資源用 `from` → `VALIDATION_FAILED`。
+   * 跟置頂一樣不產生內容版本、不寫發布紀錄、不發事件；稽核 `item.category_renamed`（`{from,to,count}`）。`requestId` 冪等。
+   * 封存屆別的資源也一起改（分類名是跨屆共用的標籤，不是那一屆的內容）。
+   */
+  renameResourceCategory(
+    actor: ResolvedActor,
+    input: { readonly from: string; readonly to: string; readonly requestId: string },
+  ): Promise<Result<RenameCategoryReceipt>>
 }
 
 export type ItemReview = {
@@ -180,6 +211,8 @@ export type ItemListRow = {
   readonly audienceKind: AudienceKind
   readonly audienceGroupCodes: readonly string[]
   readonly receiverUnit: ReceiverUnit
+  /** 同意書模式（C 階段規格① §1.1）；不是同意書是 null。 */
+  readonly consentMode: ConsentMode | null
   readonly dueAt: Date | null
   readonly actualOpenedAt: Date | null
   /** 置頂時間（第 1 批 V1）；沒置頂是 null。 */
@@ -209,6 +242,9 @@ export type ItemDetail = {
   readonly groupIds: readonly string[]
   readonly receiverUnit: ReceiverUnit
   readonly stageId: string | null
+  /** 同意書模式與用途（存草稿就落盤；發布後鎖定，`updatePublished` 改它們回 `VALIDATION_FAILED`）。 */
+  readonly consentMode: ConsentMode | null
+  readonly consentPurpose: ConsentPurpose | null
   readonly opensAt: Date | null
   readonly actualOpenedAt: Date | null
   readonly dueAt: Date | null

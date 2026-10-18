@@ -22,8 +22,12 @@ import {
   canReadSubmission,
   describeIssues,
   fileAnswers,
+  formTypeOf,
+  itemKindOf,
+  mayFillAsReceiver,
   MIB,
   normalizeAnswers,
+  normalizeOptionalReason,
   phaseOf,
   submitIssues,
   type AnswerFile,
@@ -140,11 +144,37 @@ function staleDraft(group: boolean): Err {
   )
 }
 
-function authorizeStudent(actor: ResolvedActor): Err | null {
+const RECEIVER_ONLY = '只有學生或在這份作業名單上的老師可以填寫。'
+
+/**
+ * 第一道：帳號狀態，而且是學生或老師（C 階段規格① §3.2 `authorizeReceiver`）。老師還要在這份作業的名單上，
+ * 那一條在鎖到名單列之後判（`#receiverDenied`），不在名單上的老師回 `FORBIDDEN`。
+ */
+function authorizeReceiver(actor: ResolvedActor): Err | null {
   const blocked = statusGate(actor, 'business')
   if (blocked) return err(blocked, '請先登入並完成帳號設定。')
-  if (actor.kind !== 'authenticated' || !actor.roles.includes('student')) return err('FORBIDDEN', '只有學生可以填寫作業。')
+  if (actor.kind !== 'authenticated' || !(actor.roles.includes('student') || actor.roles.includes('teacher'))) {
+    return err('FORBIDDEN', RECEIVER_ONLY)
+  }
   return null
+}
+
+/** 填寫的人是學生還是名單上的老師（稽核的 `role`）。 */
+function receiverRole(actor: Extract<ResolvedActor, { kind: 'authenticated' }>): 'student' | 'teacher' {
+  return actor.roles.includes('student') ? 'student' : 'teacher'
+}
+
+/**
+ * 第二道（鎖到名單列之後）：老師只有本人在這份作業目前的名單上（個人一份）才能填；學生照舊交給 `#guard`。
+ * 規則在 application 的 `mayFillAsReceiver`。
+ */
+function receiverDenied(actor: Extract<ResolvedActor, { kind: 'authenticated' }>, locked: Locked): Err | null {
+  const allowed = mayFillAsReceiver({
+    isStudent: actor.roles.includes('student'),
+    isTeacher: actor.roles.includes('teacher'),
+    onRosterAsUser: locked.receiver?.kind === 'user' && locked.roster !== null,
+  })
+  return allowed ? null : err('FORBIDDEN', RECEIVER_ONLY)
 }
 
 const FIELD_KEY = /^[a-z][a-z0-9_]{0,39}$/
@@ -182,7 +212,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
     answers: unknown,
     requestId: string,
   ): Promise<Result<DraftReceipt>> {
-    const denied = authorizeStudent(actor)
+    const denied = authorizeReceiver(actor)
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return notInRoster()
@@ -193,6 +223,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
     return this.#run(async (tx) => {
       const locked = await this.#lock(tx, itemId, userId)
       if (!locked) return notInRoster()
+      const notReceiver = receiverDenied(actor, locked)
+      if (notReceiver) return notReceiver
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -274,7 +306,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
   }
 
   async submit(actor: ResolvedActor, itemId: string, draftRevision: number, requestId: string): Promise<Result<SubmitReceipt>> {
-    const denied = authorizeStudent(actor)
+    const denied = authorizeReceiver(actor)
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId)) return notInRoster()
@@ -288,6 +320,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
     return this.#run(async (tx) => {
       const locked = await this.#lock(tx, itemId, userId)
       if (!locked) return notInRoster()
+      const notReceiver = receiverDenied(actor, locked)
+      if (notReceiver) return notReceiver
       const { item } = locked
 
       const realAt = this.#realClock.now()
@@ -412,7 +446,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: userId,
-        role: 'student',
+        role: receiverRole(actor),
         action: 'submission.submit',
         targetType: SUBJECT_TYPE,
         targetId: itemId,
@@ -478,7 +512,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
   }
 
   async requestUpload(actor: ResolvedActor, itemId: string, fieldKey: string, declared: DeclaredUpload): Promise<Result<UploadTicket>> {
-    const denied = authorizeStudent(actor)
+    const denied = authorizeReceiver(actor)
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(itemId)) return notInRoster()
     if (typeof fieldKey !== 'string' || !FIELD_KEY.test(fieldKey)) return err('VALIDATION_FAILED', '找不到這個上傳欄位，請重新整理頁面。')
@@ -489,6 +523,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
     const checked = await this.#run<{ cohortId: string; rules: FileRules }>(async (tx) => {
       const locked = await this.#lock(tx, itemId, userId)
       if (!locked) return notInRoster()
+      const notReceiver = receiverDenied(actor, locked)
+      if (notReceiver) return notReceiver
       const guard = this.#guard(locked, businessAt)
       if (guard) return guard
       const field = locked.schema!.fields.find((f) => f.key === fieldKey && f.type === 'file')
@@ -597,10 +633,10 @@ export class PgSubmissionCommand implements SubmissionCommand {
     if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(itemId) || !isUuid(receiverId)) return notInRoster()
-    const reason = typeof input?.reason === 'string' ? input.reason.trim() : ''
-    if (reason.length < 1 || reason.length > 200) {
-      return err('VALIDATION_FAILED', '請寫補交理由（1 到 200 字），學生會看到。', { details: { field: 'reason' } })
-    }
+    // 理由選填（C 階段 X2）：沒填存 null；有填最多 200 字（學生會看到）。
+    const reasoned = normalizeOptionalReason(input?.reason, 200)
+    if (!reasoned.ok) return err('VALIDATION_FAILED', '補交理由最多 200 字，學生會看到。', { details: { field: 'reason' } })
+    const reason = reasoned.reason
     const dueAt = typeof input?.dueAt === 'string' ? parseTaipeiDateTime(input.dueAt) : null
     if (!dueAt) return err('VALIDATION_FAILED', '請選補交期限（日期與時間，臺灣時間）。', { details: { field: 'dueAt' } })
     const userId = actor.userId
@@ -763,11 +799,10 @@ export class PgSubmissionCommand implements SubmissionCommand {
     const exempt = input.exempt
     if (!isUuid(itemId)) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
     if (!isUuid(receiverId)) return notInRoster()
-    // 恢復不用理由（也不存）；設免繳要 1–200 字。
-    const reason = exempt ? (typeof input.reason === 'string' ? input.reason.trim() : '') : null
-    if (reason !== null && (reason.length < 1 || reason.length > 200)) {
-      return err('VALIDATION_FAILED', '請填理由（1 到 200 字）。', { details: { field: 'reason' } })
-    }
+    // 恢復不用理由（也不存）；設免繳的理由選填（C 階段 X2），有填最多 200 字。
+    const reasoned = exempt ? normalizeOptionalReason(input.reason, 200) : { ok: true as const, reason: null }
+    if (!reasoned.ok) return err('VALIDATION_FAILED', '理由最多 200 字。', { details: { field: 'reason' } })
+    const reason = reasoned.reason
     const userId = actor.userId
     const businessAt = await this.#businessClock.now()
 
@@ -1032,6 +1067,8 @@ type Reader = () => Pick<Pool, 'query'>
 type ListRow = {
   id: string
   title: string
+  consent_mode: string | null
+  schema: { fields?: FormField[] } | null
   stage_name: string | null
   cohort_id: string
   stage_seq: number | null
@@ -1193,8 +1230,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
   async myItems(userId: string): Promise<MyItemRow[]> {
     if (!isUuid(userId)) return []
     const rows = await this.#reader().query<ListRow>(
-      `select m.id, m.title, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at, r.exempt,
-              m.receiver_unit, g.code as group_code,
+      `select m.id, m.title, m.consent_mode, sv.schema, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at,
+              r.exempt, m.receiver_unit, g.code as group_code,
               (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
               facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
               ${REOPEN_UNTIL}
@@ -1202,6 +1239,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
          join managed_items m on m.id = r.item_id
          left join groups g on r.receiver_kind = 'group' and g.id = r.receiver_id
          left join cohort_stages s on s.id = m.stage_id
+         left join form_schema_versions sv on sv.id = m.current_schema_version_id
          ${receiverFactsJoin('m.id', 'r.receiver_kind', 'r.receiver_id')}
         where ${MY_ROSTER_ROW}
         order by m.due_at nulls last, m.title`,
@@ -1210,6 +1248,8 @@ export class PgSubmissionQuery implements SubmissionQuery {
     return rows.rows.map((r) => ({
       itemId: r.id,
       title: r.title,
+      kind: itemKindOf(r.consent_mode),
+      formType: formTypeOf(r.schema?.fields ?? []),
       stageName: r.stage_name,
       cohortId: r.cohort_id,
       stageSeq: r.stage_seq,
@@ -1401,7 +1441,7 @@ export class PgSubmissionQuery implements SubmissionQuery {
   async reopens(actor: ResolvedActor, itemId: string, receiverId: string): Promise<readonly ReopenEntry[] | null> {
     if (authorizeAdmin(actor, '查看補交紀錄')) return null
     if (!isUuid(itemId) || !isUuid(receiverId)) return null
-    const rows = await this.#reader().query<{ due_at: Date; reason: string; created_at: Date; created_by_name: string }>(
+    const rows = await this.#reader().query<{ due_at: Date; reason: string | null; created_at: Date; created_by_name: string }>(
       `select o.due_at, o.reason, o.created_at, coalesce(p.display_name, u.name) as created_by_name
          from submission_reopens o
          join users u on u.id = o.created_by_user_id

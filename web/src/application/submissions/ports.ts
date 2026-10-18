@@ -55,7 +55,8 @@ export type ReopenReceipt = {
   readonly receiverId: string
   /** 補交期限（那一分鐘的起點，UTC ISO；含此分鐘）。 */
   readonly dueAt: string
-  readonly reason: string
+  /** 系辦填的理由；沒填是 null（C 階段 X2：補交理由選填）。 */
+  readonly reason: string | null
   /** 收到通知的人數（個人＝1；整組＝目前有效、帳號正常的組員）。 */
   readonly notified: number
 }
@@ -63,8 +64,8 @@ export type ReopenReceipt = {
 export type ReopenInput = {
   /** `<input type="datetime-local">` 的值，當成臺灣時間（`YYYY-MM-DDTHH:mm`）。 */
   readonly dueAt: string
-  /** 理由 1–200 字（給學生看、也留在紀錄裡）。 */
-  readonly reason: string
+  /** 理由選填（C 階段 X2）；有填 1–200 字（給學生看、也留在紀錄裡），空白當沒填。 */
+  readonly reason?: string | null
 }
 
 /** 設免繳或恢復的輸入（B 階段 A-08；設計方案 §6）。 */
@@ -74,8 +75,11 @@ export type ExemptInput = {
   readonly receiverId: string
   /** true＝設免繳；false＝恢復需繳交。 */
   readonly exempt: boolean
-  /** 設免繳時必填 1–200 字（系辦名單與稽核看得到，開放老師閱覽時主指導也看得到；不通知學生）；恢復時不用。 */
-  readonly reason?: string
+  /**
+   * 設免繳的理由選填（C 階段 X2）；有填 1–200 字（系辦名單與稽核看得到，開放老師閱覽時主指導也看得到；不通知學生），
+   * 空白當沒填。恢復時不用。
+   */
+  readonly reason?: string | null
 }
 
 /** 設免繳或恢復之後的回執（A-08）。 */
@@ -120,7 +124,7 @@ export interface SubmissionCommand {
    * 系辦對目前名單上的一位學生（整組一份：一組）設免繳或恢復（B 階段 A-08；設計方案 §6）。
    * 改的是目前那一列名單（`exempt`、`exempt_reason`，恢復時理由清成 null），不刪列、不動任何繳交：
    * 已經正式送出過的人也能設免繳，版本與附件原樣保留，恢復後照原狀態顯示（Q-A3）。不通知學生。
-   * 守門：不是系辦 `FORBIDDEN`；設免繳理由不是 1–200 字 `VALIDATION_FAILED`（`details.field='reason'`）；
+   * 守門：不是系辦 `FORBIDDEN`；設免繳理由超過 200 字 `VALIDATION_FAILED`（`details.field='reason'`；沒填可以）；
    * 找不到作業或作業不收件 `VALIDATION_FAILED`；屆別封存 `COHORT_ARCHIVED`；不在目前名單 `NOT_IN_ROSTER`；
    * 已經是同一個狀態 `CONFLICT`。同一個 `requestId` 重送回第一次的回執。
    */
@@ -129,9 +133,19 @@ export interface SubmissionCommand {
 
 // ── 查詢 ──────────────────────────────────────────────────────────────────────
 
+/**
+ * 作業的種類（清單「形式」欄與作業頁分頁用；C 階段規格① §3.2）：一般作業、站內同意書、上傳簽名檔的同意書。
+ * `formType`：有且只有檔案欄＝`file`、沒有檔案欄＝`form`、兩種都有＝`mixed`（站內同意書沒有欄位，是 `form`）。
+ */
+export type MyItemKind = 'assignment' | 'consent_form' | 'consent_upload'
+export type MyItemFormType = 'file' | 'form' | 'mixed'
+
 export type MyItemRow = {
   readonly itemId: string
   readonly title: string
+  /** `myItems` 一定帶；選填只是讓既有的畫面測試假資料不用跟著補（沒帶當一般作業）。 */
+  readonly kind?: MyItemKind
+  readonly formType?: MyItemFormType
   readonly stageName: string | null
   /** 收件所屬的屆別；跟 `stageSeq` 一起是階段的身分（屆別內階段序號唯一，名稱可以重複）。 */
   readonly cohortId: string
@@ -275,7 +289,8 @@ export interface SubmissionQuery {
 /** 一次個別補交（只插不改的一列）。 */
 export type ReopenEntry = {
   readonly dueAt: Date
-  readonly reason: string
+  /** 沒填理由是 null（C 階段 X2）。 */
+  readonly reason: string | null
   readonly createdAt: Date
   readonly createdByName: string
 }

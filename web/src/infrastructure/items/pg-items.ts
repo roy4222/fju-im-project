@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg'
 import type { ResolvedActor } from '@/application/accounts'
 import type { BusinessClockSource } from '@/application/cohorts'
 import {
+  CATEGORY_MAX_LENGTH,
   collectsResponses,
   describeDeadline,
   describeFailedChecks,
@@ -13,16 +14,24 @@ import {
   deleteCheck,
   editableInArchivedCohort,
   HONOR_PLACEMENT,
+  isConsentForm,
   isUuid,
   LIFECYCLE_LABEL,
   LIFECYCLE_NEXT_STATUS,
   lifecycleCheck,
+  noopConsentPublishHook,
   normalizeItemInput,
   pinDenial,
   publishChecks,
   sanitizeBody,
   snapshotDueAt,
+  storedPlacementOf,
   type AudienceKind,
+  type ConsentItem,
+  type ConsentMode,
+  type ConsentPublished,
+  type ConsentPublishHook,
+  type ConsentPurpose,
   type DeleteReceipt,
   type EditablePlacement,
   type EditorOptions,
@@ -43,8 +52,10 @@ import {
   type ReceiverUnit,
   type RecipientPreview,
   type RecipientQueryInput,
+  type RenameCategoryReceipt,
   type ResponsePresence,
   type RuleOrderReceipt,
+  type RulesReorderReceipt,
   type SaveReceipt,
   type StartItemUploadInput,
   type UpdateChange,
@@ -61,7 +72,7 @@ import {
 } from '@/application/ops'
 import { authorizeAdmin, badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
-import { audienceUserIds, expandRecipients, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
+import { audienceUserIds, expandRecipients as expandAudience, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -99,6 +110,8 @@ type ItemRow = {
   audience_kind: AudienceKind
   receiver_unit: ReceiverUnit
   stage_id: string | null
+  consent_mode: ConsentMode | null
+  consent_purpose: ConsentPurpose | null
   status: ItemStatus
   opens_at: Date | null
   actual_opened_at: Date | null
@@ -129,6 +142,8 @@ type Deps = {
   files: FileStorage<PoolClient>
   responses: ResponsePresence<PoolClient>
   businessClock: BusinessClockSource
+  /** 站內同意書發布、改內容、移出對象時建包／建新版／作廢（C1-03 接上；預設什麼都不做）。 */
+  consent?: ConsentPublishHook<PoolClient>
   pool?: PoolSource
   realClock?: Clock
 }
@@ -244,6 +259,61 @@ function fileSet(attachments: readonly string[], cover: string | null): string[]
   return [...new Set(cover ? [...attachments, cover] : attachments)]
 }
 
+/** 有老師角色、帳號正常的人（給老師的作業的收件名單；老師不分屆，「該屆啟用中老師」就是全部啟用中的老師）。 */
+const ACTIVE_TEACHER = `
+  u.status = 'active' and u.deidentified_at is null
+  and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)`
+
+/**
+ * 依對象展開收件者（`recipients.ts` 的 `expandRecipients`），多一種：給老師的作業（C 階段規格① T3）。
+ * 對象「全部老師」＋個人一份 → 名單是啟用中、有老師角色的帳號，每人一列（預覽與建名單同一段）。
+ */
+async function expandRecipients(
+  db: Pick<Pool, 'query'> | PoolClient,
+  input: RecipientQueryInput,
+): Promise<ExpandedRecipients> {
+  if (input.audienceKind !== 'teachers' || input.receiverUnit !== 'individual') return expandAudience(db, input)
+  const rows = await db.query<{ user_id: string; name: string }>(
+    `select u.id as user_id, coalesce(p.display_name, u.name) as name
+       from users u left join user_profiles p on p.user_id = u.id
+      where ${ACTIVE_TEACHER}
+      order by name, u.id`,
+  )
+  const people = rows.rows.map((r) => ({ userId: r.user_id, name: r.name, studentNo: null, groupCode: null }))
+  return { receiverUnit: 'individual', people, groups: [], notifyUserIds: [...new Set(people.map((p) => p.userId))].sort() }
+}
+
+/**
+ * 站內同意書發布前要查資料庫的兩件事（`publishChecks` 的 `consentFacts`）：對象組裡有主指導的組數、
+ * 最終文件授權時還沒有成果展示草稿的組代號。對象組＝本屆全部已成立組（本屆學生）或指定組別。
+ */
+async function consentFactsOf(
+  db: Pick<Pool, 'query'> | PoolClient,
+  input: { cohortId: string; audienceKind: AudienceKind; groupIds: readonly string[]; purpose: ConsentPurpose | null },
+): Promise<{ advisedGroupCount: number; groupsWithoutShowcaseDraft: string[] }> {
+  const scoped = input.audienceKind === 'groups' ? input.groupIds : null
+  const rows = await db.query<{ code: string; advised: boolean; has_draft: boolean }>(
+    `select g.code,
+            exists (select 1 from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as advised,
+            exists (select 1 from showcase_entries e join showcase_drafts d on d.entry_id = e.id
+                     where e.group_id = g.id and e.cohort_id = g.cohort_id and e.deleted_at is null) as has_draft
+       from groups g
+      where g.cohort_id = $1 and g.status = 'active' and ($2::uuid[] is null or g.id = any($2::uuid[]))
+      order by g.code`,
+    [input.cohortId, scoped],
+  )
+  return {
+    advisedGroupCount: rows.rows.filter((r) => r.advised).length,
+    groupsWithoutShowcaseDraft: input.purpose === 'final_document' ? rows.rows.filter((r) => !r.has_draft).map((r) => r.code) : [],
+  }
+}
+
+/** 資源分類名的整理（同表單的分類欄：控制字元換空白、去頭尾空白、40 字以內）。 */
+function cleanCategory(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return [...value].map((ch) => (ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f ? ' ' : ch)).join('').trim()
+}
+
 export class PgItemCommand implements ItemCommand {
   readonly #audit: AuditWriter<PoolClient>
   readonly #ledger: OperationLedger<PoolClient>
@@ -252,6 +322,7 @@ export class PgItemCommand implements ItemCommand {
   readonly #files: FileStorage<PoolClient>
   readonly #responses: ResponsePresence<PoolClient>
   readonly #businessClock: BusinessClockSource
+  readonly #consent: ConsentPublishHook<PoolClient>
   readonly #pool: PoolSource
   readonly #realClock: Clock
 
@@ -263,6 +334,7 @@ export class PgItemCommand implements ItemCommand {
     this.#files = deps.files
     this.#responses = deps.responses
     this.#businessClock = deps.businessClock
+    this.#consent = deps.consent ?? (noopConsentPublishHook as ConsentPublishHook<PoolClient>)
     this.#pool = deps.pool ?? getPool
     this.#realClock = deps.realClock ?? new RealClock()
   }
@@ -310,9 +382,9 @@ export class PgItemCommand implements ItemCommand {
            (id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, due_at,
             title, summary, body_html, cover_file_id, category, draft_schema,
             created_at, created_by_kind, created_by_user_id, updated_at, updated_by_user_id,
-            registration_deadline, event_date, awarded_on)
+            registration_deadline, event_date, awarded_on, consent_mode, consent_purpose)
          values ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11, $12, $13, $14::jsonb,
-                 $15, 'user', $16, $15, $16, $17, $18, $19)`,
+                 $15, 'user', $16, $15, $16, $17, $18, $19, $20, $21)`,
         [
           itemId,
           draft.cohortId,
@@ -333,6 +405,8 @@ export class PgItemCommand implements ItemCommand {
           draft.registrationDeadline,
           draft.eventDate,
           draft.awardedOn,
+          draft.consentMode,
+          draft.consentPurpose,
         ],
       )
       // 新規則排到同屆最後（位置 NULL → 重編成 n）。
@@ -352,7 +426,12 @@ export class PgItemCommand implements ItemCommand {
         cohortId: draft.cohortId,
         realAt,
         businessAt,
-        payload: { placement: draft.placement, title: draft.title, receiverUnit: draft.receiverUnit },
+        payload: {
+          placement: draft.placement,
+          title: draft.title,
+          receiverUnit: draft.receiverUnit,
+          ...(draft.consentMode ? { consentMode: draft.consentMode, consentPurpose: draft.consentPurpose } : {}),
+        },
       })
       const receipt = { itemId, revision: 1, status: 'draft' as const, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
@@ -417,7 +496,8 @@ export class PgItemCommand implements ItemCommand {
       if (refs) return refs
       const files = await this.#syncFiles(tx, itemId, userId, { attachments: locked.attachmentIds, cover: item.cover_file_id }, draft)
       if (files) return files
-      await this.#writeHead(tx, itemId, draft, userId, realAt)
+      // 「專題需求」以作業載入表單，存回去保留原本的位置（`storedPlacementOf`）。
+      await this.#writeHead(tx, itemId, { ...draft, placement: storedPlacementOf(item.placement, draft.placement) }, userId, realAt)
       // 換進規則 → 排到最後；換出規則 → 位置已清掉，其餘的補成連號（只動 `lockRuleSet` 已鎖的列）。
       if (setChanges) await renumberRules(tx, item.cohort_id)
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
@@ -489,7 +569,11 @@ export class PgItemCommand implements ItemCommand {
       // 發布前檢查：畫面顯示的同一份清單，任何一條沒過就不寫任何東西（PUB-13）。
       // 開放時間：有設就用設定的；沒設＝發布即開放（這一刻）。撤回後再發布（票 16）用第一次的實際開放時間。
       const openAt = item.actual_opened_at ?? businessAt
-      const failed = failedChecks(publishChecks(this.#stateOf(item, groupIds), openAt))
+      const consentForm = isConsentForm({ placement: item.placement, consentMode: item.consent_mode })
+      const consentFacts = consentForm
+        ? await consentFactsOf(tx, { cohortId: item.cohort_id, audienceKind: item.audience_kind, groupIds, purpose: item.consent_purpose })
+        : undefined
+      const failed = failedChecks(publishChecks({ ...this.#stateOf(item, groupIds), consentFacts }, openAt))
       if (failed.length > 0) {
         return err('VALIDATION_FAILED', describeFailedChecks(failed), { details: { checks: failed.map((c) => c.key) } })
       }
@@ -502,8 +586,9 @@ export class PgItemCommand implements ItemCommand {
       if (refs) return refs
 
       const collects = item.receiver_unit !== 'none'
-      // 榮譽榜不發通知（第三波 W1：公開的得獎消息，不逐人通知全站）。
-      const notify = collects || (options.notify && item.placement !== HONOR_PLACEMENT)
+      // 榮譽榜不發通知（第三波 W1：公開的得獎消息，不逐人通知全站）。站內同意書不發「新作業」：
+      // 同一批人會收到簽核包的「輪到你同意」，不要再多一則（C 階段規格① §1.2）。
+      const notify = consentForm ? false : collects || (options.notify && item.placement !== HONOR_PLACEMENT)
       const contentVersionNo = await this.#insertContentVersion(tx, item, userId, realAt)
       const schemaVersionNo = await this.#insertSchemaVersion(tx, item, userId, realAt)
       await tx.query(
@@ -526,6 +611,19 @@ export class PgItemCommand implements ItemCommand {
       })
       const rosterCount = collects ? await this.#insertRoster(tx, item, receiverKeys(expanded), userId, businessAt, realAt) : 0
       await reachFaultPoint('item.publish.after-roster')
+
+      // 站內同意書：同一筆交易裡每個對象組建包＋第 1 版（hook 回錯就整筆回滾，作業仍是草稿）。
+      let consent: ConsentPublished | null = null
+      if (consentForm) {
+        const built = await this.#consent.onPublished(
+          tx,
+          await this.#consentItem(tx, item, expanded.groups.map((g) => g.groupId)),
+          userId,
+          requestId,
+        )
+        if (!built.ok) return built
+        consent = { created: built.receipt.created, skipped: built.receipt.skipped }
+      }
 
       if (item.due_at) {
         await this.#dueWork.schedule(tx, {
@@ -575,6 +673,7 @@ export class PgItemCommand implements ItemCommand {
           schemaVersionNo,
           actualOpenedAt: actualOpenedAt.toISOString(),
           notify,
+          ...(consent ? { consent: { created: consent.created, skipped: consent.skipped.length } } : {}),
         },
       })
 
@@ -590,6 +689,7 @@ export class PgItemCommand implements ItemCommand {
         schemaVersionNo,
         rosterCount,
         notifiedCount: recipients.length,
+        consent,
         requestId,
         serverTime: realAt.toISOString(),
       }
@@ -644,8 +744,12 @@ export class PgItemCommand implements ItemCommand {
       if (item.status === 'draft') return err('VALIDATION_FAILED', '這個項目還是草稿；請按「存草稿」或「發布」。')
       if (item.status !== 'published') return err('VALIDATION_FAILED', '已下架的項目要先重新發布才能修改。')
       if (draft.cohortId !== item.cohort_id) return err('VALIDATION_FAILED', '項目建立後不能換屆別；請另建一筆。')
-      if (draft.placement !== item.placement) {
+      if (storedPlacementOf(item.placement, draft.placement) !== item.placement) {
         return err('VALIDATION_FAILED', '已發布的項目不能換顯示的區塊；要換區塊請另建一筆。')
+      }
+      // 同意書的模式與用途發布後鎖定（簽核包的用途與凍結範圍是照它建的，C 階段規格① §1.1）。
+      if (draft.consentMode !== item.consent_mode || draft.consentPurpose !== item.consent_purpose) {
+        return err('VALIDATION_FAILED', '發布後不能改同意書的形式或用途；要換請另建一份同意書。', { details: { field: 'consentMode' } })
       }
       if (!sameTime(draft.opensAt, item.opens_at)) {
         return err('VALIDATION_FAILED', '已發布的作業不能改開放時間（實際開放時間已經記下）。')
@@ -695,7 +799,7 @@ export class PgItemCommand implements ItemCommand {
       if (files) return files
 
       const deadlineVersion = deadlineChanged ? item.deadline_version + 1 : item.deadline_version
-      await this.#writeHead(tx, itemId, draft, userId, realAt, deadlineVersion)
+      await this.#writeHead(tx, itemId, { ...draft, placement: item.placement as EditablePlacement }, userId, realAt, deadlineVersion)
       if (audienceChanged) await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
 
       const changes: UpdateChange[] = []
@@ -741,7 +845,7 @@ export class PgItemCommand implements ItemCommand {
 
       // 對象或收件單位變了：名單重算。已不在新對象裡的收件者寫結束時間與理由（不刪列），新進的插新列。
       let rosterAdded: RosterKey[] = []
-      let rosterRemoved = 0
+      let rosterRemoved: RosterKey[] = []
       if (settingsChanged) {
         changes.push('settings')
         await this.#insertPublication(tx, itemId, 'settings_change', {}, null, notify, userId, realAt, businessAt)
@@ -756,6 +860,30 @@ export class PgItemCommand implements ItemCommand {
         const result = await this.#rebuildRoster(tx, next, receiverKeys(expanded), userId, businessAt, realAt)
         rosterAdded = result.added
         rosterRemoved = result.removed
+      }
+
+      // 站內同意書：移出對象的組作廢目前版本；正文或附件有變，進行中的包建新版（只改標題、對象、截止不建新版）。
+      const consentForm = isConsentForm({ placement: item.placement, consentMode: item.consent_mode })
+      if (consentForm) {
+        const dropped = rosterRemoved.filter((k) => k.kind === 'group').map((k) => k.id)
+        if (dropped.length > 0) {
+          const voided = await this.#consent.onGroupsRemoved(tx, itemId, dropped, userId, requestId)
+          if (!voided.ok) return voided
+        }
+      }
+      if (consentForm && (draft.body !== item.body_html || !sameIds(draft.attachmentFileIds, locked.attachmentIds))) {
+        const groups = await tx.query<{ receiver_id: string }>(
+          `select receiver_id from response_rosters
+            where item_id = $1 and receiver_kind = 'group' and eligible_to_business_at is null order by receiver_id`,
+          [itemId],
+        )
+        const changed = await this.#consent.onContentChanged(
+          tx,
+          await this.#consentItem(tx, next, groups.rows.map((r) => r.receiver_id), draft.attachmentFileIds),
+          userId,
+          requestId,
+        )
+        if (!changed.ok) return changed
       }
 
       if (deadlineChanged) {
@@ -779,7 +907,8 @@ export class PgItemCommand implements ItemCommand {
       }
 
       // 通知：新加入收件名單的人一定收「新收件」；其他人看管理員有沒有選通知（小幅修改由管理員選）。
-      const addedUserIds = await this.#userIdsOf(tx, rosterAdded)
+      // 站內同意書不發「新作業」（新進的組由系辦在繳交狀況頁按「建立」，建包時才通知）。
+      const addedUserIds = consentForm ? [] : await this.#userIdsOf(tx, rosterAdded)
       let notifiedCount = 0
       if (addedUserIds.length > 0) {
         await this.#events.publish(tx, {
@@ -839,7 +968,7 @@ export class PgItemCommand implements ItemCommand {
           schemaVersionNo,
           deadlineVersion,
           rosterAdded: rosterAdded.length,
-          rosterRemoved,
+          rosterRemoved: rosterRemoved.length,
         },
       })
 
@@ -852,7 +981,7 @@ export class PgItemCommand implements ItemCommand {
         schemaVersionNo,
         dueAt: next.due_at?.toISOString() ?? null,
         rosterAdded: rosterAdded.length,
-        rosterRemoved,
+        rosterRemoved: rosterRemoved.length,
         notify,
         notifiedCount,
         requestId,
@@ -911,10 +1040,18 @@ export class PgItemCommand implements ItemCommand {
         groupIds: draft.groupIds,
         receiverUnit: draft.receiverUnit,
       })
+      const consentFacts = isConsentForm(draft)
+        ? await consentFactsOf(client, {
+            cohortId: draft.cohortId,
+            audienceKind: draft.audienceKind,
+            groupIds: draft.groupIds,
+            purpose: draft.consentPurpose,
+          })
+        : undefined
       const realAt = this.#realClock.now()
       return ok(
         {
-          checks: publishChecks(draft, openAt),
+          checks: publishChecks({ ...draft, consentFacts }, openAt),
           recipients: {
             receiverUnit: expanded.receiverUnit,
             people: expanded.people,
@@ -996,6 +1133,10 @@ export class PgItemCommand implements ItemCommand {
       const hasResponses = action === 'withdraw' ? await this.#responses.hasAnyResponse(tx, itemId) : false
       const allowed = lifecycleCheck(action, item.status, hasResponses)
       if (!allowed.ok) return err(allowed.code, allowed.message)
+      // 站內同意書發布時已經建了簽核包（一組一份作業一包）：撤回成草稿再發布會重建一次，所以不給撤回，改用下架。
+      if (action === 'withdraw' && isConsentForm({ placement: item.placement, consentMode: item.consent_mode })) {
+        return err('VALIDATION_FAILED', '站內同意書發布後已經建好每組的同意書，不能撤回成草稿；不要再收請改用下架。')
+      }
 
       if (action === 'republish') {
         // 重新發布＝回到發布中，所以發布前檢查照樣要過（開放時間用第一次的實際開放時間）；
@@ -1394,6 +1535,158 @@ export class PgItemCommand implements ItemCommand {
     })
   }
 
+  /**
+   * 規則章節整批排序（C 階段規格① §3.1，拖曳後一次送整串）。鎖序同 `moveRule`（規則鎖 → 屆別共享 → 整屆規則列）：
+   * 規則鎖下集合不會被別人換掉，所以「送來的編號＝這一屆全部未刪除規則」在鎖內比對一次就準。照順序寫 1..n，
+   * 只更新位置有變的列。展示動作：不動 `revision`、`updated_at`，不切版本、不發事件；稽核沿用 `item.rule_moved`（payload 帶整串順序）。
+   */
+  async reorderRules(
+    actor: ResolvedActor,
+    cohortId: string,
+    orderedIds: readonly string[],
+    requestId: string,
+  ): Promise<Result<RulesReorderReceipt>> {
+    const denied = authorizeAdmin(actor, '調整規則章節順序')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+    if (!Array.isArray(orderedIds) || orderedIds.some((id) => !isUuid(id))) {
+      return err('VALIDATION_FAILED', '章節順序的資料不對，請重新整理頁面。')
+    }
+    const ids = orderedIds.map((id) => id.toLowerCase())
+    if (new Set(ids).size !== ids.length) return err('VALIDATION_FAILED', '章節順序裡有重複的章節，請重新整理頁面。')
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const exists = await tx.query('select 1 from cohorts where id = $1', [cohortId])
+      if (exists.rowCount === 0) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+      await lockRuleSet(tx, cohortId, null)
+      const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
+
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'item.rules_reordered',
+          requestId,
+          fingerprint: sha256(canonicalJson({ cohortId, orderedIds: ids })),
+          scope: 'cohort',
+          cohortId,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<RulesReorderReceipt>(begun)
+      if (archivedBlocks(cohort.rows[0]!.status, 'rules')) return cohortArchived()
+
+      await renumberRules(tx, cohortId)
+      const siblings = await tx.query<{ id: string }>(
+        `select id from managed_items where cohort_id = $1 and placement = 'rules' and deleted_at is null order by rules_position`,
+        [cohortId],
+      )
+      const before = siblings.rows.map((r) => r.id)
+      if (before.length !== ids.length || !sameSet(before, ids)) {
+        return err('VALIDATION_FAILED', '章節清單剛剛有變動（有人新增、刪除或移走了章節），請重新整理頁面再排一次。')
+      }
+      const receipt = { cohortId, count: ids.length, requestId, serverTime: realAt.toISOString() }
+      if (!sameIds(before, ids)) {
+        await tx.query(
+          `update managed_items m set rules_position = v.pos
+             from unnest($1::uuid[]) with ordinality as v(id, pos)
+            where m.id = v.id and m.rules_position is distinct from v.pos`,
+          [ids],
+        )
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: userId,
+          role: 'admin',
+          action: 'item.rule_moved',
+          targetType: 'cohort',
+          targetId: cohortId,
+          scope: 'cohort',
+          cohortId,
+          realAt,
+          businessAt,
+          payload: { kind: 'reorder', before, after: ids },
+        })
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  /**
+   * 資源分類改名（C 階段規格① §11.3 `resource_category`）：所有屆別、`placement='resource'`、未刪除、`category=from` 的列
+   * 一次改成 `to`，`revision+1`（開著的編輯器存檔會拿到「剛剛有人改過」）。一筆交易：先用 advisory lock 讓改名彼此排隊，
+   * 再依 id 鎖住要改的列，鎖內查新名有沒有撞到別的資源分類。不切內容版本、不寫發布紀錄、不發事件（比照置頂）。
+   */
+  async renameResourceCategory(
+    actor: ResolvedActor,
+    input: { readonly from: string; readonly to: string; readonly requestId: string },
+  ): Promise<Result<RenameCategoryReceipt>> {
+    const denied = authorizeAdmin(actor, '修改資源分類')
+    if (denied || actor.kind !== 'authenticated') return denied ?? err('UNAUTHENTICATED', '請先登入。')
+    const requestId = input?.requestId
+    if (!isUuid(requestId)) return badRequestId()
+    const from = cleanCategory(input.from)
+    const to = cleanCategory(input.to)
+    if (from === '') return err('VALIDATION_FAILED', '找不到這個分類，請重新整理頁面。')
+    if (to === '') return err('VALIDATION_FAILED', '請填新的分類名稱。', { details: { field: 'to' } })
+    if (to.length > CATEGORY_MAX_LENGTH) return err('VALIDATION_FAILED', `分類最多 ${CATEGORY_MAX_LENGTH} 字。`, { details: { field: 'to' } })
+    if (to === from) return err('VALIDATION_FAILED', '新名稱跟原本的一樣。', { details: { field: 'to' } })
+    const userId = actor.userId
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      await tx.query(`select pg_advisory_xact_lock(hashtextextended('items.resource_category', 0))`)
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'item.category_renamed',
+          requestId,
+          fingerprint: sha256(canonicalJson({ from, to })),
+          scope: 'global',
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<RenameCategoryReceipt>(begun)
+
+      const clash = await tx.query(
+        `select 1 from managed_items where placement = 'resource' and deleted_at is null and category = $1 limit 1`,
+        [to],
+      )
+      if ((clash.rowCount ?? 0) > 0) return err('VALIDATION_FAILED', '已有這個分類，請換一個名稱。', { details: { field: 'to' } })
+      const rows = await tx.query<{ id: string }>(
+        `select id from managed_items where placement = 'resource' and deleted_at is null and category = $1 order by id for update`,
+        [from],
+      )
+      if (rows.rows.length === 0) return err('VALIDATION_FAILED', '找不到這個分類（可能剛被改名或已經沒有資源），請重新整理頁面。')
+      const ids = rows.rows.map((r) => r.id)
+      await tx.query(
+        `update managed_items set category = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4
+          where id = any($1::uuid[])`,
+        [ids, to, realAt, userId],
+      )
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: userId,
+        role: 'admin',
+        action: 'item.category_renamed',
+        targetType: SUBJECT_TYPE,
+        scope: 'global',
+        realAt,
+        businessAt,
+        payload: { from, to, count: ids.length },
+      })
+      const receipt = { from, to, count: ids.length, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { from, to, itemIds: ids } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   // ── 內部 ────────────────────────────────────────────────────────────────────
 
   #normalize(input: ItemInput): { ok: true; value: ItemDraft } | Err {
@@ -1412,10 +1705,29 @@ export class PgItemCommand implements ItemCommand {
       audienceKind: item.audience_kind,
       groupIds,
       receiverUnit: item.receiver_unit,
-      stageId: item.stage_id,
+      consentMode: item.consent_mode,
+      consentPurpose: item.consent_purpose,
       opensAt: item.opens_at,
       dueAt: item.due_at,
       fields: item.draft_schema.fields ?? [],
+    }
+  }
+
+  /** 交給同意書 hook 的作業內容：清理後的正文、目前附件（依畫面順序）、用途。 */
+  async #consentItem(tx: PoolClient, item: ItemRow, groupIds: readonly string[], attachmentFileIds?: readonly string[]): Promise<ConsentItem> {
+    const files =
+      attachmentFileIds ??
+      (await tx.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1 order by sort, file_id', [item.id])).rows.map(
+        (r) => r.file_id,
+      )
+    return {
+      id: item.id,
+      cohortId: item.cohort_id,
+      groupIds,
+      bodyHtml: item.body_html,
+      attachmentFileIds: files,
+      purpose: item.consent_purpose ?? 'result_confirmation',
+      dueAt: item.due_at,
     }
   }
 
@@ -1441,8 +1753,8 @@ export class PgItemCommand implements ItemCommand {
     if (!cohortId) return null
     const cohort = await tx.query<{ status: string }>('select status from cohorts where id = $1 for share', [cohortId])
     const found = await tx.query<ItemRow & { deleted: boolean }>(
-      `select id, cohort_id, placement, audience_kind, receiver_unit, stage_id, status, opens_at, actual_opened_at, due_at,
-              deadline_version, current_content_version_id, current_schema_version_id, title, summary, body_html,
+      `select id, cohort_id, placement, audience_kind, receiver_unit, stage_id, consent_mode, consent_purpose,
+              status, opens_at, actual_opened_at, due_at, deadline_version, current_content_version_id, current_schema_version_id, title, summary, body_html,
               cover_file_id, category, to_char(registration_deadline, 'YYYY-MM-DD') as registration_deadline,
               to_char(event_date, 'YYYY-MM-DD') as event_date, to_char(awarded_on, 'YYYY-MM-DD') as awarded_on,
               pinned_at, draft_schema, revision, deleted_at is not null as deleted
@@ -1490,13 +1802,21 @@ export class PgItemCommand implements ItemCommand {
     return null
   }
 
-  async #writeHead(tx: PoolClient, itemId: string, draft: ItemDraft, userId: string, realAt: Date, deadlineVersion?: number) {
+  async #writeHead(
+    tx: PoolClient,
+    itemId: string,
+    draft: Omit<ItemDraft, 'placement'> & { placement: Placement },
+    userId: string,
+    realAt: Date,
+    deadlineVersion?: number,
+  ) {
     await tx.query(
       `update managed_items
           set placement = $2, audience_kind = $3, receiver_unit = $4, stage_id = $5, opens_at = $6, due_at = $7,
               title = $8, summary = $9, body_html = $10, cover_file_id = $11, category = $12, draft_schema = $13::jsonb,
               deadline_version = coalesce($14, deadline_version),
               registration_deadline = $17, event_date = $18, awarded_on = $19,
+              consent_mode = $20, consent_purpose = $21,
               rules_position = case when $2 = 'rules' then rules_position end,
               revision = revision + 1, updated_at = $15, updated_by_user_id = $16
         where id = $1`,
@@ -1520,6 +1840,8 @@ export class PgItemCommand implements ItemCommand {
         draft.registrationDeadline,
         draft.eventDate,
         draft.awardedOn,
+        draft.consentMode,
+        draft.consentPurpose,
       ],
     )
   }
@@ -1670,7 +1992,7 @@ export class PgItemCommand implements ItemCommand {
     userId: string,
     businessAt: Date,
     realAt: Date,
-  ): Promise<{ added: RosterKey[]; removed: number }> {
+  ): Promise<{ added: RosterKey[]; removed: RosterKey[] }> {
     const current = await tx.query<{ receiver_kind: 'user' | 'group'; receiver_id: string }>(
       `select receiver_kind, receiver_id from response_rosters
         where item_id = $1 and eligible_to_business_at is null for update`,
@@ -1692,7 +2014,7 @@ export class PgItemCommand implements ItemCommand {
       )
     }
     await this.#insertRoster(tx, item, added, userId, businessAt, realAt)
-    return { added, removed: removed.length }
+    return { added, removed }
   }
 
   async #userIdsOf(tx: PoolClient, keys: readonly RosterKey[]): Promise<string[]> {
@@ -1728,6 +2050,7 @@ type ListRow = {
   audience_kind: AudienceKind
   group_codes: string[] | null
   receiver_unit: ReceiverUnit
+  consent_mode: ConsentMode | null
   due_at: Date | null
   actual_opened_at: Date | null
   pinned_at: Date | null
@@ -1752,7 +2075,7 @@ export class PgItemQuery implements ItemQuery {
   async list(cohortId: string): Promise<ItemListRow[]> {
     if (!isUuid(cohortId)) return []
     const rows = await this.#reader().query<ListRow>(
-      `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.due_at, m.actual_opened_at,
+      `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.consent_mode, m.due_at, m.actual_opened_at,
               m.pinned_at, m.rules_position, m.updated_at,
               (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
                 where a.item_id = m.id) as group_codes,
@@ -1771,6 +2094,7 @@ export class PgItemQuery implements ItemQuery {
       audienceKind: r.audience_kind,
       audienceGroupCodes: r.group_codes ?? [],
       receiverUnit: r.receiver_unit,
+      consentMode: r.consent_mode,
       dueAt: r.due_at,
       actualOpenedAt: r.actual_opened_at,
       pinnedAt: r.pinned_at,
@@ -1848,6 +2172,8 @@ export class PgItemQuery implements ItemQuery {
       groupIds: groups.rows.map((g) => g.group_id),
       receiverUnit: item.receiver_unit,
       stageId: item.stage_id,
+      consentMode: item.consent_mode,
+      consentPurpose: item.consent_purpose,
       opensAt: item.opens_at,
       actualOpenedAt: item.actual_opened_at,
       dueAt: item.due_at,

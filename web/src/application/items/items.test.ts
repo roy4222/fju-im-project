@@ -7,6 +7,7 @@ import {
   describeFailedChecks,
   EMPTY_COLLECTION_MESSAGE,
   failedChecks,
+  formPlacementOf,
   normalizeItemInput,
   normalizeSchema,
   pinDenial,
@@ -14,6 +15,7 @@ import {
   renderBodyHtml,
   sanitizeBody,
   snapshotDueAt,
+  storedPlacementOf,
   type ItemInput,
   type PublishState,
   type Viewer,
@@ -45,13 +47,21 @@ const input = (patch: Partial<ItemInput> = {}): ItemInput => ({
 })
 
 describe('normalizeItemInput：位置、對象、收件單位', () => {
-  it('收件只能發給本屆學生或指定組別', () => {
-    for (const audienceKind of ['public', 'signed_in', 'teachers']) {
+  it('收件只能發給本屆學生、指定組別或全部老師（C 階段 T3 加老師）', () => {
+    for (const audienceKind of ['public', 'signed_in']) {
       const result = normalizeItemInput(input({ audienceKind }))
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.message).toContain('本屆學生')
     }
     expect(normalizeItemInput(input({ audienceKind: 'groups', groupIds: [G1] })).ok).toBe(true)
+  })
+
+  it('給老師的作業一律個人一份（AC-7）', () => {
+    const teachers = normalizeItemInput(input({ audienceKind: 'teachers', receiverUnit: 'individual' }))
+    expect(teachers.ok && teachers.value.audienceKind).toBe('teachers')
+    const group = normalizeItemInput(input({ audienceKind: 'teachers', receiverUnit: 'group' }))
+    expect(group.ok).toBe(false)
+    if (!group.ok) expect(group).toMatchObject({ field: 'receiverUnit', message: '給老師的作業一律個人一份。' })
   })
 
   it('文件繳交一定要選收件單位；公告與資源一律不收件', () => {
@@ -191,7 +201,6 @@ describe('publishChecks：發布前檢查（PUB-13、PUB-14）', () => {
     audienceKind: 'cohort_students',
     groupIds: [],
     receiverUnit: 'group',
-    stageId: STAGE,
     opensAt: null,
     dueAt: new Date('2026-11-15T15:59:00Z'),
     fields: [{ key: 'report', type: 'file', label: '報告', required: true }],
@@ -224,12 +233,41 @@ describe('publishChecks：發布前檢查（PUB-13、PUB-14）', () => {
     expect(keysFailed({ fields: [{ key: 'f', type: 'file', label: '檔案', required: true }] })).toEqual([])
   })
 
-  it('收件缺階段、缺截止 → 擋', () => {
-    expect(keysFailed({ stageId: null, dueAt: null })).toEqual(['stage', 'due'])
+  it('收件缺截止 → 擋；不再要求所屬階段（C 階段 A3）', () => {
+    expect(keysFailed({ dueAt: null })).toEqual(['due'])
+    expect(publishChecks(state(), now).map((c) => c.key)).not.toContain('stage')
   })
 
-  it('公告不檢查截止、階段、欄位', () => {
-    expect(keysFailed({ placement: 'news', receiverUnit: 'none', stageId: null, dueAt: null, fields: [] })).toEqual([])
+  it('公告不檢查截止、欄位', () => {
+    expect(keysFailed({ placement: 'news', receiverUnit: 'none', dueAt: null, fields: [] })).toEqual([])
+  })
+
+  it('站內同意書：不要求截止與繳交欄位，要用途；有查到對象組事實時，沒有任何主指導就擋', () => {
+    const form = { consentMode: 'form' as const, consentPurpose: 'result_confirmation' as const, dueAt: null, fields: [] }
+    expect(keysFailed(form)).toEqual([])
+    expect(keysFailed({ ...form, consentPurpose: null })).toEqual(['consent_purpose'])
+    expect(keysFailed({ ...form, consentFacts: { advisedGroupCount: 0, groupsWithoutShowcaseDraft: [] } })).toEqual(['consent_advisor'])
+    expect(keysFailed({ ...form, consentFacts: { advisedGroupCount: 6, groupsWithoutShowcaseDraft: ['G01'] } })).toEqual([])
+  })
+
+  it('站內同意書最終文件授權：有組沒有成果展示草稿就擋，列出組別（AC-21b）', () => {
+    const failed = failedChecks(
+      publishChecks(
+        state({
+          consentMode: 'form',
+          consentPurpose: 'final_document',
+          fields: [],
+          consentFacts: { advisedGroupCount: 6, groupsWithoutShowcaseDraft: ['G01', 'G04'] },
+        }),
+        now,
+      ),
+    )
+    expect(failed.map((c) => c.key)).toEqual(['consent_drafts'])
+    expect(describeFailedChecks(failed)).toContain('這些組還沒有成果展示草稿：G01、G04')
+  })
+
+  it('上傳簽名檔的同意書就是一般作業：照樣要截止與檔案欄', () => {
+    expect(keysFailed({ consentMode: 'upload', receiverUnit: 'individual', dueAt: null, fields: [] })).toEqual(['due', 'fields'])
   })
 })
 
@@ -421,5 +459,43 @@ describe('pinDenial（第 1 批 V1：公告置頂）', () => {
     }
     // 位置不對先講位置（草稿的榮譽也是「只有公告」）。
     expect(pinDenial({ placement: 'honor', status: 'draft' })).toBe('只有公告可以置頂。')
+  })
+})
+
+describe('normalizeItemInput：同意書模式與用途（C 階段規格① §1.1、AC-21a）', () => {
+  it('站內同意表單：整組一份、一定要選用途；用途照存', () => {
+    const form = normalizeItemInput(input({ consentMode: 'form', consentPurpose: 'final_document', fields: [] }))
+    expect(form.ok && { mode: form.value.consentMode, purpose: form.value.consentPurpose }).toEqual({ mode: 'form', purpose: 'final_document' })
+    const noPurpose = normalizeItemInput(input({ consentMode: 'form', consentPurpose: '' }))
+    expect(noPurpose.ok).toBe(false)
+    if (!noPurpose.ok) expect(noPurpose.field).toBe('consentPurpose')
+    const individual = normalizeItemInput(input({ consentMode: 'form', consentPurpose: 'result_confirmation', receiverUnit: 'individual' }))
+    expect(individual.ok).toBe(false)
+    if (!individual.ok) expect(individual.field).toBe('receiverUnit')
+  })
+
+  it('上傳簽名檔：個人一份；用途一律清掉', () => {
+    const upload = normalizeItemInput(input({ consentMode: 'upload', consentPurpose: 'final_document', receiverUnit: 'individual' }))
+    expect(upload.ok && { mode: upload.value.consentMode, purpose: upload.value.consentPurpose }).toEqual({ mode: 'upload', purpose: null })
+    expect(normalizeItemInput(input({ consentMode: 'upload', receiverUnit: 'group' })).ok).toBe(false)
+  })
+
+  it('不給、給空字串＝不是同意書；公告不能設；不認得的模式擋下', () => {
+    const plain = normalizeItemInput(input())
+    expect(plain.ok && [plain.value.consentMode, plain.value.consentPurpose]).toEqual([null, null])
+    const news = normalizeItemInput(input({ placement: 'news', audienceKind: 'public', consentMode: 'form', consentPurpose: 'final_document' }))
+    expect(news.ok && [news.value.consentMode, news.value.consentPurpose]).toEqual([null, null])
+    expect(normalizeItemInput(input({ consentMode: 'paper' })).ok).toBe(false)
+  })
+})
+
+describe('formPlacementOf／storedPlacementOf：專題需求以作業載入（C 階段規格① §0.4）', () => {
+  it('requirement 用 submission 載入，存回去保留 requirement；其他照表單', () => {
+    expect(formPlacementOf('requirement')).toBe('submission')
+    expect(formPlacementOf('news')).toBe('news')
+    expect(formPlacementOf('showcase')).toBeNull()
+    expect(storedPlacementOf('requirement', 'submission')).toBe('requirement')
+    expect(storedPlacementOf('requirement', 'news')).toBe('news')
+    expect(storedPlacementOf('submission', 'submission')).toBe('submission')
   })
 })
