@@ -91,8 +91,14 @@ export function describeMissing(m: MissingEvaluation): string {
   return m.teacherInactive ? `${m.stageName}：${m.teacherName}（老師已停用，缺評待處理）` : `${m.stageName}：${m.teacherName}（未送出）`
 }
 
-/** 要求份數比「已採計＋有效指派」還多：還缺幾位評分老師（替換後還沒指派新老師）。`stageKey` 給了就只看那一階段。 */
-export function unassignedSlots(g: GradebookGroup, stageKey = 'all'): string[] {
+/** 一組在某個評分項目還缺幾位評分老師（C1-04：成績表做成連結到評分老師分頁用）。 */
+export type UnassignedSlot = { readonly stageKey: string; readonly stageName: string; readonly short: number }
+
+/**
+ * 要幾位老師評比「已採計＋有效指派」還多：每個評分項目還缺幾位評分老師（替換後還沒指派新老師）。`stageKey` 給了就只看那一項。
+ * 結構版（C1-04）：成績表用 `stageKey` 組連結 `/dashboard/admin/grading/teachers?group=&stage=`。
+ */
+export function unassignedSlotDetails(g: GradebookGroup, stageKey = 'all'): UnassignedSlot[] {
   // 解散的組評分工作已停止（產品模組 03 §4）：不再列待指派。
   if (g.dissolved) return []
   return g.result.stages.flatMap((s) => {
@@ -100,8 +106,13 @@ export function unassignedSlots(g: GradebookGroup, stageKey = 'all'): string[] {
     if (s.required === null || s.required <= 0) return []
     const pending = g.missing.filter((m) => m.stageKey === s.key).length
     const short = s.required - s.counted.length - pending
-    return short > 0 ? [`${s.name}：尚缺 ${short} 位評分老師（待指派）`] : []
+    return short > 0 ? [{ stageKey: s.key, stageName: s.name, short }] : []
   })
+}
+
+/** 字串版（CSV 匯出與成績頁的註記；C1-04 起保留不改，跟 `unassignedSlotDetails` 同一個算法）。 */
+export function unassignedSlots(g: GradebookGroup, stageKey = 'all'): string[] {
+  return unassignedSlotDetails(g, stageKey).map((d) => `${d.stageName}：尚缺 ${d.short} 位評分老師（待指派）`)
 }
 
 function stagesOf(book: Gradebook, filter: GradeExportFilter) {

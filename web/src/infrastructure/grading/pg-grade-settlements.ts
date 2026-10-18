@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg'
 import { hasRole, statusGate, type ResolvedActor } from '@/application/accounts'
 import { canManageCohorts, type BusinessClockSource } from '@/application/cohorts'
 import {
+  optionalReason,
   readSchemeStages,
   type GradingSettlementCommand,
   type GradingSettlementQuery,
@@ -49,7 +50,7 @@ type SettlementRow = {
   settled_at: Date
   settled_by_user_id: string
   settled_by_name: string
-  reason: string
+  reason: string | null
   counted_evaluations: number
   released_at: Date | null
   released_by_user_id: string | null
@@ -69,14 +70,11 @@ const SETTLEMENT_SELECT = `
     left join users ru on ru.id = gs.released_by_user_id
     left join user_profiles rp on rp.user_id = gs.released_by_user_id`
 
-/** 理由：去掉頭尾空白後 1–500 字（資料庫 check 同一個數，按字元數算）。 */
-function reasonOf(value: unknown, what: string): { ok: true; value: string } | Err {
-  const text = typeof value === 'string' ? value.trim() : ''
-  if (text === '') return err('VALIDATION_FAILED', `請填${what}理由。`, { details: { field: 'reason' } })
-  if ([...text].length > MAX_REASON_LENGTH) {
-    return err('VALIDATION_FAILED', `${what}理由最多 ${MAX_REASON_LENGTH} 字。`, { details: { field: 'reason' } })
-  }
-  return { ok: true, value: text }
+/**
+ * 理由（C1-04、X2 改選填）：沒填或只有空白存 null；有填就去掉頭尾空白、1–500 字（資料庫 check 同一個數，按字元數算）。
+ */
+function reasonOf(value: unknown, what: string): { ok: true; value: string | null } | Err {
+  return optionalReason(value, `${what}理由`, MAX_REASON_LENGTH)
 }
 
 function settlementNotFound(): Err {
@@ -139,7 +137,7 @@ export class PgGradingSettlementCommand implements GradingSettlementCommand {
 
   async settleStage(
     actor: ResolvedActor,
-    input: { readonly cohortId: string; readonly stageKey: string; readonly reason: string },
+    input: { readonly cohortId: string; readonly stageKey: string; readonly reason?: string | null },
     requestId: string,
   ): Promise<Result<SettlementReceipt>> {
     const denied = authorizeAdmin(actor, '結算成績')
@@ -168,7 +166,7 @@ export class PgGradingSettlementCommand implements GradingSettlementCommand {
           actorUserId: adminId,
           operationKind: 'grading.settle',
           requestId,
-          fingerprint: sha256(canonicalJson({ cohortId: cohort.id, stageKey, reason: reason.value })),
+          fingerprint: sha256(canonicalJson({ cohortId: cohort.id, stageKey, reason: reason.value ?? '' })),
           scope: 'cohort',
           cohortId: cohort.id,
         },
@@ -241,7 +239,7 @@ export class PgGradingSettlementCommand implements GradingSettlementCommand {
 
   async releaseSettlement(
     actor: ResolvedActor,
-    input: { readonly settlementId: string; readonly reason: string },
+    input: { readonly settlementId: string; readonly reason?: string | null },
     requestId: string,
   ): Promise<Result<ReleaseReceipt>> {
     const denied = authorizeAdmin(actor, '解除成績結算')
@@ -272,7 +270,7 @@ export class PgGradingSettlementCommand implements GradingSettlementCommand {
           actorUserId: adminId,
           operationKind: 'grading.release',
           requestId,
-          fingerprint: sha256(canonicalJson({ settlementId: input.settlementId, reason: reason.value })),
+          fingerprint: sha256(canonicalJson({ settlementId: input.settlementId, reason: reason.value ?? '' })),
           scope: 'cohort',
           cohortId,
         },

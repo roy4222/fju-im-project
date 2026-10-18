@@ -8,7 +8,9 @@ import type { SchemeStageInput } from '@/application/grading'
 import type { GroupVersionWithFiles } from '@/application/submissions'
 import { teacherProgress } from '@/app/dashboard/admin/grading/progress'
 import { latestEvaluations, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
-import { PgGradebookQuery } from '@/infrastructure/grading/pg-grading-results'
+import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
+import { PgPublicGradingQuery } from '@/infrastructure/grading/pg-public-grading'
+import { PgGradingStageSettingCommand, PgGradingStageSettingQuery } from '@/infrastructure/grading/pg-stage-settings'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -681,13 +683,24 @@ describe('TE-11 teacherBenchPage：評分單組頁一次讀齊（AC-TE-48）', (
   ]
 
   it('teacherBenchPage 的 bench 與 teacherBench 逐欄相等、queue 與 teacherQueue 相等、submissions 是繳交查詢的結果；組長正確', async () => {
-    const { g1, t1 } = await queueScenario()
+    const { cohortId, g1, t1 } = await queueScenario()
+    // C1-04：繳交只留這個評分項目對應作業的版本（側表 item_id）；對應到 SUBMISSIONS 那份作業。
+    await owner.sql(
+      `insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, 's1', $2, $3)`,
+      [cohortId, await newItem(cohortId, { id: SUBMISSIONS[0]!.itemId }), adminId],
+    )
     const port = fakeSubmissions(SUBMISSIONS)
     const pageQuery = new PgGradingQuery(() => app, port)
     const page = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1)
     const bench = await query.teacherBench(teacherActor({ id: t1 }), g1)
     if (!page.ok || !bench.ok) throw new Error('應該讀得到')
-    const { leaderName, queue, submissions, ...benchPart } = strip(page.receipt)
+    const { leaderName, queue, submissions, stageKey, linkedItem, stageDescription, neighbors, ...benchPart } = strip(page.receipt)
+    expect({ stageKey, linkedItem, stageDescription, neighbors }).toEqual({
+      stageKey: 's1',
+      linkedItem: { itemId: SUBMISSIONS[0]!.itemId, title: '系統驗收文件' },
+      stageDescription: null,
+      neighbors: { prev: null, next: queue.find((e) => e.groupCode === 'G02')!.groupId },
+    })
     expect(benchPart).toEqual(strip(bench.receipt))
     expect(queue).toEqual(await query.teacherQueue(teacherActor({ id: t1 })))
     expect(submissions).toEqual(SUBMISSIONS)
@@ -1002,5 +1015,427 @@ describe('0021（C1-01）：評分項目側表 grading_stage_settings 的 CHECK'
     expect((await owner.sql(`select reason, release_reason from grade_settlements where id = $1`, [first])).rows).toEqual([
       { reason: null, release_reason: null },
     ])
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// C 階段 C1-04：評分項目側表、評審組、批改頁依項目篩繳交、前台評分方式（設計方案① §1.3、§3.4；AC-26、AC-28a、AC-30a、AC-30b、AC-33）
+// ════════════════════════════════════════════════════════════════════════════
+
+/** 一份作業（預設：已發布、整組繳交、標題「系統驗收文件」）；照 e2e 的建法：先草稿、補兩個目前版本再發布。 */
+async function newItem(
+  cohortId: string,
+  opts: { id?: string; title?: string; receiverUnit?: 'group' | 'individual'; status?: 'draft' | 'published' } = {},
+): Promise<string> {
+  const id = opts.id ?? randomUUID()
+  const title = opts.title ?? '系統驗收文件'
+  await owner.sql(
+    `insert into managed_items
+       (id, cohort_id, placement, audience_kind, receiver_unit, status, due_at, title, summary, body_html, draft_schema,
+        created_by_kind, created_by_user_id, updated_by_user_id)
+     values ($1, $2, 'submission', 'cohort_students', $3, 'draft', now() + interval '10 days', $4, 'C1-04', '<p>請繳交。</p>',
+             '{"fields":[]}'::jsonb, 'user', $5, $5)`,
+    [id, cohortId, opts.receiverUnit ?? 'group', title, adminId],
+  )
+  if ((opts.status ?? 'published') === 'draft') return id
+  const content = await owner.sql(
+    `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, $2, 'C1-04', '<p>請繳交。</p>', $3) returning id`,
+    [id, title, adminId],
+  )
+  const schema = await owner.sql(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+     values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+    [id, adminId],
+  )
+  await owner.sql(
+    `update managed_items set status = 'published', actual_opened_at = now() - interval '1 day',
+            current_content_version_id = $2, current_schema_version_id = $3 where id = $1`,
+    [id, content.rows[0]!.id, schema.rows[0]!.id],
+  )
+  return id
+}
+
+/** 本組對某份作業正式送出一版（沒有附件）。 */
+async function submitVersion(itemId: string, groupId: string, versionNo: number, by: string): Promise<void> {
+  const schema = await owner.sql(`select current_schema_version_id as id from managed_items where id = $1`, [itemId])
+  await owner.sql(
+    `insert into submission_versions
+       (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+        received_real_at, received_business_at, request_id, membership_snapshot, deadline_version_at_submit)
+     values (gen_random_uuid(), $1, 'group', $2, $3, $4, '{}'::jsonb, $5, now(), $6, gen_random_uuid(), '[]'::jsonb, 1)`,
+    [itemId, groupId, versionNo, schema.rows[0]!.id, by, new Date('2026-11-20T02:00:00Z')],
+  )
+}
+
+let stageSettings: PgGradingStageSettingCommand
+let stageSettingQuery: PgGradingStageSettingQuery
+let resultsCommand: PgGradingResultsCommand
+
+beforeAll(() => {
+  const deps = {
+    audit: new PgAuditWriter(),
+    ledger: new PgOperationLedger(() => app),
+    events: new PgEventPublisher(),
+    businessClock,
+    pool: () => app,
+  }
+  stageSettings = new PgGradingStageSettingCommand(deps)
+  stageSettingQuery = new PgGradingStageSettingQuery(() => app)
+  resultsCommand = new PgGradingResultsCommand(deps)
+})
+
+const setting = (cohortId: string, stageKey: string, fields: { itemId?: string | null; description?: string | null; panelKey?: string | null }) =>
+  stageSettings.setStageSetting(
+    adminActor(),
+    { cohortId, stageKey, itemId: fields.itemId ?? null, description: fields.description ?? null, panelKey: fields.panelKey ?? null },
+    randomUUID(),
+  )
+
+async function sideRows(cohortId: string) {
+  return (
+    await owner.sql(`select stage_key, item_id, description, panel_key from grading_stage_settings where cohort_id = $1 order by stage_key`, [cohortId])
+  ).rows
+}
+
+async function activeTeachers(groupId: string, stageKey: string): Promise<string[]> {
+  const rows = await owner.sql(
+    `select teacher_user_id from evaluator_assignments where group_id = $1 and stage_key = $2 and valid_to is null order by teacher_user_id`,
+    [groupId, stageKey],
+  )
+  return rows.rows.map((r) => String(r.teacher_user_id))
+}
+
+describe('C1-04 setStageSetting：對應作業、說明（AC-26）', () => {
+  it('還沒發布評分規則不能寫；發布後設對應作業與說明：不建新版、版本號與鎖定不變、已填分數不變；三欄清空＝刪列', async () => {
+    const cohortId = await newCohort()
+    const itemA = await newItem(cohortId)
+    expect(await setting(cohortId, 's1', { itemId: itemA })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+
+    const { versionId } = await publishedScheme(cohortId)
+    // 已有老師填分（方案鎖定）。
+    const g1 = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    const a1 = await assignOk(g1, t1)
+    expect((await command.saveDraft(teacherActor({ id: t1 }), { assignmentId: a1, scores: { i1: '80' } }, randomUUID())).ok).toBe(true)
+    const versionsBefore = (await owner.sql(`select id, status, version_no from grading_scheme_versions order by id`)).rows
+
+    const linked = await setting(cohortId, 's1', { itemId: itemA })
+    expect(linked).toMatchObject({ ok: true, receipt: { stageKey: 's1', itemId: itemA, itemTitle: '系統驗收文件', description: null, panelKey: null } })
+    expect(await setting(cohortId, 's2', { description: '  依發表當天表現評分 ' })).toMatchObject({
+      ok: true,
+      receipt: { stageKey: 's2', itemId: null, description: '依發表當天表現評分' },
+    })
+    expect((await owner.sql(`select id, status, version_no from grading_scheme_versions order by id`)).rows).toEqual(versionsBefore)
+    expect((await owner.sql(`select status from grading_scheme_versions where id = $1`, [versionId])).rows[0]!.status).toBe('locked')
+    const bench = await query.teacherBench(teacherActor({ id: t1 }), g1)
+    expect(bench.ok && bench.receipt.entries[0]!.scores).toEqual({ i1: '80' })
+
+    const listed = await stageSettingQuery.stageSettings(adminActor(), cohortId)
+    expect(listed.ok && [...listed.receipt]).toEqual([
+      { stageKey: 's1', itemId: itemA, itemTitle: '系統驗收文件', description: null, panelKey: null },
+      { stageKey: 's2', itemId: null, itemTitle: null, description: '依發表當天表現評分', panelKey: null },
+    ])
+    // 清空＝刪列。
+    expect(await setting(cohortId, 's2', { description: '' })).toMatchObject({ ok: true })
+    expect((await sideRows(cohortId)).map((r) => r.stage_key)).toEqual(['s1'])
+  })
+
+  it('對應作業要同屆、整組、已發布；項目要在目前版本；說明超過 500 字擋；老師、學生 FORBIDDEN', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const other = await newCohort()
+    for (const itemId of [
+      await newItem(cohortId, { status: 'draft' }),
+      await newItem(cohortId, { receiverUnit: 'individual' }),
+      await newItem(other),
+      randomUUID(),
+    ]) {
+      expect(await setting(cohortId, 's1', { itemId })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'itemId' } })
+    }
+    expect(await setting(cohortId, 's9', { description: '沒有這一項' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await setting(cohortId, 's1', { description: '字'.repeat(501) })).toMatchObject({ ok: false, details: { field: 'description' } })
+    const teacher = await newUser('老師', 'teacher')
+    expect(
+      await stageSettings.setStageSetting(teacherActor({ id: teacher }), { cohortId, stageKey: 's1', itemId: null, description: '說明', panelKey: null }, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await stageSettingQuery.stageSettings(teacherActor({ id: teacher }), cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await sideRows(cohortId)).toEqual([])
+  })
+
+  it('發布新版：新版沒有的項目，側表列（含 panel_key）同交易刪掉；新版還有的保留', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    await setting(cohortId, 's1', { description: '留著', panelKey: 'p1' })
+    await setting(cohortId, 's2', { description: '會被刪', panelKey: 'p1' })
+    const created = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[0]!, key: 's1', weight: 100 } as SchemeStageInput] },
+      randomUUID(),
+    )
+    if (!created.ok) throw new Error(created.message)
+    expect((await command.publishScheme(adminActor(), { versionId: created.receipt.versionId }, randomUUID())).ok).toBe(true)
+    expect(await sideRows(cohortId)).toEqual([{ stage_key: 's1', item_id: null, description: '留著', panel_key: 'p1' }])
+  })
+})
+
+describe('C1-04 評審組：一次指派多項（AC-30a、T33）', () => {
+  it('兩項同一評審組 → 設份數兩項都 3、指派甲乙丙各兩筆同一交易；移除乙兩項都結束；甲兩個項目都有這組、各自一份成績', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const [t1, t2, t3] = [await newUser('甲老師', 'teacher'), await newUser('乙老師', 'teacher'), await newUser('丙老師', 'teacher')]
+    expect(await setting(cohortId, 's1', { panelKey: 'p1' })).toMatchObject({ ok: true })
+    expect(await setting(cohortId, 's2', { panelKey: 'p1' })).toMatchObject({ ok: true, receipt: { panelKey: 'p1' } })
+
+    const req = await command.setRequirement(adminActor(), { groupId: g1, stageKey: 's1', requiredCount: 3, revision: 0 }, randomUUID())
+    expect(req).toMatchObject({ ok: true, receipt: { requiredCount: 3, appliedStageKeys: ['s1', 's2'] } })
+    const counts = await owner.sql(`select stage_key, required_count from stage_requirements where group_id = $1 order by stage_key`, [g1])
+    expect(counts.rows).toEqual([
+      { stage_key: 's1', required_count: 3 },
+      { stage_key: 's2', required_count: 3 },
+    ])
+
+    for (const t of [t1, t2, t3]) {
+      const r = await command.assign(adminActor(), { groupId: g1, stageKey: 's2', teacherUserId: t }, randomUUID())
+      expect(r).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['s1', 's2'], stageName: '專題發表' } })
+    }
+    const rows = await owner.sql(
+      `select teacher_user_id, count(*)::int as n, count(distinct created_at)::int as stamps
+         from evaluator_assignments where group_id = $1 and valid_to is null group by teacher_user_id`,
+      [g1],
+    )
+    expect(rows.rows.map((r) => [r.n, r.stamps])).toEqual([
+      [2, 1],
+      [2, 1],
+      [2, 1],
+    ])
+    // 指派通知每個項目各一則。
+    const notices = await owner.sql(`select count(*)::int as n from domain_events where type = 'grading.assigned' and cohort_id = $1`, [cohortId])
+    expect(notices.rows[0]!.n).toBe(6)
+
+    // 甲在 s1 送出分數不影響 s2（兩份成績）。
+    const queue = await query.teacherQueue(teacherActor({ id: t1 }))
+    expect(queue.map((e) => [e.groupCode, e.stageKey])).toEqual([
+      ['G01', 's1'],
+      ['G01', 's2'],
+    ])
+    const sent = await command.submitFinal(teacherActor({ id: t1 }), { assignmentId: queue[0]!.assignmentId, scores: { i1: '80', i2: '90' } }, randomUUID())
+    expect(sent.ok).toBe(true)
+    const after = await query.teacherQueue(teacherActor({ id: t1 }))
+    expect(after.map((e) => e.state)).toEqual(['counted', 'empty'])
+
+    // 移除乙（替換、只移除，沒分數）：兩項的乙都結束；理由留空也可以（X2）。
+    const s1OfT2 = (await owner.sql(`select id from evaluator_assignments where group_id = $1 and stage_key = 's1' and teacher_user_id = $2`, [g1, t2])).rows[0]!.id as string
+    const gradebook = new PgGradebookQuery(() => app)
+    const preview = await gradebook.previewReassignment(adminActor(), s1OfT2)
+    if (!preview.ok) throw new Error(preview.message)
+    const removed = await resultsCommand.removeAssignment(
+      adminActor(),
+      { assignmentId: s1OfT2, choice: 'replace', newTeacherUserId: null, reason: null, basisHash: preview.receipt.basisHash },
+      randomUUID(),
+    )
+    expect(removed).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['s1', 's2'] } })
+    const ended = await owner.sql(`select stage_key, valid_to, reason from evaluator_assignments where group_id = $1 and teacher_user_id = $2 order by stage_key`, [g1, t2])
+    expect(ended.rows.map((r) => [r.stage_key, r.valid_to !== null, r.reason])).toEqual([
+      ['s1', true, null],
+      ['s2', true, null],
+    ])
+    expect(await activeTeachers(g1, 's1')).toEqual(await activeTeachers(g1, 's2'))
+  })
+
+  it('評審組裡任一項目不能指派（另一項已有這位老師）→ 整筆不做：兩項都沒有新指派', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    await setting(cohortId, 's1', { panelKey: 'p1' })
+    await setting(cohortId, 's2', { panelKey: 'p1' })
+    // 繞過用例直接塞一筆 s2（模擬不一致），再對 s1 指派同一位。
+    await owner.sql(
+      `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id, created_at, updated_at)
+       values (gen_random_uuid(), $1, 's2', $2, now(), $3, now(), now())`,
+      [g1, t1, adminId],
+    )
+    const r = await command.assign(adminActor(), { groupId: g1, stageKey: 's1', teacherUserId: t1 }, randomUUID())
+    expect(r).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    if (!r.ok) expect(r.message).toContain('專題發表')
+    expect(await activeTeachers(g1, 's1')).toEqual([])
+    expect(await activeTeachers(g1, 's2')).toEqual([t1])
+  })
+
+  it('不屬於評審組：指派、設份數只動自己那一項（appliedStageKeys 只有自己）', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const t1 = await newUser('甲老師', 'teacher')
+    await setting(cohortId, 's1', { panelKey: 'p1' })
+    const r = await command.assign(adminActor(), { groupId: g1, stageKey: 's1', teacherUserId: t1 }, randomUUID())
+    expect(r).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['s1'] } })
+    expect(await activeTeachers(g1, 's2')).toEqual([])
+  })
+})
+
+describe('C1-04 評審組一致性（AC-30b）', () => {
+  it('s1 甲乙、s2 甲丁：把 s2 加進 s1 的評審組被擋、列組別、DB 不變；對齊後再存成功', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G03')
+    const g2 = await newGroup(cohortId, 'G01')
+    const [t1, t2, t4] = [await newUser('甲老師', 'teacher'), await newUser('乙老師', 'teacher'), await newUser('丁老師', 'teacher')]
+    for (const [t, k] of [
+      [t1, 's1'],
+      [t2, 's1'],
+      [t1, 's2'],
+      [t4, 's2'],
+    ] as const)
+      await assignOk(g1, t, k)
+    expect(await setting(cohortId, 's1', { panelKey: 'p1' })).toMatchObject({ ok: true })
+    const assignmentsBefore = (await owner.sql(`select id, valid_to from evaluator_assignments where group_id = $1 order by id`, [g1])).rows
+
+    const blocked = await setting(cohortId, 's2', { panelKey: 'p1' })
+    expect(blocked).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'panelKey', groups: ['G03'] } })
+    if (!blocked.ok) expect(blocked.message).toBe('G03 的『系統驗收』與『專題發表』評審不同，請先在評分老師分頁對齊。')
+    expect((await owner.sql(`select id, valid_to from evaluator_assignments where group_id = $1 order by id`, [g1])).rows).toEqual(assignmentsBefore)
+    expect((await sideRows(cohortId)).map((r) => [r.stage_key, r.panel_key])).toEqual([['s1', 'p1']])
+
+    // 份數不同也算不一致（G01 沒有指派但 s1 要 2 位）。
+    expect((await command.setRequirement(adminActor(), { groupId: g2, stageKey: 's1', requiredCount: 2, revision: 0 }, randomUUID())).ok).toBe(true)
+    const both = await setting(cohortId, 's2', { panelKey: 'p1' })
+    expect(both).toMatchObject({ ok: false, details: { groups: ['G01', 'G03'] } })
+
+    // 對齊：G03 的 s2 移除丁、補乙；G01 的 s2 也設 2。
+    const s2OfT4 = (await owner.sql(`select id from evaluator_assignments where group_id = $1 and stage_key = 's2' and teacher_user_id = $2`, [g1, t4])).rows[0]!.id as string
+    const preview = await new PgGradebookQuery(() => app).previewReassignment(adminActor(), s2OfT4)
+    if (!preview.ok) throw new Error(preview.message)
+    expect(
+      (await resultsCommand.removeAssignment(adminActor(), { assignmentId: s2OfT4, choice: 'replace', newTeacherUserId: t2, basisHash: preview.receipt.basisHash }, randomUUID())).ok,
+    ).toBe(true)
+    expect((await command.setRequirement(adminActor(), { groupId: g2, stageKey: 's2', requiredCount: 2, revision: 0 }, randomUUID())).ok).toBe(true)
+    expect(await setting(cohortId, 's2', { panelKey: 'p1' })).toMatchObject({ ok: true })
+    // 拿掉評審組只解除約定、不動指派。
+    expect(await setting(cohortId, 's2', { panelKey: null })).toMatchObject({ ok: true })
+    expect(await activeTeachers(g1, 's2')).toEqual([t1, t2].sort())
+  })
+})
+
+describe('C1-04 teacherBenchPage(actor, groupId, stageKey)：只看自己項目連結的作業（AC-28a、AC-29）', () => {
+  it('丁只評 s2（沒對應作業）：沒有任何版本、看到說明；丁打 s1 → NOT_ASSIGNED；戊只評 s1（對應 A）：只有 A 的版本、沒有 B', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const g1 = await newGroup(cohortId, 'G01')
+    const [t4, t5] = [await newUser('丁老師', 'teacher'), await newUser('戊老師', 'teacher')]
+    await assignOk(g1, t4, 's2')
+    await assignOk(g1, t5, 's1')
+    const itemA = await newItem(cohortId, { title: '系統驗收文件' })
+    const itemB = await newItem(cohortId, { title: '期中報告' })
+    await setting(cohortId, 's1', { itemId: itemA })
+    await setting(cohortId, 's2', { description: '依發表當天表現評分' })
+    const version = (itemId: string, title: string, versionNo: number): GroupVersionWithFiles => ({
+      itemId,
+      title,
+      versionNo,
+      receivedBusinessAt: new Date('2026-11-01T02:00:00Z'),
+      submittedByName: '組長',
+      attachments: [{ fileId: randomUUID(), name: `${title}.pdf`, mime: 'application/pdf', sizeBytes: 10 }],
+    })
+    const all = [version(itemB, '期中報告', 1), version(itemA, '系統驗收文件', 2), version(itemA, '系統驗收文件', 1)]
+    const pageQuery = new PgGradingQuery(() => app, { groupVersionsWithFiles: async () => all })
+
+    const ding = await pageQuery.teacherBenchPage(teacherActor({ id: t4 }), g1, 's2')
+    expect(ding.ok && { s: ding.receipt.submissions, l: ding.receipt.linkedItem, d: ding.receipt.stageDescription, k: ding.receipt.stageKey }).toEqual({
+      s: [],
+      l: null,
+      d: '依發表當天表現評分',
+      k: 's2',
+    })
+    // 沒帶 stage：本組第一個分給丁的項目（s2）。
+    const dingDefault = await pageQuery.teacherBenchPage(teacherActor({ id: t4 }), g1)
+    expect(dingDefault.ok && dingDefault.receipt.stageKey).toBe('s2')
+    const dingS1 = await pageQuery.teacherBenchPage(teacherActor({ id: t4 }), g1, 's1')
+    expect(dingS1).toMatchObject({ ok: false, code: 'NOT_ASSIGNED' })
+    expect(JSON.stringify(dingS1)).not.toContain('系統驗收文件')
+
+    const wu = await pageQuery.teacherBenchPage(teacherActor({ id: t5 }), g1, 's1')
+    expect(wu.ok && wu.receipt.submissions.map((v) => [v.title, v.versionNo])).toEqual([
+      ['系統驗收文件', 2],
+      ['系統驗收文件', 1],
+    ])
+    expect(wu.ok && wu.receipt.linkedItem).toEqual({ itemId: itemA, title: '系統驗收文件' })
+
+    // 系辦把 s1 的對應拿掉：沒有退路，戊也看不到任何版本。
+    await setting(cohortId, 's1', {})
+    const unlinked = await pageQuery.teacherBenchPage(teacherActor({ id: t5 }), g1, 's1')
+    expect(unlinked.ok && unlinked.receipt.submissions).toEqual([])
+  })
+
+  it('上一組／下一組照老師清單排序、只看同屆同項目；teacherQueue 帶對應作業與最新一版的繳交概況（AC-27 的資料）', async () => {
+    const cohortId = await newCohort()
+    await publishedScheme(cohortId)
+    const t1 = await newUser('甲老師', 'teacher')
+    const leader = await newUser('組長', 'student')
+    const [g1, g2, g3] = [await newGroup(cohortId, 'G01'), await newGroup(cohortId, 'G02'), await newGroup(cohortId, 'G03')]
+    for (const g of [g1, g2, g3]) await assignOk(g, t1, 's1')
+    await assignOk(g2, t1, 's2')
+    const itemA = await newItem(cohortId)
+    await setting(cohortId, 's1', { itemId: itemA })
+    await submitVersion(itemA, g1, 1, leader)
+    await submitVersion(itemA, g1, 2, leader)
+
+    const pageQuery = new PgGradingQuery(() => app, { groupVersionsWithFiles: async () => [] })
+    const mid = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g2, 's1')
+    expect(mid.ok && mid.receipt.neighbors).toEqual({ prev: g1, next: g3 })
+    const first = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g1, 's1')
+    expect(first.ok && first.receipt.neighbors).toEqual({ prev: null, next: g2 })
+    const onlyS2 = await pageQuery.teacherBenchPage(teacherActor({ id: t1 }), g2, 's2')
+    expect(onlyS2.ok && onlyS2.receipt.neighbors).toEqual({ prev: null, next: null })
+
+    const queue = await query.teacherQueue(teacherActor({ id: t1 }))
+    expect(queue.map((e) => [e.groupCode, e.stageKey, e.linkedItem && { ...e.linkedItem, itemId: e.linkedItem.itemId === itemA }])).toEqual([
+      ['G01', 's1', { itemId: true, title: '系統驗收文件', submitted: true, lastSubmittedAt: new Date('2026-11-20T02:00:00Z'), fileCount: 0 }],
+      ['G02', 's1', { itemId: true, title: '系統驗收文件', submitted: false, lastSubmittedAt: null, fileCount: 0 }],
+      ['G02', 's2', null],
+      ['G03', 's1', { itemId: true, title: '系統驗收文件', submitted: false, lastSubmittedAt: null, fileCount: 0 }],
+    ])
+  })
+})
+
+describe('C1-04 PublicGradingQuery（AC-33 查詢）', () => {
+  it('訪客讀得到目前方案的評分項目、比例、說明、細項；改比例發布新版後跟著變；沒有方案是 null', async () => {
+    const cohortId = await newCohort()
+    const pub = new PgPublicGradingQuery(() => app)
+    expect(await pub.weights(cohortId)).toMatchObject({ ok: true, receipt: { weights: null } })
+    expect(await pub.weights('not-a-uuid')).toMatchObject({ ok: true, receipt: { weights: null } })
+    await publishedScheme(cohortId)
+    await setting(cohortId, 's2', { description: '依發表當天表現評分' })
+    const first = await pub.weights(cohortId)
+    expect(first.ok && first.receipt.weights).toEqual({
+      cohortName: expect.any(String),
+      stages: [
+        {
+          name: '系統驗收',
+          weight: 60,
+          description: null,
+          items: [
+            { name: '功能完整', weight: 50, type: 'number' },
+            { name: '文件', weight: 50, type: 'number' },
+          ],
+        },
+        { name: '專題發表', weight: 40, description: '依發表當天表現評分', items: [{ name: '發表', weight: 100, type: 'number' }] },
+      ],
+    })
+    const next = await command.createSchemeVersion(
+      adminActor(),
+      { cohortId, stages: [{ ...STAGES[0]!, key: 's1', weight: 50 }, { ...STAGES[1]!, key: 's2', weight: 50 }] as SchemeStageInput[] },
+      randomUUID(),
+    )
+    if (!next.ok) throw new Error(next.message)
+    expect((await command.publishScheme(adminActor(), { versionId: next.receipt.versionId }, randomUUID())).ok).toBe(true)
+    const second = await pub.weights(cohortId)
+    expect(second.ok && second.receipt.weights?.stages.map((st) => [st.name, st.weight, st.description])).toEqual([
+      ['系統驗收', 50, null],
+      ['專題發表', 50, '依發表當天表現評分'],
+    ])
+    expect(JSON.stringify(second)).not.toMatch(/teacher|group|score/i)
   })
 })
