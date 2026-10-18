@@ -154,8 +154,8 @@ describe('staffDeadlines：老師／系辦看的學生截止來源', () => {
   })
 
   it('連到給的列表頁（兩頁都沒有單篇錨點）', () => {
-    const [d] = staffDeadlines([row({})], '/dashboard/admin/affairs?cohort=c1')
-    expect(d!.href).toBe('/dashboard/admin/affairs?cohort=c1')
+    const [d] = staffDeadlines([row({})], '/dashboard/admin/affairs?cohort=c1&placement=all')
+    expect(d!.href).toBe('/dashboard/admin/affairs?cohort=c1&placement=all')
   })
 })
 

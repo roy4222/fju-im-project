@@ -607,7 +607,7 @@ describe('移除／改派三選一（GRD-13）', () => {
     expect(dup).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     if (!dup.ok) expect(dup.message).toContain('重複')
     expect(
-      await results.removeAssignment(adminActor(), { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: ' ', basisHash: p.basisHash }, randomUUID()),
+      await results.removeAssignment(adminActor(), { assignmentId: s.a1, choice: 'add', newTeacherUserId: s.t2, reason: '字'.repeat(501), basisHash: p.basisHash }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     const r = await results.removeAssignment(
       adminActor(),
@@ -1379,5 +1379,37 @@ describe('匯出（GRD-10）', () => {
     const audit = await owner.sql(`select payload from audit_events where action = 'grading.export' order by real_at desc limit 1`)
     expect(audit.rows[0]!.payload).toMatchObject({ format: 'xlsx', groups: 2, rows: 3 })
     expect(JSON.stringify(audit.rows[0]!.payload)).not.toContain('0412345')
+  })
+})
+
+describe('C1-04 理由選填（X2；AC-31 後端）：更正、改派留空也成功；退回評分仍必填', () => {
+  it('更正理由留空 → 成功、存 null、成績表註記不帶括號；改派理由留空 → 成功、通知標題不帶理由；退回理由空白仍 VALIDATION_FAILED', async () => {
+    const s = await standard()
+    await submit(s.t1, s.a1, '80')
+    await submit(s.t3, s.a3, '84.29')
+    const finalId = await submit(s.t2, s.a2, '90')
+    expect(await results.returnEvaluation(adminActor(), { evaluationId: finalId, reason: '' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
+    const g = await groupRow(s.cohortId, s.groupId)
+    const fixed = await results.override(adminActor(), { groupId: s.groupId, newValue: '88', reason: '  ', basisHash: g.basisHash }, randomUUID())
+    expect(fixed).toMatchObject({ ok: true })
+    const stored = await owner.sql(`select reason from grade_overrides where group_id = $1`, [s.groupId])
+    expect(stored.rows.map((r) => r.reason)).toEqual([null])
+    const after = await groupRow(s.cohortId, s.groupId)
+    expect(after.override).toMatchObject({ reason: null, state: 'effective' })
+
+    const p = await preview(s.a1)
+    const removed = await results.removeAssignment(
+      adminActor(),
+      { assignmentId: s.a1, choice: 'keep', newTeacherUserId: null, basisHash: p.basisHash },
+      randomUUID(),
+    )
+    expect(removed).toMatchObject({ ok: true, receipt: { appliedStageKeys: ['mid'] } })
+    const ended = await owner.sql(`select reason from evaluator_assignments where id = $1`, [s.a1])
+    expect(ended.rows[0]!.reason).toBeNull()
+    const notice = await owner.sql(`select payload from domain_events where type = 'grading.assignment_ended' and source_id = $1`, [s.a1])
+    expect(notice.rows[0]!.payload).toMatchObject({ reason: null, title: '你已被移出 G01「期中」的評分指派' })
   })
 })

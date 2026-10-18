@@ -97,7 +97,7 @@ export default async function AdminHomePage() {
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
           <div className="min-w-0 md:col-span-2">
             {/* 「作業完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋，沒有屆別時也要在。 */}
-            <Panel title="作業完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs`, label: '公告與作業' }} className="h-full">
+            <Panel title="作業完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs?placement=all`, label: '公告與作業' }} className="h-full">
               {intake.length === 0 ? (
                 <PanelEmpty>本屆還沒有發布中的作業。到「公告與作業」新增作業後，這裡會顯示每一份的完成率。</PanelEmpty>
               ) : (

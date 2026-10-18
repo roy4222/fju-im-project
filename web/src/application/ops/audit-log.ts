@@ -8,6 +8,7 @@
  * 而系辦要能查「這次核准是怎麼核實的」（2026-10-08 系2，Roy 同意）。只取這一個鍵、只對這一個動作。
  */
 
+import type { AvatarUser } from '@/application/accounts'
 import type { VerificationMethod } from '@/application/ops/records'
 
 /**
@@ -69,6 +70,11 @@ export type AuditLogEntry = {
   readonly actorKind: 'user' | 'system' | 'worker'
   /** 操作者顯示名稱；系統與背景工作沒有人。 */
   readonly actorName: string | null
+  /** 操作者帳號 id；系統、背景工作、找不到帳號時為 null（畫面只對有 id 的列畫頭像，C3 §2.3）。 */
+  readonly actorUserId: string | null
+  /** 操作者頭像兩欄（`AvatarUser`）；同一句查詢帶出，沒有個人資料列時為 null。 */
+  readonly actorAvatarPreset: number | null
+  readonly actorAvatarFileId: string | null
   /** 操作當下的角色（學生／老師／管理員）；本人動作（改密碼、補資料）與系統為 null。 */
   readonly role: 'student' | 'teacher' | 'admin' | null
   readonly action: string
@@ -102,6 +108,21 @@ export type AuditLog = {
   readonly truncated: boolean
 }
 
+/**
+ * 操作者的頭像資料（C3 §2.3）：`actor_kind='user'` 且找得到帳號才有；系統、背景工作、已不存在的帳號回 null，畫面維持純文字。
+ */
+export function auditActorAvatar(
+  entry: Pick<AuditLogEntry, 'actorKind' | 'actorUserId' | 'actorName' | 'actorAvatarPreset' | 'actorAvatarFileId'>,
+): AvatarUser | null {
+  if (entry.actorKind !== 'user' || !entry.actorUserId) return null
+  return {
+    id: entry.actorUserId,
+    name: entry.actorName?.trim() ?? '',
+    avatarPreset: entry.actorAvatarPreset,
+    avatarFileId: entry.actorAvatarFileId,
+  }
+}
+
 /** 這一筆算哪個分頁（與 `pg-audit-log.ts` 的分頁 SQL 一一對應）。 */
 export function auditWhoOf(entry: Pick<AuditLogEntry, 'actorKind' | 'role'>): Exclude<AuditWhoFilter, 'all'> {
   if (entry.actorKind !== 'user') return 'system'
@@ -129,6 +150,7 @@ const ACTION_LABEL: Record<string, string> = {
   'account.link_google': '連結 Google 登入',
   'account.bind_google_preauthorized': '預先建立的老師帳號綁定 Google',
   'account.repair_orphan': '替尚未設定身分的帳號補上身分',
+  'account.profile_edit': '編輯帳號（姓名、學號、屆別、角色）',
   'account.seed_first_admin': '建立第一位管理員',
   'account.seed_e2e_admin': '建立測試管理員帳號',
   'account.deidentify': '刪除個人資料（保留紀錄）',
@@ -213,6 +235,7 @@ const ACTION_LABEL: Record<string, string> = {
   'item.deleted': '刪除公告或作業',
   // B 階段 A-14 規則章節排序（預先登記）。
   'item.rule_moved': '調整規則章節順序',
+  'item.category_renamed': '資源分類改名',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
@@ -247,6 +270,7 @@ const ACTION_LABEL: Record<string, string> = {
   // B 階段 A-01 結算（預先登記）。
   'grading.settle': '結算成績',
   'grading.release': '解除成績結算',
+  'grading.stage_setting': '設定評分項目的對應作業與說明',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',

@@ -126,7 +126,8 @@ test('上傳 EXIF JPEG → WebP；三種登入者 200（private, no-cache＋ETag
 
 test('瀏覽器暖快取後換圖：選單換成新圖；舊網址帶舊 ETag 回來問拿到 404（不是 304）', async ({ page }) => {
   await page.context().addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
-  await page.goto('/')
+  // 帳號選單只在後台（前台沒有，C2-14）。
+  await page.goto('/dashboard/student')
   const menuAvatar = page.getByRole('button', { name: '帳號選單' }).locator('img')
   await expect(menuAvatar).toHaveAttribute('src', `/api/files/${first}`)
   await expect.poll(() => menuAvatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBe(256)

@@ -6,7 +6,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * 第三波 W6：待審註冊一次核准多位（AC-24）；操作紀錄新增老師那筆用老師的核實文字（AC-25）。
  *
  * 1. 名單上 3 位，其中第 3 位的學號已被別人（先核准的同學號申請）占用：
- *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 選怎麼確認是本人 → 確認
+ *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 確認（不問怎麼確認是本人）
  *    → 結果「成功 2、略過 1」（學號已被使用）；2 位可以登入進學生首頁；操作紀錄 2 筆核准。
  * 2. 新增一位老師後，操作紀錄那筆的確認本人方式寫「教職員證、身分證」，不提學生證。
  *
@@ -132,7 +132,7 @@ test.beforeAll(async () => {
 })
 
 function pendingRow(page: Page, name: string) {
-  // 帳號頁下方還有「全部帳號」表格，待審的人兩邊都有；這裡只看上方的待審核清單。
+  // 待審核清單（C2-07 起在「待審核」分頁；不看帳號列表）。
   return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
@@ -141,17 +141,17 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   const admin = await adminPage(browser)
 
   // 先個別核准同學號的另一位，讓 S3 的學號變成「已被使用」。單筆核准照舊（第一個同名的列）。
-  await admin.goto('/dashboard/admin/accounts')
-  await admin.getByRole('button', { name: `審核 ${HOLDER.name}` }).first().click()
-  const review = admin.getByRole('dialog', { name: `審核 ${HOLDER.name}` })
-  await review.getByLabel('當面核對學生證或其他身分證件').check()
-  await review.getByRole('button', { name: '核准' }).click()
+  await admin.goto('/dashboard/admin/accounts/pending')
+  // 還有別人用同一個學號待審，不能一鍵：開小視窗核對後再核准。
+  await admin.getByRole('button', { name: `核准 ${HOLDER.name}` }).first().click()
+  const review = admin.getByRole('dialog', { name: `核准 ${HOLDER.name}` })
+  await review.getByRole('button', { name: '核准', exact: true }).click()
   await expect(review.getByRole('status')).toContainText('已核准')
   await review.getByRole('button', { name: '關閉' }).click()
   await expect(pendingRow(admin, S3.name)).toHaveCount(1)
 
   // 沒勾任何人時沒有批次按鈕。
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   const pending = admin.getByRole('region', { name: '待審核' })
   await expect(pending.getByRole('button', { name: /^核准勾選的/ })).toHaveCount(0)
   for (const s of [S1, S2, S3]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
@@ -166,10 +166,8 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   await expect(rows.filter({ hasText: S3.name })).toContainText('略過：學號已被使用')
   await admin.screenshot({ path: 'test-results/w6-bulk-approve-preview.png' })
 
-  // 沒選怎麼確認是本人不送。
-  await dialog.getByRole('button', { name: '核准 2 位' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
+  // 不再問怎麼確認是本人（AC-C2-15）：直接核准。
+  await expect(dialog).not.toContainText('怎麼確認是本人')
   await dialog.getByRole('button', { name: '核准 2 位' }).click()
 
   const result = dialog.getByRole('status')
@@ -235,7 +233,7 @@ test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一�
     for (const s of [X, Y]) await register(browser, s)
 
     const admin = await adminPage(browser)
-    await admin.goto('/dashboard/admin/accounts')
+    await admin.goto('/dashboard/admin/accounts/pending')
     const pending = admin.getByRole('region', { name: '待審核' })
     for (const s of [X, Y]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
     await pending.getByRole('button', { name: '核准勾選的 2 位' }).click()
@@ -244,7 +242,6 @@ test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一�
 
     // 系辦還沒按確認，名單補了 Y：現在兩位都符合，但執行只能照預覽時的範圍。
     await importRoster(cohortId, [X, Y])
-    await dialog.getByLabel('當面核對學生證或其他身分證件').check()
     await dialog.getByRole('button', { name: '核准 1 位' }).click()
     const result = dialog.getByRole('status')
     await expect(result).toContainText('成功 1、略過 1')
@@ -262,7 +259,7 @@ test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不
   const admin = await adminPage(browser)
   const teacher = { name: `批次老師${prefix}`, email: `w6-t-${run}@example.com` }
   await admin.goto('/dashboard/admin/accounts')
-  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  await admin.getByRole('button', { name: '新增成員', exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '新增老師' })
   await dialog.getByLabel('登入 Email').fill(teacher.email)
   await dialog.getByLabel('姓名').fill(teacher.name)
@@ -308,18 +305,14 @@ test('N-03：勾了兩位又逐一個別核准，批次按鈕只算仍在待審�
   for (const s of [A, B]) await register(browser, s)
 
   const admin = await adminPage(browser)
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   const pending = admin.getByRole('region', { name: '待審核' })
   for (const s of [A, B]) await pending.getByLabel(`勾選待審 ${s.name}`).check()
   await expect(pending.getByRole('button', { name: '核准勾選的 2 位' })).toBeVisible()
 
   const approveOne = async (name: string) => {
-    await pendingRow(admin, name).getByRole('button', { name: `審核 ${name}` }).click()
-    const review = admin.getByRole('dialog', { name: `審核 ${name}` })
-    await review.getByLabel('當面核對學生證或其他身分證件').check()
-    await review.getByRole('button', { name: '核准' }).click()
-    await expect(review.getByRole('status')).toContainText('已核准')
-    await review.getByRole('button', { name: '關閉' }).click()
+    // 名單比對到：一鍵核准，不開視窗，列直接消失。
+    await pendingRow(admin, name).getByRole('button', { name: `核准 ${name}` }).click()
     await expect(pendingRow(admin, name)).toHaveCount(0)
   }
 

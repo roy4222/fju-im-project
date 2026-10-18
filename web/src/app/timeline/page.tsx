@@ -80,7 +80,7 @@ async function load(actor: Awaited<ReturnType<typeof requireSignedIn>>): Promise
       timeline.activities(cohort.id),
       getItemQuery().list(cohort.id),
     ])
-    const href = actorHasRole(actor, 'admin') ? `/dashboard/admin/affairs?cohort=${cohort.id}` : '/dashboard/teacher/affairs'
+    const href = actorHasRole(actor, 'admin') ? `/dashboard/admin/affairs?cohort=${cohort.id}&placement=all` : '/dashboard/teacher/affairs'
     return { cohortName: cohort.name, schedule, activities, deadlines: staffDeadlines(items, href), now, perspective: 'staff' }
   }
   return { cohortName: null, schedule: null, activities: [], deadlines: [], now: await getBusinessClock().now(), perspective: 'staff' }

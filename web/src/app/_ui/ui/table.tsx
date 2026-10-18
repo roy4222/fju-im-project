@@ -4,18 +4,71 @@ import * as React from "react"
 
 import { cn } from "@/shared/cn"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+import "./table.css"
+
+/**
+ * 橫向可捲的表格外框：右緣有漸層提示（`data-scroll` = none／start／mid／end，
+ * 樣式在 table.css），`stickyFirst` 時首欄固定在左邊。外層 `table-container`
+ * 不捲動、只放提示；實際捲動的是裡面那層（`className` 給它，例如 `max-h-[32rem] overflow-auto`）。
+ */
+function TableScroll({
+  className,
+  stickyFirst,
+  children,
+}: {
+  className?: string
+  stickyFirst?: boolean
+  children: React.ReactNode
+}) {
+  const outer = React.useRef<HTMLDivElement>(null)
+  const inner = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    const box = inner.current
+    const host = outer.current
+    if (!box || !host) return
+    const sync = () => {
+      const max = box.scrollWidth - box.clientWidth
+      host.dataset.scroll =
+        max <= 1 ? "none" : box.scrollLeft <= 1 ? "start" : box.scrollLeft >= max - 1 ? "end" : "mid"
+    }
+    sync()
+    box.addEventListener("scroll", sync, { passive: true })
+    const ro = new ResizeObserver(sync)
+    ro.observe(box)
+    if (box.firstElementChild) ro.observe(box.firstElementChild)
+    return () => {
+      box.removeEventListener("scroll", sync)
+      ro.disconnect()
+    }
+  }, [])
   return (
     <div
+      ref={outer}
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      data-scroll="none"
+      data-sticky-first={stickyFirst ? "" : undefined}
+      className="table-scroll relative w-full"
     >
+      <div ref={inner} className={cn("overflow-x-auto", className)}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Table({
+  className,
+  stickyFirst,
+  ...props
+}: React.ComponentProps<"table"> & { stickyFirst?: boolean }) {
+  return (
+    <TableScroll stickyFirst={stickyFirst}>
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
         {...props}
       />
-    </div>
+    </TableScroll>
   )
 }
 
@@ -106,6 +159,7 @@ function TableCaption({
 
 export {
   Table,
+  TableScroll,
   TableHeader,
   TableBody,
   TableFooter,

@@ -20,7 +20,7 @@ const PLACEMENTS: readonly string[] = AFFAIRS_TAB_PLACEMENTS.assignments
 
 /**
  * 公告與作業的「作業」分頁（C 階段規格② §2.2）：文件繳交與專題需求，接既有的 `AffairsList`（舊 `?placement=submission|requirement`）。
- * 說明句以下的內容歸規格①；按鈕文字 C2-03 再改。
+ * 說明句以下的內容歸規格①。
  */
 export default async function AffairsAssignmentsPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -75,13 +75,13 @@ export default async function AffairsAssignmentsPage({ searchParams }: { searchP
           ))}
         </nav>
       ) : null}
-      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有作業。按「新增項目」建立第一筆。" />
+      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有作業。按「新增作業」建立第一筆。" />
     </>,
     <>
       <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
         完整編輯器
       </LinkButton>
-      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} />
+      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} label="新增作業" placement="submission" />
     </>,
   )
 }

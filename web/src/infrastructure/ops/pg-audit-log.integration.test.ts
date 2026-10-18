@@ -44,6 +44,7 @@ beforeAll(async () => {
   }
   const admin = await user('admin-al', '系辦甲')
   const teacher = await user('teacher-al', '陳老師')
+  await db.sql('update user_profiles set avatar_preset = 21 where user_id = $1', [teacher])
   const student = await user('student-al', '   ')
   const applicant = await user('applicant-al', '林申請')
   const application = await db.sql(
@@ -173,6 +174,16 @@ describe('readAuditLog', () => {
     expect(byAction['account.disable']).toMatchObject({ actorName: '系辦甲', targetName: 'student-al', reason: '休學', role: 'admin' })
     expect(byAction['advisor.claim']).toMatchObject({ actorName: '陳老師', targetName: '115 紀錄（115-AL）', cohortCode: '115-AL' })
     expect(byAction['account.seed_first_admin']).toMatchObject({ actorName: null, targetName: '系辦甲' })
+  })
+
+  it('操作者頭像（C3-02）：同一句帶出帳號 id 與頭像兩欄；系統沒有操作者，三欄都是 null', async () => {
+    const log = await readAuditLog(app, 'all', null, NOW)
+    const byAction = Object.fromEntries(log.entries.map((e) => [e.action, e]))
+    expect(byAction['advisor.claim']).toMatchObject({ actorAvatarPreset: 21, actorAvatarFileId: null })
+    expect(byAction['advisor.claim']!.actorUserId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(byAction['account.disable']).toMatchObject({ actorAvatarPreset: null, actorAvatarFileId: null })
+    expect(byAction['account.disable']!.actorUserId).not.toBe(byAction['advisor.claim']!.actorUserId)
+    expect(byAction['account.seed_first_admin']).toMatchObject({ actorUserId: null, actorAvatarPreset: null, actorAvatarFileId: null })
   })
 
   it('回傳內容沒有 payload', async () => {

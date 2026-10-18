@@ -28,6 +28,7 @@ test('學生登入：首頁頁尾「使用」欄最後是隱私權政策', async
   await page.context().clearCookies()
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   await page.goto('/')
-  await expect(page.getByRole('navigation', { name: '頁尾：使用' }).getByRole('link', { name: '我的帳號' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '頁尾：使用' }).getByRole('link', { name: '我的後台' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '頁尾：使用' }).getByRole('link', { name: '我的帳號' })).toHaveCount(0)
   await expectPrivacyLast(page)
 })

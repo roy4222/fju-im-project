@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGradeCsv, DEFAULT_GRADE_EXPORT_FILTER, gradeExportHeader, gradeExportRows, unassignedSlots } from '@/application/grading/export'
+import { buildGradeCsv, DEFAULT_GRADE_EXPORT_FILTER, gradeExportHeader, gradeExportRows, unassignedSlotDetails, unassignedSlots } from '@/application/grading/export'
 import { computeGroupResult, type CountedEvaluation } from '@/application/grading/gradebook'
 import type { Gradebook, GradebookGroup } from '@/application/grading/ports'
 import type { SchemeStage } from '@/application/grading/scheme'
@@ -139,5 +139,15 @@ describe('解散的組別', () => {
     expect(row[header.indexOf('期中報告 狀態')]).toBe('已完成（v1：期中 60%）')
     expect(row[header.indexOf('期末 狀態')]).toBe('已完成（v1：期末 40%）')
     expect(row[header.indexOf('最終成績（計算）')]).toBe('84.00')
+  })
+})
+
+describe('unassignedSlotDetails（C1-04 AC-30：成績表做成連結）', () => {
+  it('結構版回項目代號、名稱、缺幾位；字串版照舊（CSV 註記不變）；解散組兩個都空', () => {
+    const active = group('G01', { mid: 2 }, [])
+    expect(unassignedSlotDetails(active)).toEqual([{ stageKey: 'mid', stageName: '期中', short: 2 }])
+    expect(unassignedSlotDetails(active, 'fin')).toEqual([])
+    expect(unassignedSlots(active)).toEqual(unassignedSlotDetails(active).map((d) => `${d.stageName}：尚缺 ${d.short} 位評分老師（待指派）`))
+    expect(unassignedSlotDetails({ ...active, dissolved: true })).toEqual([])
   })
 })

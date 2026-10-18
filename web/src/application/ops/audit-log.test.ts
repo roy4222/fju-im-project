@@ -9,6 +9,7 @@ import {
   auditActionLabel,
   auditActionTitle,
   hasAuditActionLabel,
+  auditActorAvatar,
   auditWhoOf,
   describeAuditTarget,
   normalizeAuditWho,
@@ -391,5 +392,28 @@ describe('操作紀錄的顯示規則（票 36）', () => {
         cohortName: '115 學年',
       }),
     ).toBe('屆別・115 學年（115）')
+  })
+})
+
+describe('操作者頭像（C3 §2.3）', () => {
+  const base = { actorName: '王小明', actorAvatarPreset: 7, actorAvatarFileId: null }
+  const id = '11111111-1111-4111-8111-111111111111'
+
+  it('找得到帳號的使用者：帶出 id、姓名與頭像兩欄', () => {
+    expect(auditActorAvatar({ ...base, actorKind: 'user', actorUserId: id })).toEqual({
+      id,
+      name: '王小明',
+      avatarPreset: 7,
+      avatarFileId: null,
+    })
+    expect(
+      auditActorAvatar({ ...base, actorKind: 'user', actorUserId: id, actorAvatarPreset: null, actorAvatarFileId: 'f1' }),
+    ).toMatchObject({ avatarPreset: null, avatarFileId: 'f1' })
+  })
+
+  it('系統、背景工作、找不到帳號：沒有頭像（畫面維持純文字）', () => {
+    expect(auditActorAvatar({ ...base, actorKind: 'system', actorUserId: null })).toBeNull()
+    expect(auditActorAvatar({ ...base, actorKind: 'worker', actorUserId: null })).toBeNull()
+    expect(auditActorAvatar({ ...base, actorKind: 'user', actorUserId: null, actorName: null })).toBeNull()
   })
 })

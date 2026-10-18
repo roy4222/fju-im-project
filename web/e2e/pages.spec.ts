@@ -157,6 +157,38 @@ test.describe('以 S01（學生）', () => {
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
+    // C2-13：帳號頁在後台外殼裡（學生側欄、沒有前台主導覽），三張卡、沒有「帳號狀態」卡。
+    await expect(page.getByRole('navigation', { name: '後台導覽' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).toHaveCount(0)
+    for (const name of ['頭像', '基本資料']) await expect(page.getByRole('region', { name })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '登入方式' })).toBeVisible()
+    await expect(page.getByText('帳號狀態')).toHaveCount(0)
+  })
+
+  test('帳號頁跟後台同一套深淺色：後台是深色進來仍深色、在帳號頁切換會記住、回前台不殘留（C2-13）', async ({ page }) => {
+    const isDark = () => page.evaluate(() => document.documentElement.classList.contains('dark'))
+    await signInAs(page, 'student')
+    await page.goto('/dashboard/student')
+    await page.evaluate(() => localStorage.setItem('fju-dash-theme', 'dark'))
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ① 後台已是深色 → 從選單進帳號頁仍是深色，按鈕文字對應目前狀態。
+    await page.goto('/account')
+    await expect.poll(isDark).toBe(true)
+    await expect(page.getByRole('button', { name: '切換為淺色' })).toBeVisible()
+
+    // ② 在帳號頁切成淺色再切回深色 → 重整仍是深色。
+    await page.getByRole('button', { name: '切換為淺色' }).click()
+    await expect.poll(isDark).toBe(false)
+    await page.getByRole('button', { name: '切換為深色' }).click()
+    await expect.poll(isDark).toBe(true)
+    await page.reload()
+    await expect.poll(isDark).toBe(true)
+
+    // ③ 離開到前台 → 深色不殘留。
+    await page.goto('/')
+    await expect.poll(isDark).toBe(false)
   })
 
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
@@ -186,15 +218,51 @@ test.describe('以 T1（老師）', () => {
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
   })
 
-  test('公開首頁的「近期截止」不斷言「沒有」：老師的截止在後台，指回後台首頁', async ({ page }) => {
+  test('公開首頁沒有「我的工作」：右上角只有一顆「我的後台」指回老師後台（C2-14）', async ({ page }) => {
     await signInAs(page, 'teacher')
     await page.goto('/')
-    const work = page.getByRole('region', { name: '我的工作' })
-    await expect(work.getByTestId('home-deadlines-elsewhere').getByRole('link', { name: '我的後台' })).toHaveAttribute(
-      'href',
-      '/dashboard/teacher',
-    )
-    await expect(work).not.toContainText('近期沒有要截止的項目')
+    await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+    await expect(page.getByTestId('home-deadlines-elsewhere')).toHaveCount(0)
+    await expect(page.getByRole('banner').getByRole('link', { name: '我的後台' })).toHaveAttribute('href', '/dashboard/teacher')
+  })
+})
+
+/** `main` 裡每個區塊的名稱（`aria-label` 或 `aria-labelledby` 指到的標題），照頁面順序。 */
+async function mainRegionNames(page: Page): Promise<string[]> {
+  return page.locator('main section').evaluateAll((sections) =>
+    sections
+      .map((s) => s.getAttribute('aria-label') ?? document.getElementById(s.getAttribute('aria-labelledby') ?? '')?.textContent?.trim() ?? '')
+      .filter(Boolean),
+  )
+}
+
+test.describe('AC-C2-33：登入後的前台跟訪客一樣', () => {
+  test('學生的首頁區塊＝訪客的＋「歷屆專題一覽」；右上角只有「我的後台」，沒有頭像選單；沒有 CSP 違規', async ({ page }) => {
+    await page.goto('/')
+    const guest = await mainRegionNames(page)
+    expect(guest).not.toContain('我的工作')
+
+    const csp: string[] = []
+    page.on('console', (m) => {
+      if (/Content Security Policy|Content-Security-Policy/i.test(m.text())) csp.push(m.text())
+    })
+    await signInAs(page, 'student')
+    await page.goto('/')
+    const student = await mainRegionNames(page)
+    expect(student.filter((n) => !guest.includes(n))).toEqual(['歷屆專題一覽'])
+    expect(guest.filter((n) => !student.includes(n))).toEqual([])
+
+    const nav = page.getByRole('navigation', { name: '主導覽', exact: true })
+    await expect(nav.getByRole('link', { name: '歷屆專題', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: '產學合作' })).toBeVisible()
+    const banner = page.getByRole('banner')
+    await expect(banner.getByRole('link', { name: '我的後台' })).toHaveAttribute('href', '/dashboard/student')
+    await expect(page.getByRole('button', { name: '帳號選單' })).toHaveCount(0)
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(page.getByRole('menuitem')).toHaveCount(0)
+    // 頁首唯一的圖是系網 logo，沒有頭像。
+    await expect(banner.locator('img')).toHaveCount(1)
+    expect(csp).toEqual([])
   })
 })
 

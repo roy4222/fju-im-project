@@ -57,8 +57,8 @@ async function asAdmin(page: Page) {
 /** 三步驟快速建立一章公開的規則：發布，或在第 3 步「先存成草稿」。 */
 async function quickRule(page: Page, code: string, n: number, publish: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /專題規則/ }).check()
   await dialog.getByLabel('標題').fill(title(code, n))
   await dialog.getByLabel('誰看得到').selectOption('public')

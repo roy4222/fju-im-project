@@ -1,14 +1,13 @@
 'use client'
-import { IconKey, IconPlus } from '@tabler/icons-react'
+import { IconKey } from '@tabler/icons-react'
 import { useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import type { AccountLookup, TeacherAccountReceipt, VerificationMethod } from '@/application/accounts'
+import type { AccountLookup, VerificationMethod } from '@/application/accounts'
 import { cn } from '@/shared/cn'
-import { createTeacherAction, issueTemporaryPasswordAction, lookupAccountAction } from './actions'
+import { issueTemporaryPasswordAction, lookupAccountAction } from './actions'
 
 /**
- * 新增老師、發臨時密碼兩個對話框（票 8；原型 `/dashboard/admin/accounts` 的「新增帳號」與
- * 「重設臨時密碼」）。
+ * 發臨時密碼對話框（票 8；原型 `/dashboard/admin/accounts` 的「重設臨時密碼」），以及它跟「新增成員」
+ * （`new-member-dialog.tsx`）共用的核實欄位、臨時密碼框、對話框外觀（C2-07 從 `teacher-dialogs.tsx` 拆出）。
  *
  * 規則都在伺服器（核實方式必選、Email 不能重複、不能替自己發、停用的帳號不能發）；
  * 這裡只做「還沒選核實方式就不送」這種省一次來回的提示。
@@ -34,19 +33,19 @@ function verificationKind(target: Pick<AccountLookup, 'roles'>): VerificationKin
   return !target.roles.includes('student') && (target.roles.includes('teacher') || target.roles.includes('admin')) ? 'teacher' : 'student'
 }
 
-const BUTTON =
+export const BUTTON =
   // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
   'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
-const PRIMARY = 'btn-fju rounded-[4px]'
-const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
-const INPUT =
+export const PRIMARY = 'btn-fju rounded-[4px]'
+export const SECONDARY = 'border border-border bg-background text-foreground hover:bg-muted'
+export const INPUT =
   'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
-const DIALOG =
+export const DIALOG =
   'm-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border-0 bg-popover p-0 whitespace-normal ring-1 ring-foreground/10 backdrop:bg-black/10 backdrop:backdrop-blur-xs'
 
-type FieldError = { message: string; field?: string } | null
+export type FieldError = { message: string; field?: string } | null
 
-function ErrorNote({ error }: { error: FieldError }) {
+export function ErrorNote({ error }: { error: FieldError }) {
   if (!error) return null
   return (
     <p role="alert" className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
@@ -56,7 +55,7 @@ function ErrorNote({ error }: { error: FieldError }) {
 }
 
 /** 核實方式（跟註冊核准同一套選項；班代協助聯絡不能單獨作為依據，所以沒有那個選項）。對象是老師時換成不提學生證的文字。 */
-function VerificationFields({
+export function VerificationFields({
   name,
   kind,
   labels,
@@ -107,7 +106,7 @@ function VerificationFields({
 }
 
 /** 臨時密碼只顯示一次的那一格。 */
-function SecretBox({ secret }: { secret: string }) {
+export function SecretBox({ secret }: { secret: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-4 py-3">
@@ -127,7 +126,7 @@ function SecretBox({ secret }: { secret: string }) {
   )
 }
 
-function useDialog() {
+export function useDialog() {
   const ref = useRef<HTMLDialogElement>(null)
   // 關著的時候不渲染內容：臨時密碼只能活在「開著的那一次」。
   const [isOpen, setIsOpen] = useState(false)
@@ -145,204 +144,6 @@ function useDialog() {
       setIsOpen(false)
     },
   }
-}
-
-// ── 新增老師 ────────────────────────────────────────────────────────────────
-
-type Mode = 'direct' | 'preauthorize'
-
-export function NewTeacherDialog({ labels }: { labels: VerificationLabels }) {
-  const router = useRouter()
-  const dialog = useDialog()
-  const [mode, setMode] = useState<Mode>('direct')
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [method, setMethod] = useState<VerificationMethod | ''>('')
-  const [note, setNote] = useState('')
-  const [error, setError] = useState<FieldError>(null)
-  const [busy, setBusy] = useState(false)
-  const [requestId, setRequestId] = useState('')
-  const [done, setDone] = useState<{ account: TeacherAccountReceipt; temporaryPassword: string | null } | null>(null)
-
-  function open() {
-    setMode('direct')
-    setName('')
-    setEmail('')
-    setMethod('')
-    setNote('')
-    setError(null)
-    setDone(null)
-    setRequestId(crypto.randomUUID())
-    dialog.show()
-  }
-
-  function onClosed() {
-    dialog.onClosed()
-    // 臨時密碼跟著對話框一起丟掉。
-    if (done) {
-      setDone(null)
-      router.refresh()
-    }
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (mode === 'direct' && !method) {
-      setError({ message: '直接新增會發臨時密碼，請選擇怎麼確認是本人。', field: 'verificationMethod' })
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await createTeacherAction({
-        mode,
-        email,
-        name,
-        verificationMethod: mode === 'direct' ? method : '',
-        verificationNote: mode === 'direct' ? note : '',
-        requestId,
-      })
-      if (result.ok) setDone(result.data)
-      else setError({ message: result.message, field: result.field })
-    } catch {
-      setError({ message: '結果未知：可能已經建好了。請再按一次（不會重複建立），或關閉後重新整理。' })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <button type="button" onClick={open} className={cn(BUTTON, PRIMARY)}>
-        <IconPlus aria-hidden />
-        新增老師
-      </button>
-      <dialog ref={dialog.ref} onClose={onClosed} aria-label="新增老師" className={DIALOG}>
-        <div className="max-h-[85vh] overflow-y-auto p-5">
-          {!dialog.isOpen ? null : done ? (
-            <div className="space-y-3" role="status">
-              <p className="inline-block rounded-full bg-primary-subtle px-3 py-1 text-sm font-medium text-primary-on-subtle">
-                {done.account.mode === 'direct' ? '已建立' : '已預先建立老師帳號'}
-              </p>
-              <h2 className="text-lg font-extrabold text-foreground">{done.account.name ?? done.account.email}</h2>
-              {done.account.mode === 'preauthorize' ? (
-                <p className="text-sm text-muted-foreground">
-                  {done.account.email} 已經保留給這位老師，別人不能拿它註冊。老師第一次登入時補姓名與聯絡資料；
-                  需要用密碼登入時，按「發臨時密碼」核發。
-                </p>
-              ) : done.temporaryPassword ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    臨時密碼<strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。請交給老師本人；
-                    老師用 {done.account.email} 登入後必須先改密碼，再補聯絡資料。
-                  </p>
-                  <SecretBox secret={done.temporaryPassword} />
-                </>
-              ) : (
-                <p role="alert" className="rounded-lg bg-primary-subtle px-3 py-2 text-sm text-primary-on-subtle">
-                  帳號已經建好了，但這組臨時密碼無法再顯示。請關閉後按「發臨時密碼」重新核發（舊的那組就不能再登入）。
-                </p>
-              )}
-              <div className="flex justify-end">
-                <button type="button" onClick={dialog.close} className={cn(BUTTON, SECONDARY)}>
-                  關閉
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="space-y-4" noValidate>
-              <div>
-                <h2 className="text-lg font-extrabold text-foreground">新增老師</h2>
-                <p className="mt-1 text-sm text-muted-foreground">老師不需要學號，也不用等審核。系統不存可查看的密碼。</p>
-              </div>
-
-              <fieldset className="grid gap-2 sm:grid-cols-2">
-                <legend className="mb-1 text-sm font-medium text-foreground">新增方式</legend>
-                {(
-                  [
-                    ['direct', '直接新增', '現在發一次性臨時密碼，老師用 Email＋密碼登入'],
-                    ['preauthorize', '只用 Email 預先建立', '先保留這個 Email，老師之後登入再補資料'],
-                  ] as const
-                ).map(([value, label, hint]) => (
-                  <label
-                    key={value}
-                    className={cn(
-                      'flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm',
-                      mode === value ? 'border-primary bg-primary-subtle/40' : 'border-border',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 font-medium text-foreground">
-                      <input type="radio" name="teacher-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />
-                      {label}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{hint}</span>
-                  </label>
-                ))}
-              </fieldset>
-
-              <label className="block text-sm font-medium text-foreground">
-                登入 Email
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    setError(null)
-                  }}
-                  aria-invalid={error?.field === 'email' || undefined}
-                  autoComplete="off"
-                  className={INPUT}
-                />
-              </label>
-              <label className="block text-sm font-medium text-foreground">
-                姓名{mode === 'preauthorize' ? <span className="font-normal text-muted-foreground">・選填，老師登入後會自己補</span> : null}
-                <input
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value)
-                    setError(null)
-                  }}
-                  aria-invalid={error?.field === 'name' || undefined}
-                  autoComplete="off"
-                  className={INPUT}
-                />
-              </label>
-
-              {mode === 'direct' ? (
-                <VerificationFields
-                  name="teacher-method"
-                  kind="teacher"
-                  labels={labels}
-                  method={method}
-                  note={note}
-                  onMethod={(m) => {
-                    setMethod(m)
-                    setError(null)
-                  }}
-                  onNote={(v) => {
-                    setNote(v)
-                    setError(null)
-                  }}
-                  error={error}
-                />
-              ) : null}
-
-              <ErrorNote error={error} />
-
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={dialog.close} className={cn(BUTTON, SECONDARY)} disabled={busy}>
-                  取消
-                </button>
-                <button type="submit" className={cn(BUTTON, PRIMARY)} disabled={busy}>
-                  {busy ? '處理中…' : mode === 'direct' ? '建立並產生臨時密碼' : '預先建立帳號'}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      </dialog>
-    </>
-  )
 }
 
 // ── 發臨時密碼 ──────────────────────────────────────────────────────────────

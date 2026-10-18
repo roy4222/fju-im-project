@@ -8,7 +8,7 @@
 | `perf:sql` | 每頁送出幾句 SQL、分身分／徽章／頁面三類 | 量測庫＋指向它的 `next start` |
 | `perf:bundle` | 每路由 First Load JS（gzip）對 `budget.json` | `pnpm -C web build`（預設 Turbopack） |
 | `perf:lab` | LCP／INP／CLS／TTFB 的 p75（CPU×4） | 量測庫＋app；Playwright Chromium |
-| `perf:trail` | Pixel Trail 的主執行緒占用與長任務 | 同上 |
+| `perf:trail` | 「現在」橫幅 Pixel Card（規格④ C4-02 取代 Pixel Trail）的主執行緒占用與長任務 | 同上 |
 
 ## 1. 建隔離量測庫（可重建）
 
@@ -67,7 +67,7 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 ```
 
 - `perf:lab`：量 `lab-routes.json` 中 `as` 相同的路由；每路由暖機 1 次再量 N 次（新 context、CPU×4），印 p75。INP 有兩個數：click 事件時長（Event Timing，短於 16 ms 沒有紀錄時取 `first-input`）與「點下去到新頁 `main h1` 出現」。量不到的格 `N/A`、exit 1。✓／✗ 只是和 §7.2 目標對照。
-- `perf:trail`：首頁 `section.hero` 上以固定 8 字路徑掃 N 秒，Trail 開與對照組（`reducedMotion: reduce`）各一次；判定 §7.5（Trail 開 `scriptPct ≤ 20`、`longTasks === 0`；對照組 `scriptPct ≤ 2`），首頁沒掛 Trail 也算失敗。
+- `perf:trail`：首頁 `section.hero` 上以固定 8 字路徑掃 N 秒，Pixel 開與對照組（`reducedMotion: reduce`）各一次；判定 §7.5（Pixel 開 `scriptPct ≤ 20`、`longTasks === 0`；對照組 `scriptPct ≤ 2`）。Pixel 開那組要找得到 `section.hero [data-testid=hero-pixel]` 而且 `data-running=1`（常駐閃在跑；規格④ §2.3 不准關常駐閃達標），否則算失敗。
 - 兩者的數字跟機器與當下負載有關，不同機器不能直接比；`perf:sql`、`perf:bundle` 的數字則與機器無關。
 
 ## 5. 基準檔

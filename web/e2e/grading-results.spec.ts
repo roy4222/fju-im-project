@@ -351,7 +351,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await page.reload()
   await fill()
   await expect(
-    page.getByRole('status').filter({ hasText: `G01「期中」${NAMES[0]} 老師 → ${NAMES[3]} 老師（替換評分老師、重新評分；每組需要 2 位老師評分）` }),
+    page.getByRole('status').filter({ hasText: `G01「期中」${NAMES[0]} 老師 → ${NAMES[3]} 老師（替換評分老師、重新評分；要 2 位老師評）` }),
   ).toBeVisible()
 
   await openGrading(page)
@@ -381,7 +381,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await signIn(page, teachers[3]!)
   await expect(async () => {
     await page.goto('/dashboard/teacher/inbox')
-    await expect(page.getByRole('link', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByRole('button', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   await expect(page.getByTestId('inbox-item').filter({ hasText: '被移出' })).toHaveCount(0)
   await signIn(page, teachers[2]!)

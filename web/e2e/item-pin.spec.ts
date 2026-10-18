@@ -164,8 +164,8 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
 
   // 發布中的榮譽 H：三步驟對話框選「榮譽／競賽」。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /榮譽／競賽/ }).check()
   await dialog.getByLabel('標題').fill(H)
   await dialog.getByRole('button', { name: '下一步' }).click()

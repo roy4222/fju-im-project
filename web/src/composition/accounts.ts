@@ -9,12 +9,13 @@ import type {
   TeacherSetupCommand,
 } from '@/application/accounts'
 import { accountAdminDenied, normalizeExportSelection } from '@/application/accounts'
-import type { AccountDirectoryCommand } from '@/application/accounts'
+import type { AccountDirectoryCommand, ProfileEditCommand } from '@/application/accounts'
 import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
 import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
 import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
+import { PgProfileEditCommand } from '@/infrastructure/accounts/pg-profile-edit'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
@@ -22,7 +23,7 @@ import { isRegistrationOpen } from '@/infrastructure/auth/registration-switch'
 import { RATE_LIMITS } from '@/shared/rate-limit'
 import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
-import { getCohortStatusQuery } from '@/composition/cohorts'
+import { getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import { getLeaderSuccessionHook } from '@/composition/groups'
 import { getMailer, mailSiteUrl } from '@/composition/mail'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
@@ -98,6 +99,14 @@ export function getAccountCommand(): AccountCommand {
     db: getPool,
   })
   return accountCommand
+}
+
+/** 帳號列「編輯」：姓名、學號、調屆、學生↔老師互轉（C2-08）。 */
+let profileEditCommand: ProfileEditCommand | undefined
+
+export function getProfileEditCommand(): ProfileEditCommand {
+  profileEditCommand ??= new PgProfileEditCommand({ audit: getAuditWriter(), ledger: getOperationLedger(), db: getPool, businessClock: getBusinessClock() })
+  return profileEditCommand
 }
 
 /** 老師第一次登入補資料（票 8）。 */

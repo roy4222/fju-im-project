@@ -7,6 +7,8 @@
 export type {
   AudienceKind,
   CompetitionStatus,
+  ConsentMode,
+  ConsentPurpose,
   EditablePlacement,
   FieldType,
   FileRules,
@@ -30,10 +32,14 @@ export {
   AUDIENCE_KINDS,
   AUDIENCE_LABEL,
   canViewItem,
+  CATEGORY_MAX_LENGTH,
   COLLECTION_AUDIENCES,
   collectsResponses,
   COMPETITION_CATEGORY,
   competitionStatus,
+  CONSENT_MODES,
+  CONSENT_PURPOSE_LABEL,
+  CONSENT_PURPOSES,
   describeDeadline,
   describeFailedChecks,
   EDITABLE_PLACEMENTS,
@@ -45,6 +51,7 @@ export {
   FILE_FIELD_MAX_MIB,
   INPUT_FIELD_TYPES,
   isAdmin,
+  isConsentForm,
   isInputField,
   isUuid,
   ITEM_STATUS_LABEL,
@@ -102,12 +109,17 @@ export type {
   RecipientPerson,
   RecipientPreview,
   RecipientQueryInput,
+  RenameCategoryReceipt,
   ResponsePresence,
   RuleOrderReceipt,
+  RulesReorderReceipt,
   SaveReceipt,
   StartItemUploadInput,
   UpdateChange,
   UpdateReceipt,
 } from '@/application/items/ports'
+export type { ConsentItem, ConsentPublished, ConsentPublishHook, ConsentSkip } from '@/application/items/consent-hook'
+export { noopConsentPublishHook } from '@/application/items/consent-hook'
+export { formPlacementOf, storedPlacementOf } from '@/application/items/placements'
 export type { ItemTemplate } from '@/application/items/templates'
 export { ITEM_TEMPLATES, PROJECT_REQUIREMENT_TEMPLATE } from '@/application/items/templates'
