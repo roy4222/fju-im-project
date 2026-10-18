@@ -1,7 +1,7 @@
 'use client'
 import './gantt.css'
 import dynamic from 'next/dynamic'
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { mediaQueryStore } from '@/app/_ui/fx/media-query'
 import { cn } from '@/shared/cn'
 import {
@@ -736,7 +736,16 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                       </button>
                     )
                     // 兩端把手是橫條外面的兄弟 button（Tab 順序：開始日把手 → 橫條 → 結束日把手）。
-                    return draggable ? [edgeButton('start'), bar, edgeButton('end')] : bar
+                    // 外層一定要帶 key：沒帶 key 的陣列是照位置對，別條活動換列時這條會被重新掛載（焦點、keyup 都掉）。
+                    return draggable ? (
+                      <Fragment key={a.id}>
+                        {edgeButton('start')}
+                        {bar}
+                        {edgeButton('end')}
+                      </Fragment>
+                    ) : (
+                      bar
+                    )
                   })}
                 </div>
               </div>
