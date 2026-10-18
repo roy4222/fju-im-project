@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconAlertTriangle, IconCalendarEvent, IconCalendarOff, IconClock } from '@tabler/icons-react'
-import { BTN_OUTLINE, PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
+import { IconAlertTriangle, IconCalendarEvent, IconCalendarOff } from '@tabler/icons-react'
+import { PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { EmptyState } from '@/app/_ui/primitives'
@@ -24,7 +24,6 @@ import {
   ACTIVITY_DESCRIPTION_MAX_LENGTH,
   ACTIVITY_TITLE_MAX_LENGTH,
   activityFormValues,
-  businessClockOverrideEnabled,
   COHORT_STATUS_LABEL,
   cohortLabel,
   describeStagePosition,
@@ -38,12 +37,11 @@ import {
   stageLastDate,
   stagePositionAt,
 } from '@/composition/cohorts'
-import { cn } from '@/shared/cn'
 import { formatTaipeiDate, formatTaipeiSecond, taipeiDayEndExclusive, taipeiDayStart } from '@/shared/time'
 
 const DAY = 86_400_000
 
-export const metadata = { title: '時間軸｜資管系專題平台' }
+export const metadata = { title: '專題時程｜資管系專題平台' }
 
 /**
  * 時間軸設定（票 11；原型 `/dashboard/admin/timeline`）。
@@ -53,6 +51,7 @@ export const metadata = { title: '時間軸｜資管系專題平台' }
  * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」。
  * 刪除已取消的活動（第三波 W11）放在頁面最底下的「危險操作」區（§9 規則 1），不跟改期、取消並列。
  * AD-12：掛「設定」分頁列（新增活動放分頁列右側），三個 Panel 拿掉說明句，「系統時間」改「目前時間（臺灣）」。
+ * C2-06（C2 設計方案 §4.2）：分頁標籤「專題時程」；拿掉「調整模擬時鐘」連結——測試用時間直接打 `/dashboard/admin/clock`。
  */
 export default async function AdminTimelinePage({
   searchParams,
@@ -194,13 +193,6 @@ export default async function AdminTimelinePage({
           nameMaxLength: STAGE_NAME_MAX_LENGTH,
           descriptionMaxLength: STAGE_DESCRIPTION_MAX_LENGTH,
         }}
-        extraActions={
-          businessClockOverrideEnabled() ? (
-            <Link href="/dashboard/admin/clock" className={cn(BTN_OUTLINE, 'h-11 px-3.5')}>
-              <IconClock aria-hidden /> 調整模擬時鐘
-            </Link>
-          ) : null
-        }
         empty={
           <EmptyState
             title="這一屆還沒設定階段"
