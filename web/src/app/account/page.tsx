@@ -2,12 +2,14 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { requireSignedIn } from '@/app/_ui/guard'
+import { homeFor, requireSignedIn } from '@/app/_ui/guard'
 import { googleLinkErrorMessage } from '@/app/_ui/oauth-messages'
-import { PublicCard, PublicPage, Tag } from '@/app/_ui/public-content'
+import { PageTitle } from '@/app/_ui/dashboard/primitives'
+import { PublicCard, Tag } from '@/app/_ui/public-content'
 import { AvatarPicker } from '@/app/_ui/avatar/avatar-picker'
 import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
-import { SiteShell } from '@/app/_ui/site-shell'
+import { DashboardShell } from '@/app/_ui/site-shell'
+import { ADMIN_NAV, STUDENT_NAV, TEACHER_NAV } from '@/app/dashboard/_nav'
 import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
 import { avatarUploadTicketAction, updateAvatarAction } from './actions'
 import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm, VerifyEmailForm } from './account-forms'
@@ -55,8 +57,6 @@ export default async function AccountPage({
           : null
   const needsSecondMethod = !me.loginMethods.google || !me.loginMethods.password
 
-  const roleLabels = (['admin', 'teacher', 'student'] as const).filter((r) => actorHasRole(actor, r)).map((r) => ROLE_LABEL[r])
-
   // 原型：基本資料是兩欄成對排列（唯讀的灰底框、可改的白底框混在同一個格裡）。
   // 系辦維護的欄位在前、登入 Email 接著，手機與聯絡 Email 在後（見 ContactForm 的 leadingCount）。
   const readOnlyCells = [
@@ -75,11 +75,15 @@ export default async function AccountPage({
   const readOnly = <>{readOnlyCells}</>
   const readOnlyCount = readOnlyCells.length
 
+  // 後台外殼依本人的首頁角色；側欄沒有哪一項亮（`current` 落在該後台底下但不是任何一項）。
+  const home = homeFor(actor)
+  const shell = shellFor(home)
+
   return (
-    <SiteShell bare>
-      <PublicPage title="我的帳號" description="姓名、學號、系級與屆別由系辦維護；手機與聯絡 Email 可以自己改。">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-12">
-          <div className="flex min-w-0 flex-col gap-6">
+    <DashboardShell roleLabel={shell.roleLabel} items={shell.items} current={`${home}/account`}>
+      <div className="flex min-w-0 max-w-3xl flex-col gap-6">
+        <PageTitle title="我的帳號" description="姓名、學號、系級與屆別由系辦維護；手機與聯絡 Email 可以自己改。" />
+        <div className="flex min-w-0 flex-col gap-6">
             {notice ? (
               <p role="status" className="rounded-[10px] bg-primary-subtle px-4 py-3 text-sm font-semibold text-primary-on-subtle" data-testid="account-notice">
                 {notice}
@@ -207,24 +211,17 @@ export default async function AccountPage({
                 </p>
               ) : null}
             </PublicCard>
-          </div>
-
-          <aside className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2 rounded-xl bg-secondary p-5.5 text-secondary-foreground">
-              <p className="font-bold text-foreground">帳號狀態</p>
-              <Tag tone="ink" className="self-start">
-                已開通{roleLabels.length > 0 ? `・${roleLabels.join('、')}` : ''}
-              </Tag>
-              <p className="text-[13px] leading-relaxed text-muted-foreground">角色由系辦授予；要改學號、姓名或屆別請聯絡系辦。</p>
-            </div>
-          </aside>
         </div>
-      </PublicPage>
-    </SiteShell>
+      </div>
+    </DashboardShell>
   )
 }
 
-const ROLE_LABEL = { admin: '系辦', teacher: '老師', student: '學生' } as const
+function shellFor(home: string) {
+  if (home === '/dashboard/admin') return { roleLabel: '系辦', items: ADMIN_NAV }
+  if (home === '/dashboard/teacher') return { roleLabel: '老師', items: TEACHER_NAV }
+  return { roleLabel: '學生', items: STUDENT_NAV }
+}
 
 /** 系辦維護的欄位（原型的唯讀輸入框樣子：灰底、不能改）。 */
 function ReadOnlyField({ label, value, hint, numeric = false }: { label: string; value: string; hint?: string; numeric?: boolean }) {

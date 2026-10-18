@@ -157,6 +157,12 @@ test.describe('以 S01（學生）', () => {
 
     expect((await page.goto('/account'))?.status()).toBe(200)
     await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
+    // C2-13：帳號頁在後台外殼裡（學生側欄、沒有前台主導覽），三張卡、沒有「帳號狀態」卡。
+    await expect(page.getByRole('navigation', { name: '後台導覽' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).toHaveCount(0)
+    for (const name of ['頭像', '基本資料']) await expect(page.getByRole('region', { name })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '登入方式' })).toBeVisible()
+    await expect(page.getByText('帳號狀態')).toHaveCount(0)
   })
 
   test('帳號頁的基本資料照原型兩欄成對（桌面同一列、手機依序堆疊）', async ({ page }) => {
