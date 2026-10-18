@@ -52,7 +52,8 @@ import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { requestPasswordReset } from '@/infrastructure/auth/wrapper'
 
-const MAIL_SETTLE_TIMEOUT_MS = 8000
+/** 等寄信結果的上限：要比 `brevo-mailer.ts` 的 `TIMEOUT_MS`（10 秒）長，Brevo 卡住時才等得到它判逾時。改那邊的逾時要一起對齊。 */
+const MAIL_SETTLE_TIMEOUT_MS = 12_000
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
@@ -441,11 +442,8 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
         if (row.status === 'failed') throw new Error('mail_failed')
         return
       }
-      if (Date.now() >= deadline) {
-        // 逾時還排著：信已交給寄送程序，當成寄出；完全沒有這封信＝根本沒寄。
-        if (row) return
-        throw new Error('mail_missing')
-      }
+      // 到上限還沒有結果（沒有這封信，或還在排隊）：不能說已寄出。
+      if (Date.now() >= deadline) throw new Error(row ? 'mail_unsettled' : 'mail_missing')
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
