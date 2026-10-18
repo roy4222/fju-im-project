@@ -1,13 +1,14 @@
 /* 換頁載入骨架（C4-06，設計方案 §7.2）：只有 html[data-nav-pending] 時顯示，蓋在頂列之下的內容區。 */
 .nav-skeleton {
+  display: none;
   position: fixed;
   inset: 5rem 0 0 0;
   z-index: 30;
   padding: 2rem 1.25rem;
-  background: color-mix(in oklab, var(--background) 82%, transparent);
+  background: color-mix(in oklab, var(--background) 90%, transparent);
 }
-/* Tailwind 的 [hidden] 是 !important，這裡要更明確的 !important 才蓋得過。 */
-html[data-nav-pending] .nav-skeleton { display: block !important; }
+/* 不用 hidden 屬性：Tailwind 的 [hidden] 在 cascade layer 裡帶 !important，沒分層的規則蓋不過。 */
+html[data-nav-pending] .nav-skeleton { display: block; }
 /* 後台：頂列 3.5rem；側欄（md 起才固定在左邊）露出來，收合時只讓出圖示寬。 */
 html:has(.dash-frame) .nav-skeleton { top: 3.5rem; }
 @media (min-width: 48rem) {

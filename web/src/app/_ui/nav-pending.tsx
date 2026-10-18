@@ -2,7 +2,7 @@
 
 import './nav-pending.css'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { navKey, shouldTrackClick } from '@/app/_ui/nav-pending-rules'
 
 /**
@@ -14,14 +14,21 @@ import { navKey, shouldTrackClick } from '@/app/_ui/nav-pending-rules'
  * - 快速連點：先清舊計時器再重新計時；返回／前進命中快取時鍵可能已提交，開始與 150 ms 時都比一次。
  * - 8 秒還沒到：不算完成，骨架留著並加「仍在載入……」＋重新整理連結。
  * - 骨架顯示只靠 `html[data-nav-pending]` 的 CSS；沒有 `style=`（CSP）。
+ * - 監聽與計時放在 Suspense 外：Suspense 裡的內容 hydrate 得晚，放裡面的話換頁完成前都沒在聽點擊。
  */
 
 const SHOW_DELAY_MS = 150
 const SLOW_AFTER_MS = 8000
 
-function NavPendingTracker() {
-  const pathname = usePathname()
+/** 只負責把查詢字串的變化往外報：`useSearchParams` 要在 Suspense 裡，而 Suspense 裡的東西可能很晚才 hydrate。 */
+function SearchKey({ onChange }: { onChange: () => void }) {
   const searchParams = useSearchParams()
+  useEffect(onChange, [searchParams, onChange])
+  return null
+}
+
+export function NavPending() {
+  const pathname = usePathname()
   const [slowHref, setSlowHref] = useState<string | null>(null)
   const committed = useRef<string | null>(null)
   const clearRef = useRef<() => void>(() => {})
@@ -71,15 +78,20 @@ function NavPendingTracker() {
     }
   }, [])
 
-  useEffect(() => {
-    // 讀網址本身（Next 在這之前已更新 history）：跟點擊時用的 `anchor.href` 同一種編碼。
+  // 讀網址本身（Next 在這之前已更新 history）：跟點擊時用的 `anchor.href` 同一種編碼。
+  const sync = useCallback(() => {
     const key = navKey(window.location.href)
     if (committed.current !== null && key !== committed.current) clearRef.current()
     committed.current = key
-  }, [pathname, searchParams])
+  }, [])
+  useEffect(sync, [pathname, sync])
 
   return (
-    <div className="nav-skeleton" role="status" aria-live="polite" hidden>
+    <div className="nav-skeleton" role="status" aria-live="polite">
+      {/* 邊界只包這個小元件，頁面在外面，3xx／404 狀態碼不受影響（AC-46）。 */}
+      <Suspense fallback={null}>
+        <SearchKey onChange={sync} />
+      </Suspense>
       <span className="sr-only">載入中</span>
       <div className="nav-skeleton-bars" aria-hidden>
         <span />
@@ -92,14 +104,5 @@ function NavPendingTracker() {
         </p>
       ) : null}
     </div>
-  )
-}
-
-/** `useSearchParams` 要在 Suspense 裡；邊界只包骨架本身，頁面在外面，狀態碼不受影響（AC-46）。 */
-export function NavPending() {
-  return (
-    <Suspense fallback={null}>
-      <NavPendingTracker />
-    </Suspense>
   )
 }
