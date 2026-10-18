@@ -210,6 +210,8 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   await stale.getByRole('button', { name: '重新載入清單' }).click()
 
   // 重新載入後核對新資料；名單比對到、屆別由名單決定 → 一鍵核准：不開視窗、不問怎麼確認是本人，列直接消失。
+  // 先等清單換成學生改過的資料（系級資管二乙），不然會拿舊版本再核准一次。
+  await expect(pendingRow(admin, S01.name)).toContainText('資管二乙')
   await expect(pendingRow(admin, S01.name)).toContainText('名單符合')
   await expect(admin.getByRole('dialog')).toHaveCount(0)
   await admin.getByRole('button', { name: `核准 ${S01.name}` }).click()

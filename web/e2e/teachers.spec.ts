@@ -67,6 +67,10 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   // 直接新增會發臨時密碼：沒選核實方式就不送。
   await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
   await expect(dialog.getByRole('alert')).toContainText('請選擇怎麼確認是本人')
+  // 選項只有人能選的三種：沒有自動開通與「系辦審核」那些系統值（AC-C2-15）。
+  await expect(dialog.getByRole('group', { name: /怎麼確認是本人/ }).getByRole('radio')).toHaveCount(3)
+  await expect(dialog).not.toContainText('自動開通')
+  await expect(dialog).not.toContainText('系辦審核')
   // 老師的核實方式不提學生證（T6 系5）。
   await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
   await expect(dialog).not.toContainText('學生證')
