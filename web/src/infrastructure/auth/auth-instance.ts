@@ -16,6 +16,7 @@ import {
   sessionRequirement,
 } from '@/infrastructure/auth/route-matrix'
 import { isInternalCall, runAsInternalCall } from '@/infrastructure/auth/internal-call'
+import { getIdentityCache, parseSessionCookie } from '@/infrastructure/auth/identity-cache'
 import {
   isFullyActive,
   isUsableSession,
@@ -1014,6 +1015,37 @@ function createAuth() {
         if (ctx.path.startsWith('/callback/') && ctx.context.newSession) {
           const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
           ctx.setCookie('fju_ga_login', 'google', { path: '/', sameSite: 'lax', maxAge: 60, httpOnly: false, secure })
+        }
+
+        // ── 身分快取（SH-B1；B 設計方案 §4.1，▶R-5） ─────────────────────────────────────────
+        //
+        // 每一次經過這裡（含 resolver 未命中時的 `auth.api.getSession`）都把套件**實際讀的** session cookie 名稱登記給快取：
+        // 快取只認這個名字，登記前不讀不存；名字不在預期內或前後不一致就永久停用（fail closed，見 identity-cache.ts）。
+        const cache = getIdentityCache()
+        cache.observeSessionCookieName(ctx.context.authCookies.sessionToken.name)
+
+        // 登出、改／重設密碼、撤 session → 丟身分快取。HTTP（`POST /api/auth/sign-out`）與 Server Action→`auth.api` 都經過這裡，
+        // 所以不放在 `wrapper.ts`。bust 一律傳 session token 或 userId，不傳 cookie 原始字串（同一張 cookie 有好幾種等價寫法）：
+        // - 登出：用套件自己的讀法（解碼＋驗簽）取這張 cookie 的 token，清掉這個 session 的所有寫法；驗不過就退回只解碼不驗簽的
+        //   token（多清無害）；連 cookie 都讀不出來（歧義）就整份清。
+        // - 撤單一 session：body 的 token，另外這個人全部也一併清（多清無害；本專案沒有呼叫端，不讓它比 r1 更窄）；撤全部 session、改密碼：這個人全部。
+        // - 重設密碼是靠信裡的 token、回應也不帶是誰（送出的人就算剛好登入著，也不一定是被重設的那個人），整份清掉（罕見路徑，寧可全清）。
+        const bustsIdentity = ['/sign-out', '/change-password', '/reset-password', '/revoke-session', '/revoke-sessions'].includes(ctx.path)
+        if (bustsIdentity && !looksLikeApiError(returned)) {
+          const cookieName = ctx.context.authCookies.sessionToken.name
+          const userId =
+            (returned as { user?: { id?: unknown } } | undefined)?.user?.id ?? ctx.context.session?.user.id
+          const bodyToken = ((ctx.body ?? {}) as { token?: unknown }).token
+          if (ctx.path === '/sign-out') {
+            const verified = await ctx.getSignedCookie(cookieName, ctx.context.secret)
+            const parsed = verified || parseSessionCookie((ctx.request?.headers ?? ctx.headers)?.get('cookie') ?? null, cookieName)?.token
+            if (parsed) cache.bustSession(parsed)
+            else cache.clear()
+          } else if (ctx.path === '/revoke-session' && typeof bodyToken === 'string' && bodyToken) {
+            cache.bustSession(bodyToken)
+            if (typeof userId === 'string' && userId) cache.bustUser(userId)
+          } else if (ctx.path !== '/reset-password' && typeof userId === 'string' && userId) cache.bustUser(userId)
+          else cache.clear()
         }
 
         if (returned instanceof APIError) return

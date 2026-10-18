@@ -28,6 +28,7 @@ import { isRequestId } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result, type SecretOnce } from '@/shared/result'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { internalAuth } from '@/infrastructure/auth/wrapper'
@@ -381,6 +382,8 @@ export class PgAccountCommand implements AccountCommand {
       receipt = { userId: row.id, verificationMethod: decision.value.verificationMethod, issuedAt: now.toISOString() }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: row.id } })
       await tx.query('commit')
+      // must-change 已生效：身分快取丟掉，下一次請求就被限制成只能改密碼（B 設計方案 §4.1）。
+      bustIdentity(row.id)
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
       throw error
@@ -404,6 +407,8 @@ export class PgAccountCommand implements AccountCommand {
       // 不回錯：舊登入已經被 must-change 限制成只能改密碼，而改密碼要知道這組新的臨時密碼。
       console.error('[account] 撤銷舊登入失敗（已被 must-change 限制）', errorName(error))
     }
+    // 舊 session 撤掉了：中間若有請求把舊 cookie 又存進身分快取，這裡再丟一次，舊 cookie 下一次就是未登入。
+    bustIdentity(input.userId)
     return secretOnce(password, now, input.requestId, actor.userId)
   }
 
@@ -427,8 +432,8 @@ export class PgAccountCommand implements AccountCommand {
    * 系統就一位管理員都不剩。先鎖同一組列，後到的那一個會等前一個 commit，醒來時重讀
    * （READ COMMITTED 的 `for update` 會重新評估條件），就看得到自己已經不是管理員，然後被擋下。
    *
-   * 不撤對方的 session：`ActorResolver` 每次請求重讀 `role_assignments`，而 cookie 快取關著
-   * （`auth-instance.ts`），套件每次也是重讀 `users.role`——取消的下一個請求就沒有管理員權限了。
+   * 不撤對方的 session：commit 後 bust 身分快取（`identity-cache.ts`），`ActorResolver` 下一次請求重讀
+   * `role_assignments`；套件的 cookie 快取關著（`auth-instance.ts`），每次也是重讀 `users.role`——取消的下一個請求就沒有管理員權限了。
    */
   async #changeAdminRole(
     actor: ResolvedActor,
@@ -536,6 +541,8 @@ export class PgAccountCommand implements AccountCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
       await tx.query('commit')
+      // 角色變了：身分快取丟掉，下一次請求就照新角色（B 設計方案 §4.1，▶R2-4）。
+      bustIdentity(target.userId)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
@@ -643,6 +650,8 @@ export class PgAccountCommand implements AccountCommand {
       }
       await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: target.userId } })
       await tx.query('commit')
+      // 補了角色（待審的一併開通）：本人若正登入在待審頁，下一次請求就照新角色（B 設計方案 §4.1）。
+      bustIdentity(target.userId)
       return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)

@@ -5,8 +5,11 @@ import { redirect } from 'next/navigation'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { googleLinkErrorMessage } from '@/app/_ui/oauth-messages'
 import { PublicCard, PublicPage, Tag } from '@/app/_ui/public-content'
+import { AvatarPicker } from '@/app/_ui/avatar/avatar-picker'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
+import { avatarUploadTicketAction, updateAvatarAction } from './actions'
 import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm, VerifyEmailForm } from './account-forms'
 
 export const metadata = { title: '我的帳號｜資管系專題平台', robots: { index: false } }
@@ -22,6 +25,9 @@ export const metadata = { title: '我的帳號｜資管系專題平台', robots:
  *   兩者都要 fresh session（10 分鐘內登入過）；不夠新就請人重新登入確認身分。
  * - 驗證 Email（VB-5，Q45）：登入 Email 還沒驗證的人（本批之前用密碼註冊的）在登入方式區多一顆「驗證 Email」；
  *   驗證之後，同一個 Email 的 Google 登入會直接連到這個帳號。已驗證的人看不到。
+ *
+ * - 頭像（VB-10，AC-VI-77）：目前的頭像加「上傳圖片／選預設圖」（SH-9 的 `AvatarPicker`）。沒選過就顯示依帳號 hash 固定的那張預設圖。
+ *   個人資料列還沒建立的人不能設定（用例會拒絕），只顯示目前的頭像。
  *
  * 與原型的差異：原型的「儲存變更」沒接、密碼列連到寄信重設；正式版寫 `user_profiles` 並回執，
  * 密碼列改成「更改密碼」（已有密碼）或「設定密碼」（只有 Google）。
@@ -84,6 +90,37 @@ export default async function AccountPage({
                 {linkError}
               </p>
             ) : null}
+
+            <PublicCard title="頭像" aria-label="頭像">
+              <div className="flex flex-wrap items-start gap-5" data-testid="account-avatar">
+                <UserAvatar
+                  user={{
+                    id: actor.userId,
+                    name: me.profile?.displayName ?? me.name,
+                    avatarPreset: actor.avatarPreset ?? null,
+                    avatarFileId: actor.avatarFileId ?? null,
+                  }}
+                  size={128}
+                  className="size-32"
+                />
+                <div className="min-w-0 flex-1 basis-64">
+                  {me.profile ? (
+                    <AvatarPicker
+                      current={{
+                        id: actor.userId,
+                        name: me.profile.displayName,
+                        avatarPreset: actor.avatarPreset ?? null,
+                        avatarFileId: actor.avatarFileId ?? null,
+                      }}
+                      uploadTicketAction={avatarUploadTicketAction}
+                      submitAction={updateAvatarAction}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">個人資料建立之後，這裡就能換頭像。</p>
+                  )}
+                </div>
+              </div>
+            </PublicCard>
 
             <PublicCard title="基本資料" aria-label="基本資料">
               {me.profile ? (

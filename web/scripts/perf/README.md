@@ -46,7 +46,8 @@ node --test 'scripts/perf/*.test.mjs'   # 判定邏輯的單元測試（scripts/
 - 每路由抓兩次（第一次暖機），只算第二次；owner 連線送 `PERFMARK BEGIN/END` 標記，從 log 取兩標記間 `fju_app` 的 `statement`／`execute`。log 來源：docker `docker logs <name>`、native 的 log 檔、或 `--log-cmd "<指令>"`。
 - 分類照 `signatures.json`（正規化後語句的**前綴**）：`identity`／`badge`／其餘 `page`，每條實際 SQL 都算一類，三類相加＝`total`。`duplicates` 只是診斷。`--dump <route>` 印出該路由每條正規化語句與分類——查詢文字改了，用它看新樣子、更新簽名。
 - 不跟隨轉址：`status` 是原始碼；不是 200 的列全標 `N/A`，exit 1。
-- `--expect`：`total > max`、`identity` 超過、`noDuplicate` 的簽名出現在 `duplicates`、或該簽名在這個路由一句都對不到（簽名過期）→ exit 1，並列出 `duplicates` 與前 5 大表。`sql-expect.json` 的 `identity` 是 A 階段目標（一般 7、老師頁 8），在 SH-P1 合併前用它驗一定失敗，這是預期的。
+- `--expect`：`total > max`、`identity` 超過、`noDuplicate` 的簽名出現在 `duplicates`、或該簽名在這個路由一句都對不到（簽名過期）→ exit 1，並列出 `duplicates` 與前 5 大表。
+- **身分快取開著跑**（SH-B1）：app 不要帶 `IDENTITY_CACHE_TTL_SECONDS`（預設 60 秒；啟動 log 印 `identity cache: ttl 60s`）。每路由第二次抓取時同一張 cookie 命中快取，身分 SQL 是 0，`sql-expect.json` 與兩個 `sql-expect.timeline-*.json` 的 `identity` 都是 0。用 `IDENTITY_CACHE_TTL_SECONDS=0` 起的 app（e2e 那種）量，`identity` 不會是 0，期望檔必然失敗，這是預期的。
 
 ## 3. `perf:bundle`
 
@@ -71,5 +72,5 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 
 ## 5. 基準檔
 
-- `budget.json`、`sql-expect.json` 的 `baseline` 是在 `c0f32bd` 用本工具量的（normal 資料集）。`c0f32bd` 之後才有的路由，baseline 是加列當下的 main 量的（PR 說明裡註明）。
+- `budget.json` 的 `baseline` 是在 `c0f32bd` 用本工具量的（normal 資料集）。`sql-expect.json`、`sql-expect.timeline-*.json` 在 SH-B1 全表重基準（stage-b＋SH-B1，normal 資料集、快取開著）。`c0f32bd` 之後才有的路由，baseline 是加列當下的 main 量的（PR 說明裡註明）。
 - 角色規格新增路由：在 `budget.json`、`sql-expect.json`、`lab-routes.json` 加自己的列，不改既有列。

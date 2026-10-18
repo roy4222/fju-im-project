@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconAward } from '@tabler/icons-react'
-import { currentActor } from '@/app/_ui/guard'
+import { renderActor } from '@/app/_ui/guard'
 import { PhotoDialogGrid, type PhotoEntry } from '@/app/_ui/photo-dialog-grid'
 import { Crumbs, FirstCharAccent, imageSrc, ListEmpty, PillLink } from '@/app/_ui/public-content'
 import { SearchSortBar } from '@/app/_ui/search-sort-bar'
@@ -36,7 +36,7 @@ export default async function HonorsPage({
   const q = one(sp.q).trim().slice(0, 100)
   const sort = one(sp.sort) === 'date-asc' ? 'date-asc' : 'date'
   const open = one(sp.item) || undefined
-  const actor = await currentActor()
+  const actor = await renderActor()
   // 入口依權限（Q47）：只有進得了自己後台的人才給「歷屆專題」連結；訪客、待審、還沒改臨時密碼的人
   // 點了也打不開 `/projects`。跟導覽列、首頁用同一個判斷。
   const member = isMember(actor)
