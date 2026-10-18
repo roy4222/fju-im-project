@@ -282,6 +282,56 @@ describe('只看得到、只填得了自己在收件名單上的項目', () => {
   })
 })
 
+describe('老師也能交作業（C 階段規格① §3.2、§5.3；AC-20）：名單上的老師走同一條路', () => {
+  async function laterTeacher(): Promise<ResolvedActor> {
+    seq += 1
+    const user = await owner.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [`後來的老師${seq}`, `t${seq}-sub@example.com`],
+    )
+    const id = String(user.rows[0]!.id)
+    await owner.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'teacher', $2, now())`,
+      [id, adminId],
+    )
+    return { kind: 'authenticated', userId: id, roles: ['teacher'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+  }
+
+  it('名單上的老師存草稿、正式送出成功，繳交人是老師本人；作業區列得出來（形式、種類）；稽核角色是老師', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const itemId = await published(cohortId, stageId, { title: '指導意願調查表', audienceKind: 'teachers', receiverUnit: 'individual' })
+    expect(Number((await owner.sql("select count(*) as n from response_rosters where item_id = $1 and receiver_kind = 'user' and receiver_id = $2", [itemId, teacherId])).rows[0]!.n)).toBe(1)
+
+    const mine = await query.myItems(teacherId)
+    expect(mine.find((r) => r.itemId === itemId)).toMatchObject({ title: '指導意願調查表', kind: 'assignment', formType: 'form', receiverUnit: 'individual' })
+
+    const saved = await submissions.saveDraft(teacherActor(), itemId, 0, COMPLETE, randomUUID())
+    if (!saved.ok) throw new Error(`${saved.code} ${saved.message}`)
+    const submitted = await submissions.submit(teacherActor(), itemId, saved.receipt.revision, randomUUID())
+    expect(submitted).toMatchObject({ ok: true, receipt: { versionNo: 1, submittedByName: 'T1', groupCode: null } })
+    const version = await owner.sql('select receiver_kind, receiver_id, submitted_by_user_id from submission_versions where item_id = $1', [itemId])
+    expect(version.rows).toEqual([{ receiver_kind: 'user', receiver_id: teacherId, submitted_by_user_id: teacherId }])
+    const audit = await owner.sql("select role from audit_events where action = 'submission.submit' and target_id = $1", [itemId])
+    expect(audit.rows).toEqual([{ role: 'teacher' }])
+    expect((await query.myItem(teacherId, itemId))!.versions).toHaveLength(1)
+  })
+
+  it('不在名單上的老師（發布之後才有老師角色）存草稿、送出、要上傳憑證一律 FORBIDDEN；學生作業老師也不行', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const itemId = await published(cohortId, stageId, { audienceKind: 'teachers', receiverUnit: 'individual' })
+    const outsider = await laterTeacher()
+    expect(await submissions.saveDraft(outsider, itemId, 0, COMPLETE, randomUUID())).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await submissions.submit(outsider, itemId, 1, randomUUID())).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(
+      await submissions.requestUpload(outsider, itemId, 'topic', { fileName: 'a.pdf', declaredMime: 'application/pdf', declaredSize: 10 }),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    const studentsOnly = await published(cohortId, stageId, { title: '學生的作業' })
+    expect(await submissions.saveDraft(teacherActor(), studentsOnly, 0, COMPLETE, randomUUID())).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(Number((await owner.sql('select count(*) as n from submission_drafts where item_id = any($1::uuid[])', [[itemId, studentsOnly]])).rows[0]!.n)).toBe(0)
+  })
+})
+
 describe('尚未開放：看設定的開放時間，不看實際開放時間', () => {
   it('發布當下就記了實際開放時間，但設定的開放時間還沒到：存草稿與送出都被拒、不產生版本', async () => {
     // 10/01 發布，設定 11/01 08:00（臺灣）開放。
@@ -750,7 +800,7 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     expect((await query.myItem(student.id, itemId))!.versions).toEqual([expect.objectContaining({ versionNo: 1, late: false })])
   })
 
-  it('擋下來的情況：不是系辦、期限不晚於現在、理由空白或太長、還沒截止、名單外、免填；都不留紀錄也不通知', async () => {
+  it('擋下來的情況：不是系辦、期限不晚於現在、理由太長、還沒截止、名單外、免填；都不留紀錄也不通知', async () => {
     const { cohortId, student, itemId } = await closedScenario()
     const ask = (actor: ResolvedActor, receiverId: string, dueAt: string, reason: string, item = itemId) =>
       submissions.reopen(actor, item, receiverId, { dueAt, reason }, randomUUID())
@@ -761,7 +811,6 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
     for (const dueAt of ['2026-11-16T10:00', '2026-11-16T09:00', '不是時間']) {
       expect(await ask(adminActor(), student.id, dueAt, '補交')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     }
-    expect(await ask(adminActor(), student.id, REOPEN_DUE, '   ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await ask(adminActor(), student.id, REOPEN_DUE, '字'.repeat(201))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
 
     const open = await scenario({ dueAt: '2026-12-31T23:59' })
@@ -782,6 +831,19 @@ describe('個別補交（第三波 W10、AC-35）：只有被開放的那一位�
 
     expect(Number((await owner.sql('select count(*) as n from submission_reopens where item_id = $1', [itemId])).rows[0]!.n)).toBe(0)
     expect(await reopenEvents(itemId)).toHaveLength(0)
+  })
+
+  it('理由留空也能開放補交（C 階段 X2、AC-11）：紀錄與稽核的 reason 是 null，學生照樣能補交', async () => {
+    const { student, itemId } = await closedScenario()
+    const opened = await submissions.reopen(adminActor(), itemId, student.id, { dueAt: REOPEN_DUE, reason: '   ' }, randomUUID())
+    expect(opened).toMatchObject({ ok: true, receipt: { reason: null, notified: 1 } })
+    const rows = await owner.sql('select reason from submission_reopens where item_id = $1', [itemId])
+    expect(rows.rows).toEqual([{ reason: null }])
+    const audit = await owner.sql("select payload from audit_events where action = 'submission.reopen' and target_id = $1", [itemId])
+    expect(audit.rows[0]!.payload).toMatchObject({ reason: null })
+    expect((await query.reopens(adminActor(), itemId, student.id))![0]!.reason).toBeNull()
+    // 截止前存好的草稿（版本 1），靠補交送出。
+    expect((await submissions.submit(studentActor(student), itemId, 1, randomUUID())).ok).toBe(true)
   })
 
   it('再開一次就再插一列（不改舊的），看最晚的那一個期限；系辦看得到每一次，學生與老師拿到 null', async () => {
@@ -1136,7 +1198,23 @@ describe('設免繳／恢復（B 階段 A-08、AC-A-21～24）：只改名單列
     expect(completionOf(restored!.item, restored!.entries, businessNow)).toMatchObject({ required: 1, done: 1 })
   })
 
-  it('擋下來的情況：不是系辦、理由空白或太長、找不到作業、名單外、已移出、同一狀態、屆別封存；都不改名單也不留稽核', async () => {
+  it('理由留空也能設免繳（C 階段 X2、AC-11）：名單列 exempt_reason 是 null，稽核的 reason 也是 null', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const s2 = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId)
+    expect((await set(adminActor(), itemId, s1.id, true)).ok).toBe(true)
+    expect((await set(adminActor(), itemId, s2.id, true, '   ')).ok).toBe(true)
+    expect(await rosterRow(itemId, s1.id)).toMatchObject({ exempt: true, exempt_reason: null })
+    expect(await rosterRow(itemId, s2.id)).toMatchObject({ exempt: true, exempt_reason: null })
+    const audit = await owner.sql(
+      "select payload from audit_events where action = 'submission.exempt_set' and target_id = $1 order by real_at",
+      [itemId],
+    )
+    expect(audit.rows.map((r) => (r.payload as { reason: unknown }).reason)).toEqual([null, null])
+  })
+
+  it('擋下來的情況：不是系辦、理由太長、找不到作業、名單外、已移出、同一狀態、屆別封存；都不改名單也不留稽核', async () => {
     const { cohortId, stageId } = await newCohort()
     const s1 = await newStudent(cohortId)
     const gone = await newStudent(cohortId)
@@ -1148,13 +1226,11 @@ describe('設免繳／恢復（B 階段 A-08、AC-A-21～24）：只改名單列
 
     expect(await set(studentActor(s1), itemId, s1.id, true, '自己設')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await set(teacherActor(), itemId, s1.id, true, '老師設')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    for (const reason of [undefined, '', '   ', '字'.repeat(201)]) {
-      expect(await set(adminActor(), itemId, s1.id, true, reason)).toMatchObject({
-        ok: false,
-        code: 'VALIDATION_FAILED',
-        details: { field: 'reason' },
-      })
-    }
+    expect(await set(adminActor(), itemId, s1.id, true, '字'.repeat(201))).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      details: { field: 'reason' },
+    })
     expect((await set(adminActor(), itemId, s1.id, true, '字'.repeat(200))).ok).toBe(true)
     expect((await set(adminActor(), itemId, s1.id, false)).ok).toBe(true)
 

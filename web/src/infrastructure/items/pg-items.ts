@@ -617,7 +617,7 @@ export class PgItemCommand implements ItemCommand {
       if (consentForm) {
         const built = await this.#consent.onPublished(
           tx,
-          await this.#consentItem(tx, item, expanded.groups.map((g) => g.groupId)),
+          await this.#consentItem(tx, item, expanded.groups.map((g) => g.groupId).sort()),
           userId,
           requestId,
         )
@@ -1569,7 +1569,8 @@ export class PgItemCommand implements ItemCommand {
         tx,
         {
           actorUserId: userId,
-          operationKind: 'item.rules_reordered',
+          // 跟上下移同一個代碼（稽核對照表已登記「調整規則章節順序」）；請求編號不同，帳本不會混。
+          operationKind: 'item.rule_moved',
           requestId,
           fingerprint: sha256(canonicalJson({ cohortId, orderedIds: ids })),
           scope: 'cohort',

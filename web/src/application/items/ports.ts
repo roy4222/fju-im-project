@@ -160,7 +160,7 @@ export interface ItemCommand {
   /**
    * 專題規則整批排序（C 階段規格① §3.1，拖曳排序用；`moveRule` 保留給上下移）。`orderedIds` 必須正好等於這一屆
    * 全部未刪除規則（含草稿、已下架）的集合、不重複，否則 `VALIDATION_FAILED`；照順序寫成 1..n。
-   * 跟 `moveRule` 一樣是展示動作：鎖序同 `lockRuleSet`、不動 `revision`、不切版本、不發事件，稽核 `item.rules_reordered`。
+   * 跟 `moveRule` 一樣是展示動作：鎖序同 `lockRuleSet`、不動 `revision`、不切版本、不發事件，稽核沿用 `item.rule_moved`（payload `kind:'reorder'`）。
    * 順序跟現在一樣也回 ok（不寫稽核）。
    */
   reorderRules(actor: ResolvedActor, cohortId: string, orderedIds: readonly string[], requestId: string): Promise<Result<RulesReorderReceipt>>
