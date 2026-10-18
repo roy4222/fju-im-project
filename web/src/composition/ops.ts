@@ -121,8 +121,8 @@ export function getFileStorage(): FileStorage<PoolClient> {
     environmentMaxBytes,
     ticketSecret,
     policies: DOWNLOAD_POLICIES,
-    // 首頁大圖對所有人公開：待審、必須改密的人開首頁也要看得到（比照訪客；政策只放行目前那一張）。
-    publicReadPurposes: ['photo'],
+    // 待審、必須改密的人比照訪客：首頁大圖、公告封面與附件、精選海報仍走各用途的訪客政策，訪客拿得到的才拿得到。
+    publicReadPurposes: ['photo', 'attachment', 'poster'],
     db: getPool,
     // 頭像收檔時縮成 256×256 WebP、清掉 EXIF；處理不了的圖不收（SH-9）。
     transforms: { avatar: avatarImageTransform },
