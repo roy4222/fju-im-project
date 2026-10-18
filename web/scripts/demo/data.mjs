@@ -188,7 +188,7 @@ export const PENDING = [
 ]
 
 /** Email 註冊、Email 已驗證、名單同一列而自動開通的學生（C2-12，核實方式 `email_roster_match`）；已核准，不在待審。 */
-export const AUTO_APPROVED = [{ key: 'a-08', name: '趙若琳', studentNo: '411410888', created: '2026-08-18' }]
+export const AUTO_APPROVED = [{ key: 'a-08', name: '趙若琳', studentNo: '411410889', created: '2026-08-18' }]
 
 /** 已停用的學生（原型 `ACCOUNTS` 的 disabled 兩筆）。 */
 export const DISABLED = [

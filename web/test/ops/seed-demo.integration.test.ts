@@ -420,7 +420,7 @@ describe('seed-demo.mjs', () => {
               exists (select 1 from student_identities si where si.user_id = u.id) as has_identity
          from registration_applications ra join users u on u.id = ra.user_id
         where ra.student_no = $1`,
-      ['411410888'],
+      ['411410889'],
     )
     expect(row.rows).toEqual([{ state: 'approved', verification_method: 'email_roster_match', status: 'active', has_identity: true }])
   })
