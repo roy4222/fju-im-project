@@ -57,7 +57,7 @@ if [[ "${MODE}" != print ]]; then
   fi
 fi
 
-IFACE="${FJU_CF_IFACE:-$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')}"
+IFACE="${FJU_CF_IFACE:-$({ ip -4 route show default 2>/dev/null || true; } | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')}"
 if [[ -z "${IFACE}" ]]; then
   if [[ "${APPLY}" == 1 ]]; then
     echo "找不到外網介面（預設路由）。請用 FJU_CF_IFACE=<介面名> 指定後重跑。" >&2
@@ -91,8 +91,8 @@ detect() {
     V6_CHAIN=0
   fi
   local v6addr
-  v6addr="$(ip -6 addr show scope global 2>/dev/null | awk '$1 == "inet6" {print $2}' | paste -sd, -)"
-  echo "VM 的全域 v6 位址：${v6addr:-無}"
+  v6addr="$({ ip -6 addr show scope global 2>/dev/null || true; } | awk '$1 == "inet6" {print $2}' | paste -sd, -)"
+  echo "VM 的全域 v6 位址：${v6addr:-無（或這台沒有 ip 指令，未知）}"
   if [[ -n "${v6addr}" && "${V6_CHAIN}" == 0 ]]; then
     echo "注意：VM 有公開 v6 但 Docker 的 ip6tables 沒開，v6 流量不會經過 DOCKER-USER。"
     echo "      先在 /etc/docker/daemon.json 開 ip6tables，或拿掉 AAAA 記錄，不能放著不管。"

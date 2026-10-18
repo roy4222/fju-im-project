@@ -190,7 +190,7 @@ describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', 
   const CHAIN = 'FJU-CF-ORIGIN'
   const READONLY = /^(iptables|ip6tables) (-V|-S)/
 
-  function runLock(args: string[], fakeRoot: boolean) {
+  function runLock(args: string[], fakeRoot: boolean, opts: { brokenIp?: boolean; iface?: string } = {}) {
     const bin = path.join(dir, 'bin')
     const log = path.join(dir, 'fw.log')
     fs.writeFileSync(log, '')
@@ -199,6 +199,7 @@ describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', 
       ip6tables: '',
       systemctl: '',
       id: fakeRoot ? 'echo 0' : 'echo 1000',
+      ...(opts.brokenIp ? { ip: 'exit 127' } : {}),
     }
     for (const [name, body] of Object.entries(fakes)) {
       const f = path.join(bin, name)
@@ -212,8 +213,8 @@ describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', 
         ...process.env,
         PATH: `${bin}:${process.env.PATH ?? ''}`,
         FW_LOG: log,
-        FJU_CF_IFACE: 'eth0',
         FJU_CF_UNIT_DIR: unitDir,
+        ...(opts.iface === undefined ? { FJU_CF_IFACE: 'eth0' } : opts.iface ? { FJU_CF_IFACE: opts.iface } : {}),
       },
       encoding: 'utf8',
       timeout: 20_000,
@@ -288,6 +289,25 @@ describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', 
     expect(done.slice(-2)).toEqual(['systemctl daemon-reload', 'systemctl enable fju-cf-origin-lock.service'])
     const lastFw = Math.max(...done.map((l, i) => (/^ip6?tables /.test(l) ? i : -1)))
     expect(lastFw).toBeLessThan(done.length - 2)
+  })
+
+  it('沒有可用的 ip 指令（例如 Mac）：dry-run 仍 exit 0 並印完整序列；--execute 沒有介面就報錯退出、不碰 iptables', () => {
+    const d = runLock([], false, { brokenIp: true })
+    expect(d.code).toBe(0)
+    expect(d.stdout).toContain('這是預覽，什麼都沒有執行')
+    const printed = sequence(d.stdout.split('\n'))
+    expect(printed).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain(`ip6tables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain('systemctl enable fju-cf-origin-lock.service')
+    // 沒指定介面時也一樣印得完（介面顯示佔位字）。
+    const d2 = runLock([], false, { brokenIp: true, iface: '' })
+    expect(d2.code).toBe(0)
+    expect(sequence(d2.stdout.split('\n'))).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    const x = runLock(['--execute'], true, { brokenIp: true, iface: '' })
+    expect(x.code).not.toBe(0)
+    expect(x.stderr).toContain('找不到外網介面')
+    expect(sequence(x.calls)).toEqual([])
+    expect(fs.existsSync(x.unitDir)).toBe(false)
   })
 
   it('Caddyfile.vm 的 trusted_proxies 與腳本的 Cloudflare 範圍是同一份', () => {
