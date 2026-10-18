@@ -63,8 +63,9 @@ export function proxy(request: NextRequest): NextResponse {
   let response: NextResponse
   if (rewriteTo) {
     requestHeaders.set(OFFICE_REWRITE_HEADER, '1')
-    const target = request.nextUrl.clone()
-    target.pathname = rewriteTo
+    // 目標用 `request.url` 的來源組（不用 `nextUrl.clone()`）：`next start --hostname 127.0.0.1` 時 nextUrl 的 host 會是
+    // localhost，跟請求的來源不同，Next 就把它當外部代理去 fetch，改寫標頭跟著丟掉（實測整頁 307 無限迴圈）。
+    const target = new URL(`${rewriteTo}${request.nextUrl.search}`, request.url)
     response = NextResponse.rewrite(target, { request: { headers: requestHeaders } })
     // 系辦看到的頁面不能被 Cloudflare 或瀏覽器共用快取（§9；AC-C2-42）。
     response.headers.set('cache-control', 'private, no-store')
