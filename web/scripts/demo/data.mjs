@@ -187,6 +187,9 @@ export const PENDING = [
   { key: 'a-07', name: '王小明', studentNo: '411410999', created: '2026-08-17' },
 ]
 
+/** Email 註冊、Email 已驗證、名單同一列而自動開通的學生（C2-12，核實方式 `email_roster_match`）；已核准，不在待審。 */
+export const AUTO_APPROVED = [{ key: 'a-08', name: '趙若琳', studentNo: '411410888', created: '2026-08-18' }]
+
 /** 已停用的學生（原型 `ACCOUNTS` 的 disabled 兩筆）。 */
 export const DISABLED = [
   { key: 'a-13', name: '呂承恩', studentNo: '410410250' },

@@ -414,6 +414,17 @@ describe('seed-demo.mjs', () => {
     expect(Number(drafts.rows[0]!.n)).toBe(9)
   })
 
+  it('C2-12：示範有一位 email_roster_match 自動開通的學生，已核准、有學號占用、不在待審', async () => {
+    const row = await db.sql(
+      `select ra.state, ra.verification_method, u.status,
+              exists (select 1 from student_identities si where si.user_id = u.id) as has_identity
+         from registration_applications ra join users u on u.id = ra.user_id
+        where ra.student_no = $1`,
+      ['411410888'],
+    )
+    expect(row.rows).toEqual([{ state: 'approved', verification_method: 'email_roster_match', status: 'active', has_identity: true }])
+  })
+
   it('示範帳號登不進來：一律 @demo.invalid、沒有任何密碼；建立者是停用、沒有角色', async () => {
     const users = await db.sql(`select email, status from users where email like '%@demo.invalid'`)
     expect(users.rowCount).toBeGreaterThan(50)
