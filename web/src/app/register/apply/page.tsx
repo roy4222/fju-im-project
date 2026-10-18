@@ -59,7 +59,8 @@ export default async function RegisterApplyPage() {
         limits={{ nameMax: APPLIED_NAME_MAX_LENGTH, departmentClassMax: DEPARTMENT_CLASS_MAX_LENGTH }}
       />
       <p className="text-xs leading-relaxed text-muted-foreground">
-        送出後會進入系辦的待審核清單，系辦以校方既有方式核對本人後才會開通。審核期間你可以登入查看狀態、修改資料。
+        用 Google 註冊、而且 Email、學號、姓名都和本屆專題名單同一列相同的人，送出後立即開通；其他人進入系辦的待審核清單，
+        系辦以校方既有方式核對本人後才會開通，審核期間可以登入查看狀態、修改資料。
       </p>
     </RegisterFrame>
   )

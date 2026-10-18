@@ -321,6 +321,18 @@ export class PgRegistrationCommand implements RegistrationCommand {
     )
   }
 
+  async autoApprovedMine(actor: ResolvedActor): Promise<boolean> {
+    if (actor.kind !== 'authenticated') return false
+    // 讀資料庫（不信網址或畫面帶來的值）；看最近一筆，之後被系辦更正過的不算。
+    const latest = await this.#deps.db().query<{ state: string; verification_method: string | null }>(
+      `select state, verification_method from registration_applications
+        where user_id = $1 order by created_at desc, id desc limit 1`,
+      [actor.userId],
+    )
+    const row = latest.rows[0]
+    return row?.state === 'approved' && row.verification_method === 'google_email_match'
+  }
+
   async reviseMine(
     actor: ResolvedActor,
     input: ApplicationFields,

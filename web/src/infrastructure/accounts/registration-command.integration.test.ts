@@ -1097,6 +1097,8 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
     })
     // 不寄「帳號已開通」（畫面直接告訴他）。
     expect(await one(`select count(*)::int as n from mail_outbox where to_email = 'g2@example.com'`)).toEqual({ n: 0 })
+    // 「帳號已開通」頁的判斷：讀資料庫，是自動開通。
+    expect(await command.autoApprovedMine(activeActor(userId, ['student']))).toBe(true)
     // 已開通：沒有待審申請可看，也不會出現在系辦待審清單。
     expect(await command.viewMine(activeActor(userId, ['student']))).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     const listed = await command.listPending(admin())
@@ -1122,6 +1124,9 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
         applicationId: holderApp, revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort115, requestId: requestId(),
       }),
     ).toMatchObject({ ok: true })
+    // 系辦人工核准的學生不是自動開通（「帳號已開通」頁不給他看）；待審、沒登入也都不是。
+    expect(await command.autoApprovedMine(activeActor(holder, ['student']))).toBe(false)
+    expect(await command.autoApprovedMine(ANON)).toBe(false)
 
     const cases: { tag: string; email: string; studentNo: string; name: string; password?: true }[] = [
       { tag: '(a) 密碼註冊', email: 'g10@example.com', studentNo: '411401010', name: '李小華', password: true },

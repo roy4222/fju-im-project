@@ -681,6 +681,11 @@ export interface RegistrationCommand {
   /** 本人看自己的申請。 */
   viewMine(actor: ResolvedActor): Promise<Result<MyApplication>>
   /**
+   * 本人的帳號是不是 Q42 自動開通的（VB-6）：最近一筆申請已核准、核實方式是 `google_email_match`。
+   * 「帳號已開通」頁只給這種人看；系辦人工核准的學生不能看到「Email 與名單相同、自動開通」。
+   */
+  autoApprovedMine(actor: ResolvedActor): Promise<boolean>
+  /**
    * 本人修改（或第一次補送、被退回後重送）申請。
    *
    * `expectedRevision` 是畫面上看到的版本；另一個分頁先改過就回 `CONFLICT`，不默默蓋掉。
