@@ -17,6 +17,7 @@ import {
   handleAriaLabel,
   handleKeyStep,
   initialScrollLeft,
+  labelWidthPx,
   layoutActivities,
   monthTicks,
   movedMessage,
@@ -265,6 +266,18 @@ describe('車道配置', () => {
     const layout = layoutActivities([act('x', '2026-11-15', '2026-11-25'), act('y', '2026-11-20')], STAGES)
     expect(layout.place.get('x')).toEqual({ row: 0, lane: 0 })
     expect(layout.place.get('y')).toEqual({ row: 1, lane: 0 })
+  })
+
+  it('minDays：短橫條的名字畫在右邊時，佔的天數也算進車道', () => {
+    const layout = layoutActivities([act('a', '2026-10-05'), act('b', '2026-10-07')], STAGES, (x) => (x.id === 'a' ? 4 : 1))
+    expect(layout.place.get('b')).toEqual({ row: 0, lane: 1 })
+    const plain = layoutActivities([act('a', '2026-10-05'), act('b', '2026-10-07')], STAGES)
+    expect(plain.place.get('b')).toEqual({ row: 0, lane: 0 })
+  })
+
+  it('labelWidthPx：中文字比英數寬', () => {
+    expect(labelWidthPx('說明會')).toBe(16 + 3 * 12)
+    expect(labelWidthPx('AI 展')).toBe(16 + 7 * 3 + 12)
   })
 
   it('已取消的活動不畫', () => {

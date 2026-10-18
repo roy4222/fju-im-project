@@ -1,4 +1,4 @@
-import type { ActivityAudience } from '@/application/cohorts/activities'
+import type { ActivityAudience } from '@/application/cohorts'
 
 /**
  * 專題時程甘特的純函式與凍結介面（規格③《設計方案》§9.3；C3-03）。
@@ -96,7 +96,8 @@ export function formatMD(date: string): string {
   return `${m}/${d}`
 }
 
-function rangeText(startDate: string, endDate: string): string {
+/** 單日 `3/8`、跨日 `3/10–3/12`。 */
+export function rangeText(startDate: string, endDate: string): string {
   return startDate === endDate ? formatMD(startDate) : `${formatMD(startDate)}–${formatMD(endDate)}`
 }
 
@@ -302,6 +303,8 @@ export type Placement = { row: number; lane: number }
 export function layoutActivities(
   activities: GanttActivity[],
   stages: StageStart[],
+  /** 畫面上至少佔幾天（短橫條的名字畫在右邊時也要算進去，避免跟同車道的下一條疊在一起）；預設照起訖。 */
+  minDays: (a: GanttActivity) => number = () => 1,
 ): { place: Map<string, Placement>; laneCounts: number[] } {
   const rows = Math.max(1, stages.length)
   const laneEnds: string[][] = Array.from({ length: rows }, () => [])
@@ -314,11 +317,18 @@ export function layoutActivities(
     const ends = laneEnds[row] ?? []
     let lane = ends.findIndex((end) => end < a.startDate)
     if (lane === -1) lane = ends.length
-    ends[lane] = a.endDate
+    ends[lane] = maxDate(a.endDate, addDays(a.startDate, minDays(a) - 1))
     laneEnds[row] = ends
     place.set(a.id, { row, lane })
   }
   return { place, laneCounts: laneEnds.map((ends) => Math.max(1, ends.length)) }
+}
+
+/** 橫條上名字的估計寬度（px，0.75rem 粗體：中日韓字約 12px、其他約 7px，左右留白 16px）。 */
+export function labelWidthPx(text: string): number {
+  let width = 16
+  for (const ch of text) width += /[\u2E80-\uFFFF]/.test(ch) ? 12 : 7
+  return width
 }
 
 // ── 拖拉與鍵盤 ────────────────────────────────────────────────────────────────────
