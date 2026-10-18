@@ -225,7 +225,7 @@ describe('約束反例', () => {
     })
   })
 
-  it('cohort_status_events：進出「已封存」一定要有理由；轉進行中可以沒有', async () => {
+  it('cohort_status_events：封存／解封理由選填（0020）；轉進行中也可以沒有', async () => {
     await withIsolatedDatabase({ label: 'status-reason', setup: migratedSchema }, async (db) => {
       const { userId, cohortId } = await seeded(db)
       const insert = (from: string | null, to: string, reason: string | null) =>
@@ -234,8 +234,8 @@ describe('約束反例', () => {
            values (gen_random_uuid(), $1, $2, $3, $4, $5, now(), now())`,
           [cohortId, from, to, reason, userId],
         )
-      await expect(insert('active', 'archived', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
-      await expect(insert('archived', 'active', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
+      await expect(insert('active', 'archived', null)).resolves.toBeTruthy()
+      await expect(insert('archived', 'active', null)).resolves.toBeTruthy()
       await expect(insert('active', 'archived', '年度結束')).resolves.toBeTruthy()
       await expect(insert('preparing', 'active', null)).resolves.toBeTruthy()
       await expect(insert(null, 'preparing', null)).resolves.toBeTruthy()
