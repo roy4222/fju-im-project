@@ -5,7 +5,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
 /**
  * A-14（Q198）：規則章節上下移。驗收 AC-A-38、39、40（前台半段）、50。
  *
- * 系辦在「公告與作業」選「專題規則」篩選：列依章節位置排，每列多「上移」「下移」（首尾停用）；按完前台 `/rules`
+ * 系辦在「公告與作業」的「專題規則」分頁：列依章節位置排，每列多「上移」「下移」（首尾停用）；按完前台 `/rules`
  * 的目錄跟著換。草稿章節在系辦清單裡佔位置、前台看不到，所以跟草稿交換時前台順序不變。
  *
  * 兩組資料各用自己的屆別：`FIVE` 五章（第 3 章草稿，AC-A-50、39、40）、`FOUR` 四章都發布（AC-A-38）。
@@ -77,11 +77,12 @@ async function quickRule(page: Page, code: string, n: number, publish: boolean) 
 }
 
 async function openRulesFilter(page: Page, code: string) {
+  // 舊網址 `?placement=rules` 轉到「專題規則」分頁（C 階段規格② §8），屆別照帶。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}&placement=rules`)
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '專題規則', exact: true })).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs/rules\\?cohort=${cohorts[code]}$`))
+  await expect(
+    page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '專題規則', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
 }
 
 /** 系辦「規則」篩選的列順序（只取「第 N 章」）。 */

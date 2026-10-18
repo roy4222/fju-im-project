@@ -316,10 +316,10 @@ test('AC-AD-06、AC-AD-08：成果展示與檔案頁標題「公告與作業」�
     await page.goto(path)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('公告與作業')
     const tabs = page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link')
-    await expect(tabs).toHaveText(['公告與作業', '成果展示', '檔案'])
+    await expect(tabs).toHaveText(['公告', '作業', '資源下載', '專題規則', '成果展示', '檔案'])
     await expect(tabs.nth(0)).toHaveAttribute('href', '/dashboard/admin/affairs')
-    await expect(tabs.nth(1)).toHaveAttribute('href', '/dashboard/admin/showcase')
-    await expect(tabs.nth(2)).toHaveAttribute('href', '/dashboard/admin/files')
+    await expect(tabs.nth(4)).toHaveAttribute('href', '/dashboard/admin/showcase')
+    await expect(tabs.nth(5)).toHaveAttribute('href', '/dashboard/admin/files')
     await expect(tabs.filter({ hasText: current })).toHaveAttribute('aria-current', 'page')
     await expect(tabs.and(page.locator('[aria-current="page"]'))).toHaveCount(1)
     // 側欄的「專題事務」到 SH-1-AD 才拿掉，這裡只看頁面本身。

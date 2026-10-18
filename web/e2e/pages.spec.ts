@@ -82,13 +82,14 @@ test.describe('以 A1（管理員）', () => {
       'href',
       '/dashboard/admin/accounts',
     )
+    // 「設定」直接進「屆別」分頁（C 階段規格② §2.3；舊入口頁 `/settings` 轉過去，見 admin-redirects.spec）。
     await expect(nav.getByRole('link', { name: '設定', exact: true })).toHaveAttribute(
       'href',
-      '/dashboard/admin/settings',
+      '/dashboard/admin/cohorts',
     )
   })
 
-  test('側欄不分組；「首頁設定」收進「設定」總頁、不在側欄（SH-1-AD）', async ({ page }) => {
+  test('側欄不分組；「首頁設定」不在側欄（SH-1-AD）', async ({ page }) => {
     await signInAs(page, 'admin')
     await page.goto('/dashboard/admin')
     const nav = page.getByRole('navigation', { name: '後台導覽' })
@@ -363,8 +364,16 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
-    // 設定總頁（AD-20）。
-    { path: '/dashboard/admin/settings', wrongRole: 'teacher' },
+    // C 階段規格② 的新分頁（C2-01）；結算之前漏列，一起補。舊設定入口頁 `/settings` 移到 admin-redirects.spec。
+    { path: '/dashboard/admin/affairs/assignments', wrongRole: 'student' },
+    { path: '/dashboard/admin/affairs/resources', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/affairs/rules', wrongRole: 'student' },
+    { path: '/dashboard/admin/groups/unassigned', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/grading/teachers', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/grading/settle', wrongRole: 'student' },
+    { path: '/dashboard/admin/accounts/pending', wrongRole: 'student' },
+    { path: '/dashboard/admin/accounts/disabled', wrongRole: 'teacher' },
+    { path: '/dashboard/admin/accounts/roster', wrongRole: 'student' },
   ]
 
   for (const { path, wrongRole } of PROTECTED) {

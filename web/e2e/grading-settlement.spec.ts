@@ -163,7 +163,7 @@ test('成績分頁多一個「結算」；結算頁每階段一列：未結算�
   await asAdmin(page)
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
   const tabs = page.getByRole('navigation', { name: '成績分頁' })
-  await expect(tabs.getByRole('link')).toHaveText(['成績管理', '結算', '同意書'])
+  await expect(tabs.getByRole('link')).toHaveText(['成績表', '評分規則', '評分老師', '結算'])
   await tabs.getByRole('link', { name: '結算' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/grading\/settle/)
 

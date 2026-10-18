@@ -1,7 +1,7 @@
 ---
 type: page-inventory
 project: FJU IM Project
-updated: 2026-09-10
+updated: 2026-10-18
 status: v6-role-split-in-progress
 ---
 > 2026-09-11 產品拆分核對：現行規則見[產品總規格](<product/📐 產品總規格.md>)與[模組索引](<product/🗺️ 專案目標與產品規劃.md>)。下方保留原設計／術語全文；衝突處以現行模組為準：產學須登入、專題事務單一入口（編輯器為項目操作）、個人／組別兩種收件、實際有效成員加主指導簽核。Email寄送與Google Calendar／外部訂閱延後，站內通知日曆與Google登入保留。
@@ -19,7 +19,7 @@ status: v6-role-split-in-progress
 |---|---|---|---|
 | 學生（3 項，Q71） | 首頁、交作業、組別 | 交作業：`/dashboard/student/signoff`、`/dashboard/student/timeline`（後者已轉址到前台 `/timeline`） | 交作業＝待交＋快到期＋待你同意（`studentTodos`，不含逾期與尚未開放，Q117、Q119） |
 | 老師（4 項，Q77） | 首頁、評分、作業區、分組總覽 | 作業區：`/dashboard/teacher/signoff`；分組總覽：`/dashboard/teacher/industry`（兩個舊網址都轉頁） | 評分＝還沒正式送出的評分；作業區＝輪到我同意的組 |
-| 系辦（6 項，Q87～Q92） | 首頁、公告與作業、分組、成績、帳號、設定 | 公告與作業：`/showcase`、`/files`；分組：`/industry`；成績：`/signoff`、`/grading/rules`；設定：`/cohorts`、`/timeline`、`/home-settings`、`/audit`（都在 `/dashboard/admin/` 下；「設定」本身連 `/settings` 總頁，Q104） | 帳號＝等審核的註冊申請 |
+| 系辦（6 項，Q87～Q92） | 首頁、公告與作業、分組、成績、帳號、設定 | 公告與作業：`/affairs/assignments`、`/affairs/resources`、`/affairs/rules`、`/showcase`、`/files`；分組：`/groups/unassigned`、`/industry`；成績：`/grading/rules`、`/grading/teachers`、`/grading/settle`、`/signoff`；帳號：`/accounts/pending`、`/accounts/disabled`、`/accounts/roster`；設定：`/timeline`、`/audit`、`/clock`、`/home-settings`（都在 `/dashboard/admin/` 下；「設定」本身連 `/cohorts`，舊 `/settings` 總頁轉過去，C2-01） | 帳號＝等審核的註冊申請 |
 
 - **側欄第一項叫「首頁」**（Q110）。
 - **通知只從頂列鈴鐺進**（Q71、Q77、Q88）：三個角色的側欄都沒有「通知」，未讀數只在鈴鐺；`/dashboard/<角色>/inbox` 頁保留，鈴鐺本身就是連到這頁的連結（點了直接進通知匣，沒有下拉選單），在通知頁時鈴鐺標目前頁（SH-1a #446）。
@@ -29,6 +29,22 @@ status: v6-role-split-in-progress
 - **深色模式**（SH-2 #436，Q87、Q107）：淺色一個值都沒改；深色是「系網深藍的夜」四層（背景 `oklch(0.165…)`、`0.195`、卡片 `0.235`、浮層 `0.265`）、提亮的品牌橘、側欄啟用項橘色左條；仍是**預設淺色、手動切換**，不跟系統。
 - 「主機儲存」不在系辦後台，只在開發者後台（10/15 晚定案，AD-02）。
 - 效能預算與量法：見 [效能量測 SOP](<engineering/效能量測 SOP.md>)。
+
+### 系辦分頁表（2026-10-18 初版，C 階段規格② C2-01）
+
+分頁＝路由，每個分頁有自己的 `page.tsx` 與守衛；分頁列常數集中在 `web/src/app/dashboard/admin/_tabs.consts.ts`（規格寫的 `admin/_tabs.ts`；跟元件檔 `_tabs.tsx` 同名會撞，所以叫這個），各頁只 import。每個分頁的外殼：`h1`＝側欄名 → 分頁列 → 一行說明句（`data-testid="tab-intro"`，新分頁的 e2e 指紋）→ 內容。
+
+| 側欄 | 分頁（左到右，都在 `/dashboard/admin/` 下） | 不在分頁列、路由留著 |
+|---|---|---|
+| 公告與作業 | 公告 `/affairs`、作業 `/affairs/assignments`、資源下載 `/affairs/resources`、專題規則 `/affairs/rules`、成果展示 `/showcase`、檔案 `/files` | — |
+| 分組 | 全部組別 `/groups`、未分組學生 `/groups/unassigned`、產學合作 `/industry` | — |
+| 成績 | 成績表 `/grading`、評分規則 `/grading/rules`、評分老師 `/grading/teachers`、結算 `/grading/settle` | 同意書 `/signoff`（之後併進「作業」） |
+| 帳號 | 全部帳號 `/accounts`、待審核 `/accounts/pending`、已停用 `/accounts/disabled`、名單匯入 `/accounts/roster` | — |
+| 設定 | 屆別 `/cohorts`、專題時程 `/timeline`、操作紀錄 `/audit` | 首頁設定 `/home-settings`（C2-17 改前台直接編輯）、測試用時間 `/clock`（只在測試站） |
+
+- 作業、資源下載、專題規則三頁接的是既有的公告清單（固定種類）；公告頁的「種類」篩選只剩 全部／公告／榮譽／逾期。
+- 待審核、已停用、名單匯入、未分組學生、評分老師目前是外殼（分頁列＋說明句），內容由後續票接上；「全部帳號」的分頁列在 C2-07 掛上。
+- 舊網址轉址（`web/src/app/dashboard/admin/legacy-redirects.ts`，先守衛再轉，307）：`/settings` → `/cohorts`；`/affairs?placement=resource` → `/affairs/resources`、`submission`／`requirement` → `/affairs/assignments`、`rules` → `/affairs/rules`（其餘 query 照帶）。`?placement=honor` 暫不轉；`/accounts?status=`、`/home-settings`、`/signoff` 由後續票加。
 
 ## 0. 2026-09-10 第五輪：Codex 三角色審查後的改版（proto/role-ux-round1）
 
