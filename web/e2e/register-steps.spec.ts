@@ -492,34 +492,35 @@ test('AC-VI-55 畫面段（VB-6）：Google 帳號送第 3 步、名單同一列
     [session.userId, `g55-${run}`],
   )
   await pool.query(`update sessions set login_method = 'google' where user_id = $1`, [session.userId])
-  // 開放註冊屆別：沿用現有的；沒有就臨時開一屆，測完關掉（不影響其他 spec）。
-  const existing = (await pool.query<{ id: string }>(`select id from cohorts where is_registration_open and status <> 'archived'`)).rows[0]
-  const cohortId =
-    existing?.id ??
-    (
-      await pool.query<{ id: string }>(
-        `insert into cohorts (id, code, name, created_by_kind, is_registration_open)
-         values (gen_random_uuid(), $1, 'VB-6 測試屆', 'system', true) returning id`,
-        [`vb6-${run}`],
-      )
-    ).rows[0]!.id
+  // 自己的一屆＋自己的名單（不動其他 spec 的屆別與名單版本）。開放註冊旗標暫時從原本那一屆借過來，測完還回去；
+  // 旗標由部分唯一索引守著，先清舊的再設新的。
+  const previous = (await pool.query<{ id: string }>(`select id from cohorts where is_registration_open`)).rows[0]?.id ?? null
+  const cohortId = (
+    await pool.query<{ id: string }>(
+      `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+      [`vb6-${run}`, `VB-6 測試屆 ${run}`],
+    )
+  ).rows[0]!.id
   const studentNo = `4114${String(Date.now()).slice(-5)}`
   try {
+    await pool.query(`update cohorts set is_registration_open = false where is_registration_open`)
+    await pool.query(`update cohorts set is_registration_open = true where id = $1`, [cohortId])
+    // summary 照真的匯入寫（帳號頁的名單版本列表會讀這些計數；同 bulk-approve.spec 的 rosterSummary）。
+    const summary = JSON.stringify({
+      counts: { total: 1, valid: 1, duplicate: 0, missing: 0, conflict: 0, cohortMismatch: 0, invalidEmail: 0 },
+      columns: { cohort: false, email: true, departmentClass: true },
+      fileName: 'vb6-seeded.csv',
+      checksum: '',
+      issues: [],
+      issuesTotal: 0,
+    })
     const version = (
       await pool.query<{ id: string }>(
         `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
-         values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
-        [cohortId, session.userId],
+         values (gen_random_uuid(), $1, $2, now(), $3::jsonb) returning id`,
+        [cohortId, session.userId, summary],
       )
     ).rows[0]!.id
-    // 名單新的一版只有這一列（`#candidates` 只看最新版）：學號、姓名、Email 都和這個人相同。
-    await pool.query(
-      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
-       select gen_random_uuid(), $1, re.student_no, re.name_raw, re.name_normalized, re.department_class, re.email
-         from roster_entries re
-        where re.roster_version_id = (select id from roster_versions where cohort_id = $2 and id <> $1 order by imported_real_at desc, id desc limit 1)`,
-      [version, cohortId],
-    )
     await pool.query(
       `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
        values (gen_random_uuid(), $1, $2, '李小華', '李小華', '資管二甲', $3)`,
@@ -544,7 +545,8 @@ test('AC-VI-55 畫面段（VB-6）：Google 帳號送第 3 步、名單同一列
       (await pool.query(`select state, verification_method from registration_applications where user_id = $1`, [session.userId])).rows,
     ).toEqual([{ state: 'approved', verification_method: 'google_email_match' }])
   } finally {
-    if (!existing) await pool.query(`update cohorts set is_registration_open = false where id = $1`, [cohortId])
+    await pool.query(`update cohorts set is_registration_open = false where id = $1`, [cohortId])
+    if (previous) await pool.query(`update cohorts set is_registration_open = true where id = $1`, [previous])
     await context.close()
   }
 })
