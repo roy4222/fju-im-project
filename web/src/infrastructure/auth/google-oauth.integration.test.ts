@@ -1033,3 +1033,77 @@ describe('註冊 API：Email 已被用過（票 7 遺留）', () => {
     expect(JSON.parse(await bad.text())).toEqual(JSON.parse(dupBody))
   })
 })
+
+// ── Q42 自動開通（VB-6） ─────────────────────────────────────────────────────
+
+describe('Google 註冊 Email 與名單相同 → 自動開通（Q42，VB-6，AC-VI-55）', () => {
+  beforeAll(async () => {
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+          [cohortId, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    for (const [no, email] of [
+      ['411401002', 'g2@example.com'],
+      ['411401003', 'g3@example.com'],
+    ] as const) {
+      await db.sql(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
+         values (gen_random_uuid(), $1, $2, '李小華', '李小華', '資管二甲', $3)`,
+        [version, no, email],
+      )
+    }
+  })
+
+  const apply = (actor: ResolvedActor, studentNo: string, email: string) =>
+    registration.reviseMine(
+      actor,
+      { appliedName: '李小華', studentNo, departmentClass: '資管二甲', phone: '0912-345-678', contactEmail: email },
+      null,
+    )
+
+  it('Google 回呼建帳號（email_verified=true）→ 第 3 步送「李小華」411401002 → 直接開通、核實方式 google_email_match、系統核准', async () => {
+    const first = await googleSignIn({ sub: `sub-g2-${seq}`, email: 'g2@example.com', name: 'Google 李小華' })
+    expect(first.location).toBe('/register/apply?via=google')
+    // 用真的 session 解析出這次請求是誰（登入方式＝google），跟第 3 步的 Server Action 一樣。
+    const { resolveActor } = await import('@/composition/accounts')
+    const actor = await resolveActor(headersOf(first.cookie))
+    expect(actor).toMatchObject({ kind: 'authenticated', status: 'pending', loginMethod: 'google' })
+
+    expect(await apply(actor, '411401002', 'g2@example.com')).toMatchObject({ ok: true, receipt: { revision: 1, autoApproved: true } })
+    const user = await one<{ id: string }>(`select id from users where email = 'g2@example.com'`)
+    expect(await one(`select status from users where id = $1`, [user.id])).toEqual({ status: 'active' })
+    expect(
+      await one(
+        `select state, verification_method, verification_note, decided_by_user_id from registration_applications where user_id = $1`,
+        [user.id],
+      ),
+    ).toEqual({ state: 'approved', verification_method: 'google_email_match', verification_note: null, decided_by_user_id: null })
+    expect(await one(`select cohort_id from user_profiles where user_id = $1`, [user.id])).toEqual({ cohort_id: cohortId })
+    expect(
+      await one(`select count(*)::int as n from role_assignments where user_id = $1 and role = 'student' and revoked_real_at is null`, [user.id]),
+    ).toEqual({ n: 1 })
+    expect(
+      await one(`select count(*)::int as n from audit_events where action = 'registration.auto_approve' and actor_kind = 'system' and payload->>'userId' = $1`, [user.id]),
+    ).toEqual({ n: 1 })
+    // 下一次請求就是學生了。
+    expect(await resolveActor(headersOf(first.cookie))).toMatchObject({ status: 'active', roles: ['student'] })
+  })
+
+  it('Google 說 Email 沒驗證（email_verified=false）→ 就算名單相同也照舊待審', async () => {
+    const first = await googleSignIn({ sub: `sub-g3-${seq}`, email: 'g3@example.com', name: 'Google 李小華', emailVerified: false })
+    const { resolveActor } = await import('@/composition/accounts')
+    const actor = await resolveActor(headersOf(first.cookie))
+    expect(actor).toMatchObject({ kind: 'authenticated', status: 'pending', loginMethod: 'google' })
+    const result = await apply(actor, '411401003', 'g3@example.com')
+    expect(result).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(result.ok && result.receipt.autoApproved).toBeFalsy()
+    expect(
+      await one(`select ra.state, u.status from registration_applications ra join users u on u.id = ra.user_id where u.email = 'g3@example.com'`),
+    ).toEqual({ state: 'pending', status: 'pending' })
+  })
+})

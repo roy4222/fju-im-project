@@ -12,6 +12,7 @@ import {
   EMAIL_VERIFY_PATH,
   getRegistrationCommand,
   homeForUser,
+  isRegistrationOpen,
   PASSWORD_MIN_LENGTH,
 } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
@@ -33,8 +34,8 @@ export const metadata = { title: '等待審核｜資管系專題平台', robots:
  *   「某個學號在不在名單上」（拿別人的學號註冊再改幾次就問得出來）。比對結果只給系辦看。
  * - 不顯示「第 N 版」（VB-5；visitor-r3 §3.5、Q44／Q33）：只說「已編輯・時間」與修改紀錄的「時間・送出／編輯」。
  *   系辦那邊的「第 N 版」照舊（核准依版本）。
- * - 三步進度＋帶證件去哪裡（VB-5）。說明句只放後半「由系辦核對，通常 1～3 個工作天。」；
- *   前半（Google Email 與名單相同立即開通）等 VB-6 啟用自動開通時一起打開。
+ * - 三步進度＋帶證件去哪裡（VB-5）。說明句前半（Google Email 與名單相同立即開通）由 VB-6 打開。
+ * - 已驗證、還沒送申請資料的人到第 3 步 `/register/apply` 填（visitor-r3；VB-6）。
  */
 export default async function RegisterPendingPage({
   searchParams,
@@ -53,6 +54,7 @@ export default async function RegisterPendingPage({
   const viewed = await getRegistrationCommand().viewMine(actor)
   if (!viewed.ok) redirect(elsewhere)
   const mine = viewed.receipt
+  if (mine.state === 'none' && isRegistrationOpen()) redirect('/register/apply')
   const { updated, via } = await searchParams
   const viaGoogle = via === 'google'
   const updatedRevision = typeof updated === 'string' && /^\d+$/.test(updated) ? Number(updated) : null
@@ -105,7 +107,7 @@ export default async function RegisterPendingPage({
             <div className="min-w-0 text-sm">
               {mine.state === 'pending' ? (
                 <>
-                  <p className="font-bold text-foreground">由系辦核對，通常 1～3 個工作天。</p>
+                  <p className="font-bold text-foreground">用 Google 註冊且 Email 與名單相同會立即開通；其他由系辦核對，通常 1～3 個工作天。</p>
                   <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
                     開通後重新整理或重新登入，就會進入學生首頁。
                   </p>

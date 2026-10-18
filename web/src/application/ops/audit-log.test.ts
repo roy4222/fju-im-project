@@ -102,6 +102,7 @@ const WRITTEN_AUDIT_ACTIONS: readonly string[] = [
   'account.set_password',
   'account.update_contact',
   'registration.apply',
+  'registration.auto_approve',
   'registration.resubmit',
   'registration.revise',
   'roster.import',
